@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ozon
+      POSTGRES_PASSWORD: ozon
+      POSTGRES_DB: ozon_worker
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ozon -d ozon_worker"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: .
+    ports:
+      - "5001:5000"
+    environment:
+      - PGDATABASE_URL=postgresql://ozon:ozon@postgres:5432/ozon_worker
+      - COZE_WORKSPACE_PATH=/app
+      - PYTHONPATH=/app/src
+      # Supabase — 用 sandbox 凭证（生产环境请改为自己的 Supabase 实例）
+      # - SUPABASE_URL=https://your-project.supabase.co
+      # - SUPABASE_KEY=your-service-role-key
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

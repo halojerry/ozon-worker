@@ -1,0 +1,59 @@
+{
+  "total_nodes": 24,
+  "stages": {
+    "phase1_data_preparation": {
+      "name": "【Phase 1：数据准备】",
+      "nodes": ["auth", "ingest", "category_lookup", "pricing"],
+      "weight": 15,
+      "description": "正在进行结构分析和数据准备"
+    },
+    "phase2_attribute_mapping": {
+      "name": "【Phase 2：属性映射】",
+      "nodes": ["attributes_fetch", "attributes_llm", "attributes_learning", "scene_generation_llm"],
+      "weight": 15,
+      "description": "正在进行属性映射和场景生成"
+    },
+    "phase3_image_generation": {
+      "name": "【Phase 3：图片生成】",
+      "nodes": [
+        "white_bg_gen", "multi_angle_gen", "variant_primary_loop", "main_image_gen",
+        "multi_info_gen", "detail_gen", "social_proof_gen",
+        "scene_1_gen", "scene_2_gen", "scene_3_gen", "comparison_gen"
+      ],
+      "weight": 50,
+      "description": "正在生成产品图片"
+    },
+    "phase4_ozon_upload": {
+      "name": "【Phase 4：Ozon上传】",
+      "nodes": ["prepare_ozon_upload", "ozon_validate", "ozon_upload", "ozon_status", "error_handler"],
+      "weight": 20,
+      "description": "正在上传到Ozon平台"
+    }
+  },
+  "node_titles": {
+    "auth": "认证节点",
+    "ingest": "数据摄入节点",
+    "category_lookup": "类目查找节点",
+    "pricing": "价格计算节点",
+    "attributes_fetch": "属性获取节点",
+    "attributes_llm": "属性映射LLM节点",
+    "attributes_learning": "属性学习节点",
+    "scene_generation_llm": "场景生成LLM节点",
+    "white_bg_gen": "白底图生成节点",
+    "multi_angle_gen": "多角度图生成节点",
+    "variant_primary_loop": "多SKU主图循环节点",
+    "main_image_gen": "单SKU主图生成节点",
+    "multi_info_gen": "多信息图生成节点",
+    "detail_gen": "详情图生成节点",
+    "social_proof_gen": "社交证明图生成节点",
+    "scene_1_gen": "场景1图生成节点",
+    "scene_2_gen": "场景2图生成节点",
+    "scene_3_gen": "场景3图生成节点",
+    "comparison_gen": "对比图生成节点",
+    "prepare_ozon_upload": "Ozon上传数据准备节点",
+    "ozon_validate": "Ozon预检测节点",
+    "ozon_upload": "Ozon上传节点",
+    "ozon_status": "Ozon状态轮询节点",
+    "error_handler": "错误处理节点"
+  }
+}

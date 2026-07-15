@@ -1,0 +1,271 @@
+{
+  "name": "pounding-ozon-processor",
+  "nodes": [
+    {
+      "id": "wh-b",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "processor-07d64907",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "webhookId": "09e315db-c557-46e1-a8e3-849fd9c24e61"
+    },
+    {
+      "id": "9d29f30e-ab21-4d8c-8686-1cf28205fc72",
+      "name": "Phase1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        760,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Phase1: AI image generation — white_bg + multi_angle\nconst cfg = $input.first().json;\nif (cfg._blocked || cfg.status === 'blocked') return [{ json: cfg }];\ncfg.stages=cfg.stages||{};\nconst ext = cfg.ext || {};\nconst mxouToken = ext.mxou_token || (cfg.envelope && cfg.envelope.extensions && cfg.envelope.extensions.mxou_token) || '';\nconst refs = ((cfg.envelope || {}).assets || {}).image_urls || [];\nconsole.log('Phase1: token=' + (mxouToken ? 'SET' : 'MISSING') + ' refs=' + refs.length);\ncfg._phase1 = cfg._phase1 || {};\n\n// Passthrough: ensure downstream doesn't get 0 items\ncfg._phase1.passthrough = 'https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/ozon/images/task-1026529728611/white_bg.png';\n\nif (!mxouToken) {\n  cfg.stages.Images = 'blocked:no_token';\n  cfg._phase1.white_bg = refs[0] || cfg._phase1.passthrough;\n  cfg._phase1.multi_angle = refs[0] || cfg._phase1.passthrough;\n  return [{ json: cfg }];\n}\n\nconst self = this;\nconst slots = [\n  {slot: 'white_bg', prompt: 'Remove the background of the product in the reference image and place it on a pure white background (#FFFFFF). No text, no watermarks, no logos, no decorations. Just the product isolated on pure white. Professional product photography style.'},\n  {slot: 'multi_angle', prompt: 'Create a multi-angle product display image on pure white background for Russian e-commerce marketplace. Show the product from different angles with structural details clearly visible. Pure white background, no people or animals. Maintain consistency with the reference product identity.'}\n];\n\nasync function genOne(s) {\n  for (let attempt = 1; attempt <= 2; attempt++) {\n    try {\n      const body = {model: 'gpt-image-2', prompt: s.prompt, n: 1, aspectRatio: '3:4'};\n      if (refs.length > 0) body.images = refs.slice(0, 2);\n      const resp = await self.helpers.httpRequest({\n        method: 'POST', url: 'https://api.mxou.cn/v1/images/generations',\n        headers: {Authorization: 'Bearer ' + mxouToken, 'Content-Type': 'application/json'},\n        body: body, json: true, returnFullResponse: true, timeout: 180000\n      });\n      const data = resp.body.results || resp.body.data || [];\n      return data.filter(function(x) { return x && x.url; }).map(function(x) { return x.url; })[0] || 'error:no_url';\n    } catch(e) {\n      if (attempt === 2) return 'error:' + String(e.message || e).slice(0, 80);\n      await new Promise(function(r) { return setTimeout(r, 2000); });\n    }\n  }\n  return 'error:max_retries';\n}\n\nconst allResults = await Promise.all(slots.map(function(s) { return genOne(s); }));\nconst results = {};\nfor (let i = 0; i < slots.length; i++) { results[slots[i].slot] = allResults[i]; }\ncfg._phase1 = results;\n\n// Use multi_angle as clean reference for downstream\nlet cleanRef = results.multi_angle || results.white_bg || '';\nif (cleanRef && !cleanRef.startsWith('error:')) {\n  cfg._cleanRef = [cleanRef];\n} else {\n  cfg._cleanRef = refs.slice(0, 1);\n}\n\ncfg.stages.Images = 'generated:2';\n$getWorkflowStaticData('global').pipelineConfig = cfg;\n// Write progress to Supabase\nvar _sbk=cfg._sb_key||\"\";var _sbu=cfg._sb_url||\"https://kekmppsuiiokdckdeolv.supabase.co\";\nvar _tid2=cfg.tid||cfg.task_id||\"\";\nif(_sbk&&_tid2){try{await this.helpers.httpRequest({method:\"PATCH\",url:_sbu+\"/rest/v1/gateway_tasks?task_id=eq.\"+encodeURIComponent(_tid2),headers:{apikey:_sbk,Authorization:\"Bearer \"+_sbk,\"Content-Type\":\"application/json\",\"Prefer\":\"return=minimal\"},body:{status:\"running\",stages:cfg.stages||{},updated_at:new Date().toISOString()},json:true,timeout:5000})}catch(e){}}\n\nreturn [{ json: cfg }];",
+        "options": {}
+      }
+    },
+    {
+      "id": "a726d4fb-b6d0-4145-9fd7-4259e69ed39b",
+      "name": "Attributes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1010,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Attributes v4 — parallel dict + improved LLM + optional fill\nconst cfg=$input.first().json;if(cfg._blocked||cfg.status===\"blocked\")return[{json:cfg}];\ncfg.stages=cfg.stages||{};\nconst self=this;const SBK=cfg._sb_key||\"\";const SBU=cfg._sb_url||\"https://kekmppsuiiokdckdeolv.supabase.co\";\nconst env=cfg.envelope||{};const resolved=env.resolved||{};const clientAttrs=resolved.attributes||[];\nconst draft=env.draft||{};const src=env.source||{};const cat=cfg.category||{};\nconst dcId=cat.description_category_id;const typeId=cat.type_id;\nconst ext=cfg.ext||{};const token=ext.mxou_token||\"\";\nconst clientId=ext.ozon_client_id||\"\";const apiKey=ext.ozon_api_key||\"\";\nconst tid=cfg.tid||cfg.task_id||(\"task-\"+Date.now());\nif(!dcId){cfg.resolved_attrs=clientAttrs;cfg.stages.Attributes=clientAttrs.length>0?\"client:\"+clientAttrs.length:\"no_category\";return[{json:cfg}]}\nconst dcIdNum=parseInt(dcId);const typeIdNum=parseInt(typeId);\n\n// STEP 1: Get category attributes\nvar catAttrs=[];var ozonSource=\"none\";\nif(clientId&&apiKey){try{var ozResp=await self.helpers.httpRequest({method:\"POST\",url:\"https://api-seller.ozon.ru/v1/description-category/attribute\",headers:{\"Client-Id\":clientId,\"Api-Key\":apiKey,\"Content-Type\":\"application/json\"},body:{description_category_id:dcIdNum,type_id:typeIdNum,language:\"RU\"},json:true,timeout:20000});catAttrs=ozResp.result||[];ozonSource=\"ozon_api\"}catch(e){}}\nif(!catAttrs.length){try{var sbRows=await self.helpers.httpRequest({method:\"GET\",url:SBU+\"/rest/v1/ozon_category_attributes?select=attribute_id,attribute_name,is_required,dictionary_id&category_id=eq.\"+dcId+\"&limit=200\",headers:{apikey:SBK,Authorization:\"Bearer \"+SBK},json:true,timeout:10000});catAttrs=(sbRows||[]).map(function(r){return{id:r.attribute_id,name:r.attribute_name||(\"attr_\"+r.attribute_id),is_required:r.is_required||false,dictionary_id:r.dictionary_id||0}});ozonSource=\"sb_cache\"}catch(e){}}\nif(!catAttrs.length){cfg.resolved_attrs=clientAttrs;cfg.stages.Attributes=\"noschema\";return[{json:cfg}]}\nif(ozonSource===\"ozon_api\"){try{await self.helpers.httpRequest({method:\"POST\",url:SBU+\"/rest/v1/ozon_category_attributes\",headers:{apikey:SBK,Authorization:\"Bearer \"+SBK,\"Content-Type\":\"application/json\",\"Prefer\":\"resolution=merge-duplicates\"},body:catAttrs.map(function(a){return{category_id:dcId,attribute_id:a.id,attribute_name:a.name,is_required:a.is_required||false,dictionary_id:a.dictionary_id||0,updated_at:Math.floor(Date.now()/1000)}}),json:true,timeout:10000})}catch(e){}}\n\n// STEP 1.5: Query high-confidence learned mappings (self-learning loop)\nvar learnedAttrs={};var learnedCount=0;\ntry{var lr=await self.helpers.httpRequest({method:\"GET\",url:SBU+\"/rest/v1/ozon_attribute_mappings?select=attribute_id,dictionary_value_id,mapped_value,success_count,confidence&category_id=eq.\"+dcId+\"&success_count=gte.1&order=confidence.desc&limit=50\",headers:{apikey:SBK,Authorization:\"Bearer \"+SBK},json:true,timeout:10000});\nvar lrRows=lr||[];\nfor(var li=0;li<lrRows.length;li++){var l=lrRows[li];if(l.dictionary_value_id>0){learnedAttrs[l.attribute_id]=l;learnedCount++}}\n}catch(e){}\n\n// STEP 2: Product context\nvar title=draft.title||\"\";var desc=draft.description||\"\";\nvar ctxParts=[];if(title)ctxParts.push(\"Product: \"+title);if(desc)ctxParts.push(\"Desc: \"+desc.slice(0,400));\nvar sp=(draft.selling_points||[]).map(function(x){return x.value||\"\"}).filter(function(v){return v}).join(\"; \");\nif(sp)ctxParts.push(\"Features: \"+sp);\nvar cdpList=(draft.attributes||[]).map(function(a){return(a.name||\"\")+\": \"+(a.value||\"\")}).filter(function(p){return p.indexOf(\": \")>0}).join(\"|\");\nif(cdpList)ctxParts.push(\"1688: \"+cdpList);\nvar wg=draft.weight||\"\";if(wg)ctxParts.push(\"Weight: \"+wg+\"g\");\nvar dims=[draft.depth,draft.width,draft.height].filter(function(x){return x});\nif(dims.length===3)ctxParts.push(\"Dims(mm): \"+dims.join(\"x\"));\nvar fullCtx=ctxParts.join(\" | \");if(!fullCtx||fullCtx.length<10)fullCtx=title||(\"product_\"+tid);\n\n// Helper: dict search\nasync function searchDict(attrId,text){if(!clientId||!apiKey||!text)return null;try{var r=await self.helpers.httpRequest({method:\"POST\",url:\"https://api-seller.ozon.ru/v1/description-category/attribute/values/search\",headers:{\"Client-Id\":clientId,\"Api-Key\":apiKey,\"Content-Type\":\"application/json\"},body:{attribute_id:parseInt(attrId),description_category_id:dcIdNum,type_id:typeIdNum,value:String(text).slice(0,100),limit:3},json:true,timeout:10000});var c=r.result||[];if(c.length>0)return{dictionary_value_id:c[0].id,value:c[0].value}}catch(e){}return null}\n\n// STEP 3: Fill\nvar seenIds={};var val=[];var enrich=0;\nfunction addAttr(id,values){if(seenIds[id])return false;seenIds[id]=true;val.push({id:parseInt(id),complex_id:0,values:values});return true}\naddAttr(85,[{dictionary_value_id:971223473,value:\"Другой\"}]);addAttr(9048,[{value:String(title||tid).slice(0,50)}]);\naddAttr(4389,[{dictionary_value_id:90296,value:\"Китай\"}]);addAttr(9782,[{value:\"0\"}]);\n// Client attrs\nfor(var ci=0;ci<clientAttrs.length;ci++){var ca=clientAttrs[ci];var aid=parseInt(ca.id);if(!aid||seenIds[aid])continue;var cav=(ca.values||[])[0];if(!cav)continue;\nif(cav.dictionary_value_id){addAttr(aid,[{dictionary_value_id:parseInt(cav.dictionary_value_id),value:cav.value||\"\"}])}\nelse if(cav.value){var catA=catAttrs.find(function(a){return a.id===aid});if(catA&&catA.dictionary_id&&clientId){var dm=await searchDict(aid,cav.value);if(dm){addAttr(aid,[dm]);enrich++}else{addAttr(aid,[{value:String(cav.value).slice(0,200)}])}}else{addAttr(aid,[{value:String(cav.value).slice(0,200)}])}}}\n// Type 8229\nvar typeAttr=catAttrs.find(function(a){return a.id===8229});\nif(typeAttr&&typeAttr.dictionary_id&&!seenIds[8229]&&clientId){var tm=await searchDict(8229,title);if(tm){addAttr(8229,[tm])}else{try{var tv=await self.helpers.httpRequest({method:\"POST\",url:\"https://api-seller.ozon.ru/v1/description-category/attribute/values\",headers:{\"Client-Id\":clientId,\"Api-Key\":apiKey,\"Content-Type\":\"application/json\"},body:{attribute_id:8229,description_category_id:dcIdNum,type_id:typeIdNum,limit:1},json:true,timeout:10000});var tvs=tv.result||[];if(tvs.length)addAttr(8229,[{dictionary_value_id:tvs[0].id,value:tvs[0].value}])}catch(e){}}}\n\n// STEP 4: LLM mapping\nvar llmCount=0;\nif(token&&fullCtx){\nvar remaining=catAttrs.filter(function(a){return !seenIds[a.id]});\nif(remaining.length>0){\ntry{\nvar attrList=remaining.slice(0,35).map(function(a){return a.id+\":\"+(a.name||\"attr\")+(a.dictionary_id>0?\"[d]\":\"[t]\")}).join(\",\");\nvar prompt=\"Product: \"+fullCtx.slice(0,1500)+\"\\n\\nFill as many Ozon attributes as possible (target 15+). Return JSON: [{\\\"id\\\":<num>,\\\"v\\\":\\\"<Russian>\\\"}]\\nRules: translate to Russian; [d]=dict attr; [t]=free text. Only IDs from this list.\\nAvailable: \"+attrList;\nvar llmResp=await self.helpers.httpRequest({method:\"POST\",url:\"https://api.mxou.cn/v1/chat/completions\",headers:{Authorization:\"Bearer \"+token,\"Content-Type\":\"application/json\"},body:{model:\"deepseek-v4-flash\",messages:[{role:\"system\",content:\"Ozon product data expert. Map 15+ attributes from the available list. Be thorough. For dictionary attributes use standard Russian terms. Return ONLY JSON array, minimum 15 entries.\"},{role:\"user\",content:prompt}],max_tokens:4000,temperature:0.4},json:true,timeout:60000});\nvar content=(llmResp.choices||[{}])[0].message||\"\";var llmText=typeof content===\"string\"?content:(content.content||\"\");\nvar jsonMatch=llmText.match(/\\[[\\s\\S]*\\]/);\nif(jsonMatch){\nvar mappings=JSON.parse(jsonMatch[0]);\n// Collect dict-searchable attrs for parallel execution\nvar dictTasks=[];var nonDictItems=[];\nfor(var mi=0;mi<mappings.length;mi++){var m=mappings[mi];var ozonId=parseInt(m.id||m.ozon_id);if(!ozonId||seenIds[ozonId])continue;var mVal=String(m.v||m.value||\"\").trim();if(!mVal)continue;\nvar catA2=catAttrs.find(function(a){return a.id===ozonId});\nif(catA2&&catA2.dictionary_id&&clientId){dictTasks.push({id:ozonId,val:mVal})}else{nonDictItems.push({id:ozonId,val:mVal})}}\n// Parallel dict search\nif(dictTasks.length>0){var dictResults=await Promise.all(dictTasks.map(function(dt){return searchDict(dt.id,dt.val).catch(function(){return null})}));\nfor(var di=0;di<dictTasks.length;di++){var dr=dictResults[di];var dt2=dictTasks[di];\nif(dr){addAttr(dt2.id,[dr]);llmCount++}else{var dfa=catAttrs.find(function(a){return a.id===dt2.id});\nif(dfa&&dfa.name){var dr2=await searchDict(dt2.id,dfa.name);if(dr2){addAttr(dt2.id,[dr2]);llmCount++}else{addAttr(dt2.id,[{value:dt2.val.slice(0,200)}]);llmCount++}}\nelse{addAttr(dt2.id,[{value:dt2.val.slice(0,200)}]);llmCount++}}}}\n// Non-dict items — but try dict search anyway (catch category-specific attrs)\nfor(var ni=0;ni<nonDictItems.length;ni++){var nd=nonDictItems[ni];\nvar ndCat=catAttrs.find(function(a){return a.id===nd.id});\nif(ndCat&&ndCat.dictionary_id&&clientId){var ndm=await searchDict(nd.id,nd.val);\nif(ndm){addAttr(nd.id,[ndm]);llmCount++}\nelse{addAttr(nd.id,[{value:nd.val.slice(0,200)}]);llmCount++}}\nelse{addAttr(nd.id,[{value:nd.val.slice(0,200)}]);llmCount++}}\n}// end if jsonMatch\n}catch(e){cfg._llm_error=String(e.message||e).slice(0,80)}\n}}// end if remaining/token\n\n// STEP 5: Required attrs\nfor(var ri=0;ri<catAttrs.length;ri++){var ra=catAttrs[ri];if(!ra.is_required||seenIds[ra.id])continue;\nif(ra.dictionary_id&&clientId){try{var rvResp=await self.helpers.httpRequest({method:\"POST\",url:\"https://api-seller.ozon.ru/v1/description-category/attribute/values\",headers:{\"Client-Id\":clientId,\"Api-Key\":apiKey,\"Content-Type\":\"application/json\"},body:{attribute_id:ra.id,description_category_id:dcIdNum,type_id:typeIdNum,limit:1},json:true,timeout:10000});var rvs=rvResp.result||[];if(rvs.length)addAttr(ra.id,[{dictionary_value_id:rvs[0].id,value:rvs[0].value}])}catch(e){}}else{addAttr(ra.id,[{value:\"0\"}])}}\n\n// STEP 3x: Use high-confidence learned mappings first\nvar learnedKeys=Object.keys(learnedAttrs);\nfor(var lk=0;lk<learnedKeys.length;lk++){var laid=parseInt(learnedKeys[lk]);\nif(!seenIds[laid]&&learnedAttrs[laid].dictionary_value_id>0&&learnedAttrs[laid].success_count>=1){\naddAttr(laid,[{dictionary_value_id:learnedAttrs[laid].dictionary_value_id,value:learnedAttrs[laid].mapped_value||\"\"}]);\nenrich++}}\n\n// STEP 4b: Force dict search for attrs that must use dictionary\nvar forceDict=[23294,5968,23171];\nvar forceKeywords={5968:\"шерсть\",23294:\"расческа\",23171:\"\"};\nfor(var fd=0;fd<forceDict.length;fd++){var fid=forceDict[fd];if(!seenIds[fid]&&clientId){\nvar fda=catAttrs.find(function(a){return a.id===fid});\nif(fda&&fda.dictionary_id){\nvar fdm=await searchDict(fid,title);\n// Fallback 1: search with keyword\nif(!fdm){var kw=forceKeywords[fid]||\"\";if(kw)fdm=await searchDict(fid,kw)}\n// Fallback 2: get first available dict value\nif(!fdm){try{var fv=await self.helpers.httpRequest({method:\"POST\",url:\"https://api-seller.ozon.ru/v1/description-category/attribute/values\",headers:{\"Client-Id\":clientId,\"Api-Key\":apiKey,\"Content-Type\":\"application/json\"},body:{attribute_id:fid,description_category_id:dcIdNum,type_id:typeIdNum,limit:3},json:true,timeout:10000});var fvs=fv.result||[];if(fvs.length)fdm={dictionary_value_id:fvs[0].id,value:fvs[0].value}}catch(e){}}\nif(fdm){addAttr(fid,[fdm]);enrich++}}\n}}\n\n// STEP 5b: Optional attrs\nvar optFill=0;\nfor(var oi=0;oi<catAttrs.length;oi++){var oa=catAttrs[oi];if(oa.is_required||seenIds[oa.id])continue;\nif(oa.dictionary_id&&clientId){var om=await searchDict(oa.id,title);if(om){addAttr(oa.id,[om]);optFill++}}\n}\n\n// STEP 6: Learning\nvar learnOps=[];for(var vi=0;vi<val.length;vi++){var a=val[vi];var v0=(a.values||[])[0]||{};learnOps.push({item_id:String(tid),category_id:String(dcId),attribute_id:a.id,source_type:ozonSource,source_value:fullCtx.slice(0,100),mapped_value:v0.value||\"\",dictionary_value_id:v0.dictionary_value_id||0,confidence:v0.dictionary_value_id?0.85:0.6,success_count:0,failure_count:0,created_at:Math.floor(Date.now()/1000),updated_at:Math.floor(Date.now()/1000)})}\nif(learnOps.length>0){try{await self.helpers.httpRequest({method:\"POST\",url:SBU+\"/rest/v1/ozon_attribute_mappings\",headers:{apikey:SBK,Authorization:\"Bearer \"+SBK,\"Content-Type\":\"application/json\",\"Prefer\":\"resolution=merge-duplicates\"},body:learnOps,json:true,timeout:15000})}catch(e){}}\n\ncfg.resolved_attrs=val;cfg._attr_source=ozonSource;cfg._llm_count=llmCount;cfg._learning_ops=learnOps.length;\ncfg.stages.Attributes=\"v\"+val.length+\"_\"+ozonSource+\"_llm\"+llmCount+\"_opt\"+optFill+\"_enr\"+enrich;\n// Write progress to Supabase\nif(SBK&&tid){try{await this.helpers.httpRequest({method:\"PATCH\",url:SBU+\"/rest/v1/gateway_tasks?task_id=eq.\"+encodeURIComponent(tid),headers:{apikey:SBK,Authorization:\"Bearer \"+SBK,\"Content-Type\":\"application/json\",\"Prefer\":\"return=minimal\"},body:{status:\"running\",stages:cfg.stages||{},updated_at:new Date().toISOString()},json:true,timeout:5000})}catch(e){}}\n\nreturn[{json:cfg}]",
+        "options": {}
+      }
+    },
+    {
+      "id": "0b8786ae-1a5a-47c4-9e35-51f02216e367",
+      "name": "Pricing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const cfg=$input.first().json;if(cfg._blocked||cfg.status==='blocked')return[{json:cfg}];const SBK=cfg._sb_key||'';const SBU=cfg._sb_url||'https://kekmppsuiiokdckdeolv.supabase.co';const draft=cfg.draft||{};const ext=cfg.ext||{};const costBase=parseFloat(draft.cost_cny||draft.cost_price||draft.price)||0;if(costBase<=0){cfg.stages.Pricing=\"skipped:no_cost\";return[{json:cfg}]}const weight=parseInt(draft.weight)||500;const d=parseInt(draft.depth)||100;const w=parseInt(draft.width)||100;const h=parseInt(draft.height)||200;const dims=[d,w,h].sort(function(a,b){return b-a});const longest=Math.ceil(dims[0]/10);const dimSum=Math.ceil((d+w+h)/10);const provider=(ext.shipping_provider||\"RETS\").trim();const service=(ext.shipping_service||\"Express\").trim();const margin=parseFloat(ext.margin_rate)||0.25;const comm=parseFloat(ext.commission_rate)||0.10;const fx=parseFloat(ext.fx_buffer)||0.05;const pack=parseFloat(ext.packaging_cost_cny)||2.0;const currency=(ext.ozon_currency||\"CNY\").toString().toUpperCase();const url=SBU+'/rest/v1/shipping_rates?select=fix_cny,var_per_kg_cny,size_group,provider,service,max_side_cm,max_dim_sum_cm&provider=eq.'+encodeURIComponent(provider)+'&service=eq.'+encodeURIComponent(service)+'&min_weight_g=lte.'+weight+'&max_weight_g=gte.'+weight+'&order=fix_cny.asc&limit=20';try{const resp=await this.helpers.httpRequest({method:\"GET\",url:url,headers:{\"apikey\":SBK,\"Authorization\":\"Bearer \"+SBK},json:true,returnFullResponse:true,timeout:10000});const lanes=resp.body||[];let ship=30;let lane=\"estimated\";if(lanes.length>0){const best=lanes.reduce(function(best,l){if(l.max_side_cm>=longest&&l.max_dim_sum_cm>=dimSum)return best?((l.fix_cny||0)<(best.fix_cny||0)?l:best):l;return best||l},null);const L=best||lanes[0];ship=(L.fix_cny||0)+(L.var_per_kg_cny||0)*weight/1000;lane=(L.provider||\"\")+\" \"+(L.service||\"\")+\" \"+(L.size_group||\"\")+(L.max_side_cm>=longest&&L.max_dim_sum_cm>=dimSum?\"\":\" (oversized)\")}const sub=costBase+ship+pack;let price=Math.ceil(sub*(1+comm)*(1+fx)*(1+margin));let old=Math.ceil(price*1.3);if(currency==='RUB'){var fxRub=parseFloat(ext.fx_rate_rub)||13;price=Math.ceil(price*fxRub);old=Math.ceil(old*fxRub)}if(draft.price&&parseFloat(draft.price)>0&&currency!=='CNY'){price=Math.ceil(parseFloat(draft.price));old=Math.ceil(price*1.3)}draft.price=String(price);draft.old_price=String(old);draft.cost_cny=String(costBase);cfg._pricing={cost_cny:costBase,shipping_cny:Math.round(ship*100)/100,packaging_cny:pack,commission:comm,fx_buffer:fx,margin:margin,price_final:price,old_price_final:old,currency:currency,matched_lane:lane};cfg.stages.Pricing=\"succeeded:\"+currency+\" \"+price+\" \"+lane;return[{json:cfg}]}catch(e){cfg.stages.Pricing=\"failed:\"+String(e.message||e).slice(0,50);return[{json:cfg}]}\ncfg.stages=cfg.stages||{};",
+        "options": {}
+      }
+    },
+    {
+      "id": "d41c3913-cd12-41e4-a7f3-9b41b4d2c931",
+      "name": "Phase2All",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1060,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Phase2All — fanout 8 slots + Promise.all 8 generations + merge Phase1+Phase2\nconst cfg=$input.first().json;\nif(cfg._blocked||cfg.status==='blocked')return[{json:cfg}];\n\n// --- Phase2Prep: 1→8 fanout ---\nconst cleanRef=cfg._cleanRef||[];\nconst refs=((cfg.envelope||{}).assets||{}).image_urls||[];\nconst rawRefs=cleanRef.length>0?cleanRef.concat(refs.slice(0,3)):refs.slice(0,2);\nconst seen=new Set();const refImages=rawRefs.filter(function(u){if(!u||seen.has(u))return false;seen.add(u);return true});\nconst token=(cfg.ext||{}).mxou_token||\"\";\nconst title=((cfg.envelope||{}).draft||{}).title||\"\";\n\nvar slots=[\n{n:\"main_image\",p:\"Russian e-commerce main product image. Design with Russian consumer aesthetic in mind to maximize click-through rate. Keep exact same product identity as reference. Product-focused composition.\"},\n{n:\"multi_info\",p:\"Russian e-commerce product infographic. Display key specs: capacity, dimensions, structure, materials as visual infographic. Russian consumer aesthetic. Product-focused.\"},\n{n:\"detail\",p:\"Russian e-commerce detail showcase. Highlight product details and craftsmanship. Russian consumer aesthetic. Keep exact same product identity as reference.\"},\n{n:\"social_proof\",p:\"Russian e-commerce social proof image showing rave reviews. Storytelling composition for higher engagement. Russian consumer aesthetic. Keep exact same product identity.\"},\n{n:\"scene_1\",p:\"Russian e-commerce lifestyle scene - interior/home setting. Natural lighting, realistic Russian home environment. Product as hero. Keep exact same product identity.\"},\n{n:\"scene_2\",p:\"Russian e-commerce lifestyle scene - outdoor setting. Natural Russian environment. Keep exact same product identity as reference.\"},\n{n:\"scene_3\",p:\"Russian e-commerce lifestyle scene - social/sharing setting with people. Storytelling composition. Keep exact same product identity as reference.\"},\n{n:\"comparison\",p:\"Russian e-commerce comparison chart. Neutral, factual, restrained comparison of product features. Keep exact same product identity as reference.\"}\n];\nif(title){slots[0].p=title+\" - \"+slots[0].p}\n\n// --- Phase2Call: Promise.all 8 concurrent generations ---\nif(!token){cfg.image_results=cfg._phase1||{};cfg.stages=cfg.stages||{};cfg.stages.Phase2='skipped:no_token';return[{json:cfg}]}\ntry{\nvar mxouBase='https://api.mxou.cn';\nvar tasks=slots.map(function(s){\nreturn this.helpers.httpRequest({\nmethod:'POST',url:mxouBase+'/v1/images/generations',\nheaders:{Authorization:'Bearer '+token,'Content-Type':'application/json'},\nbody:{model:'gpt-image-2',prompt:s.p,n:1,size:'1024x1024',response_format:'url',ref_images:refImages},\njson:true,timeout:180000\n}).then(function(r){return{slot:s.n,url:(r.data||[{}])[0].url||''}}).catch(function(e){return{slot:s.n,url:'',error:String(e.message||e).slice(0,80)}});\n}.bind(this));\nvar results=await Promise.all(tasks);\nvar imgMap={};\nfor(var i=0;i<results.length;i++){imgMap[results[i].slot]=results[i].url}\ncfg.stages=cfg.stages||{};\ncfg.stages.Phase2='generated:'+Object.values(imgMap).filter(function(u){return u}).length;\n}catch(e){cfg.stages=cfg.stages||{};cfg.stages.Phase2='error:'+String(e.message||e).slice(0,80)}\n\n// --- Phase2Collect: merge Phase1 + Phase2 ---\nvar phase1=cfg._phase1||{};\nvar image_results=imgMap||{};\nif(phase1.white_bg)image_results.white_bg=phase1.white_bg;\nif(phase1.multi_angle)image_results.multi_angle=phase1.multi_angle;\ncfg.image_results=image_results;\ncfg.stages=cfg.stages||{};\ncfg.stages.Phase2='slots:'+Object.keys(image_results).length;\nreturn[{json:cfg}];\n",
+        "options": {}
+      }
+    },
+    {
+      "id": "801bb180-0b5e-4bb5-bfe1-2a424ec611b1",
+      "name": "ImgFanout",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Fan out image_results into per-image items for download→COS upload\nconst cfg=$input.first().json;\nconst images=cfg.image_results||{};\nconst tid=cfg.tid||cfg.task_id||\"task\";\nconst slots=Object.keys(images).filter(function(k){var v=images[k];return v&&typeof v===\"string\"&&v.startsWith(\"http\")});\nconsole.log(\"imgfanout: \"+slots.length+\" images to process, tid=\"+tid);\nreturn slots.map(function(k){return{json:{_slot:k,_url:images[k],_tid:tid,_cfg:cfg}}});",
+        "options": {}
+      }
+    },
+    {
+      "id": "978c66ab-a296-4cd1-9b20-3cd32fb566f5",
+      "name": "ImgDownload",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2210,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json._url }}",
+        "authentication": "none",
+        "sendHeaders": false,
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "8307bd2d-b799-4b16-9915-b838401139b6",
+      "name": "ImgCOSUpload",
+      "type": "n8n-nodes-tencent-cos.tencentCos",
+      "typeVersion": 1,
+      "position": [
+        2360,
+        300
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "bucket": "yss-1256275613",
+        "region": "ap-guangzhou",
+        "fileKey": "=ozon/images/{{ $json._tid }}/{{ $json._slot }}.png",
+        "binaryPropertyName": "data"
+      },
+      "credentials": {
+        "tencentCosApi": {
+          "id": "yMOVOPY0xlaDeaqE",
+          "name": "Tencent COS"
+        }
+      }
+    },
+    {
+      "id": "9618dc20-a646-495a-8184-fbc2f8a35943",
+      "name": "ImgCollect",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        2510,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// ImgCollect - collect COS URLs from fan-out results, preserve cfg context\nvar items=$input.all();\nvar cosUrls={};\nvar cfg=null;\nfor(var i=0;i<items.length;i++){\n  var item=items[i].json;\n  if(item._cfg&&!cfg)cfg=item._cfg;\n  var location=item.Location||\"\";\n  var key=location.split(\"/\").pop()||(\"slot_\"+i);\n  var slotName=key.replace(\".png\",\"\");\n  cosUrls[slotName]=\"https://\"+location;\n}\nif(!cfg)cfg=$getWorkflowStaticData(\"global\").pipelineConfig||{};\ncfg.image_results=cosUrls;\ncfg.cos_uploaded=Object.keys(cosUrls).length;\nreturn[{json:cfg}];",
+        "options": {}
+      }
+    },
+    {
+      "id": "d9418aab-23e7-44b6-9b31-24882a4ee046",
+      "name": "BuildUploadStatus",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1800,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// BuildUploadStatus — payload build + Russian translate + Ozon upload + Status writeback\nconst cfg=$input.first().json;\nif(cfg._blocked||cfg.status==='blocked')return[{json:cfg}];\nconst SBK=cfg._sb_key||\"\";const SBU=cfg._sb_url||\"https://kekmppsuiiokdckdeolv.supabase.co\";\nconst draft=cfg.draft||{};const cat=cfg.category||{};const ext=cfg.ext||{};\nconst pricing=cfg._pricing||{};const resolvedAttrs=cfg.resolved_attrs||[];\nconst tid=cfg.tid||cfg.task_id||\"task\";const src=cfg.src||{};\n\n// --- Build: Auto-translate + payload ---\nvar productName=String(draft.title||'New Product');\nif(/[\\u4e00-\\u9fa5]/.test(productName)){\nvar mxToken=ext.mxou_token||'';\nif(mxToken){try{\nvar tResp=await this.helpers.httpRequest({method:'POST',url:'https://api.mxou.cn/v1/chat/completions',headers:{Authorization:'Bearer '+mxToken,'Content-Type':'application/json'},body:{model:'deepseek-v4-flash',messages:[{role:'system',content:'Translate this Chinese product title to Russian for Ozon marketplace. Keep it accurate and SEO-friendly. Max 200 chars. Return ONLY the Russian translation, nothing else.'},{role:'user',content:productName}],max_tokens:400},json:true,timeout:20000});\nvar translated=(tResp.choices||[{}])[0].message||'';var tn=typeof translated==='string'?translated:(translated.content||'');\nif(tn&&tn.length>5&&tn.length<=300&&!/[\\u4e00-\\u9fa5]/.test(tn)){productName=tn.trim()}\n}catch(e){}}}\n\nvar imgResults=cfg.image_results||{};\nvar IMG_ORDER=[\"main_image\",\"multi_info\",\"detail\",\"social_proof\",\"scene_1\",\"scene_2\",\"scene_3\",\"comparison\",\"multi_angle\",\"white_bg\"];\nvar orderedImgs=[];\nfor(var io=0;io<IMG_ORDER.length;io++){var key=IMG_ORDER[io];if(imgResults[key])orderedImgs.push(imgResults[key])}\nif(orderedImgs.length===0){var ph1=cfg._phase1||{};if(ph1.white_bg)orderedImgs.push(ph1.white_bg);if(ph1.multi_angle)orderedImgs.push(ph1.multi_angle)}\n\nvar desc=String(draft.description||\"\");\nif(!desc||desc.length<20||/[\\u4e00-\\u9fa5]/.test(desc)){\ndesc=productName+\". Прочный, надежный, подходит для ежедневного использования.\";\nvar mxT=ext.mxou_token||'';if(mxT&&productName){try{\nvar dR=await this.helpers.httpRequest({method:'POST',url:'https://api.mxou.cn/v1/chat/completions',headers:{Authorization:'Bearer '+mxT,'Content-Type':'application/json'},body:{model:'deepseek-v4-flash',messages:[{role:'system',content:'Write a Russian product description for Ozon. 3-5 sentences. Describe features, materials, benefits. Return ONLY Russian text.'},{role:'user',content:'Product: '+productName}],max_tokens:600},json:true,timeout:20000});\nvar dT=(dR.choices||[{}])[0].message||'';var dn=typeof dT==='string'?dT:(dT.content||'');\nif(dn&&dn.length>30&&!/[\\u4e00-\\u9fa5]/.test(dn)){desc=dn.trim()}\nif(/[\\u4e00-\\u9fa5]/.test(productName)){productName=desc.slice(0,100).split('.')[0].trim()}\n}catch(e){}}}\n\nvar itemAttrs=[{id:9048,values:[{value:String(draft.title||tid).slice(0,50)}]}];\nitemAttrs.push({id:4191,complex_id:0,values:[{value:desc.slice(0,1000)}]});\n\nfunction buildRichContent(){\nvar content=[];var t=draft.title||\"\";if(t)content.push({widgetName:\"raTextBlock\",text:{theme:\"title\",content:[t]}});\nvar imgs=orderedImgs.slice(0,5);\nfor(var i=0;i<imgs.length;i++){\nvar imgUrl=imgs[i];var blockTitle=i===0?(productName||\"Товар\"):\"Фото \"+(i+1);var blockText=i===0?desc.slice(0,500):\"\";\ncontent.push({widgetName:\"raShowcase\",type:\"billboard\",blocks:[{imgLink:\"\",img:{src:imgUrl,srcMobile:imgUrl,alt:blockTitle,position:\"width_full\",positionMobile:\"width_full\",width:1080,height:1440,widthMobile:720,heightMobile:960},title:{size:\"size4\",align:\"left\",color:\"color1\",content:[blockTitle]},text:{size:\"size2\",align:\"left\",color:\"color1\",content:[blockText||\"\"]}}]});\n}\nreturn JSON.stringify({content:content,version:0.3})\n}\nvar richJson=buildRichContent();itemAttrs.push({id:11254,complex_id:0,values:[{value:richJson}]});\n\nvar seenAttrIds={};for(var si=0;si<itemAttrs.length;si++){seenAttrIds[itemAttrs[si].id]=true}\nfor(var i=0;i<resolvedAttrs.length;i++){\nvar a=resolvedAttrs[i];if(!a||!a.id)continue;var id=parseInt(a.id);if(!id||id===4082||id===4383)continue;\nvar vals=(a.values||[]).map(function(v){if(!v)return null;var item={value:String(v.value||\"\")};if(v.dictionary_value_id&&parseInt(v.dictionary_value_id)>0){item.dictionary_value_id=parseInt(v.dictionary_value_id)}return item}).filter(function(v){return v!==null});\nif(vals.length>0&&!seenAttrIds[id]){seenAttrIds[id]=true;itemAttrs.push({id:id,complex_id:0,values:vals})}\n}\n\nvar fxRate=parseFloat(ext.fx_rate)||13;var itemPrice=pricing.price_final;\nif(!itemPrice){itemPrice=Math.round(parseFloat(draft.price||\"0\")*fxRate)}\nvar _oid=draft.offer_id||src.source_item_id||\"\";if(!_oid){_oid=tid}\nvar productId=String(_oid).slice(0,50);\n\nvar items=[{offer_id:productId,name:String(productName||\"New Product\").slice(0,200),currency_code:String(ext.ozon_currency||\"CNY\"),price:String(itemPrice||\"1300\"),description_category_id:parseInt(cat.description_category_id)||0,type_id:parseInt(cat.type_id)||0,depth:parseInt(draft.depth)||100,width:parseInt(draft.width)||100,height:parseInt(draft.height)||50,dimension_unit:\"mm\",weight:parseInt(draft.weight)||500,weight_unit:\"g\",primary_image:String(orderedImgs[0]||\"\"),images:orderedImgs.slice(0,10),attributes:itemAttrs,description:desc.slice(0,2000)}];\n\ncfg.payload={items:items};\ncfg.stages=cfg.stages||{};cfg.stages.Payload=\"succeeded:imgs=\"+orderedImgs.length+\"_attrs=\"+itemAttrs.length;\n\n// --- Upload: Ozon import ---\nvar clientId=ext.ozon_client_id||\"\";var apiKey=ext.ozon_api_key||\"\";\nif(clientId&&apiKey){\ntry{\nvar upResp=await this.helpers.httpRequest({method:'POST',url:'https://api-seller.ozon.ru/v3/product/import',headers:{'Client-Id':clientId,'Api-Key':apiKey,'Content-Type':'application/json'},body:{items:items},json:true,timeout:30000});\nvar result=upResp.result||{};var ozonTaskId=(result.task_id||result.tasks||[{}])[0]||\"\";\ncfg.ozon_task_id=String(ozonTaskId);cfg.stages.Upload=\"succeeded\";\n}catch(e){cfg.stages.Upload=\"failed:\"+String(e.message||e).slice(0,80)}\n}else{cfg.stages.Upload=\"skipped:no_creds\"}\n\n// --- Status: Supabase writeback + learning update ---\nif(SBK&&tid){\ntry{\nvar statusBody={status:\"succeeded\",stages:cfg.stages||{},ozon_task_id:cfg.ozon_task_id||\"\",updated_at:new Date().toISOString()};\nif(cfg.ozon_task_id){statusBody.ozon_task_id=cfg.ozon_task_id}\nawait this.helpers.httpRequest({method:'PATCH',url:SBU+'/rest/v1/gateway_tasks?task_id=eq.'+encodeURIComponent(tid),headers:{apikey:SBK,Authorization:'Bearer '+SBK,'Content-Type':'application/json','Prefer':'return=minimal'},body:statusBody,json:true,timeout:5000});\n}catch(e){}\n}\n\n// Update self-learning from Ozon validation (if ozon_task_id present)\nif(cfg.ozon_task_id&&clientId&&apiKey&&SBK){\ntry{\nawait new Promise(function(resolve){setTimeout(resolve,5000)});\nvar ozPollResp=await this.helpers.httpRequest({method:'POST',url:'https://api-seller.ozon.ru/v1/product/import/info',headers:{'Client-Id':clientId,'Api-Key':apiKey,'Content-Type':'application/json'},body:{task_id:cfg.ozon_task_id},json:true,timeout:15000});\nvar ozResult=ozPollResp.result||{};var ozItems=ozResult.items||[];\nfor(var oi=0;oi<ozItems.length;oi++){\nvar item=ozItems[oi];var errors=item.errors||[];\nfor(var ei=0;ei<errors.length;ei++){\nvar err=errors[ei];var attrId=err.attribute_id;var errCode=err.code||'';\nif(attrId&&errCode){\nvar confidenceDelta=errCode.includes('warning')?-0.1:-0.2;\ntry{\nawait this.helpers.httpRequest({method:'PATCH',url:SBU+'/rest/v1/ozon_attribute_mappings?attribute_id=eq.'+attrId+'&category_id=eq.'+(cat.description_category_id||''),headers:{apikey:SBK,Authorization:'Bearer '+SBK,'Content-Type':'application/json','Prefer':'return=minimal'},body:{failure_count:1,confidence:Math.max(0.1,0.85+confidenceDelta)},json:true,timeout:5000});\n}catch(e){}\n}\n}\n}\n}catch(e){}\n}\n\ncfg.stages=cfg.stages||{};cfg.stages.Status=\"completed\";\nreturn[{json:cfg}];\n",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Phase1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Phase1": {
+      "main": [
+        [
+          {
+            "node": "Attributes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attributes": {
+      "main": [
+        [
+          {
+            "node": "Pricing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pricing": {
+      "main": [
+        [
+          {
+            "node": "Phase2All",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Phase2All": {
+      "main": [
+        [
+          {
+            "node": "ImgFanout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ImgFanout": {
+      "main": [
+        [
+          {
+            "node": "ImgDownload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ImgDownload": {
+      "main": [
+        [
+          {
+            "node": "ImgCOSUpload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ImgCOSUpload": {
+      "main": [
+        [
+          {
+            "node": "ImgCollect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ImgCollect": {
+      "main": [
+        [
+          {
+            "node": "BuildUploadStatus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {}
+}

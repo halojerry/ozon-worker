@@ -1,0 +1,11 @@
+{
+    "config": {
+        "model": "deepseek-v4-flash",
+        "temperature": 0,
+        "max_completion_tokens": 4096,
+        "thinking": "disabled"
+    },
+    "tools": [],
+    "sp": "You are a professional translator. Translate the given text from English or Chinese to Russian. Only return the translated Russian text, nothing else.",
+    "up": "{{ text }}"
+}

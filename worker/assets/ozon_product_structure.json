@@ -1,0 +1,83 @@
+{
+    "items": [
+        {
+            "attributes": [
+                {
+                    "complex_id": 0,
+                    "id": 5076,
+                    "values": [
+                        {
+                            "dictionary_value_id": 971082156,
+                            "value": "麦克风架"
+                        }
+                    ]
+                },
+                {
+                    "complex_id": 0,
+                    "id": 9048,
+                    "values": [
+                        {
+                            "value": "一套X3NFC保护膜。 深色棉质"
+                        }
+                    ]
+                },
+                {
+                    "complex_id": 0,
+                    "id": 8229,
+                    "values": [
+                        {
+                            "dictionary_value_id": 95911,
+                            "value": "一套X3NFC保护膜。深色棉质"
+                        }
+                    ]
+                },
+                {
+                    "complex_id": 0,
+                    "id": 85,
+                    "values": [
+                        {
+                            "dictionary_value_id": 5060050,
+                            "value": "Samsung"
+                        }
+                    ]
+                },
+                {
+                    "complex_id": 0,
+                    "id": 10096,
+                    "values": [
+                        {
+                            "dictionary_value_id": 61576,
+                            "value": "灰色的"
+                        }
+                    ]
+                }
+            ],
+            "barcode": "112772873170",
+            "description_category_id": 17028922,
+            "new_description_category_id": 0,
+            "color_image": "",
+            "complex_attributes": [],
+            "currency_code": "RUB",
+            "depth": 10,
+            "dimension_unit": "mm",
+            "height": 250,
+            "images": [
+                "https://example.com/translated_image_2.jpg",
+                "https://example.com/translated_image_3.jpg",
+                "https://example.com/translated_image_4.jpg"
+            ],
+            "images360": [],
+            "name": "一套X3NFC的保护膜。深色棉质",
+            "offer_id": "143210608",
+            "old_price": "1100",
+            "pdf_list": [],
+            "price": "1000",
+            "primary_image": "https://example.com/translated_image_1.jpg",
+            "type_id": 91565,
+            "vat": "0",
+            "weight": 100,
+            "weight_unit": "g",
+            "width": 150
+        }
+    ]
+}

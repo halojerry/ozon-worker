@@ -1,0 +1,102 @@
+{
+  "name": "pounding-ozon-refresh",
+  "nodes": [
+    {
+      "id": "wh",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "re-v2-304020",
+        "responseMode": "lastNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "webhookId": "81e017df-1177-439f-9d19-a3882050713d"
+    },
+    {
+      "id": "auth",
+      "name": "Auth",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        320,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Auth: validate token + user balance. Tokens stored WITHOUT 'sk-' prefix.\nconst SB_URL='https://kekmppsuiiokdckdeolv.supabase.co';\nconst SB_KEY=$env.SUPABASE_SERVICE_ROLE_KEY||'';\nconst input=$input.first().json;\nconst headers=input.headers||{};\nconst authHeader=headers.authorization||headers.Authorization||'';\nconst token=authHeader.replace(/^Bearer\\s+/i,'').trim();\nconst bodyToken=(input.body||input).token||'';\nconst effectiveToken=token||bodyToken;\nconst tokenKey=effectiveToken.replace(/^sk-/,'');\nfunction authError(code,msg){return[{json:{_auth_error:true,error_code:code,message:msg}}]};\nif(!effectiveToken)return authError('AUTH_INVALID','您未注册 pounding，请您至 api.mxou.cn 注册');\ntry{\nconst tResp=await this.helpers.httpRequest({method:'GET',url:SB_URL+'/rest/v1/tokens?select=id,user_id,status,remain_quota,unlimited_quota&key=eq.'+encodeURIComponent(tokenKey)+'&limit=1',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY},json:true,returnFullResponse:true,timeout:10000});\nconst rows=tResp.body||[];\nif(!rows.length)return authError('AUTH_INVALID','您未注册 pounding，请您至 api.mxou.cn 注册');\nconst r=rows[0];\nif(r.status===4)return authError('AUTH_EXHAUSTED','您的账户已欠费，请至 api.mxou.cn 充值');\nif(r.status!==1)return authError('AUTH_DISABLED','您的账户已被禁用，请联系管理员');\nlet balance=0;\ntry{\nconst uResp=await this.helpers.httpRequest({method:'GET',url:SB_URL+'/rest/v1/users?id=eq.'+r.user_id+'&select=quota,used_quota&limit=1',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,Accept:'application/json'},json:true,returnFullResponse:true,timeout:10000});\nconst uRows=uResp.body||[];\nif(uRows.length>0){const u=uRows[0];balance=(u.quota||0)-(u.used_quota||0);}\n}catch(e){}\nif(balance<=0&&!r.unlimited_quota)return authError('AUTH_EXHAUSTED','您的账户余额不足，请至 api.mxou.cn 充值');\nreturn $input.all().map(function(item){var j=item.json;j._sb_key=SB_KEY;j._sb_url=SB_URL;j._caller_user_id=r.user_id||'';j._caller_token_id=r.id||'';if(j.body&&typeof j.body=='object'){j.body._sb_key=SB_KEY;j.body._sb_url=SB_URL;j.body._caller_user_id=r.user_id||'';j.body._caller_token_id=r.id||'';}return{json:j};});\n}catch(e){return authError('AUTH_ERROR','认证服务异常，请稍后重试');}"
+      }
+    },
+    {
+      "id": "Parse",
+      "name": "Parse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        450,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const b=$input.first().json.body||$input.first().json;if(b._auth_error||$input.first().json._auth_error)return[{json:b}];const p=b.body||b;const payload=p.payload||b.payload||b;const cid=payload.ozon_client_id||'';const akey=payload.ozon_api_key||'';const pid=parseInt(payload.product_id||0);const item={product_id:pid,offer_id:String(payload.offer_id||''),name:String(payload.name||''),price:String(payload.price||'100'),currency_code:String(payload.currency_code||'CNY'),depth:parseInt(payload.depth||100),width:parseInt(payload.width||100),height:parseInt(payload.height||200),weight:parseInt(payload.weight||500),dimension_unit:'mm',weight_unit:'g',description_category_id:parseInt(payload.description_category_id||17027456),type_id:parseInt(payload.type_id||94790743),vat:String(payload.vat||'0.0')};if(payload.images&&Array.isArray(payload.images))item.images=payload.images;if(payload.old_price)item.old_price=String(payload.old_price);// Fetch existing attrs from Ozon, fix brand(85)=Нет бренда + country(4389)=Китай and category type(8229)\nvar attrs=[];if(cid&&akey&&pid){try{var aResp=await this.helpers.httpRequest({method:'POST',url:'https://api-seller.ozon.ru/v4/product/info/attributes',headers:{'Client-Id':cid,'Api-Key':akey,'Content-Type':'application/json'},body:{product_ids:[pid]},json:true,timeout:10000});var aItems=(aResp.result||[]);var existing=(aItems[0]||{}).attributes||[];var seen={};seen[85]=true;attrs.push({id:85,complex_id:0,values:[{value:'Нет бренда'}]});seen[4389]=true;attrs.push({id:4389,complex_id:0,values:[{dictionary_value_id:90296,value:'Китай'}]});seen[8229]=true;attrs.push({id:8229,complex_id:0,values:[{dictionary_value_id:parseInt(payload.type_id||94790743),value:item.name.slice(0,50)}]});for(var ei=0;ei<existing.length;ei++){var ea=existing[ei];if(!seen[ea.id]){seen[ea.id]=true;attrs.push(ea)}}}catch(er){}}if(attrs.length>0)item.attributes=attrs;return[{json:{items:[item],cid:cid,akey:akey}}]"
+      }
+    },
+    {
+      "id": "http",
+      "name": "Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const j=$input.first().json;\nif(j._auth_error)return[{json:j}];\nconst items=j.items||[];\nconst cid=j.cid||'';\nconst akey=j.akey||'';\nif(!cid||!akey)return[{json:{ok:false,error:'missing Ozon credentials (cid/akey)',error_code:'MISSING_CREDENTIALS'}}];\n\ntry{\n  const resp=await this.helpers.httpRequest({\n    method:'POST',\n    url:'https://api-seller.ozon.ru/v3/product/import',\n    headers:{'Client-Id':cid,'Api-Key':akey,'Content-Type':'application/json'},\n    body:{items:items},\n    json:true,\n    returnFullResponse:true,\n    timeout:30000\n  });\n  const r=resp.body||{};\n  const tid=(r.result||r).task_id||'';\n  return[{json:{ok:!!tid,ozon_task_id:String(tid)}}]\n}catch(e){\n  const msg=String(e.message||e).slice(0,200);\n  const isRetryable=/5\\d\\d|timeout|ECONN|ETIMEDOUT|ENOTFOUND/i.test(msg);\n  return[{json:{ok:false,error:msg,error_code:isRetryable?'OZON_RETRYABLE':'OZON_FAILED',retryable:isRetryable}}]\n}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth": {
+      "main": [
+        [
+          {
+            "node": "Parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse": {
+      "main": [
+        [
+          {
+            "node": "Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  }
+}
