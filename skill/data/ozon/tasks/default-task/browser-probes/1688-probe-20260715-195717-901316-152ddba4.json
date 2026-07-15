@@ -1,0 +1,1264 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "批发代发仿紫砂花盆塑料加厚 六角形兰花盆 长方形盆景盆多肉花盆",
+    "price": "¥1.95",
+    "brand": "陌町",
+    "seller": "台州市陌町园艺用品有限公司 关注 客服 商品 入驻9年 主营：园林资材 店铺回头率 61% 店铺服务分 5.0分 准时发货率 100% 店铺好评率 99.3%",
+    "image_count": 50,
+    "attribute_count": 79,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/652075672771.html",
+    "loginRequired": false,
+    "title": "批发代发仿紫砂花盆塑料加厚 六角形兰花盆 长方形盆景盆多肉花盆",
+    "price": "¥1.95",
+    "priceValue": 1.95,
+    "brand": "陌町",
+    "seller": "台州市陌町园艺用品有限公司 关注 客服 商品 入驻9年 主营：园林资材 店铺回头率 61% 店铺服务分 5.0分 准时发货率 100% 店铺好评率 99.3%",
+    "sellerLink": "https://tzmtyy.1688.com/?offerId=652075672771&td_page_id=PC-UNLOGIN-DEFAULT-2025",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01SBLMII2EYlNIrrAKc_!!3424428757-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SBLMII2EYlNIrrAKc_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01d4vHyV2EYlSjjqJgP_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01EHVeOw2EYlAy1KhzZ_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PIlZZm2EYl2tyotzX_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BOcE4P2EYl2zHMN8z_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OODiCB2EYl2xHtg1x_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01h7WhDY2EYl30umzXj_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010lIQWx2EYl2zHnUmV_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012hpLXB2EYl2pnLkNz_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01nTiAdW2EYl2xl3ZEG_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01qUVQQg2EYl30uleRY_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YInTSs2EYlJejtM6D_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN016PINiD2EYlB7qbWTk_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0114l5Yb2EYlB8g4Yg1_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01AnAlX72EYlJdFOv6n_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wE5Itr2EYlJfEgf9b_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013jSfhh2EYlB6iTMVJ_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UIuMLW2EYlJdFKDns_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ZBuXOz2EYlJfEZ4uc_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Bah2To2EYlJg6LRZS_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eJBn1F2EYl6GSJLei_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OHKh0i2EYlJfB73CC_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JYqery2EYlB2GebPS_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01x45q632EYlB1D5shI_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fSKldT2EYlAiZKRRF_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GVp7S42EYlAnE5Ihp_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ax6kd42EYlAwmPf26_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dVKHsG2EYlAoXfLO9_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Sv1Mu92EYlAspb1iD_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xO6Zfe2EYlFrN7fdm_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wqDJLI2EYlFmNK9xn_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01A3nSR62EYlFnLbKpL_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN018HFr2W2EYlFmNMiBV_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YlTr6P2EYlFmL7jhf_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VI3I0d2EYlFjwAvN5_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012WoA5D2EYlFpDeCsb_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Q8FIAy2EYlFotAlAV_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013IVV0q2EYlFs98wx0_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ssSRro2EYlFpDamct_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01docaA12EYlO9MNZEV_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KVV9zR2EYlFpDsMyt_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01asIOQA2EYlOBWWg5v_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01i4WAr02EYlFnLZeoJ_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fEJ5sA2EYlFqEqm9L_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dbIReD2EYlFqEngeR_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WjcH412EYlFmNkCvZ_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Ii5sF22EYlFoQBpsZ_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01w2duqh2EYlFmQWrrm_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Z0ex5d2EYlFpDhxrv_!!3424428757-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MAZJiL2EYlFmLT9Xg_!!3424428757-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/3424428757/p/2/e/6/t/1/405410398795.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": "正方形 长方形 六角形 圆形 椭圆型 高盆 矮盆",
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "塑料"
+      },
+      {
+        "name": "特性",
+        "value": "不易变形,耐腐蚀,牢固耐用"
+      },
+      {
+        "name": "类型",
+        "value": "花盆"
+      },
+      {
+        "name": "品牌",
+        "value": "陌町"
+      },
+      {
+        "name": "使用形式",
+        "value": "组合式,桌面式,落地式"
+      },
+      {
+        "name": "应用场景",
+        "value": "办公室,酒店,家居摆设,商场,绿化工程,家庭园艺,阳台菜园,花圃苗圃生产,庭园艺"
+      },
+      {
+        "name": "工艺",
+        "value": "注塑"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "中国风"
+      },
+      {
+        "name": "货号",
+        "value": "六角盆"
+      },
+      {
+        "name": "底径",
+        "value": "见详情"
+      },
+      {
+        "name": "制作方法",
+        "value": "注塑"
+      },
+      {
+        "name": "颜色",
+        "value": "15正六角盆,15正六角托盘,20正六角盆,20正六角托盘,25正六角盆,25正六角托盘,12正方形浅款-盆,13正方形深款-盆,12/13正方形-托盘,17正方形矮盆,17正方形高盆,17正方形托盘,16长方形-盆,16长方形-托盘,19长方形-盆,19长方形-托盘,23长方形盆,23长方形托盘,29长方形盆,29长方形托盘,36长方形盆,36长方形托盘,45长方形盆,45长方形托盘,仿紫砂12（正方形-浅款小号）含托,仿紫砂13（正方形-深款小号）含托,仿紫砂17（正方形-浅款大号）含托,仿紫砂17（正方形-深款大号）含托,仿紫砂16长方形-含托盘,19长方形-含托盘,仿紫砂23长方形-含托盘,29长方形-含托盘,36长方形-含托盘,45长方形-含托盘,15椭圆盆-含托盘,20椭圆盆-含托盘,25椭圆盆-含托盘,35椭圆盆-含托盘,45椭圆盆-含托盘,仿紫砂六角盆【小号】-含托盘,仿紫砂六角盆【中号】-含托盘,仿紫砂六角盆【大号】-含托盘,新款加厚8号盆-含托盘,新款加厚9号盆-含托盘,新款加厚10号盆-含托盘"
+      },
+      {
+        "name": "尺寸",
+        "value": "中等"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "否"
+      },
+      {
+        "name": "型号",
+        "value": "正方形 长方形 六角形 圆形 椭圆型 高盆 矮盆"
+      },
+      {
+        "name": "颜色",
+        "value": "15正六角盆、15正六角托盘、20正六角盆、20正六角托盘、25正六角盆、25正六角托盘、12正方形浅款-盆、13正方形深款-盆、12/13正方形-托盘、17正方形矮盆、17正方形高盆、17正方形托盘、16长方形-盆、16长方形-托盘、19长方形-盆、19长方形-托盘、23长方形盆、23长方形托盘、29长方形盆、29长方形托盘、36长方形盆、36长方形托盘、45长方形盆、45长方形托盘、仿紫砂12（正方形-浅款小号）含托、仿紫砂13（正方形-深款小号）含托、仿紫砂17（正方形-浅款大号）含托、仿紫砂17（正方形-深款大号）含托、仿紫砂16长方形-含托盘、19长方形-含托盘、仿紫砂23长方形-含托盘、29长方形-含托盘、36长方形-含托盘、45长方形-含托盘、15椭圆盆-含托盘、20椭圆盆-含托盘、25椭圆盆-含托盘、35椭圆盆-含托盘、45椭圆盆-含托盘、仿紫砂六角盆【小号】-含托盘、仿紫砂六角盆【中号】-含托盘、仿紫砂六角盆【大号】-含托盘、新款加厚8号盆-含托盘、新款加厚9号盆-含托盘、新款加厚10号盆-含托盘"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA、其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "10000+"
+      },
+      {
+        "name": "材质",
+        "value": "不易变形,耐腐蚀,牢固耐用"
+      },
+      {
+        "name": "类型",
+        "value": "陌町"
+      },
+      {
+        "name": "使用形式",
+        "value": "办公室,酒店,家居摆设,商场,绿化工程,家庭园艺,阳台菜园,花圃苗圃生产,庭园艺"
+      },
+      {
+        "name": "工艺",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "六角盆"
+      },
+      {
+        "name": "底径",
+        "value": "注塑"
+      },
+      {
+        "name": "颜色",
+        "value": "中等"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "正方形 长方形 六角形 圆形 椭圆型 高盆 矮盆"
+      },
+      {
+        "name": "15正六角盆",
+        "value": "90"
+      },
+      {
+        "name": "15正六角托盘",
+        "value": "40"
+      },
+      {
+        "name": "20正六角盆",
+        "value": "13"
+      },
+      {
+        "name": "20正六角托盘",
+        "value": "70"
+      },
+      {
+        "name": "25正六角盆",
+        "value": "280"
+      },
+      {
+        "name": "25正六角托盘",
+        "value": "150"
+      },
+      {
+        "name": "12正方形浅款-盆",
+        "value": "65"
+      },
+      {
+        "name": "13正方形深款-盆",
+        "value": "90"
+      },
+      {
+        "name": "12/13正方形-托盘",
+        "value": "30"
+      },
+      {
+        "name": "17正方形矮盆",
+        "value": "130"
+      },
+      {
+        "name": "17正方形高盆",
+        "value": "160"
+      },
+      {
+        "name": "17正方形托盘",
+        "value": "60"
+      },
+      {
+        "name": "16长方形-盆",
+        "value": "80"
+      },
+      {
+        "name": "16长方形-托盘",
+        "value": "29"
+      },
+      {
+        "name": "19长方形-盆",
+        "value": "120"
+      },
+      {
+        "name": "19长方形-托盘",
+        "value": "80"
+      },
+      {
+        "name": "23长方形盆",
+        "value": "160"
+      },
+      {
+        "name": "23长方形托盘",
+        "value": "75"
+      },
+      {
+        "name": "29长方形盆",
+        "value": "300"
+      },
+      {
+        "name": "29长方形托盘",
+        "value": "160"
+      },
+      {
+        "name": "36长方形盆",
+        "value": "600"
+      },
+      {
+        "name": "36长方形托盘",
+        "value": "260"
+      },
+      {
+        "name": "45长方形盆",
+        "value": "1200"
+      },
+      {
+        "name": "45长方形托盘",
+        "value": "600"
+      },
+      {
+        "name": "仿紫砂12（正方形-浅款小号）含托",
+        "value": "80"
+      },
+      {
+        "name": "仿紫砂13（正方形-深款小号）含托",
+        "value": "100"
+      },
+      {
+        "name": "仿紫砂17（正方形-浅款大号）含托",
+        "value": "180"
+      },
+      {
+        "name": "仿紫砂17（正方形-深款大号）含托",
+        "value": "220"
+      },
+      {
+        "name": "仿紫砂16长方形-含托盘",
+        "value": "95"
+      },
+      {
+        "name": "19长方形-含托盘",
+        "value": "210"
+      },
+      {
+        "name": "仿紫砂23长方形-含托盘",
+        "value": "230"
+      },
+      {
+        "name": "29长方形-含托盘",
+        "value": "450"
+      },
+      {
+        "name": "36长方形-含托盘",
+        "value": "1200"
+      },
+      {
+        "name": "45长方形-含托盘",
+        "value": "2200"
+      },
+      {
+        "name": "15椭圆盆-含托盘",
+        "value": "90"
+      },
+      {
+        "name": "20椭圆盆-含托盘",
+        "value": "160"
+      },
+      {
+        "name": "25椭圆盆-含托盘",
+        "value": "500"
+      },
+      {
+        "name": "35椭圆盆-含托盘",
+        "value": "700"
+      },
+      {
+        "name": "45椭圆盆-含托盘",
+        "value": "2200"
+      },
+      {
+        "name": "仿紫砂六角盆【小号】-含托盘",
+        "value": "180"
+      },
+      {
+        "name": "仿紫砂六角盆【中号】-含托盘",
+        "value": "400"
+      },
+      {
+        "name": "仿紫砂六角盆【大号】-含托盘",
+        "value": "700"
+      },
+      {
+        "name": "新款加厚8号盆-含托盘",
+        "value": "800"
+      },
+      {
+        "name": "新款加厚9号盆-含托盘",
+        "value": "900"
+      },
+      {
+        "name": "新款加厚10号盆-含托盘",
+        "value": "1500"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "15正六角盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OODiCB2EYl2xHtg1x_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "15正六角托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01h7WhDY2EYl30umzXj_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "20正六角盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN010lIQWx2EYl2zHnUmV_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "20正六角托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01nTiAdW2EYl2xl3ZEG_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "25正六角盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012hpLXB2EYl2pnLkNz_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "25正六角托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01qUVQQg2EYl30uleRY_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "12正方形浅款-盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01YInTSs2EYlJejtM6D_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "13正方形深款-盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01AnAlX72EYlJdFOv6n_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "12/13正方形-托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wE5Itr2EYlJfEgf9b_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "17正方形矮盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN016PINiD2EYlB7qbWTk_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "17正方形高盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN013jSfhh2EYlB6iTMVJ_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "17正方形托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0114l5Yb2EYlB8g4Yg1_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "16长方形-盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Bah2To2EYlJg6LRZS_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "16长方形-托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ZBuXOz2EYlJfEZ4uc_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "19长方形-盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01UIuMLW2EYlJdFKDns_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "19长方形-托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OHKh0i2EYlJfB73CC_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "23长方形盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01JYqery2EYlB2GebPS_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "23长方形托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01x45q632EYlB1D5shI_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "29长方形盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01eJBn1F2EYl6GSJLei_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "29长方形托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GVp7S42EYlAnE5Ihp_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "36长方形盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dVKHsG2EYlAoXfLO9_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "36长方形托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ax6kd42EYlAwmPf26_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "45长方形盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fSKldT2EYlAiZKRRF_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "45长方形托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Sv1Mu92EYlAspb1iD_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂12（正方形-浅款小号）含托",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VI3I0d2EYlFjwAvN5_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂13（正方形-深款小号）含托",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01YlTr6P2EYlFmL7jhf_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂17（正方形-浅款大号）含托",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wqDJLI2EYlFmNK9xn_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂17（正方形-深款大号）含托",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xO6Zfe2EYlFrN7fdm_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂16长方形-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN018HFr2W2EYlFmNMiBV_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "19长方形-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01A3nSR62EYlFnLbKpL_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂23长方形-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Q8FIAy2EYlFotAlAV_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "29长方形-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ssSRro2EYlFpDamct_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "36长方形-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN013IVV0q2EYlFs98wx0_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "45长方形-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012WoA5D2EYlFpDeCsb_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "15椭圆盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01docaA12EYlO9MNZEV_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "20椭圆盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01asIOQA2EYlOBWWg5v_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "25椭圆盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KVV9zR2EYlFpDsMyt_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "35椭圆盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fEJ5sA2EYlFqEqm9L_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "45椭圆盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01i4WAr02EYlFnLZeoJ_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂六角盆【小号】-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dbIReD2EYlFqEngeR_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂六角盆【中号】-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Ii5sF22EYlFoQBpsZ_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂六角盆【大号】-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WjcH412EYlFmNkCvZ_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "新款加厚8号盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01w2duqh2EYlFmQWrrm_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "新款加厚9号盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Z0ex5d2EYlFpDhxrv_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "新款加厚10号盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MAZJiL2EYlFmLT9Xg_!!3424428757-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "尺寸",
+        "values": [
+          {
+            "name": "中等",
+            "image": null
+          },
+          {
+            "name": "中等",
+            "image": null,
+            "price": 1.95
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "15正六角盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OODiCB2EYl2xHtg1x_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "15正六角托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01h7WhDY2EYl30umzXj_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "20正六角盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN010lIQWx2EYl2zHnUmV_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "20正六角托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01nTiAdW2EYl2xl3ZEG_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "25正六角盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012hpLXB2EYl2pnLkNz_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "25正六角托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01qUVQQg2EYl30uleRY_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "12正方形浅款-盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01YInTSs2EYlJejtM6D_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "13正方形深款-盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01AnAlX72EYlJdFOv6n_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "12/13正方形-托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wE5Itr2EYlJfEgf9b_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "17正方形矮盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN016PINiD2EYlB7qbWTk_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "17正方形高盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN013jSfhh2EYlB6iTMVJ_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "17正方形托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0114l5Yb2EYlB8g4Yg1_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "16长方形-盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Bah2To2EYlJg6LRZS_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "16长方形-托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ZBuXOz2EYlJfEZ4uc_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "19长方形-盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01UIuMLW2EYlJdFKDns_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "19长方形-托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OHKh0i2EYlJfB73CC_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "23长方形盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01JYqery2EYlB2GebPS_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "23长方形托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01x45q632EYlB1D5shI_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "29长方形盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01eJBn1F2EYl6GSJLei_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "29长方形托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GVp7S42EYlAnE5Ihp_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "36长方形盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dVKHsG2EYlAoXfLO9_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "36长方形托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ax6kd42EYlAwmPf26_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "45长方形盆",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fSKldT2EYlAiZKRRF_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "45长方形托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Sv1Mu92EYlAspb1iD_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂12（正方形-浅款小号）含托",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VI3I0d2EYlFjwAvN5_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂13（正方形-深款小号）含托",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01YlTr6P2EYlFmL7jhf_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂17（正方形-浅款大号）含托",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wqDJLI2EYlFmNK9xn_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂17（正方形-深款大号）含托",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xO6Zfe2EYlFrN7fdm_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂16长方形-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN018HFr2W2EYlFmNMiBV_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "19长方形-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01A3nSR62EYlFnLbKpL_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂23长方形-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Q8FIAy2EYlFotAlAV_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "29长方形-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ssSRro2EYlFpDamct_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "36长方形-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN013IVV0q2EYlFs98wx0_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "45长方形-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012WoA5D2EYlFpDeCsb_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "15椭圆盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01docaA12EYlO9MNZEV_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "20椭圆盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01asIOQA2EYlOBWWg5v_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "25椭圆盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KVV9zR2EYlFpDsMyt_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "35椭圆盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fEJ5sA2EYlFqEqm9L_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "45椭圆盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01i4WAr02EYlFnLZeoJ_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂六角盆【小号】-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dbIReD2EYlFqEngeR_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂六角盆【中号】-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Ii5sF22EYlFoQBpsZ_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "仿紫砂六角盆【大号】-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WjcH412EYlFmNkCvZ_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "新款加厚8号盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01w2duqh2EYlFmQWrrm_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "新款加厚9号盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Z0ex5d2EYlFpDhxrv_!!3424428757-0-cib.jpg"
+          },
+          {
+            "name": "新款加厚10号盆-含托盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MAZJiL2EYlFmLT9Xg_!!3424428757-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "尺寸",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 尺寸 重量(g) 15正六角盆 中等 90 15正六角托盘 中等 40 20正六角盆 中等 13 20正六角托盘 中等 70 25正六角盆 中等 280 25正六角托盘 中等 150 12正方形浅款-盆 中等 65 13正方形深款-盆 中等 90 12/13正方形-托盘 中等 30 17正方形矮盆 中等 130 17正方形高盆 中等 160 17正方形托盘 中等 60 16长方形-盆 中等 80 16长方形-托盘 中等 29 19长方形-盆 中等 120 19长方形-托盘 中等 80 23长方形盆 中等 160 23长方形托盘 中等 75 29长方形盆 中等 300 29长方形托盘 中等 160 36长方形盆 中等 600 36长方形托盘 中等 260 45长方形盆 中等 1200 45长方形托盘 中等 600 仿紫砂12（正方形-浅款小号）含托 中等 80 仿紫砂13（正方形-深款小号）含托 中等 100 仿紫砂17（正方形-浅款大号）含托 中等 180 仿紫砂17（正方形-深款大号）含托 中等 220 仿紫砂16长方形-含托盘 中等 95 19长方形-含托盘 中等 210 仿紫砂23长方形-含托盘 中等 230 29长方形-含托盘 中等 450 36长方形-含托盘 中等 1200 45长方形-含托盘 中等 2200 15椭圆盆-含托盘 中等 90 20椭圆盆-含托盘 中等 160 25椭圆盆-含托盘 中等 500 35椭圆盆-含托盘 中等 700 45椭圆盆-含托盘 中等 2200 仿紫砂六角盆【小号】-含托盘 中等 180 仿紫砂六角盆【中号】-含托盘 中等 400 仿紫砂六角盆【大号】-含托盘 中等 700 新款加厚8号盆-含托盘 中等 800 新款加厚9号盆-含托盘 中等 900 新款加厚10号盆-含托盘 中等 1500",
+    "packagingRows": [
+      {
+        "color": "15正六角盆",
+        "capacity": "中等",
+        "weightText": "90",
+        "weightGrams": 90,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "15正六角托盘",
+        "capacity": "中等",
+        "weightText": "40",
+        "weightGrams": 40,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "20正六角盆",
+        "capacity": "中等",
+        "weightText": "13",
+        "weightGrams": 13,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "20正六角托盘",
+        "capacity": "中等",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "25正六角盆",
+        "capacity": "中等",
+        "weightText": "280",
+        "weightGrams": 280,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "25正六角托盘",
+        "capacity": "中等",
+        "weightText": "150",
+        "weightGrams": 150,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "12正方形浅款-盆",
+        "capacity": "中等",
+        "weightText": "65",
+        "weightGrams": 65,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "13正方形深款-盆",
+        "capacity": "中等",
+        "weightText": "90",
+        "weightGrams": 90,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "12/13正方形-托盘",
+        "capacity": "中等",
+        "weightText": "30",
+        "weightGrams": 30,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "17正方形矮盆",
+        "capacity": "中等",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "17正方形高盆",
+        "capacity": "中等",
+        "weightText": "160",
+        "weightGrams": 160,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "17正方形托盘",
+        "capacity": "中等",
+        "weightText": "60",
+        "weightGrams": 60,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "16长方形-盆",
+        "capacity": "中等",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "16长方形-托盘",
+        "capacity": "中等",
+        "weightText": "29",
+        "weightGrams": 29,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "19长方形-盆",
+        "capacity": "中等",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "19长方形-托盘",
+        "capacity": "中等",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "23长方形盆",
+        "capacity": "中等",
+        "weightText": "160",
+        "weightGrams": 160,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "23长方形托盘",
+        "capacity": "中等",
+        "weightText": "75",
+        "weightGrams": 75,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "29长方形盆",
+        "capacity": "中等",
+        "weightText": "300",
+        "weightGrams": 300,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "29长方形托盘",
+        "capacity": "中等",
+        "weightText": "160",
+        "weightGrams": 160,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "36长方形盆",
+        "capacity": "中等",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "36长方形托盘",
+        "capacity": "中等",
+        "weightText": "260",
+        "weightGrams": 260,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "45长方形盆",
+        "capacity": "中等",
+        "weightText": "1200",
+        "weightGrams": 1200,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "45长方形托盘",
+        "capacity": "中等",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "仿紫砂12（正方形-浅款小号）含托",
+        "capacity": "中等",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "仿紫砂13（正方形-深款小号）含托",
+        "capacity": "中等",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "仿紫砂17（正方形-浅款大号）含托",
+        "capacity": "中等",
+        "weightText": "180",
+        "weightGrams": 180,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "仿紫砂17（正方形-深款大号）含托",
+        "capacity": "中等",
+        "weightText": "220",
+        "weightGrams": 220,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "仿紫砂16长方形-含托盘",
+        "capacity": "中等",
+        "weightText": "95",
+        "weightGrams": 95,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "19长方形-含托盘",
+        "capacity": "中等",
+        "weightText": "210",
+        "weightGrams": 210,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "仿紫砂23长方形-含托盘",
+        "capacity": "中等",
+        "weightText": "230",
+        "weightGrams": 230,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "29长方形-含托盘",
+        "capacity": "中等",
+        "weightText": "450",
+        "weightGrams": 450,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "36长方形-含托盘",
+        "capacity": "中等",
+        "weightText": "1200",
+        "weightGrams": 1200,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "45长方形-含托盘",
+        "capacity": "中等",
+        "weightText": "2200",
+        "weightGrams": 2200,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "15椭圆盆-含托盘",
+        "capacity": "中等",
+        "weightText": "90",
+        "weightGrams": 90,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "20椭圆盆-含托盘",
+        "capacity": "中等",
+        "weightText": "160",
+        "weightGrams": 160,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "25椭圆盆-含托盘",
+        "capacity": "中等",
+        "weightText": "500",
+        "weightGrams": 500,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "35椭圆盆-含托盘",
+        "capacity": "中等",
+        "weightText": "700",
+        "weightGrams": 700,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "45椭圆盆-含托盘",
+        "capacity": "中等",
+        "weightText": "2200",
+        "weightGrams": 2200,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "仿紫砂六角盆【小号】-含托盘",
+        "capacity": "中等",
+        "weightText": "180",
+        "weightGrams": 180,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "仿紫砂六角盆【中号】-含托盘",
+        "capacity": "中等",
+        "weightText": "400",
+        "weightGrams": 400,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "仿紫砂六角盆【大号】-含托盘",
+        "capacity": "中等",
+        "weightText": "700",
+        "weightGrams": 700,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "新款加厚8号盆-含托盘",
+        "capacity": "中等",
+        "weightText": "800",
+        "weightGrams": 800,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "新款加厚9号盆-含托盘",
+        "capacity": "中等",
+        "weightText": "900",
+        "weightGrams": 900,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "新款加厚10号盆-含托盘",
+        "capacity": "中等",
+        "weightText": "1500",
+        "weightGrams": 1500,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "浙江台州",
+      "freightCny": 6,
+      "carrier": "韵达快递"
+    },
+    "skuDetails": [
+      {
+        "name": "中等",
+        "price": 1.95,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 20,
+      "attributeCount": 79,
+      "optionGroupCount": 3,
+      "skuCount": 1,
+      "imageCount": 50,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 3,
+      "packagingTableTextLength": 781
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260715-195717-901316-152ddba4.json"
+}

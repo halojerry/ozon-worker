@@ -1,0 +1,35 @@
+{
+  "name": "pounding-ozon-category-lookup",
+  "nodes": [
+    {
+      "id": "wh",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cat-lookup-v1",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "webhookId": "cat-lookup-001"
+    },
+    {
+      "id": "lookup",
+      "name": "Lookup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "parameters": {
+        "jsCode": "const input=($input.all()[0]||{}).json;\nconst body=input.body||input;\nconst keyword=(body.keyword||body.query||'').trim();\nconst SB_URL='https://kekmppsuiiokdckdeolv.supabase.co';\nconst SB_KEY=$env.SUPABASE_SERVICE_ROLE_KEY||'';\n\nif(!keyword)return[{json:{found:false,error:'missing keyword'}}];\n\ntry{\n  const resp=await this.helpers.httpRequest({\n    method:'GET',\n    url:SB_URL+'/rest/v1/category_mapping_verified?select=source_category_id,description_category_id,type_id,confidence,title&source_category_id=eq.'+encodeURIComponent(keyword)+'&order=confidence.desc&limit=3',\n    headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY},\n    json:true,timeout:10000\n  });\n  const rows=resp||[];\n  if(rows.length>0){\n    return[{json:{\n      found:true,\n      keyword:keyword,\n      mappings:rows.map(function(r){return{\n        description_category_id:parseInt(r.description_category_id),\n        type_id:parseInt(r.type_id),\n        confidence:r.confidence,\n        title:r.title\n      }})\n    }}];\n  }\n  return[{json:{found:false,keyword:keyword,mappings:[]}}];\n}catch(e){\n  return[{json:{found:false,error:String(e.message||e).slice(0,100)}}];\n}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Lookup", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {"executionOrder": "v1"}
+}

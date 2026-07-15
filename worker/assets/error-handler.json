@@ -1,0 +1,52 @@
+{
+  "name": "pounding-ozon-error-handler",
+  "nodes": [
+    {
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "options": {}
+      }
+    },
+    {
+      "id": "report-sentry",
+      "name": "Report to Sentry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        400,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const input=$input.first().json;const SENTRY_KEY='a2491a4381126cbb40068fae5e79aee6';const SENTRY_URL='https://o4511410803441664.ingest.us.sentry.io/api/4511432541339648/envelope/';const execId=(input.execution&&input.execution.id)||'unknown';const wfName=(input.workflow&&input.workflow.name)||'unknown';const errMsg=(input.execution&&input.execution.error&&input.execution.error.message)||'unknown error';const lastNode=(input.execution&&input.execution.lastNodeExecuted)||'unknown';const errStack=(input.execution&&input.execution.error&&input.execution.error.stack)||'';const execUrl=(input.execution&&input.execution.url)||'';const eventId=String(execId).replace(/[^a-f0-9]/g,'').padEnd(32,'0').slice(0,32);const event={event_id:eventId,timestamp:new Date().toISOString(),level:'error',exception:{values:[{type:'WorkflowError',value:'['+wfName+'] '+errMsg+' (node: '+lastNode+')'}]},tags:{workflow:wfName,execution_id:execId,last_node:lastNode},extra:{error_stack:errStack,execution_url:execUrl}};const hdr=JSON.stringify({sent_at:new Date().toISOString()});const itemHdr=JSON.stringify({type:'event'});const evtBody=JSON.stringify(event);const body=hdr+'\\n'+itemHdr+'\\n'+evtBody+'\\n';try{await this.helpers.httpRequest({method:'POST',url:SENTRY_URL,headers:{'X-Sentry-Auth':'Sentry sentry_version=7, sentry_key='+SENTRY_KEY+', sentry_client=pounding-ozon-error-handler/1.0','Content-Type':'application/x-sentry-envelope'},body:body,timeout:10000});return[{json:{sentry:'ok',event_id:eventId,workflow:wfName}}]}catch(e){return[{json:{sentry:'failed',error:String(e.message||e).slice(0,100),workflow:wfName}}]}"
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Report to Sentry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  }
+}

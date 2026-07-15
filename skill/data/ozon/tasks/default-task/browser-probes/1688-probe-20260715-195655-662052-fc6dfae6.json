@@ -1,0 +1,328 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "跨境新款轮胎造型狗狗啃咬发声解压发泄狗狗temu宠物玩具一件代发",
+    "price": "¥1.55",
+    "brand": "HELLO VERNA",
+    "seller": "嘉兴市宠贝贝宠物用品有限公司 关注 客服 商品 入驻14年 主营：猫狗用品 店铺回头率 62% 店铺服务分 4.5分 准时发货率 99% 店铺好评率 99.8%",
+    "image_count": 30,
+    "attribute_count": 32,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1033182651323.html",
+    "loginRequired": false,
+    "title": "跨境新款轮胎造型狗狗啃咬发声解压发泄狗狗temu宠物玩具一件代发",
+    "price": "¥1.55",
+    "priceValue": 1.55,
+    "brand": "HELLO VERNA",
+    "seller": "嘉兴市宠贝贝宠物用品有限公司 关注 客服 商品 入驻14年 主营：猫狗用品 店铺回头率 62% 店铺服务分 4.5分 准时发货率 99% 店铺好评率 99.8%",
+    "sellerLink": "https://shop1363194932557.1688.com/?offerId=1033182651323&td_page_id=PC-UNLOGIN-DEFAULT-2025",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lTiBbP2Jg9x0wigD4_!!1616339450-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UBN1Zd2Jg9wzzp9uT_!!1616339450-0-cib.jpg?__r__=1774079222901",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01NYUHlH2Jg9x0JL7vh_!!1616339450-0-cib.jpg?__r__=1774079222901",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01NmBhXG2Jg9x0cp2IW_!!1616339450-0-cib.jpg?__r__=1774079222901",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KHGqRz2Jg9x10V5WM_!!1616339450-0-cib.jpg?__r__=1774079222901",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010I16ZW2Jg9x0xTH4A_!!1616339450-0-cib.jpg?__r__=1774079222901",
+      "https://cbu01.alicdn.com/img/ibank/O1CN018Uwzus2Jg9wzzqQw4_!!1616339450-0-cib.jpg?__r__=1774079222901",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012b49w92Jg9x0JNPHu_!!1616339450-0-cib.jpg?__r__=1774079222901",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01886H0m2Jg9x0gmxtq_!!1616339450-0-cib.jpg?__r__=1774079222901",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zyQrSX2Jg9x0uBsV6_!!1616339450-0-cib.jpg?__r__=1774079222901",
+      "https://cbu01.alicdn.com/img/ibank/2018/494/663/8790366494_1748246725.jpg?__r__=1524723531580",
+      "https://cbu01.alicdn.com/img/ibank/2018/321/437/8810734123_1748246725.jpg?__r__=1526366401624",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lTiBbP2Jg9x0wigD4_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01oOEfSx2Jg9x0wj5AJ_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rZjBpc2Jg9x0IxNxd_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fxxSuu2Jg9wvc1QGX_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019Gn39d2Jg9x0Tmg0C_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OnknjK2Jg9wzzFmVy_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GzlGud2Jg9x0xL9Fx_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01DiCaGE2Jg9wyEExiY_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019C9RxC2Jg9wxsROPV_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pJQzuE2Jg9x1VPYr1_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013VIcrX2Jg9wPsBWyM_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GwclGu2Jg9vTLFM3k_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OWBx232Jg9vTY5HQR_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zc9hOT2Jg9wvQJUxN_!!1616339450-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/2019/633/838/11078838336_1748246725.jpg",
+      "https://cbu01.alicdn.com/img/ibank/2014/940/844/1706448049_1748246725.jpg",
+      "https://cbu01.alicdn.com/img/ibank/17639771648_1748246725.jpg",
+      "https://cbu01.alicdn.com/img/ibank/8862096553_1748246725.jpg",
+      "https://cbu01.alicdn.com/img/ibank/8561922081_1748246725.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/1616339450/p/2/e/6/t/1/557490357522.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "浙江",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "搪胶"
+      },
+      {
+        "name": "产品类别",
+        "value": "啃咬发声玩具"
+      },
+      {
+        "name": "品牌",
+        "value": "HELLO VERNA"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "重量",
+        "value": "60"
+      },
+      {
+        "name": "货号",
+        "value": "cwwj091"
+      },
+      {
+        "name": "产地",
+        "value": "浙江"
+      },
+      {
+        "name": "箱装数量",
+        "value": "500"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "足球轮胎,网球轮胎"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "规格",
+        "value": "个"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "足球轮胎、网球轮胎"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA、其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东、其他"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "7000+"
+      },
+      {
+        "name": "材质",
+        "value": "啃咬发声玩具"
+      },
+      {
+        "name": "品牌",
+        "value": "否"
+      },
+      {
+        "name": "重量",
+        "value": "cwwj091"
+      },
+      {
+        "name": "产地",
+        "value": "500"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "足球轮胎,网球轮胎"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "规格",
+        "value": "否"
+      },
+      {
+        "name": "足球轮胎",
+        "value": "60"
+      },
+      {
+        "name": "网球轮胎",
+        "value": "60"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "足球轮胎",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OnknjK2Jg9wzzFmVy_!!1616339450-0-cib.jpg"
+          },
+          {
+            "name": "网球轮胎",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GzlGud2Jg9x0xL9Fx_!!1616339450-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "个",
+            "image": null
+          },
+          {
+            "name": "个",
+            "image": null,
+            "price": 1.55
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "足球轮胎",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OnknjK2Jg9wzzFmVy_!!1616339450-0-cib.jpg"
+          },
+          {
+            "name": "网球轮胎",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GzlGud2Jg9x0xL9Fx_!!1616339450-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "规格",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 规格 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 足球轮胎 个 8.80 8.80 2.80 216.832 60 网球轮胎 个 8.80 8.80 2.80 216.832 60",
+    "packagingRows": [
+      {
+        "color": "足球轮胎",
+        "capacity": "个",
+        "weightText": "60",
+        "weightGrams": 60,
+        "lengthText": "8.80",
+        "widthText": "8.80",
+        "heightText": "2.80"
+      },
+      {
+        "color": "网球轮胎",
+        "capacity": "个",
+        "weightText": "60",
+        "weightGrams": 60,
+        "lengthText": "8.80",
+        "widthText": "8.80",
+        "heightText": "2.80"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江嘉兴",
+      "freightCny": 3
+    },
+    "skuDetails": [
+      {
+        "name": "个",
+        "price": 1.55,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 17,
+      "attributeCount": 32,
+      "optionGroupCount": 3,
+      "skuCount": 1,
+      "imageCount": 30,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 7,
+      "packagingTableTextLength": 103
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260715-195655-662052-fc6dfae6.json"
+}

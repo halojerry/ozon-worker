@@ -1,0 +1,468 @@
+"""价格计算节点 - 价格计算 + 物流费率匹配（基于Ozon API 3PL + 服务等级 + 评分组）"""
+import os
+import json
+import logging
+import math
+import sqlite3
+import requests
+from typing import Any, Dict, Optional, Tuple
+from langchain_core.runnables import RunnableConfig
+from langgraph.runtime import Runtime
+from coze_coding_utils.runtime_ctx.context import Context
+from graphs.state import PricingInput, PricingOutput
+
+
+logger = logging.getLogger(__name__)
+
+
+def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[Context]) -> PricingOutput:
+    """
+    title: 价格计算节点
+    desc: 查询物流价格表（standard渠道）+ 计算最优惠价格 + 根据currency_code决定货币类型
+    integrations: Supabase
+    """
+    ctx = runtime.context
+    
+    # 空值判断
+    draft = state.draft
+    extensions = state.extensions or {}
+    supabase_url = state.supabase_url
+    supabase_key = state.supabase_key
+    ozon_client_id = state.ozon_client_id
+    ozon_api_key = state.ozon_api_key
+    
+    # 🔍 获取currency_code（关键：从GlobalState获取，如果为空则fallback查询Ozon API）
+    currency_code = state.currency_code
+    logger.info(f"pricing_node收到currency_code: '{state.currency_code}' (原始值)")
+    
+    # Fallback：如果currency_code为空，直接调用Ozon API查询
+    if not currency_code and ozon_client_id and ozon_api_key:
+        try:
+            logger.info("currency_code为空，fallback调用Ozon API查询店铺货币")
+            ozon_url = "https://api-seller.ozon.ru/v1/seller/info"
+            ozon_headers = {
+                'Client-Id': ozon_client_id,
+                'Api-Key': ozon_api_key,
+                'Content-Type': 'application/json'
+            }
+            ozon_response = requests.post(ozon_url, headers=ozon_headers, json={}, timeout=60)
+            ozon_data = ozon_response.json()
+            company = ozon_data.get('company', {})
+            if isinstance(company, dict):
+                currency_code = company.get('currency', '')
+                logger.info(f"Ozon API查询成功，currency: '{currency_code}'")
+        except Exception as e:
+            logger.warning(f"Ozon API查询失败: {str(e)}")
+    
+    # 如果仍然为空，使用默认值"RUB"
+    if not currency_code:
+        currency_code = "RUB"
+        logger.warning("currency_code仍然为空，使用默认值RUB")
+    
+    logger.info(f"pricing_node最终使用currency_code: '{currency_code}'")
+    
+    # 空值判断：draft为None或完全空字典时报错
+    if draft is None:
+        logger.error("Draft data is None")
+        return PricingOutput(
+            pricing_info={},
+            price="",
+            old_price="",
+            error_message="Draft data is None"
+        )
+    
+    # 如果draft是空字典，使用默认值继续处理
+    if not draft or draft == {}:
+        logger.warning("Draft data is empty, using default values")
+        draft = {
+            "cost_cny": 50.0,  # 默认成本50元
+            "weight": 500,  # 默认重量500克
+            "depth": 20,  # 默认尺寸
+            "width": 15,
+            "height": 10
+        }
+    
+    try:
+        # Step 1: 获取基础数据
+        # ✅ 关键修复：兼容purchase_cost字段（扁平信封使用purchase_cost而非cost_cny）
+        cost_cny: float = float(draft.get("cost_cny", 0) or draft.get("purchase_cost", 0) or 0)
+        weight_raw = draft.get("weight", 0)
+        weight: float = float(weight_raw) if weight_raw else 0.0  # 克（处理空字符串）
+        
+        # ✅ 关键修复：从嵌套的 dimensions 对象中提取尺寸（mm→cm）
+        dims_obj = draft.get("dimensions", {})
+        if isinstance(dims_obj, dict):
+            depth_mm = float(dims_obj.get("length", 0) or dims_obj.get("depth", 0))
+            width_mm = float(dims_obj.get("width", 0))
+            height_mm = float(dims_obj.get("height", 0))
+        else:
+            depth_mm = float(draft.get("depth", 0))
+            width_mm = float(draft.get("width", 0))
+            height_mm = float(draft.get("height", 0))
+        # mm → cm
+        depth: float = depth_mm / 10.0
+        width: float = width_mm / 10.0
+        height: float = height_mm / 10.0
+        # 尺寸全为0时使用默认值（与prepare_ozon_upload_node一致）
+        if depth == 0 and width == 0 and height == 0:
+            depth, width, height = 30.0, 20.0, 5.0  # 300×200×50mm → cm
+            logger.warning("⚠️ dimensions全为0，使用默认值: 30×20×5 cm")
+        
+        # ✅ 重量为0时使用默认值（与prepare_ozon_upload_node一致）
+        if weight <= 0:
+            weight = 300.0  # 默认300克
+            logger.warning("⚠️ weight为0或空，使用默认值: 300克")
+        
+        # cost_cny为0时使用默认值
+        if cost_cny <= 0:
+            cost_cny = 10.0
+            logger.warning("⚠️ cost_cny为0或空，使用默认值: 10 CNY")
+        
+        # 获取扩展配置
+        margin_rate: float = float(extensions.get("margin_rate", 0.25))  # 利润率 25%
+        commission_rate: float = float(extensions.get("commission_rate", 0.10))  # 佣金率 10%
+        fx_buffer: float = float(extensions.get("fx_buffer", 0.05))  # 汇率缓冲 5%
+        
+        # Step 2: 查询物流费率（SQLite logistics_rates + Ozon API获取3PL/服务等级）
+        tpl_provider, service_level = _get_store_logistics_config(ozon_client_id, ozon_api_key)
+        logistics_cost, logistics_channel = _query_logistics_from_sqlite(
+            weight, depth, width, height, tpl_provider, service_level
+        )
+        
+        # Step 3: 查询包装成本（固定值）
+        packaging_cost: float = 2.0  # CNY
+        
+        # Step 4: 查询汇率（根据currency_code决定汇率方向）
+        exchange_rate: float = _get_exchange_rate(supabase_url, supabase_key, currency_code)
+        
+        # Step 5: 价格计算公式
+        # 总成本 = 产品成本 + 物流成本 + 包装成本
+        total_cost_cny: float = cost_cny + logistics_cost + packaging_cost
+        
+        # 根据currency_code决定价格计算方式
+        if currency_code == "CNY":
+            # 店铺是CNY，直接计算人民币价格
+            base_price_cny: float = total_cost_cny * (1 + commission_rate) * (1 + fx_buffer) * (1 + margin_rate)
+            price: int = math.ceil(base_price_cny)
+            # Ozon规则：价格≤25时，old_price - price必须>2；价格>25时按15%加价
+            if price <= 25:
+                old_price: int = price + 3
+            else:
+                old_price = math.ceil(price * 1.15)
+            currency_unit = "CNY"
+        else:
+            # 店铺是RUB，计算俄罗斯卢布价格（默认）
+            base_price_rub: float = total_cost_cny * (1 + commission_rate) * (1 + fx_buffer) * (1 + margin_rate) * exchange_rate
+            price: int = math.ceil(base_price_rub)
+            # Ozon规则：价格≤25时，old_price - price必须>2；价格>25时按15%加价
+            if price <= 25:
+                old_price = price + 3
+            else:
+                old_price = math.ceil(price * 1.15)
+            currency_unit = "RUB"
+        
+        # Step 6: 计算利润预估
+        # 利润 = 最终价格 - 总成本
+        if currency_code == "CNY":
+            profit_cny: float = price - total_cost_cny
+            base_price_for_profit: float = base_price_cny
+        else:
+            # RUB店铺：利润需要转换回CNY计算
+            profit_cny: float = (price / exchange_rate) - total_cost_cny
+            base_price_for_profit: float = base_price_rub / exchange_rate
+        
+        profit_rate_actual: float = profit_cny / total_cost_cny if total_cost_cny > 0 else 0.0
+        
+        # Step 7: 组装价格信息（包含profit_estimation）
+        pricing_info: Dict[str, Any] = {
+            "cost_cny": cost_cny,
+            "logistics_cost_cny": logistics_cost,
+            "logistics_channel": logistics_channel,
+            "packaging_cost_cny": packaging_cost,
+            "total_cost_cny": total_cost_cny,
+            "margin_rate": margin_rate,
+            "commission_rate": commission_rate,
+            "fx_buffer": fx_buffer,
+            "currency_code": currency_code,
+            "exchange_rate": exchange_rate if currency_code == "RUB" else 1.0,
+            "price": price,
+            "old_price": old_price,
+            "currency_unit": currency_unit,
+            "price_formula": "total_cost × (1 + commission) × (1 + fx_buffer) × (1 + margin) × exchange_rate (if RUB)",
+            # ✅ 新增：利润预估明细
+            "profit_estimation": {
+                "profit_cny": round(profit_cny, 2),
+                "profit_rate": round(profit_rate_actual, 4),
+                "profit_formula": "final_price - total_cost",
+                "cost_breakdown": {
+                    "product_cost_cny": cost_cny,
+                    "logistics_cost_cny": logistics_cost,
+                    "packaging_cost_cny": packaging_cost,
+                    "total_cost_cny": total_cost_cny
+                },
+                "price_breakdown": {
+                    "base_price": round(base_price_for_profit, 2),
+                    "final_price": price,
+                    "old_price": old_price,
+                    "currency_unit": currency_unit
+                },
+                "pricing_factors": {
+                    "margin_rate_target": margin_rate,
+                    "commission_rate": commission_rate,
+                    "fx_buffer": fx_buffer,
+                    "exchange_rate_applied": exchange_rate if currency_code == "RUB" else 1.0
+                }
+            },
+            # 🔍 调试信息
+            "_debug_state_currency_code": state.currency_code,
+            "_debug_used_currency_code": currency_code
+        }
+        
+        logger.info(f"价格计算成功: price={price} {currency_unit}, old_price={old_price} {currency_unit}, currency_code={currency_code}")
+        
+        # ✅ 多SKU变体定价：为每个variant计算独立价格
+        variants_list: list = draft.get("variants", []) if isinstance(draft, dict) else []
+        variant_prices: list = []
+        if variants_list and isinstance(variants_list, list) and len(variants_list) > 0:
+            logger.info(f"🔄 多SKU变体定价：共{len(variants_list)}个变体")
+            for var in variants_list:
+                if not isinstance(var, dict):
+                    continue
+                # 使用variant的price作为采购成本（1688售价即为我们的采购成本）
+                var_cost_cny: float = float(var.get("price", 0) or cost_cny)
+                var_total_cost: float = var_cost_cny + logistics_cost + packaging_cost
+                
+                if currency_code == "CNY":
+                    var_base_price: float = var_total_cost * (1 + commission_rate) * (1 + fx_buffer) * (1 + margin_rate)
+                    var_price: int = math.ceil(var_base_price)
+                    var_old_price: int = var_price + 3 if var_price <= 25 else math.ceil(var_price * 1.15)
+                else:
+                    var_base_rub: float = var_total_cost * (1 + commission_rate) * (1 + fx_buffer) * (1 + margin_rate) * exchange_rate
+                    var_price = math.ceil(var_base_rub)
+                    var_old_price = var_price + 3 if var_price <= 25 else math.ceil(var_price * 1.15)
+                
+                var_sku_id: str = str(var.get("sku_id", ""))
+                var_color: str = str(var.get("color", ""))
+                variant_prices.append({
+                    "sku_id": var_sku_id,
+                    "color": var_color,
+                    "price": var_price,
+                    "old_price": var_old_price,
+                    "currency_code": currency_code
+                })
+                logger.info(f"  变体 {var_sku_id}: color={var_color}, cost={var_cost_cny}CNY → price={var_price} {currency_unit}, old_price={var_old_price}")
+            
+            pricing_info["variant_prices"] = variant_prices
+            logger.info(f"✅ 多SKU变体定价完成：{len(variant_prices)}个变体价格已计算")
+        
+        return PricingOutput(
+            pricing_info=pricing_info,
+            price=str(price),
+            old_price=str(old_price),
+            error_message=""
+        )
+        
+    except Exception as e:
+        logger.error(f"价格计算失败: {str(e)}")
+        return PricingOutput(
+            pricing_info={},
+            price="",
+            old_price="",
+            error_message=f"Pricing calculation failed: {str(e)}"
+        )
+
+
+def _get_store_logistics_config(ozon_client_id: str, ozon_api_key: str) -> tuple:
+    """查询Ozon API获取店铺第三方物流(3PL)和服务等级"""
+    try:
+        headers = {
+            "Client-Id": ozon_client_id,
+            "Api-Key": ozon_api_key,
+            "Content-Type": "application/json"
+        }
+        resp = requests.post(
+            "https://api-seller.ozon.ru/v2/delivery-method/list",
+            headers=headers, json={"limit": 100}, timeout=30
+        )
+        if resp.status_code != 200:
+            logger.warning(f"Ozon配送方式查询失败: {resp.status_code}")
+            return ("RETS", "Standard")
+
+        data: Any = resp.json()
+        methods = data.get("delivery_methods", [])
+        if not methods:
+            return ("RETS", "Standard")
+
+        # 从配送方式名称中提取3PL和服务等级
+        # 名称格式如: "RETS Standard Longyan rFBS Courier" 或 "RETS Economy..."
+        first_method_name = methods[0].get("name", "")
+        tpl_provider = "RETS"
+        service_level = "Standard"
+
+        # 已知的3PL列表
+        known_tpls = ["RETS", "ATC", "ZTO", "Ural", "GUOO", "CEL", "GBS", "OYX", "ABT", "Xingyuan", "Tanais"]
+        for tpl in known_tpls:
+            if tpl.lower() in first_method_name.lower():
+                tpl_provider = tpl
+                break
+
+        # 服务等级匹配
+        name_upper = first_method_name.upper()
+        if "ECONOMY" in name_upper:
+            service_level = "Economy"
+        elif "EXPRESS" in name_upper:
+            service_level = "Express"
+        elif "STANDARD" in name_upper:
+            service_level = "Standard"
+
+        logger.info(f"店铺物流配置: 3PL={tpl_provider}, 服务等级={service_level}, 配送方式名={first_method_name}")
+        return (tpl_provider, service_level)
+
+    except Exception as e:
+        logger.error(f"查询店铺物流配置失败: {str(e)}")
+        return ("RETS", "Standard")
+
+
+def _query_logistics_from_sqlite(weight: float, depth_cm: float, width_cm: float, height_cm: float, tpl_provider: str, service_level: str) -> tuple:
+    """从SQLite查询物流费率，按3PL+服务等级+评分组精确匹配"""
+    try:
+        db_path = os.path.join(os.getenv("COZE_WORKSPACE_PATH", "."), "assets/local_cache.db")
+        if not os.path.exists(db_path):
+            db_path = "assets/local_cache.db"
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # 计算边长总和和长边
+        dims = sorted([depth_cm, width_cm, height_cm], reverse=True)
+        longest_cm = dims[0] if dims else 0
+        sum_cm = sum(dims)
+
+        # 匹配评分组：weight在范围内 AND 尺寸在限制内
+        cursor.execute("""
+            SELECT scoring_group, base_cost, per_gram_rate, weight_min, weight_max,
+                   sum_limit_cm, longest_limit_cm, charge_type, vol_weight_divisor
+            FROM logistics_rates
+            WHERE tpl_provider = ? AND service_level = ?
+              AND weight_min <= ? AND weight_max >= ?
+              AND sum_limit_cm >= ? AND longest_limit_cm >= ?
+            ORDER BY base_cost ASC
+            LIMIT 1
+        """, (tpl_provider, service_level, int(weight), int(weight), int(sum_cm), int(longest_cm)))
+
+        rows = cursor.fetchall()
+
+        if not rows:
+            # 尺寸限制不满足，尝试只按重量匹配（忽略尺寸限制）
+            cursor.execute("""
+                SELECT scoring_group, base_cost, per_gram_rate, weight_min, weight_max,
+                       sum_limit_cm, longest_limit_cm, charge_type, vol_weight_divisor
+                FROM logistics_rates
+                WHERE tpl_provider = ? AND service_level = ?
+                  AND weight_min <= ? AND weight_max >= ?
+                ORDER BY base_cost ASC
+                LIMIT 1
+            """, (tpl_provider, service_level, int(weight), int(weight)))
+            rows = cursor.fetchall()
+
+        if not rows:
+            # 该3PL+等级没有匹配，尝试同等级其他3PL
+            cursor.execute("""
+                SELECT scoring_group, base_cost, per_gram_rate, weight_min, weight_max,
+                       sum_limit_cm, longest_limit_cm, charge_type, vol_weight_divisor
+                FROM logistics_rates
+                WHERE service_level = ?
+                  AND weight_min <= ? AND weight_max >= ?
+                  AND sum_limit_cm >= ? AND longest_limit_cm >= ?
+                ORDER BY base_cost ASC
+                LIMIT 1
+            """, (service_level, int(weight), int(weight), int(sum_cm), int(longest_cm)))
+            rows = cursor.fetchall()
+
+        if rows:
+            row = rows[0]
+            scoring_group = row[0]
+            base_cost = float(row[1])
+            per_gram_rate = float(row[2])
+            charge_type = str(row[7])
+            vol_divisor = int(row[8])
+
+            # 计算计费重量
+            billable_weight = weight
+            if vol_divisor > 0 and vol_divisor > 1:
+                vol_weight = (depth_cm * width_cm * height_cm) / vol_divisor
+                billable_weight = max(weight, vol_weight)
+
+            logistics_cost = base_cost + per_gram_rate * billable_weight
+            channel_name = f"{tpl_provider}_{service_level}_{scoring_group}"
+
+            logger.info(
+                f"物流费率匹配: 3PL={tpl_provider}, 等级={service_level}, 评分组={scoring_group}, "
+                f"weight={weight}g, billable={billable_weight:.1f}g, "
+                f"base={base_cost}, rate={per_gram_rate}/g, cost={logistics_cost:.2f} CNY"
+            )
+            conn.close()
+            return (logistics_cost, channel_name)
+
+        # 最终fallback：使用RETS Standard
+        cursor.execute("""
+            SELECT scoring_group, base_cost, per_gram_rate, charge_type, vol_weight_divisor
+            FROM logistics_rates
+            WHERE tpl_provider = 'RETS' AND service_level = 'Standard'
+              AND weight_min <= ? AND weight_max >= ?
+            ORDER BY weight_min ASC
+            LIMIT 1
+        """, (int(weight), int(weight)))
+        fallback_rows = cursor.fetchall()
+        conn.close()
+
+        if fallback_rows:
+            fb = fallback_rows[0]
+            base_cost = float(fb[1])
+            per_gram_rate = float(fb[2])
+            logistics_cost = base_cost + per_gram_rate * weight
+            logger.warning(f"物流费率最终fallback到RETS Standard: cost={logistics_cost:.2f}")
+            return (logistics_cost, "RETS_Standard_fallback")
+
+        # 绝对最后fallback
+        logger.warning(f"SQLite物流费率表无数据，使用默认费率")
+        return (weight * 0.15, "default_fallback")
+
+    except Exception as e:
+        logger.error(f"SQLite物流费率查询失败: {str(e)}")
+        return (weight * 0.15, "error_fallback")
+
+
+def _get_exchange_rate(supabase_url: str, supabase_key: str, currency_code: str = "RUB") -> float:
+    """查询汇率（根据currency_code决定汇率方向）"""
+    try:
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json"
+        }
+        
+        # 根据currency_code决定查询哪个汇率
+        if currency_code == "CNY":
+            # 店铺是CNY，不需要汇率转换（返回1.0）
+            return 1.0
+        else:
+            # 店铺是RUB，查询CNY to RUB汇率
+            query_url = f"{supabase_url}/rest/v1/exchange_rates?from_currency=eq.CNY&to_currency=eq.RUB&select=*"
+            
+            response = requests.get(query_url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                rates_data: Any = response.json()
+                
+                if isinstance(rates_data, list) and len(rates_data) > 0:
+                    rate_record: Dict[str, Any] = rates_data[0]
+                    exchange_rate: float = float(rate_record.get("rate", 12.0))
+                    logger.info(f"查询汇率成功: CNY to RUB = {exchange_rate}")
+                    return exchange_rate
+            
+            # 默认值（如果查询失败）
+            return 12.0  # 默认CNY to RUB汇率
+        
+    except Exception as e:
+        logger.error(f"查询汇率失败: {str(e)}")
+        return 12.0  # 默认值

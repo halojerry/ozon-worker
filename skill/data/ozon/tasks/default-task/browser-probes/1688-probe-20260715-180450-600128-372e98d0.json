@@ -1,0 +1,533 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-master/pounding-ozon-probe/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "宠物自动挂笼式饮水器狗狗自动喂食器防外溅猫咪不湿嘴宠物用品",
+    "price": "¥5.5",
+    "brand": "其他",
+    "seller": "义乌市阔折塑料制品厂 关注 客服 商品 入驻11年 主营：猫狗用品 店铺回头率 61% 店铺服务分 4.5分 准时发货率 33% 店铺好评率 95.7%",
+    "image_count": 33,
+    "attribute_count": 29,
+    "dom_sku_count": 12,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/980815374096.html",
+    "loginRequired": false,
+    "title": "宠物自动挂笼式饮水器狗狗自动喂食器防外溅猫咪不湿嘴宠物用品",
+    "price": "¥5.5",
+    "priceValue": 5.5,
+    "brand": "其他",
+    "seller": "义乌市阔折塑料制品厂 关注 客服 商品 入驻11年 主营：猫狗用品 店铺回头率 61% 店铺服务分 4.5分 准时发货率 33% 店铺好评率 95.7%",
+    "sellerLink": "https://pachaoqiang.1688.com/?offerId=980815374096&td_page_id=PC-UNLOGIN-DEFAULT-2025",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN0114JOhc1xmBZzbPvC6_!!992946485-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN0114JOhc1xmBZzbPvC6_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QVhMjn1xmBa00HCCa_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HdFqPM1xmBZybmbAp_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01XnppwT1xmBa0WRAQl_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cC8bu01xmBZzXLgbX_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0127qvys1xmBZzWMJPR_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01qQvqLA1xmBa00LpIE_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Elf7nE1xmBa00M1ws_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JJHSVo1xmBZzXPNdC_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fQv4CN1xmBZzXST2E_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PeNEsG1xmBa00PSGO_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN018CGO1N1xmBa0JVs3F_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0165Im8W1xmBZzNmLeR_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KFMXxT1xmBa00Pefu_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01NYTz3U1xmBa00UtEc_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN016M4ZIw1xmBZzNs7R7_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SVJqbk1xmBZzCf0Vd_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Or9JZe1xmBZzXYJFo_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pPA8EV1xmBZzChtMG_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ytanEO1xmBZzbdsrt_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015icqJs1xmBa0JXDNl_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01J5kC621xmBZztZq1u_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MhwiM31xmBZztamFh_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sKemyS1xmBZzCfTgI_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01EBdNAs1xmBa00VhEv_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QpUL281xmBYrLJnVY_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eyPLdH1xmBXE9vWyz_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01NprVz11xmBXCxBuFo_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yd9Hpu1xmBXGGOK3V_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01J6GpYz1xmBQm9WmtW_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01XCxvDc1xmBUvYPNfp_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN014H8oxT1xmBSKW8x5B_!!992946485-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01jhuSps1xmBcKPvMao_!!992946485-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "塑料"
+      },
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "成套自动喂食",
+        "value": "是"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "P87c"
+      },
+      {
+        "name": "箱装数量",
+        "value": "120"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "520ml【饮水款】粉色,520ml【饮水款】绿色,520ml【饮水款】蓝色,520ml【饮水款】白色,1600ml【喂食款】绿色,1600ml【喂食款】蓝色,1600ml【喂食款】粉色,1600ml【喂食款】白色,【饮水款】+【喂食款】白色,【饮水款】+【喂食款】粉色,【饮水款】+【喂食款】蓝色,【饮水款】+【喂食款】绿色"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "520ml【饮水款】粉色、520ml【饮水款】绿色、520ml【饮水款】蓝色、520ml【饮水款】白色、1600ml【喂食款】绿色、1600ml【喂食款】蓝色、1600ml【喂食款】粉色、1600ml【喂食款】白色、【饮水款】+【喂食款】白色、【饮水款】+【喂食款】粉色、【饮水款】+【喂食款】蓝色、【饮水款】+【喂食款】绿色"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2025年9月"
+      },
+      {
+        "name": "材质",
+        "value": "其他"
+      },
+      {
+        "name": "成套自动喂食",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "120"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "520ml【饮水款】粉色,520ml【饮水款】绿色,520ml【饮水款】蓝色,520ml【饮水款】白色,1600ml【喂食款】绿色,1600ml【喂食款】蓝色,1600ml【喂食款】粉色,1600ml【喂食款】白色,【饮水款】+【喂食款】白色,【饮水款】+【喂食款】粉色,【饮水款】+【喂食款】蓝色,【饮水款】+【喂食款】绿色"
+      },
+      {
+        "name": "520ml【饮水款】粉色",
+        "value": "227"
+      },
+      {
+        "name": "520ml【饮水款】绿色",
+        "value": "227"
+      },
+      {
+        "name": "520ml【饮水款】蓝色",
+        "value": "227"
+      },
+      {
+        "name": "520ml【饮水款】白色",
+        "value": "227"
+      },
+      {
+        "name": "1600ml【喂食款】绿色",
+        "value": "300"
+      },
+      {
+        "name": "1600ml【喂食款】蓝色",
+        "value": "300"
+      },
+      {
+        "name": "1600ml【喂食款】粉色",
+        "value": "300"
+      },
+      {
+        "name": "1600ml【喂食款】白色",
+        "value": "300"
+      },
+      {
+        "name": "【饮水款】+【喂食款】白色",
+        "value": "550"
+      },
+      {
+        "name": "【饮水款】+【喂食款】粉色",
+        "value": "550"
+      },
+      {
+        "name": "【饮水款】+【喂食款】蓝色",
+        "value": "550"
+      },
+      {
+        "name": "【饮水款】+【喂食款】绿色",
+        "value": "550"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "520ml【饮水款】粉色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01qQvqLA1xmBa00LpIE_!!992946485-0-cib.jpg"
+          },
+          {
+            "name": "520ml【饮水款】绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0127qvys1xmBZzWMJPR_!!992946485-0-cib.jpg"
+          },
+          {
+            "name": "520ml【饮水款】蓝色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01JJHSVo1xmBZzXPNdC_!!992946485-0-cib.jpg"
+          },
+          {
+            "name": "520ml【饮水款】白色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Elf7nE1xmBa00M1ws_!!992946485-0-cib.jpg"
+          },
+          {
+            "name": "1600ml【喂食款】绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fQv4CN1xmBZzXST2E_!!992946485-0-cib.jpg"
+          },
+          {
+            "name": "1600ml【喂食款】蓝色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0165Im8W1xmBZzNmLeR_!!992946485-0-cib.jpg"
+          },
+          {
+            "name": "1600ml【喂食款】粉色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KFMXxT1xmBa00Pefu_!!992946485-0-cib.jpg"
+          },
+          {
+            "name": "1600ml【喂食款】白色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01PeNEsG1xmBa00PSGO_!!992946485-0-cib.jpg"
+          },
+          {
+            "name": "【饮水款】+【喂食款】白色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN018CGO1N1xmBa0JVs3F_!!992946485-0-cib.jpg"
+          },
+          {
+            "name": "【饮水款】+【喂食款】粉色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN016M4ZIw1xmBZzNs7R7_!!992946485-0-cib.jpg"
+          },
+          {
+            "name": "【饮水款】+【喂食款】蓝色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NYTz3U1xmBa00UtEc_!!992946485-0-cib.jpg"
+          },
+          {
+            "name": "【饮水款】+【喂食款】绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01SVJqbk1xmBZzCf0Vd_!!992946485-0-cib.jpg"
+          },
+          {
+            "name": "520ml【饮水款】粉色",
+            "image": null,
+            "price": 5.5
+          },
+          {
+            "name": "520ml【饮水款】绿色",
+            "image": null,
+            "price": 5.5
+          },
+          {
+            "name": "520ml【饮水款】蓝色",
+            "image": null,
+            "price": 5.5
+          },
+          {
+            "name": "520ml【饮水款】白色",
+            "image": null,
+            "price": 5.5
+          },
+          {
+            "name": "1600ml【喂食款】绿色",
+            "image": null,
+            "price": 9
+          },
+          {
+            "name": "1600ml【喂食款】蓝色",
+            "image": null,
+            "price": 9
+          },
+          {
+            "name": "1600ml【喂食款】粉色",
+            "image": null,
+            "price": 9
+          },
+          {
+            "name": "1600ml【喂食款】白色",
+            "image": null,
+            "price": 9
+          },
+          {
+            "name": "【饮水款】+【喂食款】白色",
+            "image": null,
+            "price": 14.5
+          },
+          {
+            "name": "【饮水款】+【喂食款】粉色",
+            "image": null,
+            "price": 14.5
+          },
+          {
+            "name": "【饮水款】+【喂食款】蓝色",
+            "image": null,
+            "price": 14.5
+          },
+          {
+            "name": "【饮水款】+【喂食款】绿色",
+            "image": null,
+            "price": 14.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格 重量(g) 520ml【饮水款】粉色 227 520ml【饮水款】绿色 227 520ml【饮水款】蓝色 227 520ml【饮水款】白色 227 1600ml【喂食款】绿色 300 1600ml【喂食款】蓝色 300 1600ml【喂食款】粉色 300 1600ml【喂食款】白色 300 【饮水款】+【喂食款】白色 550 【饮水款】+【喂食款】粉色 550 【饮水款】+【喂食款】蓝色 550 【饮水款】+【喂食款】绿色 550",
+    "packagingRows": [
+      {
+        "color": "520ml【饮水款】粉色",
+        "capacity": "520ml【饮水款】粉色",
+        "weightText": "227",
+        "weightGrams": 227,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "520ml【饮水款】绿色",
+        "capacity": "520ml【饮水款】绿色",
+        "weightText": "227",
+        "weightGrams": 227,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "520ml【饮水款】蓝色",
+        "capacity": "520ml【饮水款】蓝色",
+        "weightText": "227",
+        "weightGrams": 227,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "520ml【饮水款】白色",
+        "capacity": "520ml【饮水款】白色",
+        "weightText": "227",
+        "weightGrams": 227,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "1600ml【喂食款】绿色",
+        "capacity": "1600ml【喂食款】绿色",
+        "weightText": "300",
+        "weightGrams": 300,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "1600ml【喂食款】蓝色",
+        "capacity": "1600ml【喂食款】蓝色",
+        "weightText": "300",
+        "weightGrams": 300,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "1600ml【喂食款】粉色",
+        "capacity": "1600ml【喂食款】粉色",
+        "weightText": "300",
+        "weightGrams": 300,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "1600ml【喂食款】白色",
+        "capacity": "1600ml【喂食款】白色",
+        "weightText": "300",
+        "weightGrams": 300,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "【饮水款】+【喂食款】白色",
+        "capacity": "【饮水款】+【喂食款】白色",
+        "weightText": "550",
+        "weightGrams": 550,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "【饮水款】+【喂食款】粉色",
+        "capacity": "【饮水款】+【喂食款】粉色",
+        "weightText": "550",
+        "weightGrams": 550,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "【饮水款】+【喂食款】蓝色",
+        "capacity": "【饮水款】+【喂食款】蓝色",
+        "weightText": "550",
+        "weightGrams": 550,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "【饮水款】+【喂食款】绿色",
+        "capacity": "【饮水款】+【喂食款】绿色",
+        "weightText": "550",
+        "weightGrams": 550,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 3,
+      "carrier": "中通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "520ml【饮水款】粉色",
+        "price": 5.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01qQvqLA1xmBa00LpIE_!!992946485-0-cib.jpg"
+      },
+      {
+        "name": "520ml【饮水款】绿色",
+        "price": 5.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN0127qvys1xmBZzWMJPR_!!992946485-0-cib.jpg"
+      },
+      {
+        "name": "520ml【饮水款】蓝色",
+        "price": 5.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01JJHSVo1xmBZzXPNdC_!!992946485-0-cib.jpg"
+      },
+      {
+        "name": "520ml【饮水款】白色",
+        "price": 5.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Elf7nE1xmBa00M1ws_!!992946485-0-cib.jpg"
+      },
+      {
+        "name": "1600ml【喂食款】绿色",
+        "price": 9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fQv4CN1xmBZzXST2E_!!992946485-0-cib.jpg"
+      },
+      {
+        "name": "1600ml【喂食款】蓝色",
+        "price": 9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN0165Im8W1xmBZzNmLeR_!!992946485-0-cib.jpg"
+      },
+      {
+        "name": "1600ml【喂食款】粉色",
+        "price": 9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KFMXxT1xmBa00Pefu_!!992946485-0-cib.jpg"
+      },
+      {
+        "name": "1600ml【喂食款】白色",
+        "price": 9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01PeNEsG1xmBa00PSGO_!!992946485-0-cib.jpg"
+      },
+      {
+        "name": "【饮水款】+【喂食款】白色",
+        "price": 14.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN018CGO1N1xmBa0JVs3F_!!992946485-0-cib.jpg"
+      },
+      {
+        "name": "【饮水款】+【喂食款】粉色",
+        "price": 14.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN016M4ZIw1xmBZzNs7R7_!!992946485-0-cib.jpg"
+      },
+      {
+        "name": "【饮水款】+【喂食款】蓝色",
+        "price": 14.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NYTz3U1xmBa00UtEc_!!992946485-0-cib.jpg"
+      },
+      {
+        "name": "【饮水款】+【喂食款】绿色",
+        "price": 14.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01SVJqbk1xmBZzCf0Vd_!!992946485-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 10,
+      "attributeCount": 29,
+      "optionGroupCount": 1,
+      "skuCount": 12,
+      "imageCount": 33,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 2,
+      "packagingTableTextLength": 220
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-master/pounding-ozon-probe/data/ozon/tasks/default-task/browser-probes/1688-probe-20260715-180450-600128-372e98d0.json"
+}

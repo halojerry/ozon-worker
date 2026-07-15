@@ -1,0 +1,267 @@
+{
+  "updatedAt": "2026-06-27T09:50:46.211Z",
+  "createdAt": "2026-06-15T17:12:25.597Z",
+  "id": "f7pAFuuRCJZNatvH",
+  "name": "pounding-ozon-worker",
+  "description": "None",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "schedule",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 10
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fetch",
+      "name": "FetchPending",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        400,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const SB_URL = 'https://kekmppsuiiokdckdeolv.supabase.co';\nconst SB_KEY = $env.SUPABASE_SERVICE_ROLE_KEY||'';\n\ntry {\n  const resp = await this.helpers.httpRequest({\n    method: 'GET',\n    url: SB_URL + '/rest/v1/gateway_tasks?select=task_id,input_json,status,caller_user_id&status=eq.pending&updated_at=lt.' + Math.floor(Date.now()/1000 - 10) + '&order=created_at.asc&limit=5',\n    headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY },\n    json: true, returnFullResponse: true, timeout: 10000\n  });\n  const rows = resp.body || [];\n  if (!rows.length) return [{ json: { _empty: true } }];\n  \n  return rows.map(function(r) {\n    // Parse input_json properly (fix the JSON bug!)\n    var input = r.input_json;\n    if (typeof input === 'string') { try { input = JSON.parse(input); } catch(e) {} }\n    // Unwrap envelope if wrapped\n    if (input && input.envelope) { input = input.envelope; }\n    return {\n      json: {\n        task_id: r.task_id,\n        envelope: input,\n        caller_user_id: r.caller_user_id || '',\n        _sb_key: SB_KEY,\n        _sb_url: SB_URL\n      }\n    };\n  });\n} catch(e) {\n  return [{ json: { _error: String(e.message || e).slice(0, 100) } }];\n}"
+      }
+    },
+    {
+      "id": "claim",
+      "name": "ClaimTask",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        600,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const SB_URL = 'https://kekmppsuiiokdckdeolv.supabase.co';\nconst SB_KEY = $env.SUPABASE_SERVICE_ROLE_KEY||'';\nconst item = ($input.all()[0]||{}).json;\nif (!item.task_id || item._empty || item._error) return [{ json: item }];\n\n// Claim the task\ntry {\n  await this.helpers.httpRequest({\n    method: 'PATCH',\n    url: SB_URL + '/rest/v1/gateway_tasks?task_id=eq.' + item.task_id,\n    headers: {\n      apikey: SB_KEY,\n      Authorization: 'Bearer ' + SB_KEY,\n      'Content-Type': 'application/json',\n      'Prefer': 'return=minimal'\n    },\n    body: { status: 'in_progress' },\n    json: true, timeout: 5000\n  });\n  return [{ json: item }];\n} catch(e) {\n  item._claim_error = String(e.message || e).slice(0, 100);\n  return [{ json: item }];\n}"
+      }
+    },
+    {
+      "id": "process",
+      "name": "ProcessTask",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        800,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const item = ($input.all()[0]||{}).json;\nif (!item.task_id || item._claim_error) return [{ json: item }];\n\n// Find a valid mxou token from the envelope extensions or task\nconst ext = (item.envelope || {}).extensions || {};\nconst token = ext.mxou_token || '';\n\n// Call the pipeline webhook to process\ntry {\n  const resp = await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'http://n8n:5678/webhook/pl-v3-304140',\n    headers: {\n      'Content-Type': 'application/json',\n      'Authorization': 'Bearer ' + token\n    },\n    body: {\n      task_id: item.task_id,\n      envelope: item.envelope,\n      token: token\n    },\n    json: true, returnFullResponse: true, timeout: 120000\n  });\n  item._processed = true;\n  item._pipeline_response = resp.body || {};\n} catch(e) {\n  item._process_error = String(e.message || e).slice(0, 200);\n}\nreturn [{ json: item }];"
+      }
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "FetchPending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FetchPending": {
+      "main": [
+        [
+          {
+            "node": "ClaimTask",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClaimTask": {
+      "main": [
+        [
+          {
+            "node": "ProcessTask",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {
+    "node:Schedule": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": null,
+  "versionId": "dc235da4-010f-40e7-8a46-a8861712dca0",
+  "activeVersionId": "dc235da4-010f-40e7-8a46-a8861712dca0",
+  "versionCounter": 4,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "shared": [
+    {
+      "updatedAt": "2026-06-15T17:12:25.600Z",
+      "createdAt": "2026-06-15T17:12:25.600Z",
+      "role": "workflow:owner",
+      "workflowId": "f7pAFuuRCJZNatvH",
+      "projectId": "CryX355jf4UC0cEn",
+      "project": {
+        "updatedAt": "2026-05-28T18:00:18.250Z",
+        "createdAt": "2026-05-28T17:53:47.037Z",
+        "id": "CryX355jf4UC0cEn",
+        "name": "jerry halo <1041435346@qq.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "bd01d353-87ee-4a15-8af9-a542060d2413"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-06-27T09:50:46.212Z",
+    "createdAt": "2026-06-27T09:50:46.212Z",
+    "versionId": "dc235da4-010f-40e7-8a46-a8861712dca0",
+    "workflowId": "f7pAFuuRCJZNatvH",
+    "nodes": [
+      {
+        "id": "schedule",
+        "name": "Schedule",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1,
+        "position": [
+          200,
+          300
+        ],
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "seconds",
+                "secondsInterval": 10
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "fetch",
+        "name": "FetchPending",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 1,
+        "position": [
+          400,
+          300
+        ],
+        "parameters": {
+          "jsCode": "const SB_URL = 'https://kekmppsuiiokdckdeolv.supabase.co';\nconst SB_KEY = $env.SUPABASE_SERVICE_ROLE_KEY||'';\n\ntry {\n  const resp = await this.helpers.httpRequest({\n    method: 'GET',\n    url: SB_URL + '/rest/v1/gateway_tasks?select=task_id,input_json,status,caller_user_id&status=eq.pending&updated_at=lt.' + Math.floor(Date.now()/1000 - 10) + '&order=created_at.asc&limit=5',\n    headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY },\n    json: true, returnFullResponse: true, timeout: 10000\n  });\n  const rows = resp.body || [];\n  if (!rows.length) return [{ json: { _empty: true } }];\n  \n  return rows.map(function(r) {\n    // Parse input_json properly (fix the JSON bug!)\n    var input = r.input_json;\n    if (typeof input === 'string') { try { input = JSON.parse(input); } catch(e) {} }\n    // Unwrap envelope if wrapped\n    if (input && input.envelope) { input = input.envelope; }\n    return {\n      json: {\n        task_id: r.task_id,\n        envelope: input,\n        caller_user_id: r.caller_user_id || '',\n        _sb_key: SB_KEY,\n        _sb_url: SB_URL\n      }\n    };\n  });\n} catch(e) {\n  return [{ json: { _error: String(e.message || e).slice(0, 100) } }];\n}"
+        }
+      },
+      {
+        "id": "claim",
+        "name": "ClaimTask",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 1,
+        "position": [
+          600,
+          300
+        ],
+        "parameters": {
+          "jsCode": "const SB_URL = 'https://kekmppsuiiokdckdeolv.supabase.co';\nconst SB_KEY = $env.SUPABASE_SERVICE_ROLE_KEY||'';\nconst item = ($input.all()[0]||{}).json;\nif (!item.task_id || item._empty || item._error) return [{ json: item }];\n\n// Claim the task\ntry {\n  await this.helpers.httpRequest({\n    method: 'PATCH',\n    url: SB_URL + '/rest/v1/gateway_tasks?task_id=eq.' + item.task_id,\n    headers: {\n      apikey: SB_KEY,\n      Authorization: 'Bearer ' + SB_KEY,\n      'Content-Type': 'application/json',\n      'Prefer': 'return=minimal'\n    },\n    body: { status: 'in_progress' },\n    json: true, timeout: 5000\n  });\n  return [{ json: item }];\n} catch(e) {\n  item._claim_error = String(e.message || e).slice(0, 100);\n  return [{ json: item }];\n}"
+        }
+      },
+      {
+        "id": "process",
+        "name": "ProcessTask",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 1,
+        "position": [
+          800,
+          300
+        ],
+        "parameters": {
+          "jsCode": "const item = ($input.all()[0]||{}).json;\nif (!item.task_id || item._claim_error) return [{ json: item }];\n\n// Find a valid mxou token from the envelope extensions or task\nconst ext = (item.envelope || {}).extensions || {};\nconst token = ext.mxou_token || '';\n\n// Call the pipeline webhook to process\ntry {\n  const resp = await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'http://n8n:5678/webhook/pl-v3-304140',\n    headers: {\n      'Content-Type': 'application/json',\n      'Authorization': 'Bearer ' + token\n    },\n    body: {\n      task_id: item.task_id,\n      envelope: item.envelope,\n      token: token\n    },\n    json: true, returnFullResponse: true, timeout: 30000\n  });\n  item._processed = true;\n  item._pipeline_response = resp.body || {};\n} catch(e) {\n  item._process_error = String(e.message || e).slice(0, 200);\n}\nreturn [{ json: item }];"
+        }
+      }
+    ],
+    "connections": {
+      "Schedule": {
+        "main": [
+          [
+            {
+              "node": "FetchPending",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "FetchPending": {
+        "main": [
+          [
+            {
+              "node": "ClaimTask",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "ClaimTask": {
+        "main": [
+          [
+            {
+              "node": "ProcessTask",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "jerry halo",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-06-27T09:50:46.240Z",
+        "id": 1202,
+        "workflowId": "f7pAFuuRCJZNatvH",
+        "versionId": "dc235da4-010f-40e7-8a46-a8861712dca0",
+        "event": "activated",
+        "userId": "bd01d353-87ee-4a15-8af9-a542060d2413"
+      },
+      {
+        "createdAt": "2026-06-27T09:50:46.233Z",
+        "id": 1201,
+        "workflowId": "f7pAFuuRCJZNatvH",
+        "versionId": "dc235da4-010f-40e7-8a46-a8861712dca0",
+        "event": "deactivated",
+        "userId": "bd01d353-87ee-4a15-8af9-a542060d2413"
+      }
+    ]
+  }
+}
