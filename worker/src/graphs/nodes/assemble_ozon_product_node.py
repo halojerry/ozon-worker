@@ -328,7 +328,7 @@ def assemble_ozon_product_node(
         "description_category_id": str(description_category_id),
         "type_id": str(type_id),
         "attributes_schema": attr_list,
-        "dictionary_values": dict_lookup,
+        "dictionary_values": {str(k): v for k, v in dict_lookup.items()},  # ← 键必须是 str（PrepareOzonUploadInput 要求）
         "final_attributes": final_attributes,
         "llm_attributes": llm_attributes,
         "learned_attributes": {},
