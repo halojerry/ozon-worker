@@ -3,3 +3,9 @@
 2026/07/16-16:33:52.758 1ef3e Level-0 table #16: started
 2026/07/16-16:33:52.764 1ef3e Level-0 table #16: 26665 bytes OK
 2026/07/16-16:33:52.767 1ef3e Delete type=0 #13
+2026/07/16-18:05:58.360 1ef42 Level-0 table #19: started
+2026/07/16-18:05:58.373 1ef42 Level-0 table #19: 99635 bytes OK
+2026/07/16-18:05:58.380 1ef42 Delete type=0 #17
+2026/07/16-18:05:58.605 1ef42 Level-0 table #21: started
+2026/07/16-18:05:58.610 1ef42 Level-0 table #21: 241345 bytes OK
+2026/07/16-18:05:58.611 1ef42 Delete type=0 #18

@@ -79,7 +79,9 @@ def assemble_ozon_product_node(
     输入: GlobalState（含 draft, token, ozon_client_id, ozon_api_key, pricing_info）
     输出: dict（被 LangGraph 合并到 GlobalState）
     """
-    progress = ProgressLogger(state, __name__)
+    progress = ProgressLogger()
+    progress.log_node_start("assemble_ozon_product", "统一商品组装")
+    progress.log_node_action("Step 1: 类目匹配...")
 
     draft: dict[str, Any] = state.draft or {}
     token: str = state.token or ""
@@ -154,7 +156,7 @@ def assemble_ozon_product_node(
     # =====================================================
     # Step 2: 获取属性 Schema（PG 缓存优先，Ozon API 回退）
     # =====================================================
-    logger.info(f"📋 Step 2: 获取属性 Schema — category={description_category_id}, type={type_id}")
+    progress.log_node_action(f"Step 2: 获取属性 Schema — category={description_category_id}, type={type_id}")
 
     attr_schema = query.get_attribute_schema(description_category_id, type_id)
     if attr_schema and isinstance(attr_schema, dict) and attr_schema.get("result"):
@@ -278,7 +280,7 @@ def assemble_ozon_product_node(
     # =====================================================
     # Step 7: 返回结果 dict（LangGraph 自动合并到 GlobalState）
     # =====================================================
-    progress.log("assemble_ozon_product", f"类目={category_path}, 属性={len(final_attributes)}个, items={len(items)}个")
+    progress.log_node_success(f"类目={category_path}, 属性={len(final_attributes)}个, items={len(items)}个")
 
     logger.info(f"✅ 统一组装完成: 类目=[{description_category_id}/{type_id}], 属性={len(final_attributes)}个, items={len(items)}个")
 
