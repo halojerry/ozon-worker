@@ -1,3 +1,3 @@
-2026/07/16-18:48:32.125 1eef9 Reusing MANIFEST /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/Sync Data/LevelDB/MANIFEST-000001
-2026/07/16-18:48:32.125 1eef9 Recovering log #3
-2026/07/16-18:48:32.126 1eef9 Reusing old log /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/Sync Data/LevelDB/000003.log 
+2026/07/16-20:30:38.915 1eef9 Reusing MANIFEST /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/Sync Data/LevelDB/MANIFEST-000001
+2026/07/16-20:30:38.915 1eef9 Recovering log #3
+2026/07/16-20:30:38.916 1eef9 Reusing old log /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/Sync Data/LevelDB/000003.log 

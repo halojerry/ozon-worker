@@ -166,6 +166,16 @@ def assemble_ozon_product_node(
     description_category_id: int = int(category_result["description_category_id"])
     type_id: int = int(category_result["type_id"])
     category_path: str = category_result.get("category_path", "")
+    
+    # ✅ 修正 LLM 输出：LLM 有时把 type_id 填到 description_category_id
+    # 从 candidates 中查找正确的 description_category_id
+    if description_category_id == type_id or description_category_id <= 0:
+        for c in candidates:
+            if int(c.get("type_id", 0)) == type_id and int(c.get("description_category_id", 0)) > 0:
+                description_category_id = int(c["description_category_id"])
+                logger.info(f"   🔧 修正 description_category_id: {type_id} → {description_category_id}")
+                break
+    
     logger.info(f"   ✅ 类目匹配: [{description_category_id}/{type_id}] {category_path}")
 
     # =====================================================
