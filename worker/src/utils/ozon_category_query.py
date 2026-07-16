@@ -128,10 +128,45 @@ class OzonCategoryQuery:
         node_type: str | None,
         language: str,
     ) -> list[dict]:
-        """ILIKE 回退搜索（当 pg_trgm 不可用时）"""
+        """ILIKE 回退搜索。将查询拆分为单词，用 OR 连接多个 ILIKE 条件。"""
         session = get_session()
         try:
-            pattern = f"%{query_text}%"
+            # 拆分查询为单词，每个单词单独 ILIKE
+            words = query_text.split()
+            # 构建 OR 条件：每个单词对 node_name 和 full_path 做 ILIKE
+            from sqlalchemy import or_
+            conditions = [CategoryTreeNode.language == language]
+            
+            if words:
+                word_conditions = []
+                for word in words:
+                    if len(word) >= 2:  # 跳过单字
+                        pattern = f"%{word}%"
+                        word_conditions.append(CategoryTreeNode.node_name.ilike(pattern))
+                        word_conditions.append(CategoryTreeNode.full_path.ilike(pattern))
+                if word_conditions:
+                    conditions.append(or_(*word_conditions))
+                else:
+                    # 无有效单词，回退到整体查询
+                    pattern = f"%{query_text}%"
+                    conditions.append(
+                        or_(
+                            CategoryTreeNode.node_name.ilike(pattern),
+                            CategoryTreeNode.full_path.ilike(pattern),
+                        )
+                    )
+            else:
+                pattern = f"%{query_text}%"
+                conditions.append(
+                    or_(
+                        CategoryTreeNode.node_name.ilike(pattern),
+                        CategoryTreeNode.full_path.ilike(pattern),
+                    )
+                )
+
+            if node_type:
+                conditions.append(CategoryTreeNode.node_type == node_type)
+
             stmt = (
                 select(
                     CategoryTreeNode.description_category_id,
@@ -141,20 +176,9 @@ class OzonCategoryQuery:
                     CategoryTreeNode.top_level_category_name,
                     CategoryTreeNode.depth,
                 )
-                .where(
-                    and_(
-                        CategoryTreeNode.language == language,
-                        (
-                            CategoryTreeNode.node_name.ilike(pattern) |
-                            CategoryTreeNode.full_path.ilike(pattern)
-                        ),
-                    )
-                )
+                .where(and_(*conditions))
                 .limit(top_k)
             )
-
-            if node_type:
-                stmt = stmt.where(CategoryTreeNode.node_type == node_type)
 
             rows = session.execute(stmt).mappings().all()
 
@@ -170,7 +194,7 @@ class OzonCategoryQuery:
                     "similarity": 0.0,
                 })
 
-            logger.info(f"🔍 ILIKE 回退搜索：'{query_text}' 命中 {len(results)} 条")
+            logger.info(f"🔍 ILIKE 回退搜索：词数={len(words)}, 命中 {len(results)} 条")
             return results
         finally:
             session.close()

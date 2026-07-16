@@ -315,31 +315,26 @@ def assemble_ozon_product_node(
 
 
 def _extract_keywords(title: str, description: str, attributes: dict[str, Any]) -> str:
-    """从产品数据中提取搜索关键词（简短、核心词优先）"""
+    """从产品数据中提取搜索关键词（使用 jieba 分词，取核心2-4词）"""
     import re
-    parts: list[str] = []
+    try:
+        import jieba
+    except ImportError:
+        jieba = None
 
-    # 提取核心词：取标题的关键2-3词组合
-    if title:
-        # 移除标点、特殊字符，只保留中文和字母
-        clean = re.sub(r'[^\u4e00-\u9fff\w\s]', ' ', title)
-        words = clean.split()
-        # 取最短和最有区分度的词
-        if len(words) >= 2:
-            # 组合前2-3个词作为核心关键词
-            core = ' '.join(words[:3])
-            parts.append(core)
-        else:
-            parts.append(title[:30])
+    # 清理标题
+    clean = re.sub(r'[^\u4e00-\u9fff\w]', ' ', title)[:60]
 
-    # 添加最相关的属性值
-    if attributes:
-        for k, v in list(attributes.items())[:3]:
-            if isinstance(v, str) and len(v) < 20 and v not in ('无', '手动', ''):
-                parts.append(f"{k}:{v}")
-
-    result = ' '.join(parts)
-    return result[:200] if result else title[:50]
+    if jieba:
+        # jieba 分词，取前3-5个有意义的词
+        words = list(jieba.cut(clean))
+        # 过滤单字和无意义词
+        meaningful = [w.strip() for w in words if len(w.strip()) >= 2 and w.strip() not in ('无', '手动', '全部', '展开', '参数')]
+        # 取前4个词组合
+        return ' '.join(meaningful[:4])
+    else:
+        # 回退：取前15个字符
+        return clean[:20]
 
 
 def _llm_match_category(
