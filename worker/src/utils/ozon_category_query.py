@@ -103,9 +103,15 @@ class OzonCategoryQuery:
                 })
 
             logger.info(
-                f"🔍 pg_trgm 搜索完成：query='{query_text}', "
+                f"🔍 pg_trgm 搜索完成：query='{query_text[:50]}...', "
                 f"node_type={node_type}, 命中 {len(results)} 条"
             )
+            
+            # pg_trgm 无结果时回退到 ILIKE
+            if not results:
+                logger.info("pg_trgm 无结果，回退到 ILIKE")
+                return self._search_fallback(query_text, top_k, node_type, language)
+            
             return results
 
         except Exception as e:
