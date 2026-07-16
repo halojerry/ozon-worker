@@ -128,7 +128,22 @@ def assemble_ozon_product_node(
         logger.warning("   叶子类型搜索为空，回退到全部节点搜索")
 
     if not candidates:
-        logger.error("❌ 类目搜索无结果")
+        # 缓存为空，调用 Ozon API 获取类目树
+        logger.warning("类目缓存为空，调用 Ozon API 获取类目树...")
+        tree_data = _fetch_category_tree_from_ozon(ozon_client_id, ozon_api_key)
+        if tree_data:
+            # 缓存并同步
+            from utils.local_db_manager import LocalDBManager
+            local_db = LocalDBManager()
+            local_db.set_category_cache(ozon_client_id, tree_data)
+            local_db.sync_category_tree_nodes(tree_data)
+            # 重试搜索
+            candidates = query.search_nodes(keywords, top_k=15, node_type="type")
+            if not candidates:
+                candidates = query.search_nodes(keywords, top_k=15, node_type=None)
+
+    if not candidates:
+        logger.error("❌ 类目搜索无结果（Ozon API 也无数据）")
         return {"error_message": "类目匹配失败：无候选类目"}
 
     logger.info(f"   pg_trgm 返回 {len(candidates)} 个候选")
@@ -732,3 +747,28 @@ def _validate_and_enrich_items(
         validated_items.append(item)
 
     return validated_items
+
+
+def _fetch_category_tree_from_ozon(
+    ozon_client_id: str,
+    ozon_api_key: str,
+) -> list[dict[str, Any]] | None:
+    """从 Ozon API 获取类目树并返回原始数据"""
+    try:
+        url = "https://api-seller.ozon.ru/v1/description-category/tree"
+        headers = {
+            "Client-Id": ozon_client_id,
+            "Api-Key": ozon_api_key,
+            "Content-Type": "application/json",
+        }
+        payload = {"language": "ZH_HANS"}
+        resp = session.post(url, json=payload, headers=headers, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        # 返回 result 列表（保持与 category_cache 存储格式一致）
+        result = data.get("result", [])
+        logger.info(f"✅ Ozon API 返回类目树: {len(result)} 个顶层类目")
+        return result
+    except Exception as e:
+        logger.error(f"❌ Ozon 类目树 API 调用失败: {e}")
+        return None
