@@ -190,3 +190,50 @@ class GatewayTask(Base):
     __table_args__ = (
         Index("idx_gateway_tasks_task_id", "task_id"),
     )
+
+
+# ==================== 类目树扁平表 ====================
+
+class CategoryTreeNode(Base):
+    """Ozon 类目树扁平节点（支持 pg_trgm 模糊搜索）"""
+    __tablename__ = "category_tree_nodes"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    description_category_id: Mapped[int] = mapped_column(BigInteger, nullable=False, comment="Ozon 类目ID")
+    type_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, comment="Ozon 商品类型ID（叶子节点非空）")
+    node_name: Mapped[str] = mapped_column(String(500), nullable=False, comment="类目名称或类型名称")
+    node_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="category 或 type")
+    parent_description_category_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, comment="父级类目ID")
+    full_path: Mapped[str] = mapped_column(Text, nullable=False, comment="完整路径，如 食品 > 面食 > 大米")
+    top_level_category_name: Mapped[str] = mapped_column(String(500), nullable=False, comment="顶层类目名")
+    depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    disabled: Mapped[bool] = mapped_column(default=False)
+    language: Mapped[str] = mapped_column(String(20), nullable=False, default="ZH_HANS")
+    created_at: Mapped[int] = mapped_column(Integer, nullable=True, comment="Unix 时间戳（秒）")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "description_category_id", "type_id", "language",
+            name="uq_category_tree_nodes"
+        ),
+        Index("idx_ctn_full_path", "full_path"),
+        Index("idx_ctn_top_level", "top_level_category_name", "language"),
+        Index("idx_ctn_parent", "parent_description_category_id"),
+        Index("idx_ctn_node_type", "node_type"),
+        Index(
+            "idx_ctn_type_id",
+            "type_id",
+            postgresql_where=text("type_id IS NOT NULL"),
+        ),
+        # pg_trgm 模糊搜索索引（需 CREATE EXTENSION pg_trgm）
+        Index(
+            "idx_ctn_name_trgm",
+            text("node_name gist_trgm_ops"),
+            postgresql_using="gist",
+        ),
+        Index(
+            "idx_ctn_path_trgm",
+            text("full_path gist_trgm_ops"),
+            postgresql_using="gist",
+        ),
+    )

@@ -1,0 +1,12 @@
+{
+    "config": {
+        "model": "deepseek-v4-flash",
+        "temperature": 0,
+        "max_completion_tokens": 1024,
+        "thinking": "disabled",
+        "caching": "disabled"
+    },
+    "tools": [],
+    "sp": "# 角色定义\n你是 Ozon 电商平台的类目匹配专家。你的任务是从候选类目列表中选出最匹配产品的一个。\n\n# 规则\n1. 仔细分析产品标题、描述、属性，理解产品的核心用途\n2. 逐个评估候选类目，比较类目名称和完整路径与产品的匹配度\n3. 优先选择完整路径中最具体的叶子类型（type 节点），而不是中间类目（category 节点）\n4. 如果多个候选都很匹配，选择路径最短、最直接的\n5. 忽略 disabled=true 的类目\n\n# 输出格式\n严格返回以下 JSON，不包含其他内容：\n{\n  \"description_category_id\": 类目ID（整数）,\n  \"type_id\": 类型ID（整数）,\n  \"category_path\": \"完整路径字符串\",\n  \"confidence\": \"high/medium/low\",\n  \"reason\": \"简短匹配理由（中文）\"\n}",
+    "up": "## 产品信息\n- 标题: {{title}}\n- 描述: {{description}}\n{% if attributes %}- 1688属性: {{attributes}}{% endif %}\n\n## 候选类目（Top-{{candidates|length}}）\n{% for c in candidates %}\n{{loop.index}}. [{{c.description_category_id}}/{{c.type_id}}] {{c.full_path}} (相似度: {{c.similarity}})\n{% endfor %}\n\n请从上述候选中选出最匹配的类目。只返回JSON。"
+}

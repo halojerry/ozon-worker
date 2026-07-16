@@ -77,15 +77,20 @@ def init_db():
     """创建所有 ORM 表（幂等：CREATE TABLE IF NOT EXISTS）。
 
     在 lifespan 启动时调用，确保 ozon_product_tasks 等表在 PostgreSQL 中存在。
+    同时启用 pg_trgm 扩展用于中文模糊搜索。
     """
     global _tables_initialized
     if _tables_initialized:
         return
     from storage.database.shared.model import Base
     engine = get_engine()
+    # 启用 pg_trgm 扩展（幂等）
+    with engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        conn.commit()
     Base.metadata.create_all(bind=engine)
     _tables_initialized = True
-    logger.info("数据库表初始化完成（create_all）")
+    logger.info("数据库表初始化完成（create_all + pg_trgm）")
 
 
 __all__ = [
