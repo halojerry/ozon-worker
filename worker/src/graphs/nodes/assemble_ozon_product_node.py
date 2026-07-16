@@ -302,6 +302,11 @@ def assemble_ozon_product_node(
     # 为兼容 learning_record_node，同时设置 llm_attributes
     llm_attributes = final_attributes
 
+    # 提取 LLM 生成的俄语标题（供 prepare_ozon_upload 使用）
+    llm_name = ""
+    if items and items[0].get("name"):
+        llm_name = str(items[0]["name"])[:500]
+
     # =====================================================
     # Step 7: 返回结果 dict（LangGraph 自动合并到 GlobalState）
     # =====================================================
@@ -318,6 +323,8 @@ def assemble_ozon_product_node(
         "llm_attributes": llm_attributes,
         "learned_attributes": {},
         "ozon_payloads": [{"items": items}],
+        # 传递 LLM 生成的俄语标题
+        "name": llm_name,
     }
 
 
