@@ -41,6 +41,8 @@ class OzonCategoryQuery:
         """
         pg_trgm 模糊搜索类目节点。
 
+        如果 category_tree_nodes 表为空，自动尝试从 category_cache JSONB 同步。
+
         Args:
             query_text: 搜索关键词（中文或俄语）
             top_k: 返回结果数量
@@ -50,6 +52,9 @@ class OzonCategoryQuery:
         Returns:
             [{description_category_id, type_id, node_name, full_path, similarity}, ...]
         """
+        # 确保扁平表有数据
+        self._ensure_nodes_synced(language)
+
         session = get_session()
         try:
             # pg_trgm similarity 查询
@@ -164,8 +169,136 @@ class OzonCategoryQuery:
         finally:
             session.close()
 
+    # ==================== 内部方法 ====================
+
+    def _ensure_nodes_synced(self, language: str):
+        """确保 category_tree_nodes 扁平表已填充，否则从 category_cache 同步"""
+        session = get_session()
+        try:
+            count_stmt = select(func.count(CategoryTreeNode.id)).where(
+                CategoryTreeNode.language == language
+            )
+            node_count = session.execute(count_stmt).scalar() or 0
+            if node_count > 0:
+                return  # 已有数据
+        finally:
+            session.close()
+
+        logger.info("category_tree_nodes 为空，尝试从 category_cache 同步...")
+        self._try_sync_from_cache(language)
+
+    def _try_sync_from_cache(self, language: str):
+        """从 category_cache JSONB 同步到 category_tree_nodes 扁平表"""
+        session = get_session()
+        try:
+            current_time = int(time.time())
+            row = session.execute(
+                select(CategoryCache).where(
+                    and_(
+                        CategoryCache.language == language,
+                        CategoryCache.expires_at > current_time,
+                    )
+                ).order_by(CategoryCache.expires_at.desc()).limit(1)
+            ).scalar_one_or_none()
+
+            if row and row.tree_data:
+                logger.info("从 category_cache JSONB 同步 category_tree_nodes...")
+                # 需要在新的 session 中调用 sync（避免嵌套事务）
+                self.sync_category_tree_nodes(row.tree_data, language)
+                logger.info("✅ 同步完成")
+            else:
+                logger.warning("category_cache 中无有效数据，需通过 Ozon API 获取类目树")
+        except Exception as e:
+            logger.error(f"从缓存同步失败: {e}")
+        finally:
+            session.close()
+
+    def _search_from_jsonb_cache(
+        self,
+        query_text: str,
+        top_k: int,
+        node_type: str | None,
+        language: str,
+    ) -> list[dict]:
+        """
+        从 category_cache JSONB 直接搜索（不依赖扁平表）。
+
+        遍历整个类目树，匹配包含关键词的节点。
+        当 category_tree_nodes 为空且无法从缓存同步时使用。
+        """
+        session = get_session()
+        try:
+            current_time = int(time.time())
+            row = session.execute(
+                select(CategoryCache).where(
+                    and_(
+                        CategoryCache.language == language,
+                        CategoryCache.expires_at > current_time,
+                    )
+                ).order_by(CategoryCache.expires_at.desc()).limit(1)
+            ).scalar_one_or_none()
+
+            if not row or not row.tree_data:
+                logger.warning("category_cache JSONB 也无数据")
+                return []
+
+            tree_data = row.tree_data
+            result_list = tree_data.get("result", [])
+
+            results: list[dict] = []
+
+            def _walk(children: list[dict], path_prefix: str, desc_cat_id: int | None, top_level: str):
+                for node in children:
+                    if not isinstance(node, dict):
+                        continue
+                    node_name = node.get("type_name", "") or node.get("category_name", "")
+                    sub_children = node.get("children", [])
+                    current_desc_id = node.get("description_category_id", desc_cat_id)
+                    disabled = node.get("disabled", False)
+
+                    current_path = f"{path_prefix} > {node_name}" if path_prefix else node_name
+
+                    if sub_children:
+                        # 类目节点
+                        if not node_type or node_type == "category":
+                            if query_text.lower() in node_name.lower():
+                                results.append({
+                                    "description_category_id": int(current_desc_id) if current_desc_id else 0,
+                                    "type_id": None,
+                                    "node_name": node_name,
+                                    "full_path": current_path,
+                                    "top_level_category_name": top_level or node_name,
+                                    "depth": current_path.count(" > "),
+                                    "similarity": 0.5,
+                                })
+                        _walk(sub_children, current_path, int(current_desc_id) if current_desc_id else None, top_level or node_name)
+                    else:
+                        # 叶子类型节点
+                        type_id = node.get("type_id")
+                        if type_id is not None and (not node_type or node_type == "type"):
+                            if query_text.lower() in node_name.lower():
+                                results.append({
+                                    "description_category_id": int(current_desc_id) if current_desc_id else 0,
+                                    "type_id": int(type_id),
+                                    "node_name": node_name,
+                                    "full_path": current_path,
+                                    "top_level_category_name": top_level or node_name,
+                                    "depth": current_path.count(" > "),
+                                    "similarity": 0.5,
+                                })
+
+            _walk(result_list, "", None, "")
+            logger.info(f"🔍 JSONB 搜索：'{query_text}' 命中 {len(results)} 条")
+            return results[:top_k]
+        finally:
+            session.close()
+
+    # ==================== 公共查询方法 ====================
+
     def get_top_categories(self, language: str = "ZH_HANS") -> list[dict]:
         """获取所有顶层类目（depth=0 的 category 节点）"""
+        self._ensure_nodes_synced(language)
+
         session = get_session()
         try:
             rows = session.execute(
