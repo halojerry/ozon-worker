@@ -243,7 +243,14 @@ class OzonCategoryQuery:
                 return []
 
             tree_data = row.tree_data
-            result_list = tree_data.get("result", [])
+            # 兼容两种格式
+            if isinstance(tree_data, dict):
+                result_list = tree_data.get("result", [])
+            elif isinstance(tree_data, list):
+                result_list = tree_data
+            else:
+                logger.warning("category_cache JSONB 格式未知")
+                return []
 
             results: list[dict] = []
 
@@ -573,7 +580,15 @@ class OzonCategoryQuery:
                         })
 
         try:
-            result_list = tree_data.get("result", [])
+            # 兼容两种格式：{"result": [...]} 或直接是列表 [...]
+            if isinstance(tree_data, dict):
+                result_list = tree_data.get("result", [])
+            elif isinstance(tree_data, list):
+                result_list = tree_data
+            else:
+                logger.error(f"❌ 类目树数据格式错误: {type(tree_data)}")
+                return 0
+
             _walk(result_list, parent_desc_id=None, path_prefix="", top_level_name="", depth=0)
 
             if not nodes_to_insert:
