@@ -1,2 +1,3 @@
-2026/07/16-16:33:56.212 1eef8 Creating DB /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/GCM Store since it was missing.
-2026/07/16-16:33:56.216 1eef8 Reusing MANIFEST /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/GCM Store/MANIFEST-000001
+2026/07/16-20:30:39.018 1eefa Reusing MANIFEST /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/GCM Store/MANIFEST-000001
+2026/07/16-20:30:39.018 1eefa Recovering log #3
+2026/07/16-20:30:39.019 1eefa Reusing old log /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/GCM Store/000003.log 

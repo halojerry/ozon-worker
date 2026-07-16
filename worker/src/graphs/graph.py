@@ -17,10 +17,7 @@ from graphs.state import (
 # 导入核心节点
 from graphs.nodes.auth_node import auth_node
 from graphs.nodes.ingest_node import ingest_node
-from graphs.nodes.category_lookup_node import category_lookup_node
-from graphs.nodes.attributes_fetch_node import attributes_fetch_node
-from graphs.nodes.attributes_llm_node import attributes_llm_node
-from graphs.nodes.attributes_learning_node import attributes_learning_node
+from graphs.nodes.assemble_ozon_product_node import assemble_ozon_product_node  # 统一商品组装（替代 4 节点管线）
 from graphs.nodes.scene_generation_llm_node import scene_generation_llm_node  # 场景生成LLM节点
 from graphs.nodes.pricing_node import pricing_node
 from graphs.nodes.prepare_ozon_upload_node import prepare_ozon_upload_node  # 数据准备节点
@@ -62,14 +59,9 @@ builder = StateGraph(
 builder.add_node("auth", auth_node)
 builder.add_node("ingest", ingest_node)
 
-# Phase 2: 类目查找 + 价格计算（串行）
-builder.add_node("category_lookup", category_lookup_node, metadata={"type": "agent", "llm_cfg": "config/category_match_llm_cfg.json"})
+# Phase 2: 类目查找 → 定价（串行：定价先执行，组装节点需要定价信息）
 builder.add_node("pricing", pricing_node)
-
-# Phase 3: 属性映射（串行：fetch → llm → learning）
-builder.add_node("attributes_fetch", attributes_fetch_node)
-builder.add_node("attributes_llm", attributes_llm_node, metadata={"type": "agent", "llm_cfg": "config/attributes_llm_cfg.json"})
-builder.add_node("attributes_learning", attributes_learning_node)
+builder.add_node("assemble_ozon_product", assemble_ozon_product_node, metadata={"type": "agent", "llm_cfg": "config/product_assembly_cfg.json"})
 
 # Phase 3.5: 场景生成（使用LLM生成3个场景）
 builder.add_node("scene_generation_llm", scene_generation_llm_node, metadata={"type": "agent", "llm_cfg": "config/scene_generation_llm_cfg.json"})
@@ -104,19 +96,13 @@ builder.set_entry_point("auth")
 
 # Phase 1-3: 串行处理
 builder.add_edge("auth", "ingest")
-# ==================== 并行优化：category_lookup + pricing并行执行 ====================
-# 并行组1：category_lookup_node和pricing_node同时执行（减少总执行时间约50%）
-builder.add_edge("ingest", "category_lookup")  # ingest → category_lookup（类目查询，调用Ozon API）
-builder.add_edge("ingest", "pricing")  # ingest → pricing（物流费率查询，查询Supabase）
 
-# 汇聚：等待并行组1完成 → attributes_fetch（需要description_category_id和pricing_info）
-builder.add_edge(["category_lookup", "pricing"], "attributes_fetch")
-builder.add_edge("attributes_fetch", "attributes_llm")
-builder.add_edge("attributes_llm", "attributes_learning")
+# 定价 → 商品组装（串行：组装需要定价信息）
+builder.add_edge("ingest", "pricing")
+builder.add_edge("pricing", "assemble_ozon_product")
 
 # Phase 3.5: 场景生成（使用LLM生成3个场景描述）
-# scene_generation_llm在attributes_learning后执行，确保在Phase1开始前完成
-builder.add_edge("attributes_learning", "scene_generation_llm")
+builder.add_edge("assemble_ozon_product", "scene_generation_llm")
 builder.add_edge("scene_generation_llm", "white_bg_gen")  # scene_generation_llm → Phase1开始
 builder.add_edge("scene_generation_llm", "multi_angle_gen")  # scene_generation_llm → Phase1开始
 
