@@ -20,6 +20,7 @@ class GlobalState(BaseModel):
     
     # 进度追踪（全局共享计数器）- ✅ 修改：使用Annotated允许多节点并发更新（取最大值）
     progress_counter: Annotated[int, lambda a, b: max(a, b)] = Field(default=0, description="全局进度计数器（用于计算进度百分比，取最大值避免冲突）")
+    run_id: str = Field(default="", description="当前工作流 run_id（用于日志和进度查询）")
     
     # 循环修复机制（验证失败退回修复）
     retry_count: int = Field(default=0, description="验证失败重试次数（最多3次）")

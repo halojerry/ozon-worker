@@ -1,0 +1,304 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "现货欧美园艺绿植Tulip Waterer 滴水器浇花神器仿玻璃 可贴标签",
+    "price": "¥1",
+    "brand": "自主",
+    "seller": "金华市懒角落塑业有限公司 关注 客服 商品 入驻2年 主营：园林资材 店铺回头率 55% 店铺服务分 4.5分 准时发货率 98% 店铺好评率 100.0%",
+    "image_count": 29,
+    "attribute_count": 26,
+    "dom_sku_count": 4,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/902781066487.html",
+    "loginRequired": false,
+    "title": "现货欧美园艺绿植Tulip Waterer 滴水器浇花神器仿玻璃 可贴标签",
+    "price": "¥1",
+    "priceValue": 1,
+    "brand": "自主",
+    "seller": "金华市懒角落塑业有限公司 关注 客服 商品 入驻2年 主营：园林资材 店铺回头率 55% 店铺服务分 4.5分 准时发货率 98% 店铺好评率 100.0%",
+    "sellerLink": "https://shop9472h25m78476.1688.com/?offerId=902781066487&td_page_id=PC-UNLOGIN-DEFAULT-2025",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN018TcS8b1Wy6CusSHn2_!!2219149882856-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01brCeyK1Wy6D1sYciH_!!2219149882856-0-cib.jpg?__r__=1743489811563",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GWktNx1Wy6Cz3x27M_!!2219149882856-0-cib.jpg?__r__=1743489842794",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kBLjzA1Wy6Cz3t4Yv_!!2219149882856-0-cib.jpg?__r__=1743489811564",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013nuzB31Wy6CzlVBd0_!!2219149882856-0-cib.jpg?__r__=1743489811564",
+      "https://cbu01.alicdn.com/img/ibank/O1CN011m6ura1Wy6Cy2Mgyy_!!2219149882856-0-cib.jpg?__r__=1743058599663",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xGg3GA1Wy6D1fhCsr_!!2219149882856-0-cib.jpg?__r__=1743489842795",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01a3hpvY1Wy6CzeEe60_!!2219149882856-0-cib.jpg?__r__=1743489842794",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01n5tny61Wy6Cw9FkPG_!!2219149882856-0-cib.jpg?__r__=1743058599663",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UKhnXK1Wy6Cpy5XwX_!!2219149882856-0-cib.jpg?__r__=1743058599663",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LFJ98S1Wy6CwKNkY0_!!2219149882856-0-cib.jpg?__r__=1743058599663",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010uDAcp1Wy6D1fiPjM_!!2219149882856-0-cib.jpg?__r__=1743489842795",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01qMbmis1Wy6Cw9FsjS_!!2219149882856-0-cib.jpg?__r__=1743058599663",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MVGOiF1Wy6D0fKmWm_!!2219149882856-0-cib.jpg?__r__=1743489842795",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zLiP8I1Wy6Cukh3ho_!!2219149882856-0-cib.jpg?__r__=1743489842795",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VGcxa51Wy6D2nFOW0_!!2219149882856-0-cib.jpg?__r__=1743489842794",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KKpyG61Wy6D2IjwfD_!!2219149882856-0-cib.jpg?__r__=1743489842794",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fzRext1Wy6CzlYXov_!!2219149882856-0-cib.jpg?__r__=1743489842794",
+      "https://cbu01.alicdn.com/img/ibank/O1CN016xbb8z1Wy6CwiPwO9_!!2219149882856-0-cib.jpg?__r__=1743058599664",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01i6572U1Wy6Cpy7cv0_!!2219149882856-0-cib.jpg?__r__=1743058599664",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01EktIy81Wy6CwiR0xY_!!2219149882856-0-cib.jpg?__r__=1743058599664",
+      "https://cbu01.alicdn.com/img/ibank/O1CN018TcS8b1Wy6CusSHn2_!!2219149882856-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tF058t1Wy6CxYkE2t_!!2219149882856-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN011m6ura1Wy6Cy2Mgyy_!!2219149882856-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PSMRdy1Wy6D3BSvPm_!!2219149882856-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dfSs6P1Wy6Gleaj1I_!!2219149882856-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fzRext1Wy6CzlYXov_!!2219149882856-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VGcxa51Wy6D2nFOW0_!!2219149882856-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KKpyG61Wy6D2IjwfD_!!2219149882856-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01a3hpvY1Wy6CzeEe60_!!2219149882856-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2219149882856/p/2/e/6/t/1/513997635050.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "类型",
+        "value": "滴灌系列"
+      },
+      {
+        "name": "材质",
+        "value": "塑料"
+      },
+      {
+        "name": "容量",
+        "value": "90"
+      },
+      {
+        "name": "品牌",
+        "value": "自主"
+      },
+      {
+        "name": "应用场景",
+        "value": "家庭园艺,农业生产,公共绿地,园林园艺生产"
+      },
+      {
+        "name": "货号",
+        "value": "郁金香浇花器"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "特性",
+        "value": "浇花器"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "颜色",
+        "value": "郁金香香槟色,郁金香紫色,郁金香粉色,郁金香透明色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "连接方式",
+        "value": "快接式"
+      },
+      {
+        "name": "灌溉方式",
+        "value": "滴灌"
+      },
+      {
+        "name": "颜色",
+        "value": "郁金香香槟色、郁金香紫色、郁金香粉色、郁金香透明色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "类型",
+        "value": "塑料"
+      },
+      {
+        "name": "容量",
+        "value": "自主"
+      },
+      {
+        "name": "应用场景",
+        "value": "郁金香浇花器"
+      },
+      {
+        "name": "是否进口",
+        "value": "浇花器"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "郁金香香槟色,郁金香紫色,郁金香粉色,郁金香透明色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "快接式"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "郁金香香槟色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VGcxa51Wy6D2nFOW0_!!2219149882856-0-cib.jpg"
+          },
+          {
+            "name": "郁金香紫色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fzRext1Wy6CzlYXov_!!2219149882856-0-cib.jpg"
+          },
+          {
+            "name": "郁金香粉色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KKpyG61Wy6D2IjwfD_!!2219149882856-0-cib.jpg"
+          },
+          {
+            "name": "郁金香透明色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01a3hpvY1Wy6CzeEe60_!!2219149882856-0-cib.jpg"
+          },
+          {
+            "name": "郁金香香槟色",
+            "image": null,
+            "price": 1
+          },
+          {
+            "name": "郁金香紫色",
+            "image": null,
+            "price": 1
+          },
+          {
+            "name": "郁金香粉色",
+            "image": null,
+            "price": 1
+          },
+          {
+            "name": "郁金香透明色",
+            "image": null,
+            "price": 1
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 80",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "carrier": "韵达快递"
+    },
+    "skuDetails": [
+      {
+        "name": "郁金香香槟色",
+        "price": 1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VGcxa51Wy6D2nFOW0_!!2219149882856-0-cib.jpg"
+      },
+      {
+        "name": "郁金香紫色",
+        "price": 1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fzRext1Wy6CzlYXov_!!2219149882856-0-cib.jpg"
+      },
+      {
+        "name": "郁金香粉色",
+        "price": 1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KKpyG61Wy6D2IjwfD_!!2219149882856-0-cib.jpg"
+      },
+      {
+        "name": "郁金香透明色",
+        "price": 1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01a3hpvY1Wy6CzeEe60_!!2219149882856-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 15,
+      "attributeCount": 26,
+      "optionGroupCount": 1,
+      "skuCount": 4,
+      "imageCount": 29,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 8
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260716-135125-025999-adecb6c5.json"
+}

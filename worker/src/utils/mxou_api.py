@@ -236,7 +236,7 @@ def _call_image_with_model(
         "prompt": prompt,
         "images": safe_images,
         "aspectRatio": aspect_ratio,
-        "replyType": "json"
+        "replyType": "async"
     }
 
     session = _get_session()
@@ -271,19 +271,19 @@ def _call_image_with_model(
                 return None
 
             status: str = result.get("status", "")
+            task_id: str = result.get("id", "")
 
-            # 异步任务：status=running 需要轮询
-            if status == "running":
-                task_id: str = result.get("id", "")
-                if isinstance(task_id, str) and task_id:
-                    logger.info("mxou任务进行中(model=%s)，开始轮询... task_id=%s", model, task_id)
-                    return _poll_grsai_task(task_id, max_wait=timeout)
-                logger.error("mxou返回running但无task_id: %s", str(result)[:300])
-                return None
-
-            # 同步返回成功
+            # 优先：status=succeeded 时直接从 results 提取 URL（同步返回）
             if status == "succeeded":
-                return _extract_url_from_results(result)
+                url = _extract_url_from_results(result)
+                if url:
+                    logger.info("mxou同步返回图片(model=%s): %s", model, url[:80])
+                    return url
+
+            # 有 task_id 但未同步返回 → 轮询
+            if isinstance(task_id, str) and task_id:
+                logger.info("mxou任务(model=%s, status=%s)，开始轮询... task_id=%s", model, status, task_id)
+                return _poll_grsai_task(task_id, max_wait=timeout, token=token)
 
             # 失败/违规
             error_msg: str = result.get("error", "unknown error")
@@ -325,7 +325,7 @@ def _extract_url_from_results(result: dict) -> Optional[str]:
 # grsai 进度查询（替换旧的 mxou 轮询）
 # ============================================================
 
-def _poll_grsai_task(task_id: str, max_wait: int = 90) -> Optional[str]:
+def _poll_grsai_task(task_id: str, max_wait: int = 90, token: str = "") -> Optional[str]:
     """
     通过 grsai API 轮询生图任务进度。
 
@@ -349,10 +349,10 @@ def _poll_grsai_task(task_id: str, max_wait: int = 90) -> Optional[str]:
     for i in range(max_polls):
         time.sleep(poll_interval)
         try:
-            response = session.post(
+            response = session.get(
                 GRSAI_API_URL,
                 headers=headers,
-                json={"id": task_id},
+                params={"id": task_id},
                 timeout=30
             )
 
@@ -360,7 +360,7 @@ def _poll_grsai_task(task_id: str, max_wait: int = 90) -> Optional[str]:
                 logger.warning("grsai查询task=%s失败: HTTP %d", task_id, response.status_code)
                 # grsai 失败时 fallback 到 mxou 轮询
                 logger.info("grsai查询失败，fallback到mxou轮询...")
-                return _poll_mxou_task_fallback(task_id, max_wait=max_wait - (i + 1) * poll_interval)
+                return _poll_mxou_task_fallback(task_id, max_wait=max_wait - (i + 1) * poll_interval, token=token)
 
             result: Any = response.json()
             if not isinstance(result, dict):
@@ -400,7 +400,7 @@ def _poll_grsai_task(task_id: str, max_wait: int = 90) -> Optional[str]:
     return None
 
 
-def _poll_mxou_task_fallback(task_id: str, max_wait: int = 90) -> Optional[str]:
+def _poll_mxou_task_fallback(task_id: str, max_wait: int = 90, token: str = "") -> Optional[str]:
     """
     grsai 不可用时的 fallback：直接轮询 mxou API。
     """
@@ -411,12 +411,14 @@ def _poll_mxou_task_fallback(task_id: str, max_wait: int = 90) -> Optional[str]:
     max_polls: int = max(max_wait // poll_interval, 1)
 
     session = _get_session()
+    headers: Dict[str, str] = {"Authorization": f"Bearer {token}"} if token else {}
 
     for i in range(max_polls):
         time.sleep(poll_interval)
         try:
             response = session.get(
                 f"{MXOU_IMAGE_API_URL}/{task_id}",
+                headers=headers,
                 timeout=30
             )
             if response.status_code != 200:

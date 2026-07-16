@@ -93,16 +93,12 @@ def variant_primary_loop_node(
                 variant_primary_images.append(image_url)
                 logging.info(f"[variant_primary_loop_node] variant[{idx}]生成成功: {image_url[:100]}")
             else:
-                logging.error(f"[variant_primary_loop_node] variant[{idx}]生成失败: API未返回有效URL，使用原图兜底")
-                # ✅ 修复：生成失败时用1688原图（已转S3）作为fallback
-                fallback_url = ref_images[0] if ref_images else sku_image_url
-                variant_primary_images.append(fallback_url)
+                logging.error(f"[variant_primary_loop_node] variant[{idx}]生成失败: API未返回有效URL")
+                variant_primary_images.append("")  # 不写 alicdn URL，留空让上层处理
             
         except Exception as e:
             logging.error(f"[variant_primary_loop_node] variant[{idx}]生成失败: {e}")
-            # ✅ 异常时直接用原图URL作为fallback
-            fallback_url = sku_image_url if sku_image_url else ""
-            variant_primary_images.append(fallback_url)
+            variant_primary_images.append("")  # 不写 alicdn URL，留空让上层处理
     
     # ✅ Step 3: 返回结果
     success_count = sum(1 for img in variant_primary_images if img)

@@ -576,6 +576,84 @@ def _extract_variant_label(name: str) -> tuple[str, str]:
     return (name, "")
 
 
+class ProductValidationError(Exception):
+    """产品数据校验不通过——不应重试，直接跳过该品。"""
+    pass
+
+
+def _validate_and_fix_product_data(
+    item_id: str,
+    title: str,
+    cost_cny: float,
+    images: list,
+    weight_g: int,
+    dimensions: dict,
+    variants: list,
+    option_groups: list,
+) -> tuple[int, dict, list[str]]:
+    """校验产品数据完整性，并应用软兜底默认值。
+
+    返回 (weight_g, dimensions, errors)。
+    errors 为空表示通过；非空表示硬阻断，应跳过该产品。
+    """
+    errors: list[str] = []
+
+    # ── 软兜底：重量 ──
+    if weight_g <= 0:
+        weight_g = 50
+        logger.warning(f"物品 {item_id} 重量缺失，使用默认值 50g")
+
+    # ── 软兜底：尺寸 ──
+    if dimensions.get("length", 0) <= 0 and dimensions.get("width", 0) <= 0 and dimensions.get("height", 0) <= 0:
+        dimensions = {"length": 100, "width": 100, "height": 50}
+        logger.warning(f"物品 {item_id} 尺寸缺失，使用默认值 100×100×50mm")
+
+    # ── 硬阻断：图片 ──
+    if not images:
+        errors.append("产品图片为空")
+
+    # ── 硬阻断：价格 ──
+    if not cost_cny or float(cost_cny) <= 0:
+        errors.append(f"采购价格缺失或为0（{cost_cny}）")
+
+    # ── 硬阻断：标题 ──
+    if not title or not str(title).strip():
+        errors.append("产品标题为空")
+
+    # ── 硬阻断：SKU 完整性（根据 option_groups 动态校验）──
+    if len(variants) > 1 and option_groups:
+        for og in option_groups:
+            og_name = og.get("name", "")
+            og_values = [v.get("name", "").strip() for v in og.get("values", []) if v.get("name")]
+            if not og_values:
+                continue
+            for vi, v in enumerate(variants):
+                # 检查每个变体是否在这个 option_group 下有值
+                v_color = str(v.get("color", "")).strip()
+                v_model = str(v.get("model", "")).strip()
+                v_size = str(v.get("size", "")).strip()
+                # 在 option_group 的 values 中查找匹配
+                combined = f"{v_color} {v_model} {v_size}".strip()
+                matched = False
+                for ov in og_values:
+                    if ov in v_color or ov in v_model or ov in v_size or ov in combined:
+                        matched = True
+                        break
+                if not matched and v_color not in ("default", "") and v_model not in ("default", ""):
+                    # 最后兜底：变体只要有非空的 color/model/size 就算有值
+                    if v_color or v_model or (v_size and v_size != "one size"):
+                        matched = True
+                if not matched:
+                    errors.append(
+                        f"SKU[{vi}] 缺少 {og_name} 属性值"
+                        f"（color={v_color}, model={v_model}, size={v_size}）"
+                    )
+
+    if errors:
+        logger.warning(f"❌ 物品 {item_id} 校验不通过: {'; '.join(errors)}")
+    return weight_g, dimensions, errors
+
+
 def build_graph_envelope(
     *,
     item_id: str,
@@ -832,6 +910,22 @@ def build_graph_envelope(
             "original_price": cost_cny,
             "stock": 100,
         })
+
+    # ── 5.5 校验门：硬阻断 + 软兜底 ──
+    weight_g, dimensions, validation_errors = _validate_and_fix_product_data(
+        item_id=str(item_id),
+        title=item_title,
+        cost_cny=cost_cny,
+        images=images,
+        weight_g=weight_g,
+        dimensions=dimensions,
+        variants=variants,
+        option_groups=data.get("option_groups", []),
+    )
+    if validation_errors:
+        raise ProductValidationError(
+            f"产品 {item_id} 数据不完整，跳过: {'; '.join(validation_errors)}"
+        )
 
     # ── 6. 组装 envelope (三层结构: draft / source / extensions) ──
     is_multi = len(variants) > 1

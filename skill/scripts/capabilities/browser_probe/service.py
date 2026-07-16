@@ -1377,12 +1377,12 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
     if recovered:
         return recovered
 
-    # No live Chrome found — auto-launch with persistent profile.
-    # Uses Playwright to launch Chrome with anti-detection stealth args.
-    # The persistent profile preserves cookies so the user only needs to log in once.
+    # No live Chrome found — auto-launch with subprocess (zero Playwright dependency).
+    # Uses persistent profile so cookies survive across launches.
+    # Agent-friendly: works in any Python environment (asyncio, threads, etc.)
     try:
         from scripts.capabilities.browser_probe.stealth import STEALTH_ARGS
-        import random as _random, socket as _sock, playwright.sync_api as _pw
+        import random as _random, socket as _sock, subprocess as _sp
 
         profile_dir = _profile_dir(profile)
         profile_dir.mkdir(parents=True, exist_ok=True)
@@ -1402,21 +1402,34 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
         _logger = _logging.getLogger(__name__)
         _logger.info("Auto-launching Chrome with profile %s on port %d", profile_dir, cdp_port)
 
-        pw = _pw.sync_playwright().start()
-        browser = pw.chromium.launch_persistent_context(
-            user_data_dir=str(profile_dir),
-            headless=False,
-            args=STEALTH_ARGS + [f'--remote-debugging-port={cdp_port}'],
-            locale='zh-CN',
-            viewport={'width': _random.randint(1366, 1920), 'height': _random.randint(768, 1080)},
-        )
+        # Launch Chrome directly via subprocess — no Playwright, survives all environments
+        chrome_bin = find_browser_executable()
+        if not chrome_bin:
+            _logger.error("Cannot find Chrome executable")
+            return {}
+        cmd = [
+            chrome_bin,
+            f'--remote-debugging-port={cdp_port}',
+            f'--user-data-dir={profile_dir}',
+            '--no-first-run',
+            '--no-default-browser-check',
+            '--disable-background-networking',
+            '--disable-sync',
+            '--no-pings',
+            '--lang=zh-CN',
+        ] + STEALTH_ARGS
+        _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, start_new_session=True)
         cdp_url = f'http://127.0.0.1:{cdp_port}'
-        # Brief wait for CDP to be ready
+
+        # Wait up to 15s for CDP to become ready
         import time as _time
-        _time.sleep(2)
-        if _cdp_available(cdp_url):
-            _logger.info("Auto-launched Chrome ready at %s", cdp_url)
-            return {'cdp_url': cdp_url, 'browser': browser, 'playwright': pw}
+        for _ in range(15):
+            _time.sleep(1)
+            if _cdp_available(cdp_url):
+                _logger.info("Auto-launched Chrome ready at %s", cdp_url)
+                return {'cdp_url': cdp_url}
+        _logger.warning("Chrome launched but CDP not ready after 15s")
+        return {'cdp_url': cdp_url}
     except Exception as e:
         _logger.debug("Auto-launch failed: %s", e)
     return {}
@@ -1658,58 +1671,31 @@ def _wait_for_login_session(
         _browser_instance = None
 
     try:
-        # Reuse existing browser if available
-        if _browser_instance is not None:
-            try:
-                # BrowserContext from launch_persistent_context — check liveness via pages
-                if _browser_instance.pages:
-                    browser = _browser_instance
-                    page = browser.new_page()
-                else:
-                    _browser_instance = None
-            except Exception:
-                _browser_instance = None
-        if _browser_instance is None:
-            # Run Playwright sync start in thread when asyncio loop is active
-            _in_async2 = False
-            try: _in_async2 = asyncio.get_running_loop() is not None
-            except RuntimeError: pass
-            if _in_async2:
-                with ThreadPoolExecutor(max_workers=1) as _exec:
-                    _fut = _exec.submit(lambda: sync_playwright().start())
-                    _playwright_instance = _fut.result(timeout=30)
-            else:
-                _playwright_instance = sync_playwright().start()
-            browser = _playwright_instance.chromium.launch_persistent_context(
-                user_data_dir=str(profile_dir),
-                headless=False,
-                args=STEALTH_ARGS + [f'--remote-debugging-port={cdp_port}'],
-                locale='zh-CN',
-                viewport={'width': random.randint(1366, 1920), 'height': random.randint(768, 1080)},
-            )
-            _browser_instance = browser
-            page = browser.new_page()
-
-        # Save CDP URL for session reuse — verify port is actually live
-        import time as _time2
-        # Wait up to 10s for CDP port to become ready (2s was too short on slower machines)
-        for _cdp_wait in range(5):
-            _time2.sleep(2)
-            actual_cdp_url = f'http://127.0.0.1:{cdp_port}'
-            if _cdp_available(actual_cdp_url):
-                break
-        else:
-            # Port still not ready — scan for the real one
+        # Find existing Chrome CDP session (already launched by _find_live_cdp_session_for_profile)
+        session = _resolve_browser_session(profile_name)
+        cdp_url = session.get('cdp_url', '')
+        if not cdp_url:
+            # Scan for live CDP
             recovered = _find_live_cdp_session_for_profile(profile_name, session)
             if recovered:
-                actual_cdp_url = str(recovered.get('cdp_url') or '')
-        session['cdp_url'] = actual_cdp_url
-        session['remote_debugging_port'] = cdp_port
-        session['user_data_dir'] = str(profile_dir)
+                cdp_url = str(recovered.get('cdp_url') or '')
+        if not cdp_url:
+            _logger.error("No Chrome CDP session found — cannot wait for login")
+            return None
+
+        # Save session info
+        session['cdp_url'] = cdp_url
         try:
             _write_browser_session(profile_name, session)
         except Exception:
             pass
+
+        # Connect to existing Chrome via CDP (no launch — avoids greenlet issues)
+        _logger.info("Connecting to Chrome CDP at %s", cdp_url)
+        _pw_cm = sync_playwright()
+        _playwright_instance = _pw_cm.__enter__()
+        browser = _playwright_instance.chromium.connect_over_cdp(cdp_url)
+        page = browser.new_page()
 
         # 注入反检测 JS
         page.add_init_script(STEALTH_JS)

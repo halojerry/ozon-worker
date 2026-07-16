@@ -1,6 +1,7 @@
 import json
 import logging
 import requests
+from utils.http_session import session
 from typing import Dict, Any, List
 
 from langchain_core.runnables import RunnableConfig
@@ -123,7 +124,7 @@ def ozon_upload_node(
         logger.info(f"第一个item的currency_code: {first_item.get('currency_code', 'N/A')}")
         logger.info(f"第一个item的vat: {first_item.get('vat', 'N/A')}")
         
-        response = requests.post(
+        response = session.post(
             url, 
             headers=headers, 
             json=ozon_payload,

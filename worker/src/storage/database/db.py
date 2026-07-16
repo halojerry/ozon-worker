@@ -6,6 +6,8 @@ from sqlalchemy.exc import OperationalError
 import logging
 logger = logging.getLogger(__name__)
 
+_tables_initialized = False
+
 MAX_RETRY_TIME = 20  # 连接最大重试时间（秒）
 # Load environment variables from .env if present
 try:
@@ -28,8 +30,8 @@ def _create_engine_with_retry():
     if url is None or url == "":
         logger.error("PGDATABASE_URL is not set")
         raise ValueError("PGDATABASE_URL is not set")
-    size = 100
-    overflow = 100
+    size = 5
+    overflow = 10
     recycle = 1800
     timeout = 30
     engine = create_engine(
@@ -71,9 +73,25 @@ def get_sessionmaker():
 def get_session():
     return get_sessionmaker()()
 
+def init_db():
+    """创建所有 ORM 表（幂等：CREATE TABLE IF NOT EXISTS）。
+
+    在 lifespan 启动时调用，确保 ozon_product_tasks 等表在 PostgreSQL 中存在。
+    """
+    global _tables_initialized
+    if _tables_initialized:
+        return
+    from storage.database.shared.model import Base
+    engine = get_engine()
+    Base.metadata.create_all(bind=engine)
+    _tables_initialized = True
+    logger.info("数据库表初始化完成（create_all）")
+
+
 __all__ = [
     "get_db_url",
     "get_engine",
     "get_sessionmaker",
     "get_session",
+    "init_db",
 ]

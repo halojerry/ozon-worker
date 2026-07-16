@@ -91,22 +91,11 @@ def learning_record_node(
             progress_counter=24  # ← 固定进度计数器（24号节点）
         )
     
-    # ✅ 记录成功的属性映射到数据库
+    # ✅ 记录成功的属性映射到 PG 数据库
     local_db = LocalDBManager()
     recorded_count: int = 0
     
-    # ✅ 关键修复：获取Supabase配置（用于双写）
-    supabase_url: str = os.getenv("SUPABASE_URL", "https://kekmppsuiiokdckdeolv.supabase.co")
-    supabase_key: str = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtla21wcHN1aWlva2Rja2Rlb2x2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDYyMDA0NCwiZXhwIjoyMDkwMTk2MDQ0fQ.ZkJMnjrlUQKaUpMU3eug9EQLUsoN0mOWI8wzC3jRkAU")
-    supabase_headers: Dict[str, str] = {
-        "apikey": supabase_key,
-        "Authorization": f"Bearer {supabase_key}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates"  # ✅ upsert模式：存在则更新，不存在则插入
-    }
-    supabase_upsert_url: str = f"{supabase_url}/rest/v1/ozon_attribute_mappings"
-    
-    logger.info(f"📝 开始记录{len(final_attributes)}个属性映射（本地SQLite + Supabase双写）...")
+    logger.info(f"📝 开始记录{len(final_attributes)}个属性映射（PostgreSQL）...")
     
     for attr in final_attributes:
         # 验证attr是否为dict类型
@@ -155,46 +144,21 @@ def learning_record_node(
             logger.debug(f"⏭️ 跳过硬编码属性: attr_id={attribute_id_int}")
             continue
         
-        # ✅ 调用add_attribute_mapping方法（记录到本地SQLite）
-        try:
+            # ✅ 写入 PG（替代旧 SQLite + Supabase 双写）
             local_db.add_attribute_mapping(
                 category_id=int(description_category_id),
                 attribute_id=attribute_id_int,
                 attribute_name=attribute_name,
-                source_value=source_value,  # ← 原始中文源值（从draft提取）
-                target_value=value_str,  # ← Ozon实际接受的值
+                source_value=source_value,
+                target_value=value_str,
                 dictionary_value_id=dictionary_value_id_int
             )
             
-            # ✅ 关键修复：同步写入Supabase（之前只写本地SQLite，导致attributes_fetch查Supabase时永远为空）
-            supabase_payload: Dict[str, Any] = {
-                "category_id": int(description_category_id),
-                "attribute_id": attribute_id_int,
-                "attribute_name": attribute_name,
-                "source_value": source_value,
-                "attribute_value": value_str,  # ✅ Supabase字段名是attribute_value（不是target_value）
-                "dictionary_value_id": dictionary_value_id_int if dictionary_value_id_int > 0 else None,
-                "success_count": 1,
-                "last_used_at": int(time.time())
-            }
-            try:
-                sb_response = requests.post(supabase_upsert_url, headers=supabase_headers, json=supabase_payload, timeout=10)
-                if sb_response.status_code in (200, 201):
-                    logger.debug(f"✅ Supabase写入成功: attr_id={attribute_id_int}")
-                else:
-                    logger.warning(f"⚠️ Supabase写入失败: {sb_response.status_code} - {sb_response.text[:100]}")
-            except Exception as sb_err:
-                logger.warning(f"⚠️ Supabase写入异常: {str(sb_err)}")
-            
             recorded_count += 1
-            
-            logger.info(f"✅ 属性映射记录成功（双写）：attr_id={attribute_id_int}, value={value_str}, dictionary_value_id={dictionary_value_id_int}")
-            
-        except Exception as e:
-            logger.warning(f"⚠️ 属性映射记录失败：{e}")
+            logger.info(f"✅ 属性映射记录成功：attr_id={attribute_id_int}, value={value_str}, dictionary_value_id={dictionary_value_id_int}")
             continue
     
-    logger.info(f"✅ 学习记录完成：{recorded_count}个属性映射已写入数据库（本地SQLite + Supabase）")
+    logger.info(f"✅ 学习记录完成：{recorded_count}个属性映射已写入 PostgreSQL")
     
     # 返回LearningRecordOutput
     return LearningRecordOutput(

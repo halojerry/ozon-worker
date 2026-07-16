@@ -4,6 +4,7 @@ import json
 import logging
 import asyncio
 import requests
+from utils.http_session import session
 from typing import Any, Dict, List, Optional
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
@@ -153,7 +154,7 @@ def _search_dictionary_value(ozon_client_id: str, ozon_api_key: str, attribute_i
             "limit": 5
         }
         
-        response: Any = requests.post(ozon_url, headers=ozon_headers, json=ozon_payload, timeout=30)
+        response: Any = session.post(ozon_url, headers=ozon_headers, json=ozon_payload, timeout=30)
         
         if response.status_code == 200:
             ozon_data: Any = response.json()

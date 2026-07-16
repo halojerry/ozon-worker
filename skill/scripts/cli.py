@@ -59,7 +59,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
 
 def cmd_graph(args: argparse.Namespace) -> int:
     """组装 GraphInput envelope（1688 API + CDP → 完整请求）."""
-    from scripts.cloud_probe import build_graph_envelope_with_retry
+    from scripts.cloud_probe import build_graph_envelope_with_retry, ProductValidationError
 
     # Extract item_id from URL if needed
     item_id = args.item_id
@@ -74,12 +74,16 @@ def cmd_graph(args: argparse.Namespace) -> int:
 
     detail_url = args.url or f"https://detail.1688.com/offer/{item_id}.html"
 
-    graph = build_graph_envelope_with_retry(
-        item_id=item_id,
-        detail_url=detail_url,
-        category_query=args.category_query,
-        max_retries=args.retries,
-    )
+    try:
+        graph = build_graph_envelope_with_retry(
+            item_id=item_id,
+            detail_url=detail_url,
+            category_query=args.category_query,
+            max_retries=args.retries,
+        )
+    except ProductValidationError as e:
+        _out({"error": str(e), "skipped": True, "item_id": item_id})
+        return 2
 
     # Summary + full envelope
     env = graph.get("envelope", {})

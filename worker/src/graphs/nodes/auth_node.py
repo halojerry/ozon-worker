@@ -3,6 +3,7 @@ import os
 import json
 import logging
 import requests
+from utils.http_session import session
 from typing import Any, Dict, Optional
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
@@ -38,7 +39,7 @@ def query_ozon_seller_info(ozon_client_id: str, ozon_api_key: str) -> Dict[str, 
         logger.info(f"调用Ozon API: Client-Id={ozon_client_id}, Api-Key={ozon_api_key[:10]}...")
         
         # Ozon API要求POST请求，但body为空对象
-        response = requests.post(url, headers=headers, json={}, timeout=30)
+        response = session.post(url, headers=headers, json={}, timeout=30)
         
         # 🔍 调试：打印响应状态和内容
         logger.info(f"Ozon API响应: status={response.status_code}, body={response.text[:200]}...")
@@ -180,7 +181,7 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime[Context
         supabase_unreachable = False
         for _retry_idx in range(3):
             try:
-                response = requests.get(token_query_url, headers=headers, timeout=45)
+                response = session.get(token_query_url, headers=headers, timeout=45)
                 break
             except Exception as retry_err:
                 if _retry_idx < 2:
@@ -297,7 +298,7 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime[Context
         user_response = None
         for _retry_idx in range(3):
             try:
-                user_response = requests.get(user_query_url, headers=headers, timeout=45)
+                user_response = session.get(user_query_url, headers=headers, timeout=45)
                 break
             except Exception as retry_err:
                 if _retry_idx < 2:
