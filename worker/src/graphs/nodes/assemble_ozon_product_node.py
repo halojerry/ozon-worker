@@ -523,7 +523,8 @@ def _llm_assemble_product(
             "type_id": type_id,
             "category_path": category_path,
             "attributes_schema": attr_list,
-            "dict_lookup": dict_lookup,
+            # ✅ 归一化 dict_lookup：确保所有值都是列表（兼容 Jinja2 模板迭代）
+            "dict_lookup": _normalize_dict_lookup(dict_lookup),
             "currency_code": currency_code,
             "price": price_rub,
             "old_price": old_price_rub,
@@ -818,6 +819,38 @@ def _fetch_category_tree_from_ozon(
     except Exception as e:
         logger.error(f"❌ Ozon 类目树 API 调用失败: {e}")
         return None
+
+
+# ==================== Dict Lookup Normalizer ====================
+
+def _normalize_dict_lookup(dict_lookup: dict) -> dict:
+    """归一化 dict_lookup：确保所有值都是列表，兼容 Jinja2 模板迭代"""
+    result: dict[str, list[dict]] = {}
+    for attr_id, values in dict_lookup.items():
+        if isinstance(values, list):
+            if len(values) <= 30:
+                result[str(attr_id)] = [
+                    {"id": v.get("id"), "value": v.get("value"), "info": v.get("info", "")}
+                    for v in values if isinstance(v, dict)
+                ]
+            else:
+                sample = [
+                    {"id": v.get("id"), "value": v.get("value"), "info": v.get("info", "")}
+                    for v in values[:30] if isinstance(v, dict)
+                ]
+                sample.append({"id": 0, "value": f"... 共 {len(values)} 个值", "info": ""})
+                result[str(attr_id)] = sample
+        elif isinstance(values, dict):
+            sample_vals = values.get("sample_values", [])
+            total = values.get("total_count", len(sample_vals))
+            if isinstance(sample_vals, list):
+                result[str(attr_id)] = [
+                    {"id": v.get("id"), "value": v.get("value"), "info": v.get("info", "")}
+                    for v in sample_vals if isinstance(v, dict)
+                ]
+                if total > len(sample_vals):
+                    result[str(attr_id)].append({"id": 0, "value": f"... 共 {total} 个值", "info": ""})
+    return result
 
 
 # ==================== Dictionary Values Helpers ====================
