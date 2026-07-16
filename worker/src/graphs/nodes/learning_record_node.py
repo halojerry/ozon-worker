@@ -143,20 +143,19 @@ def learning_record_node(
         if attr_source == "hardcoded":
             logger.debug(f"⏭️ 跳过硬编码属性: attr_id={attribute_id_int}")
             continue
+
+        # ✅ 写入 PG（替代旧 SQLite + Supabase 双写）
+        local_db.add_attribute_mapping(
+            category_id=int(description_category_id),
+            attribute_id=attribute_id_int,
+            attribute_name=attribute_name,
+            source_value=source_value,
+            target_value=value_str,
+            dictionary_value_id=dictionary_value_id_int
+        )
         
-            # ✅ 写入 PG（替代旧 SQLite + Supabase 双写）
-            local_db.add_attribute_mapping(
-                category_id=int(description_category_id),
-                attribute_id=attribute_id_int,
-                attribute_name=attribute_name,
-                source_value=source_value,
-                target_value=value_str,
-                dictionary_value_id=dictionary_value_id_int
-            )
-            
-            recorded_count += 1
-            logger.info(f"✅ 属性映射记录成功：attr_id={attribute_id_int}, value={value_str}, dictionary_value_id={dictionary_value_id_int}")
-            continue
+        recorded_count += 1
+        logger.info(f"✅ 属性映射记录成功：attr_id={attribute_id_int}, value={value_str}, dictionary_value_id={dictionary_value_id_int}")
     
     logger.info(f"✅ 学习记录完成：{recorded_count}个属性映射已写入 PostgreSQL")
     

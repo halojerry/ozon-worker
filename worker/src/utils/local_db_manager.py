@@ -17,6 +17,7 @@ from storage.database.shared.model import (
     AttributeCache,
     DictionaryValueCache,
     CategoryCache,
+    CategoryTreeNode,
     LogisticsRate,
     ExchangeRate,
     OzonAttributeMapping,
@@ -294,6 +295,20 @@ class LocalDBManager:
             logger.info(f"✅ PG 写入成功：category_cache（client_id={ozon_client_id}，有效期{expires_in}秒）")
         finally:
             session.close()
+
+    def sync_category_tree_nodes(self, tree_data: Dict[str, Any], language: str = "ZH_HANS") -> int:
+        """
+        从类目树 JSON 同步 category_tree_nodes 扁平表。
+
+        在 set_category_cache() 之后调用，确保扁平表与 JSONB 缓存同步。
+        递归遍历 tree_data["result"]，按 (description_category_id, type_id, language) 去重 upsert。
+
+        Returns:
+            写入的节点总数
+        """
+        from utils.ozon_category_query import get_category_query
+        query = get_category_query()
+        return query.sync_category_tree_nodes(tree_data, language)
 
     def set_exchange_rate(self, from_currency: str, to_currency: str, rate: float):
         """写入汇率"""

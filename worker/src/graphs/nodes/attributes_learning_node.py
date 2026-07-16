@@ -103,6 +103,7 @@ def attributes_learning_node(state: AttributesLearningInput, config: RunnableCon
                     final_attributes.append({
                         "attribute_id": attr_id,
                         "value": value,
+                        "dictionary_value_id": 0,
                         "source": "llm"
                     })
             else:
@@ -110,6 +111,7 @@ def attributes_learning_node(state: AttributesLearningInput, config: RunnableCon
                 final_attributes.append({
                     "attribute_id": attr_id,
                     "value": value,
+                    "dictionary_value_id": 0,
                     "source": "llm"
                 })
         
