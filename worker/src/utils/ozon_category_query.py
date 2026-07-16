@@ -591,12 +591,14 @@ class OzonCategoryQuery:
                     )
                 else:
                     # 叶子类型节点（type_name + type_id + children=[]）
+                    # 注意：叶子节点没有自己的 description_category_id，使用父级类目ID
                     type_name = node.get("type_name", "")
                     type_id = node.get("type_id")
+                    leaf_desc_id = desc_id if desc_id and desc_id != 0 else parent_desc_id
                     if type_name and type_id is not None:
                         current_path = f"{path_prefix} > {type_name}" if path_prefix else type_name
                         nodes_to_insert.append({
-                            "description_category_id": desc_id,
+                            "description_category_id": leaf_desc_id or 0,
                             "type_id": type_id,
                             "node_name": type_name,
                             "node_type": "type",
