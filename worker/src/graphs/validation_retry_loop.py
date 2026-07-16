@@ -19,6 +19,7 @@ import json
 import time
 import logging
 import requests
+from utils.http_session import session
 from typing import Dict, List, Any, Optional
 from jinja2 import Template
 from pydantic import BaseModel, Field
@@ -215,7 +216,7 @@ def _call_ozon_api(ozon_client_id: str, ozon_api_key: str, endpoint: str, payloa
         "Content-Type": "application/json"
     }
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response = session.post(url, headers=headers, json=payload, timeout=30)
         if response.status_code == 200:
             return response.json()
         logger.warning(f"Ozon API {endpoint} 返回 {response.status_code}: {response.text[:200]}")
@@ -295,7 +296,7 @@ def _call_mxou_llm(token: str, config_path: str, context_vars: Dict[str, Any]) -
     }
 
     try:
-        response = requests.post(
+        response = session.post(
             "https://api.mxou.cn/v1/chat/completions",
             headers=headers,
             json=payload,
@@ -1058,7 +1059,7 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                 "Content-Type": "application/json"
             }
             validate_payload: Dict[str, Any] = {"items": items}
-            validate_resp = requests.post(ozon_validate_url, headers=validate_headers, json=validate_payload, timeout=30)
+            validate_resp = session.post(ozon_validate_url, headers=validate_headers, json=validate_payload, timeout=30)
             validate_data: Dict[str, Any] = validate_resp.json()
             validate_result: Dict[str, Any] = validate_data.get("result", {})
             validate_errors: list = validate_result.get("errors", [])
@@ -1073,7 +1074,7 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                 state.errors = validate_errors
                 state.error_message = "; ".join([e.get("message", "") for e in validation_errors])
                 state.is_valid = False
-                state.retry_count += 1
+                # retry_count 由 parse_error_node 递增，此处不重复计数
                 logger.info(f"📋 Ozon预检发现{len(validate_errors)}个错误，转为errors数组处理")
             else:
                 logger.info("✅ Ozon API预检通过")
@@ -1118,7 +1119,7 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     payload: Dict[str, Any] = {"items": items}
 
     try:
-        response = requests.post(ozon_url, headers=headers, json=payload, timeout=30)
+        response = session.post(ozon_url, headers=headers, json=payload, timeout=30)
         response_data: Dict[str, Any] = response.json()
 
         if response.status_code == 200:
@@ -1175,7 +1176,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         time.sleep(poll_interval)
 
         try:
-            response = requests.post(ozon_url, headers=headers, json=payload, timeout=30)
+            response = session.post(ozon_url, headers=headers, json=payload, timeout=30)
             response_data: Dict[str, Any] = response.json()
 
             if response.status_code != 200:

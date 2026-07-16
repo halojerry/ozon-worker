@@ -3,8 +3,8 @@ import os
 import json
 import logging
 import math
-import sqlite3
 import requests
+from utils.http_session import session
 from typing import Any, Dict, Optional, Tuple
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
@@ -45,7 +45,7 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 'Api-Key': ozon_api_key,
                 'Content-Type': 'application/json'
             }
-            ozon_response = requests.post(ozon_url, headers=ozon_headers, json={}, timeout=60)
+            ozon_response = session.post(ozon_url, headers=ozon_headers, json={}, timeout=60)
             ozon_data = ozon_response.json()
             company = ozon_data.get('company', {})
             if isinstance(company, dict):
@@ -87,26 +87,42 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         # ✅ 关键修复：兼容purchase_cost字段（扁平信封使用purchase_cost而非cost_cny）
         cost_cny: float = float(draft.get("cost_cny", 0) or draft.get("purchase_cost", 0) or 0)
         weight_raw = draft.get("weight", 0)
-        weight: float = float(weight_raw) if weight_raw else 0.0  # 克（处理空字符串）
+        try:
+            weight: float = float(weight_raw) if weight_raw else 0.0
+        except (ValueError, TypeError):
+            weight = 0.0
+            logger.warning(f"定价节点：weight 无法解析为数字（{weight_raw}），使用默认 0")
+        # ✅ 单位转换：仅当带小数点时判定为 kg（skill 保证发送克，1688 原始 kg 如 1.5 会有小数点）
+        if isinstance(weight_raw, str) and '.' in str(weight_raw) and 0 < weight < 10000:
+            weight = weight * 1000  # kg → g
+            logger.info(f"定价节点重量转换：{weight_raw}kg → {weight}g")
         
         # ✅ 关键修复：从嵌套的 dimensions 对象中提取尺寸（mm→cm）
         dims_obj = draft.get("dimensions", {})
+        def _safe_float(val) -> float:
+            try:
+                return float(val) if val else 0.0
+            except (ValueError, TypeError):
+                return 0.0
         if isinstance(dims_obj, dict):
-            depth_mm = float(dims_obj.get("length", 0) or dims_obj.get("depth", 0))
-            width_mm = float(dims_obj.get("width", 0))
-            height_mm = float(dims_obj.get("height", 0))
+            depth_mm = _safe_float(dims_obj.get("length") or dims_obj.get("depth"))
+            width_mm = _safe_float(dims_obj.get("width"))
+            height_mm = _safe_float(dims_obj.get("height"))
         else:
-            depth_mm = float(draft.get("depth", 0))
-            width_mm = float(draft.get("width", 0))
-            height_mm = float(draft.get("height", 0))
+            depth_mm = _safe_float(draft.get("depth"))
+            width_mm = _safe_float(draft.get("width"))
+            height_mm = _safe_float(draft.get("height"))
         # mm → cm
         depth: float = depth_mm / 10.0
         width: float = width_mm / 10.0
         height: float = height_mm / 10.0
-        # 尺寸全为0时使用默认值（与prepare_ozon_upload_node一致）
-        if depth == 0 and width == 0 and height == 0:
-            depth, width, height = 30.0, 20.0, 5.0  # 300×200×50mm → cm
-            logger.warning("⚠️ dimensions全为0，使用默认值: 30×20×5 cm")
+        # 逐维度补默认值（与 prepare_ozon_upload_node 一致：depth→3cm, width→2cm, height→0.5cm）
+        if depth <= 0:
+            depth = 3.0
+        if width <= 0:
+            width = 2.0
+        if height <= 0:
+            height = 0.5
         
         # ✅ 重量为0时使用默认值（与prepare_ozon_upload_node一致）
         if weight <= 0:
@@ -280,7 +296,7 @@ def _get_store_logistics_config(ozon_client_id: str, ozon_api_key: str) -> tuple
             "Api-Key": ozon_api_key,
             "Content-Type": "application/json"
         }
-        resp = requests.post(
+        resp = session.post(
             "https://api-seller.ozon.ru/v2/delivery-method/list",
             headers=headers, json={"limit": 100}, timeout=30
         )
@@ -324,145 +340,122 @@ def _get_store_logistics_config(ozon_client_id: str, ozon_api_key: str) -> tuple
 
 
 def _query_logistics_from_sqlite(weight: float, depth_cm: float, width_cm: float, height_cm: float, tpl_provider: str, service_level: str) -> tuple:
-    """从SQLite查询物流费率，按3PL+服务等级+评分组精确匹配"""
-    try:
-        db_path = os.path.join(os.getenv("COZE_WORKSPACE_PATH", "."), "assets/local_cache.db")
-        if not os.path.exists(db_path):
-            db_path = "assets/local_cache.db"
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+    """从 PG 物流费率表查询，按 3PL+服务等级+评分组精确匹配"""
+    from storage.database.db import get_session
+    from storage.database.shared.model import LogisticsRate
+    from sqlalchemy import and_, select
 
-        # 计算边长总和和长边
+    session = get_session()
+    try:
         dims = sorted([depth_cm, width_cm, height_cm], reverse=True)
         longest_cm = dims[0] if dims else 0
         sum_cm = sum(dims)
 
-        # 匹配评分组：weight在范围内 AND 尺寸在限制内
-        cursor.execute("""
-            SELECT scoring_group, base_cost, per_gram_rate, weight_min, weight_max,
-                   sum_limit_cm, longest_limit_cm, charge_type, vol_weight_divisor
-            FROM logistics_rates
-            WHERE tpl_provider = ? AND service_level = ?
-              AND weight_min <= ? AND weight_max >= ?
-              AND sum_limit_cm >= ? AND longest_limit_cm >= ?
-            ORDER BY base_cost ASC
-            LIMIT 1
-        """, (tpl_provider, service_level, int(weight), int(weight), int(sum_cm), int(longest_cm)))
+        # 查询1: 3PL + 服务等级 + 重量 + 尺寸全匹配
+        rows = session.execute(
+            select(LogisticsRate).where(
+                and_(
+                    LogisticsRate.tpl_provider == tpl_provider,
+                    LogisticsRate.service_level == service_level,
+                    LogisticsRate.weight_min <= int(weight),
+                    LogisticsRate.weight_max >= int(weight),
+                    LogisticsRate.sum_limit_cm >= int(sum_cm),
+                    LogisticsRate.longest_limit_cm >= int(longest_cm),
+                )
+            ).order_by(LogisticsRate.base_cost.asc()).limit(1)
+        ).scalars().all()
 
-        rows = cursor.fetchall()
-
+        # 查询2: 尺寸不满足，仅按重量 + 3PL匹配
         if not rows:
-            # 尺寸限制不满足，尝试只按重量匹配（忽略尺寸限制）
-            cursor.execute("""
-                SELECT scoring_group, base_cost, per_gram_rate, weight_min, weight_max,
-                       sum_limit_cm, longest_limit_cm, charge_type, vol_weight_divisor
-                FROM logistics_rates
-                WHERE tpl_provider = ? AND service_level = ?
-                  AND weight_min <= ? AND weight_max >= ?
-                ORDER BY base_cost ASC
-                LIMIT 1
-            """, (tpl_provider, service_level, int(weight), int(weight)))
-            rows = cursor.fetchall()
+            rows = session.execute(
+                select(LogisticsRate).where(
+                    and_(
+                        LogisticsRate.tpl_provider == tpl_provider,
+                        LogisticsRate.service_level == service_level,
+                        LogisticsRate.weight_min <= int(weight),
+                        LogisticsRate.weight_max >= int(weight),
+                    )
+                ).order_by(LogisticsRate.base_cost.asc()).limit(1)
+            ).scalars().all()
 
+        # 查询3: 该3PL无匹配，同服务等级其他3PL
         if not rows:
-            # 该3PL+等级没有匹配，尝试同等级其他3PL
-            cursor.execute("""
-                SELECT scoring_group, base_cost, per_gram_rate, weight_min, weight_max,
-                       sum_limit_cm, longest_limit_cm, charge_type, vol_weight_divisor
-                FROM logistics_rates
-                WHERE service_level = ?
-                  AND weight_min <= ? AND weight_max >= ?
-                  AND sum_limit_cm >= ? AND longest_limit_cm >= ?
-                ORDER BY base_cost ASC
-                LIMIT 1
-            """, (service_level, int(weight), int(weight), int(sum_cm), int(longest_cm)))
-            rows = cursor.fetchall()
+            rows = session.execute(
+                select(LogisticsRate).where(
+                    and_(
+                        LogisticsRate.service_level == service_level,
+                        LogisticsRate.weight_min <= int(weight),
+                        LogisticsRate.weight_max >= int(weight),
+                        LogisticsRate.sum_limit_cm >= int(sum_cm),
+                        LogisticsRate.longest_limit_cm >= int(longest_cm),
+                    )
+                ).order_by(LogisticsRate.base_cost.asc()).limit(1)
+            ).scalars().all()
 
         if rows:
             row = rows[0]
-            scoring_group = row[0]
-            base_cost = float(row[1])
-            per_gram_rate = float(row[2])
-            charge_type = str(row[7])
-            vol_divisor = int(row[8])
+            base_cost = float(row.base_cost)
+            per_gram_rate = float(row.per_gram_rate)
+            vol_divisor = int(row.vol_weight_divisor)
 
-            # 计算计费重量
             billable_weight = weight
-            if vol_divisor > 0 and vol_divisor > 1:
+            if vol_divisor > 1:
                 vol_weight = (depth_cm * width_cm * height_cm) / vol_divisor
                 billable_weight = max(weight, vol_weight)
 
             logistics_cost = base_cost + per_gram_rate * billable_weight
-            channel_name = f"{tpl_provider}_{service_level}_{scoring_group}"
+            channel_name = f"{row.tpl_provider}_{row.service_level}_{row.scoring_group}"
 
             logger.info(
-                f"物流费率匹配: 3PL={tpl_provider}, 等级={service_level}, 评分组={scoring_group}, "
+                f"PG 物流费率匹配: 3PL={row.tpl_provider}, 等级={row.service_level}, 评分组={row.scoring_group}, "
                 f"weight={weight}g, billable={billable_weight:.1f}g, "
                 f"base={base_cost}, rate={per_gram_rate}/g, cost={logistics_cost:.2f} CNY"
             )
-            conn.close()
             return (logistics_cost, channel_name)
 
         # 最终fallback：使用RETS Standard
-        cursor.execute("""
-            SELECT scoring_group, base_cost, per_gram_rate, charge_type, vol_weight_divisor
-            FROM logistics_rates
-            WHERE tpl_provider = 'RETS' AND service_level = 'Standard'
-              AND weight_min <= ? AND weight_max >= ?
-            ORDER BY weight_min ASC
-            LIMIT 1
-        """, (int(weight), int(weight)))
-        fallback_rows = cursor.fetchall()
-        conn.close()
+        fb_row = session.execute(
+            select(LogisticsRate).where(
+                and_(
+                    LogisticsRate.tpl_provider == "RETS",
+                    LogisticsRate.service_level == "Standard",
+                    LogisticsRate.weight_min <= int(weight),
+                    LogisticsRate.weight_max >= int(weight),
+                )
+            ).order_by(LogisticsRate.weight_min.asc()).limit(1)
+        ).scalar_one_or_none()
 
-        if fallback_rows:
-            fb = fallback_rows[0]
-            base_cost = float(fb[1])
-            per_gram_rate = float(fb[2])
+        if fb_row:
+            base_cost = float(fb_row.base_cost)
+            per_gram_rate = float(fb_row.per_gram_rate)
             logistics_cost = base_cost + per_gram_rate * weight
             logger.warning(f"物流费率最终fallback到RETS Standard: cost={logistics_cost:.2f}")
             return (logistics_cost, "RETS_Standard_fallback")
 
         # 绝对最后fallback
-        logger.warning(f"SQLite物流费率表无数据，使用默认费率")
+        logger.warning(f"PG 物流费率表无数据，使用默认费率")
         return (weight * 0.15, "default_fallback")
 
     except Exception as e:
-        logger.error(f"SQLite物流费率查询失败: {str(e)}")
+        logger.error(f"PG 物流费率查询失败: {str(e)}")
         return (weight * 0.15, "error_fallback")
+    finally:
+        session.close()
 
 
 def _get_exchange_rate(supabase_url: str, supabase_key: str, currency_code: str = "RUB") -> float:
-    """查询汇率（根据currency_code决定汇率方向）"""
-    try:
-        headers = {
-            "apikey": supabase_key,
-            "Authorization": f"Bearer {supabase_key}",
-            "Content-Type": "application/json"
-        }
-        
-        # 根据currency_code决定查询哪个汇率
-        if currency_code == "CNY":
-            # 店铺是CNY，不需要汇率转换（返回1.0）
-            return 1.0
-        else:
-            # 店铺是RUB，查询CNY to RUB汇率
-            query_url = f"{supabase_url}/rest/v1/exchange_rates?from_currency=eq.CNY&to_currency=eq.RUB&select=*"
-            
-            response = requests.get(query_url, headers=headers, timeout=30)
-            
-            if response.status_code == 200:
-                rates_data: Any = response.json()
-                
-                if isinstance(rates_data, list) and len(rates_data) > 0:
-                    rate_record: Dict[str, Any] = rates_data[0]
-                    exchange_rate: float = float(rate_record.get("rate", 12.0))
-                    logger.info(f"查询汇率成功: CNY to RUB = {exchange_rate}")
-                    return exchange_rate
-            
-            # 默认值（如果查询失败）
-            return 12.0  # 默认CNY to RUB汇率
-        
-    except Exception as e:
-        logger.error(f"查询汇率失败: {str(e)}")
-        return 12.0  # 默认值
+    """查询汇率（根据currency_code决定汇率方向，优先 PG 缓存）"""
+    if currency_code == "CNY":
+        return 1.0
+    
+    # ✅ 从 PG 缓存查询（替代旧 Supabase REST API）
+    from utils.local_db_manager import LocalDBManager
+    local_db = LocalDBManager()
+    rate = local_db.get_exchange_rate("CNY", "RUB")
+    if rate:
+        logger.info(f"PG 汇率查询成功: CNY→RUB = {rate}")
+        return rate
+    
+    # 缓存未命中，使用默认值
+    logger.warning("PG 汇率缓存未命中，使用默认汇率 12.0")
+    return 12.0

@@ -4,6 +4,7 @@ import json
 import time
 import logging
 import requests
+from utils.http_session import session
 from typing import Any, Dict, List
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
@@ -75,7 +76,7 @@ def attributes_fetch_node(state: AttributesFetchInput, config: RunnableConfig, r
             cache_url = f"{supabase_url}/rest/v1/attribute_cache?description_category_id=eq.{description_category_id}&type_id=eq.{type_id}&language=eq.ZH_HANS&expires_at=gt.{current_time}&select=attributes_schema"
             
             logger.info(f"本地未命中，查询Supabase缓存（attribute_cache表）...")
-            cache_response = requests.get(cache_url, headers=headers, timeout=10)
+            cache_response = session.get(cache_url, headers=headers, timeout=10)
             
             if cache_response.status_code == 200:
                 cache_data = cache_response.json()
@@ -107,7 +108,7 @@ def attributes_fetch_node(state: AttributesFetchInput, config: RunnableConfig, r
                 "language": "ZH_HANS"  # ✅ 关键：使用中文查询（支持ZH_HANS中文、EN英文）
             }
             
-            ozon_response = requests.post(ozon_url, headers=ozon_headers, json=ozon_payload, timeout=60)
+            ozon_response = session.post(ozon_url, headers=ozon_headers, json=ozon_payload, timeout=60)
             
             if ozon_response.status_code != 200:
                 logger.error(f"Ozon API获取属性失败: {ozon_response.status_code} - {ozon_response.text}")
@@ -147,7 +148,7 @@ def attributes_fetch_node(state: AttributesFetchInput, config: RunnableConfig, r
             }
             
             try:
-                insert_response = requests.post(insert_url, headers=headers, json=insert_payload, timeout=10)
+                insert_response = session.post(insert_url, headers=headers, json=insert_payload, timeout=10)
                 if insert_response.status_code == 201:
                     logger.info("✅ 属性schema已缓存到Supabase（有效期24小时）")
                 else:
@@ -203,7 +204,7 @@ def attributes_fetch_node(state: AttributesFetchInput, config: RunnableConfig, r
             dict_cache_url = f"{supabase_url}/rest/v1/dictionary_value_cache?attribute_id=eq.{attr_id}&description_category_id=eq.{description_category_id}&type_id=eq.{type_id}&language=eq.ZH_HANS&expires_at=gt.{current_time}&select=values_data"
 
             try:
-                dict_cache_response = requests.get(dict_cache_url, headers=headers, timeout=10)
+                dict_cache_response = session.get(dict_cache_url, headers=headers, timeout=10)
 
                 if dict_cache_response.status_code == 200:
                     dict_cache_data: Any = dict_cache_response.json()
@@ -240,7 +241,7 @@ def attributes_fetch_node(state: AttributesFetchInput, config: RunnableConfig, r
                 }
 
                 try:
-                    dict_response = requests.post(dict_url, headers=ozon_headers, json=dict_payload, timeout=60)
+                    dict_response = session.post(dict_url, headers=ozon_headers, json=dict_payload, timeout=60)
 
                     if dict_response.status_code == 200:
                         dict_data: Any = dict_response.json()
@@ -286,7 +287,7 @@ def attributes_fetch_node(state: AttributesFetchInput, config: RunnableConfig, r
                 }
 
                 try:
-                    dict_insert_response = requests.post(dict_insert_url, headers=headers, json=dict_insert_payload, timeout=10)
+                    dict_insert_response = session.post(dict_insert_url, headers=headers, json=dict_insert_payload, timeout=10)
                     if dict_insert_response.status_code == 201:
                         logger.info(f"✅ 字典值已双写到Supabase（有效期24小时）：attribute_id={attr_id}")
                     else:
@@ -311,7 +312,7 @@ def attributes_fetch_node(state: AttributesFetchInput, config: RunnableConfig, r
         if not learned_attributes:
             learning_query_url = f"{supabase_url}/rest/v1/ozon_attribute_mappings?category_id=eq.{description_category_id}&select=*"
 
-            learning_response = requests.get(learning_query_url, headers=headers, timeout=30)
+            learning_response = session.get(learning_query_url, headers=headers, timeout=30)
 
             if learning_response.status_code == 200:
                 learning_data: Any = learning_response.json()

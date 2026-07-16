@@ -5,6 +5,7 @@ import time
 import logging
 import re
 import requests
+from utils.http_session import session
 from typing import Any, Dict, List, Optional
 from jinja2 import Template
 from langchain_core.runnables import RunnableConfig
@@ -177,14 +178,18 @@ def attributes_llm_node(state: AttributesLLMInput, config: RunnableConfig, runti
         })
         
         # Step 4: 调用 mxou LLM Chat API
-        response_text: str = call_mxou_chat_api(
-            token=token,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            model=model_id,
-            temperature=temperature,
-            max_tokens=max_completion_tokens
-        ) or ""
+        try:
+            response_text: str = call_mxou_chat_api(
+                token=token,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=model_id,
+                temperature=temperature,
+                max_tokens=max_completion_tokens
+            ) or ""
+        except Exception as _llm_err:
+            logger.error(f"LLM API调用异常: {str(_llm_err)[:200]}")
+            return AttributesLLMOutput(llm_attributes=[], llm_count=0)
         
         if not response_text.strip():
             logger.error("LLM返回空响应")
@@ -195,6 +200,18 @@ def attributes_llm_node(state: AttributesLLMInput, config: RunnableConfig, runti
         
         # Step 5: 解析JSON响应（LLM应该返回JSON数组）
         try:
+            # 3层防御：清洗LLM输出中的常见问题
+            import re as _re
+            # 第1层：剥离 Markdown 代码块
+            response_text = response_text.replace("```json", "").replace("```", "").strip()
+            # 第2层：去除所有控制字符。Python json 不允许 U+2028/U+2029
+            import unicodedata
+            response_text = ''.join(c for c in response_text if unicodedata.category(c)[0] != 'C' or c in '\n\r\t')
+            # 第3层：提取JSON数组片段（LLM可能在前后附加解释文本）
+            _match = _re.search(r'\[.*\]', response_text, _re.DOTALL)
+            if _match:
+                response_text = _match.group(0)
+
             llm_attributes: Any = json.loads(response_text)
             
             # 验证返回格式是否正确
@@ -226,6 +243,15 @@ def attributes_llm_node(state: AttributesLLMInput, config: RunnableConfig, runti
                             "dictionary_value_id": attr.get("dictionary_value_id"),
                             "source": "llm"
                         })
+            
+            # ✅ P1修复：按 attribute_id 去重（保留最后出现的，LLM 通常会修正前面的错误值）
+            seen_ids: Dict[str, Dict[str, Any]] = {}
+            for attr in valid_attributes:
+                aid = str(attr.get("attribute_id", ""))
+                seen_ids[aid] = attr  # 后出现的覆盖前面的
+            if len(seen_ids) < len(valid_attributes):
+                logger.warning(f"⚠️ LLM返回了重复attribute_id，已去重：{len(valid_attributes)}→{len(seen_ids)}")
+            valid_attributes = list(seen_ids.values())
             
             # ✅ 关键修复：动态查找品牌属性（不再硬编码attribute_id=85）
             # 从schema中查找品牌属性（name包含Brand/品牌/Бренд）
@@ -416,7 +442,7 @@ def attributes_llm_node(state: AttributesLLMInput, config: RunnableConfig, runti
                                             "value": sq,
                                             "limit": 5
                                         }
-                                        search_resp: requests.Response = requests.post(
+                                        search_resp: requests.Response = session.post(
                                             search_url, headers=search_headers, json=search_payload, timeout=15
                                         )
                                         

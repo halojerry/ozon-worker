@@ -3,6 +3,7 @@ import json
 import time
 import logging
 import requests
+from utils.http_session import session
 from typing import Dict, Any, List, Optional
 from jinja2 import Template
 from langchain_core.runnables import RunnableConfig
@@ -96,11 +97,17 @@ def ozon_status_node(
         ozon_api_url: str = "https://api-seller.ozon.ru/v1/product/import/info"
         payload: Dict[str, Any] = {"task_id": task_id_int}
 
+        # 初始化（避免 else 分支引用未定义变量导致 NameError）
+        real_product_ids: List[str] = []
+        all_item_errors: List[Dict[str, Any]] = []
+        total_item_count: int = 0
+        has_pending: bool = False
+
         for attempt in range(MAX_POLL_ATTEMPTS):
             logger.info(f"轮询第{attempt + 1}/{MAX_POLL_ATTEMPTS}次...")
             progress.log_node_action(f"轮询Ozon状态第{attempt + 1}/{MAX_POLL_ATTEMPTS}次...")
 
-            response = requests.post(ozon_api_url, headers=headers, json=payload, timeout=60)
+            response = session.post(ozon_api_url, headers=headers, json=payload, timeout=60)
 
             if response.status_code != 200:
                 logger.error(f"Ozon API调用失败: {response.status_code}, {response.text[:200]}")
@@ -260,7 +267,7 @@ def ozon_status_node(
                 logger.info(f"查询moderate_status第{attempt2 + 1}/{MAX_MODERATE_POLL_ATTEMPTS}次...")
                 progress.log_node_action(f"查询审核状态第{attempt2 + 1}/{MAX_MODERATE_POLL_ATTEMPTS}次（{len(all_pids_int)}个变体）...")
 
-                info_response = requests.post(info_url, headers=headers, json=info_payload, timeout=60)
+                info_response = session.post(info_url, headers=headers, json=info_payload, timeout=60)
 
                 if info_response.status_code == 200:
                     info_result: Dict[str, Any] = info_response.json()
@@ -291,11 +298,19 @@ def ozon_status_node(
                                 all_approved = False
                                 # 收集错误信息
                                 item_errs = info_item.get("errors", [])
+                                # Ozon 已知可忽略的错误码（平台自动修正，不算真错误）
+                                IGNORABLE_CODES = {9782}  # erased_attribute_value
                                 real_errs = []
                                 for err in item_errs:
                                     if not isinstance(err, dict):
                                         continue
+                                    err_code = err.get("code", "")
                                     err_level = err.get("level", "")
+                                    # 按 code 白名单跳过（即使 level 是 ERROR）
+                                    if isinstance(err_code, int) and err_code in IGNORABLE_CODES:
+                                        continue
+                                    if isinstance(err_code, str) and err_code.isdigit() and int(err_code) in IGNORABLE_CODES:
+                                        continue
                                     if err_level != "ERROR_LEVEL_WARNING":
                                         real_errs.append(err)
                                 if real_errs:

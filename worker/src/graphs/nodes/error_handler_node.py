@@ -16,8 +16,11 @@ def error_handler_node(
     config: RunnableConfig, 
     runtime: Runtime[Context]
 ) -> ErrorHandlerOutput:
+    """[保留待用] 错误分类与修复建议节点。
+
+    当前未注册到 graph.py 中（所有错误恢复走 validation_retry_loop）。
+    保留此节点供未来需要人工可读错误分析时接入。
     """
-    title: 错误处理节点
     desc: 分类错误类型并返回修复建议
     integrations: 无
     """

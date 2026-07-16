@@ -80,32 +80,35 @@ class ProgressLogger:
         记录节点开始（含进度百分比）
         
         Args:
-            node_name: 节点名称（如"white_bg_gen_node"）
+            node_name: 节点名称（如"white_bg_gen_node"或"white_bg_gen"，自动去_node后缀）
             node_title: 节点标题（如"白底图生成节点"，可选，默认从配置读取）
         
         Returns:
             int: 更新后的计数器值（用于节点返回）
         """
-        # ✅ 新增：根据node_name自动获取节点顺序
-        if node_name in NODE_ORDER:
-            self.current_node_count = NODE_ORDER[node_name]
-        else:
-            # 如果节点名称不在字典中，使用外部传入的计数器+1
-            self.current_node_count += 1
+        # 自动去除 _node 后缀（兼容历史代码中 "main_image_gen_node" 这种写法）
+        clean_name = node_name
+        if clean_name.endswith("_node"):
+            clean_name = clean_name[:-5]  # strip "_node"
+        
+        # 优先使用外部传入的 current_counter；否则从 NODE_ORDER 查找
+        if self.current_node_count > 0:
+            self.current_node_count = self.current_node_count
+        elif clean_name in NODE_ORDER:
+            self.current_node_count = NODE_ORDER[clean_name]
         
         progress_percent = int((self.current_node_count / self.total_nodes) * 100)
         
         # 获取节点标题（优先使用传入的node_title，否则从配置读取）
         if node_title is None:
-            node_title = self.node_titles.get(node_name, node_name)
+            node_title = self.node_titles.get(clean_name, clean_name)
         
-        # 识别当前阶段
-        current_stage = self._get_current_stage(node_name)
+        # 识别当前阶段（用清洗后的名字匹配）
+        current_stage = self._get_current_stage(clean_name)
         stage_name = current_stage.get('name', '')
         
         logger.info(f"📊 进度：{progress_percent}% | {stage_name} ▶️ {node_title}")
         
-        # ✅ 返回更新后的计数器值
         return self.current_node_count
     
     def log_node_action(self, action: str):

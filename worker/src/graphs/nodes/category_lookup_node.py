@@ -3,6 +3,7 @@ import json
 import time
 import logging
 import requests
+from utils.http_session import session
 import jieba
 from typing import Dict, Any, Optional, List, Tuple
 from langchain_core.runnables import RunnableConfig
@@ -13,6 +14,7 @@ from jinja2 import Template
 from graphs.state import CategoryLookupInput, CategoryLookupOutput
 from utils.progress_logger import ProgressLogger
 from utils.mxou_llm import call_mxou_chat_api
+from utils.local_db_manager import LocalDBManager
 
 logger = logging.getLogger(__name__)
 
@@ -431,29 +433,18 @@ def category_lookup_node(state: CategoryLookupInput, config: RunnableConfig, run
         supabase_key = state.supabase_key
         
         current_time = int(time.time())
-        headers = {
-            "apikey": supabase_key,
-            "Authorization": f"Bearer {supabase_key}",
-            "Content-Type": "application/json"
-        }
         
-        # 查询缓存（expires_at > current_time）
-        cache_url = f"{supabase_url}/rest/v1/category_cache?ozon_client_id=eq.{state.ozon_client_id}&language=eq.ZH_HANS&expires_at=gt.{current_time}&select=tree_data"
+        # ✅ 从 PG 缓存读取类目树（替代旧 Supabase REST API）
+        local_db = LocalDBManager()
+        cached_cat = local_db.get_category_cache(state.ozon_client_id, language="ZH_HANS")
+        category_tree: Optional[list] = cached_cat.get("tree_data") if cached_cat else None
         
-        logger.info(f"查询Supabase缓存（category_cache表）...")
-        cache_response = requests.get(cache_url, headers=headers, timeout=10)
-        
-        category_tree: Optional[list] = None
-        
-        if cache_response.status_code == 200:
-            cache_data = cache_response.json()
-            if cache_data and len(cache_data) > 0:
-                category_tree = cache_data[0].get("tree_data", [])
-                logger.info(f"✅ 使用缓存的类目树（{len(category_tree)}个顶级类目）")
+        if category_tree:
+            logger.info(f"✅ 使用 PG 缓存的类目树（{len(category_tree)}个顶级类目）")
         
         # ✅ 缓存不存在时调用Ozon API获取类目树
         if not category_tree:
-            logger.info("缓存不存在或过期，调用Ozon API获取类目树（language=ZH_HANS）...")
+            logger.info("PG 缓存不存在或过期，调用Ozon API获取类目树（language=ZH_HANS）...")
             
             ozon_client_id = state.ozon_client_id
             ozon_api_key = state.ozon_api_key
@@ -466,7 +457,7 @@ def category_lookup_node(state: CategoryLookupInput, config: RunnableConfig, run
             }
             ozon_payload = {"language": "ZH_HANS"}
             
-            ozon_response = requests.post(ozon_url, headers=ozon_headers, json=ozon_payload, timeout=120)
+            ozon_response = session.post(ozon_url, headers=ozon_headers, json=ozon_payload, timeout=120)
             
             if ozon_response.status_code != 200:
                 logger.error(f"Ozon API获取类目树失败: {ozon_response.status_code} - {ozon_response.text}")
@@ -488,23 +479,13 @@ def category_lookup_node(state: CategoryLookupInput, config: RunnableConfig, run
             
             logger.info(f"✅ 获取类目树成功: {len(category_tree)}个顶级类目")
             
-            # 缓存到Supabase（24小时有效）
-            insert_url = f"{supabase_url}/rest/v1/category_cache"
-            insert_payload = {
-                "ozon_client_id": ozon_client_id,
-                "language": "ZH_HANS",
-                "tree_data": category_tree,
-                "expires_at": current_time + 86400
-            }
-            
-            try:
-                insert_response = requests.post(insert_url, headers=headers, json=insert_payload, timeout=10)
-                if insert_response.status_code == 201:
-                    logger.info("✅ 类目树已缓存到Supabase（有效期24小时）")
-                else:
-                    logger.warning(f"缓存写入失败: {insert_response.status_code}")
-            except Exception as e:
-                logger.warning(f"缓存写入异常: {str(e)}")
+            # ✅ 缓存到 PG（24小时有效，替代旧 Supabase REST API）
+            local_db.set_category_cache(
+                ozon_client_id=ozon_client_id,
+                tree_data=category_tree,
+                language="ZH_HANS",
+                expires_in=86400
+            )
         
         # ✅ 核心：LLM两步智能匹配类目
         # Step 1: 扁平化类目树，提取所有有type_id的叶子节点

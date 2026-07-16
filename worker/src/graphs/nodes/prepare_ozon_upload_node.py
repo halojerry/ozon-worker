@@ -279,10 +279,10 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
             return translated
         else:
             logger.error(f"❌ 翻译结果不含西里尔字母，保留原文: '{text[:50]}'")
-            return text
+            return ""  # 不返回中文原文，避免 Ozon 显示乱码
     except Exception as e:
         logger.error(f"❌ LLM翻译异常: {str(e)}")
-        return text
+        return ""  # 不返回中文原文
 
 
 def _sanitize_title(title: str) -> str:
@@ -524,21 +524,33 @@ def prepare_ozon_upload_node(
         width_raw = draft.get("width", 0)
         height_raw = draft.get("height", 0)
     
-    # ✅ 重量单位判断：envelope中的weight通常是克（1688数据规范）
-    # 如果weight < 1（可能是kg），转换为克；否则直接使用（已经是克）
-    if weight_raw and float(weight_raw) < 1:
-        weight_g = int(float(weight_raw) * 1000)  # kg → g
-        logger.info(f"重量单位判断：{weight_raw}kg → {weight_g}g")
+    # ✅ 重量单位判断：skill 保证发送克，仅当带小数点时判定为 kg
+    if weight_raw and isinstance(weight_raw, str) and '.' in str(weight_raw):
+        try:
+            weight_g = int(float(weight_raw) * 1000)  # kg → g
+            logger.info(f"重量单位判断：{weight_raw}kg → {weight_g}g")
+        except (ValueError, TypeError):
+            weight_g = 100  # 默认 100g
+            logger.warning(f"重量无法解析（{weight_raw}），使用默认值 100g")
     else:
-        weight_g = int(float(weight_raw)) if weight_raw else 0  # 已经是克
+        try:
+            weight_g = int(float(weight_raw)) if weight_raw else 0
+        except (ValueError, TypeError):
+            weight_g = 100
+            logger.warning(f"重量无法解析（{weight_raw}），使用默认值 100g")
         logger.info(f"重量单位判断：{weight_raw}g（直接使用）")
     
     # ✅ 尺寸单位智能判断：1688数据可能是cm或mm
     # 启发式规则：如果任一维度 < 50，大概率是cm（mm下50mm=5cm太小了）
     # Ozon API 要求 mm 单位
-    d_val = float(depth_raw) if depth_raw else 0.0
-    w_val = float(width_raw) if width_raw else 0.0
-    h_val = float(height_raw) if height_raw else 0.0
+    def _safe_float(val) -> float:
+        try:
+            return float(val) if val else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+    d_val = _safe_float(depth_raw)
+    w_val = _safe_float(width_raw)
+    h_val = _safe_float(height_raw)
     
     max_dim = max(d_val, w_val, h_val)
     if max_dim > 0 and max_dim < 50:
@@ -687,8 +699,9 @@ def prepare_ozon_upload_node(
         except (ValueError, TypeError):
             continue
 
-    # 3) 字典属性校验：已知字典属性(10096/10097等)若缺dictionary_value_id则补0
+    # 3) 字典属性校验：已知字典属性(10096/10097等)若缺dictionary_value_id则主动查找缓存
     DICT_ATTR_IDS = {10096, 10097}
+    dict_vals = getattr(state, "dictionary_values", {}) or {}
     for attr in final_attributes:
         if not isinstance(attr, dict):
             continue
@@ -698,9 +711,27 @@ def prepare_ozon_upload_node(
             continue
         if attr_id_int in DICT_ATTR_IDS:
             dvid = attr.get("dictionary_value_id")
-            if dvid is None or (isinstance(dvid, str) and not dvid.strip()):
-                attr["dictionary_value_id"] = 0
-                logger.warning(f"⚠️ 字典属性{attr_id_int}缺少dictionary_value_id，补0")
+            if dvid is None or (isinstance(dvid, str) and not dvid.strip()) or (isinstance(dvid, int) and dvid <= 0):
+                # 主动从缓存中查找匹配的字典值
+                val_text = str(attr.get("value", "")).strip()
+                cached = dict_vals.get(str(attr_id_int), [])
+                matched = False
+                for cv in cached:
+                    if str(cv.get("value", "")).strip().lower() == val_text.lower():
+                        attr["dictionary_value_id"] = cv.get("id")
+                        attr["value"] = cv.get("value")
+                        logger.info(f"✅ 字典属性{attr_id_int}从缓存匹配: {cv.get('value')} (id={cv.get('id')})")
+                        matched = True
+                        break
+                if not matched:
+                    # 缓存匹配失败，用 _get_color_from_dictionary 兜底取第一个可用颜色
+                    color_ru, color_id = _get_color_from_dictionary(dict_vals, attr_id_int, set())
+                    if color_id > 0:
+                        attr["dictionary_value_id"] = color_id
+                        attr["value"] = color_ru
+                        logger.info(f"✅ 字典属性{attr_id_int}兜底匹配: {color_ru} (id={color_id})")
+                    else:
+                        logger.warning(f"⚠️ 字典属性{attr_id_int}无法匹配任何字典值，跳过: value={val_text}")
     
     # ✅ 关键修复：先翻译标题，再处理描述（描述兜底需要title_ru）
     
@@ -965,7 +996,37 @@ def prepare_ozon_upload_node(
                 "values": [{"dictionary_value_id": 0, "value": model_name_9048}]
             })
             logger.info(f"✅ 添加属性9048（型号名称），值: {model_name_9048[:80]}")
-        seen_attr_ids.add(9048)
+
+    # ✅ 属性8962（件数/Единиц в одном товаре）：兜底默认值 "1"
+    found_8962: bool = False
+    for attr in ozon_attributes:
+        if isinstance(attr, dict) and attr.get("id") == 8962:
+            found_8962 = True
+            break
+    if not found_8962:
+        ozon_attributes.append({
+            "complex_id": 0,
+            "id": 8962,
+            "values": [{"dictionary_value_id": 0, "value": "1"}]
+        })
+        logger.info("✅ 兜底添加属性8962（件数），值: 1")
+
+    # ✅ 属性4958（专为/Предназначено для）：兜底 "Универсальный"
+    found_4958: bool = False
+    for attr in ozon_attributes:
+        if isinstance(attr, dict) and attr.get("id") == 4958:
+            found_4958 = True
+            break
+    if not found_4958:
+        # 默认 "Универсальный"（通用）；后续可通过 description_category_id 查 Ozon API 精确匹配
+        target_value: str = "Универсальный"
+        ozon_attributes.append({
+            "complex_id": 0,
+            "id": 4958,
+            "values": [{"dictionary_value_id": 0, "value": target_value}]
+        })
+        logger.info(f"✅ 兜底添加属性4958（专为），值: {target_value}")
+        seen_attr_ids.add(4958)
     
     logger.info(f"最终属性数量：{len(ozon_attributes)}")
     logger.info(f"✅ offer_id唯一后缀: _{offer_id_suffix}")

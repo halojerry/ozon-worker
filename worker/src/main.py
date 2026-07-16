@@ -21,7 +21,7 @@ from coze_coding_utils.log.write_log import setup_logging, request_context
 from coze_coding_utils.log.config import LOG_LEVEL
 from coze_coding_utils.error.classifier import ErrorClassifier, classify_error
 from coze_coding_utils.helper.stream_runner import AgentStreamRunner, WorkflowStreamRunner,agent_stream_handler,workflow_stream_handler, RunOpt
-from storage.database.db import get_session, get_engine
+from storage.database.db import get_session, get_engine, init_db
 from storage.database.supabase_client import get_supabase_client
 from storage.memory.memory_saver import get_memory_saver
 from storage.database.shared.model import Base
@@ -51,8 +51,7 @@ from coze_coding_utils.helper.agent_helper import to_stream_input, to_client_mes
 from coze_coding_utils.openai.handler import OpenAIChatHandler
 from coze_coding_utils.log.parser import LangGraphParser
 from coze_coding_utils.log.err_trace import extract_core_stack
-from coze_coding_utils.log.loop_trace import init_run_config, init_agent_config
-
+# Coze Loop 追踪已移除（不依赖 Coze 平台，无需 tracing metadata）
 
 # 超时配置常量
 TIMEOUT_SECONDS = 900  # 15分钟
@@ -115,9 +114,7 @@ class GraphService:
 
         try:
             graph = self._get_graph(ctx)
-            # custom tracer
-            run_config = init_run_config(graph, ctx)
-            run_config.setdefault("configurable", {})["thread_id"] = ctx.run_id
+            run_config: RunnableConfig = {"configurable": {"thread_id": ctx.run_id}}
 
             # 直接调用，LangGraph会在当前任务上下文中执行
             # 如果当前任务被取消，LangGraph的执行也会被取消
@@ -151,10 +148,7 @@ class GraphService:
         run_id = ctx.run_id
         logger.info(f"Starting stream with run_id: {run_id}")
         graph = self._get_graph(ctx)
-        if graph_helper.is_agent_proj():
-            run_config = init_agent_config(graph, ctx)
-        else:
-            run_config = init_run_config(graph, ctx)  # vibeflow
+        run_config: RunnableConfig = {"configurable": {"thread_id": ctx.run_id}}
 
         is_workflow = not graph_helper.is_agent_proj()
 
@@ -226,7 +220,7 @@ class GraphService:
         _g.add_edge("sn", END)
         _graph = _g.compile()
 
-        run_config = init_run_config(_graph, ctx)
+        run_config: RunnableConfig = {"configurable": {"thread_id": ctx.run_id}}
         return await _graph.ainvoke(payload, config=run_config)
 
     def graph_inout_schema(self) -> Any:
@@ -263,6 +257,8 @@ task_processor: Optional[SupabaseTaskProcessor] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     engine = get_engine()
+    # 自动建表（幂等，CREATE TABLE IF NOT EXISTS）
+    init_db()
     @event.listens_for(engine, "connect")
     def _set_utc(dbapi_conn, _):
         with dbapi_conn.cursor() as cur:
@@ -273,7 +269,7 @@ async def lifespan(app: FastAPI):
         sync_graph = base.builder.compile(checkpointer=checkpointer)
     else:
         base = graph_helper.get_graph_instance("graphs.graph")
-        sync_graph = base.builder.compile()
+        sync_graph = base.builder.compile(checkpointer=checkpointer)
     global async_graph, async_runtime
     async_graph = base.builder.compile(checkpointer=checkpointer)
     service.set_graph(sync_graph)
@@ -329,9 +325,10 @@ async def http_async_run(request: Request) -> dict:
     ctx = _new_async_ctx(method="async_run", headers=request.headers)
     ctx.run_id = run_id
     request_context.set(ctx)  # 与其他 HTTP endpoint 一致：让日志组件拿到 run_id 等信息
-    run_config = init_run_config(async_graph, ctx)
-    run_config["recursion_limit"] = async_task_config.RECURSION_LIMIT
-    run_config.setdefault("configurable", {})["thread_id"] = run_id
+    run_config: RunnableConfig = {
+        "configurable": {"thread_id": run_id},
+        "recursion_limit": async_task_config.RECURSION_LIMIT,
+    }
 
     biz_context = extract_biz_context(request.headers) or {}
     if graph_helper.is_agent_proj() and not (isinstance(payload, dict) and payload.get("messages")):
@@ -615,6 +612,41 @@ async def health_check():
         }
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
+
+
+@app.get("/progress/{run_id}")
+async def http_progress(run_id: str):
+    """查询工作流执行进度。
+
+    从 LangGraph checkpointer 读取当前 state，返回 progress_counter / total / stages。
+    仅对 async_graph（有 checkpointer 的图）有效；/run 同步路径无 checkpointer。
+    """
+    if async_graph is None:
+        raise HTTPException(status_code=503, detail="Async graph not initialized")
+    checkpointer = get_memory_saver()
+    if checkpointer is None:
+        raise HTTPException(status_code=503, detail="Checkpointer not available")
+    config = {"configurable": {"thread_id": run_id}}
+    try:
+        state = await async_graph.aget_state(config)
+        if state is None or not state.values:
+            raise HTTPException(status_code=404, detail=f"No state found for run_id={run_id}")
+        values = state.values
+        counter = values.get("progress_counter", 0)
+        stages = values.get("stages", {})
+        total = 24  # 与 workflow_progress.json 节点数一致
+        return {
+            "run_id": run_id,
+            "progress_counter": counter,
+            "total_nodes": total,
+            "percentage": int((counter / total) * 100) if total > 0 else 0,
+            "stages": stages,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"查询进度失败 run_id={run_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==================== Supabase任务队列API ====================
