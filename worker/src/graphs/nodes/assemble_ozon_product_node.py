@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 # ==================== 常量 ====================
 
 # 品牌属性ID列表（按优先级）
-BRAND_ATTRIBUTE_IDS = [85, 5076, 23171]
+BRAND_ATTRIBUTE_IDS = [85, 5076]
 
 # "无品牌" 字典值
 NO_BRAND_DICT_ID = 126745801
@@ -204,7 +204,7 @@ def assemble_ozon_product_node(
     logger.info(f"   其中 {len(required_attrs)} 个必填属性")
 
     # =====================================================
-    # Step 3: 预加载字典值（dict attributes only）
+    # Step 3: 预加载字典值（PG 缓存优先，Ozon API 回退）
     # =====================================================
     logger.info("📖 Step 3: 预加载字典值")
 
@@ -214,6 +214,16 @@ def assemble_ozon_product_node(
         if dict_id and dict_id > 0:
             attr_id = int(attr.get("id", 0))
             values = query.get_dictionary_values(attr_id, description_category_id, type_id)
+            if not values or (isinstance(values, list) and len(values) == 0):
+                # PG 缓存未命中 → Ozon API 回退
+                logger.info(f"   PG 缓存未命中 attr={attr_id}，调用 Ozon API...")
+                values = _fetch_dict_values_from_ozon(
+                    ozon_client_id, ozon_api_key,
+                    description_category_id, type_id, attr_id
+                )
+                # 写入 PG 缓存（供后续使用）
+                if values:
+                    _cache_dict_values(attr_id, description_category_id, type_id, values)
             if values and isinstance(values, list) and len(values) > 0:
                 dict_lookup[attr_id] = values
             elif isinstance(values, dict) and values.get("result"):
@@ -748,6 +758,28 @@ def _validate_and_enrich_items(
                 "values": [{"dictionary_value_id": CHINA_DICT_ID, "value": CHINA_VALUE}],
             })
 
+        # Hashtag #23171: 生成俄语标签（不能是品牌名！）
+        hashtag_attr = next((a for a in validated_attrs if int(a.get("id", 0)) == FORCE_ATTR_23171), None)
+        if hashtag_attr:
+            values = hashtag_attr.get("values", [])
+            for v in values:
+                val = str(v.get("value", ""))
+                # 如果是品牌值 "Нет бренда" 或无意义值，替换为生成的 hashtag
+                if val == NO_BRAND_VALUE or val == "" or not val.startswith("#"):
+                    new_tags = _generate_hashtags(item.get("name", ""))
+                    v["value"] = new_tags
+                    v["dictionary_value_id"] = 0  # 23171 是自由文本
+                    logger.info(f"   ✅ hashtag #23171 修正为: {new_tags}")
+        elif FORCE_ATTR_23171 in {int(a.get("id", 0)) for a in attr_list}:
+            # Schema 中有 23171 但 LLM 没有生成，补充
+            new_tags = _generate_hashtags(item.get("name", ""))
+            validated_attrs.append({
+                "complex_id": 0,
+                "id": FORCE_ATTR_23171,
+                "values": [{"dictionary_value_id": 0, "value": new_tags}],
+            })
+            logger.info(f"   ✅ hashtag #23171 补充生成: {new_tags}")
+
         # 9048（变体绑定名）
         if FORCE_ATTR_9048 not in present_ids and FORCE_ATTR_9048 not in {int(a["id"]) for a in validated_attrs}:
             offer_id = item.get("offer_id", "unknown")
@@ -786,3 +818,108 @@ def _fetch_category_tree_from_ozon(
     except Exception as e:
         logger.error(f"❌ Ozon 类目树 API 调用失败: {e}")
         return None
+
+
+# ==================== Dictionary Values Helpers ====================
+
+def _fetch_dict_values_from_ozon(
+    ozon_client_id: str,
+    ozon_api_key: str,
+    description_category_id: int,
+    type_id: int,
+    attribute_id: int,
+) -> list[dict[str, Any]] | None:
+    """从 Ozon API 获取属性的字典值"""
+    try:
+        url = "https://api-seller.ozon.ru/v1/description-category/attribute/values"
+        headers = {
+            "Client-Id": ozon_client_id,
+            "Api-Key": ozon_api_key,
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "attribute_id": attribute_id,
+            "description_category_id": description_category_id,
+            "type_id": type_id,
+            "language": "ZH_HANS",
+            "limit": 100,
+        }
+        resp = session.post(url, json=payload, headers=headers, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        result = data.get("result", [])
+        logger.info(f"   ✅ Ozon API 返回 attr={attribute_id} 字典值: {len(result)} 条")
+        return result
+    except Exception as e:
+        logger.warning(f"   ⚠️ Ozon API 字典值 attr={attribute_id} 失败: {e}")
+        return None
+
+
+def _cache_dict_values(
+    attribute_id: int,
+    description_category_id: int,
+    type_id: int,
+    values: list[dict[str, Any]],
+):
+    """将字典值写入 PG 缓存"""
+    try:
+        from utils.local_db_manager import LocalDBManager
+        local_db = LocalDBManager()
+        local_db.set_dictionary_value_cache(
+            attribute_id=attribute_id,
+            description_category_id=description_category_id,
+            type_id=type_id,
+            values_data=values,
+            language="ZH_HANS",
+            expires_in=86400,
+        )
+        logger.info(f"   ✅ 字典值缓存写入成功: attr={attribute_id}, {len(values)} 条")
+    except Exception as e:
+        logger.warning(f"   ⚠️ 字典值缓存写入失败: {e}")
+
+
+# ==================== Hashtag 生成 ====================
+
+# 俄语关键词字典（按产品类型）
+_HASHTAG_RU: dict[str, str] = {
+    "секатор": "секатор сад садовый обрезка инструмент",
+    "ножницы": "ножницы сад садовый обрезка инструмент",
+    "грабли": "грабли сад садовый уборка листья",
+    "лопата": "лопата сад садовый копка инструмент",
+    "перчатки": "перчатки сад садовый защита работа",
+    "шланг": "шланг сад полив вода",
+    "лейка": "лейка сад полив вода",
+    "горшок": "горшок цветы растения декор",
+    "сеялка": "сеялка сад посадка семена",
+    "удобрение": "удобрение сад растения подкормка",
+}
+
+
+def _generate_hashtags(name: str) -> str:
+    """根据俄语标题生成 3-5 个 hashtag"""
+    if not name:
+        return "#товар #ozon"
+
+    name_lower = name.lower()
+    tags: list[str] = []
+
+    # 从预定义字典匹配
+    for keyword, tag_str in _HASHTAG_RU.items():
+        if keyword in name_lower:
+            tags = [f"#{t}" for t in tag_str.split()[:5]]
+            break
+
+    if not tags:
+        # 从标题中提取俄语单词（排除短词和停用词）
+        import re
+        stopwords = {"для", "из", "и", "в", "на", "с", "по", "от", "не", "или", "а", "то", "как"}
+        words = re.findall(r'[а-яё]{3,}', name_lower)
+        meaningful = [w for w in words if w not in stopwords][:4]
+        if meaningful:
+            tags = [f"#{w}" for w in meaningful]
+            # 补充通用标签
+            tags.append("#товар")
+        else:
+            tags = ["#товар", "#ozon"]
+
+    return " ".join(tags[:5])
