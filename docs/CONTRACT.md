@@ -320,3 +320,53 @@ if status["ok"]:
 else:
     print(f"上架失败: {status['error_message']}")
 ```
+
+---
+
+## 10. 并发与队列机制
+
+### 架构
+
+```
+多个 Skill 并发 POST /submit_task
+    → INSERT INTO ozon_product_tasks (status=pending)  ← 毫秒级，不阻塞
+    → 返回 {ok, task_id}
+
+后台 10 个 Worker 协程并行消费:
+    SELECT ... WHERE status='pending'
+    ORDER BY priority DESC, created_at ASC
+    LIMIT 1 FOR UPDATE SKIP LOCKED  ← 防重复认领
+    → 执行 LangGraph 管线 (5-15 分钟)
+    → UPDATE status=completed/failed
+```
+
+### 参数
+
+| 参数 | 默认值 | 环境变量 | 说明 |
+|------|--------|----------|------|
+| 并发执行数 | 10 | `MAX_CONCURRENT` | 同时走管线的产品数 |
+| 队列容量 | 无限制 | — | PG 表容量，超出并发的请求排队 |
+| 限流 | 10/min/token | `RATE_LIMIT_PER_MINUTE` | 防止单用户刷爆 |
+| 任务超时 | 1800s | 每任务 `timeout_seconds` | 防僵尸任务 |
+| 最大重试 | 3 | 每任务 `max_retries` | 失败自动重试 |
+
+### 吞吐估算
+
+| 场景 | 数值 |
+|------|------|
+| 单管线耗时 | 5-15 分钟（取决于图片生成） |
+| 每小时处理量 | 40-120 个产品 |
+| 队列堆积 | 无限排队，先到先处理 |
+
+### 多 Skill 同时请求
+
+- 所有请求都成功入队（INSERT 不阻塞）
+- 超出并发数的请求在队列等待
+- 按 `priority DESC, created_at ASC` 排序
+- 限流按 token 独立计算，不同用户互不影响
+
+### 注意事项
+
+- 限流是内存级，Worker 重启后清零（单实例 OK，多实例需改 Redis）
+- 任务取消仅限 `pending` 状态
+- `running` 状态的任务无法取消，需等超时

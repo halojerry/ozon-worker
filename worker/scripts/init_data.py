@@ -38,11 +38,15 @@ def create_tables(engine):
     logger.info("✅ 表结构已就绪")
 
 
-def import_category_tree(engine, language="ZH_HANS"):
-    """导入类目树到 category_tree_nodes（幂等：已有数据则跳过）。"""
-    from sqlalchemy import text as sql_text, func, select
-    from storage.database.db import get_session
-    from storage.database.shared.model import CategoryTreeNode
+def import_category_tree(engine, language="ZH_HANS", force=False):
+    """导入类目树到 category_tree_nodes。
+
+    Args:
+        engine: SQLAlchemy engine
+        language: 语言代码
+        force: True 时清空旧数据重新导入
+    """
+    from sqlalchemy import text as sql_text
 
     # 检查是否已有数据
     with engine.connect() as conn:
@@ -51,9 +55,15 @@ def import_category_tree(engine, language="ZH_HANS"):
             {"lang": language}
         ).scalar()
 
-    if count and count > 0:
-        logger.info(f"⏭️  类目树已有 {count} 条记录，跳过导入")
+    if count and count > 0 and not force:
+        logger.info(f"⏭️  类目树已有 {count} 条记录，跳过导入（用 --force 强制覆盖）")
         return
+
+    if force and count and count > 0:
+        with engine.connect() as conn:
+            conn.execute(sql_text("DELETE FROM category_tree_nodes WHERE language = :lang"), {"lang": language})
+            conn.commit()
+        logger.info(f"🗑️  已清空旧类目树数据 ({count} 条)")
 
     # 读取 JSON
     tree_path = os.path.join(ASSETS_DIR, "category_tree.json")
@@ -118,24 +128,37 @@ def import_category_tree(engine, language="ZH_HANS"):
                     (description_category_id, type_id, node_name, node_type, full_path, depth, language, top_level_category_name)
                 VALUES
                     (:description_category_id, :type_id, :node_name, :node_type, :full_path, :depth, :language, :top_level_category_name)
-                ON CONFLICT (description_category_id, type_id, language) DO NOTHING
+                ON CONFLICT (description_category_id, type_id, language)
+                DO UPDATE SET node_name = EXCLUDED.node_name, full_path = EXCLUDED.full_path,
+                              depth = EXCLUDED.depth, top_level_category_name = EXCLUDED.top_level_category_name
             """), node)
         conn.commit()
 
     logger.info(f"✅ 类目树导入完成: {len(nodes)} 条")
 
 
-def import_logistics_rates(engine):
-    """导入物流费率到 logistics_rates（幂等：已有数据则跳过）。"""
+def import_logistics_rates(engine, force=False):
+    """导入物流费率到 logistics_rates。
+
+    Args:
+        engine: SQLAlchemy engine
+        force: True 时清空旧数据重新导入
+    """
     from sqlalchemy import text as sql_text
 
     # 检查是否已有数据
     with engine.connect() as conn:
         count = conn.execute(sql_text("SELECT COUNT(*) FROM logistics_rates")).scalar()
 
-    if count and count > 0:
-        logger.info(f"⏭️  物流费率已有 {count} 条记录，跳过导入")
+    if count and count > 0 and not force:
+        logger.info(f"⏭️  物流费率已有 {count} 条记录，跳过导入（用 --force 强制覆盖）")
         return
+
+    if force and count and count > 0:
+        with engine.connect() as conn:
+            conn.execute(sql_text("DELETE FROM logistics_rates"))
+            conn.commit()
+        logger.info(f"🗑️  已清空旧物流费率数据 ({count} 条)")
 
     # 读取 Excel
     excel_path = os.path.join(ASSETS_DIR, "China_scoring_ENG_CN_21_04_26_1776754052 (1).xlsx")
@@ -234,6 +257,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="首次部署数据初始化")
     parser.add_argument("--db-url", default=os.getenv("PGDATABASE_URL", ""), help="PG 连接串")
+    parser.add_argument("--force", action="store_true", help="强制重新导入（清空旧数据）")
     args = parser.parse_args()
 
     if not args.db_url:
@@ -249,10 +273,10 @@ def main():
     create_tables(engine)
 
     # 2. 导入类目树
-    import_category_tree(engine)
+    import_category_tree(engine, force=args.force)
 
     # 3. 导入物流费率
-    import_logistics_rates(engine)
+    import_logistics_rates(engine, force=args.force)
 
     logger.info("═══ 初始化完成 ═══")
 
