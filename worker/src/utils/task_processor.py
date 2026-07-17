@@ -193,6 +193,10 @@ class SupabaseTaskProcessor:
                         conn.commit()
                     
                     logger.info(f"任务{task_id}执行成功")
+
+                    # ✅ 任务完成后扣费
+                    await self._deduct_balance(tenant_id, task_id)
+
                     return graph_result
                     
                 except asyncio.TimeoutError:
@@ -284,7 +288,44 @@ class SupabaseTaskProcessor:
                 
         except Exception as e:
             logger.error(f"任务失败处理异常: {e}")
-    
+
+    async def _deduct_balance(self, tenant_id: str, task_id: str, cost: float = 1.0):
+        """任务完成后从 Supabase tokens 表扣减余额。
+
+        Args:
+            tenant_id: 用户 ID（从 token 表查出的 user_id）
+            task_id: 任务 UUID（用于日志）
+            cost: 扣减金额（默认 1.0）
+        """
+        try:
+            from storage.database.supabase_client import get_supabase_client
+            supabase = get_supabase_client()
+            if supabase is None:
+                logger.warning("Supabase未配置，跳过扣费")
+                return
+
+            # 查询当前余额
+            result = supabase.table("tokens").select("remain_quota").eq(
+                "user_id", tenant_id
+            ).is_("deleted_at", "null").execute()
+
+            if not result.data:
+                logger.warning(f"扣费失败: 找不到用户 {tenant_id}")
+                return
+
+            current_quota = float(result.data[0].get("remain_quota", 0))
+            new_quota = max(0, current_quota - cost)
+
+            # 更新余额
+            supabase.table("tokens").update(
+                {"remain_quota": new_quota}
+            ).eq("user_id", tenant_id).is_("deleted_at", "null").execute()
+
+            logger.info(f"✅ 扣费完成: 用户={tenant_id}, 任务={task_id}, "
+                       f"扣减={cost}, 余额={current_quota}→{new_quota}")
+        except Exception as e:
+            logger.error(f"扣费异常（不影响任务结果）: {e}")
+
     async def execute_graph_with_timeout(
         self, 
         payload: Dict[str, Any], 
