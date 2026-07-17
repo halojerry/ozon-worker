@@ -51,6 +51,11 @@ echo ""
 echo "🚀 启动服务..."
 docker compose up -d
 
+# 等待 PG 就绪后初始化数据（建表 + 导入类目树 + 物流费率）
+echo ""
+echo "📦 初始化数据库..."
+docker compose exec -T worker python scripts/init_data.py
+
 # 等待健康检查
 echo ""
 echo "⏳ 等待服务就绪..."
