@@ -55,6 +55,36 @@ logger = logging.getLogger(__name__)
 # 超时配置常量
 TIMEOUT_SECONDS = 900  # 15分钟
 
+# API 限流配置
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))  # 每 token 每分钟最大提交数
+
+
+class RateLimiter:
+    """滑动窗口限流器：按 token 限制提交频率"""
+
+    def __init__(self, max_per_minute: int = RATE_LIMIT_PER_MINUTE):
+        self.max_per_minute = max_per_minute
+        self._requests: Dict[str, list] = {}  # token → [timestamp, ...]
+        self._lock = threading.Lock()
+
+    def check(self, token: str) -> tuple[bool, int]:
+        """检查是否允许请求。返回 (allowed, remaining)。"""
+        now = time.time()
+        window_start = now - 60
+        with self._lock:
+            timestamps = self._requests.get(token, [])
+            # 清理过期记录
+            timestamps = [t for t in timestamps if t > window_start]
+            if len(timestamps) >= self.max_per_minute:
+                self._requests[token] = timestamps
+                return False, 0
+            timestamps.append(now)
+            self._requests[token] = timestamps
+            return True, self.max_per_minute - len(timestamps)
+
+
+rate_limiter = RateLimiter()
+
 class GraphService:
     def __init__(self):
         # 用于跟踪正在运行的任务（使用asyncio.Task）
@@ -688,6 +718,14 @@ async def http_submit_task(request: Request):
         # ✅ Step2: 验证token（查询Supabase tokens表）
         if not token:
             raise HTTPException(status_code=401, detail="Token is required")
+
+        # ✅ 限流检查（按原始 token，含 sk- 前缀）
+        allowed, remaining = rate_limiter.check(token)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute"
+            )
 
         # Step2: 处理sk-前缀
         if token.startswith("sk-"):
