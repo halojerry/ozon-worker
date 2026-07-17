@@ -314,7 +314,8 @@ async def lifespan(app: FastAPI):
     
     # 启动Supabase任务处理器（最多10个并发任务）
     global task_processor
-    task_processor = SupabaseTaskProcessor(max_concurrent=10)
+    max_concurrent = int(os.getenv("MAX_CONCURRENT", "10"))
+    task_processor = SupabaseTaskProcessor(max_concurrent=max_concurrent)
     
     # 启动Worker后台任务（不阻塞主服务启动）
     worker_task = asyncio.create_task(task_processor.start_workers(num_workers=10))

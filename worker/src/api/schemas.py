@@ -37,8 +37,8 @@ class ErrorBody(BaseModel):
 class SubmitTaskRequest(BaseModel):
     """提交任务请求。
 
-    token/ozon_client_id/ozon_api_key/envelope 可以直接放在 body 顶层，
-    也可以包在 payload 字段里（向后兼容）。
+    字段直接放在 body 顶层。Worker 同时兼容 body.payload 包装格式（向后兼容），
+    但 schema 只描述标准格式。
     """
     token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
     ozon_client_id: str = Field(..., description="Ozon 卖家 Client-Id")
@@ -46,9 +46,6 @@ class SubmitTaskRequest(BaseModel):
     envelope: dict[str, Any] = Field(..., description="产品数据信封 {draft, source, extensions}")
     timeout_seconds: int = Field(1800, description="任务超时时间（秒），默认 30 分钟")
     max_retries: int = Field(3, description="最大重试次数，默认 3")
-
-    # 向后兼容：支持 body.payload 包装格式
-    payload: Optional[SubmitTaskRequest] = Field(None, description="向后兼容字段，优先使用顶层字段")
 
 
 class SubmitTaskResponse(BaseModel):
