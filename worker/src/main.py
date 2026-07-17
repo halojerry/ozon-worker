@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import json
+import os
 import threading
 import traceback
 import logging
@@ -14,44 +15,42 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
-from coze_coding_utils.runtime_ctx.context import new_context, Context
-from coze_coding_utils.helper import graph_helper
-from coze_coding_utils.log.node_log import LOG_FILE
-from coze_coding_utils.log.write_log import setup_logging, request_context
-from coze_coding_utils.log.config import LOG_LEVEL
-from coze_coding_utils.error.classifier import ErrorClassifier, classify_error
-from coze_coding_utils.helper.stream_runner import AgentStreamRunner, WorkflowStreamRunner,agent_stream_handler,workflow_stream_handler, RunOpt
 from storage.database.db import get_session, get_engine, init_db
 from storage.database.supabase_client import get_supabase_client
 from storage.memory.memory_saver import get_memory_saver
 from storage.database.shared.model import Base
 from utils.task_processor import SupabaseTaskProcessor
-from coze_coding_utils.async_tasks import (
-    AsyncTaskRuntime,
-    AsyncTaskStorageError,
-    extract_biz_context,
-    parse_deadline_sec,
-)
-from coze_coding_utils.async_tasks import config as async_task_config
-from coze_coding_utils.async_tasks.headers import HEADER_X_RUN_ID as _ASYNC_HEADER_X_RUN_ID
-from coze_coding_utils.runtime_ctx.context import new_context as _new_async_ctx
 from sqlalchemy import event
+
+# Local runtime replacements (previously Coze-dependent)
+from runtime.context import new_context, Context
+from runtime.helpers import (
+    graph_helper, ErrorClassifier, classify_error,
+    AgentStreamRunner, WorkflowStreamRunner,
+    agent_stream_handler, workflow_stream_handler, RunOpt,
+    to_stream_input, to_client_message,
+)
+from runtime.log_utils import (
+    LOG_FILE, LOG_LEVEL, setup_logging, request_context,
+    LangGraphParser, extract_core_stack,
+)
+from runtime.async_tasks import (
+    AsyncTaskRuntime, AsyncTaskStorageError,
+    extract_biz_context, parse_deadline_sec,
+    config as async_task_config, HEADER_X_RUN_ID as _ASYNC_HEADER_X_RUN_ID,
+)
+from runtime.openai_handler import OpenAIChatHandler
 
 setup_logging(
     log_file=LOG_FILE,
-    max_bytes=100 * 1024 * 1024, # 100MB
+    max_bytes=100 * 1024 * 1024,  # 100MB
     backup_count=5,
     log_level=LOG_LEVEL,
-    use_json_format=True,
-    console_output=True
+    use_json_format=False,  # Simple format for local
+    console_output=True,
 )
 
 logger = logging.getLogger(__name__)
-from coze_coding_utils.helper.agent_helper import to_stream_input, to_client_message
-from coze_coding_utils.openai.handler import OpenAIChatHandler
-from coze_coding_utils.log.parser import LangGraphParser
-from coze_coding_utils.log.err_trace import extract_core_stack
-# Coze Loop 追踪已移除（不依赖 Coze 平台，无需 tracing metadata）
 
 # 超时配置常量
 TIMEOUT_SECONDS = 900  # 15分钟
@@ -316,13 +315,13 @@ async def http_async_run(request: Request) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # 一个 ID 走到底：task_id == run_id == thread_id == ctx.run_id == coze_run_id。
+    # 一个 ID 走到底：task_id == run_id == thread_id == ctx.run_id。
     # 优先用上游 x-run-id；没传就生成 UUID。
     run_id = request.headers.get(_ASYNC_HEADER_X_RUN_ID) or uuid.uuid4().hex
 
     # ctx 在 handler scope 构造，与同步 /run 路径一致；后面 new_context 默认会
     # 给 run_id 一个新 UUID，同步路径也是显式覆盖（main.py /run 处），这里同理。
-    ctx = _new_async_ctx(method="async_run", headers=request.headers)
+    ctx = new_context(method="async_run")
     ctx.run_id = run_id
     request_context.set(ctx)  # 与其他 HTTP endpoint 一致：让日志组件拿到 run_id 等信息
     run_config: RunnableConfig = {
@@ -605,13 +604,19 @@ async def openai_chat_completions(request: Request):
 @app.get("/health")
 async def health_check():
     try:
-        # 这里可以添加更多的健康检查逻辑
+        from sqlalchemy import text
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
         return {
             "status": "ok",
             "message": "Service is running",
+            "db": "connected",
         }
     except Exception as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "message": str(e), "db": "disconnected"},
+        )
 
 
 @app.get("/progress/{run_id}")
@@ -673,8 +678,8 @@ async def http_submit_task(request: Request):
     try:
         body = await request.json()
         
-        # ✅ Step1: 从payload中提取认证参数
-        payload = body.get("payload", {})
+        # ✅ Step1: 从payload中提取认证参数（兼容直连格式和包装格式）
+        payload = body.get("payload") or body
         token = payload.get("token", "")
         ozon_client_id = payload.get("ozon_client_id", "")
         ozon_api_key = payload.get("ozon_api_key", "")
@@ -683,53 +688,50 @@ async def http_submit_task(request: Request):
         # ✅ Step2: 验证token（查询Supabase tokens表）
         if not token:
             raise HTTPException(status_code=401, detail="Token is required")
-        
+
+        # Step2: 处理sk-前缀
+        if token.startswith("sk-"):
+            token = token.replace("sk-", "", 1)  # ✅ 剥离第一个sk-前缀
+
+        # Step3: 查询tokens表（Supabase未配置时跳过鉴权，本地开发模式）
         supabase = get_supabase_client()
         if supabase is None:
-            raise HTTPException(status_code=503, detail="Supabase client not initialized")
-        
-        # Step2: 处理sk-前缀（中间件自动剥离）
-        if token.startswith("sk-"):
-            token = token[3:]  # ✅ 剥离sk-前缀（查询数据库时使用纯key）
-        
-        # Step3: 查询tokens表（使用key字段）
-        try:
-            token_records = supabase.table("tokens").select(
-                "user_id, remain_quota, status, expired_time"  # ✅ 正确的字段名
-            ).eq("key", token).is_("deleted_at", "null").execute()  # ✅ 正确的字段名和过滤条件
-            
-            if not token_records.data or len(token_records.data) == 0:
-                raise HTTPException(status_code=401, detail=f"Invalid token: token '{token}' not found")
-            
-            token_record = token_records.data[0]
-            user_id = str(token_record.get("user_id", ""))
-            balance = float(token_record.get("remain_quota", 0.0))  # ✅ 使用remain_quota字段
-            status = int(token_record.get("status", 0))
-            expired_time = int(token_record.get("expired_time", -1))
-            
-            # Step4: 检查token状态
-            if status != 1:  # status != 1表示token未启用
-                status_desc = {
-                    2: "disabled",
-                    3: "expired",
-                    4: "quota exhausted"
-                }
-                raise HTTPException(
-                    status_code=403, 
-                    detail=f"Token is {status_desc.get(status, 'unknown')}: status={status}"
-                )
-            
-            # Step5: 检查余额（如果remain_quota < 5.0，拒绝任务）
-            if balance < 5.0:
-                raise HTTPException(
-                    status_code=402, 
-                    detail=f"Insufficient balance: remain_quota must be >= 5.0 (current: {balance})"
-                )
-            
-        except Exception as e:
-            if isinstance(e, HTTPException):
-                raise e
-            raise HTTPException(status_code=500, detail=f"Token validation failed: {str(e)}")
+            logger.warning("Supabase未配置，跳过token鉴权（本地开发模式）")
+            user_id = "local_dev"
+            balance = 999.0
+        else:
+            try:
+                token_records = supabase.table("tokens").select(
+                    "user_id, remain_quota, status, expired_time"
+                ).eq("key", token).is_("deleted_at", "null").execute()
+
+                if not token_records.data or len(token_records.data) == 0:
+                    raise HTTPException(status_code=401, detail=f"Invalid token: token '{token}' not found")
+
+                token_record = token_records.data[0]
+                user_id = str(token_record.get("user_id", ""))
+                balance = float(token_record.get("remain_quota", 0.0))
+                status = int(token_record.get("status", 0))
+
+                # Step4: 检查token状态
+                if status != 1:
+                    status_desc = {2: "disabled", 3: "expired", 4: "quota exhausted"}
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Token is {status_desc.get(status, 'unknown')}: status={status}"
+                    )
+
+                # Step5: 检查余额
+                if balance < 5.0:
+                    raise HTTPException(
+                        status_code=402,
+                        detail=f"Insufficient balance: remain_quota must be >= 5.0 (current: {balance})"
+                    )
+
+            except Exception as e:
+                if isinstance(e, HTTPException):
+                    raise e
+                raise HTTPException(status_code=500, detail=f"Token validation failed: {str(e)}")
         
         # ✅ Step3: 提交任务到队列（使用user_id作为tenant_id）
         priority = 0  # ✅ 固定为0（所有用户平等优先级，直到建立VIP体系）
@@ -752,12 +754,9 @@ async def http_submit_task(request: Request):
         )
         
         return {
-            "status": "success",
+            "ok": True,
             "task_id": task_id,
-            "user_id": user_id,
-            "balance": balance,
-            "priority": priority,
-            "message": f"Task submitted to queue (user: {user_id}, balance: {balance}, priority: {priority})"
+            "message": f"Task submitted to queue (user: {user_id}, balance: {balance})"
         }
         
     except HTTPException:

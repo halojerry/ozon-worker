@@ -76,6 +76,9 @@ class ValidationRetryLoopState(BaseModel):
     upload_status: str = Field(default="", description="上传状态")
     product_id: str = Field(default="", description="商品ID")
     status: str = Field(default="", description="Ozon处理状态")
+    
+    # 类目重匹配标志（DESCRIPTION_DECLINE + attr 8229 时设置）
+    needs_recategorization: bool = Field(default=False, description="是否需要重新匹配类目")
 
 
 class ValidationRetryLoopInput(BaseModel):
@@ -133,6 +136,8 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "INVALID_DIMENSION": "repair_prepare",
     # ✅ P1-2: 变体未合并 → 走 repair_prepare 重新构建payload（确保颜色属性/9048正确）
     "VARIANT_NOT_MERGED": "repair_prepare",
+    # ✅ 9048冲突 → 走 repair_prepare 追加后缀重试
+    "double_without_merger_offer": "repair_prepare",
 }
 
 
@@ -269,7 +274,7 @@ def _call_mxou_llm(token: str, config_path: str, context_vars: Dict[str, Any]) -
     调用mxou LLM API
     使用Bearer {token}鉴权，与图片生成节点一致
     """
-    cfg_file: str = os.path.join(os.getenv("COZE_WORKSPACE_PATH", ""), config_path)
+    cfg_file: str = os.path.join(os.getenv("APP_WORKSPACE_PATH", ""), config_path)
     with open(cfg_file, "r", encoding="utf-8") as fd:
         cfg: Dict[str, Any] = json.load(fd)
 
@@ -365,7 +370,7 @@ def classify_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
     error_code: str = state.error_code
 
     # 判断是否可修复
-    unfixable_codes: set = {"double_without_merger_offer", "PRODUCT_ALREADY_EXISTS"}
+    unfixable_codes: set = {"PRODUCT_ALREADY_EXISTS"}
     if error_code in unfixable_codes:
         state.error_type = "unfixable"
         state.repair_node = "final_result"
@@ -401,7 +406,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
     处理场景：
     - warning_attribute_values_out_of_range: API搜索字典值(ZH_HANS→EN) → LLM兜底
     - BR_hashtag_validation: LLM生成合规标签
-    - DESCRIPTION_DECLINE: LLM重写描述
+    - DESCRIPTION_DECLINE: LLM重写描述 / 8229类型不匹配 → 触发类目重匹配
     - MISSING_ATTRIBUTE: LLM生成缺失属性
     - INVALID_CATEGORY: 查类目树 + LLM匹配
     - 未知错误码: LLM智能分析
@@ -415,6 +420,22 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
     ozon_api_key: str = state.ozon_api_key
     category_id: str = state.description_category_id
     type_id: str = state.type_id
+
+    # ========== 特殊处理：DESCRIPTION_DECLINE + attr 8229（类型不匹配） ==========
+    # 当 Ozon 审核拒绝产品因为"照片与类型不匹配"(attr 8229)时，
+    # 根因通常是类目匹配错误，而非属性值错误。仅修改 8229 的值（仍限定在当前类目）
+    # 无法解决问题，需要重新匹配类目。
+    if error_code == "DESCRIPTION_DECLINE" and attr_id == 8229:
+        logger.warning(
+            "⚠️ 检测到 DESCRIPTION_DECLINE + attr 8229（类型不匹配）。"
+            f"当前类目: category_id={category_id}, type_id={type_id}。"
+            "这通常意味着产品被分配到了错误的 Ozon 类目，"
+            "修改 8229 属性值无法解决此问题，需要手动重新匹配类目并重新上架。"
+        )
+        # 标记此产品需要重新分类（不做无意义的属性值修复）
+        state.needs_recategorization = True
+        logger.info("🔧 已标记 needs_recategorization=True，跳过属性值修复")
+        return state
 
     # ========== Step 1: 查属性schema（中文） ==========
     attr_schema: List[Dict[str, Any]] = _get_attribute_schema(
@@ -673,11 +694,24 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
 
 
 def repair_prepare_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
-    """修复尺寸重量节点：修复weight/depth/width/height等扁平字段"""
-    logger.info("🔧 开始修复Ozon payload（尺寸重量修复）")
+    """修复尺寸重量节点：修复weight/depth/width/height等扁平字段，以及9048冲突"""
+    logger.info("🔧 开始修复Ozon payload（尺寸重量/9048修复）")
 
     ozon_payload: Dict[str, Any] = state.ozon_payload
     items: list = ozon_payload.get("items", [])
+
+    # ✅ double_without_merger_offer修复：给所有变体的9048追加版本后缀
+    if state.error_code == "double_without_merger_offer":
+        retry_suffix = f"_v{state.retry_count}"
+        for item in items:
+            for attr in item.get("attributes", []):
+                if isinstance(attr, dict) and attr.get("id") == 9048:
+                    old_val = attr["values"][0].get("value", "") if attr.get("values") else ""
+                    if not old_val.endswith(retry_suffix):
+                        new_val = (old_val + retry_suffix)[:50]
+                        attr["values"] = [{"dictionary_value_id": 0, "value": new_val}]
+                        logger.info(f"✅ 9048冲突修复: {old_val} → {new_val}")
+        return state
 
     if items and len(items) > 0:
         first_item: Dict[str, Any] = items[0]

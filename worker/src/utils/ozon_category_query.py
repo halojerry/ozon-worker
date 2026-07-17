@@ -128,7 +128,11 @@ class OzonCategoryQuery:
         node_type: str | None,
         language: str,
     ) -> list[dict]:
-        """ILIKE 回退搜索。将查询拆分为单词，用 OR 连接多个 ILIKE 条件。"""
+        """ILIKE 回退搜索。将查询拆分为单词，用 OR 连接多个 ILIKE 条件。
+        
+        增强：按匹配关键词数量降序排列，优先返回最相关的结果。
+        防止"迷你"匹配到"迷你打印机"而非"园艺工具"这类问题。
+        """
         session = get_session()
         try:
             # 拆分查询为单词，每个单词单独 ILIKE
@@ -167,6 +171,7 @@ class OzonCategoryQuery:
             if node_type:
                 conditions.append(CategoryTreeNode.node_type == node_type)
 
+            # 获取更多候选（top_k * 3），然后在 Python 中按匹配度排序
             stmt = (
                 select(
                     CategoryTreeNode.description_category_id,
@@ -177,24 +182,49 @@ class OzonCategoryQuery:
                     CategoryTreeNode.depth,
                 )
                 .where(and_(*conditions))
-                .limit(top_k)
+                .limit(top_k * 3)
             )
 
             rows = session.execute(stmt).mappings().all()
 
-            results = []
+            # === 按匹配关键词数量排序 ===
+            # 对每个结果计算匹配了多少个关键词（node_name + full_path 合并计数）
+            MAX_KEYWORD_WEIGHT = 3.0  # 名词/关键实词权重高于虚词
+            scored_results: list[tuple[int, dict]] = []
+            
             for row in rows:
-                results.append({
+                combined = (row["node_name"] or "") + " " + (row["full_path"] or "")
+                combined_lower = combined.lower()
+                
+                match_count = 0
+                for word in words:
+                    if len(word) >= 2 and word.lower() in combined_lower:
+                        match_count += 1
+                
+                # 深度加分：更深的节点通常是更具体的类目（叶子节点）
+                depth_bonus = min((row["depth"] or 0) * 0.1, 1.0)
+                
+                score = match_count + depth_bonus
+                
+                scored_results.append((score, {
                     "description_category_id": row["description_category_id"],
                     "type_id": row["type_id"],
                     "node_name": row["node_name"],
                     "full_path": row["full_path"],
                     "top_level_category_name": row["top_level_category_name"],
                     "depth": row["depth"],
-                    "similarity": 0.0,
-                })
+                    "similarity": float(match_count) / max(len(words), 1),
+                }))
+            
+            # 按分数降序排列
+            scored_results.sort(key=lambda x: x[0], reverse=True)
+            
+            results = [item for _, item in scored_results[:top_k]]
 
-            logger.info(f"🔍 ILIKE 回退搜索：词数={len(words)}, 命中 {len(results)} 条")
+            logger.info(f"🔍 ILIKE 回退搜索（已排序）：词数={len(words)}, 候选={len(rows)}条, 返回={len(results)}条")
+            if results:
+                top = results[0]
+                logger.info(f"   🥇 Top-1: [{top['description_category_id']}/{top['type_id']}] {top['full_path']} (similarity={top['similarity']:.2f})")
             return results
         finally:
             session.close()
@@ -218,17 +248,14 @@ class OzonCategoryQuery:
         self._try_sync_from_cache(language)
 
     def _try_sync_from_cache(self, language: str):
-        """从 category_cache JSONB 同步到 category_tree_nodes 扁平表"""
+        """从 category_cache JSONB 同步到 category_tree_nodes 扁平表（持久化数据，不过期）"""
         session = get_session()
         try:
-            current_time = int(time.time())
+            # 类目树是持久化参考数据，不检查过期时间，取最新一条
             row = session.execute(
                 select(CategoryCache).where(
-                    and_(
-                        CategoryCache.language == language,
-                        CategoryCache.expires_at > current_time,
-                    )
-                ).order_by(CategoryCache.expires_at.desc()).limit(1)
+                    CategoryCache.language == language,
+                ).order_by(CategoryCache.updated_at.desc()).limit(1)
             ).scalar_one_or_none()
 
             if row and row.tree_data:
