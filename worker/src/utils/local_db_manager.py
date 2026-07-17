@@ -274,7 +274,7 @@ class LocalDBManager:
         finally:
             session.close()
 
-    def set_category_cache(self, ozon_client_id: str, tree_data: Dict[str, Any], language: str = "ZH_HANS", expires_in: int = 86400):
+    def set_category_cache(self, ozon_client_id: str, tree_data: Dict[str, Any], language: str = "ZH_HANS", expires_in: int = 315360000):
         """写入类目树缓存"""
         current_time = int(time.time())
         expires_at = current_time + expires_in
