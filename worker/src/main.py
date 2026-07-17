@@ -10,8 +10,13 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, Iterable, AsyncIterable, AsyncGenerator, Optional
 import uvicorn
 import time
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
+from api.errors import WorkerErrorCode, error_response
+from api.schemas import (
+    SubmitTaskRequest, SubmitTaskResponse, TaskStatusResponse,
+    CancelTaskResponse, HealthResponse, TaskStatisticsResponse, ErrorBody,
+)
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
@@ -327,7 +332,16 @@ async def lifespan(app: FastAPI):
     if async_runtime is not None:
         await async_runtime.shutdown()
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=lifespan,
+    title="Ozon Worker API",
+    description="Ozon 产品上架 Worker — 接收信封、执行 LangGraph 管线、上传 Ozon",
+    version="1.0.0",
+)
+
+# ── API v1 路由 ──
+v1 = APIRouter(prefix="/api/v1", tags=["v1"])
+
 
 # OpenAI 兼容接口处理器
 openai_handler = OpenAIChatHandler(service)
@@ -895,6 +909,58 @@ async def http_task_statistics(request: Request):
 @app.get(path="/graph_parameter")
 async def http_graph_inout_parameter(request: Request):
     return service.graph_inout_schema()
+
+
+# ==================== API v1 路由 ====================
+# 新端点统一走 /api/v1/ 前缀，旧路径通过重定向兼容
+
+@v1.get("/health", response_model=HealthResponse, tags=["health"])
+async def v1_health():
+    """健康检查（含 PG 连通性）。"""
+    try:
+        from sqlalchemy import text
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return HealthResponse(status="ok", message="Service is running", db="connected")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail={
+            "status": "degraded", "message": str(e), "db": "disconnected"
+        })
+
+
+@v1.post("/submit_task", response_model=SubmitTaskResponse, tags=["task"],
+         responses={401: {"model": ErrorBody}, 402: {"model": ErrorBody},
+                    403: {"model": ErrorBody}, 429: {"model": ErrorBody}})
+async def v1_submit_task(request: Request):
+    """提交任务到队列。鉴权通过 Supabase tokens 表校验。"""
+    # 委托给现有实现
+    return await http_submit_task(request)
+
+
+@v1.get("/task_status/{task_id}", response_model=TaskStatusResponse, tags=["task"],
+        responses={404: {"model": ErrorBody}})
+async def v1_task_status(task_id: str):
+    """查询任务状态。"""
+    return await http_task_status(task_id)
+
+
+@v1.post("/cancel_task/{task_id}", response_model=CancelTaskResponse, tags=["task"],
+         responses={404: {"model": ErrorBody}, 409: {"model": ErrorBody}})
+async def v1_cancel_task(task_id: str):
+    """取消待处理的任务。"""
+    return await http_cancel_task(task_id)
+
+
+@v1.get("/task_statistics", response_model=TaskStatisticsResponse, tags=["task"])
+async def v1_task_statistics(request: Request):
+    """获取任务统计信息。"""
+    return await http_task_statistics(request)
+
+
+# 注册 v1 路由（/api/v1/* 端点）
+# 旧路径（/health, /submit_task 等）仍然可用，向后兼容
+app.include_router(v1)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Start FastAPI server")
