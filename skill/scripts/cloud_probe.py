@@ -2785,56 +2785,49 @@ def _fix_description_and_tags(offer_id: str, product: dict[str, Any]) -> None:
 
 
 def check_task_status(task_id: str) -> dict[str, Any]:
-    """Query current task status — single call, no polling.
+    """Query current task status from Worker — single call, no polling.
 
-    Returns: {task_id, status, stages, ozon_task_id, result_json, ok}
+    Calls Worker's GET /task_status/{task_id} endpoint.
+    Returns: {task_id, status, ok, terminal, result_json, error_message}
     """
     import requests as _requests
 
-    TASK_URL = f"{_get_api_base().rstrip('/')}{TASK_STATUS_PATH}"
-    token = _get_token()
+    worker_url = os.environ.get("WORKER_URL", "http://localhost:8080").rstrip("/")
+    url = f"{worker_url}/task_status/{task_id}"
 
     try:
-        resp = _requests.post(
-            TASK_URL,
-            json={"task_id": task_id, "token": token},
-            headers={"Content-Type": "application/json"},
-            timeout=10,
-        )
+        resp = _requests.get(url, timeout=10)
+        if resp.status_code == 404:
+            return {"task_id": task_id, "status": "not_found", "ok": False, "terminal": True}
         data = resp.json() if resp.ok else {}
+    except _requests.exceptions.ConnectionError:
+        return {"task_id": task_id, "status": "worker_unreachable", "ok": False, "terminal": False}
     except Exception as e:
-        return {"task_id": task_id, "status": "query_error", "ok": False, "error": str(e)[:200]}
+        return {"task_id": task_id, "status": "query_error", "ok": False, "terminal": False, "error": str(e)[:200]}
 
-    task = data.get("task", data)
-    if not task or not isinstance(task, dict):
-        return {"task_id": task_id, "status": "not_found", "ok": False}
-
-    status = task.get("status", "unknown")
-    result_json = task.get("result_json", {}) or {}
-    if isinstance(result_json, str):
+    # Worker returns: {id, status, result, error_message, tenant_id, ...}
+    status = data.get("status", "unknown")
+    result = data.get("result") or {}
+    if isinstance(result, str):
         try:
-            result_json = json.loads(result_json)
+            result = json.loads(result)
         except (json.JSONDecodeError, TypeError):
-            result_json = {}
+            result = {}
 
-    # v0.8: read stages from both columns (pipeline writes to stages, legacy writes to result_json.stages)
-    stages = (task.get("stages", {}) or {}) if isinstance(task.get("stages"), dict) else {}
-    rj_stages = result_json.get("stages", {}) or {}
-    # Merge: pipeline direct stages take priority over result_json.stages
-    for k, v in rj_stages.items():
-        if k not in stages:
-            stages[k] = v
-    ozon_task_id = result_json.get("ozon_task_id") or task.get("ozon_task_id")
+    # Map Worker statuses to skill terminal statuses
+    terminal = status in ("completed", "failed", "cancelled")
+    ok = status == "completed"
 
-    terminal = status in ("succeeded", "ozon_processing", "blocked", "failed", "rejected", "timeout")
     return {
         "task_id": task_id,
         "status": status,
-        "ok": terminal and status in ("succeeded", "ozon_processing"),
+        "ok": ok,
         "terminal": terminal,
-        "ozon_task_id": ozon_task_id,
-        "stages": stages,
-        "result_json": result_json,
+        "error_message": data.get("error_message"),
+        "result_json": result,
+        "retry_count": data.get("retry_count", 0),
+        "started_at": data.get("started_at"),
+        "completed_at": data.get("completed_at"),
     }
 
 
@@ -2849,92 +2842,50 @@ def poll_pipeline_task(
     interval_sec: float = 30.0,
     max_wait_sec: float = 600.0,
 ) -> dict[str, Any]:
-    """[DEPRECATED] Use check_task_status() for single query, or check_all_tasks() for batch.
+    """Poll Worker task status until terminal. Delegates to check_task_status().
 
-    Poll cloud pipeline status via n8n webhook (not Supabase directly).
-    Kept for backward compatibility — prefer fire-and-forget + on-demand status checks.
+    Args:
+        task_id: The task UUID from submit_envelope().
+        interval_sec: Polling interval (default 30s).
+        max_wait_sec: Maximum wait time (default 600s = 10min).
+
+    Returns:
+        {status, success, task_id, result_json, error_message}
     """
     import time
-
-    logger.warning("poll_pipeline_task is deprecated. Use check_task_status() for single query.")
-    TASK_URL = f"{_get_api_base().rstrip('/')}{TASK_STATUS_PATH}"
-    token = _get_token()
 
     deadline = time.monotonic() + max_wait_sec
     poll_num = 0
     last_status = ''
     logger.info("Polling %s (max %ss, interval %ss)...", task_id, max_wait_sec, interval_sec)
+
     while time.monotonic() < deadline:
         poll_num += 1
         remaining = max(0, deadline - time.monotonic())
-        try:
-            resp = requests.post(
-                TASK_URL,
-                json={"task_id": task_id, "token": token},
-                headers={"Content-Type": "application/json"},
-                timeout=10,
-            )
-            data = resp.json() if resp.ok else {}
-        except Exception:
-            time.sleep(interval_sec)
-            continue
 
-        task = data.get('task', data)
-        if not task or not isinstance(task, dict):
-            time.sleep(interval_sec)
-            continue
+        status_info = check_task_status(task_id)
+        status = status_info.get("status", "unknown")
 
-        status = task.get('status', '')
-        result_json = task.get('result_json', {}) or {}
-        if isinstance(result_json, str):
-            try:
-                result_json = json.loads(result_json)
-            except (json.JSONDecodeError, TypeError):
-                result_json = {}
-
-        stages = result_json.get('stages', {}) or {}
-        ozon_task_id = result_json.get('ozon_task_id') or task.get('ozon_task_id')
-
-        # Log progress on status change or every 3rd poll
         if status != last_status or poll_num % 3 == 0:
-            stage_keys = list(stages.keys()) if stages else []
-            logger.info("Poll #%d: status=%s ozon_id=%s stages=%s (%.0fs left)",
-                    poll_num, status, ozon_task_id or '-', stage_keys or '-', remaining)
+            logger.info("Poll #%d: status=%s (%.0fs left)", poll_num, status, remaining)
             last_status = status
 
-        if status in ('succeeded', 'blocked', 'failed', 'rejected', 'ozon_processing'):
-            logger.info("Terminal: status=%s ozon_task_id=%s stages=%s",
-                    status, ozon_task_id, stages)
+        if status_info.get("terminal"):
+            logger.info("Terminal: status=%s", status)
             return {
-                'status': status,
-                'success': status in ('succeeded', 'ozon_processing'),
-                'ozon_task_id': ozon_task_id,
-                'stages': stages,
-                'task_id': task_id,
+                "status": status,
+                "success": status_info.get("ok", False),
+                "task_id": task_id,
+                "result_json": status_info.get("result_json", {}),
+                "error_message": status_info.get("error_message"),
             }
-        # Status node may leave status as 'running' or 'in_progress' even after completion.
-        # Check result_json for evidence of completion instead.
-        elif status in ('running', 'in_progress') and ozon_task_id:
-            learn_done = 'Learn' in stages
-            upload_done = 'Upload' in stages and 'succeeded' in str(stages.get('Upload', ''))
-            if learn_done or upload_done:
-                logger.info("Early terminal: in_progress with ozon_id, stages=%s", stages)
-                return {
-                    'status': 'succeeded',
-                    'success': True,
-                    'ozon_task_id': ozon_task_id,
-                    'stages': stages,
-                    'task_id': task_id,
-                }
-        elif status == 'not_found':
-            pass  # Task not yet created — keep waiting
 
         time.sleep(interval_sec)
 
     return {
-        'status': 'timeout',
-        'success': False,
-        'ozon_task_id': None,
-        'stages': {},
-        'task_id': task_id,
+        "status": "timeout",
+        "success": False,
+        "task_id": task_id,
+        "result_json": {},
+        "error_message": f"Polling timed out after {max_wait_sec}s",
     }
