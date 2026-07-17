@@ -301,8 +301,15 @@ class SupabaseTaskProcessor:
             LangGraph输出结果
         """
         try:
+            from langchain_core.runnables import RunnableConfig
+            task_id = payload.get("task_id", "unknown")
+            config = RunnableConfig(
+                configurable={"thread_id": task_id},
+                run_name=f"task_{task_id}",
+                metadata={"task_id": task_id},
+            )
             result = await asyncio.wait_for(
-                main_graph.ainvoke(payload),
+                main_graph.ainvoke(payload, config=config),
                 timeout=timeout
             )
             return result

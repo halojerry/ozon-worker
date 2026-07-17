@@ -28,7 +28,6 @@ from typing import Any, Optional
 from jinja2 import Template
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
-from coze_coding_utils.runtime_ctx.context import Context
 
 from graphs.state import GlobalState
 from utils.mxou_llm import call_mxou_chat_api
@@ -71,7 +70,7 @@ COLLECTION_ATTR_IDS = {9048, 23171}
 def assemble_ozon_product_node(
     state: GlobalState,
     config: RunnableConfig,
-    runtime: Runtime[Context],
+    runtime: Runtime,
 ) -> dict[str, Any]:
     """
     统一商品组装节点。
@@ -81,6 +80,11 @@ def assemble_ozon_product_node(
     """
     progress = ProgressLogger()
     progress.log_node_start("assemble_ozon_product", "统一商品组装")
+    
+    # ✅ 自修复：如果是重试（类目匹配回退），递增计数器
+    retry_count = getattr(state, 'assembly_retry_count', 0)
+    if retry_count > 0:
+        logger.info(f"   🔄 组装重试 (第{retry_count}次)")
     progress.log_node_action("Step 1: 类目匹配...")
 
     draft: dict[str, Any] = state.draft or {}
@@ -106,7 +110,8 @@ def assemble_ozon_product_node(
 
     if not title:
         logger.error("产品标题为空，无法进行类目匹配")
-        return {"error_message": "产品标题为空，无法进行类目匹配"}
+        return {"error_message": "产品标题为空，无法进行类目匹配",
+                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1}
 
     # 初始化查询助手
     query = get_category_query()
@@ -116,16 +121,71 @@ def assemble_ozon_product_node(
     # =====================================================
     logger.info(f"🔍 Step 1: 类目匹配 — 产品: {title[:60]}")
 
-    # 1a. 提取搜索关键词
+    # 1a. 提取搜索关键词（jieba 分词 + 1688 类目面包屑）
     keywords = _extract_keywords(title, description, attributes_1688)
-    logger.info(f"   关键词: {keywords}")
+    
+    # 追加 1688 类目面包屑作为搜索词（与 Ozon ZH_HANS 类目名直接匹配）
+    source_category = draft.get("source_category", "")
+    source_keywords = ""
+    if source_category:
+        # 清理：去掉 ">" 分隔符，每级类目名独立搜索
+        cat_terms = [t.strip() for t in source_category.replace(">", " ").split() if len(t.strip()) >= 2]
+        if cat_terms:
+            # 中文同义词映射（1688 用语 → Ozon ZH_HANS 用语）
+            # ⚠️ 原则：只用特异性词，不用泛化词（如"宠物"匹配几百个类目，稀释信号）
+            _CN_SYNONYMS = {
+                "喷壶": "喷雾瓶 喷雾器 浇花壶",
+                "洒水壶": "浇花壶 喷雾器",
+                "浇花壶": "喷雾瓶 喷雾器",
+                "加仑盆": "花盆 塑料花盆",
+                # 宠物：1688 用"猫狗/猫猫"，Ozon 用"宠物"
+                "猫猫玩具": "宠物玩具",
+                "猫狗玩具": "宠物玩具",
+                "逗猫棒": "宠物玩具",
+                "猫玩具": "宠物玩具",
+                "猫猫食具": "宠物碗 宠物餐具",
+                "猫狗食具": "宠物碗 宠物餐具",
+                # 园艺
+                "园艺工具": "园艺工具 花园工具",
+                "园林资材": "园艺工具 花园",
+                # 手套：过滤掉"防护"（匹配消防/建筑），保留"园艺"
+                "通用手套": "园艺手套",
+                "手部防护": "园艺手套",
+            }
+            expanded_terms = list(cat_terms)
+            for term in cat_terms:
+                if term in _CN_SYNONYMS:
+                    for syn in _CN_SYNONYMS[term].split():
+                        if syn not in expanded_terms:
+                            expanded_terms.append(syn)
+            source_keywords = " ".join(expanded_terms)
+            keywords = source_keywords + " " + keywords
+        logger.info(f"   关键词（含1688类目）: {keywords}")
+    else:
+        logger.info(f"   关键词: {keywords}")
 
-    # 1b. PG 缓存搜索 top-15 候选
-    candidates = query.search_nodes(keywords, top_k=15, node_type="type")
+    # 1b. 搜索策略：source_keywords 优先（高精度），不够再扩大
+    MIN_CANDIDATES = 1  # 有 source_category 时，1 个精确结果 > 30 个噪声结果
+    
+    # 先用 source_keywords 做精确搜索
+    if source_keywords:
+        candidates = query.search_nodes(source_keywords, top_k=15, node_type="type")
+        if candidates and len(candidates) >= MIN_CANDIDATES:
+            logger.info(f"   ✅ 使用 source_category 精确搜索：{len(candidates)} 个候选")
+        else:
+            # source_keywords 不够 → 扩大到全关键词
+            candidates = query.search_nodes(keywords, top_k=30, node_type="type")
+    else:
+        candidates = query.search_nodes(keywords, top_k=30, node_type="type")
+    
     if not candidates:
         # 回退：不过滤 node_type
-        candidates = query.search_nodes(keywords, top_k=15, node_type=None)
-        logger.warning("   叶子类型搜索为空，回退到全部节点搜索")
+        if source_keywords:
+            candidates = query.search_nodes(source_keywords, top_k=15, node_type=None)
+            if not candidates or len(candidates) < MIN_CANDIDATES:
+                candidates = query.search_nodes(keywords, top_k=30, node_type=None)
+        else:
+            candidates = query.search_nodes(keywords, top_k=30, node_type=None)
 
     if not candidates:
         # 缓存为空，调用 Ozon API 获取类目树
@@ -137,14 +197,20 @@ def assemble_ozon_product_node(
             local_db = LocalDBManager()
             local_db.set_category_cache(ozon_client_id, tree_data)
             local_db.sync_category_tree_nodes(tree_data)
-            # 重试搜索
-            candidates = query.search_nodes(keywords, top_k=15, node_type="type")
+            # 重试搜索（优先 source_keywords）
+            if source_keywords:
+                candidates = query.search_nodes(source_keywords, top_k=15, node_type="type")
+                if not candidates or len(candidates) < MIN_CANDIDATES:
+                    candidates = query.search_nodes(keywords, top_k=30, node_type="type")
+            else:
+                candidates = query.search_nodes(keywords, top_k=30, node_type="type")
             if not candidates:
-                candidates = query.search_nodes(keywords, top_k=15, node_type=None)
+                candidates = query.search_nodes(keywords, top_k=30, node_type=None)
 
     if not candidates:
         logger.error("❌ 类目搜索无结果（Ozon API 也无数据）")
-        return {"error_message": "类目匹配失败：无候选类目"}
+        return {"error_message": "类目匹配失败：无候选类目",
+                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1}
 
     logger.info(f"   pg_trgm 返回 {len(candidates)} 个候选")
 
@@ -179,6 +245,12 @@ def assemble_ozon_product_node(
     logger.info(f"   ✅ 类目匹配: [{description_category_id}/{type_id}] {category_path}")
 
     # =====================================================
+    # Step 1d: 验证类目对（防止无效 category_id/type_id 导致后续 400）
+    # =====================================================
+    tried_category_ids: set = {(description_category_id, type_id)}
+    MAX_CATEGORY_RETRIES = 5
+
+    # =====================================================
     # Step 2: 获取属性 Schema（PG 缓存优先，Ozon API 回退）
     # =====================================================
     progress.log_node_action(f"Step 2: 获取属性 Schema — category={description_category_id}, type={type_id}")
@@ -188,15 +260,45 @@ def assemble_ozon_product_node(
         attr_list: list[dict[str, Any]] = attr_schema["result"]
         logger.info(f"   ✅ PG 缓存命中: {len(attr_list)} 个属性")
     else:
-        # Ozon API 回退
+        # Ozon API 回退（带候选类目自动回退）
         logger.info("   PG 缓存未命中，调用 Ozon API...")
         attr_list = _fetch_attribute_schema_from_ozon(
             ozon_client_id, ozon_api_key,
             description_category_id, type_id
         )
+        
+        # ✅ 自修复：API 400 时自动尝试候选类目
+        retry_idx = 0
+        while not attr_list and retry_idx < MAX_CATEGORY_RETRIES:
+            # 从候选列表中找下一个未尝试的类目对
+            fallback_found = False
+            for c in candidates:
+                cid = int(c.get("description_category_id", 0))
+                tid = int(c.get("type_id", 0))
+                if cid > 0 and tid > 0 and (cid, tid) not in tried_category_ids:
+                    tried_category_ids.add((cid, tid))
+                    logger.warning(
+                        f"   🔄 类目对 [{description_category_id}/{type_id}] 无效，"
+                        f"回退尝试候选 [{cid}/{tid}] {c.get('full_path', '')}"
+                    )
+                    description_category_id = cid
+                    type_id = tid
+                    category_path = c.get("full_path", "")
+                    attr_list = _fetch_attribute_schema_from_ozon(
+                        ozon_client_id, ozon_api_key, cid, tid
+                    )
+                    if attr_list:
+                        logger.info(f"   ✅ 回退类目对有效: [{cid}/{tid}] {category_path}")
+                    fallback_found = True
+                    retry_idx += 1
+                    break
+            if not fallback_found:
+                break
+        
         if not attr_list:
-            logger.error("❌ 属性 Schema 获取失败")
-            return {"error_message": f"属性 Schema 获取失败: category={description_category_id}, type={type_id}"}
+            logger.error(f"❌ 属性 Schema 获取失败（已尝试 {len(tried_category_ids)} 个类目对）")
+            return {"error_message": f"属性 Schema 获取失败: 尝试了 {len(tried_category_ids)} 个类目对均无效",
+                    "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1}
         logger.info(f"   ✅ Ozon API 返回: {len(attr_list)} 个属性")
 
     # 标记必填属性
@@ -233,48 +335,43 @@ def assemble_ozon_product_node(
     cached_dict_count = len(dict_lookup)
     logger.info(f"   字典属性: {dict_attr_count} 个, PG 缓存命中: {cached_dict_count} 个")
 
-    # 精简字典值（每属性最多 30 个值传给 LLM）
-    summarized_dict: dict[str, Any] = {}
-    for attr_id, values in dict_lookup.items():
-        if len(values) <= 30:
-            summarized_dict[str(attr_id)] = [
-                {"id": v.get("id"), "value": v.get("value"), "info": v.get("info", "")}
-                for v in values if isinstance(v, dict)
-            ]
-        else:
-            summarized_dict[str(attr_id)] = {
-                "total_count": len(values),
-                "sample_values": [
-                    {"id": v.get("id"), "value": v.get("value"), "info": v.get("info", "")}
-                    for v in values[:30] if isinstance(v, dict)
-                ],
-                "note": f"共{len(values)}个值，仅显示前30个，如需匹配未显示的值请在sample_values中查找"
-            }
-
     # =====================================================
-    # Step 4: LLM 完整组装
+    # Step 4: 确定性组装 items（不调用 LLM）
     # =====================================================
-    logger.info("🤖 Step 4: LLM 组装完整 /v3/product/import JSON")
+    logger.info("🔧 Step 4: 确定性构建 /v3/product/import items JSON")
 
-    items_json = _llm_assemble_product(
+    items = _build_items_deterministically(
         draft=draft,
         description_category_id=description_category_id,
         type_id=type_id,
-        category_path=category_path,
         attr_list=attr_list,
-        dict_lookup=summarized_dict,
-        token=token,
-        currency_code=currency_code,
+        dict_lookup=dict_lookup,
+        images=images,
+        ozon_client_id=ozon_client_id,
+        ozon_api_key=ozon_api_key,
+        weight_grams=weight_grams,
+        dimensions=dimensions,
         price_rub=price_rub,
         old_price_rub=old_price_rub,
+        currency_code=currency_code,
+        token=token,
     )
 
-    if not items_json or not items_json.get("items"):
-        logger.error("❌ LLM 组装失败，返回空 items")
-        return {"error_message": "LLM 组装失败：未生成有效的 items JSON"}
+    if not items:
+        logger.error("❌ 确定性组装失败，返回空 items")
+        return {
+            "error_message": "确定性组装失败：未生成有效的 items",
+            "description_category_id": str(description_category_id),
+            "type_id": str(type_id),
+            "attributes_schema": attr_list,
+            "dictionary_values": {str(k): v for k, v in dict_lookup.items()},
+            "final_attributes": [],
+            "llm_attributes": [],
+            "learned_attributes": {},
+            "ozon_payloads": [],
+        }
 
-    items = items_json.get("items", [])
-    logger.info(f"   ✅ LLM 生成 {len(items)} 个 item(s)")
+    logger.info(f"   ✅ 确定性生成 {len(items)} 个 item(s)")
 
     # =====================================================
     # Step 5: 解析 + 校验 + 补充
@@ -318,6 +415,12 @@ def assemble_ozon_product_node(
         llm_name = str(items[0]["name"])[:500]
 
     # =====================================================
+    # Step 6.5: 跨类目一致性校验
+    # =====================================================
+    # 对比 LLM 生成的俄语标题与分配的 Ozon 类目路径，检测明显不匹配
+    _check_category_consistency(llm_name, category_path, description_category_id, type_id)
+
+    # =====================================================
     # Step 7: 返回结果 dict（LangGraph 自动合并到 GlobalState）
     # =====================================================
     progress.log_node_success(f"类目={category_path}, 属性={len(final_attributes)}个, items={len(items)}个")
@@ -342,26 +445,105 @@ def assemble_ozon_product_node(
 
 
 def _extract_keywords(title: str, description: str, attributes: dict[str, Any]) -> str:
-    """从产品数据中提取搜索关键词（使用 jieba 分词，取核心2-4词）"""
+    """从产品数据中提取搜索关键词（使用 jieba 分词+词性标注，取所有有意义词）"""
     import re
     try:
         import jieba
+        import jieba.posseg as pseg
     except ImportError:
         jieba = None
+        pseg = None
 
-    # 清理标题
-    clean = re.sub(r'[^\u4e00-\u9fff\w]', ' ', title)[:60]
+    # 清理标题：取前 100 字符（足够覆盖产品名）
+    clean = re.sub(r'[^\u4e00-\u9fff\w]', ' ', title)[:100]
 
-    if jieba:
-        # jieba 分词，取前3-5个有意义的词
-        words = list(jieba.cut(clean))
-        # 过滤单字和无意义词
-        meaningful = [w.strip() for w in words if len(w.strip()) >= 2 and w.strip() not in ('无', '手动', '全部', '展开', '参数')]
-        # 取前4个词组合
-        return ' '.join(meaningful[:4])
+    if jieba and pseg:
+        # 词性标注分词，按优先级排序
+        # 名词 > 动名词 > 形容词 > 其他（去噪）
+        NOISE_WORDS = {'无', '手动', '全部', '展开', '参数', '厂家', '批发', '一件', '代发',
+                       '跨境', '货源', '直销', '新款', '爆款', '热卖', '促销', '一件代发'}
+        word_scores: list[tuple[str, float]] = []
+        
+        try:
+            for word, flag in pseg.cut(clean):
+                w = word.strip()
+                if len(w) < 2:
+                    continue
+                if w in NOISE_WORDS:
+                    continue
+                # 词性权重：名词(n/ns/nr/nt/nz) = 3.0, 动名词(vn) = 2.0, 
+                #           形容词(a/an) = 1.5, 其他实词 = 1.0
+                if flag.startswith('n'):
+                    score = 3.0
+                elif flag == 'vn':
+                    score = 2.0
+                elif flag.startswith('a'):
+                    score = 1.5
+                elif flag in ('v', 'vd', 'vi'):
+                    score = 1.0
+                else:
+                    score = 0.5
+                word_scores.append((w, score))
+        except Exception:
+            # pseg 可能在某些平台上不可用，回退到普通分词
+            words = list(jieba.cut(clean))
+            meaningful = [w.strip() for w in words 
+                         if len(w.strip()) >= 2 and w.strip() not in NOISE_WORDS]
+            return ' '.join(meaningful[:8])
+        
+        # 按分数降序排列，取前 8 个（或全部如果不足 8 个）
+        word_scores.sort(key=lambda x: x[1], reverse=True)
+        top_words = [w for w, _ in word_scores[:8]]
+        
+        if not top_words:
+            # 如果过滤后为空，回退取所有 >=2 字的词
+            words = list(jieba.cut(clean))
+            meaningful = [w.strip() for w in words 
+                         if len(w.strip()) >= 2 and w.strip() not in NOISE_WORDS]
+            return ' '.join(meaningful[:8])
+        
+        return ' '.join(top_words)
     else:
-        # 回退：取前15个字符
+        # 回退：取前 20 个字符
         return clean[:20]
+
+
+def _check_category_consistency(
+    llm_name: str,
+    category_path: str,
+    description_category_id: int,
+    type_id: int,
+) -> None:
+    """
+    跨类目一致性校验：对比 LLM 生成的俄语产品名与分配的 Ozon 类目名称。
+    
+    如果二者完全不相关，很可能是类目匹配错误（如"园艺工具"→"迷你打印机"），
+    记录 WARNING 日志帮助快速发现此类问题。
+    """
+    if not llm_name or not category_path:
+        return
+    
+    # 提取类目路径中的关键俄语词（取最后两级，通常是最具体的分类）
+    path_parts = [p.strip() for p in category_path.split(">") if p.strip()]
+    leaf_keywords = set()
+    for part in path_parts[-2:]:  # 最后两级
+        for word in part.lower().split():
+            if len(word) >= 3:
+                leaf_keywords.add(word)
+    
+    # 检查产品名中是否包含任一类目关键词
+    name_lower = llm_name.lower()
+    overlap = [kw for kw in leaf_keywords if kw in name_lower]
+    
+    if not overlap and leaf_keywords:
+        logger.warning(
+            f"⚠️ 跨类目一致性警告：产品名「{llm_name[:80]}」与类目「{category_path}」"
+            f" 无共同关键词。类目词: {leaf_keywords}。"
+            f" 这可能导致 Ozon 审核拒绝（DESCRIPTION_DECLINE）。"
+            f" 建议检查类目匹配是否正确 (desc_cat_id={description_category_id}, type_id={type_id})。"
+        )
+    elif overlap:
+        logger.info(f"✅ 跨类目一致性通过：产品名与类目「{category_path}」匹配关键词: {overlap}")
 
 
 def _llm_match_category(
@@ -373,7 +555,7 @@ def _llm_match_category(
 ) -> Optional[dict[str, Any]]:
     """LLM 从候选类目列表中选出最佳匹配"""
     try:
-        workspace = os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects")
+        workspace = os.getenv("APP_WORKSPACE_PATH", "/app")
         cfg_path = os.path.join(workspace, "config/category_match_v2_cfg.json")
 
         with open(cfg_path, "r", encoding="utf-8") as f:
@@ -465,111 +647,185 @@ def _fetch_attribute_schema_from_ozon(
         return []
 
 
-def _llm_assemble_product(
+def _build_items_deterministically(
     draft: dict[str, Any],
     description_category_id: int,
     type_id: int,
-    category_path: str,
     attr_list: list[dict[str, Any]],
-    dict_lookup: dict[str, Any],
-    token: str,
-    currency_code: str,
+    dict_lookup: dict[int, list[dict[str, Any]]],
+    images: list[str],
+    ozon_client_id: str,
+    ozon_api_key: str,
+    weight_grams: int,
+    dimensions: dict[str, int],
     price_rub: str,
     old_price_rub: str,
-) -> Optional[dict[str, Any]]:
-    """LLM 组装完整 /v3/product/import items JSON"""
-    try:
-        workspace = os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects")
-        cfg_path = os.path.join(workspace, "config/product_assembly_cfg.json")
-
-        with open(cfg_path, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-
-        llm_cfg = cfg.get("config", {})
-        model_id = llm_cfg.get("model", "deepseek-v4-flash")
-        sp_template = cfg.get("sp", "")
-        up_template = cfg.get("up", "")
-
-        sp_tpl = Template(sp_template)
-        up_tpl = Template(up_template)
-
-        system_prompt = sp_tpl.render({})
-
-        # 准备模板变量
-        title = draft.get("title", "")
-        desc = draft.get("description", "")
-        images = draft.get("images", []) or []
-        weight = draft.get("weight", 100)
-        dims = draft.get("dimensions", {}) or {}
-        cost = draft.get("purchase_cost", 0)
-        sku_id = draft.get("sku_id", "")
-        variants = draft.get("variants", []) or []
-        supplier = draft.get("supplier", "")
-        stock = draft.get("stock", "")
-
-        user_prompt = up_tpl.render({
-            "sku_id": sku_id,
-            "title": title,
-            "description": desc[:1000] if desc else "",
-            "purchase_cost": cost,
-            "weight": weight,
-            "depth": dims.get("length", 100),
-            "width": dims.get("width", 100),
-            "height": dims.get("height", 50),
-            "supplier": supplier,
-            "stock": stock,
-            "images": images[:15],
+    currency_code: str,
+    token: str,
+) -> list[dict[str, Any]]:
+    """
+    确定性构建 /v3/product/import items JSON（不调用 LLM）。
+    
+    属性映射策略：
+    1. 用 Ozon 属性的中文名匹配 1688 产品属性（draft.attributes）
+    2. 字典属性：在 dict_lookup 中查找匹配的值，回退到 Ozon search API
+    3. 自由文本属性：直接填入 1688 属性值（prepare 节点会用 LLM 翻译成俄语）
+    4. 无匹配的必填属性：留空，由 _validate_and_enrich_items 填默认值
+    """
+    # ── 构建属性索引 ──
+    attr_by_id: dict[int, dict[str, Any]] = {int(a["id"]): a for a in attr_list if "id" in a}
+    
+    # ── 1688 产品属性 ──
+    product_attrs: dict[str, str] = {}
+    raw_attrs = draft.get("attributes", {})
+    if isinstance(raw_attrs, dict):
+        for k, v in raw_attrs.items():
+            product_attrs[str(k).strip()] = str(v).strip()
+    
+    # ── 属性名匹配辅助函数 ──
+    def _match_product_attr(ozon_attr_name: str) -> Optional[str]:
+        """用 Ozon 属性中文名匹配 1688 产品属性值"""
+        name_lower = ozon_attr_name.lower().strip()
+        # 精确匹配
+        for pa_name, pa_val in product_attrs.items():
+            if pa_name.lower() == name_lower:
+                return pa_val
+        # 包含匹配
+        for pa_name, pa_val in product_attrs.items():
+            if name_lower in pa_name.lower() or pa_name.lower() in name_lower:
+                return pa_val
+        # 关键词重叠匹配
+        ozon_words = set(name_lower.split())
+        for pa_name, pa_val in product_attrs.items():
+            pa_words = set(pa_name.lower().split())
+            if ozon_words & pa_words:
+                return pa_val
+        return None
+    
+    def _find_dict_value(attr_id: int, product_value: str) -> tuple[int, str]:
+        """在字典值中查找匹配，返回 (dictionary_value_id, value)"""
+        if not product_value:
+            return (0, "")
+        values = dict_lookup.get(attr_id, [])
+        if not values:
+            return (0, product_value)
+        # 精确匹配
+        pv_lower = product_value.lower().strip()
+        for v in values:
+            if isinstance(v, dict):
+                if str(v.get("value", "")).lower().strip() == pv_lower:
+                    return (v.get("id", 0), str(v.get("value", "")))
+        # 包含匹配
+        for v in values:
+            if isinstance(v, dict):
+                vv = str(v.get("value", "")).lower().strip()
+                if pv_lower in vv or vv in pv_lower:
+                    return (v.get("id", 0), str(v.get("value", "")))
+        return (0, product_value)
+    
+    # ── 构建变体列表 ──
+    variants = draft.get("variants", [])
+    if not isinstance(variants, list):
+        variants = []
+    is_multi = len(variants) > 1
+    
+    variant_list: list[dict[str, Any]] = variants if is_multi else [{}]
+    
+    items: list[dict[str, Any]] = []
+    
+    for idx, variant in enumerate(variant_list):
+        # 确定 offer_id
+        if is_multi:
+            offer_id = str(variant.get("sku_id", f"{draft.get('item_id', 'unknown')}_{idx}"))
+            var_price = str(variant.get("price", price_rub))
+            var_old_price = str(variant.get("original_price", old_price_rub))
+        else:
+            offer_id = str(draft.get("sku_id", draft.get("item_id", f"item_{idx}")))
+            var_price = str(price_rub)
+            var_old_price = str(old_price_rub)
+        
+        item: dict[str, Any] = {
             "description_category_id": description_category_id,
             "type_id": type_id,
-            "category_path": category_path,
-            "attributes_schema": attr_list,
-            # ✅ 归一化 dict_lookup：确保所有值都是列表（兼容 Jinja2 模板迭代）
-            "dict_lookup": _normalize_dict_lookup(dict_lookup),
+            "offer_id": offer_id,
+            "name": str(draft.get("title", ""))[:500],
+            "price": var_price,
+            "old_price": var_old_price,
             "currency_code": currency_code,
-            "price": price_rub,
-            "old_price": old_price_rub,
-            "variants": variants,
-        })
-
-        resp = call_mxou_chat_api(
-            token=token,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            model=model_id,
-            temperature=0.0,
-            max_tokens=8192,
-        ) or ""
-
-        if not resp.strip():
-            logger.error("LLM 组装返回空")
-            return None
-
-        # 清理 JSON
-        resp = resp.strip()
-        # 移除 Markdown 代码块
-        resp = re.sub(r'^```(?:json)?\s*\n?', '', resp)
-        resp = re.sub(r'\n?```\s*$', '', resp)
-
-        # 尝试提取最外层 JSON 对象
-        match = re.search(r'\{[^{}]*"items"\s*:\s*\[.*\]\s*\}', resp, re.DOTALL)
-        if match:
-            resp = match.group(0)
-
-        result = json.loads(resp)
-        if not isinstance(result, dict) or "items" not in result:
-            logger.error(f"LLM 输出格式错误: {list(result.keys()) if isinstance(result, dict) else type(result)}")
-            return None
-
-        return result
-
-    except json.JSONDecodeError as e:
-        # 截断日志避免输出过大
-        snippet = resp[:500] if 'resp' in dir() else ""
-        logger.error(f"LLM 组装 JSON 解析失败: {e}, snippet={snippet}")
-        return None
-    except Exception as e:
-        logger.error(f"LLM 组装异常: {e}")
-        return None
+            "vat": "0",
+            "dimension_unit": "mm",
+            "weight_unit": "g",
+            "depth": dimensions.get("length", 100),
+            "width": dimensions.get("width", 100),
+            "height": dimensions.get("height", 50),
+            "weight": weight_grams,
+            "images": (images or [])[:15],
+            "primary_image": images[0] if images else "",
+            "complex_attributes": [],
+            "images360": [],
+            "pdf_list": [],
+            "barcode": "",
+            "attributes": [],
+        }
+        
+        # ── 构建属性列表 ──
+        attrs: list[dict[str, Any]] = []
+        for schema_attr in attr_list:
+            attr_id = int(schema_attr.get("id", 0))
+            if attr_id == 0:
+                continue
+            
+            dict_id = schema_attr.get("dictionary_id", 0)
+            attr_name_cn = schema_attr.get("name", "")
+            
+            # 跳过文本类属性（由 prepare_ozon_upload 或 _validate 处理）
+            # 4191=描述, 4180=关键字, 9048=变体绑定名, 23171=hashtag
+            if attr_id in (4191, 4180, 9048, 23171):
+                continue
+            
+            # 品牌（85, 5076）— 留给 _validate_and_enrich_items 处理
+            if attr_id in BRAND_ATTRIBUTE_IDS:
+                continue
+            # 原产国（4389）— 留给 _validate_and_enrich_items 处理
+            if attr_id == COUNTRY_ATTR_ID:
+                continue
+            
+            # 匹配 1688 产品属性
+            product_value = _match_product_attr(attr_name_cn)
+            
+            if dict_id and dict_id > 0 and product_value:
+                # 字典属性 → 查找 dictionary_value_id
+                dict_val_id, dict_val = _find_dict_value(attr_id, product_value)
+                if dict_val_id > 0:
+                    attrs.append({
+                        "complex_id": 0,
+                        "id": attr_id,
+                        "values": [{"dictionary_value_id": dict_val_id, "value": dict_val}],
+                    })
+                    logger.debug(f"   ✅ 属性映射: [{attr_id}] {attr_name_cn} = {product_value} → dict_id={dict_val_id}")
+                else:
+                    # 字典值未匹配，填原始值（_validate 会尝试修正）
+                    attrs.append({
+                        "complex_id": 0,
+                        "id": attr_id,
+                        "values": [{"dictionary_value_id": 0, "value": product_value}],
+                    })
+                    logger.debug(f"   ⚠️ 属性映射: [{attr_id}] {attr_name_cn} = {product_value} (字典值未匹配)")
+            elif product_value:
+                # 自由文本属性
+                attrs.append({
+                    "complex_id": 0,
+                    "id": attr_id,
+                    "values": [{"dictionary_value_id": 0, "value": product_value}],
+                })
+                logger.debug(f"   ✅ 文本属性: [{attr_id}] {attr_name_cn} = {product_value}")
+            # 无匹配值 → 不添加，_validate_and_enrich_items 会补默认值
+        
+        item["attributes"] = attrs
+        items.append(item)
+    
+    logger.info(f"   确定性构建完成: {len(items)} items, 属性映射数={sum(len(it['attributes']) for it in items)}")
+    return items
 
 
 def _validate_and_enrich_items(
@@ -584,7 +840,7 @@ def _validate_and_enrich_items(
     weight_grams: int,
     dimensions: dict[str, int],
 ) -> list[dict[str, Any]]:
-    """校验 LLM 输出的 items 并补充缺失字段"""
+    """校验并补充 items 字段（属性补全、品牌修正、hashtag 生成等）"""
 
     # 构建属性索引
     attr_by_id: dict[int, dict[str, Any]] = {
@@ -781,13 +1037,13 @@ def _validate_and_enrich_items(
             })
             logger.info(f"   ✅ hashtag #23171 补充生成: {new_tags}")
 
-        # 9048（变体绑定名）
+        # 9048（变体绑定名）= item_id，与 prepare_ozon_upload_node 逻辑一致
         if FORCE_ATTR_9048 not in present_ids and FORCE_ATTR_9048 not in {int(a["id"]) for a in validated_attrs}:
-            offer_id = item.get("offer_id", "unknown")
+            item_id_val = item.get("offer_id", "unknown")
             validated_attrs.append({
                 "complex_id": 0,
                 "id": FORCE_ATTR_9048,
-                "values": [{"dictionary_value_id": 0, "value": f"{offer_id}_variant"}],
+                "values": [{"dictionary_value_id": 0, "value": item_id_val}],
             })
 
         item["attributes"] = validated_attrs
@@ -819,38 +1075,6 @@ def _fetch_category_tree_from_ozon(
     except Exception as e:
         logger.error(f"❌ Ozon 类目树 API 调用失败: {e}")
         return None
-
-
-# ==================== Dict Lookup Normalizer ====================
-
-def _normalize_dict_lookup(dict_lookup: dict) -> dict:
-    """归一化 dict_lookup：确保所有值都是列表，兼容 Jinja2 模板迭代"""
-    result: dict[str, list[dict]] = {}
-    for attr_id, values in dict_lookup.items():
-        if isinstance(values, list):
-            if len(values) <= 30:
-                result[str(attr_id)] = [
-                    {"id": v.get("id"), "value": v.get("value"), "info": v.get("info", "")}
-                    for v in values if isinstance(v, dict)
-                ]
-            else:
-                sample = [
-                    {"id": v.get("id"), "value": v.get("value"), "info": v.get("info", "")}
-                    for v in values[:30] if isinstance(v, dict)
-                ]
-                sample.append({"id": 0, "value": f"... 共 {len(values)} 个值", "info": ""})
-                result[str(attr_id)] = sample
-        elif isinstance(values, dict):
-            sample_vals = values.get("sample_values", [])
-            total = values.get("total_count", len(sample_vals))
-            if isinstance(sample_vals, list):
-                result[str(attr_id)] = [
-                    {"id": v.get("id"), "value": v.get("value"), "info": v.get("info", "")}
-                    for v in sample_vals if isinstance(v, dict)
-                ]
-                if total > len(sample_vals):
-                    result[str(attr_id)].append({"id": 0, "value": f"... 共 {total} 个值", "info": ""})
-    return result
 
 
 # ==================== Dictionary Values Helpers ====================

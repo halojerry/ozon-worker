@@ -220,7 +220,17 @@ def _get_api_base() -> str:
 
 
 def _get_token() -> str:
-    # Priority: env > pounding config > config_store
+    """Resolve MXOU token: ENV → pounding config → prompt user."""
+    try:
+        from scripts.lib.config_store import resolve_credential
+        return resolve_credential(
+            "MXOU_TOKEN",
+            pounding_path="api.key",
+            prompt_label="MXOU API Key（用于 LLM 和图片生成）",
+        )
+    except ImportError:
+        pass
+    # Fallback: legacy resolution
     token = os.environ.get("MXOU_TOKEN", "").strip()
     if not token:
         token = _read_pounding_config("api.key") or ""
@@ -233,12 +243,23 @@ def _get_token() -> str:
     return token
 
 
-def _get_ozon_credentials() -> dict[str, str]:
-    """Get Ozon credentials from all available sources.
+def _get_ozon_credentials(store_id: str | None = None) -> dict[str, str]:
+    """Get Ozon credentials for a specific store.
 
-    Priority: env > pounding config > config_store > defaults.
+    Priority: ENV > pounding config > prompt user.
+    Supports multi-store via store_id parameter.
+
     Returns {"client_id": str, "api_key": str}
     """
+    try:
+        from scripts.lib.config_store import get_store
+        store = get_store(store_id)
+        if store:
+            return {"client_id": store["client_id"], "api_key": store["api_key"]}
+    except ImportError:
+        pass
+
+    # Fallback: legacy resolution
     cid = os.environ.get("OZON_CLIENT_ID", "").strip()
     akey = os.environ.get("OZON_API_KEY", "").strip()
 
@@ -459,36 +480,49 @@ def lookup_category_webhook(keyword: str, *, min_confidence: float = 0.8) -> dic
 
 
 def submit_envelope(
-    envelope: dict[str, Any],
+    graph_input: dict[str, Any],
     *,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    """Submit envelope to cloud ingest — resolves category, writes task, returns enriched result.
+    """Submit GraphInput envelope directly to Worker's /submit_task endpoint.
 
-    POST /webhook/ingest with action=submit.
-    Cloud handles: intake → category_resolution (cloud storage lookup) → task write.
+    POST {WORKER_URL}/submit_task with the full GraphInput body.
+    Worker handles: auth → category → pricing → images → upload → learning.
 
-    Returns {task_id, status, category_resolution, ...}.
-    On success, category_resolution contains {description_category_id, type_id, confidence}.
-    If not resolved, caller should run category self-service (search → confirm).
+    Args:
+        graph_input: Either a full GraphInput dict {token, ozon_client_id, ozon_api_key, envelope},
+                     or a raw envelope dict {draft, source, extensions} (legacy, auto-wrapped).
+
+    Returns:
+        {ok, task_id, message} on success, or {ok: False, error} on failure.
     """
-    tid = task_id or f"task-{uuid.uuid4().hex[:12]}"
-    base = _get_api_base()
-    token = _get_token()
+    worker_url = os.environ.get("WORKER_URL", "http://localhost:8080").rstrip("/")
+    url = f"{worker_url}/submit_task"
 
-    body = {
-        "action": "submit",
-        "task_id": tid,
-        "envelope": envelope,
-        "token": token,
-    }
-    result = _cloud_post(
-        f"{base.rstrip('/')}{INGEST_PATH}",
-        body,
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    result.setdefault("task_id", tid)
-    return result
+    # Auto-detect: full GraphInput vs raw envelope
+    if "envelope" in graph_input and ("token" in graph_input or "ozon_client_id" in graph_input):
+        body = graph_input  # Already a full GraphInput
+    else:
+        # Legacy: raw envelope dict, wrap into GraphInput
+        ozon_creds = _get_ozon_credentials()
+        body = {
+            "token": _get_token(),
+            "ozon_client_id": ozon_creds.get("client_id", ""),
+            "ozon_api_key": ozon_creds.get("api_key", ""),
+            "envelope": graph_input,
+        }
+
+    try:
+        import requests
+        resp = requests.post(url, json=body, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+    except requests.exceptions.ConnectionError:
+        return {"ok": False, "error": f"Worker unreachable: {url}", "task_id": task_id}
+    except requests.exceptions.Timeout:
+        return {"ok": False, "error": f"Worker timeout: {url}", "task_id": task_id}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "task_id": task_id}
 
 
 def submit_task(
@@ -525,6 +559,282 @@ _COLOR_WORDS = frozenset({
     "浅兰色", "浅绿色", "浅紫色", "深灰色", "浅灰色", "米黄色", "黑灰色",
     "胡萝卜红", "草莓粉", "菠萝黄", "牛油果绿",
 })
+
+# ── Variant type detection patterns ──
+
+# 尺码模式：S/M/L/XL/XXL，大/中/小号，数字+cm/mm，40*40cm 等
+import re as _re_type
+_SIZE_PATTERN = _re_type.compile(
+    r'(?:^|[^a-zA-Z])'
+    r'(?:S|M|L|XL|XXL|XXXL|XXXXL)'
+    r'(?:$|[^a-zA-Z])'
+    r'|[大小中]号|[大小中]码'
+    r'|\d+\s*(?:cm|mm|厘米|毫米|см|мм)'
+    r'|\d+\s*[xX×]\s*\d+\s*(?:cm|mm|厘米|毫米)?'
+    r'|\d+\s*(?:英寸|inch)'
+    r'|均码|通用码|универсальный'
+)
+
+# 数量模式：数字+PIC/个/只/件/条/张/瓶/包/盒/袋/套/pack/set/pcs
+# 注意：长的匹配放前面（如"5只装"优先于"5只"）
+_QUANTITY_PATTERN = _re_type.compile(
+    r'\d+\s*(?:PIC|pic|Pcs|pcs|Pack|pack|Set|set|шт|ШТ)'
+    r'|\d+\s*(?:个装|只装|件装|片装|瓶装|套装|袋装|包装|盒装)'
+    r'|\d+\s*(?:个|只|件|条|张|瓶|包|盒|袋|套|片|卷|对|双|本|台|支|粒)'
+    r'|[一二三四五六七八九十]\s*(?:个|只|件|条|张|瓶|包|盒|袋|套|片)'
+    r'|[一二三四五六七八九十]\s*(?:个装|只装|件装|片装|套装)'
+)
+
+# 规格/型号关键词
+_SPEC_KEYWORDS = frozenset({
+    '款', '型', '版', '式', '代', '系',
+    '基础', '升级', '豪华', '旗舰', '顶配',
+    '加强', '加厚', '加长', '加宽',
+    '标准', '高配', '低配', '经济',
+    '普通', '高速', '低速', '静音',
+    'USB', 'Type-C', 'Lightning', 'Micro', 'Mini',
+    '可折叠', '不可折叠', '折叠', '便携',
+    '防水', '不防水', '防摔', '防滑',
+    '带灯', '不带灯', '带配件', '不带配件',
+})
+
+# ── SKU 过滤：引流/定制/客服关键词 ──
+_SKU_SKIP_KEYWORDS: list[str] = [
+    # 客服/咨询类 — 不可直接购买
+    "联系客服", "咨询客服", "来电咨询", "询价", "询问客服",
+    # 定制类 — 不是标准商品
+    "定制", "定制款", "订制", "订做", "定做",
+    "来图", "来样", "来图定制", "按需定制",
+    "OEM", "ODM", "贴牌", "代工", "加工定制",
+    "logo定制", "加印", "印logo", "改logo",
+    # 引流/误导类
+    "不含电池", "不含充电器", "不含配件",
+    # 无效加购类
+    "加包装", "加盒子", "加彩盒",  # 加包装是服务不是商品
+]
+
+# 低价引流检测：最低价 SKU 价格低于平均价的这个比例时标记
+_BAIT_PRICE_RATIO_THRESHOLD: float = 0.3  # min_price < avg_price * 0.3
+_BAIT_PRICE_GAP_MIN: float = 3.0  # max_price / min_price >= 3
+
+
+def _is_skip_sku(sku_name: str) -> tuple[bool, str]:
+    """Check if a SKU should be skipped (bait, custom, or service SKU).
+
+    Returns (should_skip, reason).
+    """
+    if not sku_name:
+        return False, ""
+    for kw in _SKU_SKIP_KEYWORDS:
+        if kw in sku_name:
+            return True, kw
+    return False, ""
+
+
+def _filter_bait_and_custom_skus(
+    variants: list[dict],
+    drop_reason: str,
+    dropped_skus: int,
+) -> tuple[list[dict], str, int, list[dict]]:
+    """Filter out bait, custom, and service SKUs from the variant list.
+
+    Also detects low-price bait patterns (one SKU priced far below average).
+
+    Returns (filtered_variants, updated_drop_reason, updated_dropped_skus, removed_skus).
+    """
+    if len(variants) <= 1:
+        return variants, drop_reason, dropped_skus, []
+
+    filtered: list[dict] = []
+    removed: list[dict] = []
+    reasons: list[str] = []
+
+    # ── Price-based bait detection ──
+    prices = [v.get("price", 0) for v in variants if v.get("price", 0) > 0]
+    if len(prices) >= 2:
+        min_p = min(prices)
+        max_p = max(prices)
+        avg_p = sum(prices) / len(prices)
+        if min_p > 0 and max_p / min_p >= _BAIT_PRICE_GAP_MIN and min_p < avg_p * _BAIT_PRICE_RATIO_THRESHOLD:
+            # Found potential bait: lowest price SKU is suspicious
+            min_idx = prices.index(min_p)
+            min_name = str(variants[min_idx].get("name", variants[min_idx].get("color", "")))
+            # Verify it's not a legitimate quantity variant
+            is_qty = any(
+                kw in min_name for kw in
+                ("片装", "个装", "只装", "件装", "PIC", "pic", "pack", "Pack")
+            )
+            if not is_qty:
+                removed.append(variants[min_idx])
+                reasons.append(f"低价引流: min=¥{min_p} < avg¥{avg_p:.0f}×{_BAIT_PRICE_RATIO_THRESHOLD}, ratio={max_p/min_p:.1f}x")
+                # Only filter the bait one, keep the rest
+                for i, v in enumerate(variants):
+                    if i != min_idx:
+                        filtered.append(v)
+                        # Keyword check for remaining
+                        skip, kw = _is_skip_sku(str(v.get("name", v.get("color", ""))))
+                        if skip:
+                            removed.append(v)
+                            reasons.append(f"SKU关键词: {kw}")
+                            continue
+                # Update stats
+                total_removed = len(removed)
+                new_drop = drop_reason
+                if reasons:
+                    new_drop = (drop_reason + "; " if drop_reason else "") + "; ".join(reasons)
+                return filtered, new_drop, dropped_skus + total_removed, removed
+
+    # ── Keyword-based filtering ──
+    for v in variants:
+        name = str(v.get("name", v.get("color", "")))
+        skip, kw = _is_skip_sku(name)
+        if skip:
+            removed.append(v)
+            reasons.append(f"SKU关键词: {kw}")
+        else:
+            filtered.append(v)
+
+    if reasons:
+        new_drop = (drop_reason + "; " if drop_reason else "") + "; ".join(reasons)
+        return filtered, new_drop, dropped_skus + len(removed), removed
+
+    return variants, drop_reason, dropped_skus, removed
+
+
+def _detect_variant_type(name: str) -> str:
+    """Detect the variant type from a single SKU name.
+
+    Returns one of: 'color', 'size', 'quantity', 'spec', 'unknown'
+
+    Priority: quantity > size > color > spec > unknown
+
+    >>> _detect_variant_type("白色")
+    'color'
+    >>> _detect_variant_type("1PIC")
+    'quantity'
+    >>> _detect_variant_type("S")
+    'size'
+    >>> _detect_variant_type("USB款")
+    'spec'
+    >>> _detect_variant_type("5只装3cm【白色】USB款")
+    'quantity'  # 数量优先
+    """
+    if not name or not isinstance(name, str):
+        return 'unknown'
+    name = name.strip()
+    if not name:
+        return 'unknown'
+
+    # 1. Check quantity (highest priority — "5只装" is fundamentally a quantity variant)
+    if _QUANTITY_PATTERN.search(name):
+        return 'quantity'
+
+    # 2. Check size
+    if _SIZE_PATTERN.search(name):
+        return 'size'
+
+    # 3. Check color
+    for cw in sorted(_COLOR_WORDS, key=len, reverse=True):
+        if cw in name:
+            return 'color'
+
+    # 4. Check spec keywords
+    for kw in _SPEC_KEYWORDS:
+        if kw in name:
+            return 'spec'
+
+    return 'unknown'
+
+
+def _parse_variant_attributes(name: str) -> dict[str, str]:
+    """Parse a variant name into structured attributes.
+
+    Input:  "5只装3cm【白色】USB款"
+    Output: {"颜色":"白色", "数量":"5只装", "尺寸":"3cm", "规格":"USB款"}
+
+    >>> _parse_variant_attributes("5只装3cm【白色】USB款")
+    {'颜色': '白色', '数量': '5只装', '尺寸': '3cm', '规格': 'USB款'}
+    >>> _parse_variant_attributes("白色")
+    {'颜色': '白色'}
+    >>> _parse_variant_attributes("1PIC")
+    {'数量': '1PIC'}
+    """
+    import re as _re
+
+    attrs: dict[str, str] = {}
+    name = str(name or '').strip()
+    if not name:
+        return attrs
+
+    remaining = name
+
+    # 1. Extract quantity
+    qty_match = _QUANTITY_PATTERN.search(remaining)
+    if qty_match:
+        attrs['数量'] = qty_match.group(0)
+        remaining = remaining.replace(qty_match.group(0), ' ').strip()
+
+    # 2. Extract size
+    size_match = _SIZE_PATTERN.search(remaining)
+    if size_match:
+        attrs['尺寸'] = size_match.group(0)
+        remaining = remaining.replace(size_match.group(0), ' ').strip()
+
+    # 3. Extract color (from brackets or embedded)
+    bracket_matches = _re.findall(r"【(.+?)】", remaining)
+    color_found = False
+    if bracket_matches:
+        for m in bracket_matches:
+            if m in _COLOR_WORDS:
+                attrs['颜色'] = m
+                remaining = _re.sub(r"【" + _re.escape(m) + r"】", "", remaining)
+                color_found = True
+                break
+    if not color_found:
+        # Search for embedded color words (longest match first)
+        for cw in sorted(_COLOR_WORDS, key=len, reverse=True):
+            if cw in remaining:
+                attrs['颜色'] = cw
+                remaining = remaining.replace(cw, ' ', 1)
+                color_found = True
+                break
+
+    # 4. Remaining text → spec (after cleaning)
+    remaining = _re.sub(r"【.+?】", "", remaining)  # Remove any remaining brackets
+    remaining = _re.sub(r"[-+]\s*", " ", remaining)
+    remaining = _re.sub(r"\s+", " ", remaining).strip()
+    # Remove common punctuation and separators
+    remaining = _re.sub(r"[，,、。．.·•·]", "", remaining)
+    if remaining and len(remaining) > 1:
+        attrs['规格'] = remaining
+
+    return attrs
+
+
+def _detect_group_variant_type(values: list[dict]) -> str:
+    """Detect the variant type for an option_group based on its values.
+
+    Votes across all values and returns the majority type.
+    """
+    if not values:
+        return 'unknown'
+
+    counts: dict[str, int] = {}
+    for v in values:
+        vname = str(v.get('name', '')).strip()
+        if not vname:
+            continue
+        vt = _detect_variant_type(vname)
+        counts[vt] = counts.get(vt, 0) + 1
+
+    if not counts:
+        return 'unknown'
+
+    # Return the type with the most votes (excluding 'unknown' if there are known types)
+    known = {k: v for k, v in counts.items() if k != 'unknown'}
+    if known:
+        return max(known, key=lambda k: known[k])
+    return 'unknown'
 
 
 def _extract_variant_label(name: str) -> tuple[str, str]:
@@ -605,8 +915,25 @@ def _validate_and_fix_product_data(
 
     # ── 软兜底：尺寸 ──
     if dimensions.get("length", 0) <= 0 and dimensions.get("width", 0) <= 0 and dimensions.get("height", 0) <= 0:
-        dimensions = {"length": 100, "width": 100, "height": 50}
-        logger.warning(f"物品 {item_id} 尺寸缺失，使用默认值 100×100×50mm")
+        # 基于重量估算合理默认尺寸（假设密度 ~250 kg/m³，典型消费品）
+        # 体积 = weight / density, 假设长方体各边比例 2:1.5:1
+        # side = (volume * ratio)^(1/3)
+        density = 250.0  # kg/m³
+        volume_m3 = (weight_g / 1000.0) / density  # m³
+        volume_mm3 = volume_m3 * 1e9  # mm³
+        # 长方体比例 2:1.5:1
+        ratio_product = 2.0 * 1.5 * 1.0  # = 3.0
+        base_mm = (volume_mm3 / ratio_product) ** (1/3) if volume_mm3 > 0 else 50.0
+        # 限制最小值（太小会被 Ozon ML 拒绝）
+        base_mm = max(base_mm, 30.0)
+        est_length = round(base_mm * 2.0)
+        est_width = round(base_mm * 1.5)
+        est_height = round(base_mm * 1.0)
+        dimensions = {"length": est_length, "width": est_width, "height": est_height}
+        logger.warning(
+            f"物品 {item_id} 尺寸缺失，根据重量 {weight_g}g 估算: "
+            f"{est_length}×{est_width}×{est_height}mm（密度={density}kg/m³）"
+        )
 
     # ── 硬阻断：图片 ──
     if not images:
@@ -662,6 +989,7 @@ def build_graph_envelope(
     store_id: str = "",
     title: str = "",
     poll_category: bool = True,
+    max_skus: int | None = None,
 ) -> dict[str, Any]:
     """1688 API + CDP → GraphInput 格式 envelope。
 
@@ -669,6 +997,9 @@ def build_graph_envelope(
     2. CDP enrich_product_with_cdp(detail_url, api_data)
     3. Ozon category search (if poll_category=True)
     4. 组装为 {token, ozon_client_id, ozon_api_key, envelope}
+    
+    Args:
+        max_skus: SKU 数量上限（None=使用默认值15，0=不限制）
     """
     from scripts.lib.ak_1688_client import get_product_details, enrich_product_with_cdp
     from scripts.lib.reference_images import get_best_product_images
@@ -741,7 +1072,7 @@ def build_graph_envelope(
         data["images"] = real_images
 
     # ── 3. Ozon 类目解析 ──
-    ozon_creds = _get_ozon_credentials()
+    ozon_creds = _get_ozon_credentials(store_id)
     category_name = ""
     ozon_category = {}
     if poll_category:
@@ -844,58 +1175,190 @@ def build_graph_envelope(
     seller_raw = data.get("seller", "") or ""
     supplier = seller_raw.split(" ")[0].split("关注")[0].strip()[:30] if seller_raw else ""
 
-    # ── 5. 变体（单 SKU vs 多 SKU） ──
+    # ── 5. 变体（类型感知 + 数量控制） ──
     variants: list[dict] = []
-    og_colors = None
-    for og in data.get("option_groups", []):
-        if og.get("name") in ("颜色", "цвет", "color"):
-            og_colors = [v for v in og.get("values", []) if v.get("name")]
-            break
-
+    option_groups_raw = data.get("option_groups", [])
     sku_details = data.get("sku_details", [])
 
-    if og_colors:
-        # 去重颜色
-        seen = set()
-        for i, c in enumerate(og_colors):
-            cname = str(c.get("name", "")).strip()
-            if not cname or cname in seen:
-                continue
-            seen.add(cname)
+    # 默认 SKU 上限（可通过参数覆盖）
+    effective_max_skus: int = max_skus if (max_skus and max_skus > 0) else 15
+    dropped_skus: int = 0
+    drop_reason = ""
 
-            # 智能提取颜色名和型号
-            color, model = _extract_variant_label(cname)
+    # Parse all option groups with type detection
+    parsed_groups: list[dict] = []  # [{name, type, values: [{name, image, price}]}]
+    for og in option_groups_raw:
+        og_name = str(og.get("name", "")).strip()
+        if not og_name:
+            continue
+        og_values = [v for v in og.get("values", []) if v.get("name")]
+        if not og_values:
+            continue
+        og_type = _detect_group_variant_type(og_values)
+        parsed_groups.append({
+            "name": og_name,
+            "type": og_type,
+            "values": og_values,
+        })
 
-            # 匹配 sku_details 中的价格
-            vp = cost_cny
+    if parsed_groups:
+        # Deduplicate values within each group
+        for pg in parsed_groups:
+            seen = set()
+            deduped = []
+            for v in pg["values"]:
+                vname = str(v.get("name", "")).strip()
+                if vname and vname not in seen:
+                    seen.add(vname)
+                    deduped.append(v)
+            pg["values"] = deduped
+
+        # Generate cartesian product of all option groups
+        from itertools import product as _cartesian_product
+
+        # Build list of value lists: [[v1, v2, ...], [w1, w2, ...]]
+        value_lists = [pg["values"] for pg in parsed_groups]
+
+        # Compute total SKU count
+        total_combos = 1
+        for vl in value_lists:
+            total_combos *= len(vl)
+        if total_combos == 0:
+            total_combos = 1
+
+        # Apply SKU count limit
+        if total_combos > effective_max_skus:
+            # Multi-dimension sampling: cap each dimension
+            n_dims = len(value_lists)
+            if n_dims > 1:
+                # Allocate slots proportionally: aim for effective_max_skus^(1/n_dims) per dimension
+                per_dim = max(1, int(effective_max_skus ** (1.0 / n_dims)))
+                # Check if this keeps us under effective_max_skus
+                while True:
+                    sampled_count = 1
+                    for vl in value_lists:
+                        sampled_count *= min(len(vl), per_dim)
+                    if sampled_count <= effective_max_skus:
+                        break
+                    per_dim = max(1, per_dim - 1)
+                # Apply sampling
+                for k in range(n_dims):
+                    if len(value_lists[k]) > per_dim:
+                        value_lists[k] = value_lists[k][:per_dim]
+                new_total = 1
+                for vl in value_lists:
+                    new_total *= len(vl)
+                dropped_skus = total_combos - new_total
+                drop_reason = (
+                    f"multi-dim sampling: {n_dims} dims, "
+                    f"total={total_combos} > max_skus={effective_max_skus}, "
+                    f"sampled to {new_total} ({per_dim} per dim)"
+                )
+            else:
+                # Single dimension: truncate
+                dropped_skus = total_combos - effective_max_skus
+                value_lists[0] = value_lists[0][:effective_max_skus]
+                drop_reason = (
+                    f"single-dim truncation: total={total_combos} > max_skus={effective_max_skus}"
+                )
+
+        # Generate cartesian product
+        variant_idx = 0
+        for combo in _cartesian_product(*value_lists):
+            # combo is a tuple of values (one from each option group)
+            # Build combined name and attributes
+            combined_names: list[str] = []
+            all_attrs: dict[str, str] = {}
+            variant_img = ""
+            variant_price = cost_cny
+
+            for pg, val in zip(parsed_groups, combo):
+                vname = str(val.get("name", "")).strip()
+                if not vname:
+                    continue
+                combined_names.append(vname)
+                # Parse attributes from this value
+                parsed = _parse_variant_attributes(vname)
+                for k, v in parsed.items():
+                    if v and v not in all_attrs.values():
+                        all_attrs[k] = v
+                # Use first available image
+                if not variant_img and val.get("image"):
+                    variant_img = str(val.get("image", "")).strip()
+
+            # Match sku_details for price (search combined names)
+            combined_name = " ".join(combined_names)
             for sd in sku_details:
-                if cname in str(sd.get("name", "")):
-                    vp = float(sd.get("price", cost_cny))
+                sd_name = str(sd.get("name", ""))
+                for cn in combined_names:
+                    if cn in sd_name or sd_name in cn:
+                        variant_price = float(sd.get("price", cost_cny))
+                        break
+                if variant_price != cost_cny:
                     break
+
+            # Determine overall variant_type
+            group_types = [pg["type"] for pg in parsed_groups]
+            if "quantity" in group_types:
+                variant_type = "quantity"
+            elif "color" in group_types and "size" in group_types:
+                variant_type = "color_size"
+            elif "color" in group_types and "spec" in group_types:
+                variant_type = "color_spec"
+            elif "color" in group_types:
+                variant_type = "color"
+            elif "size" in group_types:
+                variant_type = "size"
+            elif "spec" in group_types:
+                variant_type = "spec"
+            else:
+                variant_type = "unknown"
+
+            # Backward-compatible fields
+            color_val = all_attrs.get("颜色", combined_names[0] if combined_names else "default")
+            model_val = all_attrs.get("规格", all_attrs.get("尺寸", ""))
+            size_val = all_attrs.get("尺寸", "one size")
+
             variants.append({
-                "sku_id": f"{item_id}_{i}",
-                "name": color,
-                "color": color,
-                "model": model,
-                "size": "one size",
-                "image": c.get("image") or "",
-                "price": vp,
-                "original_price": vp,
+                "sku_id": f"{item_id}_{variant_idx}",
+                "name": combined_name,
+                "color": color_val,
+                "model": model_val,
+                "size": size_val,
+                "image": variant_img,
+                "price": variant_price,
+                "original_price": variant_price,
                 "stock": 100,
+                "attributes": all_attrs,
+                "variant_type": variant_type,
             })
+            variant_idx += 1
+
     elif sku_details:
+        # Fallback: no option_groups but have sku_details
+        max_skus_applied = min(len(sku_details), effective_max_skus)
+        if len(sku_details) > effective_max_skus:
+            dropped_skus = len(sku_details) - effective_max_skus
+            drop_reason = f"sku_details truncation: {len(sku_details)} > max_skus={effective_max_skus}"
+            sku_details = sku_details[:max_skus]
+
         for i, sd in enumerate(sku_details):
             sd_price = float(sd.get("price", cost_cny))
+            sd_name = str(sd.get("name", "default"))
+            parsed = _parse_variant_attributes(sd_name)
+            vt = _detect_variant_type(sd_name)
             variants.append({
                 "sku_id": f"{item_id}_{i}",
-                "name": str(sd.get("name", "default")),
-                "color": str(sd.get("name", "default")),
-                "model": "",
-                "size": "one size",
+                "name": sd_name,
+                "color": parsed.get("颜色", sd_name),
+                "model": parsed.get("规格", ""),
+                "size": parsed.get("尺寸", "one size"),
                 "image": sd.get("image") or "",
                 "price": sd_price,
                 "original_price": sd_price,
                 "stock": 100,
+                "attributes": parsed,
+                "variant_type": vt,
             })
 
     if not variants:
@@ -909,7 +1372,26 @@ def build_graph_envelope(
             "price": cost_cny,
             "original_price": cost_cny,
             "stock": 100,
+            "attributes": {},
+            "variant_type": "single",
         })
+
+    # ── 5.4 SKU 过滤：去除引流/定制/客服类 SKU ──
+    filtered_skus_info: list[dict] = []
+    if len(variants) > 1:
+        variants, drop_reason, dropped_skus, removed = _filter_bait_and_custom_skus(
+            variants, drop_reason, dropped_skus
+        )
+        if removed:
+            filtered_skus_info = [
+                {"name": str(r.get("name", r.get("color", "")))[:60], "price": r.get("price")}
+                for r in removed
+            ]
+            logger.warning(
+                "SKU过滤: 移除%d个引流/定制SKU (剩余%d个): %s",
+                len(removed), len(variants),
+                ", ".join(r["name"][:40] for r in filtered_skus_info),
+            )
 
     # ── 5.5 校验门：硬阻断 + 软兜底 ──
     weight_g, dimensions, validation_errors = _validate_and_fix_product_data(
@@ -930,6 +1412,17 @@ def build_graph_envelope(
     # ── 6. 组装 envelope (三层结构: draft / source / extensions) ──
     is_multi = len(variants) > 1
 
+    # 提取 1688 类目面包屑（供 worker 类目匹配使用）
+    source_categories = api_data.get("categories", [])
+    if isinstance(source_categories, list) and source_categories:
+        source_category_path = " > ".join(c["name"] for c in source_categories if c.get("name"))
+        # 取最后两级（最具体的分类）
+        names = [c["name"] for c in source_categories if c.get("name")]
+        source_category_short = " > ".join(names[-2:]) if len(names) >= 2 else (names[0] if names else "")
+    else:
+        source_category_path = ""
+        source_category_short = ""
+
     draft: dict[str, Any] = {
         "item_id": str(item_id),
         "title": item_title,
@@ -949,6 +1442,8 @@ def build_graph_envelope(
         draft["shipping"] = shipping
     if ozon_category:
         draft["ozon_category"] = ozon_category
+    if source_category_short:
+        draft["source_category"] = source_category_short  # 1688 类目（最具体两级），供 worker 类目匹配
 
     if is_multi:
         draft["variants"] = variants
@@ -963,8 +1458,14 @@ def build_graph_envelope(
         "source": {
             "purchase_url": detail_url,
             "purchase_cost": cost_cny,
+            "source_category_path": source_category_path,  # 完整 1688 类目路径，供后续建立映射表
         },
-        "extensions": {},
+        "extensions": {
+            "max_skus": effective_max_skus,
+            "dropped_skus": dropped_skus,
+            "drop_reason": drop_reason or "",
+            "filtered_skus": filtered_skus_info,
+        },
     }
 
     # ── 7. 组装 GraphInput ──
@@ -1023,8 +1524,10 @@ def build_graph_envelope_with_retry(
     item_id: str,
     detail_url: str,
     category_query: str = "",
+    store_id: str = "",
     max_retries: int = 3,
     retry_delay: float = 15.0,
+    max_skus: int | None = None,
 ) -> dict[str, Any]:
     """build_graph_envelope() with CDP retry on degradation.
 
@@ -1041,7 +1544,9 @@ def build_graph_envelope_with_retry(
                 item_id=item_id,
                 detail_url=detail_url,
                 category_query=category_query,
+                store_id=store_id,
                 poll_category=False,
+                max_skus=max_skus,
             )
         except RuntimeError as exc:
             last_error = exc
@@ -2280,56 +2785,49 @@ def _fix_description_and_tags(offer_id: str, product: dict[str, Any]) -> None:
 
 
 def check_task_status(task_id: str) -> dict[str, Any]:
-    """Query current task status — single call, no polling.
+    """Query current task status from Worker — single call, no polling.
 
-    Returns: {task_id, status, stages, ozon_task_id, result_json, ok}
+    Calls Worker's GET /task_status/{task_id} endpoint.
+    Returns: {task_id, status, ok, terminal, result_json, error_message}
     """
     import requests as _requests
 
-    TASK_URL = f"{_get_api_base().rstrip('/')}{TASK_STATUS_PATH}"
-    token = _get_token()
+    worker_url = os.environ.get("WORKER_URL", "http://localhost:8080").rstrip("/")
+    url = f"{worker_url}/task_status/{task_id}"
 
     try:
-        resp = _requests.post(
-            TASK_URL,
-            json={"task_id": task_id, "token": token},
-            headers={"Content-Type": "application/json"},
-            timeout=10,
-        )
+        resp = _requests.get(url, timeout=10)
+        if resp.status_code == 404:
+            return {"task_id": task_id, "status": "not_found", "ok": False, "terminal": True}
         data = resp.json() if resp.ok else {}
+    except _requests.exceptions.ConnectionError:
+        return {"task_id": task_id, "status": "worker_unreachable", "ok": False, "terminal": False}
     except Exception as e:
-        return {"task_id": task_id, "status": "query_error", "ok": False, "error": str(e)[:200]}
+        return {"task_id": task_id, "status": "query_error", "ok": False, "terminal": False, "error": str(e)[:200]}
 
-    task = data.get("task", data)
-    if not task or not isinstance(task, dict):
-        return {"task_id": task_id, "status": "not_found", "ok": False}
-
-    status = task.get("status", "unknown")
-    result_json = task.get("result_json", {}) or {}
-    if isinstance(result_json, str):
+    # Worker returns: {id, status, result, error_message, tenant_id, ...}
+    status = data.get("status", "unknown")
+    result = data.get("result") or {}
+    if isinstance(result, str):
         try:
-            result_json = json.loads(result_json)
+            result = json.loads(result)
         except (json.JSONDecodeError, TypeError):
-            result_json = {}
+            result = {}
 
-    # v0.8: read stages from both columns (pipeline writes to stages, legacy writes to result_json.stages)
-    stages = (task.get("stages", {}) or {}) if isinstance(task.get("stages"), dict) else {}
-    rj_stages = result_json.get("stages", {}) or {}
-    # Merge: pipeline direct stages take priority over result_json.stages
-    for k, v in rj_stages.items():
-        if k not in stages:
-            stages[k] = v
-    ozon_task_id = result_json.get("ozon_task_id") or task.get("ozon_task_id")
+    # Map Worker statuses to skill terminal statuses
+    terminal = status in ("completed", "failed", "cancelled")
+    ok = status == "completed"
 
-    terminal = status in ("succeeded", "ozon_processing", "blocked", "failed", "rejected", "timeout")
     return {
         "task_id": task_id,
         "status": status,
-        "ok": terminal and status in ("succeeded", "ozon_processing"),
+        "ok": ok,
         "terminal": terminal,
-        "ozon_task_id": ozon_task_id,
-        "stages": stages,
-        "result_json": result_json,
+        "error_message": data.get("error_message"),
+        "result_json": result,
+        "retry_count": data.get("retry_count", 0),
+        "started_at": data.get("started_at"),
+        "completed_at": data.get("completed_at"),
     }
 
 
@@ -2344,92 +2842,50 @@ def poll_pipeline_task(
     interval_sec: float = 30.0,
     max_wait_sec: float = 600.0,
 ) -> dict[str, Any]:
-    """[DEPRECATED] Use check_task_status() for single query, or check_all_tasks() for batch.
+    """Poll Worker task status until terminal. Delegates to check_task_status().
 
-    Poll cloud pipeline status via n8n webhook (not Supabase directly).
-    Kept for backward compatibility — prefer fire-and-forget + on-demand status checks.
+    Args:
+        task_id: The task UUID from submit_envelope().
+        interval_sec: Polling interval (default 30s).
+        max_wait_sec: Maximum wait time (default 600s = 10min).
+
+    Returns:
+        {status, success, task_id, result_json, error_message}
     """
     import time
-
-    logger.warning("poll_pipeline_task is deprecated. Use check_task_status() for single query.")
-    TASK_URL = f"{_get_api_base().rstrip('/')}{TASK_STATUS_PATH}"
-    token = _get_token()
 
     deadline = time.monotonic() + max_wait_sec
     poll_num = 0
     last_status = ''
     logger.info("Polling %s (max %ss, interval %ss)...", task_id, max_wait_sec, interval_sec)
+
     while time.monotonic() < deadline:
         poll_num += 1
         remaining = max(0, deadline - time.monotonic())
-        try:
-            resp = requests.post(
-                TASK_URL,
-                json={"task_id": task_id, "token": token},
-                headers={"Content-Type": "application/json"},
-                timeout=10,
-            )
-            data = resp.json() if resp.ok else {}
-        except Exception:
-            time.sleep(interval_sec)
-            continue
 
-        task = data.get('task', data)
-        if not task or not isinstance(task, dict):
-            time.sleep(interval_sec)
-            continue
+        status_info = check_task_status(task_id)
+        status = status_info.get("status", "unknown")
 
-        status = task.get('status', '')
-        result_json = task.get('result_json', {}) or {}
-        if isinstance(result_json, str):
-            try:
-                result_json = json.loads(result_json)
-            except (json.JSONDecodeError, TypeError):
-                result_json = {}
-
-        stages = result_json.get('stages', {}) or {}
-        ozon_task_id = result_json.get('ozon_task_id') or task.get('ozon_task_id')
-
-        # Log progress on status change or every 3rd poll
         if status != last_status or poll_num % 3 == 0:
-            stage_keys = list(stages.keys()) if stages else []
-            logger.info("Poll #%d: status=%s ozon_id=%s stages=%s (%.0fs left)",
-                    poll_num, status, ozon_task_id or '-', stage_keys or '-', remaining)
+            logger.info("Poll #%d: status=%s (%.0fs left)", poll_num, status, remaining)
             last_status = status
 
-        if status in ('succeeded', 'blocked', 'failed', 'rejected', 'ozon_processing'):
-            logger.info("Terminal: status=%s ozon_task_id=%s stages=%s",
-                    status, ozon_task_id, stages)
+        if status_info.get("terminal"):
+            logger.info("Terminal: status=%s", status)
             return {
-                'status': status,
-                'success': status in ('succeeded', 'ozon_processing'),
-                'ozon_task_id': ozon_task_id,
-                'stages': stages,
-                'task_id': task_id,
+                "status": status,
+                "success": status_info.get("ok", False),
+                "task_id": task_id,
+                "result_json": status_info.get("result_json", {}),
+                "error_message": status_info.get("error_message"),
             }
-        # Status node may leave status as 'running' or 'in_progress' even after completion.
-        # Check result_json for evidence of completion instead.
-        elif status in ('running', 'in_progress') and ozon_task_id:
-            learn_done = 'Learn' in stages
-            upload_done = 'Upload' in stages and 'succeeded' in str(stages.get('Upload', ''))
-            if learn_done or upload_done:
-                logger.info("Early terminal: in_progress with ozon_id, stages=%s", stages)
-                return {
-                    'status': 'succeeded',
-                    'success': True,
-                    'ozon_task_id': ozon_task_id,
-                    'stages': stages,
-                    'task_id': task_id,
-                }
-        elif status == 'not_found':
-            pass  # Task not yet created — keep waiting
 
         time.sleep(interval_sec)
 
     return {
-        'status': 'timeout',
-        'success': False,
-        'ozon_task_id': None,
-        'stages': {},
-        'task_id': task_id,
+        "status": "timeout",
+        "success": False,
+        "task_id": task_id,
+        "result_json": {},
+        "error_message": f"Polling timed out after {max_wait_sec}s",
     }

@@ -21,9 +21,9 @@ def get_supabase_client() -> Client:
     if _supabase_client is not None:
         return _supabase_client
     
-    # ✅ 从环境变量读取配置（环境变量优先，如果不存在则使用默认值）
-    supabase_url = os.getenv("SUPABASE_URL", "https://kekmppsuiiokdckdeolv.supabase.co")
-    supabase_key = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtla21wcHN1aWlva2Rja2Rlb2x2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDYyMDA0NCwiZXhwIjoyMDkwMTk2MDQ0fQ.ZkJMnjrlUQKaUpMU3eug9EQLUsoN0mOWI8wzC3jRkAU")
+    # ✅ 从环境变量读取配置（必须通过环境变量传入，无硬编码默认值）
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    supabase_key = os.getenv("SUPABASE_KEY", "")
     
     # 如果环境变量不存在，返回None（不抛出异常）
     if not supabase_url or not supabase_key:
