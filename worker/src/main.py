@@ -335,6 +335,8 @@ openai_handler = OpenAIChatHandler(service)
 
 @app.post("/async_run")
 async def http_async_run(request: Request) -> dict:
+    """[DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。"""
+    logger.warning("⚠️ /async_run 已弃用，请使用 POST /submit_task")
     try:
         payload = await request.json()
     except json.JSONDecodeError as e:
@@ -397,6 +399,8 @@ async def http_async_run(request: Request) -> dict:
 
 @app.get("/task/{task_id}")
 async def http_get_task(task_id: str) -> dict:
+    """[DEPRECATED] 使用 GET /task_status/{task_id} 代替。此端点将在未来版本移除。"""
+    logger.warning("⚠️ /task/{task_id} 已弃用，请使用 GET /task_status/{task_id}")
     try:
         row = await async_runtime.get(task_id)
     except AsyncTaskStorageError as e:
@@ -736,7 +740,6 @@ async def http_submit_task(request: Request):
         if supabase is None:
             logger.warning("Supabase未配置，跳过token鉴权（本地开发模式）")
             user_id = "local_dev"
-            balance = 999.0
         else:
             try:
                 token_records = supabase.table("tokens").select(
@@ -748,22 +751,14 @@ async def http_submit_task(request: Request):
 
                 token_record = token_records.data[0]
                 user_id = str(token_record.get("user_id", ""))
-                balance = float(token_record.get("remain_quota", 0.0))
                 status = int(token_record.get("status", 0))
 
-                # Step4: 检查token状态
+                # Step4: 检查token状态（计费由 MXOU 服务处理，此处只验证 token 有效性）
                 if status != 1:
                     status_desc = {2: "disabled", 3: "expired", 4: "quota exhausted"}
                     raise HTTPException(
                         status_code=403,
                         detail=f"Token is {status_desc.get(status, 'unknown')}: status={status}"
-                    )
-
-                # Step5: 检查余额
-                if balance < 5.0:
-                    raise HTTPException(
-                        status_code=402,
-                        detail=f"Insufficient balance: remain_quota must be >= 5.0 (current: {balance})"
                     )
 
             except Exception as e:
