@@ -751,14 +751,22 @@ async def http_submit_task(request: Request):
 
                 token_record = token_records.data[0]
                 user_id = str(token_record.get("user_id", ""))
+                balance = float(token_record.get("remain_quota", 0.0))
                 status = int(token_record.get("status", 0))
 
-                # Step4: 检查token状态（计费由 MXOU 服务处理，此处只验证 token 有效性）
+                # Step4: 检查token状态
                 if status != 1:
                     status_desc = {2: "disabled", 3: "expired", 4: "quota exhausted"}
                     raise HTTPException(
                         status_code=403,
                         detail=f"Token is {status_desc.get(status, 'unknown')}: status={status}"
+                    )
+
+                # Step5: 检查余额（MXOU 生图/LLM 需要额度，余额不足会中途失败）
+                if balance < 5.0:
+                    raise HTTPException(
+                        status_code=402,
+                        detail=f"Insufficient balance: remain_quota must be >= 5.0 (current: {balance}). Please top up your MXOU account."
                     )
 
             except Exception as e:
