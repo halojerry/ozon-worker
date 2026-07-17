@@ -3,6 +3,7 @@ import json
 import asyncio
 import logging
 from typing import Dict, Any, Optional
+from utils.logger import get_logger, set_trace_context, log_task_event, clear_trace_context
 from datetime import datetime
 from supabase import Client
 from sqlalchemy import text
@@ -11,7 +12,7 @@ from storage.database.supabase_client import get_supabase_client
 from storage.database.db import get_engine
 from graphs.graph import main_graph  # 导入LangGraph主图
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SupabaseTaskProcessor:
@@ -159,7 +160,8 @@ class SupabaseTaskProcessor:
                     payload = task_row[3] if isinstance(task_row[3], dict) else json.loads(task_row[3])
                     timeout_seconds = task_row[4]
                     
-                    logger.info(f"开始处理任务{task_id}（用户: {tenant_id}, 优先级: {priority})")
+                    set_trace_context(task_id=task_id, user_id=tenant_id)
+                    log_task_event("started", task_id=task_id, user_id=tenant_id, priority=priority)
                     
                     # ✅ Step2: 在同一事务中更新任务状态为running（确保原子性）
                     update_running_sql = text("""
@@ -192,19 +194,21 @@ class SupabaseTaskProcessor:
                         })
                         conn.commit()
                     
-                    logger.info(f"任务{task_id}执行成功")
+                    log_task_event("completed", task_id=task_id, user_id=tenant_id)
+                    clear_trace_context()
                     return graph_result
-                    
+
                 except asyncio.TimeoutError:
-                    # 超时处理
-                    logger.error(f"任务{task_id}执行超时（{timeout_seconds}秒）")
+                    log_task_event("failed", task_id=task_id, user_id=tenant_id,
+                                   error_message=f"timeout ({timeout_seconds}s)")
                     await self.handle_task_failure(task_id, f"任务超时（{timeout_seconds}秒）")
                     return None
                     
                 except Exception as e:
-                    # 其他错误处理
-                    logger.error(f"任务{task_id}执行失败: {e}")
+                    log_task_event("failed", task_id=task_id, user_id=tenant_id,
+                                   error_message=str(e), error_type=type(e).__name__)
                     await self.handle_task_failure(task_id, str(e))
+                    clear_trace_context()
                     return None
                     
             except Exception as e:
@@ -262,9 +266,9 @@ class SupabaseTaskProcessor:
                     })
                     conn.commit()
                 
-                logger.info(f"任务{task_id}将自动重试（第{retry_count + 1}次，最大{max_retries}次）")
+                log_task_event("retried", task_id=task_id, retry_count=retry_count + 1,
+                               max_retries=max_retries, error_message=error_message)
             else:
-                # 达到最大重试次数，使用SQL UPDATE标记为failed
                 update_failed_sql = text("""
                     UPDATE ozon_product_tasks
                     SET status = 'failed',
@@ -272,15 +276,16 @@ class SupabaseTaskProcessor:
                         completed_at = NOW()
                     WHERE id = :task_id
                 """)
-                
+
                 with self.engine.connect() as conn:
                     conn.execute(update_failed_sql, {
                         "task_id": task_id,
                         "error_message": error_message
                     })
                     conn.commit()
-                
-                logger.error(f"任务{task_id}永久失败（重试次数已达上限{max_retries}次）: {error_message}")
+
+                log_task_event("failed", task_id=task_id, error_message=error_message,
+                               retry_count=retry_count, max_retries=max_retries, permanent=True)
                 
         except Exception as e:
             logger.error(f"任务失败处理异常: {e}")

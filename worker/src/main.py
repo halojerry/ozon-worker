@@ -46,16 +46,16 @@ from runtime.async_tasks import (
 )
 from runtime.openai_handler import OpenAIChatHandler
 
-setup_logging(
-    log_file=LOG_FILE,
-    max_bytes=100 * 1024 * 1024,  # 100MB
-    backup_count=5,
-    log_level=LOG_LEVEL,
-    use_json_format=False,  # Simple format for local
-    console_output=True,
+from utils.logger import setup_structured_logging, get_logger, set_trace_context, log_task_event
+
+# 结构化日志：生产用 JSON，本地开发用可读格式
+setup_structured_logging(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    json_format=os.getenv("LOG_FORMAT", "json").lower() == "json",
+    log_file=os.getenv("LOG_FILE", ""),
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # 超时配置常量
 TIMEOUT_SECONDS = 900  # 15分钟
@@ -725,7 +725,11 @@ async def http_submit_task(request: Request):
     
     try:
         body = await request.json()
-        
+
+        # ✅ 链路追踪：生成 trace_id
+        trace_id = uuid.uuid4().hex[:12]
+        set_trace_context(trace_id=trace_id)
+
         # ✅ Step1: 从payload中提取认证参数（兼容直连格式和包装格式）
         payload = body.get("payload") or body
         token = payload.get("token", "")
@@ -801,13 +805,18 @@ async def http_submit_task(request: Request):
         }
         
         task_id = await task_processor.submit_task(
-            tenant_id=user_id,  # ✅ 使用user_id作为tenant_id
+            tenant_id=user_id,
             payload=payload_with_user_id,
             priority=priority,
             timeout_seconds=timeout_seconds,
             max_retries=max_retries
         )
-        
+
+        # ✅ 更新 trace context + 生命周期日志
+        set_trace_context(task_id=task_id, user_id=user_id)
+        log_task_event("submitted", task_id=task_id, user_id=user_id,
+                       trace_id=trace_id, priority=priority, timeout_seconds=timeout_seconds)
+
         return {
             "ok": True,
             "task_id": task_id,
