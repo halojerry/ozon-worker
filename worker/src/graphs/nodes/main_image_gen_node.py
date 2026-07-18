@@ -36,24 +36,24 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
     if not draft or not token:
         return MainImageOutput(main_image=None)
     
-    # 构建参考图：优先使用Phase1白底图，其次多角度图，最后回退到原始产品图
+    # 构建参考图：优先使用Phase1白底图（更干净），其次多角度图，最后回退到原始产品图
     ref_images: List[str] = []
     white_bg = getattr(state, "white_bg_image", None)
     multi_angle = getattr(state, "multi_angle_image", None)
     
     if white_bg and isinstance(white_bg, str) and white_bg.strip():
         ref_images.append(white_bg.strip())
-    elif multi_angle and isinstance(multi_angle, str) and multi_angle.strip():
+    if multi_angle and isinstance(multi_angle, str) and multi_angle.strip():
         ref_images.append(multi_angle.strip())
-    else:
-        # Phase1均失败时，回退到原始产品图（经过质量评估选择最佳图片）
+    # 如果都没有，回退到原始产品图
+    if not ref_images:
         original_images = getattr(state, "original_images", [])
         if isinstance(original_images, list) and len(original_images) > 0:
             ref_images = [str(img) for img in original_images[:2] if isinstance(img, str) and img.strip()]
             logger.info(f"Phase1图片均失败，使用原始产品图作为参考: {len(ref_images)}张")
     
     title = draft.get("title", "")
-    prompt = f"产品：{title}。生成该产品的电商主图。严格要求：纯白背景(#FFFFFF)、纯产品摄影、高清细节、无任何文字/标签/参数/logo/水印、非信息图/非营销海报、专业电商产品主图摄影风格、适合Ozon平台展示。"
+    prompt = f"产品：{title}。生成该产品的电商营销主图。要求：创意营销风格、可包含场景化背景和促销元素、突出产品卖点、适合Ozon平台商品卡首图展示、高清细节、无其他品牌logo/水印。"
 
     try:
         # ✅ 调用统一mxou API（正确参数: images/aspectRatio/replyType）
