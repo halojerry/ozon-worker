@@ -37,7 +37,7 @@ def social_proof_gen_node(state: SocialProofInput, config: RunnableConfig, runti
         return SocialProofOutput(social_proof_image=None)
     
     title = draft.get("title", "")
-    prompt = f"生成产品社交证明展示图。要求：展示用户评价、好评率等信息，增加消费者信任感，适合俄罗斯电商平台展示，适合俄罗斯消费者审美。"
+    prompt = f"生成产品好评如潮展示图。要求：展示大量五星好评、高评分、买家满意等正面评价信息，营造热销爆款氛围，增加消费者信任感和购买欲望，适合俄罗斯电商平台展示，适合俄罗斯消费者审美。"
     
     # 构建参考图列表：使用Phase1的图片作为参考（内联逻辑）
     ref_images: List[str] = []
