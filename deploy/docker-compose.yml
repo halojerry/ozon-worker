@@ -23,6 +23,10 @@ services:
     build:
       context: ../worker
       dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: ozon-worker:${VERSION:-latest}
     restart: unless-stopped
     ports:
       - "0.0.0.0:8080:5000"
