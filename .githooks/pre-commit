@@ -1,0 +1,47 @@
+#!/bin/bash
+# Git pre-commit hook（不依赖 pre-commit 框架）
+# 启用: git config core.hooksPath .githooks
+
+echo "🔍 Pre-commit checks..."
+
+# 1. 检查 .env 文件
+if git diff --cached --name-only | grep -qE '\.env$|\.env\.'; then
+    echo "❌ 检测到 .env 文件，请勿提交密钥！"
+    exit 1
+fi
+
+# 2. 检查硬编码 JWT
+if git diff --cached -U0 | grep -q 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'; then
+    echo "❌ 检测到硬编码 JWT token！"
+    exit 1
+fi
+
+# 3. Python 语法检查（只检查改动的 .py 文件）
+STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$')
+if [ -n "$STAGED_PY" ]; then
+    for f in $STAGED_PY; do
+        if [ -f "$f" ]; then
+            python3 -c "import ast; ast.parse(open('$f').read())" 2>/dev/null
+            if [ $? -ne 0 ]; then
+                echo "❌ 语法错误: $f"
+                exit 1
+            fi
+        fi
+    done
+    echo "✅ Python 语法检查通过"
+fi
+
+# 4. Ruff lint（如果安装了的话）
+if command -v ruff &> /dev/null; then
+    STAGED_PY_SRC=$(echo "$STAGED_PY" | grep 'worker/src/')
+    if [ -n "$STAGED_PY_SRC" ]; then
+        ruff check $STAGED_PY_SRC --select E,F,W --ignore E501 2>/dev/null
+        if [ $? -ne 0 ]; then
+            echo "⚠️  Ruff lint 有警告（非阻塞）"
+        else
+            echo "✅ Ruff lint 通过"
+        fi
+    fi
+fi
+
+echo "✅ Pre-commit 检查通过"

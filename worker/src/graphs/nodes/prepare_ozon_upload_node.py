@@ -7,7 +7,6 @@ from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
-from coze_coding_utils.runtime_ctx.context import Context
 
 from graphs.state import PrepareOzonUploadInput, PrepareOzonUploadOutput
 from utils.progress_logger import ProgressLogger
@@ -208,7 +207,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
 
     try:
         cfg_file: str = os.path.join(
-            os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects"),
+            os.getenv("APP_WORKSPACE_PATH", "/app"),
             "config/attributes_llm_cfg.json"
         )
         with open(cfg_file, 'r', encoding='utf-8') as fd:
@@ -278,16 +277,107 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
             logger.info(f"✅ LLM翻译成功: '{text[:50]}' → '{translated[:50]}'")
             return translated
         else:
-            logger.error(f"❌ 翻译结果不含西里尔字母，保留原文: '{text[:50]}'")
-            return ""  # 不返回中文原文，避免 Ozon 显示乱码
+            # 第一次失败 → 用简化 prompt 重试（去掉严格规则，只要求俄语翻译）
+            logger.warning(f"⚠️ 初次翻译失败（非西里尔），用简化 prompt 重试: '{text[:50]}'")
+            simple_prompt = (
+                "You are a Russian translator. Translate the following Chinese product title into Russian. "
+                "Keep it short (under 50 characters). Return ONLY the Russian text, nothing else."
+            )
+            retry_translated: str = call_mxou_chat_api(
+                token=token,
+                system_prompt=simple_prompt,
+                user_prompt=f"Translate: {text}",
+                model=model_id,
+                temperature=0.3,
+                max_tokens=200
+            ) or ""
+            retry_translated = retry_translated.strip()
+            if retry_translated and _has_cyrillic(retry_translated):
+                logger.info(f"✅ 简化重试翻译成功: '{text[:50]}' → '{retry_translated[:50]}'")
+                return retry_translated
+            logger.error(f"❌ 翻译重试仍不含西里尔字母，回退到原文: '{text[:50]}'")
+            return text  # 最后回退到原文
     except Exception as e:
         logger.error(f"❌ LLM翻译异常: {str(e)}")
-        return ""  # 不返回中文原文
+        return text  # 回退到原文
+
+
+def _remove_latin_words(title: str) -> str:
+    """移除标题中的拉丁字母单词（Ozon 要求 100% 西里尔）。
+    
+    Ozon DESCRIPTION_DECLINE attr=4180: 标题不能包含拉丁字符。
+    常见场景：1688 标题含英文品牌名如 "PET REMBER"。
+    策略：检测→尝试 LLM 转写→兜底移除。
+    """
+    if not title:
+        return title
+    
+    # 检测拉丁单词（2+ 连续拉丁字母）
+    latin_words = re.findall(r'\b[a-zA-Z]{2,}\b', title)
+    if not latin_words:
+        return title
+    
+    logger.warning(f"⚠️ 标题含拉丁单词: {latin_words}")
+    
+    # 尝试 LLM 转写（轻量调用，快速）
+    try:
+        token = os.environ.get("MXOU_TOKEN", "") or os.environ.get("MXOU_IMAGE_TOKEN", "")
+        if token:
+            transliterated = _transliterate_latin_llm(title, latin_words, token)
+            if transliterated and _has_cyrillic(transliterated):
+                # 验证：转写后不能还有拉丁词
+                remaining = re.findall(r'\b[a-zA-Z]{2,}\b', transliterated)
+                if not remaining:
+                    logger.info(f"✅ 拉丁词转写成功: {latin_words} → '{transliterated[:60]}'")
+                    return transliterated
+    except Exception as e:
+        logger.debug(f"拉丁转写异常（非阻塞）: {e}")
+    
+    # 兜底：直接移除拉丁单词
+    for w in latin_words:
+        title = title.replace(w, '').strip()
+    # 清理多余空格
+    title = re.sub(r'\s{2,}', ' ', title).strip()
+    logger.info(f"✅ 拉丁词已移除: {latin_words} → '{title[:60]}'")
+    return title
+
+
+def _transliterate_latin_llm(title: str, latin_words: list[str], token: str) -> str:
+    """使用 LLM 将拉丁品牌名转写为俄语发音。
+    
+    例如：PET REMBER → Пет Рембер
+    """
+    try:
+        from utils.mxou_api import call_mxou_chat_api
+    except ImportError:
+        return ""
+    
+    words_str = ", ".join(latin_words)
+    translated = call_mxou_chat_api(
+        token=token,
+        system_prompt=(
+            "You are a Russian transliteration expert. "
+            "Transliterate the given English brand names into Russian Cyrillic "
+            "based on their pronunciation. Return ONLY the full title with "
+            "brand names replaced by their Cyrillic transliterations. "
+            "Do NOT add any explanation."
+        ),
+        user_prompt=(
+            f"Title: {title}\n"
+            f"Transliterate these brand names to Russian: {words_str}\n"
+            f"Return the full title with brands replaced."
+        ),
+        model="deepseek-v4-flash",
+        temperature=0.1,
+        max_tokens=200
+    )
+    return (translated or "").strip()
 
 
 def _sanitize_title(title: str) -> str:
     """
     标题后校验与修正：确保标题符合Ozon规范。
+    0. 去除拉丁字母（Ozon 要求 100% 西里尔）
     1. 截断到50字符（在词边界截断）
     2. 检测关键词堆砌（连续3+名词无标点分隔）并修复
     3. 确保至少有一个标点符号
@@ -297,6 +387,9 @@ def _sanitize_title(title: str) -> str:
         return title
 
     sanitized: str = title.strip()
+
+    # 0. 去除拉丁字母 — Ozon 完全禁止拉丁字符（DESCRIPTION_DECLINE attr=4180）
+    sanitized = _remove_latin_words(sanitized)
 
     # 1. 去除残留营销词（俄语常见 + 英语常见）
     marketing_words_ru: list = [
@@ -378,14 +471,13 @@ def _sanitize_title(title: str) -> str:
 def prepare_ozon_upload_node(
     state: PrepareOzonUploadInput,
     config: RunnableConfig,
-    runtime: Runtime[Context]
+    runtime: Runtime
 ) -> PrepareOzonUploadOutput:
     """
     title: Ozon上传数据准备（严格遵守Ozon规范）
     desc: 单位转换、vat固定、俄语标题、1688 SKU_ID、促销价格、完整Ozon结构
     integrations: api.mxou.cn LLM翻译 (deepseek-v4-flash), Ozon API
     """
-    ctx = runtime.context
     
     # 获取 mxou API token（用户输入）
     mxou_token: str = state.token
@@ -682,22 +774,39 @@ def prepare_ozon_upload_node(
         logger.warning(f"⚠️ 属性去重：{len(final_attributes)}→{len(deduped_attributes)}（移除{len(final_attributes)-len(deduped_attributes)}个重复）")
     final_attributes = deduped_attributes
 
-    # 2) 重量单位校验（4383：克g，若值<100则×1000修正kg→g）
+    # 2) 重量属性数值清洗（4383/4497：去除 g/kg/克/斤 等非数字后缀）
+    NUMERIC_WEIGHT_ATTRS = {4383, 4497}
     for attr in final_attributes:
         if not isinstance(attr, dict):
             continue
         try:
-            if int(attr.get("attribute_id", 0)) == 4383:
-                val_str = str(attr.get("value", ""))
-                val_clean = val_str.replace(".", "").replace(",", "")
-                if val_clean.isdigit():
-                    val_num = float(val_str)
-                    if 0 < val_num < 100:
-                        old_val = val_str
-                        attr["value"] = str(int(val_num * 1000))
-                        logger.warning(f"⚠️ 重量单位修正(kg→g)：{old_val}→{attr['value']}")
+            attr_id_int = int(attr.get("attribute_id", 0))
         except (ValueError, TypeError):
             continue
+        if attr_id_int in NUMERIC_WEIGHT_ATTRS:
+            val = str(attr.get("value", ""))
+            # Remove common weight unit suffixes
+            import re
+            val_clean = re.sub(r'(?i)\s*(g|kg|克|斤|公斤|г|кг|gram|kilogram)\s*$', '', val).strip()
+            if val_clean != val:
+                attr["value"] = val_clean
+                logger.info(f"✅ 重量属性 {attr_id_int} 数值清洗: '{val}' → '{val_clean}'")
+            # Also validate it's a number
+            try:
+                float(val_clean)
+            except ValueError:
+                logger.warning(f"⚠️ 重量属性 {attr_id_int} 非数字: '{val_clean}'，设为空")
+                attr["value"] = ""
+        # 4383 重量单位修正（kg→g）
+        if attr_id_int == 4383:
+            val_str = str(attr.get("value", ""))
+            val_clean = val_str.replace(".", "").replace(",", "")
+            if val_clean.isdigit():
+                val_num = float(val_str)
+                if 0 < val_num < 100:
+                    old_val = val_str
+                    attr["value"] = str(int(val_num * 1000))
+                    logger.warning(f"⚠️ 重量单位修正(kg→g)：{old_val}→{attr['value']}")
 
     # 3) 字典属性校验：已知字典属性(10096/10097等)若缺dictionary_value_id则主动查找缓存
     DICT_ATTR_IDS = {10096, 10097}
@@ -956,38 +1065,22 @@ def prepare_ozon_upload_node(
                     continue
             logger.warning(f"⚠️ 必填属性{req_id}({req_attr_info})在转换时被跳过（可能缺少dictionary_value_id），将尝试用原始值上传")
     
-    # ✅ 唯一后缀：用于offer_id和9048属性，避免与旧产品冲突
+    # ✅ 唯一后缀：用于offer_id（变体区分），不用于9048
     offer_id_suffix: str = str(int(time.time()) % 1000000)
-    
-    # ✅ 属性9048（型号名称）是Ozon必填属性，用于变体绑定
-    # 值必须是有意义的型号名称（俄语），不能是纯数字item_id
-    # 同一item_id的多个SKU使用相同的型号名称 → 自动合并为一个商品卡片
-    # ✅ 添加唯一时间戳后缀避免与旧产品9048冲突导致double_without_merger_offer
+
+    # ✅ 属性9048（型号名称）= 1688 item_id
+    # 同一item_id的多个SKU使用相同的9048 → 自动合并为一个商品卡片
+    # 用item_id而非时间戳：确定性生成，重试不变，可溯源到1688来源
     if item_id and item_id.strip():
-        # 提取产品类型名称(8229)作为简短型号名，截断到50字符
-        product_type_name = ""
-        for fa in final_attributes:
-            try:
-                if int(fa.get("attribute_id", 0)) == 8229:
-                    product_type_name = str(fa.get("value", "")).strip()
-                    break
-            except (ValueError, TypeError):
-                continue
-        unique_suffix: str = offer_id_suffix
-        if product_type_name and _has_cyrillic(product_type_name):
-            model_name_9048 = (product_type_name[:40] + f" #{unique_suffix}")[:50]
-        elif title_ru and _has_cyrillic(title_ru):
-            model_name_9048 = (title_ru[:40] + f" #{unique_suffix}")[:50]
-        else:
-            model_name_9048 = f"{item_id} #{unique_suffix}"
-        
-        # ✅ 无论9048是否已存在，都强制覆盖为带唯一后缀的值
+        model_name_9048 = item_id.strip()
+
+        # ✅ 无论9048是否已存在，都强制覆盖为item_id
         found_9048: bool = False
         for attr in ozon_attributes:
             if isinstance(attr, dict) and attr.get("id") == 9048:
                 attr["values"] = [{"dictionary_value_id": 0, "value": model_name_9048}]
                 found_9048 = True
-                logger.info(f"✅ 覆盖属性9048（型号名称），原值→新值: {model_name_9048[:80]}")
+                logger.info(f"✅ 覆盖属性9048（型号名称）= item_id: {model_name_9048}")
                 break
         if not found_9048:
             ozon_attributes.append({
@@ -995,13 +1088,18 @@ def prepare_ozon_upload_node(
                 "id": 9048,
                 "values": [{"dictionary_value_id": 0, "value": model_name_9048}]
             })
-            logger.info(f"✅ 添加属性9048（型号名称），值: {model_name_9048[:80]}")
+            logger.info(f"✅ 添加属性9048（型号名称）= item_id: {model_name_9048}")
 
     # ✅ 属性8962（件数/Единиц в одном товаре）：兜底默认值 "1"
     found_8962: bool = False
     for attr in ozon_attributes:
         if isinstance(attr, dict) and attr.get("id") == 8962:
             found_8962 = True
+            # 检查 value 是否为空
+            vals = attr.get("values", [])
+            if not vals or not any(v.get("value", "") if isinstance(v, dict) else v for v in vals):
+                attr["values"] = [{"dictionary_value_id": 0, "value": "1"}]
+                logger.info("✅ 属性8962 值为空，兜底填充: 1")
             break
     if not found_8962:
         ozon_attributes.append({
@@ -1101,8 +1199,8 @@ def prepare_ozon_upload_node(
     logger.info("设置图片顺序（严格遵循IMG_ORDER）")
     
     if has_variant_images:
-        # ✅ 修复：主图优先级逻辑（禁止用信息图作主图）
-        # 优先级：main_image > white_bg > multi_angle > scene_1 > scene_2 > scene_3 > variant_primary[0]
+        # ✅ 修复：变体主图优先级 — variant_primary > main_image > white_bg
+        # 原则：变体产品必须用变体专属图片做主图，不能用共享营销图
         main_img = getattr(state, "main_image", None)
         white_bg_url = getattr(state, "white_bg_image", None)
         multi_angle_url = getattr(state, "multi_angle_image", None)
@@ -1112,9 +1210,15 @@ def prepare_ozon_upload_node(
         
         chosen_primary = ""
         primary_source = ""
+        # 优先级1：统一营销主图（所有 SKU 共享同一张主图）
         if main_img and isinstance(main_img, str) and main_img.strip():
             chosen_primary = main_img.strip()
             primary_source = "main_image"
+        # 优先级2：变体白底图（兜底）
+        elif variant_primary_images_list and len(variant_primary_images_list) > 0 and isinstance(variant_primary_images_list[0], str) and variant_primary_images_list[0].strip():
+            chosen_primary = variant_primary_images_list[0].strip()
+            primary_source = "variant_primary_images[0]"
+        # 优先级3+：其他营销图兜底
         elif white_bg_url and isinstance(white_bg_url, str) and white_bg_url.strip():
             chosen_primary = white_bg_url.strip()
             primary_source = "white_bg_image"
@@ -1130,9 +1234,6 @@ def prepare_ozon_upload_node(
         elif scene_3_url and isinstance(scene_3_url, str) and scene_3_url.strip():
             chosen_primary = scene_3_url.strip()
             primary_source = "scene_3_image"
-        elif variant_primary_images_list and isinstance(variant_primary_images_list[0], str) and variant_primary_images_list[0].strip():
-            chosen_primary = variant_primary_images_list[0].strip()
-            primary_source = "variant_primary_images[0]"
         
         if chosen_primary:
             ozon_payload["items"][0]["primary_image"] = chosen_primary
@@ -1158,8 +1259,8 @@ def prepare_ozon_upload_node(
             logger.warning("⚠️ 多SKU产品无营销图，生图节点可能失败，不使用alicdn原始图")
             remaining_images = []
         
-        # 设置images数组（最多29张）
-        ozon_payload["items"][0]["images"] = remaining_images[:29]
+        # 设置images数组（主图永远在第一位，最多29张）
+        ozon_payload["items"][0]["images"] = [chosen_primary] + remaining_images[:28] if chosen_primary else remaining_images[:29]
         
         logger.info(f"✅ 多SKU产品：primary_image={chosen_primary[:60]}")
         logger.info(f"✅ 多SKU产品：images数量={len(ozon_payload['items'][0]['images'])}")
@@ -1244,10 +1345,81 @@ def prepare_ozon_upload_node(
     # 之前的S3转存逻辑会导致：1)下载图片到内存造成内存泄漏 2)增加处理时间 3)增加故障点
     logger.info(f"✅ 图片URL直接使用COS URL（Ozon可正常访问），共{len(ozon_payload.get('items', []))}个item")
     
+    # ── 变体类型路由：检测 variant_type，决定 Ozon 策略 ──
+    first_vt = ""
+    if variants:
+        for v in variants:
+            if isinstance(v, dict) and v.get("variant_type"):
+                first_vt = str(v.get("variant_type", ""))
+                break
+    is_quantity_split = (first_vt == "quantity")
+    logger.info(f"🔍 变体类型: variant_type={first_vt}, is_quantity_split={is_quantity_split}")
+    
+    # ✅ 数量变体拆分：每个数量 SKU 作为独立 Ozon 产品
+    if is_quantity_split and variants and len(variants) > 1:
+        logger.info(f"🔀 数量变体拆分：将{len(variants)}个数量SKU拆分为独立产品")
+        quantity_items: List[Dict[str, Any]] = []
+        base_item_qty: Dict[str, Any] = ozon_payload["items"][0]
+        
+        for i, variant in enumerate(variants):
+            if not isinstance(variant, dict):
+                continue
+            qty_item: Dict[str, Any] = dict(base_item_qty)  # 浅拷贝
+            var_sku_id = str(variant.get("sku_id", f"{sku_id}_{i}"))
+            qty_item["offer_id"] = f"{var_sku_id}_{offer_id_suffix}"
+            
+            # 价格 — 用变体自己的价格
+            var_price = float(variant.get("price", price))
+            qty_item["price"] = str(int(var_price))
+            qty_item["old_price"] = str(int(var_price * 1.3))
+            
+            # 标题追加数量信息（俄语）
+            qty_label = str(variant.get("attributes", {}).get("数量", variant.get("name", "")))
+            if qty_label:
+                # 数字+单位 → 转俄语 шт.
+                import re as _re_qty
+                qty_match = _re_qty.search(r'(\d+)', qty_label)
+                if qty_match:
+                    qty_num = qty_match.group(1)
+                    qty_item["name"] = f"{title_ru}, {qty_num} шт."
+                else:
+                    qty_item["name"] = f"{title_ru}, {qty_label}"
+            
+            # 图片：变体自己的白底图优先
+            var_img = ""
+            if i < len(variant_primary_images_list) and variant_primary_images_list[i]:
+                var_img = str(variant_primary_images_list[i]).strip()
+            if not var_img:
+                var_img = str(variant.get("image", ""))
+            qty_item["primary_image"] = var_img
+            
+            # images: 主图第一
+            qty_images = [var_img] if var_img else []
+            if shared_marketing_images:
+                for img in shared_marketing_images:
+                    if img and str(img).strip() and img != var_img:
+                        qty_images.append(img)
+            qty_item["images"] = qty_images[:15]
+            
+            # 属性：不绑 8292（独立产品），保留其他属性
+            qty_attrs: List[Dict[str, Any]] = []
+            for ba in base_item_qty.get("attributes", []):
+                ba_id = int(ba.get("id", 0)) if isinstance(ba, dict) else 0
+                if ba_id == 8292:
+                    continue  # 数量变体不绑定
+                qty_attrs.append(dict(ba) if isinstance(ba, dict) else ba)
+            qty_item["attributes"] = qty_attrs
+            
+            quantity_items.append(qty_item)
+            logger.info(f"  独立产品{i+1}: offer_id={qty_item['offer_id']}, name={qty_item.get('name','')[:60]}, price={qty_item['price']}")
+        
+        ozon_payload["items"] = quantity_items
+        logger.info(f"✅ 数量拆分完成：{len(quantity_items)}个独立产品，未绑定到同一卡片")
+    
     # ✅ 多SKU变体上传：将单item转换为多个variant items
     # Ozon API文档：每个变体是items数组中的独立元素，通过属性9048绑定到同一产品卡
     # 变体之间只能有颜色或尺寸不同，其他属性必须一致
-    if variants and isinstance(variants, list) and len(variants) > 0 and (has_variant_images or len(variants) > 1):
+    elif variants and isinstance(variants, list) and len(variants) > 0 and (has_variant_images or len(variants) > 1):
         logger.info(f"🔄 多SKU变体上传：将单item转换为{len(variants)}个变体items")
         
         base_item: Dict[str, Any] = ozon_payload["items"][0]
@@ -1322,8 +1494,12 @@ def prepare_ozon_upload_node(
             # 变体SKU ID（offer_id）
             var_sku_id: str = str(variant.get("sku_id", f"{sku_id}_{i}"))
             
-            # 变体颜色
-            var_color_cn: str = str(variant.get("color", ""))
+            # 变体颜色 — 优先从 attributes 字典读取，回退到 color 字段
+            var_attrs: Dict[str, str] = variant.get("attributes", {}) if isinstance(variant, dict) else {}
+            var_color_cn: str = str(var_attrs.get("颜色", variant.get("color", "")))
+            var_size_cn: str = str(var_attrs.get("尺寸", variant.get("size", "")))
+            var_spec_cn: str = str(var_attrs.get("规格", variant.get("model", "")))
+            var_vt: str = str(variant.get("variant_type", ""))
             is_real_color: bool = var_color_cn in COLOR_CN_TO_RU
             
             # 步骤1: 尝试从Ozon API字典值动态匹配
@@ -1394,10 +1570,22 @@ def prepare_ozon_upload_node(
                     var_price = str(vp.get("price", price))
                     var_old_price = str(vp.get("old_price", old_price))
             
-            # 变体主图（如果变体图片为空，使用base item的primary_image）
-            var_primary_image: str = variant_primary_images_list[i] if i < len(variant_primary_images_list) and variant_primary_images_list[i] and variant_primary_images_list[i].strip() else ozon_payload["items"][0].get("primary_image", "")
+            # 变体主图：第一个变体用统一营销主图，其余用白底图
+            # 降级策略：白底图生成失败 → 统一营销主图（而非1688 alicdn原图，Ozon可能无法下载）
+            var_primary_image: str = ""
+            if i == 0 and main_img and isinstance(main_img, str) and main_img.strip():
+                # 第0个变体（默认展示）：使用统一营销主图
+                var_primary_image = main_img.strip()
+            elif i < len(variant_primary_images_list) and variant_primary_images_list[i] and str(variant_primary_images_list[i]).strip():
+                var_primary_image = str(variant_primary_images_list[i]).strip()
+            else:
+                # 降级：统一营销主图（Ozon可访问），而非1688 alicdn原图
+                if main_img and isinstance(main_img, str) and main_img.strip():
+                    var_primary_image = main_img.strip()
+                else:
+                    var_primary_image = ozon_payload["items"][0].get("primary_image", "")
             
-            # 构建变体属性（共享属性 + 颜色属性）
+            # 构建变体属性（共享属性 + 颜色属性 + 可选尺寸属性）
             var_attributes: List[Dict[str, Any]] = list(shared_attributes)  # 浅拷贝共享属性
             # ✅ 关键修复：检查颜色属性是否是字典类型（dictionary_id > 0）
             # 自由文本属性(dictionary_id=0)必须使用dictionary_value_id=0，否则Ozon会丢弃该属性
@@ -1407,17 +1595,52 @@ def prepare_ozon_upload_node(
                 "id": color_attr_id,  # 颜色属性（动态检测的ID）
                 "values": [{"dictionary_value_id": var_color_dict_id if color_attr_dict_id > 0 else 0, "value": var_color_ru}]
             })
+
+            # ✅ 尺寸属性：如果 variant 包含尺寸信息，映射到 Ozon 尺码属性
+            if var_size_cn and var_size_cn != "one size":
+                try:
+                    from utils.size_mapper import map_size_to_russian
+                    result = map_size_to_russian(var_size_cn)
+                    if result:
+                        ru_size, size_type = result
+                        # 查找类目中的尺码属性 (4295=Russian size, 4411=Размер)
+                        size_attr_id = 0
+                        for ba in base_attributes:
+                            ba_id = int(ba.get("id", 0)) if isinstance(ba, dict) else 0
+                            if ba_id in (4295, 4411):
+                                size_attr_id = ba_id
+                                break
+                        if size_attr_id > 0:
+                            var_attributes.append({
+                                "complex_id": 0,
+                                "id": size_attr_id,
+                                "values": [{"dictionary_value_id": 0, "value": ru_size}]
+                            })
+                            logger.info(f"  变体{i+1}尺寸: {var_size_cn}→{ru_size} (table={size_type}, attr={size_attr_id})")
+                except Exception as e:
+                    logger.debug(f"  变体{i+1}尺寸映射失败: {e}")
+
+            # ✅ 规格变体：规格信息加入 offer_id，不修改 9048（9048 相同才能合并）
+            var_offer_id: str = f"{var_sku_id}_{offer_id_suffix}"
+            if var_spec_cn and var_vt in ("spec", "color_spec"):
+                spec_slug = var_spec_cn.replace(" ", "_")[:20]
+                var_offer_id = f"{var_sku_id}_{spec_slug}_{offer_id_suffix}"
             
-            # 构建变体item（基于base_item，覆盖变体特有字段）
-            var_item: Dict[str, Any] = dict(base_item)  # 浅拷贝
-            var_item["offer_id"] = f"{var_sku_id}_{offer_id_suffix}"
+            # 构建变体item（基于base_item，深拷贝避免嵌套列表共享引用）
+            import copy
+            var_item: Dict[str, Any] = copy.deepcopy(base_item)
+            var_item["offer_id"] = var_offer_id
             var_item["price"] = var_price
             var_item["old_price"] = var_old_price
             var_item["primary_image"] = var_primary_image
             var_item["attributes"] = var_attributes
-            # ✅ 变体images继承共享营销图（使用已构建的shared_marketing_images）
-            # 变体只有主图不一样，其他图片（multi_info/detail/scene/social_proof/multi_angle/white_bg）都可以复用
-            var_item["images"] = list(shared_marketing_images) if shared_marketing_images else []
+            # ✅ 变体 images：变体主图 + 共享营销图（而非全相同）
+            var_images = [var_primary_image] if var_primary_image else []
+            if shared_marketing_images:
+                for img in shared_marketing_images:
+                    if img and str(img).strip() and img != var_primary_image:
+                        var_images.append(img)
+            var_item["images"] = var_images[:15]  # Ozon 最多 15 张
             
             variant_items.append(var_item)
             logger.info(f"  变体{i+1}: offer_id={var_sku_id}, color={var_color_cn}→{var_color_ru}, price={var_price}, old_price={var_old_price}")

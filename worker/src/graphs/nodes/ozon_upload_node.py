@@ -3,15 +3,17 @@ import logging
 import requests
 from utils.http_session import session
 from typing import Dict, Any, List
+import time as _time
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
-from coze_coding_utils.runtime_ctx.context import Context
+from runtime.context import Context
 
 from graphs.state import OzonUploadInput, OzonUploadOutput
 from utils.progress_logger import ProgressLogger
+from utils.logger import get_logger, log_ozon_api_call
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def ozon_upload_node(
@@ -124,14 +126,21 @@ def ozon_upload_node(
         logger.info(f"第一个item的currency_code: {first_item.get('currency_code', 'N/A')}")
         logger.info(f"第一个item的vat: {first_item.get('vat', 'N/A')}")
         
+        _t0 = _time.monotonic()
         response = session.post(
-            url, 
-            headers=headers, 
+            url,
+            headers=headers,
             json=ozon_payload,
             timeout=60
         )
-        
-        logger.info(f"HTTP Status: {response.status_code}")
+        _dur = (_time.monotonic() - _t0) * 1000
+
+        log_ozon_api_call(
+            method="POST", endpoint="/v3/product/import",
+            status_code=response.status_code, duration_ms=_dur,
+            request_summary={"items_count": len(items)},
+            response_summary={"task_id": response.json().get("result", {}).get("task_id")} if response.ok else None,
+        )
         
         if response.status_code == 200:
             data = response.json()

@@ -8,11 +8,13 @@ from utils.http_session import session
 from typing import Any, Dict, Optional, Tuple
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
-from coze_coding_utils.runtime_ctx.context import Context
+from runtime.context import Context
 from graphs.state import PricingInput, PricingOutput
+from utils.logger import get_logger, set_trace_context, log_ozon_api_call
+import time as _time
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[Context]) -> PricingOutput:
