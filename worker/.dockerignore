@@ -1,11 +1,42 @@
-.venv
-__pycache__
-*.pyc
-.git
+# ─── 不进入 Docker 镜像的文件 ───
+
+# Git
+.git/
+.gitignore
+
+# 文档
+docs/
+*.md
+LICENSE
+
+# 测试
+tests/
+
+# 开发工具
+.vscode/
+.idea/
+.zcode/
+.agents/
+
+# 部署配置（运行时通过 env 传入）
+deploy/
 .env
-*.log
+.env.*
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# 操作系统
 .DS_Store
-assets/local_cache.db
-*.mp4 *.avi *.mov *.wmv *.flv *.mkv *.webm *.m4v *.mpeg *.mpg
-*.iso *.dmg *.rar *.zip *.gz
-*.pdf *.docx *.doc *.xlsx *.xls *.ppt *.pptx
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.bak
+*.log

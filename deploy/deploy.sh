@@ -7,8 +7,11 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
+VERSION=$(cat "$PROJECT_DIR/VERSION" 2>/dev/null || echo "dev")
+BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
 echo "═══════════════════════════════════════"
-echo "  Ozon Worker 部署"
+echo "  Ozon Worker 部署 v${VERSION}"
 echo "═══════════════════════════════════════"
 
 # 检查 Docker
@@ -42,9 +45,9 @@ echo "✅ 环境检查通过"
 
 # 构建镜像
 echo ""
-echo "📦 构建 Docker 镜像..."
+echo "📦 构建 Docker 镜像 (v${VERSION})..."
 cd "$SCRIPT_DIR"
-docker compose build
+VERSION="$VERSION" BUILD_TIME="$BUILD_TIME" docker compose build
 
 # 启动服务
 echo ""

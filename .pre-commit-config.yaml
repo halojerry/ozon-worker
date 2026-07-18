@@ -1,0 +1,25 @@
+# Pre-commit hooks 配置
+# 安装: pip install pre-commit && pre-commit install
+# 手动运行: pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.0
+    hooks:
+      - id: ruff
+        args: [--select, "E,F,W", --ignore, "E501", --fix]
+        files: ^worker/src/
+
+  - repo: local
+    hooks:
+      - id: check-env
+        name: Check no .env files staged
+        entry: bash -c 'if git diff --cached --name-only | grep -q "\.env$"; then echo "❌ 不要提交 .env 文件！"; exit 1; fi'
+        language: system
+        pass_filenames: false
+
+      - id: check-secrets
+        name: Check no hardcoded secrets
+        entry: bash -c 'if git diff --cached -U0 | grep -q "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"; then echo "❌ 检测到硬编码的 JWT token！"; exit 1; fi'
+        language: system
+        pass_filenames: false

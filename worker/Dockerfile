@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS base
 
 WORKDIR /app
 
@@ -7,31 +7,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates build-essential libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies from pyproject.toml
+# ── 依赖层（利用 Docker 缓存）──
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir . || pip install --no-cache-dir \
-    langchain langchain-openai langgraph langgraph-checkpoint langgraph-prebuilt \
-    langgraph-sdk langsmith \
-    fastapi uvicorn pydantic Jinja2 \
-    opencv-python pandas Pillow alembic SQLAlchemy python-dotenv \
-    psycopg2-binary boto3 langgraph-checkpoint-postgres \
-    pypdf docx2python openpyxl python-pptx rich chardet jieba requests \
-    supabase \
-    && pip install --no-cache-dir "psycopg[binary]>=3.3,<4" "psycopg-pool>=3.3,<4"
+RUN pip install --no-cache-dir .
 
-# Copy application code
+# ── 应用代码层 ──
 COPY src/ ./src/
 COPY config/ ./config/
 COPY assets/ ./assets/
 COPY scripts/ ./scripts/
 
-# Environment
+# ── 版本信息 ──
+ARG VERSION=dev
+ARG BUILD_TIME=unknown
+ENV APP_VERSION=${VERSION}
+ENV APP_BUILD_TIME=${BUILD_TIME}
 ENV APP_WORKSPACE_PATH=/app
 ENV PYTHONPATH=/app/src
 
 EXPOSE 5000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:5000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -f http://localhost:5000/api/v1/health || exit 1
 
 CMD ["python", "-m", "src.main", "-m", "http", "-p", "5000"]
