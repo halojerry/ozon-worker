@@ -53,7 +53,7 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
             logger.info(f"Phase1图片均失败，使用原始产品图作为参考: {len(ref_images)}张")
     
     title = draft.get("title", "")
-    prompt = f"产品：{title}。生成该产品的电商营销主图。要求：创意营销风格、可包含场景化背景和促销元素、突出产品卖点、适合Ozon平台商品卡首图展示、高清细节、无其他品牌logo/水印。"
+    prompt = f"产品：{title}。生成该产品的电商营销主图。要求：创意营销风格、可包含场景化背景、突出产品卖点、适合Ozon平台商品卡首图展示、高清细节、无其他品牌logo/水印、适合俄罗斯电商平台展示、符合俄罗斯人民审美。"
 
     try:
         # ✅ 调用统一mxou API（正确参数: images/aspectRatio/replyType）
