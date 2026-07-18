@@ -4,7 +4,7 @@ from typing import Dict, List, Any
 from jinja2 import Template
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
-from coze_coding_utils.runtime_ctx.context import Context
+from runtime.context import Context
 from graphs.state import SceneGenerationInput, SceneGenerationOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_llm import call_mxou_chat_api

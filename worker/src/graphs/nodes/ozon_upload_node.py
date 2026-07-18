@@ -7,7 +7,7 @@ import time as _time
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
-from coze_coding_utils.runtime_ctx.context import Context
+from runtime.context import Context
 
 from graphs.state import OzonUploadInput, OzonUploadOutput
 from utils.progress_logger import ProgressLogger

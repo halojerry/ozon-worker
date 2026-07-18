@@ -3,7 +3,7 @@ import logging
 from typing import Dict, Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
-from coze_coding_utils.runtime_ctx.context import Context
+from runtime.context import Context
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
-from coze_coding_utils.runtime_ctx.context import Context
+from runtime.context import Context
 from pydantic import BaseModel, Field
 
 from graphs.state import GlobalState, VariantLoopState, VariantLoopOutput, VariantPrimaryLoopOutput
