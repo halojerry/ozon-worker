@@ -1277,8 +1277,9 @@ def prepare_ozon_upload_node(
         if main_image and main_image.strip():
             ozon_payload["items"][0]["primary_image"] = main_image.strip()  # 主图（单独指定）
             
-            # ✅ 使用共享营销图（最多29张，main_image已不在列表中）
-            ozon_payload["items"][0]["images"] = [str(img) for img in shared_marketing_images[:29] if isinstance(img, str) and img.strip()]
+            # ✅ 使用共享营销图（排除main_image，它已作为primary_image单独指定）
+            images_for_single = [img for img in shared_marketing_images if img != main_image.strip()]
+            ozon_payload["items"][0]["images"] = [str(img) for img in images_for_single[:29] if isinstance(img, str) and img.strip()]
             
             logger.info(f"✅ 单SKU产品：primary_image={main_image.strip()}")
             logger.info(f"✅ 单SKU产品：images数量={len(ozon_payload['items'][0]['images'])}")
