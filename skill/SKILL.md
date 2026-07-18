@@ -52,7 +52,7 @@ python3 scripts/cli.py graph \
     "dimensions": {"length": 140, "width": 80, "height": 10},
     "images": 10,
     "attributes": 8,
-    "variants": 3,
+    "variants_found": 3,
     "category": "поилка",
     "supplier": "义乌市...",
     "shipping": "浙江金华 中通 ¥3"
@@ -71,7 +71,13 @@ python3 scripts/cli.py graph \
 ```
 
 - `summary` — 给人看的摘要，用于告知用户采集结果
+- `summary.variants_found` — 1688 原始变体数量（仅供参考，已折叠为单产品）
 - `envelope` — 给 Worker 的数据包，直接提交即可，**不要修改内部结构**
+
+> **单产品上传模式**：不管 1688 产品有多少个变体（颜色/尺寸/数量），Skill 层自动折叠为 1 个变体。
+> - 颜色/尺寸变体 → 取中位数价格
+> - 数量变体 → 选「1只装」
+> - 采购成本已含 1688 国内运费（freightCny）
 
 ## 提交到 Worker
 

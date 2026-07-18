@@ -701,6 +701,92 @@ def _filter_bait_and_custom_skus(
     return variants, drop_reason, dropped_skus, removed
 
 
+# ── 单产品折叠：多变体 → 单变体 ──
+
+_SINGLE_UNIT_RE = re.compile(
+    r"(?i)"
+    r"1\s*(只|个|件|条|把|支|片|包|瓶|袋|盒|罐|卷|根|双|对|组|套|PIC|pcs|pack|piece|pc|шт)"
+    r"|单只|单个|单件|单包|单瓶|单袋|单盒"
+    r"|一只装|一个装|一件装|一片装|一包装|一瓶装|一袋装"
+    r"|1只装|1个装|1件装|1片装|1包装|1瓶装|1袋装"
+)
+
+
+def _is_single_unit(variant: dict) -> bool:
+    """判断变体名称是否为1只装/单件（数量变体中最小单位）"""
+    name = str(variant.get("name", ""))
+    return bool(_SINGLE_UNIT_RE.search(name))
+
+
+def _collapse_variants_to_single(
+    variants: list[dict],
+    cost_cny: float,
+    shipping: dict,
+) -> tuple[list[dict], float]:
+    """
+    将多变体折叠为单产品。
+
+    策略:
+    - 纯数量变体 → 筛选"1只装"变体
+    - 纯颜色/尺寸变体 → 取中位数价格
+    - 混合变体（颜色×数量）→ 先筛"1只装"，再取中位数
+    - 采购成本 = 代表变体价格 + 1688国内运费(freightCny)
+
+    Returns:
+        (折叠后的variants列表(1个元素), 修正后的采购成本)
+    """
+    if not variants:
+        return variants, cost_cny
+
+    freight = float((shipping or {}).get("freightCny", 0) or 0)
+
+    # 只有 1 个变体，直接加运费
+    if len(variants) == 1:
+        v = variants[0]
+        total = float(v.get("price", 0) or cost_cny) + freight
+        v["price"] = total
+        v["original_price"] = total
+        return [v], total
+
+    # 判断是否有数量变体
+    has_quantity = any(
+        isinstance(v, dict) and v.get("variant_type") == "quantity"
+        for v in variants
+    )
+
+    if has_quantity:
+        # 筛选"1只装"变体
+        one_piece = [v for v in variants if _is_single_unit(v)]
+        if one_piece:
+            candidates = one_piece
+        else:
+            # 找不到明确的1只装，取价格最低的（通常是最小规格）
+            candidates = [min(variants, key=lambda v: float(v.get("price", 0) or 0))]
+    else:
+        candidates = list(variants)
+
+    # 中位数选价
+    prices = sorted(
+        [float(v.get("price", 0) or 0) for v in candidates if float(v.get("price", 0) or 0) > 0]
+    )
+    if not prices:
+        median_price = cost_cny
+    else:
+        median_price = prices[len(prices) // 2]
+
+    # 选最接近中位数的变体
+    best = min(candidates, key=lambda v: abs(float(v.get("price", 0) or 0) - median_price))
+
+    # 采购成本 = 变体价格 + 1688国内运费
+    total_cost = float(best.get("price", 0) or cost_cny) + freight
+
+    representative = dict(best)
+    representative["price"] = total_cost
+    representative["original_price"] = total_cost
+
+    return [representative], total_cost
+
+
 def _detect_variant_type(name: str) -> str:
     """Detect the variant type from a single SKU name.
 
@@ -1392,6 +1478,15 @@ def build_graph_envelope(
                 len(removed), len(variants),
                 ", ".join(r["name"][:40] for r in filtered_skus_info),
             )
+
+    # ── 5.4.1 单产品折叠：多变体 → 单变体 ──
+    if len(variants) > 1:
+        original_count = len(variants)
+        variants, cost_cny = _collapse_variants_to_single(variants, cost_cny, shipping)
+        logger.info(
+            "单产品折叠: %d个变体 → 1个 (采购成本=%.2f CNY, 含运费)",
+            original_count, cost_cny,
+        )
 
     # ── 5.5 校验门：硬阻断 + 软兜底 ──
     weight_g, dimensions, validation_errors = _validate_and_fix_product_data(

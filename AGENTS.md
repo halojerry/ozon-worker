@@ -68,18 +68,18 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
   - 必填: `item_id`、`title`、`images[]`(str URL 数组)、`weight`(克, int)、`dimensions{length,width,height}`(mm, int)
   - 定价相关: `purchase_cost`(CNY, float)、`purchase_url`、`currency`("CNY")
   - 可选: `attributes{}`(dict[中文属性名→值])、`supplier`、`stock`、`ozon_category{description_category_id,type_id}`
-  - 多SKU: `variants[{sku_id,name,color,model,image,price,original_price,size,stock}]`
-  - 单SKU: 顶层 `sku_id`、`price`、`original_price`(均平铺在 draft 下)
+  - 单SKU（默认）: 顶层 `sku_id`、`price`、`original_price`(均平铺在 draft 下)
+  - 多SKU 信封: `variants` 最多 1 个元素（Skill 层已折叠）
 
 - **`source`** — 采购源信息: `{purchase_url, purchase_cost}`
 
 - **`extensions`** — 定价配置: `{margin_rate, commission_rate, fx_buffer}`(可选,默认 0.25/0.10/0.05)
 
 > ⚠️ **关键约定:**
-> - **`variant.price` = 1688 SKU 原始采购成本(CNY)**，skill 不做加价。定价由 worker `pricing_node` 完成。
+> - **单产品上传**: Skill 层自动将多变体折叠为单产品（`_collapse_variants_to_single`），一个 1688 item = 一个 Ozon 产品卡。
+> - **`purchase_cost` = 代表变体价格 + 1688 国内运费(freightCny)**，已在 Skill 层完成。
 > - **`dimensions` 单位 mm**: 1688 原数据 cm → skill ×10。worker 再 /10 转回 cm 定价。
 > - **`weight` 单位克**: 直传。
-> - **9048 属性 = item_id**: 多 SKU 变体通过共享 9048 合并到同一商品卡。
 
 ## Worker API 端点
 
@@ -185,8 +185,8 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## 需牢记的约定
 
-- **多 SKU 变体 9048 = item_id**（确定性、重试不变、可溯源）；`vat="0"`；主图与 images 分开。
-- **`double_without_merger_offer` 可修复**：自动追加后缀重试。
+- **单产品上传**：Skill 层折叠变体，一个 1688 item = 一个 Ozon 产品卡，不上变体。
+- **`vat="0"`**；主图与 images 分开。
 - **变体图片降级**：白底图生成失败 → 统一营销主图（非 1688 alicdn 原图）。
 - WARNING 级 Ozon 错误过滤不算失败；`ozon_status` 返回 `pending` 视为软成功。
 - `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
