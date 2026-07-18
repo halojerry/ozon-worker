@@ -748,21 +748,20 @@ def _collapse_variants_to_single(
         v["original_price"] = total
         return [v], total
 
-    # 判断是否有数量变体
-    has_quantity = any(
-        isinstance(v, dict) and v.get("variant_type") == "quantity"
-        for v in variants
-    )
+    # 判断是否有数量相关变体（通过名称关键词，不依赖 variant_type）
+    # 覆盖: 纯数量变体("1只装"/"5只装") + 混合变体("白色 1只装"/"黑色 5只装")
+    _QTY_KW_RE = re.compile(r"\d+\s*(只|个|件|片|包|瓶|袋|盒|罐|卷|根|PIC|pcs|pack|piece|pc)")
+    one_piece = [v for v in variants if _is_single_unit(v)]
+    has_qty_keywords = any(_QTY_KW_RE.search(str(v.get("name", ""))) for v in variants)
 
-    if has_quantity:
-        # 筛选"1只装"变体
-        one_piece = [v for v in variants if _is_single_unit(v)]
-        if one_piece:
-            candidates = one_piece
-        else:
-            # 找不到明确的1只装，取价格最低的（通常是最小规格）
-            candidates = [min(variants, key=lambda v: float(v.get("price", 0) or 0))]
+    if one_piece:
+        # 有1只装变体 → 在1只装中取中位数
+        candidates = one_piece
+    elif has_qty_keywords:
+        # 有数量关键词但没有1只装（如"5片装"/"10片装"）→ 取价格最低（最小规格）
+        candidates = [min(variants, key=lambda v: float(v.get("price", 0) or 0))]
     else:
+        # 纯颜色/尺寸变体 → 全部作为候选，取中位数
         candidates = list(variants)
 
     # 中位数选价
