@@ -1,6 +1,6 @@
 # AGENTS.md — ozon-worker 工作区
 
-本文件是工作区级导航。两个子项目各有更详细的文档,改动前请先读对应文档(见「深入阅读」)。
+本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
 ## 工作区概述
 
@@ -8,8 +8,8 @@
 
 | | Skill | Worker |
 |---|---|---|
-| **角色** | Agent 调用的工具（OpenClaw/Claude Code/Hermes/ZCode 等） | 云端管线，消费信封完成上架 |
-| **位置** | 本地 | 云端（Coze 部署） |
+| **角色** | Agent 调用的工具（ZCode/Claude Code 等） | 云端 Docker 管线，消费信封完成上架 |
+| **位置** | 客户本地 | 云端服务器（宝塔/Docker） |
 | **入口** | `skill/SKILL.md`（Agent 操作手册） | `worker/src/main.py`（FastAPI + CLI） |
 | **职责** | 1688 CDP 抓取 → 组装 GraphInput 信封，**不上架** | 接收信封 → 类目→定价→属性→生图→校验→上传→自学习 |
 | **接口** | 输出 `GraphInput` JSON（三层结构 `{draft, source, extensions}`） | 输入 `GraphInput`，输出 `GraphOutput` |
@@ -20,90 +20,175 @@
 
 ```
 ozon-worker/
-├── skill/                      # 本地:1688 抓取 + 信封组装 (Python ≥3.9, pip)
+├── skill/                      # 客户本地:1688 抓取 + 信封组装 (Python ≥3.9, pip)
 │   └── scripts/
 │       ├── cli.py              # CLI 入口:search / probe / graph
-│       ├── cloud_probe.py      # build_graph_envelope(信封生产者)
+│       ├── cloud_probe.py      # build_graph_envelope + submit_envelope + check_task_status
 │       ├── lib/                # ak_1688_client / ozon_api / config_store / ...
 │       └── capabilities/browser_probe/   # Chrome CDP 探针 + 反检测
-└── worker/                     # 云端:LangGraph 上架工作流 (Python ≥3.12, uv)
-    └── src/
-        ├── main.py             # FastAPI + CLI 入口(-m http/flow/node)
-        ├── graphs/
-        │   ├── graph.py        # main_graph 编排(auth→...→learning_record)
-        │   ├── state.py        # GlobalState / GraphInput / GraphOutput
-        │   ├── nodes/          # ~28 个节点
-        │   └── validation_retry_loop.py   # 校验失败重试子图
-        ├── storage/            # database(Supabase/PG) / memory(checkpoint) / s3
-        └── utils/              # local_db_manager / task_processor / size_mapper / mxou_api / ...
+├── worker/                     # 云端 Docker:LangGraph 上架工作流 (Python ≥3.12)
+│   ├── src/
+│   │   ├── main.py             # FastAPI + CLI 入口(-m http/flow/node)
+│   │   ├── api/                # 错误码 + Pydantic schemas（自动生成 OpenAPI）
+│   │   ├── graphs/
+│   │   │   ├── graph.py        # main_graph 编排(auth→...→learning_record)
+│   │   │   ├── state.py        # GlobalState / GraphInput / GraphOutput
+│   │   │   ├── nodes/          # ~28 个节点
+│   │   │   └── validation_retry_loop.py   # 校验失败重试子图
+│   │   ├── storage/            # database(PG) / memory(checkpoint)
+│   │   └── utils/              # task_processor / logger / ozon_client / ozon_category_query / mxou_api / ...
+│   ├── assets/                 # 类目树 JSON、物流费率 Excel、Ozon API 文档
+│   ├── config/                 # LLM prompt 配置 (category_match / attributes / ...)
+│   ├── tests/                  # pytest 测试
+│   └── scripts/                # init_data.py / import_logistics.py / ci.sh
+├── deploy/                     # 部署包
+│   ├── docker-compose.yml      # 生产环境（含 PG + Worker）
+│   ├── deploy.sh               # 一键部署（含自动初始化数据）
+│   ├── update.sh               # 一键更新
+│   └── .env.example            # 环境变量模板
+├── docs/
+│   ├── CONTRACT.md             # Skill↔Worker API 契约 v3.0
+│   ├── LOGGING.md              # 日志系统架构 + 查看命令 + 故障排查
+│   └── ...                     # Ozon API 文档、物流费率 Excel
+└── scripts/
+    └── ci.sh                   # 本地 CI（lint → test → build）
 ```
 
-## skill → worker 契约(最重要)
+## Skill → Worker 契约（最重要）
 
-交接载荷是 `GraphInput`,定义在 `worker/src/graphs/state.py:110`:
+交接载荷是 `GraphInput`，定义在 `worker/src/graphs/state.py`:
 
 ```
 GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 ```
 
-`envelope` 采用**三层结构** `{draft, source, extensions}`，与 worker `ingest_node` 优先匹配:
+`envelope` 采用**三层结构** `{draft, source, extensions}`:
 
 - **`draft`** — 产品数据:
   - 必填: `item_id`、`title`、`images[]`(str URL 数组)、`weight`(克, int)、`dimensions{length,width,height}`(mm, int)
   - 定价相关: `purchase_cost`(CNY, float)、`purchase_url`、`currency`("CNY")
-  - 可选: `attributes{}`(dict[中文属性名→值])、`supplier`、`stock`、`shipping{}`、`ozon_category{description_category_id,type_id}`
+  - 可选: `attributes{}`(dict[中文属性名→值])、`supplier`、`stock`、`ozon_category{description_category_id,type_id}`
   - 多SKU: `variants[{sku_id,name,color,model,image,price,original_price,size,stock}]`
   - 单SKU: 顶层 `sku_id`、`price`、`original_price`(均平铺在 draft 下)
 
-- **`source`** — 采购源信息: `{purchase_url, purchase_cost}`(与 draft 中同名字段冗余,供 worker prepare_node 兜底)
+- **`source`** — 采购源信息: `{purchase_url, purchase_cost}`
 
-- **`extensions`** — 定价配置透传: `{margin_rate, commission_rate, fx_buffer}`(可选,worker 有默认值 0.25/0.10/0.05)
+- **`extensions`** — 定价配置: `{margin_rate, commission_rate, fx_buffer}`(可选,默认 0.25/0.10/0.05)
 
-> ⚠️ **关键约定(已代码核实):**
-> - **`variant.price` = 1688 SKU 原始采购成本(CNY)**，skill **不做加价**。定价全权由 worker `pricing_node` 在采购成本基础上叠加佣金+汇率缓冲+利润率。
-> - **`dimensions` 单位 mm**: 1688 原数据为 cm(页面 JSON 验证: `columnList: [{label:"长(cm)"}]`),skill 自动 cm→mm ×10。worker `pricing_node` 再 /10 转回 cm 定价;`prepare_node` 启发式判 mm(≥50)直接用于 Ozon 上架。改一边必须同步另一边。
-> - **`weight` 单位克**: 1688 原数据为 g(页面 JSON 验证: `columnList: [{label:"重量(g)"}]`),直传。
-> - **单SKU vs 多SKU**: 多SKU 时 `draft.variants` 为数组,无顶层 sku_id/price/original_price;单SKU 时 variants 数组仍存在但在 draft 顶层平铺 `sku_id`/`price`/`original_price`。worker `ingest_node` 都能处理。
+> ⚠️ **关键约定:**
+> - **`variant.price` = 1688 SKU 原始采购成本(CNY)**，skill 不做加价。定价由 worker `pricing_node` 完成。
+> - **`dimensions` 单位 mm**: 1688 原数据 cm → skill ×10。worker 再 /10 转回 cm 定价。
+> - **`weight` 单位克**: 直传。
+> - **9048 属性 = item_id**: 多 SKU 变体通过共享 9048 合并到同一商品卡。
+
+## Worker API 端点
+
+所有端点同时暴露在旧路径和 `/api/v1/` 前缀下（向后兼容）：
+
+| 功能 | v1 路径 | 方法 |
+|------|---------|------|
+| 提交任务 | `POST /api/v1/submit_task` | POST |
+| 查询状态 | `GET /api/v1/task_status/{id}` | GET |
+| 取消任务 | `POST /api/v1/cancel_task/{id}` | POST |
+| 健康检查 | `GET /api/v1/health` | GET |
+| Swagger UI | `GET /api/v1/docs` | GET |
+
+鉴权: `token` 字段在请求体中（非 header），通过 Supabase `tokens` 表校验。
+限流: 每 token 每分钟 ≤ 10 次（`RATE_LIMIT_PER_MINUTE` 可配置）。
 
 ## 架构边界
 
-- **worker 三层**:FastAPI `POST /submit_task`(校验 token、入队)→ Supabase 队列 `ozon_product_tasks`(`SELECT FOR UPDATE SKIP LOCKED`)→ 最多 10 个并发 LangGraph worker(`SupabaseTaskProcessor`,`asyncio.Semaphore(10)`)。
-- **skill 是无状态本地抓取**,不调用任何 Ozon 上架 API(那是 worker 的职责)。
-- 编辑时不要越界:别给 skill 加上架调用,别给 worker 加 1688 抓取。
+- **Worker 三层**: FastAPI `/submit_task`(鉴权+入队) → PG 队列 `ozon_product_tasks`(`FOR UPDATE SKIP LOCKED`) → 10 并发 LangGraph worker(`SupabaseTaskProcessor`)
+- **Skill 是无状态本地抓取**，不调用任何 Ozon 上架 API
+- **编辑时不越界**: 别给 skill 加上架调用，别给 worker 加 1688 抓取
+- **错误码**: 统一在 `worker/src/api/errors.py`（12 个 `WorkerErrorCode`）
 
 ## 常用命令
 
 | 子项目 | 命令 |
 |---|---|
 | skill | `pip install -r requirements.txt && playwright install chromium` |
-| skill | `python3 scripts/cli.py search "<词>"` / `probe --url <url>` / `graph --item-id <id> --category-query "<ru>"` |
-| worker | `uv sync`(用阿里云镜像,见 worker/pyproject.toml) |
+| skill | `python3 scripts/cli.py search "<词>"` / `probe --url <url>` / `graph --item-id <id>` |
+| worker | `cd worker && PYTHONPATH=src python3 -m pytest tests/ -v` |
 | worker | `bash scripts/local_run.sh -m flow -i '{...}'` 跑全流程 |
 | worker | `bash scripts/local_run.sh -m node -n <节点ID> -i '{...}'` 跑单节点 |
-| worker | `bash scripts/http_run.sh -p 5000` 启 HTTP 服务 |
-| worker | `uv run pytest` 跑测试 |
+| CI | `bash scripts/ci.sh`（lint → test → docker build） |
+| 部署 | `bash deploy/deploy.sh`（一键部署，含自动初始化数据） |
+| 更新 | `bash deploy/update.sh`（git pull → rebuild → restart） |
 
 ## 环境与密钥
 
-- **worker 凭证随请求传**(放在 `GraphInput` 里的 `token`/`ozon_client_id`/`ozon_api_key`),**不是环境变量**。
-- worker 平台级环境变量:`SUPABASE_URL`、`SUPABASE_KEY`、`PGDATABASE_URL`(PG/检查点/队列)、`COZE_WORKSPACE_PATH`(定位 `assets/`)、`COZE_BUCKET_ENDPOINT_URL`(S3)。Coze 平台会通过 `coze_workload_identity` 自动注入。
-- skill 环境变量见 `skill/.env.example`:`ALI_1688_AK`、`OZON_CLIENT_ID`、`OZON_API_KEY`、`MXOU_TOKEN`、`MXOU_API_BASE`。
-- ⚠️ worker 代码里硬编码了 sandbox Supabase key 和 `GRSAI_API_KEY` 作为**回退**,生产环境务必用环境变量覆盖。
+- **Worker 凭证随请求传**（`GraphInput` 里的 `token`/`ozon_client_id`/`ozon_api_key`），不是环境变量。
+- Worker 平台级环境变量（`deploy/.env`）:
+  - `PGDATABASE_URL` — PostgreSQL 连接串（必填）
+  - `SUPABASE_URL` / `SUPABASE_KEY` — 鉴权用（生产必填，本地可留空跳过）
+  - `APP_WORKSPACE_PATH` — 定位 `assets/`（Docker 内为 `/app`）
+  - `RATE_LIMIT_PER_MINUTE` — 限流（默认 10）
+- Skill 环境变量: `WORKER_URL`（Worker 地址）、`MXOU_TOKEN`、`OZON_CLIENT_ID`、`OZON_API_KEY`
 
-## 深入阅读(改前先看)
+## GitHub 仓库
 
-- **`skill/SKILL.md`** —— Agent 调用指南（入参、返回格式、提交 Worker、错误处理）
-- **`docs/CONTRACT.md`** —— Skill↔Worker 接口契约（GraphInput/GraphOutput schema、Worker API、错误码）
-- **`worker/AGENTS.md`** —— worker 完整文档:节点逐一流程、变更日志、Ozon API 坑(改节点或重试子图前必读)。
-- **`skill/README.md`** —— skill CLI 用法、输出 schema、Python API 示例。
-- **`worker/config/*.json`** —— 5 个 LLM prompt 配置(category_match / attributes / scene_generation / error_repair / translate_russian),均走 mxou `deepseek-v4-flash`。
-- **`worker/assets/`** —— Ozon API 文档 JSON、服装/鞋尺码 CSV、n8n 流程导出 JSON、`workflow_progress.json`。
+- 地址: https://github.com/halojerry/ozon-worker （私有仓库）
+- 克隆: `git clone https://github.com/halojerry/ozon-worker.git`
+
+## 数据初始化
+
+首次部署时 `deploy.sh` 自动运行 `scripts/init_data.py`:
+- `CREATE TABLE`（全部表，幂等）
+- 导入类目树 → `category_tree_nodes`（从 `assets/category_tree.json`，17000+ 节点）
+- 导入物流费率 → `logistics_rates`（从 `assets/` 下的 Excel，142 条）
+- 重复运行安全：已有数据跳过
+
+## 日志系统
+
+结构化 JSON 日志，四种审计类型：
+
+| 类型 | logger | 说明 |
+|------|--------|------|
+| 任务生命周期 | `task.lifecycle` | submitted/started/completed/failed/retried |
+| 节点执行 | `node.{name}` | 开始/完成/失败 + 耗时 + 输出摘要 |
+| Ozon API | `ozon.api` | 方法/端点/状态码/耗时 + 请求/响应摘要 |
+| 链路追踪 | 所有日志自动携带 | trace_id / task_id / user_id |
+
+环境变量：`LOG_FORMAT=json`（生产）、`LOG_LEVEL=INFO`、`LOG_FILE`（可选）
+
+代码中使用：
+```python
+from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon_api_call, audit_node
+```
+
+详见 **`docs/LOGGING.md`**。
+
+## 版本管理
+
+- 版本号: `VERSION` 文件（语义化版本 `MAJOR.MINOR.PATCH`）
+- 变更记录: `CHANGELOG.md`
+- 发版: 改 VERSION → 更新 CHANGELOG → `git tag v{x.y.z}` → `VERSION={ver} bash deploy/deploy.sh`
+
+## 开发规范
+
+- Commit: `<type>(<scope>): <中文描述>`（如 `feat(worker): 结构化日志`）
+- 分支: `feat/`、`fix/`、`refactor/`、`docs/`、`hotfix/`
+- Pre-commit: `git config core.hooksPath .githooks`（自动检查 .env + 密钥 + 语法）
+- 详见 **`docs/CONVENTIONS.md`**
+
+## 深入阅读（改前先看）
+
+- **`docs/CONTRACT.md`** — Skill↔Worker API 契约 v3.0（端点、请求/响应、错误码）
+- **`docs/LOGGING.md`** — 日志系统架构 + 查看命令 + 故障排查流程
+- **`docs/CONVENTIONS.md`** — 分支命名 + commit 规范 + 发版流程
+- **`skill/SKILL.md`** — Agent 调用指南（入参、返回格式、提交 Worker、错误处理）
+- **`worker/AGENTS.md`** — Worker 完整文档：节点流程、Ozon API 坑
+- **`worker/src/api/errors.py`** — 统一错误码（改错误响应前必看）
+- **`worker/src/api/schemas.py`** — Pydantic schemas（改 API 前必看）
+- **`worker/config/*.json`** — LLM prompt 配置（均走 mxou deepseek-v4-flash）
 
 ## 需牢记的约定
 
-- COS 图片 URL **直接传给 Ozon**,不再走 S3 中转(避免内存泄漏);`image_url_processor.py` 仍在但 prepare 路径已绕过。
-- 多 SKU 变体绑定属性是 **9048**(不是 8292);`vat="0"`;主图(`primary_image`)与 `images` 分开。
-- WARNING 级 Ozon 错误(`erased_attribute_value` / 9782)**过滤不算失败**;`ozon_status` 返回 `pending` 视为软成功(有 30s–2min 导入延迟)。
-- 多 SKU 自由文本颜色不合并,必须用 Ozon 字典颜色(dict_id > 0);revalidate 时共享属性(含 9048)要同步到所有变体 items[1+]。
-- `GlobalState` 有自定义 reducer:`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。改状态字段时注意匹配 reducer 语义。
-- worker 用 `uv`,默认源是阿里云镜像;PyPI 仅在 `tool.uv.sources` 显式引用时使用(预发布包同步延迟时回退)。
+- **多 SKU 变体 9048 = item_id**（确定性、重试不变、可溯源）；`vat="0"`；主图与 images 分开。
+- **`double_without_merger_offer` 可修复**：自动追加后缀重试。
+- **变体图片降级**：白底图生成失败 → 统一营销主图（非 1688 alicdn 原图）。
+- WARNING 级 Ozon 错误过滤不算失败；`ozon_status` 返回 `pending` 视为软成功。
+- `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
+- **Docker 部署**: `deploy/docker-compose.yml` 含 PG + Worker，`HEALTHCHECK` 已配置。
+- **API 版本化**: 新端点走 `/api/v1/`，旧路径保持兼容。
