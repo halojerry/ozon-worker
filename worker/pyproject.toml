@@ -18,8 +18,10 @@ dependencies = [
     "SQLAlchemy>=2.0,<3",
     "psycopg[binary]>=3.3,<4",
     "psycopg-pool>=3.3,<4",
+    "psycopg2-binary>=2.9,<3",
     "python-dotenv>=1.2,<2",
     # ── 外部服务 ──
+    "supabase>=2.0,<3",                  # 鉴权 + tokens 表查询
     "coze-workload-identity>=0.1.4,<1",  # S3 auth（懒加载）
     "boto3>=1.40,<2",                    # S3 操作（模块级）
     # ── 文档解析（懒加载）──

@@ -91,9 +91,9 @@ class SupabaseTaskProcessor:
             # 使用SQL INSERT直接操作PostgreSQL（绕过PostgREST schema cache）
             insert_sql = text("""
                 INSERT INTO ozon_product_tasks (
-                    tenant_id, status, priority, payload, timeout_seconds, max_retries
+                    tenant_id, status, priority, payload, timeout_seconds, max_retries, retry_count
                 ) VALUES (
-                    :tenant_id, 'pending', :priority, :payload_json, :timeout_seconds, :max_retries
+                    :tenant_id, 'pending', :priority, :payload_json, :timeout_seconds, :max_retries, 0
                 ) RETURNING id
             """)
             

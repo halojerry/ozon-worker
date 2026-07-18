@@ -255,7 +255,7 @@ class OzonCategoryQuery:
             row = session.execute(
                 select(CategoryCache).where(
                     CategoryCache.language == language,
-                ).order_by(CategoryCache.updated_at.desc()).limit(1)
+                ).order_by(CategoryCache.created_at.desc()).limit(1)
             ).scalar_one_or_none()
 
             if row and row.tree_data:
