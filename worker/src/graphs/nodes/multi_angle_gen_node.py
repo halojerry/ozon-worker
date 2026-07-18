@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
-from coze_coding_utils.runtime_ctx.context import Context
+from runtime.context import Context
 
 from graphs.state_image_gen import MultiAngleInput, MultiAngleOutput
 from utils.image_quality_evaluator import evaluate_image_quality  # ✅ 关键：导入图片质量评估函数

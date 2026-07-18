@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import json
+import os
 import threading
 import traceback
 import logging
@@ -9,52 +10,85 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, Iterable, AsyncIterable, AsyncGenerator, Optional
 import uvicorn
 import time
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
+from api.errors import WorkerErrorCode, error_response
+from api.schemas import (
+    SubmitTaskRequest, SubmitTaskResponse, TaskStatusResponse,
+    CancelTaskResponse, HealthResponse, TaskStatisticsResponse, ErrorBody,
+)
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
-from coze_coding_utils.runtime_ctx.context import new_context, Context
-from coze_coding_utils.helper import graph_helper
-from coze_coding_utils.log.node_log import LOG_FILE
-from coze_coding_utils.log.write_log import setup_logging, request_context
-from coze_coding_utils.log.config import LOG_LEVEL
-from coze_coding_utils.error.classifier import ErrorClassifier, classify_error
-from coze_coding_utils.helper.stream_runner import AgentStreamRunner, WorkflowStreamRunner,agent_stream_handler,workflow_stream_handler, RunOpt
 from storage.database.db import get_session, get_engine, init_db
 from storage.database.supabase_client import get_supabase_client
 from storage.memory.memory_saver import get_memory_saver
 from storage.database.shared.model import Base
 from utils.task_processor import SupabaseTaskProcessor
-from coze_coding_utils.async_tasks import (
-    AsyncTaskRuntime,
-    AsyncTaskStorageError,
-    extract_biz_context,
-    parse_deadline_sec,
-)
-from coze_coding_utils.async_tasks import config as async_task_config
-from coze_coding_utils.async_tasks.headers import HEADER_X_RUN_ID as _ASYNC_HEADER_X_RUN_ID
-from coze_coding_utils.runtime_ctx.context import new_context as _new_async_ctx
 from sqlalchemy import event
 
-setup_logging(
-    log_file=LOG_FILE,
-    max_bytes=100 * 1024 * 1024, # 100MB
-    backup_count=5,
-    log_level=LOG_LEVEL,
-    use_json_format=True,
-    console_output=True
+# Local runtime replacements (previously Coze-dependent)
+from runtime.context import new_context, Context
+from runtime.helpers import (
+    graph_helper, ErrorClassifier, classify_error,
+    AgentStreamRunner, WorkflowStreamRunner,
+    agent_stream_handler, workflow_stream_handler, RunOpt,
+    to_stream_input, to_client_message,
+)
+from runtime.log_utils import (
+    LOG_FILE, LOG_LEVEL, setup_logging, request_context,
+    LangGraphParser, extract_core_stack,
+)
+from runtime.async_tasks import (
+    AsyncTaskRuntime, AsyncTaskStorageError,
+    extract_biz_context, parse_deadline_sec,
+    config as async_task_config, HEADER_X_RUN_ID as _ASYNC_HEADER_X_RUN_ID,
+)
+from runtime.openai_handler import OpenAIChatHandler
+
+from utils.logger import setup_structured_logging, get_logger, set_trace_context, log_task_event
+
+# 结构化日志：生产用 JSON，本地开发用可读格式
+setup_structured_logging(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    json_format=os.getenv("LOG_FORMAT", "json").lower() == "json",
+    log_file=os.getenv("LOG_FILE", ""),
 )
 
-logger = logging.getLogger(__name__)
-from coze_coding_utils.helper.agent_helper import to_stream_input, to_client_message
-from coze_coding_utils.openai.handler import OpenAIChatHandler
-from coze_coding_utils.log.parser import LangGraphParser
-from coze_coding_utils.log.err_trace import extract_core_stack
-# Coze Loop 追踪已移除（不依赖 Coze 平台，无需 tracing metadata）
+logger = get_logger(__name__)
 
 # 超时配置常量
 TIMEOUT_SECONDS = 900  # 15分钟
+
+# API 限流配置
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))  # 每 token 每分钟最大提交数
+
+
+class RateLimiter:
+    """滑动窗口限流器：按 token 限制提交频率"""
+
+    def __init__(self, max_per_minute: int = RATE_LIMIT_PER_MINUTE):
+        self.max_per_minute = max_per_minute
+        self._requests: Dict[str, list] = {}  # token → [timestamp, ...]
+        self._lock = threading.Lock()
+
+    def check(self, token: str) -> tuple[bool, int]:
+        """检查是否允许请求。返回 (allowed, remaining)。"""
+        now = time.time()
+        window_start = now - 60
+        with self._lock:
+            timestamps = self._requests.get(token, [])
+            # 清理过期记录
+            timestamps = [t for t in timestamps if t > window_start]
+            if len(timestamps) >= self.max_per_minute:
+                self._requests[token] = timestamps
+                return False, 0
+            timestamps.append(now)
+            self._requests[token] = timestamps
+            return True, self.max_per_minute - len(timestamps)
+
+
+rate_limiter = RateLimiter()
 
 class GraphService:
     def __init__(self):
@@ -280,7 +314,8 @@ async def lifespan(app: FastAPI):
     
     # 启动Supabase任务处理器（最多10个并发任务）
     global task_processor
-    task_processor = SupabaseTaskProcessor(max_concurrent=10)
+    max_concurrent = int(os.getenv("MAX_CONCURRENT", "10"))
+    task_processor = SupabaseTaskProcessor(max_concurrent=max_concurrent)
     
     # 启动Worker后台任务（不阻塞主服务启动）
     worker_task = asyncio.create_task(task_processor.start_workers(num_workers=10))
@@ -298,7 +333,16 @@ async def lifespan(app: FastAPI):
     if async_runtime is not None:
         await async_runtime.shutdown()
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=lifespan,
+    title="Ozon Worker API",
+    description="Ozon 产品上架 Worker — 接收信封、执行 LangGraph 管线、上传 Ozon",
+    version="1.0.0",
+)
+
+# ── API v1 路由 ──
+v1 = APIRouter(prefix="/api/v1", tags=["v1"])
+
 
 # OpenAI 兼容接口处理器
 openai_handler = OpenAIChatHandler(service)
@@ -306,6 +350,8 @@ openai_handler = OpenAIChatHandler(service)
 
 @app.post("/async_run")
 async def http_async_run(request: Request) -> dict:
+    """[DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。"""
+    logger.warning("⚠️ /async_run 已弃用，请使用 POST /submit_task")
     try:
         payload = await request.json()
     except json.JSONDecodeError as e:
@@ -316,13 +362,13 @@ async def http_async_run(request: Request) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # 一个 ID 走到底：task_id == run_id == thread_id == ctx.run_id == coze_run_id。
+    # 一个 ID 走到底：task_id == run_id == thread_id == ctx.run_id。
     # 优先用上游 x-run-id；没传就生成 UUID。
     run_id = request.headers.get(_ASYNC_HEADER_X_RUN_ID) or uuid.uuid4().hex
 
     # ctx 在 handler scope 构造，与同步 /run 路径一致；后面 new_context 默认会
     # 给 run_id 一个新 UUID，同步路径也是显式覆盖（main.py /run 处），这里同理。
-    ctx = _new_async_ctx(method="async_run", headers=request.headers)
+    ctx = new_context(method="async_run")
     ctx.run_id = run_id
     request_context.set(ctx)  # 与其他 HTTP endpoint 一致：让日志组件拿到 run_id 等信息
     run_config: RunnableConfig = {
@@ -368,6 +414,8 @@ async def http_async_run(request: Request) -> dict:
 
 @app.get("/task/{task_id}")
 async def http_get_task(task_id: str) -> dict:
+    """[DEPRECATED] 使用 GET /task_status/{task_id} 代替。此端点将在未来版本移除。"""
+    logger.warning("⚠️ /task/{task_id} 已弃用，请使用 GET /task_status/{task_id}")
     try:
         row = await async_runtime.get(task_id)
     except AsyncTaskStorageError as e:
@@ -605,13 +653,19 @@ async def openai_chat_completions(request: Request):
 @app.get("/health")
 async def health_check():
     try:
-        # 这里可以添加更多的健康检查逻辑
+        from sqlalchemy import text
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
         return {
             "status": "ok",
             "message": "Service is running",
+            "db": "connected",
         }
     except Exception as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "message": str(e), "db": "disconnected"},
+        )
 
 
 @app.get("/progress/{run_id}")
@@ -672,9 +726,13 @@ async def http_submit_task(request: Request):
     
     try:
         body = await request.json()
-        
-        # ✅ Step1: 从payload中提取认证参数
-        payload = body.get("payload", {})
+
+        # ✅ 链路追踪：生成 trace_id
+        trace_id = uuid.uuid4().hex[:12]
+        set_trace_context(trace_id=trace_id)
+
+        # ✅ Step1: 从payload中提取认证参数（兼容直连格式和包装格式）
+        payload = body.get("payload") or body
         token = payload.get("token", "")
         ozon_client_id = payload.get("ozon_client_id", "")
         ozon_api_key = payload.get("ozon_api_key", "")
@@ -683,53 +741,57 @@ async def http_submit_task(request: Request):
         # ✅ Step2: 验证token（查询Supabase tokens表）
         if not token:
             raise HTTPException(status_code=401, detail="Token is required")
-        
+
+        # ✅ 限流检查（按原始 token，含 sk- 前缀）
+        allowed, remaining = rate_limiter.check(token)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute"
+            )
+
+        # Step2: 处理sk-前缀
+        if token.startswith("sk-"):
+            token = token.replace("sk-", "", 1)  # ✅ 剥离第一个sk-前缀
+
+        # Step3: 查询tokens表（Supabase未配置时跳过鉴权，本地开发模式）
         supabase = get_supabase_client()
         if supabase is None:
-            raise HTTPException(status_code=503, detail="Supabase client not initialized")
-        
-        # Step2: 处理sk-前缀（中间件自动剥离）
-        if token.startswith("sk-"):
-            token = token[3:]  # ✅ 剥离sk-前缀（查询数据库时使用纯key）
-        
-        # Step3: 查询tokens表（使用key字段）
-        try:
-            token_records = supabase.table("tokens").select(
-                "user_id, remain_quota, status, expired_time"  # ✅ 正确的字段名
-            ).eq("key", token).is_("deleted_at", "null").execute()  # ✅ 正确的字段名和过滤条件
-            
-            if not token_records.data or len(token_records.data) == 0:
-                raise HTTPException(status_code=401, detail=f"Invalid token: token '{token}' not found")
-            
-            token_record = token_records.data[0]
-            user_id = str(token_record.get("user_id", ""))
-            balance = float(token_record.get("remain_quota", 0.0))  # ✅ 使用remain_quota字段
-            status = int(token_record.get("status", 0))
-            expired_time = int(token_record.get("expired_time", -1))
-            
-            # Step4: 检查token状态
-            if status != 1:  # status != 1表示token未启用
-                status_desc = {
-                    2: "disabled",
-                    3: "expired",
-                    4: "quota exhausted"
-                }
-                raise HTTPException(
-                    status_code=403, 
-                    detail=f"Token is {status_desc.get(status, 'unknown')}: status={status}"
-                )
-            
-            # Step5: 检查余额（如果remain_quota < 5.0，拒绝任务）
-            if balance < 5.0:
-                raise HTTPException(
-                    status_code=402, 
-                    detail=f"Insufficient balance: remain_quota must be >= 5.0 (current: {balance})"
-                )
-            
-        except Exception as e:
-            if isinstance(e, HTTPException):
-                raise e
-            raise HTTPException(status_code=500, detail=f"Token validation failed: {str(e)}")
+            logger.warning("Supabase未配置，跳过token鉴权（本地开发模式）")
+            user_id = "local_dev"
+        else:
+            try:
+                token_records = supabase.table("tokens").select(
+                    "user_id, remain_quota, status, expired_time"
+                ).eq("key", token).is_("deleted_at", "null").execute()
+
+                if not token_records.data or len(token_records.data) == 0:
+                    raise HTTPException(status_code=401, detail=f"Invalid token: token '{token}' not found")
+
+                token_record = token_records.data[0]
+                user_id = str(token_record.get("user_id", ""))
+                balance = float(token_record.get("remain_quota", 0.0))
+                status = int(token_record.get("status", 0))
+
+                # Step4: 检查token状态
+                if status != 1:
+                    status_desc = {2: "disabled", 3: "expired", 4: "quota exhausted"}
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Token is {status_desc.get(status, 'unknown')}: status={status}"
+                    )
+
+                # Step5: 检查余额（MXOU 生图/LLM 需要额度，余额不足会中途失败）
+                if balance < 5.0:
+                    raise HTTPException(
+                        status_code=402,
+                        detail=f"Insufficient balance: remain_quota must be >= 5.0 (current: {balance}). Please top up your MXOU account."
+                    )
+
+            except Exception as e:
+                if isinstance(e, HTTPException):
+                    raise e
+                raise HTTPException(status_code=500, detail=f"Token validation failed: {str(e)}")
         
         # ✅ Step3: 提交任务到队列（使用user_id作为tenant_id）
         priority = 0  # ✅ 固定为0（所有用户平等优先级，直到建立VIP体系）
@@ -744,20 +806,22 @@ async def http_submit_task(request: Request):
         }
         
         task_id = await task_processor.submit_task(
-            tenant_id=user_id,  # ✅ 使用user_id作为tenant_id
+            tenant_id=user_id,
             payload=payload_with_user_id,
             priority=priority,
             timeout_seconds=timeout_seconds,
             max_retries=max_retries
         )
-        
+
+        # ✅ 更新 trace context + 生命周期日志
+        set_trace_context(task_id=task_id, user_id=user_id)
+        log_task_event("submitted", task_id=task_id, user_id=user_id,
+                       trace_id=trace_id, priority=priority, timeout_seconds=timeout_seconds)
+
         return {
-            "status": "success",
+            "ok": True,
             "task_id": task_id,
-            "user_id": user_id,
-            "balance": balance,
-            "priority": priority,
-            "message": f"Task submitted to queue (user: {user_id}, balance: {balance}, priority: {priority})"
+            "message": f"Task submitted to queue (user: {user_id}, balance: {balance})"
         }
         
     except HTTPException:
@@ -855,6 +919,58 @@ async def http_task_statistics(request: Request):
 @app.get(path="/graph_parameter")
 async def http_graph_inout_parameter(request: Request):
     return service.graph_inout_schema()
+
+
+# ==================== API v1 路由 ====================
+# 新端点统一走 /api/v1/ 前缀，旧路径通过重定向兼容
+
+@v1.get("/health", response_model=HealthResponse, tags=["health"])
+async def v1_health():
+    """健康检查（含 PG 连通性）。"""
+    try:
+        from sqlalchemy import text
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return HealthResponse(status="ok", message="Service is running", db="connected")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail={
+            "status": "degraded", "message": str(e), "db": "disconnected"
+        })
+
+
+@v1.post("/submit_task", response_model=SubmitTaskResponse, tags=["task"],
+         responses={401: {"model": ErrorBody}, 402: {"model": ErrorBody},
+                    403: {"model": ErrorBody}, 429: {"model": ErrorBody}})
+async def v1_submit_task(request: Request):
+    """提交任务到队列。鉴权通过 Supabase tokens 表校验。"""
+    # 委托给现有实现
+    return await http_submit_task(request)
+
+
+@v1.get("/task_status/{task_id}", response_model=TaskStatusResponse, tags=["task"],
+        responses={404: {"model": ErrorBody}})
+async def v1_task_status(task_id: str):
+    """查询任务状态。"""
+    return await http_task_status(task_id)
+
+
+@v1.post("/cancel_task/{task_id}", response_model=CancelTaskResponse, tags=["task"],
+         responses={404: {"model": ErrorBody}, 409: {"model": ErrorBody}})
+async def v1_cancel_task(task_id: str):
+    """取消待处理的任务。"""
+    return await http_cancel_task(task_id)
+
+
+@v1.get("/task_statistics", response_model=TaskStatisticsResponse, tags=["task"])
+async def v1_task_statistics(request: Request):
+    """获取任务统计信息。"""
+    return await http_task_statistics(request)
+
+
+# 注册 v1 路由（/api/v1/* 端点）
+# 旧路径（/health, /submit_task 等）仍然可用，向后兼容
+app.include_router(v1)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Start FastAPI server")

@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
-from coze_coding_utils.runtime_ctx.context import Context
+from runtime.context import Context
 
 from graphs.state_image_gen import ComparisonInput, ComparisonOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手

@@ -24,16 +24,17 @@ class GlobalState(BaseModel):
     
     # 循环修复机制（验证失败退回修复）
     retry_count: int = Field(default=0, description="验证失败重试次数（最多3次）")
+    assembly_retry_count: int = Field(default=0, description="组装阶段类目匹配重试次数（最多2次）")
     error_type: str = Field(default="", description="错误类型分类（标签格式/尺寸重量/图片顺序/材料属性）")
     
-    # Supabase配置（环境变量优先，本地开发fallback）
+    # Supabase配置（必须通过环境变量传入，无默认值）
     supabase_url: str = Field(
-        default_factory=lambda: os.getenv("SUPABASE_URL", "https://kekmppsuiiokdckdeolv.supabase.co"),
-        description="Supabase URL（环境变量优先）"
+        default_factory=lambda: os.getenv("SUPABASE_URL", ""),
+        description="Supabase URL（必须通过环境变量 SUPABASE_URL 传入）"
     )
     supabase_key: str = Field(
-        default_factory=lambda: os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtla21wcHN1aWlva2Rja2Rlb2x2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDYyMDA0NCwiZXhwIjoyMDkwMTk2MDQ0fQ.ZkJMnjrlUQKaUpMU3eug9EQLUsoN0mOWI8wzC3jRkAU"),  # 沙箱环境fallback，部署时从环境变量读取
-        description="Supabase service_role key（环境变量优先）"
+        default_factory=lambda: os.getenv("SUPABASE_KEY", ""),
+        description="Supabase service_role key（必须通过环境变量 SUPABASE_KEY 传入）"
     )
     
     # 产品数据

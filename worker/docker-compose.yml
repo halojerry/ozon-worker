@@ -1,18 +1,17 @@
-version: "3.8"
 
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ozon
-      POSTGRES_PASSWORD: ozon
-      POSTGRES_DB: ozon_worker
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ozon123}
+      POSTGRES_DB: ${POSTGRES_DB:-ozon}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ozon -d ozon_worker"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ozon"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -20,21 +19,19 @@ services:
   worker:
     build: .
     ports:
-      - "5001:5000"
+      - "8080:5000"
+    env_file:
+      - .env
     environment:
-      - PGDATABASE_URL=postgresql://ozon:ozon@postgres:5432/ozon_worker
-      - COZE_WORKSPACE_PATH=/app
+      - PGDATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-ozon123}@postgres:5432/${POSTGRES_DB:-ozon}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_KEY=${SUPABASE_KEY:-}
+      - APP_WORKSPACE_PATH=/app
       - PYTHONPATH=/app/src
-      # Supabase — 用 sandbox 凭证（生产环境请改为自己的 Supabase 实例）
-      # - SUPABASE_URL=https://your-project.supabase.co
-      # - SUPABASE_KEY=your-service-role-key
     depends_on:
       postgres:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 2g
+    command: python -m src.main -m http -p 5000
 
 volumes:
   pgdata:

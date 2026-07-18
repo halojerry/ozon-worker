@@ -7,13 +7,42 @@ from utils.http_session import session
 from typing import Any, Dict, Optional
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
-from coze_coding_utils.runtime_ctx.context import Context
 from graphs.state import AuthInput, AuthOutput
 from utils.progress_logger import ProgressLogger
 from utils.image_url_processor import clear_cache  # ✅ 内存优化：每个产品开始时清理URL缓存
 
 
 logger = logging.getLogger(__name__)
+
+MXOU_BASE = "https://api.mxou.cn"
+
+
+def _verify_mxou_token(token: str) -> tuple:
+    """验证 MXOU token 是否可用。
+
+    调一次 MXOU API 确认 token 有效。token 是后续 LLM + 生图的鉴权凭证，
+    这里验证通过 = 整个 Pipeline 可跑通。
+
+    Returns:
+        (ok, error_reason)
+    """
+    try:
+        resp = session.get(
+            f"{MXOU_BASE}/v1/models",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            return (True, "")
+        if resp.status_code in (401, 403):
+            return (False, f"MXOU token 鉴权失败 (HTTP {resp.status_code})")
+        if resp.status_code == 429:
+            return (False, "MXOU 限流 (HTTP 429)，请稍后重试")
+        return (False, f"MXOU API 异常 (HTTP {resp.status_code})")
+    except requests.Timeout:
+        return (False, "MXOU API 请求超时")
+    except Exception as e:
+        return (False, f"MXOU API 不可达: {e}")
 
 
 def query_ozon_seller_info(ozon_client_id: str, ozon_api_key: str) -> Dict[str, Any]:
@@ -83,20 +112,19 @@ def query_ozon_seller_info(ozon_client_id: str, ozon_api_key: str) -> Dict[str, 
         return {"currency_code": "", "error": str(e)}
 
 
-def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime[Context]) -> AuthOutput:
+def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> AuthOutput:
     """
     title: 认证节点
     desc: 验证api.mxou.cn token，检查用户余额，查询Ozon店铺信息（currency_code），返回认证信息。关键：从envelope中提取draft/source/extensions并传递给下游节点。
     integrations: api.mxou.cn API, Ozon API, Supabase
     """
-    ctx = runtime.context
     
     # ✅ 内存优化：每个产品工作流开始时清理URL缓存，防止跨产品缓存累积导致内存泄漏
     clear_cache()
     
-    # 公共服务配置（从环境变量读取，带fallback默认值）
-    supabase_url = os.getenv("SUPABASE_URL", "https://kekmppsuiiokdckdeolv.supabase.co")
-    supabase_key = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtla21wcHN1aWlva2Rja2Rlb2x2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDYyMDA0NCwiZXhwIjoyMDkwMTk2MDQ0fQ.ZkJMnjrlUQKaUpMU3eug9EQLUsoN0mOWI8wzC3jRkAU")
+    # 公共服务配置（必须通过环境变量传入，无硬编码默认值）
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    supabase_key = os.getenv("SUPABASE_KEY", "")
     
     token = state.token
     ozon_client_id = state.ozon_client_id
@@ -173,7 +201,7 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime[Context
         # 查询token（使用key字段，不是token字段）
         # 注意：tokens表的主键字段是key，不是token
         # 从token中剥离sk-前缀（如果有）
-        clean_token = token.replace("sk-", "") if token.startswith("sk-") else token
+        clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
         token_query_url = f"{supabase_url}/rest/v1/tokens?key=eq.{clean_token}&select=*"
         
         # 增加重试机制，应对Supabase临时超时
@@ -377,6 +405,30 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime[Context
                 error_code="AUTH_EXHAUSTED",
                 error_message="Insufficient balance"
             )
+        
+        # Step 4: 验证 MXOU API token 可用性
+        # 这是 Pipeline 的关键鉴权：token 无效则后续 LLM+生图全部失败
+        logger.info("验证 MXOU API token...")
+        mxou_ok, mxou_err = _verify_mxou_token(token)
+        if not mxou_ok:
+            logger.error(f"❌ MXOU token 验证失败: {mxou_err}")
+            return AuthOutput(
+                user_id=user_id,
+                token_id=token_id,
+                balance=balance,
+                supabase_url=supabase_url,
+                supabase_key=supabase_key,
+                ozon_client_id=ozon_client_id,
+                ozon_api_key=ozon_api_key,
+                currency_code=currency_code,
+                draft=draft,
+                source=source,
+                extensions=extensions,
+                original_images=original_images,
+                error_code="MXOU_AUTH_FAILED",
+                error_message=f"MXOU token 无效: {mxou_err}"
+            )
+        logger.info("✅ MXOU API 验证通过")
         
         logger.info(f"认证成功: user_id={user_id}, balance={balance}, currency_code={currency_code}")
         
