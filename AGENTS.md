@@ -121,9 +121,10 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 - **Worker 凭证随请求传**（`GraphInput` 里的 `token`/`ozon_client_id`/`ozon_api_key`），不是环境变量。
 - Worker 平台级环境变量（`deploy/.env`）:
   - `PGDATABASE_URL` — PostgreSQL 连接串（必填）
-  - `SUPABASE_URL` / `SUPABASE_KEY` — 鉴权用（生产必填，本地可留空跳过）
-  - `APP_WORKSPACE_PATH` — 定位 `assets/`（Docker 内为 `/app`）
+  - `SUPABASE_URL` / `SUPABASE_KEY` — 鉴权用（Supabase `tokens` 表校验）
+  - `APP_WORKSPACE_PATH` + `COZE_WORKSPACE_PATH` — 定位 `assets/` 和 `config/`（Docker 内均为 `/app`）
   - `RATE_LIMIT_PER_MINUTE` — 限流（默认 10）
+  - `MAX_CONCURRENT` — 并发任务数（默认 10）
 - Skill 环境变量: `WORKER_URL`（Worker 地址）、`MXOU_TOKEN`、`OZON_CLIENT_ID`、`OZON_API_KEY`
 
 ## GitHub 仓库
@@ -135,9 +136,9 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 
 首次部署时 `deploy.sh` 自动运行 `scripts/init_data.py`:
 - `CREATE TABLE`（全部表，幂等）
-- 导入类目树 → `category_tree_nodes`（从 `assets/category_tree.json`，17000+ 节点）
-- 导入物流费率 → `logistics_rates`（从 `assets/` 下的 Excel，142 条）
-- 重复运行安全：已有数据跳过
+  - 导入类目树 → `category_tree_nodes`（从 `assets/category_tree.json` + `category_tree_ru.json`，中俄双语，各 ~8000 节点）
+  - 导入物流费率 → `logistics_rates`（从 `assets/` 下的 Excel，142 条）
+  - 重复运行安全：已有数据跳过；`--force` 强制覆盖
 
 ## 日志系统
 
@@ -185,10 +186,29 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## 需牢记的约定
 
-- **单产品上传**：Skill 层折叠变体，一个 1688 item = 一个 Ozon 产品卡，不上变体。
+- **单产品上传**：Skill 层折叠变体（`_collapse_variants_to_single`），一个 1688 item = 一个 Ozon 产品卡。
+  - 数量变体 → 选"1只装"
+  - 颜色/尺寸变体 → 中位数选价
+  - 采购成本 = 代表变体价格 + 1688 国内运费(`freightCny`)
+  - 标题不加颜色/数量后缀
+  - Worker 层零改动：`variants=[]` 走现有单产品路径
+- **俄语类目树 ID 映射**：`category_tree_nodes` 存中俄双语（`language=ZH_HANS` / `language=RU`），同一 `description_category_id`/`type_id` 跨语言一致。`assemble_ozon_product_node` 属性 schema + 字典值已切换到 `language=RU`，LLM 不再翻译属性值。
 - **`vat="0"`**；主图与 images 分开。
+- **图片顺序规范**：`primary_image` = `main_image`（营销主图，单独指定），`images` 数组按 IMG_ORDER：detail → scene_1/2/3 → comparison → social_proof → multi_angle（倒数第二）→ white_bg（最后）。
 - **变体图片降级**：白底图生成失败 → 统一营销主图（非 1688 alicdn 原图）。
 - WARNING 级 Ozon 错误过滤不算失败；`ozon_status` 返回 `pending` 视为软成功。
 - `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
 - **Docker 部署**: `deploy/docker-compose.yml` 含 PG + Worker，`HEALTHCHECK` 已配置。
 - **API 版本化**: 新端点走 `/api/v1/`，旧路径保持兼容。
+
+## 已知坑
+
+- **deepseek-v4-flash reasoning tokens**：该模型默认启用推理，`reasoning_tokens` 消耗 `max_tokens` 配额。翻译/生图 prompt 的 `max_tokens` 至少设为 200，否则输出为空。
+- **DESCRIPTION_DECLINE 两大根因**：
+  1. 产品名含拉丁/中文字符 → `ozon_validate_node` 应阻断（已修复：`critical_errors` 含 `"拉丁字母"`）
+  2. 属性值含中文 → 俄语类目树 ID 映射解决（`language=RU` 字典值直连）
+- **`validation_retry_loop` 三大缺陷**（已修复）：
+  1. `state.draft` 为空 → LLM 收不到产品上下文 → 回退到 `ozon_payload.items[0].name`
+  2. `recheck_status_node` 在 `imported` 即宣告成功 → 已改为额外轮询 `moderate_status`
+  3. `type_id=0` 导致 `/v3/product/import` 报错 → 模板含 `type_id` 字段
+- **`init_data.py` `walk` 函数**：`description_category_id` 需从父节点继承，`disabled` 字段 NOT NULL 需填 `false`。中文树是 `{"result":[...]}` dict，俄语树是 `[...]` 直接 list，walk 调用需兼容两种格式。
