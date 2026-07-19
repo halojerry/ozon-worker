@@ -38,13 +38,14 @@ def create_tables(engine):
     logger.info("✅ 表结构已就绪")
 
 
-def import_category_tree(engine, language="ZH_HANS", force=False):
+def import_category_tree(engine, language="ZH_HANS", force=False, tree_file="category_tree.json"):
     """导入类目树到 category_tree_nodes。
 
     Args:
         engine: SQLAlchemy engine
-        language: 语言代码
+        language: 语言代码 (ZH_HANS/RU)
         force: True 时清空旧数据重新导入
+        tree_file: 类目树文件名（相对于 ASSETS_DIR）
     """
     from sqlalchemy import text as sql_text
 
@@ -66,7 +67,7 @@ def import_category_tree(engine, language="ZH_HANS", force=False):
         logger.info(f"🗑️  已清空旧类目树数据 ({count} 条)")
 
     # 读取 JSON
-    tree_path = os.path.join(ASSETS_DIR, "category_tree.json")
+    tree_path = os.path.join(ASSETS_DIR, tree_file)
     if not os.path.exists(tree_path):
         logger.warning(f"⚠️  类目树文件不存在: {tree_path}")
         return
@@ -272,8 +273,9 @@ def main():
     # 1. 建表
     create_tables(engine)
 
-    # 2. 导入类目树
-    import_category_tree(engine, force=args.force)
+    # 2. 导入类目树（中俄双语）
+    import_category_tree(engine, language="ZH_HANS", force=args.force, tree_file="category_tree.json")
+    import_category_tree(engine, language="RU", force=args.force, tree_file="category_tree_ru.json")
 
     # 3. 导入物流费率
     import_logistics_rates(engine, force=args.force)
