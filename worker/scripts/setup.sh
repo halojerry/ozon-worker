@@ -3,8 +3,8 @@ set -eo pipefail
 
 # 初始化目录
 if [ "$COZE_PROJECT_ENV" = "DEV" ]; then
-  if [ ! -d "${COZE_WORKSPACE_PATH}/assets" ]; then
-    mkdir -p "${COZE_WORKSPACE_PATH}/assets"
+  if [ ! -d "${APP_WORKSPACE_PATH}/assets" ]; then
+    mkdir -p "${APP_WORKSPACE_PATH}/assets"
   fi
 fi
 

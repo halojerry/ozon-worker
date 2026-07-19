@@ -14,7 +14,7 @@ MXOU_CHAT_API_URL = "https://api.mxou.cn/v1/chat/completions"
 
 # grsai 进度查询 API
 GRSAI_API_URL = "https://grsai.dakka.com.cn/v1/api/result"
-GRSAI_API_KEY = "sk-fbee388bb3804f2e80d5e9b72ff2e485"
+GRSAI_API_KEY = os.getenv("GRSAI_API_KEY", "")
 
 # 默认生图模型和降级模型
 PRIMARY_IMAGE_MODEL = "gpt-image-2"

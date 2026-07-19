@@ -59,3 +59,4 @@ docker-compose.override.yml
 *.bak
 *.orig
 tmp/
+.env.local

@@ -55,7 +55,7 @@ class ProgressLogger:
         self.next_counter = current_counter + 1
         
         # 加载进度配置
-        workspace = os.getenv("COZE_WORKSPACE_PATH") or os.getenv("APP_WORKSPACE_PATH") or os.getcwd()
+        workspace = os.getenv("APP_WORKSPACE_PATH") or os.getenv("APP_WORKSPACE_PATH") or os.getcwd()
         cfg_file = os.path.join(workspace, "assets/workflow_progress.json")
         with open(cfg_file, 'r', encoding='utf-8') as fd:
             config_data = json.load(fd)

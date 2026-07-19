@@ -30,7 +30,7 @@ def _load_size_tables() -> None:
     if _loaded:
         return
 
-    assets_dir: str = os.path.join(os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects"), "assets")
+    assets_dir: str = os.path.join(os.getenv("APP_WORKSPACE_PATH", "/workspace/projects"), "assets")
     table_files: Dict[str, str] = {
         "children": os.path.join(assets_dir, "儿童服装尺码表.csv"),
         "male": os.path.join(assets_dir, "男性服装尺码表.csv"),

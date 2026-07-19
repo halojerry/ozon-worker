@@ -8,14 +8,14 @@ import os
 import sys
 
 # 添加项目路径到PYTHONPATH
-sys.path.insert(0, os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects"))
-sys.path.insert(0, os.path.join(os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects"), "src"))
+sys.path.insert(0, os.getenv("APP_WORKSPACE_PATH", "/workspace/projects"))
+sys.path.insert(0, os.path.join(os.getenv("APP_WORKSPACE_PATH", "/workspace/projects"), "src"))
 
 from utils.supabase_client import SupabaseClient
 
 # Supabase配置（优先环境变量）
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://kekmppsuiiokdckdeolv.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtla21wcHN1aWlva2Rja2Rlb2x2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczODU1MzYwMCwiZXhwIjoyMDU0MTI5NjAwfQ.NwQWN9O5NnX1qWqG8HKZlZ6aQz9Jz5J9Jz5J9Jz5J9")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
 def read_csv_size_table(csv_file_path: str) -> list:
     """读取尺码表CSV文件"""
@@ -77,17 +77,17 @@ def import_size_table_to_supabase(size_data: list, gender: str, category: str):
 
 if __name__ == "__main__":
     # 导入男性服装尺码表
-    male_clothing_csv = os.path.join(os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects"), "assets/男性服装尺码表.csv")
+    male_clothing_csv = os.path.join(os.getenv("APP_WORKSPACE_PATH", "/workspace/projects"), "assets/男性服装尺码表.csv")
     male_size_data = read_csv_size_table(male_clothing_csv)
     print(f"读取男性服装尺码表，共{len(male_size_data)}行数据")
     
     # 导入儿童服装尺码表
-    children_clothing_csv = os.path.join(os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects"), "assets/儿童服装尺码表.csv")
+    children_clothing_csv = os.path.join(os.getenv("APP_WORKSPACE_PATH", "/workspace/projects"), "assets/儿童服装尺码表.csv")
     children_size_data = read_csv_size_table(children_clothing_csv)
     print(f"读取儿童服装尺码表，共{len(children_size_data)}行数据")
     
     # 导入鞋子尺码表
-    shoes_csv = os.path.join(os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects"), "assets/鞋子尺码对应表.csv")
+    shoes_csv = os.path.join(os.getenv("APP_WORKSPACE_PATH", "/workspace/projects"), "assets/鞋子尺码对应表.csv")
     shoes_size_data = read_csv_size_table(shoes_csv)
     print(f"读取鞋子尺码表，共{len(shoes_size_data)}行数据")
     

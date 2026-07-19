@@ -1,1 +1,1 @@
-"""Minimal local replacements for previously Coze-dependent runtime utilities."""
+"""Minimal local replacements for previously local runtime utilities."""

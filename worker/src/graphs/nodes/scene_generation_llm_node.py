@@ -26,7 +26,7 @@ def scene_generation_llm_node(state: SceneGenerationInput, config: RunnableConfi
     progress.log_node_start("scene_generation_llm_node", "场景生成LLM节点")
     
     # 从config读取LLM配置路径
-    cfg_file = os.path.join(os.getenv("COZE_WORKSPACE_PATH"), config['metadata']['llm_cfg'])
+    cfg_file = os.path.join(os.getenv("APP_WORKSPACE_PATH"), config['metadata']['llm_cfg'])
     with open(cfg_file, 'r') as fd:
         _cfg = json.load(fd)
     
