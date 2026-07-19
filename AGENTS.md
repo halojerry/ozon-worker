@@ -122,7 +122,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 - Worker 平台级环境变量（`deploy/.env`）:
   - `PGDATABASE_URL` — PostgreSQL 连接串（必填）
   - `SUPABASE_URL` / `SUPABASE_KEY` — 鉴权用（Supabase `tokens` 表校验）
-  - `APP_WORKSPACE_PATH` + `COZE_WORKSPACE_PATH` — 定位 `assets/` 和 `config/`（Docker 内均为 `/app`）
+  - `APP_WORKSPACE_PATH` — 定位 `assets/` 和 `config/`（Docker 内为 `/app`）
   - `RATE_LIMIT_PER_MINUTE` — 限流（默认 10）
   - `MAX_CONCURRENT` — 并发任务数（默认 10）
 - Skill 环境变量: `WORKER_URL`（Worker 地址）、`MXOU_TOKEN`、`OZON_CLIENT_ID`、`OZON_API_KEY`

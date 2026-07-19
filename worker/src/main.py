@@ -27,7 +27,7 @@ from storage.database.shared.model import Base
 from utils.task_processor import SupabaseTaskProcessor
 from sqlalchemy import event
 
-# Local runtime replacements (previously Coze-dependent)
+# Local runtime utilities (standalone replacements for platform SDK)
 from runtime.context import new_context, Context
 from runtime.helpers import (
     graph_helper, ErrorClassifier, classify_error,

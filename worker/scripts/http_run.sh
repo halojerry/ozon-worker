@@ -3,7 +3,7 @@
 set -e
 # 导出环境变量
 
-WORK_DIR="${COZE_WORKSPACE_PATH:-.}"
+WORK_DIR="${APP_WORKSPACE_PATH:-.}"
 PORT="${DEPLOY_RUN_PORT:-5000}"
 
 usage() {

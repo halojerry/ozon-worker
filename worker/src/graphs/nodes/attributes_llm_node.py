@@ -122,7 +122,7 @@ def attributes_llm_node(state: AttributesLLMInput, config: RunnableConfig, runti
     
     try:
         # Step 1: 加载LLM配置
-        cfg_file: str = os.path.join(os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects"), "config/attributes_llm_cfg.json")
+        cfg_file: str = os.path.join(os.getenv("APP_WORKSPACE_PATH", "/workspace/projects"), "config/attributes_llm_cfg.json")
         
         with open(cfg_file, 'r', encoding='utf-8') as fd:
             llm_cfg: Dict[str, Any] = json.load(fd)

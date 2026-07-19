@@ -142,7 +142,7 @@ def _llm_match_category(
     
     try:
         cfg_file: str = os.path.join(
-            os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects"),
+            os.getenv("APP_WORKSPACE_PATH", "/workspace/projects"),
             "config/category_match_llm_cfg.json"
         )
         with open(cfg_file, 'r', encoding='utf-8') as fd:

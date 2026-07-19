@@ -1,4 +1,4 @@
-"""Minimal replacement for coze_coding_utils.runtime_ctx.context.Context."""
+"""Minimal replacement for local runtime.runtime_ctx.context.Context."""
 
 import uuid
 from typing import Optional

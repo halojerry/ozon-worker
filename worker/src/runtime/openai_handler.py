@@ -1,4 +1,4 @@
-"""Stub for coze_coding_utils.openai.handler.OpenAIChatHandler."""
+"""Stub for local runtime.openai.handler.OpenAIChatHandler."""
 
 import logging
 

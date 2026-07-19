@@ -1,4 +1,4 @@
-"""Stub replacements for coze_coding_utils.async_tasks."""
+"""Stub replacements for local runtime.async_tasks."""
 
 
 class AsyncTaskRuntime:

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # ── graph_helper ──
 
 class GraphHelper:
-    """Minimal replacement for coze_coding_utils.helper.graph_helper."""
+    """Minimal replacement for local runtime.helper.graph_helper."""
 
     @staticmethod
     def is_agent_proj() -> bool:

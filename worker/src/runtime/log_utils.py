@@ -1,4 +1,4 @@
-"""Minimal replacements for Coze logging and trace utilities."""
+"""Minimal replacements for local and trace utilities."""
 
 import os
 import logging
