@@ -248,7 +248,7 @@ def ozon_validate_node(
         # Step 4: 检查payload中的属性是否有无效字典值
         # （prepare_ozon_upload_node已跳过未匹配的字典属性，所以payload中不应该有dict_id<=0的字典属性）
         # 只检查payload本身的属性，不再依赖validation_errors
-        critical_errors = [err for err in validation_errors if "缺失" in err or "为空" in err or "格式错误" in err or "变体颜色" in err]
+        critical_errors = [err for err in validation_errors if "缺失" in err or "为空" in err or "格式错误" in err or "变体颜色" in err or "拉丁字母" in err or "非俄语" in err]
         if critical_errors:
             logger.error(f"Ozon预检测发现严重错误: {len(critical_errors)}个")
             return OzonValidateOutput(

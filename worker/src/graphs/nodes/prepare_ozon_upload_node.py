@@ -268,7 +268,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
             user_prompt=f"Translate to Russian: {text}",
             model=model_id,
             temperature=0.0,
-            max_tokens=500
+            max_tokens=1000  # deepseek-v4-flash reasoning 需要更多 token
         ) or ""
 
         translated = translated.strip()
@@ -295,8 +295,27 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
             if retry_translated and _has_cyrillic(retry_translated):
                 logger.info(f"✅ 简化重试翻译成功: '{text[:50]}' → '{retry_translated[:50]}'")
                 return retry_translated
-            logger.error(f"❌ 翻译重试仍不含西里尔字母，回退到原文: '{text[:50]}'")
-            return text  # 最后回退到原文
+            # 最终 fallback：用生成模式创造俄语名称（而非回退到中文）
+            logger.warning(f"⚠️ 翻译失败，尝试生成俄语名称: '{text[:50]}'")
+            gen_prompt = (
+                "You are naming a product for Ozon Russia marketplace. "
+                "Generate a short Russian product name (under 50 chars) based on keywords from the input. "
+                "Use ONLY Cyrillic letters. No Latin, no Chinese. Return ONLY the name, nothing else."
+            )
+            gen_result: str = call_mxou_chat_api(
+                token=token,
+                system_prompt=gen_prompt,
+                user_prompt=f"Product keywords: {text[:200]}",
+                model=model_id,
+                temperature=0.3,
+                max_tokens=200
+            ) or ""
+            gen_result = gen_result.strip()
+            if gen_result and _has_cyrillic(gen_result):
+                logger.info(f"✅ 生成俄语名称成功: '{gen_result[:50]}'")
+                return gen_result
+            logger.error(f"❌ 所有翻译和生成均失败，使用原文: '{text[:50]}'")
+            return text  # 最终回退
     except Exception as e:
         logger.error(f"❌ LLM翻译异常: {str(e)}")
         return text  # 回退到原文
