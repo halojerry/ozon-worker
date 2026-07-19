@@ -119,12 +119,15 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 ## 环境与密钥
 
 - **Worker 凭证随请求传**（`GraphInput` 里的 `token`/`ozon_client_id`/`ozon_api_key`），不是环境变量。
-- Worker 平台级环境变量（`deploy/.env`）:
+- Worker 平台级环境变量（`deploy/.env`，完整模板见 `deploy/.env.example`）:
   - `PGDATABASE_URL` — PostgreSQL 连接串（必填）
-  - `SUPABASE_URL` / `SUPABASE_KEY` — 鉴权用（Supabase `tokens` 表校验）
-  - `APP_WORKSPACE_PATH` — 定位 `assets/` 和 `config/`（Docker 内为 `/app`）
-  - `RATE_LIMIT_PER_MINUTE` — 限流（默认 10）
+  - `SUPABASE_URL` / `SUPABASE_KEY` — Supabase `tokens` 表鉴权
+  - `APP_WORKSPACE_PATH` — 定位 `assets/` 和 `config/`（Docker 内 `/app`）
+  - `PYTHONPATH=/app/src` — Python 模块路径
+  - `GRSAI_API_KEY` — MXOU 生图进度轮询（grsai.dakka.com.cn）
+  - `RATE_LIMIT_PER_MINUTE` — API 限流（默认 10）
   - `MAX_CONCURRENT` — 并发任务数（默认 10）
+  - `LOG_FORMAT` / `LOG_LEVEL` / `LOG_FILE` — 日志配置（见 LOGGING.md）
 - Skill 环境变量: `WORKER_URL`（Worker 地址）、`MXOU_TOKEN`、`OZON_CLIENT_ID`、`OZON_API_KEY`
 
 ## GitHub 仓库
