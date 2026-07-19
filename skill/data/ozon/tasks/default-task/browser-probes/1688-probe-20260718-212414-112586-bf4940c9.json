@@ -1,0 +1,278 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "英文生日贺卡带信封文字卡片可定制可爱小猫小狗图案生日礼物",
+    "price": "¥3.8",
+    "brand": "加壹",
+    "seller": "加壹新材料科技（金华）有限公司 关注 客服 商品 入驻2年 主营：文化用品 店铺回头率 57% 店铺服务分 4.5分 准时发货率 98% 店铺好评率 100.0%",
+    "image_count": 14,
+    "attribute_count": 21,
+    "dom_sku_count": 3,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1003562987242.html",
+    "loginRequired": false,
+    "title": "英文生日贺卡带信封文字卡片可定制可爱小猫小狗图案生日礼物",
+    "price": "¥3.8",
+    "priceValue": 3.8,
+    "brand": "加壹",
+    "seller": "加壹新材料科技（金华）有限公司 关注 客服 商品 入驻2年 主营：文化用品 店铺回头率 57% 店铺服务分 4.5分 准时发货率 98% 店铺好评率 100.0%",
+    "sellerLink": "https://jiayixcl.1688.com/?offerId=1003562987242&td_page_id=PC-UNLOGIN-DEFAULT-2025",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01v5H5iS2Jm75BLt2UB_!!2218356219463-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01v5H5iS2Jm75BLt2UB_!!2218356219463-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ViKfzA2Jm75BEJRS4_!!2218356219463-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01EFpD6T2Jm75CbuGDY_!!2218356219463-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01x75UQY2Jm75BHUHAk_!!2218356219463-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010Dfhv52Jm75C5Z7Cu_!!2218356219463-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wC92jU2Jm75CbujOi_!!2218356219463-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FOlIOv2Jm75D0KMet_!!2218356219463-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN017W7Kvy2Jm77O2Zzcl_!!2218356219463-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019yL8mq2Jm74BS9rFz_!!2218356219463-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01uQgS5F2Jm752S5QtV_!!2218356219463-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BdfRly2Jm74H2O5fT_!!2218356219463-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN016d17AO2Jm74H2LoJW_!!2218356219463-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xbYOIq2Jm6x28zMSI_!!2218356219463-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN018AD7YA2Jm74RJUaew_!!2218356219463-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2218356219463/p/2/e/6/t/1/541175807360.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "卡纸"
+      },
+      {
+        "name": "工艺",
+        "value": "印刷"
+      },
+      {
+        "name": "适用节庆",
+        "value": "生日"
+      },
+      {
+        "name": "风格",
+        "value": "简约现代"
+      },
+      {
+        "name": "品牌",
+        "value": "加壹"
+      },
+      {
+        "name": "货号",
+        "value": "G2522374"
+      },
+      {
+        "name": "尺寸",
+        "value": "12件套（6张贺卡＋6个信封）G2522374,24件套（12张贺卡＋12个信封）G2522374,支持来图定制-10件起"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "生产企业",
+        "value": "加壹"
+      },
+      {
+        "name": "包装种类",
+        "value": "基础包装"
+      },
+      {
+        "name": "尺寸",
+        "value": "12件套（6张贺卡＋6个信封）G2522374、24件套（12张贺卡＋12个信封）G2522374、支持来图定制-10件起"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "300+"
+      },
+      {
+        "name": "材质",
+        "value": "印刷"
+      },
+      {
+        "name": "适用节庆",
+        "value": "简约现代"
+      },
+      {
+        "name": "品牌",
+        "value": "G2522374"
+      },
+      {
+        "name": "尺寸",
+        "value": "否"
+      },
+      {
+        "name": "生产企业",
+        "value": "基础包装"
+      },
+      {
+        "name": "12件套（6张贺卡＋6个信封）G2522374",
+        "value": "66"
+      },
+      {
+        "name": "24件套（12张贺卡＋12个信封）G2522374",
+        "value": "132"
+      },
+      {
+        "name": "支持来图定制-10件起",
+        "value": "20"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "尺寸",
+        "values": [
+          {
+            "name": "12件套（6张贺卡＋6个信封）G2522374",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wC92jU2Jm75CbujOi_!!2218356219463-0-cib.jpg"
+          },
+          {
+            "name": "24件套（12张贺卡＋12个信封）G2522374",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01FOlIOv2Jm75D0KMet_!!2218356219463-0-cib.jpg"
+          },
+          {
+            "name": "支持来图定制-10件起",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN017W7Kvy2Jm77O2Zzcl_!!2218356219463-0-cib.jpg"
+          },
+          {
+            "name": "12件套（6张贺卡＋6个信封）G2522374",
+            "image": null,
+            "price": 3.8
+          },
+          {
+            "name": "24件套（12张贺卡＋12个信封）G2522374",
+            "image": null,
+            "price": 6.5
+          },
+          {
+            "name": "支持来图定制-10件起",
+            "image": null,
+            "price": 1.2
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "尺寸",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "尺寸 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 12件套（6张贺卡＋6个信封）G2522374 22 16 0.60 211.200 66 24件套（12张贺卡＋12个信封）G2522374 22 16 1.20 422.400 132 支持来图定制-10件起 － － － － 20",
+    "packagingRows": [
+      {
+        "color": "12件套（6张贺卡＋6个信封）G2522374",
+        "capacity": "22",
+        "weightText": "66",
+        "weightGrams": 66,
+        "lengthText": "22",
+        "widthText": "16",
+        "heightText": "0.60"
+      },
+      {
+        "color": "24件套（12张贺卡＋12个信封）G2522374",
+        "capacity": "22",
+        "weightText": "132",
+        "weightGrams": 132,
+        "lengthText": "22",
+        "widthText": "16",
+        "heightText": "1.20"
+      },
+      {
+        "color": "支持来图定制-10件起",
+        "capacity": "－",
+        "weightText": "20",
+        "weightGrams": 20,
+        "lengthText": "－",
+        "widthText": "－",
+        "heightText": "－"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 3
+    },
+    "skuDetails": [
+      {
+        "name": "12件套（6张贺卡＋6个信封）G2522374",
+        "price": 3.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wC92jU2Jm75CbujOi_!!2218356219463-0-cib.jpg"
+      },
+      {
+        "name": "24件套（12张贺卡＋12个信封）G2522374",
+        "price": 6.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01FOlIOv2Jm75D0KMet_!!2218356219463-0-cib.jpg"
+      },
+      {
+        "name": "支持来图定制-10件起",
+        "price": 1.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN017W7Kvy2Jm77O2Zzcl_!!2218356219463-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 10,
+      "attributeCount": 21,
+      "optionGroupCount": 1,
+      "skuCount": 3,
+      "imageCount": 14,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 152
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260718-212414-112586-bf4940c9.json"
+}

@@ -1,0 +1,253 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "创意蜗牛防火蚊香盒蚊香盘接灰盘蚊香盘便携蚊香器蚊香架炉蚊香架",
+    "price": "¥2.5",
+    "brand": null,
+    "seller": "义乌市文雯日用品厂 关注 客服 商品 入驻3年 主营：收纳防尘 店铺回头率 56% 店铺服务分 4.0分 准时发货率 92% 店铺好评率 100.0%",
+    "image_count": 31,
+    "attribute_count": 16,
+    "dom_sku_count": 2,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1054060121428.html",
+    "loginRequired": false,
+    "title": "创意蜗牛防火蚊香盒蚊香盘接灰盘蚊香盘便携蚊香器蚊香架炉蚊香架",
+    "price": "¥2.5",
+    "priceValue": 2.5,
+    "brand": null,
+    "seller": "义乌市文雯日用品厂 关注 客服 商品 入驻3年 主营：收纳防尘 店铺回头率 56% 店铺服务分 4.0分 准时发货率 92% 店铺好评率 100.0%",
+    "sellerLink": "https://shop4788bm3356569.1688.com/?offerId=1054060121428&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN016NRFxU1thpJFwmjGI_!!2217705605934-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN016NRFxU1thpJFwmjGI_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JCchCG1thpJFNSgV0_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ntC3u01thpJHHdtbZ_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sICqan1thpJFtO9u0_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0147n5Mr1thpJFNUUmj_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Gl6oMg1thpOf1CXn4_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01N23xTr1thpOf5xkFo_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01vhKzn31thpOfW9hwz_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ifBr3y1thpOgoehLw_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QAqlCf1thpOfcy5vo_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01uFUjLG1thpOgod9lp_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eQgKHQ1thpOfpSOxC_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HOYpBU1thpOfM6nQY_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UzPTAd1thpOfW9dli_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Qh65sL1thpOfcxI2e_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GCj0Lz1thpOfISeW4_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PoQWHI1thpOfWBvD2_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LEj8xV1thpOfM5vRW_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01anh1Y31thpOfM4nSc_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01qqIrVJ1thpOfIUC8i_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01snTIEv1thpOfW9qIE_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rYfBgc1thpOfM5OrT_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN016TvJ5X1thpOf6Sa6b_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01g6NYc91thpOfcwt7D_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN014KLMx61thpOfM5adm_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0175NfnF1thpOfSpyUe_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN011u6new1thpOf9QwVC_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Bma1LZ1thpOf9RgFO_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Eqsz5S1thpOfpQ3Ub_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01v5CYKU1thpOfpS020_!!2217705605934-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ssk3n31thpOfM6oB0_!!2217705605934-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2217705605934/p/2/e/6/t/1/468911443664.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "功能",
+        "value": "多用途,便携式,可移动,免安装,免打孔"
+      },
+      {
+        "name": "产品类型",
+        "value": "蚊香盘"
+      },
+      {
+        "name": "防风功能",
+        "value": "有"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "wish,独立站,shopee"
+      },
+      {
+        "name": "加印LOGO",
+        "value": "不可以"
+      },
+      {
+        "name": "是否一次性",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "绅士黑-升级加宽款,象牙白-升级加宽款"
+      },
+      {
+        "name": "功能",
+        "value": "蚊香盘"
+      },
+      {
+        "name": "防风功能",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "wish,独立站,shopee"
+      },
+      {
+        "name": "加印LOGO",
+        "value": "否"
+      },
+      {
+        "name": "绅士黑-升级加宽款",
+        "value": "76"
+      },
+      {
+        "name": "象牙白-升级加宽款",
+        "value": "76"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "400+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "绅士黑-升级加宽款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Gl6oMg1thpOf1CXn4_!!2217705605934-0-cib.jpg"
+          },
+          {
+            "name": "象牙白-升级加宽款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Gl6oMg1thpOf1CXn4_!!2217705605934-0-cib.jpg"
+          },
+          {
+            "name": "绅士黑-升级加宽款",
+            "image": null,
+            "price": 2.5
+          },
+          {
+            "name": "象牙白-升级加宽款",
+            "image": null,
+            "price": 2.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 绅士黑-升级加宽款 18 3.50 8.50 535.500 76 象牙白-升级加宽款 18 3.50 8.50 535.500 76",
+    "packagingRows": [
+      {
+        "color": "绅士黑-升级加宽款",
+        "capacity": "18",
+        "weightText": "76",
+        "weightGrams": 76,
+        "lengthText": "18",
+        "widthText": "3.50",
+        "heightText": "8.50"
+      },
+      {
+        "color": "象牙白-升级加宽款",
+        "capacity": "18",
+        "weightText": "76",
+        "weightGrams": 76,
+        "lengthText": "18",
+        "widthText": "3.50",
+        "heightText": "8.50"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 2.8,
+      "carrier": "韵达快递"
+    },
+    "skuDetails": [
+      {
+        "name": "绅士黑-升级加宽款",
+        "price": 2.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Gl6oMg1thpOf1CXn4_!!2217705605934-0-cib.jpg"
+      },
+      {
+        "name": "象牙白-升级加宽款",
+        "price": 2.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Gl6oMg1thpOf1CXn4_!!2217705605934-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 9,
+      "attributeCount": 16,
+      "optionGroupCount": 1,
+      "skuCount": 2,
+      "imageCount": 34,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 102
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260717-224016-595698-a44c3e6c.json"
+}

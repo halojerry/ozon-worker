@@ -1,0 +1,304 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "路亚远投水面系波扒波爬响珠专攻翘嘴鳡鱼鲈鱼路亚饵假饵撞水假饵",
+    "price": "¥4.2",
+    "brand": "海豚路亚",
+    "seller": "兴宁市海豚路亚渔具店 关注 客服 商品 入驻3年 主营：垂钓用品 店铺回头率 75% 店铺服务分 5.0分 准时发货率 99% 店铺好评率 97.0%",
+    "image_count": 10,
+    "attribute_count": 27,
+    "dom_sku_count": 5,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/847115275524.html",
+    "loginRequired": false,
+    "title": "路亚远投水面系波扒波爬响珠专攻翘嘴鳡鱼鲈鱼路亚饵假饵撞水假饵",
+    "price": "¥4.2",
+    "priceValue": 4.2,
+    "brand": "海豚路亚",
+    "seller": "兴宁市海豚路亚渔具店 关注 客服 商品 入驻3年 主营：垂钓用品 店铺回头率 75% 店铺服务分 5.0分 准时发货率 99% 店铺好评率 97.0%",
+    "sellerLink": "https://shop8385230d441v2.1688.com/?offerId=847115275524&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01oxW37j1MQX6LEpW3k_!!2216712761429-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01oxW37j1MQX6LEpW3k_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01agKU2K1MQWytagtax_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Xw6kfu1MQWytafUFj_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01u62THT1MQWyrkDRXC_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wxhij81MQWyrUf3Vk_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0139xV6h1MQWyvEzRlm_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01u1Phtl1MQWymOg1qy_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tKeRr01MQWyrkBEJC_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01CLoH9y1MQWywRsL3k_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HGDaTH1MQWywRqzwe_!!2216712761429-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "中国",
+    "model": null,
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "海豚路亚"
+      },
+      {
+        "name": "鱼饵类型",
+        "value": "波爬"
+      },
+      {
+        "name": "产品类别",
+        "value": "路亚饵"
+      },
+      {
+        "name": "鱼饵形态",
+        "value": "假饵/仿生饵"
+      },
+      {
+        "name": "货号",
+        "value": "HY-095"
+      },
+      {
+        "name": "产地",
+        "value": "中国"
+      },
+      {
+        "name": "颜色",
+        "value": "马口色,红头银,粉头,猫眼银,白条色"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "专利类型",
+        "value": "无"
+      },
+      {
+        "name": "外贸出口认证",
+        "value": "无"
+      },
+      {
+        "name": "质检报告编号",
+        "value": "无"
+      },
+      {
+        "name": "生产厂家地址",
+        "value": "中国"
+      },
+      {
+        "name": "生产厂家名称",
+        "value": "武汉文鳐户外"
+      },
+      {
+        "name": "吊牌价",
+        "value": "49"
+      },
+      {
+        "name": "主要原料成分",
+        "value": "合成材料"
+      },
+      {
+        "name": "目标鱼种",
+        "value": "鲈鱼"
+      },
+      {
+        "name": "颜色",
+        "value": "马口色、红头银、粉头、猫眼银、白条色"
+      },
+      {
+        "name": "品牌",
+        "value": "波爬"
+      },
+      {
+        "name": "产品类别",
+        "value": "假饵/仿生饵"
+      },
+      {
+        "name": "货号",
+        "value": "中国"
+      },
+      {
+        "name": "颜色",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "无"
+      },
+      {
+        "name": "生产厂家地址",
+        "value": "武汉文鳐户外"
+      },
+      {
+        "name": "吊牌价",
+        "value": "合成材料"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "4000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "马口色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0139xV6h1MQWyvEzRlm_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "红头银",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01u1Phtl1MQWymOg1qy_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "粉头",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01tKeRr01MQWyrkBEJC_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "猫眼银",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01CLoH9y1MQWywRsL3k_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "白条色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HGDaTH1MQWywRqzwe_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "马口色",
+            "image": null,
+            "price": 4.2
+          },
+          {
+            "name": "红头银",
+            "image": null,
+            "price": 4.2
+          },
+          {
+            "name": "粉头",
+            "image": null,
+            "price": 4.2
+          },
+          {
+            "name": "猫眼银",
+            "image": null,
+            "price": 4.2
+          },
+          {
+            "name": "白条色",
+            "image": null,
+            "price": 4.2
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 1",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "1",
+        "weightGrams": 1,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "广东梅州",
+      "freightCny": 3.5,
+      "carrier": "圆通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "马口色",
+        "price": 4.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN0139xV6h1MQWyvEzRlm_!!2216712761429-0-cib.jpg"
+      },
+      {
+        "name": "红头银",
+        "price": 4.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01u1Phtl1MQWymOg1qy_!!2216712761429-0-cib.jpg"
+      },
+      {
+        "name": "粉头",
+        "price": 4.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01tKeRr01MQWyrkBEJC_!!2216712761429-0-cib.jpg"
+      },
+      {
+        "name": "猫眼银",
+        "price": 4.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01CLoH9y1MQWywRsL3k_!!2216712761429-0-cib.jpg"
+      },
+      {
+        "name": "白条色",
+        "price": 4.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HGDaTH1MQWywRqzwe_!!2216712761429-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 17,
+      "attributeCount": 27,
+      "optionGroupCount": 1,
+      "skuCount": 5,
+      "imageCount": 13,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 7
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260717-224152-822032-0d0c933a.json"
+}

@@ -1,0 +1,279 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 25,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "健身卷尺家用围度米尺学生随身软皮尺量体腿腰胸三围测量专用尺子",
+    "price": "¥0.47",
+    "brand": "萌夯",
+    "seller": "义乌市萌夯日用品有限公司 关注 客服 商品 入驻1年 主营：厨房工具 店铺回头率 51% 店铺服务分 4.0分 准时发货率 93% 店铺好评率 99.9%",
+    "image_count": 19,
+    "attribute_count": 26,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1045171171403.html",
+    "loginRequired": false,
+    "title": "健身卷尺家用围度米尺学生随身软皮尺量体腿腰胸三围测量专用尺子",
+    "price": "¥0.47",
+    "priceValue": 0.47,
+    "brand": "萌夯",
+    "seller": "义乌市萌夯日用品有限公司 关注 客服 商品 入驻1年 主营：厨房工具 店铺回头率 51% 店铺服务分 4.0分 准时发货率 93% 店铺好评率 99.9%",
+    "sellerLink": "https://shop9v9746329p989.1688.com/?offerId=1045171171403&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01JsjXM11h8JHpZNUbD_!!2220906034232-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JsjXM11h8JHpZNUbD_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Qi5xqq1h8JHpR42Zp_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01mx3MOt1h8JHqmvlBj_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xjgov21h8JHpUR4PZ_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Snpk8u1h8JHqmwphl_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01byJDFb1h8JHp3AHAC_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01TDl8Ul1h8JHp2Hp0x_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01RjZBJl1h8JHqmR0of_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01RoOk7W1h8JHpWJPbs_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01p3akFQ1h8JHpZXQjW_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01H0oQKt1h8JHptgAIv_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01c0grJ21h8JHpkxhmv_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015PDQ8B1h8JHp6uMJr_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01CUJTTq1h8JHp1iUTN_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GVvQ8k1h8JHodLrDM_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01T2A3Y61h8JHrVzgWh_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tvHoom1h8JHmXY2BA_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tTb7pl1h8JI1yUGFJ_!!2220906034232-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01qmDkd01h8JHpLPzTw_!!2220906034232-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2220906034232/p/2/e/6/t/1/562150833349.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": "腰围尺",
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "塑料"
+      },
+      {
+        "name": "品牌",
+        "value": "萌夯"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "型号",
+        "value": "腰围尺"
+      },
+      {
+        "name": "装箱数",
+        "value": "400"
+      },
+      {
+        "name": "测量范围",
+        "value": "150"
+      },
+      {
+        "name": "货号",
+        "value": "三围尺"
+      },
+      {
+        "name": "规格",
+        "value": "白色【高品质op袋装】,黑色【高品质op袋装】"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "亚马逊,wish,速卖通,独立站,LAZADA,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "颜色",
+        "value": "三围尺"
+      },
+      {
+        "name": "是否有专利",
+        "value": "否"
+      },
+      {
+        "name": "加工定制",
+        "value": "是"
+      },
+      {
+        "name": "使用场景",
+        "value": "家用"
+      },
+      {
+        "name": "材质",
+        "value": "萌夯"
+      },
+      {
+        "name": "是否进口",
+        "value": "腰围尺"
+      },
+      {
+        "name": "装箱数",
+        "value": "150"
+      },
+      {
+        "name": "货号",
+        "value": "白色【高品质op袋装】,黑色【高品质op袋装】"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "颜色",
+        "value": "否"
+      },
+      {
+        "name": "加工定制",
+        "value": "家用"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "白色【高品质op袋装】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01byJDFb1h8JHp3AHAC_!!2220906034232-0-cib.jpg"
+          },
+          {
+            "name": "黑色【高品质op袋装】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01TDl8Ul1h8JHp2Hp0x_!!2220906034232-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "三围尺",
+            "image": null
+          },
+          {
+            "name": "三围尺",
+            "image": null,
+            "price": 0.47
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "白色【高品质op袋装】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01byJDFb1h8JHp3AHAC_!!2220906034232-0-cib.jpg"
+          },
+          {
+            "name": "黑色【高品质op袋装】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01TDl8Ul1h8JHp2Hp0x_!!2220906034232-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 80",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 2.5,
+      "carrier": "中通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "三围尺",
+        "price": 0.47,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 16,
+      "attributeCount": 26,
+      "optionGroupCount": 3,
+      "skuCount": 1,
+      "imageCount": 22,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 8
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260717-192953-536152-cc82598e.json"
+}

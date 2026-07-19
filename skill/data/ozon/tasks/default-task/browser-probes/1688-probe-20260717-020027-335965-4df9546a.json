@@ -1,0 +1,322 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "跨境宠物猫隧道猫咪彩虹通道卡通互动钻桶可折叠逗猫棒猫咪玩具",
+    "price": "¥3.5",
+    "brand": "迪尼",
+    "seller": "义乌市迪尼供应链管理有限公司 关注 客服 商品 入驻3年 主营：猫/狗美容清洁用品 店铺回头率 62% 店铺服务分 4.5分 准时发货率 98% 店铺好评率 95.7%",
+    "image_count": 9,
+    "attribute_count": 35,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/854149382173.html",
+    "loginRequired": false,
+    "title": "跨境宠物猫隧道猫咪彩虹通道卡通互动钻桶可折叠逗猫棒猫咪玩具",
+    "price": "¥3.5",
+    "priceValue": 3.5,
+    "brand": "迪尼",
+    "seller": "义乌市迪尼供应链管理有限公司 关注 客服 商品 入驻3年 主营：猫/狗美容清洁用品 店铺回头率 62% 店铺服务分 4.5分 准时发货率 98% 店铺好评率 95.7%",
+    "sellerLink": "https://shop55i648y0f02g1.1688.com/?offerId=854149382173&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01w2Ntmr1WNut0sRUdF_!!2217767522777-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01w2Ntmr1WNut0sRUdF_!!2217767522777-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dtG3AF1WNusyV6tpe_!!2217767522777-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BMEOy41WNut0GgVlq_!!2217767522777-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Poy0CA1WNuswh1f21_!!2217767522777-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cMs9wC1WNuszY4ldS_!!2217767522777-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zeGTfN1WNusxzqwUo_!!2217767522777-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01S3c8Db1WNusq4Qq2c_!!2217767522777-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Y1lp3v1WNusyikXc9_!!2217767522777-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gZG4Z31WNuxvUd4O4_!!2217767522777-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2217767522777/p/2/e/6/t/1/493954469810.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "义乌",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "聚酯纤维（涤纶）"
+      },
+      {
+        "name": "品牌",
+        "value": "迪尼"
+      },
+      {
+        "name": "产品类别",
+        "value": "逗猫玩具"
+      },
+      {
+        "name": "产地",
+        "value": "义乌"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "猫隧道"
+      },
+      {
+        "name": "箱装数量",
+        "value": "50"
+      },
+      {
+        "name": "重量",
+        "value": "340g"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "B15101彩色两通,B18405彩虹S通,B18207彩色长直通,T字型通道"
+      },
+      {
+        "name": "规格",
+        "value": "如图"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "宠物玩具",
+        "value": "猫隧道、自嗨解闷、猫咪玩具、猫咪逗猫棒、逗猫棒、宠物隧道、宠物玩具、、耐咬耐抓、自动后退转弯、"
+      },
+      {
+        "name": "宠物用品",
+        "value": "义乌宠物用品，宠物玩具、宠物清洁用品、宠物猫砂盆、猫砂、纸尿垫、猫梳子、宠物梳子、梳子"
+      },
+      {
+        "name": "猫隧道",
+        "value": "自嗨、解闷、智能玩具、狗玩具、逗猫棒玩具、义乌宠物玩具、替换头"
+      },
+      {
+        "name": "颜色",
+        "value": "B15101彩色两通、B18405彩虹S通、B18207彩色长直通、T字型通道"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "材质",
+        "value": "迪尼"
+      },
+      {
+        "name": "产品类别",
+        "value": "义乌"
+      },
+      {
+        "name": "是否进口",
+        "value": "猫隧道"
+      },
+      {
+        "name": "箱装数量",
+        "value": "340g"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "B15101彩色两通,B18405彩虹S通,B18207彩色长直通,T字型通道"
+      },
+      {
+        "name": "规格",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "猫隧道、自嗨解闷、猫咪玩具、猫咪逗猫棒、逗猫棒、宠物隧道、宠物玩具、、耐咬耐抓、自动后退转弯、"
+      },
+      {
+        "name": "宠物用品",
+        "value": "自嗨、解闷、智能玩具、狗玩具、逗猫棒玩具、义乌宠物玩具、替换头"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "60000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "B15101彩色两通",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zeGTfN1WNusxzqwUo_!!2217767522777-0-cib.jpg"
+          },
+          {
+            "name": "B18405彩虹S通",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01S3c8Db1WNusq4Qq2c_!!2217767522777-0-cib.jpg"
+          },
+          {
+            "name": "B18207彩色长直通",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Y1lp3v1WNusyikXc9_!!2217767522777-0-cib.jpg"
+          },
+          {
+            "name": "T字型通道",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01gZG4Z31WNuxvUd4O4_!!2217767522777-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "如图",
+            "image": null
+          },
+          {
+            "name": "如图",
+            "image": null,
+            "price": 3.5
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "B15101彩色两通",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zeGTfN1WNusxzqwUo_!!2217767522777-0-cib.jpg"
+          },
+          {
+            "name": "B18405彩虹S通",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01S3c8Db1WNusq4Qq2c_!!2217767522777-0-cib.jpg"
+          },
+          {
+            "name": "B18207彩色长直通",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Y1lp3v1WNusyikXc9_!!2217767522777-0-cib.jpg"
+          },
+          {
+            "name": "T字型通道",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01gZG4Z31WNuxvUd4O4_!!2217767522777-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 400",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "400",
+        "weightGrams": 400,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 4,
+      "carrier": "中通快递",
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "如图",
+        "price": 3.5,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 20,
+      "attributeCount": 35,
+      "optionGroupCount": 3,
+      "skuCount": 1,
+      "imageCount": 12,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 9
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260717-020027-335965-4df9546a.json"
+}

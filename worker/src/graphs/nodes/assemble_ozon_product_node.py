@@ -28,6 +28,7 @@ from typing import Any, Optional
 from jinja2 import Template
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
+from storage.database.db import get_session
 
 from graphs.state import GlobalState
 from utils.mxou_llm import call_mxou_chat_api
@@ -243,6 +244,22 @@ def assemble_ozon_product_node(
                 break
     
     logger.info(f"   ✅ 类目匹配: [{description_category_id}/{type_id}] {category_path}")
+
+    # ✅ Step 1.5: 查俄语类目名（同一 ID，RU 语言，直接SQL）
+    ru_category_path: str = ""
+    if description_category_id and type_id:
+        try:
+            from sqlalchemy import text as sql_text
+            with get_session() as s:
+                row = s.execute(sql_text(
+                    "SELECT full_path FROM category_tree_nodes "
+                    "WHERE description_category_id=:cid AND type_id=:tid AND language='RU' LIMIT 1"
+                ), {"cid": description_category_id, "tid": type_id}).fetchone()
+                if row:
+                    ru_category_path = row[0]
+                    logger.info(f"   🇷🇺 俄语类目: {ru_category_path}")
+        except Exception:
+            pass
 
     # =====================================================
     # Step 1d: 验证类目对（防止无效 category_id/type_id 导致后续 400）
@@ -634,7 +651,7 @@ def _fetch_attribute_schema_from_ozon(
         payload = {
             "description_category_id": description_category_id,
             "type_id": type_id,
-            "language": "ZH_HANS",
+            "language": "RU",  # 俄语属性名（ID跨语言一致）
         }
         resp = session.post(url, json=payload, headers=headers, timeout=30)
         resp.raise_for_status()
@@ -1098,7 +1115,7 @@ def _fetch_dict_values_from_ozon(
             "attribute_id": attribute_id,
             "description_category_id": description_category_id,
             "type_id": type_id,
-            "language": "ZH_HANS",
+            "language": "RU",  # 俄语字典值（dictionary_value_id跨语言一致）
             "limit": 100,
         }
         resp = session.post(url, json=payload, headers=headers, timeout=30)
@@ -1127,7 +1144,7 @@ def _cache_dict_values(
             description_category_id=description_category_id,
             type_id=type_id,
             values_data=values,
-            language="ZH_HANS",
+            language="RU",  # 俄语字典值缓存
             expires_in=86400,
         )
         logger.info(f"   ✅ 字典值缓存写入成功: attr={attribute_id}, {len(values)} 条")

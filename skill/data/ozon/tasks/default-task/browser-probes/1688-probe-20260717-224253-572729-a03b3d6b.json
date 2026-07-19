@@ -1,0 +1,653 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "新款CCD复古迷你小型数码相机学生校园照相机拍照录像高清摄像素",
+    "price": "¥95",
+    "brand": "中性",
+    "seller": "深圳市方巨科技有限公司 关注 客服 商品 入驻5年 主营：摄影摄像及配件 店铺回头率 53% 店铺服务分 4.0分 准时发货率 97% 店铺好评率 99.1%",
+    "image_count": 15,
+    "attribute_count": 74,
+    "dom_sku_count": 10,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/933327062928.html",
+    "loginRequired": false,
+    "title": "新款CCD复古迷你小型数码相机学生校园照相机拍照录像高清摄像素",
+    "price": "¥95",
+    "priceValue": 95,
+    "brand": "中性",
+    "seller": "深圳市方巨科技有限公司 关注 客服 商品 入驻5年 主营：摄影摄像及配件 店铺回头率 53% 店铺服务分 4.0分 准时发货率 97% 店铺好评率 99.1%",
+    "sellerLink": "https://qncntech.1688.com/?offerId=933327062928&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01H5gzjg1ISaLsQulHt_!!2466490892-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01H5gzjg1ISaLsQulHt_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01TQrAww1ISaLs1gHxq_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01teZD1H1ISaLrD5acW_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0157dymE1ISaLqH7zzR_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yWeXbD1ISaLqCjYtj_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN011sTPhF1ISaLqH6epv_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GwZz0O1ISaLr6vRsz_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN011zcsDr1ISaLqCTvFV_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ATtDy01ISaLrD5WS2_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cpVmS41ISaN5aObA9_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01NOMQzY1ISaIhGqSHN_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Jvokfb1ISaJzN9jG2_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LiDcVN1ISaHjdkSCN_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ecvGW41ISaBlgU7ao_!!2466490892-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LC299W1ISaJzptXyI_!!2466490892-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2466490892/p/2/e/6/t/1/529790947705.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "深圳",
+    "model": "Y6000",
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "中性"
+      },
+      {
+        "name": "有效像素",
+        "value": "800万"
+      },
+      {
+        "name": "光学变焦倍数",
+        "value": "无"
+      },
+      {
+        "name": "特殊功能",
+        "value": "智能场景模式,其他"
+      },
+      {
+        "name": "机身内存",
+        "value": "无"
+      },
+      {
+        "name": "存储介质",
+        "value": "TF卡"
+      },
+      {
+        "name": "数码变焦倍数",
+        "value": "无"
+      },
+      {
+        "name": "数码相机类型",
+        "value": "智能相机"
+      },
+      {
+        "name": "系列",
+        "value": "迷你复古"
+      },
+      {
+        "name": "货号",
+        "value": "Y6000"
+      },
+      {
+        "name": "型号",
+        "value": "Y6000"
+      },
+      {
+        "name": "产地",
+        "value": "深圳"
+      },
+      {
+        "name": "货源类别",
+        "value": "现货"
+      },
+      {
+        "name": "商品类型",
+        "value": "全新"
+      },
+      {
+        "name": "适用场景",
+        "value": "个性潮流"
+      },
+      {
+        "name": "操作方式",
+        "value": "全自动操作"
+      },
+      {
+        "name": "传感器类型",
+        "value": "CCD"
+      },
+      {
+        "name": "传感器尺寸",
+        "value": "1/1.7英寸"
+      },
+      {
+        "name": "最大分辨率",
+        "value": "8000*6000"
+      },
+      {
+        "name": "液晶屏尺寸",
+        "value": "1.7"
+      },
+      {
+        "name": "屏幕类型",
+        "value": "高清屏"
+      },
+      {
+        "name": "镜头类型",
+        "value": "潜望式"
+      },
+      {
+        "name": "防抖性能",
+        "value": "电子防抖"
+      },
+      {
+        "name": "数据接口",
+        "value": "USB3.0"
+      },
+      {
+        "name": "材质",
+        "value": "ABS"
+      },
+      {
+        "name": "电池类型",
+        "value": "内置聚合物锂电池"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "乔迁,展销会,广告促销,员工福利,周年庆典,商务馈赠,开业典礼,颁奖纪念,公关策划,其他"
+      },
+      {
+        "name": "加工方式",
+        "value": "贴牌加工"
+      },
+      {
+        "name": "最快出货时间",
+        "value": "1-3天"
+      },
+      {
+        "name": "是否支持一件代发",
+        "value": "支持"
+      },
+      {
+        "name": "包装清单",
+        "value": "相机，充电线，说明书，手绳，钥匙挂扣"
+      },
+      {
+        "name": "上市时间",
+        "value": "2025年6月"
+      },
+      {
+        "name": "售后服务",
+        "value": "店铺三包"
+      },
+      {
+        "name": "发票",
+        "value": "不提供发票"
+      },
+      {
+        "name": "机身颜色",
+        "value": "卡其棕,复古红,橄榄绿,熊猫色,苍山白,8G-TF内存卡,16G-TF内存卡,32G-TF内存卡,64G-TF内存卡,128G-TF内存卡"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "速卖通,独立站,LAZADA,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "乔迁、展销会、广告促销、员工福利、周年庆典、商务馈赠、开业典礼、颁奖纪念、公关策划、其他"
+      },
+      {
+        "name": "机身颜色",
+        "value": "卡其棕、复古红、橄榄绿、熊猫色、苍山白、8G-TF内存卡、16G-TF内存卡、32G-TF内存卡、64G-TF内存卡、128G-TF内存卡"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "速卖通、独立站、LAZADA、其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "东南亚、北美、东北亚、中东、其他"
+      },
+      {
+        "name": "品牌",
+        "value": "800万"
+      },
+      {
+        "name": "光学变焦倍数",
+        "value": "智能场景模式,其他"
+      },
+      {
+        "name": "机身内存",
+        "value": "TF卡"
+      },
+      {
+        "name": "数码变焦倍数",
+        "value": "智能相机"
+      },
+      {
+        "name": "系列",
+        "value": "Y6000"
+      },
+      {
+        "name": "型号",
+        "value": "深圳"
+      },
+      {
+        "name": "货源类别",
+        "value": "全新"
+      },
+      {
+        "name": "适用场景",
+        "value": "全自动操作"
+      },
+      {
+        "name": "传感器类型",
+        "value": "1/1.7英寸"
+      },
+      {
+        "name": "最大分辨率",
+        "value": "1.7"
+      },
+      {
+        "name": "屏幕类型",
+        "value": "潜望式"
+      },
+      {
+        "name": "防抖性能",
+        "value": "USB3.0"
+      },
+      {
+        "name": "材质",
+        "value": "内置聚合物锂电池"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "贴牌加工"
+      },
+      {
+        "name": "最快出货时间",
+        "value": "支持"
+      },
+      {
+        "name": "包装清单",
+        "value": "2025年6月"
+      },
+      {
+        "name": "售后服务",
+        "value": "不提供发票"
+      },
+      {
+        "name": "机身颜色",
+        "value": "速卖通,独立站,LAZADA,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "是"
+      },
+      {
+        "name": "卡其棕",
+        "value": "103"
+      },
+      {
+        "name": "复古红",
+        "value": "103"
+      },
+      {
+        "name": "橄榄绿",
+        "value": "103"
+      },
+      {
+        "name": "熊猫色",
+        "value": "103"
+      },
+      {
+        "name": "苍山白",
+        "value": "103"
+      },
+      {
+        "name": "8G-TF内存卡",
+        "value": "103"
+      },
+      {
+        "name": "16G-TF内存卡",
+        "value": "103"
+      },
+      {
+        "name": "32G-TF内存卡",
+        "value": "103"
+      },
+      {
+        "name": "64G-TF内存卡",
+        "value": "103"
+      },
+      {
+        "name": "128G-TF内存卡",
+        "value": "103"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "1000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "机身颜色",
+        "values": [
+          {
+            "name": "卡其棕",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN011sTPhF1ISaLqH6epv_!!2466490892-0-cib.jpg"
+          },
+          {
+            "name": "复古红",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GwZz0O1ISaLr6vRsz_!!2466490892-0-cib.jpg"
+          },
+          {
+            "name": "橄榄绿",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN011zcsDr1ISaLqCTvFV_!!2466490892-0-cib.jpg"
+          },
+          {
+            "name": "熊猫色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ATtDy01ISaLrD5WS2_!!2466490892-0-cib.jpg"
+          },
+          {
+            "name": "苍山白",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cpVmS41ISaN5aObA9_!!2466490892-0-cib.jpg"
+          },
+          {
+            "name": "8G-TF内存卡",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NOMQzY1ISaIhGqSHN_!!2466490892-0-cib.jpg"
+          },
+          {
+            "name": "16G-TF内存卡",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Jvokfb1ISaJzN9jG2_!!2466490892-0-cib.jpg"
+          },
+          {
+            "name": "32G-TF内存卡",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LiDcVN1ISaHjdkSCN_!!2466490892-0-cib.jpg"
+          },
+          {
+            "name": "64G-TF内存卡",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ecvGW41ISaBlgU7ao_!!2466490892-0-cib.jpg"
+          },
+          {
+            "name": "128G-TF内存卡",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LC299W1ISaJzptXyI_!!2466490892-0-cib.jpg"
+          },
+          {
+            "name": "卡其棕",
+            "image": null,
+            "price": 95
+          },
+          {
+            "name": "复古红",
+            "image": null,
+            "price": 95
+          },
+          {
+            "name": "橄榄绿",
+            "image": null,
+            "price": 95
+          },
+          {
+            "name": "熊猫色",
+            "image": null,
+            "price": 95
+          },
+          {
+            "name": "苍山白",
+            "image": null,
+            "price": 95
+          },
+          {
+            "name": "8G-TF内存卡",
+            "image": null,
+            "price": 20
+          },
+          {
+            "name": "16G-TF内存卡",
+            "image": null,
+            "price": 25
+          },
+          {
+            "name": "32G-TF内存卡",
+            "image": null,
+            "price": 35
+          },
+          {
+            "name": "64G-TF内存卡",
+            "image": null,
+            "price": 65
+          },
+          {
+            "name": "128G-TF内存卡",
+            "image": null,
+            "price": 95
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "机身颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "机身颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 卡其棕 9.50 7.40 3.60 253.080 103 复古红 9.50 7.40 3.60 253.080 103 橄榄绿 9.50 7.40 3.60 253.080 103 熊猫色 9.50 7.40 3.60 253.080 103 苍山白 9.50 7.40 3.60 253.080 103 8G-TF内存卡 9.50 7.40 3.60 253.080 103 16G-TF内存卡 9.50 7.40 3.60 253.080 103 32G-TF内存卡 9.50 7.40 3.60 253.080 103 64G-TF内存卡 9.50 7.40 3.60 253.080 103 128G-TF内存卡 9.50 7.40 3.60 253.080 103",
+    "packagingRows": [
+      {
+        "color": "卡其棕",
+        "capacity": "9.50",
+        "weightText": "103",
+        "weightGrams": 103,
+        "lengthText": "9.50",
+        "widthText": "7.40",
+        "heightText": "3.60"
+      },
+      {
+        "color": "复古红",
+        "capacity": "9.50",
+        "weightText": "103",
+        "weightGrams": 103,
+        "lengthText": "9.50",
+        "widthText": "7.40",
+        "heightText": "3.60"
+      },
+      {
+        "color": "橄榄绿",
+        "capacity": "9.50",
+        "weightText": "103",
+        "weightGrams": 103,
+        "lengthText": "9.50",
+        "widthText": "7.40",
+        "heightText": "3.60"
+      },
+      {
+        "color": "熊猫色",
+        "capacity": "9.50",
+        "weightText": "103",
+        "weightGrams": 103,
+        "lengthText": "9.50",
+        "widthText": "7.40",
+        "heightText": "3.60"
+      },
+      {
+        "color": "苍山白",
+        "capacity": "9.50",
+        "weightText": "103",
+        "weightGrams": 103,
+        "lengthText": "9.50",
+        "widthText": "7.40",
+        "heightText": "3.60"
+      },
+      {
+        "color": "8G-TF内存卡",
+        "capacity": "9.50",
+        "weightText": "103",
+        "weightGrams": 103,
+        "lengthText": "9.50",
+        "widthText": "7.40",
+        "heightText": "3.60"
+      },
+      {
+        "color": "16G-TF内存卡",
+        "capacity": "9.50",
+        "weightText": "103",
+        "weightGrams": 103,
+        "lengthText": "9.50",
+        "widthText": "7.40",
+        "heightText": "3.60"
+      },
+      {
+        "color": "32G-TF内存卡",
+        "capacity": "9.50",
+        "weightText": "103",
+        "weightGrams": 103,
+        "lengthText": "9.50",
+        "widthText": "7.40",
+        "heightText": "3.60"
+      },
+      {
+        "color": "64G-TF内存卡",
+        "capacity": "9.50",
+        "weightText": "103",
+        "weightGrams": 103,
+        "lengthText": "9.50",
+        "widthText": "7.40",
+        "heightText": "3.60"
+      },
+      {
+        "color": "128G-TF内存卡",
+        "capacity": "9.50",
+        "weightText": "103",
+        "weightGrams": 103,
+        "lengthText": "9.50",
+        "widthText": "7.40",
+        "heightText": "3.60"
+      }
+    ],
+    "shipping": {
+      "origin": "广东深圳",
+      "freightCny": 6,
+      "carrier": "中通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "卡其棕",
+        "price": 95,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN011sTPhF1ISaLqH6epv_!!2466490892-0-cib.jpg"
+      },
+      {
+        "name": "复古红",
+        "price": 95,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GwZz0O1ISaLr6vRsz_!!2466490892-0-cib.jpg"
+      },
+      {
+        "name": "橄榄绿",
+        "price": 95,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN011zcsDr1ISaLqCTvFV_!!2466490892-0-cib.jpg"
+      },
+      {
+        "name": "熊猫色",
+        "price": 95,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ATtDy01ISaLrD5WS2_!!2466490892-0-cib.jpg"
+      },
+      {
+        "name": "苍山白",
+        "price": 95,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cpVmS41ISaN5aObA9_!!2466490892-0-cib.jpg"
+      },
+      {
+        "name": "8G-TF内存卡",
+        "price": 20,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NOMQzY1ISaIhGqSHN_!!2466490892-0-cib.jpg"
+      },
+      {
+        "name": "16G-TF内存卡",
+        "price": 25,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Jvokfb1ISaJzN9jG2_!!2466490892-0-cib.jpg"
+      },
+      {
+        "name": "32G-TF内存卡",
+        "price": 35,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LiDcVN1ISaHjdkSCN_!!2466490892-0-cib.jpg"
+      },
+      {
+        "name": "64G-TF内存卡",
+        "price": 65,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ecvGW41ISaBlgU7ao_!!2466490892-0-cib.jpg"
+      },
+      {
+        "name": "128G-TF内存卡",
+        "price": 95,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LC299W1ISaJzptXyI_!!2466490892-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 39,
+      "attributeCount": 74,
+      "optionGroupCount": 1,
+      "skuCount": 10,
+      "imageCount": 18,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 376
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260717-224253-572729-a03b3d6b.json"
+}

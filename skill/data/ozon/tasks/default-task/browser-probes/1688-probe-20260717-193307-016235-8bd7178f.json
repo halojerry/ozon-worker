@@ -1,0 +1,359 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 25,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "挖土机浮水小米诺假饵长舌板摇滚小胖子微物鲈鱼翘嘴军鱼路亚饵",
+    "price": "¥4.4",
+    "brand": "海豚路亚",
+    "seller": "兴宁市海豚路亚渔具店 关注 客服 商品 入驻3年 主营：垂钓用品 店铺回头率 75% 店铺服务分 5.0分 准时发货率 99% 店铺好评率 97.0%",
+    "image_count": 10,
+    "attribute_count": 23,
+    "dom_sku_count": 10,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/775692004235.html",
+    "loginRequired": false,
+    "title": "挖土机浮水小米诺假饵长舌板摇滚小胖子微物鲈鱼翘嘴军鱼路亚饵",
+    "price": "¥4.4",
+    "priceValue": 4.4,
+    "brand": "海豚路亚",
+    "seller": "兴宁市海豚路亚渔具店 关注 客服 商品 入驻3年 主营：垂钓用品 店铺回头率 75% 店铺服务分 5.0分 准时发货率 99% 店铺好评率 97.0%",
+    "sellerLink": "https://shop8385230d441v2.1688.com/?offerId=775692004235&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01PpVQUe1MQX6JQJbnJ_!!2216712761429-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PpVQUe1MQX6JQJbnJ_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wrqmaa1MQWwhz9xQQ_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GiJVXd1MQWwZIxzIE_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QjXtPq1MQWwjXfzrP_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01q7GMmd1MQWwhz9M06_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cFemaJ1MQWwhFyISc_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sFkKeB1MQWwkDh54x_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lYZB8L1MQWwhzCIxj_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xkYOUG1MQWwhzAhAM_!!2216712761429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0141VbJ81MQWwiU8oUH_!!2216712761429-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "中国",
+    "model": null,
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "海豚路亚"
+      },
+      {
+        "name": "鱼饵类型",
+        "value": "路亚硬饵"
+      },
+      {
+        "name": "产品类别",
+        "value": "路亚饵"
+      },
+      {
+        "name": "鱼饵形态",
+        "value": "假饵/仿生饵"
+      },
+      {
+        "name": "货号",
+        "value": "10086"
+      },
+      {
+        "name": "产地",
+        "value": "中国"
+      },
+      {
+        "name": "颜色",
+        "value": "5克猫眼银,5克红头银,5克白条色,5克马口色,5克渐变粉,8克猫眼银,8克红头银,8克白条色,8克马口色,8克渐变粉"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "专利类型",
+        "value": "无"
+      },
+      {
+        "name": "外贸出口认证",
+        "value": "无"
+      },
+      {
+        "name": "质检报告编号",
+        "value": "无"
+      },
+      {
+        "name": "生产厂家地址",
+        "value": "中国"
+      },
+      {
+        "name": "生产厂家名称",
+        "value": "中国"
+      },
+      {
+        "name": "吊牌价",
+        "value": "19"
+      },
+      {
+        "name": "颜色",
+        "value": "5克猫眼银、5克红头银、5克白条色、5克马口色、5克渐变粉、8克猫眼银、8克红头银、8克白条色、8克马口色、8克渐变粉"
+      },
+      {
+        "name": "品牌",
+        "value": "路亚硬饵"
+      },
+      {
+        "name": "产品类别",
+        "value": "假饵/仿生饵"
+      },
+      {
+        "name": "货号",
+        "value": "中国"
+      },
+      {
+        "name": "颜色",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "无"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "4000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "5克猫眼银",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cFemaJ1MQWwhFyISc_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "5克红头银",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01sFkKeB1MQWwkDh54x_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "5克白条色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lYZB8L1MQWwhzCIxj_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "5克马口色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xkYOUG1MQWwhzAhAM_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "5克渐变粉",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0141VbJ81MQWwiU8oUH_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "8克猫眼银",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cFemaJ1MQWwhFyISc_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "8克红头银",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01sFkKeB1MQWwkDh54x_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "8克白条色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lYZB8L1MQWwhzCIxj_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "8克马口色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xkYOUG1MQWwhzAhAM_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "8克渐变粉",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0141VbJ81MQWwiU8oUH_!!2216712761429-0-cib.jpg"
+          },
+          {
+            "name": "5克猫眼银",
+            "image": null,
+            "price": 4.4
+          },
+          {
+            "name": "5克红头银",
+            "image": null,
+            "price": 4.4
+          },
+          {
+            "name": "5克白条色",
+            "image": null,
+            "price": 4.4
+          },
+          {
+            "name": "5克马口色",
+            "image": null,
+            "price": 4.4
+          },
+          {
+            "name": "5克渐变粉",
+            "image": null,
+            "price": 4.4
+          },
+          {
+            "name": "8克猫眼银",
+            "image": null,
+            "price": 4.4
+          },
+          {
+            "name": "8克红头银",
+            "image": null,
+            "price": 4.4
+          },
+          {
+            "name": "8克白条色",
+            "image": null,
+            "price": 4.4
+          },
+          {
+            "name": "8克马口色",
+            "image": null,
+            "price": 4.4
+          },
+          {
+            "name": "8克渐变粉",
+            "image": null,
+            "price": 4.4
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 1",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "1",
+        "weightGrams": 1,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "广东梅州",
+      "freightCny": 3.5,
+      "carrier": "圆通快递",
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "5克猫眼银",
+        "price": 4.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cFemaJ1MQWwhFyISc_!!2216712761429-0-cib.jpg"
+      },
+      {
+        "name": "5克红头银",
+        "price": 4.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01sFkKeB1MQWwkDh54x_!!2216712761429-0-cib.jpg"
+      },
+      {
+        "name": "5克白条色",
+        "price": 4.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lYZB8L1MQWwhzCIxj_!!2216712761429-0-cib.jpg"
+      },
+      {
+        "name": "5克马口色",
+        "price": 4.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xkYOUG1MQWwhzAhAM_!!2216712761429-0-cib.jpg"
+      },
+      {
+        "name": "5克渐变粉",
+        "price": 4.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN0141VbJ81MQWwiU8oUH_!!2216712761429-0-cib.jpg"
+      },
+      {
+        "name": "8克猫眼银",
+        "price": 4.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cFemaJ1MQWwhFyISc_!!2216712761429-0-cib.jpg"
+      },
+      {
+        "name": "8克红头银",
+        "price": 4.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01sFkKeB1MQWwkDh54x_!!2216712761429-0-cib.jpg"
+      },
+      {
+        "name": "8克白条色",
+        "price": 4.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lYZB8L1MQWwhzCIxj_!!2216712761429-0-cib.jpg"
+      },
+      {
+        "name": "8克马口色",
+        "price": 4.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xkYOUG1MQWwhzAhAM_!!2216712761429-0-cib.jpg"
+      },
+      {
+        "name": "8克渐变粉",
+        "price": 4.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN0141VbJ81MQWwiU8oUH_!!2216712761429-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 15,
+      "attributeCount": 23,
+      "optionGroupCount": 1,
+      "skuCount": 10,
+      "imageCount": 13,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 7
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260717-193307-016235-8bd7178f.json"
+}

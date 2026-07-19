@@ -1,0 +1,429 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 25,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "迷你胸罩车载小挂件小清新",
+    "price": "¥8.5",
+    "brand": "鑫华雨",
+    "seller": "义乌市鑫华雨日用品有限公司 关注 客服 商品 入驻3年 主营：安全/应急/自驾 店铺回头率 61% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 89.7%",
+    "image_count": 13,
+    "attribute_count": 31,
+    "dom_sku_count": 8,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1053066458703.html",
+    "loginRequired": false,
+    "title": "迷你胸罩车载小挂件小清新",
+    "price": "¥8.5",
+    "priceValue": 8.5,
+    "brand": "鑫华雨",
+    "seller": "义乌市鑫华雨日用品有限公司 关注 客服 商品 入驻3年 主营：安全/应急/自驾 店铺回头率 61% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 89.7%",
+    "sellerLink": "https://shop614r997l162q4.1688.com/?offerId=1053066458703&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01uNnuqg2MSpHSKBoBj_!!2217565309827-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01uNnuqg2MSpHSKBoBj_!!2217565309827-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gzamKM2MSpHSJp8W1_!!2217565309827-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JqS53p2MSpHSeNJNl_!!2217565309827-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HhFM2a2MSpHSNSixn_!!2217565309827-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01uzCaJY1MEAQhcAXdf_!!6000000001402-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010d1vFd2MSpHTqR91i_!!2217565309827-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dxCVft2MSpHSYc75q_!!2217565309827-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ouDvOj2MSpHS7ToM2_!!2217565309827-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ujRDML2MSpHS2fzdR_!!2217565309827-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JlXJ6u2MSpHSULuG7_!!2217565309827-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01I7SPy12MSpHS7WICq_!!2217565309827-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01EnYRIw2MSpHTqRY4C_!!2217565309827-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YBfMbr2MSpHSYgPQn_!!2217565309827-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2217565309827/p/2/e/6/t/1/566466313833.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "棉"
+      },
+      {
+        "name": "风格",
+        "value": "现代"
+      },
+      {
+        "name": "功能",
+        "value": "车内装饰"
+      },
+      {
+        "name": "分类",
+        "value": "汽车挂饰"
+      },
+      {
+        "name": "品牌",
+        "value": "鑫华雨"
+      },
+      {
+        "name": "货号",
+        "value": "MX904"
+      },
+      {
+        "name": "加工定制",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "粉爱心款内衣挂件+衣架,粉格子款内衣挂件+衣架,莓果条纹款内衣挂件+衣架,小豹纹款内衣挂件+衣架,橘野格调款内衣挂件+衣架,夏日棕野款内衣挂件+衣架,小黑点款内衣挂件+衣架,素雅青兰款内衣挂件+衣架"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "欧洲,东南亚,东北亚,中东"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "粉爱心款内衣挂件+衣架、粉格子款内衣挂件+衣架、莓果条纹款内衣挂件+衣架、小豹纹款内衣挂件+衣架、橘野格调款内衣挂件+衣架、夏日棕野款内衣挂件+衣架、小黑点款内衣挂件+衣架、素雅青兰款内衣挂件+衣架"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "欧洲、东南亚、东北亚、中东"
+      },
+      {
+        "name": "材质",
+        "value": "现代"
+      },
+      {
+        "name": "功能",
+        "value": "汽车挂饰"
+      },
+      {
+        "name": "品牌",
+        "value": "MX904"
+      },
+      {
+        "name": "加工定制",
+        "value": "粉爱心款内衣挂件+衣架,粉格子款内衣挂件+衣架,莓果条纹款内衣挂件+衣架,小豹纹款内衣挂件+衣架,橘野格调款内衣挂件+衣架,夏日棕野款内衣挂件+衣架,小黑点款内衣挂件+衣架,素雅青兰款内衣挂件+衣架"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "欧洲,东南亚,东北亚,中东"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "粉爱心款内衣挂件+衣架",
+        "value": "33"
+      },
+      {
+        "name": "粉格子款内衣挂件+衣架",
+        "value": "33"
+      },
+      {
+        "name": "莓果条纹款内衣挂件+衣架",
+        "value": "33"
+      },
+      {
+        "name": "小豹纹款内衣挂件+衣架",
+        "value": "33"
+      },
+      {
+        "name": "橘野格调款内衣挂件+衣架",
+        "value": "33"
+      },
+      {
+        "name": "夏日棕野款内衣挂件+衣架",
+        "value": "33"
+      },
+      {
+        "name": "小黑点款内衣挂件+衣架",
+        "value": "33"
+      },
+      {
+        "name": "素雅青兰款内衣挂件+衣架",
+        "value": "33"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "5000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "粉爱心款内衣挂件+衣架",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN010d1vFd2MSpHTqR91i_!!2217565309827-0-cib.jpg"
+          },
+          {
+            "name": "粉格子款内衣挂件+衣架",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dxCVft2MSpHSYc75q_!!2217565309827-0-cib.jpg"
+          },
+          {
+            "name": "莓果条纹款内衣挂件+衣架",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ouDvOj2MSpHS7ToM2_!!2217565309827-0-cib.jpg"
+          },
+          {
+            "name": "小豹纹款内衣挂件+衣架",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ujRDML2MSpHS2fzdR_!!2217565309827-0-cib.jpg"
+          },
+          {
+            "name": "橘野格调款内衣挂件+衣架",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01JlXJ6u2MSpHSULuG7_!!2217565309827-0-cib.jpg"
+          },
+          {
+            "name": "夏日棕野款内衣挂件+衣架",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01I7SPy12MSpHS7WICq_!!2217565309827-0-cib.jpg"
+          },
+          {
+            "name": "小黑点款内衣挂件+衣架",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01EnYRIw2MSpHTqRY4C_!!2217565309827-0-cib.jpg"
+          },
+          {
+            "name": "素雅青兰款内衣挂件+衣架",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01YBfMbr2MSpHSYgPQn_!!2217565309827-0-cib.jpg"
+          },
+          {
+            "name": "粉爱心款内衣挂件+衣架",
+            "image": null,
+            "price": 8.5
+          },
+          {
+            "name": "粉格子款内衣挂件+衣架",
+            "image": null,
+            "price": 8.5
+          },
+          {
+            "name": "莓果条纹款内衣挂件+衣架",
+            "image": null,
+            "price": 8.5
+          },
+          {
+            "name": "小豹纹款内衣挂件+衣架",
+            "image": null,
+            "price": 8.5
+          },
+          {
+            "name": "橘野格调款内衣挂件+衣架",
+            "image": null,
+            "price": 8.5
+          },
+          {
+            "name": "夏日棕野款内衣挂件+衣架",
+            "image": null,
+            "price": 8.5
+          },
+          {
+            "name": "小黑点款内衣挂件+衣架",
+            "image": null,
+            "price": 8.5
+          },
+          {
+            "name": "素雅青兰款内衣挂件+衣架",
+            "image": null,
+            "price": 8.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 重量(g) 粉爱心款内衣挂件+衣架 33 粉格子款内衣挂件+衣架 33 莓果条纹款内衣挂件+衣架 33 小豹纹款内衣挂件+衣架 33 橘野格调款内衣挂件+衣架 33 夏日棕野款内衣挂件+衣架 33 小黑点款内衣挂件+衣架 33 素雅青兰款内衣挂件+衣架 33",
+    "packagingRows": [
+      {
+        "color": "粉爱心款内衣挂件+衣架",
+        "capacity": "33",
+        "weightText": "33",
+        "weightGrams": 33,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉格子款内衣挂件+衣架",
+        "capacity": "33",
+        "weightText": "33",
+        "weightGrams": 33,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "莓果条纹款内衣挂件+衣架",
+        "capacity": "33",
+        "weightText": "33",
+        "weightGrams": 33,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "小豹纹款内衣挂件+衣架",
+        "capacity": "33",
+        "weightText": "33",
+        "weightGrams": 33,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "橘野格调款内衣挂件+衣架",
+        "capacity": "33",
+        "weightText": "33",
+        "weightGrams": 33,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "夏日棕野款内衣挂件+衣架",
+        "capacity": "33",
+        "weightText": "33",
+        "weightGrams": 33,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "小黑点款内衣挂件+衣架",
+        "capacity": "33",
+        "weightText": "33",
+        "weightGrams": 33,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "素雅青兰款内衣挂件+衣架",
+        "capacity": "33",
+        "weightText": "33",
+        "weightGrams": 33,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 3,
+      "carrier": "韵达快递"
+    },
+    "skuDetails": [
+      {
+        "name": "粉爱心款内衣挂件+衣架",
+        "price": 8.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN010d1vFd2MSpHTqR91i_!!2217565309827-0-cib.jpg"
+      },
+      {
+        "name": "粉格子款内衣挂件+衣架",
+        "price": 8.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dxCVft2MSpHSYc75q_!!2217565309827-0-cib.jpg"
+      },
+      {
+        "name": "莓果条纹款内衣挂件+衣架",
+        "price": 8.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ouDvOj2MSpHS7ToM2_!!2217565309827-0-cib.jpg"
+      },
+      {
+        "name": "小豹纹款内衣挂件+衣架",
+        "price": 8.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ujRDML2MSpHS2fzdR_!!2217565309827-0-cib.jpg"
+      },
+      {
+        "name": "橘野格调款内衣挂件+衣架",
+        "price": 8.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01JlXJ6u2MSpHSULuG7_!!2217565309827-0-cib.jpg"
+      },
+      {
+        "name": "夏日棕野款内衣挂件+衣架",
+        "price": 8.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01I7SPy12MSpHS7WICq_!!2217565309827-0-cib.jpg"
+      },
+      {
+        "name": "小黑点款内衣挂件+衣架",
+        "price": 8.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01EnYRIw2MSpHTqRY4C_!!2217565309827-0-cib.jpg"
+      },
+      {
+        "name": "素雅青兰款内衣挂件+衣架",
+        "price": 8.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01YBfMbr2MSpHSYgPQn_!!2217565309827-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 12,
+      "attributeCount": 31,
+      "optionGroupCount": 1,
+      "skuCount": 8,
+      "imageCount": 16,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 2,
+      "packagingTableTextLength": 132
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260717-193205-667470-f4f96cf8.json"
+}

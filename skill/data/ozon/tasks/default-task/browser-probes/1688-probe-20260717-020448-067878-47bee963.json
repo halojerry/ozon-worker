@@ -1,0 +1,423 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "不锈钢狗碗食盆喂食喝水双用猫碗不锈钢宠物猫咪食具宠物加厚单碗",
+    "price": "¥2.8",
+    "brand": "芯森泽",
+    "seller": "金华市金东区芯森泽宠物用品厂 关注 客服 商品 入驻5年 主营：猫狗用品 店铺回头率 64% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 99.6%",
+    "image_count": 14,
+    "attribute_count": 28,
+    "dom_sku_count": 8,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/957860376389.html",
+    "loginRequired": false,
+    "title": "不锈钢狗碗食盆喂食喝水双用猫碗不锈钢宠物猫咪食具宠物加厚单碗",
+    "price": "¥2.8",
+    "priceValue": 2.8,
+    "brand": "芯森泽",
+    "seller": "金华市金东区芯森泽宠物用品厂 关注 客服 商品 入驻5年 主营：猫狗用品 店铺回头率 64% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 99.6%",
+    "sellerLink": "https://xinsenze.1688.com/?offerId=957860376389&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Ux4YSO1npG3yYk0CB_!!2212080835138-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Ux4YSO1npG3yYk0CB_!!2212080835138-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01vZHVpN1npG3xDeISn_!!2212080835138-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UXD8kp1npG3wFLyCZ_!!2212080835138-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0153BGaB1npG3xrs9Rd_!!2212080835138-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Oxy4kh1npG3xy1eNM_!!2212080835138-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01uF0ZJG1npG3wC6UlF_!!2212080835138-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01vDNGpj1npG3ww3pz5_!!2212080835138-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01XOX6a11npG3rPNikp_!!2212080835138-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xN8nBh1npG3xrstC6_!!2212080835138-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ITQZH21npG3y0Vp34_!!2212080835138-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01j1HW961npG3xy2zXH_!!2212080835138-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01AqSqxY1npG3wC5cgb_!!2212080835138-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01t2bsQW1npG3wxjHha_!!2212080835138-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01W7O1lt1npG3yPJEp9_!!2212080835138-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "台州",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "塑料"
+      },
+      {
+        "name": "品牌",
+        "value": "芯森泽"
+      },
+      {
+        "name": "成套自动喂食",
+        "value": "否"
+      },
+      {
+        "name": "产地",
+        "value": "台州"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "2526"
+      },
+      {
+        "name": "箱装数量",
+        "value": "144"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "中号白色奶牛【单碗】,中号白色奶牛【单碗+不锈钢碗】,大号白色奶牛【单碗】,大号白色奶牛【单碗+不锈钢碗】,中号黑色奶牛【单碗】,中号黑色奶牛【单碗+不锈钢碗】,大号黑色奶牛【单碗】,大号黑色奶牛【单碗+不锈钢碗】"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "中号白色奶牛【单碗】、中号白色奶牛【单碗+不锈钢碗】、大号白色奶牛【单碗】、大号白色奶牛【单碗+不锈钢碗】、中号黑色奶牛【单碗】、中号黑色奶牛【单碗+不锈钢碗】、大号黑色奶牛【单碗】、大号黑色奶牛【单碗+不锈钢碗】"
+      },
+      {
+        "name": "材质",
+        "value": "芯森泽"
+      },
+      {
+        "name": "成套自动喂食",
+        "value": "台州"
+      },
+      {
+        "name": "是否进口",
+        "value": "2526"
+      },
+      {
+        "name": "箱装数量",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "否"
+      },
+      {
+        "name": "中号白色奶牛【单碗】",
+        "value": "84"
+      },
+      {
+        "name": "中号白色奶牛【单碗+不锈钢碗】",
+        "value": "132"
+      },
+      {
+        "name": "大号白色奶牛【单碗】",
+        "value": "134"
+      },
+      {
+        "name": "大号白色奶牛【单碗+不锈钢碗】",
+        "value": "218"
+      },
+      {
+        "name": "中号黑色奶牛【单碗】",
+        "value": "84"
+      },
+      {
+        "name": "中号黑色奶牛【单碗+不锈钢碗】",
+        "value": "132"
+      },
+      {
+        "name": "大号黑色奶牛【单碗】",
+        "value": "134"
+      },
+      {
+        "name": "大号黑色奶牛【单碗+不锈钢碗】",
+        "value": "218"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "中号白色奶牛【单碗】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01uF0ZJG1npG3wC6UlF_!!2212080835138-0-cib.jpg"
+          },
+          {
+            "name": "中号白色奶牛【单碗+不锈钢碗】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01vDNGpj1npG3ww3pz5_!!2212080835138-0-cib.jpg"
+          },
+          {
+            "name": "大号白色奶牛【单碗】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01XOX6a11npG3rPNikp_!!2212080835138-0-cib.jpg"
+          },
+          {
+            "name": "大号白色奶牛【单碗+不锈钢碗】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xN8nBh1npG3xrstC6_!!2212080835138-0-cib.jpg"
+          },
+          {
+            "name": "中号黑色奶牛【单碗】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ITQZH21npG3y0Vp34_!!2212080835138-0-cib.jpg"
+          },
+          {
+            "name": "中号黑色奶牛【单碗+不锈钢碗】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01j1HW961npG3xy2zXH_!!2212080835138-0-cib.jpg"
+          },
+          {
+            "name": "大号黑色奶牛【单碗】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01AqSqxY1npG3wC5cgb_!!2212080835138-0-cib.jpg"
+          },
+          {
+            "name": "大号黑色奶牛【单碗+不锈钢碗】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01t2bsQW1npG3wxjHha_!!2212080835138-0-cib.jpg"
+          },
+          {
+            "name": "中号白色奶牛【单碗】",
+            "image": null,
+            "price": 2.8
+          },
+          {
+            "name": "中号白色奶牛【单碗+不锈钢碗】",
+            "image": null,
+            "price": 5.13
+          },
+          {
+            "name": "大号白色奶牛【单碗】",
+            "image": null,
+            "price": 3.85
+          },
+          {
+            "name": "大号白色奶牛【单碗+不锈钢碗】",
+            "image": null,
+            "price": 7.47
+          },
+          {
+            "name": "中号黑色奶牛【单碗】",
+            "image": null,
+            "price": 2.8
+          },
+          {
+            "name": "中号黑色奶牛【单碗+不锈钢碗】",
+            "image": null,
+            "price": 5.13
+          },
+          {
+            "name": "大号黑色奶牛【单碗】",
+            "image": null,
+            "price": 3.85
+          },
+          {
+            "name": "大号黑色奶牛【单碗+不锈钢碗】",
+            "image": null,
+            "price": 7.47
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 中号白色奶牛【单碗】 18.50 18.50 6.20 2121.950 84 中号白色奶牛【单碗+不锈钢碗】 18.50 18.50 6.20 2121.950 132 大号白色奶牛【单碗】 22 22 8 3872 134 大号白色奶牛【单碗+不锈钢碗】 22 22 8 3872 218 中号黑色奶牛【单碗】 18.50 18.50 6.20 2121.950 84 中号黑色奶牛【单碗+不锈钢碗】 18.50 18.50 6.20 2121.950 132 大号黑色奶牛【单碗】 22 22 8 3872 134 大号黑色奶牛【单碗+不锈钢碗】 22 22 8 3872 218",
+    "packagingRows": [
+      {
+        "color": "中号白色奶牛【单碗】",
+        "capacity": "中号白色奶牛【单碗】",
+        "weightText": "84",
+        "weightGrams": 84,
+        "lengthText": "18.50",
+        "widthText": "18.50",
+        "heightText": "6.20"
+      },
+      {
+        "color": "中号白色奶牛【单碗+不锈钢碗】",
+        "capacity": "中号白色奶牛【单碗+不锈钢碗】",
+        "weightText": "132",
+        "weightGrams": 132,
+        "lengthText": "18.50",
+        "widthText": "18.50",
+        "heightText": "6.20"
+      },
+      {
+        "color": "大号白色奶牛【单碗】",
+        "capacity": "大号白色奶牛【单碗】",
+        "weightText": "134",
+        "weightGrams": 134,
+        "lengthText": "22",
+        "widthText": "22",
+        "heightText": "8"
+      },
+      {
+        "color": "大号白色奶牛【单碗+不锈钢碗】",
+        "capacity": "大号白色奶牛【单碗+不锈钢碗】",
+        "weightText": "218",
+        "weightGrams": 218,
+        "lengthText": "22",
+        "widthText": "22",
+        "heightText": "8"
+      },
+      {
+        "color": "中号黑色奶牛【单碗】",
+        "capacity": "中号黑色奶牛【单碗】",
+        "weightText": "84",
+        "weightGrams": 84,
+        "lengthText": "18.50",
+        "widthText": "18.50",
+        "heightText": "6.20"
+      },
+      {
+        "color": "中号黑色奶牛【单碗+不锈钢碗】",
+        "capacity": "中号黑色奶牛【单碗+不锈钢碗】",
+        "weightText": "132",
+        "weightGrams": 132,
+        "lengthText": "18.50",
+        "widthText": "18.50",
+        "heightText": "6.20"
+      },
+      {
+        "color": "大号黑色奶牛【单碗】",
+        "capacity": "大号黑色奶牛【单碗】",
+        "weightText": "134",
+        "weightGrams": 134,
+        "lengthText": "22",
+        "widthText": "22",
+        "heightText": "8"
+      },
+      {
+        "color": "大号黑色奶牛【单碗+不锈钢碗】",
+        "capacity": "大号黑色奶牛【单碗+不锈钢碗】",
+        "weightText": "218",
+        "weightGrams": 218,
+        "lengthText": "22",
+        "widthText": "22",
+        "heightText": "8"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江台州",
+      "freightCny": 3.5,
+      "dispatchHours": 14,
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "中号白色奶牛【单碗】",
+        "price": 2.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01uF0ZJG1npG3wC6UlF_!!2212080835138-0-cib.jpg"
+      },
+      {
+        "name": "中号白色奶牛【单碗+不锈钢碗】",
+        "price": 5.13,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01vDNGpj1npG3ww3pz5_!!2212080835138-0-cib.jpg"
+      },
+      {
+        "name": "大号白色奶牛【单碗】",
+        "price": 3.85,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01XOX6a11npG3rPNikp_!!2212080835138-0-cib.jpg"
+      },
+      {
+        "name": "大号白色奶牛【单碗+不锈钢碗】",
+        "price": 7.47,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xN8nBh1npG3xrstC6_!!2212080835138-0-cib.jpg"
+      },
+      {
+        "name": "中号黑色奶牛【单碗】",
+        "price": 2.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ITQZH21npG3y0Vp34_!!2212080835138-0-cib.jpg"
+      },
+      {
+        "name": "中号黑色奶牛【单碗+不锈钢碗】",
+        "price": 5.13,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01j1HW961npG3xy2zXH_!!2212080835138-0-cib.jpg"
+      },
+      {
+        "name": "大号黑色奶牛【单碗】",
+        "price": 3.85,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01AqSqxY1npG3wC5cgb_!!2212080835138-0-cib.jpg"
+      },
+      {
+        "name": "大号黑色奶牛【单碗+不锈钢碗】",
+        "price": 7.47,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01t2bsQW1npG3wxjHha_!!2212080835138-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 12,
+      "attributeCount": 28,
+      "optionGroupCount": 1,
+      "skuCount": 8,
+      "imageCount": 17,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 328
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260717-020448-067878-47bee963.json"
+}

@@ -1,0 +1,316 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "跨境爆款 现货 Frog Plant Stand 绿色动物宠物青蛙装饰植物架",
+    "price": "¥1.5",
+    "brand": "其他",
+    "seller": "义乌市梧氿日用品有限公司 关注 客服 商品 入驻9年 主营：工艺品 店铺回头率 55% 店铺服务分 4.0分 准时发货率 92% 店铺好评率 99.7%",
+    "image_count": 16,
+    "attribute_count": 22,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/902819669650.html",
+    "loginRequired": false,
+    "title": "跨境爆款 现货 Frog Plant Stand 绿色动物宠物青蛙装饰植物架",
+    "price": "¥1.5",
+    "priceValue": 1.5,
+    "brand": "其他",
+    "seller": "义乌市梧氿日用品有限公司 关注 客服 商品 入驻9年 主营：工艺品 店铺回头率 55% 店铺服务分 4.0分 准时发货率 92% 店铺好评率 99.7%",
+    "sellerLink": "https://shop6190873761330.1688.com/?offerId=902819669650&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01bY4pLB1LSzX4aXaW4_!!3914721299-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01P4YbXO1LSzXa7EfHv_!!3914721299-0-cib.jpg?__r__=1745557980219",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bY4pLB1LSzX4aXaW4_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gmmBhF1LSzX7GXSiz_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01AeXoQy1LSzX4aWNeX_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ljPki31LSzX782McM_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dr7hfC1LSzX4aVyhE_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PgCd1k1LSzXa7DvQl_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0121ZoUs1LSzXYubrzM_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tI3JtJ1LSzXZY3OoL_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN011gdu5j1LSzPnTasjN_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wo40d21LSzSYvR57k_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xMfIhG1LSzTCDbe03_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lxrxnL1LSzSDKgRX5_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Pnd2Wd1LSzYqBL6VY_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dckH381LSzYk9Yztr_!!3914721299-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01vZOkhA1LSzZbKnfU0_!!3914721299-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/3914721299/p/2/e/6/t/1/433780569697.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "pet"
+      },
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "类型",
+        "value": "修枝剪"
+      },
+      {
+        "name": "适用场景",
+        "value": "阳台"
+      },
+      {
+        "name": "货号",
+        "value": "AL894424199087"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "1pc,2pc,5PC,12pcs,6pcs,10pcs,8pcs,20pcs,3pcs"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "速卖通"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "欧洲"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "颜色",
+        "value": "绿色"
+      },
+      {
+        "name": "出水控制方式",
+        "value": "手压式"
+      },
+      {
+        "name": "规格",
+        "value": "1pc、2pc、5PC、12pcs、6pcs、10pcs、8pcs、20pcs、3pcs"
+      },
+      {
+        "name": "材质",
+        "value": "其他"
+      },
+      {
+        "name": "类型",
+        "value": "阳台"
+      },
+      {
+        "name": "货号",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "速卖通"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "绿色"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "1000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "1pc",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01PgCd1k1LSzXa7DvQl_!!3914721299-0-cib.jpg"
+          },
+          {
+            "name": "2pc",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0121ZoUs1LSzXYubrzM_!!3914721299-0-cib.jpg"
+          },
+          {
+            "name": "5PC",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01tI3JtJ1LSzXZY3OoL_!!3914721299-0-cib.jpg"
+          },
+          {
+            "name": "12pcs",
+            "image": null
+          },
+          {
+            "name": "6pcs",
+            "image": null
+          },
+          {
+            "name": "10pcs",
+            "image": null
+          },
+          {
+            "name": "8pcs",
+            "image": null
+          },
+          {
+            "name": "20pcs",
+            "image": null
+          },
+          {
+            "name": "3pcs",
+            "image": null
+          }
+        ]
+      },
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "绿色",
+            "image": null
+          },
+          {
+            "name": "绿色",
+            "image": null,
+            "price": 1.5
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "1pc",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01PgCd1k1LSzXa7DvQl_!!3914721299-0-cib.jpg"
+          },
+          {
+            "name": "2pc",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0121ZoUs1LSzXYubrzM_!!3914721299-0-cib.jpg"
+          },
+          {
+            "name": "5PC",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01tI3JtJ1LSzXZY3OoL_!!3914721299-0-cib.jpg"
+          },
+          {
+            "name": "12pcs",
+            "image": null
+          },
+          {
+            "name": "6pcs",
+            "image": null
+          },
+          {
+            "name": "10pcs",
+            "image": null
+          },
+          {
+            "name": "8pcs",
+            "image": null
+          },
+          {
+            "name": "20pcs",
+            "image": null
+          },
+          {
+            "name": "3pcs",
+            "image": null
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 200",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "200",
+        "weightGrams": 200,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 8,
+      "carrier": "圆通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "绿色",
+        "price": 1.5,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 13,
+      "attributeCount": 22,
+      "optionGroupCount": 3,
+      "skuCount": 1,
+      "imageCount": 19,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 9
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260718-213338-611080-3b4040c5.json"
+}

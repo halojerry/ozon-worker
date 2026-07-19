@@ -1,0 +1,729 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "跨境洗车水管花园伸缩软管家用强力喷头刷车神器花园菜地浇花水管",
+    "price": "¥8.2",
+    "brand": "其他",
+    "seller": "平阳县虹瑞电子商务商行 关注 客服 商品 入驻3年 主营：园林资材 店铺回头率 51% 店铺服务分 4.5分 准时发货率 98% 店铺好评率 99.9%",
+    "image_count": 24,
+    "attribute_count": 45,
+    "dom_sku_count": 18,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/798376501437.html",
+    "loginRequired": false,
+    "title": "跨境洗车水管花园伸缩软管家用强力喷头刷车神器花园菜地浇花水管",
+    "price": "¥8.2",
+    "priceValue": 8.2,
+    "brand": "其他",
+    "seller": "平阳县虹瑞电子商务商行 关注 客服 商品 入驻3年 主营：园林资材 店铺回头率 51% 店铺服务分 4.5分 准时发货率 98% 店铺好评率 99.9%",
+    "sellerLink": "https://shop282z901164s58.1688.com/?offerId=798376501437&td_page_id=PC-UNLOGIN-DEFAULT-2025",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01T2SWK92IMdHUuhfSa_!!2217877579272-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01T2SWK92IMdHUuhfSa_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01k66an02IMdHTwbMhf_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019rbvln2IMdHRIiXuw_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HKfMuP2IMdHSYcDQ6_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015bUoln2IMdHMlh3Q7_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01otONT52IMdKP11FXh_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wRtdgF2IMdHTOaq3N_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0118MmzD2IMdKGHyrMS_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rvwooq2IMdOTdS9wU_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aSkicF2IMdNOoAyf5_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Ivdzup2IMdHU3woOt_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cb8CjW2IMdHDJqhSP_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hx6Brc2IMdHR20fSU_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ikH25X2IMdHQwfQhH_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pena212IMdHTwZkwb_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01XDzwWG2IMdHVVzVjO_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ELsWZJ2IMdHOC7D56_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01NTwVDa2IMdHR22XrF_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dUTdtI2IMdHPRIHqk_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rfKMmQ2IMdHRIkI1z_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YvTPzM2IMdHRiBlb9_!!2217877579272-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wmpUAN1LEKujrurZe_!!1603381267-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2217877579272/p/2/e/6/t/1/463216893881.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "类型",
+        "value": "其它"
+      },
+      {
+        "name": "材质",
+        "value": "塑料,PP"
+      },
+      {
+        "name": "容量",
+        "value": "0"
+      },
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "应用场景",
+        "value": "家庭园艺,公共绿地,园林园艺生产"
+      },
+      {
+        "name": "货号",
+        "value": "ali-611239187668"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "特性",
+        "value": "可伸缩"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "规格",
+        "value": "绿色25FT（足米2.5米，注水后7.5米）,绿色50FT（足米5米，注水后15米）,绿色75FT（足米7.5米，注水后22.5米）,绿色100FT（足米10米，注水后30米）,绿色125FT（足米12.5米，注水后37.5米）,绿色150FT（足米15米，注水后45米）,绿色175FT（足米17.5米，注水后52.5米）,绿色200FT（足米20米，注水后60米）,蓝色25FT（足米2.5米，注水后7.5米）,蓝色50FT（足米5米，注水后15米）,蓝色75FT（足米7.5米，注水后22.5米）,蓝色100FT（足米10米，注水后30米）,蓝色125FT（足米12.5米，注水后37.5米）,蓝色150FT（足米15米，注水后45米）,蓝色175FT（足米17.5米，注水后52.5米）,蓝色200FT（足米20米，注水后60米）,一个水管适配三钉头,一个水管适配黑色万能头"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "适用场景",
+        "value": "菜地 花园"
+      },
+      {
+        "name": "连接方式",
+        "value": "快接式"
+      },
+      {
+        "name": "灌溉方式",
+        "value": "喷灌"
+      },
+      {
+        "name": "规格",
+        "value": "绿色25FT（足米2.5米，注水后7.5米）、绿色50FT（足米5米，注水后15米）、绿色75FT（足米7.5米，注水后22.5米）、绿色100FT（足米10米，注水后30米）、绿色125FT（足米12.5米，注水后37.5米）、绿色150FT（足米15米，注水后45米）、绿色175FT（足米17.5米，注水后52.5米）、绿色200FT（足米20米，注水后60米）、蓝色25FT（足米2.5米，注水后7.5米）、蓝色50FT（足米5米，注水后15米）、蓝色75FT（足米7.5米，注水后22.5米）、蓝色100FT（足米10米，注水后30米）、蓝色125FT（足米12.5米，注水后37.5米）、蓝色150FT（足米15米，注水后45米）、蓝色175FT（足米17.5米，注水后52.5米）、蓝色200FT（足米20米，注水后60米）、一个水管适配三钉头、一个水管适配黑色万能头"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "类型",
+        "value": "塑料,PP"
+      },
+      {
+        "name": "容量",
+        "value": "其他"
+      },
+      {
+        "name": "应用场景",
+        "value": "ali-611239187668"
+      },
+      {
+        "name": "是否进口",
+        "value": "可伸缩"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "绿色25FT（足米2.5米，注水后7.5米）,绿色50FT（足米5米，注水后15米）,绿色75FT（足米7.5米，注水后22.5米）,绿色100FT（足米10米，注水后30米）,绿色125FT（足米12.5米，注水后37.5米）,绿色150FT（足米15米，注水后45米）,绿色175FT（足米17.5米，注水后52.5米）,绿色200FT（足米20米，注水后60米）,蓝色25FT（足米2.5米，注水后7.5米）,蓝色50FT（足米5米，注水后15米）,蓝色75FT（足米7.5米，注水后22.5米）,蓝色100FT（足米10米，注水后30米）,蓝色125FT（足米12.5米，注水后37.5米）,蓝色150FT（足米15米，注水后45米）,蓝色175FT（足米17.5米，注水后52.5米）,蓝色200FT（足米20米，注水后60米）,一个水管适配三钉头,一个水管适配黑色万能头"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "菜地 花园"
+      },
+      {
+        "name": "连接方式",
+        "value": "喷灌"
+      },
+      {
+        "name": "绿色25FT（足米2.5米，注水后7.5米）",
+        "value": "290"
+      },
+      {
+        "name": "绿色50FT（足米5米，注水后15米）",
+        "value": "380"
+      },
+      {
+        "name": "绿色75FT（足米7.5米，注水后22.5米）",
+        "value": "520"
+      },
+      {
+        "name": "绿色100FT（足米10米，注水后30米）",
+        "value": "630"
+      },
+      {
+        "name": "绿色125FT（足米12.5米，注水后37.5米）",
+        "value": "751"
+      },
+      {
+        "name": "绿色150FT（足米15米，注水后45米）",
+        "value": "860"
+      },
+      {
+        "name": "绿色175FT（足米17.5米，注水后52.5米）",
+        "value": "994"
+      },
+      {
+        "name": "绿色200FT（足米20米，注水后60米）",
+        "value": "1105"
+      },
+      {
+        "name": "蓝色25FT（足米2.5米，注水后7.5米）",
+        "value": "290"
+      },
+      {
+        "name": "蓝色50FT（足米5米，注水后15米）",
+        "value": "380"
+      },
+      {
+        "name": "蓝色75FT（足米7.5米，注水后22.5米）",
+        "value": "520"
+      },
+      {
+        "name": "蓝色100FT（足米10米，注水后30米）",
+        "value": "630"
+      },
+      {
+        "name": "蓝色125FT（足米12.5米，注水后37.5米）",
+        "value": "751"
+      },
+      {
+        "name": "蓝色150FT（足米15米，注水后45米）",
+        "value": "860"
+      },
+      {
+        "name": "蓝色175FT（足米17.5米，注水后52.5米）",
+        "value": "994"
+      },
+      {
+        "name": "蓝色200FT（足米20米，注水后60米）",
+        "value": "1105"
+      },
+      {
+        "name": "一个水管适配三钉头",
+        "value": "60"
+      },
+      {
+        "name": "一个水管适配黑色万能头",
+        "value": "60"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "绿色25FT（足米2.5米，注水后7.5米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "绿色50FT（足米5米，注水后15米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "绿色75FT（足米7.5米，注水后22.5米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "绿色100FT（足米10米，注水后30米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "绿色125FT（足米12.5米，注水后37.5米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "绿色150FT（足米15米，注水后45米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "绿色175FT（足米17.5米，注水后52.5米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "绿色200FT（足米20米，注水后60米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "蓝色25FT（足米2.5米，注水后7.5米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "蓝色50FT（足米5米，注水后15米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "蓝色75FT（足米7.5米，注水后22.5米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "蓝色100FT（足米10米，注水后30米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "蓝色125FT（足米12.5米，注水后37.5米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "蓝色150FT（足米15米，注水后45米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "蓝色175FT（足米17.5米，注水后52.5米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "蓝色200FT（足米20米，注水后60米）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "一个水管适配三钉头",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN015bUoln2IMdHMlh3Q7_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "一个水管适配黑色万能头",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01otONT52IMdKP11FXh_!!2217877579272-0-cib.jpg"
+          },
+          {
+            "name": "绿色25FT（足米2.5米，注水后7.5米）",
+            "image": null,
+            "price": 8.2
+          },
+          {
+            "name": "绿色50FT（足米5米，注水后15米）",
+            "image": null,
+            "price": 10.4
+          },
+          {
+            "name": "绿色75FT（足米7.5米，注水后22.5米）",
+            "image": null,
+            "price": 13.7
+          },
+          {
+            "name": "绿色100FT（足米10米，注水后30米）",
+            "image": null,
+            "price": 17.1
+          },
+          {
+            "name": "绿色125FT（足米12.5米，注水后37.5米）",
+            "image": null,
+            "price": 20
+          },
+          {
+            "name": "绿色150FT（足米15米，注水后45米）",
+            "image": null,
+            "price": 23.7
+          },
+          {
+            "name": "绿色175FT（足米17.5米，注水后52.5米）",
+            "image": null,
+            "price": 27.6
+          },
+          {
+            "name": "绿色200FT（足米20米，注水后60米）",
+            "image": null,
+            "price": 31
+          },
+          {
+            "name": "蓝色25FT（足米2.5米，注水后7.5米）",
+            "image": null,
+            "price": 8.2
+          },
+          {
+            "name": "蓝色50FT（足米5米，注水后15米）",
+            "image": null,
+            "price": 10.4
+          },
+          {
+            "name": "蓝色75FT（足米7.5米，注水后22.5米）",
+            "image": null,
+            "price": 13.7
+          },
+          {
+            "name": "蓝色100FT（足米10米，注水后30米）",
+            "image": null,
+            "price": 17.1
+          },
+          {
+            "name": "蓝色125FT（足米12.5米，注水后37.5米）",
+            "image": null,
+            "price": 20
+          },
+          {
+            "name": "蓝色150FT（足米15米，注水后45米）",
+            "image": null,
+            "price": 23.7
+          },
+          {
+            "name": "蓝色175FT（足米17.5米，注水后52.5米）",
+            "image": null,
+            "price": 27.6
+          },
+          {
+            "name": "蓝色200FT（足米20米，注水后60米）",
+            "image": null,
+            "price": 31
+          },
+          {
+            "name": "一个水管适配三钉头",
+            "image": null,
+            "price": 1.5
+          },
+          {
+            "name": "一个水管适配黑色万能头",
+            "image": null,
+            "price": 2
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 绿色25FT（足米2.5米，注水后7.5米） 18 18 3 972 290 绿色50FT（足米5米，注水后15米） 19 19 3 1083 380 绿色75FT（足米7.5米，注水后22.5米） 21 21 4 1764 520 绿色100FT（足米10米，注水后30米） 23 23 5 2645 630 绿色125FT（足米12.5米，注水后37.5米） 25 25 6 3750 751 绿色150FT（足米15米，注水后45米） 27 27 7 5103 860 绿色175FT（足米17.5米，注水后52.5米） 28 28 8 6272 994 绿色200FT（足米20米，注水后60米） 31 31 9 8649 1105 蓝色25FT（足米2.5米，注水后7.5米） 18 18 3 972 290 蓝色50FT（足米5米，注水后15米） 19 19 3 1083 380 蓝色75FT（足米7.5米，注水后22.5米） 21 21 4 1764 520 蓝色100FT（足米10米，注水后30米） 23 23 5 2645 630 蓝色125FT（足米12.5米，注水后37.5米） 25 25 6 3750 751 蓝色150FT（足米15米，注水后45米） 27 27 7 5103 860 蓝色175FT（足米17.5米，注水后52.5米） 28 28 8 6272 994 蓝色200FT（足米20米，注水后60米） 31 31 9 8649 1105 一个水管适配三钉头 － － － － 60 一个水管适配黑色万能头 － － － － 60",
+    "packagingRows": [
+      {
+        "color": "绿色25FT（足米2.5米，注水后7.5米）",
+        "capacity": "绿色25FT（足米2.5米，注水后7.5米）",
+        "weightText": "290",
+        "weightGrams": 290,
+        "lengthText": "18",
+        "widthText": "18",
+        "heightText": "3"
+      },
+      {
+        "color": "绿色50FT（足米5米，注水后15米）",
+        "capacity": "绿色50FT（足米5米，注水后15米）",
+        "weightText": "380",
+        "weightGrams": 380,
+        "lengthText": "19",
+        "widthText": "19",
+        "heightText": "3"
+      },
+      {
+        "color": "绿色75FT（足米7.5米，注水后22.5米）",
+        "capacity": "绿色75FT（足米7.5米，注水后22.5米）",
+        "weightText": "520",
+        "weightGrams": 520,
+        "lengthText": "21",
+        "widthText": "21",
+        "heightText": "4"
+      },
+      {
+        "color": "绿色100FT（足米10米，注水后30米）",
+        "capacity": "绿色100FT（足米10米，注水后30米）",
+        "weightText": "630",
+        "weightGrams": 630,
+        "lengthText": "23",
+        "widthText": "23",
+        "heightText": "5"
+      },
+      {
+        "color": "绿色125FT（足米12.5米，注水后37.5米）",
+        "capacity": "绿色125FT（足米12.5米，注水后37.5米）",
+        "weightText": "751",
+        "weightGrams": 751,
+        "lengthText": "25",
+        "widthText": "25",
+        "heightText": "6"
+      },
+      {
+        "color": "绿色150FT（足米15米，注水后45米）",
+        "capacity": "绿色150FT（足米15米，注水后45米）",
+        "weightText": "860",
+        "weightGrams": 860,
+        "lengthText": "27",
+        "widthText": "27",
+        "heightText": "7"
+      },
+      {
+        "color": "绿色175FT（足米17.5米，注水后52.5米）",
+        "capacity": "绿色175FT（足米17.5米，注水后52.5米）",
+        "weightText": "994",
+        "weightGrams": 994,
+        "lengthText": "28",
+        "widthText": "28",
+        "heightText": "8"
+      },
+      {
+        "color": "绿色200FT（足米20米，注水后60米）",
+        "capacity": "绿色200FT（足米20米，注水后60米）",
+        "weightText": "1105",
+        "weightGrams": 1105,
+        "lengthText": "31",
+        "widthText": "31",
+        "heightText": "9"
+      },
+      {
+        "color": "蓝色25FT（足米2.5米，注水后7.5米）",
+        "capacity": "蓝色25FT（足米2.5米，注水后7.5米）",
+        "weightText": "290",
+        "weightGrams": 290,
+        "lengthText": "18",
+        "widthText": "18",
+        "heightText": "3"
+      },
+      {
+        "color": "蓝色50FT（足米5米，注水后15米）",
+        "capacity": "蓝色50FT（足米5米，注水后15米）",
+        "weightText": "380",
+        "weightGrams": 380,
+        "lengthText": "19",
+        "widthText": "19",
+        "heightText": "3"
+      },
+      {
+        "color": "蓝色75FT（足米7.5米，注水后22.5米）",
+        "capacity": "蓝色75FT（足米7.5米，注水后22.5米）",
+        "weightText": "520",
+        "weightGrams": 520,
+        "lengthText": "21",
+        "widthText": "21",
+        "heightText": "4"
+      },
+      {
+        "color": "蓝色100FT（足米10米，注水后30米）",
+        "capacity": "蓝色100FT（足米10米，注水后30米）",
+        "weightText": "630",
+        "weightGrams": 630,
+        "lengthText": "23",
+        "widthText": "23",
+        "heightText": "5"
+      },
+      {
+        "color": "蓝色125FT（足米12.5米，注水后37.5米）",
+        "capacity": "蓝色125FT（足米12.5米，注水后37.5米）",
+        "weightText": "751",
+        "weightGrams": 751,
+        "lengthText": "25",
+        "widthText": "25",
+        "heightText": "6"
+      },
+      {
+        "color": "蓝色150FT（足米15米，注水后45米）",
+        "capacity": "蓝色150FT（足米15米，注水后45米）",
+        "weightText": "860",
+        "weightGrams": 860,
+        "lengthText": "27",
+        "widthText": "27",
+        "heightText": "7"
+      },
+      {
+        "color": "蓝色175FT（足米17.5米，注水后52.5米）",
+        "capacity": "蓝色175FT（足米17.5米，注水后52.5米）",
+        "weightText": "994",
+        "weightGrams": 994,
+        "lengthText": "28",
+        "widthText": "28",
+        "heightText": "8"
+      },
+      {
+        "color": "蓝色200FT（足米20米，注水后60米）",
+        "capacity": "蓝色200FT（足米20米，注水后60米）",
+        "weightText": "1105",
+        "weightGrams": 1105,
+        "lengthText": "31",
+        "widthText": "31",
+        "heightText": "9"
+      },
+      {
+        "color": "一个水管适配三钉头",
+        "capacity": "一个水管适配三钉头",
+        "weightText": "60",
+        "weightGrams": 60,
+        "lengthText": "－",
+        "widthText": "－",
+        "heightText": "－"
+      },
+      {
+        "color": "一个水管适配黑色万能头",
+        "capacity": "一个水管适配黑色万能头",
+        "weightText": "60",
+        "weightGrams": 60,
+        "lengthText": "－",
+        "widthText": "－",
+        "heightText": "－"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江温州",
+      "freightCny": 1
+    },
+    "skuDetails": [
+      {
+        "name": "绿色25FT（足米2.5米，注水后7.5米）",
+        "price": 8.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "绿色50FT（足米5米，注水后15米）",
+        "price": 10.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "绿色75FT（足米7.5米，注水后22.5米）",
+        "price": 13.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "绿色100FT（足米10米，注水后30米）",
+        "price": 17.1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "绿色125FT（足米12.5米，注水后37.5米）",
+        "price": 20,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "绿色150FT（足米15米，注水后45米）",
+        "price": 23.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "绿色175FT（足米17.5米，注水后52.5米）",
+        "price": 27.6,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "绿色200FT（足米20米，注水后60米）",
+        "price": 31,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hVlsav2IMdPVuezRb_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "蓝色25FT（足米2.5米，注水后7.5米）",
+        "price": 8.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "蓝色50FT（足米5米，注水后15米）",
+        "price": 10.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "蓝色75FT（足米7.5米，注水后22.5米）",
+        "price": 13.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "蓝色100FT（足米10米，注水后30米）",
+        "price": 17.1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "蓝色125FT（足米12.5米，注水后37.5米）",
+        "price": 20,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "蓝色150FT（足米15米，注水后45米）",
+        "price": 23.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "蓝色175FT（足米17.5米，注水后52.5米）",
+        "price": 27.6,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "蓝色200FT（足米20米，注水后60米）",
+        "price": 31,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MKUx8K2IMdPYBNpF6_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "一个水管适配三钉头",
+        "price": 1.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN015bUoln2IMdHMlh3Q7_!!2217877579272-0-cib.jpg"
+      },
+      {
+        "name": "一个水管适配黑色万能头",
+        "price": 2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01otONT52IMdKP11FXh_!!2217877579272-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 16,
+      "attributeCount": 45,
+      "optionGroupCount": 1,
+      "skuCount": 18,
+      "imageCount": 25,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 720
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260716-222853-053243-c58f80a5.json"
+}

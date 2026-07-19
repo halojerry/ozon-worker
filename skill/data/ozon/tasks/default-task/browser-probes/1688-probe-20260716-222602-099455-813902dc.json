@@ -1,0 +1,787 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "代发加厚手套工作耐磨防滑园艺手套加厚防护套盆栽防刺扎家用手套",
+    "price": "¥2.7",
+    "brand": "艾锐盾",
+    "seller": "永康市东城奥力登锯链经营部 关注 客服 商品 入驻12年 主营：园林五金工具 店铺回头率 51% 店铺服务分 5.0分 准时发货率 100% 店铺好评率 99.5%",
+    "image_count": 47,
+    "attribute_count": 42,
+    "dom_sku_count": 20,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/990626086187.html",
+    "loginRequired": false,
+    "title": "代发加厚手套工作耐磨防滑园艺手套加厚防护套盆栽防刺扎家用手套",
+    "price": "¥2.7",
+    "priceValue": 2.7,
+    "brand": "艾锐盾",
+    "seller": "永康市东城奥力登锯链经营部 关注 客服 商品 入驻12年 主营：园林五金工具 店铺回头率 51% 店铺服务分 5.0分 准时发货率 100% 店铺好评率 99.5%",
+    "sellerLink": "https://shop1428080159508.1688.com/?offerId=990626086187&td_page_id=PC-UNLOGIN-DEFAULT-2025",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Q2XJio1T71WG0jQVF_!!2469222334-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01W6g3qG1c1NCXp7ZZS_!!6000000003540-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Q2XJio1T71WG0jQVF_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BXFBGl1T71WFG8sAH_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012Lubbd1T71WFkFgwa_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019kdQHZ1T71WExYaL7_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WuPmUz1T71WGELGKC_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ZHTYha1T71WExSkGJ_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SMkLfK1T71WFJoCMB_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01E7J4Fa1T71WEX0pO8_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lYFaGO1T71WFG1pDA_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UutiT21T71WEX32ZQ_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KaSaXe1T71WExTx8F_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Jj89XZ1T71WF4vlEc_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01h9yDAk1T71WFQASoD_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MDPPOP1T71WEAUIKP_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SvAjWS1T71WFkA7VQ_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WjatZn1T71WExUtIb_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN018VW1CD1T71W9rWVqT_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01K0qJdU1T71WGA0uIO_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01blkNpl1T71WFJlBF9_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MbVYfk1T71WEX09nS_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kXmTdj1T71WFJmO6M_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lnODBB1T71WFQBffY_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01b0FR8d1T71WF4wQnK_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01P5NhEV1T71WFkBKJb_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN014OswmM1T71WFJmaY6_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Njp1mX1T71UulMiwD_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01A929Ta1T71WFjMNqM_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01I36BNf1T71WEY9WRd_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OQRsVH1T71WGEFHwX_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01N3Uncr1T71WFjOKMB_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bnPucL1T71WF4xZXE_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN014h8omG1T71W9rZbBw_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01X3ihzm1T71WEX05fz_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01L49Kwx1T71WFG0xA7_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019kn1Ym1T71WFG1clN_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01IYSdSQ1T71W9rYezN_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GbQT8H1T71WExVpa1_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FXk8Oc1T71WFG2tk8_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01krE7Gh1T71Il6u5jx_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01S2L7Ap1T718ZwVibB_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012y19b01T718cg6Gix_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0112beWB1T71QqrKLLz_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fEaRLn1T718Ybvj3z_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KIG91s1T718j9a1am_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01x3bbBo1T718U43I1Z_!!2469222334-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wMj8uI1T718Yhq7s3_!!2469222334-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2469222334/p/2/e/6/t/1/540622373848.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "中国",
+    "model": null,
+    "attributes": [
+      {
+        "name": "功能",
+        "value": "防滑,耐磨"
+      },
+      {
+        "name": "款式",
+        "value": "分指手套"
+      },
+      {
+        "name": "面料名称",
+        "value": "乳胶"
+      },
+      {
+        "name": "产品类别",
+        "value": "花园手套"
+      },
+      {
+        "name": "品牌",
+        "value": "艾锐盾"
+      },
+      {
+        "name": "主面料成分",
+        "value": "乳胶"
+      },
+      {
+        "name": "货号",
+        "value": "FA5-1手套-绿色乳胶-园艺方向"
+      },
+      {
+        "name": "颜色",
+        "value": "绿色-透气型园艺手套【防刺防滑】1副,绿色-透气型园艺手套【防刺防滑】2副,绿色-透气型园艺手套【防刺防滑】3副,绿色-透气型园艺手套【防刺防滑】6副,绿色-透气型园艺手套【防刺防滑】12副,玫红-透气型园艺手套【防刺防滑】1副,玫红-透气型园艺手套【防刺防滑】2副,玫红-透气型园艺手套【防刺防滑】3副,玫红-透气型园艺手套【防刺防滑】6副,玫红-透气型园艺手套【防刺防滑】12副,蓝-双层加厚园艺手套【防刺防水防滑】1副,蓝-双层加厚园艺手套【防刺防水防滑】2副,蓝-双层加厚园艺手套【防刺防水防滑】3副,蓝-双层加厚园艺手套【防刺防水防滑】6副,蓝-双层加厚园艺手套【防刺防水防滑】12副,紫-双层加厚园艺手套【防刺防水防滑】1副,紫-双层加厚园艺手套【防刺防水防滑】2副,紫-双层加厚园艺手套【防刺防水防滑】3副,紫-双层加厚园艺手套【防刺防水防滑】6副,紫-双层加厚园艺手套【防刺防水防滑】12副"
+      },
+      {
+        "name": "适合季节",
+        "value": "春季"
+      },
+      {
+        "name": "上市年份/季节",
+        "value": "咨询客服"
+      },
+      {
+        "name": "产地",
+        "value": "中国"
+      },
+      {
+        "name": "主面料成分含量",
+        "value": "10%及以下"
+      },
+      {
+        "name": "厚度等级",
+        "value": "中等"
+      },
+      {
+        "name": "颜色",
+        "value": "绿色-透气型园艺手套【防刺防滑】1副、绿色-透气型园艺手套【防刺防滑】2副、绿色-透气型园艺手套【防刺防滑】3副、绿色-透气型园艺手套【防刺防滑】6副、绿色-透气型园艺手套【防刺防滑】12副、玫红-透气型园艺手套【防刺防滑】1副、玫红-透气型园艺手套【防刺防滑】2副、玫红-透气型园艺手套【防刺防滑】3副、玫红-透气型园艺手套【防刺防滑】6副、玫红-透气型园艺手套【防刺防滑】12副、蓝-双层加厚园艺手套【防刺防水防滑】1副、蓝-双层加厚园艺手套【防刺防水防滑】2副、蓝-双层加厚园艺手套【防刺防水防滑】3副、蓝-双层加厚园艺手套【防刺防水防滑】6副、蓝-双层加厚园艺手套【防刺防水防滑】12副、紫-双层加厚园艺手套【防刺防水防滑】1副、紫-双层加厚园艺手套【防刺防水防滑】2副、紫-双层加厚园艺手套【防刺防水防滑】3副、紫-双层加厚园艺手套【防刺防水防滑】6副、紫-双层加厚园艺手套【防刺防水防滑】12副"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "6000+"
+      },
+      {
+        "name": "功能",
+        "value": "分指手套"
+      },
+      {
+        "name": "面料名称",
+        "value": "花园手套"
+      },
+      {
+        "name": "品牌",
+        "value": "乳胶"
+      },
+      {
+        "name": "货号",
+        "value": "绿色-透气型园艺手套【防刺防滑】1副,绿色-透气型园艺手套【防刺防滑】2副,绿色-透气型园艺手套【防刺防滑】3副,绿色-透气型园艺手套【防刺防滑】6副,绿色-透气型园艺手套【防刺防滑】12副,玫红-透气型园艺手套【防刺防滑】1副,玫红-透气型园艺手套【防刺防滑】2副,玫红-透气型园艺手套【防刺防滑】3副,玫红-透气型园艺手套【防刺防滑】6副,玫红-透气型园艺手套【防刺防滑】12副,蓝-双层加厚园艺手套【防刺防水防滑】1副,蓝-双层加厚园艺手套【防刺防水防滑】2副,蓝-双层加厚园艺手套【防刺防水防滑】3副,蓝-双层加厚园艺手套【防刺防水防滑】6副,蓝-双层加厚园艺手套【防刺防水防滑】12副,紫-双层加厚园艺手套【防刺防水防滑】1副,紫-双层加厚园艺手套【防刺防水防滑】2副,紫-双层加厚园艺手套【防刺防水防滑】3副,紫-双层加厚园艺手套【防刺防水防滑】6副,紫-双层加厚园艺手套【防刺防水防滑】12副"
+      },
+      {
+        "name": "适合季节",
+        "value": "咨询客服"
+      },
+      {
+        "name": "产地",
+        "value": "10%及以下"
+      },
+      {
+        "name": "绿色-透气型园艺手套【防刺防滑】1副",
+        "value": "900"
+      },
+      {
+        "name": "绿色-透气型园艺手套【防刺防滑】2副",
+        "value": "1800"
+      },
+      {
+        "name": "绿色-透气型园艺手套【防刺防滑】3副",
+        "value": "2700"
+      },
+      {
+        "name": "绿色-透气型园艺手套【防刺防滑】6副",
+        "value": "3600"
+      },
+      {
+        "name": "绿色-透气型园艺手套【防刺防滑】12副",
+        "value": "7200"
+      },
+      {
+        "name": "玫红-透气型园艺手套【防刺防滑】1副",
+        "value": "900"
+      },
+      {
+        "name": "玫红-透气型园艺手套【防刺防滑】2副",
+        "value": "1800"
+      },
+      {
+        "name": "玫红-透气型园艺手套【防刺防滑】3副",
+        "value": "2700"
+      },
+      {
+        "name": "玫红-透气型园艺手套【防刺防滑】6副",
+        "value": "3600"
+      },
+      {
+        "name": "玫红-透气型园艺手套【防刺防滑】12副",
+        "value": "7200"
+      },
+      {
+        "name": "蓝-双层加厚园艺手套【防刺防水防滑】1副",
+        "value": "900"
+      },
+      {
+        "name": "蓝-双层加厚园艺手套【防刺防水防滑】2副",
+        "value": "1800"
+      },
+      {
+        "name": "蓝-双层加厚园艺手套【防刺防水防滑】3副",
+        "value": "2700"
+      },
+      {
+        "name": "蓝-双层加厚园艺手套【防刺防水防滑】6副",
+        "value": "3600"
+      },
+      {
+        "name": "蓝-双层加厚园艺手套【防刺防水防滑】12副",
+        "value": "7200"
+      },
+      {
+        "name": "紫-双层加厚园艺手套【防刺防水防滑】1副",
+        "value": "900"
+      },
+      {
+        "name": "紫-双层加厚园艺手套【防刺防水防滑】2副",
+        "value": "1800"
+      },
+      {
+        "name": "紫-双层加厚园艺手套【防刺防水防滑】3副",
+        "value": "2700"
+      },
+      {
+        "name": "紫-双层加厚园艺手套【防刺防水防滑】6副",
+        "value": "3600"
+      },
+      {
+        "name": "紫-双层加厚园艺手套【防刺防水防滑】12副",
+        "value": "7200"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "绿色-透气型园艺手套【防刺防滑】1副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01E7J4Fa1T71WEX0pO8_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "绿色-透气型园艺手套【防刺防滑】2副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ZHTYha1T71WExSkGJ_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "绿色-透气型园艺手套【防刺防滑】3副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01SMkLfK1T71WFJoCMB_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "绿色-透气型园艺手套【防刺防滑】6副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lYFaGO1T71WFG1pDA_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "绿色-透气型园艺手套【防刺防滑】12副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01UutiT21T71WEX32ZQ_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "玫红-透气型园艺手套【防刺防滑】1副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01blkNpl1T71WFJlBF9_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "玫红-透气型园艺手套【防刺防滑】2副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01h9yDAk1T71WFQASoD_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "玫红-透气型园艺手套【防刺防滑】3副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KaSaXe1T71WExTx8F_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "玫红-透气型园艺手套【防刺防滑】6副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Jj89XZ1T71WF4vlEc_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "玫红-透气型园艺手套【防刺防滑】12副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lnODBB1T71WFQBffY_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "蓝-双层加厚园艺手套【防刺防水防滑】1副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01K0qJdU1T71WGA0uIO_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "蓝-双层加厚园艺手套【防刺防水防滑】2副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kXmTdj1T71WFJmO6M_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "蓝-双层加厚园艺手套【防刺防水防滑】3副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WjatZn1T71WExUtIb_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "蓝-双层加厚园艺手套【防刺防水防滑】6副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MDPPOP1T71WEAUIKP_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "蓝-双层加厚园艺手套【防刺防水防滑】12副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN018VW1CD1T71W9rWVqT_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "紫-双层加厚园艺手套【防刺防水防滑】1副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MbVYfk1T71WEX09nS_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "紫-双层加厚园艺手套【防刺防水防滑】2副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01SvAjWS1T71WFkA7VQ_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "紫-双层加厚园艺手套【防刺防水防滑】3副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN014OswmM1T71WFJmaY6_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "紫-双层加厚园艺手套【防刺防水防滑】6副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01b0FR8d1T71WF4wQnK_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "紫-双层加厚园艺手套【防刺防水防滑】12副",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01P5NhEV1T71WFkBKJb_!!2469222334-0-cib.jpg"
+          },
+          {
+            "name": "绿色-透气型园艺手套【防刺防滑】1副",
+            "image": null,
+            "price": 2.7
+          },
+          {
+            "name": "绿色-透气型园艺手套【防刺防滑】2副",
+            "image": null,
+            "price": 5.4
+          },
+          {
+            "name": "绿色-透气型园艺手套【防刺防滑】3副",
+            "image": null,
+            "price": 8.1
+          },
+          {
+            "name": "绿色-透气型园艺手套【防刺防滑】6副",
+            "image": null,
+            "price": 16.2
+          },
+          {
+            "name": "绿色-透气型园艺手套【防刺防滑】12副",
+            "image": null,
+            "price": 32.4
+          },
+          {
+            "name": "玫红-透气型园艺手套【防刺防滑】1副",
+            "image": null,
+            "price": 3
+          },
+          {
+            "name": "玫红-透气型园艺手套【防刺防滑】2副",
+            "image": null,
+            "price": 6
+          },
+          {
+            "name": "玫红-透气型园艺手套【防刺防滑】3副",
+            "image": null,
+            "price": 9
+          },
+          {
+            "name": "玫红-透气型园艺手套【防刺防滑】6副",
+            "image": null,
+            "price": 18
+          },
+          {
+            "name": "玫红-透气型园艺手套【防刺防滑】12副",
+            "image": null,
+            "price": 36
+          },
+          {
+            "name": "蓝-双层加厚园艺手套【防刺防水防滑】1副",
+            "image": null,
+            "price": 2.7
+          },
+          {
+            "name": "蓝-双层加厚园艺手套【防刺防水防滑】2副",
+            "image": null,
+            "price": 5.4
+          },
+          {
+            "name": "蓝-双层加厚园艺手套【防刺防水防滑】3副",
+            "image": null,
+            "price": 8.1
+          },
+          {
+            "name": "蓝-双层加厚园艺手套【防刺防水防滑】6副",
+            "image": null,
+            "price": 16.2
+          },
+          {
+            "name": "蓝-双层加厚园艺手套【防刺防水防滑】12副",
+            "image": null,
+            "price": 32.4
+          },
+          {
+            "name": "紫-双层加厚园艺手套【防刺防水防滑】1副",
+            "image": null,
+            "price": 2.7
+          },
+          {
+            "name": "紫-双层加厚园艺手套【防刺防水防滑】2副",
+            "image": null,
+            "price": 5.4
+          },
+          {
+            "name": "紫-双层加厚园艺手套【防刺防水防滑】3副",
+            "image": null,
+            "price": 8.1
+          },
+          {
+            "name": "紫-双层加厚园艺手套【防刺防水防滑】6副",
+            "image": null,
+            "price": 16.2
+          },
+          {
+            "name": "紫-双层加厚园艺手套【防刺防水防滑】12副",
+            "image": null,
+            "price": 32.4
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 绿色-透气型园艺手套【防刺防滑】1副 20 20 15 6000 900 绿色-透气型园艺手套【防刺防滑】2副 20 20 15 6000 1800 绿色-透气型园艺手套【防刺防滑】3副 20 20 15 6000 2700 绿色-透气型园艺手套【防刺防滑】6副 20 20 15 6000 3600 绿色-透气型园艺手套【防刺防滑】12副 20 20 15 6000 7200 玫红-透气型园艺手套【防刺防滑】1副 20 20 15 6000 900 玫红-透气型园艺手套【防刺防滑】2副 20 20 15 6000 1800 玫红-透气型园艺手套【防刺防滑】3副 20 20 15 6000 2700 玫红-透气型园艺手套【防刺防滑】6副 20 20 15 6000 3600 玫红-透气型园艺手套【防刺防滑】12副 20 20 15 6000 7200 蓝-双层加厚园艺手套【防刺防水防滑】1副 20 20 15 6000 900 蓝-双层加厚园艺手套【防刺防水防滑】2副 20 20 15 6000 1800 蓝-双层加厚园艺手套【防刺防水防滑】3副 20 20 15 6000 2700 蓝-双层加厚园艺手套【防刺防水防滑】6副 20 20 15 6000 3600 蓝-双层加厚园艺手套【防刺防水防滑】12副 20 20 15 6000 7200 紫-双层加厚园艺手套【防刺防水防滑】1副 20 20 15 6000 900 紫-双层加厚园艺手套【防刺防水防滑】2副 20 20 15 6000 1800 紫-双层加厚园艺手套【防刺防水防滑】3副 20 20 15 6000 2700 紫-双层加厚园艺手套【防刺防水防滑】6副 20 20 15 6000 3600 紫-双层加厚园艺手套【防刺防水防滑】12副 20 20 15 6000 7200",
+    "packagingRows": [
+      {
+        "color": "绿色-透气型园艺手套【防刺防滑】1副",
+        "capacity": "20",
+        "weightText": "900",
+        "weightGrams": 900,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "绿色-透气型园艺手套【防刺防滑】2副",
+        "capacity": "20",
+        "weightText": "1800",
+        "weightGrams": 1800,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "绿色-透气型园艺手套【防刺防滑】3副",
+        "capacity": "20",
+        "weightText": "2700",
+        "weightGrams": 2700,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "绿色-透气型园艺手套【防刺防滑】6副",
+        "capacity": "20",
+        "weightText": "3600",
+        "weightGrams": 3600,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "绿色-透气型园艺手套【防刺防滑】12副",
+        "capacity": "20",
+        "weightText": "7200",
+        "weightGrams": 7200,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "玫红-透气型园艺手套【防刺防滑】1副",
+        "capacity": "20",
+        "weightText": "900",
+        "weightGrams": 900,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "玫红-透气型园艺手套【防刺防滑】2副",
+        "capacity": "20",
+        "weightText": "1800",
+        "weightGrams": 1800,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "玫红-透气型园艺手套【防刺防滑】3副",
+        "capacity": "20",
+        "weightText": "2700",
+        "weightGrams": 2700,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "玫红-透气型园艺手套【防刺防滑】6副",
+        "capacity": "20",
+        "weightText": "3600",
+        "weightGrams": 3600,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "玫红-透气型园艺手套【防刺防滑】12副",
+        "capacity": "20",
+        "weightText": "7200",
+        "weightGrams": 7200,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "蓝-双层加厚园艺手套【防刺防水防滑】1副",
+        "capacity": "20",
+        "weightText": "900",
+        "weightGrams": 900,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "蓝-双层加厚园艺手套【防刺防水防滑】2副",
+        "capacity": "20",
+        "weightText": "1800",
+        "weightGrams": 1800,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "蓝-双层加厚园艺手套【防刺防水防滑】3副",
+        "capacity": "20",
+        "weightText": "2700",
+        "weightGrams": 2700,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "蓝-双层加厚园艺手套【防刺防水防滑】6副",
+        "capacity": "20",
+        "weightText": "3600",
+        "weightGrams": 3600,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "蓝-双层加厚园艺手套【防刺防水防滑】12副",
+        "capacity": "20",
+        "weightText": "7200",
+        "weightGrams": 7200,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "紫-双层加厚园艺手套【防刺防水防滑】1副",
+        "capacity": "20",
+        "weightText": "900",
+        "weightGrams": 900,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "紫-双层加厚园艺手套【防刺防水防滑】2副",
+        "capacity": "20",
+        "weightText": "1800",
+        "weightGrams": 1800,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "紫-双层加厚园艺手套【防刺防水防滑】3副",
+        "capacity": "20",
+        "weightText": "2700",
+        "weightGrams": 2700,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "紫-双层加厚园艺手套【防刺防水防滑】6副",
+        "capacity": "20",
+        "weightText": "3600",
+        "weightGrams": 3600,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      },
+      {
+        "color": "紫-双层加厚园艺手套【防刺防水防滑】12副",
+        "capacity": "20",
+        "weightText": "7200",
+        "weightGrams": 7200,
+        "lengthText": "20",
+        "widthText": "20",
+        "heightText": "15"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 2.8,
+      "carrier": "韵达快递"
+    },
+    "skuDetails": [
+      {
+        "name": "绿色-透气型园艺手套【防刺防滑】1副",
+        "price": 2.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01E7J4Fa1T71WEX0pO8_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "绿色-透气型园艺手套【防刺防滑】2副",
+        "price": 5.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ZHTYha1T71WExSkGJ_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "绿色-透气型园艺手套【防刺防滑】3副",
+        "price": 8.1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01SMkLfK1T71WFJoCMB_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "绿色-透气型园艺手套【防刺防滑】6副",
+        "price": 16.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lYFaGO1T71WFG1pDA_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "绿色-透气型园艺手套【防刺防滑】12副",
+        "price": 32.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01UutiT21T71WEX32ZQ_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "玫红-透气型园艺手套【防刺防滑】1副",
+        "price": 3,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01blkNpl1T71WFJlBF9_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "玫红-透气型园艺手套【防刺防滑】2副",
+        "price": 6,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01h9yDAk1T71WFQASoD_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "玫红-透气型园艺手套【防刺防滑】3副",
+        "price": 9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KaSaXe1T71WExTx8F_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "玫红-透气型园艺手套【防刺防滑】6副",
+        "price": 18,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Jj89XZ1T71WF4vlEc_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "玫红-透气型园艺手套【防刺防滑】12副",
+        "price": 36,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lnODBB1T71WFQBffY_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "蓝-双层加厚园艺手套【防刺防水防滑】1副",
+        "price": 2.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01K0qJdU1T71WGA0uIO_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "蓝-双层加厚园艺手套【防刺防水防滑】2副",
+        "price": 5.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kXmTdj1T71WFJmO6M_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "蓝-双层加厚园艺手套【防刺防水防滑】3副",
+        "price": 8.1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WjatZn1T71WExUtIb_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "蓝-双层加厚园艺手套【防刺防水防滑】6副",
+        "price": 16.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MDPPOP1T71WEAUIKP_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "蓝-双层加厚园艺手套【防刺防水防滑】12副",
+        "price": 32.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN018VW1CD1T71W9rWVqT_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "紫-双层加厚园艺手套【防刺防水防滑】1副",
+        "price": 2.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MbVYfk1T71WEX09nS_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "紫-双层加厚园艺手套【防刺防水防滑】2副",
+        "price": 5.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01SvAjWS1T71WFkA7VQ_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "紫-双层加厚园艺手套【防刺防水防滑】3副",
+        "price": 8.1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN014OswmM1T71WFJmaY6_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "紫-双层加厚园艺手套【防刺防水防滑】6副",
+        "price": 16.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01b0FR8d1T71WF4wQnK_!!2469222334-0-cib.jpg"
+      },
+      {
+        "name": "紫-双层加厚园艺手套【防刺防水防滑】12副",
+        "price": 32.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01P5NhEV1T71WFkBKJb_!!2469222334-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 13,
+      "attributeCount": 42,
+      "optionGroupCount": 1,
+      "skuCount": 20,
+      "imageCount": 47,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 814
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260716-222602-099455-813902dc.json"
+}

@@ -1,0 +1,433 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "跨境爆款Toilet Tank Cleaning Tablet Holder马桶水箱清洁片支架",
+    "price": "¥11.5",
+    "brand": "无",
+    "seller": "义乌市倾喜贸易商行 关注 客服 商品 入驻5年 主营：工艺品 店铺回头率 67% 店铺服务分 3.5分 准时发货率 89% 店铺好评率 87.3%",
+    "image_count": 21,
+    "attribute_count": 35,
+    "dom_sku_count": 7,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1054892495434.html",
+    "loginRequired": false,
+    "title": "跨境爆款Toilet Tank Cleaning Tablet Holder马桶水箱清洁片支架",
+    "price": "¥11.5",
+    "priceValue": 11.5,
+    "brand": "无",
+    "seller": "义乌市倾喜贸易商行 关注 客服 商品 入驻5年 主营：工艺品 店铺回头率 67% 店铺服务分 3.5分 准时发货率 89% 店铺好评率 87.3%",
+    "sellerLink": "https://shop54e8918j25380.1688.com/?offerId=1054892495434&td_page_id=PC-UNLOGIN-DEFAULT-2025",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01P2hsyc1DKH9fwJMz1_!!2215508420197-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01P2hsyc1DKH9fwJMz1_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Wd9N4S1DKH9ef1gGr_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01e1uDCO1DKH9Zfxc93_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01t9Dzfw1DKH9evgdAJ_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ie8Djg1DKH9poyrla_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QpDxxg1DKH9pvXzP8_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hHCx7a1DKH9qGETp0_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Pdw2lN1DKHA5VHcr0_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01B16Y6M1DKHA7Lg7NX_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01c4Gqz91DKHAKv10Dz_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01NQc8Oa1DKHALNRiGR_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PNmdep1DKHALNRe6a_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YoXs9H1DKH9eNEACX_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WT04hC1DKH9evimJK_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zDngqs1DKH9eviVgX_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01j5X4HI1DKH9eMBbUM_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cvQ0GD1DKH9Zg0Uzz_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OEIwqR1DKH9f0g0mP_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SUbTks1DKH9ZfyQ2B_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UiYE4J1DKH9eM8FUD_!!2215508420197-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yweu8j1DKH9eWsyF7_!!2215508420197-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2213326372119/p/2/e/6/t/1/567772247734.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "中国大陆",
+    "model": null,
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "无"
+      },
+      {
+        "name": "种类/用途",
+        "value": "居家日用"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "AL1035271238810"
+      },
+      {
+        "name": "箱装数量",
+        "value": "220"
+      },
+      {
+        "name": "产地",
+        "value": "中国大陆"
+      },
+      {
+        "name": "加印LOGO",
+        "value": "不可以"
+      },
+      {
+        "name": "加工定制",
+        "value": "否"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "其他"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "规格",
+        "value": "金属挂钩蓝色款,金属挂钩黑色款,金属挂钩灰色款,金属挂钩白色款,星星款-蓝色款,星星款-黑色款,星星款-灰色款"
+      },
+      {
+        "name": "产品类别",
+        "value": "马桶清洁用品"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "规格",
+        "value": "金属挂钩蓝色款、金属挂钩黑色款、金属挂钩灰色款、金属挂钩白色款、星星款-蓝色款、星星款-黑色款、星星款-灰色款"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "400+"
+      },
+      {
+        "name": "品牌",
+        "value": "居家日用"
+      },
+      {
+        "name": "是否进口",
+        "value": "AL1035271238810"
+      },
+      {
+        "name": "箱装数量",
+        "value": "中国大陆"
+      },
+      {
+        "name": "加印LOGO",
+        "value": "否"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "否"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "规格",
+        "value": "马桶清洁用品"
+      },
+      {
+        "name": "金属挂钩蓝色款",
+        "value": "83"
+      },
+      {
+        "name": "金属挂钩黑色款",
+        "value": "83"
+      },
+      {
+        "name": "金属挂钩灰色款",
+        "value": "83"
+      },
+      {
+        "name": "金属挂钩白色款",
+        "value": "83"
+      },
+      {
+        "name": "星星款-蓝色款",
+        "value": "90"
+      },
+      {
+        "name": "星星款-黑色款",
+        "value": "90"
+      },
+      {
+        "name": "星星款-灰色款",
+        "value": "90"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "金属挂钩蓝色款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01QpDxxg1DKH9pvXzP8_!!2215508420197-0-cib.jpg"
+          },
+          {
+            "name": "金属挂钩黑色款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hHCx7a1DKH9qGETp0_!!2215508420197-0-cib.jpg"
+          },
+          {
+            "name": "金属挂钩灰色款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01B16Y6M1DKHA7Lg7NX_!!2215508420197-0-cib.jpg"
+          },
+          {
+            "name": "金属挂钩白色款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Pdw2lN1DKHA5VHcr0_!!2215508420197-0-cib.jpg"
+          },
+          {
+            "name": "星星款-蓝色款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NQc8Oa1DKHALNRiGR_!!2215508420197-0-cib.jpg"
+          },
+          {
+            "name": "星星款-黑色款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01c4Gqz91DKHAKv10Dz_!!2215508420197-0-cib.jpg"
+          },
+          {
+            "name": "星星款-灰色款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01PNmdep1DKHALNRe6a_!!2215508420197-0-cib.jpg"
+          },
+          {
+            "name": "金属挂钩蓝色款",
+            "image": null,
+            "price": 11.5
+          },
+          {
+            "name": "金属挂钩黑色款",
+            "image": null,
+            "price": 11.5
+          },
+          {
+            "name": "金属挂钩灰色款",
+            "image": null,
+            "price": 11.5
+          },
+          {
+            "name": "金属挂钩白色款",
+            "image": null,
+            "price": 11.5
+          },
+          {
+            "name": "星星款-蓝色款",
+            "image": null,
+            "price": 11.5
+          },
+          {
+            "name": "星星款-黑色款",
+            "image": null,
+            "price": 11.5
+          },
+          {
+            "name": "星星款-灰色款",
+            "image": null,
+            "price": 11.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 金属挂钩蓝色款 19 7.80 3.80 563.160 83 金属挂钩黑色款 19 7.80 3.80 563.160 83 金属挂钩灰色款 19 7.80 3.80 563.160 83 金属挂钩白色款 19 7.80 3.80 563.160 83 星星款-蓝色款 19 7.80 3.80 563.160 90 星星款-黑色款 19 7.80 3.80 563.160 90 星星款-灰色款 19 7.80 3.80 563.160 90",
+    "packagingRows": [
+      {
+        "color": "金属挂钩蓝色款",
+        "capacity": "金属挂钩蓝色款",
+        "weightText": "83",
+        "weightGrams": 83,
+        "lengthText": "19",
+        "widthText": "7.80",
+        "heightText": "3.80"
+      },
+      {
+        "color": "金属挂钩黑色款",
+        "capacity": "金属挂钩黑色款",
+        "weightText": "83",
+        "weightGrams": 83,
+        "lengthText": "19",
+        "widthText": "7.80",
+        "heightText": "3.80"
+      },
+      {
+        "color": "金属挂钩灰色款",
+        "capacity": "金属挂钩灰色款",
+        "weightText": "83",
+        "weightGrams": 83,
+        "lengthText": "19",
+        "widthText": "7.80",
+        "heightText": "3.80"
+      },
+      {
+        "color": "金属挂钩白色款",
+        "capacity": "金属挂钩白色款",
+        "weightText": "83",
+        "weightGrams": 83,
+        "lengthText": "19",
+        "widthText": "7.80",
+        "heightText": "3.80"
+      },
+      {
+        "color": "星星款-蓝色款",
+        "capacity": "星星款-蓝色款",
+        "weightText": "90",
+        "weightGrams": 90,
+        "lengthText": "19",
+        "widthText": "7.80",
+        "heightText": "3.80"
+      },
+      {
+        "color": "星星款-黑色款",
+        "capacity": "星星款-黑色款",
+        "weightText": "90",
+        "weightGrams": 90,
+        "lengthText": "19",
+        "widthText": "7.80",
+        "heightText": "3.80"
+      },
+      {
+        "color": "星星款-灰色款",
+        "capacity": "星星款-灰色款",
+        "weightText": "90",
+        "weightGrams": 90,
+        "lengthText": "19",
+        "widthText": "7.80",
+        "heightText": "3.80"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 7
+    },
+    "skuDetails": [
+      {
+        "name": "金属挂钩蓝色款",
+        "price": 11.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01QpDxxg1DKH9pvXzP8_!!2215508420197-0-cib.jpg"
+      },
+      {
+        "name": "金属挂钩黑色款",
+        "price": 11.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hHCx7a1DKH9qGETp0_!!2215508420197-0-cib.jpg"
+      },
+      {
+        "name": "金属挂钩灰色款",
+        "price": 11.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01B16Y6M1DKHA7Lg7NX_!!2215508420197-0-cib.jpg"
+      },
+      {
+        "name": "金属挂钩白色款",
+        "price": 11.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Pdw2lN1DKHA5VHcr0_!!2215508420197-0-cib.jpg"
+      },
+      {
+        "name": "星星款-蓝色款",
+        "price": 11.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NQc8Oa1DKHALNRiGR_!!2215508420197-0-cib.jpg"
+      },
+      {
+        "name": "星星款-黑色款",
+        "price": 11.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01c4Gqz91DKHAKv10Dz_!!2215508420197-0-cib.jpg"
+      },
+      {
+        "name": "星星款-灰色款",
+        "price": 11.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01PNmdep1DKHALNRe6a_!!2215508420197-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 16,
+      "attributeCount": 35,
+      "optionGroupCount": 1,
+      "skuCount": 7,
+      "imageCount": 21,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 258
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260718-212442-129694-bf140129.json"
+}

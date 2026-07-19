@@ -1,0 +1,373 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "家庭园艺防护手套栽花种植防扎防刺工作透气舒适防滑防水劳保手套",
+    "price": null,
+    "brand": "假一赔四",
+    "seller": "青岛大广兴劳保用品有限公司 关注 客服 商品 入驻2年 主营：手部防护 店铺回头率 54% 店铺服务分 4.5分 准时发货率 97% 店铺好评率 91.9%",
+    "image_count": 38,
+    "attribute_count": 23,
+    "dom_sku_count": 0,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/942436670462.html",
+    "loginRequired": false,
+    "title": "家庭园艺防护手套栽花种植防扎防刺工作透气舒适防滑防水劳保手套",
+    "price": null,
+    "priceValue": null,
+    "brand": "假一赔四",
+    "seller": "青岛大广兴劳保用品有限公司 关注 客服 商品 入驻2年 主营：手部防护 店铺回头率 54% 店铺服务分 4.5分 准时发货率 97% 店铺好评率 91.9%",
+    "sellerLink": "https://shop0v07976d03731.1688.com/?offerId=942436670462&td_page_id=PC-UNLOGIN-GYP-2025",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01FNxV1B1lkYl3eM8vj_!!2219219684857-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ESgz9N29HIDdUHgHF_!!6000000008042-0-tbvideo.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FNxV1B1lkYl3eM8vj_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SSVfDb1lkYl2RRQN7_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tzbhvE1lkYl45g5Gj_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UiVy791lkYl2jm4tL_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fHrqGe1lkYl2j9nwA_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zXqCbD1lkYpd9Rec9_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01qtudNJ1lkYpYi27p6_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tTHspS1lkYpdQB8bF_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0184TJNP1lkYppgytE4_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BTWvwc1lkYkwmfcfX_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ENUmoi1lkYpdbK3NX_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN011JMSSn1lkYppnowQu_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xMSHFC1lkYl2VK6EQ_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YFLWPd1lkYl1hmcfG_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OBqwQn1lkYl1hoERM_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rqXqzd1lkYl2Yw4HF_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Ns7UJA1lkYl2nXIO8_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01svRbFS1lkYl19a2dQ_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Pj45pt1lkYl3jtbA5_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010ZB79l1lkYl3juwJw_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tv7zKU1lkYl19ZuJB_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN016XnHoq1lkYl2VrjTD_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tB7UeU1lkYl2VsKtw_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01752MXj1lkYl1iDwfG_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HOXKKg1lkYl3jrBS7_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xIVLbJ1lkYl36awd4_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WUkMfo1lkYl3jrNwW_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kRhSRY1lkYl2Yw8RK_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bAAfXV1lkYl4TeybB_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lSzw221lkYqBY0ABq_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Yi1cIF1lkYnHr8xXy_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019vlzi21lkYjabT5XK_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01M8h4tL1lkYneP4rms_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01RmBamn1lkYiww7DKy_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01z0aT301lkYnUKgwko_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eVKdLd1lkYkxsNwxC_!!2219219684857-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Ky4Zb31lkYk7pwVaM_!!2219219684857-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2219219684857/p/2/e/6/t/1/524157232416.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "鼎升"
+      },
+      {
+        "name": "场景用途",
+        "value": "建筑业,机械制造,家务清洁,农林牧业,开车、骑行、户外,物流业,工业园区"
+      },
+      {
+        "name": "材质",
+        "value": "乳胶"
+      },
+      {
+        "name": "用途范围",
+        "value": "防滑 耐磨"
+      },
+      {
+        "name": "衬里",
+        "value": "尼龙"
+      },
+      {
+        "name": "功能",
+        "value": "防水,防滑耐磨,防刺扎,防滑"
+      },
+      {
+        "name": "尺码",
+        "value": "全部 均码 S M L"
+      },
+      {
+        "name": "长度",
+        "value": "全部 21.5 23 25 展开参数"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "5000+"
+      },
+      {
+        "name": "品牌",
+        "value": "建筑业,机械制造,家务清洁,农林牧业,开车、骑行、户外,物流业,工业园区"
+      },
+      {
+        "name": "材质",
+        "value": "防滑 耐磨"
+      },
+      {
+        "name": "衬里",
+        "value": "防水,防滑耐磨,防刺扎,防滑"
+      },
+      {
+        "name": "泉广开绿黑园艺手套",
+        "value": "65"
+      },
+      {
+        "name": "泉广开粉黑园艺手套",
+        "value": "65"
+      },
+      {
+        "name": "泉广开紫黑园艺手套",
+        "value": "65"
+      },
+      {
+        "name": "无标绿黑皱园艺手套【可定制】",
+        "value": "65"
+      },
+      {
+        "name": "无标紫黑皱园艺手套【可定制】",
+        "value": "65"
+      },
+      {
+        "name": "泉广开防水手套 绿黑",
+        "value": "85"
+      },
+      {
+        "name": "鼎升绿黑园艺手套",
+        "value": "70"
+      },
+      {
+        "name": "鼎升粉黑园艺手套",
+        "value": "70"
+      },
+      {
+        "name": "紫色印花乳胶发泡",
+        "value": "65"
+      },
+      {
+        "name": "绿色印花乳胶发泡",
+        "value": "65"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格组1",
+        "values": [
+          {
+            "name": "全部",
+            "image": null
+          },
+          {
+            "name": "均码",
+            "image": null
+          },
+          {
+            "name": "S",
+            "image": null
+          },
+          {
+            "name": "M",
+            "image": null
+          },
+          {
+            "name": "L",
+            "image": null
+          }
+        ]
+      },
+      {
+        "name": "规格组2",
+        "values": [
+          {
+            "name": "全部",
+            "image": null
+          },
+          {
+            "name": "21.5",
+            "image": null
+          },
+          {
+            "name": "23",
+            "image": null
+          },
+          {
+            "name": "25",
+            "image": null
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格型号",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格型号 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 泉广开绿黑园艺手套 23 9 1 207 65 泉广开粉黑园艺手套 23 9 1 207 65 泉广开紫黑园艺手套 23 9 1 207 65 无标绿黑皱园艺手套【可定制】 23 9 1 207 65 无标紫黑皱园艺手套【可定制】 23 9 1 207 65 泉广开防水手套 绿黑 23 9 1 207 85 鼎升绿黑园艺手套 23 9 1 207 70 鼎升粉黑园艺手套 23 9 1 207 70 紫色印花乳胶发泡 23 9 1 207 65 绿色印花乳胶发泡 23 9 1 207 65",
+    "packagingRows": [
+      {
+        "color": "泉广开绿黑园艺手套",
+        "capacity": "泉广开绿黑园艺手套",
+        "weightText": "65",
+        "weightGrams": 65,
+        "lengthText": "23",
+        "widthText": "9",
+        "heightText": "1"
+      },
+      {
+        "color": "泉广开粉黑园艺手套",
+        "capacity": "泉广开粉黑园艺手套",
+        "weightText": "65",
+        "weightGrams": 65,
+        "lengthText": "23",
+        "widthText": "9",
+        "heightText": "1"
+      },
+      {
+        "color": "泉广开紫黑园艺手套",
+        "capacity": "泉广开紫黑园艺手套",
+        "weightText": "65",
+        "weightGrams": 65,
+        "lengthText": "23",
+        "widthText": "9",
+        "heightText": "1"
+      },
+      {
+        "color": "无标绿黑皱园艺手套【可定制】",
+        "capacity": "无标绿黑皱园艺手套【可定制】",
+        "weightText": "65",
+        "weightGrams": 65,
+        "lengthText": "23",
+        "widthText": "9",
+        "heightText": "1"
+      },
+      {
+        "color": "无标紫黑皱园艺手套【可定制】",
+        "capacity": "无标紫黑皱园艺手套【可定制】",
+        "weightText": "65",
+        "weightGrams": 65,
+        "lengthText": "23",
+        "widthText": "9",
+        "heightText": "1"
+      },
+      {
+        "color": "泉广开防水手套 绿黑",
+        "capacity": "泉广开防水手套 绿黑",
+        "weightText": "85",
+        "weightGrams": 85,
+        "lengthText": "23",
+        "widthText": "9",
+        "heightText": "1"
+      },
+      {
+        "color": "鼎升绿黑园艺手套",
+        "capacity": "鼎升绿黑园艺手套",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": "23",
+        "widthText": "9",
+        "heightText": "1"
+      },
+      {
+        "color": "鼎升粉黑园艺手套",
+        "capacity": "鼎升粉黑园艺手套",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": "23",
+        "widthText": "9",
+        "heightText": "1"
+      },
+      {
+        "color": "紫色印花乳胶发泡",
+        "capacity": "紫色印花乳胶发泡",
+        "weightText": "65",
+        "weightGrams": 65,
+        "lengthText": "23",
+        "widthText": "9",
+        "heightText": "1"
+      },
+      {
+        "color": "绿色印花乳胶发泡",
+        "capacity": "绿色印花乳胶发泡",
+        "weightText": "65",
+        "weightGrams": 65,
+        "lengthText": "23",
+        "widthText": "9",
+        "heightText": "1"
+      }
+    ],
+    "shipping": {
+      "origin": "山东青岛",
+      "freightCny": 2.2,
+      "carrier": "申通快递",
+      "dispatchHours": 17
+    },
+    "skuDetails": [],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 6,
+      "attributeCount": 23,
+      "optionGroupCount": 2,
+      "skuCount": 0,
+      "imageCount": 38,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 283
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260716-222715-311061-54b1c529.json"
+}

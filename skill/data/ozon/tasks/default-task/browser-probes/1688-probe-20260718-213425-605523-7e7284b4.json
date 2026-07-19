@@ -1,0 +1,415 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "2026跨境usb桌面风扇可摇头充电款风扇小型宿舍便携式循环电风扇",
+    "price": "¥27",
+    "brand": "其他",
+    "seller": "揭阳市榕城区一境电器厂 关注 客服 商品 入驻5年 主营：两季电器 店铺回头率 51% 店铺服务分 5.0分 准时发货率 100% 店铺好评率 99.9%",
+    "image_count": 11,
+    "attribute_count": 54,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1038208376013.html",
+    "loginRequired": false,
+    "title": "2026跨境usb桌面风扇可摇头充电款风扇小型宿舍便携式循环电风扇",
+    "price": "¥27",
+    "priceValue": 27,
+    "brand": "其他",
+    "seller": "揭阳市榕城区一境电器厂 关注 客服 商品 入驻5年 主营：两季电器 店铺回头率 51% 店铺服务分 5.0分 准时发货率 100% 店铺好评率 99.9%",
+    "sellerLink": "https://shop7535608202v53.1688.com/?offerId=1038208376013&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fNK9Gs2Lu1ATqQlbe_!!2212510089751-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fNK9Gs2Lu1ATqQlbe_!!2212510089751-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Cm9DfF2Lu1AIamymk_!!2212510089751-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ojH2Jf2Lu1AJp3m7I_!!2212510089751-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0107npsr2Lu1ASYnSW9_!!2212510089751-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bOZvZh2Lu1AIt29k7_!!2212510089751-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN017dBMqi2Lu1AgFtdQ7_!!2212510089751-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fYCQSx2Lu1AIm1S5e_!!2212510089751-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN011RP7Mp2Lu1AIaGh6h_!!2212510089751-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01l57X8s2Lu1BIzXvm3_!!2212510089751-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cjEb7b2Lu1BIzVaGO_!!2212510089751-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013dGXmE2Lu1BJKIaFJ_!!2212510089751-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2212510089751/p/2/e/6/t/1/557974727807.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "广东",
+    "model": null,
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "扇叶材质",
+        "value": "塑料"
+      },
+      {
+        "name": "续航时长",
+        "value": "6-8h(含)"
+      },
+      {
+        "name": "电源方式",
+        "value": "USB"
+      },
+      {
+        "name": "附加功能",
+        "value": "摇头"
+      },
+      {
+        "name": "是否内置电池",
+        "value": "内置锂电池"
+      },
+      {
+        "name": "内置蓄电池容量",
+        "value": "2000mAh-4000mAh（含）"
+      },
+      {
+        "name": "产地",
+        "value": "广东"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "GX-01"
+      },
+      {
+        "name": "颜色",
+        "value": "月白映红-直插款,月白映红-充电款,冰蓝遇橙-充电款"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "日韩,非洲,韩国,日本,欧洲,南美,东南亚,北美,东北亚,中东,拉丁美洲,欧美"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "尺寸",
+        "value": "-"
+      },
+      {
+        "name": "风格",
+        "value": "现代简约"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "礼品,户外休闲,开业典礼"
+      },
+      {
+        "name": "电机类型",
+        "value": "无刷电机"
+      },
+      {
+        "name": "外壳工艺",
+        "value": "ABS"
+      },
+      {
+        "name": "噪音",
+        "value": "36dB(A)以下"
+      },
+      {
+        "name": "包装体积",
+        "value": "162*162*199mm"
+      },
+      {
+        "name": "产品净重",
+        "value": "充电版506g/直插版416g"
+      },
+      {
+        "name": "适用场景",
+        "value": "通用"
+      },
+      {
+        "name": "外观尺寸",
+        "value": "195*150*225mm"
+      },
+      {
+        "name": "扇叶数量",
+        "value": "4片"
+      },
+      {
+        "name": "风速档位",
+        "value": "3档"
+      },
+      {
+        "name": "生产企业",
+        "value": "揭阳"
+      },
+      {
+        "name": "风扇分类",
+        "value": "USB风扇"
+      },
+      {
+        "name": "操作方式",
+        "value": "普通按钮"
+      },
+      {
+        "name": "颜色",
+        "value": "月白映红-直插款、月白映红-充电款、冰蓝遇橙-充电款"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "日韩、非洲、韩国、日本、欧洲、南美、东南亚、北美、东北亚、中东、拉丁美洲、欧美"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "礼品、户外休闲、开业典礼"
+      },
+      {
+        "name": "品牌",
+        "value": "塑料"
+      },
+      {
+        "name": "续航时长",
+        "value": "USB"
+      },
+      {
+        "name": "附加功能",
+        "value": "内置锂电池"
+      },
+      {
+        "name": "内置蓄电池容量",
+        "value": "广东"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "GX-01"
+      },
+      {
+        "name": "颜色",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "-"
+      },
+      {
+        "name": "风格",
+        "value": "礼品,户外休闲,开业典礼"
+      },
+      {
+        "name": "电机类型",
+        "value": "ABS"
+      },
+      {
+        "name": "噪音",
+        "value": "162*162*199mm"
+      },
+      {
+        "name": "产品净重",
+        "value": "通用"
+      },
+      {
+        "name": "外观尺寸",
+        "value": "4片"
+      },
+      {
+        "name": "风速档位",
+        "value": "揭阳"
+      },
+      {
+        "name": "风扇分类",
+        "value": "普通按钮"
+      },
+      {
+        "name": "月白映红-直插款",
+        "value": "416"
+      },
+      {
+        "name": "月白映红-充电款",
+        "value": "506"
+      },
+      {
+        "name": "冰蓝遇橙-充电款",
+        "value": "506"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "10000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "月白映红-直插款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN017dBMqi2Lu1AgFtdQ7_!!2212510089751-0-cib.jpg"
+          },
+          {
+            "name": "月白映红-充电款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fYCQSx2Lu1AIm1S5e_!!2212510089751-0-cib.jpg"
+          },
+          {
+            "name": "冰蓝遇橙-充电款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN011RP7Mp2Lu1AIaGh6h_!!2212510089751-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "尺寸",
+        "values": [
+          {
+            "name": "-",
+            "image": null
+          },
+          {
+            "name": "-",
+            "image": null,
+            "price": 27
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "月白映红-直插款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN017dBMqi2Lu1AgFtdQ7_!!2212510089751-0-cib.jpg"
+          },
+          {
+            "name": "月白映红-充电款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fYCQSx2Lu1AIm1S5e_!!2212510089751-0-cib.jpg"
+          },
+          {
+            "name": "冰蓝遇橙-充电款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN011RP7Mp2Lu1AIaGh6h_!!2212510089751-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "尺寸",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 尺寸 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 月白映红-直插款 - 19.50 14.50 23 6503.250 416 月白映红-充电款 - 19.50 14.50 23 6503.250 506 冰蓝遇橙-充电款 - 19.50 14.50 23 6503.250 506",
+    "packagingRows": [
+      {
+        "color": "月白映红-直插款",
+        "capacity": "-",
+        "weightText": "416",
+        "weightGrams": 416,
+        "lengthText": "19.50",
+        "widthText": "14.50",
+        "heightText": "23"
+      },
+      {
+        "color": "月白映红-充电款",
+        "capacity": "-",
+        "weightText": "506",
+        "weightGrams": 506,
+        "lengthText": "19.50",
+        "widthText": "14.50",
+        "heightText": "23"
+      },
+      {
+        "color": "冰蓝遇橙-充电款",
+        "capacity": "-",
+        "weightText": "506",
+        "weightGrams": 506,
+        "lengthText": "19.50",
+        "widthText": "14.50",
+        "heightText": "23"
+      }
+    ],
+    "shipping": {
+      "origin": "广东揭阳",
+      "freightCny": 4,
+      "carrier": "中通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "-",
+        "price": 27,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 30,
+      "attributeCount": 54,
+      "optionGroupCount": 3,
+      "skuCount": 1,
+      "imageCount": 14,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 7,
+      "packagingTableTextLength": 154
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260718-213425-605523-7e7284b4.json"
+}

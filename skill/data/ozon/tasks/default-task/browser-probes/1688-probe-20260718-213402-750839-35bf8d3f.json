@@ -1,0 +1,453 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "厂家供应MINI马卡龙可logo便携式无线迷你蓝牙音箱桌面音响重低音",
+    "price": "¥12",
+    "brand": "崀韵",
+    "seller": "深圳市昕可数码科技有限公司 关注 客服 商品 入驻4年 主营：影音电器 店铺回头率 50% 店铺服务分 3.5分 准时发货率 93% 店铺好评率 90.9%",
+    "image_count": 11,
+    "attribute_count": 49,
+    "dom_sku_count": 6,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/874341596254.html",
+    "loginRequired": false,
+    "title": "厂家供应MINI马卡龙可logo便携式无线迷你蓝牙音箱桌面音响重低音",
+    "price": "¥12",
+    "priceValue": 12,
+    "brand": "崀韵",
+    "seller": "深圳市昕可数码科技有限公司 关注 客服 商品 入驻4年 主营：影音电器 店铺回头率 50% 店铺服务分 3.5分 准时发货率 93% 店铺好评率 90.9%",
+    "sellerLink": "https://shop7961uad811503.1688.com/?offerId=874341596254&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01m4C54S2GFe187WXAl_!!2038648986.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ukBM271nkg6IJ0viP_!!2215385045128-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kWlYte1nkg9jSjEUv_!!2215385045128-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dfwGVS1nkg9jfGJw7_!!2215385045128-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01i8O3Ew1nkg9jyNr1Q_!!2215385045128-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01EdKvSc1nkg9jLF5ku_!!2215385045128-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UQEUdV1nkg9jyO3Vt_!!2215385045128-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wCVMDa1nkg9ktsRLU_!!2215385045128-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GKQV0j1nkgAm0XqUf_!!2215385045128-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01m4C54S2GFe187WXAl_!!2038648986.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ZdTnNx2GFe154bUwY_!!2038648986.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01b6aihQ2GFe0xvVI10_!!2038648986.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2215385045128/p/2/e/6/t/1/399096760756.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "崀韵"
+      },
+      {
+        "name": "箱体材质",
+        "value": "塑料"
+      },
+      {
+        "name": "电源方式",
+        "value": "锂电池"
+      },
+      {
+        "name": "防水等级",
+        "value": "不防水"
+      },
+      {
+        "name": "内置蓄电池容量",
+        "value": "100mAh-300mAh（含）"
+      },
+      {
+        "name": "连接方式",
+        "value": "蓝牙连接"
+      },
+      {
+        "name": "是否内置电池",
+        "value": "内置电池"
+      },
+      {
+        "name": "适用场景",
+        "value": "健身运动,户外,居家,移动便携"
+      },
+      {
+        "name": "上市时间",
+        "value": "2026年夏季"
+      },
+      {
+        "name": "频响范围",
+        "value": "30Hz-15kHz"
+      },
+      {
+        "name": "信噪比",
+        "value": "≥70db"
+      },
+      {
+        "name": "喇叭数",
+        "value": "1"
+      },
+      {
+        "name": "有效距离",
+        "value": "15"
+      },
+      {
+        "name": "外观尺寸",
+        "value": "45*47"
+      },
+      {
+        "name": "售后服务",
+        "value": "无"
+      },
+      {
+        "name": "颜色",
+        "value": "黑色,白色,天蓝色,粉色,绿色,橙色"
+      },
+      {
+        "name": "是否外贸",
+        "value": "否"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "其他"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "蓝牙版本",
+        "value": "5.3"
+      },
+      {
+        "name": "额定功率",
+        "value": "5"
+      },
+      {
+        "name": "产品净重",
+        "value": "100"
+      },
+      {
+        "name": "额定电压",
+        "value": "3.7"
+      },
+      {
+        "name": "音箱类型",
+        "value": "迷你音箱"
+      },
+      {
+        "name": "附加功能",
+        "value": "通话功能,TWS配对"
+      },
+      {
+        "name": "适用场景",
+        "value": "健身运动、户外、居家、移动便携"
+      },
+      {
+        "name": "颜色",
+        "value": "黑色、白色、天蓝色、粉色、绿色、橙色"
+      },
+      {
+        "name": "附加功能",
+        "value": "通话功能、TWS配对"
+      },
+      {
+        "name": "品牌",
+        "value": "塑料"
+      },
+      {
+        "name": "电源方式",
+        "value": "不防水"
+      },
+      {
+        "name": "内置蓄电池容量",
+        "value": "蓝牙连接"
+      },
+      {
+        "name": "是否内置电池",
+        "value": "健身运动,户外,居家,移动便携"
+      },
+      {
+        "name": "上市时间",
+        "value": "30Hz-15kHz"
+      },
+      {
+        "name": "信噪比",
+        "value": "1"
+      },
+      {
+        "name": "有效距离",
+        "value": "45*47"
+      },
+      {
+        "name": "售后服务",
+        "value": "黑色,白色,天蓝色,粉色,绿色,橙色"
+      },
+      {
+        "name": "是否外贸",
+        "value": "其他"
+      },
+      {
+        "name": "蓝牙版本",
+        "value": "5"
+      },
+      {
+        "name": "产品净重",
+        "value": "3.7"
+      },
+      {
+        "name": "音箱类型",
+        "value": "通话功能,TWS配对"
+      },
+      {
+        "name": "黑色",
+        "value": "120"
+      },
+      {
+        "name": "白色",
+        "value": "120"
+      },
+      {
+        "name": "天蓝色",
+        "value": "120"
+      },
+      {
+        "name": "粉色",
+        "value": "120"
+      },
+      {
+        "name": "绿色",
+        "value": "120"
+      },
+      {
+        "name": "橙色",
+        "value": "120"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "1000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dfwGVS1nkg9jfGJw7_!!2215385045128-0-cib.jpg"
+          },
+          {
+            "name": "白色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01i8O3Ew1nkg9jyNr1Q_!!2215385045128-0-cib.jpg"
+          },
+          {
+            "name": "天蓝色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01EdKvSc1nkg9jLF5ku_!!2215385045128-0-cib.jpg"
+          },
+          {
+            "name": "粉色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01UQEUdV1nkg9jyO3Vt_!!2215385045128-0-cib.jpg"
+          },
+          {
+            "name": "绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wCVMDa1nkg9ktsRLU_!!2215385045128-0-cib.jpg"
+          },
+          {
+            "name": "橙色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GKQV0j1nkgAm0XqUf_!!2215385045128-0-cib.jpg"
+          },
+          {
+            "name": "黑色",
+            "image": null,
+            "price": 12
+          },
+          {
+            "name": "白色",
+            "image": null,
+            "price": 12
+          },
+          {
+            "name": "天蓝色",
+            "image": null,
+            "price": 12
+          },
+          {
+            "name": "粉色",
+            "image": null,
+            "price": 12
+          },
+          {
+            "name": "绿色",
+            "image": null,
+            "price": 12
+          },
+          {
+            "name": "橙色",
+            "image": null,
+            "price": 12
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 重量(g) 黑色 120 白色 120 天蓝色 120 粉色 120 绿色 120 橙色 120",
+    "packagingRows": [
+      {
+        "color": "黑色",
+        "capacity": "120",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "白色",
+        "capacity": "120",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "天蓝色",
+        "capacity": "120",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色",
+        "capacity": "120",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "绿色",
+        "capacity": "120",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "橙色",
+        "capacity": "120",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "广东东莞",
+      "freightCny": 6,
+      "carrier": "韵达快递"
+    },
+    "skuDetails": [
+      {
+        "name": "黑色",
+        "price": 12,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dfwGVS1nkg9jfGJw7_!!2215385045128-0-cib.jpg"
+      },
+      {
+        "name": "白色",
+        "price": 12,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01i8O3Ew1nkg9jyNr1Q_!!2215385045128-0-cib.jpg"
+      },
+      {
+        "name": "天蓝色",
+        "price": 12,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01EdKvSc1nkg9jLF5ku_!!2215385045128-0-cib.jpg"
+      },
+      {
+        "name": "粉色",
+        "price": 12,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01UQEUdV1nkg9jyO3Vt_!!2215385045128-0-cib.jpg"
+      },
+      {
+        "name": "绿色",
+        "price": 12,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wCVMDa1nkg9ktsRLU_!!2215385045128-0-cib.jpg"
+      },
+      {
+        "name": "橙色",
+        "price": 12,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GKQV0j1nkgAm0XqUf_!!2215385045128-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 26,
+      "attributeCount": 49,
+      "optionGroupCount": 1,
+      "skuCount": 6,
+      "imageCount": 14,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 2,
+      "packagingTableTextLength": 51
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260718-213402-750839-35bf8d3f.json"
+}

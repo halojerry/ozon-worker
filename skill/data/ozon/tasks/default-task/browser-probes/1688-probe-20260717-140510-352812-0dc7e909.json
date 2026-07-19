@@ -1,0 +1,203 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "工厂小喷壶洒水壶空瓶浇花壶喷雾壶多肉植物手压式喷水壶浇花喷壶",
+    "price": "¥1.35",
+    "brand": "其他",
+    "seller": "义乌市祥捷贸易有限公司 关注 客服 商品 入驻13年 主营：厨房工具 店铺回头率 57% 店铺服务分 5.0分 准时发货率 99% 店铺好评率 99.9%",
+    "image_count": 7,
+    "attribute_count": 20,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/549007252006.html",
+    "loginRequired": false,
+    "title": "工厂小喷壶洒水壶空瓶浇花壶喷雾壶多肉植物手压式喷水壶浇花喷壶",
+    "price": "¥1.35",
+    "priceValue": 1.35,
+    "brand": "其他",
+    "seller": "义乌市祥捷贸易有限公司 关注 客服 商品 入驻13年 主营：厨房工具 店铺回头率 57% 店铺服务分 5.0分 准时发货率 99% 店铺好评率 99.9%",
+    "sellerLink": "https://shop1398358672866.1688.com/?offerId=549007252006&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/9576507021_2002690250.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eZ0Iwc2MRRedc3N4O_!!2068609824-0-cib.jpg?__r__=1676037900843",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BujfI72MRRyJime4m_!!2068609824-0-cib.jpg?__r__=1734844595631",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BujfI72MRRyJime4m_!!2068609824-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ubddWj2MRRyM2vnpy_!!2068609824-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Wy4Xw32MRRqQAmf80_!!2068609824-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BbAfvm2MRRqK5dNoy_!!2068609824-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/9576507021_2002690250.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2068609824/p/2/e/6/t/1/273569837633.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "类型",
+        "value": "水壶/喷壶/花洒"
+      },
+      {
+        "name": "材质",
+        "value": "塑料"
+      },
+      {
+        "name": "容量",
+        "value": "500"
+      },
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "应用场景",
+        "value": "家庭园艺"
+      },
+      {
+        "name": "货号",
+        "value": "二元彩色喷壶"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "特性",
+        "value": "喷雾"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "南美,东南亚,东北亚,中东,其他"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "南美、东南亚、东北亚、中东、其他"
+      },
+      {
+        "name": "类型",
+        "value": "塑料"
+      },
+      {
+        "name": "容量",
+        "value": "其他"
+      },
+      {
+        "name": "应用场景",
+        "value": "二元彩色喷壶"
+      },
+      {
+        "name": "是否进口",
+        "value": "喷雾"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2017年4月"
+      }
+    ],
+    "optionGroups": [],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 180",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "180",
+        "weightGrams": 180,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 5,
+      "carrier": "韵达快递",
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "规格1",
+        "price": 1.35,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 11,
+      "attributeCount": 20,
+      "optionGroupCount": 0,
+      "skuCount": 1,
+      "imageCount": 10,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 9
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260717-140510-352812-0dc7e909.json"
+}

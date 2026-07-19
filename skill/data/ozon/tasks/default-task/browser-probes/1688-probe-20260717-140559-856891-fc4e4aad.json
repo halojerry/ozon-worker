@@ -1,0 +1,318 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "PET REMBER跨境狗狗拆解绳结玩具马克龙色ins风狗狗啃咬解闷玩具",
+    "price": "¥7.8",
+    "brand": "PET REMBER",
+    "seller": "北京久唛宠物用品有限公司 关注 客服 商品 入驻8年 主营：猫狗用品 店铺回头率 94% 店铺服务分 3.5分 准时发货率 94% 店铺好评率 99.8%",
+    "image_count": 10,
+    "attribute_count": 27,
+    "dom_sku_count": 6,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/684196772781.html",
+    "loginRequired": false,
+    "title": "PET REMBER跨境狗狗拆解绳结玩具马克龙色ins风狗狗啃咬解闷玩具",
+    "price": "¥7.8",
+    "priceValue": 7.8,
+    "brand": "PET REMBER",
+    "seller": "北京久唛宠物用品有限公司 关注 客服 商品 入驻8年 主营：猫狗用品 店铺回头率 94% 店铺服务分 3.5分 准时发货率 94% 店铺好评率 99.8%",
+    "sellerLink": "https://jiumaishop.1688.com/?offerId=684196772781&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN019UstNd1aMm8aWoBUb_!!4254423316-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN019UstNd1aMm8aWoBUb_!!4254423316-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01E5sFmU1aMm8RLv0xE_!!4254423316-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yhyDaF1aMm8OL1kN7_!!4254423316-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01efysDp1aMm8TbvVWP_!!4254423316-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QGYqMK1aMm8RTZnA6_!!4254423316-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VDXG9X1aMm8YR2SI4_!!4254423316-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013jCBUf1aMm8Xflpys_!!4254423316-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01O6lvij1aMm8VnO5lN_!!4254423316-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KFRfH41aMm8Mu4aTi_!!4254423316-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cXLDTd1aMm8Mu3BCX_!!4254423316-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "其他",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "棉绳"
+      },
+      {
+        "name": "产品类别",
+        "value": "绳结玩具"
+      },
+      {
+        "name": "品牌",
+        "value": "PET REMBER"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "重量",
+        "value": "30"
+      },
+      {
+        "name": "货号",
+        "value": "PET REMBER009"
+      },
+      {
+        "name": "产地",
+        "value": "其他"
+      },
+      {
+        "name": "箱装数量",
+        "value": "100"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "桃心-香草白10*10cm,桃心-香芋紫10*10cm,桃心-纯净蓝10*10cm,桃心-樱桃粉10*10cm,小熊-香草白11*7cm,小熊-樱桃粉11*7cm"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "桃心-香草白10*10cm、桃心-香芋紫10*10cm、桃心-纯净蓝10*10cm、桃心-樱桃粉10*10cm、小熊-香草白11*7cm、小熊-樱桃粉11*7cm"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "材质",
+        "value": "绳结玩具"
+      },
+      {
+        "name": "品牌",
+        "value": "否"
+      },
+      {
+        "name": "重量",
+        "value": "PET REMBER009"
+      },
+      {
+        "name": "产地",
+        "value": "100"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "桃心-香草白10*10cm,桃心-香芋紫10*10cm,桃心-纯净蓝10*10cm,桃心-樱桃粉10*10cm,小熊-香草白11*7cm,小熊-樱桃粉11*7cm"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2022年9月"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "桃心-香草白10*10cm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01QGYqMK1aMm8RTZnA6_!!4254423316-0-cib.jpg"
+          },
+          {
+            "name": "桃心-香芋紫10*10cm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VDXG9X1aMm8YR2SI4_!!4254423316-0-cib.jpg"
+          },
+          {
+            "name": "桃心-纯净蓝10*10cm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN013jCBUf1aMm8Xflpys_!!4254423316-0-cib.jpg"
+          },
+          {
+            "name": "桃心-樱桃粉10*10cm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01O6lvij1aMm8VnO5lN_!!4254423316-0-cib.jpg"
+          },
+          {
+            "name": "小熊-香草白11*7cm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KFRfH41aMm8Mu4aTi_!!4254423316-0-cib.jpg"
+          },
+          {
+            "name": "小熊-樱桃粉11*7cm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cXLDTd1aMm8Mu3BCX_!!4254423316-0-cib.jpg"
+          },
+          {
+            "name": "桃心-香草白10*10cm",
+            "image": null,
+            "price": 7.8
+          },
+          {
+            "name": "桃心-香芋紫10*10cm",
+            "image": null,
+            "price": 7.8
+          },
+          {
+            "name": "桃心-纯净蓝10*10cm",
+            "image": null,
+            "price": 7.8
+          },
+          {
+            "name": "桃心-樱桃粉10*10cm",
+            "image": null,
+            "price": 7.8
+          },
+          {
+            "name": "小熊-香草白11*7cm",
+            "image": null,
+            "price": 13.8
+          },
+          {
+            "name": "小熊-樱桃粉11*7cm",
+            "image": null,
+            "price": 13.8
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 80",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "北京",
+      "freightCny": 7,
+      "carrier": "申通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "桃心-香草白10*10cm",
+        "price": 7.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01QGYqMK1aMm8RTZnA6_!!4254423316-0-cib.jpg"
+      },
+      {
+        "name": "桃心-香芋紫10*10cm",
+        "price": 7.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VDXG9X1aMm8YR2SI4_!!4254423316-0-cib.jpg"
+      },
+      {
+        "name": "桃心-纯净蓝10*10cm",
+        "price": 7.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN013jCBUf1aMm8Xflpys_!!4254423316-0-cib.jpg"
+      },
+      {
+        "name": "桃心-樱桃粉10*10cm",
+        "price": 7.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01O6lvij1aMm8VnO5lN_!!4254423316-0-cib.jpg"
+      },
+      {
+        "name": "小熊-香草白11*7cm",
+        "price": 13.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KFRfH41aMm8Mu4aTi_!!4254423316-0-cib.jpg"
+      },
+      {
+        "name": "小熊-樱桃粉11*7cm",
+        "price": 13.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cXLDTd1aMm8Mu3BCX_!!4254423316-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 16,
+      "attributeCount": 27,
+      "optionGroupCount": 1,
+      "skuCount": 6,
+      "imageCount": 13,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 8
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260717-140559-856891-fc4e4aad.json"
+}
