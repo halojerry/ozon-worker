@@ -535,9 +535,22 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 ensure_ascii=False
             )
 
-    # 产品信息
-    product_name: str = state.draft.get("name", "") if state.draft else ""
-    product_desc: str = state.draft.get("description", "") if state.draft else ""
+    # 产品信息（优先从 draft 取，回退到 ozon_payload）
+    product_name: str = ""
+    product_desc: str = ""
+    if state.draft:
+        product_name = state.draft.get("name", "") or state.draft.get("title", "")
+        product_desc = state.draft.get("description", "")
+    if not product_name and hasattr(state, "ozon_payload") and state.ozon_payload:
+        items = state.ozon_payload.get("items", [])
+        if items and isinstance(items, list):
+            product_name = items[0].get("name", "")
+    if not product_name and hasattr(state, "final_attributes") and state.final_attributes:
+        # 尝试从 final_attributes 中提取名称
+        for attr in state.final_attributes:
+            if attr.get("attribute_id") in (4180, 4191):  # attribute_id for name
+                product_name = attr.get("value", "")
+                break
 
     # 调用mxou LLM
     llm_response: str = _call_mxou_llm(
@@ -1243,7 +1256,36 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
             if item_status == "imported" and product_id:
                 state.upload_status = "success"
                 state.is_valid = True
+                state.product_id = str(product_id) if product_id else ""
                 logger.info(f"✅ 重新上传成功！product_id={product_id}")
+                
+                # ✅ Bug 4 修复：等待 Ozon 审核通过（moderate_status）
+                # 导入成功不代表审核通过，需要额外轮询 /v3/product/info/list
+                logger.info(f"⏳ 等待 Ozon 审核（最多120秒）...")
+                info_url: str = "https://api-seller.ozon.ru/v3/product/info/list"
+                for mod_attempt in range(1, 25):
+                    time.sleep(5)
+                    try:
+                        mod_resp = session.post(info_url, headers=headers, 
+                            json={"product_id": [str(product_id)]}, timeout=20)
+                        mod_data = mod_resp.json()
+                        mod_items = mod_data.get("items", [])
+                        if mod_items:
+                            mod_status = mod_items[0].get("statuses", {}).get("moderate_status", "")
+                            mod_errors = mod_items[0].get("errors", [])
+                            logger.info(f"📊 审核轮询[{mod_attempt}/24] moderate={mod_status} errors={len(mod_errors)}")
+                            if mod_status == "approved":
+                                logger.info(f"✅ 审核通过！product_id={product_id}")
+                                state.is_valid = True
+                                break
+                            elif mod_status == "declined":
+                                logger.error(f"❌ 审核被拒：{[e['code'] for e in mod_errors]}")
+                                state.upload_status = "failed"
+                                state.is_valid = False
+                                state.error_message = f"审核被拒: {mod_errors}"
+                                break
+                    except Exception as e:
+                        logger.warning(f"⚠️ 审核轮询异常: {e}")
                 break
             elif item_errors and len(item_errors) > 0:
                 state.upload_status = "failed"
