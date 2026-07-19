@@ -78,16 +78,17 @@ def import_category_tree(engine, language="ZH_HANS", force=False, tree_file="cat
     # 扁平化树结构
     nodes = []
 
-    def walk(items, parent_path="", depth=0):
+    def walk(items, parent_path="", depth=0, current_desc_cat_id=0):
         for item in items:
+            # 始终更新当前层级的 description_category_id（子节点继承父节点）
+            desc_cat_id = item.get("description_category_id", current_desc_cat_id) or current_desc_cat_id
+            
             if "type_id" in item and item.get("type_id"):
                 # 叶子节点（type）
                 type_id = item["type_id"]
                 type_name = item.get("type_name", "")
                 full_path = f"{parent_path} > {type_name}" if parent_path else type_name
-                # 从 parent_path 提取 top_level_category_name
                 top_level = parent_path.split(" > ")[0] if parent_path else type_name
-                desc_cat_id = item.get("description_category_id", 0)
                 nodes.append({
                     "description_category_id": desc_cat_id,
                     "type_id": type_id,
@@ -98,14 +99,13 @@ def import_category_tree(engine, language="ZH_HANS", force=False, tree_file="cat
                     "language": language,
                     "top_level_category_name": top_level,
                 })
-            elif "description_category_id" in item:
-                # 中间节点（category）
-                cat_id = item["description_category_id"]
+            elif "description_category_id" in item or "children" in item:
+                # 中间节点（category）或有无children的节点
                 cat_name = item.get("category_name", "")
                 full_path = f"{parent_path} > {cat_name}" if parent_path else cat_name
                 top_level = parent_path.split(" > ")[0] if parent_path else cat_name
                 nodes.append({
-                    "description_category_id": cat_id,
+                    "description_category_id": desc_cat_id,
                     "type_id": 0,
                     "node_name": cat_name,
                     "node_type": "category",
@@ -116,9 +116,9 @@ def import_category_tree(engine, language="ZH_HANS", force=False, tree_file="cat
                 })
                 children = item.get("children", [])
                 if children:
-                    walk(children, full_path, depth + 1)
+                    walk(children, full_path, depth + 1, desc_cat_id)
 
-    walk(tree_data.get("result", []))
+    walk(tree_data if isinstance(tree_data, list) else tree_data.get("result", []))
     logger.info(f"解析到 {len(nodes)} 个类目节点")
 
     # 批量插入
@@ -126,12 +126,12 @@ def import_category_tree(engine, language="ZH_HANS", force=False, tree_file="cat
         for node in nodes:
             conn.execute(sql_text("""
                 INSERT INTO category_tree_nodes
-                    (description_category_id, type_id, node_name, node_type, full_path, depth, language, top_level_category_name)
+                    (description_category_id, type_id, node_name, node_type, full_path, depth, language, top_level_category_name, disabled)
                 VALUES
-                    (:description_category_id, :type_id, :node_name, :node_type, :full_path, :depth, :language, :top_level_category_name)
+                    (:description_category_id, :type_id, :node_name, :node_type, :full_path, :depth, :language, :top_level_category_name, false)
                 ON CONFLICT (description_category_id, type_id, language)
                 DO UPDATE SET node_name = EXCLUDED.node_name, full_path = EXCLUDED.full_path,
-                              depth = EXCLUDED.depth, top_level_category_name = EXCLUDED.top_level_category_name
+                              depth = EXCLUDED.depth, top_level_category_name = EXCLUDED.top_level_category_name, disabled = false
             """), node)
         conn.commit()
 
