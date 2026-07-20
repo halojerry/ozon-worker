@@ -49,6 +49,10 @@ ozon-worker/
 ├── docs/
 │   ├── CONTRACT.md             # Skill↔Worker API 契约 v3.0
 │   ├── LOGGING.md              # 日志系统架构 + 查看命令 + 故障排查
+│   ├── WORKER-TOPOLOGY.md      # ⭐ Worker 拓扑 + 错误映射 + 数据流 + 改代码快速参考
+│   ├── PRD-worker-improvements.md    # PRD v1: Worker Pipeline 质量改进
+│   ├── PRD-worker-stability-v2.md    # PRD v2: 稳定性改进（成功率44%→58%）
+│   ├── PRD-worker-stability-v3.md    # PRD v3: 价格修正 + 5个失败产品修复
 │   └── ...                     # Ozon API 文档、物流费率 Excel
 └── scripts/
     └── ci.sh                   # 本地 CI（lint → test → build）
@@ -197,7 +201,14 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
   - 标题不加颜色/数量后缀
   - Worker 层零改动：`variants=[]` 走现有单产品路径
 - **俄语类目树 ID 映射**：`category_tree_nodes` 存中俄双语（`language=ZH_HANS` / `language=RU`），同一 `description_category_id`/`type_id` 跨语言一致。`assemble_ozon_product_node` 属性 schema + 字典值已切换到 `language=RU`，LLM 不再翻译属性值。
-- **`vat="0"`**；主图与 images 分开。
+- **品牌默认无品牌**：所有产品强制默认为 `Нет бренда`（dictionary_value_id=126745801）。不管 1688 数据或 LLM 匹配到什么品牌，一律覆盖。品牌属性不存在时自动补充。代码位置：`assemble_ozon_product_node.py:1007-1022`。
+- **制造商用 supplier 填充**：attr=23487（Производитель）是自由文本属性（dictionary_id=0），不是字典属性。用 `draft.supplier`（1688供应商名）填充，不写空值。
+- **描述强制净化**：`_sanitize_description()` 在翻译后移除拉丁文、中文、URL、邮件、电话、营销词。代码位置：`prepare_ozon_upload_node.py`。
+- **9782 危险品等级不能跳过**：attr=9782 是某些类目的必填属性，从 SKIP_ATTR_IDS 中移除（3处：prepare/validate/status）。代码位置见 `WORKER-TOPOLOGY.md` 关键属性ID表。
+- **cm→mm 阈值 200**：`max_dim < 200` 判断为 cm 转 mm（原 50 太保守，推车等大物品被误判）。
+- **小重量自动乘 1000**：`weight_g < 10g` 但尺寸 > 50mm 时自动乘 1000（疑似 kg→g 单位错误）。
+- **物流费率表必须初始化**：`logistics_rates` 表为空时兜底费率 `weight * 0.15 CNY` 严重虚高。deploy.sh 须确保 `init_data.py` 在 worker 启动前执行完毕。
+- **定价公式已修正**：CNY 店铺不使用 fx_buffer（无汇率风险），佣金公式改为 `售价 = 总成本 * (1+利润率) / (1-佣金率)`。兜底物流费率从 0.15 降到 0.05 CNY/g。
 - **图片顺序规范**：`primary_image` = `main_image`（营销主图，单独指定），`images` 数组按 IMG_ORDER：detail → scene_1/2/3 → comparison → social_proof → multi_angle（倒数第二）→ white_bg（最后）。
 - **变体图片降级**：白底图生成失败 → 统一营销主图（非 1688 alicdn 原图）。
 - WARNING 级 Ozon 错误过滤不算失败；`ozon_status` 返回 `pending` 视为软成功。
@@ -208,9 +219,18 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 ## 已知坑
 
 - **deepseek-v4-flash reasoning tokens**：该模型默认启用推理，`reasoning_tokens` 消耗 `max_tokens` 配额。翻译/生图 prompt 的 `max_tokens` 至少设为 200，否则输出为空。
-- **DESCRIPTION_DECLINE 两大根因**：
-  1. 产品名含拉丁/中文字符 → `ozon_validate_node` 应阻断（已修复：`critical_errors` 含 `"拉丁字母"`）
+- **DESCRIPTION_DECLINE 多重根因**：
+  1. 产品名含拉丁/中文字符 → `ozon_validate_node` 应阻断（已修复）
   2. 属性值含中文 → 俄语类目树 ID 映射解决（`language=RU` 字典值直连）
+  3. 图片含文字/URL/物流信息 → AI 模型局限性，标记为 warning 不阻断（已修复）
+  4. 类目不匹配 → 已添加一致性检查 + 俄语标题重新匹配（已修复）
+- **LLM 翻译对专业术语失败率高**：3D 打印、儿童用品等词导致翻译三连失败，最终用错误类目名作兜底标题。已改为优先用 1688 属性关键词生成标题（已修复）。
+- **物流费率表为空导致价格虚高**：兜底费率 `weight * 0.15 CNY` 是实际费率的 3-4 倍。部署时必须确保 `import_logistics.py` 先于 worker 执行（已修复）。
+- **属性ID细节**：
+  - 9782（危险品等级）：字典属性，某些类目必填，不能跳过
+  - 22508（品牌注册国）：自由文本属性，需硬编码为"Китай"
+  - 23487（制造商）：自由文本属性，用 `draft.supplier` 填充
+  - 23536（标记码）：Ozon 自动设置，必须跳过
 - **`validation_retry_loop` 三大缺陷**（已修复）：
   1. `state.draft` 为空 → LLM 收不到产品上下文 → 回退到 `ozon_payload.items[0].name`
   2. `recheck_status_node` 在 `imported` 即宣告成功 → 已改为额外轮询 `moderate_status`
