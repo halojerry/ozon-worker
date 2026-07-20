@@ -143,6 +143,7 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         
         # Step 2: 查询物流费率（SQLite logistics_rates + Ozon API获取3PL/服务等级）
         tpl_provider, service_level = _get_store_logistics_config(ozon_client_id, ozon_api_key)
+        logger.info(f"🔍 DEBUG 物流查询参数: weight={weight}g, dims={depth}x{width}x{height}cm, tpl={tpl_provider}, svc={service_level}, cost_cny={cost_cny}")
         logistics_cost, logistics_channel = _query_logistics_from_sqlite(
             weight, depth, width, height, tpl_provider, service_level
         )
@@ -157,10 +158,16 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         # 总成本 = 产品成本 + 物流成本 + 包装成本
         total_cost_cny: float = cost_cny + logistics_cost + packaging_cost
         
+        # Ozon佣金是售价的百分比，所以正确公式：售价 = 总成本 / (1 - 佣金率 - 利润率)
+        # 简化：售价 = 总成本 * (1 + margin_rate) / (1 - commission_rate)
+        commission_divisor: float = (1.0 - commission_rate)
+        if commission_divisor <= 0:
+            commission_divisor = 0.9  # 防止除零
+        
         # 根据currency_code决定价格计算方式
         if currency_code == "CNY":
-            # 店铺是CNY，直接计算人民币价格
-            base_price_cny: float = total_cost_cny * (1 + commission_rate) * (1 + fx_buffer) * (1 + margin_rate)
+            # 店铺是CNY，直接计算人民币价格（CNY店铺无汇率风险，不使用fx_buffer）
+            base_price_cny: float = total_cost_cny * (1 + margin_rate) / commission_divisor
             price: int = math.ceil(base_price_cny)
             # Ozon规则：价格≤25时，old_price - price必须>2；价格>25时按15%加价
             if price <= 25:
@@ -169,8 +176,8 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 old_price = math.ceil(price * 1.15)
             currency_unit = "CNY"
         else:
-            # 店铺是RUB，计算俄罗斯卢布价格（默认）
-            base_price_rub: float = total_cost_cny * (1 + commission_rate) * (1 + fx_buffer) * (1 + margin_rate) * exchange_rate
+            # 店铺是RUB，计算俄罗斯卢布价格
+            base_price_rub: float = total_cost_cny * (1 + margin_rate) * (1 + fx_buffer) / commission_divisor * exchange_rate
             price: int = math.ceil(base_price_rub)
             # Ozon规则：价格≤25时，old_price - price必须>2；价格>25时按15%加价
             if price <= 25:
@@ -354,6 +361,7 @@ def _query_logistics_from_sqlite(weight: float, depth_cm: float, width_cm: float
         sum_cm = sum(dims)
 
         # 查询1: 3PL + 服务等级 + 重量 + 尺寸全匹配
+        logger.info(f"🔍 DEBUG Q1: tpl={tpl_provider}, svc={service_level}, w={int(weight)}, sum={int(sum_cm)}, longest={int(longest_cm)}")
         rows = session.execute(
             select(LogisticsRate).where(
                 and_(
@@ -366,9 +374,11 @@ def _query_logistics_from_sqlite(weight: float, depth_cm: float, width_cm: float
                 )
             ).order_by(LogisticsRate.base_cost.asc()).limit(1)
         ).scalars().all()
+        logger.info(f"🔍 DEBUG Q1 result: {len(rows)} rows")
 
         # 查询2: 尺寸不满足，仅按重量 + 3PL匹配
         if not rows:
+            logger.info(f"🔍 DEBUG Q2 fallback: weight-only filter")
             rows = session.execute(
                 select(LogisticsRate).where(
                     and_(
@@ -378,10 +388,12 @@ def _query_logistics_from_sqlite(weight: float, depth_cm: float, width_cm: float
                         LogisticsRate.weight_max >= int(weight),
                     )
                 ).order_by(LogisticsRate.base_cost.asc()).limit(1)
-            ).scalars().all()
+                ).scalars().all()
+            logger.info(f"🔍 DEBUG Q2 result: {len(rows)} rows")
 
         # 查询3: 该3PL无匹配，同服务等级其他3PL
         if not rows:
+            logger.info(f"🔍 DEBUG Q3 fallback: cross-3PL, same service_level")
             rows = session.execute(
                 select(LogisticsRate).where(
                     and_(
@@ -393,6 +405,7 @@ def _query_logistics_from_sqlite(weight: float, depth_cm: float, width_cm: float
                     )
                 ).order_by(LogisticsRate.base_cost.asc()).limit(1)
             ).scalars().all()
+            logger.info(f"🔍 DEBUG Q3 result: {len(rows)} rows")
 
         if rows:
             row = rows[0]
@@ -436,11 +449,11 @@ def _query_logistics_from_sqlite(weight: float, depth_cm: float, width_cm: float
 
         # 绝对最后fallback
         logger.warning(f"PG 物流费率表无数据，使用默认费率")
-        return (weight * 0.15, "default_fallback")
-
+        return (max(5.0, weight * 0.05), "default_fallback")
+    
     except Exception as e:
         logger.error(f"PG 物流费率查询失败: {str(e)}")
-        return (weight * 0.15, "error_fallback")
+        return (max(5.0, weight * 0.05), "error_fallback")
     finally:
         session.close()
 
