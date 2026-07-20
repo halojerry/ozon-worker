@@ -654,8 +654,9 @@ async def openai_chat_completions(request: Request):
 async def health_check():
     try:
         from sqlalchemy import text
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
+        _engine = get_engine()
+        with _engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
         return {
             "status": "ok",
             "message": "Service is running",
@@ -929,8 +930,9 @@ async def v1_health():
     """健康检查（含 PG 连通性）。"""
     try:
         from sqlalchemy import text
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
+        _engine = get_engine()
+        with _engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
         return HealthResponse(status="ok", message="Service is running", db="connected")
     except Exception as e:
         raise HTTPException(status_code=503, detail={

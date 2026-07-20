@@ -32,6 +32,7 @@ def create_tables(engine):
 
     with engine.connect() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        conn.execute(text("SET pg_trgm.similarity_threshold = 0.05"))
         conn.commit()
 
     Base.metadata.create_all(bind=engine)

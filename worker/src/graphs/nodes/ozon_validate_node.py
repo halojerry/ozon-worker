@@ -166,18 +166,36 @@ def ozon_validate_node(
             
             validation_errors.extend(item_errors)
             
-            # ✅ 关键修复：本地内容预检 — 检测拉丁字母描述和英文属性值
-            # 这些问题会被Ozon审核标记为"商品描述完全是拉丁字母"等错误
+            # ✅ 关键修复：本地内容预检 — 检测拉丁字母/中文字符
+            # 这些问题会被Ozon审核标记为DESCRIPTION_DECLINE等错误
             _cyrillic_re = re.compile(r'[а-яА-ЯёЁ]')
             _latin_re = re.compile(r'[a-zA-Z]')
-            
+            _chinese_re = re.compile(r'[\u4e00-\u9fff]')
+
+            # 检查name字段（产品名称）— 必须含西里尔，禁止纯拉丁/中文
+            item_name = item.get("name", "")
+            if item_name:
+                if _latin_re.search(item_name) and not _cyrillic_re.search(item_name):
+                    item_errors.append(f"item[{i}].name含拉丁字母（Ozon要求俄语名称）: {item_name[:60]}")
+                    logger.error(f"❌ item[{i}]名称含拉丁字母: {item_name[:80]}")
+                if _chinese_re.search(item_name):
+                    item_errors.append(f"item[{i}].name含中文字符（Ozon要求俄语名称）: {item_name[:60]}")
+                    logger.error(f"❌ item[{i}]名称含中文字符: {item_name[:80]}")
+
             # 检查description字段（商品简介）
             description = item.get("description", "")
-            if description and _latin_re.search(description) and not _cyrillic_re.search(description):
-                item_errors.append(f"item[{i}].description完全是拉丁字母（Ozon要求俄语描述）")
-                logger.error(f"❌ item[{i}]描述完全是拉丁字母: {description[:80]}...")
-            
-            # 检查关键属性值是否为俄语
+            if description:
+                # 拉丁文检测：不管是否混合西里尔，有拉丁文就报错
+                if _latin_re.search(description):
+                    # 提取拉丁文片段用于日志
+                    _latin_fragments = re.findall(r'[a-zA-Z]{2,}', description)
+                    item_errors.append(f"item[{i}].description含拉丁字母（Ozon要求纯俄语描述）: {', '.join(_latin_fragments[:3])}")
+                    logger.error(f"❌ item[{i}]描述含拉丁字母: {description[:80]}...")
+                if _chinese_re.search(description):
+                    item_errors.append(f"item[{i}].description含中文字符（Ozon要求俄语描述）")
+                    logger.error(f"❌ item[{i}]描述含中文字符: {description[:80]}...")
+
+            # 检查所有属性值 — 拉丁字母检测（关键属性）+ 中文字符检测（所有属性）
             for attr in attributes:
                 if not isinstance(attr, dict):
                     continue
@@ -188,19 +206,29 @@ def ozon_validate_node(
                     attr_id_int_check = int(attr_id_val)
                 except (ValueError, TypeError):
                     continue
-                
-                # 检查4191(描述)和9048(产品名)必须含西里尔字母
-                if attr_id_int_check in (4191, 9048, 4180):
-                    attr_values_list = attr.get("values", [])
-                    for av in attr_values_list:
-                        if not isinstance(av, dict):
-                            continue
-                        av_val = av.get("value", "")
-                        if av_val and _latin_re.search(av_val) and not _cyrillic_re.search(av_val):
+
+                attr_values_list = attr.get("values", [])
+                for av in attr_values_list:
+                    if not isinstance(av, dict):
+                        continue
+                    av_val = av.get("value", "")
+                    if not av_val or not isinstance(av_val, str):
+                        continue
+
+                    # 拉丁字母检测：关键属性（4191描述, 9048产品名, 4180标题）
+                    if attr_id_int_check in (4191, 9048, 4180):
+                        if _latin_re.search(av_val) and not _cyrillic_re.search(av_val):
                             item_errors.append(
                                 f"item[{i}].attributes: 属性{attr_id_int_check}值为纯拉丁字母: {str(av_val)[:60]}"
                             )
                             logger.error(f"❌ 属性{attr_id_int_check}纯拉丁字母: {str(av_val)[:80]}")
+
+                    # 中文字符检测：所有属性值（Ozon禁止中文/日文字符）
+                    if _chinese_re.search(av_val):
+                        item_errors.append(
+                            f"item[{i}].attributes: 属性{attr_id_int_check}含中文字符: {str(av_val)[:60]}"
+                        )
+                        logger.error(f"❌ 属性{attr_id_int_check}含中文字符: {str(av_val)[:80]}")
         
         # Step 3: 变体颜色差异检查（多变体场景下，颜色必须不同才能合并）
         COLOR_ATTR_IDS: set = {10096, 10097, 10098, 10099}
@@ -248,7 +276,7 @@ def ozon_validate_node(
         # Step 4: 检查payload中的属性是否有无效字典值
         # （prepare_ozon_upload_node已跳过未匹配的字典属性，所以payload中不应该有dict_id<=0的字典属性）
         # 只检查payload本身的属性，不再依赖validation_errors
-        critical_errors = [err for err in validation_errors if "缺失" in err or "为空" in err or "格式错误" in err or "变体颜色" in err or "拉丁字母" in err or "非俄语" in err]
+        critical_errors = [err for err in validation_errors if "缺失" in err or "为空" in err or "格式错误" in err or "变体颜色" in err or "拉丁字母" in err or "非俄语" in err or "中文字符" in err]
         if critical_errors:
             logger.error(f"Ozon预检测发现严重错误: {len(critical_errors)}个")
             return OzonValidateOutput(
