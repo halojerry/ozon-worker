@@ -134,16 +134,16 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "INVALID_PRICE": "repair_pricing",
     "WEIGHT_DIMENSION_ERROR": "repair_prepare",
     "INVALID_DIMENSION": "repair_prepare",
-    # ✅ P1-2: 变体未合并 → 走 repair_prepare 重新构建payload（确保颜色属性/9048正确）
+    # ✅ 变体未合并 → 走 repair_prepare 重新构建payload
     "VARIANT_NOT_MERGED": "repair_prepare",
     # ✅ 9048冲突 → 走 repair_prepare 追加后缀重试
     "double_without_merger_offer": "repair_prepare",
-    # ✅ 中文字符/象形文字在属性中 → 走 error_repair_llm 批量翻译
+    # ✅ 中文字符在属性中 → 走 error_repair_llm 批量翻译
     "BR_chinese_hieroglyphs_in_attribute": "error_repair_llm",
     # ✅ 体积重量ML判断错误 → 走 repair_dimensions 重新计算
     "ML_INCORRECT_VOLUME_WEIGHT": "repair_dimensions",
-    # ✅ 尺寸错误 → 走 repair_dimensions 重新计算
-    "INCORRECT_DIMENSION": "repair_dimensions",
+    # ✅ 尺寸错误 → 走 repair_prepare（修复weight/dimensions）
+    "INCORRECT_DIMENSION": "repair_prepare",
     # ✅ 产地错误 → 走 error_repair_llm 修复
     "BR_warning_wrong_country": "error_repair_llm",
     # ✅ 必填属性值为空 → 走 error_repair_llm 补全字典值
