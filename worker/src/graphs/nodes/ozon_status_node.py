@@ -299,7 +299,7 @@ def ozon_status_node(
                                 # 收集错误信息
                                 item_errs = info_item.get("errors", [])
                                 # Ozon 已知可忽略的错误码（平台自动修正，不算真错误）
-                                IGNORABLE_CODES = {9782}  # erased_attribute_value
+                                IGNORABLE_CODES = {9782}  # Ozon可能在审核后擦除危险品等级值，不算真错误
                                 real_errs = []
                                 for err in item_errs:
                                     if not isinstance(err, dict):
