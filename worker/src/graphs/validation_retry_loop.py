@@ -420,6 +420,9 @@ def classify_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         )
         state.error_type = "unfixable"
         state.repair_node = "final_result"
+        # ✅ 图片问题不阻断产品上架，标记为有效（带warning）
+        state.is_valid = True
+        state.upload_status = "success_with_warning"
         return state
 
     # 查修复策略表
@@ -524,6 +527,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         from utils.mxou_api import call_mxou_chat_api
 
         translated_count = 0
+        product_name = state.product_name or ""
         for attr in state.final_attributes:
             if not isinstance(attr, dict):
                 continue
@@ -538,6 +542,26 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 continue
 
             val = str(attr.get("value", ""))
+            dict_val_id = attr.get("dictionary_value_id", 0)
+
+            # ✅ 处理空值字典属性：用产品名搜索字典值
+            if not val and dict_val_id == 0 and product_name:
+                logger.info(f"  属性{aid}值为空，尝试用产品名搜索: {product_name[:30]}")
+                try:
+                    search_result = _search_dictionary_values(
+                        ozon_client_id, ozon_api_key, aid,
+                        category_id, type_id, product_name[:30], "RU"
+                    )
+                    if search_result:
+                        best = search_result[0]
+                        attr["value"] = best.get("value", "")
+                        attr["dictionary_value_id"] = best.get("id", 0)
+                        translated_count += 1
+                        logger.info(f"  ✅ 属性{aid}搜索到值: {attr['value'][:30]}")
+                        continue
+                except Exception as _search_e:
+                    logger.debug(f"  属性{aid}搜索失败: {_search_e}")
+
             if val and _chinese_re.search(val):
                 logger.info(f"  翻译属性{aid}: {val[:60]}...")
                 translated = call_mxou_chat_api(
@@ -986,7 +1010,10 @@ def repair_dimensions_node(state: ValidationRetryLoopState) -> ValidationRetryLo
 
     Ozon ML 系统会对比同类商品的体积重量，差异过大会返回
     ML_INCORRECT_VOLUME_WEIGHT 或 INCORRECT_DIMENSION。
-    此节点用密度 ~0.5 g/cm³（常见消费品）重新计算立方体尺寸。
+    此节点用自适应密度重新计算立方体尺寸：
+    - 小物品（<500g）：0.8 g/cm³（塑料/金属）
+    - 中等物品（500-5000g）：0.3 g/cm³（家居用品）
+    - 大物品（>5000g）：0.1 g/cm³（大件轻质物品）
     """
     logger.info("🔧 开始修复体积/重量（dimensions修复）")
 
@@ -1027,8 +1054,16 @@ def repair_dimensions_node(state: ValidationRetryLoopState) -> ValidationRetryLo
         width = int(float(str(item.get("width", "0")) or "0"))
         height = int(float(str(item.get("height", "0")) or "0"))
 
-        # 用密度 0.8 g/cm³ 重新计算立方体尺寸（常见消费品密度）
-        density = 0.8  # g/cm³
+        # ✅ 自适应密度：根据重量范围选择合适的密度
+        # 小物品（<500g）：密度较高（塑料/金属）
+        # 中等物品（500-5000g）：密度中等
+        # 大物品（>5000g）：密度较低（大件轻质物品）
+        if weight_g < 500:
+            density = 0.8  # g/cm³（小物品：塑料、金属、化妆品等）
+        elif weight_g < 5000:
+            density = 0.3  # g/cm³（中等物品：家居用品、工具等）
+        else:
+            density = 0.1  # g/cm³（大物品：家具、推车、大型玩具等）
         volume_cm3 = weight_g / density
         # 立方体边长（cm）→ 转 mm
         side_cm = max(1.0, volume_cm3 ** (1.0 / 3.0))
