@@ -654,6 +654,7 @@ async def openai_chat_completions(request: Request):
 async def health_check():
     try:
         from sqlalchemy import text
+        from storage.database.db import get_engine
         _engine = get_engine()
         with _engine.connect() as conn:
             conn.execute(text("SELECT 1"))
@@ -930,6 +931,7 @@ async def v1_health():
     """健康检查（含 PG 连通性）。"""
     try:
         from sqlalchemy import text
+        from storage.database.db import get_engine
         _engine = get_engine()
         with _engine.connect() as conn:
             conn.execute(text("SELECT 1"))
