@@ -651,8 +651,17 @@ def prepare_ozon_upload_node(
             logger.warning(f"重量无法解析（{weight_raw}），使用默认值 100g")
         logger.info(f"重量单位判断：{weight_raw}g（直接使用）")
     
+    # ✅ 重量合理性检查：如果重量过小（<10g）但尺寸较大（>50mm），可能是kg写成g
+    if 0 < weight_g < 10:
+        _d = _safe_float(depth_raw)
+        _w = _safe_float(width_raw)
+        _h = _safe_float(height_raw)
+        if max(_d, _w, _h) > 50:
+            old_w = weight_g
+            weight_g = weight_g * 1000
+            logger.warning(f"⚠️ 重量{old_w}g过小而尺寸较大(max={max(_d,_w,_h):.0f})，疑似单位kg→g，修正为{weight_g}g")
+    
     # ✅ 尺寸单位智能判断：1688数据可能是cm或mm
-    # 启发式规则：如果任一维度 < 50，大概率是cm（mm下50mm=5cm太小了）
     # Ozon API 要求 mm 单位
     def _safe_float(val) -> float:
         try:
@@ -664,8 +673,8 @@ def prepare_ozon_upload_node(
     h_val = _safe_float(height_raw)
     
     max_dim = max(d_val, w_val, h_val)
-    if max_dim > 0 and max_dim < 50:
-        # 大概率是cm，转换为mm
+    if max_dim > 0 and max_dim < 200:
+        # 大概率是cm，转换为mm（推车/桌椅等大物品可达100-150cm）
         depth_mm = int(d_val * 10)
         width_mm = int(w_val * 10)
         height_mm = int(h_val * 10)
@@ -966,9 +975,8 @@ def prepare_ozon_upload_node(
         seen_attr_ids.add(attribute_id_int)
         
         # ✅ 关键修复：跳过Ozon不允许编辑或自动设置的属性
-        # 9782(危险等级)：Ozon不允许编辑，发送后会被擦除并报错
-        # 23536(标记代码)：Ozon根据TN VED自动设置，手动设置"false"不正确
-        _skip_attrs = (9782, 23536)
+        # 23536(标记代码)：Ozon根据TN VED自动设置，手动设置不正确
+        _skip_attrs = (23536,)
         if attribute_id_int in _skip_attrs:
             logger.info(f"✅ 跳过属性{attribute_id_int}（Ozon不允许编辑或自动设置）")
             continue
@@ -978,6 +986,11 @@ def prepare_ozon_upload_node(
         if attribute_id_int == 4389:
             value_str = "Китай"
             logger.info(f"✅ 属性4389(原产国)硬编码为：Китай")
+        
+        # ✅ 属性22508(品牌注册国)：类似4389，也硬编码为Китай
+        if attribute_id_int == 22508:
+            value_str = "Китай"
+            logger.info(f"✅ 属性22508(品牌注册国)硬编码为：Китай")
         
         # ✅ 关键修复：文本类属性必须为俄语
         # 4191(Описание/描述)、4180(关键字)、9048(Название модели/产品名称) 必须翻译
