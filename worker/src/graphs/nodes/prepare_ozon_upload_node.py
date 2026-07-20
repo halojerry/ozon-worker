@@ -731,6 +731,9 @@ def prepare_ozon_upload_node(
     
     title_cn = draft.get("title", "")
     description = draft.get("description", "")
+    # ✅ 提取1688属性关键词（用于标题翻译失败时的兜底生成）
+    _draft_attrs_1688: Dict[str, Any] = draft.get("attributes", {}) if isinstance(draft, dict) else {}
+    _attr_keywords_cn: str = " ".join(str(v) for v in _draft_attrs_1688.values() if v and len(str(v)) < 20)[:200]
     if not description or not description.strip():
         description = title_cn
         logger.warning(f"⚠️ description初始为空，暂用标题占位，后续从属性4191提取")
@@ -1007,9 +1010,9 @@ def prepare_ozon_upload_node(
         logger.warning(f"⚠️ 标题校验后仍不合格（空或含拉丁），用公式生成: '{title_ru[:60]}'")
         try:
             from utils.mxou_api import call_mxou_chat_api
-            # 从产品信息中提取关键词用于生成标题
-            # 注意：此时 desc_from_4191 尚未赋值，只用 title_cn
-            keywords = title_cn[:200]
+            # ✅ 优先用1688属性关键词（比中文标题更稳定），其次用标题
+            keywords = _attr_keywords_cn if _attr_keywords_cn else title_cn[:200]
+            logger.info(f"   标题生成关键词：{keywords[:80]}")
             gen_title = call_mxou_chat_api(
                 token=mxou_token,
                 system_prompt=(

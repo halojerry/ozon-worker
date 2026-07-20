@@ -423,6 +423,7 @@ def assemble_ozon_product_node(
         weight_grams=weight_grams,
         dimensions=dimensions,
         draft_title=draft.get("title", ""),
+        supplier=draft.get("supplier", ""),
     )
 
     # =====================================================
@@ -452,7 +453,31 @@ def assemble_ozon_product_node(
     # Step 6.5: 跨类目一致性校验
     # =====================================================
     # 对比 LLM 生成的俄语标题与分配的 Ozon 类目路径，检测明显不匹配
-    _check_category_consistency(llm_name, category_path, description_category_id, type_id)
+    category_consistent = _check_category_consistency(llm_name, category_path, description_category_id, type_id)
+
+    if not category_consistent:
+        # 类目不匹配 → 尝试用俄语标题重新匹配类目
+        logger.warning(f"⚠️ 类目不一致，尝试用俄语标题重新匹配...")
+        try:
+            query = get_category_query()
+            re_candidates = query.search_nodes(llm_name[:50], top_k=10, node_type="type")
+            if re_candidates:
+                best = re_candidates[0]
+                new_cat_id = best.get("description_category_id", 0)
+                new_type_id = best.get("type_id", 0)
+                new_path = best.get("full_path", "")
+                if new_cat_id and new_type_id and (new_cat_id != description_category_id or new_type_id != type_id):
+                    logger.info(f"✅ 重新匹配成功: {description_category_id}/{type_id} → {new_cat_id}/{new_type_id} ({new_path})")
+                    description_category_id = new_cat_id
+                    type_id = new_type_id
+                    category_path = new_path
+                    # 重新获取属性 schema
+                    new_attr_schema = query.get_attribute_schema(new_cat_id, new_type_id)
+                    if new_attr_schema and isinstance(new_attr_schema, dict) and new_attr_schema.get("result"):
+                        attr_list = new_attr_schema["result"]
+                        logger.info(f"   ✅ 属性 schema 已更新: {len(attr_list)} 个属性")
+        except Exception as _re_match_e:
+            logger.warning(f"   ⚠️ 重新匹配失败: {_re_match_e}")
 
     # =====================================================
     # Step 7: 返回结果 dict（LangGraph 自动合并到 GlobalState）
@@ -547,16 +572,16 @@ def _check_category_consistency(
     category_path: str,
     description_category_id: int,
     type_id: int,
-) -> None:
+) -> bool:
     """
     跨类目一致性校验：对比 LLM 生成的俄语产品名与分配的 Ozon 类目名称。
-    
-    如果二者完全不相关，很可能是类目匹配错误（如"园艺工具"→"迷你打印机"），
-    记录 WARNING 日志帮助快速发现此类问题。
+
+    Returns:
+        True if consistent (or cannot check), False if mismatch detected
     """
     if not llm_name or not category_path:
-        return
-    
+        return True
+
     # 提取类目路径中的关键俄语词（取最后两级，通常是最具体的分类）
     path_parts = [p.strip() for p in category_path.split(">") if p.strip()]
     leaf_keywords = set()
@@ -564,11 +589,11 @@ def _check_category_consistency(
         for word in part.lower().split():
             if len(word) >= 3:
                 leaf_keywords.add(word)
-    
+
     # 检查产品名中是否包含任一类目关键词
     name_lower = llm_name.lower()
     overlap = [kw for kw in leaf_keywords if kw in name_lower]
-    
+
     if not overlap and leaf_keywords:
         logger.warning(
             f"⚠️ 跨类目一致性警告：产品名「{llm_name[:80]}」与类目「{category_path}」"
@@ -576,8 +601,10 @@ def _check_category_consistency(
             f" 这可能导致 Ozon 审核拒绝（DESCRIPTION_DECLINE）。"
             f" 建议检查类目匹配是否正确 (desc_cat_id={description_category_id}, type_id={type_id})。"
         )
+        return False
     elif overlap:
         logger.info(f"✅ 跨类目一致性通过：产品名与类目「{category_path}」匹配关键词: {overlap}")
+    return True
 
 
 def _llm_match_category(
@@ -874,6 +901,7 @@ def _validate_and_enrich_items(
     weight_grams: int,
     dimensions: dict[str, int],
     draft_title: str = "",
+    supplier: str = "",
 ) -> list[dict[str, Any]]:
     """校验并补充 items 字段（属性补全、品牌修正、hashtag 生成等）"""
 
@@ -992,7 +1020,7 @@ def _validate_and_enrich_items(
             4958: "Универсальный",    # Назначение（用途）
             8292: "0",                # Объединить на одной карточке（合并卡牌）— 0=不合并
             # 9782: 字典属性（Класс опасности товара），值从 Ozon API 字典获取，不设 default
-            23487: "",                # Производитель（制造商）— 化妆品类必填，留空让 API 搜索
+            # 23487: 自由文本属性，用 draft.supplier 填充，不设默认值
         }
 
         for missing_id in sorted(missing_required):
@@ -1007,6 +1035,16 @@ def _validate_and_enrich_items(
                 "id": missing_id,
                 "values": [],
             }
+
+            # ✅ 特殊处理：attr=23487（Производитель/制造商）用 supplier 填充
+            if missing_id == 23487:
+                if supplier:
+                    new_attr["values"] = [{"dictionary_value_id": 0, "value": supplier[:50]}]
+                    validated_attrs.append(new_attr)
+                    logger.info(f"   ✅ 制造商 attr=23487 使用供应商: {supplier[:30]}")
+                else:
+                    logger.warning(f"   ⚠️ 制造商 attr=23487 无供应商数据，跳过")
+                continue
 
             if dict_id and dict_id > 0:
                 # 字典属性 → 优先用 Ozon API 搜索匹配值
