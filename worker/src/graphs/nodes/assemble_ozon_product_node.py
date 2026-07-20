@@ -1005,16 +1005,25 @@ def _validate_and_enrich_items(
             logger.warning(f"   ⚠️ 补充缺失必填属性: id={missing_id} ({schema_attr.get('name', '?')})")
 
         # === 特殊属性修正 ===
-        # 品牌（85, 5076）
+        # 品牌（85, 5076）— 无条件强制为"无品牌"
         for brand_id in BRAND_ATTRIBUTE_IDS:
             brand_attr = next((a for a in validated_attrs if int(a.get("id", 0)) == brand_id), None)
             if brand_attr:
                 values = brand_attr.get("values", [])
                 for v in values:
-                    if v.get("dictionary_value_id", 0) == 0:
-                        v["dictionary_value_id"] = NO_BRAND_DICT_ID
-                        v["value"] = NO_BRAND_VALUE
-                        logger.info(f"   ✅ 品牌 attribute_id={brand_id} 修正为 'Нет бренда'")
+                    old_val = v.get("value", "")
+                    v["dictionary_value_id"] = NO_BRAND_DICT_ID
+                    v["value"] = NO_BRAND_VALUE
+                    if old_val and old_val != NO_BRAND_VALUE:
+                        logger.info(f"   ✅ 品牌 attribute_id={brand_id} '{old_val}' → 'Нет бренда'")
+            else:
+                # 品牌属性不存在，补充为"无品牌"
+                validated_attrs.append({
+                    "complex_id": 0,
+                    "id": brand_id,
+                    "values": [{"dictionary_value_id": NO_BRAND_DICT_ID, "value": NO_BRAND_VALUE}],
+                })
+                logger.info(f"   ✅ 补充品牌 attribute_id={brand_id} = 'Нет бренда'")
 
         # 原产国（4389）
         country_attr = next((a for a in validated_attrs if int(a.get("id", 0)) == COUNTRY_ATTR_ID), None)
