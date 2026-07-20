@@ -178,6 +178,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## 深入阅读（改前先看）
 
+- **`docs/WORKER-TOPOLOGY.md`** — ⭐ Worker 拓扑与错误处理手册（节点流、错误映射、数据流、改代码快速参考）
 - **`docs/CONTRACT.md`** — Skill↔Worker API 契约 v3.0（端点、请求/响应、错误码）
 - **`docs/LOGGING.md`** — 日志系统架构 + 查看命令 + 故障排查流程
 - **`docs/CONVENTIONS.md`** — 分支命名 + commit 规范 + 发版流程
