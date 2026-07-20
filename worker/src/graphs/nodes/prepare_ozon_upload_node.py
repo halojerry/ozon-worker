@@ -217,50 +217,63 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
         model_id: str = llm_config.get("model", "deepseek-v4-flash")
 
         if text_type == "title":
-            # 标题翻译：有严格的格式规则（标点、长度、去营销词、禁止关键词堆砌）
+            # 标题翻译：统一「核心词+属性+场景」三段式公式
+            _title_formula = (
+                "标题公式：[核心词], [属性], [场景]\n"
+                "- 核心词：产品是什么（如 Садовый секатор）\n"
+                "- 属性：1-2个关键特征（如 профессиональный, с латексным покрытием）\n"
+                "- 场景：使用场景（如 для обрезки веток）\n"
+            )
             if source_lang == "zh" or _has_chinese(text):
                 sys_prompt: str = (
-                    "你是Ozon电商平台的产品标题翻译专家。将给定的中文产品标题翻译成俄语。\n\n"
+                    "你是Ozon俄罗斯电商平台的产品标题专家。将中文标题翻译为俄语，严格遵循以下公式。\n\n"
+                    f"{_title_formula}\n"
                     "严格规则（违反任何一条都会导致Ozon审核拒绝）：\n"
                     "1. 标题长度不超过50个字符（含空格和标点）\n"
-                    "2. 标题中必须包含标点符号（逗号或破折号），例如：\"Садовые грабли, пластиковые\"\n"
-                    "3. 绝对禁止关键词堆砌：同一标题中不允许出现3个以上连续的名词性关键词\n"
-                    "4. 去除所有营销词汇：跨境爆款、现货、亚马逊、爆款、热销、新品、促销、优惠、限时、工厂直供、量大从优等\n"
-                    "5. 去除重复的关键词，同一词语不要出现两次\n"
-                    "6. 格式：核心产品名 + 逗号 + 1个关键特性（如材质或用途）\n"
-                    "7. 返回纯俄语文本，不要添加任何解释或前缀\n\n"
-                    "正确示例：\n"
+                    "2. 标题中必须包含逗号或破折号分隔各部分\n"
+                    "3. 绝对禁止关键词堆砌：连续名词性关键词不超过3个\n"
+                    "4. 去除所有营销词汇：跨境爆款、现货、亚马逊、爆款、热销、新品、促销等\n"
+                    "5. 去除重复关键词\n"
+                    "6. 100%西里尔字母，禁止拉丁字母和中文\n"
+                    "7. 只返回俄语标题，不要解释\n\n"
+                    "示例：\n"
                     "- 输入：\"跨境爆款 现货 Frog Plant Stand 绿色动物宠物青蛙装饰植物架\"\n"
-                    "- 输出：\"Подставка для растений, декоративная лягушка\"\n"
-                    "- 输入：\"亚马逊创意JungleSpoon绿叶子漏勺龟背叶勺子捞面勺调羹漏勺\"\n"
-                    "- 输出：\"Кухонная ложка-шумовка, лист монстеры\"\n\n"
-                    "错误示例（关键词堆砌，会被Ozon拒绝）：\n"
-                    "- ❌ \"Автоматический разбрызгиватель 360 вращающийся садовый оросительный газонный дождеватель\"\n"
-                    "- ✅ \"Садовый разбрызгиватель 360°, для полива\""
+                    "- 输出：\"Подставка для растений, декоративная лягушка, для дома\"\n"
+                    "- 输入：\"亚马逊创意JungleSpoon绿叶子漏勺龟背叶勺子捞面勺\"\n"
+                    "- 输出：\"Кухонная ложка-шумовка, лист монстеры, для кухни\""
                 )
             else:
                 sys_prompt = (
-                    "You are an Ozon e-commerce product title translation expert. Translate the given English product title into Russian.\n\n"
-                    "Strict rules (violation of any rule will cause Ozon to reject the product):\n"
-                    "1. Title length must NOT exceed 50 characters (including spaces and punctuation)\n"
-                    "2. Title must contain punctuation (comma or dash), e.g.: \"Garden rake, plastic\"\n"
-                    "3. ABSOLUTELY NO keyword stuffing: do not use 3+ consecutive noun keywords\n"
+                    "You are an Ozon Russia product title expert. Translate the English title into Russian using this formula.\n\n"
+                    f"{_title_formula}\n"
+                    "Strict rules (violation causes Ozon rejection):\n"
+                    "1. Max 50 characters (including spaces and punctuation)\n"
+                    "2. Must contain comma or dash separating parts\n"
+                    "3. No keyword stuffing: max 3 consecutive noun keywords\n"
                     "4. Remove all marketing words: Amazon, hot sale, new, bestseller, etc.\n"
-                    "5. Remove duplicate keywords - no word should appear twice\n"
-                    "6. Format: core product name + comma + 1 key feature (material or use)\n"
-                    "7. Return only Russian text without any explanation\n\n"
-                    "Correct examples:\n"
+                    "5. No duplicate keywords\n"
+                    "6. 100% Cyrillic, no Latin, no Chinese\n"
+                    "7. Return only the Russian title\n\n"
+                    "Examples:\n"
                     "- Input: \"Frog Plant Stand Green Animal Pet Frog Decoration Plant Rack\"\n"
-                    "- Output: \"Подставка для растений, декоративная лягушка\"\n"
-                    "- Input: \"JungleSpoon Green Leaf Colander Monstera Spoon Noodle Strainer Ladle\"\n"
-                    "- Output: \"Кухонная ложка-шумовка, лист монстеры\""
+                    "- Output: \"Подставка для растений, декоративная лягушка, для дома\"\n"
+                    "- Input: \"JungleSpoon Green Leaf Colander Monstera Spoon Noodle Strainer\"\n"
+                    "- Output: \"Кухонная ложка-шумовка, лист монстеры, для кухни\""
                 )
         else:
-            # 普通翻译（描述等）
+            # 普通翻译（描述等）— 加内容净化规则
+            _desc_rules = (
+                "严格规则：\n"
+                "1. 100%西里尔字母，移除所有拉丁字母和中文字符\n"
+                "2. 移除营销词汇：爆款、热销、新品、促销、跨境、亚马逊、best、hot、sale、new、premium、top、free\n"
+                "3. 移除联系方式：网址、电话、邮箱\n"
+                "4. 移除品牌名称引用\n"
+                "5. 只返回俄语描述文本，不要添加任何解释或前缀"
+            )
             if source_lang == "zh" or _has_chinese(text):
-                sys_prompt = "你是一个专业翻译。将给定的中文产品名称或描述翻译成俄语。只返回翻译后的俄语文本，不要添加任何其他内容、解释或标点符号前缀。"
+                sys_prompt = f"你是一个专业翻译，专门翻译Ozon俄罗斯电商平台的产品描述。将给定的中文描述翻译成俄语。\n{_desc_rules}"
             else:
-                sys_prompt = "You are a professional translator. Translate the given English product text into Russian. Return only the translated Russian text, without any additional content or explanation."
+                sys_prompt = f"You are a professional translator for Ozon Russia e-commerce. Translate the given product description into Russian.\n{_desc_rules}"
 
         translated: str = call_mxou_chat_api(
             token=token,
@@ -295,12 +308,15 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
             if retry_translated and _has_cyrillic(retry_translated):
                 logger.info(f"✅ 简化重试翻译成功: '{text[:50]}' → '{retry_translated[:50]}'")
                 return retry_translated
-            # 最终 fallback：用生成模式创造俄语名称（而非回退到中文）
-            logger.warning(f"⚠️ 翻译失败，尝试生成俄语名称: '{text[:50]}'")
+            # 最终 fallback：用「核心词+属性+场景」公式生成俄语名称（而非回退到中文）
+            logger.warning(f"⚠️ 翻译失败，用公式生成俄语名称: '{text[:50]}'")
             gen_prompt = (
-                "You are naming a product for Ozon Russia marketplace. "
-                "Generate a short Russian product name (under 50 chars) based on keywords from the input. "
-                "Use ONLY Cyrillic letters. No Latin, no Chinese. Return ONLY the name, nothing else."
+                "你是Ozon俄罗斯电商平台产品命名专家。\n"
+                "根据以下产品信息，用「核心词+属性+场景」公式生成俄语标题：\n"
+                "- 核心词：产品是什么\n"
+                "- 属性：1-2个关键特征\n"
+                "- 场景：使用场景\n"
+                "要求：≤50字符，必须含逗号，100%西里尔字母，无拉丁/中文。只返回标题。"
             )
             gen_result: str = call_mxou_chat_api(
                 token=token,
@@ -357,6 +373,14 @@ def _remove_latin_words(title: str) -> str:
         title = title.replace(w, '').strip()
     # 清理多余空格
     title = re.sub(r'\s{2,}', ' ', title).strip()
+
+    # 如果移除拉丁词后标题为空或只剩标点/数字，不能返回空标题
+    # 调用 _sanitize_title 的兜底逻辑会在后续处理
+    if not title or not re.search(r'[а-яА-ЯёЁ]', title):
+        logger.warning(f"⚠️ 移除拉丁词后标题为空或无西里尔: 原词={latin_words}, 残留='{title}'")
+        # 返回空字符串，让调用方（_sanitize_title）触发生成兜底
+        return ""
+
     logger.info(f"✅ 拉丁词已移除: {latin_words} → '{title[:60]}'")
     return title
 
@@ -409,6 +433,8 @@ def _sanitize_title(title: str) -> str:
 
     # 0. 去除拉丁字母 — Ozon 完全禁止拉丁字符（DESCRIPTION_DECLINE attr=4180）
     sanitized = _remove_latin_words(sanitized)
+    # 如果移除拉丁词后为空，标记为需要生成兜底标题
+    _needs_fallback_title = not sanitized or not re.search(r'[а-яА-ЯёЁ]', sanitized)
 
     # 1. 去除残留营销词（俄语常见 + 英语常见）
     marketing_words_ru: list = [
@@ -484,7 +510,104 @@ def _sanitize_title(title: str) -> str:
     if sanitized != title:
         logger.info(f"🔧 标题校验修正: '{title[:60]}' → '{sanitized[:60]}'")
 
+    # 6. 最终校验：确保标题不含拉丁字符（Ozon 硬性要求）
+    _latin_re = re.compile(r'[a-zA-Z]')
+    _cyrillic_re = re.compile(r'[а-яА-ЯёЁ]')
+    if _needs_fallback_title or (sanitized and _latin_re.search(sanitized) and not _cyrillic_re.search(sanitized)):
+        logger.warning(f"⚠️ 标题仍含拉丁字符或为空，需生成兜底标题: '{sanitized[:60]}'")
+        # 返回空字符串，让调用方（prepare_ozon_upload_node）用 LLM 生成
+        sanitized = ""
+
     return sanitized
+
+
+def _sanitize_description(description: str) -> str:
+    """
+    描述后净化：确保描述符合Ozon规范。
+    1. 移除拉丁字母（保留西里尔）
+    2. 移除中文字符
+    3. 移除 URL、邮箱、电话
+    4. 移除营销词汇
+    5. 长度限制 2000 字符
+    """
+    if not description or not isinstance(description, str):
+        return description
+
+    sanitized: str = description.strip()
+
+    # 1. 移除中文字符
+    sanitized = re.sub(r'[\u4e00-\u9fff]+', ' ', sanitized)
+
+    # 2. 移除拉丁单词（2+连续拉丁字母）
+    sanitized = re.sub(r'[a-zA-Z]{2,}', ' ', sanitized)
+
+    # 3. 移除 URL
+    sanitized = re.sub(r'https?://\S+', '', sanitized)
+
+    # 4. 移除邮箱
+    sanitized = re.sub(r'\b[\w.-]+@[\w.-]+\.\w+\b', '', sanitized)
+
+    # 5. 移除电话号码
+    sanitized = re.sub(r'\+?\d[\d\s\-()]{7,}\d', '', sanitized)
+
+    # 6. 移除营销词汇
+    marketing_words: list = [
+        "хит", "распродажа", "акция", "скидка", "новинка", "бестселлер",
+        "кроссбордер", "бесплатно", "премиум", "эксклюзив", "ограничено",
+        "топ", "лучший", "популярный", "тренд",
+        "爆款", "热销", "新品", "促销", "跨境", "亚马逊", "现货",
+    ]
+    for word in marketing_words:
+        sanitized = re.sub(re.escape(word), '', sanitized, flags=re.IGNORECASE)
+
+    # 7. 清理多余空格和标点
+    sanitized = re.sub(r'\s+', ' ', sanitized).strip()
+    sanitized = re.sub(r'\s+([,.])', r'\1', sanitized)
+
+    # 8. 长度限制
+    if len(sanitized) > 2000:
+        # 在词边界截断
+        truncated = sanitized[:2000]
+        last_space = truncated.rfind(' ')
+        if last_space > 1500:
+            truncated = truncated[:last_space]
+        sanitized = truncated.rstrip(' ,.')
+
+    if sanitized != description.strip():
+        logger.info(f"🔧 描述净化: '{description[:60]}...' → '{sanitized[:60]}...'")
+
+    return sanitized
+
+
+def _get_category_fallback_title(state: "PrepareOzonUploadInput") -> str:
+    """用 Ozon 类目名生成兜底标题，替代固定文案 'Товар для дома'。"""
+    try:
+        desc_cat_id = getattr(state, "description_category_id", None) or ""
+        type_id = getattr(state, "type_id", None) or ""
+        if desc_cat_id and type_id:
+            from sqlalchemy import text
+            from storage.database.db import get_engine
+            engine = get_engine()
+            with engine.connect() as conn:
+                result = conn.execute(
+                    text(
+                        "SELECT full_path FROM category_tree_nodes "
+                        "WHERE description_category_id=:cid AND type_id=:tid "
+                        "AND language='RU' LIMIT 1"
+                    ),
+                    {"cid": str(desc_cat_id), "tid": str(type_id)},
+                )
+                row = result.fetchone()
+                if row and row[0]:
+                    # 类目路径如 "Дом и сад > Садовые инструменты > Секаторы"
+                    # 取最后一段作为产品类型
+                    parts = str(row[0]).split(">")
+                    last_part = parts[-1].strip() if parts else ""
+                    if last_part:
+                        return f"{last_part}, универсальный"
+    except Exception as e:
+        logger.debug(f"获取类目兜底标题失败: {e}")
+    return ""
 
 
 def prepare_ozon_upload_node(
@@ -805,7 +928,6 @@ def prepare_ozon_upload_node(
         if attr_id_int in NUMERIC_WEIGHT_ATTRS:
             val = str(attr.get("value", ""))
             # Remove common weight unit suffixes
-            import re
             val_clean = re.sub(r'(?i)\s*(g|kg|克|斤|公斤|г|кг|gram|kilogram)\s*$', '', val).strip()
             if val_clean != val:
                 attr["value"] = val_clean
@@ -878,6 +1000,45 @@ def prepare_ozon_upload_node(
     
     # ✅ 标题后校验：确保标题符合Ozon规范（≤50字符、含标点、无关键词堆砌）
     title_ru = _sanitize_title(title_ru)
+
+    # 兜底：如果标题仍为空或含拉丁字符，用「核心词+属性+场景」公式生成
+    _latin_re_title = re.compile(r'[a-zA-Z]')
+    if not title_ru or (title_ru and _latin_re_title.search(title_ru) and not _has_cyrillic(title_ru)):
+        logger.warning(f"⚠️ 标题校验后仍不合格（空或含拉丁），用公式生成: '{title_ru[:60]}'")
+        try:
+            from utils.mxou_api import call_mxou_chat_api
+            # 从产品信息中提取关键词用于生成标题
+            # 注意：此时 desc_from_4191 尚未赋值，只用 title_cn
+            keywords = title_cn[:200]
+            gen_title = call_mxou_chat_api(
+                token=mxou_token,
+                system_prompt=(
+                    "你是Ozon俄罗斯电商平台产品命名专家。\n"
+                    "根据以下产品信息，用「核心词+属性+场景」公式生成俄语标题：\n"
+                    "- 核心词：产品是什么\n"
+                    "- 属性：1-2个关键特征\n"
+                    "- 场景：使用场景\n"
+                    "要求：≤50字符，必须含逗号，100%西里尔字母，无拉丁/中文。只返回标题。"
+                ),
+                user_prompt=f"产品信息：{keywords}",
+                model="deepseek-v4-flash",
+                temperature=0.3,
+                max_tokens=200
+            ) or ""
+            gen_title = gen_title.strip()
+            if gen_title and _has_cyrillic(gen_title) and not _latin_re_title.search(gen_title):
+                title_ru = _sanitize_title(gen_title) or gen_title
+                logger.info(f"✅ 公式生成标题成功：{title_ru[:80]}")
+            else:
+                # 最终兜底：用 Ozon 类目名代替固定文案
+                _fallback_name = _get_category_fallback_title(state)
+                title_ru = _fallback_name if _fallback_name else "Товар для дома, универсальный"
+                logger.warning(f"⚠️ 公式生成也失败，使用类目兜底标题：{title_ru}")
+        except Exception as e:
+            logger.error(f"❌ 标题生成异常：{e}")
+            _fallback_name_ex = _get_category_fallback_title(state)
+            title_ru = _fallback_name_ex if _fallback_name_ex else "Товар для дома, универсальный"
+
     logger.info(f"✅ 标题校验后最终值：{title_ru[:80]}")
     
     # ✅ 关键修复：从LLM生成的属性4191中提取描述，并确保为俄语
@@ -909,6 +1070,10 @@ def prepare_ozon_upload_node(
         # 兜底：如果description仍然为空，用俄语标题作为描述
         description = title_ru if title_ru and _has_cyrillic(title_ru) else "Описание товара"
         logger.warning(f"⚠️ 描述为空，使用标题作为描述：{description[:80]}")
+
+    # ✅ 描述净化：移除残留拉丁文/中文/URL/营销词（预防 DESCRIPTION_DECLINE）
+    if description:
+        description = _sanitize_description(description)
     
     # Step 6: 组装Ozon payload（严格遵守Ozon结构规范）
     logger.info("组装Ozon payload（严格遵守Ozon结构规范）")
@@ -989,6 +1154,21 @@ def prepare_ozon_upload_node(
         if attribute_id_int in _russian_required_attrs and value_str and not _has_cyrillic(value_str):
             logger.warning(f"⚠️ 属性{attribute_id_int}值为拉丁字母，翻译为俄语：{value_str[:60]}...")
             value_str = _translate_to_russian_llm(value_str, mxou_token, source_lang="auto")
+
+        # ✅ 扩展翻译：所有属性值含中文字符的，翻译为俄语（Ozon禁止中文/日文字符）
+        _chinese_re_attr = re.compile(r'[\u4e00-\u9fff]')
+        if value_str and attribute_id_int not in _english_allowed_attrs and _chinese_re_attr.search(value_str):
+            logger.warning(f"⚠️ 属性{attribute_id_int}值含中文字符，翻译为俄语：{value_str[:60]}...")
+            value_str = _translate_to_russian_llm(value_str, mxou_token, source_lang="zh")
+            # 翻译后校验：确保不再含中文
+            if value_str and _chinese_re_attr.search(value_str):
+                logger.error(f"❌ 属性{attribute_id_int}翻译后仍含中文，清空: {value_str[:60]}")
+                value_str = ""
+            # ✅ 字典属性翻译后，清空旧的 dictionary_value_id（中文值对应的 ID 已失效）
+            # 会在后续 validation_retry_loop 中重新匹配
+            if value_str and is_dict_attr:
+                dictionary_value_id_int = 0
+                logger.info(f"  ℹ️ 字典属性{attribute_id_int}翻译后清空 dictionary_value_id，待 retry 重新匹配")
         
         # ✅ 属性23171(hashtags)：过滤掉品牌名 + 确保俄语标签格式
         if attribute_id_int == 23171 and value_str:

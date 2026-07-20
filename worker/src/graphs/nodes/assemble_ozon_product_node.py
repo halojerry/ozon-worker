@@ -146,6 +146,22 @@ def assemble_ozon_product_node(
                 "猫玩具": "宠物玩具",
                 "猫猫食具": "宠物碗 宠物餐具",
                 "猫狗食具": "宠物碗 宠物餐具",
+                # 宠物狗用品
+                "牵引绳": "宠物牵绳 宠物牵引绳",
+                "狗绳": "宠物牵绳 宠物牵引绳",
+                "遛狗绳": "宠物牵绳 宠物牵引绳",
+                "狗链": "宠物牵绳 宠物牵引绳",
+                "胸背带": "宠物胸背带 宠物背心",
+                "狗胸背带": "宠物胸背带",
+                "训犬": "宠物训练用品",
+                "狗碗": "宠物碗 宠物餐具",
+                "猫碗": "宠物碗 宠物餐具",
+                "狗窝": "宠物床 宠物窝",
+                "猫窝": "宠物床 宠物窝",
+                "狗衣服": "宠物服装",
+                "猫衣服": "宠物服装",
+                "宠物用品": "宠物用品 宠物配件",
+                "猫狗用品": "宠物用品",
                 # 园艺
                 "园艺工具": "园艺工具 花园工具",
                 "园林资材": "园艺工具 花园",
@@ -406,6 +422,7 @@ def assemble_ozon_product_node(
         type_id=type_id,
         weight_grams=weight_grams,
         dimensions=dimensions,
+        draft_title=draft.get("title", ""),
     )
 
     # =====================================================
@@ -856,6 +873,7 @@ def _validate_and_enrich_items(
     type_id: int,
     weight_grams: int,
     dimensions: dict[str, int],
+    draft_title: str = "",
 ) -> list[dict[str, Any]]:
     """校验并补充 items 字段（属性补全、品牌修正、hashtag 生成等）"""
 
@@ -966,11 +984,23 @@ def _validate_and_enrich_items(
         present_ids = {int(a["id"]) for a in validated_attrs if "id" in a}
         missing_required = required_attr_ids - present_ids
 
+        # 特殊属性的已知默认值（常见必填属性）
+        KNOWN_DEFAULTS: dict[int, str] = {
+            8205: "730",              # Срок годности в днях（保质期天数）— 2年
+            9163: "Универсальный",    # Пол（性别）— 通用
+            8962: "1",                # Количество предметов（件数）
+            4958: "Универсальный",    # Назначение（用途）
+            8292: "0",                # Объединить на одной карточке（合并卡牌）— 0=不合并
+            # 9782: 字典属性（Класс опасности товара），值从 Ozon API 字典获取，不设 default
+            23487: "",                # Производитель（制造商）— 化妆品类必填，留空让 API 搜索
+        }
+
         for missing_id in sorted(missing_required):
             schema_attr = attr_by_id.get(missing_id, {})
             if not schema_attr:
                 continue
 
+            attr_name = schema_attr.get("name", "?")
             dict_id = schema_attr.get("dictionary_id", 0)
             new_attr: dict[str, Any] = {
                 "complex_id": 0,
@@ -979,42 +1009,146 @@ def _validate_and_enrich_items(
             }
 
             if dict_id and dict_id > 0:
-                # 字典属性 → 取第一个可用值
+                # 字典属性 → 优先用 Ozon API 搜索匹配值
                 dict_vals = dict_lookup.get(missing_id, [])
-                if isinstance(dict_vals, list) and dict_vals:
-                    first = dict_vals[0]
-                    if isinstance(first, dict):
-                        new_attr["values"] = [{
-                            "dictionary_value_id": first.get("id", 0),
-                            "value": str(first.get("value", "")),
-                        }]
-                elif isinstance(dict_vals, dict) and dict_vals.get("result"):
-                    first = dict_vals["result"][0] if dict_vals["result"] else {}
-                    if first:
-                        new_attr["values"] = [{
-                            "dictionary_value_id": first.get("id", 0),
-                            "value": str(first.get("value", "")),
-                        }]
-                else:
-                    new_attr["values"] = [{"dictionary_value_id": 0, "value": ""}]
+                matched = False
+
+                # 如果缓存无值，从 Ozon API 获取
+                if not isinstance(dict_vals, list) or not dict_vals:
+                    try:
+                        from utils.ozon_client import ozon_post
+                        _fetch_resp = ozon_post(
+                            client_id=ozon_client_id,
+                            api_key=ozon_api_key,
+                            endpoint="/v1/description-category/attribute/values",
+                            body={
+                                "attribute_id": missing_id,
+                                "description_category_id": int(description_category_id),
+                                "type_id": int(type_id),
+                                "language": "RU",
+                                "limit": 100,
+                                "last_value_id": 0,
+                            },
+                        )
+                        _fetched = _fetch_resp.get("result", [])
+                        if _fetched:
+                            dict_vals = _fetched
+                            logger.info(f"   📡 API 获取字典值: attr={missing_id}, {len(_fetched)}条")
+                    except Exception as _fe:
+                        logger.debug(f"   API 获取字典值失败 attr={missing_id}: {_fe}")
+
+                # 尝试用产品标题搜索字典值（比取第一个更准确）
+                if draft_title and isinstance(dict_vals, list) and dict_vals:
+                    try:
+                        from utils.ozon_client import ozon_post
+                        search_resp = ozon_post(
+                            client_id=ozon_client_id,
+                            api_key=ozon_api_key,
+                            endpoint="/v1/description-category/attribute/values/search",
+                            body={
+                                "attribute_id": missing_id,
+                                "description_category_id": int(description_category_id),
+                                "type_id": int(type_id),
+                                "value": draft_title[:50],
+                                "limit": 5,
+                            },
+                            language="RU",
+                        )
+                        search_results = search_resp.get("result", [])
+                        if search_results:
+                            first = search_results[0]
+                            new_attr["values"] = [{
+                                "dictionary_value_id": first.get("id", 0),
+                                "value": str(first.get("value", "")),
+                            }]
+                            matched = True
+                            logger.info(f"   ✅ 必填字典属性{missing_id}({attr_name}) API搜索匹配: {first.get('value', '')}")
+                    except Exception as e:
+                        logger.debug(f"   字典搜索失败(attr={missing_id}): {e}")
+
+                if not matched:
+                    # 回退1：用属性名（俄语）搜索字典值
+                    if not matched and attr_name:
+                        try:
+                            from utils.ozon_client import ozon_post
+                            _name_search = ozon_post(
+                                client_id=ozon_client_id,
+                                api_key=ozon_api_key,
+                                endpoint="/v1/description-category/attribute/values/search",
+                                body={
+                                    "attribute_id": missing_id,
+                                    "description_category_id": int(description_category_id),
+                                    "type_id": int(type_id),
+                                    "value": attr_name[:30],
+                                    "limit": 5,
+                                },
+                                language="RU",
+                            )
+                            _name_results = _name_search.get("result", [])
+                            if _name_results:
+                                first = _name_results[0]
+                                new_attr["values"] = [{
+                                    "dictionary_value_id": first.get("id", 0),
+                                    "value": str(first.get("value", "")),
+                                }]
+                                matched = True
+                                logger.info(f"   ✅ 必填字典属性{missing_id}({attr_name}) 属性名搜索匹配: {first.get('value', '')}")
+                        except Exception as _ne:
+                            logger.debug(f"   属性名搜索失败(attr={missing_id}): {_ne}")
+
+                    # 回退2：取第一个可用字典值
+                    if not matched:
+                        if isinstance(dict_vals, list) and dict_vals:
+                            first = dict_vals[0]
+                            if isinstance(first, dict):
+                                new_attr["values"] = [{
+                                    "dictionary_value_id": first.get("id", 0),
+                                    "value": str(first.get("value", "")),
+                                }]
+                                matched = True
+                        elif isinstance(dict_vals, dict) and dict_vals.get("result"):
+                            first = dict_vals["result"][0] if dict_vals["result"] else {}
+                            if first:
+                                new_attr["values"] = [{
+                                    "dictionary_value_id": first.get("id", 0),
+                                    "value": str(first.get("value", "")),
+                                }]
+                                matched = True
+
+                    # 回退3：仍然无值 → 记录警告，不写入空值（让Ozon跳过该属性）
+                    if not matched:
+                        logger.error(f"   ❌ 必填字典属性{missing_id}({attr_name}) 无法获取任何字典值，跳过写入空值")
+                        continue  # 不添加空值属性，避免触发 error_attribute_values_empty
             else:
-                # 自由文本属性
-                new_attr["values"] = [{"dictionary_value_id": 0, "value": ""}]
+                # 自由文本属性 → 用已知默认值或留空
+                default_val = KNOWN_DEFAULTS.get(missing_id, "")
+                new_attr["values"] = [{"dictionary_value_id": 0, "value": default_val}]
+                if default_val:
+                    logger.info(f"   ✅ 必填文本属性{missing_id}({attr_name}) 使用默认值: {default_val}")
 
             validated_attrs.append(new_attr)
-            logger.warning(f"   ⚠️ 补充缺失必填属性: id={missing_id} ({schema_attr.get('name', '?')})")
+            logger.warning(f"   ⚠️ 补充缺失必填属性: id={missing_id} ({attr_name})")
 
         # === 特殊属性修正 ===
-        # 品牌（85, 5076）
+        # 品牌（85, 5076）— 无条件强制为"无品牌"
         for brand_id in BRAND_ATTRIBUTE_IDS:
             brand_attr = next((a for a in validated_attrs if int(a.get("id", 0)) == brand_id), None)
             if brand_attr:
                 values = brand_attr.get("values", [])
                 for v in values:
-                    if v.get("dictionary_value_id", 0) == 0:
-                        v["dictionary_value_id"] = NO_BRAND_DICT_ID
-                        v["value"] = NO_BRAND_VALUE
-                        logger.info(f"   ✅ 品牌 attribute_id={brand_id} 修正为 'Нет бренда'")
+                    old_val = v.get("value", "")
+                    v["dictionary_value_id"] = NO_BRAND_DICT_ID
+                    v["value"] = NO_BRAND_VALUE
+                    if old_val and old_val != NO_BRAND_VALUE:
+                        logger.info(f"   ✅ 品牌 attribute_id={brand_id} '{old_val}' → 'Нет бренда'")
+            else:
+                # 品牌属性不存在，补充为"无品牌"
+                validated_attrs.append({
+                    "complex_id": 0,
+                    "id": brand_id,
+                    "values": [{"dictionary_value_id": NO_BRAND_DICT_ID, "value": NO_BRAND_VALUE}],
+                })
+                logger.info(f"   ✅ 补充品牌 attribute_id={brand_id} = 'Нет бренда'")
 
         # 原产国（4389）
         country_attr = next((a for a in validated_attrs if int(a.get("id", 0)) == COUNTRY_ATTR_ID), None)
