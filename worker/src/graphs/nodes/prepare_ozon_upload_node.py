@@ -799,18 +799,17 @@ def prepare_ozon_upload_node(
     h_val = _safe_float(height_raw)
     
     max_dim = max(d_val, w_val, h_val)
-    if max_dim > 0 and max_dim < 200:
-        # 大概率是cm，转换为mm（推车/桌椅等大物品可达100-150cm）
-        depth_mm = int(d_val * 10)
-        width_mm = int(w_val * 10)
-        height_mm = int(h_val * 10)
-        logger.info(f"尺寸单位判断：检测为cm（max={max_dim}），转换为mm：{depth_mm}×{width_mm}×{height_mm}")
-    else:
-        # 已经是mm
-        depth_mm = int(d_val)
-        width_mm = int(w_val)
-        height_mm = int(h_val)
-        logger.info(f"尺寸单位判断：检测为mm（max={max_dim}），直接使用：{depth_mm}×{width_mm}×{height_mm}")
+    # ✅ Skill层已输出mm，直接使用。不做二次cm→mm转换（阈值误判是INCORRECT_DENSITY根因）
+    depth_mm = int(d_val)
+    width_mm = int(w_val)
+    height_mm = int(h_val)
+    # 仅当所有维度都极小时（< 5mm），可能是数据异常，设置合理默认值
+    if max_dim > 0 and max_dim < 5:
+        logger.warning(f"尺寸异常小(max={max_dim}mm)，使用默认100×100×50mm")
+        depth_mm = 100
+        width_mm = 100
+        height_mm = 50
+    logger.info(f"尺寸：{depth_mm}×{width_mm}×{height_mm}mm")
     
     # ✅ 尺寸重量验证
     dimension_weight_issues = []

@@ -133,7 +133,28 @@ def ozon_validate_node(
                 item["dimension_unit"] = "mm"
                 auto_fixed = True
             
-            # 验证images（✅ 多SKU变体item可能只有primary_image，images为空）
+            # ✅ 尺寸/密度合理性检查（拦截INCORRECT_DENSITY根因：cm→mm二次转换）
+            weight_g = item.get("weight", 0)
+            depth = item.get("depth", 0)
+            width = item.get("width", 0)
+            height = item.get("height", 0)
+            if weight_g > 0 and depth > 0 and width > 0 and height > 0:
+                volume_m3 = (depth * width * height) / 1e9
+                density = (weight_g / 1000.0) / volume_m3 if volume_m3 > 0 else 0
+                max_dim = max(depth, width, height)
+                # 密度极低（< 1.0 kg/m³）说明尺寸被错误放大（典型的cm→mm二次转换）
+                if density < 1.0:
+                    item_errors.append(
+                        f"item[{i}]密度异常({density:.2f}kg/m³): {weight_g}g, {depth}×{width}×{height}mm "
+                        f"→ 可能是cm→mm单位错误，需要修复"
+                    )
+                    logger.error(f"❌ 密度异常: {density:.2f}kg/m³ (max_dim={max_dim}mm)")
+                # 任一维度超过2000mm（2米）也很可疑
+                if max_dim > 2000:
+                    item_errors.append(
+                        f"item[{i}]尺寸异常大(max={max_dim}mm): {depth}×{width}×{height}mm "
+                        f"→ 可能是cm→mm单位错误"
+                    )
             images = item.get("images", [])
             primary_image = item.get("primary_image", "")
             if not images and not primary_image:
