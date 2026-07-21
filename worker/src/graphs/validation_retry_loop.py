@@ -1465,12 +1465,18 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
 
     # ✅ 判断修复类型，选择最优API
     error_code = state.error_code
+    # ✅ 所有属性相关错误都用 attributes/update（增量，不重新审核全部）
     is_attr_fix = error_code in (
         "error_attribute_values_empty", "BR_chinese_hieroglyphs_in_attribute",
         "BR_warning_wrong_country", "warning_attribute_values_out_of_range",
         "MISSING_ATTRIBUTE", "MISSING_REQUIRED_ATTRIBUTE", "INVALID_ATTRIBUTE_VALUE",
+        "DESCRIPTION_DECLINE", "VALUE_MIN_LIMIT", "VALUE_MAX_LIMIT",
+        "INCORRECT_DENSITY", "INCORRECT_DIMENSION",
+        "BR_hashtag_validation", "BR_hashtag_brand", "INVALID_CATEGORY",
+        "marking_auto_corrected",
     )
-    is_dimension_fix = error_code in ("INCORRECT_DIMENSION", "ML_INCORRECT_VOLUME_WEIGHT", "WEIGHT_DIMENSION_ERROR")
+    # 仅全量import时用：尺寸修复需要更新flat字段
+    is_dimension_fix = error_code in ("ML_INCORRECT_VOLUME_WEIGHT", "WEIGHT_DIMENSION_ERROR")
 
     # 策略1: 属性修复 → attributes/update（增量，不重新审核全部）
     if is_attr_fix and state.product_id:
