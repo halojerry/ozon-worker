@@ -987,6 +987,17 @@ def repair_prepare_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
             if height <= 0:
                 height = max(15, int(side_mm * 0.6))
 
+        # ✅ INCORRECT_DENSITY修复：如果密度极低(< 1.0)，说明尺寸被错误放大(cm→mm)，缩小10倍
+        if weight > 0 and depth > 0 and width > 0 and height > 0:
+            vol_m3 = (depth * width * height) / 1e9
+            dens = (weight / 1000.0) / vol_m3 if vol_m3 > 0 else 0
+            if dens < 1.0:
+                old_d = depth; old_w = width; old_h = height
+                depth = max(10, int(depth / 10))
+                width = max(10, int(width / 10))
+                height = max(10, int(height / 10))
+                logger.warning(f"⚠️ 密度{dens:.2f}过低，尺寸缩小10倍: {old_d}x{old_w}x{old_h} → {depth}x{width}x{height}mm")
+
         first_item["weight"] = weight
         first_item["depth"] = depth
         first_item["width"] = width
