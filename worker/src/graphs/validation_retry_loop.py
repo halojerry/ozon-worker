@@ -148,6 +148,18 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "BR_warning_wrong_country": "error_repair_llm",
     # ✅ 必填属性值为空 → 走 error_repair_llm 补全字典值
     "error_attribute_values_empty": "error_repair_llm",
+    # ✅ 图片相关 → WARNING级别，不触发retry（标记unfixable）
+    "pics_http_error": "unfixable",
+    "pics_cant_decode": "unfixable",
+    "primary_image_load_failed": "unfixable",
+    "some_image_failed": "unfixable",
+    "warning_all_image_failed": "unfixable",
+    # ✅ 火险品/管制品 → 不可修复（需要认证文件）
+    "BR_hazard_class1": "unfixable",
+    "FB_fire_hazardous_goods": "unfixable",
+    "FB_LIGHTER": "unfixable",
+    # ✅ 密度错误 → 走 repair_prepare 修复尺寸
+    "INCORRECT_DENSITY": "repair_prepare",
 }
 
 
@@ -427,6 +439,15 @@ def classify_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
 
     # 查修复策略表
     repair_node: str = REPAIR_STRATEGY.get(error_code, "error_repair_llm")
+    
+    # ✅ 不可修复的错误 → 不浪费retry循环
+    if repair_node == "unfixable":
+        logger.warning(f"❌ 错误不可修复（图片/管制品）: {error_code}")
+        state.error_type = "unfixable"
+        state.repair_node = "final_result"
+        state.is_valid = True  # 不阻断产品
+        return state
+    
     state.repair_node = repair_node
     state.error_type = "fixable"
 
@@ -951,15 +972,20 @@ def repair_prepare_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         except (ValueError, TypeError):
             height = 0
 
-        # 确保所有值>0
+        # ✅ 自适应默认值：根据重量用密度0.8推算合理尺寸
         if weight <= 0:
-            weight = 500  # 默认500克
-        if depth <= 0:
-            depth = 200  # 默认200毫米
-        if width <= 0:
-            width = 200
-        if height <= 0:
-            height = 200
+            weight = 100  # 默认100克（多数小商品）
+        if depth <= 0 or width <= 0 or height <= 0:
+            # 用密度0.8 g/cm³ 从重量推算尺寸
+            volume_cm3 = weight / 0.8
+            side_cm = max(1.0, volume_cm3 ** (1.0 / 3.0))
+            side_mm = max(20, min(int(side_cm * 10), 500))
+            if depth <= 0:
+                depth = side_mm
+            if width <= 0:
+                width = max(20, int(side_mm * 0.8))
+            if height <= 0:
+                height = max(15, int(side_mm * 0.6))
 
         first_item["weight"] = weight
         first_item["depth"] = depth

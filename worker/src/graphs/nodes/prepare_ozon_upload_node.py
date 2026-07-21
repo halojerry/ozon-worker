@@ -859,14 +859,9 @@ def prepare_ozon_upload_node(
             else:
                 logger.error(f"❌ 密度{density_kg_m3:.1f}严重超出范围，即使调整重量也无法修正")
         elif density_kg_m3 < 1.293 and density_kg_m3 > 0:
-            # 密度过低，重量可能需要放大
-            adjusted_weight = weight_g * 10
-            adjusted_density = (adjusted_weight / 1000.0) / volume_m3
-            if 1.293 <= adjusted_density <= 13546:
-                logger.warning(f"⚠️ 密度{density_kg_m3:.1f}低于范围，重量{weight_g}g→{adjusted_weight}g（可能单位需调整）")
-                weight_g = adjusted_weight
-            else:
-                logger.warning(f"⚠️ 密度{density_kg_m3:.1f}低于范围但无法自动修正，保持原值")
+            # 密度过低，可能是尺寸单位错误（cm当mm）或重量偏小
+            # 不再盲目乘10——很多轻小物品（手链30g、支架15g）密度天然就低
+            logger.warning(f"⚠️ 密度{density_kg_m3:.1f}低于范围({weight_g}g, {depth_mm}×{width_mm}×{height_mm}mm)，可能是尺寸单位或重量数据问题，保持原值")
     
     logger.info(f"最终尺寸：{depth_mm}×{width_mm}×{height_mm}mm, 重量={weight_g}g")
     

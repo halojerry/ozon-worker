@@ -458,26 +458,43 @@ def assemble_ozon_product_node(
     if not category_consistent:
         # 类目不匹配 → 尝试用俄语标题重新匹配类目
         logger.warning(f"⚠️ 类目不一致，尝试用俄语标题重新匹配...")
+        recategorize_failed = True
         try:
             query = get_category_query()
             re_candidates = query.search_nodes(llm_name[:50], top_k=10, node_type="type")
             if re_candidates:
-                best = re_candidates[0]
-                new_cat_id = best.get("description_category_id", 0)
-                new_type_id = best.get("type_id", 0)
-                new_path = best.get("full_path", "")
-                if new_cat_id and new_type_id and (new_cat_id != description_category_id or new_type_id != type_id):
-                    logger.info(f"✅ 重新匹配成功: {description_category_id}/{type_id} → {new_cat_id}/{new_type_id} ({new_path})")
-                    description_category_id = new_cat_id
-                    type_id = new_type_id
-                    category_path = new_path
-                    # 重新获取属性 schema
-                    new_attr_schema = query.get_attribute_schema(new_cat_id, new_type_id)
-                    if new_attr_schema and isinstance(new_attr_schema, dict) and new_attr_schema.get("result"):
-                        attr_list = new_attr_schema["result"]
-                        logger.info(f"   ✅ 属性 schema 已更新: {len(attr_list)} 个属性")
+                # 检查新候选中是否有更好的匹配
+                for candidate in re_candidates[:3]:
+                    re_cat_id = candidate.get("description_category_id", 0)
+                    re_type_id = candidate.get("type_id", 0)
+                    re_path = candidate.get("full_path", "")
+                    if re_cat_id and re_type_id and (re_cat_id != description_category_id or re_type_id != type_id):
+                        # 验证新类目的一致性
+                        re_consistent = _check_category_consistency(llm_name, re_path, re_cat_id, re_type_id)
+                        if re_consistent:
+                            logger.info(f"✅ 重新匹配成功: {description_category_id}/{type_id} → {re_cat_id}/{re_type_id} ({re_path})")
+                            description_category_id = re_cat_id
+                            type_id = re_type_id
+                            category_path = re_path
+                            new_attr_schema = query.get_attribute_schema(re_cat_id, re_type_id)
+                            if new_attr_schema and isinstance(new_attr_schema, dict) and new_attr_schema.get("result"):
+                                attr_list = new_attr_schema["result"]
+                                logger.info(f"   ✅ 属性 schema 已更新: {len(attr_list)} 个属性")
+                            recategorize_failed = False
+                            break
         except Exception as _re_match_e:
-            logger.warning(f"   ⚠️ 重新匹配失败: {_re_match_e}")
+            logger.warning(f"   ⚠️ 重新匹配异常: {_re_match_e}")
+
+        if recategorize_failed:
+            # 无法找到一致的类目，返回错误让retry loop处理，避免上传到错误类目
+            logger.error(
+                f"❌ 类目一致性严重失败：产品「{llm_name[:60]}」与类目「{category_path}」无共同关键词，"
+                f"且重新匹配也失败。跳过上传，避免 DESCRIPTION_DECLINE。"
+            )
+            return {
+                "error_message": f"类目一致性失败：产品名与类目「{category_path}」不匹配，需手动审核",
+                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
+            }
 
     # =====================================================
     # Step 7: 返回结果 dict（LangGraph 自动合并到 GlobalState）
