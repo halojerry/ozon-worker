@@ -1420,37 +1420,8 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
     state.error_message = "; ".join([e.get("message", "") for e in validation_errors]) if validation_errors else ""
     state.is_valid = is_valid
 
-    # ✅ A3修复：本地验证通过后，调用Ozon API预检
-    if is_valid:
-        try:
-            ozon_validate_url: str = "https://api-seller.ozon.ru/v1/product/validate"
-            validate_headers: Dict[str, str] = {
-                "Client-Id": state.ozon_client_id,
-                "Api-Key": state.ozon_api_key,
-                "Content-Type": "application/json"
-            }
-            validate_payload: Dict[str, Any] = {"items": items}
-            validate_resp = session.post(ozon_validate_url, headers=validate_headers, json=validate_payload, timeout=30)
-            validate_data: Dict[str, Any] = validate_resp.json()
-            validate_result: Dict[str, Any] = validate_data.get("result", {})
-            validate_errors: list = validate_result.get("errors", [])
-
-            if validate_errors:
-                is_valid = False
-                for ve in validate_errors:
-                    ve_msg = ve.get("message", "") if isinstance(ve, dict) else str(ve)
-                    validation_errors.append({"field": "ozon_validate", "message": ve_msg})
-                    logger.warning(f"⚠️ Ozon预检错误: {ve_msg}")
-                # ✅ A1关联：将Ozon预检错误转为errors数组格式，供parse_error处理
-                state.errors = validate_errors
-                state.error_message = "; ".join([e.get("message", "") for e in validation_errors])
-                state.is_valid = False
-                # retry_count 由 parse_error_node 递增，此处不重复计数
-                logger.info(f"📋 Ozon预检发现{len(validate_errors)}个错误，转为errors数组处理")
-            else:
-                logger.info("✅ Ozon API预检通过")
-        except Exception as e:
-            logger.warning(f"⚠️ Ozon API预检异常（不阻塞）: {e}")
+    # ✅ 本地验证通过。注：Ozon /v1/product/validate API 不存在（返回404），
+    # 不调用外部API预检，仅依赖本地验证结果。
 
     logger.info(f"✅ 重新验证完成：is_valid={is_valid}, errors={len(validation_errors)}")
     return state
