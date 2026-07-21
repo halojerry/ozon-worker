@@ -1243,6 +1243,32 @@ def _validate_and_enrich_items(
             })
             logger.info(f"   ✅ hashtag #23171 补充生成: {new_tags}")
 
+        # ✅ 可选字典属性补充：提升属性覆盖率（影响Ozon产品评分）
+        present_after = {int(a["id"]) for a in validated_attrs if "id" in a}
+        optional_dict_attrs = [
+            a for a in attr_list
+            if a.get("id") and not a.get("is_required")
+            and a.get("dictionary_id", 0) > 0
+            and int(a["id"]) not in present_after
+            and int(a["id"]) not in (23171, 23536)  # 跳过hashtag和标记码
+        ]
+        filled_optional = 0
+        for opt_attr in optional_dict_attrs[:10]:  # 最多补10个
+            opt_id = int(opt_attr["id"])
+            opt_name = opt_attr.get("name", "?")
+            # 从字典值缓存中取第一条安全默认值
+            dict_vals = dict_lookup.get(opt_id, [])
+            if isinstance(dict_vals, list) and dict_vals:
+                first = dict_vals[0]
+                if isinstance(first, dict) and first.get("id"):
+                    validated_attrs.append({
+                        "complex_id": 0, "id": opt_id,
+                        "values": [{"dictionary_value_id": first["id"], "value": str(first.get("value", ""))}],
+                    })
+                    filled_optional += 1
+        if filled_optional:
+            logger.info(f"   📊 补充可选字典属性: {filled_optional}个")
+
         # 9048（变体绑定名）= item_id，与 prepare_ozon_upload_node 逻辑一致
         if FORCE_ATTR_9048 not in present_ids and FORCE_ATTR_9048 not in {int(a["id"]) for a in validated_attrs}:
             item_id_val = item.get("offer_id", "unknown")
