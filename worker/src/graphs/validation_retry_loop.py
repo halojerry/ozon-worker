@@ -1443,21 +1443,63 @@ def should_continue(state: ValidationRetryLoopState) -> str:
 
 
 def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
-    """重新上传节点：调用Ozon API重新上传商品（同offer_id会更新而非重复创建）"""
+    """重新上传节点：优先使用增量API（attributes/update, pictures/import）"""
     logger.info("🔄 开始重新上传Ozon...")
 
-    # ✅ A4优化：如果有product_id，说明产品已存在，re-import会自动更新
     if state.product_id:
-        logger.info(f"📝 产品已存在(product_id={state.product_id})，re-import将更新而非创建")
+        logger.info(f"📝 产品已存在(product_id={state.product_id})")
 
+    items: list = state.ozon_payload.get("items", [])
+    first_item = items[0] if items else {}
+
+    # ✅ 判断修复类型，选择最优API
+    error_code = state.error_code
+    is_attr_fix = error_code in (
+        "error_attribute_values_empty", "BR_chinese_hieroglyphs_in_attribute",
+        "BR_warning_wrong_country", "warning_attribute_values_out_of_range",
+        "MISSING_ATTRIBUTE", "MISSING_REQUIRED_ATTRIBUTE", "INVALID_ATTRIBUTE_VALUE",
+    )
+    is_dimension_fix = error_code in ("INCORRECT_DIMENSION", "ML_INCORRECT_VOLUME_WEIGHT", "WEIGHT_DIMENSION_ERROR")
+
+    # 策略1: 属性修复 → attributes/update（增量，不重新审核全部）
+    if is_attr_fix and state.product_id:
+        try:
+            offer_id = first_item.get("offer_id", "")
+            attributes = state.final_attributes or first_item.get("attributes", [])
+            ozon_attrs = []
+            for attr in attributes:
+                if isinstance(attr, dict):
+                    aid = attr.get("id") or attr.get("attribute_id")
+                    vals = attr.get("values", [])
+                    if not vals and attr.get("value"):
+                        vals = [{"value": str(attr["value"]), "dictionary_value_id": attr.get("dictionary_value_id", 0)}]
+                    if aid and vals:
+                        ozon_attrs.append({"id": int(aid), "values": vals})
+            if ozon_attrs and offer_id:
+                update_body = {"items": [{"offer_id": str(offer_id), "attributes": ozon_attrs}]}
+                resp = session.post(
+                    "https://api-seller.ozon.ru/v1/product/attributes/update",
+                    headers={"Client-Id": state.ozon_client_id, "Api-Key": state.ozon_api_key, "Content-Type": "application/json"},
+                    json=update_body, timeout=30
+                )
+                if resp.status_code == 200:
+                    task_id = resp.json().get("result", {}).get("task_id", "") or resp.json().get("task_id", "")
+                    logger.info(f"✅ 属性增量更新成功(task_id={task_id})，替代全量re-import")
+                    state.task_id = str(task_id)
+                    state.upload_status = "uploaded"
+                    return state
+                else:
+                    logger.warning(f"⚠️ attributes/update失败({resp.status_code})，回退到全量import")
+        except Exception as _ae:
+            logger.warning(f"⚠️ attributes/update异常: {_ae}，回退到全量import")
+
+    # 策略2: 全量 import（默认，用于尺寸/类目修复或增量失败时回退）
     ozon_url: str = "https://api-seller.ozon.ru/v3/product/import"
     headers: Dict[str, str] = {
         "Client-Id": state.ozon_client_id,
         "Api-Key": state.ozon_api_key,
         "Content-Type": "application/json"
     }
-
-    items: list = state.ozon_payload.get("items", [])
     payload: Dict[str, Any] = {"items": items}
 
     try:
