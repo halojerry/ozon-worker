@@ -49,6 +49,15 @@ def ozon_validate_node(
                     pass
     logger.info(f"✅ 字典属性校验：共{len(dict_attr_ids)}个字典类型属性需要校验dictionary_value_id")
     
+    # ✅ 构建属性类型映射（用于值类型校验）
+    attr_type_map: dict = {}
+    for schema_attr in attributes_schema:
+        if isinstance(schema_attr, dict):
+            aid = schema_attr.get("id")
+            atype = schema_attr.get("type", "")
+            if aid and atype:
+                attr_type_map[int(aid)] = atype
+    
     logger.info(f"开始Ozon上传预检测: payload包含{len(ozon_payload.get('items', []))}个商品")
     
     validation_errors: List[str] = []
@@ -163,6 +172,19 @@ def ozon_validate_node(
                                     f"item[{i}].attributes: 字典属性(id={attr_id_int})缺少有效的dictionary_value_id"
                                 )
                                 logger.error(f"❌ 字典属性校验失败: attr_id={attr_id_int}, dictionary_value_id={dict_val_id}")
+                    
+                    # ✅ 值类型校验：Decimal属性不能是非数字字符串
+                    attr_type = attr_type_map.get(attr_id_int)
+                    if attr_type == "Decimal":
+                        for v in attr.get("values", []):
+                            val = str(v.get("value", ""))
+                            if val:
+                                try:
+                                    float(val.replace(",", "."))
+                                except ValueError:
+                                    item_errors.append(
+                                        f"item[{i}].attributes: Decimal属性(id={attr_id_int})值不是数字: '{val}'"
+                                    )
             
             validation_errors.extend(item_errors)
             
