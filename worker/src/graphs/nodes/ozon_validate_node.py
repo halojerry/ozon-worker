@@ -144,11 +144,27 @@ def ozon_validate_node(
                 max_dim = max(depth, width, height)
                 # 密度极低（< 1.0 kg/m³）说明尺寸被错误放大（典型的cm→mm二次转换）
                 if density < 1.0:
-                    item_errors.append(
-                        f"item[{i}]密度异常({density:.2f}kg/m³): {weight_g}g, {depth}×{width}×{height}mm "
-                        f"→ 可能是cm→mm单位错误，需要修复"
-                    )
-                    logger.error(f"❌ 密度异常: {density:.2f}kg/m³ (max_dim={max_dim}mm)")
+                    # ✅ 自修复：如果max_dim > 500mm，尝试缩小10倍
+                    if max_dim > 500:
+                        old_d, old_w, old_h = depth, width, height
+                        depth = max(10, int(depth / 10))
+                        width = max(10, int(width / 10))
+                        height = max(10, int(height / 10))
+                        item["depth"] = depth
+                        item["width"] = width
+                        item["height"] = height
+                        auto_fixed = True
+                        new_vol = (depth * width * height) / 1e9
+                        new_dens = (weight_g / 1000.0) / new_vol if new_vol > 0 else 0
+                        logger.warning(
+                            f"🔧 密度自修复: {density:.2f}→{new_dens:.1f} kg/m³, "
+                            f"尺寸 {old_d}×{old_w}×{old_h} → {depth}×{width}×{height}mm"
+                        )
+                    else:
+                        item_errors.append(
+                            f"item[{i}]密度异常({density:.2f}kg/m³): {weight_g}g, {depth}×{width}×{height}mm"
+                        )
+                        logger.error(f"❌ 密度异常: {density:.2f}kg/m³ (max_dim={max_dim}mm)")
                 # 任一维度超过2000mm（2米）也很可疑
                 if max_dim > 2000:
                     item_errors.append(
