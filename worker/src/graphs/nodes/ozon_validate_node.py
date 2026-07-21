@@ -273,10 +273,80 @@ def ozon_validate_node(
             else:
                 logger.warning(f"⚠️ 多变体({len(items)}个)但未检测到颜色属性，可能影响变体合并")
         
-        # Step 4: 检查payload中的属性是否有无效字典值
-        # （prepare_ozon_upload_node已跳过未匹配的字典属性，所以payload中不应该有dict_id<=0的字典属性）
-        # 只检查payload本身的属性，不再依赖validation_errors
-        critical_errors = [err for err in validation_errors if "缺失" in err or "为空" in err or "格式错误" in err or "变体颜色" in err or "拉丁字母" in err or "非俄语" in err or "中文字符" in err]
+        # Step 3.5: 增强预检 — 图片URL可达性 + 危化品扫描
+        FIRE_HAZARD_KEYWORDS_RU = [
+            "зажигалка", "зажигалки", "спички", "спичка",
+            "огнемет", "взрывчат", "оружие", "пистолет",
+        ]
+        FIRE_HAZARD_KEYWORDS_CN = [
+            "打火机", "火柴", "点火器", "炸药", "武器", "手枪",
+        ]
+        
+        for i, item in enumerate(items):
+            # 危化品扫描
+            item_name = item.get("name", "")
+            item_desc = item.get("description", "")
+            combined = (item_name + " " + item_desc).lower()
+            
+            hazard_matches = []
+            for kw in FIRE_HAZARD_KEYWORDS_RU:
+                if kw in combined:
+                    hazard_matches.append(kw)
+            for kw in FIRE_HAZARD_KEYWORDS_CN:
+                if kw in combined:
+                    hazard_matches.append(kw)
+            
+            if hazard_matches:
+                logger.warning(f"⚠️ item[{i}]检测到危化品关键词: {hazard_matches}，标记不可修复")
+                item_errors.append(
+                    f"item[{i}]检测到危化品/火险品关键词: {hazard_matches}，"
+                    f"此类商品需特殊认证才能上架Ozon"
+                )
+            
+            # 图片URL可达性检查（抽样：主图+前3张）
+            images = item.get("images", [])[:3]
+            primary = item.get("primary_image", "")
+            sample_urls = [primary] + images if primary else images
+            
+            failed_urls = []
+            for url in sample_urls:
+                if not url:
+                    continue
+                try:
+                    import requests as req
+                    head_resp = req.head(url, timeout=5, allow_redirects=True)
+                    if head_resp.status_code >= 400:
+                        failed_urls.append(url[:60])
+                except Exception:
+                    failed_urls.append(url[:60])
+            
+            if len(failed_urls) == len(sample_urls) and sample_urls:
+                item_errors.append(
+                    f"item[{i}]所有图片URL不可访问（{len(failed_urls)}/{len(sample_urls)}），"
+                    f"Ozon将无法下载图片"
+                )
+            elif failed_urls:
+                logger.warning(f"⚠️ item[{i}]部分图片不可访问: {len(failed_urls)}/{len(sample_urls)}")
+        
+        # Step 4: 调用 Ozon /v1/product/validate 预检
+        try:
+            from utils.ozon_client import ozon_post
+            validate_resp = ozon_post(
+                client_id=ozon_client_id, api_key=ozon_api_key,
+                endpoint="/v1/product/validate", body=ozon_payload, timeout=30,
+            )
+            ozon_errs = validate_resp.get("errors", []) or validate_resp.get("result", {}).get("errors", [])
+            for err in ozon_errs:
+                if isinstance(err, dict) and err.get("level") == "ERROR_LEVEL_ERROR":
+                    code = err.get("code", "")
+                    msg = err.get("description", "") or err.get("message", "")
+                    validation_errors.append(f"Ozon预检[{code}]: {msg[:120]}")
+                    logger.error(f"❌ Ozon预检: [{code}] {msg[:150]}")
+        except Exception as _ve:
+            logger.warning(f"⚠️ Ozon /v1/product/validate 调用失败: {_ve}")
+        
+        # （payload检查）
+        critical_errors = [err for err in validation_errors if "缺失" in err or "为空" in err or "格式错误" in err or "变体颜色" in err or "拉丁字母" in err or "非俄语" in err or "中文字符" in err or "危化品" in err or "不可访问" in err or "Ozon预检" in err]
         if critical_errors:
             logger.error(f"Ozon预检测发现严重错误: {len(critical_errors)}个")
             return OzonValidateOutput(
