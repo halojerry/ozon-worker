@@ -328,25 +328,11 @@ def ozon_validate_node(
             elif failed_urls:
                 logger.warning(f"⚠️ item[{i}]部分图片不可访问: {len(failed_urls)}/{len(sample_urls)}")
         
-        # Step 4: 调用 Ozon /v1/product/validate 预检
-        try:
-            from utils.ozon_client import ozon_post
-            validate_resp = ozon_post(
-                client_id=ozon_client_id, api_key=ozon_api_key,
-                endpoint="/v1/product/validate", body=ozon_payload, timeout=30,
-            )
-            ozon_errs = validate_resp.get("errors", []) or validate_resp.get("result", {}).get("errors", [])
-            for err in ozon_errs:
-                if isinstance(err, dict) and err.get("level") == "ERROR_LEVEL_ERROR":
-                    code = err.get("code", "")
-                    msg = err.get("description", "") or err.get("message", "")
-                    validation_errors.append(f"Ozon预检[{code}]: {msg[:120]}")
-                    logger.error(f"❌ Ozon预检: [{code}] {msg[:150]}")
-        except Exception as _ve:
-            logger.warning(f"⚠️ Ozon /v1/product/validate 调用失败: {_ve}")
-        
-        # （payload检查）
-        critical_errors = [err for err in validation_errors if "缺失" in err or "为空" in err or "格式错误" in err or "变体颜色" in err or "拉丁字母" in err or "非俄语" in err or "中文字符" in err or "危化品" in err or "不可访问" in err or "Ozon预检" in err]
+        # ✅ 本地预检完成（属性/文本/图片/危化品）。
+        # 注：Ozon /v1/product/validate API 不存在（返回404），所有检查均为本地执行。
+        # 本地检查覆盖范围：属性完整性、文本合规、图片可达性、危化品识别。
+        # 无法预检的项目：Ozon ML 模型（体积重量对比）、图片内容审核。
+        critical_errors = [err for err in validation_errors if any(kw in err for kw in ["缺失", "为空", "格式错误", "变体颜色", "拉丁字母", "非俄语", "中文字符", "危化品", "不可访问"])]
         if critical_errors:
             logger.error(f"Ozon预检测发现严重错误: {len(critical_errors)}个")
             return OzonValidateOutput(
