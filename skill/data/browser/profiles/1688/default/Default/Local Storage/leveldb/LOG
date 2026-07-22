@@ -22,3 +22,18 @@
 2026/07/22-20:20:57.167 1bedc6 Level-0 table #60: started
 2026/07/22-20:20:57.170 1bedc6 Level-0 table #60: 24128 bytes OK
 2026/07/22-20:20:57.174 1bedc6 Delete type=0 #57
+2026/07/22-20:26:04.428 1bedc6 Level-0 table #62: started
+2026/07/22-20:26:04.432 1bedc6 Level-0 table #62: 24797 bytes OK
+2026/07/22-20:26:04.435 1bedc6 Delete type=0 #59
+2026/07/22-20:27:08.144 1bedc6 Level-0 table #64: started
+2026/07/22-20:27:08.152 1bedc6 Level-0 table #64: 23002 bytes OK
+2026/07/22-20:27:08.156 1bedc6 Delete type=0 #61
+2026/07/22-20:27:08.159 1bedc6 Compacting 4@0 + 1@1 files
+2026/07/22-20:27:08.171 1bedc6 Generated table #65@0: 146 keys, 568616 bytes
+2026/07/22-20:27:08.171 1bedc6 Compacted 4@0 + 1@1 files => 568616 bytes
+2026/07/22-20:27:08.173 1bedc6 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/07/22-20:27:08.173 1bedc6 Delete type=2 #62
+2026/07/22-20:27:08.173 1bedc6 Delete type=2 #60
+2026/07/22-20:27:08.173 1bedc6 Delete type=2 #64
+2026/07/22-20:27:08.173 1bedc6 Delete type=2 #58
+2026/07/22-20:27:08.173 1bedc6 Delete type=2 #56

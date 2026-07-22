@@ -3150,10 +3150,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any
         if best_id:
             try:
                 detail_url = f"https://detail.1688.com/offer/{best_id}.html"
-                envelope = build_graph_envelope(
+                envelope = build_graph_envelope_with_retry(
                     item_id=best_id,
                     detail_url=detail_url,
-                    poll_category=bool(not ozon_category),  # 有竞品类目就跳过匹配
                     max_skus=1,
                 )
                 if envelope and envelope.get("envelope"):
