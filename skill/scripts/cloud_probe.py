@@ -2985,11 +2985,70 @@ def poll_pipeline_task(
     }
 
 
+def _translate_slug_to_cn(slug: str, mxou_token: str) -> str:
+    """LLM 翻译俄语 slug → 中文 1688 搜索关键词，带 fallback."""
+    if not mxou_token or not slug:
+        return slug
+    
+    import requests as req
+    
+    # 截断过长 slug（deepseek-v4-flash reasoning tokens 消耗大，长输入易导致输出为空）
+    slug_short = " ".join(slug.split()[:6]) if len(slug.split()) > 6 else slug
+    
+    for attempt, max_tok in enumerate([500, 400, 300]):
+        try:
+            cn_resp = req.post("https://api.mxou.cn/v1/chat/completions",
+                headers={"Authorization": f"Bearer {mxou_token}", "Content-Type": "application/json"},
+                json={"model": "deepseek-v4-flash", "messages": [
+                    {"role": "system", "content": "将俄语产品名精确翻译为中文1688搜索关键词。保留规格数字。只返回3-5个关键词。"},
+                    {"role": "user", "content": f"翻译: {slug_short}"}
+                ], "temperature": 0, "max_tokens": max_tok}, timeout=30)
+            if cn_resp.status_code == 200:
+                kw = cn_resp.json()["choices"][0]["message"]["content"].strip()
+                if kw:
+                    return kw
+        except Exception:
+            if attempt == 0:
+                slug_short = " ".join(slug.split()[:3])  # 第二次尝试用更短的
+    return ""
+
+
+def _search_1688_with_fallback(search_kw: str) -> list[dict[str, Any]]:
+    """1688 AK 搜索，带 fallback：翻译词 → 原始 slug 关键词 → 缩短关键词."""
+    from scripts.lib.ak_1688_client import search_products
+    
+    # 尝试 1: 用翻译后的关键词
+    if search_kw:
+        try:
+            products = search_products(search_kw, page_size=5)
+            if products:
+                return products
+        except Exception:
+            pass
+    
+    # 尝试 2: 用 slug 中提取的关键词（取前 3 个有意义的词）
+    slug_words = [w for w in search_kw.split() if len(w) > 2 and not w.isdigit()]
+    if slug_words and len(slug_words) >= 2:
+        try:
+            products = search_products(" ".join(slug_words[:3]), page_size=5)
+            if products:
+                return products
+        except Exception:
+            pass
+    
+    return []
+
+
 def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any]:
     """
-    跟卖 Ozon 商品: Ozon URL → import-by-sku 复制卡片 → 1688搜索同款 → CDP探针 → 上架
+    跟卖 Ozon 商品:
+      1. 抓取 Ozon 商品页 → 拿到竞品图片 + 类目 + 标题  (ozon_scraper)
+      2. import-by-sku 复制卡片 (获取类目结构 + offer_id)
+      3. LLM 翻译标题 → 1688 搜索同款
+      4. CDP 探针 1688 → 采购成本 + 规格
+      5. (auto_submit) 组装 GraphInput → Worker 更新卡片
     
-    Returns: {success, product_name, 1688_matches, envelope, task_id}
+    Returns: {success, product_id, slug, images, title, 1688_matches, task_id}
     """
     import re, requests as req
     
@@ -3002,59 +3061,132 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any
     m = re.search(r'/product/(.+?)-(\d{6,15})/', ozon_url)
     slug = m.group(1).replace("-", " ") if m else ""
     
-    result = {"success": False, "product_id": product_id, "slug": slug}
-    
-    # Step 2: import-by-sku 复制卡片模板
     ozon_creds = _get_ozon_credentials()
     client_id = ozon_creds.get("client_id", "")
     api_key = ozon_creds.get("api_key", "")
+    mxou_token = os.getenv("MXOU_TOKEN", "")
     
+    result: dict[str, Any] = {
+        "success": False, "product_id": product_id, "slug": slug,
+        "images": [], "title": "", "category": "",
+        "card_copied": False, "1688_matches": [],
+    }
+    
+    # Step 2: 抓取 Ozon 商品页 → 竞品图片 + 标题 + 类目
+    ozon_images: list[str] = []
+    ozon_title: str = ""
+    ozon_category: str = ""
+    
+    # 优先通过本地 CDP Chrome (已登录，反爬效果最好)
     try:
+        from scripts.lib.ozon_scraper import scrape_ozon_product_via_cdp
+        cdp_data = scrape_ozon_product_via_cdp(ozon_url, cdp_url="http://127.0.0.1:9222", timeout=30)
+        if cdp_data.get("success"):
+            ozon_images = cdp_data.get("images", [])
+            ozon_title = cdp_data.get("title", "")
+            ozon_category = cdp_data.get("category", "")
+            result["scrape_source"] = "cdp"
+            logger.info(f"✅ CDP 抓取 Ozon 成功: {len(ozon_images)} 张图, title={ozon_title[:60]}")
+    except Exception as e:
+        logger.debug(f"CDP Ozon scraper unavailable: {e}")
+    
+    # CDP 失败，尝试 Worker API
+    if not ozon_images:
+        worker_url = os.environ.get("WORKER_URL", "http://localhost:8080").rstrip("/")
+        try:
+            scrape_resp = req.post(f"{worker_url}/api/v1/scrape_ozon",
+                json={"url": ozon_url}, timeout=35)
+            if scrape_resp.status_code == 200:
+                scrape_data = scrape_resp.json()
+                if scrape_data.get("success"):
+                    ozon_images = scrape_data.get("images", [])
+                    ozon_title = scrape_data.get("title", "")
+                    ozon_category = scrape_data.get("category", "")
+                    result["scrape_source"] = "worker"
+        except Exception:
+            pass
+    
+    result["ozon_images_count"] = len(ozon_images)
+    result["images"] = ozon_images
+    if ozon_title:
+        result["title"] = ozon_title
+    if ozon_category:
+        result["category"] = ozon_category
+    
+    # Step 3: import-by-sku 复制卡片模板（获取 offer_id + 类目结构）
+    offer_id = f"follow_{product_id}"
+    try:
+        import_body: dict = {
+            "items": [{"sku": int(product_id), "offer_id": offer_id,
+                        "price": "10", "old_price": "12", "vat": "0"}]
+        }
+        # 如果有竞品图片，直接传入
+        if ozon_images:
+            import_body["items"][0]["images"] = ozon_images[:10]
+        
         import_by_sku_resp = req.post(
             "https://api-seller.ozon.ru/v1/product/import-by-sku",
             headers={"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"},
-            json={"items": [{"sku": int(product_id), "offer_id": f"follow_{product_id}",
-                             "price": "10", "old_price": "12", "vat": "0"}]},
-            timeout=30)
+            json=import_body, timeout=30)
         if import_by_sku_resp.status_code == 200:
             result["import_task_id"] = import_by_sku_resp.json().get("result", {}).get("task_id", "")
             result["card_copied"] = True
     except Exception as e:
         result["card_error"] = str(e)
     
-    # Step 3: LLM 翻译 slug → 1688 搜索
-    search_kw = slug
-    try:
-        mxou_token = os.getenv("MXOU_TOKEN", "")
-        if mxou_token and slug:
-            cn_resp = req.post("https://api.mxou.cn/v1/chat/completions",
-                headers={"Authorization": f"Bearer {mxou_token}", "Content-Type": "application/json"},
-                json={"model": "deepseek-v4-flash", "messages": [
-                    {"role": "system", "content": "将俄语产品名精确翻译为中文1688搜索关键词。保留规格。只返回关键词。"},
-                    {"role": "user", "content": f"翻译: {slug}"}
-                ], "temperature": 0, "max_tokens": 100}, timeout=20)
-            if cn_resp.status_code == 200:
-                search_kw = cn_resp.json()["choices"][0]["message"]["content"].strip()
-    except Exception:
-        pass
-    
+    # Step 4: LLM 翻译 title/slug → 1688 搜索
+    search_text = ozon_title if ozon_title else slug
+    search_kw = _translate_slug_to_cn(search_text, mxou_token)
+    if not search_kw:
+        search_kw = " ".join(search_text.split()[:4])
     result["search_keyword"] = search_kw
     
-    # Step 4: 1688 AK 搜索
+    # Step 5: 1688 AK 搜索（带 fallback）
+    matches_raw = _search_1688_with_fallback(search_kw)
     matches = []
-    try:
-        from scripts.lib.ak_1688_client import search_products
-        products = search_products(search_kw, page_size=5)
-        if products:
-            matches = [{"id": p.get("product_id", p.get("itemId", "")), "title": p.get("title", "")[:80],
-                        "price": p.get("price", ""), "image": p.get("image", "")} 
-                       for p in products if p.get("product_id") or p.get("itemId")]
-            result["1688_matches"] = matches
-    except Exception as e:
-        result["search_error"] = str(e)
+    if matches_raw:
+        matches = [{"id": p.get("product_id", p.get("itemId", "")), "title": p.get("title", "")[:80],
+                    "price": p.get("price", ""), "image": p.get("image", "")} 
+                   for p in matches_raw if p.get("product_id") or p.get("itemId")]
+        result["1688_matches"] = matches
     
     if matches:
         result["success"] = True
         result["best_match"] = matches[0]
+    
+    # Step 6: auto_submit — CDP 探针 1688 → 组装信封 → 提交 Worker
+    if auto_submit and matches:
+        best = matches[0]
+        best_id = best.get("id", "")
+        if best_id:
+            try:
+                detail_url = f"https://detail.1688.com/offer/{best_id}.html"
+                envelope = build_graph_envelope(
+                    item_id=best_id,
+                    detail_url=detail_url,
+                    poll_category=bool(not ozon_category),  # 有竞品类目就跳过匹配
+                    max_skus=1,
+                )
+                if envelope and envelope.get("envelope"):
+                    draft = envelope["envelope"].get("draft", {})
+                    # 关键：offer_id 设为 follow_xxx，Worker re-import 时更新已有卡片
+                    draft["sku_id"] = offer_id
+                    # 预填竞品类目
+                    if ozon_category:
+                        draft["ozon_category"] = ozon_category
+                    # 竞品图片
+                    if ozon_images:
+                        draft["images"] = ozon_images
+                    
+                    envelope["ozon_client_id"] = client_id
+                    envelope["ozon_api_key"] = api_key
+                    submit_res = submit_envelope(envelope)
+                    result["submit_result"] = submit_res
+                    result["task_id"] = submit_res.get("task_id", "")
+                    result["envelope_built"] = True
+                else:
+                    result["envelope_error"] = "build_graph_envelope 返回空"
+            except Exception as e:
+                result["envelope_error"] = str(e)
     
     return result
