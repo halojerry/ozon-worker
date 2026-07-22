@@ -178,8 +178,8 @@ def process_ozon_url(
         os.environ["OZON_CLIENT_ID"] = client_id
         os.environ["OZON_API_KEY"] = api_key
 
-        print(f"  🔗 [{product_id}] 跟卖流程 (import-by-sku + 1688搜索)...", flush=True)
-        follow_result = follow_sell_cloud(url, auto_submit=False)
+        print(f"  🔗 [{product_id}] 跟卖流程 (Ozon抓图 → 1688搜同款 → 上架)...", flush=True)
+        follow_result = follow_sell_cloud(url, auto_submit=not dry_run)
 
         # Restore old env vars
         if old_cid:
@@ -216,10 +216,11 @@ def process_ozon_url(
             result["dry_run"] = True
             return result
 
-        # For now, Ozon follow-sell requires further implementation to submit
-        # because follow_sell_cloud doesn't build a full GraphInput envelope yet
+        # Submit mode: result already includes task_id from auto_submit
         result["success"] = follow_result.get("success", False)
-        result["note"] = "跟卖流程需进一步开发才能自动提交"
+        result["task_id"] = follow_result.get("task_id", "")
+        if follow_result.get("submit_result"):
+            result["submit_result"] = follow_result["submit_result"]
 
     except Exception as e:
         result["error"] = str(e)
