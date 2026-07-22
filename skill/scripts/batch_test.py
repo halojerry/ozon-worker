@@ -281,6 +281,38 @@ def main() -> int:
         print("❌ --submit 需要 --client-id 和 --api-key（或设置 OZON_CLIENT_ID / OZON_API_KEY 环境变量）")
         return 1
 
+    # ── Pre-flight check ──
+    from scripts.lib.config_store import load_env_file, check_config
+    load_env_file()
+    config = check_config()
+    cdp = config.get("cdp", {})
+
+    issues = []
+    if config.get("missing"):
+        issues.append(f"缺少凭证: {', '.join(config['missing'])}")
+    if not cdp.get("browser_available"):
+        issues.append("Chrome 浏览器未安装")
+    if not cdp.get("session_available") and not cdp.get("cdp_running"):
+        issues.append("CDP Chrome 未启动 (端口 9222)")
+        issues.append("→ 启动: Chrome --remote-debugging-port=9222 --remote-allow-origins='*'")
+    if cdp.get("login_required") and args.type_filter in ("1688", "all"):
+        issues.append("1688 未登录 (仅影响 1688 URL, Ozon 不受影响)")
+        issues.append("→ 请在 Chrome 中登录 https://login.1688.com/")
+
+    if issues:
+        print("⚠️ 前置条件检查发现问题:")
+        for issue in issues:
+            print(f"  • {issue}")
+        print("\n运行 python3 scripts/cli.py check 查看详细诊断")
+        if not args.dry_run:
+            print("提示: 使用 --dry-run 可以先试跑不提交")
+        if any("CDP" in i or "Chrome" in i for i in issues):
+            print("\n❌ CDP Chrome 问题会阻止所有 1688 抓取和 Ozon 跟卖")
+            print("   只有 Ozon URL 的 1688 AK 搜索不受影响")
+            # Don't exit - let user continue with what works
+    else:
+        print("✅ 前置条件检查通过\n")
+
     # Parse URLs
     print(f"📖 读取 {args.urls_file}...")
     all_urls = parse_urls_file(args.urls_file)

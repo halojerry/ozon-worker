@@ -109,6 +109,110 @@ def cmd_graph(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check(args) -> int:
+    """诊断前置条件：Chrome / 凭证 / Worker / Ozon API."""
+    from scripts.lib.config_store import load_env_file, check_config
+    import requests as req
+    import os as _os
+
+    load_env_file()
+    config = check_config()
+    all_ok = True
+
+    def _ok(b: bool) -> str:
+        return "✅" if b else "❌"
+
+    # ── 凭证 ──
+    print("📋 凭证:")
+    missing = config.get("missing", [])
+    required = config.get("required_keys", {})
+    for k in required:
+        meta = required[k]
+        present = k not in missing
+        print(f"  {_ok(present)} {meta['label']} ({k})")
+    if missing:
+        all_ok = False
+        print(f"\n  ⚠️ 缺失凭证: {', '.join(missing)}")
+    if config.get("user_action"):
+        print(f"\n{config['user_action']}\n")
+
+    # ── CDP Chrome ──
+    cdp = config.get("cdp", {})
+    print(f"\n🖥️ CDP Chrome (端口 9222):")
+    browser_ok = cdp.get("browser_available", False)
+    session_ok = cdp.get("session_available", False) or cdp.get("cdp_running", False)
+    login_ok = not cdp.get("login_required", True)
+    print(f"  {_ok(browser_ok)} Chrome/Chromium 已安装")
+    print(f"  {_ok(session_ok)} CDP 远程调试已启动 (127.0.0.1:9222)")
+    print(f"  {_ok(login_ok)} 1688 已登录 (Ozon 无需登录)")
+    if cdp.get("issues"):
+        for issue in cdp.get("issues", []):
+            print(f"  ⚠️ {issue}")
+        for sug in cdp.get("suggestions", []):
+            print(f"  → {sug}")
+        all_ok = all_ok and not cdp.get("issues")
+
+    if not session_ok:
+        print("\n  启动 Chrome 命令:")
+        print("  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\")
+        print("    --remote-debugging-port=9222 \\")
+        print("    --remote-allow-origins='*' \\")
+        print("    --user-data-dir=<你的 profile 目录>")
+    
+    # ── Worker ──
+    worker_url = _os.environ.get("WORKER_URL", "http://localhost:8080").rstrip("/")
+    print(f"\n🌐 Worker ({worker_url}):")
+    try:
+        resp = req.get(f"{worker_url}/api/v1/health", timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            print(f"  {_ok(True)} {data.get('message', '')} (DB: {data.get('db', '?')})")
+        else:
+            print(f"  {_ok(False)} 返回 {resp.status_code}")
+            all_ok = False
+    except Exception as e:
+        print(f"  {_ok(False)} 不可达: {e}")
+        all_ok = False
+
+    # ── Ozon API ──
+    cid = _os.environ.get("OZON_CLIENT_ID", "")
+    akey = _os.environ.get("OZON_API_KEY", "")
+    print(f"\n🏪 Ozon API:")
+    if cid and akey:
+        print(f"  {_ok(True)} Client ID: {cid[:8]}***")
+        # Use /v1/product/info/description which we know works
+        try:
+            resp = req.post("https://api-seller.ozon.ru/v1/product/info/description",
+                headers={"Client-Id": cid, "Api-Key": akey, "Content-Type": "application/json"},
+                json={"product_id": 1}, timeout=10)
+            # 404 is expected (product doesn't exist), 401/403 means auth failure
+            if resp.status_code == 401 or resp.status_code == 403:
+                print(f"  {_ok(False)} API 认证失败 (HTTP {resp.status_code})，请检查 OZON_CLIENT_ID 和 OZON_API_KEY")
+                all_ok = False
+            else:
+                print(f"  {_ok(True)} API 认证通过")
+        except Exception:
+            print(f"  ⚠️ API 连通测试超时（网络问题，不影响后续使用）")
+    else:
+        print(f"  {_ok(False)} OZON_CLIENT_ID 或 OZON_API_KEY 未配置")
+        print(f"  → 设置: export OZON_CLIENT_ID=\"你的ID\" && export OZON_API_KEY=\"你的Key\"")
+        all_ok = False
+
+    # ── 汇总 ──
+    print(f"\n{'='*50}")
+    if all_ok:
+        print("✅ 所有前置条件满足，可以开始上架！")
+        print(f"\n  python3 scripts/cli.py search <关键词>       # 搜索1688")
+        print(f"  python3 scripts/cli.py graph --url <1688 URL> # 组装信封")
+        print(f"  python3 scripts/cli.py follow --ozon-url <Ozon URL> # 跟卖")
+        print(f"  python3 scripts/batch_test.py --urls-file <URL列表> --submit # 批量上架")
+    else:
+        print("❌ 前置条件不满足，请先解决以上问题再运行")
+    print(f"{'='*50}")
+    
+    return 0 if all_ok else 1
+
+
 def cmd_follow(args) -> int:
     """跟卖 Ozon 商品: Ozon URL → import-by-sku → 1688搜索 → CDP探针 → 上架"""
     from scripts.cloud_probe import follow_sell_cloud
@@ -144,6 +248,10 @@ def main() -> int:
     gp.add_argument("--category-query", default="", help="Ozon 类目关键词（俄语）")
     gp.add_argument("--retries", type=int, default=3, help="CDP 重试次数")
     gp.set_defaults(func=cmd_graph)
+
+    # check (诊断)
+    cp = sub.add_parser("check", help="诊断前置条件（Chrome / 凭证 / Worker / Ozon API）")
+    cp.set_defaults(func=cmd_check)
 
     # follow (跟卖)
     fp = sub.add_parser("follow", help="跟卖 Ozon 商品（Ozon URL → 1688找同款 → 上架）")
