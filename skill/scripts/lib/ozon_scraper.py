@@ -343,7 +343,7 @@ def scrape_ozon_product_via_cdp(
                 msg = _json.loads(ws.recv())
                 if msg.get("id") == cid:
                     return msg.get("result", {}).get("result", {}).get("value", "")
-            except:
+            except Exception:
                 continue
         return ""
 
@@ -367,76 +367,78 @@ def scrape_ozon_product_via_cdp(
 
         # Connect and navigate
         ws = websocket.create_connection(ws_url, timeout=timeout)
-        ws.send(_json.dumps({"id": 1, "method": "Page.enable", "params": {}}))
-        ws.send(_json.dumps({
-            "id": 2, "method": "Page.navigate",
-            "params": {"url": ozon_url}
-        }))
+        try:
+            ws.send(_json.dumps({"id": 1, "method": "Page.enable", "params": {}}))
+            ws.send(_json.dumps({
+                "id": 2, "method": "Page.navigate",
+                "params": {"url": ozon_url}
+            }))
 
-        # Drain navigation response and wait for load
-        time.sleep(5)
+            # Drain navigation response and wait for load
+            time.sleep(5)
 
-        # Extract via JavaScript (most reliable)
-        js_title = _cdp_eval(ws, "document.title") or ""
-        js_jsonld = _cdp_eval(ws, """
-            (function() {
-                var s = document.querySelector('script[type=\"application/ld+json\"]');
-                return s ? s.textContent : '';
-            })()
-        """) or ""
+            # Extract via JavaScript (most reliable)
+            js_title = _cdp_eval(ws, "document.title") or ""
+            js_jsonld = _cdp_eval(ws, """
+                (function() {
+                    var s = document.querySelector('script[type=\"application/ld+json\"]');
+                    return s ? s.textContent : '';
+                })()
+            """) or ""
 
-        js_jsonld = js_jsonld.strip()
+            js_jsonld = js_jsonld.strip()
 
-        # Parse JSON-LD
-        if js_jsonld:
-            try:
-                ld_data = _json.loads(js_jsonld)
-                if ld_data.get("@type") == "Product":
-                    result["title"] = ld_data.get("name", "")
-                    result["price"] = str(ld_data.get("offers", {}).get("price", ""))
-                    # Main image from JSON-LD
-                    img = ld_data.get("image", "")
-                    if isinstance(img, list):
-                        result["images"] = img
-                    elif img:
-                        result["images"] = [img]
-            except (_json.JSONDecodeError, TypeError):
-                pass
+            # Parse JSON-LD
+            if js_jsonld:
+                try:
+                    ld_data = _json.loads(js_jsonld)
+                    if ld_data.get("@type") == "Product":
+                        result["title"] = ld_data.get("name", "")
+                        result["price"] = str(ld_data.get("offers", {}).get("price", ""))
+                        # Main image from JSON-LD
+                        img = ld_data.get("image", "")
+                        if isinstance(img, list):
+                            result["images"] = img
+                        elif img:
+                            result["images"] = [img]
+                except (_json.JSONDecodeError, TypeError):
+                    pass
 
-        # Fallback title from page title
-        if not result["title"] and js_title:
-            # Strip Ozon suffix: "купить на OZON по низкой цене (1234567890)"
-            import re as _re
-            result["title"] = _re.sub(
-                r"\s*купить\s+на\s+OZON.*$", "", js_title, flags=_re.IGNORECASE
-            ).strip()
+            # Fallback title from page title
+            if not result["title"] and js_title:
+                # Strip Ozon suffix: "купить на OZON по низкой цене (1234567890)"
+                import re as _re
+                result["title"] = _re.sub(
+                    r"\s*купить\s+на\s+OZON.*$", "", js_title, flags=_re.IGNORECASE
+                ).strip()
 
-        # Get breadcrumb (category)
-        js_breadcrumb = _cdp_eval(ws, """
-            (function() {
-                var items = document.querySelectorAll('[data-widget=\"breadcrumb\"] a, nav[aria-label=\"breadcrumb\"] a, .breadcrumb a');
-                return Array.from(items).map(function(a) { return a.textContent.trim(); }).join(' > ');
-            })()
-        """) or ""
-        if js_breadcrumb:
-            result["category"] = js_breadcrumb
+            # Get breadcrumb (category)
+            js_breadcrumb = _cdp_eval(ws, """
+                (function() {
+                    var items = document.querySelectorAll('[data-widget=\"breadcrumb\"] a, nav[aria-label=\"breadcrumb\"] a, .breadcrumb a');
+                    return Array.from(items).map(function(a) { return a.textContent.trim(); }).join(' > ');
+                })()
+            """) or ""
+            if js_breadcrumb:
+                result["category"] = js_breadcrumb
 
-        # Augment images from HTML (more sizes/angles)
-        # Get full HTML and extract image URLs
-        html_val = _cdp_eval(ws, "document.documentElement.outerHTML") or ""
-        if html_val:
-            html_images = _extract_images_from_html(html_val)
-            # Deduplicate and merge
-            existing = set(result["images"])
-            for img in html_images:
-                # Keep only unique image IDs (different photos, not same photo different sizes)
-                base = re.sub(r'/wc\d+/', '/', img)  # normalize: remove size prefix
-                if base not in existing:
-                    existing.add(base)
-                    result["images"].append(img)
+            # Augment images from HTML (more sizes/angles)
+            # Get full HTML and extract image URLs
+            html_val = _cdp_eval(ws, "document.documentElement.outerHTML") or ""
+            if html_val:
+                html_images = _extract_images_from_html(html_val)
+                # Deduplicate and merge
+                existing = set(result["images"])
+                for img in html_images:
+                    # Keep only unique image IDs (different photos, not same photo different sizes)
+                    base = re.sub(r'/wc\d+/', '/', img)  # normalize: remove size prefix
+                    if base not in existing:
+                        existing.add(base)
+                        result["images"].append(img)
 
-        ws.close()
-        result["success"] = bool(result["title"] or result["images"])
+            result["success"] = bool(result["title"] or result["images"])
+        finally:
+            ws.close()
 
     except ImportError as e:
         result["error"] = f"缺少依赖: {e}. pip install websocket-client"

@@ -314,7 +314,7 @@ def main() -> int:
                 ws.send(json.dumps({"id":3,"method":"Runtime.evaluate",
                     "params":{"expression":"!!document.body && document.body.innerText.includes('OZON')","returnByValue":True}}))
                 for __ in range(10):
-                    _ws.settimeout(2)
+                    ws.settimeout(2)
                     try:
                         m = json.loads(ws.recv())
                         if m.get("id") == 3:

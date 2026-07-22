@@ -183,9 +183,6 @@ def cmd_check(args) -> int:
         print(f"  → 安装后重新运行: python3 scripts/cli.py check")
         all_ok = False
         return 0 if all_ok else 1
-        all_ok = False
-        # 无法继续 CDP 检查
-        return 0 if all_ok else 1
 
     # ═══════════════════════════════════════════
     # 2. CDP 远程调试检查

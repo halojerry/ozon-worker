@@ -972,33 +972,67 @@ async def v1_task_statistics(request: Request):
 
 
 @v1.post("/scrape_ozon", tags=["scraper"], response_model=dict,
-         responses={400: {"model": ErrorBody}, 403: {"model": ErrorBody}, 500: {"model": ErrorBody}})
+         responses={400: {"model": ErrorBody}, 401: {"model": ErrorBody}, 403: {"model": ErrorBody}, 
+                    429: {"model": ErrorBody}, 500: {"model": ErrorBody}})
 async def v1_scrape_ozon(request: Request):
     """
     抓取 Ozon 商品页公开数据（图片/标题/类目）。
 
     请求体:
-        {"url": "https://www.ozon.ru/product/xxx-12345/"}
+        {"token": "sk-xxx", "url": "https://www.ozon.ru/product/xxx-12345/"}
 
     返回:
         {"success": true, "product_id": "12345", "slug": "xxx",
          "images": [...], "title": "...", "category": "..."}
 
     Worker 服务端使用 curl-cffi + 可选俄罗斯代理（OZON_SCRAPER_PROXY 环境变量）。
-    Skill 端无需配置代理。
     """
     try:
         body = await request.json()
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
+    # ── Auth（复用 MXOU Supabase tokens 表）──
+    token = body.get("token", "")
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+
+    # Rate limiting
+    allowed, remaining = rate_limiter.check(token)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute"
+        )
+
+    # Strip sk- prefix for DB lookup
+    if token.startswith("sk-"):
+        token = token.removeprefix("sk-")
+
+    supabase = get_supabase_client()
+    if supabase is not None:
+        try:
+            token_records = supabase.table("tokens").select(
+                "user_id, status"
+            ).eq("key", token).is_("deleted_at", "null").execute()
+            if not token_records.data:
+                raise HTTPException(status_code=401, detail="Invalid token")
+            record = token_records.data[0]
+            if int(record.get("status", 0)) != 1:
+                raise HTTPException(status_code=403, detail="Token disabled or expired")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Token validation failed: {e}")
+
+    # ── Validate URL (SSRF protection) ──
+    from urllib.parse import urlparse
     ozon_url = body.get("url", "").strip()
     if not ozon_url:
         raise HTTPException(status_code=400, detail="缺少 'url' 字段")
 
-    # Validate URL
-    import re
-    if not re.search(r"ozon\.ru/product/", ozon_url):
+    parsed = urlparse(ozon_url)
+    if parsed.hostname not in ("ozon.ru", "www.ozon.ru"):
         raise HTTPException(status_code=400, detail="不是有效的 Ozon 商品 URL")
 
     proxy = os.environ.get("OZON_SCRAPER_PROXY", "")
@@ -1011,7 +1045,7 @@ async def v1_scrape_ozon(request: Request):
         logger.error("curl_cffi not installed on Worker")
         raise HTTPException(
             status_code=500,
-            detail="Worker 未安装 curl_cffi。请在 requirements.txt 添加 curl_cffi。"
+            detail="Worker 未安装 curl_cffi。"
         )
     except Exception as e:
         logger.error(f"Scrape Ozon failed for {ozon_url}: {e}")
