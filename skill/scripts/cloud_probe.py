@@ -3004,8 +3004,13 @@ def _translate_slug_to_cn(slug: str, mxou_token: str) -> str:
                     {"role": "user", "content": f"翻译: {slug_short}"}
                 ], "temperature": 0, "max_tokens": max_tok}, timeout=30)
             if cn_resp.status_code == 200:
-                kw = cn_resp.json()["choices"][0]["message"]["content"].strip()
-                if kw:
+                data = cn_resp.json()
+                choices = data.get("choices", [])
+                if not choices:
+                    continue
+                content = choices[0].get("message", {}).get("content", "")
+                if isinstance(content, str) and content.strip():
+                    kw = content.strip()[:200]  # cap to prevent LLM hallucination overflow
                     return kw
         except Exception:
             if attempt == 0:
@@ -3095,7 +3100,7 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any
         worker_url = os.environ.get("WORKER_URL", "http://localhost:8080").rstrip("/")
         try:
             scrape_resp = req.post(f"{worker_url}/api/v1/scrape_ozon",
-                json={"url": ozon_url}, timeout=35)
+                json={"token": mxou_token, "url": ozon_url}, timeout=35)
             if scrape_resp.status_code == 200:
                 scrape_data = scrape_resp.json()
                 if scrape_data.get("success"):
