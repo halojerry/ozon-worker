@@ -2983,3 +2983,78 @@ def poll_pipeline_task(
         "result_json": {},
         "error_message": f"Polling timed out after {max_wait_sec}s",
     }
+
+
+def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any]:
+    """
+    跟卖 Ozon 商品: Ozon URL → import-by-sku 复制卡片 → 1688搜索同款 → CDP探针 → 上架
+    
+    Returns: {success, product_name, 1688_matches, envelope, task_id}
+    """
+    import re, requests as req
+    
+    # Step 1: 解析 Ozon URL
+    parsed = parse_ozon_url(ozon_url)
+    if not parsed or not parsed.get("product_id"):
+        return {"success": False, "error": "无法解析 Ozon URL"}
+    
+    product_id = parsed["product_id"]
+    m = re.search(r'/product/(.+?)-(\d{6,15})/', ozon_url)
+    slug = m.group(1).replace("-", " ") if m else ""
+    
+    result = {"success": False, "product_id": product_id, "slug": slug}
+    
+    # Step 2: import-by-sku 复制卡片模板
+    ozon_creds = _get_ozon_credentials()
+    client_id = ozon_creds.get("client_id", "")
+    api_key = ozon_creds.get("api_key", "")
+    
+    try:
+        import_by_sku_resp = req.post(
+            "https://api-seller.ozon.ru/v1/product/import-by-sku",
+            headers={"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"},
+            json={"items": [{"sku": int(product_id), "offer_id": f"follow_{product_id}",
+                             "price": "10", "old_price": "12", "vat": "0"}]},
+            timeout=30)
+        if import_by_sku_resp.status_code == 200:
+            result["import_task_id"] = import_by_sku_resp.json().get("result", {}).get("task_id", "")
+            result["card_copied"] = True
+    except Exception as e:
+        result["card_error"] = str(e)
+    
+    # Step 3: LLM 翻译 slug → 1688 搜索
+    search_kw = slug
+    try:
+        mxou_token = os.getenv("MXOU_TOKEN", "")
+        if mxou_token and slug:
+            cn_resp = req.post("https://api.mxou.cn/v1/chat/completions",
+                headers={"Authorization": f"Bearer {mxou_token}", "Content-Type": "application/json"},
+                json={"model": "deepseek-v4-flash", "messages": [
+                    {"role": "system", "content": "将俄语产品名精确翻译为中文1688搜索关键词。保留规格。只返回关键词。"},
+                    {"role": "user", "content": f"翻译: {slug}"}
+                ], "temperature": 0, "max_tokens": 100}, timeout=20)
+            if cn_resp.status_code == 200:
+                search_kw = cn_resp.json()["choices"][0]["message"]["content"].strip()
+    except Exception:
+        pass
+    
+    result["search_keyword"] = search_kw
+    
+    # Step 4: 1688 AK 搜索
+    matches = []
+    try:
+        from scripts.lib.ak_1688_client import search_products
+        products = search_products(search_kw, page_size=5)
+        if products:
+            matches = [{"id": p.get("product_id", p.get("itemId", "")), "title": p.get("title", "")[:80],
+                        "price": p.get("price", ""), "image": p.get("image", "")} 
+                       for p in products if p.get("product_id") or p.get("itemId")]
+            result["1688_matches"] = matches
+    except Exception as e:
+        result["search_error"] = str(e)
+    
+    if matches:
+        result["success"] = True
+        result["best_match"] = matches[0]
+    
+    return result

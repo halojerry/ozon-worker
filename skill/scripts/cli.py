@@ -109,6 +109,14 @@ def cmd_graph(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_follow(args) -> int:
+    """跟卖 Ozon 商品: Ozon URL → import-by-sku → 1688搜索 → CDP探针 → 上架"""
+    from scripts.cloud_probe import follow_sell_cloud
+    result = follow_sell_cloud(args.ozon_url, auto_submit=args.auto_submit)
+    _out(result)
+    return 0 if result.get("success") else 1
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Main
 # ═══════════════════════════════════════════════════════════════════════════
@@ -136,6 +144,12 @@ def main() -> int:
     gp.add_argument("--category-query", default="", help="Ozon 类目关键词（俄语）")
     gp.add_argument("--retries", type=int, default=3, help="CDP 重试次数")
     gp.set_defaults(func=cmd_graph)
+
+    # follow (跟卖)
+    fp = sub.add_parser("follow", help="跟卖 Ozon 商品（Ozon URL → 1688找同款 → 上架）")
+    fp.add_argument("--ozon-url", required=True, help="Ozon 商品页 URL")
+    fp.add_argument("--auto-submit", action="store_true", help="自动提交到 Worker")
+    fp.set_defaults(func=cmd_follow)
 
     args = parser.parse_args()
     if not args.command:

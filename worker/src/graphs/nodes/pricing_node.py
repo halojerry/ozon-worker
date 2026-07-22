@@ -138,7 +138,26 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         
         # 获取扩展配置
         margin_rate: float = float(extensions.get("margin_rate", 0.25))  # 利润率 25%
-        commission_rate: float = float(extensions.get("commission_rate", 0.10))  # 佣金率 10%
+        
+        # ✅ 尝试从 Ozon API 获取真实佣金率（rFBS默认12%）
+        commission_rate: float = float(extensions.get("commission_rate", 0.0))
+        if commission_rate <= 0:
+            try:
+                price_resp = ozon_post(ozon_client_id, ozon_api_key,
+                    "/v5/product/info/prices",
+                    {"filter": {"offer_id": [str(draft.get("sku_id", ""))]}, "limit": 1},
+                    timeout=10)
+                items = price_resp.get("items", []) or price_resp.get("result", {}).get("items", [])
+                if items:
+                    comms = items[0].get("commissions", {})
+                    commission_rate = comms.get("sales_percent_rfbs", 12) / 100.0
+                    logger.info(f"✅ 真实佣金率 rFBS={commission_rate*100:.1f}%")
+            except Exception:
+                pass
+        if commission_rate <= 0:
+            commission_rate = 0.10  # fallback
+            logger.info(f"使用默认佣金率 10%")
+            
         fx_buffer: float = float(extensions.get("fx_buffer", 0.05))  # 汇率缓冲 5%
         
         # Step 2: 查询物流费率（SQLite logistics_rates + Ozon API获取3PL/服务等级）
