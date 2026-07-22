@@ -144,13 +144,68 @@ def cmd_check(args) -> int:
     login_ok = not cdp.get("login_required", True)
     print(f"  {_ok(browser_ok)} Chrome/Chromium 已安装")
     print(f"  {_ok(session_ok)} CDP 远程调试已启动 (127.0.0.1:9222)")
-    print(f"  {_ok(login_ok)} 1688 已登录 (Ozon 无需登录)")
+    print(f"  {_ok(login_ok)} 1688 已登录")
     if cdp.get("issues"):
         for issue in cdp.get("issues", []):
             print(f"  ⚠️ {issue}")
         for sug in cdp.get("suggestions", []):
             print(f"  → {sug}")
         all_ok = all_ok and not cdp.get("issues")
+    
+    # Ozon CDP 连通检查（需已建立 DataDome 信任）
+    ozon_cdp_ok = False
+    if session_ok:
+        print(f"\n  🔗 Ozon CDP 连通检查...")
+        try:
+            import websocket as _ws
+            import time as _time
+            blank_resp = req.put("http://127.0.0.1:9222/json/new?", timeout=5)
+            if blank_resp.status_code == 200:
+                tab = blank_resp.json()
+                ws = _ws.create_connection(tab.get("webSocketDebuggerUrl", ""), timeout=10)
+                ws.send(json.dumps({"id":1,"method":"Page.enable","params":{}}))
+                ws.send(json.dumps({"id":2,"method":"Page.navigate",
+                    "params":{"url":"https://www.ozon.ru/"}}))
+                # 等页面加载完成（等待 frameStoppedLoading 事件，处理重定向）
+                deadline = _time.time() + 8
+                page_loaded = False
+                while _time.time() < deadline:
+                    try:
+                        ws.settimeout(1)
+                        m = json.loads(ws.recv())
+                        if m.get("method") == "Page.frameStoppedLoading":
+                            page_loaded = True
+                            _time.sleep(0.5)
+                            break
+                    except _ws.WebSocketTimeoutException:
+                        if page_loaded:
+                            break
+                        continue
+                    except Exception:
+                        break
+                # 现在检查 URL
+                ws.send(json.dumps({"id":3,"method":"Runtime.evaluate",
+                    "params":{"expression":"location.href.indexOf('ozon.ru')>=0 && location.href.indexOf('captcha')<0","returnByValue":True}}))
+                for __ in range(15):
+                    try:
+                        ws.settimeout(1)
+                        m = json.loads(ws.recv())
+                        if m.get("id") == 3:
+                            ozon_cdp_ok = bool(m.get("result",{}).get("result",{}).get("value", False))
+                            break
+                    except _ws.WebSocketTimeoutException:
+                        continue
+                    except Exception:
+                        break
+                ws.close()
+        except Exception:
+            pass
+        print(f"  {_ok(ozon_cdp_ok)} Ozon 页面可访问 (DataDome 信任已建立)")
+
+    if session_ok and not ozon_cdp_ok:
+        print(f"  ⚠️ Ozon 被 DataDome 拦截！需要在 Chrome 中先访问一次 ozon.ru 建立信任")
+        print(f"  → 在 Chrome 中打开 https://www.ozon.ru/ 随便浏览一个商品即可")
+        all_ok = False
 
     if not session_ok:
         print("\n  启动 Chrome 命令:")

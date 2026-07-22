@@ -299,6 +299,35 @@ def main() -> int:
         issues.append("1688 未登录 (仅影响 1688 URL, Ozon 不受影响)")
         issues.append("→ 请在 Chrome 中登录 https://login.1688.com/")
 
+    # Check Ozon DataDome trust
+    if args.type_filter in ("ozon", "all") and cdp.get("session_available"):
+        try:
+            import websocket as _ws
+            import requests as _req
+            blank_resp = _req.put("http://127.0.0.1:9222/json/new?", timeout=5)
+            if blank_resp.status_code == 200:
+                tab = blank_resp.json()
+                ws = _ws.create_connection(tab.get("webSocketDebuggerUrl", ""), timeout=8)
+                ws.send(json.dumps({"id":1,"method":"Page.enable","params":{}}))
+                ws.send(json.dumps({"id":2,"method":"Page.navigate","params":{"url":"https://www.ozon.ru/"}}))
+                import time as _t; _t.sleep(3)
+                ws.send(json.dumps({"id":3,"method":"Runtime.evaluate",
+                    "params":{"expression":"!!document.body && document.body.innerText.includes('OZON')","returnByValue":True}}))
+                for __ in range(10):
+                    _ws.settimeout(2)
+                    try:
+                        m = json.loads(ws.recv())
+                        if m.get("id") == 3:
+                            if not m.get("result",{}).get("result",{}).get("value"):
+                                issues.append("Ozon 被 DataDome 拦截！需先在 Chrome 中访问 ozon.ru")
+                                issues.append("→ 打开 https://www.ozon.ru/ 浏览一个商品即可建立信任")
+                            break
+                    except:
+                        break
+                ws.close()
+        except Exception:
+            pass
+
     if issues:
         print("⚠️ 前置条件检查发现问题:")
         for issue in issues:
