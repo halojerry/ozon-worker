@@ -109,6 +109,47 @@ def cmd_graph(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_image_search(args) -> int:
+    """以图搜款: 上传图片搜索 1688 同款/相似商品."""
+    from scripts.lib.ak_1688_client import search_by_image
+    from scripts.lib.config_store import load_env_file
+    load_env_file()
+
+    try:
+        results = search_by_image(
+            image_path=args.image if not args.image.startswith("http") else "",
+            image_url=args.image if args.image.startswith("http") else "",
+            page_size=args.limit,
+            sort_type=args.sort or "",
+        )
+    except FileNotFoundError as e:
+        _out({"success": False, "error": str(e)})
+        return 1
+    except Exception as e:
+        _out({"success": False, "error": str(e)})
+        return 1
+
+    products = []
+    for p in results:
+        products.append({
+            "id": p.get("product_id", ""),
+            "title": p.get("title", "")[:100],
+            "price": p.get("price", ""),
+            "image": p.get("image_url", ""),
+            "detail_url": p.get("detail_url", ""),
+            "supplier": p.get("supplier", ""),
+            "sold_count": p.get("sold_count", 0),
+        })
+
+    _out({
+        "success": True,
+        "source_image": args.image,
+        "total_results": len(products),
+        "products": products,
+    })
+    return 0
+
+
 def cmd_check(args) -> int:
     """诊断前置条件：浏览器 / CDP / 1688 / Ozon / 凭证 / Worker"""
     from scripts.lib.config_store import load_env_file, check_config
@@ -438,6 +479,13 @@ def main() -> int:
     gp.add_argument("--category-query", default="", help="Ozon 类目关键词（俄语）")
     gp.add_argument("--retries", type=int, default=3, help="CDP 重试次数")
     gp.set_defaults(func=cmd_graph)
+
+    # image_search (以图搜款)
+    ip = sub.add_parser("image_search", help="以图搜款 — 上传图片搜索 1688 同款")
+    ip.add_argument("--image", required=True, help="图片路径或 URL")
+    ip.add_argument("--limit", type=int, default=10, help="返回数量")
+    ip.add_argument("--sort", default="", help="排序: price_asc/price_desc/sold_desc/yx_desc")
+    ip.set_defaults(func=cmd_image_search)
 
     # check (诊断)
     cp = sub.add_parser("check", help="诊断前置条件（Chrome / 凭证 / Worker / Ozon API）")
