@@ -3095,22 +3095,6 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any
     except Exception as e:
         logger.debug(f"CDP Ozon scraper unavailable: {e}")
     
-    # CDP 失败，尝试 Worker API
-    if not ozon_images:
-        worker_url = os.environ.get("WORKER_URL", "http://localhost:8080").rstrip("/")
-        try:
-            scrape_resp = req.post(f"{worker_url}/api/v1/scrape_ozon",
-                json={"token": mxou_token, "url": ozon_url}, timeout=35)
-            if scrape_resp.status_code == 200:
-                scrape_data = scrape_resp.json()
-                if scrape_data.get("success"):
-                    ozon_images = scrape_data.get("images", [])
-                    ozon_title = scrape_data.get("title", "")
-                    ozon_category = scrape_data.get("category", "")
-                    result["scrape_source"] = "worker"
-        except Exception:
-            pass
-    
     result["ozon_images_count"] = len(ozon_images)
     result["images"] = ozon_images
     if ozon_title:
