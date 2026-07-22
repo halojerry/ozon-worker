@@ -763,10 +763,14 @@ def _candidate_browser_paths() -> list[str]:
     paths = [
         'google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser',
         'chrome', 'msedge', 'microsoft-edge',
-        'brave', 'brave-browser',           # Brave (popular privacy browser)
-        'opera', 'vivaldi',                  # Opera / Vivaldi (Chromium-based)
-        '360chrome', '360se',                # 360 浏览器 (China users)
-        'qqbrowser',                         # QQ 浏览器 (China users)
+        'brave', 'brave-browser',           # Brave
+        'opera', 'vivaldi',                  # Opera / Vivaldi
+        '360chrome', '360se',                # 360 浏览器
+        'qqbrowser',                         # QQ 浏览器
+        'sogou-explorer', 'sogou',           # 搜狗浏览器
+        'liebao',                            # 猎豹浏览器
+        'maxthon',                           # 傲游浏览器
+        'doubao', 'doubao-browser',          # 豆包浏览器 (抖音)
     ]
 
     if system == 'Darwin':
