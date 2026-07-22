@@ -125,28 +125,21 @@ def cmd_check(args) -> int:
         return "✅" if b else "❌"
 
     # ═══════════════════════════════════════════
-    # 1. 浏览器检测（仅 Chromium 内核，CDP 协议）
+    # 1. 浏览器检测（Chromium 内核）
     # ═══════════════════════════════════════════
-    print("🖥️ 浏览器检测（仅 Chromium 内核，Firefox/Safari 不支持）:")
-    print("  优先级: Chrome > Edge > Chromium > 其他国产浏览器")
+    print("🖥️ 浏览器检测（需要 Chromium 内核，Firefox/Safari 不支持）:")
 
-    # 按优先级排序：Chrome 系 > Edge > Chromium > 其他
-    BROWSER_NAMES = {
-        # Tier 1: Chrome 系（最稳定，首选）
+    # 支持的 Chromium 内核浏览器（按优先级）
+    BROWSER_NAMES: dict[str, list[str]] = {
         "Google Chrome": ["chrome", "google-chrome", "google-chrome-stable"],
         "Chromium": ["chromium", "chromium-browser"],
-        # Tier 2: Edge（Win 预装，覆盖率最高）
         "Microsoft Edge": ["msedge", "microsoft-edge"],
-        # Tier 3: 其他 Chromium 浏览器
         "Brave": ["brave", "brave-browser"],
-        "Opera": ["opera"],
-        "Vivaldi": ["vivaldi"],
-        # Tier 4: 国产浏览器（中国用户）
+        "Opera": ["opera"], "Vivaldi": ["vivaldi"],
         "360 浏览器": ["360chrome", "360se"],
         "QQ 浏览器": ["qqbrowser"],
         "搜狗浏览器": ["sogou", "sogou-explorer"],
-        "猎豹浏览器": ["liebao"],
-        "傲游浏览器": ["maxthon"],
+        "猎豹浏览器": ["liebao"], "傲游浏览器": ["maxthon"],
         "豆包浏览器": ["doubao", "doubao-browser"],
     }
 
@@ -181,20 +174,15 @@ def cmd_check(args) -> int:
             unique_browsers.append((name, path))
 
     if unique_browsers:
-        # 按优先级排序：Chrome > Chromium > Edge > 其他
-        priority_order = {"Google Chrome": 0, "Chromium": 1, "Microsoft Edge": 2}
-        unique_browsers.sort(key=lambda x: priority_order.get(x[0], 99))
-        for name, path in unique_browsers:
-            tier = "⭐ 首选" if name == "Google Chrome" else ""
-            print(f"  ✅ {name}: {path}  {tier}")
+        for name, _ in unique_browsers:
+            tag = "（推荐）" if name == "Google Chrome" else ""
+            print(f"  ✅ {name} {tag}")
     else:
-        print(f"  ❌ 未检测到 Chromium 内核浏览器")
-        print(f"  ⚠️ 注意: 仅支持 Chromium 内核浏览器（Chrome/Edge/360/QQ 等）")
-        print(f"     Firefox、Safari 等不支持 CDP 协议，无法使用")
-        print(f"  → 请安装 Google Chrome（最稳定）:")
-        print(f"     https://www.google.com/chrome/")
-        print(f"  → 或 Microsoft Edge（Win10+ 预装）:")
-        print(f"     https://www.microsoft.com/edge/")
+        print(f"  ❌ 未检测到可用浏览器")
+        print(f"  → 请安装 Google Chrome: https://www.google.com/chrome/")
+        print(f"  → 安装后重新运行: python3 scripts/cli.py check")
+        all_ok = False
+        return 0 if all_ok else 1
         all_ok = False
         # 无法继续 CDP 检查
         return 0 if all_ok else 1
@@ -210,15 +198,14 @@ def cmd_check(args) -> int:
     print(f"  {_ok(session_ok)} CDP 已启动")
 
     if not session_ok:
-        print(f"\n  ⚠️ 请用以下命令启动浏览器（任选一个已安装的）:")
-        for name, path in unique_browsers[:3]:
-            print(f"  {path} --remote-debugging-port=9222 --remote-allow-origins='*'")
-        print(f"\n  macOS 示例（Chrome）:")
+        print(f"\n  ⚠️ 请用 Chrome 启动 CDP 远程调试:")
+        print(f"  macOS:")
         print(f"  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\")
         print(f"    --remote-debugging-port=9222 --remote-allow-origins='*'")
-        print(f"\n  Windows 示例（Chrome）:")
+        print(f"\n  Windows:")
         print(f"  \"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" \\")
         print(f"    --remote-debugging-port=9222 --remote-allow-origins=\"*\"")
+        print(f"\n  如使用其他浏览器（Edge/360/QQ等），替换路径即可，参数相同")
 
     # ═══════════════════════════════════════════
     # 3. 1688 CDP 连通检查
