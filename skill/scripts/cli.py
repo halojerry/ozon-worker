@@ -150,6 +150,17 @@ def cmd_image_search(args) -> int:
     return 0
 
 
+def cmd_get_ak(args) -> int:
+    """通过浏览器获取 1688 AK，自动保存到本地."""
+    from scripts.lib.ak_callback import get_ak_via_browser
+    from scripts.lib.config_store import load_env_file
+    load_env_file()
+
+    result = get_ak_via_browser(timeout=args.timeout)
+    _out(result)
+    return 0 if result.get("success") else 1
+
+
 def cmd_check(args) -> int:
     """诊断前置条件：浏览器 / CDP / 1688 / Ozon / 凭证 / Worker"""
     from scripts.lib.config_store import load_env_file, check_config
@@ -490,6 +501,11 @@ def main() -> int:
     # check (诊断)
     cp = sub.add_parser("check", help="诊断前置条件（Chrome / 凭证 / Worker / Ozon API）")
     cp.set_defaults(func=cmd_check)
+
+    # get_ak (获取 1688 AK)
+    akp = sub.add_parser("get_ak", help="通过浏览器获取 1688 AK")
+    akp.add_argument("--timeout", type=int, default=300, help="超时秒数")
+    akp.set_defaults(func=cmd_get_ak)
 
     # follow (跟卖)
     fp = sub.add_parser("follow", help="跟卖 Ozon 商品（Ozon URL → 1688找同款 → 上架）")
