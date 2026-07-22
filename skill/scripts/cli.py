@@ -125,18 +125,23 @@ def cmd_check(args) -> int:
         return "✅" if b else "❌"
 
     # ═══════════════════════════════════════════
-    # 1. 浏览器检测
+    # 1. 浏览器检测（仅 Chromium 内核，CDP 协议）
     # ═══════════════════════════════════════════
-    print("🖥️ 浏览器检测:")
-    
-    # 支持的所有 Chromium 内核浏览器
+    print("🖥️ 浏览器检测（仅 Chromium 内核，Firefox/Safari 不支持）:")
+    print("  优先级: Chrome > Edge > Chromium > 其他国产浏览器")
+
+    # 按优先级排序：Chrome 系 > Edge > Chromium > 其他
     BROWSER_NAMES = {
+        # Tier 1: Chrome 系（最稳定，首选）
         "Google Chrome": ["chrome", "google-chrome", "google-chrome-stable"],
         "Chromium": ["chromium", "chromium-browser"],
+        # Tier 2: Edge（Win 预装，覆盖率最高）
         "Microsoft Edge": ["msedge", "microsoft-edge"],
+        # Tier 3: 其他 Chromium 浏览器
         "Brave": ["brave", "brave-browser"],
         "Opera": ["opera"],
         "Vivaldi": ["vivaldi"],
+        # Tier 4: 国产浏览器（中国用户）
         "360 浏览器": ["360chrome", "360se"],
         "QQ 浏览器": ["qqbrowser"],
         "搜狗浏览器": ["sogou", "sogou-explorer"],
@@ -176,15 +181,20 @@ def cmd_check(args) -> int:
             unique_browsers.append((name, path))
 
     if unique_browsers:
+        # 按优先级排序：Chrome > Chromium > Edge > 其他
+        priority_order = {"Google Chrome": 0, "Chromium": 1, "Microsoft Edge": 2}
+        unique_browsers.sort(key=lambda x: priority_order.get(x[0], 99))
         for name, path in unique_browsers:
-            print(f"  ✅ {name}: {path}")
+            tier = "⭐ 首选" if name == "Google Chrome" else ""
+            print(f"  ✅ {name}: {path}  {tier}")
     else:
         print(f"  ❌ 未检测到 Chromium 内核浏览器")
-        print(f"  → 请安装以下任一浏览器:")
-        print(f"     • Google Chrome: https://www.google.com/chrome/")
-        print(f"     • Microsoft Edge: https://www.microsoft.com/edge/")
-        print(f"     • Chromium: https://www.chromium.org/")
-        print(f"  → 安装后重新运行: python3 scripts/cli.py check")
+        print(f"  ⚠️ 注意: 仅支持 Chromium 内核浏览器（Chrome/Edge/360/QQ 等）")
+        print(f"     Firefox、Safari 等不支持 CDP 协议，无法使用")
+        print(f"  → 请安装 Google Chrome（最稳定）:")
+        print(f"     https://www.google.com/chrome/")
+        print(f"  → 或 Microsoft Edge（Win10+ 预装）:")
+        print(f"     https://www.microsoft.com/edge/")
         all_ok = False
         # 无法继续 CDP 检查
         return 0 if all_ok else 1
@@ -242,7 +252,7 @@ def cmd_check(args) -> int:
                     except Exception:
                         break
                 ws.send(json.dumps({"id":3,"method":"Runtime.evaluate",
-                    "params":{"expression":"location.href.indexOf('1688.com')>=0 && location.href.indexOf('login')<0","returnByValue":True}}))
+                    "params":{"expression":"!!location.href && location.href.indexOf('1688.com')>=0 && location.href.indexOf('login.1688.com')<0","returnByValue":True}}))
                 for __ in range(15):
                     try:
                         ws.settimeout(1)
@@ -258,14 +268,14 @@ def cmd_check(args) -> int:
                 ws.close()
         except Exception:
             pass
-        print(f"  {_ok(alibaba_cdp_ok)} 1688 页面可访问")
+        print(f"  {_ok(alibaba_cdp_ok)} 1688 页面可访问 (仅影响 1688 URL)")
     else:
         print(f"\n  🔗 1688 CDP: ⏭️ 跳过（CDP 未启动）")
 
     # 1688 登录检查
     if session_ok:
-        print(f"  {_ok(login_ok)} 1688 已登录")
-        if not login_ok and alibaba_cdp_ok:
+        print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
+        if not login_ok:
             print(f"  → 在浏览器中打开 https://login.1688.com/ 登录")
             all_ok = False
 
