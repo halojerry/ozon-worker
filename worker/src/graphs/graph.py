@@ -17,6 +17,7 @@ from graphs.state import (
 # 导入核心节点
 from graphs.nodes.auth_node import auth_node
 from graphs.nodes.ingest_node import ingest_node
+from graphs.nodes.follow_sell_import_node import follow_sell_import_node  # 🆕 跟卖导入节点
 from graphs.nodes.assemble_ozon_product_node import assemble_ozon_product_node  # 统一商品组装（替代 4 节点管线）
 from graphs.nodes.scene_generation_llm_node import scene_generation_llm_node  # 场景生成LLM节点
 from graphs.nodes.pricing_node import pricing_node
@@ -58,6 +59,7 @@ builder = StateGraph(
 # Phase 1: 认证 + 数据摄入
 builder.add_node("auth", auth_node)
 builder.add_node("ingest", ingest_node)
+builder.add_node("follow_sell_import", follow_sell_import_node)  # 🆕 跟卖导入
 
 # Phase 2: 类目查找 → 定价（串行：定价先执行，组装节点需要定价信息）
 builder.add_node("pricing", pricing_node)
@@ -95,10 +97,31 @@ builder.set_entry_point("auth")
 # ==================== 添加边（数据流转） ====================
 
 # Phase 1-3: 串行处理
-builder.add_edge("auth", "ingest")
+# 🆕 路由：跟卖 vs 1688 完整管线
+def route_by_sell_type(state):
+    """根据 envelope.extensions.follow_sell 决定管线"""
+    extensions = state.envelope.get("extensions", {}) if state.envelope else {}
+    if extensions.get("follow_sell"):
+        logger.info("🔄 路由 → 跟卖管线")
+        return "follow_sell"
+    logger.info("📦 路由 → 1688 完整管线")
+    return "full"
+
+builder.add_conditional_edges(
+    source="auth",
+    path=route_by_sell_type,
+    path_map={
+        "follow_sell": "follow_sell_import",
+        "full": "ingest",
+    }
+)
+
+# 跟卖导入 → 定价（跳过 ingest + category match）
+builder.add_edge("follow_sell_import", "pricing")
+# 1688 管线：ingest → 定价
+builder.add_edge("ingest", "pricing")
 
 # 定价 → 商品组装（串行：组装需要定价信息）
-builder.add_edge("ingest", "pricing")
 builder.add_edge("pricing", "assemble_ozon_product")
 
 # Phase 3.5: 场景生成（使用LLM生成3个场景描述）

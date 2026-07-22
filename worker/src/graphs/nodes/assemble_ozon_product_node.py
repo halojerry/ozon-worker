@@ -68,6 +68,98 @@ TYPE_NAME_ATTR_IDS = [8229]
 COLLECTION_ATTR_IDS = {9048, 23171}
 
 
+def _assemble_follow_sell(
+    state: GlobalState,
+    draft: dict[str, Any],
+    title: str,
+    images: list[str],
+    pricing_info: dict[str, Any],
+    progress: Any,
+) -> dict[str, Any]:
+    """跟卖模式组装：跳过 LLM 类目匹配和属性填写，直接构建 payload。"""
+    from utils.ozon_category_query import get_category_query
+
+    query = get_category_query()
+    description_category_id = int(state.description_category_id)
+    type_id = int(state.type_id) if getattr(state, 'type_id', None) else 0
+    ozon_client_id = str(state.ozon_client_id or "")
+    ozon_api_key = state.ozon_api_key or ""
+
+    logger.info(f"🔄 跟卖组装: cat={description_category_id}/{type_id}, title={title[:60]}")
+
+    # Step 2: 获取属性 Schema（仅用于验证，不实际填写）
+    progress.log_node_action(f"跟卖 Step 2: 获取属性 Schema — cat={description_category_id}")
+    attr_schema = query.get_attribute_schema(description_category_id, type_id)
+    if attr_schema and isinstance(attr_schema, dict) and attr_schema.get("result"):
+        attr_list: list[dict[str, Any]] = attr_schema["result"]
+    else:
+        attr_list = _fetch_attribute_schema_from_ozon(
+            ozon_client_id, ozon_api_key, description_category_id, type_id
+        )
+    logger.info(f"   属性 Schema: {len(attr_list)} 个属性")
+
+    # 获取俄语类目路径
+    try:
+        from storage.database.db import get_engine
+        from sqlalchemy import text
+        engine = get_engine()
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT full_path FROM category_tree_nodes "
+                "WHERE description_category_id=:cid AND type_id=:tid AND language='RU' LIMIT 1"
+            ), {"cid": description_category_id, "tid": type_id}).fetchone()
+            if row:
+                logger.info(f"   🇷🇺 俄语类目: {row[0]}")
+    except Exception:
+        pass
+
+    # 定价信息
+    price_rub = str(pricing_info.get("price", "1000"))
+    old_price_rub = str(pricing_info.get("old_price", "1500"))
+
+    # 简化的属性列表：只保留关键属性（品牌=无品牌）
+    attrs_for_payload: list[dict[str, Any]] = [
+        {"id": 126745801, "values": [{"value": "Нет бренда", "dictionary_value_id": 126745801}]}
+    ]
+
+    # 构建 payload items
+    sku_id = draft.get("sku_id", draft.get("item_id", ""))
+    offer_id = f"follow_{draft.get('ozon_product_id', sku_id)}"
+    weight_g = draft.get("weight", 100)
+    dims = draft.get("dimensions", {}) or {}
+    depth = int(dims.get("length", dims.get("depth", 100)))
+    width = int(dims.get("width", 100))
+    height = int(dims.get("height", 100))
+
+    items = [{
+        "offer_id": offer_id,
+        "name": title,
+        "description": draft.get("description", title),
+        "category_id": description_category_id,
+        "price": price_rub,
+        "old_price": old_price_rub,
+        "vat": "0",
+        "currency_code": getattr(state, 'currency_code', None) or "RUB",
+        "images": images[:10] if images else [],
+        "attributes": attrs_for_payload,
+        "depth": max(1, depth // 10),  # mm → cm
+        "width": max(1, width // 10),
+        "height": max(1, height // 10),
+        "weight": max(1, weight_g),
+        "dimension_unit": "cm",
+        "weight_unit": "g",
+    }]
+
+    logger.info(f"✅ 跟卖组装完成: offer_id={offer_id}, images={len(images)}, price={price_rub}")
+
+    return {
+        "ozon_payload": {"items": items},
+        "final_attributes": attrs_for_payload,
+        "description_category_id": str(description_category_id),
+        "type_id": str(type_id),
+    }
+
+
 def assemble_ozon_product_node(
     state: GlobalState,
     config: RunnableConfig,
@@ -113,6 +205,11 @@ def assemble_ozon_product_node(
         logger.error("产品标题为空，无法进行类目匹配")
         return {"error_message": "产品标题为空，无法进行类目匹配",
                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1}
+
+    # 🆕 跟卖模式：类目已由前序节点设置，直接跳到属性 schema 和 payload 组装
+    extensions = state.envelope.get("extensions", {}) if state.envelope else {}
+    if extensions.get("follow_sell") and state.description_category_id:
+        return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
 
     # 初始化查询助手
     query = get_category_query()
@@ -1412,3 +1509,4 @@ def _generate_hashtags(name: str) -> str:
             tags = ["#товар", "#ozon"]
 
     return " ".join(tags[:5])
+

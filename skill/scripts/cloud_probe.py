@@ -3046,12 +3046,11 @@ def _search_1688_with_fallback(search_kw: str) -> list[dict[str, Any]]:
 
 def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any]:
     """
-    跟卖 Ozon 商品:
-      1. 抓取 Ozon 商品页 → 拿到竞品图片 + 类目 + 标题  (ozon_scraper)
-      2. import-by-sku 复制卡片 (获取类目结构 + offer_id)
-      3. LLM 翻译标题 → 1688 搜索同款
-      4. CDP 探针 1688 → 采购成本 + 规格
-      5. (auto_submit) 组装 GraphInput → Worker 更新卡片
+    跟卖 Ozon 商品 (v9: Skill 不调 Ozon API, import-by-sku 移到 Worker):
+      1. CDP 抓取 Ozon 商品页 → 拿到竞品图片 + 标题
+      2. LLM 翻译标题 → 1688 搜索同款
+      3. CDP 探针 1688 → 采购成本 + 规格
+      4. (auto_submit) 组装 GraphInput(follow_sell=true) → Worker 跟卖管线
     
     Returns: {success, product_id, slug, images, title, 1688_matches, task_id}
     """
@@ -3074,22 +3073,19 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any
     result: dict[str, Any] = {
         "success": False, "product_id": product_id, "slug": slug,
         "images": [], "title": "", "category": "",
-        "card_copied": False, "1688_matches": [],
+        "1688_matches": [],
     }
     
-    # Step 2: 抓取 Ozon 商品页 → 竞品图片 + 标题 + 类目
+    # Step 2: CDP 抓取 Ozon 商品页 → 竞品图片 + 标题
     ozon_images: list[str] = []
     ozon_title: str = ""
-    ozon_category: str = ""
     
-    # 优先通过本地 CDP Chrome (已登录，反爬效果最好)
     try:
         from scripts.lib.ozon_scraper import scrape_ozon_product_via_cdp
         cdp_data = scrape_ozon_product_via_cdp(ozon_url, cdp_url="http://127.0.0.1:9222", timeout=30)
         if cdp_data.get("success"):
             ozon_images = cdp_data.get("images", [])
             ozon_title = cdp_data.get("title", "")
-            ozon_category = cdp_data.get("category", "")
             result["scrape_source"] = "cdp"
             logger.info(f"✅ CDP 抓取 Ozon 成功: {len(ozon_images)} 张图, title={ozon_title[:60]}")
     except Exception as e:
@@ -3099,38 +3095,15 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any
     result["images"] = ozon_images
     if ozon_title:
         result["title"] = ozon_title
-    if ozon_category:
-        result["category"] = ozon_category
-    
-    # Step 3: import-by-sku 复制卡片模板（获取 offer_id + 类目结构）
-    offer_id = f"follow_{product_id}"
-    try:
-        import_body: dict = {
-            "items": [{"sku": int(product_id), "offer_id": offer_id,
-                        "price": "10", "old_price": "12", "vat": "0"}]
-        }
-        # 如果有竞品图片，直接传入
-        if ozon_images:
-            import_body["items"][0]["images"] = ozon_images[:10]
-        
-        import_by_sku_resp = req.post(
-            "https://api-seller.ozon.ru/v1/product/import-by-sku",
-            headers={"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"},
-            json=import_body, timeout=30)
-        if import_by_sku_resp.status_code == 200:
-            result["import_task_id"] = import_by_sku_resp.json().get("result", {}).get("task_id", "")
-            result["card_copied"] = True
-    except Exception as e:
-        result["card_error"] = str(e)
-    
-    # Step 4: LLM 翻译 title/slug → 1688 搜索
+
+    # Step 3: LLM 翻译 → 1688 搜索
     search_text = ozon_title if ozon_title else slug
     search_kw = _translate_slug_to_cn(search_text, mxou_token)
     if not search_kw:
         search_kw = " ".join(search_text.split()[:4])
     result["search_keyword"] = search_kw
-    
-    # Step 5: 1688 AK 搜索（带 fallback）
+
+    # Step 4: 1688 AK 搜索（带 fallback）
     matches_raw = _search_1688_with_fallback(search_kw)
     matches = []
     if matches_raw:
@@ -3138,12 +3111,12 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any
                     "price": p.get("price", ""), "image": p.get("image", "")} 
                    for p in matches_raw if p.get("product_id") or p.get("itemId")]
         result["1688_matches"] = matches
-    
+
     if matches:
         result["success"] = True
         result["best_match"] = matches[0]
-    
-    # Step 6: auto_submit — CDP 探针 1688 → 组装信封 → 提交 Worker
+
+    # Step 5: auto_submit — CDP 探针 1688 → 组装 envelope → submit Worker (跟卖标记)
     if auto_submit and matches:
         best = matches[0]
         best_id = best.get("id", "")
@@ -3157,15 +3130,15 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any
                 )
                 if envelope and envelope.get("envelope"):
                     draft = envelope["envelope"].get("draft", {})
-                    # 关键：offer_id 设为 follow_xxx，Worker re-import 时更新已有卡片
-                    draft["sku_id"] = offer_id
-                    # 预填竞品类目
-                    if ozon_category:
-                        draft["ozon_category"] = ozon_category
+                    extensions = envelope["envelope"].get("extensions", {})
+                    # 🆕 跟卖标记: Worker 走跟卖管线
+                    draft["ozon_product_id"] = product_id
+                    extensions["follow_sell"] = True
+                    envelope["envelope"]["extensions"] = extensions
                     # 竞品图片
                     if ozon_images:
                         draft["images"] = ozon_images
-                    
+                    # 凭证
                     envelope["ozon_client_id"] = client_id
                     envelope["ozon_api_key"] = api_key
                     submit_res = submit_envelope(envelope)
@@ -3176,5 +3149,5 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any
                     result["envelope_error"] = "build_graph_envelope 返回空"
             except Exception as e:
                 result["envelope_error"] = str(e)
-    
+
     return result
