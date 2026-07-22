@@ -384,6 +384,22 @@ def cmd_check(args) -> int:
         print("❌ 请先解决以上问题")
     print(f"{'='*55}")
 
+    # ── Session 登录提醒 ──
+    if session_ok:
+        print()
+        if login_ok and ozon_cdp_ok:
+            print("✅ Chrome 会话就绪：1688 已登录 + Ozon 信任已建立")
+        else:
+            print("⚠️ Chrome 会话待完善，请在新打开的 Chrome 窗口中：")
+            step = 1
+            if not login_ok:
+                print(f"  {step}. 登录 1688: https://login.1688.com/member/signin.htm")
+                step += 1
+            if not ozon_cdp_ok:
+                print(f"  {step}. 访问 Ozon: https://www.ozon.ru/ （随便点一个商品即可，不需要注册账号）")
+                step += 1
+            print(f"\n  完成后重新运行: python3 scripts/cli.py check")
+
     return 0 if all_ok else 1
 
 
