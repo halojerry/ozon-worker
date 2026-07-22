@@ -971,6 +971,53 @@ async def v1_task_statistics(request: Request):
     return await http_task_statistics(request)
 
 
+@v1.post("/scrape_ozon", tags=["scraper"], response_model=dict,
+         responses={400: {"model": ErrorBody}, 403: {"model": ErrorBody}, 500: {"model": ErrorBody}})
+async def v1_scrape_ozon(request: Request):
+    """
+    抓取 Ozon 商品页公开数据（图片/标题/类目）。
+
+    请求体:
+        {"url": "https://www.ozon.ru/product/xxx-12345/"}
+
+    返回:
+        {"success": true, "product_id": "12345", "slug": "xxx",
+         "images": [...], "title": "...", "category": "..."}
+
+    Worker 服务端使用 curl-cffi + 可选俄罗斯代理（OZON_SCRAPER_PROXY 环境变量）。
+    Skill 端无需配置代理。
+    """
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    ozon_url = body.get("url", "").strip()
+    if not ozon_url:
+        raise HTTPException(status_code=400, detail="缺少 'url' 字段")
+
+    # Validate URL
+    import re
+    if not re.search(r"ozon\.ru/product/", ozon_url):
+        raise HTTPException(status_code=400, detail="不是有效的 Ozon 商品 URL")
+
+    proxy = os.environ.get("OZON_SCRAPER_PROXY", "")
+
+    try:
+        from utils.ozon_scraper import scrape_ozon_product
+        result = scrape_ozon_product(ozon_url, proxy=proxy, timeout=30)
+        return result
+    except ImportError:
+        logger.error("curl_cffi not installed on Worker")
+        raise HTTPException(
+            status_code=500,
+            detail="Worker 未安装 curl_cffi。请在 requirements.txt 添加 curl_cffi。"
+        )
+    except Exception as e:
+        logger.error(f"Scrape Ozon failed for {ozon_url}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # 注册 v1 路由（/api/v1/* 端点）
 # 旧路径（/health, /submit_task 等）仍然可用，向后兼容
 app.include_router(v1)
