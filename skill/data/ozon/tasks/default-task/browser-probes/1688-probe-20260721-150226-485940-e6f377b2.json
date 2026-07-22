@@ -1,0 +1,342 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 2
+  },
+  "summary": {
+    "title": "magsafe透明啪嗒磁吸支架手机气囊泡泡骚懒人桌面伸缩折叠支架",
+    "price": "¥5.5",
+    "brand": "TAIXUN",
+    "seller": "佛山市十方电子科技有限公司",
+    "image_count": 31,
+    "attribute_count": 17,
+    "dom_sku_count": 9,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/737538207727.html?offerId=737538207727&hotSaleSkuId=5266384998108&spm=a260k.home2025.reco",
+    "loginRequired": false,
+    "title": "magsafe透明啪嗒磁吸支架手机气囊泡泡骚懒人桌面伸缩折叠支架",
+    "price": "¥5.5",
+    "priceValue": 5.5,
+    "brand": "TAIXUN",
+    "seller": "佛山市十方电子科技有限公司",
+    "sellerLink": "https://shop75t025m366i66.1688.com/?offerId=737538207727&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01h3470d1F76kMdnpkf_!!2214879830439-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN019Adr831F76kJf9Ryu_!!2214879830439-0-cib.jpg?__r__=1693814577140",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tLS4MI1F76kOWWBzj_!!2214879830439-0-cib.jpg?__r__=1693577403548",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01imjnoK1F76kKssZxa_!!2214879830439-0-cib.jpg?__r__=1693577403549",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01nOLW8H1F76kO50Iqs_!!2214879830439-0-cib.jpg?__r__=1693577403549",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GZ9yjO1F76kFosFiv_!!2214879830439-0-cib.jpg?__r__=1693577403549",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FNaMKM1F76kB9TFMz_!!2214879830439-0-cib.jpg?__r__=1693577403550",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01N1srw51F76kN1UbSY_!!2214879830439-0-cib.jpg?__r__=1693814642008",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01uE9M8A1F76kKsYZVP_!!2214879830439-0-cib.jpg?__r__=1693814642008",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01XN8atY1F76kKnfvc1_!!2214879830439-0-cib.jpg?__r__=1693814642008",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01h3470d1F76kMdnpkf_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01mnhGbO1F76kTEK7zL_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eBuqC31F76kQESlNn_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01c4YWqb1F76kQETyH8_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Dn7M9b1F76kFog2Ko_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010J74yh1F76l2ilxqB_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019S17AT1F76kZI1pMI_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01biNvB41F76kO3IUJH_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kWZiHU1F76kZd1B2C_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01a1r5I11F76kZe0ken_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01glsCMW1F76i9K4xzD_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sQhWbM1F76iILck5o_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019Q8PjE1F76lCkc9Tc_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fSPxzK1F76hyqG1C4_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01akG69G1F76i7yZJk0_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MOtCms1F76hqGVV4d_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ynbHC31F76kT6ZvLU_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01uMC1b61F76hqbKESS_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wHFT1M1F76hmlf9nX_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xucnMf1F76pQHplCN_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MVdk231F76mXCZ8lJ_!!2214879830439-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0112W0vq1F76jEDokqV_!!2214879830439-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2214879830439/p/2/e/6/t/1/426244747309.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "PC"
+      },
+      {
+        "name": "风格",
+        "value": "通用"
+      },
+      {
+        "name": "类型",
+        "value": "桌面支架"
+      },
+      {
+        "name": "品牌",
+        "value": "TAIXUN"
+      },
+      {
+        "name": "支持订制",
+        "value": "支持"
+      },
+      {
+        "name": "货号",
+        "value": "啪嗒支架"
+      },
+      {
+        "name": "颜色",
+        "value": "透明椭圆一体式,透明水滴形一体式,白色椭圆一体式,黑色椭圆一体式,高质量磁吸透明平,高质量磁吸爱心凹槽,黑色磁吸气囊支架,白色磁吸气囊支架,来图定制（50起订少量勿拍）"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "透明椭圆一体式、透明水滴形一体式、白色椭圆一体式、黑色椭圆一体式、高质量磁吸透明平、高质量磁吸爱心凹槽、黑色磁吸气囊支架、白色磁吸气囊支架、来图定制（50起订少量勿拍）"
+      },
+      {
+        "name": "材质",
+        "value": "通用"
+      },
+      {
+        "name": "类型",
+        "value": "TAIXUN"
+      },
+      {
+        "name": "支持订制",
+        "value": "啪嗒支架"
+      },
+      {
+        "name": "颜色",
+        "value": "其他"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2023年9月"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "黑色椭圆一体式",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01biNvB41F76kO3IUJH_!!2214879830439-0-cib.jpg"
+          },
+          {
+            "name": "透明椭圆一体式",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Dn7M9b1F76kFog2Ko_!!2214879830439-0-cib.jpg"
+          },
+          {
+            "name": "透明水滴形一体式",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN010J74yh1F76l2ilxqB_!!2214879830439-0-cib.jpg"
+          },
+          {
+            "name": "白色椭圆一体式",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN019S17AT1F76kZI1pMI_!!2214879830439-0-cib.jpg"
+          },
+          {
+            "name": "高质量磁吸透明平",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kWZiHU1F76kZd1B2C_!!2214879830439-0-cib.jpg"
+          },
+          {
+            "name": "高质量磁吸爱心凹槽",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01a1r5I11F76kZe0ken_!!2214879830439-0-cib.jpg"
+          },
+          {
+            "name": "黑色磁吸气囊支架",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01glsCMW1F76i9K4xzD_!!2214879830439-0-cib.jpg"
+          },
+          {
+            "name": "白色磁吸气囊支架",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01sQhWbM1F76iILck5o_!!2214879830439-0-cib.jpg"
+          },
+          {
+            "name": "来图定制（50起订少量勿拍）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN019Q8PjE1F76lCkc9Tc_!!2214879830439-0-cib.jpg"
+          },
+          {
+            "name": "黑色椭圆一体式",
+            "image": null,
+            "price": 5.5
+          },
+          {
+            "name": "透明椭圆一体式",
+            "image": null,
+            "price": 5.5
+          },
+          {
+            "name": "透明水滴形一体式",
+            "image": null,
+            "price": 5.5
+          },
+          {
+            "name": "白色椭圆一体式",
+            "image": null,
+            "price": 5.5
+          },
+          {
+            "name": "高质量磁吸透明平",
+            "image": null,
+            "price": 4
+          },
+          {
+            "name": "高质量磁吸爱心凹槽",
+            "image": null,
+            "price": 4.3
+          },
+          {
+            "name": "黑色磁吸气囊支架",
+            "image": null,
+            "price": 4
+          },
+          {
+            "name": "白色磁吸气囊支架",
+            "image": null,
+            "price": 4
+          },
+          {
+            "name": "来图定制（50起订少量勿拍）",
+            "image": null,
+            "price": 6.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 30",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "30",
+        "weightGrams": 30,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "广东汕头",
+      "freightCny": 8,
+      "carrier": "圆通快递",
+      "dispatchHours": 7
+    },
+    "skuDetails": [
+      {
+        "name": "黑色椭圆一体式",
+        "price": 5.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01biNvB41F76kO3IUJH_!!2214879830439-0-cib.jpg"
+      },
+      {
+        "name": "透明椭圆一体式",
+        "price": 5.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Dn7M9b1F76kFog2Ko_!!2214879830439-0-cib.jpg"
+      },
+      {
+        "name": "透明水滴形一体式",
+        "price": 5.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN010J74yh1F76l2ilxqB_!!2214879830439-0-cib.jpg"
+      },
+      {
+        "name": "白色椭圆一体式",
+        "price": 5.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN019S17AT1F76kZI1pMI_!!2214879830439-0-cib.jpg"
+      },
+      {
+        "name": "高质量磁吸透明平",
+        "price": 4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kWZiHU1F76kZd1B2C_!!2214879830439-0-cib.jpg"
+      },
+      {
+        "name": "高质量磁吸爱心凹槽",
+        "price": 4.3,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01a1r5I11F76kZe0ken_!!2214879830439-0-cib.jpg"
+      },
+      {
+        "name": "黑色磁吸气囊支架",
+        "price": 4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01glsCMW1F76i9K4xzD_!!2214879830439-0-cib.jpg"
+      },
+      {
+        "name": "白色磁吸气囊支架",
+        "price": 4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01sQhWbM1F76iILck5o_!!2214879830439-0-cib.jpg"
+      },
+      {
+        "name": "来图定制（50起订少量勿拍）",
+        "price": 6.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN019Q8PjE1F76lCkc9Tc_!!2214879830439-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 10,
+      "attributeCount": 17,
+      "optionGroupCount": 1,
+      "skuCount": 9,
+      "imageCount": 33,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 8
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 2,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-150226-485940-e6f377b2.json"
+}

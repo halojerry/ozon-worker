@@ -1,0 +1,379 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "ChiHUAHU吉娃娃毛绒钥匙扣挂件丑萌可爱玩偶玩具挂扣包包挂件礼物",
+    "price": "¥3.6",
+    "brand": "其他",
+    "seller": "高密市淘淘乐玩具厂",
+    "image_count": 18,
+    "attribute_count": 40,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1044278002361.html?offerId=1044278002361&hotSaleSkuId=6068721321179&spm=a260k.home2025.recommendpart.63&kj_agent_plugin=zying",
+    "loginRequired": false,
+    "title": "ChiHUAHU吉娃娃毛绒钥匙扣挂件丑萌可爱玩偶玩具挂扣包包挂件礼物",
+    "price": "¥3.6",
+    "priceValue": 3.6,
+    "brand": "其他",
+    "seller": "高密市淘淘乐玩具厂",
+    "sellerLink": "https://shop181c242h317h1.1688.com/?offerId=1044278002361&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN0152oq8B1CQOq95cg15_!!2220489690075-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN0152oq8B1CQOq95cg15_!!2220489690075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013xpNsa1CQOq9Di73A_!!2220489690075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ukdqpM1CQOq95cPOA_!!2220489690075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JC66hH1CQOq926xkI_!!2220489690075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01b1c8cD1CQOq9DkSXm_!!2220489690075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xfqw6S1CQOq9DjS8I_!!2220489690075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01H0LaN71CQOq8dQnTH_!!2220489690075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01efkIWH1CQOq94r3eM_!!2220489690075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01up1lUk1CQOq47gkfF_!!2220489690075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dV9ktF2EbyE971Ooh_!!2201456408764-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SKCbPG1StHef0ZoBf_!!2221275322304-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013NsNOD1KcmTibAaRD_!!2220609531185-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN014POxcH221zlHBlKcW_!!2219869837061-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01E1jPX21ZMx1rV5oGU_!!2222126723181-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GvkkB91mYTwsttr6k_!!2217540564966-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01m0G9Rm1wXF35TU4Vo_!!2217073086317-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013meH9W1bsfcy8jCrY_!!2219322183521.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01z4pd2Z1oddbgpez0F_!!1873215248.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2220489690075/p/2/e/6/t/1/548034463168.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "中国",
+    "model": null,
+    "attributes": [
+      {
+        "name": "填充材质",
+        "value": "PP棉"
+      },
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "造型类别",
+        "value": "狗"
+      },
+      {
+        "name": "毛绒分类",
+        "value": "短毛绒"
+      },
+      {
+        "name": "所属分类",
+        "value": "毛绒公仔"
+      },
+      {
+        "name": "造型是否卡通、动漫",
+        "value": "否"
+      },
+      {
+        "name": "包装方式",
+        "value": "散装"
+      },
+      {
+        "name": "是否多功能",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "HN-041901"
+      },
+      {
+        "name": "加工定制",
+        "value": "否"
+      },
+      {
+        "name": "专利及著作权申请时间",
+        "value": "0"
+      },
+      {
+        "name": "是否有导购视频",
+        "value": "是"
+      },
+      {
+        "name": "产地",
+        "value": "中国"
+      },
+      {
+        "name": "是否外贸",
+        "value": "否"
+      },
+      {
+        "name": "是否专供外贸",
+        "value": "否"
+      },
+      {
+        "name": "3C配置类别",
+        "value": "14岁以上的玩具"
+      },
+      {
+        "name": "颜色",
+        "value": "毛绒吉娃娃【黑色】搭配挂钩,毛绒吉娃娃【粉色】搭配挂钩,毛绒吉娃娃【白色】搭配挂钩,毛绒吉娃娃【棕色】搭配挂钩"
+      },
+      {
+        "name": "高度",
+        "value": "15cm"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "适用年龄",
+        "value": "青年（15-35岁）"
+      },
+      {
+        "name": "适用性别",
+        "value": "男女通用"
+      },
+      {
+        "name": "材质",
+        "value": "PP"
+      },
+      {
+        "name": "颜色",
+        "value": "毛绒吉娃娃【黑色】搭配挂钩、毛绒吉娃娃【粉色】搭配挂钩、毛绒吉娃娃【白色】搭配挂钩、毛绒吉娃娃【棕色】搭配挂钩"
+      },
+      {
+        "name": "填充材质",
+        "value": "其他"
+      },
+      {
+        "name": "造型类别",
+        "value": "短毛绒"
+      },
+      {
+        "name": "所属分类",
+        "value": "否"
+      },
+      {
+        "name": "包装方式",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "否"
+      },
+      {
+        "name": "专利及著作权申请时间",
+        "value": "是"
+      },
+      {
+        "name": "产地",
+        "value": "否"
+      },
+      {
+        "name": "是否专供外贸",
+        "value": "14岁以上的玩具"
+      },
+      {
+        "name": "颜色",
+        "value": "15cm"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "青年（15-35岁）"
+      },
+      {
+        "name": "适用性别",
+        "value": "PP"
+      },
+      {
+        "name": "毛绒吉娃娃【黑色】搭配挂钩",
+        "value": "80"
+      },
+      {
+        "name": "毛绒吉娃娃【粉色】搭配挂钩",
+        "value": "80"
+      },
+      {
+        "name": "毛绒吉娃娃【白色】搭配挂钩",
+        "value": "80"
+      },
+      {
+        "name": "毛绒吉娃娃【棕色】搭配挂钩",
+        "value": "80"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "5000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "毛绒吉娃娃【黑色】搭配挂钩",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xfqw6S1CQOq9DjS8I_!!2220489690075-0-cib.jpg"
+          },
+          {
+            "name": "毛绒吉娃娃【粉色】搭配挂钩",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01H0LaN71CQOq8dQnTH_!!2220489690075-0-cib.jpg"
+          },
+          {
+            "name": "毛绒吉娃娃【白色】搭配挂钩",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01efkIWH1CQOq94r3eM_!!2220489690075-0-cib.jpg"
+          },
+          {
+            "name": "毛绒吉娃娃【棕色】搭配挂钩",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01up1lUk1CQOq47gkfF_!!2220489690075-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "高度",
+        "values": [
+          {
+            "name": "15cm",
+            "image": null
+          },
+          {
+            "name": "15cm",
+            "image": null,
+            "price": 3.6
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "毛绒吉娃娃【黑色】搭配挂钩",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xfqw6S1CQOq9DjS8I_!!2220489690075-0-cib.jpg"
+          },
+          {
+            "name": "毛绒吉娃娃【粉色】搭配挂钩",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01H0LaN71CQOq8dQnTH_!!2220489690075-0-cib.jpg"
+          },
+          {
+            "name": "毛绒吉娃娃【白色】搭配挂钩",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01efkIWH1CQOq94r3eM_!!2220489690075-0-cib.jpg"
+          },
+          {
+            "name": "毛绒吉娃娃【棕色】搭配挂钩",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01up1lUk1CQOq47gkfF_!!2220489690075-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "高度",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 高度 重量(g) 毛绒吉娃娃【黑色】搭配挂钩 15cm 80 毛绒吉娃娃【粉色】搭配挂钩 15cm 80 毛绒吉娃娃【白色】搭配挂钩 15cm 80 毛绒吉娃娃【棕色】搭配挂钩 15cm 80",
+    "packagingRows": [
+      {
+        "color": "毛绒吉娃娃【黑色】搭配挂钩",
+        "capacity": "15cm",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": "15cm"
+      },
+      {
+        "color": "毛绒吉娃娃【粉色】搭配挂钩",
+        "capacity": "15cm",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": "15cm"
+      },
+      {
+        "color": "毛绒吉娃娃【白色】搭配挂钩",
+        "capacity": "15cm",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": "15cm"
+      },
+      {
+        "color": "毛绒吉娃娃【棕色】搭配挂钩",
+        "capacity": "15cm",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": "15cm"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 2.1,
+      "carrier": "韵达快递"
+    },
+    "skuDetails": [
+      {
+        "name": "15cm",
+        "price": 3.6,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 22,
+      "attributeCount": 40,
+      "optionGroupCount": 3,
+      "skuCount": 1,
+      "imageCount": 21,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 3,
+      "packagingTableTextLength": 99
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-150620-635116-5c0cd2fe.json"
+}

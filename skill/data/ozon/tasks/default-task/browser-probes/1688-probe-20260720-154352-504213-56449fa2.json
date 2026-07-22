@@ -1,0 +1,276 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "星星擦手巾可爱星星擦手巾创意吸水加厚可挂式速干擦手布柔软双层",
+    "price": "¥14.9",
+    "brand": "其他",
+    "seller": "江西潆茉商贸有限公司 关注 客服 商品 入驻2年 主营：居家日用 店铺回头率 34% 店铺服务分 3.5分 准时发货率 98% 店铺好评率 97.7%",
+    "image_count": 20,
+    "attribute_count": 23,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/968615598199.html?offerId=968615598199&hotSaleSkuId=6082195286601",
+    "loginRequired": false,
+    "title": "星星擦手巾可爱星星擦手巾创意吸水加厚可挂式速干擦手布柔软双层",
+    "price": "¥14.9",
+    "priceValue": 14.9,
+    "brand": "其他",
+    "seller": "江西潆茉商贸有限公司 关注 客服 商品 入驻2年 主营：居家日用 店铺回头率 34% 店铺服务分 3.5分 准时发货率 98% 店铺好评率 97.7%",
+    "sellerLink": "https://xiaochai.1688.com/?offerId=968615598199&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xhFuRr25ViFjEt7gd_!!2206861777532-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xhFuRr25ViFjEt7gd_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012Lftvd25ViFk8qhcD_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rKVQAe25ViFigQLoJ_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01b7sojR25ViFjdXMxh_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lS7wxv25ViFkYiglc_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OuQ4F925ViFjEsS75_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN017uwzkr25ViFkNo0JJ_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dGXKHI25ViFkNmC0o_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01d0CuBr25ViFigRxbl_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Ct2Urw25ViFdrOqNj_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01TrnsjB25ViFkpK4IG_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01uazPmn25ViFicmIv1_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01NINBF625ViFjcW7Kc_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01K0CLUl25ViFjJx6Ib_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01EYIGOn25ViFk8p9yZ_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Ps2HV725ViFkc8ZGk_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01CrJk6A25ViFjnH3Qo_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sqqs3k25ViFkADyeF_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lF1MLx25ViFk8siLf_!!2206861777532-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01nnN9wW25ViFigTEcz_!!2206861777532-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "中国",
+    "model": null,
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "种类/用途",
+        "value": "居家日用"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "4781126"
+      },
+      {
+        "name": "箱装数量",
+        "value": "详询"
+      },
+      {
+        "name": "产地",
+        "value": "中国"
+      },
+      {
+        "name": "加印LOGO",
+        "value": "不可以"
+      },
+      {
+        "name": "加工定制",
+        "value": "否"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "其他"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "多巴胺擦手巾-粉色紫边,多巴胺擦手巾-白色粉边,多巴胺擦手巾-红色绿边"
+      },
+      {
+        "name": "颜色",
+        "value": "无规格"
+      },
+      {
+        "name": "产品类别",
+        "value": "其他"
+      },
+      {
+        "name": "规格",
+        "value": "多巴胺擦手巾-粉色紫边、多巴胺擦手巾-白色粉边、多巴胺擦手巾-红色绿边"
+      },
+      {
+        "name": "品牌",
+        "value": "居家日用"
+      },
+      {
+        "name": "是否进口",
+        "value": "4781126"
+      },
+      {
+        "name": "箱装数量",
+        "value": "中国"
+      },
+      {
+        "name": "加印LOGO",
+        "value": "否"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "多巴胺擦手巾-粉色紫边,多巴胺擦手巾-白色粉边,多巴胺擦手巾-红色绿边"
+      },
+      {
+        "name": "颜色",
+        "value": "其他"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "多巴胺擦手巾-粉色紫边",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OuQ4F925ViFjEsS75_!!2206861777532-0-cib.jpg"
+          },
+          {
+            "name": "多巴胺擦手巾-白色粉边",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN017uwzkr25ViFkNo0JJ_!!2206861777532-0-cib.jpg"
+          },
+          {
+            "name": "多巴胺擦手巾-红色绿边",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dGXKHI25ViFkNmC0o_!!2206861777532-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "无规格",
+            "image": null
+          },
+          {
+            "name": "无规格",
+            "image": null,
+            "price": 14.9
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "多巴胺擦手巾-粉色紫边",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OuQ4F925ViFjEsS75_!!2206861777532-0-cib.jpg"
+          },
+          {
+            "name": "多巴胺擦手巾-白色粉边",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN017uwzkr25ViFkNo0JJ_!!2206861777532-0-cib.jpg"
+          },
+          {
+            "name": "多巴胺擦手巾-红色绿边",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dGXKHI25ViFkNmC0o_!!2206861777532-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 150",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "150",
+        "weightGrams": 150,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "上海",
+      "freightCny": 0,
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "无规格",
+        "price": 14.9,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 14,
+      "attributeCount": 23,
+      "optionGroupCount": 3,
+      "skuCount": 1,
+      "imageCount": 23,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 9
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260720-154352-504213-56449fa2.json"
+}

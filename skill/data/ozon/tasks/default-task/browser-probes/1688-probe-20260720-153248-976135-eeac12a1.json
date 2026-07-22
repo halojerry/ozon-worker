@@ -1,0 +1,389 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "跨境专供CAUSONE雷神之刃双孔鼻通清凉棒防晕车犯困鼻吸式清凉油",
+    "price": "¥7.5",
+    "brand": "Causone",
+    "seller": "广东名流科技日化有限公司 关注 客服 商品 入驻7年 主营：驱虫防蚊灭鼠杀虫用品 店铺回头率 65% 店铺服务分 5.0分 准时发货率 97% 店铺好评率 91.1%",
+    "image_count": 18,
+    "attribute_count": 30,
+    "dom_sku_count": 6,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/912527494010.html?offerId=912527494010&hotSaleSkuId=5943405222592",
+    "loginRequired": false,
+    "title": "跨境专供CAUSONE雷神之刃双孔鼻通清凉棒防晕车犯困鼻吸式清凉油",
+    "price": "¥7.5",
+    "priceValue": 7.5,
+    "brand": "Causone",
+    "seller": "广东名流科技日化有限公司 关注 客服 商品 入驻7年 主营：驱虫防蚊灭鼠杀虫用品 店铺回头率 65% 店铺服务分 5.0分 准时发货率 97% 店铺好评率 91.1%",
+    "sellerLink": "https://midingqi.1688.com/?offerId=912527494010&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dkCeUH26sRUM9htsq_!!2207519697717-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dkCeUH26sRUM9htsq_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01j12AFt26sRUMIY3k5_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pPUbtQ26sRUKLzxpz_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kOGNAO26sRUMr1yK5_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pETu9e26sRUNSlsoz_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01v3aMrc26sRUMr1hfy_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lndF0c26sRUNSoQqo_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01U4XpKE26sRUNSolcz_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01nxp4OT26sRUNw1NuH_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01iULOdp26sRUMr2dvB_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Sv9HFw26sRY9DYbuu_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01L9G28m26sRUG3tl4W_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yDxe1a26sRUN3hJ6J_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01qZvyJI26sRUNw1BTH_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SeH5yA26sRUMeQO05_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Z5dcTA26sRUL1AQF7_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fmNH7826sRUKLvs9h_!!2207519697717-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01IYQcyz26sRUM7DIrD_!!2207519697717-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2207519697717/p/2/e/6/t/1/515960506147.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "汕头",
+    "model": null,
+    "attributes": [
+      {
+        "name": "功效",
+        "value": "提神醒脑"
+      },
+      {
+        "name": "品牌",
+        "value": "Causone"
+      },
+      {
+        "name": "产地",
+        "value": "汕头"
+      },
+      {
+        "name": "品牌类型",
+        "value": "自有品牌"
+      },
+      {
+        "name": "净含量",
+        "value": "3.6ml"
+      },
+      {
+        "name": "原产国/地区",
+        "value": "中国"
+      },
+      {
+        "name": "箱装数量",
+        "value": "720盒/箱"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "东南亚,欧美，中东等"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通等"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "颜色分类",
+        "value": "薄荷,芒果,西瓜,芭乐,黑加仑,青柠"
+      },
+      {
+        "name": "规格",
+        "value": "盒"
+      },
+      {
+        "name": "香味",
+        "value": "薄荷,芒果，西瓜，芭乐，黑加仑，青柠"
+      },
+      {
+        "name": "是否含化学农药成分",
+        "value": "否"
+      },
+      {
+        "name": "功效",
+        "value": "Causone"
+      },
+      {
+        "name": "产地",
+        "value": "自有品牌"
+      },
+      {
+        "name": "净含量",
+        "value": "中国"
+      },
+      {
+        "name": "箱装数量",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "东南亚,欧美，中东等"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "是"
+      },
+      {
+        "name": "颜色分类",
+        "value": "盒"
+      },
+      {
+        "name": "香味",
+        "value": "否"
+      },
+      {
+        "name": "薄荷",
+        "value": "25"
+      },
+      {
+        "name": "芒果",
+        "value": "25"
+      },
+      {
+        "name": "西瓜",
+        "value": "25"
+      },
+      {
+        "name": "芭乐",
+        "value": "25"
+      },
+      {
+        "name": "黑加仑",
+        "value": "25"
+      },
+      {
+        "name": "青柠",
+        "value": "25"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色分类",
+        "values": [
+          {
+            "name": "青柠",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01iULOdp26sRUMr2dvB_!!2207519697717-0-cib.jpg"
+          },
+          {
+            "name": "薄荷",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01v3aMrc26sRUMr1hfy_!!2207519697717-0-cib.jpg"
+          },
+          {
+            "name": "芒果",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lndF0c26sRUNSoQqo_!!2207519697717-0-cib.jpg"
+          },
+          {
+            "name": "西瓜",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01U4XpKE26sRUNSolcz_!!2207519697717-0-cib.jpg"
+          },
+          {
+            "name": "芭乐",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01nxp4OT26sRUNw1NuH_!!2207519697717-0-cib.jpg"
+          },
+          {
+            "name": "黑加仑",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kOGNAO26sRUMr1yK5_!!2207519697717-0-cib.jpg"
+          },
+          {
+            "name": "青柠",
+            "image": null,
+            "price": 7.5
+          },
+          {
+            "name": "薄荷",
+            "image": null,
+            "price": 7.5
+          },
+          {
+            "name": "芒果",
+            "image": null,
+            "price": 7.5
+          },
+          {
+            "name": "西瓜",
+            "image": null,
+            "price": 7.5
+          },
+          {
+            "name": "芭乐",
+            "image": null,
+            "price": 7.5
+          },
+          {
+            "name": "黑加仑",
+            "image": null,
+            "price": 7.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色分类",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色分类 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 薄荷 8.40 5.30 2 89.040 25 芒果 8.40 5.30 2 89.040 25 西瓜 8.40 5.30 2 89.040 25 芭乐 8.40 5.30 2 89.040 25 黑加仑 8.40 5.30 2 89.040 25 青柠 8.40 5.30 2 89.040 25",
+    "packagingRows": [
+      {
+        "color": "薄荷",
+        "capacity": "8.40",
+        "weightText": "25",
+        "weightGrams": 25,
+        "lengthText": "8.40",
+        "widthText": "5.30",
+        "heightText": "2"
+      },
+      {
+        "color": "芒果",
+        "capacity": "8.40",
+        "weightText": "25",
+        "weightGrams": 25,
+        "lengthText": "8.40",
+        "widthText": "5.30",
+        "heightText": "2"
+      },
+      {
+        "color": "西瓜",
+        "capacity": "8.40",
+        "weightText": "25",
+        "weightGrams": 25,
+        "lengthText": "8.40",
+        "widthText": "5.30",
+        "heightText": "2"
+      },
+      {
+        "color": "芭乐",
+        "capacity": "8.40",
+        "weightText": "25",
+        "weightGrams": 25,
+        "lengthText": "8.40",
+        "widthText": "5.30",
+        "heightText": "2"
+      },
+      {
+        "color": "黑加仑",
+        "capacity": "8.40",
+        "weightText": "25",
+        "weightGrams": 25,
+        "lengthText": "8.40",
+        "widthText": "5.30",
+        "heightText": "2"
+      },
+      {
+        "color": "青柠",
+        "capacity": "8.40",
+        "weightText": "25",
+        "weightGrams": 25,
+        "lengthText": "8.40",
+        "widthText": "5.30",
+        "heightText": "2"
+      }
+    ],
+    "shipping": {
+      "origin": "广东汕头",
+      "freightCny": 3,
+      "dispatchHours": 2,
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "青柠",
+        "price": 7.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01iULOdp26sRUMr2dvB_!!2207519697717-0-cib.jpg"
+      },
+      {
+        "name": "薄荷",
+        "price": 7.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01v3aMrc26sRUMr1hfy_!!2207519697717-0-cib.jpg"
+      },
+      {
+        "name": "芒果",
+        "price": 7.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lndF0c26sRUNSoQqo_!!2207519697717-0-cib.jpg"
+      },
+      {
+        "name": "西瓜",
+        "price": 7.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01U4XpKE26sRUNSolcz_!!2207519697717-0-cib.jpg"
+      },
+      {
+        "name": "芭乐",
+        "price": 7.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01nxp4OT26sRUNw1NuH_!!2207519697717-0-cib.jpg"
+      },
+      {
+        "name": "黑加仑",
+        "price": 7.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kOGNAO26sRUMr1yK5_!!2207519697717-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 16,
+      "attributeCount": 30,
+      "optionGroupCount": 1,
+      "skuCount": 6,
+      "imageCount": 20,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 187
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260720-153248-976135-eeac12a1.json"
+}

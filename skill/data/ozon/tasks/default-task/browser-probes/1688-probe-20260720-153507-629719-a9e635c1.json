@@ -1,0 +1,356 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "土壤湿度水分检测仪园艺爆款湿度传感器水分计土壤湿度监测源头厂",
+    "price": "¥9.5",
+    "brand": "兴联赢",
+    "seller": "广州兴联赢仪器有限公司 关注 客服 商品 入驻5年 主营：环境检测仪器 店铺回头率 40% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 99.7%",
+    "image_count": 6,
+    "attribute_count": 32,
+    "dom_sku_count": 4,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/818795185728.html?offerId=818795185728",
+    "loginRequired": false,
+    "title": "土壤湿度水分检测仪园艺爆款湿度传感器水分计土壤湿度监测源头厂",
+    "price": "¥9.5",
+    "priceValue": 9.5,
+    "brand": "兴联赢",
+    "seller": "广州兴联赢仪器有限公司 关注 客服 商品 入驻5年 主营：环境检测仪器 店铺回头率 40% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 99.7%",
+    "sellerLink": "https://shop8d305d2f83812.1688.com/?offerId=818795185728&td_page_id=PC-GYP-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN016Zlk781eOqj1LSaBa_!!2212491783862-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SxuJG821edL7pLqNo_!!6000000007010-0-tbvideo.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN016Zlk781eOqj1LSaBa_!!2212491783862-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01mVOqe21eOqj0kczO2_!!2212491783862-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01isrVQ41eOqj0TFjk4_!!2212491783862-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0108QeLJ1eOqj0Xs3Vh_!!2212491783862-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KlsuuB1eOqj037DqR_!!2212491783862-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2212491783862/p/2/e/6/t/1/493360006636.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "广州",
+    "model": "LY102、LY103",
+    "attributes": [
+      {
+        "name": "产地",
+        "value": "广州"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "订货号",
+        "value": "LY102、LY103"
+      },
+      {
+        "name": "测量精度",
+        "value": "1"
+      },
+      {
+        "name": "货号",
+        "value": "LY102、LY103"
+      },
+      {
+        "name": "尺寸",
+        "value": "26cm*7cm*4cm"
+      },
+      {
+        "name": "加工定制",
+        "value": "是"
+      },
+      {
+        "name": "类型",
+        "value": "土壤检测仪"
+      },
+      {
+        "name": "品牌",
+        "value": "兴联赢"
+      },
+      {
+        "name": "适用范围",
+        "value": "园艺、养花、盆栽"
+      },
+      {
+        "name": "型号",
+        "value": "LY102、LY103"
+      },
+      {
+        "name": "重量",
+        "value": "80g"
+      },
+      {
+        "name": "规格",
+        "value": "LY102绿色中文（单测湿度）,LY102白色中文（单测湿度）,LY103绿色中文（单测PH）,LY102绿色英文（单测湿度）,LY102白色英文（单测湿度）,LY103绿色英文（单测PH）"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "产地",
+        "value": "否"
+      },
+      {
+        "name": "订货号",
+        "value": "1"
+      },
+      {
+        "name": "货号",
+        "value": "26cm*7cm*4cm"
+      },
+      {
+        "name": "加工定制",
+        "value": "土壤检测仪"
+      },
+      {
+        "name": "品牌",
+        "value": "园艺、养花、盆栽"
+      },
+      {
+        "name": "型号",
+        "value": "80g"
+      },
+      {
+        "name": "规格",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "是"
+      },
+      {
+        "name": "LY102绿色中文（单测湿度）",
+        "value": "80"
+      },
+      {
+        "name": "LY102白色中文（单测湿度）",
+        "value": "80"
+      },
+      {
+        "name": "LY103绿色中文（单测PH）",
+        "value": "80"
+      },
+      {
+        "name": "LY102绿色英文（单测湿度）",
+        "value": "80"
+      },
+      {
+        "name": "LY102白色英文（单测湿度）",
+        "value": "80"
+      },
+      {
+        "name": "LY103绿色英文（单测PH）",
+        "value": "80"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "LY102绿色中文（单测湿度）",
+            "image": null
+          },
+          {
+            "name": "LY102白色中文（单测湿度）",
+            "image": null
+          },
+          {
+            "name": "LY102绿色英文（单测湿度）",
+            "image": null
+          },
+          {
+            "name": "LY102白色英文（单测湿度）",
+            "image": null
+          },
+          {
+            "name": "LY102绿色中文（单测湿度）",
+            "image": null,
+            "price": 9.5
+          },
+          {
+            "name": "LY102白色中文（单测湿度）",
+            "image": null,
+            "price": 9.5
+          },
+          {
+            "name": "LY102绿色英文（单测湿度）",
+            "image": null,
+            "price": 9.5
+          },
+          {
+            "name": "LY102白色英文（单测湿度）",
+            "image": null,
+            "price": 9.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) LY102绿色中文（单测湿度） 26 7 4 728 80 LY102白色中文（单测湿度） 26 7 4 728 80 LY103绿色中文（单测PH） 26 7 4 728 80 LY102绿色英文（单测湿度） 26 7 4 728 80 LY102白色英文（单测湿度） 26 7 4 728 80 LY103绿色英文（单测PH） 26 7 4 728 80",
+    "packagingRows": [
+      {
+        "color": "LY102绿色中文（单测湿度）",
+        "capacity": "LY102绿色中文（单测湿度）",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "26",
+        "widthText": "7",
+        "heightText": "4"
+      },
+      {
+        "color": "LY102白色中文（单测湿度）",
+        "capacity": "LY102白色中文（单测湿度）",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "26",
+        "widthText": "7",
+        "heightText": "4"
+      },
+      {
+        "color": "LY103绿色中文（单测PH）",
+        "capacity": "LY103绿色中文（单测PH）",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "26",
+        "widthText": "7",
+        "heightText": "4"
+      },
+      {
+        "color": "LY102绿色英文（单测湿度）",
+        "capacity": "LY102绿色英文（单测湿度）",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "26",
+        "widthText": "7",
+        "heightText": "4"
+      },
+      {
+        "color": "LY102白色英文（单测湿度）",
+        "capacity": "LY102白色英文（单测湿度）",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "26",
+        "widthText": "7",
+        "heightText": "4"
+      },
+      {
+        "color": "LY103绿色英文（单测PH）",
+        "capacity": "LY103绿色英文（单测PH）",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "26",
+        "widthText": "7",
+        "heightText": "4"
+      }
+    ],
+    "shipping": {
+      "origin": "广东广州",
+      "freightCny": 6,
+      "deliveryDays": 3
+    },
+    "skuDetails": [
+      {
+        "name": "LY102绿色中文（单测湿度）",
+        "price": 9.5,
+        "image": null
+      },
+      {
+        "name": "LY102白色中文（单测湿度）",
+        "price": 9.5,
+        "image": null
+      },
+      {
+        "name": "LY102绿色英文（单测湿度）",
+        "price": 9.5,
+        "image": null
+      },
+      {
+        "name": "LY102白色英文（单测湿度）",
+        "price": 9.5,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 17,
+      "attributeCount": 32,
+      "optionGroupCount": 1,
+      "skuCount": 4,
+      "imageCount": 9,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 214
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260720-153507-629719-a9e635c1.json"
+}

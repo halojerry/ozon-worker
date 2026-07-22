@@ -1,0 +1,336 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "3D打印欧式天使工艺品小摆件雕像雕塑小天使孩子桌面装饰模型摆件",
+    "price": "¥6.5",
+    "brand": "无",
+    "seller": "义乌璨环科技有限公司 关注 客服 商品 入驻1年 主营：工艺品 店铺回头率 54% 店铺服务分 3.5分 准时发货率 92% 店铺好评率 78.6%",
+    "image_count": 7,
+    "attribute_count": 39,
+    "dom_sku_count": 2,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1046994963014.html?offerId=1046994963014&hotSaleSkuId=6241480383888",
+    "loginRequired": false,
+    "title": "3D打印欧式天使工艺品小摆件雕像雕塑小天使孩子桌面装饰模型摆件",
+    "price": "¥6.5",
+    "priceValue": 6.5,
+    "brand": "无",
+    "seller": "义乌璨环科技有限公司 关注 客服 商品 入驻1年 主营：工艺品 店铺回头率 54% 店铺服务分 3.5分 准时发货率 92% 店铺好评率 78.6%",
+    "sellerLink": "https://shop298w08f607986.1688.com/?offerId=1046994963014&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01tGgojP2EP9AVpCssz_!!2221652158736-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tGgojP2EP9AVpCssz_!!2221652158736-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01N1UfAb1cn0OxIETWv_!!6000000003644-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kMtLyQ27O2uEcRBdv_!!6000000007786-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01evRl4d2EP9AVOvhip_!!2221652158736-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01IazrOK1acoM1gYtEt_!!6000000003351-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hgVftx2EP9AVVkHC9_!!2221652158736-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GUQ1Ww2EP9AWxEZZt_!!2221652158736-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2221652158736/p/2/e/6/t/1/561212640360.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "PLA"
+      },
+      {
+        "name": "工艺",
+        "value": "3D工艺"
+      },
+      {
+        "name": "品牌",
+        "value": "无"
+      },
+      {
+        "name": "货号",
+        "value": "02651"
+      },
+      {
+        "name": "产品编号",
+        "value": "326"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "欧式"
+      },
+      {
+        "name": "类别",
+        "value": "模型玩具"
+      },
+      {
+        "name": "造型",
+        "value": "小天使"
+      },
+      {
+        "name": "制作工艺",
+        "value": "3D打印"
+      },
+      {
+        "name": "加工定制",
+        "value": "否"
+      },
+      {
+        "name": "摆挂形式",
+        "value": "摆饰"
+      },
+      {
+        "name": "专利号",
+        "value": "其他"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "尺寸",
+        "value": "小天使"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "颜色",
+        "value": "10*6.6*4,5.3*3.2*8"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA、其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东、其他"
+      },
+      {
+        "name": "颜色",
+        "value": "10*6.6*4、5.3*3.2*8"
+      },
+      {
+        "name": "材质",
+        "value": "3D工艺"
+      },
+      {
+        "name": "品牌",
+        "value": "02651"
+      },
+      {
+        "name": "产品编号",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "模型玩具"
+      },
+      {
+        "name": "造型",
+        "value": "3D打印"
+      },
+      {
+        "name": "加工定制",
+        "value": "摆饰"
+      },
+      {
+        "name": "专利号",
+        "value": "否"
+      },
+      {
+        "name": "尺寸",
+        "value": "是"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "10*6.6*4,5.3*3.2*8"
+      },
+      {
+        "name": "小天使",
+        "value": "45"
+      },
+      {
+        "name": "小天使",
+        "value": "26"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "1000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "尺寸",
+        "values": [
+          {
+            "name": "小天使",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01evRl4d2EP9AVOvhip_!!2221652158736-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "10*6.6*4",
+            "image": null
+          },
+          {
+            "name": "5.3*3.2*8",
+            "image": null
+          },
+          {
+            "name": "10*6.6*4",
+            "image": null,
+            "price": 6.5
+          },
+          {
+            "name": "5.3*3.2*8",
+            "image": null,
+            "price": 4.8
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "小天使",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01evRl4d2EP9AVOvhip_!!2221652158736-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "尺寸",
+      "颜色",
+      "重量(g)"
+    ],
+    "packagingTableText": "尺寸 颜色 重量(g) 小天使 10*6.6*4 45 小天使 5.3*3.2*8 26",
+    "packagingRows": [
+      {
+        "color": "10*6.6*4",
+        "capacity": "10*6.6*4",
+        "weightText": "45",
+        "weightGrams": 45,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "5.3*3.2*8",
+        "capacity": "5.3*3.2*8",
+        "weightText": "26",
+        "weightGrams": 26,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 2.5,
+      "carrier": "圆通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "10*6.6*4",
+        "price": 6.5,
+        "image": null
+      },
+      {
+        "name": "5.3*3.2*8",
+        "price": 4.8,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 22,
+      "attributeCount": 39,
+      "optionGroupCount": 3,
+      "skuCount": 2,
+      "imageCount": 10,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 3,
+      "packagingTableTextLength": 44
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260720-154245-348503-64b70444.json"
+}

@@ -1,0 +1,283 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "冷热敷凝胶护具冰袋两件套可调节长短关节冰垫冰垫凝胶2613535",
+    "price": "¥18.5",
+    "brand": "oem",
+    "seller": "浙江永康科浦医疗器械有限公司 关注 客服 商品 入驻4年 主营：居家日用 店铺回头率 42% 店铺服务分 5.0分 准时发货率 92% 店铺好评率 98.7%",
+    "image_count": 26,
+    "attribute_count": 31,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/927316050976.html",
+    "loginRequired": false,
+    "title": "冷热敷凝胶护具冰袋两件套可调节长短关节冰垫冰垫凝胶2613535",
+    "price": "¥18.5",
+    "priceValue": 18.5,
+    "brand": "oem",
+    "seller": "浙江永康科浦医疗器械有限公司 关注 客服 商品 入驻4年 主营：居家日用 店铺回头率 42% 店铺服务分 5.0分 准时发货率 92% 店铺好评率 98.7%",
+    "sellerLink": "https://kepubingfan18.1688.com/?offerId=927316050976&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lAsVQ31HdkNvwy8WD_!!2215383070781-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MA1SDC1HdkNq3k2bO_!!2215383070781-0-cib.jpg?__r__=1747882209514",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lAsVQ31HdkNvwy8WD_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ql8vh91HdkNuz1iF8_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01jiPJmU1HdkNvxchui_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gT6PBe1HdkNuz0diH_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wsckFW1HdkNxhz0Nw_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01igsw7z1HdkQxPraLS_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bHZeDC1HdkOQA5hU4_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sTLV5l1HdkOJ4TAV1_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01evXOcJ1HdkRj3kUf2_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fHDrft1HdkOH1Wqmy_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pjw1Js1HdkRSuf00g_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01B1e0CT1HdkNr5bMDR_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01vf7RBh1HdkO4mchux_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zdSq5H1HdkTVrIXcB_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01mbVC9c1HdkTaZoo8q_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sLaa5z1HdkRU3tLQl_!!2215383070781-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pThRKs1J3DtCl9QiP_!!995180972-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01CdplyA1J3DtEhpAOi_!!995180972-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KuFWUP1J3DtDfRgrl_!!995180972-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015Dx4jH1J3DtFTMViO_!!995180972-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pEZOt91J3DtFTLRBI_!!995180972-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01oyrC3o1J3DtDgNUVO_!!995180972-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN011kxHpk1J3DtGSCf7I_!!995180972-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hnOrCF1J3DtDfQPqe_!!995180972-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN016XSWMY1J3DtIHfDNQ_!!995180972-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2215383070781/p/2/e/6/t/1/542869066273.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "产品类别",
+        "value": "冰垫"
+      },
+      {
+        "name": "填充物材质",
+        "value": "冰晶"
+      },
+      {
+        "name": "面料材质",
+        "value": "聚酯纤维（涤纶）"
+      },
+      {
+        "name": "品牌",
+        "value": "oem"
+      },
+      {
+        "name": "风格",
+        "value": "日常风"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "尺寸",
+        "value": "26*13.5*3.5（cm）"
+      },
+      {
+        "name": "箱装数量",
+        "value": "20"
+      },
+      {
+        "name": "重量",
+        "value": "700g（g）"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "BF-DYBD"
+      },
+      {
+        "name": "颜色",
+        "value": "两个冰袋套装"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "加工定制",
+        "value": "是"
+      },
+      {
+        "name": "适用对象",
+        "value": "通用"
+      },
+      {
+        "name": "规格类型",
+        "value": "正常规格"
+      },
+      {
+        "name": "尺寸",
+        "value": "26*13.5*3.5"
+      },
+      {
+        "name": "重量",
+        "value": "700g"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "产品类别",
+        "value": "冰晶"
+      },
+      {
+        "name": "面料材质",
+        "value": "oem"
+      },
+      {
+        "name": "风格",
+        "value": "否"
+      },
+      {
+        "name": "尺寸",
+        "value": "20"
+      },
+      {
+        "name": "重量",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "两个冰袋套装"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "适用对象",
+        "value": "正常规格"
+      },
+      {
+        "name": "两个冰袋套装",
+        "value": "700"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "两个冰袋套装",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01igsw7z1HdkQxPraLS_!!2215383070781-0-cib.jpg"
+          },
+          {
+            "name": "两个冰袋套装",
+            "image": null,
+            "price": 18.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 两个冰袋套装 26 13.50 0.50 175.500 700",
+    "packagingRows": [
+      {
+        "color": "两个冰袋套装",
+        "capacity": "26",
+        "weightText": "700",
+        "weightGrams": 700,
+        "lengthText": "26",
+        "widthText": "13.50",
+        "heightText": "0.50"
+      }
+    ],
+    "shipping": {
+      "origin": "上海"
+    },
+    "skuDetails": [
+      {
+        "name": "两个冰袋套装",
+        "price": 18.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01igsw7z1HdkQxPraLS_!!2215383070781-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 18,
+      "attributeCount": 31,
+      "optionGroupCount": 1,
+      "skuCount": 1,
+      "imageCount": 28,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 67
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-174958-117080-f22842b9.json"
+}

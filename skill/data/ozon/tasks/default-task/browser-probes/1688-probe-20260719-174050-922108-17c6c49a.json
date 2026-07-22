@@ -1,0 +1,257 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "宠物猫粮称重电子称猫咪狗狗宠物用品计量勺猫粮狗粮计量称重勺子",
+    "price": "¥13.5",
+    "brand": "other/其他",
+    "seller": "宠物用品猫咪跑步机宠物室内猫抓板跑步机静音猫爬架猫咪健身跑道 ¥185 已售4台",
+    "image_count": 14,
+    "attribute_count": 27,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/687270223812.html",
+    "loginRequired": false,
+    "title": "宠物猫粮称重电子称猫咪狗狗宠物用品计量勺猫粮狗粮计量称重勺子",
+    "price": "¥13.5",
+    "priceValue": 13.5,
+    "brand": "other/其他",
+    "seller": "宠物用品猫咪跑步机宠物室内猫抓板跑步机静音猫爬架猫咪健身跑道 ¥185 已售4台",
+    "sellerLink": "https://detail.1688.com/offer/759467764479.html?traceId=213e049417844540517395680e0bfa&spm-auction=687270223812",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01BbKdb21mGcCRJ9vmv_!!2214668634927-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01f2o86p1mGcSND3Rsv_!!2214668634927-0-cib.jpg?__r__=1741761376360",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MRPrsf1mGcCcdyszX_!!2214668634927-0-cib.jpg?__r__=1665244823528",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fqwbG51mGcCVIbxes_!!2214668634927-0-cib.jpg?__r__=1665244823528",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Mbe4Ys1mGcCYhj6LE_!!2214668634927-0-cib.jpg?__r__=1665244823529",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fmk3JA1mGcCP79EpK_!!2214668634927-0-cib.jpg?__r__=1665244823529",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WxllMX1mGcCX36Z5X_!!2214668634927-0-cib.jpg?__r__=1665244823529",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01paMGsr1mGcCVIbDvH_!!2214668634927-0-cib.jpg?__r__=1665244823529",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012duEcE1mGcCZocG8P_!!2214668634927-0-cib.jpg?__r__=1665244823529",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BbKdb21mGcCRJ9vmv_!!2214668634927-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gT1FrT1mGcCbogBfO_!!2214668634927-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Bb42oG1mGcCX2odhO_!!2214668634927-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01s78FKE1mGcCTXdDD6_!!2214668634927-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01j7YrrB1mGcCX2ny7C_!!2214668634927-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01mJUeav1mGcCX33sYc_!!2214668634927-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2214668634927/p/2/e/6/t/1/380707262185.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "广东",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "塑料"
+      },
+      {
+        "name": "品牌",
+        "value": "other/其他"
+      },
+      {
+        "name": "成套自动喂食",
+        "value": "否"
+      },
+      {
+        "name": "产地",
+        "value": "广东"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "PT-403"
+      },
+      {
+        "name": "箱装数量",
+        "value": "60"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "米白（带电池）"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "材质",
+        "value": "other/其他"
+      },
+      {
+        "name": "成套自动喂食",
+        "value": "广东"
+      },
+      {
+        "name": "是否进口",
+        "value": "PT-403"
+      },
+      {
+        "name": "箱装数量",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "米白（带电池）",
+        "value": "140"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "3000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "米白（带电池）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01mJUeav1mGcCX33sYc_!!2214668634927-0-cib.jpg"
+          },
+          {
+            "name": "米白（带电池）",
+            "image": null,
+            "price": 13.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 米白（带电池） 16 15 6 1440 140",
+    "packagingRows": [
+      {
+        "color": "米白（带电池）",
+        "capacity": "米白（带电池）",
+        "weightText": "140",
+        "weightGrams": 140,
+        "lengthText": "16",
+        "widthText": "15",
+        "heightText": "6"
+      }
+    ],
+    "shipping": {
+      "origin": "广东汕尾",
+      "freightCny": 4,
+      "carrier": "圆通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "米白（带电池）",
+        "price": 13.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01mJUeav1mGcCX33sYc_!!2214668634927-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 15,
+      "attributeCount": 27,
+      "optionGroupCount": 1,
+      "skuCount": 1,
+      "imageCount": 17,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 59
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-174050-922108-17c6c49a.json"
+}

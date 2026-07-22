@@ -1,0 +1,410 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "手机挂绳斜挎马卡龙书包零钱包耳机包口红包证件包袋挂扣书包挂件",
+    "price": "¥8.8",
+    "brand": null,
+    "seller": "杭州悦佰万箱包有限公司 关注 客服 商品 入驻2年 主营：功能小包 店铺回头率 81% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 96.5%",
+    "image_count": 15,
+    "attribute_count": 31,
+    "dom_sku_count": 7,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/913277294835.html",
+    "loginRequired": false,
+    "title": "手机挂绳斜挎马卡龙书包零钱包耳机包口红包证件包袋挂扣书包挂件",
+    "price": "¥8.8",
+    "priceValue": 8.8,
+    "brand": null,
+    "seller": "杭州悦佰万箱包有限公司 关注 客服 商品 入驻2年 主营：功能小包 店铺回头率 81% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 96.5%",
+    "sellerLink": "https://shop7o885j91083j4.1688.com/?offerId=913277294835&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LycUNR1ukP9K5NJ26_!!2218467226075-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LycUNR1ukP9K5NJ26_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01goOR4v1ukP9IzKlNL_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01TXknE81ukP9Ha1tjD_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VRNiLg1ukP9JkWxTn_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01r6f1XR1ukP9K91Hft_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cTxkDS1ukP9IzboVH_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Gg5d8S1ukP9ImyYms_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rHId291ukP9IqNHWU_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01g2J3yu1ukP9KxmxDW_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aqS6Tm1ukP9IztKlq_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pcJ2Sx1ukP9H2As5h_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01RPhEu61ukP9JKWvSK_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01jCbiJG1ukP9IzpmKK_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01TFS60t1ukP9K9KcMR_!!2218467226075-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lZwRbg1ukP9ClKKzj_!!2218467226075-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "绳带材质",
+        "value": "涤纶"
+      },
+      {
+        "name": "材质",
+        "value": "涤纶"
+      },
+      {
+        "name": "工艺",
+        "value": "手工"
+      },
+      {
+        "name": "绳扣材质",
+        "value": "金属扣"
+      },
+      {
+        "name": "货号",
+        "value": "0001"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "加工定制",
+        "value": "是"
+      },
+      {
+        "name": "产品编号",
+        "value": "001"
+      },
+      {
+        "name": "样式",
+        "value": "男女通用"
+      },
+      {
+        "name": "是否有挂件",
+        "value": "有"
+      },
+      {
+        "name": "包装",
+        "value": "独立包装"
+      },
+      {
+        "name": "加印LOGO",
+        "value": "可以"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "规格",
+        "value": "长绳+短绳+紫色包,长绳+短绳+灰色包,长绳+短绳+玫蓝色包,长绳+短绳+粉蓝色包,长绳+短绳+紫蓝色包,长绳+短绳+M包,单包+扣"
+      },
+      {
+        "name": "规格",
+        "value": "长绳+短绳+紫色包、长绳+短绳+灰色包、长绳+短绳+玫蓝色包、长绳+短绳+粉蓝色包、长绳+短绳+紫蓝色包、长绳+短绳+M包、单包+扣"
+      },
+      {
+        "name": "工艺",
+        "value": "金属扣"
+      },
+      {
+        "name": "货号",
+        "value": "否"
+      },
+      {
+        "name": "加工定制",
+        "value": "001"
+      },
+      {
+        "name": "样式",
+        "value": "有"
+      },
+      {
+        "name": "包装",
+        "value": "可以"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "是"
+      },
+      {
+        "name": "长绳+短绳+紫色包",
+        "value": "58"
+      },
+      {
+        "name": "长绳+短绳+灰色包",
+        "value": "58"
+      },
+      {
+        "name": "长绳+短绳+玫蓝色包",
+        "value": "58"
+      },
+      {
+        "name": "长绳+短绳+粉蓝色包",
+        "value": "58"
+      },
+      {
+        "name": "长绳+短绳+紫蓝色包",
+        "value": "58"
+      },
+      {
+        "name": "长绳+短绳+M包",
+        "value": "58"
+      },
+      {
+        "name": "单包+扣",
+        "value": "58"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "3000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "长绳+短绳+紫色包",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LycUNR1ukP9K5NJ26_!!2218467226075-0-cib.jpg"
+          },
+          {
+            "name": "长绳+短绳+灰色包",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01goOR4v1ukP9IzKlNL_!!2218467226075-0-cib.jpg"
+          },
+          {
+            "name": "长绳+短绳+玫蓝色包",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01TXknE81ukP9Ha1tjD_!!2218467226075-0-cib.jpg"
+          },
+          {
+            "name": "长绳+短绳+粉蓝色包",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01r6f1XR1ukP9K91Hft_!!2218467226075-0-cib.jpg"
+          },
+          {
+            "name": "长绳+短绳+紫蓝色包",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cTxkDS1ukP9IzboVH_!!2218467226075-0-cib.jpg"
+          },
+          {
+            "name": "长绳+短绳+M包",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Gg5d8S1ukP9ImyYms_!!2218467226075-0-cib.jpg"
+          },
+          {
+            "name": "单包+扣",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01rHId291ukP9IqNHWU_!!2218467226075-0-cib.jpg"
+          },
+          {
+            "name": "长绳+短绳+紫色包",
+            "image": null,
+            "price": 8.8
+          },
+          {
+            "name": "长绳+短绳+灰色包",
+            "image": null,
+            "price": 8.8
+          },
+          {
+            "name": "长绳+短绳+玫蓝色包",
+            "image": null,
+            "price": 8.8
+          },
+          {
+            "name": "长绳+短绳+粉蓝色包",
+            "image": null,
+            "price": 8.8
+          },
+          {
+            "name": "长绳+短绳+紫蓝色包",
+            "image": null,
+            "price": 8.8
+          },
+          {
+            "name": "长绳+短绳+M包",
+            "image": null,
+            "price": 8.8
+          },
+          {
+            "name": "单包+扣",
+            "image": null,
+            "price": 3.7
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格 重量(g) 长绳+短绳+紫色包 58 长绳+短绳+灰色包 58 长绳+短绳+玫蓝色包 58 长绳+短绳+粉蓝色包 58 长绳+短绳+紫蓝色包 58 长绳+短绳+M包 58 单包+扣 58",
+    "packagingRows": [
+      {
+        "color": "长绳+短绳+紫色包",
+        "capacity": "长绳+短绳+紫色包",
+        "weightText": "58",
+        "weightGrams": 58,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "长绳+短绳+灰色包",
+        "capacity": "长绳+短绳+灰色包",
+        "weightText": "58",
+        "weightGrams": 58,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "长绳+短绳+玫蓝色包",
+        "capacity": "长绳+短绳+玫蓝色包",
+        "weightText": "58",
+        "weightGrams": 58,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "长绳+短绳+粉蓝色包",
+        "capacity": "长绳+短绳+粉蓝色包",
+        "weightText": "58",
+        "weightGrams": 58,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "长绳+短绳+紫蓝色包",
+        "capacity": "长绳+短绳+紫蓝色包",
+        "weightText": "58",
+        "weightGrams": 58,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "长绳+短绳+M包",
+        "capacity": "长绳+短绳+M包",
+        "weightText": "58",
+        "weightGrams": 58,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "单包+扣",
+        "capacity": "单包+扣",
+        "weightText": "58",
+        "weightGrams": 58,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "浙江杭州",
+      "freightCny": 2.5,
+      "carrier": "韵达快递",
+      "dispatchHours": 3,
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "长绳+短绳+紫色包",
+        "price": 8.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LycUNR1ukP9K5NJ26_!!2218467226075-0-cib.jpg"
+      },
+      {
+        "name": "长绳+短绳+灰色包",
+        "price": 8.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01goOR4v1ukP9IzKlNL_!!2218467226075-0-cib.jpg"
+      },
+      {
+        "name": "长绳+短绳+玫蓝色包",
+        "price": 8.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01TXknE81ukP9Ha1tjD_!!2218467226075-0-cib.jpg"
+      },
+      {
+        "name": "长绳+短绳+粉蓝色包",
+        "price": 8.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01r6f1XR1ukP9K91Hft_!!2218467226075-0-cib.jpg"
+      },
+      {
+        "name": "长绳+短绳+紫蓝色包",
+        "price": 8.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cTxkDS1ukP9IzboVH_!!2218467226075-0-cib.jpg"
+      },
+      {
+        "name": "长绳+短绳+M包",
+        "price": 8.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Gg5d8S1ukP9ImyYms_!!2218467226075-0-cib.jpg"
+      },
+      {
+        "name": "单包+扣",
+        "price": 3.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01rHId291ukP9IqNHWU_!!2218467226075-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 15,
+      "attributeCount": 31,
+      "optionGroupCount": 1,
+      "skuCount": 7,
+      "imageCount": 18,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 2,
+      "packagingTableTextLength": 96
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-151427-518249-d4ebba21.json"
+}

@@ -1,0 +1,257 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "园艺打洞器T型施肥种菜种子移苗种植工具木柄园林追肥打孔播种器",
+    "price": "¥2.3",
+    "brand": "楚婉",
+    "seller": "重庆市大足区楚婉五金制品厂 关注 客服 商品 入驻4年 主营：农用工具 店铺回头率 49% 店铺服务分 4.0分 准时发货率 99% 店铺好评率 99.5%",
+    "image_count": 14,
+    "attribute_count": 28,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/891194649776.html",
+    "loginRequired": false,
+    "title": "园艺打洞器T型施肥种菜种子移苗种植工具木柄园林追肥打孔播种器",
+    "price": "¥2.3",
+    "priceValue": 2.3,
+    "brand": "楚婉",
+    "seller": "重庆市大足区楚婉五金制品厂 关注 客服 商品 入驻4年 主营：农用工具 店铺回头率 49% 店铺服务分 4.0分 准时发货率 99% 店铺好评率 99.5%",
+    "sellerLink": "https://shop369947qf3b425.1688.com/?offerId=891194649776&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01BBe1m82N30SmlXqR0_!!2215494859906-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BBe1m82N30SmlXqR0_!!2215494859906-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bydEcJ2N30Sdwnl5G_!!2215494859906-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01T7cKv52N30SlCGkGS_!!2215494859906-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01mSvzTu2N30Sk3uja3_!!2215494859906-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aBfLPm2N30Skrc3sO_!!2215494859906-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN014216Lw1Dbg9N3ZKLT_!!2217553180235-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hnc7MY2N30SkIhBXp_!!2215494859906-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01vh20cl2N30Six3AsX_!!2215494859906-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sKvZRK2N30SiIxaar_!!2215494859906-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dSvDiC2N30SlDIzYp_!!2215494859906-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tr9SPt2N30SksZH8t_!!2215494859906-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01b0w12r2N30SiIyzwc_!!2215494859906-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01nA8OGI2N30SlDJb0q_!!2215494859906-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SVJRdF2N30SkVI6DF_!!2215494859906-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2215494859906/p/2/e/6/t/1/508190927621.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "其它"
+      },
+      {
+        "name": "品牌",
+        "value": "楚婉"
+      },
+      {
+        "name": "类型",
+        "value": "其它"
+      },
+      {
+        "name": "适用场景",
+        "value": "农业种植"
+      },
+      {
+        "name": "货号",
+        "value": "园艺打洞器T型"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "园艺打孔器"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "适用对象",
+        "value": "屋顶花园,家庭园艺,室内盆栽,庭院美化,农业种植,阳台种植,温室大棚,商业景观,专业园林,公共绿化"
+      },
+      {
+        "name": "适用范围",
+        "value": "菜园野地"
+      },
+      {
+        "name": "出水控制方式",
+        "value": "其它"
+      },
+      {
+        "name": "喷头类型",
+        "value": "固定"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "东北亚、中东、其他"
+      },
+      {
+        "name": "适用对象",
+        "value": "屋顶花园、家庭园艺、室内盆栽、庭院美化、农业种植、阳台种植、温室大棚、商业景观、专业园林、公共绿化"
+      },
+      {
+        "name": "材质",
+        "value": "楚婉"
+      },
+      {
+        "name": "类型",
+        "value": "农业种植"
+      },
+      {
+        "name": "货号",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "屋顶花园,家庭园艺,室内盆栽,庭院美化,农业种植,阳台种植,温室大棚,商业景观,专业园林,公共绿化"
+      },
+      {
+        "name": "适用范围",
+        "value": "其它"
+      },
+      {
+        "name": "园艺打孔器",
+        "value": "100"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "10000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "园艺打孔器",
+            "image": null
+          },
+          {
+            "name": "园艺打孔器",
+            "image": null,
+            "price": 2.3
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格 重量(g) 园艺打孔器 100",
+    "packagingRows": [
+      {
+        "color": "园艺打孔器",
+        "capacity": "园艺打孔器",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "重庆",
+      "freightCny": 3,
+      "carrier": "申通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "园艺打孔器",
+        "price": 2.3,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 15,
+      "attributeCount": 28,
+      "optionGroupCount": 1,
+      "skuCount": 1,
+      "imageCount": 17,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 2,
+      "packagingTableTextLength": 18
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-174718-669151-7f7cd600.json"
+}

@@ -1,0 +1,259 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "谜姬 逗豆龙震动棒加热恒温吮吸女用器具成人性爱自慰玩具120/箱",
+    "price": "¥25.74",
+    "brand": "谜姬",
+    "seller": "日照安与然商贸有限公司",
+    "image_count": 7,
+    "attribute_count": 27,
+    "dom_sku_count": 2,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/831249914209.html?offerId=831249914209",
+    "loginRequired": false,
+    "title": "谜姬 逗豆龙震动棒加热恒温吮吸女用器具成人性爱自慰玩具120/箱",
+    "price": "¥25.74",
+    "priceValue": 25.74,
+    "brand": "谜姬",
+    "seller": "日照安与然商贸有限公司",
+    "sellerLink": "https://shop46p733709bm95.1688.com/?offerId=831249914209&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01POlzxO2JZHsDWmVyM_!!2218332339435-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01POlzxO2JZHsDWmVyM_!!2218332339435-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fGi0VE1ok307wLAsq_!!939665262-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01I0TSUn1ok307wJpi2_!!939665262-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FGGrEp1ok304eTIND_!!939665262-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0179y3w11ok33vt75WC_!!939665262-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01NqSUB71ok33Jd836Y_!!939665262-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01jcJmV31ok33NMSrwV_!!939665262-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "温州",
+    "model": null,
+    "attributes": [
+      {
+        "name": "产品名称",
+        "value": "逗豆龙"
+      },
+      {
+        "name": "材质",
+        "value": "硅胶,ABS"
+      },
+      {
+        "name": "品牌",
+        "value": "谜姬"
+      },
+      {
+        "name": "控制类型",
+        "value": "按键式"
+      },
+      {
+        "name": "年龄",
+        "value": "成年"
+      },
+      {
+        "name": "保修期",
+        "value": "见详情"
+      },
+      {
+        "name": "货号",
+        "value": "6976309823333 6976978542252 谜姬 逗豆龙"
+      },
+      {
+        "name": "产地",
+        "value": "温州"
+      },
+      {
+        "name": "颜色",
+        "value": "豌豆黄"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "主体尺寸",
+        "value": "全长14cm，入体7cm，直径2.7cm"
+      },
+      {
+        "name": "最大噪音",
+        "value": "65分贝"
+      },
+      {
+        "name": "是否含润滑剂",
+        "value": "否"
+      },
+      {
+        "name": "生产企业",
+        "value": "温州安可尼电子科技有限公司"
+      },
+      {
+        "name": "规格",
+        "value": "豌豆黄 6976309823333,蜜桃粉 6976978542252"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "人群",
+        "value": "成人"
+      },
+      {
+        "name": "产品名称",
+        "value": "硅胶,ABS"
+      },
+      {
+        "name": "品牌",
+        "value": "按键式"
+      },
+      {
+        "name": "年龄",
+        "value": "见详情"
+      },
+      {
+        "name": "货号",
+        "value": "温州"
+      },
+      {
+        "name": "颜色",
+        "value": "否"
+      },
+      {
+        "name": "主体尺寸",
+        "value": "65分贝"
+      },
+      {
+        "name": "是否含润滑剂",
+        "value": "温州安可尼电子科技有限公司"
+      },
+      {
+        "name": "规格",
+        "value": "否"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "4000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "豌豆黄 6976309823333",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NqSUB71ok33Jd836Y_!!939665262-0-cib.jpg"
+          },
+          {
+            "name": "蜜桃粉 6976978542252",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01jcJmV31ok33NMSrwV_!!939665262-0-cib.jpg"
+          },
+          {
+            "name": "豌豆黄 6976309823333",
+            "image": null,
+            "price": 25.74
+          },
+          {
+            "name": "蜜桃粉 6976978542252",
+            "image": null,
+            "price": 25.74
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 109",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "109",
+        "weightGrams": 109,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "江苏淮安",
+      "freightCny": 2.1,
+      "carrier": "圆通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "豌豆黄 6976309823333",
+        "price": 25.74,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NqSUB71ok33Jd836Y_!!939665262-0-cib.jpg"
+      },
+      {
+        "name": "蜜桃粉 6976978542252",
+        "price": 25.74,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01jcJmV31ok33NMSrwV_!!939665262-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 17,
+      "attributeCount": 27,
+      "optionGroupCount": 1,
+      "skuCount": 2,
+      "imageCount": 10,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 9
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-201228-893055-f7cd4b8b.json"
+}

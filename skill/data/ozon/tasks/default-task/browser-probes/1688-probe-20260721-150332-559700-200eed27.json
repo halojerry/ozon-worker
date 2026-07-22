@@ -1,0 +1,482 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "天然灰月光石手串女蓝金虎眼石手链原创设计款多宝水晶高级感轻奢",
+    "price": "¥58",
+    "brand": "晶翼",
+    "seller": "义乌市巴度饰品有限公司",
+    "image_count": 14,
+    "attribute_count": 43,
+    "dom_sku_count": 8,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/965173442519.html?offerId=965173442519&hotSaleSkuId=5946726321081&spm=a260k.home2025.recommendpart.21&kj_agent_plugin=zying",
+    "loginRequired": false,
+    "title": "天然灰月光石手串女蓝金虎眼石手链原创设计款多宝水晶高级感轻奢",
+    "price": "¥58",
+    "priceValue": 58,
+    "brand": "晶翼",
+    "seller": "义乌市巴度饰品有限公司",
+    "sellerLink": "https://shop05882009k4102.1688.com/?offerId=965173442519&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01gaUhrs1Z6v9TZdkjE_!!2219439223146-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gaUhrs1Z6v9TZdkjE_!!2219439223146-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BZf2Bk1Z6v9TkdbHn_!!2219439223146-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01DZBNtr1Z6v9TiqX2v_!!2219439223146-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zbYJV31Z6v9OgMKaP_!!2219439223146-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HS4HWP1Z6v6das5f4_!!2219439223146-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN014ycsmu1Z6v9U0Zv5R_!!2219439223146-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01R1jRQI1Z6v9TkhpNw_!!2219439223146-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yOTpiH1Z6v9U0bGHe_!!2219439223146-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Gb5Zin1Z6v7PzWdHh_!!2219439223146-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FThDqn1Z6v9TqnaWq_!!2219439223146-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KQOpdy1Z6v9U0bfJu_!!2219439223146-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01S3YcJL1Z6v9OgR640_!!2219439223146-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01M42uH01Z6v9TyJIHs_!!2219439223146-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN016w4fS626V56h6tOKF_!!1978317666-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2219439223146/p/2/e/6/t/1/530231003550.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "连云港",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "水晶"
+      },
+      {
+        "name": "处理工艺",
+        "value": "手工"
+      },
+      {
+        "name": "品牌",
+        "value": "晶翼"
+      },
+      {
+        "name": "水晶种类",
+        "value": "金钛晶,银钛晶,黑钛晶"
+      },
+      {
+        "name": "风格",
+        "value": "复古"
+      },
+      {
+        "name": "适用人群",
+        "value": "女式"
+      },
+      {
+        "name": "样式",
+        "value": "女式"
+      },
+      {
+        "name": "造型",
+        "value": "菱形"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "商务馈赠"
+      },
+      {
+        "name": "货号",
+        "value": "BF798"
+      },
+      {
+        "name": "产地",
+        "value": "连云港"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "淘宝,京东,快手,天猫,抖音"
+      },
+      {
+        "name": "颜色",
+        "value": "BF798【灰月光 金虎眼 蓝虎眼】10mm,BF1012灰月光蓝虎眼手串8mm,BF1166【灰月光 金虎眼白月光】8mm,BF984星汉碎影10mm,BF1157灰月光+白幽灵【8mm】,BF218灰月光茶晶拼接手串10mm,BF797灰月光双圈手串6mm,BF1252星球三圈4mm"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "流行元素",
+        "value": "招财猫,福字,平安锁"
+      },
+      {
+        "name": "上市年份/季节",
+        "value": "2025夏季"
+      },
+      {
+        "name": "是否有金属镀层",
+        "value": "无金属镀层"
+      },
+      {
+        "name": "风格分类",
+        "value": "文艺复古"
+      },
+      {
+        "name": "流行元素分类",
+        "value": "民族/国风"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "淘宝、京东、快手、天猫、抖音"
+      },
+      {
+        "name": "颜色",
+        "value": "BF798【灰月光 金虎眼 蓝虎眼】10mm、BF1012灰月光蓝虎眼手串8mm、BF1166【灰月光 金虎眼白月光】8mm、BF984星汉碎影10mm、BF1157灰月光+白幽灵【8mm】、BF218灰月光茶晶拼接手串10mm、BF797灰月光双圈手串6mm、BF1252星球三圈4mm"
+      },
+      {
+        "name": "流行元素",
+        "value": "招财猫、福字、平安锁"
+      },
+      {
+        "name": "材质",
+        "value": "手工"
+      },
+      {
+        "name": "品牌",
+        "value": "金钛晶,银钛晶,黑钛晶"
+      },
+      {
+        "name": "风格",
+        "value": "女式"
+      },
+      {
+        "name": "样式",
+        "value": "菱形"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "BF798"
+      },
+      {
+        "name": "产地",
+        "value": "淘宝,京东,快手,天猫,抖音"
+      },
+      {
+        "name": "颜色",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "招财猫,福字,平安锁"
+      },
+      {
+        "name": "上市年份/季节",
+        "value": "无金属镀层"
+      },
+      {
+        "name": "风格分类",
+        "value": "民族/国风"
+      },
+      {
+        "name": "BF798【灰月光 金虎眼 蓝虎眼】10mm",
+        "value": "20"
+      },
+      {
+        "name": "BF1012灰月光蓝虎眼手串8mm",
+        "value": "20"
+      },
+      {
+        "name": "BF1166【灰月光 金虎眼白月光】8mm",
+        "value": "20"
+      },
+      {
+        "name": "BF984星汉碎影10mm",
+        "value": "20"
+      },
+      {
+        "name": "BF1157灰月光+白幽灵【8mm】",
+        "value": "20"
+      },
+      {
+        "name": "BF218灰月光茶晶拼接手串10mm",
+        "value": "20"
+      },
+      {
+        "name": "BF797灰月光双圈手串6mm",
+        "value": "20"
+      },
+      {
+        "name": "BF1252星球三圈4mm",
+        "value": "20"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "5000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "BF798【灰月光 金虎眼 蓝虎眼】10mm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN014ycsmu1Z6v9U0Zv5R_!!2219439223146-0-cib.jpg"
+          },
+          {
+            "name": "BF1012灰月光蓝虎眼手串8mm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01R1jRQI1Z6v9TkhpNw_!!2219439223146-0-cib.jpg"
+          },
+          {
+            "name": "BF1166【灰月光 金虎眼白月光】8mm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01yOTpiH1Z6v9U0bGHe_!!2219439223146-0-cib.jpg"
+          },
+          {
+            "name": "BF984星汉碎影10mm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Gb5Zin1Z6v7PzWdHh_!!2219439223146-0-cib.jpg"
+          },
+          {
+            "name": "BF1157灰月光+白幽灵【8mm】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01FThDqn1Z6v9TqnaWq_!!2219439223146-0-cib.jpg"
+          },
+          {
+            "name": "BF218灰月光茶晶拼接手串10mm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KQOpdy1Z6v9U0bfJu_!!2219439223146-0-cib.jpg"
+          },
+          {
+            "name": "BF797灰月光双圈手串6mm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01S3YcJL1Z6v9OgR640_!!2219439223146-0-cib.jpg"
+          },
+          {
+            "name": "BF1252星球三圈4mm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01M42uH01Z6v9TyJIHs_!!2219439223146-0-cib.jpg"
+          },
+          {
+            "name": "BF798【灰月光 金虎眼 蓝虎眼】10mm",
+            "image": null,
+            "price": 58
+          },
+          {
+            "name": "BF1012灰月光蓝虎眼手串8mm",
+            "image": null,
+            "price": 46
+          },
+          {
+            "name": "BF1166【灰月光 金虎眼白月光】8mm",
+            "image": null,
+            "price": 38
+          },
+          {
+            "name": "BF984星汉碎影10mm",
+            "image": null,
+            "price": 72.5
+          },
+          {
+            "name": "BF1157灰月光+白幽灵【8mm】",
+            "image": null,
+            "price": 44
+          },
+          {
+            "name": "BF218灰月光茶晶拼接手串10mm",
+            "image": null,
+            "price": 57.1
+          },
+          {
+            "name": "BF797灰月光双圈手串6mm",
+            "image": null,
+            "price": 58.8
+          },
+          {
+            "name": "BF1252星球三圈4mm",
+            "image": null,
+            "price": 82
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) BF798【灰月光 金虎眼 蓝虎眼】10mm 10 2 1 20 20 BF1012灰月光蓝虎眼手串8mm 10 2 1 20 20 BF1166【灰月光 金虎眼白月光】8mm 10 2 1 20 20 BF984星汉碎影10mm 10 2 1 20 20 BF1157灰月光+白幽灵【8mm】 10 2 1 20 20 BF218灰月光茶晶拼接手串10mm 10 2 1 20 20 BF797灰月光双圈手串6mm 10 2 1 20 20 BF1252星球三圈4mm 10 2 1 20 20",
+    "packagingRows": [
+      {
+        "color": "BF798【灰月光 金虎眼 蓝虎眼】10mm",
+        "capacity": "10",
+        "weightText": "20",
+        "weightGrams": 20,
+        "lengthText": "10",
+        "widthText": "2",
+        "heightText": "1"
+      },
+      {
+        "color": "BF1012灰月光蓝虎眼手串8mm",
+        "capacity": "10",
+        "weightText": "20",
+        "weightGrams": 20,
+        "lengthText": "10",
+        "widthText": "2",
+        "heightText": "1"
+      },
+      {
+        "color": "BF1166【灰月光 金虎眼白月光】8mm",
+        "capacity": "10",
+        "weightText": "20",
+        "weightGrams": 20,
+        "lengthText": "10",
+        "widthText": "2",
+        "heightText": "1"
+      },
+      {
+        "color": "BF984星汉碎影10mm",
+        "capacity": "10",
+        "weightText": "20",
+        "weightGrams": 20,
+        "lengthText": "10",
+        "widthText": "2",
+        "heightText": "1"
+      },
+      {
+        "color": "BF1157灰月光+白幽灵【8mm】",
+        "capacity": "10",
+        "weightText": "20",
+        "weightGrams": 20,
+        "lengthText": "10",
+        "widthText": "2",
+        "heightText": "1"
+      },
+      {
+        "color": "BF218灰月光茶晶拼接手串10mm",
+        "capacity": "10",
+        "weightText": "20",
+        "weightGrams": 20,
+        "lengthText": "10",
+        "widthText": "2",
+        "heightText": "1"
+      },
+      {
+        "color": "BF797灰月光双圈手串6mm",
+        "capacity": "10",
+        "weightText": "20",
+        "weightGrams": 20,
+        "lengthText": "10",
+        "widthText": "2",
+        "heightText": "1"
+      },
+      {
+        "color": "BF1252星球三圈4mm",
+        "capacity": "10",
+        "weightText": "20",
+        "weightGrams": 20,
+        "lengthText": "10",
+        "widthText": "2",
+        "heightText": "1"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 3.5,
+      "carrier": "圆通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "BF798【灰月光 金虎眼 蓝虎眼】10mm",
+        "price": 58,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN014ycsmu1Z6v9U0Zv5R_!!2219439223146-0-cib.jpg"
+      },
+      {
+        "name": "BF1012灰月光蓝虎眼手串8mm",
+        "price": 46,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01R1jRQI1Z6v9TkhpNw_!!2219439223146-0-cib.jpg"
+      },
+      {
+        "name": "BF1166【灰月光 金虎眼白月光】8mm",
+        "price": 38,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01yOTpiH1Z6v9U0bGHe_!!2219439223146-0-cib.jpg"
+      },
+      {
+        "name": "BF984星汉碎影10mm",
+        "price": 72.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Gb5Zin1Z6v7PzWdHh_!!2219439223146-0-cib.jpg"
+      },
+      {
+        "name": "BF1157灰月光+白幽灵【8mm】",
+        "price": 44,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01FThDqn1Z6v9TqnaWq_!!2219439223146-0-cib.jpg"
+      },
+      {
+        "name": "BF218灰月光茶晶拼接手串10mm",
+        "price": 57.1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KQOpdy1Z6v9U0bfJu_!!2219439223146-0-cib.jpg"
+      },
+      {
+        "name": "BF797灰月光双圈手串6mm",
+        "price": 58.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01S3YcJL1Z6v9OgR640_!!2219439223146-0-cib.jpg"
+      },
+      {
+        "name": "BF1252星球三圈4mm",
+        "price": 82,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01M42uH01Z6v9TyJIHs_!!2219439223146-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 20,
+      "attributeCount": 43,
+      "optionGroupCount": 1,
+      "skuCount": 8,
+      "imageCount": 17,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 283
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-150332-559700-200eed27.json"
+}

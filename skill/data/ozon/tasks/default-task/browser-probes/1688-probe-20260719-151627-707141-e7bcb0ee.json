@@ -1,0 +1,313 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "海迎充气u型枕旅行便携式靠脖坐车飞机长途出行神器旅游颈枕枕头",
+    "price": "¥29.9",
+    "brand": "易旅",
+    "seller": "上海海迎日用品有限公司 关注 客服 商品 入驻17年 主营：卫浴整理用具 店铺回头率 53% 店铺服务分 4.5分 准时发货率 99% 店铺好评率 99.9%",
+    "image_count": 29,
+    "attribute_count": 32,
+    "dom_sku_count": 2,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/923577774479.html",
+    "loginRequired": false,
+    "title": "海迎充气u型枕旅行便携式靠脖坐车飞机长途出行神器旅游颈枕枕头",
+    "price": "¥29.9",
+    "priceValue": 29.9,
+    "brand": "易旅",
+    "seller": "上海海迎日用品有限公司 关注 客服 商品 入驻17年 主营：卫浴整理用具 店铺回头率 53% 店铺服务分 4.5分 准时发货率 99% 店铺好评率 99.9%",
+    "sellerLink": "https://shhayan.1688.com/?offerId=923577774479&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NNcAI026q9XKIDj7w_!!944037712-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01NNcAI026q9XKIDj7w_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01twoCKU26q9Vyr0Jp9_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JzXqKz26q9VzkBESd_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LeSusD26q9W16nsGJ_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01353EG026q9VymjwHK_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01nrhX3b26q9W0XX6Ra_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QhiitJ26q9Vzrbmcj_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OoHrov26q9W76zZDm_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012PxU7i26q9VymiSn9_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YVnHeT26q9W0XY2cw_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YJmFCD26q9VzyxTix_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0110Fscp26q9W19Zwd4_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0185GLg426q9W03duUm_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01puSvf026q9W0pIZYh_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dUGCwP26q9Vtvainq_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01X602MC26q9VymiGK8_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JVerQp26q9VzkAlNV_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Se6W3626q9W19Ys86_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01U5Kyq326q9VzrciqN_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WOjk7e26q9W0cQvJ4_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VfThY026q9W0Q2nHz_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PXatTY26q9VtvaaVV_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lkPySd26q9VyEoor5_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01o50vmw26q9W0Q2OL9_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01TtjOzV26q9VyEr23P_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01A0whRv26q9W19agOM_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hYOlgy26q9Vyqzz3m_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01vK93qU26q9VzkAxsC_!!944037712-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lpSNh726q9WocEmAv_!!944037712-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/944037712/p/2/e/6/t/1/525975400551.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "中国",
+    "model": "ELLXZ03",
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "tpu"
+      },
+      {
+        "name": "产品类别",
+        "value": "充气枕头"
+      },
+      {
+        "name": "品牌",
+        "value": "易旅"
+      },
+      {
+        "name": "样式",
+        "value": "环抱式"
+      },
+      {
+        "name": "货号",
+        "value": "ELLXZ03"
+      },
+      {
+        "name": "厚度",
+        "value": "1"
+      },
+      {
+        "name": "可否定做",
+        "value": "可以"
+      },
+      {
+        "name": "型号",
+        "value": "ELLXZ03"
+      },
+      {
+        "name": "种类",
+        "value": "旅行枕"
+      },
+      {
+        "name": "重量",
+        "value": "130g"
+      },
+      {
+        "name": "适用人群",
+        "value": "女士,男士,儿童,情侣,通用,老年,学生"
+      },
+      {
+        "name": "材质属性",
+        "value": "牛奶丝"
+      },
+      {
+        "name": "规格",
+        "value": "看详情"
+      },
+      {
+        "name": "颜色",
+        "value": "灰色,蓝色"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "简约"
+      },
+      {
+        "name": "是否一般纳税人",
+        "value": "是"
+      },
+      {
+        "name": "产地",
+        "value": "中国"
+      },
+      {
+        "name": "颜色",
+        "value": "灰色、蓝色"
+      },
+      {
+        "name": "材质",
+        "value": "充气枕头"
+      },
+      {
+        "name": "品牌",
+        "value": "环抱式"
+      },
+      {
+        "name": "货号",
+        "value": "1"
+      },
+      {
+        "name": "可否定做",
+        "value": "ELLXZ03"
+      },
+      {
+        "name": "种类",
+        "value": "130g"
+      },
+      {
+        "name": "适用人群",
+        "value": "牛奶丝"
+      },
+      {
+        "name": "规格",
+        "value": "灰色,蓝色"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "简约"
+      },
+      {
+        "name": "是否一般纳税人",
+        "value": "中国"
+      },
+      {
+        "name": "灰色",
+        "value": "130"
+      },
+      {
+        "name": "蓝色",
+        "value": "130"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "30000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "灰色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01nrhX3b26q9W0XX6Ra_!!944037712-0-cib.jpg"
+          },
+          {
+            "name": "蓝色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01QhiitJ26q9Vzrbmcj_!!944037712-0-cib.jpg"
+          },
+          {
+            "name": "灰色",
+            "image": null,
+            "price": 29.9
+          },
+          {
+            "name": "蓝色",
+            "image": null,
+            "price": 29.9
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 重量(g) 灰色 130 蓝色 130",
+    "packagingRows": [
+      {
+        "color": "灰色",
+        "capacity": "130",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色",
+        "capacity": "130",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "江苏苏州",
+      "freightCny": 4,
+      "carrier": "韵达快递",
+      "dispatchHours": 5,
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "灰色",
+        "price": 29.9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01nrhX3b26q9W0XX6Ra_!!944037712-0-cib.jpg"
+      },
+      {
+        "name": "蓝色",
+        "price": 29.9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01QhiitJ26q9Vzrbmcj_!!944037712-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 18,
+      "attributeCount": 32,
+      "optionGroupCount": 1,
+      "skuCount": 2,
+      "imageCount": 32,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 2,
+      "packagingTableTextLength": 22
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-151627-707141-e7bcb0ee.json"
+}

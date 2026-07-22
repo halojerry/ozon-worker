@@ -1,0 +1,662 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "跨境帽子女超大帽檐草编草帽海边沙滩帽遮脸遮阳帽夏季防晒太阳帽",
+    "price": "¥16",
+    "brand": "艾凝雪",
+    "seller": "义乌市汇沄服饰有限公司",
+    "image_count": 21,
+    "attribute_count": 58,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/785771958953.html?offerId=785771958953",
+    "loginRequired": false,
+    "title": "跨境帽子女超大帽檐草编草帽海边沙滩帽遮脸遮阳帽夏季防晒太阳帽",
+    "price": "¥16",
+    "priceValue": 16,
+    "brand": "艾凝雪",
+    "seller": "义乌市汇沄服饰有限公司",
+    "sellerLink": "https://shop801x8754311q6.1688.com/?offerId=785771958953&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01APajbL1eNvmGQwz7N_!!3508713860-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01APajbL1eNvmGQwz7N_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01AqIrVK1eNvlOTNyJ3_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01opcjHR1eNvmEDlB1X_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ydpxLj1eNvmGd6VAv_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01mOcfi11eNvrcbkYdo_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eI1xnB1eNvlKo8im2_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019HkANB1eNvlLlIHHE_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0134IM9h1eNvlOU2BeJ_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KbYHj91eNvlSWOgnt_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01j5wKZF1eNvlQna0I8_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VcRnnD1eNvm5eXO7K_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lYVneA1eNvm3KKU1O_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01CJeUjj1eNvm5easVS_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01NdtYEd1eNvm5eizxc_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015FzwW61eNvm5eivpo_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01h9ifsm1eNvm5eirhS_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01mYEeBW1eNvm5D9Tds_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01XwHCa41eNvm82AmIc_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Wa7TmU1eNvlxZ5Z5y_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wjgxrm1eNvm9L6TiL_!!3508713860-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KOlKAr1eNvtASJsgg_!!3508713860-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/3508713860/p/2/e/6/t/1/518597348379.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "杭州",
+    "model": null,
+    "attributes": [
+      {
+        "name": "产品类别",
+        "value": "遮阳帽"
+      },
+      {
+        "name": "功能",
+        "value": "防晒,透气,遮阳"
+      },
+      {
+        "name": "面料名称",
+        "value": "涤纶"
+      },
+      {
+        "name": "主面料成分",
+        "value": "涤纶（聚酯纤维）"
+      },
+      {
+        "name": "处理工艺",
+        "value": "其它"
+      },
+      {
+        "name": "品牌",
+        "value": "艾凝雪"
+      },
+      {
+        "name": "风格",
+        "value": "休闲风,简约风,百搭风,时尚OL风"
+      },
+      {
+        "name": "货号",
+        "value": "MZ1978"
+      },
+      {
+        "name": "图案",
+        "value": "纯色"
+      },
+      {
+        "name": "适合季节",
+        "value": "夏季,春季,秋季,春秋季"
+      },
+      {
+        "name": "产地",
+        "value": "杭州"
+      },
+      {
+        "name": "帽顶款式",
+        "value": "圆顶"
+      },
+      {
+        "name": "帽檐款式",
+        "value": "大檐"
+      },
+      {
+        "name": "颜色",
+        "value": "MZ1978藏青色,MZ1978黑色,MZ1978橘色,MZ1978米色,MZ1978咖啡色,MZ1978白色,MZ1978玫红色,MZ1978卡其色,MZ1978牛仔蓝,MZ1978黄色,MZ1978绿色,MZ1978酒红色,MZ1978大红色,MZ1978荧光黄,MZ1978奶白色,MZ1978紫红"
+      },
+      {
+        "name": "尺码",
+        "value": "均码"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "淘宝,京东,ebay,亚马逊,wish,快手,SHEIN,速卖通,天猫,独立站,LAZADA,拼多多,shopee,抖音,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "日韩,非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "上市年份/季节",
+        "value": "2024年夏季"
+      },
+      {
+        "name": "是否可调节",
+        "value": "可调节"
+      },
+      {
+        "name": "主面料成分含量",
+        "value": "11%(含)-20%(含)"
+      },
+      {
+        "name": "是否可折叠",
+        "value": "可折叠"
+      },
+      {
+        "name": "风格分类",
+        "value": "时尚通勤"
+      },
+      {
+        "name": "流行元素分类",
+        "value": "无"
+      },
+      {
+        "name": "适合季节",
+        "value": "夏季、春季、秋季、春秋季"
+      },
+      {
+        "name": "颜色",
+        "value": "MZ1978藏青色、MZ1978黑色、MZ1978橘色、MZ1978米色、MZ1978咖啡色、MZ1978白色、MZ1978玫红色、MZ1978卡其色、MZ1978牛仔蓝、MZ1978黄色、MZ1978绿色、MZ1978酒红色、MZ1978大红色、MZ1978荧光黄、MZ1978奶白色、MZ1978紫红"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "淘宝、京东、ebay、亚马逊、wish、快手、SHEIN、速卖通、天猫、独立站、LAZADA、拼多多、shopee、抖音、其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "日韩、非洲、欧洲、南美、东南亚、北美、东北亚、中东、其他"
+      },
+      {
+        "name": "产品类别",
+        "value": "防晒,透气,遮阳"
+      },
+      {
+        "name": "面料名称",
+        "value": "涤纶（聚酯纤维）"
+      },
+      {
+        "name": "处理工艺",
+        "value": "艾凝雪"
+      },
+      {
+        "name": "风格",
+        "value": "MZ1978"
+      },
+      {
+        "name": "图案",
+        "value": "夏季,春季,秋季,春秋季"
+      },
+      {
+        "name": "产地",
+        "value": "圆顶"
+      },
+      {
+        "name": "帽檐款式",
+        "value": "MZ1978藏青色,MZ1978黑色,MZ1978橘色,MZ1978米色,MZ1978咖啡色,MZ1978白色,MZ1978玫红色,MZ1978卡其色,MZ1978牛仔蓝,MZ1978黄色,MZ1978绿色,MZ1978酒红色,MZ1978大红色,MZ1978荧光黄,MZ1978奶白色,MZ1978紫红"
+      },
+      {
+        "name": "尺码",
+        "value": "是"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "日韩,非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "上市年份/季节",
+        "value": "可调节"
+      },
+      {
+        "name": "主面料成分含量",
+        "value": "可折叠"
+      },
+      {
+        "name": "风格分类",
+        "value": "无"
+      },
+      {
+        "name": "MZ1978藏青色",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978黑色",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978橘色",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978米色",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978咖啡色",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978白色",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978玫红色",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978卡其色",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978牛仔蓝",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978黄色",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978绿色",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978酒红色",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978大红色",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978荧光黄",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978奶白色",
+        "value": "120"
+      },
+      {
+        "name": "MZ1978紫红",
+        "value": "120"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "10000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "MZ1978藏青色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01eI1xnB1eNvlKo8im2_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN019HkANB1eNvlLlIHHE_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978橘色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0134IM9h1eNvlOU2BeJ_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978米色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KbYHj91eNvlSWOgnt_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978咖啡色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01j5wKZF1eNvlQna0I8_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978白色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VcRnnD1eNvm5eXO7K_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978玫红色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lYVneA1eNvm3KKU1O_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978卡其色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01CJeUjj1eNvm5easVS_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978牛仔蓝",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NdtYEd1eNvm5eizxc_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978黄色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN015FzwW61eNvm5eivpo_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01h9ifsm1eNvm5eirhS_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978酒红色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01mYEeBW1eNvm5D9Tds_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978大红色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01XwHCa41eNvm82AmIc_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978荧光黄",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Wa7TmU1eNvlxZ5Z5y_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978奶白色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wjgxrm1eNvm9L6TiL_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978紫红",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KOlKAr1eNvtASJsgg_!!3508713860-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "尺码",
+        "values": [
+          {
+            "name": "均码",
+            "image": null
+          },
+          {
+            "name": "均码",
+            "image": null,
+            "price": 16
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "MZ1978藏青色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01eI1xnB1eNvlKo8im2_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN019HkANB1eNvlLlIHHE_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978橘色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0134IM9h1eNvlOU2BeJ_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978米色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KbYHj91eNvlSWOgnt_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978咖啡色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01j5wKZF1eNvlQna0I8_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978白色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VcRnnD1eNvm5eXO7K_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978玫红色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lYVneA1eNvm3KKU1O_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978卡其色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01CJeUjj1eNvm5easVS_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978牛仔蓝",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NdtYEd1eNvm5eizxc_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978黄色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN015FzwW61eNvm5eivpo_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01h9ifsm1eNvm5eirhS_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978酒红色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01mYEeBW1eNvm5D9Tds_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978大红色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01XwHCa41eNvm82AmIc_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978荧光黄",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Wa7TmU1eNvlxZ5Z5y_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978奶白色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wjgxrm1eNvm9L6TiL_!!3508713860-0-cib.jpg"
+          },
+          {
+            "name": "MZ1978紫红",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KOlKAr1eNvtASJsgg_!!3508713860-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "尺码",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 尺码 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) MZ1978藏青色 均码 30 25 3 2250 120 MZ1978黑色 均码 30 25 3 2250 120 MZ1978橘色 均码 30 25 3 2250 120 MZ1978米色 均码 30 25 3 2250 120 MZ1978咖啡色 均码 30 25 3 2250 120 MZ1978白色 均码 30 25 3 2250 120 MZ1978玫红色 均码 30 25 3 2250 120 MZ1978卡其色 均码 30 25 3 2250 120 MZ1978牛仔蓝 均码 30 25 3 2250 120 MZ1978黄色 均码 30 25 3 2250 120 MZ1978绿色 均码 30 25 3 2250 120 MZ1978酒红色 均码 30 25 3 2250 120 MZ1978大红色 均码 30 25 3 2250 120 MZ1978荧光黄 均码 30 25 3 2250 120 MZ1978奶白色 均码 30 25 3 2250 120 MZ1978紫红 均码 30 25 3 2250 120",
+    "packagingRows": [
+      {
+        "color": "MZ1978藏青色",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978黑色",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978橘色",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978米色",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978咖啡色",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978白色",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978玫红色",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978卡其色",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978牛仔蓝",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978黄色",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978绿色",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978酒红色",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978大红色",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978荧光黄",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978奶白色",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      },
+      {
+        "color": "MZ1978紫红",
+        "capacity": "均码",
+        "weightText": "120",
+        "weightGrams": 120,
+        "lengthText": "30",
+        "widthText": "25",
+        "heightText": "3"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 3,
+      "carrier": "韵达快递"
+    },
+    "skuDetails": [
+      {
+        "name": "均码",
+        "price": 16,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 24,
+      "attributeCount": 58,
+      "optionGroupCount": 3,
+      "skuCount": 1,
+      "imageCount": 23,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 7,
+      "packagingTableTextLength": 510
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-201619-833127-adce5dee.json"
+}

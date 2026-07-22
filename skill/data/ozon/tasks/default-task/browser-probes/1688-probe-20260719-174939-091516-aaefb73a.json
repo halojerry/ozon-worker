@@ -1,0 +1,848 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "3D打印 TungTungTungSahur木棍人手办解压玩具山海经创意抽象网红",
+    "price": "¥9",
+    "brand": "其他",
+    "seller": "福州库拉信息科技有限公司 关注 客服 商品 入驻3年 万象三维 授权 主营：工艺品 店铺回头率 61% 店铺服务分 4.5分 准时发货率 96% 店铺好评率 98.8%",
+    "image_count": 24,
+    "attribute_count": 58,
+    "dom_sku_count": 21,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/924734216526.html",
+    "loginRequired": false,
+    "title": "3D打印 TungTungTungSahur木棍人手办解压玩具山海经创意抽象网红",
+    "price": "¥9",
+    "priceValue": 9,
+    "brand": "其他",
+    "seller": "福州库拉信息科技有限公司 关注 客服 商品 入驻3年 万象三维 授权 主营：工艺品 店铺回头率 61% 店铺服务分 4.5分 准时发货率 96% 店铺好评率 98.8%",
+    "sellerLink": "https://shop85450y4913676.1688.com/?offerId=924734216526&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01v9L74r1OrDKt7Pv40_!!2217861531758-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01v9L74r1OrDKt7Pv40_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rDvTBb1OrDKtmZPTt_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01T01wBl1OrDKpGVXSc_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aK6GYL1OrDLbYfaoY_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GZ5vtR1OrDLMWptHV_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01RCrdoH1OrDKpGUjVJ_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zGwEMT1OrDKrXkNKZ_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ND70uk1OrDKsoo98T_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Cg3Jhg1OrDKsGbELc_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01i7bS8U1OrDKsuUtuz_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wIxZJQ1OrDLV1HlFd_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01qq8oxS1OrDKudyQPj_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pC91Nt1OrDKt1ImOM_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yMFplK1OrDKseN8aI_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ojnoWn1OrDKtNFwGd_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Vr1Asv1OrDKr5y8y9_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xNlZEH1OrDL2gTDLw_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yuLFCC1OrDLZsbY7b_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VnoSfQ1OrDLYmwmac_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Sfbm2e1OrDLask5W7_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ldiNeV1OrDLaChJQJ_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013IbtB51OrDLZbiFvt_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cOZuKe1OrDLYgty0q_!!2217861531758-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ftIjj91OrDLr1ZfUJ_!!2217861531758-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2217861531758/p/2/e/6/t/1/517160345199.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "福建省",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "PLA"
+      },
+      {
+        "name": "工艺",
+        "value": "3D打印"
+      },
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "货号",
+        "value": "/"
+      },
+      {
+        "name": "产品编号",
+        "value": "/"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "现代艺术"
+      },
+      {
+        "name": "类别",
+        "value": "模型玩具"
+      },
+      {
+        "name": "造型",
+        "value": "/"
+      },
+      {
+        "name": "制作工艺",
+        "value": "塑造"
+      },
+      {
+        "name": "加工定制",
+        "value": "是"
+      },
+      {
+        "name": "摆挂形式",
+        "value": "摆饰"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "TungTungTung Sahur木棍人偶,TungTungTung Sahur钥匙扣铰链木棍人偶,20CM铰链木棍人,14CM钥匙扣鲨鱼/有耐克标,10CM钥匙扣鲨鱼/有耐克标,14CM钥匙扣鲨鱼/无耐克标,10CM钥匙扣鲨鱼/无耐克标,10CM鲨鱼/无耐克标无钥匙扣,仙人掌大象,轮胎青蛙,香蕉猴子,树人,钥匙扣铰链树人,鳄鱼战斗机,面团人多伊波比-双手版,面团人多伊波比-三手版,糖果星球牛-糖果色颜色随机/介意勿拍,舞女咖啡杯-带钥匙链,舞女咖啡杯,卡布奇诺,香蕉猩猩"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "其他"
+      },
+      {
+        "name": "适用送礼关系",
+        "value": "晚辈,情侣,夫妻,同事,朋友,长辈,孩子,同学,恩师,其他"
+      },
+      {
+        "name": "适用节日",
+        "value": "复活节,国庆节,儿童节,妇女节,其他"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "是，个人礼品"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "专利及著作权申请时间",
+        "value": "/"
+      },
+      {
+        "name": "规格",
+        "value": "/"
+      },
+      {
+        "name": "产地",
+        "value": "福建省"
+      },
+      {
+        "name": "颜色",
+        "value": "TungTungTung Sahur木棍人偶、TungTungTung Sahur钥匙扣铰链木棍人偶、20CM铰链木棍人、14CM钥匙扣鲨鱼/有耐克标、10CM钥匙扣鲨鱼/有耐克标、14CM钥匙扣鲨鱼/无耐克标、10CM钥匙扣鲨鱼/无耐克标、10CM鲨鱼/无耐克标无钥匙扣、仙人掌大象、轮胎青蛙、香蕉猴子、树人、钥匙扣铰链树人、鳄鱼战斗机、面团人多伊波比-双手版、面团人多伊波比-三手版、糖果星球牛-糖果色颜色随机/介意勿拍、舞女咖啡杯-带钥匙链、舞女咖啡杯、卡布奇诺、香蕉猩猩"
+      },
+      {
+        "name": "适用送礼关系",
+        "value": "晚辈、情侣、夫妻、同事、朋友、长辈、孩子、同学、恩师、其他"
+      },
+      {
+        "name": "适用节日",
+        "value": "复活节、国庆节、儿童节、妇女节、其他"
+      },
+      {
+        "name": "材质",
+        "value": "3D打印"
+      },
+      {
+        "name": "品牌",
+        "value": "/"
+      },
+      {
+        "name": "产品编号",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "模型玩具"
+      },
+      {
+        "name": "造型",
+        "value": "塑造"
+      },
+      {
+        "name": "加工定制",
+        "value": "摆饰"
+      },
+      {
+        "name": "颜色",
+        "value": "其他"
+      },
+      {
+        "name": "适用送礼关系",
+        "value": "复活节,国庆节,儿童节,妇女节,其他"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "否"
+      },
+      {
+        "name": "TungTungTung Sahur木棍人偶",
+        "value": "20"
+      },
+      {
+        "name": "TungTungTung Sahur钥匙扣铰链木棍人偶",
+        "value": "26"
+      },
+      {
+        "name": "20CM铰链木棍人",
+        "value": "53"
+      },
+      {
+        "name": "14CM钥匙扣鲨鱼/有耐克标",
+        "value": "43"
+      },
+      {
+        "name": "10CM钥匙扣鲨鱼/有耐克标",
+        "value": "21"
+      },
+      {
+        "name": "14CM钥匙扣鲨鱼/无耐克标",
+        "value": "43"
+      },
+      {
+        "name": "10CM钥匙扣鲨鱼/无耐克标",
+        "value": "21"
+      },
+      {
+        "name": "10CM鲨鱼/无耐克标无钥匙扣",
+        "value": "20"
+      },
+      {
+        "name": "仙人掌大象",
+        "value": "22"
+      },
+      {
+        "name": "轮胎青蛙",
+        "value": "14"
+      },
+      {
+        "name": "香蕉猴子",
+        "value": "10"
+      },
+      {
+        "name": "树人",
+        "value": "30"
+      },
+      {
+        "name": "钥匙扣铰链树人",
+        "value": "34"
+      },
+      {
+        "name": "鳄鱼战斗机",
+        "value": "35"
+      },
+      {
+        "name": "面团人多伊波比-双手版",
+        "value": "30"
+      },
+      {
+        "name": "面团人多伊波比-三手版",
+        "value": "50"
+      },
+      {
+        "name": "糖果星球牛-糖果色颜色随机/介意勿拍",
+        "value": "47"
+      },
+      {
+        "name": "舞女咖啡杯-带钥匙链",
+        "value": "16"
+      },
+      {
+        "name": "舞女咖啡杯",
+        "value": "15"
+      },
+      {
+        "name": "卡布奇诺",
+        "value": "51"
+      },
+      {
+        "name": "香蕉猩猩",
+        "value": "52"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2025年5月"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "TungTungTung Sahur木棍人偶",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01RCrdoH1OrDKpGUjVJ_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "TungTungTung Sahur钥匙扣铰链木棍人偶",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zGwEMT1OrDKrXkNKZ_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "20CM铰链木棍人",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GZ5vtR1OrDLMWptHV_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "14CM钥匙扣鲨鱼/有耐克标",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ND70uk1OrDKsoo98T_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "10CM钥匙扣鲨鱼/有耐克标",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Cg3Jhg1OrDKsGbELc_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "14CM钥匙扣鲨鱼/无耐克标",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01i7bS8U1OrDKsuUtuz_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "10CM钥匙扣鲨鱼/无耐克标",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01i7bS8U1OrDKsuUtuz_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "10CM鲨鱼/无耐克标无钥匙扣",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wIxZJQ1OrDLV1HlFd_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "仙人掌大象",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01qq8oxS1OrDKudyQPj_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "轮胎青蛙",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01pC91Nt1OrDKt1ImOM_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "香蕉猴子",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01yMFplK1OrDKseN8aI_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "树人",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ojnoWn1OrDKtNFwGd_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "钥匙扣铰链树人",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Vr1Asv1OrDKr5y8y9_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "鳄鱼战斗机",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xNlZEH1OrDL2gTDLw_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "面团人多伊波比-双手版",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01yuLFCC1OrDLZsbY7b_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "面团人多伊波比-三手版",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VnoSfQ1OrDLYmwmac_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "糖果星球牛-糖果色颜色随机/介意勿拍",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Sfbm2e1OrDLask5W7_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "舞女咖啡杯-带钥匙链",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ldiNeV1OrDLaChJQJ_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "舞女咖啡杯",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN013IbtB51OrDLZbiFvt_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "卡布奇诺",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cOZuKe1OrDLYgty0q_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "香蕉猩猩",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ftIjj91OrDLr1ZfUJ_!!2217861531758-0-cib.jpg"
+          },
+          {
+            "name": "TungTungTung Sahur木棍人偶",
+            "image": null,
+            "price": 9
+          },
+          {
+            "name": "TungTungTung Sahur钥匙扣铰链木棍人偶",
+            "image": null,
+            "price": 6
+          },
+          {
+            "name": "20CM铰链木棍人",
+            "image": null,
+            "price": 10
+          },
+          {
+            "name": "14CM钥匙扣鲨鱼/有耐克标",
+            "image": null,
+            "price": 11
+          },
+          {
+            "name": "10CM钥匙扣鲨鱼/有耐克标",
+            "image": null,
+            "price": 6.8
+          },
+          {
+            "name": "14CM钥匙扣鲨鱼/无耐克标",
+            "image": null,
+            "price": 11
+          },
+          {
+            "name": "10CM钥匙扣鲨鱼/无耐克标",
+            "image": null,
+            "price": 6.8
+          },
+          {
+            "name": "10CM鲨鱼/无耐克标无钥匙扣",
+            "image": null,
+            "price": 6.8
+          },
+          {
+            "name": "仙人掌大象",
+            "image": null,
+            "price": 9
+          },
+          {
+            "name": "轮胎青蛙",
+            "image": null,
+            "price": 7
+          },
+          {
+            "name": "香蕉猴子",
+            "image": null,
+            "price": 6
+          },
+          {
+            "name": "树人",
+            "image": null,
+            "price": 7
+          },
+          {
+            "name": "钥匙扣铰链树人",
+            "image": null,
+            "price": 8
+          },
+          {
+            "name": "鳄鱼战斗机",
+            "image": null,
+            "price": 11
+          },
+          {
+            "name": "面团人多伊波比-双手版",
+            "image": null,
+            "price": 10
+          },
+          {
+            "name": "面团人多伊波比-三手版",
+            "image": null,
+            "price": 16
+          },
+          {
+            "name": "糖果星球牛-糖果色颜色随机/介意勿拍",
+            "image": null,
+            "price": 12
+          },
+          {
+            "name": "舞女咖啡杯-带钥匙链",
+            "image": null,
+            "price": 9.8
+          },
+          {
+            "name": "舞女咖啡杯",
+            "image": null,
+            "price": 8.8
+          },
+          {
+            "name": "卡布奇诺",
+            "image": null,
+            "price": 10.8
+          },
+          {
+            "name": "香蕉猩猩",
+            "image": null,
+            "price": 16
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 重量(g) TungTungTung Sahur木棍人偶 20 TungTungTung Sahur钥匙扣铰链木棍人偶 26 20CM铰链木棍人 53 14CM钥匙扣鲨鱼/有耐克标 43 10CM钥匙扣鲨鱼/有耐克标 21 14CM钥匙扣鲨鱼/无耐克标 43 10CM钥匙扣鲨鱼/无耐克标 21 10CM鲨鱼/无耐克标无钥匙扣 20 仙人掌大象 22 轮胎青蛙 14 香蕉猴子 10 树人 30 钥匙扣铰链树人 34 鳄鱼战斗机 35 面团人多伊波比-双手版 30 面团人多伊波比-三手版 50 糖果星球牛-糖果色颜色随机/介意勿拍 47 舞女咖啡杯-带钥匙链 16 舞女咖啡杯 15 卡布奇诺 51 香蕉猩猩 52",
+    "packagingRows": [
+      {
+        "color": "TungTungTung Sahur木棍人偶",
+        "capacity": "20",
+        "weightText": "20",
+        "weightGrams": 20,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "TungTungTung Sahur钥匙扣铰链木棍人偶",
+        "capacity": "26",
+        "weightText": "26",
+        "weightGrams": 26,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "20CM铰链木棍人",
+        "capacity": "53",
+        "weightText": "53",
+        "weightGrams": 53,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "14CM钥匙扣鲨鱼/有耐克标",
+        "capacity": "43",
+        "weightText": "43",
+        "weightGrams": 43,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "10CM钥匙扣鲨鱼/有耐克标",
+        "capacity": "21",
+        "weightText": "21",
+        "weightGrams": 21,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "14CM钥匙扣鲨鱼/无耐克标",
+        "capacity": "43",
+        "weightText": "43",
+        "weightGrams": 43,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "10CM钥匙扣鲨鱼/无耐克标",
+        "capacity": "21",
+        "weightText": "21",
+        "weightGrams": 21,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "10CM鲨鱼/无耐克标无钥匙扣",
+        "capacity": "20",
+        "weightText": "20",
+        "weightGrams": 20,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "仙人掌大象",
+        "capacity": "22",
+        "weightText": "22",
+        "weightGrams": 22,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "轮胎青蛙",
+        "capacity": "14",
+        "weightText": "14",
+        "weightGrams": 14,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "香蕉猴子",
+        "capacity": "10",
+        "weightText": "10",
+        "weightGrams": 10,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "树人",
+        "capacity": "30",
+        "weightText": "30",
+        "weightGrams": 30,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "钥匙扣铰链树人",
+        "capacity": "34",
+        "weightText": "34",
+        "weightGrams": 34,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "鳄鱼战斗机",
+        "capacity": "35",
+        "weightText": "35",
+        "weightGrams": 35,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "面团人多伊波比-双手版",
+        "capacity": "30",
+        "weightText": "30",
+        "weightGrams": 30,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "面团人多伊波比-三手版",
+        "capacity": "50",
+        "weightText": "50",
+        "weightGrams": 50,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "糖果星球牛-糖果色颜色随机/介意勿拍",
+        "capacity": "47",
+        "weightText": "47",
+        "weightGrams": 47,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "舞女咖啡杯-带钥匙链",
+        "capacity": "16",
+        "weightText": "16",
+        "weightGrams": 16,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "舞女咖啡杯",
+        "capacity": "15",
+        "weightText": "15",
+        "weightGrams": 15,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "卡布奇诺",
+        "capacity": "51",
+        "weightText": "51",
+        "weightGrams": 51,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "香蕉猩猩",
+        "capacity": "52",
+        "weightText": "52",
+        "weightGrams": 52,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "福建福州",
+      "freightCny": 3.5,
+      "carrier": "韵达快递",
+      "deliveryDays": 1
+    },
+    "skuDetails": [
+      {
+        "name": "TungTungTung Sahur木棍人偶",
+        "price": 9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01RCrdoH1OrDKpGUjVJ_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "TungTungTung Sahur钥匙扣铰链木棍人偶",
+        "price": 6,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zGwEMT1OrDKrXkNKZ_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "20CM铰链木棍人",
+        "price": 10,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GZ5vtR1OrDLMWptHV_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "14CM钥匙扣鲨鱼/有耐克标",
+        "price": 11,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ND70uk1OrDKsoo98T_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "10CM钥匙扣鲨鱼/有耐克标",
+        "price": 6.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Cg3Jhg1OrDKsGbELc_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "14CM钥匙扣鲨鱼/无耐克标",
+        "price": 11,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01i7bS8U1OrDKsuUtuz_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "10CM钥匙扣鲨鱼/无耐克标",
+        "price": 6.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01i7bS8U1OrDKsuUtuz_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "10CM鲨鱼/无耐克标无钥匙扣",
+        "price": 6.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wIxZJQ1OrDLV1HlFd_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "仙人掌大象",
+        "price": 9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01qq8oxS1OrDKudyQPj_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "轮胎青蛙",
+        "price": 7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01pC91Nt1OrDKt1ImOM_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "香蕉猴子",
+        "price": 6,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01yMFplK1OrDKseN8aI_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "树人",
+        "price": 7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ojnoWn1OrDKtNFwGd_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "钥匙扣铰链树人",
+        "price": 8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Vr1Asv1OrDKr5y8y9_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "鳄鱼战斗机",
+        "price": 11,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xNlZEH1OrDL2gTDLw_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "面团人多伊波比-双手版",
+        "price": 10,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01yuLFCC1OrDLZsbY7b_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "面团人多伊波比-三手版",
+        "price": 16,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VnoSfQ1OrDLYmwmac_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "糖果星球牛-糖果色颜色随机/介意勿拍",
+        "price": 12,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Sfbm2e1OrDLask5W7_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "舞女咖啡杯-带钥匙链",
+        "price": 9.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ldiNeV1OrDLaChJQJ_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "舞女咖啡杯",
+        "price": 8.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN013IbtB51OrDLZbiFvt_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "卡布奇诺",
+        "price": 10.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cOZuKe1OrDLYgty0q_!!2217861531758-0-cib.jpg"
+      },
+      {
+        "name": "香蕉猩猩",
+        "price": 16,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ftIjj91OrDLr1ZfUJ_!!2217861531758-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 23,
+      "attributeCount": 58,
+      "optionGroupCount": 1,
+      "skuCount": 21,
+      "imageCount": 26,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 2,
+      "packagingTableTextLength": 311
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-174939-091516-aaefb73a.json"
+}

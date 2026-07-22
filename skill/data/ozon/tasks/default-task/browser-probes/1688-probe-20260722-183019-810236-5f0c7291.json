@@ -1,0 +1,242 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "平安喜乐平安扣手链女海蓝宝手串水晶转运珠菩提编织手绳",
+    "price": "¥1.1",
+    "brand": "否",
+    "seller": "义乌市顶柚电子商务有限公司",
+    "image_count": 4,
+    "attribute_count": 30,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/829123612486.html?spm=a26352.13672862.offerlist.168.dc371e62gbWvmT&offerId=829123612486&sortType=&pageId=&abBizDataType=cbuOffer&trace_log=normal&uuid=26c4db3c92d1444ea34e7e527a982b64&skuId=5729041591859&forcePC=1784637115456&kj_agent_plugin=zying",
+    "loginRequired": false,
+    "title": "平安喜乐平安扣手链女海蓝宝手串水晶转运珠菩提编织手绳",
+    "price": "¥1.1",
+    "priceValue": 1.1,
+    "brand": "否",
+    "seller": "义乌市顶柚电子商务有限公司",
+    "sellerLink": "https://shop5rn56949r7935.1688.com/?offerId=829123612486&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN0144oilR1MsvW7cEbyC_!!2214993241491-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN0144oilR1MsvW7cEbyC_!!2214993241491-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01njrw771MsvWDCAF0y_!!2214993241491-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VqY8m71MsvWGFe34o_!!2214993241491-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01TLt7RR1MsvWFqZ0gK_!!2214993241491-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "义乌",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "合金"
+      },
+      {
+        "name": "处理工艺",
+        "value": "手工"
+      },
+      {
+        "name": "风格",
+        "value": "小香风"
+      },
+      {
+        "name": "适用人群",
+        "value": "男女通用"
+      },
+      {
+        "name": "样式",
+        "value": "男女通用"
+      },
+      {
+        "name": "造型",
+        "value": "星座,水果,花卉,卡通人物,叶子,菱形,水滴形,星形,动物/生肖,字母/数字/文字,其他"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "员工福利"
+      },
+      {
+        "name": "货号",
+        "value": "s"
+      },
+      {
+        "name": "产地",
+        "value": "义乌"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "淘宝,京东,ebay,PDD,亚马逊,wish,快手,LINIO,SHEIN,速卖通,天猫,独立站,LAZADA,拼多多,shopee,抖音,垂类电商"
+      },
+      {
+        "name": "颜色",
+        "value": "海洋平安扣"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "流行元素",
+        "value": "金蟾,醒狮,平安锁,龙凤纹饰,吞金兽"
+      },
+      {
+        "name": "上市年份/季节",
+        "value": "2024年春季"
+      },
+      {
+        "name": "风格分类",
+        "value": "清新甜美"
+      },
+      {
+        "name": "流行元素分类",
+        "value": "民族/国风"
+      },
+      {
+        "name": "造型",
+        "value": "星座、水果、花卉、卡通人物、叶子、菱形、水滴形、星形、动物/生肖、字母/数字/文字、其他"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "淘宝、京东、ebay、PDD、亚马逊、wish、快手、LINIO、SHEIN、速卖通、天猫、独立站、LAZADA、拼多多、shopee、抖音、垂类电商"
+      },
+      {
+        "name": "流行元素",
+        "value": "金蟾、醒狮、平安锁、龙凤纹饰、吞金兽"
+      },
+      {
+        "name": "材质",
+        "value": "手工"
+      },
+      {
+        "name": "风格",
+        "value": "男女通用"
+      },
+      {
+        "name": "样式",
+        "value": "星座,水果,花卉,卡通人物,叶子,菱形,水滴形,星形,动物/生肖,字母/数字/文字,其他"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "s"
+      },
+      {
+        "name": "产地",
+        "value": "淘宝,京东,ebay,PDD,亚马逊,wish,快手,LINIO,SHEIN,速卖通,天猫,独立站,LAZADA,拼多多,shopee,抖音,垂类电商"
+      },
+      {
+        "name": "颜色",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "金蟾,醒狮,平安锁,龙凤纹饰,吞金兽"
+      },
+      {
+        "name": "上市年份/季节",
+        "value": "清新甜美"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "9000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "海洋平安扣",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0144oilR1MsvW7cEbyC_!!2214993241491-0-cib.jpg"
+          },
+          {
+            "name": "海洋平安扣",
+            "image": null,
+            "price": 1.1
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [],
+    "packagingTableText": null,
+    "packagingRows": [],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 1.7,
+      "carrier": "圆通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "海洋平安扣",
+        "price": 1.1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN0144oilR1MsvW7cEbyC_!!2214993241491-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 17,
+      "attributeCount": 30,
+      "optionGroupCount": 1,
+      "skuCount": 1,
+      "imageCount": 7,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 0,
+      "packagingTableTextLength": 0
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260722-183019-810236-5f0c7291.json"
+}

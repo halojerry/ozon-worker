@@ -1,0 +1,1057 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "宠物小狗胸背带蝴蝶结狗狗牵引绳遛狗比熊泰迪小型犬透气蝴蝶结",
+    "price": "¥6.5",
+    "brand": "贝牧歌",
+    "seller": "义乌市温宠宠物用品有限公司 关注 客服 商品 入驻3年 主营：猫狗用品 店铺回头率 65% 店铺服务分 5.0分 准时发货率 99% 店铺好评率 99.9%",
+    "image_count": 23,
+    "attribute_count": 49,
+    "dom_sku_count": 3,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1053605585414.html",
+    "loginRequired": false,
+    "title": "宠物小狗胸背带蝴蝶结狗狗牵引绳遛狗比熊泰迪小型犬透气蝴蝶结",
+    "price": "¥6.5",
+    "priceValue": 6.5,
+    "brand": "贝牧歌",
+    "seller": "义乌市温宠宠物用品有限公司 关注 客服 商品 入驻3年 主营：猫狗用品 店铺回头率 65% 店铺服务分 5.0分 准时发货率 99% 店铺好评率 99.9%",
+    "sellerLink": "https://shop5080u368ub724.1688.com/?offerId=1053605585414&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01BBhTk621ayOYJVB59_!!2216359427002-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BBhTk621ayOYJVB59_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Kd8r1421ayOSA1rH0_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WgVK5321ayOWqgN7r_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aCetqZ21ayOXBTB0u_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01I3LTou21ayOWafECy_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01DAu7pr21ayOX4kAeR_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01jPDmbG21ayOWmTxv9_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PuADMp21ayOWmUuAP_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01CErfyk21ayOWzKlTj_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01igpDhf21ayOWz2FII_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01epsTnu21ayP6gXT8C_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LSuFhC21ayOWjbmPp_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rHmp3A21ayOX0UQDb_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01b1D3NN21ayOWzgqsh_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01srn1hV21ayOX67y5q_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YM0KdZ21ayOWjv77r_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01T9Kp3v21ayP2R1hWq_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HVWXpt21ayP3sVwf7_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ASYb1721ayP2BeutG_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dKtII821ayP2ZaLRw_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01AkclRf21ayP4wQWfj_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YL5A3021ayP4x0vYS_!!2216359427002-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GoHGUR21ayP4jIiL4_!!2216359427002-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2216359427002/p/2/e/6/t/1/566353816431.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "浙江",
+    "model": null,
+    "attributes": [
+      {
+        "name": "可否伸缩",
+        "value": "可以"
+      },
+      {
+        "name": "材质",
+        "value": "布质"
+      },
+      {
+        "name": "品牌",
+        "value": "贝牧歌"
+      },
+      {
+        "name": "产品类别",
+        "value": "胸带"
+      },
+      {
+        "name": "产地",
+        "value": "浙江"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "8110 8041"
+      },
+      {
+        "name": "箱装数量",
+        "value": "200"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "蓝色波点蝴蝶结,粉红色波点蝴蝶结,黄色波点蝴蝶结,橙色胡萝卜,黄色太阳花,蓝色太阳花,粉色太阳花,橙色太阳花,粉色小兔子,黄色小狗,蓝色小狗,粉色圆点,蓝色圆点,绿色熊猫,红绿渐变,黄色小鸡,蓝色熊猫,粉色兔子"
+      },
+      {
+        "name": "规格（长*宽）",
+        "value": "S【建议3-6斤】,L【建议14-20斤】,XL【建议20-28斤】,M【建议7-13斤】,XXS【推荐3-7斤】,XS【推荐7-14斤】,S【推荐14-20斤】,M【推荐20-30斤】,XS,S,M"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "蓝色波点蝴蝶结、粉红色波点蝴蝶结、黄色波点蝴蝶结、橙色胡萝卜、黄色太阳花、蓝色太阳花、粉色太阳花、橙色太阳花、粉色小兔子、黄色小狗、蓝色小狗、粉色圆点、蓝色圆点、绿色熊猫、红绿渐变、黄色小鸡、蓝色熊猫、粉色兔子"
+      },
+      {
+        "name": "规格（长*宽）",
+        "value": "S【建议3-6斤】、L【建议14-20斤】、XL【建议20-28斤】、M【建议7-13斤】、XXS【推荐3-7斤】、XS【推荐7-14斤】、S【推荐14-20斤】、M【推荐20-30斤】、XS、S、M"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA、其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东、其他"
+      },
+      {
+        "name": "可否伸缩",
+        "value": "布质"
+      },
+      {
+        "name": "品牌",
+        "value": "胸带"
+      },
+      {
+        "name": "产地",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "200"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "蓝色波点蝴蝶结,粉红色波点蝴蝶结,黄色波点蝴蝶结,橙色胡萝卜,黄色太阳花,蓝色太阳花,粉色太阳花,橙色太阳花,粉色小兔子,黄色小狗,蓝色小狗,粉色圆点,蓝色圆点,绿色熊猫,红绿渐变,黄色小鸡,蓝色熊猫,粉色兔子"
+      },
+      {
+        "name": "规格（长*宽）",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "蓝色波点蝴蝶结",
+        "value": "130"
+      },
+      {
+        "name": "粉红色波点蝴蝶结",
+        "value": "130"
+      },
+      {
+        "name": "黄色波点蝴蝶结",
+        "value": "130"
+      },
+      {
+        "name": "橙色胡萝卜",
+        "value": "130"
+      },
+      {
+        "name": "黄色太阳花",
+        "value": "130"
+      },
+      {
+        "name": "蓝色太阳花",
+        "value": "130"
+      },
+      {
+        "name": "粉色太阳花",
+        "value": "130"
+      },
+      {
+        "name": "橙色太阳花",
+        "value": "130"
+      },
+      {
+        "name": "粉色小兔子",
+        "value": "130"
+      },
+      {
+        "name": "黄色小狗",
+        "value": "130"
+      },
+      {
+        "name": "蓝色小狗",
+        "value": "130"
+      },
+      {
+        "name": "粉色圆点",
+        "value": "100"
+      },
+      {
+        "name": "蓝色圆点",
+        "value": "100"
+      },
+      {
+        "name": "绿色熊猫",
+        "value": "100"
+      },
+      {
+        "name": "红绿渐变",
+        "value": "100"
+      },
+      {
+        "name": "黄色小鸡",
+        "value": "100"
+      },
+      {
+        "name": "蓝色熊猫",
+        "value": "100"
+      },
+      {
+        "name": "粉色兔子",
+        "value": "100"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "10000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "蓝色波点蝴蝶结",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01DAu7pr21ayOX4kAeR_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "粉红色波点蝴蝶结",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01jPDmbG21ayOWmTxv9_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "黄色波点蝴蝶结",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01PuADMp21ayOWmUuAP_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "橙色胡萝卜",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01CErfyk21ayOWzKlTj_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "黄色太阳花",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01igpDhf21ayOWz2FII_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "蓝色太阳花",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01epsTnu21ayP6gXT8C_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "粉色太阳花",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LSuFhC21ayOWjbmPp_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "橙色太阳花",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01rHmp3A21ayOX0UQDb_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "粉色小兔子",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01b1D3NN21ayOWzgqsh_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "黄色小狗",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01srn1hV21ayOX67y5q_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "蓝色小狗",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01YM0KdZ21ayOWjv77r_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "粉色圆点",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01T9Kp3v21ayP2R1hWq_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "蓝色圆点",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HVWXpt21ayP3sVwf7_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "绿色熊猫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ASYb1721ayP2BeutG_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "红绿渐变",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dKtII821ayP2ZaLRw_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "黄色小鸡",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01AkclRf21ayP4wQWfj_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "蓝色熊猫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01YL5A3021ayP4x0vYS_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "粉色兔子",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GoHGUR21ayP4jIiL4_!!2216359427002-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "规格（长*宽）",
+        "values": [
+          {
+            "name": "S【建议3-6斤】",
+            "image": null
+          },
+          {
+            "name": "L【建议14-20斤】",
+            "image": null
+          },
+          {
+            "name": "XL【建议20-28斤】",
+            "image": null
+          },
+          {
+            "name": "S【建议3-6斤】",
+            "image": null,
+            "price": 6.5
+          },
+          {
+            "name": "L【建议14-20斤】",
+            "image": null,
+            "price": 7.5
+          },
+          {
+            "name": "XL【建议20-28斤】",
+            "image": null,
+            "price": 7.9
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "蓝色波点蝴蝶结",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01DAu7pr21ayOX4kAeR_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "粉红色波点蝴蝶结",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01jPDmbG21ayOWmTxv9_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "黄色波点蝴蝶结",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01PuADMp21ayOWmUuAP_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "橙色胡萝卜",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01CErfyk21ayOWzKlTj_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "黄色太阳花",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01igpDhf21ayOWz2FII_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "蓝色太阳花",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01epsTnu21ayP6gXT8C_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "粉色太阳花",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LSuFhC21ayOWjbmPp_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "橙色太阳花",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01rHmp3A21ayOX0UQDb_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "粉色小兔子",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01b1D3NN21ayOWzgqsh_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "黄色小狗",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01srn1hV21ayOX67y5q_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "蓝色小狗",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01YM0KdZ21ayOWjv77r_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "粉色圆点",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01T9Kp3v21ayP2R1hWq_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "蓝色圆点",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HVWXpt21ayP3sVwf7_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "绿色熊猫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ASYb1721ayP2BeutG_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "红绿渐变",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dKtII821ayP2ZaLRw_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "黄色小鸡",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01AkclRf21ayP4wQWfj_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "蓝色熊猫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01YL5A3021ayP4x0vYS_!!2216359427002-0-cib.jpg"
+          },
+          {
+            "name": "粉色兔子",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GoHGUR21ayP4jIiL4_!!2216359427002-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "规格（长*宽）",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 规格（长*宽） 重量(g) 蓝色波点蝴蝶结 S【建议3-6斤】 130 蓝色波点蝴蝶结 L【建议14-20斤】 130 蓝色波点蝴蝶结 XL【建议20-28斤】 130 粉红色波点蝴蝶结 L【建议14-20斤】 130 粉红色波点蝴蝶结 XL【建议20-28斤】 130 黄色波点蝴蝶结 S【建议3-6斤】 130 黄色波点蝴蝶结 M【建议7-13斤】 130 黄色波点蝴蝶结 L【建议14-20斤】 130 黄色波点蝴蝶结 XL【建议20-28斤】 130 橙色胡萝卜 XXS【推荐3-7斤】 130 橙色胡萝卜 XS【推荐7-14斤】 130 橙色胡萝卜 S【推荐14-20斤】 130 橙色胡萝卜 M【推荐20-30斤】 130 黄色太阳花 XXS【推荐3-7斤】 130 黄色太阳花 XS【推荐7-14斤】 130 黄色太阳花 S【推荐14-20斤】 130 黄色太阳花 M【推荐20-30斤】 130 蓝色太阳花 XXS【推荐3-7斤】 130 蓝色太阳花 XS【推荐7-14斤】 130 蓝色太阳花 S【推荐14-20斤】 130 蓝色太阳花 M【推荐20-30斤】 130 粉色太阳花 XXS【推荐3-7斤】 130 粉色太阳花 XS【推荐7-14斤】 130 粉色太阳花 S【推荐14-20斤】 130 粉色太阳花 M【推荐20-30斤】 130 橙色太阳花 XXS【推荐3-7斤】 130 橙色太阳花 XS【推荐7-14斤】 130 橙色太阳花 S【推荐14-20斤】 130 橙色太阳花 M【推荐20-30斤】 130 粉色小兔子 XXS【推荐3-7斤】 130 粉色小兔子 XS【推荐7-14斤】 130 粉色小兔子 S【推荐14-20斤】 130 粉色小兔子 M【推荐20-30斤】 130 黄色小狗 XXS【推荐3-7斤】 130 黄色小狗 XS【推荐7-14斤】 130 黄色小狗 S【推荐14-20斤】 130 黄色小狗 M【推荐20-30斤】 130 蓝色小狗 XXS【推荐3-7斤】 130 蓝色小狗 XS【推荐7-14斤】 130 蓝色小狗 S【推荐14-20斤】 130 蓝色小狗 M【推荐20-30斤】 130 粉色圆点 XS 100 粉色圆点 S 100 粉色圆点 M 100 蓝色圆点 XS 100 蓝色圆点 S 100 蓝色圆点 M 100 绿色熊猫 XS 100 绿色熊猫 S 100 绿色熊猫 M 100 红绿渐变 XS 100 红绿渐变 S 100 红绿渐变 M 100 黄色小鸡 S【建议3-6斤】 100 黄色小鸡 M【建议7-13斤】 100 蓝色熊猫 S【建议3-6斤】 100 蓝色熊猫 M【建议7-13斤】 100 粉色兔子 S【建议3-6斤】 100 粉色兔子 M【建议7-13斤】 100",
+    "packagingRows": [
+      {
+        "color": "蓝色波点蝴蝶结",
+        "capacity": "S【建议3-6斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色波点蝴蝶结",
+        "capacity": "L【建议14-20斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色波点蝴蝶结",
+        "capacity": "XL【建议20-28斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉红色波点蝴蝶结",
+        "capacity": "L【建议14-20斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉红色波点蝴蝶结",
+        "capacity": "XL【建议20-28斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色波点蝴蝶结",
+        "capacity": "S【建议3-6斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色波点蝴蝶结",
+        "capacity": "M【建议7-13斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色波点蝴蝶结",
+        "capacity": "L【建议14-20斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色波点蝴蝶结",
+        "capacity": "XL【建议20-28斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "橙色胡萝卜",
+        "capacity": "XXS【推荐3-7斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "橙色胡萝卜",
+        "capacity": "XS【推荐7-14斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "橙色胡萝卜",
+        "capacity": "S【推荐14-20斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "橙色胡萝卜",
+        "capacity": "M【推荐20-30斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色太阳花",
+        "capacity": "XXS【推荐3-7斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色太阳花",
+        "capacity": "XS【推荐7-14斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色太阳花",
+        "capacity": "S【推荐14-20斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色太阳花",
+        "capacity": "M【推荐20-30斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色太阳花",
+        "capacity": "XXS【推荐3-7斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色太阳花",
+        "capacity": "XS【推荐7-14斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色太阳花",
+        "capacity": "S【推荐14-20斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色太阳花",
+        "capacity": "M【推荐20-30斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色太阳花",
+        "capacity": "XXS【推荐3-7斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色太阳花",
+        "capacity": "XS【推荐7-14斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色太阳花",
+        "capacity": "S【推荐14-20斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色太阳花",
+        "capacity": "M【推荐20-30斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "橙色太阳花",
+        "capacity": "XXS【推荐3-7斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "橙色太阳花",
+        "capacity": "XS【推荐7-14斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "橙色太阳花",
+        "capacity": "S【推荐14-20斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "橙色太阳花",
+        "capacity": "M【推荐20-30斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色小兔子",
+        "capacity": "XXS【推荐3-7斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色小兔子",
+        "capacity": "XS【推荐7-14斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色小兔子",
+        "capacity": "S【推荐14-20斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色小兔子",
+        "capacity": "M【推荐20-30斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色小狗",
+        "capacity": "XXS【推荐3-7斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色小狗",
+        "capacity": "XS【推荐7-14斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色小狗",
+        "capacity": "S【推荐14-20斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色小狗",
+        "capacity": "M【推荐20-30斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色小狗",
+        "capacity": "XXS【推荐3-7斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色小狗",
+        "capacity": "XS【推荐7-14斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色小狗",
+        "capacity": "S【推荐14-20斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色小狗",
+        "capacity": "M【推荐20-30斤】",
+        "weightText": "130",
+        "weightGrams": 130,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色圆点",
+        "capacity": "XS",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色圆点",
+        "capacity": "S",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色圆点",
+        "capacity": "M",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色圆点",
+        "capacity": "XS",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色圆点",
+        "capacity": "S",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色圆点",
+        "capacity": "M",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "绿色熊猫",
+        "capacity": "XS",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "绿色熊猫",
+        "capacity": "S",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "绿色熊猫",
+        "capacity": "M",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "红绿渐变",
+        "capacity": "XS",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "红绿渐变",
+        "capacity": "S",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "红绿渐变",
+        "capacity": "M",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色小鸡",
+        "capacity": "S【建议3-6斤】",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄色小鸡",
+        "capacity": "M【建议7-13斤】",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色熊猫",
+        "capacity": "S【建议3-6斤】",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "蓝色熊猫",
+        "capacity": "M【建议7-13斤】",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色兔子",
+        "capacity": "S【建议3-6斤】",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色兔子",
+        "capacity": "M【建议7-13斤】",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 2.8,
+      "carrier": "圆通快递",
+      "dispatchHours": 5,
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "S【建议3-6斤】",
+        "price": 6.5,
+        "image": null
+      },
+      {
+        "name": "L【建议14-20斤】",
+        "price": 7.5,
+        "image": null
+      },
+      {
+        "name": "XL【建议20-28斤】",
+        "price": 7.9,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 17,
+      "attributeCount": 49,
+      "optionGroupCount": 3,
+      "skuCount": 3,
+      "imageCount": 25,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 3,
+      "packagingTableTextLength": 1181
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-150955-075241-fa60b701.json"
+}

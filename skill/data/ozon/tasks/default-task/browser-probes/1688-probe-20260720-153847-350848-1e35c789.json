@@ -1,0 +1,365 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "开泰 漂浮式泳池温度计 水温计 鱼池温度计 SPA浴缸测温仪跨境批发现货",
+    "price": "¥16.8",
+    "brand": "假一赔四",
+    "seller": "慈溪市威玛贸易有限公司 关注 客服 商品 入驻12年 主营：居家日用 店铺回头率 45% 店铺服务分 4.5分 准时发货率 97% 店铺好评率 99.9%",
+    "image_count": 10,
+    "attribute_count": 26,
+    "dom_sku_count": 6,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1054275919040.html?offerId=1054275919040",
+    "loginRequired": false,
+    "title": "开泰 漂浮式泳池温度计 水温计 鱼池温度计 SPA浴缸测温仪跨境批发现货",
+    "price": "¥16.8",
+    "priceValue": 16.8,
+    "brand": "假一赔四",
+    "seller": "慈溪市威玛贸易有限公司 关注 客服 商品 入驻12年 主营：居家日用 店铺回头率 45% 店铺服务分 4.5分 准时发货率 97% 店铺好评率 99.9%",
+    "sellerLink": "https://yomega.1688.com/?offerId=1054275919040&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN016hBczf2FAJyAyqVlz_!!2556038839-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN016hBczf2FAJyAyqVlz_!!2556038839-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eOyUP62FAJyAqXiNb_!!2556038839-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01emLc3b2FAJyAlZyWz_!!2556038839-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cVA6j02FAJyB5Fek2_!!2556038839-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01NwfJ9Q2FAJyCJpyuE_!!2556038839-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012dFlrf2FAJyCKue0i_!!2556038839-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01q3agZM2FAJyApiRuD_!!2556038839-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN014kGUKs2FAJyArlkY0_!!2556038839-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eEFl972FAJyAc63Xh_!!2556038839-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01V1u7sv2FAJwHXyAMk_!!2556038839-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2556038839/p/2/e/6/t/1/567599926687.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "宁波",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "不锈钢探针、ABS塑料、PC透明片"
+      },
+      {
+        "name": "功能",
+        "value": "测量泳池、鱼缸温度"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "产地",
+        "value": "宁波"
+      },
+      {
+        "name": "产品类别",
+        "value": "泳池温度计"
+      },
+      {
+        "name": "货号",
+        "value": "Y1"
+      },
+      {
+        "name": "款式",
+        "value": "橙色双刻度,橙色单刻度,蓝色双刻度,蓝色单刻度,黄色双刻度,黄色单刻度"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "亚马逊,速卖通,独立站"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "欧洲,南美,东南亚,北美"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "品牌",
+        "value": "KT/开泰"
+      },
+      {
+        "name": "材质",
+        "value": "测量泳池、鱼缸温度"
+      },
+      {
+        "name": "是否进口",
+        "value": "宁波"
+      },
+      {
+        "name": "产品类别",
+        "value": "Y1"
+      },
+      {
+        "name": "款式",
+        "value": "亚马逊,速卖通,独立站"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "KT/开泰"
+      },
+      {
+        "name": "橙色双刻度",
+        "value": "144"
+      },
+      {
+        "name": "橙色单刻度",
+        "value": "144"
+      },
+      {
+        "name": "蓝色双刻度",
+        "value": "144"
+      },
+      {
+        "name": "蓝色单刻度",
+        "value": "144"
+      },
+      {
+        "name": "黄色双刻度",
+        "value": "144"
+      },
+      {
+        "name": "黄色单刻度",
+        "value": "144"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2026年6月"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "款式",
+        "values": [
+          {
+            "name": "橙色双刻度",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012dFlrf2FAJyCKue0i_!!2556038839-0-cib.jpg"
+          },
+          {
+            "name": "橙色单刻度",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NwfJ9Q2FAJyCJpyuE_!!2556038839-0-cib.jpg"
+          },
+          {
+            "name": "蓝色双刻度",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01q3agZM2FAJyApiRuD_!!2556038839-0-cib.jpg"
+          },
+          {
+            "name": "蓝色单刻度",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN014kGUKs2FAJyArlkY0_!!2556038839-0-cib.jpg"
+          },
+          {
+            "name": "黄色双刻度",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01eEFl972FAJyAc63Xh_!!2556038839-0-cib.jpg"
+          },
+          {
+            "name": "黄色单刻度",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01V1u7sv2FAJwHXyAMk_!!2556038839-0-cib.jpg"
+          },
+          {
+            "name": "橙色双刻度",
+            "image": null,
+            "price": 16.8
+          },
+          {
+            "name": "橙色单刻度",
+            "image": null,
+            "price": 16.8
+          },
+          {
+            "name": "蓝色双刻度",
+            "image": null,
+            "price": 16.8
+          },
+          {
+            "name": "蓝色单刻度",
+            "image": null,
+            "price": 16.8
+          },
+          {
+            "name": "黄色双刻度",
+            "image": null,
+            "price": 16.8
+          },
+          {
+            "name": "黄色单刻度",
+            "image": null,
+            "price": 16.8
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "款式",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "款式 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 橙色双刻度 9.50 9.50 17.50 1579.375 144 橙色单刻度 9.50 9.50 17.50 1579.375 144 蓝色双刻度 9.50 9.50 17.50 1579.375 144 蓝色单刻度 9.50 9.50 17.50 1579.375 144 黄色双刻度 9.50 9.50 17.50 1579.375 144 黄色单刻度 9.50 9.50 17.50 1579.375 144",
+    "packagingRows": [
+      {
+        "color": "橙色双刻度",
+        "capacity": "9.50",
+        "weightText": "144",
+        "weightGrams": 144,
+        "lengthText": "9.50",
+        "widthText": "9.50",
+        "heightText": "17.50"
+      },
+      {
+        "color": "橙色单刻度",
+        "capacity": "9.50",
+        "weightText": "144",
+        "weightGrams": 144,
+        "lengthText": "9.50",
+        "widthText": "9.50",
+        "heightText": "17.50"
+      },
+      {
+        "color": "蓝色双刻度",
+        "capacity": "9.50",
+        "weightText": "144",
+        "weightGrams": 144,
+        "lengthText": "9.50",
+        "widthText": "9.50",
+        "heightText": "17.50"
+      },
+      {
+        "color": "蓝色单刻度",
+        "capacity": "9.50",
+        "weightText": "144",
+        "weightGrams": 144,
+        "lengthText": "9.50",
+        "widthText": "9.50",
+        "heightText": "17.50"
+      },
+      {
+        "color": "黄色双刻度",
+        "capacity": "9.50",
+        "weightText": "144",
+        "weightGrams": 144,
+        "lengthText": "9.50",
+        "widthText": "9.50",
+        "heightText": "17.50"
+      },
+      {
+        "color": "黄色单刻度",
+        "capacity": "9.50",
+        "weightText": "144",
+        "weightGrams": 144,
+        "lengthText": "9.50",
+        "widthText": "9.50",
+        "heightText": "17.50"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江宁波",
+      "freightCny": 8,
+      "carrier": "中通快递",
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "橙色双刻度",
+        "price": 16.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN012dFlrf2FAJyCKue0i_!!2556038839-0-cib.jpg"
+      },
+      {
+        "name": "橙色单刻度",
+        "price": 16.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NwfJ9Q2FAJyCJpyuE_!!2556038839-0-cib.jpg"
+      },
+      {
+        "name": "蓝色双刻度",
+        "price": 16.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01q3agZM2FAJyApiRuD_!!2556038839-0-cib.jpg"
+      },
+      {
+        "name": "蓝色单刻度",
+        "price": 16.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN014kGUKs2FAJyArlkY0_!!2556038839-0-cib.jpg"
+      },
+      {
+        "name": "黄色双刻度",
+        "price": 16.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01eEFl972FAJyAc63Xh_!!2556038839-0-cib.jpg"
+      },
+      {
+        "name": "黄色单刻度",
+        "price": 16.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01V1u7sv2FAJwHXyAMk_!!2556038839-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 12,
+      "attributeCount": 26,
+      "optionGroupCount": 1,
+      "skuCount": 6,
+      "imageCount": 13,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 244
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260720-153847-350848-1e35c789.json"
+}

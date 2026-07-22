@@ -1,0 +1,1035 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "户外折叠椅子月亮椅加粗钢管便携式高背月亮椅钓鱼摆摊露营椅子",
+    "price": "¥16",
+    "brand": "URBANWAVE/城市波浪（运动户外）",
+    "seller": "江西以其户外用品有限公司",
+    "image_count": 33,
+    "attribute_count": 61,
+    "dom_sku_count": 28,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1024786474053.html?offerId=1024786474053&hotSaleSkuId=6036420985342&spm=a260k.home2025.recommendpart.1&kj_agent_plugin=zying",
+    "loginRequired": false,
+    "title": "户外折叠椅子月亮椅加粗钢管便携式高背月亮椅钓鱼摆摊露营椅子",
+    "price": "¥16",
+    "priceValue": 16,
+    "brand": "URBANWAVE/城市波浪（运动户外）",
+    "seller": "江西以其户外用品有限公司",
+    "sellerLink": "https://shop751a009v46r94.1688.com/?offerId=1024786474053&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01SzewMK1pppqMmo3ML_!!2221604935410-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SzewMK1pppqMmo3ML_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tfsZpp1pppqAtgIRX_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010VRZCL1pppqAGweeU_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01moJMN51pppqAPpMQg_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN017Ri6wQ1pppqC7GhoS_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01k5OgPK1pppqB5ldeA_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zkN3Wi1pppqATL1pH_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010O98cF1pppqB5nRx9_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010GDleK1pppqAony0N_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BUbRXG1pppqAtjJhV_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010dnnW81pppqB4Xt86_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Ab8tYt1pppqAopmH6_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01uYEzcL1pppqA37H3s_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JCz7dt1pppqAeLNNX_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QpyhM71pppqAthRJ9_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01RfRAHW1pppqBEDVXx_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BG9HEl1pppqA37sTP_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01iuhusW1pppqAtiqcM_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WSMSrG1pppqB91SgV_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01vDG96Z1pppqB4XDdJ_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01b3x02z1pppqB5nBLF_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01AW5dv71pppqAeMqrf_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hRsQeN1pppqA38Lb1_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Cea9SJ1pppqBEBtmu_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ImL8751pppqAeN7Ur_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MwoRGp1pppqB0s3ww_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01A5YU3X1pppqB91re8_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cMY5Im1pppqBEF3BF_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01vh8DHz1pppqB0qelW_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Jo5dzg1pppqAeLVfQ_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ZKUFId1pppqAGyOvd_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VAnfLo1pppqANFhxt_!!2221604935410-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01mpbUOT1pppqBEEVyk_!!2221604935410-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2221604935410/p/2/e/6/t/1/566858895537.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "中国",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "牛津布,碳钢"
+      },
+      {
+        "name": "款式",
+        "value": "月亮椅"
+      },
+      {
+        "name": "品牌",
+        "value": "URBANWAVE/城市波浪（运动户外）"
+      },
+      {
+        "name": "规格(长*宽*高)",
+        "value": "47*47*68"
+      },
+      {
+        "name": "是否可折叠",
+        "value": "是"
+      },
+      {
+        "name": "产地",
+        "value": "中国"
+      },
+      {
+        "name": "货号",
+        "value": "uw-0580"
+      },
+      {
+        "name": "加工定制",
+        "value": "是"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "专利类型",
+        "value": "无"
+      },
+      {
+        "name": "外贸出口认证",
+        "value": "询问kf"
+      },
+      {
+        "name": "质检报告编号",
+        "value": "询问kf"
+      },
+      {
+        "name": "风格",
+        "value": "精致露营风"
+      },
+      {
+        "name": "月亮椅",
+        "value": "露营椅子"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "规格",
+        "value": "软包专享款【特粗椅架鎏沙金】特级面料+加厚坐垫 验货时间：2026年06月01日"
+      },
+      {
+        "name": "商品外观",
+        "value": "商品外观检验通过 预览 预览"
+      },
+      {
+        "name": "商品规格属性",
+        "value": "商品规格属性检验通过 预览 预览"
+      },
+      {
+        "name": "标识标签",
+        "value": "标识标签检验通过 预览 预览"
+      },
+      {
+        "name": "材质",
+        "value": "月亮椅"
+      },
+      {
+        "name": "品牌",
+        "value": "47*47*68"
+      },
+      {
+        "name": "是否可折叠",
+        "value": "中国"
+      },
+      {
+        "name": "货号",
+        "value": "是"
+      },
+      {
+        "name": "颜色",
+        "value": "ebay,亚马逊,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "无"
+      },
+      {
+        "name": "风格",
+        "value": "露营椅子"
+      },
+      {
+        "name": "儿童款-卡其",
+        "value": "1000"
+      },
+      {
+        "name": "儿童款-黑色",
+        "value": "1000"
+      },
+      {
+        "name": "儿童款-白色",
+        "value": "1000"
+      },
+      {
+        "name": "经典款【六层夹棉流沙金】",
+        "value": "2500"
+      },
+      {
+        "name": "经典款【六层夹棉磨砂黑】",
+        "value": "2500"
+      },
+      {
+        "name": "经典款【六层夹棉卡其色】",
+        "value": "2500"
+      },
+      {
+        "name": "经典款【六层夹棉米白色】",
+        "value": "2500"
+      },
+      {
+        "name": "豪华款【六层软包坐垫流沙金】舒适升级+3重织布加固+加粗钢管",
+        "value": "2500"
+      },
+      {
+        "name": "豪华款【六层软包坐垫磨砂黑】舒适升级+3重织布加固+加粗钢管",
+        "value": "2500"
+      },
+      {
+        "name": "豪华款【六层软包坐垫卡其色】舒适升级+3重织布加固+加粗钢管",
+        "value": "2500"
+      },
+      {
+        "name": "豪华款【六层软包坐垫米白色】舒适升级+3重织布加固+加粗钢管",
+        "value": "2500"
+      },
+      {
+        "name": "软包专享款【特粗椅架鎏沙金】特级面料+加厚坐垫",
+        "value": "2500"
+      },
+      {
+        "name": "软包专享款【特粗椅架奶绿色】特级面料+加厚坐垫",
+        "value": "2500"
+      },
+      {
+        "name": "软包专享款【特粗椅架曜石黑】特级面料+加厚坐垫",
+        "value": "2500"
+      },
+      {
+        "name": "软包专享款【特粗椅架牛奶白】特级面料+加厚坐垫",
+        "value": "2500"
+      },
+      {
+        "name": "软包专享款【特粗椅架紫罗兰】特级面料+加厚坐垫",
+        "value": "2500"
+      },
+      {
+        "name": "软包专享款【特粗椅架奶杏粉】特级面料+加厚坐垫",
+        "value": "2500"
+      },
+      {
+        "name": "软包专享款【特粗椅架薄荷绿】特级面料+加厚坐垫",
+        "value": "2500"
+      },
+      {
+        "name": "软包专享款【特粗椅架碧落蓝】特级面料+加厚坐垫",
+        "value": "2500"
+      },
+      {
+        "name": "加高款-奶绿【五层夹棉+舒适大头枕+加固绷带】",
+        "value": "3250"
+      },
+      {
+        "name": "鎏沙金椅套【珊瑚绒面料升级坐感】柔软舒适 可机洗",
+        "value": "600"
+      },
+      {
+        "name": "加高款-曜黑【五层夹棉+舒适大头枕+加固绷带】",
+        "value": "3250"
+      },
+      {
+        "name": "加高款-卡其【五层夹棉+舒适大头枕+加固绷带】",
+        "value": "3250"
+      },
+      {
+        "name": "鎏沙金月亮椅+珊瑚绒椅套【舒适升级可机洗】",
+        "value": "4000"
+      },
+      {
+        "name": "【一桌两椅】软包专享款流沙金*2+90木纹桌",
+        "value": "8010"
+      },
+      {
+        "name": "【一桌四椅】软包专享款流沙款*4+90木纹桌",
+        "value": "11570"
+      },
+      {
+        "name": "【桌椅套装】软包专享款磨砂黑*2+黑化蛋卷桌",
+        "value": "8010"
+      },
+      {
+        "name": "【桌椅套装】软包专享款黑椅*4+黑化蛋卷桌",
+        "value": "11570"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "儿童款-卡其",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01k5OgPK1pppqB5ldeA_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "儿童款-黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zkN3Wi1pppqATL1pH_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "儿童款-白色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN010O98cF1pppqB5nRx9_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "经典款【六层夹棉流沙金】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN010GDleK1pppqAony0N_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "经典款【六层夹棉磨砂黑】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01BUbRXG1pppqAtjJhV_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "经典款【六层夹棉卡其色】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN010dnnW81pppqB4Xt86_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "经典款【六层夹棉米白色】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Ab8tYt1pppqAopmH6_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "豪华款【六层软包坐垫流沙金】舒适升级+3重织布加固+加粗钢管",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01uYEzcL1pppqA37H3s_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "豪华款【六层软包坐垫磨砂黑】舒适升级+3重织布加固+加粗钢管",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01JCz7dt1pppqAeLNNX_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "豪华款【六层软包坐垫卡其色】舒适升级+3重织布加固+加粗钢管",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01QpyhM71pppqAthRJ9_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "豪华款【六层软包坐垫米白色】舒适升级+3重织布加固+加粗钢管",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01RfRAHW1pppqBEDVXx_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "软包专享款【特粗椅架鎏沙金】特级面料+加厚坐垫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01BG9HEl1pppqA37sTP_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "软包专享款【特粗椅架奶绿色】特级面料+加厚坐垫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01iuhusW1pppqAtiqcM_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "软包专享款【特粗椅架曜石黑】特级面料+加厚坐垫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WSMSrG1pppqB91SgV_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "软包专享款【特粗椅架牛奶白】特级面料+加厚坐垫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01vDG96Z1pppqB4XDdJ_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "软包专享款【特粗椅架紫罗兰】特级面料+加厚坐垫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01b3x02z1pppqB5nBLF_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "软包专享款【特粗椅架奶杏粉】特级面料+加厚坐垫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01AW5dv71pppqAeMqrf_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "软包专享款【特粗椅架薄荷绿】特级面料+加厚坐垫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hRsQeN1pppqA38Lb1_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "软包专享款【特粗椅架碧落蓝】特级面料+加厚坐垫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Cea9SJ1pppqBEBtmu_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "加高款-奶绿【五层夹棉+舒适大头枕+加固绷带】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ImL8751pppqAeN7Ur_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "鎏沙金椅套【珊瑚绒面料升级坐感】柔软舒适 可机洗",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MwoRGp1pppqB0s3ww_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "加高款-曜黑【五层夹棉+舒适大头枕+加固绷带】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01A5YU3X1pppqB91re8_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "加高款-卡其【五层夹棉+舒适大头枕+加固绷带】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cMY5Im1pppqBEF3BF_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "鎏沙金月亮椅+珊瑚绒椅套【舒适升级可机洗】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01vh8DHz1pppqB0qelW_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "【一桌两椅】软包专享款流沙金*2+90木纹桌",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Jo5dzg1pppqAeLVfQ_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "【一桌四椅】软包专享款流沙款*4+90木纹桌",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ZKUFId1pppqAGyOvd_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "【桌椅套装】软包专享款磨砂黑*2+黑化蛋卷桌",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VAnfLo1pppqANFhxt_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "【桌椅套装】软包专享款黑椅*4+黑化蛋卷桌",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01mpbUOT1pppqBEEVyk_!!2221604935410-0-cib.jpg"
+          },
+          {
+            "name": "儿童款-卡其",
+            "image": null,
+            "price": 16
+          },
+          {
+            "name": "儿童款-黑色",
+            "image": null,
+            "price": 16
+          },
+          {
+            "name": "儿童款-白色",
+            "image": null,
+            "price": 16
+          },
+          {
+            "name": "经典款【六层夹棉流沙金】",
+            "image": null,
+            "price": 26
+          },
+          {
+            "name": "经典款【六层夹棉磨砂黑】",
+            "image": null,
+            "price": 26
+          },
+          {
+            "name": "经典款【六层夹棉卡其色】",
+            "image": null,
+            "price": 26
+          },
+          {
+            "name": "经典款【六层夹棉米白色】",
+            "image": null,
+            "price": 26
+          },
+          {
+            "name": "豪华款【六层软包坐垫流沙金】舒适升级+3重织布加固+加粗钢管",
+            "image": null,
+            "price": 27
+          },
+          {
+            "name": "豪华款【六层软包坐垫磨砂黑】舒适升级+3重织布加固+加粗钢管",
+            "image": null,
+            "price": 27
+          },
+          {
+            "name": "豪华款【六层软包坐垫卡其色】舒适升级+3重织布加固+加粗钢管",
+            "image": null,
+            "price": 27
+          },
+          {
+            "name": "豪华款【六层软包坐垫米白色】舒适升级+3重织布加固+加粗钢管",
+            "image": null,
+            "price": 27
+          },
+          {
+            "name": "软包专享款【特粗椅架鎏沙金】特级面料+加厚坐垫",
+            "image": null,
+            "price": 28
+          },
+          {
+            "name": "软包专享款【特粗椅架奶绿色】特级面料+加厚坐垫",
+            "image": null,
+            "price": 28
+          },
+          {
+            "name": "软包专享款【特粗椅架曜石黑】特级面料+加厚坐垫",
+            "image": null,
+            "price": 28
+          },
+          {
+            "name": "软包专享款【特粗椅架牛奶白】特级面料+加厚坐垫",
+            "image": null,
+            "price": 28
+          },
+          {
+            "name": "软包专享款【特粗椅架紫罗兰】特级面料+加厚坐垫",
+            "image": null,
+            "price": 31
+          },
+          {
+            "name": "软包专享款【特粗椅架奶杏粉】特级面料+加厚坐垫",
+            "image": null,
+            "price": 31
+          },
+          {
+            "name": "软包专享款【特粗椅架薄荷绿】特级面料+加厚坐垫",
+            "image": null,
+            "price": 31
+          },
+          {
+            "name": "软包专享款【特粗椅架碧落蓝】特级面料+加厚坐垫",
+            "image": null,
+            "price": 31
+          },
+          {
+            "name": "加高款-奶绿【五层夹棉+舒适大头枕+加固绷带】",
+            "image": null,
+            "price": 32
+          },
+          {
+            "name": "鎏沙金椅套【珊瑚绒面料升级坐感】柔软舒适 可机洗",
+            "image": null,
+            "price": 20
+          },
+          {
+            "name": "加高款-曜黑【五层夹棉+舒适大头枕+加固绷带】",
+            "image": null,
+            "price": 32
+          },
+          {
+            "name": "加高款-卡其【五层夹棉+舒适大头枕+加固绷带】",
+            "image": null,
+            "price": 32
+          },
+          {
+            "name": "鎏沙金月亮椅+珊瑚绒椅套【舒适升级可机洗】",
+            "image": null,
+            "price": 47
+          },
+          {
+            "name": "【一桌两椅】软包专享款流沙金*2+90木纹桌",
+            "image": null,
+            "price": 118
+          },
+          {
+            "name": "【一桌四椅】软包专享款流沙款*4+90木纹桌",
+            "image": null,
+            "price": 183
+          },
+          {
+            "name": "【桌椅套装】软包专享款磨砂黑*2+黑化蛋卷桌",
+            "image": null,
+            "price": 118
+          },
+          {
+            "name": "【桌椅套装】软包专享款黑椅*4+黑化蛋卷桌",
+            "image": null,
+            "price": 183
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 儿童款-卡其 57 22 12 15048 1000 儿童款-黑色 57 22 12 15048 1000 儿童款-白色 57 22 12 15048 1000 经典款【六层夹棉流沙金】 68 15 15 15300 2500 经典款【六层夹棉磨砂黑】 68 15 15 15300 2500 经典款【六层夹棉卡其色】 68 15 15 15300 2500 经典款【六层夹棉米白色】 68 15 15 15300 2500 豪华款【六层软包坐垫流沙金】舒适升级+3重织布加固+加粗钢管 68 15 15 15300 2500 豪华款【六层软包坐垫磨砂黑】舒适升级+3重织布加固+加粗钢管 68 15 15 15300 2500 豪华款【六层软包坐垫卡其色】舒适升级+3重织布加固+加粗钢管 68 15 15 15300 2500 豪华款【六层软包坐垫米白色】舒适升级+3重织布加固+加粗钢管 68 15 15 15300 2500 软包专享款【特粗椅架鎏沙金】特级面料+加厚坐垫 76 22 12 20064 2500 软包专享款【特粗椅架奶绿色】特级面料+加厚坐垫 76 22 12 20064 2500 软包专享款【特粗椅架曜石黑】特级面料+加厚坐垫 76 22 12 20064 2500 软包专享款【特粗椅架牛奶白】特级面料+加厚坐垫 76 22 12 20064 2500 软包专享款【特粗椅架紫罗兰】特级面料+加厚坐垫 70 20 12 16800 2500 软包专享款【特粗椅架奶杏粉】特级面料+加厚坐垫 70 20 12 16800 2500 软包专享款【特粗椅架薄荷绿】特级面料+加厚坐垫 70 20 12 16800 2500 软包专享款【特粗椅架碧落蓝】特级面料+加厚坐垫 70 20 12 16800 2500 加高款-奶绿【五层夹棉+舒适大头枕+加固绷带】 95 17 16 25840 3250 鎏沙金椅套【珊瑚绒面料升级坐感】柔软舒适 可机洗 40 24 24 23040 600 加高款-曜黑【五层夹棉+舒适大头枕+加固绷带】 95 17 16 25840 3250 加高款-卡其【五层夹棉+舒适大头枕+加固绷带】 95 17 16 25840 3250 鎏沙金月亮椅+珊瑚绒椅套【舒适升级可机洗】 － － － － 4000 【一桌两椅】软包专享款流沙金*2+90木纹桌 － － － － 8010 【一桌四椅】软包专享款流沙款*4+90木纹桌 － － － － 11570 【桌椅套装】软包专享款磨砂黑*2+黑化蛋卷桌 － － － － 8010 【桌椅套装】软包专享款黑椅*4+黑化蛋卷桌 － － － － 11570",
+    "packagingRows": [
+      {
+        "color": "儿童款-卡其",
+        "capacity": "57",
+        "weightText": "1000",
+        "weightGrams": 1000,
+        "lengthText": "57",
+        "widthText": "22",
+        "heightText": "12"
+      },
+      {
+        "color": "儿童款-黑色",
+        "capacity": "57",
+        "weightText": "1000",
+        "weightGrams": 1000,
+        "lengthText": "57",
+        "widthText": "22",
+        "heightText": "12"
+      },
+      {
+        "color": "儿童款-白色",
+        "capacity": "57",
+        "weightText": "1000",
+        "weightGrams": 1000,
+        "lengthText": "57",
+        "widthText": "22",
+        "heightText": "12"
+      },
+      {
+        "color": "经典款【六层夹棉流沙金】",
+        "capacity": "68",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "68",
+        "widthText": "15",
+        "heightText": "15"
+      },
+      {
+        "color": "经典款【六层夹棉磨砂黑】",
+        "capacity": "68",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "68",
+        "widthText": "15",
+        "heightText": "15"
+      },
+      {
+        "color": "经典款【六层夹棉卡其色】",
+        "capacity": "68",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "68",
+        "widthText": "15",
+        "heightText": "15"
+      },
+      {
+        "color": "经典款【六层夹棉米白色】",
+        "capacity": "68",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "68",
+        "widthText": "15",
+        "heightText": "15"
+      },
+      {
+        "color": "豪华款【六层软包坐垫流沙金】舒适升级+3重织布加固+加粗钢管",
+        "capacity": "68",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "68",
+        "widthText": "15",
+        "heightText": "15"
+      },
+      {
+        "color": "豪华款【六层软包坐垫磨砂黑】舒适升级+3重织布加固+加粗钢管",
+        "capacity": "68",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "68",
+        "widthText": "15",
+        "heightText": "15"
+      },
+      {
+        "color": "豪华款【六层软包坐垫卡其色】舒适升级+3重织布加固+加粗钢管",
+        "capacity": "68",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "68",
+        "widthText": "15",
+        "heightText": "15"
+      },
+      {
+        "color": "豪华款【六层软包坐垫米白色】舒适升级+3重织布加固+加粗钢管",
+        "capacity": "68",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "68",
+        "widthText": "15",
+        "heightText": "15"
+      },
+      {
+        "color": "软包专享款【特粗椅架鎏沙金】特级面料+加厚坐垫",
+        "capacity": "76",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "76",
+        "widthText": "22",
+        "heightText": "12"
+      },
+      {
+        "color": "软包专享款【特粗椅架奶绿色】特级面料+加厚坐垫",
+        "capacity": "76",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "76",
+        "widthText": "22",
+        "heightText": "12"
+      },
+      {
+        "color": "软包专享款【特粗椅架曜石黑】特级面料+加厚坐垫",
+        "capacity": "76",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "76",
+        "widthText": "22",
+        "heightText": "12"
+      },
+      {
+        "color": "软包专享款【特粗椅架牛奶白】特级面料+加厚坐垫",
+        "capacity": "76",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "76",
+        "widthText": "22",
+        "heightText": "12"
+      },
+      {
+        "color": "软包专享款【特粗椅架紫罗兰】特级面料+加厚坐垫",
+        "capacity": "70",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "70",
+        "widthText": "20",
+        "heightText": "12"
+      },
+      {
+        "color": "软包专享款【特粗椅架奶杏粉】特级面料+加厚坐垫",
+        "capacity": "70",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "70",
+        "widthText": "20",
+        "heightText": "12"
+      },
+      {
+        "color": "软包专享款【特粗椅架薄荷绿】特级面料+加厚坐垫",
+        "capacity": "70",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "70",
+        "widthText": "20",
+        "heightText": "12"
+      },
+      {
+        "color": "软包专享款【特粗椅架碧落蓝】特级面料+加厚坐垫",
+        "capacity": "70",
+        "weightText": "2500",
+        "weightGrams": 2500,
+        "lengthText": "70",
+        "widthText": "20",
+        "heightText": "12"
+      },
+      {
+        "color": "加高款-奶绿【五层夹棉+舒适大头枕+加固绷带】",
+        "capacity": "95",
+        "weightText": "3250",
+        "weightGrams": 3250,
+        "lengthText": "95",
+        "widthText": "17",
+        "heightText": "16"
+      },
+      {
+        "color": "鎏沙金椅套【珊瑚绒面料升级坐感】柔软舒适 可机洗",
+        "capacity": "40",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": "40",
+        "widthText": "24",
+        "heightText": "24"
+      },
+      {
+        "color": "加高款-曜黑【五层夹棉+舒适大头枕+加固绷带】",
+        "capacity": "95",
+        "weightText": "3250",
+        "weightGrams": 3250,
+        "lengthText": "95",
+        "widthText": "17",
+        "heightText": "16"
+      },
+      {
+        "color": "加高款-卡其【五层夹棉+舒适大头枕+加固绷带】",
+        "capacity": "95",
+        "weightText": "3250",
+        "weightGrams": 3250,
+        "lengthText": "95",
+        "widthText": "17",
+        "heightText": "16"
+      },
+      {
+        "color": "鎏沙金月亮椅+珊瑚绒椅套【舒适升级可机洗】",
+        "capacity": "－",
+        "weightText": "4000",
+        "weightGrams": 4000,
+        "lengthText": "－",
+        "widthText": "－",
+        "heightText": "－"
+      },
+      {
+        "color": "【一桌两椅】软包专享款流沙金*2+90木纹桌",
+        "capacity": "－",
+        "weightText": "8010",
+        "weightGrams": 8010,
+        "lengthText": "－",
+        "widthText": "－",
+        "heightText": "－"
+      },
+      {
+        "color": "【一桌四椅】软包专享款流沙款*4+90木纹桌",
+        "capacity": "－",
+        "weightText": "11570",
+        "weightGrams": 11570,
+        "lengthText": "－",
+        "widthText": "－",
+        "heightText": "－"
+      },
+      {
+        "color": "【桌椅套装】软包专享款磨砂黑*2+黑化蛋卷桌",
+        "capacity": "－",
+        "weightText": "8010",
+        "weightGrams": 8010,
+        "lengthText": "－",
+        "widthText": "－",
+        "heightText": "－"
+      },
+      {
+        "color": "【桌椅套装】软包专享款黑椅*4+黑化蛋卷桌",
+        "capacity": "－",
+        "weightText": "11570",
+        "weightGrams": 11570,
+        "lengthText": "－",
+        "widthText": "－",
+        "heightText": "－"
+      }
+    ],
+    "shipping": {
+      "origin": "江西上饶",
+      "freightCny": 2.42,
+      "carrier": "申通快递",
+      "dispatchHours": 5,
+      "deliveryDays": 1
+    },
+    "skuDetails": [
+      {
+        "name": "儿童款-卡其",
+        "price": 16,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01k5OgPK1pppqB5ldeA_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "儿童款-黑色",
+        "price": 16,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zkN3Wi1pppqATL1pH_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "儿童款-白色",
+        "price": 16,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN010O98cF1pppqB5nRx9_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "经典款【六层夹棉流沙金】",
+        "price": 26,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN010GDleK1pppqAony0N_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "经典款【六层夹棉磨砂黑】",
+        "price": 26,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01BUbRXG1pppqAtjJhV_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "经典款【六层夹棉卡其色】",
+        "price": 26,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN010dnnW81pppqB4Xt86_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "经典款【六层夹棉米白色】",
+        "price": 26,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Ab8tYt1pppqAopmH6_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "豪华款【六层软包坐垫流沙金】舒适升级+3重织布加固+加粗钢管",
+        "price": 27,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01uYEzcL1pppqA37H3s_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "豪华款【六层软包坐垫磨砂黑】舒适升级+3重织布加固+加粗钢管",
+        "price": 27,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01JCz7dt1pppqAeLNNX_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "豪华款【六层软包坐垫卡其色】舒适升级+3重织布加固+加粗钢管",
+        "price": 27,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01QpyhM71pppqAthRJ9_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "豪华款【六层软包坐垫米白色】舒适升级+3重织布加固+加粗钢管",
+        "price": 27,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01RfRAHW1pppqBEDVXx_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "软包专享款【特粗椅架鎏沙金】特级面料+加厚坐垫",
+        "price": 28,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01BG9HEl1pppqA37sTP_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "软包专享款【特粗椅架奶绿色】特级面料+加厚坐垫",
+        "price": 28,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01iuhusW1pppqAtiqcM_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "软包专享款【特粗椅架曜石黑】特级面料+加厚坐垫",
+        "price": 28,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WSMSrG1pppqB91SgV_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "软包专享款【特粗椅架牛奶白】特级面料+加厚坐垫",
+        "price": 28,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01vDG96Z1pppqB4XDdJ_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "软包专享款【特粗椅架紫罗兰】特级面料+加厚坐垫",
+        "price": 31,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01b3x02z1pppqB5nBLF_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "软包专享款【特粗椅架奶杏粉】特级面料+加厚坐垫",
+        "price": 31,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01AW5dv71pppqAeMqrf_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "软包专享款【特粗椅架薄荷绿】特级面料+加厚坐垫",
+        "price": 31,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hRsQeN1pppqA38Lb1_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "软包专享款【特粗椅架碧落蓝】特级面料+加厚坐垫",
+        "price": 31,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Cea9SJ1pppqBEBtmu_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "加高款-奶绿【五层夹棉+舒适大头枕+加固绷带】",
+        "price": 32,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ImL8751pppqAeN7Ur_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "鎏沙金椅套【珊瑚绒面料升级坐感】柔软舒适 可机洗",
+        "price": 20,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MwoRGp1pppqB0s3ww_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "加高款-曜黑【五层夹棉+舒适大头枕+加固绷带】",
+        "price": 32,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01A5YU3X1pppqB91re8_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "加高款-卡其【五层夹棉+舒适大头枕+加固绷带】",
+        "price": 32,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cMY5Im1pppqBEF3BF_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "鎏沙金月亮椅+珊瑚绒椅套【舒适升级可机洗】",
+        "price": 47,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01vh8DHz1pppqB0qelW_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "【一桌两椅】软包专享款流沙金*2+90木纹桌",
+        "price": 118,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Jo5dzg1pppqAeLVfQ_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "【一桌四椅】软包专享款流沙款*4+90木纹桌",
+        "price": 183,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ZKUFId1pppqAGyOvd_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "【桌椅套装】软包专享款磨砂黑*2+黑化蛋卷桌",
+        "price": 118,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VAnfLo1pppqANFhxt_!!2221604935410-0-cib.jpg"
+      },
+      {
+        "name": "【桌椅套装】软包专享款黑椅*4+黑化蛋卷桌",
+        "price": 183,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01mpbUOT1pppqBEEVyk_!!2221604935410-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 17,
+      "attributeCount": 61,
+      "optionGroupCount": 1,
+      "skuCount": 28,
+      "imageCount": 34,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 1159
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-150550-726267-d69401a9.json"
+}

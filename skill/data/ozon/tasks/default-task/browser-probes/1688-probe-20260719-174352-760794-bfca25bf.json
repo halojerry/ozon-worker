@@ -1,0 +1,839 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "狗狗玩具毛绒陪睡鸭耐咬磨牙发声解闷小中型犬宠物发声玩具小黄鸭",
+    "price": "¥5.8",
+    "brand": "柒哦",
+    "seller": "漳州市芗城区崇吾宠物用品有限公司 关注 客服 商品 入驻6年 主营：猫狗用品 店铺回头率 52% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 99.2%",
+    "image_count": 28,
+    "attribute_count": 43,
+    "dom_sku_count": 23,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/807050308974.html",
+    "loginRequired": false,
+    "title": "狗狗玩具毛绒陪睡鸭耐咬磨牙发声解闷小中型犬宠物发声玩具小黄鸭",
+    "price": "¥5.8",
+    "priceValue": 5.8,
+    "brand": "柒哦",
+    "seller": "漳州市芗城区崇吾宠物用品有限公司 关注 客服 商品 入驻6年 主营：猫狗用品 店铺回头率 52% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 99.2%",
+    "sellerLink": "https://shop75g799333u6v4.1688.com/?offerId=807050308974&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VYHuOQ1TbFWThzbVB_!!2211237402400-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VYHuOQ1TbFWThzbVB_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SOx8ql1TbFWTJeEG3_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01iX4S5h1TbFWRqFjrh_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Aq1B3a1TbFWVNdWxc_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rAEW0i1TbFWTi2DiM_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN014he1Ca1TbFWRqNnSC_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01TW7t3r1TbFWXj8vkr_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fmclcm1TbFWU8CGVP_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kmUMWO1TbFbSQ2Xen_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01uQD8Qm1TbFbYXGUxS_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01X8qSpp1TbFXNk6Zoy_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Uq6GSz1TbFXSqwToo_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aSAd1x1TbFXMwb7h5_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01RDE5vO1TbFZ4198kO_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN018jDRIs1TbFZ6GTLXm_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bMhw7R1TbFZ2pgStc_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012pY9bX1TbFbe7rhYm_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eshwkn1TbFbcqUKks_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01u4PmDa1TbFbdNJmX9_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wN5ecs1TbFbbbagzb_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GDRyxv1TbFbdVjb4I_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01CfR0ob1TbFbe8j0QP_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dFeuRw1TbFbf1Y666_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WP6OwA1TbFe1hYUQz_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WvnHKZ1TbFe0ADg0M_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01i37PUk1TbFbcbl5wD_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01axhPSg1TbFh7Cr8Wz_!!2211237402400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01qOaTuR1TbFh8A3R8g_!!2211237402400-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2211237402400/p/2/e/6/t/1/474650798572.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "毛绒"
+      },
+      {
+        "name": "产品类别",
+        "value": "发声玩具"
+      },
+      {
+        "name": "品牌",
+        "value": "柒哦"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "重量",
+        "value": "67"
+      },
+      {
+        "name": "货号",
+        "value": "QW1451"
+      },
+      {
+        "name": "箱装数量",
+        "value": "具体咨询客服"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "陪伴鸭小号,陪伴鸭中号,陪伴鸭大号,☆陪伴鸭小号（响纸+猫薄荷）,陪伴鸭大号（响纸+猫薄荷）,大头牛（解闷发声）,小蓝象（磨牙耐咬）,黄狮子（消耗精力）,托比鸭（磨牙耐咬）,卡尔狗（磨牙耐咬）,哈里森熊（磨牙耐咬）,【两只实惠装】陪伴鸭小号（黄）,【两只实惠装】陪伴鸭中号（黄）,【两只实惠装】陪伴鸭大号（黄）,超值三只装（小号+中号+大号）,小号+绳结胡萝卜,中号+绳结胡萝卜,大号+绳结胡萝卜,小号+小狗飞盘,中号+小狗飞盘,大号+小狗飞盘,【加长款】大头牛,【加长款】小粉猪"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "陪伴鸭小号、陪伴鸭中号、陪伴鸭大号、☆陪伴鸭小号（响纸+猫薄荷）、陪伴鸭大号（响纸+猫薄荷）、大头牛（解闷发声）、小蓝象（磨牙耐咬）、黄狮子（消耗精力）、托比鸭（磨牙耐咬）、卡尔狗（磨牙耐咬）、哈里森熊（磨牙耐咬）、【两只实惠装】陪伴鸭小号（黄）、【两只实惠装】陪伴鸭中号（黄）、【两只实惠装】陪伴鸭大号（黄）、超值三只装（小号+中号+大号）、小号+绳结胡萝卜、中号+绳结胡萝卜、大号+绳结胡萝卜、小号+小狗飞盘、中号+小狗飞盘、大号+小狗飞盘、【加长款】大头牛、【加长款】小粉猪"
+      },
+      {
+        "name": "材质",
+        "value": "发声玩具"
+      },
+      {
+        "name": "品牌",
+        "value": "否"
+      },
+      {
+        "name": "重量",
+        "value": "QW1451"
+      },
+      {
+        "name": "箱装数量",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "否"
+      },
+      {
+        "name": "陪伴鸭小号",
+        "value": "600"
+      },
+      {
+        "name": "陪伴鸭中号",
+        "value": "600"
+      },
+      {
+        "name": "陪伴鸭大号",
+        "value": "600"
+      },
+      {
+        "name": "☆陪伴鸭小号（响纸+猫薄荷）",
+        "value": "600"
+      },
+      {
+        "name": "陪伴鸭大号（响纸+猫薄荷）",
+        "value": "600"
+      },
+      {
+        "name": "大头牛（解闷发声）",
+        "value": "600"
+      },
+      {
+        "name": "小蓝象（磨牙耐咬）",
+        "value": "600"
+      },
+      {
+        "name": "黄狮子（消耗精力）",
+        "value": "600"
+      },
+      {
+        "name": "托比鸭（磨牙耐咬）",
+        "value": "600"
+      },
+      {
+        "name": "卡尔狗（磨牙耐咬）",
+        "value": "600"
+      },
+      {
+        "name": "哈里森熊（磨牙耐咬）",
+        "value": "600"
+      },
+      {
+        "name": "【两只实惠装】陪伴鸭小号（黄）",
+        "value": "600"
+      },
+      {
+        "name": "【两只实惠装】陪伴鸭中号（黄）",
+        "value": "600"
+      },
+      {
+        "name": "【两只实惠装】陪伴鸭大号（黄）",
+        "value": "600"
+      },
+      {
+        "name": "超值三只装（小号+中号+大号）",
+        "value": "600"
+      },
+      {
+        "name": "小号+绳结胡萝卜",
+        "value": "600"
+      },
+      {
+        "name": "中号+绳结胡萝卜",
+        "value": "600"
+      },
+      {
+        "name": "大号+绳结胡萝卜",
+        "value": "600"
+      },
+      {
+        "name": "小号+小狗飞盘",
+        "value": "600"
+      },
+      {
+        "name": "中号+小狗飞盘",
+        "value": "600"
+      },
+      {
+        "name": "大号+小狗飞盘",
+        "value": "600"
+      },
+      {
+        "name": "【加长款】大头牛",
+        "value": "210"
+      },
+      {
+        "name": "【加长款】小粉猪",
+        "value": "210"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100+"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "100000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "陪伴鸭小号",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN014he1Ca1TbFWRqNnSC_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "陪伴鸭中号",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01TW7t3r1TbFWXj8vkr_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "陪伴鸭大号",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fmclcm1TbFWU8CGVP_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "☆陪伴鸭小号（响纸+猫薄荷）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kmUMWO1TbFbSQ2Xen_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "陪伴鸭大号（响纸+猫薄荷）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01uQD8Qm1TbFbYXGUxS_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "大头牛（解闷发声）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01X8qSpp1TbFXNk6Zoy_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "小蓝象（磨牙耐咬）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Uq6GSz1TbFXSqwToo_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "黄狮子（消耗精力）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01aSAd1x1TbFXMwb7h5_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "托比鸭（磨牙耐咬）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01RDE5vO1TbFZ4198kO_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "卡尔狗（磨牙耐咬）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN018jDRIs1TbFZ6GTLXm_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "哈里森熊（磨牙耐咬）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01bMhw7R1TbFZ2pgStc_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "【两只实惠装】陪伴鸭小号（黄）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012pY9bX1TbFbe7rhYm_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "【两只实惠装】陪伴鸭中号（黄）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01eshwkn1TbFbcqUKks_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "【两只实惠装】陪伴鸭大号（黄）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01u4PmDa1TbFbdNJmX9_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "超值三只装（小号+中号+大号）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wN5ecs1TbFbbbagzb_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "小号+绳结胡萝卜",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GDRyxv1TbFbdVjb4I_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "中号+绳结胡萝卜",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01CfR0ob1TbFbe8j0QP_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "大号+绳结胡萝卜",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dFeuRw1TbFbf1Y666_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "小号+小狗飞盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WP6OwA1TbFe1hYUQz_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "中号+小狗飞盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WvnHKZ1TbFe0ADg0M_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "大号+小狗飞盘",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01i37PUk1TbFbcbl5wD_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "【加长款】大头牛",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01axhPSg1TbFh7Cr8Wz_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "【加长款】小粉猪",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01qOaTuR1TbFh8A3R8g_!!2211237402400-0-cib.jpg"
+          },
+          {
+            "name": "陪伴鸭小号",
+            "image": null,
+            "price": 5.8
+          },
+          {
+            "name": "陪伴鸭中号",
+            "image": null,
+            "price": 8.8
+          },
+          {
+            "name": "陪伴鸭大号",
+            "image": null,
+            "price": 12
+          },
+          {
+            "name": "☆陪伴鸭小号（响纸+猫薄荷）",
+            "image": null,
+            "price": 5.8
+          },
+          {
+            "name": "陪伴鸭大号（响纸+猫薄荷）",
+            "image": null,
+            "price": 8.5
+          },
+          {
+            "name": "大头牛（解闷发声）",
+            "image": null,
+            "price": 5.8
+          },
+          {
+            "name": "小蓝象（磨牙耐咬）",
+            "image": null,
+            "price": 5.8
+          },
+          {
+            "name": "黄狮子（消耗精力）",
+            "image": null,
+            "price": 5.8
+          },
+          {
+            "name": "托比鸭（磨牙耐咬）",
+            "image": null,
+            "price": 8.9
+          },
+          {
+            "name": "卡尔狗（磨牙耐咬）",
+            "image": null,
+            "price": 8.9
+          },
+          {
+            "name": "哈里森熊（磨牙耐咬）",
+            "image": null,
+            "price": 8.9
+          },
+          {
+            "name": "【两只实惠装】陪伴鸭小号（黄）",
+            "image": null,
+            "price": 11.6
+          },
+          {
+            "name": "【两只实惠装】陪伴鸭中号（黄）",
+            "image": null,
+            "price": 17.6
+          },
+          {
+            "name": "【两只实惠装】陪伴鸭大号（黄）",
+            "image": null,
+            "price": 24
+          },
+          {
+            "name": "超值三只装（小号+中号+大号）",
+            "image": null,
+            "price": 26.6
+          },
+          {
+            "name": "小号+绳结胡萝卜",
+            "image": null,
+            "price": 8.2
+          },
+          {
+            "name": "中号+绳结胡萝卜",
+            "image": null,
+            "price": 11.2
+          },
+          {
+            "name": "大号+绳结胡萝卜",
+            "image": null,
+            "price": 14.4
+          },
+          {
+            "name": "小号+小狗飞盘",
+            "image": null,
+            "price": 9.1
+          },
+          {
+            "name": "中号+小狗飞盘",
+            "image": null,
+            "price": 12.4
+          },
+          {
+            "name": "大号+小狗飞盘",
+            "image": null,
+            "price": 15.3
+          },
+          {
+            "name": "【加长款】大头牛",
+            "image": null,
+            "price": 10.5
+          },
+          {
+            "name": "【加长款】小粉猪",
+            "image": null,
+            "price": 10.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 重量(g) 陪伴鸭小号 600 陪伴鸭中号 600 陪伴鸭大号 600 ☆陪伴鸭小号（响纸+猫薄荷） 600 陪伴鸭大号（响纸+猫薄荷） 600 大头牛（解闷发声） 600 小蓝象（磨牙耐咬） 600 黄狮子（消耗精力） 600 托比鸭（磨牙耐咬） 600 卡尔狗（磨牙耐咬） 600 哈里森熊（磨牙耐咬） 600 【两只实惠装】陪伴鸭小号（黄） 600 【两只实惠装】陪伴鸭中号（黄） 600 【两只实惠装】陪伴鸭大号（黄） 600 超值三只装（小号+中号+大号） 600 小号+绳结胡萝卜 600 中号+绳结胡萝卜 600 大号+绳结胡萝卜 600 小号+小狗飞盘 600 中号+小狗飞盘 600 大号+小狗飞盘 600 【加长款】大头牛 210 【加长款】小粉猪 210",
+    "packagingRows": [
+      {
+        "color": "陪伴鸭小号",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "陪伴鸭中号",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "陪伴鸭大号",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "☆陪伴鸭小号（响纸+猫薄荷）",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "陪伴鸭大号（响纸+猫薄荷）",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "大头牛（解闷发声）",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "小蓝象（磨牙耐咬）",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黄狮子（消耗精力）",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "托比鸭（磨牙耐咬）",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "卡尔狗（磨牙耐咬）",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "哈里森熊（磨牙耐咬）",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "【两只实惠装】陪伴鸭小号（黄）",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "【两只实惠装】陪伴鸭中号（黄）",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "【两只实惠装】陪伴鸭大号（黄）",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "超值三只装（小号+中号+大号）",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "小号+绳结胡萝卜",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "中号+绳结胡萝卜",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "大号+绳结胡萝卜",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "小号+小狗飞盘",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "中号+小狗飞盘",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "大号+小狗飞盘",
+        "capacity": "600",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "【加长款】大头牛",
+        "capacity": "210",
+        "weightText": "210",
+        "weightGrams": 210,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "【加长款】小粉猪",
+        "capacity": "210",
+        "weightText": "210",
+        "weightGrams": 210,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "福建漳州",
+      "freightCny": 4,
+      "carrier": "申通快递",
+      "dispatchHours": 7,
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "陪伴鸭小号",
+        "price": 5.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN014he1Ca1TbFWRqNnSC_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "陪伴鸭中号",
+        "price": 8.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01TW7t3r1TbFWXj8vkr_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "陪伴鸭大号",
+        "price": 12,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fmclcm1TbFWU8CGVP_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "☆陪伴鸭小号（响纸+猫薄荷）",
+        "price": 5.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kmUMWO1TbFbSQ2Xen_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "陪伴鸭大号（响纸+猫薄荷）",
+        "price": 8.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01uQD8Qm1TbFbYXGUxS_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "大头牛（解闷发声）",
+        "price": 5.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01X8qSpp1TbFXNk6Zoy_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "小蓝象（磨牙耐咬）",
+        "price": 5.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Uq6GSz1TbFXSqwToo_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "黄狮子（消耗精力）",
+        "price": 5.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01aSAd1x1TbFXMwb7h5_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "托比鸭（磨牙耐咬）",
+        "price": 8.9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01RDE5vO1TbFZ4198kO_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "卡尔狗（磨牙耐咬）",
+        "price": 8.9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN018jDRIs1TbFZ6GTLXm_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "哈里森熊（磨牙耐咬）",
+        "price": 8.9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01bMhw7R1TbFZ2pgStc_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "【两只实惠装】陪伴鸭小号（黄）",
+        "price": 11.6,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN012pY9bX1TbFbe7rhYm_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "【两只实惠装】陪伴鸭中号（黄）",
+        "price": 17.6,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01eshwkn1TbFbcqUKks_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "【两只实惠装】陪伴鸭大号（黄）",
+        "price": 24,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01u4PmDa1TbFbdNJmX9_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "超值三只装（小号+中号+大号）",
+        "price": 26.6,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wN5ecs1TbFbbbagzb_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "小号+绳结胡萝卜",
+        "price": 8.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GDRyxv1TbFbdVjb4I_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "中号+绳结胡萝卜",
+        "price": 11.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01CfR0ob1TbFbe8j0QP_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "大号+绳结胡萝卜",
+        "price": 14.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01dFeuRw1TbFbf1Y666_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "小号+小狗飞盘",
+        "price": 9.1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WP6OwA1TbFe1hYUQz_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "中号+小狗飞盘",
+        "price": 12.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WvnHKZ1TbFe0ADg0M_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "大号+小狗飞盘",
+        "price": 15.3,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01i37PUk1TbFbcbl5wD_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "【加长款】大头牛",
+        "price": 10.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01axhPSg1TbFh7Cr8Wz_!!2211237402400-0-cib.jpg"
+      },
+      {
+        "name": "【加长款】小粉猪",
+        "price": 10.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01qOaTuR1TbFh8A3R8g_!!2211237402400-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 12,
+      "attributeCount": 43,
+      "optionGroupCount": 1,
+      "skuCount": 23,
+      "imageCount": 29,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 2,
+      "packagingTableTextLength": 341
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-174352-760794-bfca25bf.json"
+}

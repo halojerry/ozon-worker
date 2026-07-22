@@ -1,0 +1,278 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "GOLF胸包男女士时尚斜挎包单肩包ipad多隔层户外防泼水轻便手机包",
+    "price": "¥119",
+    "brand": "GOLF",
+    "seller": "广州清意服饰有限公司 关注 客服 商品 入驻3年 主营：双肩背包 店铺回头率 41% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 97.7%",
+    "image_count": 32,
+    "attribute_count": 23,
+    "dom_sku_count": 2,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/911872731592.html?offerId=911872731592",
+    "loginRequired": false,
+    "title": "GOLF胸包男女士时尚斜挎包单肩包ipad多隔层户外防泼水轻便手机包",
+    "price": "¥119",
+    "priceValue": 119,
+    "brand": "GOLF",
+    "seller": "广州清意服饰有限公司 关注 客服 商品 入驻3年 主营：双肩背包 店铺回头率 41% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 97.7%",
+    "sellerLink": "https://shop762sj089d0828.1688.com/?offerId=911872731592&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01MfFodk1n3ARpPOEC6_!!2786815033-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MfFodk1n3ARpPOEC6_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01t1yEgv1n3ARp9EzUR_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01CExMOE1n3ARoH3NA1_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lT3Et91n3ARp9Cycb_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FQ6tLr1n3ARp9F7p1_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WdxX261n3ARpYCmNX_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01T2pVwa1n3ARqfdj0I_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pVy16t1n3ARqJWlYW_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HaiklB1n3ARo9Jh81_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fUALuO1n3ARo9KIWs_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FBWI381n3ARjJeS6Z_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FaoYNj1n3ARoGxw14_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gODRr81n3ARoGvFiI_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013AZpmq1n3ARq7IHft_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xV3Pml1n3ARpuHerU_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01o13wsF1n3ARqfNLJb_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pCoqkA1n3ARoGyTJA_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01P4w1ZK1n3ARpN5FEE_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dgxtpK1n3ARjJfSVX_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01dkL0o91n3ARqJXVLy_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01a1LLWE1n3ARq7J9jR_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01A5Jh7J1n3ARp94vK2_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SGznzS1n3ARrYPvmG_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN017om1tI1n3ARo9J1bj_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GR8jZw1n3ARpPEthC_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01AuoTpL1n3ARpXry9G_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pz942J1n3ARnbTfyX_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JJfby91n3ARrCHpsv_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QVi5ea1n3ARjJiD0b_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aTIC5D1n3ARnbVHlZ_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cGbJVM1n3ARnbWYmY_!!2786815033-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PTPLZ91n3ARpuHevC_!!2786815033-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "织物"
+      },
+      {
+        "name": "功能",
+        "value": "耐磨"
+      },
+      {
+        "name": "里料质地",
+        "value": "织物"
+      },
+      {
+        "name": "容纳电脑尺寸",
+        "value": "8英寸"
+      },
+      {
+        "name": "品牌",
+        "value": "GOLF"
+      },
+      {
+        "name": "风格",
+        "value": "休闲旅行"
+      },
+      {
+        "name": "流行元素",
+        "value": "车缝线"
+      },
+      {
+        "name": "货号",
+        "value": "GBB4GF2829F"
+      },
+      {
+        "name": "图案",
+        "value": "纯色"
+      },
+      {
+        "name": "颜色",
+        "value": "杏色,黑色"
+      },
+      {
+        "name": "上市年份季节",
+        "value": "2025年春季"
+      },
+      {
+        "name": "适用场景",
+        "value": "日常搭配"
+      },
+      {
+        "name": "颜色",
+        "value": "杏色、黑色"
+      },
+      {
+        "name": "材质",
+        "value": "耐磨"
+      },
+      {
+        "name": "里料质地",
+        "value": "8英寸"
+      },
+      {
+        "name": "品牌",
+        "value": "休闲旅行"
+      },
+      {
+        "name": "流行元素",
+        "value": "GBB4GF2829F"
+      },
+      {
+        "name": "图案",
+        "value": "杏色,黑色"
+      },
+      {
+        "name": "上市年份季节",
+        "value": "日常搭配"
+      },
+      {
+        "name": "杏色",
+        "value": "350"
+      },
+      {
+        "name": "黑色",
+        "value": "350"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2025年4月"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "杏色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WdxX261n3ARpYCmNX_!!2786815033-0-cib.jpg"
+          },
+          {
+            "name": "黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01T2pVwa1n3ARqfdj0I_!!2786815033-0-cib.jpg"
+          },
+          {
+            "name": "杏色",
+            "image": null,
+            "price": 119
+          },
+          {
+            "name": "黑色",
+            "image": null,
+            "price": 119
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 重量(g) 杏色 350 黑色 350",
+    "packagingRows": [
+      {
+        "color": "杏色",
+        "capacity": "350",
+        "weightText": "350",
+        "weightGrams": 350,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黑色",
+        "capacity": "350",
+        "weightText": "350",
+        "weightGrams": 350,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "广东广州",
+      "freightCny": 5,
+      "carrier": "圆通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "杏色",
+        "price": 119,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WdxX261n3ARpYCmNX_!!2786815033-0-cib.jpg"
+      },
+      {
+        "name": "黑色",
+        "price": 119,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01T2pVwa1n3ARqfdj0I_!!2786815033-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 12,
+      "attributeCount": 23,
+      "optionGroupCount": 1,
+      "skuCount": 2,
+      "imageCount": 35,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 2,
+      "packagingTableTextLength": 22
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-201202-043757-075b73a8.json"
+}

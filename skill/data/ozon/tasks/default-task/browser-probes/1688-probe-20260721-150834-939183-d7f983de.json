@@ -1,0 +1,397 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "德力西修车躺板36寸滑板40寸睡板修车板塑料汽修工具防滑修车工具",
+    "price": null,
+    "brand": "假一赔四",
+    "seller": "1688小店进货官方供应链",
+    "image_count": 19,
+    "attribute_count": 24,
+    "dom_sku_count": 0,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1011966008290.html?spm=a26352.13672862.offerlist.421.6b2f1e62PF7sxh&offerId=1011966008290&sortType=&pageId=&abBizDataType=cbuOffer&hotSaleSkuId=6177680471114&trace_log=normal&uuid=6fa0b0937b7149c88bd1100f13a54e41&forcePC=1784615011150&kj_agent_plugin=zying",
+    "loginRequired": false,
+    "title": "德力西修车躺板36寸滑板40寸睡板修车板塑料汽修工具防滑修车工具",
+    "price": null,
+    "priceValue": null,
+    "brand": "假一赔四",
+    "seller": "1688小店进货官方供应链",
+    "sellerLink": "https://shop1407483158797.1688.com/?offerId=1011966008290&td_page_id=PC-GYP-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01PEuI1h1MDFbn6RY6a_!!2202331400-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PEuI1h1MDFbn6RY6a_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01EPapK41MDFbmTO3s5_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SEQMwE1MDFbmnGdz1_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01jsj9ET1MDFbnILER8_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01XmFmFq1MDFbnA8P0e_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010lbJTH1MDFbmp7Fl5_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012U3jmu1MDFbmmu2PJ_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01mTEUik1MDFbn22gcs_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UJwtCn1MDFbnPQ5jO_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN018uYoJN1MDFbnve1x5_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Mop69H1MDFbnA9kDF_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01laioCb1MDFbmCGJPn_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aFmAtH1MDFbn6SQ9X_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01408NXV1MDFbmCHeZZ_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sozPns1MDFbmmvmWU_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pkHSMo1MDFbmCEpuG_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HqbnCw1MDFbn6TICz_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01CBPW7T1MDFbhbYOJk_!!2202331400-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01M8WjPb1MDFbmzkjRc_!!2202331400-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2202331400/p/2/e/6/t/1/549312977648.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "德力西电气"
+      },
+      {
+        "name": "类型",
+        "value": "汽修工具"
+      },
+      {
+        "name": "材质",
+        "value": "PE板材"
+      },
+      {
+        "name": "适用范围",
+        "value": "汽车维修"
+      },
+      {
+        "name": "品牌",
+        "value": "汽修工具"
+      },
+      {
+        "name": "材质",
+        "value": "汽车维修"
+      },
+      {
+        "name": "专业款•加厚36寸【新料无毒无味】修车板(红色）",
+        "value": "5200"
+      },
+      {
+        "name": "专业款•加厚36寸【新料无毒无味】修车板(黑色）",
+        "value": "5200"
+      },
+      {
+        "name": "旗舰款•特厚40寸【新料无毒无味】修车板(红色）",
+        "value": "5200"
+      },
+      {
+        "name": "旗舰款•特厚40寸【新料无毒无味】修车板(黑色）",
+        "value": "5200"
+      },
+      {
+        "name": "旗舰款•特厚40寸【LED灯+备用轮】修车板(红色）",
+        "value": "5200"
+      },
+      {
+        "name": "旗舰款•特厚40寸【LED灯+备用轮】修车板(黑色）",
+        "value": "5200"
+      },
+      {
+        "name": "旗舰款•特厚40寸【磁性工具盒】修车板(红色）",
+        "value": "5200"
+      },
+      {
+        "name": "旗舰款•特厚40寸【磁性工具盒】修车板(黑色）",
+        "value": "5200"
+      },
+      {
+        "name": "旗舰款•特厚40寸【LED灯+备用轮+磁性工具盒】修车板(红色）",
+        "value": "5200"
+      },
+      {
+        "name": "旗舰款•特厚40寸【LED灯+备用轮+磁性工具盒】修车板(黑色）",
+        "value": "5200"
+      },
+      {
+        "name": "专业款•特厚36寸【新料无毒无味】修车板(红色）",
+        "value": "5200"
+      },
+      {
+        "name": "专业款•特厚36寸【新料无毒无味】修车板(黑色）",
+        "value": "5200"
+      },
+      {
+        "name": "专业款•特厚36寸【LED灯+备用轮】修车板(红色）",
+        "value": "5200"
+      },
+      {
+        "name": "专业款•特厚36寸【LED灯+备用轮】修车板(黑色）",
+        "value": "5200"
+      },
+      {
+        "name": "尺寸",
+        "value": "全部 920. 1020. 920 1020"
+      },
+      {
+        "name": "颜色",
+        "value": "全部 红色款 黑色款 红色款. 黑色款. 展开参数"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "10000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格组1",
+        "values": [
+          {
+            "name": "全部",
+            "image": null
+          },
+          {
+            "name": "920.",
+            "image": null
+          },
+          {
+            "name": "1020.",
+            "image": null
+          },
+          {
+            "name": "920",
+            "image": null
+          },
+          {
+            "name": "1020",
+            "image": null
+          }
+        ]
+      },
+      {
+        "name": "规格组2",
+        "values": [
+          {
+            "name": "全部",
+            "image": null
+          },
+          {
+            "name": "红色款",
+            "image": null
+          },
+          {
+            "name": "黑色款",
+            "image": null
+          },
+          {
+            "name": "红色款.",
+            "image": null
+          },
+          {
+            "name": "黑色款.",
+            "image": null
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格型号",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格型号 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 专业款•加厚36寸【新料无毒无味】修车板(红色） 110 50 30 165000 5200 专业款•加厚36寸【新料无毒无味】修车板(黑色） 110 50 30 165000 5200 旗舰款•特厚40寸【新料无毒无味】修车板(红色） 110 50 30 165000 5200 旗舰款•特厚40寸【新料无毒无味】修车板(黑色） 110 50 30 165000 5200 旗舰款•特厚40寸【LED灯+备用轮】修车板(红色） 110 50 30 165000 5200 旗舰款•特厚40寸【LED灯+备用轮】修车板(黑色） 110 50 30 165000 5200 旗舰款•特厚40寸【磁性工具盒】修车板(红色） 110 50 30 165000 5200 旗舰款•特厚40寸【磁性工具盒】修车板(黑色） 110 50 30 165000 5200 旗舰款•特厚40寸【LED灯+备用轮+磁性工具盒】修车板(红色） 110 50 30 165000 5200 旗舰款•特厚40寸【LED灯+备用轮+磁性工具盒】修车板(黑色） 110 50 30 165000 5200 专业款•特厚36寸【新料无毒无味】修车板(红色） 110 50 30 165000 5200 专业款•特厚36寸【新料无毒无味】修车板(黑色） 110 50 30 165000 5200 专业款•特厚36寸【LED灯+备用轮】修车板(红色） 110 50 30 165000 5200 专业款•特厚36寸【LED灯+备用轮】修车板(黑色） 110 50 30 165000 5200",
+    "packagingRows": [
+      {
+        "color": "专业款•加厚36寸【新料无毒无味】修车板(红色）",
+        "capacity": "专业款•加厚36寸【新料无毒无味】修车板(红色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      },
+      {
+        "color": "专业款•加厚36寸【新料无毒无味】修车板(黑色）",
+        "capacity": "专业款•加厚36寸【新料无毒无味】修车板(黑色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      },
+      {
+        "color": "旗舰款•特厚40寸【新料无毒无味】修车板(红色）",
+        "capacity": "旗舰款•特厚40寸【新料无毒无味】修车板(红色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      },
+      {
+        "color": "旗舰款•特厚40寸【新料无毒无味】修车板(黑色）",
+        "capacity": "旗舰款•特厚40寸【新料无毒无味】修车板(黑色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      },
+      {
+        "color": "旗舰款•特厚40寸【LED灯+备用轮】修车板(红色）",
+        "capacity": "旗舰款•特厚40寸【LED灯+备用轮】修车板(红色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      },
+      {
+        "color": "旗舰款•特厚40寸【LED灯+备用轮】修车板(黑色）",
+        "capacity": "旗舰款•特厚40寸【LED灯+备用轮】修车板(黑色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      },
+      {
+        "color": "旗舰款•特厚40寸【磁性工具盒】修车板(红色）",
+        "capacity": "旗舰款•特厚40寸【磁性工具盒】修车板(红色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      },
+      {
+        "color": "旗舰款•特厚40寸【磁性工具盒】修车板(黑色）",
+        "capacity": "旗舰款•特厚40寸【磁性工具盒】修车板(黑色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      },
+      {
+        "color": "旗舰款•特厚40寸【LED灯+备用轮+磁性工具盒】修车板(红色）",
+        "capacity": "旗舰款•特厚40寸【LED灯+备用轮+磁性工具盒】修车板(红色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      },
+      {
+        "color": "旗舰款•特厚40寸【LED灯+备用轮+磁性工具盒】修车板(黑色）",
+        "capacity": "旗舰款•特厚40寸【LED灯+备用轮+磁性工具盒】修车板(黑色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      },
+      {
+        "color": "专业款•特厚36寸【新料无毒无味】修车板(红色）",
+        "capacity": "专业款•特厚36寸【新料无毒无味】修车板(红色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      },
+      {
+        "color": "专业款•特厚36寸【新料无毒无味】修车板(黑色）",
+        "capacity": "专业款•特厚36寸【新料无毒无味】修车板(黑色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      },
+      {
+        "color": "专业款•特厚36寸【LED灯+备用轮】修车板(红色）",
+        "capacity": "专业款•特厚36寸【LED灯+备用轮】修车板(红色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      },
+      {
+        "color": "专业款•特厚36寸【LED灯+备用轮】修车板(黑色）",
+        "capacity": "专业款•特厚36寸【LED灯+备用轮】修车板(黑色）",
+        "weightText": "5200",
+        "weightGrams": 5200,
+        "lengthText": "110",
+        "widthText": "50",
+        "heightText": "30"
+      }
+    ],
+    "shipping": {
+      "origin": "山东临沂",
+      "freightCny": 9,
+      "carrier": "申通快递"
+    },
+    "skuDetails": [],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 4,
+      "attributeCount": 24,
+      "optionGroupCount": 2,
+      "skuCount": 0,
+      "imageCount": 21,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 716
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-150834-939183-d7f983de.json"
+}

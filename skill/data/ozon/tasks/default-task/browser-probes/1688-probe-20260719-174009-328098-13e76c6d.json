@@ -1,0 +1,341 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "亚马逊新款园艺护腿围裙花园修剪多口袋户外护腿采摘围裙防脏围裙",
+    "price": "¥21.5",
+    "brand": "自主",
+    "seller": "东莞市天木科技有限公司 关注 客服 商品 入驻6年 主营：猫狗用品 店铺回头率 48% 店铺服务分 3.5分 准时发货率 - % 店铺好评率 99.7%",
+    "image_count": 10,
+    "attribute_count": 26,
+    "dom_sku_count": 5,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/669353924657.html",
+    "loginRequired": false,
+    "title": "亚马逊新款园艺护腿围裙花园修剪多口袋户外护腿采摘围裙防脏围裙",
+    "price": "¥21.5",
+    "priceValue": 21.5,
+    "brand": "自主",
+    "seller": "东莞市天木科技有限公司 关注 客服 商品 入驻6年 主营：猫狗用品 店铺回头率 48% 店铺服务分 3.5分 准时发货率 - % 店铺好评率 99.7%",
+    "sellerLink": "https://shop8q075o99h5311.1688.com/?offerId=669353924657&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fvQX1k1R8H15Frvqv_!!2209568752066-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fvQX1k1R8H15Frvqv_!!2209568752066-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OWpvto1R8H14A2Meu_!!2209568752066-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yJlrxL1R8H12Ia1HP_!!2209568752066-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Z4IS1o1R8H0rVDWJd_!!2209568752066-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LDg3OG1R8H0mvCJ0i_!!2209568752066-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015zNhGR1R8HGFnvgq7_!!2209568752066-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01nQZAsQ1R8HGIVRGdJ_!!2209568752066-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01m445021R8HMpPDGNa_!!2209568752066-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ZLXDjn1R8HMpPF0Xu_!!2209568752066-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JnCvTH1R8HMpX1e0d_!!2209568752066-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2209568752066/p/2/e/6/t/1/384266572784.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "牛津布"
+      },
+      {
+        "name": "品牌",
+        "value": "自主"
+      },
+      {
+        "name": "类型",
+        "value": "其它"
+      },
+      {
+        "name": "适用场景",
+        "value": "花园"
+      },
+      {
+        "name": "货号",
+        "value": "YYHTWQ-1"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "军绿色+卡其色口袋,军绿色+褐色口袋,采摘围裙，黑色,采摘围裙，绿色,采摘围裙，灰色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "规格",
+        "value": "军绿色+卡其色口袋、军绿色+褐色口袋、采摘围裙，黑色、采摘围裙，绿色、采摘围裙，灰色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "材质",
+        "value": "自主"
+      },
+      {
+        "name": "类型",
+        "value": "花园"
+      },
+      {
+        "name": "货号",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "否"
+      },
+      {
+        "name": "军绿色+卡其色口袋",
+        "value": "450"
+      },
+      {
+        "name": "军绿色+褐色口袋",
+        "value": "450"
+      },
+      {
+        "name": "采摘围裙，黑色",
+        "value": "236"
+      },
+      {
+        "name": "采摘围裙，绿色",
+        "value": "236"
+      },
+      {
+        "name": "采摘围裙，灰色",
+        "value": "236"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "20000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "军绿色+卡其色口袋",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN015zNhGR1R8HGFnvgq7_!!2209568752066-0-cib.jpg"
+          },
+          {
+            "name": "军绿色+褐色口袋",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01nQZAsQ1R8HGIVRGdJ_!!2209568752066-0-cib.jpg"
+          },
+          {
+            "name": "采摘围裙，黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01m445021R8HMpPDGNa_!!2209568752066-0-cib.jpg"
+          },
+          {
+            "name": "采摘围裙，绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ZLXDjn1R8HMpPF0Xu_!!2209568752066-0-cib.jpg"
+          },
+          {
+            "name": "采摘围裙，灰色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01JnCvTH1R8HMpX1e0d_!!2209568752066-0-cib.jpg"
+          },
+          {
+            "name": "军绿色+卡其色口袋",
+            "image": null,
+            "price": 21.5
+          },
+          {
+            "name": "军绿色+褐色口袋",
+            "image": null,
+            "price": 21.5
+          },
+          {
+            "name": "采摘围裙，黑色",
+            "image": null,
+            "price": 21.5
+          },
+          {
+            "name": "采摘围裙，绿色",
+            "image": null,
+            "price": 21.5
+          },
+          {
+            "name": "采摘围裙，灰色",
+            "image": null,
+            "price": 21.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 军绿色+卡其色口袋 26 23 4 2392 450 军绿色+褐色口袋 26 23 4 2392 450 采摘围裙，黑色 26 26 2.50 1690 236 采摘围裙，绿色 26 26 2.50 1690 236 采摘围裙，灰色 26 26 2.50 1690 236",
+    "packagingRows": [
+      {
+        "color": "军绿色+卡其色口袋",
+        "capacity": "军绿色+卡其色口袋",
+        "weightText": "450",
+        "weightGrams": 450,
+        "lengthText": "26",
+        "widthText": "23",
+        "heightText": "4"
+      },
+      {
+        "color": "军绿色+褐色口袋",
+        "capacity": "军绿色+褐色口袋",
+        "weightText": "450",
+        "weightGrams": 450,
+        "lengthText": "26",
+        "widthText": "23",
+        "heightText": "4"
+      },
+      {
+        "color": "采摘围裙，黑色",
+        "capacity": "采摘围裙，黑色",
+        "weightText": "236",
+        "weightGrams": 236,
+        "lengthText": "26",
+        "widthText": "26",
+        "heightText": "2.50"
+      },
+      {
+        "color": "采摘围裙，绿色",
+        "capacity": "采摘围裙，绿色",
+        "weightText": "236",
+        "weightGrams": 236,
+        "lengthText": "26",
+        "widthText": "26",
+        "heightText": "2.50"
+      },
+      {
+        "color": "采摘围裙，灰色",
+        "capacity": "采摘围裙，灰色",
+        "weightText": "236",
+        "weightGrams": 236,
+        "lengthText": "26",
+        "widthText": "26",
+        "heightText": "2.50"
+      }
+    ],
+    "shipping": {
+      "origin": "广西贵港",
+      "freightCny": 3,
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "军绿色+卡其色口袋",
+        "price": 21.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN015zNhGR1R8HGFnvgq7_!!2209568752066-0-cib.jpg"
+      },
+      {
+        "name": "军绿色+褐色口袋",
+        "price": 21.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01nQZAsQ1R8HGIVRGdJ_!!2209568752066-0-cib.jpg"
+      },
+      {
+        "name": "采摘围裙，黑色",
+        "price": 21.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01m445021R8HMpPDGNa_!!2209568752066-0-cib.jpg"
+      },
+      {
+        "name": "采摘围裙，绿色",
+        "price": 21.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ZLXDjn1R8HMpPF0Xu_!!2209568752066-0-cib.jpg"
+      },
+      {
+        "name": "采摘围裙，灰色",
+        "price": 21.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01JnCvTH1R8HMpX1e0d_!!2209568752066-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 11,
+      "attributeCount": 26,
+      "optionGroupCount": 1,
+      "skuCount": 5,
+      "imageCount": 13,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 171
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-174009-328098-13e76c6d.json"
+}

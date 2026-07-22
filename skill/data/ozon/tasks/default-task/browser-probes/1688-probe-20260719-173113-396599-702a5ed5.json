@@ -1,0 +1,305 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "户外旅行徒步水壶包斜挎包双肩背包肩带附件可挂式外挂手机拓展包",
+    "price": "¥15.8",
+    "brand": "其他",
+    "seller": "广西正涛科技有限公司 关注 客服 商品 入驻2年 主营：运动包 店铺回头率 46% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 99.1%",
+    "image_count": 9,
+    "attribute_count": 23,
+    "dom_sku_count": 4,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1025830326153.html",
+    "loginRequired": false,
+    "title": "户外旅行徒步水壶包斜挎包双肩背包肩带附件可挂式外挂手机拓展包",
+    "price": "¥15.8",
+    "priceValue": 15.8,
+    "brand": "其他",
+    "seller": "广西正涛科技有限公司 关注 客服 商品 入驻2年 主营：运动包 店铺回头率 46% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 99.1%",
+    "sellerLink": "https://shop4465531117406.1688.com/?offerId=1025830326153&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01D1yn1N1IicHIxKpNy_!!2219169980927-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01D1yn1N1IicHIxKpNy_!!2219169980927-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bSjjlo1IicHIjody3_!!2219169980927-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01q64JTq1IicHIerTgJ_!!2219169980927-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012LhsC61IicIoVWs6F_!!2219169980927-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ZXXMPL1IicIoVf4qs_!!2219169980927-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01U8gJAZ1IicHJ9fV1V_!!2219169980927-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01IRH8o71IicHKG3bAq_!!2219169980927-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Hnm5PJ1IicHDyduoL_!!2219169980927-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01qneeIs1IicHJUvxW4_!!2219169980927-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2219169980927/p/2/e/6/t/1/554995685450.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "尼龙"
+      },
+      {
+        "name": "功能",
+        "value": "超轻,扩容,减负"
+      },
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "里料质地",
+        "value": "涤纶"
+      },
+      {
+        "name": "适用性别",
+        "value": "中性/男女均可"
+      },
+      {
+        "name": "货号",
+        "value": "手机水杯拓展包"
+      },
+      {
+        "name": "上市年份季节",
+        "value": "2026年春季"
+      },
+      {
+        "name": "颜色",
+        "value": "黑色,橘色,灰色,紫色"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "适用场景",
+        "value": "户外运动"
+      },
+      {
+        "name": "图案",
+        "value": "无"
+      },
+      {
+        "name": "颜色",
+        "value": "黑色、橘色、灰色、紫色"
+      },
+      {
+        "name": "材质",
+        "value": "超轻,扩容,减负"
+      },
+      {
+        "name": "品牌",
+        "value": "涤纶"
+      },
+      {
+        "name": "适用性别",
+        "value": "手机水杯拓展包"
+      },
+      {
+        "name": "上市年份季节",
+        "value": "黑色,橘色,灰色,紫色"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "户外运动"
+      },
+      {
+        "name": "黑色",
+        "value": "42"
+      },
+      {
+        "name": "橘色",
+        "value": "42"
+      },
+      {
+        "name": "灰色",
+        "value": "42"
+      },
+      {
+        "name": "紫色",
+        "value": "42"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "200+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01U8gJAZ1IicHJ9fV1V_!!2219169980927-0-cib.jpg"
+          },
+          {
+            "name": "橘色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01IRH8o71IicHKG3bAq_!!2219169980927-0-cib.jpg"
+          },
+          {
+            "name": "灰色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Hnm5PJ1IicHDyduoL_!!2219169980927-0-cib.jpg"
+          },
+          {
+            "name": "紫色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01qneeIs1IicHJUvxW4_!!2219169980927-0-cib.jpg"
+          },
+          {
+            "name": "黑色",
+            "image": null,
+            "price": 15.8
+          },
+          {
+            "name": "橘色",
+            "image": null,
+            "price": 15.8
+          },
+          {
+            "name": "灰色",
+            "image": null,
+            "price": 15.8
+          },
+          {
+            "name": "紫色",
+            "image": null,
+            "price": 15.8
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 黑色 17 9 1 153 42 橘色 17 9 1 153 42 灰色 17 9 1 153 42 紫色 17 9 1 153 42",
+    "packagingRows": [
+      {
+        "color": "黑色",
+        "capacity": "17",
+        "weightText": "42",
+        "weightGrams": 42,
+        "lengthText": "17",
+        "widthText": "9",
+        "heightText": "1"
+      },
+      {
+        "color": "橘色",
+        "capacity": "17",
+        "weightText": "42",
+        "weightGrams": 42,
+        "lengthText": "17",
+        "widthText": "9",
+        "heightText": "1"
+      },
+      {
+        "color": "灰色",
+        "capacity": "17",
+        "weightText": "42",
+        "weightGrams": 42,
+        "lengthText": "17",
+        "widthText": "9",
+        "heightText": "1"
+      },
+      {
+        "color": "紫色",
+        "capacity": "17",
+        "weightText": "42",
+        "weightGrams": 42,
+        "lengthText": "17",
+        "widthText": "9",
+        "heightText": "1"
+      }
+    ],
+    "shipping": {
+      "origin": "广西贵港",
+      "freightCny": 4,
+      "carrier": "中通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "黑色",
+        "price": 15.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01U8gJAZ1IicHJ9fV1V_!!2219169980927-0-cib.jpg"
+      },
+      {
+        "name": "橘色",
+        "price": 15.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01IRH8o71IicHKG3bAq_!!2219169980927-0-cib.jpg"
+      },
+      {
+        "name": "灰色",
+        "price": 15.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Hnm5PJ1IicHDyduoL_!!2219169980927-0-cib.jpg"
+      },
+      {
+        "name": "紫色",
+        "price": 15.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01qneeIs1IicHJUvxW4_!!2219169980927-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 11,
+      "attributeCount": 23,
+      "optionGroupCount": 1,
+      "skuCount": 4,
+      "imageCount": 12,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 102
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-173113-396599-702a5ed5.json"
+}

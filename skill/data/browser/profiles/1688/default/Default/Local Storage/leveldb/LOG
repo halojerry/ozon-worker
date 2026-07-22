@@ -1,9 +1,6 @@
-2026/07/19-00:28:49.727 21644 Reusing MANIFEST /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/Local Storage/leveldb/MANIFEST-000001
-2026/07/19-00:28:49.729 21644 Recovering log #145
-2026/07/19-00:28:49.730 21644 Reusing old log /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/Local Storage/leveldb/000145.log 
-2026/07/19-00:44:45.708 21644 Level-0 table #150: started
-2026/07/19-00:44:45.712 21644 Level-0 table #150: 98402 bytes OK
-2026/07/19-00:44:45.714 21644 Delete type=0 #145
-2026/07/19-02:09:43.454 21644 Level-0 table #152: started
-2026/07/19-02:09:43.461 21644 Level-0 table #152: 168334 bytes OK
-2026/07/19-02:09:43.466 21644 Delete type=0 #149
+2026/07/22-19:42:00.145 1bedc3 Reusing MANIFEST /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/Local Storage/leveldb/MANIFEST-000001
+2026/07/22-19:42:00.147 1bedc3 Recovering log #49
+2026/07/22-19:42:00.148 1bedc3 Reusing old log /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/Local Storage/leveldb/000049.log 
+2026/07/22-20:11:15.277 1bedc6 Level-0 table #53: started
+2026/07/22-20:11:15.280 1bedc6 Level-0 table #53: 179305 bytes OK
+2026/07/22-20:11:15.289 1bedc6 Delete type=0 #49

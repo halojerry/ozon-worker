@@ -1,0 +1,43 @@
+{
+  "timestamp": "2026-07-22T10:06:52.471381+00:00",
+  "config": {
+    "worker_url": "http://localhost:8080",
+    "client_id": "5371047***",
+    "dry_run": true,
+    "type_filter": "ozon",
+    "start": 0,
+    "limit": 3
+  },
+  "stats": {
+    "total": 3,
+    "success": 0,
+    "failed": 3,
+    "skipped": 0
+  },
+  "results": [
+    {
+      "type": "ozon",
+      "id": "3726236911",
+      "title": "",
+      "success": false,
+      "task_id": "",
+      "error": "跟卖流程未找到匹配"
+    },
+    {
+      "type": "ozon",
+      "id": "3335728940",
+      "title": "",
+      "success": false,
+      "task_id": "",
+      "error": "跟卖流程未找到匹配"
+    },
+    {
+      "type": "ozon",
+      "id": "3749010675",
+      "title": "",
+      "success": false,
+      "task_id": "",
+      "error": "跟卖流程未找到匹配"
+    }
+  ]
+}

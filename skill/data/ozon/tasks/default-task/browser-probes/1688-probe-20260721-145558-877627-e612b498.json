@@ -1,0 +1,427 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "家用组合工具箱套装组合工具套装汽修扳手锤子螺丝刀电笔工厂批发",
+    "price": null,
+    "brand": "其他",
+    "seller": "杭州福森电子商务有限公司",
+    "image_count": 17,
+    "attribute_count": 33,
+    "dom_sku_count": 0,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1045093578283.html?spm=a26352.13672862.offerlist.129.6b2f1e62PF7sxh&offerId=1045093578283&sortType=&pageId=&abBizDataType=cbuOffer&hotSaleSkuId=6070124961423&trace_log=normal&uuid=6fa0b0937b7149c88bd1100f13a54e41&forcePC=1784614911946&kj_agent_plugin=zying",
+    "loginRequired": false,
+    "title": "家用组合工具箱套装组合工具套装汽修扳手锤子螺丝刀电笔工厂批发",
+    "price": null,
+    "priceValue": null,
+    "brand": "其他",
+    "seller": "杭州福森电子商务有限公司",
+    "sellerLink": "https://shop72280n7749752.1688.com/?offerId=1045093578283&td_page_id=PC-GYP-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01QD4ENt1ToXC6N8Yqp_!!2222290802429-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PNv5eG1fw78csaxmy_!!6000000004070-0-tbvideo.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QD4ENt1ToXC6N8Yqp_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01iqFpSP1ToXBDdEJBT_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01nhvPyg1ToXBAthwMU_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UNYeJn1ToXBAnyagQ_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zG3vPp1ToXBBJ3WsO_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gBNi0Z1ToXBB6uhlM_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Cp4es21ToXBBElzDD_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LVPEVQ1ToXBBhs0wA_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01I9Pl2n1ToXBBHsP0V_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pHctS41ToXBBNnRMe_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01nIhcs31ToXB6QfjTR_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wfHcfB1ToXBBHt90O_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Bl1hND1ToXBBFB1mi_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01oHioVJ1ToXBB9b6Qq_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012OicVZ1ToXBBVwy9t_!!2222290802429-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aMQy6f1ToXBB7SCqk_!!2222290802429-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2222290802429/p/2/e/6/t/1/561785066226.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "精度",
+        "value": "0.01"
+      },
+      {
+        "name": "材质",
+        "value": "碳钢"
+      },
+      {
+        "name": "适用范围",
+        "value": "家用"
+      },
+      {
+        "name": "适用场景",
+        "value": "工程 家用"
+      },
+      {
+        "name": "品牌",
+        "value": "0.01"
+      },
+      {
+        "name": "材质",
+        "value": "家用"
+      },
+      {
+        "name": "13件套粉色【美工刀款】",
+        "value": "13"
+      },
+      {
+        "name": "13件套黄色【美工刀款】",
+        "value": "13"
+      },
+      {
+        "name": "13件套粉色【锤子款】",
+        "value": "13"
+      },
+      {
+        "name": "13件套黄色【锤子款】",
+        "value": "13"
+      },
+      {
+        "name": "13件套【升级款】",
+        "value": "13"
+      },
+      {
+        "name": "24件套粉色",
+        "value": "24"
+      },
+      {
+        "name": "24件套黄色",
+        "value": "24"
+      },
+      {
+        "name": "24件套粉色【升级款】",
+        "value": "24"
+      },
+      {
+        "name": "24件套黄色【升级款】",
+        "value": "24"
+      },
+      {
+        "name": "20件套黄色【升级款】",
+        "value": "20"
+      },
+      {
+        "name": "20件套粉色【升级款】",
+        "value": "20"
+      },
+      {
+        "name": "13件套粉色【美工刀款】",
+        "value": "200"
+      },
+      {
+        "name": "13件套黄色【美工刀款】",
+        "value": "300"
+      },
+      {
+        "name": "13件套粉色【锤子款】",
+        "value": "400"
+      },
+      {
+        "name": "13件套黄色【锤子款】",
+        "value": "500"
+      },
+      {
+        "name": "13件套【升级款】",
+        "value": "600"
+      },
+      {
+        "name": "24件套粉色",
+        "value": "700"
+      },
+      {
+        "name": "24件套黄色",
+        "value": "800"
+      },
+      {
+        "name": "24件套粉色【升级款】",
+        "value": "900"
+      },
+      {
+        "name": "24件套黄色【升级款】",
+        "value": "950"
+      },
+      {
+        "name": "20件套黄色【升级款】",
+        "value": "1000"
+      },
+      {
+        "name": "20件套粉色【升级款】",
+        "value": "1050"
+      },
+      {
+        "name": "套件数量",
+        "value": "全部 13 20 24"
+      },
+      {
+        "name": "尺寸",
+        "value": "全部 10 11 12 13 14 15 16 17 18 19 20"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "100+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格组1",
+        "values": [
+          {
+            "name": "全部",
+            "image": null
+          },
+          {
+            "name": "13",
+            "image": null
+          },
+          {
+            "name": "20",
+            "image": null
+          },
+          {
+            "name": "24",
+            "image": null
+          }
+        ]
+      },
+      {
+        "name": "规格组2",
+        "values": [
+          {
+            "name": "全部",
+            "image": null
+          },
+          {
+            "name": "10",
+            "image": null
+          },
+          {
+            "name": "11",
+            "image": null
+          },
+          {
+            "name": "12",
+            "image": null
+          },
+          {
+            "name": "13",
+            "image": null
+          },
+          {
+            "name": "14",
+            "image": null
+          },
+          {
+            "name": "15",
+            "image": null
+          },
+          {
+            "name": "16",
+            "image": null
+          },
+          {
+            "name": "17",
+            "image": null
+          },
+          {
+            "name": "18",
+            "image": null
+          },
+          {
+            "name": "19",
+            "image": null
+          },
+          {
+            "name": "20",
+            "image": null
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "型号",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "型号 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 13件套粉色【美工刀款】 9 6 3 162 200 13件套黄色【美工刀款】 9 6 3 162 300 13件套粉色【锤子款】 9 6 3 162 400 13件套黄色【锤子款】 9 6 3 162 500 13件套【升级款】 9 6 3 162 600 24件套粉色 9 6 3 162 700 24件套黄色 9 6 3 162 800 24件套粉色【升级款】 9 6 3 162 900 24件套黄色【升级款】 9 6 3 162 950 20件套黄色【升级款】 9 6 3 162 1000 20件套粉色【升级款】 9 6 3 162 1050",
+    "packagingRows": [
+      {
+        "color": "13件套粉色【美工刀款】",
+        "capacity": "9",
+        "weightText": "200",
+        "weightGrams": 200,
+        "lengthText": "9",
+        "widthText": "6",
+        "heightText": "3"
+      },
+      {
+        "color": "13件套黄色【美工刀款】",
+        "capacity": "9",
+        "weightText": "300",
+        "weightGrams": 300,
+        "lengthText": "9",
+        "widthText": "6",
+        "heightText": "3"
+      },
+      {
+        "color": "13件套粉色【锤子款】",
+        "capacity": "9",
+        "weightText": "400",
+        "weightGrams": 400,
+        "lengthText": "9",
+        "widthText": "6",
+        "heightText": "3"
+      },
+      {
+        "color": "13件套黄色【锤子款】",
+        "capacity": "9",
+        "weightText": "500",
+        "weightGrams": 500,
+        "lengthText": "9",
+        "widthText": "6",
+        "heightText": "3"
+      },
+      {
+        "color": "13件套【升级款】",
+        "capacity": "9",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": "9",
+        "widthText": "6",
+        "heightText": "3"
+      },
+      {
+        "color": "24件套粉色",
+        "capacity": "9",
+        "weightText": "700",
+        "weightGrams": 700,
+        "lengthText": "9",
+        "widthText": "6",
+        "heightText": "3"
+      },
+      {
+        "color": "24件套黄色",
+        "capacity": "9",
+        "weightText": "800",
+        "weightGrams": 800,
+        "lengthText": "9",
+        "widthText": "6",
+        "heightText": "3"
+      },
+      {
+        "color": "24件套粉色【升级款】",
+        "capacity": "9",
+        "weightText": "900",
+        "weightGrams": 900,
+        "lengthText": "9",
+        "widthText": "6",
+        "heightText": "3"
+      },
+      {
+        "color": "24件套黄色【升级款】",
+        "capacity": "9",
+        "weightText": "950",
+        "weightGrams": 950,
+        "lengthText": "9",
+        "widthText": "6",
+        "heightText": "3"
+      },
+      {
+        "color": "20件套黄色【升级款】",
+        "capacity": "9",
+        "weightText": "1000",
+        "weightGrams": 1000,
+        "lengthText": "9",
+        "widthText": "6",
+        "heightText": "3"
+      },
+      {
+        "color": "20件套粉色【升级款】",
+        "capacity": "9",
+        "weightText": "1050",
+        "weightGrams": 1050,
+        "lengthText": "9",
+        "widthText": "6",
+        "heightText": "3"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "carrier": "圆通快递"
+    },
+    "skuDetails": [],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 5,
+      "attributeCount": 33,
+      "optionGroupCount": 2,
+      "skuCount": 0,
+      "imageCount": 20,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 312
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-145558-877627-e612b498.json"
+}

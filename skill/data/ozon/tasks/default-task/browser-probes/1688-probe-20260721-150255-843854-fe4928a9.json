@@ -1,0 +1,510 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "电瓶车 电动车后视镜 踏板摩托车倒车镜单车反光镜三轮车通用配件",
+    "price": "¥3.8",
+    "brand": "摩杰龙",
+    "seller": "郑州市管城回族区战匠摩托车配件商行",
+    "image_count": 16,
+    "attribute_count": 32,
+    "dom_sku_count": 11,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/831501249238.html?spm=a26352.13672862.offerlist.9.206e1e62oPK1U6&offerId=831501249238&sortType=&pageId=&abBizDataType=cbuOffer&hotSaleSkuId=5570642288205&trace_log=normal&uuid=6faa0f0b136f4e129262cc071c52c9c1&forcePC=1784615091633&kj_agent_plugin=zying",
+    "loginRequired": false,
+    "title": "电瓶车 电动车后视镜 踏板摩托车倒车镜单车反光镜三轮车通用配件",
+    "price": "¥3.8",
+    "priceValue": 3.8,
+    "brand": "摩杰龙",
+    "seller": "郑州市管城回族区战匠摩托车配件商行",
+    "sellerLink": "https://shop8662965di7t71.1688.com/?offerId=831501249238&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01tgkqDq1kR2BD57JvV_!!2217087554679-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tgkqDq1kR2BD57JvV_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019veg9t1kR2B3WUlGD_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cIhbFs1kR2BB2fkUT_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0189yi3u1kR2BC82vp4_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01C4ihWI1kR2BCtedTj_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KbYbvp1kR2BD56S0w_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cTEJZE1kR2BECu4XR_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01TOcyd51kR2B3WWVUn_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01TlMdK31kR2BAv26Xz_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0182PQ3N1kR2B8lQFhA_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01r7dNAU1kR2BAR4A5z_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN018qkc8U1kR2BAv3eET_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01l8y1ii1kR2BDg7yhU_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01S3TK6A1kR2BECrakl_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01a45QMe1kR2FgRIoY3_!!2217087554679-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN017AVbSs1kR2BB2hYxG_!!2217087554679-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2217087554679/p/2/e/6/t/1/480221218098.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "摩杰龙"
+      },
+      {
+        "name": "材质",
+        "value": "塑料"
+      },
+      {
+        "name": "产品类别",
+        "value": "后视镜"
+      },
+      {
+        "name": "电压",
+        "value": "无"
+      },
+      {
+        "name": "尺寸",
+        "value": "如下图"
+      },
+      {
+        "name": "货号",
+        "value": "XXF8MM"
+      },
+      {
+        "name": "包装规格",
+        "value": "飞鹰款倒车镜一对,飞鹰8MM倒车镜+镜座一对,9代8丝倒车镜/付,九代8丝倒车镜+镜座一对,金鹰款8MM倒车镜/付,金鹰款8MM倒车镜+镜座一对,小牛8MM倒车镜/付,小牛8MM倒车镜+镜座,小猴子8MM倒车镜/对,小猴子8MM倒车镜+镜座,通用款黑色8MM镜座一对"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "wish,速卖通,独立站,LAZADA,Shopee,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "3C证书编号",
+        "value": "2023001115000005"
+      },
+      {
+        "name": "品牌",
+        "value": "塑料"
+      },
+      {
+        "name": "产品类别",
+        "value": "无"
+      },
+      {
+        "name": "尺寸",
+        "value": "XXF8MM"
+      },
+      {
+        "name": "包装规格",
+        "value": "wish,速卖通,独立站,LAZADA,Shopee,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "飞鹰款倒车镜一对",
+        "value": "550"
+      },
+      {
+        "name": "飞鹰8MM倒车镜+镜座一对",
+        "value": "600"
+      },
+      {
+        "name": "9代8丝倒车镜/付",
+        "value": "480"
+      },
+      {
+        "name": "九代8丝倒车镜+镜座一对",
+        "value": "530"
+      },
+      {
+        "name": "金鹰款8MM倒车镜/付",
+        "value": "590"
+      },
+      {
+        "name": "金鹰款8MM倒车镜+镜座一对",
+        "value": "650"
+      },
+      {
+        "name": "小牛8MM倒车镜/付",
+        "value": "510"
+      },
+      {
+        "name": "小牛8MM倒车镜+镜座",
+        "value": "560"
+      },
+      {
+        "name": "小猴子8MM倒车镜/对",
+        "value": "580"
+      },
+      {
+        "name": "小猴子8MM倒车镜+镜座",
+        "value": "630"
+      },
+      {
+        "name": "通用款黑色8MM镜座一对",
+        "value": "160"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "20000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "包装规格",
+        "values": [
+          {
+            "name": "飞鹰款倒车镜一对",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KbYbvp1kR2BD56S0w_!!2217087554679-0-cib.jpg"
+          },
+          {
+            "name": "飞鹰8MM倒车镜+镜座一对",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cTEJZE1kR2BECu4XR_!!2217087554679-0-cib.jpg"
+          },
+          {
+            "name": "9代8丝倒车镜/付",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01TOcyd51kR2B3WWVUn_!!2217087554679-0-cib.jpg"
+          },
+          {
+            "name": "九代8丝倒车镜+镜座一对",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01TlMdK31kR2BAv26Xz_!!2217087554679-0-cib.jpg"
+          },
+          {
+            "name": "金鹰款8MM倒车镜/付",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0182PQ3N1kR2B8lQFhA_!!2217087554679-0-cib.jpg"
+          },
+          {
+            "name": "金鹰款8MM倒车镜+镜座一对",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01r7dNAU1kR2BAR4A5z_!!2217087554679-0-cib.jpg"
+          },
+          {
+            "name": "小牛8MM倒车镜/付",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN018qkc8U1kR2BAv3eET_!!2217087554679-0-cib.jpg"
+          },
+          {
+            "name": "小牛8MM倒车镜+镜座",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01l8y1ii1kR2BDg7yhU_!!2217087554679-0-cib.jpg"
+          },
+          {
+            "name": "小猴子8MM倒车镜/对",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01S3TK6A1kR2BECrakl_!!2217087554679-0-cib.jpg"
+          },
+          {
+            "name": "小猴子8MM倒车镜+镜座",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01a45QMe1kR2FgRIoY3_!!2217087554679-0-cib.jpg"
+          },
+          {
+            "name": "通用款黑色8MM镜座一对",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN017AVbSs1kR2BB2hYxG_!!2217087554679-0-cib.jpg"
+          },
+          {
+            "name": "飞鹰款倒车镜一对",
+            "image": null,
+            "price": 3.8
+          },
+          {
+            "name": "飞鹰8MM倒车镜+镜座一对",
+            "image": null,
+            "price": 6.5
+          },
+          {
+            "name": "9代8丝倒车镜/付",
+            "image": null,
+            "price": 3.68
+          },
+          {
+            "name": "九代8丝倒车镜+镜座一对",
+            "image": null,
+            "price": 6.3
+          },
+          {
+            "name": "金鹰款8MM倒车镜/付",
+            "image": null,
+            "price": 5.9
+          },
+          {
+            "name": "金鹰款8MM倒车镜+镜座一对",
+            "image": null,
+            "price": 8.8
+          },
+          {
+            "name": "小牛8MM倒车镜/付",
+            "image": null,
+            "price": 4.3
+          },
+          {
+            "name": "小牛8MM倒车镜+镜座",
+            "image": null,
+            "price": 7.2
+          },
+          {
+            "name": "小猴子8MM倒车镜/对",
+            "image": null,
+            "price": 4.68
+          },
+          {
+            "name": "小猴子8MM倒车镜+镜座",
+            "image": null,
+            "price": 7.8
+          },
+          {
+            "name": "通用款黑色8MM镜座一对",
+            "image": null,
+            "price": 2.95
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "包装规格",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "包装规格 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 飞鹰款倒车镜一对 30.50 10.50 6.50 2081.625 550 飞鹰8MM倒车镜+镜座一对 30.50 11 7 2348.500 600 9代8丝倒车镜/付 31.50 11 5.20 1801.800 480 九代8丝倒车镜+镜座一对 31.50 11.50 6 2173.500 530 金鹰款8MM倒车镜/付 33.40 10.30 6.50 2236.130 590 金鹰款8MM倒车镜+镜座一对 33.40 11 7 2571.800 650 小牛8MM倒车镜/付 31.50 11 5.20 1801.800 510 小牛8MM倒车镜+镜座 31.50 11 6 2079 560 小猴子8MM倒车镜/对 32 11.80 5.30 2001.280 580 小猴子8MM倒车镜+镜座 32 12 6 2304 630 通用款黑色8MM镜座一对 12 9.50 4 456 160",
+    "packagingRows": [
+      {
+        "color": "飞鹰款倒车镜一对",
+        "capacity": "飞鹰款倒车镜一对",
+        "weightText": "550",
+        "weightGrams": 550,
+        "lengthText": "30.50",
+        "widthText": "10.50",
+        "heightText": "6.50"
+      },
+      {
+        "color": "飞鹰8MM倒车镜+镜座一对",
+        "capacity": "飞鹰8MM倒车镜+镜座一对",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": "30.50",
+        "widthText": "11",
+        "heightText": "7"
+      },
+      {
+        "color": "9代8丝倒车镜/付",
+        "capacity": "9代8丝倒车镜/付",
+        "weightText": "480",
+        "weightGrams": 480,
+        "lengthText": "31.50",
+        "widthText": "11",
+        "heightText": "5.20"
+      },
+      {
+        "color": "九代8丝倒车镜+镜座一对",
+        "capacity": "九代8丝倒车镜+镜座一对",
+        "weightText": "530",
+        "weightGrams": 530,
+        "lengthText": "31.50",
+        "widthText": "11.50",
+        "heightText": "6"
+      },
+      {
+        "color": "金鹰款8MM倒车镜/付",
+        "capacity": "金鹰款8MM倒车镜/付",
+        "weightText": "590",
+        "weightGrams": 590,
+        "lengthText": "33.40",
+        "widthText": "10.30",
+        "heightText": "6.50"
+      },
+      {
+        "color": "金鹰款8MM倒车镜+镜座一对",
+        "capacity": "金鹰款8MM倒车镜+镜座一对",
+        "weightText": "650",
+        "weightGrams": 650,
+        "lengthText": "33.40",
+        "widthText": "11",
+        "heightText": "7"
+      },
+      {
+        "color": "小牛8MM倒车镜/付",
+        "capacity": "小牛8MM倒车镜/付",
+        "weightText": "510",
+        "weightGrams": 510,
+        "lengthText": "31.50",
+        "widthText": "11",
+        "heightText": "5.20"
+      },
+      {
+        "color": "小牛8MM倒车镜+镜座",
+        "capacity": "小牛8MM倒车镜+镜座",
+        "weightText": "560",
+        "weightGrams": 560,
+        "lengthText": "31.50",
+        "widthText": "11",
+        "heightText": "6"
+      },
+      {
+        "color": "小猴子8MM倒车镜/对",
+        "capacity": "小猴子8MM倒车镜/对",
+        "weightText": "580",
+        "weightGrams": 580,
+        "lengthText": "32",
+        "widthText": "11.80",
+        "heightText": "5.30"
+      },
+      {
+        "color": "小猴子8MM倒车镜+镜座",
+        "capacity": "小猴子8MM倒车镜+镜座",
+        "weightText": "630",
+        "weightGrams": 630,
+        "lengthText": "32",
+        "widthText": "12",
+        "heightText": "6"
+      },
+      {
+        "color": "通用款黑色8MM镜座一对",
+        "capacity": "通用款黑色8MM镜座一对",
+        "weightText": "160",
+        "weightGrams": 160,
+        "lengthText": "12",
+        "widthText": "9.50",
+        "heightText": "4"
+      }
+    ],
+    "shipping": {
+      "origin": "河北邢台",
+      "freightCny": 5,
+      "carrier": "中通快递",
+      "dispatchHours": 2
+    },
+    "skuDetails": [
+      {
+        "name": "飞鹰款倒车镜一对",
+        "price": 3.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KbYbvp1kR2BD56S0w_!!2217087554679-0-cib.jpg"
+      },
+      {
+        "name": "飞鹰8MM倒车镜+镜座一对",
+        "price": 6.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01cTEJZE1kR2BECu4XR_!!2217087554679-0-cib.jpg"
+      },
+      {
+        "name": "9代8丝倒车镜/付",
+        "price": 3.68,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01TOcyd51kR2B3WWVUn_!!2217087554679-0-cib.jpg"
+      },
+      {
+        "name": "九代8丝倒车镜+镜座一对",
+        "price": 6.3,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01TlMdK31kR2BAv26Xz_!!2217087554679-0-cib.jpg"
+      },
+      {
+        "name": "金鹰款8MM倒车镜/付",
+        "price": 5.9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN0182PQ3N1kR2B8lQFhA_!!2217087554679-0-cib.jpg"
+      },
+      {
+        "name": "金鹰款8MM倒车镜+镜座一对",
+        "price": 8.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01r7dNAU1kR2BAR4A5z_!!2217087554679-0-cib.jpg"
+      },
+      {
+        "name": "小牛8MM倒车镜/付",
+        "price": 4.3,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN018qkc8U1kR2BAv3eET_!!2217087554679-0-cib.jpg"
+      },
+      {
+        "name": "小牛8MM倒车镜+镜座",
+        "price": 7.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01l8y1ii1kR2BDg7yhU_!!2217087554679-0-cib.jpg"
+      },
+      {
+        "name": "小猴子8MM倒车镜/对",
+        "price": 4.68,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01S3TK6A1kR2BECrakl_!!2217087554679-0-cib.jpg"
+      },
+      {
+        "name": "小猴子8MM倒车镜+镜座",
+        "price": 7.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01a45QMe1kR2FgRIoY3_!!2217087554679-0-cib.jpg"
+      },
+      {
+        "name": "通用款黑色8MM镜座一对",
+        "price": 2.95,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN017AVbSs1kR2BB2hYxG_!!2217087554679-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 13,
+      "attributeCount": 32,
+      "optionGroupCount": 1,
+      "skuCount": 11,
+      "imageCount": 18,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 441
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-150255-843854-fe4928a9.json"
+}

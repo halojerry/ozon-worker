@@ -110,10 +110,12 @@ def cmd_graph(args: argparse.Namespace) -> int:
 
 
 def cmd_check(args) -> int:
-    """诊断前置条件：Chrome / 凭证 / Worker / Ozon API."""
+    """诊断前置条件：浏览器 / CDP / 1688 / Ozon / 凭证 / Worker"""
     from scripts.lib.config_store import load_env_file, check_config
+    from scripts.capabilities.browser_probe.service import _candidate_browser_paths
     import requests as req
     import os as _os
+    import shutil
 
     load_env_file()
     config = check_config()
@@ -122,51 +124,108 @@ def cmd_check(args) -> int:
     def _ok(b: bool) -> str:
         return "✅" if b else "❌"
 
-    # ── 凭证 ──
-    print("📋 凭证:")
-    missing = config.get("missing", [])
-    required = config.get("required_keys", {})
-    for k in required:
-        meta = required[k]
-        present = k not in missing
-        print(f"  {_ok(present)} {meta['label']} ({k})")
-    if missing:
-        all_ok = False
-        print(f"\n  ⚠️ 缺失凭证: {', '.join(missing)}")
-    if config.get("user_action"):
-        print(f"\n{config['user_action']}\n")
+    # ═══════════════════════════════════════════
+    # 1. 浏览器检测
+    # ═══════════════════════════════════════════
+    print("🖥️ 浏览器检测:")
+    
+    # 支持的所有 Chromium 内核浏览器
+    BROWSER_NAMES = {
+        "Google Chrome": ["chrome", "google-chrome", "google-chrome-stable"],
+        "Chromium": ["chromium", "chromium-browser"],
+        "Microsoft Edge": ["msedge", "microsoft-edge"],
+        "Brave": ["brave", "brave-browser"],
+        "Opera": ["opera"],
+        "Vivaldi": ["vivaldi"],
+        "360 浏览器": ["360chrome", "360se"],
+        "QQ 浏览器": ["qqbrowser"],
+        "搜狗浏览器": ["sogou", "sogou-explorer"],
+        "猎豹浏览器": ["liebao"],
+        "傲游浏览器": ["maxthon"],
+        "豆包浏览器": ["doubao", "doubao-browser"],
+    }
 
-    # ── CDP Chrome ──
+    found_browsers: list[tuple[str, str]] = []  # (name, path)
+    candidates = _candidate_browser_paths()
+    
+    for path in candidates:
+        if not path or not path.strip():
+            continue
+        path = path.strip()
+        basename = _os.path.basename(path).lower().replace('.exe', '').replace('.app', '')
+        name = None
+        for n, aliases in BROWSER_NAMES.items():
+            if basename in aliases or any(a in basename for a in aliases):
+                name = n
+                break
+        if not name:
+            name = basename.title()
+        
+        if _os.path.exists(path) or shutil.which(path):
+            actual = shutil.which(path) or path
+            if _os.path.exists(actual):
+                found_browsers.append((name, actual))
+
+    # Deduplicate
+    seen = set()
+    unique_browsers = []
+    for name, path in found_browsers:
+        key = _os.path.realpath(path)
+        if key not in seen:
+            seen.add(key)
+            unique_browsers.append((name, path))
+
+    if unique_browsers:
+        for name, path in unique_browsers:
+            print(f"  ✅ {name}: {path}")
+    else:
+        print(f"  ❌ 未检测到 Chromium 内核浏览器")
+        print(f"  → 请安装以下任一浏览器:")
+        print(f"     • Google Chrome: https://www.google.com/chrome/")
+        print(f"     • Microsoft Edge: https://www.microsoft.com/edge/")
+        print(f"     • Chromium: https://www.chromium.org/")
+        print(f"  → 安装后重新运行: python3 scripts/cli.py check")
+        all_ok = False
+        # 无法继续 CDP 检查
+        return 0 if all_ok else 1
+
+    # ═══════════════════════════════════════════
+    # 2. CDP 远程调试检查
+    # ═══════════════════════════════════════════
     cdp = config.get("cdp", {})
-    print(f"\n🖥️ CDP Chrome (端口 9222):")
-    browser_ok = cdp.get("browser_available", False)
     session_ok = cdp.get("session_available", False) or cdp.get("cdp_running", False)
     login_ok = not cdp.get("login_required", True)
-    print(f"  {_ok(browser_ok)} Chrome/Chromium 已安装")
-    print(f"  {_ok(session_ok)} CDP 远程调试已启动 (127.0.0.1:9222)")
-    print(f"  {_ok(login_ok)} 1688 已登录")
-    if cdp.get("issues"):
-        for issue in cdp.get("issues", []):
-            print(f"  ⚠️ {issue}")
-        for sug in cdp.get("suggestions", []):
-            print(f"  → {sug}")
-        all_ok = all_ok and not cdp.get("issues")
     
-    # Ozon CDP 连通检查（需已建立 DataDome 信任）
-    ozon_cdp_ok = False
+    print(f"\n🔗 CDP 远程调试 (127.0.0.1:9222):")
+    print(f"  {_ok(session_ok)} CDP 已启动")
+
+    if not session_ok:
+        print(f"\n  ⚠️ 请用以下命令启动浏览器（任选一个已安装的）:")
+        for name, path in unique_browsers[:3]:
+            print(f"  {path} --remote-debugging-port=9222 --remote-allow-origins='*'")
+        print(f"\n  macOS 示例（Chrome）:")
+        print(f"  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\")
+        print(f"    --remote-debugging-port=9222 --remote-allow-origins='*'")
+        print(f"\n  Windows 示例（Chrome）:")
+        print(f"  \"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" \\")
+        print(f"    --remote-debugging-port=9222 --remote-allow-origins=\"*\"")
+
+    # ═══════════════════════════════════════════
+    # 3. 1688 CDP 连通检查
+    # ═══════════════════════════════════════════
+    alibaba_cdp_ok = False
     if session_ok:
-        print(f"\n  🔗 Ozon CDP 连通检查...")
+        print(f"\n  🔗 1688 CDP 连通检查...")
         try:
             import websocket as _ws
             import time as _time
-            blank_resp = req.put("http://127.0.0.1:9222/json/new?", timeout=5)
-            if blank_resp.status_code == 200:
-                tab = blank_resp.json()
+            blank = req.put("http://127.0.0.1:9222/json/new?", timeout=5)
+            if blank.status_code == 200:
+                tab = blank.json()
                 ws = _ws.create_connection(tab.get("webSocketDebuggerUrl", ""), timeout=10)
                 ws.send(json.dumps({"id":1,"method":"Page.enable","params":{}}))
                 ws.send(json.dumps({"id":2,"method":"Page.navigate",
-                    "params":{"url":"https://www.ozon.ru/"}}))
-                # 等页面加载完成（等待 frameStoppedLoading 事件，处理重定向）
+                    "params":{"url":"https://www.1688.com/"}}))
                 deadline = _time.time() + 8
                 page_loaded = False
                 while _time.time() < deadline:
@@ -178,12 +237,69 @@ def cmd_check(args) -> int:
                             _time.sleep(0.5)
                             break
                     except _ws.WebSocketTimeoutException:
-                        if page_loaded:
-                            break
+                        if page_loaded: break
                         continue
                     except Exception:
                         break
-                # 现在检查 URL
+                ws.send(json.dumps({"id":3,"method":"Runtime.evaluate",
+                    "params":{"expression":"location.href.indexOf('1688.com')>=0 && location.href.indexOf('login')<0","returnByValue":True}}))
+                for __ in range(15):
+                    try:
+                        ws.settimeout(1)
+                        m = json.loads(ws.recv())
+                        if m.get("id") == 3:
+                            val = m.get("result",{}).get("result",{}).get("value", False)
+                            alibaba_cdp_ok = bool(val)
+                            break
+                    except _ws.WebSocketTimeoutException:
+                        continue
+                    except Exception:
+                        break
+                ws.close()
+        except Exception:
+            pass
+        print(f"  {_ok(alibaba_cdp_ok)} 1688 页面可访问")
+    else:
+        print(f"\n  🔗 1688 CDP: ⏭️ 跳过（CDP 未启动）")
+
+    # 1688 登录检查
+    if session_ok:
+        print(f"  {_ok(login_ok)} 1688 已登录")
+        if not login_ok and alibaba_cdp_ok:
+            print(f"  → 在浏览器中打开 https://login.1688.com/ 登录")
+            all_ok = False
+
+    # ═══════════════════════════════════════════
+    # 4. Ozon CDP 连通检查
+    # ═══════════════════════════════════════════
+    ozon_cdp_ok = False
+    if session_ok:
+        print(f"\n  🔗 Ozon CDP 连通检查 (DataDome)...")
+        try:
+            import websocket as _ws
+            import time as _time
+            blank = req.put("http://127.0.0.1:9222/json/new?", timeout=5)
+            if blank.status_code == 200:
+                tab = blank.json()
+                ws = _ws.create_connection(tab.get("webSocketDebuggerUrl", ""), timeout=10)
+                ws.send(json.dumps({"id":1,"method":"Page.enable","params":{}}))
+                ws.send(json.dumps({"id":2,"method":"Page.navigate",
+                    "params":{"url":"https://www.ozon.ru/"}}))
+                deadline = _time.time() + 8
+                page_loaded = False
+                while _time.time() < deadline:
+                    try:
+                        ws.settimeout(1)
+                        m = json.loads(ws.recv())
+                        if m.get("method") == "Page.frameStoppedLoading":
+                            page_loaded = True
+                            _time.sleep(0.5)
+                            break
+                    except _ws.WebSocketTimeoutException:
+                        if page_loaded: break
+                        continue
+                    except Exception:
+                        break
                 ws.send(json.dumps({"id":3,"method":"Runtime.evaluate",
                     "params":{"expression":"location.href.indexOf('ozon.ru')>=0 && location.href.indexOf('captcha')<0","returnByValue":True}}))
                 for __ in range(15):
@@ -200,21 +316,32 @@ def cmd_check(args) -> int:
                 ws.close()
         except Exception:
             pass
-        print(f"  {_ok(ozon_cdp_ok)} Ozon 页面可访问 (DataDome 信任已建立)")
+        print(f"  {_ok(ozon_cdp_ok)} Ozon 可通过 DataDome")
+    else:
+        print(f"\n  🔗 Ozon CDP: ⏭️ 跳过（CDP 未启动）")
 
     if session_ok and not ozon_cdp_ok:
-        print(f"  ⚠️ Ozon 被 DataDome 拦截！需要在 Chrome 中先访问一次 ozon.ru 建立信任")
-        print(f"  → 在 Chrome 中打开 https://www.ozon.ru/ 随便浏览一个商品即可")
+        print(f"  → 在浏览器中打开 https://www.ozon.ru/ 浏览任意商品即可建立信任")
         all_ok = False
 
-    if not session_ok:
-        print("\n  启动 Chrome 命令:")
-        print("  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\")
-        print("    --remote-debugging-port=9222 \\")
-        print("    --remote-allow-origins='*' \\")
-        print("    --user-data-dir=<你的 profile 目录>")
-    
-    # ── Worker ──
+    # ═══════════════════════════════════════════
+    # 5. 凭证 + Worker + Ozon API
+    # ═══════════════════════════════════════════
+    print(f"\n📋 凭证:")
+    missing = config.get("missing", [])
+    by_tier = config.get("by_tier", {})
+    for tier, keys in by_tier.items():
+        for k, present in keys.items():
+            label = k
+            print(f"  {_ok(present)} {label}")
+    if missing:
+        print(f"  ⚠️ 缺失: {', '.join(missing)}")
+        all_ok = False
+    if config.get("user_action"):
+        # Only show user_action if there are actual missing keys
+        if missing:
+            print(f"\n{config['user_action']}")
+
     worker_url = _os.environ.get("WORKER_URL", "http://localhost:8080").rstrip("/")
     print(f"\n🌐 Worker ({worker_url}):")
     try:
@@ -229,42 +356,40 @@ def cmd_check(args) -> int:
         print(f"  {_ok(False)} 不可达: {e}")
         all_ok = False
 
-    # ── Ozon API ──
     cid = _os.environ.get("OZON_CLIENT_ID", "")
     akey = _os.environ.get("OZON_API_KEY", "")
     print(f"\n🏪 Ozon API:")
     if cid and akey:
         print(f"  {_ok(True)} Client ID: {cid[:8]}***")
-        # Use /v1/product/info/description which we know works
         try:
             resp = req.post("https://api-seller.ozon.ru/v1/product/info/description",
                 headers={"Client-Id": cid, "Api-Key": akey, "Content-Type": "application/json"},
                 json={"product_id": 1}, timeout=10)
-            # 404 is expected (product doesn't exist), 401/403 means auth failure
-            if resp.status_code == 401 or resp.status_code == 403:
-                print(f"  {_ok(False)} API 认证失败 (HTTP {resp.status_code})，请检查 OZON_CLIENT_ID 和 OZON_API_KEY")
+            if resp.status_code in (401, 403):
+                print(f"  {_ok(False)} API 认证失败，请检查 OZON_CLIENT_ID / OZON_API_KEY")
                 all_ok = False
             else:
                 print(f"  {_ok(True)} API 认证通过")
         except Exception:
-            print(f"  ⚠️ API 连通测试超时（网络问题，不影响后续使用）")
+            print(f"  ⚠️ 网络超时（不影响后续使用）")
     else:
         print(f"  {_ok(False)} OZON_CLIENT_ID 或 OZON_API_KEY 未配置")
-        print(f"  → 设置: export OZON_CLIENT_ID=\"你的ID\" && export OZON_API_KEY=\"你的Key\"")
         all_ok = False
 
-    # ── 汇总 ──
-    print(f"\n{'='*50}")
+    # ═══════════════════════════════════════════
+    # 汇总
+    # ═══════════════════════════════════════════
+    print(f"\n{'='*55}")
     if all_ok:
-        print("✅ 所有前置条件满足，可以开始上架！")
-        print(f"\n  python3 scripts/cli.py search <关键词>       # 搜索1688")
-        print(f"  python3 scripts/cli.py graph --url <1688 URL> # 组装信封")
-        print(f"  python3 scripts/cli.py follow --ozon-url <Ozon URL> # 跟卖")
-        print(f"  python3 scripts/batch_test.py --urls-file <URL列表> --submit # 批量上架")
+        print("✅ 所有前置条件满足！")
+        print(f"\n  python3 scripts/cli.py search <关键词>         # 1688搜索")
+        print(f"  python3 scripts/cli.py graph --url <1688 URL>   # 组装信封")
+        print(f"  python3 scripts/cli.py follow --ozon-url <Ozon URL>  # 跟卖")
+        print(f"  python3 scripts/batch_test.py --urls-file <文件> --submit  # 批量")
     else:
-        print("❌ 前置条件不满足，请先解决以上问题再运行")
-    print(f"{'='*50}")
-    
+        print("❌ 请先解决以上问题")
+    print(f"{'='*55}")
+
     return 0 if all_ok else 1
 
 

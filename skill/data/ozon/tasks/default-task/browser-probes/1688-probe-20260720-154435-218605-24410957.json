@@ -1,0 +1,319 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": false,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": true,
+    "auto_opened_page": false,
+    "login_detected": false,
+    "login_check_url": null
+  },
+  "summary": {
+    "title": "手拉车家用折叠便携行李拖车搬运拉杆车可承重买菜取快递拉货神器",
+    "price": "¥39",
+    "brand": "evesigar/伊思家",
+    "seller": "曹县聚悦网络科技有限公司 关注 客服 商品 入驻3年 主营：整理用具 店铺回头率 38% 店铺服务分 4.0分 准时发货率 98% 店铺好评率 96.0%",
+    "image_count": 9,
+    "attribute_count": 28,
+    "dom_sku_count": 4,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/955719806276.html?offerId=955719806276&hotSaleSkuId=6046561886506&spm=a260k.home2025.recommendpart.18",
+    "loginRequired": false,
+    "title": "手拉车家用折叠便携行李拖车搬运拉杆车可承重买菜取快递拉货神器",
+    "price": "¥39",
+    "priceValue": 39,
+    "brand": "evesigar/伊思家",
+    "seller": "曹县聚悦网络科技有限公司 关注 客服 商品 入驻3年 主营：整理用具 店铺回头率 38% 店铺服务分 4.0分 准时发货率 98% 店铺好评率 96.0%",
+    "sellerLink": "https://shop74154r0062679.1688.com/?offerId=955719806276&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kTtPmD1DEJxIC3UAh_!!2218047570184-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kTtPmD1DEJxIC3UAh_!!2218047570184-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019XyJyt1DEJx5z21PM_!!2218047570184-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OHcsiR1DEJx7EFKoE_!!2218047570184-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VJSXQY1DEJx5vlCu1_!!2218047570184-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PeFKgh1DEJxIQaZOW_!!2218047570184-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01u0jkDF1DEJx7EIQDU_!!2218047570184-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01s5gYZP1DEJx6zLTob_!!2218047570184-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aMfSlX1DEJx18pfzn_!!2218047570184-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019WB3T31DEJx6xqZiX_!!2218047570184-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "其他",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "金属,塑料"
+      },
+      {
+        "name": "可否折叠",
+        "value": "可以"
+      },
+      {
+        "name": "产品类别",
+        "value": "拉杆,四轮推车,两轮车"
+      },
+      {
+        "name": "功能",
+        "value": "可折叠,便携式,可移动"
+      },
+      {
+        "name": "最大承重",
+        "value": "1"
+      },
+      {
+        "name": "品牌",
+        "value": "evesigar/伊思家"
+      },
+      {
+        "name": "货号",
+        "value": "2264510740013090432"
+      },
+      {
+        "name": "产地",
+        "value": "其他"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "简约"
+      },
+      {
+        "name": "是否有专利",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "可折叠便携式拉杆行李车两轮,可折叠便携式拉杆行李车两轮（按钮款）,可折叠便携式拉杆行李车四轮,可折叠便携式拉杆行李车四轮（按钮款）"
+      },
+      {
+        "name": "加印LOGO",
+        "value": "不可以"
+      },
+      {
+        "name": "加工定制",
+        "value": "不可以"
+      },
+      {
+        "name": "毛重",
+        "value": "1"
+      },
+      {
+        "name": "颜色",
+        "value": "可折叠便携式拉杆行李车两轮、可折叠便携式拉杆行李车两轮（按钮款）、可折叠便携式拉杆行李车四轮、可折叠便携式拉杆行李车四轮（按钮款）"
+      },
+      {
+        "name": "材质",
+        "value": "可以"
+      },
+      {
+        "name": "产品类别",
+        "value": "可折叠,便携式,可移动"
+      },
+      {
+        "name": "最大承重",
+        "value": "evesigar/伊思家"
+      },
+      {
+        "name": "货号",
+        "value": "其他"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "简约"
+      },
+      {
+        "name": "是否有专利",
+        "value": "可折叠便携式拉杆行李车两轮,可折叠便携式拉杆行李车两轮（按钮款）,可折叠便携式拉杆行李车四轮,可折叠便携式拉杆行李车四轮（按钮款）"
+      },
+      {
+        "name": "可折叠便携式拉杆行李车两轮",
+        "value": "1"
+      },
+      {
+        "name": "可折叠便携式拉杆行李车两轮（按钮款）",
+        "value": "1"
+      },
+      {
+        "name": "可折叠便携式拉杆行李车四轮",
+        "value": "1"
+      },
+      {
+        "name": "可折叠便携式拉杆行李车四轮（按钮款）",
+        "value": "1"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "20000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "可折叠便携式拉杆行李车四轮（按钮款）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN019WB3T31DEJx6xqZiX_!!2218047570184-0-cib.jpg"
+          },
+          {
+            "name": "可折叠便携式拉杆行李车两轮",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01u0jkDF1DEJx7EIQDU_!!2218047570184-0-cib.jpg"
+          },
+          {
+            "name": "可折叠便携式拉杆行李车两轮（按钮款）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01s5gYZP1DEJx6zLTob_!!2218047570184-0-cib.jpg"
+          },
+          {
+            "name": "可折叠便携式拉杆行李车四轮",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01aMfSlX1DEJx18pfzn_!!2218047570184-0-cib.jpg"
+          },
+          {
+            "name": "可折叠便携式拉杆行李车四轮（按钮款）",
+            "image": null,
+            "price": 39
+          },
+          {
+            "name": "可折叠便携式拉杆行李车两轮",
+            "image": null,
+            "price": 34
+          },
+          {
+            "name": "可折叠便携式拉杆行李车两轮（按钮款）",
+            "image": null,
+            "price": 36
+          },
+          {
+            "name": "可折叠便携式拉杆行李车四轮",
+            "image": null,
+            "price": 36
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 重量(g) 可折叠便携式拉杆行李车两轮 1 可折叠便携式拉杆行李车两轮（按钮款） 1 可折叠便携式拉杆行李车四轮 1 可折叠便携式拉杆行李车四轮（按钮款） 1",
+    "packagingRows": [
+      {
+        "color": "可折叠便携式拉杆行李车两轮",
+        "capacity": "1",
+        "weightText": "1",
+        "weightGrams": 1,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "可折叠便携式拉杆行李车两轮（按钮款）",
+        "capacity": "1",
+        "weightText": "1",
+        "weightGrams": 1,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "可折叠便携式拉杆行李车四轮",
+        "capacity": "1",
+        "weightText": "1",
+        "weightGrams": 1,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "可折叠便携式拉杆行李车四轮（按钮款）",
+        "capacity": "1",
+        "weightText": "1",
+        "weightGrams": 1,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "山东菏泽",
+      "freightCny": 0,
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "可折叠便携式拉杆行李车四轮（按钮款）",
+        "price": 39,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN019WB3T31DEJx6xqZiX_!!2218047570184-0-cib.jpg"
+      },
+      {
+        "name": "可折叠便携式拉杆行李车两轮",
+        "price": 34,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01u0jkDF1DEJx7EIQDU_!!2218047570184-0-cib.jpg"
+      },
+      {
+        "name": "可折叠便携式拉杆行李车两轮（按钮款）",
+        "price": 36,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01s5gYZP1DEJx6zLTob_!!2218047570184-0-cib.jpg"
+      },
+      {
+        "name": "可折叠便携式拉杆行李车四轮",
+        "price": 36,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01aMfSlX1DEJx18pfzn_!!2218047570184-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 15,
+      "attributeCount": 28,
+      "optionGroupCount": 1,
+      "skuCount": 4,
+      "imageCount": 22,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 2,
+      "packagingTableTextLength": 82
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "noMatchingOpenPage": false
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260720-154435-218605-24410957.json"
+}

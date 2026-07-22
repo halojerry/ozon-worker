@@ -1,0 +1,378 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "跨境外贸新款弯管吹风机理发店高速吹风机电吹风家用负离子速干",
+    "price": "¥59",
+    "brand": "其他",
+    "seller": "千颂伊(深圳)电器有限公司 关注 客服 商品 入驻4年 主营：个护电器 店铺回头率 30% 店铺服务分 4.5分 准时发货率 97% 店铺好评率 99.7%",
+    "image_count": 10,
+    "attribute_count": 45,
+    "dom_sku_count": 2,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/899044624277.html",
+    "loginRequired": false,
+    "title": "跨境外贸新款弯管吹风机理发店高速吹风机电吹风家用负离子速干",
+    "price": "¥59",
+    "priceValue": 59,
+    "brand": "其他",
+    "seller": "千颂伊(深圳)电器有限公司 关注 客服 商品 入驻4年 主营：个护电器 店铺回头率 30% 店铺服务分 4.5分 准时发货率 97% 店铺好评率 99.7%",
+    "sellerLink": "https://shop49685796001p6.1688.com/?offerId=899044624277&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN013b88l81c7KGLSyciM_!!2209332313553-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN013b88l81c7KGLSyciM_!!2209332313553-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01H78aCP1c7KGKyI28r_!!2209332313553-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pcPVvE1c7KGILBk0t_!!2209332313553-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zgFLCL1c7KGKLD4kb_!!2209332313553-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xX0BHU1c7KGK8J0ce_!!2209332313553-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01C4oMdS1c7KGLSxYA7_!!2209332313553-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QDMerr1c7KGK60yGQ_!!2209332313553-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN017Jd84B1c7KGJTZLl2_!!2209332313553-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wn2OAw1c7KGIC1VoF_!!2209332313553-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010nOXjt1c7KGK8JkMq_!!2209332313553-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "附加功能",
+        "value": "恒温调节"
+      },
+      {
+        "name": "电机类型",
+        "value": "有刷电机"
+      },
+      {
+        "name": "风速档位",
+        "value": "3档"
+      },
+      {
+        "name": "外壳材质",
+        "value": "PC,玻璃纤维"
+      },
+      {
+        "name": "过热保护",
+        "value": "无"
+      },
+      {
+        "name": "认证类型",
+        "value": "CE认证"
+      },
+      {
+        "name": "额定功率",
+        "value": "1600（W）"
+      },
+      {
+        "name": "温度调节",
+        "value": "冷/热风档"
+      },
+      {
+        "name": "货号",
+        "value": "108"
+      },
+      {
+        "name": "手柄折叠",
+        "value": "不可折叠"
+      },
+      {
+        "name": "风嘴样式",
+        "value": "单散风嘴"
+      },
+      {
+        "name": "颜色",
+        "value": "HD18湛蓝色,HD18落日玫瑰,HD18彩陶青,HD18晶耀紫"
+      },
+      {
+        "name": "产品规格",
+        "value": "欧规单嘴,欧规四风嘴"
+      },
+      {
+        "name": "额定电压",
+        "value": "220（V）"
+      },
+      {
+        "name": "发热丝",
+        "value": "波纹丝"
+      },
+      {
+        "name": "3C证书编号",
+        "value": "2025190709011709"
+      },
+      {
+        "name": "是否外贸",
+        "value": "是（本商品仅供外贸用途，可能不符合境内产品标准。请境内买家谨慎购入。）"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "其他"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "外壳工艺",
+        "value": "喷涂（UV漆，橡胶漆，金属漆，钢琴烤漆，珠光粉）"
+      },
+      {
+        "name": "插头规格",
+        "value": "欧规"
+      },
+      {
+        "name": "是否专供外贸",
+        "value": "是"
+      },
+      {
+        "name": "标准类型",
+        "value": "其他"
+      },
+      {
+        "name": "噪音",
+        "value": "70db以上"
+      },
+      {
+        "name": "额定功率",
+        "value": "1600"
+      },
+      {
+        "name": "颜色",
+        "value": "HD18湛蓝色、HD18落日玫瑰、HD18彩陶青、HD18晶耀紫"
+      },
+      {
+        "name": "产品规格",
+        "value": "欧规单嘴、欧规四风嘴"
+      },
+      {
+        "name": "额定电压",
+        "value": "220"
+      },
+      {
+        "name": "品牌",
+        "value": "恒温调节"
+      },
+      {
+        "name": "电机类型",
+        "value": "3档"
+      },
+      {
+        "name": "外壳材质",
+        "value": "无"
+      },
+      {
+        "name": "认证类型",
+        "value": "1600（W）"
+      },
+      {
+        "name": "温度调节",
+        "value": "108"
+      },
+      {
+        "name": "手柄折叠",
+        "value": "单散风嘴"
+      },
+      {
+        "name": "颜色",
+        "value": "欧规单嘴,欧规四风嘴"
+      },
+      {
+        "name": "额定电压",
+        "value": "波纹丝"
+      },
+      {
+        "name": "3C证书编号",
+        "value": "是（本商品仅供外贸用途，可能不符合境内产品标准。请境内买家谨慎购入。）"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "是"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "喷涂（UV漆，橡胶漆，金属漆，钢琴烤漆，珠光粉）"
+      },
+      {
+        "name": "插头规格",
+        "value": "是"
+      },
+      {
+        "name": "标准类型",
+        "value": "70db以上"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "1000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "HD18湛蓝色",
+            "image": null
+          },
+          {
+            "name": "HD18落日玫瑰",
+            "image": null
+          },
+          {
+            "name": "HD18彩陶青",
+            "image": null
+          },
+          {
+            "name": "HD18晶耀紫",
+            "image": null
+          }
+        ]
+      },
+      {
+        "name": "产品规格",
+        "values": [
+          {
+            "name": "欧规单嘴",
+            "image": null
+          },
+          {
+            "name": "欧规四风嘴",
+            "image": null
+          },
+          {
+            "name": "欧规单嘴",
+            "image": null,
+            "price": 59
+          },
+          {
+            "name": "欧规四风嘴",
+            "image": null,
+            "price": 100
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "HD18湛蓝色",
+            "image": null
+          },
+          {
+            "name": "HD18落日玫瑰",
+            "image": null
+          },
+          {
+            "name": "HD18彩陶青",
+            "image": null
+          },
+          {
+            "name": "HD18晶耀紫",
+            "image": null
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 750",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "750",
+        "weightGrams": 750,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "广东深圳",
+      "freightCny": 6,
+      "carrier": "中通快递",
+      "dispatchHours": 4,
+      "deliveryDays": 1
+    },
+    "skuDetails": [
+      {
+        "name": "欧规单嘴",
+        "price": 59,
+        "image": null
+      },
+      {
+        "name": "欧规四风嘴",
+        "price": 100,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 26,
+      "attributeCount": 45,
+      "optionGroupCount": 3,
+      "skuCount": 2,
+      "imageCount": 13,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 9
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-174800-809873-1155e542.json"
+}

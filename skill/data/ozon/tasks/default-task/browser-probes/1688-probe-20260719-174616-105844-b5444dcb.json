@@ -1,0 +1,271 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "厂家五点二功能水枪弹簧伸缩水软管洒水冲车神管家用浇花自来水",
+    "price": null,
+    "brand": "逸虎",
+    "seller": "临沂领航五金工具有限公司 关注 客服 商品 入驻10年 主营：洗车工具 店铺回头率 65% 店铺服务分 5.0分 准时发货率 99% 店铺好评率 99.9%",
+    "image_count": 33,
+    "attribute_count": 21,
+    "dom_sku_count": 0,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/851195535909.html",
+    "loginRequired": false,
+    "title": "厂家五点二功能水枪弹簧伸缩水软管洒水冲车神管家用浇花自来水",
+    "price": null,
+    "priceValue": null,
+    "brand": "逸虎",
+    "seller": "临沂领航五金工具有限公司 关注 客服 商品 入驻10年 主营：洗车工具 店铺回头率 65% 店铺服务分 5.0分 准时发货率 99% 店铺好评率 99.9%",
+    "sellerLink": "https://linghangwujin.1688.com/?offerId=851195535909&td_page_id=PC-GYP-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01aUsSo21oAKDGdmXPi_!!2964515184-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MLXUh61oAKDGe5Kyd_!!2964515184-0-cib.jpg?__r__=1731048799357",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012dfO7E1oAKDGlDHjL_!!2964515184-0-cib.jpg?__r__=1731048799357",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QcKs8q1oAKDaTmOFK_!!2964515184-0-cib.jpg?__r__=1732514056088",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01snTjHR1oAKDFudhVS_!!2964515184-0-cib.jpg?__r__=1731048799357",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01CP8i2o1oAKDETMzJ1_!!2964515184-0-cib.jpg?__r__=1731048799357",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pBxbIw1oAKDccuFfa_!!2964515184-0-cib.jpg?__r__=1732514056087",
+      "https://cbu01.alicdn.com/img/ibank/O1CN011gCWJ11oAKDCG7Q5z_!!2964515184-0-cib.jpg?__r__=1731048799358",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01W8HAPy1oAKDF5GLo7_!!2964515184-0-cib.jpg?__r__=1731048799357",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010p0Ndb1oAKD7uHC8x_!!2964515184-0-cib.jpg?__r__=1731048799358",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01EaferM1oAKDFuj0A3_!!2964515184-0-cib.jpg?__r__=1731048829411",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WCMUUX1oAKDHHKQdv_!!2964515184-0-cib.jpg?__r__=1731048829412",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HQkaFF1oAKDHHJcl9_!!2964515184-0-cib.jpg?__r__=1731048829412",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OWBOe11oAKDFuiKaM_!!2964515184-0-cib.jpg?__r__=1731048829412",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019frwwo1oAKDFvfTqh_!!2964515184-0-cib.jpg?__r__=1731048829412",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01As0Nyc1oAKDHmkjqv_!!2964515184-0-cib.jpg?__r__=1731048829412",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01o31Raz1oAKDGeARE3_!!2964515184-0-cib.jpg?__r__=1731048829412",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HsnBiM1oAKDETT5s6_!!2964515184-0-cib.jpg?__r__=1731048829412",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LkukiR1oAKDFYB3hd_!!2964515184-0-cib.jpg?__r__=1731048829412",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bvcaRr1oAKDCG9q3l_!!2964515184-0-cib.jpg?__r__=1731048846564",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015x6zC11oAKDEyNn09_!!2964515184-0-cib.jpg?__r__=1731048846564",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019CEAVz1oAKDFYBKOQ_!!2964515184-0-cib.jpg?__r__=1731048846564",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hQKSOT1oAKDErvKtU_!!2964515184-0-cib.jpg?__r__=1731048846564",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01TIhFl81oAKDF5MSRL_!!2964515184-0-cib.jpg?__r__=1731048846564",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01iM8tL61oAKDCzEmOK_!!2964515184-0-cib.jpg?__r__=1731048846565",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01f4Ogxw1oAKDGe96A2_!!2964515184-0-cib.jpg?__r__=1731048846565",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UWrjzW1oAKDFujGwP_!!2964515184-0-cib.jpg?__r__=1731048846565",
+      "https://cbu01.alicdn.com/img/ibank/2020/409/129/23014921904_1981421218.jpg?__r__=1731048863477",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LyQf2K1kvioJsP0aF_!!6000000004746-0-tbvideo.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aUsSo21oAKDGdmXPi_!!2964515184-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eopvFH1oAKDFXpJ32_!!2964515184-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sRROjO1oAKDFXnhH8_!!2964515184-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01auzhyv1oAKD7tzXNO_!!2964515184-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012RISF11oAKDDZJu2t_!!2964515184-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2964515184/p/2/e/6/t/1/530772140335.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "逸虎"
+      },
+      {
+        "name": "喷射范围",
+        "value": "5-10"
+      },
+      {
+        "name": "水枪材质",
+        "value": "工程塑料"
+      },
+      {
+        "name": "包装尺寸",
+        "value": "44*43.5*43.5"
+      },
+      {
+        "name": "重量",
+        "value": "600g"
+      },
+      {
+        "name": "适用场景",
+        "value": "洗车浇花冲地"
+      },
+      {
+        "name": "水管材质",
+        "value": "EVA"
+      },
+      {
+        "name": "水压",
+        "value": "自来水压力"
+      },
+      {
+        "name": "货号",
+        "value": "LH-5208"
+      },
+      {
+        "name": "品牌",
+        "value": "5-10"
+      },
+      {
+        "name": "水枪材质",
+        "value": "44*43.5*43.5"
+      },
+      {
+        "name": "重量",
+        "value": "洗车浇花冲地"
+      },
+      {
+        "name": "水管材质",
+        "value": "自来水压力"
+      },
+      {
+        "name": "10米",
+        "value": "花园水枪"
+      },
+      {
+        "name": "15米",
+        "value": "花园水枪"
+      },
+      {
+        "name": "20米",
+        "value": "花园水枪"
+      },
+      {
+        "name": "10米",
+        "value": "600"
+      },
+      {
+        "name": "15米",
+        "value": "600"
+      },
+      {
+        "name": "20米",
+        "value": "600"
+      },
+      {
+        "name": "管长",
+        "value": "全部 10 15 20"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格组1",
+        "values": [
+          {
+            "name": "全部",
+            "image": null
+          },
+          {
+            "name": "10",
+            "image": null
+          },
+          {
+            "name": "15",
+            "image": null
+          },
+          {
+            "name": "20",
+            "image": null
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格型号",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格型号 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 10米 15 15 15 3375 600 15米 15 15 15 3375 600 20米 15 15 15 3375 600",
+    "packagingRows": [
+      {
+        "color": "10米",
+        "capacity": "10米",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": "15",
+        "widthText": "15",
+        "heightText": "15"
+      },
+      {
+        "color": "15米",
+        "capacity": "15米",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": "15",
+        "widthText": "15",
+        "heightText": "15"
+      },
+      {
+        "color": "20米",
+        "capacity": "20米",
+        "weightText": "600",
+        "weightGrams": 600,
+        "lengthText": "15",
+        "widthText": "15",
+        "heightText": "15"
+      }
+    ],
+    "shipping": {
+      "origin": "山东临沂",
+      "freightCny": 26,
+      "carrier": "圆通快递"
+    },
+    "skuDetails": [],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 9,
+      "attributeCount": 21,
+      "optionGroupCount": 1,
+      "skuCount": 0,
+      "imageCount": 36,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 102
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-174616-105844-b5444dcb.json"
+}

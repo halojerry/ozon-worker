@@ -1,0 +1,406 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "跨境新款STEM户外探险益智玩具带6倍放大镜探索昆虫 | 儿童捕虫器",
+    "price": "¥4.5",
+    "brand": "晴宇",
+    "seller": "温州市晴宇日用品有限公司 关注 客服 商品 入驻1年 主营：听力防护 店铺回头率 44% 店铺服务分 4.5分 准时发货率 98% 店铺好评率 89.4%",
+    "image_count": 9,
+    "attribute_count": 48,
+    "dom_sku_count": 4,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1034118023140.html?offerId=1034118023140&hotSaleSkuId=6216378803422",
+    "loginRequired": false,
+    "title": "跨境新款STEM户外探险益智玩具带6倍放大镜探索昆虫 | 儿童捕虫器",
+    "price": "¥4.5",
+    "priceValue": 4.5,
+    "brand": "晴宇",
+    "seller": "温州市晴宇日用品有限公司 关注 客服 商品 入驻1年 主营：听力防护 店铺回头率 44% 店铺服务分 4.5分 准时发货率 98% 店铺好评率 89.4%",
+    "sellerLink": "https://shop9226d04v73405.1688.com/?offerId=1034118023140&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN014f9upy1kL5Akl4icP_!!2220350914666-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN014f9upy1kL5Akl4icP_!!2220350914666-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gzVa4j1kL5AkaeOWB_!!2220350914666-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013Xz5ck1kL5Al3ie6B_!!2220350914666-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Mtt6m51kL5AkvSYGc_!!2220350914666-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN016Zo7ti1kL5Akx3cSy_!!2220350914666-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OYRBrC1kL5AkyF5RA_!!2220350914666-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GfREDa1kL5AkUSBCA_!!2220350914666-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UkyZol1kL5Akzpt9h_!!2220350914666-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012tomOl1kL5AkdQSgD_!!2220350914666-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2220350914666/p/2/e/6/t/1/535677115958.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "浙江省",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "ABS"
+      },
+      {
+        "name": "品牌",
+        "value": "晴宇"
+      },
+      {
+        "name": "功能",
+        "value": "放大镜"
+      },
+      {
+        "name": "是否能够DIY",
+        "value": "否"
+      },
+      {
+        "name": "是否电动",
+        "value": "否"
+      },
+      {
+        "name": "是否多功能",
+        "value": "是"
+      },
+      {
+        "name": "产地",
+        "value": "浙江省"
+      },
+      {
+        "name": "货号",
+        "value": "QY-102"
+      },
+      {
+        "name": "产品类别",
+        "value": "儿童玩具"
+      },
+      {
+        "name": "规格",
+        "value": "盒"
+      },
+      {
+        "name": "包装方式",
+        "value": "盒装"
+      },
+      {
+        "name": "加工定制",
+        "value": "是"
+      },
+      {
+        "name": "加工方式",
+        "value": "LOGO贴牌"
+      },
+      {
+        "name": "是否外贸",
+        "value": "是"
+      },
+      {
+        "name": "外贸类型",
+        "value": "出口"
+      },
+      {
+        "name": "是否有动漫形象",
+        "value": "否"
+      },
+      {
+        "name": "专利及著作权申请时间",
+        "value": "无"
+      },
+      {
+        "name": "是否有导购视频",
+        "value": "否"
+      },
+      {
+        "name": "是否专供外贸",
+        "value": "是(本商品仅供外贸用途，可能不符合境内产品标准。请境内买家谨慎购入)"
+      },
+      {
+        "name": "颜色",
+        "value": "蓝色,翠绿色,粉红色,白色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "欧洲,南美,东南亚,北美"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "适用年龄",
+        "value": "少年（7-14岁）"
+      },
+      {
+        "name": "彩盒尺寸",
+        "value": "21.5*6.5*5cm"
+      },
+      {
+        "name": "颜色",
+        "value": "蓝色、翠绿色、粉红色、白色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "欧洲、南美、东南亚、北美"
+      },
+      {
+        "name": "材质",
+        "value": "晴宇"
+      },
+      {
+        "name": "功能",
+        "value": "否"
+      },
+      {
+        "name": "是否电动",
+        "value": "是"
+      },
+      {
+        "name": "产地",
+        "value": "QY-102"
+      },
+      {
+        "name": "产品类别",
+        "value": "盒"
+      },
+      {
+        "name": "包装方式",
+        "value": "是"
+      },
+      {
+        "name": "加工方式",
+        "value": "是"
+      },
+      {
+        "name": "外贸类型",
+        "value": "否"
+      },
+      {
+        "name": "专利及著作权申请时间",
+        "value": "否"
+      },
+      {
+        "name": "是否专供外贸",
+        "value": "蓝色,翠绿色,粉红色,白色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "欧洲,南美,东南亚,北美"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "适用年龄",
+        "value": "21.5*6.5*5cm"
+      },
+      {
+        "name": "蓝色",
+        "value": "73"
+      },
+      {
+        "name": "翠绿色",
+        "value": "73"
+      },
+      {
+        "name": "粉红色",
+        "value": "73"
+      },
+      {
+        "name": "白色",
+        "value": "73"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "100以内"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "蓝色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OYRBrC1kL5AkyF5RA_!!2220350914666-0-cib.jpg"
+          },
+          {
+            "name": "翠绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GfREDa1kL5AkUSBCA_!!2220350914666-0-cib.jpg"
+          },
+          {
+            "name": "粉红色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01UkyZol1kL5Akzpt9h_!!2220350914666-0-cib.jpg"
+          },
+          {
+            "name": "白色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012tomOl1kL5AkdQSgD_!!2220350914666-0-cib.jpg"
+          },
+          {
+            "name": "蓝色",
+            "image": null,
+            "price": 4.5
+          },
+          {
+            "name": "翠绿色",
+            "image": null,
+            "price": 4.5
+          },
+          {
+            "name": "粉红色",
+            "image": null,
+            "price": 4.5
+          },
+          {
+            "name": "白色",
+            "image": null,
+            "price": 4.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 蓝色 21.50 6.50 5 698.750 73 翠绿色 21.50 6.50 5 698.750 73 粉红色 21.50 6.50 5 698.750 73 白色 21.50 6.50 5 698.750 73",
+    "packagingRows": [
+      {
+        "color": "蓝色",
+        "capacity": "21.50",
+        "weightText": "73",
+        "weightGrams": 73,
+        "lengthText": "21.50",
+        "widthText": "6.50",
+        "heightText": "5"
+      },
+      {
+        "color": "翠绿色",
+        "capacity": "21.50",
+        "weightText": "73",
+        "weightGrams": 73,
+        "lengthText": "21.50",
+        "widthText": "6.50",
+        "heightText": "5"
+      },
+      {
+        "color": "粉红色",
+        "capacity": "21.50",
+        "weightText": "73",
+        "weightGrams": 73,
+        "lengthText": "21.50",
+        "widthText": "6.50",
+        "heightText": "5"
+      },
+      {
+        "color": "白色",
+        "capacity": "21.50",
+        "weightText": "73",
+        "weightGrams": 73,
+        "lengthText": "21.50",
+        "widthText": "6.50",
+        "heightText": "5"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江温州",
+      "freightCny": 3,
+      "dispatchHours": 9,
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "蓝色",
+        "price": 4.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OYRBrC1kL5AkyF5RA_!!2220350914666-0-cib.jpg"
+      },
+      {
+        "name": "翠绿色",
+        "price": 4.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GfREDa1kL5AkUSBCA_!!2220350914666-0-cib.jpg"
+      },
+      {
+        "name": "粉红色",
+        "price": 4.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01UkyZol1kL5Akzpt9h_!!2220350914666-0-cib.jpg"
+      },
+      {
+        "name": "白色",
+        "price": 4.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN012tomOl1kL5AkdQSgD_!!2220350914666-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 26,
+      "attributeCount": 48,
+      "optionGroupCount": 1,
+      "skuCount": 4,
+      "imageCount": 12,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 144
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260720-154013-942538-1afc8bbe.json"
+}

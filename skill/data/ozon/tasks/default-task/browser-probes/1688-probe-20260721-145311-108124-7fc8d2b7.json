@@ -1,0 +1,221 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "强力吸铁磁力棒汽修吸金属吸杆强磁捡拾器吸力棒吸螺丝工具可弯曲",
+    "price": null,
+    "brand": null,
+    "seller": "惠州市就这个汽车用品有限公司",
+    "image_count": 10,
+    "attribute_count": 11,
+    "dom_sku_count": 0,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/971559967082.html?spm=a26352.13672862.offerlist.1.6b2f1e62PF7sxh&offerId=971559967082&sortType=&pageId=&abBizDataType=cbuOffer&hotSaleSkuId=6089917963349&trace_log=normal&uuid=1bfd4a6b1a524b0fab73a9565e57e06e&forcePC=1784615052830&kj_agent_plugin=zying",
+    "loginRequired": false,
+    "title": "强力吸铁磁力棒汽修吸金属吸杆强磁捡拾器吸力棒吸螺丝工具可弯曲",
+    "price": null,
+    "priceValue": null,
+    "brand": null,
+    "seller": "惠州市就这个汽车用品有限公司",
+    "sellerLink": "https://shop0pj2w91790818.1688.com/?offerId=971559967082&td_page_id=PC-GYP-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN014xLQiv1NHCc4PIEvc_!!2218070451544-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01alZkwH1NHCc5s9C85_!!2218070451544-0-cib.jpg?__r__=1756830617370",
+      "https://cbu01.alicdn.com/img/ibank/O1CN014xLQiv1NHCc4PIEvc_!!2218070451544-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FJKDWW1NHCc4T4L5T_!!2218070451544-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lAfnau1NHCc68fcyl_!!2218070451544-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019JiZoQ1NHCc4T4bif_!!2218070451544-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019N4K1s1NHCc6WfN63_!!2218070451544-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KTM6ae1NHCc5rt9BP_!!2218070451544-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yVri6P1NHCc5I3uhd_!!2218070451544-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LPPOwp1NHCc5rxVm0_!!2218070451544-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UElDbZ1NHCc5NcZeF_!!2218070451544-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2218070451544/p/2/e/6/t/1/532625270619.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "类型",
+        "value": "磁力棒"
+      },
+      {
+        "name": "材质",
+        "value": "金属"
+      },
+      {
+        "name": "适用范围",
+        "value": "汽修"
+      },
+      {
+        "name": "类型",
+        "value": "金属"
+      },
+      {
+        "name": "磁力棒0.6米小头",
+        "value": "200"
+      },
+      {
+        "name": "磁力棒0.6米大头",
+        "value": "200"
+      },
+      {
+        "name": "磁力棒1米小头",
+        "value": "400"
+      },
+      {
+        "name": "磁力棒1米大头",
+        "value": "400"
+      },
+      {
+        "name": "尺寸",
+        "value": "全部 600*600*1050 600*450*135 1000*18*18 1000*20*26"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "1000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格组1",
+        "values": [
+          {
+            "name": "全部",
+            "image": null
+          },
+          {
+            "name": "600*600*1050",
+            "image": null
+          },
+          {
+            "name": "600*450*135",
+            "image": null
+          },
+          {
+            "name": "1000*18*18",
+            "image": null
+          },
+          {
+            "name": "1000*20*26",
+            "image": null
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格型号",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格型号 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 磁力棒0.6米小头 100 6 6 3600 200 磁力棒0.6米大头 100 6 6 3600 200 磁力棒1米小头 120 6 6 4320 400 磁力棒1米大头 120 6 6 4320 400",
+    "packagingRows": [
+      {
+        "color": "磁力棒0.6米小头",
+        "capacity": "磁力棒0.6米小头",
+        "weightText": "200",
+        "weightGrams": 200,
+        "lengthText": "100",
+        "widthText": "6",
+        "heightText": "6"
+      },
+      {
+        "color": "磁力棒0.6米大头",
+        "capacity": "磁力棒0.6米大头",
+        "weightText": "200",
+        "weightGrams": 200,
+        "lengthText": "100",
+        "widthText": "6",
+        "heightText": "6"
+      },
+      {
+        "color": "磁力棒1米小头",
+        "capacity": "磁力棒1米小头",
+        "weightText": "400",
+        "weightGrams": 400,
+        "lengthText": "120",
+        "widthText": "6",
+        "heightText": "6"
+      },
+      {
+        "color": "磁力棒1米大头",
+        "capacity": "磁力棒1米大头",
+        "weightText": "400",
+        "weightGrams": 400,
+        "lengthText": "120",
+        "widthText": "6",
+        "heightText": "6"
+      }
+    ],
+    "shipping": {
+      "origin": "广东惠州",
+      "freightCny": 5,
+      "dispatchHours": 4
+    },
+    "skuDetails": [],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 3,
+      "attributeCount": 11,
+      "optionGroupCount": 1,
+      "skuCount": 0,
+      "imageCount": 13,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 140
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-145311-108124-7fc8d2b7.json"
+}

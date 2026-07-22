@@ -1,0 +1,419 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "按压旋转陀螺旋转解压球3d打印球按压减压玩具趣味小玩具网红爆款",
+    "price": "¥3.1",
+    "brand": "伍尊",
+    "seller": "义乌市伍尊文化用品有限公司 关注 客服 商品 入驻12年 主营：新奇特玩具 店铺回头率 60% 店铺服务分 4.0分 准时发货率 99% 店铺好评率 98.9%",
+    "image_count": 26,
+    "attribute_count": 47,
+    "dom_sku_count": 4,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1062627233410.html?offerId=1062627233410&hotSaleSkuId=6111842212214",
+    "loginRequired": false,
+    "title": "按压旋转陀螺旋转解压球3d打印球按压减压玩具趣味小玩具网红爆款",
+    "price": "¥3.1",
+    "priceValue": 3.1,
+    "brand": "伍尊",
+    "seller": "义乌市伍尊文化用品有限公司 关注 客服 商品 入驻12年 主营：新奇特玩具 店铺回头率 60% 店铺服务分 4.0分 准时发货率 99% 店铺好评率 98.9%",
+    "sellerLink": "https://shop1427215943270.1688.com/?offerId=1062627233410&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01PBvXeS2H4wYY4Rcmu_!!2468839098-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PBvXeS2H4wYY4Rcmu_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YdjTnY2H4wYYCfCq0_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VEsxbu2H4wYYuxXyA_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SVhcwy2H4wYYM5j51_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LeN75L2H4wYYTvkTu_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01X3Y9Hi2H4wYg1OpHP_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kuNksh2H4wYbadp4E_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zSG7vN2H4wYflElTQ_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bMMnfc2H4wYg1PXdB_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN016RW57M2H4wV96zIBQ_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ZukkEz2H4wSVnTJxG_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VfHUDe2H4wSWqielS_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xJyJpX2H4wSXoA0bh_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN018z3SKf2H4wYYMsvpy_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01vvsRwd2H4wYYDNJcF_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sXzVXV2H4wYYbENij_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FyILrj2H4wYYvgjMf_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Gnub7u2H4wYYOnQgT_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OLToVz2H4wYYDOvMJ_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UPfYOJ2H4wYY9lPgj_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xXCD8a2H4wYYLmEaJ_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hJIox52H4wYYRw53y_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bBzClz2H4wYYLnVYR_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xaSVFs2H4wYYvh019_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01j1BKvd2H4wYYbF7TF_!!2468839098-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01EsmmGu2H4wRQ3sIsX_!!2468839098-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "浙江省",
+    "model": null,
+    "attributes": [
+      {
+        "name": "玩具材质",
+        "value": "塑胶"
+      },
+      {
+        "name": "适用年龄",
+        "value": "中年（36-60岁）,青年（15-35岁）"
+      },
+      {
+        "name": "是否有动漫形象",
+        "value": "否"
+      },
+      {
+        "name": "品牌",
+        "value": "伍尊"
+      },
+      {
+        "name": "能力培养",
+        "value": "视觉,智力开发,动手动脑,抓握,感官,手眼协调,其他能力培养,互动玩具,亲子交流,兴趣培养"
+      },
+      {
+        "name": "产地",
+        "value": "浙江省"
+      },
+      {
+        "name": "是否外贸专供",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "WZJYQ按压旋转陀螺"
+      },
+      {
+        "name": "上市时间",
+        "value": "2026"
+      },
+      {
+        "name": "动漫角色",
+        "value": "解压球"
+      },
+      {
+        "name": "适用人群",
+        "value": "不限,女孩,男孩"
+      },
+      {
+        "name": "包装",
+        "value": "独立包装"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "原产国/地区",
+        "value": "中国"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "专利号或版权登记证号",
+        "value": "无"
+      },
+      {
+        "name": "专利及著作权",
+        "value": "无"
+      },
+      {
+        "name": "专利及著作权申请时间",
+        "value": "无"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "wish,速卖通,独立站,LAZADA,其他"
+      },
+      {
+        "name": "颜色",
+        "value": "opp袋装普通按压旋转陀螺（颜色随机）,发光款opp袋装按压旋转陀螺（颜色随机）,彩盒装普通按压旋转陀螺（颜色随机）,发光款彩盒装按压旋转陀螺（颜色随机）"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "加工方式",
+        "value": "LOGO贴牌"
+      },
+      {
+        "name": "加工定制",
+        "value": "否"
+      },
+      {
+        "name": "是否有导购视频",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "适用人群",
+        "value": "不限、女孩、男孩"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "wish、速卖通、独立站、LAZADA、其他"
+      },
+      {
+        "name": "颜色",
+        "value": "opp袋装普通按压旋转陀螺（颜色随机）、发光款opp袋装按压旋转陀螺（颜色随机）、彩盒装普通按压旋转陀螺（颜色随机）、发光款彩盒装按压旋转陀螺（颜色随机）"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "南美、东南亚、北美、东北亚、中东、其他"
+      },
+      {
+        "name": "玩具材质",
+        "value": "中年（36-60岁）,青年（15-35岁）"
+      },
+      {
+        "name": "是否有动漫形象",
+        "value": "伍尊"
+      },
+      {
+        "name": "能力培养",
+        "value": "浙江省"
+      },
+      {
+        "name": "是否外贸专供",
+        "value": "WZJYQ按压旋转陀螺"
+      },
+      {
+        "name": "上市时间",
+        "value": "解压球"
+      },
+      {
+        "name": "适用人群",
+        "value": "独立包装"
+      },
+      {
+        "name": "是否进口",
+        "value": "中国"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "无"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "opp袋装普通按压旋转陀螺（颜色随机）,发光款opp袋装按压旋转陀螺（颜色随机）,彩盒装普通按压旋转陀螺（颜色随机）,发光款彩盒装按压旋转陀螺（颜色随机）"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "否"
+      },
+      {
+        "name": "加工方式",
+        "value": "否"
+      },
+      {
+        "name": "opp袋装普通按压旋转陀螺（颜色随机）",
+        "value": "60"
+      },
+      {
+        "name": "发光款opp袋装按压旋转陀螺（颜色随机）",
+        "value": "60"
+      },
+      {
+        "name": "彩盒装普通按压旋转陀螺（颜色随机）",
+        "value": "60"
+      },
+      {
+        "name": "发光款彩盒装按压旋转陀螺（颜色随机）",
+        "value": "60"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "20000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "彩盒装普通按压旋转陀螺（颜色随机）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zSG7vN2H4wYflElTQ_!!2468839098-0-cib.jpg"
+          },
+          {
+            "name": "opp袋装普通按压旋转陀螺（颜色随机）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01X3Y9Hi2H4wYg1OpHP_!!2468839098-0-cib.jpg"
+          },
+          {
+            "name": "发光款opp袋装按压旋转陀螺（颜色随机）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kuNksh2H4wYbadp4E_!!2468839098-0-cib.jpg"
+          },
+          {
+            "name": "发光款彩盒装按压旋转陀螺（颜色随机）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01bMMnfc2H4wYg1PXdB_!!2468839098-0-cib.jpg"
+          },
+          {
+            "name": "彩盒装普通按压旋转陀螺（颜色随机）",
+            "image": null,
+            "price": 3.1
+          },
+          {
+            "name": "opp袋装普通按压旋转陀螺（颜色随机）",
+            "image": null,
+            "price": 2.8
+          },
+          {
+            "name": "发光款opp袋装按压旋转陀螺（颜色随机）",
+            "image": null,
+            "price": 3.2
+          },
+          {
+            "name": "发光款彩盒装按压旋转陀螺（颜色随机）",
+            "image": null,
+            "price": 3.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) opp袋装普通按压旋转陀螺（颜色随机） 5 5 6 150 60 发光款opp袋装按压旋转陀螺（颜色随机） － － － － 60 彩盒装普通按压旋转陀螺（颜色随机） － － － － 60 发光款彩盒装按压旋转陀螺（颜色随机） － － － － 60",
+    "packagingRows": [
+      {
+        "color": "opp袋装普通按压旋转陀螺（颜色随机）",
+        "capacity": "5",
+        "weightText": "60",
+        "weightGrams": 60,
+        "lengthText": "5",
+        "widthText": "5",
+        "heightText": "6"
+      },
+      {
+        "color": "发光款opp袋装按压旋转陀螺（颜色随机）",
+        "capacity": "－",
+        "weightText": "60",
+        "weightGrams": 60,
+        "lengthText": "－",
+        "widthText": "－",
+        "heightText": "－"
+      },
+      {
+        "color": "彩盒装普通按压旋转陀螺（颜色随机）",
+        "capacity": "－",
+        "weightText": "60",
+        "weightGrams": 60,
+        "lengthText": "－",
+        "widthText": "－",
+        "heightText": "－"
+      },
+      {
+        "color": "发光款彩盒装按压旋转陀螺（颜色随机）",
+        "capacity": "－",
+        "weightText": "60",
+        "weightGrams": 60,
+        "lengthText": "－",
+        "widthText": "－",
+        "heightText": "－"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 2.99,
+      "dispatchHours": 2,
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "彩盒装普通按压旋转陀螺（颜色随机）",
+        "price": 3.1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zSG7vN2H4wYflElTQ_!!2468839098-0-cib.jpg"
+      },
+      {
+        "name": "opp袋装普通按压旋转陀螺（颜色随机）",
+        "price": 2.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01X3Y9Hi2H4wYg1OpHP_!!2468839098-0-cib.jpg"
+      },
+      {
+        "name": "发光款opp袋装按压旋转陀螺（颜色随机）",
+        "price": 3.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kuNksh2H4wYbadp4E_!!2468839098-0-cib.jpg"
+      },
+      {
+        "name": "发光款彩盒装按压旋转陀螺（颜色随机）",
+        "price": 3.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01bMMnfc2H4wYg1PXdB_!!2468839098-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 26,
+      "attributeCount": 47,
+      "optionGroupCount": 1,
+      "skuCount": 4,
+      "imageCount": 29,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 158
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260720-154207-431032-98606f3a.json"
+}

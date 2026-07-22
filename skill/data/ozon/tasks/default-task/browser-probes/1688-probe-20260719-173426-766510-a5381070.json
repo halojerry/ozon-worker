@@ -1,0 +1,301 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "3D打印龙首龙头剑伸缩渐变色创意摆件潮玩礼品暑假景区广场摆摊",
+    "price": "¥12.9",
+    "brand": "其他",
+    "seller": "湖北赤帮科技有限公司 关注 客服 商品 入驻1年 主营：新奇特玩具 店铺回头率 76% 店铺服务分 3.5分 准时发货率 89% 店铺好评率 100.0%",
+    "image_count": 10,
+    "attribute_count": 22,
+    "dom_sku_count": 5,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1048656712911.html",
+    "loginRequired": false,
+    "title": "3D打印龙首龙头剑伸缩渐变色创意摆件潮玩礼品暑假景区广场摆摊",
+    "price": "¥12.9",
+    "priceValue": 12.9,
+    "brand": "其他",
+    "seller": "湖北赤帮科技有限公司 关注 客服 商品 入驻1年 主营：新奇特玩具 店铺回头率 76% 店铺服务分 3.5分 准时发货率 89% 店铺好评率 100.0%",
+    "sellerLink": "https://shop7u763q74564q9.1688.com/?offerId=1048656712911&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fu0sIr1HBLuVGX8qp_!!2222086370719-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fu0sIr1HBLuVGX8qp_!!2222086370719-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xvqnhs1HBLuNYCbRu_!!2222086370719-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MsFd8S1HBLuVGWKwx_!!2222086370719-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0159nTN51HBLuNYCwFU_!!2222086370719-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VM9Z6w1HBLuN7F8kA_!!2222086370719-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JcpzCs1HBLuN7pOTM_!!2222086370719-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01r1FWCo1HBLuOsKBzy_!!2222086370719-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01c7pwLN1HBLuN7pnQz_!!2222086370719-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ZKzcom1HBLuIeyrmV_!!2222086370719-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QDVLeV1HBLuN1w2Ku_!!2222086370719-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2222086370719/p/2/e/6/t/1/562642030716.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "PLA"
+      },
+      {
+        "name": "工艺",
+        "value": "3D打印"
+      },
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "尺寸",
+        "value": "龙头剑55CM"
+      },
+      {
+        "name": "颜色",
+        "value": "蓝绿,红金,红蓝,金色,彩虹"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "生日,派对聚会,其他"
+      },
+      {
+        "name": "适用送礼关系",
+        "value": "同事,朋友,其他"
+      },
+      {
+        "name": "适用节日",
+        "value": "生日,其他"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "是，个人礼品"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "蓝绿、红金、红蓝、金色、彩虹"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "生日、派对聚会、其他"
+      },
+      {
+        "name": "适用送礼关系",
+        "value": "同事、朋友、其他"
+      },
+      {
+        "name": "适用节日",
+        "value": "生日、其他"
+      },
+      {
+        "name": "材质",
+        "value": "3D打印"
+      },
+      {
+        "name": "品牌",
+        "value": "否"
+      },
+      {
+        "name": "尺寸",
+        "value": "蓝绿,红金,红蓝,金色,彩虹"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "同事,朋友,其他"
+      },
+      {
+        "name": "适用节日",
+        "value": "是，个人礼品"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "100以内"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "尺寸",
+        "values": [
+          {
+            "name": "龙头剑55CM",
+            "image": null
+          }
+        ]
+      },
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "蓝绿",
+            "image": null
+          },
+          {
+            "name": "红金",
+            "image": null
+          },
+          {
+            "name": "红蓝",
+            "image": null
+          },
+          {
+            "name": "金色",
+            "image": null
+          },
+          {
+            "name": "彩虹",
+            "image": null
+          },
+          {
+            "name": "蓝绿",
+            "image": null,
+            "price": 12.9
+          },
+          {
+            "name": "红金",
+            "image": null,
+            "price": 12.9
+          },
+          {
+            "name": "红蓝",
+            "image": null,
+            "price": 12.9
+          },
+          {
+            "name": "金色",
+            "image": null,
+            "price": 12.9
+          },
+          {
+            "name": "彩虹",
+            "image": null,
+            "price": 12.9
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "龙头剑55CM",
+            "image": null
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 115",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "115",
+        "weightGrams": 115,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "湖北武汉",
+      "freightCny": 4
+    },
+    "skuDetails": [
+      {
+        "name": "蓝绿",
+        "price": 12.9,
+        "image": null
+      },
+      {
+        "name": "红金",
+        "price": 12.9,
+        "image": null
+      },
+      {
+        "name": "红蓝",
+        "price": 12.9,
+        "image": null
+      },
+      {
+        "name": "金色",
+        "price": 12.9,
+        "image": null
+      },
+      {
+        "name": "彩虹",
+        "price": 12.9,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 11,
+      "attributeCount": 22,
+      "optionGroupCount": 3,
+      "skuCount": 5,
+      "imageCount": 13,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 9
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-173426-766510-a5381070.json"
+}
