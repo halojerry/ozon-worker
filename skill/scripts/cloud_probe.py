@@ -3096,15 +3096,43 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any
     if ozon_title:
         result["title"] = ozon_title
 
-    # Step 3: LLM 翻译 → 1688 搜索
+    # Step 3: 1688 搜索（图片搜索优先，文字搜索为辅）
     search_text = ozon_title if ozon_title else slug
-    search_kw = _translate_slug_to_cn(search_text, mxou_token)
-    if not search_kw:
-        search_kw = " ".join(search_text.split()[:4])
-    result["search_keyword"] = search_kw
+    matches_raw = []
+    search_method = ""
 
-    # Step 4: 1688 AK 搜索（带 fallback）
-    matches_raw = _search_1688_with_fallback(search_kw)
+    # 3a. 图片搜索（优先）— 用 Ozon 竞品主图搜1688同款，避免翻译歧义
+    if ozon_images:
+        try:
+            from scripts.lib.ak_1688_client import search_by_image
+            # 用第一张大图（非缩略图）
+            main_img = ozon_images[0]
+            for img in ozon_images:
+                if "/ww1200/" in img or "/c600/" in img or "/wc300/" in img:
+                    main_img = img
+                    break
+            logger.info(f"🔍 以图搜款: {main_img[:80]}")
+            img_results = search_by_image(image_url=main_img, page_size=5, score_level="high")
+            if img_results:
+                matches_raw = img_results
+                search_method = "image"
+                logger.info(f"✅ 图片搜索命中 {len(matches_raw)} 个结果")
+        except Exception as e:
+            logger.debug(f"图片搜索失败: {e}")
+
+    # 3b. 文字搜索（fallback）— LLM 翻译俄语标题 → 中文关键词
+    if not matches_raw:
+        search_kw = _translate_slug_to_cn(search_text, mxou_token)
+        if not search_kw:
+            search_kw = " ".join(search_text.split()[:4])
+        result["search_keyword"] = search_kw
+        matches_raw = _search_1688_with_fallback(search_kw)
+        search_method = "text"
+        logger.info(f"📝 文字搜索: {search_kw}")
+
+    result["search_method"] = search_method
+
+    # Step 4: 整理搜索结果
     matches = []
     if matches_raw:
         matches = [{"id": p.get("product_id", p.get("itemId", "")), "title": p.get("title", "")[:80],

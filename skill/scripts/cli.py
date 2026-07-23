@@ -237,27 +237,53 @@ def cmd_check(args) -> int:
         return 0 if all_ok else 1
 
     # ═══════════════════════════════════════════
-    # 2. CDP 远程调试检查
+    # 2. CDP 远程调试检查（自动启动 Chrome）
     # ═══════════════════════════════════════════
-    cdp = config.get("cdp", {})
-    session_ok = cdp.get("session_available", False) or cdp.get("cdp_running", False)
-    login_ok = not cdp.get("login_required", True)
-    
     print(f"\n🔗 CDP 远程调试 (127.0.0.1:9222):")
-    print(f"  {_ok(session_ok)} CDP 已启动")
 
-    if not session_ok:
-        print(f"\n  ⚠️ 请用 Chrome 启动 CDP 远程调试:")
-        print(f"  macOS:")
-        print(f"  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\")
-        print(f"    --remote-debugging-port=9222 --remote-allow-origins='*'")
-        print(f"\n  Windows:")
-        print(f"  \"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" \\")
-        print(f"    --remote-debugging-port=9222 --remote-allow-origins=\"*\"")
-        print(f"\n  如使用其他浏览器（Edge/360/QQ等），替换路径即可，参数相同")
+    # 自动启动 Chrome（如已运行则跳过）
+    try:
+        from scripts.lib.chrome_launcher import ensure_chrome_cdp, get_chrome_info
+        info = get_chrome_info()
+        if info["chrome_found"]:
+            print(f"  🌐 Chrome: {info['chrome_path'].split('/')[-1]}")
+        if not info["cdp_available"]:
+            print(f"  ⏳ CDP 未运行，正在自动启动 Chrome...")
+            ok, msg = ensure_chrome_cdp(auto_restart=True)
+            if ok:
+                print(f"  ✅ {msg}")
+                session_ok = True
+            else:
+                print(f"  ❌ {msg}")
+                session_ok = False
+        elif not info["has_remote_allow_origins"]:
+            print(f"  ⚠️ CDP 运行中但缺少 --remote-allow-origins，正在重启 Chrome...")
+            ok, msg = ensure_chrome_cdp(auto_restart=True)
+            if ok:
+                print(f"  ✅ {msg}")
+                session_ok = True
+            else:
+                print(f"  ❌ {msg}")
+                session_ok = False
+        else:
+            session_ok = True
+            print(f"  ✅ CDP 已启动")
+    except ImportError:
+        # chrome_launcher 不可用，回退到原有逻辑
+        cdp = config.get("cdp", {})
+        session_ok = cdp.get("session_available", False) or cdp.get("cdp_running", False)
+        print(f"  {_ok(session_ok)} CDP 已启动")
+        if not session_ok:
+            print(f"  ⚠️ 自动启动模块不可用，请手动启动 Chrome:")
+            print(f"  macOS: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\")
+            print(f"    --remote-debugging-port=9222 --remote-allow-origins='*'")
+            print(f"  Windows: chrome.exe --remote-debugging-port=9222 --remote-allow-origins=\"*\"")
+
+    cdp = config.get("cdp", {})
+    login_ok = not cdp.get("login_required", True)
 
     # ═══════════════════════════════════════════
-    # 3. 1688 CDP 连通检查
+    # 3. 1688 CDP 连通检查 + 登录检测（复用已有标签页，不创建新的）
     # ═══════════════════════════════════════════
     alibaba_cdp_ok = False
     if session_ok:
@@ -265,51 +291,65 @@ def cmd_check(args) -> int:
         try:
             import websocket as _ws
             import time as _time
-            blank = req.put("http://127.0.0.1:9222/json/new?", timeout=5)
-            if blank.status_code == 200:
-                tab = blank.json()
-                ws = _ws.create_connection(tab.get("webSocketDebuggerUrl", ""), timeout=10)
-                ws.send(json.dumps({"id":1,"method":"Page.enable","params":{}}))
-                ws.send(json.dumps({"id":2,"method":"Page.navigate",
-                    "params":{"url":"https://www.1688.com/"}}))
-                deadline = _time.time() + 8
-                page_loaded = False
-                while _time.time() < deadline:
-                    try:
-                        ws.settimeout(1)
-                        m = json.loads(ws.recv())
-                        if m.get("method") == "Page.frameStoppedLoading":
-                            page_loaded = True
-                            _time.sleep(0.5)
-                            break
-                    except _ws.WebSocketTimeoutException:
-                        if page_loaded: break
-                        continue
-                    except Exception:
-                        break
-                ws.send(json.dumps({"id":3,"method":"Runtime.evaluate",
+
+            # 查找已有的 1688 标签页（不创建新的）
+            _1688_ws_url = None
+            _tabs = req.get("http://127.0.0.1:9222/json", timeout=5).json()
+            for _t in _tabs:
+                if _t.get("type") == "page" and "1688.com" in _t.get("url", ""):
+                    _1688_ws_url = _t.get("webSocketDebuggerUrl", "")
+                    break
+
+            if _1688_ws_url:
+                ws = _ws.create_connection(_1688_ws_url, timeout=10)
+                # 检查页面是否可访问
+                ws.send(json.dumps({"id":1,"method":"Runtime.evaluate",
                     "params":{"expression":"!!location.href && location.href.indexOf('1688.com')>=0 && location.href.indexOf('login.1688.com')<0","returnByValue":True}}))
-                for __ in range(15):
+                ws.settimeout(8)
+                for _ in range(15):
                     try:
-                        ws.settimeout(1)
                         m = json.loads(ws.recv())
-                        if m.get("id") == 3:
-                            val = m.get("result",{}).get("result",{}).get("value", False)
-                            alibaba_cdp_ok = bool(val)
+                        if m.get("id") == 1:
+                            alibaba_cdp_ok = bool(m.get("result",{}).get("result",{}).get("value", False))
                             break
                     except _ws.WebSocketTimeoutException:
                         continue
                     except Exception:
                         break
+                # 同时检查登录状态（复用同一个连接）
+                if alibaba_cdp_ok:
+                    ws.send(json.dumps({"id":2,"method":"Runtime.evaluate","params":{
+                        "expression":"document.cookie.match(/cookie2=|__cn_logon__=/) ? 'LOGGED_IN' : 'NOT_LOGGED_IN'",
+                        "returnByValue":True}}))
+                    for _ in range(15):
+                        try:
+                            m = json.loads(ws.recv())
+                            if m.get("id") == 2:
+                                val = m.get("result",{}).get("result",{}).get("value", "NOT_LOGGED_IN")
+                                login_ok = val == "LOGGED_IN"
+                                break
+                        except _ws.WebSocketTimeoutException:
+                            continue
+                        except Exception:
+                            break
                 ws.close()
-        except Exception:
-            pass
+            else:
+                print(f"  ⚠️ 未找到已打开的 1688 标签页")
+        except Exception as _dbg_e:
+            print(f"  ⚠️ 1688 CDP 异常: {_dbg_e}")
         print(f"  {_ok(alibaba_cdp_ok)} 1688 页面可访问 (仅影响 1688 URL)")
     else:
         print(f"\n  🔗 1688 CDP: ⏭️ 跳过（CDP 未启动）")
 
-    # 1688 登录检查
-    if session_ok:
+    # 1688 登录状态显示
+    if session_ok and alibaba_cdp_ok:
+        pass  # 登录检测已在上面完成
+        print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
+        if not login_ok:
+            print(f"  → 在浏览器中打开 https://login.1688.com/ 登录")
+            all_ok = False
+    elif session_ok:
+        # CDP OK but1688 page not accessible, fall back to session flag
         print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
         if not login_ok:
             print(f"  → 在浏览器中打开 https://login.1688.com/ 登录")
