@@ -1,11 +1,13 @@
 """1688 以图搜款 — 通过 CDP 操作浏览器网页版。
 
 流程：粘贴图片URL到搜索框 → 等预览加载 → 点击图搜 → 从新标签页提取结果
+支持 YOLO crop region 自动选择（框选主体），提升多主体图片的匹配准确率。
 """
 from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -50,19 +52,138 @@ def _wait_page_load(ws, timeout: int = 10) -> bool:
     return False
 
 
+def _extract_results(ws, page_size: int = 5) -> list[dict[str, Any]]:
+    """从结果标签页提取商品列表。"""
+    result_str = _eval(ws, 20, f'''
+        const cards = document.querySelectorAll(".cardui-normal");
+        const results = [];
+        for (let i = 0; i < Math.min(cards.length, {page_size}); i++) {{
+            const card = cards[i];
+            const text = card.innerText || "";
+            const lines = text.split("\\n").map(l => l.trim()).filter(l => l.length > 0);
+            let title = "";
+            let badge = "";
+            for (const line of lines) {{
+                if (line.match(/符合[\\d\\/]+个条件/)) {{
+                    badge = line;
+                }} else if (line.length > 5 && !line.startsWith("¥") && !line.match(/^[\\d.]+$/) && !line.includes("运费") && !line.includes("件") && !line.includes("起批") && !line.includes("揽收")) {{
+                    title = line.substring(0, 80);
+                    break;
+                }}
+            }}
+            const priceMatch = text.match(/¥\\s*([\\d.]+)/);
+            const price = priceMatch ? parseFloat(priceMatch[1]) : 0;
+            const link = card.querySelector("a")?.href || "";
+            const offerMatch = link.match(/offer\\/(\\d+)/);
+            const offerId = offerMatch ? offerMatch[1] : "";
+            if (title) results.push({{id: offerId, title, price, badge}});
+        }}
+        JSON.stringify(results);
+    ''')
+    try:
+        return json.loads(result_str) if result_str else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def _get_badge_score(badge: str) -> int:
+    """从 '符合2/3个条件' 提取分子作为分数。"""
+    m = re.search(r"符合(\d+)/(\d+)个条件", badge)
+    if m:
+        return int(m.group(1))
+    return 0
+
+
+def _click_crop_regions(ws, wait_seconds: int = 8) -> list[dict[str, Any]]:
+    """点击所有 YOLO crop regions，返回每个区域的最佳结果。
+
+    1688 用 YOLO 检测图片中的多个主体，用户可以框选主体来精确搜索。
+    CDP 鼠标点击可以触发重新搜索（虽然 UI 状态不会更新）。
+    """
+    # 读取 crop regions
+    regions_str = _eval(ws, 30, '''
+        const regions = document.querySelectorAll("[data-tracker=yoloCrop]");
+        const info = [];
+        regions.forEach((r, i) => {
+            const rect = r.getBoundingClientRect();
+            info.push({
+                i: i,
+                x: rect.x + rect.width/2,
+                y: rect.y + rect.height/2,
+                w: rect.width,
+                h: rect.height,
+                selected: r.className.includes("selectRegion")
+            });
+        });
+        JSON.stringify(info);
+    ''')
+
+    try:
+        regions = json.loads(regions_str) if regions_str else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+    if len(regions) <= 1:
+        return []
+
+    all_results = []
+
+    for region in regions:
+        idx = region["i"]
+        x, y = region["x"], region["y"]
+
+        if x == 0 and y == 0:
+            continue
+
+        # CDP 鼠标点击 crop region
+        ws.send(json.dumps({"id": 40 + idx, "method": "Input.dispatchMouseEvent", "params": {
+            "type": "mouseMoved", "x": x, "y": y
+        }}))
+        time.sleep(0.1)
+        ws.send(json.dumps({"id": 41 + idx, "method": "Input.dispatchMouseEvent", "params": {
+            "type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1
+        }}))
+        time.sleep(0.05)
+        ws.send(json.dumps({"id": 42 + idx, "method": "Input.dispatchMouseEvent", "params": {
+            "type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1
+        }}))
+
+        # 等待结果更新
+        time.sleep(wait_seconds)
+
+        # 提取结果
+        results = _extract_results(ws, page_size=3)
+        if results:
+            best = results[0]
+            best["region_index"] = idx
+            all_results.append(best)
+            logger.debug("Region %d: %s (score=%d)", idx, best.get("title", "")[:30],
+                         _get_badge_score(best.get("badge", "")))
+
+    return all_results
+
+
 def search_by_image_cdp(
     image_url: str,
     cdp_url: str = "http://127.0.0.1:9222",
     page_size: int = 5,
-    wait_seconds: int = 12,
+    wait_seconds: int = 10,
+    try_crop_regions: bool = True,
 ) -> list[dict[str, Any]]:
     """通过 CDP 操作1688以图搜款网页，返回匹配商品列表。
+
+    流程：
+    1. 打开图搜页面，输入图片URL
+    2. 点击图搜按钮，等待结果
+    3. 如果有多个 YOLO crop regions，逐个点击并选择最佳结果
+    4. 返回匹配商品列表
 
     Args:
         image_url: 图片 URL
         cdp_url: Chrome CDP 地址
         page_size: 返回数量
         wait_seconds: 等待搜索结果秒数
+        try_crop_regions: 是否尝试 crop region 选择
 
     Returns:
         [{"id": "offer_id", "title": "...", "price": float, "badge": "..."}, ...]
@@ -114,7 +235,6 @@ def search_by_image_cdp(
             time.sleep(1)
             tabs_resp = requests.get(f"{cdp_url}/json", timeout=5)
             tabs = tabs_resp.json()
-            # 找最后一个imageId标签页（最新的搜索结果）
             for t in reversed(tabs):
                 url = t.get("url", "")
                 if "imageId" in url and "1688.com" in url:
@@ -127,7 +247,7 @@ def search_by_image_cdp(
             logger.warning("No result tab found with imageId")
             return []
 
-        # 9. 等待结果加载（新标签页需要时间渲染）
+        # 9. 等待结果加载
         time.sleep(wait_seconds)
 
         # 10. 从结果标签页提取数据
@@ -139,41 +259,32 @@ def search_by_image_cdp(
         _eval(ws, 16, 'window.scrollTo(0, 0)')
         time.sleep(1)
 
-        result_str = _eval(ws, 20, f'''
-            const cards = document.querySelectorAll(".cardui-normal");
-            const results = [];
-            for (let i = 0; i < Math.min(cards.length, {page_size}); i++) {{
-                const card = cards[i];
-                const text = card.innerText || "";
-                const lines = text.split("\\n").map(l => l.trim()).filter(l => l.length > 0);
-                // 跳过徽章行（符合X个条件），找产品标题（中文/俄文开头的行）
-                let title = "";
-                let badge = "";
-                for (const line of lines) {{
-                    if (line.match(/符合[\\d\\/]+个条件/)) {{
-                        badge = line;
-                    }} else if (line.length > 5 && !line.startsWith("¥") && !line.match(/^[\\d.]+$/) && !line.includes("运费") && !line.includes("件") && !line.includes("起批") && !line.includes("揽收")) {{
-                        title = line.substring(0, 80);
-                        break;
-                    }}
-                }}
-                const priceMatch = text.match(/¥\\s*([\\d.]+)/);
-                const price = priceMatch ? parseFloat(priceMatch[1]) : 0;
-                const link = card.querySelector("a")?.href || "";
-                const offerMatch = link.match(/offer\\/(\\d+)/);
-                const offerId = offerMatch ? offerMatch[1] : "";
-                if (title) results.push({{id: offerId, title, price, badge}});
-            }}
-            JSON.stringify(results);
-        ''')
+        # 提取默认结果
+        results = _extract_results(ws, page_size)
 
-        try:
-            results = json.loads(result_str)
-            logger.info("CDP image search: %d results", len(results))
-            return results
-        except (json.JSONDecodeError, TypeError):
-            logger.warning("Failed to parse CDP search results")
-            return []
+        # 11. 如果有多个 crop regions，尝试点击每个区域获取更精准的结果
+        if try_crop_regions and results:
+            default_badge = _get_badge_score(results[0].get("badge", ""))
+            logger.info("Default result: %s (badge score=%d)", results[0].get("title", "")[:30], default_badge)
+
+            region_results = _click_crop_regions(ws, wait_seconds=max(5, wait_seconds - 3))
+
+            if region_results:
+                # 选择 badge 分数最高的结果
+                best_region = max(region_results, key=lambda r: _get_badge_score(r.get("badge", "")))
+                region_badge = _get_badge_score(best_region.get("badge", ""))
+
+                if region_badge > default_badge:
+                    logger.info("Crop region %d better: %s (badge=%d vs %d)",
+                                best_region.get("region_index", -1),
+                                best_region.get("title", "")[:30],
+                                region_badge, default_badge)
+                    # 用区域结果替换默认结果的第一个
+                    results[0] = best_region
+
+        logger.info("CDP image search: %d results, best: %s", len(results),
+                     results[0].get("title", "")[:30] if results else "none")
+        return results
 
     except Exception as e:
         logger.error("CDP image search failed: %s", e)
