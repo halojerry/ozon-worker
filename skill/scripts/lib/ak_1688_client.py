@@ -468,21 +468,14 @@ def search_by_image(
     converted_path = None
     download_tmp = None
 
+    # 优先使用 imageUrl（1688服务器直接抓取，无质量损失）
+    # 仅当 imageUrl 失败时才下载转 base64
     if image_url:
-        # URL 图片先下载到本地，再 base64 上传（1688 API 无法直接访问外部 CDN）
-        try:
-            import requests as _req
-            import tempfile as _tmp
-            resp = _req.get(image_url, timeout=30, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            })
-            resp.raise_for_status()
-            download_tmp = _tmp.NamedTemporaryFile(suffix=".jpg", delete=False)
-            download_tmp.write(resp.content)
-            download_tmp.close()
-            image_path = download_tmp.name
-        except Exception as e:
-            raise ValueError(f"下载图片失败: {e}")
+        img_url = image_url
+    elif image_path:
+        pass  # 本地文件走下面的 base64 流程
+    else:
+        raise ValueError("image_path 或 image_url 至少需要一个")
 
     if image_path:
         img_info = preprocess_image(image_path)
@@ -524,7 +517,7 @@ def search_by_image(
             except OSError:
                 pass
 
-    # 解析响应（同 search_products）
+    # 解析响应
     data = result.get("data")
     if isinstance(data, dict):
         data = data.get("data", [])
@@ -533,8 +526,46 @@ def search_by_image(
         data = model.get("data", [])
 
     if not isinstance(data, list):
-        return []
-    return [_parse_product_item(item) for item in data]
+        data = []
+
+    products = [_parse_product_item(item) for item in data]
+
+    # Fallback: 如果 imageUrl 无结果，下载图片转 base64 重试
+    if not products and img_url and not img_base64:
+        import logging as _logging
+        _logging.getLogger(__name__).debug("imageUrl returned 0 results, retrying with imgBase64")
+        try:
+            import requests as _req
+            import tempfile as _tmp
+            from scripts.lib.image_preprocessor import preprocess_image as _pre, image_to_base64 as _to_b64
+            resp = _req.get(img_url, timeout=30, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            })
+            resp.raise_for_status()
+            tmp = _tmp.NamedTemporaryFile(suffix=".jpg", delete=False)
+            tmp.write(resp.content)
+            tmp.close()
+            try:
+                info = _pre(tmp.name)
+                b64 = _to_b64(info["path"])
+                retry_body = dict(body)
+                retry_body.pop("imageUrl", None)
+                retry_body["imgBase64"] = b64
+                result2 = _post_1688(FIND_PRODUCT_API, retry_body)
+                data2 = result2.get("data")
+                if isinstance(data2, dict):
+                    data2 = data2.get("data", [])
+                elif data2 is None:
+                    model2 = result2.get("model") or {}
+                    data2 = model2.get("data", [])
+                if isinstance(data2, list) and data2:
+                    products = [_parse_product_item(item) for item in data2]
+            finally:
+                _os.unlink(tmp.name)
+        except Exception as _e:
+            _logging.getLogger(__name__).debug("imgBase64 fallback failed: %s", _e)
+
+    return products
 
 
 def _extract_images_from_raw(raw: dict[str, Any]) -> list[str]:
