@@ -3110,7 +3110,7 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any
         # 3a-1. CDP 网页版以图搜款（更准确，用1688网页搜索引擎）
         try:
             from scripts.lib.ozon_image_search import search_by_image_cdp
-            cdp_results = search_by_image_cdp(image_url=main_img, page_size=5, timeout=15)
+            cdp_results = search_by_image_cdp(image_url=main_img, page_size=5, wait_seconds=10)
             if cdp_results:
                 matches_raw = cdp_results
                 search_method = "cdp"
