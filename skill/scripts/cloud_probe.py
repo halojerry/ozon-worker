@@ -3101,15 +3101,22 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any
     matches_raw = []
     search_method = ""
 
-    # 3a. 图片搜索（优先）— 用 Ozon 竞品主图搜1688同款，避免翻译歧义
+    # 3a. 图片搜索（优先）— 用 Ozon 竞品高清主图搜1688同款，避免翻译歧义
+    # ⚠️ 必须用 ww1200 等高清图，低分辨率(c600/wc300)会导致识别错误
     if ozon_images:
         try:
             from scripts.lib.ak_1688_client import search_by_image
-            # 用第一张大图（非缩略图）
+            # 按分辨率优先级选图：ww1200 > wc300 > c600 > 第一张
+            _quality_order = ["/ww1200/", "/wc300/", "/c600/"]
             main_img = ozon_images[0]
-            for img in ozon_images:
-                if "/ww1200/" in img or "/c600/" in img or "/wc300/" in img:
-                    main_img = img
+            for quality in _quality_order:
+                found = False
+                for img in ozon_images:
+                    if quality in img:
+                        main_img = img
+                        found = True
+                        break
+                if found:
                     break
             logger.info(f"🔍 以图搜款: {main_img[:80]}")
             img_results = search_by_image(image_url=main_img, page_size=5, score_level="high")
