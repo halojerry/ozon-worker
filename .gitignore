@@ -60,3 +60,9 @@ docker-compose.override.yml
 *.orig
 tmp/
 .env.local
+
+# Chrome browser profile data
+skill/data/browser/profiles/
+skill/data/browser/sessions/
+skill/data/batch_results/
+skill/data/ozon/tasks/

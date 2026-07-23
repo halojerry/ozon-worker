@@ -1381,10 +1381,26 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
     if recovered:
         return recovered
 
-    # No live Chrome found — auto-launch with subprocess (zero Playwright dependency).
-    # Uses persistent profile so cookies survive across launches.
-    # Agent-friendly: works in any Python environment (asyncio, threads, etc.)
+    # No live Chrome found — use chrome_launcher for cross-platform auto-launch.
+    # Uses user's DEFAULT Chrome profile (preserves 1688/Ozon login sessions).
     try:
+        import logging as _logging
+        _logger = _logging.getLogger(__name__)
+
+        # Try chrome_launcher first (preferred: uses default profile)
+        try:
+            from scripts.lib.chrome_launcher import ensure_chrome_cdp, get_cdp_url
+            ok, msg = ensure_chrome_cdp(auto_restart=True)
+            if ok:
+                cdp_url = get_cdp_url()
+                _logger.info("Chrome launched via chrome_launcher: %s", cdp_url)
+                return {'cdp_url': cdp_url}
+            else:
+                _logger.warning("chrome_launcher failed: %s, falling back to legacy", msg)
+        except ImportError:
+            _logger.debug("chrome_launcher not available, using legacy launch")
+
+        # Fallback: legacy launch with separate profile
         from scripts.capabilities.browser_probe.stealth import STEALTH_ARGS
         import random as _random, socket as _sock, subprocess as _sp
 
@@ -1402,11 +1418,8 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
             except OSError:
                 continue
 
-        import logging as _logging
-        _logger = _logging.getLogger(__name__)
         _logger.info("Auto-launching Chrome with profile %s on port %d", profile_dir, cdp_port)
 
-        # Launch Chrome directly via subprocess — no Playwright, survives all environments
         chrome_bin = find_browser_executable()
         if not chrome_bin:
             _logger.error("Cannot find Chrome executable")

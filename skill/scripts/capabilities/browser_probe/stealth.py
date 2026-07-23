@@ -133,4 +133,5 @@ STEALTH_ARGS = [
     "--disable-component-update",
     "--disable-extensions",
     "--disable-sync",
+    "--remote-allow-origins=*",
 ]

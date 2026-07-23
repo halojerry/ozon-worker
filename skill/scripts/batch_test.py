@@ -291,14 +291,50 @@ def main() -> int:
     issues = []
     if config.get("missing"):
         issues.append(f"缺少凭证: {', '.join(config['missing'])}")
-    if not cdp.get("browser_available"):
-        issues.append("Chrome 浏览器未安装")
-    if not cdp.get("session_available") and not cdp.get("cdp_running"):
-        issues.append("CDP Chrome 未启动 (端口 9222)")
-        issues.append("→ 启动: Chrome --remote-debugging-port=9222 --remote-allow-origins='*'")
-    if cdp.get("login_required") and args.type_filter in ("1688", "all"):
-        issues.append("1688 未登录 (仅影响 1688 URL, Ozon 不受影响)")
-        issues.append("→ 请在 Chrome 中登录 https://login.1688.com/")
+
+    # Auto-launch Chrome via chrome_launcher (same as check command)
+    _cdp_ok = False
+    try:
+        from scripts.lib.chrome_launcher import ensure_chrome_cdp
+        ok, msg = ensure_chrome_cdp(auto_restart=True)
+        _cdp_ok = ok
+        if not ok:
+            issues.append(f"Chrome CDP 启动失败: {msg}")
+    except ImportError:
+        if not cdp.get("browser_available"):
+            issues.append("Chrome 浏览器未安装")
+        if not cdp.get("session_available") and not cdp.get("cdp_running"):
+            issues.append("CDP Chrome 未启动 (端口 9222)")
+            issues.append("→ 启动: Chrome --remote-debugging-port=9222 --remote-allow-origins='*'")
+
+    # 1688 login check via CDP cookies (not session file)
+    if args.type_filter in ("1688", "all") and _cdp_ok:
+        try:
+            import websocket as _ws
+            _tabs = requests.get("http://127.0.0.1:9222/json", timeout=5).json()
+            _1688_ws = None
+            for _t in _tabs:
+                if _t.get("type") == "page" and "1688.com" in _t.get("url", ""):
+                    _1688_ws = _t.get("webSocketDebuggerUrl", "")
+                    break
+            if _1688_ws:
+                _ws_conn = _ws.create_connection(_1688_ws, timeout=8)
+                _ws_conn.send(json.dumps({"id":1,"method":"Runtime.evaluate","params":{
+                    "expression":"document.cookie.match(/cookie2=|__cn_logon__=/) ? 'LOGGED_IN' : 'NOT_LOGGED_IN'",
+                    "returnByValue":True}}))
+                _ws_conn.settimeout(5)
+                for _ in range(10):
+                    try:
+                        m = json.loads(_ws_conn.recv())
+                        if m.get("id") == 1:
+                            if m.get("result",{}).get("result",{}).get("value","") != "LOGGED_IN":
+                                issues.append("1688 未登录 (仅影响 1688 URL)")
+                                issues.append("→ 请在 Chrome 中登录 https://login.1688.com/")
+                            break
+                    except: continue
+                _ws_conn.close()
+        except Exception:
+            pass  # Non-critical, actual probe will catch it
 
     # Check Ozon DataDome trust
     if args.type_filter in ("ozon", "all") and cdp.get("session_available"):
