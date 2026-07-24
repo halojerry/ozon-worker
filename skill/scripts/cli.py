@@ -18,7 +18,7 @@ batch_test               批量处理 URL 列表
 
 from __future__ import annotations
 
-import argparse, json, os, sys
+import argparse, json, sys
 from pathlib import Path
 
 # Ensure scripts/ is on sys.path

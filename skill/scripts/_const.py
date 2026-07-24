@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import json as _json
 from pathlib import Path
 
 SKILL_VERSION = '0.1.0'
@@ -25,23 +24,6 @@ def get_config_profile() -> str:
         or os.environ.get('UNIFIED_1688_OZON_STORE', '').strip()
         or 'default'
     )
-
-
-def _read_pounding_config(key_path: str) -> str | None:
-    config_path = Path.home() / ".pounding" / "config.json"
-    if not config_path.exists():
-        return None
-    try:
-        with open(config_path) as f:
-            cfg = _json.load(f)
-        for part in key_path.split("."):
-            if isinstance(cfg, dict):
-                cfg = cfg.get(part)
-            else:
-                return None
-        return str(cfg) if cfg is not None else None
-    except Exception:
-        return None
 
 
 DEFAULT_OZON_CURRENCY = 'RUB'
