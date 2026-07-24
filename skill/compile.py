@@ -23,10 +23,15 @@ from pathlib import Path
 # 需要编译的核心文件（保护源码）
 COMPILE_FILES = [
     "scripts/lib/ak_1688_client.py",
+    "scripts/lib/ak_callback.py",
     "scripts/lib/chrome_launcher.py",
     "scripts/lib/config_store.py",
+    "scripts/lib/image_preprocessor.py",
     "scripts/lib/ozon_scraper.py",
     "scripts/lib/ozon_image_search.py",
+    "scripts/lib/reference_images.py",
+    "scripts/capabilities/browser_probe/service.py",
+    "scripts/capabilities/browser_probe/stealth.py",
 ]
 
 # 复制但不编译的文件（有复杂依赖或需要直接查看）
@@ -44,14 +49,8 @@ AUX_FILES = [
     "scripts/lib/__init__.py",
     "scripts/lib/task_paths.py",
     "scripts/lib/logging_utils.py",
-    "scripts/lib/reference_images.py",
-    "scripts/lib/ak_callback.py",
-    "scripts/lib/image_preprocessor.py",
-    "scripts/lib/update.py",
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
-    "scripts/capabilities/browser_probe/service.py",
-    "scripts/capabilities/browser_probe/stealth.py",
 ]
 
 # 参考文件（客户端文档 + 依赖）

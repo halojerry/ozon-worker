@@ -69,22 +69,13 @@ def _validate_ak(ak: str) -> tuple[bool, str]:
 def _save_ak(ak: str) -> tuple[bool, str]:
     """保存 AK 到配置文件"""
     try:
+        # 保留 .1688-AK/.ak_store.json（与 get_ak_from_file 兼容）
         AK_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(AK_STORE_PATH, "w", encoding="utf-8") as f:
             json.dump({"ak": ak}, f, ensure_ascii=False, indent=2)
-        # 同时写到 .env 方便 env var 读取
-        env_file = SKILL_ROOT / ".env"
-        if env_file.exists():
-            lines = env_file.read_text().splitlines()
-            found = False
-            for i, line in enumerate(lines):
-                if line.startswith("ALI_1688_AK="):
-                    lines[i] = f"ALI_1688_AK={ak}"
-                    found = True
-                    break
-            if not found:
-                lines.append(f"ALI_1688_AK={ak}")
-            env_file.write_text("\n".join(lines) + "\n")
+        # 写入 config_store (settings.json)
+        from scripts.lib.config_store import set_ali_1688_ak
+        set_ali_1688_ak(ak)
         return True, str(AK_STORE_PATH)
     except Exception as e:
         return False, str(e)
