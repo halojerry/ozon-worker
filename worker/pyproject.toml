@@ -32,6 +32,8 @@ dependencies = [
     # ── NLP ──
     "jieba>=0.42.1",                     # 中文分词
     "chardet>=5.2,<6",                   # 编码检测
+    # ── CDP 浏览器辅助 ──
+    "websocket-client>=1.8,<2",          # CDP WebSocket（浏览器辅助采集）
 ]
 
 [tool.uv]

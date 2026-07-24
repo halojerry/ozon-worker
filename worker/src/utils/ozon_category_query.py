@@ -187,24 +187,26 @@ class OzonCategoryQuery:
 
             rows = session.execute(stmt).mappings().all()
 
-            # === 按匹配关键词数量排序 ===
-            # 对每个结果计算匹配了多少个关键词（node_name + full_path 合并计数）
-            MAX_KEYWORD_WEIGHT = 3.0  # 名词/关键实词权重高于虚词
-            scored_results: list[tuple[int, dict]] = []
-            
+            # === 按匹配关键词比率排序 ===
+            # 匹配率 = 匹配关键词数 / 总关键词数（权重2.0）
+            # 深度加分：更深的节点通常是更具体的类目（叶子节点）
+            scored_results: list[tuple[float, dict]] = []
+            total_keywords = max(len([w for w in words if len(w) >= 2]), 1)
+
             for row in rows:
                 combined = (row["node_name"] or "") + " " + (row["full_path"] or "")
                 combined_lower = combined.lower()
-                
+
                 match_count = 0
                 for word in words:
                     if len(word) >= 2 and word.lower() in combined_lower:
                         match_count += 1
-                
-                # 深度加分：更深的节点通常是更具体的类目（叶子节点）
+
+                # 匹配率作为主排序因子（0~2.0），深度作为次排序因子（0~1.0）
+                match_ratio = (match_count / total_keywords) * 2.0
                 depth_bonus = min((row["depth"] or 0) * 0.1, 1.0)
-                
-                score = match_count + depth_bonus
+
+                score = match_ratio + depth_bonus
                 
                 scored_results.append((score, {
                     "description_category_id": row["description_category_id"],

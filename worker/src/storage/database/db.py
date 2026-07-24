@@ -84,9 +84,10 @@ def init_db():
         return
     from storage.database.shared.model import Base
     engine = get_engine()
-    # 启用 pg_trgm 扩展（幂等）
+    # 启用 pg_trgm 扩展（幂等）+ 降低相似度阈值（中文多关键词匹配需要）
     with engine.connect() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        conn.execute(text("SET pg_trgm.similarity_threshold = 0.05"))
         conn.commit()
     Base.metadata.create_all(bind=engine)
     _tables_initialized = True

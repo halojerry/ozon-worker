@@ -47,7 +47,7 @@ from scripts._errors import (
     ERR_CLOUD_TIMEOUT,
     ERR_CLOUD_FAILED,
 )
-from scripts.lib.config_store import load_env_file, init_sentry, capture_exception
+from scripts.lib.config_store import init_sentry, capture_exception
 from scripts.lib.reference_images import get_best_product_images
 from scripts.lib.task_paths import cleanup_old_files
 
@@ -67,12 +67,10 @@ if not logging.getLogger().handlers:
 
 logger = logging.getLogger(__name__)
 
-from scripts._const import _read_pounding_config
+from scripts.lib.config_store import get_mxou_token as _get_mxou_token
 
-# Load persisted user credentials from .env at import time so every
-# subsequent os.environ.get() picks them up.  Idempotent — existing
-# env vars are never overwritten.
-load_env_file()
+# Config is now in skill/data/config/ (stores.json + settings.json)
+# No .env loading needed.
 
 # Initialize Sentry for local skill error tracking (best-effort)
 init_sentry()
@@ -216,67 +214,26 @@ TASK_STATUS_PATH = _paths["task_status"]
 
 
 def _get_api_base() -> str:
-    return os.environ.get("MXOU_API_BASE", "").strip() or CLOUD_API_BASE
+    return CLOUD_API_BASE
 
 
 def _get_token() -> str:
-    """Resolve MXOU token: ENV → pounding config → prompt user."""
-    try:
-        from scripts.lib.config_store import resolve_credential
-        return resolve_credential(
-            "MXOU_TOKEN",
-            pounding_path="api.key",
-            prompt_label="MXOU API Key（用于 LLM 和图片生成）",
-        )
-    except ImportError:
-        pass
-    # Fallback: legacy resolution
-    token = os.environ.get("MXOU_TOKEN", "").strip()
-    if not token:
-        token = _read_pounding_config("api.key") or ""
-    if not token:
-        try:
-            from scripts.lib.config_store import get as _get
-            token = _get("MXOU_TOKEN", "")
-        except ImportError:
-            pass
-    return token
+    """Resolve MXOU token from config_store (settings.json + pounding fallback)."""
+    from scripts.lib.config_store import get_mxou_token
+    return get_mxou_token()
 
 
 def _get_ozon_credentials(store_id: str | None = None) -> dict[str, str]:
-    """Get Ozon credentials for a specific store.
+    """Get Ozon credentials from config_store (stores.json).
 
-    Priority: ENV > pounding config > prompt user.
-    Supports multi-store via store_id parameter.
-
-    Returns {"client_id": str, "api_key": str}
+    Returns {"client_id": str, "api_key": str}.
+    Returns empty strings if not configured.
     """
-    try:
-        from scripts.lib.config_store import get_store
-        store = get_store(store_id)
-        if store:
-            return {"client_id": store["client_id"], "api_key": store["api_key"]}
-    except ImportError:
-        pass
-
-    # Fallback: legacy resolution
-    cid = os.environ.get("OZON_CLIENT_ID", "").strip()
-    akey = os.environ.get("OZON_API_KEY", "").strip()
-
-    if not cid:
-        cid = _read_pounding_config("ozon.client_id") or ""
-    if not akey:
-        akey = _read_pounding_config("ozon.api_key") or ""
-
-    if not cid or not akey:
-        try:
-            from scripts.lib.config_store import get as _get
-            cid = cid or _get("OZON_CLIENT_ID", "")
-            akey = akey or _get("OZON_API_KEY", "")
-        except ImportError:
-            pass
-
-    return {"client_id": cid, "api_key": akey}
+    from scripts.lib.config_store import get_ozon_credentials
+    creds = get_ozon_credentials(store_id or "")
+    if creds:
+        return creds
+    return {"client_id": "", "api_key": ""}
 
 
 def _cloud_post(url: str, body: dict[str, Any], *, timeout_sec: int = 60, headers: dict[str, str] | None = None, max_retries: int = 3) -> dict[str, Any]:
@@ -385,7 +342,7 @@ def build_envelope(
     ozon = _get_ozon_credentials()
     resolved_extensions.setdefault("ozon_client_id", ozon["client_id"])
     # ozon_api_key removed — Auth node looks up credentials from Supabase users table
-    mxou_token = _read_pounding_config("api.key") or os.environ.get("MXOU_IMAGE_TOKEN", "")
+    mxou_token = _get_mxou_token()
     resolved_extensions.setdefault("mxou_token", mxou_token)
     if store_id:
         resolved_extensions.setdefault("store_id", store_id)
@@ -1563,7 +1520,7 @@ def build_graph_envelope(
     }
 
     # ── 7. 组装 GraphInput ──
-    mxou_token = _read_pounding_config("api.key") or os.environ.get("MXOU_IMAGE_TOKEN", "") or _get_token()
+    mxou_token = _get_mxou_token() or _get_token()
     return {
         "token": mxou_token,
         "ozon_client_id": ozon_creds["client_id"],
@@ -2564,7 +2521,7 @@ def publish_product_new(
                 sku_id=sku_id,
                 ozon_client_id=ozon_creds['client_id'],
                 ozon_api_key=ozon_creds['api_key'],
-                mxou_token=_read_pounding_config("api.key") or os.environ.get("MXOU_IMAGE_TOKEN", "") or _get_token(),
+                mxou_token=_get_mxou_token() or _get_token(),
                 store_id=store_id or '',
                 shipping_provider=shipping_provider,
                 shipping_service=shipping_service,
@@ -2983,3 +2940,210 @@ def poll_pipeline_task(
         "result_json": {},
         "error_message": f"Polling timed out after {max_wait_sec}s",
     }
+
+
+def _translate_slug_to_cn(slug: str, mxou_token: str) -> str:
+    """LLM 翻译俄语 slug → 中文 1688 搜索关键词，带 fallback."""
+    if not mxou_token or not slug:
+        return slug
+    
+    import requests as req
+    
+    # 截断过长 slug（deepseek-v4-flash reasoning tokens 消耗大，长输入易导致输出为空）
+    slug_short = " ".join(slug.split()[:6]) if len(slug.split()) > 6 else slug
+    
+    for attempt, max_tok in enumerate([500, 400, 300]):
+        try:
+            cn_resp = req.post("https://api.mxou.cn/v1/chat/completions",
+                headers={"Authorization": f"Bearer {mxou_token}", "Content-Type": "application/json"},
+                json={"model": "deepseek-v4-flash", "messages": [
+                    {"role": "system", "content": "将俄语产品名精确翻译为中文1688搜索关键词。保留规格数字。只返回3-5个关键词。"},
+                    {"role": "user", "content": f"翻译: {slug_short}"}
+                ], "temperature": 0, "max_tokens": max_tok}, timeout=30)
+            if cn_resp.status_code == 200:
+                data = cn_resp.json()
+                choices = data.get("choices", [])
+                if not choices:
+                    continue
+                content = choices[0].get("message", {}).get("content", "")
+                if isinstance(content, str) and content.strip():
+                    kw = content.strip()[:200]  # cap to prevent LLM hallucination overflow
+                    return kw
+        except Exception:
+            if attempt == 0:
+                slug_short = " ".join(slug.split()[:3])  # 第二次尝试用更短的
+    return ""
+
+
+def _search_1688_with_fallback(search_kw: str) -> list[dict[str, Any]]:
+    """1688 AK 搜索，带 fallback：翻译词 → 原始 slug 关键词 → 缩短关键词."""
+    from scripts.lib.ak_1688_client import search_products
+    
+    # 尝试 1: 用翻译后的关键词
+    if search_kw:
+        try:
+            products = search_products(search_kw, page_size=5)
+            if products:
+                return products
+        except Exception:
+            pass
+    
+    # 尝试 2: 用 slug 中提取的关键词（取前 3 个有意义的词）
+    slug_words = [w for w in search_kw.split() if len(w) > 2 and not w.isdigit()]
+    if slug_words and len(slug_words) >= 2:
+        try:
+            products = search_products(" ".join(slug_words[:3]), page_size=5)
+            if products:
+                return products
+        except Exception:
+            pass
+    
+    return []
+
+
+def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = "") -> dict[str, Any]:
+    """
+    跟卖 Ozon 商品 (v9: Skill 不调 Ozon API, import-by-sku 移到 Worker):
+      1. CDP 抓取 Ozon 商品页 → 拿到竞品图片 + 标题
+      2. LLM 翻译标题 → 1688 搜索同款
+      3. CDP 探针 1688 → 采购成本 + 规格
+      4. (auto_submit) 组装 GraphInput(follow_sell=true) → Worker 跟卖管线
+
+    Returns: {success, product_id, slug, images, title, 1688_matches, task_id}
+    """
+    import re, requests as req
+
+    # Step 1: 解析 Ozon URL
+    parsed = parse_ozon_url(ozon_url)
+    if not parsed or not parsed.get("product_id"):
+        return {"success": False, "error": "无法解析 Ozon URL"}
+
+    product_id = parsed["product_id"]
+    m = re.search(r'/product/(.+?)-(\d{6,15})/', ozon_url)
+    slug = m.group(1).replace("-", " ") if m else ""
+
+    ozon_creds = _get_ozon_credentials(store_id)
+    client_id = ozon_creds.get("client_id", "")
+    api_key = ozon_creds.get("api_key", "")
+    from scripts.lib.config_store import get_mxou_token
+    mxou_token = get_mxou_token()
+    
+    result: dict[str, Any] = {
+        "success": False, "product_id": product_id, "slug": slug,
+        "images": [], "title": "", "category": "",
+        "1688_matches": [],
+    }
+    
+    # Step 2: CDP 抓取 Ozon 商品页 → 竞品图片 + 标题
+    ozon_images: list[str] = []
+    ozon_title: str = ""
+    
+    try:
+        from scripts.lib.ozon_scraper import scrape_ozon_product_via_cdp
+        cdp_data = scrape_ozon_product_via_cdp(ozon_url, cdp_url="http://127.0.0.1:9222", timeout=30)
+        if cdp_data.get("success"):
+            ozon_images = cdp_data.get("images", [])
+            ozon_title = cdp_data.get("title", "")
+            result["scrape_source"] = "cdp"
+            logger.info(f"✅ CDP 抓取 Ozon 成功: {len(ozon_images)} 张图, title={ozon_title[:60]}")
+    except Exception as e:
+        logger.debug(f"CDP Ozon scraper unavailable: {e}")
+    
+    result["ozon_images_count"] = len(ozon_images)
+    result["images"] = ozon_images
+    if ozon_title:
+        result["title"] = ozon_title
+
+    # Step 3: 1688 搜索（图片搜索优先，文字搜索为辅）
+    search_text = ozon_title if ozon_title else slug
+    matches_raw = []
+    search_method = ""
+
+    # 3a. 图片搜索（优先）— 用 Ozon 竞品主图搜1688同款，避免翻译歧义
+    # ⚠️ 始终用第一张图（产品主图），不要按分辨率选图（后面的可能是场景图/细节图）
+    if ozon_images:
+        main_img = ozon_images[0]  # 第一张 = 产品主图
+        logger.info(f"🔍 以图搜款: {main_img[:80]}")
+
+        # 3a-1. CDP 网页版以图搜款（更准确，用1688网页搜索引擎）
+        try:
+            from scripts.lib.ozon_image_search import search_by_image_cdp
+            cdp_results = search_by_image_cdp(image_url=main_img, page_size=5, wait_seconds=10)
+            if cdp_results:
+                matches_raw = cdp_results
+                search_method = "cdp"
+                logger.info(f"✅ CDP图搜命中 {len(matches_raw)} 个结果")
+        except Exception as e:
+            logger.debug(f"CDP image search failed: {e}")
+
+        # 3a-2. API 以图搜款（后备）
+        if not matches_raw:
+            try:
+                from scripts.lib.ak_1688_client import search_by_image
+                img_results = search_by_image(image_url=main_img, page_size=5, score_level="high")
+                if img_results:
+                    matches_raw = img_results
+                    search_method = "image"
+                    logger.info(f"✅ API图搜命中 {len(matches_raw)} 个结果")
+            except Exception as e:
+                logger.debug(f"图片搜索失败: {e}")
+
+    # 3b. 文字搜索（fallback）— LLM 翻译俄语标题 → 中文关键词
+    if not matches_raw:
+        search_kw = _translate_slug_to_cn(search_text, mxou_token)
+        if not search_kw:
+            search_kw = " ".join(search_text.split()[:4])
+        result["search_keyword"] = search_kw
+        matches_raw = _search_1688_with_fallback(search_kw)
+        search_method = "text"
+        logger.info(f"📝 文字搜索: {search_kw}")
+
+    result["search_method"] = search_method
+
+    # Step 4: 整理搜索结果
+    matches = []
+    if matches_raw:
+        matches = [{"id": p.get("product_id", p.get("itemId", "")), "title": p.get("title", "")[:80],
+                    "price": p.get("price", ""), "image": p.get("image", "")} 
+                   for p in matches_raw if p.get("product_id") or p.get("itemId")]
+        result["1688_matches"] = matches
+
+    if matches:
+        result["success"] = True
+        result["best_match"] = matches[0]
+
+    # Step 5: auto_submit — CDP 探针 1688 → 组装 envelope → submit Worker (跟卖标记)
+    if auto_submit and matches:
+        best = matches[0]
+        best_id = best.get("id", "")
+        if best_id:
+            try:
+                detail_url = f"https://detail.1688.com/offer/{best_id}.html"
+                envelope = build_graph_envelope_with_retry(
+                    item_id=best_id,
+                    detail_url=detail_url,
+                    max_skus=1,
+                )
+                if envelope and envelope.get("envelope"):
+                    draft = envelope["envelope"].get("draft", {})
+                    extensions = envelope["envelope"].get("extensions", {})
+                    # 🆕 跟卖标记: Worker 走跟卖管线
+                    draft["ozon_product_id"] = product_id
+                    extensions["follow_sell"] = True
+                    envelope["envelope"]["extensions"] = extensions
+                    # 竞品图片
+                    if ozon_images:
+                        draft["images"] = ozon_images
+                    # 凭证
+                    envelope["ozon_client_id"] = client_id
+                    envelope["ozon_api_key"] = api_key
+                    submit_res = submit_envelope(envelope)
+                    result["submit_result"] = submit_res
+                    result["task_id"] = submit_res.get("task_id", "")
+                    result["envelope_built"] = True
+                else:
+                    result["envelope_error"] = "build_graph_envelope 返回空"
+            except Exception as e:
+                result["envelope_error"] = str(e)
+
+    return result
