@@ -15,6 +15,42 @@ from graphs.graph import main_graph  # 导入LangGraph主图
 logger = get_logger(__name__)
 
 
+# ── 进度回调 ──
+# 节点名 → 阶段名映射
+_NODE_STAGE_MAP = {
+    "auth": "auth", "ingest": "ingest", "category_match": "category_match",
+    "pricing": "pricing", "attributes": "attributes", "description": "description",
+    "main_image_gen": "image_generation", "white_bg_gen": "image_generation",
+    "detail_gen": "image_generation", "scene_1_gen": "image_generation",
+    "scene_2_gen": "image_generation", "scene_3_gen": "image_generation",
+    "comparison_gen": "image_generation", "social_proof_gen": "image_generation",
+    "multi_angle_gen": "image_generation", "multi_info_gen": "image_generation",
+    "prepare_ozon_upload": "prepare_ozon_upload",
+    "ozon_validate": "ozon_validate", "ozon_upload": "ozon_upload",
+    "ozon_status": "ozon_status", "learning_record": "learning_record",
+}
+
+
+class ProgressCallback:
+    """LangGraph 回调：节点执行时更新进度"""
+    def __init__(self, task_id: str, update_fn):
+        self.task_id = task_id
+        self.update_fn = update_fn
+
+    def on_chain_start(self, serialized, inputs, **kwargs):
+        node_name = serialized.get("name", "") if isinstance(serialized, dict) else ""
+        stage = _NODE_STAGE_MAP.get(node_name, node_name)
+        if stage and self.update_fn:
+            self.update_fn(self.task_id, stage, f"执行 {node_name}...")
+
+    def on_chain_end(self, outputs, **kwargs):
+        pass
+
+    def on_chain_error(self, error, **kwargs):
+        if self.update_fn:
+            self.update_fn(self.task_id, "error", str(error)[:100])
+
+
 class SupabaseTaskProcessor:
     """
     Supabase云端任务处理器
@@ -291,34 +327,37 @@ class SupabaseTaskProcessor:
             logger.error(f"任务失败处理异常: {e}")
 
     async def execute_graph_with_timeout(
-        self, 
-        payload: Dict[str, Any], 
+        self,
+        payload: Dict[str, Any],
         timeout: int
     ) -> Dict[str, Any]:
         """
-        执行LangGraph流程（带超时控制）
-        
+        执行LangGraph流程（带超时控制和进度追踪）
+
         Args:
             payload: LangGraph输入参数
             timeout: 超时时间（秒）
-        
+
         Returns:
             LangGraph输出结果
         """
         try:
             from langchain_core.runnables import RunnableConfig
+            from main import update_progress
+
             task_id = payload.get("task_id", "unknown")
             config = RunnableConfig(
                 configurable={"thread_id": task_id},
                 run_name=f"task_{task_id}",
                 metadata={"task_id": task_id},
+                callbacks=[ProgressCallback(task_id, update_progress)],
             )
             result = await asyncio.wait_for(
                 main_graph.ainvoke(payload, config=config),
                 timeout=timeout
             )
             return result
-            
+
         except asyncio.TimeoutError:
             raise asyncio.TimeoutError(f"LangGraph流程执行超时（{timeout}秒）")
     
