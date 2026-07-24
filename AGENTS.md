@@ -21,6 +21,7 @@
 ```
 ozon-worker/
 ├── skill/                      # 客户本地:1688/Ozon 抓取 + 以图搜款 + 信封组装 (Python ≥3.9, pip)
+│   ├── compile.py              # Cython 编译脚本（核心库 → .so/.pyd，源码保护）
 │   └── scripts/
 │       ├── cli.py              # CLI 入口:check/graph/follow/image_search/get_ak/batch_test
 │       ├── cloud_probe.py      # build_graph_envelope + follow_sell_cloud + submit_envelope
@@ -75,6 +76,8 @@ ozon-worker/
 
 **Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
 
+**源码保护**：`compile.py` 用 Cython 将核心库（ak_1688_client、chrome_launcher、config_store、ozon_scraper、ozon_image_search）编译为二进制 `.so`/`.pyd`。CLI 入口（cli.py、cloud_probe.py、batch_test.py）因依赖复杂仅复制不编译。
+
 **两条管线**：
 - **1688 选品**：1688 URL → CDP 抓取 → 组装信封 → Worker 全流程
 - **Ozon 跟卖**：Ozon URL → CDP 抓取 → 图搜 1688 → 组装信封 → Worker 跟卖管线
@@ -116,8 +119,14 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | 提交任务 | `POST /api/v1/submit_task` | POST |
 | 查询状态 | `GET /api/v1/task_status/{id}` | GET |
 | 取消任务 | `POST /api/v1/cancel_task/{id}` | POST |
+| 任务统计 | `GET /api/v1/task_statistics` | GET |
+| LangGraph 进度 | `GET /progress/{run_id}` | GET |
 | 健康检查 | `GET /api/v1/health` | GET |
 | Swagger UI | `GET /api/v1/docs` | GET |
+
+**`task_status` 返回 `progress` 字段**：`{stage, percent, stages_completed[], stages_remaining[], message}`。
+进度基于内存中 12 阶段 `STAGE_ORDER` 计算，节点执行时 `ProgressCallback` 自动更新。
+⚠️ 进度存储在内存中，Worker 重启后丢失（task_status 降级为无进度模式）。
 
 鉴权: `token` 字段在请求体中（非 header），通过 Supabase `tokens` 表校验。
 限流: 每 token 每分钟 ≤ 300 次（`RATE_LIMIT_PER_MINUTE` 可配置）。
@@ -140,6 +149,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | skill | `python3 scripts/cli.py follow --ozon-url <Ozon URL>`（Ozon 跟卖） |
 | skill | `python3 scripts/cli.py image_search --image <URL>`（以图搜款） |
 | skill | `python3 scripts/batch_test.py --urls-file urls.txt --client-id xxx --api-key xxx --submit` |
+| skill | `python3 compile.py`（Cython 编译核心库 → .so/.pyd，源码保护） |
 | worker | `cd worker && PYTHONPATH=src python3 -m pytest tests/ -v` |
 | worker | `bash scripts/local_run.sh -m flow -i '{...}'` 跑全流程 |
 | worker | `bash scripts/local_run.sh -m node -n <节点ID> -i '{...}'` 跑单节点 |
@@ -159,7 +169,8 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
   - `RATE_LIMIT_PER_MINUTE` — API 限流（默认 300）
   - `MAX_CONCURRENT` — 并发任务数（默认 50）
   - `LOG_FORMAT` / `LOG_LEVEL` / `LOG_FILE` — 日志配置（见 LOGGING.md）
-- Skill 环境变量: `WORKER_URL`（Worker 地址）、`MXOU_TOKEN`、`OZON_CLIENT_ID`、`OZON_API_KEY`
+- Skill 环境变量: `WORKER_URL`（Worker 地址）、`OZON_CLIENT_ID`、`OZON_API_KEY`
+- ⚠️ 已移除: `COZE_BUCKET_*`（S3 存储已废弃，图片 URL 直传）、`MXOU_TOKEN`（Worker 从请求 token 获取）
 
 ## 部署
 
@@ -262,6 +273,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## 已知坑
 
+- **进度存储在内存中**：`_task_progress` dict 存储在 Worker 进程内存，重启后丢失。task_status 接口降级为无进度模式（仅返回 status/result）。如需持久化进度，需改为写入 PG。
 - **deepseek-v4-flash reasoning tokens**：该模型默认启用推理，`reasoning_tokens` 消耗 `max_tokens` 配额。翻译/生图 prompt 的 `max_tokens` 至少设为 200，否则输出为空。
 - **DESCRIPTION_DECLINE 多重根因**：
   1. 产品名含拉丁/中文字符 → `ozon_validate_node` 应阻断（已修复）

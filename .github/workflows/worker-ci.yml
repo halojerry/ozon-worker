@@ -1,0 +1,68 @@
+name: Worker CI
+
+on:
+  push:
+    paths:
+      - 'worker/**'
+    branches: [main, dev]
+  pull_request:
+    paths:
+      - 'worker/**'
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install ruff
+      - name: Ruff lint
+        working-directory: worker
+        run: ruff check src/ --select E,F,W --ignore E501
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ozon_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PYTHONPATH: /home/runner/work/ozon-worker/ozon-worker/worker/src
+      PGDATABASE_URL: postgresql://postgres:postgres@localhost:5432/ozon_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        working-directory: worker
+        run: |
+          pip install -r requirements.txt 2>/dev/null || pip install requests pydantic fastapi uvicorn sqlalchemy psycopg2-binary langchain-core langgraph supabase
+      - name: Run tests
+        working-directory: worker
+        run: python -m pytest tests/ -v --tb=short
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t ozon-worker:ci -f worker/Dockerfile worker/
+      - name: Verify image
+        run: docker images ozon-worker:ci

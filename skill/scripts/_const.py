@@ -46,7 +46,7 @@ def _read_pounding_config(key_path: str) -> str | None:
 
 DEFAULT_OZON_CURRENCY = 'RUB'
 DEFAULT_CACHE_TTL_SECONDS = 86400
-CLOUD_API_BASE = os.environ.get('MXOU_API_BASE', '').strip() or 'https://worker.mxou.cn'
+CLOUD_API_BASE = 'https://worker.mxou.cn'
 LOGS_DIR = DATA_DIR / 'logs'
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 SKILL_NAME = 'pounding-ozon-probe'
