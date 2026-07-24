@@ -40,7 +40,7 @@ from typing import Any
 
 import requests
 
-from scripts._const import CLOUD_API_BASE, SKILL_VERSION, LOGS_DIR
+from scripts._const import CLOUD_API_BASE, SKILL_VERSION
 from scripts._errors import (
     ERR_CLOUD_UNAVAILABLE,
     ERR_CLOUD_REJECTED,
@@ -89,7 +89,7 @@ except Exception as e:
 # Structured Task Logging — see scripts/lib/logging_utils.py
 # ═══════════════════════════════════════════════════════════════════════════
 
-from scripts.lib.logging_utils import AuditLogger, read_task_log as _read_task_log
+from scripts.lib.logging_utils import AuditLogger
 
 # Backward-compatible wrapper
 def _log_task(task_id: str, component: str, stage: str, level: str,
