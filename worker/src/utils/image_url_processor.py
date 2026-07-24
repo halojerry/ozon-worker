@@ -39,20 +39,25 @@ _s3_storage_instance = None
 
 
 def _get_s3_storage():
-    """获取S3存储单例实例"""
+    """获取S3存储单例实例（可选，图片直接从MXOU返回时不需要）"""
     global _s3_storage_instance
     if _s3_storage_instance is not None:
         return _s3_storage_instance
+    # S3 可选：只有配置了 COZE_BUCKET 才初始化
+    access_key = os.environ.get("COZE_BUCKET_ACCESS_KEY", "")
+    if not access_key:
+        logger.debug("S3存储未配置（COZE_BUCKET_ACCESS_KEY 为空），跳过")
+        return None
     try:
         from storage.s3.s3_storage import S3SyncStorage
         _s3_storage_instance = S3SyncStorage(
-            access_key=os.environ.get("COZE_BUCKET_ACCESS_KEY", ""),
+            access_key=access_key,
             secret_key=os.environ.get("COZE_BUCKET_SECRET_KEY", ""),
             bucket_name=os.environ.get("COZE_BUCKET_NAME", ""),
         )
         return _s3_storage_instance
     except Exception as e:
-        logger.error(f"S3存储初始化失败: {e}")
+        logger.warning(f"S3存储初始化失败（非阻塞）: {e}")
         return None
 
 

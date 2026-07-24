@@ -356,7 +356,7 @@ def _remove_latin_words(title: str) -> str:
     
     # 尝试 LLM 转写（轻量调用，快速）
     try:
-        token = state.token or os.environ.get("MXOU_TOKEN", "")
+        token = state.token  # 用户提交时传入，不依赖环境变量
         if token:
             transliterated = _transliterate_latin_llm(title, latin_words, token)
             if transliterated and _has_cyrillic(transliterated):
