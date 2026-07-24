@@ -486,7 +486,14 @@ def is_auth_valid() -> bool:
 
 
 def verify_with_worker(token: str, client_id: str = "", api_key: str = "") -> dict[str, Any]:
-    """Call Worker /api/v1/auth/verify to validate credentials."""
+    """Call Worker /api/v1/auth/verify to validate credentials.
+
+    Returns:
+        {"valid": True, "reason": "ok", "expires_in": 86400} on success
+        {"valid": False, "reason": "xxx"} on failure
+    Raises:
+        AuthError: Worker unreachable or auth endpoint not available
+    """
     import requests
     from scripts._const import CLOUD_API_BASE
     url = f"{CLOUD_API_BASE}/api/v1/auth/verify"
@@ -496,10 +503,17 @@ def verify_with_worker(token: str, client_id: str = "", api_key: str = "") -> di
             "client_id": client_id,
             "api_key": api_key,
         }, timeout=15)
+        if resp.status_code == 404:
+            raise AuthError(
+                "Worker 鉴权端点未部署。请更新 Worker 到最新版本。"
+            )
         return resp.json()
+    except AuthError:
+        raise
     except Exception as e:
-        logger.warning("Worker auth verify failed: %s", e)
-        return {"valid": False, "reason": "worker_unreachable"}
+        raise AuthError(
+            f"无法连接云端 Worker（{CLOUD_API_BASE}）。请检查网络或联系管理员。\n{e}"
+        )
 
 
 def _require_auth() -> None:
