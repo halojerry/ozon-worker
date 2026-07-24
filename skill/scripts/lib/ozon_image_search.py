@@ -67,12 +67,15 @@ def _extract_results(ws, page_size: int = 5) -> list[dict[str, Any]]:
             const skipWords = ["运费","件","起批","揽收","代发","晚揽","必赔","铺货","月代",
                 "分销商","评分","回购","店铺","卖家","客服","发货","退货","包邮",
                 "H揽","K揽","内天月","¥","价格","库存","现货","秒杀","优惠",
-                "有限公司","公司","工厂","厂家","集团","营业","执照","注册"];
+                "有限公司","公司","工厂","厂家","集团","营业","执照","注册",
+                "电器厂","制造厂","加工厂","生产厂","配件厂","用品厂","工具厂","日化厂"];
+            // 公司名正则：含"市"/"县"且以"厂"/"公司"/"有限"结尾
+            const companyRe = /[市县].*[厂公司有限]/;
             for (const line of lines) {{
                 if (line.match(/符合[\\d\\/]+个条件/)) {{
                     badge = line;
                 }} else if (line.length >= 8) {{
-                    const isSkip = skipWords.some(w => line.includes(w)) || line.startsWith("¥") || line.match(/^[\\d.]+$/) || line.match(/^[\\d]+[内天月HK]/) || line.match(/^[\\d]+k?[+]/i);
+                    const isSkip = skipWords.some(w => line.includes(w)) || line.startsWith("¥") || line.match(/^[\\d.]+$/) || line.match(/^[\\d]+[内天月HK]/) || line.match(/^[\\d]+k?[+]/i) || companyRe.test(line);
                     if (!isSkip) {{
                         // 找最长的中文产品描述行
                         const cnCount = (line.match(/[\\u4e00-\\u9fff]/g) || []).length;
