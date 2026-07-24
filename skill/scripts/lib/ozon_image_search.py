@@ -63,12 +63,23 @@ def _extract_results(ws, page_size: int = 5) -> list[dict[str, Any]]:
             const lines = text.split("\\n").map(l => l.trim()).filter(l => l.length > 0);
             let title = "";
             let badge = "";
+            // 非产品关键词（物流、店铺指标、价格等）
+            const skipWords = ["运费","件","起批","揽收","代发","晚揽","必赔","铺货","月代",
+                "分销商","评分","回购","店铺","卖家","客服","发货","退货","包邮",
+                "H揽","K揽","内天月","¥","价格","库存","现货","秒杀","优惠",
+                "有限公司","公司","工厂","厂家","集团","营业","执照","注册"];
             for (const line of lines) {{
                 if (line.match(/符合[\\d\\/]+个条件/)) {{
                     badge = line;
-                }} else if (line.length > 5 && !line.startsWith("¥") && !line.match(/^[\\d.]+$/) && !line.includes("运费") && !line.includes("件") && !line.includes("起批") && !line.includes("揽收")) {{
-                    title = line.substring(0, 80);
-                    break;
+                }} else if (line.length >= 8) {{
+                    const isSkip = skipWords.some(w => line.includes(w)) || line.startsWith("¥") || line.match(/^[\\d.]+$/) || line.match(/^[\\d]+[内天月HK]/) || line.match(/^[\\d]+k?[+]/i);
+                    if (!isSkip) {{
+                        // 找最长的中文产品描述行
+                        const cnCount = (line.match(/[\\u4e00-\\u9fff]/g) || []).length;
+                        if (cnCount >= 3 && line.length > (title || "").length) {{
+                            title = line.substring(0, 80);
+                        }}
+                    }}
                 }}
             }}
             const priceMatch = text.match(/¥\\s*([\\d.]+)/);
