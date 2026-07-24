@@ -1,9 +1,7 @@
 name: Build Skill Binary Package
 
 on:
-  # 手动触发
   workflow_dispatch:
-  # push 到 skill/ 目录时自动触发
   push:
     paths:
       - 'skill/**'
@@ -11,15 +9,18 @@ on:
 
 jobs:
   build-macos:
-    name: Build macOS (.so)
+    name: Build macOS (${{ matrix.python-version }})
     runs-on: macos-latest
+    strategy:
+      matrix:
+        python-version: ['3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
@@ -35,20 +36,23 @@ jobs:
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: native-darwin
+          name: native-darwin-py${{ matrix.python-version }}
           path: skill/dist/scripts/lib/_native/darwin/
           retention-days: 7
 
   build-windows:
-    name: Build Windows (.pyd)
+    name: Build Windows (${{ matrix.python-version }})
     runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ['3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
@@ -64,7 +68,7 @@ jobs:
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: native-win32
+          name: native-win32-py${{ matrix.python-version }}
           path: skill/dist/scripts/lib/_native/win32/
           retention-days: 7
 
@@ -89,25 +93,48 @@ jobs:
         env:
           PYTHONIOENCODING: utf-8
 
-      - name: Download macOS artifacts
+      # Download all platform/version artifacts
+      - name: Download macOS 3.12 artifacts
         uses: actions/download-artifact@v4
         with:
-          name: native-darwin
-          path: skill/dist/scripts/lib/_native/darwin/
+          name: native-darwin-py3.12
+          path: skill/dist/scripts/lib/_native/darwin312/
 
-      - name: Download Windows artifacts
+      - name: Download macOS 3.13 artifacts
         uses: actions/download-artifact@v4
         with:
-          name: native-win32
-          path: skill/dist/scripts/lib/_native/win32/
+          name: native-darwin-py3.13
+          path: skill/dist/scripts/lib/_native/darwin313/
 
-      - name: Verify native modules
-        working-directory: skill/dist
+      - name: Download Windows 3.12 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: native-win32-py3.12
+          path: skill/dist/scripts/lib/_native/win32_312/
+
+      - name: Download Windows 3.13 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: native-win32-py3.13
+          path: skill/dist/scripts/lib/_native/win32_313/
+
+      - name: Merge into unified _native structure
+        working-directory: skill/dist/scripts/lib/_native
         run: |
-          echo "=== macOS ==="
-          ls -la scripts/lib/_native/darwin/ 2>/dev/null || echo "empty"
-          echo "=== Windows ==="
-          ls -la scripts/lib/_native/win32/ 2>/dev/null || echo "empty"
+          # macOS: merge 3.12 and 3.13 into darwin/
+          mkdir -p darwin
+          cp darwin312/* darwin/ 2>/dev/null || true
+          cp darwin313/* darwin/ 2>/dev/null || true
+          # Windows: merge 3.12 and 3.13 into win32/
+          mkdir -p win32
+          cp win32_312/* win32/ 2>/dev/null || true
+          cp win32_313/* win32/ 2>/dev/null || true
+          # Linux: use ubuntu runner's 3.12 build
+          cp darwin312/*.so ../_native/linux/ 2>/dev/null || true
+          # Cleanup temp dirs
+          rm -rf darwin312 darwin313 win32_312 win32_313
+          echo "=== Final _native structure ==="
+          find . -type f | sort
 
       - name: Clean test data
         working-directory: skill/dist
@@ -118,21 +145,20 @@ jobs:
       - name: Create distributable package
         working-directory: skill
         run: |
-          VERSION=$(cat ../VERSION 2>/dev/null || echo "0.2.0")
-          tar czf "pounding-ozon-probe-v${VERSION}-py312.tar.gz" -C dist .
-          ls -lh "pounding-ozon-probe-v${VERSION}-py312.tar.gz"
+          VERSION=$(cat ../VERSION 2>/dev/null || echo "0.3.0")
+          tar czf "pounding-ozon-probe-v${VERSION}.tar.gz" -C dist .
+          ls -lh "pounding-ozon-probe-v${VERSION}.tar.gz"
 
       - name: Upload final package
         uses: actions/upload-artifact@v4
         with:
-          name: pounding-ozon-probe-py312
-          path: skill/pounding-ozon-probe-*-py312.tar.gz
+          name: pounding-ozon-probe
+          path: skill/pounding-ozon-probe-*.tar.gz
           retention-days: 30
 
-      # 可选：自动创建 GitHub Release
       - name: Create Release (on tag push)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: skill/pounding-ozon-probe-*-py312.tar.gz
+          files: skill/pounding-ozon-probe-*.tar.gz
           generate_release_notes: true
