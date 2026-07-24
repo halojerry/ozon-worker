@@ -811,6 +811,7 @@ def _candidate_browser_paths() -> list[str]:
 
 def _playwright_chromium_paths() -> list[str]:
     """Find Playwright's bundled Chromium — fallback when no system Chrome."""
+    import os
     import platform
     home = Path.home()
     if platform.system() == 'Darwin':
