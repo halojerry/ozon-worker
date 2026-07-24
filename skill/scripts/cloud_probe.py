@@ -3113,8 +3113,8 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         result["success"] = True
         result["best_match"] = matches[0]
 
-    # Step 5: auto_submit — CDP 探针 1688 → 组装 envelope → submit Worker (跟卖标记)
-    if auto_submit and matches:
+    # Step 5: 组装 envelope（跟卖标记）— 有匹配就组装，auto_submit 时才提交
+    if matches:
         best = matches[0]
         best_id = best.get("id", "")
         if best_id:
@@ -3123,25 +3123,30 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                 envelope = build_graph_envelope_with_retry(
                     item_id=best_id,
                     detail_url=detail_url,
+                    store_id=store_id,
                     max_skus=1,
                 )
                 if envelope and envelope.get("envelope"):
                     draft = envelope["envelope"].get("draft", {})
                     extensions = envelope["envelope"].get("extensions", {})
-                    # 🆕 跟卖标记: Worker 走跟卖管线
+                    # 跟卖标记: Worker 走跟卖管线
                     draft["ozon_product_id"] = product_id
                     extensions["follow_sell"] = True
                     envelope["envelope"]["extensions"] = extensions
                     # 竞品图片
                     if ozon_images:
                         draft["images"] = ozon_images
-                    # 凭证
+                    # 凭证（顶层）
                     envelope["ozon_client_id"] = client_id
                     envelope["ozon_api_key"] = api_key
-                    submit_res = submit_envelope(envelope)
-                    result["submit_result"] = submit_res
-                    result["task_id"] = submit_res.get("task_id", "")
+                    envelope["token"] = mxou_token
+                    result["envelope"] = envelope
                     result["envelope_built"] = True
+                    # auto_submit 时才提交
+                    if auto_submit:
+                        submit_res = submit_envelope(envelope)
+                        result["submit_result"] = submit_res
+                        result["task_id"] = submit_res.get("task_id", "")
                 else:
                     result["envelope_error"] = "build_graph_envelope 返回空"
             except Exception as e:
