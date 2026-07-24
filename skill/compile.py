@@ -30,7 +30,6 @@ COMPILE_FILES = [
     "scripts/lib/ozon_scraper.py",
     "scripts/lib/ozon_image_search.py",
     "scripts/lib/reference_images.py",
-    "scripts/capabilities/browser_probe/service.py",
     "scripts/capabilities/browser_probe/stealth.py",
 ]
 
@@ -51,6 +50,7 @@ AUX_FILES = [
     "scripts/lib/logging_utils.py",
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
+    "scripts/capabilities/browser_probe/service.py",  # Playwright 依赖，无法编译
 ]
 
 # 参考文件（客户端文档 + 依赖）
@@ -256,17 +256,17 @@ def _generate_import_stubs(dist_lib_dir: Path, compile_files: list[str]) -> None
             '#!/usr/bin/env python3\n'
             '"""Auto-generated stub — loads native binary for current platform."""\n'
             'import importlib.util as _ilu\n'
-            'import platform as _plat\n'
+            'import platform as _pm\n'
             'import sys as _sys\n'
             'import sysconfig\n'
             'from pathlib import Path as _Path\n'
             '\n'
             '_plat = {"Darwin": "darwin", "Windows": "win32", "Linux": "linux"}.get(\n'
-            '    _plat.system(), _plat.system().lower()\n'
+            '    _pm.system(), _pm.system().lower()\n'
             ')\n'
             '# macOS: architecture-specific dir (darwin-arm64, darwin-x86_64)\n'
             'if _plat == "darwin":\n'
-            '    _plat_name = f"darwin-{_plat.machine()}"\n'
+            '    _plat_name = f"darwin-{_pm.machine()}"\n'
             'else:\n'
             '    _plat_name = _plat\n'
             '_native_dir = _Path(__file__).resolve().parent / "_native" / _plat_name\n'
