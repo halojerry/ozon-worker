@@ -309,6 +309,8 @@ def scrape_ozon_product_via_cdp(
 
     Returns same dict as scrape_ozon_product().
     """
+    from scripts.lib.config_store import _require_auth
+    _require_auth()
     import requests as req_lib
     import websocket
     import time

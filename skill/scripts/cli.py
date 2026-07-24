@@ -121,7 +121,13 @@ def cmd_probe(args: argparse.Namespace) -> int:
 
 def cmd_graph(args: argparse.Namespace) -> int:
     """组装 GraphInput envelope（1688 API + CDP → 完整请求）."""
+    from scripts.lib.config_store import preflight_check, print_setup_guide, AuthError
     from scripts.cloud_probe import build_graph_envelope_with_retry, ProductValidationError
+
+    missing = preflight_check()
+    if missing:
+        print_setup_guide(missing)
+        return 1
 
     # Extract item_id from URL if needed
     item_id = args.item_id
@@ -147,6 +153,9 @@ def cmd_graph(args: argparse.Namespace) -> int:
     except ProductValidationError as e:
         _out({"error": str(e), "skipped": True, "item_id": item_id})
         return 2
+    except AuthError as e:
+        _out({"error": str(e)})
+        return 1
 
     # Summary + full envelope
     env = graph.get("envelope", {})
@@ -173,7 +182,13 @@ def cmd_graph(args: argparse.Namespace) -> int:
 
 def cmd_image_search(args) -> int:
     """以图搜款: 上传图片搜索 1688 同款/相似商品."""
+    from scripts.lib.config_store import preflight_check, print_setup_guide, AuthError
     from scripts.lib.ak_1688_client import search_by_image
+
+    missing = preflight_check(skip_store=True)
+    if missing:
+        print_setup_guide(missing)
+        return 1
 
     try:
         results = search_by_image(
@@ -182,6 +197,9 @@ def cmd_image_search(args) -> int:
             page_size=args.limit,
             sort_type=args.sort or "",
         )
+    except AuthError as e:
+        _out({"success": False, "error": str(e)})
+        return 1
     except FileNotFoundError as e:
         _out({"success": False, "error": str(e)})
         return 1
@@ -569,8 +587,19 @@ def cmd_check(args) -> int:
 
 def cmd_follow(args) -> int:
     """跟卖 Ozon 商品: Ozon URL → import-by-sku → 1688搜索 → CDP探针 → 上架"""
+    from scripts.lib.config_store import preflight_check, print_setup_guide, AuthError
     from scripts.cloud_probe import follow_sell_cloud
-    result = follow_sell_cloud(args.ozon_url, auto_submit=args.auto_submit, store_id=args.store or "")
+
+    missing = preflight_check()
+    if missing:
+        print_setup_guide(missing)
+        return 1
+
+    try:
+        result = follow_sell_cloud(args.ozon_url, auto_submit=args.auto_submit, store_id=args.store or "")
+    except AuthError as e:
+        _out({"success": False, "error": str(e)})
+        return 1
     _out(result)
     return 0 if result.get("success") else 1
 

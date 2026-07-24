@@ -123,3 +123,18 @@ class TaskStatisticsResponse(BaseModel):
     failed: int = Field(0, description="已失败")
     cancelled: int = Field(0, description="已取消")
     avg_duration_seconds: Optional[float] = Field(None, description="平均执行时长（秒）")
+
+
+class AuthVerifyRequest(BaseModel):
+    """Skill 鉴权请求。"""
+    token: str = Field(..., description="MXOU_TOKEN")
+    client_id: str = Field("", description="Ozon Client ID（可选）")
+    api_key: str = Field("", description="Ozon API Key（可选）")
+
+
+class AuthVerifyResponse(BaseModel):
+    """Skill 鉴权响应。"""
+    valid: bool = Field(..., description="是否有效")
+    reason: str = Field("ok", description="原因: ok / token_invalid / balance_insufficient / account_inactive")
+    expires_in: int = Field(86400, description="缓存有效期（秒）")
+    ozon_valid: Optional[bool] = Field(None, description="Ozon API 是否有效（仅当传了 client_id/api_key 时返回）")

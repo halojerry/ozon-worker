@@ -77,6 +77,30 @@ class _RetriableHTTPError(Exception):
 RETRIABLE_STATUS_CODES = {500, 502, 503, 504}
 
 
+def _try_refresh_ak() -> bool:
+    """Try to refresh 1688 AK via browser. Returns True if successful."""
+    try:
+        from scripts.lib.ak_callback import get_ak_via_browser
+        from scripts.lib.config_store import set_ali_1688_ak
+        result = get_ak_via_browser(timeout=30)
+        if result.get("success") and result.get("ak"):
+            set_ali_1688_ak(result["ak"])
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _ak_expired_error() -> AuthError:
+    """Return AuthError with manual AK acquisition instructions."""
+    return AuthError(
+        "1688 AK 已过期或无效。请重新获取：\n"
+        "  方式 1（自动）: python3.12 scripts/cli.py get_ak\n"
+        "  方式 2（手动）: 浏览器打开 https://clawhub.1688.com → 登录 → 复制 AK\n"
+        "  然后设置: python3.12 scripts/cli.py set_ak --ak <你的AK>"
+    )
+
+
 def _with_retry(max_retries: int = MAX_RETRIES):
     """装饰器：重试 ConnectionError / Timeout / 网关瞬态错误(500/502/503/504)"""
     def decorator(func):
@@ -247,7 +271,11 @@ def _post_1688(path: str, body: dict[str, Any], *, base_url: str = BASE_URL) -> 
         if status in RETRIABLE_STATUS_CODES:
             raise _RetriableHTTPError(status)
         if status == 401:
-            raise AuthError("签名无效或已过期（401）")
+            # Try auto-refresh AK once
+            if _try_refresh_ak():
+                # Retry with new AK (caller will handle retry via _with_retry)
+                raise _RetriableHTTPError(401)
+            raise _ak_expired_error()
         if status == 429:
             raise RateLimitError("请求被限流（429），请稍后重试")
         if status == 400:
@@ -265,7 +293,9 @@ def _post_1688(path: str, body: dict[str, Any], *, base_url: str = BASE_URL) -> 
         
         # 标准 HTTP 状态码映射
         if "401" in msg_code:
-            raise AuthError("签名无效（401）")
+            if _try_refresh_ak():
+                raise _RetriableHTTPError(401)
+            raise _ak_expired_error()
         if "429" in msg_code:
             raise RateLimitError("请求被限流（429）")
         if "400" in msg_code:
@@ -404,6 +434,8 @@ def search_products(
         RateLimitError: 请求被限流
         ServiceError: 服务异常
     """
+    from scripts.lib.config_store import _require_auth
+    _require_auth()
     body: dict[str, Any] = {
         "query": query,
         "pageNum": page,
@@ -460,6 +492,8 @@ def search_by_image(
     Returns:
         匹配商品列表，同 search_products() 的数据结构
     """
+    from scripts.lib.config_store import _require_auth
+    _require_auth()
     import os as _os
     from scripts.lib.image_preprocessor import preprocess_image, image_to_base64
 
@@ -774,6 +808,8 @@ def enrich_product_with_cdp(
         # No branching needed — enriched['data'] is always populated.
         # When degraded, images/packaging_rows/etc. are empty lists.
     """
+    from scripts.lib.config_store import _require_auth
+    _require_auth()
     from scripts.capabilities.browser_probe.service import (
         check_cdp_prerequisites,
         probe_1688_page_safe,

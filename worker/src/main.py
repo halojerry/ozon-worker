@@ -703,6 +703,87 @@ async def health_check():
         )
 
 
+@app.post("/auth/verify")
+@app.post("/api/v1/auth/verify")
+async def auth_verify(request: Request):
+    """
+    Skill 鉴权端点。
+
+    验证:
+    1. token 有效性（Supabase tokens 表）
+    2. 账户余额 > 0（users 表 balance）
+    3. 账户激活状态（users 表 status）
+
+    不返回余额数字，只返回 valid + reason。
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"valid": False, "reason": "invalid_request"})
+
+    token = body.get("token", "")
+    client_id = body.get("client_id", "")
+    api_key = body.get("api_key", "")
+
+    if not token:
+        return {"valid": False, "reason": "token_invalid", "expires_in": 0}
+
+    # 1. 验证 token（查 Supabase tokens 表）
+    try:
+        from storage.database.db import get_engine
+        from sqlalchemy import text
+        _engine = get_engine()
+        with _engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT id FROM tokens WHERE token = :token AND (expires_at IS NULL OR expires_at > NOW())"),
+                {"token": token}
+            ).fetchone()
+            if not result:
+                return {"valid": False, "reason": "token_invalid", "expires_in": 0}
+
+            tenant_id = result[0]
+
+            # 2. 检查账户余额和激活状态
+            user_result = conn.execute(
+                text("SELECT balance, status FROM users WHERE id = :id"),
+                {"id": tenant_id}
+            ).fetchone()
+
+            if user_result:
+                balance = float(user_result[0] or 0)
+                status = user_result[1] or "active"
+                if balance <= 0:
+                    return {"valid": False, "reason": "balance_insufficient", "expires_in": 0}
+                if status != "active":
+                    return {"valid": False, "reason": "account_inactive", "expires_in": 0}
+    except Exception as e:
+        logger.warning(f"auth_verify DB error: {e}")
+        # DB 不可达时降级：不阻断，返回 valid（由 Skill 端缓存控制）
+        return {"valid": True, "reason": "ok_degraded", "expires_in": 3600}
+
+    # 3. 可选：验证 Ozon API
+    ozon_valid = None
+    if client_id and api_key:
+        try:
+            import requests as _req
+            resp = _req.post(
+                "https://api-seller.ozon.ru/v1/product/info/description",
+                headers={"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"},
+                json={"product_id": 1},
+                timeout=10
+            )
+            ozon_valid = resp.status_code not in (401, 403)
+        except Exception:
+            ozon_valid = None  # 网络问题，不确定
+
+    return {
+        "valid": True,
+        "reason": "ok",
+        "expires_in": 86400,
+        "ozon_valid": ozon_valid,
+    }
+
+
 @app.get("/progress/{run_id}")
 async def http_progress(run_id: str):
     """查询工作流执行进度。
