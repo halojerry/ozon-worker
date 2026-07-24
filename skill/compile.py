@@ -13,17 +13,17 @@ import platform
 from pathlib import Path
 
 # 需要编译的核心文件（保护源码）
-# 只编译纯库文件，避免复杂依赖导致编译失败
+# 包含 Ozon 抓取和以图搜款
 COMPILE_FILES = [
     "scripts/lib/ak_1688_client.py",
     "scripts/lib/chrome_launcher.py",
     "scripts/lib/config_store.py",
+    "scripts/lib/ozon_scraper.py",
+    "scripts/lib/ozon_image_search.py",
 ]
 
 # 复制但不编译的文件（有复杂依赖或需要直接查看）
 COPY_FILES = [
-    "scripts/lib/ozon_scraper.py",
-    "scripts/lib/ozon_image_search.py",
     "scripts/cli.py",
     "scripts/cloud_probe.py",
     "scripts/batch_test.py",
