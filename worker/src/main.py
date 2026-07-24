@@ -761,20 +761,16 @@ async def auth_verify(request: Request):
         # DB 不可达时降级：不阻断，返回 valid（由 Skill 端缓存控制）
         return {"valid": True, "reason": "ok_degraded", "expires_in": 3600}
 
-    # 3. 检查 MXOU API 余额
+    # 3. 检查 MXOU API 钱包余额
     try:
         import requests as _req
         _headers = {"Authorization": f"Bearer {token}"}
         _sub_resp = _req.get("https://api.mxou.cn/v1/dashboard/billing/subscription", headers=_headers, timeout=10)
-        _usage_resp = _req.get("https://api.mxou.cn/v1/dashboard/billing/usage", headers=_headers, timeout=10)
-        if _sub_resp.ok and _usage_resp.ok:
+        if _sub_resp.ok:
             _sub_data = _sub_resp.json()
-            _usage_data = _usage_resp.json()
-            _total_quota = float(_sub_data.get("soft_limit_usd", 0))  # 实际是 CNY 元
-            _used = float(_usage_data.get("total_usage", 0)) / 100    # CNY 分 → 元
-            _remaining = _total_quota - _used
-            # 100000000 表示无限额度
-            if _total_quota < 100000000 and _remaining <= 0:
+            # hard_limit_usd = 钱包余额（元），soft_limit_usd = key 总分配额
+            _wallet_balance = float(_sub_data.get("hard_limit_usd", 0))
+            if _wallet_balance <= 0:
                 return {"valid": False, "reason": "balance_insufficient", "expires_in": 0}
     except Exception as e:
         logger.debug(f"MXOU balance check skipped: {e}")
