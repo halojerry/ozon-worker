@@ -11,7 +11,7 @@
 | **角色** | Agent 调用的工具（ZCode/Claude Code 等） | 云端 Docker 管线，消费信封完成上架 |
 | **位置** | 客户本地 | 云端服务器（宝塔/Docker） |
 | **入口** | `skill/SKILL.md`（Agent 操作手册） | `worker/src/main.py`（FastAPI + CLI） |
-| **职责** | 1688 CDP 抓取 → 组装 GraphInput 信封，**不上架** | 接收信封 → 类目→定价→属性→生图→校验→上传→自学习 |
+| **职责** | 1688/Ozon CDP 抓取 + 以图搜款 → 组装 GraphInput 信封，**不上架** | 接收信封 → 类目→定价→属性→生图→校验→上传→自学习 |
 | **接口** | 输出 `GraphInput` JSON（三层结构 `{draft, source, extensions}`） | 输入 `GraphInput`，输出 `GraphOutput` |
 
 接口契约详见 `docs/CONTRACT.md`。Agent 调用指南详见 `skill/SKILL.md`。
@@ -20,11 +20,17 @@
 
 ```
 ozon-worker/
-├── skill/                      # 客户本地:1688 抓取 + 信封组装 (Python ≥3.9, pip)
+├── skill/                      # 客户本地:1688/Ozon 抓取 + 以图搜款 + 信封组装 (Python ≥3.9, pip)
 │   └── scripts/
-│       ├── cli.py              # CLI 入口:search / probe / graph
-│       ├── cloud_probe.py      # build_graph_envelope + submit_envelope + check_task_status
-│       ├── lib/                # ak_1688_client / ozon_api / config_store / ...
+│       ├── cli.py              # CLI 入口:check/graph/follow/image_search/get_ak/batch_test
+│       ├── cloud_probe.py      # build_graph_envelope + follow_sell_cloud + submit_envelope
+│       ├── batch_test.py       # 批量处理 URL 列表
+│       ├── lib/
+│       │   ├── ak_1688_client.py      # 1688 AK API 搜索
+│       │   ├── chrome_launcher.py     # 跨平台 Chrome CDP 自动启动
+│       │   ├── ozon_scraper.py        # Ozon 商品页 CDP 抓取（完整字段）
+│       │   ├── ozon_image_search.py   # CDP 网页版以图搜款（准确率~100%）
+│       │   └── config_store.py        # 凭证管理
 │       └── capabilities/browser_probe/   # Chrome CDP 探针 + 反检测
 ├── worker/                     # 云端 Docker:LangGraph 上架工作流 (Python ≥3.12)
 │   ├── src/
