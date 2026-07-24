@@ -1,0 +1,302 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "小恐龙风扇吹凉饭凉汤神器可爱小象随身带挂杯吹热水辅食摆件玩具",
+    "price": "¥8",
+    "brand": "甜丫蜜丫",
+    "seller": "潮州市潮人汇贸易有限公司 关注 客服 商品 入驻1年 主营：两季电器 店铺回头率 29% 店铺服务分 4.0分 准时发货率 84% 店铺好评率 100.0%",
+    "image_count": 22,
+    "attribute_count": 25,
+    "dom_sku_count": 3,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1061026075343.html",
+    "loginRequired": false,
+    "title": "小恐龙风扇吹凉饭凉汤神器可爱小象随身带挂杯吹热水辅食摆件玩具",
+    "price": "¥8",
+    "priceValue": 8,
+    "brand": "甜丫蜜丫",
+    "seller": "潮州市潮人汇贸易有限公司 关注 客服 商品 入驻1年 主营：两季电器 店铺回头率 29% 店铺服务分 4.0分 准时发货率 84% 店铺好评率 100.0%",
+    "sellerLink": "https://shop11924438r5vf5.1688.com/?offerId=1061026075343&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01frPlHs2CJ4gqcKM9x_!!226838452.png_.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bZYkPh1UOG5OJWlEz_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01EebLXE1UOG5K4asM2_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010x39Ar1UOG5ObDpYG_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gb3yCU1UOG5S7rrHD_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HYxTvS1UOG5Op6jEi_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01S0qBYM1UOG5ORDgmD_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN017mXT031UOG5ObAPGr_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010jDqaZ1UOG5Op1xfI_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01E6aeJd1UOG5OMmBiu_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QHndce1UOG5Op1tVt_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ozqslm1UOG5OMbZxc_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bEBoEj1UOG5OJxnjW_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015TD43u1UOG5OJZudO_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xBP7TD1UOG5OQbz8c_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01U5kLcp1UOG5OJZudJ_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01mY7qkd1UOG5OKCR4e_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hcBkfd1UOG5OgGQYZ_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WHvjO51UOG5OKApL1_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01vhC7rx1UOG5Op1tX3_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01omoilw1UOG5OgOoc5_!!2222584852507-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01frPlHs2CJ4gqcKM9x_!!226838452.png_.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01frPlHs2CJ4gqcKM9x_!!226838452.png.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2222584852507/p/2/e/6/t/1/571245561132.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "中国大陆",
+    "model": null,
+    "attributes": [
+      {
+        "name": "附加功能",
+        "value": "制冷"
+      },
+      {
+        "name": "材质",
+        "value": "塑料"
+      },
+      {
+        "name": "款式",
+        "value": "USB"
+      },
+      {
+        "name": "品牌",
+        "value": "甜丫蜜丫"
+      },
+      {
+        "name": "货号",
+        "value": "000"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "可爱"
+      },
+      {
+        "name": "颜色",
+        "value": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】盒装,吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】裸装,吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】礼盒装"
+      },
+      {
+        "name": "加工定制",
+        "value": "是"
+      },
+      {
+        "name": "适用场景",
+        "value": "学生,旅行,出差,办公,宿舍用"
+      },
+      {
+        "name": "产地",
+        "value": "中国大陆"
+      },
+      {
+        "name": "颜色",
+        "value": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】盒装、吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】裸装、吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】礼盒装"
+      },
+      {
+        "name": "适用场景",
+        "value": "学生、旅行、出差、办公、宿舍用"
+      },
+      {
+        "name": "附加功能",
+        "value": "塑料"
+      },
+      {
+        "name": "款式",
+        "value": "甜丫蜜丫"
+      },
+      {
+        "name": "货号",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】盒装,吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】裸装,吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】礼盒装"
+      },
+      {
+        "name": "加工定制",
+        "value": "学生,旅行,出差,办公,宿舍用"
+      },
+      {
+        "name": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】盒装",
+        "value": "180"
+      },
+      {
+        "name": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】裸装",
+        "value": "180"
+      },
+      {
+        "name": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】礼盒装",
+        "value": "500"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "100以内"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】盒装",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HYxTvS1UOG5Op6jEi_!!2222584852507-0-cib.jpg"
+          },
+          {
+            "name": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】裸装",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HYxTvS1UOG5Op6jEi_!!2222584852507-0-cib.jpg"
+          },
+          {
+            "name": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】礼盒装",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HYxTvS1UOG5Op6jEi_!!2222584852507-0-cib.jpg"
+          },
+          {
+            "name": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】盒装",
+            "image": null,
+            "price": 8
+          },
+          {
+            "name": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】裸装",
+            "image": null,
+            "price": 8.5
+          },
+          {
+            "name": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】礼盒装",
+            "image": null,
+            "price": 15.3
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】盒装 10 7 9 630 180 吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】裸装 10 7 9 630 180 吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】礼盒装 21 23 21 10143 500",
+    "packagingRows": [
+      {
+        "color": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】盒装",
+        "capacity": "10",
+        "weightText": "180",
+        "weightGrams": 180,
+        "lengthText": "10",
+        "widthText": "7",
+        "heightText": "9"
+      },
+      {
+        "color": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】裸装",
+        "capacity": "10",
+        "weightText": "180",
+        "weightGrams": 180,
+        "lengthText": "10",
+        "widthText": "7",
+        "heightText": "9"
+      },
+      {
+        "color": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】礼盒装",
+        "capacity": "21",
+        "weightText": "500",
+        "weightGrams": 500,
+        "lengthText": "21",
+        "widthText": "23",
+        "heightText": "21"
+      }
+    ],
+    "shipping": {
+      "origin": "广东潮州",
+      "freightCny": 5.3
+    },
+    "skuDetails": [
+      {
+        "name": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】盒装",
+        "price": 8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HYxTvS1UOG5Op6jEi_!!2222584852507-0-cib.jpg"
+      },
+      {
+        "name": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】裸装",
+        "price": 8.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HYxTvS1UOG5Op6jEi_!!2222584852507-0-cib.jpg"
+      },
+      {
+        "name": "吹气猴【三档风力可调】 官方标配【彩盒包装送充电线】礼盒装",
+        "price": 15.3,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HYxTvS1UOG5Op6jEi_!!2222584852507-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 13,
+      "attributeCount": 25,
+      "optionGroupCount": 1,
+      "skuCount": 3,
+      "imageCount": 25,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 171
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-173710-456288-7af4f80b.json"
+}

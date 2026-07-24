@@ -1,0 +1,350 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "CNC改装摩托车电动车可折叠脚踏 后脚撑 后脚蹬保险杠支撑杆铝夹",
+    "price": "¥40",
+    "brand": "other/其他",
+    "seller": "梅河口市颖骏达贸易有限公司",
+    "image_count": 10,
+    "attribute_count": 28,
+    "dom_sku_count": 5,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/966025004640.html?spm=a26352.13672862.offerlist.151.206e1e62oPK1U6&cosite=-&tracelog=p4p&_p_isad=1&clickid=8424fa459c2c4f0dbd04e3c2661de6a0&sessionid=b55b469d3856d67c18a1887727c9795d&kj_agent_plugin=zying",
+    "loginRequired": false,
+    "title": "CNC改装摩托车电动车可折叠脚踏 后脚撑 后脚蹬保险杠支撑杆铝夹",
+    "price": "¥40",
+    "priceValue": 40,
+    "brand": "other/其他",
+    "seller": "梅河口市颖骏达贸易有限公司",
+    "sellerLink": "https://yitianqipei.1688.com/?offerId=966025004640&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01FSRM1S23ZG5KTYwEF_!!3194197269-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FSRM1S23ZG5KTYwEF_!!3194197269-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01enbEaj23ZG5Kx1xCr_!!3194197269-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eaqKU423ZG5KJxSwA_!!3194197269-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01paIihx23ZG5KOsiXy_!!3194197269-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aaXAJY23ZG5K6Z4uf_!!3194197269-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ZEAP0W23ZG5L5EmJM_!!3194197269-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01shuJa623ZG5JTTRNL_!!3194197269-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Io3iPW23ZG5KBUjws_!!3194197269-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wmWZVQ23ZG6JeEPa7_!!3194197269-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Y5PAxD23ZG6K2vxE9_!!3194197269-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/3194197269/p/2/e/6/t/1/58009138.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": "00956000",
+    "attributes": [
+      {
+        "name": "适用车型",
+        "value": "小牛"
+      },
+      {
+        "name": "品牌",
+        "value": "other/其他"
+      },
+      {
+        "name": "用途",
+        "value": "改装"
+      },
+      {
+        "name": "加工定制",
+        "value": "否"
+      },
+      {
+        "name": "产品名称",
+        "value": "可折叠脚踏"
+      },
+      {
+        "name": "尺寸",
+        "value": "125MM（mm）"
+      },
+      {
+        "name": "型号",
+        "value": "00956000"
+      },
+      {
+        "name": "货号",
+        "value": "009560000"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "黑色,红色,银色,金色,蓝色"
+      },
+      {
+        "name": "适用车型",
+        "value": "other/其他"
+      },
+      {
+        "name": "用途",
+        "value": "否"
+      },
+      {
+        "name": "产品名称",
+        "value": "125MM（mm）"
+      },
+      {
+        "name": "型号",
+        "value": "009560000"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "黑色,红色,银色,金色,蓝色"
+      },
+      {
+        "name": "黑色",
+        "value": "700"
+      },
+      {
+        "name": "红色",
+        "value": "700"
+      },
+      {
+        "name": "银色",
+        "value": "700"
+      },
+      {
+        "name": "金色",
+        "value": "700"
+      },
+      {
+        "name": "蓝色",
+        "value": "700"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "100以内"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ZEAP0W23ZG5L5EmJM_!!3194197269-0-cib.jpg"
+          },
+          {
+            "name": "红色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01shuJa623ZG5JTTRNL_!!3194197269-0-cib.jpg"
+          },
+          {
+            "name": "银色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Io3iPW23ZG5KBUjws_!!3194197269-0-cib.jpg"
+          },
+          {
+            "name": "金色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wmWZVQ23ZG6JeEPa7_!!3194197269-0-cib.jpg"
+          },
+          {
+            "name": "蓝色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Y5PAxD23ZG6K2vxE9_!!3194197269-0-cib.jpg"
+          },
+          {
+            "name": "黑色",
+            "image": null,
+            "price": 40
+          },
+          {
+            "name": "红色",
+            "image": null,
+            "price": 40
+          },
+          {
+            "name": "银色",
+            "image": null,
+            "price": 40
+          },
+          {
+            "name": "金色",
+            "image": null,
+            "price": 40
+          },
+          {
+            "name": "蓝色",
+            "image": null,
+            "price": 40
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 黑色 145 138 40 800400 700 红色 145 138 40 800400 700 银色 145 138 40 800400 700 金色 145 138 40 800400 700 蓝色 145 138 40 800400 700",
+    "packagingRows": [
+      {
+        "color": "黑色",
+        "capacity": "黑色",
+        "weightText": "700",
+        "weightGrams": 700,
+        "lengthText": "145",
+        "widthText": "138",
+        "heightText": "40"
+      },
+      {
+        "color": "红色",
+        "capacity": "红色",
+        "weightText": "700",
+        "weightGrams": 700,
+        "lengthText": "145",
+        "widthText": "138",
+        "heightText": "40"
+      },
+      {
+        "color": "银色",
+        "capacity": "银色",
+        "weightText": "700",
+        "weightGrams": 700,
+        "lengthText": "145",
+        "widthText": "138",
+        "heightText": "40"
+      },
+      {
+        "color": "金色",
+        "capacity": "金色",
+        "weightText": "700",
+        "weightGrams": 700,
+        "lengthText": "145",
+        "widthText": "138",
+        "heightText": "40"
+      },
+      {
+        "color": "蓝色",
+        "capacity": "蓝色",
+        "weightText": "700",
+        "weightGrams": 700,
+        "lengthText": "145",
+        "widthText": "138",
+        "heightText": "40"
+      }
+    ],
+    "shipping": {
+      "origin": "广东佛山",
+      "freightCny": 12,
+      "carrier": "中通快递",
+      "dispatchHours": 9
+    },
+    "skuDetails": [
+      {
+        "name": "黑色",
+        "price": 40,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ZEAP0W23ZG5L5EmJM_!!3194197269-0-cib.jpg"
+      },
+      {
+        "name": "红色",
+        "price": 40,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01shuJa623ZG5JTTRNL_!!3194197269-0-cib.jpg"
+      },
+      {
+        "name": "银色",
+        "price": 40,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Io3iPW23ZG5KBUjws_!!3194197269-0-cib.jpg"
+      },
+      {
+        "name": "金色",
+        "price": 40,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01wmWZVQ23ZG6JeEPa7_!!3194197269-0-cib.jpg"
+      },
+      {
+        "name": "蓝色",
+        "price": 40,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Y5PAxD23ZG6K2vxE9_!!3194197269-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 14,
+      "attributeCount": 28,
+      "optionGroupCount": 1,
+      "skuCount": 5,
+      "imageCount": 13,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 159
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-145625-910453-92fd750e.json"
+}

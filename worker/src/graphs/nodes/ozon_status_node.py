@@ -74,23 +74,26 @@ def ozon_status_node(
             "Content-Type": "application/json"
         }
 
-        # 防御性类型转换：product_id是字符串task_id，需要转为整数
+        # 防御性类型转换：product_id可能是Ozon的数字task_id，也可能是系统UUID
+        task_id_int = None
         try:
-            task_id_int: int = int(float(product_id))
+            task_id_int = int(float(product_id))
             logger.info(f"task_id类型转换成功: {product_id} -> {task_id_int}")
-        except (ValueError, TypeError) as e:
-            logger.error(f"task_id转换失败: {product_id}, {str(e)}")
+        except (ValueError, TypeError):
+            # product_id不是数字（可能是UUID），说明Ozon API没有返回有效的task_id
+            logger.warning(f"product_id不是数字格式: {product_id}，可能是Ozon API未返回task_id")
+            # 不直接失败，而是标记为pending，让validation_retry_loop处理
             return OzonStatusOutput(
-                product_id=product_id,
+                product_id=None,
                 product_ids=[],
-                status="failed",
-                errors=[{"error": f"task_id格式错误: {str(e)}"}],
+                status="pending",
+                errors=[],
                 purchase_url=purchase_url,
                 purchase_cost=purchase_cost,
                 sku_id=sku_id,
                 profit_estimation=profit_estimation,
-                error_message=f"task_id格式错误: {str(e)}",
-                stages={"ozon_status": "failed"}
+                error_message="",
+                stages={"ozon_status": "pending"}
             )
 
         # ===== 阶段1: 轮询 /v1/product/import/info =====

@@ -1,0 +1,359 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "现货便携宠物狗零食袋 户外束口帆布狗粮袋 狗狗用品刻印LOGO",
+    "price": "¥18",
+    "brand": "其他",
+    "seller": "深圳市悠智力行科技有限公司 关注 客服 商品 入驻9年 主营：收纳防尘 店铺回头率 61% 店铺服务分 4.5分 准时发货率 97% 店铺好评率 99.9%",
+    "image_count": 13,
+    "attribute_count": 29,
+    "dom_sku_count": 8,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/630567797791.html",
+    "loginRequired": false,
+    "title": "现货便携宠物狗零食袋 户外束口帆布狗粮袋 狗狗用品刻印LOGO",
+    "price": "¥18",
+    "priceValue": 18,
+    "brand": "其他",
+    "seller": "深圳市悠智力行科技有限公司 关注 客服 商品 入驻9年 主营：收纳防尘 店铺回头率 61% 店铺服务分 4.5分 准时发货率 97% 店铺好评率 99.9%",
+    "sellerLink": "https://yzcreate.1688.com/?offerId=630567797791&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/22407671519_802628379.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN0183eHjT1cHOiYVBnkB_!!2200726743575-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012U1SW21cHOwcdINtl_!!2200726743575-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012LC6Ks1cHOwgvdKuW_!!2200726743575-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GejP2L1cHOwgDdaiD_!!2200726743575-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lJ1mEU1cHOwehtcPM_!!2200726743575-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rutT7X1cHOj9LZFgD_!!2200726743575-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eKkSd61cHOwYGdKuA_!!2200726743575-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01SIAhvD1cHOwgE3i2m_!!2200726743575-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HiY4vi1cHOwhZ5aR7_!!2200726743575-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/22407671519_802628379.jpg",
+      "https://cbu01.alicdn.com/img/ibank/22236159802_802628379.jpg",
+      "https://cbu01.alicdn.com/img/ibank/22407662542_802628379.jpg",
+      "https://cbu01.alicdn.com/img/ibank/22407656809_802628379.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2200726743575/p/2/e/6/t/1/233353101773.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "深圳",
+    "model": null,
+    "attributes": [
+      {
+        "name": "图案",
+        "value": "纯色"
+      },
+      {
+        "name": "硬度",
+        "value": "中偏软"
+      },
+      {
+        "name": "材质",
+        "value": "帆布"
+      },
+      {
+        "name": "货号",
+        "value": "cz002284"
+      },
+      {
+        "name": "产地",
+        "value": "深圳"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "贸易属性",
+        "value": "内贸"
+      },
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "容量",
+        "value": "-"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "绿色,灰色,黄色,叶绿色,棕色,狗便袋-叶绿色,狗便袋-灰色,狗便袋-黄色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "绿色、灰色、黄色、叶绿色、棕色、狗便袋-叶绿色、狗便袋-灰色、狗便袋-黄色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "图案",
+        "value": "中偏软"
+      },
+      {
+        "name": "材质",
+        "value": "cz002284"
+      },
+      {
+        "name": "产地",
+        "value": "否"
+      },
+      {
+        "name": "贸易属性",
+        "value": "其他"
+      },
+      {
+        "name": "容量",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "1000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012U1SW21cHOwcdINtl_!!2200726743575-0-cib.jpg"
+          },
+          {
+            "name": "灰色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012LC6Ks1cHOwgvdKuW_!!2200726743575-0-cib.jpg"
+          },
+          {
+            "name": "黄色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GejP2L1cHOwgDdaiD_!!2200726743575-0-cib.jpg"
+          },
+          {
+            "name": "叶绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lJ1mEU1cHOwehtcPM_!!2200726743575-0-cib.jpg"
+          },
+          {
+            "name": "棕色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01rutT7X1cHOj9LZFgD_!!2200726743575-0-cib.jpg"
+          },
+          {
+            "name": "狗便袋-叶绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01eKkSd61cHOwYGdKuA_!!2200726743575-0-cib.jpg"
+          },
+          {
+            "name": "狗便袋-灰色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01SIAhvD1cHOwgE3i2m_!!2200726743575-0-cib.jpg"
+          },
+          {
+            "name": "狗便袋-黄色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HiY4vi1cHOwhZ5aR7_!!2200726743575-0-cib.jpg"
+          },
+          {
+            "name": "绿色",
+            "image": null,
+            "price": 18
+          },
+          {
+            "name": "灰色",
+            "image": null,
+            "price": 18
+          },
+          {
+            "name": "黄色",
+            "image": null,
+            "price": 18
+          },
+          {
+            "name": "叶绿色",
+            "image": null,
+            "price": 18
+          },
+          {
+            "name": "棕色",
+            "image": null,
+            "price": 18
+          },
+          {
+            "name": "狗便袋-叶绿色",
+            "image": null,
+            "price": 8.5
+          },
+          {
+            "name": "狗便袋-灰色",
+            "image": null,
+            "price": 8.5
+          },
+          {
+            "name": "狗便袋-黄色",
+            "image": null,
+            "price": 8.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 30",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "30",
+        "weightGrams": 30,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "广东深圳",
+      "freightCny": 5,
+      "carrier": "圆通快递",
+      "dispatchHours": 5,
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "绿色",
+        "price": 18,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN012U1SW21cHOwcdINtl_!!2200726743575-0-cib.jpg"
+      },
+      {
+        "name": "灰色",
+        "price": 18,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN012LC6Ks1cHOwgvdKuW_!!2200726743575-0-cib.jpg"
+      },
+      {
+        "name": "黄色",
+        "price": 18,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GejP2L1cHOwgDdaiD_!!2200726743575-0-cib.jpg"
+      },
+      {
+        "name": "叶绿色",
+        "price": 18,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lJ1mEU1cHOwehtcPM_!!2200726743575-0-cib.jpg"
+      },
+      {
+        "name": "棕色",
+        "price": 18,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01rutT7X1cHOj9LZFgD_!!2200726743575-0-cib.jpg"
+      },
+      {
+        "name": "狗便袋-叶绿色",
+        "price": 8.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01eKkSd61cHOwYGdKuA_!!2200726743575-0-cib.jpg"
+      },
+      {
+        "name": "狗便袋-灰色",
+        "price": 8.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01SIAhvD1cHOwgE3i2m_!!2200726743575-0-cib.jpg"
+      },
+      {
+        "name": "狗便袋-黄色",
+        "price": 8.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HiY4vi1cHOwhZ5aR7_!!2200726743575-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 16,
+      "attributeCount": 29,
+      "optionGroupCount": 1,
+      "skuCount": 8,
+      "imageCount": 16,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 8
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-173938-098127-492ce7a9.json"
+}

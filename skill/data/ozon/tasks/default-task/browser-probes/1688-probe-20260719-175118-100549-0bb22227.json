@@ -1,0 +1,592 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "跨境3D打印海星海洋动物摆件儿童玩具批发可动关节解压摆摊礼物",
+    "price": "¥6",
+    "brand": "无",
+    "seller": "义乌市闪硕科技有限公司 关注 客服 商品 入驻2年 主营：工艺品 店铺回头率 55% 店铺服务分 4.0分 准时发货率 92% 店铺好评率 98.2%",
+    "image_count": 20,
+    "attribute_count": 66,
+    "dom_sku_count": 2,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/963912037878.html",
+    "loginRequired": false,
+    "title": "跨境3D打印海星海洋动物摆件儿童玩具批发可动关节解压摆摊礼物",
+    "price": "¥6",
+    "priceValue": 6,
+    "brand": "无",
+    "seller": "义乌市闪硕科技有限公司 关注 客服 商品 入驻2年 主营：工艺品 店铺回头率 55% 店铺服务分 4.0分 准时发货率 92% 店铺好评率 98.2%",
+    "sellerLink": "https://shop8522p05j323u3.1688.com/?offerId=963912037878&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01CmloOd2BaBozlUQ8h_!!2220281178354-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01CmloOd2BaBozlUQ8h_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015Lyqlb2BaBoyGxLg8_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YPFdx72BaBozAxcHk_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01H73pgW2BaBoxnqAND_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01d75DuL2BaBobCrwu3_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01r5bjhc2BaBozB22yd_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01NO2tDr2BaBoxnwTTm_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YUfGNF2BaBoyH9R03_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GklTdn2BaBozh7GA4_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fJGqhv2BaBozBH5Lu_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LDkGQv2BaBozhD1wL_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ehrCjy2BaBotTGLsb_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01IhxL9f2BaBozhFqnf_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Kc5yen2BaBptgPDRe_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GzEt0h2BaBpsuriYB_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ODBuFF2BaBrEX3mPq_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hJ0gRw2BaBrE8YdDe_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01e1WamK2BaBrEQ6lI5_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01vuic7K2BaBrIedgbT_!!2220281178354-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01tBRdgI2BaBrHZ5g3n_!!2220281178354-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2220281178354/p/2/e/6/t/1/544891178213.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "PLA"
+      },
+      {
+        "name": "工艺",
+        "value": "3D工艺"
+      },
+      {
+        "name": "品牌",
+        "value": "无"
+      },
+      {
+        "name": "货号",
+        "value": "WJX1048"
+      },
+      {
+        "name": "产品编号",
+        "value": "4353426"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "现代艺术"
+      },
+      {
+        "name": "类别",
+        "value": "其他塑料制品"
+      },
+      {
+        "name": "造型",
+        "value": "海星"
+      },
+      {
+        "name": "制作工艺",
+        "value": "塑造"
+      },
+      {
+        "name": "加工定制",
+        "value": "否"
+      },
+      {
+        "name": "摆挂形式",
+        "value": "摆饰"
+      },
+      {
+        "name": "专利号",
+        "value": "153443"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "尺寸",
+        "value": "蓝绿,红蓝紫,粉色,橙色,亮金,白色,黑色,多色带眼睛,红蓝绿,红金,黄绿色,马卡龙随机颜色,红蓝黄炫彩一号,深蓝色,糖果三号随机颜色"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "12cm,16cm"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "生日,满月,旅游纪念,毕业,派对聚会,其他"
+      },
+      {
+        "name": "适用送礼关系",
+        "value": "情侣,同事,朋友,孩子,同学,其他"
+      },
+      {
+        "name": "适用节日",
+        "value": "圣诞节,春节,母亲节,教师节,元旦,七夕,万圣节,复活节,国庆节,儿童节,其他"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "是，个人礼品"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "尺寸",
+        "value": "蓝绿、红蓝紫、粉色、橙色、亮金、白色、黑色、多色带眼睛、红蓝绿、红金、黄绿色、马卡龙随机颜色、红蓝黄炫彩一号、深蓝色、糖果三号随机颜色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东、其他"
+      },
+      {
+        "name": "颜色",
+        "value": "12cm、16cm"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "生日、满月、旅游纪念、毕业、派对聚会、其他"
+      },
+      {
+        "name": "适用送礼关系",
+        "value": "情侣、同事、朋友、孩子、同学、其他"
+      },
+      {
+        "name": "适用节日",
+        "value": "圣诞节、春节、母亲节、教师节、元旦、七夕、万圣节、复活节、国庆节、儿童节、其他"
+      },
+      {
+        "name": "材质",
+        "value": "3D工艺"
+      },
+      {
+        "name": "品牌",
+        "value": "WJX1048"
+      },
+      {
+        "name": "产品编号",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "其他塑料制品"
+      },
+      {
+        "name": "造型",
+        "value": "塑造"
+      },
+      {
+        "name": "加工定制",
+        "value": "摆饰"
+      },
+      {
+        "name": "专利号",
+        "value": "否"
+      },
+      {
+        "name": "尺寸",
+        "value": "是"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "12cm,16cm"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "情侣,同事,朋友,孩子,同学,其他"
+      },
+      {
+        "name": "适用节日",
+        "value": "是，个人礼品"
+      },
+      {
+        "name": "蓝绿",
+        "value": "50"
+      },
+      {
+        "name": "红蓝紫",
+        "value": "50"
+      },
+      {
+        "name": "粉色",
+        "value": "50"
+      },
+      {
+        "name": "橙色",
+        "value": "50"
+      },
+      {
+        "name": "亮金",
+        "value": "50"
+      },
+      {
+        "name": "白色",
+        "value": "50"
+      },
+      {
+        "name": "黑色",
+        "value": "50"
+      },
+      {
+        "name": "多色带眼睛",
+        "value": "50"
+      },
+      {
+        "name": "红蓝绿",
+        "value": "30"
+      },
+      {
+        "name": "红金",
+        "value": "30"
+      },
+      {
+        "name": "黄绿色",
+        "value": "30"
+      },
+      {
+        "name": "黄绿色",
+        "value": "50"
+      },
+      {
+        "name": "马卡龙随机颜色",
+        "value": "30"
+      },
+      {
+        "name": "马卡龙随机颜色",
+        "value": "50"
+      },
+      {
+        "name": "红蓝黄炫彩一号",
+        "value": "30"
+      },
+      {
+        "name": "红蓝黄炫彩一号",
+        "value": "50"
+      },
+      {
+        "name": "深蓝色",
+        "value": "30"
+      },
+      {
+        "name": "深蓝色",
+        "value": "50"
+      },
+      {
+        "name": "糖果三号随机颜色",
+        "value": "30"
+      },
+      {
+        "name": "糖果三号随机颜色",
+        "value": "50"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "400+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "尺寸",
+        "values": [
+          {
+            "name": "蓝绿",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01r5bjhc2BaBozB22yd_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "红蓝紫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NO2tDr2BaBoxnwTTm_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "粉色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01YUfGNF2BaBoyH9R03_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "橙色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GklTdn2BaBozh7GA4_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "亮金",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fJGqhv2BaBozBH5Lu_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "白色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LDkGQv2BaBozhD1wL_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ehrCjy2BaBotTGLsb_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "多色带眼睛",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01IhxL9f2BaBozhFqnf_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "红蓝绿",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Kc5yen2BaBptgPDRe_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "红金",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GzEt0h2BaBpsuriYB_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "黄绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ODBuFF2BaBrEX3mPq_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "马卡龙随机颜色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hJ0gRw2BaBrE8YdDe_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "红蓝黄炫彩一号",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01e1WamK2BaBrEQ6lI5_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "深蓝色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01vuic7K2BaBrIedgbT_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "糖果三号随机颜色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01tBRdgI2BaBrHZ5g3n_!!2220281178354-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "12cm",
+            "image": null
+          },
+          {
+            "name": "16cm",
+            "image": null
+          },
+          {
+            "name": "12cm",
+            "image": null,
+            "price": 6
+          },
+          {
+            "name": "16cm",
+            "image": null,
+            "price": 18.88
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "蓝绿",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01r5bjhc2BaBozB22yd_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "红蓝紫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01NO2tDr2BaBoxnwTTm_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "粉色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01YUfGNF2BaBoyH9R03_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "橙色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GklTdn2BaBozh7GA4_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "亮金",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fJGqhv2BaBozBH5Lu_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "白色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LDkGQv2BaBozhD1wL_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ehrCjy2BaBotTGLsb_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "多色带眼睛",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01IhxL9f2BaBozhFqnf_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "红蓝绿",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Kc5yen2BaBptgPDRe_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "红金",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GzEt0h2BaBpsuriYB_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "黄绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ODBuFF2BaBrEX3mPq_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "马卡龙随机颜色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hJ0gRw2BaBrE8YdDe_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "红蓝黄炫彩一号",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01e1WamK2BaBrEQ6lI5_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "深蓝色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01vuic7K2BaBrIedgbT_!!2220281178354-0-cib.jpg"
+          },
+          {
+            "name": "糖果三号随机颜色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01tBRdgI2BaBrHZ5g3n_!!2220281178354-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "尺寸",
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "尺寸 颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 蓝绿 12cm 12 12 3 432 50 蓝绿 16cm 16 16 5 1280 50 红蓝紫 12cm 12 12 3 432 50 红蓝紫 16cm 16 16 5 1280 50 粉色 12cm 12 12 3 432 50 粉色 16cm 16 16 5 1280 50 橙色 12cm 12 12 3 432 50 橙色 16cm 16 16 5 1280 50 亮金 12cm 12 12 3 432 50 亮金 16cm 16 16 5 1280 50 白色 12cm 12 12 3 432 50 白色 16cm 16 16 5 1280 50 黑色 12cm 12 12 3 432 50 黑色 16cm 16 16 5 1280 50 多色带眼睛 12cm 12 12 3 432 50 多色带眼睛 16cm 16 16 5 1280 50 红蓝绿 12cm 12 12 3 432 30 红蓝绿 16cm 16 16 5 1280 30 红金 12cm 12 12 3 432 30 红金 16cm 16 16 5 1280 30 黄绿色 12cm 12 12 3 432 30 黄绿色 16cm 16 16 5 1280 50 马卡龙随机颜色 12cm 12 12 3 432 30 马卡龙随机颜色 16cm 16 16 5 1280 50 红蓝黄炫彩一号 12cm 12 12 3 432 30 红蓝黄炫彩一号 16cm 16 16 5 1280 50 深蓝色 12cm 12 12 3 432 30 深蓝色 16cm 16 16 5 1280 50 糖果三号随机颜色 12cm 12 12 3 432 30 糖果三号随机颜色 16cm 16 16 5 1280 50",
+    "packagingRows": [
+      {
+        "color": "12cm",
+        "capacity": "12cm",
+        "weightText": "50",
+        "weightGrams": 50,
+        "lengthText": "12",
+        "widthText": "12",
+        "heightText": "3"
+      },
+      {
+        "color": "16cm",
+        "capacity": "16cm",
+        "weightText": "50",
+        "weightGrams": 50,
+        "lengthText": "16",
+        "widthText": "16",
+        "heightText": "5"
+      },
+      {
+        "color": "12cm",
+        "capacity": "12cm",
+        "weightText": "30",
+        "weightGrams": 30,
+        "lengthText": "12",
+        "widthText": "12",
+        "heightText": "3"
+      },
+      {
+        "color": "16cm",
+        "capacity": "16cm",
+        "weightText": "30",
+        "weightGrams": 30,
+        "lengthText": "16",
+        "widthText": "16",
+        "heightText": "5"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 3,
+      "carrier": "中通快递",
+      "dispatchHours": 4
+    },
+    "skuDetails": [
+      {
+        "name": "12cm",
+        "price": 6,
+        "image": null
+      },
+      {
+        "name": "16cm",
+        "price": 18.88,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 25,
+      "attributeCount": 66,
+      "optionGroupCount": 3,
+      "skuCount": 2,
+      "imageCount": 22,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 7,
+      "packagingTableTextLength": 788
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-175118-100549-0bb22227.json"
+}

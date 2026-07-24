@@ -1,134 +1,184 @@
 ---
 name: pounding-ozon-probe
+version: 0.2.0
 description: >
-  采集 1688 商品数据并组装 GraphInput 信封，用于提交到云端 Worker 完成 Ozon 上架。
-  当用户要上架商品到 Ozon、从 1688 选品、跨境电商铺货时触发。
+  Ozon 上架工具：1688 选品、Ozon 跟卖、以图搜款、批量上架。
+  当用户要上架商品到 Ozon、从 1688 选品、跟卖竞品、跨境电商铺货时触发。
 ---
 
 # pounding-ozon-probe
 
-抓取 1688 商品、组装信封，交给云端 Worker 完成 Ozon 上架。
+Skill 端工具集，负责**数据抓取 + 信封组装 + 提交 Worker**。
 
-## 依赖
+## 环境要求
 
-```bash
-cd skill/
-pip install -r requirements.txt
-playwright install chromium
-cp .env.example .env   # 填入凭证
-```
+- **Python 3.12**（必须，二进制模块编译版本）
+- **Google Chrome**（必须，CDP 抓取依赖）
+- **pip 依赖**：`pip3.12 install -r requirements.txt`
 
-## 调用方式
-
-agent 通过 shell 执行：
+## 快速开始
 
 ```bash
-python3 scripts/cli.py graph \
-  --item-id <1688商品ID> \
-  --url <1688商品链接> \
-  --category-query "<俄语搜索词>"
+# 1. 安装依赖
+pip3.12 install -r requirements.txt
+
+# 2. 首次配置（按顺序执行）
+python3.12 scripts/cli.py check                    # 诊断环境 + 自动启动 Chrome
+python3.12 scripts/cli.py get_ak                   # 自动获取 1688 AK
+python3.12 scripts/cli.py set_token --token <token> # 设置 MXOU_TOKEN
+python3.12 scripts/cli.py set_store --name "主店铺" --client-id <ID> --api-key <KEY>
+
+# 3. 上架商品
+python3.12 scripts/cli.py graph --url "https://detail.1688.com/offer/xxx.html" --store "主店铺"
+python3.12 scripts/cli.py follow --ozon-url "https://www.ozon.ru/product/xxx/" --store "主店铺"
+
+# 4. 批量处理
+python3.12 scripts/batch_test.py --urls-file urls.txt --submit
 ```
 
-**参数**:
+## 多店铺管理
 
-| 参数 | 必填 | 说明 |
-|---|---|---|
-| `--item-id` | 是 | 1688 商品 offer ID |
-| `--url` | 是 | 1688 商品详情页 URL |
-| `--category-query` | 否 | Ozon 类目搜索词（俄语），不传则用商品标题 |
-| `--max-retries` | 否 | CDP 重试次数，默认 3 |
-
-## 返回值
-
-输出为 JSON，结构如下：
-
-```json
-{
-  "summary": {
-    "item_id": "...",
-    "title": "...",
-    "purchase_cost": 5.5,
-    "weight": 227,
-    "dimensions": {"length": 140, "width": 80, "height": 10},
-    "images": 10,
-    "attributes": 8,
-    "variants_found": 3,
-    "category": "поилка",
-    "supplier": "义乌市...",
-    "shipping": "浙江金华 中通 ¥3"
-  },
-  "envelope": {
-    "token": "sk-...",
-    "ozon_client_id": "4718259",
-    "ozon_api_key": "...",
-    "envelope": {
-      "draft": { "... 产品数据 ..." },
-      "source": { "purchase_url": "...", "purchase_cost": 5.5 },
-      "extensions": {}
-    }
-  }
-}
-```
-
-- `summary` — 给人看的摘要，用于告知用户采集结果
-- `summary.variants_found` — 1688 原始变体数量（仅供参考，已折叠为单产品）
-- `envelope` — 给 Worker 的数据包，直接提交即可，**不要修改内部结构**
-
-> **单产品上传模式**：不管 1688 产品有多少个变体（颜色/尺寸/数量），Skill 层自动折叠为 1 个变体。
-> - 颜色/尺寸变体 → 取中位数价格
-> - 数量变体 → 选「1只装」
-> - 采购成本已含 1688 国内运费（freightCny）
-
-## 提交到 Worker
-
-拿到 `envelope` 后，提交到云端 Worker：
+支持同时管理多个 Ozon 店铺，每个店铺独立的 client_id + api_key。
 
 ```bash
-curl -X POST https://<worker-host>/submit_task \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <envelope.token>" \
-  -d '<envelope>'
+# 配置店铺
+python3.12 scripts/cli.py set_store --name "主店铺" --client-id 5371047 --api-key xxx
+python3.12 scripts/cli.py set_store --name "测试店铺" --client-id 1234567 --api-key yyy
+
+# 查看所有店铺
+python3.12 scripts/cli.py list_stores
+
+# 使用指定店铺上架
+python3.12 scripts/cli.py graph --url <1688 URL> --store "主店铺"
+python3.12 scripts/cli.py follow --ozon-url <Ozon URL> --store "测试店铺"
 ```
 
-**响应处理**:
+不指定 `--store` 时使用默认店铺（第一个配置的店铺）。
 
-```json
-// 成功
-{"ok": true, "task_id": "...", "message": "任务已提交"}
+## 凭证配置
 
-// 失败 - 额度不足
-{"ok": false, "error": "insufficient_quota", "remain_quota": 1.5}
+所有凭证存储在 `data/config/` 目录（Skill 自有配置，不依赖外部文件）。
 
-// 失败 - token 无效
-{"ok": false, "error": "invalid_token"}
+| 凭证 | 获取方式 | 命令 |
+|------|---------|------|
+| 1688 AK | 浏览器自动获取 | `get_ak`（过期自动刷新） |
+| MXOU_TOKEN | 自动读取或手动设置 | `set_token --token <token>` |
+| Ozon 店铺 | 手动配置（支持多店铺） | `set_store --name <名> --client-id <ID> --api-key <KEY>` |
+
+## Chrome 浏览器管理
+
+**用户零配置**：Skill 自动启动 Chrome 并保留登录态。
+
+- 自动检测系统（macOS / Windows / Linux）
+- 使用用户默认 Chrome profile（保留 1688 / Ozon 登录态）
+- 自动添加 `--remote-allow-origins=*`（CDP 需要）
+- 首次使用需在 Chrome 中登录 1688 和访问 Ozon
+
+```bash
+python3.12 scripts/cli.py check  # 自动启动 Chrome + 检测所有状态
 ```
 
-## Worker 返回结果处理
+## 命令详解
 
-提交后可通过 `/task_status/<task_id>` 轮询结果：
+### check — 环境检查
 
-```json
-// 处理中
-{"status": "processing", "stage": "image_generation"}
-
-// 完成
-{"status": "completed", "product_id": 123456, "offer_id": "...",
- "profit_estimation": {"cost_cny": 5.5, "price_rub": 350, "profit_rub": 120, "margin": 0.35}}
-
-// 失败
-{"status": "failed", "error": "category_match_failed", "message": "未找到匹配的Ozon类目"}
+```bash
+python3.12 scripts/cli.py check
 ```
 
-## 回复用户
+自动检测并修复：Chrome 安装、CDP 启动、1688 登录态、Ozon DataDome、凭证状态、Worker 连通性、Ozon API 认证。
 
-- **采集成功**：告知商品标题、价格、SKU 数量、图片数量
-- **提交成功**：告知 task_id，建议稍后查看
-- **上架完成**：告知 product_id、Ozon 链接、预估利润
-- **失败**：根据 error 字段给出建议：
-  - `category_match_failed` → 尝试更具体的俄语类目词
-  - `insufficient_quota` → 告知用户额度不足
-  - `validation_failed` → Ozon 属性校验失败，Worker 会自动重试修复
+### graph — 1688 选品上架
 
-## 部署
+```bash
+python3.12 scripts/cli.py graph \
+  --url "https://detail.1688.com/offer/xxx.html" \
+  --store "主店铺" \
+  --category-query "俄语类目词"
+```
 
-skill 运行在本地，确保依赖已安装（`pip install -r requirements.txt && playwright install chromium`）且 `.env` 凭证已配置。
+流程：CDP 抓取 1688 → 组装信封 → 提交 Worker 全流程上架。
+
+| 参数 | 说明 |
+|------|------|
+| `--url` | 1688 商品详情页 URL |
+| `--store` | Ozon 店铺名称（可选） |
+| `--category-query` | Ozon 类目关键词（俄语，可选） |
+| `--retries` | CDP 重试次数（默认 3） |
+
+### follow — Ozon 跟卖
+
+```bash
+python3.12 scripts/cli.py follow \
+  --ozon-url "https://www.ozon.ru/product/xxx/" \
+  --store "主店铺" \
+  --auto-submit
+```
+
+流程：CDP 抓取 Ozon 竞品 → 图搜 1688 同款 → 组装信封 → 提交 Worker 跟卖管线。
+
+| 参数 | 说明 |
+|------|------|
+| `--ozon-url` | Ozon 商品页 URL |
+| `--store` | Ozon 店铺名称（可选） |
+| `--auto-submit` | 自动提交到 Worker |
+
+### image_search — 以图搜款
+
+```bash
+python3.12 scripts/cli.py image_search --image "https://example.com/image.jpg"
+python3.12 scripts/cli.py image_search --image "/path/to/local/image.jpg"
+```
+
+CDP 网页版图搜（准确率 ~100%），支持 URL 和本地图片。
+
+### get_ak — 获取 1688 AK
+
+```bash
+python3.12 scripts/cli.py get_ak
+```
+
+通过 Chrome 浏览器自动获取 1688 AK，保存到 `data/config/settings.json`。AK 过期时自动刷新。
+
+### batch_test — 批量处理
+
+```bash
+python3.12 scripts/batch_test.py \
+  --urls-file urls.txt \
+  --submit
+```
+
+URL 文件自动识别 1688 / Ozon，混合输入即可。
+
+| 参数 | 说明 |
+|------|------|
+| `--urls-file` | URL 列表文件 |
+| `--submit` | 实际提交（不加则 dry-run） |
+| `--start` | 起始索引 |
+| `--limit` | 处理数量 |
+| `--delay` | 每个 URL 间隔秒数（默认 3） |
+
+## 两条管线
+
+### 管线 A：1688 选品
+
+```
+1688 URL → CDP 抓取 → 组装信封 → Worker 全流程上架
+```
+
+### 管线 B：Ozon 跟卖
+
+```
+Ozon URL → CDP 抓取 → 图搜 1688 → 组装信封 → Worker 跟卖管线
+```
+
+信封结构参考：`envelope_example.json`
+字段映射参考：`field_mapping.md`
+
+## 已知限制
+
+- Chrome 必须运行（CDP 依赖本地浏览器）
+- 首次使用需手动登录 1688 和访问 Ozon（建立登录态 / DataDome 信任）
+- 以图搜款准确率 ~100%，但部分小众品类可能匹配不到
+- Ozon 不提供重量 / 尺寸，从 1688 获取
+- Worker 地址已内置（`https://worker.mxou.cn`），无需配置

@@ -1,0 +1,533 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "夏季蒲扇海草草编编织手工扇子纳凉宝宝装饰夏天老式驱蚊手摇海草",
+    "price": "¥13.5",
+    "brand": "正弘",
+    "seller": "东兴市正弘贸易商行 关注 客服 商品 入驻2年 主营：收纳防尘 店铺回头率 57% 店铺服务分 5.0分 准时发货率 99% 店铺好评率 94.7%",
+    "image_count": 17,
+    "attribute_count": 33,
+    "dom_sku_count": 12,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/837857424546.html",
+    "loginRequired": false,
+    "title": "夏季蒲扇海草草编编织手工扇子纳凉宝宝装饰夏天老式驱蚊手摇海草",
+    "price": "¥13.5",
+    "priceValue": 13.5,
+    "brand": "正弘",
+    "seller": "东兴市正弘贸易商行 关注 客服 商品 入驻2年 主营：收纳防尘 店铺回头率 57% 店铺服务分 5.0分 准时发货率 99% 店铺好评率 94.7%",
+    "sellerLink": "https://shop0653123251c14.1688.com/?offerId=837857424546&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ub82R31P94iss2RQe_!!2218581811797-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ub82R31P94iss2RQe_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01RD1RTy1P94mn95Ers_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ccqkHK1P94mwUR5uY_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01J8UGVn1P94ltzv3OK_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN017HmFQs1P94j7Cu71G_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BAPHzW1P94iu9XSQX_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015WGoWr1P94iu9Mqtn_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01o08vLX1P94iu9XSOR_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WaL5HT1P94lwAW9xE_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gzePgU1P94mwixwvZ_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lp7rqP1P94lt3VD5p_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yJJNIB1P94lo0tR6r_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LUecJO1P94mEzyU4G_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OOm7Z51P94mn8uQfr_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pPXWYA1P94riPDHbR_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Y5R0X91P94ri308aN_!!2218581811797-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MMDfKc1v9avVQzTxd_!!54036130-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "附加功能",
+        "value": "无"
+      },
+      {
+        "name": "材质",
+        "value": "PP"
+      },
+      {
+        "name": "款式",
+        "value": "手持式"
+      },
+      {
+        "name": "品牌",
+        "value": "正弘"
+      },
+      {
+        "name": "货号",
+        "value": "875"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "美式"
+      },
+      {
+        "name": "颜色",
+        "value": "米黄蓝色39*25cm,浅绿拼棕色39*25cm,粉黄拼蓝色39*25m,翠绿色款39*25,（圆形）草编扇--渐变紫,七彩款43*23,玫篮橙43*23,棕黄款43*23,扇形--小号 蓝粉红（30*23CM）,扇形--彩绿 草扇小号（30*23cm）,碧绿篮-半圆草编扇,多色彩虹海草扇"
+      },
+      {
+        "name": "加工定制",
+        "value": "否"
+      },
+      {
+        "name": "适用场景",
+        "value": "学生,旅行,出差,办公,宿舍用"
+      },
+      {
+        "name": "颜色",
+        "value": "米黄蓝色39*25cm、浅绿拼棕色39*25cm、粉黄拼蓝色39*25m、翠绿色款39*25、（圆形）草编扇--渐变紫、七彩款43*23、玫篮橙43*23、棕黄款43*23、扇形--小号 蓝粉红（30*23CM）、扇形--彩绿 草扇小号（30*23cm）、碧绿篮-半圆草编扇、多色彩虹海草扇"
+      },
+      {
+        "name": "适用场景",
+        "value": "学生、旅行、出差、办公、宿舍用"
+      },
+      {
+        "name": "附加功能",
+        "value": "PP"
+      },
+      {
+        "name": "款式",
+        "value": "正弘"
+      },
+      {
+        "name": "货号",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "米黄蓝色39*25cm,浅绿拼棕色39*25cm,粉黄拼蓝色39*25m,翠绿色款39*25,（圆形）草编扇--渐变紫,七彩款43*23,玫篮橙43*23,棕黄款43*23,扇形--小号 蓝粉红（30*23CM）,扇形--彩绿 草扇小号（30*23cm）,碧绿篮-半圆草编扇,多色彩虹海草扇"
+      },
+      {
+        "name": "加工定制",
+        "value": "学生,旅行,出差,办公,宿舍用"
+      },
+      {
+        "name": "米黄蓝色39*25cm",
+        "value": "105"
+      },
+      {
+        "name": "浅绿拼棕色39*25cm",
+        "value": "105"
+      },
+      {
+        "name": "粉黄拼蓝色39*25m",
+        "value": "105"
+      },
+      {
+        "name": "翠绿色款39*25",
+        "value": "105"
+      },
+      {
+        "name": "（圆形）草编扇--渐变紫",
+        "value": "105"
+      },
+      {
+        "name": "七彩款43*23",
+        "value": "105"
+      },
+      {
+        "name": "玫篮橙43*23",
+        "value": "105"
+      },
+      {
+        "name": "棕黄款43*23",
+        "value": "105"
+      },
+      {
+        "name": "扇形--小号 蓝粉红（30*23CM）",
+        "value": "80"
+      },
+      {
+        "name": "扇形--彩绿 草扇小号（30*23cm）",
+        "value": "80"
+      },
+      {
+        "name": "碧绿篮-半圆草编扇",
+        "value": "87"
+      },
+      {
+        "name": "多色彩虹海草扇",
+        "value": "95"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "米黄蓝色39*25cm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01BAPHzW1P94iu9XSQX_!!2218581811797-0-cib.jpg"
+          },
+          {
+            "name": "浅绿拼棕色39*25cm",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN015WGoWr1P94iu9Mqtn_!!2218581811797-0-cib.jpg"
+          },
+          {
+            "name": "粉黄拼蓝色39*25m",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01o08vLX1P94iu9XSOR_!!2218581811797-0-cib.jpg"
+          },
+          {
+            "name": "翠绿色款39*25",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WaL5HT1P94lwAW9xE_!!2218581811797-0-cib.jpg"
+          },
+          {
+            "name": "（圆形）草编扇--渐变紫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01gzePgU1P94mwixwvZ_!!2218581811797-0-cib.jpg"
+          },
+          {
+            "name": "七彩款43*23",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lp7rqP1P94lt3VD5p_!!2218581811797-0-cib.jpg"
+          },
+          {
+            "name": "玫篮橙43*23",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01yJJNIB1P94lo0tR6r_!!2218581811797-0-cib.jpg"
+          },
+          {
+            "name": "棕黄款43*23",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LUecJO1P94mEzyU4G_!!2218581811797-0-cib.jpg"
+          },
+          {
+            "name": "扇形--小号 蓝粉红（30*23CM）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OOm7Z51P94mn8uQfr_!!2218581811797-0-cib.jpg"
+          },
+          {
+            "name": "扇形--彩绿 草扇小号（30*23cm）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01RD1RTy1P94mn95Ers_!!2218581811797-0-cib.jpg"
+          },
+          {
+            "name": "碧绿篮-半圆草编扇",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01pPXWYA1P94riPDHbR_!!2218581811797-0-cib.jpg"
+          },
+          {
+            "name": "多色彩虹海草扇",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Y5R0X91P94ri308aN_!!2218581811797-0-cib.jpg"
+          },
+          {
+            "name": "米黄蓝色39*25cm",
+            "image": null,
+            "price": 13.5
+          },
+          {
+            "name": "浅绿拼棕色39*25cm",
+            "image": null,
+            "price": 13.5
+          },
+          {
+            "name": "粉黄拼蓝色39*25m",
+            "image": null,
+            "price": 13.5
+          },
+          {
+            "name": "翠绿色款39*25",
+            "image": null,
+            "price": 13.5
+          },
+          {
+            "name": "（圆形）草编扇--渐变紫",
+            "image": null,
+            "price": 13.5
+          },
+          {
+            "name": "七彩款43*23",
+            "image": null,
+            "price": 13.5
+          },
+          {
+            "name": "玫篮橙43*23",
+            "image": null,
+            "price": 13.5
+          },
+          {
+            "name": "棕黄款43*23",
+            "image": null,
+            "price": 13.5
+          },
+          {
+            "name": "扇形--小号 蓝粉红（30*23CM）",
+            "image": null,
+            "price": 14.5
+          },
+          {
+            "name": "扇形--彩绿 草扇小号（30*23cm）",
+            "image": null,
+            "price": 13.5
+          },
+          {
+            "name": "碧绿篮-半圆草编扇",
+            "image": null,
+            "price": 13.5
+          },
+          {
+            "name": "多色彩虹海草扇",
+            "image": null,
+            "price": 13.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 重量(g) 米黄蓝色39*25cm 105 浅绿拼棕色39*25cm 105 粉黄拼蓝色39*25m 105 翠绿色款39*25 105 （圆形）草编扇--渐变紫 105 七彩款43*23 105 玫篮橙43*23 105 棕黄款43*23 105 扇形--小号 蓝粉红（30*23CM） 80 扇形--彩绿 草扇小号（30*23cm） 80 碧绿篮-半圆草编扇 87 多色彩虹海草扇 95",
+    "packagingRows": [
+      {
+        "color": "米黄蓝色39*25cm",
+        "capacity": "105",
+        "weightText": "105",
+        "weightGrams": 105,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "浅绿拼棕色39*25cm",
+        "capacity": "105",
+        "weightText": "105",
+        "weightGrams": 105,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉黄拼蓝色39*25m",
+        "capacity": "105",
+        "weightText": "105",
+        "weightGrams": 105,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "翠绿色款39*25",
+        "capacity": "105",
+        "weightText": "105",
+        "weightGrams": 105,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "（圆形）草编扇--渐变紫",
+        "capacity": "105",
+        "weightText": "105",
+        "weightGrams": 105,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "七彩款43*23",
+        "capacity": "105",
+        "weightText": "105",
+        "weightGrams": 105,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "玫篮橙43*23",
+        "capacity": "105",
+        "weightText": "105",
+        "weightGrams": 105,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "棕黄款43*23",
+        "capacity": "105",
+        "weightText": "105",
+        "weightGrams": 105,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "扇形--小号 蓝粉红（30*23CM）",
+        "capacity": "80",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "扇形--彩绿 草扇小号（30*23cm）",
+        "capacity": "80",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "碧绿篮-半圆草编扇",
+        "capacity": "87",
+        "weightText": "87",
+        "weightGrams": 87,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "多色彩虹海草扇",
+        "capacity": "95",
+        "weightText": "95",
+        "weightGrams": 95,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "广西防城港",
+      "freightCny": 4,
+      "carrier": "韵达快递"
+    },
+    "skuDetails": [
+      {
+        "name": "米黄蓝色39*25cm",
+        "price": 13.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01BAPHzW1P94iu9XSQX_!!2218581811797-0-cib.jpg"
+      },
+      {
+        "name": "浅绿拼棕色39*25cm",
+        "price": 13.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN015WGoWr1P94iu9Mqtn_!!2218581811797-0-cib.jpg"
+      },
+      {
+        "name": "粉黄拼蓝色39*25m",
+        "price": 13.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01o08vLX1P94iu9XSOR_!!2218581811797-0-cib.jpg"
+      },
+      {
+        "name": "翠绿色款39*25",
+        "price": 13.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WaL5HT1P94lwAW9xE_!!2218581811797-0-cib.jpg"
+      },
+      {
+        "name": "（圆形）草编扇--渐变紫",
+        "price": 13.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01gzePgU1P94mwixwvZ_!!2218581811797-0-cib.jpg"
+      },
+      {
+        "name": "七彩款43*23",
+        "price": 13.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lp7rqP1P94lt3VD5p_!!2218581811797-0-cib.jpg"
+      },
+      {
+        "name": "玫篮橙43*23",
+        "price": 13.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01yJJNIB1P94lo0tR6r_!!2218581811797-0-cib.jpg"
+      },
+      {
+        "name": "棕黄款43*23",
+        "price": 13.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LUecJO1P94mEzyU4G_!!2218581811797-0-cib.jpg"
+      },
+      {
+        "name": "扇形--小号 蓝粉红（30*23CM）",
+        "price": 14.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OOm7Z51P94mn8uQfr_!!2218581811797-0-cib.jpg"
+      },
+      {
+        "name": "扇形--彩绿 草扇小号（30*23cm）",
+        "price": 13.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01RD1RTy1P94mn95Ers_!!2218581811797-0-cib.jpg"
+      },
+      {
+        "name": "碧绿篮-半圆草编扇",
+        "price": 13.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01pPXWYA1P94riPDHbR_!!2218581811797-0-cib.jpg"
+      },
+      {
+        "name": "多色彩虹海草扇",
+        "price": 13.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Y5R0X91P94ri308aN_!!2218581811797-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 12,
+      "attributeCount": 33,
+      "optionGroupCount": 1,
+      "skuCount": 12,
+      "imageCount": 19,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 2,
+      "packagingTableTextLength": 198
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-174533-225743-4af5e305.json"
+}

@@ -1,0 +1,760 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "亚马逊跨境爆款天然石青金石虎眼石圆柱石串珠隔珠龙虾扣尾链手链",
+    "price": "¥7",
+    "brand": "旭惢",
+    "seller": "义乌市嘉为饰品有限公司 关注 客服 商品 入驻8年 主营：手饰 店铺回头率 64% 店铺服务分 4.5分 准时发货率 99% 店铺好评率 99.8%",
+    "image_count": 20,
+    "attribute_count": 59,
+    "dom_sku_count": 17,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1047770224870.html?offerId=1047770224870&hotSaleSkuId=6074599517287&spm=a260k.home2025.recommendpart.33&kj_agent_plugin=zying",
+    "loginRequired": false,
+    "title": "亚马逊跨境爆款天然石青金石虎眼石圆柱石串珠隔珠龙虾扣尾链手链",
+    "price": "¥7",
+    "priceValue": 7,
+    "brand": "旭惢",
+    "seller": "义乌市嘉为饰品有限公司 关注 客服 商品 入驻8年 主营：手饰 店铺回头率 64% 店铺服务分 4.5分 准时发货率 99% 店铺好评率 99.8%",
+    "sellerLink": "https://shop3905iw76459j3.1688.com/?offerId=1047770224870&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VYoRWN1sQaszGh7EM_!!2201219685761-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01VYoRWN1sQaszGh7EM_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sxZkSl1sQasrkx6r7_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eiiCQK1sQasrnmaSQ_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Ecvg7l1sQasrzzwbO_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015Zxq5T1sQass14jTl_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN018rr8Cy1sQassEK1fa_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01bVoAnQ1sQass3rVah_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pqMas31sQassW2Zpf_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QyK4Xv1sQassW0lZo_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LyuH0l1sQasyF6nuC_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01N8BJDN1sQasyEYr4E_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0157rprr1sQast0gHll_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN018eiMJ01sQast5LFH6_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OImbkr1sQassuqb7A_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HtsnHT1sQassuqriW_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UfH2qc1sQasnUlouy_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01IsD2eC1sQastj6Out_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN019au5nU1sQasvtmfN6_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01v9CRaT1sQasvosf1D_!!2201219685761-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OZzcba1sQaswjIgSK_!!2201219685761-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2201219685761/p/2/e/6/t/1/573150413316.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "金华",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "天然石"
+      },
+      {
+        "name": "处理工艺",
+        "value": "手工串珠"
+      },
+      {
+        "name": "颗数",
+        "value": "其它"
+      },
+      {
+        "name": "品牌",
+        "value": "旭惢"
+      },
+      {
+        "name": "镶嵌材质",
+        "value": "未镶嵌"
+      },
+      {
+        "name": "品相",
+        "value": "高货"
+      },
+      {
+        "name": "风格",
+        "value": "欧美"
+      },
+      {
+        "name": "样式",
+        "value": "男女通用"
+      },
+      {
+        "name": "造型",
+        "value": "几何型"
+      },
+      {
+        "name": "生产编号",
+        "value": "352"
+      },
+      {
+        "name": "产地",
+        "value": "金华"
+      },
+      {
+        "name": "加印LOGO",
+        "value": "不可以"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "生日,旅游纪念,节日,员工福利"
+      },
+      {
+        "name": "包装",
+        "value": "独立包装"
+      },
+      {
+        "name": "加工定制",
+        "value": "否"
+      },
+      {
+        "name": "尺寸",
+        "value": "6mm"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,LINIO,SHEIN,天猫,独立站,LAZADA,shopee,垂类电商"
+      },
+      {
+        "name": "颜色",
+        "value": "青金石虎眼石手链（无尾链）,青金石虎眼石手链（有尾链）,磨砂石龙虾扣手链（无尾链）,磨砂石龙虾扣手链（有尾链）,黑玛瑙龙虾扣手链（无尾链）,黑玛瑙龙虾扣手链（有尾链）,绿帝皇龙虾扣手链（无尾链）,绿帝皇龙虾扣手链（有尾链）,方形天然石龙虾扣手链（无尾链）,方形天然石龙虾扣手链（有尾链）,磨砂隔珠龙虾扣手链（无尾链）,磨砂隔珠龙虾扣手链（有尾链）,青金石长方条手串,青金石金珠手链,虎眼石方块青金石手链,虎眼石方块青金石手链无尾链,彩色松石圆片手链"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "上市年份/季节",
+        "value": "2026年春季"
+      },
+      {
+        "name": "流行元素",
+        "value": "无"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "生日、旅游纪念、节日、员工福利"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、LINIO、SHEIN、天猫、独立站、LAZADA、shopee、垂类电商"
+      },
+      {
+        "name": "颜色",
+        "value": "青金石虎眼石手链（无尾链）、青金石虎眼石手链（有尾链）、磨砂石龙虾扣手链（无尾链）、磨砂石龙虾扣手链（有尾链）、黑玛瑙龙虾扣手链（无尾链）、黑玛瑙龙虾扣手链（有尾链）、绿帝皇龙虾扣手链（无尾链）、绿帝皇龙虾扣手链（有尾链）、方形天然石龙虾扣手链（无尾链）、方形天然石龙虾扣手链（有尾链）、磨砂隔珠龙虾扣手链（无尾链）、磨砂隔珠龙虾扣手链（有尾链）、青金石长方条手串、青金石金珠手链、虎眼石方块青金石手链、虎眼石方块青金石手链无尾链、彩色松石圆片手链"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东、其他"
+      },
+      {
+        "name": "材质",
+        "value": "手工串珠"
+      },
+      {
+        "name": "颗数",
+        "value": "旭惢"
+      },
+      {
+        "name": "镶嵌材质",
+        "value": "高货"
+      },
+      {
+        "name": "风格",
+        "value": "男女通用"
+      },
+      {
+        "name": "造型",
+        "value": "352"
+      },
+      {
+        "name": "产地",
+        "value": "不可以"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "独立包装"
+      },
+      {
+        "name": "加工定制",
+        "value": "6mm"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "青金石虎眼石手链（无尾链）,青金石虎眼石手链（有尾链）,磨砂石龙虾扣手链（无尾链）,磨砂石龙虾扣手链（有尾链）,黑玛瑙龙虾扣手链（无尾链）,黑玛瑙龙虾扣手链（有尾链）,绿帝皇龙虾扣手链（无尾链）,绿帝皇龙虾扣手链（有尾链）,方形天然石龙虾扣手链（无尾链）,方形天然石龙虾扣手链（有尾链）,磨砂隔珠龙虾扣手链（无尾链）,磨砂隔珠龙虾扣手链（有尾链）,青金石长方条手串,青金石金珠手链,虎眼石方块青金石手链,虎眼石方块青金石手链无尾链,彩色松石圆片手链"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "2026年春季"
+      },
+      {
+        "name": "流行元素",
+        "value": "否"
+      },
+      {
+        "name": "青金石虎眼石手链（无尾链）",
+        "value": "10"
+      },
+      {
+        "name": "青金石虎眼石手链（有尾链）",
+        "value": "11"
+      },
+      {
+        "name": "磨砂石龙虾扣手链（无尾链）",
+        "value": "14"
+      },
+      {
+        "name": "磨砂石龙虾扣手链（有尾链）",
+        "value": "14"
+      },
+      {
+        "name": "黑玛瑙龙虾扣手链（无尾链）",
+        "value": "14"
+      },
+      {
+        "name": "黑玛瑙龙虾扣手链（有尾链）",
+        "value": "14"
+      },
+      {
+        "name": "绿帝皇龙虾扣手链（无尾链）",
+        "value": "14"
+      },
+      {
+        "name": "绿帝皇龙虾扣手链（有尾链）",
+        "value": "14"
+      },
+      {
+        "name": "方形天然石龙虾扣手链（无尾链）",
+        "value": "13"
+      },
+      {
+        "name": "方形天然石龙虾扣手链（有尾链）",
+        "value": "13"
+      },
+      {
+        "name": "磨砂隔珠龙虾扣手链（无尾链）",
+        "value": "14"
+      },
+      {
+        "name": "磨砂隔珠龙虾扣手链（有尾链）",
+        "value": "14"
+      },
+      {
+        "name": "青金石长方条手串",
+        "value": "12"
+      },
+      {
+        "name": "青金石金珠手链",
+        "value": "15"
+      },
+      {
+        "name": "虎眼石方块青金石手链",
+        "value": "15"
+      },
+      {
+        "name": "虎眼石方块青金石手链无尾链",
+        "value": "15"
+      },
+      {
+        "name": "彩色松石圆片手链",
+        "value": "15"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "3000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "青金石虎眼石手链（无尾链）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VYoRWN1sQaszGh7EM_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "青金石虎眼石手链（有尾链）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01sxZkSl1sQasrkx6r7_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "磨砂石龙虾扣手链（无尾链）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN018rr8Cy1sQassEK1fa_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "磨砂石龙虾扣手链（有尾链）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01bVoAnQ1sQass3rVah_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "黑玛瑙龙虾扣手链（无尾链）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01pqMas31sQassW2Zpf_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "黑玛瑙龙虾扣手链（有尾链）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01QyK4Xv1sQassW0lZo_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "绿帝皇龙虾扣手链（无尾链）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LyuH0l1sQasyF6nuC_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "绿帝皇龙虾扣手链（有尾链）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01N8BJDN1sQasyEYr4E_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "方形天然石龙虾扣手链（无尾链）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN0157rprr1sQast0gHll_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "方形天然石龙虾扣手链（有尾链）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN018eiMJ01sQast5LFH6_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "磨砂隔珠龙虾扣手链（无尾链）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OImbkr1sQassuqb7A_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "磨砂隔珠龙虾扣手链（有尾链）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HtsnHT1sQassuqriW_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "青金石长方条手串",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01UfH2qc1sQasnUlouy_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "青金石金珠手链",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01IsD2eC1sQastj6Out_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "虎眼石方块青金石手链",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN019au5nU1sQasvtmfN6_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "虎眼石方块青金石手链无尾链",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01v9CRaT1sQasvosf1D_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "彩色松石圆片手链",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OZzcba1sQaswjIgSK_!!2201219685761-0-cib.jpg"
+          },
+          {
+            "name": "青金石虎眼石手链（无尾链）",
+            "image": null,
+            "price": 7
+          },
+          {
+            "name": "青金石虎眼石手链（有尾链）",
+            "image": null,
+            "price": 7.1
+          },
+          {
+            "name": "磨砂石龙虾扣手链（无尾链）",
+            "image": null,
+            "price": 8.83
+          },
+          {
+            "name": "磨砂石龙虾扣手链（有尾链）",
+            "image": null,
+            "price": 8.83
+          },
+          {
+            "name": "黑玛瑙龙虾扣手链（无尾链）",
+            "image": null,
+            "price": 7.95
+          },
+          {
+            "name": "黑玛瑙龙虾扣手链（有尾链）",
+            "image": null,
+            "price": 7.95
+          },
+          {
+            "name": "绿帝皇龙虾扣手链（无尾链）",
+            "image": null,
+            "price": 5.95
+          },
+          {
+            "name": "绿帝皇龙虾扣手链（有尾链）",
+            "image": null,
+            "price": 5.95
+          },
+          {
+            "name": "方形天然石龙虾扣手链（无尾链）",
+            "image": null,
+            "price": 7
+          },
+          {
+            "name": "方形天然石龙虾扣手链（有尾链）",
+            "image": null,
+            "price": 7.2
+          },
+          {
+            "name": "磨砂隔珠龙虾扣手链（无尾链）",
+            "image": null,
+            "price": 7.75
+          },
+          {
+            "name": "磨砂隔珠龙虾扣手链（有尾链）",
+            "image": null,
+            "price": 7.75
+          },
+          {
+            "name": "青金石长方条手串",
+            "image": null,
+            "price": 5.8
+          },
+          {
+            "name": "青金石金珠手链",
+            "image": null,
+            "price": 6.9
+          },
+          {
+            "name": "虎眼石方块青金石手链",
+            "image": null,
+            "price": 7.7
+          },
+          {
+            "name": "虎眼石方块青金石手链无尾链",
+            "image": null,
+            "price": 7.7
+          },
+          {
+            "name": "彩色松石圆片手链",
+            "image": null,
+            "price": 3.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 青金石虎眼石手链（无尾链） 12 8 1 96 10 青金石虎眼石手链（有尾链） 12 8 1 96 11 磨砂石龙虾扣手链（无尾链） 12 8 1 96 14 磨砂石龙虾扣手链（有尾链） 12 8 1 96 14 黑玛瑙龙虾扣手链（无尾链） 12 8 1 96 14 黑玛瑙龙虾扣手链（有尾链） 12 8 1 96 14 绿帝皇龙虾扣手链（无尾链） 12 8 1 96 14 绿帝皇龙虾扣手链（有尾链） 12 8 1 96 14 方形天然石龙虾扣手链（无尾链） 12 8 1 96 13 方形天然石龙虾扣手链（有尾链） 12 8 1 96 13 磨砂隔珠龙虾扣手链（无尾链） 12 8 1 96 14 磨砂隔珠龙虾扣手链（有尾链） 12 8 1 96 14 青金石长方条手串 12 8 1 96 12 青金石金珠手链 12 8 1 96 15 虎眼石方块青金石手链 12 8 1 96 15 虎眼石方块青金石手链无尾链 12 8 1 96 15 彩色松石圆片手链 12 8 1 96 15",
+    "packagingRows": [
+      {
+        "color": "青金石虎眼石手链（无尾链）",
+        "capacity": "12",
+        "weightText": "10",
+        "weightGrams": 10,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "青金石虎眼石手链（有尾链）",
+        "capacity": "12",
+        "weightText": "11",
+        "weightGrams": 11,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "磨砂石龙虾扣手链（无尾链）",
+        "capacity": "12",
+        "weightText": "14",
+        "weightGrams": 14,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "磨砂石龙虾扣手链（有尾链）",
+        "capacity": "12",
+        "weightText": "14",
+        "weightGrams": 14,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "黑玛瑙龙虾扣手链（无尾链）",
+        "capacity": "12",
+        "weightText": "14",
+        "weightGrams": 14,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "黑玛瑙龙虾扣手链（有尾链）",
+        "capacity": "12",
+        "weightText": "14",
+        "weightGrams": 14,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "绿帝皇龙虾扣手链（无尾链）",
+        "capacity": "12",
+        "weightText": "14",
+        "weightGrams": 14,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "绿帝皇龙虾扣手链（有尾链）",
+        "capacity": "12",
+        "weightText": "14",
+        "weightGrams": 14,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "方形天然石龙虾扣手链（无尾链）",
+        "capacity": "12",
+        "weightText": "13",
+        "weightGrams": 13,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "方形天然石龙虾扣手链（有尾链）",
+        "capacity": "12",
+        "weightText": "13",
+        "weightGrams": 13,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "磨砂隔珠龙虾扣手链（无尾链）",
+        "capacity": "12",
+        "weightText": "14",
+        "weightGrams": 14,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "磨砂隔珠龙虾扣手链（有尾链）",
+        "capacity": "12",
+        "weightText": "14",
+        "weightGrams": 14,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "青金石长方条手串",
+        "capacity": "12",
+        "weightText": "12",
+        "weightGrams": 12,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "青金石金珠手链",
+        "capacity": "12",
+        "weightText": "15",
+        "weightGrams": 15,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "虎眼石方块青金石手链",
+        "capacity": "12",
+        "weightText": "15",
+        "weightGrams": 15,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "虎眼石方块青金石手链无尾链",
+        "capacity": "12",
+        "weightText": "15",
+        "weightGrams": 15,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      },
+      {
+        "color": "彩色松石圆片手链",
+        "capacity": "12",
+        "weightText": "15",
+        "weightGrams": 15,
+        "lengthText": "12",
+        "widthText": "8",
+        "heightText": "1"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 4,
+      "carrier": "中通快递",
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "青金石虎眼石手链（无尾链）",
+        "price": 7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01VYoRWN1sQaszGh7EM_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "青金石虎眼石手链（有尾链）",
+        "price": 7.1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01sxZkSl1sQasrkx6r7_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "磨砂石龙虾扣手链（无尾链）",
+        "price": 8.83,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN018rr8Cy1sQassEK1fa_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "磨砂石龙虾扣手链（有尾链）",
+        "price": 8.83,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01bVoAnQ1sQass3rVah_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "黑玛瑙龙虾扣手链（无尾链）",
+        "price": 7.95,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01pqMas31sQassW2Zpf_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "黑玛瑙龙虾扣手链（有尾链）",
+        "price": 7.95,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01QyK4Xv1sQassW0lZo_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "绿帝皇龙虾扣手链（无尾链）",
+        "price": 5.95,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01LyuH0l1sQasyF6nuC_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "绿帝皇龙虾扣手链（有尾链）",
+        "price": 5.95,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01N8BJDN1sQasyEYr4E_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "方形天然石龙虾扣手链（无尾链）",
+        "price": 7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN0157rprr1sQast0gHll_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "方形天然石龙虾扣手链（有尾链）",
+        "price": 7.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN018eiMJ01sQast5LFH6_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "磨砂隔珠龙虾扣手链（无尾链）",
+        "price": 7.75,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OImbkr1sQassuqb7A_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "磨砂隔珠龙虾扣手链（有尾链）",
+        "price": 7.75,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01HtsnHT1sQassuqriW_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "青金石长方条手串",
+        "price": 5.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01UfH2qc1sQasnUlouy_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "青金石金珠手链",
+        "price": 6.9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01IsD2eC1sQastj6Out_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "虎眼石方块青金石手链",
+        "price": 7.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN019au5nU1sQasvtmfN6_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "虎眼石方块青金石手链无尾链",
+        "price": 7.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01v9CRaT1sQasvosf1D_!!2201219685761-0-cib.jpg"
+      },
+      {
+        "name": "彩色松石圆片手链",
+        "price": 3.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01OZzcba1sQaswjIgSK_!!2201219685761-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 24,
+      "attributeCount": 59,
+      "optionGroupCount": 1,
+      "skuCount": 17,
+      "imageCount": 23,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 480
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-145731-056201-f70fb544.json"
+}

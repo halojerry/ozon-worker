@@ -1,0 +1,246 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "日本进口自制冰杯空杯冻冰块水杯咖啡反复使用可冷冻塑料带盖杯子",
+    "price": "¥13.6",
+    "brand": "nakaya",
+    "seller": "深圳市创意新视点贸易有限公司 关注 客服 商品 入驻3年 主营：收纳防尘 店铺回头率 51% 店铺服务分 4.5分 准时发货率 99% 店铺好评率 95.0%",
+    "image_count": 7,
+    "attribute_count": 21,
+    "dom_sku_count": 2,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1049808330550.html?offerId=1049808330550&hotSaleSkuId=6265902414287",
+    "loginRequired": false,
+    "title": "日本进口自制冰杯空杯冻冰块水杯咖啡反复使用可冷冻塑料带盖杯子",
+    "price": "¥13.6",
+    "priceValue": 13.6,
+    "brand": "nakaya",
+    "seller": "深圳市创意新视点贸易有限公司 关注 客服 商品 入驻3年 主营：收纳防尘 店铺回头率 51% 店铺服务分 4.5分 准时发货率 99% 店铺好评率 95.0%",
+    "sellerLink": "https://shop7884733bx7440.1688.com/?offerId=1049808330550&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN0106YvO01JPD7vAydhE_!!2216499591020-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN0106YvO01JPD7vAydhE_!!2216499591020-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GO9Lgx1JPD7uyglIr_!!2216499591020-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01o9PO6i1JPD7vJDz86_!!2216499591020-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN014wVjFt1JPD7vJFzpP_!!2216499591020-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LNMile1JPD7uzuMzi_!!2216499591020-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015yZM1Y1JPD8LPGHeP_!!2216499591020-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ydisIp1JPD8LSmIyL_!!2216499591020-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2216499591020/p/2/e/6/t/1/564315578705.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "日本",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "塑料"
+      },
+      {
+        "name": "品牌",
+        "value": "nakaya"
+      },
+      {
+        "name": "风格",
+        "value": "日式风"
+      },
+      {
+        "name": "专利",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "【1个装】日本制-透明盖冰杯540ml（不含冰块）,【2个装】日本制-透明盖冰杯540ml（不含冰块）"
+      },
+      {
+        "name": "货号",
+        "value": "刻度杯"
+      },
+      {
+        "name": "是否带提绳",
+        "value": "不带提绳"
+      },
+      {
+        "name": "是否带茶隔",
+        "value": "不带茶隔"
+      },
+      {
+        "name": "出水方式",
+        "value": "直饮"
+      },
+      {
+        "name": "杯子种类",
+        "value": "水杯"
+      },
+      {
+        "name": "产地",
+        "value": "日本"
+      },
+      {
+        "name": "颜色",
+        "value": "【1个装】日本制-透明盖冰杯540ml（不含冰块）、【2个装】日本制-透明盖冰杯540ml（不含冰块）"
+      },
+      {
+        "name": "材质",
+        "value": "nakaya"
+      },
+      {
+        "name": "风格",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "刻度杯"
+      },
+      {
+        "name": "是否带提绳",
+        "value": "不带茶隔"
+      },
+      {
+        "name": "出水方式",
+        "value": "水杯"
+      },
+      {
+        "name": "【1个装】日本制-透明盖冰杯540ml（不含冰块）",
+        "value": "350"
+      },
+      {
+        "name": "【2个装】日本制-透明盖冰杯540ml（不含冰块）",
+        "value": "500"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "7000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "【2个装】日本制-透明盖冰杯540ml（不含冰块）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ydisIp1JPD8LSmIyL_!!2216499591020-0-cib.jpg"
+          },
+          {
+            "name": "【1个装】日本制-透明盖冰杯540ml（不含冰块）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN015yZM1Y1JPD8LPGHeP_!!2216499591020-0-cib.jpg"
+          },
+          {
+            "name": "【2个装】日本制-透明盖冰杯540ml（不含冰块）",
+            "image": null,
+            "price": 13.6
+          },
+          {
+            "name": "【1个装】日本制-透明盖冰杯540ml（不含冰块）",
+            "image": null,
+            "price": 6.8
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 重量(g) 【1个装】日本制-透明盖冰杯540ml（不含冰块） 350 【2个装】日本制-透明盖冰杯540ml（不含冰块） 500",
+    "packagingRows": [
+      {
+        "color": "【1个装】日本制-透明盖冰杯540ml（不含冰块）",
+        "capacity": "350",
+        "weightText": "350",
+        "weightGrams": 350,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "【2个装】日本制-透明盖冰杯540ml（不含冰块）",
+        "capacity": "500",
+        "weightText": "500",
+        "weightGrams": 500,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "上海",
+      "freightCny": 4,
+      "carrier": "圆通快递",
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "【2个装】日本制-透明盖冰杯540ml（不含冰块）",
+        "price": 13.6,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ydisIp1JPD8LSmIyL_!!2216499591020-0-cib.jpg"
+      },
+      {
+        "name": "【1个装】日本制-透明盖冰杯540ml（不含冰块）",
+        "price": 6.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN015yZM1Y1JPD8LPGHeP_!!2216499591020-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 11,
+      "attributeCount": 21,
+      "optionGroupCount": 1,
+      "skuCount": 2,
+      "imageCount": 10,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 2,
+      "packagingTableTextLength": 68
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260720-153755-558543-00c93bb5.json"
+}

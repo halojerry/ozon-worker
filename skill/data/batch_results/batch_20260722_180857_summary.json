@@ -1,0 +1,59 @@
+{
+  "timestamp": "2026-07-22T10:09:54.466973+00:00",
+  "config": {
+    "worker_url": "http://localhost:8080",
+    "client_id": "5371047***",
+    "dry_run": true,
+    "type_filter": "ozon",
+    "start": 0,
+    "limit": 5
+  },
+  "stats": {
+    "total": 5,
+    "success": 2,
+    "failed": 3,
+    "skipped": 0
+  },
+  "results": [
+    {
+      "type": "ozon",
+      "id": "3726236911",
+      "title": "",
+      "success": false,
+      "task_id": "",
+      "error": "跟卖流程未找到匹配"
+    },
+    {
+      "type": "ozon",
+      "id": "3335728940",
+      "title": "玻璃钢火箭航天模型雕塑儿童博物馆展览馆装饰摆件商业美陈DP制品",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "3749010675",
+      "title": "",
+      "success": false,
+      "task_id": "",
+      "error": "跟卖流程未找到匹配"
+    },
+    {
+      "type": "ozon",
+      "id": "1925631822",
+      "title": "",
+      "success": false,
+      "task_id": "",
+      "error": "跟卖流程未找到匹配"
+    },
+    {
+      "type": "ozon",
+      "id": "4624776272",
+      "title": "新款磁吸蚊香支架断香檀香线香铁艺盘香底座家用熏香夹子接灰盘",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    }
+  ]
+}

@@ -12,7 +12,7 @@ import re
 import time
 import uuid
 from functools import wraps
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import parse_qs, quote, urlparse
 
 import requests
@@ -145,7 +145,7 @@ def _canonicalized_resource(uri: str) -> str:
     return f"{path}?{'&'.join(parts)}"
 
 
-def get_ak_from_file() -> str | None:
+def get_ak_from_file() -> Optional[str]:
     """从本地文件读取 AK（支持官方 SDK 格式）"""
     from pathlib import Path
     
@@ -379,11 +379,11 @@ def search_products(
     *,
     page: int = 1,
     page_size: int = 20,
-    sort_type: str | None = None,
-    score_level: str | None = None,
+    sort_type: str = "",
+    score_level: Optional[str] = None,
     purchase_amount: int = 1,
     tags: str = "",
-    ic_tags: str | None = None,
+    ic_tags: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Search 1688 products by keyword.
 
@@ -434,6 +434,138 @@ def search_products(
     if not isinstance(data, list):
         return []
     return [_parse_product_item(item) for item in data]
+
+
+def search_by_image(
+    image_path: str = "",
+    image_url: str = "",
+    *,
+    page_size: int = 10,
+    sort_type: str = "",
+    score_level: str = "high",
+    purchase_amount: int = 1,
+    tags: str = "4306497",
+) -> list[dict[str, Any]]:
+    """1688 以图搜款 — 上传图片搜索同款/相似商品。
+
+    Args:
+        image_path: 本地图片路径
+        image_url: 图片 URL（与 image_path 二选一）
+        page_size: 返回数量
+        sort_type: 排序 (price_asc/price_desc/sold_desc/yx_desc)
+        score_level: 相关性 (high/medium/low)
+        purchase_amount: 采购件数
+        tags: 品池标签
+
+    Returns:
+        匹配商品列表，同 search_products() 的数据结构
+    """
+    import os as _os
+    from scripts.lib.image_preprocessor import preprocess_image, image_to_base64
+
+    img_base64 = ""
+    img_url = ""
+    converted_path = None
+    download_tmp = None
+
+    # 优先使用 imageUrl（1688服务器直接抓取，无质量损失）
+    # 仅当 imageUrl 失败时才下载转 base64
+    if image_url:
+        img_url = image_url
+    elif image_path:
+        pass  # 本地文件走下面的 base64 流程
+    else:
+        raise ValueError("image_path 或 image_url 至少需要一个")
+
+    if image_path:
+        img_info = preprocess_image(image_path)
+        if img_info.get("type") == "local":
+            img_base64 = image_to_base64(img_info["path"])
+            if img_info.get("converted"):
+                converted_path = img_info["path"]
+        else:
+            img_url = img_info.get("url", "")
+    elif not image_url:
+        raise ValueError("image_path 或 image_url 至少需要一个")
+
+    body: dict[str, Any] = {
+        "pageSize": page_size,
+        "purchaseAmount": purchase_amount,
+    }
+    if img_base64:
+        body["imgBase64"] = img_base64
+    if img_url:
+        body["imageUrl"] = img_url
+    if score_level:
+        body["scoreLevel"] = score_level
+    if tags:
+        body["tags"] = tags
+    if sort_type:
+        body["sortType"] = sort_type
+
+    try:
+        result = _post_1688(FIND_PRODUCT_API, body)
+    finally:
+        if converted_path:
+            try:
+                _os.unlink(converted_path)
+            except OSError:
+                pass
+        if download_tmp:
+            try:
+                _os.unlink(download_tmp.name)
+            except OSError:
+                pass
+
+    # 解析响应
+    data = result.get("data")
+    if isinstance(data, dict):
+        data = data.get("data", [])
+    elif data is None:
+        model = result.get("model") or {}
+        data = model.get("data", [])
+
+    if not isinstance(data, list):
+        data = []
+
+    products = [_parse_product_item(item) for item in data]
+
+    # Fallback: 如果 imageUrl 无结果，下载图片转 base64 重试
+    if not products and img_url and not img_base64:
+        import logging as _logging
+        _logging.getLogger(__name__).debug("imageUrl returned 0 results, retrying with imgBase64")
+        try:
+            import requests as _req
+            import tempfile as _tmp
+            from scripts.lib.image_preprocessor import preprocess_image as _pre, image_to_base64 as _to_b64
+            resp = _req.get(img_url, timeout=30, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            })
+            resp.raise_for_status()
+            tmp = _tmp.NamedTemporaryFile(suffix=".jpg", delete=False)
+            tmp.write(resp.content)
+            tmp.close()
+            try:
+                info = _pre(tmp.name)
+                b64 = _to_b64(info["path"])
+                retry_body = dict(body)
+                retry_body.pop("imageUrl", None)
+                retry_body["imgBase64"] = b64
+                result2 = _post_1688(FIND_PRODUCT_API, retry_body)
+                data2 = result2.get("data")
+                if isinstance(data2, dict):
+                    data2 = data2.get("data", [])
+                elif data2 is None:
+                    model2 = result2.get("model") or {}
+                    data2 = model2.get("data", [])
+                if isinstance(data2, list) and data2:
+                    products = [_parse_product_item(item) for item in data2]
+            finally:
+                _os.unlink(tmp.name)
+        except Exception as _e:
+            _logging.getLogger(__name__).debug("imgBase64 fallback failed: %s", _e)
+
+    return products
 
 
 def _extract_images_from_raw(raw: dict[str, Any]) -> list[str]:
@@ -562,7 +694,7 @@ def get_product_details(item_ids: list[str]) -> dict[str, dict[str, Any]]:
     return details
 
 
-def parse_product_url(url: str) -> dict[str, str] | None:
+def parse_product_url(url: str) -> Optional[dict[str, str]]:
     """Parse 1688 product URL to extract offer ID."""
     value = str(url or "").strip()
     if not value:
@@ -602,7 +734,7 @@ def parse_product_url(url: str) -> dict[str, str] | None:
 def enrich_product_with_cdp(
     detail_url: str,
     *,
-    api_data: dict[str, Any] | None = None,
+    api_data: Optional[dict[str, Any]] = None,
     timeout_seconds: int = 30,
 ) -> dict[str, Any]:
     """Enrich a 1688 product with CDP browser data.  Single entry point.
@@ -617,14 +749,14 @@ def enrich_product_with_cdp(
             'ok': bool,               # CDP probe completed successfully
             'degraded': bool,         # true when CDP was unavailable / partial
             'degraded_reason': str,   # human-readable explanation
-            'user_action': str | None, # what the user needs to do (if anything)
+            'user_action': Optional[str], # what the user needs to do (if anything)
             'data': {
                 'title': str,
                 'price': str,
                 'brand': str,
                 'seller': str,
                 'images': list[str],
-                'weight_grams': int | None,
+                'weight_grams': Optional[int],
                 'packaging_rows': list[dict],
                 'sku_details': list[dict],
                 'attributes': list[dict],

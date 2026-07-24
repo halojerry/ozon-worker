@@ -1,0 +1,598 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "迷你金属肛塞狐狸尾巴后庭塞扩肛刑具sm情趣调教惩罚玩具成人用品",
+    "price": "¥4.4",
+    "brand": "奢悦",
+    "seller": "连云港少女梦境电子科技有限公司",
+    "image_count": 17,
+    "attribute_count": 32,
+    "dom_sku_count": 15,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1038132038148.html?offerId=1038132038148",
+    "loginRequired": false,
+    "title": "迷你金属肛塞狐狸尾巴后庭塞扩肛刑具sm情趣调教惩罚玩具成人用品",
+    "price": "¥4.4",
+    "priceValue": 4.4,
+    "brand": "奢悦",
+    "seller": "连云港少女梦境电子科技有限公司",
+    "sellerLink": "https://shop0563119b52749.1688.com/?offerId=1038132038148&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01S46wTd1YlOXOoyWcH_!!2215749883099-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01qgB2pk1YlOXTqgrRn_!!2215749883099-0-cib.jpg?__r__=1774971945744",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01S46wTd1YlOXOoyWcH_!!2215749883099-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WvwlyU1YlOXTD7sfE_!!2215749883099-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01V78YVv1YlOXOovuSx_!!2215749883099-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PvH0z61YlOXV4Y9QO_!!2215749883099-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JvMiIx1YlOXTqeRlB_!!2215749883099-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kFHqK51YlOXTqgzlG_!!2215749883099-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012KgoI61YlOXTuojTL_!!2215749883099-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zxwbNO1YlOXOovhx9_!!2215749883099-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01k7xRzk1Qz7TrLm8RT_!!2218537082046-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013W8f1U1gFo07ttZWR_!!2216008194113-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01m5aDjH1YUu6WWx94G_!!2217830003063-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01mCXZZ32EoKv5MIX1B_!!2220843468791-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01TaVZ1X1gFo4GUhXcK_!!2216008194113-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01RsYv6Q1Qz7Tqq8bi4_!!2218537082046-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01d9z69E2LCxf0CVsCD_!!3495639657-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/9940916030_897085765.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2215749883099/p/2/e/6/t/1/497836922294.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "安徽",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "铝合金"
+      },
+      {
+        "name": "品牌",
+        "value": "奢悦"
+      },
+      {
+        "name": "年龄",
+        "value": "成年"
+      },
+      {
+        "name": "货号",
+        "value": "5643645677"
+      },
+      {
+        "name": "产地",
+        "value": "安徽"
+      },
+      {
+        "name": "颜色",
+        "value": "粉色"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "黑色尾巴【肛塞1.8CM】,黑色尾巴【肛塞2.2CM】,黑色尾巴【肛塞2.7CM】,黑色尾巴【肛塞3.4CM】,黑色尾巴【肛塞4.0CM】,白色尾巴【肛塞1.8CM】,白色尾巴【肛塞2.2CM】,白色尾巴【肛塞2.7CM】,白色尾巴【肛塞3.4CM】,白色尾巴【肛塞4.0CM】,粉色尾巴【肛塞1.8CM】,粉色尾巴【肛塞2.2CM】,粉色尾巴【肛塞2.7CM】,粉色尾巴【肛塞3.4CM】,粉色尾巴【肛塞4.0CM】"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "人群",
+        "value": "成人"
+      },
+      {
+        "name": "材质",
+        "value": "奢悦"
+      },
+      {
+        "name": "年龄",
+        "value": "5643645677"
+      },
+      {
+        "name": "产地",
+        "value": "粉色"
+      },
+      {
+        "name": "是否进口",
+        "value": "黑色尾巴【肛塞1.8CM】,黑色尾巴【肛塞2.2CM】,黑色尾巴【肛塞2.7CM】,黑色尾巴【肛塞3.4CM】,黑色尾巴【肛塞4.0CM】,白色尾巴【肛塞1.8CM】,白色尾巴【肛塞2.2CM】,白色尾巴【肛塞2.7CM】,白色尾巴【肛塞3.4CM】,白色尾巴【肛塞4.0CM】,粉色尾巴【肛塞1.8CM】,粉色尾巴【肛塞2.2CM】,粉色尾巴【肛塞2.7CM】,粉色尾巴【肛塞3.4CM】,粉色尾巴【肛塞4.0CM】"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "成人"
+      },
+      {
+        "name": "黑色尾巴【肛塞1.8CM】",
+        "value": "70"
+      },
+      {
+        "name": "黑色尾巴【肛塞2.2CM】",
+        "value": "70"
+      },
+      {
+        "name": "黑色尾巴【肛塞2.7CM】",
+        "value": "70"
+      },
+      {
+        "name": "黑色尾巴【肛塞3.4CM】",
+        "value": "70"
+      },
+      {
+        "name": "黑色尾巴【肛塞4.0CM】",
+        "value": "70"
+      },
+      {
+        "name": "白色尾巴【肛塞1.8CM】",
+        "value": "70"
+      },
+      {
+        "name": "白色尾巴【肛塞2.2CM】",
+        "value": "70"
+      },
+      {
+        "name": "白色尾巴【肛塞2.7CM】",
+        "value": "70"
+      },
+      {
+        "name": "白色尾巴【肛塞3.4CM】",
+        "value": "70"
+      },
+      {
+        "name": "白色尾巴【肛塞4.0CM】",
+        "value": "70"
+      },
+      {
+        "name": "粉色尾巴【肛塞1.8CM】",
+        "value": "70"
+      },
+      {
+        "name": "粉色尾巴【肛塞2.2CM】",
+        "value": "70"
+      },
+      {
+        "name": "粉色尾巴【肛塞2.7CM】",
+        "value": "70"
+      },
+      {
+        "name": "粉色尾巴【肛塞3.4CM】",
+        "value": "70"
+      },
+      {
+        "name": "粉色尾巴【肛塞4.0CM】",
+        "value": "70"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100+"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "4000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "黑色尾巴【肛塞1.8CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kFHqK51YlOXTqgzlG_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "黑色尾巴【肛塞2.2CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kFHqK51YlOXTqgzlG_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "黑色尾巴【肛塞2.7CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kFHqK51YlOXTqgzlG_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "黑色尾巴【肛塞3.4CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kFHqK51YlOXTqgzlG_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "黑色尾巴【肛塞4.0CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kFHqK51YlOXTqgzlG_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "白色尾巴【肛塞1.8CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012KgoI61YlOXTuojTL_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "白色尾巴【肛塞2.2CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012KgoI61YlOXTuojTL_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "白色尾巴【肛塞2.7CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012KgoI61YlOXTuojTL_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "白色尾巴【肛塞3.4CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012KgoI61YlOXTuojTL_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "白色尾巴【肛塞4.0CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012KgoI61YlOXTuojTL_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "粉色尾巴【肛塞1.8CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zxwbNO1YlOXOovhx9_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "粉色尾巴【肛塞2.2CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zxwbNO1YlOXOovhx9_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "粉色尾巴【肛塞2.7CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zxwbNO1YlOXOovhx9_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "粉色尾巴【肛塞3.4CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zxwbNO1YlOXOovhx9_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "粉色尾巴【肛塞4.0CM】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zxwbNO1YlOXOovhx9_!!2215749883099-0-cib.jpg"
+          },
+          {
+            "name": "黑色尾巴【肛塞1.8CM】",
+            "image": null,
+            "price": 4.4
+          },
+          {
+            "name": "黑色尾巴【肛塞2.2CM】",
+            "image": null,
+            "price": 4.9
+          },
+          {
+            "name": "黑色尾巴【肛塞2.7CM】",
+            "image": null,
+            "price": 5.7
+          },
+          {
+            "name": "黑色尾巴【肛塞3.4CM】",
+            "image": null,
+            "price": 7.5
+          },
+          {
+            "name": "黑色尾巴【肛塞4.0CM】",
+            "image": null,
+            "price": 9.5
+          },
+          {
+            "name": "白色尾巴【肛塞1.8CM】",
+            "image": null,
+            "price": 4.4
+          },
+          {
+            "name": "白色尾巴【肛塞2.2CM】",
+            "image": null,
+            "price": 4.9
+          },
+          {
+            "name": "白色尾巴【肛塞2.7CM】",
+            "image": null,
+            "price": 5.7
+          },
+          {
+            "name": "白色尾巴【肛塞3.4CM】",
+            "image": null,
+            "price": 7.5
+          },
+          {
+            "name": "白色尾巴【肛塞4.0CM】",
+            "image": null,
+            "price": 9.5
+          },
+          {
+            "name": "粉色尾巴【肛塞1.8CM】",
+            "image": null,
+            "price": 4.4
+          },
+          {
+            "name": "粉色尾巴【肛塞2.2CM】",
+            "image": null,
+            "price": 4.9
+          },
+          {
+            "name": "粉色尾巴【肛塞2.7CM】",
+            "image": null,
+            "price": 5.7
+          },
+          {
+            "name": "粉色尾巴【肛塞3.4CM】",
+            "image": null,
+            "price": 7.5
+          },
+          {
+            "name": "粉色尾巴【肛塞4.0CM】",
+            "image": null,
+            "price": 9.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "规格",
+      "重量(g)"
+    ],
+    "packagingTableText": "规格 重量(g) 黑色尾巴【肛塞1.8CM】 70 黑色尾巴【肛塞2.2CM】 70 黑色尾巴【肛塞2.7CM】 70 黑色尾巴【肛塞3.4CM】 70 黑色尾巴【肛塞4.0CM】 70 白色尾巴【肛塞1.8CM】 70 白色尾巴【肛塞2.2CM】 70 白色尾巴【肛塞2.7CM】 70 白色尾巴【肛塞3.4CM】 70 白色尾巴【肛塞4.0CM】 70 粉色尾巴【肛塞1.8CM】 70 粉色尾巴【肛塞2.2CM】 70 粉色尾巴【肛塞2.7CM】 70 粉色尾巴【肛塞3.4CM】 70 粉色尾巴【肛塞4.0CM】 70",
+    "packagingRows": [
+      {
+        "color": "黑色尾巴【肛塞1.8CM】",
+        "capacity": "黑色尾巴【肛塞1.8CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黑色尾巴【肛塞2.2CM】",
+        "capacity": "黑色尾巴【肛塞2.2CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黑色尾巴【肛塞2.7CM】",
+        "capacity": "黑色尾巴【肛塞2.7CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黑色尾巴【肛塞3.4CM】",
+        "capacity": "黑色尾巴【肛塞3.4CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "黑色尾巴【肛塞4.0CM】",
+        "capacity": "黑色尾巴【肛塞4.0CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "白色尾巴【肛塞1.8CM】",
+        "capacity": "白色尾巴【肛塞1.8CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "白色尾巴【肛塞2.2CM】",
+        "capacity": "白色尾巴【肛塞2.2CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "白色尾巴【肛塞2.7CM】",
+        "capacity": "白色尾巴【肛塞2.7CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "白色尾巴【肛塞3.4CM】",
+        "capacity": "白色尾巴【肛塞3.4CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "白色尾巴【肛塞4.0CM】",
+        "capacity": "白色尾巴【肛塞4.0CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色尾巴【肛塞1.8CM】",
+        "capacity": "粉色尾巴【肛塞1.8CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色尾巴【肛塞2.2CM】",
+        "capacity": "粉色尾巴【肛塞2.2CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色尾巴【肛塞2.7CM】",
+        "capacity": "粉色尾巴【肛塞2.7CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色尾巴【肛塞3.4CM】",
+        "capacity": "粉色尾巴【肛塞3.4CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      },
+      {
+        "color": "粉色尾巴【肛塞4.0CM】",
+        "capacity": "粉色尾巴【肛塞4.0CM】",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "安徽合肥",
+      "freightCny": 1.8,
+      "carrier": "韵达快递"
+    },
+    "skuDetails": [
+      {
+        "name": "黑色尾巴【肛塞1.8CM】",
+        "price": 4.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kFHqK51YlOXTqgzlG_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "黑色尾巴【肛塞2.2CM】",
+        "price": 4.9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kFHqK51YlOXTqgzlG_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "黑色尾巴【肛塞2.7CM】",
+        "price": 5.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kFHqK51YlOXTqgzlG_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "黑色尾巴【肛塞3.4CM】",
+        "price": 7.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kFHqK51YlOXTqgzlG_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "黑色尾巴【肛塞4.0CM】",
+        "price": 9.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kFHqK51YlOXTqgzlG_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "白色尾巴【肛塞1.8CM】",
+        "price": 4.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN012KgoI61YlOXTuojTL_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "白色尾巴【肛塞2.2CM】",
+        "price": 4.9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN012KgoI61YlOXTuojTL_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "白色尾巴【肛塞2.7CM】",
+        "price": 5.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN012KgoI61YlOXTuojTL_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "白色尾巴【肛塞3.4CM】",
+        "price": 7.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN012KgoI61YlOXTuojTL_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "白色尾巴【肛塞4.0CM】",
+        "price": 9.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN012KgoI61YlOXTuojTL_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "粉色尾巴【肛塞1.8CM】",
+        "price": 4.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zxwbNO1YlOXOovhx9_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "粉色尾巴【肛塞2.2CM】",
+        "price": 4.9,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zxwbNO1YlOXOovhx9_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "粉色尾巴【肛塞2.7CM】",
+        "price": 5.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zxwbNO1YlOXOovhx9_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "粉色尾巴【肛塞3.4CM】",
+        "price": 7.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zxwbNO1YlOXOovhx9_!!2215749883099-0-cib.jpg"
+      },
+      {
+        "name": "粉色尾巴【肛塞4.0CM】",
+        "price": 9.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zxwbNO1YlOXOovhx9_!!2215749883099-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 10,
+      "attributeCount": 32,
+      "optionGroupCount": 1,
+      "skuCount": 15,
+      "imageCount": 20,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 2,
+      "packagingTableTextLength": 263
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-201503-064572-3b76a320.json"
+}

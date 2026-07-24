@@ -1,0 +1,316 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "跨境加长生日火柴怀旧香薰蜡烛雪茄生日蛋糕复古蛋糕店一次性复古",
+    "price": "¥2.68",
+    "brand": "烛界",
+    "seller": "义乌市烛界工艺品厂 关注 客服 商品 入驻1年 主营：气氛、布置用品 店铺回头率 73% 店铺服务分 4.5分 准时发货率 94% 店铺好评率 99.9%",
+    "image_count": 9,
+    "attribute_count": 39,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1044763353967.html",
+    "loginRequired": false,
+    "title": "跨境加长生日火柴怀旧香薰蜡烛雪茄生日蛋糕复古蛋糕店一次性复古",
+    "price": "¥2.68",
+    "priceValue": 2.68,
+    "brand": "烛界",
+    "seller": "义乌市烛界工艺品厂 关注 客服 商品 入驻1年 主营：气氛、布置用品 店铺回头率 73% 店铺服务分 4.5分 准时发货率 94% 店铺好评率 99.9%",
+    "sellerLink": "https://shop55217z353p373.1688.com/?offerId=1044763353967&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hXyMEs1fyrUzUTtaG_!!2220029364076-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hXyMEs1fyrUzUTtaG_!!2220029364076-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012kX4Np1fyrUzIOoe5_!!2220029364076-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sItyFj1fyrUzdB0J4_!!2220029364076-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01IjFeft1fyrUzjAp6t_!!2220029364076-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01W9GrvY1fyrUzlW4s1_!!2220029364076-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01haWUKP1fyrUzYgkXk_!!2220029364076-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01C8dx4n1fyrUuoHoIW_!!2220029364076-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01cRORAX1fyrUuoGbU1_!!2220029364076-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01DOZB1V1fyrRcYpgNt_!!2220029364076-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "浙江",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "木"
+      },
+      {
+        "name": "产品类型",
+        "value": "木梗火柴"
+      },
+      {
+        "name": "品牌",
+        "value": "烛界"
+      },
+      {
+        "name": "附加功能",
+        "value": "其他"
+      },
+      {
+        "name": "防风功能",
+        "value": "没有"
+      },
+      {
+        "name": "是否一次性",
+        "value": "是"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "其它,积分换购礼品,婚庆,旅游,生日,家居,圣诞节,情人节,春节,父亲节,感恩节,教师节,礼品,约会,满月,万圣节,广告礼品,节日,促销赠品,会议礼品,毕业,乔迁,所有地方,答谢客户,展销会,广告促销,福利礼品,节庆礼品,员工福利,七夕节,周年庆典,商务馈赠,开业典礼,颁奖纪念,办公福利,公关策划,商务公关,公关礼品,个人礼品,探病慰问,其他"
+      },
+      {
+        "name": "货号",
+        "value": "火柴"
+      },
+      {
+        "name": "产地",
+        "value": "浙江"
+      },
+      {
+        "name": "箱装数量",
+        "value": "2500"
+      },
+      {
+        "name": "加印LOGO",
+        "value": "可以"
+      },
+      {
+        "name": "加工定制",
+        "value": "是"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "现货彩色头加长火柴刻字纯色创意个性雪茄生日蜡烛蛋糕店烘焙火柴"
+      },
+      {
+        "name": "规格",
+        "value": "11*36*8"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "风格",
+        "value": "现代简约"
+      },
+      {
+        "name": "风格",
+        "value": "波西米亚,田园,卡通,欧式,美式,日式,韩式,可爱,民族风,古典,中国风,新中式,宫廷风,简约,国潮,轻奢"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "是，个人礼品"
+      },
+      {
+        "name": "送礼用途",
+        "value": "积分换购礼品,商务送礼,商务礼品,广告礼品,促销赠品,会议礼品,促销礼品,广告促销,福利礼品,节庆送礼,节庆礼品,嘉奖纪念,嘉奖礼品,会议送礼,公关礼品,个人礼品,其他"
+      },
+      {
+        "name": "适用送礼关系",
+        "value": "晚辈,情侣,夫妻,同事,朋友,长辈,孩子,客户,亲戚,同学,恩师,其他"
+      },
+      {
+        "name": "材质",
+        "value": "木梗火柴"
+      },
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "防风功能",
+        "value": "是"
+      },
+      {
+        "name": "是否进口",
+        "value": "其它,积分换购礼品,婚庆,旅游,生日,家居,圣诞节,情人节,春节,父亲节,感恩节,教师节,礼品,约会,满月,万圣节,广告礼品,节日,促销赠品,会议礼品,毕业,乔迁,所有地方,答谢客户,展销会,广告促销,福利礼品,节庆礼品,员工福利,七夕节,周年庆典,商务馈赠,开业典礼,颁奖纪念,办公福利,公关策划,商务公关,公关礼品,个人礼品,探病慰问,其他"
+      },
+      {
+        "name": "货号",
+        "value": "浙江"
+      },
+      {
+        "name": "箱装数量",
+        "value": "可以"
+      },
+      {
+        "name": "加工定制",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "11*36*8"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "积分换购礼品,商务送礼,商务礼品,广告礼品,促销赠品,会议礼品,促销礼品,广告促销,福利礼品,节庆送礼,节庆礼品,嘉奖纪念,嘉奖礼品,会议送礼,公关礼品,个人礼品,其他"
+      },
+      {
+        "name": "现货彩色头加长火柴刻字纯色创意个性雪茄生日蜡烛蛋糕店烘焙火柴",
+        "value": "50"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "300+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "现货彩色头加长火柴刻字纯色创意个性雪茄生日蜡烛蛋糕店烘焙火柴",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01haWUKP1fyrUzYgkXk_!!2220029364076-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "11*36*8",
+            "image": null
+          },
+          {
+            "name": "11*36*8",
+            "image": null,
+            "price": 2.68
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "现货彩色头加长火柴刻字纯色创意个性雪茄生日蜡烛蛋糕店烘焙火柴",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01haWUKP1fyrUzYgkXk_!!2220029364076-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "规格",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 规格 重量(g) 现货彩色头加长火柴刻字纯色创意个性雪茄生日蜡烛蛋糕店烘焙火柴 11*36*8 50",
+    "packagingRows": [
+      {
+        "color": "现货彩色头加长火柴刻字纯色创意个性雪茄生日蜡烛蛋糕店烘焙火柴",
+        "capacity": "11*36*8",
+        "weightText": "50",
+        "weightGrams": 50,
+        "lengthText": "11",
+        "widthText": "36",
+        "heightText": "8"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 2.5,
+      "carrier": "申通快递",
+      "dispatchHours": 2
+    },
+    "skuDetails": [
+      {
+        "name": "11*36*8",
+        "price": 2.68,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 25,
+      "attributeCount": 39,
+      "optionGroupCount": 3,
+      "skuCount": 1,
+      "imageCount": 12,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 3,
+      "packagingTableTextLength": 53
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-151328-296306-6e169b05.json"
+}

@@ -1,0 +1,791 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "自行车铝合金手机架固定架单车电动电瓶车摩托车骑行导航支架跨境",
+    "price": "¥13",
+    "brand": "蹦果/bengguo",
+    "seller": "蚌埠市椋轻烃贸易有限公司",
+    "image_count": 27,
+    "attribute_count": 49,
+    "dom_sku_count": 19,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/599605232861.html?spm=a26352.13672862.offerlist.273.206e1e62oPK1U6&offerId=599605232861&sortType=&pageId=&abBizDataType=cbuOffer&hotSaleSkuId=4864067323860&trace_log=normal&uuid=65b9d9ce876f42d5aa0e8cce53d5db6e&forcePC=1784615409784&kj_agent_plugin=zying",
+    "loginRequired": false,
+    "title": "自行车铝合金手机架固定架单车电动电瓶车摩托车骑行导航支架跨境",
+    "price": "¥13",
+    "priceValue": 13,
+    "brand": "蹦果/bengguo",
+    "seller": "蚌埠市椋轻烃贸易有限公司",
+    "sellerLink": "https://ywbengguo.1688.com/?offerId=599605232861&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01liUEg92F7Z9tMY7vf_!!966488833-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01AAwD3n1KijSuhu7mq_!!1060471198-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01liUEg92F7Z9tMY7vf_!!966488833-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11625861534_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11693318412_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11625831986_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11693324127_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11693336090_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11662435834_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11625882290_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11626251819_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11662882311_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11693708757_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11693735328_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11626311386_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11626335634_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11626335689_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11662960883_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11662990143_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11626344751_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11693837604_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11626440286_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11663071874_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11663131193_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11693930991_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11693963012_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11662879202_1354692007.jpg",
+      "https://cbu01.alicdn.com/img/ibank/11662978597_1354692007.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/966488833/p/2/e/6/t/1/537279067561.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": "X-81手机架",
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "铝合金"
+      },
+      {
+        "name": "品牌",
+        "value": "蹦果/bengguo"
+      },
+      {
+        "name": "产品编号",
+        "value": "X-81手机架"
+      },
+      {
+        "name": "货号",
+        "value": "X-81手机架"
+      },
+      {
+        "name": "型号",
+        "value": "X-81手机架"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "X-81手机架钛色,X-81手机架红色,X-81手机架黑色,BM-04 360度旋转 黑色,BM-04 360度旋转 红色,BM-04 360度旋转蓝色,BM-04 360度旋转绿色,BM-04 360度旋转钛色,BM-04 360度旋转银色,BM-03不可以旋转蓝色,BM-03不可以旋转绿色,BM-03不可以旋转钛色,BM-03不可以旋转银色,BM-03手机不可以旋转红色,BM-03手机架 不可以旋转黑色,087齿轮手机架黑色,087齿轮手机架红色,087齿轮手机架钛色,089手机架 黑色,089手机架 红色,089手机架 钛色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "专利类型",
+        "value": "无"
+      },
+      {
+        "name": "外贸出口认证",
+        "value": "无"
+      },
+      {
+        "name": "质检报告编号",
+        "value": "无"
+      },
+      {
+        "name": "自行车支架",
+        "value": "铝合金手机架"
+      },
+      {
+        "name": "手机架",
+        "value": "自行车手机架"
+      },
+      {
+        "name": "电动车手机架",
+        "value": "自行车手机支架"
+      },
+      {
+        "name": "颜色",
+        "value": "X-81手机架钛色、X-81手机架红色、X-81手机架黑色、BM-04 360度旋转 黑色、BM-04 360度旋转 红色、BM-04 360度旋转蓝色、BM-04 360度旋转绿色、BM-04 360度旋转钛色、BM-04 360度旋转银色、BM-03不可以旋转蓝色、BM-03不可以旋转绿色、BM-03不可以旋转钛色、BM-03不可以旋转银色、BM-03手机不可以旋转红色、BM-03手机架 不可以旋转黑色、087齿轮手机架黑色、087齿轮手机架红色、087齿轮手机架钛色、089手机架 黑色、089手机架 红色、089手机架 钛色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "材质",
+        "value": "蹦果/bengguo"
+      },
+      {
+        "name": "型号",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "无"
+      },
+      {
+        "name": "自行车支架",
+        "value": "自行车手机架"
+      },
+      {
+        "name": "X-81手机架钛色",
+        "value": "222"
+      },
+      {
+        "name": "X-81手机架红色",
+        "value": "222"
+      },
+      {
+        "name": "X-81手机架黑色",
+        "value": "222"
+      },
+      {
+        "name": "BM-04 360度旋转 黑色",
+        "value": "222"
+      },
+      {
+        "name": "BM-04 360度旋转 红色",
+        "value": "222"
+      },
+      {
+        "name": "BM-04 360度旋转蓝色",
+        "value": "222"
+      },
+      {
+        "name": "BM-04 360度旋转绿色",
+        "value": "222"
+      },
+      {
+        "name": "BM-04 360度旋转钛色",
+        "value": "222"
+      },
+      {
+        "name": "BM-04 360度旋转银色",
+        "value": "222"
+      },
+      {
+        "name": "BM-03不可以旋转蓝色",
+        "value": "222"
+      },
+      {
+        "name": "BM-03不可以旋转绿色",
+        "value": "222"
+      },
+      {
+        "name": "BM-03不可以旋转钛色",
+        "value": "222"
+      },
+      {
+        "name": "BM-03不可以旋转银色",
+        "value": "222"
+      },
+      {
+        "name": "BM-03手机不可以旋转红色",
+        "value": "222"
+      },
+      {
+        "name": "BM-03手机架 不可以旋转黑色",
+        "value": "222"
+      },
+      {
+        "name": "087齿轮手机架黑色",
+        "value": "222"
+      },
+      {
+        "name": "087齿轮手机架红色",
+        "value": "222"
+      },
+      {
+        "name": "087齿轮手机架钛色",
+        "value": "222"
+      },
+      {
+        "name": "089手机架 黑色",
+        "value": "222"
+      },
+      {
+        "name": "089手机架 红色",
+        "value": "222"
+      },
+      {
+        "name": "089手机架 钛色",
+        "value": "222"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2019年8月"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "X-81手机架黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11625882290_1354692007.jpg"
+          },
+          {
+            "name": "X-81手机架钛色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11693336090_1354692007.jpg"
+          },
+          {
+            "name": "X-81手机架红色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11662435834_1354692007.jpg"
+          },
+          {
+            "name": "BM-04 360度旋转 红色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11626251819_1354692007.jpg"
+          },
+          {
+            "name": "BM-04 360度旋转蓝色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11662882311_1354692007.jpg"
+          },
+          {
+            "name": "BM-04 360度旋转绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11693708757_1354692007.jpg"
+          },
+          {
+            "name": "BM-04 360度旋转钛色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11693735328_1354692007.jpg"
+          },
+          {
+            "name": "BM-04 360度旋转银色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11626311386_1354692007.jpg"
+          },
+          {
+            "name": "BM-03不可以旋转蓝色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11626335634_1354692007.jpg"
+          },
+          {
+            "name": "BM-03不可以旋转绿色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11626335689_1354692007.jpg"
+          },
+          {
+            "name": "BM-03不可以旋转钛色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11662960883_1354692007.jpg"
+          },
+          {
+            "name": "BM-03不可以旋转银色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11662990143_1354692007.jpg"
+          },
+          {
+            "name": "BM-03手机不可以旋转红色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11626344751_1354692007.jpg"
+          },
+          {
+            "name": "087齿轮手机架黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11693837604_1354692007.jpg"
+          },
+          {
+            "name": "087齿轮手机架红色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11626440286_1354692007.jpg"
+          },
+          {
+            "name": "087齿轮手机架钛色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11663071874_1354692007.jpg"
+          },
+          {
+            "name": "089手机架 黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11663131193_1354692007.jpg"
+          },
+          {
+            "name": "089手机架 红色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11693930991_1354692007.jpg"
+          },
+          {
+            "name": "089手机架 钛色",
+            "image": "https://cbu01.alicdn.com/img/ibank/11693963012_1354692007.jpg"
+          },
+          {
+            "name": "X-81手机架黑色",
+            "image": null,
+            "price": 13
+          },
+          {
+            "name": "X-81手机架钛色",
+            "image": null,
+            "price": 13
+          },
+          {
+            "name": "X-81手机架红色",
+            "image": null,
+            "price": 13
+          },
+          {
+            "name": "BM-04 360度旋转 红色",
+            "image": null,
+            "price": 31
+          },
+          {
+            "name": "BM-04 360度旋转蓝色",
+            "image": null,
+            "price": 31
+          },
+          {
+            "name": "BM-04 360度旋转绿色",
+            "image": null,
+            "price": 31
+          },
+          {
+            "name": "BM-04 360度旋转钛色",
+            "image": null,
+            "price": 31
+          },
+          {
+            "name": "BM-04 360度旋转银色",
+            "image": null,
+            "price": 31
+          },
+          {
+            "name": "BM-03不可以旋转蓝色",
+            "image": null,
+            "price": 27
+          },
+          {
+            "name": "BM-03不可以旋转绿色",
+            "image": null,
+            "price": 27
+          },
+          {
+            "name": "BM-03不可以旋转钛色",
+            "image": null,
+            "price": 27
+          },
+          {
+            "name": "BM-03不可以旋转银色",
+            "image": null,
+            "price": 27
+          },
+          {
+            "name": "BM-03手机不可以旋转红色",
+            "image": null,
+            "price": 27
+          },
+          {
+            "name": "087齿轮手机架黑色",
+            "image": null,
+            "price": 6.4
+          },
+          {
+            "name": "087齿轮手机架红色",
+            "image": null,
+            "price": 6.4
+          },
+          {
+            "name": "087齿轮手机架钛色",
+            "image": null,
+            "price": 6.4
+          },
+          {
+            "name": "089手机架 黑色",
+            "image": null,
+            "price": 23
+          },
+          {
+            "name": "089手机架 红色",
+            "image": null,
+            "price": 23
+          },
+          {
+            "name": "089手机架 钛色",
+            "image": null,
+            "price": 23
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) X-81手机架钛色 10 10 5 500 222 X-81手机架红色 10 10 5 500 222 X-81手机架黑色 10 10 5 500 222 BM-04 360度旋转 黑色 10 10 5 500 222 BM-04 360度旋转 红色 10 10 5 500 222 BM-04 360度旋转蓝色 10 10 5 500 222 BM-04 360度旋转绿色 10 10 5 500 222 BM-04 360度旋转钛色 10 10 5 500 222 BM-04 360度旋转银色 10 10 5 500 222 BM-03不可以旋转蓝色 10 10 5 500 222 BM-03不可以旋转绿色 10 10 5 500 222 BM-03不可以旋转钛色 10 10 5 500 222 BM-03不可以旋转银色 10 10 5 500 222 BM-03手机不可以旋转红色 10 10 5 500 222 BM-03手机架 不可以旋转黑色 10 10 5 500 222 087齿轮手机架黑色 10 10 5 500 222 087齿轮手机架红色 10 10 5 500 222 087齿轮手机架钛色 10 10 5 500 222 089手机架 黑色 10 10 5 500 222 089手机架 红色 10 10 5 500 222 089手机架 钛色 10 10 5 500 222",
+    "packagingRows": [
+      {
+        "color": "X-81手机架钛色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "X-81手机架红色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "X-81手机架黑色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "BM-04 360度旋转 黑色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "BM-04 360度旋转 红色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "BM-04 360度旋转蓝色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "BM-04 360度旋转绿色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "BM-04 360度旋转钛色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "BM-04 360度旋转银色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "BM-03不可以旋转蓝色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "BM-03不可以旋转绿色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "BM-03不可以旋转钛色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "BM-03不可以旋转银色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "BM-03手机不可以旋转红色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "BM-03手机架 不可以旋转黑色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "087齿轮手机架黑色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "087齿轮手机架红色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "087齿轮手机架钛色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "089手机架 黑色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "089手机架 红色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      },
+      {
+        "color": "089手机架 钛色",
+        "capacity": "10",
+        "weightText": "222",
+        "weightGrams": 222,
+        "lengthText": "10",
+        "widthText": "10",
+        "heightText": "5"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 5,
+      "carrier": "韵达快递",
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "X-81手机架黑色",
+        "price": 13,
+        "image": "https://cbu01.alicdn.com/img/ibank/11625882290_1354692007.jpg"
+      },
+      {
+        "name": "X-81手机架钛色",
+        "price": 13,
+        "image": "https://cbu01.alicdn.com/img/ibank/11693336090_1354692007.jpg"
+      },
+      {
+        "name": "X-81手机架红色",
+        "price": 13,
+        "image": "https://cbu01.alicdn.com/img/ibank/11662435834_1354692007.jpg"
+      },
+      {
+        "name": "BM-04 360度旋转 红色",
+        "price": 31,
+        "image": "https://cbu01.alicdn.com/img/ibank/11626251819_1354692007.jpg"
+      },
+      {
+        "name": "BM-04 360度旋转蓝色",
+        "price": 31,
+        "image": "https://cbu01.alicdn.com/img/ibank/11662882311_1354692007.jpg"
+      },
+      {
+        "name": "BM-04 360度旋转绿色",
+        "price": 31,
+        "image": "https://cbu01.alicdn.com/img/ibank/11693708757_1354692007.jpg"
+      },
+      {
+        "name": "BM-04 360度旋转钛色",
+        "price": 31,
+        "image": "https://cbu01.alicdn.com/img/ibank/11693735328_1354692007.jpg"
+      },
+      {
+        "name": "BM-04 360度旋转银色",
+        "price": 31,
+        "image": "https://cbu01.alicdn.com/img/ibank/11626311386_1354692007.jpg"
+      },
+      {
+        "name": "BM-03不可以旋转蓝色",
+        "price": 27,
+        "image": "https://cbu01.alicdn.com/img/ibank/11626335634_1354692007.jpg"
+      },
+      {
+        "name": "BM-03不可以旋转绿色",
+        "price": 27,
+        "image": "https://cbu01.alicdn.com/img/ibank/11626335689_1354692007.jpg"
+      },
+      {
+        "name": "BM-03不可以旋转钛色",
+        "price": 27,
+        "image": "https://cbu01.alicdn.com/img/ibank/11662960883_1354692007.jpg"
+      },
+      {
+        "name": "BM-03不可以旋转银色",
+        "price": 27,
+        "image": "https://cbu01.alicdn.com/img/ibank/11662990143_1354692007.jpg"
+      },
+      {
+        "name": "BM-03手机不可以旋转红色",
+        "price": 27,
+        "image": "https://cbu01.alicdn.com/img/ibank/11626344751_1354692007.jpg"
+      },
+      {
+        "name": "087齿轮手机架黑色",
+        "price": 6.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/11693837604_1354692007.jpg"
+      },
+      {
+        "name": "087齿轮手机架红色",
+        "price": 6.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/11626440286_1354692007.jpg"
+      },
+      {
+        "name": "087齿轮手机架钛色",
+        "price": 6.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/11663071874_1354692007.jpg"
+      },
+      {
+        "name": "089手机架 黑色",
+        "price": 23,
+        "image": "https://cbu01.alicdn.com/img/ibank/11663131193_1354692007.jpg"
+      },
+      {
+        "name": "089手机架 红色",
+        "price": 23,
+        "image": "https://cbu01.alicdn.com/img/ibank/11693930991_1354692007.jpg"
+      },
+      {
+        "name": "089手机架 钛色",
+        "price": 23,
+        "image": "https://cbu01.alicdn.com/img/ibank/11693963012_1354692007.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 17,
+      "attributeCount": 49,
+      "optionGroupCount": 1,
+      "skuCount": 19,
+      "imageCount": 29,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 639
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-151021-900400-6d57ac4e.json"
+}

@@ -1,0 +1,324 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "雪尼尔毛绒狗狗撕咬玩具耐咬磨牙宠物多彩绳子伸缩玩具用品解闷",
+    "price": "¥11.8",
+    "brand": "聚诚",
+    "seller": "宁波聚诚日用品有限公司 关注 客服 商品 入驻2年 主营：家务清洁用具 店铺回头率 49% 店铺服务分 4.5分 准时发货率 93% 店铺好评率 99.8%",
+    "image_count": 12,
+    "attribute_count": 27,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/918093766955.html",
+    "loginRequired": false,
+    "title": "雪尼尔毛绒狗狗撕咬玩具耐咬磨牙宠物多彩绳子伸缩玩具用品解闷",
+    "price": "¥11.8",
+    "priceValue": 11.8,
+    "brand": "聚诚",
+    "seller": "宁波聚诚日用品有限公司 关注 客服 商品 入驻2年 主营：家务清洁用具 店铺回头率 49% 店铺服务分 4.5分 准时发货率 93% 店铺好评率 99.8%",
+    "sellerLink": "https://shop6p12224996328.1688.com/?offerId=918093766955&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01iZ8ICF1gcFZAqUuYL_!!2219737014162-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01iZ8ICF1gcFZAqUuYL_!!2219737014162-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01802RYe1gcFTefKHor_!!2219737014162-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01BNSecW1gcFTe5zt1t_!!2219737014162-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fO76Bd1gcFZAbdqYJ_!!2219737014162-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01RMSfZX1gcFZAtnQMQ_!!2219737014162-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01k58RDs1gcFUU2pFeA_!!2219737014162-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01b1RcPC1gcFUToDKaU_!!2219737014162-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yTe7Kl1gcFUUUJWzD_!!2219737014162-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01GrIeMg1gcFURtdTxM_!!2219737014162-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01k04Oc91gcFTfuB1bc_!!2219737014162-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01RmZuKk1gcFTgXQjxu_!!2219737014162-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01XOBRW41gcFTfdC62E_!!2219737014162-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2219737014162/p/2/e/6/t/1/535096986510.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "浙江",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "涤纶"
+      },
+      {
+        "name": "产品类别",
+        "value": "啃咬玩具"
+      },
+      {
+        "name": "品牌",
+        "value": "聚诚"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "重量",
+        "value": "50"
+      },
+      {
+        "name": "货号",
+        "value": "003"
+      },
+      {
+        "name": "产地",
+        "value": "浙江"
+      },
+      {
+        "name": "箱装数量",
+        "value": "100"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "湖蓝,橙黄,玫红,大红"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "规格",
+        "value": "56*8*2cm"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "湖蓝、橙黄、玫红、大红"
+      },
+      {
+        "name": "材质",
+        "value": "啃咬玩具"
+      },
+      {
+        "name": "品牌",
+        "value": "否"
+      },
+      {
+        "name": "重量",
+        "value": "003"
+      },
+      {
+        "name": "产地",
+        "value": "100"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "湖蓝,橙黄,玫红,大红"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "56*8*2cm"
+      },
+      {
+        "name": "湖蓝",
+        "value": "75"
+      },
+      {
+        "name": "橙黄",
+        "value": "75"
+      },
+      {
+        "name": "玫红",
+        "value": "75"
+      },
+      {
+        "name": "大红",
+        "value": "75"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2025年4月"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "湖蓝",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01k58RDs1gcFUU2pFeA_!!2219737014162-0-cib.jpg"
+          },
+          {
+            "name": "橙黄",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01b1RcPC1gcFUToDKaU_!!2219737014162-0-cib.jpg"
+          },
+          {
+            "name": "玫红",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01yTe7Kl1gcFUUUJWzD_!!2219737014162-0-cib.jpg"
+          },
+          {
+            "name": "大红",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GrIeMg1gcFURtdTxM_!!2219737014162-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "规格",
+        "values": [
+          {
+            "name": "56*8*2cm",
+            "image": null
+          },
+          {
+            "name": "56*8*2cm",
+            "image": null,
+            "price": 11.8
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "湖蓝",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01k58RDs1gcFUU2pFeA_!!2219737014162-0-cib.jpg"
+          },
+          {
+            "name": "橙黄",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01b1RcPC1gcFUToDKaU_!!2219737014162-0-cib.jpg"
+          },
+          {
+            "name": "玫红",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01yTe7Kl1gcFUUUJWzD_!!2219737014162-0-cib.jpg"
+          },
+          {
+            "name": "大红",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01GrIeMg1gcFURtdTxM_!!2219737014162-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "规格",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 规格 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 湖蓝 56*8*2cm 56 8 2 896 75 橙黄 56*8*2cm 56 8 2 896 75 玫红 56*8*2cm 56 8 2 896 75 大红 56*8*2cm 56 8 2 896 75",
+    "packagingRows": [
+      {
+        "color": "湖蓝",
+        "capacity": "56*8*2cm",
+        "weightText": "75",
+        "weightGrams": 75,
+        "lengthText": "56",
+        "widthText": "8",
+        "heightText": "2"
+      },
+      {
+        "color": "橙黄",
+        "capacity": "56*8*2cm",
+        "weightText": "75",
+        "weightGrams": 75,
+        "lengthText": "56",
+        "widthText": "8",
+        "heightText": "2"
+      },
+      {
+        "color": "玫红",
+        "capacity": "56*8*2cm",
+        "weightText": "75",
+        "weightGrams": 75,
+        "lengthText": "56",
+        "widthText": "8",
+        "heightText": "2"
+      },
+      {
+        "color": "大红",
+        "capacity": "56*8*2cm",
+        "weightText": "75",
+        "weightGrams": 75,
+        "lengthText": "56",
+        "widthText": "8",
+        "heightText": "2"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江宁波",
+      "freightCny": 5
+    },
+    "skuDetails": [
+      {
+        "name": "56*8*2cm",
+        "price": 11.8,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 14,
+      "attributeCount": 27,
+      "optionGroupCount": 3,
+      "skuCount": 1,
+      "imageCount": 15,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 7,
+      "packagingTableTextLength": 141
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-174900-854516-ea9fdefd.json"
+}

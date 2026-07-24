@@ -1,0 +1,304 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "跨境Squishy Loopz - 螺旋3d打印解压器系列伸缩乐套装玩具解压",
+    "price": "¥5.5",
+    "brand": "suprint",
+    "seller": "跨境爆款3d打印齿轮球外贸款指尖球齿轮花立体魔方模型黑科技潮玩 ¥6.00 已售1万+个",
+    "image_count": 10,
+    "attribute_count": 34,
+    "dom_sku_count": 3,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1059868976141.html",
+    "loginRequired": false,
+    "title": "跨境Squishy Loopz - 螺旋3d打印解压器系列伸缩乐套装玩具解压",
+    "price": "¥5.5",
+    "priceValue": 5.5,
+    "brand": "suprint",
+    "seller": "跨境爆款3d打印齿轮球外贸款指尖球齿轮花立体魔方模型黑科技潮玩 ¥6.00 已售1万+个",
+    "sellerLink": "https://detail.1688.com/offer/824855673624.html?traceId=213e049417844538064823847e0bfa&spm-auction=1059868976141",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01DnSVed1fkfEUgZCAT_!!2218261904045-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01DnSVed1fkfEUgZCAT_!!2218261904045-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015SqYGa1fkfEUZ6xxt_!!2218261904045-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01fkspcu1fkfEW5NiRg_!!2218261904045-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KCrJCH1fkfEUpPG9l_!!2218261904045-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01RDBaRq1fkfEUKs0ix_!!2218261904045-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sporz51fkfEUJ0Z0u_!!2218261904045-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01oZ9sbO1Tybu6PB1vw_!!6000000002451-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01MxTEih1fkfBwCmo4S_!!2218261904045-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01YpSy6V1fkfBuzqHh9_!!2218261904045-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aszB791fkf7xS5e1E_!!2218261904045-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2218261904045/p/2/e/6/t/1/477353939216.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "PLA"
+      },
+      {
+        "name": "工艺",
+        "value": "3D打印"
+      },
+      {
+        "name": "品牌",
+        "value": "suprint"
+      },
+      {
+        "name": "货号",
+        "value": "SP2606057"
+      },
+      {
+        "name": "产品编号",
+        "value": "2606057"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "现代艺术"
+      },
+      {
+        "name": "类别",
+        "value": "拼装模型"
+      },
+      {
+        "name": "造型",
+        "value": "仿真"
+      },
+      {
+        "name": "制作工艺",
+        "value": "3D打印"
+      },
+      {
+        "name": "加工定制",
+        "value": "是"
+      },
+      {
+        "name": "摆挂形式",
+        "value": "摆饰"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "wish,独立站,LAZADA,其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "解压螺旋伸缩乐黑色,解压螺旋伸缩乐彩虹糖果,解压螺旋伸缩乐蓝色"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "wish、独立站、LAZADA、其他"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "南美、东南亚、北美、东北亚、中东、其他"
+      },
+      {
+        "name": "颜色",
+        "value": "解压螺旋伸缩乐黑色、解压螺旋伸缩乐彩虹糖果、解压螺旋伸缩乐蓝色"
+      },
+      {
+        "name": "材质",
+        "value": "3D打印"
+      },
+      {
+        "name": "品牌",
+        "value": "SP2606057"
+      },
+      {
+        "name": "产品编号",
+        "value": "否"
+      },
+      {
+        "name": "风格",
+        "value": "拼装模型"
+      },
+      {
+        "name": "造型",
+        "value": "3D打印"
+      },
+      {
+        "name": "加工定制",
+        "value": "摆饰"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "是"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "解压螺旋伸缩乐黑色,解压螺旋伸缩乐彩虹糖果,解压螺旋伸缩乐蓝色"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "2000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "解压螺旋伸缩乐黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01sporz51fkfEUJ0Z0u_!!2218261904045-0-cib.jpg"
+          },
+          {
+            "name": "解压螺旋伸缩乐彩虹糖果",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fkspcu1fkfEW5NiRg_!!2218261904045-0-cib.jpg"
+          },
+          {
+            "name": "解压螺旋伸缩乐蓝色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01RDBaRq1fkfEUKs0ix_!!2218261904045-0-cib.jpg"
+          },
+          {
+            "name": "解压螺旋伸缩乐黑色",
+            "image": null,
+            "price": 5.5
+          },
+          {
+            "name": "解压螺旋伸缩乐彩虹糖果",
+            "image": null,
+            "price": 6
+          },
+          {
+            "name": "解压螺旋伸缩乐蓝色",
+            "image": null,
+            "price": 5.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 80",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "广东佛山",
+      "freightCny": 5,
+      "carrier": "申通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "解压螺旋伸缩乐黑色",
+        "price": 5.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01sporz51fkfEUJ0Z0u_!!2218261904045-0-cib.jpg"
+      },
+      {
+        "name": "解压螺旋伸缩乐彩虹糖果",
+        "price": 6,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01fkspcu1fkfEW5NiRg_!!2218261904045-0-cib.jpg"
+      },
+      {
+        "name": "解压螺旋伸缩乐蓝色",
+        "price": 5.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01RDBaRq1fkfEUKs0ix_!!2218261904045-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 20,
+      "attributeCount": 34,
+      "optionGroupCount": 1,
+      "skuCount": 3,
+      "imageCount": 13,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 8
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-173645-765311-bbb87825.json"
+}

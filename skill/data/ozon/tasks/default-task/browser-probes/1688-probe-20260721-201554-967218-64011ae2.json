@@ -1,0 +1,522 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "无痕防晒帽女防紫外线太阳帽夏季户外运动大帽檐空顶可折叠遮阳帽",
+    "price": "¥10.49",
+    "brand": "其他",
+    "seller": "义乌市昕圣服饰有限公司 关注 客服 商品 入驻9年 主营：发饰、头饰 店铺回头率 75% 店铺服务分 4.5分 准时发货率 99% 店铺好评率 93.7%",
+    "image_count": 14,
+    "attribute_count": 47,
+    "dom_sku_count": 9,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1065567637763.html",
+    "loginRequired": false,
+    "title": "无痕防晒帽女防紫外线太阳帽夏季户外运动大帽檐空顶可折叠遮阳帽",
+    "price": "¥10.49",
+    "priceValue": 10.49,
+    "brand": "其他",
+    "seller": "义乌市昕圣服饰有限公司 关注 客服 商品 入驻9年 主营：发饰、头饰 店铺回头率 75% 店铺服务分 4.5分 准时发货率 99% 店铺好评率 93.7%",
+    "sellerLink": "https://shop48p5953553186.1688.com/?offerId=785523102016&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN010fXLrH1sSQGf7knmj_!!3386725765-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN010fXLrH1sSQGf7knmj_!!3386725765-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ipi6Zu1sSQGkAt1ki_!!3386725765-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01obfblj1sSQGh4jGx8_!!3386725765-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WcLwyH1sSQGhASoJo_!!3386725765-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wXiWxb1sSQGhLvtYH_!!3386725765-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01sdCugO1sSQGhAdYFy_!!3386725765-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lSfhkg1sSQGhr3HgX_!!3386725765-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yjLdQo1sSQGjDzv1g_!!3386725765-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01QUNbJN1sSQGhr4lNR_!!3386725765-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01faEWoI1sSQH1LXut9_!!3386725765-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ptRpuH1sSQHDNR50l_!!3386725765-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01V94dVg1sSQHKg40ld_!!3386725765-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015MZF3g1sSQHNuWMCx_!!3386725765-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WGoYFT1sSQHMHSxe0_!!3386725765-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/3386725765/p/2/e/6/t/1/458232048240.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "义乌",
+    "model": null,
+    "attributes": [
+      {
+        "name": "产品类别",
+        "value": "大沿帽"
+      },
+      {
+        "name": "功能",
+        "value": "防晒,速干,遮阳"
+      },
+      {
+        "name": "面料名称",
+        "value": "涤纶"
+      },
+      {
+        "name": "主面料成分",
+        "value": "涤纶（聚酯纤维）"
+      },
+      {
+        "name": "处理工艺",
+        "value": "纯手工"
+      },
+      {
+        "name": "品牌",
+        "value": "其他"
+      },
+      {
+        "name": "风格",
+        "value": "网红风"
+      },
+      {
+        "name": "货号",
+        "value": "无痕帽"
+      },
+      {
+        "name": "流行元素",
+        "value": "锥形"
+      },
+      {
+        "name": "适合季节",
+        "value": "夏季,春秋季"
+      },
+      {
+        "name": "产地",
+        "value": "义乌"
+      },
+      {
+        "name": "帽顶款式",
+        "value": "无顶"
+      },
+      {
+        "name": "帽檐款式",
+        "value": "大檐"
+      },
+      {
+        "name": "颜色",
+        "value": "【无痕帽】深灰色,【无痕帽】黑色,【无痕帽】米色,【无痕帽】粉色,【无痕帽】浅灰,黑胶帽檐深灰,黑胶帽檐浅灰,黑胶帽檐粉色,黑胶帽檐黑色"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "日韩,非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "上市年份/季节",
+        "value": "2023年春夏"
+      },
+      {
+        "name": "是否可调节",
+        "value": "可调节"
+      },
+      {
+        "name": "主面料成分含量",
+        "value": "21%(含)-30%(含)"
+      },
+      {
+        "name": "是否可折叠",
+        "value": "可折叠"
+      },
+      {
+        "name": "风格分类",
+        "value": "个性风潮"
+      },
+      {
+        "name": "流行元素分类",
+        "value": "形状/图案"
+      },
+      {
+        "name": "适合季节",
+        "value": "夏季、春秋季"
+      },
+      {
+        "name": "颜色",
+        "value": "【无痕帽】深灰色、【无痕帽】黑色、【无痕帽】米色、【无痕帽】粉色、【无痕帽】浅灰、黑胶帽檐深灰、黑胶帽檐浅灰、黑胶帽檐粉色、黑胶帽檐黑色"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "日韩、非洲、欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "产品类别",
+        "value": "防晒,速干,遮阳"
+      },
+      {
+        "name": "面料名称",
+        "value": "涤纶（聚酯纤维）"
+      },
+      {
+        "name": "处理工艺",
+        "value": "其他"
+      },
+      {
+        "name": "风格",
+        "value": "无痕帽"
+      },
+      {
+        "name": "流行元素",
+        "value": "夏季,春秋季"
+      },
+      {
+        "name": "产地",
+        "value": "无顶"
+      },
+      {
+        "name": "帽檐款式",
+        "value": "【无痕帽】深灰色,【无痕帽】黑色,【无痕帽】米色,【无痕帽】粉色,【无痕帽】浅灰,黑胶帽檐深灰,黑胶帽檐浅灰,黑胶帽檐粉色,黑胶帽檐黑色"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "2023年春夏"
+      },
+      {
+        "name": "是否可调节",
+        "value": "21%(含)-30%(含)"
+      },
+      {
+        "name": "是否可折叠",
+        "value": "个性风潮"
+      },
+      {
+        "name": "【无痕帽】深灰色",
+        "value": "80"
+      },
+      {
+        "name": "【无痕帽】黑色",
+        "value": "80"
+      },
+      {
+        "name": "【无痕帽】米色",
+        "value": "80"
+      },
+      {
+        "name": "【无痕帽】粉色",
+        "value": "80"
+      },
+      {
+        "name": "【无痕帽】浅灰",
+        "value": "80"
+      },
+      {
+        "name": "黑胶帽檐深灰",
+        "value": "80"
+      },
+      {
+        "name": "黑胶帽檐浅灰",
+        "value": "80"
+      },
+      {
+        "name": "黑胶帽檐粉色",
+        "value": "80"
+      },
+      {
+        "name": "黑胶帽檐黑色",
+        "value": "80"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "【无痕帽】深灰色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01sdCugO1sSQGhAdYFy_!!3386725765-0-cib.jpg"
+          },
+          {
+            "name": "【无痕帽】黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lSfhkg1sSQGhr3HgX_!!3386725765-0-cib.jpg"
+          },
+          {
+            "name": "【无痕帽】米色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01yjLdQo1sSQGjDzv1g_!!3386725765-0-cib.jpg"
+          },
+          {
+            "name": "【无痕帽】粉色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01QUNbJN1sSQGhr4lNR_!!3386725765-0-cib.jpg"
+          },
+          {
+            "name": "【无痕帽】浅灰",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01faEWoI1sSQH1LXut9_!!3386725765-0-cib.jpg"
+          },
+          {
+            "name": "黑胶帽檐深灰",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ptRpuH1sSQHDNR50l_!!3386725765-0-cib.jpg"
+          },
+          {
+            "name": "黑胶帽檐浅灰",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01V94dVg1sSQHKg40ld_!!3386725765-0-cib.jpg"
+          },
+          {
+            "name": "黑胶帽檐粉色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN015MZF3g1sSQHNuWMCx_!!3386725765-0-cib.jpg"
+          },
+          {
+            "name": "黑胶帽檐黑色",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WGoYFT1sSQHMHSxe0_!!3386725765-0-cib.jpg"
+          },
+          {
+            "name": "【无痕帽】深灰色",
+            "image": null,
+            "price": 10.49
+          },
+          {
+            "name": "【无痕帽】黑色",
+            "image": null,
+            "price": 10.49
+          },
+          {
+            "name": "【无痕帽】米色",
+            "image": null,
+            "price": 10.49
+          },
+          {
+            "name": "【无痕帽】粉色",
+            "image": null,
+            "price": 10.49
+          },
+          {
+            "name": "【无痕帽】浅灰",
+            "image": null,
+            "price": 10.49
+          },
+          {
+            "name": "黑胶帽檐深灰",
+            "image": null,
+            "price": 7.5
+          },
+          {
+            "name": "黑胶帽檐浅灰",
+            "image": null,
+            "price": 7.5
+          },
+          {
+            "name": "黑胶帽檐粉色",
+            "image": null,
+            "price": 7.5
+          },
+          {
+            "name": "黑胶帽檐黑色",
+            "image": null,
+            "price": 7.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 【无痕帽】深灰色 25 12 10 3000 80 【无痕帽】黑色 25 12 10 3000 80 【无痕帽】米色 25 12 10 3000 80 【无痕帽】粉色 25 12 10 3000 80 【无痕帽】浅灰 25 12 10 3000 80 黑胶帽檐深灰 25 12 10 3000 80 黑胶帽檐浅灰 25 12 10 3000 80 黑胶帽檐粉色 25 12 10 3000 80 黑胶帽檐黑色 25 12 10 3000 80",
+    "packagingRows": [
+      {
+        "color": "【无痕帽】深灰色",
+        "capacity": "25",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "25",
+        "widthText": "12",
+        "heightText": "10"
+      },
+      {
+        "color": "【无痕帽】黑色",
+        "capacity": "25",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "25",
+        "widthText": "12",
+        "heightText": "10"
+      },
+      {
+        "color": "【无痕帽】米色",
+        "capacity": "25",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "25",
+        "widthText": "12",
+        "heightText": "10"
+      },
+      {
+        "color": "【无痕帽】粉色",
+        "capacity": "25",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "25",
+        "widthText": "12",
+        "heightText": "10"
+      },
+      {
+        "color": "【无痕帽】浅灰",
+        "capacity": "25",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "25",
+        "widthText": "12",
+        "heightText": "10"
+      },
+      {
+        "color": "黑胶帽檐深灰",
+        "capacity": "25",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "25",
+        "widthText": "12",
+        "heightText": "10"
+      },
+      {
+        "color": "黑胶帽檐浅灰",
+        "capacity": "25",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "25",
+        "widthText": "12",
+        "heightText": "10"
+      },
+      {
+        "color": "黑胶帽檐粉色",
+        "capacity": "25",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "25",
+        "widthText": "12",
+        "heightText": "10"
+      },
+      {
+        "color": "黑胶帽檐黑色",
+        "capacity": "25",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "25",
+        "widthText": "12",
+        "heightText": "10"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 2.5,
+      "carrier": "中通快递",
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "【无痕帽】深灰色",
+        "price": 10.49,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01sdCugO1sSQGhAdYFy_!!3386725765-0-cib.jpg"
+      },
+      {
+        "name": "【无痕帽】黑色",
+        "price": 10.49,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lSfhkg1sSQGhr3HgX_!!3386725765-0-cib.jpg"
+      },
+      {
+        "name": "【无痕帽】米色",
+        "price": 10.49,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01yjLdQo1sSQGjDzv1g_!!3386725765-0-cib.jpg"
+      },
+      {
+        "name": "【无痕帽】粉色",
+        "price": 10.49,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01QUNbJN1sSQGhr4lNR_!!3386725765-0-cib.jpg"
+      },
+      {
+        "name": "【无痕帽】浅灰",
+        "price": 10.49,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01faEWoI1sSQH1LXut9_!!3386725765-0-cib.jpg"
+      },
+      {
+        "name": "黑胶帽檐深灰",
+        "price": 7.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ptRpuH1sSQHDNR50l_!!3386725765-0-cib.jpg"
+      },
+      {
+        "name": "黑胶帽檐浅灰",
+        "price": 7.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01V94dVg1sSQHKg40ld_!!3386725765-0-cib.jpg"
+      },
+      {
+        "name": "黑胶帽檐粉色",
+        "price": 7.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN015MZF3g1sSQHNuWMCx_!!3386725765-0-cib.jpg"
+      },
+      {
+        "name": "黑胶帽檐黑色",
+        "price": 7.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01WGoYFT1sSQHMHSxe0_!!3386725765-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 23,
+      "attributeCount": 47,
+      "optionGroupCount": 1,
+      "skuCount": 9,
+      "imageCount": 17,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 256
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-201554-967218-64011ae2.json"
+}

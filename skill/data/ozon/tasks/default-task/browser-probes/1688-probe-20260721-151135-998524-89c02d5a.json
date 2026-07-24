@@ -1,0 +1,285 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "吉象天然粉水晶手串女手链轻奢高级感设计款招财转运串珠手饰批发",
+    "price": "¥37",
+    "brand": "一诺家",
+    "seller": "义乌市一诺家饰品有限公司 关注 客服 商品 入驻3年 主营：项饰 店铺回头率 48% 店铺服务分 4.0分 准时发货率 99% 店铺好评率 97.6%",
+    "image_count": 7,
+    "attribute_count": 36,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/894105986967.html?offerId=894105986967&hotSaleSkuId=5912179883345&spm=a260k.home2025.recommendpart.143&kj_agent_plugin=zying",
+    "loginRequired": false,
+    "title": "吉象天然粉水晶手串女手链轻奢高级感设计款招财转运串珠手饰批发",
+    "price": "¥37",
+    "priceValue": 37,
+    "brand": "一诺家",
+    "seller": "义乌市一诺家饰品有限公司 关注 客服 商品 入驻3年 主营：项饰 店铺回头率 48% 店铺服务分 4.0分 准时发货率 99% 店铺好评率 97.6%",
+    "sellerLink": "https://shop326700r64rr99.1688.com/?offerId=894105986967&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01PvfGb31QTW3mAfZyt_!!2216501001977-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01PvfGb31QTW3mAfZyt_!!2216501001977-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01G4iFnC1QTW3melS7R_!!2216501001977-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eGBMcG1QTW3eMkycl_!!2216501001977-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Jz9KQD1QTW3jJfLZz_!!2216501001977-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01v3tO6D1QTW3menfKK_!!2216501001977-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KyH6xH1QTW3lHoo8p_!!2216501001977-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01LsdDNk1QTW3jJrhRA_!!2216501001977-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2216501001977/p/2/e/6/t/1/509728774908.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "金华",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "水晶"
+      },
+      {
+        "name": "处理工艺",
+        "value": "手工"
+      },
+      {
+        "name": "品牌",
+        "value": "一诺家"
+      },
+      {
+        "name": "水晶种类",
+        "value": "粉水晶"
+      },
+      {
+        "name": "风格",
+        "value": "韩版韩式"
+      },
+      {
+        "name": "适用人群",
+        "value": "女式"
+      },
+      {
+        "name": "样式",
+        "value": "女式"
+      },
+      {
+        "name": "造型",
+        "value": "几何型,动物/生肖"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "商务馈赠"
+      },
+      {
+        "name": "货号",
+        "value": "手链123"
+      },
+      {
+        "name": "产地",
+        "value": "金华"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "淘宝,京东,ebay,PDD,亚马逊,wish,快手,LINIO,SHEIN,速卖通,天猫,独立站,LAZADA,拼多多,shopee,抖音,垂类电商"
+      },
+      {
+        "name": "颜色",
+        "value": "吉象款"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "流行元素",
+        "value": "吉象"
+      },
+      {
+        "name": "上市年份/季节",
+        "value": "2025年春季"
+      },
+      {
+        "name": "风格分类",
+        "value": "清新甜美"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "流行元素分类",
+        "value": "动物"
+      },
+      {
+        "name": "造型",
+        "value": "几何型、动物/生肖"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "淘宝、京东、ebay、PDD、亚马逊、wish、快手、LINIO、SHEIN、速卖通、天猫、独立站、LAZADA、拼多多、shopee、抖音、垂类电商"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "材质",
+        "value": "手工"
+      },
+      {
+        "name": "品牌",
+        "value": "粉水晶"
+      },
+      {
+        "name": "风格",
+        "value": "女式"
+      },
+      {
+        "name": "样式",
+        "value": "几何型,动物/生肖"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "手链123"
+      },
+      {
+        "name": "产地",
+        "value": "淘宝,京东,ebay,PDD,亚马逊,wish,快手,LINIO,SHEIN,速卖通,天猫,独立站,LAZADA,拼多多,shopee,抖音,垂类电商"
+      },
+      {
+        "name": "颜色",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "吉象"
+      },
+      {
+        "name": "上市年份/季节",
+        "value": "清新甜美"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "动物"
+      },
+      {
+        "name": "吉象款",
+        "value": "15"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "6000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "吉象款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KyH6xH1QTW3lHoo8p_!!2216501001977-0-cib.jpg"
+          },
+          {
+            "name": "吉象款",
+            "image": null,
+            "price": 37
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 吉象款 19 1 1 19 15",
+    "packagingRows": [
+      {
+        "color": "吉象款",
+        "capacity": "19",
+        "weightText": "15",
+        "weightGrams": 15,
+        "lengthText": "19",
+        "widthText": "1",
+        "heightText": "1"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "carrier": "中通快递"
+    },
+    "skuDetails": [
+      {
+        "name": "吉象款",
+        "price": 37,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01KyH6xH1QTW3lHoo8p_!!2216501001977-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 20,
+      "attributeCount": 36,
+      "optionGroupCount": 1,
+      "skuCount": 1,
+      "imageCount": 10,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 51
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260721-151135-998524-89c02d5a.json"
+}

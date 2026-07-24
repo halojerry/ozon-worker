@@ -1,0 +1,248 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "成都三星堆文创熊猫公仔 可爱带帽香味掌中宝三星堆花花熊猫 包挂",
+    "price": "¥20",
+    "brand": "天使小小",
+    "seller": "金牛区爱萌玩具经营部 关注 客服 商品 入驻2年 主营：公仔、玩偶、娃娃 店铺回头率 72% 店铺服务分 5.0分 准时发货率 100% 店铺好评率 100.0%",
+    "image_count": 15,
+    "attribute_count": 21,
+    "dom_sku_count": 1,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1065672674507.html",
+    "loginRequired": false,
+    "title": "成都三星堆文创熊猫公仔 可爱带帽香味掌中宝三星堆花花熊猫 包挂",
+    "price": "¥20",
+    "priceValue": 20,
+    "brand": "天使小小",
+    "seller": "金牛区爱萌玩具经营部 关注 客服 商品 入驻2年 主营：公仔、玩偶、娃娃 店铺回头率 72% 店铺服务分 5.0分 准时发货率 100% 店铺好评率 100.0%",
+    "sellerLink": "https://shop7gy938m991473.1688.com/?offerId=1065672674507&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Cdxw9u1QKoeLijVCw_!!2219495391958-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Cdxw9u1QKoeLijVCw_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01eFyNo91QKoeLlNNvq_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hNf62k1QKoeM02CgJ_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gQ1mLG1QKoeM54OCA_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01IOyER91QKoeLityj7_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rmvpVX1QKoYOlGIr9_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01mCvLx81QKoeLsYTBQ_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01yFefsP1QKoeLpvbJO_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hzy3CH1QKoeHRKvmu_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01P92M541QKoeLcaLT4_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rW7q2u1QKoeLxI84x_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01pfij7j1QKoeLyKnT4_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HVhAff1QKoeLyKrd7_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN0178syUh1QKoeM0KScp_!!2219495391958-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rUxUjN1QKoeLpxkMB_!!2219495391958-0-cib.jpg"
+    ],
+    "video": null,
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": null,
+    "model": null,
+    "attributes": [
+      {
+        "name": "填充材质",
+        "value": "PP棉"
+      },
+      {
+        "name": "品牌",
+        "value": "天使小小"
+      },
+      {
+        "name": "造型类别",
+        "value": "熊猫"
+      },
+      {
+        "name": "毛绒分类",
+        "value": "毛绒"
+      },
+      {
+        "name": "造型是否卡通、动漫",
+        "value": "否"
+      },
+      {
+        "name": "是否多功能",
+        "value": "否"
+      },
+      {
+        "name": "是否专供外贸",
+        "value": "否"
+      },
+      {
+        "name": "3C配置类别",
+        "value": "14岁以上的玩具"
+      },
+      {
+        "name": "颜色",
+        "value": "掌中宝-挂绳三星堆熊猫"
+      },
+      {
+        "name": "高度",
+        "value": "14cm"
+      },
+      {
+        "name": "适用年龄",
+        "value": "青年（15-35岁）"
+      },
+      {
+        "name": "IP名称",
+        "value": "天使小小"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "是"
+      },
+      {
+        "name": "材质",
+        "value": "聚酯纤维"
+      },
+      {
+        "name": "填充材质",
+        "value": "天使小小"
+      },
+      {
+        "name": "造型类别",
+        "value": "毛绒"
+      },
+      {
+        "name": "是否专供外贸",
+        "value": "14岁以上的玩具"
+      },
+      {
+        "name": "颜色",
+        "value": "14cm"
+      },
+      {
+        "name": "适用年龄",
+        "value": "天使小小"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "聚酯纤维"
+      },
+      {
+        "name": "掌中宝-挂绳三星堆熊猫",
+        "value": "100"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "掌中宝-挂绳三星堆熊猫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01IOyER91QKoeLityj7_!!2219495391958-0-cib.jpg"
+          }
+        ]
+      },
+      {
+        "name": "高度",
+        "values": [
+          {
+            "name": "14cm",
+            "image": null
+          },
+          {
+            "name": "14cm",
+            "image": null,
+            "price": 20
+          }
+        ]
+      },
+      {
+        "name": "规格组3",
+        "values": [
+          {
+            "name": "掌中宝-挂绳三星堆熊猫",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01IOyER91QKoeLityj7_!!2219495391958-0-cib.jpg"
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "高度",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 高度 重量(g) 掌中宝-挂绳三星堆熊猫 14cm 100",
+    "packagingRows": [
+      {
+        "color": "掌中宝-挂绳三星堆熊猫",
+        "capacity": "14cm",
+        "weightText": "100",
+        "weightGrams": 100,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": "14cm"
+      }
+    ],
+    "shipping": {
+      "origin": "四川成都",
+      "freightCny": 8
+    },
+    "skuDetails": [
+      {
+        "name": "14cm",
+        "price": 20,
+        "image": null
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 14,
+      "attributeCount": 21,
+      "optionGroupCount": 3,
+      "skuCount": 1,
+      "imageCount": 17,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 3,
+      "packagingTableTextLength": 32
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-150815-053797-556917ab.json"
+}

@@ -68,6 +68,98 @@ TYPE_NAME_ATTR_IDS = [8229]
 COLLECTION_ATTR_IDS = {9048, 23171}
 
 
+def _assemble_follow_sell(
+    state: GlobalState,
+    draft: dict[str, Any],
+    title: str,
+    images: list[str],
+    pricing_info: dict[str, Any],
+    progress: Any,
+) -> dict[str, Any]:
+    """跟卖模式组装：跳过 LLM 类目匹配和属性填写，直接构建 payload。"""
+    from utils.ozon_category_query import get_category_query
+
+    query = get_category_query()
+    description_category_id = int(state.description_category_id)
+    type_id = int(state.type_id) if getattr(state, 'type_id', None) else 0
+    ozon_client_id = str(state.ozon_client_id or "")
+    ozon_api_key = state.ozon_api_key or ""
+
+    logger.info(f"🔄 跟卖组装: cat={description_category_id}/{type_id}, title={title[:60]}")
+
+    # Step 2: 获取属性 Schema（仅用于验证，不实际填写）
+    progress.log_node_action(f"跟卖 Step 2: 获取属性 Schema — cat={description_category_id}")
+    attr_schema = query.get_attribute_schema(description_category_id, type_id)
+    if attr_schema and isinstance(attr_schema, dict) and attr_schema.get("result"):
+        attr_list: list[dict[str, Any]] = attr_schema["result"]
+    else:
+        attr_list = _fetch_attribute_schema_from_ozon(
+            ozon_client_id, ozon_api_key, description_category_id, type_id
+        )
+    logger.info(f"   属性 Schema: {len(attr_list)} 个属性")
+
+    # 获取俄语类目路径
+    try:
+        from storage.database.db import get_engine
+        from sqlalchemy import text
+        engine = get_engine()
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT full_path FROM category_tree_nodes "
+                "WHERE description_category_id=:cid AND type_id=:tid AND language='RU' LIMIT 1"
+            ), {"cid": description_category_id, "tid": type_id}).fetchone()
+            if row:
+                logger.info(f"   🇷🇺 俄语类目: {row[0]}")
+    except Exception:
+        pass
+
+    # 定价信息
+    price_rub = str(pricing_info.get("price", "1000"))
+    old_price_rub = str(pricing_info.get("old_price", "1500"))
+
+    # 简化的属性列表：只保留关键属性（品牌=无品牌）
+    attrs_for_payload: list[dict[str, Any]] = [
+        {"id": 126745801, "values": [{"value": "Нет бренда", "dictionary_value_id": 126745801}]}
+    ]
+
+    # 构建 payload items
+    sku_id = draft.get("sku_id", draft.get("item_id", ""))
+    offer_id = f"follow_{draft.get('ozon_product_id', sku_id)}"
+    weight_g = draft.get("weight", 100)
+    dims = draft.get("dimensions", {}) or {}
+    depth = int(dims.get("length", dims.get("depth", 100)))
+    width = int(dims.get("width", 100))
+    height = int(dims.get("height", 100))
+
+    items = [{
+        "offer_id": offer_id,
+        "name": title,
+        "description": draft.get("description", title),
+        "category_id": description_category_id,
+        "price": price_rub,
+        "old_price": old_price_rub,
+        "vat": "0",
+        "currency_code": getattr(state, 'currency_code', None) or "RUB",
+        "images": images[:10] if images else [],
+        "attributes": attrs_for_payload,
+        "depth": max(1, depth // 10),  # mm → cm
+        "width": max(1, width // 10),
+        "height": max(1, height // 10),
+        "weight": max(1, weight_g),
+        "dimension_unit": "cm",
+        "weight_unit": "g",
+    }]
+
+    logger.info(f"✅ 跟卖组装完成: offer_id={offer_id}, images={len(images)}, price={price_rub}")
+
+    return {
+        "ozon_payload": {"items": items},
+        "final_attributes": attrs_for_payload,
+        "description_category_id": str(description_category_id),
+        "type_id": str(type_id),
+    }
+
+
 def assemble_ozon_product_node(
     state: GlobalState,
     config: RunnableConfig,
@@ -114,6 +206,11 @@ def assemble_ozon_product_node(
         return {"error_message": "产品标题为空，无法进行类目匹配",
                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1}
 
+    # 🆕 跟卖模式：类目已由前序节点设置，直接跳到属性 schema 和 payload 组装
+    extensions = state.envelope.get("extensions", {}) if state.envelope else {}
+    if extensions.get("follow_sell") and state.description_category_id:
+        return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
+
     # 初始化查询助手
     query = get_category_query()
 
@@ -146,6 +243,22 @@ def assemble_ozon_product_node(
                 "猫玩具": "宠物玩具",
                 "猫猫食具": "宠物碗 宠物餐具",
                 "猫狗食具": "宠物碗 宠物餐具",
+                # 宠物狗用品
+                "牵引绳": "宠物牵绳 宠物牵引绳",
+                "狗绳": "宠物牵绳 宠物牵引绳",
+                "遛狗绳": "宠物牵绳 宠物牵引绳",
+                "狗链": "宠物牵绳 宠物牵引绳",
+                "胸背带": "宠物胸背带 宠物背心",
+                "狗胸背带": "宠物胸背带",
+                "训犬": "宠物训练用品",
+                "狗碗": "宠物碗 宠物餐具",
+                "猫碗": "宠物碗 宠物餐具",
+                "狗窝": "宠物床 宠物窝",
+                "猫窝": "宠物床 宠物窝",
+                "狗衣服": "宠物服装",
+                "猫衣服": "宠物服装",
+                "宠物用品": "宠物用品 宠物配件",
+                "猫狗用品": "宠物用品",
                 # 园艺
                 "园艺工具": "园艺工具 花园工具",
                 "园林资材": "园艺工具 花园",
@@ -406,6 +519,8 @@ def assemble_ozon_product_node(
         type_id=type_id,
         weight_grams=weight_grams,
         dimensions=dimensions,
+        draft_title=draft.get("title", ""),
+        supplier=draft.get("supplier", ""),
     )
 
     # =====================================================
@@ -435,7 +550,48 @@ def assemble_ozon_product_node(
     # Step 6.5: 跨类目一致性校验
     # =====================================================
     # 对比 LLM 生成的俄语标题与分配的 Ozon 类目路径，检测明显不匹配
-    _check_category_consistency(llm_name, category_path, description_category_id, type_id)
+    category_consistent = _check_category_consistency(llm_name, category_path, description_category_id, type_id)
+
+    if not category_consistent:
+        # 类目不匹配 → 尝试用俄语标题重新匹配类目
+        logger.warning(f"⚠️ 类目不一致，尝试用俄语标题重新匹配...")
+        recategorize_failed = True
+        try:
+            query = get_category_query()
+            re_candidates = query.search_nodes(llm_name[:50], top_k=10, node_type="type")
+            if re_candidates:
+                # 检查新候选中是否有更好的匹配
+                for candidate in re_candidates[:3]:
+                    re_cat_id = candidate.get("description_category_id", 0)
+                    re_type_id = candidate.get("type_id", 0)
+                    re_path = candidate.get("full_path", "")
+                    if re_cat_id and re_type_id and (re_cat_id != description_category_id or re_type_id != type_id):
+                        # 验证新类目的一致性
+                        re_consistent = _check_category_consistency(llm_name, re_path, re_cat_id, re_type_id)
+                        if re_consistent:
+                            logger.info(f"✅ 重新匹配成功: {description_category_id}/{type_id} → {re_cat_id}/{re_type_id} ({re_path})")
+                            description_category_id = re_cat_id
+                            type_id = re_type_id
+                            category_path = re_path
+                            new_attr_schema = query.get_attribute_schema(re_cat_id, re_type_id)
+                            if new_attr_schema and isinstance(new_attr_schema, dict) and new_attr_schema.get("result"):
+                                attr_list = new_attr_schema["result"]
+                                logger.info(f"   ✅ 属性 schema 已更新: {len(attr_list)} 个属性")
+                            recategorize_failed = False
+                            break
+        except Exception as _re_match_e:
+            logger.warning(f"   ⚠️ 重新匹配异常: {_re_match_e}")
+
+        if recategorize_failed:
+            # 无法找到一致的类目，返回错误让retry loop处理，避免上传到错误类目
+            logger.error(
+                f"❌ 类目一致性严重失败：产品「{llm_name[:60]}」与类目「{category_path}」无共同关键词，"
+                f"且重新匹配也失败。跳过上传，避免 DESCRIPTION_DECLINE。"
+            )
+            return {
+                "error_message": f"类目一致性失败：产品名与类目「{category_path}」不匹配，需手动审核",
+                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
+            }
 
     # =====================================================
     # Step 7: 返回结果 dict（LangGraph 自动合并到 GlobalState）
@@ -530,16 +686,16 @@ def _check_category_consistency(
     category_path: str,
     description_category_id: int,
     type_id: int,
-) -> None:
+) -> bool:
     """
     跨类目一致性校验：对比 LLM 生成的俄语产品名与分配的 Ozon 类目名称。
-    
-    如果二者完全不相关，很可能是类目匹配错误（如"园艺工具"→"迷你打印机"），
-    记录 WARNING 日志帮助快速发现此类问题。
+
+    Returns:
+        True if consistent (or cannot check), False if mismatch detected
     """
     if not llm_name or not category_path:
-        return
-    
+        return True
+
     # 提取类目路径中的关键俄语词（取最后两级，通常是最具体的分类）
     path_parts = [p.strip() for p in category_path.split(">") if p.strip()]
     leaf_keywords = set()
@@ -547,11 +703,11 @@ def _check_category_consistency(
         for word in part.lower().split():
             if len(word) >= 3:
                 leaf_keywords.add(word)
-    
+
     # 检查产品名中是否包含任一类目关键词
     name_lower = llm_name.lower()
     overlap = [kw for kw in leaf_keywords if kw in name_lower]
-    
+
     if not overlap and leaf_keywords:
         logger.warning(
             f"⚠️ 跨类目一致性警告：产品名「{llm_name[:80]}」与类目「{category_path}」"
@@ -559,8 +715,10 @@ def _check_category_consistency(
             f" 这可能导致 Ozon 审核拒绝（DESCRIPTION_DECLINE）。"
             f" 建议检查类目匹配是否正确 (desc_cat_id={description_category_id}, type_id={type_id})。"
         )
+        return False
     elif overlap:
         logger.info(f"✅ 跨类目一致性通过：产品名与类目「{category_path}」匹配关键词: {overlap}")
+    return True
 
 
 def _llm_match_category(
@@ -856,6 +1014,8 @@ def _validate_and_enrich_items(
     type_id: int,
     weight_grams: int,
     dimensions: dict[str, int],
+    draft_title: str = "",
+    supplier: str = "",
 ) -> list[dict[str, Any]]:
     """校验并补充 items 字段（属性补全、品牌修正、hashtag 生成等）"""
 
@@ -966,11 +1126,23 @@ def _validate_and_enrich_items(
         present_ids = {int(a["id"]) for a in validated_attrs if "id" in a}
         missing_required = required_attr_ids - present_ids
 
+        # 特殊属性的已知默认值（常见必填属性）
+        KNOWN_DEFAULTS: dict[int, str] = {
+            8205: "730",              # Срок годности в днях（保质期天数）— 2年
+            9163: "Универсальный",    # Пол（性别）— 通用
+            8962: "1",                # Количество предметов（件数）
+            4958: "Универсальный",    # Назначение（用途）
+            8292: "0",                # Объединить на одной карточке（合并卡牌）— 0=不合并
+            # 9782: 字典属性（Класс опасности товара），值从 Ozon API 字典获取，不设 default
+            # 23487: 自由文本属性，用 draft.supplier 填充，不设默认值
+        }
+
         for missing_id in sorted(missing_required):
             schema_attr = attr_by_id.get(missing_id, {})
             if not schema_attr:
                 continue
 
+            attr_name = schema_attr.get("name", "?")
             dict_id = schema_attr.get("dictionary_id", 0)
             new_attr: dict[str, Any] = {
                 "complex_id": 0,
@@ -978,31 +1150,136 @@ def _validate_and_enrich_items(
                 "values": [],
             }
 
-            if dict_id and dict_id > 0:
-                # 字典属性 → 取第一个可用值
-                dict_vals = dict_lookup.get(missing_id, [])
-                if isinstance(dict_vals, list) and dict_vals:
-                    first = dict_vals[0]
-                    if isinstance(first, dict):
-                        new_attr["values"] = [{
-                            "dictionary_value_id": first.get("id", 0),
-                            "value": str(first.get("value", "")),
-                        }]
-                elif isinstance(dict_vals, dict) and dict_vals.get("result"):
-                    first = dict_vals["result"][0] if dict_vals["result"] else {}
-                    if first:
-                        new_attr["values"] = [{
-                            "dictionary_value_id": first.get("id", 0),
-                            "value": str(first.get("value", "")),
-                        }]
+            # ✅ 特殊处理：attr=23487（Производитель/制造商）用 supplier 填充
+            if missing_id == 23487:
+                if supplier:
+                    new_attr["values"] = [{"dictionary_value_id": 0, "value": supplier[:50]}]
+                    validated_attrs.append(new_attr)
+                    logger.info(f"   ✅ 制造商 attr=23487 使用供应商: {supplier[:30]}")
                 else:
-                    new_attr["values"] = [{"dictionary_value_id": 0, "value": ""}]
+                    logger.warning(f"   ⚠️ 制造商 attr=23487 无供应商数据，跳过")
+                continue
+
+            if dict_id and dict_id > 0:
+                # 字典属性 → 优先用 Ozon API 搜索匹配值
+                dict_vals = dict_lookup.get(missing_id, [])
+                matched = False
+
+                # 如果缓存无值，从 Ozon API 获取
+                if not isinstance(dict_vals, list) or not dict_vals:
+                    try:
+                        from utils.ozon_client import ozon_post
+                        _fetch_resp = ozon_post(
+                            client_id=ozon_client_id,
+                            api_key=ozon_api_key,
+                            endpoint="/v1/description-category/attribute/values",
+                            body={
+                                "attribute_id": missing_id,
+                                "description_category_id": int(description_category_id),
+                                "type_id": int(type_id),
+                                "language": "RU",
+                                "limit": 100,
+                                "last_value_id": 0,
+                            },
+                        )
+                        _fetched = _fetch_resp.get("result", [])
+                        if _fetched:
+                            dict_vals = _fetched
+                            logger.info(f"   📡 API 获取字典值: attr={missing_id}, {len(_fetched)}条")
+                    except Exception as _fe:
+                        logger.debug(f"   API 获取字典值失败 attr={missing_id}: {_fe}")
+
+                # 尝试用产品标题搜索字典值（比取第一个更准确）
+                if draft_title and isinstance(dict_vals, list) and dict_vals:
+                    try:
+                        from utils.ozon_client import ozon_post
+                        search_resp = ozon_post(
+                            client_id=ozon_client_id,
+                            api_key=ozon_api_key,
+                            endpoint="/v1/description-category/attribute/values/search",
+                            body={
+                                "attribute_id": missing_id,
+                                "description_category_id": int(description_category_id),
+                                "type_id": int(type_id),
+                                "value": draft_title[:50],
+                                "limit": 5,
+                            },
+                            language="RU",
+                        )
+                        search_results = search_resp.get("result", [])
+                        if search_results:
+                            first = search_results[0]
+                            new_attr["values"] = [{
+                                "dictionary_value_id": first.get("id", 0),
+                                "value": str(first.get("value", "")),
+                            }]
+                            matched = True
+                            logger.info(f"   ✅ 必填字典属性{missing_id}({attr_name}) API搜索匹配: {first.get('value', '')}")
+                    except Exception as e:
+                        logger.debug(f"   字典搜索失败(attr={missing_id}): {e}")
+
+                if not matched:
+                    # 回退1：用属性名（俄语）搜索字典值
+                    if not matched and attr_name:
+                        try:
+                            from utils.ozon_client import ozon_post
+                            _name_search = ozon_post(
+                                client_id=ozon_client_id,
+                                api_key=ozon_api_key,
+                                endpoint="/v1/description-category/attribute/values/search",
+                                body={
+                                    "attribute_id": missing_id,
+                                    "description_category_id": int(description_category_id),
+                                    "type_id": int(type_id),
+                                    "value": attr_name[:30],
+                                    "limit": 5,
+                                },
+                                language="RU",
+                            )
+                            _name_results = _name_search.get("result", [])
+                            if _name_results:
+                                first = _name_results[0]
+                                new_attr["values"] = [{
+                                    "dictionary_value_id": first.get("id", 0),
+                                    "value": str(first.get("value", "")),
+                                }]
+                                matched = True
+                                logger.info(f"   ✅ 必填字典属性{missing_id}({attr_name}) 属性名搜索匹配: {first.get('value', '')}")
+                        except Exception as _ne:
+                            logger.debug(f"   属性名搜索失败(attr={missing_id}): {_ne}")
+
+                    # 回退2：取第一个可用字典值
+                    if not matched:
+                        if isinstance(dict_vals, list) and dict_vals:
+                            first = dict_vals[0]
+                            if isinstance(first, dict):
+                                new_attr["values"] = [{
+                                    "dictionary_value_id": first.get("id", 0),
+                                    "value": str(first.get("value", "")),
+                                }]
+                                matched = True
+                        elif isinstance(dict_vals, dict) and dict_vals.get("result"):
+                            first = dict_vals["result"][0] if dict_vals["result"] else {}
+                            if first:
+                                new_attr["values"] = [{
+                                    "dictionary_value_id": first.get("id", 0),
+                                    "value": str(first.get("value", "")),
+                                }]
+                                matched = True
+
+                    # 回退3：仍然无值 → 记录警告，不写入空值（让Ozon跳过该属性）
+                    if not matched:
+                        logger.error(f"   ❌ 必填字典属性{missing_id}({attr_name}) 无法获取任何字典值，跳过写入空值")
+                        continue  # 不添加空值属性，避免触发 error_attribute_values_empty
             else:
-                # 自由文本属性
-                new_attr["values"] = [{"dictionary_value_id": 0, "value": ""}]
+                # 自由文本属性 → 用已知默认值或留空
+                default_val = KNOWN_DEFAULTS.get(missing_id, "")
+                new_attr["values"] = [{"dictionary_value_id": 0, "value": default_val}]
+                if default_val:
+                    logger.info(f"   ✅ 必填文本属性{missing_id}({attr_name}) 使用默认值: {default_val}")
 
             validated_attrs.append(new_attr)
-            logger.warning(f"   ⚠️ 补充缺失必填属性: id={missing_id} ({schema_attr.get('name', '?')})")
+            logger.warning(f"   ⚠️ 补充缺失必填属性: id={missing_id} ({attr_name})")
 
         # === 特殊属性修正 ===
         # 品牌（85, 5076）— 无条件强制为"无品牌"
@@ -1062,6 +1339,32 @@ def _validate_and_enrich_items(
                 "values": [{"dictionary_value_id": 0, "value": new_tags}],
             })
             logger.info(f"   ✅ hashtag #23171 补充生成: {new_tags}")
+
+        # ✅ 可选字典属性补充：提升属性覆盖率（影响Ozon产品评分）
+        present_after = {int(a["id"]) for a in validated_attrs if "id" in a}
+        optional_dict_attrs = [
+            a for a in attr_list
+            if a.get("id") and not a.get("is_required")
+            and a.get("dictionary_id", 0) > 0
+            and int(a["id"]) not in present_after
+            and int(a["id"]) not in (23171, 23536)  # 跳过hashtag和标记码
+        ]
+        filled_optional = 0
+        for opt_attr in optional_dict_attrs[:10]:  # 最多补10个
+            opt_id = int(opt_attr["id"])
+            opt_name = opt_attr.get("name", "?")
+            # 从字典值缓存中取第一条安全默认值
+            dict_vals = dict_lookup.get(opt_id, [])
+            if isinstance(dict_vals, list) and dict_vals:
+                first = dict_vals[0]
+                if isinstance(first, dict) and first.get("id"):
+                    validated_attrs.append({
+                        "complex_id": 0, "id": opt_id,
+                        "values": [{"dictionary_value_id": first["id"], "value": str(first.get("value", ""))}],
+                    })
+                    filled_optional += 1
+        if filled_optional:
+            logger.info(f"   📊 补充可选字典属性: {filled_optional}个")
 
         # 9048（变体绑定名）= item_id，与 prepare_ozon_upload_node 逻辑一致
         if FORCE_ATTR_9048 not in present_ids and FORCE_ATTR_9048 not in {int(a["id"]) for a in validated_attrs}:
@@ -1206,3 +1509,4 @@ def _generate_hashtags(name: str) -> str:
             tags = ["#товар", "#ozon"]
 
     return " ".join(tags[:5])
+

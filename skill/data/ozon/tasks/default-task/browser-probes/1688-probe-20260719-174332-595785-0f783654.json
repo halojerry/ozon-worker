@@ -1,0 +1,396 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "充电式多功能钥匙扣灯露营灯电丝打火机随身照明工作灯防风点烟器",
+    "price": "¥3.7",
+    "brand": "-嘉汇",
+    "seller": "宁海县嘉汇电器厂 关注 客服 商品 入驻3年 主营：照明电筒 店铺回头率 44% 店铺服务分 4.5分 准时发货率 93% 店铺好评率 91.9%",
+    "image_count": 10,
+    "attribute_count": 40,
+    "dom_sku_count": 5,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/803876032157.html",
+    "loginRequired": false,
+    "title": "充电式多功能钥匙扣灯露营灯电丝打火机随身照明工作灯防风点烟器",
+    "price": "¥3.7",
+    "priceValue": 3.7,
+    "brand": "-嘉汇",
+    "seller": "宁海县嘉汇电器厂 关注 客服 商品 入驻3年 主营：照明电筒 店铺回头率 44% 店铺服务分 4.5分 准时发货率 93% 店铺好评率 91.9%",
+    "sellerLink": "https://nhjiahui.1688.com/?offerId=803876032157&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01JT2KJm28OKbMYIQCg_!!2217489117922-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01JT2KJm28OKbMYIQCg_!!2217489117922-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01I69fxS28OKazzcAmQ_!!2217489117922-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01V0XZnw28OKazaFpMP_!!2217489117922-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Vesg7828OKb0JvthM_!!2217489117922-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UAL0Sx28OKgNueoUP_!!2217489117922-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ZEPTY228OKcRR08YM_!!2217489117922-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01DyjoU328OKbYrYGKi_!!2217489117922-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FcnqOX28OKeZ3Pg3j_!!2217489117922-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01x5x9TR28OKgB6hrRA_!!2217489117922-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01EYlCqf28OKlWec9wm_!!2217489117922-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2217489117922/p/2/e/6/t/1/471919320505.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "浙江",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "塑料"
+      },
+      {
+        "name": "附加功能",
+        "value": "照明"
+      },
+      {
+        "name": "品牌",
+        "value": "-嘉汇"
+      },
+      {
+        "name": "防风功能",
+        "value": "有"
+      },
+      {
+        "name": "产品类型",
+        "value": "充电点烟器"
+      },
+      {
+        "name": "工艺类型",
+        "value": "注塑"
+      },
+      {
+        "name": "是否一次性",
+        "value": "否"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "货号",
+        "value": "-"
+      },
+      {
+        "name": "产地",
+        "value": "浙江"
+      },
+      {
+        "name": "箱装数量",
+        "value": "-500"
+      },
+      {
+        "name": "加印LOGO",
+        "value": "可以"
+      },
+      {
+        "name": "加工定制",
+        "value": "是"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "简约款（300毫安）,简约保险扣款,耀黑X7,双电弧,M8电热丝+COB"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "其他"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "风格",
+        "value": "轻奢"
+      },
+      {
+        "name": "风格",
+        "value": "简约"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "是，商务礼品"
+      },
+      {
+        "name": "充电/续航时间",
+        "value": "3小时"
+      },
+      {
+        "name": "颜色",
+        "value": "简约款（300毫安）、简约保险扣款、耀黑X7、双电弧、M8电热丝+COB"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、LAZADA"
+      },
+      {
+        "name": "材质",
+        "value": "照明"
+      },
+      {
+        "name": "品牌",
+        "value": "有"
+      },
+      {
+        "name": "产品类型",
+        "value": "注塑"
+      },
+      {
+        "name": "货号",
+        "value": "浙江"
+      },
+      {
+        "name": "箱装数量",
+        "value": "可以"
+      },
+      {
+        "name": "加工定制",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "ebay,亚马逊,wish,速卖通,LAZADA"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "是"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "3小时"
+      },
+      {
+        "name": "简约款（300毫安）",
+        "value": "80"
+      },
+      {
+        "name": "简约保险扣款",
+        "value": "80"
+      },
+      {
+        "name": "耀黑X7",
+        "value": "80"
+      },
+      {
+        "name": "双电弧",
+        "value": "80"
+      },
+      {
+        "name": "M8电热丝+COB",
+        "value": "80"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "300+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "简约款（300毫安）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ZEPTY228OKcRR08YM_!!2217489117922-0-cib.jpg"
+          },
+          {
+            "name": "简约保险扣款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01DyjoU328OKbYrYGKi_!!2217489117922-0-cib.jpg"
+          },
+          {
+            "name": "耀黑X7",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01FcnqOX28OKeZ3Pg3j_!!2217489117922-0-cib.jpg"
+          },
+          {
+            "name": "双电弧",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01x5x9TR28OKgB6hrRA_!!2217489117922-0-cib.jpg"
+          },
+          {
+            "name": "M8电热丝+COB",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01EYlCqf28OKlWec9wm_!!2217489117922-0-cib.jpg"
+          },
+          {
+            "name": "简约款（300毫安）",
+            "image": null,
+            "price": 3.7
+          },
+          {
+            "name": "简约保险扣款",
+            "image": null,
+            "price": 5
+          },
+          {
+            "name": "耀黑X7",
+            "image": null,
+            "price": 5.2
+          },
+          {
+            "name": "双电弧",
+            "image": null,
+            "price": 12.5
+          },
+          {
+            "name": "M8电热丝+COB",
+            "image": null,
+            "price": 4.1
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 简约款（300毫安） 4.50 4 7.50 135 80 简约保险扣款 4.50 4 7.50 135 80 耀黑X7 4.50 4 7.50 135 80 双电弧 4.50 4 7.50 135 80 M8电热丝+COB 4.50 4 7.50 135 80",
+    "packagingRows": [
+      {
+        "color": "简约款（300毫安）",
+        "capacity": "4.50",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "4.50",
+        "widthText": "4",
+        "heightText": "7.50"
+      },
+      {
+        "color": "简约保险扣款",
+        "capacity": "4.50",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "4.50",
+        "widthText": "4",
+        "heightText": "7.50"
+      },
+      {
+        "color": "耀黑X7",
+        "capacity": "4.50",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "4.50",
+        "widthText": "4",
+        "heightText": "7.50"
+      },
+      {
+        "color": "双电弧",
+        "capacity": "4.50",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "4.50",
+        "widthText": "4",
+        "heightText": "7.50"
+      },
+      {
+        "color": "M8电热丝+COB",
+        "capacity": "4.50",
+        "weightText": "80",
+        "weightGrams": 80,
+        "lengthText": "4.50",
+        "widthText": "4",
+        "heightText": "7.50"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江宁波",
+      "freightCny": 5
+    },
+    "skuDetails": [
+      {
+        "name": "简约款（300毫安）",
+        "price": 3.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ZEPTY228OKcRR08YM_!!2217489117922-0-cib.jpg"
+      },
+      {
+        "name": "简约保险扣款",
+        "price": 5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01DyjoU328OKbYrYGKi_!!2217489117922-0-cib.jpg"
+      },
+      {
+        "name": "耀黑X7",
+        "price": 5.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01FcnqOX28OKeZ3Pg3j_!!2217489117922-0-cib.jpg"
+      },
+      {
+        "name": "双电弧",
+        "price": 12.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01x5x9TR28OKgB6hrRA_!!2217489117922-0-cib.jpg"
+      },
+      {
+        "name": "M8电热丝+COB",
+        "price": 4.1,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01EYlCqf28OKlWec9wm_!!2217489117922-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 22,
+      "attributeCount": 40,
+      "optionGroupCount": 1,
+      "skuCount": 5,
+      "imageCount": 13,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 166
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-174332-595785-0f783654.json"
+}

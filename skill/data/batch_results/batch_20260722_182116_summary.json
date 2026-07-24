@@ -1,0 +1,243 @@
+{
+  "timestamp": "2026-07-22T10:28:42.161945+00:00",
+  "config": {
+    "worker_url": "http://localhost:8080",
+    "client_id": "5371047***",
+    "dry_run": true,
+    "type_filter": "ozon",
+    "start": 0,
+    "limit": 0
+  },
+  "stats": {
+    "total": 28,
+    "success": 28,
+    "failed": 0,
+    "skipped": 0
+  },
+  "results": [
+    {
+      "type": "ozon",
+      "id": "3726236911",
+      "title": "热气溶胶灭火贴配电柜热气溶胶无线气体自动灭火装置卡扣导轨式自",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "3335728940",
+      "title": "儿童脚踩冲天小火箭发射筒益智玩具飞天炮户外脚踏式发射器男女孩",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "3749010675",
+      "title": "不锈钢新款创意蚊香架家用蚊香神器架子盘香接灰盘支架防火蚊香盒",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "1925631822",
+      "title": "汽车用品2升手持小型洗车贴膜专用酸碱自洁素喷壶泡沫汽车用品",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "4624776272",
+      "title": "创意铁艺檀香架子三角蚊香架托熏香蚊香盘托蚊香炉盘香支架接灰盘",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "2838535252",
+      "title": "跨境坐姿辅助挺拔支撑带背姿姿势带背部矫姿带背带加强支撑固定带",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "3369517223",
+      "title": "宠物自动喂食器猫咪饮水机猫碗猫食盆饮水喂食一体投食器猫狗用品",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "2360031481",
+      "title": "创意垃圾桶家用烟灰缸壁挂式带盖防飞厕所烟缸卫生间垃圾收纳盒子",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "3388028770",
+      "title": "中邦ZB7002斜火明火充气打火机烟斗双用打火机跨境外贸货源",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "4138029223",
+      "title": "宝可梦儿童冲天火箭玩具脚踩发射器EVA飞弹户外运动公园亲子互动",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "1640925949",
+      "title": "冲天闪光火箭脚踩火箭炮儿童玩具户外飞天冲天炮发射筒带灯光",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "2979948000",
+      "title": "可折叠水盆户外出差洗脸盆便携式旅行洗漱盆露营洗菜盆洗衣盆水桶",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "3067840688",
+      "title": "纯净水桶 7.5升加厚塑料桶 pet矿泉水桶 饮水机桶 户外手提式带盖",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "1871626223",
+      "title": "KOETSU科特苏33/43/53L外置油箱舷外发动机快船艇房车摩托车油桶",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "1941181573",
+      "title": "厂家直销免安装50面宽折叠收纳柜卧室客厅出租屋置物架零食收纳",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "3450450057",
+      "title": "透明亚克力醒花桶养花束花瓶塑料法式插花桶花店家用泡鲜花筒",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "4115385193",
+      "title": "现货野餐露营榉木衣架 防风晾衣架户外可折叠 便携式晾晒衣架",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "4780863082",
+      "title": "沙滩垫批发户外野餐垫可折叠防潮垫加厚露营野营毯防水地垫野餐布",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "1538032678",
+      "title": "厂家悬挂玻璃壁挂鱼缸花瓶透明圆形水培吊瓶拉尖花瓶创意",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "3398700904",
+      "title": "儿童早教益智手机宝宝触屏电话机早教机故事机婴儿可啃咬仿真玩具",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "1999670618",
+      "title": "跨境不锈钢便携餐具套装户外露营野餐刀叉勺杯烤肉盘夹旅行餐具包",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "3872931888",
+      "title": "跨境旅游快充充电宝超大容量太阳能户外便携直播露营备用移动电源",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "4027408388",
+      "title": "儿童背包水枪玩具抽拉式夏季泼水节水抢卡通喷水枪夜市地摊批发",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "3410317167",
+      "title": "跨境薰衣草VC去角质足膜滋润保湿脱死皮防干裂脚膜足部护理亚马逊",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "2535669315",
+      "title": "喷雾器配件农用喷头电动喷雾器打药出口喷头套装力成喷雾器喷头",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "3529979916",
+      "title": "亚马逊蛇形虎口穴按摩夹虎口夹穴位mini按摩器经络按压按摩夹批发",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "3387992084",
+      "title": "手动创意榨汁机小型柠檬夹挤压柠檬分离杯塑料带刻度手握压汁神器",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    },
+    {
+      "type": "ozon",
+      "id": "2404317485",
+      "title": "跨境猫咪冰格硅胶冰格冰球模具动物冰格小猫冰格模具家用冰格冰盒",
+      "success": true,
+      "task_id": "",
+      "error": ""
+    }
+  ]
+}

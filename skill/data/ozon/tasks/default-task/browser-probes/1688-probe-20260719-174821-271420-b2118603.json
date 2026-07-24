@@ -1,0 +1,338 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "狗狗玩具毛绒陪睡鸭发声小狗玩具耐咬狗狗磨牙玩具小黄鸭宠物玩具",
+    "price": "¥6.4",
+    "brand": "无",
+    "seller": "义乌市众熊宠物用品有限公司 关注 客服 商品 入驻4年 主营：猫狗用品 店铺回头率 66% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 89.5%",
+    "image_count": 8,
+    "attribute_count": 26,
+    "dom_sku_count": 5,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/901122613068.html",
+    "loginRequired": false,
+    "title": "狗狗玩具毛绒陪睡鸭发声小狗玩具耐咬狗狗磨牙玩具小黄鸭宠物玩具",
+    "price": "¥6.4",
+    "priceValue": 6.4,
+    "brand": "无",
+    "seller": "义乌市众熊宠物用品有限公司 关注 客服 商品 入驻4年 主营：猫狗用品 店铺回头率 66% 店铺服务分 4.5分 准时发货率 100% 店铺好评率 89.5%",
+    "sellerLink": "https://shop31569i777h553.1688.com/?offerId=901122613068&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN011fO0tT1EipvHqBc46_!!2215632170386-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN011fO0tT1EipvHqBc46_!!2215632170386-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN010QFfH21EipvISwDiC_!!2215632170386-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gUOq9B1EipvKkJimH_!!2215632170386-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01hkbgxZ1EipvDZ6iBt_!!2215632170386-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01KVudLg1EipvJXvqFr_!!2215632170386-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Gu7lvv1EipyxK7ad8_!!2215632170386-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012fxObN1Eiq0X0ItyQ_!!2215632170386-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01UP5TlO1EipvKOuJbi_!!2215632170386-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2215632170386/p/2/e/6/t/1/513505003733.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "浙江",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "毛绒"
+      },
+      {
+        "name": "产品类别",
+        "value": "啃咬玩具"
+      },
+      {
+        "name": "品牌",
+        "value": "无"
+      },
+      {
+        "name": "是否进口",
+        "value": "否"
+      },
+      {
+        "name": "重量",
+        "value": "50"
+      },
+      {
+        "name": "货号",
+        "value": "0013"
+      },
+      {
+        "name": "产地",
+        "value": "浙江"
+      },
+      {
+        "name": "箱装数量",
+        "value": "300"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "尖叫鸭大号（仿真鸭叫）,尖叫鸭中号（仿真鸭叫）,尖叫鸭小号（仿真鸭叫）,小蓝象,双骨头鸡腿毛绒玩具"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "否"
+      },
+      {
+        "name": "是否属于礼品",
+        "value": "否"
+      },
+      {
+        "name": "是否IP授权",
+        "value": "否"
+      },
+      {
+        "name": "颜色",
+        "value": "尖叫鸭大号（仿真鸭叫）、尖叫鸭中号（仿真鸭叫）、尖叫鸭小号（仿真鸭叫）、小蓝象、双骨头鸡腿毛绒玩具"
+      },
+      {
+        "name": "材质",
+        "value": "啃咬玩具"
+      },
+      {
+        "name": "品牌",
+        "value": "否"
+      },
+      {
+        "name": "重量",
+        "value": "0013"
+      },
+      {
+        "name": "产地",
+        "value": "300"
+      },
+      {
+        "name": "是否专利货源",
+        "value": "尖叫鸭大号（仿真鸭叫）,尖叫鸭中号（仿真鸭叫）,尖叫鸭小号（仿真鸭叫）,小蓝象,双骨头鸡腿毛绒玩具"
+      },
+      {
+        "name": "尖叫鸭大号（仿真鸭叫）",
+        "value": "193"
+      },
+      {
+        "name": "尖叫鸭中号（仿真鸭叫）",
+        "value": "98"
+      },
+      {
+        "name": "尖叫鸭小号（仿真鸭叫）",
+        "value": "66"
+      },
+      {
+        "name": "小蓝象",
+        "value": "65"
+      },
+      {
+        "name": "双骨头鸡腿毛绒玩具",
+        "value": "21"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "1000+"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "50000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "尖叫鸭大号（仿真鸭叫）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hkbgxZ1EipvDZ6iBt_!!2215632170386-0-cib.jpg"
+          },
+          {
+            "name": "尖叫鸭中号（仿真鸭叫）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hkbgxZ1EipvDZ6iBt_!!2215632170386-0-cib.jpg"
+          },
+          {
+            "name": "尖叫鸭小号（仿真鸭叫）",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hkbgxZ1EipvDZ6iBt_!!2215632170386-0-cib.jpg"
+          },
+          {
+            "name": "小蓝象",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Gu7lvv1EipyxK7ad8_!!2215632170386-0-cib.jpg"
+          },
+          {
+            "name": "双骨头鸡腿毛绒玩具",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012fxObN1Eiq0X0ItyQ_!!2215632170386-0-cib.jpg"
+          },
+          {
+            "name": "尖叫鸭大号（仿真鸭叫）",
+            "image": null,
+            "price": 6.4
+          },
+          {
+            "name": "尖叫鸭中号（仿真鸭叫）",
+            "image": null,
+            "price": 4.8
+          },
+          {
+            "name": "尖叫鸭小号（仿真鸭叫）",
+            "image": null,
+            "price": 3.2
+          },
+          {
+            "name": "小蓝象",
+            "image": null,
+            "price": 2.8
+          },
+          {
+            "name": "双骨头鸡腿毛绒玩具",
+            "image": null,
+            "price": 1.2
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 尖叫鸭大号（仿真鸭叫） 46 39 14 25116 193 尖叫鸭中号（仿真鸭叫） 33 29 11 10527 98 尖叫鸭小号（仿真鸭叫） 29 23 8 5336 66 小蓝象 － － － － 65 双骨头鸡腿毛绒玩具 － － － － 21",
+    "packagingRows": [
+      {
+        "color": "尖叫鸭大号（仿真鸭叫）",
+        "capacity": "46",
+        "weightText": "193",
+        "weightGrams": 193,
+        "lengthText": "46",
+        "widthText": "39",
+        "heightText": "14"
+      },
+      {
+        "color": "尖叫鸭中号（仿真鸭叫）",
+        "capacity": "33",
+        "weightText": "98",
+        "weightGrams": 98,
+        "lengthText": "33",
+        "widthText": "29",
+        "heightText": "11"
+      },
+      {
+        "color": "尖叫鸭小号（仿真鸭叫）",
+        "capacity": "29",
+        "weightText": "66",
+        "weightGrams": 66,
+        "lengthText": "29",
+        "widthText": "23",
+        "heightText": "8"
+      },
+      {
+        "color": "小蓝象",
+        "capacity": "－",
+        "weightText": "65",
+        "weightGrams": 65,
+        "lengthText": "－",
+        "widthText": "－",
+        "heightText": "－"
+      },
+      {
+        "color": "双骨头鸡腿毛绒玩具",
+        "capacity": "－",
+        "weightText": "21",
+        "weightGrams": 21,
+        "lengthText": "－",
+        "widthText": "－",
+        "heightText": "－"
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 2
+    },
+    "skuDetails": [
+      {
+        "name": "尖叫鸭大号（仿真鸭叫）",
+        "price": 6.4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hkbgxZ1EipvDZ6iBt_!!2215632170386-0-cib.jpg"
+      },
+      {
+        "name": "尖叫鸭中号（仿真鸭叫）",
+        "price": 4.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hkbgxZ1EipvDZ6iBt_!!2215632170386-0-cib.jpg"
+      },
+      {
+        "name": "尖叫鸭小号（仿真鸭叫）",
+        "price": 3.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01hkbgxZ1EipvDZ6iBt_!!2215632170386-0-cib.jpg"
+      },
+      {
+        "name": "小蓝象",
+        "price": 2.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01Gu7lvv1EipyxK7ad8_!!2215632170386-0-cib.jpg"
+      },
+      {
+        "name": "双骨头鸡腿毛绒玩具",
+        "price": 1.2,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN012fxObN1Eiq0X0ItyQ_!!2215632170386-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 13,
+      "attributeCount": 26,
+      "optionGroupCount": 1,
+      "skuCount": 5,
+      "imageCount": 11,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 159
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260719-174821-271420-b2118603.json"
+}

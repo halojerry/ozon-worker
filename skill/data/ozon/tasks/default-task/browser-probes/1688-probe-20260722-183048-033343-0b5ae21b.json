@@ -1,0 +1,313 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": true,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "天然绿东陵金字塔编织手链瑜伽七脉能量晶体手串亚马逊编制饰品",
+    "price": "¥7.6",
+    "brand": "无",
+    "seller": "深圳市佰亿滋贸易有限公司 关注 客服 商品 入驻11年 主营：手饰 店铺回头率 73% 店铺服务分 4.5分 准时发货率 97% 店铺好评率 99.9%",
+    "image_count": 9,
+    "attribute_count": 33,
+    "dom_sku_count": 4,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/1068441244939.html?spm=a26352.13672862.offerlist.165.dc371e62gbWvmT&cosite=-&tracelog=p4p&_p_isad=1&clickid=9439156bd0c448c38ac8ee3f6e6977e3&sessionid=a6712c8259a24f02a126b0b27bcfa5e1&kj_agent_plugin=zying",
+    "loginRequired": false,
+    "title": "天然绿东陵金字塔编织手链瑜伽七脉能量晶体手串亚马逊编制饰品",
+    "price": "¥7.6",
+    "priceValue": 7.6,
+    "brand": "无",
+    "seller": "深圳市佰亿滋贸易有限公司 关注 客服 商品 入驻11年 主营：手饰 店铺回头率 73% 店铺服务分 4.5分 准时发货率 97% 店铺好评率 99.9%",
+    "sellerLink": "https://shop1466096566171.1688.com/?offerId=1068441244939&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN011iw9cG1v9b2Lu4MMt_!!2914216130-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN011iw9cG1v9b2Lu4MMt_!!2914216130-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01wRG5rt1v9b2LTuH9Q_!!2914216130-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01EUj8Zc1v9b2LraCVK_!!2914216130-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN014Sz6Mz1v9b2Ljh9dt_!!2914216130-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01HLYAWc1v9b2LrfEUs_!!2914216130-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kV2WhJ1v9b2Ljo4Mj_!!2914216130-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01xc3vLH1v9b2LiDfCX_!!2914216130-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01rmdlFv1v9b2LuAKvM_!!2914216130-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01zNulCq1v9b2LrgJIg_!!2914216130-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2914216130/p/2/e/6/t/1/574261780423.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "义乌",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "多宝水晶"
+      },
+      {
+        "name": "处理工艺",
+        "value": "抛光"
+      },
+      {
+        "name": "品牌",
+        "value": "无"
+      },
+      {
+        "name": "风格",
+        "value": "ins风"
+      },
+      {
+        "name": "适用人群",
+        "value": "女式"
+      },
+      {
+        "name": "样式",
+        "value": "男女通用"
+      },
+      {
+        "name": "造型",
+        "value": "心形,四叶草,叶子,波浪,U形,几何型"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "开业典礼"
+      },
+      {
+        "name": "货号",
+        "value": "SL436"
+      },
+      {
+        "name": "产地",
+        "value": "义乌"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay,亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "颜色",
+        "value": "SL436A01 七彩圆角款,SL436A02 3颗金字塔款,SL436A03 圆角单颗金字塔款,SL436A04 直角单颗金字塔款"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "否"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "流行元素",
+        "value": "不锈钢心形桃心石头手牌条形"
+      },
+      {
+        "name": "上市年份/季节",
+        "value": "2026年春季"
+      },
+      {
+        "name": "风格分类",
+        "value": "个性风潮"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "流行元素分类",
+        "value": "自然"
+      },
+      {
+        "name": "造型",
+        "value": "心形、四叶草、叶子、波浪、U形、几何型"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "ebay、亚马逊、wish、速卖通、独立站、LAZADA"
+      },
+      {
+        "name": "颜色",
+        "value": "SL436A01 七彩圆角款、SL436A02 3颗金字塔款、SL436A03 圆角单颗金字塔款、SL436A04 直角单颗金字塔款"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东"
+      },
+      {
+        "name": "材质",
+        "value": "抛光"
+      },
+      {
+        "name": "品牌",
+        "value": "ins风"
+      },
+      {
+        "name": "适用人群",
+        "value": "男女通用"
+      },
+      {
+        "name": "造型",
+        "value": "开业典礼"
+      },
+      {
+        "name": "货号",
+        "value": "义乌"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "SL436A01 七彩圆角款,SL436A02 3颗金字塔款,SL436A03 圆角单颗金字塔款,SL436A04 直角单颗金字塔款"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "流行元素",
+        "value": "2026年春季"
+      },
+      {
+        "name": "风格分类",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "SL436A01 七彩圆角款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kV2WhJ1v9b2Ljo4Mj_!!2914216130-0-cib.jpg"
+          },
+          {
+            "name": "SL436A02 3颗金字塔款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xc3vLH1v9b2LiDfCX_!!2914216130-0-cib.jpg"
+          },
+          {
+            "name": "SL436A03 圆角单颗金字塔款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01rmdlFv1v9b2LuAKvM_!!2914216130-0-cib.jpg"
+          },
+          {
+            "name": "SL436A04 直角单颗金字塔款",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zNulCq1v9b2LrgJIg_!!2914216130-0-cib.jpg"
+          },
+          {
+            "name": "SL436A01 七彩圆角款",
+            "image": null,
+            "price": 7.6
+          },
+          {
+            "name": "SL436A02 3颗金字塔款",
+            "image": null,
+            "price": 12.8
+          },
+          {
+            "name": "SL436A03 圆角单颗金字塔款",
+            "image": null,
+            "price": 9.5
+          },
+          {
+            "name": "SL436A04 直角单颗金字塔款",
+            "image": null,
+            "price": 10.5
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "重量(g)"
+    ],
+    "packagingTableText": "重量(g) 35",
+    "packagingRows": [
+      {
+        "color": null,
+        "capacity": null,
+        "weightText": "35",
+        "weightGrams": 35,
+        "lengthText": null,
+        "widthText": null,
+        "heightText": null
+      }
+    ],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 6,
+      "carrier": "韵达快递"
+    },
+    "skuDetails": [
+      {
+        "name": "SL436A01 七彩圆角款",
+        "price": 7.6,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kV2WhJ1v9b2Ljo4Mj_!!2914216130-0-cib.jpg"
+      },
+      {
+        "name": "SL436A02 3颗金字塔款",
+        "price": 12.8,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01xc3vLH1v9b2LiDfCX_!!2914216130-0-cib.jpg"
+      },
+      {
+        "name": "SL436A03 圆角单颗金字塔款",
+        "price": 9.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01rmdlFv1v9b2LuAKvM_!!2914216130-0-cib.jpg"
+      },
+      {
+        "name": "SL436A04 直角单颗金字塔款",
+        "price": 10.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01zNulCq1v9b2LrgJIg_!!2914216130-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 19,
+      "attributeCount": 33,
+      "optionGroupCount": 1,
+      "skuCount": 4,
+      "imageCount": 12,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 1,
+      "packagingTableTextLength": 8
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260722-183048-033343-0b5ae21b.json"
+}

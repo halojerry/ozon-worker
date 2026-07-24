@@ -1,0 +1,434 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "儿童口琴宝宝专用吹奏乐器婴儿锻炼肺活量早教玩具幼儿音乐口风琴",
+    "price": "¥4",
+    "brand": "AYL",
+    "seller": "汕头市澄海区贝佳荣玩具商行 关注 客服 商品 入驻3年 主营：婴儿玩具 店铺回头率 72% 店铺服务分 4.5分 准时发货率 96% 店铺好评率 100.0%",
+    "image_count": 14,
+    "attribute_count": 42,
+    "dom_sku_count": 6,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/922006055127.html",
+    "loginRequired": false,
+    "title": "儿童口琴宝宝专用吹奏乐器婴儿锻炼肺活量早教玩具幼儿音乐口风琴",
+    "price": "¥4",
+    "priceValue": 4,
+    "brand": "AYL",
+    "seller": "汕头市澄海区贝佳荣玩具商行 关注 客服 商品 入驻3年 主营：婴儿玩具 店铺回头率 72% 店铺服务分 4.5分 准时发货率 96% 店铺好评率 100.0%",
+    "sellerLink": "https://shop46f18l0gc8875.1688.com/?offerId=922006055127&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01S7HTIm1wLKhjTYHlq_!!2216618956291-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01S7HTIm1wLKhjTYHlq_!!2216618956291-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01aiErs01wLKhlJ9ApX_!!2216618956291-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01OwsIhX1wLKhk6Erot_!!2216618956291-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gqG4n21wLKhnDGlDO_!!2216618956291-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN015Zq56X1wLKhloue3m_!!2216618956291-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01lpWPRo1wLKhltxnQo_!!2216618956291-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN016oE3aD1wLKhmRIpi1_!!2216618956291-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kvlaAZ1wLKhnEyMlU_!!2216618956291-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01f1M5Ib1wLKhk6EGOU_!!2216618956291-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN012rJg771wLKhmMwoii_!!2216618956291-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01XeW6aS1wLKhlgBjgX_!!2216618956291-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013v8qUw1wLKdnqGjgU_!!2216618956291-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01brdKzI1wLKj2crKF4_!!2216618956291-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gpDY551wLKZB0Irdq_!!2216618956291-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/2216618956291/p/2/e/6/t/1/518709905292.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "广东省",
+    "model": null,
+    "attributes": [
+      {
+        "name": "品牌",
+        "value": "AYL"
+      },
+      {
+        "name": "颜色",
+        "value": "黄色-萌狗口琴【opp袋】,粉色-萌狗口琴【opp袋】,绿色-萌狗口琴【opp袋】,黄色-萌狗口琴【电商盒】,粉色-萌狗口琴【电商盒】,绿色-萌狗口琴【电商盒】"
+      },
+      {
+        "name": "规格",
+        "value": "17.5*3.5*5.5"
+      },
+      {
+        "name": "产地",
+        "value": "广东省"
+      },
+      {
+        "name": "玩具材质",
+        "value": "塑胶"
+      },
+      {
+        "name": "适用年龄",
+        "value": "儿童（3-6岁）"
+      },
+      {
+        "name": "货号",
+        "value": "66-29"
+      },
+      {
+        "name": "上市时间",
+        "value": "2024.3"
+      },
+      {
+        "name": "能力培养",
+        "value": "情感,视觉,智力开发,动手动脑,抓握,感官,其他能力培养,互动玩具,听觉,亲子交流,兴趣培养"
+      },
+      {
+        "name": "是否有动漫形象",
+        "value": "否"
+      },
+      {
+        "name": "动漫角色",
+        "value": "否"
+      },
+      {
+        "name": "适用人群",
+        "value": "不限"
+      },
+      {
+        "name": "包装",
+        "value": "电商盒"
+      },
+      {
+        "name": "是否进口",
+        "value": "是"
+      },
+      {
+        "name": "商品3C认证码",
+        "value": "2022152202041725"
+      },
+      {
+        "name": "3C配置类别",
+        "value": "14岁以下其它玩具"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "原产国/地区",
+        "value": "中国大陆"
+      },
+      {
+        "name": "专利及著作权",
+        "value": "有"
+      },
+      {
+        "name": "是否外贸专供",
+        "value": "否"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "日韩,非洲,韩国,日本,欧洲,国内,南美,东南亚,北美,东北亚,中东,拉丁美洲"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "品牌",
+        "value": "黄色-萌狗口琴【opp袋】,粉色-萌狗口琴【opp袋】,绿色-萌狗口琴【opp袋】,黄色-萌狗口琴【电商盒】,粉色-萌狗口琴【电商盒】,绿色-萌狗口琴【电商盒】"
+      },
+      {
+        "name": "规格",
+        "value": "广东省"
+      },
+      {
+        "name": "玩具材质",
+        "value": "儿童（3-6岁）"
+      },
+      {
+        "name": "货号",
+        "value": "2024.3"
+      },
+      {
+        "name": "能力培养",
+        "value": "否"
+      },
+      {
+        "name": "动漫角色",
+        "value": "不限"
+      },
+      {
+        "name": "包装",
+        "value": "是"
+      },
+      {
+        "name": "商品3C认证码",
+        "value": "14岁以下其它玩具"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "中国大陆"
+      },
+      {
+        "name": "专利及著作权",
+        "value": "否"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "亚马逊,wish,速卖通,独立站,LAZADA"
+      },
+      {
+        "name": "黄色-萌狗口琴【opp袋】",
+        "value": "60"
+      },
+      {
+        "name": "粉色-萌狗口琴【opp袋】",
+        "value": "60"
+      },
+      {
+        "name": "绿色-萌狗口琴【opp袋】",
+        "value": "60"
+      },
+      {
+        "name": "黄色-萌狗口琴【电商盒】",
+        "value": "70"
+      },
+      {
+        "name": "粉色-萌狗口琴【电商盒】",
+        "value": "70"
+      },
+      {
+        "name": "绿色-萌狗口琴【电商盒】",
+        "value": "70"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "3000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "黄色-萌狗口琴【opp袋】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lpWPRo1wLKhltxnQo_!!2216618956291-0-cib.jpg"
+          },
+          {
+            "name": "粉色-萌狗口琴【opp袋】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN016oE3aD1wLKhmRIpi1_!!2216618956291-0-cib.jpg"
+          },
+          {
+            "name": "绿色-萌狗口琴【opp袋】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kvlaAZ1wLKhnEyMlU_!!2216618956291-0-cib.jpg"
+          },
+          {
+            "name": "黄色-萌狗口琴【电商盒】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01f1M5Ib1wLKhk6EGOU_!!2216618956291-0-cib.jpg"
+          },
+          {
+            "name": "粉色-萌狗口琴【电商盒】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN012rJg771wLKhmMwoii_!!2216618956291-0-cib.jpg"
+          },
+          {
+            "name": "绿色-萌狗口琴【电商盒】",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01XeW6aS1wLKhlgBjgX_!!2216618956291-0-cib.jpg"
+          },
+          {
+            "name": "黄色-萌狗口琴【opp袋】",
+            "image": null,
+            "price": 4
+          },
+          {
+            "name": "粉色-萌狗口琴【opp袋】",
+            "image": null,
+            "price": 4
+          },
+          {
+            "name": "绿色-萌狗口琴【opp袋】",
+            "image": null,
+            "price": 4
+          },
+          {
+            "name": "黄色-萌狗口琴【电商盒】",
+            "image": null,
+            "price": 4.7
+          },
+          {
+            "name": "粉色-萌狗口琴【电商盒】",
+            "image": null,
+            "price": 4.7
+          },
+          {
+            "name": "绿色-萌狗口琴【电商盒】",
+            "image": null,
+            "price": 4.7
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [
+      "颜色",
+      "长(cm)",
+      "宽(cm)",
+      "高(cm)",
+      "体积(cm³)",
+      "重量(g)"
+    ],
+    "packagingTableText": "颜色 长(cm) 宽(cm) 高(cm) 体积(cm³) 重量(g) 黄色-萌狗口琴【opp袋】 16.70 2 4.80 160.320 60 粉色-萌狗口琴【opp袋】 16.70 2 4.80 160.320 60 绿色-萌狗口琴【opp袋】 16.70 2 4.80 160.320 60 黄色-萌狗口琴【电商盒】 17.50 3.50 5.50 336.875 70 粉色-萌狗口琴【电商盒】 17.50 3.50 5.50 336.875 70 绿色-萌狗口琴【电商盒】 17.50 3.50 5.50 336.875 70",
+    "packagingRows": [
+      {
+        "color": "黄色-萌狗口琴【opp袋】",
+        "capacity": "16.70",
+        "weightText": "60",
+        "weightGrams": 60,
+        "lengthText": "16.70",
+        "widthText": "2",
+        "heightText": "4.80"
+      },
+      {
+        "color": "粉色-萌狗口琴【opp袋】",
+        "capacity": "16.70",
+        "weightText": "60",
+        "weightGrams": 60,
+        "lengthText": "16.70",
+        "widthText": "2",
+        "heightText": "4.80"
+      },
+      {
+        "color": "绿色-萌狗口琴【opp袋】",
+        "capacity": "16.70",
+        "weightText": "60",
+        "weightGrams": 60,
+        "lengthText": "16.70",
+        "widthText": "2",
+        "heightText": "4.80"
+      },
+      {
+        "color": "黄色-萌狗口琴【电商盒】",
+        "capacity": "17.50",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": "17.50",
+        "widthText": "3.50",
+        "heightText": "5.50"
+      },
+      {
+        "color": "粉色-萌狗口琴【电商盒】",
+        "capacity": "17.50",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": "17.50",
+        "widthText": "3.50",
+        "heightText": "5.50"
+      },
+      {
+        "color": "绿色-萌狗口琴【电商盒】",
+        "capacity": "17.50",
+        "weightText": "70",
+        "weightGrams": 70,
+        "lengthText": "17.50",
+        "widthText": "3.50",
+        "heightText": "5.50"
+      }
+    ],
+    "shipping": {
+      "origin": "广东汕头",
+      "freightCny": 4,
+      "carrier": "圆通快递",
+      "dispatchHours": 9,
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "黄色-萌狗口琴【opp袋】",
+        "price": 4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01lpWPRo1wLKhltxnQo_!!2216618956291-0-cib.jpg"
+      },
+      {
+        "name": "粉色-萌狗口琴【opp袋】",
+        "price": 4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN016oE3aD1wLKhmRIpi1_!!2216618956291-0-cib.jpg"
+      },
+      {
+        "name": "绿色-萌狗口琴【opp袋】",
+        "price": 4,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kvlaAZ1wLKhnEyMlU_!!2216618956291-0-cib.jpg"
+      },
+      {
+        "name": "黄色-萌狗口琴【电商盒】",
+        "price": 4.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01f1M5Ib1wLKhk6EGOU_!!2216618956291-0-cib.jpg"
+      },
+      {
+        "name": "粉色-萌狗口琴【电商盒】",
+        "price": 4.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN012rJg771wLKhmMwoii_!!2216618956291-0-cib.jpg"
+      },
+      {
+        "name": "绿色-萌狗口琴【电商盒】",
+        "price": 4.7,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01XeW6aS1wLKhlgBjgX_!!2216618956291-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 23,
+      "attributeCount": 42,
+      "optionGroupCount": 1,
+      "skuCount": 6,
+      "imageCount": 17,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 6,
+      "packagingTableTextLength": 268
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260720-154137-908510-96a20827.json"
+}

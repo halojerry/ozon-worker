@@ -1,0 +1,68 @@
+[
+  {
+    "type": "ozon",
+    "url": "https://www.ozon.ru/product/avtonomnaya-ustanovka-aerozolnogo-pozharotusheniya-avtomaticheskiy-termostiker-dlya-3726236911/?_bctx=CAYQ3Yk5&at=MZtvrkv8xtAqK5KmTrmYPD8f7p1NWWSo25mL3tjMPZ60",
+    "product_id": "3726236911",
+    "timestamp": "2026-07-22T10:06:32.954276+00:00",
+    "success": false,
+    "follow_result": {
+      "success": false,
+      "product_id": "3726236911",
+      "slug": "avtonomnaya ustanovka aerozolnogo pozharotusheniya avtomaticheskiy termostiker dlya",
+      "import_task_id": 5169611060,
+      "card_copied": true,
+      "search_keyword": "",
+      "search_error": "HTTP 错误 403"
+    },
+    "card_copied": true,
+    "search_keyword": "",
+    "slug": "avtonomnaya ustanovka aerozolnogo pozharotusheniya avtomaticheskiy termostiker dlya",
+    "matches_count": 0,
+    "error": "跟卖流程未找到匹配",
+    "dry_run": true
+  },
+  {
+    "type": "ozon",
+    "url": "https://www.ozon.ru/product/detskaya-raketnaya-ustanovka-raketa-s-zapuskom-letayushchaya-igrushka-3335728940/?_bctx=CAYQ3Yk5&at=VvtzJkzK0UgWomj6sDk9LRmC1kDw5xIPRxJm4s82w4Dn",
+    "product_id": "3335728940",
+    "timestamp": "2026-07-22T10:06:42.117657+00:00",
+    "success": false,
+    "follow_result": {
+      "success": false,
+      "product_id": "3335728940",
+      "slug": "detskaya raketnaya ustanovka raketa s zapuskom letayushchaya igrushka",
+      "import_task_id": 5169612296,
+      "card_copied": true,
+      "search_keyword": "",
+      "search_error": "HTTP 错误 403"
+    },
+    "card_copied": true,
+    "search_keyword": "",
+    "slug": "detskaya raketnaya ustanovka raketa s zapuskom letayushchaya igrushka",
+    "matches_count": 0,
+    "error": "跟卖流程未找到匹配",
+    "dry_run": true
+  },
+  {
+    "type": "ozon",
+    "url": "https://www.ozon.ru/product/podstavka-spiraley-ot-komarov-1-sht-3749010675/?_bctx=CAYQ3Yk5&at=16tL4BLmnTVXwVVZu1vjp97uYDDwpRiDZx6RXC3PRnZ3",
+    "product_id": "3749010675",
+    "timestamp": "2026-07-22T10:06:47.820945+00:00",
+    "success": false,
+    "follow_result": {
+      "success": false,
+      "product_id": "3749010675",
+      "slug": "podstavka spiraley ot komarov 1 sht",
+      "import_task_id": 5169613383,
+      "card_copied": true,
+      "search_keyword": "",
+      "search_error": "HTTP 错误 403"
+    },
+    "card_copied": true,
+    "search_keyword": "",
+    "slug": "podstavka spiraley ot komarov 1 sht",
+    "matches_count": 0,
+    "error": "跟卖流程未找到匹配",
+    "dry_run": true
+  }
+]

@@ -1,0 +1,281 @@
+{
+  "ready": true,
+  "timed_out": false,
+  "failure_page": false,
+  "captcha_intercepted": false,
+  "no_matching_open_page": true,
+  "launch": {
+    "browser_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "profile": "default",
+    "user_data_dir": "/Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default",
+    "headed": false,
+    "timeout_seconds": 30,
+    "poll_ms": 1500,
+    "attach_only": false,
+    "auto_open_disabled": false,
+    "cdp_url": "http://127.0.0.1:9222",
+    "connected_existing_chrome": true,
+    "matched_existing_page": false,
+    "auto_opened_page": true,
+    "login_detected": false,
+    "login_check_url": null,
+    "auto_open_probe_attempts": 1
+  },
+  "summary": {
+    "title": "原创蓝松石天然石手链小众设计高级感海边度假ins风百搭创意手串",
+    "price": "¥16.5",
+    "brand": "高萱",
+    "seller": "义乌市高萱饰品厂 关注 客服 商品 入驻19年 主营：项饰 店铺回头率 74% 店铺服务分 4.5分 准时发货率 98% 店铺好评率 99.6%",
+    "image_count": 8,
+    "attribute_count": 35,
+    "dom_sku_count": 2,
+    "runtime_sku_count": 0,
+    "login_required": false
+  },
+  "probe": {
+    "site": "1688",
+    "url": "https://detail.1688.com/offer/806923477831.html?offerId=806923477831&hotSaleSkuId=5487415277900",
+    "loginRequired": false,
+    "title": "原创蓝松石天然石手链小众设计高级感海边度假ins风百搭创意手串",
+    "price": "¥16.5",
+    "priceValue": 16.5,
+    "brand": "高萱",
+    "seller": "义乌市高萱饰品厂 关注 客服 商品 入驻19年 主营：项饰 店铺回头率 74% 店铺服务分 4.5分 准时发货率 98% 店铺好评率 99.6%",
+    "sellerLink": "https://gaoxuan.1688.com/?offerId=806923477831&td_page_id=PC-DEFAULT-2026",
+    "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kfwWSJ1QpxOVUjsKg_!!989552026-0-cib.jpg",
+    "images": [
+      "https://cbu01.alicdn.com/img/ibank/O1CN01kfwWSJ1QpxOVUjsKg_!!989552026-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN013drnbn1QpxONaKUFc_!!989552026-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01FQPgUr1QpxOTIZVXj_!!989552026-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01Pbs9A21QpxOXtZNtq_!!989552026-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01j70OqI1QpxOSy9Lna_!!989552026-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01ObzH2T1QpxOZxyO7S_!!989552026-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01WEBgEY1QpxPGBPw0Z_!!989552026-0-cib.jpg",
+      "https://cbu01.alicdn.com/img/ibank/O1CN01gTefyI1QpxOXj4ytZ_!!989552026-0-cib.jpg"
+    ],
+    "video": "https://cloud.video.taobao.com/play/u/989552026/p/2/e/6/t/1/214237386403.mp4",
+    "minOrderQty": null,
+    "minOrderQtyValue": null,
+    "origin": "义乌",
+    "model": null,
+    "attributes": [
+      {
+        "name": "材质",
+        "value": "绿松石"
+      },
+      {
+        "name": "处理工艺",
+        "value": "纯手工制作"
+      },
+      {
+        "name": "品牌",
+        "value": "高萱"
+      },
+      {
+        "name": "风格",
+        "value": "原创设计"
+      },
+      {
+        "name": "适用人群",
+        "value": "女式"
+      },
+      {
+        "name": "样式",
+        "value": "女式"
+      },
+      {
+        "name": "造型",
+        "value": "其他"
+      },
+      {
+        "name": "适用送礼场合",
+        "value": "其他"
+      },
+      {
+        "name": "货号",
+        "value": "GXB4165026"
+      },
+      {
+        "name": "产地",
+        "value": "义乌"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "淘宝,京东,ebay,PDD,亚马逊,wish,快手,LINIO,SHEIN,速卖通,天猫,独立站,LAZADA,拼多多,shopee,抖音,垂类电商,其他"
+      },
+      {
+        "name": "颜色",
+        "value": "手链,项链"
+      },
+      {
+        "name": "有可授权的自有品牌",
+        "value": "是"
+      },
+      {
+        "name": "是否跨境出口专供货源",
+        "value": "是"
+      },
+      {
+        "name": "流行元素",
+        "value": "-1"
+      },
+      {
+        "name": "上市年份/季节",
+        "value": "2024年夏季"
+      },
+      {
+        "name": "材料",
+        "value": "蓝松石、胆石、不锈钢、铜"
+      },
+      {
+        "name": "成分",
+        "value": "天然石"
+      },
+      {
+        "name": "风格分类",
+        "value": "原创设计"
+      },
+      {
+        "name": "设计",
+        "value": "原创"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲,欧洲,南美,东南亚,北美,东北亚,中东,其他"
+      },
+      {
+        "name": "流行元素分类",
+        "value": "民族/国风"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "淘宝、京东、ebay、PDD、亚马逊、wish、快手、LINIO、SHEIN、速卖通、天猫、独立站、LAZADA、拼多多、shopee、抖音、垂类电商、其他"
+      },
+      {
+        "name": "颜色",
+        "value": "手链、项链"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "非洲、欧洲、南美、东南亚、北美、东北亚、中东、其他"
+      },
+      {
+        "name": "材质",
+        "value": "纯手工制作"
+      },
+      {
+        "name": "品牌",
+        "value": "原创设计"
+      },
+      {
+        "name": "货号",
+        "value": "义乌"
+      },
+      {
+        "name": "主要下游平台",
+        "value": "手链,项链"
+      },
+      {
+        "name": "流行元素",
+        "value": "2024年夏季"
+      },
+      {
+        "name": "材料",
+        "value": "天然石"
+      },
+      {
+        "name": "风格分类",
+        "value": "原创"
+      },
+      {
+        "name": "主要销售地区",
+        "value": "民族/国风"
+      },
+      {
+        "name": "近30天代发数量",
+        "value": "100以内"
+      },
+      {
+        "name": "24h揽收率",
+        "value": "1000+"
+      }
+    ],
+    "optionGroups": [
+      {
+        "name": "颜色",
+        "values": [
+          {
+            "name": "手链",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kfwWSJ1QpxOVUjsKg_!!989552026-0-cib.jpg"
+          },
+          {
+            "name": "项链",
+            "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ObzH2T1QpxOZxyO7S_!!989552026-0-cib.jpg"
+          },
+          {
+            "name": "手链",
+            "image": null,
+            "price": 16.5
+          },
+          {
+            "name": "项链",
+            "image": null,
+            "price": 26
+          }
+        ]
+      }
+    ],
+    "packagingHeaders": [],
+    "packagingTableText": null,
+    "packagingRows": [],
+    "shipping": {
+      "origin": "浙江金华",
+      "freightCny": 5,
+      "carrier": "中通快递",
+      "deliveryDays": 2
+    },
+    "skuDetails": [
+      {
+        "name": "手链",
+        "price": 16.5,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01kfwWSJ1QpxOVUjsKg_!!989552026-0-cib.jpg"
+      },
+      {
+        "name": "项链",
+        "price": 26,
+        "image": "https://cbu01.alicdn.com/img/ibank/O1CN01ObzH2T1QpxOZxyO7S_!!989552026-0-cib.jpg"
+      }
+    ],
+    "runtimeSkuData": {
+      "success": false,
+      "message": "runtime sku unavailable",
+      "selectedSkuMap": {},
+      "priceRanges": [],
+      "imageMap": {},
+      "sku": []
+    },
+    "pageStructuredData": [],
+    "description": null,
+    "sourceHints": {
+      "productAttributeCount": 22,
+      "attributeCount": 35,
+      "optionGroupCount": 1,
+      "skuCount": 2,
+      "imageCount": 11,
+      "runtimeSkuCount": 0,
+      "runtimeImageMappingCount": 0,
+      "initDataKeys": [],
+      "pageStructuredDataCount": 0,
+      "packagingHeaderCount": 0,
+      "packagingTableTextLength": 0
+    },
+    "attempt": 1,
+    "elapsed_seconds": 0.0,
+    "ready": true,
+    "single_pass": true,
+    "probe_mode": "single_pass",
+    "openAttempt": 1,
+    "noMatchingOpenPage": true
+  },
+  "artifact_path": "/Users/halo/dev/ozon-worker/skill/data/ozon/tasks/default-task/browser-probes/1688-probe-20260720-154334-231485-8bd36e20.json"
+}
