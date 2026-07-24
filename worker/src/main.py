@@ -27,6 +27,39 @@ from storage.database.shared.model import Base
 from utils.task_processor import SupabaseTaskProcessor
 from sqlalchemy import event
 
+# ── 进度追踪（内存存储，重启清空） ──
+# 格式: {task_id: {stage, stage_index, total_stages, percent, message, updated_at}}
+_task_progress: Dict[str, Dict[str, Any]] = {}
+
+# 节点执行顺序（用于计算进度百分比）
+STAGE_ORDER = [
+    "auth", "ingest", "category_match", "pricing", "attributes",
+    "description", "image_generation", "prepare_ozon_upload",
+    "ozon_validate", "ozon_upload", "ozon_status", "learning_record"
+]
+
+def update_progress(task_id: str, stage: str, message: str = ""):
+    """更新任务进度"""
+    if not task_id:
+        return
+    stage_idx = STAGE_ORDER.index(stage) if stage in STAGE_ORDER else 0
+    total = len(STAGE_ORDER)
+    percent = int((stage_idx / total) * 100)
+    _task_progress[task_id] = {
+        "stage": stage,
+        "stage_index": stage_idx,
+        "total_stages": total,
+        "percent": percent,
+        "message": message,
+        "updated_at": time.time(),
+        "stages_completed": STAGE_ORDER[:stage_idx],
+        "stages_remaining": STAGE_ORDER[stage_idx+1:],
+    }
+
+def get_progress(task_id: str) -> Optional[Dict[str, Any]]:
+    """获取任务进度"""
+    return _task_progress.get(task_id)
+
 # Local runtime utilities (standalone replacements for platform SDK)
 from runtime.context import new_context, Context
 from runtime.helpers import (
@@ -836,22 +869,37 @@ async def http_submit_task(request: Request):
 @app.get("/task_status/{task_id}")
 async def http_task_status(task_id: str):
     """
-    查询任务状态
-    
+    查询任务状态（含进度信息）
+
     Returns:
-        任务详情（包含status、result、error_message等）
+        任务详情（包含status、result、error_message、progress等）
     """
     if task_processor is None:
         raise HTTPException(status_code=503, detail="Task processor not initialized")
-    
+
     try:
         task_status = await task_processor.get_task_status(task_id)
-        
+
         if task_status is None:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-        
+
+        # 添加进度信息
+        progress = get_progress(task_id)
+        if progress:
+            task_status["progress"] = progress
+        elif task_status.get("status") == "completed":
+            task_status["progress"] = {
+                "stage": "completed", "percent": 100,
+                "stages_completed": STAGE_ORDER, "stages_remaining": []
+            }
+        elif task_status.get("status") == "failed":
+            task_status["progress"] = {
+                "stage": "failed", "percent": 0,
+                "message": task_status.get("error_message", "")
+            }
+
         return task_status
-        
+
     except Exception as e:
         logger.error(f"Get task status error: {e}, traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get task status: {str(e)}")
