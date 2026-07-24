@@ -1732,18 +1732,20 @@ def _wait_for_login_session(
             header, img_data = qr_data.split(',', 1)
             # Save to temp file for reference
             try:
-                qr_path = Path('/tmp/1688_qrcode.png')
+                import tempfile
+                qr_path = Path(tempfile.gettempdir()) / '1688_qrcode.png'
                 qr_path.write_bytes(_base64.b64decode(img_data))
                 _logger.info("QR code saved to %s", qr_path)
             except Exception:
-                pass
+                qr_path = None
 
             print(f'\n📱 请用手机 1688/淘宝 App 扫下方二维码登录：\n',
                   file=sys.stderr)
             print(f'  🔗 data:image/png;base64,{img_data[:40]}...',
                   file=sys.stderr)
-            print(f'\n  或保存 /tmp/1688_qrcode.png 用手机扫描。\n',
-                  file=sys.stderr)
+            if qr_path:
+                print(f'\n  或保存 {qr_path} 用手机扫描。\n',
+                      file=sys.stderr)
         else:
             _logger.warning("Cannot extract QR code from 1688 login page")
             print(f'\n⛔ 无法提取 1688 登录二维码，请手动访问扫码:\n'

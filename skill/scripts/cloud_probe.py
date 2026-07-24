@@ -284,9 +284,10 @@ def _cloud_post(url: str, body: dict[str, Any], *, timeout_sec: int = 60, header
             capture_exception(exc, url=url, phase='cloud_post', timeout=timeout_sec)
             return _error_envelope(body, ERR_CLOUD_TIMEOUT, f"云端请求超时 ({timeout_sec}s)", terminal=False, retryable=True, details=str(exc))
         except requests.HTTPError as exc:
-            capture_exception(exc, url=url, phase='cloud_post', status=exc.response.status_code)
-            detail = exc.response.text[:500]
-            return _error_envelope(body, ERR_CLOUD_REJECTED, f"云端拒绝请求 ({exc.response.status_code}): {detail}", terminal=exc.response.status_code < 500, retryable=exc.response.status_code >= 500, details=detail)
+            status = exc.response.status_code if exc.response else 0
+            detail = (exc.response.text[:500] if exc.response else str(exc))
+            capture_exception(exc, url=url, phase='cloud_post', status=status)
+            return _error_envelope(body, ERR_CLOUD_REJECTED, f"云端拒绝请求 ({status}): {detail}", terminal=status < 500 if status else False, retryable=status >= 500 if status else True, details=detail)
 
     # Should not reach here, but be defensive
     return _error_envelope(body, ERR_CLOUD_UNAVAILABLE, f"无法连接云端 ({url})", details=str(last_error))
@@ -453,8 +454,7 @@ def submit_envelope(
     Returns:
         {ok, task_id, message} on success, or {ok: False, error} on failure.
     """
-    worker_url = os.environ.get("WORKER_URL", "http://localhost:8080").rstrip("/")
-    url = f"{worker_url}/submit_task"
+    url = f"{_get_api_base()}/submit_task"
 
     # Auto-detect: full GraphInput vs raw envelope
     if "envelope" in graph_input and ("token" in graph_input or "ozon_client_id" in graph_input):
@@ -2034,8 +2034,6 @@ def build_variant_envelope(
         assets["image_urls"] = list(dict.fromkeys(all_images))  # dedup, keep order
 
     envelope = build_envelope(
-        project_id=project_id,
-        subproject_id=subproject_id,
         source=source,
         assets=assets,
         draft=draft,
@@ -2843,8 +2841,7 @@ def check_task_status(task_id: str) -> dict[str, Any]:
     """
     import requests as _requests
 
-    worker_url = os.environ.get("WORKER_URL", "http://localhost:8080").rstrip("/")
-    url = f"{worker_url}/task_status/{task_id}"
+    url = f"{_get_api_base()}/task_status/{task_id}"
 
     try:
         resp = _requests.get(url, timeout=10)
