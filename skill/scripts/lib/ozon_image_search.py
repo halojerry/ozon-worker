@@ -63,21 +63,26 @@ def _extract_results(ws, page_size: int = 5) -> list[dict[str, Any]]:
             const lines = text.split("\\n").map(l => l.trim()).filter(l => l.length > 0);
             let title = "";
             let badge = "";
-            // 非产品关键词（物流、店铺指标、价格等）
+            let supplier = "";
+            let sold = "";
+            // 非产品关键词
             const skipWords = ["运费","件","起批","揽收","代发","晚揽","必赔","铺货","月代",
                 "分销商","评分","回购","店铺","卖家","客服","发货","退货","包邮",
                 "H揽","K揽","内天月","¥","价格","库存","现货","秒杀","优惠",
                 "有限公司","公司","工厂","厂家","集团","营业","执照","注册",
-                "电器厂","制造厂","加工厂","生产厂","配件厂","用品厂","工具厂","日化厂"];
-            // 公司名正则：含"市"/"县"且以"厂"/"公司"/"有限"结尾
+                "电器厂","制造厂","加工厂","生产厂","配件厂","用品厂","工具厂","日化厂",
+                "面单支持","入驻"];
             const companyRe = /[市县].*[厂公司有限]/;
             for (const line of lines) {{
                 if (line.match(/符合[\\d\\/]+个条件/)) {{
                     badge = line;
+                }} else if (line.match(/[\\d.]+万?\\+件/)) {{
+                    sold = line;
+                }} else if (companyRe.test(line) || line.match(/[\\u4e00-\\u9fff].*有限|[\\u4e00-\\u9fff].*公司$/)) {{
+                    supplier = line;
                 }} else if (line.length >= 8) {{
-                    const isSkip = skipWords.some(w => line.includes(w)) || line.startsWith("¥") || line.match(/^[\\d.]+$/) || line.match(/^[\\d]+[内天月HK]/) || line.match(/^[\\d]+k?[+]/i) || companyRe.test(line);
+                    const isSkip = skipWords.some(w => line.includes(w)) || line.startsWith("¥") || line.match(/^[\\d.]+$/) || line.match(/^[\\d]+[内天月HK]/) || line.match(/^[\\d]+k?[+]/i);
                     if (!isSkip) {{
-                        // 找最长的中文产品描述行
                         const cnCount = (line.match(/[\\u4e00-\\u9fff]/g) || []).length;
                         if (cnCount >= 3 && line.length > (title || "").length) {{
                             title = line.substring(0, 80);
@@ -87,10 +92,20 @@ def _extract_results(ws, page_size: int = 5) -> list[dict[str, Any]]:
             }}
             const priceMatch = text.match(/¥\\s*([\\d.]+)/);
             const price = priceMatch ? parseFloat(priceMatch[1]) : 0;
-            const link = card.querySelector("a")?.href || "";
-            const offerMatch = link.match(/offer\\/(\\d+)/);
-            const offerId = offerMatch ? offerMatch[1] : "";
-            if (title) results.push({{id: offerId, title, price, badge}});
+            const links = Array.from(card.querySelectorAll("a") || []);
+            let offerId = "";
+            let detailUrl = "";
+            for (const a of links) {{
+                const href = a.href || "";
+                // 格式1: /offer/123456.html
+                const m1 = href.match(/offer\\/(\\d+)/);
+                if (m1) {{ offerId = m1[1]; detailUrl = href; break; }}
+                // 格式2: offerId=123456 (查询参数)
+                const m2 = href.match(/offerId=(\\d+)/);
+                if (m2) {{ offerId = m2[1]; break; }}
+            }}
+            const img = card.querySelector("img")?.src || "";
+            if (title) results.push({{id: offerId, title, price, badge, sold, supplier, image: img, detail_url: detailUrl}});
         }}
         JSON.stringify(results);
     ''')
