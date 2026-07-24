@@ -21,8 +21,7 @@
     --client-id 5371047 --api-key 411afbd4-c7ea-4fb3-b14f-3d9c2f246214
 
 环境变量:
-  WORKER_URL    - Worker 地址 (默认 http://localhost:8080)
-  OZON_CLIENT_ID, OZON_API_KEY - 可替代 --client-id/--api-key
+  MXOU_API_BASE - Worker 地址 (默认 https://worker.mxou.cn)
 """
 from __future__ import annotations
 
@@ -32,6 +31,7 @@ import os
 import re
 import sys
 import time
+import requests
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -238,7 +238,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--worker-url",
-        default=os.environ.get("WORKER_URL", "http://localhost:8080"),
+        default=os.environ.get("MXOU_API_BASE", "https://worker.mxou.cn"),
         help="Worker 地址",
     )
     parser.add_argument(

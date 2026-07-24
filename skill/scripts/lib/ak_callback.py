@@ -273,4 +273,11 @@ def get_ak_via_browser(timeout: int = 300) -> dict[str, Any]:
         result = {"success": False, "error": "TIMEOUT",
                   "error_description": f"{timeout} 秒内未完成操作"}
 
+    # 失败时打印手动获取指引
+    if not result.get("success"):
+        print(f"\n❌ 自动获取 AK 失败: {result.get('error_description', '未知错误')}")
+        print(f"   请手动获取 1688 AK:")
+        print(f"   1. 浏览器打开 https://clawhub.1688.com → 登录 → 复制 AK")
+        print(f"   2. 设置: python3.12 scripts/cli.py set_ak --ak <你的AK>\n")
+
     return result

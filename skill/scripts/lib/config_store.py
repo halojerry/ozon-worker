@@ -396,6 +396,25 @@ def capture_exception(exc: BaseException | None = None, **extra: Any) -> None:
 # These aliases exist to avoid breaking imports in files that haven't been updated yet.
 # They will be removed once all callers are migrated.
 
+def load_config(config_path: Path | None = None) -> dict[str, Any]:
+    """Load config as a flat dict. Backward compatible with old API.
+
+    Returns a dict with keys like 'ALI_1688_AK', 'OZON_CLIENT_ID', etc.
+    Used by ak_1688_client._signature_headers().
+    """
+    result = {}
+    # From settings.json
+    settings = _load_settings_file()
+    for k, v in settings.items():
+        result[k.upper()] = v
+    # From stores.json (first store)
+    store = get_store()
+    if store:
+        result.setdefault("OZON_CLIENT_ID", store.get("client_id", ""))
+        result.setdefault("OZON_API_KEY", store.get("api_key", ""))
+    return result
+
+
 def load_env_file() -> None:
     """No-op. Config is now in stores.json/settings.json."""
     pass
@@ -409,3 +428,183 @@ def get_required_keys() -> dict[str, dict[str, str]]:
         'OZON_CLIENT_ID':    {'label': 'Ozon Client ID（上架用）',    'tier': 'user', 'source': 'stores.json'},
         'OZON_API_KEY':      {'label': 'Ozon API Key（上架用）',      'tier': 'user', 'source': 'stores.json'},
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Auth framework — 核心函数级鉴权
+# ═══════════════════════════════════════════════════════════════════════════
+
+import hashlib
+import time as _time
+
+AUTH_CACHE_FILE = CONFIG_DIR / 'auth_cache.json'
+AUTH_CACHE_TTL = 86400  # 24 小时
+
+
+class AuthError(Exception):
+    """凭证缺失或无效。"""
+    pass
+
+
+def _load_auth_cache() -> dict[str, Any]:
+    """Load auth cache from disk."""
+    if AUTH_CACHE_FILE.is_file():
+        try:
+            return json.loads(AUTH_CACHE_FILE.read_text(encoding='utf-8'))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _save_auth_cache(token: str, expires_in: int) -> None:
+    """Save auth verification result to disk."""
+    now = _time.time()
+    cache = {
+        "token_hash": hashlib.sha256(token.encode()).hexdigest(),
+        "verified_at": now,
+        "expires_at": now + expires_in,
+    }
+    AUTH_CACHE_FILE.write_text(json.dumps(cache, indent=2), encoding='utf-8')
+
+
+def is_auth_valid() -> bool:
+    """Check if local auth cache is valid (not expired + token unchanged)."""
+    cache = _load_auth_cache()
+    if not cache:
+        return False
+
+    # Check if token changed
+    current_token = get_mxou_token()
+    if not current_token:
+        return False
+    token_hash = hashlib.sha256(current_token.encode()).hexdigest()
+    if token_hash != cache.get("token_hash"):
+        return False
+
+    # Check expiry
+    return _time.time() < cache.get("expires_at", 0)
+
+
+def verify_with_worker(token: str, client_id: str = "", api_key: str = "") -> dict[str, Any]:
+    """Call Worker /api/v1/auth/verify to validate credentials."""
+    import requests
+    from scripts._const import CLOUD_API_BASE
+    url = f"{CLOUD_API_BASE}/api/v1/auth/verify"
+    try:
+        resp = requests.post(url, json={
+            "token": token,
+            "client_id": client_id,
+            "api_key": api_key,
+        }, timeout=15)
+        return resp.json()
+    except Exception as e:
+        logger.warning("Worker auth verify failed: %s", e)
+        return {"valid": False, "reason": "worker_unreachable"}
+
+
+def _require_auth() -> None:
+    """Core function auth guard. Raises AuthError if credentials are invalid.
+
+    Check order:
+    1. MXOU_TOKEN missing → AuthError with api.mxou.cn guidance
+    2. Local cache valid → pass
+    3. Cache expired → call Worker verify
+    4. Verify passed → update cache → pass
+    5. Verify failed → AuthError with reason
+    """
+    token = get_mxou_token()
+    if not token:
+        raise AuthError(
+            "缺少 MXOU_TOKEN。请到 https://api.mxou.cn 注册获取，然后运行：\n"
+            "  python3.12 scripts/cli.py set_token --token <你的token>"
+        )
+
+    if is_auth_valid():
+        return
+
+    # Cache expired or missing — verify with Worker
+    result = verify_with_worker(token)
+    if result.get("valid"):
+        _save_auth_cache(token, result.get("expires_in", AUTH_CACHE_TTL))
+        return
+
+    # Verify failed
+    reason = result.get("reason", "unknown")
+    messages = {
+        "token_invalid": "MXOU_TOKEN 无效。请到 https://api.mxou.cn 重新获取。",
+        "balance_insufficient": "账户余额不足。请到 https://api.mxou.cn 充值。",
+        "account_inactive": "账户未激活。请到 https://api.mxou.cn 激活。",
+        "worker_unreachable": "无法连接云端 Worker。请检查网络。",
+    }
+    msg = messages.get(reason, f"鉴权失败（{reason}）")
+    raise AuthError(f"{msg}\n然后运行: python3.12 scripts/cli.py set_token --token <新token>")
+
+
+def get_auth_status() -> str:
+    """Get human-readable auth status for check command.
+
+    Returns:
+        "✅ MXOU_TOKEN（已验证，下次验证: 2026-07-25 19:30）"
+        "❌ MXOU_TOKEN（未配置）"
+        "❌ MXOU_TOKEN（已过期，请重新验证）"
+    """
+    token = get_mxou_token()
+    if not token:
+        return "❌ MXOU_TOKEN（未配置）"
+
+    cache = _load_auth_cache()
+    if not cache:
+        return "⚠️ MXOU_TOKEN（已配置，未验证）"
+
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    if token_hash != cache.get("token_hash"):
+        return "⚠️ MXOU_TOKEN（已变更，需重新验证）"
+
+    expires_at = cache.get("expires_at", 0)
+    if _time.time() >= expires_at:
+        return "⚠️ MXOU_TOKEN（已过期，请重新验证）"
+
+    # Format expiry time
+    from datetime import datetime
+    expiry_str = datetime.fromtimestamp(expires_at).strftime("%Y-%m-%d %H:%M")
+    return f"✅ MXOU_TOKEN（已验证，下次验证: {expiry_str}）"
+
+
+def preflight_check(skip_store: bool = False) -> list[str]:
+    """CLI-layer quick check for local config completeness (no cloud call).
+
+    Returns list of missing credential names. Empty = all ready.
+    """
+    missing = []
+    if not get_mxou_token():
+        missing.append("MXOU_TOKEN")
+    if not get_ali_1688_ak():
+        missing.append("ALI_1688_AK")
+    if not skip_store and not list_stores():
+        missing.append("OZON_STORES")
+    return missing
+
+
+def print_setup_guide(missing: list[str]) -> None:
+    """Print setup instructions for missing credentials."""
+    print("❌ 缺少以下凭证，请先配置：\n")
+    guides = {
+        "MXOU_TOKEN": [
+            "1. 访问 https://api.mxou.cn 注册并获取 API Token",
+            "2. 设置: python3.12 scripts/cli.py set_token --token <你的token>",
+        ],
+        "ALI_1688_AK": [
+            "1. 自动获取（需 Chrome）: python3.12 scripts/cli.py get_ak",
+            "2. 或手动获取: 浏览器打开 https://clawhub.1688.com → 登录 → 复制 AK",
+            "3. 设置: python3.12 scripts/cli.py set_ak --ak <你的AK>",
+        ],
+        "OZON_STORES": [
+            "1. 从 Ozon 卖家后台获取: 设置 → API 密钥",
+            "2. 设置: python3.12 scripts/cli.py set_store --name \"店铺名\" --client-id <ID> --api-key <KEY>",
+        ],
+    }
+    for key in missing:
+        print(f"  📌 {key}:")
+        for line in guides.get(key, ["请联系管理员"]):
+            print(f"     {line}")
+        print()

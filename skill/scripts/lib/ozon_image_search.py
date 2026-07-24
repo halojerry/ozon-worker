@@ -217,6 +217,8 @@ def search_by_image_cdp(
     Returns:
         [{"id": "offer_id", "title": "...", "price": float, "badge": "..."}, ...]
     """
+    from scripts.lib.config_store import _require_auth
+    _require_auth()
     # 1. 打开新标签页
     try:
         resp = requests.put(f"{cdp_url}/json/new?", timeout=5)

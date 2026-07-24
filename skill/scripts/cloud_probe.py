@@ -82,15 +82,7 @@ try:
 except Exception as e:
     logger.debug('cleanup_old_files: %s', e)
 
-# ── Skill update check (best-effort, non-blocking) ──
-# Checks COS for a newer version of the skill.  Logs a warning if
-# one is available.  Does NOT auto-download — user must explicitly
-# run `pounding-ozon update`.  Controlled by POUNDING_SKIP_UPDATE_CHECK.
-try:
-    from scripts.lib.update import check_and_notify
-    pass  # update check removed
-except Exception as e:
-    logger.debug('update check failed: %s', e)
+# update check removed (no scripts.lib.update module)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -454,6 +446,8 @@ def submit_envelope(
     Returns:
         {ok, task_id, message} on success, or {ok: False, error} on failure.
     """
+    from scripts.lib.config_store import _require_auth
+    _require_auth()
     url = f"{_get_api_base()}/submit_task"
 
     # Auto-detect: full GraphInput vs raw envelope
@@ -1043,6 +1037,8 @@ def build_graph_envelope(
     Args:
         max_skus: SKU 数量上限（None=使用默认值15，0=不限制）
     """
+    from scripts.lib.config_store import _require_auth
+    _require_auth()
     from scripts.lib.ak_1688_client import get_product_details, enrich_product_with_cdp
     from scripts.lib.reference_images import get_best_product_images
 
@@ -1621,7 +1617,10 @@ def _graph_envelope_to_ctx(graph_input: dict[str, Any]) -> "PipelineContext":
     Maps the external GraphInput format to the internal PipelineContext
     dataclass that run_pipeline() expects.
     """
-    from scripts.lib.pipeline import PipelineContext
+    try:
+        from scripts.lib.pipeline import PipelineContext
+    except ImportError:
+        raise RuntimeError("pipeline 模块未安装（旧版功能，已废弃）")
 
     env = (graph_input.get("envelope", {}) or {})
     # 兼容三层结构: 如果 envelope 有 draft key，从中提取字段
@@ -1710,7 +1709,10 @@ def publish_graph_envelope(
             "pipeline": {stages, errors, warnings, pricing, image_count},
         }
     """
-    from scripts.lib.pipeline import run_pipeline
+    try:
+        from scripts.lib.pipeline import run_pipeline
+    except ImportError:
+        return {"success": False, "error": "pipeline 模块未安装（旧版功能，已废弃）", "item_id": ""}
 
     ctx = _graph_envelope_to_ctx(graph_input)
     ctx.skip_images = skip_images
@@ -3008,6 +3010,8 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
 
     Returns: {success, product_id, slug, images, title, 1688_matches, task_id}
     """
+    from scripts.lib.config_store import _require_auth
+    _require_auth()
     import re, requests as req
 
     # Step 1: 解析 Ozon URL
