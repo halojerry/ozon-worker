@@ -39,10 +39,6 @@ from typing import Any
 # Ensure skill/scripts/ is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# Load .env file BEFORE any other imports
-from scripts.lib.config_store import load_env_file
-load_env_file()
-
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "data" / "batch_results"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -283,8 +279,7 @@ def main() -> int:
         return 1
 
     # ── Pre-flight check ──
-    from scripts.lib.config_store import load_env_file, check_config
-    load_env_file()
+    from scripts.lib.config_store import check_config
     config = check_config()
     cdp = config.get("cdp", {})
 
