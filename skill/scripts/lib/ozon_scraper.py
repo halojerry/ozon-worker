@@ -324,7 +324,8 @@ def scrape_ozon_product_via_cdp(
     result: dict[str, Any] = {
         "success": False, "product_id": product_id, "slug": slug,
         "images": [], "title": "", "category": "", "price": "", "currency": "RUB",
-        "description": "", "attributes": {}, "breadcrumbs": [], "sku": "",
+        "description": "", "attributes": {}, "breadcrumbs": [], "hashtags": [],
+        "sku": "",
         "error": None,
     }
 
@@ -436,7 +437,7 @@ def scrape_ozon_product_via_cdp(
                     const resp = await fetch("{api_url}");
                     const data = await resp.json();
                     const widgets = data.widgetStates || {{}};
-                    const out = {{chars: [], breadcrumbs: []}};
+                    const out = {{chars: [], breadcrumbs: [], hashtags: []}};
                     for (const [k, v] of Object.entries(widgets)) {{
                         if (k.includes("webShortCharacteristics")) {{
                             try {{
@@ -455,6 +456,22 @@ def scrape_ozon_product_via_cdp(
                                     link: b.link || ""
                                 }}));
                             }} catch {{}}
+                        }}
+                        if (k.includes("webHashtags")) {{
+                            try {{
+                                const parsed = JSON.parse(v);
+                                const tags = parsed.hashtags || parsed.tags || [];
+                                out.hashtags = tags.map(t => t.text || t.title || t).filter(Boolean);
+                            }} catch {{
+                                // 从DOM提取hashtags
+                                try {{
+                                    const el = document.querySelector("[data-widget=webHashtags]");
+                                    if (el) {{
+                                        const titles = el.querySelectorAll("[title]");
+                                        out.hashtags = Array.from(titles).map(t => t.getAttribute("title")).filter(Boolean);
+                                    }}
+                                }} catch {{}}
+                            }}
                         }}
                     }}
                     return JSON.stringify(out);
@@ -476,13 +493,34 @@ def scrape_ozon_product_via_cdp(
                     if api_data.get("breadcrumbs"):
                         crumbs = []
                         for b in api_data["breadcrumbs"]:
-                            crumbs.append({"text": b.get("text", ""), "link": b.get("link", "")})
+                            link = b.get("link", "")
+                            text = b.get("text", "")
+                            # 从链接提取category ID: /category/xxx-14500/ → 14500
+                            cat_id = ""
+                            if link:
+                                import re as _re
+                                m = _re.search(r"-(\d+)/?$", link)
+                                if m:
+                                    cat_id = m.group(1)
+                            crumbs.append({"text": text, "link": link, "category_id": cat_id})
                         result["breadcrumbs"] = crumbs
                         # Extract category from breadcrumbs
                         if crumbs:
                             result["category"] = " > ".join(c["text"] for c in crumbs if c["text"])
                 except (_json.JSONDecodeError, TypeError):
                     pass
+
+            # Extract hashtags from DOM (not in API response)
+            js_hashtags = _cdp_eval(ws, """
+                (function() {
+                    var el = document.querySelector('[data-widget="webHashtags"]');
+                    if (!el) return '';
+                    var tags = el.querySelectorAll('[title]');
+                    return Array.from(tags).map(function(t) { return t.getAttribute('title'); }).filter(Boolean).join(',');
+                })()
+            """) or ""
+            if js_hashtags:
+                result["hashtags"] = [h.strip() for h in js_hashtags.split(",") if h.strip()]
 
             # Extract description from meta tags
             js_desc = _cdp_eval(ws, """
