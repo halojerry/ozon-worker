@@ -1909,133 +1909,127 @@ def publish_product_new(
     # 5. Run local pipeline (DAG-based, replaces n8n cloud workflow)
     if poll:
         _log_task(task_id, 'pipeline', 'start', 'info', 'Starting local Python pipeline')
-        try:
-            from scripts.lib.pipeline import PipelineContext, run_pipeline
+        # pipeline module removed (legacy)
+        from scripts.lib.pipeline import PipelineContext, run_pipeline
 
-            src_data = result['enriched']
-            pkg = (src_data.get('packaging_rows') or [{}])[0]
+        src_data = result['enriched']
+        pkg = (src_data.get('packaging_rows') or [{}])[0]
 
-            # ── Read store config (shipping + pricing) ──
-            shipping_provider = "RETS"
-            shipping_service = "Standard"
-            margin_rate, commission_rate = 0.25, 0.10
-            fx_buffer, packaging_cost_cny = 0.05, 2.0
-            if store_id:
-                try:
-                    from scripts.lib.config_store import get_store_profile
-                    store_cfg = get_store_profile(str(store_id))
-                    if store_cfg.get("shipping_provider"):
-                        shipping_provider = store_cfg["shipping_provider"]
-                    if store_cfg.get("shipping_service"):
-                        shipping_service = store_cfg["shipping_service"]
-                    margin_rate = float(store_cfg.get("margin_rate", 0.25))
-                    commission_rate = float(store_cfg.get("commission_rate", 0.10))
-                    fx_buffer = float(store_cfg.get("fx_buffer", 0.05))
-                    packaging_cost_cny = float(store_cfg.get("packaging_cost_cny", 2.0))
-                except Exception:
-                    pass
+        # ── Read store config (shipping + pricing) ──
+        shipping_provider = "RETS"
+        shipping_service = "Standard"
+        margin_rate, commission_rate = 0.25, 0.10
+        fx_buffer, packaging_cost_cny = 0.05, 2.0
+        if store_id:
+            try:
+                from scripts.lib.config_store import get_store_profile
+                store_cfg = get_store_profile(str(store_id))
+                if store_cfg.get("shipping_provider"):
+                    shipping_provider = store_cfg["shipping_provider"]
+                if store_cfg.get("shipping_service"):
+                    shipping_service = store_cfg["shipping_service"]
+                margin_rate = float(store_cfg.get("margin_rate", 0.25))
+                commission_rate = float(store_cfg.get("commission_rate", 0.10))
+                fx_buffer = float(store_cfg.get("fx_buffer", 0.05))
+                packaging_cost_cny = float(store_cfg.get("packaging_cost_cny", 2.0))
+            except Exception:
+                pass
 
-            # ── Extract SKU variants from CDP runtimeSkuData ──
-            variants: list[dict] = []
+        # ── Extract SKU variants from CDP runtimeSkuData ──
+        variants: list[dict] = []
+        rts = src_data.get("runtimeSkuData") or {}
+        for s in (rts.get("sku") or []):
+            if s.get("name"):
+                variants.append({
+                    "sku_id": str(s.get("skuId", "")),
+                    "name": s["name"],
+                    "image": s.get("image") or "",
+                    "price": float(s.get("price", 0)),
+                })
+        sku_id = variants[0]["sku_id"] if variants else str(item_id)
+
+        # ── Extract 1688 category_id for HS code lookup ──
+        _1688_cat_id = str(src_data.get("category_id", "") or "")
+        if not _1688_cat_id:
             rts = src_data.get("runtimeSkuData") or {}
-            for s in (rts.get("sku") or []):
-                if s.get("name"):
-                    variants.append({
-                        "sku_id": str(s.get("skuId", "")),
-                        "name": s["name"],
-                        "image": s.get("image") or "",
-                        "price": float(s.get("price", 0)),
-                    })
-            sku_id = variants[0]["sku_id"] if variants else str(item_id)
+            _1688_cat_id = str(rts.get("cateId", "") or "")
 
-            # ── Extract 1688 category_id for HS code lookup ──
-            _1688_cat_id = str(src_data.get("category_id", "") or "")
-            if not _1688_cat_id:
-                rts = src_data.get("runtimeSkuData") or {}
-                _1688_cat_id = str(rts.get("cateId", "") or "")
+        # ── Populate image_urls from reuse_images (fix-wrong-products flow) ──
+        _reuse_urls: dict[str, str] = {}
+        if skip_images and reuse_images:
+            IMG_SLOTS = [
+                "main_image", "multi_info", "detail", "social_proof",
+                "scene_1", "scene_2", "scene_3", "comparison",
+                "multi_angle", "white_bg",
+            ]
+            for i, url in enumerate(reuse_images):
+                if i < len(IMG_SLOTS):
+                    _reuse_urls[IMG_SLOTS[i]] = url
+                else:
+                    _reuse_urls[f"extra_{i}"] = url
+            logger.info("Reusing %d existing images, mapped to %d slots",
+                    len(reuse_images), len(_reuse_urls))
 
-            # ── Populate image_urls from reuse_images (fix-wrong-products flow) ──
-            _reuse_urls: dict[str, str] = {}
-            if skip_images and reuse_images:
-                IMG_SLOTS = [
-                    "main_image", "multi_info", "detail", "social_proof",
-                    "scene_1", "scene_2", "scene_3", "comparison",
-                    "multi_angle", "white_bg",
-                ]
-                for i, url in enumerate(reuse_images):
-                    if i < len(IMG_SLOTS):
-                        _reuse_urls[IMG_SLOTS[i]] = url
-                    else:
-                        _reuse_urls[f"extra_{i}"] = url
-                logger.info("Reusing %d existing images, mapped to %d slots",
-                        len(reuse_images), len(_reuse_urls))
+        ctx = PipelineContext(
+            task_id=result['task_id'],
+            item_id=str(item_id),
+            title=title or src_data.get('title', ''),
+            description=description or '',
+            category_query=category_query or '',
+            cost_cny=_parse_price(src_data.get('price', '')),
+            weight_g=src_data.get('weight_grams') or 500,
+            depth=pkg.get('depth', 0) or 60,
+            width=pkg.get('width', 0) or 60,
+            height=pkg.get('height', 0) or 80,
+            images=get_best_product_images(src_data.get('images', []), limit=10),
+            source_attrs=src_data.get('attributes', []),
+            selling_points=src_data.get('selling_points', []),
+            variants=variants,
+            sku_id=sku_id,
+            ozon_client_id=ozon_creds['client_id'],
+            ozon_api_key=ozon_creds['api_key'],
+            mxou_token=_get_mxou_token() or _get_token(),
+            store_id=store_id or '',
+            shipping_provider=shipping_provider,
+            shipping_service=shipping_service,
+            margin_rate=margin_rate,
+            commission_rate=commission_rate,
+            fx_buffer=fx_buffer,
+            packaging_cost_cny=packaging_cost_cny,
+            category=resolved_category,  # Pre-resolved category (may be None)
+            _1688_category_id=_1688_cat_id,
+            skip_images=skip_images,
+            image_urls=_reuse_urls,
+        )
 
-            ctx = PipelineContext(
-                task_id=result['task_id'],
-                item_id=str(item_id),
-                title=title or src_data.get('title', ''),
-                description=description or '',
-                category_query=category_query or '',
-                cost_cny=_parse_price(src_data.get('price', '')),
-                weight_g=src_data.get('weight_grams') or 500,
-                depth=pkg.get('depth', 0) or 60,
-                width=pkg.get('width', 0) or 60,
-                height=pkg.get('height', 0) or 80,
-                images=get_best_product_images(src_data.get('images', []), limit=10),
-                source_attrs=src_data.get('attributes', []),
-                selling_points=src_data.get('selling_points', []),
-                variants=variants,
-                sku_id=sku_id,
-                ozon_client_id=ozon_creds['client_id'],
-                ozon_api_key=ozon_creds['api_key'],
-                mxou_token=_get_mxou_token() or _get_token(),
-                store_id=store_id or '',
-                shipping_provider=shipping_provider,
-                shipping_service=shipping_service,
-                margin_rate=margin_rate,
-                commission_rate=commission_rate,
-                fx_buffer=fx_buffer,
-                packaging_cost_cny=packaging_cost_cny,
-                category=resolved_category,  # Pre-resolved category (may be None)
-                _1688_category_id=_1688_cat_id,
-                skip_images=skip_images,
-                image_urls=_reuse_urls,
-            )
+        # Run full pipeline
+        ok = run_pipeline(ctx)
+        result['ok'] = ok
+        result['stage'] = ctx.stages.get('Status', ctx.stages.get('Import', 'unknown'))
+        result['ozon_task_id'] = ctx.ozon_task_id or None
+        result['product_id'] = ctx.product_id or None
+        result['offer_id'] = ctx.offer_id or None
+        result['pipeline'] = {
+            'status': result['stage'],
+            'stages': ctx.stages,
+            'errors': ctx.errors,
+            'warnings': ctx.warnings,
+            'ozon_task_id': ctx.ozon_task_id,
+            'product_id': ctx.product_id,
+            'pricing': ctx.pricing,
+            'image_count': len(ctx.image_urls),
+        }
 
-            # Run full pipeline
-            ok = run_pipeline(ctx)
-            result['ok'] = ok
-            result['stage'] = ctx.stages.get('Status', ctx.stages.get('Import', 'unknown'))
-            result['ozon_task_id'] = ctx.ozon_task_id or None
-            result['product_id'] = ctx.product_id or None
-            result['offer_id'] = ctx.offer_id or None
-            result['pipeline'] = {
-                'status': result['stage'],
-                'stages': ctx.stages,
-                'errors': ctx.errors,
-                'warnings': ctx.warnings,
-                'ozon_task_id': ctx.ozon_task_id,
-                'product_id': ctx.product_id,
-                'pricing': ctx.pricing,
-                'image_count': len(ctx.image_urls),
-            }
+        if ok:
+            logger.info("Pipeline succeeded: task_id=%s ozon_task_id=%s product_id=%s",
+                    result['task_id'], ctx.ozon_task_id, ctx.product_id)
+        else:
+            logger.warning("Pipeline completed with issues: task_id=%s errors=%d warnings=%d",
+                        result['task_id'], len(ctx.errors), len(ctx.warnings))
 
-            if ok:
-                logger.info("Pipeline succeeded: task_id=%s ozon_task_id=%s product_id=%s",
-                        result['task_id'], ctx.ozon_task_id, ctx.product_id)
-            else:
-                logger.warning("Pipeline completed with issues: task_id=%s errors=%d warnings=%d",
-                            result['task_id'], len(ctx.errors), len(ctx.warnings))
-
-            _log_task(task_id, 'pipeline', 'done', 'info' if ok else 'warn',
-                    f'Pipeline {result["stage"]} (errors={len(ctx.errors)} warnings={len(ctx.warnings)})',
-                    {'stages': ctx.stages, 'image_count': len(ctx.image_urls)})
-        except Exception as e:
-            logger.exception('Pipeline failed: %s', e)
-            result['ok'] = False
-            result['stage'] = 'pipeline_error'
-            result['error'] = str(e)[:200]
-            _log_task(task_id, 'pipeline', 'error', 'error', f'Pipeline exception: {e}')
+        _log_task(task_id, 'pipeline', 'done', 'info' if ok else 'warn',
+                f'Pipeline {result["stage"]} (errors={len(ctx.errors)} warnings={len(ctx.warnings)})',
+                {'stages': ctx.stages, 'image_count': len(ctx.image_urls)})
     else:
         result['note'] = 'poll=False — pipeline not run. Call with poll=True to run local pipeline.'
         result['ok'] = True
