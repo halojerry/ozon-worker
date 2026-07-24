@@ -522,11 +522,21 @@ def scrape_ozon_product_via_cdp(
             if js_hashtags:
                 result["hashtags"] = [h.strip() for h in js_hashtags.split(",") if h.strip()]
 
-            # Extract description from meta tags
+            # Extract description from JSON-LD (real product description, not marketing)
+            # JSON-LD description contains actual product specs (capacity, material, size, etc.)
+            # Meta description is Ozon's generic marketing text - NOT useful
             js_desc = _cdp_eval(ws, """
                 (function() {
-                    var m = document.querySelector('meta[name=\"description\"]');
-                    return m ? m.getAttribute('content') : '';
+                    var s = document.querySelector('script[type="application/ld+json"]');
+                    if (s) {
+                        try {
+                            var d = JSON.parse(s.textContent);
+                            return d.description || '';
+                        } catch(e) {}
+                    }
+                    // Fallback: description widget
+                    var el = document.querySelector('[data-widget="webDescription"]');
+                    return el ? el.innerText.substring(0, 500) : '';
                 })()
             """) or ""
             if js_desc and len(js_desc) > 20:
