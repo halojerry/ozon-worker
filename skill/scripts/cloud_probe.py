@@ -1909,8 +1909,10 @@ def publish_product_new(
     # 5. Run local pipeline (DAG-based, replaces n8n cloud workflow)
     if poll:
         _log_task(task_id, 'pipeline', 'start', 'info', 'Starting local Python pipeline')
-        # pipeline module removed (legacy)
-        from scripts.lib.pipeline import PipelineContext, run_pipeline
+        try:
+            from scripts.lib.pipeline import PipelineContext, run_pipeline
+        except ImportError:
+            return {"success": False, "error": "pipeline 模块未安装（旧版功能，已废弃）", "item_id": ""}
 
         src_data = result['enriched']
         pkg = (src_data.get('packaging_rows') or [{}])[0]
