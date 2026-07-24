@@ -278,3 +278,16 @@ WORKER_URL=http://localhost:8080
 - 首次使用需手动登录 1688 和访问 Ozon（建立登录态/DataDome 信任）
 - 以图搜款准确率 ~100%，但部分小众品类可能匹配不到
 - Ozon 不提供重量/尺寸，从 1688 获取
+
+## 源码保护（可选）
+
+核心库可通过 Cython 编译为二进制，保护源码：
+
+```bash
+cd skill/
+pip3 install cython setuptools
+python3 compile.py
+```
+
+编译后输出到 `dist/` 目录，可直接分发给用户。
+
