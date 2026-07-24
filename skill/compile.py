@@ -99,11 +99,16 @@ def compile_file(py_file: str, build_dir: str) -> bool:
     """编译单个 .py 文件为 .so/.pyd"""
     import subprocess
     try:
-        setup_content = f'''
-from setuptools import setup, Extension
-from Cython.Build import cythonize
-setup(ext_modules=cythonize([Extension("{Path(py_file).stem}", ["{py_file}"])]))
-'''
+        # Normalize paths to forward slashes (Windows compatibility)
+        py_file_posix = Path(py_file).as_posix()
+        build_dir_posix = Path(build_dir).as_posix()
+        stem = Path(py_file).stem
+
+        setup_content = (
+            'from setuptools import setup, Extension\n'
+            'from Cython.Build import cythonize\n'
+            f'setup(ext_modules=cythonize([Extension("{stem}", ["{py_file_posix}"])]))\n'
+        )
         setup_file = Path(py_file).parent / "_setup_temp.py"
         setup_file.write_text(setup_content)
 
@@ -111,7 +116,8 @@ setup(ext_modules=cythonize([Extension("{Path(py_file).stem}", ["{py_file}"])]))
         os.chdir(str(Path(py_file).parent.parent))
 
         result = subprocess.run(
-            [sys.executable, str(setup_file), "build_ext", f"--build-lib={build_dir}", f"--build-temp={build_dir}/temp"],
+            [sys.executable, str(setup_file), "build_ext",
+             f"--build-lib={build_dir_posix}", f"--build-temp={build_dir_posix}/temp"],
             capture_output=True, text=True, timeout=120
         )
 
