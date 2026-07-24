@@ -1,0 +1,132 @@
+name: Build Skill Binary Package
+
+on:
+  # 手动触发
+  workflow_dispatch:
+  # push 到 skill/ 目录时自动触发
+  push:
+    paths:
+      - 'skill/**'
+    branches: [main]
+
+jobs:
+  build-macos:
+    name: Build macOS (.so)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install cython setuptools
+          pip install -r skill/requirements.txt
+
+      - name: Compile Cython modules
+        working-directory: skill
+        run: python compile.py
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-darwin
+          path: skill/dist/scripts/lib/_native/darwin/
+          retention-days: 7
+
+  build-windows:
+    name: Build Windows (.pyd)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install cython setuptools
+          pip install -r skill/requirements.txt
+
+      - name: Compile Cython modules
+        working-directory: skill
+        run: python compile.py
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-win32
+          path: skill/dist/scripts/lib/_native/win32/
+          retention-days: 7
+
+  package:
+    name: Package unified binary
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install cython setuptools
+
+      - name: Build base dist (without native modules)
+        working-directory: skill
+        run: python compile.py
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: native-darwin
+          path: skill/dist/scripts/lib/_native/darwin/
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: native-win32
+          path: skill/dist/scripts/lib/_native/win32/
+
+      - name: Verify native modules
+        working-directory: skill/dist
+        run: |
+          echo "=== macOS ==="
+          ls -la scripts/lib/_native/darwin/ 2>/dev/null || echo "empty"
+          echo "=== Windows ==="
+          ls -la scripts/lib/_native/win32/ 2>/dev/null || echo "empty"
+
+      - name: Clean test data
+        working-directory: skill/dist
+        run: |
+          rm -f data/config/stores.json data/config/settings.json
+          find . -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+
+      - name: Create distributable package
+        working-directory: skill
+        run: |
+          VERSION=$(cat ../VERSION 2>/dev/null || echo "0.2.0")
+          tar czf "pounding-ozon-probe-v${VERSION}-py312.tar.gz" -C dist .
+          ls -lh "pounding-ozon-probe-v${VERSION}-py312.tar.gz"
+
+      - name: Upload final package
+        uses: actions/upload-artifact@v4
+        with:
+          name: pounding-ozon-probe-py312
+          path: skill/pounding-ozon-probe-*-py312.tar.gz
+          retention-days: 30
+
+      # 可选：自动创建 GitHub Release
+      - name: Create Release (on tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: skill/pounding-ozon-probe-*-py312.tar.gz
+          generate_release_notes: true

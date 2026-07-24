@@ -47,7 +47,7 @@ from scripts._errors import (
     ERR_CLOUD_TIMEOUT,
     ERR_CLOUD_FAILED,
 )
-from scripts.lib.config_store import load_env_file, init_sentry, capture_exception
+from scripts.lib.config_store import init_sentry, capture_exception
 from scripts.lib.reference_images import get_best_product_images
 from scripts.lib.task_paths import cleanup_old_files
 
@@ -67,12 +67,10 @@ if not logging.getLogger().handlers:
 
 logger = logging.getLogger(__name__)
 
-from scripts._const import _read_pounding_config
+from scripts.lib.config_store import get_mxou_token as _get_mxou_token
 
-# Load persisted user credentials from .env at import time so every
-# subsequent os.environ.get() picks them up.  Idempotent — existing
-# env vars are never overwritten.
-load_env_file()
+# Config is now in skill/data/config/ (stores.json + settings.json)
+# No .env loading needed.
 
 # Initialize Sentry for local skill error tracking (best-effort)
 init_sentry()
@@ -216,67 +214,26 @@ TASK_STATUS_PATH = _paths["task_status"]
 
 
 def _get_api_base() -> str:
-    return os.environ.get("MXOU_API_BASE", "").strip() or CLOUD_API_BASE
+    return CLOUD_API_BASE
 
 
 def _get_token() -> str:
-    """Resolve MXOU token: ENV → pounding config → prompt user."""
-    try:
-        from scripts.lib.config_store import resolve_credential
-        return resolve_credential(
-            "MXOU_TOKEN",
-            pounding_path="api.key",
-            prompt_label="MXOU API Key（用于 LLM 和图片生成）",
-        )
-    except ImportError:
-        pass
-    # Fallback: legacy resolution
-    token = os.environ.get("MXOU_TOKEN", "").strip()
-    if not token:
-        token = _read_pounding_config("api.key") or ""
-    if not token:
-        try:
-            from scripts.lib.config_store import get as _get
-            token = _get("MXOU_TOKEN", "")
-        except ImportError:
-            pass
-    return token
+    """Resolve MXOU token from config_store (settings.json + pounding fallback)."""
+    from scripts.lib.config_store import get_mxou_token
+    return get_mxou_token()
 
 
 def _get_ozon_credentials(store_id: str | None = None) -> dict[str, str]:
-    """Get Ozon credentials for a specific store.
+    """Get Ozon credentials from config_store (stores.json).
 
-    Priority: ENV > pounding config > prompt user.
-    Supports multi-store via store_id parameter.
-
-    Returns {"client_id": str, "api_key": str}
+    Returns {"client_id": str, "api_key": str}.
+    Returns empty strings if not configured.
     """
-    try:
-        from scripts.lib.config_store import get_store
-        store = get_store(store_id)
-        if store:
-            return {"client_id": store["client_id"], "api_key": store["api_key"]}
-    except ImportError:
-        pass
-
-    # Fallback: legacy resolution
-    cid = os.environ.get("OZON_CLIENT_ID", "").strip()
-    akey = os.environ.get("OZON_API_KEY", "").strip()
-
-    if not cid:
-        cid = _read_pounding_config("ozon.client_id") or ""
-    if not akey:
-        akey = _read_pounding_config("ozon.api_key") or ""
-
-    if not cid or not akey:
-        try:
-            from scripts.lib.config_store import get as _get
-            cid = cid or _get("OZON_CLIENT_ID", "")
-            akey = akey or _get("OZON_API_KEY", "")
-        except ImportError:
-            pass
-
-    return {"client_id": cid, "api_key": akey}
+    from scripts.lib.config_store import get_ozon_credentials
+    creds = get_ozon_credentials(store_id or "")
+    if creds:
+        return creds
+    return {"client_id": "", "api_key": ""}
 
 
 def _cloud_post(url: str, body: dict[str, Any], *, timeout_sec: int = 60, headers: dict[str, str] | None = None, max_retries: int = 3) -> dict[str, Any]:
@@ -385,7 +342,7 @@ def build_envelope(
     ozon = _get_ozon_credentials()
     resolved_extensions.setdefault("ozon_client_id", ozon["client_id"])
     # ozon_api_key removed — Auth node looks up credentials from Supabase users table
-    mxou_token = _read_pounding_config("api.key") or os.environ.get("MXOU_IMAGE_TOKEN", "")
+    mxou_token = _get_mxou_token()
     resolved_extensions.setdefault("mxou_token", mxou_token)
     if store_id:
         resolved_extensions.setdefault("store_id", store_id)
@@ -1563,7 +1520,7 @@ def build_graph_envelope(
     }
 
     # ── 7. 组装 GraphInput ──
-    mxou_token = _read_pounding_config("api.key") or os.environ.get("MXOU_IMAGE_TOKEN", "") or _get_token()
+    mxou_token = _get_mxou_token() or _get_token()
     return {
         "token": mxou_token,
         "ozon_client_id": ozon_creds["client_id"],
@@ -2564,7 +2521,7 @@ def publish_product_new(
                 sku_id=sku_id,
                 ozon_client_id=ozon_creds['client_id'],
                 ozon_api_key=ozon_creds['api_key'],
-                mxou_token=_read_pounding_config("api.key") or os.environ.get("MXOU_IMAGE_TOKEN", "") or _get_token(),
+                mxou_token=_get_mxou_token() or _get_token(),
                 store_id=store_id or '',
                 shipping_provider=shipping_provider,
                 shipping_service=shipping_service,
@@ -3044,31 +3001,32 @@ def _search_1688_with_fallback(search_kw: str) -> list[dict[str, Any]]:
     return []
 
 
-def follow_sell_cloud(ozon_url: str, auto_submit: bool = False) -> dict[str, Any]:
+def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = "") -> dict[str, Any]:
     """
     跟卖 Ozon 商品 (v9: Skill 不调 Ozon API, import-by-sku 移到 Worker):
       1. CDP 抓取 Ozon 商品页 → 拿到竞品图片 + 标题
       2. LLM 翻译标题 → 1688 搜索同款
       3. CDP 探针 1688 → 采购成本 + 规格
       4. (auto_submit) 组装 GraphInput(follow_sell=true) → Worker 跟卖管线
-    
+
     Returns: {success, product_id, slug, images, title, 1688_matches, task_id}
     """
     import re, requests as req
-    
+
     # Step 1: 解析 Ozon URL
     parsed = parse_ozon_url(ozon_url)
     if not parsed or not parsed.get("product_id"):
         return {"success": False, "error": "无法解析 Ozon URL"}
-    
+
     product_id = parsed["product_id"]
     m = re.search(r'/product/(.+?)-(\d{6,15})/', ozon_url)
     slug = m.group(1).replace("-", " ") if m else ""
-    
-    ozon_creds = _get_ozon_credentials()
+
+    ozon_creds = _get_ozon_credentials(store_id)
     client_id = ozon_creds.get("client_id", "")
     api_key = ozon_creds.get("api_key", "")
-    mxou_token = os.getenv("MXOU_TOKEN", "")
+    from scripts.lib.config_store import get_mxou_token
+    mxou_token = get_mxou_token()
     
     result: dict[str, Any] = {
         "success": False, "product_id": product_id, "slug": slug,

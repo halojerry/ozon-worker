@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""Local configuration store for pounding-ozon-hybrid.
+"""Unified configuration store for pounding-ozon-probe.
 
-Credential tiers:
-  Tier 1 (dist) — distribution-level, bundled with the skill:
-    MXOU_TOKEN → ~/.pounding/config.json (read-only, never written to .env)
+All config lives in skill/data/config/:
+  stores.json   — Ozon multi-store credentials (client_id + api_key)
+  settings.json — 1688 AK + MXOU_TOKEN + other settings
 
-  Tier 2 (user) — user-level, persisted across conversations:
-    ALI_1688_AK, OZON_CLIENT_ID, OZON_API_KEY, MXOU_IMAGE_TOKEN
-    → .env file or environment variables
-    → When user provides them, write to .env so they survive context loss
+No .env fallback. Single source of truth.
 """
 from __future__ import annotations
 
@@ -20,174 +17,242 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from scripts._const import CONFIG_DIR, CONFIG_FILE, LEGACY_CONFIG_FILE, SKILL_ROOT
+from scripts._const import CONFIG_DIR, SKILL_ROOT
 
-# ---------------------------------------------------------------------------
-# .env persistence (user credentials)
-# ---------------------------------------------------------------------------
-ENV_FILE = SKILL_ROOT / '.env'
+# Config file paths
+STORES_FILE = CONFIG_DIR / 'stores.json'
+SETTINGS_FILE = CONFIG_DIR / 'settings.json'
 
-# Keys that belong to the user tier (writable to .env)
-_USER_TIER_KEYS = frozenset({'ALI_1688_AK', 'OZON_CLIENT_ID', 'OZON_API_KEY'})
-
-# Keys that belong to the distribution tier (never written to .env)
-# MXOU_TOKEN, MXOU_IMAGE_TOKEN — both come from ~/.pounding/config.json api.key
-_DIST_TIER_KEYS = frozenset({'MXOU_TOKEN', 'MXOU_IMAGE_TOKEN'})
+# Ensure config directory exists
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_env_file() -> None:
-    """Load .env file into os.environ (idempotent — won't override existing vars).
+# ═══════════════════════════════════════════════════════════════════════════
+# stores.json — Ozon multi-store management
+# ═══════════════════════════════════════════════════════════════════════════
 
-    Called once at module-import time by cloud_client.py so that every
-    subsequent os.environ.get() picks up persisted user credentials.
-    """
-    if not ENV_FILE.is_file():
-        return
-    for line in ENV_FILE.read_text(encoding='utf-8').splitlines():
-        line = line.strip()
-        if not line or line.startswith('#') or '=' not in line:
-            continue
-        key, _, val = line.partition('=')
-        key, val = key.strip(), val.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = val
-
-
-def write_env_file(key: str, value: str) -> None:
-    """Upsert a KEY=VALUE pair into the .env file.
-
-    Only user-tier keys are accepted.  Distribution-tier keys (MXOU_TOKEN)
-    raise ValueError — they must live in ~/.pounding/config.json only.
-    """
-    if key in _DIST_TIER_KEYS:
-        raise ValueError(
-            f'{key} 是分发级凭证，只能通过 ~/.pounding/config.json 配置，不能写入 .env'
-        )
-    if key not in _USER_TIER_KEYS:
-        raise ValueError(f'{key} 不是已知的用户级凭证，不能写入 .env')
-
-    lines: list[str] = []
-    found = False
-    if ENV_FILE.is_file():
-        for line in ENV_FILE.read_text(encoding='utf-8').splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith('#'):
-                lines.append(line)
-                continue
-            if '=' in stripped:
-                k, _, _ = stripped.partition('=')
-                if k.strip() == key:
-                    lines.append(f'{key}={value}')
-                    found = True
-                    continue
-            lines.append(line)
-
-    if not found:
-        lines.append(f'{key}={value}')
-
-    ENV_FILE.write_text('\n'.join(lines) + '\n', encoding='utf-8')
-    os.environ[key] = value
-
-
-# ---------------------------------------------------------------------------
-# JSON config file (legacy + distribution tier)
-# ---------------------------------------------------------------------------
-
-def load_config(config_path: Path | None = None) -> dict[str, Any]:
-    path = config_path or CONFIG_FILE
-    if path.is_file():
+def _load_stores_file() -> dict[str, Any]:
+    """Load stores.json. Returns {"default": "...", "stores": {...}}."""
+    if STORES_FILE.is_file():
         try:
-            return json.loads(path.read_text(encoding='utf-8'))
+            return json.loads(STORES_FILE.read_text(encoding='utf-8'))
         except (json.JSONDecodeError, OSError):
             pass
-    # Fallback to legacy config
-    legacy = LEGACY_CONFIG_FILE
-    if legacy.is_file():
+    return {"default": "", "stores": {}}
+
+
+def _save_stores_file(data: dict[str, Any]) -> None:
+    """Save stores.json."""
+    STORES_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+def list_stores() -> dict[str, dict[str, str]]:
+    """Return all configured stores. Keys are store names, values have client_id/api_key/currency."""
+    data = _load_stores_file()
+    stores = data.get("stores", {})
+    return {k: v for k, v in stores.items() if isinstance(v, dict)}
+
+
+def get_store(store_id: str = "") -> dict[str, str] | None:
+    """Get a specific store by name. Returns None if not found.
+
+    If store_id is empty, returns the default store.
+    """
+    data = _load_stores_file()
+    stores = data.get("stores", {})
+    if not store_id:
+        store_id = data.get("default", "")
+    if not store_id:
+        # Return first store if no default
+        for sid, profile in stores.items():
+            if isinstance(profile, dict):
+                return profile
+        return None
+    store = stores.get(str(store_id))
+    if isinstance(store, dict):
+        return store
+    return None
+
+
+def set_store(store_id: str, client_id: str, api_key: str,
+              currency: str = "", shipping_provider: str = "", shipping_service: str = "") -> dict[str, Any]:
+    """Upsert a store profile."""
+    data = _load_stores_file()
+    if "stores" not in data or not isinstance(data.get("stores"), dict):
+        data["stores"] = {}
+
+    store = data["stores"].get(str(store_id), {})
+    if not isinstance(store, dict):
+        store = {}
+
+    store["client_id"] = client_id
+    store["api_key"] = api_key
+    if currency:
+        store["currency"] = currency
+    if shipping_provider:
+        store["shipping_provider"] = shipping_provider
+    if shipping_service:
+        store["shipping_service"] = shipping_service
+
+    data["stores"][str(store_id)] = store
+
+    # Set as default if it's the first store
+    if not data.get("default") or len(data["stores"]) == 1:
+        data["default"] = str(store_id)
+
+    _save_stores_file(data)
+    return store
+
+
+def remove_store(store_id: str) -> bool:
+    """Remove a store. Returns True if removed."""
+    data = _load_stores_file()
+    stores = data.get("stores", {})
+    if str(store_id) in stores:
+        del stores[str(store_id)]
+        # Clear default if it was the removed store
+        if data.get("default") == str(store_id):
+            data["default"] = next(iter(stores), "") if stores else ""
+        _save_stores_file(data)
+        return True
+    return False
+
+
+def set_default_store(store_id: str) -> bool:
+    """Set the default store. Returns True if set."""
+    data = _load_stores_file()
+    if str(store_id) in data.get("stores", {}):
+        data["default"] = str(store_id)
+        _save_stores_file(data)
+        return True
+    return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# settings.json — AK + MXOU_TOKEN + other settings
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _load_settings_file() -> dict[str, Any]:
+    """Load settings.json."""
+    if SETTINGS_FILE.is_file():
         try:
-            return json.loads(legacy.read_text(encoding='utf-8'))
+            return json.loads(SETTINGS_FILE.read_text(encoding='utf-8'))
         except (json.JSONDecodeError, OSError):
             pass
     return {}
 
 
-def save_config(config: dict[str, Any], config_path: Path | None = None) -> None:
-    path = config_path or CONFIG_FILE
-    path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
+def _save_settings_file(data: dict[str, Any]) -> None:
+    """Save settings.json."""
+    SETTINGS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
-def get(key: str, default: Any = None) -> Any:
-    return load_config().get(key, default)
+def get_setting(key: str, default: Any = None) -> Any:
+    """Get a setting value by key."""
+    return _load_settings_file().get(key, default)
 
 
-def set_key(key: str, value: Any) -> None:
-    config = load_config()
-    config[key] = value
-    save_config(config)
+def set_setting(key: str, value: Any) -> None:
+    """Set a setting value."""
+    data = _load_settings_file()
+    data[key] = value
+    _save_settings_file(data)
 
 
-# ---------------------------------------------------------------------------
-# Credential introspection
-# ---------------------------------------------------------------------------
+def remove_setting(key: str) -> bool:
+    """Remove a setting. Returns True if removed."""
+    data = _load_settings_file()
+    if key in data:
+        del data[key]
+        _save_settings_file(data)
+        return True
+    return False
 
-def get_required_keys() -> dict[str, dict[str, str]]:
-    """Return credential metadata keyed by env-var name.
 
-    Each value is a dict with:
-      label  — human-readable Chinese name
-      tier   — 'dist' (distribution, read-only) or 'user' (persisted to .env)
-      source — where the value is resolved from
+# ═══════════════════════════════════════════════════════════════════════════
+# Credential resolution
+# ═══════════════════════════════════════════════════════════════════════════
+
+def get_ali_1688_ak() -> str:
+    """Get 1688 AK from settings.json."""
+    return str(get_setting("ali_1688_ak", "")).strip()
+
+
+def set_ali_1688_ak(ak: str) -> None:
+    """Save 1688 AK to settings.json."""
+    set_setting("ali_1688_ak", ak)
+
+
+def get_mxou_token() -> str:
+    """Get MXOU_TOKEN. Try ~/.pounding/config.json first, then settings.json."""
+    # 1. Try ~/.pounding/config.json (auto-read, no user action needed)
+    pounding = _load_pounding_config()
+    api_section = pounding.get("api", {}) if isinstance(pounding.get("api"), dict) else {}
+    token = str(api_section.get("key", "")).strip()
+    if token:
+        # Auto-save to our settings.json for future use
+        current = get_setting("mxou_token", "")
+        if current != token:
+            set_setting("mxou_token", token)
+        return token
+
+    # 2. Try settings.json
+    token = str(get_setting("mxou_token", "")).strip()
+    return token
+
+
+def set_mxou_token(token: str) -> None:
+    """Save MXOU_TOKEN to settings.json."""
+    set_setting("mxou_token", token)
+
+
+def get_ozon_credentials(store_id: str = "") -> dict[str, str] | None:
+    """Get Ozon credentials for a specific store.
+
+    Returns {"client_id": "...", "api_key": "..."} or None if not configured.
+    If store_id is empty, uses the default store.
     """
-    return {
-        'MXOU_TOKEN':        {'label': '平台 Token（云端认证）',       'tier': 'dist', 'source': '~/.pounding/config.json'},
-        'ALI_1688_AK':       {'label': '1688 AK（本地搜索用）',       'tier': 'user', 'source': '.env 或环境变量'},
-        'OZON_CLIENT_ID':    {'label': 'Ozon Client ID（上架用）',    'tier': 'user', 'source': '.env 或环境变量'},
-        'OZON_API_KEY':      {'label': 'Ozon API Key（上架用）',      'tier': 'user', 'source': '.env 或环境变量'},
-        'MXOU_IMAGE_TOKEN':  {'label': 'mxou 图片生成 Token（AI 生图，同 api.key）', 'tier': 'dist', 'source': '~/.pounding/config.json（api.key）'},
-    }
+    store = get_store(store_id)
+    if store and store.get("client_id") and store.get("api_key"):
+        return {"client_id": store["client_id"], "api_key": store["api_key"]}
+    return None
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Config check — diagnostics for `check` command
+# ═══════════════════════════════════════════════════════════════════════════
 
 def check_config() -> dict[str, Any]:
-    """Check which required config values are missing.
-
-    Resolution order (per credential):
-      - dist tier: ~/.pounding/config.json (api.key) first, then env fallback
-      - user tier: os.environ first, then .env file, then runtime_config.json fallback
+    """Check which required config values are present/missing.
 
     Returns:
-        {"missing": [...], "present": [...], "by_tier": {"dist": {...}, "user": {...}},
+        {"missing": [...], "present": [...], "stores": {...},
          "user_action": str | None,
-         "cdp": {"browser_available": bool, "cdp_running": bool,
-                 "login_required": bool, "auto_launch": bool,
-                 "user_action": str | None}}  ← CDP browser probe readiness
+         "cdp": {...}}
     """
-    config = load_config()
-    pounding_config = _load_pounding_config()
-    required = get_required_keys()
     missing: list[str] = []
     present: list[str] = []
-    by_tier: dict[str, dict[str, bool]] = {'dist': {}, 'user': {}}
 
-    for key, meta in required.items():
-        tier = meta['tier']
-        if tier == 'dist':
-            api_section = pounding_config.get('api', {}) if isinstance(pounding_config.get('api'), dict) else {}
-            val = str(api_section.get('key', '')).strip()
-            if not val:
-                val = os.environ.get(key, '').strip()
-        else:
-            val = os.environ.get(key, config.get(key, '')).strip()
+    # Check MXOU_TOKEN
+    if get_mxou_token():
+        present.append("MXOU_TOKEN")
+    else:
+        missing.append("MXOU_TOKEN")
 
-        if val:
-            present.append(key)
-            by_tier.setdefault(tier, {})[key] = True
-        else:
-            missing.append(key)
-            by_tier.setdefault(tier, {})[key] = False
+    # Check 1688 AK
+    if get_ali_1688_ak():
+        present.append("ALI_1688_AK")
+    else:
+        missing.append("ALI_1688_AK")
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # CDP Browser Probe pre-check — tells agent whether it can extract
-    # product images from 1688 detail pages.
-    # ═══════════════════════════════════════════════════════════════════════
+    # Check Ozon stores
+    stores = list_stores()
+    if stores:
+        present.append(f"OZON_STORES({len(stores)})")
+    else:
+        missing.append("OZON_STORES")
+
+    # CDP browser probe
     cdp_status: dict[str, Any] = {
         'browser_available': False,
         'browser_path': None,
@@ -221,73 +286,73 @@ def check_config() -> dict[str, Any]:
     except Exception as e:
         logger.debug('CDP probe status check failed: %s', e)
 
-    # Build user_action — exactly what the user needs to do manually.
-    # NEVER write keys programmatically (Claude Code sanitizes sk-* keys).
+    # Build user_action
     user_action = None
-    dist_missing = [k for k in missing if required[k]['tier'] == 'dist']
-    user_missing = [k for k in missing if required[k]['tier'] == 'user']
-
-    if dist_missing:
-        lines = [
-            "请手动设置平台 Token（在终端运行）：",
-            "",
-            '  export MXOU_TOKEN="sk-你的密钥"',
-            "",
-            "或者创建 ~/.pounding/config.json：",
-            "",
-            '  mkdir -p ~/.pounding',
-            "  echo '{\"api\":{\"key\":\"sk-你的密钥\"}}' > ~/.pounding/config.json",
-            "",
-            "⚠️ 注意：MXOU_TOKEN 绝不能在对话中明文传递，请在终端手动操作。",
-        ]
+    if missing:
+        lines = ["请配置以下凭证：", ""]
+        for k in missing:
+            if k == "MXOU_TOKEN":
+                lines.append("  python3 scripts/cli.py set_token --token <你的token>")
+            elif k == "ALI_1688_AK":
+                lines.append("  python3 scripts/cli.py get_ak  # 自动获取")
+                lines.append("  # 或手动设置:")
+                lines.append("  python3 scripts/cli.py set_ak --ak <你的AK>")
+            elif k == "OZON_STORES":
+                lines.append('  python3 scripts/cli.py set_store --name "店铺名" --client-id <ID> --api-key <KEY>')
         user_action = "\n".join(lines)
-
-    if user_missing:
-        lines = [
-            "请设置以下配置（在终端运行）：",
-            "",
-        ]
-        for k in user_missing:
-            label = required[k]['label']
-            lines.append(f'  export {k}="你的{label}"')
-        lines.append("")
-        lines.append("或通过 AI 助手写入 .env 文件（非敏感配置）：'设置 {key}={value}'")
-        if not dist_missing:
-            user_action = "\n".join(lines)
-        else:
-            user_action = user_action + "\n\n" + "\n".join(lines)
 
     return {
         'missing': missing,
         'present': present,
-        'by_tier': by_tier,
+        'stores': {name: {"has_client_id": bool(s.get("client_id")), "has_api_key": bool(s.get("api_key"))}
+                   for name, s in stores.items()},
         'user_action': user_action,
         'cdp': cdp_status,
     }
 
 
-# ---------------------------------------------------------------------------
-# Sentry (best-effort error tracking for local skill)
-# ---------------------------------------------------------------------------
+# ═══════════════════════════════════════════════════════════════════════════
+# Utility
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _load_pounding_config() -> dict[str, Any]:
+    """Load ~/.pounding/config.json (for auto-reading MXOU_TOKEN only)."""
+    pounding_path = Path.home() / '.pounding' / 'config.json'
+    if pounding_path.is_file():
+        try:
+            return json.loads(pounding_path.read_text(encoding='utf-8'))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def get_store_profile(store_id: str = "") -> dict[str, str]:
+    """Get store-specific config (currency, shipping) from stores.json.
+
+    Returns dict with keys: currency, shipping_provider, shipping_service.
+    Returns empty dict if store not configured.
+    """
+    store = get_store(store_id)
+    if not store:
+        return {}
+    return {k: v for k, v in store.items()
+            if k in ('currency', 'shipping_provider', 'shipping_service') and isinstance(v, str)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Sentry (best-effort error tracking)
+# ═══════════════════════════════════════════════════════════════════════════
 
 _SENTRY_INITIALIZED = False
 
-def init_sentry() -> bool:
-    """Initialize Sentry SDK for local skill error tracking.
 
-    Reads SENTRY_DSN from environment or ~/.pounding/config.json.
-    Best-effort — silently returns False if sentry-sdk not installed
-    or DSN not configured.
-    """
+def init_sentry() -> bool:
+    """Initialize Sentry SDK. Reads DSN from settings.json."""
     global _SENTRY_INITIALIZED
     if _SENTRY_INITIALIZED:
         return True
 
-    dsn = os.environ.get('SENTRY_DSN', '').strip()
-    if not dsn:
-        pounding = _load_pounding_config()
-        sentry_cfg = pounding.get('sentry', {}) if isinstance(pounding.get('sentry'), dict) else {}
-        dsn = str(sentry_cfg.get('dsn', '')).strip()
+    dsn = str(get_setting("sentry_dsn", "")).strip()
     if not dsn:
         logger.debug('Sentry DSN not configured — error tracking disabled')
         return False
@@ -324,69 +389,23 @@ def capture_exception(exc: BaseException | None = None, **extra: Any) -> None:
         pass
 
 
-def _sync_to_dotenv(env_path: Path, key: str, value: str) -> None:
-    """Write or update a key=value line in .env file."""
-    lines: list[str] = []
-    found = False
-    if env_path.exists():
-        lines = env_path.read_text(encoding='utf-8').splitlines()
-    for i, line in enumerate(lines):
-        if line.strip().startswith(f'{key}=') or line.strip().startswith(f'# {key}='):
-            lines[i] = f'{key}={value}'
-            found = True
-            break
-    if not found:
-        lines.append(f'{key}={value}')
-    env_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+# ═══════════════════════════════════════════════════════════════════════════
+# Backward compatibility aliases (will be removed in future)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# These aliases exist to avoid breaking imports in files that haven't been updated yet.
+# They will be removed once all callers are migrated.
+
+def load_env_file() -> None:
+    """No-op. Config is now in stores.json/settings.json."""
+    pass
 
 
-def _load_pounding_config() -> dict[str, Any]:
-    """Load ~/.pounding/config.json (distribution-tier credentials)."""
-    pounding_path = Path.home() / '.pounding' / 'config.json'
-    if pounding_path.is_file():
-        try:
-            return json.loads(pounding_path.read_text(encoding='utf-8'))
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
-
-
-def get_store_profile(store_id: str = "") -> dict[str, str]:
-    """Get store-specific config (currency, shipping) from ~/.pounding/config.json.
-
-    Returns dict with keys: currency, shipping_provider, shipping_service.
-    Returns empty dict if store not configured.
-    If store_id is empty, returns the first store found.
-    """
-    cfg = _load_pounding_config()
-    stores = cfg.get('stores', {})
-    if not isinstance(stores, dict):
-        return {}
-    if store_id:
-        return {k: v for k, v in stores.get(str(store_id), {}).items() if isinstance(v, str)}
-    # Return first store if no specific ID given
-    for sid, profile in stores.items():
-        if isinstance(profile, dict):
-            return {k: v for k, v in profile.items() if isinstance(v, str)}
-    return {}
-
-
-def write_store_profile(store_id: str, currency: str = "", shipping_provider: str = "", shipping_service: str = "") -> dict[str, Any]:
-    """Upsert a store profile into ~/.pounding/config.json."""
-    pounding_path = Path.home() / '.pounding' / 'config.json'
-    pounding_path.parent.mkdir(parents=True, exist_ok=True)
-    cfg = _load_pounding_config()
-    if 'stores' not in cfg or not isinstance(cfg.get('stores'), dict):
-        cfg['stores'] = {}
-    store = cfg['stores'].get(str(store_id), {})
-    if not isinstance(store, dict):
-        store = {}
-    if currency:
-        store['currency'] = currency
-    if shipping_provider:
-        store['shipping_provider'] = shipping_provider
-    if shipping_service:
-        store['shipping_service'] = shipping_service
-    cfg['stores'][str(store_id)] = store
-    pounding_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
-    return store
+def get_required_keys() -> dict[str, dict[str, str]]:
+    """Return credential metadata. Kept for backward compatibility."""
+    return {
+        'MXOU_TOKEN':        {'label': '平台 Token（云端认证）',       'tier': 'dist', 'source': 'settings.json'},
+        'ALI_1688_AK':       {'label': '1688 AK（本地搜索用）',       'tier': 'user', 'source': 'settings.json'},
+        'OZON_CLIENT_ID':    {'label': 'Ozon Client ID（上架用）',    'tier': 'user', 'source': 'stores.json'},
+        'OZON_API_KEY':      {'label': 'Ozon API Key（上架用）',      'tier': 'user', 'source': 'stores.json'},
+    }

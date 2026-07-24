@@ -2,9 +2,18 @@
 """pounding-ozon-probe CLI — 1688 search + CDP probe + GraphInput assembly.
 
 Commands:
+check                    诊断前置条件（Chrome / 凭证 / Worker / Ozon API）
 search <关键词>          1688 搜索商品
 probe <URL>              CDP 浏览器探针抓取商品
 graph <URL|item_id>      组装 GraphInput envelope（不上架）
+follow --ozon-url <URL>  跟卖 Ozon 商品
+image_search --image <URL>  以图搜款
+get_ak                   自动获取 1688 AK
+set_store                配置 Ozon 店铺
+list_stores              列出所有店铺
+set_token                设置 MXOU_TOKEN
+set_ak                   设置 1688 AK
+batch_test               批量处理 URL 列表
 """
 
 from __future__ import annotations
@@ -21,7 +30,60 @@ def _out(obj: dict) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Commands
+# Config Commands
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def cmd_set_store(args: argparse.Namespace) -> int:
+    """配置 Ozon 店铺凭证."""
+    from scripts.lib.config_store import set_store
+    store = set_store(
+        store_id=args.name,
+        client_id=args.client_id,
+        api_key=args.api_key,
+        currency=args.currency or "",
+    )
+    _out({"success": True, "store": args.name, "config": store})
+    return 0
+
+
+def cmd_list_stores(args: argparse.Namespace) -> int:
+    """列出所有已配置的 Ozon 店铺."""
+    from scripts.lib.config_store import list_stores, get_store
+    stores = list_stores()
+    if not stores:
+        _out({"stores": {}, "message": "未配置任何店铺。使用 set_store 命令配置。"})
+        return 0
+
+    result = {}
+    for name, config in stores.items():
+        result[name] = {
+            "client_id": config.get("client_id", "")[:8] + "***" if config.get("client_id") else "",
+            "has_api_key": bool(config.get("api_key")),
+            "currency": config.get("currency", "RUB"),
+        }
+    _out({"stores": result, "total": len(stores)})
+    return 0
+
+
+def cmd_set_token(args: argparse.Namespace) -> int:
+    """设置 MXOU_TOKEN."""
+    from scripts.lib.config_store import set_mxou_token
+    set_mxou_token(args.token)
+    _out({"success": True, "message": "MXOU_TOKEN 已保存到 settings.json"})
+    return 0
+
+
+def cmd_set_ak(args: argparse.Namespace) -> int:
+    """设置 1688 AK."""
+    from scripts.lib.config_store import set_ali_1688_ak
+    set_ali_1688_ak(args.ak)
+    _out({"success": True, "message": "1688 AK 已保存到 settings.json"})
+    return 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Business Commands
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -80,6 +142,7 @@ def cmd_graph(args: argparse.Namespace) -> int:
             detail_url=detail_url,
             category_query=args.category_query,
             max_retries=args.retries,
+            store_id=args.store or "",
         )
     except ProductValidationError as e:
         _out({"error": str(e), "skipped": True, "item_id": item_id})
@@ -87,11 +150,10 @@ def cmd_graph(args: argparse.Namespace) -> int:
 
     # Summary + full envelope
     env = graph.get("envelope", {})
-    # 兼容三层结构: 如果 envelope 有 draft key，从中提取字段
     if isinstance(env, dict) and "draft" in env:
         draft = env.get("draft", {})
     else:
-        draft = env  # 扁平结构兼容
+        draft = env
     summary = {
         "item_id": draft.get("item_id"),
         "title": draft.get("title", "")[:80],
@@ -112,8 +174,6 @@ def cmd_graph(args: argparse.Namespace) -> int:
 def cmd_image_search(args) -> int:
     """以图搜款: 上传图片搜索 1688 同款/相似商品."""
     from scripts.lib.ak_1688_client import search_by_image
-    from scripts.lib.config_store import load_env_file
-    load_env_file()
 
     try:
         results = search_by_image(
@@ -151,25 +211,29 @@ def cmd_image_search(args) -> int:
 
 
 def cmd_get_ak(args) -> int:
-    """通过浏览器获取 1688 AK，自动保存到本地."""
+    """通过浏览器获取 1688 AK，自动保存到 settings.json."""
     from scripts.lib.ak_callback import get_ak_via_browser
-    from scripts.lib.config_store import load_env_file
-    load_env_file()
+    from scripts.lib.config_store import set_ali_1688_ak
 
     result = get_ak_via_browser(timeout=args.timeout)
+
+    # Auto-save AK if obtained successfully
+    if result.get("success") and result.get("ak"):
+        set_ali_1688_ak(result["ak"])
+        result["saved_to"] = "settings.json"
+
     _out(result)
     return 0 if result.get("success") else 1
 
 
 def cmd_check(args) -> int:
     """诊断前置条件：浏览器 / CDP / 1688 / Ozon / 凭证 / Worker"""
-    from scripts.lib.config_store import load_env_file, check_config
+    from scripts.lib.config_store import check_config, list_stores, get_mxou_token, get_ali_1688_ak
     from scripts.capabilities.browser_probe.service import _candidate_browser_paths
     import requests as req
     import os as _os
     import shutil
 
-    load_env_file()
     config = check_config()
     all_ok = True
 
@@ -181,7 +245,6 @@ def cmd_check(args) -> int:
     # ═══════════════════════════════════════════
     print("🖥️ 浏览器检测（需要 Chromium 内核，Firefox/Safari 不支持）:")
 
-    # 支持的 Chromium 内核浏览器（按优先级）
     BROWSER_NAMES: dict[str, list[str]] = {
         "Google Chrome": ["chrome", "google-chrome", "google-chrome-stable"],
         "Chromium": ["chromium", "chromium-browser"],
@@ -195,9 +258,9 @@ def cmd_check(args) -> int:
         "豆包浏览器": ["doubao", "doubao-browser"],
     }
 
-    found_browsers: list[tuple[str, str]] = []  # (name, path)
+    found_browsers: list[tuple[str, str]] = []
     candidates = _candidate_browser_paths()
-    
+
     for path in candidates:
         if not path or not path.strip():
             continue
@@ -210,13 +273,12 @@ def cmd_check(args) -> int:
                 break
         if not name:
             name = basename.title()
-        
+
         if _os.path.exists(path) or shutil.which(path):
             actual = shutil.which(path) or path
             if _os.path.exists(actual):
                 found_browsers.append((name, actual))
 
-    # Deduplicate
     seen = set()
     unique_browsers = []
     for name, path in found_browsers:
@@ -232,7 +294,6 @@ def cmd_check(args) -> int:
     else:
         print(f"  ❌ 未检测到可用浏览器")
         print(f"  → 请安装 Google Chrome: https://www.google.com/chrome/")
-        print(f"  → 安装后重新运行: python3 scripts/cli.py check")
         all_ok = False
         return 0 if all_ok else 1
 
@@ -241,7 +302,6 @@ def cmd_check(args) -> int:
     # ═══════════════════════════════════════════
     print(f"\n🔗 CDP 远程调试 (127.0.0.1:9222):")
 
-    # 自动启动 Chrome（如已运行则跳过）
     try:
         from scripts.lib.chrome_launcher import ensure_chrome_cdp, get_chrome_info
         info = get_chrome_info()
@@ -269,7 +329,6 @@ def cmd_check(args) -> int:
             session_ok = True
             print(f"  ✅ CDP 已启动")
     except ImportError:
-        # chrome_launcher 不可用，回退到原有逻辑
         cdp = config.get("cdp", {})
         session_ok = cdp.get("session_available", False) or cdp.get("cdp_running", False)
         print(f"  {_ok(session_ok)} CDP 已启动")
@@ -277,13 +336,12 @@ def cmd_check(args) -> int:
             print(f"  ⚠️ 自动启动模块不可用，请手动启动 Chrome:")
             print(f"  macOS: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\")
             print(f"    --remote-debugging-port=9222 --remote-allow-origins='*'")
-            print(f"  Windows: chrome.exe --remote-debugging-port=9222 --remote-allow-origins=\"*\"")
 
     cdp = config.get("cdp", {})
     login_ok = not cdp.get("login_required", True)
 
     # ═══════════════════════════════════════════
-    # 3. 1688 CDP 连通检查 + 登录检测（复用已有标签页，不创建新的）
+    # 3. 1688 CDP 连通检查 + 登录检测
     # ═══════════════════════════════════════════
     alibaba_cdp_ok = False
     if session_ok:
@@ -292,7 +350,6 @@ def cmd_check(args) -> int:
             import websocket as _ws
             import time as _time
 
-            # 查找已有的 1688 标签页（不创建新的）
             _1688_ws_url = None
             _tabs = req.get("http://127.0.0.1:9222/json", timeout=5).json()
             for _t in _tabs:
@@ -302,7 +359,6 @@ def cmd_check(args) -> int:
 
             if _1688_ws_url:
                 ws = _ws.create_connection(_1688_ws_url, timeout=10)
-                # 检查页面是否可访问
                 ws.send(json.dumps({"id":1,"method":"Runtime.evaluate",
                     "params":{"expression":"!!location.href && location.href.indexOf('1688.com')>=0 && location.href.indexOf('login.1688.com')<0","returnByValue":True}}))
                 ws.settimeout(8)
@@ -316,7 +372,6 @@ def cmd_check(args) -> int:
                         continue
                     except Exception:
                         break
-                # 同时检查登录状态（复用同一个连接）
                 if alibaba_cdp_ok:
                     ws.send(json.dumps({"id":2,"method":"Runtime.evaluate","params":{
                         "expression":"document.cookie.match(/cookie2=|__cn_logon__=/) ? 'LOGGED_IN' : 'NOT_LOGGED_IN'",
@@ -341,15 +396,12 @@ def cmd_check(args) -> int:
     else:
         print(f"\n  🔗 1688 CDP: ⏭️ 跳过（CDP 未启动）")
 
-    # 1688 登录状态显示
     if session_ok and alibaba_cdp_ok:
-        pass  # 登录检测已在上面完成
         print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
         if not login_ok:
             print(f"  → 在浏览器中打开 https://login.1688.com/ 登录")
             all_ok = False
     elif session_ok:
-        # CDP OK but1688 page not accessible, fall back to session flag
         print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
         if not login_ok:
             print(f"  → 在浏览器中打开 https://login.1688.com/ 登录")
@@ -411,24 +463,39 @@ def cmd_check(args) -> int:
         all_ok = False
 
     # ═══════════════════════════════════════════
-    # 5. 凭证 + Worker + Ozon API
+    # 5. 凭证检查
     # ═══════════════════════════════════════════
     print(f"\n📋 凭证:")
-    missing = config.get("missing", [])
-    by_tier = config.get("by_tier", {})
-    for tier, keys in by_tier.items():
-        for k, present in keys.items():
-            label = k
-            print(f"  {_ok(present)} {label}")
-    if missing:
-        print(f"  ⚠️ 缺失: {', '.join(missing)}")
-        all_ok = False
-    if config.get("user_action"):
-        # Only show user_action if there are actual missing keys
-        if missing:
-            print(f"\n{config['user_action']}")
 
-    worker_url = _os.environ.get("WORKER_URL", "http://localhost:8080").rstrip("/")
+    # MXOU_TOKEN
+    mxou = get_mxou_token()
+    print(f"  {_ok(bool(mxou))} MXOU_TOKEN")
+    if not mxou:
+        print(f"  → python3 scripts/cli.py set_token --token <你的token>")
+
+    # 1688 AK
+    ak = get_ali_1688_ak()
+    print(f"  {_ok(bool(ak))} 1688 AK")
+    if not ak:
+        print(f"  → python3 scripts/cli.py get_ak  # 自动获取")
+
+    # Ozon stores
+    stores = list_stores()
+    if stores:
+        print(f"  {_ok(True)} Ozon 店铺: {len(stores)} 个")
+        for name, cfg in stores.items():
+            cid = cfg.get("client_id", "")
+            print(f"    • {name}: {cid[:8]}***" if cid else f"    • {name}: (未配置)")
+    else:
+        print(f"  {_ok(False)} Ozon 店铺未配置")
+        print(f"  → python3 scripts/cli.py set_store --name \"店铺名\" --client-id <ID> --api-key <KEY>")
+        all_ok = False
+
+    # ═══════════════════════════════════════════
+    # 6. Worker 连通检查
+    # ═══════════════════════════════════════════
+    from scripts._const import CLOUD_API_BASE
+    worker_url = CLOUD_API_BASE.rstrip("/")
     print(f"\n🌐 Worker ({worker_url}):")
     try:
         resp = req.get(f"{worker_url}/api/v1/health", timeout=5)
@@ -442,25 +509,30 @@ def cmd_check(args) -> int:
         print(f"  {_ok(False)} 不可达: {e}")
         all_ok = False
 
-    cid = _os.environ.get("OZON_CLIENT_ID", "")
-    akey = _os.environ.get("OZON_API_KEY", "")
+    # ═══════════════════════════════════════════
+    # 7. Ozon API 验证（用第一个店铺）
+    # ═══════════════════════════════════════════
     print(f"\n🏪 Ozon API:")
-    if cid and akey:
-        print(f"  {_ok(True)} Client ID: {cid[:8]}***")
-        try:
-            resp = req.post("https://api-seller.ozon.ru/v1/product/info/description",
-                headers={"Client-Id": cid, "Api-Key": akey, "Content-Type": "application/json"},
-                json={"product_id": 1}, timeout=10)
-            if resp.status_code in (401, 403):
-                print(f"  {_ok(False)} API 认证失败，请检查 OZON_CLIENT_ID / OZON_API_KEY")
-                all_ok = False
-            else:
-                print(f"  {_ok(True)} API 认证通过")
-        except Exception:
-            print(f"  ⚠️ 网络超时（不影响后续使用）")
+    if stores:
+        first_name = next(iter(stores))
+        first_cfg = stores[first_name]
+        cid = first_cfg.get("client_id", "")
+        akey = first_cfg.get("api_key", "")
+        if cid and akey:
+            print(f"  {_ok(True)} 店铺「{first_name}」Client ID: {cid[:8]}***")
+            try:
+                resp = req.post("https://api-seller.ozon.ru/v1/product/info/description",
+                    headers={"Client-Id": cid, "Api-Key": akey, "Content-Type": "application/json"},
+                    json={"product_id": 1}, timeout=10)
+                if resp.status_code in (401, 403):
+                    print(f"  {_ok(False)} API 认证失败，请检查 client_id / api_key")
+                    all_ok = False
+                else:
+                    print(f"  {_ok(True)} API 认证通过")
+            except Exception:
+                print(f"  ⚠️ 网络超时（不影响后续使用）")
     else:
-        print(f"  {_ok(False)} OZON_CLIENT_ID 或 OZON_API_KEY 未配置")
-        all_ok = False
+        print(f"  {_ok(False)} 无可用店铺配置")
 
     # ═══════════════════════════════════════════
     # 汇总
@@ -476,7 +548,7 @@ def cmd_check(args) -> int:
         print("❌ 请先解决以上问题")
     print(f"{'='*55}")
 
-    # ── Session 登录提醒 ──
+    # Session 登录提醒
     if session_ok:
         print()
         if login_ok and ozon_cdp_ok:
@@ -498,7 +570,7 @@ def cmd_check(args) -> int:
 def cmd_follow(args) -> int:
     """跟卖 Ozon 商品: Ozon URL → import-by-sku → 1688搜索 → CDP探针 → 上架"""
     from scripts.cloud_probe import follow_sell_cloud
-    result = follow_sell_cloud(args.ozon_url, auto_submit=args.auto_submit)
+    result = follow_sell_cloud(args.ozon_url, auto_submit=args.auto_submit, store_id=args.store or "")
     _out(result)
     return 0 if result.get("success") else 1
 
@@ -510,6 +582,36 @@ def cmd_follow(args) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="pounding-ozon-probe — 1688 数据采集 + GraphInput 组装")
     sub = parser.add_subparsers(dest="command", help="命令")
+
+    # ── Config commands ──
+
+    # set_store
+    ss = sub.add_parser("set_store", help="配置 Ozon 店铺凭证")
+    ss.add_argument("--name", required=True, help="店铺名称")
+    ss.add_argument("--client-id", required=True, help="Ozon Client ID")
+    ss.add_argument("--api-key", required=True, help="Ozon API Key")
+    ss.add_argument("--currency", default="", help="货币（默认 RUB）")
+    ss.set_defaults(func=cmd_set_store)
+
+    # list_stores
+    ls = sub.add_parser("list_stores", help="列出所有已配置的 Ozon 店铺")
+    ls.set_defaults(func=cmd_list_stores)
+
+    # set_token
+    st = sub.add_parser("set_token", help="设置 MXOU_TOKEN")
+    st.add_argument("--token", required=True, help="MXOU API Token")
+    st.set_defaults(func=cmd_set_token)
+
+    # set_ak
+    sa = sub.add_parser("set_ak", help="手动设置 1688 AK")
+    sa.add_argument("--ak", required=True, help="1688 Access Key")
+    sa.set_defaults(func=cmd_set_ak)
+
+    # ── Business commands ──
+
+    # check (诊断)
+    cp = sub.add_parser("check", help="诊断前置条件（Chrome / 凭证 / Worker / Ozon API）")
+    cp.set_defaults(func=cmd_check)
 
     # search
     sp = sub.add_parser("search", help="搜索 1688 商品")
@@ -529,28 +631,26 @@ def main() -> int:
     gp.add_argument("--url", default="", help="1688 商品详情页 URL（也可提供）")
     gp.add_argument("--category-query", default="", help="Ozon 类目关键词（俄语）")
     gp.add_argument("--retries", type=int, default=3, help="CDP 重试次数")
+    gp.add_argument("--store", default="", help="Ozon 店铺名称（不指定则用默认店铺）")
     gp.set_defaults(func=cmd_graph)
 
-    # image_search (以图搜款)
+    # image_search
     ip = sub.add_parser("image_search", help="以图搜款 — 上传图片搜索 1688 同款")
     ip.add_argument("--image", required=True, help="图片路径或 URL")
     ip.add_argument("--limit", type=int, default=10, help="返回数量")
     ip.add_argument("--sort", default="", help="排序: price_asc/price_desc/sold_desc/yx_desc")
     ip.set_defaults(func=cmd_image_search)
 
-    # check (诊断)
-    cp = sub.add_parser("check", help="诊断前置条件（Chrome / 凭证 / Worker / Ozon API）")
-    cp.set_defaults(func=cmd_check)
-
-    # get_ak (获取 1688 AK)
-    akp = sub.add_parser("get_ak", help="通过浏览器获取 1688 AK")
+    # get_ak
+    akp = sub.add_parser("get_ak", help="通过浏览器自动获取 1688 AK")
     akp.add_argument("--timeout", type=int, default=300, help="超时秒数")
     akp.set_defaults(func=cmd_get_ak)
 
-    # follow (跟卖)
+    # follow
     fp = sub.add_parser("follow", help="跟卖 Ozon 商品（Ozon URL → 1688找同款 → 上架）")
     fp.add_argument("--ozon-url", required=True, help="Ozon 商品页 URL")
     fp.add_argument("--auto-submit", action="store_true", help="自动提交到 Worker")
+    fp.add_argument("--store", default="", help="Ozon 店铺名称")
     fp.set_defaults(func=cmd_follow)
 
     args = parser.parse_args()
