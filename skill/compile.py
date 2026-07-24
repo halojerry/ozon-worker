@@ -71,8 +71,11 @@ PLATFORM_MAP = {
 
 
 def _get_platform_dir() -> str:
-    """Get platform directory name."""
-    return PLATFORM_MAP.get(platform.system(), platform.system().lower())
+    """Get platform directory name (e.g., darwin-arm64, win32)."""
+    plat = PLATFORM_MAP.get(platform.system(), platform.system().lower())
+    if plat == "darwin":
+        return f"darwin-{platform.machine()}"  # darwin-arm64 or darwin-x86_64
+    return plat
 
 
 def _find_compiled_file(build_dir: Path, stem: str) -> Path | None:
@@ -162,6 +165,15 @@ _PLATFORM_MAP = {
 _loaded: dict[str, object] = {}
 
 
+def _get_platform_dir():
+    """Get platform-architecture directory name (e.g., darwin-arm64, win32)."""
+    plat = _PLATFORM_MAP.get(platform.system(), platform.system().lower())
+    machine = platform.machine()
+    if plat == "darwin":
+        return f"darwin-{machine}"  # darwin-arm64 or darwin-x86_64
+    return plat  # win32 or linux
+
+
 def load_native(module_name: str):
     """Load a native module from the platform-specific directory.
 
@@ -173,12 +185,17 @@ def load_native(module_name: str):
     if module_name in _loaded:
         return _loaded[module_name]
 
-    plat = _PLATFORM_MAP.get(platform.system(), platform.system().lower())
-    plat_dir = _NATIVE_DIR / plat
+    plat_dir_name = _get_platform_dir()
+    plat_dir = _NATIVE_DIR / plat_dir_name
+
+    if not plat_dir.is_dir():
+        # Fallback: try generic platform dir (darwin, win32)
+        plat = _PLATFORM_MAP.get(platform.system(), platform.system().lower())
+        plat_dir = _NATIVE_DIR / plat
 
     if not plat_dir.is_dir():
         raise ImportError(
-            f"No native modules for platform '{plat}'. "
+            f"No native modules for '{plat_dir_name}'. "
             f"Available: {[d.name for d in _NATIVE_DIR.iterdir() if d.is_dir()]}"
         )
 
@@ -245,10 +262,18 @@ def _generate_import_stubs(dist_lib_dir: Path, compile_files: list[str]) -> None
             'import sysconfig\n'
             'from pathlib import Path as _Path\n'
             '\n'
-            '_plat_name = {"Darwin": "darwin", "Windows": "win32", "Linux": "linux"}.get(\n'
+            '_plat = {"Darwin": "darwin", "Windows": "win32", "Linux": "linux"}.get(\n'
             '    _plat.system(), _plat.system().lower()\n'
             ')\n'
+            '# macOS: architecture-specific dir (darwin-arm64, darwin-x86_64)\n'
+            'if _plat == "darwin":\n'
+            '    _plat_name = f"darwin-{_plat.machine()}"\n'
+            'else:\n'
+            '    _plat_name = _plat\n'
             '_native_dir = _Path(__file__).resolve().parent / "_native" / _plat_name\n'
+            '# Fallback to generic platform dir if arch-specific not found\n'
+            'if not _native_dir.is_dir():\n'
+            '    _native_dir = _Path(__file__).resolve().parent / "_native" / _plat\n'
             '_ext_suffix = sysconfig.get_config_var("EXT_SUFFIX")\n'
             '_binary = None\n'
             '# Try exact EXT_SUFFIX first (e.g., .cpython-312-darwin.so)\n'
