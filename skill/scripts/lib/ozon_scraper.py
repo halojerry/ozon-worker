@@ -323,18 +323,23 @@ def scrape_ozon_product_via_cdp(
 
     result: dict[str, Any] = {
         "success": False, "product_id": product_id, "slug": slug,
-        "images": [], "title": "", "category": "", "price": "", "error": None,
+        "images": [], "title": "", "category": "", "price": "", "currency": "RUB",
+        "description": "", "attributes": {}, "breadcrumbs": [], "sku": "",
+        "error": None,
     }
 
-    def _cdp_eval(ws, expr: str, wait_ms: int = 0) -> str:
+    def _cdp_eval(ws, expr: str, wait_ms: int = 0, await_promise: bool = False) -> str:
         """Send a Runtime.evaluate and return the result value."""
         import time as _t
         if wait_ms:
             _t.sleep(wait_ms / 1000.0)
         cid = int(_t.time() * 1000) % 100000
+        params = {"expression": expr, "returnByValue": True}
+        if await_promise:
+            params["awaitPromise"] = True
         ws.send(_json.dumps({
             "id": cid, "method": "Runtime.evaluate",
-            "params": {"expression": expr, "returnByValue": True},
+            "params": params,
         }))
         deadline = _t.time() + 15
         while _t.time() < deadline:
@@ -421,6 +426,73 @@ def scrape_ozon_product_via_cdp(
             """) or ""
             if js_breadcrumb:
                 result["category"] = js_breadcrumb
+
+            # Extract product data from Ozon internal API (via CDP fetch)
+            slug_for_api = slug.replace(" ", "-")
+            api_url = f"/api/entrypoint-api.bx/page/json/v2?url=%2Fproduct%2F{slug_for_api}-{product_id}%2F"
+            js_api = f'''
+            (async () => {{
+                try {{
+                    const resp = await fetch("{api_url}");
+                    const data = await resp.json();
+                    const widgets = data.widgetStates || {{}};
+                    const out = {{chars: [], breadcrumbs: []}};
+                    for (const [k, v] of Object.entries(widgets)) {{
+                        if (k.includes("webShortCharacteristics")) {{
+                            try {{
+                                const parsed = JSON.parse(v);
+                                out.chars = (parsed.characteristics || []).map(c => ({{
+                                    title: c.title?.textRs?.[0]?.content || "",
+                                    value: c.values?.[0]?.text || ""
+                                }}));
+                            }} catch {{}}
+                        }}
+                        if (k.includes("breadCrumbs")) {{
+                            try {{
+                                const parsed = JSON.parse(v);
+                                out.breadcrumbs = (parsed.breadcrumbs || []).map(b => ({{
+                                    text: b.text || "",
+                                    link: b.link || ""
+                                }}));
+                            }} catch {{}}
+                        }}
+                    }}
+                    return JSON.stringify(out);
+                }} catch(e) {{ return JSON.stringify({{error: e.message}}); }}
+            }})()
+            '''
+            api_result = _cdp_eval(ws, js_api, await_promise=True)
+            if api_result:
+                try:
+                    api_data = _json.loads(api_result)
+                    # Attributes
+                    if api_data.get("chars"):
+                        attrs = {}
+                        for c in api_data["chars"]:
+                            if c.get("title") and c.get("value"):
+                                attrs[c["title"]] = c["value"]
+                        result["attributes"] = attrs
+                    # Breadcrumbs with links (for category ID extraction)
+                    if api_data.get("breadcrumbs"):
+                        crumbs = []
+                        for b in api_data["breadcrumbs"]:
+                            crumbs.append({"text": b.get("text", ""), "link": b.get("link", "")})
+                        result["breadcrumbs"] = crumbs
+                        # Extract category from breadcrumbs
+                        if crumbs:
+                            result["category"] = " > ".join(c["text"] for c in crumbs if c["text"])
+                except (_json.JSONDecodeError, TypeError):
+                    pass
+
+            # Extract description from meta tags
+            js_desc = _cdp_eval(ws, """
+                (function() {
+                    var m = document.querySelector('meta[name=\"description\"]');
+                    return m ? m.getAttribute('content') : '';
+                })()
+            """) or ""
+            if js_desc and len(js_desc) > 20:
+                result["description"] = js_desc[:500]
 
             # Augment images from HTML (more sizes/angles)
             # Get full HTML and extract image URLs
