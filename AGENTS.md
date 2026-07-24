@@ -9,12 +9,12 @@
 | | Skill | Worker |
 |---|---|---|
 | **角色** | Agent 调用的工具（ZCode/Claude Code 等） | 云端 Docker 管线，消费信封完成上架 |
-| **位置** | 客户本地 | 云端服务器（宝塔/Docker） |
+| **位置** | 客户本地 | 云端服务器（Docker） |
 | **入口** | `skill/SKILL.md`（Agent 操作手册） | `worker/src/main.py`（FastAPI + CLI） |
 | **职责** | 1688/Ozon CDP 抓取 + 以图搜款 → 组装 GraphInput 信封，**不上架** | 接收信封 → 类目→定价→属性→生图→校验→上传→自学习 |
 | **接口** | 输出 `GraphInput` JSON（三层结构 `{draft, source, extensions}`） | 输入 `GraphInput`，输出 `GraphOutput` |
 
-接口契约详见 `docs/CONTRACT.md`。Agent 调用指南详见 `skill/SKILL.md`。
+接口契约详见 `docs/CONTRACT.md`。Agent 调用指南详见 `skill/SKILL.md`。部署指南详见 `docs/DEPLOY.md`。
 
 ## 目录结构
 
@@ -27,7 +27,7 @@ ozon-worker/
 │       ├── batch_test.py       # 批量处理 URL 列表
 │       ├── lib/
 │       │   ├── ak_1688_client.py      # 1688 AK API 搜索
-│       │   ├── chrome_launcher.py     # 跨平台 Chrome CDP 自动启动
+│       │   ├── chrome_launcher.py     # 跨平台 Chrome CDP 自动启动（用户零配置）
 │       │   ├── ozon_scraper.py        # Ozon 商品页 CDP 抓取（完整字段）
 │       │   ├── ozon_image_search.py   # CDP 网页版以图搜款（准确率~100%）
 │       │   └── config_store.py        # 凭证管理
@@ -54,15 +54,30 @@ ozon-worker/
 │   └── .env.example            # 环境变量模板
 ├── docs/
 │   ├── CONTRACT.md             # Skill↔Worker API 契约 v3.0
+│   ├── DEPLOY.md               # Worker 云端部署完整指南
 │   ├── LOGGING.md              # 日志系统架构 + 查看命令 + 故障排查
 │   ├── WORKER-TOPOLOGY.md      # ⭐ Worker 拓扑 + 错误映射 + 数据流 + 改代码快速参考
-│   ├── PRD-worker-improvements.md    # PRD v1: Worker Pipeline 质量改进
-│   ├── PRD-worker-stability-v2.md    # PRD v2: 稳定性改进（成功率44%→58%）
-│   ├── PRD-worker-stability-v3.md    # PRD v3: 价格修正 + 5个失败产品修复
-│   └── ...                     # Ozon API 文档、物流费率 Excel
+│   └── ...                     # PRD、Ozon API 文档、物流费率 Excel
 └── scripts/
     └── ci.sh                   # 本地 CI（lint → test → build）
 ```
+
+## Skill 能力
+
+| 能力 | 命令 | 说明 |
+|------|------|------|
+| 环境检查 | `check` | 自动启动 Chrome、检测登录态、验证凭证 |
+| 1688 选品 | `graph` | CDP 抓取 1688 → 组装信封 → 提交 Worker |
+| Ozon 跟卖 | `follow` | Ozon 竞品图搜 1688 同款 → 组装信封 → 提交 Worker |
+| 以图搜款 | `image_search` | CDP 网页版图搜（准确率~100%） |
+| 获取 AK | `get_ak` | 浏览器自动获取 1688 AK |
+| 批量处理 | `batch_test` | 批量处理 URL 列表 |
+
+**Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
+
+**两条管线**：
+- **1688 选品**：1688 URL → CDP 抓取 → 组装信封 → Worker 全流程
+- **Ozon 跟卖**：Ozon URL → CDP 抓取 → 图搜 1688 → 组装信封 → Worker 跟卖管线
 
 ## Skill → Worker 契约（最重要）
 
@@ -84,6 +99,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 - **`source`** — 采购源信息: `{purchase_url, purchase_cost}`
 
 - **`extensions`** — 定价配置: `{margin_rate, commission_rate, fx_buffer}`(可选,默认 0.25/0.10/0.05)
+- **`extensions.follow_sell`** — 跟卖标记: Worker 走跟卖管线
 
 > ⚠️ **关键约定:**
 > - **单产品上传**: Skill 层自动将多变体折叠为单产品（`_collapse_variants_to_single`），一个 1688 item = 一个 Ozon 产品卡。
@@ -104,11 +120,12 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | Swagger UI | `GET /api/v1/docs` | GET |
 
 鉴权: `token` 字段在请求体中（非 header），通过 Supabase `tokens` 表校验。
-限流: 每 token 每分钟 ≤ 10 次（`RATE_LIMIT_PER_MINUTE` 可配置）。
+限流: 每 token 每分钟 ≤ 300 次（`RATE_LIMIT_PER_MINUTE` 可配置）。
+并发: 最多 50 个任务同时执行（`MAX_CONCURRENT` 可配置）。
 
 ## 架构边界
 
-- **Worker 三层**: FastAPI `/submit_task`(鉴权+入队) → PG 队列 `ozon_product_tasks`(`FOR UPDATE SKIP LOCKED`) → 10 并发 LangGraph worker(`SupabaseTaskProcessor`)
+- **Worker 三层**: FastAPI `/submit_task`(鉴权+入队) → PG 队列 `ozon_product_tasks`(`FOR UPDATE SKIP LOCKED`) → 50 并发 LangGraph worker(`SupabaseTaskProcessor`)
 - **Skill 是无状态本地抓取**，不调用任何 Ozon 上架 API
 - **编辑时不越界**: 别给 skill 加上架调用，别给 worker 加 1688 抓取
 - **错误码**: 统一在 `worker/src/api/errors.py`（12 个 `WorkerErrorCode`）
@@ -117,8 +134,12 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 
 | 子项目 | 命令 |
 |---|---|
-| skill | `pip install -r requirements.txt && playwright install chromium` |
-| skill | `python3 scripts/cli.py search "<词>"` / `probe --url <url>` / `graph --item-id <id>` |
+| skill | `pip install -r requirements.txt` |
+| skill | `python3 scripts/cli.py check`（环境检查 + 自动启动 Chrome） |
+| skill | `python3 scripts/cli.py graph --url <1688 URL>`（1688 选品） |
+| skill | `python3 scripts/cli.py follow --ozon-url <Ozon URL>`（Ozon 跟卖） |
+| skill | `python3 scripts/cli.py image_search --image <URL>`（以图搜款） |
+| skill | `python3 scripts/batch_test.py --urls-file urls.txt --client-id xxx --api-key xxx --submit` |
 | worker | `cd worker && PYTHONPATH=src python3 -m pytest tests/ -v` |
 | worker | `bash scripts/local_run.sh -m flow -i '{...}'` 跑全流程 |
 | worker | `bash scripts/local_run.sh -m node -n <节点ID> -i '{...}'` 跑单节点 |
@@ -135,10 +156,26 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
   - `APP_WORKSPACE_PATH` — 定位 `assets/` 和 `config/`（Docker 内 `/app`）
   - `PYTHONPATH=/app/src` — Python 模块路径
   - `GRSAI_API_KEY` — MXOU 生图进度轮询（grsai.dakka.com.cn）
-  - `RATE_LIMIT_PER_MINUTE` — API 限流（默认 10）
-  - `MAX_CONCURRENT` — 并发任务数（默认 10）
+  - `RATE_LIMIT_PER_MINUTE` — API 限流（默认 300）
+  - `MAX_CONCURRENT` — 并发任务数（默认 50）
   - `LOG_FORMAT` / `LOG_LEVEL` / `LOG_FILE` — 日志配置（见 LOGGING.md）
 - Skill 环境变量: `WORKER_URL`（Worker 地址）、`MXOU_TOKEN`、`OZON_CLIENT_ID`、`OZON_API_KEY`
+
+## 部署
+
+详见 **`docs/DEPLOY.md`**。
+
+```bash
+# 一键部署
+cd deploy
+cp .env.example .env  # 填入凭证
+bash deploy.sh
+
+# 一键更新
+bash update.sh
+```
+
+架构：Docker Compose（Worker + PostgreSQL），轻量级，主要瓶颈在外部 API（MXOU/Ozon），不在本地服务器。
 
 ## GitHub 仓库
 
@@ -188,11 +225,12 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## 深入阅读（改前先看）
 
-- **`docs/WORKER-TOPOLOGY.md`** — ⭐ Worker 拓扑与错误处理手册（节点流、错误映射、数据流、改代码快速参考）
+- **`skill/SKILL.md`** — ⭐ Agent 调用指南（Chrome 启动、选品、跟卖、以图搜款、批量处理）
+- **`docs/DEPLOY.md`** — ⭐ Worker 云端部署完整指南（Docker、Nginx、HTTPS、运维）
+- **`docs/WORKER-TOPOLOGY.md`** — Worker 拓扑与错误处理手册（节点流、错误映射、数据流、改代码快速参考）
 - **`docs/CONTRACT.md`** — Skill↔Worker API 契约 v3.0（端点、请求/响应、错误码）
 - **`docs/LOGGING.md`** — 日志系统架构 + 查看命令 + 故障排查流程
 - **`docs/CONVENTIONS.md`** — 分支命名 + commit 规范 + 发版流程
-- **`skill/SKILL.md`** — Agent 调用指南（入参、返回格式、提交 Worker、错误处理）
 - **`worker/AGENTS.md`** — Worker 完整文档：节点流程、Ozon API 坑
 - **`worker/src/api/errors.py`** — 统一错误码（改错误响应前必看）
 - **`worker/src/api/schemas.py`** — Pydantic schemas（改 API 前必看）
