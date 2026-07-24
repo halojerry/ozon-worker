@@ -17,7 +17,6 @@ from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 
-from scripts.lib.config_store import load_config
 from scripts._const import SKILL_ROOT
 
 logger = logging.getLogger(__name__)
@@ -36,7 +35,7 @@ DEFAULT_HEADERS = {
 }
 
 
-class ConfigError(Exception):
+class AkConfigError(Exception):
     """AK 未配置或格式无效"""
     pass
 
@@ -46,7 +45,7 @@ class ApiError(Exception):
     pass
 
 
-class AuthError(ApiError):
+class AkAuthError(ApiError):
     """AK 无效 / 签名失败 / 未配置 (401)"""
     pass
 
@@ -91,9 +90,9 @@ def _try_refresh_ak() -> bool:
     return False
 
 
-def _ak_expired_error() -> AuthError:
-    """Return AuthError with manual AK acquisition instructions."""
-    return AuthError(
+def _ak_expired_error() -> AkAuthError:
+    """Return AkAuthError with manual AK acquisition instructions."""
+    return AkAuthError(
         "1688 AK 已过期或无效。请重新获取：\n"
         "  方式 1（自动）: python3.12 scripts/cli.py get_ak\n"
         "  方式 2（手动）: 浏览器打开 https://clawhub.1688.com → 登录 → 复制 AK\n"
@@ -147,7 +146,7 @@ def _extract_ak_keys(raw_ak: str) -> tuple[str, str]:
         logger.debug('Base64 AK decode failed — falling back to plain format: %s', e)
     if len(raw_ak) > 32:
         return raw_ak[32:], raw_ak[:32]
-    raise ConfigError("1688 AK 格式无效（需要 AK:Secret 或 64位密钥）")
+    raise AkConfigError("1688 AK 格式无效（需要 AK:Secret 或 64位密钥）")
 
 
 def _content_md5(body: str) -> str:
@@ -203,13 +202,13 @@ def _signature_headers(method: str, path: str, body: str) -> dict[str, str]:
     # 优先从本地文件读取 AK（官方 SDK 格式）
     ak = get_ak_from_file()
     
-    # 如果文件没有，尝试从环境变量读取
+    # 如果文件没有，尝试从 config_store 读取
     if not ak:
-        cfg = load_config()
-        ak = cfg.get("ALI_1688_AK", os.environ.get("ALI_1688_AK", ""))
+        from scripts.lib.config_store import get_ali_1688_ak
+        ak = get_ali_1688_ak()
     
     if not ak:
-        raise ConfigError("缺少 1688 AK")
+        raise AkConfigError("缺少 1688 AK")
     access_key_id, access_key_secret = _extract_ak_keys(ak)
     content_type = "application/json"
     timestamp = str(int(time.time()))
@@ -254,7 +253,7 @@ def _post_1688(path: str, body: dict[str, Any], *, base_url: str = BASE_URL) -> 
     POST 请求 1688 API（自动签名 + 重试 + 错误映射）
     
     Raises:
-        AuthError / ParamError / RateLimitError / ServiceError / ApiError
+        AkAuthError / ParamError / RateLimitError / ServiceError / ApiError
     """
     url = f"{base_url}{path}"
     body_str = json.dumps(body, ensure_ascii=False)
@@ -430,7 +429,7 @@ def search_products(
         ic_tags: IC标（品池标签）
     
     Raises:
-        AuthError: AK 无效或未配置
+        AkAuthError: AK 无效或未配置
         RateLimitError: 请求被限流
         ServiceError: 服务异常
     """
@@ -668,7 +667,7 @@ def get_product_details(item_ids: list[str]) -> dict[str, dict[str, Any]]:
     }
     
     Raises:
-        AuthError: AK 无效或未配置
+        AkAuthError: AK 无效或未配置
         RateLimitError: 请求被限流
         ServiceError: 服务异常
     """
