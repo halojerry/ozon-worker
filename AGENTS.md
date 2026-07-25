@@ -151,6 +151,18 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 - **编辑时不越界**: 别给 skill 加上架调用，别给 worker 加 1688 抓取
 - **错误码**: 统一在 `worker/src/api/errors.py`（12 个 `WorkerErrorCode`）
 
+## ⚠️ Agent 使用 Skill 时的硬约束
+
+**当用户请求涉及 Skill 子项目（1688 抓取、Ozon 跟卖、选品、上架）时，必须遵守：**
+
+1. **先读 `skill/SKILL.md`**，不要凭记忆或自己探索项目结构操作
+2. **只用 SKILL.md 中的命令**，不要自己写 Python 代码、不要用 requests/urllib 抓取
+3. **严格按意图路由选择管线**（A/B/C/D），不要混用蓝海逻辑和跟卖逻辑
+4. **不要修改 Skill 的 Python 代码**，除非用户明确要求改代码
+5. **每次操作前重新判断用户意图**，不要因为上下文中提过某个概念就默认使用它
+
+违反以上约束会导致：空白 Chrome 窗口泛滥、登录态丢失、管线混乱、数据错误。
+
 ## 常用命令
 
 | 子项目 | 命令 |
