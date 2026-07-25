@@ -22,7 +22,7 @@ jobs:
       - run: pip install ruff
       - name: Ruff lint
         working-directory: worker
-        run: ruff check src/ --select E,F,W --ignore E501
+        run: ruff check src/
 
   test:
     name: Unit Tests
