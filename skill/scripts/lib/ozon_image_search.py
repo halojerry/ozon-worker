@@ -13,6 +13,8 @@ from typing import Any
 
 import requests
 
+from scripts.lib.cache import cache_get, cache_set
+
 logger = logging.getLogger(__name__)
 
 IMAGE_SEARCH_URL = "https://air.1688.com/kapp/1688-search/pc-image-search/"
@@ -170,6 +172,10 @@ def search_by_image_cdp(
 
     _require_auth()
 
+    cached = cache_get("search", image_url)
+    if cached is not None:
+        return cached
+
     conn = None
     search_tab = None
     result_tab = None
@@ -269,6 +275,16 @@ def search_by_image_cdp(
 
         logger.info("CDP image search: %d results, best: %s", len(results),
                      results[0].get("title", "")[:30] if results else "none")
+        try:
+            from scripts.lib.logging_utils import AuditLogger
+            AuditLogger().log("cdp", "image_search", "info", "Image search completed", {
+                "result_count": len(results),
+                "best_title": results[0].get("title", "")[:50] if results else "",
+                "image_url": image_url[:80],
+            })
+        except Exception:
+            pass
+        cache_set("search", image_url, results, ttl=21600)
         return results
 
     except ConnectionError as e:

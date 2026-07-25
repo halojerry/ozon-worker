@@ -1466,6 +1466,35 @@ def build_graph_envelope(
     if fx_buffer > 0:
         envelope["extensions"]["fx_buffer"] = fx_buffer
 
+    # ── 6.6 完整性审计 ──
+    try:
+        _audit = AuditLogger(task_id=str(item_id))
+        _audit.log("envelope", "integrity", "info", "Envelope assembled", {
+            "item_id": str(item_id),
+            "has_title": bool(item_title),
+            "has_images": len(images) > 0,
+            "has_weight": weight_g > 0,
+            "has_dimensions": any(d > 0 for d in [dimensions.get("length"), dimensions.get("width"), dimensions.get("height")]),
+            "has_ozon_category": bool(ozon_category),
+            "has_description": bool(data.get("description")),
+            "image_count": len(images),
+            "cdp_source": cdp_source,
+            "margin_rate": envelope["extensions"].get("margin_rate", 0),
+            "commission_rate": envelope["extensions"].get("commission_rate", 0),
+        })
+    except Exception:
+        pass
+
+    try:
+        _audit.log("envelope", "pricing", "info", "Pricing params", {
+            "margin_rate": envelope["extensions"].get("margin_rate", 0),
+            "commission_rate": envelope["extensions"].get("commission_rate", 0),
+            "fx_buffer": envelope["extensions"].get("fx_buffer", 0),
+            "source": "ozon_api" if envelope["extensions"].get("commission_rate", 0) > 0 else "store_config",
+        })
+    except Exception:
+        pass
+
     # ── 7. 组装 GraphInput ──
     mxou_token = _get_mxou_token() or _get_token()
     return {

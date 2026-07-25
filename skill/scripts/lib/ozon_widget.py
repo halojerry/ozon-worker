@@ -254,7 +254,12 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, 
     images, primaryImage, description, characteristics, aspects, brand.
     Missing keys default to empty string / empty list.
     """
+    from scripts.lib.cache import cache_get, cache_set
     from scripts.lib.cdp_client import CdpConnection
+
+    cached = cache_get("ozon", product_id)
+    if cached is not None:
+        return cached
 
     js = _FETCH_PRODUCT_JS.replace("__PRODUCT_ID__", product_id)
 
@@ -292,6 +297,7 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, 
         # Fallback: try direct HTTP (may fail due to geo/cookies)
         result = _fetch_product_info_http(product_id, result)
 
+    cache_set("ozon", product_id, result, ttl=3600)
     return result
 
 

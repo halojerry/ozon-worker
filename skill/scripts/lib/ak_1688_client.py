@@ -671,19 +671,34 @@ def get_product_details(item_ids: list[str]) -> dict[str, dict[str, Any]]:
         RateLimitError: 请求被限流
         ServiceError: 服务异常
     """
+    from scripts.lib.cache import cache_get, cache_set
+
     if not item_ids:
         return {}
-    
+
+    details: dict[str, dict[str, Any]] = {}
+    uncached_ids = []
+    for nid in item_ids:
+        nid = str(nid).strip()
+        if not nid:
+            continue
+        cached = cache_get("1688", nid)
+        if cached is not None:
+            details[nid] = cached
+        else:
+            uncached_ids.append(nid)
+    if not uncached_ids:
+        return details
+
     result = _post_1688(
         WORKFLOW_API,
-        {"code": "offer_detail", "bizParams": {"item_id": [str(i).strip() for i in item_ids]}},
+        {"code": "offer_detail", "bizParams": {"item_id": uncached_ids}},
         base_url=AINEXT_BASE_URL,
     )
     model = result.get("model") or {}
     biz_data = model.get("bizData") or {}
     if not isinstance(biz_data, dict):
-        return {}
-    details: dict[str, dict[str, Any]] = {}
+        return details
     for item_id, item in biz_data.items():
         if not isinstance(item, dict):
             continue
@@ -724,6 +739,7 @@ def get_product_details(item_ids: list[str]) -> dict[str, dict[str, Any]]:
             "weight_grams": packaging["weight_grams"],
             "dimensions_mm": packaging["dimensions_mm"],
         }
+        cache_set("1688", nid, details[nid], ttl=86400)
     return details
 
 
