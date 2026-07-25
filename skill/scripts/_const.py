@@ -31,4 +31,6 @@ DEFAULT_CACHE_TTL_SECONDS = 86400
 CLOUD_API_BASE = 'https://worker.mxou.cn'
 LOGS_DIR = DATA_DIR / 'logs'
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DIR = DATA_DIR / 'cache'
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 SKILL_NAME = 'pounding-ozon-probe'
