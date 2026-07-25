@@ -38,6 +38,7 @@ COPY_FILES = [
     "scripts/cli.py",
     "scripts/cloud_probe.py",
     "scripts/batch_test.py",
+    "scripts/capabilities/browser_probe/service.py",  # 2300 行，含动态 import，Cython 不兼容
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）
@@ -49,9 +50,9 @@ AUX_FILES = [
     "scripts/lib/task_paths.py",
     "scripts/lib/logging_utils.py",
     "scripts/lib/ozon_api.py",  # cloud_probe.py 4 处 lazy import，无法编译（依赖 requests）
+    "scripts/lib/cdp_client.py",  # CDP 客户端（替代 Playwright）
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
-    "scripts/capabilities/browser_probe/service.py",  # Playwright 依赖，无法编译
 ]
 
 # 参考文件（客户端文档 + 依赖）
