@@ -234,7 +234,6 @@ def search_by_image_cdp(
         return []
 
     ws = None
-    tab_id = ''
     try:
         ws = websocket.create_connection(ws_url, timeout=15)
         ws.send(json.dumps({"id": 1, "method": "Page.enable", "params": {}}))
