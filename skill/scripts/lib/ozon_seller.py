@@ -14,30 +14,22 @@ OZON_SELLER_BASE = "https://api-seller.ozon.ru"
 
 
 def _seller_post(client_id: str, api_key: str, path: str, body: dict, timeout: int = 30) -> dict:
-    """POST to Ozon Seller API. Returns response dict. Raises on auth failures."""
+    """POST to Ozon Seller API. Returns response dict.
+
+    Raises on auth failures (HTTPError for 401/403).
+    Lets ConnectionError/Timeout propagate for retry wrapper to handle.
+    """
     headers = {
         "Client-Id": client_id,
         "Api-Key": api_key,
         "Content-Type": "application/json",
     }
-    try:
-        resp = requests.post(f"{OZON_SELLER_BASE}{path}", json=body, headers=headers, timeout=timeout)
-        if resp.status_code in (401, 403):
-            logger.warning("Seller API auth failed (%s): %s", resp.status_code, path)
-            raise requests.exceptions.HTTPError(response=resp)  # permanent, don't retry
-        resp.raise_for_status()
-        return resp.json()
-    except requests.exceptions.ConnectionError:
-        logger.warning("Seller API connection failed: %s", path)
-        return {}  # transient, can retry
-    except requests.exceptions.Timeout:
-        logger.warning("Seller API timeout: %s", path)
-        return {}  # transient, can retry
-    except requests.exceptions.HTTPError:
-        raise  # re-raise 401/403 and other HTTP errors
-    except Exception as e:
-        logger.warning("Seller API unexpected error: %s: %s", path, e)
-        return {}
+    resp = requests.post(f"{OZON_SELLER_BASE}{path}", json=body, headers=headers, timeout=timeout)
+    if resp.status_code in (401, 403):
+        logger.warning("Seller API auth failed (%s): %s", resp.status_code, path)
+        raise requests.exceptions.HTTPError(response=resp)  # permanent, don't retry
+    resp.raise_for_status()
+    return resp.json()
 
 
 def _seller_post_with_retry(client_id: str, api_key: str, path: str, body: dict, timeout: int = 30, retries: int = 2) -> dict:
