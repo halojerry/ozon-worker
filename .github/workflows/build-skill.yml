@@ -130,7 +130,7 @@ jobs:
 
   package:
     name: Package unified binary
-    needs: [build-macos-arm64, build-macos-x86_64, build-windows, build-windows-arm64, build-linux]
+    needs: [build-macos-arm64, build-windows, build-windows-arm64, build-linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
