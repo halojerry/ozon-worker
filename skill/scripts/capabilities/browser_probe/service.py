@@ -701,10 +701,19 @@ skuContainers.forEach((featureEl, featureIndex) => {
     /扫码登录|密码登录|短信登录/i.test(bodyText) ||
     (/登录|login/i.test(bodyText) && !title)
   );
+  const captchaDetected = !!(
+    document.querySelector('.nc-container') ||  // 滑块验证
+    document.querySelector('#nc_1_wrapper') ||  // 滑块容器
+    document.querySelector('.slide-verify') ||  // 滑块
+    document.querySelector('.captcha') ||       // 通用验证码
+    document.querySelector('#J_Checkcode') ||   // 1688 验证码
+    (document.querySelector('.J_MIDDLEWARE_FRAMEWRAP') && document.title.includes('验证'))
+  );
   return {
     site: '1688',
     url: location.href,
     loginRequired,
+    captchaDetected,
     title,
     price,
     priceValue: parseNumber(price),
@@ -1030,6 +1039,7 @@ def _build_summary(probe: dict[str, Any]) -> dict[str, Any]:
         'dom_sku_count': len(probe.get('skuDetails') or []),
         'runtime_sku_count': len((probe.get('runtimeSkuData') or {}).get('sku') or []),
         'login_required': bool(probe.get('loginRequired')),
+        'captcha_detected': bool(probe.get('captchaDetected')),
     }
 
 
@@ -1171,6 +1181,17 @@ def _poll_probe(tab: CdpTab, timeout_seconds: int, poll_ms: int, *, headed: bool
         if _probe_ready(current):
             current['ready'] = True
             return current
+        # Captcha detected — pause and wait for user to solve it
+        if current.get('captchaDetected') or _looks_like_captcha_intercept(current):
+            print('\n⚠️  检测到 1688 验证码，请在浏览器中手动滑动验证', file=sys.stderr)
+            print('   验证完成后按 Enter 继续...', file=sys.stderr)
+            try:
+                input()
+            except EOFError:
+                pass
+            # Give the page a moment to update after captcha solve
+            time.sleep(2)
+            continue  # Re-probe immediately instead of sleeping
         time.sleep(poll_ms / 1000)
     last['ready'] = False
     last['timed_out'] = True
@@ -1659,6 +1680,16 @@ def _probe_opened_target_page_with_retries(
         )
         probe['openAttempt'] = attempt
         last_probe = probe
+        # Captcha detected — pause and wait for user to solve it
+        if probe.get('captchaDetected') or _looks_like_captcha_intercept(probe):
+            print('\n⚠️  检测到 1688 验证码，请在浏览器中手动滑动验证', file=sys.stderr)
+            print('   验证完成后按 Enter 继续...', file=sys.stderr)
+            try:
+                input()
+            except EOFError:
+                pass
+            time.sleep(2)
+            continue  # Re-probe immediately
         if probe.get('ready'):
             return probe
         if not (_looks_like_failure_page(probe) or _looks_like_captcha_intercept(probe)):
