@@ -75,6 +75,9 @@ class CdpTab:
 
         Events (messages without ``id``) are silently discarded.
         Returns the matched message dict or ``None`` on timeout.
+
+        Raises ``ConnectionError`` immediately if the WebSocket is closed
+        (instead of silently looping until the full timeout).
         """
         deadline = time.time() + timeout
         while time.time() < deadline:
@@ -88,6 +91,15 @@ class CdpTab:
                 # Otherwise it is an event -- discard.
             except websocket.WebSocketTimeoutException:
                 continue
+            except websocket.WebSocketConnectionClosedException:
+                self._closed = True
+                raise ConnectionError("CDP WebSocket closed (target may have been destroyed)")
+            except websocket.WebSocketProtocolException:
+                self._closed = True
+                raise ConnectionError("CDP WebSocket protocol error")
+            except OSError as e:
+                self._closed = True
+                raise ConnectionError(f"CDP socket error: {e}")
             except Exception:
                 continue
         return None
@@ -109,6 +121,12 @@ class CdpTab:
                     return msg
             except websocket.WebSocketTimeoutException:
                 continue
+            except websocket.WebSocketConnectionClosedException:
+                self._closed = True
+                raise ConnectionError("CDP WebSocket closed")
+            except OSError as e:
+                self._closed = True
+                raise ConnectionError(f"CDP socket error: {e}")
             except Exception:
                 continue
         return None
@@ -129,6 +147,12 @@ class CdpTab:
             of a JS ``Promise`` is awaited before returning.
         timeout:
             Maximum seconds to wait for the response.
+
+        Raises
+        ------
+        ConnectionError
+            If the WebSocket is closed (target destroyed, Chrome killed, etc.).
+            Callers should NOT retry on this error — the tab is dead.
         """
         params: dict[str, Any] = {
             "expression": js,
@@ -141,6 +165,16 @@ class CdpTab:
         resp = self._recv_until_id(msg_id, timeout=timeout)
         if resp is None:
             logger.warning("evaluate() timed out after %ss for: %s", timeout, js[:120])
+            return ""
+        # Check for CDP error responses
+        if "error" in resp:
+            err = resp["error"]
+            code = err.get("code", 0)
+            msg = err.get("message", "")
+            if code == -32000 and "target" in msg.lower():
+                self._closed = True
+                raise ConnectionError(f"CDP target gone: {msg}")
+            logger.warning("evaluate() CDP error: %s", msg)
             return ""
         return resp.get("result", {}).get("result", {}).get("value", "")
 
