@@ -892,6 +892,7 @@ async def http_submit_task(request: Request):
 
         # Step3: 查询tokens表（Supabase未配置时跳过鉴权，本地开发模式）
         supabase = get_supabase_client()
+        balance = 0.0  # 本地开发模式无余额概念，设默认值
         if supabase is None:
             logger.warning("Supabase未配置，跳过token鉴权（本地开发模式）")
             user_id = "local_dev"

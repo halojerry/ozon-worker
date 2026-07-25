@@ -1418,6 +1418,7 @@ def _find_live_cdp_session_for_profile(
 
 
 def _resolve_browser_session(profile: str) -> dict[str, Any]:
+    import platform
     session = _load_browser_session(profile) or {}
     # Expire login after 24h
     if session.get('login_detected'):
@@ -1525,6 +1526,7 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
 def _connect_existing_chrome(cdp_url: str) -> tuple[CdpConnection, bool]:
     """Connect to an existing Chrome instance via CDP.
     """
+    import platform
     import logging as _logging
     _logger = _logging.getLogger(__name__)
 
