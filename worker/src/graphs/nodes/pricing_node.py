@@ -11,6 +11,7 @@ from langgraph.runtime import Runtime
 from runtime.context import Context
 from graphs.state import PricingInput, PricingOutput
 from utils.logger import get_logger, set_trace_context, log_ozon_api_call
+from utils.ozon_client import ozon_post
 import time as _time
 
 

@@ -337,7 +337,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
         return text  # 回退到原文
 
 
-def _remove_latin_words(title: str) -> str:
+def _remove_latin_words(title: str, token: str = "") -> str:
     """移除标题中的拉丁字母单词（Ozon 要求 100% 西里尔）。
     
     Ozon DESCRIPTION_DECLINE attr=4180: 标题不能包含拉丁字符。
@@ -356,7 +356,7 @@ def _remove_latin_words(title: str) -> str:
     
     # 尝试 LLM 转写（轻量调用，快速）
     try:
-        token = state.token  # 用户提交时传入，不依赖环境变量
+        # token 由参数传入（来自 state.token）
         if token:
             transliterated = _transliterate_latin_llm(title, latin_words, token)
             if transliterated and _has_cyrillic(transliterated):
@@ -417,7 +417,7 @@ def _transliterate_latin_llm(title: str, latin_words: list[str], token: str) -> 
     return (translated or "").strip()
 
 
-def _sanitize_title(title: str) -> str:
+def _sanitize_title(title: str, token: str = "") -> str:
     """
     标题后校验与修正：确保标题符合Ozon规范。
     0. 去除拉丁字母（Ozon 要求 100% 西里尔）
@@ -432,7 +432,7 @@ def _sanitize_title(title: str) -> str:
     sanitized: str = title.strip()
 
     # 0. 去除拉丁字母 — Ozon 完全禁止拉丁字符（DESCRIPTION_DECLINE attr=4180）
-    sanitized = _remove_latin_words(sanitized)
+    sanitized = _remove_latin_words(sanitized, token)
     # 如果移除拉丁词后为空，标记为需要生成兜底标题
     _needs_fallback_title = not sanitized or not re.search(r'[а-яА-ЯёЁ]', sanitized)
 
@@ -777,6 +777,14 @@ def prepare_ozon_upload_node(
             logger.warning(f"重量无法解析（{weight_raw}），使用默认值 100g")
         logger.info(f"重量单位判断：{weight_raw}g（直接使用）")
     
+    # ✅ 尺寸单位智能判断：1688数据可能是cm或mm
+    # Ozon API 要求 mm 单位
+    def _safe_float(val) -> float:
+        try:
+            return float(val) if val else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+
     # ✅ 重量合理性检查：如果重量过小（<10g）但尺寸较大（>50mm），可能是kg写成g
     if 0 < weight_g < 10:
         _d = _safe_float(depth_raw)
@@ -786,14 +794,8 @@ def prepare_ozon_upload_node(
             old_w = weight_g
             weight_g = weight_g * 1000
             logger.warning(f"⚠️ 重量{old_w}g过小而尺寸较大(max={max(_d,_w,_h):.0f})，疑似单位kg→g，修正为{weight_g}g")
-    
-    # ✅ 尺寸单位智能判断：1688数据可能是cm或mm
-    # Ozon API 要求 mm 单位
-    def _safe_float(val) -> float:
-        try:
-            return float(val) if val else 0.0
-        except (ValueError, TypeError):
-            return 0.0
+
+    # ✅ 尺寸转换
     d_val = _safe_float(depth_raw)
     w_val = _safe_float(width_raw)
     h_val = _safe_float(height_raw)
@@ -1005,7 +1007,7 @@ def prepare_ozon_upload_node(
         logger.info(f"✅ 标题翻译完成：{title_ru[:80]}")
     
     # ✅ 标题后校验：确保标题符合Ozon规范（≤50字符、含标点、无关键词堆砌）
-    title_ru = _sanitize_title(title_ru)
+    title_ru = _sanitize_title(title_ru, mxou_token)
 
     # 兜底：如果标题仍为空或含拉丁字符，用「核心词+属性+场景」公式生成
     _latin_re_title = re.compile(r'[a-zA-Z]')
@@ -1033,7 +1035,7 @@ def prepare_ozon_upload_node(
             ) or ""
             gen_title = gen_title.strip()
             if gen_title and _has_cyrillic(gen_title) and not _latin_re_title.search(gen_title):
-                title_ru = _sanitize_title(gen_title) or gen_title
+                title_ru = _sanitize_title(gen_title, mxou_token) or gen_title
                 logger.info(f"✅ 公式生成标题成功：{title_ru[:80]}")
             else:
                 # 最终兜底：用 Ozon 类目名代替固定文案
@@ -1176,7 +1178,7 @@ def prepare_ozon_upload_node(
                 value_str = ""
             # ✅ 字典属性翻译后，清空旧的 dictionary_value_id（中文值对应的 ID 已失效）
             # 会在后续 validation_retry_loop 中重新匹配
-            if value_str and is_dict_attr:
+            if value_str and attribute_id_int in dict_attr_lookup:
                 dictionary_value_id_int = 0
                 logger.info(f"  ℹ️ 字典属性{attribute_id_int}翻译后清空 dictionary_value_id，待 retry 重新匹配")
         

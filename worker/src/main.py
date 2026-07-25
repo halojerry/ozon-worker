@@ -496,7 +496,7 @@ async def http_run(request: Request) -> Dict[str, Any]:
 
         try:
             result = await asyncio.wait_for(task, timeout=float(TIMEOUT_SECONDS))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(f"Run execution timeout after {TIMEOUT_SECONDS}s for run_id: {run_id}")
             task.cancel()
             try:

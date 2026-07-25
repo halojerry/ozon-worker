@@ -2,7 +2,7 @@
 import os
 import csv
 import logging
-from typing import Optional, List, Dict, Tuple
+from typing import Any, Optional, List, Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ def _search_in_table(table: List[Dict[str, str]], normalized_size: str, table_na
                 # 俄罗斯尺码列名可能是 "俄罗斯尺码"、"RU"、"Российский размер" 等
                 ru_size: Optional[str] = None
                 for ru_col in ["俄罗斯尺码", "RU", "Российскийразмер", "俄罗斯", "俄码"]:
-                    if ru_col in row and row[ru_col]:
+                    if row.get(ru_col):
                         ru_size = row[ru_col].strip()
                         break
                 if not ru_size:
@@ -272,7 +272,7 @@ BRAND_BLACKLIST = {
     "xiaomi", "sony", "lg", "bosch", "makita", "dewalt", "blackdecker",
     "junglespoon", "lego", "disney", "marvel",
     # 中文营销词
-    "跨境", "爆款", "现货", "创意", "亚马逊", "外贸", "出口",
+    "跨境", "爆款", "现货", "创意", "外贸", "出口",
 }
 
 
