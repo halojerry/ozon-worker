@@ -16,9 +16,18 @@ import shutil
 import signal
 import socket
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Optional, Tuple
+
+# Cross-platform file locking
+if platform.system() == 'Windows':
+    import msvcrt
+    _LOCK_EX = 0x00000001  # _LK_LOCK equivalent
+    _LOCK_UN = 0x00000000
+else:
+    import fcntl
 
 logger = logging.getLogger(__name__)
 
@@ -283,71 +292,105 @@ def ensure_chrome_cdp(
     else:
         profile_path = _default_profile_dir()
 
-    # 3. 检查是否有 Chrome 在运行（无 CDP）
-    existing = _find_chrome_processes()
-    if existing:
-        if auto_restart:
-            _kill_chrome_processes("需要启用 CDP 远程调试")
-        else:
-            pids = [str(p["pid"]) for p in existing[:3]]
-            return False, (
-                f"Chrome 已在运行 (PID: {', '.join(pids)}) 但未启用 CDP。"
-                f"请关闭 Chrome 后重试，或设置 auto_restart=True"
-            )
-
-    # 4. 构建启动命令
-    cmd = [
-        chrome_exe,
-        f"--remote-debugging-port={port}",
-        "--remote-allow-origins=*",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-background-networking",
-        "--disable-sync",
-        "--no-pings",
-        "--disable-blink-features=AutomationControlled",
-        "--disable-infobars",
-    ]
-
-    # 使用默认 profile（保留登录态）
-    if profile_path and profile_path.exists():
-        cmd.append(f"--user-data-dir={profile_path}")
-
-    # 5. 启动 Chrome
-    logger.info("Launching Chrome: %s", chrome_exe)
-    logger.info("  Profile: %s", profile_path)
-    logger.info("  CDP port: %d", port)
-
+    # Use a file lock to prevent two processes from launching Chrome simultaneously.
+    # Double-check CDP after acquiring lock to avoid duplicate launches.
+    lock_path = Path(tempfile.gettempdir()) / 'skill-chrome-launch.lock'
+    lock_fd = None
     try:
-        if platform.system() == "Windows":
-            # Windows: CREATE_NEW_PROCESS_GROUP 让 Chrome 独立运行
-            subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-            )
+        lock_fd = open(lock_path, 'w')
+        if platform.system() == 'Windows':
+            msvcrt.locking(lock_fd.fileno(), _LOCK_EX, 1)
         else:
-            subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-    except Exception as e:
-        return False, f"启动 Chrome 失败: {e}"
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
-    # 6. 等待 CDP 就绪（默认 profile 首次启动可能需要 30+ 秒）
-    for i in range(40):
-        time.sleep(1)
+        # Double-check CDP after acquiring lock — another process may have launched Chrome
         if _is_cdp_available(port):
-            logger.info("Chrome CDP ready after %d seconds", i + 1)
-            return True, f"Chrome 已启动，CDP 就绪 (port {port})"
-        # 每 10 秒检查 Chrome 进程是否还活着
-        if i > 0 and i % 10 == 0 and not _find_chrome_processes():
-            return False, "Chrome 进程已退出（可能崩溃）"
+            if _has_remote_allow_origins(port):
+                return True, f"Chrome CDP 就绪 (port {port}, 其他进程已启动)"
+            elif auto_restart:
+                _kill_chrome_processes("缺少 --remote-allow-origins 参数")
+            else:
+                return False, (
+                    f"Chrome CDP 已启动但缺少 --remote-allow-origins=* 参数，"
+                    f"WebSocket 连接会被拒绝。请重启 Chrome。"
+                )
 
-    return False, "Chrome 已启动但 CDP 未就绪（等待 40 秒超时）"
+        # 3. 检查是否有 Chrome 在运行（无 CDP）
+        existing = _find_chrome_processes()
+        if existing:
+            if auto_restart:
+                _kill_chrome_processes("需要启用 CDP 远程调试")
+            else:
+                pids = [str(p["pid"]) for p in existing[:3]]
+                return False, (
+                    f"Chrome 已在运行 (PID: {', '.join(pids)}) 但未启用 CDP。"
+                    f"请关闭 Chrome 后重试，或设置 auto_restart=True"
+                )
+
+        # 4. 构建启动命令
+        cmd = [
+            chrome_exe,
+            f"--remote-debugging-port={port}",
+            "--remote-allow-origins=*",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-background-networking",
+            "--disable-sync",
+            "--no-pings",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-infobars",
+        ]
+
+        # 使用默认 profile（保留登录态）
+        if profile_path and profile_path.exists():
+            cmd.append(f"--user-data-dir={profile_path}")
+
+        # 5. 启动 Chrome
+        logger.info("Launching Chrome: %s", chrome_exe)
+        logger.info("  Profile: %s", profile_path)
+        logger.info("  CDP port: %d", port)
+
+        try:
+            if platform.system() == "Windows":
+                # Windows: CREATE_NEW_PROCESS_GROUP 让 Chrome 独立运行
+                subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                )
+            else:
+                subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+        except Exception as e:
+            return False, f"启动 Chrome 失败: {e}"
+
+        # 6. 等待 CDP 就绪（默认 profile 首次启动可能需要 30+ 秒）
+        for i in range(40):
+            time.sleep(1)
+            if _is_cdp_available(port):
+                logger.info("Chrome CDP ready after %d seconds", i + 1)
+                return True, f"Chrome 已启动，CDP 就绪 (port {port})"
+            # 每 10 秒检查 Chrome 进程是否还活着
+            if i > 0 and i % 10 == 0 and not _find_chrome_processes():
+                return False, "Chrome 进程已退出（可能崩溃）"
+
+        return False, "Chrome 已启动但 CDP 未就绪（等待 40 秒超时）"
+    finally:
+        if lock_fd:
+            try:
+                if platform.system() == 'Windows':
+                    lock_fd.seek(0)
+                    msvcrt.locking(lock_fd.fileno(), _LOCK_UN, 1)
+                else:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            except Exception:
+                pass
+            lock_fd.close()
 
 
 def get_cdp_url(port: int = CDP_PORT) -> str:

@@ -101,6 +101,7 @@ def discover_from_highlight(
     max_competitors: int = DEFAULT_MAX_COMPETITORS,
     logistics_cny: float = DEFAULT_LOGISTICS_CNY,
     commission_pct: float = DEFAULT_COMMISSION_PCT,
+    progress_callback=None,
 ) -> list[ProductCandidate]:
     """Browse Ozon China highlight page and discover profitable products.
 
@@ -227,6 +228,9 @@ def discover_from_highlight(
                     logger.warning("Product %s analysis failed: %s", pid, exc)
 
                 candidates.append(candidate)
+
+                if progress_callback:
+                    progress_callback(i + 1, len(product_urls), candidate)
 
                 # Brief pause between products to avoid rate limiting
                 time.sleep(1)

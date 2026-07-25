@@ -613,15 +613,9 @@ def cmd_discover(args: argparse.Namespace) -> int:
     """Ozon 中国站选品 — 自动发现蓝海产品。"""
     from scripts.lib.ozon_discovery import (
         discover_from_highlight,
-        discover_from_url,
-        discover_from_keyword,
         export_to_csv,
         export_to_json,
         DISCOVERY_CACHE_DIR,
-        CHINA_HIGHLIGHT_URL,
-        DEFAULT_FX_RATE,
-        DEFAULT_LOGISTICS_CNY,
-        DEFAULT_COMMISSION_PCT,
     )
     from scripts.lib.chrome_launcher import ensure_chrome_cdp
 
@@ -632,178 +626,41 @@ def cmd_discover(args: argparse.Namespace) -> int:
     print(f"   汇率: 1 RUB = {args.fx_rate} CNY", flush=True)
     print(flush=True)
 
+    if args.url or args.keyword:
+        print("⚠️ --url / --keyword 模式暂未接入 discover_from_highlight，使用默认中国站页面", flush=True)
+
     ok, msg = ensure_chrome_cdp(auto_restart=True)
     if not ok:
         print(f"❌ Chrome 启动失败: {msg}")
         return 1
     cdp_url = "http://127.0.0.1:9222"
 
-    # 1. Determine source URL
-    if args.url:
-        source_url = args.url
-        print(f"🌐 使用指定 URL: {source_url}", flush=True)
-    elif args.keyword:
-        import urllib.parse
-        encoded = urllib.parse.quote(args.keyword)
-        source_url = f"https://www.ozon.ru/search/?text={encoded}"
-        print(f"🌐 搜索关键词: {args.keyword}", flush=True)
-    else:
-        source_url = CHINA_HIGHLIGHT_URL
-        print("🌐 使用默认中国站页面...", flush=True)
+    def _discovery_progress(current, total, candidate):
+        status = '✅' if candidate.status == 'profitable' else '⚠️'
+        print(f'  [{current}/{total}] {status} {candidate.ozon_title[:40]}  '
+              f'跟卖={candidate.competing_sellers} 利润={candidate.profit_margin:.0f}%', flush=True)
 
-    # 2. Discover product URLs
-    if args.keyword and not args.url:
-        product_urls = discover_from_keyword(cdp_url, args.keyword, args.max_products)
-    else:
-        product_urls = discover_from_url(cdp_url, source_url, args.max_products)
-
-    print(f"📋 发现 {len(product_urls)} 个产品 URL", flush=True)
-
-    if not product_urls:
-        print("未发现产品 URL。尝试更换搜索词或页面。")
+    # Call discover_from_highlight directly (eliminates duplicate discovery logic)
+    try:
+        profitable = discover_from_highlight(
+            cdp_url=cdp_url,
+            max_products=args.max_products,
+            fx_rate=args.fx_rate,
+            min_margin_pct=args.min_margin,
+            max_competitors=args.max_sellers,
+            progress_callback=_discovery_progress,
+        )
+    except KeyboardInterrupt:
+        print("\n⚠️ 用户中断")
         return 0
 
-    # 3. For each product, fetch Widget API data (title, price, images, competing sellers)
-    from scripts.lib.ozon_widget import extract_product_id, fetch_product_info, fetch_competing_sellers
-    from scripts.lib.ozon_discovery import ProductCandidate
-
-    candidates: list[ProductCandidate] = []
-
-    try:
-        for i, url in enumerate(product_urls):
-            pid = extract_product_id(url)
-            if not pid:
-                continue
-
-            candidate = ProductCandidate(
-                ozon_product_id=pid,
-                ozon_title="",
-                ozon_price=0.0,
-                ozon_url=url,
-            )
-
-            print(f"  [{i+1}/{len(product_urls)}] 分析 {pid} ...", flush=True, end="")
-
-            try:
-                info = fetch_product_info(cdp_url, pid)
-                candidate.ozon_title = info.get("title", "")
-                candidate.ozon_price = parse_price(info.get("price", ""))
-                candidate.ozon_images = info.get("images", [])
-
-                if not candidate.ozon_title:
-                    print(" (无标题，跳过)")
-                    candidate.status = "error"
-                    candidate.error = "no title returned"
-                    candidates.append(candidate)
-                    continue
-
-                sellers = fetch_competing_sellers(cdp_url, pid)
-                candidate.competing_sellers = sellers.get("count", 0)
-                candidate.min_competing_price = sellers.get("min_price", 0)
-
-                # Skip if too many competitors
-                if candidate.competing_sellers > args.max_sellers:
-                    print(f" (跟卖 {candidate.competing_sellers} 人，跳过)")
-                    candidate.status = "rejected"
-                    candidate.error = f"too many competitors ({candidate.competing_sellers})"
-                    candidates.append(candidate)
-                    continue
-
-                # If keyword provided, also do 1688 matching
-                if args.keyword:
-                    from scripts.lib.ozon_discovery import _search_1688_source
-                    match = _search_1688_source(cdp_url, candidate.ozon_images, candidate.ozon_title)
-                    if match:
-                        candidate.match_1688_url = match.get("url", "")
-                        candidate.match_1688_title = match.get("title", "")
-                        candidate.match_1688_price = float(match.get("price", 0))
-                        candidate.match_1688_images = match.get("images", [])
-                        candidate.status = "matched"
-
-                        # Calculate profit
-                        from scripts.lib.ozon_discovery import _calculate_profit
-                        _calculate_profit(
-                            candidate,
-                            fx_rate=args.fx_rate,
-                            logistics_cny=DEFAULT_LOGISTICS_CNY,
-                            commission_pct=DEFAULT_COMMISSION_PCT,
-                        )
-
-                        if candidate.profit_margin >= args.min_margin:
-                            candidate.status = "profitable"
-                        else:
-                            candidate.status = "rejected"
-                    else:
-                        candidate.status = "no_match"
-                else:
-                    candidate.status = "matched"
-
-                print(f" ✓ {candidate.ozon_title[:40]}")
-
-            except Exception as exc:
-                candidate.status = "error"
-                candidate.error = str(exc)
-                print(f" ✗ {exc}")
-
-            candidates.append(candidate)
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n⚠️ 用户中断，显示已收集的结果")
-
-    # 4. If --client-id and --api-key provided, fetch Seller API data
-    if args.client_id and args.api_key:
-        print("\n📊 获取 Seller API 数据（佣金+重量）...", flush=True)
-        for c in candidates:
-            if c.status in ("error",):
-                continue
-            try:
-                # Fetch product attributes from Seller API
-                import requests as req
-                resp = req.post(
-                    "https://api-seller.ozon.ru/v2/product/info",
-                    headers={"Client-Id": args.client_id, "Api-Key": args.api_key, "Content-Type": "application/json"},
-                    json={"product_id": int(c.ozon_product_id)},
-                    timeout=15,
-                )
-                if resp.status_code == 200:
-                    data = resp.json().get("result", {})
-                    c.category = data.get("type_name", "")
-                    c.brand = data.get("brand", "")
-                    c.weight_g = data.get("weight", 0)
-                    dims = data.get("dimension_unit", {})
-                    if dims:
-                        c.dimensions_mm = {
-                            "length": dims.get("depth", 0),
-                            "width": dims.get("width", 0),
-                            "height": dims.get("height", 0),
-                        }
-            except Exception:
-                pass  # non-critical
-
-    # 5. Filter by min-margin and max-sellers
-    profitable = [
-        c for c in candidates
-        if c.status == "profitable"
-        and c.profit_margin >= args.min_margin
-        and c.competing_sellers <= args.max_sellers
-    ]
-    # For non-keyword runs, also include "matched" candidates that passed filters
-    if not args.keyword:
-        profitable = [
-            c for c in candidates
-            if c.status in ("profitable", "matched")
-            and c.competing_sellers <= args.max_sellers
-        ]
-
-    profitable.sort(key=lambda c: c.profit_margin, reverse=True)
-
-    print(f"\n📊 分析完成: {len(candidates)} 个产品，{len(profitable)} 个符合条件\n")
+    print(f"\n📊 分析完成: {len(profitable)} 个符合条件的产品\n")
 
     if not profitable:
         print("未找到符合条件的产品。尝试调低 min-margin 或增加 max-products。")
         return 0
 
-    # 6. Export to CSV/JSON if requested
+    # Export to CSV/JSON if requested
     if args.export in ("csv", "both"):
         output = args.output or "data/discovery/discover_export.csv"
         csv_path = export_to_csv(profitable, output)
@@ -816,7 +673,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
         json_path = export_to_json(profitable, output)
         print(f"📄 JSON 已导出: {json_path}")
 
-    # 7. Display results table
+    # Display results table
     for i, c in enumerate(profitable[:20], 1):
         print(f"{'─' * 60}")
         print(f"  [{i}] {c.ozon_title[:50]}")
@@ -828,7 +685,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
             print(f"      1688:  {c.match_1688_url[:60]}")
     print(f"{'─' * 60}")
 
-    # 8. Auto-submit if requested
+    # Auto-submit if requested
     if args.auto_submit:
         print("\n🚀 自动提交到 Worker...", flush=True)
         confirm = input("确认提交以上产品到 Worker？(y/N) ")
@@ -852,9 +709,6 @@ def cmd_discover(args: argparse.Namespace) -> int:
 
     print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
     return 0
-
-
-from scripts.lib.utils import parse_price
 
 
 def main() -> int:

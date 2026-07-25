@@ -13,7 +13,7 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        python-version: ['3.12', '3.13']
+        python-version: ['3.12']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,7 +35,7 @@ jobs:
     runs-on: macos-13
     strategy:
       matrix:
-        python-version: ['3.12', '3.13']
+        python-version: ['3.12']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -57,7 +57,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python-version: ['3.12', '3.13']
+        python-version: ['3.12']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -74,9 +74,63 @@ jobs:
           path: skill/dist/scripts/lib/_native/win32/
           retention-days: 7
 
+  build-windows-arm64:
+    name: Windows arm64 (py${{ matrix.python-version }})
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ['3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          pip install cython setuptools
+          pip install -r skill/requirements.txt
+      - name: Compile for Windows ARM64
+        working-directory: skill
+        run: python compile.py
+        env:
+          PYTHONIOENCODING: utf-8
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-win-arm64-py${{ matrix.python-version }}
+          path: skill/dist/scripts/lib/_native/win32/
+          retention-days: 7
+
+  build-linux:
+    name: Linux amd64 (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          pip install cython setuptools
+          pip install -r skill/requirements.txt
+      - name: Compile for Linux
+        working-directory: skill
+        run: python compile.py
+        env:
+          PYTHONIOENCODING: utf-8
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-linux-py${{ matrix.python-version }}
+          path: skill/dist/scripts/lib/_native/
+          retention-days: 7
+
   package:
     name: Package unified binary
-    needs: [build-macos-arm64, build-macos-x86_64, build-windows]
+    needs: [build-macos-arm64, build-macos-x86_64, build-windows, build-windows-arm64, build-linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -92,31 +146,27 @@ jobs:
         env:
           PYTHONIOENCODING: utf-8
 
-      # Download all platform artifacts
+      # Download all platform artifacts (py3.12 only)
       - uses: actions/download-artifact@v4
         with:
           name: native-darwin-arm64-py3.12
           path: skill/dist/scripts/lib/_native/darwin-arm64-py312/
       - uses: actions/download-artifact@v4
         with:
-          name: native-darwin-arm64-py3.13
-          path: skill/dist/scripts/lib/_native/darwin-arm64-py313/
-      - uses: actions/download-artifact@v4
-        with:
           name: native-darwin-x86_64-py3.12
           path: skill/dist/scripts/lib/_native/darwin-x86_64-py312/
-      - uses: actions/download-artifact@v4
-        with:
-          name: native-darwin-x86_64-py3.13
-          path: skill/dist/scripts/lib/_native/darwin-x86_64-py313/
       - uses: actions/download-artifact@v4
         with:
           name: native-win32-py3.12
           path: skill/dist/scripts/lib/_native/win32-py312/
       - uses: actions/download-artifact@v4
         with:
-          name: native-win32-py3.13
-          path: skill/dist/scripts/lib/_native/win32-py313/
+          name: native-win-arm64-py3.12
+          path: skill/dist/scripts/lib/_native/win-arm64-py312/
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-linux-py3.12
+          path: _linux/
 
       # Merge all into unified _native structure
       # stub uses platform.machine() to pick correct binary
@@ -126,17 +176,20 @@ jobs:
           # macOS arm64
           mkdir -p darwin-arm64
           cp darwin-arm64-py312/* darwin-arm64/ 2>/dev/null || true
-          cp darwin-arm64-py313/* darwin-arm64/ 2>/dev/null || true
           # macOS x86_64
           mkdir -p darwin-x86_64
           cp darwin-x86_64-py312/* darwin-x86_64/ 2>/dev/null || true
-          cp darwin-x86_64-py313/* darwin-x86_64/ 2>/dev/null || true
           # Windows amd64
           mkdir -p win32
           cp win32-py312/* win32/ 2>/dev/null || true
-          cp win32-py313/* win32/ 2>/dev/null || true
+          # Windows arm64
+          mkdir -p win-arm64
+          cp win-arm64-py312/* win-arm64/ 2>/dev/null || true
+          # Linux
+          mkdir -p linux
+          cp -r ../../../_linux/scripts/lib/_native/linux/* linux/ 2>/dev/null || true
           # Cleanup temp dirs
-          rm -rf darwin-arm64-py312 darwin-arm64-py313 darwin-x86_64-py312 darwin-x86_64-py313 win32-py312 win32-py313
+          rm -rf darwin-arm64-py312 darwin-x86_64-py312 win32-py312 win-arm64-py312
           echo "=== Final _native structure ==="
           find . -type f | sort
 
