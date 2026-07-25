@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-SKILL_VERSION = '0.3.0'
+SKILL_VERSION = '0.4.0'
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_ROOT = SCRIPT_DIR.parent
 DATA_DIR = SKILL_ROOT / 'data'

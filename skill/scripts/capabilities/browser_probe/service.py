@@ -1563,7 +1563,11 @@ def _connect_existing_chrome(cdp_url: str) -> tuple[CdpConnection, bool]:
         f'--user-data-dir={profile_dir}',
         '--no-first-run', '--no-default-browser-check',
     ] + STEALTH_ARGS
-    _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, start_new_session=True)
+    if platform.system() == 'Windows':
+        _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                  creationflags=_sp.CREATE_NEW_PROCESS_GROUP)
+    else:
+        _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, start_new_session=True)
     cdp_url = f'http://127.0.0.1:{cdp_port}'
 
     # Wait up to 15s for CDP to become ready

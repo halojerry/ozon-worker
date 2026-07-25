@@ -669,83 +669,86 @@ def cmd_discover(args: argparse.Namespace) -> int:
 
     candidates: list[ProductCandidate] = []
 
-    for i, url in enumerate(product_urls):
-        pid = extract_product_id(url)
-        if not pid:
-            continue
-
-        candidate = ProductCandidate(
-            ozon_product_id=pid,
-            ozon_title="",
-            ozon_price=0.0,
-            ozon_url=url,
-        )
-
-        print(f"  [{i+1}/{len(product_urls)}] 分析 {pid} ...", flush=True, end="")
-
-        try:
-            info = fetch_product_info(cdp_url, pid)
-            candidate.ozon_title = info.get("title", "")
-            candidate.ozon_price = _parse_price(info.get("price", ""))
-            candidate.ozon_images = info.get("images", [])
-
-            if not candidate.ozon_title:
-                print(" (无标题，跳过)")
-                candidate.status = "error"
-                candidate.error = "no title returned"
-                candidates.append(candidate)
+    try:
+        for i, url in enumerate(product_urls):
+            pid = extract_product_id(url)
+            if not pid:
                 continue
 
-            sellers = fetch_competing_sellers(cdp_url, pid)
-            candidate.competing_sellers = sellers.get("count", 0)
-            candidate.min_competing_price = sellers.get("min_price", 0)
+            candidate = ProductCandidate(
+                ozon_product_id=pid,
+                ozon_title="",
+                ozon_price=0.0,
+                ozon_url=url,
+            )
 
-            # Skip if too many competitors
-            if candidate.competing_sellers > args.max_sellers:
-                print(f" (跟卖 {candidate.competing_sellers} 人，跳过)")
-                candidate.status = "rejected"
-                candidate.error = f"too many competitors ({candidate.competing_sellers})"
-                candidates.append(candidate)
-                continue
+            print(f"  [{i+1}/{len(product_urls)}] 分析 {pid} ...", flush=True, end="")
 
-            # If keyword provided, also do 1688 matching
-            if args.keyword:
-                from scripts.lib.ozon_discovery import _search_1688_source
-                match = _search_1688_source(cdp_url, candidate.ozon_images, candidate.ozon_title)
-                if match:
-                    candidate.match_1688_url = match.get("url", "")
-                    candidate.match_1688_title = match.get("title", "")
-                    candidate.match_1688_price = float(match.get("price", 0))
-                    candidate.match_1688_images = match.get("images", [])
+            try:
+                info = fetch_product_info(cdp_url, pid)
+                candidate.ozon_title = info.get("title", "")
+                candidate.ozon_price = _parse_price(info.get("price", ""))
+                candidate.ozon_images = info.get("images", [])
+
+                if not candidate.ozon_title:
+                    print(" (无标题，跳过)")
+                    candidate.status = "error"
+                    candidate.error = "no title returned"
+                    candidates.append(candidate)
+                    continue
+
+                sellers = fetch_competing_sellers(cdp_url, pid)
+                candidate.competing_sellers = sellers.get("count", 0)
+                candidate.min_competing_price = sellers.get("min_price", 0)
+
+                # Skip if too many competitors
+                if candidate.competing_sellers > args.max_sellers:
+                    print(f" (跟卖 {candidate.competing_sellers} 人，跳过)")
+                    candidate.status = "rejected"
+                    candidate.error = f"too many competitors ({candidate.competing_sellers})"
+                    candidates.append(candidate)
+                    continue
+
+                # If keyword provided, also do 1688 matching
+                if args.keyword:
+                    from scripts.lib.ozon_discovery import _search_1688_source
+                    match = _search_1688_source(cdp_url, candidate.ozon_images, candidate.ozon_title)
+                    if match:
+                        candidate.match_1688_url = match.get("url", "")
+                        candidate.match_1688_title = match.get("title", "")
+                        candidate.match_1688_price = float(match.get("price", 0))
+                        candidate.match_1688_images = match.get("images", [])
+                        candidate.status = "matched"
+
+                        # Calculate profit
+                        from scripts.lib.ozon_discovery import _calculate_profit
+                        _calculate_profit(
+                            candidate,
+                            fx_rate=args.fx_rate,
+                            logistics_cny=DEFAULT_LOGISTICS_CNY,
+                            commission_pct=DEFAULT_COMMISSION_PCT,
+                        )
+
+                        if candidate.profit_margin >= args.min_margin:
+                            candidate.status = "profitable"
+                        else:
+                            candidate.status = "rejected"
+                    else:
+                        candidate.status = "no_match"
+                else:
                     candidate.status = "matched"
 
-                    # Calculate profit
-                    from scripts.lib.ozon_discovery import _calculate_profit
-                    _calculate_profit(
-                        candidate,
-                        fx_rate=args.fx_rate,
-                        logistics_cny=DEFAULT_LOGISTICS_CNY,
-                        commission_pct=DEFAULT_COMMISSION_PCT,
-                    )
+                print(f" ✓ {candidate.ozon_title[:40]}")
 
-                    if candidate.profit_margin >= args.min_margin:
-                        candidate.status = "profitable"
-                    else:
-                        candidate.status = "rejected"
-                else:
-                    candidate.status = "no_match"
-            else:
-                candidate.status = "matched"
+            except Exception as exc:
+                candidate.status = "error"
+                candidate.error = str(exc)
+                print(f" ✗ {exc}")
 
-            print(f" ✓ {candidate.ozon_title[:40]}")
-
-        except Exception as exc:
-            candidate.status = "error"
-            candidate.error = str(exc)
-            print(f" ✗ {exc}")
-
-        candidates.append(candidate)
-        time.sleep(1)
+            candidates.append(candidate)
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n⚠️ 用户中断，显示已收集的结果")
 
     # 4. If --client-id and --api-key provided, fetch Seller API data
     if args.client_id and args.api_key:
@@ -828,10 +831,24 @@ def cmd_discover(args: argparse.Namespace) -> int:
     # 8. Auto-submit if requested
     if args.auto_submit:
         print("\n🚀 自动提交到 Worker...", flush=True)
-        for c in profitable:
-            if c.match_1688_url:
-                print(f"  提交: {c.ozon_title[:40]}")
-                # TODO: integrate with graph/follow submission
+        confirm = input("确认提交以上产品到 Worker？(y/N) ")
+        if confirm.lower() == 'y':
+            from scripts.cloud_probe import build_envelope_from_discovery, submit_envelope
+            from scripts.lib.config_store import load_store_config
+            store_config = load_store_config(args.store) if hasattr(args, 'store') and args.store else {}
+            if not store_config:
+                store_config = {"client_id": args.client_id or "", "api_key": args.api_key or ""}
+            for c in profitable:
+                if c.match_1688_url:
+                    try:
+                        envelope = build_envelope_from_discovery(c, store_config)
+                        result = submit_envelope(envelope)
+                        task_id = result.get("task_id", "")
+                        print(f"  ✓ 已提交: {c.ozon_title[:40]} → task_id={task_id}")
+                    except Exception as e:
+                        print(f"  ✗ 提交失败: {c.ozon_title[:40]} — {e}")
+        else:
+            print("已取消")
 
     print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
     return 0
