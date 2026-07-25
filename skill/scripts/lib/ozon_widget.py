@@ -400,6 +400,72 @@ def fetch_sku_variants(cdp_url: str, product_id: str) -> list[dict[str, Any]]:
     return variants
 
 
+def extract_commissions_from_info(product_info: dict) -> dict:
+    """Extract commission rates from Widget API product info response.
+
+    Some Widget API responses include embedded commission data in the
+    characteristics or in a dedicated widget.  This function searches
+    common locations for commission info.
+
+    Returns::
+
+        {
+            "sales_percent": float,  # Ozon sales commission %
+            "fbo_fee": float,        # FBO fulfillment fee (RUB)
+            "fbs_fee": float,        # FBS fulfillment fee (RUB)
+        }
+
+    Missing values default to 0.0.
+    """
+    result: dict[str, float] = {
+        "sales_percent": 0.0,
+        "fbo_fee": 0.0,
+        "fbs_fee": 0.0,
+    }
+
+    # Try extracting from characteristics (some responses embed it)
+    for char_group in product_info.get("characteristics", []):
+        if not isinstance(char_group, dict):
+            continue
+        for item in char_group.get("items", []):
+            if not isinstance(item, dict):
+                continue
+            key = (item.get("key") or item.get("name") or "").lower()
+            val = item.get("value") or item.get("text") or ""
+            if not val:
+                continue
+            try:
+                val_str = str(val).replace(",", ".").replace("%", "").strip()
+                val_num = float(re.sub(r"[^\d.]", "", val_str) or 0)
+            except (ValueError, TypeError):
+                continue
+
+            if "commission" in key or "sales_percent" in key:
+                result["sales_percent"] = val_num
+            elif "fbo" in key and ("fee" in key or "fulfillment" in key or "logistics" in key):
+                result["fbo_fee"] = val_num
+            elif "fbs" in key and ("fee" in key or "fulfillment" in key or "logistics" in key):
+                result["fbs_fee"] = val_num
+
+    # Also check direct keys at the top level (some responses flatten this)
+    for key, val in product_info.items():
+        kl = key.lower()
+        try:
+            val_str = str(val).replace(",", ".").replace("%", "").strip()
+            val_num = float(re.sub(r"[^\d.]", "", val_str) or 0)
+        except (ValueError, TypeError):
+            continue
+
+        if "commission" in kl or "sales_percent" in kl:
+            result["sales_percent"] = val_num
+        elif "fbo" in kl and ("fee" in kl or "fulfillment" in kl):
+            result["fbo_fee"] = val_num
+        elif "fbs" in kl and ("fee" in kl or "fulfillment" in kl):
+            result["fbs_fee"] = val_num
+
+    return result
+
+
 def fetch_all_product_data(
     cdp_url: str, product_id: str
 ) -> dict[str, Any]:
