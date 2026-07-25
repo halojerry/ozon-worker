@@ -687,7 +687,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
             try:
                 info = fetch_product_info(cdp_url, pid)
                 candidate.ozon_title = info.get("title", "")
-                candidate.ozon_price = _parse_price(info.get("price", ""))
+                candidate.ozon_price = parse_price(info.get("price", ""))
                 candidate.ozon_images = info.get("images", [])
 
                 if not candidate.ozon_title:
@@ -854,17 +854,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
     return 0
 
 
-def _parse_price(price_str: str) -> float:
-    """Parse price string like '327 ₽' or '1 299,99 ₽' to float."""
-    import re as _re
-    if not price_str:
-        return 0.0
-    cleaned = _re.sub(r"[^\d,.]", "", str(price_str))
-    cleaned = cleaned.replace(",", ".").replace(" ", "")
-    try:
-        return float(cleaned)
-    except (ValueError, TypeError):
-        return 0.0
+from scripts.lib.utils import parse_price
 
 
 def main() -> int:

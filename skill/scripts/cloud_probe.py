@@ -301,7 +301,7 @@ def build_envelope(
     """
     resolved_extensions = dict(extensions or {})
     # Auto-fill from pounding config / env / config_store
-    ozon = _get_ozon_credentials()
+    ozon = _get_ozon_credentials(store_id)
     resolved_extensions.setdefault("ozon_client_id", ozon["client_id"])
     # ozon_api_key removed — Auth node looks up credentials from Supabase users table
     mxou_token = _get_mxou_token()
@@ -867,7 +867,7 @@ def _validate_and_fix_product_data(
     # ── 软兜底：重量 ──
     if weight_g <= 0:
         weight_g = 50
-        logger.warning(f"物品 {item_id} 重量缺失，使用默认值 50g")
+        logger.warning("物品 %s 重量缺失，使用默认值 50g", item_id)
 
     # ── 软兜底：尺寸 ──
     if dimensions.get("length", 0) <= 0 and dimensions.get("width", 0) <= 0 and dimensions.get("height", 0) <= 0:
@@ -887,8 +887,9 @@ def _validate_and_fix_product_data(
         est_height = round(base_mm * 1.0)
         dimensions = {"length": est_length, "width": est_width, "height": est_height}
         logger.warning(
-            f"物品 {item_id} 尺寸缺失，根据重量 {weight_g}g 估算: "
-            f"{est_length}×{est_width}×{est_height}mm（密度={density}kg/m³）"
+            "物品 %s 尺寸缺失，根据重量 %dg 估算: "
+            "%d×%d×%dmm（密度=%.0fkg/m³）",
+            item_id, weight_g, est_length, est_width, est_height, density,
         )
 
     # ── 硬阻断：图片 ──
@@ -933,7 +934,7 @@ def _validate_and_fix_product_data(
                     )
 
     if errors:
-        logger.warning(f"❌ 物品 {item_id} 校验不通过: {'; '.join(errors)}")
+        logger.warning("❌ 物品 %s 校验不通过: %s", item_id, '; '.join(errors))
     return weight_g, dimensions, errors
 
 
@@ -1568,15 +1569,7 @@ def _error_envelope(
 # ── Ozon helpers ──
 
 
-def _parse_price(raw: str) -> float:
-    """Parse 1688 price string like '¥38' or '¥16.50' to float."""
-    if not raw:
-        return 0.0
-    try:
-        cleaned = str(raw).replace("¥", "").replace("¥", "").replace(",", "").replace(" ", "").strip()
-        return float(cleaned) if cleaned else 0.0
-    except (ValueError, TypeError):
-        return 0.0
+from scripts.lib.utils import parse_price as _parse_price
 
 
 def parse_ozon_url(url: str) -> dict[str, str] | None:
@@ -1817,7 +1810,7 @@ def publish_product_new(
 
     # 3. Resolve Ozon category — use pre-resolved if provided, otherwise search
     category_candidates = []
-    ozon_creds = _get_ozon_credentials()
+    ozon_creds = _get_ozon_credentials(store_id)
 
     if resolved_category:
         # Pre-resolved category injected by caller (e.g. batch script with Ozon API validation)
@@ -2244,9 +2237,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             ozon_images = cdp_data.get("images", [])
             ozon_title = cdp_data.get("title", "")
             result["scrape_source"] = "cdp"
-            logger.info(f"✅ CDP 抓取 Ozon 成功: {len(ozon_images)} 张图, title={ozon_title[:60]}")
+            logger.info("✅ CDP 抓取 Ozon 成功: %d 张图, title=%s", len(ozon_images), ozon_title[:60])
     except Exception as e:
-        logger.debug(f"CDP Ozon scraper unavailable: {e}")
+        logger.debug("CDP Ozon scraper unavailable: %s", e)
     
     result["ozon_images_count"] = len(ozon_images)
     result["images"] = ozon_images
@@ -2262,7 +2255,7 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     # ⚠️ 始终用第一张图（产品主图），不要按分辨率选图（后面的可能是场景图/细节图）
     if ozon_images:
         main_img = ozon_images[0]  # 第一张 = 产品主图
-        logger.info(f"🔍 以图搜款: {main_img[:80]}")
+        logger.info("🔍 以图搜款: %s", main_img[:80])
 
         # 3a-1. CDP 网页版以图搜款（更准确，用1688网页搜索引擎）
         try:
@@ -2271,9 +2264,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             if cdp_results:
                 matches_raw = cdp_results
                 search_method = "cdp"
-                logger.info(f"✅ CDP图搜命中 {len(matches_raw)} 个结果")
+                logger.info("✅ CDP图搜命中 %d 个结果", len(matches_raw))
         except Exception as e:
-            logger.debug(f"CDP image search failed: {e}")
+            logger.debug("CDP image search failed: %s", e)
 
         # 3a-2. API 以图搜款（后备）
         if not matches_raw:
@@ -2283,9 +2276,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                 if img_results:
                     matches_raw = img_results
                     search_method = "image"
-                    logger.info(f"✅ API图搜命中 {len(matches_raw)} 个结果")
+                    logger.info("✅ API图搜命中 %d 个结果", len(matches_raw))
             except Exception as e:
-                logger.debug(f"图片搜索失败: {e}")
+                logger.debug("图片搜索失败: %s", e)
 
     # 3b. 文字搜索（fallback）— LLM 翻译俄语标题 → 中文关键词
     if not matches_raw:
@@ -2295,7 +2288,7 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         result["search_keyword"] = search_kw
         matches_raw = _search_1688_with_fallback(search_kw)
         search_method = "text"
-        logger.info(f"📝 文字搜索: {search_kw}")
+        logger.info("📝 文字搜索: %s", search_kw)
 
     result["search_method"] = search_method
 

@@ -244,8 +244,11 @@ _FETCH_VARIANTS_JS = r'''(() => {
 # ---------------------------------------------------------------------------
 
 
-def fetch_product_info(cdp_url: str, product_id: str) -> dict[str, Any]:
+def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, Any]:
     """Fetch product info via CDP using Ozon widget API.
+
+    If *cdp* is provided, reuse the existing CdpConnection (caller owns it).
+    Otherwise, create a temporary connection.
 
     Returns dict with keys: title, price, cardPrice, originalPrice,
     images, primaryImage, description, characteristics, aspects, brand.
@@ -267,7 +270,7 @@ def fetch_product_info(cdp_url: str, product_id: str) -> dict[str, Any]:
     }
 
     try:
-        with CdpConnection(cdp_url) as cdp:
+        if cdp is not None:
             tab = _ensure_ozon_tab(cdp)
             raw = tab.evaluate(js, await_promise=True, timeout=20)
             parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
@@ -275,6 +278,15 @@ def fetch_product_info(cdp_url: str, product_id: str) -> dict[str, Any]:
                 logger.warning("Widget API error for product %s: %s",
                                product_id, parsed["error"])
             result.update(parsed)
+        else:
+            with CdpConnection(cdp_url) as _cdp:
+                tab = _ensure_ozon_tab(_cdp)
+                raw = tab.evaluate(js, await_promise=True, timeout=20)
+                parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
+                if parsed.get("error"):
+                    logger.warning("Widget API error for product %s: %s",
+                                   product_id, parsed["error"])
+                result.update(parsed)
     except Exception as exc:
         logger.error("fetch_product_info(%s) CDP failed: %s", product_id, exc)
         # Fallback: try direct HTTP (may fail due to geo/cookies)
@@ -335,8 +347,11 @@ def _fetch_product_info_http(
     return defaults
 
 
-def fetch_competing_sellers(cdp_url: str, product_id: str) -> dict[str, Any]:
-    """Fetch competing sellers (跟卖) data for a product.
+def fetch_competing_sellers(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, Any]:
+    """Fetch competing sellers data for a product.
+
+    If *cdp* is provided, reuse the existing CdpConnection (caller owns it).
+    Otherwise, create a temporary connection.
 
     Returns::
 
@@ -356,7 +371,7 @@ def fetch_competing_sellers(cdp_url: str, product_id: str) -> dict[str, Any]:
     result: dict[str, Any] = {"count": 0, "min_price": 0, "sellers": []}
 
     try:
-        with CdpConnection(cdp_url) as cdp:
+        if cdp is not None:
             tab = _ensure_ozon_tab(cdp)
             raw = tab.evaluate(js, await_promise=True, timeout=20)
             parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
@@ -368,6 +383,19 @@ def fetch_competing_sellers(cdp_url: str, product_id: str) -> dict[str, Any]:
                 "min_price": parsed.get("min_price", 0),
                 "sellers": parsed.get("sellers", []),
             })
+        else:
+            with CdpConnection(cdp_url) as _cdp:
+                tab = _ensure_ozon_tab(_cdp)
+                raw = tab.evaluate(js, await_promise=True, timeout=20)
+                parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
+                if parsed.get("error"):
+                    logger.warning("Seller API error for product %s: %s",
+                                   product_id, parsed["error"])
+                result.update({
+                    "count": parsed.get("count", 0),
+                    "min_price": parsed.get("min_price", 0),
+                    "sellers": parsed.get("sellers", []),
+                })
     except Exception as exc:
         logger.error("fetch_competing_sellers(%s) failed: %s", product_id, exc)
 

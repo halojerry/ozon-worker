@@ -13,6 +13,7 @@ Usage::
 
 from __future__ import annotations
 
+import itertools
 import json as _json
 import logging
 import time
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 class CdpTab:
     """Single browser tab CDP operations. Replaces Playwright Page."""
 
-    _counter = 10000  # class-level atomic counter for message IDs
+    _counter = itertools.count(10000)  # thread-safe counter for message IDs
 
     def __init__(self, cdp_url: str, tab_id: str, ws_url: str) -> None:
         self._cdp_url = cdp_url
@@ -57,8 +58,7 @@ class CdpTab:
     # ------------------------------------------------------------------
 
     def _next_id(self) -> int:
-        CdpTab._counter += 1
-        return CdpTab._counter
+        return next(CdpTab._counter)
 
     def _send(self, method: str, params: dict | None = None, msg_id: int | None = None) -> int:
         """Send a CDP command and return the message ID used."""
