@@ -1426,10 +1426,10 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
         if created and time.time() - created > 86400:
             session.pop('login_detected', None)
     cdp_url = str(session.get('cdp_url') or '').strip()
-    expected_dir = str(_profile_dir(profile))
-    if cdp_url and _cdp_available(cdp_url) and _chrome_user_data_dir_matches(cdp_url, expected_dir):
+    # 如果 CDP 可用，直接使用（不管 profile 是否匹配，不杀用户已经打开的 Chrome）
+    if cdp_url and _cdp_available(cdp_url):
         return session
-    # Cached session is stale — delete it so we don't keep returning dead CDP URLs
+    # Cached session has dead CDP URL — clean up
     if session:
         try:
             _session_file(profile).unlink(missing_ok=True)
@@ -1856,11 +1856,11 @@ def _wait_for_login_session(
 
 
 def _check_1688_login_live(cdp_url: str) -> bool:
-    """Check 1688 login status by inspecting cookies in a live Chrome tab.
+    """Check 1688 login status by navigating to a product page.
 
-    Opens a CDP connection, finds any existing 1688 tab (or opens a temp one),
-    checks document.cookie for login indicators, and returns True if logged in.
-    Closes the temp tab if one was created.
+    Instead of reading cookies (which are often HttpOnly and invisible to JS),
+    we navigate to a known product page and check if product content loads.
+    If redirected to login page, login is expired.
     """
     import logging as _logging
     _logger = _logging.getLogger(__name__)
@@ -1872,85 +1872,54 @@ def _check_1688_login_live(cdp_url: str) -> bool:
     temp_tab = None
     try:
         conn = CdpConnection(cdp_url)
+        temp_tab = conn.new_tab()
 
-        # Try to find an existing 1688 tab
-        target_tab = None
+        # 注入反检测脚本（防止1688滑块验证码）
+        from scripts.capabilities.browser_probe.stealth import STEALTH_JS, REALISTIC_UA
+        temp_tab.add_init_script(STEALTH_JS)
+        temp_tab.set_extra_headers({'User-Agent': REALISTIC_UA})
+
+        # Navigate to a product page (any 1688 product)
         try:
-            target_tab = conn.find_tab("1688.com")
+            temp_tab.navigate(
+                "https://detail.1688.com/offer/770530889059.html",
+                wait_until='domcontentloaded', timeout=15,
+            )
+            temp_tab.wait_for_load(timeout=5)
         except Exception:
             pass
+        time.sleep(1)
 
-        created_temp = False
-        if target_tab is None:
-            # Open a temp tab on 1688 to check cookies
-            try:
-                temp_tab = conn.new_tab()
-                temp_tab.navigate("https://www.1688.com/", wait_until='domcontentloaded', timeout=15)
-                try:
-                    temp_tab.wait_for_load(timeout=5)
-                except Exception:
-                    pass
-                time.sleep(1)
-                target_tab = temp_tab
-                created_temp = True
-            except Exception as exc:
-                _logger.debug("_check_1688_login_live: failed to open temp tab: %s", exc)
-                return False
-
-        # Check cookies for login indicators
+        # Check if product content loaded (not redirected to login)
         try:
-            cookie_js = "() => document.cookie"
-            cookies = target_tab.evaluate(cookie_js)
-            if not cookies:
+            url = temp_tab.evaluate("() => window.location.href", timeout=5) or ""
+            title_el = temp_tab.evaluate(
+                "document.querySelector('.title-content')?.innerText || ''",
+                timeout=5,
+            ) or ""
+
+            # If redirected to login or title is empty (login wall), not logged in
+            if "login.1688.com" in url or "signin" in url:
+                _logger.debug("_check_1688_login_live: redirected to login page")
                 return False
-            # Look for 1688/Taobao login cookie patterns
-            has_cookie2 = 'cookie2=' in cookies and len(cookies.split('cookie2=')[1].split(';')[0].strip()) > 4
-            has_cn_logon = '__cn_logon__=' in cookies
-            if not (has_cookie2 or has_cn_logon):
-                _logger.debug("_check_1688_login_live: no login cookies found")
+            if not title_el:
+                _logger.debug("_check_1688_login_live: product title not found (possible login wall)")
                 return False
 
-            # Cookie 存在但可能已过期 — 访问需要登录的页面验证
-            # 如果被重定向到 login.1688.com，说明 cookie 已失效
-            if created_temp and target_tab:
-                try:
-                    target_tab.navigate(
-                        "https://work.1688.com/home/welcome.htm",
-                        wait_until='domcontentloaded', timeout=10,
-                    )
-                    time.sleep(2)
-                    final_url = target_tab.evaluate("() => window.location.href") or ""
-                    if "login.1688.com" in final_url or "signin" in final_url:
-                        _logger.info("_check_1688_login_live: cookie expired (redirected to login)")
-                        return False
-                    _logger.info("_check_1688_login_live: login verified (cookie2=%s, cn_logon=%s)", has_cookie2, has_cn_logon)
-                except ConnectionError:
-                    # CDP target 已死 — 不是登录问题，是 Chrome 通信问题
-                    _logger.warning("_check_1688_login_live: CDP target died during verification")
-                    raise
-                except Exception:
-                    # 验证页面访问失败，保守认为 cookie 有效
-                    _logger.debug("_check_1688_login_live: verification navigation failed, assuming valid")
-            else:
-                _logger.info("_check_1688_login_live: login detected via cookies (cookie2=%s, cn_logon=%s)", has_cookie2, has_cn_logon)
+            _logger.info("_check_1688_login_live: login OK (product title: %s)", title_el[:30])
             return True
-        except ConnectionError:
-            # CDP 连接断开 — 不是登录问题，向上传播让调用方重试
-            raise
         except Exception as exc:
-            _logger.debug("_check_1688_login_live: cookie check failed: %s", exc)
+            _logger.debug("_check_1688_login_live: page check failed: %s", exc)
             return False
     except Exception as exc:
-        _logger.debug("_check_1688_login_live: CDP connection failed: %s", exc)
+        _logger.debug("_check_1688_login_live: CDP failed: %s", exc)
         return False
     finally:
-        # Close temp tab if we created one
         if temp_tab:
             try:
                 temp_tab.close()
             except Exception:
                 pass
-        # Close CDP connection to prevent WebSocket leak
         if conn:
             try:
                 conn.close()
