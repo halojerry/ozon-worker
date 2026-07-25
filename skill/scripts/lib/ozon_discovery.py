@@ -247,8 +247,8 @@ def _scroll_and_collect_urls(tab: Any, max_products: int) -> list[str]:
         # Extract product links from the current DOM
         new_urls_raw = tab.evaluate(r'''(() => {
             return [...document.querySelectorAll('a[href*="/product/"]')]
-                .map(a => a.href)
-                .filter(h => h.match(/\/product\/\d+/))
+                .map(a => a.href.split('?')[0])
+                .filter(h => h.match(/-\d{5,}\/?$/) || h.match(/\/product\/\d{5,}\/?$/))
                 .filter((v, i, a) => a.indexOf(v) === i);
         })()''')
 
