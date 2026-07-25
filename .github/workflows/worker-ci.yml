@@ -53,6 +53,7 @@ jobs:
         working-directory: worker
         run: |
           pip install -r requirements.txt 2>/dev/null || pip install requests pydantic fastapi uvicorn sqlalchemy psycopg2-binary langchain-core langgraph supabase
+          pip install pytest
       - name: Run tests
         working-directory: worker
         run: python -m pytest tests/ -v --tb=short
