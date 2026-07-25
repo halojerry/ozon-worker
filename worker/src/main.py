@@ -295,12 +295,12 @@ class GraphService:
             return {"input_schema": {}, "output_schema": {}}
         builder = getattr(self._get_graph(), 'builder', None)
         if builder is not None:
-            input_cls = getattr(builder, 'input_schema', None) or self.graph.get_input_schema()
-            output_cls = getattr(builder, 'output_schema', None) or self.graph.get_output_schema()
+            input_cls = getattr(builder, 'input_schema', None) or self._get_graph().get_input_schema()
+            output_cls = getattr(builder, 'output_schema', None) or self._get_graph().get_output_schema()
         else:
             logger.warning(f"No builder input schema found for graph_inout_schema, using graph input schema instead")
-            input_cls = self.graph.get_input_schema()
-            output_cls = self.graph.get_output_schema()
+            input_cls = self._get_graph().get_input_schema()
+            output_cls = self._get_graph().get_output_schema()
 
         return {
             "input_schema": input_cls.model_json_schema(), 
@@ -703,23 +703,24 @@ async def health_check():
         )
 
 
-@app.post("/auth/verify")
-@app.post("/api/v1/auth/verify")
+@app.post("/auth/verify", response_model=AuthVerifyResponse)
+@app.post("/api/v1/auth/verify", response_model=AuthVerifyResponse)
 async def auth_verify(request: Request):
     """
     Skill 鉴权端点。
 
     验证:
-    1. token 有效性（Supabase tokens 表）
-    2. 账户余额 > 0（users 表 balance）
+    1. token 有效性（Supabase tokens 表，列名为 key）
+    2. MXOU API 钱包余额 > 0（balance 字段）
     3. 账户激活状态（users 表 status）
+    4. Ozon API 有效性（可选）
 
     不返回余额数字，只返回 valid + reason。
     """
     try:
         body = await request.json()
     except Exception:
-        return JSONResponse(status_code=400, content={"valid": False, "reason": "invalid_request"})
+        return JSONResponse(status_code=400, content={"valid": False, "reason": "invalid_request", "expires_in": 0})
 
     token = body.get("token", "")
     client_id = body.get("client_id", "")
@@ -728,65 +729,69 @@ async def auth_verify(request: Request):
     if not token:
         return {"valid": False, "reason": "token_invalid", "expires_in": 0}
 
-    # 1. 验证 token（查 Supabase tokens 表）
+    # 去掉 sk- 前缀（tokens 表 key 列存储的是不带前缀的值）
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+
+    import requests as _req
+
+    # 1. 验证 token（查 Supabase tokens 表，列名为 key）
     try:
         from storage.database.db import get_engine
         from sqlalchemy import text
         _engine = get_engine()
         with _engine.connect() as conn:
             result = conn.execute(
-                text("SELECT id FROM tokens WHERE token = :token AND (expires_at IS NULL OR expires_at > NOW())"),
-                {"token": token}
+                text("SELECT id FROM tokens WHERE key = :token AND (expires_at IS NULL OR expires_at > NOW())"),
+                {"token": clean_token}
             ).fetchone()
             if not result:
                 return {"valid": False, "reason": "token_invalid", "expires_in": 0}
 
             tenant_id = result[0]
 
-            # 2. 检查账户余额和激活状态
+            # 2. 检查账户激活状态
             user_result = conn.execute(
-                text("SELECT balance, status FROM users WHERE id = :id"),
+                text("SELECT status FROM users WHERE id = :id"),
                 {"id": tenant_id}
             ).fetchone()
 
             if user_result:
-                balance = float(user_result[0] or 0)
-                status = user_result[1] or "active"
-                if balance <= 0:
-                    return {"valid": False, "reason": "balance_insufficient", "expires_in": 0}
+                status = user_result[0] or "active"
                 if status != "active":
                     return {"valid": False, "reason": "account_inactive", "expires_in": 0}
     except Exception as e:
         logger.warning(f"auth_verify DB error: {e}")
-        # DB 不可达时降级：不阻断，返回 valid（由 Skill 端缓存控制）
-        return {"valid": True, "reason": "ok_degraded", "expires_in": 3600}
+        return {"valid": False, "reason": "service_unavailable", "expires_in": 0}
 
-    # 3. 检查 MXOU API 钱包余额
+    # 3. 检查 MXOU API 钱包余额（balance 字段）
     try:
-        import requests as _req
         _headers = {"Authorization": f"Bearer {token}"}
         _sub_resp = _req.get("https://api.mxou.cn/v1/dashboard/billing/subscription", headers=_headers, timeout=10)
         if _sub_resp.ok:
             _sub_data = _sub_resp.json()
-            # hard_limit_usd = 钱包余额（元），soft_limit_usd = key 总分配额
-            _wallet_balance = float(_sub_data.get("hard_limit_usd", 0))
+            # balance = 用户充值累积的钱包余额（元）
+            _wallet_balance = float(_sub_data.get("balance", 0))
             if _wallet_balance <= 0:
                 return {"valid": False, "reason": "balance_insufficient", "expires_in": 0}
+        else:
+            logger.warning(f"MXOU subscription API returned {_sub_resp.status_code}")
+            return {"valid": False, "reason": "service_unavailable", "expires_in": 0}
     except Exception as e:
-        logger.debug(f"MXOU balance check skipped: {e}")
+        logger.warning(f"MXOU balance check failed: {e}")
+        return {"valid": False, "reason": "service_unavailable", "expires_in": 0}
 
     # 4. 可选：验证 Ozon API
     ozon_valid = None
     if client_id and api_key:
         try:
-            import requests as _req
+            # 使用 v1/seller/info 端点验证凭证（auth_node.py 相同方式）
             resp = _req.post(
-                "https://api-seller.ozon.ru/v1/product/info/description",
+                "https://api-seller.ozon.ru/v1/seller/info",
                 headers={"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"},
-                json={"product_id": 1},
+                json={},
                 timeout=10
             )
-            ozon_valid = resp.status_code not in (401, 403)
+            ozon_valid = resp.status_code == 200
         except Exception:
             ozon_valid = None
 
