@@ -233,7 +233,7 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             "price": price,
             "old_price": old_price,
             "currency_unit": currency_unit,
-            "price_formula": "total_cost × (1 + commission) × (1 + fx_buffer) × (1 + margin) × exchange_rate (if RUB)",
+            "price_formula": "total_cost × (1 + margin) / (1 - commission) [× (1 + fx_buffer) × exchange_rate if RUB]",
             # ✅ 新增：利润预估明细
             "profit_estimation": {
                 "profit_cny": round(profit_cny, 2),
@@ -278,11 +278,11 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 var_total_cost: float = var_cost_cny + logistics_cost + packaging_cost
                 
                 if currency_code == "CNY":
-                    var_base_price: float = var_total_cost * (1 + commission_rate) * (1 + fx_buffer) * (1 + margin_rate)
+                    var_base_price: float = var_total_cost * (1 + margin_rate) / (1 - commission_rate)
                     var_price: int = math.ceil(var_base_price)
                     var_old_price: int = var_price + 3 if var_price <= 25 else math.ceil(var_price * 1.15)
                 else:
-                    var_base_rub: float = var_total_cost * (1 + commission_rate) * (1 + fx_buffer) * (1 + margin_rate) * exchange_rate
+                    var_base_rub: float = var_total_cost * (1 + margin_rate) * (1 + fx_buffer) / (1 - commission_rate) * exchange_rate
                     var_price = math.ceil(var_base_rub)
                     var_old_price = var_price + 3 if var_price <= 25 else math.ceil(var_price * 1.15)
                 

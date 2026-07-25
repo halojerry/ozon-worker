@@ -1394,7 +1394,7 @@ def build_graph_envelope(
     draft: dict[str, Any] = {
         "item_id": str(item_id),
         "title": item_title,
-        "description": "",
+        "description": (data.get("description") or "")[:5000],
         "currency": "CNY",
         "images": images,
         "attributes": attrs,
@@ -1435,6 +1435,36 @@ def build_graph_envelope(
             "filtered_skus": filtered_skus_info,
         },
     }
+
+    # ── 6.5 注入定价参数 ──
+    from scripts.lib.config_store import get_store_profile
+    store_profile = get_store_profile(store_id)
+    margin_rate = float(store_profile.get("margin_rate", 0) or 0)
+    commission_rate = float(store_profile.get("commission_rate", 0) or 0)
+    fx_buffer = float(store_profile.get("fx_buffer", 0) or 0)
+
+    # 尝试从 Ozon API 获取真实佣金率（覆盖店铺配置）
+    if ozon_creds and commission_rate <= 0:
+        try:
+            from scripts.lib.ozon_seller import fetch_product_commissions
+            comms = fetch_product_commissions(
+                ozon_creds["client_id"], ozon_creds["api_key"], [str(item_id)]
+            )
+            if comms and str(item_id) in comms:
+                real_comm = comms[str(item_id)].get("sales_percent_rfbs", 0)
+                if real_comm > 0:
+                    commission_rate = real_comm / 100.0
+                    logger.info("Ozon 真实佣金率: %.1f%%", real_comm)
+        except Exception as e:
+            logger.debug("获取 Ozon 佣金率失败: %s", e)
+
+    # 只传非零值（Worker 用默认值兜底）
+    if margin_rate > 0:
+        envelope["extensions"]["margin_rate"] = margin_rate
+    if commission_rate > 0:
+        envelope["extensions"]["commission_rate"] = commission_rate
+    if fx_buffer > 0:
+        envelope["extensions"]["fx_buffer"] = fx_buffer
 
     # ── 7. 组装 GraphInput ──
     mxou_token = _get_mxou_token() or _get_token()
@@ -2323,6 +2353,13 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     # 跟卖标记: Worker 走跟卖管线
                     draft["ozon_product_id"] = product_id
                     extensions["follow_sell"] = True
+                    # 注入定价参数
+                    from scripts.lib.config_store import get_store_profile as _gsp
+                    _sp = _gsp(store_id)
+                    for _pk in ("margin_rate", "commission_rate", "fx_buffer"):
+                        _pv = float(_sp.get(_pk, 0) or 0)
+                        if _pv > 0:
+                            extensions[_pk] = _pv
                     envelope["envelope"]["extensions"] = extensions
                     # 竞品图片
                     if ozon_images:
