@@ -171,27 +171,7 @@ def create_image_gen_subgraph():
 image_gen_subgraph = create_image_gen_subgraph()
 
 
-# ========== 变体主图循环子图 ==========
-
-class VariantLoopState(BaseModel):
-    """变体主图循环子图状态"""
-    variants: list = Field(default_factory=list, description="变体SKU列表")
-    variant_primary_images: list = Field(default_factory=list, description="已生成的变体主图列表")
-    current_variant_index: int = Field(default=0, description="当前循环到的variant索引")
-    white_bg_image: Optional[str] = Field(default=None, description="白底图（辅助参考）")
-    multi_angle_image: Optional[str] = Field(default=None, description="多角度图（辅助参考）")
-
-class VariantLoopInput(BaseModel):
-    """变体主图循环子图输入"""
-    variants: list = Field(..., description="变体SKU列表")
-    white_bg_image: str = Field(..., description="白底图")
-    multi_angle_image: str = Field(..., description="多角度图")
-
-class VariantLoopOutput(BaseModel):
-    """变体主图循环子图输出"""
-    variant_primary_images: list = Field(default_factory=list, description="所有变体主图列表")
-
-# 注意：variant_primary_loop_node已在主图中直接实现循环逻辑
-# 不再需要variant_primary_loop子图（避免循环导入和架构冲突）
+# 注意：VariantLoopState/VariantLoopInput/VariantLoopOutput 已从 graphs.state 导入
+# 不再在此文件中重复定义（避免遮蔽导入的完整版本）
 # variant_primary_loop_node在nodes/variant_primary_loop_node.py中直接循环生成所有主图
 # 已删除废弃的variant_primary_gen_loop_node和should_continue_loop函数
