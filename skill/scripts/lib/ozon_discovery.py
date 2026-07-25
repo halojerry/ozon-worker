@@ -129,112 +129,113 @@ def discover_from_highlight(
         # 1. Open the China highlight page
         logger.info("Opening Ozon China highlight page: %s", CHINA_HIGHLIGHT_URL)
         tab = cdp.new_tab(CHINA_HIGHLIGHT_URL)
-        time.sleep(5)  # initial page load
-
-        # 2. Scroll and collect product URLs
-        product_urls = _scroll_and_collect_urls(tab, max_products)
-        logger.info("Collected %d product URLs from highlight page", len(product_urls))
-
-        # 3. Analyze each product
-        for i, url in enumerate(product_urls):
-            pid = extract_product_id(url)
-            if not pid:
-                logger.debug("Skipping URL with no product ID: %s", url)
-                continue
-
-            candidate = ProductCandidate(
-                ozon_product_id=pid,
-                ozon_title="",
-                ozon_price=0.0,
-                ozon_images=[],
-                ozon_url=url,
-            )
-
-            logger.info("[%d/%d] Analyzing product %s ...", i + 1, len(product_urls), pid)
-
-            try:
-                # Fetch product info via widget API
-                info = fetch_product_info(cdp_url, pid)
-                candidate.ozon_title = info.get("title", "")
-                candidate.ozon_price = _parse_price(info.get("price", ""))
-                candidate.ozon_images = info.get("images", [])
-
-                if not candidate.ozon_title:
-                    logger.debug("Product %s: no title, skipping", pid)
-                    candidate.status = "error"
-                    candidate.error = "no title returned"
-                    candidates.append(candidate)
-                    continue
-
-                # Fetch competing sellers
-                sellers = fetch_competing_sellers(cdp_url, pid)
-                candidate.competing_sellers = sellers.get("count", 0)
-                candidate.min_competing_price = sellers.get("min_price", 0)
-
-                # Skip if too many competitors
-                if candidate.competing_sellers > max_competitors:
-                    logger.info("Product %s: too many competitors (%d > %d), skipping",
-                                pid, candidate.competing_sellers, max_competitors)
-                    candidate.status = "rejected"
-                    candidate.error = f"too many competitors ({candidate.competing_sellers})"
-                    candidates.append(candidate)
-                    continue
-
-                # Search 1688 for matching source
-                match = _search_1688_source(
-                    cdp_url, candidate.ozon_images, candidate.ozon_title
-                )
-                if match:
-                    candidate.match_1688_url = match.get("url", "")
-                    candidate.match_1688_title = match.get("title", "")
-                    candidate.match_1688_price = float(match.get("price", 0))
-                    candidate.match_1688_images = match.get("images", [])
-                    candidate.status = "matched"
-
-                    # Calculate profit
-                    _calculate_profit(
-                        candidate,
-                        fx_rate=fx_rate,
-                        logistics_cny=logistics_cny,
-                        commission_pct=commission_pct,
-                    )
-
-                    # Calculate blue ocean score
-                    candidate.blue_ocean_score = calculate_blue_ocean_score(candidate)
-
-                    if candidate.profit_margin >= min_margin_pct:
-                        candidate.status = "profitable"
-                        logger.info(
-                            "Product %s: PROFITABLE (margin=%.1f%%, 1688=%.1f CNY, ozon=%.0f RUB, blue_ocean=%d)",
-                            pid, candidate.profit_margin,
-                            candidate.match_1688_price, candidate.ozon_price,
-                            candidate.blue_ocean_score,
-                        )
-                    else:
-                        candidate.status = "rejected"
-                        logger.debug(
-                            "Product %s: margin too low (%.1f%% < %.1f%%)",
-                            pid, candidate.profit_margin, min_margin_pct,
-                        )
-                else:
-                    candidate.status = "no_match"
-                    logger.debug("Product %s: no 1688 match found", pid)
-
-            except Exception as exc:
-                candidate.status = "error"
-                candidate.error = str(exc)
-                logger.warning("Product %s analysis failed: %s", pid, exc)
-
-            candidates.append(candidate)
-
-            # Brief pause between products to avoid rate limiting
-            time.sleep(1)
-
-        # Close the highlight page tab
         try:
-            tab.close()
-        except Exception:
-            pass
+            time.sleep(5)  # initial page load
+
+            # 2. Scroll and collect product URLs
+            product_urls = _scroll_and_collect_urls(tab, max_products)
+            logger.info("Collected %d product URLs from highlight page", len(product_urls))
+
+            # 3. Analyze each product
+            for i, url in enumerate(product_urls):
+                pid = extract_product_id(url)
+                if not pid:
+                    logger.debug("Skipping URL with no product ID: %s", url)
+                    continue
+
+                candidate = ProductCandidate(
+                    ozon_product_id=pid,
+                    ozon_title="",
+                    ozon_price=0.0,
+                    ozon_images=[],
+                    ozon_url=url,
+                )
+
+                logger.info("[%d/%d] Analyzing product %s ...", i + 1, len(product_urls), pid)
+
+                try:
+                    # Fetch product info via widget API
+                    info = fetch_product_info(cdp_url, pid, cdp=cdp)
+                    candidate.ozon_title = info.get("title", "")
+                    candidate.ozon_price = _parse_price(info.get("price", ""))
+                    candidate.ozon_images = info.get("images", [])
+
+                    if not candidate.ozon_title:
+                        logger.debug("Product %s: no title, skipping", pid)
+                        candidate.status = "error"
+                        candidate.error = "no title returned"
+                        candidates.append(candidate)
+                        continue
+
+                    # Fetch competing sellers
+                    sellers = fetch_competing_sellers(cdp_url, pid, cdp=cdp)
+                    candidate.competing_sellers = sellers.get("count", 0)
+                    candidate.min_competing_price = sellers.get("min_price", 0)
+
+                    # Skip if too many competitors
+                    if candidate.competing_sellers > max_competitors:
+                        logger.info("Product %s: too many competitors (%d > %d), skipping",
+                                    pid, candidate.competing_sellers, max_competitors)
+                        candidate.status = "rejected"
+                        candidate.error = f"too many competitors ({candidate.competing_sellers})"
+                        candidates.append(candidate)
+                        continue
+
+                    # Search 1688 for matching source
+                    match = _search_1688_source(
+                        cdp_url, candidate.ozon_images, candidate.ozon_title
+                    )
+                    if match:
+                        candidate.match_1688_url = match.get("url", "")
+                        candidate.match_1688_title = match.get("title", "")
+                        candidate.match_1688_price = float(match.get("price", 0))
+                        candidate.match_1688_images = match.get("images", [])
+                        candidate.status = "matched"
+
+                        # Calculate profit
+                        _calculate_profit(
+                            candidate,
+                            fx_rate=fx_rate,
+                            logistics_cny=logistics_cny,
+                            commission_pct=commission_pct,
+                        )
+
+                        # Calculate blue ocean score
+                        candidate.blue_ocean_score = calculate_blue_ocean_score(candidate)
+
+                        if candidate.profit_margin >= min_margin_pct:
+                            candidate.status = "profitable"
+                            logger.info(
+                                "Product %s: PROFITABLE (margin=%.1f%%, 1688=%.1f CNY, ozon=%.0f RUB, blue_ocean=%d)",
+                                pid, candidate.profit_margin,
+                                candidate.match_1688_price, candidate.ozon_price,
+                                candidate.blue_ocean_score,
+                            )
+                        else:
+                            candidate.status = "rejected"
+                            logger.debug(
+                                "Product %s: margin too low (%.1f%% < %.1f%%)",
+                                pid, candidate.profit_margin, min_margin_pct,
+                            )
+                    else:
+                        candidate.status = "no_match"
+                        logger.debug("Product %s: no 1688 match found", pid)
+
+                except Exception as exc:
+                    candidate.status = "error"
+                    candidate.error = str(exc)
+                    logger.warning("Product %s analysis failed: %s", pid, exc)
+
+                candidates.append(candidate)
+
+                # Brief pause between products to avoid rate limiting
+                time.sleep(1)
+
+        finally:
+            try:
+                tab.close()
+            except Exception:
+                pass
 
     # 4. Cache all results (including rejected/errors for audit)
     _save_discovery_log(candidates)
@@ -270,33 +271,34 @@ def discover_from_url(cdp_url: str, url: str, max_products: int = 50) -> list[st
 
     with CdpConnection(cdp_url) as cdp:
         tab = cdp.new_tab(url)
-        time.sleep(6)
+        try:
+            time.sleep(6)
 
-        # Scroll to load products
-        prev_count = 0
-        for _ in range(max_products // 10 + 5):
-            tab.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-            time.sleep(2)
+            # Scroll to load products
+            prev_count = 0
+            for _ in range(max_products // 10 + 5):
+                tab.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                time.sleep(2)
 
-            # Check if new products loaded
-            count = tab.evaluate('document.querySelectorAll(".tile-root").length')
-            if count == prev_count:
-                break  # no new products
-            prev_count = count
+                # Check if new products loaded
+                count = tab.evaluate('document.querySelectorAll(".tile-root").length')
+                if count == prev_count:
+                    break  # no new products
+                prev_count = count
 
-            if count >= max_products:
-                break
+                if count >= max_products:
+                    break
 
-        # Extract product URLs
-        urls = tab.evaluate(r'''(() => {
-            return [...new Set(
-                [...document.querySelectorAll('.tile-root a[href*="/product/"]')]
-                    .map(a => a.href.split('?')[0])
-                    .filter(h => h.match(/-\d{5,}\/?$/) || h.match(/\/product\/\d{5,}\/?$/))
-            )];
-        })()''')
-
-        tab.close()
+            # Extract product URLs
+            urls = tab.evaluate(r'''(() => {
+                return [...new Set(
+                    [...document.querySelectorAll('.tile-root a[href*="/product/"]')]
+                        .map(a => a.href.split('?')[0])
+                        .filter(h => h.match(/-\d{5,}\/?$/) || h.match(/\/product\/\d{5,}\/?$/))
+                )];
+            })()''')
+        finally:
+            tab.close()
 
     return (urls or [])[:max_products]
 
@@ -427,24 +429,7 @@ def _scroll_and_collect_urls(tab: Any, max_products: int) -> list[str]:
     return result
 
 
-def _parse_price(price_str: str) -> float:
-    """Parse price string like '327 \u20bd' or '1 299,99 \u20bd' to float.
-
-    Handles Russian number formatting (space as thousands separator,
-    comma as decimal separator).
-    """
-    if not price_str:
-        return 0.0
-    # Remove currency symbols and whitespace, normalize
-    cleaned = re.sub(r"[^\d,.]", "", str(price_str))
-    # Russian format: 1 299,99 -> 1299.99
-    cleaned = cleaned.replace(",", ".")
-    # Remove any remaining spaces (thousands separator)
-    cleaned = cleaned.replace(" ", "")
-    try:
-        return float(cleaned)
-    except (ValueError, TypeError):
-        return 0.0
+from scripts.lib.utils import parse_price as _parse_price
 
 
 def _search_1688_source(

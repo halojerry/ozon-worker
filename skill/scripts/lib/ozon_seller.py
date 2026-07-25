@@ -14,10 +14,7 @@ OZON_SELLER_BASE = "https://api-seller.ozon.ru"
 
 
 def _seller_post(client_id: str, api_key: str, path: str, body: dict, timeout: int = 30) -> dict:
-    """POST to Ozon Seller API.
-
-    Returns parsed JSON response, or empty dict on failure.
-    """
+    """POST to Ozon Seller API. Returns response dict. Raises on auth failures."""
     headers = {
         "Client-Id": client_id,
         "Api-Key": api_key,
@@ -26,51 +23,43 @@ def _seller_post(client_id: str, api_key: str, path: str, body: dict, timeout: i
     try:
         resp = requests.post(f"{OZON_SELLER_BASE}{path}", json=body, headers=headers, timeout=timeout)
         if resp.status_code in (401, 403):
-            logger.warning("Seller API auth failed: %s %s -> %s", path, body.get("filter", ""), resp.status_code)
-            return {}
-        if resp.status_code == 429:
-            logger.warning("Seller API rate limited: %s", path)
-            return {}
+            logger.warning("Seller API auth failed (%s): %s", resp.status_code, path)
+            raise requests.exceptions.HTTPError(response=resp)  # permanent, don't retry
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.ConnectionError:
-        logger.warning("Seller API unreachable: %s", path)
-        return {}
-    except requests.exceptions.HTTPError as e:
-        logger.warning("Seller API HTTP error: %s -> %s", path, e)
-        return {}
+        logger.warning("Seller API connection failed: %s", path)
+        return {}  # transient, can retry
+    except requests.exceptions.Timeout:
+        logger.warning("Seller API timeout: %s", path)
+        return {}  # transient, can retry
+    except requests.exceptions.HTTPError:
+        raise  # re-raise 401/403 and other HTTP errors
     except Exception as e:
-        logger.warning("Seller API unexpected error: %s -> %s", path, e)
+        logger.warning("Seller API unexpected error: %s: %s", path, e)
         return {}
 
 
 def _seller_post_with_retry(client_id: str, api_key: str, path: str, body: dict, timeout: int = 30, retries: int = 2) -> dict:
-    """POST to Ozon Seller API with automatic retry on transient failures.
-
-    Retries on 429 (rate limit) and connection errors with exponential backoff.
-    Returns parsed JSON response, or empty dict on persistent failure.
-    """
+    """POST with retry for transient failures only."""
     for attempt in range(retries + 1):
         try:
             result = _seller_post(client_id, api_key, path, body, timeout)
-            # If _seller_post returned empty dict due to 429, retry
-            if not result and attempt < retries:
-                # Check if it was a rate limit (logged by _seller_post)
-                time.sleep(2 ** attempt)
-                continue
-            return result
-        except requests.exceptions.HTTPError as e:
-            if e.response is not None and e.response.status_code == 429 and attempt < retries:
-                logger.warning("Seller API rate limited (attempt %d/%d), retrying...", attempt + 1, retries)
-                time.sleep(2 ** attempt)
-                continue
-            raise
+            return result  # success or transient failure (empty dict)
+        except requests.exceptions.HTTPError:
+            raise  # auth failure -- don't retry
         except requests.exceptions.ConnectionError:
             if attempt < retries:
                 logger.warning("Seller API connection failed (attempt %d/%d), retrying...", attempt + 1, retries)
+                time.sleep(2 ** attempt)
+                continue
+            return {}
+        except requests.exceptions.Timeout:
+            if attempt < retries:
+                logger.warning("Seller API timeout (attempt %d/%d), retrying...", attempt + 1, retries)
                 time.sleep(1)
                 continue
-            raise
+            return {}
     return {}
 
 
@@ -108,6 +97,10 @@ def fetch_product_commissions(client_id: str, api_key: str, product_ids: list[st
                         "fbo_fulfillment": float(comm.get("fbo_direct_flow_trans_max_amount", 0) or 0),
                         "fbs_fulfillment": float(comm.get("fbs_direct_flow_trans_max_amount", 0) or 0),
                     }
+        except requests.exceptions.HTTPError as e:
+            logger.warning("fetch_product_commissions auth failed (%s), skipping remaining batches",
+                           e.response.status_code if e.response else "unknown")
+            break  # auth failure -- no point trying more batches
         except Exception as e:
             logger.warning("fetch_product_commissions batch failed: %s", e)
     return result
@@ -154,6 +147,10 @@ def fetch_product_attributes(client_id: str, api_key: str, product_ids: list[str
                     "description_category_id": item.get("description_category_id", 0),
                     "type_id": item.get("type_id", 0),
                 }
+        except requests.exceptions.HTTPError as e:
+            logger.warning("fetch_product_attributes auth failed (%s), skipping remaining batches",
+                           e.response.status_code if e.response else "unknown")
+            break  # auth failure -- no point trying more batches
         except Exception as e:
             logger.warning("fetch_product_attributes batch (info/list) failed: %s", e)
 
@@ -180,6 +177,10 @@ def fetch_product_attributes(client_id: str, api_key: str, product_ids: list[str
                         "volume_weight": 0,
                     }
                 result[pid]["volume_weight"] = float(item.get("volume_weight", 0) or 0)
+        except requests.exceptions.HTTPError as e:
+            logger.warning("fetch_product_attributes auth failed (%s), skipping remaining batches",
+                           e.response.status_code if e.response else "unknown")
+            break  # auth failure -- no point trying more batches
         except Exception as e:
             logger.warning("fetch_product_attributes batch (prices) failed: %s", e)
 

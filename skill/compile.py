@@ -51,6 +51,7 @@ AUX_FILES = [
     "scripts/lib/logging_utils.py",
     "scripts/lib/ozon_api.py",  # cloud_probe.py 4 处 lazy import，无法编译（依赖 requests）
     "scripts/lib/cdp_client.py",  # CDP 客户端（替代 Playwright）
+    "scripts/lib/utils.py",  # 共享工具函数（parse_price 等）
     "scripts/lib/ozon_seller.py",  # Ozon Seller API 客户端（佣金/属性）
     "scripts/lib/ozon_widget.py",  # Ozon Widget API 客户端（产品/跟卖）
     "scripts/lib/ozon_discovery.py",  # 选品发现引擎
