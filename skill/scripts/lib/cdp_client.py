@@ -250,6 +250,9 @@ class CdpConnection:
 
     def new_tab(self, url: str = "about:blank") -> CdpTab:
         """Create a new tab via ``PUT /json/new?`` and return a :class:`CdpTab`."""
+        # 清理已关闭的 tab 引用
+        self._tabs = [t for t in self._tabs if not t._closed]
+
         resp = requests.put(f"{self._cdp_url}/json/new?", timeout=10)
         resp.raise_for_status()
         data = resp.json()
