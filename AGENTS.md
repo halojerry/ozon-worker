@@ -36,6 +36,7 @@ ozon-worker/
 │       │   ├── ozon_widget.py         # Ozon Widget API 客户端（产品信息/跟卖/SKU）
 │       │   ├── ozon_seller.py         # Ozon Seller API 客户端（佣金/重量/品牌）
 │       │   ├── ozon_discovery.py      # Ozon 选品发现引擎（蓝海评分/1688匹配）
+│       │   ├── cache.py              # 通用磁盘缓存（命名空间 + TTL + SHA256 key）
 │       │   └── utils.py              # 共享工具函数（parse_price 等）
 │       └── capabilities/browser_probe/   # Chrome CDP 探针 + 反检测
 ├── worker/                     # 云端 Docker:LangGraph 上架工作流 (Python ≥3.12)
@@ -360,3 +361,39 @@ Skill 已适配 Windows，但有以下注意事项：
 - `data/config/settings.json` / `stores.json` — **空模板**（编译时自动生成，不泄露凭证）
 
 跨平台分发流程：在 macOS/Windows/Linux 各跑一次 `python3.12 compile.py`，合并 `_native/` 目录后打包。
+
+## 最近更新（v0.4.0+）
+
+### Skill 信封增强
+
+- **定价参数注入**：`build_graph_envelope` 从 `get_store_profile()` 读取 `margin_rate`/`commission_rate`/`fx_buffer`，写入 `extensions` → Worker 直接用，不调 Ozon API
+- **Ozon 真实佣金率**：调用 `fetch_product_commissions()` 获取产品级佣金，覆盖店铺默认值
+- **description 字段**：从 CDP 数据提取 1688 商品描述，传入 `draft.description`（不再为空），Worker LLM 用做俄语翻译源材料
+- **店铺配置扩展**：`set_store` 新增 `--margin-rate`/`--commission-rate`/`--fx-buffer`（`None` 哨兵支持清零）
+
+### Skill 缓存机制
+
+- **模块**：`scripts/lib/cache.py`（磁盘 JSON，命名空间 + SHA256 key + TTL）
+- **集成**：`ak_1688_client.get_product_details()`（24h）、`ozon_widget.fetch_product_info()`（1h）、`ozon_image_search.search_by_image_cdp()`（6h）
+- **命令**：`python3.12 scripts/cli.py cache --stats` / `--clear`
+- **降级数据不缓存**：Widget 只缓存有 title 或 price 的有效数据
+
+### Skill 日志增强
+
+- **信封完整性审计**：记录 title/images/weight/dimensions/category/commission 各字段是否齐全
+- **定价参数审计**：记录 margin_rate/commission_rate/fx_buffer 及其来源（store_config/ozon_api）
+- **图搜结果审计**：记录 result_count、best_title、image_url
+
+### Worker 定价修正
+
+- **变体公式统一**：变体公式从 `* (1+commission)` 改为 `/ (1-commission)`，与主公式一致
+- **除零保护**：变体复用主公式的 `commission_divisor`（floor 0.9）
+- **CNY 不加 fx_buffer**：变体 CNY 定价不再错误应用汇率缓冲
+
+### CDP 稳定性修复
+
+- **登录检查**：从 `document.cookie` 改为页面行为检测（导航到产品页，检查是否加载真实内容），HttpOnly cookie 不可读
+- **Stealth 注入**：`_check_1688_login_live` 打开前注入 `STEALTH_JS` + `REALISTIC_UA`
+- **Profile 匹配**：`_resolve_browser_session` 不再因 profile 不匹配杀 Chrome——CDP 可用就直接用
+- **CdpConnection 泄漏**：3 个函数 finally 块增加 `conn.close()`，find_tab 结果改为 `tab.close()` 而非只关 WebSocket
+- **结果标签页去重**：图搜轮询时记录已有标签页 ID，只匹配新标签页（防止复用旧结果）
