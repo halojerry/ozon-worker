@@ -26,8 +26,8 @@ def _eval(ws, msg_id: int, expression: str) -> str:
         "method": "Runtime.evaluate",
         "params": {"expression": expression, "returnByValue": True}
     }))
-    ws.settimeout(8)
-    for _ in range(15):
+    ws.settimeout(5)
+    for _ in range(6):
         try:
             m = json.loads(ws.recv())
             if m.get("id") == msg_id:
@@ -38,13 +38,13 @@ def _eval(ws, msg_id: int, expression: str) -> str:
 
 
 def _wait_page_load(ws, timeout: int = 10) -> bool:
-    """等待 Page.frameStoppedLoading。"""
+    """等待页面加载完成（兼容新旧 Chrome 事件）。"""
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
             ws.settimeout(1)
             m = json.loads(ws.recv())
-            if m.get("method") == "Page.frameStoppedLoading":
+            if m.get("method") in ("Page.loadEventFired", "Page.domContentEventFired", "Page.frameStoppedLoading"):
                 time.sleep(1)
                 return True
         except Exception:
@@ -224,6 +224,7 @@ def search_by_image_cdp(
         resp = requests.put(f"{cdp_url}/json/new?", timeout=5)
         resp.raise_for_status()
         tab = resp.json()
+        tab_id = tab.get('id', '')
         ws_url = tab.get("webSocketDebuggerUrl", "")
     except Exception as e:
         logger.error("Failed to open new tab: %s", e)
@@ -233,6 +234,7 @@ def search_by_image_cdp(
         return []
 
     ws = None
+    tab_id = ''
     try:
         ws = websocket.create_connection(ws_url, timeout=15)
         ws.send(json.dumps({"id": 1, "method": "Page.enable", "params": {}}))
@@ -246,8 +248,9 @@ def search_by_image_cdp(
         # 3. 聚焦搜索框 + 清空
         _eval(ws, 10, 'document.querySelector("#alisearch-input").focus(); document.querySelector("#alisearch-input").select(); document.querySelector("#alisearch-input").value=""')
 
-        # 4. 输入图片URL（用execCommand触发正确的事件）
-        _eval(ws, 11, f'document.execCommand("insertText", false, "{image_url}")')
+        # 4. 输入图片URL（用execCommand触发正确的事件，JSON-escape 防注入）
+        safe_url = json.dumps(image_url)
+        _eval(ws, 11, f'document.execCommand("insertText", false, {safe_url})')
 
         # 5. 等待预览加载
         time.sleep(3)
@@ -324,5 +327,11 @@ def search_by_image_cdp(
         if ws:
             try:
                 ws.close()
+            except Exception:
+                pass
+        # 关闭 CDP 标签页，防止泄漏
+        if tab_id:
+            try:
+                requests.get(f"{cdp_url}/json/close/{tab_id}", timeout=3)
             except Exception:
                 pass

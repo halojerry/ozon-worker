@@ -20,7 +20,7 @@
 
 ```
 ozon-worker/
-├── skill/                      # 客户本地:1688/Ozon 抓取 + 以图搜款 + 信封组装 (Python ≥3.9, pip)
+├── skill/                      # 客户本地:1688/Ozon 抓取 + 以图搜款 + 信封组装 (Python ≥3.12, pip)
 │   ├── compile.py              # Cython 编译脚本（核心库 → .so/.pyd，源码保护）
 │   └── scripts/
 │       ├── cli.py              # CLI 入口:check/graph/follow/image_search/get_ak/batch_test
@@ -76,7 +76,7 @@ ozon-worker/
 
 **Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
 
-**源码保护**：`compile.py` 用 Cython 将核心库（ak_1688_client、chrome_launcher、config_store、ozon_scraper、ozon_image_search）编译为二进制 `.so`/`.pyd`。CLI 入口（cli.py、cloud_probe.py、batch_test.py）因依赖复杂仅复制不编译。
+**源码保护**：`compile.py` 用 Cython 将 9 个核心库编译为二进制 `.so`/`.pyd`（ak_1688_client、ak_callback、chrome_launcher、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、stealth）。CLI 入口（cli.py、cloud_probe.py、batch_test.py）和 ozon_api.py 因依赖复杂仅复制不编译。编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。
 
 **两条管线**：
 - **1688 选品**：1688 URL → CDP 抓取 → 组装信封 → Worker 全流程
@@ -117,6 +117,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | 功能 | v1 路径 | 方法 |
 |------|---------|------|
 | 提交任务 | `POST /api/v1/submit_task` | POST |
+| 鉴权验证 | `POST /api/v1/auth/verify` | POST |
 | 查询状态 | `GET /api/v1/task_status/{id}` | GET |
 | 取消任务 | `POST /api/v1/cancel_task/{id}` | POST |
 | 任务统计 | `GET /api/v1/task_statistics` | GET |
@@ -131,6 +132,8 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 鉴权: `token` 字段在请求体中（非 header），通过 Supabase `tokens` 表校验。
 限流: 每 token 每分钟 ≤ 300 次（`RATE_LIMIT_PER_MINUTE` 可配置）。
 并发: 最多 50 个任务同时执行（`MAX_CONCURRENT` 可配置）。
+
+**`auth/verify` 端点**：Skill 调用的轻量鉴权接口。验证 token 有效性 → MXOU 余额 → 账户状态 → 可选 Ozon API。返回 `{"valid": bool, "reason": "ok|token_invalid|balance_insufficient|account_inactive|service_unavailable", "expires_in": 86400, "ozon_valid": bool|null}`。DB 不可用时安全降级返回 `valid: false`（不会误放行）。
 
 ## 架构边界
 
@@ -149,7 +152,8 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | skill | `python3 scripts/cli.py follow --ozon-url <Ozon URL>`（Ozon 跟卖） |
 | skill | `python3 scripts/cli.py image_search --image <URL>`（以图搜款） |
 | skill | `python3 scripts/batch_test.py --urls-file urls.txt --client-id xxx --api-key xxx --submit` |
-| skill | `python3 compile.py`（Cython 编译核心库 → .so/.pyd，源码保护） |
+| skill | `python3.12 compile.py`（Cython 编译核心库 → .so/.pyd，必须用 Python 3.12） |
+| skill | `python3.12 compile.py --clean`（清理 build/dist 后重新编译） |
 | worker | `cd worker && PYTHONPATH=src python3 -m pytest tests/ -v` |
 | worker | `bash scripts/local_run.sh -m flow -i '{...}'` 跑全流程 |
 | worker | `bash scripts/local_run.sh -m node -n <节点ID> -i '{...}'` 跑单节点 |
@@ -292,3 +296,37 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
   2. `recheck_status_node` 在 `imported` 即宣告成功 → 已改为额外轮询 `moderate_status`
   3. `type_id=0` 导致 `/v3/product/import` 报错 → 模板含 `type_id` 字段
 - **`init_data.py` `walk` 函数**：`description_category_id` 需从父节点继承，`disabled` 字段 NOT NULL 需填 `false`。中文树是 `{"result":[...]}` dict，俄语树是 `[...]` 直接 list，walk 调用需兼容两种格式。
+
+## CDP 稳定性注意事项
+
+CDP（Chrome DevTools Protocol）是 Skill 的核心数据通道。改 CDP 相关代码时注意：
+
+- **Tab 泄漏**：CDP 打开的 tab 必须在 finally 中关闭（`GET /json/close/{tabId}`）。`ozon_scraper.py` 和 `ozon_image_search.py` 已修复，新代码必须遵循。
+- **消息 ID 碰撞**：CDP WebSocket 是共享通道，`Runtime.evaluate` 的 `id` 必须全局唯一，不能用时间戳取模。用原子计数器（`_cdp_eval._counter`）。
+- **导航等待**：用 `Page.loadEventFired` 事件驱动，不要 `time.sleep(5)` 硬等。
+- **致命断连检测**：Playwright 抛出 `Target closed`/`Browser closed` 等异常时应立即退出轮询，不要继续空转。
+- **进程 kill 等待**：Chrome 多 tab 时 SIGTERM 可能需要 5-10s，用轮询 + SIGKILL 回退（`chrome_launcher.py` 已实现）。
+
+## Windows 兼容性
+
+Skill 已适配 Windows，但有以下注意事项：
+
+- **进程扫描**：用 `_list_browser_commands()` 辅助函数（`service.py`），Windows 用 `wmic`，macOS/Linux 用 `ps -axo`。不要直接调 `ps`。
+- **进程启动**：Windows 不支持 `start_new_session=True`，用 `creationflags=CREATE_NEW_PROCESS_GROUP`。
+- **路径提取**：用 `Path(p).name` 或 `os.path.basename(p)`，不要 `.split('/')`。
+- **文件锁**：`os.replace()` 在 Windows 上可能因文件锁失败，需重试。
+- **headless 检测**：Windows 通过 `SESSIONNAME` 环境变量判断（无则为服务/CI 环境）。
+- **wmic 废弃**：`wmic` 在 Windows 10 21H1+ 已废弃但仍在工作，未来可迁移到 `Get-CimInstance`。
+- **编译产物**：Windows 需 `.pyd` 文件（`win32` 或 `win_amd64`），在 Windows 机器上运行 `python3.12 compile.py` 生成。
+
+## Skill dist 分发
+
+`compile.py` 生成自包含的 `skill/dist/` 目录：
+
+- `scripts/lib/_native/{platform}/` — 编译后的二进制（darwin-arm64、win32、linux）
+- `scripts/lib/*.py` — 自动加载 stub（检测平台 → 加载对应二进制）
+- `scripts/capabilities/browser_probe/stealth.py` — stub 位于原始目录（非 lib/），指向 `../../lib/_native/`
+- `scripts/lib/ozon_api.py` — 纯 Python 复制（不编译）
+- `data/config/settings.json` / `stores.json` — **空模板**（编译时自动生成，不泄露凭证）
+
+跨平台分发流程：在 macOS/Windows/Linux 各跑一次 `python3.12 compile.py`，合并 `_native/` 目录后打包。

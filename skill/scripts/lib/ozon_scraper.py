@@ -336,7 +336,10 @@ def scrape_ozon_product_via_cdp(
         import time as _t
         if wait_ms:
             _t.sleep(wait_ms / 1000.0)
-        cid = int(_t.time() * 1000) % 100000
+        if not hasattr(_cdp_eval, '_counter'):
+            _cdp_eval._counter = 0
+        _cdp_eval._counter += 1
+        cid = 10000 + _cdp_eval._counter
         params = {"expression": expr, "returnByValue": True}
         if await_promise:
             params["awaitPromise"] = True
@@ -368,6 +371,7 @@ def scrape_ozon_product_via_cdp(
             result["error"] = "无法创建 CDP 标签页"
             return result
         tab = blank_resp.json()
+        tab_id = tab.get('id', '')
         ws_url = tab.get("webSocketDebuggerUrl", "")
         if not ws_url:
             result["error"] = "无法获取 CDP WebSocket URL"
@@ -382,8 +386,16 @@ def scrape_ozon_product_via_cdp(
                 "params": {"url": ozon_url}
             }))
 
-            # Drain navigation response and wait for load
-            time.sleep(5)
+            # Drain navigation response and wait for page load (event-driven, 10s timeout)
+            _load_deadline = time.time() + 10
+            while time.time() < _load_deadline:
+                try:
+                    ws.settimeout(1)
+                    _msg = _json.loads(ws.recv())
+                    if _msg.get('method') in ('Page.loadEventFired', 'Page.frameStoppedLoading'):
+                        break
+                except Exception:
+                    continue
 
             # Extract via JavaScript (most reliable)
             js_title = _cdp_eval(ws, "document.title") or ""
@@ -561,6 +573,12 @@ def scrape_ozon_product_via_cdp(
             result["success"] = bool(result["title"] or result["images"])
         finally:
             ws.close()
+            # 关闭 CDP 标签页，防止泄漏
+            if tab_id:
+                try:
+                    req_lib.get(f"{cdp_url}/json/close/{tab_id}", timeout=3)
+                except Exception:
+                    pass
 
     except ImportError as e:
         result["error"] = f"缺少依赖: {e}. pip install websocket-client"
