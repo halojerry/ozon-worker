@@ -22,38 +22,36 @@ cd skill && pip3.12 install -r requirements.txt
 
 ### 第 2 步：获取凭证
 
-按优先级获取，找到一个就用，不要重复问用户：
+**MXOU_TOKEN（自动获取）**
 
-**优先级 1：从 pounding 桌面端读取（自动）**
+Skill 会自动从 `~/.pounding/config.json` 读取 MXOU_TOKEN。如果用户安装了 pounding 桌面端，无需手动设置。
 
-```bash
-python3.12 scripts/cli.py check
-```
-
-如果 check 输出 `MXOU_TOKEN ✅`，说明已从 `~/.pounding/config.json` 自动读取，跳到第 3 步。
-
-**优先级 2：从环境变量读取**
-
-检查 `MXOU_TOKEN`、`OZON_CLIENT_ID`、`OZON_API_KEY`、`ALI_1688_AK` 环境变量。
-
-**优先级 3：向用户索取**
-
-如果以上都没有，向用户索取以下凭证（一次性问完，不要分多次）：
-
-| 凭证 | 用途 | 怎么获取 |
-|------|------|----------|
-| MXOU_TOKEN | 云端 AI 服务密钥 | 访问 https://api.mxou.cn 注册获取 |
-| 1688 AK | 1688 商品搜索 | 浏览器打开 https://clawhub.1688.com 登录后复制 |
-| Ozon Client ID | Ozon API | Ozon 卖家后台 → 设置 → API 密钥 |
-| Ozon API Key | Ozon API | 同上 |
-
-拿到后执行：
-
+如果没有自动读到，向用户索取：
 ```bash
 python3.12 scripts/cli.py set_token --token <MXOU_TOKEN>
+```
+
+**1688 AK（必须向用户索取）**
+
+1688 AK 不会自动读取，必须向用户获取：
+
+```bash
 python3.12 scripts/cli.py set_ak --ak <1688_AK>
+```
+
+告诉用户获取方式：浏览器打开 https://clawhub.1688.com → 登录 → 复制 AK。
+
+**Ozon 店铺凭证（必须向用户索取）**
+
+Ozon 店铺凭证不会自动读取，必须向用户获取：
+
+```bash
 python3.12 scripts/cli.py set_store --name "主店铺" --client-id <CLIENT_ID> --api-key <API_KEY>
 ```
+
+告诉用户获取方式：Ozon 卖家后台 → 设置 → API 密钥。
+
+**重要**：三个凭证一次性问完用户，不要分多次问。MXOU_TOKEN 如果自动读到了就不用问。
 
 ### 第 3 步：验证配置
 
