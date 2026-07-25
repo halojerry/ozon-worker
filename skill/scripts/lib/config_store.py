@@ -76,7 +76,8 @@ def get_store(store_id: str = "") -> dict[str, str] | None:
 
 def set_store(store_id: str, client_id: str, api_key: str,
               currency: str = "", shipping_provider: str = "", shipping_service: str = "",
-              margin_rate: float = 0, commission_rate: float = 0, fx_buffer: float = 0) -> dict[str, Any]:
+              margin_rate: float | None = None, commission_rate: float | None = None,
+              fx_buffer: float | None = None) -> dict[str, Any]:
     """Upsert a store profile."""
     data = _load_stores_file()
     if "stores" not in data or not isinstance(data.get("stores"), dict):
@@ -94,11 +95,11 @@ def set_store(store_id: str, client_id: str, api_key: str,
         store["shipping_provider"] = shipping_provider
     if shipping_service:
         store["shipping_service"] = shipping_service
-    if margin_rate > 0:
+    if margin_rate is not None:
         store["margin_rate"] = margin_rate
-    if commission_rate > 0:
+    if commission_rate is not None:
         store["commission_rate"] = commission_rate
-    if fx_buffer > 0:
+    if fx_buffer is not None:
         store["fx_buffer"] = fx_buffer
 
     data["stores"][str(store_id)] = store
