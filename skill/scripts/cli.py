@@ -7,6 +7,7 @@ search <关键词>          1688 搜索商品
 probe <URL>              CDP 浏览器探针抓取商品
 graph <URL|item_id>      组装 GraphInput envelope（不上架）
 follow --ozon-url <URL>  跟卖 Ozon 商品
+discover                 Ozon 中国站选品（蓝海+利润筛选）
 image_search --image <URL>  以图搜款
 get_ak                   自动获取 1688 AK
 set_store                配置 Ozon 店铺
@@ -608,6 +609,58 @@ def cmd_follow(args) -> int:
 # Main
 # ═══════════════════════════════════════════════════════════════════════════
 
+def cmd_discover(args: argparse.Namespace) -> int:
+    """Ozon 中国站选品 — 自动发现蓝海产品。"""
+    from scripts.lib.ozon_discovery import discover_from_highlight, DISCOVERY_CACHE_DIR
+    from scripts.lib.chrome_launcher import ensure_chrome_cdp
+
+    print("🔍 Ozon 中国站选品", flush=True)
+    print(f"   最多分析: {args.max_products} 个产品", flush=True)
+    print(f"   最低利润率: {args.min_margin}%", flush=True)
+    print(f"   最大跟卖人数: {args.max_sellers}", flush=True)
+    print(f"   汇率: 1 RUB = {args.fx_rate} CNY", flush=True)
+    print(flush=True)
+
+    ok, msg = ensure_chrome_cdp(auto_restart=True)
+    if not ok:
+        print(f"❌ Chrome 启动失败: {msg}")
+        return 1
+    cdp_url = "http://127.0.0.1:9222"
+
+    print("🌐 开始浏览 Ozon 中国站...", flush=True)
+    candidates = discover_from_highlight(
+        cdp_url=cdp_url,
+        max_products=args.max_products,
+        fx_rate=args.fx_rate,
+    )
+
+    profitable = [
+        c for c in candidates
+        if c.profit_margin >= args.min_margin
+        and c.competing_sellers <= args.max_sellers
+    ]
+
+    print(f"\n📊 分析完成: {len(candidates)} 个产品，{len(profitable)} 个符合条件\n")
+
+    if not profitable:
+        print("未找到符合条件的产品。尝试调低 min-margin 或增加 max-products。")
+        return 0
+
+    for i, c in enumerate(profitable[:20], 1):
+        print(f"{'─' * 60}")
+        print(f"  [{i}] {c.ozon_title[:50]}")
+        print(f"      Ozon 价格: {c.ozon_price:.0f} ₽  |  跟卖: {c.competing_sellers} 人")
+        print(f"      1688 采购: ¥{c.match_1688_price:.0f}  |  利润率: {c.profit_margin:.1f}%")
+        print(f"      净利润: ¥{c.estimated_profit_cny:.0f}")
+        print(f"      Ozon: {c.ozon_url[:60]}")
+        if c.match_1688_url:
+            print(f"      1688:  {c.match_1688_url[:60]}")
+    print(f"{'─' * 60}")
+
+    print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="pounding-ozon-probe — 1688 数据采集 + GraphInput 组装")
     sub = parser.add_subparsers(dest="command", help="命令")
@@ -681,6 +734,14 @@ def main() -> int:
     fp.add_argument("--auto-submit", action="store_true", help="自动提交到 Worker")
     fp.add_argument("--store", default="", help="Ozon 店铺名称")
     fp.set_defaults(func=cmd_follow)
+
+    dp = sub.add_parser("discover", help="Ozon 中国站选品（蓝海+利润筛选）")
+    dp.add_argument("--max-products", type=int, default=10, help="最多分析产品数（默认 10）")
+    dp.add_argument("--min-margin", type=float, default=15.0, help="最低利润率%%（默认 15）")
+    dp.add_argument("--max-sellers", type=int, default=10, help="最大跟卖人数（默认 10）")
+    dp.add_argument("--fx-rate", type=float, default=0.075, help="RUB→CNY 汇率（默认 0.075）")
+    dp.add_argument("--auto-submit", action="store_true", help="用户确认后自动提交到 Worker")
+    dp.set_defaults(func=cmd_discover)
 
     args = parser.parse_args()
     if not args.command:

@@ -49,6 +49,13 @@ def navigation_delay() -> None:
 
 _CACHE_TTL = DEFAULT_CACHE_TTL_SECONDS  # 24h — reuse cached probe results within this window
 from scripts._errors import ConfigError, ValidationError
+
+# Module-level flag to prevent concurrent login waits
+import threading as _threading
+_login_in_progress: bool = False
+_login_lock = _threading.Lock()
+_login_result: dict[str, Any] | None = None
+_login_done_event = _threading.Event()
 from scripts.lib.reference_images import is_likely_product_image
 from scripts.lib.task_paths import current_task_id, task_media_dir
 
@@ -181,7 +188,7 @@ EXTRACT_1688_JS = r"""
         el?.currentSrc || el?.src || el?.getAttribute?.('src') || el?.getAttribute?.('data-src') || el?.getAttribute?.('data-lazy-src') || el?.getAttribute?.('data-lazyload-src') || el?.getAttribute?.('data-original')
       );
       if (!src) return;
-      if (/data:image|placeholder|icon|logo|sprite|loading/i.test(src)) return;
+      if (/data:image|placeholder|icon|logo|sprite|loading|\.svg/i.test(src)) return;
       if (/!!0-0-|_88x88|_24x24|_48x48/i.test(src)) return;
       items.push(src);
     });
@@ -424,6 +431,8 @@ EXTRACT_1688_JS = r"""
   };
   const images = dedupe([
     ...readImages([
+      // 新版 1688 gallery 容器
+      '#gallery img',
       '.gallery-img img', '.main-image img', '.detail-gallery-img img', '.thumb-img img', '.thumbnail img', '.detail-gallery img',
       '.preview-list img', '.fd-clr img', '.od-pc-offer-tab img', '.offer-detail-tab img', '.main-pic img', '.pic-view img',
       '.preview-wrap img', '.detail-pic img', '.product-image img', '.offer-image img', '.main-img img', '.img-list img',
@@ -462,7 +471,7 @@ EXTRACT_1688_JS = r"""
   const optionGroups = [];
   /* Scan SKU containers: .feature-item and .transverse-filter */
 const skuContainers = [
-  ...queryAll(['.module-od-sku-selection .feature-item']),
+  ...queryAll(['#skuSelection .feature-item']),
   ...queryAll(['.transverse-filter']),
 ];
 skuContainers.forEach((featureEl, featureIndex) => {
@@ -492,7 +501,7 @@ skuContainers.forEach((featureEl, featureIndex) => {
   });
 
   const packagingRows = [];
-  const packagingTable = document.querySelector('.module-od-product-pack-info table');
+  const packagingTable = document.getElementById('productPackInfo')?.querySelector('table') || document.querySelector('.module-od-product-pack-info table');
   const packagingHeaders = Array.from(packagingTable?.querySelectorAll?.('thead th') || []).map((cell) => normalizeText(cell.innerText || cell.textContent));
   const packagingTableText = normalizeText(packagingTable?.innerText || packagingTable?.textContent);
   const packagingWeightIndex = packagingHeaders.findIndex((header) => /重量|毛重|净重|weight/i.test(header || ''));
@@ -501,7 +510,8 @@ skuContainers.forEach((featureEl, featureIndex) => {
   const packagingHeightIndex = packagingHeaders.findIndex((header) => /高\s*\(?\s*(cm|mm)?\s*\)?$|高度|height/i.test(header || ''));
   const packagingSpecIndex = packagingHeaders.findIndex((header) => /规格|尺码|spec|size/i.test(header || ''));
   const packagingColorIndex = packagingHeaders.findIndex((header) => /颜色|色系|color/i.test(header || ''));
-  queryAll(['.module-od-product-pack-info table tbody tr']).forEach((row) => {
+  const packTbodyRows = (document.getElementById('productPackInfo') || document.querySelector('.module-od-product-pack-info'))?.querySelectorAll?.('table tbody tr') || [];
+  Array.from(packTbodyRows).forEach((row) => {
     const cells = Array.from(row.querySelectorAll('td')).map((cell) => normalizeText(cell.innerText || cell.textContent));
     if (cells.length >= 1) {
       const rowData = {
@@ -619,9 +629,14 @@ skuContainers.forEach((featureEl, featureIndex) => {
   const runtimeSkuData = extractRuntimeSkuData();
   const initData = getWindowInitData();
   const pageStructuredData = collectPageStructuredData();
-  const title = pickText(['.title-text', '.title-content', 'h1', '.d-title']) || normalizeText(document.title);
-  const price = pickText(['.price-now', '.discountPrice-price', '.price', '.current-price', '.item-price-stock', '.ma-ref-price']) || (runtimeSkuData.sku?.[0]?.price != null ? String(runtimeSkuData.sku[0].price) : null);
-  const seller = pickText(['a[href*="company"]', '.company-name', '[class*="company"] a', '[class*="shop"] a', '.header-shop-name', '.shop-name']);
+  const titleModule = document.getElementById('module-od-title');
+  const titleContent = titleModule?.querySelector('.title-content') || document.querySelector('.title-content');
+  const title = (titleContent ? normalizeText(titleContent.innerText || titleContent.textContent) : null) || pickText(['.title-text', 'h1', '.d-title']) || normalizeText(document.title);
+  const priceComp = document.querySelector('.price-comp');
+  const price = (priceComp ? normalizeText(priceComp.innerText || priceComp.textContent) : null)
+    || pickText(['.price-info', '.price-now', '.discountPrice-price', '.price', '.current-price', '.item-price-stock', '.ma-ref-price'])
+    || (runtimeSkuData.sku?.[0]?.price != null ? String(runtimeSkuData.sku[0].price) : null);
+  const seller = pickText(['.shop-company-name', 'a[href*="company"]', '[class*="company"] a', '[class*="shop"] a', '.header-shop-name', '.shop-name']);
   const sellerLink = cleanUrl(pickAttr(['a[href*="company"]', '[class*="company"] a', '[class*="shop"] a'], 'href'));
   const minOrderQtyText = pickText(['.moq-number', '.quantity-range', '.lt-spec-num', '[class*="moq"]']) || attributes.find((item) => /起订|最小|采购量|minimum/i.test(item.name || ''))?.value || null;
   const brand = pickText(['a[href*="brand"]', '[class*="brand"]']) || attributes.find((item) => /品牌/i.test(item.name || ''))?.value || null;
@@ -644,7 +659,7 @@ skuContainers.forEach((featureEl, featureIndex) => {
   );
   /* ── Shipping / delivery info ── */
   const shipping = {};
-  const shippingEl = document.querySelector('.module-od-shipping-services, #shippingServices');
+  const shippingEl = document.querySelector('.cart-content') || document.querySelector('.module-od-shipping-services, #shippingServices');
   if (shippingEl) {
     const shippingText = normalizeText(shippingEl.innerText || shippingEl.textContent || '');
     // 提取 .cart-content 中的具体字段（比整体 innerText 更精确）
@@ -678,6 +693,9 @@ skuContainers.forEach((featureEl, featureIndex) => {
       shipping._debugText = shippingText.substring(0, 200);
     }
   }
+  /* ── Shop stats (回头率, 服务分, 好评率) ── */
+  const shopDataEl = document.querySelector('.shop-data');
+  const shopStats = shopDataEl ? normalizeText(shopDataEl.innerText || shopDataEl.textContent || '') : null;
   const loginRequired = !hasStrongProductSignals && (
     /passport|login|member\.1688\.com/i.test(location.href) ||
     /扫码登录|密码登录|短信登录/i.test(bodyText) ||
@@ -706,6 +724,7 @@ skuContainers.forEach((featureEl, featureIndex) => {
     packagingTableText,
     packagingRows: dedupe(packagingRows),
     shipping,
+    shopStats,
     skuDetails: dedupe(skuDetails),
     runtimeSkuData,
     pageStructuredData,
@@ -1411,7 +1430,16 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
             if ok:
                 cdp_url = get_cdp_url()
                 _logger.info("Chrome launched via chrome_launcher: %s", cdp_url)
-                return {'cdp_url': cdp_url}
+                session_payload = {
+                    'profile': profile,
+                    'cdp_url': cdp_url,
+                    'created_at': int(time.time()),
+                }
+                try:
+                    _write_browser_session(profile, session_payload)
+                except Exception:
+                    pass
+                return session_payload
             else:
                 _logger.warning("chrome_launcher failed: %s, falling back to legacy", msg)
         except ImportError:
@@ -1685,10 +1713,35 @@ def _wait_for_login_session(
     Uses CdpConnection to connect to Chrome via CDP and open a new tab
     for the login page. After login is detected, the browser stays running
     so subsequent CDP probes can reuse it.
+
+    If a login is already in progress, waits for it to complete instead
+    of starting a second concurrent login flow.
     """
+    global _login_in_progress, _login_result
     import logging as _logging
     import base64 as _base64
     _logger = _logging.getLogger(__name__)
+
+    # Prevent double login: if another thread is already waiting, block until it finishes
+    if _login_in_progress:
+        _logger.info("Login already in progress, waiting for it to complete...")
+        _login_done_event.wait(timeout=max(timeout_seconds, 60))
+        return _login_result
+
+    with _login_lock:
+        # Double-check after acquiring lock
+        if _login_in_progress:
+            _logger.info("Login already in progress (race), waiting...")
+            _login_lock.release()
+            try:
+                _login_done_event.wait(timeout=max(timeout_seconds, 60))
+            finally:
+                _login_lock.acquire()
+            return _login_result
+
+        _login_in_progress = True
+        _login_done_event.clear()
+        _login_result = None
 
     from scripts.capabilities.browser_probe.stealth import STEALTH_JS, REALISTIC_UA
 
@@ -1767,6 +1820,7 @@ def _wait_for_login_session(
                     merged['login_detected'] = True
                     merged['login_check_url'] = snapshot.get('url')
                     _logger.info("1688 login detected at %s", snapshot.get('url'))
+                    _login_result = merged
                     return merged
             except Exception:
                 pass
@@ -1781,6 +1835,80 @@ def _wait_for_login_session(
         if tab:
             try:
                 tab.close()
+            except Exception:
+                pass
+        _login_in_progress = False
+        _login_done_event.set()
+
+
+def _check_1688_login_live(cdp_url: str) -> bool:
+    """Check 1688 login status by inspecting cookies in a live Chrome tab.
+
+    Opens a CDP connection, finds any existing 1688 tab (or opens a temp one),
+    checks document.cookie for login indicators, and returns True if logged in.
+    Closes the temp tab if one was created.
+    """
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+
+    if not cdp_url or not _cdp_available(cdp_url):
+        return False
+
+    conn = None
+    temp_tab = None
+    try:
+        conn = CdpConnection(cdp_url)
+
+        # Try to find an existing 1688 tab
+        target_tab = None
+        try:
+            target_tab = conn.find_tab("1688.com")
+        except Exception:
+            pass
+
+        created_temp = False
+        if target_tab is None:
+            # Open a temp tab on 1688 to check cookies
+            try:
+                temp_tab = conn.new_tab()
+                temp_tab.navigate("https://www.1688.com/", wait_until='domcontentloaded', timeout=15)
+                try:
+                    temp_tab.wait_for_load(timeout=5)
+                except Exception:
+                    pass
+                time.sleep(1)
+                target_tab = temp_tab
+                created_temp = True
+            except Exception as exc:
+                _logger.debug("_check_1688_login_live: failed to open temp tab: %s", exc)
+                return False
+
+        # Check cookies for login indicators
+        try:
+            cookie_js = "() => document.cookie"
+            cookies = target_tab.evaluate(cookie_js)
+            if not cookies:
+                return False
+            # Look for 1688/Taobao login cookie patterns
+            has_cookie2 = 'cookie2=' in cookies and len(cookies.split('cookie2=')[1].split(';')[0].strip()) > 4
+            has_cn_logon = '__cn_logon__=' in cookies
+            logged_in = has_cookie2 or has_cn_logon
+            if logged_in:
+                _logger.info("_check_1688_login_live: login detected (cookie2=%s, cn_logon=%s)", has_cookie2, has_cn_logon)
+            else:
+                _logger.debug("_check_1688_login_live: no login cookies found")
+            return logged_in
+        except Exception as exc:
+            _logger.debug("_check_1688_login_live: cookie check failed: %s", exc)
+            return False
+    except Exception as exc:
+        _logger.debug("_check_1688_login_live: CDP connection failed: %s", exc)
+        return False
+    finally:
+        # Close temp tab if we created one
+        if temp_tab:
+            try:
+                temp_tab.close()
             except Exception:
                 pass
 
@@ -2188,6 +2316,21 @@ def probe_1688_page(
         launch_meta['session_bootstrapped'] = bool(cdp_url)
     if not cdp_url or not _cdp_available(cdp_url):
         raise ConfigError('未发现可复用的 1688 浏览器会话，请先执行 browser_login 完成登录，或保持同一 profile 的 Chrome 会话可连接')
+
+    # Live cookie check: verify 1688 login before navigating to product page
+    if not _check_1688_login_live(cdp_url):
+        import logging as _logging
+        _logging.getLogger(__name__).info("1688 login not detected via live cookie check, prompting login...")
+        session = _wait_for_login_session(
+            target_url,
+            profile_name=profile_name,
+            browser_path=resolved_browser,
+            timeout_seconds=timeout_seconds,
+        ) or session
+        cdp_url = str(session.get('cdp_url') or cdp_url).strip()
+        if not cdp_url or not _cdp_available(cdp_url):
+            raise ConfigError('1688 登录未完成，无法继续探测')
+
     cdp, connected_to_existing = _connect_existing_chrome(cdp_url)
     opened_tab: CdpTab | None = None
     try:
