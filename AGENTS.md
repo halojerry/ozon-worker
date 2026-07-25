@@ -31,7 +31,12 @@ ozon-worker/
 │       │   ├── chrome_launcher.py     # 跨平台 Chrome CDP 自动启动（用户零配置）
 │       │   ├── ozon_scraper.py        # Ozon 商品页 CDP 抓取（完整字段）
 │       │   ├── ozon_image_search.py   # CDP 网页版以图搜款（准确率~100%）
-│       │   └── config_store.py        # 凭证管理
+│       │   ├── config_store.py        # 凭证管理
+│       │   ├── cdp_client.py          # 原生 CDP WebSocket 客户端（替代 Playwright）
+│       │   ├── ozon_widget.py         # Ozon Widget API 客户端（产品信息/跟卖/SKU）
+│       │   ├── ozon_seller.py         # Ozon Seller API 客户端（佣金/重量/品牌）
+│       │   ├── ozon_discovery.py      # Ozon 选品发现引擎（蓝海评分/1688匹配）
+│       │   └── utils.py              # 共享工具函数（parse_price 等）
 │       └── capabilities/browser_probe/   # Chrome CDP 探针 + 反检测
 ├── worker/                     # 云端 Docker:LangGraph 上架工作流 (Python ≥3.12)
 │   ├── src/
@@ -70,17 +75,21 @@ ozon-worker/
 | 环境检查 | `check` | 自动启动 Chrome、检测登录态、验证凭证 |
 | 1688 选品 | `graph` | CDP 抓取 1688 → 组装信封 → 提交 Worker |
 | Ozon 跟卖 | `follow` | Ozon 竞品图搜 1688 同款 → 组装信封 → 提交 Worker |
+| Ozon 选品 | `discover` | Ozon 中国站/搜索/类目页自动选品，蓝海评分，1688匹配，利润计算，CSV/JSON导出 |
 | 以图搜款 | `image_search` | CDP 网页版图搜（准确率~100%） |
 | 获取 AK | `get_ak` | 浏览器自动获取 1688 AK |
 | 批量处理 | `batch_test` | 批量处理 URL 列表 |
 
 **Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
 
-**源码保护**：`compile.py` 用 Cython 将 9 个核心库编译为二进制 `.so`/`.pyd`（ak_1688_client、ak_callback、chrome_launcher、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、stealth）。CLI 入口（cli.py、cloud_probe.py、batch_test.py）和 ozon_api.py 因依赖复杂仅复制不编译。编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。
+**源码保护**：`compile.py` 用 Cython 将 9 个核心库编译为二进制 `.so`/`.pyd`（ak_1688_client、ak_callback、chrome_launcher、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、stealth）。以下文件因依赖复杂仅复制不编译：cli.py、cloud_probe.py、batch_test.py、service.py、ozon_api.py、cdp_client.py、ozon_widget.py、ozon_seller.py、ozon_discovery.py、utils.py。编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。
 
-**两条管线**：
+**依赖**：仅 3 个 — `requests`、`websocket-client`、`Pillow`（Playwright 已移除，统一用原生 CDP）。
+
+**三条管线**：
 - **1688 选品**：1688 URL → CDP 抓取 → 组装信封 → Worker 全流程
 - **Ozon 跟卖**：Ozon URL → CDP 抓取 → 图搜 1688 → 组装信封 → Worker 跟卖管线
+- **Ozon 选品**：Ozon 页面 → CDP 抓取产品列表 → 蓝海评分 → 1688 匹配+利润计算 → 用户确认 → Worker 提交
 
 ## Skill → Worker 契约（最重要）
 
@@ -147,11 +156,13 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | 子项目 | 命令 |
 |---|---|
 | skill | `pip install -r requirements.txt` |
-| skill | `python3 scripts/cli.py check`（环境检查 + 自动启动 Chrome） |
-| skill | `python3 scripts/cli.py graph --url <1688 URL>`（1688 选品） |
-| skill | `python3 scripts/cli.py follow --ozon-url <Ozon URL>`（Ozon 跟卖） |
-| skill | `python3 scripts/cli.py image_search --image <URL>`（以图搜款） |
-| skill | `python3 scripts/batch_test.py --urls-file urls.txt --client-id xxx --api-key xxx --submit` |
+| skill | `python3.12 scripts/cli.py check`（环境检查 + 自动启动 Chrome） |
+| skill | `python3.12 scripts/cli.py graph --url <1688 URL>`（1688 选品） |
+| skill | `python3.12 scripts/cli.py follow --ozon-url <Ozon URL>`（Ozon 跟卖） |
+| skill | `python3.12 scripts/cli.py discover --keyword "宠物用品" --max-products 50`（Ozon 选品） |
+| skill | `python3.12 scripts/cli.py discover --keyword "..." --export csv --output results.csv`（选品+导出） |
+| skill | `python3.12 scripts/cli.py image_search --image <URL>`（以图搜款） |
+| skill | `python3.12 scripts/batch_test.py --urls-file urls.txt --client-id xxx --api-key xxx --submit` |
 | skill | `python3.12 compile.py`（Cython 编译核心库 → .so/.pyd，必须用 Python 3.12） |
 | skill | `python3.12 compile.py --clean`（清理 build/dist 后重新编译） |
 | worker | `cd worker && PYTHONPATH=src python3 -m pytest tests/ -v` |
@@ -299,13 +310,15 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## CDP 稳定性注意事项
 
-CDP（Chrome DevTools Protocol）是 Skill 的核心数据通道。改 CDP 相关代码时注意：
+CDP（Chrome DevTools Protocol）是 Skill 的核心数据通道。全部通过 `cdp_client.py` 的 `CdpConnection`/`CdpTab` 操作。改 CDP 相关代码时注意：
 
 - **Tab 泄漏**：CDP 打开的 tab 必须在 finally 中关闭（`GET /json/close/{tabId}`）。`ozon_scraper.py` 和 `ozon_image_search.py` 已修复，新代码必须遵循。
-- **消息 ID 碰撞**：CDP WebSocket 是共享通道，`Runtime.evaluate` 的 `id` 必须全局唯一，不能用时间戳取模。用原子计数器（`_cdp_eval._counter`）。
-- **导航等待**：用 `Page.loadEventFired` 事件驱动，不要 `time.sleep(5)` 硬等。
-- **致命断连检测**：Playwright 抛出 `Target closed`/`Browser closed` 等异常时应立即退出轮询，不要继续空转。
+- **消息 ID 碰撞**：CDP WebSocket 是共享通道，`Runtime.evaluate` 的 `id` 必须全局唯一。`CdpTab` 用 `itertools.count()` 原子计数器。
+- **导航等待**：用 `Page.loadEventFired` 事件驱动（`CdpTab.navigate()` 已封装），不要 `time.sleep()` 硬等。
+- **致命断连检测**：`CdpTab` 检测 `Target closed`/`Browser closed` 等异常时应立即退出轮询。
 - **进程 kill 等待**：Chrome 多 tab 时 SIGTERM 可能需要 5-10s，用轮询 + SIGKILL 回退（`chrome_launcher.py` 已实现）。
+- **验证码暂停**：1688 滑块验证时 Skill 自动暂停，提示用户在浏览器中滑动后按 Enter 继续。
+- **连接复用**：`fetch_product_info`/`fetch_competing_sellers` 支持可选 `cdp` 参数复用连接，避免 N*2 冗余连接。
 
 ## Windows 兼容性
 
@@ -327,6 +340,11 @@ Skill 已适配 Windows，但有以下注意事项：
 - `scripts/lib/*.py` — 自动加载 stub（检测平台 → 加载对应二进制）
 - `scripts/capabilities/browser_probe/stealth.py` — stub 位于原始目录（非 lib/），指向 `../../lib/_native/`
 - `scripts/lib/ozon_api.py` — 纯 Python 复制（不编译）
+- `scripts/lib/cdp_client.py` — 原生 CDP 客户端（纯 Python 复制）
+- `scripts/lib/ozon_widget.py` — Ozon Widget API（纯 Python 复制）
+- `scripts/lib/ozon_seller.py` — Ozon Seller API（纯 Python 复制）
+- `scripts/lib/ozon_discovery.py` — 选品发现引擎（纯 Python 复制）
+- `scripts/lib/utils.py` — 共享工具函数（纯 Python 复制）
 - `data/config/settings.json` / `stores.json` — **空模板**（编译时自动生成，不泄露凭证）
 
 跨平台分发流程：在 macOS/Windows/Linux 各跑一次 `python3.12 compile.py`，合并 `_native/` 目录后打包。
