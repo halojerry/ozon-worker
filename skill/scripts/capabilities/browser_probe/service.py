@@ -1448,7 +1448,8 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
         # Try chrome_launcher first (preferred: uses default profile)
         try:
             from scripts.lib.chrome_launcher import ensure_chrome_cdp, get_cdp_url
-            ok, msg = ensure_chrome_cdp(auto_restart=True)
+            # Pass skill profile dir so Chrome uses the same profile we check later
+            ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=str(_profile_dir(profile)))
             if ok:
                 cdp_url = get_cdp_url()
                 _logger.info("Chrome launched via chrome_launcher: %s", cdp_url)
@@ -1560,47 +1561,18 @@ def _connect_existing_chrome(cdp_url: str) -> tuple[CdpConnection, bool]:
     except ImportError:
         _logger.debug("chrome_launcher not available")
 
-    # 3. Fallback: launch new browser with persistent profile
-    from scripts.capabilities.browser_probe.stealth import STEALTH_ARGS
-    profile_dir = _profile_dir('default')
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    _logger.info("Launching new Chrome (profile: %s)", profile_dir)
-
-    import socket as _sock
-    import subprocess as _sp
-    cdp_port = 9222
-    for _p in range(9222, 9300):
-        try:
-            with _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM) as s:
-                s.bind(('127.0.0.1', _p))
-                cdp_port = _p
-                break
-        except OSError:
-            continue
-    chrome_bin = find_browser_executable()
-    if not chrome_bin:
-        raise ConfigError('未找到可用的 Chrome/Chromium 浏览器')
-    cmd = [
-        chrome_bin,
-        f'--remote-debugging-port={cdp_port}',
-        f'--user-data-dir={profile_dir}',
-        '--no-first-run', '--no-default-browser-check',
-    ] + STEALTH_ARGS
-    if platform.system() == 'Windows':
-        _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-                  creationflags=_sp.CREATE_NEW_PROCESS_GROUP)
-    else:
-        _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, start_new_session=True)
-    cdp_url = f'http://127.0.0.1:{cdp_port}'
-
-    # Wait up to 15s for CDP to become ready
-    import time as _time
-    for _ in range(15):
-        _time.sleep(1)
-        if _cdp_available(cdp_url):
-            _logger.info("Chrome ready at %s", cdp_url)
+    # 3. Fallback: use chrome_launcher (kills existing Chrome first, prevents duplicates)
+    try:
+        from scripts.lib.chrome_launcher import ensure_chrome_cdp, get_cdp_url
+        ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=str(_profile_dir('default')))
+        if ok:
+            cdp_url = get_cdp_url()
+            _logger.info("Chrome launched via fallback: %s", cdp_url)
             return CdpConnection(cdp_url), False
-    raise ConfigError('Chrome 启动后 CDP 未就绪')
+        else:
+            raise ConfigError(f'Chrome 启动失败: {msg}')
+    except ImportError:
+        raise ConfigError('未找到 chrome_launcher 模块')
 
 
 def _open_target_page_in_existing_browser(
@@ -1874,6 +1846,11 @@ def _wait_for_login_session(
                 tab.close()
             except Exception:
                 pass
+        # Close CDP connection to prevent WebSocket leak
+        try:
+            cdp.close()
+        except Exception:
+            pass
         _login_in_progress = False
         _login_done_event.set()
 
@@ -1946,6 +1923,12 @@ def _check_1688_login_live(cdp_url: str) -> bool:
         if temp_tab:
             try:
                 temp_tab.close()
+            except Exception:
+                pass
+        # Close CDP connection to prevent WebSocket leak
+        if conn:
+            try:
+                conn.close()
             except Exception:
                 pass
 
@@ -2381,9 +2364,9 @@ def probe_1688_page(
             if tmp and _page_matches_target_offer(tmp, target_url):
                 matched_existing_tab = tmp
             elif tmp:
-                # Wrong tab — close WebSocket only (don't close user's tab)
+                # Wrong tab — close the browser tab we found (it's not the one user wants)
                 try:
-                    tmp._ws.close()
+                    tmp.close()
                 except Exception:
                     pass
 
@@ -2435,6 +2418,11 @@ def probe_1688_page(
                 opened_tab.close()
             except Exception:
                 pass
+        # Close CDP connection to prevent WebSocket leak
+        try:
+            cdp.close()
+        except Exception:
+            pass
     result = {
         'ready': bool(probe.get('ready')),
         'timed_out': bool(probe.get('timed_out')),
