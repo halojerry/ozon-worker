@@ -16,6 +16,7 @@ from api.errors import WorkerErrorCode, error_response
 from api.schemas import (
     SubmitTaskRequest, SubmitTaskResponse, TaskStatusResponse,
     CancelTaskResponse, HealthResponse, TaskStatisticsResponse, ErrorBody,
+    AuthVerifyResponse,
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END

@@ -207,8 +207,20 @@ def _kill_chrome_processes(reason: str = "") -> bool:
             pass
 
     if killed:
-        # Wait for processes to fully exit
-        time.sleep(1.5)
+        # Wait for processes to fully exit (poll, max 5s)
+        for _ in range(10):
+            time.sleep(0.5)
+            if not _find_chrome_processes():
+                break
+        else:
+            # SIGTERM 无效，尝试 SIGKILL（非 Windows）
+            if platform.system() != "Windows":
+                for proc in processes:
+                    try:
+                        os.kill(proc["pid"], signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        pass
+                time.sleep(0.5)
 
     return killed
 
@@ -331,6 +343,9 @@ def ensure_chrome_cdp(
         if _is_cdp_available(port):
             logger.info("Chrome CDP ready after %d seconds", i + 1)
             return True, f"Chrome 已启动，CDP 就绪 (port {port})"
+        # 每 10 秒检查 Chrome 进程是否还活着
+        if i > 0 and i % 10 == 0 and not _find_chrome_processes():
+            return False, "Chrome 进程已退出（可能崩溃）"
 
     return False, "Chrome 已启动但 CDP 未就绪（等待 40 秒超时）"
 

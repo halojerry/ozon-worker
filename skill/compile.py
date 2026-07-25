@@ -48,6 +48,7 @@ AUX_FILES = [
     "scripts/lib/__init__.py",
     "scripts/lib/task_paths.py",
     "scripts/lib/logging_utils.py",
+    "scripts/lib/ozon_api.py",  # cloud_probe.py 4 处 lazy import，无法编译（依赖 requests）
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
     "scripts/capabilities/browser_probe/service.py",  # Playwright 依赖，无法编译
@@ -246,10 +247,21 @@ def load_native(module_name: str):
     print(f"  📎 scripts/lib/_loader.py")
 
 
-def _generate_import_stubs(dist_lib_dir: Path, compile_files: list[str]) -> None:
-    """Generate import stubs that directly load native binaries."""
+def _generate_import_stubs(dist_dir: Path, compile_files: list[str]) -> None:
+    """Generate import stubs that directly load native binaries.
+
+    Stubs are placed at the same relative path as the original source file,
+    so import paths like ``scripts.capabilities.browser_probe.stealth`` resolve
+    correctly.  The native binary is always loaded from
+    ``dist/scripts/lib/_native/{platform}/`` regardless of stub location.
+    """
+    dist_lib_dir = dist_dir / "scripts" / "lib"
     for py_file in compile_files:
         stem = Path(py_file).stem
+        # Stub is at its original package location, native binary is always in lib/_native/
+        # Compute relative path from stub to _native dir
+        stub_parent = dist_dir / Path(py_file).parent  # e.g. dist/scripts/capabilities/browser_probe
+        native_rel = os.path.relpath(dist_lib_dir / "_native", stub_parent)  # e.g. ../../lib/_native
         # Use string concatenation to avoid f-string escaping issues
         # Use sysconfig.EXT_SUFFIX for correct platform suffix (e.g., .cpython-312-darwin.so)
         stub_content = (
@@ -269,10 +281,10 @@ def _generate_import_stubs(dist_lib_dir: Path, compile_files: list[str]) -> None
             '    _plat_name = f"darwin-{_pm.machine()}"\n'
             'else:\n'
             '    _plat_name = _plat\n'
-            '_native_dir = _Path(__file__).resolve().parent / "_native" / _plat_name\n'
+            '_native_dir = _Path(__file__).resolve().parent / "' + native_rel.replace('\\', '/') + '" / _plat_name\n'
             '# Fallback to generic platform dir if arch-specific not found\n'
             'if not _native_dir.is_dir():\n'
-            '    _native_dir = _Path(__file__).resolve().parent / "_native" / _plat\n'
+            '    _native_dir = _Path(__file__).resolve().parent / "' + native_rel.replace('\\', '/') + '" / _plat\n'
             '_ext_suffix = sysconfig.get_config_var("EXT_SUFFIX")\n'
             '_binary = None\n'
             '# Try exact EXT_SUFFIX first (e.g., .cpython-312-darwin.so)\n'
@@ -280,11 +292,21 @@ def _generate_import_stubs(dist_lib_dir: Path, compile_files: list[str]) -> None
             'if _f.exists():\n'
             '    _binary = _f\n'
             'else:\n'
-            '    # Fallback: search for any matching file\n'
+            '    # Fallback: search for ABI-compatible file only\n'
+            '    _py_tag = f"cpython-{_sys.version_info.major}{_sys.version_info.minor}"\n'
+            '    _bare_fallback = None\n'
             '    for _p in _native_dir.glob("' + stem + '.*"):\n'
-            '        if _p.suffix in (".so", ".pyd"):\n'
+            '        if _p.suffix not in (".so", ".pyd"):\n'
+            '            continue\n'
+            '        _name = _p.name\n'
+            '        if _py_tag in _name:\n'
             '            _binary = _p\n'
             '            break\n'
+            '        # Bare .so/.pyd with no cpython tag — last resort\n'
+            '        if "cpython" not in _name and _bare_fallback is None:\n'
+            '            _bare_fallback = _p\n'
+            '    if _binary is None and _bare_fallback is not None:\n'
+            '        _binary = _bare_fallback\n'
             '\n'
             'if _binary:\n'
             '    _spec = _ilu.spec_from_file_location(__name__, str(_binary))\n'
@@ -297,9 +319,10 @@ def _generate_import_stubs(dist_lib_dir: Path, compile_files: list[str]) -> None
             'else:\n'
             '    raise ImportError(f"No native binary for ' + stem + ' on {_plat_name}")\n'
         )
-        stub_path = dist_lib_dir / f"{stem}.py"
+        stub_path = stub_parent / f"{stem}.py"
+        stub_path.parent.mkdir(parents=True, exist_ok=True)
         stub_path.write_text(stub_content, encoding='utf-8')
-        print(f"  📄 scripts/lib/{stem}.py (stub → native)")
+        print(f"  📄 {Path(py_file).parent}/{stem}.py (stub → native)")
 
 
 def main():
@@ -375,7 +398,7 @@ def main():
     # 生成 loader + stubs
     dist_lib_dir = dist_dir / "scripts" / "lib"
     _generate_loader(dist_lib_dir)
-    _generate_import_stubs(dist_lib_dir, COMPILE_FILES)
+    _generate_import_stubs(dist_dir, COMPILE_FILES)
 
     # 复制入口脚本
     print(f"\n📄 复制入口脚本")
@@ -405,10 +428,19 @@ def main():
             shutil.copy2(src, dist_dir / doc_file)
             print(f"  📚 {doc_file}")
 
-    # 配置目录
+    # 配置目录（生成空模板，不泄露真实凭证）
+    import json as _json
     config_dir = dist_dir / "data" / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     print(f"  📁 data/config/")
+    settings_template = {"mxou_token": "", "ali_1688_ak": ""}
+    stores_template = {"default": "", "stores": {}}
+    (config_dir / "settings.json").write_text(
+        _json.dumps(settings_template, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    (config_dir / "stores.json").write_text(
+        _json.dumps(stores_template, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"  📝 data/config/settings.json (空模板)")
+    print(f"  📝 data/config/stores.json (空模板)")
 
     print(f"\n✅ 编译完成: {success} 成功, {failed} 失败")
     print(f"   平台: {plat_dir_name}")

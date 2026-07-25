@@ -324,7 +324,7 @@ def cmd_check(args) -> int:
         from scripts.lib.chrome_launcher import ensure_chrome_cdp, get_chrome_info
         info = get_chrome_info()
         if info["chrome_found"]:
-            print(f"  🌐 Chrome: {info['chrome_path'].split('/')[-1]}")
+            print(f"  🌐 Chrome: {Path(info['chrome_path']).name}")
         if not info["cdp_available"]:
             print(f"  ⏳ CDP 未运行，正在自动启动 Chrome...")
             ok, msg = ensure_chrome_cdp(auto_restart=True)

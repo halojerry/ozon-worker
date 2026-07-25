@@ -920,27 +920,44 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
     # Phase 2.5: Detect running Chromium browser — prefer what user is already using
     # This catches cases where Edge or Brave is running but Chrome is first in the path list
     try:
-        proc = subprocess.run(['ps', '-axo', 'command='], capture_output=True, text=True, timeout=5)
+        _commands = _list_browser_commands()
         seen = set()
-        browser_exes = [
-            '/Google Chrome.app/Contents/MacOS/Google Chrome',
-            '/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-            '/Brave Browser.app/Contents/MacOS/Brave Browser',
-            '/Chromium.app/Contents/MacOS/Chromium',
-            '/Opera.app/Contents/MacOS/Opera',
-            '/Vivaldi.app/Contents/MacOS/Vivaldi',
-        ]
-        for line in (proc.stdout or '').splitlines():
-            # Skip helper/renderer/gpu processes — only match main browser executable
-            if any(h in line for h in ['Helper', 'helper', 'renderer', 'gpu-process']):
-                continue
-            for exe in browser_exes:
-                idx = line.find(exe)
-                if idx >= 0:
-                    p = line[idx:idx + len(exe)]
-                    if Path(p).exists() and p not in seen:
-                        seen.add(p)
-                    break
+        if platform.system() == 'Windows':
+            browser_exes_win = ['chrome.exe', 'msedge.exe', 'brave.exe', 'opera.exe']
+            for line in _commands:
+                lower_line = line.lower()
+                if any(h in lower_line for h in ['helper', 'renderer', 'gpu-process']):
+                    continue
+                for exe in browser_exes_win:
+                    if exe in lower_line:
+                        # Extract executable path from command line
+                        parts = line.split()
+                        for part in parts:
+                            if exe in part.lower():
+                                p = part.strip('"')
+                                if Path(p).exists() and p not in seen:
+                                    seen.add(p)
+                                break
+                        break
+        else:
+            browser_exes = [
+                '/Google Chrome.app/Contents/MacOS/Google Chrome',
+                '/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+                '/Brave Browser.app/Contents/MacOS/Brave Browser',
+                '/Chromium.app/Contents/MacOS/Chromium',
+                '/Opera.app/Contents/MacOS/Opera',
+                '/Vivaldi.app/Contents/MacOS/Vivaldi',
+            ]
+            for line in _commands:
+                if any(h in line for h in ['Helper', 'helper', 'renderer', 'gpu-process']):
+                    continue
+                for exe in browser_exes:
+                    idx = line.find(exe)
+                    if idx >= 0:
+                        p = line[idx:idx + len(exe)]
+                        if Path(p).exists() and p not in seen:
+                            seen.add(p)
+                        break
         # Insert running browsers FIRST (before static paths)
         for rp in seen:
             paths.insert(0, rp)
@@ -1139,6 +1156,11 @@ def _poll_probe(page: Any, timeout_seconds: int, poll_ms: int, *, headed: bool =
             page.wait_for_timeout(300)
             current = page.evaluate(EXTRACT_1688_JS)
         except Exception as exc:
+            # 检测致命断连（浏览器崩溃/关闭），立即退出
+            err_lower = str(exc).lower()
+            if any(kw in err_lower for kw in ('target closed', 'browser closed', 'connection refused', 'disconnected', 'browser has been closed')):
+                return {'ready': False, 'error': f'CDP disconnected: {exc}', 'fatal': True,
+                        'elapsed_seconds': round(time.time() - started, 2)}
             current = {'url': getattr(page, 'url', None), 'error': str(exc), 'loginRequired': False}
         current['attempt'] = attempt
         current['elapsed_seconds'] = round(time.time() - started, 2)
@@ -1232,13 +1254,46 @@ def _write_browser_session(profile: str, payload: dict[str, Any]) -> Path:
         _os_atomic.fsync(fd)
     finally:
         _os_atomic.close(fd)
-    _os_atomic.replace(tmp, str(target))
+    # Windows: os.replace 可能因文件锁失败，重试 3 次
+    for _retry in range(3):
+        try:
+            _os_atomic.replace(tmp, str(target))
+            break
+        except PermissionError:
+            time.sleep(0.2)
+    else:
+        _os_atomic.replace(tmp, str(target))  # 最后一次不捕获
     return target
+
+
+def _list_browser_commands() -> list[str]:
+    """跨平台获取浏览器进程命令行（替代 ps -axo）。"""
+    import platform as _plat
+    try:
+        if _plat.system() == 'Windows':
+            r = subprocess.run(
+                ['wmic', 'process', 'where', "name='chrome.exe' or name='msedge.exe'",
+                 'get', 'CommandLine', '/format:list'],
+                capture_output=True, text=True, timeout=5,
+            )
+            return [
+                l.split('=', 1)[1].strip()
+                for l in r.stdout.splitlines()
+                if l.startswith('CommandLine=') and l.strip()
+            ]
+        else:
+            r = subprocess.run(
+                ['ps', '-axo', 'command='],
+                capture_output=True, text=True, timeout=5,
+            )
+            return [l for l in (r.stdout or '').splitlines() if l.strip()]
+    except Exception:
+        return []
 
 
 def _cdp_available(cdp_url: str) -> bool:
     try:
-        with urlopen(cdp_url + '/json/version', timeout=2) as resp:
+        with urlopen(cdp_url + '/json/version', timeout=5) as resp:
             if resp.status != 200:
                 return False
             data = json.loads(resp.read().decode('utf-8'))
@@ -1263,12 +1318,8 @@ def _chrome_user_data_dir_matches(cdp_url: str, expected_dir: str) -> bool:
     if not expected_dir:
         return True  # No expectation → don't block
     expected_resolved = str(Path(expected_dir).resolve())
-    try:
-        proc = subprocess.run(
-            ['ps', '-axo', 'command='],
-            check=False, capture_output=True, text=True,
-        )
-    except Exception:
+    commands = _list_browser_commands()
+    if not commands:
         return True  # Can't check → don't block (conservative)
 
     port_match = re.search(r':(\d+)/?', cdp_url)
@@ -1276,7 +1327,7 @@ def _chrome_user_data_dir_matches(cdp_url: str, expected_dir: str) -> bool:
         return True
     port = port_match.group(1)
 
-    for line in (proc.stdout or '').splitlines():
+    for line in commands:
         if f'--remote-debugging-port={port}' not in line:
             continue
         dir_match = re.search(r'--user-data-dir=(\S+)', line)
@@ -1297,16 +1348,9 @@ def _find_live_cdp_session_for_profile(
     current = dict(session or {})
     expected_user_data_dir = str(current.get('user_data_dir') or _profile_dir(profile)).strip()
 
-    try:
-        proc = subprocess.run(
-            ['ps', '-axo', 'command='],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except Exception:
+    commands = _list_browser_commands()
+    if not commands:
         return None
-    commands = [line.strip() for line in (proc.stdout or '').splitlines() if line.strip()]
 
     exact_matches: list[dict[str, Any]] = []
     loose_matches: list[dict[str, Any]] = []
@@ -1436,7 +1480,11 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
             '--no-pings',
             '--lang=zh-CN',
         ] + STEALTH_ARGS
-        _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, start_new_session=True)
+        if platform.system() == 'Windows':
+            _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                      creationflags=_sp.CREATE_NEW_PROCESS_GROUP)
+        else:
+            _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, start_new_session=True)
         cdp_url = f'http://127.0.0.1:{cdp_port}'
 
         # Wait up to 15s for CDP to become ready
@@ -1688,6 +1736,7 @@ def _wait_for_login_session(
     if '_browser_instance' not in globals():
         _browser_instance = None
 
+    page = None
     try:
         # Find existing Chrome CDP session (already launched by _find_live_cdp_session_for_profile)
         session = _resolve_browser_session(profile_name)
@@ -1773,6 +1822,13 @@ def _wait_for_login_session(
     except Exception as exc:
         _logger.error("_wait_for_login_session: Playwright error: %s", exc)
         return None
+    finally:
+        # 关闭 page，防止泄漏
+        if page:
+            try:
+                page.close()
+            except Exception:
+                pass
 
 
 def _read_page_probe(
@@ -1960,17 +2016,18 @@ def check_cdp_prerequisites(
     # 0. Check if we're in a headless environment (no display at all)
     import os as _os
     _is_headless = False
-    if _os.name != 'nt':
-        # Mac: check if window server available; Linux: check DISPLAY
-        if _os.uname().sysname == 'Darwin':
-            import subprocess as _sp
-            try:
-                r = _sp.run(['pgrep', '-x', 'WindowServer'], capture_output=True, timeout=2)
-                _is_headless = r.returncode != 0
-            except Exception:
-                pass
-        else:
-            _is_headless = not (_os.environ.get('DISPLAY') or _os.environ.get('WAYLAND_DISPLAY'))
+    if _os.name == 'nt':
+        # Windows: SESSIONNAME 不存在说明是服务/CI 环境（无桌面）
+        _is_headless = not _os.environ.get('SESSIONNAME')
+    elif _os.uname().sysname == 'Darwin':
+        import subprocess as _sp
+        try:
+            r = _sp.run(['pgrep', '-x', 'WindowServer'], capture_output=True, timeout=2)
+            _is_headless = r.returncode != 0
+        except Exception:
+            pass
+    else:
+        _is_headless = not (_os.environ.get('DISPLAY') or _os.environ.get('WAYLAND_DISPLAY'))
     if _is_headless:
         return {
             'ok': False, 'browser_available': False, 'browser_path': None,
