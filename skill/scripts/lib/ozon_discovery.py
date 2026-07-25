@@ -100,7 +100,6 @@ def discover_from_highlight(
     min_margin_pct: float = DEFAULT_MIN_MARGIN_PCT,
     max_competitors: int = DEFAULT_MAX_COMPETITORS,
     logistics_cny: float = DEFAULT_LOGISTICS_CNY,
-    commission_pct: float = DEFAULT_COMMISSION_PCT,
     progress_callback=None,
 ) -> list[ProductCandidate]:
     """Browse Ozon China highlight page and discover profitable products.
@@ -112,11 +111,13 @@ def discover_from_highlight(
         min_margin_pct: Minimum profit margin (%) to keep a product.
         max_competitors: Skip products with more competing sellers.
         logistics_cny: Estimated logistics cost in CNY per item.
-        commission_pct: Ozon commission as a fraction (0.10 = 10%).
 
     Returns:
         List of profitable ProductCandidate objects, sorted by margin descending.
     """
+    from scripts.lib.config_store import get_store_profile
+    store_profile = get_store_profile()
+    commission_rate = float(store_profile.get("commission_rate", 0) or 0)
     from scripts.lib.cdp_client import CdpConnection
     from scripts.lib.ozon_widget import (
         extract_product_id,
@@ -198,7 +199,7 @@ def discover_from_highlight(
                             candidate,
                             fx_rate=fx_rate,
                             logistics_cny=logistics_cny,
-                            commission_pct=commission_pct,
+                            commission_rate=commission_rate,
                         )
 
                         # Calculate blue ocean score
@@ -549,16 +550,22 @@ def _calculate_profit(
     candidate: ProductCandidate,
     fx_rate: float = DEFAULT_FX_RATE,
     logistics_cny: float = DEFAULT_LOGISTICS_CNY,
-    commission_pct: float = DEFAULT_COMMISSION_PCT,
+    commission_rate: float = 0,
 ) -> None:
     """Calculate profit margin for a candidate.
 
     Updates candidate fields in-place:
       estimated_logistics_cny, estimated_commission,
       estimated_profit_cny, profit_margin
+
+    Args:
+        commission_rate: Ozon commission as a fraction (0.10 = 10%).
+            If > 0, uses this value; otherwise falls back to DEFAULT_COMMISSION_PCT.
     """
     if not candidate.match_1688_price or not candidate.ozon_price:
         return
+
+    effective_commission = commission_rate if commission_rate > 0 else DEFAULT_COMMISSION_PCT
 
     cost_cny = candidate.match_1688_price
     revenue_cny = candidate.ozon_price * fx_rate
@@ -570,7 +577,7 @@ def _calculate_profit(
     candidate.estimated_logistics_cny = logistics_cny
 
     # Commission
-    candidate.estimated_commission = revenue_cny * commission_pct
+    candidate.estimated_commission = revenue_cny * effective_commission
 
     total_cost = cost_cny + candidate.estimated_logistics_cny + candidate.estimated_commission
     candidate.estimated_profit_cny = revenue_cny - total_cost
