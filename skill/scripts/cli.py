@@ -19,7 +19,7 @@ batch_test               批量处理 URL 列表
 
 from __future__ import annotations
 
-import argparse, json, sys
+import argparse, json, sys, time
 from pathlib import Path
 
 # Ensure scripts/ is on sys.path
@@ -611,7 +611,18 @@ def cmd_follow(args) -> int:
 
 def cmd_discover(args: argparse.Namespace) -> int:
     """Ozon 中国站选品 — 自动发现蓝海产品。"""
-    from scripts.lib.ozon_discovery import discover_from_highlight, DISCOVERY_CACHE_DIR
+    from scripts.lib.ozon_discovery import (
+        discover_from_highlight,
+        discover_from_url,
+        discover_from_keyword,
+        export_to_csv,
+        export_to_json,
+        DISCOVERY_CACHE_DIR,
+        CHINA_HIGHLIGHT_URL,
+        DEFAULT_FX_RATE,
+        DEFAULT_LOGISTICS_CNY,
+        DEFAULT_COMMISSION_PCT,
+    )
     from scripts.lib.chrome_launcher import ensure_chrome_cdp
 
     print("🔍 Ozon 中国站选品", flush=True)
@@ -627,18 +638,161 @@ def cmd_discover(args: argparse.Namespace) -> int:
         return 1
     cdp_url = "http://127.0.0.1:9222"
 
-    print("🌐 开始浏览 Ozon 中国站...", flush=True)
-    candidates = discover_from_highlight(
-        cdp_url=cdp_url,
-        max_products=args.max_products,
-        fx_rate=args.fx_rate,
-    )
+    # 1. Determine source URL
+    if args.url:
+        source_url = args.url
+        print(f"🌐 使用指定 URL: {source_url}", flush=True)
+    elif args.keyword:
+        import urllib.parse
+        encoded = urllib.parse.quote(args.keyword)
+        source_url = f"https://www.ozon.ru/search/?text={encoded}"
+        print(f"🌐 搜索关键词: {args.keyword}", flush=True)
+    else:
+        source_url = CHINA_HIGHLIGHT_URL
+        print("🌐 使用默认中国站页面...", flush=True)
 
+    # 2. Discover product URLs
+    if args.keyword and not args.url:
+        product_urls = discover_from_keyword(cdp_url, args.keyword, args.max_products)
+    else:
+        product_urls = discover_from_url(cdp_url, source_url, args.max_products)
+
+    print(f"📋 发现 {len(product_urls)} 个产品 URL", flush=True)
+
+    if not product_urls:
+        print("未发现产品 URL。尝试更换搜索词或页面。")
+        return 0
+
+    # 3. For each product, fetch Widget API data (title, price, images, competing sellers)
+    from scripts.lib.ozon_widget import extract_product_id, fetch_product_info, fetch_competing_sellers
+    from scripts.lib.ozon_discovery import ProductCandidate
+
+    candidates: list[ProductCandidate] = []
+
+    for i, url in enumerate(product_urls):
+        pid = extract_product_id(url)
+        if not pid:
+            continue
+
+        candidate = ProductCandidate(
+            ozon_product_id=pid,
+            ozon_title="",
+            ozon_price=0.0,
+            ozon_url=url,
+        )
+
+        print(f"  [{i+1}/{len(product_urls)}] 分析 {pid} ...", flush=True, end="")
+
+        try:
+            info = fetch_product_info(cdp_url, pid)
+            candidate.ozon_title = info.get("title", "")
+            candidate.ozon_price = _parse_price(info.get("price", ""))
+            candidate.ozon_images = info.get("images", [])
+
+            if not candidate.ozon_title:
+                print(" (无标题，跳过)")
+                candidate.status = "error"
+                candidate.error = "no title returned"
+                candidates.append(candidate)
+                continue
+
+            sellers = fetch_competing_sellers(cdp_url, pid)
+            candidate.competing_sellers = sellers.get("count", 0)
+            candidate.min_competing_price = sellers.get("min_price", 0)
+
+            # Skip if too many competitors
+            if candidate.competing_sellers > args.max_sellers:
+                print(f" (跟卖 {candidate.competing_sellers} 人，跳过)")
+                candidate.status = "rejected"
+                candidate.error = f"too many competitors ({candidate.competing_sellers})"
+                candidates.append(candidate)
+                continue
+
+            # If keyword provided, also do 1688 matching
+            if args.keyword:
+                from scripts.lib.ozon_discovery import _search_1688_source
+                match = _search_1688_source(cdp_url, candidate.ozon_images, candidate.ozon_title)
+                if match:
+                    candidate.match_1688_url = match.get("url", "")
+                    candidate.match_1688_title = match.get("title", "")
+                    candidate.match_1688_price = float(match.get("price", 0))
+                    candidate.match_1688_images = match.get("images", [])
+                    candidate.status = "matched"
+
+                    # Calculate profit
+                    from scripts.lib.ozon_discovery import _calculate_profit
+                    _calculate_profit(
+                        candidate,
+                        fx_rate=args.fx_rate,
+                        logistics_cny=DEFAULT_LOGISTICS_CNY,
+                        commission_pct=DEFAULT_COMMISSION_PCT,
+                    )
+
+                    if candidate.profit_margin >= args.min_margin:
+                        candidate.status = "profitable"
+                    else:
+                        candidate.status = "rejected"
+                else:
+                    candidate.status = "no_match"
+            else:
+                candidate.status = "matched"
+
+            print(f" ✓ {candidate.ozon_title[:40]}")
+
+        except Exception as exc:
+            candidate.status = "error"
+            candidate.error = str(exc)
+            print(f" ✗ {exc}")
+
+        candidates.append(candidate)
+        time.sleep(1)
+
+    # 4. If --client-id and --api-key provided, fetch Seller API data
+    if args.client_id and args.api_key:
+        print("\n📊 获取 Seller API 数据（佣金+重量）...", flush=True)
+        for c in candidates:
+            if c.status in ("error",):
+                continue
+            try:
+                # Fetch product attributes from Seller API
+                import requests as req
+                resp = req.post(
+                    "https://api-seller.ozon.ru/v2/product/info",
+                    headers={"Client-Id": args.client_id, "Api-Key": args.api_key, "Content-Type": "application/json"},
+                    json={"product_id": int(c.ozon_product_id)},
+                    timeout=15,
+                )
+                if resp.status_code == 200:
+                    data = resp.json().get("result", {})
+                    c.category = data.get("type_name", "")
+                    c.brand = data.get("brand", "")
+                    c.weight_g = data.get("weight", 0)
+                    dims = data.get("dimension_unit", {})
+                    if dims:
+                        c.dimensions_mm = {
+                            "length": dims.get("depth", 0),
+                            "width": dims.get("width", 0),
+                            "height": dims.get("height", 0),
+                        }
+            except Exception:
+                pass  # non-critical
+
+    # 5. Filter by min-margin and max-sellers
     profitable = [
         c for c in candidates
-        if c.profit_margin >= args.min_margin
+        if c.status == "profitable"
+        and c.profit_margin >= args.min_margin
         and c.competing_sellers <= args.max_sellers
     ]
+    # For non-keyword runs, also include "matched" candidates that passed filters
+    if not args.keyword:
+        profitable = [
+            c for c in candidates
+            if c.status in ("profitable", "matched")
+            and c.competing_sellers <= args.max_sellers
+        ]
+
+    profitable.sort(key=lambda c: c.profit_margin, reverse=True)
 
     print(f"\n📊 分析完成: {len(candidates)} 个产品，{len(profitable)} 个符合条件\n")
 
@@ -646,6 +800,20 @@ def cmd_discover(args: argparse.Namespace) -> int:
         print("未找到符合条件的产品。尝试调低 min-margin 或增加 max-products。")
         return 0
 
+    # 6. Export to CSV/JSON if requested
+    if args.export in ("csv", "both"):
+        output = args.output or "data/discovery/discover_export.csv"
+        csv_path = export_to_csv(profitable, output)
+        print(f"📄 CSV 已导出: {csv_path}")
+
+    if args.export in ("json", "both"):
+        output = args.output or "data/discovery/discover_export.json"
+        if args.export == "both":
+            output = args.output.replace(".csv", ".json") if args.output and args.output.endswith(".csv") else "data/discovery/discover_export.json"
+        json_path = export_to_json(profitable, output)
+        print(f"📄 JSON 已导出: {json_path}")
+
+    # 7. Display results table
     for i, c in enumerate(profitable[:20], 1):
         print(f"{'─' * 60}")
         print(f"  [{i}] {c.ozon_title[:50]}")
@@ -657,8 +825,29 @@ def cmd_discover(args: argparse.Namespace) -> int:
             print(f"      1688:  {c.match_1688_url[:60]}")
     print(f"{'─' * 60}")
 
+    # 8. Auto-submit if requested
+    if args.auto_submit:
+        print("\n🚀 自动提交到 Worker...", flush=True)
+        for c in profitable:
+            if c.match_1688_url:
+                print(f"  提交: {c.ozon_title[:40]}")
+                # TODO: integrate with graph/follow submission
+
     print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
     return 0
+
+
+def _parse_price(price_str: str) -> float:
+    """Parse price string like '327 ₽' or '1 299,99 ₽' to float."""
+    import re as _re
+    if not price_str:
+        return 0.0
+    cleaned = _re.sub(r"[^\d,.]", "", str(price_str))
+    cleaned = cleaned.replace(",", ".").replace(" ", "")
+    try:
+        return float(cleaned)
+    except (ValueError, TypeError):
+        return 0.0
 
 
 def main() -> int:
@@ -736,10 +925,16 @@ def main() -> int:
     fp.set_defaults(func=cmd_follow)
 
     dp = sub.add_parser("discover", help="Ozon 中国站选品（蓝海+利润筛选）")
-    dp.add_argument("--max-products", type=int, default=10, help="最多分析产品数（默认 10）")
-    dp.add_argument("--min-margin", type=float, default=15.0, help="最低利润率%%（默认 15）")
-    dp.add_argument("--max-sellers", type=int, default=10, help="最大跟卖人数（默认 10）")
-    dp.add_argument("--fx-rate", type=float, default=0.075, help="RUB→CNY 汇率（默认 0.075）")
+    dp.add_argument("--url", default="", help="Ozon 页面 URL（搜索页/类目页/中国站等）")
+    dp.add_argument("--keyword", default="", help="搜索关键词（自动构造搜索 URL）")
+    dp.add_argument("--max-products", type=int, default=50, help="最多分析产品数（默认 50）")
+    dp.add_argument("--min-margin", type=float, default=15.0, help="最低利润率%%")
+    dp.add_argument("--max-sellers", type=int, default=10, help="最大跟卖人数")
+    dp.add_argument("--fx-rate", type=float, default=0.075, help="RUB→CNY 汇率")
+    dp.add_argument("--client-id", default="", help="Ozon Client ID（获取佣金+重量）")
+    dp.add_argument("--api-key", default="", help="Ozon API Key")
+    dp.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式")
+    dp.add_argument("--output", default="", help="导出文件路径")
     dp.add_argument("--auto-submit", action="store_true", help="用户确认后自动提交到 Worker")
     dp.set_defaults(func=cmd_discover)
 

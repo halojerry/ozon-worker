@@ -1445,6 +1445,58 @@ def build_graph_envelope(
     }
 
 
+def build_envelope_from_discovery(candidate, store_config: dict) -> dict:
+    """Build Worker GraphInput envelope from a discovery candidate.
+
+    Args:
+        candidate: ProductCandidate from ozon_discovery
+        store_config: {"client_id": "...", "api_key": "...", "currency": "RUB"}
+
+    Returns:
+        GraphInput dict: {token, ozon_client_id, ozon_api_key, envelope}
+    """
+    from scripts.lib.config_store import get_mxou_token
+
+    token = get_mxou_token() or ""
+
+    draft = {
+        "item_id": candidate.match_1688_url.split("/offer/")[1].split(".")[0] if "/offer/" in candidate.match_1688_url else "",
+        "title": candidate.match_1688_title or candidate.ozon_title,
+        "description": "",
+        "currency": "CNY",
+        "images": candidate.match_1688_images or candidate.ozon_images[:3],
+        "attributes": {},
+        "weight": getattr(candidate, 'weight_g', 0) or 300,
+        "dimensions": getattr(candidate, 'dimensions_mm', None) or {"length": 0, "width": 0, "height": 0},
+        "purchase_cost": candidate.match_1688_price or 0,
+        "purchase_url": candidate.match_1688_url or "",
+        "supplier": getattr(candidate, 'match_1688_supplier', ''),
+        "stock": 100,
+    }
+
+    source = {
+        "purchase_url": candidate.match_1688_url or "",
+        "purchase_cost": candidate.match_1688_price or 0,
+    }
+
+    extensions = {
+        "follow_sell": candidate.competing_sellers > 0,
+        "margin_rate": 0.25,
+        "commission_rate": (getattr(candidate, 'commission_fbp', 0) or 10) / 100,
+    }
+
+    return {
+        "token": token,
+        "ozon_client_id": store_config.get("client_id", ""),
+        "ozon_api_key": store_config.get("api_key", ""),
+        "envelope": {
+            "draft": draft,
+            "source": source,
+            "extensions": extensions,
+        }
+    }
+
+
 def build_graph_envelope_with_retry(
     *,
     item_id: str,
