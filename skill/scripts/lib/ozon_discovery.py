@@ -629,22 +629,30 @@ def calculate_blue_ocean_score(candidate: ProductCandidate) -> int:
 def verify_1688_match(ozon_title: str, match_1688_title: str, match_1688_url: str = "") -> dict:
     """Verify that the 1688 match is a similar product.
 
+    Uses keyword extraction + substring matching for Chinese text.
     Returns: {"verified": bool, "confidence": float, "reason": str}
     """
     if not match_1688_title:
         return {"verified": False, "confidence": 0, "reason": "no match found"}
 
-    # Extract keywords from both titles (remove noise words)
     def extract_keywords(text):
-        # Remove common noise
+        """Extract keywords: split by whitespace/punctuation, also extract Chinese 2-grams."""
         noise = {'的', '了', '是', '在', '有', '和', '与', '及', '或', '等',
                  'for', 'the', 'a', 'an', 'and', 'or', 'is', 'in', 'on', 'at',
-                 '男', '女', '款', '新', '大', '小', '中'}
+                 '男', '女', '款', '新', '大', '小', '中', '件', '个', '只', '条'}
         words = set()
-        for w in re.split(r'[\s\-_,./\\]+', text.lower()):
+        # Split by whitespace/punctuation
+        for w in re.split(r'[\s\-_,./\\()（）]+', text.lower()):
             w = w.strip()
             if len(w) > 1 and w not in noise:
                 words.add(w)
+        # Extract Chinese 2-grams for substring matching
+        cn_chars = re.findall(r'[\u4e00-\u9fff]+', text)
+        for seg in cn_chars:
+            for i in range(len(seg) - 1):
+                bigram = seg[i:i+2]
+                if bigram not in noise:
+                    words.add(bigram)
         return words
 
     ozon_kw = extract_keywords(ozon_title)
@@ -653,15 +661,26 @@ def verify_1688_match(ozon_title: str, match_1688_title: str, match_1688_url: st
     if not ozon_kw or not match_kw:
         return {"verified": False, "confidence": 0, "reason": "empty keywords"}
 
+    # Direct keyword overlap
     overlap = ozon_kw & match_kw
-    confidence = len(overlap) / min(len(ozon_kw), len(match_kw))
+
+    # Substring matching: check if any ozon keyword contains a match keyword or vice versa
+    substring_hits = set()
+    for ok in ozon_kw:
+        for mk in match_kw:
+            if len(ok) >= 2 and len(mk) >= 2 and (ok in mk or mk in ok):
+                substring_hits.add(f"{ok}~{mk}")
+
+    total_matches = len(overlap) + len(substring_hits)
+    confidence = min(1.0, total_matches / max(1, min(len(ozon_kw), len(match_kw))))
 
     if confidence >= 0.3:
+        reasons = list(overlap)[:3] + list(substring_hits)[:3]
         return {"verified": True, "confidence": round(confidence, 2),
-                "reason": f"keywords overlap: {', '.join(list(overlap)[:5])}"}
+                "reason": f"keywords overlap: {', '.join(reasons[:5])}"}
     else:
         return {"verified": False, "confidence": round(confidence, 2),
-                "reason": f"low overlap ({len(overlap)}/{min(len(ozon_kw), len(match_kw))})"}
+                "reason": f"low overlap ({total_matches}/{min(len(ozon_kw), len(match_kw))})"}
 
 
 def _save_discovery_log(candidates: list[ProductCandidate]) -> Path | None:
