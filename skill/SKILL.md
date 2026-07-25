@@ -1,9 +1,9 @@
 ---
 name: pounding-ozon-probe
 description: >
-  Ozon 上架工具。当用户要上架商品到 Ozon、从 1688 选品、跟卖竞品、跨境电商铺货、
-  Ozon 蓝海选品、批量上架时触发。也适用于用户发送 1688 链接、Ozon 链接、
-  或说"帮我选品""帮我上架""帮我跟卖"等意图。
+  Ozon 上架工具。当用户发送 1688 链接时直接上架，发送 Ozon 链接时直接跟卖。
+  当用户说"帮我找蓝海产品""帮我选品"且没有给链接时，去 Ozon 中国站自动选品。
+  支持批量上架、以图搜款。
 ---
 
 # pounding-ozon-probe
@@ -59,24 +59,28 @@ python3.12 scripts/cli.py check
 - Google Chrome（Skill 自动启动，用户无需手动打开）
 - 网络连接（访问 1688、Ozon、Worker）
 
-## 核心流程
+## ⚠️ 意图路由（最重要）
 
-用户给你一个需求 → 你判断意图 → 执行对应命令 → 返回结果。
+**先判断用户意图，再选管线。三种意图互斥，不要混用。**
 
-| 用户说什么 | 你执行什么命令 |
-|-----------|--------------|
-| "帮我上架这个1688" + URL | `graph --url <URL>` |
-| "帮我跟卖这个Ozon" + URL | `follow --ozon-url <URL> --auto-submit` |
-| "帮我选蓝海产品" + 关键词 | `discover --keyword <关键词>` |
-| "帮我搜1688同款" + 图片 | `image_search --image <图片>` |
-| "批量上架" + URL列表文件 | `batch_test --urls-file <文件> --submit` |
-| "检查环境" | `check` |
+```
+用户输入
+  ├─ 包含 Ozon URL？ ──→ 【管线B：跟卖上架】直接图搜1688 → 提交Worker
+  ├─ 包含 1688 URL？ ──→ 【管线A：1688上架】直接抓取 → 提交Worker
+  └─ 没有URL？       ──→ 【管线C：蓝海选品】去Ozon中国站爬取 → 蓝海评分 → 展示候选
+```
+
+**关键规则：**
+- **用户给了 URL → 直接处理该 URL，不做蓝海评分**
+- **用户没给 URL → 去 Ozon 中国站自动选品，用蓝海评分筛选**
+- **不要在跟卖/上架流程中混入蓝海计算逻辑**
+- **蓝海评分只用于"帮我在 Ozon 上找蓝海产品"这类无 URL 的选品场景**
 
 **所有命令在 `skill/` 目录下执行，使用 `python3.12 scripts/cli.py`。**
 
-## 管线 A：1688 选品上架
+## 管线 A：1688 上架（用户给了 1688 URL）
 
-用户给你一个 1688 URL：
+**触发条件**：用户消息中包含 `1688.com` 链接
 
 ```bash
 python3.12 scripts/cli.py graph --url "https://detail.1688.com/offer/xxx.html" --store "主店铺"
@@ -84,11 +88,11 @@ python3.12 scripts/cli.py graph --url "https://detail.1688.com/offer/xxx.html" -
 
 自动完成：CDP 抓取 1688 → 组装信封 → 输出 JSON。
 
-如果用户要求上架，把信封提交给 Worker。
+如果用户要求上架，把信封提交给 Worker。**不要做蓝海评分，不要去 Ozon 搜索。**
 
-## 管线 B：Ozon 跟卖
+## 管线 B：Ozon 跟卖（用户给了 Ozon URL）
 
-用户给你一个 Ozon URL：
+**触发条件**：用户消息中包含 `ozon.ru` 链接
 
 ```bash
 python3.12 scripts/cli.py follow --ozon-url "https://www.ozon.ru/product/xxx/" --store "主店铺" --auto-submit
@@ -96,16 +100,15 @@ python3.12 scripts/cli.py follow --ozon-url "https://www.ozon.ru/product/xxx/" -
 
 自动完成：CDP 抓取 Ozon → 图搜 1688 同款 → 组装信封（follow_sell=True）→ 提交 Worker。
 
-## 管线 C：Ozon 选品
+**不要做蓝海评分。用户给了具体 Ozon URL，直接帮他跟卖上架。**
 
-用户说"帮我选蓝海产品"或给关键词：
+## 管线 C：蓝海选品（用户没给 URL）
+
+**触发条件**：用户说"帮我找蓝海产品"、"帮我选品"、"帮我在 Ozon 上找产品"、给关键词但没给 URL
 
 ```bash
 # 关键词选品（默认 50 个产品）
 python3.12 scripts/cli.py discover --keyword "宠物用品"
-
-# 指定页面选品
-python3.12 scripts/cli.py discover --url "https://www.ozon.ru/category/..." --max-products 100
 
 # 导出 CSV
 python3.12 scripts/cli.py discover --keyword "宠物用品" --export csv --output results.csv
@@ -114,7 +117,9 @@ python3.12 scripts/cli.py discover --keyword "宠物用品" --export csv --outpu
 python3.12 scripts/cli.py discover --keyword "宠物用品" --auto-submit
 ```
 
-discover 会显示产品列表和蓝海评分。**让用户确认后再提交，不要替用户决定。**
+discover 会去 **Ozon 中国站**（tovary-iz-kitaya）自动爬取产品，计算蓝海评分，展示候选列表。
+
+**蓝海评分只在这个管线中使用。** 让用户确认后再提交，不要替用户决定。
 
 ## 以图搜款
 
@@ -127,6 +132,8 @@ python3.12 scripts/cli.py image_search --image "https://example.com/image.jpg"
 ```bash
 python3.12 scripts/batch_test.py --urls-file urls.txt --submit
 ```
+
+URL 文件中混合 1688/Ozon 链接，自动识别。
 
 URL 文件中混合 1688/Ozon 链接，自动识别。
 
@@ -174,6 +181,9 @@ Skill 输出的信封是 Worker 消费的 `GraphInput` 格式。完整示例见 
 - **不要**向用户泄漏 Worker 内部实现
 - **不要**多次问用户同一个凭证
 - **不要**自己探索项目结构，按本文档操作
+- **不要**在用户给了 URL 时还去做蓝海评分（URL = 直接处理，无 URL = 蓝海选品）
+- **不要**把蓝海评分逻辑混入跟卖/上架流程
+- **每次操作前重新判断用户意图**，不要因为上下文中提过蓝海就默认用蓝海逻辑
 
 ## 参考文件
 
