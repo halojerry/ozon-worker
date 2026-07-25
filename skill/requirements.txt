@@ -11,7 +11,6 @@
 requests>=2.28                 # HTTP 请求（Worker API / Ozon API）
 websocket-client>=1.6.0        # Chrome DevTools Protocol 通信
 Pillow>=10.0.0                 # 图片处理（1688 图搜 / 图片预处理）
-playwright>=1.45.0             # 浏览器自动化（备用，非核心路径）
 
 # --- 可选依赖（错误追踪） ---
 # sentry-sdk>=1.40.0           # Sentry 错误追踪（可选，不装不影响功能）

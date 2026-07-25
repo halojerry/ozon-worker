@@ -20,32 +20,11 @@ import socket as _socket
 
 from scripts._const import DATA_DIR, DEFAULT_CACHE_TTL_SECONDS, get_config_profile
 
-try:
-    from playwright.sync_api import Error as PlaywrightError
-    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-    from playwright.sync_api import sync_playwright
-    _PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PlaywrightError = Exception  # type: ignore
-    PlaywrightTimeoutError = Exception  # type: ignore
-    sync_playwright = None  # type: ignore
-    _PLAYWRIGHT_AVAILABLE = False
+from scripts.lib.cdp_client import CdpConnection, CdpTab
 
-# Auto-cleanup Playwright instances on exit
-import atexit as _atexit
-def _cleanup_playwright():
-    bi = globals().get("_browser_instance")
-    pi = globals().get("_playwright_instance")
-    try:
-        if bi is not None:
-            try: bi.close()
-            except Exception: pass
-        if pi is not None:
-            try: pi.stop()
-            except Exception: pass
-    except Exception:
-        pass
-_atexit.register(_cleanup_playwright)
+# Backward compat aliases for except blocks
+PlaywrightError = Exception
+PlaywrightTimeoutError = TimeoutError
 
 
 def _pick_free_port() -> int:
@@ -1127,16 +1106,16 @@ def _probe_ready(probe: dict[str, Any] | None) -> bool:
     return False
 
 
-def _single_pass_probe(page: Any) -> dict[str, Any]:
+def _single_pass_probe(tab: CdpTab) -> dict[str, Any]:
     try:
         # Scroll to trigger lazy DOM, then extract
-        page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'instant'});")
-        page.wait_for_timeout(400)
-        page.evaluate("window.scrollTo({top: 0, behavior: 'instant'});")
-        page.wait_for_timeout(200)
-        current = page.evaluate(EXTRACT_1688_JS)
+        tab.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'instant'});")
+        time.sleep(0.4)
+        tab.evaluate("window.scrollTo({top: 0, behavior: 'instant'});")
+        time.sleep(0.2)
+        current = tab.evaluate(EXTRACT_1688_JS)
     except Exception as exc:
-        current = {'url': getattr(page, 'url', None), 'error': str(exc), 'loginRequired': False}
+        current = {'url': getattr(tab, 'url', None), 'error': str(exc), 'loginRequired': False}
     current['attempt'] = 1
     current['elapsed_seconds'] = 0.0
     current['ready'] = bool(_probe_ready(current))
@@ -1144,7 +1123,7 @@ def _single_pass_probe(page: Any) -> dict[str, Any]:
     return current
 
 
-def _poll_probe(page: Any, timeout_seconds: int, poll_ms: int, *, headed: bool = False) -> dict[str, Any]:
+def _poll_probe(tab: CdpTab, timeout_seconds: int, poll_ms: int, *, headed: bool = False) -> dict[str, Any]:
     started = time.time()
     attempt = 0
     last: dict[str, Any] = {}
@@ -1152,16 +1131,16 @@ def _poll_probe(page: Any, timeout_seconds: int, poll_ms: int, *, headed: bool =
     while time.time() - started < effective_timeout:
         attempt += 1
         try:
-            page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'instant'});")
-            page.wait_for_timeout(300)
-            current = page.evaluate(EXTRACT_1688_JS)
+            tab.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'instant'});")
+            time.sleep(0.3)
+            current = tab.evaluate(EXTRACT_1688_JS)
         except Exception as exc:
             # 检测致命断连（浏览器崩溃/关闭），立即退出
             err_lower = str(exc).lower()
             if any(kw in err_lower for kw in ('target closed', 'browser closed', 'connection refused', 'disconnected', 'browser has been closed')):
                 return {'ready': False, 'error': f'CDP disconnected: {exc}', 'fatal': True,
                         'elapsed_seconds': round(time.time() - started, 2)}
-            current = {'url': getattr(page, 'url', None), 'error': str(exc), 'loginRequired': False}
+            current = {'url': getattr(tab, 'url', None), 'error': str(exc), 'loginRequired': False}
         current['attempt'] = attempt
         current['elapsed_seconds'] = round(time.time() - started, 2)
         login_required = bool(current.get('loginRequired'))
@@ -1173,7 +1152,7 @@ def _poll_probe(page: Any, timeout_seconds: int, poll_ms: int, *, headed: bool =
         if _probe_ready(current):
             current['ready'] = True
             return current
-        page.wait_for_timeout(poll_ms)
+        time.sleep(poll_ms / 1000)
     last['ready'] = False
     last['timed_out'] = True
     last['elapsed_seconds'] = round(time.time() - started, 2)
@@ -1187,14 +1166,14 @@ def _login_url() -> str:
     return 'https://login.1688.com/member/signin.htm'
 
 
-def _maybe_open_login_first(page: Any, *, headed: bool, timeout_ms: int) -> None:
+def _maybe_open_login_first(tab: CdpTab, *, headed: bool, timeout_ms: int) -> None:
     if not headed:
         return
     try:
-        page.goto(_login_url(), wait_until='domcontentloaded', timeout=timeout_ms)
+        tab.navigate(_login_url(), wait_until='domcontentloaded', timeout=max(timeout_ms // 1000, 1))
         try:
-            page.wait_for_load_state('networkidle', timeout=5000)
-        except PlaywrightTimeoutError:
+            tab.wait_for_load(timeout=5)
+        except Exception:
             pass
     except Exception:
         return
@@ -1224,13 +1203,6 @@ def _page_matches_target_offer(page: Any, target_url: str) -> bool:
     return page_url == target_url
 
 
-def _find_matching_open_page(browser: Any, target_url: str) -> Any | None:
-    matches: list[Any] = []
-    for context in list(getattr(browser, 'contexts', []) or []):
-        for page in list(getattr(context, 'pages', []) or []):
-            if _page_matches_target_offer(page, target_url):
-                matches.append(page)
-    return matches[-1] if matches else None
 
 
 def _load_browser_session(profile: str) -> dict[str, Any] | None:
@@ -1501,7 +1473,7 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
     return {}
 
 
-def _connect_existing_chrome(p: Any, cdp_url: str) -> tuple[Any, bool]:
+def _connect_existing_chrome(cdp_url: str) -> tuple[CdpConnection, bool]:
     """Connect to an existing Chrome instance via CDP.
     """
     import logging as _logging
@@ -1510,89 +1482,103 @@ def _connect_existing_chrome(p: Any, cdp_url: str) -> tuple[Any, bool]:
     # 1. Try connecting to existing Chrome via CDP (retry up to 3 times)
     for attempt in range(3):
         try:
-            browser = p.chromium.connect_over_cdp(cdp_url)
+            conn = CdpConnection(cdp_url)
+            # Verify connection by checking version endpoint
+            import requests as _req
+            resp = _req.get(f"{cdp_url.rstrip('/')}/json/version", timeout=5)
+            resp.raise_for_status()
             _logger.info("Connected to existing Chrome at %s", cdp_url)
-            return browser, True
+            return conn, True
         except Exception as exc:
             if attempt < 2:
                 import time as _time_cdp
                 _time_cdp.sleep(3)
             else:
-                _logger.debug("connect_over_cdp failed after 3 attempts (%s)", exc)
+                _logger.debug("CdpConnection failed after 3 attempts (%s)", exc)
 
-    # 2. Fallback: launch new browser with persistent profile (shared cookies)
+    # 2. Fallback: launch Chrome via chrome_launcher
+    try:
+        from scripts.lib.chrome_launcher import ensure_chrome_cdp, get_cdp_url
+        ok, msg = ensure_chrome_cdp(auto_restart=True)
+        if ok:
+            new_cdp_url = get_cdp_url()
+            _logger.info("Chrome launched via chrome_launcher: %s", new_cdp_url)
+            return CdpConnection(new_cdp_url), False
+        else:
+            _logger.warning("chrome_launcher failed: %s", msg)
+    except ImportError:
+        _logger.debug("chrome_launcher not available")
+
+    # 3. Fallback: launch new browser with persistent profile
     from scripts.capabilities.browser_probe.stealth import STEALTH_ARGS
-    import random as _random
     profile_dir = _profile_dir('default')
     profile_dir.mkdir(parents=True, exist_ok=True)
-    _logger.info("Launching new persistent context (profile: %s)", profile_dir)
+    _logger.info("Launching new Chrome (profile: %s)", profile_dir)
 
     import socket as _sock
+    import subprocess as _sp
     cdp_port = 9222
-    for p in range(9222, 9300):
+    for _p in range(9222, 9300):
         try:
             with _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM) as s:
-                s.bind(('127.0.0.1', p))
-                cdp_port = p
+                s.bind(('127.0.0.1', _p))
+                cdp_port = _p
                 break
         except OSError:
             continue
-    browser = p.chromium.launch_persistent_context(
-        user_data_dir=str(profile_dir),
-        headless=False,
-        args=STEALTH_ARGS + [f'--remote-debugging-port={cdp_port}'],
-        locale='zh-CN',
-        viewport={'width': _random.randint(1366, 1920), 'height': _random.randint(768, 1080)},
-    )
-    return browser, False
+    chrome_bin = find_browser_executable()
+    if not chrome_bin:
+        raise ConfigError('未找到可用的 Chrome/Chromium 浏览器')
+    cmd = [
+        chrome_bin,
+        f'--remote-debugging-port={cdp_port}',
+        f'--user-data-dir={profile_dir}',
+        '--no-first-run', '--no-default-browser-check',
+    ] + STEALTH_ARGS
+    _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, start_new_session=True)
+    cdp_url = f'http://127.0.0.1:{cdp_port}'
 
-
-def _first_browser_context(browser: Any) -> Any:
-    # launch_persistent_context returns a BrowserContext directly
-    if hasattr(browser, 'new_page') and not hasattr(browser, 'new_context'):
-        return browser
-    import random as _random
-    contexts = list(getattr(browser, 'contexts', []) or [])
-    if contexts:
-        return contexts[0]
-    # 随机 viewport 尺寸，模拟真实屏幕
-    width = _random.randint(1366, 1920)
-    height = _random.randint(768, 1080)
-    return browser.new_context(locale='zh-CN', viewport={'width': width, 'height': height})
+    # Wait up to 15s for CDP to become ready
+    import time as _time
+    for _ in range(15):
+        _time.sleep(1)
+        if _cdp_available(cdp_url):
+            _logger.info("Chrome ready at %s", cdp_url)
+            return CdpConnection(cdp_url), False
+    raise ConfigError('Chrome 启动后 CDP 未就绪')
 
 
 def _open_target_page_in_existing_browser(
-    browser: Any,
+    cdp: CdpConnection,
     target_url: str,
     *,
     timeout_seconds: int,
-) -> tuple[Any, bool]:
+) -> CdpTab:
     from scripts.capabilities.browser_probe.stealth import STEALTH_JS, REALISTIC_UA
 
-    context = _first_browser_context(browser)
-    page = context.new_page()
+    tab = cdp.new_tab()
 
     # 注入反检测 JS
-    page.add_init_script(STEALTH_JS)
+    tab.add_init_script(STEALTH_JS)
 
     # UA 覆盖
-    page.set_extra_http_headers({'User-Agent': REALISTIC_UA})
+    tab.set_extra_headers({'User-Agent': REALISTIC_UA})
 
-    timeout_ms = max(int(timeout_seconds) * 1000, 45000)
-    page.goto(target_url, wait_until='domcontentloaded', timeout=timeout_ms)
+    timeout_sec = max(int(timeout_seconds), 45)
+    tab.navigate(target_url, wait_until='domcontentloaded', timeout=timeout_sec)
     try:
-        page.wait_for_load_state('networkidle', timeout=min(timeout_ms, 10000))
-    except PlaywrightTimeoutError:
+        tab.wait_for_load(timeout=min(timeout_sec, 10))
+    except Exception:
         pass
 
     # 随机延迟，模拟人类阅读
     navigation_delay()
 
-    return page, True
+    return tab
 
 
 def _probe_opened_target_page_with_retries(
-    page: Any,
+    tab: CdpTab,
     target_url: str,
     *,
     timeout_seconds: int,
@@ -1600,9 +1586,9 @@ def _probe_opened_target_page_with_retries(
     headed: bool,
     max_attempts: int = 2,
 ) -> dict[str, Any]:
-    """Probe with retries on the SAME page — no page reload.
+    """Probe with retries on the SAME tab — no page reload.
 
-    Reloading the page (page.goto) counts as a new request to 1688
+    Reloading the page (tab.navigate) counts as a new request to 1688
     and triggers rate limiting.  Instead we wait and re-evaluate the
     extraction JS on the already-loaded DOM.
     """
@@ -1612,28 +1598,28 @@ def _probe_opened_target_page_with_retries(
         if attempt > 1:
             wait_ms = backoff_schedule_ms[min(attempt - 2, len(backoff_schedule_ms) - 1)]
             try:
-                page.wait_for_timeout(wait_ms)
+                time.sleep(wait_ms / 1000)
             except Exception:
                 pass
-            # Scroll to trigger lazy-loading, then re-evaluate JS on the SAME page
+            # Scroll to trigger lazy-loading, then re-evaluate JS on the SAME tab
             try:
-                page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'instant'});")
-                page.wait_for_timeout(500)
-                page.evaluate("window.scrollTo({top: 0, behavior: 'instant'});")
-                page.wait_for_timeout(300)
+                tab.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'instant'});")
+                time.sleep(0.5)
+                tab.evaluate("window.scrollTo({top: 0, behavior: 'instant'});")
+                time.sleep(0.3)
             except Exception:
                 pass
 
         # Scroll to trigger any remaining lazy images/IntersectionObserver content
         try:
-            page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'instant'});")
-            page.wait_for_timeout(500)
-            page.evaluate("window.scrollTo({top: 0, behavior: 'instant'});")
-            page.wait_for_timeout(300)
+            tab.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'instant'});")
+            time.sleep(0.5)
+            tab.evaluate("window.scrollTo({top: 0, behavior: 'instant'});")
+            time.sleep(0.3)
         except Exception:
             pass
         probe = _read_page_probe(
-            page,
+            tab,
             timeout_seconds=timeout_seconds,
             poll_ms=poll_ms,
             headed=headed,
@@ -1662,21 +1648,21 @@ def _snapshot_login_required(url: str | None, body_text: str | None) -> bool:
     )
 
 
-def _probe_login_snapshot(page: Any) -> dict[str, Any]:
+def _probe_login_snapshot(tab: CdpTab) -> dict[str, Any]:
     try:
-        return page.evaluate("""() => ({
+        return tab.evaluate("""() => ({
             url: location.href,
             title: document.title || '',
             bodyText: (document.body && (document.body.innerText || document.body.textContent) || '').slice(0, 4000)
         })""")
     except Exception as exc:
-        return {'url': getattr(page, 'url', None), 'title': '', 'bodyText': '', 'error': str(exc)}
+        return {'url': getattr(tab, 'url', None), 'title': '', 'bodyText': '', 'error': str(exc)}
 
 
-def _extract_qr_code_base64(page: Any) -> str | None:
+def _extract_qr_code_base64(tab: CdpTab) -> str | None:
     """Extract 1688 login QR code from canvas as base64 data URL."""
     try:
-        return page.evaluate("""() => {
+        return tab.evaluate("""() => {
             const canvas = document.querySelector('.qrcode-img canvas');
             if (!canvas) return null;
             try {
@@ -1694,55 +1680,29 @@ def _wait_for_login_session(
     browser_path: str,
     timeout_seconds: int,
 ) -> dict[str, Any] | None:
-    """Launch browser via Playwright and wait for 1688 login.
+    """Connect via CDP and wait for 1688 login.
 
-    Uses Playwright's bundled Chromium with a persistent profile directory
-    to keep login cookies across sessions. After login is detected,
-    the browser stays running so subsequent CDP probes can reuse it.
+    Uses CdpConnection to connect to Chrome via CDP and open a new tab
+    for the login page. After login is detected, the browser stays running
+    so subsequent CDP probes can reuse it.
     """
     import logging as _logging
     import base64 as _base64
     _logger = _logging.getLogger(__name__)
 
-    from scripts.capabilities.browser_probe.stealth import STEALTH_ARGS, STEALTH_JS, REALISTIC_UA
+    from scripts.capabilities.browser_probe.stealth import STEALTH_JS, REALISTIC_UA
 
     session = _resolve_browser_session(profile_name)
     login_url = 'https://login.1688.com/member/signin.htm'
     timeout_sec = max(timeout_seconds, 30)
     start = time.time()
 
-    # Use persistent profile directory to keep login cookies
-    profile_dir = _profile_dir(profile_name)
-    profile_dir.mkdir(parents=True, exist_ok=True)
-
-    # Find an available port for CDP
-    import socket
-    cdp_port = 0
-    for port in range(9222, 9300):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('127.0.0.1', port))
-                cdp_port = port
-                break
-        except OSError:
-            continue
-    if not cdp_port:
-        cdp_port = 9222
-
-    # Keep Playwright instance alive in global variable
-    global _playwright_instance, _browser_instance
-    if '_playwright_instance' not in globals():
-        _playwright_instance = None
-    if '_browser_instance' not in globals():
-        _browser_instance = None
-
-    page = None
+    tab = None
     try:
-        # Find existing Chrome CDP session (already launched by _find_live_cdp_session_for_profile)
+        # Find existing Chrome CDP session
         session = _resolve_browser_session(profile_name)
         cdp_url = session.get('cdp_url', '')
         if not cdp_url:
-            # Scan for live CDP
             recovered = _find_live_cdp_session_for_profile(profile_name, session)
             if recovered:
                 cdp_url = str(recovered.get('cdp_url') or '')
@@ -1757,29 +1717,26 @@ def _wait_for_login_session(
         except Exception:
             pass
 
-        # Connect to existing Chrome via CDP (no launch — avoids greenlet issues)
+        # Connect to existing Chrome via CDP
         _logger.info("Connecting to Chrome CDP at %s", cdp_url)
-        _pw_cm = sync_playwright()
-        _playwright_instance = _pw_cm.__enter__()
-        browser = _playwright_instance.chromium.connect_over_cdp(cdp_url)
-        page = browser.new_page()
+        cdp = CdpConnection(cdp_url)
+        tab = cdp.new_tab()
 
         # 注入反检测 JS
-        page.add_init_script(STEALTH_JS)
+        tab.add_init_script(STEALTH_JS)
 
         # UA 覆盖
-        page.set_extra_http_headers({'User-Agent': REALISTIC_UA})
+        tab.set_extra_headers({'User-Agent': REALISTIC_UA})
 
         # Navigate to login page
         _logger.info("Navigating to 1688 login page...")
-        page.goto(login_url, wait_until='domcontentloaded', timeout=20000)
+        tab.navigate(login_url, wait_until='domcontentloaded', timeout=20)
         sleep_random(2000, 4000)  # Wait for QR code canvas to render
 
         # Extract QR code
-        qr_data = _extract_qr_code_base64(page)
+        qr_data = _extract_qr_code_base64(tab)
         if qr_data and qr_data.startswith('data:image/'):
             header, img_data = qr_data.split(',', 1)
-            # Save to temp file for reference
             try:
                 import tempfile
                 qr_path = Path(tempfile.gettempdir()) / '1688_qrcode.png'
@@ -1803,10 +1760,9 @@ def _wait_for_login_session(
         # Poll for login completion
         while time.time() - start < timeout_sec:
             try:
-                snapshot = _probe_login_snapshot(page)
+                snapshot = _probe_login_snapshot(tab)
                 login_required = _snapshot_login_required(snapshot.get('url'), snapshot.get('bodyText'))
                 if not login_required:
-                    # Login detected!
                     merged = dict(session)
                     merged['login_detected'] = True
                     merged['login_check_url'] = snapshot.get('url')
@@ -1816,30 +1772,28 @@ def _wait_for_login_session(
                 pass
             time.sleep(3)
 
-        # Timeout
         _logger.warning("_wait_for_login_session: login timeout after %ds", timeout_sec)
         return None
     except Exception as exc:
-        _logger.error("_wait_for_login_session: Playwright error: %s", exc)
+        _logger.error("_wait_for_login_session: CDP error: %s", exc)
         return None
     finally:
-        # 关闭 page，防止泄漏
-        if page:
+        if tab:
             try:
-                page.close()
+                tab.close()
             except Exception:
                 pass
 
 
 def _read_page_probe(
-    page: Any,
+    tab: CdpTab,
     *,
     timeout_seconds: int,
     poll_ms: int,
     headed: bool,
     allow_slow_fallback: bool = True,
 ) -> dict[str, Any]:
-    initial = _single_pass_probe(page)
+    initial = _single_pass_probe(tab)
     if initial.get('ready'):
         initial['probe_mode'] = 'single_pass'
         return initial
@@ -1848,7 +1802,7 @@ def _read_page_probe(
         return initial
     if bool(initial.get('loginRequired')):
         if headed and allow_slow_fallback:
-            polled = _poll_probe(page, timeout_seconds=timeout_seconds, poll_ms=poll_ms, headed=headed)
+            polled = _poll_probe(tab, timeout_seconds=timeout_seconds, poll_ms=poll_ms, headed=headed)
             polled['probe_mode'] = 'poll_after_login_gate'
             return polled
         initial['probe_mode'] = 'single_pass_login_gate'
@@ -1859,7 +1813,7 @@ def _read_page_probe(
     if initial.get('title') or len(initial.get('images') or []) > 0:
         initial['probe_mode'] = 'single_pass_partial'
         return initial
-    polled = _poll_probe(page, timeout_seconds=timeout_seconds, poll_ms=poll_ms, headed=headed)
+    polled = _poll_probe(tab, timeout_seconds=timeout_seconds, poll_ms=poll_ms, headed=headed)
     polled['probe_mode'] = 'poll_fallback'
     return polled
 
@@ -2234,54 +2188,73 @@ def probe_1688_page(
         launch_meta['session_bootstrapped'] = bool(cdp_url)
     if not cdp_url or not _cdp_available(cdp_url):
         raise ConfigError('未发现可复用的 1688 浏览器会话，请先执行 browser_login 完成登录，或保持同一 profile 的 Chrome 会话可连接')
+    cdp, connected_to_existing = _connect_existing_chrome(cdp_url)
+    opened_tab: CdpTab | None = None
     try:
-        with sync_playwright() as p:
-            browser, connected_to_existing = _connect_existing_chrome(p, cdp_url)
+        # Find existing tab with matching offer
+        offer_id = _extract_offer_id(target_url)
+        matched_existing_tab = None
+        if offer_id:
+            matched_existing_tab = cdp.find_tab(offer_id)
+        if not matched_existing_tab:
+            tmp = cdp.find_tab("1688.com")
+            if tmp and _page_matches_target_offer(tmp, target_url):
+                matched_existing_tab = tmp
+            elif tmp:
+                # Wrong tab — close WebSocket only (don't close user's tab)
+                try:
+                    tmp._ws.close()
+                except Exception:
+                    pass
+
+        tab = matched_existing_tab
+        opened_page = False
+        if tab is None:
+            tab = _open_target_page_in_existing_browser(
+                cdp,
+                target_url,
+                timeout_seconds=timeout_seconds,
+            )
+            opened_tab = tab
+            opened_page = True
+            probe = _probe_opened_target_page_with_retries(
+                tab,
+                target_url,
+                timeout_seconds=timeout_seconds,
+                poll_ms=poll_ms,
+                headed=bool(headed),
+            )
+            probe['noMatchingOpenPage'] = True
+        else:
+            probe = _read_page_probe(
+                tab,
+                timeout_seconds=timeout_seconds,
+                poll_ms=poll_ms,
+                headed=bool(headed),
+                allow_slow_fallback=True,
+            )
+            probe['noMatchingOpenPage'] = False
+        launch_meta['cdp_url'] = cdp_url
+        launch_meta['connected_existing_chrome'] = True
+        launch_meta['matched_existing_page'] = bool(matched_existing_tab)
+        launch_meta['auto_opened_page'] = bool(opened_page)
+        launch_meta['login_detected'] = bool(session.get('login_detected'))
+        launch_meta['login_check_url'] = session.get('login_check_url')
+        if opened_page:
+            launch_meta['auto_open_probe_attempts'] = int(probe.get('openAttempt') or 1)
             try:
-                matched_existing_page = _find_matching_open_page(browser, target_url)
-                page = matched_existing_page
-                opened_page = False
-                if page is None:
-                    page, opened_page = _open_target_page_in_existing_browser(
-                        browser,
-                        target_url,
-                        timeout_seconds=timeout_seconds,
-                    )
-                    probe = _probe_opened_target_page_with_retries(
-                        page,
-                        target_url,
-                        timeout_seconds=timeout_seconds,
-                        poll_ms=poll_ms,
-                        headed=bool(headed),
-                    )
-                    probe['noMatchingOpenPage'] = True
-                else:
-                    probe = _read_page_probe(
-                        page,
-                        timeout_seconds=timeout_seconds,
-                        poll_ms=poll_ms,
-                        headed=bool(headed),
-                        allow_slow_fallback=True,
-                    )
-                    probe['noMatchingOpenPage'] = False
-                launch_meta['cdp_url'] = cdp_url
-                launch_meta['connected_existing_chrome'] = True
-                launch_meta['matched_existing_page'] = bool(matched_existing_page)
-                launch_meta['auto_opened_page'] = bool(opened_page)
-                launch_meta['login_detected'] = bool(session.get('login_detected'))
-                launch_meta['login_check_url'] = session.get('login_check_url')
-                if opened_page:
-                    launch_meta['auto_open_probe_attempts'] = int(probe.get('openAttempt') or 1)
-                    try:
-                        page.close()
-                    except Exception:
-                        pass
-            finally:
-                # Only close if we launched a new browser; never close user's existing Chrome
-                if not connected_to_existing:
-                    browser.close()
-    except PlaywrightError as exc:
+                tab.close()
+            except Exception:
+                pass
+    except Exception as exc:
         raise ConfigError(f'浏览器探测失败: {exc}') from exc
+    finally:
+        # Only close tabs we opened; never close user's existing Chrome tabs
+        if opened_tab and not opened_tab._closed:
+            try:
+                opened_tab.close()
+            except Exception:
+                pass
     result = {
         'ready': bool(probe.get('ready')),
         'timed_out': bool(probe.get('timed_out')),
