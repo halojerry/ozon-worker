@@ -14,15 +14,64 @@ OZON_SELLER_BASE = "https://api-seller.ozon.ru"
 
 
 def _seller_post(client_id: str, api_key: str, path: str, body: dict, timeout: int = 30) -> dict:
-    """POST to Ozon Seller API."""
+    """POST to Ozon Seller API.
+
+    Returns parsed JSON response, or empty dict on failure.
+    """
     headers = {
         "Client-Id": client_id,
         "Api-Key": api_key,
         "Content-Type": "application/json",
     }
-    resp = requests.post(f"{OZON_SELLER_BASE}{path}", json=body, headers=headers, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+    try:
+        resp = requests.post(f"{OZON_SELLER_BASE}{path}", json=body, headers=headers, timeout=timeout)
+        if resp.status_code in (401, 403):
+            logger.warning("Seller API auth failed: %s %s -> %s", path, body.get("filter", ""), resp.status_code)
+            return {}
+        if resp.status_code == 429:
+            logger.warning("Seller API rate limited: %s", path)
+            return {}
+        resp.raise_for_status()
+        return resp.json()
+    except requests.exceptions.ConnectionError:
+        logger.warning("Seller API unreachable: %s", path)
+        return {}
+    except requests.exceptions.HTTPError as e:
+        logger.warning("Seller API HTTP error: %s -> %s", path, e)
+        return {}
+    except Exception as e:
+        logger.warning("Seller API unexpected error: %s -> %s", path, e)
+        return {}
+
+
+def _seller_post_with_retry(client_id: str, api_key: str, path: str, body: dict, timeout: int = 30, retries: int = 2) -> dict:
+    """POST to Ozon Seller API with automatic retry on transient failures.
+
+    Retries on 429 (rate limit) and connection errors with exponential backoff.
+    Returns parsed JSON response, or empty dict on persistent failure.
+    """
+    for attempt in range(retries + 1):
+        try:
+            result = _seller_post(client_id, api_key, path, body, timeout)
+            # If _seller_post returned empty dict due to 429, retry
+            if not result and attempt < retries:
+                # Check if it was a rate limit (logged by _seller_post)
+                time.sleep(2 ** attempt)
+                continue
+            return result
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429 and attempt < retries:
+                logger.warning("Seller API rate limited (attempt %d/%d), retrying...", attempt + 1, retries)
+                time.sleep(2 ** attempt)
+                continue
+            raise
+        except requests.exceptions.ConnectionError:
+            if attempt < retries:
+                logger.warning("Seller API connection failed (attempt %d/%d), retrying...", attempt + 1, retries)
+                time.sleep(1)
+                continue
+            raise
+    return {}
 
 
 def fetch_product_commissions(client_id: str, api_key: str, product_ids: list[str]) -> dict[str, dict]:
@@ -244,6 +293,35 @@ def fetch_analytics_via_premium_spoof(cdp_url: str, product_ids: list[str]) -> d
         try:
             parsed = json.loads(data) if data else {}
             logger.info("Analytics page data keys: %s", list(parsed.keys())[:10])
+
+            # Extract analytics data for each product
+            for pid in product_ids:
+                product_data = parsed.get(pid, parsed.get(str(pid), {}))
+                if product_data:
+                    result[pid] = {
+                        "monthly_sales": int(product_data.get("monthly_sales", 0) or 0),
+                        "monthly_revenue": float(product_data.get("monthly_revenue", 0) or 0),
+                        "daily_sales": float(product_data.get("daily_sales", 0) or 0),
+                        "conversion_rate": float(product_data.get("conversion_rate", 0) or 0),
+                        "search_views": int(product_data.get("search_views", 0) or 0),
+                        "product_views": int(product_data.get("product_views", 0) or 0),
+                    }
+                else:
+                    # Try to extract from table rows if structured data not available
+                    result[pid] = {
+                        "monthly_sales": 0,
+                        "monthly_revenue": 0.0,
+                        "daily_sales": 0.0,
+                        "conversion_rate": 0.0,
+                        "search_views": 0,
+                        "product_views": 0,
+                    }
+
+            # If no per-product data found, store raw parsed data for debugging
+            if not result and parsed:
+                logger.info("Raw analytics data available but no per-product mapping found")
+                result["_raw"] = parsed
+
         except json.JSONDecodeError:
             logger.warning("Could not parse analytics page data")
 

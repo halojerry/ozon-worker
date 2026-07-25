@@ -1,9 +1,9 @@
 ---
 name: pounding-ozon-probe
-version: 0.3.0
+version: 0.4.0
 description: >
-  Ozon 上架工具：1688 选品、Ozon 跟卖、以图搜款、批量上架。
-  当用户要上架商品到 Ozon、从 1688 选品、跟卖竞品、跨境电商铺货时触发。
+  Ozon 上架工具：1688 选品、Ozon 跟卖、以图搜款、批量上架、Ozon 自动选品。
+  当用户要上架商品到 Ozon、从 1688 选品、跟卖竞品、跨境电商铺货、Ozon 蓝海选品时触发。
 ---
 
 # pounding-ozon-probe
@@ -71,6 +71,31 @@ python3.12 scripts/cli.py check
 ```
 
 全部 ✅ 后方可执行上架操作。
+
+## 功能一览
+
+| 功能 | 命令 | 说明 |
+|------|------|------|
+| 1688 选品上架 | `graph` | 1688 商品页 → 组装信封 → Worker 上架 |
+| Ozon 跟卖 | `follow` | Ozon 竞品 → 图搜 1688 → Worker 跟卖 |
+| 以图搜款 | `image_search` | CDP 网页图搜，支持 URL / 本地图片 |
+| Ozon 选品 | `discover` | Ozon 中国站/搜索/类目页自动选品，蓝海评分，1688匹配，利润计算 |
+| 环境检查 | `check` | 检测 Chrome、CDP、登录态、凭证、Worker 连通性 |
+| 批量处理 | `batch_test` | URL 列表批量识别 1688/Ozon 并处理 |
+
+## Skill 能力矩阵
+
+| 能力 | 说明 | 依赖 |
+|------|------|------|
+| CDP 浏览器抓取 | 通过本地 Chrome CDP 抓取 1688 / Ozon 页面 | Chrome 浏览器 |
+| 1688 AK API | 结构化搜索 1688 商品（标题、价格、供应商、图片） | 1688 AK |
+| 1688 图搜 | 以图搜款，从 Ozon / 本地图片反查 1688 同款 | 1688 AK + CDP |
+| Ozon Widget API (CDP) | 获取标题、价格、图片、跟卖人数（无需凭证） | Chrome CDP |
+| Ozon Seller API | 获取佣金率、重量、尺寸、品牌、类目 | `--client-id` / `--api-key` |
+| Ozon Premium Analytics | 获取月销量、转化率（CDP 欺骗方式） | 需登录 seller.ozon.ru |
+| 蓝海评分 | 综合评分 0-100，衡量产品竞争力 | discover 命令内置 |
+| 1688 匹配 + 利润计算 | 自动匹配 1688 采购价，计算利润率 | 1688 AK |
+| Worker 提交 | 将信封提交云端 Worker 执行上架全流程 | MXOU_TOKEN |
 
 ## 环境要求
 
@@ -141,6 +166,71 @@ python3.12 scripts/cli.py follow \
 | `--store` | Ozon 店铺名称（可选） |
 | `--auto-submit` | 自动提交到 Worker |
 
+### discover — Ozon 自动选品
+
+从 Ozon 中国站、搜索结果、类目页等自动发现蓝海产品。
+
+```bash
+# 中国站选品（默认，50 个产品）
+python3.12 scripts/cli.py discover
+
+# 关键词搜索选品
+python3.12 scripts/cli.py discover --keyword "宠物用品" --max-products 100
+
+# 任意 Ozon 页面选品
+python3.12 scripts/cli.py discover --url "https://www.ozon.ru/category/..." --max-products 200
+
+# 带 Seller API 凭证（获取佣金率+重量/尺寸）
+python3.12 scripts/cli.py discover --keyword "..." --client-id 5371047 --api-key xxx
+
+# 导出 CSV/JSON
+python3.12 scripts/cli.py discover --keyword "..." --export csv --output results.csv
+python3.12 scripts/cli.py discover --keyword "..." --export both --output results
+
+# 用户确认后自动提交到 Worker
+python3.12 scripts/cli.py discover --keyword "..." --auto-submit
+```
+
+**参数说明：**
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--url` | Ozon 页面 URL（搜索/类目/品牌/促销页） | 中国站 highlight |
+| `--keyword` | 搜索关键词（自动构造搜索 URL） | — |
+| `--max-products` | 最多分析产品数 | 50 |
+| `--min-margin` | 最低利润率% | 15 |
+| `--max-sellers` | 最大跟卖人数 | 10 |
+| `--fx-rate` | RUB→CNY 汇率 | 0.075 |
+| `--client-id` | Ozon Client ID（获取佣金+重量） | — |
+| `--api-key` | Ozon API Key | — |
+| `--export` | 导出格式：csv/json/both | — |
+| `--output` | 导出文件路径 | auto |
+| `--auto-submit` | 用户确认后自动提交到 Worker | false |
+
+**蓝海评分算法（0-100分）：**
+
+| 因子 | 权重 | 评分标准 |
+|------|------|----------|
+| 跟卖人数 | 30% | <5=100, <10=90, <50=60, <200=30, >200=10 |
+| 利润率 | 30% | >40%=100, >30%=85, >20%=70, >10%=40, <10%=15 |
+| 月销量 | 20% | 1-50=80(蓝海), 50-200=60, 200-1000=40, >1000=20 |
+| 价格区间 | 10% | 500-5000₽=100, 100-500₽=70 |
+| 佣金率 | 10% | <10%=100, <15%=70, <20%=40 |
+
+**数据来源：**
+
+| 数据 | 来源 | 需要凭证？ |
+|------|------|-----------|
+| 标题/价格/图片/跟卖人数 | Ozon Widget API（CDP） | 否 |
+| 佣金率/重量/尺寸/品牌/类目 | Ozon Seller API | 是（--client-id/--api-key） |
+| 月销量/转化率 | Ozon Premium Analytics（CDP 欺骗） | 是（需登录 seller.ozon.ru） |
+| 1688 采购价/供应商 | 1688 AK API + CDP 图搜 | 是（1688 AK） |
+
+**输出格式：**
+
+CSV 导出包含 18 列：
+`product_id, title, price_rub, category, brand, commission_fbp, commission_rfbs, monthly_sales, monthly_revenue, competing_sellers, min_competitor_price, weight_g, dimensions, match_1688_url, match_1688_price, profit_margin, blue_ocean_score, verdict`
+
 ### image_search — 以图搜款
 
 ```bash
@@ -189,6 +279,22 @@ URL 文件自动识别 1688 / Ozon，混合输入即可。
 ```
 Ozon URL → CDP 抓取 → 图搜 1688 → 组装信封 → 云端 Worker 跟卖管线
 ```
+
+### 管线 C：Ozon 自动选品（discover）
+
+```
+Ozon 页面 → CDP 抓取产品列表 → 蓝海评分 → 1688 匹配+利润计算 → 用户确认 → Worker 提交
+```
+
+### 数据采集架构说明
+
+完整的数据管线同时使用 **1688 AK API** 和 **Chrome CDP** 两种方式，而非仅依赖 CDP：
+
+- **1688 AK API**：提供结构化商品数据（标题、价格、供应商、SKU、图片 URL），速度快、数据规范，是搜索和批量查询的主力通道。
+- **Chrome CDP**：用于浏览器端操作——图搜（以图搜款）、登录态维持、Ozon DataDome 绕过、页面动态内容抓取。CDP 是 AK API 无法覆盖的场景的补充通道。
+- **Ozon Seller API**：通过 REST 接口获取佣金率、重量、尺寸等结构化数据，需要 `--client-id` / `--api-key` 凭证。
+
+三条通道互补：AK API 负责 1688 侧结构化数据，Seller API 负责 Ozon 侧结构化数据，CDP 负责浏览器端交互和非结构化页面抓取。
 
 信封结构参考：`envelope_example.json`
 字段映射参考：`field_mapping.md`
