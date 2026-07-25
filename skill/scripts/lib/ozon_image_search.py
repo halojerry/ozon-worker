@@ -12,49 +12,23 @@ import time
 from typing import Any
 
 import requests
-import websocket
 
 logger = logging.getLogger(__name__)
 
 IMAGE_SEARCH_URL = "https://air.1688.com/kapp/1688-search/pc-image-search/"
 
 
-def _eval(ws, msg_id: int, expression: str) -> str:
-    """Runtime.evaluate 并返回结果值。"""
-    ws.send(json.dumps({
-        "id": msg_id,
-        "method": "Runtime.evaluate",
-        "params": {"expression": expression, "returnByValue": True}
-    }))
-    ws.settimeout(5)
-    for _ in range(6):
-        try:
-            m = json.loads(ws.recv())
-            if m.get("id") == msg_id:
-                return m.get("result", {}).get("result", {}).get("value", "")
-        except Exception:
-            continue
-    return ""
+def _get_badge_score(badge: str) -> int:
+    """从 '符合2/3个条件' 提取分子作为分数。"""
+    m = re.search(r"符合(\d+)/(\d+)个条件", badge)
+    if m:
+        return int(m.group(1))
+    return 0
 
 
-def _wait_page_load(ws, timeout: int = 10) -> bool:
-    """等待页面加载完成（兼容新旧 Chrome 事件）。"""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            ws.settimeout(1)
-            m = json.loads(ws.recv())
-            if m.get("method") in ("Page.loadEventFired", "Page.domContentEventFired", "Page.frameStoppedLoading"):
-                time.sleep(1)
-                return True
-        except Exception:
-            continue
-    return False
-
-
-def _extract_results(ws, page_size: int = 5) -> list[dict[str, Any]]:
-    """从结果标签页提取商品列表。"""
-    result_str = _eval(ws, 20, f'''
+def _extract_results_from_tab(tab, page_size: int = 5) -> list[dict[str, Any]]:
+    """从结果标签页提取商品列表（使用 CdpTab.evaluate）。"""
+    result_str = tab.evaluate(f'''
         const cards = document.querySelectorAll(".cardui-normal");
         const results = [];
         for (let i = 0; i < Math.min(cards.length, {page_size}); i++) {{
@@ -65,7 +39,6 @@ def _extract_results(ws, page_size: int = 5) -> list[dict[str, Any]]:
             let badge = "";
             let supplier = "";
             let sold = "";
-            // 非产品关键词
             const skipWords = ["运费","件","起批","揽收","代发","晚揽","必赔","铺货","月代",
                 "分销商","评分","回购","店铺","卖家","客服","发货","退货","包邮",
                 "H揽","K揽","内天月","¥","价格","库存","现货","秒杀","优惠",
@@ -97,10 +70,8 @@ def _extract_results(ws, page_size: int = 5) -> list[dict[str, Any]]:
             let detailUrl = "";
             for (const a of links) {{
                 const href = a.href || "";
-                // 格式1: /offer/123456.html
                 const m1 = href.match(/offer\\/(\\d+)/);
                 if (m1) {{ offerId = m1[1]; detailUrl = href; break; }}
-                // 格式2: offerId=123456 (查询参数)
                 const m2 = href.match(/offerId=(\\d+)/);
                 if (m2) {{ offerId = m2[1]; break; }}
             }}
@@ -108,29 +79,16 @@ def _extract_results(ws, page_size: int = 5) -> list[dict[str, Any]]:
             if (title) results.push({{id: offerId, title, price, badge, sold, supplier, image: img, detail_url: detailUrl}});
         }}
         JSON.stringify(results);
-    ''')
+    ''', timeout=15)
     try:
         return json.loads(result_str) if result_str else []
     except (json.JSONDecodeError, TypeError):
         return []
 
 
-def _get_badge_score(badge: str) -> int:
-    """从 '符合2/3个条件' 提取分子作为分数。"""
-    m = re.search(r"符合(\d+)/(\d+)个条件", badge)
-    if m:
-        return int(m.group(1))
-    return 0
-
-
-def _click_crop_regions(ws, wait_seconds: int = 8) -> list[dict[str, Any]]:
-    """点击所有 YOLO crop regions，返回每个区域的最佳结果。
-
-    1688 用 YOLO 检测图片中的多个主体，用户可以框选主体来精确搜索。
-    CDP 鼠标点击可以触发重新搜索（虽然 UI 状态不会更新）。
-    """
-    # 读取 crop regions
-    regions_str = _eval(ws, 30, '''
+def _click_crop_regions_on_tab(tab, wait_seconds: int = 8) -> list[dict[str, Any]]:
+    """点击所有 YOLO crop regions，返回每个区域的最佳结果。"""
+    regions_str = tab.evaluate('''
         const regions = document.querySelectorAll("[data-tracker=yoloCrop]");
         const info = [];
         regions.forEach((r, i) => {
@@ -145,7 +103,7 @@ def _click_crop_regions(ws, wait_seconds: int = 8) -> list[dict[str, Any]]:
             });
         });
         JSON.stringify(info);
-    ''')
+    ''', timeout=10)
 
     try:
         regions = json.loads(regions_str) if regions_str else []
@@ -156,32 +114,26 @@ def _click_crop_regions(ws, wait_seconds: int = 8) -> list[dict[str, Any]]:
         return []
 
     all_results = []
-
     for region in regions:
         idx = region["i"]
         x, y = region["x"], region["y"]
-
         if x == 0 and y == 0:
             continue
 
         # CDP 鼠标点击 crop region
-        ws.send(json.dumps({"id": 40 + idx, "method": "Input.dispatchMouseEvent", "params": {
-            "type": "mouseMoved", "x": x, "y": y
-        }}))
-        time.sleep(0.1)
-        ws.send(json.dumps({"id": 41 + idx, "method": "Input.dispatchMouseEvent", "params": {
-            "type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1
-        }}))
-        time.sleep(0.05)
-        ws.send(json.dumps({"id": 42 + idx, "method": "Input.dispatchMouseEvent", "params": {
-            "type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1
-        }}))
+        try:
+            tab._send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
+            time.sleep(0.1)
+            tab._send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1})
+            time.sleep(0.05)
+            tab._send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1})
+        except ConnectionError:
+            logger.warning("CDP died clicking crop region %d", idx)
+            break
 
-        # 等待结果更新
         time.sleep(wait_seconds)
 
-        # 提取结果
-        results = _extract_results(ws, page_size=3)
+        results = _extract_results_from_tab(tab, page_size=3)
         if results:
             best = results[0]
             best["region_index"] = idx
@@ -201,11 +153,7 @@ def search_by_image_cdp(
 ) -> list[dict[str, Any]]:
     """通过 CDP 操作1688以图搜款网页，返回匹配商品列表。
 
-    流程：
-    1. 打开图搜页面，输入图片URL
-    2. 点击图搜按钮，等待结果
-    3. 如果有多个 YOLO crop regions，逐个点击并选择最佳结果
-    4. 返回匹配商品列表
+    使用 CdpTab 类（而非原始 WebSocket）确保 CDP 通信稳定性。
 
     Args:
         image_url: 图片 URL
@@ -218,61 +166,70 @@ def search_by_image_cdp(
         [{"id": "offer_id", "title": "...", "price": float, "badge": "..."}, ...]
     """
     from scripts.lib.config_store import _require_auth
+    from scripts.lib.cdp_client import CdpConnection
+
     _require_auth()
-    # 1. 打开新标签页
+
+    conn = None
+    search_tab = None
+    result_tab = None
     try:
-        resp = requests.put(f"{cdp_url}/json/new?", timeout=5)
-        resp.raise_for_status()
-        tab = resp.json()
-        tab_id = tab.get('id', '')
-        ws_url = tab.get("webSocketDebuggerUrl", "")
-    except Exception as e:
-        logger.error("Failed to open new tab: %s", e)
-        return []
+        conn = CdpConnection(cdp_url)
 
-    if not ws_url:
-        return []
-
-    ws = None
-    try:
-        ws = websocket.create_connection(ws_url, timeout=15)
-        ws.send(json.dumps({"id": 1, "method": "Page.enable", "params": {}}))
-
-        # 2. 导航到图搜页面
-        ws.send(json.dumps({"id": 2, "method": "Page.navigate", "params": {"url": IMAGE_SEARCH_URL}}))
-        if not _wait_page_load(ws):
-            logger.warning("Page load timeout")
-            return []
-
-        # 3. 聚焦搜索框 + 清空
-        _eval(ws, 10, 'document.querySelector("#alisearch-input").focus(); document.querySelector("#alisearch-input").select(); document.querySelector("#alisearch-input").value=""')
-
-        # 4. 输入图片URL（用execCommand触发正确的事件，JSON-escape 防注入）
-        safe_url = json.dumps(image_url)
-        _eval(ws, 11, f'document.execCommand("insertText", false, {safe_url})')
-
-        # 5. 等待预览加载
-        time.sleep(3)
-
-        # 6. 点击图搜按钮
-        _eval(ws, 12, 'document.querySelector(".input-button").click()')
-
-        # 7. 等待点击生效，再关闭WebSocket
+        # 1. 打开图搜页面
+        search_tab = conn.new_tab()
+        search_tab.navigate(IMAGE_SEARCH_URL, timeout=20)
         time.sleep(2)
-        ws.close()
-        ws = None
 
-        # 8. 等待新标签页出现（带imageId）
+        # 2. 输入图片 URL
+        safe_url = json.dumps(image_url)
+        search_tab.evaluate(
+            'document.querySelector("#alisearch-input").focus();'
+            'document.querySelector("#alisearch-input").select();'
+            'document.querySelector("#alisearch-input").value=""',
+            timeout=10,
+        )
+        time.sleep(0.3)
+        search_tab.evaluate(
+            f'document.execCommand("insertText", false, {safe_url})',
+            timeout=10,
+        )
+        time.sleep(3)  # 等预览加载
+
+        # 记录搜索前已有的标签页 ID（避免匹配旧的结果页）
+        existing_tab_ids = set()
+        try:
+            for t in requests.get(f"{cdp_url}/json", timeout=5).json():
+                existing_tab_ids.add(t.get("id", ""))
+        except Exception:
+            pass
+
+        # 3. 点击图搜按钮
+        search_tab.evaluate(
+            'document.querySelector(".input-button").click()',
+            timeout=10,
+        )
+        time.sleep(2)
+
+        # 4. 关闭搜索标签页，等结果标签页出现（只匹配新标签页）
+        search_tab.close()
+        search_tab = None
+
         result_ws_url = None
-        for _ in range(15):
+        result_tab_id = None
+        for _ in range(20):
             time.sleep(1)
-            tabs_resp = requests.get(f"{cdp_url}/json", timeout=5)
-            tabs = tabs_resp.json()
-            for t in reversed(tabs):
-                url = t.get("url", "")
-                if "imageId" in url and "1688.com" in url:
-                    result_ws_url = t.get("webSocketDebuggerUrl", "")
-                    break
+            try:
+                tabs_resp = requests.get(f"{cdp_url}/json", timeout=5)
+                for t in reversed(tabs_resp.json()):
+                    url = t.get("url", "")
+                    tid = t.get("id", "")
+                    if "imageId" in url and "1688.com" in url and tid not in existing_tab_ids:
+                        result_ws_url = t.get("webSocketDebuggerUrl", "")
+                        result_tab_id = tid
+                        break
+            except Exception:
+                continue
             if result_ws_url:
                 break
 
@@ -280,57 +237,59 @@ def search_by_image_cdp(
             logger.warning("No result tab found with imageId")
             return []
 
-        # 9. 等待结果加载
+        # 5. 连接结果标签页
+        from scripts.lib.cdp_client import CdpTab
+        result_tab = CdpTab(cdp_url, result_tab_id, result_ws_url)
         time.sleep(wait_seconds)
 
-        # 10. 从结果标签页提取数据
-        ws = websocket.create_connection(result_ws_url, timeout=10)
-
-        # 滚动页面触发懒加载
-        _eval(ws, 15, 'window.scrollTo(0, document.body.scrollHeight)')
+        # 6. 滚动触发懒加载
+        result_tab.evaluate('window.scrollTo(0, document.body.scrollHeight)', timeout=10)
         time.sleep(2)
-        _eval(ws, 16, 'window.scrollTo(0, 0)')
+        result_tab.evaluate('window.scrollTo(0, 0)', timeout=10)
         time.sleep(1)
 
-        # 提取默认结果
-        results = _extract_results(ws, page_size)
+        # 7. 提取默认结果
+        results = _extract_results_from_tab(result_tab, page_size)
 
-        # 11. 如果有多个 crop regions，尝试点击每个区域获取更精准的结果
+        # 8. YOLO crop regions
         if try_crop_regions and results:
             default_badge = _get_badge_score(results[0].get("badge", ""))
             logger.info("Default result: %s (badge score=%d)", results[0].get("title", "")[:30], default_badge)
 
-            region_results = _click_crop_regions(ws, wait_seconds=max(5, wait_seconds - 3))
-
+            region_results = _click_crop_regions_on_tab(result_tab, wait_seconds=max(5, wait_seconds - 3))
             if region_results:
-                # 选择 badge 分数最高的结果
                 best_region = max(region_results, key=lambda r: _get_badge_score(r.get("badge", "")))
                 region_badge = _get_badge_score(best_region.get("badge", ""))
-
                 if region_badge > default_badge:
                     logger.info("Crop region %d better: %s (badge=%d vs %d)",
                                 best_region.get("region_index", -1),
                                 best_region.get("title", "")[:30],
                                 region_badge, default_badge)
-                    # 用区域结果替换默认结果的第一个
                     results[0] = best_region
 
         logger.info("CDP image search: %d results, best: %s", len(results),
                      results[0].get("title", "")[:30] if results else "none")
         return results
 
+    except ConnectionError as e:
+        logger.error("CDP connection died during image search: %s", e)
+        return []
     except Exception as e:
         logger.error("CDP image search failed: %s", e)
         return []
     finally:
-        if ws:
+        if search_tab:
             try:
-                ws.close()
+                search_tab.close()
             except Exception:
                 pass
-        # 关闭 CDP 标签页，防止泄漏
-        if tab_id:
+        if result_tab:
             try:
-                requests.get(f"{cdp_url}/json/close/{tab_id}", timeout=3)
+                result_tab.close()
+            except Exception:
+                pass
+        if conn:
+            try:
+                conn.close()
             except Exception:
                 pass
