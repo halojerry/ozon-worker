@@ -297,7 +297,8 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, 
         # Fallback: try direct HTTP (may fail due to geo/cookies)
         result = _fetch_product_info_http(product_id, result)
 
-    cache_set("ozon", product_id, result, ttl=3600)
+    if result.get("title") or result.get("price"):
+        cache_set("ozon", product_id, result, ttl=3600)
     return result
 
 
