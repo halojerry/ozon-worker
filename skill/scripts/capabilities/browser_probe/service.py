@@ -1906,12 +1906,30 @@ def _check_1688_login_live(cdp_url: str) -> bool:
             # Look for 1688/Taobao login cookie patterns
             has_cookie2 = 'cookie2=' in cookies and len(cookies.split('cookie2=')[1].split(';')[0].strip()) > 4
             has_cn_logon = '__cn_logon__=' in cookies
-            logged_in = has_cookie2 or has_cn_logon
-            if logged_in:
-                _logger.info("_check_1688_login_live: login detected (cookie2=%s, cn_logon=%s)", has_cookie2, has_cn_logon)
-            else:
+            if not (has_cookie2 or has_cn_logon):
                 _logger.debug("_check_1688_login_live: no login cookies found")
-            return logged_in
+                return False
+
+            # Cookie 存在但可能已过期 — 访问需要登录的页面验证
+            # 如果被重定向到 login.1688.com，说明 cookie 已失效
+            if created_temp and target_tab:
+                try:
+                    target_tab.navigate(
+                        "https://work.1688.com/home/welcome.htm",
+                        wait_until='domcontentloaded', timeout=10,
+                    )
+                    time.sleep(2)
+                    final_url = target_tab.evaluate("() => window.location.href") or ""
+                    if "login.1688.com" in final_url or "signin" in final_url:
+                        _logger.info("_check_1688_login_live: cookie expired (redirected to login)")
+                        return False
+                    _logger.info("_check_1688_login_live: login verified (cookie2=%s, cn_logon=%s)", has_cookie2, has_cn_logon)
+                except Exception:
+                    # 验证页面访问失败，保守认为 cookie 有效
+                    _logger.debug("_check_1688_login_live: verification navigation failed, assuming valid")
+            else:
+                _logger.info("_check_1688_login_live: login detected via cookies (cookie2=%s, cn_logon=%s)", has_cookie2, has_cn_logon)
+            return True
         except Exception as exc:
             _logger.debug("_check_1688_login_live: cookie check failed: %s", exc)
             return False
