@@ -12,6 +12,7 @@ from runtime.context import Context
 from graphs.state import OzonUploadInput, OzonUploadOutput
 from utils.progress_logger import ProgressLogger
 from utils.logger import get_logger, log_ozon_api_call
+from utils.ozon_client import ozon_check_quota
 
 logger = get_logger(__name__)
 
@@ -113,42 +114,23 @@ def ozon_upload_node(
     
     # 发送Ozon API上传请求
     try:
-        # ✅ 上传前检查配额
-        try:
-            import requests as req
-            limit_resp = req.post(
-                "https://api-seller.ozon.ru/v4/product/info/limit",
-                headers={"Client-Id": ozon_client_id, "Api-Key": ozon_api_key},
-                json={}, timeout=10
+        # ✅ 上传前检查配额（使用 ozon_client 统一封装）
+        quota = ozon_check_quota(
+            client_id=ozon_client_id,
+            api_key=ozon_api_key,
+        )
+        if not quota["ok"]:
+            return OzonUploadOutput(
+                product_id=None, upload_status="failed",
+                purchase_url=purchase_url, purchase_cost=purchase_cost,
+                sku_id=sku_id, profit_estimation=profit_estimation,
+                error_message=(
+                    f"配额不足: 日创建 {quota['daily_used']}/{quota['daily_limit']}"
+                    f", 总产品 {quota['total_used']}/{quota['total_limit']}"
+                )
             )
-            if limit_resp.status_code == 200:
-                ld = limit_resp.json().get("result", {})
-                daily = ld.get("daily_create", {})
-                total = ld.get("total", {})
-                daily_used = daily.get("usage", 0)
-                daily_limit = daily.get("limit", 100)
-                total_used = total.get("usage", 0)
-                total_limit = total.get("limit", 1000)
-                remaining = total_limit - total_used
-                logger.info(f"配额: 日{daily_used}/{daily_limit}, 总{total_used}/{total_limit}(剩{remaining})")
-                if remaining <= 5:
-                    logger.error(f"⚠️ 产品配额仅剩{remaining}个！建议归档旧产品释放空间")
-                if daily_used >= daily_limit:
-                    return OzonUploadOutput(
-                        product_id=None, upload_status="failed",
-                        purchase_url=purchase_url, purchase_cost=purchase_cost,
-                        sku_id=sku_id, profit_estimation=profit_estimation,
-                        error_message=f"日上传额度已用完({daily_used}/{daily_limit})"
-                    )
-                if total_used >= total_limit:
-                    return OzonUploadOutput(
-                        product_id=None, upload_status="failed",
-                        purchase_url=purchase_url, purchase_cost=purchase_cost,
-                        sku_id=sku_id, profit_estimation=profit_estimation,
-                        error_message=f"产品总数已达上限({total_used}/{total_limit})，请归档旧产品"
-                    )
-        except Exception as _le:
-            logger.warning(f"配额查询失败，继续上传: {_le}")
+        if quota["remaining_total"] <= 5:
+            logger.warning("⚠️ 产品配额仅剩 %d 个！建议归档旧产品释放空间", quota["remaining_total"])
         
         url = "https://api-seller.ozon.ru/v3/product/import"
         headers = {

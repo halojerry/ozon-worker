@@ -96,6 +96,87 @@ def ozon_post(
         raise
 
 
+def ozon_check_quota(
+    client_id: str,
+    api_key: str,
+    timeout: int = 10,
+) -> dict[str, Any]:
+    """查询 Ozon 店铺每日创建配额和总产品上限。
+
+    调用 /v4/product/info/limit 获取配额信息。
+
+    Args:
+        client_id: Ozon 卖家 Client-Id
+        api_key: Ozon 卖家 Api-Key
+        timeout: 超时秒数（默认 10s，配额查询应快速返回）
+
+    Returns:
+        {
+            "ok": bool,               # 是否有可用配额
+            "daily_used": int,        # 今日已用创建数
+            "daily_limit": int,       # 每日创建上限
+            "total_used": int,        # 当前总产品数
+            "total_limit": int,       # 总产品上限
+            "daily_update_used": int, # 今日已用更新数
+            "daily_update_limit": int,# 每日更新上限
+            "remaining_daily": int,   # 每日剩余可创建数
+            "remaining_total": int,   # 总剩余可创建数
+            "error": str | None,      # 错误信息（如果有）
+        }
+    """
+    result = {
+        "ok": True,
+        "daily_used": 0,
+        "daily_limit": 100,
+        "total_used": 0,
+        "total_limit": 1000,
+        "daily_update_used": 0,
+        "daily_update_limit": 2000,
+        "remaining_daily": 100,
+        "remaining_total": 1000,
+        "error": None,
+    }
+
+    try:
+        resp = ozon_post(
+            client_id=client_id,
+            api_key=api_key,
+            endpoint="/v4/product/info/limit",
+            body={},
+            timeout=timeout,
+        )
+        data = resp.get("result", {})
+        daily = data.get("daily_create", {})
+        total = data.get("total", {})
+        daily_update = data.get("daily_update", {})
+
+        daily_used = daily.get("usage", 0)
+        daily_limit = daily.get("limit", 100)
+        total_used = total.get("usage", 0)
+        total_limit = total.get("limit", 1000)
+        du_used = daily_update.get("usage", 0)
+        du_limit = daily_update.get("limit", 2000)
+
+        result.update({
+            "daily_used": daily_used,
+            "daily_limit": daily_limit,
+            "total_used": total_used,
+            "total_limit": total_limit,
+            "daily_update_used": du_used,
+            "daily_update_limit": du_limit,
+            "remaining_daily": max(0, daily_limit - daily_used),
+            "remaining_total": max(0, total_limit - total_used),
+            "ok": (daily_used < daily_limit and total_used < total_limit),
+        })
+
+    except Exception as e:
+        logger.warning("配额查询失败（将允许继续上传）: %s", str(e))
+        result["error"] = str(e)[:200]
+        result["ok"] = True  # 查询失败不阻塞上传
+
+    return result
+
+
 def _summarize_request(endpoint: str, body: dict) -> dict:
     """提取请求关键字段（避免日志过大）。"""
     summary: dict[str, Any] = {}
