@@ -44,12 +44,23 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
     }
 
     # Step 1: import-by-sku
+    # ✅ 使用 envelope 中的 purchase_cost 计算合理价格，而非硬编码 10/12
+    purchase_cost = float(draft.get("purchase_cost", 0) or 0)
+    margin_rate = float((envelope.get("extensions", {}) or {}).get("margin_rate", 0.25))
+    if purchase_cost > 0:
+        # CNY 店铺定价公式: 售价 = 成本 * (1+利润率) / (1-佣金率)
+        commission_rate = float((envelope.get("extensions", {}) or {}).get("commission_rate", 0.10))
+        price_val = max(10, int(purchase_cost * (1 + margin_rate) / (1 - commission_rate)))
+        old_price_val = price_val + max(3, int(price_val * 0.2))
+    else:
+        price_val, old_price_val = 100, 120  # 无成本信息时的兜底
+    
     import_body: Dict[str, Any] = {
         "items": [{
             "sku": int(ozon_product_id),
             "offer_id": offer_id,
-            "price": "10",
-            "old_price": "12",
+            "price": str(price_val),
+            "old_price": str(old_price_val),
             "vat": "0",
         }]
     }
@@ -150,9 +161,12 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
                 item = items[0]
                 state.description_category_id = str(item.get("description_category_id", ""))
                 state.type_id = str(item.get("type_id", ""))
+                competitor_name = item.get("name", "")
+                if competitor_name:
+                    state.competitor_name = competitor_name  # 竞品俄语标题，供下游 SEO 使用
                 logger.info(
                     f"✅ 跟卖类目: description_category_id={state.description_category_id}, "
-                    f"type_id={state.type_id}"
+                    f"type_id={state.type_id}, 竞品标题={competitor_name[:60] if competitor_name else 'N/A'}"
                 )
             else:
                 logger.warning(f"⚠️ 未找到 offer_id={offer_id} 的产品信息")
@@ -178,9 +192,12 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
                     item = fallback_items[0]
                     state.description_category_id = str(item.get("description_category_id", ""))
                     state.type_id = str(item.get("type_id", ""))
+                    competitor_name = item.get("name", "")
+                    if competitor_name:
+                        state.competitor_name = competitor_name
                     logger.info(
                         f"✅ 回退类目(by product_id): description_category_id={state.description_category_id}, "
-                        f"type_id={state.type_id}"
+                        f"type_id={state.type_id}, 竞品标题={competitor_name[:60] if competitor_name else 'N/A'}"
                     )
                 else:
                     logger.warning(f"⚠️ product_id={state.product_id} 查询无结果")
@@ -188,6 +205,32 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
                 logger.warning(f"⚠️ 回退查询返回 HTTP {fallback_resp.status_code}")
         except Exception as e:
             logger.warning(f"⚠️ 回退查询异常: {e}")
+
+    # ✅ Step 4: 属性硬化 — 强制品牌=Нет бренда, 国家=Китай
+    # import-by-sku 复制竞品卡时可能带入真实品牌，需要覆盖为无品牌避免侵权
+    if state.product_id and state.description_category_id:
+        try:
+            logger.info(f"🔧 跟卖属性硬化: product_id={state.product_id}")
+            attr_resp = req.post(
+                "https://api-seller.ozon.ru/v1/product/attributes/update",
+                headers=headers,
+                json={"items": [{
+                    "offer_id": offer_id,
+                    "product_id": int(state.product_id),
+                    "attributes": [
+                        {"id": 85, "values": [{"dictionary_value_id": 126745801, "value": "Нет бренда"}]},
+                        {"id": 5076, "values": [{"dictionary_value_id": 126745801, "value": "Нет бренда"}]},
+                        {"id": 4389, "values": [{"dictionary_value_id": 90296, "value": "Китай"}]},
+                    ]
+                }]},
+                timeout=15,
+            )
+            if attr_resp.status_code == 200:
+                logger.info(f"✅ 跟卖属性硬化成功 (brand→Нет бренда, country→Китай)")
+            else:
+                logger.warning(f"⚠️ 属性硬化返回 {attr_resp.status_code}: {attr_resp.text[:100]}")
+        except Exception as _ae:
+            logger.warning(f"⚠️ 属性硬化异常: {_ae}")
 
     # 确保 offer_id 传递到下游
     if not state.description_category_id:

@@ -57,6 +57,9 @@ class GlobalState(BaseModel):
     task_id: str = Field(default="", description="任务ID")
     status: str = Field(default="", description="任务状态")
     
+    # 跟卖竞品信息（follow_sell_import_node 提取，供下游使用）
+    competitor_name: str = Field(default="", description="跟卖竞品的俄语标题")
+    
     # 类目信息
     category: Optional[Dict[str, Any]] = Field(default=None, description="类目信息")
     description_category_id: str = Field(default="", description="描述类目ID")
@@ -720,6 +723,7 @@ class ValidationRetryWrapperInput(BaseModel):
     # 条件分支路径函数需要访问的字段
     upload_status: str = Field(default="", description="上传状态（success/failed）")
     is_valid: bool = Field(default=True, description="修复后是否有效")
+    product_id: Optional[str] = Field(default=None, description="Ozon商品ID（ozon_status已分配，用于靶向修复）")
 
 
 class ValidationRetryWrapperOutput(BaseModel):
