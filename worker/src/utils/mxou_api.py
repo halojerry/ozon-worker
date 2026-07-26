@@ -454,24 +454,48 @@ def _poll_mxou_task_fallback(task_id: str, max_wait: int = 90, token: str = "") 
 
 # 平台名/营销垃圾词（中英文），出现在生图标题中会污染 AI 生成结果
 _IMAGE_PROMPT_JUNK_WORDS = [
-    # 平台名
-    "1688", "alibaba", "aliexpress", "ali express",
-    "taobao", "淘宝", "tmall", "天猫",
+    # ═══ A: 平台/市场名（直接污染视觉风格）═══
+    "1688", "alibaba", "阿里巴巴",
+    "aliexpress", "ali express", "速卖通",
+    "taobao", "淘宝",
+    "tmall", "天猫",
     "amazon", "亚马逊",
     "shopee", "lazada",
     "tiktok", "抖音",
     "temu", "shein", "wish", "ebay", "etsy",
-    "jd", "京东", "拼多多", "pinduoduo",
-    "walmart", "ozon", "wildberries",
-    # 营销词
-    "跨境", "爆款", "现货", "热销", "新品", "促销", "同款",
-    "厂家直销", "一件代发", "批发", "代理", "货源",
-    "dropshipping", "cross-border", "wholesale", "OEM", "ODM",
+    "jd", "jingdong", "京东",
+    "拼多多", "pinduoduo",
+    "walmart",
+    "ozon", "озон", "wildberries",
+    # ═══ B: 跨境/代发黑话 ═══
+    "跨境", "跨境电商", "跨境爆款", "跨境现货", "跨境货源",
+    "一件代发", "代发", "货源",
+    "批发", "厂家直销", "直销", "工厂直供", "源头厂家",
+    "dropshipping", "dropship",
+    "cross border", "cross-border",
+    "现货", "现货批发", "现货供应",
+    # ═══ C: 营销吹嘘词 ═══
+    "爆款", "热卖", "热销", "畅销",
+    "新款", "新品", "同款",
+    "促销", "限量", "秒杀", "清仓", "特价", "包邮",
+    "好评", "五星", "推荐", "首选", "必备",
     "hot sale", "bestseller", "best seller", "new arrival",
+    "trending", "popular", "top rated",
+    "premium", "exclusive", "limited",
     "free shipping", "fast delivery", "in stock",
     "high quality", "factory price", "cheap",
-    # 通用垃圾
+    # ═══ D: 中文电商套话 ═══
+    "厂家", "供应商", "生产厂家",
+    "实力商家", "认证商家", "品牌授权",
+    "支持定制", "来样定制",
+    "OEM", "ODM",
+    "免费拿样", "免费样品",
+    "品质保证", "高质量", "优质", "高品质",
+    "创意", "实用", "多功能",
+    # ═══ E: 通用填充词 ═══
+    "产品", "商品", "物品",
     "supply", "manufacturer", "factory", "direct",
+    "wholesale", "agent", "distributor",
 ]
 
 import re as _re
