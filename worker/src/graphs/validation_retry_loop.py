@@ -101,6 +101,7 @@ class ValidationRetryLoopInput(BaseModel):
     description_category_id: str = Field(..., description="Ozon类目ID")
     type_id: str = Field(default="", description="Ozon类型ID")
     task_id: str = Field(default="", description="任务ID")
+    product_id: str = Field(default="", description="商品ID（ozon_status 已分配）")  # ← 关键！用于靶向修复
 
     purchase_url: str = Field(default="", description="采购链接")
     purchase_cost: str = Field(default="", description="采购成本")

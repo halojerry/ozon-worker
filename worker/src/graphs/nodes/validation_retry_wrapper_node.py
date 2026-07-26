@@ -42,6 +42,7 @@ def validation_retry_wrapper_node(
         description_category_id=state.description_category_id,
         type_id=state.type_id,
         task_id=state.task_id,
+        product_id=state.product_id or "",  # ← 关键！传入已有 product_id 以启用靶向修复
         purchase_url=state.purchase_url,
         purchase_cost=state.purchase_cost,
         sku_id=state.sku_id,
