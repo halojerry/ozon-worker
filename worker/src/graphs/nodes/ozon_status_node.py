@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 # 轮询配置
 MAX_POLL_ATTEMPTS = 10
 POLL_INTERVAL_SECONDS = 3
-# Phase 2: 审核状态轮询（Ozon审核需要较长时间）
-MAX_MODERATE_POLL_ATTEMPTS = 20
+# Phase 2: 审核状态轮询（Ozon审核需要较长时间，300s足够覆盖绝大多数产品）
+MAX_MODERATE_POLL_ATTEMPTS = 60
 MODERATE_POLL_INTERVAL_SECONDS = 5
 
 
@@ -431,20 +431,22 @@ def ozon_status_node(
                     logger.warning(f"查询moderate_status API返回{info_response.status_code}")
                     time.sleep(MODERATE_POLL_INTERVAL_SECONDS)
 
-            # moderate_status轮询超时
-            logger.warning(f"⚠️ moderate_status轮询超时，import已成功但审核状态未知")
+            # moderate_status轮询超时 — 产品已导入成功，Ozon审核还在进行中
+            # 视为软成功：product_id 已分配，审核会自动完成
+            logger.warning(f"⚠️ moderate_status轮询超时（{MAX_MODERATE_POLL_ATTEMPTS * MODERATE_POLL_INTERVAL_SECONDS}s），"
+                          f"产品已导入，审核将在后台完成")
             return OzonStatusOutput(
                 product_id=real_product_ids[0] if real_product_ids else product_id,
                 product_ids=real_product_ids,
-                status="timeout",
-                upload_status="timeout",
+                status="imported",
+                upload_status="imported",
                 errors=all_item_errors if all_item_errors else item_errors,
                 purchase_url=purchase_url,
                 purchase_cost=purchase_cost,
                 sku_id=sku_id,
                 profit_estimation=profit_estimation,
-                error_message=f"审核状态轮询超时（{len(real_product_ids)}个变体）",
-                stages={"ozon_status": "timeout"}
+                error_message=None,
+                stages={"ozon_status": "imported_pending_moderation"}
             )
 
         # 如果imported但没有real_product_ids

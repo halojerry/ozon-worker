@@ -97,7 +97,7 @@ def init_db():
 __all__ = [
     "get_db_url",
     "get_engine",
-    "get_sessionmaker",
     "get_session",
+    "get_sessionmaker",
     "init_db",
 ]

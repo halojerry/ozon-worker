@@ -29,6 +29,7 @@ dependencies = [
     "docx2python>=3.5,<4",
     "python-pptx>=1.0,<2",
     "pandas>=2.2,<3",
+    "openpyxl>=3.1,<4",                 # Excel 解析（物流费率导入）
     # ── NLP ──
     "jieba>=0.42.1",                     # 中文分词
     "chardet>=5.2,<6",                   # 编码检测

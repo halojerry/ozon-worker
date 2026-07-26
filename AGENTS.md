@@ -181,6 +181,10 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | worker | `cd worker && PYTHONPATH=src python3 -m pytest tests/ -v` |
 | worker | `bash scripts/local_run.sh -m flow -i '{...}'` 跑全流程 |
 | worker | `bash scripts/local_run.sh -m node -n <节点ID> -i '{...}'` 跑单节点 |
+| 本地Docker | `cd deploy && docker compose up -d --build`（启动 Worker + PG） |
+| 本地Docker | `docker compose exec worker python scripts/init_data.py --force`（初始化数据） |
+| 本地Docker | `curl http://localhost:8080/api/v1/health`（健康检查） |
+| 本地Skill | `WORKER_URL=http://localhost:8080 python3.12 scripts/cli.py check`（指向本地 Worker） |
 | CI | `bash scripts/ci.sh`（lint → test → docker build） |
 | 部署 | `bash deploy/deploy.sh`（一键部署，含自动初始化数据） |
 | 更新 | `bash deploy/update.sh`（git pull → rebuild → restart） |
@@ -283,7 +287,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
   - 采购成本 = 代表变体价格 + 1688 国内运费(`freightCny`)
   - 标题不加颜色/数量后缀
   - Worker 层零改动：`variants=[]` 走现有单产品路径
-- **俄语类目树 ID 映射**：`category_tree_nodes` 存中俄双语（`language=ZH_HANS` / `language=RU`），同一 `description_category_id`/`type_id` 跨语言一致。`assemble_ozon_product_node` 属性 schema + 字典值已切换到 `language=RU`，LLM 不再翻译属性值。
+- **类目树 ID 跨语言一致**：`category_tree_nodes` 存中俄双语（`language=ZH_HANS` / `language=RU`），同一 `description_category_id`/`type_id` 跨语言一致。类目匹配用 `ZH_HANS` 搜索（与 1688 中文类目名匹配），上传时 `dictionary_value_id` 跨语言通用。属性 schema 从 Ozon API 获取时也用 `ZH_HANS`（v0.5.0 起从 `RU` 改为 `ZH_HANS`），与 1688 产品属性名匹配。
 - **品牌默认无品牌**：所有产品强制默认为 `Нет бренда`（dictionary_value_id=126745801）。不管 1688 数据或 LLM 匹配到什么品牌，一律覆盖。品牌属性不存在时自动补充。代码位置：`assemble_ozon_product_node.py:1007-1022`。
 - **制造商用 supplier 填充**：attr=23487（Производитель）是自由文本属性（dictionary_id=0），不是字典属性。用 `draft.supplier`（1688供应商名）填充，不写空值。
 - **描述强制净化**：`_sanitize_description()` 在翻译后移除拉丁文、中文、URL、邮件、电话、营销词。代码位置：`prepare_ozon_upload_node.py`。
@@ -308,17 +312,19 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
   2. 属性值含中文 → 俄语类目树 ID 映射解决（`language=RU` 字典值直连）
   3. 图片含文字/URL/物流信息 → AI 模型局限性，标记为 warning 不阻断（已修复）
   4. 类目不匹配 → 已添加一致性检查 + 俄语标题重新匹配（已修复）
-- **LLM 翻译对专业术语失败率高**：3D 打印、儿童用品等词导致翻译三连失败，最终用错误类目名作兜底标题。已改为优先用 1688 属性关键词生成标题（已修复）。
-- **物流费率表为空导致价格虚高**：兜底费率 `weight * 0.15 CNY` 是实际费率的 3-4 倍。部署时必须确保 `import_logistics.py` 先于 worker 执行（已修复）。
+- **LLM 类目匹配已移除**：v0.5.0 起不再用 LLM 选类目，改为 pg_trgm 相似度排名 + jieba 分词末级类目 + 泛化词过滤。类目一致性检查保留但不再阻断上传（保留原 category ID 让 Ozon 验证）。
+- **物流费率表为空导致价格虚高**：兜底费率 `weight * 0.15 CNY` 是实际费率的 3-4 倍。部署时必须确保 `import_logistics.py` 先于 worker 执行（已修复，Dockerfile 加 openpyxl）。
+- **Chrome 重启后 probe 偶发失败**：Skill 的 `probe_1688_page` 在 Chrome 崩溃后自动重启时，内部的 `_resolve_browser_session` 二次调用可能导致 session 状态不一致。直接使用 `CdpTab` + `_single_pass_probe` 可绕过。受影响命令：`graph`/`follow`（偶发），不影响 Worker。
 - **属性ID细节**：
   - 9782（危险品等级）：字典属性，某些类目必填，不能跳过
   - 22508（品牌注册国）：自由文本属性，需硬编码为"Китай"
   - 23487（制造商）：自由文本属性，用 `draft.supplier` 填充
   - 23536（标记码）：Ozon 自动设置，必须跳过
-- **`validation_retry_loop` 三大缺陷**（已修复）：
-  1. `state.draft` 为空 → LLM 收不到产品上下文 → 回退到 `ozon_payload.items[0].name`
-  2. `recheck_status_node` 在 `imported` 即宣告成功 → 已改为额外轮询 `moderate_status`
-  3. `type_id=0` 导致 `/v3/product/import` 报错 → 模板含 `type_id` 字段
+- **`validation_retry_loop` 修复记录**（v0.5.0）：
+  1. `state.draft` 为空 → 已修复
+  2. `recheck_status_node` 额外轮询 `moderate_status` → 已实现
+  3. `type_id=0` → 多层防御修复（init_data None + search_nodes 过滤 + assemble 校验 + 一致性失败保留 ID）
+  4. `recheck_status_node` UUID 解析崩溃 → 已加 UUID 格式检测
 - **`init_data.py` `walk` 函数**：`description_category_id` 需从父节点继承，`disabled` 字段 NOT NULL 需填 `false`。中文树是 `{"result":[...]}` dict，俄语树是 `[...]` 直接 list，walk 调用需兼容两种格式。
 
 ## CDP 稳定性注意事项
@@ -362,7 +368,54 @@ Skill 已适配 Windows，但有以下注意事项：
 
 跨平台分发流程：在 macOS/Windows/Linux 各跑一次 `python3.12 compile.py`，合并 `_native/` 目录后打包。
 
-## 最近更新（v0.4.0+）
+## 最近更新（v0.5.0 — 本地集成测试修复）
+
+> 2026-07-25 本地全链路测试：Skill ↔ Docker Worker，两条管线各成功上架 1 个产品。
+
+### 阻断性 Bug 修复（11 个）
+
+| # | Bug | 文件 |
+|---|-----|------|
+| 1 | `EXTRACT_1688_JS` 裸箭头函数，CDP `Runtime.evaluate` 不执行 | `service.py`：`()=>{}` → `(()=>{})()` |
+| 2 | `parse_price` 无法解析多价格 `¥12.70 ¥22.00` | `utils.py`：`re.search` → `re.findall` 取第一个数 |
+| 3 | `ProgressCallback` 缺少 LangChain >=0.3 回调属性 | `task_processor.py`：加 `run_inline`/`ignore_chain` 等 7 个 |
+| 4 | `init_data.py` category 节点 `type_id=0` | `init_data.py`：`0` → `None`（与 runtime sync 一致） |
+| 5 | `search_nodes` fallback 不过滤 `type_id=NULL/0` | `ozon_category_query.py`：加 `type_id IS NOT NULL AND > 0` |
+| 6 | 属性缓存 list/dict 格式不兼容 | `assemble_ozon_product_node.py`：兼容两种格式 |
+| 7 | 类目一致性失败返回空 dict → `type_id` 归零 | `assemble_ozon_product_node.py`：保留原 ID |
+| 8 | Ozon API 属性 schema 用 `language=RU`，无法匹配 1688 中文 | `assemble_ozon_product_node.py`：改为 `ZH_HANS` |
+| 9 | 字典值缓存写入 `RU` 但查询默认 `ZH_HANS` | `assemble_ozon_product_node.py`：统一 `ZH_HANS` |
+| 10 | `recheck_status_node` 将系统 UUID 当 Ozon task_id 解析 | `validation_retry_loop.py`：UUID 格式检测 + 提前返回 |
+| 11 | LLM 类目匹配严重跑偏（喷水玩具→鞋类） | `assemble_ozon_product_node.py`：去掉 LLM，用 pg_trgm + jieba 直接匹配 |
+
+### 基础设施改进
+
+- **`pyproject.toml`**：加 `openpyxl` → 物流费率 142 条成功导入
+- **`_const.py`**：`CLOUD_API_BASE` 支持 `WORKER_URL` 环境变量覆盖（本地测试用 `http://localhost:8080`）
+- **`config_store`**：`margin_rate`/`commission_rate`/`fx_buffer` 持久化到 stores.json
+- **类目匹配改进**：pg_trgm 直接取最高相似度 + jieba 分词末级类目 + 泛化词黑名单（"运动"/"休闲"/"传统"等）
+
+### 本地测试基准
+
+| 管线 | Ozon 产品 ID | 状态 |
+|------|-------------|------|
+| 1688 直连（喷水玩具） | `5663394290` | ✅ |
+| Ozon 跟卖（泡沫喷壶） | `5663485462` | ✅ |
+
+### 稳定性测试
+
+| 测试 | 结果 |
+|------|------|
+| Worker 重启恢复 | ✅ PG 持久化 |
+| 无效信封 | ✅ 401 不崩溃 |
+| 超时 (5s) | ✅ 自动重试 2 次 |
+| 限流 10/min | ✅ 429 |
+| 并发 7 任务 | ✅ 全部入队 |
+| Chrome 崩溃恢复 | ✅ 自动重启 + 登录保持（graph 命令偶发 probe 失败，直接 CdpTab 操作正常） |
+
+---
+
+## 历史更新（v0.4.0）
 
 ### Skill 信封增强
 

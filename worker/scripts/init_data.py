@@ -107,7 +107,7 @@ def import_category_tree(engine, language="ZH_HANS", force=False, tree_file="cat
                 top_level = parent_path.split(" > ")[0] if parent_path else cat_name
                 nodes.append({
                     "description_category_id": desc_cat_id,
-                    "type_id": 0,
+                    "type_id": None,  # category 节点无 type_id（与 sync_category_tree_nodes 一致）
                     "node_name": cat_name,
                     "node_type": "category",
                     "full_path": full_path,

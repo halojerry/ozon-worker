@@ -871,10 +871,9 @@ def _validate_and_fix_product_data(
 
     # ── 软兜底：尺寸 ──
     if dimensions.get("length", 0) <= 0 and dimensions.get("width", 0) <= 0 and dimensions.get("height", 0) <= 0:
-        # 基于重量估算合理默认尺寸（假设密度 ~250 kg/m³，典型消费品）
+        # 基于重量估算合理默认尺寸（密度 ~800 kg/m³，混合材质消费品）
         # 体积 = weight / density, 假设长方体各边比例 2:1.5:1
-        # side = (volume * ratio)^(1/3)
-        density = 250.0  # kg/m³
+        density = 800.0  # kg/m³ (250 太低，Ozon 报 INCORRECT_DIMENSION)
         volume_m3 = (weight_g / 1000.0) / density  # m³
         volume_mm3 = volume_m3 * 1e9  # mm³
         # 长方体比例 2:1.5:1
@@ -2296,6 +2295,15 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             ozon_images = cdp_data.get("images", [])
             ozon_title = cdp_data.get("title", "")
             result["scrape_source"] = "cdp"
+            # ✅ 从 Ozon 页面提取类目 ID（面包屑链接中的数字 ID）
+            scraped_dc = cdp_data.get("description_category_id", "")
+            scraped_type = cdp_data.get("type_id", "") or scraped_dc
+            if scraped_dc:
+                result["ozon_category"] = {
+                    "description_category_id": str(scraped_dc),
+                    "type_id": str(scraped_type),
+                }
+                logger.info("✅ Ozon 类目从页面提取: dc=%s type=%s", scraped_dc, scraped_type)
             logger.info("✅ CDP 抓取 Ozon 成功: %d 张图, title=%s", len(ozon_images), ozon_title[:60])
     except Exception as e:
         logger.debug("CDP Ozon scraper unavailable: %s", e)
@@ -2354,9 +2362,10 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     # Step 4: 整理搜索结果
     matches = []
     if matches_raw:
-        matches = [{"id": p.get("product_id", p.get("itemId", "")), "title": p.get("title", "")[:80],
+        matches = [{"id": p.get("product_id") or p.get("itemId") or str(p.get("id", "")), 
+                    "title": p.get("title", "")[:80],
                     "price": p.get("price", ""), "image": p.get("image", "")} 
-                   for p in matches_raw if p.get("product_id") or p.get("itemId")]
+                   for p in matches_raw if (p.get("product_id") or p.get("itemId") or p.get("id"))]
         result["1688_matches"] = matches
 
     if matches:
@@ -2390,9 +2399,12 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                         if _pv > 0:
                             extensions[_pk] = _pv
                     envelope["envelope"]["extensions"] = extensions
-                    # 竞品图片
-                    if ozon_images:
-                        draft["images"] = ozon_images
+                    # 竞品图片 — 跟卖始终用 Ozon 竞品原图，绝不漏 1688 alicdn
+                    draft["images"] = ozon_images if ozon_images else []
+                    # ✅ Ozon 类目 ID（从竞品页面提取，Worker 跳过 1688 类目匹配）
+                    ozon_cat = result.get("ozon_category")
+                    if ozon_cat:
+                        draft["ozon_category"] = ozon_cat
                     # 凭证（顶层）
                     envelope["ozon_client_id"] = client_id
                     envelope["ozon_api_key"] = api_key

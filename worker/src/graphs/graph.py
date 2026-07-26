@@ -116,8 +116,20 @@ builder.add_conditional_edges(
     }
 )
 
-# 跟卖导入 → 定价（跳过 ingest + category match）
-builder.add_edge("follow_sell_import", "pricing")
+# 跟卖导入 → 条件路由：成功则跳过组装/生图/上传，直接结束
+def route_after_follow_sell_import(state):
+    """跟卖导入成功后，若已有 product_id（import-by-sku 复制竞品卡成功），
+    直接跳到 END，避免 AI 生图/重上传覆盖竞品卡。"""
+    if getattr(state, 'product_id', None) and getattr(state, 'description_category_id', None):
+        logger.info("跟卖导入成功(product_id=%s)，跳过组装/生图/上传", state.product_id)
+        return "END"
+    return "pricing"
+
+builder.add_conditional_edges(
+    "follow_sell_import",
+    route_after_follow_sell_import,
+    {"pricing": "pricing", "END": END}
+)
 # 1688 管线：ingest → 定价
 builder.add_edge("ingest", "pricing")
 

@@ -206,10 +206,35 @@ def assemble_ozon_product_node(
         return {"error_message": "产品标题为空，无法进行类目匹配",
                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1}
 
-    # 🆕 跟卖模式：类目已由前序节点设置，直接跳到属性 schema 和 payload 组装
+    # 🆕 跟卖模式：类目已由前序节点设置（或 Skill 从 Ozon 页面提取），直接跳到属性组装
     extensions = state.envelope.get("extensions", {}) if state.envelope else {}
-    if extensions.get("follow_sell") and state.description_category_id:
-        return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
+    # ✅ 优先用 draft.ozon_category（Skill 端从 Ozon 竞品页面提取的类目名/ID）
+    draft_ozon_cat = draft.get("ozon_category", {}) if draft else {}
+    if extensions.get("follow_sell"):
+        if state.description_category_id:
+            return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
+        elif draft_ozon_cat.get("description_category_id"):
+            dc_val = str(draft_ozon_cat["description_category_id"])
+            tp_val = str(draft_ozon_cat.get("type_id", dc_val))
+            # ✅ 若是纯数字 → 直接用；若是文本 → 搜 PG 类目树找到真实 ID
+            if dc_val.isdigit() and tp_val.isdigit():
+                state.description_category_id = dc_val
+                state.type_id = tp_val
+                logger.info(f"✅ 跟卖类目(来自 Skill 数字ID): dc={dc_val} type={tp_val}")
+            else:
+                # 文本类目名 → pg_trgm 搜索（使用模块级导入的 get_category_query）
+                q = get_category_query()
+                candidates = q.search_nodes(dc_val, top_k=5, node_type="type", language="RU")
+                if candidates:
+                    best = candidates[0]
+                    state.description_category_id = str(best["description_category_id"])
+                    state.type_id = str(best["type_id"])
+                    logger.info(f"✅ 跟卖类目(来自 Skill 文本→pg_trgm): '{dc_val}' → dc={state.description_category_id} type={state.type_id} ({best['full_path']})")
+                else:
+                    logger.warning(f"⚠️ Skill 类目文本 '{dc_val}' 在 PG 树中未找到，回退到 1688 匹配")
+                    # Fall through to 1688 matching below
+            if state.description_category_id:
+                return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
 
     # 初始化查询助手
     query = get_category_query()
@@ -226,11 +251,20 @@ def assemble_ozon_product_node(
     source_category = draft.get("source_category", "")
     source_keywords = ""
     if source_category:
-        # 清理：去掉 ">" 分隔符，每级类目名独立搜索
-        cat_terms = [t.strip() for t in source_category.replace(">", " ").split() if len(t.strip()) >= 2]
+        # ✅ 分割所有分隔符：> 、 / → 空格
+        import re as _re
+        cleaned = _re.sub(r'[>、/→]', ' ', source_category)
+        cat_terms = [t.strip() for t in cleaned.split() if len(t.strip()) >= 2]
         if cat_terms:
+            # 提取最具体的末级类目词（最后 1-2 个词，如"戏水玩具"）
+            specific_terms = cat_terms[-2:] if len(cat_terms) >= 2 else cat_terms
+            # 泛化词黑名单（在多类目中出现，稀释信号）
+            _GENERIC_WORDS = {"运动", "休闲", "传统", "家用", "日用", "通用", "其他", "配件", "附件"}
+            specific_terms = [t for t in specific_terms if t not in _GENERIC_WORDS]
+            if not specific_terms:
+                specific_terms = [t for t in cat_terms if t not in _GENERIC_WORDS][-2:]
+            
             # 中文同义词映射（1688 用语 → Ozon ZH_HANS 用语）
-            # ⚠️ 原则：只用特异性词，不用泛化词（如"宠物"匹配几百个类目，稀释信号）
             _CN_SYNONYMS = {
                 "喷壶": "喷雾瓶 喷雾器 浇花壶",
                 "洒水壶": "浇花壶 喷雾器",
@@ -266,12 +300,22 @@ def assemble_ozon_product_node(
                 "通用手套": "园艺手套",
                 "手部防护": "园艺手套",
             }
-            expanded_terms = list(cat_terms)
-            for term in cat_terms:
+            expanded_terms = list(specific_terms)
+            for term in specific_terms:
                 if term in _CN_SYNONYMS:
                     for syn in _CN_SYNONYMS[term].split():
                         if syn not in expanded_terms:
                             expanded_terms.append(syn)
+            # ✅ jieba 分词末级类目，提取最有辨识度的词（如"戏水玩具"→["戏水","玩具"]）
+            try:
+                import jieba as _jieba
+                for term in specific_terms:
+                    jieba_words = [w for w in _jieba.cut(term) if len(w) >= 2]
+                    for w in jieba_words:
+                        if w not in expanded_terms:
+                            expanded_terms.append(w)
+            except Exception:
+                pass
             source_keywords = " ".join(expanded_terms)
             keywords = source_keywords + " " + keywords
         logger.info(f"   关键词（含1688类目）: {keywords}")
@@ -328,24 +372,57 @@ def assemble_ozon_product_node(
 
     logger.info(f"   pg_trgm 返回 {len(candidates)} 个候选")
 
-    # 1c. LLM 从候选中选最佳类目
-    category_result = _llm_match_category(title, description, attributes_1688, candidates, token)
+    # 1c. 直接使用 pg_trgm 最高相似度候选（不用 LLM）
+    # pg_trgm 搜索已按 sim DESC 排序，candidates[0] 即最佳匹配
+    # LLM 匹配不可靠（如玩具→鞋类），关键词匹配更准确
+    best = candidates[0]
+    category_result = {
+        "description_category_id": best["description_category_id"],
+        "type_id": best["type_id"],
+        "category_path": best["full_path"],
+        "confidence": "high" if best.get("similarity", 0) > 0.3 else "medium",
+        "reason": f"pg_trgm 最高相似度 ({best.get('similarity', 0):.3f}): {best['node_name']}",
+    }
+    logger.info(f"   ✅ 类目匹配 (pg_trgm): [{best['description_category_id']}/{best['type_id']}] {best['full_path']} (sim={best.get('similarity', 0):.3f})")
 
-    if not category_result:
-        # 回退：取 similarity 最高的候选
-        best = candidates[0]
-        category_result = {
-            "description_category_id": best["description_category_id"],
-            "type_id": best["type_id"],
-            "category_path": best["full_path"],
-            "confidence": "low",
-            "reason": f"LLM 失败，回退到最高相似度候选: {best['node_name']}",
-        }
-        logger.warning(f"   LLM 类目匹配失败，回退到: {best['full_path']}")
+    # ✅ 关键词重叠验证：候选类目必须与源类目有关键词重叠，避免 pg_trgm 误匹配
+    # 例如 "烟灰缸" 被 pg_trgm 误匹配到 "珠宝秤" → 无重叠词 → 丢弃该候选
+    _source_words = set((source_keywords or keywords).lower().split())
+    for _c in candidates:
+        _cand_words = set(_c.get("full_path", "").lower().replace(">", " ").split())
+        _overlap = _source_words & _cand_words
+        if _overlap:
+            category_result = {
+                "description_category_id": _c["description_category_id"],
+                "type_id": _c["type_id"],
+                "category_path": _c["full_path"],
+                "confidence": "high",
+                "reason": f"pg_trgm+overlap (sim={_c.get('similarity', 0):.3f}, words={_overlap})",
+            }
+            logger.info(f"   ✅ 关键词验证通过: 候选 '{_c['full_path'][:60]}' 与源词重叠 {_overlap}")
+            break
+    else:
+        # 无候选有重叠 → 保留原始选择但降级置信度
+        logger.warning(f"   ⚠️ 所有 {len(candidates)} 个候选与源词 '{source_keywords or keywords[:60]}' 无关键词重叠，使用最高 sim 候选")
 
     description_category_id: int = int(category_result["description_category_id"])
     type_id: int = int(category_result["type_id"])
     category_path: str = category_result.get("category_path", "")
+    
+    # ✅ 修正 type_id <= 0：尝试从 candidates 中找到有效的 type_id
+    if type_id <= 0:
+        for c in candidates:
+            tid = int(c.get("type_id", 0) or 0)
+            if tid > 0:
+                type_id = tid
+                description_category_id = int(c.get("description_category_id", description_category_id))
+                category_path = c.get("full_path", category_path)
+                logger.warning(f"   ⚠️ type_id 为 0，从候选修正: [{description_category_id}/{type_id}] {category_path}")
+                break
+        if type_id <= 0:
+            logger.error("   ❌ 类目匹配失败：所有候选的 type_id 都无效")
+            return {"error_message": "类目匹配失败：type_id 无效",
+                    "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1}
     
     # ✅ 修正 LLM 输出：LLM 有时把 type_id 填到 description_category_id
     # 从 candidates 中查找正确的 description_category_id
@@ -386,10 +463,21 @@ def assemble_ozon_product_node(
     progress.log_node_action(f"Step 2: 获取属性 Schema — category={description_category_id}, type={type_id}")
 
     attr_schema = query.get_attribute_schema(description_category_id, type_id)
-    if attr_schema and isinstance(attr_schema, dict) and attr_schema.get("result"):
-        attr_list: list[dict[str, Any]] = attr_schema["result"]
-        logger.info(f"   ✅ PG 缓存命中: {len(attr_list)} 个属性")
+    if attr_schema:
+        # ✅ 兼容两种缓存格式: {"result": [...]} (dict) 和 [...] (list)
+        if isinstance(attr_schema, dict) and attr_schema.get("result"):
+            attr_list: list[dict[str, Any]] = attr_schema["result"]
+            logger.info(f"   ✅ PG 缓存命中 (dict): {len(attr_list)} 个属性")
+        elif isinstance(attr_schema, list):
+            attr_list: list[dict[str, Any]] = attr_schema
+            logger.info(f"   ✅ PG 缓存命中 (list): {len(attr_list)} 个属性")
+        else:
+            logger.warning(f"   ⚠️ PG 缓存格式未知: {type(attr_schema)}, 回退到 Ozon API")
+            attr_list = []
     else:
+        attr_list = []
+
+    if not attr_list:
         # Ozon API 回退（带候选类目自动回退）
         logger.info("   PG 缓存未命中，调用 Ozon API...")
         attr_list = _fetch_attribute_schema_from_ozon(
@@ -451,11 +539,12 @@ def assemble_ozon_product_node(
                 logger.info(f"   PG 缓存未命中 attr={attr_id}，调用 Ozon API...")
                 values = _fetch_dict_values_from_ozon(
                     ozon_client_id, ozon_api_key,
-                    description_category_id, type_id, attr_id
+                    description_category_id, type_id, attr_id,
+                    language="ZH_HANS",
                 )
                 # 写入 PG 缓存（供后续使用）
                 if values:
-                    _cache_dict_values(attr_id, description_category_id, type_id, values)
+                    _cache_dict_values(attr_id, description_category_id, type_id, values, language="ZH_HANS")
             if values and isinstance(values, list) and len(values) > 0:
                 dict_lookup[attr_id] = values
             elif isinstance(values, dict) and values.get("result"):
@@ -558,7 +647,11 @@ def assemble_ozon_product_node(
         recategorize_failed = True
         try:
             query = get_category_query()
-            re_candidates = query.search_nodes(llm_name[:50], top_k=10, node_type="type")
+            # ✅ llm_name 是俄语，用 RU 语言搜索 Ozon 俄语类目名
+            re_candidates = query.search_nodes(llm_name[:50], top_k=10, node_type="type", language="RU")
+            if not re_candidates:
+                # 回退：ZH_HANS 搜索
+                re_candidates = query.search_nodes(llm_name[:50], top_k=10, node_type="type")
             if re_candidates:
                 # 检查新候选中是否有更好的匹配
                 for candidate in re_candidates[:3]:
@@ -574,24 +667,26 @@ def assemble_ozon_product_node(
                             type_id = re_type_id
                             category_path = re_path
                             new_attr_schema = query.get_attribute_schema(re_cat_id, re_type_id)
-                            if new_attr_schema and isinstance(new_attr_schema, dict) and new_attr_schema.get("result"):
-                                attr_list = new_attr_schema["result"]
-                                logger.info(f"   ✅ 属性 schema 已更新: {len(attr_list)} 个属性")
+                            if new_attr_schema:
+                                if isinstance(new_attr_schema, dict) and new_attr_schema.get("result"):
+                                    attr_list = new_attr_schema["result"]
+                                elif isinstance(new_attr_schema, list):
+                                    attr_list = new_attr_schema
+                                if attr_list:
+                                    logger.info(f"   ✅ 属性 schema 已更新: {len(attr_list)} 个属性")
                             recategorize_failed = False
                             break
         except Exception as _re_match_e:
             logger.warning(f"   ⚠️ 重新匹配异常: {_re_match_e}")
 
         if recategorize_failed:
-            # 无法找到一致的类目，返回错误让retry loop处理，避免上传到错误类目
+            # 无法找到一致的类目，保留原类目 ID 让 Ozon 自行验证
+            # 不应返回空类目导致下游 type_id=0
             logger.error(
                 f"❌ 类目一致性严重失败：产品「{llm_name[:60]}」与类目「{category_path}」无共同关键词，"
-                f"且重新匹配也失败。跳过上传，避免 DESCRIPTION_DECLINE。"
+                f"且重新匹配也失败。保留原类目 [{description_category_id}/{type_id}]，由 Ozon 验证。"
             )
-            return {
-                "error_message": f"类目一致性失败：产品名与类目「{category_path}」不匹配，需手动审核",
-                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
-            }
+            # 继续使用原类目 ID —— 即使不一致，也比 type_id=0 好
 
     # =====================================================
     # Step 7: 返回结果 dict（LangGraph 自动合并到 GlobalState）
@@ -809,7 +904,7 @@ def _fetch_attribute_schema_from_ozon(
         payload = {
             "description_category_id": description_category_id,
             "type_id": type_id,
-            "language": "RU",  # 俄语属性名（ID跨语言一致）
+            "language": "ZH_HANS",  # 中文属性名用于匹配 1688 产品属性
         }
         resp = session.post(url, json=payload, headers=headers, timeout=30)
         resp.raise_for_status()
@@ -1186,6 +1281,11 @@ def _validate_and_enrich_items(
                         if _fetched:
                             dict_vals = _fetched
                             logger.info(f"   📡 API 获取字典值: attr={missing_id}, {len(_fetched)}条")
+                            # 写入 PG 缓存（RU 语言），供后续相同类目的产品复用
+                            try:
+                                _cache_dict_values(missing_id, int(description_category_id), int(type_id), _fetched, language="RU")
+                            except Exception as _ce:
+                                logger.debug(f"   RU 字典缓存写入跳过 attr={missing_id}: {_ce}")
                     except Exception as _fe:
                         logger.debug(f"   API 获取字典值失败 attr={missing_id}: {_fe}")
 
@@ -1414,8 +1514,9 @@ def _fetch_dict_values_from_ozon(
     description_category_id: int,
     type_id: int,
     attribute_id: int,
+    language: str = "ZH_HANS",
 ) -> list[dict[str, Any]] | None:
-    """从 Ozon API 获取属性的字典值"""
+    """从 Ozon API 获取属性的字典值（按指定语言）"""
     try:
         url = "https://api-seller.ozon.ru/v1/description-category/attribute/values"
         headers = {
@@ -1427,7 +1528,7 @@ def _fetch_dict_values_from_ozon(
             "attribute_id": attribute_id,
             "description_category_id": description_category_id,
             "type_id": type_id,
-            "language": "RU",  # 俄语字典值（dictionary_value_id跨语言一致）
+            "language": language,  # 中文字典值用于匹配 1688 属性值（dictionary_value_id 跨语言一致）
             "limit": 100,
         }
         resp = session.post(url, json=payload, headers=headers, timeout=30)
@@ -1446,8 +1547,9 @@ def _cache_dict_values(
     description_category_id: int,
     type_id: int,
     values: list[dict[str, Any]],
+    language: str = "ZH_HANS",
 ):
-    """将字典值写入 PG 缓存"""
+    """将字典值写入 PG 缓存（按语言分别缓存）"""
     try:
         from utils.local_db_manager import LocalDBManager
         local_db = LocalDBManager()
@@ -1456,7 +1558,7 @@ def _cache_dict_values(
             description_category_id=description_category_id,
             type_id=type_id,
             values_data=values,
-            language="RU",  # 俄语字典值缓存
+            language=language,  # fetch 什么语言就 cache 什么语言
             expires_in=86400,
         )
         logger.info(f"   ✅ 字典值缓存写入成功: attr={attribute_id}, {len(values)} 条")

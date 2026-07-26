@@ -88,8 +88,7 @@ class ProgressLogger:
         """
         # 自动去除 _node 后缀（兼容历史代码中 "main_image_gen_node" 这种写法）
         clean_name = node_name
-        if clean_name.endswith("_node"):
-            clean_name = clean_name[:-5]  # strip "_node"
+        clean_name = clean_name.removesuffix("_node")  # strip "_node"
         
         # 优先使用外部传入的 current_counter；否则从 NODE_ORDER 查找
         if self.current_node_count > 0:

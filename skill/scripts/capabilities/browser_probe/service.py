@@ -61,7 +61,7 @@ from scripts.lib.task_paths import current_task_id, task_media_dir
 
 
 EXTRACT_1688_JS = r"""
-() => {
+(() => {
   // Trigger lazy-load DOM by scrolling
   try {
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
@@ -752,7 +752,7 @@ skuContainers.forEach((featureEl, featureIndex) => {
       packagingTableTextLength: packagingTableText ? packagingTableText.length : 0,
     },
   };
-}
+})()
 """
 
 
