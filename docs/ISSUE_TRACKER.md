@@ -25,11 +25,44 @@
 
 ## 实时问题记录
 
-### 批次 1: Ozon 跟卖 (22 产品)
+### 批次 1: Ozon 跟卖 (6/23 已处理，被 worker bug 阻断)
 
 | # | 产品 ID | 问题分类 | 严重度 | 现象 | 根因 | 状态 |
 |---|---------|----------|--------|------|------|------|
-| - | - | - | - | 处理中... | - | - |
+| 1 | 3852000144 | W-SYS | 🔴 Critical | worker 所有任务立即失败 | ProgressCallback 缺少 run_inline 属性 | ⚠️ 需部署 |
+| 2 | 3658750671 | W-SYS | 🔴 Critical | 同上 | 同上 | ⚠️ 需部署 |
+| 3 | 2806107009 | S-SRC | 🟡 Medium | 图搜匹配差（竹炭包 vs 蒙氏教具） | Ozon 以图搜款准确率不足 | 🔧 需改进 |
+| 4 | 3436147120 | W-SYS | 🔴 Critical | worker 任务失败 | ProgressCallback | ⚠️ 需部署 |
+| 5 | 3660671117 | W-SYS | 🔴 Critical | worker 任务失败 | ProgressCallback | ⚠️ 需部署 |
+| 6 | 2313596489 | W-SYS | 🔴 Critical | worker 任务失败 | ProgressCallback | ⚠️ 需部署 |
+
+### 🔴 阻断问题: [W-SYS-001] ProgressCallback.run_inline 缺失
+
+- **严重度**: 🔴🔴🔴 CRITICAL (阻断所有任务)
+- **现象**: 所有提交到 worker.mxou.cn 的任务立即失败
+- **错误**: `'ProgressCallback' object has no attribute 'run_inline'`
+- **根因**: 部署的 worker 运行旧代码（commit 88883f0），缺少 LangChain ≥0.3 要求的 callback 属性。本地 main/dev 已包含修复（commit 1248219）。
+- **影响**: 6/6 任务失败（100%），重试 3 次全部失败
+- **修复**: 重新部署 worker（已推送到 GitHub main 和 dev 分支）
+- **部署命令**: `cd deploy && bash update.sh`（需服务器 SSH 访问）
+
+### 🔴 阻断问题: [W-SYS-002] follow_sell_import_node 裸 envelope 变量
+
+- **严重度**: 🔴🔴 CRITICAL (阻断所有跟卖任务)
+- **现象**: 跟卖任务在 auth 之后立即失败
+- **错误**: `NameError: name 'envelope' is not defined` at follow_sell_import_node.py:49
+- **根因**: 代码使用裸 `envelope` 变量，应为 `state.envelope`
+- **影响**: 所有跟卖管线任务失败，1688 管线不受影响
+- **修复**: ✅ 已修复 (line 49, 52: envelope → state.envelope)
+- **位置**: `worker/src/graphs/nodes/follow_sell_import_node.py:49,52`
+
+### 🟡 非致命: [W-SYS-003] get_local_db 导入警告
+
+- **严重度**: 🟢 Low
+- **现象**: 启动时 `WARNING: cannot import name 'get_local_db' from 'utils.local_db_manager'`
+- **根因**: 启动清理代码引用了已移除的函数
+- **影响**: 非致命，不影响任务处理
+- **修复**: 待清理
 
 ### 批次 2: 1688 直上 (71 产品)
 
