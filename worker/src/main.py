@@ -350,7 +350,29 @@ async def lifespan(app: FastAPI):
     global task_processor
     max_concurrent = int(os.getenv("MAX_CONCURRENT", "10"))
     task_processor = SupabaseTaskProcessor(max_concurrent=max_concurrent)
-    
+
+    # ✅ 启动时僵尸任务恢复：重置重启前的 running 任务和可重试的 failed 任务
+    try:
+        from utils.local_db_manager import get_local_db
+        local_db = get_local_db()
+        with local_db.get_session() as sess:
+            # 1. 重置所有 running 任务（Worker 重启导致中断）
+            zombie_running = sess.execute(
+                text("UPDATE ozon_product_tasks SET status='pending', started_at=NULL, updated_at=NOW() WHERE status='running'")
+            ).rowcount
+            # 2. 重置可重试的 failed 任务
+            zombie_failed = sess.execute(
+                text("UPDATE ozon_product_tasks SET status='pending', retry_count=0, error_message=NULL, updated_at=NOW() WHERE status='failed' AND retry_count < max_retries")
+            ).rowcount
+            sess.commit()
+            if zombie_running or zombie_failed:
+                logger.info(f"🧹 启动清理: {zombie_running} 个僵尸 running + {zombie_failed} 个 failed → pending")
+    except Exception as _cleanup_e:
+        logger.warning(f"⚠️ 启动清理失败（非致命）: {_cleanup_e}")
+
+    # 启动定时清理任务
+    cleanup_task = asyncio.create_task(_periodic_task_cleanup(interval_seconds=60))
+
     # 启动Worker后台任务（不阻塞主服务启动）
     worker_task = asyncio.create_task(task_processor.start_workers(num_workers=10))
     
@@ -363,6 +385,12 @@ async def lifespan(app: FastAPI):
             await worker_task
         except asyncio.CancelledError:
             logger.info("Worker任务已取消")
+    if cleanup_task is not None:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            logger.info("定时清理任务已取消")
     
     if async_runtime is not None:
         await async_runtime.shutdown()
@@ -684,24 +712,104 @@ async def openai_chat_completions(request: Request):
         pass
 
 
+# ============================================================
+# 运维：定期清理 + 健康检查
+# ============================================================
+
+async def _periodic_task_cleanup(interval_seconds: int = 60):
+    """定期清理僵尸任务：重置卡死的 running 任务，清理过期 completed 任务"""
+    await asyncio.sleep(30)  # 启动后等 30 秒再开始
+    while True:
+        try:
+            from sqlalchemy import text
+            from storage.database.db import get_engine
+            engine = get_engine()
+            with engine.connect() as conn:
+                # 重置 stale running 任务 (> 30分钟未更新)
+                r1 = conn.execute(text(
+                    "UPDATE ozon_product_tasks SET status='pending', started_at=NULL, updated_at=NOW() "
+                    "WHERE status='running' AND updated_at < NOW() - INTERVAL '30 minutes'"
+                )).rowcount
+                # 归档 7 天前的 completed 任务（如果有 archive 表的话，先删除）
+                r2 = conn.execute(text(
+                    "DELETE FROM ozon_product_tasks "
+                    "WHERE status='completed' AND updated_at < NOW() - INTERVAL '7 days'"
+                )).rowcount
+                conn.commit()
+                if r1 or r2:
+                    logger.info(f"🧹 定期清理: {r1} stale running → pending, {r2} old completed deleted")
+        except Exception as _e:
+            logger.debug(f"定期清理跳过: {_e}")
+        await asyncio.sleep(interval_seconds)
+
+
 @app.get("/health")
 async def health_check():
     try:
         from sqlalchemy import text
         from storage.database.db import get_engine
         _engine = get_engine()
+        queue_stats = {}
         with _engine.connect() as conn:
             conn.execute(text("SELECT 1"))
+            # 获取队列统计
+            rows = conn.execute(text(
+                "SELECT status, COUNT(*) as cnt FROM ozon_product_tasks GROUP BY status"
+            )).fetchall()
+            queue_stats = {row[0]: row[1] for row in rows}
         return {
             "status": "ok",
             "message": "Service is running",
             "db": "connected",
+            "queue": queue_stats,
         }
     except Exception as e:
         return JSONResponse(
             status_code=503,
             content={"status": "degraded", "message": str(e), "db": "disconnected"},
         )
+
+
+@app.get("/api/v1/store/health")
+async def store_health(client_id: str = None, api_key: str = None):
+    """查询 Ozon 店铺配额健康状态。
+    
+    Query params (可选):
+    - client_id: Ozon Client-Id
+    - api_key: Ozon Api-Key
+    """
+    if not client_id or not api_key:
+        return {"status": "unknown", "message": "需要提供 client_id 和 api_key"}
+    try:
+        import requests as req
+        resp = req.post(
+            "https://api-seller.ozon.ru/v4/product/info/limit",
+            headers={"Client-Id": client_id, "Api-Key": api_key},
+            json={}, timeout=10,
+        )
+        if resp.status_code != 200:
+            return {"status": "error", "message": f"Ozon API error: {resp.status_code}"}
+        data = resp.json()
+        total = data.get("total", {})
+        daily = data.get("daily_create", {})
+        total_used = total.get("usage", 0)
+        total_limit = total.get("limit", 1000)
+        daily_used = daily.get("usage", 0)
+        daily_limit = daily.get("limit", 100)
+        remaining = total_limit - total_used
+        daily_remaining = daily_limit - daily_used
+        
+        if remaining <= 0: status = "critical"
+        elif remaining < 10: status = "warning"
+        else: status = "ok"
+        
+        return {
+            "status": status,
+            "total_usage": total_used, "total_limit": total_limit, "remaining": remaining,
+            "daily_usage": daily_used, "daily_limit": daily_limit, "daily_remaining": daily_remaining,
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @app.post("/auth/verify", response_model=AuthVerifyResponse)
