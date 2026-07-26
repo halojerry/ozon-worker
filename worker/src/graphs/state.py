@@ -59,6 +59,7 @@ class GlobalState(BaseModel):
     
     # 跟卖竞品信息（follow_sell_import_node 提取，供下游使用）
     competitor_name: str = Field(default="", description="跟卖竞品的俄语标题")
+    competitor_price: str = Field(default="", description="跟卖竞品的Ozon售价")
     
     # 类目信息
     category: Optional[Dict[str, Any]] = Field(default=None, description="类目信息")

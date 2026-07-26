@@ -116,13 +116,13 @@ builder.add_conditional_edges(
     }
 )
 
-# 跟卖导入 → 条件路由：成功则跳过组装/生图/上传，直接结束
+# 跟卖导入 → 条件路由：成功则走简化管线（定价→竞品生图→上传）
 def route_after_follow_sell_import(state):
-    """跟卖导入成功后，若已有 product_id（import-by-sku 复制竞品卡成功），
-    直接跳到 END，避免 AI 生图/重上传覆盖竞品卡。"""
+    """跟卖导入成功后，走简化管线：定价→组装→场景→生图→上传。
+    不跳 END——竞品图片作为 AI 生图参考，生成我们自己的营销图。"""
     if getattr(state, 'product_id', None) and getattr(state, 'description_category_id', None):
-        logger.info("跟卖导入成功(product_id=%s)，跳过组装/生图/上传", state.product_id)
-        return "END"
+        logger.info("跟卖导入成功(product_id=%s)，走简化管线（定价→生图→上传）", state.product_id)
+        return "pricing"
     return "pricing"
 
 builder.add_conditional_edges(
@@ -134,6 +134,8 @@ builder.add_conditional_edges(
 builder.add_edge("ingest", "pricing")
 
 # 定价 → 商品组装（串行：组装需要定价信息）
+# 跟卖产品：_assemble_follow_sell 轻量模式，复用竞品属性+类目
+# 1688 产品：_build_items_deterministically 完整模式
 builder.add_edge("pricing", "assemble_ozon_product")
 
 # Phase 3.5: 场景生成（使用LLM生成3个场景描述）

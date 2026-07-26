@@ -164,9 +164,21 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
                 competitor_name = item.get("name", "")
                 if competitor_name:
                     state.competitor_name = competitor_name  # 竞品俄语标题，供下游 SEO 使用
+                # 提取竞品 Ozon 图片 URL 作为 AI 生图的参考图
+                competitor_images = item.get("images", [])
+                if competitor_images:
+                    state.original_images = list(competitor_images[:10])  # 最多 10 张参考图
+                primary = item.get("primary_image", "")
+                if primary and primary not in state.original_images:
+                    state.original_images.insert(0, primary)  # 主图放最前
+                # 提取竞品价格供 pricing_node 参考
+                competitor_price = item.get("price", "")
+                if competitor_price:
+                    state.competitor_price = competitor_price
                 logger.info(
                     f"✅ 跟卖类目: description_category_id={state.description_category_id}, "
-                    f"type_id={state.type_id}, 竞品标题={competitor_name[:60] if competitor_name else 'N/A'}"
+                    f"type_id={state.type_id}, 竞品标题={competitor_name[:60] if competitor_name else 'N/A'}, "
+                    f"竞品图={len(competitor_images)}张"
                 )
             else:
                 logger.warning(f"⚠️ 未找到 offer_id={offer_id} 的产品信息")
