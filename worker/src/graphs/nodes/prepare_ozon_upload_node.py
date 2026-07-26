@@ -1292,6 +1292,16 @@ def prepare_ozon_upload_node(
     
     # ✅ 唯一后缀：用于offer_id（变体区分），不用于9048
     offer_id_suffix: str = str(int(time.time()) % 1000000)
+    
+    # ✅ 跟卖产品：使用与 import-by-sku 相同的 offer_id 来更新已有商品（加图片）
+    # 否则 Ozon 上会产生两个商品：一个 import-by-sku 的无图僵尸 + 一个新上传的有图商品
+    ozon_product_id_from_draft = draft.get("ozon_product_id", "")
+    is_follow_sell = bool(ozon_product_id_from_draft)
+    if is_follow_sell:
+        follow_offer_id = f"follow_{ozon_product_id_from_draft}"
+        logger.info(f"🔄 跟卖产品：使用统一 offer_id={follow_offer_id}（更新 import-by-sku 已有商品）")
+    else:
+        follow_offer_id = None
 
     # ✅ 属性9048（型号名称）= 1688 item_id
     # 同一item_id的多个SKU使用相同的9048 → 自动合并为一个商品卡片
@@ -1393,7 +1403,9 @@ def prepare_ozon_upload_node(
                 "name": title_ru,                              # 标题（俄语）
                 "description": description,                     # ✅ 产品描述（Ozon必填字段）
                 "vat": "0",                                    # ✅ 增值税率：0%（Ozon要求默认为"0"，平台按类目自动计算）
-                "offer_id": f"{sku_id}_{offer_id_suffix}",       # ✅ 带唯一后缀避免与旧产品冲突
+                "offer_id": follow_offer_id if is_follow_sell else f"{sku_id}_{offer_id_suffix}",
+                # ✅ 跟卖产品：指定 product_id 让 Ozon 走 UPDATE 模式（更新已有商品而非创建新的）
+                **({"product_id": int(state.product_id)} if is_follow_sell and state.product_id and str(state.product_id) not in ("0", "None", "") else {}),
                 
                 # 重量和尺寸（单位转换后）
                 "weight": weight_g,                             # 重量（克）
