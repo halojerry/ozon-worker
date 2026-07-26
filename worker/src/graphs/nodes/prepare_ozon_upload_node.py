@@ -229,7 +229,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
                     "你是Ozon俄罗斯电商平台的产品标题专家。将中文标题翻译为俄语，严格遵循以下公式。\n\n"
                     f"{_title_formula}\n"
                     "严格规则（违反任何一条都会导致Ozon审核拒绝）：\n"
-                    "1. 标题长度不超过50个字符（含空格和标点）\n"
+                    "1. 标题长度不超过80个字符（含空格和标点）\n"
                     "2. 标题中必须包含逗号或破折号分隔各部分\n"
                     "3. 绝对禁止关键词堆砌：连续名词性关键词不超过3个\n"
                     "4. 去除所有营销词汇：跨境爆款、现货、亚马逊、爆款、热销、新品、促销等\n"
@@ -535,8 +535,8 @@ def _sanitize_description(description: str) -> str:
 
     sanitized: str = description.strip()
 
-    # 1. 移除中文字符
-    sanitized = re.sub(r'[\u4e00-\u9fff]+', ' ', sanitized)
+    # 1. 移除中文字符（含扩展区：CJK统一汉字 + 扩展A + 兼容汉字）
+    sanitized = re.sub(r'[\u2e80-\u2eff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+', ' ', sanitized)
 
     # 2. 移除拉丁单词（2+连续拉丁字母）
     sanitized = re.sub(r'[a-zA-Z]{2,}', ' ', sanitized)
@@ -550,12 +550,14 @@ def _sanitize_description(description: str) -> str:
     # 5. 移除电话号码
     sanitized = re.sub(r'\+?\d[\d\s\-()]{7,}\d', '', sanitized)
 
-    # 6. 移除营销词汇
+    # 6. 移除营销词汇（含中文营销词 + 1688常见后缀）
     marketing_words: list = [
         "хит", "распродажа", "акция", "скидка", "новинка", "бестселлер",
         "кроссбордер", "бесплатно", "премиум", "эксклюзив", "ограничено",
         "топ", "лучший", "популярный", "тренд",
         "爆款", "热销", "新品", "促销", "跨境", "亚马逊", "现货",
+        "限时", "抢购", "特价", "清仓", "包邮", "满减", "秒杀",
+        "同款", "厂家直销", "一件代发", "批发", "抖音", "TikTok",
     ]
     for word in marketing_words:
         sanitized = re.sub(re.escape(word), '', sanitized, flags=re.IGNORECASE)
@@ -646,21 +648,31 @@ def prepare_ozon_upload_node(
     # Step 1: 整理图片顺序
     logger.info("整理图片顺序")
     
-    # ✅ 构建共享营销图列表（不含变体白底图）
-    shared_marketing_images: List[str] = []
-    
-    # 添加main_image作为共享画廊第一张
-    main_image = getattr(state, "main_image", None)
-    if main_image and isinstance(main_image, str) and main_image.strip():
-        shared_marketing_images.append(main_image.strip())
-    
-    # 按IMG_ORDER添加其他营销图片
-    for img_key in IMG_ORDER[1:]:  # 从第2个开始（跳过main_image，已处理）
-        img_url = getattr(state, f"{img_key}_image", None)
-        if img_url and isinstance(img_url, str) and img_url.strip():
-            shared_marketing_images.append(img_url.strip())
-            logger.info(f"图片 {img_key}: {img_url}")
-    
+    # ✅ 跟卖模式：优先用 Ozon 竞品原图（ir.ozone.ru），完全跳过 AI 生成图
+    # AI 生成图可能导致 Ozon 报 "Фото не соответствует типу" 拒绝
+    original_images = getattr(state, "original_images", []) or []
+    ozon_only = [img for img in original_images if isinstance(img, str) and img.strip() and 'ir.ozone.ru' in img]
+    if ozon_only:
+        shared_marketing_images: List[str] = ozon_only[:10]
+        logger.info(f"跟卖模式：使用 {len(shared_marketing_images)} 张 Ozon 竞品原图，跳过 AI 生成图")
+        # 设置 main_image 为第一张竞品图（避免 AI main_image 导致不匹配）
+        main_image = shared_marketing_images[0]
+    else:
+        # ✅ 构建共享营销图列表（不含变体白底图）
+        shared_marketing_images: List[str] = []
+
+        # 添加main_image作为共享画廊第一张
+        main_image = getattr(state, "main_image", None)
+        if main_image and isinstance(main_image, str) and main_image.strip():
+            shared_marketing_images.append(main_image.strip())
+
+        # 按IMG_ORDER添加其他营销图片
+        for img_key in IMG_ORDER[1:]:
+            img_url = getattr(state, f"{img_key}_image", None)
+            if img_url and isinstance(img_url, str) and img_url.strip():
+                shared_marketing_images.append(img_url)
+                logger.info(f"图片 {img_key}: {img_url}")
+
     logger.info(f"共享营销图数量: {len(shared_marketing_images)}")
 
     # ✅ 营销图为空时不再fallback到alicdn（Ozon无法下载alicdn URL），记录错误让validation_retry处理
@@ -1336,6 +1348,36 @@ def prepare_ozon_upload_node(
         })
         logger.info(f"✅ 兜底添加属性4958（专为），值: {target_value}")
         seen_attr_ids.add(4958)
+
+    # ✅ 补充常见必填自由文本属性的默认值（Ozon 审核拒绝原因：error_attribute_values_empty）
+    _FALLBACK_FREE_TEXT_ATTRS: dict[int, str] = {
+        7578: "365",              # 保质期（天）— 食品/玩具类默认1年
+        10350: "40",              # 最高温度 °C
+        10351: "0",               # 最低温度 °C
+        8787: "сухое место",      # 储存条件
+        8050: "полимерные материалы",  # 成分（默认聚合物材料）
+        9782: "не опасный",       # 产品危险等级（默认为非危险品，需匹配字典值）
+    }
+    for attr_id, default_val in _FALLBACK_FREE_TEXT_ATTRS.items():
+        if attr_id in seen_attr_ids:
+            continue
+        found = False
+        for attr in ozon_attributes:
+            if isinstance(attr, dict) and attr.get("id") == attr_id:
+                vals = attr.get("values", [])
+                if not vals or not any(v.get("value", "") if isinstance(v, dict) else v for v in vals):
+                    attr["values"] = [{"dictionary_value_id": 0, "value": default_val}]
+                    logger.info(f"✅ 属性{attr_id} 值为空，兜底填充: {default_val}")
+                found = True
+                break
+        if not found:
+            ozon_attributes.append({
+                "complex_id": 0,
+                "id": attr_id,
+                "values": [{"dictionary_value_id": 0, "value": default_val}]
+            })
+            logger.info(f"✅ 兜底添加属性{attr_id}，值: {default_val}")
+            seen_attr_ids.add(attr_id)
     
     logger.info(f"最终属性数量：{len(ozon_attributes)}")
     logger.info(f"✅ offer_id唯一后缀: _{offer_id_suffix}")

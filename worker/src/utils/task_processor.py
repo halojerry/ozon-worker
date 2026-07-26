@@ -33,6 +33,15 @@ _NODE_STAGE_MAP = {
 
 class ProgressCallback:
     """LangGraph 回调：节点执行时更新进度"""
+    # LangChain >=0.3 required callback attributes
+    run_inline = True
+    ignore_chain = False
+    ignore_agent = False
+    ignore_llm = False
+    ignore_retry = False
+    ignore_chat_model = False
+    raise_error = False
+
     def __init__(self, task_id: str, update_fn):
         self.task_id = task_id
         self.update_fn = update_fn
@@ -234,7 +243,7 @@ class SupabaseTaskProcessor:
                     clear_trace_context()
                     return graph_result
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     log_task_event("failed", task_id=task_id, user_id=tenant_id,
                                    error_message=f"timeout ({timeout_seconds}s)")
                     await self.handle_task_failure(task_id, f"任务超时（{timeout_seconds}秒）")
@@ -358,8 +367,8 @@ class SupabaseTaskProcessor:
             )
             return result
 
-        except asyncio.TimeoutError:
-            raise asyncio.TimeoutError(f"LangGraph流程执行超时（{timeout}秒）")
+        except TimeoutError:
+            raise TimeoutError(f"LangGraph流程执行超时（{timeout}秒）")
     
     async def worker_loop(self):
         """

@@ -54,10 +54,9 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
         }]
     }
 
-    # 如果有竞品图片，传入（提高卡片质量）
-    competitor_images = draft.get("images", [])
-    if competitor_images:
-        import_body["items"][0]["images"] = competitor_images[:10]
+    # ❌ 不传 1688 原图到 import-by-sku：1688 图片可能含物流/退货文字被 Ozon 拒绝
+    # import-by-sku 会自动复制竞品商品卡上的 Ozon 审核通过的干净图片
+    # competitor_images = draft.get("images", [])  # REMOVED — 用竞品原图
 
     try:
         import_resp = req.post(
@@ -81,7 +80,7 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
         return state
 
     # Step 2: 轮询 import task
-    max_wait = 60  # 最多等 60 秒
+    max_wait = 180  # 最多等 180 秒（Ozon import-by-sku 有时很慢）
     poll_interval = 3
     waited = 0
 
@@ -117,7 +116,24 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
         except Exception:
             continue
     else:
-        logger.warning(f"⚠️ import 轮询超时 ({max_wait}s)，继续尝试获取类目")
+        logger.warning(f"⚠️ import 轮询超时 ({max_wait}s)，尝试获取类目")
+        # 🆕 超时后最后尝试一次：可能已经完成了
+        try:
+            info_resp = req.post(
+                "https://api-seller.ozon.ru/v1/product/import/info",
+                headers=headers,
+                json={"task_id": task_id},
+                timeout=15,
+            )
+            if info_resp.status_code == 200:
+                info_data = info_resp.json().get("result", {})
+                if info_data.get("status") == "success":
+                    items = info_data.get("items", [])
+                    if items:
+                        state.product_id = str(items[0].get("product_id", ""))
+                        logger.info(f"✅ import 超时后完成, product_id={state.product_id}")
+        except Exception:
+            pass
 
     # Step 3: 获取类目 ID
     try:
@@ -144,6 +160,34 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
             logger.warning(f"⚠️ /v3/product/info/list 返回 {info_list_resp.status_code}")
     except Exception as e:
         logger.warning(f"⚠️ 获取类目 ID 失败: {e}")
+
+    # 🆕 Fallback: offer_id 查询失败时，用 product_id 直接查询 Ozon 产品信息
+    # product_id 在 Step 2 import 轮询成功时已写入 state，比 offer_id 更可靠
+    if not state.description_category_id and state.product_id:
+        try:
+            logger.info(f"🔄 回退查询: 用 product_id={state.product_id} 获取 Ozon 类目...")
+            fallback_resp = req.post(
+                "https://api-seller.ozon.ru/v3/product/info/list",
+                headers=headers,
+                json={"product_id": [int(state.product_id)]},
+                timeout=15,
+            )
+            if fallback_resp.status_code == 200:
+                fallback_items = fallback_resp.json().get("result", [])
+                if fallback_items:
+                    item = fallback_items[0]
+                    state.description_category_id = str(item.get("description_category_id", ""))
+                    state.type_id = str(item.get("type_id", ""))
+                    logger.info(
+                        f"✅ 回退类目(by product_id): description_category_id={state.description_category_id}, "
+                        f"type_id={state.type_id}"
+                    )
+                else:
+                    logger.warning(f"⚠️ product_id={state.product_id} 查询无结果")
+            else:
+                logger.warning(f"⚠️ 回退查询返回 HTTP {fallback_resp.status_code}")
+        except Exception as e:
+            logger.warning(f"⚠️ 回退查询异常: {e}")
 
     # 确保 offer_id 传递到下游
     if not state.description_category_id:

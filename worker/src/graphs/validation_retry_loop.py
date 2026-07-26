@@ -79,6 +79,12 @@ class ValidationRetryLoopState(BaseModel):
     
     # 类目重匹配标志（DESCRIPTION_DECLINE + attr 8229 时设置）
     needs_recategorization: bool = Field(default=False, description="是否需要重新匹配类目")
+    
+    # 产品名（error_repair_llm_node 用产品名搜索字典值）
+    product_name: str = Field(default="", description="产品名称（用于字典值搜索）")
+    
+    # 修复元数据（classify_error_node 传递给 repair 节点的指令）
+    repair_metadata: Dict[str, Any] = Field(default_factory=dict, description="修复元数据（如 remove_attrs）")
 
 
 class ValidationRetryLoopInput(BaseModel):
@@ -127,6 +133,7 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "INVALID_ATTRIBUTE_VALUE": "error_repair_llm",
     "BR_hashtag_validation": "error_repair_llm",
     "BR_hashtag_brand": "error_repair_llm",
+    "BR_CRITICAL_OIL_BRAND": "error_repair_llm",  # 品牌不在该类目字典中，移除强制品牌
     "DESCRIPTION_DECLINE": "error_repair_llm",
     "MISSING_ATTRIBUTE": "error_repair_llm",
     "MISSING_REQUIRED_ATTRIBUTE": "error_repair_llm",
@@ -164,25 +171,102 @@ REPAIR_STRATEGY: Dict[str, str] = {
 
 
 # ============================================================
+# 靶向修复类型分类（reupload_node 路由器用）
+# 当 product_id 存在时，根据错误类型选择最优的 Ozon API 端点
+# ============================================================
+
+# 属性类错误 → POST /v1/product/attributes/update（增量，无需重新审核）
+FIX_TYPE_ATTRIBUTES: set = {
+    "error_attribute_values_empty", "BR_chinese_hieroglyphs_in_attribute",
+    "BR_warning_wrong_country", "warning_attribute_values_out_of_range",
+    "MISSING_ATTRIBUTE", "MISSING_REQUIRED_ATTRIBUTE", "INVALID_ATTRIBUTE_VALUE",
+    "BR_hashtag_validation", "BR_hashtag_brand", "BR_CRITICAL_OIL_BRAND",
+    "marking_auto_corrected",
+}
+
+# 价格类错误 → POST /v1/product/prices/update（增量，无需重新审核）
+FIX_TYPE_PRICES: set = {
+    "INVALID_PRICE", "discount_for_low_price",
+}
+
+# 类目/尺寸/描述/图片错误 → POST /v3/product/import（UPDATE 模式，需 product_id）
+# 这些错误需要更新产品的扁平字段（category_id, dimensions, description, images）
+FIX_TYPE_PRODUCT_IMPORT: set = {
+    "INVALID_CATEGORY", "DESCRIPTION_DECLINE",
+    "INCORRECT_DIMENSION", "INCORRECT_DENSITY",
+    "ML_INCORRECT_VOLUME_WEIGHT", "WEIGHT_DIMENSION_ERROR",
+    "VARIANT_NOT_MERGED", "double_without_merger_offer",
+}
+
+# 不可修复错误 → 标记 warning，直接 success（不浪费重试次数）
+FIX_TYPE_UNFIXABLE: set = {
+    "pics_http_error", "pics_cant_decode", "primary_image_load_failed",
+    "some_image_failed", "warning_all_image_failed",
+    "BR_hazard_class1", "FB_fire_hazardous_goods", "FB_LIGHTER",
+    "PRODUCT_ALREADY_EXISTS",
+}
+
+
+def classify_fix_type(error_code: str) -> str:
+    """根据 error_code 返回靶向修复类型：attributes / prices / product_import / unfixable"""
+    if error_code in FIX_TYPE_ATTRIBUTES:
+        return "attributes"
+    if error_code in FIX_TYPE_PRICES:
+        return "prices"
+    if error_code in FIX_TYPE_PRODUCT_IMPORT:
+        return "product_import"
+    if error_code in FIX_TYPE_UNFIXABLE:
+        return "unfixable"
+    # 未知错误：保守回退到全量 product_import（至少有 product_id 时为 UPDATE 模式）
+    return "product_import"
+
+
+# ============================================================
 # 辅助函数
 # ============================================================
 
 def _sanitize_title(title: str) -> str:
     """
-    标题后校验：确保标题符合Ozon规范
-    1. 长度≤50字符（超长截断到最近的单词边界）
-    2. 含标点符号（长标题无标点时自动添加）
-    3. 无关键词堆砌（连续3+个名词无标点时，在适当位置插入逗号）
+    标题后校验：确保标题符合Ozon规范（对标 prepare_ozon_upload_node._sanitize_title）
+    1. 去除拉丁字母和中文（Ozon 要求 100% 西里尔字母）
+    2. 去除营销词汇
+    3. 长度≤80字符（超长截断到最近的单词边界）
+    4. 含标点符号（长标题无标点时自动添加）
+    5. 无关键词堆砌（连续4+个名词无标点时，在适当位置插入逗号）
     """
     if not title or not title.strip():
         return title
 
     title = title.strip()
 
-    # 1. 长度校验：≤50字符
-    if len(title) > 50:
+    # 0. 去除拉丁字母和中文字符 — Ozon 完全禁止非西里尔字符
+    _cyrillic_re = re.compile(r'[а-яА-ЯёЁ]')
+    _latin_re = re.compile(r'[a-zA-Z]{2,}')
+    _chinese_re = re.compile(r'[\u4e00-\u9fff]+')
+    title = _chinese_re.sub('', title)
+    title = _latin_re.sub('', title)
+    # 清理多余空格
+    title = re.sub(r'\s+', ' ', title).strip()
+
+    # 如果没有西里尔字符，返回空字符串触发 fallback
+    if not _cyrillic_re.search(title):
+        return ""
+
+    # 去除营销词汇
+    _marketing_words = {
+        'супер', 'лучший', 'новинка', 'хит', 'популярный', 'топ', 'акция',
+        'скидка', 'распродажа', 'бесплатный', 'дешевый', 'элитный',
+        'hot', 'best', 'new', 'sale', 'top', 'cheap', 'free', 'premium',
+    }
+    words = title.split()
+    cleaned_words = [w for w in words if w.lower().strip('.,!?') not in _marketing_words]
+    if cleaned_words:
+        title = ' '.join(cleaned_words)
+
+    # 1. 长度校验：≤80字符
+    if len(title) > 80:
         # 截断到最近的空格边界（不截断单词）
-        truncated: str = title[:50]
+        truncated: str = title[:80]
         last_space: int = truncated.rfind(' ')
         if last_space > 20:  # 确保截断后不会太短
             truncated = truncated[:last_space]
@@ -205,11 +289,11 @@ def _sanitize_title(title: str) -> str:
         logger.warning(f"⚠️ 标题无标点，已补救：{title}")
 
     # 3. 关键词堆砌检测：连续4+个单词（每个≥4字符）无标点分隔
-    words: list = title.split()
-    if len(words) >= 5:
+    words2: list = title.split()
+    if len(words2) >= 5:
         consecutive_nouns: int = 0
         needs_fix: bool = False
-        for w in words:
+        for w in words2:
             if len(w) >= 4 and not any(ch in punctuation_chars for ch in w):
                 consecutive_nouns += 1
                 if consecutive_nouns >= 4:
@@ -222,7 +306,7 @@ def _sanitize_title(title: str) -> str:
             # 在第3个长词后插入逗号
             fixed_words: list = []
             long_count: int = 0
-            for w in words:
+            for w in words2:
                 fixed_words.append(w)
                 if len(w) >= 4 and not any(ch in punctuation_chars for ch in w):
                     long_count += 1
@@ -437,6 +521,14 @@ def classify_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         state.upload_status = "success_with_warning"
         return state
 
+    # ✅ 品牌错误：该类目不接受"Нет бренда"，移除强制品牌属性
+    if error_code == "BR_CRITICAL_OIL_BRAND":
+        logger.warning("⚠️ 品牌错误(BR_CRITICAL_OIL_BRAND)，移除强制品牌属性 85/5076")
+        state.error_type = "retry"
+        state.repair_node = "error_repair_llm"
+        state.repair_metadata = {"remove_attrs": [85, 5076]}
+        return state
+
     # 查修复策略表
     repair_node: str = REPAIR_STRATEGY.get(error_code, "error_repair_llm")
     
@@ -482,6 +574,18 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
     """
     logger.info(f"🔧 开始LLM修复: code={state.error_code}, attr_id={state.attribute_id}")
 
+    # ✅ 品牌错误快速修复：直接从 payload 移除品牌属性（不调 LLM）
+    remove_attrs = (state.repair_metadata or {}).get("remove_attrs", [])
+    if remove_attrs:
+        items = state.ozon_payload.get("items", [])
+        for item in items:
+            attrs = item.get("attributes", [])
+            item["attributes"] = [a for a in attrs if a.get("id") not in remove_attrs]
+        logger.info(f"✅ 已移除属性 {remove_attrs}，剩余属性: {sum(len(i.get('attributes',[])) for i in items)}")
+        state.error_type = "retry"
+        state.repair_node = "revalidate"
+        return state
+
     error_code: str = state.error_code
     attr_id: int = state.attribute_id
     token: str = state.token
@@ -491,16 +595,81 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
     type_id: str = state.type_id
 
     # ========== 特殊处理：DESCRIPTION_DECLINE + attr 8229（类型不匹配） ==========
-    # 当 Ozon 审核拒绝产品因为"照片与类型不匹配"(attr 8229)时，
-    # 根因通常是类目匹配错误，而非属性值错误。仅修改 8229 的值（仍限定在当前类目）
-    # 无法解决问题，需要重新匹配类目。
+    # 使用 pg_trgm 搜索 category_tree_nodes 找到最匹配的 type_id，
+    # 而非盲选同一 category 下的替代 type（原 _find_alternative_type_id 太粗糙）
     if error_code == "DESCRIPTION_DECLINE" and attr_id == 8229:
         logger.warning(
             "⚠️ 检测到 DESCRIPTION_DECLINE + attr 8229（类型不匹配）。"
             f"当前类目: category_id={category_id}, type_id={type_id}。"
         )
 
-        # 尝试换一个 type_id（同一 category 下的其他 type）
+        # 从 payload 中提取产品名（俄语）用于 pg_trgm 搜索
+        product_name = ""
+        items = state.ozon_payload.get("items", [])
+        if items and isinstance(items[0], dict):
+            product_name = items[0].get("name", "")
+        if not product_name:
+            product_name = state.product_name or ""
+
+        best_type_id = None
+        best_category_id = None
+        best_type_name = ""
+
+        if product_name:
+            try:
+                from utils.ozon_category_query import get_category_query
+                query = get_category_query()
+                # pg_trgm 搜索 RU 类目树，找最匹配的 type
+                candidates = query.search_nodes(
+                    product_name[:100], top_k=5, node_type="type", language="RU"
+                )
+                if candidates:
+                    best = candidates[0]
+                    best_type_id = best.get("type_id")
+                    best_category_id = best.get("description_category_id")
+                    best_type_name = best.get("node_name", "")
+                    logger.info(
+                        f"🔍 pg_trgm 搜索完成: '{product_name[:60]}' → "
+                        f"type_id={best_type_id}, type_name='{best_type_name}', "
+                        f"category_id={best_category_id}"
+                    )
+
+                    # 关键词重叠验证（产品名 vs type_name）
+                    _prod_words = set(product_name.lower().replace(',', ' ').split())
+                    _type_words = set(best_type_name.lower().replace(',', ' ').split())
+                    _overlap = _prod_words & _type_words
+                    if not _overlap and len(candidates) > 1:
+                        # 第一名无关键词重叠，尝试第二名
+                        for cand in candidates[1:]:
+                            _tw = set(cand.get("node_name", "").lower().replace(',', ' ').split())
+                            if _prod_words & _tw:
+                                best = cand
+                                best_type_id = best.get("type_id")
+                                best_category_id = best.get("description_category_id")
+                                best_type_name = best.get("node_name", "")
+                                logger.info(f"🔍 关键词重叠回退到候选: type_id={best_type_id}, '{best_type_name}'")
+                                break
+            except Exception as _pg_e:
+                logger.warning(f"⚠️ pg_trgm 搜索失败: {_pg_e}")
+
+        # 如果 pg_trgm 找到匹配且与当前不同，更新
+        if best_type_id and str(best_type_id) != str(type_id):
+            logger.info(f"🔧 pg_trgm type 修复: type_id {type_id} → {best_type_id} ('{best_type_name}')")
+            state.type_id = str(best_type_id)
+            for item in state.ozon_payload.get("items", []):
+                if isinstance(item, dict):
+                    item["type_id"] = int(best_type_id)
+            # 如果 category 也变了（跨 category 匹配），同步更新
+            if best_category_id and str(best_category_id) != str(category_id):
+                logger.info(f"🔧 同时修复 category: {category_id} → {best_category_id}")
+                state.description_category_id = str(best_category_id)
+                for item in state.ozon_payload.get("items", []):
+                    if isinstance(item, dict):
+                        item["description_category_id"] = int(best_category_id)
+            return state
+
+        # pg_trgm 无结果 → 回退到 Ozon API 找替代 type（原逻辑）
+        logger.info("pg_trgm 无匹配，回退到 Ozon API 查找替代 type_id")
         try:
             alt_type_id = _find_alternative_type_id(
                 ozon_client_id, ozon_api_key,
@@ -508,9 +677,8 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 int(type_id) if type_id else 0
             )
             if alt_type_id and str(alt_type_id) != str(type_id):
-                logger.info(f"🔧 尝试替代 type_id: {type_id} → {alt_type_id}")
+                logger.info(f"🔧 Ozon API 替代 type_id: {type_id} → {alt_type_id}")
                 state.type_id = str(alt_type_id)
-                # 更新 payload 中的 type_id
                 for item in state.ozon_payload.get("items", []):
                     if isinstance(item, dict):
                         item["type_id"] = int(alt_type_id)
@@ -518,9 +686,9 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         except Exception as _e:
             logger.warning(f"⚠️ 查找替代 type_id 失败: {_e}")
 
-        # 找不到替代 type_id，标记需要重新分类
+        # 完全找不到替代 → 标记
         state.needs_recategorization = True
-        logger.info("🔧 已标记 needs_recategorization=True，跳过属性值修复")
+        logger.info("🔧 已标记 needs_recategorization=True（找不到合适的替代 type）")
         return state
 
     # ========== 特殊处理：BR_chinese_hieroglyphs_in_attribute（中文字符） ==========
@@ -663,9 +831,16 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 if _fresh_values:
                     # 写入 PG 缓存
                     try:
-                        from utils.local_db_manager import get_local_db
-                        db = get_local_db()
-                        db.write_dict_cache(attr_id, _fresh_values, ttl_seconds=86400)
+                        from utils.local_db_manager import LocalDBManager
+                        local_db = LocalDBManager()
+                        local_db.set_dictionary_value_cache(
+                            attribute_id=attr_id,
+                            description_category_id=int(category_id) if category_id else 0,
+                            type_id=int(type_id) if type_id else 0,
+                            values_data=_fresh_values,
+                            language="RU",  # fetch 用 RU → cache 用 RU
+                            expires_in=86400,
+                        )
                         logger.info(f"  ✅ 字典值缓存已刷新: attr={attr_id}, {len(_fresh_values)}条")
                     except Exception as _cache_e:
                         logger.debug(f"  字典缓存写入跳过: {_cache_e}")
@@ -723,6 +898,55 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 return state
 
         logger.warning(f"⚠️ API搜索未命中（所有关键词），转LLM兜底修复")
+
+    # ========== Step 2.5: 自由文本/字典属性 → 已知默认值兜底 ==========
+    # 对齐 assemble_ozon_product_node._validate_and_enrich_items 的 KNOWN_DEFAULTS
+    # 和 prepare_ozon_upload_node 的 _FALLBACK_FREE_TEXT_ATTRS
+    # 避免对常见空属性浪费 LLM 调用
+    _KNOWN_DEFAULTS_RETRY: dict[int, str] = {
+        # 必填属性默认值（来自 assemble_ozon_product_node）
+        8205: "730",               # Срок годности в днях — 2年
+        9163: "Универсальный",     # Пол — 通用
+        8962: "1",                 # Количество предметов
+        4958: "Универсальный",     # Назначение
+        8292: "0",                 # Объединить на одной карточке — 不合并
+        # 非必填但常报错的默认值（来自 prepare_ozon_upload_node + Ozon 实际）
+        7578: "365",               # Срок годности (дни)
+        10350: "40",               # Макс. температура хранения
+        10351: "0",                # Мин. температура хранения
+        8787: "сухое место",       # Условия хранения
+        8050: "полимерные материалы",  # Материал
+        9782: "не опасный",        # Класс опасности
+        9048: "",                  # Название модели — 不设默认值，由 revalidate 用 offer_id 补
+        23487: "",                 # Производитель — 不设默认值，用 supplier 填充
+    }
+
+    if attr_id > 0 and attr_id in _KNOWN_DEFAULTS_RETRY:
+        default_val = _KNOWN_DEFAULTS_RETRY[attr_id]
+        if default_val:  # 非空默认值
+            logger.info(f"📋 使用已知默认值: attr={attr_id} name={attr_name} → '{default_val}'")
+            updated_attrs = []
+            found = False
+            for attr in state.final_attributes:
+                if not isinstance(attr, dict):
+                    updated_attrs.append(attr)
+                    continue
+                if attr.get("id") == attr_id or attr.get("attribute_id") == attr_id:
+                    attr["value"] = default_val
+                    attr["dictionary_value_id"] = 0  # 默认值为自由文本格式
+                    found = True
+                    logger.info(f"✅ 属性{attr_id}已用默认值修复: '{default_val}'")
+                updated_attrs.append(attr)
+            if not found:
+                # 属性不存在 → 添加新属性
+                updated_attrs.append({
+                    "attribute_id": attr_id, "id": attr_id,
+                    "value": default_val, "dictionary_value_id": 0,
+                    "source": "retry_default"
+                })
+                logger.info(f"✅ 已添加缺失属性{attr_id}，默认值: '{default_val}'")
+            state.final_attributes = updated_attrs
+            return state
 
     # ========== Step 3: API搜不到 → 调用mxou LLM ==========
     # 准备LLM上下文
@@ -1141,6 +1365,192 @@ def repair_dimensions_node(state: ValidationRetryLoopState) -> ValidationRetryLo
     return state
 
 
+# ============================================================
+# 靶向修复函数（reupload_node 路由器调用）
+# ============================================================
+
+def _fix_via_attributes_update(state: ValidationRetryLoopState) -> bool:
+    """调用 POST /v1/product/attributes/update 增量更新属性。
+
+    当 product_id 存在且错误为属性相关时使用。此 API 只更新属性值，
+    不触发 Ozon 全量重新审核，响应快速（~3s）。
+
+    Returns:
+        True 表示 API 调用成功（200），False 表示失败需回退。
+    """
+    items = state.ozon_payload.get("items", [])
+    first_item = items[0] if items else {}
+    offer_id = first_item.get("offer_id", "")
+
+    if not offer_id:
+        logger.warning("⚠️ attributes/update: offer_id 缺失")
+        return False
+
+    # 从 final_attributes 构造 Ozon 格式的属性列表
+    attributes = state.final_attributes or first_item.get("attributes", [])
+    ozon_attrs = []
+    for attr in attributes:
+        if not isinstance(attr, dict):
+            continue
+        aid = attr.get("id") or attr.get("attribute_id")
+        vals = attr.get("values", [])
+        if not vals and attr.get("value"):
+            vals = [{"value": str(attr["value"]), "dictionary_value_id": attr.get("dictionary_value_id", 0)}]
+        if aid and vals:
+            ozon_attrs.append({"id": int(aid), "values": vals})
+
+    if not ozon_attrs:
+        logger.warning("⚠️ attributes/update: 无有效属性")
+        return False
+
+    update_body = {
+        "items": [{
+            "offer_id": str(offer_id),
+            "product_id": int(state.product_id),
+            "attributes": ozon_attrs,
+        }]
+    }
+
+    try:
+        resp = session.post(
+            "https://api-seller.ozon.ru/v1/product/attributes/update",
+            headers={
+                "Client-Id": state.ozon_client_id,
+                "Api-Key": state.ozon_api_key,
+                "Content-Type": "application/json",
+            },
+            json=update_body, timeout=30,
+        )
+        if resp.status_code == 200:
+            task_id = resp.json().get("result", {}).get("task_id", "") or resp.json().get("task_id", "")
+            logger.info(f"✅ 属性增量更新成功 (task_id={task_id}, {len(ozon_attrs)} attrs)")
+            return True
+        else:
+            logger.warning(f"⚠️ attributes/update 返回 {resp.status_code}: {resp.text[:200]}")
+            return False
+    except Exception as e:
+        logger.warning(f"⚠️ attributes/update 异常: {e}")
+        return False
+
+
+def _fix_via_prices_update(state: ValidationRetryLoopState) -> bool:
+    """调用 POST /v1/product/import/prices 增量更新价格。
+
+    当 product_id 存在且错误为价格相关时使用。此 API 只更新价格字段，
+    不触发 Ozon 重新审核，响应快速（~3s）。
+
+    Returns:
+        True 表示 API 调用成功（200），False 表示失败需回退。
+    """
+    items = state.ozon_payload.get("items", [])
+    first_item = items[0] if items else {}
+    offer_id = first_item.get("offer_id", "")
+    product_id = state.product_id
+
+    if not offer_id or not product_id:
+        logger.warning("⚠️ prices/update: offer_id 或 product_id 缺失")
+        return False
+
+    # 获取价格：优先从 ozon_payload，其次从 pricing_info
+    price = first_item.get("price", "")
+    old_price = first_item.get("old_price", "")
+    min_price = first_item.get("min_price", "")
+
+    if not price:
+        pricing_info = state.pricing_info or {}
+        suggested_price = pricing_info.get("final_price", 0) or pricing_info.get("selling_price", 0)
+        if suggested_price > 0:
+            price = str(int(suggested_price))
+            old_price = str(int(suggested_price * 1.2))
+            min_price = str(int(suggested_price * 0.9))
+
+    if not price:
+        logger.warning("⚠️ prices/update: 无法确定价格")
+        return False
+
+    update_body = {
+        "prices": [{
+            "offer_id": str(offer_id),
+            "product_id": int(product_id),
+            "price": str(price),
+            "old_price": str(old_price) if old_price else str(int(float(price) * 1.2)),
+            "min_price": str(min_price) if min_price else str(int(float(price) * 0.9)),
+        }]
+    }
+
+    try:
+        resp = session.post(
+            "https://api-seller.ozon.ru/v1/product/import/prices",
+            headers={
+                "Client-Id": state.ozon_client_id,
+                "Api-Key": state.ozon_api_key,
+                "Content-Type": "application/json",
+            },
+            json=update_body, timeout=30,
+        )
+        if resp.status_code == 200:
+            logger.info(f"✅ 价格增量更新成功: price={price}, old_price={update_body['prices'][0]['old_price']}")
+            # 同步更新 ozon_payload 中的价格
+            first_item["price"] = str(price)
+            first_item["old_price"] = str(update_body["prices"][0]["old_price"])
+            first_item["min_price"] = str(update_body["prices"][0]["min_price"])
+            return True
+        else:
+            logger.warning(f"⚠️ prices/update 返回 {resp.status_code}: {resp.text[:200]}")
+            return False
+    except Exception as e:
+        logger.warning(f"⚠️ prices/update 异常: {e}")
+        return False
+
+
+def _fix_via_product_import_update(state: ValidationRetryLoopState) -> Optional[str]:
+    """调用 POST /v3/product/import（UPDATE 模式）更新产品。
+
+    当 product_id 存在且错误需要更新扁平字段（类目/尺寸/描述/图片）时使用。
+    在 payload 的每个 item 中添加 product_id 字段，Ozon 将其视为更新而非创建。
+
+    Returns:
+        Ozon task_id (str) 如果成功，None 如果失败。
+    """
+    items = state.ozon_payload.get("items", [])
+    if not items:
+        logger.warning("⚠️ product/import(update): items 为空")
+        return None
+
+    product_id = state.product_id
+    try:
+        pid_int = int(product_id)
+    except (ValueError, TypeError):
+        logger.warning(f"⚠️ product/import(update): product_id 无效: {product_id}")
+        return None
+
+    # 关键：为每个 item 添加 product_id，Ozon 将其视为 UPDATE
+    for item in items:
+        if isinstance(item, dict):
+            item["product_id"] = pid_int
+
+    try:
+        resp = session.post(
+            "https://api-seller.ozon.ru/v3/product/import",
+            headers={
+                "Client-Id": state.ozon_client_id,
+                "Api-Key": state.ozon_api_key,
+                "Content-Type": "application/json",
+            },
+            json={"items": items}, timeout=60,
+        )
+        if resp.status_code == 200:
+            task_id = resp.json().get("result", {}).get("task_id", "")
+            logger.info(f"✅ product/import(UPDATE) 成功: task_id={task_id}, product_id={pid_int}")
+            return str(task_id) if task_id else None
+        else:
+            logger.warning(f"⚠️ product/import(UPDATE) 返回 {resp.status_code}: {resp.text[:200]}")
+            return None
+    except Exception as e:
+        logger.warning(f"⚠️ product/import(UPDATE) 异常: {e}")
+        return None
+
+
 def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     """重新验证节点：验证修复后的payload结构"""
     logger.info(f"🔍 开始重新验证（retry_count={state.retry_count}）")
@@ -1454,87 +1864,109 @@ def should_continue(state: ValidationRetryLoopState) -> str:
 
 
 def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
-    """重新上传节点：优先使用增量API（attributes/update, pictures/import）"""
+    """重新上传节点：靶向路由器。
+
+    根据 product_id 和 error_code 选择最优的 Ozon API 端点：
+    - 有 product_id + 属性错误 → attributes/update（增量，~3s，无需审核）
+    - 有 product_id + 价格错误 → prices/update（增量，~3s，无需审核）
+    - 有 product_id + 类目/尺寸/描述错误 → product/import UPDATE 模式（需审核轮询）
+    - 无 product_id → 全量 product/import CREATE 模式（首次上传失败场景）
+    - 不可修复错误 → 直接标记 success（不浪费重试）
+    """
     logger.info("🔄 开始重新上传Ozon...")
 
-    if state.product_id:
-        logger.info(f"📝 产品已存在(product_id={state.product_id})")
-
-    items: list = state.ozon_payload.get("items", [])
-    first_item = items[0] if items else {}
-
-    # ✅ 判断修复类型，选择最优API
     error_code = state.error_code
-    # ✅ 所有属性相关错误都用 attributes/update（增量，不重新审核全部）
-    is_attr_fix = error_code in (
-        "error_attribute_values_empty", "BR_chinese_hieroglyphs_in_attribute",
-        "BR_warning_wrong_country", "warning_attribute_values_out_of_range",
-        "MISSING_ATTRIBUTE", "MISSING_REQUIRED_ATTRIBUTE", "INVALID_ATTRIBUTE_VALUE",
-        "DESCRIPTION_DECLINE", "VALUE_MIN_LIMIT", "VALUE_MAX_LIMIT",
-        "INCORRECT_DENSITY", "INCORRECT_DIMENSION",
-        "BR_hashtag_validation", "BR_hashtag_brand", "INVALID_CATEGORY",
-        "marking_auto_corrected",
-    )
-    # 仅全量import时用：尺寸修复需要更新flat字段
-    is_dimension_fix = error_code in ("ML_INCORRECT_VOLUME_WEIGHT", "WEIGHT_DIMENSION_ERROR")
+    has_product_id = bool(state.product_id)
 
-    # 策略1: 属性修复 → attributes/update（增量，不重新审核全部）
-    if is_attr_fix and state.product_id:
-        try:
-            offer_id = first_item.get("offer_id", "")
-            attributes = state.final_attributes or first_item.get("attributes", [])
-            ozon_attrs = []
-            for attr in attributes:
-                if isinstance(attr, dict):
-                    aid = attr.get("id") or attr.get("attribute_id")
-                    vals = attr.get("values", [])
-                    if not vals and attr.get("value"):
-                        vals = [{"value": str(attr["value"]), "dictionary_value_id": attr.get("dictionary_value_id", 0)}]
-                    if aid and vals:
-                        ozon_attrs.append({"id": int(aid), "values": vals})
-            if ozon_attrs and offer_id:
-                update_body = {"items": [{"offer_id": str(offer_id), "attributes": ozon_attrs}]}
-                resp = session.post(
-                    "https://api-seller.ozon.ru/v1/product/attributes/update",
-                    headers={"Client-Id": state.ozon_client_id, "Api-Key": state.ozon_api_key, "Content-Type": "application/json"},
-                    json=update_body, timeout=30
-                )
-                if resp.status_code == 200:
-                    task_id = resp.json().get("result", {}).get("task_id", "") or resp.json().get("task_id", "")
-                    logger.info(f"✅ 属性增量更新成功(task_id={task_id})，替代全量re-import")
-                    state.task_id = str(task_id)
-                    state.upload_status = "uploaded"
-                    return state
-                else:
-                    logger.warning(f"⚠️ attributes/update失败({resp.status_code})，回退到全量import")
-        except Exception as _ae:
-            logger.warning(f"⚠️ attributes/update异常: {_ae}，回退到全量import")
+    if has_product_id:
+        logger.info(f"📝 产品已存在(product_id={state.product_id})，使用靶向修复")
 
-    # 策略2: 全量 import（默认，用于尺寸/类目修复或增量失败时回退）
-    ozon_url: str = "https://api-seller.ozon.ru/v3/product/import"
-    headers: Dict[str, str] = {
-        "Client-Id": state.ozon_client_id,
-        "Api-Key": state.ozon_api_key,
-        "Content-Type": "application/json"
-    }
+    # ── 无 product_id：全量 CREATE（首次上传失败场景）──
+    if not has_product_id:
+        logger.info("📦 无 product_id，使用全量 product/import (CREATE 模式)")
+        return _full_import_create(state)
+
+    # ── 有 product_id：靶向路由 ──
+    fix_type = classify_fix_type(error_code)
+    logger.info(f"🎯 靶向修复类型: {fix_type} (error_code={error_code})")
+
+    # 类型 1: 属性错误 → attributes/update（增量，无需审核轮询）
+    if fix_type == "attributes":
+        if _fix_via_attributes_update(state):
+            state.upload_status = "success"
+            state.is_valid = True
+            logger.info("✅ 属性增量更新成功，跳过审核轮询")
+            return state
+        else:
+            logger.warning("⚠️ attributes/update 失败，回退到 product/import UPDATE")
+            fix_type = "product_import"  # 回退
+
+    # 类型 2: 价格错误 → prices/update（增量，无需审核轮询）
+    if fix_type == "prices":
+        if _fix_via_prices_update(state):
+            state.upload_status = "success"
+            state.is_valid = True
+            logger.info("✅ 价格增量更新成功，跳过审核轮询")
+            return state
+        else:
+            logger.warning("⚠️ prices/update 失败，回退到 product/import UPDATE")
+            fix_type = "product_import"  # 回退
+
+    # 类型 3: 类目/尺寸/描述/图片 → product/import UPDATE 模式
+    if fix_type == "product_import":
+        task_id = _fix_via_product_import_update(state)
+        if task_id:
+            state.task_id = str(task_id)
+            state.upload_status = "uploaded"
+            logger.info(f"✅ product/import(UPDATE) 已提交，task_id={task_id}，等待审核轮询")
+            return state
+        else:
+            logger.error("❌ product/import(UPDATE) 失败")
+            state.upload_status = "failed"
+            state.error_message = f"product/import(UPDATE) 失败: error_code={error_code}"
+            return state
+
+    # 类型 4: 不可修复 → 直接标记成功
+    if fix_type == "unfixable":
+        state.upload_status = "success"
+        state.is_valid = True
+        logger.info(f"⚠️ 不可修复错误({error_code})，标记为 success（不阻断产品上架）")
+        return state
+
+    # 回退：未知类型 → 全量 CREATE
+    logger.warning(f"⚠️ 未知 fix_type={fix_type}，回退到全量 product/import (CREATE)")
+    return _full_import_create(state)
+
+
+def _full_import_create(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
+    """全量 product/import（CREATE 模式）— 用于无 product_id 的首次上传或回退场景。"""
+    items: list = state.ozon_payload.get("items", [])
     payload: Dict[str, Any] = {"items": items}
 
     try:
-        response = session.post(ozon_url, headers=headers, json=payload, timeout=30)
+        response = session.post(
+            "https://api-seller.ozon.ru/v3/product/import",
+            headers={
+                "Client-Id": state.ozon_client_id,
+                "Api-Key": state.ozon_api_key,
+                "Content-Type": "application/json",
+            },
+            json=payload, timeout=30,
+        )
         response_data: Dict[str, Any] = response.json()
 
         if response.status_code == 200:
             task_id: Any = response_data.get("result", {}).get("task_id", "")
-            logger.info(f"✅ 重新上传成功，task_id={task_id}")
+            logger.info(f"✅ 全量 import(CREATE) 成功，task_id={task_id}")
             state.task_id = str(task_id) if task_id else ""
             state.upload_status = "uploaded"
         else:
             error_msg: str = response_data.get("message", "Unknown error")
-            logger.error(f"❌ 重新上传失败: {error_msg}")
+            logger.error(f"❌ 全量 import(CREATE) 失败: {error_msg}")
             state.upload_status = "failed"
             state.error_message = f"重新上传失败: {error_msg}"
     except Exception as e:
-        logger.error(f"❌ 重新上传异常: {e}")
+        logger.error(f"❌ 全量 import(CREATE) 异常: {e}")
         state.upload_status = "failed"
         state.error_message = f"重新上传异常: {str(e)}"
 
@@ -1542,14 +1974,28 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
 
 
 def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
-    """重新查询状态节点：轮询task_id状态，获取product_id和errors"""
+    """重新查询状态节点：轮询task_id状态，获取product_id和errors。
+    如果增量API已成功（upload_status=success），跳过轮询直接返回。"""
     logger.info("🔍 开始查询重新上传状态...")
+
+    # ✅ 增量 API 已成功（attributes/update 或 prices/update），无需轮询
+    if state.upload_status == "success":
+        logger.info("✅ 增量 API 已成功，跳过审核轮询")
+        return state
 
     task_id: str = state.task_id
     if not task_id:
         logger.error("❌ task_id为空，无法查询状态")
         state.upload_status = "failed"
         state.error_message = "task_id为空"
+        return state
+
+    # ✅ 防御：检测 UUID 格式（ingest_node 生成的系统 task_id）
+    # reupload_node 失败时 state.task_id 未被覆盖，仍为 UUID
+    if len(task_id) == 36 and task_id.count('-') == 4:
+        logger.error(f"❌ task_id 仍为系统 UUID（上传失败未覆盖）: {task_id}")
+        state.upload_status = "failed"
+        state.error_message = "Ozon 上传失败，未获取到 Ozon task_id"
         return state
 
     try:
@@ -1615,9 +2061,9 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                 
                 # ✅ Bug 4 修复：等待 Ozon 审核通过（moderate_status）
                 # 导入成功不代表审核通过，需要额外轮询 /v3/product/info/list
-                logger.info(f"⏳ 等待 Ozon 审核（最多120秒）...")
+                logger.info(f"⏳ 等待 Ozon 审核（最多300秒）...")
                 info_url: str = "https://api-seller.ozon.ru/v3/product/info/list"
-                for mod_attempt in range(1, 25):
+                for mod_attempt in range(1, 61):  # 60 × 5s = 300s
                     time.sleep(5)
                     try:
                         mod_resp = session.post(info_url, headers=headers, 
@@ -1627,7 +2073,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                         if mod_items:
                             mod_status = mod_items[0].get("statuses", {}).get("moderate_status", "")
                             mod_errors = mod_items[0].get("errors", [])
-                            logger.info(f"📊 审核轮询[{mod_attempt}/24] moderate={mod_status} errors={len(mod_errors)}")
+                            logger.info(f"📊 审核轮询[{mod_attempt}/60] moderate={mod_status} errors={len(mod_errors)}")
                             if mod_status == "approved":
                                 logger.info(f"✅ 审核通过！product_id={product_id}")
                                 state.is_valid = True

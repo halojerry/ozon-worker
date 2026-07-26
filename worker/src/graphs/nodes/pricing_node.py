@@ -189,21 +189,21 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             # 店铺是CNY，直接计算人民币价格（CNY店铺无汇率风险，不使用fx_buffer）
             base_price_cny: float = total_cost_cny * (1 + margin_rate) / commission_divisor
             price: int = math.ceil(base_price_cny)
-            # Ozon规则：价格≤25时，old_price - price必须>2；价格>25时按15%加价
+            # Ozon规则：折扣至少 20%（price≤25 时 old_price-price≥5；否则 20% 加价）
             if price <= 25:
-                old_price: int = price + 3
+                old_price: int = max(price + 5, math.ceil(price * 1.2))
             else:
-                old_price = math.ceil(price * 1.15)
+                old_price = math.ceil(price * 1.2)
             currency_unit = "CNY"
         else:
             # 店铺是RUB，计算俄罗斯卢布价格
             base_price_rub: float = total_cost_cny * (1 + margin_rate) * (1 + fx_buffer) / commission_divisor * exchange_rate
             price: int = math.ceil(base_price_rub)
-            # Ozon规则：价格≤25时，old_price - price必须>2；价格>25时按15%加价
+            # Ozon规则：折扣至少 20%
             if price <= 25:
-                old_price = price + 3
+                old_price = max(price + 5, math.ceil(price * 1.2))
             else:
-                old_price = math.ceil(price * 1.15)
+                old_price = math.ceil(price * 1.2)
             currency_unit = "RUB"
         
         # Step 6: 计算利润预估

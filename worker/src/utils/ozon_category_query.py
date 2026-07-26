@@ -88,6 +88,12 @@ class OzonCategoryQuery:
             if node_type:
                 stmt = stmt.where(CategoryTreeNode.node_type == node_type)
 
+            # ✅ 排除无效类目节点：category 节点的 type_id 为 NULL/0
+            stmt = stmt.where(
+                CategoryTreeNode.type_id.isnot(None),
+                CategoryTreeNode.type_id > 0,
+            )
+
             rows = session.execute(stmt).mappings().all()
 
             results = []

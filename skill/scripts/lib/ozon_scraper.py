@@ -328,6 +328,7 @@ def scrape_ozon_product_via_cdp(
         "images": [], "title": "", "category": "", "price": "", "currency": "RUB",
         "description": "", "attributes": {}, "breadcrumbs": [], "hashtags": [],
         "sku": "",
+        "description_category_id": "", "type_id": "",  # Ozon 类目 ID（从面包屑提取）
         "error": None,
     }
 
@@ -521,6 +522,13 @@ def scrape_ozon_product_via_cdp(
                         # Extract category from breadcrumbs
                         if crumbs:
                             result["category"] = " > ".join(c["text"] for c in crumbs if c["text"])
+                            # ✅ 传面包屑文本给 Worker（Worker 用 pg_trgm 搜 PG 类目树找到正确的 API ID）
+                            # 面包屑 URL 中的数字 ID 不是 Ozon API 的 description_category_id
+                            last_crumb = crumbs[-1]
+                            last_text = last_crumb.get("text", "")
+                            if last_text:
+                                result["description_category_id"] = last_text  # 传文本，不是数字 ID
+                                result["type_id"] = last_text
                 except (_json.JSONDecodeError, TypeError):
                     pass
 

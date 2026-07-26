@@ -28,7 +28,7 @@ def get_config_profile() -> str:
 
 DEFAULT_OZON_CURRENCY = 'RUB'
 DEFAULT_CACHE_TTL_SECONDS = 86400
-CLOUD_API_BASE = 'https://worker.mxou.cn'
+CLOUD_API_BASE = os.environ.get('WORKER_URL', 'https://worker.mxou.cn').rstrip('/')
 LOGS_DIR = DATA_DIR / 'logs'
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_DIR = DATA_DIR / 'cache'

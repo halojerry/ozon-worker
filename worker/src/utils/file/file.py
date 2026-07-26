@@ -172,8 +172,7 @@ class FileOps:
             with requests.get(file_obj.url, headers=headers, stream=True, timeout=120) as r:
                 r.raise_for_status()
                 with open(local_path, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
+                    f.writelines(r.iter_content(chunk_size=8192))
 
             return local_path
         except Exception as e:
