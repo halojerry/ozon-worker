@@ -368,7 +368,60 @@ Skill 已适配 Windows，但有以下注意事项：
 
 跨平台分发流程：在 macOS/Windows/Linux 各跑一次 `python3.12 compile.py`，合并 `_native/` 目录后打包。
 
-## 最近更新（v0.5.0 — 本地集成测试修复）
+## 最近更新（v0.6.0 — 靶向修复 + 生产级稳定性）
+
+> 2026-07-26 全链路重构：retry loop 靶向路由器、字典缓存多语言、标题 SEO、type pg_trgm、follow-sell 管线、稳定性加固。
+
+### retry loop 靶向路由器
+
+`validation_retry_loop.py` 重构为三路靶向路由器。当 `product_id` 已存在时根据错误类型选择最优 Ozon API：
+
+| 错误类型 | API | 特点 |
+|---------|-----|------|
+| 属性错误 (11种) | `POST /v1/product/attributes/update` | 增量，~3s，无需审核 |
+| 价格错误 (2种) | `POST /v1/product/import/prices` | 增量，~3s，无需审核 |
+| 类目/尺寸/描述错误 | `POST /v3/product/import` + `product_id` | UPDATE 模式，需审核 |
+| 不可修复 (9种) | 无 | 标记 success，不重试 |
+
+⚠️ **关键 bug 修复**：`product_id` 之前未传入 retry loop（`ValidationRetryLoopInput` 缺少该字段），导致 retry 创建重复产品（无图片 `image_absent` 错误）。已在 `state.py`、`validation_retry_loop.py`、`validation_retry_wrapper_node.py` 三处修复。
+
+⚠️ **字典缓存多语言分离**：`_cache_dict_values()` 和 `_fetch_dict_values_from_ozon()` 均加了 `language` 参数。fetch(ZH_HANS)→cache(ZH_HANS)→read(ZH_HANS)，fetch(RU)→cache(RU)→read(RU)。`_validate_and_enrich_items` 的 RU 路径新增缓存写入。方法名 `write_dict_cache`→`set_dictionary_value_cache`。
+
+### DESCRIPTION_DECLINE + attr 8229（类型不匹配）修复
+
+`error_repair_llm_node` 中用 pg_trgm `search_nodes(product_name, node_type="type", language="RU")` 搜索 `category_tree_nodes` 表替代盲选备选 type_id。关键词重叠验证后取最佳匹配替代原 `_find_alternative_type_id()`。
+
+### 标题 SEO 优化
+
+- prepare 节点 title 限制 **50→80 字符**（Ozon 实际支持 80）
+- `_sanitize_title` 重写：+拉丁/中文移除 +营销词过滤，对齐 prepare 节点逻辑
+- 生图标题清洗：`utils/mxou_api.py` 新增 `clean_title_for_image_prompt()`（80+ 平台/营销垃圾词正则过滤，5 大类：平台名/跨境黑话/营销吹嘘/电商套话/通用填充）。7 个生图节点 + scene_gen 调用。
+
+### 跟卖管线全面重构
+
+跟卖不再是 `follow_sell_import → END`，改为走完整管线：
+
+```
+follow_sell_import → pricing → assemble → scene → 10x 图片生成 → prepare → validate → upload → status
+```
+
+- **竞品图片作为 AI 生图参考**：`follow_sell_import_node` 提取竞品 `images[]` → `state.original_images` → Phase 1/2 生图（跟 1688 管线相同逻辑，参考图不同）
+- **prepare 节点图片策略**：AI 生成图优先，竞品 Ozon 原图兜底补足 10 张
+- **竞品价格保护**：竞品价 ≥ 成本*1.3 时保留（更有竞争力），否则公式重算
+- **属性硬化**：import-by-sku 后强制 `brand=Нет бренда`(126745801), `country=Китай`(90296)
+- **定价修正**：不再硬编码 10/12，用 `purchase_cost * (1+margin)/(1-commission)`
+
+### 稳定性加固
+
+| 功能 | 位置 | 说明 |
+|------|------|------|
+| 僵尸任务恢复 | `main.py` lifespan | 启动时 running→pending, failed→pending(可重试) |
+| 定时清理 | `main.py` `_periodic_task_cleanup` | 每 60s 重置 stale running(>30min), 清理 7天前 completed |
+| 健康检查增强 | `GET /health` | +`queue` 字段 (pending/running/completed/failed 统计) |
+| 店铺配额监控 | `GET /api/v1/store/health` | 查询 Ozon 配额 (total/daily usage/limit) |
+| 日志持久化 | `docker-compose.yml` | `LOG_FILE=/app/logs/worker.log` + `logs` volume |
+
+## 历史更新（v0.5.0）
 
 > 2026-07-25 本地全链路测试：Skill ↔ Docker Worker，两条管线各成功上架 1 个产品。
 
