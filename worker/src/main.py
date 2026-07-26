@@ -26,6 +26,7 @@ from storage.database.supabase_client import get_supabase_client
 from storage.memory.memory_saver import get_memory_saver
 from storage.database.shared.model import Base
 from utils.task_processor import SupabaseTaskProcessor
+from utils.ozon_client import ozon_check_quota  # 配额检查
 from sqlalchemy import event
 
 # ── 进度追踪（内存存储，重启清空） ──
@@ -36,7 +37,7 @@ _task_progress: Dict[str, Dict[str, Any]] = {}
 STAGE_ORDER = [
     "auth", "ingest", "category_match", "pricing", "attributes",
     "description", "image_generation", "prepare_ozon_upload",
-    "ozon_validate", "ozon_upload", "ozon_status", "learning_record"
+    "ozon_validate", "check_quota", "ozon_upload", "ozon_status", "learning_record"
 ]
 
 def update_progress(task_id: str, stage: str, message: str = ""):
@@ -1024,6 +1025,36 @@ async def http_submit_task(request: Request):
         priority = 0  # ✅ 固定为0（所有用户平等优先级，直到建立VIP体系）
         timeout_seconds = body.get("timeout_seconds", 1800)
         max_retries = body.get("max_retries", 3)
+
+        # ✅ Step3.5: 检查 Ozon 店铺配额（提前拒绝，避免浪费 MXOU 生图/LLM 额度）
+        if ozon_client_id and ozon_api_key:
+            try:
+                quota = ozon_check_quota(
+                    client_id=ozon_client_id,
+                    api_key=ozon_api_key,
+                    timeout=5,  # submit 阶段只做快速检查
+                )
+                if not quota["ok"]:
+                    raise HTTPException(
+                        status_code=429,
+                        detail=(
+                            f"Ozon 店铺配额不足: "
+                            f"日创建 {quota['daily_used']}/{quota['daily_limit']}"
+                            f", 总产品 {quota['total_used']}/{quota['total_limit']}"
+                            f"。请等待配额重置或归档旧产品。"
+                        )
+                    )
+                if quota["remaining_daily"] <= 3:
+                    logger.warning(
+                        "店铺 %s 创建配额紧张: 日剩余 %d, 总剩余 %d",
+                        ozon_client_id,
+                        quota["remaining_daily"],
+                        quota["remaining_total"],
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning("submit_task 阶段配额检查异常（允许继续）: %s", str(e)[:200])
         
         # ✅ Step4: payload中添加user_id（供下游节点使用）
         payload_with_user_id = {

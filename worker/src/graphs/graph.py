@@ -24,6 +24,7 @@ from graphs.nodes.pricing_node import pricing_node
 from graphs.nodes.prepare_ozon_upload_node import prepare_ozon_upload_node  # 数据准备节点
 from graphs.nodes.ozon_upload_node import ozon_upload_node
 from graphs.nodes.ozon_validate_node import ozon_validate_node  # 预检测节点
+from graphs.nodes.check_quota_node import check_quota_node  # 配额检查节点
 from graphs.nodes.ozon_status_node import ozon_status_node  # 状态轮询节点
 
 # ✅ 新增导入：validation_retry_wrapper节点 + learning_record节点
@@ -86,6 +87,7 @@ builder.add_node("comparison_gen", comparison_gen_node)
 # Phase 5: 数据准备 + Ozon上传 + 错误处理
 builder.add_node("prepare_ozon_upload", prepare_ozon_upload_node, metadata={"type": "agent", "llm_cfg": "config/translate_russian_cfg.json"})  # 数据准备节点：整理图片顺序、组装payload、LLM俄语翻译
 builder.add_node("ozon_validate", ozon_validate_node)  # 预检测节点：检测Ozon payload是否符合规范
+builder.add_node("check_quota", check_quota_node)  # 配额检查节点：上传前检查店铺配额，配额不足阻断上传
 builder.add_node("ozon_upload", ozon_upload_node)
 builder.add_node("ozon_status", ozon_status_node)  # 状态轮询节点：上传后轮询Ozon商品状态
 
@@ -179,34 +181,52 @@ builder.add_node("validation_retry_wrapper", validation_retry_wrapper_node, meta
 builder.add_node("learning_record", learning_record_node)  # ← 上传成功后记录学习数据
 
 # 上传节点：发送商品数据到Ozon
-# ==================== Ozon预检测条件分支（修改：添加修复循环）====================
+# ==================== Ozon预检测条件分支 + 配额检查 ====================
+# 流程: ozon_validate → check_quota → ozon_upload
+# 2 道防线: (1) validate 失败 → retry, (2) 配额不足 → retry
+
 # 定义条件判断函数：根据ozon_validate_node的验证结果决定后续流程
 def should_upload_after_validate(state):
     """
-    title: 是否继续上传
-    desc: 根据ozon_validate_node的验证结果决定是否继续上传，或进入修复循环
-    
-    ✅ 修改：使用is_valid替代累积的error_message判断（避免上游警告污染）
+    title: 是否继续到配额检查
+    desc: 根据ozon_validate_node的验证结果决定是否继续（配额检查），或进入修复循环
     """
     is_valid = state.is_valid if hasattr(state, 'is_valid') else True
     validation_errors = state.validation_errors if hasattr(state, 'validation_errors') else []
     
-    # ✅ 只看ozon_validate自身的验证结果，不看累积的error_message
     if not is_valid or (isinstance(validation_errors, list) and len(validation_errors) > 0):
         logger.warning(f"ozon_validate验证失败: is_valid={is_valid}, errors={len(validation_errors) if isinstance(validation_errors, list) else 0}个")
         return "失败"
     
-    # ✅ 验证成功，继续上传
-    logger.info("ozon_validate验证成功，继续上传")
+    logger.info("ozon_validate验证成功，进入配额检查")
     return "成功"
 
-# ✅ 修改条件分支：成功 → 上传，失败 → validation_retry_wrapper（修复循环）
+# ✅ 验证成功 → check_quota（先检查配额再上传）
 builder.add_conditional_edges(
     source="ozon_validate",
     path=should_upload_after_validate,
     path_map={
-        "成功": "ozon_upload",
-        "失败": "validation_retry_wrapper"  # ← 修改：进入修复循环（调用子图）
+        "成功": "check_quota",
+        "失败": "validation_retry_wrapper",
+    }
+)
+
+# ✅ 配额检查条件分支：通过 → 上传，阻断 → 进入修复循环
+def should_upload_after_quota(state):
+    """配额检查结果路由"""
+    error_msg = getattr(state, 'error_message', '') or ''
+    if '[QUOTA_BLOCKED]' in error_msg:
+        logger.warning("配额不足阻断上传: %s", error_msg)
+        return "阻断"
+    logger.info("配额检查通过，继续上传")
+    return "通过"
+
+builder.add_conditional_edges(
+    source="check_quota",
+    path=should_upload_after_quota,
+    path_map={
+        "通过": "ozon_upload",
+        "阻断": "validation_retry_wrapper",
     }
 )
 
