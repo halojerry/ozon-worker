@@ -118,19 +118,23 @@ builder.add_conditional_edges(
     }
 )
 
-# 跟卖导入 → 条件路由：成功则走简化管线（定价→竞品生图→上传）
+# 跟卖导入 → 直接跳 ozon_status（跟卖节点内已完成上传）
+# 不再走完整管线（定价/图片生成/类目匹配均已在跟卖节点内处理）
 def route_after_follow_sell_import(state):
-    """跟卖导入成功后，走简化管线：定价→组装→场景→生图→上传。
-    不跳 END——竞品图片作为 AI 生图参考，生成我们自己的营销图。"""
-    if getattr(state, 'product_id', None) and getattr(state, 'description_category_id', None):
-        logger.info("跟卖导入成功(product_id=%s)，走简化管线（定价→生图→上传）", state.product_id)
-        return "pricing"
-    return "pricing"
+    """跟卖导入成功后直接跳 ozon_status → learning_record → END。
+    不经过完整管线——跟卖节点内部已完成上传和轮询。"""
+    if getattr(state, 'product_id', None):
+        logger.info("跟卖导入完成(product_id=%s)，直接跳 ozon_status", state.product_id)
+        return "ozon_status"
+    if getattr(state, 'error_message', ''):
+        logger.warning("跟卖导入失败: %s", state.error_message)
+        return "END"
+    return "END"
 
 builder.add_conditional_edges(
     "follow_sell_import",
     route_after_follow_sell_import,
-    {"pricing": "pricing", "END": END}
+    {"ozon_status": "ozon_status", "END": END}
 )
 # 1688 管线：ingest → 定价
 builder.add_edge("ingest", "pricing")
