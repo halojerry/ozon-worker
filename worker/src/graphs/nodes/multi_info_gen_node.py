@@ -11,6 +11,7 @@ from runtime.context import Context
 from graphs.state_image_gen import MultiInfoInput, MultiInfoOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
+from utils.mxou_api import clean_title_for_image_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def multi_info_gen_node(state: MultiInfoInput, config: RunnableConfig, runtime: 
     if not draft or not token:
         return MultiInfoOutput(multi_info_image=None)
     
-    title = draft.get("title", "")
+    title = clean_title_for_image_prompt(draft.get("title", ""))
     prompt = f"产品：{title}。生成该产品的俄语信息展示图。要求：展示产品核心卖点/参数/使用说明（俄语文字），信息布局清晰，适合俄罗斯电商平台Ozon商品详情页使用。产品必须与参考图一致，不得生成其他产品。"
     
     # 构建参考图列表：使用Phase1的图片作为参考（内联逻辑）

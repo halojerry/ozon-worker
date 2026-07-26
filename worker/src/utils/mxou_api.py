@@ -446,3 +446,56 @@ def _poll_mxou_task_fallback(task_id: str, max_wait: int = 90, token: str = "") 
 
     logger.error("mxou fallback轮询超时: task_id=%s (max_wait=%ds)", task_id, max_wait)
     return None
+
+
+# ============================================================
+# 标题清洗：生图 prompt 去平台/营销污染
+# ============================================================
+
+# 平台名/营销垃圾词（中英文），出现在生图标题中会污染 AI 生成结果
+_IMAGE_PROMPT_JUNK_WORDS = [
+    # 平台名
+    "1688", "alibaba", "aliexpress", "ali express",
+    "taobao", "淘宝", "tmall", "天猫",
+    "amazon", "亚马逊",
+    "shopee", "lazada",
+    "tiktok", "抖音",
+    "temu", "shein", "wish", "ebay", "etsy",
+    "jd", "京东", "拼多多", "pinduoduo",
+    "walmart", "ozon", "wildberries",
+    # 营销词
+    "跨境", "爆款", "现货", "热销", "新品", "促销", "同款",
+    "厂家直销", "一件代发", "批发", "代理", "货源",
+    "dropshipping", "cross-border", "wholesale", "OEM", "ODM",
+    "hot sale", "bestseller", "best seller", "new arrival",
+    "free shipping", "fast delivery", "in stock",
+    "high quality", "factory price", "cheap",
+    # 通用垃圾
+    "supply", "manufacturer", "factory", "direct",
+]
+
+import re as _re
+_IMG_JUNK_PATTERN = _re.compile(
+    '|'.join(_re.escape(w) for w in _IMAGE_PROMPT_JUNK_WORDS),
+    _re.IGNORECASE
+)
+
+
+def clean_title_for_image_prompt(title: str) -> str:
+    """清洗产品标题，去除平台名/营销词，只保留产品描述。
+    
+    示例:
+    "跨境爆款 现货 抖音同款1688亚马逊 Frog Plant Stand" 
+    → "Frog Plant Stand"
+    
+    "Hot Sale 2024 New OEM Factory Price Garden Tools"
+    → "Garden Tools"
+    """
+    if not title:
+        return title
+    cleaned = _IMG_JUNK_PATTERN.sub('', title)
+    # 清理多余空格
+    cleaned = _re.sub(r'\s+', ' ', cleaned).strip()
+    # 去掉首尾标点
+    cleaned = cleaned.strip(' ,.-;:!?，。、；：！？')
+    return cleaned if cleaned else title  # 如果全部清空了，保留原标题
