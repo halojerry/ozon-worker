@@ -46,10 +46,10 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
     # Step 1: import-by-sku
     # ✅ 使用 envelope 中的 purchase_cost 计算合理价格，而非硬编码 10/12
     purchase_cost = float(draft.get("purchase_cost", 0) or 0)
-    margin_rate = float((envelope.get("extensions", {}) or {}).get("margin_rate", 0.25))
+    margin_rate = float((state.envelope.get("extensions", {}) or {}).get("margin_rate", 0.25))
     if purchase_cost > 0:
         # CNY 店铺定价公式: 售价 = 成本 * (1+利润率) / (1-佣金率)
-        commission_rate = float((envelope.get("extensions", {}) or {}).get("commission_rate", 0.10))
+        commission_rate = float((state.envelope.get("extensions", {}) or {}).get("commission_rate", 0.10))
         price_val = max(10, int(purchase_cost * (1 + margin_rate) / (1 - commission_rate)))
         old_price_val = price_val + max(3, int(price_val * 0.2))
     else:

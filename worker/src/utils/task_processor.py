@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import logging
+import traceback as _traceback
 from typing import Dict, Any, Optional
 from utils.logger import get_logger, set_trace_context, log_task_event, clear_trace_context
 from datetime import datetime
@@ -250,6 +251,7 @@ class SupabaseTaskProcessor:
                     return None
                     
                 except Exception as e:
+                    logger.error("任务执行异常: %s\n%s", str(e), _traceback.format_exc())
                     log_task_event("failed", task_id=task_id, user_id=tenant_id,
                                    error_message=str(e), error_type=type(e).__name__)
                     await self.handle_task_failure(task_id, str(e))
