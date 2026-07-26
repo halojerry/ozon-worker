@@ -648,36 +648,38 @@ def prepare_ozon_upload_node(
     # Step 1: 整理图片顺序
     logger.info("整理图片顺序")
     
-    # ✅ 跟卖模式：优先用 Ozon 竞品原图（ir.ozone.ru），完全跳过 AI 生成图
-    # AI 生成图可能导致 Ozon 报 "Фото не соответствует типу" 拒绝
+    # ✅ 构建共享营销图列表：AI 生成图优先，竞品 Ozon 图兜底
     original_images = getattr(state, "original_images", []) or []
-    ozon_only = [img for img in original_images if isinstance(img, str) and img.strip() and 'ir.ozone.ru' in img]
-    if ozon_only:
-        shared_marketing_images: List[str] = ozon_only[:10]
-        logger.info(f"跟卖模式：使用 {len(shared_marketing_images)} 张 Ozon 竞品原图，跳过 AI 生成图")
-        # 设置 main_image 为第一张竞品图（避免 AI main_image 导致不匹配）
-        main_image = shared_marketing_images[0]
-    else:
-        # ✅ 构建共享营销图列表（不含变体白底图）
-        shared_marketing_images: List[str] = []
-
-        # 添加main_image作为共享画廊第一张
-        main_image = getattr(state, "main_image", None)
-        if main_image and isinstance(main_image, str) and main_image.strip():
-            shared_marketing_images.append(main_image.strip())
-
-        # 按IMG_ORDER添加其他营销图片
-        for img_key in IMG_ORDER[1:]:
-            img_url = getattr(state, f"{img_key}_image", None)
-            if img_url and isinstance(img_url, str) and img_url.strip():
-                shared_marketing_images.append(img_url)
-                logger.info(f"图片 {img_key}: {img_url}")
-
-    logger.info(f"共享营销图数量: {len(shared_marketing_images)}")
-
-    # ✅ 营销图为空时不再fallback到alicdn（Ozon无法下载alicdn URL），记录错误让validation_retry处理
+    competitor_images = [img for img in original_images if isinstance(img, str) and img.strip() and 'ir.ozone.ru' in img]
+    is_follow_sell = bool(competitor_images)
+    
+    shared_marketing_images: List[str] = []
+    
+    # 1. AI main_image 作为画廊第一张
+    main_image = getattr(state, "main_image", None)
+    if main_image and isinstance(main_image, str) and main_image.strip():
+        shared_marketing_images.append(main_image.strip())
+    
+    # 2. 按 IMG_ORDER 添加 AI 生成的其他营销图
+    for img_key in IMG_ORDER[1:]:
+        img_url = getattr(state, f"{img_key}_image", None)
+        if img_url and isinstance(img_url, str) and img_url.strip():
+            shared_marketing_images.append(img_url)
+            logger.info(f"图片 {img_key}: {img_url}")
+    
+    # 3. 跟卖兜底：AI 图不足 10 张时，用竞品 Ozon 原图补到最多 10 张
+    if is_follow_sell and len(shared_marketing_images) < 10 and competitor_images:
+        fill_count = min(10 - len(shared_marketing_images), len(competitor_images))
+        shared_marketing_images.extend(competitor_images[:fill_count])
+        logger.info(f"跟卖兜底：AI 图 {len(shared_marketing_images)-fill_count} 张 + 竞品图 {fill_count} 张")
+        
+        # 如果 AI 主图也没生成出来，用竞品第一张做主图
+        if not main_image or not isinstance(main_image, str) or not main_image.strip():
+            main_image = competitor_images[0]
+    
+    # 4. 如果一张图都没有（AI 全失败 + 无竞品图），标记警告
     if not shared_marketing_images:
-        logger.warning("⚠️ 营销图为空，生图节点可能失败（mxou COS URL未生成），不使用alicdn原始图")
+        logger.warning("营销图为空，生图节点可能失败（mxou COS URL未生成），不使用alicdn原始图")
 
     variant_primary_images_list = state.variant_primary_images if state.variant_primary_images else []
     has_variant_images: bool = any(isinstance(img, str) and img.strip() for img in variant_primary_images_list)
