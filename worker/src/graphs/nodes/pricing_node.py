@@ -206,6 +206,22 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 old_price = math.ceil(price * 1.2)
             currency_unit = "RUB"
         
+        # ✅ 跟卖模式：如果竞品价格已有利润（≥ 成本*1.3），保持竞品价格以增加竞争力
+        competitor_price_str = getattr(state, 'competitor_price', '') or ''
+        is_follow_sell = bool(getattr(state, 'product_id', None) and getattr(state, 'description_category_id', None))
+        if is_follow_sell and competitor_price_str:
+            try:
+                comp_price = float(competitor_price_str)
+                min_viable = total_cost_cny * 1.3  # 最低可接受售价（30% margin）
+                if comp_price >= min_viable:
+                    logger.info(f"💰 跟卖定价: 竞品价 {comp_price} ≥ 最低 {min_viable:.0f}，保持竞品价格")
+                    price = int(math.ceil(comp_price))
+                    old_price = max(price + 5, math.ceil(price * 1.2)) if price <= 25 else math.ceil(price * 1.2)
+                else:
+                    logger.info(f"💰 跟卖定价: 竞品价 {comp_price} < 最低 {min_viable:.0f}，使用公式重算 {price}")
+            except (ValueError, TypeError):
+                pass
+        
         # Step 6: 计算利润预估
         # 利润 = 最终价格 - 总成本
         if currency_code == "CNY":
