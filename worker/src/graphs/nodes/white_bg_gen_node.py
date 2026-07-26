@@ -14,6 +14,7 @@ from graphs.state_image_gen import WhiteBgInput, WhiteBgOutput
 from utils.image_quality_evaluator import evaluate_image_quality  # ✅ 关键：导入图片质量评估函数
 from utils.progress_logger import ProgressLogger  # ✅ 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
+from utils.mxou_api import clean_title_for_image_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ def white_bg_gen_node(state: WhiteBgInput, config: RunnableConfig, runtime: Runt
         return WhiteBgOutput(white_bg_image=None)
     
     # 构建生图提示词（中文）
-    title = draft.get("title", "")
+    title = clean_title_for_image_prompt(draft.get("title", ""))
     prompt = f"产品：{title}。去除产品背景，生成纯白底产品图。严格要求：纯白背景(#FFFFFF)、纯产品摄影、高清细节、严格禁止任何文字/水印/标签/数字/品牌logo/二维码/联系方式/价格信息/中文字符/英文字符/促销标语、非信息图/非营销海报、专业电商产品摄影风格、产品必须与参考图一致。"
     
     # 记录具体动作

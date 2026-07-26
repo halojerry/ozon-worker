@@ -11,6 +11,7 @@ from runtime.context import Context
 from graphs.state_image_gen import SocialProofInput, SocialProofOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
+from utils.mxou_api import clean_title_for_image_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def social_proof_gen_node(state: SocialProofInput, config: RunnableConfig, runti
     if not draft or not token:
         return SocialProofOutput(social_proof_image=None)
     
-    title = draft.get("title", "")
+    title = clean_title_for_image_prompt(draft.get("title", ""))
     prompt = f"生成产品好评如潮展示图。要求：展示大量五星好评、高评分、买家满意等正面评价信息，营造热销爆款氛围，增加消费者信任感和购买欲望，适合俄罗斯电商平台展示，适合俄罗斯消费者审美。"
     
     # 构建参考图列表：使用Phase1的图片作为参考（内联逻辑）
