@@ -2401,6 +2401,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     envelope["envelope"]["extensions"] = extensions
                     # 竞品图片 — 跟卖始终用 Ozon 竞品原图，绝不漏 1688 alicdn
                     draft["images"] = ozon_images if ozon_images else []
+                    # ✅ 竞品俄语标题（覆盖 1688 中文标题，保留 SEO 优化后的竞品原标题）
+                    if ozon_title:
+                        draft["title"] = ozon_title
                     # ✅ Ozon 类目 ID（从竞品页面提取，Worker 跳过 1688 类目匹配）
                     ozon_cat = result.get("ozon_category")
                     if ozon_cat:

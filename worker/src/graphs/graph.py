@@ -118,23 +118,20 @@ builder.add_conditional_edges(
     }
 )
 
-# 跟卖导入 → 直接跳 ozon_status（跟卖节点内已完成上传）
-# 不再走完整管线（定价/图片生成/类目匹配均已在跟卖节点内处理）
+# 跟卖导入 → 走 AI 生图 + 上传管线（复用现有节点）
+# import-by-sku 已复制类目+属性，后续生图+上传补充图片并 UPDATE 商品卡
 def route_after_follow_sell_import(state):
-    """跟卖导入成功后直接跳 ozon_status → learning_record → END。
-    不经过完整管线——跟卖节点内部已完成上传和轮询。"""
-    if getattr(state, 'product_id', None):
-        logger.info("跟卖导入完成(product_id=%s)，直接跳 ozon_status", state.product_id)
-        return "ozon_status"
-    if getattr(state, 'error_message', ''):
-        logger.warning("跟卖导入失败: %s", state.error_message)
+    """跟卖导入后走简化管线：AI生图 → 上传UPDATE。
+    不经过 pricing/assemble（已在 follow_sell_import 中处理）。"""
+    if getattr(state, 'error_message', '') and 'ozon_product_id 为空' in str(state.error_message):
         return "END"
-    return "END"
+    logger.info("跟卖导入完成(product_id=%s)，走 AI 生图 → 上传管线", getattr(state, 'product_id', '?'))
+    return "scene_generation_llm"
 
 builder.add_conditional_edges(
     "follow_sell_import",
     route_after_follow_sell_import,
-    {"ozon_status": "ozon_status", "END": END}
+    {"scene_generation_llm": "scene_generation_llm", "END": END}
 )
 # 1688 管线：ingest → 定价
 builder.add_edge("ingest", "pricing")

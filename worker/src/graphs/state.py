@@ -431,6 +431,7 @@ class PrepareOzonUploadInput(BaseModel):
     variant_primary_images: List[str] = Field(default_factory=list, description="已生成的变体主图列表")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（来自envelope，用于Ozon上传避免AI营销图违规）"
     )
+    product_id: Optional[str] = Field(default=None, description="Ozon商品ID（跟卖更新模式需要）")
     token: str = Field(default="", description="api.mxou.cn的API Key（用于LLM翻译调用）")  # 关键：LLM翻译使用用户token
     dictionary_values: Dict[str, List[Dict[str, Any]]] = Field(
         default_factory=dict,
