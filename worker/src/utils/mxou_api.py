@@ -83,7 +83,8 @@ def call_mxou_chat_api(
             {"role": "user", "content": user_prompt}
         ],
         "temperature": temperature,
-        "max_tokens": max_tokens
+        "max_tokens": max_tokens,
+        "thinking": {"type": "disabled"}  # 禁用 DeepSeek 推理，防止 reasoning tokens 吃掉 max_tokens
     }
 
     session = _get_session()
@@ -125,6 +126,11 @@ def call_mxou_chat_api(
             return None
 
         content: str = message.get("content", "")
+        # ✅ reasoning_content fallback: DeepSeek 推理模型可能把输出放在 reasoning_content 而非 content
+        if (not isinstance(content, str) or not content.strip()) and isinstance(message.get("reasoning_content"), str):
+            content = message["reasoning_content"].strip()
+            if content:
+                logger.info("mxou chat API 从 reasoning_content 回退成功 (model=%s), 长度=%d", model, len(content))
         if not isinstance(content, str) or not content.strip():
             logger.warning("mxou chat API 返回空content (model=%s)", model)
             return ""
@@ -149,7 +155,7 @@ def call_mxou_image_api(
     prompt: str,
     ref_images: Optional[List[str]] = None,
     aspect_ratio: str = "3:4",
-    timeout: int = 90,
+    timeout: int = 150,
     max_retries: int = 3,
     model: str = PRIMARY_IMAGE_MODEL
 ) -> Optional[str]:

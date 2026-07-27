@@ -134,27 +134,20 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
 
 
 def _resolve_category(dc_name: str, type_name: str) -> tuple[str, str]:
-    """pg_trgm 俄语类目名 → 数字 ID"""
+    """pg_trgm 俄语类目名 → 数字 ID（复用 search_nodes，含 ILIKE fallback + 缓存同步）"""
     try:
-        from storage.database.db import get_session
-        from sqlalchemy import text
-        session = get_session()
-        try:
-            result = session.execute(
-                text("""SELECT description_category_id, type_id, node_name,
-                       similarity(node_name, :name) AS sim
-                    FROM category_tree_nodes
-                    WHERE language='RU' AND node_type='type'
-                      AND type_id IS NOT NULL AND type_id > 0
-                    ORDER BY sim DESC LIMIT 3"""),
-                {"name": type_name or dc_name})
-            rows = result.fetchall()
-            if rows and rows[0].sim > 0.3:
-                logger.info("pg_trgm: '%s' → '%s' (sim=%.3f)", dc_name, rows[0].node_name, rows[0].sim)
-                return str(rows[0].description_category_id), str(rows[0].type_id)
-        finally:
-            try: session.close()
-            except Exception: pass
+        from utils.ozon_category_query import search_nodes
+        search_name = type_name or dc_name
+        candidates = search_nodes(search_name, top_k=3, node_type="type", language="RU")
+        if candidates:
+            best = candidates[0]
+            sim = best.get("similarity", 0)
+            if sim > 0.3:
+                dc_id = str(best.get("description_category_id", ""))
+                type_id = str(best.get("type_id", ""))
+                logger.info("pg_trgm: '%s' → '%s' (sim=%.3f, dc=%s, type=%s)", 
+                           search_name, best.get("node_name", ""), sim, dc_id, type_id)
+                return dc_id, type_id
     except Exception as e:
         logger.warning("pg_trgm 异常: %s", e)
     return "", ""

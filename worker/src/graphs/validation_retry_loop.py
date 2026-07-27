@@ -402,9 +402,10 @@ def _get_attribute_schema(ozon_client_id: str, ozon_api_key: str,
 
 def _call_mxou_llm(token: str, config_path: str, context_vars: Dict[str, Any]) -> str:
     """
-    调用mxou LLM API
-    使用Bearer {token}鉴权，与图片生成节点一致
+    调用mxou LLM API — 委托给统一的 call_mxou_chat_api（含 thinking 禁用 + reasoning_content 回退）
     """
+    from utils.mxou_api import call_mxou_chat_api
+
     cfg_file: str = os.path.join(os.getenv("APP_WORKSPACE_PATH", ""), config_path)
     with open(cfg_file, "r", encoding="utf-8") as fd:
         cfg: Dict[str, Any] = json.load(fd)
@@ -413,43 +414,24 @@ def _call_mxou_llm(token: str, config_path: str, context_vars: Dict[str, Any]) -
     sp: str = cfg.get("sp", "")
     up: str = cfg.get("up", "")
 
-    # 渲染用户提示词
     up_tpl: Template = Template(up)
     user_prompt: str = up_tpl.render(context_vars)
 
-    headers: Dict[str, str] = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    payload: Dict[str, Any] = {
-        "model": llm_config.get("model", "deepseek-v4-flash"),
-        "messages": [
-            {"role": "system", "content": sp},
-            {"role": "user", "content": user_prompt}
-        ],
-        "temperature": llm_config.get("temperature", 0.3),
-        "max_tokens": llm_config.get("max_completion_tokens", 4096)
-    }
+    model = llm_config.get("model", "deepseek-v4-flash")
+    temperature = llm_config.get("temperature", 0.3)
+    max_tokens = llm_config.get("max_completion_tokens", 4096)
 
-    try:
-        response = session.post(
-            "https://api.mxou.cn/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=60
-        )
-        if response.status_code == 200:
-            result: Dict[str, Any] = response.json()
-            choices: list = result.get("choices", [])
-            if choices and len(choices) > 0:
-                content: str = choices[0].get("message", {}).get("content", "")
-                logger.info(f"mxou LLM返回内容长度: {len(content)}")
-                return content
-        logger.error(f"mxou LLM返回 {response.status_code}: {response.text[:300]}")
-        return ""
-    except Exception as e:
-        logger.error(f"mxou LLM调用异常: {e}")
-        return ""
+    result = call_mxou_chat_api(
+        token=token,
+        system_prompt=sp,
+        user_prompt=user_prompt,
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    if result:
+        logger.info(f"mxou LLM返回内容长度: {len(result)}")
+    return result or ""
 
 
 # ============================================================
