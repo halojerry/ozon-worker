@@ -247,7 +247,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
                     "You are an Ozon Russia product title expert. Translate the English title into Russian using this formula.\n\n"
                     f"{_title_formula}\n"
                     "Strict rules (violation causes Ozon rejection):\n"
-                    "1. Max 50 characters (including spaces and punctuation)\n"
+                    "1. Max 80 characters (including spaces and punctuation)\n"
                     "2. Must contain comma or dash separating parts\n"
                     "3. No keyword stuffing: max 3 consecutive noun keywords\n"
                     "4. Remove all marketing words: Amazon, hot sale, new, bestseller, etc.\n"
@@ -294,7 +294,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
             logger.warning(f"⚠️ 初次翻译失败（非西里尔），用简化 prompt 重试: '{text[:50]}'")
             simple_prompt = (
                 "You are a Russian translator. Translate the following Chinese product title into Russian. "
-                "Keep it short (under 50 characters). Return ONLY the Russian text, nothing else."
+                "Keep it short (under 80 characters). Return ONLY the Russian text, nothing else."
             )
             retry_translated: str = call_mxou_chat_api(
                 token=token,
@@ -302,7 +302,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
                 user_prompt=f"Translate: {text}",
                 model=model_id,
                 temperature=0.3,
-                max_tokens=200
+                max_tokens=1000
             ) or ""
             retry_translated = retry_translated.strip()
             if retry_translated and _has_cyrillic(retry_translated):
@@ -316,7 +316,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
                 "- 核心词：产品是什么\n"
                 "- 属性：1-2个关键特征\n"
                 "- 场景：使用场景\n"
-                "要求：≤50字符，必须含逗号，100%西里尔字母，无拉丁/中文。只返回标题。"
+                "要求：≤80字符，必须含逗号，100%西里尔字母，无拉丁/中文。只返回标题。"
             )
             gen_result: str = call_mxou_chat_api(
                 token=token,
@@ -324,7 +324,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
                 user_prompt=f"Product keywords: {text[:200]}",
                 model=model_id,
                 temperature=0.3,
-                max_tokens=200
+                max_tokens=1000
             ) or ""
             gen_result = gen_result.strip()
             if gen_result and _has_cyrillic(gen_result):
@@ -412,7 +412,7 @@ def _transliterate_latin_llm(title: str, latin_words: list[str], token: str) -> 
         ),
         model="deepseek-v4-flash",
         temperature=0.1,
-        max_tokens=200
+        max_tokens=1000
     )
     return (translated or "").strip()
 
@@ -484,9 +484,9 @@ def _sanitize_title(title: str, token: str = "") -> str:
         # 标题不超50字符但连续词多，不强制加标点（Ozon允许短标题无标点）
         pass
 
-    # 4. 截断到50字符（在词边界截断）
-    if len(sanitized) > 50:
-        truncated: str = sanitized[:50]
+    # 4. 截断到80字符（在词边界截断）
+    if len(sanitized) > 80:
+        truncated: str = sanitized[:80]
         # 找到最后一个空格，在词边界截断
         last_space: int = truncated.rfind(" ")
         if last_space > 20:
@@ -1040,12 +1040,12 @@ def prepare_ozon_upload_node(
                     "- 核心词：产品是什么\n"
                     "- 属性：1-2个关键特征\n"
                     "- 场景：使用场景\n"
-                    "要求：≤50字符，必须含逗号，100%西里尔字母，无拉丁/中文。只返回标题。"
+                    "要求：≤80字符，必须含逗号，100%西里尔字母，无拉丁/中文。只返回标题。"
                 ),
                 user_prompt=f"产品信息：{keywords}",
                 model="deepseek-v4-flash",
                 temperature=0.3,
-                max_tokens=200
+                max_tokens=1000
             ) or ""
             gen_title = gen_title.strip()
             if gen_title and _has_cyrillic(gen_title) and not _latin_re_title.search(gen_title):

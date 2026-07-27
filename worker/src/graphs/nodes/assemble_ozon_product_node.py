@@ -402,8 +402,21 @@ def assemble_ozon_product_node(
             logger.info(f"   ✅ 关键词验证通过: 候选 '{_c['full_path'][:60]}' 与源词重叠 {_overlap}")
             break
     else:
-        # 无候选有重叠 → 保留原始选择但降级置信度
-        logger.warning(f"   ⚠️ 所有 {len(candidates)} 个候选与源词 '{source_keywords or keywords[:60]}' 无关键词重叠，使用最高 sim 候选")
+        # 无候选有重叠 → LLM fallback：让 LLM 从 top-5 候选中选择最佳匹配
+        logger.warning(f"   ⚠️ 所有 {len(candidates)} 个候选与源词无关键词重叠，触发 LLM fallback")
+        best_by_llm = _llm_rank_categories(candidates[:5], source_keywords or keywords, draft, state)
+        if best_by_llm:
+            category_result = {
+                "description_category_id": best_by_llm["description_category_id"],
+                "type_id": best_by_llm["type_id"],
+                "category_path": best_by_llm["full_path"],
+                "confidence": "medium",
+                "reason": f"LLM_fallback (from {len(candidates)} candidates, no pg_trgm overlap)",
+            }
+            logger.info(f"   ✅ LLM fallback 选中: {best_by_llm['full_path'][:80]}")
+        else:
+            # LLM 也失败 → 保留原始选择但降级置信度
+            logger.warning(f"   ⚠️ LLM fallback 也失败，使用最高 sim 候选")
 
     description_category_id: int = int(category_result["description_category_id"])
     type_id: int = int(category_result["type_id"])
@@ -1611,4 +1624,51 @@ def _generate_hashtags(name: str) -> str:
             tags = ["#товар", "#ozon"]
 
     return " ".join(tags[:5])
+
+
+def _llm_rank_categories(
+    candidates: list[dict], keywords: str, draft: dict, state
+) -> dict | None:
+    """LLM fallback：低置信度时让 LLM 从候选类目中选最佳匹配。
+
+    仅在 pg_trgm 所有候选都无关键词重叠时触发（~10-15% 产品）。
+    """
+    try:
+        from utils.mxou_api import call_mxou_chat_api
+
+        product_title = (draft or {}).get("title", "") or getattr(state, "competitor_name", "") or ""
+        product_attrs = (draft or {}).get("attributes", {}) or {}
+        attr_text = ", ".join(f"{k}={v}" for k, v in (product_attrs.items() if isinstance(product_attrs, dict) else []) if v)[:200]
+
+        cand_text = "\n".join(
+            f"{i+1}. {c.get('full_path', '')} (sim={c.get('similarity', 0):.2f})"
+            for i, c in enumerate(candidates)
+        )
+
+        prompt = f"""Choose the best Ozon category for this product.
+
+Product: {product_title[:100]}
+Keywords: {keywords[:100]}
+Attributes: {attr_text or 'N/A'}
+
+Candidates:
+{cand_text}
+
+Return ONLY the number (1-{len(candidates)}) of the best match. No explanation."""
+
+        result = call_mxou_chat_api(
+            token=getattr(state, "token", ""),
+            system_prompt="You are a product categorization expert. Choose the most accurate Ozon category number.",
+            user_prompt=prompt,
+            model="deepseek-v4-flash",
+            temperature=0.0,
+            max_tokens=10,
+        )
+        if result and result.strip().isdigit():
+            idx = int(result.strip()) - 1
+            if 0 <= idx < len(candidates):
+                return candidates[idx]
+    except Exception as e:
+        logger.warning("LLM category ranking failed: %s", e)
+    return None
 
