@@ -581,6 +581,109 @@ def _sanitize_description(description: str) -> str:
     return sanitized
 
 
+def _sanitize_rich_description(description: str) -> str:
+    """
+    富文本描述净化：保留 HTML 标签，只清理中文/拉丁正文内容。
+    用于属性 4191（支持 HTML 标签的完整描述）。
+    """
+    if not description or not isinstance(description, str):
+        return description
+
+    sanitized = description.strip()
+
+    # 1. 移除中文字符（保留 HTML 标签内的西里尔俄语）
+    # 先提取 HTML 标签，清理正文，再拼接
+    tag_pattern = re.compile(r'(<[^>]+>)')
+    parts = tag_pattern.split(sanitized)
+
+    cleaned = []
+    for part in parts:
+        if tag_pattern.match(part):
+            cleaned.append(part)  # 保留 HTML 标签
+        else:
+            # 清理正文：去中文、去拉丁单词、去 URL/邮箱/电话
+            part = re.sub(r'[\u2e80-\u2eff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+', ' ', part)
+            part = re.sub(r'https?://\S+', '', part)
+            part = re.sub(r'\b[\w.-]+@[\w.-]+\.\w+\b', '', part)
+            part = re.sub(r'\+?\d[\d\s\-()]{7,}\d', '', part)
+            cleaned.append(part)
+
+    sanitized = ''.join(cleaned)
+
+    # 2. 移除营销词汇
+    marketing_words = [
+        "хит", "распродажа", "акция", "скидка", "новинка", "бестселлер",
+        "кроссбордер", "бесплатно", "премиум", "эксклюзив", "ограничено",
+        "топ", "лучший", "популярный", "тренд",
+    ]
+    for word in marketing_words:
+        sanitized = re.sub(re.escape(word), '', sanitized, flags=re.IGNORECASE)
+
+    # 3. 清理多余空格
+    sanitized = re.sub(r'\s+', ' ', sanitized).strip()
+
+    # 4. 长度限制
+    if len(sanitized) > 2000:
+        sanitized = sanitized[:2000]
+
+    return sanitized
+
+
+def _generate_rich_description(product_name: str, attributes: dict, token: str) -> str:
+    """
+    LLM 生成俄语 HTML 富文本描述（用于 Ozon 属性 4191）。
+
+    使用 <b>、<ul>/<li>、<p> 等 HTML 标签格式化产品卖点。
+    """
+    if not token:
+        return ""
+
+    try:
+        from utils.mxou_api import call_mxou_chat_api
+
+        attr_text = ""
+        if attributes:
+            items = list(attributes.items())[:8]
+            attr_text = "\n".join(f"- {k}: {v}" for k, v in items)
+
+        system = """Ты профессиональный копирайтер для Ozon карточек товаров. 
+Создай описание товара на русском языке с HTML-разметкой.
+Правила:
+1. Используй <b>жирный</b> для ключевых характеристик
+2. Используй <ul><li>список</li></ul> для технических параметров
+3. Используй <p> для абзацев
+4. НЕ используй латиницу (английские слова)
+5. НЕ используй ссылки, email, телефоны
+6. Общая длина: 500-1500 символов
+
+Структура:
+<p>Краткое описание товара (1-2 предложения)</p>
+<b>Характеристики:</b><ul>...</ul>
+<p>Преимущества и особенности</p>"""
+
+        user = f"""Товар: {product_name}
+
+Технические данные:
+{attr_text}"""
+
+        result = call_mxou_chat_api(
+            token=token,
+            system_prompt=system,
+            user_prompt=user,
+            model="deepseek-v4-flash",
+            max_tokens=2000,
+            temperature=0.3,
+        )
+
+        if result:
+            return _sanitize_rich_description(result)
+
+    except Exception as e:
+        logger.warning(f"LLM 生成富文本描述失败: {e}")
+
+    return ""
+
+
 def _get_category_fallback_title(state: "PrepareOzonUploadInput") -> str:
     """用 Ozon 类目名生成兜底标题，替代固定文案 'Товар для дома'。"""
     try:
@@ -890,15 +993,15 @@ def prepare_ozon_upload_node(
     # ✅ 提取采购信息（采购链接和采购成本）
     # 从draft中提取采购链接和采购成本（扁平payload直接包含）
     purchase_url = draft.get("purchase_url", "")  # 采购链接
-    purchase_cost_raw = draft.get("purchase_cost", "")  # 采购成本（CNY）
-    purchase_cost = str(purchase_cost_raw) if purchase_cost_raw else ""  # ✅ 转换为string类型
+    purchase_cost_raw = draft.get("purchase_cost", None)  # 采购成本（CNY），None表示未设置
+    purchase_cost = str(purchase_cost_raw) if purchase_cost_raw is not None else ""  # v0.8.0: 修复0被当作falsy
     
     # 如果draft中没有采购信息，尝试从source中提取
     if not purchase_url and isinstance(source, dict):
         purchase_url = source.get("purchase_url", "")
     if not purchase_cost and isinstance(source, dict):
-        purchase_cost_raw = source.get("purchase_cost", "")
-        purchase_cost = str(purchase_cost_raw) if purchase_cost_raw else ""  # ✅ 转换为string类型
+        purchase_cost_raw = source.get("purchase_cost", None)
+        purchase_cost = str(purchase_cost_raw) if purchase_cost_raw is not None else ""  # v0.8.0: 修复0被当作falsy
     
     logger.info(f"采购链接：{purchase_url}")
     logger.info(f"采购成本：{purchase_cost} CNY")
@@ -1096,10 +1199,22 @@ def prepare_ozon_upload_node(
     # ✅ 描述净化：移除残留拉丁文/中文/URL/营销词（预防 DESCRIPTION_DECLINE）
     if description:
         description = _sanitize_description(description)
-    
+
+    # ✅ P2 修复：生成富文本 HTML 描述（Ozon 属性 4191）
+    # 只在有 draft 属性数据且 description 非空时生成
+    rich_desc = ""
+    try:
+        draft_attrs = (draft or {}).get("attributes", {})
+        if description and draft_attrs:
+            rich_desc = _generate_rich_description(title_ru, draft_attrs, mxou_token)
+            if rich_desc:
+                logger.info(f"✅ 富文本描述已生成: {len(rich_desc)} 字符")
+    except Exception as e:
+        logger.warning(f"⚠️ 富文本描述生成失败: {e}")
+
     # Step 6: 组装Ozon payload（严格遵守Ozon结构规范）
     logger.info("组装Ozon payload（严格遵守Ozon结构规范）")
-    
+
     # ✅ 关键修复：将final_attributes转换为Ozon官方格式
     # Ozon官方格式要求：
     # {
@@ -1120,7 +1235,18 @@ def prepare_ozon_upload_node(
     
     # ✅ 去重：记录已处理的attribute_id，防止重复
     seen_attr_ids: set = set()
-    
+
+    # ✅ P2 修复：追加富文本描述为属性 4191（支持 HTML 标签的完整描述）
+    if rich_desc and len(rich_desc) > 50:
+        # 检查 final_attributes 中是否已有 4191，避免重复
+        if 4191 not in {int(fa.get("attribute_id", 0)) for fa in final_attributes if fa}:
+            final_attributes.append({
+                "attribute_id": 4191,
+                "value": rich_desc,
+                "dictionary_value_id": 0,  # 自由文本属性
+            })
+            logger.info("✅ 属性 4191（HTML 富文本描述）已追加到 final_attributes")
+
     for attr in final_attributes:
         # 验证attr是否为dict类型
         if not isinstance(attr, dict):
@@ -1190,11 +1316,12 @@ def prepare_ozon_upload_node(
             if value_str and _chinese_re_attr.search(value_str):
                 logger.error(f"❌ 属性{attribute_id_int}翻译后仍含中文，清空: {value_str[:60]}")
                 value_str = ""
-            # ✅ 字典属性翻译后，清空旧的 dictionary_value_id（中文值对应的 ID 已失效）
-            # 会在后续 validation_retry_loop 中重新匹配
+            # ✅ v0.9.0 修复: dictionary_value_id 跨语言通用！
+            # 翻译 value 从中文到俄语后，dict_id 仍然有效（同一属性值的不同语言展示）。
+            # 不再清空 dict_id — 它是在 Step 4/5 通过 ZH_HANS 字典精确匹配的。
             if value_str and attribute_id_int in dict_attr_lookup:
-                dictionary_value_id_int = 0
-                logger.info(f"  ℹ️ 字典属性{attribute_id_int}翻译后清空 dictionary_value_id，待 retry 重新匹配")
+                # 保持原有 dictionary_value_id（跨语言通用）
+                logger.info(f"  ℹ️ 字典属性{attribute_id_int}翻译完成，保留 dict_id={dictionary_value_id_int}, value={value_str[:40]}")
         
         # ✅ 属性23171(hashtags)：过滤掉品牌名 + 确保俄语标签格式
         if attribute_id_int == 23171 and value_str:
@@ -1235,11 +1362,19 @@ def prepare_ozon_upload_node(
             })
             logger.info(f"✅ 转换成功：attr_id={attribute_id_int}, dictionary_value_id={dictionary_value_id_int}, value={value_str}")
         elif is_dict_attr:
-            # ✅ 字典类型属性但dictionary_value_id<=0 → 跳过该属性（不加入payload）
-            # 不再作为validation_error，只是跳过无法匹配的属性
-            dict_id_for_attr: int = dict_attr_lookup[attribute_id_int]
-            logger.warning(f"⚠️ 字典属性(attr_id={attribute_id_int}, dict_id={dict_id_for_attr})无法匹配字典值，跳过: value={value_str}")
-            continue  # ← 跳过，不加入payload
+            # ✅ v0.8.0 修复 Bug#5: 字典属性无有效 dictionary_value_id 时，不静默跳过
+            # 使用 dictionary_value_id=0 兜底上传，Ozon 可能接受或报错，但不会静默丢失属性
+            # 同时标记为 warning 以便监控
+            dict_id_for_attr: int = dict_attr_lookup.get(attribute_id_int, 0)
+            logger.warning(
+                f"⚠️ 字典属性(attr_id={attribute_id_int}, dict_id={dict_id_for_attr})"
+                f" 无有效字典值ID，用 value='{value_str}' 兜底上传: "
+                f"dictionary_value_id=0"
+            )
+            ozon_attr["values"].append({
+                "dictionary_value_id": 0,
+                "value": value_str,
+            })
         else:
             # 无字典值ID：自由文本值
             ozon_attr["values"].append({

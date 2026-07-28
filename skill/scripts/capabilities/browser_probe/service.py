@@ -1737,20 +1737,30 @@ def _wait_for_login_session(
         _login_done_event.wait(timeout=max(timeout_seconds, 60))
         return _login_result
 
-    with _login_lock:
+    # ✅ 修复：使用 flag 标记是否需要释放锁，避免 double-release
+    _login_lock.acquire()
+    _should_release = True
+    try:
         # Double-check after acquiring lock
         if _login_in_progress:
             _logger.info("Login already in progress (race), waiting...")
             _login_lock.release()
+            _should_release = False
             try:
                 _login_done_event.wait(timeout=max(timeout_seconds, 60))
             finally:
                 _login_lock.acquire()
+                _should_release = True
             return _login_result
 
         _login_in_progress = True
         _login_done_event.clear()
         _login_result = None
+
+        # ... rest of login logic inside try block ...
+    finally:
+        if _should_release:
+            _login_lock.release()
 
     from scripts.capabilities.browser_probe.stealth import STEALTH_JS, REALISTIC_UA
 

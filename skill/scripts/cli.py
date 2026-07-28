@@ -236,9 +236,9 @@ def cmd_get_ak(args) -> int:
 
     result = get_ak_via_browser(timeout=args.timeout)
 
-    # Auto-save AK if obtained successfully
-    if result.get("success") and result.get("ak"):
-        set_ali_1688_ak(result["ak"])
+    # ✅ get_ak_via_browser() 内部已通过 _save_ak() 保存真实 AK
+    # 这里只标记成功，不再二次保存（result["ak"] 是 masked 值，会破坏真实 AK）
+    if result.get("success"):
         result["saved_to"] = "settings.json"
 
     _out(result)
@@ -695,10 +695,11 @@ def cmd_discover(args: argparse.Namespace) -> int:
             store_config = load_store_config(args.store) if hasattr(args, 'store') and args.store else {}
             if not store_config:
                 store_config = {"client_id": args.client_id or "", "api_key": args.api_key or ""}
+            store_id = args.store if hasattr(args, 'store') and args.store else ""
             for c in profitable:
                 if c.match_1688_url:
                     try:
-                        envelope = build_envelope_from_discovery(c, store_config)
+                        envelope = build_envelope_from_discovery(c, store_config, store_id=store_id)
                         result = submit_envelope(envelope)
                         task_id = result.get("task_id", "")
                         print(f"  ✓ 已提交: {c.ozon_title[:40]} → task_id={task_id}")

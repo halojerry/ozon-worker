@@ -38,7 +38,10 @@ def ozon_status_node(
     progress.log_node_start("ozon_status_node", "Ozon状态轮询节点")
     progress.log_node_action("正在轮询Ozon商品状态...")
 
-    product_id = state.product_id
+    # ✅ P3 修复：优先使用 ozon_task_id（upload 节点写入的临时任务 ID）
+    # product_id 保留向后兼容（旧版 upload 节点直接写 product_id）
+    task_id_to_poll = getattr(state, 'ozon_task_id', '') or state.product_id or ""
+    product_id = state.product_id or task_id_to_poll
     purchase_url = state.purchase_url
     purchase_cost = state.purchase_cost
     sku_id = state.sku_id
@@ -445,7 +448,7 @@ def ozon_status_node(
                 purchase_cost=purchase_cost,
                 sku_id=sku_id,
                 profit_estimation=profit_estimation,
-                error_message=None,
+                error_message="",
                 stages={"ozon_status": "imported_pending_moderation"}
             )
 

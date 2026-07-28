@@ -177,7 +177,15 @@ def process_ozon_url(
         print(f"  🔗 [{product_id}] 跟卖流程 (Ozon抓图 → 1688搜同款 → 上架)...", flush=True)
         follow_result = follow_sell_cloud(url, auto_submit=not dry_run)
 
-        # Restore old env vars
+        result["follow_result"] = follow_result
+        result["card_copied"] = follow_result.get("card_copied", False)
+        result["search_keyword"] = follow_result.get("search_keyword", "")
+        result["slug"] = follow_result.get("slug", "")
+
+        matches = follow_result.get("1688_matches", [])
+        result["matches_count"] = len(matches)
+    finally:
+        # ✅ 始终恢复环境变量（即使 follow_sell_cloud 异常）
         if old_cid:
             os.environ["OZON_CLIENT_ID"] = old_cid
         else:
@@ -186,14 +194,6 @@ def process_ozon_url(
             os.environ["OZON_API_KEY"] = old_akey
         else:
             os.environ.pop("OZON_API_KEY", None)
-
-        result["follow_result"] = follow_result
-        result["card_copied"] = follow_result.get("card_copied", False)
-        result["search_keyword"] = follow_result.get("search_keyword", "")
-        result["slug"] = follow_result.get("slug", "")
-
-        matches = follow_result.get("1688_matches", [])
-        result["matches_count"] = len(matches)
 
         if not follow_result.get("success"):
             result["error"] = follow_result.get("error", "跟卖流程未找到匹配")

@@ -164,7 +164,18 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 
 违反以上约束会导致：空白 Chrome 窗口泛滥、登录态丢失、管线混乱、数据错误。
 
-## 常用命令
+## 测试
+
+```bash
+# Worker 单元测试（Mock 模式，无需 PG/GPU）
+cd worker && PYTHONPATH=src python3 tests/test_full_pipeline_mock_images.py
+
+# Worker 全量测试（需要 PG）
+cd worker && PYTHONPATH=src python3 -m pytest tests/ -v
+
+# Skill 单节点测试
+cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
+```
 
 | 子项目 | 命令 |
 |---|---|
@@ -183,6 +194,9 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | worker | `bash scripts/local_run.sh -m node -n <节点ID> -i '{...}'` 跑单节点 |
 | 本地Docker | `cd deploy && docker compose up -d --build`（启动 Worker + PG） |
 | 本地Docker | `docker compose exec worker python scripts/init_data.py --force`（初始化数据） |
+| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --limit 100`（预热 top-100 类目属性缓存） |
+| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --all --pg-only`（预热全部 7424 类目，~16h，可screen后台） |
+| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --export-only`（导出 JSON 到 assets/ 供 git 提交） |
 | 本地Docker | `curl http://localhost:8080/api/v1/health`（健康检查） |
 | 本地Skill | `WORKER_URL=http://localhost:8080 python3.12 scripts/cli.py check`（指向本地 Worker） |
 | CI | `bash scripts/ci.sh`（lint → test → docker build） |
@@ -229,9 +243,47 @@ bash update.sh
 
 首次部署时 `deploy.sh` 自动运行 `scripts/init_data.py`:
 - `CREATE TABLE`（全部表，幂等）
-  - 导入类目树 → `category_tree_nodes`（从 `assets/category_tree.json` + `category_tree_ru.json`，中俄双语，各 ~8000 节点）
-  - 导入物流费率 → `logistics_rates`（从 `assets/` 下的 Excel，142 条）
+  - 导入类目树 → `category_tree_nodes`
+  - 导入物流费率 → `logistics_rates`
   - 重复运行安全：已有数据跳过；`--force` 强制覆盖
+
+部署后 `deploy.sh` 后台运行 `warm_category_cache.py --limit 200 --pg-only`，预热 top-200 类目属性到 PG（~5 分钟）。
+
+**为什么不用 JSON 文件存储属性缓存：**
+- JSON 裸文件：全量 ~70GB（太大，不能 git）
+- PG JSONB（TOAST 压缩）：全量 ~600MB（完全可行）
+- 策略：属性 schema + 字典值直接写 PG，运行时懒加载补全
+
+### 属性缓存机制
+
+```
+1688 中文属性 "白色"
+  → PG dictionary_value_cache (ZH_HANS) 查找
+  → 命中 → dict_id=61571 ✅（跨语言通用！）
+  → 未命中 → Ozon /values API (ZH_HANS) → 写入 PG → 匹配
+  → 上传: { dictionary_value_id: 61571, value: "Белый" }
+```
+
+dictionary_value_id **跨语言通用**：ZH_HANS 的 `id=61571` 在 RU 下展示为 `"Белый"`，是同一个 ID。
+
+### 属性缓存脚本
+
+```bash
+# 预热 top-200 类目（部署后自动跑）
+python scripts/warm_category_cache.py --limit 200
+
+# 预热全部 7424 类目（~16 小时，建议 screen/tmux）
+python scripts/warm_category_cache.py --all --pg-only
+
+# 导出 JSON 到 assets/（提交 git，部署时自动导入）
+python scripts/warm_category_cache.py --limit 500 --export-only
+
+# 从 JSON 导入到 PG（部署时 init_data.py 自动调用）
+python scripts/warm_category_cache.py --import-only
+
+# 断点续传
+python scripts/warm_category_cache.py --all --offset 2000 --pg-only
+```
 
 ## 日志系统
 
@@ -305,7 +357,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## 已知坑
 
-- **进度存储在内存中**：`_task_progress` dict 存储在 Worker 进程内存，重启后丢失。task_status 接口降级为无进度模式（仅返回 status/result）。如需持久化进度，需改为写入 PG。
+- **进度已持久化**（v0.9）：`_task_progress` 同时写内存和 PG `progress` 列，重启后从 PG 恢复。`task_processor.py` 注入 `task_id` 到 payload 修复了 key="unknown" 的问题。
 - **deepseek-v4-flash reasoning tokens**：该模型默认启用推理，`reasoning_tokens` 消耗 `max_tokens` 配额。翻译/生图 prompt 的 `max_tokens` 至少设为 200，否则输出为空。
 - **DESCRIPTION_DECLINE 多重根因**：
   1. 产品名含拉丁/中文字符 → `ozon_validate_node` 应阻断（已修复）
@@ -368,7 +420,38 @@ Skill 已适配 Windows，但有以下注意事项：
 
 跨平台分发流程：在 macOS/Windows/Linux 各跑一次 `python3.12 compile.py`，合并 `_native/` 目录后打包。
 
-## 最近更新（v0.6.0 — 靶向修复 + 生产级稳定性）
+## 最近更新（v0.9.0 — 全链路健壮性 + 管线优化）
+
+> 2026-07-28 基于 9 个 Ozon 产品实地调研 + 完整节点数据流分析 + PG 持久化审计。
+
+### P0 修复
+- **check_quota 移到管线开头**：`auth` 后立即检查店铺配额，阻断时不浪费 GPU/LLM。`graph.py` 边改为 `auth→check_quota→route`，`ozon_validate→ozon_upload` 直接连接。
+- **discover 管线补全 AK+CDP**：`build_envelope_from_discovery()` 改为调用 `build_graph_envelope_with_retry()`，不再手工组装空属性/零尺寸信封。含降级兼容。
+
+### P1 修复
+- **面包屑传数字 ID**：`ozon_scraper.py` 用 `link.count("/category/") == 1` 识别真实类目（跳过 segs=2 的品牌页），优先传数字 `description_category_id`。Worker 侧 `follow_sell_import_node` 新增 `_resolve_category_by_id()` 直查 `category_tree_nodes`，跳过 pg_trgm。新增 `_detect_language()` 自动检测 RU/ZH_HANS。
+- **task_id 注入 + 进度持久化**：`task_processor.py` 将 PG UUID 注入 `payload["task_id"]`。`main.py` 新增 `_persist_progress()` 异步写 PG `progress` 列，`get_progress()` 内存优先→PG 回退。`model.py` 新增 `progress JSONB` 列。
+
+### P2 修复
+- **retry loop Ozon API 优先**：`validation_retry_loop.py` 的 `DESCRIPTION_DECLINE` 修复改为先调 Ozon API `_find_alternative_type_id()`，pg_trgm 降级为 fallback（原逻辑相反）。
+- **富文本描述（属性 4191 HTML）**：`prepare_ozon_upload_node.py` 新增 `_generate_rich_description()`（LLM 生成俄语 HTML）、`_sanitize_rich_description()`（保留标签）。4191 自动追加到 `final_attributes`。
+
+### P3 修复
+- **product_id 拆分**：`GlobalState` 新增 `ozon_task_id` 字段。`OzonUploadOutput` 同时写 `product_id`+`ozon_task_id`。`ozon_status_node` 优先读 `ozon_task_id`。
+- **跟卖拉取属性 schema**：`follow_sell_import_node` 在解析类目后调用 `POST /v1/description-category/attribute` 拉取真实 schema（不再用 `[]`）。
+
+### 新增 Ozon API 能力
+| API | 用途 |
+|-----|------|
+| `POST /v1/product/pictures/import` | 增量更新图片，无需完整重传 |
+| `POST /v4/product/info/attributes` | 新版商品特征查询 |
+
+### 测试
+- `worker/tests/test_full_pipeline_mock_images.py` — Mock 生图全流程测试（12 项），秒级验证上下文传递。运行：`PYTHONPATH=src python3 tests/test_full_pipeline_mock_images.py`
+
+---
+
+## 历史更新（v0.6.0 — 靶向修复 + 生产级稳定性）
 
 > 2026-07-26 全链路重构：retry loop 靶向路由器、字典缓存多语言、标题 SEO、type pg_trgm、follow-sell 管线、稳定性加固。
 

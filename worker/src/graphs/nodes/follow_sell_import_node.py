@@ -51,14 +51,38 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
         price_val = 500
     old_price_val = price_val + max(3, int(price_val * 0.2))
 
-    # 类目：优先数字 ID，否则 pg_trgm
+    # 类目：优先数字 ID 直查 → 文本 pg_trgm（语言感知）
     dc_raw = str(ozon_cat.get("description_category_id") or "")
     type_raw = str(ozon_cat.get("type_id") or "")
-    if dc_raw and not dc_raw.isdigit():
-        dc_raw, type_raw = _resolve_category(dc_raw, type_raw or dc_raw)
+    language = ozon_cat.get("language", "")
+    if dc_raw and dc_raw.isdigit():
+        # ✅ v0.9: 数字 ID → 直接查 category_tree_nodes
+        dc_raw, type_raw = _resolve_category_by_id(int(dc_raw))
+    elif dc_raw:
+        # 文本 → pg_trgm（语言检测：RU/ZH_HANS）
+        if not language:
+            language = _detect_language(dc_raw)
+        dc_raw, type_raw = _resolve_category(dc_raw, type_raw or dc_raw, language=language)
 
+    # ✅ P3 修复：跟卖也拉取属性 schema（供 validate + retry 使用）
     client_id = state.ozon_client_id
     api_key = state.ozon_api_key
+    attributes_schema: list = []
+    if dc_raw and type_raw:
+        try:
+            import requests as _req
+            _resp = _req.post(
+                "https://api-seller.ozon.ru/v1/description-category/attribute",
+                headers={"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"},
+                json={"description_category_id": int(dc_raw), "type_id": int(type_raw), "language": "ZH_HANS"},
+                timeout=15,
+            )
+            if _resp.status_code == 200:
+                attributes_schema = _resp.json().get("result", [])
+                logger.info("✅ 跟卖 schema 已拉取: %d 个属性", len(attributes_schema))
+        except Exception as e:
+            logger.warning("⚠️ 跟卖 schema 拉取失败（降级继续）: %s", e)
+
     headers = {"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"}
 
     # ── ① import-by-sku（fire-and-forget，不轮询等待）──
@@ -120,8 +144,8 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
         {"id": 8962, "values": [{"dictionary_value_id": 0, "value": "1"}]},
     ]
 
-    # attributes_schema 空（跟卖不需要 schema 校验）
-    state.attributes_schema = []
+    # attributes_schema（跟卖现在拉取真实 schema）
+    state.attributes_schema = attributes_schema
 
     # 标记
     state.upload_status = "pending"
@@ -133,12 +157,38 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
     return state
 
 
-def _resolve_category(dc_name: str, type_name: str) -> tuple[str, str]:
-    """pg_trgm 俄语类目名 → 数字 ID（复用 search_nodes，含 ILIKE fallback + 缓存同步）"""
+def _detect_language(text: str) -> str:
+    """检测文本语言 → pg_trgm 搜索语言"""
+    if any('\u4e00' <= c <= '\u9fff' for c in text):
+        return "ZH_HANS"
+    return "RU"  # 默认俄语（Cyrillic）
+
+
+def _resolve_category_by_id(dc_id: int) -> tuple[str, str]:
+    """数字 description_category_id → 查 category_tree_nodes 获取 type_id"""
     try:
-        from utils.ozon_category_query import search_nodes
+        from utils.ozon_category_query import get_category_query
+        query = get_category_query()
+        node = query.get_node_by_description_category_id(dc_id)
+        if node:
+            dc_id_str = str(node["description_category_id"])
+            type_id_str = str(node["type_id"])
+            logger.info("✅ 数字 ID 直查: %d → dc=%s type=%s name=%s",
+                       dc_id, dc_id_str, type_id_str, node.get("node_name", ""))
+            return dc_id_str, type_id_str
+    except Exception as e:
+        logger.warning("数字 ID 直查失败: %s", e)
+    return "", ""
+
+
+def _resolve_category(dc_name: str, type_name: str, language: str = "RU") -> tuple[str, str]:
+    """pg_trgm 类目名 → 数字 ID（语言感知：RU/ZH_HANS）"""
+    try:
+        from utils.ozon_category_query import get_category_query
+        query = get_category_query()
         search_name = type_name or dc_name
-        candidates = search_nodes(search_name, top_k=3, node_type="type", language="RU")
+        language = language or _detect_language(search_name)
+        candidates = query.search_nodes(search_name, top_k=3, node_type="type", language=language)
         if candidates:
             best = candidates[0]
             sim = best.get("similarity", 0)

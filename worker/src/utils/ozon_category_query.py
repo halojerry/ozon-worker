@@ -196,6 +196,10 @@ class OzonCategoryQuery:
             # === 按匹配关键词比率排序 ===
             # 匹配率 = 匹配关键词数 / 总关键词数（权重2.0）
             # 深度加分：更深的节点通常是更具体的类目（叶子节点）
+            # v0.8.0: 泛化词（如"运动"、"休闲"）匹配权重降低，防止稀释信号
+            _GENERIC_WORDS = {"运动", "休闲", "传统", "家用", "日用", "通用", "其他", "配件", "附件",
+                             "спорт", "отдых", "традиционный", "домашний", "универсальный",
+                             "прочее", "аксессуар", "для"}
             scored_results: list[tuple[float, dict]] = []
             total_keywords = max(len([w for w in words if len(w) >= 2]), 1)
 
@@ -203,10 +207,12 @@ class OzonCategoryQuery:
                 combined = (row["node_name"] or "") + " " + (row["full_path"] or "")
                 combined_lower = combined.lower()
 
-                match_count = 0
+                match_count = 0.0  # 加权匹配计数
                 for word in words:
                     if len(word) >= 2 and word.lower() in combined_lower:
-                        match_count += 1
+                        # 泛化词权重 0.3，具体词权重 1.0
+                        weight = 0.3 if word.strip() in _GENERIC_WORDS or word.lower().strip() in _GENERIC_WORDS else 1.0
+                        match_count += weight
 
                 # 匹配率作为主排序因子（0~2.0），深度作为次排序因子（0~1.0）
                 match_ratio = (match_count / total_keywords) * 2.0
@@ -234,6 +240,40 @@ class OzonCategoryQuery:
                 top = results[0]
                 logger.info(f"   🥇 Top-1: [{top['description_category_id']}/{top['type_id']}] {top['full_path']} (similarity={top['similarity']:.2f})")
             return results
+        finally:
+            session.close()
+
+    def get_node_by_description_category_id(self, dc_id: int) -> dict | None:
+        """
+        按 description_category_id 直接查找类目节点（无需 pg_trgm 搜索）。
+
+        用于 Worker 侧接收 Skill 传来的数字 ID 时，直接查表获取 type_id。
+        """
+        session = get_session()
+        try:
+            row = session.execute(
+                select(
+                    CategoryTreeNode.description_category_id,
+                    CategoryTreeNode.type_id,
+                    CategoryTreeNode.node_name,
+                    CategoryTreeNode.full_path,
+                ).where(
+                    CategoryTreeNode.description_category_id == dc_id,
+                    CategoryTreeNode.type_id > 0,
+                ).limit(1)
+            ).mappings().first()
+
+            if row:
+                return {
+                    "description_category_id": row["description_category_id"],
+                    "type_id": row["type_id"],
+                    "node_name": row["node_name"],
+                    "full_path": row["full_path"],
+                }
+            return None
+        except Exception as e:
+            logger.warning(f"get_node_by_description_category_id({dc_id}) 失败: {e}")
+            return None
         finally:
             session.close()
 

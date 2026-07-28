@@ -172,7 +172,8 @@ def ozon_upload_node(
             if task_id:
                 logger.info(f"Ozon上传任务创建成功，task_id: {task_id}（后续ozon_status_node用此task_id轮询状态）")
                 return OzonUploadOutput(
-                    product_id=str(task_id) if task_id else "",  # 返回task_id，ozon_status_node会用它轮询/import/info
+                    product_id=str(task_id) if task_id else "",  # 向后兼容
+                    ozon_task_id=str(task_id) if task_id else "",  # ✅ P3 修复：隔离任务ID
                     upload_status="success",
                     purchase_url=purchase_url,
                     purchase_cost=purchase_cost,

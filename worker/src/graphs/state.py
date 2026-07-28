@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 
 
 def _overwrite_str(old: str, new: str) -> str:
-    """字符串覆盖reducer：后写入的值覆盖先写入的（last-write-wins）"""
-    return new
+    """字符串覆盖reducer：后写入的值覆盖先写入的（last-write-wins）。
+    v0.8.0: None保护，不覆盖已有值"""
+    return new if new is not None else old
 
 
 # ==================== 全局状态定义 ====================
@@ -86,6 +87,7 @@ class GlobalState(BaseModel):
     
     # Ozon上传结果
     product_id: Optional[str] = Field(default=None, description="Ozon商品ID（第一个变体）")
+    ozon_task_id: str = Field(default="", description="Ozon上传任务ID（临时，ozon_upload设置，ozon_status读取后替换为真实product_id）")
     product_ids: List[str] = Field(default_factory=list, description="所有变体的Ozon商品ID列表")
     upload_status: str = Field(default="", description="Ozon上传状态（success/failed/pending/timeout）")
     
@@ -483,8 +485,9 @@ class OzonUploadOutput(BaseModel):
     """Ozon上传节点输出"""
     # ✅ 新增：进度追踪
     progress_counter: int = Field(default=20, description="节点计数器（更新为20）")
-    
+
     product_id: Optional[str] = Field(default=None, description="Ozon商品ID（第一个变体，向后兼容）")
+    ozon_task_id: str = Field(default="", description="Ozon上传任务ID（ozon_upload设置，ozon_status读取）")
     product_ids: List[str] = Field(default_factory=list, description="所有变体的Ozon商品ID列表")
     upload_status: str = Field(default="", description="上传状态（success/failed）")
     

@@ -1,0 +1,129 @@
+- generic [active] [ref=f3e1]:
+  - generic [ref=f3e7]:
+    - link [ref=f3e8] [cursor=pointer]:
+      - /url: https://www.1688.com?spm=a26352.b28411319/2508.topmenu.logo
+    - generic [ref=f3e13]:
+      - link " 首页 首页" [ref=f3e16] [cursor=pointer]:
+        - /url: https://www.1688.com?spm=a26352.b28411319/2508.topmenu.dhome&spm=a26352.b28411319/2508.topmenu.dhome
+        - generic [ref=f3e17]: 
+        - generic [ref=f3e20]:
+          - text: 首页
+          - generic [ref=f3e21]: 首页
+      - link " 我的阿里 我的阿里" [ref=f3e25] [cursor=pointer]:
+        - /url: https://work.1688.com/home/buyer.htm?spm=a26352.b28411319/2508.topmenu.dmyali
+        - generic [ref=f3e26]: 
+        - generic [ref=f3e29]:
+          - text: 我的阿里
+          - generic [ref=f3e30]: 我的阿里
+      - generic [ref=f3e34] [cursor=pointer]:
+        - generic [ref=f3e35]: 
+        - generic [ref=f3e38]:
+          - text: 安装插件
+          - generic [ref=f3e39]: 安装插件
+      - link " 我的订单 我的订单" [ref=f3e43] [cursor=pointer]:
+        - /url: https://trade.1688.com/order/buyer_order_list.htm?tradeStatus=waitbuyerreceive&spm=a26352.b28411319/2508.topmenu.dmyorder
+        - generic [ref=f3e44]: 
+        - generic [ref=f3e47]:
+          - text: 我的订单
+          - generic [ref=f3e48]: 我的订单
+      - link " 采购车 采购车" [ref=f3e52] [cursor=pointer]:
+        - /url: https://cart.1688.com/cart.htm?spm=a26352.b28411319/2508.topmenu.dcart
+        - generic [ref=f3e53]: 
+        - generic [ref=f3e56]:
+          - text: 采购车
+          - generic [ref=f3e57]: 采购车
+      - link " 消息 消息" [ref=f3e61] [cursor=pointer]:
+        - /url: https://air.1688.com/app/ocms-fusion-components-1688/def_cbu_web_im/index.html?spm=a26352.b28411319/2508.topmenu.dmymessage
+        - generic [ref=f3e62]: 
+        - generic [ref=f3e65]:
+          - text: 消息
+          - generic [ref=f3e66]: 消息
+      - link " 开店 官方服务 官方服务" [ref=f3e70] [cursor=pointer]:
+        - /url: https://work.1688.com/home/seller.htm?spm=a26352.b28411319/2508.topmenu.dsellercenterentry
+        - generic [ref=f3e71]:
+          - generic [ref=f3e72]: 
+          - generic [ref=f3e73]: 开店
+        - generic [ref=f3e75]:
+          - text: 官方服务
+          - generic [ref=f3e76]: 官方服务
+    - generic [ref=f3e78]:
+      - generic [ref=f3e80] [cursor=pointer]:
+        - text: 登录
+        - generic [ref=f3e81]: 登录
+      - generic [ref=f3e84] [cursor=pointer]:
+        - generic [ref=f3e85]:
+          - text: 登录之后可以
+          - generic [ref=f3e86]: 登录之后可以
+        - generic [ref=f3e87]:
+          - generic [ref=f3e88]:
+            - generic [ref=f3e89]: 
+            - generic [ref=f3e90]:
+              - text: 搜索推荐更精准
+              - generic [ref=f3e91]: 搜索推荐更精准
+          - generic [ref=f3e92]:
+            - generic [ref=f3e93]: 
+            - generic [ref=f3e94]:
+              - text: 履约信息更及时
+              - generic [ref=f3e95]: 履约信息更及时
+          - generic [ref=f3e96]:
+            - generic [ref=f3e97]: 
+            - generic [ref=f3e98]:
+              - text: 商品详情更清晰
+              - generic [ref=f3e99]: 商品详情更清晰
+        - generic [ref=f3e101]:
+          - text: 立即登录
+          - generic [ref=f3e102]: 立即登录
+  - generic [ref=f3e105]:
+    - generic [ref=f3e109]:
+      - generic [ref=f3e110]:
+        - generic [ref=f3e113]:
+          - generic [ref=f3e114] [cursor=pointer]: 搜 索
+          - textbox "橹穆灯牌定制" [ref=f3e117]
+        - generic [ref=f3e120]:
+          - generic [ref=f3e121]: 热门搜索
+          - generic [ref=f3e122]:
+            - generic [ref=f3e123] [cursor=pointer]: 快递打包包装袋
+            - generic [ref=f3e125] [cursor=pointer]: 小米手环10
+            - generic [ref=f3e127] [cursor=pointer]: 情性趣内衣高端
+            - generic [ref=f3e129] [cursor=pointer]: 休闲椅子
+      - generic [ref=f3e132]:
+        - generic [ref=f3e133] [cursor=pointer]:
+          - button "Choose File" [ref=f3e134]
+          - generic [ref=f3e136]: 以图搜款
+        - generic:
+          - generic: 支持如下图搜同款比价方式
+          - generic: 1. 点击从本地上传图片
+          - generic: 2. ctrl + v 粘贴图片或图片链接快速图搜
+          - generic [ref=f3e139]:
+            - text: 3. 安装1688插件，全网截图比价
+            - link "去安装" [ref=f3e140] [cursor=pointer]:
+              - /url: https://air.1688.com/kapp/assets-group/haobangshou/PluginInstall
+    - generic [ref=f3e142]:
+      - generic [ref=f3e146]:
+        - generic [ref=f3e147] [cursor=pointer]: 框选主体
+        - generic [ref=f3e155]:
+          - generic [ref=f3e156]:
+            - generic [ref=f3e157]: 上传图片 (
+            - generic [ref=f3e158]: "0"
+            - generic [ref=f3e159]: /6)
+          - generic "按住ctrl键（或command键）可同时选中多张图片" [ref=f3e161] [cursor=pointer]:
+            - generic [ref=f3e163]: 上传图片
+            - generic [ref=f3e164]: （多选）
+      - generic [ref=f3e165]:
+        - generic [ref=f3e167]:
+          - generic [ref=f3e169]:
+            - generic [ref=f3e170]: 结果中搜索
+            - generic [ref=f3e171]:
+              - textbox "请输入关键字" [ref=f3e172]
+              - generic [ref=f3e173]: 搜索
+          - generic [ref=f3e174]: 找到以下货源
+          - generic [ref=f3e177]:
+            - generic [ref=f3e178] [cursor=pointer]: 综合
+            - generic [ref=f3e179] [cursor=pointer]: 销量
+            - generic [ref=f3e180] [cursor=pointer]: 价格
+        - generic [ref=f3e190]:
+          - generic [ref=f3e191]: 哎呦喂，这里空空如也～
+          - generic [ref=f3e193]:
+            - generic [ref=f3e194]: 您还可以：写下您的采购需求，快速获得多个供应商报价
+            - link "发布询价单" [ref=f3e195] [cursor=pointer]:
+              - /url: https://work.1688.com/home/page/index.htm?_path_=buyer2017Base/procurement/fabuxinxunpan

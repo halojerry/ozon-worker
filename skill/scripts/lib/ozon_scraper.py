@@ -519,16 +519,29 @@ def scrape_ozon_product_via_cdp(
                                     cat_id = m.group(1)
                             crumbs.append({"text": text, "link": link, "category_id": cat_id})
                         result["breadcrumbs"] = crumbs
-                        # Extract category from breadcrumbs
+                        # ✅ v0.9: 面包屑数字 ID 优先传递
+                        # 规则：link 中 /category/ 出现 1 次 = 类目，2 次 = 品牌筛选页（跳过）
                         if crumbs:
                             result["category"] = " > ".join(c["text"] for c in crumbs if c["text"])
-                            # ✅ 传面包屑文本给 Worker（Worker 用 pg_trgm 搜 PG 类目树找到正确的 API ID）
-                            # 面包屑 URL 中的数字 ID 不是 Ozon API 的 description_category_id
-                            last_crumb = crumbs[-1]
-                            last_text = last_crumb.get("text", "")
-                            if last_text:
-                                result["description_category_id"] = last_text  # 传文本，不是数字 ID
-                                result["type_id"] = last_text
+                            category_path = result["category"]
+
+                            # 从后往前找第一个 segs=1（非品牌）的面包屑
+                            valid = [c for c in crumbs if c.get("link", "").count("/category/") == 1]
+                            if valid:
+                                best = valid[-1]  # 最具体的有效类目
+                                result["description_category_id"] = best.get("category_id", "")  # 数字 ID
+                                result["type_id"] = best.get("category_id", "")  # Worker 负责查真正 type_id
+                                result["category_path"] = category_path  # 文本降级
+                            else:
+                                # 全是品牌页？保留文本路径降级
+                                result["description_category_id"] = category_path
+                                result["type_id"] = ""
+
+                            # 语言检测：Cyrillic → RU，中文 → ZH_HANS
+                            if any('\u4e00' <= c <= '\u9fff' for c in category_path):
+                                result["breadcrumb_language"] = "ZH_HANS"
+                            elif any('\u0400' <= c <= '\u04FF' for c in category_path):
+                                result["breadcrumb_language"] = "RU"
                 except (_json.JSONDecodeError, TypeError):
                     pass
 

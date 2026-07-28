@@ -205,7 +205,11 @@ class SupabaseTaskProcessor:
                     priority = task_row[2]
                     payload = task_row[3] if isinstance(task_row[3], dict) else json.loads(task_row[3])
                     timeout_seconds = task_row[4]
-                    
+
+                    # ✅ P1 修复：注入 PG UUID 到 payload，使 progress callback 能按 task_id 追踪
+                    payload["task_id"] = task_id
+                    payload["tenant_id"] = tenant_id
+
                     set_trace_context(task_id=task_id, user_id=tenant_id)
                     log_task_event("started", task_id=task_id, user_id=tenant_id, priority=priority)
                     
