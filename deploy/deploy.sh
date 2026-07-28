@@ -52,12 +52,20 @@ VERSION="$VERSION" BUILD_TIME="$BUILD_TIME" docker compose build
 # 启动服务
 echo ""
 echo "🚀 启动服务..."
-docker compose up -d
+	docker compose up -d
 
-# 等待 PG 就绪后初始化数据（建表 + 导入类目树 + 物流费率）
-echo ""
-echo "📦 初始化数据库..."
-docker compose exec -T worker python scripts/init_data.py
+	# 等待 PG 就绪后初始化数据（建表 + 导入类目树 + 物流费率 + 属性缓存）
+	echo ""
+	echo "📦 初始化数据库..."
+	docker compose exec -T worker python scripts/init_data.py
+
+	# 预热属性缓存（后台运行，top-200 高频类目 ~5分钟）
+	# 未缓存的类目运行时将从 Ozon API 懒加载
+	echo ""
+	echo "🔥 预热属性缓存（后台，top-200 类目）..."
+	docker compose exec -T worker python scripts/warm_category_cache.py --limit 200 --pg-only &
+	WARM_PID=$!
+	echo "   后台 PID: $WARM_PID（不影响服务启动）"
 
 # 等待健康检查
 echo ""

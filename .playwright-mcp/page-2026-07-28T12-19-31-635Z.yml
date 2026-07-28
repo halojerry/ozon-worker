@@ -1,0 +1,19 @@
+- generic [ref=f9e5]:
+  - generic [ref=f9e6]: 确认年龄
+  - generic [ref=f9e9]:
+    - text: 该部分只有达到18岁的成年人可以访问。取货时，工作人员会请您出示
+    - link "身份证明文件。" [ref=f9e10] [cursor=pointer]:
+      - /url: https://docs.ozon.ru/common/pravila-prodayoi-i-rekvizity/dokumenty-udostoveryayushchie-lichnost
+  - generic [ref=f9e11]: 请指定您的出生日期
+  - generic [ref=f9e17]:
+    - textbox "日日.月月.年年年年" [ref=f9e18]
+    - paragraph: 日日.月月.年年年年
+    - button [ref=f9e20] [cursor=pointer]
+  - generic [ref=f9e25]:
+    - text: 点击“确认”按钮表示您同意按
+    - link "政策" [ref=f9e26] [cursor=pointer]:
+      - /url: https://docs.ozon.ru/common/attachments/personal_data_ooo_internet_resheniya.pdf
+    - text: 处理指定的信息
+  - generic [ref=f9e27]:
+    - button "确认" [disabled] [ref=f9e28]
+    - button "取消" [ref=f9e32] [cursor=pointer]

@@ -45,6 +45,10 @@ class OzonProductTask(Base):
         DateTime(timezone=True), nullable=True
     )
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=1800)
+    progress: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True,
+        comment="实时进度数据 {stage, percent, stages_completed[], stages_remaining[], message}"
+    )
 
     __table_args__ = (
         Index(

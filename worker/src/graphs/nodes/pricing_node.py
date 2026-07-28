@@ -208,7 +208,9 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         
         # ✅ 跟卖模式：如果竞品价格已有利润（≥ 成本*1.3），保持竞品价格以增加竞争力
         competitor_price_str = getattr(state, 'competitor_price', '') or ''
-        is_follow_sell = bool(getattr(state, 'product_id', None) and getattr(state, 'description_category_id', None))
+        # ✅ P2 修复：用 extensions.follow_sell 判断，而非 product_id（1688 管线也会设置）
+        extensions = getattr(state, 'extensions', {}) or {}
+        is_follow_sell = bool(extensions.get('follow_sell', False))
         if is_follow_sell and competitor_price_str:
             try:
                 comp_price = float(competitor_price_str)

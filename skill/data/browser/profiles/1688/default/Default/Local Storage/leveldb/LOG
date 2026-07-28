@@ -1,3 +1,24 @@
-2026/07/26-12:31:10.108 189a5a Reusing MANIFEST /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/Local Storage/leveldb/MANIFEST-000001
-2026/07/26-12:31:10.109 189a5a Recovering log #74
-2026/07/26-12:31:10.109 189a5a Reusing old log /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/Local Storage/leveldb/000074.log 
+2026/07/28-22:31:29.317 202f22 Reusing MANIFEST /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/Local Storage/leveldb/MANIFEST-000001
+2026/07/28-22:31:29.321 202f22 Recovering log #232
+2026/07/28-22:31:29.322 202f22 Reusing old log /Users/halo/dev/ozon-worker/skill/data/browser/profiles/1688/default/Default/Local Storage/leveldb/000232.log 
+2026/07/28-22:32:03.138 202f25 Level-0 table #236: started
+2026/07/28-22:32:03.141 202f25 Level-0 table #236: 27309 bytes OK
+2026/07/28-22:32:03.143 202f25 Delete type=0 #232
+2026/07/28-22:32:07.458 202f25 Level-0 table #238: started
+2026/07/28-22:32:07.467 202f25 Level-0 table #238: 136360 bytes OK
+2026/07/28-22:32:07.474 202f25 Delete type=0 #235
+2026/07/28-22:32:29.330 202f25 Level-0 table #240: started
+2026/07/28-22:32:29.334 202f25 Level-0 table #240: 141705 bytes OK
+2026/07/28-22:32:29.336 202f25 Delete type=0 #237
+2026/07/28-22:32:29.337 202f25 Compacting 4@0 + 1@1 files
+2026/07/28-22:32:29.352 202f25 Generated table #241@0: 521 keys, 1248774 bytes
+2026/07/28-22:32:29.352 202f25 Compacted 4@0 + 1@1 files => 1248774 bytes
+2026/07/28-22:32:29.353 202f25 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/07/28-22:32:29.354 202f25 Delete type=2 #238
+2026/07/28-22:32:29.354 202f25 Delete type=2 #236
+2026/07/28-22:32:29.354 202f25 Delete type=2 #230
+2026/07/28-22:32:29.354 202f25 Delete type=2 #233
+2026/07/28-22:32:29.354 202f25 Delete type=2 #240
+2026/07/28-22:34:43.313 202f25 Level-0 table #243: started
+2026/07/28-22:34:43.326 202f25 Level-0 table #243: 273487 bytes OK
+2026/07/28-22:34:43.331 202f25 Delete type=0 #239

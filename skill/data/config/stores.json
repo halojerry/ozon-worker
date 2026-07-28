@@ -1,5 +1,5 @@
 {
-  "default": "主店铺",
+  "default": "测试店铺5381204",
   "stores": {
     "主店铺": {
       "client_id": "4718259",
@@ -9,11 +9,12 @@
       "fx_buffer": 0.05
     },
     "default": {
-      "client_id": "4718259",
-      "api_key": "cd1d0a10-181a-42a1-8895-8508bb0513d7",
-      "margin_rate": 0.25,
-      "commission_rate": 0.1,
-      "fx_buffer": 0.05
+      "client_id": "5381204",
+      "api_key": "0b4d15cf-70a2-4505-9764-f64ac169b52f"
+    },
+    "测试店铺5381204": {
+      "client_id": "5381204",
+      "api_key": "0b4d15cf-70a2-4505-9764-f64ac169b52f"
     }
   }
 }

@@ -255,6 +255,84 @@ def import_logistics_rates(engine, force=False):
     logger.info(f"✅ 物流费率导入完成: {len(records)} 条")
 
 
+def import_attribute_cache(engine, force=False):
+    """
+    从 JSON 文件导入属性 schema 和字典值缓存到 PG。
+    
+    JSON 文件由 warm_category_cache.py 生成，存放在 assets/ 目录。
+    部署时 deploy.sh → init_data.py 自动导入。
+    """
+    import json as _json
+    import time as _time
+
+    assets_dir = os.path.join(os.path.dirname(__file__), "..", "assets")
+    schemas_file = os.path.join(assets_dir, "attribute_schemas_zh.json")
+    dict_values_file = os.path.join(assets_dir, "dictionary_values_zh.json")
+
+    if not os.path.exists(schemas_file) and not os.path.exists(dict_values_file):
+        logger.info("⏭️  属性缓存 JSON 文件不存在，跳过导入（运行时将从 Ozon API 懒加载）")
+        return
+
+    with engine.begin() as conn:
+        # 检查是否已有数据
+        count = conn.execute(sql_text(
+            "SELECT COUNT(*) FROM attribute_cache WHERE language = 'ZH_HANS'"
+        )).scalar()
+
+        if count > 0 and not force:
+            logger.info(f"⏭️  属性缓存已有 {count} 条记录，跳过导入（用 --force 强制覆盖）")
+            return
+
+        if force and count > 0:
+            conn.execute(sql_text("DELETE FROM attribute_cache WHERE language = 'ZH_HANS'"))
+            conn.execute(sql_text("DELETE FROM dictionary_value_cache WHERE language = 'ZH_HANS'"))
+            logger.info(f"🗑️  已清空旧属性缓存数据 ({count} 条 schema)")
+
+        now = int(_time.time())
+        expires_schema = now + 7 * 86400
+        expires_dict = now + 86400
+
+        # 导入 attribute schemas
+        if os.path.exists(schemas_file):
+            with open(schemas_file, "r", encoding="utf-8") as f:
+                schemas = _json.load(f)
+
+            schema_count = 0
+            for key, val in schemas.items():
+                dc_str, type_str = key.split(":", 1)
+                dc, tid = int(dc_str), int(type_str)
+                conn.execute(sql_text("""
+                    INSERT INTO attribute_cache (description_category_id, type_id, language, attributes_schema, expires_at, created_at)
+                    VALUES (:dc, :tid, 'ZH_HANS', :schema::jsonb, :expires, :now)
+                    ON CONFLICT (description_category_id, type_id, language)
+                    DO UPDATE SET attributes_schema = EXCLUDED.attributes_schema,
+                                  expires_at = EXCLUDED.expires_at
+                """), {"dc": dc, "tid": tid, "schema": _json.dumps(val, ensure_ascii=False),
+                       "expires": expires_schema, "now": now})
+                schema_count += 1
+            logger.info(f"✅ 导入属性 schema: {schema_count} 个类目")
+
+        # 导入 dictionary values
+        if os.path.exists(dict_values_file):
+            with open(dict_values_file, "r", encoding="utf-8") as f:
+                dict_values = _json.load(f)
+
+            dict_count = 0
+            for key, val in dict_values.items():
+                parts = key.split(":", 2)
+                attr_id, dc, tid = int(parts[0]), int(parts[1]), int(parts[2])
+                conn.execute(sql_text("""
+                    INSERT INTO dictionary_value_cache (attribute_id, description_category_id, type_id, language, values_data, expires_at, created_at)
+                    VALUES (:aid, :dc, :tid, 'ZH_HANS', :vals::jsonb, :expires, :now)
+                    ON CONFLICT (attribute_id, description_category_id, type_id, language)
+                    DO UPDATE SET values_data = EXCLUDED.values_data,
+                                  expires_at = EXCLUDED.expires_at
+                """), {"aid": attr_id, "dc": dc, "tid": tid, "vals": _json.dumps(val, ensure_ascii=False),
+                       "expires": expires_dict, "now": now})
+                dict_count += 1
+            logger.info(f"✅ 导入字典值: {dict_count} 个条目")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="首次部署数据初始化")
@@ -280,6 +358,9 @@ def main():
 
     # 3. 导入物流费率
     import_logistics_rates(engine, force=args.force)
+
+    # 4. 导入属性 schema 和字典值缓存（从 JSON 文件，与类目树同级）
+    import_attribute_cache(engine, force=args.force)
 
     logger.info("═══ 初始化完成 ═══")
 

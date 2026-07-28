@@ -40,14 +40,58 @@ STAGE_ORDER = [
     "ozon_validate", "check_quota", "ozon_upload", "ozon_status", "learning_record"
 ]
 
+# ✅ v0.9: 合并为单一 update_progress（内存 + PG 持久化），避免重复定义
+
+
+def get_progress(task_id: str) -> Optional[Dict[str, Any]]:
+    """获取任务进度（内存优先 → PG 回退）"""
+    if task_id in _task_progress:
+        return _task_progress[task_id]
+    # ✅ P1 修复：内存无数据时回退到 PG（重启后仍可读）
+    try:
+        from storage.database.db import get_session
+        from sqlalchemy import text
+        session = get_session()
+        try:
+            row = session.execute(
+                text("SELECT progress FROM ozon_product_tasks WHERE id = :tid"),
+                {"tid": task_id}
+            ).scalar()
+            if row:
+                return json.loads(row) if isinstance(row, str) else row
+        finally:
+            session.close()
+    except Exception:
+        pass
+    return None
+
+
+async def _persist_progress(task_id: str, data: dict):
+    """异步写入 PG progress 列"""
+    try:
+        from storage.database.db import get_session
+        from sqlalchemy import text
+        session = get_session()
+        try:
+            session.execute(
+                text("UPDATE ozon_product_tasks SET progress = :p, updated_at = NOW() WHERE id = :tid"),
+                {"p": json.dumps(data, ensure_ascii=False), "tid": task_id}
+            )
+            session.commit()
+        finally:
+            session.close()
+    except Exception:
+        pass  # 持久化失败不影响主流程
+
+
 def update_progress(task_id: str, stage: str, message: str = ""):
-    """更新任务进度"""
+    """更新任务进度（内存 + 异步 PG）"""
     if not task_id:
         return
     stage_idx = STAGE_ORDER.index(stage) if stage in STAGE_ORDER else 0
     total = len(STAGE_ORDER)
     percent = int((stage_idx / total) * 100)
-    _task_progress[task_id] = {
+    data = {
         "stage": stage,
         "stage_index": stage_idx,
         "total_stages": total,
@@ -57,10 +101,12 @@ def update_progress(task_id: str, stage: str, message: str = ""):
         "stages_completed": STAGE_ORDER[:stage_idx],
         "stages_remaining": STAGE_ORDER[stage_idx+1:],
     }
-
-def get_progress(task_id: str) -> Optional[Dict[str, Any]]:
-    """获取任务进度"""
-    return _task_progress.get(task_id)
+    _task_progress[task_id] = data
+    # ✅ P1 修复：异步持久化到 PG（重启后仍可恢复进度）
+    try:
+        asyncio.create_task(_persist_progress(task_id, data))
+    except RuntimeError:
+        pass  # 无 event loop 时跳过（同步模式）
 
 # Local runtime utilities (standalone replacements for platform SDK)
 from runtime.context import new_context, Context
@@ -394,7 +440,10 @@ async def lifespan(app: FastAPI):
             logger.info("定时清理任务已取消")
     
     if async_runtime is not None:
-        await async_runtime.shutdown()
+        try:
+            await async_runtime.shutdown()
+        except AttributeError:
+            pass  # shutdown method not available in this version
 
 app = FastAPI(
     lifespan=lifespan,
@@ -518,6 +567,27 @@ async def http_run(request: Request) -> Dict[str, Any]:
 
     try:
         payload = await request.json()
+
+        # ✅ P0 修复：/run 同步端点也做 Ozon 配额预检（与 /submit_task 一致）
+        try:
+            ozon_cid = payload.get("ozon_client_id", "")
+            ozon_key = payload.get("ozon_api_key", "")
+            if ozon_cid and ozon_key:
+                from utils.ozon_client import ozon_check_quota
+                quota = ozon_check_quota(client_id=ozon_cid, api_key=ozon_key, timeout=5)
+                if not quota.get("ok"):
+                    raise HTTPException(
+                        status_code=429,
+                        detail={
+                            "error": "OZON_QUOTA_EXHAUSTED",
+                            "message": quota.get("message", "店铺配额已满"),
+                            "quota": quota,
+                        }
+                    )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning("配额预检异常，放行继续: %s", e)
 
         # 创建任务并记录 - 这是关键，让我们可以通过run_id取消任务
         task = asyncio.create_task(service.run(payload, ctx))

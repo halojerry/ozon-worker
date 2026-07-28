@@ -21,16 +21,37 @@ IMAGE_SEARCH_URL = "https://air.1688.com/kapp/1688-search/pc-image-search/"
 
 
 def _get_badge_score(badge: str) -> int:
-    """从 '符合2/3个条件' 提取分子作为分数。"""
+    """从 badge 文本提取匹配分数（越高越好）。
+    支持格式: "符合2/3个条件" → 2, "匹配度85%" → 85, "相似度: 高" → 50
+    """
+    if not badge:
+        return 0
+    # 格式1: "符合X/Y个条件"
     m = re.search(r"符合(\d+)/(\d+)个条件", badge)
     if m:
         return int(m.group(1))
+    # 格式2: 百分比 "匹配度85%" / "相似度 92%" 
+    m = re.search(r"(匹配度|相似度|similarity)\s*[:：]?\s*(\d+)", badge, re.IGNORECASE)
+    if m:
+        score = int(m.group(2))
+        return min(score, 100)  # cap at 100
+    # 格式3: 文本等级 "匹配度较高" / "精准匹配"
+    level_map = {"精准": 90, "较高": 70, "高": 60, "一般": 30, "低": 10}
+    for k, v in level_map.items():
+        if k in badge:
+            return v
     return 0
 
 
 def _extract_results_from_tab(tab, page_size: int = 5) -> list[dict[str, Any]]:
     """从结果标签页提取商品列表（使用 CdpTab.evaluate）。"""
     result_str = tab.evaluate(f'''
+        // 先滚动触发懒加载
+        window.scrollTo(0, document.body.scrollHeight / 2);
+        await new Promise(r => setTimeout(r, 500));
+        window.scrollTo(0, document.body.scrollHeight);
+        await new Promise(r => setTimeout(r, 500));
+
         const cards = document.querySelectorAll(".cardui-normal");
         const results = [];
         for (let i = 0; i < Math.min(cards.length, {page_size}); i++) {{
@@ -48,10 +69,22 @@ def _extract_results_from_tab(tab, page_size: int = 5) -> list[dict[str, Any]]:
                 "电器厂","制造厂","加工厂","生产厂","配件厂","用品厂","工具厂","日化厂",
                 "面单支持","入驻"];
             const companyRe = /[市县].*[厂公司有限]/;
+
+            // ✅ 优先用 querySelector 找 badge（类名带随机后缀: badge--XXXXXXXX）
+            const badgeEl = card.querySelector('[class*="badge--"]');
+            if (badgeEl) {{
+                badge = badgeEl.textContent.trim();
+            }}
+
             for (const line of lines) {{
-                if (line.match(/符合[\\d\\/]+个条件/)) {{
+                // badge 已从 DOM 提取，fallback 文本扫描
+                if (!badge && line.match(/符合[\\d\\/]+个条件/)) {{
                     badge = line;
-                }} else if (line.match(/[\\d.]+万?\\+件/)) {{
+                }}
+                if (!badge && line.match(/(匹配度|相似度)[\\s:]*[\\d.]+/)) {{
+                    badge = line;
+                }}
+                if (line.match(/[\\d.]+万?\\+件/)) {{
                     sold = line;
                 }} else if (companyRe.test(line) || line.match(/[\\u4e00-\\u9fff].*有限|[\\u4e00-\\u9fff].*公司$/)) {{
                     supplier = line;
