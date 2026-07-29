@@ -32,6 +32,18 @@ from sqlalchemy import event
 # ── 进度追踪（内存存储，重启清空） ──
 # 格式: {task_id: {stage, stage_index, total_stages, percent, message, updated_at}}
 _task_progress: Dict[str, Dict[str, Any]] = {}
+_current_task_id: str | None = None  # ✅ v0.10: thread-local 当前处理中的 task_id
+
+
+def set_current_task_id(task_id: str | None):
+    """设置当前正在处理的 task_id（供 ProgressLogger 等模块使用）"""
+    global _current_task_id
+    _current_task_id = task_id
+
+
+def get_current_task_id() -> str | None:
+    """获取当前正在处理的 task_id"""
+    return _current_task_id
 
 # 节点执行顺序（用于计算进度百分比）
 STAGE_ORDER = [
@@ -80,8 +92,17 @@ async def _persist_progress(task_id: str, data: dict):
             session.commit()
         finally:
             session.close()
-    except Exception:
-        pass  # 持久化失败不影响主流程
+    except Exception as e:
+        logger.debug("progress persist failed for %s: %s", task_id, e)
+
+
+def _purge_stale_progress():
+    """清理 _task_progress 中已完成超过 1 小时的条目（防内存泄漏）"""
+    now = time.time()
+    stale = [tid for tid, data in list(_task_progress.items())
+              if now - data.get("updated_at", 0) > 3600]
+    for tid in stale:
+        del _task_progress[tid]
 
 
 def update_progress(task_id: str, stage: str, message: str = ""):
@@ -400,9 +421,9 @@ async def lifespan(app: FastAPI):
 
     # ✅ 启动时僵尸任务恢复：重置重启前的 running 任务和可重试的 failed 任务
     try:
-        from utils.local_db_manager import get_local_db
-        local_db = get_local_db()
-        with local_db.get_session() as sess:
+        from sqlalchemy import text
+        sess = get_session()
+        try:
             # 1. 重置所有 running 任务（Worker 重启导致中断）
             zombie_running = sess.execute(
                 text("UPDATE ozon_product_tasks SET status='pending', started_at=NULL, updated_at=NOW() WHERE status='running'")
@@ -414,6 +435,8 @@ async def lifespan(app: FastAPI):
             sess.commit()
             if zombie_running or zombie_failed:
                 logger.info(f"🧹 启动清理: {zombie_running} 个僵尸 running + {zombie_failed} 个 failed → pending")
+        finally:
+            sess.close()
     except Exception as _cleanup_e:
         logger.warning(f"⚠️ 启动清理失败（非致命）: {_cleanup_e}")
 
@@ -809,6 +832,9 @@ async def _periodic_task_cleanup(interval_seconds: int = 60):
                 conn.commit()
                 if r1 or r2:
                     logger.info(f"🧹 定期清理: {r1} stale running → pending, {r2} old completed deleted")
+                # ✅ v0.10: 清理 _task_progress 中已完成超过 1 小时的任务条目（防内存泄漏）
+                if r2:
+                    _purge_stale_progress()
         except Exception as _e:
             logger.debug(f"定期清理跳过: {_e}")
         await asyncio.sleep(interval_seconds)
@@ -969,35 +995,42 @@ async def auth_verify(request: Request):
 async def http_progress(run_id: str):
     """查询工作流执行进度。
 
-    从 LangGraph checkpointer 读取当前 state，返回 progress_counter / total / stages。
-    仅对 async_graph（有 checkpointer 的图）有效；/run 同步路径无 checkpointer。
+    优先从 LangGraph checkpointer 读取实时 state，
+    降级到内存 _task_progress → PG progress 列（任务完成后/重启后可用）。
     """
-    if async_graph is None:
-        raise HTTPException(status_code=503, detail="Async graph not initialized")
-    checkpointer = get_memory_saver()
-    if checkpointer is None:
-        raise HTTPException(status_code=503, detail="Checkpointer not available")
-    config = {"configurable": {"thread_id": run_id}}
-    try:
-        state = await async_graph.aget_state(config)
-        if state is None or not state.values:
-            raise HTTPException(status_code=404, detail=f"No state found for run_id={run_id}")
-        values = state.values
-        counter = values.get("progress_counter", 0)
-        stages = values.get("stages", {})
-        total = 24  # 与 workflow_progress.json 节点数一致
+    # 1. 尝试 LangGraph checkpointer（实时 running state）
+    if async_graph is not None:
+        checkpointer = get_memory_saver()
+        if checkpointer is not None:
+            config = {"configurable": {"thread_id": run_id}}
+            try:
+                state = await async_graph.aget_state(config)
+                if state is not None and state.values:
+                    values = state.values
+                    counter = values.get("progress_counter", 0)
+                    stages = values.get("stages", {})
+                    total = len(STAGE_ORDER)
+                    return {
+                        "run_id": run_id,
+                        "source": "checkpointer",
+                        "progress_counter": counter,
+                        "total_nodes": total,
+                        "percentage": int((counter / total) * 100) if total > 0 else 0,
+                        "stages": stages,
+                    }
+            except Exception:
+                pass  # 降级到内存/PG
+
+    # 2. 降级：内存 _task_progress → PG progress 列
+    progress = get_progress(run_id)
+    if progress:
         return {
             "run_id": run_id,
-            "progress_counter": counter,
-            "total_nodes": total,
-            "percentage": int((counter / total) * 100) if total > 0 else 0,
-            "stages": stages,
+            "source": "memory_or_pg",
+            **progress,
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"查询进度失败 run_id={run_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+
+    raise HTTPException(status_code=404, detail=f"No progress found for run_id={run_id}")
 
 
 # ==================== Supabase任务队列API ====================

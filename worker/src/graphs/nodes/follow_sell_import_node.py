@@ -41,28 +41,66 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
     ozon_images = draft.get("images", []) or []
     ozon_cat = draft.get("ozon_category", {}) or {}
 
-    # 价格
+    # ✅ v0.11: 完整定价 — 加物流+包装+汇率（之前漏算导致系统性地低价 $5-15）
     purchase_cost = float(draft.get("purchase_cost", 0) or 0)
     margin_rate = float((extensions or {}).get("margin_rate", 0.25))
     commission_rate = float((extensions or {}).get("commission_rate", 0.10))
-    if purchase_cost > 0:
-        price_val = max(10, int(purchase_cost * (1 + margin_rate) / (1 - commission_rate)))
+    fx_buffer = float((extensions or {}).get("fx_buffer", 0.05))
+
+    # 物流成本估算（简化版 — 完整版在 pricing_node 中）
+    weight_g = int(draft.get("weight", 0) or 0)
+    dims = draft.get("dimensions", {}) or {}
+    weight_kg = max(weight_g / 1000.0, 0.05)
+    # 兜底费率 ~0.05 CNY/g（与 pricing_node 一致）
+    logistics_cost = max(weight_g * 0.05, 3.0)
+    packaging_cost = 2.0
+
+    # 汇率（CNY 店铺不加 fx_buffer）
+    currency = (draft.get("currency") or "").upper()
+    exchange_rate = 1.0
+    if currency == "RUB":
+        exchange_rate = 11.0  # 兜底汇率
+        total_cost = purchase_cost + logistics_cost + packaging_cost
+        base_price = total_cost * (1 + margin_rate) * (1 + fx_buffer) / max(1 - commission_rate, 0.9) * exchange_rate
     else:
-        price_val = 500
+        total_cost = purchase_cost + logistics_cost + packaging_cost
+        base_price = total_cost * (1 + margin_rate) / max(1 - commission_rate, 0.9)
+
+    price_val = max(10, int(base_price))
     old_price_val = price_val + max(3, int(price_val * 0.2))
 
+    if purchase_cost > 0:
+        logger.info("💰 跟卖定价: 成本=%.1f + 物流=%.1f + 包装=%.1f = 总成本=%.1f → 售价=%d (%.0f%%)",
+                   purchase_cost, logistics_cost, packaging_cost, total_cost, price_val, margin_rate * 100)
+
     # 类目：优先数字 ID 直查 → 文本 pg_trgm（语言感知）
+    # ✅ v0.10: 保存原始值作 fallback，resolution 失败时保留原值
     dc_raw = str(ozon_cat.get("description_category_id") or "")
     type_raw = str(ozon_cat.get("type_id") or "")
+    dc_fallback, type_fallback = dc_raw, type_raw
     language = ozon_cat.get("language", "")
     if dc_raw and dc_raw.isdigit():
         # ✅ v0.9: 数字 ID → 直接查 category_tree_nodes
-        dc_raw, type_raw = _resolve_category_by_id(int(dc_raw))
+        # ✅ v0.11: 传入面包屑文本作 pg_trgm 兜底（Widget ID ≠ Seller ID）
+        category_hint = ozon_cat.get("category_path", "") or ozon_cat.get("category", "")
+        # 取面包屑路径末级作为 type 名匹配 hint
+        last_segment = category_hint.split(" > ")[-1].strip() if category_hint else ""
+        resolved_dc, resolved_type = _resolve_category_by_id(int(dc_raw), type_name_hint=last_segment, token=state.token)
+        if resolved_dc and resolved_type:
+            dc_raw, type_raw = resolved_dc, resolved_type
+        else:
+            logger.warning("数字 ID 直查+pg_trgm 均失败，使用原始 envelope 类目: dc=%s type=%s", dc_fallback, type_fallback)
+            dc_raw, type_raw = dc_fallback, type_fallback
     elif dc_raw:
         # 文本 → pg_trgm（语言检测：RU/ZH_HANS）
         if not language:
             language = _detect_language(dc_raw)
-        dc_raw, type_raw = _resolve_category(dc_raw, type_raw or dc_raw, language=language)
+        resolved_dc, resolved_type = _resolve_category(dc_raw, type_raw or dc_raw, language=language)
+        if resolved_dc and resolved_type:
+            dc_raw, type_raw = resolved_dc, resolved_type
+        else:
+            logger.warning("pg_trgm 类目搜索失败，使用原始 envelope 文本: dc=%s type=%s", dc_fallback, type_fallback)
+            dc_raw, type_raw = dc_fallback, type_fallback
 
     # ✅ P3 修复：跟卖也拉取属性 schema（供 validate + retry 使用）
     client_id = state.ozon_client_id
@@ -107,7 +145,30 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
         unmatched = data.get("unmatched_sku_list", [])
         ibs_task_id = str(data.get("task_id", ""))
         if resp.status_code == 200 and not unmatched:
-            logger.info("✅ import-by-sku 已提交(不等待): task_id=%s", ibs_task_id)
+            logger.info("✅ import-by-sku 已提交: task_id=%s", ibs_task_id)
+            # ✅ v0.11: 短暂轮询（10×3s=30s），拿到 product_id 后走 UPDATE，避免重复产品卡
+            for _ibs_attempt in range(10):
+                time.sleep(3)
+                try:
+                    info_resp = req.post(
+                        "https://api-seller.ozon.ru/v1/product/import/info",
+                        headers=headers, json={"task_id": int(ibs_task_id)}, timeout=15,
+                    )
+                    if info_resp.status_code == 200:
+                        info_items = info_resp.json().get("result", {}).get("items", [])
+                        for _it in info_items:
+                            _pid = _it.get("product_id")
+                            _status = _it.get("status", "")
+                            if _pid and _status == "imported":
+                                state.product_id = str(_pid)
+                                logger.info("✅ import-by-sku 完成: product_id=%s，后续走 UPDATE", _pid)
+                                break
+                    if state.product_id:
+                        break
+                except Exception:
+                    pass
+            if not state.product_id:
+                logger.info("⏳ import-by-sku 未在30s内完成，走 Fallback CREATE")
         else:
             logger.info("⚠️ import-by-sku 不可复制(unmatched=%s)，走 Fallback", unmatched)
     except Exception as e:
@@ -117,6 +178,7 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
     # 类目：pg_trgm 解析俄语类目名 → 数字 ID
     if dc_raw:
         state.description_category_id = dc_raw
+    if type_raw:
         state.type_id = type_raw
 
     # 标题
@@ -164,8 +226,33 @@ def _detect_language(text: str) -> str:
     return "RU"  # 默认俄语（Cyrillic）
 
 
-def _resolve_category_by_id(dc_id: int) -> tuple[str, str]:
-    """数字 description_category_id → 查 category_tree_nodes 获取 type_id"""
+def _translate_to_russian(text: str, token: str = "") -> str:
+    """Translate Chinese category name to Russian via LLM (mxou)."""
+    if not text or not token:
+        return ""
+    try:
+        from utils.mxou_api import call_mxou_chat_api
+        prompt = f"Переведи название категории товара на русский язык. Верни ТОЛЬКО перевод, без пояснений: {text}"
+        result = call_mxou_chat_api(
+            token=token,
+            system_prompt="Ты переводчик. Переводи точно, без лишних слов.",
+            user_prompt=prompt,
+            model="deepseek-v4-flash",
+            max_tokens=80,
+        )
+        if result and len(result.strip()) > 2:
+            return result.strip()
+    except Exception as e:
+        logger.warning("LLM 翻译类目失败: %s", e)
+    return ""
+
+
+def _resolve_category_by_id(dc_id: int, type_name_hint: str = "", token: str = "") -> tuple[str, str]:
+    """数字 description_category_id → 查 category_tree_nodes 获取 type_id
+    
+    Widget API 和 Seller API 使用不同的 ID 空间，数字直查经常失败。
+    失败时用面包屑文本做 pg_trgm 搜索 Seller 类目树作为降级。
+    """
     try:
         from utils.ozon_category_query import get_category_query
         query = get_category_query()
@@ -178,6 +265,33 @@ def _resolve_category_by_id(dc_id: int) -> tuple[str, str]:
             return dc_id_str, type_id_str
     except Exception as e:
         logger.warning("数字 ID 直查失败: %s", e)
+    
+    # ✅ v0.11: Widget ID 不在 Seller 树中 → 用面包屑文本 pg_trgm 搜索
+    if type_name_hint:
+        # 检测面包屑文本语言，优先用对应语言搜索
+        lang = _detect_language(type_name_hint)
+        logger.info("🔍 数字 ID %d 直查失败，尝试 pg_trgm 文本搜索(lang=%s): '%s'", dc_id, lang, type_name_hint)
+        dc_text, type_text = _resolve_category(type_name_hint, type_name_hint, language=lang)
+        if dc_text and type_text:
+            logger.info("✅ pg_trgm 兜底成功: '%s' → dc=%s type=%s", type_name_hint, dc_text, type_text)
+            return dc_text, type_text
+        # 尝试 RU 作为第二语言备选
+        if lang != "RU":
+            dc_text, type_text = _resolve_category(type_name_hint, type_name_hint, language="RU")
+            if dc_text and type_text:
+                logger.info("✅ pg_trgm 兜底(RU): '%s' → dc=%s type=%s", type_name_hint, dc_text, type_text)
+                return dc_text, type_text
+        
+        # ✅ v0.11: 中文面包屑 → LLM 翻译俄语 → pg_trgm RU 搜索
+        if lang != "RU":
+            ru_hint = _translate_to_russian(type_name_hint, token)
+            if ru_hint and ru_hint != type_name_hint:
+                logger.info("🔍 LLM 翻译: '%s' → '%s', 尝试 pg_trgm RU 搜索", type_name_hint, ru_hint)
+                dc_text, type_text = _resolve_category(ru_hint, ru_hint, language="RU")
+                if dc_text and type_text:
+                    logger.info("✅ LLM翻译+pg_trgm 成功: '%s' → dc=%s type=%s", ru_hint, dc_text, type_text)
+                    return dc_text, type_text
+    
     return "", ""
 
 

@@ -1,0 +1,288 @@
+- generic [active] [ref=f5e1]:
+  - generic [ref=f5e7]:
+    - link [ref=f5e8] [cursor=pointer]:
+      - /url: https://www.1688.com?spm=a26352.13672862.topmenu.logo
+    - generic [ref=f5e13]:
+      - link " 首页 首页" [ref=f5e16] [cursor=pointer]:
+        - /url: https://www.1688.com?spm=a26352.13672862.topmenu.dhome&spm=a26352.13672862.topmenu.dhome
+        - generic [ref=f5e17]: 
+        - generic [ref=f5e20]:
+          - text: 首页
+          - generic [ref=f5e21]: 首页
+      - link " 我的阿里 我的阿里" [ref=f5e25] [cursor=pointer]:
+        - /url: https://work.1688.com/home/buyer.htm?spm=a26352.13672862.topmenu.dmyali
+        - generic [ref=f5e26]: 
+        - generic [ref=f5e29]:
+          - text: 我的阿里
+          - generic [ref=f5e30]: 我的阿里
+      - generic [ref=f5e34] [cursor=pointer]:
+        - generic [ref=f5e35]: 
+        - generic [ref=f5e38]:
+          - text: 下载插件
+          - generic [ref=f5e39]: 下载插件
+      - link " 我的订单 我的订单" [ref=f5e43] [cursor=pointer]:
+        - /url: https://trade.1688.com/order/buyer_order_list.htm?tradeStatus=waitbuyerreceive&spm=a26352.13672862.topmenu.dmyorder
+        - generic [ref=f5e44]: 
+        - generic [ref=f5e47]:
+          - text: 我的订单
+          - generic [ref=f5e48]: 我的订单
+      - link " 17 采购车 采购车" [ref=f5e52] [cursor=pointer]:
+        - /url: https://cart.1688.com/cart.htm?spm=a26352.13672862.topmenu.dcart
+        - generic [ref=f5e53]:
+          - generic [ref=f5e54]: 
+          - generic [ref=f5e55]: "17"
+        - generic [ref=f5e57]:
+          - text: 采购车
+          - generic [ref=f5e58]: 采购车
+      - link " 2 消息 消息" [ref=f5e62] [cursor=pointer]:
+        - /url: https://air.1688.com/app/ocms-fusion-components-1688/def_cbu_web_im/index.html?spm=a26352.13672862.topmenu.dmymessage
+        - generic [ref=f5e63]:
+          - generic [ref=f5e64]: 
+          - generic [ref=f5e65]: "2"
+        - generic [ref=f5e67]:
+          - text: 消息
+          - generic [ref=f5e68]: 消息
+      - link " 开店 官方服务 官方服务" [ref=f5e72] [cursor=pointer]:
+        - /url: https://work.1688.com/home/seller.htm?spm=a26352.13672862.topmenu.dsellercenterentry
+        - generic [ref=f5e73]:
+          - generic [ref=f5e74]: 
+          - generic [ref=f5e75]: 开店
+        - generic [ref=f5e77]:
+          - text: 官方服务
+          - generic [ref=f5e78]: 官方服务
+  - generic [ref=f5e86]:
+    - generic [ref=f5e90]:
+      - generic [ref=f5e91]:
+        - generic [ref=f5e94]:
+          - generic [ref=f5e95] [cursor=pointer]: 搜 索
+          - textbox "枸杞梹榔" [ref=f5e98]: 鏀剁撼鐩�
+        - generic [ref=f5e100]:
+          - generic [ref=f5e101]:
+            - generic [ref=f5e102]: 最近搜索
+            - generic [ref=f5e103]:
+              - generic [ref=f5e104] [cursor=pointer]: https://ir.ozone.ru/s3/multimedia-1-l/wc1000/11509570893.jpg
+              - generic [ref=f5e108] [cursor=pointer]: https://ir.ozone.ru/s3/multimedia-1-2/wc1000/11487485414.jpg
+          - generic [ref=f5e112]:
+            - generic [ref=f5e113]: 热门搜索
+            - generic [ref=f5e114]:
+              - generic [ref=f5e115] [cursor=pointer]: 鼠标键盘
+              - generic [ref=f5e117] [cursor=pointer]: 笔记本电脑
+              - generic [ref=f5e119] [cursor=pointer]: 槟榔和成天下槟榔
+              - generic [ref=f5e121] [cursor=pointer]: 键盘键鼠套装
+      - generic [ref=f5e124]:
+        - generic [ref=f5e125] [cursor=pointer]:
+          - button "Choose File" [ref=f5e126]
+          - generic [ref=f5e128]: 以图搜款
+        - generic:
+          - generic: 支持如下图搜同款比价方式
+          - generic: 1. 点击从本地上传图片
+          - generic: 2. ctrl + v 粘贴图片或图片链接快速图搜
+          - generic [ref=f5e131]:
+            - text: 3. 安装1688插件，全网截图比价
+            - link "去安装" [ref=f5e132] [cursor=pointer]:
+              - /url: https://air.1688.com/kapp/assets-group/haobangshou/PluginInstall
+    - generic [ref=f5e133]:
+      - generic [ref=f5e134]:
+        - link "找货源" [ref=f5e135] [cursor=pointer]:
+          - /url: /selloffer/offer_search.htm?keywords=%E6%94%B6%E7%BA%B3%E7%9B%3F
+        - link "找代发" [ref=f5e136] [cursor=pointer]:
+          - /url: https://air.1688.com/app/channel-fe/search/index.html?spm=a26352.13672862.searchtab.0#/result?encode_params=N4IgzgpghgTgxgCwCoE8AOEQC4QGsIoDuA9jACZggA0408CAIlAC5TYDaIgA8mCCSoD0mgShTAv-8gAugF8gA
+        - link "找工厂" [ref=f5e137] [cursor=pointer]:
+          - /url: /company/pc/factory_search.htm?keywords=%E6%94%B6%E7%BA%B3%E7%9B%3F
+        - link "找供应商" [ref=f5e138] [cursor=pointer]:
+          - /url: /company/company_search.htm?keywords=%E6%94%B6%E7%BA%B3%E7%9B%3F
+        - link "工业品" [ref=f5e139] [cursor=pointer]:
+          - /url: /selloffer/imall_search.htm?keywords=%E6%94%B6%E7%BA%B3%E7%9B%3F
+        - link "找服务" [ref=f5e140] [cursor=pointer]:
+          - /url: https://fuwu.1688.com/z/service-search?keywords=鏀剁撼鐩�
+      - generic [ref=f5e143]:
+        - generic [ref=f5e144]:
+          - generic [ref=f5e147]:
+            - generic [ref=f5e148] [cursor=pointer]: 综合
+            - generic [ref=f5e150] [cursor=pointer]: 销量
+            - generic [ref=f5e152] [cursor=pointer]: 价格
+            - generic [ref=f5e160]:
+              - textbox "¥ 最低价" [ref=f5e161]
+              - textbox "¥ 最高价" [ref=f5e163]
+              - generic: 确定
+            - generic [ref=f5e165]:
+              - generic [ref=f5e166]: 起订量
+              - generic [ref=f5e167]:
+                - textbox "请输入" [ref=f5e168]
+                - generic: 确定
+            - generic [ref=f5e170]:
+              - generic [ref=f5e171]: 店铺商品数
+              - generic [ref=f5e174]:
+                - textbox "最低数量" [ref=f5e175]
+                - textbox "最高数量" [ref=f5e177]
+                - generic: 确定
+            - generic [ref=f5e180] [cursor=pointer]:
+              - generic [ref=f5e181]: 所在地区
+              - emphasis [ref=f5e184]
+            - generic [ref=f5e185] [cursor=pointer]:
+              - generic [ref=f5e186]: 商家特色
+              - emphasis [ref=f5e189]
+            - generic [ref=f5e190] [cursor=pointer]:
+              - generic [ref=f5e191]: 经营模式
+              - emphasis [ref=f5e194]
+          - generic [ref=f5e195]: 合并供应商
+        - generic [ref=f5e202]:
+          - generic [ref=f5e203] [cursor=pointer]:
+            - generic [ref=f5e204]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e205]: 极速开票
+          - generic [ref=f5e206] [cursor=pointer]:
+            - generic [ref=f5e207]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e208]: 新人首单优惠
+          - generic [ref=f5e209] [cursor=pointer]:
+            - generic [ref=f5e210]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e211]: 新品
+          - generic [ref=f5e212] [cursor=pointer]:
+            - generic [ref=f5e213]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e214]: 包邮
+          - generic [ref=f5e215] [cursor=pointer]:
+            - generic [ref=f5e216]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e217]: 假绒必赔
+          - generic [ref=f5e218] [cursor=pointer]:
+            - generic [ref=f5e219]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e220]: 严选
+          - generic [ref=f5e221] [cursor=pointer]:
+            - generic [ref=f5e222]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e223]: 分销严选
+          - generic [ref=f5e224] [cursor=pointer]:
+            - generic [ref=f5e225]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e226]: 一件代发
+          - generic [ref=f5e227] [cursor=pointer]:
+            - generic [ref=f5e228]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e229]: 退货包运费
+          - generic [ref=f5e230] [cursor=pointer]:
+            - generic [ref=f5e231]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e232]: 7天无理由退货
+          - generic [ref=f5e233] [cursor=pointer]:
+            - generic [ref=f5e234]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e235]: 24H发货
+          - generic [ref=f5e236] [cursor=pointer]:
+            - generic [ref=f5e237]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e238]: 48H发货
+          - generic [ref=f5e239] [cursor=pointer]:
+            - generic [ref=f5e240]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e241]: 官方物流
+          - generic [ref=f5e242] [cursor=pointer]:
+            - generic [ref=f5e243]:
+              - generic:
+                - emphasis
+            - generic [ref=f5e244]: 铺货素材包
+          - generic [ref=f5e245] [cursor=pointer]:
+            - generic [ref=f5e246]: 密文面单
+            - emphasis [ref=f5e249]
+          - generic [ref=f5e250] [cursor=pointer]:
+            - generic [ref=f5e251]: 晚揽必赔
+            - emphasis [ref=f5e254]
+          - generic [ref=f5e255] [cursor=pointer]:
+            - generic [ref=f5e256]: 24H支揽率
+            - emphasis [ref=f5e259]
+          - generic [ref=f5e260] [cursor=pointer]:
+            - generic [ref=f5e261]: 48H支揽率
+            - emphasis [ref=f5e264]
+      - generic "反馈" [ref=f5e267] [cursor=pointer]
+      - generic [ref=f5e268]:
+        - generic [ref=f5e273]:
+          - generic [ref=f5e274]: 哎呦喂，这里空空如也～
+          - generic [ref=f5e276]:
+            - generic [ref=f5e277]: 您还可以：写下您的采购需求，快速获得多个供应商报价
+            - link "发布询价单" [ref=f5e278] [cursor=pointer]:
+              - /url: https://work.1688.com/home/page/index.htm?_path_=buyer2017Base/procurement/fabuxinxunpan
+        - generic [ref=f5e280]:
+          - generic [ref=f5e281]: 共1页
+          - generic [ref=f5e282]: "1"
+          - generic [ref=f5e286]:
+            - generic [ref=f5e287]: 到
+            - textbox [ref=f5e288]: "1"
+            - generic [ref=f5e289]: 页
+            - generic [ref=f5e290] [cursor=pointer]: 确定
+      - generic [ref=f5e293]:
+        - link "阿里巴巴集团" [ref=f5e294] [cursor=pointer]:
+          - /url: https://www.alibabagroup.com/cn/global/home
+        - link "|阿里巴巴国际站" [ref=f5e295] [cursor=pointer]:
+          - /url: https://www.alibaba.com/
+        - link "|1688" [ref=f5e296] [cursor=pointer]:
+          - /url: https://www.1688.com/
+        - link "|全球速卖通" [ref=f5e297] [cursor=pointer]:
+          - /url: https://www.aliexpress.com/
+        - link "|淘宝网" [ref=f5e298] [cursor=pointer]:
+          - /url: https://www.taobao.com/
+        - link "|天猫" [ref=f5e299] [cursor=pointer]:
+          - /url: https://www.tmall.com/
+        - link "|一淘" [ref=f5e300] [cursor=pointer]:
+          - /url: https://www.etao.com/
+        - link "|飞猪" [ref=f5e301] [cursor=pointer]:
+          - /url: https://www.fliggy.com/
+        - link "|阿里妈妈" [ref=f5e302] [cursor=pointer]:
+          - /url: https://www.alimama.com/index.htm
+        - link "|阿里云计算" [ref=f5e303] [cursor=pointer]:
+          - /url: https://www.aliyun.com/
+        - link "|AliOS" [ref=f5e304] [cursor=pointer]:
+          - /url: http://www.alios.cn/
+        - link "阿里通信" [ref=f5e305] [cursor=pointer]:
+          - /url: https://aliqin.tmall.com/
+        - link "|UC" [ref=f5e306] [cursor=pointer]:
+          - /url: http://www.uc.cn/
+        - link "|支付宝" [ref=f5e307] [cursor=pointer]:
+          - /url: https://www.alipay.com/
+        - link "|钉钉" [ref=f5e308] [cursor=pointer]:
+          - /url: https://www.dingtalk.com/
+        - link "|阿里健康" [ref=f5e309] [cursor=pointer]:
+          - /url: https://www.alihealth.cn/
+        - link "|跨境供应链" [ref=f5e310] [cursor=pointer]:
+          - /url: https://onetouch.alibaba.com/
+        - link "|Lazada" [ref=f5e311] [cursor=pointer]:
+          - /url: https://taobao.lazada.sg/
+        - link "|达摩院" [ref=f5e312] [cursor=pointer]:
+          - /url: https://damo.alibaba.com/
+        - link "|阿里安全" [ref=f5e313] [cursor=pointer]:
+          - /url: https://s.alibaba.com/?scene=clinks
+        - link "|淘宝海外" [ref=f5e314] [cursor=pointer]:
+          - /url: https://world.taobao.com/
+        - link "关于阿里巴巴" [ref=f5e315] [cursor=pointer]:
+          - /url: https://www.alibabagroup.com/cn/global/home
+        - link "|联系我们" [ref=f5e316] [cursor=pointer]:
+          - /url: https://114.1688.com/kf/contact.html
+        - link "|知识产权保护" [ref=f5e317] [cursor=pointer]:
+          - /url: https://page.1688.com/trust/Intellectual.html
+        - link "|著作权与商标声明" [ref=f5e318] [cursor=pointer]:
+          - /url: https://rule.1688.com/policy/copyright.html
+        - link "|廉正举报" [ref=f5e319] [cursor=pointer]:
+          - /url: https://taotian.jubao.alibaba.com/
+        - link "|法律声明" [ref=f5e320] [cursor=pointer]:
+          - /url: https://rule.1688.com/policy/legal.html
+        - link "|服务条款" [ref=f5e321] [cursor=pointer]:
+          - /url: https://rule.1688.com/policy/terms.htm
+        - link "|隐私政策" [ref=f5e322] [cursor=pointer]:
+          - /url: https://terms.alicdn.com/legal-agreement/terms/suit_bu1_b2b/suit_bu1_b2b201703271337_94551.html
+        - link "|网站导航" [ref=f5e323] [cursor=pointer]:
+          - /url: https://www.1688.com/alphabet_sitemap.html

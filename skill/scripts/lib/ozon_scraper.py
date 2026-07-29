@@ -366,14 +366,36 @@ def scrape_ozon_product_via_cdp(
             result["error"] = "CDP Chrome 未运行"
             return result
 
-        # Create blank tab
-        blank_resp = req_lib.put(f"{cdp_url}/json/new?", timeout=10)
-        if blank_resp.status_code != 200:
-            result["error"] = "无法创建 CDP 标签页"
-            return result
-        tab = blank_resp.json()
-        tab_id = tab.get('id', '')
-        ws_url = tab.get("webSocketDebuggerUrl", "")
+        # ✅ v0.10: 优先复用已有 ozon.ru tab（保留 cookie/session，避免 DataDome）
+        tab = None
+        tab_id = ""
+        ws_url = ""
+        tab_is_new = False
+        try:
+            tabs_resp = req_lib.get(f"{cdp_url}/json", timeout=5)
+            if tabs_resp.status_code == 200:
+                for t in tabs_resp.json():
+                    if t.get("type") == "page" and "ozon.ru" in t.get("url", ""):
+                        tab_id = t.get("id", "")
+                        ws_url = t.get("webSocketDebuggerUrl", "")
+                        if tab_id and ws_url:
+                            tab = t
+                            logger.info("复用已有 Ozon tab: %s", t.get("url", "")[:80])
+                            break
+        except Exception:
+            pass
+
+        if not tab:
+            # 找不到已有 tab，创建新的
+            blank_resp = req_lib.put(f"{cdp_url}/json/new?", timeout=10)
+            if blank_resp.status_code != 200:
+                result["error"] = "无法创建 CDP 标签页"
+                return result
+            tab = blank_resp.json()
+            tab_id = tab.get('id', '')
+            ws_url = tab.get("webSocketDebuggerUrl", "")
+            tab_is_new = True
+
         if not ws_url:
             result["error"] = "无法获取 CDP WebSocket URL"
             return result
@@ -451,7 +473,7 @@ def scrape_ozon_product_via_cdp(
                 try {{
                     const resp = await fetch("{api_url}");
                     const data = await resp.json();
-                    const widgets = data.widgetStates || {{}};
+                    const widgets = data.widgetStates || data.widgetState || {{}};
                     const out = {{chars: [], breadcrumbs: [], hashtags: []}};
                     for (const [k, v] of Object.entries(widgets)) {{
                         if (k.includes("webShortCharacteristics")) {{
@@ -468,7 +490,8 @@ def scrape_ozon_product_via_cdp(
                                 const parsed = JSON.parse(v);
                                 out.breadcrumbs = (parsed.breadcrumbs || []).map(b => ({{
                                     text: b.text || "",
-                                    link: b.link || ""
+                                    link: b.link || "",
+                                    crumbType: b.crumbType || ""
                                 }}));
                             }} catch {{}}
                         }}
@@ -510,6 +533,7 @@ def scrape_ozon_product_via_cdp(
                         for b in api_data["breadcrumbs"]:
                             link = b.get("link", "")
                             text = b.get("text", "")
+                            crumb_type = b.get("crumbType", "")
                             # 从链接提取category ID: /category/xxx-14500/ → 14500
                             cat_id = ""
                             if link:
@@ -517,16 +541,21 @@ def scrape_ozon_product_via_cdp(
                                 m = _re.search(r"-(\d+)/?$", link)
                                 if m:
                                     cat_id = m.group(1)
-                            crumbs.append({"text": text, "link": link, "category_id": cat_id})
+                            crumbs.append({"text": text, "link": link, "category_id": cat_id, "crumbType": crumb_type})
                         result["breadcrumbs"] = crumbs
-                        # ✅ v0.9: 面包屑数字 ID 优先传递
-                        # 规则：link 中 /category/ 出现 1 次 = 类目，2 次 = 品牌筛选页（跳过）
+                        # ✅ v0.11: 使用 crumbType 区分真实类目 vs 品牌筛选页
+                        # CRUMB_TYPE_FULL_LINK = 真实类目, 其他(品牌/搜索等) = 跳过
                         if crumbs:
                             result["category"] = " > ".join(c["text"] for c in crumbs if c["text"])
                             category_path = result["category"]
 
-                            # 从后往前找第一个 segs=1（非品牌）的面包屑
-                            valid = [c for c in crumbs if c.get("link", "").count("/category/") == 1]
+                            # 从后往前找第一个 crumbType = CRUMB_TYPE_FULL_LINK（非品牌）的面包屑
+                            # 降级：如果没有 crumbType，用老方法（/category/ 出现次数=1）
+                            valid = [
+                                c for c in crumbs
+                                if c.get("crumbType", "").startswith("CRUMB_TYPE_FULL")
+                                or (not c.get("crumbType") and c.get("link", "").count("/category/") == 1)
+                            ]
                             if valid:
                                 best = valid[-1]  # 最具体的有效类目
                                 result["description_category_id"] = best.get("category_id", "")  # 数字 ID
@@ -594,8 +623,8 @@ def scrape_ozon_product_via_cdp(
             result["success"] = bool(result["title"] or result["images"])
         finally:
             ws.close()
-            # 关闭 CDP 标签页，防止泄漏
-            if tab_id:
+            # ✅ v0.10: 只关闭新创建的 tab，保留复用的已有 tab
+            if tab_id and tab_is_new:
                 try:
                     req_lib.get(f"{cdp_url}/json/close/{tab_id}", timeout=3)
                 except Exception:

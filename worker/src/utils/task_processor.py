@@ -358,9 +358,11 @@ class SupabaseTaskProcessor:
         """
         try:
             from langchain_core.runnables import RunnableConfig
-            from main import update_progress
+            from main import update_progress, set_current_task_id
 
             task_id = payload.get("task_id", "unknown")
+            # ✅ v0.10: 设置全局当前 task_id，使 ProgressLogger 能自动获取
+            set_current_task_id(task_id)
             config = RunnableConfig(
                 configurable={"thread_id": task_id},
                 run_name=f"task_{task_id}",
@@ -375,6 +377,13 @@ class SupabaseTaskProcessor:
 
         except TimeoutError:
             raise TimeoutError(f"LangGraph流程执行超时（{timeout}秒）")
+        finally:
+            # ✅ v0.10: 清除全局 task_id 上下文
+            try:
+                from main import set_current_task_id
+                set_current_task_id(None)
+            except Exception:
+                pass
     
     async def worker_loop(self):
         """
@@ -433,12 +442,13 @@ class SupabaseTaskProcessor:
         try:
             # 使用SQL SELECT查询任务详情
             select_sql = text("""
-                SELECT id, tenant_id, status, priority, payload, result,
-                       error_message, retry_count, max_retries,
-                       created_at, updated_at, started_at, completed_at, timeout_seconds
-                FROM ozon_product_tasks
-                WHERE id = :task_id
-            """)
+            SELECT id, tenant_id, status, priority, payload, result,
+                   error_message, retry_count, max_retries,
+                   created_at, updated_at, started_at, completed_at, timeout_seconds,
+                   progress
+            FROM ozon_product_tasks
+            WHERE id = :task_id
+        """)
             
             with self.engine.connect() as conn:
                 result = conn.execute(select_sql, {"task_id": task_id})
@@ -462,7 +472,8 @@ class SupabaseTaskProcessor:
                 "updated_at": task_row[10],
                 "started_at": task_row[11],
                 "completed_at": task_row[12],
-                "timeout_seconds": task_row[13]
+                "timeout_seconds": task_row[13],
+                "progress": task_row[14] if isinstance(task_row[14], dict) else json.loads(task_row[14]) if task_row[14] else None,
             }
             
             return task_dict

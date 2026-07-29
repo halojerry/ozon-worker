@@ -1895,9 +1895,9 @@ _HASHTAG_RU: dict[str, str] = {
 
 
 def _generate_hashtags(name: str) -> str:
-    """根据俄语标题生成 3-5 个 hashtag"""
+    """根据俄语标题生成 3-5 个 hashtag（不含品牌名）"""
     if not name:
-        return "#товар #ozon"
+        return "#товар"
 
     name_lower = name.lower()
     tags: list[str] = []
@@ -1916,10 +1916,9 @@ def _generate_hashtags(name: str) -> str:
         meaningful = [w for w in words if w not in stopwords][:4]
         if meaningful:
             tags = [f"#{w}" for w in meaningful]
-            # 补充通用标签
             tags.append("#товар")
         else:
-            tags = ["#товар", "#ozon"]
+            tags = ["#товар"]
 
     return " ".join(tags[:5])
 

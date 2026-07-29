@@ -227,12 +227,9 @@ def classify_fix_type(error_code: str) -> str:
 
 def _sanitize_title(title: str) -> str:
     """
-    标题后校验：确保标题符合Ozon规范（对标 prepare_ozon_upload_node._sanitize_title）
-    1. 去除拉丁字母和中文（Ozon 要求 100% 西里尔字母）
-    2. 去除营销词汇
-    3. 长度≤80字符（超长截断到最近的单词边界）
-    4. 含标点符号（长标题无标点时自动添加）
-    5. 无关键词堆砌（连续4+个名词无标点时，在适当位置插入逗号）
+    标题后校验：确保标题符合Ozon规范。
+    ⚠️ 注意：这是轻量版（用于 retry loop 快速修复）。
+    完整版（含 LLM 去拉丁词、营销词过滤）在 prepare_ozon_upload_node._sanitize_title。
     """
     if not title or not title.strip():
         return title
@@ -273,20 +270,13 @@ def _sanitize_title(title: str) -> str:
         title = truncated
         logger.warning(f"⚠️ 标题超长，截断为：{title}")
 
-    # 2. 标点符号校验：如果标题>30字符且不含任何标点，添加标点
+    # 2. 标点符号兜底：如果标题>30字符且不含任何标点，末尾加句号
+    # ✅ v0.10: 移除中点插入逗号逻辑 — 俄语标题不需要强制标点分割，"для, спирали" 是语法错误
     punctuation_chars: set = {'.', ',', '-', '°', '(', ')', '/', ':', '–', '—'}
     has_punct: bool = any(ch in punctuation_chars for ch in title)
     if len(title) > 30 and not has_punct:
-        # 在中间位置找空格，替换为逗号
-        mid: int = len(title) // 2
-        for i in range(mid, len(title)):
-            if title[i] == ' ':
-                title = title[:i] + ',' + title[i:]
-                break
-        if not any(ch in punctuation_chars for ch in title):
-            # 兜底：末尾加句号
-            title = title + '.'
-        logger.warning(f"⚠️ 标题无标点，已补救：{title}")
+        title = title.rstrip('.') + '.'
+        logger.warning(f"⚠️ 标题无标点，末尾加句号：{title}")
 
     # 3. 关键词堆砌检测：连续4+个单词（每个≥4字符）无标点分隔
     words2: list = title.split()
@@ -450,7 +440,20 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
         state.retry_count += 1
         return state
 
-    first_error: Dict[str, Any] = errors[0] if isinstance(errors[0], dict) else {}
+    # ✅ v0.11: 批量处理 — 按 fix_type 分组，同类型错误一次修完
+    # 例：3个属性错误 → 一次 attributes/update 调用全修
+    from collections import defaultdict
+    grouped: dict = defaultdict(list)
+    for err in errors:
+        if isinstance(err, dict):
+            ft = classify_fix_type(err.get("code", "UNKNOWN"))
+            grouped[ft].append(err)
+
+    # 取数量最多的类型优先处理
+    fix_type = max(grouped, key=lambda k: len(grouped[k]))
+    batch = grouped[fix_type]
+    
+    first_error = batch[0]
     error_code: str = first_error.get("code", "UNKNOWN")
     attribute_id: Any = first_error.get("attribute_id", 0)
     texts: Dict[str, Any] = first_error.get("texts", {})
@@ -461,9 +464,10 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
     except (ValueError, TypeError):
         attr_id = 0
 
-    # ✅ A1修复：从errors数组中移除已处理的错误，避免反复修同一个错误
-    state.errors = errors[1:]
-    logger.info(f"📋 移除已处理错误，剩余{len(state.errors)}个待处理")
+    # 移除已处理的同类型错误，保留其他类型的
+    batch_codes = {e.get("code") for e in batch if isinstance(e, dict)}
+    state.errors = [e for e in errors if isinstance(e, dict) and e.get("code") not in batch_codes]
+    logger.info(f"📋 批量处理: {len(batch)}个 '{fix_type}' 错误，剩余{len(state.errors)}个其他类型")
 
     state.error_code = error_code
     state.attribute_id = attr_id
@@ -570,6 +574,30 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
 
     error_code: str = state.error_code
     attr_id: int = state.attribute_id
+
+    # ✅ v0.11: BR_hashtag_brand 专用修复 — 从产品名重新生成合规 hashtag
+    if error_code == "BR_hashtag_brand":
+        logger.info("🔧 BR_hashtag_brand: 重新生成不含品牌名的 hashtag")
+        items = state.ozon_payload.get("items", [])
+        for item in items:
+            product_name = item.get("name", "") or state.product_name or ""
+            new_tags = _generate_hashtags_retry(product_name)
+            attrs = item.get("attributes", [])
+            for a in attrs:
+                if a.get("id") == 23171:
+                    a["value"] = new_tags
+                    a["dictionary_value_id"] = 0
+                    logger.info(f"   ✅ hashtag #23171 已修正: {new_tags}")
+                    break
+            else:
+                # 23171 不存在，补充
+                attrs.append({"id": 23171, "value": new_tags, "dictionary_value_id": 0})
+                logger.info(f"   ✅ hashtag #23171 已补充: {new_tags}")
+            item["attributes"] = attrs
+        state.error_type = "retry"
+        state.repair_node = "revalidate"
+        return state
+
     token: str = state.token
     ozon_client_id: str = state.ozon_client_id
     ozon_api_key: str = state.ozon_api_key

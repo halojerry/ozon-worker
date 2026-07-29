@@ -27,12 +27,13 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
     
     # 初始化进度日志助手
     progress = ProgressLogger()
-    
-    # 记录节点开始（含进度百分比）
     progress.log_node_start("main_image_gen_node", "主图生成节点")
     
-    # ✅ 始终生成主图（主图是产品卡片的首图，与变体SKU图独立）
-    # 变体SKU图由variant_primary_loop处理，但产品主图仍需生成
+    # ✅ v0.11: 多SKU产品由 variant_primary_loop 生成变体主图，main_image_gen 跳过
+    variants = draft.get('variants', []) if isinstance(draft, dict) else []
+    if len(variants) > 1:
+        logger.info("多SKU产品(%d个变体)，main_image_gen 跳过（由 variant_primary_loop 处理）", len(variants))
+        return MainImageOutput(main_image=None)
     
     if not draft or not token:
         return MainImageOutput(main_image=None)
