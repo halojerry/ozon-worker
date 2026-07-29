@@ -184,6 +184,10 @@ def process_ozon_url(
 
         matches = follow_result.get("1688_matches", [])
         result["matches_count"] = len(matches)
+    except Exception as e:
+        result["error"] = str(e)
+        print(f"  ❌ [{product_id}] 异常: {e}", flush=True)
+        return result
     finally:
         # ✅ 始终恢复环境变量（即使 follow_sell_cloud 异常）
         if old_cid:
@@ -217,10 +221,6 @@ def process_ozon_url(
         result["task_id"] = follow_result.get("task_id", "")
         if follow_result.get("submit_result"):
             result["submit_result"] = follow_result["submit_result"]
-
-    except Exception as e:
-        result["error"] = str(e)
-        print(f"  ❌ [{product_id}] 异常: {e}", flush=True)
 
     return result
 
