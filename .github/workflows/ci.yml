@@ -1,4 +1,4 @@
-name: CI — Code Quality & Test
+name: CI — Code Quality, Lint, Test & Build
 
 on:
   push:
@@ -7,109 +7,180 @@ on:
       - '**.md'
       - 'docs/**'
       - 'skill/data/**'
+      - 'deploy/**'
   pull_request:
     branches: [main]
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - 'skill/data/**'
+      - 'deploy/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PYTHON_VERSION: '3.12'
+
 jobs:
-  # ═══════════════════════════════════════
-  # Job 1: 语法检查（阻断，最快 — 先跑）
-  # ═══════════════════════════════════════
+  # ══════════════════════════════════════════════
+  # Job 1: 语法检查 — Worker + Skill 全量 .py（阻断，最快 ~10s）
+  # ══════════════════════════════════════════════
   syntax:
-    name: Syntax Check
+    name: Syntax — All .py files
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+        with: { python-version: '${{ env.PYTHON_VERSION }}' }
 
-      - name: Check all Python files
+      - name: Syntax check
         run: |
-          echo "🔍 语法检查..."
+          echo "🔍 全量语法检查..."
           FAILED=0
+          TOTAL=0
           while IFS= read -r -d '' f; do
             case "$f" in
-              */.venv/*|*/__pycache__/*|*/.pytest_cache/*|*/node_modules/*|*/dist/*|*/build/*)
+              */.venv/*|*/__pycache__/*|*/.pytest_cache/*|*/node_modules/*|*/dist/*|*/build/*|*/site-packages/*|*/.git/*)
                 continue ;;
             esac
+            TOTAL=$((TOTAL + 1))
             python -c "import py_compile; py_compile.compile('$f', doraise=True)" 2>/dev/null || {
-              echo "❌ $f"
-              FAILED=1
+              echo "❌ $f"; FAILED=1
             }
-          done < <(find . -name "*.py" -not -path "./.venv/*" -print0)
-          if [ $FAILED -ne 0 ]; then
-            echo "::error::语法检查失败"
-            exit 1
-          fi
+          done < <(find . -name "*.py" -not -path "./.venv/*" -not -path "./.git/*" -print0)
+          echo "文件数: $TOTAL, 失败: $FAILED"
+          [ $FAILED -ne 0 ] && exit 1
           echo "✅ 全部通过"
 
-  # ═══════════════════════════════════════
-  # Job 2: Ruff Lint + Import Check
-  # ═══════════════════════════════════════
-  lint:
-    name: Lint & Import
+  # ══════════════════════════════════════════════
+  # Job 2: Code Quality — Worker (ruff strict + security + dead code)
+  # ══════════════════════════════════════════════
+  quality-worker:
+    name: Code Quality — Worker
     runs-on: ubuntu-latest
     needs: syntax
-    defaults:
-      run:
-        working-directory: worker
+    defaults: { run: { working-directory: worker } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+        with: { python-version: '${{ env.PYTHON_VERSION }}' }
 
-      - name: Install deps
-        run: pip install ruff pydantic
+      - name: Install tools
+        run: pip install ruff bandit vulture
 
-      - name: Ruff check
+      - name: Ruff — 格式 + 代码质量
         run: |
-          ruff check src/ --select E,F,W --ignore E501
+          echo "::group::格式错误 (E,F,W — 阻断)"
+          ruff check src/ --select E,F,W --ignore E501 || {
+            echo "::error::格式错误，请运行 ruff check --fix"
+            exit 1
+          }
+          echo "::endgroup::"
 
-      - name: Import check
+          echo "::group::导入排序 (I)"
+          ruff check src/ --select I --ignore I001 2>&1 || true
+          echo "::endgroup::"
+
+          echo "::group::代码简化 (SIM)"
+          ruff check src/ --select SIM --statistics 2>&1 || true
+          echo "::endgroup::"
+
+          echo "::group::复杂度 (C90)"
+          ruff check src/ --select C90 --statistics 2>&1 || true
+          echo "::endgroup::"
+
+      - name: Bandit — 安全审计
+        run: bandit -r src/ -ll -f txt 2>&1 || echo "::warning::安全问题需复核"
+
+      - name: Vulture — 死代码检测
         run: |
+          vulture src/ --min-confidence 90 2>&1 | head -30 || true
+
+      - name: Import — 核心模块
+        run: |
+          pip install -e ".[dev]" -q
           PYTHONPATH=src python -c "
+          from graphs.state import GlobalState, GraphInput, GraphOutput
           from api.errors import WorkerErrorCode, error_response
-          from api.schemas import SubmitTaskRequest
-          print('✅ Worker 核心模块导入 OK')
+          from api.schemas import SubmitTaskRequest, TaskStatusResponse
+          from utils.task_processor import SupabaseTaskProcessor
+          from utils.progress_logger import ProgressLogger
+          from utils.ozon_category_query import OzonCategoryQuery
+          print('✅ Worker 全部核心模块导入正常')
           "
 
-  # ═══════════════════════════════════════
-  # Job 3: 单元测试
-  # ═══════════════════════════════════════
-  test:
-    name: Unit Tests
+  # ══════════════════════════════════════════════
+  # Job 3: Code Quality — Skill
+  # ══════════════════════════════════════════════
+  quality-skill:
+    name: Code Quality — Skill
     runs-on: ubuntu-latest
-    needs: lint
-    defaults:
-      run:
-        working-directory: worker
+    needs: syntax
+    defaults: { run: { working-directory: skill } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+        with: { python-version: '${{ env.PYTHON_VERSION }}' }
+
+      - name: Install tools
+        run: pip install ruff bandit
+
+      - name: Ruff — 格式 + 代码质量
+        run: |
+          echo "::group::格式错误 (E,F,W — 阻断)"
+          ruff check scripts/ --select E,F,W --ignore E501,E402 || {
+            echo "::error::格式错误，请运行 ruff check --fix"
+            exit 1
+          }
+          echo "::endgroup::"
+
+          echo "::group::导入排序 (I)"
+          ruff check scripts/ --select I --statistics 2>&1 || true
+          echo "::endgroup::"
+
+          echo "::group::代码简化 (SIM)"
+          ruff check scripts/ --select SIM --statistics 2>&1 || true
+          echo "::endgroup::"
+
+      - name: Bandit — 安全审计
+        run: bandit -r scripts/ -ll -f txt 2>&1 || echo "::warning::安全问题需复核"
+
+      - name: Import — 核心模块
+        run: |
+          pip install requests websocket-client Pillow -q
+          PYTHONPATH=scripts python -c "
+          from scripts.lib.utils import parse_price
+          from scripts._const import CLOUD_API_BASE, SKILL_ROOT
+          print('✅ Skill 核心模块导入正常')
+          "
+
+  # ══════════════════════════════════════════════
+  # Job 4: 单元测试 — Worker
+  # ══════════════════════════════════════════════
+  test:
+    name: Unit Tests — Worker
+    runs-on: ubuntu-latest
+    needs: quality-worker
+    defaults: { run: { working-directory: worker } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '${{ env.PYTHON_VERSION }}' }
 
       - name: Install deps
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev]" -q
 
       - name: Run tests
         run: |
           PYTHONPATH=src pytest tests/ -v --tb=short \
             -k "not db and not integration and not slow" \
-            --timeout=60 2>&1 || echo "::warning::部分测试跳过（需要 DB）"
+            --timeout=60 --color=yes 2>&1
 
-  # ═══════════════════════════════════════
-  # Job 4: Docker Build
-  # ═══════════════════════════════════════
+  # ══════════════════════════════════════════════
+  # Job 5: Docker Build
+  # ══════════════════════════════════════════════
   build:
     name: Docker Build
     runs-on: ubuntu-latest
@@ -117,18 +188,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Docker image
+      - name: Build
         run: |
-          VERSION=${GITHUB_REF##*/}-${GITHUB_SHA::7}
+          SHA=${GITHUB_SHA::7}
           docker build \
-            --build-arg VERSION="$VERSION" \
+            --build-arg VERSION="ci-${SHA}" \
             --build-arg BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -t ozon-worker:ci \
             -f worker/Dockerfile worker/
+          echo "✅ Docker build 成功"
 
-      - name: Verify health
-        run: |
-          docker run -d --name ozon-test -p 5000:5000 \
-            -e PGDATABASE_URL=postgresql://test:test@localhost:5432/test \
-            ozon-worker:ci || true
-          echo "::notice::Docker build 成功（完整启动需要 PG）"
+      - name: Docker image size
+        run: docker images ozon-worker:ci --format '镜像大小: {{.Size}}'
