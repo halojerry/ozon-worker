@@ -14,12 +14,16 @@ build/
 .coverage
 htmlcov/
 
-# ─── 环境变量与密钥（绝不提交）───
+# ─── 密钥与配置（绝不提交）───
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
 *.pem
 *.key
+skill/data/config/settings.json
+skill/data/config/stores.json
+skill/dist/data/config/settings.json
+skill/dist/data/config/stores.json
 
 # ─── 日志 ───
 *.log
@@ -40,6 +44,7 @@ Desktop.ini
 # ─── ZCode ───
 .zcode/
 .agents/
+.playwright-mcp/
 
 # ─── 浏览器数据（CDP 探针缓存）───
 skill/data/browser/profiles/
