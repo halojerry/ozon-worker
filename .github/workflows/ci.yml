@@ -24,17 +24,24 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
 
-    - run: |
-        FAILED=0 TOTAL=0
-        while IFS= read -r f; do
-          case "$f" in
-            */.venv/*|*/__pycache__/*|*/.pytest_cache/*|*/dist/*|*/build/*|*/site-packages/*|*/.git/*) continue ;;
-          esac
-          TOTAL=$((TOTAL+1))
-          python -c "import py_compile; py_compile.compile('$f', doraise=True)" 2>/dev/null || { echo "❌ $f"; FAILED=1; }
-        done <<< "$(find . -name "*.py" -not -path "./.venv/*" -not -path "./.git/*")"
-        echo "文件: $TOTAL, 错误: $FAILED"
-        exit $FAILED
+    - name: Syntax check
+      run: |
+        errors=$(find . -name "*.py" \
+          -not -path "./.venv/*" \
+          -not -path "./.git/*" \
+          -not -path "*/__pycache__/*" \
+          -not -path "*/.pytest_cache/*" \
+          -not -path "*/dist/*" \
+          -not -path "*/build/*" \
+          -not -path "*/site-packages/*" \
+          -exec sh -c 'python3 -c "import py_compile; py_compile.compile(\"$1\", doraise=True)" 2>/dev/null || echo "$1"' _ {} \;)
+        total=$(find . -name "*.py" -not -path "./.venv/*" -not -path "./.git/*" | wc -l)
+        if [ -n "$errors" ]; then
+          echo "$errors" | while read f; do echo "❌ $f"; done
+          echo "::error::语法错误: $(echo "$errors" | wc -l)/$total 文件"
+          exit 1
+        fi
+        echo "✅ $total 文件全部通过"
 
   # ═══════════════════════════
   # Job 2: Lint — Worker + Skill
