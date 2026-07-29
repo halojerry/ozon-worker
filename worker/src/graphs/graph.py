@@ -165,6 +165,7 @@ builder.add_edge("scene_generation_llm", "multi_angle_gen")  # scene_generation_
 # （已移除）builder.add_edge("attributes_learning", "multi_angle_gen")
 
 # Phase2（7节点并行）：生成营销图（不包括主图，主图由variant_check分支处理）
+# ✅ v0.11: 节点内部检查 variants 数量 — 单SKU时 variant_primary_loop 跳过, 多SKU时 main_image_gen 跳过
 # Phase2节点等待Phase1完成后再开始（white_bg_gen和multi_angle_gen）
 builder.add_edge(["white_bg_gen", "multi_angle_gen"], "multi_info_gen")
 builder.add_edge(["white_bg_gen", "multi_angle_gen"], "detail_gen")
@@ -179,9 +180,9 @@ builder.add_edge(["white_bg_gen", "multi_angle_gen"], "scene_3_gen")
 builder.add_edge(["white_bg_gen", "multi_angle_gen"], "variant_primary_loop")  # 多SKU路径
 builder.add_edge(["white_bg_gen", "multi_angle_gen"], "main_image_gen")  # 单SKU路径
 
-# Phase2汇聚：主图（variant_primary_loop或main_image_gen） + 其他7个节点 → prepare_ozon_upload
+# Phase2汇聚：主图 + 其他7个节点 → prepare_ozon_upload
 builder.add_edge([
-    "variant_primary_loop", "main_image_gen",  # 主图来源（根据variant_check分支）
+    "variant_primary_loop", "main_image_gen",
     "multi_info_gen", "detail_gen", "social_proof_gen",
     "scene_1_gen", "scene_2_gen", "scene_3_gen", "comparison_gen"
 ], "prepare_ozon_upload")
@@ -245,49 +246,35 @@ def should_handle_error(state):
     if not isinstance(errors, list):
         errors = []
     
-    # ✅ 检查product_id（判断是否已import成功）
+    # ✅ v0.11: 三状态路由 — 审核中(pending) / 错误(error) / 批准(approved)
     product_id = state.product_id if hasattr(state, 'product_id') else None
+    errors: list = getattr(state, 'errors', []) or []
+    if not isinstance(errors, list):
+        errors = []
     
-    # ✅ A6修复：timeout状态分情况处理
-    if "timeout" in ozon_status_result:
-        # 如果有moderate_status=declined，说明审核已拒绝，需要修复
-        moderate_status = getattr(state, 'moderate_status', '') if hasattr(state, 'moderate_status') else ''
-        if moderate_status == 'declined' or len(errors) > 0:
-            logger.warning(f"Ozon审核超时但有错误/拒绝（moderate={moderate_status}, errors={len(errors)}），进入修复循环")
-            return "失败"
-        # 如果已有有效的 product_id（非"0"且不是task_id）且无错误，说明import成功
-        if product_id and str(product_id) not in ("0", "None", ""):
-            # 额外判断：product_id 不应该等于 upload 时的 task_id
-            task_id_str = str(getattr(state, 'product_id', ''))
-            logger.info(f"Ozon审核超时但已import成功(product_id={product_id})，审核异步进行，视为成功")
-            return "成功"
-        # 没有product_id说明import都没成功，需要修复
-        logger.warning("Ozon超时且无product_id，import失败，进入修复循环")
-        return "失败"
-    
-    # ✅ pending状态：有product_id视为成功（import完成，审核异步）
-    if "pending" in ozon_status_result:
-        if len(errors) > 0:
-            logger.info(f"Ozon pending但有{len(errors)}个错误，进入修复循环")
-            return "失败"
-        if product_id and str(product_id) not in ("0", "None", ""):
-            logger.info(f"Ozon pending但已import成功(product_id={product_id})，视为成功")
-            return "成功"
-        logger.info("Ozon pending且无有效product_id，进入修复循环")
-        return "失败"
-    
-    # ✅ 如果errors数组非空，进入修复循环
-    if len(errors) > 0:
-        logger.warning(f"发现{len(errors)}个Ozon错误，进入修复循环")
-        return "失败"
-    
-    # ✅ 如果status包含"成功"/"imported"/"approved"/"processed"/"active"，且errors为空，进入learning_record
-    success_keywords = ("成功", "imported", "approved", "processed", "active")
-    if any(kw in ozon_status_result for kw in success_keywords):
-        logger.info("上传成功，进入learning_record（学习闭环）")
+    # 1. 批准：明确 approved → 成功
+    if ozon_status_result == "approved" or "approved" in str(ozon_status_result):
+        logger.info("✅ 审核通过(approved)，进入 learning_record")
         return "成功"
     
-    # ✅ 其他未知状态也进入修复循环
+    # 2. 错误：有 errors 或明确 error/failed → 修复循环
+    if ozon_status_result in ("error", "failed") or len(errors) > 0:
+        logger.warning(f"❌ 审核失败({ozon_status_result})，{len(errors)}个错误，进入修复循环")
+        return "失败"
+    
+    # 3. 审核中：pending 或无结果但有 product_id → 重试审核
+    # ✅ v0.11: graph 路径函数只读 state，不写入（避免破坏 LangGraph reducer）
+    if ozon_status_result == "pending" or (product_id and str(product_id) not in ("0", "None", "")):
+        mod_retries = getattr(state, 'moderation_retry_count', 0)
+        if mod_retries < 3:
+            logger.info(f"⏳ 审核中(pending)，第{mod_retries+1}/3次重试 ozon_status")
+            return "审核中"
+        else:
+            logger.warning("⚠️ 审核重试已达上限(3次)，视为成功（后台继续审核）")
+            return "成功"
+    
+    # 4. 兜底：未知状态 → 修复循环
+    logger.warning(f"未知状态: {ozon_status_result}，进入修复循环")
     return "失败"
 
 # ✅ 修改条件分支：成功 → learning_record → END，失败 → validation_retry_wrapper（修复循环）
@@ -295,8 +282,9 @@ builder.add_conditional_edges(
     source="ozon_status",
     path=should_handle_error,
     path_map={
-        "成功": "learning_record",  # ← 修改：成功后进入learning_record（学习闭环）
-        "失败": "validation_retry_wrapper",  # ← 修改：失败后直接进入修复循环（不经过error_handler）
+        "成功": "learning_record",
+        "失败": "validation_retry_wrapper",
+        "审核中": "ozon_status",  # ← 重新轮询审核
     }
 )
 

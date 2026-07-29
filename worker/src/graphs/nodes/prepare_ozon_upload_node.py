@@ -1201,11 +1201,11 @@ def prepare_ozon_upload_node(
         description = _sanitize_description(description)
 
     # ✅ P2 修复：生成富文本 HTML 描述（Ozon 属性 4191）
-    # 只在有 draft 属性数据且 description 非空时生成
     rich_desc = ""
     try:
         draft_attrs = (draft or {}).get("attributes", {})
-        if description and draft_attrs:
+        # ✅ v0.11: 即使没有属性数据也生成（仅用产品名称），确保富文本始终填写
+        if description and mxou_token:
             rich_desc = _generate_rich_description(title_ru, draft_attrs, mxou_token)
             if rich_desc:
                 logger.info(f"✅ 富文本描述已生成: {len(rich_desc)} 字符")
@@ -2065,6 +2065,8 @@ def prepare_ozon_upload_node(
         validation_errors.append("产品标题缺失")
     if not description_category_id or description_category_id == 0:
         validation_errors.append("类目ID缺失或无效（Category ID is required）")
+    if not type_id or type_id == 0:
+        validation_errors.append("type_id缺失或无效（TypeId must be > 0）")
     if not sku_id:
         validation_errors.append("1688 SKU_ID缺失（offer_id is required）")
     if not shared_marketing_images:

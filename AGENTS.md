@@ -372,12 +372,37 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
   - 22508（品牌注册国）：自由文本属性，需硬编码为"Китай"
   - 23487（制造商）：自由文本属性，用 `draft.supplier` 填充
   - 23536（标记码）：Ozon 自动设置，必须跳过
-- **`validation_retry_loop` 修复记录**（v0.5.0）：
-  1. `state.draft` 为空 → 已修复
-  2. `recheck_status_node` 额外轮询 `moderate_status` → 已实现
-  3. `type_id=0` → 多层防御修复（init_data None + search_nodes 过滤 + assemble 校验 + 一致性失败保留 ID）
-  4. `recheck_status_node` UUID 解析崩溃 → 已加 UUID 格式检测
-- **`init_data.py` `walk` 函数**：`description_category_id` 需从父节点继承，`disabled` 字段 NOT NULL 需填 `false`。中文树是 `{"result":[...]}` dict，俄语树是 `[...]` 直接 list，walk 调用需兼容两种格式。
+	- **`validation_retry_loop` 修复记录**（v0.5.0）：
+	  1. `state.draft` 为空 → 已修复
+	  2. `recheck_status_node` 额外轮询 `moderate_status` → 已实现
+	  3. `type_id=0` → 多层防御修复
+	  4. `recheck_status_node` UUID 解析崩溃 → 已加 UUID 格式检测
+	- **`init_data.py` `walk` 函数**：`description_category_id` 需从父节点继承，`disabled` 字段 NOT NULL 需填 `false`。中文树是 `{"result":[...]}` dict，俄语树是 `[...]` 直接 list，walk 调用需兼容两种格式。
+
+### v0.9 深度审计 — 已知未修问题（低优先级）
+
+#### Skill 侧 (11 个)
+- **`ozon_api.search_categories`**：每次调都重新拉整棵类目树（~2-5s），无 TTL 缓存
+- **`ozon_discovery._calculate_profit`**：物流费固定 15 CNY，不管实际重量/尺寸
+- **`ozon_discovery.calculate_blue_ocean_score`**：commission_fbp/fbs 字段名可能不一致
+- **`reference_images.get_best_product_images`**：URL 带 query 参数时 `.jpg` 拼接到查询串后导致链接失效
+- **`chrome_launcher.ensure_chrome_cdp`**：杀死所有 Chrome 进程而非仅 debug 端口，用 `LOCK_NB` 可能抛异常
+- **`cli.py` `check` 命令**：创建 Chrome tab 后不关闭，多次跑会累积空白 tab
+- **`config_store` / `cache.py`**：无文件锁，并发 CLI 进程可能写坏 JSON
+- **`EXTRACT_1688_JS`**：694 行 JS 字符串内嵌 Python 源码，无法 lint，改起来困难
+- **`service.py` 连接重复检查**：`connect_existing_chrome` step 2/3 几乎重复
+- **`stealth.py`**：`hardwareConcurrency`/`deviceMemory` 每次读取随机变值，是检测信号；`navigator.webdriver` 返回 `undefined` 而非 `false`
+- **`batch_test.py`**：每个 URL 都全量覆写结果文件，O(n²) 写入
+
+#### Worker 侧 (8 个)
+- **`mxou_rate_limiter.py`**：整个文件未被引用，无 MXOU API 限流
+- **Phase2 生图节点**：Phase1 失败时用原始图但 prompt 仍针对 Phase1 输出设计，图质量差
+- **`ozon_upload_node.py`**：绕过 `ozon_post()` 直接调 `session.post()`，错误处理不一致
+- **`follow_sell_import_node.py`**：schema API 拉取失败时静默降级，缺失属性校验
+- **`pricing_node.py`**：物流配置查询无重试，失败默认为 `("RETS", "Standard")`
+- **`state.py` `_overwrite_str`**：空字符串会覆盖有效值
+- **`progress_logger.py`**：`NODE_ORDER` 静态字典需手动与图定义同步；`config_path` 参数被忽略
+- **`assemble_ozon_product_node.py`**：`ozon_payloads` 列表写入后从未被消费（被 prepare 覆盖）
 
 ## CDP 稳定性注意事项
 

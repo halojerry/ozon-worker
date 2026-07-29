@@ -26,6 +26,7 @@ class GlobalState(BaseModel):
     # 循环修复机制（验证失败退回修复）
     retry_count: int = Field(default=0, description="验证失败重试次数（最多3次）")
     assembly_retry_count: int = Field(default=0, description="组装阶段类目匹配重试次数（最多2次）")
+    moderation_retry_count: int = Field(default=0, description="审核轮询超时重试次数（最多3次）")
     error_type: str = Field(default="", description="错误类型分类（标签格式/尺寸重量/图片顺序/材料属性）")
     
     # Supabase配置（必须通过环境变量传入，无默认值）
@@ -362,47 +363,6 @@ class AttributesLearningOutput(BaseModel):
 
 
 # ==================== 图片生成Phase1节点 ====================
-class ImageGenPhase1Input(BaseModel):
-    """图片生成Phase1节点输入"""
-    draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿数据")  # ← 统一为Optional
-    token: str = Field(default="", description="api.mxou.cn的API Key")
-    envelope: Optional[Dict[str, Any]] = Field(default=None, description="产品envelope")  # ← 统一为Optional
-
-
-class ImageGenPhase1Output(BaseModel):
-    """图片生成Phase1节点输出"""
-    # ✅ 新增：进度追踪
-    progress_counter: int = Field(default=8, description="节点计数器（更新为8）")
-    
-    phase1_images: Dict[str, str] = Field(default_factory=dict, description="Phase1图片URLs")
-    white_bg_url: str = Field(default="", description="白底图URL")
-    multi_angle_url: str = Field(default="", description="多角度图URL")
-    clean_ref: List[str] = Field(default_factory=list, description="干净参考图片")
-    error_message: str = Field(default="", description="错误信息")
-    failed_stage: str = Field(default="image_gen_phase1", description="失败的节点名称")
-
-
-# ==================== 图片生成Phase2节点 ====================
-class ImageGenPhase2Input(BaseModel):
-    """图片生成Phase2节点输入"""
-    phase1_images: Dict[str, str] = Field(default_factory=dict, description="Phase1图片URLs")
-    clean_ref: List[str] = Field(default_factory=list, description="干净参考图片")
-    token: str = Field(default="", description="api.mxou.cn的API Key")
-    draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿数据")  # ← 统一为Optional
-    envelope: Optional[Dict[str, Any]] = Field(default=None, description="产品envelope")  # ← 统一为Optional
-
-
-class ImageGenPhase2Output(BaseModel):
-    """图片生成Phase2节点输出"""
-    # ✅ 新增：进度追踪
-    progress_counter: int = Field(default=12, description="节点计数器（更新为12，因为Phase2包含4个节点）")
-    
-    phase2_images: Dict[str, str] = Field(default_factory=dict, description="Phase2图片URLs")
-    all_images: Dict[str, str] = Field(default_factory=dict, description="所有图片URLs")
-    error_message: str = Field(default="", description="错误信息")
-    failed_stage: str = Field(default="image_gen_phase2", description="失败的节点名称")
-
-
 # ==================== Ozon上传数据准备节点 ====================
 class PrepareOzonUploadInput(BaseModel):
     """Ozon上传数据准备节点输入"""
@@ -591,52 +551,7 @@ class OzonStatusOutput(BaseModel):
     error_message: str = Field(default="", description="错误信息")
     error_code: str = Field(default="", description="错误代码（如VARIANT_NOT_MERGED、VARIANT_MODERATE_REJECTED、VARIANT_UPLOAD_FAILED）")
     failed_stage: str = Field(default="ozon_status", description="失败的节点名称")
-
-
-# ==================== 错误处理节点 ====================
-class ErrorHandlerInput(BaseModel):
-    """错误处理节点输入"""
-    product_id: Optional[str] = Field(default=None, description="Ozon商品ID")
-    error_message: str = Field(..., description="错误信息")
-    errors: List[Dict[str, Any]] = Field(default_factory=list, description="错误列表")
-    failed_stage: str = Field(default="", description="失败的节点名称")
-    
-    # ✅ 新增：采购信息（传递到GraphOutput）
-    purchase_url: str = Field(default="", description="采购链接（1688）")
-    purchase_cost: str = Field(default="", description="采购成本（CNY）")
-    sku_id: str = Field(default="", description="1688 SKU_ID")
-    profit_estimation: Dict[str, Any] = Field(default_factory=dict, description="利润预估明细")
-
-
-class ErrorHandlerOutput(BaseModel):
-    """错误处理节点输出"""
-    # ✅ 新增：进度追踪
-    progress_counter: int = Field(default=23, description="节点计数器（更新为23）")
-    
-    error_type: str = Field(default="", description="错误类型（category/attribute/image/price/other）")
-    error_detail: str = Field(default="", description="错误详情")
-    suggested_fix: str = Field(default="", description="建议修复方案")
-    
-    # ✅ 新增：采购信息（传递到GraphOutput）
-    purchase_url: str = Field(default="", description="采购链接（1688）")
-    purchase_cost: str = Field(default="", description="采购成本（CNY）")
-    sku_id: str = Field(default="", description="1688 SKU_ID")
-    profit_estimation: Dict[str, Any] = Field(default_factory=dict, description="利润预估明细")
-
-
-# ==================== 视频生成节点 ====================
-class VideoGenInput(BaseModel):
-    """视频生成节点输入"""
-    all_images: Dict[str, str] = Field(..., description="所有图片URLs")
-    mxou_token: str = Field(..., description="api.mxou.cn的API Key")
-    ozon_client_id: str = Field(default="", description="Ozon Client-Id")
-    ozon_api_key: str = Field(default="", description="Ozon Api-Key")
-    task_id: str = Field(..., description="任务ID")
-
-
-class VideoGenOutput(BaseModel):
-    """视频生成节点输出"""
-    video_url: Optional[str] = Field(default=None, description="视频URL")
+    moderation_retry_count: int = Field(default=0, description="审核 pending 重试次数（最多3次）")
 
 
 # ==================== 变体循环节点 ====================
@@ -766,8 +681,4 @@ class LearningRecordOutput(BaseModel):
     recorded_count: int = Field(..., description="记录的属性数量")
 
 
-# ==================== 修复结果条件判断节点 ====================
-class CondRepairResultInput(BaseModel):
-    """修复结果条件判断节点输入（验证循环修复后判断是否需要记录学习数据）"""
-    upload_status: str = Field(default="", description="上传状态：success/failed/pending")
-    is_valid: bool = Field(default=False, description="最终验证结果")
+# ==================== 修复结果判断在 graph.py 的 should_learn_after_repair 中处理 ====================

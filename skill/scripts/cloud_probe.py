@@ -891,6 +891,27 @@ def _validate_and_fix_product_data(
             item_id, weight_g, est_length, est_width, est_height, density,
         )
 
+    # ✅ v0.10: 密度合理性检查 — 防止商家脏数据和异常估算
+    l, w, h = dimensions.get("length", 0), dimensions.get("width", 0), dimensions.get("height", 0)
+    if weight_g > 0 and l > 0 and w > 0 and h > 0:
+        volume_cm3 = (l * w * h) / 1000.0  # mm³ → cm³
+        density_g_cm3 = weight_g / volume_cm3 if volume_cm3 > 0 else 0
+        if density_g_cm3 > 10:  # 比铅（11.3）还密？明显异常（塑料~1, 金属~7）
+            estimated_g = max(int(volume_cm3 * 1.0), 50)
+            logger.warning(
+                "物品 %s 密度过高 %.1f g/cm³（%dg / %.0f cm³），修正为 %dg",
+                item_id, density_g_cm3, weight_g, volume_cm3, estimated_g,
+            )
+            weight_g = estimated_g
+        elif density_g_cm3 < 0.25 and volume_cm3 > 1000:  # 大体积但极轻（比泡沫还轻？数据错误）
+            # 用典型混合材质密度估算：金属/塑料 ~0.8-1.5 g/cm³，取保守值 0.5
+            estimated_g = max(int(volume_cm3 * 0.5), 100)
+            logger.warning(
+                "物品 %s 密度过低 %.2f g/cm³（%dg / %.0f cm³），修正为 %dg",
+                item_id, density_g_cm3, weight_g, volume_cm3, estimated_g,
+            )
+            weight_g = estimated_g
+
     # ── 硬阻断：图片 ──
     if not images:
         errors.append("产品图片为空")
@@ -1086,9 +1107,9 @@ def build_graph_envelope(
 
     # 降级: 如果 packaging 表格没有尺寸，从 description 文本提取
     if (dimensions["length"] == 0 and dimensions["width"] == 0 and dimensions["height"] == 0):
+        import re as _re
         desc = data.get("description") or ""
-            if desc:
-            import re as _re
+        if desc:
             # 匹配 L*W*H 格式: "34*25*2CM", "尺寸：30*9.5*4.5cm", "MEAS:51*35*42CM"
             dim_pat = _re.search(
                 r'(?:尺寸|单个|产品尺寸|MEAS|meas|箱规)?[：:\s]*'
@@ -1107,14 +1128,14 @@ def build_graph_envelope(
                             dimensions = {"length": int(l * 10), "width": int(w * 10), "height": int(h * 10)}
                 except (ValueError, TypeError):
                     pass
-            # 提取 weight: "净重：53g", "含包装：61.8g"
-            if not weight_g:
-                wt_pat = _re.search(r'(?:净重|重量|含包装|毛重)[：:\s]*(\d+\.?\d*)\s*(?:g|G|克)', desc)
-                if wt_pat:
-                    try:
-                        weight_g = int(float(wt_pat.group(1)))
-                    except (ValueError, TypeError):
-                        pass
+        # 提取 weight: "净重：53g", "含包装：61.8g"
+        if not weight_g:
+            wt_pat = _re.search(r'(?:净重|重量|含包装|毛重)[：:\s]*(\d+\.?\d*)\s*(?:g|G|克)', desc)
+            if wt_pat:
+                try:
+                    weight_g = int(float(wt_pat.group(1)))
+                except (ValueError, TypeError):
+                    pass
 
     # 物流信息
     shipping = data.get("shipping") or {}

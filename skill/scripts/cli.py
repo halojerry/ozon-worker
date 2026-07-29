@@ -177,7 +177,21 @@ def cmd_graph(args: argparse.Namespace) -> int:
         "supplier": draft.get("supplier", "")[:30],
         "shipping": draft.get("shipping"),
     }
-    _out({"summary": summary, "envelope": graph})
+    # ✅ v0.10: 默认自动提交到 Worker（对齐 SKILL.md），--no-submit 跳过
+    submit_result = None
+    if not getattr(args, 'no_submit', False):
+        from scripts.cloud_probe import submit_envelope
+        submit_result = submit_envelope(graph)
+        if submit_result.get("ok"):
+            import logging
+            _logger = logging.getLogger(__name__)
+            _logger.info("✅ 已提交 Worker: task_id=%s", submit_result.get("task_id"))
+            summary["task_id"] = submit_result.get("task_id")
+        else:
+            import logging
+            _logger = logging.getLogger(__name__)
+            _logger.error("❌ 提交失败: %s", submit_result.get("error"))
+    _out({"summary": summary, "envelope": graph, "submit_result": submit_result})
     return 0
 
 
@@ -435,42 +449,91 @@ def cmd_check(args) -> int:
         try:
             import websocket as _ws
             import time as _time
-            blank = req.put("http://127.0.0.1:9222/json/new?", timeout=5)
-            if blank.status_code == 200:
-                tab = blank.json()
-                ws = _ws.create_connection(tab.get("webSocketDebuggerUrl", ""), timeout=10)
-                ws.send(json.dumps({"id":1,"method":"Page.enable","params":{}}))
-                ws.send(json.dumps({"id":2,"method":"Page.navigate",
-                    "params":{"url":"https://www.ozon.ru/"}}))
-                deadline = _time.time() + 8
-                page_loaded = False
-                while _time.time() < deadline:
-                    try:
-                        ws.settimeout(1)
-                        m = json.loads(ws.recv())
-                        if m.get("method") == "Page.frameStoppedLoading":
-                            page_loaded = True
-                            _time.sleep(0.5)
+
+            ws = None
+            tab_id = None
+            tab_is_new = False
+
+            # ✅ v0.10: 优先复用已有 ozon.ru tab（保留 cookie/session，避免 DataDome）
+            try:
+                tabs_resp = req.get("http://127.0.0.1:9222/json", timeout=5)
+                if tabs_resp.status_code == 200:
+                    for t in tabs_resp.json():
+                        if t.get("type") == "page" and "ozon.ru" in t.get("url", "") and "ozon.ru/product/" in t.get("url", ""):
+                            tab_id = t.get("id", "")
+                            ws_url = t.get("webSocketDebuggerUrl", "")
+                            if tab_id and ws_url:
+                                ws = _ws.create_connection(ws_url, timeout=10)
+                                # 在已有 tab 上直接检查页面内容
+                                ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
+                                    "params": {"expression": "!!(document.title && document.title.length > 5 && !document.querySelector('#datadome-captcha, iframe[src*=\"datadome\"]'))",
+                                    "returnByValue": True}}))
+                                for __ in range(15):
+                                    try:
+                                        ws.settimeout(1)
+                                        m = json.loads(ws.recv())
+                                        if m.get("id") == 1:
+                                            ozon_cdp_ok = bool(m.get("result", {}).get("result", {}).get("value", False))
+                                            break
+                                    except _ws.WebSocketTimeoutException:
+                                        continue
+                                    except Exception:
+                                        break
+                                break
+            except Exception:
+                pass
+
+            # 没有已有 tab 或检查失败 → 创建新 tab
+            if ws is None:
+                blank = req.put("http://127.0.0.1:9222/json/new?", timeout=5)
+                if blank.status_code == 200:
+                    tab = blank.json()
+                    tab_id = tab.get("id", "")
+                    tab_is_new = True
+                    ws = _ws.create_connection(tab.get("webSocketDebuggerUrl", ""), timeout=10)
+                    ws.send(json.dumps({"id": 1, "method": "Page.enable", "params": {}}))
+                    ws.send(json.dumps({"id": 2, "method": "Page.navigate",
+                        "params": {"url": "https://www.ozon.ru/"}}))
+                    deadline = _time.time() + 10
+                    page_loaded = False
+                    while _time.time() < deadline:
+                        try:
+                            ws.settimeout(1)
+                            m = json.loads(ws.recv())
+                            if m.get("method") == "Page.frameStoppedLoading":
+                                page_loaded = True
+                                _time.sleep(1)
+                                break
+                        except _ws.WebSocketTimeoutException:
+                            if page_loaded:
+                                break
+                            continue
+                        except Exception:
                             break
-                    except _ws.WebSocketTimeoutException:
-                        if page_loaded: break
-                        continue
-                    except Exception:
-                        break
-                ws.send(json.dumps({"id":3,"method":"Runtime.evaluate",
-                    "params":{"expression":"location.href.indexOf('ozon.ru')>=0 && location.href.indexOf('captcha')<0","returnByValue":True}}))
-                for __ in range(15):
-                    try:
-                        ws.settimeout(1)
-                        m = json.loads(ws.recv())
-                        if m.get("id") == 3:
-                            ozon_cdp_ok = bool(m.get("result",{}).get("result",{}).get("value", False))
+                    # ✅ v0.10: 检查实际页面内容，不只是 URL
+                    ws.send(json.dumps({"id": 3, "method": "Runtime.evaluate",
+                        "params": {"expression": "!!(document.body && document.body.innerText.length > 200 && document.title.length > 5 && !document.querySelector('#datadome-captcha, iframe[src*=\"datadome\"]'))",
+                        "returnByValue": True}}))
+                    for __ in range(15):
+                        try:
+                            ws.settimeout(1)
+                            m = json.loads(ws.recv())
+                            if m.get("id") == 3:
+                                ozon_cdp_ok = bool(m.get("result", {}).get("result", {}).get("value", False))
+                                break
+                        except _ws.WebSocketTimeoutException:
+                            continue
+                        except Exception:
                             break
-                    except _ws.WebSocketTimeoutException:
-                        continue
-                    except Exception:
-                        break
+
+            if ws:
                 ws.close()
+            # 只关闭新建的 tab
+            if tab_id and tab_is_new:
+                try:
+                    req.get(f"http://127.0.0.1:9222/json/close/{tab_id}", timeout=3)
+                except Exception:
+                    pass
         except Exception:
             pass
         print(f"  {_ok(ozon_cdp_ok)} Ozon 可通过 DataDome")
@@ -765,6 +828,7 @@ def main() -> int:
     gp.add_argument("--category-query", default="", help="Ozon 类目关键词（俄语）")
     gp.add_argument("--retries", type=int, default=3, help="CDP 重试次数")
     gp.add_argument("--store", default="", help="Ozon 店铺名称（不指定则用默认店铺）")
+    gp.add_argument("--no-submit", action="store_true", help="只组装信封不提交 Worker")
     gp.set_defaults(func=cmd_graph)
 
     # image_search

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 MAX_POLL_ATTEMPTS = 10
 POLL_INTERVAL_SECONDS = 3
 # Phase 2: 审核状态轮询（Ozon审核需要较长时间，300s足够覆盖绝大多数产品）
-MAX_MODERATE_POLL_ATTEMPTS = 60
+MAX_MODERATE_POLL_ATTEMPTS = 120  # ✅ v0.11: 60→120 (10 分钟，覆盖多数审核)
 MODERATE_POLL_INTERVAL_SECONDS = 5
 
 
@@ -172,7 +172,7 @@ def ozon_status_node(
                         failed_details.append(f"product_id={pid}: {json.dumps(err_details, ensure_ascii=False)[:200]}")
                     else:
                         failed_details.append(f"product_id={pid}: 未知错误")
-                elif item_status_val in ("pending", "importing", "processing"):
+                elif item_status_val in ("pending", "importing", "processing", "skipped"):
                     has_pending = True
 
             # 兼容旧代码的变量名
@@ -411,8 +411,8 @@ def ozon_status_node(
                             return OzonStatusOutput(
                                 product_id=real_product_ids[0],
                                 product_ids=real_product_ids,
-                                status="failed",
-                                upload_status="failed",
+                                status="error",
+                                upload_status="error",
                                 errors=all_real_errors,
                                 purchase_url=purchase_url,
                                 purchase_cost=purchase_cost,
@@ -434,22 +434,23 @@ def ozon_status_node(
                     logger.warning(f"查询moderate_status API返回{info_response.status_code}")
                     time.sleep(MODERATE_POLL_INTERVAL_SECONDS)
 
-            # moderate_status轮询超时 — 产品已导入成功，Ozon审核还在进行中
-            # 视为软成功：product_id 已分配，审核会自动完成
-            logger.warning(f"⚠️ moderate_status轮询超时（{MAX_MODERATE_POLL_ATTEMPTS * MODERATE_POLL_INTERVAL_SECONDS}s），"
-                          f"产品已导入，审核将在后台完成")
+            # moderate_status 轮询超时 — 审核仍在进行中
+            mod_retries = getattr(state, 'moderation_retry_count', 0) + 1
+            logger.warning(f"⚠️ 审核仍在进行中（已轮询{MAX_MODERATE_POLL_ATTEMPTS * MODERATE_POLL_INTERVAL_SECONDS}s），"
+                          f"返回 pending 状态等待重试 ({mod_retries}/3)")
             return OzonStatusOutput(
                 product_id=real_product_ids[0] if real_product_ids else product_id,
                 product_ids=real_product_ids,
-                status="imported",
-                upload_status="imported",
-                errors=all_item_errors if all_item_errors else item_errors,
+                status="pending",
+                upload_status="pending",
+                errors=[],
                 purchase_url=purchase_url,
                 purchase_cost=purchase_cost,
                 sku_id=sku_id,
                 profit_estimation=profit_estimation,
                 error_message="",
-                stages={"ozon_status": "imported_pending_moderation"}
+                stages={"ozon_status": "pending"},
+                moderation_retry_count=mod_retries,
             )
 
         # 如果imported但没有real_product_ids
