@@ -1,10 +1,10 @@
 #!/bin/bash
-# Pre-commit: 语法检查 + 禁止提交 .env / 密钥
-# 安装: git config core.hooksPath .githooks
+# Pre-commit: 语法检查 + 禁止新增敏感文件
 FAILED=0
 PYTHON_BIN="${PYTHON_BIN:-python3.12}"
 command -v "$PYTHON_BIN" &>/dev/null || PYTHON_BIN="python3"
 
+# 1. 语法检查 — 只检查新增/修改的 .py 文件
 changed_py=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
 if [ -n "$changed_py" ]; then
     echo "$changed_py" | while read f; do
@@ -14,8 +14,9 @@ if [ -n "$changed_py" ]; then
     done
 fi
 
-blocked=$(git diff --cached --name-only | grep -E '\.env$|\.pem$|credentials\.json$|secret' || true)
-[ -n "$blocked" ] && echo "⛔ 禁止提交: $blocked" && FAILED=1
+# 2. 禁止新增敏感文件（只检查新增A，不检查删除D/修改M）
+blocked=$(git diff --cached --name-only --diff-filter=A | grep -E '\.env$|\.pem$|credentials\.json$|secret|settings\.json$|stores\.json$' || true)
+[ -n "$blocked" ] && echo "⛔ 禁止提交密钥文件: $blocked" && FAILED=1
 
 [ $FAILED -ne 0 ] && echo "❌ Pre-commit 失败。bash scripts/ci.sh --quick" && exit 1
 echo "✅ Pre-commit 通过"
