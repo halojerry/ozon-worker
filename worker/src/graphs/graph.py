@@ -76,7 +76,7 @@ builder.add_node("white_bg_gen", white_bg_gen_node)
 builder.add_node("multi_angle_gen", multi_angle_gen_node)
 builder.add_node("variant_primary_loop", variant_primary_loop_node, metadata={"type": "looparray"})  # ✅ 多SKU路径：循环生成所有变体主图
 builder.add_node("main_image_gen", main_image_gen_node)  # ✅ 单SKU路径：生成单张主图
-builder.add_node("multi_info_gen", multi_info_gen_node)
+builder.add_node("multi_info_gen", multi_info_gen_node)  # ✅ v0.11: 已废弃（Ozon 禁止附加图含文字，输出从未使用）
 builder.add_node("detail_gen", detail_gen_node)
 builder.add_node("social_proof_gen", social_proof_gen_node)
 builder.add_node("scene_1_gen", scene_1_gen_node)
@@ -98,8 +98,20 @@ builder.set_entry_point("auth")
 
 # ==================== 添加边（数据流转） ====================
 
-# ==================== P0 修复：auth → check_quota（提前检查，避免浪费 GPU/LLM） ====================
-builder.add_edge("auth", "check_quota")
+# ✅ v0.11: auth 失败时阻断管线，避免浪费 GPU/LLM 配额
+def route_after_auth(state):
+    """Token 验证失败 → END；否则 → check_quota"""
+    error_code = getattr(state, 'error_code', '') or ''
+    if error_code and error_code != 'AUTH_SUCCESS':
+        logger.warning(f"⛔ Auth 失败({error_code})，阻断管线")
+        return "END"
+    return "check_quota"
+
+builder.add_conditional_edges(
+    source="auth",
+    path=route_after_auth,
+    path_map={"check_quota": "check_quota", "END": END}
+)
 
 # 🆕 路由：跟卖 vs 1688 完整管线（在配额检查通过后）
 def route_by_sell_type(state):
@@ -167,7 +179,7 @@ builder.add_edge("scene_generation_llm", "multi_angle_gen")  # scene_generation_
 # Phase2（7节点并行）：生成营销图（不包括主图，主图由variant_check分支处理）
 # ✅ v0.11: 节点内部检查 variants 数量 — 单SKU时 variant_primary_loop 跳过, 多SKU时 main_image_gen 跳过
 # Phase2节点等待Phase1完成后再开始（white_bg_gen和multi_angle_gen）
-builder.add_edge(["white_bg_gen", "multi_angle_gen"], "multi_info_gen")
+# ✅ v0.11: multi_info_gen 已移除（Ozon 禁止附加图含文字/广告，输出从未被 IMG_ORDER 使用）
 builder.add_edge(["white_bg_gen", "multi_angle_gen"], "detail_gen")
 builder.add_edge(["white_bg_gen", "multi_angle_gen"], "social_proof_gen")
 builder.add_edge(["white_bg_gen", "multi_angle_gen"], "comparison_gen")
@@ -183,7 +195,7 @@ builder.add_edge(["white_bg_gen", "multi_angle_gen"], "main_image_gen")  # 单SK
 # Phase2汇聚：主图 + 其他7个节点 → prepare_ozon_upload
 builder.add_edge([
     "variant_primary_loop", "main_image_gen",
-    "multi_info_gen", "detail_gen", "social_proof_gen",
+    "detail_gen", "social_proof_gen",
     "scene_1_gen", "scene_2_gen", "scene_3_gen", "comparison_gen"
 ], "prepare_ozon_upload")
 

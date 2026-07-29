@@ -175,6 +175,12 @@ def follow_sell_import_node(state: GlobalState) -> GlobalState:
         logger.info("⚠️ import-by-sku 异常，走 Fallback: %s", e)
 
     # ── ② 设置状态（走 Fallback 路径：pg_trgm + AI生图 + /v3/product/import）──
+    # ✅ v0.11: 记录竞品 Ozon 价格（供 pricing_node 竞品价格覆盖逻辑使用）
+    ozon_price = draft.get("price", "") or draft.get("ozon_price", "")
+    if ozon_price:
+        state.competitor_price = str(ozon_price).strip()
+        logger.info(f"💰 竞品 Ozon 价格: {state.competitor_price}")
+
     # 类目：pg_trgm 解析俄语类目名 → 数字 ID
     if dc_raw:
         state.description_category_id = dc_raw

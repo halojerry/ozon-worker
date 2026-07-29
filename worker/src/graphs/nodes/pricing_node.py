@@ -95,10 +95,18 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         except (ValueError, TypeError):
             weight = 0.0
             logger.warning(f"定价节点：weight 无法解析为数字（{weight_raw}），使用默认 0")
-        # ✅ 单位转换：仅当带小数点时判定为 kg（skill 保证发送克，1688 原始 kg 如 1.5 会有小数点）
+        # ✅ 单位转换：kg → g 判定
         if isinstance(weight_raw, str) and '.' in str(weight_raw) and 0 < weight < 10000:
             weight = weight * 1000  # kg → g
             logger.info(f"定价节点重量转换：{weight_raw}kg → {weight}g")
+        # ✅ v0.11: 小重量+大尺寸 → 疑似 kg 当 g 传（与 prepare_ozon_upload 一致）
+        if 0 < weight < 10:
+            l = _safe_float(dims_obj.get("length", 0))
+            w = _safe_float(dims_obj.get("width", 0))
+            h = _safe_float(dims_obj.get("height", 0))
+            if max(l, w, h) > 50:
+                weight = weight * 1000
+                logger.warning(f"定价节点：weight={weight_raw}g 但 max_dim={max(l,w,h)}mm，疑似 kg→g 修正为 {weight}g")
         
         # ✅ 关键修复：从嵌套的 dimensions 对象中提取尺寸（mm→cm）
         dims_obj = draft.get("dimensions", {})
