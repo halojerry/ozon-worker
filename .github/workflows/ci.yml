@@ -13,9 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ═══════════════════════════
-  # Job 1: 语法检查（最快，先阻断）
-  # ═══════════════════════════
+  # ═══ Syntax: 全量 .py（阻断，~10s）═══
   syntax:
     name: Syntax — All .py
     runs-on: ubuntu-latest
@@ -23,29 +21,22 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
-
-    - name: Syntax check
-      run: |
-        # 收集所有 Python 文件
-        find . -name "*.py" \
+      - run: |
+        errors=$(find . -name "*.py" \
           -not -path "./.venv/*" -not -path "./.git/*" \
           -not -path "*/__pycache__/*" -not -path "*/.pytest_cache/*" \
           -not -path "*/dist/*" -not -path "*/build/*" -not -path "*/site-packages/*" \
-          > /tmp/pyfiles.txt
-        total=$(wc -l < /tmp/pyfiles.txt)
-        bad=0
-        while read -r f; do
-          python3 -c "import py_compile; py_compile.compile('$f', doraise=True)" 2>/dev/null || {
-            echo "❌ $f"; bad=$((bad+1)); }
-        done < /tmp/pyfiles.txt
-        echo "文件: $total, 错误: $bad"
-        [ "$bad" -eq 0 ] || exit 1
+          -exec sh -c 'python3 -c "import py_compile; py_compile.compile(\"$1\",doraise=True)" 2>/dev/null || echo $1' _ {} \;)
+        if [ -n "$errors" ]; then
+          echo "$errors" | head -20
+          echo "::error::语法错误"
+          exit 1
+        fi
+        echo "✅ 语法通过"
 
-  # ═══════════════════════════
-  # Job 2: Lint — Worker + Skill
-  # ═══════════════════════════
+  # ═══ Ruff: Worker + Skill (阻断) ═══
   lint:
-    name: Ruff — Worker & Skill
+    name: Ruff
     runs-on: ubuntu-latest
     needs: syntax
     steps:
@@ -53,25 +44,10 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install ruff
+      - run: ruff check worker/src/ --select E,F,W --ignore E501
+      - run: ruff check skill/scripts/ --select E,F,W --ignore E501,E402
 
-      # Worker: 格式错误阻断
-      - name: Ruff Worker (E,F,W)
-        run: ruff check worker/src/ --select E,F,W --ignore E501
-        continue-on-error: false
-
-      # Worker: 质量建议（非阻断）
-      - name: Ruff Worker (import order)
-        run: ruff check worker/src/ --select I --ignore I001 --statistics 2>&1 | head -20
-        continue-on-error: true
-
-      # Skill: 格式错误阻断
-      - name: Ruff Skill (E,F,W)
-        run: ruff check skill/scripts/ --select E,F,W --ignore E501,E402
-        continue-on-error: false
-
-  # ═══════════════════════════
-  # Job 3: 导入验证
-  # ═══════════════════════════
+  # ═══ Import: Worker + Skill (阻断) ═══
   imports:
     name: Import Check
     runs-on: ubuntu-latest
@@ -81,33 +57,27 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
 
-      # Worker 核心导入
       - name: Worker imports
         run: |
-          cd worker
           pip install pydantic fastapi sqlalchemy -q
-          PYTHONPATH=src python -c "
+          cd worker && PYTHONPATH=src python -c "
           from api.errors import WorkerErrorCode, error_response
           from api.schemas import SubmitTaskRequest, TaskStatusResponse
           print('✅ Worker 核心模块')
           "
 
-      # Skill 核心导入
       - name: Skill imports
         run: |
-          cd skill
           pip install requests websocket-client Pillow -q
-          PYTHONPATH=scripts python -c "
+          cd skill && PYTHONPATH=scripts python -c "
           from scripts.lib.utils import parse_price
           from scripts._const import CLOUD_API_BASE
           print('✅ Skill 核心模块')
           "
 
-  # ═══════════════════════════
-  # Job 4: 单元测试
-  # ═══════════════════════════
+  # ═══ Tests: Worker (非阻断) ═══
   test:
-    name: Tests — Worker
+    name: Tests
     runs-on: ubuntu-latest
     needs: imports
     defaults: { run: { working-directory: worker } }
@@ -115,28 +85,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
+      - run: pip install pydantic fastapi sqlalchemy pytest pytest-asyncio -q
+      - run: PYTHONPATH=src pytest tests/ -v --tb=short -k "not db and not integration and not slow" --timeout=60 2>&1 || true
 
-      - name: Install deps
-        run: pip install pydantic fastapi sqlalchemy pytest pytest-asyncio -q 2>&1
-
-      - name: Run tests
-        run: |
-          PYTHONPATH=src pytest tests/ -v --tb=short \
-            -k "not db and not integration and not slow" \
-            --timeout=60 2>&1 || true
-
-  # ═══════════════════════════
-  # Job 5: Docker Build
-  # ═══════════════════════════
+  # ═══ Docker Build ═══
   build:
     name: Docker Build
     runs-on: ubuntu-latest
     needs: test
     steps:
       - uses: actions/checkout@v4
-
-      - name: Build image
-        run: |
-          docker build -t ozon-worker:ci -f worker/Dockerfile worker/
-          docker images ozon-worker:ci --format '镜像: {{.Size}}'
-          echo "✅ Docker build 成功"
+      - run: docker build -t ozon-worker:ci -f worker/Dockerfile worker/ && echo "✅ Docker build 成功"
