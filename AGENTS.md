@@ -445,6 +445,91 @@ Skill 已适配 Windows，但有以下注意事项：
 
 跨平台分发流程：在 macOS/Windows/Linux 各跑一次 `python3.12 compile.py`，合并 `_native/` 目录后打包。
 
+## CI/CD
+
+GitHub Actions 自动检查每次 push/PR：
+- **Syntax**: 全量 .py 文件语法检查（阻断）
+- **Quality**: pyflakes 快速质量检查
+- **Import**: Worker + Skill 核心模块导入验证（阻断）
+- **Docker**: 镜像构建验证（阻断）
+- **CD**: `git tag v*` → Docker build → push ghcr.io → GitHub Release
+
+本地: `bash scripts/ci.sh [--quick] [--strict]`
+Pre-commit: `git config core.hooksPath .githooks`（语法 + 密钥拦截）
+
+⚠️ **密钥轮换**: MXOU_TOKEN、1688 AK、Ozon API Key 曾暴露在 git 历史中，已移除追踪但历史仍存在，请尽快轮换。
+
+## 最近更新（v0.11 — 全管线逻辑审计 + 数据流修复）
+
+> 2026-07-29 两次深度审计（管线逻辑 + 数据流），修复 28 项问题。
+
+### 审核三状态路由
+
+`ozon_status_node` 返回三种清晰状态，`graph.py` 按状态路由：
+
+| 状态 | 含义 | 路由 |
+|------|------|------|
+| `approved` | 审核通过 | → learning_record → END |
+| `pending` | 审核中 | → ozon_status 重试（最多3次×10分钟） |
+| `error` | 有错误 | → validation_retry_wrapper 靶向修复 |
+
+**不再把审核超时当成功** — 之前 `imported_pending_moderation` 含 "imported" 匹配 success_keywords 被标记成功。
+
+### 靶向修复（retry loop）
+
+有 `product_id` 时使用增量 API，**不重跑全管线**（不重新生图/LLM）：
+
+| 错误类型 | API | 耗时 |
+|---------|-----|------|
+| 属性错误 (BR_hashtag_brand, INVALID_ATTRIBUTE等) | `POST /v1/product/attributes/update` | ~3s |
+| 价格错误 | `POST /v1/product/prices/update` | ~3s |
+| 类目/尺寸/描述 | `POST /v3/product/import` UPDATE模式 | 正常 |
+| 无 product_id | CREATE 模式 | 正常 |
+
+`parse_error_node` 改为按 fix_type 分组批量处理：3个属性错 → 1次 API 调用全修。
+
+### Widget API → Seller API 类目 ID 跨空间解析
+
+Widget API（面包屑）和 Seller API（类目树）使用**完全不同的 ID 空间**（0/14848 节点 type_id == description_category_id）：
+
+```
+Widget 面包屑: "悬架减震器" (Widget ID=34349, 无效)
+  → 1. _resolve_category_by_id → 直查失败
+  → 2. pg_trgm ZH_HANS → 0结果
+  → 3. LLM翻译: "悬架减震器" → "Подвесной амортизатор"
+  → 4. pg_trgm RU → dc=17027918 type=971311385 ✅
+```
+
+### CRITICAL 修复
+
+- **Auth 失败阻断**: graph 加条件边 `route_after_auth`，token 无效 → END
+- **import-by-sku 30s 轮询**: 拿到 product_id → 后续走 UPDATE，防 Ozon 上重复产品卡
+- **图片 conditional**: main_image_gen 多SKU跳过, variant_primary_loop 单SKU跳过 → 省 GPU
+- **multi_info_gen 移除**: Ozon 禁止附加图含文字，输出从未被 IMG_ORDER 使用 → 每次省 1 GPU 调用
+- **state 不篡改**: graph 路径函数只读，moderation_retry_count 由节点返回
+
+### MAJOR 修复
+
+- **跟卖定价加物流/包装/汇率**: 之前只用 `purchase_cost * (1+margin) / (1-commission)` 导致低价$5-15
+- **competitor_price 写入**: follow_sell_import 设置 state.competitor_price 激活竞品定价覆盖
+- **pricing 加 kg→g 修正**: 小重量+大尺寸时自动乘 1000
+- **state.py 死代码清理**: 删除 ImageGen*/VideoGen*/ErrorHandler*/CondRepairResult* (~80行)
+- **hashtag #ozon 删除**: Ozon 将 #ozon 视为品牌名触发 BR_hashtag_brand
+- **title sanitize**: 删除中点插入逗号逻辑（"для, спирали" 语法错误）
+- **低密度检查**: density < 0.25g/cm³ → 用体积×0.5g/cm³ 估算
+- **富文本 attr 4191**: 即使无 1688 属性也 LLM 生成 HTML 描述
+- **skipped 状态**: Ozon 2025新增状态，已加入 pending 列表
+- **审核超时**: 5→10 分钟 (MAX_MODERATE_POLL_ATTEMPTS 60→120)
+- **佣金率**: 用 store-level 查询替代不存在的 offer_id 查询
+
+### 已知未修（低优先级）
+
+- `get_leaf_types_under` 已实现但从未调用（死代码）
+- Phase2 8个生图节点近重复代码（可参数化合并）
+- `_sanitize_title` 在 prepare 和 retry_loop 两处重复实现
+- pg_trgm similarity 阈值 0.3 偏低（可能误匹配）
+- Skill `follow_sell_cloud` 连开 3 次 CDP 浏览器（可合并）
+
 ## 最近更新（v0.9.0 — 全链路健壮性 + 管线优化）
 
 > 2026-07-28 基于 9 个 Ozon 产品实地调研 + 完整节点数据流分析 + PG 持久化审计。
