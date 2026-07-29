@@ -26,22 +26,20 @@ jobs:
 
     - name: Syntax check
       run: |
-        errors=$(find . -name "*.py" \
-          -not -path "./.venv/*" \
-          -not -path "./.git/*" \
-          -not -path "*/__pycache__/*" \
-          -not -path "*/.pytest_cache/*" \
-          -not -path "*/dist/*" \
-          -not -path "*/build/*" \
-          -not -path "*/site-packages/*" \
-          -exec sh -c 'python3 -c "import py_compile; py_compile.compile(\"$1\", doraise=True)" 2>/dev/null || echo "$1"' _ {} \;)
-        total=$(find . -name "*.py" -not -path "./.venv/*" -not -path "./.git/*" | wc -l)
-        if [ -n "$errors" ]; then
-          echo "$errors" | while read f; do echo "❌ $f"; done
-          echo "::error::语法错误: $(echo "$errors" | wc -l)/$total 文件"
-          exit 1
-        fi
-        echo "✅ $total 文件全部通过"
+        # 收集所有 Python 文件
+        find . -name "*.py" \
+          -not -path "./.venv/*" -not -path "./.git/*" \
+          -not -path "*/__pycache__/*" -not -path "*/.pytest_cache/*" \
+          -not -path "*/dist/*" -not -path "*/build/*" -not -path "*/site-packages/*" \
+          > /tmp/pyfiles.txt
+        total=$(wc -l < /tmp/pyfiles.txt)
+        bad=0
+        while read -r f; do
+          python3 -c "import py_compile; py_compile.compile('$f', doraise=True)" 2>/dev/null || {
+            echo "❌ $f"; bad=$((bad+1)); }
+        done < /tmp/pyfiles.txt
+        echo "文件: $total, 错误: $bad"
+        [ "$bad" -eq 0 ] || exit 1
 
   # ═══════════════════════════
   # Job 2: Lint — Worker + Skill
