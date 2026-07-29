@@ -87,6 +87,16 @@ def _assemble_follow_sell(
 
     logger.info(f"🔄 跟卖组装: cat={description_category_id}/{type_id}, title={title[:60]}")
 
+    # ✅ v0.11: type_id=0 时无法获取有效属性 schema，提前阻断
+    if type_id <= 0:
+        logger.error(f"❌ 跟卖 type_id 无效({type_id})，无法获取属性 schema")
+        return {
+            "error_message": f"跟卖 type_id 无效: {type_id}，请检查类目解析",
+            "description_category_id": str(description_category_id),
+            "type_id": str(type_id),
+            "final_attributes": _build_hardcoded_attributes(description_category_id),
+        }
+
     # Step 2: 获取属性 Schema（仅用于验证，不实际填写）
     progress.log_node_action(f"跟卖 Step 2: 获取属性 Schema — cat={description_category_id}")
     attr_schema = query.get_attribute_schema(description_category_id, type_id)
