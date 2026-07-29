@@ -24,17 +24,17 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
 
-      - run: |
-          FAILED=0 TOTAL=0
-          while IFS= read -r -d '' f; do
-            case "$f" in
-              */.venv/*|*/__pycache__/*|*/.pytest_cache/*|*/dist/*|*/build/*|*/site-packages/*|*/.git/*) continue ;;
-            esac
-            TOTAL=$((TOTAL+1))
-            python -c "import py_compile; py_compile.compile('$f', doraise=True)" 2>/dev/null || { echo "❌ $f"; FAILED=1; }
-          done < <(find . -name "*.py" -not -path "./.venv/*" -not -path "./.git/*" -print0)
-          echo "文件: $TOTAL, 错误: $FAILED"
-          [ $FAILED -ne 0 ] && exit 1
+    - run: |
+        FAILED=0 TOTAL=0
+        while IFS= read -r f; do
+          case "$f" in
+            */.venv/*|*/__pycache__/*|*/.pytest_cache/*|*/dist/*|*/build/*|*/site-packages/*|*/.git/*) continue ;;
+          esac
+          TOTAL=$((TOTAL+1))
+          python -c "import py_compile; py_compile.compile('$f', doraise=True)" 2>/dev/null || { echo "❌ $f"; FAILED=1; }
+        done <<< "$(find . -name "*.py" -not -path "./.venv/*" -not -path "./.git/*")"
+        echo "文件: $TOTAL, 错误: $FAILED"
+        exit $FAILED
 
   # ═══════════════════════════
   # Job 2: Lint — Worker + Skill
