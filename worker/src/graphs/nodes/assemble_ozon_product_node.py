@@ -273,6 +273,7 @@ def assemble_ozon_product_node(
             specific_terms = [t for t in specific_terms if t not in _GENERIC_WORDS]
             if not specific_terms:
                 specific_terms = [t for t in cat_terms if t not in _GENERIC_WORDS][-2:]
+            leaf_name = cat_terms[-1] if cat_terms else ""  # v4: L0学习缓存key
             
             # 中文同义词映射（1688 用语 → Ozon ZH_HANS 用语）
             _CN_SYNONYMS = {
@@ -382,6 +383,16 @@ def assemble_ozon_product_node(
 
     logger.info(f"   pg_trgm 返回 {len(candidates)} 个候选")
 
+    # ✅ v4: L2 指纹重排
+    candidates = _apply_fingerprint_rerank(query, candidates, source_keywords, keywords)
+
+    # ✅ v5: 初始化匹配质量标记
+    match_layer = "L1"       # pg_trgm / jieba LIKE
+    match_confidence = 0.5   # 默认中等置信度
+
+    # ✅ v4: L0 学习缓存查找（在候选选择前，命中则跳过 overlap 验证）
+    l0_hit = _match_category_layered(query, source_category, source_keywords, keywords, candidates, leaf_name) if source_category else None
+
     # 1c. 直接使用 pg_trgm 最高相似度候选（不用 LLM）
     # pg_trgm 搜索已按 sim DESC 排序，candidates[0] 即最佳匹配
     # LLM 匹配不可靠（如玩具→鞋类），关键词匹配更准确
@@ -395,43 +406,58 @@ def assemble_ozon_product_node(
     }
     logger.info(f"   ✅ 类目匹配 (pg_trgm): [{best['description_category_id']}/{best['type_id']}] {best['full_path']} (sim={best.get('similarity', 0):.3f})")
 
-    # ✅ 关键词重叠验证：候选类目必须与源类目有关键词重叠，避免 pg_trgm 误匹配
+    # ✅ v4: L0命中 → 跳过 overlap 验证，直接使用学习缓存结果
+    if l0_hit:
+        category_result = l0_hit
+        match_layer = "L0"
+        match_confidence = 0.95
+        logger.info(f"   ✅ L0覆盖: [{category_result['description_category_id']}/{category_result['type_id']}]")
+
+    # ✅ 关键词重叠验证（L0未命中时执行）
     # 例如 "烟灰缸" 被 pg_trgm 误匹配到 "珠宝秤" → 无重叠词 → 丢弃该候选
     # ✅ v0.8.0 修复: 改用子串匹配代替 set intersection，解决中文分词问题
-    # .split() 对中文无空格文本无效（"蓝牙" vs "蓝牙耳机" → 无交集），子串匹配解决
-    _source_words = [w.strip().lower() for w in (source_keywords or keywords).split() if len(w.strip()) >= 2]
-    for _c in candidates:
-        _cand_path = _c.get("full_path", "").lower()
-        _overlap = set()
-        for sw in _source_words:
-            if sw in _cand_path:
-                _overlap.add(sw)
-        if _overlap:
-            category_result = {
-                "description_category_id": _c["description_category_id"],
-                "type_id": _c["type_id"],
-                "category_path": _c["full_path"],
-                "confidence": "high",
-                "reason": f"pg_trgm+overlap (sim={_c.get('similarity', 0):.3f}, words={_overlap})",
-            }
-            logger.info(f"   ✅ 子串验证通过: 候选 '{_c['full_path'][:60]}' 包含源词 {_overlap}")
-            break
-    else:
-        # 无候选有重叠 → LLM fallback：让 LLM 从 top-5 候选中选择最佳匹配
-        logger.warning(f"   ⚠️ 所有 {len(candidates)} 个候选与源词无子串重叠，触发 LLM fallback")
-        best_by_llm = _llm_rank_categories(candidates[:5], source_keywords or keywords, draft, state)
-        if best_by_llm:
-            category_result = {
-                "description_category_id": best_by_llm["description_category_id"],
-                "type_id": best_by_llm["type_id"],
-                "category_path": best_by_llm["full_path"],
-                "confidence": "medium",
-                "reason": f"LLM_fallback (from {len(candidates)} candidates, no substring overlap)",
-            }
-            logger.info(f"   ✅ LLM fallback 选中: {best_by_llm['full_path'][:80]}")
+    if not l0_hit:
+        # .split() 对中文无空格文本无效（"蓝牙" vs "蓝牙耳机" → 无交集），子串匹配解决
+        _source_words = [w.strip().lower() for w in (source_keywords or keywords).split() if len(w.strip()) >= 2]
+        for _c in candidates:
+            _cand_path = _c.get("full_path", "").lower()
+            _overlap = set()
+            for sw in _source_words:
+                if sw in _cand_path:
+                    _overlap.add(sw)
+            if _overlap:
+                category_result = {
+                    "description_category_id": _c["description_category_id"],
+                    "type_id": _c["type_id"],
+                    "category_path": _c["full_path"],
+                    "confidence": "high",
+                    "reason": f"pg_trgm+overlap (sim={_c.get('similarity', 0):.3f}, words={_overlap})",
+                }
+                logger.info(f"   ✅ 子串验证通过: 候选 '{_c['full_path'][:60]}' 包含源词 {_overlap}")
+                break
         else:
-            # LLM 也失败 → 保留原始选择但降级置信度
-            logger.warning(f"   ⚠️ LLM fallback 也失败，使用最高 sim 候选")
+            # 无候选有重叠 → LLM fallback：让 LLM 从 top-5 候选中选择最佳匹配
+            logger.warning(f"   ⚠️ 所有 {len(candidates)} 个候选与源词无子串重叠，触发 LLM fallback")
+            best_by_llm = _llm_rank_categories(candidates[:5], source_keywords or keywords, draft, state)
+            if best_by_llm:
+                category_result = {
+                    "description_category_id": best_by_llm["description_category_id"],
+                    "type_id": best_by_llm["type_id"],
+                    "category_path": best_by_llm["full_path"],
+                    "confidence": "medium",
+                    "reason": f"LLM_fallback (from {len(candidates)} candidates, no substring overlap)",
+                }
+                logger.info(f"   ✅ LLM fallback 选中: {best_by_llm['full_path'][:80]}")
+            else:
+                # ✅ v5: LLM 也失败 → 阻断上架，不硬用低质量候选
+                match_confidence = 0.0
+                logger.error(f"   🛑 LLM fallback 也失败，无可靠类目匹配，阻断上架")
+                return {"error_message": "类目匹配失败：jieba搜索+LLM均无可靠结果，阻断上架避免错误类目",
+                        "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
+                        "match_confidence": 0.0}
+
+    # ✅ v4: 审计日志 — 记录本次匹配详情到 category_match_log
+    _log_match_attempt(state, title, source_category, keywords, category_result, match_layer, match_confidence, candidates)
 
     description_category_id: int = int(category_result["description_category_id"])
     type_id: int = int(category_result["type_id"])
@@ -868,6 +894,7 @@ def assemble_ozon_product_node(
         "llm_attributes": llm_attributes,
         "learned_attributes": {},
         "ozon_payloads": [{"items": items}],
+        "match_confidence": match_confidence,  # v5: 路由阻断用
         # 传递 LLM 生成的俄语标题
         "name": llm_name,
     }
@@ -1936,16 +1963,40 @@ def _generate_hashtags(name: str) -> str:
 def _llm_rank_categories(
     candidates: list[dict], keywords: str, draft: dict, state
 ) -> dict | None:
-    """LLM fallback：低置信度时让 LLM 从候选类目中选最佳匹配。
-
-    仅在 pg_trgm 所有候选都无关键词重叠时触发（~10-15% 产品）。
+    """v4 LLM fallback：低置信度时让 LLM 从候选类目中选最佳匹配。
+    增强：domain_hint 引导 + 1688类目面包屑
     """
     try:
         from utils.mxou_api import call_mxou_chat_api
 
         product_title = (draft or {}).get("title", "") or getattr(state, "competitor_name", "") or ""
         product_attrs = (draft or {}).get("attributes", {}) or {}
+        source_cat = (draft or {}).get("source_category", "") or ""
         attr_text = ", ".join(f"{k}={v}" for k, v in (product_attrs.items() if isinstance(product_attrs, dict) else []) if v)[:200]
+
+        # v4: Load domain hints for LLM guidance
+        domain_guidance = ""
+        try:
+            from utils.ozon_category_query import get_category_query
+            hints = get_category_query()._load_domain_hints()
+            if hints:
+                kw_set = set((keywords or "").lower().split())
+                triggered = []
+                for dh in hints:
+                    for kw in kw_set:
+                        if kw in (dh.get("trigger_keywords") or []):
+                            triggered.append(dh)
+                            break
+                if triggered:
+                    guide_lines = []
+                    for t in triggered[:3]:
+                        g = f"  - 优先: {t['target_top_category']}"
+                        if t.get("exclude_top_category"):
+                            g += f" (排除: {t['exclude_top_category']})"
+                        guide_lines.append(g)
+                    domain_guidance = "领域规则:\n" + "\n".join(guide_lines) + "\n"
+        except Exception:
+            pass
 
         cand_text = "\n".join(
             f"{i+1}. {c.get('full_path', '')} (sim={c.get('similarity', 0):.2f})"
@@ -1954,22 +2005,21 @@ def _llm_rank_categories(
 
         prompt = f"""Choose the best Ozon category for this product.
 
-Product: {product_title[:100]}
-Keywords: {keywords[:100]}
-Attributes: {attr_text or 'N/A'}
-
-Candidates:
+产品: {product_title[:100]}
+1688类目: {source_cat[:100]}
+关键词: {keywords[:100]}
+属性: {attr_text or 'N/A'}
+{domain_guidance}
+候选类目:
 {cand_text}
 
-Return ONLY the number (1-{len(candidates)}) of the best match. No explanation."""
+返回 ONLY 数字 (1-{len(candidates)})，不解释。"""
 
         result = call_mxou_chat_api(
             token=getattr(state, "token", ""),
-            system_prompt="You are a product categorization expert. Choose the most accurate Ozon category number.",
+            system_prompt="You are a product categorization expert. Follow domain rules if provided.",
             user_prompt=prompt,
-            model="deepseek-v4-flash",
-            temperature=0.0,
-            max_tokens=10,
+            model="deepseek-v4-flash", temperature=0.0, max_tokens=10,
         )
         if result and result.strip().isdigit():
             idx = int(result.strip()) - 1
@@ -1978,4 +2028,94 @@ Return ONLY the number (1-{len(candidates)}) of the best match. No explanation."
     except Exception as e:
         logger.warning("LLM category ranking failed: %s", e)
     return None
+
+
+# ═══════════════════════════════════════════════════════════
+# v4: 分层类目匹配 (L0→L1→L2)
+# ═══════════════════════════════════════════════════════════
+
+def _match_category_layered(
+    query, source_category: str, source_keywords: str, keywords: str,
+    candidates: list, leaf_name: str,
+) -> dict | None:
+    """L0: 学习缓存查找 → 高置信命中直接返回；否则返回 None"""
+    if not source_category or not leaf_name:
+        return None
+    try:
+        from utils.local_db_manager import LocalDBManager as _LDB
+        mappings = _LDB().get_category_mapping_by_leaf(leaf_name)
+        logger.info(f"L0 lookup: leaf='{leaf_name}' → {len(mappings or [])} results")
+        if not mappings:
+            logger.info(f"L0 miss: no mapping for '{leaf_name}'")
+            return None
+        best = mappings[0]
+        logger.info(f"L0 candidate: succ={best.get('success_count')} conf={best.get('confidence')} dc={best.get('description_category_id')}")
+        if best.get("success_count", 0) < 1 or best.get("confidence", 0) < 0.6:
+            logger.info(f"L0 skip: succ={best.get('success_count')} conf={best.get('confidence')} below threshold")
+            return None
+        verified = query.get_node(best["description_category_id"], best["type_id"])
+        if not verified:
+            logger.warning(f"L0 fail: dc={best['description_category_id']} type={best['type_id']} not found in PG")
+            return None
+        logger.info(f"🎯 L0命中: '{leaf_name}' → [{best['description_category_id']}/{best['type_id']}] "
+                    f"success={best['success_count']} conf={best['confidence']:.2f}")
+        return {
+            "description_category_id": best["description_category_id"],
+            "type_id": best["type_id"],
+            "category_path": best.get("category_path_zh", "") or verified.get("full_path", ""),
+            "confidence": "high",
+            "reason": f"L0 learned (leaf='{leaf_name}', success={best['success_count']})",
+        }
+    except Exception as e:
+        logger.debug(f"L0 skip: {e}")
+        return None
+
+
+def _apply_fingerprint_rerank(query, candidates: list, source_keywords: str, keywords: str) -> list:
+    """L2: 指纹重排"""
+    jieba_kw = [w.strip() for w in (source_keywords or keywords).split() if len(w.strip()) >= 2]
+    if not jieba_kw:
+        jieba_kw = [w.strip() for w in keywords.split() if len(w.strip()) >= 2]
+    if jieba_kw and len(candidates) > 1:
+        candidates = query.score_candidates_by_fingerprint(candidates, jieba_kw)
+        if candidates:
+            best = candidates[0]
+            logger.info(f"🔢 L2指纹: top={best['node_name'][:30]} fp={best.get('fingerprint_score',0):.2f}")
+    return candidates
+
+
+def _log_match_attempt(state, title: str, source_category: str, keywords: str,
+                       category_result: dict, match_layer: str, confidence: float,
+                       candidates: list) -> None:
+    """v4: 写入 category_match_log 审计表"""
+    try:
+        import json as _json, psycopg2 as _pg
+        from storage.database.db import get_db_url as _gdu
+        task_id = getattr(state, 'task_id', '') or ''
+        if not task_id:
+            logger.warning(f"match_log skip: task_id is empty (state type={type(state).__name__})")
+            return
+        conn = _pg.connect(_gdu())
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO category_match_log (task_id, source_title, source_category, source_keywords,
+                    matched_description_category_id, matched_type_id, match_layer, confidence, candidates_json)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+            """, (
+                task_id, (title or "")[:500], (source_category or "")[:500],
+                [w.strip() for w in keywords.split() if len(w.strip()) >= 2][:20],
+                int(category_result.get("description_category_id", 0)),
+                int(category_result.get("type_id", 0)),
+                match_layer, confidence,
+                _json.dumps([{"dc": c.get("description_category_id"), "tp": c.get("type_id"),
+                    "name": c.get("node_name", ""), "sim": c.get("similarity", 0),
+                    "fp": c.get("fingerprint_score", 0), "path": c.get("full_path", "")
+                } for c in (candidates or [])[:15]], ensure_ascii=False),
+            ))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f"match_log write failed (non-fatal): {e}")
 

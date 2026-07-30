@@ -35,7 +35,6 @@ from graphs.nodes.variant_primary_loop_node import variant_primary_loop_node  # 
 from graphs.nodes.white_bg_gen_node import white_bg_gen_node
 from graphs.nodes.multi_angle_gen_node import multi_angle_gen_node
 from graphs.nodes.main_image_gen_node import main_image_gen_node
-from graphs.nodes.multi_info_gen_node import multi_info_gen_node
 from graphs.nodes.detail_gen_node import detail_gen_node
 from graphs.nodes.social_proof_gen_node import social_proof_gen_node
 from graphs.nodes.scene_1_gen_node import scene_1_gen_node
@@ -73,7 +72,6 @@ builder.add_node("white_bg_gen", white_bg_gen_node)
 builder.add_node("multi_angle_gen", multi_angle_gen_node)
 builder.add_node("variant_primary_loop", variant_primary_loop_node, metadata={"type": "looparray"})  # ✅ 多SKU路径：循环生成所有变体主图
 builder.add_node("main_image_gen", main_image_gen_node)  # ✅ 单SKU路径：生成单张主图
-builder.add_node("multi_info_gen", multi_info_gen_node)  # ✅ v0.11: 已废弃（Ozon 禁止附加图含文字，输出从未使用）
 builder.add_node("detail_gen", detail_gen_node)
 builder.add_node("social_proof_gen", social_proof_gen_node)
 builder.add_node("scene_1_gen", scene_1_gen_node)
@@ -140,20 +138,25 @@ builder.add_conditional_edges(
     }
 )
 
-# 跟卖导入 → 走 AI 生图 + 上传管线（复用现有节点）
-# import-by-sku 已复制类目+属性，后续生图+上传补充图片并 UPDATE 商品卡
+# ✅ v4: 跟卖导入 → pricing → assemble（统一定价管线）
+# 跟卖和 1688 两条路径在 pricing 节点汇合，使用同一套定价公式
 def route_after_follow_sell_import(state):
-    """跟卖导入后走简化管线：AI生图 → 上传UPDATE。
-    不经过 pricing/assemble（已在 follow_sell_import 中处理）。"""
-    if getattr(state, 'error_message', '') and 'ozon_product_id 为空' in str(state.error_message):
+    """跟卖导入后走统一定价管线：pricing → assemble → 生图 → 上传"""
+    error_msg = getattr(state, 'error_message', '') or ''
+    # 致命错误：ozon_product_id 为空或类目解析全部失败
+    if 'ozon_product_id 为空' in error_msg:
+        logger.error("⛔ 跟卖阻断: ozon_product_id 为空")
         return "END"
-    logger.info("跟卖导入完成(product_id=%s)，走 AI 生图 → 上传管线", getattr(state, 'product_id', '?'))
-    return "scene_generation_llm"
+    if '类目解析失败' in error_msg:
+        logger.error("⛔ 跟卖阻断: 类目解析全部失败，走 retry loop")
+        return "retry"
+    logger.info("跟卖导入完成(product_id=%s)，走统一定价管线", getattr(state, 'product_id', '?'))
+    return "pricing"
 
 builder.add_conditional_edges(
     "follow_sell_import",
     route_after_follow_sell_import,
-    {"scene_generation_llm": "scene_generation_llm", "END": END}
+    {"pricing": "pricing", "retry": "validation_retry_wrapper", "END": END}
 )
 # 1688 管线：ingest → 定价
 builder.add_edge("ingest", "pricing")
@@ -164,7 +167,30 @@ builder.add_edge("ingest", "pricing")
 builder.add_edge("pricing", "assemble_ozon_product")
 
 # Phase 3.5: 场景生成（使用LLM生成3个场景描述）
-builder.add_edge("assemble_ozon_product", "scene_generation_llm")
+# ✅ v5: 类目匹配低置信度时阻断，不上架错误类目
+def route_after_assemble(state):
+    """
+    title: 类目匹配质量检查
+    desc: 类目匹配置信度过低或无有效候选时，阻止继续上架
+    """
+    error_msg = getattr(state, 'error_message', '') or ''
+    if error_msg and ("类目匹配失败" in str(error_msg) or "无有效候选" in str(error_msg)):
+        logger.warning(f"🛑 类目匹配阻断: {error_msg}")
+        return "失败"
+    match_conf = getattr(state, 'match_confidence', 1.0) or 1.0
+    if match_conf < 0.3:
+        logger.warning(f"🛑 类目匹配置信度过低({match_conf})，阻断上架")
+        return "失败"
+    return "成功"
+
+builder.add_conditional_edges(
+    source="assemble_ozon_product",
+    path=route_after_assemble,
+    path_map={
+        "成功": "scene_generation_llm",
+        "失败": END,
+    }
+)
 builder.add_edge("scene_generation_llm", "white_bg_gen")  # scene_generation_llm → Phase1开始
 builder.add_edge("scene_generation_llm", "multi_angle_gen")  # scene_generation_llm → Phase1开始
 
@@ -173,7 +199,7 @@ builder.add_edge("scene_generation_llm", "multi_angle_gen")  # scene_generation_
 # （已移除）builder.add_edge("attributes_learning", "white_bg_gen")
 # （已移除）builder.add_edge("attributes_learning", "multi_angle_gen")
 
-# Phase2（7节点并行）：生成营销图（不包括主图，主图由variant_check分支处理）
+	# Phase2（6节点并行）：生成营销图（不包括主图，主图由variant_check分支处理）
 # ✅ v0.11: 节点内部检查 variants 数量 — 单SKU时 variant_primary_loop 跳过, 多SKU时 main_image_gen 跳过
 # Phase2节点等待Phase1完成后再开始（white_bg_gen和multi_angle_gen）
 # ✅ v0.11: multi_info_gen 已移除（Ozon 禁止附加图含文字/广告，输出从未被 IMG_ORDER 使用）
@@ -247,8 +273,10 @@ def should_handle_error(state):
     ✅ 修改：不使用累积的error_message判断（避免上游警告污染）
     ✅ pending/timeout状态直接结束，不浪费修复资源
     """
-    # ✅ 从OzonStatusOutput获取status字段
-    ozon_status_result = state.status if hasattr(state, 'status') else ""
+    # ✅ v4 (B12): 优先读 moderation_status，fallback 到 status (向后兼容)
+    ozon_status_result = getattr(state, 'moderation_status', '') or ''
+    if not ozon_status_result:
+        ozon_status_result = state.status if hasattr(state, 'status') else ""
     
     # ✅ 检查errors数组（Ozon API返回的结构化错误）
     errors = state.errors if hasattr(state, 'errors') else []
