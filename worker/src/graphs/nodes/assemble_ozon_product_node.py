@@ -416,6 +416,9 @@ def assemble_ozon_product_node(
     # ✅ 关键词重叠验证（L0未命中时执行）
     # 例如 "烟灰缸" 被 pg_trgm 误匹配到 "珠宝秤" → 无重叠词 → 丢弃该候选
     # ✅ v0.8.0 修复: 改用子串匹配代替 set intersection，解决中文分词问题
+    # ✅ v5 修复: 过滤泛化词（"用品"、"工具"等），避免父类目名称造成假匹配
+    _GENERIC_OVERLAP = {"用品", "工具", "配件", "附件", "设备", "材料", "系列", "套装", "商品", "产品",
+                       "运动", "休闲", "传统", "家用", "日用", "通用", "其他", "跨境", "新款", "爆款"}
     if not l0_hit:
         # .split() 对中文无空格文本无效（"蓝牙" vs "蓝牙耳机" → 无交集），子串匹配解决
         _source_words = [w.strip().lower() for w in (source_keywords or keywords).split() if len(w.strip()) >= 2]
@@ -425,15 +428,17 @@ def assemble_ozon_product_node(
             for sw in _source_words:
                 if sw in _cand_path:
                     _overlap.add(sw)
-            if _overlap:
+            # v5: 过滤泛化词，只有非泛化词重叠才算真正匹配
+            _specific_overlap = _overlap - _GENERIC_OVERLAP
+            if _specific_overlap:
                 category_result = {
                     "description_category_id": _c["description_category_id"],
                     "type_id": _c["type_id"],
                     "category_path": _c["full_path"],
                     "confidence": "high",
-                    "reason": f"pg_trgm+overlap (sim={_c.get('similarity', 0):.3f}, words={_overlap})",
+                    "reason": f"pg_trgm+overlap (sim={_c.get('similarity', 0):.3f}, words={_specific_overlap})",
                 }
-                logger.info(f"   ✅ 子串验证通过: 候选 '{_c['full_path'][:60]}' 包含源词 {_overlap}")
+                logger.info(f"   ✅ 子串验证通过: 候选 '{_c['full_path'][:60]}' 包含源词 {_specific_overlap}")
                 break
         else:
             # 无候选有重叠 → LLM fallback：让 LLM 从 top-5 候选中选择最佳匹配
@@ -664,6 +669,7 @@ def assemble_ozon_product_node(
         dimensions=dimensions,
         draft_title=draft.get("title", ""),
         supplier=draft.get("supplier", ""),
+        ru_category_path=ru_category_path,
     )
 
     # =====================================================
@@ -758,6 +764,7 @@ def assemble_ozon_product_node(
                                 weight_grams=weight_grams, dimensions=dimensions,
                                 price_rub=price_rub, old_price_rub=old_price_rub,
                                 currency_code=currency_code, token=token,
+                                ru_category_path=re_ru_path,
                             )
                             if rebuild_result:
                                 description_category_id = re_cat_id
@@ -822,6 +829,7 @@ def assemble_ozon_product_node(
                         weight_grams=weight_grams, dimensions=dimensions,
                         price_rub=price_rub, old_price_rub=old_price_rub,
                         currency_code=currency_code, token=token,
+                        ru_category_path=ru_category_path,
                     )
                     if rebuild_result:
                         description_category_id = llm_cid
@@ -1018,6 +1026,7 @@ def _rebuild_for_new_category(
     weight_grams: int, dimensions: dict,
     price_rub: str, old_price_rub: str, currency_code: str,
     token: str,
+    ru_category_path: str = "",
 ) -> dict | None:
     """
     v0.9.0: 类目变更后重建属性 schema + items + final_attributes。
@@ -1106,6 +1115,7 @@ def _rebuild_for_new_category(
             dimensions=dimensions,
             draft_title=draft.get("title", ""),
             supplier=draft.get("supplier", ""),
+            ru_category_path=ru_category_path,
         )
         
         # Step 6': 提取 final_attributes
@@ -1430,6 +1440,7 @@ def _validate_and_enrich_items(
     dimensions: dict[str, int],
     draft_title: str = "",
     supplier: str = "",
+    ru_category_path: str = "",
 ) -> list[dict[str, Any]]:
     """校验并补充 items 字段（属性补全、品牌修正、hashtag 生成等）"""
 
@@ -1565,7 +1576,51 @@ def _validate_and_enrich_items(
             attr["values"] = validated_values
             validated_attrs.append(attr)
 
-        # === 补充缺失的必填属性 ===
+        # ✅ P0: attr=8229（Тип товара / 产品类型）主动填充
+        # 用俄语类目路径的末级名称（如 "Секаторы"），这是 Ozon 审核的关键属性
+        TYPE_ATTR_ID = 8229
+        type_attr = next((a for a in validated_attrs if int(a.get("id", 0)) == TYPE_ATTR_ID), None)
+        if not type_attr and ru_category_path:
+            type_name = ru_category_path.split(">")[-1].strip()
+            if type_name:
+                # 查找 8229 的 schema 确认是字典还是文本属性
+                schema_8229 = attr_by_id.get(TYPE_ATTR_ID, {})
+                if schema_8229.get("dictionary_id", 0) > 0:
+                    # 字典属性：搜索匹配的字典值
+                    dict_vals = dict_lookup.get(TYPE_ATTR_ID, [])
+                    found = False
+                    if isinstance(dict_vals, list):
+                        for dv in dict_vals:
+                            if isinstance(dv, dict) and dv.get("value", "").lower() == type_name.lower():
+                                validated_attrs.append({
+                                    "complex_id": 0, "id": TYPE_ATTR_ID,
+                                    "values": [{"dictionary_value_id": dv["id"], "value": dv["value"]}],
+                                })
+                                found = True
+                                logger.info(f"   🎯 attr 8229 精确匹配: {type_name} (dict_id={dv['id']})")
+                                break
+                    if not found and isinstance(dict_vals, list) and dict_vals:
+                        # 模糊匹配
+                        for dv in dict_vals:
+                            if isinstance(dv, dict) and (type_name.lower() in dv.get("value", "").lower() or dv.get("value", "").lower() in type_name.lower()):
+                                validated_attrs.append({
+                                    "complex_id": 0, "id": TYPE_ATTR_ID,
+                                    "values": [{"dictionary_value_id": dv["id"], "value": dv["value"]}],
+                                })
+                                found = True
+                                logger.info(f"   🎯 attr 8229 模糊匹配: {type_name} → {dv['value']}")
+                                break
+                    if not found:
+                        logger.warning(f"   ⚠️ attr 8229 在字典中未找到 '{type_name}'，跳过（交由 Ozon 验证）")
+                else:
+                    # 自由文本属性：直接用俄语类目末级
+                    validated_attrs.append({
+                        "complex_id": 0, "id": TYPE_ATTR_ID,
+                        "values": [{"dictionary_value_id": 0, "value": type_name}],
+                    })
+                    logger.info(f"   🎯 attr 8229 文本填充: {type_name}")
+            elif TYPE_ATTR_ID in missing_required:
+                missing_required.discard(TYPE_ATTR_ID)  # 已处理过
         present_ids = {int(a["id"]) for a in validated_attrs if "id" in a}
         missing_required = required_attr_ids - present_ids
 

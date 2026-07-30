@@ -280,10 +280,10 @@ class OzonCategoryQuery:
                     f"{top['full_path']} (sim={top['similarity']:.2f}, tokens={top.get('matched_tokens', [])})"
                 )
 
-            # 无结果时回退到 ILIKE
+            # 无结果时：不fallback到ILIKE（避免pg_trgm噪声），返回空触发L3 LLM
             if not results:
-                logger.info("jieba LIKE 无结果，回退到 ILIKE")
-                return self._search_fallback(query_text, top_k, node_type, "ZH_HANS")
+                logger.info("jieba LIKE 无可靠结果，返回空触发 L3 LLM（不fallback到ILIKE避免噪声）")
+                return []
 
             return results
 
