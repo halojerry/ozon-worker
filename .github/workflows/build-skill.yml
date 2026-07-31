@@ -52,7 +52,7 @@ jobs:
         env:
           PYTHONIOENCODING: utf-8
 
-      - name: Fix platform dir (Rosetta 2: platform.machine()=arm64)
+      - name: Fix platform dir for Rosetta 2
         if: matrix.platform == 'darwin-x86_64'
         working-directory: skill/dist/scripts/lib/_native
         run: |
