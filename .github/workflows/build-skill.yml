@@ -42,7 +42,15 @@ jobs:
         run: python compile.py
         env:
           PYTHONIOENCODING: utf-8
-          ARCHFLAGS: ${{ matrix.archflags || '' }}
+
+      - name: Recompile with ARCHFLAGS for x86_64
+        if: matrix.archflags != ''
+        working-directory: skill
+        run: |
+          export ARCHFLAGS="${{ matrix.archflags }}"
+          python compile.py
+        env:
+          PYTHONIOENCODING: utf-8
 
       - name: Fix platform dir (Rosetta 2: platform.machine()=arm64)
         if: matrix.platform == 'darwin-x86_64'
