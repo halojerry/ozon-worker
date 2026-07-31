@@ -8,6 +8,7 @@ from runtime.context import Context
 from graphs.state import SceneGenerationInput, SceneGenerationOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_llm import call_mxou_chat_api
+from utils.mxou_api import clean_title_for_image_prompt
 
 
 def scene_generation_llm_node(state: SceneGenerationInput, config: RunnableConfig, runtime: Runtime[Context]) -> SceneGenerationOutput:
@@ -36,7 +37,7 @@ def scene_generation_llm_node(state: SceneGenerationInput, config: RunnableConfi
     
     # 从draft中提取产品信息
     draft = state.draft if isinstance(state.draft, dict) else {}
-    title = draft.get("title", "")
+    title = clean_title_for_image_prompt(draft.get("title", ""))
     description = draft.get("description", "")
     category = draft.get("category", "")
     

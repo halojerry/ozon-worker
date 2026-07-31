@@ -39,6 +39,11 @@ services:
       - APP_WORKSPACE_PATH=/app
       - PYTHONPATH=/app/src
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-10}
+      - LOG_FILE=${LOG_FILE:-/app/logs/worker.log}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+    volumes:
+      - logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,3 +56,4 @@ services:
 
 volumes:
   pgdata:
+  logs:

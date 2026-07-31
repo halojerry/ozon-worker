@@ -1,9 +1,6 @@
 """主工作流编排 - Ozon电商自动化系统（并行图片生成版本）"""
 import logging
 from langgraph.graph import StateGraph, END
-from langchain_core.runnables import RunnableConfig
-from langgraph.runtime import Runtime
-from runtime.context import Context
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +21,7 @@ from graphs.nodes.pricing_node import pricing_node
 from graphs.nodes.prepare_ozon_upload_node import prepare_ozon_upload_node  # 数据准备节点
 from graphs.nodes.ozon_upload_node import ozon_upload_node
 from graphs.nodes.ozon_validate_node import ozon_validate_node  # 预检测节点
+from graphs.nodes.check_quota_node import check_quota_node  # 配额检查节点
 from graphs.nodes.ozon_status_node import ozon_status_node  # 状态轮询节点
 
 # ✅ 新增导入：validation_retry_wrapper节点 + learning_record节点
@@ -37,7 +35,6 @@ from graphs.nodes.variant_primary_loop_node import variant_primary_loop_node  # 
 from graphs.nodes.white_bg_gen_node import white_bg_gen_node
 from graphs.nodes.multi_angle_gen_node import multi_angle_gen_node
 from graphs.nodes.main_image_gen_node import main_image_gen_node
-from graphs.nodes.multi_info_gen_node import multi_info_gen_node
 from graphs.nodes.detail_gen_node import detail_gen_node
 from graphs.nodes.social_proof_gen_node import social_proof_gen_node
 from graphs.nodes.scene_1_gen_node import scene_1_gen_node
@@ -75,7 +72,6 @@ builder.add_node("white_bg_gen", white_bg_gen_node)
 builder.add_node("multi_angle_gen", multi_angle_gen_node)
 builder.add_node("variant_primary_loop", variant_primary_loop_node, metadata={"type": "looparray"})  # ✅ 多SKU路径：循环生成所有变体主图
 builder.add_node("main_image_gen", main_image_gen_node)  # ✅ 单SKU路径：生成单张主图
-builder.add_node("multi_info_gen", multi_info_gen_node)
 builder.add_node("detail_gen", detail_gen_node)
 builder.add_node("social_proof_gen", social_proof_gen_node)
 builder.add_node("scene_1_gen", scene_1_gen_node)
@@ -86,6 +82,7 @@ builder.add_node("comparison_gen", comparison_gen_node)
 # Phase 5: 数据准备 + Ozon上传 + 错误处理
 builder.add_node("prepare_ozon_upload", prepare_ozon_upload_node, metadata={"type": "agent", "llm_cfg": "config/translate_russian_cfg.json"})  # 数据准备节点：整理图片顺序、组装payload、LLM俄语翻译
 builder.add_node("ozon_validate", ozon_validate_node)  # 预检测节点：检测Ozon payload是否符合规范
+builder.add_node("check_quota", check_quota_node)  # 配额检查节点：上传前检查店铺配额，配额不足阻断上传
 builder.add_node("ozon_upload", ozon_upload_node)
 builder.add_node("ozon_status", ozon_status_node)  # 状态轮询节点：上传后轮询Ozon商品状态
 
@@ -96,8 +93,22 @@ builder.set_entry_point("auth")
 
 # ==================== 添加边（数据流转） ====================
 
-# Phase 1-3: 串行处理
-# 🆕 路由：跟卖 vs 1688 完整管线
+# ✅ v0.11: auth 失败时阻断管线，避免浪费 GPU/LLM 配额
+def route_after_auth(state):
+    """Token 验证失败 → END；否则 → check_quota"""
+    error_code = getattr(state, 'error_code', '') or ''
+    if error_code and error_code != 'AUTH_SUCCESS':
+        logger.warning(f"⛔ Auth 失败({error_code})，阻断管线")
+        return "END"
+    return "check_quota"
+
+builder.add_conditional_edges(
+    source="auth",
+    path=route_after_auth,
+    path_map={"check_quota": "check_quota", "END": END}
+)
+
+# 🆕 路由：跟卖 vs 1688 完整管线（在配额检查通过后）
 def route_by_sell_type(state):
     """根据 envelope.extensions.follow_sell 决定管线"""
     extensions = state.envelope.get("extensions", {}) if state.envelope else {}
@@ -107,37 +118,79 @@ def route_by_sell_type(state):
     logger.info("📦 路由 → 1688 完整管线")
     return "full"
 
+
+def route_after_early_quota(state):
+    """配额检查后路由：通过→继续管线，阻断→直接结束"""
+    error_msg = getattr(state, 'error_message', '') or ''
+    if '[QUOTA_BLOCKED]' in error_msg:
+        logger.warning("⛔ 店铺配额已满，阻断管线（不浪费后续 GPU/LLM 额度）")
+        return "blocked"
+    return route_by_sell_type(state)
+
+
 builder.add_conditional_edges(
-    source="auth",
-    path=route_by_sell_type,
+    source="check_quota",
+    path=route_after_early_quota,
     path_map={
         "follow_sell": "follow_sell_import",
         "full": "ingest",
+        "blocked": END,
     }
 )
 
-# 跟卖导入 → 条件路由：成功则跳过组装/生图/上传，直接结束
+# ✅ v4: 跟卖导入 → pricing → assemble（统一定价管线）
+# 跟卖和 1688 两条路径在 pricing 节点汇合，使用同一套定价公式
 def route_after_follow_sell_import(state):
-    """跟卖导入成功后，若已有 product_id（import-by-sku 复制竞品卡成功），
-    直接跳到 END，避免 AI 生图/重上传覆盖竞品卡。"""
-    if getattr(state, 'product_id', None) and getattr(state, 'description_category_id', None):
-        logger.info("跟卖导入成功(product_id=%s)，跳过组装/生图/上传", state.product_id)
+    """跟卖导入后走统一定价管线：pricing → assemble → 生图 → 上传"""
+    error_msg = getattr(state, 'error_message', '') or ''
+    # 致命错误：ozon_product_id 为空或类目解析全部失败
+    if 'ozon_product_id 为空' in error_msg:
+        logger.error("⛔ 跟卖阻断: ozon_product_id 为空")
         return "END"
+    if '类目解析失败' in error_msg:
+        logger.error("⛔ 跟卖阻断: 类目解析全部失败，走 retry loop")
+        return "retry"
+    logger.info("跟卖导入完成(product_id=%s)，走统一定价管线", getattr(state, 'product_id', '?'))
     return "pricing"
 
 builder.add_conditional_edges(
     "follow_sell_import",
     route_after_follow_sell_import,
-    {"pricing": "pricing", "END": END}
+    {"pricing": "pricing", "retry": "validation_retry_wrapper", "END": END}
 )
 # 1688 管线：ingest → 定价
 builder.add_edge("ingest", "pricing")
 
 # 定价 → 商品组装（串行：组装需要定价信息）
+# 跟卖产品：_assemble_follow_sell 轻量模式，复用竞品属性+类目
+# 1688 产品：_build_items_deterministically 完整模式
 builder.add_edge("pricing", "assemble_ozon_product")
 
 # Phase 3.5: 场景生成（使用LLM生成3个场景描述）
-builder.add_edge("assemble_ozon_product", "scene_generation_llm")
+# ✅ v5: 类目匹配低置信度时阻断，不上架错误类目
+def route_after_assemble(state):
+    """
+    title: 类目匹配质量检查
+    desc: 类目匹配置信度过低或无有效候选时，阻止继续上架
+    """
+    error_msg = getattr(state, 'error_message', '') or ''
+    if error_msg and ("类目匹配失败" in str(error_msg) or "无有效候选" in str(error_msg)):
+        logger.warning(f"🛑 类目匹配阻断: {error_msg}")
+        return "失败"
+    match_conf = getattr(state, 'match_confidence', 1.0) or 1.0
+    if match_conf < 0.3:
+        logger.warning(f"🛑 类目匹配置信度过低({match_conf})，阻断上架")
+        return "失败"
+    return "成功"
+
+builder.add_conditional_edges(
+    source="assemble_ozon_product",
+    path=route_after_assemble,
+    path_map={
+        "成功": "scene_generation_llm",
+        "失败": END,
+    }
+)
 builder.add_edge("scene_generation_llm", "white_bg_gen")  # scene_generation_llm → Phase1开始
 builder.add_edge("scene_generation_llm", "multi_angle_gen")  # scene_generation_llm → Phase1开始
 
@@ -146,9 +199,10 @@ builder.add_edge("scene_generation_llm", "multi_angle_gen")  # scene_generation_
 # （已移除）builder.add_edge("attributes_learning", "white_bg_gen")
 # （已移除）builder.add_edge("attributes_learning", "multi_angle_gen")
 
-# Phase2（7节点并行）：生成营销图（不包括主图，主图由variant_check分支处理）
+	# Phase2（6节点并行）：生成营销图（不包括主图，主图由variant_check分支处理）
+# ✅ v0.11: 节点内部检查 variants 数量 — 单SKU时 variant_primary_loop 跳过, 多SKU时 main_image_gen 跳过
 # Phase2节点等待Phase1完成后再开始（white_bg_gen和multi_angle_gen）
-builder.add_edge(["white_bg_gen", "multi_angle_gen"], "multi_info_gen")
+# ✅ v0.11: multi_info_gen 已移除（Ozon 禁止附加图含文字/广告，输出从未被 IMG_ORDER 使用）
 builder.add_edge(["white_bg_gen", "multi_angle_gen"], "detail_gen")
 builder.add_edge(["white_bg_gen", "multi_angle_gen"], "social_proof_gen")
 builder.add_edge(["white_bg_gen", "multi_angle_gen"], "comparison_gen")
@@ -161,50 +215,45 @@ builder.add_edge(["white_bg_gen", "multi_angle_gen"], "scene_3_gen")
 builder.add_edge(["white_bg_gen", "multi_angle_gen"], "variant_primary_loop")  # 多SKU路径
 builder.add_edge(["white_bg_gen", "multi_angle_gen"], "main_image_gen")  # 单SKU路径
 
-# Phase2汇聚：主图（variant_primary_loop或main_image_gen） + 其他7个节点 → prepare_ozon_upload
+# Phase2汇聚：主图 + 其他7个节点 → prepare_ozon_upload
 builder.add_edge([
-    "variant_primary_loop", "main_image_gen",  # 主图来源（根据variant_check分支）
-    "multi_info_gen", "detail_gen", "social_proof_gen",
+    "variant_primary_loop", "main_image_gen",
+    "detail_gen", "social_proof_gen",
     "scene_1_gen", "scene_2_gen", "scene_3_gen", "comparison_gen"
 ], "prepare_ozon_upload")
 
 # ==================== Phase 5: 数据准备 → 预检测 → 上传 → 状态轮询 → 错误处理 ====================
-# 新增预检测节点：上传前检测Ozon payload是否符合规范
+# 预检测节点：上传前检测Ozon payload是否符合规范
 builder.add_edge("prepare_ozon_upload", "ozon_validate")
 
 # ==================== 新增节点：validation_retry_wrapper + learning_record ====================
 builder.add_node("validation_retry_wrapper", validation_retry_wrapper_node, metadata={"type": "loopcond"})  # ← 调用validation_retry_loop子图
 builder.add_node("learning_record", learning_record_node)  # ← 上传成功后记录学习数据
 
-# 上传节点：发送商品数据到Ozon
-# ==================== Ozon预检测条件分支（修改：添加修复循环）====================
+# ✅ P0 修复：配额已在 auth 后检查，ozon_validate 直接到 ozon_upload
 # 定义条件判断函数：根据ozon_validate_node的验证结果决定后续流程
 def should_upload_after_validate(state):
     """
-    title: 是否继续上传
+    title: 是否继续到上传
     desc: 根据ozon_validate_node的验证结果决定是否继续上传，或进入修复循环
-    
-    ✅ 修改：使用is_valid替代累积的error_message判断（避免上游警告污染）
     """
     is_valid = state.is_valid if hasattr(state, 'is_valid') else True
     validation_errors = state.validation_errors if hasattr(state, 'validation_errors') else []
-    
-    # ✅ 只看ozon_validate自身的验证结果，不看累积的error_message
+
     if not is_valid or (isinstance(validation_errors, list) and len(validation_errors) > 0):
         logger.warning(f"ozon_validate验证失败: is_valid={is_valid}, errors={len(validation_errors) if isinstance(validation_errors, list) else 0}个")
         return "失败"
-    
-    # ✅ 验证成功，继续上传
-    logger.info("ozon_validate验证成功，继续上传")
+
+    logger.info("ozon_validate验证成功，进入上传")
     return "成功"
 
-# ✅ 修改条件分支：成功 → 上传，失败 → validation_retry_wrapper（修复循环）
+# ✅ 验证成功 → 直接上传（配额已在 auth 后检查）
 builder.add_conditional_edges(
     source="ozon_validate",
     path=should_upload_after_validate,
     path_map={
         "成功": "ozon_upload",
-        "失败": "validation_retry_wrapper"  # ← 修改：进入修复循环（调用子图）
+        "失败": "validation_retry_wrapper",
     }
 )
 
@@ -224,57 +273,45 @@ def should_handle_error(state):
     ✅ 修改：不使用累积的error_message判断（避免上游警告污染）
     ✅ pending/timeout状态直接结束，不浪费修复资源
     """
-    # ✅ 从OzonStatusOutput获取status字段
-    ozon_status_result = state.status if hasattr(state, 'status') else ""
+    # ✅ v4 (B12): 优先读 moderation_status，fallback 到 status (向后兼容)
+    ozon_status_result = getattr(state, 'moderation_status', '') or ''
+    if not ozon_status_result:
+        ozon_status_result = state.status if hasattr(state, 'status') else ""
     
     # ✅ 检查errors数组（Ozon API返回的结构化错误）
     errors = state.errors if hasattr(state, 'errors') else []
     if not isinstance(errors, list):
         errors = []
     
-    # ✅ 检查product_id（判断是否已import成功）
+    # ✅ v0.11: 三状态路由 — 审核中(pending) / 错误(error) / 批准(approved)
     product_id = state.product_id if hasattr(state, 'product_id') else None
+    errors: list = getattr(state, 'errors', []) or []
+    if not isinstance(errors, list):
+        errors = []
     
-    # ✅ A6修复：timeout状态分情况处理
-    if "timeout" in ozon_status_result:
-        # 如果有moderate_status=declined，说明审核已拒绝，需要修复
-        moderate_status = getattr(state, 'moderate_status', '') if hasattr(state, 'moderate_status') else ''
-        if moderate_status == 'declined' or len(errors) > 0:
-            logger.warning(f"Ozon审核超时但有错误/拒绝（moderate={moderate_status}, errors={len(errors)}），进入修复循环")
-            return "失败"
-        # 如果已有有效的 product_id（非"0"且不是task_id）且无错误，说明import成功
-        if product_id and str(product_id) not in ("0", "None", ""):
-            # 额外判断：product_id 不应该等于 upload 时的 task_id
-            task_id_str = str(getattr(state, 'product_id', ''))
-            logger.info(f"Ozon审核超时但已import成功(product_id={product_id})，审核异步进行，视为成功")
-            return "成功"
-        # 没有product_id说明import都没成功，需要修复
-        logger.warning("Ozon超时且无product_id，import失败，进入修复循环")
-        return "失败"
-    
-    # ✅ pending状态：有product_id视为成功（import完成，审核异步）
-    if "pending" in ozon_status_result:
-        if len(errors) > 0:
-            logger.info(f"Ozon pending但有{len(errors)}个错误，进入修复循环")
-            return "失败"
-        if product_id and str(product_id) not in ("0", "None", ""):
-            logger.info(f"Ozon pending但已import成功(product_id={product_id})，视为成功")
-            return "成功"
-        logger.info("Ozon pending且无有效product_id，进入修复循环")
-        return "失败"
-    
-    # ✅ 如果errors数组非空，进入修复循环
-    if len(errors) > 0:
-        logger.warning(f"发现{len(errors)}个Ozon错误，进入修复循环")
-        return "失败"
-    
-    # ✅ 如果status包含"成功"/"imported"/"approved"/"processed"/"active"，且errors为空，进入learning_record
-    success_keywords = ("成功", "imported", "approved", "processed", "active")
-    if any(kw in ozon_status_result for kw in success_keywords):
-        logger.info("上传成功，进入learning_record（学习闭环）")
+    # 1. 批准：明确 approved → 成功
+    if ozon_status_result == "approved" or "approved" in str(ozon_status_result):
+        logger.info("✅ 审核通过(approved)，进入 learning_record")
         return "成功"
     
-    # ✅ 其他未知状态也进入修复循环
+    # 2. 错误：有 errors 或明确 error/failed → 修复循环
+    if ozon_status_result in ("error", "failed") or len(errors) > 0:
+        logger.warning(f"❌ 审核失败({ozon_status_result})，{len(errors)}个错误，进入修复循环")
+        return "失败"
+    
+    # 3. 审核中：pending 或无结果但有 product_id → 重试审核
+    # ✅ v0.11: graph 路径函数只读 state，不写入（避免破坏 LangGraph reducer）
+    if ozon_status_result == "pending" or (product_id and str(product_id) not in ("0", "None", "")):
+        mod_retries = getattr(state, 'moderation_retry_count', 0)
+        if mod_retries < 3:
+            logger.info(f"⏳ 审核中(pending)，第{mod_retries+1}/3次重试 ozon_status")
+            return "审核中"
+        else:
+            logger.warning("⚠️ 审核重试已达上限(3次)，视为成功（后台继续审核）")
+            return "成功"
+    
+    # 4. 兜底：未知状态 → 修复循环
+    logger.warning(f"未知状态: {ozon_status_result}，进入修复循环")
     return "失败"
 
 # ✅ 修改条件分支：成功 → learning_record → END，失败 → validation_retry_wrapper（修复循环）
@@ -282,8 +319,9 @@ builder.add_conditional_edges(
     source="ozon_status",
     path=should_handle_error,
     path_map={
-        "成功": "learning_record",  # ← 修改：成功后进入learning_record（学习闭环）
-        "失败": "validation_retry_wrapper",  # ← 修改：失败后直接进入修复循环（不经过error_handler）
+        "成功": "learning_record",
+        "失败": "validation_retry_wrapper",
+        "审核中": "ozon_status",  # ← 重新轮询审核
     }
 )
 

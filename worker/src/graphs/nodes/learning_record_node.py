@@ -67,8 +67,8 @@ def learning_record_node(
             progress_counter=24
         )
     
-    # ✅ 从status字段判断是否上传成功（imported/active/approved=成功）
-    ozon_status: str = state.status or ""
+    # ✅ v4 (B12): 优先读 moderation_status，fallback 到 status
+    ozon_status: str = getattr(state, 'moderation_status', '') or state.status or ""
     ozon_upload_success: bool = ozon_status in ("imported", "active", "approved", "processed")
 
     # ✅ 也检查upload_status字段（从validation_retry_wrapper传入，优先级更高）
@@ -159,7 +159,59 @@ def learning_record_node(
     
     logger.info(f"✅ 学习记录完成：{recorded_count}个属性映射已写入 PostgreSQL")
     
-    # 返回LearningRecordOutput
+    # ═══════════════════════════════════════════════════════
+    # v4: 写入 category_mapping（类目学习缓存）
+    # ⚠️ 跟卖跳过 — 类目来自Ozon面包屑，source_category是1688图搜噪音
+    # ═══════════════════════════════════════════════════════
+    is_follow = False
+    try:
+        is_follow = bool(getattr(state, 'envelope', {}).get("extensions", {}).get("follow_sell", False))
+    except Exception:
+        pass
+    source_category = draft.get("source_category", "") if draft else ""
+    if source_category and not is_follow:
+        try:
+            import re as _re
+            cleaned = _re.sub(r'[>、/→]', ' ', source_category)
+            cat_terms = [t.strip() for t in cleaned.split() if len(t.strip()) >= 2]
+            leaf = cat_terms[-1] if cat_terms else ""
+            if leaf and description_category_id:
+                tp_val = int(state.type_id or 0)
+                # jieba 关键词
+                try:
+                    import jieba as _jieba
+                    jieba_kws = list(set(w for w in _jieba.cut(leaf) if len(w) >= 2))
+                except Exception:
+                    jieba_kws = [leaf]
+                # 查 ZH + RU 路径
+                cat_zh = ""; cat_ru = ""
+                try:
+                    from sqlalchemy import text as _sql_t
+                    from storage.database.db import get_session as _gs
+                    with _gs() as _s:
+                        _r = _s.execute(_sql_t(
+                            "SELECT full_path FROM category_tree_nodes WHERE description_category_id=:dc AND type_id=:tp AND language='ZH_HANS' LIMIT 1"
+                        ), {"dc": int(description_category_id), "tp": tp_val}).fetchone()
+                        if _r: cat_zh = _r[0]
+                        _r2 = _s.execute(_sql_t(
+                            "SELECT full_path FROM category_tree_nodes WHERE description_category_id=:dc AND type_id=:tp AND language='RU' LIMIT 1"
+                        ), {"dc": int(description_category_id), "tp": tp_val}).fetchone()
+                        if _r2: cat_ru = _r2[0]
+                except Exception:
+                    pass
+                local_db.add_category_mapping(
+                    source_category_leaf=leaf,
+                    description_category_id=int(description_category_id),
+                    type_id=tp_val,
+                    source_category_path=source_category,
+                    source_keywords=jieba_kws,
+                    category_path_zh=cat_zh, category_path_ru=cat_ru,
+                    confidence=0.85, source="pg_trgm",
+                )
+                logger.info(f"📚 category_mapping: '{leaf}' → [{description_category_id}/{tp_val}]")
+        except Exception as e:
+            logger.warning(f"category_mapping写入失败（非致命）: {e}")
+    
     return LearningRecordOutput(
         recorded_count=recorded_count,
         progress_counter=24  # ← 固定进度计数器（24号节点）

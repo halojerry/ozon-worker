@@ -14,6 +14,7 @@ from graphs.state_image_gen import MultiAngleInput, MultiAngleOutput
 from utils.image_quality_evaluator import evaluate_image_quality  # ✅ 关键：导入图片质量评估函数
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
+from utils.mxou_api import clean_title_for_image_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +39,15 @@ def multi_angle_gen_node(state: MultiAngleInput, config: RunnableConfig, runtime
         logger.warning("Missing draft or token for multi_angle_gen")
         return MultiAngleOutput(multi_angle_image=None)
     
-    # 构建生图提示词（中文）
-    title = draft.get("title", "")
-    prompt = f"产品：{title}。生成该产品的多角度实物展示图。严格要求：纯白背景(#FFFFFF)、纯产品摄影、展示产品正面/侧面/背面不同角度、高清细节清晰、无任何文字/标签/参数/logo、无水印、非信息图/非营销海报、专业电商产品摄影风格。"
+    # 构建生图提示词（英文）
+    title = clean_title_for_image_prompt(draft.get("title", ""))
+    prompt = (
+        f"{title} shown from front, side, and back angles. Clean white "
+        f"background, consistent lighting, product filling most of each frame. "
+        f"Russian marketplace additional images standard. "
+        f"Do NOT include: watermarks, logos, prices, discounts, phone numbers, "
+        f"email, website URLs, QR codes, promotional badges."
+    )
     
     try:
         # 构建参考图列表

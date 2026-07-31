@@ -30,15 +30,17 @@ COMPILE_FILES = [
     "scripts/lib/ozon_scraper.py",
     "scripts/lib/ozon_image_search.py",
     "scripts/lib/reference_images.py",
+    "scripts/lib/ozon_discovery.py",   # 选品发现引擎（蓝海评分）
+    "scripts/lib/ozon_api.py",         # Ozon API 封装（类目搜索/属性匹配）
+    "scripts/cloud_probe.py",          # 信封组装 + 管线编排
+    "scripts/capabilities/browser_probe/service.py",  # CDP 浏览器探针
     "scripts/capabilities/browser_probe/stealth.py",
 ]
 
-# 复制但不编译的文件（有复杂依赖或需要直接查看）
+# 复制但不编译的文件（入口脚本，无需保护源码）
 COPY_FILES = [
     "scripts/cli.py",
-    "scripts/cloud_probe.py",
     "scripts/batch_test.py",
-    "scripts/capabilities/browser_probe/service.py",  # 2300 行，含动态 import，Cython 不兼容
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）
@@ -49,12 +51,11 @@ AUX_FILES = [
     "scripts/lib/__init__.py",
     "scripts/lib/task_paths.py",
     "scripts/lib/logging_utils.py",
-    "scripts/lib/ozon_api.py",  # cloud_probe.py 4 处 lazy import，无法编译（依赖 requests）
-    "scripts/lib/cdp_client.py",  # CDP 客户端（替代 Playwright）
-    "scripts/lib/utils.py",  # 共享工具函数（parse_price 等）
-    "scripts/lib/ozon_seller.py",  # Ozon Seller API 客户端（佣金/属性）
-    "scripts/lib/ozon_widget.py",  # Ozon Widget API 客户端（产品/跟卖）
-    "scripts/lib/ozon_discovery.py",  # 选品发现引擎
+    "scripts/lib/cdp_client.py",     # CDP 客户端（替代 Playwright）
+    "scripts/lib/utils.py",          # 共享工具函数（parse_price 等）
+    "scripts/lib/cache.py",          # 通用磁盘缓存（JSON + TTL + SHA256 key）
+    "scripts/lib/ozon_seller.py",    # Ozon Seller API 客户端（佣金/属性）
+    "scripts/lib/ozon_widget.py",    # Ozon Widget API 客户端（产品/跟卖）
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
 ]

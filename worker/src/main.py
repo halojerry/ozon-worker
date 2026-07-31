@@ -26,27 +26,93 @@ from storage.database.supabase_client import get_supabase_client
 from storage.memory.memory_saver import get_memory_saver
 from storage.database.shared.model import Base
 from utils.task_processor import SupabaseTaskProcessor
+from utils.ozon_client import ozon_check_quota  # 配额检查
 from sqlalchemy import event
 
 # ── 进度追踪（内存存储，重启清空） ──
 # 格式: {task_id: {stage, stage_index, total_stages, percent, message, updated_at}}
 _task_progress: Dict[str, Dict[str, Any]] = {}
+_current_task_id: str | None = None  # ✅ v0.10: thread-local 当前处理中的 task_id
+
+
+def set_current_task_id(task_id: str | None):
+    """设置当前正在处理的 task_id（供 ProgressLogger 等模块使用）"""
+    global _current_task_id
+    _current_task_id = task_id
+
+
+def get_current_task_id() -> str | None:
+    """获取当前正在处理的 task_id"""
+    return _current_task_id
 
 # 节点执行顺序（用于计算进度百分比）
 STAGE_ORDER = [
     "auth", "ingest", "category_match", "pricing", "attributes",
     "description", "image_generation", "prepare_ozon_upload",
-    "ozon_validate", "ozon_upload", "ozon_status", "learning_record"
+    "ozon_validate", "check_quota", "ozon_upload", "ozon_status", "learning_record"
 ]
 
+# ✅ v0.9: 合并为单一 update_progress（内存 + PG 持久化），避免重复定义
+
+
+def get_progress(task_id: str) -> Optional[Dict[str, Any]]:
+    """获取任务进度（内存优先 → PG 回退）"""
+    if task_id in _task_progress:
+        return _task_progress[task_id]
+    # ✅ P1 修复：内存无数据时回退到 PG（重启后仍可读）
+    try:
+        from storage.database.db import get_session
+        from sqlalchemy import text
+        session = get_session()
+        try:
+            row = session.execute(
+                text("SELECT progress FROM ozon_product_tasks WHERE id = :tid"),
+                {"tid": task_id}
+            ).scalar()
+            if row:
+                return json.loads(row) if isinstance(row, str) else row
+        finally:
+            session.close()
+    except Exception:
+        pass
+    return None
+
+
+async def _persist_progress(task_id: str, data: dict):
+    """异步写入 PG progress 列"""
+    try:
+        from storage.database.db import get_session
+        from sqlalchemy import text
+        session = get_session()
+        try:
+            session.execute(
+                text("UPDATE ozon_product_tasks SET progress = :p, updated_at = NOW() WHERE id = :tid"),
+                {"p": json.dumps(data, ensure_ascii=False), "tid": task_id}
+            )
+            session.commit()
+        finally:
+            session.close()
+    except Exception as e:
+        logger.debug("progress persist failed for %s: %s", task_id, e)
+
+
+def _purge_stale_progress():
+    """清理 _task_progress 中已完成超过 1 小时的条目（防内存泄漏）"""
+    now = time.time()
+    stale = [tid for tid, data in list(_task_progress.items())
+              if now - data.get("updated_at", 0) > 3600]
+    for tid in stale:
+        del _task_progress[tid]
+
+
 def update_progress(task_id: str, stage: str, message: str = ""):
-    """更新任务进度"""
+    """更新任务进度（内存 + 异步 PG）"""
     if not task_id:
         return
     stage_idx = STAGE_ORDER.index(stage) if stage in STAGE_ORDER else 0
     total = len(STAGE_ORDER)
     percent = int((stage_idx / total) * 100)
-    _task_progress[task_id] = {
+    data = {
         "stage": stage,
         "stage_index": stage_idx,
         "total_stages": total,
@@ -56,10 +122,12 @@ def update_progress(task_id: str, stage: str, message: str = ""):
         "stages_completed": STAGE_ORDER[:stage_idx],
         "stages_remaining": STAGE_ORDER[stage_idx+1:],
     }
-
-def get_progress(task_id: str) -> Optional[Dict[str, Any]]:
-    """获取任务进度"""
-    return _task_progress.get(task_id)
+    _task_progress[task_id] = data
+    # ✅ P1 修复：异步持久化到 PG（重启后仍可恢复进度）
+    try:
+        asyncio.create_task(_persist_progress(task_id, data))
+    except RuntimeError:
+        pass  # 无 event loop 时跳过（同步模式）
 
 # Local runtime utilities (standalone replacements for platform SDK)
 from runtime.context import new_context, Context
@@ -350,7 +418,31 @@ async def lifespan(app: FastAPI):
     global task_processor
     max_concurrent = int(os.getenv("MAX_CONCURRENT", "10"))
     task_processor = SupabaseTaskProcessor(max_concurrent=max_concurrent)
-    
+
+    # ✅ 启动时僵尸任务恢复：重置重启前的 running 任务和可重试的 failed 任务
+    try:
+        from sqlalchemy import text
+        sess = get_session()
+        try:
+            # 1. 重置所有 running 任务（Worker 重启导致中断）
+            zombie_running = sess.execute(
+                text("UPDATE ozon_product_tasks SET status='pending', started_at=NULL, updated_at=NOW() WHERE status='running'")
+            ).rowcount
+            # 2. 重置可重试的 failed 任务
+            zombie_failed = sess.execute(
+                text("UPDATE ozon_product_tasks SET status='pending', retry_count=0, error_message=NULL, updated_at=NOW() WHERE status='failed' AND retry_count < max_retries")
+            ).rowcount
+            sess.commit()
+            if zombie_running or zombie_failed:
+                logger.info(f"🧹 启动清理: {zombie_running} 个僵尸 running + {zombie_failed} 个 failed → pending")
+        finally:
+            sess.close()
+    except Exception as _cleanup_e:
+        logger.warning(f"⚠️ 启动清理失败（非致命）: {_cleanup_e}")
+
+    # 启动定时清理任务
+    cleanup_task = asyncio.create_task(_periodic_task_cleanup(interval_seconds=60))
+
     # 启动Worker后台任务（不阻塞主服务启动）
     worker_task = asyncio.create_task(task_processor.start_workers(num_workers=10))
     
@@ -363,9 +455,18 @@ async def lifespan(app: FastAPI):
             await worker_task
         except asyncio.CancelledError:
             logger.info("Worker任务已取消")
+    if cleanup_task is not None:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            logger.info("定时清理任务已取消")
     
     if async_runtime is not None:
-        await async_runtime.shutdown()
+        try:
+            await async_runtime.shutdown()
+        except AttributeError:
+            pass  # shutdown method not available in this version
 
 app = FastAPI(
     lifespan=lifespan,
@@ -489,6 +590,27 @@ async def http_run(request: Request) -> Dict[str, Any]:
 
     try:
         payload = await request.json()
+
+        # ✅ P0 修复：/run 同步端点也做 Ozon 配额预检（与 /submit_task 一致）
+        try:
+            ozon_cid = payload.get("ozon_client_id", "")
+            ozon_key = payload.get("ozon_api_key", "")
+            if ozon_cid and ozon_key:
+                from utils.ozon_client import ozon_check_quota
+                quota = ozon_check_quota(client_id=ozon_cid, api_key=ozon_key, timeout=5)
+                if not quota.get("ok"):
+                    raise HTTPException(
+                        status_code=429,
+                        detail={
+                            "error": "OZON_QUOTA_EXHAUSTED",
+                            "message": quota.get("message", "店铺配额已满"),
+                            "quota": quota,
+                        }
+                    )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning("配额预检异常，放行继续: %s", e)
 
         # 创建任务并记录 - 这是关键，让我们可以通过run_id取消任务
         task = asyncio.create_task(service.run(payload, ctx))
@@ -684,24 +806,107 @@ async def openai_chat_completions(request: Request):
         pass
 
 
+# ============================================================
+# 运维：定期清理 + 健康检查
+# ============================================================
+
+async def _periodic_task_cleanup(interval_seconds: int = 60):
+    """定期清理僵尸任务：重置卡死的 running 任务，清理过期 completed 任务"""
+    await asyncio.sleep(30)  # 启动后等 30 秒再开始
+    while True:
+        try:
+            from sqlalchemy import text
+            from storage.database.db import get_engine
+            engine = get_engine()
+            with engine.connect() as conn:
+                # 重置 stale running 任务 (> 30分钟未更新)
+                r1 = conn.execute(text(
+                    "UPDATE ozon_product_tasks SET status='pending', started_at=NULL, updated_at=NOW() "
+                    "WHERE status='running' AND updated_at < NOW() - INTERVAL '30 minutes'"
+                )).rowcount
+                # 归档 7 天前的 completed 任务（如果有 archive 表的话，先删除）
+                r2 = conn.execute(text(
+                    "DELETE FROM ozon_product_tasks "
+                    "WHERE status='completed' AND updated_at < NOW() - INTERVAL '7 days'"
+                )).rowcount
+                conn.commit()
+                if r1 or r2:
+                    logger.info(f"🧹 定期清理: {r1} stale running → pending, {r2} old completed deleted")
+                # ✅ v0.10: 清理 _task_progress 中已完成超过 1 小时的任务条目（防内存泄漏）
+                if r2:
+                    _purge_stale_progress()
+        except Exception as _e:
+            logger.debug(f"定期清理跳过: {_e}")
+        await asyncio.sleep(interval_seconds)
+
+
 @app.get("/health")
 async def health_check():
     try:
         from sqlalchemy import text
         from storage.database.db import get_engine
         _engine = get_engine()
+        queue_stats = {}
         with _engine.connect() as conn:
             conn.execute(text("SELECT 1"))
+            # 获取队列统计
+            rows = conn.execute(text(
+                "SELECT status, COUNT(*) as cnt FROM ozon_product_tasks GROUP BY status"
+            )).fetchall()
+            queue_stats = {row[0]: row[1] for row in rows}
         return {
             "status": "ok",
             "message": "Service is running",
             "db": "connected",
+            "queue": queue_stats,
         }
     except Exception as e:
         return JSONResponse(
             status_code=503,
             content={"status": "degraded", "message": str(e), "db": "disconnected"},
         )
+
+
+@app.get("/api/v1/store/health")
+async def store_health(client_id: str = None, api_key: str = None):
+    """查询 Ozon 店铺配额健康状态。
+    
+    Query params (可选):
+    - client_id: Ozon Client-Id
+    - api_key: Ozon Api-Key
+    """
+    if not client_id or not api_key:
+        return {"status": "unknown", "message": "需要提供 client_id 和 api_key"}
+    try:
+        import requests as req
+        resp = req.post(
+            "https://api-seller.ozon.ru/v4/product/info/limit",
+            headers={"Client-Id": client_id, "Api-Key": api_key},
+            json={}, timeout=10,
+        )
+        if resp.status_code != 200:
+            return {"status": "error", "message": f"Ozon API error: {resp.status_code}"}
+        data = resp.json()
+        total = data.get("total", {})
+        daily = data.get("daily_create", {})
+        total_used = total.get("usage", 0)
+        total_limit = total.get("limit", 1000)
+        daily_used = daily.get("usage", 0)
+        daily_limit = daily.get("limit", 100)
+        remaining = total_limit - total_used
+        daily_remaining = daily_limit - daily_used
+        
+        if remaining <= 0: status = "critical"
+        elif remaining < 10: status = "warning"
+        else: status = "ok"
+        
+        return {
+            "status": status,
+            "total_usage": total_used, "total_limit": total_limit, "remaining": remaining,
+            "daily_usage": daily_used, "daily_limit": daily_limit, "daily_remaining": daily_remaining,
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @app.post("/auth/verify", response_model=AuthVerifyResponse)
@@ -790,35 +995,42 @@ async def auth_verify(request: Request):
 async def http_progress(run_id: str):
     """查询工作流执行进度。
 
-    从 LangGraph checkpointer 读取当前 state，返回 progress_counter / total / stages。
-    仅对 async_graph（有 checkpointer 的图）有效；/run 同步路径无 checkpointer。
+    优先从 LangGraph checkpointer 读取实时 state，
+    降级到内存 _task_progress → PG progress 列（任务完成后/重启后可用）。
     """
-    if async_graph is None:
-        raise HTTPException(status_code=503, detail="Async graph not initialized")
-    checkpointer = get_memory_saver()
-    if checkpointer is None:
-        raise HTTPException(status_code=503, detail="Checkpointer not available")
-    config = {"configurable": {"thread_id": run_id}}
-    try:
-        state = await async_graph.aget_state(config)
-        if state is None or not state.values:
-            raise HTTPException(status_code=404, detail=f"No state found for run_id={run_id}")
-        values = state.values
-        counter = values.get("progress_counter", 0)
-        stages = values.get("stages", {})
-        total = 24  # 与 workflow_progress.json 节点数一致
+    # 1. 尝试 LangGraph checkpointer（实时 running state）
+    if async_graph is not None:
+        checkpointer = get_memory_saver()
+        if checkpointer is not None:
+            config = {"configurable": {"thread_id": run_id}}
+            try:
+                state = await async_graph.aget_state(config)
+                if state is not None and state.values:
+                    values = state.values
+                    counter = values.get("progress_counter", 0)
+                    stages = values.get("stages", {})
+                    total = len(STAGE_ORDER)
+                    return {
+                        "run_id": run_id,
+                        "source": "checkpointer",
+                        "progress_counter": counter,
+                        "total_nodes": total,
+                        "percentage": int((counter / total) * 100) if total > 0 else 0,
+                        "stages": stages,
+                    }
+            except Exception:
+                pass  # 降级到内存/PG
+
+    # 2. 降级：内存 _task_progress → PG progress 列
+    progress = get_progress(run_id)
+    if progress:
         return {
             "run_id": run_id,
-            "progress_counter": counter,
-            "total_nodes": total,
-            "percentage": int((counter / total) * 100) if total > 0 else 0,
-            "stages": stages,
+            "source": "memory_or_pg",
+            **progress,
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"查询进度失败 run_id={run_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+
+    raise HTTPException(status_code=404, detail=f"No progress found for run_id={run_id}")
 
 
 # ==================== Supabase任务队列API ====================
@@ -855,6 +1067,59 @@ async def http_submit_task(request: Request):
         ozon_client_id = payload.get("ozon_client_id", "")
         ozon_api_key = payload.get("ozon_api_key", "")
         envelope = payload.get("envelope", {})
+        
+        # ✅ v4: 提交层 envelope 结构校验 — 避免无效信封穿透到管线 node 层才报错
+        if not isinstance(envelope, dict) or not envelope:
+            return error_response(
+                WorkerErrorCode.INVALID_REQUEST,
+                "envelope 不能为空，必须包含 draft 字段",
+                detail={"missing": ["envelope.draft"]},
+            )
+        draft = envelope.get("draft")
+        if not isinstance(draft, dict) or not draft:
+            return error_response(
+                WorkerErrorCode.INVALID_REQUEST,
+                "envelope.draft 不能为空",
+                detail={"missing": ["draft"]},
+            )
+        # 必填字段校验
+        REQUIRED_DRAFT_FIELDS = [
+            ("item_id", str), ("title", str), ("currency", str),
+            ("images", list), ("weight", (int, float)), 
+            ("dimensions", dict), ("purchase_cost", (int, float)),
+            ("purchase_url", str),
+        ]
+        missing = []
+        for field, expected_type in REQUIRED_DRAFT_FIELDS:
+            val = draft.get(field)
+            if val is None or (isinstance(val, (str, list, dict)) and not val):
+                missing.append(f"draft.{field}")
+            elif not isinstance(val, expected_type):
+                # 允许 int/float 互转
+                if expected_type == (int, float) and isinstance(val, (int, float)):
+                    continue
+                missing.append(f"draft.{field}(类型错误: 期望{expected_type}, 实际{type(val).__name__})")
+        if missing:
+            return error_response(
+                WorkerErrorCode.INVALID_REQUEST,
+                f"envelope.draft 缺少必填字段: {', '.join(missing)}",
+                detail={"missing": missing},
+            )
+        # weight 和 dimensions 的合理性校验
+        weight_g = draft.get("weight", 0)
+        dims = draft.get("dimensions", {})
+        if isinstance(weight_g, (int, float)) and weight_g < 0:
+            return error_response(
+                WorkerErrorCode.INVALID_REQUEST,
+                f"draft.weight 不能为负数: {weight_g}",
+            )
+        for dim_key in ("length", "width", "height"):
+            dv = dims.get(dim_key, 0) if isinstance(dims, dict) else 0
+            if isinstance(dv, (int, float)) and dv < 0:
+                return error_response(
+                    WorkerErrorCode.INVALID_REQUEST,
+                    f"draft.dimensions.{dim_key} 不能为负数: {dv}",
+                )
         
         # ✅ Step2: 验证token（查询Supabase tokens表）
         if not token:
@@ -916,6 +1181,36 @@ async def http_submit_task(request: Request):
         priority = 0  # ✅ 固定为0（所有用户平等优先级，直到建立VIP体系）
         timeout_seconds = body.get("timeout_seconds", 1800)
         max_retries = body.get("max_retries", 3)
+
+        # ✅ Step3.5: 检查 Ozon 店铺配额（提前拒绝，避免浪费 MXOU 生图/LLM 额度）
+        if ozon_client_id and ozon_api_key:
+            try:
+                quota = ozon_check_quota(
+                    client_id=ozon_client_id,
+                    api_key=ozon_api_key,
+                    timeout=5,  # submit 阶段只做快速检查
+                )
+                if not quota["ok"]:
+                    raise HTTPException(
+                        status_code=429,
+                        detail=(
+                            f"Ozon 店铺配额不足: "
+                            f"日创建 {quota['daily_used']}/{quota['daily_limit']}"
+                            f", 总产品 {quota['total_used']}/{quota['total_limit']}"
+                            f"。请等待配额重置或归档旧产品。"
+                        )
+                    )
+                if quota["remaining_daily"] <= 3:
+                    logger.warning(
+                        "店铺 %s 创建配额紧张: 日剩余 %d, 总剩余 %d",
+                        ozon_client_id,
+                        quota["remaining_daily"],
+                        quota["remaining_total"],
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning("submit_task 阶段配额检查异常（允许继续）: %s", str(e)[:200])
         
         # ✅ Step4: payload中添加user_id（供下游节点使用）
         payload_with_user_id = {

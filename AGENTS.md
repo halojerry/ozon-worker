@@ -164,7 +164,18 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 
 违反以上约束会导致：空白 Chrome 窗口泛滥、登录态丢失、管线混乱、数据错误。
 
-## 常用命令
+## 测试
+
+```bash
+# Worker 单元测试（Mock 模式，无需 PG/GPU）
+cd worker && PYTHONPATH=src python3 tests/test_full_pipeline_mock_images.py
+
+# Worker 全量测试（需要 PG）
+cd worker && PYTHONPATH=src python3 -m pytest tests/ -v
+
+# Skill 单节点测试
+cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
+```
 
 | 子项目 | 命令 |
 |---|---|
@@ -183,6 +194,9 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | worker | `bash scripts/local_run.sh -m node -n <节点ID> -i '{...}'` 跑单节点 |
 | 本地Docker | `cd deploy && docker compose up -d --build`（启动 Worker + PG） |
 | 本地Docker | `docker compose exec worker python scripts/init_data.py --force`（初始化数据） |
+| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --limit 100`（预热 top-100 类目属性缓存） |
+| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --all --pg-only`（预热全部 7424 类目，~16h，可screen后台） |
+| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --export-only`（导出 JSON 到 assets/ 供 git 提交） |
 | 本地Docker | `curl http://localhost:8080/api/v1/health`（健康检查） |
 | 本地Skill | `WORKER_URL=http://localhost:8080 python3.12 scripts/cli.py check`（指向本地 Worker） |
 | CI | `bash scripts/ci.sh`（lint → test → docker build） |
@@ -229,9 +243,47 @@ bash update.sh
 
 首次部署时 `deploy.sh` 自动运行 `scripts/init_data.py`:
 - `CREATE TABLE`（全部表，幂等）
-  - 导入类目树 → `category_tree_nodes`（从 `assets/category_tree.json` + `category_tree_ru.json`，中俄双语，各 ~8000 节点）
-  - 导入物流费率 → `logistics_rates`（从 `assets/` 下的 Excel，142 条）
+  - 导入类目树 → `category_tree_nodes`
+  - 导入物流费率 → `logistics_rates`
   - 重复运行安全：已有数据跳过；`--force` 强制覆盖
+
+部署后 `deploy.sh` 后台运行 `warm_category_cache.py --limit 200 --pg-only`，预热 top-200 类目属性到 PG（~5 分钟）。
+
+**为什么不用 JSON 文件存储属性缓存：**
+- JSON 裸文件：全量 ~70GB（太大，不能 git）
+- PG JSONB（TOAST 压缩）：全量 ~600MB（完全可行）
+- 策略：属性 schema + 字典值直接写 PG，运行时懒加载补全
+
+### 属性缓存机制
+
+```
+1688 中文属性 "白色"
+  → PG dictionary_value_cache (ZH_HANS) 查找
+  → 命中 → dict_id=61571 ✅（跨语言通用！）
+  → 未命中 → Ozon /values API (ZH_HANS) → 写入 PG → 匹配
+  → 上传: { dictionary_value_id: 61571, value: "Белый" }
+```
+
+dictionary_value_id **跨语言通用**：ZH_HANS 的 `id=61571` 在 RU 下展示为 `"Белый"`，是同一个 ID。
+
+### 属性缓存脚本
+
+```bash
+# 预热 top-200 类目（部署后自动跑）
+python scripts/warm_category_cache.py --limit 200
+
+# 预热全部 7424 类目（~16 小时，建议 screen/tmux）
+python scripts/warm_category_cache.py --all --pg-only
+
+# 导出 JSON 到 assets/（提交 git，部署时自动导入）
+python scripts/warm_category_cache.py --limit 500 --export-only
+
+# 从 JSON 导入到 PG（部署时 init_data.py 自动调用）
+python scripts/warm_category_cache.py --import-only
+
+# 断点续传
+python scripts/warm_category_cache.py --all --offset 2000 --pg-only
+```
 
 ## 日志系统
 
@@ -305,7 +357,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## 已知坑
 
-- **进度存储在内存中**：`_task_progress` dict 存储在 Worker 进程内存，重启后丢失。task_status 接口降级为无进度模式（仅返回 status/result）。如需持久化进度，需改为写入 PG。
+- **进度已持久化**（v0.9）：`_task_progress` 同时写内存和 PG `progress` 列，重启后从 PG 恢复。`task_processor.py` 注入 `task_id` 到 payload 修复了 key="unknown" 的问题。
 - **deepseek-v4-flash reasoning tokens**：该模型默认启用推理，`reasoning_tokens` 消耗 `max_tokens` 配额。翻译/生图 prompt 的 `max_tokens` 至少设为 200，否则输出为空。
 - **DESCRIPTION_DECLINE 多重根因**：
   1. 产品名含拉丁/中文字符 → `ozon_validate_node` 应阻断（已修复）
@@ -320,12 +372,37 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
   - 22508（品牌注册国）：自由文本属性，需硬编码为"Китай"
   - 23487（制造商）：自由文本属性，用 `draft.supplier` 填充
   - 23536（标记码）：Ozon 自动设置，必须跳过
-- **`validation_retry_loop` 修复记录**（v0.5.0）：
-  1. `state.draft` 为空 → 已修复
-  2. `recheck_status_node` 额外轮询 `moderate_status` → 已实现
-  3. `type_id=0` → 多层防御修复（init_data None + search_nodes 过滤 + assemble 校验 + 一致性失败保留 ID）
-  4. `recheck_status_node` UUID 解析崩溃 → 已加 UUID 格式检测
-- **`init_data.py` `walk` 函数**：`description_category_id` 需从父节点继承，`disabled` 字段 NOT NULL 需填 `false`。中文树是 `{"result":[...]}` dict，俄语树是 `[...]` 直接 list，walk 调用需兼容两种格式。
+	- **`validation_retry_loop` 修复记录**（v0.5.0）：
+	  1. `state.draft` 为空 → 已修复
+	  2. `recheck_status_node` 额外轮询 `moderate_status` → 已实现
+	  3. `type_id=0` → 多层防御修复
+	  4. `recheck_status_node` UUID 解析崩溃 → 已加 UUID 格式检测
+	- **`init_data.py` `walk` 函数**：`description_category_id` 需从父节点继承，`disabled` 字段 NOT NULL 需填 `false`。中文树是 `{"result":[...]}` dict，俄语树是 `[...]` 直接 list，walk 调用需兼容两种格式。
+
+### v0.9 深度审计 — 已知未修问题（低优先级）
+
+#### Skill 侧 (11 个)
+- **`ozon_api.search_categories`**：每次调都重新拉整棵类目树（~2-5s），无 TTL 缓存
+- **`ozon_discovery._calculate_profit`**：物流费固定 15 CNY，不管实际重量/尺寸
+- **`ozon_discovery.calculate_blue_ocean_score`**：commission_fbp/fbs 字段名可能不一致
+- **`reference_images.get_best_product_images`**：URL 带 query 参数时 `.jpg` 拼接到查询串后导致链接失效
+- **`chrome_launcher.ensure_chrome_cdp`**：杀死所有 Chrome 进程而非仅 debug 端口，用 `LOCK_NB` 可能抛异常
+- **`cli.py` `check` 命令**：创建 Chrome tab 后不关闭，多次跑会累积空白 tab
+- **`config_store` / `cache.py`**：无文件锁，并发 CLI 进程可能写坏 JSON
+- **`EXTRACT_1688_JS`**：694 行 JS 字符串内嵌 Python 源码，无法 lint，改起来困难
+- **`service.py` 连接重复检查**：`connect_existing_chrome` step 2/3 几乎重复
+- **`stealth.py`**：`hardwareConcurrency`/`deviceMemory` 每次读取随机变值，是检测信号；`navigator.webdriver` 返回 `undefined` 而非 `false`
+- **`batch_test.py`**：每个 URL 都全量覆写结果文件，O(n²) 写入
+
+#### Worker 侧 (8 个)
+- **`mxou_rate_limiter.py`**：整个文件未被引用，无 MXOU API 限流
+- **Phase2 生图节点**：Phase1 失败时用原始图但 prompt 仍针对 Phase1 输出设计，图质量差
+- **`ozon_upload_node.py`**：绕过 `ozon_post()` 直接调 `session.post()`，错误处理不一致
+- **`follow_sell_import_node.py`**：schema API 拉取失败时静默降级，缺失属性校验
+- **`pricing_node.py`**：物流配置查询无重试，失败默认为 `("RETS", "Standard")`
+- **`state.py` `_overwrite_str`**：空字符串会覆盖有效值
+- **`progress_logger.py`**：`NODE_ORDER` 静态字典需手动与图定义同步；`config_path` 参数被忽略
+- **`assemble_ozon_product_node.py`**：`ozon_payloads` 列表写入后从未被消费（被 prepare 覆盖）
 
 ## CDP 稳定性注意事项
 
@@ -368,7 +445,176 @@ Skill 已适配 Windows，但有以下注意事项：
 
 跨平台分发流程：在 macOS/Windows/Linux 各跑一次 `python3.12 compile.py`，合并 `_native/` 目录后打包。
 
-## 最近更新（v0.5.0 — 本地集成测试修复）
+## CI/CD
+
+GitHub Actions 自动检查每次 push/PR：
+- **Syntax**: 全量 .py 文件语法检查（阻断）
+- **Quality**: pyflakes 快速质量检查
+- **Import**: Worker + Skill 核心模块导入验证（阻断）
+- **Docker**: 镜像构建验证（阻断）
+- **CD**: `git tag v*` → Docker build → push ghcr.io → GitHub Release
+
+本地: `bash scripts/ci.sh [--quick] [--strict]`
+Pre-commit: `git config core.hooksPath .githooks`（语法 + 密钥拦截）
+
+⚠️ **密钥轮换**: MXOU_TOKEN、1688 AK、Ozon API Key 曾暴露在 git 历史中，已移除追踪但历史仍存在，请尽快轮换。
+
+## 最近更新（v0.11 — 全管线逻辑审计 + 数据流修复）
+
+> 2026-07-29 两次深度审计（管线逻辑 + 数据流），修复 28 项问题。
+
+### 审核三状态路由
+
+`ozon_status_node` 返回三种清晰状态，`graph.py` 按状态路由：
+
+| 状态 | 含义 | 路由 |
+|------|------|------|
+| `approved` | 审核通过 | → learning_record → END |
+| `pending` | 审核中 | → ozon_status 重试（最多3次×10分钟） |
+| `error` | 有错误 | → validation_retry_wrapper 靶向修复 |
+
+**不再把审核超时当成功** — 之前 `imported_pending_moderation` 含 "imported" 匹配 success_keywords 被标记成功。
+
+### 靶向修复（retry loop）
+
+有 `product_id` 时使用增量 API，**不重跑全管线**（不重新生图/LLM）：
+
+| 错误类型 | API | 耗时 |
+|---------|-----|------|
+| 属性错误 (BR_hashtag_brand, INVALID_ATTRIBUTE等) | `POST /v1/product/attributes/update` | ~3s |
+| 价格错误 | `POST /v1/product/prices/update` | ~3s |
+| 类目/尺寸/描述 | `POST /v3/product/import` UPDATE模式 | 正常 |
+| 无 product_id | CREATE 模式 | 正常 |
+
+`parse_error_node` 改为按 fix_type 分组批量处理：3个属性错 → 1次 API 调用全修。
+
+### Widget API → Seller API 类目 ID 跨空间解析
+
+Widget API（面包屑）和 Seller API（类目树）使用**完全不同的 ID 空间**（0/14848 节点 type_id == description_category_id）：
+
+```
+Widget 面包屑: "悬架减震器" (Widget ID=34349, 无效)
+  → 1. _resolve_category_by_id → 直查失败
+  → 2. pg_trgm ZH_HANS → 0结果
+  → 3. LLM翻译: "悬架减震器" → "Подвесной амортизатор"
+  → 4. pg_trgm RU → dc=17027918 type=971311385 ✅
+```
+
+### CRITICAL 修复
+
+- **Auth 失败阻断**: graph 加条件边 `route_after_auth`，token 无效 → END
+- **import-by-sku 30s 轮询**: 拿到 product_id → 后续走 UPDATE，防 Ozon 上重复产品卡
+- **图片 conditional**: main_image_gen 多SKU跳过, variant_primary_loop 单SKU跳过 → 省 GPU
+- **multi_info_gen 移除**: Ozon 禁止附加图含文字，输出从未被 IMG_ORDER 使用 → 每次省 1 GPU 调用
+- **state 不篡改**: graph 路径函数只读，moderation_retry_count 由节点返回
+
+### MAJOR 修复
+
+- **跟卖定价加物流/包装/汇率**: 之前只用 `purchase_cost * (1+margin) / (1-commission)` 导致低价$5-15
+- **competitor_price 写入**: follow_sell_import 设置 state.competitor_price 激活竞品定价覆盖
+- **pricing 加 kg→g 修正**: 小重量+大尺寸时自动乘 1000
+- **state.py 死代码清理**: 删除 ImageGen*/VideoGen*/ErrorHandler*/CondRepairResult* (~80行)
+- **hashtag #ozon 删除**: Ozon 将 #ozon 视为品牌名触发 BR_hashtag_brand
+- **title sanitize**: 删除中点插入逗号逻辑（"для, спирали" 语法错误）
+- **低密度检查**: density < 0.25g/cm³ → 用体积×0.5g/cm³ 估算
+- **富文本 attr 4191**: 即使无 1688 属性也 LLM 生成 HTML 描述
+- **skipped 状态**: Ozon 2025新增状态，已加入 pending 列表
+- **审核超时**: 5→10 分钟 (MAX_MODERATE_POLL_ATTEMPTS 60→120)
+- **佣金率**: 用 store-level 查询替代不存在的 offer_id 查询
+
+### 已知未修（低优先级）
+
+- `get_leaf_types_under` 已实现但从未调用（死代码）
+- Phase2 8个生图节点近重复代码（可参数化合并）
+- `_sanitize_title` 在 prepare 和 retry_loop 两处重复实现
+- pg_trgm similarity 阈值 0.3 偏低（可能误匹配）
+- Skill `follow_sell_cloud` 连开 3 次 CDP 浏览器（可合并）
+
+## 最近更新（v0.9.0 — 全链路健壮性 + 管线优化）
+
+> 2026-07-28 基于 9 个 Ozon 产品实地调研 + 完整节点数据流分析 + PG 持久化审计。
+
+### P0 修复
+- **check_quota 移到管线开头**：`auth` 后立即检查店铺配额，阻断时不浪费 GPU/LLM。`graph.py` 边改为 `auth→check_quota→route`，`ozon_validate→ozon_upload` 直接连接。
+- **discover 管线补全 AK+CDP**：`build_envelope_from_discovery()` 改为调用 `build_graph_envelope_with_retry()`，不再手工组装空属性/零尺寸信封。含降级兼容。
+
+### P1 修复
+- **面包屑传数字 ID**：`ozon_scraper.py` 用 `link.count("/category/") == 1` 识别真实类目（跳过 segs=2 的品牌页），优先传数字 `description_category_id`。Worker 侧 `follow_sell_import_node` 新增 `_resolve_category_by_id()` 直查 `category_tree_nodes`，跳过 pg_trgm。新增 `_detect_language()` 自动检测 RU/ZH_HANS。
+- **task_id 注入 + 进度持久化**：`task_processor.py` 将 PG UUID 注入 `payload["task_id"]`。`main.py` 新增 `_persist_progress()` 异步写 PG `progress` 列，`get_progress()` 内存优先→PG 回退。`model.py` 新增 `progress JSONB` 列。
+
+### P2 修复
+- **retry loop Ozon API 优先**：`validation_retry_loop.py` 的 `DESCRIPTION_DECLINE` 修复改为先调 Ozon API `_find_alternative_type_id()`，pg_trgm 降级为 fallback（原逻辑相反）。
+- **富文本描述（属性 4191 HTML）**：`prepare_ozon_upload_node.py` 新增 `_generate_rich_description()`（LLM 生成俄语 HTML）、`_sanitize_rich_description()`（保留标签）。4191 自动追加到 `final_attributes`。
+
+### P3 修复
+- **product_id 拆分**：`GlobalState` 新增 `ozon_task_id` 字段。`OzonUploadOutput` 同时写 `product_id`+`ozon_task_id`。`ozon_status_node` 优先读 `ozon_task_id`。
+- **跟卖拉取属性 schema**：`follow_sell_import_node` 在解析类目后调用 `POST /v1/description-category/attribute` 拉取真实 schema（不再用 `[]`）。
+
+### 新增 Ozon API 能力
+| API | 用途 |
+|-----|------|
+| `POST /v1/product/pictures/import` | 增量更新图片，无需完整重传 |
+| `POST /v4/product/info/attributes` | 新版商品特征查询 |
+
+### 测试
+- `worker/tests/test_full_pipeline_mock_images.py` — Mock 生图全流程测试（12 项），秒级验证上下文传递。运行：`PYTHONPATH=src python3 tests/test_full_pipeline_mock_images.py`
+
+---
+
+## 历史更新（v0.6.0 — 靶向修复 + 生产级稳定性）
+
+> 2026-07-26 全链路重构：retry loop 靶向路由器、字典缓存多语言、标题 SEO、type pg_trgm、follow-sell 管线、稳定性加固。
+
+### retry loop 靶向路由器
+
+`validation_retry_loop.py` 重构为三路靶向路由器。当 `product_id` 已存在时根据错误类型选择最优 Ozon API：
+
+| 错误类型 | API | 特点 |
+|---------|-----|------|
+| 属性错误 (11种) | `POST /v1/product/attributes/update` | 增量，~3s，无需审核 |
+| 价格错误 (2种) | `POST /v1/product/import/prices` | 增量，~3s，无需审核 |
+| 类目/尺寸/描述错误 | `POST /v3/product/import` + `product_id` | UPDATE 模式，需审核 |
+| 不可修复 (9种) | 无 | 标记 success，不重试 |
+
+⚠️ **关键 bug 修复**：`product_id` 之前未传入 retry loop（`ValidationRetryLoopInput` 缺少该字段），导致 retry 创建重复产品（无图片 `image_absent` 错误）。已在 `state.py`、`validation_retry_loop.py`、`validation_retry_wrapper_node.py` 三处修复。
+
+⚠️ **字典缓存多语言分离**：`_cache_dict_values()` 和 `_fetch_dict_values_from_ozon()` 均加了 `language` 参数。fetch(ZH_HANS)→cache(ZH_HANS)→read(ZH_HANS)，fetch(RU)→cache(RU)→read(RU)。`_validate_and_enrich_items` 的 RU 路径新增缓存写入。方法名 `write_dict_cache`→`set_dictionary_value_cache`。
+
+### DESCRIPTION_DECLINE + attr 8229（类型不匹配）修复
+
+`error_repair_llm_node` 中用 pg_trgm `search_nodes(product_name, node_type="type", language="RU")` 搜索 `category_tree_nodes` 表替代盲选备选 type_id。关键词重叠验证后取最佳匹配替代原 `_find_alternative_type_id()`。
+
+### 标题 SEO 优化
+
+- prepare 节点 title 限制 **50→80 字符**（Ozon 实际支持 80）
+- `_sanitize_title` 重写：+拉丁/中文移除 +营销词过滤，对齐 prepare 节点逻辑
+- 生图标题清洗：`utils/mxou_api.py` 新增 `clean_title_for_image_prompt()`（80+ 平台/营销垃圾词正则过滤，5 大类：平台名/跨境黑话/营销吹嘘/电商套话/通用填充）。7 个生图节点 + scene_gen 调用。
+
+### 跟卖管线全面重构
+
+跟卖不再是 `follow_sell_import → END`，改为走完整管线：
+
+```
+follow_sell_import → pricing → assemble → scene → 10x 图片生成 → prepare → validate → upload → status
+```
+
+- **竞品图片作为 AI 生图参考**：`follow_sell_import_node` 提取竞品 `images[]` → `state.original_images` → Phase 1/2 生图（跟 1688 管线相同逻辑，参考图不同）
+- **prepare 节点图片策略**：AI 生成图优先，竞品 Ozon 原图兜底补足 10 张
+- **竞品价格保护**：竞品价 ≥ 成本*1.3 时保留（更有竞争力），否则公式重算
+- **属性硬化**：import-by-sku 后强制 `brand=Нет бренда`(126745801), `country=Китай`(90296)
+- **定价修正**：不再硬编码 10/12，用 `purchase_cost * (1+margin)/(1-commission)`
+
+### 稳定性加固
+
+| 功能 | 位置 | 说明 |
+|------|------|------|
+| 僵尸任务恢复 | `main.py` lifespan | 启动时 running→pending, failed→pending(可重试) |
+| 定时清理 | `main.py` `_periodic_task_cleanup` | 每 60s 重置 stale running(>30min), 清理 7天前 completed |
+| 健康检查增强 | `GET /health` | +`queue` 字段 (pending/running/completed/failed 统计) |
+| 店铺配额监控 | `GET /api/v1/store/health` | 查询 Ozon 配额 (total/daily usage/limit) |
+| 日志持久化 | `docker-compose.yml` | `LOG_FILE=/app/logs/worker.log` + `logs` volume |
+
+## 历史更新（v0.5.0）
 
 > 2026-07-25 本地全链路测试：Skill ↔ Docker Worker，两条管线各成功上架 1 个产品。
 

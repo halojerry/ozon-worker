@@ -12,6 +12,7 @@ from graphs.state import PrepareOzonUploadInput, PrepareOzonUploadOutput
 from utils.progress_logger import ProgressLogger
 from utils.size_mapper import build_attribute_matching_table
 from utils.mxou_llm import call_mxou_chat_api
+from utils.title_sanitizer import sanitize_title
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +248,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
                     "You are an Ozon Russia product title expert. Translate the English title into Russian using this formula.\n\n"
                     f"{_title_formula}\n"
                     "Strict rules (violation causes Ozon rejection):\n"
-                    "1. Max 50 characters (including spaces and punctuation)\n"
+                    "1. Max 80 characters (including spaces and punctuation)\n"
                     "2. Must contain comma or dash separating parts\n"
                     "3. No keyword stuffing: max 3 consecutive noun keywords\n"
                     "4. Remove all marketing words: Amazon, hot sale, new, bestseller, etc.\n"
@@ -294,7 +295,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
             logger.warning(f"⚠️ 初次翻译失败（非西里尔），用简化 prompt 重试: '{text[:50]}'")
             simple_prompt = (
                 "You are a Russian translator. Translate the following Chinese product title into Russian. "
-                "Keep it short (under 50 characters). Return ONLY the Russian text, nothing else."
+                "Keep it short (under 80 characters). Return ONLY the Russian text, nothing else."
             )
             retry_translated: str = call_mxou_chat_api(
                 token=token,
@@ -302,7 +303,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
                 user_prompt=f"Translate: {text}",
                 model=model_id,
                 temperature=0.3,
-                max_tokens=200
+                max_tokens=1000
             ) or ""
             retry_translated = retry_translated.strip()
             if retry_translated and _has_cyrillic(retry_translated):
@@ -316,7 +317,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
                 "- 核心词：产品是什么\n"
                 "- 属性：1-2个关键特征\n"
                 "- 场景：使用场景\n"
-                "要求：≤50字符，必须含逗号，100%西里尔字母，无拉丁/中文。只返回标题。"
+                "要求：≤80字符，必须含逗号，100%西里尔字母，无拉丁/中文。只返回标题。"
             )
             gen_result: str = call_mxou_chat_api(
                 token=token,
@@ -324,7 +325,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
                 user_prompt=f"Product keywords: {text[:200]}",
                 model=model_id,
                 temperature=0.3,
-                max_tokens=200
+                max_tokens=1000
             ) or ""
             gen_result = gen_result.strip()
             if gen_result and _has_cyrillic(gen_result):
@@ -337,189 +338,8 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
         return text  # 回退到原文
 
 
-def _remove_latin_words(title: str, token: str = "") -> str:
-    """移除标题中的拉丁字母单词（Ozon 要求 100% 西里尔）。
-    
-    Ozon DESCRIPTION_DECLINE attr=4180: 标题不能包含拉丁字符。
-    常见场景：1688 标题含英文品牌名如 "PET REMBER"。
-    策略：检测→尝试 LLM 转写→兜底移除。
-    """
-    if not title:
-        return title
-    
-    # 检测拉丁单词（2+ 连续拉丁字母）
-    latin_words = re.findall(r'\b[a-zA-Z]{2,}\b', title)
-    if not latin_words:
-        return title
-    
-    logger.warning(f"⚠️ 标题含拉丁单词: {latin_words}")
-    
-    # 尝试 LLM 转写（轻量调用，快速）
-    try:
-        # token 由参数传入（来自 state.token）
-        if token:
-            transliterated = _transliterate_latin_llm(title, latin_words, token)
-            if transliterated and _has_cyrillic(transliterated):
-                # 验证：转写后不能还有拉丁词
-                remaining = re.findall(r'\b[a-zA-Z]{2,}\b', transliterated)
-                if not remaining:
-                    logger.info(f"✅ 拉丁词转写成功: {latin_words} → '{transliterated[:60]}'")
-                    return transliterated
-    except Exception as e:
-        logger.debug(f"拉丁转写异常（非阻塞）: {e}")
-    
-    # 兜底：直接移除拉丁单词
-    for w in latin_words:
-        title = title.replace(w, '').strip()
-    # 清理多余空格
-    title = re.sub(r'\s{2,}', ' ', title).strip()
-
-    # 如果移除拉丁词后标题为空或只剩标点/数字，不能返回空标题
-    # 调用 _sanitize_title 的兜底逻辑会在后续处理
-    if not title or not re.search(r'[а-яА-ЯёЁ]', title):
-        logger.warning(f"⚠️ 移除拉丁词后标题为空或无西里尔: 原词={latin_words}, 残留='{title}'")
-        # 返回空字符串，让调用方（_sanitize_title）触发生成兜底
-        return ""
-
-    logger.info(f"✅ 拉丁词已移除: {latin_words} → '{title[:60]}'")
-    return title
-
-
-def _transliterate_latin_llm(title: str, latin_words: list[str], token: str) -> str:
-    """使用 LLM 将拉丁品牌名转写为俄语发音。
-    
-    例如：PET REMBER → Пет Рембер
-    """
-    try:
-        from utils.mxou_api import call_mxou_chat_api
-    except ImportError:
-        return ""
-    
-    words_str = ", ".join(latin_words)
-    translated = call_mxou_chat_api(
-        token=token,
-        system_prompt=(
-            "You are a Russian transliteration expert. "
-            "Transliterate the given English brand names into Russian Cyrillic "
-            "based on their pronunciation. Return ONLY the full title with "
-            "brand names replaced by their Cyrillic transliterations. "
-            "Do NOT add any explanation."
-        ),
-        user_prompt=(
-            f"Title: {title}\n"
-            f"Transliterate these brand names to Russian: {words_str}\n"
-            f"Return the full title with brands replaced."
-        ),
-        model="deepseek-v4-flash",
-        temperature=0.1,
-        max_tokens=200
-    )
-    return (translated or "").strip()
-
-
-def _sanitize_title(title: str, token: str = "") -> str:
-    """
-    标题后校验与修正：确保标题符合Ozon规范。
-    0. 去除拉丁字母（Ozon 要求 100% 西里尔）
-    1. 截断到50字符（在词边界截断）
-    2. 检测关键词堆砌（连续3+名词无标点分隔）并修复
-    3. 确保至少有一个标点符号
-    4. 去除营销残留词
-    """
-    if not title or not isinstance(title, str):
-        return title
-
-    sanitized: str = title.strip()
-
-    # 0. 去除拉丁字母 — Ozon 完全禁止拉丁字符（DESCRIPTION_DECLINE attr=4180）
-    sanitized = _remove_latin_words(sanitized, token)
-    # 如果移除拉丁词后为空，标记为需要生成兜底标题
-    _needs_fallback_title = not sanitized or not re.search(r'[а-яА-ЯёЁ]', sanitized)
-
-    # 1. 去除残留营销词（俄语常见 + 英语常见）
-    marketing_words_ru: list = [
-        "хит", "распродажа", "акция", "скидка", "новинка", "бестселлер",
-        "кроссбордер", "бесплатно", "премиум", "эксклюзив", "ограничено",
-        "топ", "лучший", "популярный", "тренд"
-    ]
-    marketing_words_en: list = [
-        "hot", "sale", "bestseller", "new", "premium", "free",
-        "amazon", "exclusive", "trending", "top", "best", "popular"
-    ]
-    all_marketing: list = marketing_words_ru + marketing_words_en
-    words: list = sanitized.split()
-    filtered_words: list = []
-    for w in words:
-        w_lower: str = w.lower().strip(".,!?:;\"'()[]{}")
-        if w_lower not in all_marketing:
-            filtered_words.append(w)
-    sanitized = " ".join(filtered_words).strip()
-    if not sanitized:
-        return title  # 全被过滤了，返回原标题
-
-    # 2. 关键词堆砌检测：检查是否有5个以上连续词无标点分隔
-    # 只有标题超过50字符且无标点时才认为是堆砌
-    segments: list = re.split(r'[,\-—:;]', sanitized)
-    long_segment_found: bool = False
-    for seg in segments:
-        seg = seg.strip()
-        if seg:
-            seg_words: int = len(seg.split())
-            if seg_words > 5:
-                long_segment_found = True
-                break
-
-    if long_segment_found and len(sanitized) > 50:
-        # 修复：在关键词之间插入逗号，使标题更自然
-        all_words_list: list = sanitized.split()
-        if len(all_words_list) > 5:
-            # 重建标题：前2词 + 逗号 + 第3-4词 + 逗号 + 剩余词
-            new_words: list = []
-            for i, w in enumerate(all_words_list):
-                new_words.append(w)
-                if i == 1 or i == 3:
-                    new_words.append(",")
-            sanitized = " ".join(new_words)
-    elif long_segment_found and len(sanitized) <= 50:
-        # 标题不超50字符但连续词多，不强制加标点（Ozon允许短标题无标点）
-        pass
-
-    # 4. 截断到50字符（在词边界截断）
-    if len(sanitized) > 50:
-        truncated: str = sanitized[:50]
-        # 找到最后一个空格，在词边界截断
-        last_space: int = truncated.rfind(" ")
-        if last_space > 20:
-            truncated = truncated[:last_space]
-        # 去除末尾的标点
-        truncated = truncated.rstrip(" ,-—:;")
-        # 确保截断后仍有标点
-        if not re.search(r'[,\-—:]', truncated) and len(truncated.split()) >= 3:
-            wl: list = truncated.split()
-            if len(wl) >= 3:
-                wl.insert(2, ",")
-                truncated = " ".join(wl)
-        sanitized = truncated
-
-    # 5. 清理多余空格
-    sanitized = re.sub(r'\s+', ' ', sanitized).strip()
-    # 清理 " ," → ","
-    sanitized = re.sub(r'\s+([,])', r'\1', sanitized)
-    sanitized = re.sub(r'([,])(?!\s)', r'\1 ', sanitized)
-
-    if sanitized != title:
-        logger.info(f"🔧 标题校验修正: '{title[:60]}' → '{sanitized[:60]}'")
-
-    # 6. 最终校验：确保标题不含拉丁字符（Ozon 硬性要求）
-    _latin_re = re.compile(r'[a-zA-Z]')
-    _cyrillic_re = re.compile(r'[а-яА-ЯёЁ]')
-    if _needs_fallback_title or (sanitized and _latin_re.search(sanitized) and not _cyrillic_re.search(sanitized)):
-        logger.warning(f"⚠️ 标题仍含拉丁字符或为空，需生成兜底标题: '{sanitized[:60]}'")
-        # 返回空字符串，让调用方（prepare_ozon_upload_node）用 LLM 生成
-        sanitized = ""
-
-    return sanitized
-
+# ── 标题净化（v4: 提取到 utils/title_sanitizer.py）──
+# sanitize_title() 已从 utils.title_sanitizer 导入
 
 def _sanitize_description(description: str) -> str:
     """
@@ -581,6 +401,154 @@ def _sanitize_description(description: str) -> str:
     return sanitized
 
 
+def _sanitize_rich_description(description: str) -> str:
+    """
+    富文本描述净化：保留 HTML 标签，只清理中文/拉丁正文内容。
+    用于属性 4191（支持 HTML 标签的完整描述）。
+    """
+    if not description or not isinstance(description, str):
+        return description
+
+    sanitized = description.strip()
+
+    # 1. 移除中文字符（保留 HTML 标签内的西里尔俄语）
+    # 先提取 HTML 标签，清理正文，再拼接
+    tag_pattern = re.compile(r'(<[^>]+>)')
+    parts = tag_pattern.split(sanitized)
+
+    cleaned = []
+    for part in parts:
+        if tag_pattern.match(part):
+            cleaned.append(part)  # 保留 HTML 标签
+        else:
+            # 清理正文：去中文、去拉丁单词、去 URL/邮箱/电话
+            part = re.sub(r'[\u2e80-\u2eff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+', ' ', part)
+            part = re.sub(r'https?://\S+', '', part)
+            part = re.sub(r'\b[\w.-]+@[\w.-]+\.\w+\b', '', part)
+            part = re.sub(r'\+?\d[\d\s\-()]{7,}\d', '', part)
+            cleaned.append(part)
+
+    sanitized = ''.join(cleaned)
+
+    # 2. 移除营销词汇
+    marketing_words = [
+        "хит", "распродажа", "акция", "скидка", "новинка", "бестселлер",
+        "кроссбордер", "бесплатно", "премиум", "эксклюзив", "ограничено",
+        "топ", "лучший", "популярный", "тренд",
+    ]
+    for word in marketing_words:
+        sanitized = re.sub(re.escape(word), '', sanitized, flags=re.IGNORECASE)
+
+    # 3. 清理多余空格
+    sanitized = re.sub(r'\s+', ' ', sanitized).strip()
+
+    # 4. 长度限制
+    if len(sanitized) > 2000:
+        sanitized = sanitized[:2000]
+
+    return sanitized
+
+
+def _generate_rich_description(product_name: str, attributes: dict, token: str, image_urls: list = None) -> str:
+    """
+    LLM 生成俄语 HTML 富文本描述（用于 Ozon 属性 4191）。
+
+    使用 <b>、<ul>/<li>、<p> 等 HTML 标签格式化产品卖点。
+    v5: 传入商品图片 URL 作为上下文参考，提升描述准确性。
+    """
+    if not token:
+        return ""
+
+    try:
+        from utils.mxou_api import call_mxou_chat_api
+
+        attr_text = ""
+        if attributes:
+            items = list(attributes.items())[:8]
+            attr_text = "\n".join(f"- {k}: {v}" for k, v in items)
+
+        img_context = ""
+        if image_urls:
+            img_urls = [u for u in image_urls if isinstance(u, str) and u.strip()][:3]
+            if img_urls:
+                img_context = "\nИзображения товара (ссылки):\n" + "\n".join(img_urls)
+
+        system = """Ты профессиональный копирайтер для Ozon карточек товаров. 
+Создай описание товара на русском языке с HTML-разметкой.
+Правила:
+1. Используй <b>жирный</b> для ключевых характеристик
+2. Используй <ul><li>список</li></ul> для технических параметров
+3. Используй <p> для абзацев
+4. НЕ используй латиницу (английские слова)
+5. НЕ используй ссылки, email, телефоны
+6. Общая длина: 500-1500 символов
+
+Структура:
+<p>Краткое описание товара (1-2 предложения)</p>
+<b>Характеристики:</b><ul>...</ul>
+<p>Преимущества и особенности</p>"""
+
+        user = f"""Товар: {product_name}
+
+Технические данные:
+{attr_text}{img_context}"""
+
+        result = call_mxou_chat_api(
+            token=token,
+            system_prompt=system,
+            user_prompt=user,
+            model="deepseek-v4-flash",
+            max_tokens=2000,
+            temperature=0.3,
+        )
+
+        if result:
+            return _sanitize_rich_description(result)
+
+    except Exception as e:
+        logger.warning(f"LLM 生成富文本描述失败: {e}")
+
+    return ""
+
+
+def _generate_rich_description_fallback(product_name: str, attributes: dict, description: str = "") -> str:
+    """
+    v5: LLM 失败时的兜底富文本——用产品名 + 属性组装简单 HTML。
+
+    不依赖 LLM，确保 4191 属性始终有值。
+    """
+    if not product_name:
+        return ""
+
+    parts = [f"<p>{product_name}.</p>"]
+
+    if attributes:
+        attr_items = []
+        for k, v in list(attributes.items())[:6]:
+            if v and str(v).strip():
+                # 净化值：去中文
+                clean_v = re.sub(r'[\u4e00-\u9fff]+', '', str(v)).strip()
+                if clean_v:
+                    attr_items.append(f"<li>{k}: {clean_v}</li>")
+        if attr_items:
+            parts.append("<b>Характеристики:</b><ul>" + "".join(attr_items) + "</ul>")
+
+    if description and description.strip():
+        # 净化：去掉中文和URL
+        clean_desc = re.sub(r'[\u4e00-\u9fff]+', ' ', description)
+        clean_desc = re.sub(r'https?://\S+', '', clean_desc)
+        clean_desc = re.sub(r'\s+', ' ', clean_desc).strip()
+        if len(clean_desc) > 20:
+            parts.append(f"<p>{clean_desc[:500]}</p>")
+
+    html = "".join(parts)
+    # 确保至少 50 字符
+    if len(html) < 50:
+        html = f"<p>{product_name}. Качественный товар для дома и повседневного использования.</p>"
+
+    return html[:2000]
+
+
 def _get_category_fallback_title(state: "PrepareOzonUploadInput") -> str:
     """用 Ozon 类目名生成兜底标题，替代固定文案 'Товар для дома'。"""
     try:
@@ -633,51 +601,53 @@ def prepare_ozon_upload_node(
     
     # Ozon图片上传顺序规范（按俄罗斯电商习惯）
     IMG_ORDER = [
-        "main_image",        # 1. 主营销图（最重要）
-        "detail",            # 2. 详情图
-        "scene_1",           # 3. 场景图1
-        "scene_2",           # 4. 场景图2
-        "scene_3",           # 5. 场景图3
-        "comparison",        # 6. 对比图
-        "social_proof",      # 7. 社交证明图
-        "multi_angle",       # 8. 多角度展示图
-        "white_bg"           # 9. 纯白底图
+        "main_image",        # 1. 主营销图（抓住眼球）
+        "scene_1",           # 2. 场景图1（激发购买欲）
+        "scene_2",           # 3. 场景图2
+        "detail",            # 4. 详情图（品质信任）
+        "comparison",        # 5. 对比图（决策信心）
+        "social_proof",      # 6. 社交证明（降低疑虑）
+        "scene_3",           # 7. 场景图3（补充场景）
+        "multi_angle",       # 8. 多角度（看清各面）
+        "white_bg"           # 9. 纯白底图（平台合规）
     ]
     # ⚠️ multi_info 从共享画廊移除：Ozon禁止附加图片包含文字/广告/价格/联系方式
     
     # Step 1: 整理图片顺序
     logger.info("整理图片顺序")
     
-    # ✅ 跟卖模式：优先用 Ozon 竞品原图（ir.ozone.ru），完全跳过 AI 生成图
-    # AI 生成图可能导致 Ozon 报 "Фото не соответствует типу" 拒绝
+    # ✅ 构建共享营销图列表：AI 生成图优先，竞品 Ozon 图兜底
     original_images = getattr(state, "original_images", []) or []
-    ozon_only = [img for img in original_images if isinstance(img, str) and img.strip() and 'ir.ozone.ru' in img]
-    if ozon_only:
-        shared_marketing_images: List[str] = ozon_only[:10]
-        logger.info(f"跟卖模式：使用 {len(shared_marketing_images)} 张 Ozon 竞品原图，跳过 AI 生成图")
-        # 设置 main_image 为第一张竞品图（避免 AI main_image 导致不匹配）
-        main_image = shared_marketing_images[0]
-    else:
-        # ✅ 构建共享营销图列表（不含变体白底图）
-        shared_marketing_images: List[str] = []
-
-        # 添加main_image作为共享画廊第一张
-        main_image = getattr(state, "main_image", None)
-        if main_image and isinstance(main_image, str) and main_image.strip():
-            shared_marketing_images.append(main_image.strip())
-
-        # 按IMG_ORDER添加其他营销图片
-        for img_key in IMG_ORDER[1:]:
-            img_url = getattr(state, f"{img_key}_image", None)
-            if img_url and isinstance(img_url, str) and img_url.strip():
-                shared_marketing_images.append(img_url)
-                logger.info(f"图片 {img_key}: {img_url}")
-
-    logger.info(f"共享营销图数量: {len(shared_marketing_images)}")
-
-    # ✅ 营销图为空时不再fallback到alicdn（Ozon无法下载alicdn URL），记录错误让validation_retry处理
+    competitor_images = [img for img in original_images if isinstance(img, str) and img.strip() and 'ir.ozone.ru' in img]
+    is_follow_sell = bool(competitor_images)
+    
+    shared_marketing_images: List[str] = []
+    
+    # 1. AI main_image 作为画廊第一张
+    main_image = getattr(state, "main_image", None)
+    if main_image and isinstance(main_image, str) and main_image.strip():
+        shared_marketing_images.append(main_image.strip())
+    
+    # 2. 按 IMG_ORDER 添加 AI 生成的其他营销图
+    for img_key in IMG_ORDER[1:]:
+        img_url = getattr(state, f"{img_key}_image", None)
+        if img_url and isinstance(img_url, str) and img_url.strip():
+            shared_marketing_images.append(img_url)
+            logger.info(f"图片 {img_key}: {img_url}")
+    
+    # 3. 跟卖兜底：AI 图不足 10 张时，用竞品 Ozon 原图补到最多 10 张
+    if is_follow_sell and len(shared_marketing_images) < 10 and competitor_images:
+        fill_count = min(10 - len(shared_marketing_images), len(competitor_images))
+        shared_marketing_images.extend(competitor_images[:fill_count])
+        logger.info(f"跟卖兜底：AI 图 {len(shared_marketing_images)-fill_count} 张 + 竞品图 {fill_count} 张")
+        
+        # 如果 AI 主图也没生成出来，用竞品第一张做主图
+        if not main_image or not isinstance(main_image, str) or not main_image.strip():
+            main_image = competitor_images[0]
+    
+    # 4. 如果一张图都没有（AI 全失败 + 无竞品图），标记警告
     if not shared_marketing_images:
-        logger.warning("⚠️ 营销图为空，生图节点可能失败（mxou COS URL未生成），不使用alicdn原始图")
+        logger.warning("营销图为空，生图节点可能失败（mxou COS URL未生成），不使用alicdn原始图")
 
     variant_primary_images_list = state.variant_primary_images if state.variant_primary_images else []
     has_variant_images: bool = any(isinstance(img, str) and img.strip() for img in variant_primary_images_list)
@@ -888,15 +858,15 @@ def prepare_ozon_upload_node(
     # ✅ 提取采购信息（采购链接和采购成本）
     # 从draft中提取采购链接和采购成本（扁平payload直接包含）
     purchase_url = draft.get("purchase_url", "")  # 采购链接
-    purchase_cost_raw = draft.get("purchase_cost", "")  # 采购成本（CNY）
-    purchase_cost = str(purchase_cost_raw) if purchase_cost_raw else ""  # ✅ 转换为string类型
+    purchase_cost_raw = draft.get("purchase_cost", None)  # 采购成本（CNY），None表示未设置
+    purchase_cost = str(purchase_cost_raw) if purchase_cost_raw is not None else ""  # v0.8.0: 修复0被当作falsy
     
     # 如果draft中没有采购信息，尝试从source中提取
     if not purchase_url and isinstance(source, dict):
         purchase_url = source.get("purchase_url", "")
     if not purchase_cost and isinstance(source, dict):
-        purchase_cost_raw = source.get("purchase_cost", "")
-        purchase_cost = str(purchase_cost_raw) if purchase_cost_raw else ""  # ✅ 转换为string类型
+        purchase_cost_raw = source.get("purchase_cost", None)
+        purchase_cost = str(purchase_cost_raw) if purchase_cost_raw is not None else ""  # v0.8.0: 修复0被当作falsy
     
     logger.info(f"采购链接：{purchase_url}")
     logger.info(f"采购成本：{purchase_cost} CNY")
@@ -1019,7 +989,7 @@ def prepare_ozon_upload_node(
         logger.info(f"✅ 标题翻译完成：{title_ru[:80]}")
     
     # ✅ 标题后校验：确保标题符合Ozon规范（≤50字符、含标点、无关键词堆砌）
-    title_ru = _sanitize_title(title_ru, mxou_token)
+    title_ru = sanitize_title(title_ru, token=mxou_token, use_llm=True)
 
     # 兜底：如果标题仍为空或含拉丁字符，用「核心词+属性+场景」公式生成
     _latin_re_title = re.compile(r'[a-zA-Z]')
@@ -1038,16 +1008,16 @@ def prepare_ozon_upload_node(
                     "- 核心词：产品是什么\n"
                     "- 属性：1-2个关键特征\n"
                     "- 场景：使用场景\n"
-                    "要求：≤50字符，必须含逗号，100%西里尔字母，无拉丁/中文。只返回标题。"
+                    "要求：≤80字符，必须含逗号，100%西里尔字母，无拉丁/中文。只返回标题。"
                 ),
                 user_prompt=f"产品信息：{keywords}",
                 model="deepseek-v4-flash",
                 temperature=0.3,
-                max_tokens=200
+                max_tokens=1000
             ) or ""
             gen_title = gen_title.strip()
             if gen_title and _has_cyrillic(gen_title) and not _latin_re_title.search(gen_title):
-                title_ru = _sanitize_title(gen_title, mxou_token) or gen_title
+                title_ru = sanitize_title(gen_title, token=mxou_token, use_llm=True) or gen_title
                 logger.info(f"✅ 公式生成标题成功：{title_ru[:80]}")
             else:
                 # 最终兜底：用 Ozon 类目名代替固定文案
@@ -1094,10 +1064,31 @@ def prepare_ozon_upload_node(
     # ✅ 描述净化：移除残留拉丁文/中文/URL/营销词（预防 DESCRIPTION_DECLINE）
     if description:
         description = _sanitize_description(description)
-    
+
+    # ✅ P2 修复：生成富文本 HTML 描述（Ozon 属性 4191）
+    rich_desc = ""
+    try:
+        draft_attrs = (draft or {}).get("attributes", {})
+        # v5: 传图片 URL 作为上下文，帮助 LLM 理解商品外观
+        product_images = shared_marketing_images if shared_marketing_images else (draft or {}).get("images", [])[:5]
+        if mxou_token:
+            rich_desc = _generate_rich_description(title_ru, draft_attrs, mxou_token, product_images)
+            if rich_desc:
+                logger.info(f"✅ 富文本描述已生成: {len(rich_desc)} 字符")
+        # v5: LLM 失败或无 token 时用兜底
+        if not rich_desc and title_ru:
+            rich_desc = _generate_rich_description_fallback(title_ru, draft_attrs, description or "")
+            if rich_desc:
+                logger.info(f"📝 富文本兜底描述: {len(rich_desc)} 字符")
+    except Exception as e:
+        logger.warning(f"⚠️ 富文本描述生成失败: {e}")
+        # 最终兜底
+        if title_ru:
+            rich_desc = _generate_rich_description_fallback(title_ru, draft_attrs, description or "")
+
     # Step 6: 组装Ozon payload（严格遵守Ozon结构规范）
     logger.info("组装Ozon payload（严格遵守Ozon结构规范）")
-    
+
     # ✅ 关键修复：将final_attributes转换为Ozon官方格式
     # Ozon官方格式要求：
     # {
@@ -1118,7 +1109,18 @@ def prepare_ozon_upload_node(
     
     # ✅ 去重：记录已处理的attribute_id，防止重复
     seen_attr_ids: set = set()
-    
+
+    # ✅ P2 修复：追加富文本描述为属性 4191（支持 HTML 标签的完整描述）
+    if rich_desc and len(rich_desc) > 50:
+        # 检查 final_attributes 中是否已有 4191，避免重复
+        if 4191 not in {int(fa.get("attribute_id", 0)) for fa in final_attributes if fa}:
+            final_attributes.append({
+                "attribute_id": 4191,
+                "value": rich_desc,
+                "dictionary_value_id": 0,  # 自由文本属性
+            })
+            logger.info("✅ 属性 4191（HTML 富文本描述）已追加到 final_attributes")
+
     for attr in final_attributes:
         # 验证attr是否为dict类型
         if not isinstance(attr, dict):
@@ -1188,11 +1190,12 @@ def prepare_ozon_upload_node(
             if value_str and _chinese_re_attr.search(value_str):
                 logger.error(f"❌ 属性{attribute_id_int}翻译后仍含中文，清空: {value_str[:60]}")
                 value_str = ""
-            # ✅ 字典属性翻译后，清空旧的 dictionary_value_id（中文值对应的 ID 已失效）
-            # 会在后续 validation_retry_loop 中重新匹配
+            # ✅ v0.9.0 修复: dictionary_value_id 跨语言通用！
+            # 翻译 value 从中文到俄语后，dict_id 仍然有效（同一属性值的不同语言展示）。
+            # 不再清空 dict_id — 它是在 Step 4/5 通过 ZH_HANS 字典精确匹配的。
             if value_str and attribute_id_int in dict_attr_lookup:
-                dictionary_value_id_int = 0
-                logger.info(f"  ℹ️ 字典属性{attribute_id_int}翻译后清空 dictionary_value_id，待 retry 重新匹配")
+                # 保持原有 dictionary_value_id（跨语言通用）
+                logger.info(f"  ℹ️ 字典属性{attribute_id_int}翻译完成，保留 dict_id={dictionary_value_id_int}, value={value_str[:40]}")
         
         # ✅ 属性23171(hashtags)：过滤掉品牌名 + 确保俄语标签格式
         if attribute_id_int == 23171 and value_str:
@@ -1233,11 +1236,19 @@ def prepare_ozon_upload_node(
             })
             logger.info(f"✅ 转换成功：attr_id={attribute_id_int}, dictionary_value_id={dictionary_value_id_int}, value={value_str}")
         elif is_dict_attr:
-            # ✅ 字典类型属性但dictionary_value_id<=0 → 跳过该属性（不加入payload）
-            # 不再作为validation_error，只是跳过无法匹配的属性
-            dict_id_for_attr: int = dict_attr_lookup[attribute_id_int]
-            logger.warning(f"⚠️ 字典属性(attr_id={attribute_id_int}, dict_id={dict_id_for_attr})无法匹配字典值，跳过: value={value_str}")
-            continue  # ← 跳过，不加入payload
+            # ✅ v0.8.0 修复 Bug#5: 字典属性无有效 dictionary_value_id 时，不静默跳过
+            # 使用 dictionary_value_id=0 兜底上传，Ozon 可能接受或报错，但不会静默丢失属性
+            # 同时标记为 warning 以便监控
+            dict_id_for_attr: int = dict_attr_lookup.get(attribute_id_int, 0)
+            logger.warning(
+                f"⚠️ 字典属性(attr_id={attribute_id_int}, dict_id={dict_id_for_attr})"
+                f" 无有效字典值ID，用 value='{value_str}' 兜底上传: "
+                f"dictionary_value_id=0"
+            )
+            ozon_attr["values"].append({
+                "dictionary_value_id": 0,
+                "value": value_str,
+            })
         else:
             # 无字典值ID：自由文本值
             ozon_attr["values"].append({
@@ -1290,6 +1301,17 @@ def prepare_ozon_upload_node(
     
     # ✅ 唯一后缀：用于offer_id（变体区分），不用于9048
     offer_id_suffix: str = str(int(time.time()) % 1000000)
+    
+    # ✅ 跟卖产品：offer_id = 竞品 ozon_product_id（如 3852000144）
+    # 同一竞品永远只有一个商品，重复上传 = UPDATE
+    # 同时带 product_id 触发 Ozon UPDATE 模式（而非 CREATE）
+    ozon_product_id_from_draft = draft.get("ozon_product_id", "")
+    is_follow_sell = bool(ozon_product_id_from_draft)
+    if is_follow_sell:
+        follow_offer_id = ozon_product_id_from_draft  # 直接用竞品ID，不加前缀
+        logger.info(f"🔄 跟卖产品：offer_id={follow_offer_id}（=竞品product_id，UPDATE模式）")
+    else:
+        follow_offer_id = None
 
     # ✅ 属性9048（型号名称）= 1688 item_id
     # 同一item_id的多个SKU使用相同的9048 → 自动合并为一个商品卡片
@@ -1391,7 +1413,9 @@ def prepare_ozon_upload_node(
                 "name": title_ru,                              # 标题（俄语）
                 "description": description,                     # ✅ 产品描述（Ozon必填字段）
                 "vat": "0",                                    # ✅ 增值税率：0%（Ozon要求默认为"0"，平台按类目自动计算）
-                "offer_id": f"{sku_id}_{offer_id_suffix}",       # ✅ 带唯一后缀避免与旧产品冲突
+                "offer_id": follow_offer_id if is_follow_sell else str(sku_id),  # 1688: item_id 直接做 offer_id，无时间戳
+                # ✅ 跟卖产品：指定 product_id 让 Ozon 走 UPDATE 模式（更新已有商品而非创建新的）
+                **({"product_id": int(state.product_id)} if is_follow_sell and state.product_id and str(state.product_id) not in ("0", "None", "") else {}),
                 
                 # 重量和尺寸（单位转换后）
                 "weight": weight_g,                             # 重量（克）
@@ -1915,6 +1939,8 @@ def prepare_ozon_upload_node(
         validation_errors.append("产品标题缺失")
     if not description_category_id or description_category_id == 0:
         validation_errors.append("类目ID缺失或无效（Category ID is required）")
+    if not type_id or type_id == 0:
+        validation_errors.append("type_id缺失或无效（TypeId must be > 0）")
     if not sku_id:
         validation_errors.append("1688 SKU_ID缺失（offer_id is required）")
     if not shared_marketing_images:

@@ -21,7 +21,6 @@ NODE_ORDER = {
     "multi_angle_gen": 10,
     "variant_primary_loop": 11,
     "main_image_gen": 12,
-    "multi_info_gen": 13,
     "detail_gen": 14,
     "social_proof_gen": 15,
     "scene_1_gen": 16,
@@ -77,38 +76,60 @@ class ProgressLogger:
     
     def log_node_start(self, node_name: str, node_title: str = None) -> int:
         """
-        记录节点开始（含进度百分比）
-        
+        记录节点开始（含进度百分比），并同步更新 _task_progress
+
         Args:
             node_name: 节点名称（如"white_bg_gen_node"或"white_bg_gen"，自动去_node后缀）
             node_title: 节点标题（如"白底图生成节点"，可选，默认从配置读取）
-        
+
         Returns:
             int: 更新后的计数器值（用于节点返回）
         """
-        # 自动去除 _node 后缀（兼容历史代码中 "main_image_gen_node" 这种写法）
-        clean_name = node_name
-        clean_name = clean_name.removesuffix("_node")  # strip "_node"
-        
-        # 优先使用外部传入的 current_counter；否则从 NODE_ORDER 查找
+        # 自动去除 _node 后缀
+        clean_name = node_name.removesuffix("_node")
+
+        # 优先级：外部 current_counter > NODE_ORDER
         if self.current_node_count > 0:
-            self.current_node_count = self.current_node_count
+            pass
         elif clean_name in NODE_ORDER:
             self.current_node_count = NODE_ORDER[clean_name]
-        
+
         progress_percent = int((self.current_node_count / self.total_nodes) * 100)
-        
-        # 获取节点标题（优先使用传入的node_title，否则从配置读取）
+
+        # 节点标题
         if node_title is None:
             node_title = self.node_titles.get(clean_name, clean_name)
-        
-        # 识别当前阶段（用清洗后的名字匹配）
+
+        # 当前阶段
         current_stage = self._get_current_stage(clean_name)
         stage_name = current_stage.get('name', '')
-        
+
         logger.info(f"📊 进度：{progress_percent}% | {stage_name} ▶️ {node_title}")
-        
+
+        # ✅ v0.10: 同步更新 _task_progress（内存 + PG），使 /progress 端点和 task_status 可读
+        self._sync_progress(clean_name, progress_percent, node_title)
+
         return self.current_node_count
+
+    def _sync_progress(self, stage: str, percent: int, message: str):
+        """将进度同步到 main._task_progress 和 PG"""
+        run_id = self.run_id
+        # ✅ v0.10: 如果 run_id 是 "unknown"，尝试从全局上下文获取当前 task_id
+        if (not run_id or run_id == "unknown"):
+            try:
+                from main import get_current_task_id
+                ctx_id = get_current_task_id()
+                if ctx_id:
+                    run_id = ctx_id
+            except Exception:
+                pass
+        if not run_id or run_id == "unknown":
+            return
+        try:
+            from main import update_progress
+            update_progress(run_id, stage, message)
+        except Exception:
+            pass  # 静默降级：不影响主流程
     
     def log_node_action(self, action: str):
         """
