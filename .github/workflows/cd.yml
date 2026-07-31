@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'  # v1.0.0, v0.11.1, etc.
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   deploy:
     name: Docker Build & Push
