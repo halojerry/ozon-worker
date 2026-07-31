@@ -231,7 +231,7 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 min_viable = total_cost_cny * 1.3  # 最低可接受售价（30% margin）
                 if comp_price >= min_viable:
                     logger.info(f"💰 跟卖定价: 竞品价 {comp_price} ≥ 最低 {min_viable:.0f}，保持竞品价格")
-                    price = int(math.ceil(comp_price))
+                    price = math.ceil(comp_price)
                     old_price = max(price + 5, math.ceil(price * 1.2)) if price <= 25 else math.ceil(price * 1.2)
                 else:
                     logger.info(f"💰 跟卖定价: 竞品价 {comp_price} < 最低 {min_viable:.0f}，使用公式重算 {price}")
