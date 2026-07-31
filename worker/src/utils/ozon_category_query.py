@@ -704,7 +704,7 @@ class OzonCategoryQuery:
         if not source_keywords or not candidates:
             return candidates
 
-        source_kw_set = set(kw.lower() for kw in source_keywords if len(kw) >= 2)
+        source_kw_set = {kw.lower() for kw in source_keywords if len(kw) >= 2}
 
         # Load domain hints (with caching)
         domain_hints = self._load_domain_hints()
