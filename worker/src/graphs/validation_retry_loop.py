@@ -19,6 +19,7 @@ import json
 import time
 import logging
 from utils.http_session import session
+from utils.title_sanitizer import sanitize_title
 from typing import Dict, List, Any, Optional
 from jinja2 import Template
 from pydantic import BaseModel, Field
@@ -225,87 +226,8 @@ def classify_fix_type(error_code: str) -> str:
 # 辅助函数
 # ============================================================
 
-def _sanitize_title(title: str) -> str:
-    """
-    标题后校验：确保标题符合Ozon规范。
-    ⚠️ 注意：这是轻量版（用于 retry loop 快速修复）。
-    完整版（含 LLM 去拉丁词、营销词过滤）在 prepare_ozon_upload_node._sanitize_title。
-    """
-    if not title or not title.strip():
-        return title
-
-    title = title.strip()
-
-    # 0. 去除拉丁字母和中文字符 — Ozon 完全禁止非西里尔字符
-    _cyrillic_re = re.compile(r'[а-яА-ЯёЁ]')
-    _latin_re = re.compile(r'[a-zA-Z]{2,}')
-    _chinese_re = re.compile(r'[\u4e00-\u9fff]+')
-    title = _chinese_re.sub('', title)
-    title = _latin_re.sub('', title)
-    # 清理多余空格
-    title = re.sub(r'\s+', ' ', title).strip()
-
-    # 如果没有西里尔字符，返回空字符串触发 fallback
-    if not _cyrillic_re.search(title):
-        return ""
-
-    # 去除营销词汇
-    _marketing_words = {
-        'супер', 'лучший', 'новинка', 'хит', 'популярный', 'топ', 'акция',
-        'скидка', 'распродажа', 'бесплатный', 'дешевый', 'элитный',
-        'hot', 'best', 'new', 'sale', 'top', 'cheap', 'free', 'premium',
-    }
-    words = title.split()
-    cleaned_words = [w for w in words if w.lower().strip('.,!?') not in _marketing_words]
-    if cleaned_words:
-        title = ' '.join(cleaned_words)
-
-    # 1. 长度校验：≤80字符
-    if len(title) > 80:
-        # 截断到最近的空格边界（不截断单词）
-        truncated: str = title[:80]
-        last_space: int = truncated.rfind(' ')
-        if last_space > 20:  # 确保截断后不会太短
-            truncated = truncated[:last_space]
-        title = truncated
-        logger.warning(f"⚠️ 标题超长，截断为：{title}")
-
-    # 2. 标点符号兜底：如果标题>30字符且不含任何标点，末尾加句号
-    # ✅ v0.10: 移除中点插入逗号逻辑 — 俄语标题不需要强制标点分割，"для, спирали" 是语法错误
-    punctuation_chars: set = {'.', ',', '-', '°', '(', ')', '/', ':', '–', '—'}
-    has_punct: bool = any(ch in punctuation_chars for ch in title)
-    if len(title) > 30 and not has_punct:
-        title = title.rstrip('.') + '.'
-        logger.warning(f"⚠️ 标题无标点，末尾加句号：{title}")
-
-    # 3. 关键词堆砌检测：连续4+个单词（每个≥4字符）无标点分隔
-    words2: list = title.split()
-    if len(words2) >= 5:
-        consecutive_nouns: int = 0
-        needs_fix: bool = False
-        for w in words2:
-            if len(w) >= 4 and not any(ch in punctuation_chars for ch in w):
-                consecutive_nouns += 1
-                if consecutive_nouns >= 4:
-                    needs_fix = True
-                    break
-            else:
-                consecutive_nouns = 0
-
-        if needs_fix:
-            # 在第3个长词后插入逗号
-            fixed_words: list = []
-            long_count: int = 0
-            for w in words2:
-                fixed_words.append(w)
-                if len(w) >= 4 and not any(ch in punctuation_chars for ch in w):
-                    long_count += 1
-                    if long_count == 3:
-                        fixed_words[-1] = w + ','
-            title = ' '.join(fixed_words)
-            logger.warning(f"⚠️ 检测到关键词堆砌，已插入标点：{title}")
-
-    return title
+# ── 标题净化（v4: 提取到 utils/title_sanitizer.py，共享于 prepare + retry）──
+# sanitize_title() 已从 utils.title_sanitizer 导入
 
 
 def _call_ozon_api(ozon_client_id: str, ozon_api_key: str, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1054,7 +976,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
 
                 # ✅ v0.8.0 标题修复增强：确保修复后的标题为俄语
                 if repaired_title:
-                    repaired_title = _sanitize_title(repaired_title)
+                    repaired_title = sanitize_title(repaired_title)
                     # 检查修复后的标题是否仍含拉丁字母或无西里尔
                     _latin_check = re.compile(r'[a-zA-Z]')
                     _cyrillic_check = re.compile(r'[а-яА-ЯёЁ]')

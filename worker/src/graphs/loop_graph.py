@@ -22,7 +22,6 @@ from graphs.state import (
 from graphs.nodes.white_bg_gen_node import white_bg_gen_node
 from graphs.nodes.multi_angle_gen_node import multi_angle_gen_node
 from graphs.nodes.main_image_gen_node import main_image_gen_node
-from graphs.nodes.multi_info_gen_node import multi_info_gen_node
 from graphs.nodes.detail_gen_node import detail_gen_node
 from graphs.nodes.social_proof_gen_node import social_proof_gen_node
 from graphs.nodes.scene_1_gen_node import scene_1_gen_node
@@ -51,11 +50,9 @@ def merge_images(state: ImageGenSubgraphState) -> ImageGenSubgraphOutput:
     if state.multi_angle_image:
         all_images["multi_angle"] = state.multi_angle_image
     
-    # 添加Phase2图片（8张营销图片）
+    # 添加Phase2图片（7张营销图片）
     if state.main_image:
         all_images["main"] = state.main_image
-    if state.multi_info_image:
-        all_images["multi_info"] = state.multi_info_image
     if state.detail_image:
         all_images["detail"] = state.detail_image
     if state.social_proof_image:
@@ -77,8 +74,6 @@ def merge_images(state: ImageGenSubgraphState) -> ImageGenSubgraphOutput:
         errors.append("multi_angle生成失败")
     if state.main_image is None:
         errors.append("main_image生成失败")
-    if state.multi_info_image is None:
-        errors.append("multi_info生成失败")
     if state.detail_image is None:
         errors.append("detail生成失败")
     if state.social_proof_image is None:
@@ -119,9 +114,8 @@ def create_image_gen_subgraph():
     builder.add_node("white_bg_gen", white_bg_gen_node)
     builder.add_node("multi_angle_gen", multi_angle_gen_node)
     
-    # Phase2节点（8并行）
+    # Phase2节点（7并行）
     builder.add_node("main_image_gen", main_image_gen_node)
-    builder.add_node("multi_info_gen", multi_info_gen_node)
     builder.add_node("detail_gen", detail_gen_node)
     builder.add_node("social_proof_gen", social_proof_gen_node)
     builder.add_node("scene_1_gen", scene_1_gen_node)
@@ -139,10 +133,8 @@ def create_image_gen_subgraph():
     builder.add_edge("prepare_image_gen", "white_bg_gen")
     builder.add_edge("prepare_image_gen", "multi_angle_gen")
     
-    # Phase2并行编排：Phase1完成后 → 8个节点并行
-    # 注意：需要等Phase1的两个节点都完成后再启动Phase2
+    # Phase2并行编排：Phase1完成后 → 7个节点并行
     builder.add_edge(["white_bg_gen", "multi_angle_gen"], "main_image_gen")
-    builder.add_edge(["white_bg_gen", "multi_angle_gen"], "multi_info_gen")
     builder.add_edge(["white_bg_gen", "multi_angle_gen"], "detail_gen")
     builder.add_edge(["white_bg_gen", "multi_angle_gen"], "social_proof_gen")
     builder.add_edge(["white_bg_gen", "multi_angle_gen"], "scene_1_gen")
@@ -153,7 +145,6 @@ def create_image_gen_subgraph():
     # 汇聚：所有Phase2节点完成 → merge_images
     builder.add_edge([
         "main_image_gen",
-        "multi_info_gen",
         "detail_gen",
         "social_proof_gen",
         "scene_1_gen",

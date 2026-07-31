@@ -1068,6 +1068,59 @@ async def http_submit_task(request: Request):
         ozon_api_key = payload.get("ozon_api_key", "")
         envelope = payload.get("envelope", {})
         
+        # ✅ v4: 提交层 envelope 结构校验 — 避免无效信封穿透到管线 node 层才报错
+        if not isinstance(envelope, dict) or not envelope:
+            return error_response(
+                WorkerErrorCode.INVALID_REQUEST,
+                "envelope 不能为空，必须包含 draft 字段",
+                detail={"missing": ["envelope.draft"]},
+            )
+        draft = envelope.get("draft")
+        if not isinstance(draft, dict) or not draft:
+            return error_response(
+                WorkerErrorCode.INVALID_REQUEST,
+                "envelope.draft 不能为空",
+                detail={"missing": ["draft"]},
+            )
+        # 必填字段校验
+        REQUIRED_DRAFT_FIELDS = [
+            ("item_id", str), ("title", str), ("currency", str),
+            ("images", list), ("weight", (int, float)), 
+            ("dimensions", dict), ("purchase_cost", (int, float)),
+            ("purchase_url", str),
+        ]
+        missing = []
+        for field, expected_type in REQUIRED_DRAFT_FIELDS:
+            val = draft.get(field)
+            if val is None or (isinstance(val, (str, list, dict)) and not val):
+                missing.append(f"draft.{field}")
+            elif not isinstance(val, expected_type):
+                # 允许 int/float 互转
+                if expected_type == (int, float) and isinstance(val, (int, float)):
+                    continue
+                missing.append(f"draft.{field}(类型错误: 期望{expected_type}, 实际{type(val).__name__})")
+        if missing:
+            return error_response(
+                WorkerErrorCode.INVALID_REQUEST,
+                f"envelope.draft 缺少必填字段: {', '.join(missing)}",
+                detail={"missing": missing},
+            )
+        # weight 和 dimensions 的合理性校验
+        weight_g = draft.get("weight", 0)
+        dims = draft.get("dimensions", {})
+        if isinstance(weight_g, (int, float)) and weight_g < 0:
+            return error_response(
+                WorkerErrorCode.INVALID_REQUEST,
+                f"draft.weight 不能为负数: {weight_g}",
+            )
+        for dim_key in ("length", "width", "height"):
+            dv = dims.get(dim_key, 0) if isinstance(dims, dict) else 0
+            if isinstance(dv, (int, float)) and dv < 0:
+                return error_response(
+                    WorkerErrorCode.INVALID_REQUEST,
+                    f"draft.dimensions.{dim_key} 不能为负数: {dv}",
+                )
+        
         # ✅ Step2: 验证token（查询Supabase tokens表）
         if not token:
             raise HTTPException(status_code=401, detail="Token is required")

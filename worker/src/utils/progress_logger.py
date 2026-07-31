@@ -21,7 +21,6 @@ NODE_ORDER = {
     "multi_angle_gen": 10,
     "variant_primary_loop": 11,
     "main_image_gen": 12,
-    "multi_info_gen": 13,
     "detail_gen": 14,
     "social_proof_gen": 15,
     "scene_1_gen": 16,
