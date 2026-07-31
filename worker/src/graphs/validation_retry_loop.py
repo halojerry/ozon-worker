@@ -503,7 +503,8 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         items = state.ozon_payload.get("items", [])
         for item in items:
             product_name = item.get("name", "") or state.product_name or ""
-            new_tags = _generate_hashtags_retry(product_name)
+            from graphs.nodes.assemble_ozon_product_node import _generate_hashtags as _gen_tags
+            new_tags = _gen_tags(product_name)
             attrs = item.get("attributes", [])
             for a in attrs:
                 if a.get("id") == 23171:
@@ -996,7 +997,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                             ) or ""
                             _rus_title = _rus_title.strip()
                             if _rus_title and _cyrillic_check.search(_rus_title) and not _latin_check.search(_rus_title):
-                                repaired_title = _sanitize_title(_rus_title) or _rus_title
+                                repaired_title = sanitize_title(_rus_title) or _rus_title
                                 logger.info(f"✅ 强制俄语翻译成功: {repaired_title[:80]}")
                             else:
                                 logger.warning(f"⚠️ 强制俄语翻译仍不合格: '{_rus_title[:60]}'")
@@ -1070,7 +1071,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                         _latin_re2 = re.compile(r'[a-zA-Z]')
                         _cyrillic_re2 = re.compile(r'[а-яА-ЯёЁ]')
                         if _rus_title_force and _cyrillic_re2.search(_rus_title_force) and not _latin_re2.search(_rus_title_force):
-                            repaired_title = _sanitize_title(_rus_title_force) or _rus_title_force
+                            repaired_title = sanitize_title(_rus_title_force) or _rus_title_force
                             repair_type = "title"
                             logger.info(f"✅ 强制俄语标题生成成功: {repaired_title[:80]}")
                         else:
