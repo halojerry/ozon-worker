@@ -99,6 +99,15 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         if isinstance(weight_raw, str) and '.' in str(weight_raw) and 0 < weight < 10000:
             weight = weight * 1000  # kg → g
             logger.info(f"定价节点重量转换：{weight_raw}kg → {weight}g")
+        
+        # 提前提取尺寸对象（用于小重量检测和后续定价计算）
+        dims_obj = draft.get("dimensions", {})
+        def _safe_float(val) -> float:
+            try:
+                return float(val) if val else 0.0
+            except (ValueError, TypeError):
+                return 0.0
+        
         # ✅ v0.11: 小重量+大尺寸 → 疑似 kg 当 g 传（与 prepare_ozon_upload 一致）
         if 0 < weight < 10:
             l = _safe_float(dims_obj.get("length", 0))
@@ -109,12 +118,6 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 logger.warning(f"定价节点：weight={weight_raw}g 但 max_dim={max(l,w,h)}mm，疑似 kg→g 修正为 {weight}g")
         
         # ✅ 关键修复：从嵌套的 dimensions 对象中提取尺寸（mm→cm）
-        dims_obj = draft.get("dimensions", {})
-        def _safe_float(val) -> float:
-            try:
-                return float(val) if val else 0.0
-            except (ValueError, TypeError):
-                return 0.0
         if isinstance(dims_obj, dict):
             depth_mm = _safe_float(dims_obj.get("length") or dims_obj.get("depth"))
             width_mm = _safe_float(dims_obj.get("width"))

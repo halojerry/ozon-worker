@@ -68,6 +68,22 @@ TYPE_NAME_ATTR_IDS = [8229]
 COLLECTION_ATTR_IDS = {9048, 23171}
 
 
+def _build_hardcoded_attributes(_description_category_id: int) -> list[dict[str, Any]]:
+    """type_id 无效时的最小属性集，避免 Ozon 校验空属性直接报错。"""
+    return [
+        {
+            "id": BRAND_ATTR_ID,
+            "complex_id": 0,
+            "values": [{"dictionary_value_id": NO_BRAND_DICT_ID, "value": NO_BRAND_VALUE}],
+        },
+        {
+            "id": COUNTRY_ATTR_ID,
+            "complex_id": 0,
+            "values": [{"dictionary_value_id": CHINA_DICT_ID, "value": CHINA_VALUE}],
+        },
+    ]
+
+
 def _assemble_follow_sell(
     state: GlobalState,
     draft: dict[str, Any],
@@ -1579,6 +1595,8 @@ def _validate_and_enrich_items(
         # ✅ P0: attr=8229（Тип товара / 产品类型）主动填充
         # 用俄语类目路径的末级名称（如 "Секаторы"），这是 Ozon 审核的关键属性
         TYPE_ATTR_ID = 8229
+        present_ids = {int(a["id"]) for a in validated_attrs if "id" in a}
+        missing_required = required_attr_ids - present_ids
         type_attr = next((a for a in validated_attrs if int(a.get("id", 0)) == TYPE_ATTR_ID), None)
         if not type_attr and ru_category_path:
             type_name = ru_category_path.split(">")[-1].strip()
@@ -1621,8 +1639,6 @@ def _validate_and_enrich_items(
                     logger.info(f"   🎯 attr 8229 文本填充: {type_name}")
             elif TYPE_ATTR_ID in missing_required:
                 missing_required.discard(TYPE_ATTR_ID)  # 已处理过
-        present_ids = {int(a["id"]) for a in validated_attrs if "id" in a}
-        missing_required = required_attr_ids - present_ids
 
         # 特殊属性的已知默认值（常见必填属性）
         KNOWN_DEFAULTS: dict[int, str] = {
