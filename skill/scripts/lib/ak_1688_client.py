@@ -950,6 +950,11 @@ def enrich_product_with_cdp(
         return result
 
     # ── Merge CDP data over API data ──
+    # ✅ 使用 _pick() 代替 or 运算符：避免 0/0.0/False 被当作"无值"跳过
+    def _pick(key, fallback):
+        v = probe_data.get(key)
+        return v if v is not None and v != "" else fallback
+
     result['data'].update({
         # API title is the full product title (e.g. "东南亚爆款638手持便携式高速电风扇...")
         # CDP may extract short snippets ("638 usb", "X05").  Prefer the longer title.
@@ -958,11 +963,11 @@ def enrich_product_with_cdp(
             if len(result['data']['title'] or '') >= len(probe_data.get('title') or '')
             else probe_data.get('title')
         ),
-        'price': probe_data.get('price') or result['data']['price'],
-        'brand': probe_data.get('brand') or result['data']['brand'],
-        'seller': probe_data.get('seller') or result['data']['seller'],
-        'images': probe_data.get('images') or result['data']['images'],
-        'weight_grams': probe_data.get('weight_grams') or result['data']['weight_grams'],
+        'price': _pick('price', result['data']['price']),
+        'brand': _pick('brand', result['data']['brand']),
+        'seller': _pick('seller', result['data']['seller']),
+        'images': _pick('images', result['data']['images']),
+        'weight_grams': _pick('weight_grams', result['data']['weight_grams']),
         'packaging_rows': probe_data.get('packaging_rows') or [],
         'shipping': probe_data.get('shipping') or {},
         'description': probe_data.get('description') or '',

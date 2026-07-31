@@ -965,19 +965,17 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
                         if Path(p).exists() and p not in seen:
                             seen.add(p)
                         break
-        # Insert running browsers FIRST (before static paths)
-        for rp in seen:
-            paths.insert(0, rp)
     except Exception:
         pass
 
     # Phase 3: Playwright bundled Chromium (pip install playwright)
     # ═══════════════════════════════════════════════════════════════════════
     try:
+        import platform as _plat
         import playwright  # noqa: F401
         import glob as _glob
 
-        system = platform.system() if 'platform' in dir() else __import__('platform').system()
+        system = _plat.system()
         if system == 'Darwin':
             pattern = str(Path.home() / 'Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium')
         elif system == 'Linux':
@@ -1000,8 +998,9 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
     if _auto_install_browser():
         # Recurse once to find the newly installed browser
         try:
+            import platform as _plat2
             import glob as _glob2
-            system = __import__('platform').system()
+            system = _plat2.system()
             if system == 'Darwin':
                 pattern = str(Path.home() / 'Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium')
             elif system == 'Linux':
@@ -1737,20 +1736,30 @@ def _wait_for_login_session(
         _login_done_event.wait(timeout=max(timeout_seconds, 60))
         return _login_result
 
-    with _login_lock:
+    # ✅ 修复：使用 flag 标记是否需要释放锁，避免 double-release
+    _login_lock.acquire()
+    _should_release = True
+    try:
         # Double-check after acquiring lock
         if _login_in_progress:
             _logger.info("Login already in progress (race), waiting...")
             _login_lock.release()
+            _should_release = False
             try:
                 _login_done_event.wait(timeout=max(timeout_seconds, 60))
             finally:
                 _login_lock.acquire()
+                _should_release = True
             return _login_result
 
         _login_in_progress = True
         _login_done_event.clear()
         _login_result = None
+
+        # ... rest of login logic inside try block ...
+    finally:
+        if _should_release:
+            _login_lock.release()
 
     from scripts.capabilities.browser_probe.stealth import STEALTH_JS, REALISTIC_UA
 

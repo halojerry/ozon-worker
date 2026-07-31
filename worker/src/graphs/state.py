@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 
 
 def _overwrite_str(old: str, new: str) -> str:
-    """字符串覆盖reducer：后写入的值覆盖先写入的（last-write-wins）"""
-    return new
+    """字符串覆盖reducer：后写入的值覆盖先写入的（last-write-wins）。
+    v0.8.0: None保护，不覆盖已有值"""
+    return new if new is not None else old
 
 
 # ==================== 全局状态定义 ====================
@@ -25,6 +26,7 @@ class GlobalState(BaseModel):
     # 循环修复机制（验证失败退回修复）
     retry_count: int = Field(default=0, description="验证失败重试次数（最多3次）")
     assembly_retry_count: int = Field(default=0, description="组装阶段类目匹配重试次数（最多2次）")
+    moderation_retry_count: int = Field(default=0, description="审核轮询超时重试次数（最多3次）")
     error_type: str = Field(default="", description="错误类型分类（标签格式/尺寸重量/图片顺序/材料属性）")
     
     # Supabase配置（必须通过环境变量传入，无默认值）
@@ -55,7 +57,12 @@ class GlobalState(BaseModel):
     
     # 任务信息
     task_id: str = Field(default="", description="任务ID")
-    status: str = Field(default="", description="任务状态")
+    status: str = Field(default="", description="[deprecated v4] 任务状态 — 请使用 moderation_status")
+    moderation_status: str = Field(default="", description="Ozon审核状态 (approved/pending/error). v4 替代 status.")
+    
+    # 跟卖竞品信息（follow_sell_import_node 提取，供下游使用）
+    competitor_name: str = Field(default="", description="跟卖竞品的俄语标题")
+    competitor_price: str = Field(default="", description="跟卖竞品的Ozon售价")
     
     # 类目信息
     category: Optional[Dict[str, Any]] = Field(default=None, description="类目信息")
@@ -82,6 +89,7 @@ class GlobalState(BaseModel):
     
     # Ozon上传结果
     product_id: Optional[str] = Field(default=None, description="Ozon商品ID（第一个变体）")
+    ozon_task_id: str = Field(default="", description="Ozon上传任务ID（临时，ozon_upload设置，ozon_status读取后替换为真实product_id）")
     product_ids: List[str] = Field(default_factory=list, description="所有变体的Ozon商品ID列表")
     upload_status: str = Field(default="", description="Ozon上传状态（success/failed/pending/timeout）")
     
@@ -114,6 +122,7 @@ class GlobalState(BaseModel):
     detail_image: Optional[str] = Field(default=None, description="详情图URL")
     social_proof_image: Optional[str] = Field(default=None, description="社交证明图URL")
     comparison_image: Optional[str] = Field(default=None, description="对比图URL")
+    ozon_payload: Dict[str, Any] = Field(default_factory=dict, description="当前单个Ozon上传payload（用于验证修复循环的输入）")
     ozon_payloads: List[Dict[str, Any]] = Field(default_factory=list, description="多个Ozon payload列表（多SKU变体）")
     uploaded_products: List[Dict[str, Any]] = Field(default_factory=list, description="已上传的商品列表（包含sku_id、task_id等）")
 
@@ -253,6 +262,35 @@ class CategoryLookupOutput(BaseModel):
     blocked: bool = Field(default=False, description="是否被阻断")
 
 
+# ==================== 跟卖导入节点 ====================
+class FollowSellImportOutput(BaseModel):
+    """v4: 跟卖导入节点输出 — 替代直接修改 GlobalState"""
+    progress_counter: int = Field(default=3, description="节点计数器")
+    
+    # 跟卖结果
+    product_id: Optional[str] = Field(default=None, description="import-by-sku 获得的 Ozon product_id")
+    competitor_price: str = Field(default="", description="竞品 Ozon 售价")
+    competitor_name: str = Field(default="", description="竞品俄语标题")
+    
+    # 类目解析
+    description_category_id: str = Field(default="", description="解析后的 description_category_id")
+    type_id: str = Field(default="", description="解析后的 type_id")
+    
+    # 数据传递
+    original_images: List[str] = Field(default_factory=list, description="竞品图片（AI生图参考）")
+    variants: List[Dict[str, Any]] = Field(default_factory=list, description="变体列表（空=单产品）")
+    item_id: str = Field(default="", description="1688 item_id")
+    
+    # 属性
+    final_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="硬化属性（品牌/国家/制造商）")
+    attributes_schema: List[Dict[str, Any]] = Field(default_factory=list, description="Ozon 属性 schema")
+    
+    # 状态
+    upload_status: str = Field(default="pending", description="上传状态")
+    error_message: str = Field(default="", description="错误信息")
+    failed_stage: str = Field(default="", description="失败阶段名")
+
+
 # ==================== 价格计算节点 ====================
 class PricingInput(BaseModel):
     """价格计算节点输入"""
@@ -356,47 +394,6 @@ class AttributesLearningOutput(BaseModel):
 
 
 # ==================== 图片生成Phase1节点 ====================
-class ImageGenPhase1Input(BaseModel):
-    """图片生成Phase1节点输入"""
-    draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿数据")  # ← 统一为Optional
-    token: str = Field(default="", description="api.mxou.cn的API Key")
-    envelope: Optional[Dict[str, Any]] = Field(default=None, description="产品envelope")  # ← 统一为Optional
-
-
-class ImageGenPhase1Output(BaseModel):
-    """图片生成Phase1节点输出"""
-    # ✅ 新增：进度追踪
-    progress_counter: int = Field(default=8, description="节点计数器（更新为8）")
-    
-    phase1_images: Dict[str, str] = Field(default_factory=dict, description="Phase1图片URLs")
-    white_bg_url: str = Field(default="", description="白底图URL")
-    multi_angle_url: str = Field(default="", description="多角度图URL")
-    clean_ref: List[str] = Field(default_factory=list, description="干净参考图片")
-    error_message: str = Field(default="", description="错误信息")
-    failed_stage: str = Field(default="image_gen_phase1", description="失败的节点名称")
-
-
-# ==================== 图片生成Phase2节点 ====================
-class ImageGenPhase2Input(BaseModel):
-    """图片生成Phase2节点输入"""
-    phase1_images: Dict[str, str] = Field(default_factory=dict, description="Phase1图片URLs")
-    clean_ref: List[str] = Field(default_factory=list, description="干净参考图片")
-    token: str = Field(default="", description="api.mxou.cn的API Key")
-    draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿数据")  # ← 统一为Optional
-    envelope: Optional[Dict[str, Any]] = Field(default=None, description="产品envelope")  # ← 统一为Optional
-
-
-class ImageGenPhase2Output(BaseModel):
-    """图片生成Phase2节点输出"""
-    # ✅ 新增：进度追踪
-    progress_counter: int = Field(default=12, description="节点计数器（更新为12，因为Phase2包含4个节点）")
-    
-    phase2_images: Dict[str, str] = Field(default_factory=dict, description="Phase2图片URLs")
-    all_images: Dict[str, str] = Field(default_factory=dict, description="所有图片URLs")
-    error_message: str = Field(default="", description="错误信息")
-    failed_stage: str = Field(default="image_gen_phase2", description="失败的节点名称")
-
-
 # ==================== Ozon上传数据准备节点 ====================
 class PrepareOzonUploadInput(BaseModel):
     """Ozon上传数据准备节点输入"""
@@ -414,7 +411,7 @@ class PrepareOzonUploadInput(BaseModel):
     
     # Phase2图片
     main_image: Optional[str] = Field(default=None, description="主营销图URL")
-    multi_info_image: Optional[str] = Field(default=None, description="多信息图URL")
+    multi_info_image: Optional[str] = Field(default=None, description="[deprecated v4] 多信息图 — Ozon禁止附加图含文字，已从管线移除")
     detail_image: Optional[str] = Field(default=None, description="详情图URL")
     social_proof_image: Optional[str] = Field(default=None, description="社交证明图URL")
     scene_1_image: Optional[str] = Field(default=None, description="场景图1 URL")
@@ -427,6 +424,7 @@ class PrepareOzonUploadInput(BaseModel):
     variant_primary_images: List[str] = Field(default_factory=list, description="已生成的变体主图列表")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（来自envelope，用于Ozon上传避免AI营销图违规）"
     )
+    product_id: Optional[str] = Field(default=None, description="Ozon商品ID（跟卖更新模式需要）")
     token: str = Field(default="", description="api.mxou.cn的API Key（用于LLM翻译调用）")  # 关键：LLM翻译使用用户token
     dictionary_values: Dict[str, List[Dict[str, Any]]] = Field(
         default_factory=dict,
@@ -478,8 +476,9 @@ class OzonUploadOutput(BaseModel):
     """Ozon上传节点输出"""
     # ✅ 新增：进度追踪
     progress_counter: int = Field(default=20, description="节点计数器（更新为20）")
-    
+
     product_id: Optional[str] = Field(default=None, description="Ozon商品ID（第一个变体，向后兼容）")
+    ozon_task_id: str = Field(default="", description="Ozon上传任务ID（ozon_upload设置，ozon_status读取）")
     product_ids: List[str] = Field(default_factory=list, description="所有变体的Ozon商品ID列表")
     upload_status: str = Field(default="", description="上传状态（success/failed）")
     
@@ -499,7 +498,7 @@ class OzonUploadOutput(BaseModel):
 # ==================== Ozon预检测节点 ====================
 class OzonValidateInput(BaseModel):
     """Ozon预检测节点输入"""
-    ozon_payload: Dict[str, Any] = Field(..., description="Ozon商品上传payload")
+    ozon_payload: Dict[str, Any] = Field(default_factory=dict, description="Ozon商品上传payload")
     ordered_images: List[str] = Field(default_factory=list, description="排序后的图片列表")
     ozon_client_id: str = Field(..., description="Ozon店铺ID")
     ozon_api_key: str = Field(..., description="Ozon API密钥")
@@ -522,7 +521,7 @@ class OzonValidateOutput(BaseModel):
     # ✅ 新增：进度追踪
     progress_counter: int = Field(default=21, description="节点计数器（更新为21）")
     
-    ozon_payload: Dict[str, Any] = Field(..., description="修复后的Ozon payload")
+    ozon_payload: Dict[str, Any] = Field(default_factory=dict, description="修复后的Ozon payload")
     ordered_images: List[str] = Field(default_factory=list, description="排序后的图片列表")
     validation_errors: List[str] = Field(default_factory=list, description="验证错误列表")
     is_valid: bool = Field(default=True, description="是否验证通过")
@@ -568,7 +567,8 @@ class OzonStatusOutput(BaseModel):
     # ✅ 新增：进度追踪
     progress_counter: int = Field(default=22, description="节点计数器（更新为22）")
     
-    status: str = Field(default="", description="商品状态（processed/failed/blocked/pending_moderation/timeout）")
+    status: str = Field(default="", description="[deprecated v4] 商品状态 — 请使用 moderation_status")
+    moderation_status: str = Field(default="", description="v4: Ozon审核状态 (approved/pending/error)")
     upload_status: str = Field(default="", description="上传状态（success/failed/pending/timeout）")
     product_id: Optional[str] = Field(default=None, description="Ozon真实商品ID（从API获取）")
     task_id: str = Field(default="", description="Ozon任务ID")
@@ -583,52 +583,7 @@ class OzonStatusOutput(BaseModel):
     error_message: str = Field(default="", description="错误信息")
     error_code: str = Field(default="", description="错误代码（如VARIANT_NOT_MERGED、VARIANT_MODERATE_REJECTED、VARIANT_UPLOAD_FAILED）")
     failed_stage: str = Field(default="ozon_status", description="失败的节点名称")
-
-
-# ==================== 错误处理节点 ====================
-class ErrorHandlerInput(BaseModel):
-    """错误处理节点输入"""
-    product_id: Optional[str] = Field(default=None, description="Ozon商品ID")
-    error_message: str = Field(..., description="错误信息")
-    errors: List[Dict[str, Any]] = Field(default_factory=list, description="错误列表")
-    failed_stage: str = Field(default="", description="失败的节点名称")
-    
-    # ✅ 新增：采购信息（传递到GraphOutput）
-    purchase_url: str = Field(default="", description="采购链接（1688）")
-    purchase_cost: str = Field(default="", description="采购成本（CNY）")
-    sku_id: str = Field(default="", description="1688 SKU_ID")
-    profit_estimation: Dict[str, Any] = Field(default_factory=dict, description="利润预估明细")
-
-
-class ErrorHandlerOutput(BaseModel):
-    """错误处理节点输出"""
-    # ✅ 新增：进度追踪
-    progress_counter: int = Field(default=23, description="节点计数器（更新为23）")
-    
-    error_type: str = Field(default="", description="错误类型（category/attribute/image/price/other）")
-    error_detail: str = Field(default="", description="错误详情")
-    suggested_fix: str = Field(default="", description="建议修复方案")
-    
-    # ✅ 新增：采购信息（传递到GraphOutput）
-    purchase_url: str = Field(default="", description="采购链接（1688）")
-    purchase_cost: str = Field(default="", description="采购成本（CNY）")
-    sku_id: str = Field(default="", description="1688 SKU_ID")
-    profit_estimation: Dict[str, Any] = Field(default_factory=dict, description="利润预估明细")
-
-
-# ==================== 视频生成节点 ====================
-class VideoGenInput(BaseModel):
-    """视频生成节点输入"""
-    all_images: Dict[str, str] = Field(..., description="所有图片URLs")
-    mxou_token: str = Field(..., description="api.mxou.cn的API Key")
-    ozon_client_id: str = Field(default="", description="Ozon Client-Id")
-    ozon_api_key: str = Field(default="", description="Ozon Api-Key")
-    task_id: str = Field(..., description="任务ID")
-
-
-class VideoGenOutput(BaseModel):
-    """视频生成节点输出"""
-    video_url: Optional[str] = Field(default=None, description="视频URL")
+    moderation_retry_count: int = Field(default=0, description="审核 pending 重试次数（最多3次）")
 
 
 # ==================== 变体循环节点 ====================
@@ -692,7 +647,7 @@ class SceneGenerationOutput(BaseModel):
 class ValidationRetryWrapperInput(BaseModel):
     """验证循环修复包装器节点输入（调用validation_retry_loop子图）
     修复范围：属性、特征、类目、价格（不包含图片）"""
-    ozon_payload: Dict[str, Any] = Field(..., description="Ozon商品上传payload")
+    ozon_payload: Dict[str, Any] = Field(default_factory=dict, description="Ozon商品上传payload")
     validation_errors: list = Field(default_factory=list, description="验证错误列表")
     errors: list = Field(default_factory=list, description="Ozon官方错误数组")
     error_message: str = Field(default="", description="错误信息")
@@ -720,6 +675,7 @@ class ValidationRetryWrapperInput(BaseModel):
     # 条件分支路径函数需要访问的字段
     upload_status: str = Field(default="", description="上传状态（success/failed）")
     is_valid: bool = Field(default=True, description="修复后是否有效")
+    product_id: Optional[str] = Field(default=None, description="Ozon商品ID（ozon_status已分配，用于靶向修复）")
 
 
 class ValidationRetryWrapperOutput(BaseModel):
@@ -739,6 +695,7 @@ class ValidationRetryWrapperOutput(BaseModel):
 class LearningRecordInput(BaseModel):
     """学习记录节点输入（上传成功后记录学习数据）"""
     description_category_id: str = Field(..., description="类目ID")  # ← 保持str类型（与GlobalState一致）
+    type_id: Optional[str] = Field(default="", description="类型ID (v4: 类目学习需要)")  # ← v4新增
     final_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="最终属性列表")
     attributes_schema: List[Dict[str, Any]] = Field(default_factory=list, description="属性Schema")
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品原始数据（用于提取中文源值）")
@@ -757,8 +714,4 @@ class LearningRecordOutput(BaseModel):
     recorded_count: int = Field(..., description="记录的属性数量")
 
 
-# ==================== 修复结果条件判断节点 ====================
-class CondRepairResultInput(BaseModel):
-    """修复结果条件判断节点输入（验证循环修复后判断是否需要记录学习数据）"""
-    upload_status: str = Field(default="", description="上传状态：success/failed/pending")
-    is_valid: bool = Field(default=False, description="最终验证结果")
+# ==================== 修复结果判断在 graph.py 的 should_learn_after_repair 中处理 ====================

@@ -34,13 +34,15 @@ def extract_product_id(url: str) -> str:
       /product/slug-123456789/
       /product/123456789/
       https://www.ozon.ru/product/slug-123456789/
+      /product/slug-123456789/?query=params
     """
+    clean = str(url).split("?")[0].split("#")[0]  # strip query and hash
     # Try slug-123456789 pattern first (most common Ozon URL format)
-    m = re.search(r"-(\d{5,})/?$", str(url))
+    m = re.search(r"-(\d{5,})/?$", clean)
     if m:
         return m.group(1)
     # Fallback: /product/123456789/ (bare numeric ID)
-    m = re.search(r"/(\d{5,})/?$", str(url))
+    m = re.search(r"/(\d{5,})/?$", clean)
     return m.group(1) if m else ""
 
 

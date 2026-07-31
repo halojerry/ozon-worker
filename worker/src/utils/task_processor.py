@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import logging
+import traceback as _traceback
 from typing import Dict, Any, Optional
 from utils.logger import get_logger, set_trace_context, log_task_event, clear_trace_context
 from datetime import datetime
@@ -24,7 +25,7 @@ _NODE_STAGE_MAP = {
     "detail_gen": "image_generation", "scene_1_gen": "image_generation",
     "scene_2_gen": "image_generation", "scene_3_gen": "image_generation",
     "comparison_gen": "image_generation", "social_proof_gen": "image_generation",
-    "multi_angle_gen": "image_generation", "multi_info_gen": "image_generation",
+    "multi_angle_gen": "image_generation",
     "prepare_ozon_upload": "prepare_ozon_upload",
     "ozon_validate": "ozon_validate", "ozon_upload": "ozon_upload",
     "ozon_status": "ozon_status", "learning_record": "learning_record",
@@ -204,7 +205,11 @@ class SupabaseTaskProcessor:
                     priority = task_row[2]
                     payload = task_row[3] if isinstance(task_row[3], dict) else json.loads(task_row[3])
                     timeout_seconds = task_row[4]
-                    
+
+                    # ✅ P1 修复：注入 PG UUID 到 payload，使 progress callback 能按 task_id 追踪
+                    payload["task_id"] = task_id
+                    payload["tenant_id"] = tenant_id
+
                     set_trace_context(task_id=task_id, user_id=tenant_id)
                     log_task_event("started", task_id=task_id, user_id=tenant_id, priority=priority)
                     
@@ -250,6 +255,7 @@ class SupabaseTaskProcessor:
                     return None
                     
                 except Exception as e:
+                    logger.error("任务执行异常: %s\n%s", str(e), _traceback.format_exc())
                     log_task_event("failed", task_id=task_id, user_id=tenant_id,
                                    error_message=str(e), error_type=type(e).__name__)
                     await self.handle_task_failure(task_id, str(e))
@@ -352,9 +358,11 @@ class SupabaseTaskProcessor:
         """
         try:
             from langchain_core.runnables import RunnableConfig
-            from main import update_progress
+            from main import update_progress, set_current_task_id
 
             task_id = payload.get("task_id", "unknown")
+            # ✅ v0.10: 设置全局当前 task_id，使 ProgressLogger 能自动获取
+            set_current_task_id(task_id)
             config = RunnableConfig(
                 configurable={"thread_id": task_id},
                 run_name=f"task_{task_id}",
@@ -369,6 +377,13 @@ class SupabaseTaskProcessor:
 
         except TimeoutError:
             raise TimeoutError(f"LangGraph流程执行超时（{timeout}秒）")
+        finally:
+            # ✅ v0.10: 清除全局 task_id 上下文
+            try:
+                from main import set_current_task_id
+                set_current_task_id(None)
+            except Exception:
+                pass
     
     async def worker_loop(self):
         """
@@ -427,12 +442,13 @@ class SupabaseTaskProcessor:
         try:
             # 使用SQL SELECT查询任务详情
             select_sql = text("""
-                SELECT id, tenant_id, status, priority, payload, result,
-                       error_message, retry_count, max_retries,
-                       created_at, updated_at, started_at, completed_at, timeout_seconds
-                FROM ozon_product_tasks
-                WHERE id = :task_id
-            """)
+            SELECT id, tenant_id, status, priority, payload, result,
+                   error_message, retry_count, max_retries,
+                   created_at, updated_at, started_at, completed_at, timeout_seconds,
+                   progress
+            FROM ozon_product_tasks
+            WHERE id = :task_id
+        """)
             
             with self.engine.connect() as conn:
                 result = conn.execute(select_sql, {"task_id": task_id})
@@ -456,7 +472,8 @@ class SupabaseTaskProcessor:
                 "updated_at": task_row[10],
                 "started_at": task_row[11],
                 "completed_at": task_row[12],
-                "timeout_seconds": task_row[13]
+                "timeout_seconds": task_row[13],
+                "progress": task_row[14] if isinstance(task_row[14], dict) else json.loads(task_row[14]) if task_row[14] else None,
             }
             
             return task_dict

@@ -95,18 +95,29 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         except (ValueError, TypeError):
             weight = 0.0
             logger.warning(f"定价节点：weight 无法解析为数字（{weight_raw}），使用默认 0")
-        # ✅ 单位转换：仅当带小数点时判定为 kg（skill 保证发送克，1688 原始 kg 如 1.5 会有小数点）
+        # ✅ 单位转换：kg → g 判定
         if isinstance(weight_raw, str) and '.' in str(weight_raw) and 0 < weight < 10000:
             weight = weight * 1000  # kg → g
             logger.info(f"定价节点重量转换：{weight_raw}kg → {weight}g")
         
-        # ✅ 关键修复：从嵌套的 dimensions 对象中提取尺寸（mm→cm）
+        # 提前提取尺寸对象（用于小重量检测和后续定价计算）
         dims_obj = draft.get("dimensions", {})
         def _safe_float(val) -> float:
             try:
                 return float(val) if val else 0.0
             except (ValueError, TypeError):
                 return 0.0
+        
+        # ✅ v0.11: 小重量+大尺寸 → 疑似 kg 当 g 传（与 prepare_ozon_upload 一致）
+        if 0 < weight < 10:
+            l = _safe_float(dims_obj.get("length", 0))
+            w = _safe_float(dims_obj.get("width", 0))
+            h = _safe_float(dims_obj.get("height", 0))
+            if max(l, w, h) > 50:
+                weight = weight * 1000
+                logger.warning(f"定价节点：weight={weight_raw}g 但 max_dim={max(l,w,h)}mm，疑似 kg→g 修正为 {weight}g")
+        
+        # ✅ 关键修复：从嵌套的 dimensions 对象中提取尺寸（mm→cm）
         if isinstance(dims_obj, dict):
             depth_mm = _safe_float(dims_obj.get("length") or dims_obj.get("depth"))
             width_mm = _safe_float(dims_obj.get("width"))
@@ -140,24 +151,27 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         # 获取扩展配置
         margin_rate: float = float(extensions.get("margin_rate", 0.25))  # 利润率 25%
         
-        # ✅ 尝试从 Ozon API 获取真实佣金率（rFBS默认12%）
+        # ✅ 尝试从 Ozon API 获取真实佣金率
         commission_rate: float = float(extensions.get("commission_rate", 0.0))
         if commission_rate <= 0:
             try:
-                price_resp = ozon_post(ozon_client_id, ozon_api_key,
-                    "/v5/product/info/prices",
-                    {"filter": {"offer_id": [str(draft.get("sku_id", ""))]}, "limit": 1},
-                    timeout=10)
-                items = price_resp.get("items", []) or price_resp.get("result", {}).get("items", [])
-                if items:
-                    comms = items[0].get("commissions", {})
-                    commission_rate = comms.get("sales_percent_rfbs", 12) / 100.0
-                    logger.info(f"✅ 真实佣金率 rFBS={commission_rate*100:.1f}%")
+                # ✅ v0.11: 用 description_category_id 查佣金（offer_id 不存在）
+                # 查询 /v4/product/info/limit 获取类目级别的佣金信息
+                dc_id = getattr(state, 'description_category_id', '') or ''
+                if dc_id:
+                    price_resp = ozon_post(ozon_client_id, ozon_api_key,
+                        "/v5/product/info/prices",
+                        {"filter": {"offer_id": []}, "limit": 1},
+                        timeout=10)
+                    # 尝试从 store-level commission 获取
+                    comms = price_resp.get("result", {}).get("commissions", {})
+                    commission_rate = comms.get("sales_percent_rfbs", 0) / 100.0
+                if commission_rate > 0:
+                    logger.info(f"✅ 店铺佣金率 rFBS={commission_rate*100:.1f}%")
             except Exception:
                 pass
         if commission_rate <= 0:
             commission_rate = 0.10  # fallback
-            logger.info(f"使用默认佣金率 10%")
             
         fx_buffer: float = float(extensions.get("fx_buffer", 0.05))  # 汇率缓冲 5%
         
@@ -205,6 +219,24 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             else:
                 old_price = math.ceil(price * 1.2)
             currency_unit = "RUB"
+        
+        # ✅ 跟卖模式：如果竞品价格已有利润（≥ 成本*1.3），保持竞品价格以增加竞争力
+        competitor_price_str = getattr(state, 'competitor_price', '') or ''
+        # ✅ P2 修复：用 extensions.follow_sell 判断，而非 product_id（1688 管线也会设置）
+        extensions = getattr(state, 'extensions', {}) or {}
+        is_follow_sell = bool(extensions.get('follow_sell', False))
+        if is_follow_sell and competitor_price_str:
+            try:
+                comp_price = float(competitor_price_str)
+                min_viable = total_cost_cny * 1.3  # 最低可接受售价（30% margin）
+                if comp_price >= min_viable:
+                    logger.info(f"💰 跟卖定价: 竞品价 {comp_price} ≥ 最低 {min_viable:.0f}，保持竞品价格")
+                    price = int(math.ceil(comp_price))
+                    old_price = max(price + 5, math.ceil(price * 1.2)) if price <= 25 else math.ceil(price * 1.2)
+                else:
+                    logger.info(f"💰 跟卖定价: 竞品价 {comp_price} < 最低 {min_viable:.0f}，使用公式重算 {price}")
+            except (ValueError, TypeError):
+                pass
         
         # Step 6: 计算利润预估
         # 利润 = 最终价格 - 总成本

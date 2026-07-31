@@ -15,7 +15,7 @@ Ozon 类目树 PG 缓存查询助手
 import time
 import logging
 from typing import Optional, Any
-from sqlalchemy import select, text, func, and_
+from sqlalchemy import select, text, func, and_, or_
 
 from storage.database.db import get_session
 from storage.database.shared.model import (
@@ -24,6 +24,11 @@ from storage.database.shared.model import (
     DictionaryValueCache,
     CategoryCache,
 )
+
+try:
+    import jieba
+except ImportError:
+    jieba = None
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +44,10 @@ class OzonCategoryQuery:
         language: str = "ZH_HANS",
     ) -> list[dict]:
         """
-        pg_trgm 模糊搜索类目节点。
+        搜索类目节点。
+
+        中文（ZH_HANS）：jieba 分词 + LIKE 精确匹配（替代 pg_trgm，避免字符三元组噪声）
+        俄语（RU）及其他：pg_trgm 模糊匹配 + ILIKE 回退
 
         如果 category_tree_nodes 表为空，自动尝试从 category_cache JSONB 同步。
 
@@ -54,6 +62,10 @@ class OzonCategoryQuery:
         """
         # 确保扁平表有数据
         self._ensure_nodes_synced(language)
+
+        # ✅ v5: ZH_HANS 使用 jieba 分词 + LIKE 精确匹配
+        if language == "ZH_HANS" and jieba is not None:
+            return self._search_jieba_like(query_text, top_k, node_type)
 
         session = get_session()
         try:
@@ -127,6 +139,160 @@ class OzonCategoryQuery:
         finally:
             session.close()
 
+    def _search_jieba_like(
+        self,
+        query_text: str,
+        top_k: int,
+        node_type: str | None,
+    ) -> list[dict]:
+        """v5: jieba 分词 + LIKE 精确匹配（中文类目搜索）
+
+        原理：pg_trgm 对中文做字符三元组匹配会产生大量噪声（如"鱼桶"→"鱼钩"）。
+        jieba 分词后用 LIKE 做词级匹配，准确度高得多。
+
+        计分：匹配 token 数 × 1.0 + depth × 0.1
+        """
+        session = get_session()
+        try:
+            # 1. jieba 分词
+            tokens = [w.strip() for w in jieba.cut(query_text) if len(w.strip()) >= 2]
+            if not tokens:
+                # 无双字词，回退到 ILIKE
+                return self._search_fallback(query_text, top_k, node_type, "ZH_HANS")
+
+            # 去重但保持顺序
+            seen = set()
+            unique_tokens = []
+            for t in tokens:
+                if t not in seen:
+                    seen.add(t)
+                    unique_tokens.append(t)
+            tokens = unique_tokens
+
+            logger.info(f"🔤 jieba 分词: '{query_text[:60]}' → {tokens}")
+
+            # 2. 构建 LIKE 条件：每个 token 对 node_name 和 full_path 做 ILIKE
+            word_conditions = []
+            for token in tokens:
+                pattern = f"%{token}%"
+                word_conditions.append(CategoryTreeNode.node_name.ilike(pattern))
+                word_conditions.append(CategoryTreeNode.full_path.ilike(pattern))
+
+            conditions = [
+                CategoryTreeNode.language == "ZH_HANS",
+                CategoryTreeNode.type_id.isnot(None),
+                CategoryTreeNode.type_id > 0,
+            ]
+            if node_type:
+                conditions.append(CategoryTreeNode.node_type == node_type)
+            conditions.append(or_(*word_conditions))
+
+            # 3. 取候选（top_k * 3），在 Python 中按匹配度重排
+            stmt = (
+                select(
+                    CategoryTreeNode.description_category_id,
+                    CategoryTreeNode.type_id,
+                    CategoryTreeNode.node_name,
+                    CategoryTreeNode.full_path,
+                    CategoryTreeNode.top_level_category_name,
+                    CategoryTreeNode.depth,
+                )
+                .where(and_(*conditions))
+                .limit(top_k * 3)
+            )
+
+            rows = session.execute(stmt).mappings().all()
+
+            # 4. 计分：匹配 token 数 + depth bonus
+            _GENERIC_WORDS = {
+                "运动", "休闲", "传统", "家用", "日用", "通用", "其他", "配件", "附件",
+                "用品", "工具", "系列", "套装", "组合", "跨境", "新款", "爆款",
+                "设备", "材料", "商品", "产品",
+                "机械", "电器", "平板", "监测", "清洁", "钢丝", "电器配件", "平板电脑",
+            }
+            scored: list[tuple[float, dict]] = []
+
+            for row in rows:
+                combined = (row["node_name"] or "") + " " + (row["full_path"] or "")
+                combined_lower = combined.lower()
+
+                matched = 0.0
+                matched_tokens: list[str] = []
+                for token in tokens:
+                    if token.lower() in combined_lower:
+                        weight = 0.3 if token in _GENERIC_WORDS else 1.0
+                        matched += weight
+                        matched_tokens.append(token)
+
+                if matched == 0:
+                    continue  # 跳过零匹配
+
+                # AND 加分：所有 token 都匹配的节点额外加分（至少 2 个 token 才有意义）
+                and_bonus = 0.0
+                if len(matched_tokens) == len(tokens) and len(tokens) >= 2:
+                    and_bonus = 1.0
+
+                depth_bonus = min((row["depth"] or 0) * 0.1, 1.0)
+                score = matched + depth_bonus + and_bonus
+
+                scored.append((score, {
+                    "description_category_id": row["description_category_id"],
+                    "type_id": row["type_id"],
+                    "node_name": row["node_name"],
+                    "full_path": row["full_path"],
+                    "top_level_category_name": row["top_level_category_name"],
+                    "depth": row["depth"],
+                    "similarity": round(matched / max(len(tokens), 1), 4),
+                    "matched_tokens": matched_tokens,
+                    "_score": score,
+                    "_generic_only": all(t in _GENERIC_WORDS or any(gw in t for gw in _GENERIC_WORDS if len(gw) >= 2) for t in matched_tokens),
+                }))
+
+            # 5. 过滤：只有泛化词匹配的结果不可靠 → 返回空触发 L3 LLM
+            non_generic_results = []
+            for score, item in scored:
+                if item.get("_generic_only") and item.get("_score", 0) < 1.5:
+                    continue
+                non_generic_results.append((score, item))
+
+            if non_generic_results:
+                scored = non_generic_results
+            elif scored:
+                # 所有结果都是泛化词匹配 → 质量太低，返回空
+                logger.info(
+                    f"🔤 jieba LIKE: 所有候选都是泛化词匹配（{scored[0][1].get('matched_tokens', [])}），"
+                    f"返回空触发 L3 LLM fallback"
+                )
+                scored = []
+
+            # 6. 按分数降序排列
+            scored.sort(key=lambda x: x[0], reverse=True)
+            results = [item for _, item in scored[:top_k]]
+
+            logger.info(
+                f"🔤 jieba LIKE 搜索完成：tokens={tokens}, "
+                f"候选={len(rows)}条, 匹配={len(scored)}条, 返回={len(results)}条"
+            )
+            if results:
+                top = results[0]
+                logger.info(
+                    f"   🥇 Top-1: [{top['description_category_id']}/{top['type_id']}] "
+                    f"{top['full_path']} (sim={top['similarity']:.2f}, tokens={top.get('matched_tokens', [])})"
+                )
+
+            # 无结果时：不fallback到ILIKE（避免pg_trgm噪声），返回空触发L3 LLM
+            if not results:
+                logger.info("jieba LIKE 无可靠结果，返回空触发 L3 LLM（不fallback到ILIKE避免噪声）")
+                return []
+
+            return results
+
+        except Exception as e:
+            logger.warning(f"jieba LIKE 搜索失败 ({e})，回退到 ILIKE")
+            return self._search_fallback(query_text, top_k, node_type, "ZH_HANS")
+        finally:
+            session.close()
+
     def _search_fallback(
         self,
         query_text: str,
@@ -196,6 +362,11 @@ class OzonCategoryQuery:
             # === 按匹配关键词比率排序 ===
             # 匹配率 = 匹配关键词数 / 总关键词数（权重2.0）
             # 深度加分：更深的节点通常是更具体的类目（叶子节点）
+            # v0.8.0: 泛化词（如"运动"、"休闲"）匹配权重降低，防止稀释信号
+            _GENERIC_WORDS = {"运动", "休闲", "传统", "家用", "日用", "通用", "其他", "配件", "附件",
+                             "спорт", "отдых", "традиционный", "домашний", "универсальный",
+                             "прочее", "аксессуар", "для",
+                             "用品", "工具", "系列", "套装", "设备", "材料", "商品", "产品"}
             scored_results: list[tuple[float, dict]] = []
             total_keywords = max(len([w for w in words if len(w) >= 2]), 1)
 
@@ -203,10 +374,12 @@ class OzonCategoryQuery:
                 combined = (row["node_name"] or "") + " " + (row["full_path"] or "")
                 combined_lower = combined.lower()
 
-                match_count = 0
+                match_count = 0.0  # 加权匹配计数
                 for word in words:
                     if len(word) >= 2 and word.lower() in combined_lower:
-                        match_count += 1
+                        # 泛化词权重 0.3，具体词权重 1.0
+                        weight = 0.3 if word.strip() in _GENERIC_WORDS or word.lower().strip() in _GENERIC_WORDS else 1.0
+                        match_count += weight
 
                 # 匹配率作为主排序因子（0~2.0），深度作为次排序因子（0~1.0）
                 match_ratio = (match_count / total_keywords) * 2.0
@@ -234,6 +407,40 @@ class OzonCategoryQuery:
                 top = results[0]
                 logger.info(f"   🥇 Top-1: [{top['description_category_id']}/{top['type_id']}] {top['full_path']} (similarity={top['similarity']:.2f})")
             return results
+        finally:
+            session.close()
+
+    def get_node_by_description_category_id(self, dc_id: int) -> dict | None:
+        """
+        按 description_category_id 直接查找类目节点（无需 pg_trgm 搜索）。
+
+        用于 Worker 侧接收 Skill 传来的数字 ID 时，直接查表获取 type_id。
+        """
+        session = get_session()
+        try:
+            row = session.execute(
+                select(
+                    CategoryTreeNode.description_category_id,
+                    CategoryTreeNode.type_id,
+                    CategoryTreeNode.node_name,
+                    CategoryTreeNode.full_path,
+                ).where(
+                    CategoryTreeNode.description_category_id == dc_id,
+                    CategoryTreeNode.type_id > 0,
+                ).limit(1)
+            ).mappings().first()
+
+            if row:
+                return {
+                    "description_category_id": row["description_category_id"],
+                    "type_id": row["type_id"],
+                    "node_name": row["node_name"],
+                    "full_path": row["full_path"],
+                }
+            return None
+        except Exception as e:
+            logger.warning(f"get_node_by_description_category_id({dc_id}) 失败: {e}")
+            return None
         finally:
             session.close()
 
@@ -487,6 +694,146 @@ class OzonCategoryQuery:
             }
         finally:
             session.close()
+
+    def score_candidates_by_fingerprint(
+        self, candidates: list[dict], source_keywords: list[str],
+    ) -> list[dict]:
+        """v4: Re-rank pg_trgm candidates using keyword overlap + learned mappings + domain hints.
+        Returns candidates sorted by (fingerprint_score DESC, pg_trgm_similarity DESC).
+        """
+        if not source_keywords or not candidates:
+            return candidates
+
+        source_kw_set = set(kw.lower() for kw in source_keywords if len(kw) >= 2)
+
+        # Load domain hints (with caching)
+        domain_hints = self._load_domain_hints()
+        
+        # Check if any source keyword triggers a domain hint
+        triggered_hints = []
+        if domain_hints:
+            for dh in domain_hints:
+                for kw in source_kw_set:
+                    if kw in dh["trigger_keywords"]:
+                        triggered_hints.append(dh)
+                        break
+            if triggered_hints:
+                logger.info(f"🎯 domain_hint触发: keywords={[kw for kw in source_kw_set if any(kw in dh['trigger_keywords'] for dh in domain_hints)]} "
+                            f"→ targets={[dh['target_top_category'] for dh in triggered_hints]}")
+
+        # Learned mappings for bonus
+        learned: dict = {}
+        try:
+            from storage.database.db import get_session as _gs
+            from storage.database.shared.model import CategoryMapping as _CM
+            s = _gs()
+            try:
+                dc_ids = [c["description_category_id"] for c in candidates]
+                tid_ids = [c["type_id"] for c in candidates if c.get("type_id")]
+                if dc_ids and tid_ids:
+                    rows = s.execute(
+                        select(_CM.description_category_id, _CM.type_id, _CM.success_count, _CM.source_keywords)
+                        .where(and_(_CM.description_category_id.in_(set(dc_ids)), _CM.type_id.in_(set(tid_ids)), _CM.is_active == True))
+                    ).mappings().all()
+                    for row in rows:
+                        learned[(row["description_category_id"], row["type_id"])] = {
+                            "success_count": row["success_count"],
+                            "stored_keywords": set(row["source_keywords"] or []),
+                        }
+            finally:
+                s.close()
+        except Exception:
+            pass
+
+        def _score(c: dict) -> float:
+            path = (c.get("full_path", "") or "").lower()
+            name = (c.get("node_name", "") or "").lower()
+            depth = c.get("depth", 0) or 0
+            path_overlap = sum(1 for kw in source_kw_set if kw in path)
+            name_overlap = sum(1 for kw in source_kw_set if kw in name)
+            learned_bonus = 0.0
+            key = (c.get("description_category_id"), c.get("type_id"))
+            if key in learned:
+                lk = learned[key]["stored_keywords"]
+                kw_overlap = len(source_kw_set & lk)
+                learned_bonus = kw_overlap * 0.5 + min(learned[key]["success_count"], 10) * 0.05
+
+            # v4: domain_hint bonus/penalty
+            domain_bonus = 0.0
+            if triggered_hints:
+                top_cat = (c.get("top_level_category_name", "") or "").lower()
+                for dh in triggered_hints:
+                    target = (dh["target_top_category"] or "").lower()
+                    exclude = (dh["exclude_top_category"] or "").lower()
+                    if target and target in top_cat:
+                        domain_bonus += 1.5  # strong bonus for matching domain
+                    if exclude and exclude in top_cat:
+                        domain_bonus -= 1.5  # penalty for excluded domain
+
+            return path_overlap * 0.5 + name_overlap * 1.0 + min(depth * 0.1, 1.0) + learned_bonus + domain_bonus
+
+        for c in candidates:
+            c["fingerprint_score"] = round(_score(c), 3)
+        candidates.sort(key=lambda c: (c.get("fingerprint_score", 0), c.get("similarity", 0)), reverse=True)
+        return candidates
+
+    def get_category_mapping_by_keywords(
+        self, source_keywords: list[str], min_overlap: int = 1, top_k: int = 10,
+    ) -> list[dict]:
+        """v4: Direct lookup of learned Ozon categories by keyword overlap."""
+        if not source_keywords:
+            return []
+        session = get_session()
+        try:
+            from sqlalchemy import text as _txt
+            kw_array = "{" + ",".join(f'"{kw}"' for kw in source_keywords) + "}"
+            rows = session.execute(_txt("""
+                SELECT id, source_category_leaf, source_category_path, source_keywords,
+                       description_category_id, type_id, category_path_zh, category_path_ru,
+                       confidence, success_count
+                FROM category_mapping WHERE is_active = TRUE AND source_keywords && :kw::text[]
+                ORDER BY success_count DESC, confidence DESC LIMIT :lim
+            """), {"kw": kw_array, "lim": top_k}).mappings().all()
+            results = []
+            for r in rows:
+                stored = set(r["source_keywords"] or [])
+                overlap = len(set(source_keywords) & stored)
+                results.append({
+                    "source_category_leaf": r["source_category_leaf"],
+                    "source_category_path": r["source_category_path"],
+                    "source_keywords": r["source_keywords"],
+                    "description_category_id": r["description_category_id"],
+                    "type_id": r["type_id"],
+                    "category_path_zh": r["category_path_zh"],
+                    "category_path_ru": r["category_path_ru"],
+                    "confidence": r["confidence"], "success_count": r["success_count"],
+                    "keyword_overlap": overlap,
+                })
+            results.sort(key=lambda x: (x["keyword_overlap"], x["success_count"]), reverse=True)
+            return results[:top_k]
+        except Exception as e:
+            logger.warning(f"category_mapping keyword lookup failed: {e}")
+            return []
+        finally:
+            session.close()
+
+    def _load_domain_hints(self) -> list[dict]:
+        """v4: Load active domain disambiguation rules from PG. Cached per instance."""
+        if hasattr(self, '_cached_domain_hints'):
+            return self._cached_domain_hints
+        try:
+            from sqlalchemy import text as _txt
+            s = get_session()
+            try:
+                rows = s.execute(_txt(
+                    "SELECT trigger_keywords, target_top_category, exclude_top_category FROM domain_hint WHERE is_active=TRUE ORDER BY priority DESC"
+                )).mappings().all()
+                self._cached_domain_hints = [dict(r) for r in rows]
+            finally:
+                s.close()
+        except Exception:
+            self._cached_domain_hints = []
+        return self._cached_domain_hints
 
     def get_attribute_schema(
         self,

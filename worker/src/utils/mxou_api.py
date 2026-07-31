@@ -83,7 +83,8 @@ def call_mxou_chat_api(
             {"role": "user", "content": user_prompt}
         ],
         "temperature": temperature,
-        "max_tokens": max_tokens
+        "max_tokens": max_tokens,
+        "thinking": {"type": "disabled"}  # 禁用 DeepSeek 推理，防止 reasoning tokens 吃掉 max_tokens
     }
 
     session = _get_session()
@@ -125,6 +126,11 @@ def call_mxou_chat_api(
             return None
 
         content: str = message.get("content", "")
+        # ✅ reasoning_content fallback: DeepSeek 推理模型可能把输出放在 reasoning_content 而非 content
+        if (not isinstance(content, str) or not content.strip()) and isinstance(message.get("reasoning_content"), str):
+            content = message["reasoning_content"].strip()
+            if content:
+                logger.info("mxou chat API 从 reasoning_content 回退成功 (model=%s), 长度=%d", model, len(content))
         if not isinstance(content, str) or not content.strip():
             logger.warning("mxou chat API 返回空content (model=%s)", model)
             return ""
@@ -149,7 +155,7 @@ def call_mxou_image_api(
     prompt: str,
     ref_images: Optional[List[str]] = None,
     aspect_ratio: str = "3:4",
-    timeout: int = 90,
+    timeout: int = 150,
     max_retries: int = 3,
     model: str = PRIMARY_IMAGE_MODEL
 ) -> Optional[str]:
@@ -446,3 +452,80 @@ def _poll_mxou_task_fallback(task_id: str, max_wait: int = 90, token: str = "") 
 
     logger.error("mxou fallback轮询超时: task_id=%s (max_wait=%ds)", task_id, max_wait)
     return None
+
+
+# ============================================================
+# 标题清洗：生图 prompt 去平台/营销污染
+# ============================================================
+
+# 平台名/营销垃圾词（中英文），出现在生图标题中会污染 AI 生成结果
+_IMAGE_PROMPT_JUNK_WORDS = [
+    # ═══ A: 平台/市场名（直接污染视觉风格）═══
+    "1688", "alibaba", "阿里巴巴",
+    "aliexpress", "ali express", "速卖通",
+    "taobao", "淘宝",
+    "tmall", "天猫",
+    "amazon", "亚马逊",
+    "shopee", "lazada",
+    "tiktok", "抖音",
+    "temu", "shein", "wish", "ebay", "etsy",
+    "jd", "jingdong", "京东",
+    "拼多多", "pinduoduo",
+    "walmart",
+    "ozon", "озон", "wildberries",
+    # ═══ B: 跨境/代发黑话 ═══
+    "跨境", "跨境电商", "跨境爆款", "跨境现货", "跨境货源",
+    "一件代发", "代发", "货源",
+    "批发", "厂家直销", "直销", "工厂直供", "源头厂家",
+    "dropshipping", "dropship",
+    "cross border", "cross-border",
+    "现货", "现货批发", "现货供应",
+    # ═══ C: 营销吹嘘词 ═══
+    "爆款", "热卖", "热销", "畅销",
+    "新款", "新品", "同款",
+    "促销", "限量", "秒杀", "清仓", "特价", "包邮",
+    "好评", "五星", "推荐", "首选", "必备",
+    "hot sale", "bestseller", "best seller", "new arrival",
+    "trending", "popular", "top rated",
+    "premium", "exclusive", "limited",
+    "free shipping", "fast delivery", "in stock",
+    "high quality", "factory price", "cheap",
+    # ═══ D: 中文电商套话 ═══
+    "厂家", "供应商", "生产厂家",
+    "实力商家", "认证商家", "品牌授权",
+    "支持定制", "来样定制",
+    "OEM", "ODM",
+    "免费拿样", "免费样品",
+    "品质保证", "高质量", "优质", "高品质",
+    "创意", "实用", "多功能",
+    # ═══ E: 通用填充词 ═══
+    "产品", "商品", "物品",
+    "supply", "manufacturer", "factory", "direct",
+    "wholesale", "agent", "distributor",
+]
+
+import re as _re
+_IMG_JUNK_PATTERN = _re.compile(
+    '|'.join(_re.escape(w) for w in _IMAGE_PROMPT_JUNK_WORDS),
+    _re.IGNORECASE
+)
+
+
+def clean_title_for_image_prompt(title: str) -> str:
+    """清洗产品标题，去除平台名/营销词，只保留产品描述。
+    
+    示例:
+    "跨境爆款 现货 抖音同款1688亚马逊 Frog Plant Stand" 
+    → "Frog Plant Stand"
+    
+    "Hot Sale 2024 New OEM Factory Price Garden Tools"
+    → "Garden Tools"
+    """
+    if not title:
+        return title
+    cleaned = _IMG_JUNK_PATTERN.sub('', title)
+    # 清理多余空格
+    cleaned = _re.sub(r'\s+', ' ', cleaned).strip()
+    # 去掉首尾标点
+    cleaned = cleaned.strip(' ,.-;:!?，。、；：！？')
+    return cleaned if cleaned else title  # 如果全部清空了，保留原标题

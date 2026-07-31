@@ -68,6 +68,22 @@ TYPE_NAME_ATTR_IDS = [8229]
 COLLECTION_ATTR_IDS = {9048, 23171}
 
 
+def _build_hardcoded_attributes(_description_category_id: int) -> list[dict[str, Any]]:
+    """type_id 无效时的最小属性集，避免 Ozon 校验空属性直接报错。"""
+    return [
+        {
+            "id": BRAND_ATTR_ID,
+            "complex_id": 0,
+            "values": [{"dictionary_value_id": NO_BRAND_DICT_ID, "value": NO_BRAND_VALUE}],
+        },
+        {
+            "id": COUNTRY_ATTR_ID,
+            "complex_id": 0,
+            "values": [{"dictionary_value_id": CHINA_DICT_ID, "value": CHINA_VALUE}],
+        },
+    ]
+
+
 def _assemble_follow_sell(
     state: GlobalState,
     draft: dict[str, Any],
@@ -86,6 +102,16 @@ def _assemble_follow_sell(
     ozon_api_key = state.ozon_api_key or ""
 
     logger.info(f"🔄 跟卖组装: cat={description_category_id}/{type_id}, title={title[:60]}")
+
+    # ✅ v0.11: type_id=0 时无法获取有效属性 schema，提前阻断
+    if type_id <= 0:
+        logger.error(f"❌ 跟卖 type_id 无效({type_id})，无法获取属性 schema")
+        return {
+            "error_message": f"跟卖 type_id 无效: {type_id}，请检查类目解析",
+            "description_category_id": str(description_category_id),
+            "type_id": str(type_id),
+            "final_attributes": _build_hardcoded_attributes(description_category_id),
+        }
 
     # Step 2: 获取属性 Schema（仅用于验证，不实际填写）
     progress.log_node_action(f"跟卖 Step 2: 获取属性 Schema — cat={description_category_id}")
@@ -263,6 +289,7 @@ def assemble_ozon_product_node(
             specific_terms = [t for t in specific_terms if t not in _GENERIC_WORDS]
             if not specific_terms:
                 specific_terms = [t for t in cat_terms if t not in _GENERIC_WORDS][-2:]
+            leaf_name = cat_terms[-1] if cat_terms else ""  # v4: L0学习缓存key
             
             # 中文同义词映射（1688 用语 → Ozon ZH_HANS 用语）
             _CN_SYNONYMS = {
@@ -372,6 +399,16 @@ def assemble_ozon_product_node(
 
     logger.info(f"   pg_trgm 返回 {len(candidates)} 个候选")
 
+    # ✅ v4: L2 指纹重排
+    candidates = _apply_fingerprint_rerank(query, candidates, source_keywords, keywords)
+
+    # ✅ v5: 初始化匹配质量标记
+    match_layer = "L1"       # pg_trgm / jieba LIKE
+    match_confidence = 0.5   # 默认中等置信度
+
+    # ✅ v4: L0 学习缓存查找（在候选选择前，命中则跳过 overlap 验证）
+    l0_hit = _match_category_layered(query, source_category, source_keywords, keywords, candidates, leaf_name) if source_category else None
+
     # 1c. 直接使用 pg_trgm 最高相似度候选（不用 LLM）
     # pg_trgm 搜索已按 sim DESC 排序，candidates[0] 即最佳匹配
     # LLM 匹配不可靠（如玩具→鞋类），关键词匹配更准确
@@ -385,25 +422,63 @@ def assemble_ozon_product_node(
     }
     logger.info(f"   ✅ 类目匹配 (pg_trgm): [{best['description_category_id']}/{best['type_id']}] {best['full_path']} (sim={best.get('similarity', 0):.3f})")
 
-    # ✅ 关键词重叠验证：候选类目必须与源类目有关键词重叠，避免 pg_trgm 误匹配
+    # ✅ v4: L0命中 → 跳过 overlap 验证，直接使用学习缓存结果
+    if l0_hit:
+        category_result = l0_hit
+        match_layer = "L0"
+        match_confidence = 0.95
+        logger.info(f"   ✅ L0覆盖: [{category_result['description_category_id']}/{category_result['type_id']}]")
+
+    # ✅ 关键词重叠验证（L0未命中时执行）
     # 例如 "烟灰缸" 被 pg_trgm 误匹配到 "珠宝秤" → 无重叠词 → 丢弃该候选
-    _source_words = set((source_keywords or keywords).lower().split())
-    for _c in candidates:
-        _cand_words = set(_c.get("full_path", "").lower().replace(">", " ").split())
-        _overlap = _source_words & _cand_words
-        if _overlap:
-            category_result = {
-                "description_category_id": _c["description_category_id"],
-                "type_id": _c["type_id"],
-                "category_path": _c["full_path"],
-                "confidence": "high",
-                "reason": f"pg_trgm+overlap (sim={_c.get('similarity', 0):.3f}, words={_overlap})",
-            }
-            logger.info(f"   ✅ 关键词验证通过: 候选 '{_c['full_path'][:60]}' 与源词重叠 {_overlap}")
-            break
-    else:
-        # 无候选有重叠 → 保留原始选择但降级置信度
-        logger.warning(f"   ⚠️ 所有 {len(candidates)} 个候选与源词 '{source_keywords or keywords[:60]}' 无关键词重叠，使用最高 sim 候选")
+    # ✅ v0.8.0 修复: 改用子串匹配代替 set intersection，解决中文分词问题
+    # ✅ v5 修复: 过滤泛化词（"用品"、"工具"等），避免父类目名称造成假匹配
+    _GENERIC_OVERLAP = {"用品", "工具", "配件", "附件", "设备", "材料", "系列", "套装", "商品", "产品",
+                       "运动", "休闲", "传统", "家用", "日用", "通用", "其他", "跨境", "新款", "爆款"}
+    if not l0_hit:
+        # .split() 对中文无空格文本无效（"蓝牙" vs "蓝牙耳机" → 无交集），子串匹配解决
+        _source_words = [w.strip().lower() for w in (source_keywords or keywords).split() if len(w.strip()) >= 2]
+        for _c in candidates:
+            _cand_path = _c.get("full_path", "").lower()
+            _overlap = set()
+            for sw in _source_words:
+                if sw in _cand_path:
+                    _overlap.add(sw)
+            # v5: 过滤泛化词，只有非泛化词重叠才算真正匹配
+            _specific_overlap = _overlap - _GENERIC_OVERLAP
+            if _specific_overlap:
+                category_result = {
+                    "description_category_id": _c["description_category_id"],
+                    "type_id": _c["type_id"],
+                    "category_path": _c["full_path"],
+                    "confidence": "high",
+                    "reason": f"pg_trgm+overlap (sim={_c.get('similarity', 0):.3f}, words={_specific_overlap})",
+                }
+                logger.info(f"   ✅ 子串验证通过: 候选 '{_c['full_path'][:60]}' 包含源词 {_specific_overlap}")
+                break
+        else:
+            # 无候选有重叠 → LLM fallback：让 LLM 从 top-5 候选中选择最佳匹配
+            logger.warning(f"   ⚠️ 所有 {len(candidates)} 个候选与源词无子串重叠，触发 LLM fallback")
+            best_by_llm = _llm_rank_categories(candidates[:5], source_keywords or keywords, draft, state)
+            if best_by_llm:
+                category_result = {
+                    "description_category_id": best_by_llm["description_category_id"],
+                    "type_id": best_by_llm["type_id"],
+                    "category_path": best_by_llm["full_path"],
+                    "confidence": "medium",
+                    "reason": f"LLM_fallback (from {len(candidates)} candidates, no substring overlap)",
+                }
+                logger.info(f"   ✅ LLM fallback 选中: {best_by_llm['full_path'][:80]}")
+            else:
+                # ✅ v5: LLM 也失败 → 阻断上架，不硬用低质量候选
+                match_confidence = 0.0
+                logger.error(f"   🛑 LLM fallback 也失败，无可靠类目匹配，阻断上架")
+                return {"error_message": "类目匹配失败：jieba搜索+LLM均无可靠结果，阻断上架避免错误类目",
+                        "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
+                        "match_confidence": 0.0}
+
+    # ✅ v4: 审计日志 — 记录本次匹配详情到 category_match_log
+    _log_match_attempt(state, title, source_category, keywords, category_result, match_layer, match_confidence, candidates)
 
     description_category_id: int = int(category_result["description_category_id"])
     type_id: int = int(category_result["type_id"])
@@ -610,6 +685,7 @@ def assemble_ozon_product_node(
         dimensions=dimensions,
         draft_title=draft.get("title", ""),
         supplier=draft.get("supplier", ""),
+        ru_category_path=ru_category_path,
     )
 
     # =====================================================
@@ -639,18 +715,38 @@ def assemble_ozon_product_node(
     # Step 6.5: 跨类目一致性校验
     # =====================================================
     # 对比 LLM 生成的俄语标题与分配的 Ozon 类目路径，检测明显不匹配
-    category_consistent = _check_category_consistency(llm_name, category_path, description_category_id, type_id)
+    # ✅ v0.8.0 修复 Bug#4: 用俄语类目路径与俄语标题做一致性检查
+    # 之前用 ZH_HANS 类目路径比较俄语标题 → 语言不匹配 → 永远不过
+    ru_check_path = ru_category_path  # Step 1.5 已查俄语路径
+    if not ru_check_path:
+        # 回退查询：用 dc+type 查 RU 表
+        try:
+            from sqlalchemy import text as _sql_text2
+            with get_session() as _s2:
+                _row2 = _s2.execute(_sql_text2(
+                    "SELECT full_path FROM category_tree_nodes "
+                    "WHERE description_category_id=:cid AND type_id=:tid AND language='RU' LIMIT 1"
+                ), {"cid": description_category_id, "tid": type_id}).fetchone()
+                if _row2:
+                    ru_check_path = _row2[0]
+        except Exception:
+            pass
+    
+    category_consistent = _check_category_consistency(
+        llm_name, ru_check_path or category_path, description_category_id, type_id
+    )
 
     if not category_consistent:
         # 类目不匹配 → 尝试用俄语标题重新匹配类目
         logger.warning(f"⚠️ 类目不一致，尝试用俄语标题重新匹配...")
         recategorize_failed = True
+        re_candidates = []  # v0.8.0: 初始化防止 UnboundLocalError
         try:
             query = get_category_query()
-            # ✅ llm_name 是俄语，用 RU 语言搜索 Ozon 俄语类目名
+            # ✅ v0.8.0 修复 Bug#4: llm_name 是俄语标题，用 RU 搜索；失败时用 ZH_HANS 回退
             re_candidates = query.search_nodes(llm_name[:50], top_k=10, node_type="type", language="RU")
             if not re_candidates:
-                # 回退：ZH_HANS 搜索
+                # 回退：ZH_HANS 搜索（俄语标题也可能含中文相似词）
                 re_candidates = query.search_nodes(llm_name[:50], top_k=10, node_type="type")
             if re_candidates:
                 # 检查新候选中是否有更好的匹配
@@ -659,34 +755,152 @@ def assemble_ozon_product_node(
                     re_type_id = candidate.get("type_id", 0)
                     re_path = candidate.get("full_path", "")
                     if re_cat_id and re_type_id and (re_cat_id != description_category_id or re_type_id != type_id):
-                        # 验证新类目的一致性
-                        re_consistent = _check_category_consistency(llm_name, re_path, re_cat_id, re_type_id)
+                        # ✅ v0.8.0 修复 Bug#4: 查新候选的俄语路径再验证
+                        re_ru_path = ""
+                        try:
+                            from sqlalchemy import text as _sql_text3
+                            with get_session() as _s3:
+                                _row3 = _s3.execute(_sql_text3(
+                                    "SELECT full_path FROM category_tree_nodes "
+                                    "WHERE description_category_id=:cid AND type_id=:tid AND language='RU' LIMIT 1"
+                                ), {"cid": re_cat_id, "tid": re_type_id}).fetchone()
+                                if _row3:
+                                    re_ru_path = _row3[0]
+                        except Exception:
+                            pass
+                        # 用俄语路径验证一致性
+                        re_consistent = _check_category_consistency(llm_name, re_ru_path or re_path, re_cat_id, re_type_id)
                         if re_consistent:
                             logger.info(f"✅ 重新匹配成功: {description_category_id}/{type_id} → {re_cat_id}/{re_type_id} ({re_path})")
-                            description_category_id = re_cat_id
-                            type_id = re_type_id
-                            category_path = re_path
-                            new_attr_schema = query.get_attribute_schema(re_cat_id, re_type_id)
-                            if new_attr_schema:
-                                if isinstance(new_attr_schema, dict) and new_attr_schema.get("result"):
-                                    attr_list = new_attr_schema["result"]
-                                elif isinstance(new_attr_schema, list):
-                                    attr_list = new_attr_schema
-                                if attr_list:
-                                    logger.info(f"   ✅ 属性 schema 已更新: {len(attr_list)} 个属性")
+                            # ✅ v0.9.0: 类目变更后完整重建属性 schema + items + final_attributes
+                            rebuild_result = _rebuild_for_new_category(
+                                new_dc=re_cat_id, new_type=re_type_id,
+                                draft=draft, images=images,
+                                ozon_client_id=ozon_client_id, ozon_api_key=ozon_api_key,
+                                weight_grams=weight_grams, dimensions=dimensions,
+                                price_rub=price_rub, old_price_rub=old_price_rub,
+                                currency_code=currency_code, token=token,
+                                ru_category_path=re_ru_path,
+                            )
+                            if rebuild_result:
+                                description_category_id = re_cat_id
+                                type_id = re_type_id
+                                category_path = re_path
+                                ru_category_path = re_ru_path
+                                attr_list = rebuild_result["attr_list"]
+                                dict_lookup = rebuild_result["dict_lookup"]
+                                items = rebuild_result["items"]
+                                final_attributes = rebuild_result["final_attributes"]
+                                llm_attributes = final_attributes
+                                llm_name = rebuild_result["llm_name"]
+                                logger.info(f"   ✅ 类目变更+属性重建完成: {len(final_attributes)} 个属性")
+                            else:
+                                # 降级: 至少更新 attr_list
+                                new_attr_schema = query.get_attribute_schema(re_cat_id, re_type_id)
+                                if new_attr_schema:
+                                    if isinstance(new_attr_schema, dict) and new_attr_schema.get("result"):
+                                        attr_list = new_attr_schema["result"]
+                                    elif isinstance(new_attr_schema, list):
+                                        attr_list = new_attr_schema
+                                    logger.info(f"   ⚠️ 仅更新 schema（重建失败）: {len(attr_list)} 个属性")
+                                description_category_id = re_cat_id
+                                type_id = re_type_id
+                                category_path = re_path
+                                ru_category_path = re_ru_path
                             recategorize_failed = False
                             break
         except Exception as _re_match_e:
             logger.warning(f"   ⚠️ 重新匹配异常: {_re_match_e}")
 
         if recategorize_failed:
-            # 无法找到一致的类目，保留原类目 ID 让 Ozon 自行验证
-            # 不应返回空类目导致下游 type_id=0
-            logger.error(
-                f"❌ 类目一致性严重失败：产品「{llm_name[:60]}」与类目「{category_path}」无共同关键词，"
-                f"且重新匹配也失败。保留原类目 [{description_category_id}/{type_id}]，由 Ozon 验证。"
+            # ✅ v0.8.0 修复 Bug#3: re-match 失败 → LLM fallback，不再直接保留错误类目
+            logger.warning(f"   ⚠️ pg_trgm 重新匹配失败，触发 LLM fallback")
+            # 收集所有候选（来自初始 pg_trgm 搜索 + re-match 搜索）
+            all_candidates = candidates[:10]  # 初始 pg_trgm 搜索的 candidates (在外部作用域)
+            if re_candidates:
+                # 合并去重
+                seen = {(c.get("description_category_id"), c.get("type_id")) for c in all_candidates}
+                for rc in re_candidates:
+                    key = (rc.get("description_category_id"), rc.get("type_id"))
+                    if key not in seen:
+                        all_candidates.append(rc)
+                        seen.add(key)
+            # 提取产品中文关键词用于 LLM
+            product_keywords = _extract_keywords(
+                (draft or {}).get("title", ""),
+                (draft or {}).get("description", ""),
+                (draft or {}).get("attributes", {})
             )
-            # 继续使用原类目 ID —— 即使不一致，也比 type_id=0 好
+            best_by_llm = _llm_rank_categories(all_candidates[:5], product_keywords, draft, state)
+            if best_by_llm:
+                llm_cid = best_by_llm.get("description_category_id", 0)
+                llm_tid = best_by_llm.get("type_id", 0)
+                if llm_cid and llm_tid and (llm_cid != description_category_id or llm_tid != type_id):
+                    logger.info(f"✅ LLM fallback 重新分类: {description_category_id}/{type_id} → {llm_cid}/{llm_tid} ({best_by_llm.get('full_path', '')})")
+                    # ✅ v0.9.0: 类目变更后完整重建属性 schema + items + final_attributes
+                    rebuild_result = _rebuild_for_new_category(
+                        new_dc=llm_cid, new_type=llm_tid,
+                        draft=draft, images=images,
+                        ozon_client_id=ozon_client_id, ozon_api_key=ozon_api_key,
+                        weight_grams=weight_grams, dimensions=dimensions,
+                        price_rub=price_rub, old_price_rub=old_price_rub,
+                        currency_code=currency_code, token=token,
+                        ru_category_path=ru_category_path,
+                    )
+                    if rebuild_result:
+                        description_category_id = llm_cid
+                        type_id = llm_tid
+                        category_path = best_by_llm.get("full_path", category_path)
+                        attr_list = rebuild_result["attr_list"]
+                        dict_lookup = rebuild_result["dict_lookup"]
+                        items = rebuild_result["items"]
+                        final_attributes = rebuild_result["final_attributes"]
+                        llm_attributes = final_attributes
+                        llm_name = rebuild_result["llm_name"]
+                        # 更新俄语路径
+                        try:
+                            from sqlalchemy import text as _sql_text4
+                            with get_session() as _s4:
+                                _row4 = _s4.execute(_sql_text4(
+                                    "SELECT full_path FROM category_tree_nodes "
+                                    "WHERE description_category_id=:cid AND type_id=:tid AND language='RU' LIMIT 1"
+                                ), {"cid": llm_cid, "tid": llm_tid}).fetchone()
+                                if _row4:
+                                    ru_category_path = _row4[0]
+                        except Exception:
+                            pass
+                        logger.info(f"   ✅ 类目变更+属性重建完成: {len(final_attributes)} 个属性")
+                    else:
+                        # 降级: 至少更新 attr_list
+                        new_attr_schema = query.get_attribute_schema(llm_cid, llm_tid)
+                        if new_attr_schema:
+                            if isinstance(new_attr_schema, dict) and new_attr_schema.get("result"):
+                                attr_list = new_attr_schema["result"]
+                            elif isinstance(new_attr_schema, list):
+                                attr_list = new_attr_schema
+                        description_category_id = llm_cid
+                        type_id = llm_tid
+                        category_path = best_by_llm.get("full_path", category_path)
+                        try:
+                            from sqlalchemy import text as _sql_text4
+                            with get_session() as _s4:
+                                _row4 = _s4.execute(_sql_text4(
+                                    "SELECT full_path FROM category_tree_nodes "
+                                    "WHERE description_category_id=:cid AND type_id=:tid AND language='RU' LIMIT 1"
+                                ), {"cid": llm_cid, "tid": llm_tid}).fetchone()
+                                if _row4:
+                                    ru_category_path = _row4[0]
+                        except Exception:
+                            pass
+                        logger.warning(f"   ⚠️ 仅更新 schema（重建失败）: {len(attr_list)} 个属性")
+                else:
+                    logger.warning(f"   ⚠️ LLM fallback 选中相同类目或无变化")
+            else:
+                # LLM fallback 也失败 → 保留原类目 ID（降级到 pg_trgm 最高 sim）
+                logger.error(
+                    f"❌ 类目一致性严重失败：产品「{llm_name[:60]}」与类目「{category_path}」无共同关键词，"
+                    f"且 pg_trgm 和 LLM 重新匹配均失败。保留原类目 [{description_category_id}/{type_id}]，由 Ozon 验证。"
+                )
 
     # =====================================================
     # Step 7: 返回结果 dict（LangGraph 自动合并到 GlobalState）
@@ -704,6 +918,7 @@ def assemble_ozon_product_node(
         "llm_attributes": llm_attributes,
         "learned_attributes": {},
         "ozon_payloads": [{"items": items}],
+        "match_confidence": match_confidence,  # v5: 路由阻断用
         # 传递 LLM 生成的俄语标题
         "name": llm_name,
     }
@@ -730,6 +945,8 @@ def _extract_keywords(title: str, description: str, attributes: dict[str, Any]) 
         # 名词 > 动名词 > 形容词 > 其他（去噪）
         NOISE_WORDS = {'无', '手动', '全部', '展开', '参数', '厂家', '批发', '一件', '代发',
                        '跨境', '货源', '直销', '新款', '爆款', '热卖', '促销', '一件代发'}
+        # v0.8.0: 泛化词黑名单也用于过滤 jieba 关键词，防止语义稀释
+        _GENERIC_WORDS = {"运动", "休闲", "传统", "家用", "日用", "通用", "其他", "配件", "附件"}
         word_scores: list[tuple[str, float]] = []
         
         try:
@@ -737,7 +954,7 @@ def _extract_keywords(title: str, description: str, attributes: dict[str, Any]) 
                 w = word.strip()
                 if len(w) < 2:
                     continue
-                if w in NOISE_WORDS:
+                if w in NOISE_WORDS or w in _GENERIC_WORDS:
                     continue
                 # 词性权重：名词(n/ns/nr/nt/nz) = 3.0, 动名词(vn) = 2.0, 
                 #           形容词(a/an) = 1.5, 其他实词 = 1.0
@@ -755,8 +972,9 @@ def _extract_keywords(title: str, description: str, attributes: dict[str, Any]) 
         except Exception:
             # pseg 可能在某些平台上不可用，回退到普通分词
             words = list(jieba.cut(clean))
+            _noise = NOISE_WORDS | _GENERIC_WORDS
             meaningful = [w.strip() for w in words 
-                         if len(w.strip()) >= 2 and w.strip() not in NOISE_WORDS]
+                         if len(w.strip()) >= 2 and w.strip() not in _noise]
             return ' '.join(meaningful[:8])
         
         # 按分数降序排列，取前 8 个（或全部如果不足 8 个）
@@ -766,8 +984,9 @@ def _extract_keywords(title: str, description: str, attributes: dict[str, Any]) 
         if not top_words:
             # 如果过滤后为空，回退取所有 >=2 字的词
             words = list(jieba.cut(clean))
+            _noise = NOISE_WORDS | _GENERIC_WORDS
             meaningful = [w.strip() for w in words 
-                         if len(w.strip()) >= 2 and w.strip() not in NOISE_WORDS]
+                         if len(w.strip()) >= 2 and w.strip() not in _noise]
             return ' '.join(meaningful[:8])
         
         return ' '.join(top_words)
@@ -814,6 +1033,132 @@ def _check_category_consistency(
     elif overlap:
         logger.info(f"✅ 跨类目一致性通过：产品名与类目「{category_path}」匹配关键词: {overlap}")
     return True
+
+
+def _rebuild_for_new_category(
+    new_dc: int, new_type: int,
+    draft: dict, images: list,
+    ozon_client_id: str, ozon_api_key: str,
+    weight_grams: int, dimensions: dict,
+    price_rub: str, old_price_rub: str, currency_code: str,
+    token: str,
+    ru_category_path: str = "",
+) -> dict | None:
+    """
+    v0.9.0: 类目变更后重建属性 schema + items + final_attributes。
+    
+    类目变更时, LLM fallback 或 pg_trgm re-match 选中了新类目,
+    但 Step 4+5 已经用旧类目 schema 构建了 items 和 final_attributes。
+    此函数用新类目重新执行 Step 3→4→5→6。
+    
+    Returns: {"items", "final_attributes", "llm_name", "attr_list", "dict_lookup"} or None
+    """
+    try:
+        query = get_category_query()
+        
+        # Step 3': 获取新类目的属性 schema（PG 缓存优先, Ozon API 回退）
+        new_attr_list = query.get_attribute_schema(new_dc, new_type)
+        if new_attr_list:
+            if isinstance(new_attr_list, dict) and new_attr_list.get("result"):
+                new_attr_list = new_attr_list["result"]
+        if not new_attr_list:
+            # Ozon API 回退
+            logger.info(f"   PG 缓存未命中新类目 [{new_dc}/{new_type}]，调用 Ozon API...")
+            new_attr_list = _fetch_attribute_schema_from_ozon(
+                ozon_client_id, ozon_api_key, new_dc, new_type
+            )
+        if not new_attr_list:
+            logger.error(f"   ❌ 无法获取新类目 schema: [{new_dc}/{new_type}]")
+            return None
+        
+        logger.info(f"   ✅ 新类目 schema: {len(new_attr_list)} 个属性")
+        
+        # Step 3'': 预加载字典值（ZH_HANS，与初始逻辑一致）
+        new_dict_lookup: dict[int, list[dict[str, Any]]] = {}
+        for attr in new_attr_list:
+            dict_id = attr.get("dictionary_id", 0)
+            if dict_id and dict_id > 0:
+                attr_id = int(attr.get("id", 0))
+                values = query.get_dictionary_values(attr_id, new_dc, new_type)
+                if not values or (isinstance(values, list) and len(values) == 0):
+                    logger.info(f"   PG 缓存未命中 attr={attr_id}（新类目），调用 Ozon API...")
+                    values = _fetch_dict_values_from_ozon(
+                        ozon_client_id, ozon_api_key,
+                        new_dc, new_type, attr_id,
+                        language="ZH_HANS",
+                    )
+                    if values:
+                        _cache_dict_values(attr_id, new_dc, new_type, values, language="ZH_HANS")
+                if values and isinstance(values, list) and len(values) > 0:
+                    new_dict_lookup[attr_id] = values
+                elif isinstance(values, dict) and values.get("result"):
+                    new_dict_lookup[attr_id] = values["result"]
+        
+        logger.info(f"   ✅ 新类目字典值: {len(new_dict_lookup)} 个字典属性")
+        
+        # Step 4': 重建 items（确定性构建，不调 LLM）
+        new_items = _build_items_deterministically(
+            draft=draft,
+            description_category_id=new_dc,
+            type_id=new_type,
+            attr_list=new_attr_list,
+            dict_lookup=new_dict_lookup,
+            images=images,
+            ozon_client_id=ozon_client_id,
+            ozon_api_key=ozon_api_key,
+            weight_grams=weight_grams,
+            dimensions=dimensions,
+            price_rub=price_rub,
+            old_price_rub=old_price_rub,
+            currency_code=currency_code,
+            token=token,
+        )
+        if not new_items:
+            logger.error("   ❌ 新类目重建 items 失败")
+            return None
+        
+        # Step 5': 校验 + 补充必填属性
+        new_items = _validate_and_enrich_items(
+            items=new_items,
+            attr_list=new_attr_list,
+            dict_lookup=new_dict_lookup,
+            images=images,
+            ozon_client_id=ozon_client_id,
+            ozon_api_key=ozon_api_key,
+            description_category_id=new_dc,
+            type_id=new_type,
+            weight_grams=weight_grams,
+            dimensions=dimensions,
+            draft_title=draft.get("title", ""),
+            supplier=draft.get("supplier", ""),
+            ru_category_path=ru_category_path,
+        )
+        
+        # Step 6': 提取 final_attributes
+        new_final_attrs: list[dict[str, Any]] = []
+        if new_items and new_items[0].get("attributes"):
+            for attr in new_items[0]["attributes"]:
+                for v in (attr.get("values") or []):
+                    new_final_attrs.append({
+                        "attribute_id": attr["id"],
+                        "value": v.get("value", ""),
+                        "dictionary_value_id": v.get("dictionary_value_id", 0),
+                        "source": "llm",
+                    })
+        
+        new_llm_name = str(new_items[0].get("name", ""))[:500] if new_items and new_items[0].get("name") else ""
+        
+        logger.info(f"   ✅ 新类目重建完成: {len(new_items)} items, {len(new_final_attrs)} 属性")
+        return {
+            "items": new_items,
+            "final_attributes": new_final_attrs,
+            "llm_name": new_llm_name,
+            "attr_list": new_attr_list,
+            "dict_lookup": new_dict_lookup,
+        }
+    except Exception as e:
+        logger.error(f"   ❌ 新类目重建异常: {e}")
+        return None
 
 
 def _llm_match_category(
@@ -1111,6 +1456,7 @@ def _validate_and_enrich_items(
     dimensions: dict[str, int],
     draft_title: str = "",
     supplier: str = "",
+    ru_category_path: str = "",
 ) -> list[dict[str, Any]]:
     """校验并补充 items 字段（属性补全、品牌修正、hashtag 生成等）"""
 
@@ -1208,6 +1554,35 @@ def _validate_and_enrich_items(
                                 dict_val_id = dv.get("id", 0)
                                 logger.info(f"   ✅ 修正 dictionary_value_id: attr={attr_id}, value='{value}' → id={dict_val_id}")
                                 break
+                    # ✅ v0.9.0: 精确匹配失败 → /values/search API 模糊搜索
+                    if dict_val_id == 0 and value and len(str(value).strip()) >= 2:
+                        try:
+                            url = "https://api-seller.ozon.ru/v1/description-category/attribute/values/search"
+                            headers = {
+                                "Client-Id": ozon_client_id,
+                                "Api-Key": ozon_api_key,
+                                "Content-Type": "application/json",
+                            }
+                            payload = {
+                                "attribute_id": attr_id,
+                                "description_category_id": int(description_category_id),
+                                "type_id": int(type_id),
+                                "value": str(value).strip(),
+                                "limit": 3,
+                            }
+                            resp = session.post(url, json=payload, headers=headers, timeout=15)
+                            if resp.status_code == 200:
+                                search_data = resp.json()
+                                search_result = search_data.get("result", [])
+                                if search_result and len(search_result) > 0:
+                                    dict_val_id = search_result[0].get("id", 0)
+                                    matched_value = search_result[0].get("value", "")
+                                    logger.info(f"   ✅ /values/search 匹配: attr={attr_id}, '{value}' → id={dict_val_id}, value='{matched_value}'")
+                                else:
+                                    # 中文搜不到 → 翻译后俄语再搜
+                                    logger.info(f"   ⚠️ /values/search 无结果: attr={attr_id}, value='{value}'，尝试翻译后搜索")
+                        except Exception as _search_e:
+                            logger.warning(f"   ⚠️ /values/search 异常: attr={attr_id}, value='{value}': {_search_e}")
 
                 validated_values.append({
                     "dictionary_value_id": int(dict_val_id) if dict_val_id else 0,
@@ -1217,9 +1592,53 @@ def _validate_and_enrich_items(
             attr["values"] = validated_values
             validated_attrs.append(attr)
 
-        # === 补充缺失的必填属性 ===
+        # ✅ P0: attr=8229（Тип товара / 产品类型）主动填充
+        # 用俄语类目路径的末级名称（如 "Секаторы"），这是 Ozon 审核的关键属性
+        TYPE_ATTR_ID = 8229
         present_ids = {int(a["id"]) for a in validated_attrs if "id" in a}
         missing_required = required_attr_ids - present_ids
+        type_attr = next((a for a in validated_attrs if int(a.get("id", 0)) == TYPE_ATTR_ID), None)
+        if not type_attr and ru_category_path:
+            type_name = ru_category_path.split(">")[-1].strip()
+            if type_name:
+                # 查找 8229 的 schema 确认是字典还是文本属性
+                schema_8229 = attr_by_id.get(TYPE_ATTR_ID, {})
+                if schema_8229.get("dictionary_id", 0) > 0:
+                    # 字典属性：搜索匹配的字典值
+                    dict_vals = dict_lookup.get(TYPE_ATTR_ID, [])
+                    found = False
+                    if isinstance(dict_vals, list):
+                        for dv in dict_vals:
+                            if isinstance(dv, dict) and dv.get("value", "").lower() == type_name.lower():
+                                validated_attrs.append({
+                                    "complex_id": 0, "id": TYPE_ATTR_ID,
+                                    "values": [{"dictionary_value_id": dv["id"], "value": dv["value"]}],
+                                })
+                                found = True
+                                logger.info(f"   🎯 attr 8229 精确匹配: {type_name} (dict_id={dv['id']})")
+                                break
+                    if not found and isinstance(dict_vals, list) and dict_vals:
+                        # 模糊匹配
+                        for dv in dict_vals:
+                            if isinstance(dv, dict) and (type_name.lower() in dv.get("value", "").lower() or dv.get("value", "").lower() in type_name.lower()):
+                                validated_attrs.append({
+                                    "complex_id": 0, "id": TYPE_ATTR_ID,
+                                    "values": [{"dictionary_value_id": dv["id"], "value": dv["value"]}],
+                                })
+                                found = True
+                                logger.info(f"   🎯 attr 8229 模糊匹配: {type_name} → {dv['value']}")
+                                break
+                    if not found:
+                        logger.warning(f"   ⚠️ attr 8229 在字典中未找到 '{type_name}'，跳过（交由 Ozon 验证）")
+                else:
+                    # 自由文本属性：直接用俄语类目末级
+                    validated_attrs.append({
+                        "complex_id": 0, "id": TYPE_ATTR_ID,
+                        "values": [{"dictionary_value_id": 0, "value": type_name}],
+                    })
+                    logger.info(f"   🎯 attr 8229 文本填充: {type_name}")
+            elif TYPE_ATTR_ID in missing_required:
+                missing_required.discard(TYPE_ATTR_ID)  # 已处理过
 
         # 特殊属性的已知默认值（常见必填属性）
         KNOWN_DEFAULTS: dict[int, str] = {
@@ -1584,9 +2003,9 @@ _HASHTAG_RU: dict[str, str] = {
 
 
 def _generate_hashtags(name: str) -> str:
-    """根据俄语标题生成 3-5 个 hashtag"""
+    """根据俄语标题生成 3-5 个 hashtag（不含品牌名）"""
     if not name:
-        return "#товар #ozon"
+        return "#товар"
 
     name_lower = name.lower()
     tags: list[str] = []
@@ -1605,10 +2024,169 @@ def _generate_hashtags(name: str) -> str:
         meaningful = [w for w in words if w not in stopwords][:4]
         if meaningful:
             tags = [f"#{w}" for w in meaningful]
-            # 补充通用标签
             tags.append("#товар")
         else:
-            tags = ["#товар", "#ozon"]
+            tags = ["#товар"]
 
     return " ".join(tags[:5])
+
+
+def _llm_rank_categories(
+    candidates: list[dict], keywords: str, draft: dict, state
+) -> dict | None:
+    """v4 LLM fallback：低置信度时让 LLM 从候选类目中选最佳匹配。
+    增强：domain_hint 引导 + 1688类目面包屑
+    """
+    try:
+        from utils.mxou_api import call_mxou_chat_api
+
+        product_title = (draft or {}).get("title", "") or getattr(state, "competitor_name", "") or ""
+        product_attrs = (draft or {}).get("attributes", {}) or {}
+        source_cat = (draft or {}).get("source_category", "") or ""
+        attr_text = ", ".join(f"{k}={v}" for k, v in (product_attrs.items() if isinstance(product_attrs, dict) else []) if v)[:200]
+
+        # v4: Load domain hints for LLM guidance
+        domain_guidance = ""
+        try:
+            from utils.ozon_category_query import get_category_query
+            hints = get_category_query()._load_domain_hints()
+            if hints:
+                kw_set = set((keywords or "").lower().split())
+                triggered = []
+                for dh in hints:
+                    for kw in kw_set:
+                        if kw in (dh.get("trigger_keywords") or []):
+                            triggered.append(dh)
+                            break
+                if triggered:
+                    guide_lines = []
+                    for t in triggered[:3]:
+                        g = f"  - 优先: {t['target_top_category']}"
+                        if t.get("exclude_top_category"):
+                            g += f" (排除: {t['exclude_top_category']})"
+                        guide_lines.append(g)
+                    domain_guidance = "领域规则:\n" + "\n".join(guide_lines) + "\n"
+        except Exception:
+            pass
+
+        cand_text = "\n".join(
+            f"{i+1}. {c.get('full_path', '')} (sim={c.get('similarity', 0):.2f})"
+            for i, c in enumerate(candidates)
+        )
+
+        prompt = f"""Choose the best Ozon category for this product.
+
+产品: {product_title[:100]}
+1688类目: {source_cat[:100]}
+关键词: {keywords[:100]}
+属性: {attr_text or 'N/A'}
+{domain_guidance}
+候选类目:
+{cand_text}
+
+返回 ONLY 数字 (1-{len(candidates)})，不解释。"""
+
+        result = call_mxou_chat_api(
+            token=getattr(state, "token", ""),
+            system_prompt="You are a product categorization expert. Follow domain rules if provided.",
+            user_prompt=prompt,
+            model="deepseek-v4-flash", temperature=0.0, max_tokens=10,
+        )
+        if result and result.strip().isdigit():
+            idx = int(result.strip()) - 1
+            if 0 <= idx < len(candidates):
+                return candidates[idx]
+    except Exception as e:
+        logger.warning("LLM category ranking failed: %s", e)
+    return None
+
+
+# ═══════════════════════════════════════════════════════════
+# v4: 分层类目匹配 (L0→L1→L2)
+# ═══════════════════════════════════════════════════════════
+
+def _match_category_layered(
+    query, source_category: str, source_keywords: str, keywords: str,
+    candidates: list, leaf_name: str,
+) -> dict | None:
+    """L0: 学习缓存查找 → 高置信命中直接返回；否则返回 None"""
+    if not source_category or not leaf_name:
+        return None
+    try:
+        from utils.local_db_manager import LocalDBManager as _LDB
+        mappings = _LDB().get_category_mapping_by_leaf(leaf_name)
+        logger.info(f"L0 lookup: leaf='{leaf_name}' → {len(mappings or [])} results")
+        if not mappings:
+            logger.info(f"L0 miss: no mapping for '{leaf_name}'")
+            return None
+        best = mappings[0]
+        logger.info(f"L0 candidate: succ={best.get('success_count')} conf={best.get('confidence')} dc={best.get('description_category_id')}")
+        if best.get("success_count", 0) < 1 or best.get("confidence", 0) < 0.6:
+            logger.info(f"L0 skip: succ={best.get('success_count')} conf={best.get('confidence')} below threshold")
+            return None
+        verified = query.get_node(best["description_category_id"], best["type_id"])
+        if not verified:
+            logger.warning(f"L0 fail: dc={best['description_category_id']} type={best['type_id']} not found in PG")
+            return None
+        logger.info(f"🎯 L0命中: '{leaf_name}' → [{best['description_category_id']}/{best['type_id']}] "
+                    f"success={best['success_count']} conf={best['confidence']:.2f}")
+        return {
+            "description_category_id": best["description_category_id"],
+            "type_id": best["type_id"],
+            "category_path": best.get("category_path_zh", "") or verified.get("full_path", ""),
+            "confidence": "high",
+            "reason": f"L0 learned (leaf='{leaf_name}', success={best['success_count']})",
+        }
+    except Exception as e:
+        logger.debug(f"L0 skip: {e}")
+        return None
+
+
+def _apply_fingerprint_rerank(query, candidates: list, source_keywords: str, keywords: str) -> list:
+    """L2: 指纹重排"""
+    jieba_kw = [w.strip() for w in (source_keywords or keywords).split() if len(w.strip()) >= 2]
+    if not jieba_kw:
+        jieba_kw = [w.strip() for w in keywords.split() if len(w.strip()) >= 2]
+    if jieba_kw and len(candidates) > 1:
+        candidates = query.score_candidates_by_fingerprint(candidates, jieba_kw)
+        if candidates:
+            best = candidates[0]
+            logger.info(f"🔢 L2指纹: top={best['node_name'][:30]} fp={best.get('fingerprint_score',0):.2f}")
+    return candidates
+
+
+def _log_match_attempt(state, title: str, source_category: str, keywords: str,
+                       category_result: dict, match_layer: str, confidence: float,
+                       candidates: list) -> None:
+    """v4: 写入 category_match_log 审计表"""
+    try:
+        import json as _json, psycopg2 as _pg
+        from storage.database.db import get_db_url as _gdu
+        task_id = getattr(state, 'task_id', '') or ''
+        if not task_id:
+            logger.warning(f"match_log skip: task_id is empty (state type={type(state).__name__})")
+            return
+        conn = _pg.connect(_gdu())
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO category_match_log (task_id, source_title, source_category, source_keywords,
+                    matched_description_category_id, matched_type_id, match_layer, confidence, candidates_json)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+            """, (
+                task_id, (title or "")[:500], (source_category or "")[:500],
+                [w.strip() for w in keywords.split() if len(w.strip()) >= 2][:20],
+                int(category_result.get("description_category_id", 0)),
+                int(category_result.get("type_id", 0)),
+                match_layer, confidence,
+                _json.dumps([{"dc": c.get("description_category_id"), "tp": c.get("type_id"),
+                    "name": c.get("node_name", ""), "sim": c.get("similarity", 0),
+                    "fp": c.get("fingerprint_score", 0), "path": c.get("full_path", "")
+                } for c in (candidates or [])[:15]], ensure_ascii=False),
+            ))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f"match_log write failed (non-fatal): {e}")
 

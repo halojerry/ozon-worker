@@ -112,6 +112,9 @@ def _convert_to_jpeg(src_path: str, quality: int = 90, resize_to: tuple | None =
         os.unlink(tmp.name)
         raise
 
+    # ✅ 注册 atexit 清理，防止临时文件累积
+    import atexit
+    atexit.register(lambda p=tmp.name: os.unlink(p) if os.path.exists(p) else None)
     return tmp.name
 
 

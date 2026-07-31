@@ -52,8 +52,8 @@ jobs:
       - name: Install dependencies
         working-directory: worker
         run: |
-          pip install -r requirements.txt 2>/dev/null || pip install requests pydantic fastapi uvicorn sqlalchemy psycopg2-binary langchain-core langgraph supabase
-          pip install pytest
+          pip install -e . 2>/dev/null || pip install requests pydantic fastapi uvicorn sqlalchemy psycopg2-binary langchain-core langgraph langgraph-checkpoint supabase jinja2 jieba chardet python-dotenv websocket-client pandas openpyxl
+          pip install pytest pytest-asyncio
       - name: Run tests
         working-directory: worker
         run: python -m pytest tests/ -v --tb=short

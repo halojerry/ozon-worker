@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+    paths-ignore: ['**.md', 'docs/**', 'skill/data/**', 'deploy/**']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ═══ Syntax: 全量 .py（阻断）═══
+  syntax:
+    name: Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: |
+          errors=$(find . -name "*.py" \
+            -not -path "./.venv/*" -not -path "./.git/*" \
+            -not -path "*/__pycache__/*" -not -path "*/.pytest_cache/*" \
+            -not -path "*/dist/*" -not -path "*/build/*" -not -path "*/site-packages/*" \
+            -exec sh -c 'python3 -c "import py_compile; py_compile.compile(\"$1\",doraise=True)" 2>/dev/null || echo $1' _ {} \;)
+          [ -z "$errors" ] && echo "✅ 语法通过" || { echo "$errors"; exit 1; }
+
+  # ═══ Quality: pyflakes (快速，仅 Blocking 错误) ═══
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    needs: syntax
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install pyflakes
+      - run: pyflakes worker/src/ || true
+      - run: pyflakes skill/scripts/ || true
+
+  # ═══ Import: 核心模块导入验证 ═══
+  imports:
+    name: Import
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: |
+          pip install pydantic fastapi sqlalchemy requests websocket-client Pillow -q
+          cd worker && PYTHONPATH=src python -c "
+          from api.errors import WorkerErrorCode, error_response
+          from api.schemas import SubmitTaskRequest, TaskStatusResponse
+          print('✅ Worker')
+          "
+          cd ../skill && PYTHONPATH=scripts python -c "
+          from scripts.lib.utils import parse_price
+          from scripts._const import CLOUD_API_BASE
+          print('✅ Skill')
+          "
+
+  # ═══ Build: Docker ═══
+  build:
+    name: Docker
+    runs-on: ubuntu-latest
+    needs: imports
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t ozon-worker:ci -f worker/Dockerfile worker/ && echo "✅ Docker 构建成功"

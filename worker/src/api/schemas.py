@@ -83,6 +83,7 @@ class TaskStatusResponse(BaseModel):
     started_at: Optional[datetime] = Field(None, description="开始执行时间")
     completed_at: Optional[datetime] = Field(None, description="完成时间")
     timeout_seconds: int = Field(1800, description="超时时间（秒）")
+    progress: Optional[dict[str, Any]] = Field(None, description="实时进度 {stage, percent, stages_completed[], stages_remaining[], message}")
 
 
 # ──────────────────────────────────────────────

@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, DateTime, Identity, Index, Integer, JSON, PrimaryKeyConstraint, Text, text, String, Float, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, Identity, Index, Integer, JSON, PrimaryKeyConstraint, Text, text, String, Float, UniqueConstraint, ARRAY, func
 from typing import Optional
 import datetime
 import uuid
@@ -45,6 +45,10 @@ class OzonProductTask(Base):
         DateTime(timezone=True), nullable=True
     )
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=1800)
+    progress: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True,
+        comment="实时进度数据 {stage, percent, stages_completed[], stages_remaining[], message}"
+    )
 
     __table_args__ = (
         Index(
@@ -236,4 +240,93 @@ class CategoryTreeNode(Base):
             text("full_path gist_trgm_ops"),
             postgresql_using="gist",
         ),
+    )
+
+
+class CategoryMapping(Base):
+    """v4: 1688→Ozon 类目映射学习表"""
+    __tablename__ = "category_mapping"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    source_category_leaf: Mapped[str] = mapped_column(String(300), nullable=False)
+    source_category_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_keywords: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)
+    description_category_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    type_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    category_path_zh: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    category_path_ru: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.7)
+    success_count: Mapped[int] = mapped_column(Integer, default=1)
+    fail_count: Mapped[int] = mapped_column(Integer, default=0)
+    source: Mapped[str] = mapped_column(String(50), default="pg_trgm")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_failed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("source_category_leaf", "description_category_id", "type_id"),
+        Index("idx_cat_map_leaf", "source_category_leaf"),
+        Index("idx_cat_map_confidence", "confidence", "success_count"),
+    )
+
+
+class AttributeSynonym(Base):
+    """v4: 1688→Ozon 属性名同义词表"""
+    __tablename__ = "attribute_synonym"
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    source_attr_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_ozon_attr_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    target_ozon_attr_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.8)
+    usage_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    __table_args__ = (
+        UniqueConstraint("source_attr_name", "target_ozon_attr_id"),
+        Index("idx_attr_syn_name", "source_attr_name"),
+    )
+
+
+class CategoryMatchLog(Base):
+    """v4: 类目匹配审计日志 — 每次匹配尝试记录，用于评估准确率和A/B测试"""
+    __tablename__ = "category_match_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    task_id: Mapped[str] = mapped_column(Text, nullable=False)
+    source_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_category: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_keywords: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)
+    matched_description_category_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    matched_type_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    matched_path_zh: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    matched_path_ru: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    match_layer: Mapped[str] = mapped_column(String(10), nullable=False)
+    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    candidates_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    llm_raw_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    upload_success: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    upload_error_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_match_log_task", "task_id"),
+        Index("idx_match_log_layer", "match_layer", "created_at"),
+    )
+
+
+class DomainHint(Base):
+    """v4: 领域消歧规则 — 特定关键词强制导向某Ozon顶级类目"""
+    __tablename__ = "domain_hint"
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    trigger_keywords: Mapped[list] = mapped_column(ARRAY(String), nullable=False)
+    target_top_category: Mapped[str] = mapped_column(Text, nullable=False)
+    exclude_top_category: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_domain_hint_active", "priority"),
     )

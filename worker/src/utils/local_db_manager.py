@@ -22,6 +22,8 @@ from storage.database.shared.model import (
     ExchangeRate,
     OzonAttributeMapping,
     GatewayTask,
+    CategoryMapping,
+    AttributeSynonym,
 )
 
 logger = logging.getLogger(__name__)
@@ -389,6 +391,95 @@ class LocalDBManager:
                 session.add(new_mapping)
                 session.commit()
                 logger.info(f"✅ PG 写入成功：ozon_attribute_mappings（新映射）")
+        finally:
+            session.close()
+
+    # ═══════════════════════════════════════════════════
+    # v4: Category Mapping CRUD (学习缓存)
+    # ═══════════════════════════════════════════════════
+
+    def get_category_mapping_by_leaf(self, source_category_leaf: str) -> List[Dict[str, Any]]:
+        session = get_session()
+        try:
+            rows = session.execute(
+                select(CategoryMapping)
+                .where(and_(CategoryMapping.source_category_leaf == source_category_leaf, CategoryMapping.is_active == True))
+                .order_by(CategoryMapping.success_count.desc(), CategoryMapping.last_used_at.desc())
+            ).scalars().all()
+            return [{
+                "id": r.id, "source_category_leaf": r.source_category_leaf,
+                "source_category_path": r.source_category_path,
+                "source_keywords": r.source_keywords,
+                "description_category_id": r.description_category_id,
+                "type_id": r.type_id,
+                "category_path_zh": r.category_path_zh,
+                "category_path_ru": r.category_path_ru,
+                "confidence": r.confidence,
+                "success_count": r.success_count, "fail_count": r.fail_count,
+                "source": r.source, "is_active": r.is_active,
+            } for r in rows]
+        finally:
+            session.close()
+
+    def add_category_mapping(self, source_category_leaf: str, description_category_id: int,
+                             type_id: int, source_category_path: Optional[str] = None,
+                             source_keywords: Optional[List[str]] = None,
+                             category_path_zh: Optional[str] = None,
+                             category_path_ru: Optional[str] = None,
+                             confidence: float = 0.7, source: str = "llm") -> None:
+        import datetime as _dt
+        session = get_session()
+        try:
+            existing = session.execute(
+                select(CategoryMapping).where(and_(
+                    CategoryMapping.source_category_leaf == source_category_leaf,
+                    CategoryMapping.description_category_id == description_category_id,
+                    CategoryMapping.type_id == type_id,
+                ))
+            ).scalar_one_or_none()
+            if existing:
+                existing.success_count = (existing.success_count or 0) + 1
+                existing.last_used_at = _dt.datetime.now(_dt.timezone.utc)
+                if source_category_path: existing.source_category_path = source_category_path
+                if source_keywords: existing.source_keywords = source_keywords
+                if category_path_zh: existing.category_path_zh = category_path_zh
+                if category_path_ru: existing.category_path_ru = category_path_ru
+                existing.confidence = max(existing.confidence or 0, confidence)
+                session.commit()
+            else:
+                session.add(CategoryMapping(
+                    source_category_leaf=source_category_leaf,
+                    source_category_path=source_category_path,
+                    source_keywords=source_keywords or [],
+                    description_category_id=description_category_id,
+                    type_id=type_id, category_path_zh=category_path_zh,
+                    category_path_ru=category_path_ru, confidence=confidence,
+                    source=source, success_count=1, fail_count=0, is_active=True,
+                    last_used_at=_dt.datetime.now(_dt.timezone.utc),
+                ))
+                session.commit()
+        finally:
+            session.close()
+
+    def get_attr_synonyms(self, source_attr_names: List[str]) -> Dict[str, Dict[str, Any]]:
+        if not source_attr_names:
+            return {}
+        session = get_session()
+        try:
+            rows = session.execute(
+                select(AttributeSynonym)
+                .where(AttributeSynonym.source_attr_name.in_(source_attr_names))
+                .order_by(AttributeSynonym.confidence.desc())
+            ).scalars().all()
+            result = {}
+            for r in rows:
+                if r.source_attr_name not in result:
+                    result[r.source_attr_name] = {
+                        "target_name": r.target_ozon_attr_name,
+                        "target_id": r.target_ozon_attr_id,
+                        "confidence": r.confidence,
+                    }
+            return result
         finally:
             session.close()
 

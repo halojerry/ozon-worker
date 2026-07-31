@@ -18,8 +18,8 @@ import re
 import json
 import time
 import logging
-import requests
 from utils.http_session import session
+from utils.title_sanitizer import sanitize_title
 from typing import Dict, List, Any, Optional
 from jinja2 import Template
 from pydantic import BaseModel, Field
@@ -101,6 +101,7 @@ class ValidationRetryLoopInput(BaseModel):
     description_category_id: str = Field(..., description="Ozon类目ID")
     type_id: str = Field(default="", description="Ozon类型ID")
     task_id: str = Field(default="", description="任务ID")
+    product_id: str = Field(default="", description="商品ID（ozon_status 已分配）")  # ← 关键！用于靶向修复
 
     purchase_url: str = Field(default="", description="采购链接")
     purchase_cost: str = Field(default="", description="采购成本")
@@ -225,97 +226,8 @@ def classify_fix_type(error_code: str) -> str:
 # 辅助函数
 # ============================================================
 
-def _sanitize_title(title: str) -> str:
-    """
-    标题后校验：确保标题符合Ozon规范（对标 prepare_ozon_upload_node._sanitize_title）
-    1. 去除拉丁字母和中文（Ozon 要求 100% 西里尔字母）
-    2. 去除营销词汇
-    3. 长度≤80字符（超长截断到最近的单词边界）
-    4. 含标点符号（长标题无标点时自动添加）
-    5. 无关键词堆砌（连续4+个名词无标点时，在适当位置插入逗号）
-    """
-    if not title or not title.strip():
-        return title
-
-    title = title.strip()
-
-    # 0. 去除拉丁字母和中文字符 — Ozon 完全禁止非西里尔字符
-    _cyrillic_re = re.compile(r'[а-яА-ЯёЁ]')
-    _latin_re = re.compile(r'[a-zA-Z]{2,}')
-    _chinese_re = re.compile(r'[\u4e00-\u9fff]+')
-    title = _chinese_re.sub('', title)
-    title = _latin_re.sub('', title)
-    # 清理多余空格
-    title = re.sub(r'\s+', ' ', title).strip()
-
-    # 如果没有西里尔字符，返回空字符串触发 fallback
-    if not _cyrillic_re.search(title):
-        return ""
-
-    # 去除营销词汇
-    _marketing_words = {
-        'супер', 'лучший', 'новинка', 'хит', 'популярный', 'топ', 'акция',
-        'скидка', 'распродажа', 'бесплатный', 'дешевый', 'элитный',
-        'hot', 'best', 'new', 'sale', 'top', 'cheap', 'free', 'premium',
-    }
-    words = title.split()
-    cleaned_words = [w for w in words if w.lower().strip('.,!?') not in _marketing_words]
-    if cleaned_words:
-        title = ' '.join(cleaned_words)
-
-    # 1. 长度校验：≤80字符
-    if len(title) > 80:
-        # 截断到最近的空格边界（不截断单词）
-        truncated: str = title[:80]
-        last_space: int = truncated.rfind(' ')
-        if last_space > 20:  # 确保截断后不会太短
-            truncated = truncated[:last_space]
-        title = truncated
-        logger.warning(f"⚠️ 标题超长，截断为：{title}")
-
-    # 2. 标点符号校验：如果标题>30字符且不含任何标点，添加标点
-    punctuation_chars: set = {'.', ',', '-', '°', '(', ')', '/', ':', '–', '—'}
-    has_punct: bool = any(ch in punctuation_chars for ch in title)
-    if len(title) > 30 and not has_punct:
-        # 在中间位置找空格，替换为逗号
-        mid: int = len(title) // 2
-        for i in range(mid, len(title)):
-            if title[i] == ' ':
-                title = title[:i] + ',' + title[i:]
-                break
-        if not any(ch in punctuation_chars for ch in title):
-            # 兜底：末尾加句号
-            title = title + '.'
-        logger.warning(f"⚠️ 标题无标点，已补救：{title}")
-
-    # 3. 关键词堆砌检测：连续4+个单词（每个≥4字符）无标点分隔
-    words2: list = title.split()
-    if len(words2) >= 5:
-        consecutive_nouns: int = 0
-        needs_fix: bool = False
-        for w in words2:
-            if len(w) >= 4 and not any(ch in punctuation_chars for ch in w):
-                consecutive_nouns += 1
-                if consecutive_nouns >= 4:
-                    needs_fix = True
-                    break
-            else:
-                consecutive_nouns = 0
-
-        if needs_fix:
-            # 在第3个长词后插入逗号
-            fixed_words: list = []
-            long_count: int = 0
-            for w in words2:
-                fixed_words.append(w)
-                if len(w) >= 4 and not any(ch in punctuation_chars for ch in w):
-                    long_count += 1
-                    if long_count == 3:
-                        fixed_words[-1] = w + ','
-            title = ' '.join(fixed_words)
-            logger.warning(f"⚠️ 检测到关键词堆砌，已插入标点：{title}")
-
-    return title
+# ── 标题净化（v4: 提取到 utils/title_sanitizer.py，共享于 prepare + retry）──
+# sanitize_title() 已从 utils.title_sanitizer 导入
 
 
 def _call_ozon_api(ozon_client_id: str, ozon_api_key: str, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -401,9 +313,10 @@ def _get_attribute_schema(ozon_client_id: str, ozon_api_key: str,
 
 def _call_mxou_llm(token: str, config_path: str, context_vars: Dict[str, Any]) -> str:
     """
-    调用mxou LLM API
-    使用Bearer {token}鉴权，与图片生成节点一致
+    调用mxou LLM API — 委托给统一的 call_mxou_chat_api（含 thinking 禁用 + reasoning_content 回退）
     """
+    from utils.mxou_api import call_mxou_chat_api
+
     cfg_file: str = os.path.join(os.getenv("APP_WORKSPACE_PATH", ""), config_path)
     with open(cfg_file, "r", encoding="utf-8") as fd:
         cfg: Dict[str, Any] = json.load(fd)
@@ -412,43 +325,24 @@ def _call_mxou_llm(token: str, config_path: str, context_vars: Dict[str, Any]) -
     sp: str = cfg.get("sp", "")
     up: str = cfg.get("up", "")
 
-    # 渲染用户提示词
     up_tpl: Template = Template(up)
     user_prompt: str = up_tpl.render(context_vars)
 
-    headers: Dict[str, str] = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    payload: Dict[str, Any] = {
-        "model": llm_config.get("model", "deepseek-v4-flash"),
-        "messages": [
-            {"role": "system", "content": sp},
-            {"role": "user", "content": user_prompt}
-        ],
-        "temperature": llm_config.get("temperature", 0.3),
-        "max_tokens": llm_config.get("max_completion_tokens", 4096)
-    }
+    model = llm_config.get("model", "deepseek-v4-flash")
+    temperature = llm_config.get("temperature", 0.3)
+    max_tokens = llm_config.get("max_completion_tokens", 4096)
 
-    try:
-        response = session.post(
-            "https://api.mxou.cn/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=60
-        )
-        if response.status_code == 200:
-            result: Dict[str, Any] = response.json()
-            choices: list = result.get("choices", [])
-            if choices and len(choices) > 0:
-                content: str = choices[0].get("message", {}).get("content", "")
-                logger.info(f"mxou LLM返回内容长度: {len(content)}")
-                return content
-        logger.error(f"mxou LLM返回 {response.status_code}: {response.text[:300]}")
-        return ""
-    except Exception as e:
-        logger.error(f"mxou LLM调用异常: {e}")
-        return ""
+    result = call_mxou_chat_api(
+        token=token,
+        system_prompt=sp,
+        user_prompt=user_prompt,
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    if result:
+        logger.info(f"mxou LLM返回内容长度: {len(result)}")
+    return result or ""
 
 
 # ============================================================
@@ -468,7 +362,20 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
         state.retry_count += 1
         return state
 
-    first_error: Dict[str, Any] = errors[0] if isinstance(errors[0], dict) else {}
+    # ✅ v0.11: 批量处理 — 按 fix_type 分组，同类型错误一次修完
+    # 例：3个属性错误 → 一次 attributes/update 调用全修
+    from collections import defaultdict
+    grouped: dict = defaultdict(list)
+    for err in errors:
+        if isinstance(err, dict):
+            ft = classify_fix_type(err.get("code", "UNKNOWN"))
+            grouped[ft].append(err)
+
+    # 取数量最多的类型优先处理
+    fix_type = max(grouped, key=lambda k: len(grouped[k]))
+    batch = grouped[fix_type]
+    
+    first_error = batch[0]
     error_code: str = first_error.get("code", "UNKNOWN")
     attribute_id: Any = first_error.get("attribute_id", 0)
     texts: Dict[str, Any] = first_error.get("texts", {})
@@ -479,9 +386,10 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
     except (ValueError, TypeError):
         attr_id = 0
 
-    # ✅ A1修复：从errors数组中移除已处理的错误，避免反复修同一个错误
-    state.errors = errors[1:]
-    logger.info(f"📋 移除已处理错误，剩余{len(state.errors)}个待处理")
+    # 移除已处理的同类型错误，保留其他类型的
+    batch_codes = {e.get("code") for e in batch if isinstance(e, dict)}
+    state.errors = [e for e in errors if isinstance(e, dict) and e.get("code") not in batch_codes]
+    logger.info(f"📋 批量处理: {len(batch)}个 '{fix_type}' 错误，剩余{len(state.errors)}个其他类型")
 
     state.error_code = error_code
     state.attribute_id = attr_id
@@ -588,6 +496,31 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
 
     error_code: str = state.error_code
     attr_id: int = state.attribute_id
+
+    # ✅ v0.11: BR_hashtag_brand 专用修复 — 从产品名重新生成合规 hashtag
+    if error_code == "BR_hashtag_brand":
+        logger.info("🔧 BR_hashtag_brand: 重新生成不含品牌名的 hashtag")
+        items = state.ozon_payload.get("items", [])
+        for item in items:
+            product_name = item.get("name", "") or state.product_name or ""
+            from graphs.nodes.assemble_ozon_product_node import _generate_hashtags as _gen_tags
+            new_tags = _gen_tags(product_name)
+            attrs = item.get("attributes", [])
+            for a in attrs:
+                if a.get("id") == 23171:
+                    a["value"] = new_tags
+                    a["dictionary_value_id"] = 0
+                    logger.info(f"   ✅ hashtag #23171 已修正: {new_tags}")
+                    break
+            else:
+                # 23171 不存在，补充
+                attrs.append({"id": 23171, "value": new_tags, "dictionary_value_id": 0})
+                logger.info(f"   ✅ hashtag #23171 已补充: {new_tags}")
+            item["attributes"] = attrs
+        state.error_type = "retry"
+        state.repair_node = "revalidate"
+        return state
+
     token: str = state.token
     ozon_client_id: str = state.ozon_client_id
     ozon_api_key: str = state.ozon_api_key
@@ -615,11 +548,30 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         best_category_id = None
         best_type_name = ""
 
+        # ✅ P2 修复：Ozon API 优先（权威、实时），pg_trgm 降级为 fallback
+        # 原因：PG 缓存可能过时，自修复需要最新数据
+        logger.info("🔍 优先使用 Ozon API 查找替代 type_id（实时数据）")
+        try:
+            alt_type_id = _find_alternative_type_id(
+                ozon_client_id, ozon_api_key,
+                int(category_id) if category_id else 0,
+                int(type_id) if type_id else 0
+            )
+            if alt_type_id and str(alt_type_id) != str(type_id):
+                logger.info(f"✅ Ozon API 替代 type_id: {type_id} → {alt_type_id}")
+                state.type_id = str(alt_type_id)
+                for item in state.ozon_payload.get("items", []):
+                    if isinstance(item, dict):
+                        item["type_id"] = int(alt_type_id)
+                return state
+        except Exception as _e:
+            logger.warning(f"⚠️ Ozon API 查找替代 type_id 失败: {_e}")
+
+        # Ozon API 无结果 → pg_trgm 降级（使用缓存数据）
         if product_name:
             try:
                 from utils.ozon_category_query import get_category_query
                 query = get_category_query()
-                # pg_trgm 搜索 RU 类目树，找最匹配的 type
                 candidates = query.search_nodes(
                     product_name[:100], top_k=5, node_type="type", language="RU"
                 )
@@ -629,17 +581,15 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                     best_category_id = best.get("description_category_id")
                     best_type_name = best.get("node_name", "")
                     logger.info(
-                        f"🔍 pg_trgm 搜索完成: '{product_name[:60]}' → "
-                        f"type_id={best_type_id}, type_name='{best_type_name}', "
-                        f"category_id={best_category_id}"
+                        f"🔍 pg_trgm 降级搜索: '{product_name[:60]}' → "
+                        f"type_id={best_type_id}, type_name='{best_type_name}'"
                     )
 
-                    # 关键词重叠验证（产品名 vs type_name）
+                    # 关键词重叠验证
                     _prod_words = set(product_name.lower().replace(',', ' ').split())
                     _type_words = set(best_type_name.lower().replace(',', ' ').split())
                     _overlap = _prod_words & _type_words
                     if not _overlap and len(candidates) > 1:
-                        # 第一名无关键词重叠，尝试第二名
                         for cand in candidates[1:]:
                             _tw = set(cand.get("node_name", "").lower().replace(',', ' ').split())
                             if _prod_words & _tw:
@@ -647,44 +597,22 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                                 best_type_id = best.get("type_id")
                                 best_category_id = best.get("description_category_id")
                                 best_type_name = best.get("node_name", "")
-                                logger.info(f"🔍 关键词重叠回退到候选: type_id={best_type_id}, '{best_type_name}'")
                                 break
+
+                    if best_type_id and str(best_type_id) != str(type_id):
+                        logger.info(f"🔧 pg_trgm type 修复: {type_id} → {best_type_id}")
+                        state.type_id = str(best_type_id)
+                        for item in state.ozon_payload.get("items", []):
+                            if isinstance(item, dict):
+                                item["type_id"] = int(best_type_id)
+                        if best_category_id and str(best_category_id) != str(category_id):
+                            state.description_category_id = str(best_category_id)
+                            for item in state.ozon_payload.get("items", []):
+                                if isinstance(item, dict):
+                                    item["description_category_id"] = int(best_category_id)
+                        return state
             except Exception as _pg_e:
-                logger.warning(f"⚠️ pg_trgm 搜索失败: {_pg_e}")
-
-        # 如果 pg_trgm 找到匹配且与当前不同，更新
-        if best_type_id and str(best_type_id) != str(type_id):
-            logger.info(f"🔧 pg_trgm type 修复: type_id {type_id} → {best_type_id} ('{best_type_name}')")
-            state.type_id = str(best_type_id)
-            for item in state.ozon_payload.get("items", []):
-                if isinstance(item, dict):
-                    item["type_id"] = int(best_type_id)
-            # 如果 category 也变了（跨 category 匹配），同步更新
-            if best_category_id and str(best_category_id) != str(category_id):
-                logger.info(f"🔧 同时修复 category: {category_id} → {best_category_id}")
-                state.description_category_id = str(best_category_id)
-                for item in state.ozon_payload.get("items", []):
-                    if isinstance(item, dict):
-                        item["description_category_id"] = int(best_category_id)
-            return state
-
-        # pg_trgm 无结果 → 回退到 Ozon API 找替代 type（原逻辑）
-        logger.info("pg_trgm 无匹配，回退到 Ozon API 查找替代 type_id")
-        try:
-            alt_type_id = _find_alternative_type_id(
-                ozon_client_id, ozon_api_key,
-                int(category_id) if category_id else 0,
-                int(type_id) if type_id else 0
-            )
-            if alt_type_id and str(alt_type_id) != str(type_id):
-                logger.info(f"🔧 Ozon API 替代 type_id: {type_id} → {alt_type_id}")
-                state.type_id = str(alt_type_id)
-                for item in state.ozon_payload.get("items", []):
-                    if isinstance(item, dict):
-                        item["type_id"] = int(alt_type_id)
-                return state
-        except Exception as _e:
-            logger.warning(f"⚠️ 查找替代 type_id 失败: {_e}")
+                logger.warning(f"⚠️ pg_trgm 降级搜索失败: {_pg_e}")
 
         # 完全找不到替代 → 标记
         state.needs_recategorization = True
@@ -1047,11 +975,40 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 repaired_title: str = llm_result.get("corrected_title", "") or llm_result.get("repaired_title", "")
                 repair_explanation: str = llm_result.get("repair_explanation", "") or llm_result.get("explanation", "")
 
-                # ✅ 标题修复：如果LLM返回了corrected_title，同时修复name字段和属性4180
+                # ✅ v0.8.0 标题修复增强：确保修复后的标题为俄语
                 if repaired_title:
-                    repaired_title = _sanitize_title(repaired_title)
-                    ozon_payload_title: Dict[str, Any] = state.ozon_payload
-                    items_title: list = ozon_payload_title.get("items", [])
+                    repaired_title = sanitize_title(repaired_title)
+                    # 检查修复后的标题是否仍含拉丁字母或无西里尔
+                    _latin_check = re.compile(r'[a-zA-Z]')
+                    _cyrillic_check = re.compile(r'[а-яА-ЯёЁ]')
+                    if not repaired_title or (_latin_check.search(repaired_title) and not _cyrillic_check.search(repaired_title)):
+                        logger.warning(f"⚠️ LLM生成的标题仍含拉丁/无西里尔: '{repaired_title[:60]}'，强制翻译为俄语")
+                        # 用 call_mxou_chat_api 强制生成俄语标题
+                        try:
+                            from utils.mxou_api import call_mxou_chat_api
+                            _orig_name = (items[0].get("name", "") if (items := state.ozon_payload.get("items", [])) and len(items) > 0 else "") or state.product_name or ""
+                            _rus_title = call_mxou_chat_api(
+                                token=token,
+                                system_prompt="你是Ozon俄罗斯电商平台产品命名专家。将以下产品标题翻译为俄语（西里尔字母）。要求：≤80字符，必须含西里尔字母，无拉丁/中文。只返回俄语标题。",
+                                user_prompt=f"产品标题：{_orig_name or repaired_title}",
+                                model="deepseek-v4-flash",
+                                temperature=0.0,
+                                max_tokens=200
+                            ) or ""
+                            _rus_title = _rus_title.strip()
+                            if _rus_title and _cyrillic_check.search(_rus_title) and not _latin_check.search(_rus_title):
+                                repaired_title = sanitize_title(_rus_title) or _rus_title
+                                logger.info(f"✅ 强制俄语翻译成功: {repaired_title[:80]}")
+                            else:
+                                logger.warning(f"⚠️ 强制俄语翻译仍不合格: '{_rus_title[:60]}'")
+                                repaired_title = ""
+                        except Exception as _trans_e:
+                            logger.warning(f"⚠️ 强制俄语翻译失败: {_trans_e}")
+                            repaired_title = ""
+                    
+                    if repaired_title:
+                        ozon_payload_title: Dict[str, Any] = state.ozon_payload
+                        items_title: list = ozon_payload_title.get("items", [])
                     if items_title and len(items_title) > 0:
                         # 修复所有变体的name字段
                         for it in items_title:
@@ -1086,6 +1043,55 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                     repair_type = "attribute"
                 else:
                     repair_type = "attribute"
+
+                # ✅ v0.8.0: LLM未生成标题但错误涉及名称缺失 → 强制生成俄语标题
+                if not repaired_title and (
+                    error_code == "UNKNOWN"
+                    or (state.error_message and any(kw in str(state.error_message).lower() for kw in ["名称", "name", "название", "标题", "title"]))
+                    or attr_id == 0
+                ):
+                    logger.warning(f"⚠️ LLM未生成标题但错误涉及名称缺失，强制生成俄语标题")
+                    try:
+                        from utils.mxou_api import call_mxou_chat_api
+                        _items_force = state.ozon_payload.get("items", [])
+                        _orig_title = (_items_force[0].get("name", "") if _items_force and len(_items_force) > 0 else "") or state.product_name or ""
+                        _rus_title_force = call_mxou_chat_api(
+                            token=token,
+                            system_prompt=(
+                                "你是Ozon俄罗斯电商平台产品命名专家。\n"
+                                "根据以下产品信息生成俄语标题（西里尔字母）。\n"
+                                "要求：≤80字符，必须含西里尔字母，无拉丁/中文。只返回标题。"
+                            ),
+                            user_prompt=f"产品信息：{_orig_title or product_name}",
+                            model="deepseek-v4-flash",
+                            temperature=0.0,
+                            max_tokens=200
+                        ) or ""
+                        _rus_title_force = _rus_title_force.strip()
+                        _latin_re2 = re.compile(r'[a-zA-Z]')
+                        _cyrillic_re2 = re.compile(r'[а-яА-ЯёЁ]')
+                        if _rus_title_force and _cyrillic_re2.search(_rus_title_force) and not _latin_re2.search(_rus_title_force):
+                            repaired_title = sanitize_title(_rus_title_force) or _rus_title_force
+                            repair_type = "title"
+                            logger.info(f"✅ 强制俄语标题生成成功: {repaired_title[:80]}")
+                        else:
+                            logger.warning(f"⚠️ 强制俄语标题不合格: '{_rus_title_force[:60]}'")
+                    except Exception as _force_e:
+                        logger.warning(f"⚠️ 强制俄语标题生成失败: {_force_e}")
+                
+                # 应用强制生成的标题
+                if repaired_title and repair_type == "title":
+                    ozon_payload_t: Dict[str, Any] = state.ozon_payload
+                    items_t: list = ozon_payload_t.get("items", [])
+                    if items_t and len(items_t) > 0:
+                        for it in items_t:
+                            if isinstance(it, dict):
+                                it["name"] = repaired_title
+                        logger.info(f"✅ 标题已强制修复（所有变体）：{repaired_title[:80]}")
+                    # 同步 final_attributes 中的 4180
+                    for attr in state.final_attributes:
+                        if isinstance(attr, dict) and int(attr.get("id") or attr.get("attribute_id") or 0) == 4180:
+                            attr["value"] = repaired_title
 
                 logger.info(f"✅ LLM修复结果: type={repair_type}, value={repaired_value[:50] if repaired_value else '(empty)'}")
 
@@ -1568,6 +1574,14 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
             if not first_item.get("name"):
                 validation_errors.append({"field": "name", "message": "产品名称缺失"})
                 is_valid = False
+            # ✅ v0.8.0: 检查名称是否为纯拉丁字母（Ozon 禁止）
+            _item_name = str(first_item.get("name", ""))
+            if _item_name:
+                _latin_re_v = re.compile(r'[a-zA-Z]')
+                _cyrillic_re_v = re.compile(r'[а-яА-ЯёЁ]')
+                if _latin_re_v.search(_item_name) and not _cyrillic_re_v.search(_item_name):
+                    validation_errors.append({"field": "name", "message": "产品名称含拉丁字母，需改为俄语"})
+                    is_valid = False
             if not first_item.get("offer_id"):
                 validation_errors.append({"field": "offer_id", "message": "SKU ID缺失"})
                 is_valid = False
