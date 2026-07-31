@@ -53,6 +53,8 @@ jobs:
     name: Package unified binary
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -83,7 +85,7 @@ jobs:
           echo ""
 
           # Copy each platform's binaries
-          for platform_dir in ../../../_platforms/native-*/; do
+          for platform_dir in ../../../../../_platforms/native-*/; do
             platform_name=$(basename "$platform_dir" | sed 's/native-//')
             echo "Merging platform: $platform_name"
             mkdir -p "$platform_name"
