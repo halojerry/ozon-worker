@@ -89,10 +89,12 @@ jobs:
             platform_name=$(basename "$platform_dir" | sed 's/native-//')
             echo "Merging platform: $platform_name"
             mkdir -p "$platform_name"
-            # The artifact contains the _native/ contents, so files are directly in the dir
-            cp -r "$platform_dir"/* "$platform_name/" 2>/dev/null || \
-            cp -r "$platform_dir"/scripts/lib/_native/* "$platform_name/" 2>/dev/null || \
-            echo "  (no files found for $platform_name)"
+            # Artifact 内部结构: {platform_name}/*.so — 进到内层取
+            if [ -d "$platform_dir/$platform_name" ]; then
+              cp "$platform_dir/$platform_name"/* "$platform_name/"
+            else
+              cp "$platform_dir"/* "$platform_name/" 2>/dev/null || true
+            fi
           done
 
           echo ""
