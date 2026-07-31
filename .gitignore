@@ -72,5 +72,6 @@ skill/data/browser/sessions/
 skill/data/batch_results/
 skill/data/ozon/tasks/
 # v0.9.0: 属性缓存 JSON 不提交 git（太大，全量 ~70GB），服务器上 warm_cache 脚本实时生成
-worker/assets/attribute_schemas_zh.json
-worker/assets/dictionary_values_zh.json
+# v0.11.5: top-200 子集（~2MB）提交 git，Docker 构建时自动包含
+# worker/assets/attribute_schemas_zh.json
+# worker/assets/dictionary_values_zh.json
