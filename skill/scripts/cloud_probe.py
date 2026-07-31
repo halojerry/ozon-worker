@@ -880,7 +880,7 @@ def _validate_and_fix_product_data(
         ratio_product = 2.0 * 1.5 * 1.0  # = 3.0
         base_mm = (volume_mm3 / ratio_product) ** (1/3) if volume_mm3 > 0 else 50.0
         # 限制最小值（太小会被 Ozon ML 拒绝）
-        base_mm = max(base_mm, 30.0)
+        base_mm = max(float(base_mm), 30.0)
         est_length = round(base_mm * 2.0)
         est_width = round(base_mm * 1.5)
         est_height = round(base_mm * 1.0)

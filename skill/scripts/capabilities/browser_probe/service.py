@@ -965,19 +965,17 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
                         if Path(p).exists() and p not in seen:
                             seen.add(p)
                         break
-        # Insert running browsers FIRST (before static paths)
-        for rp in seen:
-            paths.insert(0, rp)
     except Exception:
         pass
 
     # Phase 3: Playwright bundled Chromium (pip install playwright)
     # ═══════════════════════════════════════════════════════════════════════
     try:
+        import platform as _plat
         import playwright  # noqa: F401
         import glob as _glob
 
-        system = platform.system() if 'platform' in dir() else __import__('platform').system()
+        system = _plat.system()
         if system == 'Darwin':
             pattern = str(Path.home() / 'Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium')
         elif system == 'Linux':
@@ -1000,8 +998,9 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
     if _auto_install_browser():
         # Recurse once to find the newly installed browser
         try:
+            import platform as _plat2
             import glob as _glob2
-            system = __import__('platform').system()
+            system = _plat2.system()
             if system == 'Darwin':
                 pattern = str(Path.home() / 'Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium')
             elif system == 'Linux':

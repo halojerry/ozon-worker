@@ -100,6 +100,7 @@ def discover_from_highlight(
     min_margin_pct: float = DEFAULT_MIN_MARGIN_PCT,
     max_competitors: int = DEFAULT_MAX_COMPETITORS,
     logistics_cny: float = DEFAULT_LOGISTICS_CNY,
+    keyword: str = "",
     progress_callback=None,
 ) -> list[ProductCandidate]:
     """Browse Ozon China highlight page and discover profitable products.
@@ -111,6 +112,8 @@ def discover_from_highlight(
         min_margin_pct: Minimum profit margin (%) to keep a product.
         max_competitors: Skip products with more competing sellers.
         logistics_cny: Estimated logistics cost in CNY per item.
+        keyword: Optional search keyword for China highlight section.
+                 If provided, navigates to ?text={keyword} on the highlight page.
 
     Returns:
         List of profitable ProductCandidate objects, sorted by margin descending.
@@ -128,9 +131,16 @@ def discover_from_highlight(
     candidates: list[ProductCandidate] = []
 
     with CdpConnection(cdp_url) as cdp:
-        # 1. Open the China highlight page
-        logger.info("Opening Ozon China highlight page: %s", CHINA_HIGHLIGHT_URL)
-        tab = cdp.new_tab(CHINA_HIGHLIGHT_URL)
+        # 1. Open the China highlight page (with optional keyword search)
+        if keyword and keyword.strip():
+            import urllib.parse
+            encoded = urllib.parse.quote(keyword.strip())
+            url = f"{CHINA_HIGHLIGHT_URL}?text={encoded}"
+            logger.info("Opening Ozon China highlight search: %s", url)
+        else:
+            url = CHINA_HIGHLIGHT_URL
+            logger.info("Opening Ozon China highlight page: %s", url)
+        tab = cdp.new_tab(url)
         try:
             time.sleep(5)  # initial page load
 
