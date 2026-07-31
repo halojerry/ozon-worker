@@ -672,25 +672,92 @@ def cmd_follow(args) -> int:
 # Main
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _parse_indexes(raw: str, total: int) -> list[int]:
+    """解析序号输入 "1,3,5-8" → 0-based 索引列表（去重排序）。"""
+    idxs: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            lo_s, hi_s = part.split("-", 1)
+            lo, hi = int(lo_s), int(hi_s)
+            if lo < 1 or hi > total or lo > hi:
+                raise ValueError(f"序号越界: {part}")
+            idxs.extend(range(lo - 1, hi))
+        else:
+            n = int(part)
+            if n < 1 or n > total:
+                raise ValueError(f"序号越界: {part}")
+            idxs.append(n - 1)
+    return sorted(set(idxs))
+
+
+def _print_discover_table(candidates: list) -> None:
+    """打印全量候选表格（指标 + 状态）。"""
+    status_map = {
+        "ok": "✅可挑", "uncertain": "⚠️夹带?", "error": "❌失败",
+        "matched": "🔗已匹配", "profitable": "💰有利", "rejected": "⚠️利润低",
+        "no_match": "❌无货源",
+    }
+    print(f"\n{'─' * 108}")
+    print(f"{'#':>3} {'状态':<9} {'标题':<32} {'价格₽':>8} {'月销':>6} "
+          f"{'增长%':>6} {'广告%':>6} {'跟卖':>4} {'上架天':>6} {'评分':>5}")
+    print(f"{'─' * 108}")
+    for i, c in enumerate(candidates, 1):
+        title = c.ozon_title or c.error or "(无标题)"
+        if len(title) > 32:
+            title = title[:31] + "…"
+        print(f"{i:>3} {status_map.get(c.status, c.status):<9} {title:<32} "
+              f"{c.ozon_price:>8.0f} {c.monthly_sales:>6} {c.sales_growth:>6.1f} "
+              f"{c.drr:>6.1f} {c.competing_sellers:>4} {c.create_days:>6} {c.rating:>5.1f}")
+    print(f"{'─' * 108}")
+
+
+def _interactive_select(candidates: list) -> list | None:
+    """交互挑选：输入序号（1,3,5-8 / all / 回车=全选可挑 / q=取消）。"""
+    print("\n🎯 挑选要分析货源的产品（只对选中产品花 1688 识图配额）")
+    print("   输入序号如 1,3,5-8 · all 全选 · 回车全选可挑 · q 取消", flush=True)
+    while True:
+        try:
+            raw = input("挑选: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if raw.lower() in ("q", "quit", "exit"):
+            return None
+        if raw in ("", "all"):
+            return [c for c in candidates if c.status in ("ok", "uncertain")]
+        try:
+            idxs = _parse_indexes(raw, len(candidates))
+        except ValueError as e:
+            print(f"  输入无效: {e}，请重试", flush=True)
+            continue
+        picked = [candidates[i] for i in idxs if candidates[i].status in ("ok", "uncertain")]
+        if not picked:
+            print("  所选产品都不可分析（失败/无数据），请重试", flush=True)
+            continue
+        return picked
+
+
 def cmd_discover(args: argparse.Namespace) -> int:
-    """Ozon 中国站选品 — 自动发现蓝海产品。"""
+    """Ozon 选品 v2 — 先全量采集 → 表格分析 → 挑完再找货源。"""
+    from scripts.lib.chrome_launcher import ensure_chrome_cdp
     from scripts.lib.ozon_discovery import (
-        discover_from_highlight,
+        DISCOVERY_CACHE_DIR,
+        apply_selection_rules,
+        collect_and_analyze,
         export_to_csv,
         export_to_json,
-        DISCOVERY_CACHE_DIR,
+        match_selected,
     )
-    from scripts.lib.chrome_launcher import ensure_chrome_cdp
 
-    print("🔍 Ozon 中国站选品", flush=True)
-    print(f"   最多分析: {args.max_products} 个产品", flush=True)
-    print(f"   最低利润率: {args.min_margin}%", flush=True)
-    print(f"   最大跟卖人数: {args.max_sellers}", flush=True)
-    print(f"   汇率: 1 RUB = {args.fx_rate} CNY", flush=True)
-    print(flush=True)
-
+    print("🔍 Ozon 选品 v2（先采集 → 表格分析 → 挑完再找货源）", flush=True)
+    print(f"   采集上限: {args.max_products} 个 | 最低利润率: {args.min_margin}% | 汇率: 1 RUB = {args.fx_rate} CNY", flush=True)
     if args.url or args.keyword:
-        print(f"🔍 搜索模式: {'URL=' + args.url if args.url else '关键词=' + args.keyword}", flush=True)
+        print(f"   来源: {'URL=' + args.url if args.url else '关键词=' + args.keyword}", flush=True)
+    if args.rules:
+        print(f"   自动筛选规则: {args.rules}", flush=True)
+    print(flush=True)
 
     ok, msg = ensure_chrome_cdp(auto_restart=True)
     if not ok:
@@ -698,79 +765,140 @@ def cmd_discover(args: argparse.Namespace) -> int:
         return 1
     cdp_url = "http://127.0.0.1:9222"
 
-    def _discovery_progress(current, total, candidate):
-        status = '✅' if candidate.status == 'profitable' else '⚠️'
-        print(f'  [{current}/{total}] {status} {candidate.ozon_title[:40]}  '
-              f'跟卖={candidate.competing_sellers} 利润={candidate.profit_margin:.0f}%', flush=True)
+    def _collect_progress(current, total, candidate):
+        mark = '✅' if candidate.status in ("ok", "uncertain") else '❌'
+        print(f'  [{current}/{total}] {mark} {candidate.ozon_title[:36]}', flush=True)
 
-    # Call discover_from_highlight directly (eliminates duplicate discovery logic)
+    # ── 阶段①+② 采集 + 全量数据 + 运营指标 ──
+    print("\n⏳ 阶段 1/3：采集产品列表 + 全量数据...", flush=True)
     try:
-        profitable = discover_from_highlight(
+        candidates = collect_and_analyze(
             cdp_url=cdp_url,
-            max_products=args.max_products,
-            fx_rate=args.fx_rate,
-            min_margin_pct=args.min_margin,
-            max_competitors=args.max_sellers,
+            url=args.url or "",
             keyword=args.keyword or "",
-            progress_callback=_discovery_progress,
+            max_products=args.max_products,
+            use_analytics=not args.no_analytics,
+            progress_callback=_collect_progress,
         )
     except KeyboardInterrupt:
         print("\n⚠️ 用户中断")
         return 0
 
-    print(f"\n📊 分析完成: {len(profitable)} 个符合条件的产品\n")
-
-    if not profitable:
-        print("未找到符合条件的产品。尝试调低 min-margin 或增加 max-products。")
+    print(f"\n📊 采集完成: {len(candidates)} 个产品（全量已落盘 {DISCOVERY_CACHE_DIR}/）")
+    if not candidates:
+        print("未采集到产品。检查关键词/URL 或增大 --max-products。")
         return 0
 
-    # Export to CSV/JSON if requested
+    # ── 阶段③ 表格展示 + 挑选 ──
+    _print_discover_table(candidates)
+
+    if args.rules:
+        try:
+            selected = apply_selection_rules(candidates, args.rules)
+        except ValueError as e:
+            print(f"❌ 规则错误: {e}")
+            return 1
+        print(f"\n🎯 规则筛选: {len(selected)}/{len(candidates)} 个命中", flush=True)
+    else:
+        selected = _interactive_select(candidates)
+        if selected is None:
+            print("已取消")
+            return 0
+
+    if not selected:
+        print("未选择任何产品。")
+        return 0
+
+    # 全量导出（含 rejected/error，供表格分析）
     if args.export in ("csv", "both"):
         output = args.output or "data/discovery/discover_export.csv"
-        csv_path = export_to_csv(profitable, output)
-        print(f"📄 CSV 已导出: {csv_path}")
+        csv_path = export_to_csv(candidates, output)
+        print(f"📄 CSV 已导出（全量）: {csv_path}")
 
     if args.export in ("json", "both"):
         output = args.output or "data/discovery/discover_export.json"
         if args.export == "both":
-            output = args.output.replace(".csv", ".json") if args.output and args.output.endswith(".csv") else "data/discovery/discover_export.json"
-        json_path = export_to_json(profitable, output)
-        print(f"📄 JSON 已导出: {json_path}")
+            output = (args.output.replace(".csv", ".json")
+                      if args.output and args.output.endswith(".csv")
+                      else "data/discovery/discover_export.json")
+        json_path = export_to_json(candidates, output)
+        print(f"📄 JSON 已导出（全量）: {json_path}")
 
-    # Display results table
-    for i, c in enumerate(profitable[:20], 1):
-        print(f"{'─' * 60}")
-        print(f"  [{i}] {c.ozon_title[:50]}")
-        print(f"      Ozon 价格: {c.ozon_price:.0f} ₽  |  跟卖: {c.competing_sellers} 人")
-        print(f"      1688 采购: ¥{c.match_1688_price:.0f}  |  利润率: {c.profit_margin:.1f}%")
-        print(f"      净利润: ¥{c.estimated_profit_cny:.0f}")
-        print(f"      Ozon: {c.ozon_url[:60]}")
-        if c.match_1688_url:
-            print(f"      1688:  {c.match_1688_url[:60]}")
-    print(f"{'─' * 60}")
+    # ── 阶段④ 批量货源（只对选中产品花 1688 配额）──
+    print(f"\n⏳ 阶段 2/3：对选中的 {len(selected)} 个产品批量找 1688 货源...", flush=True)
+    from scripts.lib.config_store import get_store_profile
 
-    # Auto-submit if requested
+    store_profile = {}
+    try:
+        store_profile = get_store_profile(args.store or "")
+    except Exception:
+        pass
+    commission_rate = float(store_profile.get("commission_rate", 0) or 0)
+
+    def _match_progress(current, total, candidate):
+        mark = {'profitable': '💰', 'rejected': '⚠️', 'no_match': '❌'}.get(candidate.status, '·')
+        print(f'  [{current}/{total}] {mark} {candidate.ozon_title[:36]}  '
+              f'1688=¥{candidate.match_1688_price:.0f} 利润={candidate.profit_margin:.1f}%', flush=True)
+
+    try:
+        match_selected(
+            selected,
+            cdp_url,
+            fx_rate=args.fx_rate,
+            min_margin_pct=args.min_margin,
+            commission_rate=commission_rate,
+            progress_callback=_match_progress,
+        )
+    except KeyboardInterrupt:
+        print("\n⚠️ 用户中断")
+        return 0
+
+    # ── 结果展示 ──
+    print("\n📊 阶段 3/3：货源分析结果\n")
+    _print_discover_table(selected)
+
+    profitable = [c for c in selected if c.status == "profitable"]
+    print(f"\n✅ 符合条件: {len(profitable)} 个 | 利润不足: {sum(1 for c in selected if c.status == 'rejected')} 个 | 无货源: {sum(1 for c in selected if c.status == 'no_match')} 个")
+
+    # 选中+货源结果导出（仅当请求导出时追加一份 _matched 文件）
+    if args.export in ("csv", "both"):
+        base = args.output or "data/discovery/discover_export.csv"
+        matched_csv = base.replace(".csv", "_matched.csv") if base.endswith(".csv") \
+            else "data/discovery/discover_matched.csv"
+        csv_path = export_to_csv(selected, matched_csv)
+        print(f"📄 CSV 已导出（选中+货源）: {csv_path}")
+
+    # ── auto-submit ──
     if args.auto_submit:
-        print("\n🚀 自动提交到 Worker...", flush=True)
-        confirm = input("确认提交以上产品到 Worker？(y/N) ")
-        if confirm.lower() == 'y':
-            from scripts.cloud_probe import build_envelope_from_discovery, submit_envelope
-            from scripts.lib.config_store import load_store_config
-            store_config = load_store_config(args.store) if hasattr(args, 'store') and args.store else {}
-            if not store_config:
-                store_config = {"client_id": args.client_id or "", "api_key": args.api_key or ""}
-            store_id = args.store if hasattr(args, 'store') and args.store else ""
-            for c in profitable:
-                if c.match_1688_url:
-                    try:
-                        envelope = build_envelope_from_discovery(c, store_config, store_id=store_id)
-                        result = submit_envelope(envelope)
-                        task_id = result.get("task_id", "")
-                        print(f"  ✓ 已提交: {c.ozon_title[:40]} → task_id={task_id}")
-                    except Exception as e:
-                        print(f"  ✗ 提交失败: {c.ozon_title[:40]} — {e}")
-        else:
+        to_submit = [c for c in selected if c.status == "profitable" and c.match_1688_url]
+        if not to_submit:
+            print("\n⚠️ 没有符合条件的 profitable 产品可提交")
+            return 0
+        print(f"\n🚀 提交 {len(to_submit)} 个产品到 Worker...", flush=True)
+        confirm = input("确认提交？(y/N) ")
+        if confirm.lower() != 'y':
             print("已取消")
+            return 0
+        from scripts.cloud_probe import build_envelope_from_discovery, submit_envelope
+        from scripts.lib.config_store import get_store
+
+        store = get_store(args.store or "") or {}
+        store_config = {
+            "client_id": store.get("client_id", ""),
+            "api_key": store.get("api_key", ""),
+        }
+        store_id = args.store or ""
+        for c in to_submit:
+            try:
+                envelope = build_envelope_from_discovery(c, store_config, store_id=store_id)
+                if not envelope:
+                    print(f"  ✗ 跳过（无 1688 URL）: {c.ozon_title[:40]}")
+                    continue
+                result = submit_envelope(envelope)
+                task_id = result.get("task_id", "")
+                print(f"  ✓ 已提交: {c.ozon_title[:40]} → task_id={task_id}")
+            except Exception as e:
+                print(f"  ✗ 提交失败: {c.ozon_title[:40]} — {e}")
 
     print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
     return 0
@@ -851,18 +979,19 @@ def main() -> int:
     fp.add_argument("--store", default="", help="Ozon 店铺名称")
     fp.set_defaults(func=cmd_follow)
 
-    dp = sub.add_parser("discover", help="Ozon 中国站选品（蓝海+利润筛选）")
-    dp.add_argument("--url", default="", help="Ozon 页面 URL（搜索页/类目页/中国站等）")
-    dp.add_argument("--keyword", default="", help="搜索关键词（自动构造搜索 URL）")
-    dp.add_argument("--max-products", type=int, default=50, help="最多分析产品数（默认 50）")
+    dp = sub.add_parser("discover", help="Ozon 选品 v2（先采集 → 表格分析 → 挑完再找货源）")
+    dp.add_argument("--url", default="", help="Ozon 页面 URL（搜索页/类目页等，直接采集该页）")
+    dp.add_argument("--keyword", default="", help="搜索关键词（自动构造 /search/?text= 搜索页）")
+    dp.add_argument("--max-products", type=int, default=50, help="最多采集产品数（默认 50）")
     dp.add_argument("--min-margin", type=float, default=15.0, help="最低利润率%%")
-    dp.add_argument("--max-sellers", type=int, default=10, help="最大跟卖人数")
+    dp.add_argument("--max-sellers", type=int, default=10, help="最大跟卖人数（兼容保留，v2 中不硬过滤）")
     dp.add_argument("--fx-rate", type=float, default=0.075, help="RUB→CNY 汇率")
-    dp.add_argument("--client-id", default="", help="Ozon Client ID（获取佣金+重量）")
-    dp.add_argument("--api-key", default="", help="Ozon API Key")
-    dp.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式")
+    dp.add_argument("--store", default="", help="Ozon 店铺名（定价参数/提交凭证来源）")
+    dp.add_argument("--no-analytics", action="store_true", help="不查 seller.ozon.ru 运营指标（默认自动尝试）")
+    dp.add_argument("--rules", default="", help="自动筛选规则，如 \"monthly_sales>=200,drr<=30\"（跳过交互挑选）")
+    dp.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式（全量+选中）")
     dp.add_argument("--output", default="", help="导出文件路径")
-    dp.add_argument("--auto-submit", action="store_true", help="用户确认后自动提交到 Worker")
+    dp.add_argument("--auto-submit", action="store_true", help="确认后提交 profitable 产品到 Worker")
     dp.set_defaults(func=cmd_discover)
 
     args = parser.parse_args()
