@@ -16,11 +16,11 @@ def comparison_gen_node(state: ComparisonInput, config: RunnableConfig, runtime:
         return ComparisonOutput(comparison_image=None)
 
     prompt = (
-        "Создай изображение для сравнения товаров. "
-        "Покажи преимущества продукта, привлекающее покупателей. "
-        "Высокое качество, для российского маркетплейса Ozon. "
-        "СТРОГО ЗАПРЕЩЕНО: любой текст, буквы, цифры, логотипы, бренды, водяные знаки, "
-        "QR-коды, ссылки, телефоны, цены, рекламные надписи, скидки, акции."
+        "Visual comparison: the product versus a generic alternative. Highlight key "
+        "advantages. Clean layout, minimal text labels acceptable. "
+        "Russian marketplace infographic style. "
+        "Do NOT include: watermarks, logos, prices, discounts, phone numbers, "
+        "email, website URLs, QR codes, promotional badges."
     )
     ref_images = build_phase2_refs(state)
     image_url = generate_image(token=token, prompt=prompt, ref_images=ref_images, node_name="comparison_gen")

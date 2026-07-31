@@ -72,46 +72,47 @@ def build_phase1_refs(state) -> List[str]:
 
 
 def build_phase2_refs(state) -> List[str]:
-    """Phase2 参考图：Phase1 白底图或多角度图"""
+    """v2: Phase2 参考图 — 只用 white_bg 作为唯一定妆照（避免 1688 水印/中文传递）"""
     refs: List[str] = []
-    multi = getattr(state, 'multi_angle_image', None)
     white = getattr(state, 'white_bg_image', None)
-    clean = multi or white
-    if clean and isinstance(clean, str) and clean.startswith("http"):
-        refs.append(clean)
+    if white and isinstance(white, str) and white.startswith("http"):
+        refs.append(white)
     return refs
 
 
 def make_prompt(product_name: str, desc_text: str, scene_context: str = "") -> str:
     """
-    构建生图 prompt — 清洗标题，注入场景描述。
+    v2: 构建英文生图 prompt — 俄罗斯电商语境，LLM 自动生成俄语场景文字。
 
     Args:
         product_name: 产品名（会被清洗）
-        desc_text: 描述文本（会截断到 200 字符）
+        desc_text: 描述文本（截断到 200 字符）
         scene_context: LLM 生成的场景描述（scene_1/2/3 专用）
 
     Returns:
-        格式化的 prompt 字符串
+        格式化的英文 prompt 字符串
     """
-    clean_name = clean_title_for_image_prompt(product_name or "товар")
+    clean_name = clean_title_for_image_prompt(product_name or "product")
     desc_short = (desc_text or "")[:200]
-    
+
+    _CONSTRAINT = (
+        "Do NOT include: watermarks, logos, prices, discounts, phone numbers, "
+        "email, website URLs, QR codes, promotional badges."
+    )
+
     if scene_context:
         return (
-            f"Создай изображение товара в сцене использования. "
-            f"Товар: {clean_name}. Сцена: {scene_context}. "
-            f"Высокое качество, реалистичный стиль, для российского маркетплейса. "
-            f"СТРОГО ЗАПРЕЩЕНО: любой текст, буквы, цифры, логотипы, бренды, водяные знаки, "
-            f"QR-коды, ссылки, телефоны, цены, рекламные надписи, скидки, акции. "
-            f"Изображение должно быть чистым, без какой-либо текстовой информации."
+            f"Lifestyle photograph of {clean_name} in a natural usage setting. "
+            f"{scene_context}. "
+            f"Authentic natural lighting, real-life feel, matching Russian consumer daily aesthetics. "
+            f"Russian marketplace lifestyle image standard. "
+            f"{_CONSTRAINT}"
         )
-    
+
     return (
-        f"Создай изображение товара '{clean_name}'. "
-        f"Описание: {desc_short}. "
-        f"Высокое качество, реалистичный стиль, для российского маркетплейса Ozon. "
-        f"СТРОГО ЗАПРЕЩЕНО: любой текст, буквы, цифры, логотипы, бренды, водяные знаки, "
-        f"QR-коды, ссылки, телефоны, цены, рекламные надписи, скидки, акции. "
-        f"Изображение должно быть чистым, без какой-либо текстовой информации."
+        f"Lifestyle photograph of {clean_name} in a natural usage setting. "
+        f"Description: {desc_short}. "
+        f"Authentic natural lighting, real-life feel, matching Russian consumer daily aesthetics. "
+        f"Russian marketplace lifestyle image standard. "
+        f"{_CONSTRAINT}"
     )

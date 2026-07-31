@@ -601,15 +601,15 @@ def prepare_ozon_upload_node(
     
     # Ozon图片上传顺序规范（按俄罗斯电商习惯）
     IMG_ORDER = [
-        "main_image",        # 1. 主营销图（最重要）
-        "detail",            # 2. 详情图
-        "scene_1",           # 3. 场景图1
-        "scene_2",           # 4. 场景图2
-        "scene_3",           # 5. 场景图3
-        "comparison",        # 6. 对比图
-        "social_proof",      # 7. 社交证明图
-        "multi_angle",       # 8. 多角度展示图
-        "white_bg"           # 9. 纯白底图
+        "main_image",        # 1. 主营销图（抓住眼球）
+        "scene_1",           # 2. 场景图1（激发购买欲）
+        "scene_2",           # 3. 场景图2
+        "detail",            # 4. 详情图（品质信任）
+        "comparison",        # 5. 对比图（决策信心）
+        "social_proof",      # 6. 社交证明（降低疑虑）
+        "scene_3",           # 7. 场景图3（补充场景）
+        "multi_angle",       # 8. 多角度（看清各面）
+        "white_bg"           # 9. 纯白底图（平台合规）
     ]
     # ⚠️ multi_info 从共享画廊移除：Ozon禁止附加图片包含文字/广告/价格/联系方式
     

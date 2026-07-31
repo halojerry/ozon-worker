@@ -9,9 +9,10 @@ def social_proof_gen_node(state: SocialProofInput, config: RunnableConfig, runti
     if not state.draft or not state.token:
         return SocialProofOutput(social_proof_image=None)
     prompt = (
-        "Создай изображение с отзывами и рейтингом 5 звёзд. "
-        "Покажи социальное доказательство качества. Для российского маркетплейса. "
-        "Запрещено: ссылки, телефоны, цены, QR-коды, рекламные акции, скидки."
+        "Smartphone snapshot of the product in real use. Natural indoor lighting, "
+        "slightly grainy, warm tone, candid unposed feel. Russian UGC style. "
+        "Do NOT include: watermarks, logos, prices, discounts, phone numbers, "
+        "email, website URLs, QR codes, promotional badges."
     )
     image_url = generate_image(token=state.token, prompt=prompt, ref_images=build_phase2_refs(state), node_name="social_proof_gen")
     return SocialProofOutput(social_proof_image=image_url)

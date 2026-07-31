@@ -29,11 +29,11 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
             ref_images.append(img.strip())
     
     prompt = (
-        "Создай главное маркетинговое изображение товара. "
-        "Привлекательное, профессиональное, для российского маркетплейса Ozon. "
-        "СТРОГО ЗАПРЕЩЕНО: любой текст, буквы, цифры, логотипы, бренды, водяные знаки, "
-        "QR-коды, ссылки, телефоны, цены, рекламные надписи, скидки, акции. "
-        "Изображение должно быть чистым, без какой-либо текстовой информации."
+        "Professional e-commerce hero shot of the product. Best showcase angle, "
+        "clean solid background, studio lighting, sharp focus. "
+        "Russian marketplace main image standard. "
+        "Do NOT include: watermarks, logos, prices, discounts, phone numbers, "
+        "email, website URLs, QR codes, promotional badges."
     )
     image_url = generate_image(token=token, prompt=prompt, ref_images=ref_images if ref_images else None, node_name="main_image_gen")
     return MainImageOutput(main_image=image_url)
