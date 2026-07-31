@@ -156,6 +156,17 @@ _FETCH_PRODUCT_JS = r'''(() => {
                 } catch(e) {}
             }
 
+            // Rating & reviews from webReviews
+            const revKey = Object.keys(ws).find(k => k.includes('webReviews'));
+            if (revKey) {
+                try {
+                    const r = JSON.parse(ws[revKey]);
+                    const agg = r.aggregateRating || {};
+                    result.rating = r.rating || agg.ratingValue || agg.value || '';
+                    result.reviewCount = r.reviewCount || agg.reviewCount || agg.count || 0;
+                } catch(e) {}
+            }
+
             resolve(JSON.stringify(result));
         } catch(e) {
             resolve(JSON.stringify({error: e.message}));

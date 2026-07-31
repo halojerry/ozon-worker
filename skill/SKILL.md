@@ -111,17 +111,35 @@ python3.12 scripts/cli.py follow --ozon-url "https://www.ozon.ru/product/xxx/" -
 2. 用产品图片在 1688 图搜同款
 3. 走管线 A（直接上架，不走跟卖）
 
-### 管线 C：跟卖选品
+### 管线 C：跟卖选品（Discover v2）
 
 **触发**：用户说"有什么好产品可以跟卖"、"帮我找可以跟卖的"（无 URL）
 
 ```bash
+# 基础：关键词搜索 → 全量采集 → 表格展示 → 交互挑选 → 批量找货源
+python3.12 scripts/cli.py discover --keyword "宠物用品"
+
+# 自动筛选规则（跳过交互）：月销量≥200 且 广告占比≤30% 且 跟卖≤20
+python3.12 scripts/cli.py discover --keyword "宠物用品" --rules "monthly_sales>=200,drr<=30,seller_count<=20"
+
+# 指定页面 URL 直接采集（搜索页/类目页）
+python3.12 scripts/cli.py discover --url "https://www.ozon.ru/search/?text=собака"
+
+# 挑选 + 货源后确认提交 Worker
 python3.12 scripts/cli.py discover --keyword "宠物用品" --auto-submit
+
+# 不查 seller.ozon.ru 运营指标（未登录卖家后台时自动降级，无需手动加）
+python3.12 scripts/cli.py discover --keyword "宠物用品" --no-analytics
 ```
 
-- **输入**：搜索关键词
-- **输出**：候选产品列表（含蓝海评分 + 1688 匹配 + 利润估算）
-- **流程**：Ozon 中国站爬取 → 蓝海评分 → 1688 图搜 → 展示候选 → 用户确认 → 提交
+- **输入**：搜索关键词或 Ozon 页面 URL
+- **流程（v2，先采集后分析）**：
+  1. **采集**：真实搜索页 `/search/?text=`（或指定 URL），结果容器限定（`.tile-root`），逐屏滚动 + 懒加载等待 + 翻页 + 去重
+  2. **全量数据**：widget API（价格/标题/图/品牌/评分/评论数）+ 跟卖数/最低价 + seller.ozon.ru 运营指标（月销量/增长率/广告占比/上架天数，借道卖家后台，未登录自动降级）
+  3. **表格分析挑选**：全量表格展示（含拒绝原因）→ 人工按序号挑选 或 `--rules` 自动筛选 —— **此时不花 1688 配额**
+  4. **批量货源**：只对选中的产品 1688 识图 → 利润计算（真实重量/佣金）→ 蓝海评分 → 确认 → 提交
+- **输出**：候选产品列表（全量落盘 `data/discovery/`，CSV 可导出）
+- **规则字段**：`monthly_sales / gmv / drr / seller_count / margin / price / create_days / sales_growth / rating`
 
 **展示候选列表后，等用户确认再提交。不替用户选择。**
 
