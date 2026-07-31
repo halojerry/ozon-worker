@@ -36,7 +36,7 @@ if not OZON_CLIENT_ID or not OZON_API_KEY:
     OZON_API_KEY = "0b4d15cf-70a2-4505-9764-f64ac169b52f"
     logger.warning("⚠️ 使用默认测试店铺凭证，生产环境请设置 OZON_CLIENT_ID / OZON_API_KEY")
 
-API_DELAY = 0.15  # 每个 API 调用后的延迟（秒），避免触发限流
+API_DELAY = 0.05  # 每个 API 调用后的延迟（秒），避免触发限流
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
 
 # Files to export
@@ -93,7 +93,7 @@ def fetch_dict_values(attr_id: int, dc: int, type_id: int) -> list[dict]:
             "description_category_id": dc,
             "type_id": type_id,
             "language": "ZH_HANS",
-            "limit": 1000,
+            "limit": 5000,
         }
         if last_id > 0:
             payload["last_value_id"] = last_id
@@ -293,16 +293,25 @@ def main():
 
             schemas[key] = schema
 
-            # 获取字典值
+            # 获取字典值（并发获取，加速预热）
             dict_attrs = [a for a in schema if a.get("dictionary_id", 0) > 0]
-            for attr in dict_attrs:
-                attr_id = int(attr["id"])
-                dkey = f"{attr_id}:{dc}:{tid}"
-                values = fetch_dict_values(attr_id, dc, tid)
-                time.sleep(API_DELAY)
-                if values:
-                    dict_values[dkey] = values
-                    logger.debug(f"      ✅ attr={attr_id}: {len(values)} 个字典值")
+            if dict_attrs:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                def _fetch_one_dict(attr):
+                    attr_id = int(attr["id"])
+                    dkey = f"{attr_id}:{dc}:{tid}"
+                    vals = fetch_dict_values(attr_id, dc, tid)
+                    time.sleep(API_DELAY)
+                    return dkey, vals
+                with ThreadPoolExecutor(max_workers=3) as pool:
+                    futures = {pool.submit(_fetch_one_dict, a): a for a in dict_attrs}
+                    for fut in as_completed(futures):
+                        try:
+                            dkey, vals = fut.result()
+                            if vals:
+                                dict_values[dkey] = vals
+                        except Exception as _de:
+                            logger.debug(f"      ⚠️ 字典值获取失败: {_de}")
 
             success += 1
             logger.info(f"   ✅ [{i+1}/{total}] {dc}/{tid}: {len(schema)} 属性, {len(dict_attrs)} 字典属性")
