@@ -70,18 +70,21 @@ COLLECTION_ATTR_IDS = {9048, 23171}
 
 def _build_hardcoded_attributes(_description_category_id: int) -> list[dict[str, Any]]:
     """type_id 无效时的最小属性集，避免 Ozon 校验空属性直接报错。"""
-    return [
-        {
-            "id": BRAND_ATTR_ID,
+    attrs: list[dict[str, Any]] = []
+    # 品牌 → Нет бренда（所有可能的 brand attribute ID）
+    for brand_id in BRAND_ATTRIBUTE_IDS:
+        attrs.append({
+            "id": brand_id,
             "complex_id": 0,
             "values": [{"dictionary_value_id": NO_BRAND_DICT_ID, "value": NO_BRAND_VALUE}],
-        },
-        {
-            "id": COUNTRY_ATTR_ID,
-            "complex_id": 0,
-            "values": [{"dictionary_value_id": CHINA_DICT_ID, "value": CHINA_VALUE}],
-        },
-    ]
+        })
+    # 原产国 → Китай
+    attrs.append({
+        "id": COUNTRY_ATTR_ID,
+        "complex_id": 0,
+        "values": [{"dictionary_value_id": CHINA_DICT_ID, "value": CHINA_VALUE}],
+    })
+    return attrs
 
 
 def _assemble_follow_sell(
