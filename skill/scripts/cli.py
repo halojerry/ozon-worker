@@ -259,6 +259,19 @@ def cmd_get_ak(args) -> int:
     return 0 if result.get("success") else 1
 
 
+def _chrome_profile_dir() -> str:
+    """独立 Chrome profile 目录。
+
+    ⚠️ Chrome 130+ 禁止在系统默认数据目录启用远程调试
+    （"DevTools remote debugging requires a non-default data directory"），
+    必须用 --user-data-dir 指向独立 profile。与 browser_probe/service.py
+    的 _profile_dir('default') 保持一致，登录态在独立 profile 中维护，
+    不污染用户日常 Chrome。
+    """
+    return str(Path(__file__).resolve().parent.parent
+               / "data" / "browser" / "profiles" / "1688" / "default")
+
+
 def cmd_check(args) -> int:
     """诊断前置条件：浏览器 / CDP / 1688 / Ozon / 凭证 / Worker"""
     from scripts.lib.config_store import check_config, list_stores, get_mxou_token, get_ali_1688_ak
@@ -342,7 +355,7 @@ def cmd_check(args) -> int:
             print(f"  🌐 Chrome: {Path(info['chrome_path']).name}")
         if not info["cdp_available"]:
             print(f"  ⏳ CDP 未运行，正在自动启动 Chrome...")
-            ok, msg = ensure_chrome_cdp(auto_restart=True)
+            ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
             if ok:
                 print(f"  ✅ {msg}")
                 session_ok = True
@@ -351,7 +364,7 @@ def cmd_check(args) -> int:
                 session_ok = False
         elif not info["has_remote_allow_origins"]:
             print(f"  ⚠️ CDP 运行中但缺少 --remote-allow-origins，正在重启 Chrome...")
-            ok, msg = ensure_chrome_cdp(auto_restart=True)
+            ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
             if ok:
                 print(f"  ✅ {msg}")
                 session_ok = True
@@ -694,24 +707,34 @@ def _parse_indexes(raw: str, total: int) -> list[int]:
 
 
 def _print_discover_table(candidates: list) -> None:
-    """打印全量候选表格（指标 + 状态）。"""
+    """打印全量候选表格（指标 + 状态）。
+
+    has_analytics=False（seller.ozon.ru 未登录/降级）时运营列显示 —，
+    避免 0 误导为"真实销量为 0"。
+    """
     status_map = {
         "ok": "✅可挑", "uncertain": "⚠️夹带?", "error": "❌失败",
         "matched": "🔗已匹配", "profitable": "💰有利", "rejected": "⚠️利润低",
         "no_match": "❌无货源",
     }
-    print(f"\n{'─' * 108}")
-    print(f"{'#':>3} {'状态':<9} {'标题':<32} {'价格₽':>8} {'月销':>6} "
+    print(f"\n{'─' * 112}")
+    print(f"{'#':>3} {'状态':<9} {'标题':<30} {'价格₽':>8} {'月销':>6} "
           f"{'增长%':>6} {'广告%':>6} {'跟卖':>4} {'上架天':>6} {'评分':>5}")
-    print(f"{'─' * 108}")
+    print(f"{'─' * 112}")
     for i, c in enumerate(candidates, 1):
         title = c.ozon_title or c.error or "(无标题)"
-        if len(title) > 32:
-            title = title[:31] + "…"
-        print(f"{i:>3} {status_map.get(c.status, c.status):<9} {title:<32} "
-              f"{c.ozon_price:>8.0f} {c.monthly_sales:>6} {c.sales_growth:>6.1f} "
-              f"{c.drr:>6.1f} {c.competing_sellers:>4} {c.create_days:>6} {c.rating:>5.1f}")
-    print(f"{'─' * 108}")
+        if len(title) > 30:
+            title = title[:29] + "…"
+        if c.has_analytics:
+            sales_s, growth_s, drr_s, create_s = (
+                f"{c.monthly_sales:>6}", f"{c.sales_growth:>6.1f}",
+                f"{c.drr:>6.1f}", f"{c.create_days:>6}")
+        else:
+            sales_s = growth_s = drr_s = create_s = f"{'—':>6}"
+        print(f"{i:>3} {status_map.get(c.status, c.status):<9} {title:<30} "
+              f"{c.ozon_price:>8.0f} {sales_s} {growth_s} {drr_s} "
+              f"{c.competing_sellers:>4} {create_s} {c.rating:>5.1f}")
+    print(f"{'─' * 112}")
 
 
 def _interactive_select(candidates: list) -> list | None:
@@ -759,7 +782,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
         print(f"   自动筛选规则: {args.rules}", flush=True)
     print(flush=True)
 
-    ok, msg = ensure_chrome_cdp(auto_restart=True)
+    ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
     if not ok:
         print(f"❌ Chrome 启动失败: {msg}")
         return 1
