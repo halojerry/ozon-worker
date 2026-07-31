@@ -690,7 +690,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
     print(flush=True)
 
     if args.url or args.keyword:
-        print("⚠️ --url / --keyword 模式暂未接入 discover_from_highlight，使用默认中国站页面", flush=True)
+        print(f"🔍 搜索模式: {'URL=' + args.url if args.url else '关键词=' + args.keyword}", flush=True)
 
     ok, msg = ensure_chrome_cdp(auto_restart=True)
     if not ok:
@@ -711,6 +711,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
             fx_rate=args.fx_rate,
             min_margin_pct=args.min_margin,
             max_competitors=args.max_sellers,
+            keyword=args.keyword or "",
             progress_callback=_discovery_progress,
         )
     except KeyboardInterrupt:
