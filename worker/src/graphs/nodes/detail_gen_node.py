@@ -9,10 +9,11 @@ def detail_gen_node(state: DetailImageInput, config: RunnableConfig, runtime: Ru
     if not state.draft or not state.token:
         return DetailImageOutput(detail_image=None)
     prompt = (
-        "Создай изображение с деталями товара. Чётко покажи детали и материал. "
-        "Высокое качество, для российского маркетплейса. "
-        "СТРОГО ЗАПРЕЩЕНО: любой текст, буквы, цифры, логотипы, бренды, водяные знаки, "
-        "QR-коды, ссылки, телефоны, цены, рекламные надписи, скидки, акции."
+        "Macro close-up of the product. Focus on material texture and build quality. "
+        "Side lighting to reveal surface details, shallow depth of field. "
+        "Russian marketplace detail image standard. "
+        "Do NOT include: watermarks, logos, prices, discounts, phone numbers, "
+        "email, website URLs, QR codes, promotional badges."
     )
     ref_images = build_phase2_refs(state)
     image_url = generate_image(token=state.token, prompt=prompt, ref_images=ref_images, node_name="detail_gen")
