@@ -25,7 +25,7 @@ _NODE_STAGE_MAP = {
     "detail_gen": "image_generation", "scene_1_gen": "image_generation",
     "scene_2_gen": "image_generation", "scene_3_gen": "image_generation",
     "comparison_gen": "image_generation", "social_proof_gen": "image_generation",
-    "multi_angle_gen": "image_generation", "multi_info_gen": "image_generation",
+    "multi_angle_gen": "image_generation",
     "prepare_ozon_upload": "prepare_ozon_upload",
     "ozon_validate": "ozon_validate", "ozon_upload": "ozon_upload",
     "ozon_status": "ozon_status", "learning_record": "learning_record",
