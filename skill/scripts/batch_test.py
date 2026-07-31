@@ -291,7 +291,9 @@ def main() -> int:
     _cdp_ok = False
     try:
         from scripts.lib.chrome_launcher import ensure_chrome_cdp
-        ok, msg = ensure_chrome_cdp(auto_restart=True)
+        from pathlib import Path as _P
+        _prof = str(_P(__file__).resolve().parent.parent / "data" / "browser" / "profiles" / "1688" / "default")
+        ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_prof)
         _cdp_ok = ok
         if not ok:
             issues.append(f"Chrome CDP 启动失败: {msg}")

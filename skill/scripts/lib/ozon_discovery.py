@@ -156,8 +156,10 @@ _COLLECT_ROOT_SEL = (
 )
 
 # 采集容器内的产品 ID（去重）
+# ⚠️ 用 :is() 包裹多选择器列表——直接拼后缀会把逗号分隔的选择器列表拆坏
+# （前几个选择器变成选 .tile-root 本身，href 为空，采集恒为空）
 _COLLECT_URLS_JS = r'''(() => {
-    const links = document.querySelectorAll('__ROOT_SEL__ a[href*="/product/"]');
+    const links = document.querySelectorAll(':is(__ROOT_SEL__) a[href*="/product/"]');
     const seen = new Set();
     const out = [];
     for (const a of links) {
@@ -269,7 +271,9 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str) -> ProductCandidate:
     try:
         info = fetch_product_info(cdp_url, pid, cdp=cdp)
         candidate.ozon_title = info.get("title", "")
-        candidate.ozon_price = _parse_price(info.get("price", ""))
+        # webPrice 结构 price 可能为空，fallback cardPrice（实测部分商品 price 字段为空）
+        candidate.ozon_price = _parse_price(
+            info.get("price", "") or info.get("cardPrice", ""))
         candidate.ozon_images = info.get("images", [])
         candidate.brand = info.get("brand", "")
         candidate.rating = float(info.get("rating", 0) or 0)
