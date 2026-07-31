@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -15,18 +15,23 @@ jobs:
         include:
           - os: macos-latest
             platform: darwin-arm64
-          - os: macos-13
+            python-architecture: arm64
+          - os: macos-latest
             platform: darwin-x86_64
+            python-architecture: x64
           - os: ubuntu-latest
             platform: linux
+            python-architecture: x64
           - os: windows-latest
             platform: win32
+            python-architecture: x64
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          architecture: ${{ matrix.python-architecture }}
 
       - name: Install dependencies
         run: pip install cython setuptools && pip install -r skill/requirements.txt
