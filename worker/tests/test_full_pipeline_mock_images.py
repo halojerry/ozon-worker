@@ -214,11 +214,11 @@ class TestFullPipelineMockImages:
 
         with patch("utils.mxou_api.call_mxou_chat_api", side_effect=mock_chat_response), \
              patch("utils.mxou_api.call_mxou_image_api", side_effect=mock_image_response), \
-             patch("graphs.nodes.auth_node.verify_mxou_token", return_value={
+             patch("graphs.nodes.auth_node._verify_mxou_token", return_value={
                  "user_id": "test-user", "token_id": "test-token", "balance": 100.0,
                  "supabase_url": "http://localhost", "supabase_key": "test",
              }), \
-             patch("graphs.nodes.auth_node.get_ozon_seller_info", return_value={
+             patch("graphs.nodes.auth_node.query_ozon_seller_info", return_value={
                  "currency_code": "CNY"
              }), \
              patch("utils.ozon_client.ozon_check_quota", return_value={
