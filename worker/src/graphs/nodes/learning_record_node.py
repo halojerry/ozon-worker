@@ -180,7 +180,7 @@ def learning_record_node(
                 # jieba 关键词
                 try:
                     import jieba as _jieba
-                    jieba_kws = list(set(w for w in _jieba.cut(leaf) if len(w) >= 2))
+                    jieba_kws = list({w for w in _jieba.cut(leaf) if len(w) >= 2})
                 except Exception:
                     jieba_kws = [leaf]
                 # 查 ZH + RU 路径
