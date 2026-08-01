@@ -137,12 +137,16 @@ jobs:
         id: manifest
         working-directory: skill
         run: |
-          PKG=$(ls pounding-ozon-probe-*.tar.gz | head -1)
-          SHA=$(sha256sum "$PKG" | awk '{print $1}')
           VERSION=$(cat ../VERSION 2>/dev/null || echo "0.4.0")
+          # ⚠️ 精确匹配版本包名（勿用 *.tar.gz：目录里有历史遗留旧包
+          # 如 pounding-ozon-probe-darwin-arm64-py312.tar.gz，字母序排在
+          # v 之前会被误选）
+          PKG="pounding-ozon-probe-v${VERSION}.tar.gz"
+          SHA=$(sha256sum "$PKG" | awk '{print $1}')
           cat > manifest.json <<EOF
           {"version": "$VERSION", "url": "${COS_MANIFEST_BASE_URL}/pounding-ozon-probe-v${VERSION}.tar.gz", "sha256": "$SHA", "released_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)", "notes": "自动更新发布（GitHub Actions v${VERSION}）"}
           EOF
+          echo "PKG=$PKG"
           echo "SHA256: $SHA"
           cat manifest.json
           echo "package_name=$PKG" >> "$GITHUB_OUTPUT"
