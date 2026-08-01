@@ -209,9 +209,12 @@ def _lazy_collect_urls(tab: Any, max_products: int,
         if len(pids) >= max_products:
             break
 
-        # 2. 逐屏滚动触发懒加载
+        # 2. 滚动到接近底部触发懒加载（85% 视口步长太小，搜索页需滚多次
+        #    才接近底部触发加载——实测 4 次滚动才 +8 卡片；直接滚到
+        #    底部上方 1 屏，上品帮同款思路，1-2 次滚动即触发）
         try:
-            tab.evaluate("window.scrollBy(0, window.innerHeight * 0.85)")
+            tab.evaluate(
+                "window.scrollTo(0, document.body.scrollHeight - window.innerHeight * 1.1)")
         except Exception:
             pass
 
@@ -303,12 +306,16 @@ def collect_and_analyze(
     keyword: str = "",
     max_products: int = 50,
     use_analytics: bool = True,
+    min_price: float = 0,
+    max_price: float = 0,
     progress_callback=None,
 ) -> list[ProductCandidate]:
     """Discover v2 阶段①+②：采集 + 全量数据 + seller.ozon.ru 运营指标。
 
     - url 优先；否则 keyword 构造真实搜索页；否则中国站 highlight 页
-    - 返回全部候选（status: ok/uncertain/error），**不做 1688 匹配**（阶段④）
+    - min_price/max_price（RUB，0=不限）：价格区间外的候选标记 filtered，
+      跳过运营指标查询（省调用），不参与挑选
+    - 返回全部候选（status: ok/uncertain/filtered/error），**不做 1688 匹配**（阶段④）
     - 关键词校验：标题含中文但无关键词 → uncertain（表格标黄，仍可选）
     """
     from scripts.lib.cdp_client import CdpConnection
@@ -349,24 +356,41 @@ def collect_and_analyze(
                 candidate.status = "uncertain"
                 candidate.error = "标题不含关键词，可能夹带推荐/广告商品"
 
+            # 价格区间过滤（RUB）：区间外标记 filtered，跳过 analytics
+            if candidate.status == "ok" and (min_price > 0 or max_price > 0):
+                if candidate.ozon_price <= 0:
+                    candidate.status = "filtered"
+                    candidate.error = "无有效价格"
+                elif min_price > 0 and candidate.ozon_price < min_price:
+                    candidate.status = "filtered"
+                    candidate.error = f"价格低于下限 {min_price:.0f}₽"
+                elif max_price > 0 and candidate.ozon_price > max_price:
+                    candidate.status = "filtered"
+                    candidate.error = f"价格高于上限 {max_price:.0f}₽"
+
             candidates.append(candidate)
             if progress_callback:
                 progress_callback(i + 1, len(pids), candidate)
             time.sleep(0.5)
 
         # ── 阶段②b 运营指标（借道 seller.ozon.ru，失败自动降级）──
-        if use_analytics and candidates:
-            from scripts.lib.ozon_seller_analytics import (
-                apply_analytics_to_candidate,
-                fetch_sales_analytics,
-            )
-            metrics_map = fetch_sales_analytics(
-                cdp, [c.ozon_product_id for c in candidates])
-            for c in candidates:
-                apply_analytics_to_candidate(
-                    c, metrics_map.get(c.ozon_product_id, {}))
+        # 只对价格区间内的候选查询（filtered 跳过，省 API 调用）
+        if use_analytics:
+            to_enrich = [c for c in candidates if c.status in ("ok", "uncertain")]
+            if to_enrich:
+                from scripts.lib.ozon_seller_analytics import (
+                    apply_analytics_to_candidate,
+                    fetch_sales_analytics,
+                )
+                metrics_map = fetch_sales_analytics(
+                    cdp, [c.ozon_product_id for c in to_enrich])
+                for c in to_enrich:
+                    apply_analytics_to_candidate(
+                        c, metrics_map.get(c.ozon_product_id, {}))
+            else:
+                logger.info("无价格区间内的候选，跳过运营指标查询")
 
-    # 全量落盘（含 error/uncertain，供表格与审计）
+    # 全量落盘（含 error/uncertain/filtered，供表格与审计）
     _save_discovery_log(candidates)
     return candidates
 
