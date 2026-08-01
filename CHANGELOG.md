@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.12.0] - 2026-08-01
+
+### Added
+- **Discover v2 四阶段重构**（Skill）：先全量采集 → 表格分析 → 挑完再找货源（1688 配额只花在选中产品）；`--rules` 自动筛选、`--min-price/--max-price` 价格区间、无关键词中国站懒加载
+- **蓝海评分增强**：sales_growth（需求上升）+ drr 广告占比（低竞争）因子
+- **seller.ozon.ru 运营指标借道**（月销量/增长率/广告占比/上架天数，未登录自动降级）
+- **Skill 自动更新机制**：COS manifest 检测 → `skill update` 下载/sha256 校验/备份/回滚/保留 data/；每次命令静默检查
+- **CDP 图搜匹配修复**：badge 过滤 + RU-ZH 产品词映射 + 相关性护栏 + 重试机制（37/37 匹配率实测）
+
+### Fixed
+- 属性缓存预热崩溃根因：全量内存 OOM + 单事务卡死 PG + 429 无限递归 → 逐节点小事务 + 指数退避
+- chrome_launcher 误杀 Electron 进程（裸 chrome 匹配）
+- Chrome 130+ 默认 profile 禁止远程调试 → 独立 profile
+- 采集选择器 :is() 拼接 bug、widget webPrice/评分 key 错误、缓存污染
+- compile.py 遗漏 ozon_seller_analytics、__pycache__ 污染 dist
+- CI：PR 到 dev 不触发（pull_request 只匹配 main）
+
+### Changed
+- service.py 移回明文（探针改动最频繁，需快速迭代）；stealth.py 保留编译
+- 统一包机制：一个包全平台（_native/{darwin-arm64,darwin-x86_64,linux,win32}）
+
 ## [0.2.0] - 2026-07-18
 
 ### Added
