@@ -155,8 +155,12 @@ jobs:
           COS_MANIFEST_BASE_URL: ${{ secrets.COS_MANIFEST_BASE_URL }}
 
       # ── 发布到腾讯云 COS（中国用户可直连下载，自动更新分发渠道）──
+      # ⚠️ GitHub runner（美国）直连广州 COS 慢，需 COS 开通「全球加速」后
+      # 才可靠（endpoint: cos.accelerate.myqcloud.com）。未开通时上传会失败
+      # （UserNetworkTooSlow），故 continue-on-error 不阻断 Release 出包。
       - name: Upload to Tencent COS
         if: startsWith(github.ref, 'refs/tags/v')
+        continue-on-error: true
         run: |
           pip install -q cos-python-sdk-v5
           python .github/scripts/cos_upload.py
@@ -165,6 +169,7 @@ jobs:
           COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
           COS_REGION: ${{ secrets.COS_REGION }}
+          COS_USE_ACCELERATE: ${{ secrets.COS_USE_ACCELERATE }}
           PACKAGE_NAME: ${{ steps.manifest.outputs.package_name }}
 
       - name: Upload package
