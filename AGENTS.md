@@ -83,7 +83,7 @@ ozon-worker/
 
 **Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
 
-**源码保护**：`compile.py` 用 Cython 将 9 个核心库编译为二进制 `.so`/`.pyd`（ak_1688_client、ak_callback、chrome_launcher、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、stealth）。以下文件因依赖复杂仅复制不编译：cli.py、cloud_probe.py、batch_test.py、service.py、ozon_api.py、cdp_client.py、ozon_widget.py、ozon_seller.py、ozon_discovery.py、utils.py。编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。
+**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 13 个：lib/（ak_1688_client、ak_callback、chrome_launcher、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_discovery、ozon_api）+ cloud_probe.py + capabilities/browser_probe/（service.py、stealth.py）。以下因依赖复杂仅复制不编译：cli.py、batch_test.py、lib/（cdp_client、utils、cache、ozon_seller、ozon_widget、ozon_seller_analytics、task_paths、logging_utils）。编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。
 
 **依赖**：仅 3 个 — `requests`、`websocket-client`、`Pillow`（Playwright 已移除，统一用原生 CDP）。
 
