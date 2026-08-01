@@ -269,12 +269,20 @@ dictionary_value_id **跨语言通用**：ZH_HANS 的 `id=61571` 在 RU 下展�
 
 ### 属性缓存脚本
 
+> ⚠️ **v1.1 修复（2026-08-01 云端崩溃根因）**：原 `warm_category_cache.py` 把
+> 全部类目数据攒内存（峰值 1.5GB+ OOM）且单事务提交全部（PG 内存暴涨锁表 →
+> 服务卡死）。已改：**逐节点小事务写 PG**（--pg-only 内存 O(单节点)）、429 限流
+> 指数退避上限 3 次（原无限递归）、并发 3→2、API_DELAY 0.05→0.3、导出流式写。
+> 全量预热建议分片：`--offset N --pg-only` 每 1000 个跑一次。
+
 ```bash
 # 预热 top-200 类目（部署后自动跑）
 python scripts/warm_category_cache.py --limit 200
 
-# 预热全部 7424 类目（~16 小时，建议 screen/tmux）
+# 预热全部 7424 类目（~16 小时，建议分片跑，每 1000 个一段）
 python scripts/warm_category_cache.py --all --pg-only
+python scripts/warm_category_cache.py --all --offset 1000 --pg-only
+python scripts/warm_category_cache.py --all --offset 2000 --pg-only
 
 # 导出 JSON 到 assets/（提交 git，部署时自动导入）
 python scripts/warm_category_cache.py --limit 500 --export-only
