@@ -47,25 +47,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p dist
-          # 从 GitHub Release 下载 skill 包（GitHub 内网，秒下）
+          # ⚠️ 精确匹配版本包（勿用 glob：Release 里有历史遗留小包
+          # pounding-ozon-probe-darwin-arm64-py312.tar.gz 会排在前面）
+          TARGET="pounding-ozon-probe-v${VERSION}.tar.gz"
+          echo "Downloading $TARGET"
           gh api "repos/${{ github.repository }}/releases/tags/${TAG}" \
-            --jq '.assets[] | [.name, .url] | @tsv' \
+            --jq ".assets[] | select(.name == \"$TARGET\") | [.name, .url] | @tsv" \
             | while IFS=$'\t' read -r name url; do
-                case "$name" in
-                  pounding-ozon-probe-*.tar.gz)
-                    echo "Downloading $name"
-                    gh api --header "Accept: application/octet-stream" "$url" > "dist/$name"
-                    ;;
-                  *)
-                    echo "Skipping $name"
-                    ;;
-                esac
+                gh api --header "Accept: application/octet-stream" "$url" > "dist/$name"
               done
           ls -lh dist/
-          test -n "$(find dist -name 'pounding-ozon-probe-*.tar.gz' -print -quit)" || {
-            echo "::error::No skill package found in release"
+          test -f "dist/$TARGET" || {
+            echo "::error::版本包 $TARGET 未找到"
             exit 1
           }
 
@@ -79,9 +75,9 @@ jobs:
       - name: Compute sha256 and generate manifest
         id: manifest
         run: |
-          PKG=$(basename $(find dist -name 'pounding-ozon-probe-*.tar.gz' | head -1))
-          SHA=$(sha256sum "dist/$PKG" | awk '{print $1}')
           VERSION="${{ steps.version.outputs.version }}"
+          PKG="pounding-ozon-probe-v${VERSION}.tar.gz"
+          SHA=$(sha256sum "dist/$PKG" | awk '{print $1}')
           # manifest url 用 COS_MANIFEST_BASE_URL（公网域名，不带 bucket）
           cat > manifest.json <<EOF
           {"version": "$VERSION", "url": "${COS_MANIFEST_BASE_URL}/pounding-ozon-probe-v${VERSION}.tar.gz", "sha256": "$SHA", "released_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)", "notes": "自动更新发布（GitHub Actions v${VERSION}）"}
@@ -106,15 +102,14 @@ jobs:
           PKG="${{ steps.manifest.outputs.package_name }}"
           # 1. 安装包
           coscli_cmd cp "dist/${PKG}" "cos://${COS_BUCKET}/ozon-skill/${PKG}"
-          # 2. manifest（覆盖，始终指向最新）
-          coscli_cmd cp "manifest.json" "cos://${COS_BUCKET}/ozon-skill/manifest.json" -f
+          # 2. manifest（coscli cp 默认覆盖已有文件，无需 -f——-f 是 coscmd 参数）
+          coscli_cmd cp "manifest.json" "cos://${COS_BUCKET}/ozon-skill/manifest.json"
           echo "✅ 已上传: /ozon-skill/${PKG} + /ozon-skill/manifest.json"
         env:
           COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
           COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
           COS_REGION: ${{ secrets.COS_REGION }}
-          PACKAGE_NAME: ${{ steps.manifest.outputs.package_name }}
 
       - name: Verify public endpoints
         run: |
