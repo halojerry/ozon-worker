@@ -90,6 +90,7 @@ jobs:
           COS_MANIFEST_BASE_URL: ${{ secrets.COS_MANIFEST_BASE_URL }}
 
       - name: Upload to Tencent COS
+        timeout-minutes: 15   # 跨境上传可能偶发慢，超时让 workflow_dispatch 可重试
         run: |
           coscli_cmd() {
             ./coscli "$@" \
