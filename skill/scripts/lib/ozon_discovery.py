@@ -645,6 +645,153 @@ def export_to_json(candidates: list[ProductCandidate], filepath: str) -> str:
 from scripts.lib.utils import parse_price as _parse_price
 
 
+# 俄语产品词 → 中文关键词（1688 标题相关性校验用，覆盖常见品类）
+# badge 为空时俄语 Ozon 标题无法直接与中文 1688 标题重叠校验，
+# 用该映射把标题中的俄语产品词翻译后做包含匹配。
+_RU_ZH_PRODUCT_WORDS: dict[str, list[str]] = {
+    # 宠物
+    "шлейка": ["胸背", "牵引", "遛狗", "背带", "胸带"],
+    "пояс": ["腰带", "背带", "尿不湿", "纸尿裤", "裤"],   # впитывающие пояса=吸收腰带(尿裤)
+    "ошейник": ["项圈"],
+    "поводок": ["牵引绳", "牵狗", "遛狗"],
+    "памперс": ["尿不湿", "纸尿裤", "尿裤", "拉拉裤"],
+    "подгузник": ["尿不湿", "纸尿裤"],
+    "игрушк": ["玩具"],
+    "корм": ["粮", "饲料", "食品"],
+    "миска": ["碗", "食盆", "喂食"],
+    "шапка": ["帽"],
+    "одежд": ["衣服", "服装", "衣"],
+    "костюм": ["衣服", "服装", "套装"],
+    "ботинк": ["鞋", "靴"],
+    "туфл": ["鞋"],
+    "носок": ["袜"],
+    "перчатк": ["手套"],
+    "шарф": ["围巾"],
+    "ремень": ["腰带", "皮带"],
+    "когтеточк": ["猫抓", "抓板"],
+    "домик": ["窝", "屋", "房子"],
+    "переноск": ["航空箱", "包", "笼"],
+    "лоток": ["猫砂盆", "便盆"],
+    "наполнитель": ["猫砂", "垫料"],
+    "амуниция": ["背带", "牵引"],
+    "дрессировк": ["训练", "训犬"],
+    # 家居日用
+    "сумка": ["包", "挎包", "手袋"],
+    "рюкзак": ["背包", "双肩包"],
+    "чехол": ["壳", "套", "保护套"],
+    "коврик": ["垫", "地垫"],
+    "подушка": ["枕", "靠垫", "抱枕"],
+    "одеяло": ["被子", "毯子"],
+    "полотенц": ["毛巾"],
+    "стакан": ["杯", "水杯"],
+    "кружка": ["杯", "马克杯"],
+    "тарелк": ["盘", "餐盘"],
+    "ложк": ["勺"],
+    "вилк": ["叉"],
+    "нож": ["刀"],
+    "кастрюл": ["锅", "汤锅"],
+    "сковород": ["锅", "煎锅"],
+    "вешалк": ["衣架", "挂钩"],
+    "полк": ["置物架", "架子"],
+    "корзин": ["收纳篮", "篮子"],
+    "ламп": ["灯"],
+    "зеркал": ["镜子"],
+    "щетк": ["刷"],
+    "расческ": ["梳"],
+    "фен": ["吹风"],
+    "пауэрбанк": ["充电宝"],
+    "наушник": ["耳机"],
+    "чехол-книжк": ["翻盖", "壳"],
+    "зарядк": ["充电"],
+}
+
+
+def _ru_zh_title_overlap(ozon_title: str, cn_title: str) -> float:
+    """俄语标题 vs 中文标题相关性：命中产品词数 / 标题中出现的产品词数。"""
+    lower = ozon_title.lower()
+    words = 0
+    hits = 0
+    for ru, zh_list in _RU_ZH_PRODUCT_WORDS.items():
+        if ru in lower:
+            words += 1
+            for zh in zh_list:
+                if zh in cn_title:
+                    hits += 1
+                    break
+    if not words:
+        return 0.0
+    return hits / words
+
+
+def _badge_effectiveness(badge_str: str) -> float:
+    """badge 匹配有效性 0-1（区别于 _get_badge_score 的原始数值分）：
+    '符合N/M个条件' → N/M；'匹配度xx%' → xx/100；'精准/较高' → 0.9/0.7。"""
+    if not badge_str:
+        return 0.0
+    m = re.search(r"符合\s*(\d+)\s*/\s*(\d+)\s*个条件", badge_str)
+    if m:
+        n, total = int(m.group(1)), int(m.group(2))
+        return n / total if total > 0 else 0.0
+    m = re.search(r"(匹配度|相似度)[\s:：]*(\d+)", badge_str, re.IGNORECASE)
+    if m:
+        return min(int(m.group(2)), 100) / 100.0
+    for k, v in {"精准": 0.9, "较高": 0.7, "高": 0.6}.items():
+        if k in badge_str:
+            return v
+    return 0.0
+
+
+def _pick_best_match(results: list[dict[str, Any]], ozon_title: str) -> dict[str, Any] | None:
+    """从图搜结果中挑选最相关的匹配。
+
+    1688 图搜列表第一张卡片往往是不相关商品（badge 标"符合 0/N 个条件"），
+    直接取 results[0] 会拿到错误匹配（实测 ¥1-2 错误价格根因）。
+
+    排序策略（分 = badge 有效性×40 + 标题相关性×30）：
+    1. badge "符合 0/N"（明确 0 匹配）→ 跳过
+    2. badge 匹配有效性为主排序（1688 官方匹配度最可信）
+    3. 标题相关性作辅排序：中文标题走关键词重叠；俄语标题走 RU→ZH
+       产品词映射包含匹配（badge 为空时唯一可用的相关性信号）
+    4. 相关性护栏：badge 无明确匹配（<0.6）且标题相关性弱（conf < 0.5）
+       → 拒绝匹配（宁缺毋滥，不把不相关商品当货源）
+    """
+    from scripts.lib.ozon_image_search import _get_badge_score
+
+    is_ru_title = bool(re.search(r"[а-яёА-ЯЁ]", ozon_title or ""))
+
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for r in results:
+        badge_str = r.get("badge", "") or ""
+        # 跳过明确 0 匹配的（"符合0/N个条件"）
+        if re.search(r"符合\s*0\s*/\s*\d+\s*个条件", badge_str):
+            continue
+        badge_eff = _badge_effectiveness(badge_str)
+        # 标题相关性
+        conf = 0.0
+        r_title = r.get("title", "") or ""
+        if r_title and re.search(r"[\u4e00-\u9fff]", r_title):
+            if is_ru_title:
+                conf = _ru_zh_title_overlap(ozon_title, r_title)
+            else:
+                v = verify_1688_match(ozon_title, r_title)
+                conf = v.get("confidence", 0.0)
+        scored.append((badge_eff * 40 + conf * 30, r))
+
+    if not scored:
+        return None
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best_score, best = scored[0]
+
+    # 相关性护栏：badge 无明确匹配且标题相关性弱 → 拒绝（宁缺毋滥，
+    # 实测"花插 ¥1"当遛狗带货源的错误由此拦截）
+    badge_eff_of_best = _badge_effectiveness(best.get("badge", "") or "")
+    if badge_eff_of_best < 0.6 and best_score < 15:
+        logger.debug("图搜候选相关性过低（badge=%s, score=%.1f），拒绝匹配: %s",
+                     best.get("badge", ""), best_score, best.get("title", "")[:40])
+        return None
+    return best
+
+
 def _search_1688_source(
     cdp_url: str,
     images: list[str],
@@ -666,8 +813,8 @@ def _search_1688_source(
 
             logger.debug("1688 CDP image search with: %s", images[0][:80])
             results = search_by_image_cdp(images[0], cdp_url=cdp_url)
-            if results:
-                best = results[0]
+            best = _pick_best_match(results, title) if results else None
+            if best:
                 price = best.get("price", 0)
                 if isinstance(price, str):
                     price = _parse_price(price)
@@ -689,8 +836,10 @@ def _search_1688_source(
 
             logger.debug("1688 AK image search with: %s", images[0][:80])
             results = search_by_image(image_url=images[0], page_size=5, score_level="high")
-            if results:
-                best = results[0]
+            # ⚠️ AK 结果同样不能无条件取 results[0]（实测第一条是"活体羊驼
+            # ¥2000"，第三条才是相关商品），与 CDP 路径共用 _pick_best_match
+            best = _pick_best_match(results, title) if results else None
+            if best:
                 return {
                     "url": best.get("detail_url", ""),
                     "title": best.get("title", ""),
