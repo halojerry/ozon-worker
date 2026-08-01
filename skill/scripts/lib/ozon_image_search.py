@@ -103,7 +103,12 @@ def _extract_results_from_tab(tab, page_size: int = 5) -> list[dict[str, Any]]:
                     }}
                 }}
             }}
-            const priceMatch = text.match(/¥\\s*([\\d.]+)/);
+            // 价格解析：兼容 半角¥/全角￥/无货币前缀（"4.5元"/"¥4.5起"）
+            // 部分卡片价格区懒加载或格式特殊，无匹配时尝试兜底正则
+            let priceMatch = text.match(/[¥￥]\\s*([\\d.]+)/);
+            if (!priceMatch) {{
+                priceMatch = text.match(/([\\d.]+)\\s*元/);
+            }}
             const price = priceMatch ? parseFloat(priceMatch[1]) : 0;
             const links = Array.from(card.querySelectorAll("a") || []);
             let offerId = "";
