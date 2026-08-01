@@ -30,12 +30,19 @@ def main() -> int:
     # 1. 上传安装包 → /ozon-skill/<包名>
     # ⚠️ 包在 skill/ 下生成（Create distributable package 的 working-directory），
     # 本脚本在仓库根运行，需拼 skill/ 前缀
+    # ⚠️ 用 upload_file 分片上传：GitHub runner 在美国跨太平洋传广州 COS，
+    # 单请求 put_object 太慢会被拒（UserNetworkTooSlow），分片+多线程可解决
     pkg = os.path.join("skill", os.environ["PACKAGE_NAME"])
     if not os.path.exists(pkg):
         print(f"❌ 安装包不存在: {pkg}")
         return 1
-    client.put_object(Bucket=bucket, Body=open(pkg, "rb"),
-                      Key=f"ozon-skill/{os.environ['PACKAGE_NAME']}")
+    client.upload_file(
+        Bucket=bucket,
+        Key=f"ozon-skill/{os.environ['PACKAGE_NAME']}",
+        LocalFilePath=pkg,
+        MAXThread=10,          # 多线程并发加速跨洋上传
+        PartSize=5 * 1024 * 1024,  # 5MB 分片
+    )
     print(f"✅ 包已上传: /ozon-skill/{os.environ['PACKAGE_NAME']}")
 
     # 2. 上传 manifest（覆盖，始终指向最新版本）
