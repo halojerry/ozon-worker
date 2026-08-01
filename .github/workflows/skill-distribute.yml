@@ -1,0 +1,132 @@
+name: Distribute Skill to COS
+
+# 独立分发 workflow（参考 pounding 仓库 release-distribute.yml 架构）：
+#   GitHub Release 发布后，从 Release 下载 tar.gz（GitHub 内网快）
+#   → coscli 上传到腾讯云 COS（自动更新分发渠道）。
+# 独立触发的好处：与 build 解耦，上传失败可单独 workflow_dispatch 重试。
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to redistribute (e.g. v0.12.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skill-distribute-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  distribute:
+    name: Distribute skill to COS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract tag from event
+        id: version
+        env:
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          TAG="${EVENT_TAG:-$INPUT_TAG}"
+          if [ -z "$TAG" ]; then
+            echo "::error::No tag provided"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Tag: $TAG / Version: $VERSION"
+
+      - name: Download skill package from Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          mkdir -p dist
+          # 从 GitHub Release 下载 skill 包（GitHub 内网，秒下）
+          gh api "repos/${{ github.repository }}/releases/tags/${TAG}" \
+            --jq '.assets[] | [.name, .url] | @tsv' \
+            | while IFS=$'\t' read -r name url; do
+                case "$name" in
+                  pounding-ozon-probe-*.tar.gz)
+                    echo "Downloading $name"
+                    gh api --header "Accept: application/octet-stream" "$url" > "dist/$name"
+                    ;;
+                  *)
+                    echo "Skipping $name"
+                    ;;
+                esac
+              done
+          ls -lh dist/
+          test -n "$(find dist -name 'pounding-ozon-probe-*.tar.gz' -print -quit)" || {
+            echo "::error::No skill package found in release"
+            exit 1
+          }
+
+      - name: Install coscli
+        run: |
+          curl -L --fail --retry 3 --retry-delay 2 -o coscli \
+            https://cosbrowser.cloud.tencent.com/software/coscli/coscli-linux-amd64
+          chmod 755 coscli
+          ./coscli --version
+
+      - name: Compute sha256 and generate manifest
+        id: manifest
+        run: |
+          PKG=$(basename $(find dist -name 'pounding-ozon-probe-*.tar.gz' | head -1))
+          SHA=$(sha256sum "dist/$PKG" | awk '{print $1}')
+          VERSION="${{ steps.version.outputs.version }}"
+          # manifest url 用 COS_MANIFEST_BASE_URL（公网域名，不带 bucket）
+          cat > manifest.json <<EOF
+          {"version": "$VERSION", "url": "${COS_MANIFEST_BASE_URL}/pounding-ozon-probe-v${VERSION}.tar.gz", "sha256": "$SHA", "released_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)", "notes": "自动更新发布（GitHub Actions v${VERSION}）"}
+          EOF
+          echo "SHA256: $SHA"
+          echo "PKG=$PKG"
+          cat manifest.json
+          echo "package_name=$PKG" >> "$GITHUB_OUTPUT"
+        env:
+          COS_MANIFEST_BASE_URL: ${{ secrets.COS_MANIFEST_BASE_URL }}
+
+      - name: Upload to Tencent COS
+        run: |
+          coscli_cmd() {
+            ./coscli "$@" \
+              -e "cos.${COS_REGION}.myqcloud.com" \
+              -i "$COS_SECRET_ID" \
+              -k "$COS_SECRET_KEY" \
+              --init-skip=true \
+              --disable-log=true
+          }
+          PKG="${{ steps.manifest.outputs.package_name }}"
+          # 1. 安装包
+          coscli_cmd cp "dist/${PKG}" "cos://${COS_BUCKET}/ozon-skill/${PKG}"
+          # 2. manifest（覆盖，始终指向最新）
+          coscli_cmd cp "manifest.json" "cos://${COS_BUCKET}/ozon-skill/manifest.json" -f
+          echo "✅ 已上传: /ozon-skill/${PKG} + /ozon-skill/manifest.json"
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_BUCKET: ${{ secrets.COS_BUCKET }}
+          COS_REGION: ${{ secrets.COS_REGION }}
+          PACKAGE_NAME: ${{ steps.manifest.outputs.package_name }}
+
+      - name: Verify public endpoints
+        run: |
+          BASE="${COS_MANIFEST_BASE_URL:-https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/ozon-skill}"
+          PKG="${{ steps.manifest.outputs.package_name }}"
+          for URL in "${BASE}/manifest.json" "${BASE}/${PKG}"; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
+            echo "GET $URL → HTTP $CODE"
+            test "$CODE" = "200" || { echo "::error::Public endpoint not reachable"; exit 1; }
+          done
+          echo "✅ COS 公网端点验证通过"
+        env:
+          COS_MANIFEST_BASE_URL: ${{ secrets.COS_MANIFEST_BASE_URL }}
+          COS_BUCKET: ${{ secrets.COS_BUCKET }}
+          COS_REGION: ${{ secrets.COS_REGION }}

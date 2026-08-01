@@ -154,42 +154,6 @@ jobs:
         env:
           COS_MANIFEST_BASE_URL: ${{ secrets.COS_MANIFEST_BASE_URL }}
 
-      # ── 发布到腾讯云 COS（中国用户可直连下载，自动更新分发渠道）──
-      # 用腾讯官方 coscli（Go 写的，跨洋网络优于 coscmd/Python SDK，
-      # 参考 pounding 仓库 release-distribute.yml 同款方案；无需全球加速）
-      - name: Upload to Tencent COS
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          # 1. 下载官方 coscli（腾讯自家 CDN，GitHub 可访问）
-          curl -L --fail --retry 3 --retry-delay 2 -o coscli \
-            https://cosbrowser.cloud.tencent.com/software/coscli/coscli-linux-amd64
-          chmod 755 coscli
-
-          coscli_cmd() {
-            ./coscli "$@" \
-              -e "cos.${COS_REGION}.myqcloud.com" \
-              -i "$COS_SECRET_ID" \
-              -k "$COS_SECRET_KEY" \
-              --init-skip=true \
-              --disable-log=true
-          }
-
-          PKG="${{ steps.manifest.outputs.package_name }}"
-
-          # 2. 上传安装包 → cos://<bucket>/ozon-skill/<包名>
-          coscli_cmd cp "skill/${PKG}" "cos://${COS_BUCKET}/ozon-skill/${PKG}"
-
-          # 3. 上传 manifest（覆盖，始终指向最新版本）
-          coscli_cmd cp "skill/manifest.json" "cos://${COS_BUCKET}/ozon-skill/manifest.json" -f
-
-          echo "✅ 已上传: /ozon-skill/${PKG} + /ozon-skill/manifest.json"
-        env:
-          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
-          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
-          COS_BUCKET: ${{ secrets.COS_BUCKET }}
-          COS_REGION: ${{ secrets.COS_REGION }}
-          PACKAGE_NAME: ${{ steps.manifest.outputs.package_name }}
-
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
