@@ -449,6 +449,17 @@ def main():
     print(f"  📝 data/config/settings.json (空模板)")
     print(f"  📝 data/config/stores.json (空模板)")
 
+    # 清理 dist 中的 __pycache__ / .pyc（编译时 import 会生成，避免污染发布包）
+    cleaned = 0
+    for cache_dir in dist_dir.rglob("__pycache__"):
+        shutil.rmtree(cache_dir, ignore_errors=True)
+        cleaned += 1
+    for pyc in dist_dir.rglob("*.pyc"):
+        pyc.unlink(missing_ok=True)
+        cleaned += 1
+    if cleaned:
+        print(f"\n🧹 已清理 {cleaned} 个 __pycache__/.pyc（发布包保持干净）")
+
     print(f"\n✅ 编译完成: {success} 成功, {failed} 失败")
     print(f"   平台: {plat_dir_name}")
     print(f"   输出目录: {dist_dir}")
