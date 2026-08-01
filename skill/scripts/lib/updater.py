@@ -63,9 +63,39 @@ def parse_manifest(text: str) -> dict[str, Any] | None:
         data = json.loads(text)
     except json.JSONDecodeError:
         return None
+    # ⚠️ 必须顶层是 dict：字符串/list 对 `k in data` 的语义不同，
+    # 可能误通过校验后 TypeError（P2）
+    if not isinstance(data, dict):
+        return None
     if not all(k in data for k in ("version", "url", "sha256")):
         return None
     return data
+
+
+def _fetch_manifest(manifest_url: str = "") -> tuple[dict[str, Any] | None, bool]:
+    """拉取并解析远端 manifest。
+
+    Returns: (data, ok) — data 为更新信息或 None；ok=False 表示网络/解析失败
+    （与"无更新"区分：无更新时 ok=True, data=None）。
+    """
+    url = manifest_url or _DEFAULT_MANIFEST_URL
+    if not url:
+        return None, False
+    try:
+        resp = requests.get(url, timeout=CHECK_TIMEOUT)
+        if resp.status_code != 200:
+            return None, False
+        # 显式 UTF-8 解码，避免中文 notes 依赖 chardet 探测乱码（P2）
+        resp.encoding = "utf-8"
+        data = parse_manifest(resp.text)
+        if not data:
+            return None, False
+        if _version_key(data["version"]) <= _version_key(get_local_version()):
+            return None, True   # 已是最新（同版本或更旧）
+        return data, True
+    except Exception as exc:
+        logger.debug("更新检查失败（静默）: %s", exc)
+        return None, False
 
 
 def check_update(manifest_url: str = "") -> dict[str, Any] | None:
@@ -73,22 +103,8 @@ def check_update(manifest_url: str = "") -> dict[str, Any] | None:
 
     失败（网络/超时/格式错）一律返回 None，绝不阻断主流程。
     """
-    url = manifest_url or _DEFAULT_MANIFEST_URL
-    if not url:
-        return None
-    try:
-        resp = requests.get(url, timeout=CHECK_TIMEOUT)
-        if resp.status_code != 200:
-            return None
-        data = parse_manifest(resp.text)
-        if not data:
-            return None
-        if _version_key(data["version"]) <= _version_key(get_local_version()):
-            return None
-        return data
-    except Exception as exc:
-        logger.debug("更新检查失败（静默）: %s", exc)
-        return None
+    data, _ = _fetch_manifest(manifest_url)
+    return data
 
 
 def _version_key(version: str) -> tuple[int, ...]:
@@ -117,21 +133,13 @@ def _extract_archive(archive_path: Path, dest_dir: Path) -> None:
             tf.extractall(dest_dir, filter="data")  # 安全解压（拒绝路径穿越）
 
 
-def _copy_contents(src: Path, dst: Path) -> list[Path]:
-    """复制 src 下所有内容到 dst，返回已复制文件列表（用于回滚）。"""
-    copied: list[Path] = []
-    for item in src.iterdir():
-        target = dst / item.name
-        if item.is_dir():
-            if target.exists():
-                shutil.rmtree(target)
-            shutil.copytree(item, target)
-        else:
-            if target.exists():
-                target.unlink()
-            shutil.copy2(item, target)
-        copied.append(target)
-    return copied
+def _is_source_layout() -> bool:
+    """检测是否源码开发目录（存在 compile.py/pyproject.toml）而非 dist 分发包。
+
+    源码目录更新会误删仓库文件（compile.py 等非包文件），拒绝自动更新（P2）。
+    """
+    root = skill_dir()
+    return (root / "compile.py").exists() or (root / "pyproject.toml").exists()
 
 
 def apply_update(update_info: dict[str, Any], auto_confirm: bool = False) -> dict[str, Any]:
@@ -144,6 +152,12 @@ def apply_update(update_info: dict[str, Any], auto_confirm: bool = False) -> dic
     root = skill_dir()
     dl_url = update_info.get("url", "")
     expect_sha = update_info.get("sha256", "")
+
+    # ⚠️ 源码开发目录拒绝自动更新：会误删 compile.py 等非包文件（P2）
+    if _is_source_layout():
+        return {**result, "error":
+                "检测到源码开发目录（存在 compile.py），不执行自动更新。"
+                "请使用 dist/ 分发包或手动 git pull。"}
 
     if not auto_confirm:
         confirm = input(f"发现新版本 {result['new_version']}，是否更新？(y/N) ")
@@ -159,6 +173,7 @@ def apply_update(update_info: dict[str, Any], auto_confirm: bool = False) -> dic
         with open(archive, "wb") as f:
             for chunk in resp.iter_content(65536):
                 f.write(chunk)
+        resp.close()
 
         # 2. sha256 校验
         if expect_sha and _sha256_of_file(archive) != expect_sha:
@@ -177,8 +192,16 @@ def apply_update(update_info: dict[str, Any], auto_confirm: bool = False) -> dic
 
         # 4. 备份当前（除 data/ 外）到 root/_update_backup
         backup = root / _BACKUP_DIR_NAME
+        # ⚠️ P1 中断安全：若上次更新中断残留备份（root 缺文件），先恢复旧版本
+        # 再继续，避免删除"最后一份可回滚副本"后新版本有问题回不去
         if backup.exists():
-            shutil.rmtree(backup)
+            missing = [item.name for item in backup.iterdir()
+                       if not (root / item.name).exists()]
+            if missing:
+                print("⚠️ 检测到上次未完成的更新，先恢复旧版本...")
+                _rollback(result)
+            else:
+                shutil.rmtree(backup, ignore_errors=True)
         backup.mkdir(parents=True, exist_ok=True)
         for item in root.iterdir():
             if item.name in _PRESERVE_DIRS or item.name == _BACKUP_DIR_NAME:
@@ -201,31 +224,70 @@ def apply_update(update_info: dict[str, Any], auto_confirm: bool = False) -> dic
         logger.info("✅ Skill 已更新 %s → %s", result["old_version"], result["new_version"])
         return result
 
+    except PermissionError as exc:
+        return _fail_file_locked(result, exc)
+    except shutil.Error as exc:
+        # Windows 上 copytree 复制被进程锁的 .pyd 时抛 shutil.Error
+        # （条目是 (src, dst, errmsg) 元组，errmsg 含 Permission denied）
+        # 需识别并给友好提示
+        err_text = str(exc)
+        if "Permission" in err_text or "Errno 13" in err_text \
+                or "denied" in err_text.lower():
+            return _fail_file_locked(result, exc)
+        return _fail_rollback(result, exc)
+
+    except (KeyboardInterrupt, SystemExit) as exc:
+        # ⚠️ P1 中断安全：Ctrl+C/进程终止也要回滚到一致状态
+        _rollback(result)
+        return {**result, "error": f"更新被中断，已回滚: {exc}"}
+
     except Exception as exc:
-        # 7. 失败回滚：从备份恢复
-        backup = root / _BACKUP_DIR_NAME
-        try:
-            if backup.exists():
-                for item in backup.iterdir():
-                    target = root / item.name
-                    if target.exists():
-                        if target.is_dir():
-                            shutil.rmtree(target)
-                        else:
-                            target.unlink()
-                    shutil.move(str(item), str(root / item.name))
-                shutil.rmtree(backup, ignore_errors=True)
-            logger.warning("更新失败，已回滚: %s", exc)
-        except Exception as rollback_exc:
-            logger.error("回滚也失败: %s", rollback_exc)
-        return {**result, "error": f"更新失败已回滚: {exc}"}
+        return _fail_rollback(result, exc)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def _fail_file_locked(result: dict, exc: Exception) -> dict:
+    """Windows 文件被占用：回滚备份并提示关闭终端重试。"""
+    _rollback(result)
+    return {**result, "error":
+            f"更新失败（文件被占用）: {exc}\n"
+            "   ⚠️ Windows 上请关闭所有正在运行 skill 的终端/窗口后重试 `skill update`"}
+
+
+def _fail_rollback(result: dict, exc: Exception) -> dict:
+    """通用失败：回滚备份。"""
+    _rollback(result)
+    return {**result, "error": f"更新失败已回滚: {exc}"}
+
+
+def _rollback(result: dict) -> None:
+    """从备份恢复原文件（幂等，失败仅记日志不抛出）。"""
+    root = skill_dir()
+    backup = root / _BACKUP_DIR_NAME
+    try:
+        if backup.exists():
+            for item in backup.iterdir():
+                target = root / item.name
+                if target.exists():
+                    if target.is_dir():
+                        shutil.rmtree(target)
+                    else:
+                        target.unlink()
+                shutil.move(str(item), str(root / item.name))
+            shutil.rmtree(backup, ignore_errors=True)
+        logger.warning("更新失败，已回滚")
+    except Exception as rollback_exc:
+        logger.error("回滚也失败: %s", rollback_exc)
+
+
 def run_update_command() -> int:
     """`skill update` 命令：检查 + 应用更新。返回 0 成功/无更新，1 失败。"""
-    info = check_update()
+    info, ok = _fetch_manifest()
+    if not ok:
+        # 区分"检查失败"与"无更新"：离线不误报"已是最新"（P2）
+        print("⚠️ 无法连接更新服务器（网络或 COS 配置问题），请稍后重试")
+        return 1
     if not info:
         print(f"✅ 已是最新版本（v{get_local_version()}）")
         return 0
