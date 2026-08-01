@@ -56,6 +56,7 @@ AUX_FILES = [
     "scripts/lib/cache.py",          # 通用磁盘缓存（JSON + TTL + SHA256 key）
     "scripts/lib/ozon_seller.py",    # Ozon Seller API 客户端（佣金/属性）
     "scripts/lib/ozon_widget.py",    # Ozon Widget API 客户端（产品/跟卖）
+    "scripts/lib/ozon_seller_analytics.py",  # 运营指标借道（Discover v2 新增）
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
 ]
