@@ -19,11 +19,23 @@ def main() -> int:
         print("❌ 缺少 cos-python-sdk-v5，执行: pip install cos-python-sdk-v5")
         return 1
 
-    config = CosConfig(
-        Region=os.environ["COS_REGION"],
-        SecretId=os.environ["COS_SECRET_ID"],
-        SecretKey=os.environ["COS_SECRET_KEY"],
-    )
+    # 全球加速域名：COS 控制台开通后设 SKILL 环境变量/COS_USE_ACCELERATE=1
+    # （GitHub 美国 runner 直连广州 COS 会 UserNetworkTooSlow）
+    use_accel = os.environ.get("COS_USE_ACCELERATE", "").lower() in ("1", "true", "yes")
+    if use_accel:
+        config = CosConfig(
+            Region=os.environ["COS_REGION"],
+            SecretId=os.environ["COS_SECRET_ID"],
+            SecretKey=os.environ["COS_SECRET_KEY"],
+            Endpoint="cos.accelerate.myqcloud.com",
+        )
+        print("🌐 使用全球加速域名上传")
+    else:
+        config = CosConfig(
+            Region=os.environ["COS_REGION"],
+            SecretId=os.environ["COS_SECRET_ID"],
+            SecretKey=os.environ["COS_SECRET_KEY"],
+        )
     client = CosS3Client(config)
     bucket = os.environ["COS_BUCKET"]
 
