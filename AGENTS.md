@@ -83,7 +83,7 @@ ozon-worker/
 
 **Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
 
-**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 13 个：lib/（ak_1688_client、ak_callback、chrome_launcher、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_discovery、ozon_api）+ cloud_probe.py + capabilities/browser_probe/（service.py、stealth.py）。以下因依赖复杂仅复制不编译：cli.py、batch_test.py、lib/（cdp_client、utils、cache、ozon_seller、ozon_widget、ozon_seller_analytics、task_paths、logging_utils）。编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。
+**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 12 个：lib/（ak_1688_client、ak_callback、chrome_launcher、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_discovery、ozon_api）+ cloud_probe.py + capabilities/browser_probe/stealth.py。以下因依赖复杂/需快速迭代仅复制不编译：cli.py、batch_test.py、lib/（cdp_client、utils、cache、ozon_seller、ozon_widget、ozon_seller_analytics、updater、task_paths、logging_utils）+ **service.py 明文**（探针改动最频繁，需本地快速迭代与可调试，2026-08-01 从编译移回）。编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。
 
 **依赖**：仅 3 个 — `requests`、`websocket-client`、`Pillow`（Playwright 已移除，统一用原生 CDP）。
 
@@ -462,6 +462,10 @@ GitHub Actions 自动检查每次 push/PR：
 - **Import**: Worker + Skill 核心模块导入验证（阻断）
 - **Docker**: 镜像构建验证（阻断）
 - **CD**: `git tag v*` → Docker build → push ghcr.io → GitHub Release
+- **Skill 自动更新**: `git tag v*` → build-skill.yml 打包 4 平台 → 上传 COS
+  （`/skill/<包>.tar.gz` + `/manifest.json`）→ 用户每次命令静默检查，`skill update`
+  应用（sha256 校验 + 备份 + 保留 data/）。需配置 GitHub Secrets：
+  `COS_SECRET_ID/COS_SECRET_KEY/COS_BUCKET/COS_REGION/COS_MANIFEST_BASE_URL`。
 
 本地: `bash scripts/ci.sh [--quick] [--strict]`
 Pre-commit: `git config core.hooksPath .githooks`（语法 + 密钥拦截）

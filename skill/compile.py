@@ -33,8 +33,7 @@ COMPILE_FILES = [
     "scripts/lib/ozon_discovery.py",   # 选品发现引擎（蓝海评分）
     "scripts/lib/ozon_api.py",         # Ozon API 封装（类目搜索/属性匹配）
     "scripts/cloud_probe.py",          # 信封组装 + 管线编排
-    "scripts/capabilities/browser_probe/service.py",  # CDP 浏览器探针
-    "scripts/capabilities/browser_probe/stealth.py",
+    "scripts/capabilities/browser_probe/stealth.py",  # 反检测 JS（稳定，保护价值最高）
 ]
 
 # 复制但不编译的文件（入口脚本，无需保护源码）
@@ -57,8 +56,12 @@ AUX_FILES = [
     "scripts/lib/ozon_seller.py",    # Ozon Seller API 客户端（佣金/属性）
     "scripts/lib/ozon_widget.py",    # Ozon Widget API 客户端（产品/跟卖）
     "scripts/lib/ozon_seller_analytics.py",  # 运营指标借道（Discover v2 新增）
+    "scripts/lib/updater.py",        # 自动更新（COS manifest 检测 + 下载/回滚）
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
+    # ⚠️ service.py 明文（不编译）：探针是改动最频繁的模块，需本地快速迭代
+    # 与可调试性；历史 1e98bcd 曾踩 stub 变量名冲突，已修复
+    "scripts/capabilities/browser_probe/service.py",
 ]
 
 # 参考文件（客户端文档 + 依赖）
@@ -67,6 +70,7 @@ DOC_FILES = [
     "envelope_example.json",
     "field_mapping.md",
     "requirements.txt",
+    "VERSION",   # 自动更新版本比对依据（updater.py 读取）
 ]
 
 # 平台映射
