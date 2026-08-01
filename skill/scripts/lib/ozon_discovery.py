@@ -392,6 +392,7 @@ def match_selected(
         commission_rate = float(store_profile.get("commission_rate", 0) or 0)
 
     selected = [c for c in candidates if c.status in ("ok", "uncertain")]
+    stats = {"matched": 0, "rejected": 0, "no_match": 0, "error": 0}
     for i, candidate in enumerate(selected):
         try:
             match = _search_1688_source(
@@ -425,10 +426,19 @@ def match_selected(
             logger.warning("1688 match failed for %s: %s",
                            candidate.ozon_product_id, exc)
 
+        stats[candidate.status if candidate.status in stats else "error"] += 1
+
         if progress_callback:
             progress_callback(i + 1, len(selected), candidate)
         time.sleep(0.5)
 
+    logger.info("1688 匹配统计: %s", stats)
+    # 匹配结果落盘（collect_and_analyze 保存的是匹配前的全量数据，
+    # 这里覆盖保存最终版本，含 1688 匹配/利润/蓝海评分）
+    try:
+        _save_discovery_log(candidates)
+    except Exception as exc:
+        logger.debug("保存匹配后日志失败: %s", exc)
     return candidates
 
 
@@ -765,6 +775,13 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str) -> dict[str
         # 跳过明确 0 匹配的（"符合0/N个条件"）
         if re.search(r"符合\s*0\s*/\s*\d+\s*个条件", badge_str):
             continue
+        # 无价格候选跳过：价格是利润计算核心，拿不到价格再高匹配也没用
+        # （实测 badge 2/3 的垃圾袋收纳袋价格区未解析 → ¥0，跳过选有价格的）
+        try:
+            if not (float(r.get("price", 0) or 0) > 0):
+                continue
+        except (TypeError, ValueError):
+            continue
         badge_eff = _badge_effectiveness(badge_str)
         # 标题相关性
         conf = 0.0
@@ -782,10 +799,11 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str) -> dict[str
     scored.sort(key=lambda x: x[0], reverse=True)
     best_score, best = scored[0]
 
-    # 相关性护栏：badge 无明确匹配且标题相关性弱 → 拒绝（宁缺毋滥，
-    # 实测"花插 ¥1"当遛狗带货源的错误由此拦截）
+    # 相关性护栏：badge 完全无匹配分（含空/0匹配）且标题相关性弱 → 拒绝
+    # （宁缺毋滥，实测"花插 ¥1"当遛狗带货源的错误由此拦截）。
+    # badge 有任何匹配分（如"符合1/3"）→ 信任 1688 官方匹配度，放行。
     badge_eff_of_best = _badge_effectiveness(best.get("badge", "") or "")
-    if badge_eff_of_best < 0.6 and best_score < 15:
+    if badge_eff_of_best <= 0 and best_score < 15:
         logger.debug("图搜候选相关性过低（badge=%s, score=%.1f），拒绝匹配: %s",
                      best.get("badge", ""), best_score, best.get("title", "")[:40])
         return None
@@ -796,6 +814,7 @@ def _search_1688_source(
     cdp_url: str,
     images: list[str],
     title: str,
+    max_retries: int = 1,
 ) -> dict[str, Any] | None:
     """Search 1688 for a matching source product.
 
@@ -804,71 +823,112 @@ def _search_1688_source(
     2. Fall back to AK API image search
     3. Fall back to AK API keyword search using the Ozon title
 
+    Retry 机制（偶发失败容错）：
+    - CDP 图搜空结果（页面加载失败/超时等偶发）→ 重试 max_retries 次
+      （间隔 3s），仍空才降级 AK
+    - CDP 图搜有结果但被相关性护栏拒绝 → 不重试（结果确定），直接降级
+    - AK 图搜/关键词同样重试（API 快，成本低）
+
     Returns dict with: url, title, price, images  (or None if no match).
     """
     # --- Strategy 1: CDP image search ---
     if images:
-        try:
-            from scripts.lib.ozon_image_search import search_by_image_cdp
+        for attempt in range(max_retries + 1):
+            try:
+                from scripts.lib.ozon_image_search import search_by_image_cdp
 
-            logger.debug("1688 CDP image search with: %s", images[0][:80])
-            results = search_by_image_cdp(images[0], cdp_url=cdp_url)
-            best = _pick_best_match(results, title) if results else None
-            if best:
-                price = best.get("price", 0)
-                if isinstance(price, str):
-                    price = _parse_price(price)
-                return {
-                    "url": best.get("detail_url", "")
-                        or f"https://detail.1688.com/offer/{best.get('id', '')}.html"
-                        if best.get("id") else "",
-                    "title": best.get("title", ""),
-                    "price": float(price) if price else 0,
-                    "images": [best.get("image", "")] if best.get("image") else [],
-                }
-        except Exception as exc:
-            logger.debug("CDP image search failed: %s", exc)
+                logger.debug("1688 CDP image search (attempt %d/%d) with: %s",
+                             attempt + 1, max_retries + 1, images[0][:80])
+                results = search_by_image_cdp(images[0], cdp_url=cdp_url)
+                best = _pick_best_match(results, title) if results else None
+                if best:
+                    price = best.get("price", 0)
+                    if isinstance(price, str):
+                        price = _parse_price(price)
+                    return {
+                        "url": best.get("detail_url", "")
+                            or f"https://detail.1688.com/offer/{best.get('id', '')}.html"
+                            if best.get("id") else "",
+                        "title": best.get("title", ""),
+                        "price": float(price) if price else 0,
+                        "images": [best.get("image", "")] if best.get("image") else [],
+                    }
+                if not results and attempt < max_retries:
+                    logger.info("CDP 图搜空结果（偶发），重试 %d/%d",
+                                attempt + 1, max_retries)
+                    time.sleep(3)
+                    continue
+                # 有结果但被护栏拒绝 → 结果确定，不重试，降级 AK
+                break
+            except Exception as exc:
+                logger.debug("CDP image search failed (attempt %d): %s",
+                             attempt + 1, exc)
+                if attempt < max_retries:
+                    time.sleep(3)
+                    continue
+                break
 
     # --- Strategy 2: AK API image search ---
     if images:
-        try:
-            from scripts.lib.ak_1688_client import search_by_image
+        for attempt in range(2):
+            try:
+                from scripts.lib.ak_1688_client import search_by_image
 
-            logger.debug("1688 AK image search with: %s", images[0][:80])
-            results = search_by_image(image_url=images[0], page_size=5, score_level="high")
-            # ⚠️ AK 结果同样不能无条件取 results[0]（实测第一条是"活体羊驼
-            # ¥2000"，第三条才是相关商品），与 CDP 路径共用 _pick_best_match
-            best = _pick_best_match(results, title) if results else None
-            if best:
-                return {
-                    "url": best.get("detail_url", ""),
-                    "title": best.get("title", ""),
-                    "price": float(best.get("price", 0) or 0),
-                    "images": [best.get("image_url", "")] if best.get("image_url") else [],
-                }
-        except Exception as exc:
-            logger.debug("AK image search failed: %s", exc)
-
-    # --- Strategy 3: AK API keyword search (fallback) ---
-    if title:
-        try:
-            from scripts.lib.ak_1688_client import search_products
-
-            # Simplify title: remove brand, keep core keywords
-            keywords = _extract_search_keywords(title)
-            if keywords:
-                logger.debug("1688 keyword search: %s", keywords)
-                results = search_products(keywords, page_size=5)
-                if results:
-                    best = results[0]
+                logger.debug("1688 AK image search (attempt %d/2) with: %s",
+                             attempt + 1, images[0][:80])
+                results = search_by_image(image_url=images[0], page_size=5, score_level="high")
+                # ⚠️ AK 结果同样不能无条件取 results[0]（实测第一条是"活体羊驼
+                # ¥2000"，第三条才是相关商品），与 CDP 路径共用 _pick_best_match
+                best = _pick_best_match(results, title) if results else None
+                if best:
                     return {
                         "url": best.get("detail_url", ""),
                         "title": best.get("title", ""),
                         "price": float(best.get("price", 0) or 0),
                         "images": [best.get("image_url", "")] if best.get("image_url") else [],
                     }
-        except Exception as exc:
-            logger.debug("AK keyword search failed: %s", exc)
+                if not results and attempt < 1:
+                    logger.info("AK 图搜空结果，重试 %d/2", attempt + 1)
+                    time.sleep(1)
+                    continue
+                break
+            except Exception as exc:
+                logger.debug("AK image search failed (attempt %d): %s", attempt + 1, exc)
+                if attempt < 1:
+                    time.sleep(1)
+                    continue
+                break
+
+    # --- Strategy 3: AK API keyword search (fallback) ---
+    if title:
+        for attempt in range(2):
+            try:
+                from scripts.lib.ak_1688_client import search_products
+
+                # Simplify title: remove brand, keep core keywords
+                keywords = _extract_search_keywords(title)
+                if keywords:
+                    logger.debug("1688 keyword search (attempt %d/2): %s",
+                                 attempt + 1, keywords)
+                    results = search_products(keywords, page_size=5)
+                    if results:
+                        best = results[0]
+                        return {
+                            "url": best.get("detail_url", ""),
+                            "title": best.get("title", ""),
+                            "price": float(best.get("price", 0) or 0),
+                            "images": [best.get("image_url", "")] if best.get("image_url") else [],
+                        }
+                if attempt < 1:
+                    time.sleep(1)
+                    continue
+                break
+            except Exception as exc:
+                logger.debug("AK keyword search failed (attempt %d): %s", attempt + 1, exc)
+                if attempt < 1:
+                    time.sleep(1)
+                    continue
+                break
 
     return None
 
