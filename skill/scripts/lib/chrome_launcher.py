@@ -164,9 +164,15 @@ def _find_chrome_processes() -> list[dict]:
                 line = line.strip()
                 if not line:
                     continue
-                # Skip our own grep/ps processes
                 lower = line.lower()
-                if "chrome" not in lower and "chromium" not in lower:
+                # ⚠️ 不能用裸 "chrome" 匹配：Electron 应用（ZCode/Doubao/Docker
+                # Desktop 等）的 helper 进程路径含 "Electron Framework/.../Chrome
+                # Helper"，会被误判为 Chrome 并误杀（会杀掉正在运行的 Agent 自身）。
+                # 只匹配真正的 Google Chrome / Chromium（路径含 "google chrome" 或
+                # "chromium"，且不在 Electron 框架内）。
+                if "google chrome" not in lower and "chromium" not in lower:
+                    continue
+                if "electron" in lower:
                     continue
                 if "grep" in lower or "ps -axo" in lower:
                     continue

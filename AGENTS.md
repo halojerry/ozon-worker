@@ -253,6 +253,7 @@ bash update.sh
 - JSON 裸文件：全量 ~70GB（太大，不能 git）
 - PG JSONB（TOAST 压缩）：全量 ~600MB（完全可行）
 - 策略：属性 schema + 字典值直接写 PG，运行时懒加载补全
+- **v0.11.5 补充**：top-200 子集 JSON（~2MB）提交 git 随 Docker 镜像分发，`init_data.py` 启动时直接导入（见「最近更新 v0.11.5」）
 
 ### 属性缓存机制
 
@@ -268,12 +269,20 @@ dictionary_value_id **跨语言通用**：ZH_HANS 的 `id=61571` 在 RU 下展�
 
 ### 属性缓存脚本
 
+> ⚠️ **v1.1 修复（2026-08-01 云端崩溃根因）**：原 `warm_category_cache.py` 把
+> 全部类目数据攒内存（峰值 1.5GB+ OOM）且单事务提交全部（PG 内存暴涨锁表 →
+> 服务卡死）。已改：**逐节点小事务写 PG**（--pg-only 内存 O(单节点)）、429 限流
+> 指数退避上限 3 次（原无限递归）、并发 3→2、API_DELAY 0.05→0.3、导出流式写。
+> 全量预热建议分片：`--offset N --pg-only` 每 1000 个跑一次。
+
 ```bash
 # 预热 top-200 类目（部署后自动跑）
 python scripts/warm_category_cache.py --limit 200
 
-# 预热全部 7424 类目（~16 小时，建议 screen/tmux）
+# 预热全部 7424 类目（~16 小时，建议分片跑，每 1000 个一段）
 python scripts/warm_category_cache.py --all --pg-only
+python scripts/warm_category_cache.py --all --offset 1000 --pg-only
+python scripts/warm_category_cache.py --all --offset 2000 --pg-only
 
 # 导出 JSON 到 assets/（提交 git，部署时自动导入）
 python scripts/warm_category_cache.py --limit 500 --export-only
@@ -458,6 +467,61 @@ GitHub Actions 自动检查每次 push/PR：
 Pre-commit: `git config core.hooksPath .githooks`（语法 + 密钥拦截）
 
 ⚠️ **密钥轮换**: MXOU_TOKEN、1688 AK、Ozon API Key 曾暴露在 git 历史中，已移除追踪但历史仍存在，请尽快轮换。
+
+## 最近更新（Discover v2 — 先全量采集 → 表格分析 → 挑完再找货源）
+
+> 2026-08-01。分支 `feat/discover-v2`，详见 `docs/PRD-discover-v2.md`。
+
+### Discover v2 四阶段重构
+
+| 阶段 | 改动 |
+|------|------|
+| ① 采集修正 | 关键词走真实搜索页 `/search/?text=`（不再 highlight `?text=`）；选择器限定结果容器 `.tile-root`（不再全页 `a[href*="/product/"]` 混入推荐位）；逐屏滚动 + 轮询新卡渲染（0.5s×20）+ 翻页兜底 + product_id 去重；`--url` 参数真正生效（原为死代码） |
+| ② 全量数据 | 补 brand/评分/评论数（widget webReviews）；**新增 `ozon_seller_analytics.py`**：借道 seller.ozon.ru `what_to_sell/data/v3` 拿月销量/增长率(drr)/广告占比/上架天数/真实重量尺寸/佣金（参考 maozi-plugin），未登录自动降级为公开指标，不阻断 |
+| ③ 表格挑选 | 全量表格（含拒绝原因/状态）→ 交互按序号挑选 或 `--rules "monthly_sales>=200,drr<=30"` 自动筛选；**此时不花 1688 配额** |
+| ④ 批量货源 | 只对选中产品 1688 识图 → 利润计算（有重量按 40 CNY/kg 估物流，真实佣金优先）→ 蓝海评分（monthly_sales/commission 从空转变成真实值）→ 确认提交 |
+
+### 连带修复
+
+- **P0-1 图搜 awaitPromise**：`ozon_image_search._extract_results_from_tab` JS 包 async IIFE + `await_promise=True`（原顶层 await 恒失败，图搜全靠 AK API 兜底）；空结果不再写 6h 缓存
+- **P0-5 discover 凭证链路**：`build_envelope_from_discovery` 优先透传 `build_graph_envelope_with_retry` 解析的凭证；降级分支定价走 store profile（不再硬编码 0.25/10%）；cli 删除不存在的 `load_store_config` 引用
+- CLI 新参数：`--url`（修复）、`--store`、`--no-analytics`、`--rules`；`--client-id/--api-key` 移除（改由 store 提供）
+
+### discover 新流程命令
+
+```bash
+python3.12 scripts/cli.py discover --keyword "宠物用品"                                    # 交互挑选
+python3.12 scripts/cli.py discover --keyword "宠物用品" --rules "monthly_sales>=200,drr<=30"  # 规则自动
+python3.12 scripts/cli.py discover --url "https://www.ozon.ru/search/?text=..."           # 指定页
+python3.12 scripts/cli.py discover --keyword "宠物用品" --auto-submit                      # 确认后提交
+```
+
+## 最近更新（v0.11.5 — CI/CD 全绿 + Skill 统一包 + 属性缓存优化）
+
+> 2026-08-01。CI/CD 修复 + Skill 打包修复 + 属性缓存预热优化。
+
+### CI/CD 修复
+
+- **Worker CI 全绿**：修复 5 个 F821 undefined name（`_sanitize_title`→`sanitize_title`、实现 `_build_hardcoded_attributes`、`missing_required`/`_safe_float`/`dims_obj` 提前定义、`_generate_hashtags_retry`→lazy import）、ruff 0.16 新规则（C401 set comprehension ×3、RUF046 int()）、测试依赖补全（jinja2/pytest-asyncio）、测试 mock 函数名修正（`_verify_mxou_token`/`query_ozon_seller_info`）
+- **worker-ci.yml**：依赖安装改 `pip install -e .` + 完整 fallback 列表（jinja2/jieba/pytest-asyncio 等）
+- **CD workflow**：加 `permissions: contents: write, packages: write`（修复 org package 推送被拒）
+
+### Skill Build 修复（build-skill.yml）
+
+- **macos-13 废弃**：Intel runner 排队 5h+，改为 `macos-latest` + Rosetta 2 交叉编译：
+  - `setup-python` 加 `architecture: x64` 装 x86_64 Python
+  - 编译用 `ARCHFLAGS="-arch x86_64"` 强制生成 x86_64 机器码
+  - ⚠️ `platform.machine()` 在 Rosetta 2 下仍返回 `arm64`，需编译后 `mv darwin-arm64 → darwin-x86_64`
+- **merge 嵌套 bug**：artifact 内部是 `{platform}/*.so`，需 `cp "$platform_dir/$platform_name"/*` 进内层，否则 `_native/linux/linux/` 双层嵌套（24MB→12.7MB）
+- **Release 权限**：package job 加 `permissions: contents: write`（softprops/action-gh-release 上传 asset 需要）
+- **统一包**：`pounding-ozon-probe-v{VERSION}.tar.gz` 一个包含 4 平台（darwin-arm64 universal / darwin-x86_64 / linux / win32），`_loader.py` 运行时自动选平台
+
+### 属性缓存 JSON 提交策略变更
+
+- **v0.9.0 之前**：`attribute_schemas_zh.json` / `dictionary_values_zh.json` gitignore（全量 ~70GB 太大）
+- **v0.11.5 起**：top-200 子集（~2MB）**提交 git**，`.gitignore` 中对应行已注释
+- 生成方式：服务器（有 PG + Ozon API）`warm_category_cache.py --limit 200 --export-only` → 提交 → Docker build 自动包含 → `init_data.py` 启动直接导入
+- `warm_category_cache.py` 加速：API_DELAY 0.15→0.05s、字典值 limit 1000→5000、字典值获取改 ThreadPoolExecutor 3 并发
 
 ## 最近更新（v0.11 — 全管线逻辑审计 + 数据流修复）
 

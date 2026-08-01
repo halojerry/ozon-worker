@@ -44,8 +44,13 @@ def _get_badge_score(badge: str) -> int:
 
 
 def _extract_results_from_tab(tab, page_size: int = 5) -> list[dict[str, Any]]:
-    """从结果标签页提取商品列表（使用 CdpTab.evaluate）。"""
-    result_str = tab.evaluate(f'''
+    """从结果标签页提取商品列表（使用 CdpTab.evaluate）。
+
+    ⚠️ 必须包 async IIFE + await_promise=True：脚本内用了顶层 await，
+    裸顶层 await 在 awaitPromise=False 时要么 SyntaxError 要么返回无 value
+    的 Promise，导致结果恒为空（审计 P0-1）。
+    """
+    result_str = tab.evaluate(f'''(async () => {{
         // 先滚动触发懒加载
         window.scrollTo(0, document.body.scrollHeight / 2);
         await new Promise(r => setTimeout(r, 500));
@@ -98,7 +103,12 @@ def _extract_results_from_tab(tab, page_size: int = 5) -> list[dict[str, Any]]:
                     }}
                 }}
             }}
-            const priceMatch = text.match(/¥\\s*([\\d.]+)/);
+            // 价格解析：兼容 半角¥/全角￥/无货币前缀（"4.5元"/"¥4.5起"）
+            // 部分卡片价格区懒加载或格式特殊，无匹配时尝试兜底正则
+            let priceMatch = text.match(/[¥￥]\\s*([\\d.]+)/);
+            if (!priceMatch) {{
+                priceMatch = text.match(/([\\d.]+)\\s*元/);
+            }}
             const price = priceMatch ? parseFloat(priceMatch[1]) : 0;
             const links = Array.from(card.querySelectorAll("a") || []);
             let offerId = "";
@@ -113,8 +123,8 @@ def _extract_results_from_tab(tab, page_size: int = 5) -> list[dict[str, Any]]:
             const img = card.querySelector("img")?.src || "";
             if (title) results.push({{id: offerId, title, price, badge, sold, supplier, image: img, detail_url: detailUrl}});
         }}
-        JSON.stringify(results);
-    ''', timeout=15)
+        return JSON.stringify(results);
+    }})()''', await_promise=True, timeout=15)
     try:
         return json.loads(result_str) if result_str else []
     except (json.JSONDecodeError, TypeError):
@@ -317,7 +327,9 @@ def search_by_image_cdp(
             })
         except Exception:
             pass
-        cache_set("search", image_url, results, ttl=21600)
+        # 只缓存有效结果，避免空结果污染缓存（降级数据不缓存）
+        if results:
+            cache_set("search", image_url, results, ttl=21600)
         return results
 
     except ConnectionError as e:
