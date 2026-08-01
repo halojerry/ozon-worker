@@ -96,12 +96,28 @@ CLI 用法:
 | 表格新增"增长/广告"列已存在（v2）| ✅ 无需改 |
 | --rules 支持 sales_growth/drr（v2 已有）| ✅ 无需改 |
 | 无关键词流程（highlight 懒加载）| ✅ 已实现，实测通过 |
+| **关键词搜索页懒加载提速** | ✅ 滚动策略 85% 视口 → 滚到接近底部（底部上方 1.1 屏），实测每次滚动必触发加载（24→32） |
+| **价格区间过滤 --min-price/--max-price** | ✅ collect_and_analyze 过滤 + CLI 参数 + 表格 `⏭️价区间外` 标记；区间外跳过 analytics 查询 |
 | 研究文档 | 本文件 |
+
+## 5.1 价格区间（v1.1 新增）
+
+```bash
+# 只分析 300-2000₽ 的产品（区间外标记 ⏭️价区间外，不参与挑选/analytics）
+python3.12 scripts/cli.py discover --keyword "收纳" --min-price 300 --max-price 2000
+```
+
+- 过滤发生在阶段②（widget 抓取价格后），区间外候选 `status=filtered`：
+  - 不查 seller.ozon.ru 运营指标（省 API 调用）
+  - 交互挑选/规则筛选不可选（表格标记 `⏭️价区间外`）
+- 实测：20 个产品中 5502₽/2517₽ 被正确标记，区间内产品正常挑选匹配
 
 ## 6. 验收标准
 
 1. 无关键词 `discover --max-products 20`：中国站采集 ≥15 个产品，懒加载正常
-2. 有 analytics 数据时（seller.ozon.ru 登录），评分中增长/广告因子生效
+2. 关键词 `discover --keyword X --max-products 20`：懒加载采满（每次滚动触发加载）
+3. 有 analytics 数据时（seller.ozon.ru 登录），评分中增长/广告因子生效
    （同产品对比：drr 低的产品评分更高）
-3. 无 analytics 降级时评分行为不变（不报错、分数可比较）
-4. `--rules "sales_growth>=20,drr<=15"` 正常筛选
+4. 无 analytics 降级时评分行为不变（不报错、分数可比较）
+5. `--rules "sales_growth>=20,drr<=15"` 正常筛选
+6. `--min-price/--max-price` 区间外标记 filtered，不参与挑选与 analytics
