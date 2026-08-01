@@ -1577,10 +1577,14 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         if ozon_cat:
             draft["ozon_category"] = ozon_cat
 
+        # ✅ P0-5 修复：优先透传 build_graph_envelope_with_retry 已解析的凭证
+        # （store_config 仅作兜底，避免提交空 Ozon 凭证）
         return {
             "token": token,
-            "ozon_client_id": store_config.get("client_id", ""),
-            "ozon_api_key": store_config.get("api_key", ""),
+            "ozon_client_id": result.get("ozon_client_id")
+                or store_config.get("client_id", ""),
+            "ozon_api_key": result.get("ozon_api_key")
+                or store_config.get("api_key", ""),
             "envelope": {
                 "draft": draft,
                 "source": result["envelope"].get("source", {}),
@@ -1589,6 +1593,14 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         }
 
     # 降级：保留原始简单组装（向后兼容）
+    # ✅ 定价参数走 store profile（不再硬编码 0.25/10%）
+    store_profile = {}
+    try:
+        from scripts.lib.config_store import get_store_profile
+        store_profile = get_store_profile(store_id) or {}
+    except Exception:
+        pass
+
     draft = {
         "item_id": best_id,
         "title": candidate.match_1688_title or candidate.ozon_title,
@@ -1611,8 +1623,8 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
 
     extensions = {
         "follow_sell": candidate.competing_sellers > 0,
-        "margin_rate": 0.25,
-        "commission_rate": (getattr(candidate, 'commission_fbp', 0) or 10) / 100,
+        "margin_rate": float(store_profile.get("margin_rate", 0) or 0.25),
+        "commission_rate": float(store_profile.get("commission_rate", 0) or 0.10),
     }
 
     return {
