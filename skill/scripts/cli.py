@@ -1021,11 +1021,42 @@ def main() -> int:
     dp.add_argument("--auto-submit", action="store_true", help="确认后提交 profitable 产品到 Worker")
     dp.set_defaults(func=cmd_discover)
 
+    # ── 自动更新 ──
+    up = sub.add_parser("update", help="检查并应用 Skill 自动更新")
+    up.set_defaults(func=cmd_update)
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
         return 0
+
+    # ⚠️ 每次命令静默检查更新（后台不阻塞，失败静默；update 命令本身跳过）
+    _silent_update_check(args.command)
+
     return args.func(args)
+
+
+def _silent_update_check(command: str) -> None:
+    """每次命令静默检查 Skill 更新（不阻塞主流程，失败静默）。
+
+    发现新版本时提示用户可运行 `skill update` 应用。
+    """
+    if command == "update":
+        return
+    try:
+        from scripts.lib.updater import check_update, get_local_version
+        info = check_update()
+        if info:
+            print(f"\n📦 发现新版本 v{info.get('version')}（当前 v{get_local_version()}）"
+                  f"—— 运行 `skill update` 更新", flush=True)
+    except Exception:
+        pass
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    """检查并应用 Skill 自动更新（从 COS manifest 下载全覆盖）。"""
+    from scripts.lib.updater import run_update_command
+    return run_update_command()
 
 
 if __name__ == "__main__":

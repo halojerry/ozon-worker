@@ -30,7 +30,7 @@ skill/dist/
 
 ## 2. 二进制（编译保护源码）vs 非二进制清单
 
-### 2.1 编译为 .so/.pyd（13 个）— 源码保护
+### 2.1 编译为 .so/.pyd（12 个）— 源码保护
 
 | 模块 | 职责 | 平台 |
 |------|------|------|
@@ -45,12 +45,11 @@ skill/dist/
 | `lib/ozon_discovery.py` | 选品发现引擎（蓝海评分） | 全平台 |
 | `lib/ozon_api.py` | Ozon API 封装（类目搜索） | 全平台 |
 | `cloud_probe.py` | 信封组装 + 管线编排 | 全平台 |
-| `capabilities/browser_probe/service.py` | CDP 浏览器探针 | 全平台 |
-| `capabilities/browser_probe/stealth.py` | 反检测 stealth | 全平台 |
+| `capabilities/browser_probe/stealth.py` | 反检测 stealth（稳定，保护价值最高） | 全平台 |
 
 > ⚠️ 每次新增/修改以上模块后，需在 4 个平台各重跑一次 `python3.12 compile.py`。
 
-### 2.2 纯复制（不编译）— 入口/基础设施/API 客户端
+### 2.2 纯复制（不编译）— 入口/基础设施/API 客户端/探针
 
 | 类型 | 模块 | 说明 |
 |------|------|------|
@@ -59,15 +58,48 @@ skill/dist/
 | 基础设施 | `lib/utils.py` | parse_price 等共享工具 |
 | 基础设施 | `lib/cache.py` | 磁盘缓存（JSON+TTL+SHA256） |
 | 基础设施 | `lib/task_paths.py`、`lib/logging_utils.py` | 任务路径/审计日志 |
+| **自动更新** | `lib/updater.py` | **COS manifest 检测 + 下载/sha256/备份/回滚** |
 | API 客户端 | `lib/ozon_seller.py` | Ozon Seller API（佣金/重量/品牌） |
 | API 客户端 | `lib/ozon_widget.py` | Ozon Widget API（产品/跟卖/SKU） |
 | API 客户端 | `lib/ozon_seller_analytics.py` | **运营指标借道**（Discover v2 新增） |
+| **探针** | `capabilities/browser_probe/service.py` | **明文（2026-08-01 移回）**：改动最频繁，需本地快速迭代与可调试；历史 1e98bcd 踩过 stub 冲突 |
 | 包结构 | `scripts/__init__.py`、`_const.py`、`_errors.py`、`lib/__init__.py`、`capabilities/__init__.py`、`capabilities/browser_probe/__init__.py` | import 必需 |
 
 ### 2.3 非 .py 分发内容
 
 - `SKILL.md` / `envelope_example.json` / `field_mapping.md` / `requirements.txt` — 文档
+- `VERSION` — **版本文件**（自动更新比对依据，updater.py 读取）
 - `data/config/settings.json` / `stores.json` — **空模板**（不泄露凭证，用户自行配置）
+
+## 2.5 自动更新机制（2026-08-01 新增）
+
+分发渠道：**腾讯云 COS**（中国用户可直连，GitHub Releases 中国访问慢）。
+
+```
+发版（git tag v0.12.0）
+  └─ GitHub Actions（build-skill.yml）
+      ├─ 4 平台构建 → 合并 → 打包 tar.gz
+      ├─ 计算 sha256 → 生成 manifest.json
+      ├─ 上传 /skill/<包>.tar.gz + /manifest.json → COS（coscmd）
+      └─ GitHub Release（保留）
+用户本地 skill
+  ├─ 每次命令静默检查 manifest（后台不阻塞，5s 超时，失败静默）
+  ├─ 有新版 → 提示"运行 skill update 更新"
+  └─ skill update → 下载 → sha256 校验 → 备份 → 覆盖 scripts/+文档+VERSION
+     → 保留 data/（凭证/登录态/缓存）→ 失败自动回滚
+```
+
+**CI 配置依赖 GitHub Secrets**（发布前需配置）：
+| Secret | 说明 |
+|--------|------|
+| `COS_SECRET_ID` | 腾讯云 SecretId |
+| `COS_SECRET_KEY` | 腾讯云 SecretKey |
+| `COS_BUCKET` | COS 桶名（如 `ozon-skill-1250000000`） |
+| `COS_REGION` | COS 地域（如 `ap-guangzhou`） |
+| `COS_MANIFEST_BASE_URL` | manifest 中 url 前缀（如 `https://ozon-skill-1250000000.cos.ap-guangzhou.myqcloud.com`） |
+
+**用户侧配置**：`updater.py` 默认 manifest URL 为占位域名，用户首次装包后需设置
+`SKILL_MANIFEST_URL` 环境变量指向真实 COS 域名（或后续把默认值改成真实域名后发一版）。
 
 ## 3. 稳定性保障清单（2026-08-01 审计）
 
