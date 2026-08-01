@@ -28,12 +28,15 @@ def main() -> int:
     bucket = os.environ["COS_BUCKET"]
 
     # 1. 上传安装包 → /ozon-skill/<包名>
-    pkg = os.environ["PACKAGE_NAME"]
+    # ⚠️ 包在 skill/ 下生成（Create distributable package 的 working-directory），
+    # 本脚本在仓库根运行，需拼 skill/ 前缀
+    pkg = os.path.join("skill", os.environ["PACKAGE_NAME"])
     if not os.path.exists(pkg):
         print(f"❌ 安装包不存在: {pkg}")
         return 1
-    client.put_object(Bucket=bucket, Body=open(pkg, "rb"), Key=f"ozon-skill/{pkg}")
-    print(f"✅ 包已上传: /ozon-skill/{pkg}")
+    client.put_object(Bucket=bucket, Body=open(pkg, "rb"),
+                      Key=f"ozon-skill/{os.environ['PACKAGE_NAME']}")
+    print(f"✅ 包已上传: /ozon-skill/{os.environ['PACKAGE_NAME']}")
 
     # 2. 上传 manifest（覆盖，始终指向最新版本）
     manifest_path = "skill/manifest.json"
