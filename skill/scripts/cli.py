@@ -714,8 +714,8 @@ def _print_discover_table(candidates: list) -> None:
     """
     status_map = {
         "ok": "✅可挑", "uncertain": "⚠️夹带?", "error": "❌失败",
-        "matched": "🔗已匹配", "profitable": "💰有利", "rejected": "⚠️利润低",
-        "no_match": "❌无货源",
+        "filtered": "⏭️价区间外", "matched": "🔗已匹配", "profitable": "💰有利",
+        "rejected": "⚠️利润低", "no_match": "❌无货源",
     }
     print(f"\n{'─' * 112}")
     print(f"{'#':>3} {'状态':<9} {'标题':<30} {'价格₽':>8} {'月销':>6} "
@@ -801,6 +801,8 @@ def cmd_discover(args: argparse.Namespace) -> int:
             keyword=args.keyword or "",
             max_products=args.max_products,
             use_analytics=not args.no_analytics,
+            min_price=args.min_price,
+            max_price=args.max_price,
             progress_callback=_collect_progress,
         )
     except KeyboardInterrupt:
@@ -1011,6 +1013,8 @@ def main() -> int:
     dp.add_argument("--fx-rate", type=float, default=0.075, help="RUB→CNY 汇率")
     dp.add_argument("--store", default="", help="Ozon 店铺名（定价参数/提交凭证来源）")
     dp.add_argument("--no-analytics", action="store_true", help="不查 seller.ozon.ru 运营指标（默认自动尝试）")
+    dp.add_argument("--min-price", type=float, default=0, help="价格下限（RUB，0=不限），区间外产品标记价区间外")
+    dp.add_argument("--max-price", type=float, default=0, help="价格上限（RUB，0=不限）")
     dp.add_argument("--rules", default="", help="自动筛选规则，如 \"monthly_sales>=200,drr<=30\"（跳过交互挑选）")
     dp.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式（全量+选中）")
     dp.add_argument("--output", default="", help="导出文件路径")

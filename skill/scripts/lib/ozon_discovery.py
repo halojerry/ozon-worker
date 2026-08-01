@@ -209,9 +209,12 @@ def _lazy_collect_urls(tab: Any, max_products: int,
         if len(pids) >= max_products:
             break
 
-        # 2. 逐屏滚动触发懒加载
+        # 2. 滚动到接近底部触发懒加载（85% 视口步长太小，搜索页需滚多次
+        #    才接近底部触发加载——实测 4 次滚动才 +8 卡片；直接滚到
+        #    底部上方 1 屏，上品帮同款思路，1-2 次滚动即触发）
         try:
-            tab.evaluate("window.scrollBy(0, window.innerHeight * 0.85)")
+            tab.evaluate(
+                "window.scrollTo(0, document.body.scrollHeight - window.innerHeight * 1.1)")
         except Exception:
             pass
 
@@ -303,12 +306,16 @@ def collect_and_analyze(
     keyword: str = "",
     max_products: int = 50,
     use_analytics: bool = True,
+    min_price: float = 0,
+    max_price: float = 0,
     progress_callback=None,
 ) -> list[ProductCandidate]:
     """Discover v2 阶段①+②：采集 + 全量数据 + seller.ozon.ru 运营指标。
 
     - url 优先；否则 keyword 构造真实搜索页；否则中国站 highlight 页
-    - 返回全部候选（status: ok/uncertain/error），**不做 1688 匹配**（阶段④）
+    - min_price/max_price（RUB，0=不限）：价格区间外的候选标记 filtered，
+      跳过运营指标查询（省调用），不参与挑选
+    - 返回全部候选（status: ok/uncertain/filtered/error），**不做 1688 匹配**（阶段④）
     - 关键词校验：标题含中文但无关键词 → uncertain（表格标黄，仍可选）
     """
     from scripts.lib.cdp_client import CdpConnection
@@ -349,24 +356,41 @@ def collect_and_analyze(
                 candidate.status = "uncertain"
                 candidate.error = "标题不含关键词，可能夹带推荐/广告商品"
 
+            # 价格区间过滤（RUB）：区间外标记 filtered，跳过 analytics
+            if candidate.status == "ok" and (min_price > 0 or max_price > 0):
+                if candidate.ozon_price <= 0:
+                    candidate.status = "filtered"
+                    candidate.error = "无有效价格"
+                elif min_price > 0 and candidate.ozon_price < min_price:
+                    candidate.status = "filtered"
+                    candidate.error = f"价格低于下限 {min_price:.0f}₽"
+                elif max_price > 0 and candidate.ozon_price > max_price:
+                    candidate.status = "filtered"
+                    candidate.error = f"价格高于上限 {max_price:.0f}₽"
+
             candidates.append(candidate)
             if progress_callback:
                 progress_callback(i + 1, len(pids), candidate)
             time.sleep(0.5)
 
         # ── 阶段②b 运营指标（借道 seller.ozon.ru，失败自动降级）──
-        if use_analytics and candidates:
-            from scripts.lib.ozon_seller_analytics import (
-                apply_analytics_to_candidate,
-                fetch_sales_analytics,
-            )
-            metrics_map = fetch_sales_analytics(
-                cdp, [c.ozon_product_id for c in candidates])
-            for c in candidates:
-                apply_analytics_to_candidate(
-                    c, metrics_map.get(c.ozon_product_id, {}))
+        # 只对价格区间内的候选查询（filtered 跳过，省 API 调用）
+        if use_analytics:
+            to_enrich = [c for c in candidates if c.status in ("ok", "uncertain")]
+            if to_enrich:
+                from scripts.lib.ozon_seller_analytics import (
+                    apply_analytics_to_candidate,
+                    fetch_sales_analytics,
+                )
+                metrics_map = fetch_sales_analytics(
+                    cdp, [c.ozon_product_id for c in to_enrich])
+                for c in to_enrich:
+                    apply_analytics_to_candidate(
+                        c, metrics_map.get(c.ozon_product_id, {}))
+            else:
+                logger.info("无价格区间内的候选，跳过运营指标查询")
 
-    # 全量落盘（含 error/uncertain，供表格与审计）
+    # 全量落盘（含 error/uncertain/filtered，供表格与审计）
     _save_discovery_log(candidates)
     return candidates
 
@@ -1010,14 +1034,21 @@ def _calculate_profit(
 def calculate_blue_ocean_score(candidate: ProductCandidate) -> int:
     """Calculate blue ocean score 0-100.
 
-    Factors:
-    - competing_sellers (weight 30): <5 → 100, <10 → 90, <50 → 60, <200 → 30, >200 → 10
-    - profit_margin (weight 30): >40% → 100, >30% → 85, >20% → 70, >10% → 40, <10% → 15
-    - monthly_sales (weight 20): 1-50 → 80 (niche), 50-200 → 60 (growing), 200-1000 → 40 (competitive), >1000 → 20 (saturated), 0 → 50 (unknown)
-    - price_range (weight 10): 500-5000 RUB → 100 (sweet spot), 100-500 → 70, >5000 → 50, <100 → 30
-    - commission_rate (weight 10): <10% → 100, <15% → 70, <20% → 40, >20% → 20
+    Factors（v3 增强，2026-08-01）:
+    - competing_sellers (weight 30): <5 → 30, <10 → 27, <50 → 18, <200 → 9, >200 → 3
+    - profit_margin (weight 30): >40% → 30, >30% → 25.5, >20% → 21, >10% → 12, <10% → 4.5
+    - monthly_sales (weight 10 有 analytics / 20 无): 1-50 → 10/16 (niche),
+      50-200 → 8/12, 200-1000 → 5/8, >1000 → 2/4, 0 → 10/10 (unknown)
+    - sales_growth (weight 5, 需 analytics): >30% → 5, 10-30% → 4, 0-10% → 2, <0 → 0
+    - drr 广告占比 (weight 5, 需 analytics): <10% → 5, 10-25% → 3, 25-50% → 1, >50% → 0
+    - price_range (weight 10): 500-5000 RUB → 10, 100-500 → 7, >5000 → 5, <100 → 3
+    - commission_rate (weight 10): <10% → 10, <15% → 7, <20% → 4, >20% → 2
+
+    无 analytics（seller.ozon.ru 未登录降级）时增长/广告因子为 0，
+    monthly_sales 权重回 20——两套评分上限一致（100），可比。
     """
     score = 0.0
+    has_analytics = bool(getattr(candidate, 'has_analytics', False))
 
     # Competing sellers (30%)
     sellers = candidate.competing_sellers
@@ -1035,13 +1066,36 @@ def calculate_blue_ocean_score(candidate: ProductCandidate) -> int:
     elif margin > 10: score += 12
     else: score += 4.5
 
-    # Monthly sales (20%)
+    # Monthly sales (10% 有 analytics / 20% 无)
     sales = getattr(candidate, 'monthly_sales', 0)
-    if 1 <= sales <= 50: score += 16
-    elif 50 < sales <= 200: score += 12
-    elif 200 < sales <= 1000: score += 8
-    elif sales > 1000: score += 4
-    else: score += 10  # unknown
+    if has_analytics:
+        if 1 <= sales <= 50: score += 10
+        elif 50 < sales <= 200: score += 8
+        elif 200 < sales <= 1000: score += 5
+        elif sales > 1000: score += 2
+        else: score += 10  # 接口通但无销量数据 → 未知
+    else:
+        if 1 <= sales <= 50: score += 16
+        elif 50 < sales <= 200: score += 12
+        elif 200 < sales <= 1000: score += 8
+        elif sales > 1000: score += 4
+        else: score += 10  # unknown
+
+    # Sales growth (5%, 需 analytics) — 需求上升信号
+    if has_analytics:
+        growth = float(getattr(candidate, 'sales_growth', 0) or 0)
+        if growth > 30: score += 5
+        elif growth > 10: score += 4
+        elif growth >= 0: score += 2
+        # growth < 0 → 0 分（需求下滑）
+
+    # drr 广告占比 (5%, 需 analytics) — 低广告占比 = 自然流量/低竞争
+    if has_analytics:
+        drr = float(getattr(candidate, 'drr', 0) or 0)
+        if drr < 10: score += 5
+        elif drr < 25: score += 3
+        elif drr < 50: score += 1
+        # drr >= 50 → 0 分（重度依赖广告）
 
     # Price range (10%)
     price = candidate.ozon_price
