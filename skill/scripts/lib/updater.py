@@ -29,10 +29,10 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# COS manifest 地址：环境变量 SKILL_MANIFEST_URL 覆盖；未配置则跳过更新检查
+# COS manifest 地址：环境变量 SKILL_MANIFEST_URL 覆盖
 _DEFAULT_MANIFEST_URL = os.environ.get(
     "SKILL_MANIFEST_URL",
-    "https://skill-update.mxou.cn/manifest.json",  # 占位，发布时替换为真实 COS 域名
+    "https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/ozon-skill/manifest.json",
 )
 
 CHECK_TIMEOUT = 5      # manifest 检查超时（静默失败）
@@ -74,7 +74,7 @@ def check_update(manifest_url: str = "") -> dict[str, Any] | None:
     失败（网络/超时/格式错）一律返回 None，绝不阻断主流程。
     """
     url = manifest_url or _DEFAULT_MANIFEST_URL
-    if not url or url.startswith("https://skill-update.mxou.cn"):  # 未配置真实域名
+    if not url:
         return None
     try:
         resp = requests.get(url, timeout=CHECK_TIMEOUT)
