@@ -1,8 +1,10 @@
 """_check_mxou_balance 单元测试（mock Supabase，无需真实库）。
 
 背景（2026-08-02 修复）：原实现只查 tokens.remain_quota（僵尸字段），
-无限额度 token（unlimited_quota=true）被误判余额不足。修复后查
-users.quota - used_quota，unlimited_quota 放行。
+无限额度 token（unlimited_quota=true）被误判余额不足。修复后：
+- unlimited_quota=true → 直接放行
+- 否则用 users.quota（实时剩余额度，充值加 quota、调用扣 quota）
+- 不再用 quota-used_quota：used_quota 是历史累计，减它低估剩余
 """
 import sys
 import os
@@ -22,32 +24,31 @@ def test_unlimited_quota_bypass():
 
 
 def test_users_balance_positive():
-    """有余额：users.quota - used_quota > 0 → 放行。"""
+    """有余额：users.quota > 0 → 放行（quota 是实时剩余额度）。"""
     from main import _check_mxou_balance
 
     fake_sb = MagicMock()
-    # users 表返回 quota=100, used_quota=30 → balance=70
     fake_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [
-        {"quota": 100, "used_quota": 30}
+        {"quota": 100}
     ]
     with patch("main.get_supabase_client", return_value=fake_sb):
         balance, ok = _check_mxou_balance({"user_id": "u1", "remain_quota": 0})
-        assert ok is True, f"余额 70 应放行: {balance}, {ok}"
-        assert balance == 70.0
+        assert ok is True, f"余额 100 应放行: {balance}, {ok}"
+        assert balance == 100.0
 
 
 def test_users_balance_negative():
-    """余额耗尽：quota - used_quota <= 0 → 拒绝。"""
+    """余额耗尽：users.quota <= 0 → 拒绝（used_quota 不参与判定）。"""
     from main import _check_mxou_balance
 
     fake_sb = MagicMock()
     fake_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [
-        {"quota": 100, "used_quota": 120}
+        {"quota": 0}
     ]
     with patch("main.get_supabase_client", return_value=fake_sb):
         balance, ok = _check_mxou_balance({"user_id": "u1"})
-        assert ok is False, f"余额 -20 应拒绝: {balance}, {ok}"
-        assert balance == -20.0
+        assert ok is False, f"quota 0 应拒绝: {balance}, {ok}"
+        assert balance == 0.0
 
 
 def test_users_no_record_fallback():
