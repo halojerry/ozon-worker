@@ -167,17 +167,27 @@ def _get_color_from_dictionary(
         return ("", 0)
     
     # 如果提供了中文颜色名，尝试匹配
+    # ⚠️ v0.13: Ozon API 返回的 info 是字符串（附加描述）而非列表，
+    # 旧代码 `for info_item in item.get("info", [])` 对字符串逐字符遍历 → 永远匹配失败，
+    # 导致中文色名匹配不到任何颜色，只能随机取第一个未使用颜色。
     if preferred_cn_color:
         preferred_lower: str = preferred_cn_color.strip().lower()
         for item in color_list:
             item_id: int = item.get("id", 0)
             if item_id in used_dict_ids:
                 continue
-            info_list: List[Dict[str, Any]] = item.get("info", [])
-            for info_item in info_list:
-                cn_val: str = info_item.get("value", "")
-                if cn_val and cn_val.strip().lower() == preferred_lower:
-                    return (item.get("value", ""), item_id)
+            # 兼容 info 为字符串或列表两种格式
+            info_raw = item.get("info", "")
+            info_text: str = ""
+            if isinstance(info_raw, str):
+                info_text = info_raw
+            elif isinstance(info_raw, list):
+                info_text = " ".join(
+                    str(x.get("value", "")) if isinstance(x, dict) else str(x)
+                    for x in info_raw
+                )
+            if info_text and preferred_lower in info_text.lower():
+                return (item.get("value", ""), item_id)
     
     # 无中文匹配或未提供：选第一个未使用的颜色
     for item in color_list:
@@ -679,6 +689,13 @@ def prepare_ozon_upload_node(
                 attr_id_int = int(attr_id_str)
                 if attr_id_int not in dict_attr_lookup:
                     dict_attr_lookup[attr_id_int] = 1  # 标记为字典类型
+    # ⚠️ v0.13.1: 品牌属性（85/5076）强制标记为字典属性
+    # assemble 已硬编码 "Нет бренда"(126745801) 到 final_attributes，
+    # 但 5076 可能不在 schema（品牌属性ID因类目而异）→ 不在 dict_attr_lookup →
+    # 转换时被当自由文本 → dictionary_value_id 被置 0 → Ozon 报"请从列表中选择"。
+    # 此处强制保留其 dict_id。
+    for _brand_id in (85, 5076):
+        dict_attr_lookup.setdefault(_brand_id, 0)
     logger.info(f"✅ 字典属性查找表：{len(dict_attr_lookup)}个字典类型属性")
     
     # ✅ 提取必填属性ID列表（用于属性匹配对照表和缺失检查）
@@ -1182,20 +1199,27 @@ def prepare_ozon_upload_node(
             value_str = _translate_to_russian_llm(value_str, mxou_token, source_lang="auto")
 
         # ✅ 扩展翻译：所有属性值含中文字符的，翻译为俄语（Ozon禁止中文/日文字符）
+        # ⚠️ v0.13.1: 翻译失败/仍含中文 → 跳过该属性，绝不写中文或空值上传！
+        # 根因：旧逻辑翻译失败置空值（value_str=""），自由文本属性空值/中文值上传 →
+        # Ozon 报"请用俄文填写该字段"（颜色名称等）。跳过属性由 retry 层 /values/search 或 LLM 兜底。
         _chinese_re_attr = re.compile(r'[\u4e00-\u9fff]')
         if value_str and attribute_id_int not in _english_allowed_attrs and _chinese_re_attr.search(value_str):
             logger.warning(f"⚠️ 属性{attribute_id_int}值含中文字符，翻译为俄语：{value_str[:60]}...")
-            value_str = _translate_to_russian_llm(value_str, mxou_token, source_lang="zh")
-            # 翻译后校验：确保不再含中文
-            if value_str and _chinese_re_attr.search(value_str):
-                logger.error(f"❌ 属性{attribute_id_int}翻译后仍含中文，清空: {value_str[:60]}")
-                value_str = ""
-            # ✅ v0.9.0 修复: dictionary_value_id 跨语言通用！
-            # 翻译 value 从中文到俄语后，dict_id 仍然有效（同一属性值的不同语言展示）。
-            # 不再清空 dict_id — 它是在 Step 4/5 通过 ZH_HANS 字典精确匹配的。
-            if value_str and attribute_id_int in dict_attr_lookup:
-                # 保持原有 dictionary_value_id（跨语言通用）
-                logger.info(f"  ℹ️ 字典属性{attribute_id_int}翻译完成，保留 dict_id={dictionary_value_id_int}, value={value_str[:40]}")
+            _translated_value = _translate_to_russian_llm(value_str, mxou_token, source_lang="zh")
+            # 翻译成功（含西里尔且无中文）→ 使用翻译结果
+            if _translated_value and _has_cyrillic(_translated_value) and not _chinese_re_attr.search(_translated_value):
+                value_str = _translated_value
+                # ✅ v0.9.0 修复: dictionary_value_id 跨语言通用！
+                # 翻译 value 从中文到俄语后，dict_id 仍然有效（同一属性值的不同语言展示）。
+                # 不再清空 dict_id — 它是在 Step 4/5 通过 ZH_HANS 字典精确匹配的。
+                if attribute_id_int in dict_attr_lookup:
+                    # 保持原有 dictionary_value_id（跨语言通用）
+                    logger.info(f"  ℹ️ 字典属性{attribute_id_int}翻译完成，保留 dict_id={dictionary_value_id_int}, value={value_str[:40]}")
+            else:
+                # 翻译失败/仍含中文/非俄语 → 跳过该属性（不写中文、不写空值）
+                logger.error(f"❌ 属性{attribute_id_int}翻译失败或非俄语，跳过该属性: {value_str[:60]}"
+                             f" -> '{str(_translated_value)[:40]}'（避免 Ozon 拒绝中文/空值）")
+                continue
         
         # ✅ 属性23171(hashtags)：过滤掉品牌名 + 确保俄语标签格式
         if attribute_id_int == 23171 and value_str:
@@ -1236,19 +1260,17 @@ def prepare_ozon_upload_node(
             })
             logger.info(f"✅ 转换成功：attr_id={attribute_id_int}, dictionary_value_id={dictionary_value_id_int}, value={value_str}")
         elif is_dict_attr:
-            # ✅ v0.8.0 修复 Bug#5: 字典属性无有效 dictionary_value_id 时，不静默跳过
-            # 使用 dictionary_value_id=0 兜底上传，Ozon 可能接受或报错，但不会静默丢失属性
-            # 同时标记为 warning 以便监控
+            # ⚠️ v0.13: 字典属性无有效 dictionary_value_id → 跳过该属性，绝不文本兜底上传！
+            # 根因：v0.8.0 Bug#5 曾用 dictionary_value_id=0 + 手填文本上传，Ozon 审核返回
+            # "属性值不正确。所有可用值以列表形式被收集了——请仅指定它们"（用途/商品颜色/风格等报错来源）。
+            # Ozon 字典属性只接受列表中的 dictionary_value_id，手填文本一律拒绝。
+            # 若该属性必需，validation_retry_loop 会走字典 API 匹配后修复。
             dict_id_for_attr: int = dict_attr_lookup.get(attribute_id_int, 0)
             logger.warning(
-                f"⚠️ 字典属性(attr_id={attribute_id_int}, dict_id={dict_id_for_attr})"
-                f" 无有效字典值ID，用 value='{value_str}' 兜底上传: "
-                f"dictionary_value_id=0"
+                f"⚠️ 跳过字典属性(attr_id={attribute_id_int}, dict_id={dict_id_for_attr})"
+                f" 值='{value_str}' 无有效 dictionary_value_id（避免文本兜底被Ozon拒绝）"
             )
-            ozon_attr["values"].append({
-                "dictionary_value_id": 0,
-                "value": value_str,
-            })
+            continue
         else:
             # 无字典值ID：自由文本值
             ozon_attr["values"].append({
@@ -1354,31 +1376,43 @@ def prepare_ozon_upload_node(
         })
         logger.info("✅ 兜底添加属性8962（件数），值: 1")
 
-    # ✅ 属性4958（专为/Предназначено для）：兜底 "Универсальный"
+    # ✅ 属性4958（专为/Предназначено для）兜底
+    # ⚠️ v0.13: 4958 是字典属性，绝不能手填 "Универсальный" 文本
+    # （Ozon 报"属性值不正确，请从列表中选择一个属性值"）。
+    # 改为从 state.dictionary_values 字典缓存取第一个有效 dictionary_value_id；取不到则跳过。
     found_4958: bool = False
     for attr in ozon_attributes:
         if isinstance(attr, dict) and attr.get("id") == 4958:
             found_4958 = True
             break
     if not found_4958:
-        # 默认 "Универсальный"（通用）；后续可通过 description_category_id 查 Ozon API 精确匹配
-        target_value: str = "Универсальный"
-        ozon_attributes.append({
-            "complex_id": 0,
-            "id": 4958,
-            "values": [{"dictionary_value_id": 0, "value": target_value}]
-        })
-        logger.info(f"✅ 兜底添加属性4958（专为），值: {target_value}")
-        seen_attr_ids.add(4958)
+        _dict_4958: List[Dict[str, Any]] = []
+        if dictionary_values:
+            _dict_4958 = dictionary_values.get(str(4958), []) or []
+        if _dict_4958:
+            _first_4958 = _dict_4958[0]
+            _vid_4958: int = int(_first_4958.get("id", 0))
+            _vval_4958: str = str(_first_4958.get("value", ""))
+            if _vid_4958 > 0:
+                ozon_attributes.append({
+                    "complex_id": 0,
+                    "id": 4958,
+                    "values": [{"dictionary_value_id": _vid_4958, "value": _vval_4958}]
+                })
+                logger.info(f"✅ 兜底添加属性4958（专为），字典值: {_vval_4958} (dict_id={_vid_4958})")
+                seen_attr_ids.add(4958)
+        else:
+            # 无字典缓存 → 跳过（避免文本兜底被Ozon拒绝）
+            logger.warning("⚠️ 属性4958（专为）无字典值缓存，跳过（不做文本兜底）")
 
     # ✅ 补充常见必填自由文本属性的默认值（Ozon 审核拒绝原因：error_attribute_values_empty）
+    # ⚠️ v0.13: 9782（Класс опасности товара/危险品等级）是字典属性，已移出本表——文本兜底会被 Ozon 拒绝
     _FALLBACK_FREE_TEXT_ATTRS: dict[int, str] = {
         7578: "365",              # 保质期（天）— 食品/玩具类默认1年
         10350: "40",              # 最高温度 °C
         10351: "0",               # 最低温度 °C
         8787: "сухое место",      # 储存条件
         8050: "полимерные материалы",  # 成分（默认聚合物材料）
-        9782: "не опасный",       # 产品危险等级（默认为非危险品，需匹配字典值）
     }
     for attr_id, default_val in _FALLBACK_FREE_TEXT_ATTRS.items():
         if attr_id in seen_attr_ids:
@@ -1868,11 +1902,22 @@ def prepare_ozon_upload_node(
             # ✅ 关键修复：检查颜色属性是否是字典类型（dictionary_id > 0）
             # 自由文本属性(dictionary_id=0)必须使用dictionary_value_id=0，否则Ozon会丢弃该属性
             color_attr_dict_id: int = dict_attr_lookup.get(color_attr_id, 0)
-            var_attributes.append({
-                "complex_id": 0,
-                "id": color_attr_id,  # 颜色属性（动态检测的ID）
-                "values": [{"dictionary_value_id": var_color_dict_id if color_attr_dict_id > 0 else 0, "value": var_color_ru}]
-            })
+            if color_attr_dict_id > 0 and var_color_dict_id > 0:
+                var_attributes.append({
+                    "complex_id": 0,
+                    "id": color_attr_id,  # 颜色属性（动态检测的ID）
+                    "values": [{"dictionary_value_id": var_color_dict_id, "value": var_color_ru}]
+                })
+            elif color_attr_dict_id == 0:
+                # 自由文本颜色属性
+                var_attributes.append({
+                    "complex_id": 0,
+                    "id": color_attr_id,
+                    "values": [{"dictionary_value_id": 0, "value": var_color_ru}]
+                })
+            else:
+                # ⚠️ v0.13: 字典颜色属性但 dict_id 未匹配到 → 跳过颜色属性（不做文本兜底，避免 Ozon 拒绝）
+                logger.warning(f"  ⚠️ 变体{i+1}颜色属性{color_attr_id}为字典类型但未匹配到 dictionary_value_id，跳过颜色属性")
 
             # ✅ 尺寸属性：如果 variant 包含尺寸信息，映射到 Ozon 尺码属性
             if var_size_cn and var_size_cn != "one size":
