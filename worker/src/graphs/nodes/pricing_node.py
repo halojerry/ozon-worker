@@ -345,7 +345,8 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             pricing_info={},
             price="",
             old_price="",
-            error_message=f"Pricing calculation failed: {str(e)}"
+            # ⚠️ v0.14 P1-4: [PRICING_FAILED] 标记，graph 检测后阻断管线，不再用 ¥1000 兜底上架
+            error_message=f"[PRICING_FAILED] Pricing calculation failed: {str(e)}"
         )
 
 

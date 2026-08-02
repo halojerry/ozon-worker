@@ -417,38 +417,42 @@ def match_selected(
 
     selected = [c for c in candidates if c.status in ("ok", "uncertain")]
     stats = {"matched": 0, "rejected": 0, "no_match": 0, "error": 0}
-    for i, candidate in enumerate(selected):
-        try:
-            match = _search_1688_source(
-                cdp_url, candidate.ozon_images, candidate.ozon_title)
-            if match:
-                candidate.match_1688_url = match.get("url", "")
-                candidate.match_1688_title = match.get("title", "")
-                candidate.match_1688_price = float(match.get("price", 0))
-                candidate.match_1688_images = match.get("images", [])
-                candidate.status = "matched"
+    # ⚠️ v0.14 E6: 批量 1688 识图复用同一 CDP 连接（旧代码每候选新建 CdpConnection+CdpTab）
+    from scripts.lib.cdp_client import CdpConnection
+    import contextlib
+    with contextlib.closing(CdpConnection(cdp_url)) as shared_cdp:
+        for i, candidate in enumerate(selected):
+            try:
+                match = _search_1688_source(
+                    cdp_url, candidate.ozon_images, candidate.ozon_title, conn=shared_cdp)
+                if match:
+                    candidate.match_1688_url = match.get("url", "")
+                    candidate.match_1688_title = match.get("title", "")
+                    candidate.match_1688_price = float(match.get("price", 0))
+                    candidate.match_1688_images = match.get("images", [])
+                    candidate.status = "matched"
 
-                _calculate_profit(
-                    candidate,
-                    fx_rate=fx_rate,
-                    logistics_cny=logistics_cny,
-                    commission_rate=commission_rate,
-                )
-                candidate.blue_ocean_score = calculate_blue_ocean_score(candidate)
+                    _calculate_profit(
+                        candidate,
+                        fx_rate=fx_rate,
+                        logistics_cny=logistics_cny,
+                        commission_rate=commission_rate,
+                    )
+                    candidate.blue_ocean_score = calculate_blue_ocean_score(candidate)
 
-                if candidate.profit_margin >= min_margin_pct:
-                    candidate.status = "profitable"
+                    if candidate.profit_margin >= min_margin_pct:
+                        candidate.status = "profitable"
+                    else:
+                        candidate.status = "rejected"
+                        candidate.error = (f"margin too low "
+                                           f"({candidate.profit_margin:.1f}% < {min_margin_pct}%)")
                 else:
-                    candidate.status = "rejected"
-                    candidate.error = (f"margin too low "
-                                       f"({candidate.profit_margin:.1f}% < {min_margin_pct}%)")
-            else:
-                candidate.status = "no_match"
-        except Exception as exc:
-            candidate.status = "error"
-            candidate.error = str(exc)
-            logger.warning("1688 match failed for %s: %s",
-                           candidate.ozon_product_id, exc)
+                    candidate.status = "no_match"
+            except Exception as exc:
+                candidate.status = "error"
+                candidate.error = str(exc)
+                logger.warning("1688 match failed for %s: %s",
+                               candidate.ozon_product_id, exc)
 
         stats[candidate.status if candidate.status in stats else "error"] += 1
 
@@ -839,6 +843,7 @@ def _search_1688_source(
     images: list[str],
     title: str,
     max_retries: int = 1,
+    conn=None,
 ) -> dict[str, Any] | None:
     """Search 1688 for a matching source product.
 
@@ -863,7 +868,7 @@ def _search_1688_source(
 
                 logger.debug("1688 CDP image search (attempt %d/%d) with: %s",
                              attempt + 1, max_retries + 1, images[0][:80])
-                results = search_by_image_cdp(images[0], cdp_url=cdp_url)
+                results = search_by_image_cdp(images[0], cdp_url=cdp_url, conn=conn)
                 best = _pick_best_match(results, title) if results else None
                 if best:
                     price = best.get("price", 0)

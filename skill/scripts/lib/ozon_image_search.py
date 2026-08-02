@@ -195,6 +195,7 @@ def search_by_image_cdp(
     page_size: int = 5,
     wait_seconds: int = 10,
     try_crop_regions: bool = True,
+    conn=None,
 ) -> list[dict[str, Any]]:
     """通过 CDP 操作1688以图搜款网页，返回匹配商品列表。
 
@@ -206,6 +207,7 @@ def search_by_image_cdp(
         page_size: 返回数量
         wait_seconds: 等待搜索结果秒数
         try_crop_regions: 是否尝试 crop region 选择
+        conn: ⚠️ v0.14 E6: 可复用的 CdpConnection（批量场景传同一连接，避免每产品新建）
 
     Returns:
         [{"id": "offer_id", "title": "...", "price": float, "badge": "..."}, ...]
@@ -219,11 +221,13 @@ def search_by_image_cdp(
     if cached is not None:
         return cached
 
-    conn = None
+    # ⚠️ v0.14 E6: 复用外部传入的连接（不新建/不关闭），未传才新建并自持
+    own_conn = conn is None
     search_tab = None
     result_tab = None
     try:
-        conn = CdpConnection(cdp_url)
+        if own_conn:
+            conn = CdpConnection(cdp_url)
 
         # 1. 打开图搜页面
         search_tab = conn.new_tab()
@@ -349,7 +353,7 @@ def search_by_image_cdp(
                 result_tab.close()
             except Exception:
                 pass
-        if conn:
+        if own_conn and conn:
             try:
                 conn.close()
             except Exception:

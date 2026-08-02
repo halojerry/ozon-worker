@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import time
 from typing import Any
 
@@ -62,7 +63,16 @@ def cache_set(namespace: str, key: str, data: Any, ttl: int = 86400) -> None:
         "expires_at": time.time() + ttl,
     }
     try:
-        path.write_text(json.dumps(record, ensure_ascii=False, default=str), encoding="utf-8")
+        # ⚠️ v0.14 E3: 原子写 — 临时文件 + os.replace（旧代码直接 write_text 覆写，
+        # 并发 CLI 进程可能写坏 JSON 半截文件 → 缓存失效）
+        tmp_path = path.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(record, ensure_ascii=False, default=str), encoding="utf-8")
+        try:
+            os.replace(tmp_path, path)
+        except OSError:
+            # Windows 文件锁重试
+            time.sleep(0.05)
+            os.replace(tmp_path, path)
         logger.debug("Cache set: %s/%s (ttl=%ds)", namespace, key[:20], ttl)
     except Exception as e:
         logger.debug("Cache write failed: %s/%s: %s", namespace, key[:20], e)

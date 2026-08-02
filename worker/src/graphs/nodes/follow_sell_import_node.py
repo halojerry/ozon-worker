@@ -156,7 +156,10 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         logger.info("⚠️ import-by-sku 异常，走 Fallback: %s", e)
 
     # ── ② 组装返回值 ──
-    ozon_price = draft.get("price", "") or draft.get("ozon_price", "")
+    # ⚠️ v0.14 P0-6: 优先读 draft.competitor_price（Skill 从 Ozon 页面提取的真实竞品售价）
+    # 旧逻辑读 draft.get("price")/draft.get("ozon_price") —— draft.price 实为 1688 采购价(CNY)，
+    # 被误当竞品价 → 竞品价保护分支(≥成本×1.3 保持竞品价)永不生效
+    ozon_price = draft.get("competitor_price", "") or draft.get("ozon_price", "") or ""
     if ozon_price:
         comp_price = str(ozon_price).strip()
         logger.info(f"💰 竞品 Ozon 价格: {comp_price}")

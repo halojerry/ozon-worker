@@ -60,7 +60,7 @@ builder.add_node("follow_sell_import", follow_sell_import_node)  # 🆕 跟卖�
 
 # Phase 2: 类目查找 → 定价（串行：定价先执行，组装节点需要定价信息）
 builder.add_node("pricing", pricing_node)
-builder.add_node("assemble_ozon_product", assemble_ozon_product_node, metadata={"type": "agent", "llm_cfg": "config/product_assembly_cfg.json"})
+builder.add_node("assemble_ozon_product", assemble_ozon_product_node, metadata={"type": "agent", "llm_cfg": "config/category_match_v2_cfg.json"})
 
 # Phase 3.5: 场景生成（使用LLM生成3个场景）
 builder.add_node("scene_generation_llm", scene_generation_llm_node, metadata={"type": "agent", "llm_cfg": "config/scene_generation_llm_cfg.json"})
@@ -80,7 +80,7 @@ builder.add_node("scene_3_gen", scene_3_gen_node)
 builder.add_node("comparison_gen", comparison_gen_node)
 
 # Phase 5: 数据准备 + Ozon上传 + 错误处理
-builder.add_node("prepare_ozon_upload", prepare_ozon_upload_node, metadata={"type": "agent", "llm_cfg": "config/translate_russian_cfg.json"})  # 数据准备节点：整理图片顺序、组装payload、LLM俄语翻译
+builder.add_node("prepare_ozon_upload", prepare_ozon_upload_node, metadata={"type": "agent", "llm_cfg": "config/attributes_llm_cfg.json"})  # 数据准备节点：整理图片顺序、组装payload、LLM俄语翻译
 builder.add_node("ozon_validate", ozon_validate_node)  # 预检测节点：检测Ozon payload是否符合规范
 builder.add_node("check_quota", check_quota_node)  # 配额检查节点：上传前检查店铺配额，配额不足阻断上传
 builder.add_node("ozon_upload", ozon_upload_node)
@@ -164,7 +164,20 @@ builder.add_edge("ingest", "pricing")
 # 定价 → 商品组装（串行：组装需要定价信息）
 # 跟卖产品：_assemble_follow_sell 轻量模式，复用竞品属性+类目
 # 1688 产品：_build_items_deterministically 完整模式
-builder.add_edge("pricing", "assemble_ozon_product")
+# ⚠️ v0.14 P1-4: 定价失败（[PRICING_FAILED]）→ 阻断管线，不兜底 1000 上架
+def route_after_pricing(state):
+    """定价后路由：定价失败 → 阻断，正常 → assemble"""
+    error_msg = getattr(state, 'error_message', '') or ''
+    if '[PRICING_FAILED]' in error_msg:
+        logger.error("⛔ 定价失败，阻断管线（不兜底价格上架）: %s", error_msg[:120])
+        return "END"
+    return "assemble"
+
+builder.add_conditional_edges(
+    "pricing",
+    route_after_pricing,
+    {"assemble": "assemble_ozon_product", "END": END}
+)
 
 # Phase 3.5: 场景生成（使用LLM生成3个场景描述）
 # ✅ v5: 类目匹配低置信度时阻断，不上架错误类目

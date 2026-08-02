@@ -96,6 +96,11 @@ async def _persist_progress(task_id: str, data: dict):
         logger.debug("progress persist failed for %s: %s", task_id, e)
 
 
+# ⚠️ v0.14 E1: 进度写 PG 节流 — 每任务 2s 合并窗口（旧代码每节点异步写一次 PG）
+_last_persist_ts: dict = {}
+_PERSIST_THROTTLE = 2.0
+
+
 def _purge_stale_progress():
     """清理 _task_progress 中已完成超过 1 小时的条目（防内存泄漏）"""
     now = time.time()
@@ -124,8 +129,12 @@ def update_progress(task_id: str, stage: str, message: str = ""):
     }
     _task_progress[task_id] = data
     # ✅ P1 修复：异步持久化到 PG（重启后仍可恢复进度）
+    # ⚠️ v0.14 E1: 节流 — 同一任务 2s 窗口内跳过 PG 写（内存进度始终最新，PG 低频落盘）
     try:
-        asyncio.create_task(_persist_progress(task_id, data))
+        now_ts = time.time()
+        if now_ts - _last_persist_ts.get(task_id, 0) >= _PERSIST_THROTTLE:
+            _last_persist_ts[task_id] = now_ts
+            asyncio.create_task(_persist_progress(task_id, data))
     except RuntimeError:
         pass  # 无 event loop 时跳过（同步模式）
 
@@ -414,9 +423,9 @@ async def lifespan(app: FastAPI):
         graph=async_graph, checkpointer=checkpointer,
     )
     
-    # 启动Supabase任务处理器（最多10个并发任务）
+    # 启动Supabase任务处理器（最多30个并发任务 — 4核4G 服务器 I/O 密集安全值，外部 API 由全局限流器兜底）
     global task_processor
-    max_concurrent = int(os.getenv("MAX_CONCURRENT", "10"))
+    max_concurrent = int(os.getenv("MAX_CONCURRENT", "30"))
     task_processor = SupabaseTaskProcessor(max_concurrent=max_concurrent)
 
     # ✅ 启动时僵尸任务恢复：重置重启前的 running 任务和可重试的 failed 任务
@@ -444,7 +453,8 @@ async def lifespan(app: FastAPI):
     cleanup_task = asyncio.create_task(_periodic_task_cleanup(interval_seconds=60))
 
     # 启动Worker后台任务（不阻塞主服务启动）
-    worker_task = asyncio.create_task(task_processor.start_workers(num_workers=10))
+    # ⚠️ v0.14 E9: num_workers 联动 MAX_CONCURRENT（旧代码硬编码 10，调大 env 实际并发仍封顶 10）
+    worker_task = asyncio.create_task(task_processor.start_workers(num_workers=max_concurrent))
     
     yield
     

@@ -7,15 +7,40 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 
+# ⚠️ v0.14 C4: 进度配置模块级缓存（惰性加载一次，全进程复用；config_path 非空优先）
+_cfg_cache: Dict[str, dict] = {}
+
+
+def _load_progress_config(config_path: str = "") -> dict:
+    """加载 workflow_progress.json（模块级缓存，避免每节点重复读磁盘）"""
+    if config_path and config_path in _cfg_cache:
+        return _cfg_cache[config_path]
+    if not config_path:
+        # 默认路径：workflow_progress.json 在 assets/ 下
+        if "assets/workflow_progress.json" in _cfg_cache:
+            return _cfg_cache["assets/workflow_progress.json"]
+        workspace = os.getenv("APP_WORKSPACE_PATH") or os.getcwd()
+        config_path = os.path.join(workspace, "assets/workflow_progress.json")
+    try:
+        with open(config_path, 'r', encoding='utf-8') as fd:
+            data = json.load(fd)
+        _cfg_cache[config_path] = data
+        return data
+    except Exception as e:
+        logger.warning("加载进度配置失败(%s): %s", config_path, e)
+        return {"total_nodes": 24, "stages": {}, "node_titles": {}}
+
+
 # ✅ 新增：节点顺序字典（根据workflow_progress.json定义）
+# ⚠️ v0.14 D4/C4: 同步到真实图节点集 — 删除已废弃节点(category_lookup/attributes_fetch/attributes_llm/
+# attributes_learning/error_handler/multi_info_gen)，补新节点(follow_sell_import/check_quota/assemble_ozon_product)
 NODE_ORDER = {
     "auth": 1,
-    "ingest": 2,
-    "category_lookup": 3,
+    "check_quota": 2,
+    "ingest": 3,
+    "follow_sell_import": 3,
     "pricing": 4,
-    "attributes_fetch": 5,
-    "attributes_llm": 6,
-    "attributes_learning": 7,
+    "assemble_ozon_product": 5,
     "scene_generation_llm": 8,
     "white_bg_gen": 9,
     "multi_angle_gen": 10,
@@ -31,7 +56,8 @@ NODE_ORDER = {
     "ozon_validate": 21,
     "ozon_upload": 22,
     "ozon_status": 23,
-    "error_handler": 24
+    "validation_retry_wrapper": 24,
+    "learning_record": 25,
 }
 
 
@@ -54,14 +80,12 @@ class ProgressLogger:
         self.next_counter = current_counter + 1
         
         # 加载进度配置
-        workspace = os.getenv("APP_WORKSPACE_PATH") or os.getenv("APP_WORKSPACE_PATH") or os.getcwd()
-        cfg_file = os.path.join(workspace, "assets/workflow_progress.json")
-        with open(cfg_file, 'r', encoding='utf-8') as fd:
-            config_data = json.load(fd)
-        
-        self.total_nodes = config_data.get('total_nodes', 24)
-        self.stages = config_data.get('stages', {})
-        self.node_titles = config_data.get('node_titles', {})
+        # ⚠️ v0.14 C4: 模块级缓存只读一次（旧代码每次实例化都 open+json.load，20+ 节点重复读磁盘）
+        # config_path 参数生效：非空时优先使用（旧代码硬编码 assets/workflow_progress.json，参数被忽略）
+        self._config = _load_progress_config(config_path)
+        self.total_nodes = self._config.get('total_nodes', 24)
+        self.stages = self._config.get('stages', {})
+        self.node_titles = self._config.get('node_titles', {})
     
     def log_stage_start(self, stage_key: str):
         """

@@ -53,6 +53,11 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
         if isinstance(original_images, list) and len(original_images) > 0:
             ref_images = [str(img) for img in original_images[:2] if isinstance(img, str) and img.strip()]
             logger.info(f"Phase1图片均失败，使用原始产品图作为参考: {len(ref_images)}张")
+
+    # ⚠️ v0.14 B5: 连原始图都没有 → 跳过生图（避免无参考随机主图）
+    if not ref_images:
+        logger.warning("⚠️ main_image_gen: 无任何参考图（Phase1失败且无原始图），跳过主图生成")
+        return MainImageOutput(main_image=None)
     
     title = clean_title_for_image_prompt(draft.get("title", ""))
     prompt = f"产品：{title}。生成该产品的电商营销主图。要求：创意营销风格、可包含场景化背景、突出产品卖点、适合Ozon平台商品卡首图展示、高清细节、无其他品牌logo/水印、适合俄罗斯电商平台展示、符合俄罗斯人民审美。"
