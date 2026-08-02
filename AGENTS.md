@@ -83,7 +83,11 @@ ozon-worker/
 
 **Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
 
-**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 12 个：lib/（ak_1688_client、ak_callback、chrome_launcher、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_discovery、ozon_api）+ cloud_probe.py + capabilities/browser_probe/stealth.py。以下因依赖复杂/需快速迭代仅复制不编译：cli.py、batch_test.py、lib/（cdp_client、utils、cache、ozon_seller、ozon_widget、ozon_seller_analytics、updater、task_paths、logging_utils）+ **service.py 明文**（探针改动最频繁，需本地快速迭代与可调试，2026-08-01 从编译移回）。编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。
+**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 **11 个**：lib/（ak_1688_client、ak_callback、chrome_launcher、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_discovery、ozon_api）+ capabilities/browser_probe/stealth.py。以下明文复制（依赖复杂/改动频繁/跨平台编译失败）：cli.py、batch_test.py、cloud_probe.py、lib/（cdp_client、utils、cache、ozon_seller、ozon_widget、ozon_seller_analytics、updater、task_paths、logging_utils）、capabilities/browser_probe/service.py。
+- **cloud_probe.py 明文**（2026-08-02 移回）：非语法问题（macOS 同 Cython 编译成功），是 Cython 生成 65k 行 C + 单个 ~9000 行函数击穿 **MSVC 编译器堆限制**（仅 win32 失败 → 缺 .pyd → graph/follow 报 `No native binary for cloud_probe on win32`）。信封组装核心、改动频繁，明文跨平台一致。
+- **service.py 明文**（2026-08-01 移回）：探针改动最频繁。
+- **compile.py 编译失败"带响"**（v0.12.0）：失败打印完整 stderr（最后 30 行）+ `failed>0` 时 `sys.exit(1)`，CI 不再静默发布残缺包。CI 另有产物完整性校验（4 平台 × 11 模块共 44 个二进制必须就位）。
+- 编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。
 
 **依赖**：仅 3 个 — `requests`、`websocket-client`、`Pillow`（Playwright 已移除，统一用原生 CDP）。
 
@@ -144,6 +148,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 并发: 最多 50 个任务同时执行（`MAX_CONCURRENT` 可配置）。
 
 **`auth/verify` 端点**：Skill 调用的轻量鉴权接口。验证 token 有效性 → MXOU 余额 → 账户状态 → 可选 Ozon API。返回 `{"valid": bool, "reason": "ok|token_invalid|balance_insufficient|account_inactive|service_unavailable", "expires_in": 86400, "ozon_valid": bool|null}`。DB 不可用时安全降级返回 `valid: false`（不会误放行）。
+- **余额判定（v0.12.0 修正，2026-08-02 充值实证）**：`_check_mxou_balance()`（main.py）——`tokens.unlimited_quota=true` 直接放行；否则查 `users.quota`（实时剩余额度）> 0 放行。**绝不用 `tokens.remain_quota`**：它是僵尸字段（git 历史移除扣减后从未同步，实证：同用户 3 个 key 数值各异可为负数、充值后仍 0/-10），旧逻辑用它+5.0 阈值导致无限额度/有余额 key 全被误判。`users.quota` 充值直接加、每次调用扣；`used_quota` 是历史累计，判定不参与。auth_verify/submit_task/auth_node 三处一致。
 
 ## 架构边界
 
@@ -471,6 +476,32 @@ GitHub Actions 自动检查每次 push/PR：
 Pre-commit: `git config core.hooksPath .githooks`（语法 + 密钥拦截）
 
 ⚠️ **密钥轮换**: MXOU_TOKEN、1688 AK、Ozon API Key 曾暴露在 git 历史中，已移除追踪但历史仍存在，请尽快轮换。
+
+## 最近更新（v0.12.0 — 余额鉴权修正 + win32 cloud_probe 修复 + 自动更新上线）
+
+> 2026-08-02。VERSION 0.11.5 → 0.12.0，分发包已发 GitHub Release + COS。
+
+### MXOU 余额鉴权修正（`4e2344f` + `4e92d40`）
+
+用户反馈"有余额的 key 也显示余额不足"。Supabase 直查实证：
+- `tokens.remain_quota` 是**僵尸字段**（git 历史移除扣减后从未同步）：同用户 3 个 key 数值各异（993亿/999亿/-17亿）、1元号充值后仍 0/-10、**充值只加 `users.quota`**（50万→800万，quota+used_quota 恒等于充值总额）
+- `tokens.unlimited_quota=true` 是放行标记（key1/2/3/1元号 都是）
+- 旧逻辑 `remain_quota < 5.0` 三重叠加误判 → 无限额度/有余额 key 全被拒
+
+**修复**：`_check_mxou_balance()`（main.py）——`unlimited_quota=true` 直接放行；否则 `users.quota > 0` 放行（quota 是实时剩余额度，充值加、调用扣；不用 `quota-used_quota`——used 是历史累计会低估）。auth_verify / submit_task / auth_node（图入口节点，select=* 有 unlimited_quota）三处一致。**云端部署后 5 个 key 实测全部 `valid:true`**，无效 key 仍正确 `token_invalid`。
+
+### win32 cloud_probe 修复（`b536262`）
+
+- **根因**：非语法问题（macOS 同 Cython 编译成功），Cython 生成 65k 行 C + 单个 ~9000 行函数击穿 **MSVC 编译器堆限制**（仅 win32 失败）
+- **修复**：cloud_probe.py 移回明文（COPY_FILES）+ **compile.py 失败"带响"**（打印完整 stderr + `failed>0` → `sys.exit(1)`）+ **CI 产物完整性校验**（4 平台 × 11 模块共 44 个二进制必须就位，缺则中止）
+- 教训：之前编译失败被静默吞掉 → Build job 仍 Success → 残缺包发布。以后编译失败 CI 会红。
+
+### 其他
+
+- **历史残缺包移除**（`4d01d0d`）：skill/ 下 git 跟踪的 `pounding-ozon-probe-darwin-arm64-py312.tar.gz` / `py312.tar.gz`（478K/480K，lib 仅 6-12 模块）被 Release glob `*.tar.gz` 混入上传，用户下载了残缺包报 `No module named 'scripts.lib'`。已 git rm + Release glob 改 `pounding-ozon-probe-v*.tar.gz`。
+- **worker/.venv312 移除**（`1a161d7`）：234M 虚拟环境误跟踪，`git rm --cached` + .gitignore。
+- **Skill 自动更新上线**：v0.12.0 包（sha `4266394b...`）已上传 COS + manifest 一致，用户装 v0.12.0 后每次命令静默检测、`skill update` 自动更新。COS 已开通**全球加速**（`cos.accelerate.myqcloud.com`，本地 11.7MB/s 上传）。
+- **余额/win32 修复的验证方式**：`curl -X POST https://worker.mxou.cn/api/v1/auth/verify -d '{"token":"sk-xxx"}'`（5 个 key 全 valid）；`tar -tzf 包 | grep cloud_probe` 确认明文而非 pyd。
 
 ## 最近更新（Discover v2 — 先全量采集 → 表格分析 → 挑完再找货源）
 
