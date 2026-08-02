@@ -158,12 +158,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pounding-ozon-probe
-          path: skill/pounding-ozon-probe-*.tar.gz
+          # ⚠️ 只上传版本包：仓库根有历史遗留旧包（pounding-ozon-probe-
+          # darwin-arm64-py312.tar.gz 等）会被 glob 匹配混入 Release
+          path: skill/pounding-ozon-probe-v*.tar.gz
           retention-days: 30
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: skill/pounding-ozon-probe-*.tar.gz
+          # ⚠️ 精确匹配版本包，勿用 *.tar.gz（会带上历史遗留残缺旧包）
+          files: skill/pounding-ozon-probe-v*.tar.gz
           generate_release_notes: true
