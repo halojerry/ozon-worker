@@ -59,3 +59,4 @@ __pycache__/
 assets/local_cache.db
 *.log
 *.cache
+.venv312
