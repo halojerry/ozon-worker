@@ -32,7 +32,6 @@ COMPILE_FILES = [
     "scripts/lib/reference_images.py",
     "scripts/lib/ozon_discovery.py",   # 选品发现引擎（蓝海评分）
     "scripts/lib/ozon_api.py",         # Ozon API 封装（类目搜索/属性匹配）
-    "scripts/cloud_probe.py",          # 信封组装 + 管线编排
     "scripts/capabilities/browser_probe/stealth.py",  # 反检测 JS（稳定，保护价值最高）
 ]
 
@@ -40,6 +39,12 @@ COMPILE_FILES = [
 COPY_FILES = [
     "scripts/cli.py",
     "scripts/batch_test.py",
+    # ⚠️ cloud_probe.py 明文（2026-08-02 从编译移回）：非语法问题（macOS
+    # 同版本 Cython 编译成功），根因是 Cython 生成 65k 行 C + 单个 ~9000 行
+    # 函数击穿 MSVC 编译器堆限制（仅 win32 失败，缺 .pyd → graph/follow
+    # 报 No native binary for cloud_probe on win32）。且它是信封组装核心、
+    # 改动频繁，明文跨平台一致 + 可快速迭代（service.py 同款先例）。
+    "scripts/cloud_probe.py",
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）
@@ -141,7 +146,12 @@ def compile_file(py_file: str, build_dir: str) -> bool:
         if result.returncode == 0:
             return True
         else:
-            print(f"  ❌ {result.stderr.split(chr(10))[-2] if result.stderr else 'unknown error'}")
+            # ⚠️ 打印完整 stderr（最后 30 行）——之前只打 1 行导致
+            # cl.exe 真实错误被吞（win32 缺 cloud_probe.pyd 根因之一）
+            err_lines = [l for l in (result.stderr or "").splitlines() if l.strip()]
+            print(f"  ❌ 编译失败（returncode={result.returncode}）")
+            for line in err_lines[-30:]:
+                print(f"     {line}")
             return False
     except Exception as e:
         print(f"  ❌ 编译失败: {e}")
@@ -467,6 +477,13 @@ def main():
     print(f"\n✅ 编译完成: {success} 成功, {failed} 失败")
     print(f"   平台: {plat_dir_name}")
     print(f"   输出目录: {dist_dir}")
+
+    # ⚠️ 编译失败必须"带响"退出（非零码）：否则 CI 会把残缺包当成功发布
+    # （win32 缺 cloud_probe.pyd 的教训：编译失败静默，Build job 仍 Success）
+    if failed > 0:
+        print(f"\n❌ 有 {failed} 个模块编译失败，构建中止（dist 不完整，禁止发布）")
+        sys.exit(1)
+
     print(f"\n💡 跨平台分发:")
     print(f"   1. 在 macOS 上运行: python3.12 compile.py")
     print(f"   2. 在 Windows 上运行: python3.12 compile.py")

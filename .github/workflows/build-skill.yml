@@ -120,6 +120,29 @@ jobs:
           echo "=== After merge ==="
           find . -type f | sort
 
+      # ⚠️ 产物完整性校验：每个编译模块在 4 平台目录都须有 .so/.pyd
+      # （win32 缺 cloud_probe.pyd 的教训：编译失败被 compile.py 静默吞掉，
+      #   Build job 仍 Success 导致残缺包发布）
+      - name: Verify native binaries completeness
+        working-directory: skill/dist/scripts/lib/_native
+        run: |
+          MISSING=0
+          for mod in ak_1688_client ak_callback chrome_launcher config_store \
+                     image_preprocessor ozon_scraper ozon_image_search \
+                     reference_images ozon_discovery ozon_api stealth; do
+            for plat in darwin-arm64 darwin-x86_64 linux win32; do
+              if ! ls "$plat"/"$mod".* 2>/dev/null | grep -qE "\.(so|pyd)$"; then
+                echo "❌ 缺失: $mod → $plat"
+                MISSING=$((MISSING+1))
+              fi
+            done
+          done
+          if [ "$MISSING" -gt 0 ]; then
+            echo "::error::$MISSING 个二进制缺失，构建中止"
+            exit 1
+          fi
+          echo "✅ 4 平台 × 11 模块 = 44 个二进制全部就位"
+
       - name: Clean and create package
         working-directory: skill/dist
         run: |
