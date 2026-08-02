@@ -197,18 +197,35 @@ def _find_chrome_processes() -> list[dict]:
     return processes
 
 
-def _kill_chrome_processes(reason: str = "") -> bool:
-    """终止所有 Chrome 进程。返回是否有进程被终止。"""
+def _kill_chrome_processes(reason: str = "", port: int | None = None) -> bool:
+    """终止 Chrome 进程。返回是否有进程被终止。
+
+    ⚠️ v0.14 D5: 仅杀带 --remote-debugging-port 的实例（port 匹配），
+    旧代码杀所有 Chrome/Chromium 进程，会误杀用户日常无 debug 端口的 Chrome 窗口。
+    """
     processes = _find_chrome_processes()
     if not processes:
         return False
 
+    # 只杀目标端口实例（未指定 port 时也仅杀带 debug 参数的，绝不误杀普通 Chrome）
+    targets = []
+    for proc in processes:
+        if port is not None:
+            if proc.get("port") == port:
+                targets.append(proc)
+        else:
+            if proc.get("port"):
+                targets.append(proc)
+    if not targets:
+        logger.debug("无目标 Chrome 实例（带 --remote-debugging-port 的）可杀")
+        return False
+
     logger.info("Terminating %d Chrome process(es)%s",
-                len(processes), f" ({reason})" if reason else "")
+                len(targets), f" ({reason})" if reason else "")
 
     system = platform.system()
     killed = False
-    for proc in processes:
+    for proc in targets:
         try:
             pid = proc["pid"]
             if system == "Windows":
@@ -230,7 +247,7 @@ def _kill_chrome_processes(reason: str = "") -> bool:
         else:
             # SIGTERM 无效，尝试 SIGKILL（非 Windows）
             if platform.system() != "Windows":
-                for proc in processes:
+                for proc in targets:
                     try:
                         os.kill(proc["pid"], signal.SIGKILL)
                     except (ProcessLookupError, OSError):

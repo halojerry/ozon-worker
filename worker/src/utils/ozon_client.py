@@ -60,7 +60,9 @@ def ozon_post(
 
     start = time.monotonic()
     try:
-        resp = requests.post(url, json=body, headers=headers, timeout=timeout)
+        # ⚠️ v0.14 D2: 用共享 session（连接池复用），旧代码裸 requests.post 每次新建 TCP 连接
+        from utils.http_session import session as _shared_session
+        resp = _shared_session.post(url, json=body, headers=headers, timeout=timeout)
         duration_ms = (time.monotonic() - start) * 1000
 
         # 构建请求摘要（避免日志过大）

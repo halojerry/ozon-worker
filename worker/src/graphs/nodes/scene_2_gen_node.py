@@ -47,8 +47,11 @@ def scene_2_gen_node(state: Scene2Input, config: RunnableConfig, runtime: Runtim
     
     # ✅ Phase1失败时不回退到原始1688图片（避免广告内容：返利/抽奖/QR码等）
     # 当Phase1白底图/多角度图缺失时，跳过Phase2生成（返回None），不使用含广告的原图
-    
-    
+    # ⚠️ v0.14 B5: 空参考图直接跳过生图
+    if not ref_images:
+        logger.warning("⚠️ scene_2_gen: Phase1 参考图缺失，跳过生图（避免无参考随机图）")
+        return Scene2Output(scene_2_image=None)
+
     try:
         # ✅ 调用统一mxou API（正确参数: images/aspectRatio/replyType）
         image_url = call_mxou_image_api(

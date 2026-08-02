@@ -353,6 +353,28 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
     logger.info("📋 开始解析Ozon错误...")
 
     errors: list = state.errors or []
+
+    # ⚠️ v0.14 P1-5: 合并本地校验错误（validation_errors）——经 ozon_validate 失败进入
+    # retry 时 errors 为空但 validation_errors 有值，旧代码直接落 UNKNOWN 走通用 LLM 修复，
+    # 真实问题（属性缺失/非法值等）未获靶向修复。
+    if not errors:
+        local_errs: list = state.validation_errors or []
+        if local_errs:
+            # 本地校验错误（字符串列表）→ 结构化 error dict + 关键词粗分类
+            for _le in local_errs:
+                _le_msg = str(_le)
+                _code = "INVALID_ATTRIBUTE_VALUE"
+                _le_lower = _le_msg.lower()
+                if any(kw in _le_lower for kw in ("图片", "image", "картинк")):
+                    _code = "IMAGE_ERROR"
+                elif any(kw in _le_lower for kw in ("名称", "标题", "name", "title", "латиниц")):
+                    _code = "BR_chinese_hieroglyphs_in_attribute"
+                elif any(kw in _le_lower for kw in ("价格", "price", "цен")):
+                    _code = "PRICE_ERROR"
+                errors.append({"code": _code, "attribute_id": 0, "texts": {"message": _le_msg}})
+            state.validation_errors = []  # 已消费
+            logger.info(f"📋 合并 {len(local_errs)} 条本地校验错误到 errors 修复队列")
+
     if not errors:
         logger.warning("⚠️ 无errors数据，尝试从error_message提取")
         state.error_code = "UNKNOWN"

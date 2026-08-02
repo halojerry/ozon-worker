@@ -1138,6 +1138,47 @@ def prepare_ozon_upload_node(
             })
             logger.info("✅ 属性 4191（HTML 富文本描述）已追加到 final_attributes")
 
+    # ⚠️ v0.14 B1: 属性合并批量翻译 —— 收集所有含中文/拉丁的普通属性值，一次 LLM 调用翻译全部
+    # （省 40-60% LLM 调用；LLM 保留分隔符拆回，失败回退逐条兜底）
+    # 排除特殊处理属性（4191 富文本 HTML / 4180 关键字 / 23171 hashtag / 9048 型号名）
+    _BATCH_SEP = "\n===\n"
+    _batch_translated: Dict[str, str] = {}
+    _russian_required_attrs = (4191, 4180, 9048, 4384, 4389, 23171)
+    _english_allowed_attrs = (9024,)
+    _cn_re_b = re.compile(r'[\u4e00-\u9fff]')
+    _batch_pending: List[str] = []
+    if mxou_token and final_attributes:
+        for _bat in final_attributes:
+            if not isinstance(_bat, dict):
+                continue
+            _bav = str(_bat.get("value", "") or "")
+            if not _bav:
+                continue
+            _baid = _bat.get("attribute_id")
+            try:
+                _baid_i = int(_baid) if _baid else 0
+            except (ValueError, TypeError):
+                _baid_i = 0
+            if _baid_i in (4191, 4180, 23171, 9048) or _baid_i in _english_allowed_attrs:
+                continue  # 特殊处理属性，不走批量
+            _need_b = bool(_cn_re_b.search(_bav) or (not _has_cyrillic(_bav) and any(ch.isalpha() for ch in _bav)))
+            if _need_b and _bav not in _batch_pending:
+                _batch_pending.append(_bav)
+        if len(_batch_pending) >= 2:
+            try:
+                _batch_joined = _BATCH_SEP.join(_batch_pending)
+                _batch_res = _translate_to_russian_llm(_batch_joined, mxou_token, source_lang="zh", text_type="description")
+                if _batch_res and _has_cyrillic(_batch_res):
+                    _parts = _batch_res.split(_BATCH_SEP)
+                    if len(_parts) == len(_batch_pending):
+                        for _pv, _pr in zip(_batch_pending, _parts):
+                            _pr = _pr.strip()
+                            if _pr and _has_cyrillic(_pr) and not _cn_re_b.search(_pr):
+                                _batch_translated[_pv] = _pr
+                        logger.info(f"✅ B1 批量翻译成功: {len(_batch_translated)}/{len(_batch_pending)} 个属性值（1 次 LLM 调用）")
+            except Exception as _be:
+                logger.warning(f"⚠️ B1 批量翻译异常，逐条兜底: {_be}")
+
     for attr in final_attributes:
         # 验证attr是否为dict类型
         if not isinstance(attr, dict):
@@ -1200,26 +1241,30 @@ def prepare_ozon_upload_node(
 
         # ✅ 扩展翻译：所有属性值含中文字符的，翻译为俄语（Ozon禁止中文/日文字符）
         # ⚠️ v0.13.1: 翻译失败/仍含中文 → 跳过该属性，绝不写中文或空值上传！
-        # 根因：旧逻辑翻译失败置空值（value_str=""），自由文本属性空值/中文值上传 →
-        # Ozon 报"请用俄文填写该字段"（颜色名称等）。跳过属性由 retry 层 /values/search 或 LLM 兜底。
+        # ⚠️ v0.14 B1: 优先查批量翻译映射（一次 LLM 调用翻译全部），未命中才逐条兜底
         _chinese_re_attr = re.compile(r'[\u4e00-\u9fff]')
         if value_str and attribute_id_int not in _english_allowed_attrs and _chinese_re_attr.search(value_str):
-            logger.warning(f"⚠️ 属性{attribute_id_int}值含中文字符，翻译为俄语：{value_str[:60]}...")
-            _translated_value = _translate_to_russian_llm(value_str, mxou_token, source_lang="zh")
-            # 翻译成功（含西里尔且无中文）→ 使用翻译结果
-            if _translated_value and _has_cyrillic(_translated_value) and not _chinese_re_attr.search(_translated_value):
-                value_str = _translated_value
-                # ✅ v0.9.0 修复: dictionary_value_id 跨语言通用！
-                # 翻译 value 从中文到俄语后，dict_id 仍然有效（同一属性值的不同语言展示）。
-                # 不再清空 dict_id — 它是在 Step 4/5 通过 ZH_HANS 字典精确匹配的。
-                if attribute_id_int in dict_attr_lookup:
-                    # 保持原有 dictionary_value_id（跨语言通用）
-                    logger.info(f"  ℹ️ 字典属性{attribute_id_int}翻译完成，保留 dict_id={dictionary_value_id_int}, value={value_str[:40]}")
+            _cached_trans = _batch_translated.get(value_str, "")
+            if _cached_trans:
+                value_str = _cached_trans
+                logger.info(f"  ℹ️ 属性{attribute_id_int}使用批量翻译结果: {value_str[:50]}")
             else:
-                # 翻译失败/仍含中文/非俄语 → 跳过该属性（不写中文、不写空值）
-                logger.error(f"❌ 属性{attribute_id_int}翻译失败或非俄语，跳过该属性: {value_str[:60]}"
-                             f" -> '{str(_translated_value)[:40]}'（避免 Ozon 拒绝中文/空值）")
-                continue
+                logger.warning(f"⚠️ 属性{attribute_id_int}值含中文字符，翻译为俄语：{value_str[:60]}...")
+                _translated_value = _translate_to_russian_llm(value_str, mxou_token, source_lang="zh")
+                # 翻译成功（含西里尔且无中文）→ 使用翻译结果
+                if _translated_value and _has_cyrillic(_translated_value) and not _chinese_re_attr.search(_translated_value):
+                    value_str = _translated_value
+                    # ✅ v0.9.0 修复: dictionary_value_id 跨语言通用！
+                    # 翻译 value 从中文到俄语后，dict_id 仍然有效（同一属性值的不同语言展示）。
+                    # 不再清空 dict_id — 它是在 Step 4/5 通过 ZH_HANS 字典精确匹配的。
+                    if attribute_id_int in dict_attr_lookup:
+                        # 保持原有 dictionary_value_id（跨语言通用）
+                        logger.info(f"  ℹ️ 字典属性{attribute_id_int}翻译完成，保留 dict_id={dictionary_value_id_int}, value={value_str[:40]}")
+                else:
+                    # 翻译失败/仍含中文/非俄语 → 跳过该属性（不写中文、不写空值）
+                    logger.error(f"❌ 属性{attribute_id_int}翻译失败或非俄语，跳过该属性: {value_str[:60]}"
+                                 f" -> '{str(_translated_value)[:40]}'（避免 Ozon 拒绝中文/空值）")
+                    continue
         
         # ✅ 属性23171(hashtags)：过滤掉品牌名 + 确保俄语标签格式
         if attribute_id_int == 23171 and value_str:
@@ -1680,10 +1725,20 @@ def prepare_ozon_upload_node(
             var_sku_id = str(variant.get("sku_id", f"{sku_id}_{i}"))
             qty_item["offer_id"] = f"{var_sku_id}_{offer_id_suffix}"
             
-            # 价格 — 用变体自己的价格
-            var_price = float(variant.get("price", price))
+            # 价格 — ⚠️ v0.14 P1-1: 改用 pricing_info.variant_prices（含利润/佣金/物流加成）
+            # 旧代码直接用 1688 采购价 variant.get("price") 当售价 → 无加成可能亏本上架
+            var_price: float = float(price) if price else 0.0
+            var_old_price: float = float(old_price) if old_price else var_price * 1.3
+            _variant_prices_q: list = pricing_info.get("variant_prices", []) if isinstance(pricing_info, dict) else []
+            if _variant_prices_q and i < len(_variant_prices_q):
+                _vp_q = _variant_prices_q[i]
+                if isinstance(_vp_q, dict):
+                    if _vp_q.get("price"):
+                        var_price = float(_vp_q["price"])
+                    if _vp_q.get("old_price"):
+                        var_old_price = float(_vp_q["old_price"])
             qty_item["price"] = str(int(var_price))
-            qty_item["old_price"] = str(int(var_price * 1.3))
+            qty_item["old_price"] = str(int(var_old_price))
             
             # 标题追加数量信息（俄语）
             qty_label = str(variant.get("attributes", {}).get("数量", variant.get("name", "")))

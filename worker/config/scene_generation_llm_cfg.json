@@ -2,7 +2,7 @@
     "config": {
         "model": "deepseek-v4-flash",
         "temperature": 0,
-        "max_completion_tokens": 2048,
+        "max_tokens": 2048,
         "thinking": "disabled"
     },
     "tools": [],

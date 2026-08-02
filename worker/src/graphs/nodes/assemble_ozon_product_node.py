@@ -143,13 +143,51 @@ def _assemble_follow_sell(
         pass
 
     # 定价信息
-    price_rub = str(pricing_info.get("price", "1000"))
-    old_price_rub = str(pricing_info.get("old_price", "1500"))
+    # ⚠️ v0.14 P1-4: 不再 "1000" 兜底 —— 定价失败由 graph 层 [PRICING_FAILED] 路由阻断
+    price_rub = str(pricing_info.get("price", ""))
+    old_price_rub = str(pricing_info.get("old_price", ""))
 
-    # 简化的属性列表：只保留关键属性（品牌=无品牌）
-    attrs_for_payload: list[dict[str, Any]] = [
-        {"id": 126745801, "values": [{"value": "Нет бренда", "dictionary_value_id": 126745801}]}
-    ]
+    # ⚠️ v0.14 P0-2: 消费 follow_sell_import 输出的 final_attributes（Ozon 格式 id+values）
+    # 旧代码硬编码 {"id": 126745801, ...} —— 把品牌字典值 ID(126745801) 当属性 ID，Ozon 拒绝；
+    # 且不消费 follow 输出导致跟卖属性全丢。现在展开为：
+    #   - attrs_for_payload（Ozon 格式）→ items[0]["attributes"]
+    #   - final_attrs_flat（prepare 兼容 attribute_id 格式）→ final_attributes
+    follow_attrs_raw: list = list(getattr(state, 'final_attributes', None) or [])
+    attrs_for_payload: list[dict[str, Any]] = []
+    final_attrs_flat: list[dict[str, Any]] = []
+    for _fa in follow_attrs_raw:
+        if not isinstance(_fa, dict):
+            continue
+        _aid = _fa.get("id") or _fa.get("attribute_id")
+        if _aid is None:
+            continue
+        _vals = _fa.get("values") or []
+        if not _vals or not isinstance(_vals, list) or not isinstance(_vals[0], dict):
+            continue
+        _v0 = _vals[0]
+        _dv_id = int(_v0.get("dictionary_value_id", 0) or 0)
+        _v_txt = str(_v0.get("value", ""))
+        attrs_for_payload.append({
+            "complex_id": 0,
+            "id": int(_aid),
+            "values": [{"dictionary_value_id": _dv_id, "value": _v_txt}],
+        })
+        final_attrs_flat.append({
+            "attribute_id": int(_aid),
+            "value": _v_txt,
+            "dictionary_value_id": _dv_id,
+        })
+    if not attrs_for_payload:
+        # 兜底：无 follow 属性时用最小硬编码集（品牌=Нет бренда + 原产国=Китай）
+        attrs_for_payload = _build_hardcoded_attributes(description_category_id)
+        final_attrs_flat = [
+            {"attribute_id": int(a["id"]),
+             "value": str(a["values"][0]["value"]),
+             "dictionary_value_id": int(a["values"][0]["dictionary_value_id"])}
+            for a in attrs_for_payload
+        ]
+        logger.warning("⚠️ 跟卖无 follow 属性输出，使用最小硬编码属性集")
+    logger.info(f"✅ 跟卖消费 follow 属性: {len(attrs_for_payload)} 个")
 
     # 构建 payload items
     sku_id = draft.get("sku_id", draft.get("item_id", ""))
@@ -183,7 +221,7 @@ def _assemble_follow_sell(
 
     return {
         "ozon_payload": {"items": items},
-        "final_attributes": attrs_for_payload,
+        "final_attributes": final_attrs_flat,
         "description_category_id": str(description_category_id),
         "type_id": str(type_id),
     }
@@ -227,8 +265,9 @@ def assemble_ozon_product_node(
 
     # 定价信息（来自 pricing_node）
     pricing_info: dict[str, Any] = state.pricing_info if hasattr(state, 'pricing_info') else {}
-    price_rub: str = str(pricing_info.get("price", "1000"))
-    old_price_rub: str = str(pricing_info.get("old_price", "1500"))
+    # ⚠️ v0.14 P1-4: 定价失败不兜底 "1000" —— 由 graph 层在 pricing 后路由阻断（[PRICING_FAILED]）
+    price_rub: str = str(pricing_info.get("price", ""))
+    old_price_rub: str = str(pricing_info.get("old_price", ""))
 
     if not title:
         logger.error("产品标题为空，无法进行类目匹配")

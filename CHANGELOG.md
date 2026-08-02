@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.14.0] - 2026-08-03
+
+> 8·26 审计遗留修复四批全量实施（PRD: `docs/PRD-audit-fixes-20260803.md`，31 项验证 27 属实 + 4 部分属实）。
+
+### 批次 A：上架正确性（P0/P1，每单必现）
+
+- **P0-2 跟卖属性链路接通**：`_assemble_follow_sell` 消费 follow_sell_import 输出的 final_attributes（统一 attribute_id 键）；删除硬编码 `{"id": 126745801}`（字典值ID被当属性ID）假条目；兜底最小属性集。修复跟卖商品属性全部丢失、品牌/原产国不生效
+- **P0-4 单SKU/跟卖/发现漏运费**：`cloud_probe.py` 删 `if len(variants)>1` 守卫，`_collapse_variants_to_single` 无条件调用（内部兼容 0/1/N），单SKU 采购成本含国内运费 freightCny
+- **P0-3 GlobalState 补字段**：加 `dictionary_values` / `match_confidence`（动态字典选色 + 类目低置信度阻断复活）
+- **P0-6 竞品价链路**：Skill 抓 Ozon 竞品售价（scraper price 字段）→ `draft.competitor_price` → worker `follow_sell_import` 优先读（不再误用 1688 采购价当竞品价）
+- **P1-1 quantity 变体定价**：改用 `pricing_info.variant_prices`（含利润/佣金/物流），不再用 1688 裸采购价上架
+- **P1-4 定价失败阻断**：pricing 异常返回 `[PRICING_FAILED]` 标记；删 assemble ¥1000/¥1500 兜底；graph 加 `route_after_pricing` 条件边阻断
+- **P1-5 parse_error 合并读 validation_errors**：本地校验错误转结构化错误 + 关键词分类，不再退化为 UNKNOWN 通用 LLM 修复
+- **P1-6 登录预检条件化**：service.py `_check_1688_login_live` 加 `login_detected` 守卫
+- **P1-7 佣金死代码删除**：移除用 1688 item_id 查 Ozon `/v5/product/info/prices` 的恒空块
+
+### 批次 B：成本优化（LLM / 生图）
+
+- **B1 属性合并批量翻译**：含中文/拉丁属性值一次 LLM 调用批量翻译（分隔符拆回，失败逐条兜底），省 40-60% LLM 调用
+- **B2 call_mxou_chat_api 重试退避**：4xx（除429）不重试、429 指数退避、5xx/timeout 退避重试 2 次
+- **B3 MXOU 限流接入**：`mxou_rate_limiter`（450 RPM 滑窗 + 429 退避）接入 chat/image 两入口（原死代码）
+- **B4 变体主图并发生成**：`variant_primary_loop` ThreadPoolExecutor(4) 并行（配 B3 限流），39 变体小时级→分钟级
+- **B5 空参考图跳过生图**：7 个 Phase2 节点空 ref 直接返回 None（detail/scene×3/comparison/social/main 连原始图都没有时）
+
+### 批次 C：性能
+
+- **E1 进度写 PG 节流**：每任务 2s 合并窗口（旧每节点异步写一次）
+- **E2 cloud_probe import 惰性**：discovery 网络请求移出模块顶层（旧每次命令 +10s），惰性 + 进程级缓存
+- **E3 cache 原子写**：临时文件 + os.replace（并发 CLI 不再写坏 JSON）
+- **C1 类目树 TTL 缓存**：ozon_api `_query_category_tree` 24h 命名空间缓存（旧每次搜索重拉整树 ~2-5s）
+- **E6 discover CDP 复用**：`search_by_image_cdp` 加 `conn` 参数；`match_selected` 批量图搜共享单连接（旧每候选新建）
+- **E9 并发上限**：num_workers 联动 `MAX_CONCURRENT`（默认 **30**，4核4G I/O 密集安全值；旧硬编码 10）
+- **C4 ProgressLogger 去重读**：进度配置模块级缓存只读一次 + `config_path` 参数生效 + 修复重复 getenv
+
+### 批次 D：健壮性 / 代码质量
+
+- **D2 ozon_post 共享 session**：改用 `utils.http_session` 连接池（旧裸 requests.post 每次新建 TCP）
+- **D3 config 错位对齐**：graph.py metadata llm_cfg 对齐节点实际读取（assemble→category_match_v2_cfg、prepare→attributes_llm_cfg）
+- **E8 cfg 键名统一**：`scene_generation_llm_cfg.json` `max_completion_tokens` → `max_tokens`（旧键被忽略，改 cfg 不生效）
+- **D5 chrome_launcher 端口过滤**：仅杀带 `--remote-debugging-port` 的实例，不误杀用户日常 Chrome
+- **E7 batch_test**：finally `follow_result/matches` 用 `locals().get()` 防 NameError 掩盖原异常；进度文件每 5 条增量写 + 循环后全量写（旧 O(n²)）
+- **D4 死代码清理**：删除 6 个废弃节点（category_lookup/attributes_fetch/attributes_llm/attributes_learning/error_handler/multi_info_gen）+ `loop_graph.py` + `image_gen_factory.py`
+- **C4 NODE_ORDER 同步**：progress_logger 节点顺序字典同步真实图节点集
+
+### 验证
+
+- py_compile 全量 ✅；`test_attribute_fill_v013.py` 8/8 ✅；`test_audit_a_fixes.py` 5/5 ✅（P1-4 阻断路由 + P0-2 跟卖属性消费/兜底）；集成验证 ✅；mock 全流程 13/13 ✅；graph 模块导入 ✅（删死代码无残留）
+
 ## [0.13.0] - 2026-08-03
 
 ### Fixed

@@ -199,6 +199,11 @@ def process_ozon_url(
         else:
             os.environ.pop("OZON_API_KEY", None)
 
+        # ⚠️ v0.14 E7: follow_result/matches 可能在异常时未绑定（finally 引用会 NameError 掩盖原异常）
+        # 用 locals().get 安全读取
+        follow_result = locals().get("follow_result") or {}
+        matches = locals().get("matches") or []
+
         if not follow_result.get("success"):
             result["error"] = follow_result.get("error", "跟卖流程未找到匹配")
             print(f"  ⚠️ [{product_id}] 跟卖未找到匹配: {result['error']}", flush=True)
@@ -452,10 +457,12 @@ def main() -> int:
         else:
             stats["failed"] += 1
 
-        # Save incremental results
-        log_file.write_text(
-            json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        # ⚠️ v0.14 E7: 移除循环内全量覆写（O(n²) 写入）— 改为每 5 条增量落盘一次，
+        # 最终 summary 阶段完整写一次。崩溃时最多丢最近 5 条，而非全量重写 N 次。
+        if (i + 1) % 5 == 0:
+            log_file.write_text(
+                json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
 
         # Delay between URLs
         if i < len(urls) - 1:
@@ -485,6 +492,10 @@ def main() -> int:
             for r in results
         ],
     }
+    # ⚠️ v0.14 E7: 循环结束后完整写一次 log_file（增量每 5 条 + 此处兜底，保证全量落盘）
+    log_file.write_text(
+        json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     summary_file.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )

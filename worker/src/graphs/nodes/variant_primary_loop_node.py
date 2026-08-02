@@ -1,6 +1,7 @@
 """变体主图循环生成节点 - 直接实现生成逻辑（不调用子图，避免循环导入）"""
 import os
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List, Optional
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
@@ -52,18 +53,20 @@ def variant_primary_loop_node(
     
     logging.info(f"[variant_primary_loop_node] 开始生成{len(variants)}张变体主图")
     
-    # ✅ Step 2: 循环生成所有变体主图
+    # ✅ Step 2: 并发生成所有变体主图
+    # ⚠️ v0.14 B4: 串行 → ThreadPoolExecutor(4) 并行（39 变体从小时级降到分钟级，不改图数量）
+    # 配合 B3 全局限流器（mxou_acquire）防打爆 450 RPM；pool.map 保持结果顺序与 variants 一致
     variant_primary_images: List[str] = []
-    
+
     # ✅ Fallback参考图：当variant.image为空时，使用白底图或多角度图作为参考
     fallback_ref: str = state.white_bg_image or state.multi_angle_image or ""
-    
-    for idx, variant in enumerate(variants):
+
+    def _gen_one(idx: int, variant: Dict[str, Any]) -> str:
+        """生成单个变体主图（线程内执行，失败隔离）"""
         try:
-            # 获取variant的SKU名称和图片URL
             sku_name = variant.get("name", f"variant_{idx}")
             sku_image_url = variant.get("image", "")
-            
+
             # ✅ 修复：variant.image为空时，使用fallback参考图（白底图/多角度图）
             if not sku_image_url or not isinstance(sku_image_url, str) or not sku_image_url.strip():
                 if fallback_ref:
@@ -71,14 +74,13 @@ def variant_primary_loop_node(
                     sku_image_url = fallback_ref
                 else:
                     logging.warning(f"[variant_primary_loop_node] variant[{idx}]缺少image且无fallback，跳过")
-                    variant_primary_images.append("")
-                    continue
-            
+                    return ""
+
             logging.info(f"[variant_primary_loop_node] 正在生成variant[{idx}]: {sku_name}")
-            
+
             # ✅ 直接用1688原始URL（mxou可直接访问）
             ref_images = [sku_image_url]
-            
+
             # ✅ 调用统一mxou API（正确参数: images/aspectRatio/replyType）
             image_url = call_mxou_image_api(
                 token=state.token,
@@ -88,17 +90,19 @@ def variant_primary_loop_node(
                 timeout=90,
                 max_retries=3
             )
-            
+
             if image_url and isinstance(image_url, str) and image_url:
-                variant_primary_images.append(image_url)
                 logging.info(f"[variant_primary_loop_node] variant[{idx}]生成成功: {image_url[:100]}")
-            else:
-                logging.error(f"[variant_primary_loop_node] variant[{idx}]生成失败: API未返回有效URL")
-                variant_primary_images.append("")  # 不写 alicdn URL，留空让上层处理
-            
+                return image_url
+            logging.error(f"[variant_primary_loop_node] variant[{idx}]生成失败: API未返回有效URL")
+            return ""  # 不写 alicdn URL，留空让上层处理
+
         except Exception as e:
             logging.error(f"[variant_primary_loop_node] variant[{idx}]生成失败: {e}")
-            variant_primary_images.append("")  # 不写 alicdn URL，留空让上层处理
+            return ""  # 不写 alicdn URL，留空让上层处理
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        variant_primary_images = list(pool.map(_gen_one, range(len(variants)), variants))
     
     # ✅ Step 3: 返回结果
     success_count = sum(1 for img in variant_primary_images if img)

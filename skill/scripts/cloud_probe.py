@@ -124,12 +124,9 @@ def _load_path_registry() -> dict[str, str]:
     except Exception as e:
         logger.debug('path_registry.json load failed: %s', e)
 
-    # 2. Try cloud API service discovery (tag-based, always current)
-    try:
-        _refresh_from__discovery_api(defaults)
-    except Exception as e:
-        logger.debug('cloud API discovery failed: %s', e)
-
+    # ⚠️ v0.14 E2: 模块加载不做网络 discovery（旧代码 import 时同步发 HTTP GET timeout=10，
+    # 每次命令 graph/follow 额外 +10s 阻塞）。discovery 惰性化：submit_task(deprecated webhook) 首次调用前触发。
+    # 本地 registry 文件仍是权威默认值，网络 discovery 仅补充更新。
     return defaults
 
 
@@ -203,6 +200,21 @@ REFRESH_PATH = _paths["refresh"]
 IMAGE_GEN_PATH = _paths["image_gen"]
 ATTR_LEARN_PATH = _paths["attr_learn"]
 TASK_STATUS_PATH = _paths["task_status"]
+
+# ⚠️ v0.14 E2: discovery 惰性化 — 进程级缓存，仅 deprecated webhook 路径（submit_task）首次调用前触发
+_discovery_done = False
+
+
+def _ensure_paths_discovered() -> None:
+    """惰性触发云端 discovery（进程内只做一次）。仅 submit_task(deprecated) 需要。"""
+    global _discovery_done
+    if _discovery_done:
+        return
+    _discovery_done = True
+    try:
+        _refresh_from__discovery_api(_paths)
+    except Exception:
+        pass
 
 
 def _get_api_base() -> str:
@@ -1374,13 +1386,15 @@ def build_graph_envelope(
             )
 
     # ── 5.4.1 单产品折叠：多变体 → 单变体 ──
-    if len(variants) > 1:
-        original_count = len(variants)
-        variants, cost_cny = _collapse_variants_to_single(variants, cost_cny, shipping)
-        logger.info(
-            "单产品折叠: %d个变体 → 1个 (采购成本=%.2f CNY, 含运费)",
-            original_count, cost_cny,
-        )
+    # ⚠️ v0.14 P0-4: 无条件调用（_collapse_variants_to_single 内部已兼容 0/1/N 个变体）
+    # 旧守卫 if len(variants) > 1 导致单SKU/跟卖/发现商品跳过折叠 → cost_cny 不含国内运费(freightCny)，
+    # 采购成本偏低 → 定价利润失真（每单必现）。
+    original_count = len(variants)
+    variants, cost_cny = _collapse_variants_to_single(variants, cost_cny, shipping)
+    logger.info(
+        "单产品折叠: %d个变体 → 1个 (采购成本=%.2f CNY, 含运费)",
+        original_count, cost_cny,
+    )
 
     # ── 5.5 校验门：硬阻断 + 软兜底 ──
     weight_g, dimensions, validation_errors = _validate_and_fix_product_data(
@@ -1464,20 +1478,10 @@ def build_graph_envelope(
     commission_rate = float(store_profile.get("commission_rate", 0) or 0)
     fx_buffer = float(store_profile.get("fx_buffer", 0) or 0)
 
-    # 尝试从 Ozon API 获取真实佣金率（覆盖店铺配置）
-    if ozon_creds and commission_rate <= 0:
-        try:
-            from scripts.lib.ozon_seller import fetch_product_commissions
-            comms = fetch_product_commissions(
-                ozon_creds["client_id"], ozon_creds["api_key"], [str(item_id)]
-            )
-            if comms and str(item_id) in comms:
-                real_comm = comms[str(item_id)].get("sales_percent_rfbs", 0)
-                if real_comm > 0:
-                    commission_rate = real_comm / 100.0
-                    logger.info("Ozon 真实佣金率: %.1f%%", real_comm)
-        except Exception as e:
-            logger.debug("获取 Ozon 佣金率失败: %s", e)
+    # ⚠️ v0.14 P1-7: 删除"用 1688 item_id 查 Ozon 佣金"死代码块
+    # 原 fetch_product_commissions 用 product_id filter 查 /v5/product/info/prices，
+    # 传入的是 1688 offer ID（非 Ozon product_id）→ 恒返回空，永远无效。
+    # 佣金率由 store_config（get_store_profile）或 Worker 默认值提供。
 
     # 只传非零值（Worker 用默认值兜底）
     if margin_rate > 0:
@@ -2377,6 +2381,12 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         if cdp_data.get("success"):
             ozon_images = cdp_data.get("images", [])
             ozon_title = cdp_data.get("title", "")
+            # ⚠️ v0.14 P0-6: 抓取 Ozon 竞品售价（scraper 已解析 price 字段），
+            # 供 Worker 跟卖定价用（避免误用 1688 采购价当竞品价）
+            ozon_price = str(cdp_data.get("price", "") or "").strip()
+            if ozon_price:
+                result["competitor_price"] = ozon_price
+                logger.info("💰 Ozon 竞品售价: %s", ozon_price)
             result["scrape_source"] = "cdp"
             # ✅ 从 Ozon 页面提取类目 ID（面包屑链接中的数字 ID，优先）
             scraped_dc = cdp_data.get("description_category_id", "")
@@ -2520,6 +2530,10 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     ozon_cat = result.get("ozon_category")
                     if ozon_cat:
                         draft["ozon_category"] = ozon_cat
+                    # ⚠️ v0.14 P0-6: 注入 Ozon 竞品售价（独立字段，避免与 1688 采购价 draft.price 混淆）
+                    comp_price = result.get("competitor_price", "")
+                    if comp_price:
+                        draft["competitor_price"] = comp_price
                     # 凭证（顶层）
                     envelope["ozon_client_id"] = client_id
                     envelope["ozon_api_key"] = api_key
