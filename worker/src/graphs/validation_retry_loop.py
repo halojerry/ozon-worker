@@ -831,23 +831,74 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
     # 对齐 assemble_ozon_product_node._validate_and_enrich_items 的 KNOWN_DEFAULTS
     # 和 prepare_ozon_upload_node 的 _FALLBACK_FREE_TEXT_ATTRS
     # 避免对常见空属性浪费 LLM 调用
+    # ⚠️ v0.13: 字典属性（9163 Пол / 4958 Назначение / 9782 Класс опасности）已从本表移除！
+    # 它们绝不能塞文本默认值（dictionary_value_id=0）——Ozon 只接受列表中的 dictionary_value_id，
+    # 文本默认值触发"属性值不正确，请从列表中选择一个属性值"。改走下方"取字典第一个有效值"路径。
     _KNOWN_DEFAULTS_RETRY: dict[int, str] = {
-        # 必填属性默认值（来自 assemble_ozon_product_node）
+        # 必填属性默认值（来自 assemble_ozon_product_node）— 自由文本类
         8205: "730",               # Срок годности в днях — 2年
-        9163: "Универсальный",     # Пол — 通用
         8962: "1",                 # Количество предметов
-        4958: "Универсальный",     # Назначение
         8292: "0",                 # Объединить на одной карточке — 不合并
-        # 非必填但常报错的默认值（来自 prepare_ozon_upload_node + Ozon 实际）
+        # 非必填但常报错的默认值（来自 prepare_ozon_upload_node + Ozon 实际）— 自由文本类
         7578: "365",               # Срок годности (дни)
         10350: "40",               # Макс. температура хранения
         10351: "0",                # Мин. температура хранения
         8787: "сухое место",       # Условия хранения
         8050: "полимерные материалы",  # Материал
-        9782: "не опасный",        # Класс опасности
         9048: "",                  # Название модели — 不设默认值，由 revalidate 用 offer_id 补
         23487: "",                 # Производитель — 不设默认值，用 supplier 填充
     }
+
+    # ⚠️ v0.13: 字典属性（Step 2 搜索未命中走到这里）→ 拉全字典值取第一个有效 dictionary_value_id
+    # 与 assemble_ozon_product_node 的"回退2：取第一个可用字典值"对齐。
+    # limit 5000 拉全，避免大字典（如颜色 1494 条）截断导致取不到值。
+    if attr_id > 0 and dictionary_id > 0 and attr_id not in _KNOWN_DEFAULTS_RETRY:
+        try:
+            _dict_resp = _call_ozon_api(
+                ozon_client_id, ozon_api_key,
+                "/v1/description-category/attribute/values",
+                {
+                    "attribute_id": attr_id,
+                    "description_category_id": int(category_id) if category_id else 0,
+                    "type_id": int(type_id) if type_id else 0,
+                    "language": "RU",
+                    "limit": 5000,
+                    "last_value_id": 0,
+                }
+            )
+            _dict_vals: list = _dict_resp.get("result", [])
+            if _dict_vals:
+                _first = _dict_vals[0]
+                _fid: int = int(_first.get("id", 0))
+                _fval: str = str(_first.get("value", ""))
+                if _fid > 0:
+                    logger.info(f"📋 字典属性{attr_id}({attr_name})取第一个有效字典值: '{_fval}' (id={_fid})")
+                    updated_attrs = []
+                    found = False
+                    for attr in state.final_attributes:
+                        if not isinstance(attr, dict):
+                            updated_attrs.append(attr)
+                            continue
+                        if attr.get("id") == attr_id or attr.get("attribute_id") == attr_id:
+                            attr["value"] = _fval
+                            attr["dictionary_value_id"] = _fid
+                            found = True
+                            logger.info(f"✅ 属性{attr_id}已用字典值修复: '{_fval}' (id={_fid})")
+                        updated_attrs.append(attr)
+                    if not found:
+                        updated_attrs.append({
+                            "attribute_id": attr_id, "id": attr_id,
+                            "value": _fval, "dictionary_value_id": _fid,
+                            "source": "retry_dict_first"
+                        })
+                        logger.info(f"✅ 已添加缺失字典属性{attr_id}，值: '{_fval}' (id={_fid})")
+                    state.final_attributes = updated_attrs
+                    return state
+        except Exception as _de:
+            logger.warning(f"⚠️ 字典属性{attr_id}取第一个值失败: {_de}")
+        # 字典 API 也无值 → 跳过（绝不塞文本兜底，避免 Ozon 拒绝）
+        logger.warning(f"⚠️ 字典属性{attr_id}({attr_name})无法获取字典值，跳过修复（避免文本兜底）")
+        return state
 
     if attr_id > 0 and attr_id in _KNOWN_DEFAULTS_RETRY:
         default_val = _KNOWN_DEFAULTS_RETRY[attr_id]
@@ -1616,6 +1667,17 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                         existing_9048_dict_id = int(ex_vals[0].get("dictionary_value_id", 0))
                     break
 
+            # ⚠️ v0.13.1: 从 attributes_schema 构建字典属性ID集合（dictionary_id > 0）
+            # 用于拦截"字典属性 + dictionary_value_id=0"的手填文本值重传（Ozon 只接受列表中的 dict_id）
+            _schema_dict_attr_ids: set = set()
+            for _sa in (state.attributes_schema or []):
+                if isinstance(_sa, dict) and _sa.get("id"):
+                    try:
+                        if int(_sa.get("dictionary_id", 0) or 0) > 0:
+                            _schema_dict_attr_ids.add(int(_sa["id"]))
+                    except (ValueError, TypeError):
+                        continue
+
             ozon_attrs: list = []
             skipped_attrs: list = []
             for attr in state.final_attributes:
@@ -1647,6 +1709,15 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                 attr_value: Any = attr.get("value", "")
                 dict_value_id: Any = attr.get("dictionary_value_id", 0)
 
+                # ⚠️ v0.13.1: 字典属性重传防御 — schema 中 dictionary_id>0 但 dict_value_id=0
+                # = 手填文本兜底值（Ozon 只接受列表中的 dict_id）→ 跳过，避免"请从列表中选择"死循环重传
+                if attr_id_int in _schema_dict_attr_ids and not int(dict_value_id or 0):
+                    logger.warning(
+                        f"⚠️ 跳过字典属性{attr_id_int}重传（dictionary_value_id=0 文本值，"
+                        f"Ozon 只接受列表中的 dict_id，避免重复报错）"
+                    )
+                    continue
+
                 # 9048特殊处理：优先使用payload中已有的值（prepare已翻译），避免重新翻译导致不一致
                 if attr_id_int == 9048 and existing_9048_val:
                     attr_value = existing_9048_val
@@ -1667,8 +1738,37 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                             if translated_val and any('\u0400' <= ch <= '\u04FF' for ch in translated_val):
                                 attr_value = translated_val
                                 logger.info(f"✅ revalidate翻译属性{attr_id_int}: '{val_str[:40]}' → '{translated_val[:40]}'")
+                            else:
+                                # ⚠️ v0.13.1: 翻译失败/非俄语 → 跳过该属性，避免回传拉丁/中文触发"请用俄文填写该字段"
+                                logger.warning(f"⚠️ 属性{attr_id_int}翻译失败（非俄语），跳过重传: '{val_str[:40]}'")
+                                continue
                         except Exception as trans_err:
                             logger.warning(f"属性{attr_id_int}翻译失败: {trans_err}")
+                            continue
+
+                # ⚠️ v0.13.1: 兜底 — 不在 TRANSLATE_ATTR_IDS 的自由文本属性，值含中文 → 翻译，失败跳过
+                # （覆盖颜色名称等自由文本属性，防止中文/空值上传被 Ozon 拒绝）
+                _rv_val: str = str(attr_value) if attr_value else ""
+                if _rv_val and attr_id_int not in TRANSLATE_ATTR_IDS:
+                    _rv_has_cn: bool = any('\u4e00' <= ch <= '\u9fff' for ch in _rv_val)
+                    _rv_has_cyr: bool = any('\u0400' <= ch <= '\u04FF' for ch in _rv_val)
+                    if _rv_has_cn and not _rv_has_cyr:
+                        try:
+                            _rv_translated: str = _call_mxou_llm(
+                                state.token,
+                                "config/translate_russian_cfg.json",
+                                {"text": _rv_val}
+                            ).strip()
+                            if _rv_translated and any('\u0400' <= ch <= '\u04FF' for ch in _rv_translated) \
+                                    and not any('\u4e00' <= ch <= '\u9fff' for ch in _rv_translated):
+                                attr_value = _rv_translated
+                                logger.info(f"✅ 属性{attr_id_int}中文值翻译为俄语: '{_rv_val[:40]}' → '{_rv_translated[:40]}'")
+                            else:
+                                logger.warning(f"⚠️ 属性{attr_id_int}中文值翻译失败，跳过重传: '{_rv_val[:40]}'")
+                                continue
+                        except Exception as _rv_err:
+                            logger.warning(f"属性{attr_id_int}中文值翻译异常，跳过重传: {_rv_err}")
+                            continue
 
                 ozon_attr: Dict[str, Any] = {
                     "complex_id": 0,

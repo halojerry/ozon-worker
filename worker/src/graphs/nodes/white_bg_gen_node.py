@@ -46,15 +46,9 @@ def white_bg_gen_node(state: WhiteBgInput, config: RunnableConfig, runtime: Runt
         progress.log_node_error("Token为空", "检查认证节点")
         return WhiteBgOutput(white_bg_image=None)
     
-    # 构建生图提示词（英文）
+    # 构建生图提示词（中文）
     title = clean_title_for_image_prompt(draft.get("title", ""))
-    prompt = (
-        f"Professional packshot of {title} on pure white background #FFFFFF. "
-        f"Front view, even diffused lighting, product occupying 85%+ of frame. "
-        f"Russian marketplace standard packshot. "
-        f"Do NOT include: watermarks, logos, prices, discounts, phone numbers, "
-        f"email, website URLs, QR codes, promotional badges."
-    )
+    prompt = f"产品：{title}。去除产品背景，生成纯白底产品图。严格要求：纯白背景(#FFFFFF)、纯产品摄影、高清细节、严格禁止任何文字/水印/标签/数字/品牌logo/二维码/联系方式/价格信息/中文字符/英文字符/促销标语、非信息图/非营销海报、专业电商产品摄影风格、产品必须与参考图一致。"
     
     # 记录具体动作
     progress.log_node_action("正在构建图片生成请求...")

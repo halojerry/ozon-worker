@@ -1422,13 +1422,10 @@ def _build_items_deterministically(
                     })
                     logger.debug(f"   ✅ 属性映射: [{attr_id}] {attr_name_cn} = {product_value} → dict_id={dict_val_id}")
                 else:
-                    # 字典值未匹配，填原始值（_validate 会尝试修正）
-                    attrs.append({
-                        "complex_id": 0,
-                        "id": attr_id,
-                        "values": [{"dictionary_value_id": 0, "value": product_value}],
-                    })
-                    logger.debug(f"   ⚠️ 属性映射: [{attr_id}] {attr_name_cn} = {product_value} (字典值未匹配)")
+                    # ⚠️ v0.13: 字典值未匹配 → 不再写 dictionary_value_id=0 文本兜底！
+                    # Ozon 字典属性只接受列表中的 dictionary_value_id，手填文本 → "属性值不正确，请从列表中选择一个属性值"
+                    # 跳过该属性，由 _validate_and_enrich_items 用 /values/search 修正或补默认字典值
+                    logger.warning(f"   ⚠️ 字典属性[{attr_id}] {attr_name_cn} = {product_value} 未匹配字典值，跳过（交由 validate 修正）")
             elif product_value:
                 # 自由文本属性
                 attrs.append({
@@ -1587,6 +1584,13 @@ def _validate_and_enrich_items(
                         except Exception as _search_e:
                             logger.warning(f"   ⚠️ /values/search 异常: attr={attr_id}, value='{value}': {_search_e}")
 
+                # ⚠️ v0.13: 字典属性经 dict_lookup + /values/search 仍未命中 dict_id → 跳过该属性
+                # 绝不写 dictionary_value_id=0 文本兜底（Ozon 只接受列表中的字典值，文本→"请从列表中选择一个属性值"）。
+                # 若是必填属性，下方 missing_required 会走标题/属性名搜索 → 取字典第一个有效 dict_id 的完整路径。
+                if dict_id and dict_id > 0 and not dict_val_id:
+                    logger.warning(f"   ⚠️ 字典属性 attr={attr_id} 值='{value}' 无法匹配字典值，跳过（交由必填属性补全处理）")
+                    continue
+
                 validated_values.append({
                     "dictionary_value_id": int(dict_val_id) if dict_val_id else 0,
                     "value": str(value),
@@ -1644,14 +1648,17 @@ def _validate_and_enrich_items(
                 missing_required.discard(TYPE_ATTR_ID)  # 已处理过
 
         # 特殊属性的已知默认值（常见必填属性）
+        # ⚠️ v0.13: 4958(Назначение/用途) 和 9163(Пол/性别) 是字典属性（dictionary_id>0），
+        # 绝不能设文本默认值——Ozon 只接受列表中的 dictionary_value_id，文本→"请从列表中选择一个属性值"。
+        # 它们由上方字典匹配路径处理（标题/属性名搜索 → 取第一个有效 dict_id），这里不设 default。
         KNOWN_DEFAULTS: dict[int, str] = {
             8205: "730",              # Срок годности в днях（保质期天数）— 2年
-            9163: "Универсальный",    # Пол（性别）— 通用
             8962: "1",                # Количество предметов（件数）
-            4958: "Универсальный",    # Назначение（用途）
             8292: "0",                # Объединить на одной карточке（合并卡牌）— 0=不合并
             # 9782: 字典属性（Класс опасности товара），值从 Ozon API 字典获取，不设 default
             # 23487: 自由文本属性，用 draft.supplier 填充，不设默认值
+            # 4958: 字典属性（Назначение），不设 default — 走字典匹配路径
+            # 9163: 字典属性（Пол），不设 default — 走字典匹配路径
         }
 
         for missing_id in sorted(missing_required):
@@ -1863,6 +1870,10 @@ def _validate_and_enrich_items(
             logger.info(f"   ✅ hashtag #23171 补充生成: {new_tags}")
 
         # ✅ 可选字典属性补充：提升属性覆盖率（影响Ozon产品评分）
+        # ⚠️ v0.13.1: 不再"取字典第一个值"盲补！字典多值时第一个值语义随机
+        # （如"风格/用途"被填了与产品无关的值 → Ozon 报"属性值不正确，请从列表中选择"）。
+        # 仅当字典只有唯一值时才补充（唯一值不可能语义错误），多值/无值一律跳过。
+        # 该可选属性若 1688 有匹配值，_build_items_deterministically 已填；此处只兜"字典唯一值"的安全场景。
         present_after = {int(a["id"]) for a in validated_attrs if "id" in a}
         optional_dict_attrs = [
             a for a in attr_list
@@ -1872,21 +1883,28 @@ def _validate_and_enrich_items(
             and int(a["id"]) not in (23171, 23536)  # 跳过hashtag和标记码
         ]
         filled_optional = 0
+        skipped_optional = 0
         for opt_attr in optional_dict_attrs[:10]:  # 最多补10个
             opt_id = int(opt_attr["id"])
             opt_name = opt_attr.get("name", "?")
-            # 从字典值缓存中取第一条安全默认值
             dict_vals = dict_lookup.get(opt_id, [])
-            if isinstance(dict_vals, list) and dict_vals:
-                first = dict_vals[0]
-                if isinstance(first, dict) and first.get("id"):
+            if isinstance(dict_vals, list) and len(dict_vals) == 1:
+                # 字典只有一个可选值 → 补充（值确定，不会语义错误）
+                only = dict_vals[0]
+                if isinstance(only, dict) and only.get("id"):
                     validated_attrs.append({
                         "complex_id": 0, "id": opt_id,
-                        "values": [{"dictionary_value_id": first["id"], "value": str(first.get("value", ""))}],
+                        "values": [{"dictionary_value_id": only["id"], "value": str(only.get("value", ""))}],
                     })
                     filled_optional += 1
+            elif isinstance(dict_vals, list) and len(dict_vals) > 1:
+                # 字典多值且无 1688 匹配 → 跳过，避免填语义错误的值被 Ozon 拒绝
+                skipped_optional += 1
+                logger.debug(f"   ⚠️ 可选字典属性[{opt_id}]({opt_name}) 多值({len(dict_vals)})且无匹配，跳过盲补")
         if filled_optional:
-            logger.info(f"   📊 补充可选字典属性: {filled_optional}个")
+            logger.info(f"   📊 补充可选字典属性: {filled_optional}个（唯一字典值）")
+        if skipped_optional:
+            logger.info(f"   📊 跳过可选字典属性盲补: {skipped_optional}个（多值无匹配，避免错误值）")
 
         # 9048（变体绑定名）= item_id，与 prepare_ozon_upload_node 逻辑一致
         if FORCE_ATTR_9048 not in present_ids and FORCE_ATTR_9048 not in {int(a["id"]) for a in validated_attrs}:
@@ -1938,7 +1956,7 @@ def _fetch_dict_values_from_ozon(
     attribute_id: int,
     language: str = "ZH_HANS",
 ) -> list[dict[str, Any]] | None:
-    """从 Ozon API 获取属性的字典值（按指定语言）"""
+    """从 Ozon API 获取属性的字典值（按指定语言，分页拉全）"""
     try:
         url = "https://api-seller.ozon.ru/v1/description-category/attribute/values"
         headers = {
@@ -1946,18 +1964,33 @@ def _fetch_dict_values_from_ozon(
             "Api-Key": ozon_api_key,
             "Content-Type": "application/json",
         }
-        payload = {
-            "attribute_id": attribute_id,
-            "description_category_id": description_category_id,
-            "type_id": type_id,
-            "language": language,  # 中文字典值用于匹配 1688 属性值（dictionary_value_id 跨语言一致）
-            "limit": 100,
-        }
-        resp = session.post(url, json=payload, headers=headers, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-        result = data.get("result", [])
-        logger.info(f"   ✅ Ozon API 返回 attr={attribute_id} 字典值: {len(result)} 条")
+        # ⚠️ v0.13: limit 100 → 5000 + last_value_id 分页拉全
+        # 大字典（如颜色 1494 条）只取前 100 会导致目标值匹配不到 → 文本兜底 → "请从列表中选择一个属性值"
+        result: list[dict[str, Any]] = []
+        last_value_id: int = 0
+        while True:
+            payload = {
+                "attribute_id": attribute_id,
+                "description_category_id": description_category_id,
+                "type_id": type_id,
+                "language": language,  # 中文字典值用于匹配 1688 属性值（dictionary_value_id 跨语言一致）
+                "limit": 5000,
+                "last_value_id": last_value_id,
+            }
+            resp = session.post(url, json=payload, headers=headers, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            page = data.get("result", [])
+            if not page:
+                break
+            result.extend(page)
+            if len(page) < 5000:
+                break
+            # 分页游标：Ozon 用 last_value_id 返回下一页
+            last_value_id = int(page[-1].get("id", last_value_id))
+            if last_value_id == payload["last_value_id"]:  # 防死循环
+                break
+        logger.info(f"   ✅ Ozon API 返回 attr={attribute_id} 字典值: {len(result)} 条（分页拉全）")
         return result
     except Exception as e:
         logger.warning(f"   ⚠️ Ozon API 字典值 attr={attribute_id} 失败: {e}")
