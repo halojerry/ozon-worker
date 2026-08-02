@@ -380,7 +380,14 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
         quota: float = float(user_record.get("quota", 0))
         used_quota: float = float(user_record.get("used_quota", 0))
         balance: float = quota - used_quota
-        
+
+        # ⚠️ 无限额度 token 放行（与 main.py _check_mxou_balance 一致）：
+        # users.quota-used_quota 可能是 0/负，但 unlimited_quota=true 时不应拦截
+        unlimited_quota = bool(token_record.get("unlimited_quota")) if token_record else False
+        if unlimited_quota:
+            balance = 999.0  # 标记有额度，避免 balance<=0 误拦
+            logger.info(f"无限额度 token 放行: user_id={user_id}")
+
         # Step 3: 查询Ozon店铺信息（获取currency_code）- 提前查询，确保所有情况都能获取
         ozon_seller_info = query_ozon_seller_info(ozon_client_id, ozon_api_key)
         currency_code = ozon_seller_info.get("currency_code", "")  # 默认空字符串，让pricing_node处理默认值

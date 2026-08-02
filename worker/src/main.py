@@ -909,6 +909,51 @@ async def store_health(client_id: str = None, api_key: str = None):
         return {"status": "error", "message": str(e)}
 
 
+def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
+    """检查 MXOU 用户余额（照抄 n8n Auth 节点官方逻辑）。
+
+    ⚠️ 原实现只读 tokens.remain_quota，未查 users 表与 unlimited_quota：
+    - 无限额度 token（unlimited_quota=true）remain_quota 可能为 0/null → 被误判余额不足
+    - 真实余额 = users.quota - users.used_quota（tokens.remain_quota 可能从未同步）
+
+    Returns: (balance, ok) — ok=True 表示有额度（余额>0 或无限额度）
+    """
+    try:
+        # 无限额度 token 直接放行
+        if token_record.get("unlimited_quota"):
+            return float(token_record.get("remain_quota", 0) or 0), True
+
+        user_id = token_record.get("user_id", "")
+        supabase = get_supabase_client()
+        if supabase is None or not user_id:
+            # 本地开发模式：无 Supabase，不阻断
+            return 0.0, True
+
+        # 查 users 表真实余额 quota - used_quota（与 n8n Auth 节点一致）
+        try:
+            user_rows = supabase.table("users").select(
+                "quota, used_quota"
+            ).eq("id", user_id).limit(1).execute()
+        except Exception:
+            # 无 users 表权限/不存在时降级用 remain_quota
+            balance = float(token_record.get("remain_quota", 0) or 0)
+            return balance, balance > 0
+
+        if user_rows.data:
+            u = user_rows.data[0]
+            quota = float(u.get("quota", 0) or 0)
+            used = float(u.get("used_quota", 0) or 0)
+            balance = quota - used
+            return balance, balance > 0
+
+        # users 表无记录：降级 remain_quota
+        balance = float(token_record.get("remain_quota", 0) or 0)
+        return balance, balance > 0
+    except Exception as e:
+        logger.warning(f"余额检查异常（不阻断）: {e}")
+        return 0.0, True
+
+
 @app.post("/auth/verify", response_model=AuthVerifyResponse)
 @app.post("/api/v1/auth/verify", response_model=AuthVerifyResponse)
 async def auth_verify(request: Request):
@@ -917,8 +962,9 @@ async def auth_verify(request: Request):
 
     验证（与 submit_task 相同逻辑）:
     1. token 有效性（Supabase tokens 表 key 列，剥离 sk- 前缀）
-    2. token 状态 = 1（active）
-    3. remain_quota >= 5.0（余额检查）
+    2. token 状态 = 1（active；status=4 欠费 → balance_insufficient）
+    3. 余额检查：users.quota - used_quota（unlimited_quota=true 放行；
+       不再用 remain_quota——它是僵尸字段且无限额度 key 会被误判）
     4. Ozon API 有效性（可选）
 
     不返回余额数字，只返回 valid + reason。
@@ -947,7 +993,7 @@ async def auth_verify(request: Request):
     else:
         try:
             token_records = supabase.table("tokens").select(
-                "user_id, remain_quota, status, expired_time"
+                "user_id, remain_quota, status, expired_time, unlimited_quota"
             ).eq("key", clean_token).is_("deleted_at", "null").execute()
 
             if not token_records.data or len(token_records.data) == 0:
@@ -956,13 +1002,17 @@ async def auth_verify(request: Request):
             token_record = token_records.data[0]
             status = int(token_record.get("status", 0))
 
-            # 2. 检查 token 状态（1=active, 2=disabled, 3=expired, 4=quota exhausted）
+            # 2. 检查 token 状态（1=active, 2=disabled, 3=expired, 4=quota exhausted/欠费）
+            #    status=4 明确映射 balance_insufficient（与 n8n AUTH_EXHAUSTED 一致）
+            if status == 4:
+                return {"valid": False, "reason": "balance_insufficient", "expires_in": 0}
             if status != 1:
                 return {"valid": False, "reason": "account_inactive", "expires_in": 0}
 
-            # 3. 检查余额（remain_quota >= 5.0，和 submit_task 一致）
-            balance = float(token_record.get("remain_quota", 0.0))
-            if balance < 5.0:
+            # 3. 检查余额（查 users 表 quota-used_quota，无限额度放行；
+            #    原实现只查 remain_quota 会把无限额度 token 误判余额不足）
+            balance, has_quota = _check_mxou_balance(token_record)
+            if not has_quota:
                 return {"valid": False, "reason": "balance_insufficient", "expires_in": 0}
 
         except Exception as e:
@@ -1146,7 +1196,7 @@ async def http_submit_task(request: Request):
         else:
             try:
                 token_records = supabase.table("tokens").select(
-                    "user_id, remain_quota, status, expired_time"
+                    "user_id, remain_quota, status, expired_time, unlimited_quota"
                 ).eq("key", token).is_("deleted_at", "null").execute()
 
                 if not token_records.data or len(token_records.data) == 0:
@@ -1154,7 +1204,6 @@ async def http_submit_task(request: Request):
 
                 token_record = token_records.data[0]
                 user_id = str(token_record.get("user_id", ""))
-                balance = float(token_record.get("remain_quota", 0.0))
                 status = int(token_record.get("status", 0))
 
                 # Step4: 检查token状态
@@ -1165,11 +1214,13 @@ async def http_submit_task(request: Request):
                         detail=f"Token is {status_desc.get(status, 'unknown')}: status={status}"
                     )
 
-                # Step5: 检查余额（MXOU 生图/LLM 需要额度，余额不足会中途失败）
-                if balance < 5.0:
+                # Step5: 检查余额（查 users 表 quota-used_quota，无限额度放行；
+                #    原实现只查 remain_quota 会把无限额度 token 误判余额不足）
+                balance, has_quota = _check_mxou_balance(token_record)
+                if not has_quota:
                     raise HTTPException(
                         status_code=402,
-                        detail=f"Insufficient balance: remain_quota must be >= 5.0 (current: {balance}). Please top up your MXOU account."
+                        detail=f"Insufficient balance (current: {balance}). Please top up your MXOU account."
                     )
 
             except Exception as e:
