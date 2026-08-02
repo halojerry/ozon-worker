@@ -910,16 +910,20 @@ async def store_health(client_id: str = None, api_key: str = None):
 
 
 def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
-    """检查 MXOU 用户余额（照抄 n8n Auth 节点官方逻辑）。
+    """检查 MXOU 用户余额（照抄 n8n Auth 节点官方逻辑 + 充值实证修正）。
 
     ⚠️ 原实现只读 tokens.remain_quota，未查 users 表与 unlimited_quota：
-    - 无限额度 token（unlimited_quota=true）remain_quota 可能为 0/null → 被误判余额不足
-    - 真实余额 = users.quota - users.used_quota（tokens.remain_quota 可能从未同步）
+    - 无限额度 token（unlimited_quota=true）remain_quota 可能为 0/负数 →
+      被误判余额不足（实证：key3 remain_quota=-17亿、1元号=0 都真实可用）
+    - users.quota 是「实时剩余额度」：充值直接加 quota，每次调用 quota-10、
+      used_quota+10（quota+used_quota 恒等于充值总额，2026-08-02 实证）
+    - 判定用 quota>0（不用 quota-used_quota：used_quota 是历史累计，
+      减它只会低估剩余额度）
 
-    Returns: (balance, ok) — ok=True 表示有额度（余额>0 或无限额度）
+    Returns: (balance, ok) — ok=True 表示有额度（剩余额度>0 或无限额度）
     """
     try:
-        # 无限额度 token 直接放行
+        # 无限额度 token 直接放行（测试/赠送/高配 key 不设上限）
         if token_record.get("unlimited_quota"):
             return float(token_record.get("remain_quota", 0) or 0), True
 
@@ -929,10 +933,10 @@ def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
             # 本地开发模式：无 Supabase，不阻断
             return 0.0, True
 
-        # 查 users 表真实余额 quota - used_quota（与 n8n Auth 节点一致）
+        # 查 users 表剩余额度 quota（充值直接加 quota，调用扣 quota）
         try:
             user_rows = supabase.table("users").select(
-                "quota, used_quota"
+                "quota"
             ).eq("id", user_id).limit(1).execute()
         except Exception:
             # 无 users 表权限/不存在时降级用 remain_quota
@@ -941,9 +945,7 @@ def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
 
         if user_rows.data:
             u = user_rows.data[0]
-            quota = float(u.get("quota", 0) or 0)
-            used = float(u.get("used_quota", 0) or 0)
-            balance = quota - used
+            balance = float(u.get("quota", 0) or 0)
             return balance, balance > 0
 
         # users 表无记录：降级 remain_quota
