@@ -379,6 +379,11 @@ def scrape_ozon_product_via_cdp(
         # Navigate and wait for load (event-driven)
         tab.navigate(ozon_url, wait_until="load", timeout=timeout)
 
+        # ✅ v0.19: 多段滚动触发懒加载（图片画廊/描述/评价区），尽可能获取更多信息
+        for _scroll_pass in range(3):
+            _tab_eval(tab, "window.scrollTo(0, document.body.scrollHeight);", wait_ms=600)
+        _tab_eval(tab, "window.scrollTo(0, 0);", wait_ms=300)
+
         # Extract via JavaScript (most reliable)
         js_title = _tab_eval(tab, "document.title") or ""
         js_jsonld = _tab_eval(tab, """

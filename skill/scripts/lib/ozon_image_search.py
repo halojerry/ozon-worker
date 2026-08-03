@@ -23,9 +23,13 @@ IMAGE_SEARCH_URL = "https://air.1688.com/kapp/1688-search/pc-image-search/"
 def _get_badge_score(badge: str) -> int:
     """从 badge 文本提取匹配分数（越高越好）。
     支持格式: "符合2/3个条件" → 2, "匹配度85%" → 85, "相似度: 高" → 50
+    v0.19: "全部符合"（matchBadgeFull，1688 官方"满足所有条件"）→ 100
     """
     if not badge:
         return 0
+    # 格式0: 全匹配徽标（静态文本为空，由 class 识别后置为"全部符合"）
+    if "全部符合" in badge or "满足所有" in badge or "符合全部" in badge:
+        return 100
     # 格式1: "符合X/Y个条件"
     m = re.search(r"符合(\d+)/(\d+)个条件", badge)
     if m:
@@ -51,11 +55,12 @@ def _extract_results_from_tab(tab, page_size: int = 5) -> list[dict[str, Any]]:
     的 Promise，导致结果恒为空（审计 P0-1）。
     """
     result_str = tab.evaluate(f'''(async () => {{
-        // 先滚动触发懒加载
-        window.scrollTo(0, document.body.scrollHeight / 2);
-        await new Promise(r => setTimeout(r, 500));
-        window.scrollTo(0, document.body.scrollHeight);
-        await new Promise(r => setTimeout(r, 500));
+        // v0.19: 多段滚动触发懒加载，尽可能加载更多卡片（1688 结果页可达 60+ 张）
+        for (let pass = 0; pass < 3; pass++) {{
+            window.scrollTo(0, document.body.scrollHeight);
+            await new Promise(r => setTimeout(r, 600));
+        }}
+        window.scrollTo(0, 0);
 
         const cards = document.querySelectorAll(".cardui-normal");
         const results = [];
@@ -75,10 +80,17 @@ def _extract_results_from_tab(tab, page_size: int = 5) -> list[dict[str, Any]]:
                 "面单支持","入驻"];
             const companyRe = /[市县].*[厂公司有限]/;
 
-            // ✅ 优先用 querySelector 找 badge（类名带随机后缀: badge--XXXXXXXX）
-            const badgeEl = card.querySelector('[class*="badge--"]');
-            if (badgeEl) {{
-                badge = badgeEl.textContent.trim();
+            // ✅ v0.19: 全匹配徽标（matchBadgeFull）优先按 class 识别——
+            // 1688 官方"满足所有条件"，静态 textContent 为空（hover 才显示属性级原因），
+            // 不能依赖文本解析；部分匹配徽标（badge--XXXXXXXX）才读文本
+            const fullEl = card.querySelector('[class*="matchBadgeFull"]');
+            if (fullEl) {{
+                badge = "全部符合";
+            }} else {{
+                const badgeEl = card.querySelector('[class*="badge--"]');
+                if (badgeEl) {{
+                    badge = badgeEl.textContent.trim();
+                }}
             }}
 
             for (const line of lines) {{
@@ -192,7 +204,7 @@ def _click_crop_regions_on_tab(tab, wait_seconds: int = 8) -> list[dict[str, Any
 def search_by_image_cdp(
     image_url: str,
     cdp_url: str = "http://127.0.0.1:9222",
-    page_size: int = 5,
+    page_size: int = 20,
     wait_seconds: int = 10,
     try_crop_regions: bool = True,
     conn=None,

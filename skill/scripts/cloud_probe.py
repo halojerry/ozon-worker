@@ -2433,17 +2433,28 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         # 3a-1. CDP 网页版以图搜款（更准确，用1688网页搜索引擎）
         # ⚠️ v0.14 E5+: 匹配质量差（badge 全 0/无有效评分）时自动重新图搜最多 3 次取最佳
         # （1688 图搜算法偶发匹配差，重搜可显著提高命中质量）
+        # ✅ v0.19: page_size 20 + 仅在页面确实渲染了徽标且质量差时才重搜；
+        # 无徽标（未登录/未渲染）不重搜，交给 _pick_best_match 标题相关性降级
         try:
             from scripts.lib.ozon_image_search import search_by_image_cdp, _get_badge_score
-            cdp_results = search_by_image_cdp(image_url=main_img, page_size=5, wait_seconds=10, conn=shared_cdp)
-            # badge 质量评估：最高分 ≤ 1 视为低质量 → 重搜
+            cdp_results = search_by_image_cdp(image_url=main_img, page_size=20, wait_seconds=10, conn=shared_cdp)
+            # ✅ v0.19: CDP 空结果先原地重试 1 次（页面渲染偶发失败，甩脂机案例），
+            # 仍空才降级 AK API
+            if not cdp_results:
+                logger.info("🔄 CDP图搜空结果，等待后原地重试 1 次...")
+                time.sleep(3)
+                cdp_results = search_by_image_cdp(
+                    image_url=main_img, page_size=20, wait_seconds=15,
+                    conn=shared_cdp, force_refresh=True)
             if cdp_results:
-                top_score = max((_get_badge_score(p.get("badge", "")) for p in cdp_results), default=0)
+                badge_scores = [_get_badge_score(p.get("badge", "") or "") for p in cdp_results]
+                has_badge = any(s > 0 for s in badge_scores)
+                top_score = max(badge_scores, default=0)
                 _re_attempt = 0
-                while top_score <= 1 and _re_attempt < 2:
+                while has_badge and top_score <= 1 and _re_attempt < 2:
                     _re_attempt += 1
                     logger.info(f"🔄 图搜匹配质量低(badge={top_score})，重新图搜 {_re_attempt}/2...")
-                    retry_results = search_by_image_cdp(image_url=main_img, page_size=5, wait_seconds=10, conn=shared_cdp, force_refresh=True)
+                    retry_results = search_by_image_cdp(image_url=main_img, page_size=20, wait_seconds=15, conn=shared_cdp, force_refresh=True)
                     if not retry_results:
                         break
                     retry_score = max((_get_badge_score(p.get("badge", "")) for p in retry_results), default=0)
@@ -2592,4 +2603,3 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             pass
 
     return result
-
