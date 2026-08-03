@@ -62,6 +62,28 @@ def _parse_product_id_from_url(url: str) -> str | None:
     return m.group(2) if m else None
 
 
+def _pick_category_from_crumbs(crumbs: list[dict]) -> dict | None:
+    """从面包屑列表里挑出真正的 Ozon 类目 crumb（v0.19.1）。
+
+    规则：只认链接含 `/category/` 且能提取到数字 ID 的 crumb，取最具体（最后一个）。
+    品牌页链接含 `/brand/`（crumbType 同为 CRUMB_TYPE_FULL_LINK，会误判——甩脂机
+    取到品牌 Luxhommè 实锤），必须按链接形态过滤。
+    无 `/category/` 链接时兼容旧逻辑（crumbType=CRUMB_TYPE_FULL_*）。
+    """
+    valid = [
+        c for c in crumbs
+        if "/category/" in str(c.get("link", "")) and c.get("category_id")
+    ]
+    if not valid:
+        valid = [
+            c for c in crumbs
+            if str(c.get("crumbType", "")).startswith("CRUMB_TYPE_FULL")
+            and c.get("category_id")
+            and "/brand/" not in str(c.get("link", ""))  # 品牌页一律排除（v0.19.1）
+        ]
+    return valid[-1] if valid else None
+
+
 def _extract_from_json_ld(html: str) -> dict[str, Any]:
     """Extract product data from JSON-LD structured data in page source."""
     result: dict[str, Any] = {
@@ -429,16 +451,34 @@ def scrape_ozon_product_via_cdp(
         if js_breadcrumb:
             result["category"] = js_breadcrumb
 
-        # Extract product data from Ozon internal API (via CDP fetch)
+        # ✅ v0.19.1: 提取产品数据（entrypoint API via CDP fetch）
+        # 1) 纯数字 ID 优先（插件实证稳定返回 breadCrumbs；slug 版偶发 widget 缺失）
+        # 2) breadCrumbs 缺失自动回退 slug 版本
+        # 3) 同时解析评分/评论/卖家/提问/跟卖（P1 信息补全）
         slug_for_api = slug.replace(" ", "-")
-        api_url = f"/api/entrypoint-api.bx/page/json/v2?url=%2Fproduct%2F{slug_for_api}-{product_id}%2F"
+        api_url_num = f"/api/entrypoint-api.bx/page/json/v2?url=%2Fproduct%2F{product_id}%2F"
+        api_url_slug = f"/api/entrypoint-api.bx/page/json/v2?url=%2Fproduct%2F{slug_for_api}-{product_id}%2F"
         js_api = f'''
         (async () => {{
             try {{
-                const resp = await fetch("{api_url}");
-                const data = await resp.json();
+                const urls = ["{api_url_num}", "{api_url_slug}"];
+                let data = null;
+                for (const u of urls) {{
+                    try {{
+                        const resp = await fetch(u);
+                        const d = await resp.json();
+                        const ws = d.widgetStates || d.widgetState || {{}};
+                        if (Object.keys(ws).some(k => k.includes("breadCrumbs"))) {{
+                            data = d; break;
+                        }}
+                        data = data || d;
+                    }} catch(e) {{}}
+                }}
+                if (!data) return JSON.stringify({{error: "entrypoint fetch failed"}});
                 const widgets = data.widgetStates || data.widgetState || {{}};
-                const out = {{chars: [], breadcrumbs: [], hashtags: []}};
+                const out = {{chars: [], breadcrumbs: [], hashtags: [],
+                             rating: "", reviewCount: 0, seller: "", questionCount: 0,
+                             sellerCount: 0, minPrice: ""}};
                 for (const [k, v] of Object.entries(widgets)) {{
                     if (k.includes("webShortCharacteristics")) {{
                         try {{
@@ -475,6 +515,44 @@ def scrape_ozon_product_via_cdp(
                             }} catch {{}}
                         }}
                     }}
+                    // ✅ v0.19.1 P1: 评分/评论数
+                    if (k.includes("webReviewProductScore")) {{
+                        try {{
+                            const parsed = JSON.parse(v);
+                            out.rating = parsed.score || parsed.totalScore || "";
+                            out.reviewCount = parsed.reviewsCount || 0;
+                        }} catch {{}}
+                    }}
+                    // ✅ v0.19.1 P1: 当前卖家（名称/评分）
+                    if (k.includes("webCurrentSeller")) {{
+                        try {{
+                            const parsed = JSON.parse(v);
+                            const s = parsed.seller || parsed;
+                            out.seller = (s.title || s.name || s.brandName || "") + (s.score ? ("|" + s.score) : "");
+                        }} catch {{}}
+                    }}
+                    // ✅ v0.19.1 P1: 提问数
+                    if (k.includes("webQuestionCount")) {{
+                        try {{
+                            const parsed = JSON.parse(v);
+                            out.questionCount = parsed.count || 0;
+                        }} catch {{}}
+                    }}
+                    // ✅ v0.19.1 P1: 跟卖列表（卖家数/最低价）
+                    if (k.includes("webSellerList")) {{
+                        try {{
+                            const parsed = JSON.parse(v);
+                            const sellers = parsed.sellers || [];
+                            out.sellerCount = sellers.length;
+                            let min = 0;
+                            for (const s of sellers) {{
+                                const p = (s.price && s.price.cardPrice && s.price.cardPrice.price)
+                                    || (s.price && s.price.price) || 0;
+                                if (p && (!min || p < min)) min = p;
+                            }}
+                            out.minPrice = min || "";
+                        }} catch {{}}
+                    }}
                 }}
                 return JSON.stringify(out);
             }} catch(e) {{ return JSON.stringify({{error: e.message}}); }}
@@ -491,6 +569,19 @@ def scrape_ozon_product_via_cdp(
                         if c.get("title") and c.get("value"):
                             attrs[c["title"]] = c["value"]
                     result["attributes"] = attrs
+                # ✅ v0.19.1 P1: 评分/评论/卖家/提问/跟卖（可选字段，契约兼容）
+                if api_data.get("rating"):
+                    result["ozon_rating"] = api_data.get("rating")
+                if api_data.get("reviewCount"):
+                    result["ozon_reviews"] = api_data.get("reviewCount")
+                if api_data.get("seller"):
+                    result["ozon_seller"] = api_data.get("seller")
+                if api_data.get("questionCount"):
+                    result["ozon_questions"] = api_data.get("questionCount")
+                if api_data.get("sellerCount"):
+                    result["competitor_sellers"] = api_data.get("sellerCount")
+                if api_data.get("minPrice"):
+                    result["competitor_min_price"] = api_data.get("minPrice")
                 # Breadcrumbs with links (for category ID extraction)
                 if api_data.get("breadcrumbs"):
                     crumbs = []
@@ -513,15 +604,9 @@ def scrape_ozon_product_via_cdp(
                         result["category"] = " > ".join(c["text"] for c in crumbs if c["text"])
                         category_path = result["category"]
 
-                        # 从后往前找第一个 crumbType = CRUMB_TYPE_FULL_LINK（非品牌）的面包屑
-                        # 降级：如果没有 crumbType，用老方法（/category/ 出现次数=1）
-                        valid = [
-                            c for c in crumbs
-                            if c.get("crumbType", "").startswith("CRUMB_TYPE_FULL")
-                            or (not c.get("crumbType") and c.get("link", "").count("/category/") == 1)
-                        ]
-                        if valid:
-                            best = valid[-1]  # 最具体的有效类目
+                        # ✅ v0.19.1: 只认 /category/ 链接的类目 crumb（品牌页 /brand/ 排除）
+                        best = _pick_category_from_crumbs(crumbs)
+                        if best:
                             result["description_category_id"] = best.get("category_id", "")  # 数字 ID
                             result["type_id"] = best.get("category_id", "")  # Worker 负责查真正 type_id
                             result["category_path"] = category_path  # 文本降级

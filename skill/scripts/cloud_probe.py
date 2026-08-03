@@ -2579,6 +2579,17 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     comp_price = result.get("competitor_price", "")
                     if comp_price:
                         draft["competitor_price"] = comp_price
+                    # ✅ v0.19.1 P1: 竞品信息透传（可选字段，GraphInput envelope 为 Dict 无 extra 限制，
+                    # Worker 忽略未知字段，契约兼容）。供后续蓝海评分/展示使用。
+                    for _info_key in (
+                        "competitor_sellers", "competitor_min_price",
+                        "ozon_rating", "ozon_reviews", "ozon_questions",
+                        "ozon_seller", "ozon_listing_date",
+                        "ozon_monthly_sales", "ozon_gmv",
+                    ):
+                        _info_val = result.get(_info_key)
+                        if _info_val not in (None, "", [], {}):
+                            extensions[_info_key] = _info_val
                     # 凭证（顶层）
                     envelope["ozon_client_id"] = client_id
                     envelope["ozon_api_key"] = api_key
