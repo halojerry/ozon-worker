@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.19.2] - 2026-08-03
+
+### Fixed
+
+- **task_statistics v1 路由恒 0（Worker）**：`/api/v1/task_statistics` 声明了
+  `TaskStatisticsResponse` 响应模型却把 `{status, statistics}` 整个返回，字段对不上被
+  Pydantic 填默认值 → 统计接口全 0（旧路径 `/task_statistics` 正常、v0.19.0 的字段
+  映射修复被这个解包 bug 挡在路由层）。v1 改为解包 `statistics` 后返回。
+- **COS 上传无限挂死（CI）**：coscli 无请求超时，跨境上传 TCP 黑洞会无限阻塞
+  （v0.19.1 的 build-skill 在 Upload 步骤挂 8 小时被手动取消）。build-skill 与
+  skill-distribute 上传均加单次 600s GNU timeout，3 次重试有界。
+
 ## [0.19.1] - 2026-08-03
 
 > 真实测试暴露的跟卖断链修复（P0+P1）：竞品类目缺失/错取导致跟卖失败；

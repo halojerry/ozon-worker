@@ -1459,8 +1459,14 @@ async def v1_cancel_task(task_id: str):
 
 @v1.get("/task_statistics", response_model=TaskStatisticsResponse, tags=["task"])
 async def v1_task_statistics(request: Request):
-    """获取任务统计信息。"""
-    return await http_task_statistics(request)
+    """获取任务统计信息。
+
+    ⚠️ v0.19.2: 旧路径返回 {"status","statistics"} 包裹结构（无 response_model），
+    v1 声明了 TaskStatisticsResponse 响应模型，必须解包 statistics 再返回，
+    否则字段对不上被 Pydantic 填默认值 → 统计恒 0。
+    """
+    resp = await http_task_statistics(request)
+    return resp.get("statistics", {})
 
 
 # 注册 v1 路由（/api/v1/* 端点）
@@ -1532,4 +1538,3 @@ if __name__ == "__main__":
                 ctx=agent_ctx,
         ):
             print(chunk)
-
