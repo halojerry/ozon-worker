@@ -107,6 +107,21 @@ def check_update(manifest_url: str = "") -> dict[str, Any] | None:
     return data
 
 
+def auto_update_if_available(manifest_url: str = "") -> dict[str, Any] | None:
+    """自动更新入口（v0.18.0）：有新版本且非源码目录时自动应用，失败自动回滚。
+
+    - 源码开发目录（存在 compile.py）不自动更新，返回 None
+    - 无更新/网络失败返回 None（静默）
+    - 有更新返回 apply_update 的结果 dict（{"ok": bool, ...}）
+    """
+    if _is_source_layout():
+        return None
+    info, ok = _fetch_manifest(manifest_url)
+    if not ok or not info:
+        return None
+    return apply_update(info, auto_confirm=True)
+
+
 def _version_key(version: str) -> tuple[int, ...]:
     """'0.12.0' → (0, 12, 0)，用于版本比较。"""
     try:

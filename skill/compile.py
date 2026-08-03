@@ -45,6 +45,7 @@ COPY_FILES = [
     # 报 No native binary for cloud_probe on win32）。且它是信封组装核心、
     # 改动频繁，明文跨平台一致 + 可快速迭代（service.py 同款先例）。
     "scripts/cloud_probe.py",
+    "scripts/bootstrap_update.py",   # 旧包一键升级引导（无 updater 的 v0.12 前版本）
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）
