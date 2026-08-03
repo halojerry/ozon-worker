@@ -71,6 +71,24 @@ skill/data/browser/profiles/
 skill/data/browser/sessions/
 skill/data/batch_results/
 skill/data/ozon/tasks/
+
+# ─── 运行时数据（绝不提交，含已跟踪历史的补充覆盖）───
+skill/data/batch_results/
+skill/data/browser/
+skill/data/cache/
+skill/data/discovery/
+skill/data/ozon/
+skill/data/config/auth_cache.json
+skill/data/1688_direct_urls.txt
+skill/data/ozon_follow_urls.txt
+skill/data/*.txt
+
+# ─── 构建产物与 Cython 中间产物 ───
+skill/scripts/**/*.c
+skill/scripts/**/*.so
+*.tar.gz
+*.zip
+_update_backup/
 # v0.9.0: 属性缓存 JSON 不提交 git（太大，全量 ~70GB），服务器上 warm_cache 脚本实时生成
 # v0.11.5: top-200 子集（~2MB）提交 git，Docker 构建时自动包含
 # worker/assets/attribute_schemas_zh.json

@@ -12,6 +12,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ═══ Repo Hygiene: 仓库不得跟踪运行时数据/构建产物 ═══
+  repo-hygiene:
+    name: Repo Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No tracked runtime/build artifacts
+        run: |
+          TRACKED=$(git ls-files | grep -E 'skill/data/(batch_results|browser|cache|ozon|discovery)|\.c$|\.tar\.gz$' || true)
+          if [ -n "$TRACKED" ]; then
+            echo "❌ 仓库不应跟踪以下运行时/构建产物:"
+            echo "$TRACKED"
+            exit 1
+          fi
+          echo "✅ 无运行时/构建产物被跟踪"
+      - name: Fresh checkout must be clean
+        run: |
+          DIRTY=$(git status --porcelain)
+          if [ -n "$DIRTY" ]; then
+            echo "❌ fresh checkout 有未提交变化:"
+            echo "$DIRTY"
+            exit 1
+          fi
+          echo "✅ fresh checkout 干净"
+
   # ═══ Syntax: 全量 .py（阻断）═══
   syntax:
     name: Syntax
