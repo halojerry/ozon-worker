@@ -11,6 +11,7 @@ from runtime.context import Context
 from graphs.state_image_gen import Scene2Input, Scene2Output
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
+from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,8 @@ def scene_2_gen_node(state: Scene2Input, config: RunnableConfig, runtime: Runtim
         return Scene2Output(scene_2_image=None)
     
     scene_context_2 = state.scene_context_2 or '户外休闲场景'  # ✅ 优先使用LLM生成的场景，兜底使用默认值
-    prompt = f"生成产品电商场景图。要求：展示产品在{scene_context_2}场景中的使用效果，温馨氛围，展示产品在特殊场景中的独特应用，吸引消费者兴趣，适合俄罗斯电商平台展示，适合俄罗斯消费者审美。"
+    # ⚠️ v0.15: 提示词外置 config/image_prompts.json（热加载，改文件即生效，无需重建镜像）
+    prompt = get_image_prompt("scene_2", scene_context=scene_context_2)
     
     # 构建参考图列表：使用Phase1的图片作为参考（内联逻辑）
     ref_images: List[str] = []

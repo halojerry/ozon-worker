@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from graphs.state import GlobalState, VariantLoopState, VariantLoopOutput, VariantPrimaryLoopOutput
 
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
+from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
 
 
 class VariantPrimaryLoopInput(BaseModel):
@@ -82,9 +83,10 @@ def variant_primary_loop_node(
             ref_images = [sku_image_url]
 
             # ✅ 调用统一mxou API（正确参数: images/aspectRatio/replyType）
+            # ⚠️ v0.15: 提示词外置 config/image_prompts.json（热加载，改文件即生效，无需重建镜像）
             image_url = call_mxou_image_api(
                 token=state.token,
-                prompt="去除产品背景，生成纯白底图：要求：纯白背景（#FFFFFF），无文字水印，专业产品摄影风格。",
+                prompt=get_image_prompt("variant_white_bg"),
                 ref_images=ref_images,
                 aspect_ratio="3:4",
                 timeout=90,

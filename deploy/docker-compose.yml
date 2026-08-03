@@ -44,6 +44,8 @@ services:
       - LOG_FORMAT=${LOG_FORMAT:-json}
     volumes:
       - logs:/app/logs
+      # ⚠️ v0.15: config 目录 bind mount → 宿主机改配置（如 image_prompts.json / LLM cfg）无需重建镜像/重启容器，下一次调用即生效
+      - ../worker/config:/app/config:ro
     depends_on:
       postgres:
         condition: service_healthy

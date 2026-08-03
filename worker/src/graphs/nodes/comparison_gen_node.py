@@ -12,6 +12,7 @@ from graphs.state_image_gen import ComparisonInput, ComparisonOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.mxou_api import clean_title_for_image_prompt
+from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,8 @@ def comparison_gen_node(state: ComparisonInput, config: RunnableConfig, runtime:
         return ComparisonOutput(comparison_image=None)
     
     title = clean_title_for_image_prompt(draft.get("title", ""))
-    prompt = f"生成产品对比电商展示图。突出产品优势，吸引消费者购买。适合俄罗斯电商平台展示，符合俄罗斯人民审美。"
+    # ⚠️ v0.15: 提示词外置 config/image_prompts.json（热加载，改文件即生效，无需重建镜像）
+    prompt = get_image_prompt("comparison")
     
     # 构建参考图列表：使用Phase1的图片作为参考（内联逻辑）
     ref_images: List[str] = []
