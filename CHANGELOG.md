@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.19.0] - 2026-08-03
+
+> 真实上架 E2E 测试（2026-08-03，7 链接）暴露的问题修复：1688 直接上架 4/4 成功；
+> Ozon 跟卖 0/3 全部被图搜护栏误拒（根因：matchBadgeFull 徽标静态文本为空 + 只取前 5 张卡
+> + 五金词映射缺失）。本版一并修复生图频繁降级 banana 与上架统计不可用。
+
+### Fixed
+
+- **图搜护栏误拒（Skill）**：全匹配徽标 `matchBadgeFull` 静态 `textContent` 为空（hover 才显示属性级原因）→ 改为按 class 识别为「全部符合」（最高分 100/1.0，直接放行，不再被标题相关性否决）；`page_size` 5→20 + 结果页多段滚动（实测 60 张卡此前只取前 5 张，1/3、2/3、FULL 卡全被忽略）；无徽标（未登录/未渲染）时按标题相关性降级（conf≥0.4 放行，用户确认可接受牺牲准确度）；补 RU→ZH 词映射（棘轮/扳手/活动头/两用/梅花/螺丝刀/钳/锤/电钻 + 甩脂机/抖抖机/减脂/音乐）；CDP 图搜空结果原地重试 1 次再降级 AK
+- **生图频繁降级 banana（Worker）**：主模型 `gpt-image-2` 超时 90s→180s（9 个生图节点统一），主模型重试 4 次→3 次；主模型真失败才降级 `nano-banana-fast`；每次生图记录 model + 耗时日志（可审计降级率）
+- **上架统计接口恒返回 0（Worker）**：`get_task_statistics` 字段名（`total_tasks` 等）与 `TaskStatisticsResponse`（`total` 等）不匹配，Pydantic 全填默认值 → 新增 `statistics_payload` 统一映射，`avg_duration_seconds`（上架耗时）恢复可查
+- **task_status progress 陈旧（Worker）**：completed/failed 终态优先返回 100%，不再显示内存残留的中间阶段（如 0%/social_proof_gen）
+
+### Changed
+
+- Ozon 商品页 CDP 抓取补多段滚动（触发图片画廊/描述/评价懒加载）
+
 ## [0.18.0] - 2026-08-03
 
 ### Changed
