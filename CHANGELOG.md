@@ -46,6 +46,8 @@
 - **C4 NODE_ORDER 同步**：progress_logger 节点顺序字典同步真实图节点集
 - **E4 裸 CDP 统一封装**：4 处手写 websocket/CDP → `cdp_client`（`scrape_ozon_product_via_cdp` 全量重构 / `cli.py check` 1688+Ozon 检查 / `batch_test.py` 前置检查）；`CdpTab.close(close_remote=)` + `CdpConnection.release()` 新增（复用用户已有 tab 不误关远程）
 - **E5 follow_sell_cloud 连接共享**：Step2（抓 Ozon）+ Step3a（1688 图搜）共享一个 `CdpConnection`（省 2-3 个冗余 WS）；envelope 链路（probe_1688_page 会话引导）保持独立更安全
+- **图搜弹窗拦截修复（真实冒烟发现）**：1688 图搜点按钮后 `window.open` 弹窗被 Chrome 拦截 → 注入覆盖为当前 tab 延迟导航 + 结果页未打开自动重试 1 次
+- **图搜多重新搜机制**：badge 评分 ≤ 1 时自动重新图搜（`force_refresh` 绕过缓存）最多 2 次取最佳——1688 算法偶发匹配差，实测 badge 0→2（符合 2/3 条件）
 
 ### 验证
 

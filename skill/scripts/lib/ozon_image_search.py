@@ -196,6 +196,7 @@ def search_by_image_cdp(
     wait_seconds: int = 10,
     try_crop_regions: bool = True,
     conn=None,
+    force_refresh: bool = False,
 ) -> list[dict[str, Any]]:
     """通过 CDP 操作1688以图搜款网页，返回匹配商品列表。
 
@@ -208,6 +209,7 @@ def search_by_image_cdp(
         wait_seconds: 等待搜索结果秒数
         try_crop_regions: 是否尝试 crop region 选择
         conn: ⚠️ v0.14 E6: 可复用的 CdpConnection（批量场景传同一连接，避免每产品新建）
+        force_refresh: ⚠️ v0.14 E5: True 时绕过缓存强制重新图搜（匹配质量低重试用）
 
     Returns:
         [{"id": "offer_id", "title": "...", "price": float, "badge": "..."}, ...]
@@ -217,9 +219,10 @@ def search_by_image_cdp(
 
     _require_auth()
 
-    cached = cache_get("search", image_url)
-    if cached is not None:
-        return cached
+    if not force_refresh:
+        cached = cache_get("search", image_url)
+        if cached is not None:
+            return cached
 
     # ⚠️ v0.14 E6: 复用外部传入的连接（不新建/不关闭），未传才新建并自持
     own_conn = conn is None
@@ -249,50 +252,67 @@ def search_by_image_cdp(
         )
         time.sleep(3)  # 等预览加载
 
-        # 记录搜索前已有的标签页 ID（避免匹配旧的结果页）
-        existing_tab_ids = set()
-        try:
-            for t in requests.get(f"{cdp_url}/json", timeout=5).json():
-                existing_tab_ids.add(t.get("id", ""))
-        except Exception:
-            pass
+        # ⚠️ v0.14 E5 修复: 1688 图搜点按钮后 window.open 弹新窗口，被 Chrome 弹窗拦截
+        # → 注入覆盖：window.open 改为当前 tab 延迟导航（结果页就在本 tab，无需新窗口）
+        # 返回 mock 窗口对象防止 1688 脚本因 open 返回值异常中断
+        _POPUP_BYPASS_JS = (
+            "window.open = function(url) {"
+            "  setTimeout(function(){ window.location.href = url; }, 200);"
+            "  return {closed: false, focus: function(){}, blur: function(){}, postMessage: function(){}};"
+            "}; true"
+        )
+        search_tab.evaluate(_POPUP_BYPASS_JS, timeout=10)
 
         # 3. 点击图搜按钮
         search_tab.evaluate(
             'document.querySelector(".input-button").click()',
             timeout=10,
         )
-        time.sleep(2)
 
-        # 4. 关闭搜索标签页，等结果标签页出现（只匹配新标签页）
-        search_tab.close()
-        search_tab = None
-
-        result_ws_url = None
-        result_tab_id = None
-        for _ in range(20):
-            time.sleep(1)
-            try:
-                tabs_resp = requests.get(f"{cdp_url}/json", timeout=5)
-                for t in reversed(tabs_resp.json()):
-                    url = t.get("url", "")
-                    tid = t.get("id", "")
-                    if "imageId" in url and "1688.com" in url and tid not in existing_tab_ids:
-                        result_ws_url = t.get("webSocketDebuggerUrl", "")
-                        result_tab_id = tid
-                        break
-            except Exception:
-                continue
-            if result_ws_url:
+        # 4. 轮询本 tab URL 是否导航到结果页（URL 含 imageId）——不再依赖弹窗新窗口
+        # 若 200ms 延迟导航未生效（页面未跳转）→ 整体重试一次（重新打开图搜页再搜）
+        result_tab = None
+        for _attempt in range(2):
+            for _ in range(20):
+                time.sleep(1)
+                try:
+                    cur_url = search_tab.url  # evaluate location.href
+                except Exception:
+                    cur_url = ""
+                if "imageId" in cur_url and "1688.com" in cur_url:
+                    result_tab = search_tab
+                    break
+            if result_tab:
                 break
+            # 重试：重新导航图搜页 + 重新注入 + 重新输入 + 重新点击
+            logger.warning(f"图搜结果页未打开（第{_attempt+1}次），重新打开图搜页重试...")
+            try:
+                search_tab.navigate(IMAGE_SEARCH_URL, timeout=20)
+                time.sleep(2)
+                search_tab.evaluate(_POPUP_BYPASS_JS, timeout=10)
+                search_tab.evaluate(
+                    'document.querySelector("#alisearch-input").focus();'
+                    'document.querySelector("#alisearch-input").select();'
+                    'document.querySelector("#alisearch-input").value=""',
+                    timeout=10,
+                )
+                time.sleep(0.3)
+                search_tab.evaluate(
+                    f'document.execCommand("insertText", false, {safe_url})',
+                    timeout=10,
+                )
+                time.sleep(3)
+                search_tab.evaluate(
+                    'document.querySelector(".input-button").click()',
+                    timeout=10,
+                )
+            except Exception as _re_e:
+                logger.debug(f"图搜重试异常: {_re_e}")
 
-        if not result_ws_url:
-            logger.warning("No result tab found with imageId")
+        if result_tab is None:
+            logger.warning("图搜结果页未打开（弹窗拦截或页面未导航），降级 API 图搜")
             return []
 
-        # 5. 连接结果标签页
-        from scripts.lib.cdp_client import CdpTab
-        result_tab = CdpTab(cdp_url, result_tab_id, result_ws_url)
         time.sleep(wait_seconds)
 
         # 6. 滚动触发懒加载
