@@ -1523,9 +1523,12 @@ def prepare_ozon_upload_node(
                 "price": str(int(price)) if price else "0",    # 价格（字符串）
                 "old_price": str(int(old_price)) if old_price else "0",  # 促销价格（字符串）
                 
-                # 类目信息
-                "description_category_id": int(description_category_id) if description_category_id else 0,
-                "type_id": int(type_id) if type_id else 0,
+                # 类目信息（✅ v0.20 A: 类目为空时省略字段——跟卖 UPDATE 由 Ozon 保留
+                # 原卡片类目；禁止传 0（会报"类型不属于该类目"整包拒绝）。CREATE 路径
+                # 由 follow 节点保证类目已解析，否则不会走到这里）
+                **({"description_category_id": int(description_category_id),
+                    "type_id": int(type_id)}
+                   if description_category_id and type_id else {}),
                 
                 # 属性（包含变体绑定属性9048）
                 "attributes": ozon_attributes,

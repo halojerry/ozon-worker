@@ -11,7 +11,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.lib.ozon_scraper import _pick_category_from_crumbs  # noqa: E402
+from scripts.lib.ozon_scraper import (  # noqa: E402
+    _category_path_from_crumbs,
+    _pick_category_from_crumbs,
+)
 
 
 def _crumb(text: str, link: str, crumb_type: str = "CRUMB_TYPE_FULL_LINK") -> dict:
@@ -73,6 +76,28 @@ def test_empty_returns_none():
     assert _pick_category_from_crumbs([
         {"text": "X", "link": "/brand/x-1/", "category_id": "1", "crumbType": "CRUMB_TYPE_FULL_LINK"},
     ]) is None  # 只有品牌页 → None（不会把品牌当类目）
+
+
+def test_category_path_excludes_brand():
+    """v0.20 A：category_path 只含类目 crumb，品牌段（Luxhommè）不得进入。"""
+    crumbs = [
+        _crumb("Спорт и отдых", "/category/sport-9700/"),
+        _crumb("Тренажеры", "/category/trenazhery-101028000/"),
+        _crumb("Мини-тренажеры", "/category/mini-trenazhery-101029485/"),
+        _crumb("Luxhommè", "/brand/luxhomme-100081165/"),
+    ]
+    path = _category_path_from_crumbs(crumbs)
+    assert "Luxhommè" not in path
+    assert path.endswith("Мини-тренажеры")
+
+
+def test_category_path_fallback_full_text():
+    """无 /category/ 链接时退回全部文本（旧数据兼容）。"""
+    crumbs = [
+        {"text": "A", "link": "", "category_id": "", "crumbType": ""},
+        {"text": "B", "link": "", "category_id": "", "crumbType": ""},
+    ]
+    assert _category_path_from_crumbs(crumbs) == "A > B"
 
 
 def _main() -> int:
