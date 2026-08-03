@@ -201,8 +201,8 @@ def call_mxou_image_api(
     prompt: str,
     ref_images: Optional[List[str]] = None,
     aspect_ratio: str = "3:4",
-    timeout: int = 150,
-    max_retries: int = 3,
+    timeout: int = 180,
+    max_retries: int = 2,
     model: str = PRIMARY_IMAGE_MODEL
 ) -> Optional[str]:
     """
@@ -214,13 +214,15 @@ def call_mxou_image_api(
         prompt: 生图提示词
         ref_images: 参考图URL列表（可选，最多2张）
         aspect_ratio: 图片比例，默认"3:4"（对应1090x1443）
-        timeout: 单次请求超时时间（秒），默认90
-        max_retries: 最大重试次数，默认3
+        timeout: 单次请求/轮询最大等待（秒），默认180（v0.19：主模型异步生图常超90s，
+            90s 曾导致频繁误降级 nano-banana-fast）
+        max_retries: 最大重试次数，默认2（共 3 次尝试；v0.19 由 3 收紧，避免超时级联重试）
         model: 生图模型，默认gpt-image-2
 
     返回:
         生成的图片URL字符串；失败返回None
     """
+    t0 = time.time()
     # Step 1: 用主模型尝试
     result_url: Optional[str] = _call_image_with_model(
         token=token,
@@ -233,13 +235,14 @@ def call_mxou_image_api(
     )
 
     if result_url:
+        logger.info("生图成功 model=%s 耗时=%.1fs", model, time.time() - t0)
         return result_url
 
     # Step 2: 主模型失败，降级到 fallback 模型
     if model != FALLBACK_IMAGE_MODEL:
         logger.warning(
-            "主模型 %s 生图失败，降级到 %s 重试...",
-            model, FALLBACK_IMAGE_MODEL
+            "主模型 %s 生图失败（已重试，总耗时=%.1fs），降级到 %s 重试...",
+            model, time.time() - t0, FALLBACK_IMAGE_MODEL
         )
         fallback_url: Optional[str] = _call_image_with_model(
             token=token,
@@ -251,10 +254,12 @@ def call_mxou_image_api(
             model=FALLBACK_IMAGE_MODEL
         )
         if fallback_url:
-            logger.info("降级模型 %s 生图成功", FALLBACK_IMAGE_MODEL)
+            logger.warning("降级模型 %s 生图成功（总耗时=%.1fs）",
+                           FALLBACK_IMAGE_MODEL, time.time() - t0)
             return fallback_url
 
-        logger.error("主模型 %s 和降级模型 %s 均失败", model, FALLBACK_IMAGE_MODEL)
+        logger.error("主模型 %s 和降级模型 %s 均失败（总耗时=%.1fs）",
+                     model, FALLBACK_IMAGE_MODEL, time.time() - t0)
     else:
         logger.error("模型 %s 生图失败（无降级）", model)
 

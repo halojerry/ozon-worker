@@ -1325,20 +1325,22 @@ async def http_task_status(task_id: str):
         if task_status is None:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
-        # 添加进度信息
-        progress = get_progress(task_id)
-        if progress:
-            task_status["progress"] = progress
-        elif task_status.get("status") == "completed":
+        # ✅ v0.19: 终态优先——completed/failed 时 progress 直接归位，
+        # 不再显示内存里残留的中间阶段（如 0%/social_proof_gen）
+        if task_status.get("status") == "completed":
             task_status["progress"] = {
                 "stage": "completed", "percent": 100,
                 "stages_completed": STAGE_ORDER, "stages_remaining": []
             }
         elif task_status.get("status") == "failed":
             task_status["progress"] = {
-                "stage": "failed", "percent": 0,
+                "stage": "failed", "percent": 100,
                 "message": task_status.get("error_message", "")
             }
+        else:
+            progress = get_progress(task_id)
+            if progress:
+                task_status["progress"] = progress
 
         return task_status
 
@@ -1530,5 +1532,4 @@ if __name__ == "__main__":
                 ctx=agent_ctx,
         ):
             print(chunk)
-
 

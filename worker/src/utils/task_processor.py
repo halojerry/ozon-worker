@@ -11,6 +11,7 @@ from sqlalchemy import text
 
 from storage.database.supabase_client import get_supabase_client
 from storage.database.db import get_engine
+from utils.task_statistics import statistics_payload
 from graphs.graph import main_graph  # 导入LangGraph主图
 
 logger = get_logger(__name__)
@@ -567,22 +568,16 @@ class SupabaseTaskProcessor:
             if not stats_row:
                 return {}
             
-            total_tasks = stats_row[0]
-            completed_tasks = stats_row[1]
-            success_rate = (completed_tasks / total_tasks * 100) if total_tasks > 0 else 0
-            avg_duration = stats_row[5] if stats_row[5] else 0
-            
-            statistics = {
-                "total_tasks": total_tasks,
-                "completed_tasks": completed_tasks,
-                "failed_tasks": stats_row[2],
-                "running_tasks": stats_row[3],
-                "pending_tasks": stats_row[4],
-                "success_rate": round(success_rate, 2),
-                "avg_duration_seconds": round(float(avg_duration), 2)
-            }
-            
-            return statistics
+            # ✅ v0.19: 字段名对齐 TaskStatisticsResponse（此前 total_tasks 等
+            # 与模型 total/completed 对不上 → 统计接口恒返回全 0）
+            return statistics_payload(
+                total=stats_row[0],
+                completed=stats_row[1],
+                failed=stats_row[2],
+                running=stats_row[3],
+                pending=stats_row[4],
+                avg_duration_seconds=stats_row[5],
+            )
             
         except Exception as e:
             logger.error(f"获取任务统计失败: {e}")
