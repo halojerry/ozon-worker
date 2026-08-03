@@ -362,6 +362,10 @@ def ensure_chrome_cdp(
             "--no-pings",
             "--disable-blink-features=AutomationControlled",
             "--disable-infobars",
+            # ⚠️ v0.14 E5: 禁用弹窗拦截（1688 图搜/登录跳转的 window.open 弹窗）
+            # 本 Chrome 是专用抓取实例（独立 profile + debug 端口），不影响用户日常 Chrome。
+            # 与 image_search 的 window.open 覆盖（JS 层当前 tab 导航）双保险，无需手动设置站点放行。
+            "--disable-popup-blocking",
         ]
 
         # 使用默认 profile（保留登录态）
