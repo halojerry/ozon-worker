@@ -2,6 +2,15 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.16.0 — 属性填满 + 中文零容忍 + 海关编码跳过）
+
+> 2026-08-03。随 v0.15.0（生图提示词外置）一并部署。
+
+- **属性填满**：必填自由文本无默认值 → 跳过不写空串（防 `error_attribute_values_empty`）；可选字典多值属性按产品标题词匹配（ZH_HANS 字典值唯一命中）+ Ozon `/values/search`（RU）兜底，匹配不到仍跳过（不盲补首值，防「属性值不正确」）。
+- **中文零容忍**（标准俄语）：`_russian_required_attrs`（4191/4180/9048/4384/4389/23171）翻译结果必须含西里尔且无中文否则跳过；9024(SKU) 不再豁免中文检查；`_generate_rich_description_fallback` 中文属性名/值不拼 HTML。
+- **海关编码跳过**：`worker/src/utils/attribute_utils.py` `is_customs_attr(attr_id, attr_name)`（ID=22604 + 名称关键词 RU/ZH/EN：тн вэд/таможен/海关/hs code）。assemble 三处 + prepare `_skip_attrs` + retry `SKIP_ATTR_IDS` 均跳过——Ozon 平台/税费系统自动关联，手动乱填会被拒。
+- 单测：`PYTHONPATH=src python3 tests/test_attribute_fill_v016.py`（10 断言，无需 PG/GPU）。
+
 ## 最近更新（v0.15.0 — 生图提示词外置配置 + 热加载）
 
 > 2026-08-03。调生图提示词不再需要重新部署 Worker：改配置文件即生效。
@@ -209,6 +218,7 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | worker | `PYTHONPATH=src python3 tests/test_audit_a_fixes.py`（A 批审计修复回归：P1-4 阻断路由 + P0-2 跟卖属性，5 断言，无需 PG） |
 | worker | `PYTHONPATH=src python3 tests/integration_attribute_fill_v013.py`（assemble→prepare 全链路，mock 外部 API） |
 | worker | `PYTHONPATH=src python3 tests/test_image_prompts_config.py`（生图提示词配置热加载单测，12 断言，无需 PG/GPU） |
+| worker | `PYTHONPATH=src python3 tests/test_attribute_fill_v016.py`（v0.16 属性填满/中文零容忍/海关跳过单测，10 断言，无需 PG/GPU） |
 | worker | `bash scripts/local_run.sh -m flow -i '{...}'` 跑全流程 |
 | worker | `bash scripts/local_run.sh -m node -n <节点ID> -i '{...}'` 跑单节点 |
 | 本地Docker | `cd deploy && docker compose up -d --build`（启动 Worker + PG） |
