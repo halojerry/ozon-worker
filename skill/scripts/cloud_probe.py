@@ -2431,9 +2431,27 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         logger.info("🔍 以图搜款: %s", main_img[:80])
 
         # 3a-1. CDP 网页版以图搜款（更准确，用1688网页搜索引擎）
+        # ⚠️ v0.14 E5+: 匹配质量差（badge 全 0/无有效评分）时自动重新图搜最多 3 次取最佳
+        # （1688 图搜算法偶发匹配差，重搜可显著提高命中质量）
         try:
-            from scripts.lib.ozon_image_search import search_by_image_cdp
+            from scripts.lib.ozon_image_search import search_by_image_cdp, _get_badge_score
             cdp_results = search_by_image_cdp(image_url=main_img, page_size=5, wait_seconds=10, conn=shared_cdp)
+            # badge 质量评估：最高分 ≤ 1 视为低质量 → 重搜
+            if cdp_results:
+                top_score = max((_get_badge_score(p.get("badge", "")) for p in cdp_results), default=0)
+                _re_attempt = 0
+                while top_score <= 1 and _re_attempt < 2:
+                    _re_attempt += 1
+                    logger.info(f"🔄 图搜匹配质量低(badge={top_score})，重新图搜 {_re_attempt}/2...")
+                    retry_results = search_by_image_cdp(image_url=main_img, page_size=5, wait_seconds=10, conn=shared_cdp, force_refresh=True)
+                    if not retry_results:
+                        break
+                    retry_score = max((_get_badge_score(p.get("badge", "")) for p in retry_results), default=0)
+                    if retry_score > top_score:
+                        cdp_results = retry_results
+                        top_score = retry_score
+                if top_score > 1:
+                    logger.info(f"✅ 重搜后图搜质量提升: badge={top_score}")
             if cdp_results:
                 matches_raw = cdp_results
                 search_method = "cdp"
