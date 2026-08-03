@@ -301,18 +301,21 @@ def scrape_ozon_product_via_cdp(
     ozon_url: str,
     cdp_url: str = "http://127.0.0.1:9222",
     timeout: int = 30,
+    conn=None,
 ) -> dict[str, Any]:
     """Scrape Ozon product page via existing CDP Chrome (local testing).
 
     Requires a Chrome browser running with --remote-debugging-port=9222
     and already logged into Ozon.  Bypasses anti-bot via real browser session.
 
+    ⚠️ v0.14 E4/E5: 用 cdp_client 封装替代手写 websocket/CDP；
+    ``conn`` 可复用外部 CdpConnection（E5 follow_sell_cloud 共享连接）。
+
     Returns same dict as scrape_ozon_product().
     """
     from scripts.lib.config_store import _require_auth
     _require_auth()
     import requests as req_lib
-    import websocket
     import time
     import json as _json
 
@@ -332,34 +335,28 @@ def scrape_ozon_product_via_cdp(
         "error": None,
     }
 
-    def _cdp_eval(ws, expr: str, wait_ms: int = 0, await_promise: bool = False) -> str:
-        """Send a Runtime.evaluate and return the result value."""
+    def _tab_eval(tab, expr: str, wait_ms: int = 0, await_promise: bool = False) -> str:
+        """Runtime.evaluate via CdpTab（wait_ms 前置 sleep，await_promise 透传）"""
         import time as _t
         if wait_ms:
             _t.sleep(wait_ms / 1000.0)
-        if not hasattr(_cdp_eval, '_counter'):
-            _cdp_eval._counter = 0
-        _cdp_eval._counter += 1
-        cid = 10000 + _cdp_eval._counter
-        params = {"expression": expr, "returnByValue": True}
-        if await_promise:
-            params["awaitPromise"] = True
-        ws.send(_json.dumps({
-            "id": cid, "method": "Runtime.evaluate",
-            "params": params,
-        }))
-        deadline = _t.time() + 15
-        while _t.time() < deadline:
-            try:
-                ws.settimeout(3)
-                msg = _json.loads(ws.recv())
-                if msg.get("id") == cid:
-                    return msg.get("result", {}).get("result", {}).get("value", "")
-            except Exception:
-                continue
-        return ""
+        try:
+            val = tab.evaluate(expr, await_promise=await_promise, timeout=15)
+            return str(val) if val is not None else ""
+        except Exception:
+            return ""
 
+    # ⚠️ v0.14 E4: 用 CdpConnection/CdpTab 统一封装
+    # - 复用已有 ozon.ru tab（保留 cookie/session，避免 DataDome），find_tab 命中后 release 防止 conn.close() 误关
+    # - 新建 tab 由本函数显式关闭
+    from scripts.lib.cdp_client import CdpConnection
+    own_conn = conn is None
+    tab = None
+    tab_is_new = False
     try:
+        if own_conn:
+            conn = CdpConnection(cdp_url)
+
         # Check CDP availability
         version_resp = req_lib.get(f"{cdp_url}/json/version", timeout=5)
         if version_resp.status_code != 200:
@@ -367,272 +364,243 @@ def scrape_ozon_product_via_cdp(
             return result
 
         # ✅ v0.10: 优先复用已有 ozon.ru tab（保留 cookie/session，避免 DataDome）
-        tab = None
-        tab_id = ""
-        ws_url = ""
-        tab_is_new = False
+        # ⚠️ v0.14 E4: find_tab 失败降级 new_tab（与旧逻辑一致，find 异常不阻断）
         try:
-            tabs_resp = req_lib.get(f"{cdp_url}/json", timeout=5)
-            if tabs_resp.status_code == 200:
-                for t in tabs_resp.json():
-                    if t.get("type") == "page" and "ozon.ru" in t.get("url", ""):
-                        tab_id = t.get("id", "")
-                        ws_url = t.get("webSocketDebuggerUrl", "")
-                        if tab_id and ws_url:
-                            tab = t
-                            logger.info("复用已有 Ozon tab: %s", t.get("url", "")[:80])
-                            break
+            tab = conn.find_tab("ozon.ru")
+            if tab:
+                logger.info("复用已有 Ozon tab")
+                conn.release(tab)  # 用户已有 tab → 不随 conn.close() 被远程关闭
         except Exception:
-            pass
-
-        if not tab:
-            # 找不到已有 tab，创建新的
-            blank_resp = req_lib.put(f"{cdp_url}/json/new?", timeout=10)
-            if blank_resp.status_code != 200:
-                result["error"] = "无法创建 CDP 标签页"
-                return result
-            tab = blank_resp.json()
-            tab_id = tab.get('id', '')
-            ws_url = tab.get("webSocketDebuggerUrl", "")
+            tab = None
+        if tab is None:
+            tab = conn.new_tab()
             tab_is_new = True
 
-        if not ws_url:
-            result["error"] = "无法获取 CDP WebSocket URL"
-            return result
+        # Navigate and wait for load (event-driven)
+        tab.navigate(ozon_url, wait_until="load", timeout=timeout)
 
-        # Connect and navigate
-        ws = websocket.create_connection(ws_url, timeout=timeout)
-        try:
-            ws.send(_json.dumps({"id": 1, "method": "Page.enable", "params": {}}))
-            ws.send(_json.dumps({
-                "id": 2, "method": "Page.navigate",
-                "params": {"url": ozon_url}
-            }))
+        # Extract via JavaScript (most reliable)
+        js_title = _tab_eval(tab, "document.title") or ""
+        js_jsonld = _tab_eval(tab, """
+            (function() {
+                var s = document.querySelector('script[type=\"application/ld+json\"]');
+                return s ? s.textContent : '';
+            })()
+        """) or ""
 
-            # Drain navigation response and wait for page load (event-driven, 10s timeout)
-            _load_deadline = time.time() + 10
-            while time.time() < _load_deadline:
-                try:
-                    ws.settimeout(1)
-                    _msg = _json.loads(ws.recv())
-                    if _msg.get('method') in ('Page.loadEventFired', 'Page.frameStoppedLoading'):
-                        break
-                except Exception:
-                    continue
+        js_jsonld = js_jsonld.strip()
 
-            # Extract via JavaScript (most reliable)
-            js_title = _cdp_eval(ws, "document.title") or ""
-            js_jsonld = _cdp_eval(ws, """
-                (function() {
-                    var s = document.querySelector('script[type=\"application/ld+json\"]');
-                    return s ? s.textContent : '';
-                })()
-            """) or ""
+        # Parse JSON-LD
+        if js_jsonld:
+            try:
+                ld_data = _json.loads(js_jsonld)
+                if ld_data.get("@type") == "Product":
+                    result["title"] = ld_data.get("name", "")
+                    result["price"] = str(ld_data.get("offers", {}).get("price", ""))
+                    # Main image from JSON-LD
+                    img = ld_data.get("image", "")
+                    if isinstance(img, list):
+                        result["images"] = img
+                    elif img:
+                        result["images"] = [img]
+            except (_json.JSONDecodeError, TypeError):
+                pass
 
-            js_jsonld = js_jsonld.strip()
+        # Fallback title from page title
+        if not result["title"] and js_title:
+            # Strip Ozon suffix: "купить на OZON по низкой цене (1234567890)"
+            import re as _re
+            result["title"] = _re.sub(
+                r"\s*купить\s+на\s+OZON.*$", "", js_title, flags=_re.IGNORECASE
+            ).strip()
 
-            # Parse JSON-LD
-            if js_jsonld:
-                try:
-                    ld_data = _json.loads(js_jsonld)
-                    if ld_data.get("@type") == "Product":
-                        result["title"] = ld_data.get("name", "")
-                        result["price"] = str(ld_data.get("offers", {}).get("price", ""))
-                        # Main image from JSON-LD
-                        img = ld_data.get("image", "")
-                        if isinstance(img, list):
-                            result["images"] = img
-                        elif img:
-                            result["images"] = [img]
-                except (_json.JSONDecodeError, TypeError):
-                    pass
+        # Get breadcrumb (category)
+        js_breadcrumb = _tab_eval(tab, """
+            (function() {
+                var items = document.querySelectorAll('[data-widget=\"breadcrumb\"] a, nav[aria-label=\"breadcrumb\"] a, .breadcrumb a');
+                return Array.from(items).map(function(a) { return a.textContent.trim(); }).join(' > ');
+            })()
+        """) or ""
+        if js_breadcrumb:
+            result["category"] = js_breadcrumb
 
-            # Fallback title from page title
-            if not result["title"] and js_title:
-                # Strip Ozon suffix: "купить на OZON по низкой цене (1234567890)"
-                import re as _re
-                result["title"] = _re.sub(
-                    r"\s*купить\s+на\s+OZON.*$", "", js_title, flags=_re.IGNORECASE
-                ).strip()
-
-            # Get breadcrumb (category)
-            js_breadcrumb = _cdp_eval(ws, """
-                (function() {
-                    var items = document.querySelectorAll('[data-widget=\"breadcrumb\"] a, nav[aria-label=\"breadcrumb\"] a, .breadcrumb a');
-                    return Array.from(items).map(function(a) { return a.textContent.trim(); }).join(' > ');
-                })()
-            """) or ""
-            if js_breadcrumb:
-                result["category"] = js_breadcrumb
-
-            # Extract product data from Ozon internal API (via CDP fetch)
-            slug_for_api = slug.replace(" ", "-")
-            api_url = f"/api/entrypoint-api.bx/page/json/v2?url=%2Fproduct%2F{slug_for_api}-{product_id}%2F"
-            js_api = f'''
-            (async () => {{
-                try {{
-                    const resp = await fetch("{api_url}");
-                    const data = await resp.json();
-                    const widgets = data.widgetStates || data.widgetState || {{}};
-                    const out = {{chars: [], breadcrumbs: [], hashtags: []}};
-                    for (const [k, v] of Object.entries(widgets)) {{
-                        if (k.includes("webShortCharacteristics")) {{
+        # Extract product data from Ozon internal API (via CDP fetch)
+        slug_for_api = slug.replace(" ", "-")
+        api_url = f"/api/entrypoint-api.bx/page/json/v2?url=%2Fproduct%2F{slug_for_api}-{product_id}%2F"
+        js_api = f'''
+        (async () => {{
+            try {{
+                const resp = await fetch("{api_url}");
+                const data = await resp.json();
+                const widgets = data.widgetStates || data.widgetState || {{}};
+                const out = {{chars: [], breadcrumbs: [], hashtags: []}};
+                for (const [k, v] of Object.entries(widgets)) {{
+                    if (k.includes("webShortCharacteristics")) {{
+                        try {{
+                            const parsed = JSON.parse(v);
+                            out.chars = (parsed.characteristics || []).map(c => ({{
+                                title: c.title?.textRs?.[0]?.content || "",
+                                value: c.values?.[0]?.text || ""
+                            }}));
+                        }} catch {{}}
+                    }}
+                    if (k.includes("breadCrumbs")) {{
+                        try {{
+                            const parsed = JSON.parse(v);
+                            out.breadcrumbs = (parsed.breadcrumbs || []).map(b => ({{
+                                text: b.text || "",
+                                link: b.link || "",
+                                crumbType: b.crumbType || ""
+                            }}));
+                        }} catch {{}}
+                    }}
+                    if (k.includes("webHashtags")) {{
+                        try {{
+                            const parsed = JSON.parse(v);
+                            const tags = parsed.hashtags || parsed.tags || [];
+                            out.hashtags = tags.map(t => t.text || t.title || t).filter(Boolean);
+                        }} catch {{
+                            // 从DOM提取hashtags
                             try {{
-                                const parsed = JSON.parse(v);
-                                out.chars = (parsed.characteristics || []).map(c => ({{
-                                    title: c.title?.textRs?.[0]?.content || "",
-                                    value: c.values?.[0]?.text || ""
-                                }}));
+                                const el = document.querySelector("[data-widget=webHashtags]");
+                                if (el) {{
+                                    const titles = el.querySelectorAll("[title]");
+                                    out.hashtags = Array.from(titles).map(t => t.getAttribute("title")).filter(Boolean);
+                                }}
                             }} catch {{}}
-                        }}
-                        if (k.includes("breadCrumbs")) {{
-                            try {{
-                                const parsed = JSON.parse(v);
-                                out.breadcrumbs = (parsed.breadcrumbs || []).map(b => ({{
-                                    text: b.text || "",
-                                    link: b.link || "",
-                                    crumbType: b.crumbType || ""
-                                }}));
-                            }} catch {{}}
-                        }}
-                        if (k.includes("webHashtags")) {{
-                            try {{
-                                const parsed = JSON.parse(v);
-                                const tags = parsed.hashtags || parsed.tags || [];
-                                out.hashtags = tags.map(t => t.text || t.title || t).filter(Boolean);
-                            }} catch {{
-                                // 从DOM提取hashtags
-                                try {{
-                                    const el = document.querySelector("[data-widget=webHashtags]");
-                                    if (el) {{
-                                        const titles = el.querySelectorAll("[title]");
-                                        out.hashtags = Array.from(titles).map(t => t.getAttribute("title")).filter(Boolean);
-                                    }}
-                                }} catch {{}}
-                            }}
                         }}
                     }}
-                    return JSON.stringify(out);
-                }} catch(e) {{ return JSON.stringify({{error: e.message}}); }}
-            }})()
-            '''
-            api_result = _cdp_eval(ws, js_api, await_promise=True)
-            if api_result:
-                try:
-                    api_data = _json.loads(api_result)
-                    # Attributes
-                    if api_data.get("chars"):
-                        attrs = {}
-                        for c in api_data["chars"]:
-                            if c.get("title") and c.get("value"):
-                                attrs[c["title"]] = c["value"]
-                        result["attributes"] = attrs
-                    # Breadcrumbs with links (for category ID extraction)
-                    if api_data.get("breadcrumbs"):
-                        crumbs = []
-                        for b in api_data["breadcrumbs"]:
-                            link = b.get("link", "")
-                            text = b.get("text", "")
-                            crumb_type = b.get("crumbType", "")
-                            # 从链接提取category ID: /category/xxx-14500/ → 14500
-                            cat_id = ""
-                            if link:
-                                import re as _re
-                                m = _re.search(r"-(\d+)/?$", link)
-                                if m:
-                                    cat_id = m.group(1)
-                            crumbs.append({"text": text, "link": link, "category_id": cat_id, "crumbType": crumb_type})
-                        result["breadcrumbs"] = crumbs
-                        # ✅ v0.11: 使用 crumbType 区分真实类目 vs 品牌筛选页
-                        # CRUMB_TYPE_FULL_LINK = 真实类目, 其他(品牌/搜索等) = 跳过
-                        if crumbs:
-                            result["category"] = " > ".join(c["text"] for c in crumbs if c["text"])
-                            category_path = result["category"]
+                }}
+                return JSON.stringify(out);
+            }} catch(e) {{ return JSON.stringify({{error: e.message}}); }}
+        }})()
+        '''
+        api_result = _tab_eval(tab, js_api, await_promise=True)
+        if api_result:
+            try:
+                api_data = _json.loads(api_result)
+                # Attributes
+                if api_data.get("chars"):
+                    attrs = {}
+                    for c in api_data["chars"]:
+                        if c.get("title") and c.get("value"):
+                            attrs[c["title"]] = c["value"]
+                    result["attributes"] = attrs
+                # Breadcrumbs with links (for category ID extraction)
+                if api_data.get("breadcrumbs"):
+                    crumbs = []
+                    for b in api_data["breadcrumbs"]:
+                        link = b.get("link", "")
+                        text = b.get("text", "")
+                        crumb_type = b.get("crumbType", "")
+                        # 从链接提取category ID: /category/xxx-14500/ → 14500
+                        cat_id = ""
+                        if link:
+                            import re as _re
+                            m = _re.search(r"-(\d+)/?$", link)
+                            if m:
+                                cat_id = m.group(1)
+                        crumbs.append({"text": text, "link": link, "category_id": cat_id, "crumbType": crumb_type})
+                    result["breadcrumbs"] = crumbs
+                    # ✅ v0.11: 使用 crumbType 区分真实类目 vs 品牌筛选页
+                    # CRUMB_TYPE_FULL_LINK = 真实类目, 其他(品牌/搜索等) = 跳过
+                    if crumbs:
+                        result["category"] = " > ".join(c["text"] for c in crumbs if c["text"])
+                        category_path = result["category"]
 
-                            # 从后往前找第一个 crumbType = CRUMB_TYPE_FULL_LINK（非品牌）的面包屑
-                            # 降级：如果没有 crumbType，用老方法（/category/ 出现次数=1）
-                            valid = [
-                                c for c in crumbs
-                                if c.get("crumbType", "").startswith("CRUMB_TYPE_FULL")
-                                or (not c.get("crumbType") and c.get("link", "").count("/category/") == 1)
-                            ]
-                            if valid:
-                                best = valid[-1]  # 最具体的有效类目
-                                result["description_category_id"] = best.get("category_id", "")  # 数字 ID
-                                result["type_id"] = best.get("category_id", "")  # Worker 负责查真正 type_id
-                                result["category_path"] = category_path  # 文本降级
-                            else:
-                                # 全是品牌页？保留文本路径降级
-                                result["description_category_id"] = category_path
-                                result["type_id"] = ""
+                        # 从后往前找第一个 crumbType = CRUMB_TYPE_FULL_LINK（非品牌）的面包屑
+                        # 降级：如果没有 crumbType，用老方法（/category/ 出现次数=1）
+                        valid = [
+                            c for c in crumbs
+                            if c.get("crumbType", "").startswith("CRUMB_TYPE_FULL")
+                            or (not c.get("crumbType") and c.get("link", "").count("/category/") == 1)
+                        ]
+                        if valid:
+                            best = valid[-1]  # 最具体的有效类目
+                            result["description_category_id"] = best.get("category_id", "")  # 数字 ID
+                            result["type_id"] = best.get("category_id", "")  # Worker 负责查真正 type_id
+                            result["category_path"] = category_path  # 文本降级
+                        else:
+                            # 全是品牌页？保留文本路径降级
+                            result["description_category_id"] = category_path
+                            result["type_id"] = ""
 
-                            # 语言检测：Cyrillic → RU，中文 → ZH_HANS
-                            if any('\u4e00' <= c <= '\u9fff' for c in category_path):
-                                result["breadcrumb_language"] = "ZH_HANS"
-                            elif any('\u0400' <= c <= '\u04FF' for c in category_path):
-                                result["breadcrumb_language"] = "RU"
-                except (_json.JSONDecodeError, TypeError):
-                    pass
+                        # 语言检测：Cyrillic → RU，中文 → ZH_HANS
+                        if any('\u4e00' <= c <= '\u9fff' for c in category_path):
+                            result["breadcrumb_language"] = "ZH_HANS"
+                        elif any('\u0400' <= c <= '\u04FF' for c in category_path):
+                            result["breadcrumb_language"] = "RU"
+            except (_json.JSONDecodeError, TypeError):
+                pass
 
-            # Extract hashtags from DOM (not in API response)
-            js_hashtags = _cdp_eval(ws, """
-                (function() {
-                    var el = document.querySelector('[data-widget="webHashtags"]');
-                    if (!el) return '';
-                    var tags = el.querySelectorAll('[title]');
-                    return Array.from(tags).map(function(t) { return t.getAttribute('title'); }).filter(Boolean).join(',');
-                })()
-            """) or ""
-            if js_hashtags:
-                result["hashtags"] = [h.strip() for h in js_hashtags.split(",") if h.strip()]
+        # Extract hashtags from DOM (not in API response)
+        js_hashtags = _tab_eval(tab, """
+            (function() {
+                var el = document.querySelector('[data-widget="webHashtags"]');
+                if (!el) return '';
+                var tags = el.querySelectorAll('[title]');
+                return Array.from(tags).map(function(t) { return t.getAttribute('title'); }).filter(Boolean).join(',');
+            })()
+        """) or ""
+        if js_hashtags:
+            result["hashtags"] = [h.strip() for h in js_hashtags.split(",") if h.strip()]
 
-            # Extract description from JSON-LD (real product description, not marketing)
-            # JSON-LD description contains actual product specs (capacity, material, size, etc.)
-            # Meta description is Ozon's generic marketing text - NOT useful
-            js_desc = _cdp_eval(ws, """
-                (function() {
-                    var s = document.querySelector('script[type="application/ld+json"]');
-                    if (s) {
-                        try {
-                            var d = JSON.parse(s.textContent);
-                            return d.description || '';
-                        } catch(e) {}
-                    }
-                    // Fallback: description widget
-                    var el = document.querySelector('[data-widget="webDescription"]');
-                    return el ? el.innerText.substring(0, 500) : '';
-                })()
-            """) or ""
-            if js_desc and len(js_desc) > 20:
-                result["description"] = js_desc[:500]
+        # Extract description from JSON-LD (real product description, not marketing)
+        # JSON-LD description contains actual product specs (capacity, material, size, etc.)
+        # Meta description is Ozon's generic marketing text - NOT useful
+        js_desc = _tab_eval(tab, """
+            (function() {
+                var s = document.querySelector('script[type="application/ld+json"]');
+                if (s) {
+                    try {
+                        var d = JSON.parse(s.textContent);
+                        return d.description || '';
+                    } catch(e) {}
+                }
+                // Fallback: description widget
+                var el = document.querySelector('[data-widget="webDescription"]');
+                return el ? el.innerText.substring(0, 500) : '';
+            })()
+        """) or ""
+        if js_desc and len(js_desc) > 20:
+            result["description"] = js_desc[:500]
 
-            # Augment images from HTML (more sizes/angles)
-            # Get full HTML and extract image URLs
-            html_val = _cdp_eval(ws, "document.documentElement.outerHTML") or ""
-            if html_val:
-                html_images = _extract_images_from_html(html_val)
-                # Deduplicate and merge
-                existing = set(result["images"])
-                for img in html_images:
-                    # Keep only unique image IDs (different photos, not same photo different sizes)
-                    base = re.sub(r'/wc\d+/', '/', img)  # normalize: remove size prefix
-                    if base not in existing:
-                        existing.add(base)
-                        result["images"].append(img)
+        # Augment images from HTML (more sizes/angles)
+        # Get full HTML and extract image URLs
+        html_val = _tab_eval(tab, "document.documentElement.outerHTML") or ""
+        if html_val:
+            html_images = _extract_images_from_html(html_val)
+            # Deduplicate and merge
+            existing = set(result["images"])
+            for img in html_images:
+                # Keep only unique image IDs (different photos, not same photo different sizes)
+                base = re.sub(r'/wc\d+/', '/', img)  # normalize: remove size prefix
+                if base not in existing:
+                    existing.add(base)
+                    result["images"].append(img)
 
-            result["success"] = bool(result["title"] or result["images"])
-        finally:
-            ws.close()
-            # ✅ v0.10: 只关闭新创建的 tab，保留复用的已有 tab
-            if tab_id and tab_is_new:
-                try:
-                    req_lib.get(f"{cdp_url}/json/close/{tab_id}", timeout=3)
-                except Exception:
-                    pass
+        result["success"] = bool(result["title"] or result["images"])
 
     except ImportError as e:
         result["error"] = f"缺少依赖: {e}. pip install websocket-client"
     except Exception as e:
         result["error"] = f"CDP 抓取异常: {e}"
+    finally:
+        # ⚠️ v0.14 E4: 封装统一收尾
+        # - 新建 tab → 全关（WS + 远程 tab）
+        # - 复用的用户已有 tab → 只关 WS（保留用户标签页）
+        # - own_conn（本函数自建连接）→ conn.close() 收尾（tab 已 release，不会误关用户 tab）
+        try:
+            if tab and tab_is_new:
+                tab.close(close_remote=True)
+            elif tab:
+                tab.close(close_remote=False)
+        except Exception:
+            pass
+        if own_conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     return result

@@ -2372,12 +2372,21 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     }
     
     # Step 2: CDP 抓取 Ozon 商品页 → 竞品图片 + 标题
+    # ⚠️ v0.14 E5: Step 2（抓 Ozon）+ Step 3a（1688 图搜）共享一个 CdpConnection，
+    # 省 2-3 个冗余 WS 连接（旧代码各建各的连接）。Step 5 envelope 链路（probe_1688_page）
+    # 有独立会话引导/登录检查逻辑，保持独立更安全。
     ozon_images: list[str] = []
     ozon_title: str = ""
-    
+    shared_cdp = None
+    try:
+        from scripts.lib.cdp_client import CdpConnection
+        shared_cdp = CdpConnection("http://127.0.0.1:9222")
+    except Exception:
+        pass
+
     try:
         from scripts.lib.ozon_scraper import scrape_ozon_product_via_cdp
-        cdp_data = scrape_ozon_product_via_cdp(ozon_url, cdp_url="http://127.0.0.1:9222", timeout=30)
+        cdp_data = scrape_ozon_product_via_cdp(ozon_url, cdp_url="http://127.0.0.1:9222", timeout=30, conn=shared_cdp)
         if cdp_data.get("success"):
             ozon_images = cdp_data.get("images", [])
             ozon_title = cdp_data.get("title", "")
@@ -2424,7 +2433,7 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         # 3a-1. CDP 网页版以图搜款（更准确，用1688网页搜索引擎）
         try:
             from scripts.lib.ozon_image_search import search_by_image_cdp
-            cdp_results = search_by_image_cdp(image_url=main_img, page_size=5, wait_seconds=10)
+            cdp_results = search_by_image_cdp(image_url=main_img, page_size=5, wait_seconds=10, conn=shared_cdp)
             if cdp_results:
                 matches_raw = cdp_results
                 search_method = "cdp"
@@ -2549,6 +2558,13 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     result["envelope_error"] = "build_graph_envelope 返回空"
             except Exception as e:
                 result["envelope_error"] = str(e)
+
+    # ⚠️ v0.14 E5: 收尾关闭共享连接（Step 2/3a 用完后释放）
+    if shared_cdp is not None:
+        try:
+            shared_cdp.close()
+        except Exception:
+            pass
 
     return result
 

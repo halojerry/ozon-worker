@@ -225,8 +225,13 @@ class CdpTab:
         self._send("Network.enable", msg_id=0)
         self._send("Network.setExtraHTTPHeaders", {"headers": headers})
 
-    def close(self) -> None:
-        """Close WebSocket and the remote tab."""
+    def close(self, close_remote: bool = True) -> None:
+        """Close WebSocket; optionally also close the remote tab.
+
+        ⚠️ v0.14 E4: ``close_remote=False`` 只关闭 WebSocket 连接、保留远程 tab
+        （用于只读检查/复用用户已有 tab 的场景——避免误关用户浏览器标签页）。
+        默认 ``True`` 保持原行为（关 WS + 远程 ``GET /json/close``）。
+        """
         if self._closed:
             return
         self._closed = True
@@ -234,13 +239,14 @@ class CdpTab:
             self._ws.close()
         except Exception:
             pass
-        try:
-            requests.get(
-                f"{self._cdp_url}/json/close/{self._tab_id}",
-                timeout=3,
-            )
-        except Exception:
-            pass
+        if close_remote:
+            try:
+                requests.get(
+                    f"{self._cdp_url}/json/close/{self._tab_id}",
+                    timeout=3,
+                )
+            except Exception:
+                pass
 
     def __repr__(self) -> str:
         return f"<CdpTab tab_id={self._tab_id!r}>"
@@ -323,14 +329,29 @@ class CdpConnection:
                 return tab
         return None
 
-    def close(self) -> None:
-        """Close all tabs opened through this connection."""
+    def close(self, close_remote: bool = True) -> None:
+        """Close all tabs opened through this connection.
+
+        ⚠️ v0.14 E4: ``close_remote=False`` 时对所有 tab 只关 WS、保留远程 tab。
+        复用用户已有 tab（``find_tab`` 命中）前请先 ``release(tab)``，避免被这里远程关闭。
+        """
         for tab in self._tabs:
             try:
-                tab.close()
+                tab.close(close_remote=close_remote)
             except Exception:
                 pass
         self._tabs.clear()
+
+    def release(self, tab: CdpTab) -> None:
+        """⚠️ v0.14 E4: 从本连接的 tab 管理列表中移除 *tab*。
+
+        用于 ``find_tab`` 命中的**用户已有 tab**（只读复用，不应随 ``conn.close()``
+        被远程关闭）。移出后由调用方显式 ``tab.close(close_remote=...)`` 管理。
+        """
+        try:
+            self._tabs.remove(tab)
+        except ValueError:
+            pass
 
     def __repr__(self) -> str:
         return f"<CdpConnection cdp_url={self._cdp_url!r} tabs={len(self._tabs)}>"
