@@ -19,7 +19,7 @@ batch_test               批量处理 URL 列表
 
 from __future__ import annotations
 
-import argparse, json, sys, time
+import argparse, json, os, sys, time
 from pathlib import Path
 
 # Ensure scripts/ is on sys.path
@@ -123,7 +123,12 @@ def cmd_probe(args: argparse.Namespace) -> int:
 def cmd_graph(args: argparse.Namespace) -> int:
     """组装 GraphInput envelope（1688 API + CDP → 完整请求）."""
     from scripts.lib.config_store import preflight_check, print_setup_guide, AuthError
-    from scripts.cloud_probe import build_graph_envelope_with_retry, ProductValidationError
+    try:
+        from scripts.cloud_probe import build_graph_envelope_with_retry, ProductValidationError
+    except ModuleNotFoundError:
+        print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
+              "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
+        return 1
 
     missing = preflight_check()
     if missing:
@@ -180,7 +185,12 @@ def cmd_graph(args: argparse.Namespace) -> int:
     # ✅ v0.10: 默认自动提交到 Worker（对齐 SKILL.md），--no-submit 跳过
     submit_result = None
     if not getattr(args, 'no_submit', False):
-        from scripts.cloud_probe import submit_envelope
+        try:
+            from scripts.cloud_probe import submit_envelope
+        except ModuleNotFoundError:
+            print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
+                  "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
+            return 1
         submit_result = submit_envelope(graph)
         if submit_result.get("ok"):
             import logging
@@ -596,7 +606,12 @@ def cmd_check(args) -> int:
 def cmd_follow(args) -> int:
     """跟卖 Ozon 商品: Ozon URL → import-by-sku → 1688搜索 → CDP探针 → 上架"""
     from scripts.lib.config_store import preflight_check, print_setup_guide, AuthError
-    from scripts.cloud_probe import follow_sell_cloud
+    try:
+        from scripts.cloud_probe import follow_sell_cloud
+    except ModuleNotFoundError:
+        print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
+              "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
+        return 1
 
     missing = preflight_check()
     if missing:
@@ -835,7 +850,12 @@ def cmd_discover(args: argparse.Namespace) -> int:
         if confirm.lower() != 'y':
             print("已取消")
             return 0
-        from scripts.cloud_probe import build_envelope_from_discovery, submit_envelope
+        try:
+            from scripts.cloud_probe import build_envelope_from_discovery, submit_envelope
+        except ModuleNotFoundError:
+            print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
+                  "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
+            return 1
         from scripts.lib.config_store import get_store
 
         store = get_store(args.store or "") or {}
@@ -968,17 +988,25 @@ def main() -> int:
 
 
 def _silent_update_check(command: str) -> None:
-    """每次命令静默检查 Skill 更新（不阻塞主流程，失败静默）。
+    """每次命令检查 Skill 更新（不阻塞主流程，失败静默）。
 
-    发现新版本时提示用户可运行 `skill update` 应用。
+    默认自动应用（v0.18.0）：有新版本即备份-覆盖-失败回滚；
+    SKILL_AUTO_UPDATE=0 时退回「提示 + 手动 skill update」模式。
     """
     if command == "update":
         return
     try:
-        from scripts.lib.updater import check_update, get_local_version
-        info = check_update()
+        from scripts.lib import updater
+        if os.environ.get("SKILL_AUTO_UPDATE", "1") != "0":
+            result = updater.auto_update_if_available()
+            if result and result.get("ok"):
+                print(f"\n✅ 已自动更新至 v{result['new_version']}，请重启终端后重新运行命令", flush=True)
+            elif result:
+                print(f"\n❌ 自动更新失败（已回滚）: {result['error']}", flush=True)
+            return
+        info = updater.check_update()
         if info:
-            print(f"\n📦 发现新版本 v{info.get('version')}（当前 v{get_local_version()}）"
+            print(f"\n📦 发现新版本 v{info.get('version')}（当前 v{updater.get_local_version()}）"
                   f"—— 运行 `skill update` 更新", flush=True)
     except Exception:
         pass

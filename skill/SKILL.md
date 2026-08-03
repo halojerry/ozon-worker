@@ -270,3 +270,27 @@ Worker 返回：
 |------|------|
 | `envelope_example.json` | 完整信封结构示例（单 SKU + 跟卖两种模式） |
 | `field_mapping.md` | 1688/Ozon 字段 → 信封字段的映射规则 |
+
+---
+
+## 10. 更新与旧包升级
+
+**自动更新（v0.18.0 起，默认开启）**：每次运行命令时，若 COS 上有新版本，
+会自动备份旧文件 → 覆盖升级 → 失败自动回滚（`data/` 凭证/登录态/缓存全程保留），
+升级成功后提示重启终端。
+
+- 关闭自动更新：`export SKILL_AUTO_UPDATE=0`，退回「提示 + 手动 `skill update`」模式。
+- 手动更新：`python3.12 scripts/cli.py update`
+
+**旧包升级（v0.12.0 之前的包没有 updater，不会自动提示）**：
+
+```bash
+# 1. 从最新 GitHub Release 下载 bootstrap_update.py 到 skill 包目录
+#    https://github.com/halojerry/ozon-worker/releases
+# 2. 运行（会下载最新包 → sha256 校验 → 覆盖升级 → 失败回滚）
+python3.12 bootstrap_update.py
+```
+
+如果运行 `graph`/`follow` 提示「未找到 scripts.cloud_probe（版本过旧）」，
+按上面 bootstrap 升级即可。手动确认当前版本：`python3.12 scripts/cli.py update`
+（显示「已是最新」即正常）。
