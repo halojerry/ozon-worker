@@ -177,6 +177,74 @@ jobs:
         env:
           COS_MANIFEST_BASE_URL: ${{ secrets.COS_MANIFEST_BASE_URL }}
 
+      # ⚠️ 分发直传 COS（v0.18.0 起）：不再依赖 skill-distribute 轮询
+      # Release 资产（实测该链路 4 次全失败 + release 事件零运行记录）。
+      # 包产出后同一 job 直接上传，带 3 次重试；失败即整体构建失败，
+      # 不会出现"Release 有包但 COS 断供"的静默状态。
+      - name: Install coscli
+        run: |
+          curl -L --fail --retry 3 --retry-delay 2 -o coscli \
+            https://cosbrowser.cloud.tencent.com/software/coscli/coscli-linux-amd64
+          chmod 755 coscli
+          ./coscli --version
+
+      - name: Upload package and manifest to COS
+        timeout-minutes: 60
+        working-directory: skill
+        run: |
+          PKG="${{ steps.manifest.outputs.package_name }}"
+          coscli_cmd() {
+            ./coscli "$@" \
+              -e "cos.${COS_REGION}.myqcloud.com" \
+              -i "$COS_SECRET_ID" -k "$COS_SECRET_KEY" \
+              --init-skip=true --disable-log=true
+          }
+          UPLOADED=0
+          for attempt in 1 2 3; do
+            echo "⏳ COS 上传尝试 $attempt/3: ${PKG} + manifest.json"
+            if coscli_cmd cp "${PKG}" "cos://${COS_BUCKET}/ozon-skill/${PKG}" \
+               && coscli_cmd cp "manifest.json" "cos://${COS_BUCKET}/ozon-skill/manifest.json"; then
+              UPLOADED=1
+              break
+            fi
+            [ "$attempt" -lt 3 ] && sleep 30
+          done
+          if [ "$UPLOADED" -ne 1 ]; then
+            echo "::error::COS 上传 3 次均失败"
+            exit 1
+          fi
+          echo "✅ 已上传: cos://${COS_BUCKET}/ozon-skill/${PKG} + manifest.json"
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_BUCKET: ${{ secrets.COS_BUCKET }}
+          COS_REGION: ${{ secrets.COS_REGION }}
+
+      # ⚠️ 分发一致性校验：COS 包 sha256 必须与本地包一致、公网必须可访问。
+      # （旧链路只校验 Release 资产，COS 上传超时/断供无人发现——掩耳盗铃）
+      - name: Verify COS endpoints and sha256
+        timeout-minutes: 10
+        working-directory: skill
+        run: |
+          PKG="${{ steps.manifest.outputs.package_name }}"
+          BASE="${COS_MANIFEST_BASE_URL:-https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/ozon-skill}"
+          for URL in "${BASE}/manifest.json" "${BASE}/${PKG}"; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
+            echo "GET $URL → HTTP $CODE"
+            test "$CODE" = "200" || { echo "::error::COS 公网端点不可访问"; exit 1; }
+          done
+          LOCAL_SHA=$(sha256sum "$PKG" | awk '{print $1}')
+          REMOTE_SHA=$(curl -s -L "${BASE}/${PKG}" | sha256sum | awk '{print $1}')
+          echo "local=${LOCAL_SHA}"
+          echo "remote=${REMOTE_SHA}"
+          test "$LOCAL_SHA" = "$REMOTE_SHA" || {
+            echo "::error::COS 包 sha256 与本地不一致（上传损坏）"; exit 1; }
+          echo "✅ COS 分发完成: ${PKG}（sha256 一致）"
+        env:
+          COS_BUCKET: ${{ secrets.COS_BUCKET }}
+          COS_REGION: ${{ secrets.COS_REGION }}
+          COS_MANIFEST_BASE_URL: ${{ secrets.COS_MANIFEST_BASE_URL }}
+
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
