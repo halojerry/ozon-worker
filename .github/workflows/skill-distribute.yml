@@ -54,11 +54,29 @@ jobs:
           # pounding-ozon-probe-darwin-arm64-py312.tar.gz 会排在前面）
           TARGET="pounding-ozon-probe-v${VERSION}.tar.gz"
           echo "Downloading $TARGET"
-          gh api "repos/${{ github.repository }}/releases/tags/${TAG}" \
-            --jq ".assets[] | select(.name == \"$TARGET\") | [.name, .url] | @tsv" \
-            | while IFS=$'\t' read -r name url; do
-                gh api --header "Accept: application/octet-stream" "$url" > "dist/$name"
-              done
+
+          # ⚠️ 竞态防护：tag push 时 cd.yml 先创建并发布 Release，而 build-skill 的
+          # 4 平台编译要 20-30 分钟才把 skill 包上传到该 Release —— distribute 可能
+          # 在包就位前触发导致"该发没发"。轮询等待：每 60s 查一次 Release assets，
+          # 最多 40 次（~40 分钟），超时才失败（可 workflow_dispatch 手动重试）。
+          # COS 只随 release 发布触发（发布模式已确认：保持自动，现状合规）。
+          ASSET_URL=""
+          for i in $(seq 1 40); do
+            ASSET_URL=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" \
+              --jq ".assets[] | select(.name == \"$TARGET\") | .url" 2>/dev/null | head -1)
+            if [ -n "$ASSET_URL" ]; then
+              echo "✅ skill 包已就位（第 ${i} 次查询，等待 $(( (i-1) * 60 ))s）"
+              break
+            fi
+            echo "⏳ skill 包未就位（build-skill 4 平台编译中），60s 后重查（$i/40）..."
+            sleep 60
+          done
+          if [ -z "$ASSET_URL" ]; then
+            echo "::error::等待 40 分钟 skill 包仍未上传到 Release，请检查 build-skill 是否失败，或 workflow_dispatch 手动重试"
+            exit 1
+          fi
+
+          gh api --header "Accept: application/octet-stream" "$ASSET_URL" > "dist/$TARGET"
           ls -lh dist/
           test -f "dist/$TARGET" || {
             echo "::error::版本包 $TARGET 未找到"
