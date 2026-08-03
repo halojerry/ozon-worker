@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.16.0] - 2026-08-03
+
+> 属性填充增强：类目属性尽可能填掉 + 中文零容忍（标准俄语）+ 海关编码跳过。随 v0.15.0（生图提示词外置）一并部署。
+
+### 属性填满
+
+- **必填自由文本无默认值 → 跳过不写空串**（assemble `_validate_and_enrich_items`）：空串上传触发 `error_attribute_values_empty`，宁缺毋滥交给 retry 靶向修
+- **可选字典属性补充增强**：多值属性不再一律跳过——① 本地产品标题词对 ZH_HANS 字典值包含匹配（仅唯一命中才补）② Ozon `/values/search`（RU）官方匹配兜底；匹配不到仍跳过（v0.13 关闭盲补首值的原则保留，避免"属性值不正确"）
+- 海关编码属性（ТН ВЭД 等）从可选补充排除
+
+### 中文零容忍（标准俄语）
+
+- **`_russian_required_attrs` 翻译结果校验**（prepare L1241）：4191/4180/9048/4384/4389/23171 俄语翻译结果必须含西里尔且无中文，否则跳过该属性——修复拉丁值翻译失败仍直接上传的泄漏路径（「请用俄文填写该字段」）
+- **9024(SKU) 不再豁免中文检查**：只豁免拉丁/数字直传，含中文一律翻译/跳过
+- **`_generate_rich_description_fallback`**：1688 中文属性名原样拼 HTML 的泄漏（且结果不过 sanitize）→ 属性名/值含中文跳过该 `<li>`
+
+### 海关编码（ТН ВЭД）跳过
+
+- 新建 `worker/src/utils/attribute_utils.py`：`is_customs_attr(attr_id, attr_name)`（ID=22604 + 名称关键词 RU/ZH/EN）
+- assemble 三处：1688 匹配不填 / 必填补全跳过（绝不标题搜索乱填 HS code）/ 可选补充排除
+- prepare：`_skip_attrs` 按 ID 防御纵深
+- validation_retry_loop：`SKIP_ATTR_IDS` 并入海关 ID（revalidate 重传也跳过）
+
 ## [0.15.0] - 2026-08-03
 
 > 生图提示词外置配置 + 热加载：调提示词不再需要重新部署 Worker，只改配置文件即可。

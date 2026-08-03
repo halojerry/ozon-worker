@@ -35,6 +35,7 @@ from utils.mxou_llm import call_mxou_chat_api
 from utils.progress_logger import ProgressLogger
 from utils.ozon_category_query import get_category_query, OzonCategoryQuery
 from utils.http_session import session
+from utils.attribute_utils import is_customs_attr  # ⚠️ v0.16: 海关编码属性识别（不填）
 
 logger = logging.getLogger(__name__)
 
@@ -1439,6 +1440,12 @@ def _build_items_deterministically(
             # 4191=描述, 4180=关键字, 9048=变体绑定名, 23171=hashtag
             if attr_id in (4191, 4180, 9048, 23171):
                 continue
+
+            # ⚠️ v0.16: 海关编码属性（ТН ВЭД 等）不填——由平台/税费系统自动关联，
+            # 手动乱填会被拒或误导审核。按 ID 或属性名识别（RU/ZH/EN 关键词）。
+            if is_customs_attr(attr_id, attr_name_cn):
+                logger.info(f"   ⏭️ 海关编码属性[{attr_id}]({attr_name_cn})跳过（Ozon 自动关联）")
+                continue
             
             # 品牌（85, 5076）— 留给 _validate_and_enrich_items 处理
             if attr_id in BRAND_ATTRIBUTE_IDS:
@@ -1707,6 +1714,12 @@ def _validate_and_enrich_items(
 
             attr_name = schema_attr.get("name", "?")
             dict_id = schema_attr.get("dictionary_id", 0)
+
+            # ⚠️ v0.16: 海关编码属性必填也跳过——绝不"标题搜索/取字典第一个值"乱填 HS code
+            if is_customs_attr(missing_id, attr_name):
+                logger.info(f"   ⏭️ 必填海关编码属性[{missing_id}]({attr_name})跳过（Ozon 自动关联，不手动填）")
+                continue
+
             new_attr: dict[str, Any] = {
                 "complex_id": 0,
                 "id": missing_id,
@@ -1842,9 +1855,13 @@ def _validate_and_enrich_items(
             else:
                 # 自由文本属性 → 用已知默认值或留空
                 default_val = KNOWN_DEFAULTS.get(missing_id, "")
+                # ⚠️ v0.16: 无默认值的必填自由文本 → 跳过不写空串（空串上传触发
+                # error_attribute_values_empty；宁可交给 validation_retry_loop 靶向修）
+                if not default_val:
+                    logger.warning(f"   ⚠️ 必填文本属性{missing_id}({attr_name}) 无默认值，跳过写入空值（交由 retry 靶向修）")
+                    continue
                 new_attr["values"] = [{"dictionary_value_id": 0, "value": default_val}]
-                if default_val:
-                    logger.info(f"   ✅ 必填文本属性{missing_id}({attr_name}) 使用默认值: {default_val}")
+                logger.info(f"   ✅ 必填文本属性{missing_id}({attr_name}) 使用默认值: {default_val}")
 
             validated_attrs.append(new_attr)
             logger.warning(f"   ⚠️ 补充缺失必填属性: id={missing_id} ({attr_name})")
@@ -1911,8 +1928,9 @@ def _validate_and_enrich_items(
         # ✅ 可选字典属性补充：提升属性覆盖率（影响Ozon产品评分）
         # ⚠️ v0.13.1: 不再"取字典第一个值"盲补！字典多值时第一个值语义随机
         # （如"风格/用途"被填了与产品无关的值 → Ozon 报"属性值不正确，请从列表中选择"）。
-        # 仅当字典只有唯一值时才补充（唯一值不可能语义错误），多值/无值一律跳过。
-        # 该可选属性若 1688 有匹配值，_build_items_deterministically 已填；此处只兜"字典唯一值"的安全场景。
+        # ⚠️ v0.16: 增强——多值属性先按产品标题匹配（本地 ZH_HANS 字典值标题词包含匹配，
+        # 仅唯一命中才补；再 Ozon /values/search RU 官方匹配兜底）。匹配不到仍跳过（宁缺毋滥）。
+        # 该可选属性若 1688 有匹配值，_build_items_deterministically 已填；此处只兜"字典唯一值"+标题命中场景。
         present_after = {int(a["id"]) for a in validated_attrs if "id" in a}
         optional_dict_attrs = [
             a for a in attr_list
@@ -1920,6 +1938,7 @@ def _validate_and_enrich_items(
             and a.get("dictionary_id", 0) > 0
             and int(a["id"]) not in present_after
             and int(a["id"]) not in (23171, 23536)  # 跳过hashtag和标记码
+            and not is_customs_attr(int(a["id"]), a.get("name", ""))  # ⚠️ v0.16: 跳过海关编码属性
         ]
         filled_optional = 0
         skipped_optional = 0
@@ -1927,23 +1946,67 @@ def _validate_and_enrich_items(
             opt_id = int(opt_attr["id"])
             opt_name = opt_attr.get("name", "?")
             dict_vals = dict_lookup.get(opt_id, [])
+            match_val: Optional[dict[str, Any]] = None
+
             if isinstance(dict_vals, list) and len(dict_vals) == 1:
                 # 字典只有一个可选值 → 补充（值确定，不会语义错误）
                 only = dict_vals[0]
                 if isinstance(only, dict) and only.get("id"):
-                    validated_attrs.append({
-                        "complex_id": 0, "id": opt_id,
-                        "values": [{"dictionary_value_id": only["id"], "value": str(only.get("value", ""))}],
-                    })
-                    filled_optional += 1
+                    match_val = only
             elif isinstance(dict_vals, list) and len(dict_vals) > 1:
-                # 字典多值且无 1688 匹配 → 跳过，避免填语义错误的值被 Ozon 拒绝
+                # 字典多值且无 1688 匹配 → 按产品标题匹配（v0.16 增强，替代纯跳过）
+                # ① 本地：标题词在 ZH_HANS 字典值里包含匹配，仅当恰好 1 个值命中才补
+                if draft_title:
+                    title_words = [
+                        w for w in re.split(r"[\s,，、/|()（）\[\]·\-]+", draft_title)
+                        if w and len(w) >= 2
+                    ]
+                    hits = []
+                    for v in dict_vals:
+                        if not isinstance(v, dict):
+                            continue
+                        vv = str(v.get("value", ""))
+                        if any(w in vv for w in title_words):
+                            hits.append(v)
+                    if len(hits) == 1:
+                        match_val = hits[0]
+                # ② 本地未命中 → Ozon /values/search（RU）官方匹配兜底
+                if match_val is None:
+                    try:
+                        from utils.ozon_client import ozon_post
+                        _search = ozon_post(
+                            client_id=ozon_client_id,
+                            api_key=ozon_api_key,
+                            endpoint="/v1/description-category/attribute/values/search",
+                            body={
+                                "attribute_id": opt_id,
+                                "description_category_id": int(description_category_id),
+                                "type_id": int(type_id),
+                                "value": (draft_title[:50] if draft_title else opt_name)[:50],
+                                "limit": 5,
+                            },
+                            language="RU",
+                        )
+                        _results = _search.get("result", [])
+                        if _results:
+                            match_val = _results[0]
+                    except Exception as e:
+                        logger.debug(f"   可选字典搜索失败(attr={opt_id}): {e}")
+
+            if match_val is not None and match_val.get("id"):
+                validated_attrs.append({
+                    "complex_id": 0, "id": opt_id,
+                    "values": [{"dictionary_value_id": match_val["id"], "value": str(match_val.get("value", ""))}],
+                })
+                filled_optional += 1
+            else:
+                # 字典多值且无匹配 → 跳过，避免填语义错误的值被 Ozon 拒绝
                 skipped_optional += 1
-                logger.debug(f"   ⚠️ 可选字典属性[{opt_id}]({opt_name}) 多值({len(dict_vals)})且无匹配，跳过盲补")
+                logger.debug(f"   ⚠️ 可选字典属性[{opt_id}]({opt_name}) 无匹配值，跳过盲补")
         if filled_optional:
-            logger.info(f"   📊 补充可选字典属性: {filled_optional}个（唯一字典值）")
+            logger.info(f"   📊 补充可选字典属性: {filled_optional}个（唯一值/标题命中）")
         if skipped_optional:
-            logger.info(f"   📊 跳过可选字典属性盲补: {skipped_optional}个（多值无匹配，避免错误值）")
+            logger.info(f"   📊 跳过可选字典属性盲补: {skipped_optional}个（无匹配，避免错误值）")
 
         # 9048（变体绑定名）= item_id，与 prepare_ozon_upload_node 逻辑一致
         if FORCE_ATTR_9048 not in present_ids and FORCE_ATTR_9048 not in {int(a["id"]) for a in validated_attrs}:

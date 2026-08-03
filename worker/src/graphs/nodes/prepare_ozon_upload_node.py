@@ -13,6 +13,7 @@ from utils.progress_logger import ProgressLogger
 from utils.size_mapper import build_attribute_matching_table
 from utils.mxou_llm import call_mxou_chat_api
 from utils.title_sanitizer import sanitize_title
+from utils.attribute_utils import is_customs_attr, has_chinese  # ⚠️ v0.16: 海关跳过 + 中文零容忍
 
 logger = logging.getLogger(__name__)
 
@@ -536,7 +537,11 @@ def _generate_rich_description_fallback(product_name: str, attributes: dict, des
         attr_items = []
         for k, v in list(attributes.items())[:6]:
             if v and str(v).strip():
-                # 净化值：去中文
+                # ⚠️ v0.16: 属性名/值含中文的一律跳过该 <li>（Ozon 富文本禁中文，
+                # 且该 fallback 结果不经过 _sanitize_rich_description，必须源头清洗）
+                if has_chinese(k) or has_chinese(v):
+                    continue
+                # 净化值：去中文（残留防御）
                 clean_v = re.sub(r'[\u4e00-\u9fff]+', '', str(v)).strip()
                 if clean_v:
                     attr_items.append(f"<li>{k}: {clean_v}</li>")
@@ -1212,9 +1217,11 @@ def prepare_ozon_upload_node(
         
         # ✅ 关键修复：跳过Ozon不允许编辑或自动设置的属性
         # 23536(标记代码)：Ozon根据TN VED自动设置，手动设置不正确
+        # ⚠️ v0.16: 海关编码属性（ТН ВЭД 等）一并跳过——平台/税费系统自动关联，手动乱填会被拒
+        # （assemble 侧已按属性名关键词识别剔除，此处按 ID 防御纵深）
         _skip_attrs = (23536,)
-        if attribute_id_int in _skip_attrs:
-            logger.info(f"✅ 跳过属性{attribute_id_int}（Ozon不允许编辑或自动设置）")
+        if attribute_id_int in _skip_attrs or is_customs_attr(attribute_id_int):
+            logger.info(f"✅ 跳过属性{attribute_id_int}（Ozon不允许编辑/自动设置/海关编码）")
             continue
         
         # ✅ 关键修复：属性4389(原产国)硬编码为"Китай"（中国）
@@ -1232,18 +1239,25 @@ def prepare_ozon_upload_node(
         # 4191(Описание/描述)、4180(关键字)、9048(Название модели/产品名称) 必须翻译
         # 4384(Комплектация/包装内容)、4389(Страна/原产国) 也需翻译
         # 23171(hashtags)也需要俄语化（Ozon俄罗斯市场要求标签为俄语）
-        # 排除：9024(SKU编码) — 允许英文/数字
+        # 排除：9024(SKU编码) — 允许英文/数字（但含中文仍走下方中文检查翻译）
         _russian_required_attrs = (4191, 4180, 9048, 4384, 4389, 23171)
-        _english_allowed_attrs = (9024,)
         if attribute_id_int in _russian_required_attrs and value_str and not _has_cyrillic(value_str):
             logger.warning(f"⚠️ 属性{attribute_id_int}值为拉丁字母，翻译为俄语：{value_str[:60]}...")
-            value_str = _translate_to_russian_llm(value_str, mxou_token, source_lang="auto")
+            _translated_value = _translate_to_russian_llm(value_str, mxou_token, source_lang="auto")
+            # ⚠️ v0.16: 翻译结果必须为俄语（含西里尔且无中文），否则跳过该属性——绝不把
+            # 拉丁/英文原文上传（Ozon 要求标准俄语："请用俄文填写该字段"）
+            if _translated_value and _has_cyrillic(_translated_value) and not has_chinese(_translated_value):
+                value_str = _translated_value
+            else:
+                logger.error(f"❌ 属性{attribute_id_int}俄语翻译失败或非俄语，跳过该属性: {value_str[:60]}"
+                             f" -> '{str(_translated_value)[:40]}'")
+                continue
 
         # ✅ 扩展翻译：所有属性值含中文字符的，翻译为俄语（Ozon禁止中文/日文字符）
         # ⚠️ v0.13.1: 翻译失败/仍含中文 → 跳过该属性，绝不写中文或空值上传！
         # ⚠️ v0.14 B1: 优先查批量翻译映射（一次 LLM 调用翻译全部），未命中才逐条兜底
-        _chinese_re_attr = re.compile(r'[\u4e00-\u9fff]')
-        if value_str and attribute_id_int not in _english_allowed_attrs and _chinese_re_attr.search(value_str):
+        # ⚠️ v0.16: 9024(SKU) 不再豁免中文检查——只豁免"非中文值"（拉丁/数字直传），含中文一律翻译
+        if value_str and has_chinese(value_str):
             _cached_trans = _batch_translated.get(value_str, "")
             if _cached_trans:
                 value_str = _cached_trans
@@ -1252,7 +1266,7 @@ def prepare_ozon_upload_node(
                 logger.warning(f"⚠️ 属性{attribute_id_int}值含中文字符，翻译为俄语：{value_str[:60]}...")
                 _translated_value = _translate_to_russian_llm(value_str, mxou_token, source_lang="zh")
                 # 翻译成功（含西里尔且无中文）→ 使用翻译结果
-                if _translated_value and _has_cyrillic(_translated_value) and not _chinese_re_attr.search(_translated_value):
+                if _translated_value and _has_cyrillic(_translated_value) and not has_chinese(_translated_value):
                     value_str = _translated_value
                     # ✅ v0.9.0 修复: dictionary_value_id 跨语言通用！
                     # 翻译 value 从中文到俄语后，dict_id 仍然有效（同一属性值的不同语言展示）。
