@@ -48,6 +48,7 @@
 - **E5 follow_sell_cloud 连接共享**：Step2（抓 Ozon）+ Step3a（1688 图搜）共享一个 `CdpConnection`（省 2-3 个冗余 WS）；envelope 链路（probe_1688_page 会话引导）保持独立更安全
 - **图搜弹窗拦截修复（真实冒烟发现）**：1688 图搜点按钮后 `window.open` 弹窗被 Chrome 拦截 → 注入覆盖为当前 tab 延迟导航 + 结果页未打开自动重试 1 次
 - **图搜多重新搜机制**：badge 评分 ≤ 1 时自动重新图搜（`force_refresh` 绕过缓存）最多 2 次取最佳——1688 算法偶发匹配差，实测 badge 0→2（符合 2/3 条件）
+- **Chrome 启动禁用弹窗拦截**：`chrome_launcher` 加 `--disable-popup-blocking`（专用抓取实例，不影响用户日常 Chrome）——1688 图搜/登录跳转的 `window.open` 弹窗无需手动放行站点，与 JS 层覆盖双保险
 
 ### 验证
 
