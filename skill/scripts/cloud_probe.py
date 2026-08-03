@@ -2510,20 +2510,27 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
 
         result["1688_matches"] = matches
         if matches:
-            best = matches[0]
-            logger.info("📊 图搜匹配质量: %d 个结果, 最佳 badge=%s (score=%d)", 
-                       len(matches), best.get("badge", "?"), best.get("badge_score", 0))
-            # 低质量匹配告警
-            if best["badge_score"] <= 1:
-                logger.warning("⚠️ 最佳匹配 badge 评分仅 %d，图搜可能不准确，建议人工核实", best["badge_score"])
+            # ⚠️ v0.14 E5: 标题相关性护栏（复用 discover 的 _pick_best_match）
+            # 旧逻辑只按 badge 排序取第一个 → 图搜匹配到不同产品也组装信封。
+            # 现在用竞品标题（俄语）做相关性校验：badge "符合0/N" 跳过、RU→ZH 标题
+            # 重叠打分、相关性过弱拒绝（返回 None → 不组装 envelope，宁缺毋滥）。
+            from scripts.lib.ozon_discovery import _pick_best_match
+            best = _pick_best_match(matches, ozon_title) if ozon_title else matches[0]
+            if best:
+                result["best_match"] = best
+                result["success"] = True
+                logger.info("📊 图搜匹配质量: %d 个结果, 最佳 badge=%s (score=%d)",
+                           len(matches), best.get("badge", "?"), best.get("badge_score", 0))
+                if best.get("badge_score", 0) <= 1:
+                    logger.warning("⚠️ 最佳匹配 badge 评分仅 %d，图搜可能不准确，建议人工核实", best.get("badge_score"))
+            else:
+                result["no_relevant_match"] = True
+                logger.warning("⚠️ 图搜结果与竞品标题相关性过低，拒绝匹配（不组装信封）")
 
-    if matches:
-        result["success"] = True
-        result["best_match"] = matches[0]
-
-    # Step 5: 组装 envelope（跟卖标记）— 有匹配就组装，auto_submit 时才提交
-    if matches:
-        best = matches[0]
+    # Step 5: 组装 envelope（跟卖标记）— 有相关匹配才组装，auto_submit 时才提交
+    # ⚠️ v0.14 E5: 用相关性筛选后的 best_match（旧逻辑无脑取 matches[0]，不同产品也组装）
+    if result.get("best_match"):
+        best = result["best_match"]
         best_id = best.get("id", "")
         if best_id:
             try:

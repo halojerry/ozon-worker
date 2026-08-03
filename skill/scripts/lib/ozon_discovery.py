@@ -829,11 +829,21 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str) -> dict[str
 
     # 相关性护栏：badge 完全无匹配分（含空/0匹配）且标题相关性弱 → 拒绝
     # （宁缺毋滥，实测"花插 ¥1"当遛狗带货源的错误由此拦截）。
-    # badge 有任何匹配分（如"符合1/3"）→ 信任 1688 官方匹配度，放行。
+    # ⚠️ v0.14 E5 增强: badge 轻微匹配（<0.5，如"符合1/3"）但标题相关性极弱（conf < 0.3）
+    # → 也拒绝。1688 图搜偶发把不同产品误标轻微匹配（实测"水龙头"被标符合1/3），
+    # 仅凭 badge 放行会组装错产品；标题重叠是更可靠的证据。
     badge_eff_of_best = _badge_effectiveness(best.get("badge", "") or "")
+    _conf_of_best = 0.0
+    _bt = best.get("title", "") or ""
+    if _bt and re.search(r"[\u4e00-\u9fff]", _bt):
+        _conf_of_best = _ru_zh_title_overlap(ozon_title, _bt) if is_ru_title else verify_1688_match(ozon_title, _bt).get("confidence", 0.0)
     if badge_eff_of_best <= 0 and best_score < 15:
         logger.debug("图搜候选相关性过低（badge=%s, score=%.1f），拒绝匹配: %s",
                      best.get("badge", ""), best_score, best.get("title", "")[:40])
+        return None
+    if badge_eff_of_best < 0.5 and _conf_of_best < 0.3:
+        logger.warning("图搜候选 badge 轻微匹配但标题相关性弱（badge=%s, conf=%.2f），拒绝: %s",
+                       best.get("badge", ""), _conf_of_best, best.get("title", "")[:40])
         return None
     return best
 
