@@ -2,6 +2,16 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.15.0 — 生图提示词外置配置 + 热加载）
+
+> 2026-08-03。调生图提示词不再需要重新部署 Worker：改配置文件即生效。
+
+- **`worker/config/image_prompts.json`**：10 个生图节点（main/white_bg/multi_angle/scene×3/comparison/detail/social_proof/variant_white_bg）中文提示词全部外置，与 v0.14 硬编码**逐字一致**（保持中文版）。Jinja2 占位符 `{{title}}`/`{{scene_context}}`。
+- **`worker/src/utils/image_prompts.py`**：`get_image_prompt(key, **kwargs)` — 每次现读磁盘（无缓存）→ 改文件下一次生图自动生效；文件缺失/JSON 损坏/渲染失败 → 回退模块级默认提示词，**绝不抛异常阻断生图节点**。
+- **`deploy/docker-compose.yml`**：worker 加 `../worker/config:/app/config:ro` bind mount → 宿主机改任何 config JSON（含 LLM cfg）无需重建镜像/重启容器。⚠️ 部署 v0.15 源码包后，config 目录变更不再需要 `docker compose build`。
+- **改提示词流程**：服务器上 `vim worker/config/image_prompts.json` → 保存即生效（下一次生图）。
+- 单测：`PYTHONPATH=src python3 tests/test_image_prompts_config.py`（12 断言：渲染/兜底/热加载/配置漂移）。
+
 ## 工作区概述
 
 两段式 Ozon 上架系统，职责严格分离：
@@ -14,7 +24,7 @@
 | **职责** | 1688/Ozon CDP 抓取 + 以图搜款 → 组装 GraphInput 信封，**不上架** | 接收信封 → 类目→定价→属性→生图→校验→上传→自学习 |
 | **接口** | 输出 `GraphInput` JSON（三层结构 `{draft, source, extensions}`） | 输入 `GraphInput`，输出 `GraphOutput` |
 
-接口契约详见 `docs/CONTRACT.md`。Agent 调用指南详见 `skill/SKILL.md`。部署指南详见 `docs/DEPLOY.md`。
+接口契约详见 `docs/CONTRACT-v4.md`（v4.0，最新）。Agent 调用指南详见 `skill/SKILL.md`。部署指南详见 `docs/DEPLOY.md`。
 
 ## 目录结构
 
@@ -60,7 +70,7 @@ ozon-worker/
 │   ├── update.sh               # 一键更新
 │   └── .env.example            # 环境变量模板
 ├── docs/
-│   ├── CONTRACT.md             # Skill↔Worker API 契约 v3.0
+│   ├── CONTRACT-v4.md          # Skill↔Worker API 契约 v4.0（最新；CONTRACT.md 为 v3.0 旧版）
 │   ├── DEPLOY.md               # Worker 云端部署完整指南
 │   ├── LOGGING.md              # 日志系统架构 + 查看命令 + 故障排查
 │   ├── WORKER-TOPOLOGY.md      # ⭐ Worker 拓扑 + 错误映射 + 数据流 + 改代码快速参考
@@ -195,6 +205,10 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | skill | `python3.12 compile.py`（Cython 编译核心库 → .so/.pyd，必须用 Python 3.12） |
 | skill | `python3.12 compile.py --clean`（清理 build/dist 后重新编译） |
 | worker | `cd worker && PYTHONPATH=src python3 -m pytest tests/ -v` |
+| worker | `PYTHONPATH=src python3 tests/test_attribute_fill_v013.py`（属性字典值回归，8 断言，无需 PG/GPU） |
+| worker | `PYTHONPATH=src python3 tests/test_audit_a_fixes.py`（A 批审计修复回归：P1-4 阻断路由 + P0-2 跟卖属性，5 断言，无需 PG） |
+| worker | `PYTHONPATH=src python3 tests/integration_attribute_fill_v013.py`（assemble→prepare 全链路，mock 外部 API） |
+| worker | `PYTHONPATH=src python3 tests/test_image_prompts_config.py`（生图提示词配置热加载单测，12 断言，无需 PG/GPU） |
 | worker | `bash scripts/local_run.sh -m flow -i '{...}'` 跑全流程 |
 | worker | `bash scripts/local_run.sh -m node -n <节点ID> -i '{...}'` 跑单节点 |
 | 本地Docker | `cd deploy && docker compose up -d --build`（启动 Worker + PG） |
@@ -218,7 +232,7 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
   - `PYTHONPATH=/app/src` — Python 模块路径
   - `GRSAI_API_KEY` — MXOU 生图进度轮询（grsai.dakka.com.cn）
   - `RATE_LIMIT_PER_MINUTE` — API 限流（默认 300）
-  - `MAX_CONCURRENT` — 并发任务数（默认 50）
+  - `MAX_CONCURRENT` — 并发任务数（**默认 30**，v0.14 起；4核4G 服务器安全值。⚠️ `num_workers` 已联动此值，旧版硬编码 10 已修）
   - `LOG_FORMAT` / `LOG_LEVEL` / `LOG_FILE` — 日志配置（见 LOGGING.md）
 - Skill 环境变量: `WORKER_URL`（Worker 地址）、`OZON_CLIENT_ID`、`OZON_API_KEY`
 - ⚠️ 已移除: `COZE_BUCKET_*`（S3 存储已废弃，图片 URL 直传）、`MXOU_TOKEN`（Worker 从请求 token 获取）
@@ -337,7 +351,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - **`skill/SKILL.md`** — ⭐ Agent 调用指南（Chrome 启动、选品、跟卖、以图搜款、批量处理）
 - **`docs/DEPLOY.md`** — ⭐ Worker 云端部署完整指南（Docker、Nginx、HTTPS、运维）
 - **`docs/WORKER-TOPOLOGY.md`** — Worker 拓扑与错误处理手册（节点流、错误映射、数据流、改代码快速参考）
-- **`docs/CONTRACT.md`** — Skill↔Worker API 契约 v3.0（端点、请求/响应、错误码）
+- **`docs/CONTRACT-v4.md`** — ⭐ Skill↔Worker API 契约 v4.0（端点、请求/响应、错误码、节点合约；`CONTRACT.md` 是 v3.0 旧版）
 - **`docs/LOGGING.md`** — 日志系统架构 + 查看命令 + 故障排查流程
 - **`docs/CONVENTIONS.md`** — 分支命名 + commit 规范 + 发版流程
 - **`worker/AGENTS.md`** — Worker 完整文档：节点流程、Ozon API 坑
@@ -369,6 +383,22 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - **Docker 部署**: `deploy/docker-compose.yml` 含 PG + Worker，`HEALTHCHECK` 已配置。
 - **API 版本化**: 新端点走 `/api/v1/`，旧路径保持兼容。
 
+### v0.13/v0.14 新增关键约定（改属性/图搜/CDP 前必看）
+
+- **字典属性绝不手填文本**：Ozon 字典属性只接受列表中的 `dictionary_value_id`，手填 `dictionary_value_id=0 + 文本` → 报「属性值不正确，请从列表中选择」（用途/商品颜色/风格报错来源）。三处（assemble/prepare/retry_loop）统一为「未匹配 → 跳过该属性」，由 `/values/search` 修正或补默认字典值。
+- **自由文本属性翻译失败跳过**：含中文值的自由文本属性（颜色名称等）LLM 翻译失败/仍含中文 → 跳过该属性，绝不回退中文或写空值上传（否则报「请用俄文填写该字段」）。
+- **可选字典属性不盲补**：仅当字典**唯一值**时才补；多值且无 1688 匹配 → 跳过（避免填语义错误值）。
+- **品牌 85/5076 强制保留 dict_id**：`"Нет бренда"(126745801)` 在 prepare 层强制标记为字典属性，防止因 schema 缺失被当自由文本归零。
+- **定价失败阻断**：pricing 异常返回 `[PRICING_FAILED]` 标记，graph 路由阻断，**不再 ¥1000 兜底上架**。
+- **竞品价字段**：skill 抓取 Ozon 竞品售价 → `draft.competitor_price`（独立字段，勿用 `draft.price`——那是 1688 CNY 采购价）。worker `follow_sell_import_node` 优先读 `competitor_price`。
+- **quantity 变体定价**：数量拆分 SKU 用 `pricing_info.variant_prices[i]`（含利润/佣金/物流），**绝不直接用 1688 采购价当售价**。
+- **图搜相关性护栏**：follow 图搜结果经 `_pick_best_match`（ozon_discovery.py）筛选——badge「符合0/N」跳过、RU→ZH 标题重叠打分、badge 轻微匹配(<0.5)但标题相关性弱(conf<0.3)拒绝。拒绝时 `no_relevant_match=true` 不组装信封。改图搜代码勿绕过此护栏。
+- **图搜弹窗**：1688 图搜 `window.open` 已被 Chrome `--disable-popup-blocking`（chrome_launcher 启动参数）+ JS 层 `window.open` 覆盖（image_search）双保险解决，无需手动放行站点。
+- **CDP 统一走 cdp_client.py**：E4 后 4 处裸 websocket/CDP 已统一封装。新代码必须用 `CdpConnection`/`CdpTab`，勿手写 `websocket.create_connection`。复用用户已有 tab 时用 `conn.release(tab)` + `tab.close(close_remote=False)`，否则会误关用户浏览器标签页。
+- **生图提示词为中文版**（v0.13 回退）：main/scene/comparison/detail/social/white_bg/multi_angle 均用中文 inline prompt（v2 英文版出图质量问题已回退）。调提示词时勿改回英文版。
+- **Skill 验证环境**：本机可用 `/Volumes/OS/opt/homebrew/bin/python3.14` + `skill/.venv314`（已装 requests/websocket-client/Pillow）；`check`/`follow` 真实冒烟需 Chrome CDP 9222 运行且 1688/Ozon 已登录。
+- **COS 只随 release 分发**：skill 包 COS 上传仅在 `skill-distribute.yml`（release published 触发）；tag push 时 build-skill 编译需 20-30 分钟，distribute 会轮询等待包就位（竞态已修）。日常 CI（push/PR）不发 COS。
+
 ## 已知坑
 
 - **进度已持久化**（v0.9）：`_task_progress` 同时写内存和 PG `progress` 列，重启后从 PG 恢复。`task_processor.py` 注入 `task_id` 到 payload 修复了 key="unknown" 的问题。
@@ -391,31 +421,51 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 	  2. `recheck_status_node` 额外轮询 `moderate_status` → 已实现
 	  3. `type_id=0` → 多层防御修复
 	  4. `recheck_status_node` UUID 解析崩溃 → 已加 UUID 格式检测
-	- **`init_data.py` `walk` 函数**：`description_category_id` 需从父节点继承，`disabled` 字段 NOT NULL 需填 `false`。中文树是 `{"result":[...]}` dict，俄语树是 `[...]` 直接 list，walk 调用需兼容两种格式。
+		- **`init_data.py` `walk` 函数**：`description_category_id` 需从父节点继承，`disabled` 字段 NOT NULL 需填 `false`。中文树是 `{"result":[...]}` dict，俄语树是 `[...]` 直接 list，walk 调用需兼容两种格式。
+
+### v0.13/v0.14 修复记录（2026-08-03，commit ad1164c/8041b3d/b78fe64/8231639/93ddd1a）
+
+**v0.13（属性字典兜底 + 生图回退）**：
+- 字典属性未匹配不再手填文本（3 处：assemble/prepare/retry_loop）→ 报「请从列表中选择」消除
+- 自由文本翻译失败跳过（修复「请用俄文填写」）；可选字典不盲补；品牌 85/5076 保留 dict_id
+- 生图提示词回退中文版（v2 英文版出图质量差）
+
+**v0.14（审计四批 + CI + CDP）**：
+- P0-2 跟卖属性链路（`_assemble_follow_sell` 消费 follow 输出，删 126745801 假属性）
+- P0-4 单SKU 补运费（删 `len(variants)>1` 守卫）；P0-6 竞品价 `draft.competitor_price`
+- P1-1 quantity 定价用 variant_prices；P1-4 定价失败 `[PRICING_FAILED]` 阻断；P1-5 parse_error 读 validation_errors
+- B1 属性批量翻译 / B3 mxou_rate_limiter 接入（450 RPM 滑窗）/ B4 变体主图并发(4线程) / B5 空参考图跳过生图
+- E1 进度写 PG 节流(2s) / E9 num_workers 联动 MAX_CONCURRENT=30 / C1 类目树 TTL 缓存 / E3 cache 原子写
+- E4 裸 CDP 统一封装（cdp_client，勿再手写 websocket）/ E5 follow 连接共享
+- 图搜弹窗修复（`--disable-popup-blocking` + window.open 覆盖）+ 多重新搜（badge≤1 重搜 2 次）
+- 图搜标题相关性护栏（`_pick_best_match`，不同产品不再组装信封）
+- CI：skill-distribute 轮询等待 skill 包（tag 竞态）；COS 仅 release 触发（现状合规）
 
 ### v0.9 深度审计 — 已知未修问题（低优先级）
 
+> ⚠️ 以下多项已在 **v0.14** 修复，标注「✅已修」；未标注的仍开放。
+
 #### Skill 侧 (11 个)
-- **`ozon_api.search_categories`**：每次调都重新拉整棵类目树（~2-5s），无 TTL 缓存
+- **`ozon_api.search_categories`**：每次调都重新拉整棵类目树（~2-5s），无 TTL 缓存 → ✅已修（v0.14 C1，24h 缓存）
 - **`ozon_discovery._calculate_profit`**：物流费固定 15 CNY，不管实际重量/尺寸
 - **`ozon_discovery.calculate_blue_ocean_score`**：commission_fbp/fbs 字段名可能不一致
 - **`reference_images.get_best_product_images`**：URL 带 query 参数时 `.jpg` 拼接到查询串后导致链接失效
-- **`chrome_launcher.ensure_chrome_cdp`**：杀死所有 Chrome 进程而非仅 debug 端口，用 `LOCK_NB` 可能抛异常
-- **`cli.py` `check` 命令**：创建 Chrome tab 后不关闭，多次跑会累积空白 tab
-- **`config_store` / `cache.py`**：无文件锁，并发 CLI 进程可能写坏 JSON
+- **`chrome_launcher.ensure_chrome_cdp`**：杀死所有 Chrome 进程而非仅 debug 端口 → ✅已修（v0.14 D5，仅杀带 `--remote-debugging-port` 的实例）
+- **`cli.py` `check` 命令**：创建 Chrome tab 后不关闭，多次跑会累积空白 tab → ✅已修（v0.14 E4-2，`close(close_remote=False)` 只关 WS 不关远程）
+- **`config_store` / `cache.py`**：无文件锁，并发 CLI 进程可能写坏 JSON → ✅已修（v0.14 E3，临时文件 + os.replace 原子写）
 - **`EXTRACT_1688_JS`**：694 行 JS 字符串内嵌 Python 源码，无法 lint，改起来困难
 - **`service.py` 连接重复检查**：`connect_existing_chrome` step 2/3 几乎重复
 - **`stealth.py`**：`hardwareConcurrency`/`deviceMemory` 每次读取随机变值，是检测信号；`navigator.webdriver` 返回 `undefined` 而非 `false`
-- **`batch_test.py`**：每个 URL 都全量覆写结果文件，O(n²) 写入
+- **`batch_test.py`**：每个 URL 都全量覆写结果文件，O(n²) 写入 → ✅已修（v0.14 E7，每 5 条增量写 + 循环后全量写）
 
 #### Worker 侧 (8 个)
-- **`mxou_rate_limiter.py`**：整个文件未被引用，无 MXOU API 限流
-- **Phase2 生图节点**：Phase1 失败时用原始图但 prompt 仍针对 Phase1 输出设计，图质量差
+- **`mxou_rate_limiter.py`**：整个文件未被引用，无 MXOU API 限流 → ✅已修（v0.14 B3，接入 chat/image 两入口，450 RPM 滑窗）
+- **Phase2 生图节点**：Phase1 失败时用原始图但 prompt 仍针对 Phase1 输出设计，图质量差 → ✅已修（v0.14 B5，空参考图跳过生图）
 - **`ozon_upload_node.py`**：绕过 `ozon_post()` 直接调 `session.post()`，错误处理不一致
 - **`follow_sell_import_node.py`**：schema API 拉取失败时静默降级，缺失属性校验
 - **`pricing_node.py`**：物流配置查询无重试，失败默认为 `("RETS", "Standard")`
 - **`state.py` `_overwrite_str`**：空字符串会覆盖有效值
-- **`progress_logger.py`**：`NODE_ORDER` 静态字典需手动与图定义同步；`config_path` 参数被忽略
+- **`progress_logger.py`**：`NODE_ORDER` 静态字典需手动与图定义同步；`config_path` 参数被忽略 → ✅已修（v0.14 C4/D4，模块级缓存只读一次 + NODE_ORDER 同步真实节点集 + config_path 生效）
 - **`assemble_ozon_product_node.py`**：`ozon_payloads` 列表写入后从未被消费（被 prepare 覆盖）
 
 ## CDP 稳定性注意事项
@@ -429,6 +479,7 @@ CDP（Chrome DevTools Protocol）是 Skill 的核心数据通道。全部通过 
 - **进程 kill 等待**：Chrome 多 tab 时 SIGTERM 可能需要 5-10s，用轮询 + SIGKILL 回退（`chrome_launcher.py` 已实现）。
 - **验证码暂停**：1688 滑块验证时 Skill 自动暂停，提示用户在浏览器中滑动后按 Enter 继续。
 - **连接复用**：`fetch_product_info`/`fetch_competing_sellers` 支持可选 `cdp` 参数复用连接，避免 N*2 冗余连接。
+- **裸 CDP 已统一封装（v0.14 E4）**：手写 websocket/CDP 的 4 处已改为 `cdp_client`（ozon_scraper/cli.py check/batch_test/ozon_image_search）。新代码必须用 `CdpConnection`/`CdpTab`。复用用户已有 tab 时先 `conn.release(tab)` 再 `tab.close(close_remote=False)`，否则 `conn.close()` 会误关用户浏览器标签页。图搜/登录弹窗已被 `--disable-popup-blocking` + JS `window.open` 覆盖解决。
 
 ## Windows 兼容性
 
@@ -476,6 +527,18 @@ GitHub Actions 自动检查每次 push/PR：
 Pre-commit: `git config core.hooksPath .githooks`（语法 + 密钥拦截）
 
 ⚠️ **密钥轮换**: MXOU_TOKEN、1688 AK、Ozon API Key 曾暴露在 git 历史中，已移除追踪但历史仍存在，请尽快轮换。
+
+## 最近更新（v0.14.0 — 审计修复四批 + CI + CDP 统一封装 + 图搜护栏）
+
+> 2026-08-03。VERSION 0.12.0 → 0.14.0（跳过 0.13.0 发版，0.13.0 改动并入）。详见 `CHANGELOG.md` 与 `docs/PRD-audit-fixes-20260803.md`。
+
+- **A 批上架正确性**：跟卖属性链路接通（P0-2）、单SKU 补运费（P0-4）、GlobalState 补字段（P0-3）、竞品价真链路（P0-6）、quantity 定价（P1-1）、定价失败阻断（P1-4）、parse_error 读 validation_errors（P1-5）、登录预检守卫（P1-6）、删佣金死代码（P1-7）
+- **B 批成本**：属性批量翻译（B1）、chat 重试退避（B2）、mxou_rate_limiter 接入（B3）、变体主图 4 线程并发（B4）、空参考图跳过生图（B5）
+- **C 批性能**：进度写 PG 节流（E1）、cloud_probe import 惰性（E2）、cache 原子写（E3）、类目树 TTL 缓存（C1）、discover CDP 复用（E6）、num_workers 联动 MAX_CONCURRENT=30（E9）、ProgressLogger 去重读（C4）
+- **D 批健壮性**：ozon_post 共享 session（D2）、config metadata 对齐（D3）、cfg 键名统一（E8）、chrome_launcher 端口过滤（D5）、batch_test 修复（E7）、删 8 死代码文件（D4）
+- **CI/CD**：skill-distribute 轮询等待 skill 包（tag 竞态修复）；COS 仅 release 触发（现状合规，日常 CI 不发 COS）
+- **Skill CDP**：E4 裸 CDP 统一封装（4 处→cdp_client）、E5 follow 连接共享、图搜弹窗修复（`--disable-popup-blocking` + window.open 覆盖）、多重新搜（badge≤1 重搜 2 次）、图搜标题相关性护栏（不同产品不组装信封）
+- **⚠️ 部署注意**：skill 侧全部改动在 dev 分支未发版（COS 自动更新需 tag v*）；Worker 源码包已重建（VERSION=0.14.0，排除 deploy/skill 历史快照）。验证命令见「测试」表（新增 test_attribute_fill_v013 / test_audit_a_fixes / integration_attribute_fill_v013）
 
 ## 最近更新（v0.12.0 — 余额鉴权修正 + win32 cloud_probe 修复 + 自动更新上线）
 
