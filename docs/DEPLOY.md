@@ -246,6 +246,35 @@ cd /opt/ozon-worker/deploy
 bash update.sh
 ```
 
+### Skill 发布与分发（v0.18.0 起）
+
+正常发布：打 tag 即自动完成「构建 4 平台包 → 上传 GitHub Release → 直传 COS + manifest」（`build-skill.yml` 内完成，不再依赖 release 事件/轮询）。
+
+```bash
+# 1. 更新 VERSION + CHANGELOG 并提交
+# 2. 打 tag 并推送（触发 build-skill：4 平台 Cython 编译约 20-30 分钟）
+git tag v0.18.0
+git push origin v0.18.0
+
+# 3. 验证 COS 分发（manifest 版本应等于 VERSION，包可下载且 sha256 一致）
+curl -s https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/ozon-skill/manifest.json
+curl -sI https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/ozon-skill/pounding-ozon-probe-v0.18.0.tar.gz
+```
+
+手动兜底分发（仅用于补发已存在 Release 的旧版本；正常发布无需使用）：
+
+```bash
+gh workflow run skill-distribute.yml -f tag=v0.17.0
+```
+
+常见故障排查：
+
+| 现象 | 处置 |
+|------|------|
+| COS manifest 版本落后于 Release | 检查 build-skill 的「Upload package and manifest to COS」是否失败；修复后重跑该 workflow（workflow_dispatch 选对应 tag） |
+| 跨境上传超时/慢 | 上传自带 3 次重试 + 60 分钟上限；仍失败可用 `gh workflow run skill-distribute.yml -f tag=<ver>` 兜底 |
+| 用户报缺 cloud_probe.pyd / 版本过旧 | 用户在用 v0.12.0 之前的旧包：让用户下载最新包或运行 `python3.12 bootstrap_update.py`（见 SKILL.md「更新与旧包升级」） |
+
 ### 查看日志
 
 ```bash
