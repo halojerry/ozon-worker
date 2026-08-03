@@ -18,5 +18,13 @@ fi
 blocked=$(git diff --cached --name-only --diff-filter=A | grep -E '\.env$|\.pem$|credentials\.json$|secret|settings\.json$|stores\.json$' || true)
 [ -n "$blocked" ] && echo "⛔ 禁止提交密钥文件: $blocked" && FAILED=1
 
+# 3. 禁止新增构建产物/中间产物（.c 中间产物、tar.gz/zip、_native 二进制）
+blocked_artifacts=$(git diff --cached --name-only --diff-filter=A | grep -E '\.c$|\.tar\.gz$|\.zip$|auth_cache\.json$|/_native/' || true)
+[ -n "$blocked_artifacts" ] && echo "⛔ 禁止提交构建产物/中间产物: $blocked_artifacts" && FAILED=1
+
+# 4. 禁止新增 skill/data 运行时数据（*.example 模板豁免）
+blocked_runtime=$(git diff --cached --name-only --diff-filter=A | grep -E '^skill/data/' | grep -v '\.example$' || true)
+[ -n "$blocked_runtime" ] && echo "⛔ 禁止提交 skill/data 运行时数据: $blocked_runtime" && FAILED=1
+
 [ $FAILED -ne 0 ] && echo "❌ Pre-commit 失败。bash scripts/ci.sh --quick" && exit 1
 echo "✅ Pre-commit 通过"
