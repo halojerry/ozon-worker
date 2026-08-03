@@ -1671,6 +1671,12 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
 
             # 跳过Ozon禁止编辑的属性
             SKIP_ATTR_IDS: set = {23536}  # 23536: код маркировки, Ozon自动设置
+            # ⚠️ v0.16: 海关编码属性（ТН ВЭД 等）revalidate 重传时也跳过——平台/税费系统自动关联
+            try:
+                from utils.attribute_utils import CUSTOMS_ATTR_IDS
+                SKIP_ATTR_IDS.update(CUSTOMS_ATTR_IDS)
+            except ImportError:
+                pass
             # 需要翻译为俄语的属性ID（含23171标签，Ozon要求标签为俄语）
             TRANSLATE_ATTR_IDS: set = {4191, 4180, 4384, 4389, 23171}
             # ⚠️ 9048不放入TRANSLATE_ATTR_IDS！prepare_ozon_upload_node已经翻译过了，
