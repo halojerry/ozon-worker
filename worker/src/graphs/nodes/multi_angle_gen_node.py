@@ -15,6 +15,7 @@ from utils.image_quality_evaluator import evaluate_image_quality  # ✅ 关键�
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.mxou_api import clean_title_for_image_prompt
+from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,8 @@ def multi_angle_gen_node(state: MultiAngleInput, config: RunnableConfig, runtime
     
     # 构建生图提示词（中文）
     title = clean_title_for_image_prompt(draft.get("title", ""))
-    prompt = f"产品：{title}。生成该产品的多角度实物展示图。严格要求：纯白背景(#FFFFFF)、纯产品摄影、展示产品正面/侧面/背面不同角度、高清细节清晰、无任何文字/标签/参数/logo、无水印、非信息图/非营销海报、专业电商产品摄影风格。"
+    # ⚠️ v0.15: 提示词外置 config/image_prompts.json（热加载，改文件即生效，无需重建镜像）
+    prompt = get_image_prompt("multi_angle", title=title)
     
     try:
         # 构建参考图列表

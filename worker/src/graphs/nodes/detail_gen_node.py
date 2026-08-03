@@ -11,6 +11,7 @@ from runtime.context import Context
 from graphs.state_image_gen import DetailImageInput, DetailImageOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
+from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,8 @@ def detail_gen_node(state: DetailImageInput, config: RunnableConfig, runtime: Ru
     if not draft or not token:
         return DetailImageOutput(detail_image=None)
     
-    prompt = f"生成产品电商详情展示图。要求：清晰展示产品细节和材质，高清晰度，适合俄罗斯电商平台展示，符合俄罗斯人民审美。"
+    # ⚠️ v0.15: 提示词外置 config/image_prompts.json（热加载，改文件即生效，无需重建镜像）
+    prompt = get_image_prompt("detail")
     
     # 构建参考图列表：使用Phase1的图片作为参考（内联逻辑）
     ref_images: List[str] = []

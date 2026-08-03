@@ -12,6 +12,7 @@ from graphs.state_image_gen import MainImageInput, MainImageOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.mxou_api import clean_title_for_image_prompt
+from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,8 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
         return MainImageOutput(main_image=None)
     
     title = clean_title_for_image_prompt(draft.get("title", ""))
-    prompt = f"产品：{title}。生成该产品的电商营销主图。要求：创意营销风格、可包含场景化背景、突出产品卖点、适合Ozon平台商品卡首图展示、高清细节、无其他品牌logo/水印、适合俄罗斯电商平台展示、符合俄罗斯人民审美。"
+    # ⚠️ v0.15: 提示词外置 config/image_prompts.json（热加载，改文件即生效，无需重建镜像）
+    prompt = get_image_prompt("main", title=title)
 
     try:
         # ✅ 调用统一mxou API（正确参数: images/aspectRatio/replyType）

@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.15.0] - 2026-08-03
+
+> 生图提示词外置配置 + 热加载：调提示词不再需要重新部署 Worker，只改配置文件即可。
+
+### 生图提示词配置文件化（热加载）
+
+- **新增 `worker/config/image_prompts.json`**：10 个生图节点（main/white_bg/multi_angle/scene×3/comparison/detail/social_proof/variant_white_bg）的中文提示词全部外置，与 v0.14 硬编码**逐字一致**（保持中文版，不换英文）
+- **新增 `worker/src/utils/image_prompts.py`**：`get_image_prompt(key, **kwargs)` — 每次现读磁盘（无缓存）→ 改文件下一次生图即生效；文件缺失/JSON 损坏/渲染失败 → 回退模块级默认提示词，绝不抛异常阻断生图节点
+- **10 个生图节点改造**：删硬编码 prompt 字符串，改调 `get_image_prompt`（Jinja2 模板，占位符 `{{title}}`/`{{scene_context}}`），其余逻辑零改动
+- **`deploy/docker-compose.yml`**：worker 服务新增 `../worker/config:/app/config:ro` bind mount → 宿主机改任何 config JSON（含 LLM cfg）无需重建镜像/重启容器，下一次调用自动生效
+
+### 运维方式变化
+
+- **调生图提示词**：`vim ../worker/config/image_prompts.json` → 保存即生效（无需任何操作）
+- 注：config 目录 bind mount 后，`docker compose build` 的 `COPY config/` 层不再影响运行时（宿主机文件覆盖）
+
 ## [0.14.0] - 2026-08-03
 
 > 8·26 审计遗留修复四批全量实施（PRD: `docs/PRD-audit-fixes-20260803.md`，31 项验证 27 属实 + 4 部分属实）。
