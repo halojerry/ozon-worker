@@ -104,8 +104,8 @@ jobs:
           UPLOADED=0
           for attempt in 1 2 3; do
             echo "⏳ COS 上传尝试 $attempt/3: ${PKG} + manifest.json"
-            if coscli_cmd cp "dist/${PKG}" "cos://${COS_BUCKET}/ozon-skill/${PKG}" \
-               && coscli_cmd cp "manifest.json" "cos://${COS_BUCKET}/ozon-skill/manifest.json"; then
+            if timeout 600 coscli_cmd cp "dist/${PKG}" "cos://${COS_BUCKET}/ozon-skill/${PKG}" \
+               && timeout 600 coscli_cmd cp "manifest.json" "cos://${COS_BUCKET}/ozon-skill/manifest.json"; then
               UPLOADED=1
               break
             fi
