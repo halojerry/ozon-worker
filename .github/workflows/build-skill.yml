@@ -206,8 +206,10 @@ jobs:
           UPLOADED=0
           for attempt in 1 2 3; do
             echo "⏳ COS 上传尝试 $attempt/3: ${PKG} + manifest.json"
-            if timeout 600 bash -c 'c(){ ./coscli "$@" -e "cos.${COS_REGION}.myqcloud.com" -i "$COS_SECRET_ID" -k "$COS_SECRET_KEY" --init-skip=true --disable-log=true; }; c cp "$1" "cos://${COS_BUCKET}/ozon-skill/$1"' _ "${PKG}" \
-               && timeout 600 bash -c 'c(){ ./coscli "$@" -e "cos.${COS_REGION}.myqcloud.com" -i "$COS_SECRET_ID" -k "$COS_SECRET_KEY" --init-skip=true --disable-log=true; }; c cp "$1" "cos://${COS_BUCKET}/ozon-skill/$1"' _ "manifest.json"; then
+            # ⚠️ v0.20.0: COS 全球加速域名（cos.accelerate.myqcloud.com）——
+            # 跨境上传直连广州节点极慢（实测挂 8 小时），加速域名显著提速。
+            if timeout 600 bash -c 'c(){ ./coscli "$@" -e "cos.accelerate.myqcloud.com" -i "$COS_SECRET_ID" -k "$COS_SECRET_KEY" --init-skip=true --disable-log=true; }; c cp "$1" "cos://${COS_BUCKET}/ozon-skill/$1"' _ "${PKG}" \
+               && timeout 600 bash -c 'c(){ ./coscli "$@" -e "cos.accelerate.myqcloud.com" -i "$COS_SECRET_ID" -k "$COS_SECRET_KEY" --init-skip=true --disable-log=true; }; c cp "$1" "cos://${COS_BUCKET}/ozon-skill/$1"' _ "manifest.json"; then
               UPLOADED=1
               break
             fi
