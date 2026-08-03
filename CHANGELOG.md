@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.17.0] - 2026-08-03
+
+> v0.12.0 之后首个 skill 统一发版：补发 v0.12.0 遗漏的 skill 修复，并验证「tag → build-skill → release → COS 分发 → 自动更新」全链路。worker 侧 v0.13~v0.16 改动均已含在本次 tag（详见下方各自条目）。
+
+### Skill 修复（v0.12.0 后累积，本次随包发布）
+
+- **E4 裸 CDP 统一封装**（`b78fe64`）：4 处手写 websocket/CDP 全部收敛到 `cdp_client.py`，后续不再允许裸 `websocket.create_connection`
+- **图搜弹窗双保险**（`400ce69`/`8231639`）：Chrome 启动加 `--disable-popup-blocking` + JS 层 `window.open` 覆盖，1688 图搜不再需要手动放行弹窗；另加多重新搜机制
+- **图搜标题相关性护栏**（`93ddd1a`）：badge/标题相关性弱匹配不再组装信封（防不同产品跟卖错款）
+- **COS 分发竞态修复**（`b9a0310`）：skill-distribute 轮询等待 build-skill 包就位，tag 推送不再出现「Release 已发但包没传上去」
+
+### 发版链路（本次验证）
+
+- 端到端验证自动更新：v0.12.0 老包 → `skill update` → v0.17.0（COS manifest 指向最新包，sha256 校验）
+
 ## [0.16.0] - 2026-08-03
 
 > 属性填充增强：类目属性尽可能填掉 + 中文零容忍（标准俄语）+ 海关编码跳过。随 v0.15.0（生图提示词外置）一并部署。
