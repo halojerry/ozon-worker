@@ -76,14 +76,14 @@ def multi_angle_gen_node(state: MultiAngleInput, config: RunnableConfig, runtime
                 logger.info(f"Using {len(ref_images)} reference images (preprocessed to S3 URLs)")
         
         # ✅ 调用统一mxou API（正确参数: images/aspectRatio/replyType）
-        logger.info("正在调用图片生成API...（timeout=90s）")
+        logger.info("正在调用图片生成API...（timeout=180s）")
         image_url = call_mxou_image_api(
             token=token,
             prompt=prompt,
             ref_images=ref_images if ref_images else None,
             aspect_ratio="3:4",
-            timeout=90,
-            max_retries=3
+            timeout=180,
+            max_retries=2
         )
         
         if image_url and isinstance(image_url, str) and image_url:

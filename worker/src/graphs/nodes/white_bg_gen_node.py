@@ -86,14 +86,14 @@ def white_bg_gen_node(state: WhiteBgInput, config: RunnableConfig, runtime: Runt
                 progress.log_node_action(f"使用{len(ref_images)}张参考图（已预处理为S3 URL）")
         
         # ✅ 调用统一mxou API（正确参数: images/aspectRatio/replyType）
-        progress.log_node_action("正在调用图片生成API...（timeout=90s）")
+        progress.log_node_action("正在调用图片生成API...（timeout=180s）")
         image_url = call_mxou_image_api(
             token=token,
             prompt=prompt,
             ref_images=ref_images if ref_images else None,
             aspect_ratio="3:4",
-            timeout=90,
-            max_retries=3
+            timeout=180,
+            max_retries=2
         )
         
         if image_url and isinstance(image_url, str) and image_url:
