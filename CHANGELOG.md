@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.18.0] - 2026-08-03
+
+### Changed
+
+- **Skill 自动更新升级为默认自动应用**：每次命令检测到新版本即自动备份 → 覆盖 → 失败回滚（`data/` 全程保留）；`SKILL_AUTO_UPDATE=0` 可退回「提示 + 手动 `skill update`」；源码开发目录（存在 compile.py）仍拒绝自动更新
+- **分发链路重构（build-skill 直传 COS）**：打 tag 后 build-skill 产包 → 直传 COS + manifest → sha256/公网一致性校验，不再依赖 release 事件与 40 分钟轮询（实测旧链路 4 次运行全失败、release 事件零运行记录）；skill-distribute.yml 降级为手动兜底（`gh workflow run skill-distribute.yml -f tag=<ver>`）
+- **仓库治理**：从 git 跟踪中移除运行时数据（skill/data 297 个文件）、部署包（4 个 tar.gz/zip）、Cython 中间产物（`*.c`）；补 `.gitignore` + pre-commit 阻塞规则 + CI repo-hygiene 检查防回归
+
+### Added
+
+- **旧包一键升级 bootstrap**：`scripts/bootstrap_update.py`（随包分发 + Release 附加资产），解决 v0.12.0 之前旧包无 updater、永远收不到更新的问题；cli 在缺 `scripts.cloud_probe`（旧包）时给出明确升级提示
+- **updater 单测**：`skill/tests/test_updater.py`（11 断言，mock 网络 + 临时目录，无 pytest 环境也可独立运行）
+
+### Fixed
+
+- v0.17.0 COS 分发失败（上传 15 分钟超时）导致 v0.13~v0.17 修复未触达用户——v0.17.0 已补发到 COS，本版本起发布自动完成
+
 ## [0.17.0] - 2026-08-03
 
 > v0.12.0 之后首个 skill 统一发版：补发 v0.12.0 遗漏的 skill 修复，并验证「tag → build-skill → release → COS 分发 → 自动更新」全链路。worker 侧 v0.13~v0.16 改动均已含在本次 tag（详见下方各自条目）。
