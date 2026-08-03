@@ -741,6 +741,28 @@ _RU_ZH_PRODUCT_WORDS: dict[str, list[str]] = {
     "наушник": ["耳机"],
     "чехол-книжк": ["翻盖", "壳"],
     "зарядк": ["充电"],
+    # 五金工具（v0.19：棘轮扳手误拒补充）
+    "ключ": ["扳手", "钥匙"],
+    "трещоточн": ["棘轮"],
+    "шарнирн": ["活动头", "万向", "铰"],
+    "комбинированн": ["两用", "梅花", "组合"],
+    "гаечн": ["扳手"],
+    "отвёртк": ["螺丝刀", "起子"],
+    "отвертк": ["螺丝刀", "起子"],
+    "молоток": ["锤"],
+    "плоскогубц": ["钳", "尖嘴"],
+    "пассатиж": ["钳"],
+    "дрель": ["电钻", "钻"],
+    "шуруповерт": ["电动螺丝刀", "起子机", "电钻"],
+    "пил": ["锯"],
+    "стамеск": ["凿"],
+    # 健身器材（v0.19：甩脂机误拒补充）
+    "виброплатформ": ["甩脂机", "抖抖机", "律动机"],
+    "вибро": ["甩脂", "抖抖", "震动"],
+    "похудени": ["减肥", "瘦身", "减脂"],
+    "музык": ["音乐"],
+    "фитнес": ["健身"],
+    "тренажер": ["健身", "器械", "甩脂", "踏步"],
 }
 
 
@@ -763,9 +785,12 @@ def _ru_zh_title_overlap(ozon_title: str, cn_title: str) -> float:
 
 def _badge_effectiveness(badge_str: str) -> float:
     """badge 匹配有效性 0-1（区别于 _get_badge_score 的原始数值分）：
-    '符合N/M个条件' → N/M；'匹配度xx%' → xx/100；'精准/较高' → 0.9/0.7。"""
+    '全部符合'（matchBadgeFull）→ 1.0；'符合N/M个条件' → N/M；
+    '匹配度xx%' → xx/100；'精准/较高' → 0.9/0.7。"""
     if not badge_str:
         return 0.0
+    if "全部符合" in badge_str or "满足所有" in badge_str or "符合全部" in badge_str:
+        return 1.0
     m = re.search(r"符合\s*(\d+)\s*/\s*(\d+)\s*个条件", badge_str)
     if m:
         n, total = int(m.group(1)), int(m.group(2))
@@ -837,6 +862,27 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str) -> dict[str
     _bt = best.get("title", "") or ""
     if _bt and re.search(r"[\u4e00-\u9fff]", _bt):
         _conf_of_best = _ru_zh_title_overlap(ozon_title, _bt) if is_ru_title else verify_1688_match(ozon_title, _bt).get("confidence", 0.0)
+
+    # ✅ v0.19: 1688 官方"全部符合"（matchBadgeFull）直接放行——最强信号，
+    # 不再被标题相关性否决（修复棘轮扳手/创可贴卷误拒）
+    if badge_eff_of_best >= 1.0:
+        logger.info("图搜徽标全部符合（matchBadgeFull）直接放行: %s", best.get("title", "")[:40])
+        return best
+
+    # ✅ v0.19: 无徽标降级（未登录 1688 / 页面未渲染徽标）：整页无任何有效徽标时，
+    # 按标题相关性取最优，conf ≥ 0.4 即放行（用户确认可接受牺牲一点准确度）
+    any_badge = any(
+        _badge_effectiveness(r.get("badge", "") or "") > 0 for r in results
+    )
+    if not any_badge:
+        if _conf_of_best >= 0.4:
+            logger.info("图搜无徽标（badge-less），标题相关性 conf=%.2f 放行: %s",
+                        _conf_of_best, best.get("title", "")[:40])
+            return best
+        logger.debug("图搜无徽标且标题相关性弱（conf=%.2f），拒绝: %s",
+                     _conf_of_best, best.get("title", "")[:40])
+        return None
+
     if badge_eff_of_best <= 0 and best_score < 15:
         logger.debug("图搜候选相关性过低（badge=%s, score=%.1f），拒绝匹配: %s",
                      best.get("badge", ""), best_score, best.get("title", "")[:40])
