@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.20.0] - 2026-08-04
+
+> 跟卖 0 图根因修复（A）：真实测试发现甩脂机类商品「图生成成功但卡片 0 图」——
+> 根因是类目类型无效（品牌页被当类目）导致 Ozon 整包拒绝 import，图片根本没机会应用。
+
+### Fixed
+
+- **Skill 类目路径净化**：`category_path` 只拼 `/category/` 类目 crumb（排除品牌页
+  Luxhommè 类），worker 的 pg_trgm 提示词不再取到品牌段
+- **Worker 跟卖类目全链路修复**：
+  - `follow_sell_import_node`：类目解析失败**绝不保留原始值**（品牌页 ID 不再被当有效类目）
+  - `assemble_ozon_product_node`：数字类目必须通过类目树校验才采用；类目不可用时
+    **直接走跟卖组装（省略类目，UPDATE 由 Ozon 保留原卡片类目）**，不再掉进 1688
+    类目匹配（曾匹配出无效 dc/type 对 17028706/971301594 被整包拒）
+  - `prepare_ozon_upload_node`：跟卖 UPDATE 类目为空时**省略字段**（不传 0）
+- 单测：`test_ozon_category_fix.py` 新增品牌排除/路径净化用例（7/7 通过）
+
+### Pending（后续版本）
+
+- B：`warning_all_image_failed` 自动重传一次（直上偶发拉图失败自愈）
+- C：ozon_status 用真实 import task_id 轮询 + pending 超时上限
+- D：Ozon 风控限速 + 跟卖 import-by-sku 真假成功判定
+
 ## [0.19.2] - 2026-08-03
 
 ### Fixed

@@ -100,48 +100,56 @@ def _assemble_follow_sell(
     from utils.ozon_category_query import get_category_query
 
     query = get_category_query()
-    description_category_id = int(state.description_category_id)
-    type_id = int(state.type_id) if getattr(state, 'type_id', None) else 0
+    # ✅ v0.20 A: 空类目安全转换（跟卖 UPDATE 省略类目时）
+    description_category_id = int(state.description_category_id) \
+        if str(state.description_category_id or "").isdigit() else 0
+    type_id = int(state.type_id) \
+        if str(getattr(state, "type_id", "") or "").isdigit() else 0
     ozon_client_id = str(state.ozon_client_id or "")
     ozon_api_key = state.ozon_api_key or ""
 
     logger.info(f"🔄 跟卖组装: cat={description_category_id}/{type_id}, title={title[:60]}")
 
-    # ✅ v0.11: type_id=0 时无法获取有效属性 schema，提前阻断
+    # ✅ v0.20 A: type_id=0 时——
+    #   UPDATE（product_id 已存在）→ 省略类目，Ozon 保留原卡片类目（不阻断）
+    #   CREATE（无 product_id）→ 阻断（无类目无法建卡）
     if type_id <= 0:
-        logger.error(f"❌ 跟卖 type_id 无效({type_id})，无法获取属性 schema")
-        return {
-            "error_message": f"跟卖 type_id 无效: {type_id}，请检查类目解析",
-            "description_category_id": str(description_category_id),
-            "type_id": str(type_id),
-            "final_attributes": _build_hardcoded_attributes(description_category_id),
-        }
-
-    # Step 2: 获取属性 Schema（仅用于验证，不实际填写）
-    progress.log_node_action(f"跟卖 Step 2: 获取属性 Schema — cat={description_category_id}")
-    attr_schema = query.get_attribute_schema(description_category_id, type_id)
-    if attr_schema and isinstance(attr_schema, dict) and attr_schema.get("result"):
-        attr_list: list[dict[str, Any]] = attr_schema["result"]
+        if not getattr(state, "product_id", None):
+            logger.error(f"❌ 跟卖 type_id 无效({type_id})，无法获取属性 schema（CREATE 需要类目）")
+            return {
+                "error_message": f"跟卖 type_id 无效: {type_id}，请检查类目解析",
+                "description_category_id": str(description_category_id),
+                "type_id": str(type_id),
+                "final_attributes": _build_hardcoded_attributes(description_category_id),
+            }
+        logger.warning(f"⚠️ 跟卖 UPDATE 无有效类目(type_id={type_id})，"
+                       "省略类目字段，Ozon 保留原卡片类目")
     else:
-        attr_list = _fetch_attribute_schema_from_ozon(
-            ozon_client_id, ozon_api_key, description_category_id, type_id
-        )
-    logger.info(f"   属性 Schema: {len(attr_list)} 个属性")
+        # Step 2: 获取属性 Schema（仅用于验证，不实际填写）
+        progress.log_node_action(f"跟卖 Step 2: 获取属性 Schema — cat={description_category_id}")
+        attr_schema = query.get_attribute_schema(description_category_id, type_id)
+        if attr_schema and isinstance(attr_schema, dict) and attr_schema.get("result"):
+            attr_list: list[dict[str, Any]] = attr_schema["result"]
+        else:
+            attr_list = _fetch_attribute_schema_from_ozon(
+                ozon_client_id, ozon_api_key, description_category_id, type_id
+            )
+        logger.info(f"   属性 Schema: {len(attr_list)} 个属性")
 
-    # 获取俄语类目路径
-    try:
-        from storage.database.db import get_engine
-        from sqlalchemy import text
-        engine = get_engine()
-        with engine.connect() as conn:
-            row = conn.execute(text(
-                "SELECT full_path FROM category_tree_nodes "
-                "WHERE description_category_id=:cid AND type_id=:tid AND language='RU' LIMIT 1"
-            ), {"cid": description_category_id, "tid": type_id}).fetchone()
-            if row:
-                logger.info(f"   🇷🇺 俄语类目: {row[0]}")
-    except Exception:
-        pass
+        # 获取俄语类目路径
+        try:
+            from storage.database.db import get_engine
+            from sqlalchemy import text
+            engine = get_engine()
+            with engine.connect() as conn:
+                row = conn.execute(text(
+                    "SELECT full_path FROM category_tree_nodes "
+                    "WHERE description_category_id=:cid AND type_id=:tid AND language='RU' LIMIT 1"
+                ), {"cid": description_category_id, "tid": type_id}).fetchone()
+                if row:
+                    logger.info(f"   🇷🇺 俄语类目: {row[0]}")
+        except Exception:
+            pass
 
     # 定价信息
     # ⚠️ v0.14 P1-4: 不再 "1000" 兜底 —— 定价失败由 graph 层 [PRICING_FAILED] 路由阻断
@@ -287,9 +295,20 @@ def assemble_ozon_product_node(
             tp_val = str(draft_ozon_cat.get("type_id", dc_val))
             # ✅ 若是纯数字 → 直接用；若是文本 → 搜 PG 类目树找到真实 ID
             if dc_val.isdigit() and tp_val.isdigit():
-                state.description_category_id = dc_val
-                state.type_id = tp_val
-                logger.info(f"✅ 跟卖类目(来自 Skill 数字ID): dc={dc_val} type={tp_val}")
+                # ✅ v0.20 A: 数字 ID 必须通过类目树校验才采用——品牌页 ID（甩脂机
+                # Luxhommè/101029485）会被 Ozon 以"类型不属于该类目"整包拒绝，
+                # 导致图也不落卡。校验失败则保持空（prepare 省略类目，UPDATE 由
+                # Ozon 保留原卡片类目）。
+                q = get_category_query()
+                node = q.get_node_by_description_category_id(int(dc_val))
+                if node:
+                    state.description_category_id = dc_val
+                    state.type_id = tp_val
+                    logger.info(f"✅ 跟卖类目(来自 Skill 数字ID, 已校验): dc={dc_val} type={tp_val}")
+                    return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
+                else:
+                    logger.warning(f"⚠️ Skill 数字类目 {dc_val}/{tp_val} 未通过类目树校验"
+                                   "（可能是品牌页），不采用，走 1688/省略类目")
             else:
                 # 文本类目名 → pg_trgm 搜索（使用模块级导入的 get_category_query）
                 q = get_category_query()
@@ -299,11 +318,14 @@ def assemble_ozon_product_node(
                     state.description_category_id = str(best["description_category_id"])
                     state.type_id = str(best["type_id"])
                     logger.info(f"✅ 跟卖类目(来自 Skill 文本→pg_trgm): '{dc_val}' → dc={state.description_category_id} type={state.type_id} ({best['full_path']})")
+                    return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
                 else:
-                    logger.warning(f"⚠️ Skill 类目文本 '{dc_val}' 在 PG 树中未找到，回退到 1688 匹配")
-                    # Fall through to 1688 matching below
-            if state.description_category_id:
-                return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
+                    logger.warning(f"⚠️ Skill 类目文本 '{dc_val}' 在 PG 树中未找到，省略类目走 UPDATE")
+            # ✅ v0.20 A: 类目不可用（品牌页/未找到）→ 置空并直接走跟卖组装，
+            # 绝不掉进 1688 类目匹配（会匹配出无效 dc/type 对，整包被 Ozon 拒）
+            state.description_category_id = ""
+            state.type_id = ""
+            return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
 
     # 初始化查询助手
     query = get_category_query()
@@ -2327,4 +2349,3 @@ def _log_match_attempt(state, title: str, source_category: str, keywords: str,
             conn.close()
     except Exception as e:
         logger.warning(f"match_log write failed (non-fatal): {e}")
-

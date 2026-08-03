@@ -84,6 +84,22 @@ def _pick_category_from_crumbs(crumbs: list[dict]) -> dict | None:
     return valid[-1] if valid else None
 
 
+def _category_path_from_crumbs(crumbs: list[dict]) -> str:
+    """只拼类目 crumb 的路径（v0.20 A：排除品牌段）。
+
+    品牌页链接含 /brand/，不能进 category_path——worker 会用最后一段做 pg_trgm
+    提示词，品牌段（如 Luxhommè）会导致解析失败（甩脂机实锤）。
+    """
+    category_crumbs = [
+        c for c in crumbs
+        if "/category/" in str(c.get("link", "")) and c.get("text")
+    ]
+    if category_crumbs:
+        return " > ".join(c["text"] for c in category_crumbs)
+    # 兼容兜底：无 /category/ 链接时退回全部文本（旧数据）
+    return " > ".join(c["text"] for c in crumbs if c.get("text"))
+
+
 def _extract_from_json_ld(html: str) -> dict[str, Any]:
     """Extract product data from JSON-LD structured data in page source."""
     result: dict[str, Any] = {
@@ -602,7 +618,8 @@ def scrape_ozon_product_via_cdp(
                     # CRUMB_TYPE_FULL_LINK = 真实类目, 其他(品牌/搜索等) = 跳过
                     if crumbs:
                         result["category"] = " > ".join(c["text"] for c in crumbs if c["text"])
-                        category_path = result["category"]
+                        # ✅ v0.20 A: category_path 只含类目 crumb（排除品牌页）
+                        category_path = _category_path_from_crumbs(crumbs)
 
                         # ✅ v0.19.1: 只认 /category/ 链接的类目 crumb（品牌页 /brand/ 排除）
                         best = _pick_category_from_crumbs(crumbs)

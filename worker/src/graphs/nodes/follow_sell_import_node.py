@@ -76,7 +76,8 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
             dc_raw, type_raw = resolved_dc, resolved_type
         else:
             logger.warning("数字 ID 直查+pg_trgm 均失败: dc=%s type=%s", dc_fallback, type_fallback)
-            dc_raw, type_raw = dc_fallback, type_fallback
+            # ✅ v0.20 A: 解析失败绝不保留原始值（品牌页 ID 会被当有效类目上传 → Ozon 拒）
+            dc_raw, type_raw = "", ""
     elif dc_raw:
         if not language:
             language = _detect_language(dc_raw)
@@ -85,7 +86,8 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
             dc_raw, type_raw = resolved_dc, resolved_type
         else:
             logger.warning("pg_trgm 类目搜索失败: dc=%s type=%s", dc_fallback, type_fallback)
-            dc_raw, type_raw = dc_fallback, type_fallback
+            # ✅ v0.20 A: 同上，不保留无效原始类目
+            dc_raw, type_raw = "", ""
 
     # 拉取属性 schema
     client_id = state.ozon_client_id
