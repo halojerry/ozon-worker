@@ -182,6 +182,7 @@ jobs:
       # 包产出后同一 job 直接上传，带 3 次重试；失败即整体构建失败，
       # 不会出现"Release 有包但 COS 断供"的静默状态。
       - name: Install coscli
+        working-directory: skill
         run: |
           curl -L --fail --retry 3 --retry-delay 2 -o coscli \
             https://cosbrowser.cloud.tencent.com/software/coscli/coscli-linux-amd64
