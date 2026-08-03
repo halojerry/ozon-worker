@@ -169,14 +169,42 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     if type_raw and type_raw.isdigit() and int(type_raw) > 0:
         tp_id = type_raw
 
-    # ✅ v4 (B3): 类目解析完全失败 → 传播错误
+    # ✅ v0.19.1 P0: 类目缺失不再一刀切失败
+    # 1) import-by-sku 成功（product_id 已返回）→ Ozon 官方复制已带出类目/属性，
+    #    不再强制要求 dc/tp（此前官方通道被前置校验掐死——南辕北辙）
+    # 2) Fallback CREATE 才需要类目：缺失时用 1688 来源类目/标题 pg_trgm 兜底
+    #    （复用 direct 管线现成引擎）
+    import_by_sku_ok = bool(product_id)
     if not dc_id or not tp_id:
-        cat_path = ozon_cat.get("category_path", "") or ozon_cat.get("category", "")
-        logger.error("❌ 跟卖类目解析全部失败: Widget ID=%s, breadcrumb=%s", dc_fallback, cat_path or "(empty)")
-        return {
-            "error_message": f"类目解析失败: Widget ID={dc_fallback}, breadcrumb={cat_path or '(empty)'}, 三层查询均无结果",
-            "failed_stage": "follow_sell_import",
-        }
+        if not import_by_sku_ok:
+            src_path = ""
+            _src = (state.envelope or {}).get("source", {}) if state.envelope else {}
+            if isinstance(_src, dict):
+                src_path = _src.get("source_category_path", "") or ""
+            search_text = src_path.split(" > ")[-1].strip() if src_path else ""
+            if not search_text:
+                search_text = draft.get("source_category", "") or draft.get("title", "") or ""
+            if search_text:
+                try:
+                    _r_dc, _r_tp = _resolve_category(search_text, search_text, language="ZH_HANS")
+                    if _r_dc and _r_tp:
+                        dc_id, tp_id = _r_dc, _r_tp
+                        logger.info("✅ 1688 来源类目兜底成功: '%s' → %s/%s", search_text, dc_id, tp_id)
+                except Exception as _e:
+                    logger.warning("1688 类目兜底异常: %s", _e)
+        if not dc_id or not tp_id:
+            cat_path = ozon_cat.get("category_path", "") or ozon_cat.get("category", "")
+            if import_by_sku_ok:
+                logger.warning("⚠️ 跟卖无类目但 import-by-sku 已成功（%s），"
+                               "继续走 UPDATE（类目由官方复制带出）", product_id)
+            else:
+                logger.error("❌ 跟卖类目解析全部失败（Fallback CREATE 需要类目）: "
+                             "Widget ID=%s, breadcrumb=%s", dc_fallback, cat_path or "(empty)")
+                return {
+                    "error_message": f"类目解析失败: Widget ID={dc_fallback}, "
+                                     f"breadcrumb={cat_path or '(empty)'}, 1688 兜底也无结果",
+                    "failed_stage": "follow_sell_import",
+                }
 
     if not ozon_title:
         ozon_title = draft.get("ozon_title", "") or draft.get("title", "") or "Товар"
