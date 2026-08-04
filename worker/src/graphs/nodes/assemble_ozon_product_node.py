@@ -609,7 +609,10 @@ def assemble_ozon_product_node(
     match_confidence = 0.5   # 默认中等置信度
 
     # ✅ v4: L0 学习缓存查找（在候选选择前，命中则跳过 overlap 验证）
-    l0_hit = _match_category_layered(query, source_category, source_keywords, keywords, candidates, leaf_name) if source_category else None
+    l0_hit = _match_category_layered(
+        query, source_category, source_keywords, keywords, candidates, leaf_name,
+        source_category_id=draft.get("source_category_id"),
+    ) if source_category else None
 
     # ✅ v0.21: L0 映射必须与 L1 高分候选一致，否则忽略（防旧脏数据固化错类目）
     if l0_hit and not _l0_consistent(l0_hit, candidates):
@@ -2426,13 +2429,18 @@ def _llm_rank_categories(
 def _match_category_layered(
     query, source_category: str, source_keywords: str, keywords: str,
     candidates: list, leaf_name: str,
+    source_category_id=None,
 ) -> dict | None:
     """L0: 学习缓存查找 → 高置信命中直接返回；否则返回 None"""
     if not source_category or not leaf_name:
         return None
     try:
         from utils.local_db_manager import LocalDBManager as _LDB
-        mappings = _LDB().get_category_mapping_by_leaf(leaf_name)
+        _ldb = _LDB()
+        # ✅ v0.25 T1: 1688 类目数字 ID 优先（跨店铺稳定），其次末级名
+        mappings = _ldb.get_category_mapping_by_source_id(int(source_category_id)) if source_category_id else None
+        if not mappings:
+            mappings = _ldb.get_category_mapping_by_leaf(leaf_name)
         logger.info(f"L0 lookup: leaf='{leaf_name}' → {len(mappings or [])} results")
         if not mappings:
             logger.info(f"L0 miss: no mapping for '{leaf_name}'")

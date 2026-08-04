@@ -421,12 +421,39 @@ class LocalDBManager:
         finally:
             session.close()
 
+    def get_category_mapping_by_source_id(self, source_category_id: int) -> List[Dict[str, Any]]:
+        """按 1688 类目数字 ID 查学习映射（v0.25 T1，跨店铺稳定）。"""
+        session = get_session()
+        try:
+            rows = session.execute(
+                select(CategoryMapping)
+                .where(and_(CategoryMapping.source_category_id == int(source_category_id),
+                            CategoryMapping.is_active == True))
+                .order_by(CategoryMapping.success_count.desc(), CategoryMapping.last_used_at.desc())
+            ).scalars().all()
+            return [{
+                "id": r.id, "source_category_id": r.source_category_id,
+                "source_category_leaf": r.source_category_leaf,
+                "source_category_path": r.source_category_path,
+                "source_keywords": r.source_keywords,
+                "description_category_id": r.description_category_id,
+                "type_id": r.type_id,
+                "category_path_zh": r.category_path_zh,
+                "category_path_ru": r.category_path_ru,
+                "confidence": r.confidence,
+                "success_count": r.success_count, "fail_count": r.fail_count,
+                "source": r.source, "is_active": r.is_active,
+            } for r in rows]
+        finally:
+            session.close()
+
     def add_category_mapping(self, source_category_leaf: str, description_category_id: int,
                              type_id: int, source_category_path: Optional[str] = None,
                              source_keywords: Optional[List[str]] = None,
                              category_path_zh: Optional[str] = None,
                              category_path_ru: Optional[str] = None,
-                             confidence: float = 0.7, source: str = "llm") -> None:
+                             confidence: float = 0.7, source: str = "llm",
+                             source_category_id: Optional[int] = None) -> None:
         import datetime as _dt
         session = get_session()
         try:
@@ -440,6 +467,8 @@ class LocalDBManager:
             if existing:
                 existing.success_count = (existing.success_count or 0) + 1
                 existing.last_used_at = _dt.datetime.now(_dt.timezone.utc)
+                if source_category_id:
+                    existing.source_category_id = int(source_category_id)
                 if source_category_path: existing.source_category_path = source_category_path
                 if source_keywords: existing.source_keywords = source_keywords
                 if category_path_zh: existing.category_path_zh = category_path_zh
@@ -449,6 +478,7 @@ class LocalDBManager:
             else:
                 session.add(CategoryMapping(
                     source_category_leaf=source_category_leaf,
+                    source_category_id=int(source_category_id) if source_category_id else None,
                     source_category_path=source_category_path,
                     source_keywords=source_keywords or [],
                     description_category_id=description_category_id,

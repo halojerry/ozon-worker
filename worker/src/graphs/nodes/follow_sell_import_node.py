@@ -225,6 +225,19 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
             if not search_text:
                 search_text = draft.get("source_category", "") or draft.get("title", "") or ""
             if search_text:
+                # ✅ v0.25 T1: 先查 1688→Ozon 类目学习表（数字 ID 优先）
+                try:
+                    from utils.category_mapping_learn import lookup_mapping
+                    _sid = draft.get("source_category_id") or _src.get("category_id")
+                    _mapped = lookup_mapping(
+                        source_category_id=int(_sid) if _sid else None,
+                        leaf_name=search_text,
+                    )
+                    if _mapped:
+                        dc_id, tp_id = _mapped["dc"], _mapped["tp"]
+                        logger.info("✅ 类目映射学习命中: '%s' → %s/%s", search_text, dc_id, tp_id)
+                except Exception as _me:
+                    logger.warning("类目映射查询失败（继续 pg_trgm）: %s", _me)
                 try:
                     _r_dc, _r_tp = _resolve_category(search_text, search_text, language="ZH_HANS")
                     if _r_dc and _r_tp:
