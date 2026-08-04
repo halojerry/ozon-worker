@@ -73,6 +73,8 @@ class GlobalState(BaseModel):
     attributes_schema: List[Dict[str, Any]] = Field(default_factory=list, description="属性schema")
     llm_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="LLM生成的属性")
     final_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="最终属性列表")
+    # ✅ v0.22: 跟卖类目缺失标记（import-by-sku 成功但类目解析失败时打标，不阻断）
+    category_missing: bool = Field(default=False, description="跟卖类目缺失标记")
     # ⚠️ v0.14 P0-3: 补全字段——旧版缺失导致 assemble/attributes_fetch 写入被图状态合并丢弃，
     # 下游 prepare 的 _get_color_from_dictionary（动态字典选色）读到恒为空 → 退化为静态映射死代码
     dictionary_values: Dict[str, List[Dict[str, Any]]] = Field(
