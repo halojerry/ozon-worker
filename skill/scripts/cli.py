@@ -932,6 +932,97 @@ def cmd_discover(args: argparse.Namespace) -> int:
     return 0
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 管线 E：趋势驱动选品（v0.25 S3）
+# ═══════════════════════════════════════════════════════════════════════════
+def cmd_trend(args: argparse.Namespace) -> int:
+    """趋势驱动选品：web 趋势 → AI 细分关键词 → 1688 AK 搜索（满 3 即停）→ 展示。"""
+    from scripts.lib.config_store import get_mxou_token
+    from scripts.lib.trend_selection import (
+        collect_market_info, summarize_keywords, search_by_keywords, render_results,
+    )
+    token = get_mxou_token() or ""
+    if not token:
+        _out({"error": "缺少 MXOU_TOKEN，请先 set_token"})
+        return 1
+    searxng = os.environ.get("SEARXNG_URL", "")
+    info = collect_market_info(args.category, args.market_info, searxng)
+    if "（未提供市场信息" in info:
+        print("⚠️ 未提供市场信息（--market-info 或 SEARXNG_URL），AI 将基于品类名总结，建议先用 web_search 收集趋势结果传入。", flush=True)
+    try:
+        keywords = summarize_keywords(token, info, args.category)
+    except ValueError as e:
+        _out({"error": str(e)})
+        return 1
+    if not keywords:
+        _out({"error": "AI 未提炼出有效关键词"})
+        return 1
+    filters = {}
+    for k in ("max_price", "max_moq", "min_ship_rate_48h", "min_sales"):
+        v = getattr(args, k, None)
+        if v is not None:
+            filters[k] = v
+    results = search_by_keywords(keywords, max_results=3, **filters)
+    if args.with_skus:
+        _attach_skus_via_cdp(results)
+    print(render_results(results), flush=True)
+    if args.export:
+        _export_trend(results, args.export, args.output)
+    return 0
+
+
+def _attach_skus_via_cdp(results: list) -> None:
+    """用 CDP 详情抓取补 SKU 明细（失败跳过，不阻断）。"""
+    from scripts.cloud_probe import build_graph_envelope
+    for r in results:
+        url = (r.get("item") or {}).get("detail_url") or ""
+        if not url:
+            continue
+        import re as _re
+        m = _re.search(r"/(\d+)\.html", url)
+        if not m:
+            continue
+        try:
+            env = build_graph_envelope(item_id=m.group(1), detail_url=url)
+            variants = ((env or {}).get("draft") or {}).get("variants") or []
+            skus = []
+            for v in variants:
+                try:
+                    price = float(v.get("price") or 0)
+                except (TypeError, ValueError):
+                    price = 0
+                skus.append({
+                    "name": str(v.get("name") or v.get("spec") or ""),
+                    "price": price,
+                    "suggestedPrice": round(price * 3, 2),
+                    "stock": v.get("stock", ""),
+                })
+            if skus:
+                r["item"]["skus"] = skus
+        except Exception as e:
+            print(f"⚠️ SKU 抓取失败（跳过）: {e}", flush=True)
+
+
+def _export_trend(results: list, fmt: str, output: str) -> None:
+    import csv as _csv
+    rows = [{
+        "keyword": r["keyword"], "title": r["item"].get("title", ""),
+        "price": r["item"].get("price", ""), "moq": r["item"].get("moq", ""),
+        "ship_rate_48h": r["item"].get("ship_rate_48h", ""),
+        "sales": r["item"].get("sales", ""), "supplier": r["item"].get("supplier", ""),
+        "detail_url": r["item"].get("detail_url", ""),
+    } for r in results]
+    base = output or f"data/discovery/trend_{int(time.time())}"
+    if fmt in ("json", "both"):
+        with open(f"{base}.json", "w", encoding="utf-8") as f:
+            json.dump(results, f, ensure_ascii=False, indent=2)
+    if fmt in ("csv", "both"):
+        with open(f"{base}.csv", "w", encoding="utf-8-sig", newline="") as f:
+            w = _csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else [])
+            w.writeheader()
+            w.writerows(rows)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="pounding-ozon-probe — 1688 数据采集 + GraphInput 组装")
     sub = parser.add_subparsers(dest="command", help="命令")
@@ -1027,6 +1118,19 @@ def main() -> int:
     dp.add_argument("--output", default="", help="导出文件路径")
     dp.add_argument("--auto-submit", action="store_true", help="确认后提交 profitable 产品到 Worker")
     dp.set_defaults(func=cmd_discover)
+
+    # ── 管线 E：趋势驱动选品（web_search/SearXNG → AI 关键词 → AK 搜索）──
+    tr = sub.add_parser("trend", help="趋势驱动选品：web 趋势 → AI 细分关键词 → 1688 AK 搜索")
+    tr.add_argument("--category", required=True, help="大品类，如 玩具/家居/3C数码")
+    tr.add_argument("--market-info", default="", help="web_search 结果文本文件（推荐）；不传则用 SEARXNG_URL")
+    tr.add_argument("--max-price", type=float, default=None, help="最高单价（元）")
+    tr.add_argument("--max-moq", type=int, default=None, help="最大起批量（件）")
+    tr.add_argument("--min-ship-rate-48h", type=float, default=None, help="最低48H发货率（%%）")
+    tr.add_argument("--min-sales", type=int, default=None, help="最低年销量（件）")
+    tr.add_argument("--with-skus", action="store_true", help="用 CDP 抓 Top 商品 SKU 明细")
+    tr.add_argument("--export", choices=["json", "csv", "both"], default="", help="导出格式")
+    tr.add_argument("--output", default="", help="导出文件路径")
+    tr.set_defaults(func=cmd_trend)
 
     # ── 自动更新 ──
     up = sub.add_parser("update", help="检查并应用 Skill 自动更新")
