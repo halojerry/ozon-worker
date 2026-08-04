@@ -869,13 +869,13 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str) -> dict[str
         logger.info("图搜徽标全部符合（matchBadgeFull）直接放行: %s", best.get("title", "")[:40])
         return best
 
-    # ✅ v0.19: 无徽标降级（未登录 1688 / 页面未渲染徽标）：整页无任何有效徽标时，
-    # 按标题相关性取最优，conf ≥ 0.4 即放行（用户确认可接受牺牲一点准确度）
+    # ✅ v0.19/v0.22: 无徽标降级（未登录 1688 / 页面未渲染徽标）：整页无任何有效徽标时，
+    # 按标题相关性取最优，conf ≥ 0.3 即放行（用户确认可接受牺牲一点准确度）
     any_badge = any(
         _badge_effectiveness(r.get("badge", "") or "") > 0 for r in results
     )
     if not any_badge:
-        if _conf_of_best >= 0.4:
+        if _conf_of_best >= 0.3:
             logger.info("图搜无徽标（badge-less），标题相关性 conf=%.2f 放行: %s",
                         _conf_of_best, best.get("title", "")[:40])
             return best

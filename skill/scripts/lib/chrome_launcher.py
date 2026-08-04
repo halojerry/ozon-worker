@@ -133,28 +133,34 @@ def _find_chrome_processes() -> list[dict]:
 
     try:
         if system == "Windows":
-            result = subprocess.run(
-                ["wmic", "process", "where", "name='chrome.exe'", "get",
-                 "ProcessId,CommandLine", "/format:list"],
-                capture_output=True, text=True, timeout=5,
+            # ⚠️ v0.22: Win11 弃用 wmic → 改用 PowerShell Get-CimInstance。
+            # 旧 wmic 在 Win11 返回空 → 误判"无 Chrome" → 每次启动新实例（频繁开新窗口）。
+            ps_script = (
+                "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+                "Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
             )
-            # Parse wmic output
-            pid, cmd = None, ""
-            for line in result.stdout.split("\n"):
-                line = line.strip()
-                if line.startswith("CommandLine="):
-                    cmd = line[len("CommandLine="):]
-                elif line.startswith("ProcessId="):
-                    pid = int(line[len("ProcessId="):])
-                    if pid and cmd:
-                        port = None
-                        if "--remote-debugging-port=" in cmd:
-                            import re
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_script],
+                capture_output=True, text=True, timeout=10,
+            )
+            import json as _json
+            try:
+                raw = result.stdout.strip()
+                if raw:
+                    data = _json.loads(raw)
+                    if isinstance(data, dict):
+                        data = [data]
+                    for proc in data:
+                        pid = int(proc.get("ProcessId") or 0)
+                        cmd = str(proc.get("CommandLine") or "")
+                        if pid and cmd:
+                            port = None
                             m = re.search(r"--remote-debugging-port=(\d+)", cmd)
                             if m:
                                 port = int(m.group(1))
-                        processes.append({"pid": pid, "cmd": cmd, "port": port})
-                        pid, cmd = None, ""
+                            processes.append({"pid": pid, "cmd": cmd, "port": port})
+            except Exception as _ps_e:
+                logger.debug("PowerShell 进程解析失败: %s", _ps_e)
         else:
             result = subprocess.run(
                 ["ps", "-axo", f"pid,command"],
@@ -314,6 +320,13 @@ def ensure_chrome_cdp(
         profile_path = Path(profile_dir)
     else:
         profile_path = _default_profile_dir()
+
+    # ⚠️ v0.22: profile 目录不存在时自动创建——缺失会导致不带 --user-data-dir
+    # 启动全新浏览器（无登录态 + 每次新窗口），Windows 上体验尤其明显
+    try:
+        profile_path.mkdir(parents=True, exist_ok=True)
+    except Exception as _mk_e:
+        logger.debug("profile 目录创建失败（将继续）: %s", _mk_e)
 
     # Use a file lock to prevent two processes from launching Chrome simultaneously.
     # Double-check CDP after acquiring lock to avoid duplicate launches.
