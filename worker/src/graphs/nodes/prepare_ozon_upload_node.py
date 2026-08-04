@@ -642,6 +642,23 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                     vals = query.get_dictionary_values(aid, int(dc), int(tp)) or []
                 except Exception:
                     vals = None
+            # ✅ v0.25 T2: 缓存未命中 → /values/search live 兜底（RU→ZH_HANS 链）
+            if not vals:
+                try:
+                    from utils.ozon_dict_values import search_dictionary_values
+                    _terms = [str(attr.get("name") or ""), title_cn[:50], str(item.get("name") or "")[:50]]
+                    for _term in _terms:
+                        if not _term:
+                            continue
+                        vals = search_dictionary_values(
+                            getattr(state, "ozon_client_id", "") or "",
+                            getattr(state, "ozon_api_key", "") or "",
+                            aid, int(dc) if dc else 0, int(tp) if tp else 0, _term,
+                        )
+                        if vals:
+                            break
+                except Exception:
+                    vals = None
             if not vals:
                 continue
             size_cn = ""

@@ -101,6 +101,27 @@ def test_prepare_fills_missing_mandatory_dict_attrs_with_mock_state():
     assert attr_map[9048]["values"][0]["dictionary_value_id"] == 0  # 自由文本不受影响
 
 
+def test_prepare_dict_live_search_fallback():
+    """缓存无值 → prepare 用 /values/search 兜底并填 dictionary_value_id（v0.25 T2）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
+    from types import SimpleNamespace
+    from unittest import mock
+
+    schema = [{"id": 31, "name": "Бренд одежды", "is_required": True, "dictionary_id": 500}]
+    state = SimpleNamespace(
+        dictionary_values={},  # 缓存空 → 走 live search
+        description_category_id="17027918", type_id="971311385",
+        ozon_client_id="5371047", ozon_api_key="key",
+    )
+    items = [{"offer_id": "x_0", "name": "Носки", "attributes": []}]
+    draft = {"item_id": "x", "title": "女袜"}
+    with mock.patch("utils.ozon_dict_values.search_dictionary_values",
+                    return_value=[{"id": 126745801, "value": "Нет бренда"}]):
+        result = _fill_missing_required_dict_attrs(items, schema, draft, state)
+    attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
+    assert attr_map[31]["values"][0]["dictionary_value_id"] == 126745801
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0
