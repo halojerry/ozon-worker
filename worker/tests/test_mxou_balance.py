@@ -95,6 +95,28 @@ def test_overall_exception_not_blocking():
         assert ok is True
 
 
+def test_unlimited_negative_remain_quota_bypass():
+    """无限额度 + remain_quota 为负数 → 仍放行（2026-08-04 实测 key2=-5808万）。"""
+    from main import _check_mxou_balance
+
+    with patch("main.get_supabase_client", return_value=None):
+        balance, ok = _check_mxou_balance({"unlimited_quota": True, "remain_quota": -58083828})
+        assert ok is True, f"无限额度负 remain_quota 应放行: {balance}, {ok}"
+        assert balance == -58083828.0
+
+
+def test_users_query_error_negative_remain_fallback_rejects():
+    """users 查询失败 + remain_quota 为负 → 降级分支拒绝（用户"有余额却报不足"的疑似根因）。"""
+    from main import _check_mxou_balance
+
+    fake_sb = MagicMock()
+    fake_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.side_effect = Exception("RLS blocked")
+    with patch("main.get_supabase_client", return_value=fake_sb):
+        balance, ok = _check_mxou_balance({"user_id": "u1", "remain_quota": -58083828})
+        assert ok is False, f"降级 remain_quota 负数应拒绝: {balance}, {ok}"
+        assert balance == -58083828.0
+
+
 if __name__ == "__main__":
     # 无需 pytest 即可运行（worker/.venv312 无 pytest）：
     #   cd worker && .venv312/bin/python tests/test_mxou_balance.py
