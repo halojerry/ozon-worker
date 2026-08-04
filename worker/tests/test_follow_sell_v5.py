@@ -318,6 +318,76 @@ def test_case_4_hand_mode_skips_import_by_sku():
     return all_pass
 
 
+def test_case_5_hand_without_source_falls_back_api():
+    """hand 模式但信封缺 1688 货源数据（无 purchase_url/purchase_cost）→
+    自动降级 api import-by-sku 复制竞品（不丢单）。"""
+    print("\n" + "="*60)
+    print("用例5 (hand缺货源自动降级api): 无1688数据 → import-by-sku")
+    print("="*60)
+
+    import graphs.nodes.follow_sell_import_node as mod
+    from graphs.nodes.follow_sell_import_node import follow_sell_import_node
+    mod._resolve_category_by_id = _mock_resolve_category_success
+    mod._resolve_category = lambda dc, tp, language="": _mock_resolve_category_success(0)
+
+    import requests as req
+    calls = []
+    _orig = req.post
+    class _Resp2:
+        status_code = 200
+        def json(self):
+            return {"result": {"task_id": "12345"}}
+    def _counting_post(url, *a, **k):
+        if "import-by-sku" in url:
+            calls.append(url)
+            return _Resp2()
+        if "import/info" in url:
+            return type("R", (), {"status_code": 200,
+                                  "json": lambda self: {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}}})()
+        return _Resp2()
+    req.post = _counting_post
+    try:
+        env = {
+            "draft": {
+                "ozon_product_id": "3852000144",
+                "title": "Тест",
+                "ozon_title": "Тест",
+                "images": ["https://cdn.ozon.ru/img1.jpg"],
+                "ozon_category": {
+                    "description_category_id": "17027918",
+                    "type_id": "971311385",
+                },
+                # 无 purchase_url / purchase_cost → 无 1688 货源
+                "currency": "CNY",
+                "weight": 500,
+                "dimensions": {"length": 100, "width": 100, "height": 100},
+                "item_id": "12345",
+            },
+            "extensions": {"follow_sell": True, "follow_type": "hand"},
+        }
+        state = FakeState(envelope=env)
+        result = follow_sell_import_node(state)
+    finally:
+        req.post = _orig
+
+    print(f"  import-by-sku 调用次数: {len(calls)}")
+    print(f"  product_id: {result.get('product_id')}")
+
+    checks = [
+        ("import-by-sku 被调用（缺货源自动降级 api）", len(calls) == 1),
+        ("product_id='999888777'（复制成功）", result.get("product_id") == "999888777"),
+        ("error_message 为空", not result.get("error_message")),
+    ]
+    all_pass = True
+    for name, passed in checks:
+        status = "✅" if passed else "❌"
+        if not passed:
+            all_pass = False
+        print(f"  {status} {name}")
+
+    return all_pass
+
+
 # ═══════════════════════════════════════════════════════════
 # 用例 2: 正常场景 — 跟卖完整流程（B2+B4）
 # ═══════════════════════════════════════════════════════════
@@ -420,6 +490,7 @@ if __name__ == "__main__":
         "用例1 (Bug复现-类目失败)": test_case_1_category_failure(),
         "用例1b (import成功-类目缺失打标)": test_case_1b_import_ok_missing_category(),
         "用例4 (hand防侵权跟卖)": test_case_4_hand_mode_skips_import_by_sku(),
+        "用例5 (hand缺货源降级api)": test_case_5_hand_without_source_falls_back_api(),
         "用例2 (正常-跟卖流程)": test_case_2_normal_follow_sell(),
         "用例3 (边界-空product_id)": test_case_3_empty_product_id(),
     }

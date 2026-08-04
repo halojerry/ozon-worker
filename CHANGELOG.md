@@ -49,6 +49,10 @@
   `hand` 防侵权跟卖（**默认**）：跳过 import-by-sku 1:1 复制，走 CREATE 重建
   （我们管线重做类目/属性/生图，天然防同款/侵权检测）；`api` 强制跟卖：
   import-by-sku 复制竞品卡片（快但可能报错/被下架）。
+  **触发规则**：有 1688 货源匹配 → hand 重建（默认）；图搜无匹配（无货源）
+  → skill 自动组装 api 信封（import-by-sku 复制竞品，不丢单，result 标记
+  api_fallback 供 agent 知晓）；worker 兜底——hand 信封缺货源数据
+  （无 purchase_url/purchase_cost）自动降级 api。
 
 ## [0.21.0] - 2026-08-04
 
