@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.22.0] - 2026-08-04
+
+> 经营数据闭环：worker 拒绝原因可行动化 + 完成结果返回产品经营明细，
+> skill 提交后可选轮询展示（--wait）。
+
+### Added
+
+- **完成结果产品明细（v0.22）**：worker 任务完成后，`task_status` 的 result 增加
+  `product_summary` 数组，每个产品一条：1688 采购链接、利润率（margin_rate）、
+  售价、采购价、运费预估（logistics_cost）、净利润率、Ozon 商品ID；
+  多 SKU 变体每变体一条。GraphOutput 契约同步新增 `product_summary` 字段。
+- **提交拒绝原因可行动化**：skill `submit_envelope` 不再吞服务端错误——
+  解析统一错误格式（error_code/message/detail）与 FastAPI detail，
+  返回结构化原因，agent 可直接看到「token 无效/余额不足/配额不足/信封异常」及解法。
+- **batch_test --wait**：批量提交后轮询任务终态，逐产品打印
+  1688链接/利润率/售价/采购价/运费预估；新增 `--wait-timeout`。
+
 ## [0.21.0] - 2026-08-04
 
 > 48 商品端到端实测暴露的三类根因修复：类目错配（13/16 declined）、

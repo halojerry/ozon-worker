@@ -447,7 +447,34 @@ def submit_envelope(
     try:
         import requests
         resp = requests.post(url, json=body, timeout=30)
-        resp.raise_for_status()
+        # v0.22: 非 2xx 也要把服务端原因（error_code/message/detail）解析出来，
+        # 让 agent/用户知道怎么解决（token 无效/余额不足/配额不足/信封异常等）
+        try:
+            payload = resp.json()
+        except Exception:
+            payload = None
+        if resp.status_code >= 400:
+            if isinstance(payload, dict):
+                reason = (
+                    payload.get("message")
+                    or (payload.get("detail") if isinstance(payload.get("detail"), str) else "")
+                    or f"HTTP {resp.status_code}"
+                )
+                extra = payload.get("detail") if isinstance(payload.get("detail"), dict) else None
+                return {
+                    "ok": False,
+                    "error": reason,
+                    "error_code": payload.get("error_code") or "",
+                    "detail": extra or payload.get("detail", ""),
+                    "http_status": resp.status_code,
+                    "task_id": task_id,
+                }
+            return {
+                "ok": False,
+                "error": f"HTTP {resp.status_code}: {resp.text[:300]}",
+                "http_status": resp.status_code,
+                "task_id": task_id,
+            }
         return resp.json()
     except requests.exceptions.ConnectionError:
         return {"ok": False, "error": f"Worker unreachable: {url}", "task_id": task_id}
