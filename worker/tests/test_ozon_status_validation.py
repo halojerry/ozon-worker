@@ -109,6 +109,51 @@ def test_in_moderating_stays_pending():
     assert out.status == "pending"
 
 
+def test_no_import_info_poll_with_product_id_after_imported():
+    """仅有真实 product_id（无 import 任务 ID）→ 不得用 product_id 轮询 import/info（404 误判，F3）。"""
+    from graphs.nodes import ozon_status_node as mod
+    from graphs.nodes.ozon_status_node import ozon_status_node
+
+    state = SimpleNamespace(
+        ozon_task_id="", product_id="5812518995",
+        ozon_payload={"items": [{"offer_id": "x_0"}]},
+        ozon_client_id="5371047", ozon_api_key="key",
+        purchase_url="", purchase_cost="", sku_id="", profit_estimation={},
+    )
+    import time
+    orig_sleep = time.sleep
+    time.sleep = lambda s: None
+    calls = []
+
+    class _Resp404:
+        status_code = 404
+        text = "task not found"
+
+    class _RespApproved:
+        status_code = 200
+        def json(self):
+            return {"items": [{
+                "id": 5812518995, "offer_id": "x_0",
+                "statuses": {"validation_status": "success", "is_created": True, "moderate_status": "approved"},
+                "errors": [],
+            }]}
+
+    def _post(url, *a, **k):
+        calls.append((url, k.get("json") or {}))
+        if "import/info" in url:
+            return _Resp404()  # 若被调用即 404（真实场景会误判失败）
+        return _RespApproved()
+
+    with mock.patch.object(mod.session, "post", side_effect=_post):
+        try:
+            out = ozon_status_node(state, None, FAKE_RUNTIME)
+        finally:
+            time.sleep = orig_sleep
+    assert out.moderation_status == "approved"
+    assert not any("import/info" in u for u, _ in calls), "不得用 product_id 轮询 import/info"
+    assert any("info/list" in u for u, _ in calls)
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0

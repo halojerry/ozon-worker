@@ -38,9 +38,11 @@ def ozon_status_node(
     progress.log_node_start("ozon_status_node", "Ozon状态轮询节点")
     progress.log_node_action("正在轮询Ozon商品状态...")
 
-    # ✅ P3 修复：优先使用 ozon_task_id（upload 节点写入的临时任务 ID）
-    # product_id 保留向后兼容（旧版 upload 节点直接写 product_id）
-    task_id_to_poll = getattr(state, 'ozon_task_id', '') or state.product_id or ""
+    # ✅ P3 + v0.24 F3：优先使用 ozon_task_id（upload 节点写入的临时 import 任务 ID）
+    # product_id 保留向后兼容（旧版 upload 节点直接写 product_id）。
+    # ⚠️ F3: 不得用 product_id 当 task_id —— 真实商品 ID 查 import/info 必然 404，
+    # 触发无谓重试（本地测试实证：审核通过后被 404 误判为失败）。
+    task_id_to_poll = getattr(state, 'ozon_task_id', '') or ""
     product_id = state.product_id or task_id_to_poll
     purchase_url = state.purchase_url
     purchase_cost = state.purchase_cost
@@ -101,17 +103,23 @@ def ozon_status_node(
                 stages={"ozon_status": "pending"}
             )
 
-        # ===== 阶段1: 轮询 /v1/product/import/info =====
-        ozon_api_url: str = "https://api-seller.ozon.ru/v1/product/import/info"
-        payload: Dict[str, Any] = {"task_id": task_id_int}
-
-        # 初始化（避免 else 分支引用未定义变量导致 NameError）
+        # ===== 阶段1: 轮询 /v1/product/import/info（仅当存在 import 任务 ID）=====
         real_product_ids: List[str] = []
         all_item_errors: List[Dict[str, Any]] = []
         total_item_count: int = 0
         has_pending: bool = False
 
-        for attempt in range(MAX_POLL_ATTEMPTS):
+        if not task_id_to_poll:
+            # ✅ v0.24 F3: 无 import 任务 ID（只有真实 product_id）→ 跳过 import/info 轮询，
+            # 直接查 /v3/product/info/list（避免 product_id 当 task_id 404 误判）
+            logger.info("无 import 任务 ID，直接用 product_id 查询审核状态: %s", product_id)
+            real_product_ids = [str(product_id)] if product_id else []
+            total_item_count = len(real_product_ids)
+
+        ozon_api_url: str = "https://api-seller.ozon.ru/v1/product/import/info"
+        payload: Dict[str, Any] = {"task_id": task_id_int}
+
+        for attempt in range(MAX_POLL_ATTEMPTS if task_id_to_poll else 0):
             logger.info(f"轮询第{attempt + 1}/{MAX_POLL_ATTEMPTS}次...")
             progress.log_node_action(f"轮询Ozon状态第{attempt + 1}/{MAX_POLL_ATTEMPTS}次...")
 
