@@ -160,6 +160,21 @@ class OzonCategoryQuery:
                 # 无双字词，回退到 ILIKE
                 return self._search_fallback(query_text, top_k, node_type, "ZH_HANS")
 
+            # ✅ v0.21: 泛化词（配件/用品/工具/通用等）从搜索与评分中剥离——
+            # 否则 OR 条件被泛化词洪泛，LIMIT 内的候选全是泛化命中，
+            # 具体词命中（如"后视镜"→"摩托车后视镜"）被挤出结果集。
+            _GENERIC = {
+                "运动", "休闲", "传统", "家用", "日用", "通用", "其他", "配件", "附件",
+                "用品", "工具", "系列", "套装", "组合", "跨境", "新款", "爆款",
+                "设备", "材料", "商品", "产品", "机械", "电器", "平板", "监测", "清洁",
+            }
+            _specific = [t for t in tokens if t not in _GENERIC
+                         and not any(gw in t for gw in _GENERIC if len(gw) >= 2)]
+            search_tokens = _specific if _specific else tokens
+            if len(search_tokens) < len(tokens):
+                logger.info(f"🔤 剥离泛化词后搜索 tokens: {search_tokens}")
+            tokens = search_tokens
+
             # 去重但保持顺序
             seen = set()
             unique_tokens = []
@@ -171,37 +186,42 @@ class OzonCategoryQuery:
 
             logger.info(f"🔤 jieba 分词: '{query_text[:60]}' → {tokens}")
 
-            # 2. 构建 LIKE 条件：每个 token 对 node_name 和 full_path 做 ILIKE
-            word_conditions = []
-            for token in tokens:
-                pattern = f"%{token}%"
-                word_conditions.append(CategoryTreeNode.node_name.ilike(pattern))
-                word_conditions.append(CategoryTreeNode.full_path.ilike(pattern))
-
-            conditions = [
-                CategoryTreeNode.language == "ZH_HANS",
-                CategoryTreeNode.type_id.isnot(None),
-                CategoryTreeNode.type_id > 0,
-            ]
-            if node_type:
-                conditions.append(CategoryTreeNode.node_type == node_type)
-            conditions.append(or_(*word_conditions))
-
-            # 3. 取候选（top_k * 3），在 Python 中按匹配度重排
-            stmt = (
-                select(
-                    CategoryTreeNode.description_category_id,
-                    CategoryTreeNode.type_id,
-                    CategoryTreeNode.node_name,
-                    CategoryTreeNode.full_path,
-                    CategoryTreeNode.top_level_category_name,
-                    CategoryTreeNode.depth,
-                )
-                .where(and_(*conditions))
-                .limit(top_k * 3)
+            # 2/3. ✅ v0.21: 逐 token 查询后按 (dc, tp) 合并——
+            # 单一 OR + 无排序 LIMIT 会被常见词（电动车/摩托车/踏板）灌满，
+            # 稀有词命中（如"后视镜"→"摩托车后视镜"）被挤出候选集。
+            # 逐 token 各取 top_k，保证每个词的命中都能进入候选。
+            _cols = (
+                CategoryTreeNode.description_category_id,
+                CategoryTreeNode.type_id,
+                CategoryTreeNode.node_name,
+                CategoryTreeNode.full_path,
+                CategoryTreeNode.top_level_category_name,
+                CategoryTreeNode.depth,
             )
-
-            rows = session.execute(stmt).mappings().all()
+            collected: dict[tuple, dict] = {}
+            for token in tokens:
+                tok_cond = [
+                    CategoryTreeNode.language == "ZH_HANS",
+                    CategoryTreeNode.type_id.isnot(None),
+                    CategoryTreeNode.type_id > 0,
+                ]
+                if node_type:
+                    tok_cond.append(CategoryTreeNode.node_type == node_type)
+                tok_cond.append(or_(
+                    CategoryTreeNode.node_name.ilike(f"%{token}%"),
+                    CategoryTreeNode.full_path.ilike(f"%{token}%"),
+                ))
+                stmt = (
+                    select(*_cols)
+                    .where(and_(*tok_cond))
+                    .limit(top_k)
+                )
+                for row in session.execute(stmt).mappings().all():
+                    key = (row["description_category_id"], row["type_id"])
+                    if key not in collected:
+                        collected[key] = dict(row)
+            rows = list(collected.values())
+            logger.info(f"🔤 逐token合并候选: {len(rows)} 条（tokens={len(tokens)}）")
 
             # 4. 计分：匹配 token 数 + depth bonus
             _GENERIC_WORDS = {
