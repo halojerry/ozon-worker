@@ -401,11 +401,14 @@ def _poll_grsai_task(task_id: str, max_wait: int = 90, token: str = "") -> Optio
         "Content-Type": "application/json"
     }
 
-    poll_interval: int = 3
-    max_polls: int = max(max_wait // poll_interval, 1)
+    # ✅ v0.25: 生图通常 >60s，前 30s 不轮询（减无效请求），之后每 5s 一次
+    initial_delay: int = 30
+    poll_interval: int = 5
+    max_polls: int = max((max_wait - initial_delay) // poll_interval, 1)
 
     session = _get_session()
 
+    time.sleep(initial_delay)
     for i in range(max_polls):
         time.sleep(poll_interval)
         try:
@@ -420,7 +423,9 @@ def _poll_grsai_task(task_id: str, max_wait: int = 90, token: str = "") -> Optio
                 logger.warning("grsai查询task=%s失败: HTTP %d", task_id, response.status_code)
                 # grsai 失败时 fallback 到 mxou 轮询
                 logger.info("grsai查询失败，fallback到mxou轮询...")
-                return _poll_mxou_task_fallback(task_id, max_wait=max_wait - (i + 1) * poll_interval, token=token)
+                return _poll_mxou_task_fallback(
+                    task_id, max_wait=max_wait - initial_delay - (i + 1) * poll_interval, token=token
+                )
 
             result: Any = response.json()
             if not isinstance(result, dict):
