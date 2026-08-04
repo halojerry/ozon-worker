@@ -7,6 +7,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts", "lib"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from ak_1688_client import _parse_product_item, _parse_rate_48h, _parse_location
 
@@ -50,6 +51,20 @@ def test_search_products_filters():
          mock.patch("scripts.lib.config_store._require_auth"):
         items2 = mod.search_products("刀", max_price=20, min_ship_rate_48h=98)
     assert items2 == []  # 价格/48H 不满足 → 过滤
+
+
+def test_extract_source_category_id():
+    from cloud_probe import _extract_source_category_id
+    cats = [{"name": "服饰配件", "id": 1001},
+            {"name": "袜子", "leafId": 2002},
+            {"name": "女袜", "thirdCategoryId": 3003}]
+    assert _extract_source_category_id(cats) == 3003  # 取最末级（最后一条）的 id
+
+
+def test_extract_source_category_id_empty():
+    from cloud_probe import _extract_source_category_id
+    assert _extract_source_category_id([]) is None
+    assert _extract_source_category_id([{"name": "x"}]) is None
 
 
 if __name__ == "__main__":
