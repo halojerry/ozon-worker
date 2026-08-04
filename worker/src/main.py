@@ -1096,6 +1096,32 @@ async def http_progress(run_id: str):
     raise HTTPException(status_code=404, detail=f"No progress found for run_id={run_id}")
 
 
+def _validate_draft_required_fields(draft: dict, extensions: dict) -> str | None:
+    """返回缺失字段错误信息；通过返回 None。
+    api 强制跟卖（follow_sell + follow_type=api）走 import-by-sku 复制竞品，
+    不需要 1688 货源字段（weight/dimensions/purchase_cost/purchase_url）。"""
+    _is_api_follow = bool(
+        (extensions or {}).get("follow_sell")
+        and str((extensions or {}).get("follow_type") or "hand").lower() == "api"
+    )
+    base_fields = [("item_id", str), ("title", str), ("currency", str), ("images", list)]
+    source_fields = [
+        ("weight", (int, float)), ("dimensions", dict),
+        ("purchase_cost", (int, float)), ("purchase_url", str),
+    ]
+    required = base_fields if _is_api_follow else base_fields + source_fields
+    missing = []
+    for field, expected_type in required:
+        val = draft.get(field)
+        if val is None or (isinstance(val, (str, list, dict)) and not val):
+            missing.append(f"draft.{field}")
+        elif not isinstance(val, expected_type):
+            if expected_type == (int, float) and isinstance(val, (int, float)):
+                continue
+            missing.append(f"draft.{field}(类型错误: 期望{expected_type}, 实际{type(val).__name__})")
+    return f"envelope.draft 缺少必填字段: {', '.join(missing)}" if missing else None
+
+
 # ==================== Supabase任务队列API ====================
 
 @app.post("/submit_task")
@@ -1145,28 +1171,13 @@ async def http_submit_task(request: Request):
                 "envelope.draft 不能为空",
                 detail={"missing": ["draft"]},
             )
-        # 必填字段校验
-        REQUIRED_DRAFT_FIELDS = [
-            ("item_id", str), ("title", str), ("currency", str),
-            ("images", list), ("weight", (int, float)), 
-            ("dimensions", dict), ("purchase_cost", (int, float)),
-            ("purchase_url", str),
-        ]
-        missing = []
-        for field, expected_type in REQUIRED_DRAFT_FIELDS:
-            val = draft.get(field)
-            if val is None or (isinstance(val, (str, list, dict)) and not val):
-                missing.append(f"draft.{field}")
-            elif not isinstance(val, expected_type):
-                # 允许 int/float 互转
-                if expected_type == (int, float) and isinstance(val, (int, float)):
-                    continue
-                missing.append(f"draft.{field}(类型错误: 期望{expected_type}, 实际{type(val).__name__})")
-        if missing:
+        # 必填字段校验（v0.22 P1: 抽成可测函数；api 强制跟卖跳过 1688 货源字段）
+        _missing = _validate_draft_required_fields(draft, envelope.get("extensions") or {})
+        if _missing:
             return error_response(
                 WorkerErrorCode.INVALID_REQUEST,
-                f"envelope.draft 缺少必填字段: {', '.join(missing)}",
-                detail={"missing": missing},
+                _missing,
+                detail={"missing": _missing},
             )
         # weight 和 dimensions 的合理性校验
         weight_g = draft.get("weight", 0)
