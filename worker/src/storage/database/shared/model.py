@@ -140,6 +140,22 @@ class LogisticsRate(Base):
     )
 
 
+class SizeMapping(Base):
+    """尺码映射表（部署时从 assets/*.csv 导入，运行时查询）"""
+    __tablename__ = "size_mappings"
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    table_type: Mapped[str] = mapped_column(String(20), nullable=False)   # children/male/female/shoes
+    input_value: Mapped[str] = mapped_column(String(50), nullable=False)  # 标准化输入（M/48/38…）
+    ru_size: Mapped[str] = mapped_column(String(50), nullable=False)      # 俄罗斯尺码
+    source_col: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    __table_args__ = (
+        Index("uq_size_mappings", "table_type", "input_value", unique=True),
+    )
+
+
 class ExchangeRate(Base):
     """汇率缓存"""
     __tablename__ = "exchange_rates"
