@@ -31,6 +31,11 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     """跟卖导入节点 v5 — v4: 返回 TypedDict 替代直接修改 GlobalState"""
     draft = state.envelope.get("draft", {}) if state.envelope else {}
     extensions = state.envelope.get("extensions", {}) if state.envelope else {}
+    # ⚠️ v0.22（参考 maozi follow_type）：hand=防侵权跟卖（模拟人工，跳过
+    # import-by-sku 1:1 复制，走 CREATE 重建——我们管线重做类目/属性/生图，
+    # 天然防同款/侵权检测）；api=强制跟卖（import-by-sku 1:1 复制竞品卡片，
+    # 快但可能报错/被下架）。默认 hand。
+    follow_type = str(extensions.get("follow_type") or "hand").lower()
 
     # ── 局部变量（替代 state.xxx 直接赋值）──
     product_id: str = ""
@@ -110,53 +115,59 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
 
     headers = {"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"}
 
-    # ── ① import-by-sku ──
-    try:
-        import_body = {
-            "items": [{
-                "sku": int(ozon_product_id),
-                "name": ozon_title or f"Товар {ozon_product_id}",
-                "offer_id": offer_id,
-                "currency_code": state.currency_code or "CNY",
-                "price": str(price_val),
-                "old_price": str(old_price_val),
-                "vat": "0",
-            }]
-        }
-        logger.info("🔄 import-by-sku: sku=%s, offer_id=%s", ozon_product_id, offer_id)
-        resp = req.post("https://api-seller.ozon.ru/v1/product/import-by-sku",
-                        headers=headers, json=import_body, timeout=30)
-        data = resp.json().get("result", {})
-        unmatched = data.get("unmatched_sku_list", [])
-        ibs_task_id = str(data.get("task_id", ""))
-        if resp.status_code == 200 and not unmatched:
-            logger.info("✅ import-by-sku 已提交: task_id=%s", ibs_task_id)
-            for _ibs_attempt in range(10):
-                time.sleep(3)
-                try:
-                    info_resp = req.post(
-                        "https://api-seller.ozon.ru/v1/product/import/info",
-                        headers=headers, json={"task_id": int(ibs_task_id)}, timeout=15,
-                    )
-                    if info_resp.status_code == 200:
-                        info_items = info_resp.json().get("result", {}).get("items", [])
-                        for _it in info_items:
-                            _pid = _it.get("product_id")
-                            _status = _it.get("status", "")
-                            if _pid and _status == "imported":
-                                product_id = str(_pid)
-                                logger.info("✅ import-by-sku 完成: product_id=%s，后续走 UPDATE", _pid)
-                                break
-                    if product_id:
-                        break
-                except Exception:
-                    pass
-            if not product_id:
-                logger.info("⏳ import-by-sku 未在30s内完成，走 Fallback CREATE")
-        else:
-            logger.info("⚠️ import-by-sku 不可复制(unmatched=%s)，走 Fallback", unmatched)
-    except Exception as e:
-        logger.info("⚠️ import-by-sku 异常，走 Fallback: %s", e)
+    # ── ① import-by-sku（仅 api 强制跟卖模式；hand 模式跳过 1:1 复制）──
+    # v0.22（参考 maozi follow_type）：hand=防侵权跟卖（模拟人工，走 CREATE 重建，
+    # 我们管线重做类目/属性/生图，天然防同款/侵权检测）；api=import-by-sku 1:1 复制。
+    if follow_type == "api":
+        try:
+            import_body = {
+                "items": [{
+                    "sku": int(ozon_product_id),
+                    "name": ozon_title or f"Товар {ozon_product_id}",
+                    "offer_id": offer_id,
+                    "currency_code": state.currency_code or "CNY",
+                    "price": str(price_val),
+                    "old_price": str(old_price_val),
+                    "vat": "0",
+                }]
+            }
+            logger.info("🔄 import-by-sku: sku=%s, offer_id=%s", ozon_product_id, offer_id)
+            resp = req.post("https://api-seller.ozon.ru/v1/product/import-by-sku",
+                            headers=headers, json=import_body, timeout=30)
+            data = resp.json().get("result", {})
+            unmatched = data.get("unmatched_sku_list", [])
+            ibs_task_id = str(data.get("task_id", ""))
+            if resp.status_code == 200 and not unmatched:
+                logger.info("✅ import-by-sku 已提交: task_id=%s", ibs_task_id)
+                for _ibs_attempt in range(10):
+                    time.sleep(3)
+                    try:
+                        info_resp = req.post(
+                            "https://api-seller.ozon.ru/v1/product/import/info",
+                            headers=headers, json={"task_id": int(ibs_task_id)}, timeout=15,
+                        )
+                        if info_resp.status_code == 200:
+                            info_items = info_resp.json().get("result", {}).get("items", [])
+                            for _it in info_items:
+                                _pid = _it.get("product_id")
+                                _status = _it.get("status", "")
+                                if _pid and _status == "imported":
+                                    product_id = str(_pid)
+                                    logger.info("✅ import-by-sku 完成: product_id=%s，后续走 UPDATE", _pid)
+                                    break
+                        if product_id:
+                            break
+                    except Exception:
+                        pass
+                if not product_id:
+                    logger.info("⏳ import-by-sku 未在30s内完成，走 Fallback CREATE")
+            else:
+                logger.info("⚠️ import-by-sku 不可复制(unmatched=%s)，走 Fallback", unmatched)
+        except Exception as e:
+            logger.info("⚠️ import-by-sku 异常，走 Fallback: %s", e)
+    else:
+        logger.info("🛡️ hand 防侵权跟卖：跳过 import-by-sku（1:1 复制），走 CREATE 重建")
+
 
     # ── ② 组装返回值 ──
     # ⚠️ v0.14 P0-6: 优先读 draft.competitor_price（Skill 从 Ozon 页面提取的真实竞品售价）

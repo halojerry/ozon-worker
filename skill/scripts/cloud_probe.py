@@ -2749,6 +2749,10 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     # 跟卖标记: Worker 走跟卖管线
                     draft["ozon_product_id"] = product_id
                     extensions["follow_sell"] = True
+                    # ✅ v0.22（参考 maozi follow_type）: hand=防侵权跟卖（默认，
+                    # 跳过 import-by-sku 1:1 复制，走 CREATE 重建——我们管线重做
+                    # 类目/属性/生图，天然防同款/侵权检测）；api=import-by-sku 强制
+                    extensions["follow_type"] = extensions.get("follow_type") or "hand"
                     # 注入定价参数
                     from scripts.lib.config_store import get_store_profile as _gsp
                     _sp = _gsp(store_id)
