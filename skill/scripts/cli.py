@@ -311,6 +311,17 @@ def cmd_check(args) -> int:
     def _ok(b: bool) -> str:
         return "✅" if b else "❌"
 
+    def _open_tab(url: str) -> None:
+        """在 CDP Chrome 中打开一个标签页（方便用户登录/建立信任），失败静默。"""
+        try:
+            from scripts.lib.cdp_client import CdpConnection
+            conn = CdpConnection("http://127.0.0.1:9222")
+            tab = conn.new_tab(url)
+            tab.close(close_remote=False)  # 保留标签页给用户，只关 WS
+            conn.close()
+        except Exception:
+            pass
+
     # ═══════════════════════════════════════════
     # 1. 浏览器检测（Chromium 内核）
     # ═══════════════════════════════════════════
@@ -454,11 +465,13 @@ def cmd_check(args) -> int:
         print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
         if not login_ok:
             print(f"  → 在浏览器中打开 https://login.1688.com/ 登录")
+            _open_tab("https://login.1688.com/")
             all_ok = False
     elif session_ok:
         print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
         if not login_ok:
             print(f"  → 在浏览器中打开 https://login.1688.com/ 登录")
+            _open_tab("https://login.1688.com/")
             all_ok = False
 
     # ═══════════════════════════════════════════
@@ -511,6 +524,7 @@ def cmd_check(args) -> int:
 
     if session_ok and not ozon_cdp_ok:
         print(f"  → 在浏览器中打开 https://www.ozon.ru/ 浏览任意商品即可建立信任")
+        _open_tab("https://www.ozon.ru/")
         all_ok = False
 
     # ═══════════════════════════════════════════
@@ -519,7 +533,7 @@ def cmd_check(args) -> int:
     # www.ozon.ru 是选品端；seller.ozon.ru 是卖家后台（运营数据/月销/利润率判断靠它）
     print(f"\n  🔗 seller.ozon.ru 卖家后台登录检查（选品运营数据依赖）...")
     seller_ok = False
-    if cdp_ok:
+    if session_ok:
         try:
             from scripts.lib.cdp_client import CdpConnection
             from scripts.lib.ozon_seller_analytics import check_seller_login
@@ -532,6 +546,8 @@ def cmd_check(args) -> int:
     if not seller_ok:
         print(f"  → 请在 Chrome 中打开 https://seller.ozon.ru/ 登录卖家后台")
         print(f"    （选品去 www.ozon.ru，运营数据在 seller.ozon.ru，两个登录态都要）")
+        if session_ok:
+            _open_tab("https://seller.ozon.ru/")
 
     # ═══════════════════════════════════════════
     # 5. 凭证检查
