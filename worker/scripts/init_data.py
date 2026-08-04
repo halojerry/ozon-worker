@@ -36,6 +36,12 @@ def create_tables(engine):
         conn.commit()
 
     Base.metadata.create_all(bind=engine)
+    # ✅ v0.25 T1: category_mapping 追加 1688 类目数字 ID 列（幂等）
+    with engine.connect() as conn:
+        conn.execute(text(
+            "ALTER TABLE category_mapping ADD COLUMN IF NOT EXISTS source_category_id BIGINT"
+        ))
+        conn.commit()
     logger.info("✅ 表结构已就绪")
 
 

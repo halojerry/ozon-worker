@@ -264,6 +264,7 @@ class CategoryMapping(Base):
     __tablename__ = "category_mapping"
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    source_category_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)  # 1688 叶子类目数字 ID（Skill 侧提取）
     source_category_leaf: Mapped[str] = mapped_column(String(300), nullable=False)
     source_category_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_keywords: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)

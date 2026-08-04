@@ -37,6 +37,10 @@ def learning_record_node(
     final_attributes: List[Dict[str, Any]] = state.final_attributes or []
     attributes_schema: List[Dict[str, Any]] = state.attributes_schema or []
     draft: Dict[str, Any] = state.draft or {}
+    # ✅ v0.25 T1: 1688 类目数字 ID（Skill 侧提取，供类目学习回写）
+    _src_cat_id: Any = draft.get("source_category_id")
+    if not _src_cat_id:
+        _src_cat_id = (getattr(state, "source", None) or {}).get("category_id")
     
     # ✅ 构建attribute_id → attribute_name映射
     attr_name_map: Dict[int, str] = {}
@@ -193,6 +197,7 @@ def learning_record_node(
                     pass
                 local_db.add_category_mapping(
                     source_category_leaf=leaf,
+                    source_category_id=int(_src_cat_id) if _src_cat_id else None,
                     description_category_id=int(description_category_id),
                     type_id=tp_val,
                     source_category_path=source_category,
