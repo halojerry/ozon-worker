@@ -820,6 +820,49 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
     # ========== Step 2: 如果是字典属性，用values/search搜索 ==========
     if attr_id > 0 and dictionary_id > 0:
 
+        # ✅ v0.24 F1c: 先走语义解析器（品牌/性别/尺码/8292/型号），命中直接修复
+        try:
+            from utils.attr_defaults import resolve_missing_mandatory_dict_attr
+            _dv = getattr(state, "dictionary_values", None) or {}
+            _vals = _dv.get(str(attr_id))
+            if not _vals:
+                try:
+                    from utils.ozon_category_query import get_category_query
+                    _vals = get_category_query().get_dictionary_values(
+                        attr_id, int(category_id) if category_id else 0,
+                        int(type_id) if type_id else 0,
+                    ) or []
+                except Exception:
+                    _vals = []
+            _env = getattr(state, "envelope", None) or {}
+            _title_cn = str((_env.get("draft") or {}).get("title") or "") if isinstance(_env, dict) else ""
+            _resolved = resolve_missing_mandatory_dict_attr(
+                attr_id, attr_name,
+                title_cn=_title_cn,
+                product_name_ru=state.product_name or "",
+                size_cn="",
+                dict_vals=_vals or [],
+            )
+            if _resolved:
+                _vid, _val = _resolved
+                _updated = []
+                _found = False
+                for _a in state.final_attributes:
+                    if isinstance(_a, dict) and (_a.get("id") == attr_id or _a.get("attribute_id") == attr_id):
+                        _a["value"] = _val
+                        _a["dictionary_value_id"] = _vid
+                        _found = True
+                    _updated.append(_a)
+                if not _found:
+                    _updated.append({"attribute_id": attr_id, "id": attr_id,
+                                     "value": _val, "dictionary_value_id": _vid,
+                                     "source": "retry_attr_defaults"})
+                state.final_attributes = _updated
+                logger.info("✅ 必填字典属性 %s(%s) 语义解析补齐: %s (id=%s)", attr_id, attr_name, _val, _vid)
+                return state
+        except Exception as _ae:
+            logger.warning(f"attr_defaults 解析失败，走 API 搜索: {_ae}")
+
         # ✅ 字典值按需刷新：warning_attribute_values_out_of_range 强制刷新缓存
         if error_code == "warning_attribute_values_out_of_range":
             logger.info(f"🔄 warning_attribute_values_out_of_range: 强制刷新属性{attr_id}的字典值缓存")
