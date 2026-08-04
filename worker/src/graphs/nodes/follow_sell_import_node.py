@@ -118,6 +118,15 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     # ── ① import-by-sku（仅 api 强制跟卖模式；hand 模式跳过 1:1 复制）──
     # v0.22（参考 maozi follow_type）：hand=防侵权跟卖（模拟人工，走 CREATE 重建，
     # 我们管线重做类目/属性/生图，天然防同款/侵权检测）；api=import-by-sku 1:1 复制。
+    # ⚠️ 触发规则：hand 需要 1688 货源数据重建；信封缺货源（无 purchase_url /
+    # purchase_cost）→ hand 无法重建，自动降级 api 复制竞品（不丢单）。
+    _has_source = bool(draft.get("purchase_url") or draft.get("purchase_cost"))
+    if follow_type == "hand" and not _has_source:
+        logger.warning(
+            "⚠️ hand 模式缺 1688 货源数据（无 purchase_url/purchase_cost），"
+            "自动降级 api import-by-sku 复制竞品卡片"
+        )
+        follow_type = "api"
     if follow_type == "api":
         try:
             import_body = {

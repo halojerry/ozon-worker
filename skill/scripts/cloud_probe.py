@@ -2803,6 +2803,49 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     result["envelope_error"] = "build_graph_envelope 返回空"
             except Exception as e:
                 result["envelope_error"] = str(e)
+    elif result.get("no_relevant_match"):
+        # ⚠️ v0.22: 图搜无 1688 货源匹配 → api 强制跟卖（import-by-sku 复制竞品卡片）。
+        # 触发规则：有竞品图+标题+类目即可复制；无货源不丢单
+        # （1:1 复制有下架风险，result 标记 api_fallback 供 agent 知晓）。
+        if ozon_images and ozon_title and result.get("ozon_category"):
+            envelope = {
+                "envelope": {
+                    "draft": {
+                        "ozon_product_id": product_id,
+                        "title": ozon_title,
+                        "images": ozon_images[:10],
+                        "ozon_category": result["ozon_category"],
+                        "currency": "CNY",
+                        "item_id": product_id,
+                    },
+                    "extensions": {"follow_sell": True, "follow_type": "api"},
+                },
+            }
+            _comp_price = result.get("competitor_price", "")
+            if _comp_price:
+                envelope["envelope"]["draft"]["competitor_price"] = _comp_price
+            for _k in ("competitor_weight_g", "competitor_dimensions_mm",
+                       "ozon_monthly_sales", "ozon_gmv"):
+                if result.get(_k) not in (None, "", 0, {}, []):
+                    envelope["envelope"]["extensions"][_k] = result[_k]
+            envelope["ozon_client_id"] = client_id
+            envelope["ozon_api_key"] = api_key
+            envelope["token"] = mxou_token
+            result["envelope"] = envelope
+            result["envelope_built"] = True
+            result["api_fallback"] = True
+            logger.warning(
+                "⚠️ 图搜无货源匹配 → api 强制跟卖（import-by-sku 复制竞品卡片），"
+                "有下架风险（1:1 复制）"
+            )
+            if auto_submit:
+                submit_res = submit_envelope(envelope)
+                result["submit_result"] = submit_res
+                result["task_id"] = submit_res.get("task_id", "")
+        else:
+            logger.warning(
+                "⚠️ 无货源且竞品信息不完整（缺图/标题/类目），无法 api 强制跟卖"
+            )
 
     # ⚠️ v0.14 E5: 收尾关闭共享连接（Step 2/3a 用完后释放）
     if shared_cdp is not None:
