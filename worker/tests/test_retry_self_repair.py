@@ -92,6 +92,23 @@ def test_search_chain_zh_hit_no_ru():
     assert calls == ["ZH_HANS"]
 
 
+# ── 4. P2b: repair_pricing 无定价信息阻断（v0.22 审查修复）───────────────
+
+def test_repair_pricing_blocks_without_pricing_info():
+    """price_out_of_range 但 state.pricing_info 无 price → 阻断，不用 999 兜底。"""
+    from graphs.validation_retry_loop import repair_pricing_node
+    from types import SimpleNamespace
+    state = SimpleNamespace(
+        error_code="price_out_of_range",
+        pricing_info={},
+        ozon_payload={"items": [{"price": "25290"}]},
+        retry_count=0,
+    )
+    out = repair_pricing_node(state)
+    assert "PRICING_FAILED" in out.error_message
+    assert out.ozon_payload["items"][0]["price"] != "999"
+
+
 if __name__ == "__main__":
     import traceback
 

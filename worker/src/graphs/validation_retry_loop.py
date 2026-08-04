@@ -1387,7 +1387,11 @@ def repair_pricing_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
             if suggested_price <= 0:
                 suggested_price = pricing_info.get("final_price", 0)
             if suggested_price <= 0:
-                suggested_price = 999
+                # v0.22 P2b: 无有效定价信息 → 阻断，绝不 999 兜底
+                logger.error("❌ repair_pricing: pricing_info 无有效价格，阻断修复")
+                state.error_message = "[PRICING_FAILED] 无有效定价信息，无法修复价格"
+                state.failed_stage = "pricing"
+                return state
 
             first_item["price"] = str(int(suggested_price))
             first_item["old_price"] = str(int(suggested_price * 1.2))
