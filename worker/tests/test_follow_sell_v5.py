@@ -33,7 +33,12 @@ class FakeState:
 # Mock Ozon API — 模拟 import-by-sku 返回
 _original_req_post = None
 
-def _setup_mock_ozon():
+def _setup_mock_ozon(import_ok=True):
+    """mock Ozon API。
+
+    import_ok=True  → import-by-sku 成功（返回 product_id，走 UPDATE）
+    import_ok=False → import/info 无 product_id（走 Fallback CREATE）
+    """
     import requests as req
     global _original_req_post
     _original_req_post = req.post
@@ -49,7 +54,9 @@ def _setup_mock_ozon():
         if "import-by-sku" in url:
             return MockResp(200, {"result": {"task_id": "12345"}})
         elif "import/info" in url:
-            return MockResp(200, {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}})
+            if import_ok:
+                return MockResp(200, {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}})
+            return MockResp(200, {"result": {"items": []}})
         elif "description-category/attribute" in url:
             return MockResp(200, {"result": [{"id": 8229, "name": "Тип", "is_collection": False}]})
         return MockResp(500)
@@ -92,7 +99,8 @@ def _run_node(envelope_override=None):
                 "type_id": "971311385",
                 "category_path": "Автозапчасти > Подвеска > Амортизаторы",
             },
-            "price": "2500.00",
+            "competitor_price": "2500.00",  # v0.14 起 skill 用 competitor_price（price 是 1688 采购价）
+            "price": "85.00",
             "purchase_cost": 85.0,
             "currency": "CNY",
             "weight": 500,
@@ -150,7 +158,7 @@ def test_case_1_category_failure():
         "extensions": {"follow_sell": True},
     })
 
-    _setup_mock_ozon()
+    _setup_mock_ozon(import_ok=False)
     try:
         result = follow_sell_import_node(state)
     finally:
@@ -162,6 +170,7 @@ def test_case_1_category_failure():
 
     print(f"  error_message: {err[:100]}")
     print(f"  failed_stage:  {failed}")
+    print(f"  category_missing: {result.get('category_missing', 'N/A')}")
     print(f"  dc_id:         {result.get('description_category_id', 'N/A')}")
     print(f"  tp_id:         {result.get('type_id', 'N/A')}")
 
@@ -170,6 +179,64 @@ def test_case_1_category_failure():
         ("failed_stage='follow_sell_import'", failed == "follow_sell_import"),
         ("description_category_id 为空", not result.get("description_category_id")),
         ("type_id 为空", not result.get("type_id")),
+        ("product_id 为空（import 也失败）", not result.get("product_id")),
+    ]
+    all_pass = True
+    for name, passed in checks:
+        status = "✅" if passed else "❌"
+        if not passed:
+            all_pass = False
+        print(f"  {status} {name}")
+
+    return all_pass
+
+
+def test_case_1b_import_ok_missing_category():
+    """v0.19.1 策略：import-by-sku 成功 → 类目缺失不阻断（官方复制带出），但必须打标可观测。"""
+    print("\n" + "="*60)
+    print("用例1b: import-by-sku 成功 + 类目缺失 → category_missing=True 不阻断")
+    print("="*60)
+
+    import graphs.nodes.follow_sell_import_node as mod
+    from graphs.nodes.follow_sell_import_node import follow_sell_import_node
+    mod._resolve_category_by_id = _mock_resolve_category_fail
+    mod._resolve_category = lambda dc, tp, language="": (None, None)
+
+    state = FakeState(envelope={
+        "draft": {
+            "ozon_product_id": "3852000144",
+            "title": "Тест",
+            "ozon_title": "Тест",
+            "images": ["https://cdn.ozon.ru/img1.jpg"],
+            "ozon_category": {
+                "description_category_id": "99999",  # 不存在的 Widget ID
+                "category_path": "Неизвестная > Категория",
+            },
+            "competitor_price": "1000.00",
+            "purchase_cost": 50.0,
+            "currency": "CNY",
+            "weight": 500,
+            "dimensions": {"length": 100, "width": 100, "height": 100},
+            "item_id": "12345",
+        },
+        "extensions": {"follow_sell": True},
+    })
+
+    _setup_mock_ozon(import_ok=True)
+    try:
+        result = follow_sell_import_node(state)
+    finally:
+        _teardown_mock_ozon()
+
+    print(f"  product_id:      {result.get('product_id')}")
+    print(f"  category_missing: {result.get('category_missing')}")
+    print(f"  error_message:    {result.get('error_message', '')[:80]}")
+
+    checks = [
+        ("product_id='999888777'（import 成功）", result.get("product_id") == "999888777"),
+        ("category_missing=True", result.get("category_missing") is True),
+        ("error_message 为空（不阻断）", not result.get("error_message")),
+        ("failed_stage 为空", not result.get("failed_stage")),
     ]
     all_pass = True
     for name, passed in checks:
@@ -281,6 +348,7 @@ if __name__ == "__main__":
 
     results = {
         "用例1 (Bug复现-类目失败)": test_case_1_category_failure(),
+        "用例1b (import成功-类目缺失打标)": test_case_1b_import_ok_missing_category(),
         "用例2 (正常-跟卖流程)": test_case_2_normal_follow_sell(),
         "用例3 (边界-空product_id)": test_case_3_empty_product_id(),
     }

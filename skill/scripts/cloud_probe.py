@@ -859,6 +859,114 @@ class ProductValidationError(Exception):
     pass
 
 
+# ── v0.21 P2: 尺寸/重量解析与合理性守卫 ──────────────────────────────────
+# 根因（2026-08-04 实证）：
+# 1. 风扇页 module-od-product-attributes 有带单位「规格 8.5*6.5*11cm」，但
+#    probe fallback 容器未覆盖该模块 + body 正则漏「规格/包装体积」，只抓到
+#    无单位的「外观尺寸 85*65*11」并按 cm ×10 → 850×650×110mm。
+# 2. 工具页「长(cm)」表商家实际填 mm 值（260）→ 按表头 cm ×10 → 2600mm，
+#    体积放大 1000 倍。
+# 3. density 兜底把「轻而大」的商品重量按体积×0.5 放大（风扇 300g→30.4kg、
+#    工具 400g→364kg），无视商家已提供的真实重量。
+
+MAX_DIM_MM = 5000          # 单边物理上限 5m，超过视为脏数据
+MAX_EST_WEIGHT_G = 30000   # 无商家重量时估算上限 30kg
+_DIM_LWH_RE = re.compile(
+    r"(?:\(?(cm|CM|mm|MM)\)?\s*(?:[：:]\s*)?)?"
+    r"(\d+\.?\d*)\s*\*\s*(\d+\.?\d*)\s*\*\s*(\d+\.?\d*)"
+    r"(?:\s*(cm|CM|mm|MM))?"
+)
+_DIM_VALUE_RE = re.compile(r"\s*(\d+\.?\d*)\s*(cm|CM|mm|MM)?\s*$")
+
+
+def _parse_dim_value(text: Any) -> tuple[float, str | None]:
+    """解析单个维度文本（'85' / '85cm' / '85 mm'）→ (数值, 单位|None)。"""
+    m = _DIM_VALUE_RE.match(str(text or "").strip())
+    if not m:
+        return 0.0, None
+    unit = (m.group(2) or "").lower() or None
+    return float(m.group(1)), unit
+
+
+def extract_dimensions_from_texts(texts: list[str]) -> dict | None:
+    """从候选文本行提取 L*W*H 尺寸（输出 mm）。
+
+    优先级：带单位候选（cm/mm）> 无单位候选（unit='unknown'，保守按原值 mm，
+    不乘 10）。单边 > MAX_DIM_MM 拒绝。
+    """
+    united: dict | None = None
+    unitless: dict | None = None
+    for text in texts or []:
+        m = _DIM_LWH_RE.search(str(text or ""))
+        if not m:
+            continue
+        l, w, h = float(m.group(2)), float(m.group(3)), float(m.group(4))
+        unit = (m.group(5) or m.group(1) or "").lower() or None
+        if l <= 0 or w <= 0 or h <= 0:
+            continue
+        if unit == "cm":
+            dims = {"length": int(l * 10), "width": int(w * 10), "height": int(h * 10), "unit": "cm"}
+        elif unit == "mm":
+            dims = {"length": int(l), "width": int(w), "height": int(h), "unit": "mm"}
+        else:
+            dims = {"length": int(l), "width": int(w), "height": int(h), "unit": "unknown"}
+        if max(dims["length"], dims["width"], dims["height"]) > MAX_DIM_MM:
+            continue
+        if dims["unit"] != "unknown" and united is None:
+            united = dims
+        elif dims["unit"] == "unknown" and unitless is None:
+            unitless = dims
+    return united or unitless
+
+
+def resolve_packaging_dimensions(pkg_row: dict, weight_g: int | float) -> dict:
+    """解析 packaging row → mm 尺寸（含 cm/mm 交叉判定）。
+
+    判定规则：row 数值无显式单位时，分别按 cm（×10）与 mm（×1）计算密度
+    （g/cm³），取落在 [0.05, 8] 合理区间的一方；两方都在区间内或都不在时
+    保持 cm（不臆断）。weight<=0 无法判定时保持 cm。
+    """
+    l_val, l_unit = _parse_dim_value(pkg_row.get("lengthText"))
+    w_val, w_unit = _parse_dim_value(pkg_row.get("widthText"))
+    h_val, h_unit = _parse_dim_value(pkg_row.get("heightText"))
+    units = [u for u in (l_unit, w_unit, h_unit) if u]
+    if l_val <= 0 or w_val <= 0 or h_val <= 0:
+        return {"length": 0, "width": 0, "height": 0, "unit_used": "unknown", "suspected": False}
+
+    if units:
+        unit = "cm" if "cm" in units else "mm"
+        mult = 10 if unit == "cm" else 1
+        return {
+            "length": int(l_val * mult), "width": int(w_val * mult), "height": int(h_val * mult),
+            "unit_used": unit,
+            "suspected": False,
+        }
+
+    weight = float(weight_g or 0)
+    if weight <= 0:
+        return {
+            "length": int(l_val * 10), "width": int(w_val * 10), "height": int(h_val * 10),
+            "unit_used": "cm", "suspected": False,
+        }
+
+    def _density(mult: float) -> float:
+        vol_mm3 = (l_val * mult) * (w_val * mult) * (h_val * mult)
+        return weight / (vol_mm3 / 1000.0) if vol_mm3 > 0 else 0.0
+
+    d_cm = _density(10.0)
+    d_mm = _density(1.0)
+    in_cm = 0.05 <= d_cm <= 8.0
+    in_mm = 0.05 <= d_mm <= 8.0
+    if in_mm and not in_cm:
+        unit_used, mult, suspected = "mm", 1, True
+    else:
+        unit_used, mult, suspected = "cm", 10, False
+    return {
+        "length": int(l_val * mult), "width": int(w_val * mult), "height": int(h_val * mult),
+        "unit_used": unit_used, "suspected": suspected,
+    }
+
+
 def _validate_and_fix_product_data(
     item_id: str,
     title: str,
@@ -920,13 +1028,23 @@ def _validate_and_fix_product_data(
             )
             weight_g = estimated_g
         elif density_g_cm3 < 0.25 and volume_cm3 > 1000:  # 大体积但极轻（比泡沫还轻？数据错误）
-            # 用典型混合材质密度估算：金属/塑料 ~0.8-1.5 g/cm³，取保守值 0.5
-            estimated_g = max(int(volume_cm3 * 0.5), 100)
-            logger.warning(
-                "物品 %s 密度过低 %.2f g/cm³（%dg / %.0f cm³），修正为 %dg",
-                item_id, density_g_cm3, weight_g, volume_cm3, estimated_g,
-            )
-            weight_g = estimated_g
+            # v0.21 P2: 商家已提供真实重量 → 信任重量，不再用体积反推覆盖
+            # （根因：风扇 300g→30.4kg、工具 400g→364kg 都是这个分支干的）
+            if weight_g > 0:
+                logger.warning(
+                    "物品 %s 密度过低 %.2f g/cm³（%dg / %.0f cm³），"
+                    "但商家已提供重量，保留商家重量 %dg（尺寸可能单位错误）",
+                    item_id, density_g_cm3, weight_g, volume_cm3, weight_g,
+                )
+            else:
+                # 无商家重量才估算，且封顶 MAX_EST_WEIGHT_G，防止脏尺寸把重量推上天
+                estimated_g = max(int(volume_cm3 * 0.5), 100)
+                estimated_g = min(estimated_g, MAX_EST_WEIGHT_G)
+                logger.warning(
+                    "物品 %s 密度过低 %.2f g/cm³（%dg / %.0f cm³），估算为 %dg（封顶 %dg）",
+                    item_id, density_g_cm3, weight_g, volume_cm3, estimated_g, MAX_EST_WEIGHT_G,
+                )
+                weight_g = estimated_g
 
     # ── 硬阻断：图片 ──
     if not images:
@@ -1101,31 +1219,36 @@ def build_graph_envelope(
         weight_g = 0  # 管线定价需要真实重量，0 会让运费计算降到最低
 
     # 尺寸：取 CDP 探针解析的 packaging_rows 数据
-    # 1688 使用 cm，Ozon 使用 mm → ×10
-    def _parse_pkg_dim(pkg_row, key_text, key_cm, default=0):
-        """Parse dimension from packaging row, converting cm→mm."""
-        val_text = pkg_row.get(key_text)  # e.g. "19.20"
-        if val_text:
-            try:
-                return int(float(str(val_text).strip()) * 10)  # cm → mm
-            except (ValueError, TypeError):
-                pass
-        return default
-
+    # v0.21 P2: cm/mm 交叉判定（工具页 cm 表实际填 mm 值 → 按密度合理性切到 mm）
     if pkg_first:
+        resolved = resolve_packaging_dimensions(pkg_first, weight_g)
         dimensions = {
-            "length": _parse_pkg_dim(pkg_first, "lengthText", "lengthCm"),
-            "width": _parse_pkg_dim(pkg_first, "widthText", "widthCm"),
-            "height": _parse_pkg_dim(pkg_first, "heightText", "heightCm"),
+            "length": resolved["length"],
+            "width": resolved["width"],
+            "height": resolved["height"],
         }
     else:
         dimensions = {"length": 0, "width": 0, "height": 0}
 
-    # 降级: 如果 packaging 表格没有尺寸，从 description 文本提取
+    # 降级: 如果 packaging 表格没有尺寸，优先用 probe 收集的候选行
+    # （module-od-product-attributes 属性表 / 描述区 / body 行，v0.21 P2）
     if (dimensions["length"] == 0 and dimensions["width"] == 0 and dimensions["height"] == 0):
         import re as _re
+        candidates = data.get("dim_text_candidates") or []
+        parsed = extract_dimensions_from_texts(candidates) if candidates else None
+        if parsed:
+            dimensions = {
+                "length": parsed["length"],
+                "width": parsed["width"],
+                "height": parsed["height"],
+            }
+            logger.info(
+                "物品 %s packaging 无尺寸，从候选文本提取 %s（unit=%s）",
+                item_id, dimensions, parsed.get("unit"),
+            )
+        # 再兜底: description 文本正则（旧路径，保持兼容）
         desc = data.get("description") or ""
-        if desc:
+        if desc and (dimensions["length"] == 0 and dimensions["width"] == 0 and dimensions["height"] == 0):
             # 匹配 L*W*H 格式: "34*25*2CM", "尺寸：30*9.5*4.5cm", "MEAS:51*35*42CM"
             dim_pat = _re.search(
                 r'(?:尺寸|单个|产品尺寸|MEAS|meas|箱规)?[：:\s]*'

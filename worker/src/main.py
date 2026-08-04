@@ -27,6 +27,7 @@ from storage.memory.memory_saver import get_memory_saver
 from storage.database.shared.model import Base
 from utils.task_processor import SupabaseTaskProcessor
 from utils.ozon_client import ozon_check_quota  # 配额检查
+from utils.draft_sanity import validate_draft_sanity  # v0.21 P2 入队防线
 from sqlalchemy import event
 
 # ── 进度追踪（内存存储，重启清空） ──
@@ -1182,6 +1183,16 @@ async def http_submit_task(request: Request):
                     WorkerErrorCode.INVALID_REQUEST,
                     f"draft.dimensions.{dim_key} 不能为负数: {dv}",
                 )
+
+        # v0.21 P2: 物理合理性防线 — 脏重量/脏尺寸直接拒绝，防止打爆定价
+        sanity_err = validate_draft_sanity(draft)
+        if sanity_err:
+            logger.warning("❌ 信封数据异常被拒: %s", sanity_err)
+            return error_response(
+                WorkerErrorCode.INVALID_REQUEST,
+                f"信封数据异常: {sanity_err}",
+                detail={"sanity": sanity_err},
+            )
         
         # ✅ Step2: 验证token（查询Supabase tokens表）
         if not token:
