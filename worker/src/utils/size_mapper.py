@@ -25,10 +25,35 @@ SIZE_ATTR_NAMES = ["Российский размер", "Размер", "Раз�
 
 
 def _load_size_tables() -> None:
-    """加载所有尺码表CSV文件"""
+    """加载尺码表：PG size_mappings 优先，DB 不可用/为空时回退 assets CSV。"""
     global _loaded
     if _loaded:
         return
+    _loaded = True
+
+    # ✅ v0.24 F1a: PG 查询优先（部署时由 init_data.py 导入）
+    try:
+        from storage.database.db import get_session
+        from sqlalchemy import text
+        session = get_session()
+        try:
+            rows = session.execute(
+                text("SELECT table_type, input_value, ru_size FROM size_mappings")
+            ).mappings().all()
+        finally:
+            session.close()
+        if rows:
+            for r in rows:
+                # 结构兼容 _search_in_table：input 列匹配输入，RU 列返回俄码
+                _size_tables.setdefault(r["table_type"], []).append(
+                    {"input": r["input_value"], "RU": r["ru_size"]}
+                )
+            logger.info(f"尺码表从 PG 加载: {len(rows)} 条")
+            return
+    except Exception as e:
+        logger.warning(f"尺码表 PG 加载失败，回退 CSV: {e}")
+
+    # ── 以下为 CSV 文件兜底加载 ──
 
     assets_dir: str = os.path.join(os.getenv("APP_WORKSPACE_PATH", "/workspace/projects"), "assets")
     table_files: Dict[str, str] = {
@@ -56,7 +81,6 @@ def _load_size_tables() -> None:
         except Exception as e:
             logger.error(f"加载尺码表 {file_path} 失败: {e}")
 
-    _loaded = True
 
 
 def is_clothing_product(product_name_ru: str, category_name: str = "") -> bool:
@@ -133,9 +157,12 @@ def _search_in_table(table: List[Dict[str, str]], normalized_size: str, table_na
                 # 找到匹配，返回俄罗斯尺码列的值
                 # 俄罗斯尺码列名可能是 "俄罗斯尺码"、"RU"、"Российский размер" 等
                 ru_size: Optional[str] = None
-                for ru_col in ["俄罗斯尺码", "RU", "Российскийразмер", "俄罗斯", "俄码"]:
-                    if row.get(ru_col):
-                        ru_size = row[ru_col].strip()
+                for ru_key, ru_val in row.items():
+                    if ru_key == col_name:
+                        continue
+                    ru_norm: str = _normalize_size_input(ru_key)
+                    if ru_norm in ("RU", "РУ", "РОССИЙСКИЙРАЗМЕР", "РФ", "俄码") or "俄罗斯" in ru_key:
+                        ru_size = ru_val.strip()
                         break
                 if not ru_size:
                     # 如果没有明确的俄罗斯尺码列，尝试取第一列作为尺码

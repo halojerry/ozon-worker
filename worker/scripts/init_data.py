@@ -362,6 +362,10 @@ def main():
     # 4. 导入属性 schema 和字典值缓存（从 JSON 文件，与类目树同级）
     import_attribute_cache(engine, force=args.force)
 
+    # 5. 导入尺码表（服装尺码 → 俄罗斯尺码，供 size_mapper 查询）
+    from import_size_tables import import_size_tables
+    import_size_tables(engine, force=args.force)
+
     logger.info("═══ 初始化完成 ═══")
 
 

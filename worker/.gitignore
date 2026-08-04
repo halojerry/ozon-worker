@@ -47,6 +47,8 @@ __pycache__/
 *.pptx
 *.xlsx
 *.csv
+# ✅ v0.24 F1a: 尺码表是部署资产（init_data 导入源），豁免忽略
+!assets/*.csv
 
 # Preview files
 .preview
