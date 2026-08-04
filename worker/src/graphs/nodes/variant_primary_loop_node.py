@@ -12,6 +12,7 @@ from graphs.state import GlobalState, VariantLoopState, VariantLoopOutput, Varia
 
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
+from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
 
 
 class VariantPrimaryLoopInput(BaseModel):
@@ -85,6 +86,7 @@ def variant_primary_loop_node(
             # ✅ 调用统一mxou API（正确参数: images/aspectRatio/replyType）
             # ⚠️ v0.15: 提示词外置 config/image_prompts.json（热加载，改文件即生效，无需重建镜像）
             image_url = call_mxou_image_api(
+                model=get_image_model("variant_white_bg"),
                 token=state.token,
                 prompt=get_image_prompt("variant_white_bg"),
                 ref_images=ref_images,
