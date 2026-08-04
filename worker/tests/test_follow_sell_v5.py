@@ -107,7 +107,8 @@ def _run_node(envelope_override=None):
             "dimensions": {"length": 200, "width": 150, "height": 100},
             "item_id": "980815374096",
         },
-        "extensions": {"follow_sell": True, "margin_rate": 0.25, "commission_rate": 0.10},
+        "extensions": {"follow_sell": True, "follow_type": "api",
+                       "margin_rate": 0.25, "commission_rate": 0.10},
     }
     if envelope_override:
         import copy
@@ -155,7 +156,7 @@ def test_case_1_category_failure():
             "dimensions": {"length": 100, "width": 100, "height": 100},
             "item_id": "12345",
         },
-        "extensions": {"follow_sell": True},
+        "extensions": {"follow_sell": True, "follow_type": "api"},
     })
 
     _setup_mock_ozon(import_ok=False)
@@ -219,7 +220,7 @@ def test_case_1b_import_ok_missing_category():
             "dimensions": {"length": 100, "width": 100, "height": 100},
             "item_id": "12345",
         },
-        "extensions": {"follow_sell": True},
+        "extensions": {"follow_sell": True, "follow_type": "api"},
     })
 
     _setup_mock_ozon(import_ok=True)
@@ -237,6 +238,75 @@ def test_case_1b_import_ok_missing_category():
         ("category_missing=True", result.get("category_missing") is True),
         ("error_message 为空（不阻断）", not result.get("error_message")),
         ("failed_stage 为空", not result.get("failed_stage")),
+    ]
+    all_pass = True
+    for name, passed in checks:
+        status = "✅" if passed else "❌"
+        if not passed:
+            all_pass = False
+        print(f"  {status} {name}")
+
+    return all_pass
+
+
+def test_case_4_hand_mode_skips_import_by_sku():
+    """hand 防侵权跟卖（v0.22）：不调用 import-by-sku（1:1 复制），
+    走 CREATE 重建（类目/属性/生图全部重做）。"""
+    print("\n" + "="*60)
+    print("用例4 (hand 防侵权跟卖): 跳过 import-by-sku → CREATE")
+    print("="*60)
+
+    import graphs.nodes.follow_sell_import_node as mod
+    from graphs.nodes.follow_sell_import_node import follow_sell_import_node
+    mod._resolve_category_by_id = _mock_resolve_category_success
+    mod._resolve_category = lambda dc, tp, language="": _mock_resolve_category_success(0)
+
+    import requests as req
+    calls = []
+    _orig = req.post
+    class _Resp2:
+        status_code = 200
+        def json(self):
+            return {"result": {"task_id": "12345"}}
+    def _counting_post(url, *a, **k):
+        if "import-by-sku" in url:
+            calls.append(url)
+        return _Resp2()
+    req.post = _counting_post
+    try:
+        env = {
+            "draft": {
+                "ozon_product_id": "3852000144",
+                "title": "Тест",
+                "ozon_title": "Тест",
+                "images": ["https://cdn.ozon.ru/img1.jpg"],
+                "ozon_category": {
+                    "description_category_id": "17027918",
+                    "type_id": "971311385",
+                },
+                "purchase_cost": 50.0,
+                "currency": "CNY",
+                "weight": 500,
+                "dimensions": {"length": 100, "width": 100, "height": 100},
+                "item_id": "12345",
+            },
+            "extensions": {"follow_sell": True, "follow_type": "hand"},
+        }
+        state = FakeState(envelope=env)
+        result = follow_sell_import_node(state)
+    finally:
+        req.post = _orig
+
+    print(f"  import-by-sku 调用次数: {len(calls)}")
+    print(f"  product_id: {result.get('product_id')}")
+    print(f"  dc_id: {result.get('description_category_id')}")
+    print(f"  tp_id: {result.get('type_id')}")
+
+    checks = [
+        ("import-by-sku 未被调用（hand 模式）", len(calls) == 0),
+        ("product_id 为空（走 CREATE，由上传节点创建）", not result.get("product_id")),
+        ("类目保留（CREATE 用竞品类目）", bool(result.get("description_category_id"))),
+        ("error_message 为空", not result.get("error_message")),
     ]
     all_pass = True
     for name, passed in checks:
@@ -349,6 +419,7 @@ if __name__ == "__main__":
     results = {
         "用例1 (Bug复现-类目失败)": test_case_1_category_failure(),
         "用例1b (import成功-类目缺失打标)": test_case_1b_import_ok_missing_category(),
+        "用例4 (hand防侵权跟卖)": test_case_4_hand_mode_skips_import_by_sku(),
         "用例2 (正常-跟卖流程)": test_case_2_normal_follow_sell(),
         "用例3 (边界-空product_id)": test_case_3_empty_product_id(),
     }

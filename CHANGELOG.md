@@ -45,6 +45,10 @@
   what_to_sell 获取竞品**重量(4497)/尺寸(9454/9455/9456)/月销/GMV/上架天数**
   透传信封；worker assemble 在 1688 重量缺失或尺寸全 0 时用竞品值兜底
   （`apply_competitor_fallback`），降低 INCORRECT_DIMENSION/价格失真。
+- **跟卖双模式（参考 maozi follow_type）**：`extensions.follow_type` 二选一——
+  `hand` 防侵权跟卖（**默认**）：跳过 import-by-sku 1:1 复制，走 CREATE 重建
+  （我们管线重做类目/属性/生图，天然防同款/侵权检测）；`api` 强制跟卖：
+  import-by-sku 复制竞品卡片（快但可能报错/被下架）。
 
 ## [0.21.0] - 2026-08-04
 
