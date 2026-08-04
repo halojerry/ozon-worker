@@ -140,6 +140,22 @@ def test_prepare_fills_optional_dict_attrs_via_synonyms():
     assert attr_map[8050]["values"][0]["value"] == "Нержавеющая сталь"
 
 
+def test_append_spec_table_contains_attrs():
+    """描述末尾追加规格参数表（俄语属性名/值 + 重量尺寸）（v0.25 T4）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _append_spec_table
+    attrs = [
+        {"id": 85, "name": "Бренд", "values": [{"dictionary_value_id": 126745801, "value": "Нет бренда"}]},
+        {"id": 9163, "name": "Пол", "values": [{"dictionary_value_id": 2, "value": "Женский"}]},
+    ]
+    out = _append_spec_table("Описание товара.", attrs, weight_g=500,
+                             dimensions={"length": 100, "width": 80, "height": 50})
+    assert "Характеристики" in out
+    assert "Нет бренда" in out
+    assert "Женский" in out
+    assert "500" in out
+    assert "100" in out and "80" in out and "50" in out
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0

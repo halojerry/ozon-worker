@@ -747,6 +747,36 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
     return items
 
 
+def _append_spec_table(description: str, attrs, weight_g=0, dimensions=None, schema=None) -> str:
+    """v0.25 T4: 描述末尾追加规格参数表（俄语属性名/值 + 重量/尺寸）。"""
+    name_map = {}
+    for a in schema or []:
+        if isinstance(a, dict) and a.get("id") is not None:
+            name_map[int(a.get("id"))] = str(a.get("name") or "")
+    rows = []
+    for a in attrs or []:
+        if not isinstance(a, dict):
+            continue
+        aid = int(a.get("id") or a.get("attribute_id") or 0)
+        name = name_map.get(aid) or str(a.get("name") or "")
+        vals = a.get("values") or []
+        val = str(vals[0].get("value") or "") if vals and isinstance(vals[0], dict) else str(a.get("value") or "")
+        if name and val and name.lower() != "описание":
+            rows.append((name, val))
+    dims = dimensions or {}
+    if weight_g:
+        rows.append(("Вес", f"{int(weight_g)} г"))
+    if dims:
+        rows.append(("Габариты", f"{dims.get('length','')}×{dims.get('width','')}×{dims.get('height','')} мм"))
+    if not rows:
+        return description
+    lines = ['<table class="ozon-spec"><caption>Характеристики</caption>']
+    for k, v in rows:
+        lines.append(f"<tr><td>{k}</td><td>{v}</td></tr>")
+    lines.append("</table>")
+    return f"{description}\n{''.join(lines)}"
+
+
 def prepare_ozon_upload_node(
     state: PrepareOzonUploadInput,
     config: RunnableConfig,
@@ -1238,6 +1268,14 @@ def prepare_ozon_upload_node(
     # ✅ 描述净化：移除残留拉丁文/中文/URL/营销词（预防 DESCRIPTION_DECLINE）
     if description:
         description = _sanitize_description(description)
+
+        # ✅ v0.25 T4: 描述追加规格参数表（俄语属性名/值 + 重量/尺寸）
+        try:
+            description = _append_spec_table(
+                description, final_attributes, weight_grams, dimensions, attributes_schema
+            )
+        except Exception:
+            pass  # 规格表失败不影响描述主流程
 
     # ✅ P2 修复：生成富文本 HTML 描述（Ozon 属性 4191）
     rich_desc = ""
