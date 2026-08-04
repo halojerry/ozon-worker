@@ -122,6 +122,24 @@ def test_prepare_dict_live_search_fallback():
     assert attr_map[31]["values"][0]["dictionary_value_id"] == 126745801
 
 
+def test_prepare_fills_optional_dict_attrs_via_synonyms():
+    """非必填字典属性（材质）按同义词匹配 1688 属性并填 dictionary_value_id（v0.25 T3）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_optional_dict_attrs
+    from types import SimpleNamespace
+
+    schema = [{"id": 8050, "name": "Материал", "is_required": False, "dictionary_id": 600}]
+    state = SimpleNamespace(
+        dictionary_values={"8050": [{"id": 1001, "value": "Нержавеющая сталь"}]},
+        description_category_id="17027918", type_id="971311385",
+    )
+    items = [{"offer_id": "x_0", "name": "Нож", "attributes": []}]
+    draft = {"item_id": "x", "title": "不锈钢刀", "attributes": {"材质": "不锈钢"}}
+    result = _fill_optional_dict_attrs(items, schema, draft, state)
+    attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
+    assert attr_map[8050]["values"][0]["dictionary_value_id"] == 1001
+    assert attr_map[8050]["values"][0]["value"] == "Нержавеющая сталь"
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0
