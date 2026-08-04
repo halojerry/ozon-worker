@@ -112,6 +112,19 @@ def ozon_upload_node(
         logger.warning(f"payload缺少字段: {missing_fields}")
         # 不阻止上传，只记录警告
     
+    # v0.22 P2a: api 模式 import-by-sku 已提交但 product_id 未回 → 跳过 v3 import
+    # （避免与后台 import 竞争同 offer_id 创建双卡；由后续轮询 import/info 收尾）
+    if getattr(state, "import_submitted", False) and not getattr(state, "product_id", None):
+        logger.warning("⚠️ import-by-sku 处理中（import_submitted），跳过 v3 import，返回 pending")
+        return OzonUploadOutput(
+            product_id=None,
+            upload_status="pending",
+            purchase_url=purchase_url,
+            purchase_cost=purchase_cost,
+            sku_id=sku_id,
+            profit_estimation=profit_estimation,
+        )
+
     # 发送Ozon API上传请求
     try:
         # ✅ 上传前检查配额（使用 ozon_client 统一封装）
