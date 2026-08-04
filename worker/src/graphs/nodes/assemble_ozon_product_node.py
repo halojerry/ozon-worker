@@ -43,6 +43,42 @@ _SYNONYMS_CACHE: dict | None = None
 _SYNONYMS_PATH = Path(__file__).resolve().parents[3] / "config" / "category_synonyms.json"
 
 
+def apply_competitor_fallback(
+    weight_g: int,
+    depth_mm: int,
+    width_mm: int,
+    height_mm: int,
+    extensions: dict,
+) -> tuple[int, int, int, int]:
+    """竞品重量/尺寸兜底（v0.22）：1688 数据缺失时用 Ozon 竞品值。
+
+    Skill follow 链路把竞品 what_to_sell 重量（4497）与尺寸（9454/9455/9456）
+    透传到 extensions.competitor_weight_g / competitor_dimensions_mm。
+    """
+    ext = extensions or {}
+    if weight_g <= 0 and ext.get("competitor_weight_g"):
+        try:
+            cw = int(float(ext["competitor_weight_g"]))
+            if cw > 0:
+                logger.info("✅ 1688 重量缺失，用竞品重量 %dg 兜底", cw)
+                weight_g = cw
+        except (TypeError, ValueError):
+            pass
+    if depth_mm <= 0 and width_mm <= 0 and height_mm <= 0:
+        cd = ext.get("competitor_dimensions_mm") or {}
+        if isinstance(cd, dict) and (cd.get("length") or cd.get("width") or cd.get("height")):
+            try:
+                n_d = int(float(cd.get("length") or cd.get("depth") or 0))
+                n_w = int(float(cd.get("width") or 0))
+                n_h = int(float(cd.get("height") or 0))
+                if n_d > 0 and n_w > 0 and n_h > 0:
+                    logger.info("✅ 1688 尺寸缺失，用竞品尺寸 %d×%d×%dmm 兜底", n_d, n_w, n_h)
+                    return weight_g, n_d, n_w, n_h
+            except (TypeError, ValueError):
+                pass
+    return weight_g, depth_mm, width_mm, height_mm
+
+
 def _load_category_synonyms() -> dict:
     global _SYNONYMS_CACHE
     if _SYNONYMS_CACHE is None:
@@ -271,6 +307,14 @@ def _assemble_follow_sell(
     offer_id = f"follow_{draft.get('ozon_product_id', sku_id)}"
     weight_g = draft.get("weight", 100)
     dims = draft.get("dimensions", {}) or {}
+    # ✅ v0.22: 1688 数据缺失时用竞品重量/尺寸兜底（follow 链路 skill 透传）
+    _ext_fb = (state.envelope or {}).get("extensions", {}) or {}
+    if _ext_fb.get("competitor_weight_g") or _ext_fb.get("competitor_dimensions_mm"):
+        weight_g, _dl, _dw, _dh = apply_competitor_fallback(
+            int(weight_g), int(dims.get("length", dims.get("depth", 0))),
+            int(dims.get("width", 0)), int(dims.get("height", 0)), _ext_fb,
+        )
+        dims = {"length": _dl, "width": _dw, "height": _dh}
     depth = int(dims.get("length", dims.get("depth", 100)))
     width = int(dims.get("width", 100))
     height = int(dims.get("height", 100))
@@ -335,6 +379,14 @@ def assemble_ozon_product_node(
     images: list[str] = draft.get("images", []) or []
     weight_grams: int = draft.get("weight", 100)
     dimensions: dict[str, int] = draft.get("dimensions", {}) or {}
+    # ✅ v0.22: 1688 数据缺失时用竞品重量/尺寸兜底（follow 链路 skill 透传）
+    _ext_fb = (state.envelope or {}).get("extensions", {}) or {}
+    if _ext_fb.get("competitor_weight_g") or _ext_fb.get("competitor_dimensions_mm"):
+        weight_grams, _dl, _dw, _dh = apply_competitor_fallback(
+            int(weight_grams), int(dimensions.get("length", dimensions.get("depth", 0))),
+            int(dimensions.get("width", 0)), int(dimensions.get("height", 0)), _ext_fb,
+        )
+        dimensions = {"length": _dl, "width": _dw, "height": _dh}
     purchase_cost: float = float(draft.get("purchase_cost", 0) or 0)
     sku_id: str = draft.get("sku_id", "")
     attributes_1688: dict[str, Any] = draft.get("attributes", {}) or {}
