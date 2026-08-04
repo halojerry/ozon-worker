@@ -100,6 +100,9 @@ class GlobalState(BaseModel):
     ozon_task_id: str = Field(default="", description="Ozon上传任务ID（临时，ozon_upload设置，ozon_status读取后替换为真实product_id）")
     product_ids: List[str] = Field(default_factory=list, description="所有变体的Ozon商品ID列表")
     upload_status: str = Field(default="", description="Ozon上传状态（success/failed/pending/timeout）")
+    # ✅ v0.22 P2a: import-by-sku 已提交但未完成标记（防超时 fallback CREATE 双卡）
+    import_submitted: bool = Field(default=False, description="import-by-sku 已提交但未确认完成")
+    import_task_id: str = Field(default="", description="import-by-sku 任务ID（用于后续轮询）")
     
     # ✅ 新增：验证相关字段（条件路径函数依赖）
     validation_errors: List[str] = Field(default_factory=list, description="验证错误列表（仅当前节点产生）")
@@ -297,6 +300,9 @@ class FollowSellImportOutput(BaseModel):
     
     # 状态
     upload_status: str = Field(default="pending", description="上传状态")
+    # ✅ v0.22 P2a: import-by-sku 已提交但未完成标记（防超时 fallback CREATE 双卡）
+    import_submitted: bool = Field(default=False, description="import-by-sku 已提交但未确认完成")
+    import_task_id: str = Field(default="", description="import-by-sku 任务ID（用于后续轮询）")
     error_message: str = Field(default="", description="错误信息")
     failed_stage: str = Field(default="", description="失败阶段名")
 

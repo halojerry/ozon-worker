@@ -52,6 +52,9 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     error_msg: str = ""
     failed_stg: str = ""
     category_missing: bool = False
+    # v0.22 P2a: import-by-sku 已提交但未完成标记（防超时 fallback CREATE 双卡）
+    import_submitted: bool = False
+    import_task_id_val: str = ""
 
     ozon_product_id = str(draft.get("ozon_product_id", ""))
     if not ozon_product_id:
@@ -154,7 +157,7 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
             ibs_task_id = str(data.get("task_id", ""))
             if resp.status_code == 200 and not unmatched:
                 logger.info("✅ import-by-sku 已提交: task_id=%s", ibs_task_id)
-                for _ibs_attempt in range(20):  # v0.22: 30s→60s，降低超时 fallback 双卡概率
+                for _ibs_attempt in range(60):  # v0.22 P2a: 60s→180s，降低超时 fallback 双卡概率
                     time.sleep(3)
                     try:
                         info_resp = req.post(
@@ -175,7 +178,15 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                     except Exception:
                         pass
                 if not product_id:
-                    logger.info("⏳ import-by-sku 未在60s内完成，走 Fallback CREATE")
+                    # v0.22 P2a: import 已提交但超时 → 标记 pending，不 fallback CREATE
+                    # （避免与后台 import 竞争同 offer_id 双卡；由后续轮询 import/info 收尾）
+                    logger.warning(
+                        "⚠️ import-by-sku 已提交(task=%s)但未在180s内确认，标记 pending，不 fallback CREATE",
+                        ibs_task_id,
+                    )
+                    import_submitted = True
+                    import_task_id_val = str(ibs_task_id)
+                    up_status = "pending"
             else:
                 logger.info("⚠️ import-by-sku 不可复制(unmatched=%s)，走 Fallback", unmatched)
         except Exception as e:
@@ -268,6 +279,8 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         "attributes_schema": attrs_schema,
         "upload_status": up_status,
         "category_missing": category_missing,
+        "import_submitted": import_submitted,
+        "import_task_id": import_task_id_val,
         "error_message": error_msg,
         "failed_stage": failed_stg,
     }

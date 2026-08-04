@@ -32,6 +32,7 @@ class FakeState:
 
 # Mock Ozon API — 模拟 import-by-sku 返回
 _original_req_post = None
+_original_time_sleep = None
 
 def _setup_mock_ozon(import_ok=True):
     """mock Ozon API。
@@ -40,8 +41,11 @@ def _setup_mock_ozon(import_ok=True):
     import_ok=False → import/info 无 product_id（走 Fallback CREATE）
     """
     import requests as req
-    global _original_req_post
+    import time as _t
+    global _original_req_post, _original_time_sleep
     _original_req_post = req.post
+    _original_time_sleep = _t.sleep
+    _t.sleep = lambda s: None  # 测试加速：轮询 sleep 置空（v0.22 P2a 轮询 180s）
 
     class MockResp:
         def __init__(self, status_code=200, json_data=None):
@@ -66,8 +70,11 @@ def _setup_mock_ozon(import_ok=True):
 
 def _teardown_mock_ozon():
     import requests as req
+    import time as _t
     if _original_req_post:
         req.post = _original_req_post
+    if _original_time_sleep:
+        _t.sleep = _original_time_sleep
 
 
 def _mock_resolve_category_success(dc_id, type_name_hint=None, token=None):
@@ -484,6 +491,64 @@ def test_case_3_empty_product_id():
 
 
 # ═══════════════════════════════════════════════════════════
+# 用例 6: import-by-sku 超时 → 不 fallback CREATE（防双卡闭环，v0.22 P2a）
+# ═══════════════════════════════════════════════════════════
+def test_case_6_import_timeout_no_fallback_create():
+    """import-by-sku 已提交但轮询超时 → 不 fallback CREATE：返回 pending + import_submitted，
+    不调用 v3/product/import（防双卡）。"""
+    import graphs.nodes.follow_sell_import_node as mod
+    from graphs.nodes.follow_sell_import_node import follow_sell_import_node
+    mod._resolve_category_by_id = _mock_resolve_category_success
+    mod._resolve_category = lambda dc, tp, language="": _mock_resolve_category_success(0)
+
+    import requests as req
+    import time as _t
+    calls = []
+    _orig_post = req.post
+    _orig_sleep = _t.sleep
+    class _Resp3:
+        status_code = 200
+        def json(self):
+            return {"result": {"task_id": "12345", "unmatched_sku_list": []}}
+    class _RespInfo:
+        status_code = 200
+        def json(self):
+            return {"result": {"items": []}}  # 永不 imported
+    def _counting_post(url, *a, **k):
+        if "import-by-sku" in url:
+            calls.append("ibs")
+            return _Resp3()
+        if "import/info" in url:
+            calls.append("info")
+            return _RespInfo()
+        if "product/import" in url:
+            calls.append("create")  # v3 import = CREATE/UPDATE，必须不被调用
+        return _Resp3()
+    req.post = _counting_post
+    _t.sleep = lambda s: None  # 加速轮询
+    try:
+        env = {
+            "draft": {"ozon_product_id": "3852000144", "title": "T", "ozon_title": "T",
+                      "images": ["https://cdn.ozon.ru/1.jpg"],
+                      "ozon_category": {"description_category_id": "17027918", "type_id": "971311385"},
+                      "purchase_cost": 50.0, "currency": "CNY", "weight": 500,
+                      "dimensions": {"length": 100, "width": 100, "height": 100},
+                      "item_id": "12345"},
+            "extensions": {"follow_sell": True, "follow_type": "api"},
+        }
+        state = FakeState(envelope=env)
+        result = follow_sell_import_node(state)
+    finally:
+        req.post = _orig_post
+        _t.sleep = _orig_sleep
+    assert "create" not in calls, "超时不应 fallback CREATE"
+    assert result.get("import_submitted") is True
+    assert result.get("upload_status") == "pending"
+    assert result.get("import_task_id") == "12345"
+    return True
+
+
+# ═══════════════════════════════════════════════════════════
 # 主入口
 # ═══════════════════════════════════════════════════════════
 if __name__ == "__main__":
@@ -497,6 +562,7 @@ if __name__ == "__main__":
         "用例1b (import成功-类目缺失打标)": test_case_1b_import_ok_missing_category(),
         "用例4 (hand防侵权跟卖)": test_case_4_hand_mode_skips_import_by_sku(),
         "用例5 (hand缺货源降级api)": test_case_5_hand_without_source_falls_back_api(),
+        "用例6 (import超时不fallback CREATE)": test_case_6_import_timeout_no_fallback_create(),
         "用例2 (正常-跟卖流程)": test_case_2_normal_follow_sell(),
         "用例3 (边界-空product_id)": test_case_3_empty_product_id(),
     }
