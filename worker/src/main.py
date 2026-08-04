@@ -921,23 +921,21 @@ async def store_health(client_id: str = None, api_key: str = None):
 
 
 def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
-    """检查 MXOU 用户余额（照抄 n8n Auth 节点官方逻辑 + 充值实证修正）。
+    """检查 MXOU 用户余额（v0.22 根因修复：统一查用户级 users.quota）。
 
-    ⚠️ 原实现只读 tokens.remain_quota，未查 users 表与 unlimited_quota：
-    - 无限额度 token（unlimited_quota=true）remain_quota 可能为 0/负数 →
-      被误判余额不足（实证：key3 remain_quota=-17亿、1元号=0 都真实可用）
-    - users.quota 是「实时剩余额度」：充值直接加 quota，每次调用 quota-10、
-      used_quota+10（quota+used_quota 恒等于充值总额，2026-08-02 实证）
-    - 判定用 quota>0（不用 quota-used_quota：used_quota 是历史累计，
-      减它只会低估剩余额度）
+    历史问题（2026-08-04 实证）：unlimited 分支返回 key 级 tokens.remain_quota
+    （僵尸字段，同账户两 key 一正一负 +4.4亿/-5808万）；非 unlimited 时 users
+    查询失败降级 remain_quota → 负数误报余额不足（"有余额却报不足"根因）。
 
-    Returns: (balance, ok) — ok=True 表示有额度（剩余额度>0 或无限额度）
+    修复原则：
+    - balance 一律来自 users.quota（用户级：充值加 quota、调用扣 quota）
+    - unlimited_quota=true 仅影响判定（放行），balance 仍显示用户级 quota
+    - users 查询失败/无记录：unlimited 放行；非 unlimited 拒绝（不再降级僵尸字段，
+      数据异常应暴露，宁缺毋滥）
+
+    Returns: (balance, ok) — ok=True 表示有额度（用户级余额>0 或无限额度）
     """
     try:
-        # 无限额度 token 直接放行（测试/赠送/高配 key 不设上限）
-        if token_record.get("unlimited_quota"):
-            return float(token_record.get("remain_quota", 0) or 0), True
-
         user_id = token_record.get("user_id", "")
         supabase = get_supabase_client()
         if supabase is None or not user_id:
@@ -949,19 +947,21 @@ def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
             user_rows = supabase.table("users").select(
                 "quota"
             ).eq("id", user_id).limit(1).execute()
-        except Exception:
-            # 无 users 表权限/不存在时降级用 remain_quota
-            balance = float(token_record.get("remain_quota", 0) or 0)
-            return balance, balance > 0
+        except Exception as exc:
+            # v0.22: 查询失败不再降级 key 级 remain_quota（僵尸字段会负数误判）。
+            # unlimited 放行；非 unlimited 拒绝（数据异常应暴露，宁缺毋滥）
+            logger.warning("余额查询失败（user=%s）: %s", user_id, exc)
+            return 0.0, bool(token_record.get("unlimited_quota"))
 
         if user_rows.data:
             u = user_rows.data[0]
             balance = float(u.get("quota", 0) or 0)
+            if token_record.get("unlimited_quota"):
+                return balance, True
             return balance, balance > 0
 
-        # users 表无记录：降级 remain_quota
-        balance = float(token_record.get("remain_quota", 0) or 0)
-        return balance, balance > 0
+        # users 表无记录：unlimited 放行；非 unlimited 拒绝（不降级僵尸字段）
+        return 0.0, bool(token_record.get("unlimited_quota"))
     except Exception as e:
         logger.warning(f"余额检查异常（不阻断）: {e}")
         return 0.0, True
