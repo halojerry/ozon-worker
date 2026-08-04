@@ -206,9 +206,12 @@ def cmd_graph(args: argparse.Namespace) -> int:
 
 
 def cmd_image_search(args) -> int:
-    """以图搜款: 上传图片搜索 1688 同款/相似商品."""
+    """以图搜款: 上传图片搜索 1688 同款/相似商品。
+
+    --source ak  → 1688 AK API 图搜（默认，无需浏览器）
+    --source cdp → 1688 网页版 CDP 图搜（更准确，需 Chrome 登录 1688）
+    """
     from scripts.lib.config_store import preflight_check, print_setup_guide, AuthError
-    from scripts.lib.ak_1688_client import search_by_image
 
     missing = preflight_check(skip_store=True)
     if missing:
@@ -216,12 +219,22 @@ def cmd_image_search(args) -> int:
         return 1
 
     try:
-        results = search_by_image(
-            image_path=args.image if not args.image.startswith("http") else "",
-            image_url=args.image if args.image.startswith("http") else "",
-            page_size=args.limit,
-            sort_type=args.sort or "",
-        )
+        if args.source == "cdp":
+            from scripts.lib.ozon_image_search import search_by_image_cdp
+            results = search_by_image_cdp(
+                image_url=args.image,
+                page_size=max(args.limit, 20),
+                wait_seconds=10,
+                try_crop_regions=True,
+            )
+        else:
+            from scripts.lib.ak_1688_client import search_by_image
+            results = search_by_image(
+                image_path=args.image if not args.image.startswith("http") else "",
+                image_url=args.image if args.image.startswith("http") else "",
+                page_size=args.limit,
+                sort_type=args.sort or "",
+            )
     except AuthError as e:
         _out({"success": False, "error": str(e)})
         return 1
@@ -941,6 +954,8 @@ def main() -> int:
     ip.add_argument("--image", required=True, help="图片路径或 URL")
     ip.add_argument("--limit", type=int, default=10, help="返回数量")
     ip.add_argument("--sort", default="", help="排序: price_asc/price_desc/sold_desc/yx_desc")
+    ip.add_argument("--source", choices=["ak", "cdp"], default="ak",
+                    help="图搜引擎: ak=1688 AK API（默认），cdp=1688 网页 CDP（更准确）")
     ip.set_defaults(func=cmd_image_search)
 
     # get_ak
