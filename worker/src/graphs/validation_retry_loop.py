@@ -254,24 +254,11 @@ def _call_ozon_api(ozon_client_id: str, ozon_api_key: str, endpoint: str, payloa
 def _search_dictionary_values(ozon_client_id: str, ozon_api_key: str,
                                attribute_id: int, category_id: str, type_id: str,
                                search_value: str, language: str) -> List[Dict[str, Any]]:
-    """
-    调用Ozon API按关键词搜索字典值
-    先用中文(ZH_HANS)搜索，搜不到换英文(EN)
-    """
-    result: Dict[str, Any] = _call_ozon_api(
-        ozon_client_id, ozon_api_key,
-        "/v1/description-category/attribute/values/search",
-        {
-            "attribute_id": attribute_id,
-            "description_category_id": int(category_id) if category_id else 0,
-            "type_id": int(type_id) if type_id else 0,
-            "value": search_value,
-            "language": language,
-            "limit": 50
-        }
-    )
-    values: list = result.get("result", [])
-    return values if values else []
+    """调用Ozon API按关键词搜索字典值（v0.25: 走公共封装，先 RU 后 ZH_HANS）"""
+    from utils.ozon_dict_values import search_dictionary_values as _sv
+    return _sv(ozon_client_id, ozon_api_key, attribute_id,
+               int(category_id) if category_id else 0,
+               int(type_id) if type_id else 0, search_value, language)
 
 
 def _resolve_dimension_units(depth: int, width: int, height: int, weight: int) -> tuple[int, int, int, str]:
