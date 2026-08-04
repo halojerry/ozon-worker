@@ -158,6 +158,8 @@ class GraphOutput(BaseModel):
     
     # ✅ 新增：利润预估
     profit_estimation: Dict[str, Any] = Field(default_factory=dict, description="利润预估明细")
+    # ✅ v0.22: 产品经营明细（skill/agent 展示：1688链接/利润率/售价/采购价/运费预估）
+    product_summary: List[Dict[str, Any]] = Field(default_factory=list, description="产品经营明细数组")
     
     # ✅ 新增：多SKU变体输出
     variant_count: int = Field(default=0, description="变体SKU数量")

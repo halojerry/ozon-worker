@@ -47,6 +47,46 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _poll_task_result(task_id: str, worker_url: str, timeout: int = 900) -> dict[str, Any]:
+    """轮询 Worker task_status 直到终态（completed/failed），返回任务详情。
+
+    v0.22: skill 提交后默认不等待；--wait 时调用，拿到 product_summary。
+    """
+    url = f"{worker_url.rstrip('/')}/task_status/{task_id}"
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            resp = requests.get(url, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                status = data.get("status", "")
+                if status in ("completed", "failed", "cancelled"):
+                    return data
+            elif resp.status_code == 404:
+                return {"status": "not_found", "task_id": task_id}
+        except Exception as _e:
+            print(f"  ⏳ task_status 轮询异常（继续）: {_e}", flush=True)
+        time.sleep(10)
+    return {"status": "timeout", "task_id": task_id, "timeout_seconds": timeout}
+
+
+def _print_product_summary(entry: dict[str, Any]) -> None:
+    """打印单任务的产品经营明细（1688链接/利润率/售价/采购价/运费预估）。"""
+    rows = entry.get("result_summary") or []
+    if not rows:
+        return
+    label = entry.get("offer_id") or entry.get("product_id") or entry.get("id") or "?"
+    print(f"  ── 产品明细（{label}）──", flush=True)
+    for row in rows:
+        print(
+            f"    1688: {row.get('purchase_url', '')}\n"
+            f"    采购价: ¥{row.get('purchase_cost', 0)} | 利润率: {row.get('margin_rate', 0)}"
+            f" | 售价: {row.get('price', '')} | 运费预估: ¥{row.get('logistics_cost', 0)}"
+            f" | 净利润率: {row.get('profit_rate', 0)} | OzonID: {row.get('product_id', '')}",
+            flush=True,
+        )
+
+
 def parse_urls_file(filepath: str) -> list[dict[str, str]]:
     """Parse URL list file. Returns list of {type, url, id}."""
     results: list[dict[str, str]] = []
@@ -283,6 +323,14 @@ def main() -> int:
         "--delay", type=float, default=3.0, help="每个 URL 之间的延迟秒数"
     )
     parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="提交后轮询任务结果，打印每个产品的 1688链接/利润率/售价/采购价/运费预估（v0.22）",
+    )
+    parser.add_argument(
+        "--wait-timeout", type=int, default=900, help="--wait 轮询超时秒数（默认 900）"
+    )
+    parser.add_argument(
         "--type-filter",
         choices=["1688", "ozon", "all"],
         default="all",
@@ -449,6 +497,20 @@ def main() -> int:
             )
 
         results.append(r)
+        # v0.22: --wait 时轮询任务终态并展示产品明细
+        if args.wait and r.get("success") and r.get("task_id"):
+            _label = r.get("offer_id") or r.get("product_id") or uid
+            print(f"  ⏳ [{_label}] 等待任务完成... task_id={r['task_id']}", flush=True)
+            final = _poll_task_result(r["task_id"], args.worker_url, timeout=args.wait_timeout)
+            r["final_status"] = final.get("status", "")
+            r["final_error"] = final.get("error_message", "")[:300]
+            r["result_summary"] = (final.get("result") or {}).get("product_summary", [])
+            if final.get("status") == "completed" and r["result_summary"]:
+                _print_product_summary(r)
+            elif final.get("status") in ("failed", "cancelled"):
+                print(f"  ❌ [{_label}] 任务{final.get('status')}: {r['final_error']}", flush=True)
+            elif final.get("status") == "timeout":
+                print(f"  ⏳ [{_label}] 轮询超时，可稍后查 task_status", flush=True)
         if r.get("success"):
             stats["success"] += 1
         else:

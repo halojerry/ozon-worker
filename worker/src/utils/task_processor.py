@@ -230,6 +230,19 @@ class SupabaseTaskProcessor:
                         payload=payload,
                         timeout=timeout_seconds
                     )
+
+                    # v0.22: 合并产品明细（1688链接/利润率/售价/采购价/运费预估），
+                    # 让 skill/agent 查询 task_status 就能拿到可读经营数据
+                    try:
+                        from utils.product_summary import build_product_summary
+                        draft = (payload or {}).get("envelope", {}).get("draft", {}) or {}
+                        graph_result["product_summary"] = build_product_summary(graph_result, draft)
+                        if not graph_result.get("purchase_url"):
+                            graph_result["purchase_url"] = draft.get("purchase_url", "")
+                        if not graph_result.get("purchase_cost"):
+                            graph_result["purchase_cost"] = str(draft.get("purchase_cost", ""))
+                    except Exception as _ps_err:
+                        logger.warning("product_summary 组装失败（不影响任务结果）: %s", _ps_err)
                     
                     # 使用SQL UPDATE更新任务状态为completed
                     update_completed_sql = text("""
