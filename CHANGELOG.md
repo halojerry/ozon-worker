@@ -29,9 +29,11 @@
   不存在 → 输入失败 → 空输入点搜索误触上传图片按钮）；点击前校验 URL 已填入；
   3 次分段滚动合并候选；RU→ZH 产品词映射扩充（套筒/撬棍/水平仪/风扇/套装等）
   + 标题相关性多词加权；无徽章降级阈值 conf 0.4→0.3。
-- **discover 品牌过滤**：知名品牌黑名单（Nike/Apple/小米/博世/飞利浦/Dyson 等
-  60+）直接标记 filtered 跳过，不浪费 1688 匹配/图搜/生图资源；1688 白牌
-  （fansen 等）不误杀。
+- **discover 品牌过滤**（参考 maozi 插件 brand_option）：用 Ozon widget API
+  （product id 查询）返回的 brand 字段（英/俄文）布尔判断——`без бренда`/空 =
+  无品牌，其它（含白牌）算品牌；`--brand-filter` 三档：nobrand=只要无品牌/白牌
+  （默认，规避品牌侵权）、known=只过滤知名品牌黑名单（Nike/Apple/博世 等 60+）、
+  all=不过滤。命中直接 filtered 跳过，不浪费 1688 匹配/图搜/生图资源。
 - **image_search --source cdp**：CLI 支持 CDP 网页版图搜（默认 ak=1688 AK API；
   需要 Chrome 登录 1688 时用 cdp，准确率更高）。
 

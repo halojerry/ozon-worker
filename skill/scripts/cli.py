@@ -762,6 +762,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
             use_analytics=not args.no_analytics,
             min_price=args.min_price,
             max_price=args.max_price,
+            brand_filter=args.brand_filter,
             progress_callback=_collect_progress,
         )
     except KeyboardInterrupt:
@@ -981,6 +982,8 @@ def main() -> int:
     dp.add_argument("--no-analytics", action="store_true", help="不查 seller.ozon.ru 运营指标（默认自动尝试）")
     dp.add_argument("--min-price", type=float, default=0, help="价格下限（RUB，0=不限），区间外产品标记价区间外")
     dp.add_argument("--max-price", type=float, default=0, help="价格上限（RUB，0=不限）")
+    dp.add_argument("--brand-filter", choices=["nobrand", "known", "all"], default="nobrand",
+                    help="品牌过滤: nobrand=只要无品牌/白牌（默认），known=只过滤知名品牌黑名单，all=不过滤")
     dp.add_argument("--rules", default="", help="自动筛选规则，如 \"monthly_sales>=200,drr<=30\"（跳过交互挑选）")
     dp.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式（全量+选中）")
     dp.add_argument("--output", default="", help="导出文件路径")

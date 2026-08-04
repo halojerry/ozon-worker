@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from scripts.lib.ozon_discovery import _is_known_brand
+from scripts.lib.ozon_discovery import _is_branded, _is_known_brand
 
 
 def test_known_international_brands_filtered():
@@ -30,6 +30,18 @@ def test_brand_with_suffix():
     """品牌名带后缀/大小写混合也能识别。"""
     assert _is_known_brand("NIKE SPORTS") is True
     assert _is_known_brand("Xiaomi Store") is True
+
+
+def test_is_branded_ru_en():
+    """Ozon 品牌字段是英/俄文：без бренда/空 = 无品牌；其它（含白牌）算品牌。"""
+    assert _is_branded("") is False
+    assert _is_branded("без бренда") is False
+    assert _is_branded("Без бренда") is False
+    assert _is_branded("no brand") is False
+    assert _is_branded("无品牌") is False
+    assert _is_branded("fansen") is True   # 白牌也算品牌（nobrand 模式过滤）
+    assert _is_branded("Nike") is True
+    assert _is_branded("Samsung") is True
 
 
 if __name__ == "__main__":
