@@ -34,6 +34,31 @@ DEFAULT_MIN_MARGIN_PCT = 15.0    # minimum profit margin %
 DEFAULT_MAX_COMPETITORS = 50     # skip products with too many sellers
 LOGISTICS_PER_KG_CNY = 40.0      # 跨境物流按重量估算 CNY/kg（保底 8 CNY）
 
+# ⚠️ v0.22: 知名品牌黑名单（discover 直接过滤，避免浪费图搜/1688 匹配/生图资源）。
+# 只放知名品牌（跟卖会侵权/被拒）；1688 白牌/小厂牌（fansen 等）不在此列。
+KNOWN_BRAND_PATTERNS: list[str] = [
+    "nike", "adidas", "puma", "reebok", "new balance", "converse", "vans",
+    "apple", "samsung", "huawei", "honor", "oppo", "vivo", "xiaomi", "redmi",
+    "oneplus", "lenovo", "dell", "hp", "asus", "msi", "acer", "gigabyte",
+    "philips", "bosch", "dewalt", "makita", "stanley", "black+decker", "black decker",
+    "miele", "dyson", "braun", "panasonic", "sony", "jbl", "anker", "baseus",
+    "remax", "ugreen", "logitech", "razer", "steelseries", "corsair",
+    "canon", "nikon", "fujifilm", "gopro", "insta360", "dji",
+    "lego", "hape", "gucci", "louis vuitton", "chanel", "dior", "armani",
+    "zara", "h&m", "uniqlo", "prada", "versace",
+    "tefal", "moulinex", "rowenta", "kenwood", "kitchenaid", "vitamix", "zwilling",
+    "wmf", "tescoma", "pyrex", "tupperware", "vileda", "scotch-brite",
+    "gorenje", "indesit", "beko", "electrolux", "lg",
+]
+
+
+def _is_known_brand(brand: str) -> bool:
+    """判断品牌是否为知名品牌（黑名单命中）。空/白牌返回 False。"""
+    b = str(brand or "").strip().lower()
+    if not b or b in ("无品牌", "no brand", "нет бренда"):
+        return False
+    return any(pat in b for pat in KNOWN_BRAND_PATTERNS)
+
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -348,6 +373,12 @@ def collect_and_analyze(
         # ── 阶段② 全量数据 ──
         for i, pid in enumerate(pids):
             candidate = _analyze_product(cdp_url, cdp, pid)
+
+            # ⚠️ v0.22: 知名品牌直接过滤（跟卖会侵权/被拒，不浪费后续资源）
+            if candidate.status == "ok" and candidate.brand and _is_known_brand(candidate.brand):
+                candidate.status = "filtered"
+                candidate.error = f"知名品牌产品（{candidate.brand}），自动跳过"
+                logger.info("品牌过滤: %s（%s）", candidate.ozon_title[:40], candidate.brand)
 
             # 关键词相关性校验（仅对含中文的标题有效，俄语标题无法判断）
             if (keyword and candidate.status == "ok"
