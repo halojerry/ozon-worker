@@ -289,6 +289,29 @@ async def pricing_node(state):
 - **文件日志**（如果配置了 `LOG_FILE`）: RotatingFileHandler，50MB × 5 个备份
 - **Skill AuditLogger**: `data/logs/{task_id}.jsonl`，7 天自动清理
 
+## Sentry 错误监测（v0.23）
+
+Worker 侧接入 Sentry（`utils/sentry_setup.py`），上报任务执行异常与超时，自动带
+`task_id` / `tenant_id` tag 与 extra，方便按用户/任务定位问题。
+
+```bash
+# deploy/.env 配置（SENTRY_DSN 为空则完全禁用）
+SENTRY_DSN=https://...@o<org>.ingest.us.sentry.io/<project>
+SENTRY_ENV=production        # 环境标签（本地测试建议 local）
+SENTRY_TRACES_SAMPLE_RATE=0.1
+```
+
+覆盖范围：
+- FastAPI 端点异常（SDK 自动集成，HTTP 500/未捕获异常）
+- LangGraph 任务执行异常与超时（`task_processor.py` 异常分支 `capture_task_error`）
+- ERROR 级日志自动捕获（sentry-sdk logging 集成；测试进程自动跳过，避免测试噪音）
+
+验证：
+```bash
+docker compose exec worker python -c "from utils.sentry_setup import init_sentry; print(init_sentry())"
+# True = 已启用；容器日志出现「Sentry 监测已启用」
+```
+
 ## 故障排查流程
 
 ```
