@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.21.0] - 2026-08-04
+
+> 48 商品端到端实测暴露的三类根因修复：类目错配（13/16 declined）、
+> 假成功/学习缓存固化（declined 被当 success 写进 category_mapping）、
+> 9782 危险品等级被兜底填成"爆炸物 Category 1"（BR_hazard_class1）。
+
+### Fixed
+
+- **成功判据收紧（P0-1）**：learning_record 只认 `moderate_status=="approved"`；
+  删除 `upload_status=="success"` / imported / active / processed 强制成功分支；
+  retry 循环"imported 即 success"、"pending+product_id 视为成功"、"不可修复标 success"
+  三处假成功路径改为 pending_moderation / rejected_unfixable；
+  新增 `scripts/clean_category_mapping.py` 一键清理旧污染学习缓存。
+- **9782 危险品等级安全兜底（P0-2）**：删除必填字典属性"取第一个字典值"兜底；
+  危险属性只挑「非危险」安全默认（get_safe_hazard_default），取不到则跳过；
+  普通属性仅字典值唯一时才兜底；prepare 层加防御纵深。
+- **类目匹配修复（P0-3）**：外置同义词表 `config/category_synonyms.json`
+  （震动棒→振动器、后视镜→摩托车后视镜、折叠椅→户外折叠椅 等）；
+  末级类目词（含同义词）命中节点名 +0.5 打破 tie；
+  L0 学习缓存命中必须与 L1 top5 候选一致（防旧脏数据固化）；
+  jieba top1 全泛化词命中返回空触发 L3；
+  skill 信封改传完整 1688 类目路径（不再截断末两级）。
+- **skill 信封数据完整性（P1-1）**：尺寸缺失时标记 `dimensions_estimated`，
+  worker assemble 显式告警（不再静默估算硬传）。
+- **生图禁文字（P1-2）**：10 个生图 prompt 统一追加"严禁任何文字/水印/价格/促销字样"，
+  默认提示词同步（防 4195 图片含配送信息被拒）。
+- **batch 429 退避（P1-3）**：batch_test 提交遇到 429 指数退避重试 3 次（30/60/120s）。
+
+### Tests
+
+- 新增 `test_learning_record_gate.py`（5 用例）、`test_hazard_attr_fallback.py`（7 用例）、
+  `test_category_match_v021.py`（5 用例）、`skill/tests/test_envelope_fields.py`（2 用例）。
+
 ## [0.20.0] - 2026-08-04
 
 > 跟卖 0 图根因修复（A）：真实测试发现甩脂机类商品「图生成成功但卡片 0 图」——

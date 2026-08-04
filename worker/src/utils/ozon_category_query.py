@@ -267,6 +267,13 @@ class OzonCategoryQuery:
 
             # 6. 按分数降序排列
             scored.sort(key=lambda x: x[0], reverse=True)
+            # ✅ v0.21: top1 全泛化词命中（如"器具/用品/配件"）→ 质量太低，返回空触发 L3 LLM
+            if scored and scored[0][1].get("_generic_only"):
+                logger.info(
+                    f"🔤 jieba LIKE: top1 为全泛化词匹配（{scored[0][1].get('matched_tokens', [])}），"
+                    f"返回空触发 L3 LLM"
+                )
+                return []
             results = [item for _, item in scored[:top_k]]
 
             logger.info(

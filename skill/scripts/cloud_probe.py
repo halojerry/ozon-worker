@@ -868,13 +868,16 @@ def _validate_and_fix_product_data(
     dimensions: dict,
     variants: list,
     option_groups: list,
-) -> tuple[int, dict, list[str]]:
+) -> tuple[int, dict, list[str], bool]:
     """校验产品数据完整性，并应用软兜底默认值。
 
-    返回 (weight_g, dimensions, errors)。
+    返回 (weight_g, dimensions, errors, estimated)。
     errors 为空表示通过；非空表示硬阻断，应跳过该产品。
+    estimated=True 表示尺寸是估算值（1688 页面未提供尺寸），
+    Ozon 可能报 INCORRECT_DIMENSION——由调用方标记到信封供 worker 决策。
     """
     errors: list[str] = []
+    estimated: bool = False
 
     # ── 软兜底：重量 ──
     if weight_g <= 0:
@@ -897,6 +900,7 @@ def _validate_and_fix_product_data(
         est_width = round(base_mm * 1.5)
         est_height = round(base_mm * 1.0)
         dimensions = {"length": est_length, "width": est_width, "height": est_height}
+        estimated = True
         logger.warning(
             "物品 %s 尺寸缺失，根据重量 %dg 估算: "
             "%d×%d×%dmm（密度=%.0fkg/m³）",
@@ -967,7 +971,7 @@ def _validate_and_fix_product_data(
 
     if errors:
         logger.warning("❌ 物品 %s 校验不通过: %s", item_id, '; '.join(errors))
-    return weight_g, dimensions, errors
+    return weight_g, dimensions, errors, estimated
 
 
 def build_graph_envelope(
@@ -1397,7 +1401,7 @@ def build_graph_envelope(
     )
 
     # ── 5.5 校验门：硬阻断 + 软兜底 ──
-    weight_g, dimensions, validation_errors = _validate_and_fix_product_data(
+    weight_g, dimensions, validation_errors, dimensions_estimated = _validate_and_fix_product_data(
         item_id=str(item_id),
         title=item_title,
         cost_cny=cost_cny,
@@ -1443,10 +1447,15 @@ def build_graph_envelope(
     }
     if shipping:
         draft["shipping"] = shipping
+    if dimensions_estimated:
+        draft["dimensions_estimated"] = True  # ✅ v0.21: 尺寸为估算值，供 worker 决策
     if ozon_category:
         draft["ozon_category"] = ozon_category
-    if source_category_short:
-        draft["source_category"] = source_category_short  # 1688 类目（最具体两级），供 worker 类目匹配
+    # ✅ v0.21: 传完整 1688 类目路径（旧版只传末两级，丢失顶级信号如"成人用品"导致类目错配）
+    if source_category_path:
+        draft["source_category"] = source_category_path
+    elif source_category_short:
+        draft["source_category"] = source_category_short
 
     if is_multi:
         draft["variants"] = variants

@@ -24,6 +24,7 @@ import time
 import logging
 import re
 import requests
+from pathlib import Path
 from typing import Any, Optional
 from jinja2 import Template
 from langchain_core.runnables import RunnableConfig
@@ -35,7 +36,56 @@ from utils.mxou_llm import call_mxou_chat_api
 from utils.progress_logger import ProgressLogger
 from utils.ozon_category_query import get_category_query, OzonCategoryQuery
 from utils.http_session import session
-from utils.attribute_utils import is_customs_attr  # ⚠️ v0.16: 海关编码属性识别（不填）
+from utils.attribute_utils import is_customs_attr, pick_dict_fallback_value  # ⚠️ v0.16 海关不填 / v0.21 兜底规则
+
+# ── v0.21: 外置同义词映射（1688 词 → Ozon ZH 类目词），解决字面匹配同义词不通 ──
+_SYNONYMS_CACHE: dict | None = None
+_SYNONYMS_PATH = Path(__file__).resolve().parents[3] / "config" / "category_synonyms.json"
+
+
+def _load_category_synonyms() -> dict:
+    global _SYNONYMS_CACHE
+    if _SYNONYMS_CACHE is None:
+        try:
+            _SYNONYMS_CACHE = json.loads(_SYNONYMS_PATH.read_text(encoding="utf-8")) or {}
+        except Exception as _e:
+            logger.warning(f"category_synonyms.json 加载失败（回退空表）: {_e}")
+            _SYNONYMS_CACHE = {}
+    return _SYNONYMS_CACHE
+
+
+def _apply_leaf_bonus(candidates: list, leaf_name: str, synonyms: dict) -> list:
+    """v0.21: 末级类目词（含同义词）命中节点名 → +0.5，打破字面匹配 tie。
+
+    例：后视镜 → 摩托车后视镜(+0.5) 胜过 单车裤；震动棒 → 振动器(同义词+0.5) 胜过 适应性器具餐具。
+    """
+    if not leaf_name or not candidates:
+        return candidates
+    bonus_terms = {leaf_name}
+    for s in (synonyms or {}).get(leaf_name, []) or []:
+        if isinstance(s, str) and len(s.strip()) >= 2:
+            bonus_terms.add(s.strip())
+    for c in candidates:
+        name = c.get("node_name") or ""
+        if any(t in name for t in bonus_terms if len(t) >= 2):
+            c["_score"] = float(c.get("_score", c.get("similarity", 0))) + 0.5
+    candidates.sort(key=lambda x: -(float(x.get("_score", x.get("similarity", 0)))))
+    return candidates
+
+
+def _l0_consistent(l0_hit: dict | None, candidates: list, top_n: int = 5) -> bool:
+    """v0.21: L0 学习缓存命中的类目必须与 L1 高分候选一致，否则视为污染映射。"""
+    if not l0_hit:
+        return False
+    l0_dc = int(l0_hit.get("description_category_id", 0) or 0)
+    l0_tp = int(l0_hit.get("type_id", 0) or 0)
+    if not l0_dc or not l0_tp:
+        return False
+    return any(
+        int(c.get("description_category_id", 0) or 0) == l0_dc
+        and int(c.get("type_id", 0) or 0) == l0_tp
+        for c in (candidates or [])[:top_n]
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -272,6 +322,13 @@ def assemble_ozon_product_node(
     attributes_1688: dict[str, Any] = draft.get("attributes", {}) or {}
     variants: list[dict[str, Any]] = draft.get("variants", []) or []
 
+    # ✅ v0.21: 尺寸为 skill 估算值（1688 未提供）→ 显式告警，Ozon 可能拒绝 INCORRECT_DIMENSION
+    if draft.get("dimensions_estimated"):
+        logger.warning(
+            f"⚠️ 商品 {draft.get('item_id', '')} 尺寸为估算值（1688 页面未提供），"
+            f"Ozon 可能报 INCORRECT_DIMENSION/ML_INCORRECT_VOLUME_WEIGHT"
+        )
+
     # 定价信息（来自 pricing_node）
     pricing_info: dict[str, Any] = state.pricing_info if hasattr(state, 'pricing_info') else {}
     # ⚠️ v0.14 P1-4: 定价失败不兜底 "1000" —— 由 graph 层在 pricing 后路由阻断（[PRICING_FAILED]）
@@ -339,7 +396,9 @@ def assemble_ozon_product_node(
     keywords = _extract_keywords(title, description, attributes_1688)
     
     # 追加 1688 类目面包屑作为搜索词（与 Ozon ZH_HANS 类目名直接匹配）
-    source_category = draft.get("source_category", "")
+    # ✅ v0.21: 优先用 source.source_category_path（skill 新信封为完整路径），兼容旧 draft.source_category
+    _src = getattr(state, "source", None) or {}
+    source_category = str(_src.get("source_category_path") or "").strip() or draft.get("source_category", "")
     source_keywords = ""
     if source_category:
         # ✅ 分割所有分隔符：> 、 / → 空格
@@ -398,6 +457,12 @@ def assemble_ozon_product_node(
                     for syn in _CN_SYNONYMS[term].split():
                         if syn not in expanded_terms:
                             expanded_terms.append(syn)
+            # ✅ v0.21: 外置同义词表合并（覆盖 inline 表缺失的词）
+            for _ext_term, _ext_syns in _load_category_synonyms().items():
+                if _ext_term in specific_terms:
+                    for _syn in (_ext_syns if isinstance(_ext_syns, list) else [str(_ext_syns)]):
+                        if isinstance(_syn, str) and _syn not in expanded_terms:
+                            expanded_terms.append(_syn)
             # ✅ jieba 分词末级类目，提取最有辨识度的词（如"戏水玩具"→["戏水","玩具"]）
             try:
                 import jieba as _jieba
@@ -464,6 +529,9 @@ def assemble_ozon_product_node(
 
     logger.info(f"   pg_trgm 返回 {len(candidates)} 个候选")
 
+    # ✅ v0.21: 末级类目词（含同义词）加权，打破 tie（震动棒→振动器 / 后视镜→摩托车后视镜）
+    candidates = _apply_leaf_bonus(candidates, leaf_name, _load_category_synonyms())
+
     # ✅ v4: L2 指纹重排
     candidates = _apply_fingerprint_rerank(query, candidates, source_keywords, keywords)
 
@@ -473,6 +541,18 @@ def assemble_ozon_product_node(
 
     # ✅ v4: L0 学习缓存查找（在候选选择前，命中则跳过 overlap 验证）
     l0_hit = _match_category_layered(query, source_category, source_keywords, keywords, candidates, leaf_name) if source_category else None
+
+    # ✅ v0.21: L0 映射必须与 L1 高分候选一致，否则忽略（防旧脏数据固化错类目）
+    if l0_hit and not _l0_consistent(l0_hit, candidates):
+        _cand_desc = ", ".join(
+            f"{c.get('description_category_id')}/{c.get('type_id')}" for c in candidates[:5]
+        )
+        logger.warning(
+            f"⚠️ L0映射与L1 top5候选不一致，忽略L0（防固化）: "
+            f"[{l0_hit.get('description_category_id')}/{l0_hit.get('type_id')}] vs "
+            f"[{_cand_desc}]"
+        )
+        l0_hit = None
 
     # 1c. 直接使用 pg_trgm 最高相似度候选（不用 LLM）
     # pg_trgm 搜索已按 sim DESC 排序，candidates[0] 即最佳匹配
@@ -1851,24 +1931,17 @@ def _validate_and_enrich_items(
                         except Exception as _ne:
                             logger.debug(f"   属性名搜索失败(attr={missing_id}): {_ne}")
 
-                    # 回退2：取第一个可用字典值
+                    # 回退2（v0.21）：危险属性只挑「非危险」安全默认；其他属性仅唯一值才填
+                    # 不再"取第一个字典值"——9782 曾因此被填成"爆炸物 Category 1"（BR_hazard_class1）
                     if not matched:
-                        if isinstance(dict_vals, list) and dict_vals:
-                            first = dict_vals[0]
-                            if isinstance(first, dict):
-                                new_attr["values"] = [{
-                                    "dictionary_value_id": first.get("id", 0),
-                                    "value": str(first.get("value", "")),
-                                }]
-                                matched = True
-                        elif isinstance(dict_vals, dict) and dict_vals.get("result"):
-                            first = dict_vals["result"][0] if dict_vals["result"] else {}
-                            if first:
-                                new_attr["values"] = [{
-                                    "dictionary_value_id": first.get("id", 0),
-                                    "value": str(first.get("value", "")),
-                                }]
-                                matched = True
+                        fallback = pick_dict_fallback_value(missing_id, attr_name, dict_vals)
+                        if fallback:
+                            new_attr["values"] = [{
+                                "dictionary_value_id": fallback[0],
+                                "value": fallback[1],
+                            }]
+                            matched = True
+                            logger.info(f"   ✅ 必填字典属性{missing_id}({attr_name}) 安全兜底: {fallback[1]}")
 
                     # 回退3：仍然无值 → 记录警告，不写入空值（让Ozon跳过该属性）
                     if not matched:
