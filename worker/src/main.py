@@ -28,7 +28,11 @@ from storage.database.shared.model import Base
 from utils.task_processor import SupabaseTaskProcessor
 from utils.ozon_client import ozon_check_quota  # 配额检查
 from utils.draft_sanity import validate_draft_sanity  # v0.21 P2 入队防线
+from utils.sentry_setup import init_sentry  # v0.23 Sentry 错误监测
 from sqlalchemy import event
+
+# ✅ v0.23: Sentry 错误监测（SENTRY_DSN 为空则 no-op；HTTP 与 CLI 入口共用）
+init_sentry()
 
 # ── 进度追踪（内存存储，重启清空） ──
 # 格式: {task_id: {stage, stage_index, total_stages, percent, message, updated_at}}

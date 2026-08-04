@@ -8,6 +8,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, clear_tr
 from datetime import datetime
 from supabase import Client
 from sqlalchemy import text
+from utils.sentry_setup import capture_task_error  # v0.23 Sentry 任务异常上报
 
 from storage.database.supabase_client import get_supabase_client
 from storage.database.db import get_engine
@@ -263,6 +264,11 @@ class SupabaseTaskProcessor:
                     return graph_result
 
                 except TimeoutError:
+                    capture_task_error(
+                        message=f"任务超时（{timeout_seconds}秒）",
+                        task_id=task_id,
+                        tenant_id=tenant_id,
+                    )
                     log_task_event("failed", task_id=task_id, user_id=tenant_id,
                                    error_message=f"timeout ({timeout_seconds}s)")
                     await self.handle_task_failure(task_id, f"任务超时（{timeout_seconds}秒）")
@@ -270,6 +276,7 @@ class SupabaseTaskProcessor:
                     
                 except Exception as e:
                     logger.error("任务执行异常: %s\n%s", str(e), _traceback.format_exc())
+                    capture_task_error(e, task_id=task_id, tenant_id=tenant_id)
                     log_task_event("failed", task_id=task_id, user_id=tenant_id,
                                    error_message=str(e), error_type=type(e).__name__)
                     await self.handle_task_failure(task_id, str(e))
