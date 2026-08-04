@@ -128,9 +128,21 @@ def process_1688_url(
         envelope["ozon_client_id"] = client_id
         envelope["ozon_api_key"] = api_key
 
-        # Step 3: Submit to Worker
+        # Step 3: Submit to Worker（v0.21: 429 限流指数退避重试 3 次：30/60/120s）
         print(f"  📤 [{offer_id}] 提交到 Worker...", flush=True)
-        submit_result = submit_envelope(envelope)
+        submit_result = None
+        for attempt in range(4):
+            try:
+                submit_result = submit_envelope(envelope)
+                break
+            except requests.exceptions.HTTPError as _e:
+                _status = _e.response.status_code if _e.response is not None else 0
+                if _status == 429 and attempt < 3:
+                    _wait = 30 * (2 ** attempt)
+                    print(f"  ⏳ [{offer_id}] 429 限流，{_wait}s 后重试 ({attempt + 1}/3)...", flush=True)
+                    time.sleep(_wait)
+                    continue
+                raise
         result["submit_result"] = submit_result
         result["task_id"] = submit_result.get("task_id", "")
         result["success"] = submit_result.get("ok", False)

@@ -2070,9 +2070,9 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
 
     # 类型 4: 不可修复 → 直接标记成功
     if fix_type == "unfixable":
-        state.upload_status = "success"
+        state.upload_status = "rejected_unfixable"
         state.is_valid = True
-        logger.info(f"⚠️ 不可修复错误({error_code})，标记为 success（不阻断产品上架）")
+        logger.info(f"⚠️ 不可修复错误({error_code})，标记 rejected_unfixable（不阻断重试，但不算成功、不写学习）")
         return state
 
     # 回退：未知类型 → 全量 CREATE
@@ -2196,12 +2196,13 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
             state.errors = item_errors
 
             if item_status == "imported" and product_id:
-                state.upload_status = "success"
+                # v0.21: imported 只是导入成功，审核通过才算 success
+                state.upload_status = "imported"
                 state.is_valid = True
                 state.product_id = str(product_id) if product_id else ""
-                logger.info(f"✅ 重新上传成功！product_id={product_id}")
+                logger.info(f"✅ 重新导入成功（待审核）！product_id={product_id}")
                 
-                # ✅ Bug 4 修复：等待 Ozon 审核通过（moderate_status）
+                # ✅ Bug 4 修复：等待 Ozon 审核通过（moderate_status），未通过不算成功
                 # 导入成功不代表审核通过，需要额外轮询 /v3/product/info/list
                 logger.info(f"⏳ 等待 Ozon 审核（最多300秒）...")
                 info_url: str = "https://api-seller.ozon.ru/v3/product/info/list"
@@ -2216,8 +2217,10 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                             mod_status = mod_items[0].get("statuses", {}).get("moderate_status", "")
                             mod_errors = mod_items[0].get("errors", [])
                             logger.info(f"📊 审核轮询[{mod_attempt}/60] moderate={mod_status} errors={len(mod_errors)}")
+                            state.moderation_status = mod_status
                             if mod_status == "approved":
                                 logger.info(f"✅ 审核通过！product_id={product_id}")
+                                state.upload_status = "success"
                                 state.is_valid = True
                                 break
                             elif mod_status == "declined":
@@ -2228,6 +2231,10 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                                 break
                     except Exception as e:
                         logger.warning(f"⚠️ 审核轮询异常: {e}")
+                # 300s 内既没 approved 也没 declined → 保持 pending_moderation（不算成功）
+                if state.upload_status == "imported":
+                    state.upload_status = "pending_moderation"
+                    logger.warning(f"⚠️ 审核轮询超时未决，保持 pending_moderation（不视为成功）")
                 break
             elif item_errors and len(item_errors) > 0:
                 state.upload_status = "failed"
@@ -2270,12 +2277,9 @@ def should_reupload(state: ValidationRetryLoopState) -> str:
         logger.warning(f"⚠️ 达到最大重试次数（{state.retry_count}/{state.max_retries}），退出循环")
         return "exit"
 
-    # pending状态（轮询超时但import可能仍在处理中）→ 不再循环，视为部分成功
-    if state.upload_status == "pending":
-        if state.product_id:
-            logger.info(f"⚠️ 轮询超时但已有product_id={state.product_id}，视为成功")
-            return "success"
-        logger.warning("⚠️ 轮询超时且无product_id，退出循环")
+    # pending/pending_moderation（轮询超时但 import 可能仍在处理中）→ v0.21: 不视为成功
+    if state.upload_status in ("pending", "pending_moderation"):
+        logger.warning("⚠️ 审核未决（pending_moderation），结束循环（learning_record 只记 approved）")
         return "exit"
 
     if state.errors and len(state.errors) > 0:

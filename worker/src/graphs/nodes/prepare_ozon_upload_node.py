@@ -13,7 +13,7 @@ from utils.progress_logger import ProgressLogger
 from utils.size_mapper import build_attribute_matching_table
 from utils.mxou_llm import call_mxou_chat_api
 from utils.title_sanitizer import sanitize_title
-from utils.attribute_utils import is_customs_attr, has_chinese  # ⚠️ v0.16: 海关跳过 + 中文零容忍
+from utils.attribute_utils import is_customs_attr, is_hazard_attr, get_safe_hazard_default, has_chinese  # ⚠️ v0.16 海关 / v0.21 危险品防御
 
 logger = logging.getLogger(__name__)
 
@@ -1223,6 +1223,14 @@ def prepare_ozon_upload_node(
         if attribute_id_int in _skip_attrs or is_customs_attr(attribute_id_int):
             logger.info(f"✅ 跳过属性{attribute_id_int}（Ozon不允许编辑/自动设置/海关编码）")
             continue
+
+        # ✅ v0.21 防御纵深：危险品等级(9782)只放行「非危险」安全值，其余一律跳过
+        # （assemble 已按新兜底规则处理，此处防止旧信封/重试路径把危险等级带上来）
+        if is_hazard_attr(attribute_id_int, ""):
+            safe = get_safe_hazard_default([{"id": dictionary_value_id_int, "value": value_str}])
+            if not safe:
+                logger.warning(f"✅ 跳过危险品等级属性{attribute_id_int}（值非安全默认: {value_str[:40]}）")
+                continue
         
         # ✅ 关键修复：属性4389(原产国)硬编码为"Китай"（中国）
         # 避免LLM输出英文"China"导致Ozon审核不通过

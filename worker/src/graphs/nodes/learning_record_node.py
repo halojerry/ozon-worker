@@ -67,19 +67,11 @@ def learning_record_node(
             progress_counter=24
         )
     
-    # ✅ v4 (B12): 优先读 moderation_status，fallback 到 status
+    # ✅ v0.21 (P0-1): 只有审核 approved 才算成功，才允许写学习记录。
+    # imported/active/processed 只是"导入成功"，不代表审核通过；
+    # upload_status=="success" / state.ozon_upload_success 是假成功来源，一律不再放行。
     ozon_status: str = getattr(state, 'moderation_status', '') or state.status or ""
-    ozon_upload_success: bool = ozon_status in ("imported", "active", "approved", "processed")
-
-    # ✅ 也检查upload_status字段（从validation_retry_wrapper传入，优先级更高）
-    upload_status: str = state.upload_status if hasattr(state, 'upload_status') else ""
-    if upload_status == "success":
-        ozon_upload_success = True
-        logger.info(f"✅ upload_status=success，视为上传成功")
-
-    # 也检查ozon_upload_success字段（从ValidationRetryWrapperOutput传入）
-    if not ozon_upload_success and state.ozon_upload_success:
-        ozon_upload_success = True
+    ozon_upload_success: bool = ozon_status == "approved"
     
     logger.info(f"📊 Ozon状态：{ozon_status} → 是否上传成功：{ozon_upload_success}")
     
@@ -206,7 +198,7 @@ def learning_record_node(
                     source_category_path=source_category,
                     source_keywords=jieba_kws,
                     category_path_zh=cat_zh, category_path_ru=cat_ru,
-                    confidence=0.85, source="pg_trgm",
+                    confidence=0.85, source="learned_approved",
                 )
                 logger.info(f"📚 category_mapping: '{leaf}' → [{description_category_id}/{tp_val}]")
         except Exception as e:
