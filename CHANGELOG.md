@@ -41,6 +41,10 @@
   时明确提示登录卖家后台；discover 运营数据全部缺失时同样提示
   （agent 需要月销量/销售额/增长率判断选品）。
 - **token 引导**：set_token 输出提示访问 https://api.mxou.cn 注册获取。
+- **竞品数据闭环（参考 maozi）**：follow 跟卖时借道 seller.ozon.ru
+  what_to_sell 获取竞品**重量(4497)/尺寸(9454/9455/9456)/月销/GMV/上架天数**
+  透传信封；worker assemble 在 1688 重量缺失或尺寸全 0 时用竞品值兜底
+  （`apply_competitor_fallback`），降低 INCORRECT_DIMENSION/价格失真。
 
 ## [0.21.0] - 2026-08-04
 

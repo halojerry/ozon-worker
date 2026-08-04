@@ -2578,6 +2578,38 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     if ozon_title:
         result["title"] = ozon_title
 
+    # ── Step 2.5: 竞品运营数据 + 重量/尺寸（what_to_sell，卖家后台借道）──
+    # v0.22（参考 maozi）：竞品重量(4497)/尺寸(9454/9455/9456)/月销/GMV 从
+    # seller.ozon.ru what_to_sell 获取，1688 数据缺失时 worker 用它兜底。
+    # 未登录 seller 后台 → 降级跳过，不阻断跟卖。
+    if shared_cdp is not None:
+        try:
+            from scripts.lib.ozon_seller_analytics import fetch_sales_analytics
+            _metrics_map = fetch_sales_analytics(shared_cdp, [str(product_id)])
+            _m = _metrics_map.get(str(product_id)) or {}
+            if _m.get("weight_g"):
+                result["competitor_weight_g"] = int(_m["weight_g"])
+            if _m.get("length_mm") or _m.get("width_mm") or _m.get("height_mm"):
+                result["competitor_dimensions_mm"] = {
+                    "length": int(_m.get("length_mm") or 0),
+                    "width": int(_m.get("width_mm") or 0),
+                    "height": int(_m.get("height_mm") or 0),
+                }
+            if _m.get("sold_count"):
+                result["ozon_monthly_sales"] = int(_m["sold_count"])
+            if _m.get("gmv_sum"):
+                result["ozon_gmv"] = float(_m["gmv_sum"])
+            if _m.get("create_days"):
+                result["ozon_listing_days"] = int(_m["create_days"])
+            if result.get("competitor_weight_g") or result.get("competitor_dimensions_mm"):
+                logger.info(
+                    "✅ 竞品数据（what_to_sell）: weight=%s dims=%s sales=%s gmv=%s",
+                    result.get("competitor_weight_g"), result.get("competitor_dimensions_mm"),
+                    result.get("ozon_monthly_sales"), result.get("ozon_gmv"),
+                )
+        except Exception as _se:
+            logger.debug("竞品 what_to_sell 获取失败（降级）: %s", _se)
+
     # Step 3: 1688 搜索（图片搜索优先，文字搜索为辅）
     search_text = ozon_title if ozon_title else slug
     matches_raw = []
@@ -2745,6 +2777,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                         "ozon_rating", "ozon_reviews", "ozon_questions",
                         "ozon_seller", "ozon_listing_date",
                         "ozon_monthly_sales", "ozon_gmv",
+                        # ✅ v0.22: 竞品重量/尺寸（worker 1688 数据缺失时兜底）
+                        "competitor_weight_g", "competitor_dimensions_mm",
+                        "ozon_listing_days",
                     ):
                         _info_val = result.get(_info_key)
                         if _info_val not in (None, "", [], {}):
