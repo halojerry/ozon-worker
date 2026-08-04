@@ -12,6 +12,7 @@ from runtime.context import Context
 from graphs.state import PricingInput, PricingOutput
 from utils.logger import get_logger, set_trace_context, log_ozon_api_call
 from utils.ozon_client import ozon_post
+from utils.draft_sanity import check_weight_suspect  # v0.21 P2 定价防线
 import time as _time
 
 
@@ -142,6 +143,11 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         if weight <= 0:
             weight = 300.0  # 默认300克
             logger.warning("⚠️ weight为0或空，使用默认值: 300克")
+
+        # v0.21 P2: 重量/尺寸合理性打标（第二道防线；main.py 已拦超限，这里兜底标记）
+        weight_suspect_reason: str = check_weight_suspect(weight, dims_obj)["reason"]
+        if weight_suspect_reason:
+            logger.warning("⚠️ 定价节点：重量/尺寸疑似异常（%s）——价格可能不可靠", weight_suspect_reason)
         
         # cost_cny为0时使用默认值
         if cost_cny <= 0:
@@ -265,6 +271,7 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             "price": price,
             "old_price": old_price,
             "currency_unit": currency_unit,
+            "weight_suspect": weight_suspect_reason,
             "price_formula": "total_cost × (1 + margin) / (1 - commission) [× (1 + fx_buffer) × exchange_rate if RUB]",
             # ✅ 新增：利润预估明细
             "profit_estimation": {

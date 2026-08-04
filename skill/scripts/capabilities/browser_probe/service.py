@@ -547,6 +547,8 @@ skuContainers.forEach((featureEl, featureIndex) => {
       document.querySelector('.mod-detail'),
       document.querySelector('.description-content'),
       document.querySelector('[data-module=\"od_product_detail\"]'),
+      document.querySelector('.module-od-product-attributes'),
+      document.querySelector('.module-od-product-description'),
     ].filter(Boolean);
     let detailText = sources.map(el => (el.textContent || el.innerText || '')).join(' ');
     detailText = detailText.replace(/\\s+/g, ' ').trim();
@@ -554,7 +556,7 @@ skuContainers.forEach((featureEl, featureIndex) => {
     if (!detailText || detailText.length < 20) {
       const bodyText = (document.body.textContent || document.body.innerText || '');
       const lines = bodyText.split(/[\\n\\r]+/).filter(l =>
-        /MEAS|尺寸|单个|箱规|净重|重量|包装.*重|specification|dimension/i.test(l)
+        /MEAS|尺寸|单个|箱规|净重|重量|规格|体积|外观尺寸|包装体积|包装.*重|specification|dimension/i.test(l)
       );
       detailText = lines.join(' ');
     }
@@ -609,6 +611,40 @@ skuContainers.forEach((featureEl, featureIndex) => {
         packagingRows[0] = existing;
       }
     }
+  }
+
+  /* ── v0.21 P2: 尺寸候选行收集（供 Python 侧 extract_dimensions_from_texts 判定）──
+     风扇页实证：module-od-product-attributes 有带单位「规格 8.5*6.5*11cm」，
+     旧 fallback 容器未覆盖该模块且 body 正则漏「规格/体积」→ 只抓到无单位的
+     「外观尺寸 85*65*11」→ cm×10 放大 10 倍。这里把带单位候选行全部收上来，
+     Python 侧带单位优先 + cm/mm 交叉判定。 */
+  const dimTextCandidates = [];
+  {
+    const attrMod = document.querySelector('.module-od-product-attributes');
+    if (attrMod) {
+      Array.from(attrMod.querySelectorAll('tr')).forEach((tr) => {
+        const cells = Array.from(tr.querySelectorAll('th, td'))
+          .map(c => normalizeText(c.innerText || c.textContent)).filter(Boolean);
+        if (cells.length >= 2 && /(\d+(\.\d+)?\s*\*\s*\d+(\.\d+)?\s*\*\s*\d+(\.\d+)?)/.test(cells.join(' '))) {
+          dimTextCandidates.push(cells.join(' '));
+        }
+      });
+    }
+    const bodyText = (document.body.textContent || document.body.innerText || '');
+    bodyText.split(/[\\n\\r]+/).map(l => normalizeText(l)).filter(Boolean).forEach((line) => {
+      if (/尺寸|规格|体积|外观尺寸|包装体积|MEAS|单个|箱规|长.{0,6}宽.{0,6}高/i.test(line)
+          && /(\d+(\.\d+)?\s*\*\s*\d+(\.\d+)?\s*\*\s*\d+(\.\d+)?)/.test(line)) {
+        dimTextCandidates.push(line);
+      }
+    });
+    const seen = new Set();
+    const deduped = dimTextCandidates.filter((t) => {
+      if (seen.has(t)) return false;
+      seen.add(t);
+      return true;
+    });
+    dimTextCandidates.length = 0;
+    dimTextCandidates.push(...deduped);
   }
 
   const skuDetails = [];
@@ -732,6 +768,7 @@ skuContainers.forEach((featureEl, featureIndex) => {
     packagingHeaders,
     packagingTableText,
     packagingRows: dedupe(packagingRows),
+    dimTextCandidates,
     shipping,
     shopStats,
     skuDetails: dedupe(skuDetails),
@@ -2252,6 +2289,7 @@ def probe_1688_page_safe(
                     'images': _filter_probe_images(list(probe.get('images') or [])),
                     'weight_grams': (probe.get('packagingRows') or [{}])[0].get('weightGrams') if probe.get('packagingRows') else None,
                     'packaging_rows': probe.get('packagingRows', []),
+                    'dim_text_candidates': probe.get('dimTextCandidates', []),
                     'shipping': probe.get('shipping', {}),
                     'description': probe.get('description', ''),
                     'sku_details': probe.get('skuDetails', []),
@@ -2269,6 +2307,7 @@ def probe_1688_page_safe(
                     'title': '', 'price': '', 'brand': '', 'seller': '',
                     'images': [], 'weight_grams': None,
                     'packaging_rows': [], 'shipping': {},
+                    'dim_text_candidates': [],
                     'description': '',
                     'sku_details': [], 'attributes': [], 'option_groups': [],
                 },

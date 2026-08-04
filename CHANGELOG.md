@@ -8,6 +8,25 @@
 
 ### Fixed
 
+- **尺寸/重量根因修复（P2，2026-08-04 实证）**：1688 抓取尺寸单位误判 +
+  density 兜底放大，导致挂脖风扇 300g→30.4kg、工具套装 400g→364kg、
+  修车躺板 5200g→82.5kg，价格分别炸到 2134/25290/5837 CNY。
+  - skill probe fallback 容器补 `module-od-product-attributes` /
+    `module-od-product-description`，body 行正则补「规格/体积/外观尺寸/包装体积」，
+    带单位候选（如「规格 8.5*6.5*11cm」）优先于无单位值；
+  - `cloud_probe` 新增 `extract_dimensions_from_texts`（带单位优先、mm 不乘 10、
+    前缀/后缀单位都认、单边 >5m 拒绝）与 `resolve_packaging_dimensions`
+    （cm/mm 交叉密度判定：按 cm 密度 <0.1 且按 mm 在合理区间 → 切 mm）；
+  - density 兜底：商家已提供真实重量时**不再用体积×0.5 覆盖**；
+    无商家重量才估算且封顶 30kg。
+- **worker 入队防线（P2）**：新增 `utils/draft_sanity.py`，weight>50kg 或
+  单边>5m 的信封在 submit 直接 INVALID_REQUEST；pricing_node 对超限重量打
+  `weight_suspect` 标记并告警，防脏数据再打爆定价。
+- **跟卖类目缺失可观测（P3）**：import-by-sku 成功但类目解析失败时不再静默，
+  返回 `category_missing=true` 标记（不阻断，类目由官方复制带出）；
+  follow_sell_v5 测试同步到 v0.14/v0.19.1 行为（competitor_price 字段、
+  import 失败才报类目错误）。
+
 - **成功判据收紧（P0-1）**：learning_record 只认 `moderate_status=="approved"`；
   删除 `upload_status=="success"` / imported / active / processed 强制成功分支；
   retry 循环"imported 即 success"、"pending+product_id 视为成功"、"不可修复标 success"

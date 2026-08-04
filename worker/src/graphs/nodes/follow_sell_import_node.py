@@ -46,6 +46,7 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     up_status: str = "pending"
     error_msg: str = ""
     failed_stg: str = ""
+    category_missing: bool = False
 
     ozon_product_id = str(draft.get("ozon_product_id", ""))
     if not ozon_product_id:
@@ -199,6 +200,7 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
             if import_by_sku_ok:
                 logger.warning("⚠️ 跟卖无类目但 import-by-sku 已成功（%s），"
                                "继续走 UPDATE（类目由官方复制带出）", product_id)
+                category_missing = True
             else:
                 logger.error("❌ 跟卖类目解析全部失败（Fallback CREATE 需要类目）: "
                              "Widget ID=%s, breadcrumb=%s", dc_fallback, cat_path or "(empty)")
@@ -239,6 +241,7 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         "final_attributes": final_attrs,
         "attributes_schema": attrs_schema,
         "upload_status": up_status,
+        "category_missing": category_missing,
         "error_message": error_msg,
         "failed_stage": failed_stg,
     }
