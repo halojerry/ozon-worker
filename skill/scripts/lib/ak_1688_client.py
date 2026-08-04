@@ -400,7 +400,42 @@ def _parse_product_item(item: dict[str, Any]) -> dict[str, Any]:
         "promotion_tags": item.get("promotionTags", []),
         "service_infos": item.get("serviceInfos", []),
         "selling_points": item.get("sellingPoints", []),
+        # ✅ v0.25 S1: 选品筛选结构化字段（参考 ozon-product-selection）
+        "moq": item.get("quantityBegin"),
+        "sales": item.get("soldOut", 0),
+        "ship_rate_48h": _parse_rate_from_infos(item.get("serviceInfos", [])) or _parse_rate_48h(
+            " ".join(str(s) for s in (item.get("sellingPoints") or [])[:3])
+        ),
+        "location": _parse_location(item.get("serviceInfos", [])),
+        "supplier_tags": list(item.get("promotionTags") or []),
     }
+
+
+def _parse_rate_48h(text) -> float | None:
+    """从 '48小时发货 95%' / '48H揽收率 88.5%' 文本提取百分比。"""
+    t = str(text or "")
+    if "48" not in t and "48H" not in t.upper():
+        return None
+    import re as _re
+    m = _re.search(r"([\d.]+)\s*%", t)
+    return float(m.group(1)) if m else None
+
+
+def _parse_location(infos) -> str:
+    for it in infos or []:
+        if "发货地" in str(it.get("label", "")) + str(it.get("name", "")):
+            return str(it.get("value", "")).strip()
+    return ""
+
+
+def _parse_rate_from_infos(infos) -> float | None:
+    for it in infos or []:
+        label = str(it.get("label", "")) + str(it.get("name", ""))
+        if "48" in label and ("发货" in label or "揽收" in label):
+            r = _parse_rate_48h(label + " " + str(it.get("value", "")))
+            if r is not None:
+                return r
+    return None
 
 
 def search_products(
@@ -413,6 +448,10 @@ def search_products(
     purchase_amount: int = 1,
     tags: str = "",
     ic_tags: Optional[str] = None,
+    max_price: Optional[float] = None,
+    max_moq: Optional[int] = None,
+    min_ship_rate_48h: Optional[float] = None,
+    min_sales: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     """Search 1688 products by keyword.
 
@@ -464,7 +503,26 @@ def search_products(
     
     if not isinstance(data, list):
         return []
-    return [_parse_product_item(item) for item in data]
+    items = [_parse_product_item(item) for item in data]
+    # ✅ v0.25 S1: 筛选（max-price/max-moq/min-ship-rate-48h/min-sales）
+    if max_price is not None or max_moq is not None or min_ship_rate_48h is not None or min_sales is not None:
+        out = []
+        for it in items:
+            if max_price is not None:
+                try:
+                    if float(it.get("price") or 0) > max_price:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            if max_moq is not None and (it.get("moq") or 0) > max_moq:
+                continue
+            if min_ship_rate_48h is not None and (it.get("ship_rate_48h") or 0) < min_ship_rate_48h:
+                continue
+            if min_sales is not None and (it.get("sales") or 0) < min_sales:
+                continue
+            out.append(it)
+        items = out
+    return items
 
 
 def search_by_image(
