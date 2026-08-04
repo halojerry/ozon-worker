@@ -16,6 +16,19 @@
   返回结构化原因，agent 可直接看到「token 无效/余额不足/配额不足/信封异常」及解法。
 - **batch_test --wait**：批量提交后轮询任务终态，逐产品打印
   1688链接/利润率/售价/采购价/运费预估；新增 `--wait-timeout`。
+- **worker 自修复升级（经验固化）**：
+  - repair_prepare 尺寸单位改 cm/mm 交叉判定（旧"密度<1.0 无差别/10"会把
+    修车躺板 1100mm 错砍成 110mm）；
+  - `price_out_of_range` 映射到 repair_pricing（原走 LLM）+ 取价修正
+    （pricing_info 实际键是 price，旧代码取 final_price 永远落空）；
+  - 字典值搜索语言链 ZH_HANS→RU→EN（Ozon 字典值是俄语，旧 ZH→EN 搜不到
+    8229「вентилятор→Hand Fan」）。
+- **Windows 体验**：chrome_launcher 进程检测 wmic→PowerShell（Win11 弃用 wmic
+  导致频繁启动新实例）+ profile 目录自动创建（缺失会开全新浏览器无登录态）。
+- **图搜**：输入框选择器兼容新版页面 `.ali-search-input`（旧 `#alisearch-input`
+  不存在 → 输入失败 → 空输入点搜索误触上传图片按钮）；点击前校验 URL 已填入；
+  3 次分段滚动合并候选；RU→ZH 产品词映射扩充（套筒/撬棍/水平仪/风扇/套装等）
+  + 标题相关性多词加权；无徽章降级阈值 conf 0.4→0.3。
 
 ## [0.21.0] - 2026-08-04
 

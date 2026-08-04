@@ -140,6 +140,8 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "MISSING_REQUIRED_ATTRIBUTE": "error_repair_llm",
     "INVALID_CATEGORY": "error_repair_llm",
     "INVALID_PRICE": "repair_pricing",
+    # ✅ v0.22: price_out_of_range（价格超出类目范围）必须重定价，LLM 修不了
+    "price_out_of_range": "repair_pricing",
     "WEIGHT_DIMENSION_ERROR": "repair_prepare",
     "INVALID_DIMENSION": "repair_prepare",
     # ✅ 变体未合并 → 走 repair_prepare 重新构建payload
@@ -270,6 +272,61 @@ def _search_dictionary_values(ozon_client_id: str, ozon_api_key: str,
     )
     values: list = result.get("result", [])
     return values if values else []
+
+
+def _resolve_dimension_units(depth: int, width: int, height: int, weight: int) -> tuple[int, int, int, str]:
+    """cm/mm 交叉判定（v0.22 手工修复经验固化）。
+
+    背景：1688「长(cm)」表商家常填 mm 值（工具盒 260 实为 26cm），skill 按表头
+    cm×10 后 depth=2600mm、重量 400g → 密度 0.0005 荒谬。修复原则：
+    - 当前值密度合理（0.05~8 g/cm³）→ 保持（正常商品）
+    - 当前值密度荒谬且 ÷10 后密度合理 → 单位误判，÷10（判为 mm）
+    - 两种都荒谬 → 保持当前值（修车躺板 1100/500/300+5200g：÷10 后密度 31 更荒谬）
+    """
+    try:
+        d, w, h, wt = int(depth or 0), int(width or 0), int(height or 0), int(weight or 0)
+    except (TypeError, ValueError):
+        return int(depth or 0), int(width or 0), int(height or 0), "cm"
+    if wt <= 0 or d <= 0 or w <= 0 or h <= 0:
+        return d, w, h, "cm"
+
+    def _density(mult: float) -> float:
+        vol_mm3 = (d * mult) * (w * mult) * (h * mult)
+        return wt / (vol_mm3 / 1000.0) if vol_mm3 > 0 else 0.0
+
+    d_cur = _density(1.0)
+    d_div = _density(0.1)
+    cur_ok = 0.05 <= d_cur <= 8.0
+    div_ok = 0.05 <= d_div <= 8.0
+    if div_ok and not cur_ok:
+        return max(10, int(d / 10)), max(10, int(w / 10)), max(10, int(h / 10)), "mm"
+    return d, w, h, "cm"
+
+
+def _search_dictionary_values_chain(
+    ozon_client_id: str, ozon_api_key: str,
+    attribute_id: int, category_id: str, type_id: str,
+    search_terms: List[str],
+    search_fn=None,
+) -> Optional[Dict[str, Any]]:
+    """按语言链 ZH_HANS→RU→EN 搜索字典值（v0.22）。
+
+    背景：Ozon 字典值是俄语，中文搜不到必须换 **RU**（旧代码换 EN 永远搜不到
+    8229「вентилятор→Hand Fan」这类值）。search_fn 可注入用于单测。
+    """
+    searcher = search_fn or _search_dictionary_values
+    for term in search_terms:
+        if not term:
+            continue
+        for lang in ("ZH_HANS", "RU", "EN"):
+            result = searcher(
+                ozon_client_id, ozon_api_key,
+                attribute_id, category_id, type_id,
+                term, lang,
+            )
+            if result:
+                return result[0]
+    return None
 
 
 def _find_alternative_type_id(ozon_client_id: str, ozon_api_key: str,
@@ -809,43 +866,32 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
             if attr_name:
                 search_terms.append(attr_name[:30])
 
-        for search_term in search_terms:
-            if not search_term:
-                continue
-            # 先用中文搜索
-            search_result: List[Dict[str, Any]] = _search_dictionary_values(
-                ozon_client_id, ozon_api_key, attr_id, category_id, type_id,
-                search_term, "ZH_HANS"
+        # ⚠️ v0.22: 语言链 ZH_HANS→RU→EN（Ozon 字典值是俄语，旧代码 ZH→EN 搜不到
+        # 8229「вентилятор→Hand Fan」这类值；RU 必须排在 EN 前）
+        best_match = _search_dictionary_values_chain(
+            ozon_client_id, ozon_api_key, attr_id, category_id, type_id,
+            search_terms,
+        )
+        if best_match is not None:
+            dict_value_id: int = best_match.get("id", 0)
+            dict_value_text: str = best_match.get("value", "")
+            logger.info(
+                f"✅ API搜索命中: value={dict_value_text}, id={dict_value_id} "
+                f"(terms={search_terms[:2]})"
             )
-
-            # 中文搜不到 → 换英文
-            if not search_result:
-                logger.info(f"中文搜索无结果，换英文搜索: {search_term}")
-                search_result = _search_dictionary_values(
-                    ozon_client_id, ozon_api_key, attr_id, category_id, type_id,
-                    search_term, "EN"
-                )
-
-            # API搜索命中 → 直接修复，不需要LLM
-            if search_result and len(search_result) > 0:
-                best_match: Dict[str, Any] = search_result[0]
-                dict_value_id: int = best_match.get("id", 0)
-                dict_value_text: str = best_match.get("value", "")
-                logger.info(f"✅ API搜索命中: value={dict_value_text}, id={dict_value_id} (search_term={search_term})")
-
-                # 更新final_attributes
-                updated_attrs: list = []
-                for attr in state.final_attributes:
-                    if not isinstance(attr, dict):
-                        updated_attrs.append(attr)
-                        continue
-                    if attr.get("id") == attr_id or attr.get("attribute_id") == attr_id:
-                        attr["value"] = dict_value_text
-                        attr["dictionary_value_id"] = dict_value_id
-                        logger.info(f"✅ 属性{attr_id}已修复为: {dict_value_text}")
+            # 更新final_attributes
+            updated_attrs: list = []
+            for attr in state.final_attributes:
+                if not isinstance(attr, dict):
                     updated_attrs.append(attr)
-                state.final_attributes = updated_attrs
-                return state
+                    continue
+                if attr.get("id") == attr_id or attr.get("attribute_id") == attr_id:
+                    attr["value"] = dict_value_text
+                    attr["dictionary_value_id"] = dict_value_id
+                    logger.info(f"✅ 属性{attr_id}已修复为: {dict_value_text}")
+                updated_attrs.append(attr)
+            state.final_attributes = updated_attrs
+            return state
 
         logger.warning(f"⚠️ API搜索未命中（所有关键词），转LLM兜底修复")
 
@@ -1290,16 +1336,18 @@ def repair_prepare_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
             if height <= 0:
                 height = max(15, int(side_mm * 0.6))
 
-        # ✅ INCORRECT_DENSITY修复：如果密度极低(< 1.0)，说明尺寸被错误放大(cm→mm)，缩小10倍
-        if weight > 0 and depth > 0 and width > 0 and height > 0:
-            vol_m3 = (depth * width * height) / 1e9
-            dens = (weight / 1000.0) / vol_m3 if vol_m3 > 0 else 0
-            if dens < 1.0:
-                old_d = depth; old_w = width; old_h = height
-                depth = max(10, int(depth / 10))
-                width = max(10, int(width / 10))
-                height = max(10, int(height / 10))
-                logger.warning(f"⚠️ 密度{dens:.2f}过低，尺寸缩小10倍: {old_d}x{old_w}x{old_h} → {depth}x{width}x{height}mm")
+        # ✅ v0.22: cm/mm 交叉判定（替代旧版"密度<1.0 无差别/10"）。
+        # 旧逻辑会把修车躺板 1100/500/300mm+5200g 错砍成 11x5x3cm（mm 密度 31 荒谬）。
+        # 新逻辑：仅当当前密度荒谬且 /10 密度合理才切 mm；两种都荒谬保持当前值。
+        fixed_d, fixed_w, fixed_h, unit_used = _resolve_dimension_units(
+            depth, width, height, weight
+        )
+        if unit_used == "mm":
+            logger.warning(
+                f"⚠️ 尺寸单位误判（cm 密度荒谬），修正: "
+                f"{depth}x{width}x{height} → {fixed_d}x{fixed_w}x{fixed_h}mm"
+            )
+        depth, width, height = fixed_d, fixed_w, fixed_h
 
         first_item["weight"] = weight
         first_item["depth"] = depth
@@ -1317,6 +1365,7 @@ def repair_pricing_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
 
     ozon_payload: Dict[str, Any] = state.ozon_payload
     items: list = ozon_payload.get("items", [])
+    force_reprice = state.error_code == "price_out_of_range"
 
     if items and len(items) > 0:
         first_item: Dict[str, Any] = items[0]
@@ -1327,17 +1376,21 @@ def repair_pricing_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         except (ValueError, TypeError):
             price = 0
 
-        if price <= 0:
-            # 从pricing_info中获取价格
+        if price <= 0 or force_reprice:
+            # v0.22: 从 pricing_info 取正确价格（pricing 节点已按真实重量/尺寸算好）。
+            # ⚠️ 旧代码取 final_price/selling_price —— pricing_info 实际键是 price，
+            # 永远取不到 → 999 兜底。price_out_of_range 时强制重定价（价格已被 ML 判超范围）
             pricing_info: Dict[str, Any] = state.pricing_info or {}
-            suggested_price: float = pricing_info.get("final_price", 0)
+            suggested_price: float = pricing_info.get("price", 0)
             if suggested_price <= 0:
-                suggested_price = pricing_info.get("selling_price", 999)
+                suggested_price = pricing_info.get("final_price", 0)
+            if suggested_price <= 0:
+                suggested_price = 999
 
             first_item["price"] = str(int(suggested_price))
             first_item["old_price"] = str(int(suggested_price * 1.2))
             first_item["min_price"] = str(int(suggested_price * 0.9))
-            logger.info(f"✅ 价格已修复：{price} → {suggested_price}")
+            logger.info(f"✅ 价格已修复（force={force_reprice}）：{price} → {suggested_price}")
         else:
             logger.info(f"✅ 价格正常：{price}")
 
