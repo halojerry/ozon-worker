@@ -682,6 +682,71 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
     return items
 
 
+def _fill_optional_dict_attrs(items, schema, draft, state):
+    """v0.25 T3: 非必填字典属性按跨语言同义词填满（材质/季节/用途…）。
+    1688 属性名命中 zh_keywords 且 Ozon 属性名命中 ozon_name_keywords → 填值；
+    value_map 有映射用映射值（再查字典 id），否则用 1688 值原文查字典（未命中跳过）。"""
+    import json as _json
+    cfg_path = os.path.join(os.getenv("APP_WORKSPACE_PATH", "/app"), "config", "attr_synonyms.json")
+    try:
+        with open(cfg_path, "r", encoding="utf-8") as _f:
+            synonyms = _json.load(_f)
+    except Exception:
+        synonyms = {}
+    draft_attrs = dict((draft or {}).get("attributes") or {})
+    if not draft_attrs or not synonyms:
+        return items
+    dict_values = dict(getattr(state, "dictionary_values", None) or {})
+    dc = str(getattr(state, "description_category_id", "") or "")
+    tp = str(getattr(state, "type_id", "") or "")
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        existing = {int(a.get("id", 0)) for a in item.get("attributes", []) if isinstance(a, dict)}
+        attrs = item.get("attributes", [])
+        for attr in schema or []:
+            if not isinstance(attr, dict) or int(attr.get("dictionary_id") or 0) <= 0:
+                continue
+            aid = int(attr.get("id") or 0)
+            if aid in existing or attr.get("is_required"):
+                continue
+            aname = str(attr.get("name") or "").lower()
+            for rule in synonyms.values():
+                if not any(kw in aname for kw in rule.get("ozon_name_keywords", [])):
+                    continue
+                for zh, zh_val in draft_attrs.items():
+                    if not any(kw in zh for kw in rule.get("zh_keywords", [])):
+                        continue
+                    raw = str(zh_val or "")
+                    mapped = (rule.get("value_map") or {}).get(raw, raw)
+                    vals = dict_values.get(str(aid)) or []
+                    hit = None
+                    for v in vals:
+                        if str(v.get("value") or "").lower() == mapped.lower():
+                            hit = v
+                            break
+                    if not hit and mapped:
+                        try:
+                            from utils.ozon_dict_values import search_dictionary_values
+                            hits = search_dictionary_values(
+                                getattr(state, "ozon_client_id", "") or "",
+                                getattr(state, "ozon_api_key", "") or "",
+                                aid, int(dc) if dc else 0, int(tp) if tp else 0, mapped,
+                            )
+                            if hits:
+                                hit = hits[0]
+                        except Exception:
+                            hit = None
+                    if hit:
+                        attrs.append({"id": aid, "values": [{
+                            "dictionary_value_id": int(hit.get("id") or 0),
+                            "value": str(hit.get("value") or mapped),
+                        }]})
+                        logger.info("✅ 非必填属性 %s(%s) 同义词填满: %s", aid, attr.get("name"), mapped)
+                    break
+    return items
+
+
 def prepare_ozon_upload_node(
     state: PrepareOzonUploadInput,
     config: RunnableConfig,
@@ -2146,6 +2211,9 @@ def prepare_ozon_upload_node(
     # ✅ v0.24 F1c: 必填字典属性默认值补齐（品牌/性别/尺码/8292/型号）
     try:
         ozon_payload["items"] = _fill_missing_required_dict_attrs(
+            ozon_payload.get("items", []), attributes_schema, draft, state
+        )
+        ozon_payload["items"] = _fill_optional_dict_attrs(
             ozon_payload.get("items", []), attributes_schema, draft, state
         )
     except Exception as _e:
