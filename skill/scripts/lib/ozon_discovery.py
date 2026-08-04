@@ -60,6 +60,21 @@ def _is_known_brand(brand: str) -> bool:
     return any(pat in b for pat in KNOWN_BRAND_PATTERNS)
 
 
+def _is_branded(brand: str) -> bool:
+    """判断产品是否带品牌（参考 maozi 插件：brand 非空且非"без бренда"即品牌）。
+
+    Ozon 品牌字段是英/俄文（如 "Nike"、"fansen"、"без бренда"），中文认不出来。
+    """
+    b = str(brand or "").strip()
+    if not b:
+        return False
+    if b.lower() in (
+        "без бренда", "no brand", "no name", "无品牌", "нет бренда", "бренд отсутствует"
+    ):
+        return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -333,6 +348,7 @@ def collect_and_analyze(
     use_analytics: bool = True,
     min_price: float = 0,
     max_price: float = 0,
+    brand_filter: str = "nobrand",
     progress_callback=None,
 ) -> list[ProductCandidate]:
     """Discover v2 阶段①+②：采集 + 全量数据 + seller.ozon.ru 运营指标。
@@ -340,6 +356,8 @@ def collect_and_analyze(
     - url 优先；否则 keyword 构造真实搜索页；否则中国站 highlight 页
     - min_price/max_price（RUB，0=不限）：价格区间外的候选标记 filtered，
       跳过运营指标查询（省调用），不参与挑选
+    - brand_filter（参考 maozi 插件 brand_option）：nobrand=只要无品牌/白牌（默认，
+      规避品牌侵权）；known=只过滤知名品牌黑名单；all=不过滤
     - 返回全部候选（status: ok/uncertain/filtered/error），**不做 1688 匹配**（阶段④）
     - 关键词校验：标题含中文但无关键词 → uncertain（表格标黄，仍可选）
     """
@@ -374,11 +392,16 @@ def collect_and_analyze(
         for i, pid in enumerate(pids):
             candidate = _analyze_product(cdp_url, cdp, pid)
 
-            # ⚠️ v0.22: 知名品牌直接过滤（跟卖会侵权/被拒，不浪费后续资源）
-            if candidate.status == "ok" and candidate.brand and _is_known_brand(candidate.brand):
-                candidate.status = "filtered"
-                candidate.error = f"知名品牌产品（{candidate.brand}），自动跳过"
-                logger.info("品牌过滤: %s（%s）", candidate.ozon_title[:40], candidate.brand)
+            # ⚠️ v0.22: 品牌过滤（参考 maozi：brand 字段布尔判断 + 配置开关）
+            if candidate.status == "ok" and candidate.brand:
+                if brand_filter == "nobrand" and _is_branded(candidate.brand):
+                    candidate.status = "filtered"
+                    candidate.error = f"品牌产品（{candidate.brand}），自动跳过"
+                    logger.info("品牌过滤(nobrand): %s（%s）", candidate.ozon_title[:40], candidate.brand)
+                elif brand_filter == "known" and _is_known_brand(candidate.brand):
+                    candidate.status = "filtered"
+                    candidate.error = f"知名品牌产品（{candidate.brand}），自动跳过"
+                    logger.info("品牌过滤(known): %s（%s）", candidate.ozon_title[:40], candidate.brand)
 
             # 关键词相关性校验（仅对含中文的标题有效，俄语标题无法判断）
             if (keyword and candidate.status == "ok"
