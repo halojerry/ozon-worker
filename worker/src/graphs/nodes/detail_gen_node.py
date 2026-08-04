@@ -12,6 +12,7 @@ from graphs.state_image_gen import DetailImageInput, DetailImageOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
+from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ def detail_gen_node(state: DetailImageInput, config: RunnableConfig, runtime: Ru
     try:
         # ✅ 调用统一mxou API（正确参数: images/aspectRatio/replyType）
         image_url = call_mxou_image_api(
+            model=get_image_model("detail"),
             token=token,
             prompt=prompt,
             ref_images=ref_images if ref_images else None,

@@ -1,0 +1,15 @@
+{
+  "_comment": "生图节点模型配置（v0.25 热加载，与 image_prompts.json 同目录 bind mount）。model=该节点唯一生图模型：main/social_proof 用 gpt-image-2（质量优先，失败仍走 API 内 banana 兜底）；其余节点用 nano-banana-fast（速度优先，banana 成功率高于 image2，重试 3 次内基本成功，无需再兜底 image2）。",
+  "nodes": {
+    "main": "gpt-image-2",
+    "social_proof": "gpt-image-2",
+    "white_bg": "nano-banana-fast",
+    "multi_angle": "nano-banana-fast",
+    "scene_1": "nano-banana-fast",
+    "scene_2": "nano-banana-fast",
+    "scene_3": "nano-banana-fast",
+    "comparison": "nano-banana-fast",
+    "detail": "nano-banana-fast",
+    "variant_white_bg": "nano-banana-fast"
+  }
+}
