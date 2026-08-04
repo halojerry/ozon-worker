@@ -1119,6 +1119,25 @@ def _validate_and_fix_product_data(
     return weight_g, dimensions, errors, estimated
 
 
+def _extract_source_category_id(source_categories) -> int | None:
+    """从 1688 类目列表取最末级（叶子）类目数字 ID。兼容 id/leafId/thirdCategoryId/categoryId。"""
+    if not isinstance(source_categories, list):
+        return None
+    last_id = None
+    for c in source_categories:
+        if not isinstance(c, dict):
+            continue
+        for key in ("id", "leafId", "thirdCategoryId", "categoryId"):
+            val = c.get(key)
+            try:
+                if val is not None and str(val).isdigit():
+                    last_id = int(val)
+                    break
+            except (TypeError, ValueError):
+                continue
+    return last_id
+
+
 def build_graph_envelope(
     *,
     item_id: str,
@@ -1579,6 +1598,8 @@ def build_graph_envelope(
     else:
         source_category_path = ""
         source_category_short = ""
+    # ✅ v0.25 S2: 1688 类目数字 ID（最末级，供 Worker 类目学习/定向兜底）
+    source_category_id = _extract_source_category_id(source_categories)
 
     draft: dict[str, Any] = {
         "item_id": str(item_id),
@@ -1606,6 +1627,8 @@ def build_graph_envelope(
         draft["source_category"] = source_category_path
     elif source_category_short:
         draft["source_category"] = source_category_short
+    if source_category_id:
+        draft["source_category_id"] = source_category_id
 
     if is_multi:
         draft["variants"] = variants
@@ -1621,6 +1644,7 @@ def build_graph_envelope(
             "purchase_url": detail_url,
             "purchase_cost": cost_cny,
             "source_category_path": source_category_path,  # 完整 1688 类目路径，供后续建立映射表
+            "category_id": source_category_id,  # ✅ v0.25 S2: 1688 叶子类目数字 ID
         },
         "extensions": {
             "max_skus": effective_max_skus,
