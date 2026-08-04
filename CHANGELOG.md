@@ -53,6 +53,10 @@
   → skill 自动组装 api 信封（import-by-sku 复制竞品，不丢单，result 标记
   api_fallback 供 agent 知晓）；worker 兜底——hand 信封缺货源数据
   （无 purchase_url/purchase_cost）自动降级 api。
+- **跟卖防双卡（offer_id 统一）**：import-by-sku 的 offer_id 从 `竞品ID` 改为
+  `follow_{竞品ID}`，与后续 upload 一致——旧代码两者不一致导致 api 模式
+  import-by-sku 建一张卡、ozon_upload 又 CREATE 一张（双卡 bug）；import-by-sku
+  轮询 30s→60s 降超时 fallback 双卡概率。
 
 ## [0.21.0] - 2026-08-04
 

@@ -58,7 +58,10 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         logger.error("❌ 跟卖: ozon_product_id 为空")
         return {"error_message": "跟卖需要竞品 ozon_product_id", "failed_stage": "follow_sell_import"}
 
-    offer_id = ozon_product_id
+    # ⚠️ v0.22: offer_id 统一 follow_{竞品ID}，与 _assemble_follow_sell 一致。
+    # 旧代码用 ozon_product_id（如 3852000144），后续 upload 用 follow_3852000144
+    # → v3/import 按 offer_id 匹配不到 → 重复 CREATE 第二张卡（双卡 bug）。
+    offer_id = f"follow_{ozon_product_id}"
     ozon_title = draft.get("title", "") or draft.get("ozon_title", "") or ""
     ozon_images = draft.get("images", []) or []
     ozon_cat = draft.get("ozon_category", {}) or {}
@@ -148,7 +151,7 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
             ibs_task_id = str(data.get("task_id", ""))
             if resp.status_code == 200 and not unmatched:
                 logger.info("✅ import-by-sku 已提交: task_id=%s", ibs_task_id)
-                for _ibs_attempt in range(10):
+                for _ibs_attempt in range(20):  # v0.22: 30s→60s，降低超时 fallback 双卡概率
                     time.sleep(3)
                     try:
                         info_resp = req.post(
@@ -169,7 +172,7 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                     except Exception:
                         pass
                 if not product_id:
-                    logger.info("⏳ import-by-sku 未在30s内完成，走 Fallback CREATE")
+                    logger.info("⏳ import-by-sku 未在60s内完成，走 Fallback CREATE")
             else:
                 logger.info("⚠️ import-by-sku 不可复制(unmatched=%s)，走 Fallback", unmatched)
         except Exception as e:
