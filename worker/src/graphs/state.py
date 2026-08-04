@@ -413,6 +413,8 @@ class AttributesLearningOutput(BaseModel):
 # ==================== Ozon上传数据准备节点 ====================
 class PrepareOzonUploadInput(BaseModel):
     """Ozon上传数据准备节点输入"""
+    ozon_client_id: str = Field(default="", description="Ozon Client-Id")
+    ozon_api_key: str = Field(default="", description="Ozon Api-Key")
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿数据")
     source: Optional[Dict[str, Any]] = Field(default=None, description="产品来源数据（采购信息）")  # ✅ 新增：采购来源信息
     pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格计算结果")
