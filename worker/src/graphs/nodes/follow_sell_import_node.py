@@ -111,7 +111,10 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                 timeout=15,
             )
             if _resp.status_code == 200:
-                attrs_schema = _resp.json().get("result", [])
+                # ⚠️ v0.22 防御: Ozon 异常/限流时 result 可能非 list，
+                # 直接赋值会让 GlobalState.attributes_schema 校验失败卡死管线
+                _schema_raw = _resp.json().get("result", [])
+                attrs_schema = _schema_raw if isinstance(_schema_raw, list) else []
                 logger.info("✅ 跟卖 schema 已拉取: %d 个属性", len(attrs_schema))
         except Exception as e:
             logger.warning("⚠️ 跟卖 schema 拉取失败（降级继续）: %s", e)

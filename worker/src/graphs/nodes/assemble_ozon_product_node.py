@@ -1481,6 +1481,9 @@ def _fetch_attribute_schema_from_ozon(
         resp.raise_for_status()
         data = resp.json()
         result = data.get("result", [])
+        # ⚠️ v0.22 防御: Ozon 异常/限流时 result 可能非 list（会进 state.attributes_schema）
+        if not isinstance(result, list):
+            result = []
         logger.info(f"   Ozon API 返回 {len(result)} 个属性")
         return result
     except Exception as e:
