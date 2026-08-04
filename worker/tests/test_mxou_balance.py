@@ -1,10 +1,9 @@
 """_check_mxou_balance 单元测试（mock Supabase，无需真实库）。
 
-背景（2026-08-02 修复）：原实现只查 tokens.remain_quota（僵尸字段），
-无限额度 token（unlimited_quota=true）被误判余额不足。修复后：
-- unlimited_quota=true → 直接放行
-- 否则用 users.quota（实时剩余额度，充值加 quota、调用扣 quota）
-- 不再用 quota-used_quota：used_quota 是历史累计，减它低估剩余
+v0.22 根因修复（2026-08-04 实测）：余额统一查用户级 users.quota：
+- balance 一律来自 users.quota（不再返回 key 级 remain_quota 僵尸字段）
+- unlimited_quota=true 仅影响判定（放行），balance 仍显示用户级 quota
+- users 查询失败/无记录：unlimited 放行；非 unlimited 拒绝（不再降级僵尸字段）
 """
 import sys
 import os
@@ -13,66 +12,89 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
-def test_unlimited_quota_bypass():
-    """无限额度 token 直接放行（即使 remain_quota=0 / users 表余额 0）。"""
+def _fake_sb(quota_rows):
+    fake = MagicMock()
+    fake.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = quota_rows
+    return fake
+
+
+def test_unlimited_balance_shows_user_quota():
+    """无限额度：放行，但 balance 必须是用户级 users.quota（不是 key 级 remain_quota）。"""
     from main import _check_mxou_balance
 
-    with patch("main.get_supabase_client") as mock_sb:
-        mock_sb.return_value = None  # 即使 Supabase 不可用也放行
-        balance, ok = _check_mxou_balance({"unlimited_quota": True, "remain_quota": 0})
-        assert ok is True, f"无限额度应放行: {balance}, {ok}"
+    with patch("main.get_supabase_client", return_value=_fake_sb([{"quota": 800}])):
+        balance, ok = _check_mxou_balance(
+            {"unlimited_quota": True, "user_id": "u1", "remain_quota": -58083828}
+        )
+        assert ok is True
+        assert balance == 800.0, f"balance 应为用户级 quota 800，实际 {balance}"
+
+
+def test_unlimited_zero_quota_bypass():
+    """无限额度 + users.quota=0 → 仍放行（无限额度不看余额）。"""
+    from main import _check_mxou_balance
+
+    with patch("main.get_supabase_client", return_value=_fake_sb([{"quota": 0}])):
+        balance, ok = _check_mxou_balance({"unlimited_quota": True, "user_id": "u1"})
+        assert ok is True
 
 
 def test_users_balance_positive():
-    """有余额：users.quota > 0 → 放行（quota 是实时剩余额度）。"""
+    """用户级余额 > 0 → 放行。"""
     from main import _check_mxou_balance
 
-    fake_sb = MagicMock()
-    fake_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [
-        {"quota": 100}
-    ]
-    with patch("main.get_supabase_client", return_value=fake_sb):
+    with patch("main.get_supabase_client", return_value=_fake_sb([{"quota": 100}])):
         balance, ok = _check_mxou_balance({"user_id": "u1", "remain_quota": 0})
-        assert ok is True, f"余额 100 应放行: {balance}, {ok}"
-        assert balance == 100.0
+        assert ok is True and balance == 100.0
 
 
-def test_users_balance_negative():
-    """余额耗尽：users.quota <= 0 → 拒绝（used_quota 不参与判定）。"""
+def test_users_balance_zero_rejected():
+    """用户级余额 <= 0 → 拒绝。"""
     from main import _check_mxou_balance
 
-    fake_sb = MagicMock()
-    fake_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [
-        {"quota": 0}
-    ]
-    with patch("main.get_supabase_client", return_value=fake_sb):
+    with patch("main.get_supabase_client", return_value=_fake_sb([{"quota": 0}])):
         balance, ok = _check_mxou_balance({"user_id": "u1"})
-        assert ok is False, f"quota 0 应拒绝: {balance}, {ok}"
-        assert balance == 0.0
+        assert ok is False and balance == 0.0
 
 
-def test_users_no_record_fallback():
-    """users 表无记录 → 降级 remain_quota（>0 放行，=0 拒绝）。"""
+def test_users_no_record_non_unlimited_rejected():
+    """users 无记录 + 非 unlimited → 拒绝（不再降级 key 级 remain_quota=50 放行）。"""
     from main import _check_mxou_balance
 
-    fake_sb = MagicMock()
-    fake_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = []
-    with patch("main.get_supabase_client", return_value=fake_sb):
+    with patch("main.get_supabase_client", return_value=_fake_sb([])):
         balance, ok = _check_mxou_balance({"user_id": "u1", "remain_quota": 50})
-        assert ok is True and balance == 50.0
-        balance2, ok2 = _check_mxou_balance({"user_id": "u1", "remain_quota": 0})
-        assert ok2 is False and balance2 == 0.0
+        assert ok is False, "users 无记录非 unlimited 应拒绝（不读僵尸字段）"
 
 
-def test_users_query_error_fallback():
-    """users 查询异常 → 降级 remain_quota（不崩溃）。"""
+def test_users_no_record_unlimited_bypass():
+    """users 无记录 + unlimited → 放行。"""
     from main import _check_mxou_balance
 
-    fake_sb = MagicMock()
-    fake_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.side_effect = Exception("RLS blocked")
-    with patch("main.get_supabase_client", return_value=fake_sb):
+    with patch("main.get_supabase_client", return_value=_fake_sb([])):
+        balance, ok = _check_mxou_balance({"user_id": "u1", "unlimited_quota": True})
+        assert ok is True
+
+
+def test_users_query_error_non_unlimited_rejected():
+    """users 查询失败 + 非 unlimited → 拒绝（不再降级 remain_quota=10 放行）。"""
+    from main import _check_mxou_balance
+
+    fake = MagicMock()
+    fake.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.side_effect = Exception("RLS blocked")
+    with patch("main.get_supabase_client", return_value=fake):
         balance, ok = _check_mxou_balance({"user_id": "u1", "remain_quota": 10})
-        assert ok is True and balance == 10.0
+        assert ok is False, "查询失败非 unlimited 应拒绝（不再用 remain_quota 降级）"
+
+
+def test_users_query_error_unlimited_bypass():
+    """users 查询失败 + unlimited → 放行。"""
+    from main import _check_mxou_balance
+
+    fake = MagicMock()
+    fake.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.side_effect = Exception("RLS blocked")
+    with patch("main.get_supabase_client", return_value=fake):
+        balance, ok = _check_mxou_balance({"user_id": "u1", "unlimited_quota": True})
+        assert ok is True
 
 
 def test_supabase_none_local_dev():
@@ -85,41 +107,17 @@ def test_supabase_none_local_dev():
 
 
 def test_overall_exception_not_blocking():
-    """整体异常不阻断（放行，避免鉴权误杀）。"""
+    """整体异常（外层）不阻断，放行避免鉴权误杀。"""
     from main import _check_mxou_balance
 
-    fake_sb = MagicMock()
-    fake_sb.table.side_effect = Exception("boom")
-    with patch("main.get_supabase_client", return_value=fake_sb):
+    fake = MagicMock()
+    fake.table.side_effect = Exception("boom")
+    with patch("main.get_supabase_client", return_value=fake):
         balance, ok = _check_mxou_balance({"unlimited_quota": None})
         assert ok is True
 
 
-def test_unlimited_negative_remain_quota_bypass():
-    """无限额度 + remain_quota 为负数 → 仍放行（2026-08-04 实测 key2=-5808万）。"""
-    from main import _check_mxou_balance
-
-    with patch("main.get_supabase_client", return_value=None):
-        balance, ok = _check_mxou_balance({"unlimited_quota": True, "remain_quota": -58083828})
-        assert ok is True, f"无限额度负 remain_quota 应放行: {balance}, {ok}"
-        assert balance == -58083828.0
-
-
-def test_users_query_error_negative_remain_fallback_rejects():
-    """users 查询失败 + remain_quota 为负 → 降级分支拒绝（用户"有余额却报不足"的疑似根因）。"""
-    from main import _check_mxou_balance
-
-    fake_sb = MagicMock()
-    fake_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.side_effect = Exception("RLS blocked")
-    with patch("main.get_supabase_client", return_value=fake_sb):
-        balance, ok = _check_mxou_balance({"user_id": "u1", "remain_quota": -58083828})
-        assert ok is False, f"降级 remain_quota 负数应拒绝: {balance}, {ok}"
-        assert balance == -58083828.0
-
-
 if __name__ == "__main__":
-    # 无需 pytest 即可运行（worker/.venv312 无 pytest）：
-    #   cd worker && .venv312/bin/python tests/test_mxou_balance.py
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = 0
     for fn in tests:

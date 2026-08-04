@@ -57,6 +57,11 @@
   `follow_{竞品ID}`，与后续 upload 一致——旧代码两者不一致导致 api 模式
   import-by-sku 建一张卡、ozon_upload 又 CREATE 一张（双卡 bug）；import-by-sku
   轮询 30s→60s 降超时 fallback 双卡概率。
+- **余额判定根因修复**：`_check_mxou_balance` 统一查**用户级 users.quota**——
+  unlimited 分支不再返回 key 级 tokens.remain_quota（僵尸字段，同账户两 key
+  一正一负 +4.4亿/-5808万误导）；users 查询失败/无记录不再降级 remain_quota
+  （负数会误报「有余额却余额不足」），unlimited 放行、非 unlimited 拒绝（数据
+  异常暴露，宁缺毋滥）。测试 10/10。
 
 ## [0.21.0] - 2026-08-04
 
