@@ -386,7 +386,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - **小重量自动乘 1000**：`weight_g < 10g` 但尺寸 > 50mm 时自动乘 1000（疑似 kg→g 单位错误）。
 - **物流费率表必须初始化**：`logistics_rates` 表为空时兜底费率 `weight * 0.15 CNY` 严重虚高。deploy.sh 须确保 `init_data.py` 在 worker 启动前执行完毕。
 - **定价公式已修正**：CNY 店铺不使用 fx_buffer（无汇率风险），佣金公式改为 `售价 = 总成本 * (1+利润率) / (1-佣金率)`。兜底物流费率从 0.15 降到 0.05 CNY/g。
-- **图片顺序规范**：`primary_image` = `main_image`（营销主图，单独指定），`images` 数组按 IMG_ORDER：detail → scene_1/2/3 → comparison → social_proof → multi_angle（倒数第二）→ white_bg（最后）。
+- **图片顺序规范**：`primary_image` = `main_image`（营销主图，单独指定），`images` 数组按 IMG_ORDER：social_proof → detail → scene_1 → scene_2 → scene_3 → comparison → multi_angle（倒数第二）→ white_bg（最后）。
 - **变体图片降级**：白底图生成失败 → 统一营销主图（非 1688 alicdn 原图）。
 - WARNING 级 Ozon 错误过滤不算失败；`ozon_status` 返回 `pending` 视为软成功。
 - `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
