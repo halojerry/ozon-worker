@@ -71,7 +71,9 @@ def cmd_set_token(args: argparse.Namespace) -> int:
     """设置 MXOU_TOKEN."""
     from scripts.lib.config_store import set_mxou_token
     set_mxou_token(args.token)
-    _out({"success": True, "message": "MXOU_TOKEN 已保存到 settings.json"})
+    _out({"success": True,
+          "message": "MXOU_TOKEN 已保存到 settings.json",
+          "hint": "如还没有 Token，请访问 https://api.mxou.cn 注册并获取"})
     return 0
 
 
@@ -510,6 +512,26 @@ def cmd_check(args) -> int:
     if session_ok and not ozon_cdp_ok:
         print(f"  → 在浏览器中打开 https://www.ozon.ru/ 浏览任意商品即可建立信任")
         all_ok = False
+
+    # ═══════════════════════════════════════════
+    # 4.5 seller.ozon.ru 卖家后台登录检查（运营数据）
+    # ═══════════════════════════════════════════
+    # www.ozon.ru 是选品端；seller.ozon.ru 是卖家后台（运营数据/月销/利润率判断靠它）
+    print(f"\n  🔗 seller.ozon.ru 卖家后台登录检查（选品运营数据依赖）...")
+    seller_ok = False
+    if cdp_ok:
+        try:
+            from scripts.lib.cdp_client import CdpConnection
+            from scripts.lib.ozon_seller_analytics import check_seller_login
+            conn = CdpConnection("http://127.0.0.1:9222")
+            seller_ok = check_seller_login(conn)
+            conn.close()
+        except Exception:
+            pass
+    print(f"  {_ok(seller_ok)} seller.ozon.ru 卖家后台已登录（运营数据可用）")
+    if not seller_ok:
+        print(f"  → 请在 Chrome 中打开 https://seller.ozon.ru/ 登录卖家后台")
+        print(f"    （选品去 www.ozon.ru，运营数据在 seller.ozon.ru，两个登录态都要）")
 
     # ═══════════════════════════════════════════
     # 5. 凭证检查

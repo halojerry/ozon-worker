@@ -441,6 +441,12 @@ def collect_and_analyze(
                 for c in to_enrich:
                     apply_analytics_to_candidate(
                         c, metrics_map.get(c.ozon_product_id, {}))
+                if not metrics_map:
+                    logger.warning(
+                        "⚠️ 运营数据全部缺失（seller.ozon.ru 未登录或无权限）："
+                        "请在 Chrome 打开 https://seller.ozon.ru 登录卖家后台，"
+                        "否则 agent 无法用月销量/销售额判断选品"
+                    )
             else:
                 logger.info("无价格区间内的候选，跳过运营指标查询")
 

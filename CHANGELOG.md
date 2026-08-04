@@ -36,6 +36,11 @@
   all=不过滤。命中直接 filtered 跳过，不浪费 1688 匹配/图搜/生图资源。
 - **image_search --source cdp**：CLI 支持 CDP 网页版图搜（默认 ak=1688 AK API；
   需要 Chrome 登录 1688 时用 cdp，准确率更高）。
+- **seller.ozon.ru 登录态检查**：check 命令区分两个登录态——www.ozon.ru
+  （选品/DataDome）与 seller.ozon.ru（卖家后台，运营数据依赖）；seller 未登录
+  时明确提示登录卖家后台；discover 运营数据全部缺失时同样提示
+  （agent 需要月销量/销售额/增长率判断选品）。
+- **token 引导**：set_token 输出提示访问 https://api.mxou.cn 注册获取。
 
 ## [0.21.0] - 2026-08-04
 

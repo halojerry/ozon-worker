@@ -135,6 +135,42 @@ def _parse_response(data: dict) -> dict[str, Any]:
     return {}
 
 
+def check_seller_login(cdp) -> bool:
+    """检测 seller.ozon.ru 卖家后台登录态（运营数据可用性）。
+
+    登录成功 → sc_company_id cookie 存在。返回 True/False。
+    用独立 tab，用完关闭。
+    """
+    tab = None
+    try:
+        tab = cdp.new_tab()
+        tab.navigate(SELLER_URL, wait_until="domcontentloaded", timeout=30)
+        time.sleep(3)
+        company_id = ""
+        try:
+            company_id = str(tab.evaluate(_GET_COMPANY_ID_JS, timeout=10) or "")
+        except Exception:
+            pass
+        if not company_id:
+            try:
+                cookies = tab._send("Network.getCookies", {"urls": [SELLER_URL]})
+                for c in (cookies.get("cookies") or []):
+                    if c.get("name") == "sc_company_id":
+                        company_id = str(c.get("value") or "")
+                        break
+            except Exception:
+                pass
+        return bool(company_id)
+    except Exception:
+        return False
+    finally:
+        if tab is not None:
+            try:
+                tab.close()
+            except Exception:
+                pass
+
+
 def fetch_sales_analytics(
     cdp,
     skus: list[str],
