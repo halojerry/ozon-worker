@@ -298,7 +298,9 @@ def _resolve_dimension_units(depth: int, width: int, height: int, weight: int) -
     d_div = _density(0.1)
     cur_ok = 0.05 <= d_cur <= 8.0
     div_ok = 0.05 <= d_div <= 8.0
-    if div_ok and not cur_ok:
+    # ⚠️ 约束：仅当存在 >500mm 的超大维度才判定 cm 误转——避免把
+    # "缺失尺寸从重量推算的默认值"（max 500mm、密度天然偏低）误切成 mm
+    if div_ok and not cur_ok and max(d, w, h) > 500:
         return max(10, int(d / 10)), max(10, int(w / 10)), max(10, int(h / 10)), "mm"
     return d, w, h, "cm"
 

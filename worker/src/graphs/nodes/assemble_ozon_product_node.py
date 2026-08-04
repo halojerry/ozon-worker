@@ -308,7 +308,7 @@ def _assemble_follow_sell(
     weight_g = draft.get("weight", 100)
     dims = draft.get("dimensions", {}) or {}
     # ✅ v0.22: 1688 数据缺失时用竞品重量/尺寸兜底（follow 链路 skill 透传）
-    _ext_fb = (state.envelope or {}).get("extensions", {}) or {}
+    _ext_fb = (getattr(state, "envelope", None) or {}).get("extensions", {}) or {}
     if _ext_fb.get("competitor_weight_g") or _ext_fb.get("competitor_dimensions_mm"):
         weight_g, _dl, _dw, _dh = apply_competitor_fallback(
             int(weight_g), int(dims.get("length", dims.get("depth", 0))),
@@ -380,7 +380,7 @@ def assemble_ozon_product_node(
     weight_grams: int = draft.get("weight", 100)
     dimensions: dict[str, int] = draft.get("dimensions", {}) or {}
     # ✅ v0.22: 1688 数据缺失时用竞品重量/尺寸兜底（follow 链路 skill 透传）
-    _ext_fb = (state.envelope or {}).get("extensions", {}) or {}
+    _ext_fb = (getattr(state, "envelope", None) or {}).get("extensions", {}) or {}
     if _ext_fb.get("competitor_weight_g") or _ext_fb.get("competitor_dimensions_mm"):
         weight_grams, _dl, _dw, _dh = apply_competitor_fallback(
             int(weight_grams), int(dimensions.get("length", dimensions.get("depth", 0))),

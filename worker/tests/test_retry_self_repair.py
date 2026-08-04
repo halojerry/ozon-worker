@@ -41,6 +41,13 @@ def test_resolve_small_item_keeps_cm():
     assert (d, w, h) == (85, 65, 110)
 
 
+def test_resolve_does_not_shrink_estimated_defaults():
+    """缺失尺寸从重量推算的默认值（200×160×120/100g，密度天然低）不能被误切 mm。"""
+    d, w, h, unit = _resolve_dimension_units(200, 160, 120, 100)
+    assert unit == "cm"
+    assert (d, w, h) == (200, 160, 120)
+
+
 # ── 2. price_out_of_range → repair_pricing ────────────────────────────────
 
 def test_price_out_of_range_routes_to_repair_pricing():
