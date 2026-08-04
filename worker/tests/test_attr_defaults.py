@@ -60,6 +60,47 @@ def test_resolve_missing_mandatory_dict_attr_dispatch():
     assert resolve_missing_mandatory_dict_attr(99999, "未知属性", dict_vals=[]) is None
 
 
+def test_prepare_fills_missing_mandatory_dict_attrs_with_mock_state():
+    """必填字典属性缺失 → prepare 用 attr_defaults 补齐（品牌/性别/尺码/8292/型号）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
+    from types import SimpleNamespace
+
+    schema = [
+        {"id": 31, "name": "Бренд одежды", "is_required": True, "dictionary_id": 500},
+        {"id": 9163, "name": "Пол", "is_required": True, "dictionary_id": 501},
+        {"id": 4295, "name": "Российский размер", "is_required": True, "dictionary_id": 502},
+        {"id": 8292, "name": "Объединить на одной карточке", "is_required": True, "dictionary_id": 503},
+        {"id": 22390, "name": "Модель", "is_required": True, "dictionary_id": 0},
+        {"id": 9048, "name": "Артикул", "is_required": True, "dictionary_id": 0},
+    ]
+    dict_values = {
+        "31": [{"id": 126745801, "value": "Нет бренда"}],
+        "9163": [{"id": 2, "value": "Женский"}],
+        "4295": [{"id": 10, "value": "48"}, {"id": 11, "value": "50"}],
+        "8292": [{"id": 501, "value": "Да"}, {"id": 502, "value": "Нет"}],
+    }
+    state = SimpleNamespace(
+        dictionary_values=dict_values,
+        description_category_id="17027918",
+        type_id="971311385",
+    )
+    items = [{
+        "offer_id": "4206931226_0",
+        "name": "Носки мужские, размер M",
+        "attributes": [{"id": 9048, "values": [{"dictionary_value_id": 0, "value": "4206931226"}]}],
+    }]
+    draft = {"item_id": "4206931226", "title": "女袜三双"}
+    result = _fill_missing_required_dict_attrs(items, schema, draft, state)
+    attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
+    assert attr_map[31]["values"][0]["dictionary_value_id"] == 126745801
+    assert attr_map[9163]["values"][0]["dictionary_value_id"] == 2
+    assert attr_map[4295]["values"][0]["dictionary_value_id"] == 10
+    assert attr_map[8292]["values"][0]["dictionary_value_id"] == 502
+    assert attr_map[22390]["values"][0]["dictionary_value_id"] == 0  # 型号=自由文本 itemId
+    assert attr_map[22390]["values"][0]["value"] == "4206931226"
+    assert attr_map[9048]["values"][0]["dictionary_value_id"] == 0  # 自由文本不受影响
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0

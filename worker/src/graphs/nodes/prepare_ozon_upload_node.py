@@ -595,6 +595,76 @@ def _get_category_fallback_title(state: "PrepareOzonUploadInput") -> str:
     return ""
 
 
+def _fill_missing_required_dict_attrs(items, schema, draft, state):
+    """v0.24 F1c: 必填字典属性缺失 → attr_defaults 安全默认补齐（品牌/性别/尺码/8292…）。
+    查不到安全默认 → 跳过（留给 F2 暴露可行动错误）。"""
+    from utils.attr_defaults import resolve_missing_mandatory_dict_attr
+    from utils.ozon_category_query import get_category_query
+
+    schema_list = schema if isinstance(schema, list) else []
+    required_dict = [
+        a for a in schema_list
+        if isinstance(a, dict)
+        and a.get("is_required")
+        and (
+            int(a.get("dictionary_id") or 0) > 0
+            or int(a.get("id") or 0) in (22390,)
+            or "модель" in str(a.get("name") or "").lower()
+        )
+    ]
+    if not required_dict:
+        return items
+
+    dict_values = dict(getattr(state, "dictionary_values", None) or {})
+    dc = str(getattr(state, "description_category_id", "") or "")
+    tp = str(getattr(state, "type_id", "") or "")
+    title_cn = str((draft or {}).get("title") or "")
+    item_id = str((draft or {}).get("item_id") or "")
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        existing = {int(a.get("id", 0)) for a in item.get("attributes", []) if isinstance(a, dict)}
+        attrs = item.get("attributes", [])
+        for attr in required_dict:
+            aid = int(attr.get("id") or 0)
+            if aid in existing:
+                continue
+            # 22390 型号 = 自由文本，填 1688 itemId（同商品所有 SKU 同值）
+            if aid in (22390,) or "модель" in str(attr.get("name") or "").lower():
+                attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": item_id}]})
+                logger.info("✅ 型号 %s(%s) = itemId %s", aid, attr.get("name"), item_id)
+                continue
+            vals = dict_values.get(str(aid))
+            if not vals and dc and tp:
+                try:
+                    query = get_category_query()
+                    vals = query.get_dictionary_values(aid, int(dc), int(tp)) or []
+                except Exception:
+                    vals = None
+            if not vals:
+                continue
+            size_cn = ""
+            sku_name = str(item.get("name") or "")
+            # 从 SKU 名/标题提取尺码候选（如 "M"、"38"、"L"）
+            import re as _re
+            m = _re.search(r"\b(\d{1,3}|[xX]{1,2}[sS]?[lL]?|[sS][mM][lL]?|[mM]|[lL])\b", sku_name)
+            if m:
+                size_cn = m.group(1)
+            resolved = resolve_missing_mandatory_dict_attr(
+                aid, str(attr.get("name") or ""),
+                title_cn=title_cn,
+                product_name_ru=sku_name,
+                size_cn=size_cn,
+                dict_vals=vals,
+            )
+            if resolved:
+                vid, val = resolved
+                attrs.append({"id": aid, "values": [{"dictionary_value_id": vid, "value": val}]})
+                logger.info("✅ 必填字典属性 %s(%s) 已用默认值补齐: %s (id=%s)", aid, attr.get("name"), val, vid)
+    return items
+
+
 def prepare_ozon_upload_node(
     state: PrepareOzonUploadInput,
     config: RunnableConfig,
@@ -2055,6 +2125,14 @@ def prepare_ozon_upload_node(
         logger.info(f"  offer_id={variant_items[0].get('offer_id', '')}, price={variant_items[0].get('price', '')}")
     else:
         logger.info(f"✅ 单SKU产品：items数组保持1个item")
+
+    # ✅ v0.24 F1c: 必填字典属性默认值补齐（品牌/性别/尺码/8292/型号）
+    try:
+        ozon_payload["items"] = _fill_missing_required_dict_attrs(
+            ozon_payload.get("items", []), attributes_schema, draft, state
+        )
+    except Exception as _e:
+        logger.warning("必填字典属性补齐异常（不影响主流程）: %s", _e)
     
     # Step 7: 验证必填字段（Ozon严格要求）
     logger.info("验证Ozon必填字段")
