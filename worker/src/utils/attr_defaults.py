@@ -15,6 +15,7 @@ from utils.size_mapper import map_size_to_russian
 BRAND_NAME_KEYWORDS = ("бренд", "品牌", "brand")
 GENDER_NAME_KEYWORDS = ("пол", "性别", "gender")
 SIZE_NAME_KEYWORDS = ("размер", "尺码", "尺寸", "size")
+TYPE_NAME_KEYWORDS = ("тип", "类型", "type")
 MERGE_CARD_ATTR_IDS = (8292,)
 MODEL_ATTR_IDS = (22390,)
 NO_MERGE_KEYWORDS = ("не объедин", "не обьедин", "нет", "不合并", "否")
@@ -64,11 +65,49 @@ def resolve_brand_default(dict_vals: Any) -> Optional[tuple[int, str]]:
 
 def resolve_gender_default(title_text: str, dict_vals: Any) -> Optional[tuple[int, str]]:
     """按标题/属性推断性别（女→Женский…），再查字典值 id。"""
+    ru = infer_gender_ru(title_text)
+    if ru:
+        return find_dict_value_id(dict_vals, ru)
+    return None
+
+
+def infer_gender_ru(title_text: str) -> Optional[str]:
+    """按 1688 标题推断性别俄语值（Женский/Мужской/Унисекс）；无则 None。"""
     t = str(title_text or "").lower()
     for zh, ru in GENDER_MAP:
         if zh in t:
-            return find_dict_value_id(dict_vals, ru)
+            return ru
     return None
+
+
+def dict_search_terms(
+    attr_id: int,
+    attr_name: str,
+    *,
+    title_cn: str = "",
+    product_name_ru: str = "",
+    size_cn: str = "",
+) -> list[str]:
+    """按属性语义返回 live search 关键词（RU 优先）：
+    品牌→Нет бренда；性别→俄语性别；尺码→俄罗斯尺码；8292→不合并；类型→产品名/标题。"""
+    attr_id = int(attr_id or 0)
+    name = str(attr_name or "").lower()
+    if attr_id in (85, 31, 5076) or any(k in name for k in BRAND_NAME_KEYWORDS):
+        return ["Нет бренда"]
+    if attr_id == 9163 or any(k in name for k in GENDER_NAME_KEYWORDS):
+        ru = infer_gender_ru(title_cn)
+        return [ru] if ru else []
+    if attr_id in (4295, 4411) or any(k in name for k in SIZE_NAME_KEYWORDS):
+        if not size_cn:
+            return []
+        mapped = map_size_to_russian(size_cn, product_name_ru or "")
+        return [mapped[0]] if mapped else []
+    if attr_id in MERGE_CARD_ATTR_IDS:
+        return ["Нет", "не объединять"]
+    if attr_id == 8229 or any(k in name for k in TYPE_NAME_KEYWORDS):
+        terms = [product_name_ru, title_cn]
+        return [t for t in terms if t]
+    return []
 
 
 def resolve_size_default(size_cn: str, product_name_ru: str, dict_vals: Any) -> Optional[tuple[int, str]]:
@@ -117,4 +156,11 @@ def resolve_missing_mandatory_dict_attr(
         return resolve_gender_default(title_cn, dict_vals)
     if attr_id in (4295, 4411) or any(k in name for k in SIZE_NAME_KEYWORDS):
         return resolve_size_default(size_cn, product_name_ru, dict_vals)
+    if attr_id == 8229 or any(k in name for k in TYPE_NAME_KEYWORDS):
+        values = _as_list(dict_vals)
+        if values and isinstance(values[0], dict):
+            vid = values[0].get("id") or values[0].get("dictionary_value_id") or 0
+            if vid:
+                return int(vid), str(values[0].get("value") or "")
+        return None
     return None

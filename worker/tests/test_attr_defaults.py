@@ -10,7 +10,7 @@ os.environ["APP_WORKSPACE_PATH"] = os.path.abspath(os.path.join(os.path.dirname(
 from utils.attr_defaults import (
     find_dict_value_id, resolve_brand_default, resolve_gender_default,
     resolve_size_default, resolve_merge_card_default,
-    resolve_missing_mandatory_dict_attr,
+    resolve_missing_mandatory_dict_attr, dict_search_terms,
 )
 
 
@@ -154,6 +154,103 @@ def test_append_spec_table_contains_attrs():
     assert "Женский" in out
     assert "500" in out
     assert "100" in out and "80" in out and "50" in out
+
+
+def test_dict_search_terms_per_attr():
+    assert dict_search_terms(31, "Бренд одежды") == ["Нет бренда"]
+    assert dict_search_terms(9163, "Пол", title_cn="女袜") == ["Женский"]
+    assert dict_search_terms(4295, "Российский размер", size_cn="M", product_name_ru="Рубашка мужская") == ["48"]
+    assert "Нет" in dict_search_terms(8292, "Объединить на одной карточке")
+    terms = dict_search_terms(8229, "Тип", product_name_ru="Носки мужские", title_cn="男袜")
+    assert "Носки мужские" in terms and "男袜" in terms
+
+
+def test_resolve_type_default_takes_first_value():
+    vals = [{"id": 94435, "value": "Спортивная бутылка"}]
+    assert resolve_missing_mandatory_dict_attr(8229, "Тип", dict_vals=vals) == (94435, "Спортивная бутылка")
+
+
+def test_prepare_fills_clothing_required_attrs_with_curated_search():
+    """服装五必填（品牌/性别/尺码/8292/类型）缓存空 → 按语义关键词 live search 全部补齐（v0.25 修复）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
+    from types import SimpleNamespace
+    from unittest import mock
+
+    schema = [
+        {"id": 31, "name": "Бренд одежды", "is_required": True, "dictionary_id": 500},
+        {"id": 9163, "name": "Пол", "is_required": True, "dictionary_id": 501},
+        {"id": 4295, "name": "Российский размер", "is_required": True, "dictionary_id": 502},
+        {"id": 8292, "name": "Объединить на одной карточке", "is_required": True, "dictionary_id": 503},
+        {"id": 8229, "name": "Тип", "is_required": True, "dictionary_id": 504},
+        {"id": 10096, "name": "Цвет", "is_required": True, "dictionary_id": 505},
+    ]
+    state = SimpleNamespace(
+        dictionary_values={},
+        description_category_id="17027918", type_id="971311385",
+        ozon_client_id="5371047", ozon_api_key="key",
+    )
+    items = [{"offer_id": "x_0", "name": "Носки мужские, размер M", "attributes": []}]
+    draft = {"item_id": "x", "title": "男袜", "attributes": {"颜色": "黑色"}}
+
+    def fake_search(client_id, api_key, aid, dc, tp, value, language="RU"):
+        table = {
+            "Нет бренда": [{"id": 126745801, "value": "Нет бренда"}],
+            "Мужской": [{"id": 1, "value": "Мужской"}],
+            "48": [{"id": 10, "value": "48"}],
+            "Нет": [{"id": 502, "value": "Нет"}],
+            "Носки мужские, размер M": [{"id": 94435, "value": "Носки"}],
+            "черный": [{"id": 61576, "value": "Черный"}],
+        }
+        return table.get(value, [])
+
+    with mock.patch("utils.ozon_dict_values.search_dictionary_values", side_effect=fake_search):
+        result = _fill_missing_required_dict_attrs(items, schema, draft, state)
+    attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
+    assert attr_map[31]["values"][0]["dictionary_value_id"] == 126745801
+    assert attr_map[9163]["values"][0]["dictionary_value_id"] == 1
+    assert attr_map[4295]["values"][0]["dictionary_value_id"] == 10
+    assert attr_map[8292]["values"][0]["dictionary_value_id"] == 502
+    assert attr_map[8229]["values"][0]["dictionary_value_id"] == 94435
+    assert attr_map[10096]["values"][0]["dictionary_value_id"] == 61576
+
+
+def test_prepare_merge_card_falls_back_to_list_mode():
+    """8292 search 搜不到 → 列表模式取「不合并」（v0.25 修复）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
+    from types import SimpleNamespace
+    from unittest import mock
+
+    schema = [{"id": 8292, "name": "Объединить на одной карточке", "is_required": True, "dictionary_id": 503}]
+    state = SimpleNamespace(
+        dictionary_values={}, description_category_id="200001517", type_id="93157",
+        ozon_client_id="5381204", ozon_api_key="key",
+    )
+    items = [{"offer_id": "x_0", "name": "Носки", "attributes": []}]
+    draft = {"item_id": "x", "title": "女袜"}
+    with mock.patch("utils.ozon_dict_values.search_dictionary_values", return_value=[]), \
+         mock.patch("utils.ozon_dict_values.list_dictionary_values",
+                    return_value=[{"id": 501, "value": "Да"}, {"id": 502, "value": "Нет"}]):
+        result = _fill_missing_required_dict_attrs(items, schema, draft, state)
+    attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
+    assert attr_map[8292]["values"][0]["dictionary_value_id"] == 502
+
+
+def test_prepare_size_not_extracted_from_pack_count():
+    """「6 双」的 6 不是尺码 → 4295 不填（避免误填儿童码 122，v0.25 修复）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
+    from types import SimpleNamespace
+    from unittest import mock
+
+    schema = [{"id": 4295, "name": "Российский размер", "is_required": True, "dictionary_id": 502}]
+    state = SimpleNamespace(
+        dictionary_values={}, description_category_id="200001517", type_id="93157",
+        ozon_client_id="5381204", ozon_api_key="key",
+    )
+    items = [{"offer_id": "x_0", "name": "Носки женские капроновые, 6 пар", "attributes": []}]
+    draft = {"item_id": "x", "title": "女袜"}
+    with mock.patch("utils.ozon_dict_values.search_dictionary_values", return_value=[]):
+        result = _fill_missing_required_dict_attrs(items, schema, draft, state)
+    assert all(a.get("id") != 4295 for it in result for a in it.get("attributes", []))
 
 
 if __name__ == "__main__":
