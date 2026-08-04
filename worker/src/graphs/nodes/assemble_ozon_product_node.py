@@ -55,9 +55,10 @@ def _load_category_synonyms() -> dict:
 
 
 def _apply_leaf_bonus(candidates: list, leaf_name: str, synonyms: dict) -> list:
-    """v0.21: 末级类目词（含同义词）命中节点名 → +0.5，打破字面匹配 tie。
+    """v0.21: 末级类目词（含同义词）命中节点名 → 加分，打破字面匹配 tie。
 
     例：后视镜 → 摩托车后视镜(+0.5) 胜过 单车裤；震动棒 → 振动器(同义词+0.5) 胜过 适应性器具餐具。
+    精确同名 +0.6，包含 +0.3——避免「振动器」误伤「振动器配件」。
     """
     if not leaf_name or not candidates:
         return candidates
@@ -67,10 +68,27 @@ def _apply_leaf_bonus(candidates: list, leaf_name: str, synonyms: dict) -> list:
             bonus_terms.add(s.strip())
     for c in candidates:
         name = c.get("node_name") or ""
-        if any(t in name for t in bonus_terms if len(t) >= 2):
+        if any(t == name for t in bonus_terms if len(t) >= 2):
+            c["_score"] = float(c.get("_score", c.get("similarity", 0))) + 0.6
+        elif any(name.endswith(t) for t in bonus_terms if len(t) >= 2):
             c["_score"] = float(c.get("_score", c.get("similarity", 0))) + 0.5
+        elif any(t in name for t in bonus_terms if len(t) >= 2):
+            c["_score"] = float(c.get("_score", c.get("similarity", 0))) + 0.3
     candidates.sort(key=lambda x: -(float(x.get("_score", x.get("similarity", 0)))))
     return candidates
+
+
+def _merge_candidates(a: list, b: list) -> list:
+    """按 (dc, tp) 去重合并候选，保留高分；用于 source_keywords + 标题关键词双路搜索。"""
+    merged: dict[tuple, dict] = {}
+    for c in list(a) + list(b):
+        key = (c.get("description_category_id"), c.get("type_id"))
+        if not all(key):
+            continue
+        score = float(c.get("_score", c.get("similarity", 0)))
+        if key not in merged or score > float(merged[key].get("_score", 0)):
+            merged[key] = c
+    return sorted(merged.values(), key=lambda x: -(float(x.get("_score", x.get("similarity", 0)))))
 
 
 def _l0_consistent(l0_hit: dict | None, candidates: list, top_n: int = 5) -> bool:
@@ -482,16 +500,13 @@ def assemble_ozon_product_node(
     # 1b. 搜索策略：source_keywords 优先（高精度），不够再扩大
     MIN_CANDIDATES = 1  # 有 source_category 时，1 个精确结果 > 30 个噪声结果
     
-    # 先用 source_keywords 做精确搜索
-    if source_keywords:
-        candidates = query.search_nodes(source_keywords, top_k=15, node_type="type")
-        if candidates and len(candidates) >= MIN_CANDIDATES:
-            logger.info(f"   ✅ 使用 source_category 精确搜索：{len(candidates)} 个候选")
-        else:
-            # source_keywords 不够 → 扩大到全关键词
-            candidates = query.search_nodes(keywords, top_k=30, node_type="type")
-    else:
-        candidates = query.search_nodes(keywords, top_k=30, node_type="type")
+    # ✅ v0.21: source_keywords 与标题关键词双路搜索合并——
+    # 单一用 source_keywords（如"其他电动车配件/野营折叠桌椅"）时，泛化词会把搜索带偏
+    src_candidates = query.search_nodes(source_keywords, top_k=15, node_type="type") if source_keywords else []
+    kw_candidates = query.search_nodes(keywords, top_k=30, node_type="type")
+    candidates = _merge_candidates(src_candidates, kw_candidates)
+    if candidates:
+        logger.info(f"   ✅ 双路搜索合并：{len(candidates)} 个候选（src={len(src_candidates)} + kw={len(kw_candidates)}）")
     
     if not candidates:
         # 回退：不过滤 node_type
@@ -529,11 +544,12 @@ def assemble_ozon_product_node(
 
     logger.info(f"   pg_trgm 返回 {len(candidates)} 个候选")
 
-    # ✅ v0.21: 末级类目词（含同义词）加权，打破 tie（震动棒→振动器 / 后视镜→摩托车后视镜）
-    candidates = _apply_leaf_bonus(candidates, leaf_name, _load_category_synonyms())
-
     # ✅ v4: L2 指纹重排
     candidates = _apply_fingerprint_rerank(query, candidates, source_keywords, keywords)
+
+    # ✅ v0.21: 末级类目词（含同义词）加权必须放在 L2 之后——
+    # 否则指纹重排会把刚加的权重覆盖掉（折叠椅→户外折叠椅配件 被 多功能折叠工具 顶掉）
+    candidates = _apply_leaf_bonus(candidates, leaf_name, _load_category_synonyms())
 
     # ✅ v5: 初始化匹配质量标记
     match_layer = "L1"       # pg_trgm / jieba LIKE
@@ -606,14 +622,27 @@ def assemble_ozon_product_node(
             logger.warning(f"   ⚠️ 所有 {len(candidates)} 个候选与源词无子串重叠，触发 LLM fallback")
             best_by_llm = _llm_rank_categories(candidates[:5], source_keywords or keywords, draft, state)
             if best_by_llm:
-                category_result = {
-                    "description_category_id": best_by_llm["description_category_id"],
-                    "type_id": best_by_llm["type_id"],
-                    "category_path": best_by_llm["full_path"],
-                    "confidence": "medium",
-                    "reason": f"LLM_fallback (from {len(candidates)} candidates, no substring overlap)",
-                }
-                logger.info(f"   ✅ LLM fallback 选中: {best_by_llm['full_path'][:80]}")
+                # ✅ v0.21: LLM 结果也必须与源词有具体重叠，否则不硬猜（阻断，需人工确认类目）
+                _llm_path = str(best_by_llm.get("full_path", "")).lower()
+                _llm_overlap = {sw for sw in _source_words if sw in _llm_path} - _GENERIC_OVERLAP
+                if _llm_overlap:
+                    category_result = {
+                        "description_category_id": best_by_llm["description_category_id"],
+                        "type_id": best_by_llm["type_id"],
+                        "category_path": best_by_llm["full_path"],
+                        "confidence": "medium",
+                        "reason": f"LLM_fallback+overlap (words={_llm_overlap})",
+                    }
+                    logger.info(f"   ✅ LLM fallback 选中（有重叠）: {best_by_llm['full_path'][:80]} {_llm_overlap}")
+                else:
+                    logger.error(
+                        f"   🛑 LLM fallback 结果与源词无具体重叠，阻断上架避免错误类目: "
+                        f"{best_by_llm.get('full_path', '')[:80]}"
+                    )
+                    match_confidence = 0.0
+                    return {"error_message": "类目匹配失败：LLM fallback 无可靠结果（需人工确认类目），阻断上架",
+                            "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
+                            "match_confidence": 0.0}
             else:
                 # ✅ v5: LLM 也失败 → 阻断上架，不硬用低质量候选
                 match_confidence = 0.0

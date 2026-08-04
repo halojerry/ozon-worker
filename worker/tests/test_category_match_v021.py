@@ -8,6 +8,7 @@ from graphs.nodes.assemble_ozon_product_node import (
     _load_category_synonyms,
     _apply_leaf_bonus,
     _l0_consistent,
+    _merge_candidates,
 )
 
 
@@ -34,6 +35,17 @@ def test_leaf_bonus_promotes_synonym_match():
     assert out[0]["type_id"] == 96513, f"振动器应排第一: {out}"
 
 
+def test_leaf_bonus_exact_beats_contains():
+    """精确同名(+0.6) 必须胜过 包含(+0.3)：振动器 > 振动器配件。"""
+    cands = [
+        _cand(17028959, 971096778, "振动器配件", 1.6),
+        _cand(17028959, 96513, "振动器", 1.6),
+    ]
+    syn = _load_category_synonyms()
+    out = _apply_leaf_bonus(cands, "震动棒", syn)
+    assert out[0]["type_id"] == 96513, f"精确匹配应排第一: {out}"
+
+
 def test_leaf_bonus_promotes_exact_leaf():
     """后视镜：节点名含『后视镜』应胜出。"""
     cands = [
@@ -42,6 +54,25 @@ def test_leaf_bonus_promotes_exact_leaf():
     ]
     out = _apply_leaf_bonus(cands, "后视镜", {})
     assert out[0]["type_id"] == 970849653
+
+
+def test_leaf_bonus_suffix_beats_contains_tie():
+    """同名后缀(+0.5) 应胜过仅包含(+0.3)：摩托车后视镜 > 儿童摩托车配件（同分时）。"""
+    cands = [
+        _cand(63444126, 970870421, "儿童汽车、摩托车配件及备件", 2.3),
+        _cand(17027929, 970849653, "摩托车后视镜", 2.3),
+    ]
+    out = _apply_leaf_bonus(cands, "后视镜", {"后视镜": ["后视镜", "摩托车后视镜", "汽车后视镜"]})
+    assert out[0]["type_id"] == 970849653, f"后缀匹配应排第一: {out}"
+
+
+def test_merge_candidates_dedupe_keep_high_score():
+    a = [_cand(17028959, 96513, "振动器", 2.1), _cand(1, 2, "x", 0.5)]
+    b = [_cand(17028959, 96513, "振动器", 1.9), _cand(3, 4, "y", 0.8)]
+    out = _merge_candidates(a, b)
+    assert len(out) == 3
+    top = [c for c in out if c["type_id"] == 96513][0]
+    assert top["_score"] == 2.1
 
 
 def test_l0_consistent_accepts_matching():
