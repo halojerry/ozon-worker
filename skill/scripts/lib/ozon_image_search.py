@@ -251,17 +251,28 @@ def search_by_image_cdp(
 
         # 2. 输入图片 URL
         safe_url = json.dumps(image_url)
-        search_tab.evaluate(
-            'document.querySelector("#alisearch-input").focus();'
-            'document.querySelector("#alisearch-input").select();'
-            'document.querySelector("#alisearch-input").value=""',
-            timeout=10,
-        )
-        time.sleep(0.3)
-        search_tab.evaluate(
-            f'document.execCommand("insertText", false, {safe_url})',
-            timeout=10,
-        )
+        # ⚠️ v0.22: 新版图搜页输入框是 .ali-search-input（无 #alisearch-input）。
+        # 旧选择器找不到 → 输入失败 → 点搜索时空输入框会误触上传图片按钮。
+        # 多选择器兼容 + 输入后校验 value，未填入则重试等待页面 JS 就绪。
+        _INPUT_SEL = '#alisearch-input, .ali-search-input, input[class*="search-input"]'
+        _input_ok = False
+        for _in_attempt in range(3):
+            _in_state = search_tab.evaluate(
+                f'(() => {{ const el = document.querySelector({json.dumps(_INPUT_SEL)});'
+                f' if (!el) return "NO_INPUT";'
+                f' el.focus(); el.select(); el.value="";'
+                f' document.execCommand("insertText", false, {safe_url});'
+                f' return (el.value || "").includes("http") ? "OK" : "EMPTY"; }})()',
+                timeout=10,
+            )
+            if _in_state == "OK":
+                _input_ok = True
+                break
+            logger.warning("图搜输入框状态 %s，等待重试 %d/3", _in_state, _in_attempt + 1)
+            time.sleep(2)
+        if not _input_ok:
+            logger.warning("图搜输入框无法填入 URL（页面结构可能变化），降级 API 图搜")
+            return []
         time.sleep(3)  # 等预览加载
 
         # ⚠️ v0.14 E5 修复: 1688 图搜点按钮后 window.open 弹新窗口，被 Chrome 弹窗拦截
@@ -276,10 +287,18 @@ def search_by_image_cdp(
         search_tab.evaluate(_POPUP_BYPASS_JS, timeout=10)
 
         # 3. 点击图搜按钮
-        search_tab.evaluate(
-            'document.querySelector(".input-button").click()',
+        # ⚠️ v0.22: 点击前再次确认输入框有 URL，避免空输入时误触上传图片按钮
+        _click_state = search_tab.evaluate(
+            f'(() => {{ const el = document.querySelector({json.dumps(_INPUT_SEL)});'
+            f' if (!el || !(el.value || "").includes("http")) return "NO_URL";'
+            f' const btn = document.querySelector(".input-button");'
+            f' if (!btn) return "NO_BTN";'
+            f' btn.click(); return "CLICKED"; }})()',
             timeout=10,
         )
+        if _click_state != "CLICKED":
+            logger.warning("图搜点击状态 %s（不点上传按钮），降级 API 图搜", _click_state)
+            return []
 
         # 4. 轮询本 tab URL 是否导航到结果页（URL 含 imageId）——不再依赖弹窗新窗口
         # 若 200ms 延迟导航未生效（页面未跳转）→ 整体重试一次（重新打开图搜页再搜）
@@ -302,20 +321,24 @@ def search_by_image_cdp(
                 search_tab.navigate(IMAGE_SEARCH_URL, timeout=20)
                 time.sleep(2)
                 search_tab.evaluate(_POPUP_BYPASS_JS, timeout=10)
-                search_tab.evaluate(
-                    'document.querySelector("#alisearch-input").focus();'
-                    'document.querySelector("#alisearch-input").select();'
-                    'document.querySelector("#alisearch-input").value=""',
-                    timeout=10,
-                )
-                time.sleep(0.3)
-                search_tab.evaluate(
-                    f'document.execCommand("insertText", false, {safe_url})',
-                    timeout=10,
-                )
+                for _in_attempt in range(3):
+                    _in_state = search_tab.evaluate(
+                        f'(() => {{ const el = document.querySelector({json.dumps(_INPUT_SEL)});'
+                        f' if (!el) return "NO_INPUT";'
+                        f' el.focus(); el.select(); el.value="";'
+                        f' document.execCommand("insertText", false, {safe_url});'
+                        f' return (el.value || "").includes("http") ? "OK" : "EMPTY"; }})()',
+                        timeout=10,
+                    )
+                    if _in_state == "OK":
+                        break
+                    time.sleep(2)
                 time.sleep(3)
                 search_tab.evaluate(
-                    'document.querySelector(".input-button").click()',
+                    f'(() => {{ const el = document.querySelector({json.dumps(_INPUT_SEL)});'
+                    f' if (!el || !(el.value || "").includes("http")) return "NO_URL";'
+                    f' const btn = document.querySelector(".input-button");'
+                    f' if (btn) btn.click(); return true; }})()',
                     timeout=10,
                 )
             except Exception as _re_e:
@@ -327,14 +350,24 @@ def search_by_image_cdp(
 
         time.sleep(wait_seconds)
 
-        # 6. 滚动触发懒加载
-        result_tab.evaluate('window.scrollTo(0, document.body.scrollHeight)', timeout=10)
-        time.sleep(2)
+        # 6. 滚动触发懒加载（v0.22: 多次分段滚动合并候选，无徽标环境靠更多样本提匹配率）
+        all_results: list[dict[str, Any]] = []
+        _seen_ids: set[str] = set()
+        for _scroll in range(3):
+            result_tab.evaluate('window.scrollTo(0, document.body.scrollHeight)', timeout=10)
+            time.sleep(2)
+            _batch = _extract_results_from_tab(result_tab, page_size)
+            for _r in _batch:
+                _rid = str(_r.get("id", ""))
+                if _rid and _rid not in _seen_ids:
+                    _seen_ids.add(_rid)
+                    all_results.append(_r)
+            logger.info("图搜滚动 %d/3: 累计 %d 个候选", _scroll + 1, len(all_results))
         result_tab.evaluate('window.scrollTo(0, 0)', timeout=10)
         time.sleep(1)
 
-        # 7. 提取默认结果
-        results = _extract_results_from_tab(result_tab, page_size)
+        # 7. 取合并结果（至少 page_size 条）
+        results = all_results[: max(page_size, 20)]
 
         # 8. YOLO crop regions
         if try_crop_regions and results:
