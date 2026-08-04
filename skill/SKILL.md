@@ -67,6 +67,7 @@ python3.12 scripts/cli.py check
   ├─ 有 Ozon URL？              → 【管线 B】Ozon 跟卖
   ├─ "有什么好跟卖的"？无 URL    → 【管线 C】Ozon 中国站发现 → 跟卖
   └─ "帮我选品上架"？无 URL      → 【管线 D】1688 搜索/图搜 → 直接上架
+  ├─ "找蓝海/热卖/趋势选品" + 品类 → 【管线 E】趋势选品（web_search/SearXNG → AI 关键词 → AK 搜索）
 ```
 
 **关键规则：**
@@ -177,6 +178,22 @@ python3.12 scripts/batch_test.py --urls-file urls.txt --submit
 
 URL 文件混合 1688/Ozon 链接，自动识别管线。
 
+### 管线 E：趋势驱动选品（v0.25）
+
+**触发**：用户说"帮我找 {品类} 的蓝海/热卖/趋势商品"
+
+```bash
+python3.12 scripts/cli.py trend --category "玩具" --market-info trend_info.txt --max-price 50 --max-moq 10 --min-ship-rate-48h 80 --min-sales 100
+```
+
+**流程**：
+1. **收集市场信息**：用 web_search（或 SearXNG）搜索 `"{品类} Ozon 热门趋势 蓝海 细分品类 2025"`，把 3-5 条结果内容保存为文本文件，用 `--market-info <文件>` 传入；配置了 `SEARXNG_URL` 时也可自动抓取。
+2. **AI 提炼关键词**：复用 mxou LLM，输出 5-8 个可直接搜 1688 的中文细分关键词（严格 JSON，含潜力原因）；解析失败 → 明确报错，不脑补。
+3. **AK 搜索**：并发搜索前 3 个关键词（≤3 在飞），每个取 Top1；**累计满 3 个有效商品立即停止**；某关键词无结果则补位下一个。
+4. **展示**：细分市场卡片（图片/价格/起批量/48H 揽收率/销量/供应商）+ 全 SKU 明细表（3 倍建议价）+ 汇总表；`--with-skus` 用 CDP 拉 SKU，`--export json|csv` 导出。
+
+筛选参数：`--max-price`（元）、`--max-moq`（件）、`--min-ship-rate-48h`（%）、`--min-sales`（件）。
+
 ---
 
 ## 5. Worker 响应处理
@@ -244,6 +261,8 @@ Worker 返回：
 | Ozon 店铺未配置 | "店铺未配置。请执行：`python3.12 scripts/cli.py set_store --name '店铺名' --client-id <ID> --api-key <KEY>`" |
 | 图搜无结果 | "1688 上未找到同款产品。要不要试试用关键词搜索？" |
 | Worker 返回错误 | 按 §5.2 错误码表回复用户 |
+| AI 关键词输出非法 JSON | 明确报错「关键词总结失败：JSON 解析错误」，不猜测关键词继续 |
+| 市场信息缺失 | 提示用 --market-info 传入 web_search 结果或配置 SEARXNG_URL；不凭空编造趋势 |
 
 **遇到任何错误，描述问题并引导用户修复。不自己修代码、不自己探索项目结构。**
 
