@@ -297,6 +297,39 @@ def ozon_status_node(
                         for info_item in info_items:
                             item_pid: int = info_item.get("id", 0)
                             statuses: Dict[str, Any] = info_item.get("statuses", {})
+
+                            # ✅ v0.24 F2: validation 失败如实暴露，不当软成功
+                            _validation = str(statuses.get("validation_status") or "") if isinstance(statuses, dict) else ""
+                            _is_created = statuses.get("is_created", True) if isinstance(statuses, dict) else True
+                            _item_errs = info_item.get("errors") or []
+                            _fatal = [
+                                e for e in _item_errs if isinstance(e, dict)
+                                and str(e.get("level") or "ERROR_LEVEL_ERROR") in ("ERROR_LEVEL_ERROR", "ERROR")
+                            ] or [e for e in _item_errs if isinstance(e, dict)]
+                            if (_validation and _validation != "success") or _is_created is False:
+                                if _fatal:
+                                    _detail = "; ".join(
+                                        f"{e.get('code')}(attr={e.get('attribute_id')} "
+                                        f"{e.get('attribute_name','')}): {e.get('message','')}"
+                                        for e in _fatal
+                                    )
+                                    logger.error("❌ Ozon validation 失败: %s", _detail)
+                                    return OzonStatusOutput(
+                                        product_id=product_id,
+                                        product_ids=all_pids_int,
+                                        status="failed",
+                                        moderation_status="validation_failed",
+                                        upload_status="failed",
+                                        errors=_fatal,
+                                        purchase_url=purchase_url,
+                                        purchase_cost=purchase_cost,
+                                        sku_id=sku_id,
+                                        profit_estimation=profit_estimation,
+                                        error_message=f"[OZON_VALIDATION_FAILED] {_detail}",
+                                        failed_stage="ozon_status",
+                                        stages={"ozon_status": "validation_failed"},
+                                    )
+
                             if isinstance(statuses, dict):
                                 ms: str = statuses.get("moderate_status", "")
                             else:
