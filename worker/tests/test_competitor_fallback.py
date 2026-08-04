@@ -53,6 +53,27 @@ def test_no_extensions_noop():
     assert (w, d, hh, h) == (0, 0, 0, 0)
 
 
+# ── v0.22 审查修复 P3: int 安全转换 + 部分尺寸缺失兜底 ──────────────────
+
+def test_fallback_with_non_numeric_weight_no_crash():
+    """draft.weight 非数字（None/字符串）不崩溃，兜底竞品重量。"""
+    w, d, hh, h = apply_competitor_fallback(
+        weight_g=None, depth_mm=0, width_mm=0, height_mm=0,
+        extensions={"competitor_weight_g": 500,
+                    "competitor_dimensions_mm": {"length": 200, "width": 150, "height": 100}},
+    )
+    assert w == 500
+
+
+def test_fallback_partial_dimensions():
+    """尺寸部分缺失（length=0 但 width/height>0）也整体兜底。"""
+    w, d, hh, h = apply_competitor_fallback(
+        weight_g=300, depth_mm=0, width_mm=80, height_mm=50,
+        extensions={"competitor_dimensions_mm": {"length": 200, "width": 150, "height": 100}},
+    )
+    assert (d, hh, h) == (200, 150, 100)
+
+
 if __name__ == "__main__":
     import traceback
 
