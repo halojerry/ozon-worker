@@ -12,6 +12,7 @@ from utils.http_session import session
 logger = logging.getLogger(__name__)
 
 SEARCH_URL = "https://api-seller.ozon.ru/v1/description-category/attribute/values/search"
+LIST_URL = "https://api-seller.ozon.ru/v1/description-category/attribute/values"
 
 
 def search_dictionary_values(
@@ -49,3 +50,42 @@ def search_dictionary_values(
             value, language="ZH_HANS",
         )
     return []
+
+
+def list_dictionary_values(
+    client_id: str,
+    api_key: str,
+    attribute_id: int,
+    description_category_id: int,
+    type_id: int,
+    language: str = "RU",
+    limit: int = 200,
+) -> list[dict]:
+    """列表模式拉取字典值（/values，分页），用于 search 搜不到时的兜底（如 8292 不合并）。"""
+    headers = {"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"}
+    all_values: list[dict] = []
+    last_id = 0
+    try:
+        for _ in range(5):
+            payload = {
+                "attribute_id": int(attribute_id),
+                "description_category_id": int(description_category_id),
+                "type_id": int(type_id),
+                "language": language,
+                "limit": limit,
+                "last_value_id": last_id,
+            }
+            resp = session.post(LIST_URL, headers=headers, json=payload, timeout=15)
+            if resp.status_code != 200:
+                break
+            data = resp.json()
+            result = data.get("result") or []
+            all_values.extend(result)
+            if not data.get("has_next", False) or not result:
+                break
+            last_id = result[-1].get("id", 0)
+            if not last_id:
+                break
+    except Exception as e:
+        logger.warning("字典值 list 失败(attr=%s): %s", attribute_id, e)
+    return all_values

@@ -599,6 +599,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
     """v0.24 F1c: 必填字典属性缺失 → attr_defaults 安全默认补齐（品牌/性别/尺码/8292…）。
     查不到安全默认 → 跳过（留给 F2 暴露可行动错误）。"""
     from utils.attr_defaults import resolve_missing_mandatory_dict_attr
+    from utils.attr_defaults import find_dict_value_id
     from utils.ozon_category_query import get_category_query
 
     schema_list = schema if isinstance(schema, list) else []
@@ -635,46 +636,101 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                 attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": item_id}]})
                 logger.info("✅ 型号 %s(%s) = itemId %s", aid, attr.get("name"), item_id)
                 continue
-            vals = dict_values.get(str(aid))
-            if not vals and dc and tp:
+            # ✅ v0.25 修复: 颜色(10096/10097) — 1688 颜色 → RU 映射 → 字典 id
+            if aid in (10096, 10097) or "цвет" in str(attr.get("name") or "").lower() or "颜色" in str(attr.get("name") or ""):
+                _cn_color = ""
+                _attrs1688 = (draft or {}).get("attributes") or {}
+                if isinstance(_attrs1688, dict):
+                    _cn_color = str(_attrs1688.get("颜色") or "")
+                if not _cn_color:
+                    for _v in (draft or {}).get("variants") or []:
+                        if isinstance(_v, dict) and _v.get("color"):
+                            _cn_color = str(_v["color"])
+                            break
+                _ru_color = COLOR_CN_TO_RU.get(_cn_color, "") if _cn_color else ""
+                if _ru_color:
+                    _vals = dict_values.get(str(aid)) or []
+                    _hit = find_dict_value_id(_vals, _ru_color)
+                    if not _hit:
+                        try:
+                            from utils.ozon_dict_values import search_dictionary_values
+                            _hits = search_dictionary_values(
+                                getattr(state, "ozon_client_id", "") or "",
+                                getattr(state, "ozon_api_key", "") or "",
+                                aid, int(dc) if dc else 0, int(tp) if tp else 0, _ru_color,
+                            )
+                            if _hits:
+                                _hit = (int(_hits[0].get("id") or 0), str(_hits[0].get("value") or _ru_color))
+                        except Exception:
+                            _hit = None
+                    if _hit and _hit[0] > 0:
+                        attrs.append({"id": aid, "values": [{"dictionary_value_id": _hit[0], "value": _hit[1]}]})
+                        logger.info("✅ 必填字典属性 %s(%s) 颜色补齐: %s (id=%s)", aid, attr.get("name"), _ru_color, _hit[0])
+                continue
+            # 尺码候选（供 4295/尺寸属性搜索用）：优先 1688 属性/变体，其次 SKU 名（排除包装数量）
+            size_cn = ""
+            sku_name = str(item.get("name") or "")
+            _attrs1688sz = (draft or {}).get("attributes") or {}
+            if isinstance(_attrs1688sz, dict):
+                size_cn = str(_attrs1688sz.get("尺寸") or _attrs1688sz.get("尺码") or "")
+            if not size_cn:
+                for _v in (draft or {}).get("variants") or []:
+                    if isinstance(_v, dict) and (_v.get("size") or _v.get("规格")):
+                        size_cn = str(_v.get("size") or _v.get("规格") or "")
+                        break
+            import re as _re
+            if not size_cn:
+                m = _re.search(r"\b(\d{1,3}|[xX]{1,2}[sS]?[lL]?|[sS][mM][lL]?|[mM]|[lL])\b", sku_name)
+                if m and not _re.search(r"\d+\s*(пар|双|只|件|个)", sku_name):
+                    size_cn = m.group(1)
+
+            # ✅ v0.25 修复: 缓存先试 → 解析失败必走 live search（不因缓存有值而跳过）
+            vals = dict_values.get(str(aid)) or []
+            resolved = resolve_missing_mandatory_dict_attr(
+                aid, str(attr.get("name") or ""),
+                title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn, dict_vals=vals,
+            )
+            if not resolved:
                 try:
-                    query = get_category_query()
-                    vals = query.get_dictionary_values(aid, int(dc), int(tp)) or []
-                except Exception:
-                    vals = None
-            # ✅ v0.25 T2: 缓存未命中 → /values/search live 兜底（RU→ZH_HANS 链）
-            if not vals:
-                try:
+                    from utils.attr_defaults import dict_search_terms
                     from utils.ozon_dict_values import search_dictionary_values
-                    _terms = [str(attr.get("name") or ""), title_cn[:50], str(item.get("name") or "")[:50]]
-                    for _term in _terms:
+                    for _term in dict_search_terms(
+                        aid, str(attr.get("name") or ""),
+                        title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
+                    ):
                         if not _term:
                             continue
-                        vals = search_dictionary_values(
+                        _hits = search_dictionary_values(
                             getattr(state, "ozon_client_id", "") or "",
                             getattr(state, "ozon_api_key", "") or "",
                             aid, int(dc) if dc else 0, int(tp) if tp else 0, _term,
                         )
-                        if vals:
-                            break
+                        if _hits:
+                            resolved = resolve_missing_mandatory_dict_attr(
+                                aid, str(attr.get("name") or ""),
+                                title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
+                                dict_vals=_hits,
+                            )
+                            if resolved:
+                                break
                 except Exception:
-                    vals = None
-            if not vals:
+                    resolved = None
+            # 8292: search 兜底仍失败 → 列表模式取「不合并」
+            if not resolved and aid in (8292,):
+                try:
+                    from utils.ozon_dict_values import list_dictionary_values
+                    from utils.attr_defaults import resolve_merge_card_default
+                    _all = list_dictionary_values(
+                        getattr(state, "ozon_client_id", "") or "",
+                        getattr(state, "ozon_api_key", "") or "",
+                        aid, int(dc) if dc else 0, int(tp) if tp else 0,
+                    )
+                    resolved = resolve_merge_card_default(_all)
+                except Exception:
+                    resolved = None
+            if not resolved:
+                logger.warning("⚠️ 必填字典属性 %s(%s) 补齐失败（无安全默认，交给重试/报错）", aid, attr.get("name"))
                 continue
-            size_cn = ""
-            sku_name = str(item.get("name") or "")
-            # 从 SKU 名/标题提取尺码候选（如 "M"、"38"、"L"）
-            import re as _re
-            m = _re.search(r"\b(\d{1,3}|[xX]{1,2}[sS]?[lL]?|[sS][mM][lL]?|[mM]|[lL])\b", sku_name)
-            if m:
-                size_cn = m.group(1)
-            resolved = resolve_missing_mandatory_dict_attr(
-                aid, str(attr.get("name") or ""),
-                title_cn=title_cn,
-                product_name_ru=sku_name,
-                size_cn=size_cn,
-                dict_vals=vals,
-            )
             if resolved:
                 vid, val = resolved
                 attrs.append({"id": aid, "values": [{"dictionary_value_id": vid, "value": val}]})
@@ -2256,6 +2312,29 @@ def prepare_ozon_upload_node(
         )
     except Exception as _e:
         logger.warning("必填字典属性补齐异常（不影响主流程）: %s", _e)
+
+    # ✅ v0.25 修复: 补齐后重算必填属性缺失（清除补齐前基于 final_attributes 的误报，
+    # 否则 Step 7 会用旧的 validation_errors 提前阻断，补齐白跑）
+    try:
+        _item_attr_ids = {
+            int(a.get("id", 0))
+            for _it in ozon_payload.get("items", [])
+            for a in (_it.get("attributes") or []) if isinstance(a, dict)
+        }
+        _still_missing = [r for r in required_attr_ids if r not in _item_attr_ids]
+        validation_errors = [e for e in validation_errors if not e.startswith("必填属性缺失")]
+        for _rid in _still_missing:
+            _nm = ""
+            for _a in required_attrs:
+                try:
+                    if int(_a.get("id", 0)) == _rid:
+                        _nm = _a.get("name", "")
+                        break
+                except (TypeError, ValueError):
+                    continue
+            validation_errors.append(f"必填属性缺失: {_nm} (id={_rid})")
+    except Exception as _ve:
+        logger.warning("必填属性重算失败（保留原校验）: %s", _ve)
     
     # Step 7: 验证必填字段（Ozon严格要求）
     logger.info("验证Ozon必填字段")
