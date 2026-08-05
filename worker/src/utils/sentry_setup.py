@@ -98,3 +98,72 @@ def capture_task_error(
         sentry_sdk.flush(timeout=2)
     except Exception as e:
         logger.warning("Sentry 上报失败: %s", e)
+
+
+# ============================================================
+# v0.26: 全局监控 — 任务级 transaction + 节点/生图 span
+# 目的：Sentry 不再只看到「Ozon 返回错误」，还能看到 worker 内部
+# 每个任务/节点/生图调用的耗时与结果（卡在哪个节点、ozon_status 重跑几次、
+# 生图调了几次，tracing 视图直接可见）。未启用时全部 no-op。
+# ============================================================
+
+def start_task_transaction(task_id: str = "", tenant_id: str = ""):
+    """启动任务级 transaction（性能 trace）。未启用返回 None。"""
+    if not _SENTRY_ENABLED:
+        return None
+    try:
+        import sentry_sdk  # type: ignore
+
+        tx = sentry_sdk.start_transaction(
+            name=f"task_{task_id or 'unknown'}",
+            op="task",
+        )
+        if tx is not None:
+            if task_id:
+                tx.set_tag("task_id", task_id)
+            if tenant_id:
+                tx.set_tag("tenant_id", tenant_id)
+        return tx
+    except Exception as e:
+        logger.warning("Sentry 任务 transaction 启动失败: %s", e)
+        return None
+
+
+def start_node_span(transaction, node_name: str = ""):
+    """在任务 transaction 下启动节点 span。未启用返回 None。"""
+    if not _SENTRY_ENABLED or transaction is None:
+        return None
+    try:
+        import sentry_sdk  # type: ignore
+
+        return transaction.start_child(
+            op="node",
+            description=str(node_name or "unknown_node"),
+        )
+    except Exception:
+        return None
+
+
+def finish_span(span, status: str = "ok", **tags) -> None:
+    """结束 span，可带状态与标签。未启用 no-op。"""
+    if span is None:
+        return
+    try:
+        for k, v in tags.items():
+            if v is not None:
+                span.set_tag(str(k), str(v))
+        span.set_status(status)
+        span.finish()
+    except Exception:
+        pass
+
+
+def finish_transaction(transaction, status: str = "ok") -> None:
+    """结束任务 transaction。未启用 no-op。"""
+    if transaction is None:
+        return
+    try:
+        transaction.set_status(status)
+        transaction.finish()
+    except Exception:
+        pass
