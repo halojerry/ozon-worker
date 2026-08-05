@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.25.0] - 2026-08-05
+
+> wave3/wave4 本地真机测试 + 修复：跟卖/直采 12 个产品 11 个 approved（浴刷已救活），
+> 全链路根因修复 + 尺码表入库 + COS 全球加速抓图。
+
+### Added
+
+- **尺码表入库（F1a）**：儿童/男性/女性服装 + 鞋子四张 CSV 随镜像分发，
+  `init_data.py` 部署时自动导入 PG `size_mappings`（children 127 / female 104 /
+  male 88 / shoes 34 行实证），`size_mapper` 查询优先（PG → 本地兜底）。
+- **必填字典属性语义解析（F1b/F1c）**：`attr_defaults` 品牌/性别/尺码/8292/型号
+  语义默认值，prepare/retry 统一接入；无颜色来源 → 中性默认色
+  （прозрачный→белый）；性别无来源 → Унисекс/Универсальный（列表模式关键词兜底）。
+- **1688→Ozon 类目映射学习闭环（T1）**：skill 信封补 `source_category_id`，
+  worker follow/直采优先查学习表，approved 后回写。
+- **必填字典属性 live search 兜底（T2/T3）**：`/values/search` 公共封装，
+  解析失败必走 live search；非必填字典属性 attr_synonyms 跨语言同义词填满。
+- **商品描述规格参数表（T4）**：4191 富文本追加 Характеристики 表格。
+- **AK 搜索结构化字段 + 趋势选品（S1/S2/S3）**：moq/48H发货率/销量/发货地/标签 +
+  筛选参数；信封补 1688 类目数字 ID；`trend` 命令（web 趋势→AI 细分关键词→
+  AK 搜索满 3 停）。
+- **Ozon 竞品属性优先填充（v0.25 wave3）**：follow 信封透传 `ozon_attributes`，
+  worker 按竞品俄语值搜索 → 1688 推断 → 兜底；8229 短词搜索；标题颜色推断；
+  裤袜/女性专属品类词；One-size 尺码兜底；8292 自由文本「Нет」最后兜底。
+- **生图模型路由（v0.25）**：main/social_proof 用 gpt-image-2，其余 banana；
+  grsai 轮询前 30s 不轮询 + 每 5s 一次；提示词 v0.25 修订热加载。
+- **Sentry 错误监测（v0.23）**：SENTRY_DSN 可配，任务异常/超时自动上报。
+
+### Fixed
+
+- **跟卖上传禁竞品图（wave4 浴刷 0 图下架根因）**：AI 图不足 10 张不再用
+  竞品 ir.ozone.ru 补位（Ozon 抓竞品 CDN 图失败 → 整卡 0 图被下架）。
+- **审核通过后路由死循环（wave4 实证）**：条件边收到 OzonStatusInput 强转 state，
+  moderation_status 被剥 → approved 永远看不到 → 每秒重跑 ozon_status；
+  兜底 imported+success+product_id → 成功。
+- **ozon_status 404 回退**：import/info 任务不存在（product_id 当 task_id 轮询）
+  → 回退 info/list 查真实状态，不误判失败；404 回退查无商品立即失败。
+- **OzonStatusInput 补 ozon_task_id（d897efd）**：修复 import/info 阶段被入参过滤
+  剥掉导致的 product-id 误用；校验失败返回真实 product_id。
+- **制造商 23487 中文零容忍**：中文供应商名必须俄语化（LLM 翻译，失败兜底
+  「Китайская компания」）——中文供应商整单被 Ozon 拒（BR_chinese_hieroglyphs）。
+- **COS 全球加速域名抓图**：payload 统一改写 `cos.accelerate.myqcloud.com`
+  （Ozon 跨境抓图更稳，wave4 图抓取失败频发实证）。
+- **offer_id 统一裸竞品 ID**：import-by-sku/assemble/prepare 三处一致，
+  防 api 复制模式双卡；import-by-sku 超时不 fallback CREATE（P2a）。
+- **店铺路由（F4）**：`_get_ozon_credentials` 显式 OZON_CLIENT_ID/API_KEY 环境
+  变量优先——batch --client-id 被 stores.json 默认店覆盖问题。
+- **竞品兜底安全（P3）**：int 安全转换 + 部分尺寸缺失兜底；repair_pricing 无定价
+  阻断（删 999 兜底，P2b）；api 兜底信封校验放宽（P1）。
+- **Docker pytest-asyncio**：容器全量回归可运行（170+ 测试全绿）。
+
 ## [0.22.0] - 2026-08-04
 
 > 经营数据闭环：worker 拒绝原因可行动化 + 完成结果返回产品经营明细，
