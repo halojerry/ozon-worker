@@ -229,6 +229,42 @@ def test_prepare_size_one_size_fallback():
     assert attr_map[4295]["values"][0]["value"] == "Один размер"
 
 
+def test_prepare_manufacturer_from_supplier():
+    """制造商 23487（自由文本）→ 用 supplier 填充（v0.25 修复）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
+    from types import SimpleNamespace
+
+    schema = [{"id": 23487, "name": "Производитель", "is_required": True, "dictionary_id": 0}]
+    state = SimpleNamespace(dictionary_values={}, description_category_id="1", type_id="1")
+    items = [{"offer_id": "x_0", "name": "Щётка", "attributes": []}]
+    draft = {"item_id": "x", "title": "浴刷", "supplier": "义乌市xx日用品厂"}
+    result = _fill_missing_required_dict_attrs(items, schema, draft, state)
+    attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
+    assert attr_map[23487]["values"][0]["dictionary_value_id"] == 0
+    assert attr_map[23487]["values"][0]["value"] == "义乌市xx日用品厂"
+
+
+def test_prepare_gender_neutral_default():
+    """性别无来源 → 中性默认 Унисекс（v0.25 修复）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
+    from types import SimpleNamespace
+    from unittest import mock
+
+    schema = [{"id": 9163, "name": "Пол", "is_required": True, "dictionary_id": 501}]
+    state = SimpleNamespace(
+        dictionary_values={}, description_category_id="200001517", type_id="93100",
+        ozon_client_id="5381204", ozon_api_key="key",
+    )
+    items = [{"offer_id": "x_0", "name": "Маска", "attributes": []}]
+    draft = {"item_id": "x", "title": "面具", "attributes": {}}
+    with mock.patch("utils.ozon_dict_values.search_dictionary_values",
+                    side_effect=lambda *a, **k: [{"id": 3, "value": "Унисекс"}] if a[5] == "Унисекс" else []):
+        result = _fill_missing_required_dict_attrs(items, schema, draft, state)
+    attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
+    assert attr_map[9163]["values"][0]["dictionary_value_id"] == 3
+    assert attr_map[9163]["values"][0]["value"] == "Унисекс"
+
+
 def test_append_spec_table_contains_attrs():
     """描述末尾追加规格参数表（俄语属性名/值 + 重量尺寸）（v0.25 T4）。"""
     from graphs.nodes.prepare_ozon_upload_node import _append_spec_table
