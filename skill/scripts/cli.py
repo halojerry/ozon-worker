@@ -27,7 +27,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def _out(obj: dict) -> None:
-    print(json.dumps(obj, ensure_ascii=False, indent=2), flush=True)
+    """输出 JSON（⚠️ v0.26: 凭证脱敏 — api_key/token 打码，防终端/日志泄漏）。"""
+    import copy as _copy
+    safe = _copy.deepcopy(obj)
+    _redact_keys(safe, {"api_key", "token", "ozon_api_key", "mxou_token", "ak", "ali_1688_ak"})
+    print(json.dumps(safe, ensure_ascii=False, indent=2), flush=True)
+
+
+def _redact_keys(obj, keys: set, _depth: int = 0) -> None:
+    """递归把 dict 中命中的键值打码（保留前 4 位便于区分）。"""
+    if _depth > 10 or obj is None:
+        return
+    if isinstance(obj, dict):
+        for k, v in list(obj.items()):
+            if isinstance(k, str) and k in keys and isinstance(v, str) and v:
+                obj[k] = v[:4] + "****"
+            else:
+                _redact_keys(v, keys, _depth + 1)
+    elif isinstance(obj, list):
+        for item in obj:
+            _redact_keys(item, keys, _depth + 1)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -864,6 +883,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
               f'1688=¥{candidate.match_1688_price:.0f} 利润={candidate.profit_margin:.1f}%', flush=True)
 
     try:
+        from scripts.lib.config_store import get_mxou_token as _get_tok
         match_selected(
             selected,
             cdp_url,
@@ -871,6 +891,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
             min_margin_pct=args.min_margin,
             commission_rate=commission_rate,
             progress_callback=_match_progress,
+            mxou_token=_get_tok() or "",
         )
     except KeyboardInterrupt:
         print("\n⚠️ 用户中断")

@@ -463,6 +463,7 @@ def match_selected(
     logistics_cny: float = DEFAULT_LOGISTICS_CNY,
     commission_rate: float = 0,
     progress_callback=None,
+    mxou_token: str = "",
 ) -> list[ProductCandidate]:
     """Discover v2 阶段④：对选中候选批量 1688 识图 + 利润 + 蓝海评分。
 
@@ -484,7 +485,8 @@ def match_selected(
         for i, candidate in enumerate(selected):
             try:
                 match = _search_1688_source(
-                    cdp_url, candidate.ozon_images, candidate.ozon_title, conn=shared_cdp)
+                    cdp_url, candidate.ozon_images, candidate.ozon_title, conn=shared_cdp,
+                    mxou_token=mxou_token)
                 if match:
                     candidate.match_1688_url = match.get("url", "")
                     candidate.match_1688_title = match.get("title", "")
@@ -907,7 +909,7 @@ def _badge_effectiveness(badge_str: str) -> float:
     return 0.0
 
 
-def _pick_best_match(results: list[dict[str, Any]], ozon_title: str) -> dict[str, Any] | None:
+def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str = "") -> dict[str, Any] | None:
     """从图搜结果中挑选最相关的匹配。
 
     1688 图搜列表第一张卡片往往是不相关商品（badge 标"符合 0/N 个条件"），
@@ -919,7 +921,8 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str) -> dict[str
     3. 标题相关性作辅排序：中文标题走关键词重叠；俄语标题走 RU→ZH
        产品词映射包含匹配（badge 为空时唯一可用的相关性信号）
     4. 相关性护栏：badge 无明确匹配（<0.6）且标题相关性弱（conf < 0.5）
-       → 拒绝匹配（宁缺毋滥，不把不相关商品当货源）
+       → 先 LLM 语义判定（v0.26：词对词典覆盖窄，误拒同品是「匹配了却不选」根因），
+       判定同品 → 放行；否则拒绝（宁缺毋滥，不把不相关商品当货源）
     """
     from scripts.lib.ozon_image_search import _get_badge_score
 
@@ -982,6 +985,11 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str) -> dict[str
             logger.info("图搜无徽标（badge-less），标题相关性 conf=%.2f 放行: %s",
                         _conf_of_best, best.get("title", "")[:40])
             return best
+        # ⚠️ v0.26 FIX: 无徽标且词对相关性弱 → 仍可能同品（词对词典覆盖极窄，
+        # 如「палочки от комаров 驱蚊棒」词典无词对）。用 LLM 语义判定救回。
+        if _llm_semantic_match(ozon_title, _bt, token):
+            logger.info("图搜无徽标，LLM 语义判定同品，放行: %s", _bt[:40])
+            return best
         logger.debug("图搜无徽标且标题相关性弱（conf=%.2f），拒绝: %s",
                      _conf_of_best, best.get("title", "")[:40])
         return None
@@ -991,10 +999,69 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str) -> dict[str
                      best.get("badge", ""), best_score, best.get("title", "")[:40])
         return None
     if badge_eff_of_best < 0.5 and _conf_of_best < 0.3:
+        # ⚠️ v0.26 FIX: badge 轻微匹配但词对相关性弱 → 先 LLM 语义判定（词对词典覆盖窄，
+        # 误拒同品是「匹配了却不选」根因）；LLM 判定同品 → 放行
+        if _llm_semantic_match(ozon_title, _bt, token):
+            logger.info("图搜 badge 轻微匹配 + LLM 语义判定同品，放行: %s", _bt[:40])
+            return best
         logger.warning("图搜候选 badge 轻微匹配但标题相关性弱（badge=%s, conf=%.2f），拒绝: %s",
                        best.get("badge", ""), _conf_of_best, best.get("title", "")[:40])
         return None
     return best
+
+
+_LLM_SEMANTIC_CACHE: dict = {}
+
+
+def _llm_semantic_match(ozon_title: str, cn_title: str, token: str = "") -> bool:
+    """LLM 语义判定：Ozon 俄语标题 vs 1688 中文标题是否同一产品（v0.26）。
+
+    背景：_ru_zh_title_overlap 依赖手工词对词典（_RU_ZH_PRODUCT_WORDS），覆盖极窄，
+    「палочки от комаров 驱蚊棒」这类无词对 → conf=0 → 被相关性护栏误拒（"匹配了却不选"根因）。
+    LLM（deepseek-v4-flash，已有）直接判断 RU↔ZH 是否同品，护栏边界时救回。
+
+    仅在护栏边界（conf 弱）时调用一次，每次 1 次 LLM chat 调用；结果进程内缓存。
+    失败（无 token/网络/超时）→ 返回 False（维持原拒绝，不因 LLM 故障放行错误匹配）。
+    """
+    if not token or not ozon_title or not cn_title:
+        return False
+    key = (ozon_title[:60], cn_title[:60])
+    cached = _LLM_SEMANTIC_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        import requests as req
+        # 截断（deepseek-v4-flash reasoning tokens 消耗大，长输入易空输出）
+        oz_short = " ".join(ozon_title.split()[:12])
+        cn_short = " ".join(cn_title.split()[:12])
+        resp = req.post(
+            "https://api.mxou.cn/v1/chat/completions",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={
+                "model": "deepseek-v4-flash",
+                "messages": [
+                    {"role": "system", "content": "判断两个产品标题是否指同一个产品（俄语 vs 中文）。只看产品本身，忽略规格差异（数量/尺寸/颜色）。只回答 YES 或 NO。"},
+                    {"role": "user", "content": f"俄语标题: {oz_short}\n中文标题: {cn_short}\n是否为同一产品？"},
+                ],
+                "temperature": 0,
+                "max_tokens": 10,
+            },
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            return False
+        content = ""
+        choices = resp.json().get("choices", [])
+        if choices:
+            content = str(choices[0].get("message", {}).get("content", "") or "").strip().upper()
+        result = content.startswith("YES") or "是" in content[:6]
+        _LLM_SEMANTIC_CACHE[key] = result
+        if result:
+            logger.info("LLM 语义判定同品: '%s' ≈ '%s'", oz_short[:30], cn_short[:30])
+        return result
+    except Exception as e:
+        logger.debug("LLM 语义判定失败（降级为拒绝）: %s", e)
+        return False
 
 
 def _search_1688_source(
@@ -1003,6 +1070,7 @@ def _search_1688_source(
     title: str,
     max_retries: int = 1,
     conn=None,
+    mxou_token: str = "",
 ) -> dict[str, Any] | None:
     """Search 1688 for a matching source product.
 
@@ -1016,6 +1084,8 @@ def _search_1688_source(
       （间隔 3s），仍空才降级 AK
     - CDP 图搜有结果但被相关性护栏拒绝 → 不重试（结果确定），直接降级
     - AK 图搜/关键词同样重试（API 快，成本低）
+
+    mxou_token: 用于护栏边界时 LLM 语义判定（v0.26，透传给 _pick_best_match）。
 
     Returns dict with: url, title, price, images  (or None if no match).
     """
@@ -1067,7 +1137,7 @@ def _search_1688_source(
                 results = search_by_image(image_url=images[0], page_size=5, score_level="high")
                 # ⚠️ AK 结果同样不能无条件取 results[0]（实测第一条是"活体羊驼
                 # ¥2000"，第三条才是相关商品），与 CDP 路径共用 _pick_best_match
-                best = _pick_best_match(results, title) if results else None
+                best = _pick_best_match(results, title, token=mxou_token) if results else None
                 if best:
                     return {
                         "url": best.get("detail_url", ""),
