@@ -610,6 +610,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
         and (
             int(a.get("dictionary_id") or 0) > 0
             or int(a.get("id") or 0) in (22390,)
+            or int(a.get("id") or 0) in (8292,)  # 合并卡片：可能是字典也可能是自由文本
             or "модель" in str(a.get("name") or "").lower()
         )
     ]
@@ -642,6 +643,13 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                 _attrs1688 = (draft or {}).get("attributes") or {}
                 if isinstance(_attrs1688, dict):
                     _cn_color = str(_attrs1688.get("颜色") or "")
+                if _cn_color:
+                    # 1688 颜色常带前缀/多值（如 "209中圆点短丝袜 黑色,…"）→ 取串内出现的首个已知颜色词
+                    _matched = next((c for c in COLOR_CN_TO_RU if c in _cn_color), "")
+                    if _matched:
+                        _cn_color = _matched
+                    else:
+                        _cn_color = ""
                 if not _cn_color:
                     for _v in (draft or {}).get("variants") or []:
                         if isinstance(_v, dict) and _v.get("color"):
@@ -701,11 +709,15 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                         aid, int(dc) if dc else 0, int(tp) if tp else 0, _ozon_val,
                     )
                     if _hits_o:
-                        resolved = resolve_missing_mandatory_dict_attr(
-                            aid, str(attr.get("name") or ""),
-                            title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
-                            dict_vals=_hits_o,
-                        )
+                        # ✅ 竞品值精确匹配（如 Размер=36 → 直接命中字典值 36）
+                        from utils.attr_defaults import find_dict_value_id as _fdv
+                        resolved = _fdv(_hits_o, _ozon_val)
+                        if not resolved:
+                            resolved = resolve_missing_mandatory_dict_attr(
+                                aid, str(attr.get("name") or ""),
+                                title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
+                                dict_vals=_hits_o,
+                            )
                     if not resolved:
                         from utils.ozon_dict_values import list_dictionary_values as _ldv
                         _all_o = _ldv(
@@ -764,6 +776,16 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                     resolved = resolve_merge_card_default(_all)
                 except Exception:
                     resolved = None
+            # 8292 在该类目是自由文本（dict_id=0）→ 填「Нет」不合并（dictionary_value_id=0）
+            if not resolved and aid in (8292,):
+                try:
+                    from utils.attr_defaults import MERGE_CARD_ATTR_IDS  # noqa: F401
+                except Exception:
+                    pass
+                _schema_attr = next((a for a in schema_list if isinstance(a, dict) and int(a.get("id") or 0) == aid), None)
+                if _schema_attr and int(_schema_attr.get("dictionary_id") or 0) == 0:
+                    resolved = (0, "Нет")
+                    logger.info("✅ 必填自由文本属性 %s(合并至一张卡片) 补齐: Нет", aid)
             if not resolved:
                 logger.warning("⚠️ 必填字典属性 %s(%s) 补齐失败（无安全默认，交给重试/报错）", aid, attr.get("name"))
                 continue

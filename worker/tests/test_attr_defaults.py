@@ -30,6 +30,8 @@ def test_resolve_gender_default():
     vals = [{"id": 1, "value": "Мужской"}, {"id": 2, "value": "Женский"}, {"id": 3, "value": "Унисекс"}]
     assert resolve_gender_default("女袜", vals) == (2, "Женский")
     assert resolve_gender_default("男女通用", vals) == (3, "Унисекс")
+    assert resolve_gender_default("Носки женские капроновые", vals) == (2, "Женский")  # RU 标题
+    assert resolve_gender_default("Перчатки мужские", vals) == (1, "Мужской")
     assert resolve_gender_default("无性别词", vals) is None
 
 
@@ -140,6 +142,27 @@ def test_prepare_fills_optional_dict_attrs_via_synonyms():
     assert attr_map[8050]["values"][0]["value"] == "Нержавеющая сталь"
 
 
+def test_prepare_color_extracts_from_prefixed_string():
+    """1688 颜色「209中圆点短丝袜 黑色,…」→ 取内含颜色词「黑色」→ черный（v0.25 修复）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
+    from types import SimpleNamespace
+    from unittest import mock
+
+    schema = [{"id": 10096, "name": "Цвет", "is_required": True, "dictionary_id": 505}]
+    state = SimpleNamespace(
+        dictionary_values={}, description_category_id="200001517", type_id="93157",
+        ozon_client_id="5381204", ozon_api_key="key",
+    )
+    items = [{"offer_id": "x_0", "name": "Носки", "attributes": []}]
+    draft = {"item_id": "x", "title": "女袜",
+             "attributes": {"颜色": "209中圆点短丝袜 肤色,209中圆点短丝袜 黑色"}}
+    with mock.patch("utils.ozon_dict_values.search_dictionary_values",
+                    return_value=[{"id": 61574, "value": "черный"}]):
+        result = _fill_missing_required_dict_attrs(items, schema, draft, state)
+    attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
+    assert attr_map[10096]["values"][0]["dictionary_value_id"] == 61574
+
+
 def test_append_spec_table_contains_attrs():
     """描述末尾追加规格参数表（俄语属性名/值 + 重量尺寸）（v0.25 T4）。"""
     from graphs.nodes.prepare_ozon_upload_node import _append_spec_table
@@ -212,6 +235,30 @@ def test_prepare_uses_ozon_attrs_first():
     assert attr_map[8229]["values"][0]["dictionary_value_id"] == 93157
 
 
+def test_prepare_ozon_attr_exact_match_for_size():
+    """竞品「Российский размер=36」→ 直接精确匹配字典值 36（v0.25 修复，不再依赖 size_cn）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
+    from types import SimpleNamespace
+    from unittest import mock
+
+    schema = [{"id": 4295, "name": "Российский размер", "is_required": True, "dictionary_id": 502}]
+    state = SimpleNamespace(
+        dictionary_values={}, description_category_id="200001517", type_id="93157",
+        ozon_client_id="5381204", ozon_api_key="key",
+    )
+    items = [{"offer_id": "x_0", "name": "Носки женские капроновые, 6 пар", "attributes": []}]
+    draft = {"item_id": "x", "title": "Носки женские", "ozon_attributes": {"Российский размер": "36"}}
+
+    def fake_search(client_id, api_key, aid, dc, tp, value, language="RU"):
+        return [{"id": 35430, "value": "36"}] if value == "36" else []
+
+    with mock.patch("utils.ozon_dict_values.search_dictionary_values", side_effect=fake_search):
+        result = _fill_missing_required_dict_attrs(items, schema, draft, state)
+    attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
+    assert attr_map[4295]["values"][0]["dictionary_value_id"] == 35430
+    assert attr_map[4295]["values"][0]["value"] == "36"
+
+
 def test_resolve_type_default_takes_first_value():
     vals = [{"id": 94435, "value": "Спортивная бутылка"}]
     assert resolve_missing_mandatory_dict_attr(8229, "Тип", dict_vals=vals) == (94435, "Спортивная бутылка")
@@ -280,6 +327,27 @@ def test_prepare_merge_card_falls_back_to_list_mode():
         result = _fill_missing_required_dict_attrs(items, schema, draft, state)
     attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
     assert attr_map[8292]["values"][0]["dictionary_value_id"] == 502
+
+
+def test_prepare_merge_card_free_text_when_dict_zero():
+    """8292 在该类目是自由文本（dict_id=0）→ 填「Нет」(dictionary_value_id=0)（v0.25 修复）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
+    from types import SimpleNamespace
+    from unittest import mock
+
+    schema = [{"id": 8292, "name": "Объединить на одной карточке", "is_required": True, "dictionary_id": 0}]
+    state = SimpleNamespace(
+        dictionary_values={}, description_category_id="200001517", type_id="93157",
+        ozon_client_id="5381204", ozon_api_key="key",
+    )
+    items = [{"offer_id": "x_0", "name": "Носки", "attributes": []}]
+    draft = {"item_id": "x", "title": "女袜"}
+    with mock.patch("utils.ozon_dict_values.search_dictionary_values", return_value=[]), \
+         mock.patch("utils.ozon_dict_values.list_dictionary_values", return_value=[]):
+        result = _fill_missing_required_dict_attrs(items, schema, draft, state)
+    attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
+    assert attr_map[8292]["values"][0]["dictionary_value_id"] == 0
+    assert attr_map[8292]["values"][0]["value"] == "Нет"
 
 
 def test_prepare_size_not_extracted_from_pack_count():
