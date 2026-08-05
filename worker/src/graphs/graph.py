@@ -306,6 +306,23 @@ def should_handle_error(state):
     if ozon_status_result == "approved" or "approved" in str(ozon_status_result):
         logger.info("✅ 审核通过(approved)，进入 learning_record")
         return "成功"
+
+    # ✅ v0.25 FIX: moderation_status 偶发未传播时的兜底 — 节点已返回
+    # status=imported + upload_status=success + 有真实 product_id + 无错误 → 视为成功。
+    # （pending 超时返回 status=pending/timeout，不会误命中）
+    _st = getattr(state, 'status', '') or ''
+    _up = getattr(state, 'upload_status', '') or ''
+    _pid = getattr(state, 'product_id', None)
+    if (
+        not ozon_status_result
+        and _st == "imported"
+        and _up == "success"
+        and _pid
+        and str(_pid) not in ("0", "None", "")
+        and not errors
+    ):
+        logger.info("✅ moderation_status 未传播但 imported+success+product_id 齐备，进入 learning_record（v0.25 兜底）")
+        return "成功"
     
     # 2. 错误：有 errors 或明确 error/failed → 修复循环
     if ozon_status_result in ("error", "failed") or len(errors) > 0:

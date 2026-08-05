@@ -978,6 +978,58 @@ def _append_spec_table(description: str, attrs, weight_g=0, dimensions=None, sch
     return f"{description}\n{''.join(lines)}"
 
 
+def _IMG_ORDER() -> List[str]:
+    """Ozon 图片上传顺序（main → social_proof → detail → scene×3 → comparison → multi_angle → white_bg）。"""
+    return [
+        "main_image",        # 1. 主营销图（抓住眼球）
+        "social_proof",      # 2. 社交证明（降低疑虑）
+        "detail",            # 3. 详情图（品质信任）
+        "scene_1",           # 4. 场景图1（激发购买欲）
+        "scene_2",           # 5. 场景图2
+        "scene_3",           # 6. 场景图3
+        "comparison",        # 7. 对比图（决策信心）
+        "multi_angle",       # 8. 多角度（看清各面）
+        "white_bg",          # 9. 纯白底图（平台合规）
+    ]
+
+
+def _build_shared_marketing_images(state: Any, is_follow_sell: bool) -> tuple[List[str], str]:
+    """构建上传用营销图列表 + 主图。
+
+    ✅ v0.25 FIX: 跟卖绝不用竞品 Ozon 原图（ir.ozone.ru）补位 — Ozon 抓取竞品
+    CDN 图失败，实测混入竞品图导致整卡 0 图被下架（wave4 浴刷 5821877126）。
+    AI 图不足 10 张就传现有 AI 图，宁缺毋滥（Ozon 允许 1~15 张）。
+    竞品图仅保留在 state.original_images 供生图节点做参考，不进上传数组。
+    """
+    shared_marketing_images: List[str] = []
+
+    # 1. AI main_image 作为画廊第一张
+    main_image = getattr(state, "main_image", None)
+    if main_image and isinstance(main_image, str) and main_image.strip():
+        shared_marketing_images.append(main_image.strip())
+
+    # 2. 按 IMG_ORDER 添加 AI 生成的其他营销图
+    for img_key in _IMG_ORDER()[1:]:
+        img_url = getattr(state, f"{img_key}_image", None)
+        if img_url and isinstance(img_url, str) and img_url.strip():
+            shared_marketing_images.append(img_url)
+            logger.info(f"图片 {img_key}: {img_url}")
+
+    # 3. 跟卖 AI 图不足 10 张 → 只告警，不补竞品图
+    if is_follow_sell and len(shared_marketing_images) < 10:
+        logger.warning(
+            f"跟卖 AI 图仅 {len(shared_marketing_images)} 张（不足 10 张）— "
+            "不再用竞品 ir.ozone.ru 图补位（Ozon 抓取竞品图失败会整卡 0 图）"
+        )
+
+    # 4. AI 主图缺失时用第一张 AI 营销图做主图，绝不用竞品图
+    if (not main_image or not isinstance(main_image, str) or not main_image.strip()) and shared_marketing_images:
+        main_image = shared_marketing_images[0]
+        logger.warning(f"⚠️ AI 主图缺失，用第一张 AI 营销图作为主图: {main_image}")
+
+    return shared_marketing_images, (main_image or "")
+
+
 def prepare_ozon_upload_node(
     state: PrepareOzonUploadInput,
     config: RunnableConfig,
@@ -998,50 +1050,17 @@ def prepare_ozon_upload_node(
     progress.log_node_action("正在组装Ozon payload（严格遵守Ozon结构规范）")
     
     # Ozon图片上传顺序规范（按俄罗斯电商习惯）
-    IMG_ORDER = [
-        "main_image",        # 1. 主营销图（抓住眼球）
-        "social_proof",      # 2. 社交证明（降低疑虑）
-        "detail",            # 3. 详情图（品质信任）
-        "scene_1",           # 4. 场景图1（激发购买欲）
-        "scene_2",           # 5. 场景图2
-        "scene_3",           # 6. 场景图3
-        "comparison",        # 7. 对比图（决策信心）
-        "multi_angle",       # 8. 多角度（看清各面）
-        "white_bg"           # 9. 纯白底图（平台合规）
-    ]
+    IMG_ORDER = _IMG_ORDER()
     # ⚠️ multi_info 从共享画廊移除：Ozon禁止附加图片包含文字/广告/价格/联系方式
     
     # Step 1: 整理图片顺序
     logger.info("整理图片顺序")
-    
-    # ✅ 构建共享营销图列表：AI 生成图优先，竞品 Ozon 图兜底
+
+    # ✅ 构建共享营销图列表（AI 生成图优先，绝不用竞品 Ozon 原图补位）
     original_images = getattr(state, "original_images", []) or []
     competitor_images = [img for img in original_images if isinstance(img, str) and img.strip() and 'ir.ozone.ru' in img]
     is_follow_sell = bool(competitor_images)
-    
-    shared_marketing_images: List[str] = []
-    
-    # 1. AI main_image 作为画廊第一张
-    main_image = getattr(state, "main_image", None)
-    if main_image and isinstance(main_image, str) and main_image.strip():
-        shared_marketing_images.append(main_image.strip())
-    
-    # 2. 按 IMG_ORDER 添加 AI 生成的其他营销图
-    for img_key in IMG_ORDER[1:]:
-        img_url = getattr(state, f"{img_key}_image", None)
-        if img_url and isinstance(img_url, str) and img_url.strip():
-            shared_marketing_images.append(img_url)
-            logger.info(f"图片 {img_key}: {img_url}")
-    
-    # 3. 跟卖兜底：AI 图不足 10 张时，用竞品 Ozon 原图补到最多 10 张
-    if is_follow_sell and len(shared_marketing_images) < 10 and competitor_images:
-        fill_count = min(10 - len(shared_marketing_images), len(competitor_images))
-        shared_marketing_images.extend(competitor_images[:fill_count])
-        logger.info(f"跟卖兜底：AI 图 {len(shared_marketing_images)-fill_count} 张 + 竞品图 {fill_count} 张")
-        
-        # 如果 AI 主图也没生成出来，用竞品第一张做主图
-        if not main_image or not isinstance(main_image, str) or not main_image.strip():
-            main_image = competitor_images[0]
+    shared_marketing_images, main_image = _build_shared_marketing_images(state, is_follow_sell)
     
     # 4. 如果一张图都没有（AI 全失败 + 无竞品图），标记警告
     if not shared_marketing_images:

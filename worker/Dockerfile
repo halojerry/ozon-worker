@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ── 依赖层（利用 Docker 缓存）──
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir . pytest
+RUN pip install --no-cache-dir . pytest pytest-asyncio
 
 # ── 应用代码层 ──
 COPY src/ ./src/

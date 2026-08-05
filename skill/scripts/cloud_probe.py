@@ -234,6 +234,13 @@ def _get_ozon_credentials(store_id: str | None = None) -> dict[str, str]:
     Returns empty strings if not configured.
     """
     from scripts.lib.config_store import get_ozon_credentials
+    # ✅ v0.25 FIX (F4): 显式环境变量优先 — batch_test 通过 --client-id/--api-key
+    # 设置 OZON_CLIENT_ID/OZON_API_KEY，此前 follow_sell_cloud 忽略 env 只读
+    # stores.json 默认店（5381204），导致指定 5371047 仍落错店铺
+    _env_cid = str(os.environ.get("OZON_CLIENT_ID", "") or "").strip()
+    _env_akey = str(os.environ.get("OZON_API_KEY", "") or "").strip()
+    if _env_cid and _env_akey:
+        return {"client_id": _env_cid, "api_key": _env_akey}
     creds = get_ozon_credentials(store_id or "")
     if creds:
         return creds
