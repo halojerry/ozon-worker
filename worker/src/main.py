@@ -438,17 +438,28 @@ async def lifespan(app: FastAPI):
         from sqlalchemy import text
         sess = get_session()
         try:
-            # 1. 重置所有 running 任务（Worker 重启导致中断）
+            # ⚠️ v0.26 FIX: 僵尸重置同样有界化——running 且 retry_count < max_retries → pending+递增；
+            # retry_count >= max_retries → failed（避免重启后无限重跑烧生图额度）
+            # 1. 重置 running 任务（Worker 重启导致中断）
             zombie_running = sess.execute(
-                text("UPDATE ozon_product_tasks SET status='pending', started_at=NULL, updated_at=NOW() WHERE status='running'")
+                text("UPDATE ozon_product_tasks SET status='pending', retry_count=retry_count+1, "
+                     "error_message='[ZOMBIE_RESET] 重启前 running 任务重置重试(有界)', "
+                     "started_at=NULL, updated_at=NOW() "
+                     "WHERE status='running' AND retry_count < max_retries")
+            ).rowcount
+            zombie_running_failed = sess.execute(
+                text("UPDATE ozon_product_tasks SET status='failed', "
+                     "error_message='[ZOMBIE_RESET] 重试次数耗尽，终止（不再重跑）', "
+                     "completed_at=NOW(), updated_at=NOW() "
+                     "WHERE status='running' AND retry_count >= max_retries")
             ).rowcount
             # 2. 重置可重试的 failed 任务
             zombie_failed = sess.execute(
                 text("UPDATE ozon_product_tasks SET status='pending', retry_count=0, error_message=NULL, updated_at=NOW() WHERE status='failed' AND retry_count < max_retries")
             ).rowcount
             sess.commit()
-            if zombie_running or zombie_failed:
-                logger.info(f"🧹 启动清理: {zombie_running} 个僵尸 running + {zombie_failed} 个 failed → pending")
+            if zombie_running or zombie_running_failed or zombie_failed:
+                logger.info(f"🧹 启动清理: {zombie_running} 个僵尸 running → pending, {zombie_running_failed} 个 running → failed(耗尽), {zombie_failed} 个 failed → pending")
         finally:
             sess.close()
     except Exception as _cleanup_e:
@@ -834,10 +845,22 @@ async def _periodic_task_cleanup(interval_seconds: int = 60):
             from storage.database.db import get_engine
             engine = get_engine()
             with engine.connect() as conn:
-                # 重置 stale running 任务 (> 30分钟未更新)
+                # ⚠️ v0.26 FIX: stale running 无条件重置 → 无限重跑（Sentry 超时×100/failed×120 实证）。
+                # 改为有界：retry_count < max_retries → pending + retry_count+1 + 记错误（可重试但封顶）；
+                # retry_count >= max_retries → failed（终止循环，不再无条件回炉重跑全管线烧生图额度）。
                 r1 = conn.execute(text(
-                    "UPDATE ozon_product_tasks SET status='pending', started_at=NULL, updated_at=NOW() "
-                    "WHERE status='running' AND updated_at < NOW() - INTERVAL '30 minutes'"
+                    "UPDATE ozon_product_tasks SET status='pending', retry_count=retry_count+1, "
+                    "error_message='[STALE_RUNNING] 任务运行超30分钟未更新，自动重试(有界)', "
+                    "started_at=NULL, updated_at=NOW() "
+                    "WHERE status='running' AND updated_at < NOW() - INTERVAL '30 minutes' "
+                    "AND retry_count < max_retries"
+                )).rowcount
+                r1f = conn.execute(text(
+                    "UPDATE ozon_product_tasks SET status='failed', "
+                    "error_message='[STALE_RUNNING] 重试次数耗尽，终止（不再重跑）', "
+                    "completed_at=NOW(), updated_at=NOW() "
+                    "WHERE status='running' AND updated_at < NOW() - INTERVAL '30 minutes' "
+                    "AND retry_count >= max_retries"
                 )).rowcount
                 # 归档 7 天前的 completed 任务（如果有 archive 表的话，先删除）
                 r2 = conn.execute(text(
@@ -845,8 +868,16 @@ async def _periodic_task_cleanup(interval_seconds: int = 60):
                     "WHERE status='completed' AND updated_at < NOW() - INTERVAL '7 days'"
                 )).rowcount
                 conn.commit()
-                if r1 or r2:
-                    logger.info(f"🧹 定期清理: {r1} stale running → pending, {r2} old completed deleted")
+                if r1 or r1f or r2:
+                    logger.info(f"🧹 定期清理: {r1} stale running → pending(重试+1), {r1f} stale running → failed(耗尽), {r2} old completed deleted")
+                # ✅ v0.26: 清理任务生图缓存（7 天前，防表无限膨胀）
+                try:
+                    from utils.task_image_cache import cleanup_old
+                    _del = cleanup_old(older_than_days=7)
+                    if _del:
+                        logger.info(f"🧹 定期清理: {_del} 条任务生图缓存（>7天）已删除")
+                except Exception:
+                    pass
                 # ✅ v0.10: 清理 _task_progress 中已完成超过 1 小时的任务条目（防内存泄漏）
                 if r2:
                     _purge_stale_progress()
