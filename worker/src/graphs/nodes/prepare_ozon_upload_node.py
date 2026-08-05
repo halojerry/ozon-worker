@@ -846,15 +846,31 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
             if not resolved and aid in (9163,):
                 try:
                     from utils.ozon_dict_values import search_dictionary_values as _sdvg
-                    _hits_g = _sdvg(
-                        getattr(state, "ozon_client_id", "") or "",
-                        getattr(state, "ozon_api_key", "") or "",
-                        aid, int(dc) if dc else 0, int(tp) if tp else 0, "Унисекс",
-                    )
-                    if _hits_g:
-                        _g = find_dict_value_id(_hits_g, "Унисекс")
-                        resolved = _g or (int(_hits_g[0].get("id") or 0), str(_hits_g[0].get("value") or "Унисекс"))
-                        logger.info("✅ 性别无来源，用中性 Унисекс 兜底: %s (id=%s)", resolved[1], resolved[0])
+                    # 依次尝试搜索中性词；搜不到则列表模式按关键词匹配（各品类值名不同）
+                    for _gword in ("Унисекс", "Универсальный", "Без разницы"):
+                        _hits_g = _sdvg(
+                            getattr(state, "ozon_client_id", "") or "",
+                            getattr(state, "ozon_api_key", "") or "",
+                            aid, int(dc) if dc else 0, int(tp) if tp else 0, _gword,
+                        )
+                        if _hits_g:
+                            _g = find_dict_value_id(_hits_g, _gword)
+                            resolved = _g or (int(_hits_g[0].get("id") or 0), str(_hits_g[0].get("value") or _gword))
+                            logger.info("✅ 性别无来源，用中性 %s 兜底: %s (id=%s)", _gword, resolved[1], resolved[0])
+                            break
+                    if not resolved:
+                        from utils.ozon_dict_values import list_dictionary_values as _ldvg
+                        _all_g = _ldvg(
+                            getattr(state, "ozon_client_id", "") or "",
+                            getattr(state, "ozon_api_key", "") or "",
+                            aid, int(dc) if dc else 0, int(tp) if tp else 0,
+                        )
+                        for _gv in _all_g:
+                            _gt = str(_gv.get("value") or "").lower()
+                            if any(k in _gt for k in ("унисекс", "универс", "без разниц", "любой")):
+                                resolved = (int(_gv.get("id") or 0), str(_gv.get("value") or ""))
+                                logger.info("✅ 性别无来源，列表模式取中性 %s 兜底: (id=%s)", resolved[1], resolved[0])
+                                break
                 except Exception:
                     resolved = None
             if not resolved:
