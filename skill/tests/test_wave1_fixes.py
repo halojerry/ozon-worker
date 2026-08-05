@@ -127,6 +127,27 @@ def test_pick_best_match_llm_rescue_all_false_still_rejects():
     assert best is None, "全 False 应拒绝"
 
 
+# ── 修5: 徽标降级（badge 不可靠，图搜顺序/图片符合度为主）──
+
+def test_pick_best_match_badge_deprioritized():
+    """v0.26 徽标降级: 图搜第 1 位（图片符合度最高）无徽标候选应胜过
+    第 2 位徽标强匹配候选（旧分制 badge×40 会让第 2 位赢，新分制图搜顺序为主）。
+    标题相关性弱时仍走 LLM 语义判定护栏（判同品 → 放行第 1 位）。"""
+    import scripts.lib.ozon_discovery as od
+    od._LLM_SEMANTIC_CACHE.clear()
+    ozon_title = "Палочки от комаров 30 шт"
+    results = [
+        # 图搜第 1 位: 无徽标、有价、与竞品同品（LLM 判 YES）
+        {"id": "1", "title": "跨境驱蚊香薰棒竹签香户外防蚊香", "price": 12.0, "badge": ""},
+        # 图搜第 2 位: 徽标"符合 2/3"（badge_eff=0.67），但标题是不同品（蚊香盘）
+        {"id": "2", "title": "蚊香器灭蚊盘家用驱蚊香", "price": 10.0, "badge": "符合 2/3 个条件"},
+    ]
+    with mock.patch.object(od, "_llm_semantic_match", return_value=True):
+        best = od._pick_best_match(results, ozon_title, token="t")
+    assert best is not None
+    assert best["id"] == "1", f"图搜第 1 位（图片符合度最高）应胜出，实际 {best}"
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0

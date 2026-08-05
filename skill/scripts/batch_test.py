@@ -501,9 +501,11 @@ def main() -> int:
         if args.wait and r.get("success") and r.get("task_id"):
             _label = r.get("offer_id") or r.get("product_id") or uid
             print(f"  ⏳ [{_label}] 等待任务完成... task_id={r['task_id']}", flush=True)
-            final = _poll_task_result(r["task_id"], args.worker_url, timeout=args.wait_timeout)
+            # ✅ v0.25: _poll_task_result 偶发返回 None（worker 非 JSON 响应）→ 防御
+            final = _poll_task_result(r["task_id"], args.worker_url, timeout=args.wait_timeout) or {}
             r["final_status"] = final.get("status", "")
-            r["final_error"] = final.get("error_message", "")[:300]
+            # ✅ v0.25: worker 返回 error_message:null（JSON null）时 .get 默认值不生效
+            r["final_error"] = (final.get("error_message") or "")[:300]
             r["result_summary"] = (final.get("result") or {}).get("product_summary", [])
             if final.get("status") == "completed" and r["result_summary"]:
                 _print_product_summary(r)

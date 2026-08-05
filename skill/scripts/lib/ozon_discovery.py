@@ -915,21 +915,22 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
     1688 图搜列表第一张卡片往往是不相关商品（badge 标"符合 0/N 个条件"），
     直接取 results[0] 会拿到错误匹配（实测 ¥1-2 错误价格根因）。
 
-    排序策略（分 = badge 有效性×40 + 标题相关性×30）：
+    排序策略（v0.26 徽标降级，分 = 图搜顺序×50 + 标题相关性×30 + badge 有效性×20）：
     1. badge "符合 0/N"（明确 0 匹配）→ 跳过
-    2. badge 匹配有效性为主排序（1688 官方匹配度最可信）
+    2. 图搜顺序（图片符合度）为主排序——1688 图搜按图片相似度返回，
+       排名越靠前越像；badge 不可靠（误标/缺失 DOM），权重最低
     3. 标题相关性作辅排序：中文标题走关键词重叠；俄语标题走 RU→ZH
-       产品词映射包含匹配（badge 为空时唯一可用的相关性信号）
-    4. 相关性护栏：badge 无明确匹配（<0.6）且标题相关性弱（conf < 0.5）
-       → 先 LLM 语义判定（v0.26：词对词典覆盖窄，误拒同品是「匹配了却不选」根因），
-       判定同品 → 放行；否则拒绝（宁缺毋滥，不把不相关商品当货源）
+       产品词映射包含匹配（词典覆盖窄，弱时交给 LLM 语义兜底）
+    4. 相关性护栏（多信号全弱才拒）：badge 弱匹配（<0.5）且标题相关性弱
+       （conf < 0.3）→ 先 LLM 语义判定（词对词典覆盖窄，误拒同品是
+       「匹配了却不选」根因），判定同品 → 放行；否则拒绝（宁缺毋滥）
     """
     from scripts.lib.ozon_image_search import _get_badge_score
 
     is_ru_title = bool(re.search(r"[а-яёА-ЯЁ]", ozon_title or ""))
 
-    scored: list[tuple[float, dict[str, Any]]] = []
-    for r in results:
+    scored: list[tuple[float, int, dict[str, Any]]] = []  # (score, 原图搜位置, result)
+    for idx, r in enumerate(results):
         badge_str = r.get("badge", "") or ""
         # 跳过明确 0 匹配的（"符合0/N个条件"）
         if re.search(r"符合\s*0\s*/\s*\d+\s*个条件", badge_str):
@@ -951,7 +952,13 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
             else:
                 v = verify_1688_match(ozon_title, r_title)
                 conf = v.get("confidence", 0.0)
-        scored.append((badge_eff * 40 + conf * 30, r))
+        # ⚠️ v0.26 FIX: 评分改为「图搜位置（图片符合度）为主，标题语义为辅，badge 仅加分」。
+        # 用户实证：徽标不是绝对能匹配产品一致性，且有时无徽标 DOM——badge 不再主导排序。
+        # 图搜本身是以图搜图，返回顺序即图片相似度（1688 已按图匹配排好）；
+        # 标题相关性（conf）验证产品语义；badge 仅在明确时加分（matchBadgeFull 仍直接放行）。
+        idx_rank = 1.0 / (1.0 + idx)          # 图搜第1位=1.0, 第2位=0.5, 第3位=0.33...
+        score = idx_rank * 50 + conf * 30 + badge_eff * 20
+        scored.append((score, idx, r))
 
     if not scored:
         # ⚠️ v0.26 诊断: 记录为何无候选进入评分（badge 0/N / 无价格 / 空标题）
@@ -969,13 +976,13 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
         logger.warning("图搜 %d 个候选全部被过滤: %s", len(results), " | ".join(_reasons[:6]))
         return None
     scored.sort(key=lambda x: x[0], reverse=True)
-    best_score, best = scored[0]
+    _best_score, best_idx, best = scored[0]
 
-    # 相关性护栏：badge 完全无匹配分（含空/0匹配）且标题相关性弱 → 拒绝
-    # （宁缺毋滥，实测"花插 ¥1"当遛狗带货源的错误由此拦截）。
-    # ⚠️ v0.14 E5 增强: badge 轻微匹配（<0.5，如"符合1/3"）但标题相关性极弱（conf < 0.3）
-    # → 也拒绝。1688 图搜偶发把不同产品误标轻微匹配（实测"水龙头"被标符合1/3），
-    # 仅凭 badge 放行会组装错产品；标题重叠是更可靠的证据。
+    # 相关性护栏（v0.26 徽标降级）: 多信号全弱才拒 —— badge 弱匹配（<0.5，含空/0）
+    # + 标题相关性弱（conf < 0.3）。图搜顺序（图片符合度）为主信号，badge 仅加分，
+    # 不再单独以「badge 无匹配分」否决（用户实证：徽标不绝对可靠、有时无徽标 DOM）。
+    # ⚠️ v0.14 E5: 1688 图搜偶发把不同产品误标轻微匹配（实测"花插 ¥1"当遛狗带货源、
+    # "水龙头"被标符合1/3），仅凭 badge 放行会组装错产品；标题重叠是更可靠的证据。
     badge_eff_of_best = _badge_effectiveness(best.get("badge", "") or "")
     _conf_of_best = 0.0
     _bt = best.get("title", "") or ""
@@ -996,7 +1003,7 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
         if not token:
             return None
         _seen_best_title = (best.get("title", "") or "")[:40]
-        for _sc, _r in scored[:6]:
+        for _sc, _idx, _r in scored[:6]:
             _t = (_r.get("title", "") or "")[:40]
             if _t == _seen_best_title[:40] or not _t:
                 continue
@@ -1026,20 +1033,19 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
                      _conf_of_best, best.get("title", "")[:40])
         return None
 
-    if badge_eff_of_best <= 0 and best_score < 15:
-        logger.debug("图搜候选相关性过低（badge=%s, score=%.1f），拒绝匹配: %s",
-                     best.get("badge", ""), best_score, best.get("title", "")[:40])
-        return None
+    # ⚠️ v0.26 徽标降级: 原「badge 无分 + 总分<15」护栏已并入下面统一护栏（新分制下
+    # badge=0 时该条件要求图搜排名≥4 且 conf<0.1，被「badge<0.5 + conf<0.3」完全覆盖；
+    # 且旧护栏直接拒绝不救 LLM，会误杀排位靠后的同品候选）。
     if badge_eff_of_best < 0.5 and _conf_of_best < 0.3:
-        # ⚠️ v0.26 FIX: badge 轻微匹配但词对相关性弱 → 先 LLM 语义判定（先 best 再 top-N）
+        # ⚠️ v0.26 FIX: badge 弱匹配但词对相关性弱 → 先 LLM 语义判定（先 best 再 top-N）
         if _llm_semantic_match(ozon_title, _bt, token):
-            logger.info("图搜 badge 轻微匹配 + LLM 语义判定同品，放行: %s", _bt[:40])
+            logger.info("图搜 badge 弱匹配 + LLM 语义判定同品，放行: %s", _bt[:40])
             return best
         _rescued = _llm_rescue()
         if _rescued:
             return _rescued
-        logger.warning("图搜候选 badge 轻微匹配但标题相关性弱（badge=%s, conf=%.2f），拒绝: %s",
-                       best.get("badge", ""), _conf_of_best, best.get("title", "")[:40])
+        logger.warning("图搜候选 badge 弱匹配（badge=%s, rank=%d, conf=%.2f）且 LLM 判定不同品，拒绝: %s",
+                       best.get("badge", ""), best_idx, _conf_of_best, best.get("title", "")[:40])
         return None
     return best
 
