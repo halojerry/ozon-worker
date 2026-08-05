@@ -17,6 +17,7 @@ from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.mxou_api import clean_title_for_image_prompt
 from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
+from utils.task_image_cache import get_image, save_image, _task_id_from_config  # ✅ v0.26: 重跑不重烧生图
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,14 @@ def multi_angle_gen_node(state: MultiAngleInput, config: RunnableConfig, runtime
     if not draft or not token:
         logger.warning("Missing draft or token for multi_angle_gen")
         return MultiAngleOutput(multi_angle_image=None)
+    
+    # ✅ v0.26: 重跑不重烧生图 — 同一任务已生成过 → 直接复用
+    _tid = _task_id_from_config(config)
+    if _tid:
+        cached = get_image(_tid, "multi_angle")
+        if cached:
+            logger.info("命中任务生图缓存(multi_angle)，复用已有图片，跳过生图")
+            return MultiAngleOutput(multi_angle_image=cached)
     
     # 构建生图提示词（中文）
     title = clean_title_for_image_prompt(draft.get("title", ""))
@@ -90,6 +99,8 @@ def multi_angle_gen_node(state: MultiAngleInput, config: RunnableConfig, runtime
         
         if image_url and isinstance(image_url, str) and image_url:
             logger.info(f"多角度图生成成功：图片URL长度={len(image_url)}字符")
+            if _tid:
+                save_image(_tid, "multi_angle", image_url)
             return MultiAngleOutput(multi_angle_image=image_url)
         
         logger.error("API未返回有效图片URL")

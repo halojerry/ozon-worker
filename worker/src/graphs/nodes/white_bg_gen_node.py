@@ -17,6 +17,7 @@ from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.mxou_api import clean_title_for_image_prompt
 from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
+from utils.task_image_cache import get_image, save_image, _task_id_from_config  # ✅ v0.26: 重跑不重烧生图
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,14 @@ def white_bg_gen_node(state: WhiteBgInput, config: RunnableConfig, runtime: Runt
     if not token:
         progress.log_node_error("Token为空", "检查认证节点")
         return WhiteBgOutput(white_bg_image=None)
+    
+    # ✅ v0.26: 重跑不重烧生图 — 同一任务已生成过 → 直接复用（队列重试/重启不再全量重烧）
+    _tid = _task_id_from_config(config)
+    if _tid:
+        cached = get_image(_tid, "white_bg")
+        if cached:
+            progress.log_node_success(f"命中任务生图缓存(white_bg)，复用已有图片，跳过生图")
+            return WhiteBgOutput(white_bg_image=cached)
     
     # 构建生图提示词（中文）
     title = clean_title_for_image_prompt(draft.get("title", ""))
@@ -100,6 +109,9 @@ def white_bg_gen_node(state: WhiteBgInput, config: RunnableConfig, runtime: Runt
         
         if image_url and isinstance(image_url, str) and image_url:
             progress.log_node_success(f"白底图生成成功：图片URL长度={len(image_url)}字符")
+            # ✅ v0.26: 写任务生图缓存（重跑复用）
+            if _tid:
+                save_image(_tid, "white_bg", image_url)
             return WhiteBgOutput(white_bg_image=image_url)
         
         progress.log_node_error("API未返回有效图片URL", "检查API响应和参数")
