@@ -83,8 +83,10 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     language = ozon_cat.get("language", "")
     if dc_raw and dc_raw.isdigit():
         category_hint = ozon_cat.get("category_path", "") or ozon_cat.get("category", "")
-        last_segment = category_hint.split(" > ")[-1].strip() if category_hint else ""
-        resolved_dc, resolved_type = _resolve_category_by_id(int(dc_raw), type_name_hint=last_segment, token=state.token)
+        # ✅ v0.25 FIX: 传完整 category_path（不是只有末段）——「Головные уборы」
+        # 「Прочие аксессуары」等泛化末段 pg_trgm 会匹配到医用头饰/钓鱼配件等错误类目
+        # （wave6 儿童风扇帽/太阳能帽 declined 实证）。函数内逐级尝试完整路径→父级→末段。
+        resolved_dc, resolved_type = _resolve_category_by_id(int(dc_raw), type_name_hint=category_hint, token=state.token)
         if resolved_dc and resolved_type:
             dc_raw, type_raw = resolved_dc, resolved_type
         else:
@@ -347,20 +349,30 @@ def _resolve_category_by_id(dc_id: int, type_name_hint: str = "", token: str = "
     except Exception as e:
         logger.warning("数字 ID 直查失败: %s", e)
     
-    # ✅ v0.11: Widget ID 不在 Seller 树中 → 用面包屑文本 pg_trgm 搜索
+    # ✅ v0.25 FIX: Widget ID 不在 Seller 树中 → 用面包屑路径 pg_trgm 搜索。
+    # 逐级尝试：完整路径 → 去掉顶级 → 末两级 → 末段（末段太泛会错配，wave6 实证）。
     if type_name_hint:
-        # 检测面包屑文本语言，优先用对应语言搜索
-        lang = _detect_language(type_name_hint)
-        logger.info("🔍 数字 ID %d 直查失败，尝试 pg_trgm 文本搜索(lang=%s): '%s'", dc_id, lang, type_name_hint)
-        dc_text, type_text = _resolve_category(type_name_hint, type_name_hint, language=lang)
-        if dc_text and type_text:
-            logger.info("✅ pg_trgm 兜底成功: '%s' → dc=%s type=%s", type_name_hint, dc_text, type_text)
-            return dc_text, type_text
-        # 尝试 RU 作为第二语言备选
-        if lang != "RU":
-            dc_text, type_text = _resolve_category(type_name_hint, type_name_hint, language="RU")
+        segments = [s.strip() for s in str(type_name_hint).split(">") if s.strip()]
+        lang = _detect_language(" ".join(segments)) if segments else "RU"
+        candidates: list[str] = []
+        if len(segments) > 1:
+            candidates.append(" > ".join(segments))          # 完整路径
+            candidates.append(" > ".join(segments[1:]))      # 去顶级
+            if len(segments) > 2:
+                candidates.append(" > ".join(segments[-2:])) # 末两级
+        if segments:
+            candidates.append(segments[-1])                   # 末段（最后尝试）
+        for _cand in candidates:
+            logger.info("🔍 数字 ID %d 直查失败，尝试 pg_trgm(lang=%s): '%s'", dc_id, lang, _cand)
+            dc_text, type_text = _resolve_category(_cand, _cand, language=lang)
             if dc_text and type_text:
-                logger.info("✅ pg_trgm 兜底(RU): '%s' → dc=%s type=%s", type_name_hint, dc_text, type_text)
+                logger.info("✅ pg_trgm 兜底成功: '%s' → dc=%s type=%s", _cand, dc_text, type_text)
+                return dc_text, type_text
+        # 尝试 RU 作为第二语言备选（仅末段）
+        if lang != "RU" and segments:
+            dc_text, type_text = _resolve_category(segments[-1], segments[-1], language="RU")
+            if dc_text and type_text:
+                logger.info("✅ pg_trgm 兜底(RU): '%s' → dc=%s type=%s", segments[-1], dc_text, type_text)
                 return dc_text, type_text
         
         # ✅ v0.11: 中文面包屑 → LLM 翻译俄语 → pg_trgm RU 搜索
