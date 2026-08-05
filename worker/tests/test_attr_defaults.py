@@ -11,6 +11,7 @@ from utils.attr_defaults import (
     find_dict_value_id, resolve_brand_default, resolve_gender_default,
     resolve_size_default, resolve_merge_card_default,
     resolve_missing_mandatory_dict_attr, dict_search_terms, resolve_ozon_attr_value,
+    infer_color_ru,
 )
 
 
@@ -32,6 +33,7 @@ def test_resolve_gender_default():
     assert resolve_gender_default("男女通用", vals) == (3, "Унисекс")
     assert resolve_gender_default("Носки женские капроновые", vals) == (2, "Женский")  # RU 标题
     assert resolve_gender_default("Перчатки мужские", vals) == (1, "Мужской")
+    assert resolve_gender_default("Колготки, 40 ден", vals) == (2, "Женский")  # 裤袜女性专属
     assert resolve_gender_default("无性别词", vals) is None
 
 
@@ -161,6 +163,49 @@ def test_prepare_color_extracts_from_prefixed_string():
         result = _fill_missing_required_dict_attrs(items, schema, draft, state)
     attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
     assert attr_map[10096]["values"][0]["dictionary_value_id"] == 61574
+
+
+def test_prepare_color_from_ru_title():
+    """1688 无颜色 → 从竞品标题推断（Колготки черные → черный）（v0.25 修复）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
+    from types import SimpleNamespace
+    from unittest import mock
+
+    schema = [{"id": 10096, "name": "Цвет", "is_required": True, "dictionary_id": 505}]
+    state = SimpleNamespace(
+        dictionary_values={}, description_category_id="200001517", type_id="93100",
+        ozon_client_id="5381204", ozon_api_key="key",
+    )
+    items = [{"offer_id": "x_0", "name": "Колготки черные", "attributes": []}]
+    draft = {"item_id": "x", "title": "Колготки черные", "attributes": {}}
+    with mock.patch("utils.ozon_dict_values.search_dictionary_values",
+                    return_value=[{"id": 61574, "value": "черный"}]):
+        result = _fill_missing_required_dict_attrs(items, schema, draft, state)
+    attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
+    assert attr_map[10096]["values"][0]["dictionary_value_id"] == 61574
+    assert infer_color_ru("Колготки черные") == "черный"
+
+
+def test_prepare_size_one_size_fallback():
+    """无尺寸来源 → 类目有「Один размер」则兜底（v0.25 修复）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
+    from types import SimpleNamespace
+    from unittest import mock
+
+    schema = [{"id": 4295, "name": "Российский размер", "is_required": True, "dictionary_id": 835}]
+    state = SimpleNamespace(
+        dictionary_values={}, description_category_id="200001517", type_id="93100",
+        ozon_client_id="5381204", ozon_api_key="key",
+    )
+    items = [{"offer_id": "x_0", "name": "Колготки, 40 ден, 1 шт", "attributes": []}]
+    draft = {"item_id": "x", "title": "Колготки", "attributes": {}}
+    with mock.patch("utils.ozon_dict_values.search_dictionary_values", return_value=[]), \
+         mock.patch("utils.ozon_dict_values.list_dictionary_values",
+                    return_value=[{"id": 35676, "value": "Один размер"}]):
+        result = _fill_missing_required_dict_attrs(items, schema, draft, state)
+    attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
+    assert attr_map[4295]["values"][0]["dictionary_value_id"] == 35676
+    assert attr_map[4295]["values"][0]["value"] == "Один размер"
 
 
 def test_append_spec_table_contains_attrs():
