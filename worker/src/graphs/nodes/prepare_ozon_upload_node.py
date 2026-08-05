@@ -635,6 +635,8 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
             aid = int(attr.get("id") or 0)
             if aid in existing:
                 continue
+            # ✅ v0.26: 9163 无中性词类目「男+女」双值兜底（列表填充）
+            _gender_pair: list = []
             # 22390 型号 = 自由文本，填 1688 itemId（同商品所有 SKU 同值）
             if aid in (22390,) or "модель" in str(attr.get("name") or "").lower():
                 attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": item_id}]})
@@ -892,12 +894,33 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                                 resolved = (int(_gv.get("id") or 0), str(_gv.get("value") or ""))
                                 logger.info("✅ 性别无来源，列表模式取中性 %s 兜底: (id=%s)", resolved[1], resolved[0])
                                 break
+                    # ⚠️ v0.26 FIX: 帽类等无中性词类目（字典值只有 Мужской/Женский/童，Ozon 实证
+                    # dc=41777465 只有 4 个值）→ 中性兜底永远失败 → 9163 空值 → pending/declined。
+                    # 改为取「男+女」双值，保证必填不空（Ozon 支持性别多选）。
+                    if not resolved:
+                        _all_g2 = _ldvg(
+                            getattr(state, "ozon_client_id", "") or "",
+                            getattr(state, "ozon_api_key", "") or "",
+                            aid, int(dc) if dc else 0, int(tp) if tp else 0,
+                        )
+                        for _gv in _all_g2:
+                            _gt = str(_gv.get("value") or "").lower()
+                            if _gt in ("мужской", "женский"):
+                                _gender_pair.append((int(_gv.get("id") or 0), str(_gv.get("value") or "")))
+                        if len(_gender_pair) >= 2:
+                            logger.info("✅ 性别无中性词，取男+女双值兜底: %s", [v for _, v in _gender_pair])
                 except Exception:
                     resolved = None
-            if not resolved:
+            if not resolved and not _gender_pair:
                 logger.warning("⚠️ 必填字典属性 %s(%s) 补齐失败（无安全默认，交给重试/报错）", aid, attr.get("name"))
                 continue
-            if resolved:
+            if _gender_pair:
+                attrs.append({"id": aid, "values": [
+                    {"dictionary_value_id": vid, "value": val} for vid, val in _gender_pair
+                ]})
+                logger.info("✅ 必填字典属性 %s(%s) 已用男+女双值补齐: %s",
+                            aid, attr.get("name"), [v for _, v in _gender_pair])
+            elif resolved:
                 vid, val = resolved
                 attrs.append({"id": aid, "values": [{"dictionary_value_id": vid, "value": val}]})
                 logger.info("✅ 必填字典属性 %s(%s) 已用默认值补齐: %s (id=%s)", aid, attr.get("name"), val, vid)
@@ -905,9 +928,16 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
 
 
 def _fill_optional_dict_attrs(items, schema, draft, state):
-    """v0.25 T3: 非必填字典属性按跨语言同义词填满（材质/季节/用途…）。
-    1688 属性名命中 zh_keywords 且 Ozon 属性名命中 ozon_name_keywords → 填值；
-    value_map 有映射用映射值（再查字典 id），否则用 1688 值原文查字典（未命中跳过）。"""
+    """v0.26 P1-3: 字典属性全量填满（不限必填）— 同义词 + RU 搜索 + 列表包含匹配。
+
+    对 schema 中 dictionary_id>0 且当前未填的属性：
+    ① 同义词规则（attr_synonyms.json，1688 属性名 → Ozon 属性名 + value_map 中文→RU）
+    ② /values/search（RU 关键词）精确取 dictionary_value_id
+    ③ /values 列表模式在值里做包含匹配（多值属性取全部匹配）
+    匹配不到 → 跳过（不盲补首值，防「属性值不正确」）。
+
+    覆盖范围从 v0.25「仅非必填+同义词」扩展为「全部未填字典属性（含必填兜底失败者）」。
+    """
     import json as _json
     cfg_path = os.path.join(os.getenv("APP_WORKSPACE_PATH", "/app"), "config", "attr_synonyms.json")
     try:
@@ -921,6 +951,8 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
     dict_values = dict(getattr(state, "dictionary_values", None) or {})
     dc = str(getattr(state, "description_category_id", "") or "")
     tp = str(getattr(state, "type_id", "") or "")
+    _cid = getattr(state, "ozon_client_id", "") or ""
+    _key = getattr(state, "ozon_api_key", "") or ""
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -930,7 +962,7 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
             if not isinstance(attr, dict) or int(attr.get("dictionary_id") or 0) <= 0:
                 continue
             aid = int(attr.get("id") or 0)
-            if aid in existing or attr.get("is_required"):
+            if aid in existing:
                 continue
             aname = str(attr.get("name") or "").lower()
             for rule in synonyms.values():
@@ -941,30 +973,42 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                         continue
                     raw = str(zh_val or "")
                     mapped = (rule.get("value_map") or {}).get(raw, raw)
+                    if not mapped:
+                        break
+                    # ① 缓存字典值精确匹配
                     vals = dict_values.get(str(aid)) or []
-                    hit = None
+                    hits: list = []
                     for v in vals:
                         if str(v.get("value") or "").lower() == mapped.lower():
-                            hit = v
-                            break
-                    if not hit and mapped:
+                            hits.append(v)
+                    # ② RU 搜索（/values/search）
+                    if not hits:
                         try:
                             from utils.ozon_dict_values import search_dictionary_values
-                            hits = search_dictionary_values(
-                                getattr(state, "ozon_client_id", "") or "",
-                                getattr(state, "ozon_api_key", "") or "",
-                                aid, int(dc) if dc else 0, int(tp) if tp else 0, mapped,
-                            )
-                            if hits:
-                                hit = hits[0]
+                            _found = search_dictionary_values(_cid, _key, aid, int(dc) if dc else 0, int(tp) if tp else 0, mapped)
+                            hits = [h for h in _found if str(h.get("value") or "").strip()]
                         except Exception:
-                            hit = None
-                    if hit:
-                        attrs.append({"id": aid, "values": [{
-                            "dictionary_value_id": int(hit.get("id") or 0),
-                            "value": str(hit.get("value") or mapped),
-                        }]})
-                        logger.info("✅ 非必填属性 %s(%s) 同义词填满: %s", aid, attr.get("name"), mapped)
+                            hits = []
+                    # ③ 列表模式包含匹配（/values 全量，多值属性取全部）
+                    if not hits:
+                        try:
+                            from utils.ozon_dict_values import list_dictionary_values
+                            _all = list_dictionary_values(_cid, _key, aid, int(dc) if dc else 0, int(tp) if tp else 0)
+                            for _v in _all:
+                                _vt = str(_v.get("value") or "").lower()
+                                if _vt and (_vt == mapped.lower() or _vt in mapped.lower() or mapped.lower() in _vt):
+                                    hits.append(_v)
+                        except Exception:
+                            hits = []
+                    if hits:
+                        # 多值：取全部匹配；单值：取第一个（含搜索/缓存命中）
+                        attrs.append({"id": aid, "values": [
+                            {"dictionary_value_id": int(h.get("id") or 0),
+                             "value": str(h.get("value") or mapped)}
+                            for h in hits
+                        ]})
+                        logger.info("✅ 字典属性 %s(%s) 填满: %s", aid, attr.get("name"),
+                                    [str(h.get("value") or "") for h in hits])
                     break
     return items
 
@@ -1076,6 +1120,62 @@ def _rewrite_payload_images_to_accelerate(payload: Dict[str, Any]) -> None:
         imgs = item.get("images")
         if isinstance(imgs, list):
             item["images"] = [_to_ozon_image_url(u) for u in imgs if isinstance(u, str)]
+
+
+def _convert_numeric_attrs(final_attributes: list, attributes_schema) -> list:
+    """v0.26 P1-2: 数字属性类型校验/转换 — 按 schema type 强制 INTEGER/DECIMAL。
+
+    Ozon 实证：VALUE_MUST_BE_INTEGER（8205 保质期天数/11650 厂包装数量）、
+    VALUE_MUST_BE_DECIMAL（4497 带包装重量/7444 长度 cm）—— 数字属性被填成文本。
+    从值中提取数字（"12 месяцев"→12、"1000 г"→1000、"5 шт"→5）；
+    无法解析 → 跳过该属性（避免 Ozon 类型错误整单被拒）。
+    """
+    _attr_type_map: Dict[int, str] = {}
+    for _sa in attributes_schema or []:
+        if isinstance(_sa, dict):
+            try:
+                _aid_t = int(_sa.get("id") or 0)
+            except (ValueError, TypeError):
+                continue
+            _tp = str(_sa.get("type") or "")
+            if _tp in ("Integer", "Decimal"):
+                _attr_type_map[_aid_t] = _tp
+    if not _attr_type_map:
+        return final_attributes
+
+    _keep_attrs: list = []
+    for attr in final_attributes or []:
+        if not isinstance(attr, dict):
+            _keep_attrs.append(attr)
+            continue
+        try:
+            attr_id_int = int(attr.get("attribute_id", 0))
+        except (ValueError, TypeError):
+            _keep_attrs.append(attr)
+            continue
+        _tp = _attr_type_map.get(attr_id_int)
+        if not _tp:
+            _keep_attrs.append(attr)
+            continue
+        raw = str(attr.get("value", "") or "").strip()
+        if not raw:
+            _keep_attrs.append(attr)
+            continue
+        # 提取数字（允许小数；去单位后缀 g/kg/г/кг/см/mm/шт/个月/дней/年 等）
+        _num_match = re.search(r'-?\d+(?:[.,]\d+)?', raw.replace(',', '.'))
+        if not _num_match:
+            logger.warning(f"⚠️ 数字属性 {attr_id_int}({_tp}) 值无法解析为数字: '{raw}'，跳过该属性")
+            continue
+        _num_val = _num_match.group()
+        if _tp == "Integer":
+            _converted = str(int(float(_num_val)))
+        else:  # Decimal
+            _converted = _num_val
+        if _converted != raw:
+            logger.info(f"✅ 数字属性 {attr_id_int}({_tp}) 类型转换: '{raw}' → '{_converted}'")
+        attr["value"] = _converted
+        _keep_attrs.append(attr)
+    return _keep_attrs
 
 
 def prepare_ozon_upload_node(
@@ -1410,6 +1510,11 @@ def prepare_ozon_upload_node(
                     old_val = val_str
                     attr["value"] = str(int(val_num * 1000))
                     logger.warning(f"⚠️ 重量单位修正(kg→g)：{old_val}→{attr['value']}")
+
+    # 2.5) ⚠️ v0.26 P1-2: 通用数字属性类型校验/转换 — 按 schema type 强制 INTEGER/DECIMAL。
+    # Ozon 实证：VALUE_MUST_BE_INTEGER（8205 保质期天数/11650 厂包装数量）、
+    # VALUE_MUST_BE_DECIMAL（4497 带包装重量/7444 长度 cm）—— 数字属性被填成文本。
+    final_attributes = _convert_numeric_attrs(final_attributes, attributes_schema)
 
     # 3) 字典属性校验：已知字典属性(10096/10097等)若缺dictionary_value_id则主动查找缓存
     DICT_ATTR_IDS = {10096, 10097}
