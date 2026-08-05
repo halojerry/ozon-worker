@@ -655,7 +655,14 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                         if isinstance(_v, dict) and _v.get("color"):
                             _cn_color = str(_v["color"])
                             break
+                if not _cn_color:
+                    # ✅ v0.25: 1688 无颜色 → 从竞品标题推断（如 "черные колготки"）
+                    from utils.attr_defaults import infer_color_ru
+                    _cn_color = infer_color_ru(str(item.get("name") or "") + " " + title_cn) or ""
                 _ru_color = COLOR_CN_TO_RU.get(_cn_color, "") if _cn_color else ""
+                if not _ru_color and _cn_color:
+                    # 已是俄语（来自标题推断 infer_color_ru）→ 直接用
+                    _ru_color = _cn_color
                 if _ru_color:
                     _vals = dict_values.get(str(aid)) or []
                     _hit = find_dict_value_id(_vals, _ru_color)
@@ -786,6 +793,27 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                 if _schema_attr and int(_schema_attr.get("dictionary_id") or 0) == 0:
                     resolved = (0, "Нет")
                     logger.info("✅ 必填自由文本属性 %s(合并至一张卡片) 补齐: Нет", aid)
+                elif _schema_attr:
+                    # dict_id>0 但列表/搜索全空 → 最后兜底填「Нет」自由文本（比空值好，Ozon 若拒再调整）
+                    resolved = (0, "Нет")
+                    logger.warning("⚠️ 8292 字典值取不到，最后兜底填自由文本 Нет（可能被 Ozon 拒，但比空值好）")
+            # 4295 无尺寸来源 → 类目有「One size/Один размер」则兜底
+            if not resolved and aid in (4295, 4411):
+                try:
+                    from utils.ozon_dict_values import list_dictionary_values as _ldv2
+                    _sz_vals = _ldv2(
+                        getattr(state, "ozon_client_id", "") or "",
+                        getattr(state, "ozon_api_key", "") or "",
+                        aid, int(dc) if dc else 0, int(tp) if tp else 0,
+                    )
+                    for _sv in _sz_vals:
+                        _txt = str(_sv.get("value") or "").lower()
+                        if any(k in _txt for k in ("один размер", "one size", "универсальн", "free size")):
+                            resolved = (int(_sv.get("id") or 0), str(_sv.get("value") or ""))
+                            logger.info("✅ 尺码 %s 无来源，用 One size 兜底: %s", aid, resolved[1])
+                            break
+                except Exception:
+                    resolved = None
             if not resolved:
                 logger.warning("⚠️ 必填字典属性 %s(%s) 补齐失败（无安全默认，交给重试/报错）", aid, attr.get("name"))
                 continue
