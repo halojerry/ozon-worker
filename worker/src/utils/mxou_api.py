@@ -22,6 +22,12 @@ GRSAI_API_KEY = os.getenv("GRSAI_API_KEY", "")
 PRIMARY_IMAGE_MODEL = "gpt-image-2"
 FALLBACK_IMAGE_MODEL = "nano-banana-fast"
 
+
+class ImagePollTimeoutError(Exception):
+    """生图任务轮询超时 — 任务可能仍在处理（已计费），不重新 POST、不降级，
+    避免双倍/多倍扣费（v0.26 失败分类：轮询超时 ≠ 生成失败）。"""
+    pass
+
 # 内存优化：复用requests.Session，避免每次请求创建新TCP连接
 _session: Optional[requests.Session] = None
 
@@ -202,7 +208,7 @@ def call_mxou_image_api(
     ref_images: Optional[List[str]] = None,
     aspect_ratio: str = "3:4",
     timeout: int = 180,
-    max_retries: int = 2,
+    max_retries: int = 1,
     model: str = PRIMARY_IMAGE_MODEL
 ) -> Optional[str]:
     """
@@ -216,7 +222,8 @@ def call_mxou_image_api(
         aspect_ratio: 图片比例，默认"3:4"（对应1090x1443）
         timeout: 单次请求/轮询最大等待（秒），默认180（v0.19：主模型异步生图常超90s，
             90s 曾导致频繁误降级 nano-banana-fast）
-        max_retries: 最大重试次数，默认2（共 3 次尝试；v0.19 由 3 收紧，避免超时级联重试）
+        max_retries: 最大重试次数，默认1（共 2 次尝试；v0.26：轮询超时不再重试，
+            violation/failed 有界重试，避免无限重烧额度）
         model: 生图模型，默认gpt-image-2
 
     返回:
@@ -224,35 +231,51 @@ def call_mxou_image_api(
     """
     t0 = time.time()
     # Step 1: 用主模型尝试
-    result_url: Optional[str] = _call_image_with_model(
-        token=token,
-        prompt=prompt,
-        ref_images=ref_images,
-        aspect_ratio=aspect_ratio,
-        timeout=timeout,
-        max_retries=max_retries,
-        model=model
-    )
-
-    if result_url:
-        logger.info("生图成功 model=%s 耗时=%.1fs", model, time.time() - t0)
-        return result_url
-
-    # Step 2: 主模型失败，降级到 fallback 模型
-    if model != FALLBACK_IMAGE_MODEL:
-        logger.warning(
-            "主模型 %s 生图失败（已重试，总耗时=%.1fs），降级到 %s 重试...",
-            model, time.time() - t0, FALLBACK_IMAGE_MODEL
-        )
-        fallback_url: Optional[str] = _call_image_with_model(
+    try:
+        result_url: Optional[str] = _call_image_with_model(
             token=token,
             prompt=prompt,
             ref_images=ref_images,
             aspect_ratio=aspect_ratio,
             timeout=timeout,
-            max_retries=1,  # 降级只重试1次
-            model=FALLBACK_IMAGE_MODEL
+            max_retries=max_retries,
+            model=model
         )
+    except ImagePollTimeoutError as _pte:
+        # ⚠️ v0.26: 轮询超时 ≠ 生成失败 — 任务可能仍在处理（已计费）。
+        # 不降级重新 POST（避免双倍扣费），无图由上层（prepare）用原始图兜底。
+        logger.warning(
+            "生图轮询超时(model=%s, 总耗时=%.1fs) — 任务可能仍在处理，不降级重生成（避免双倍计费）",
+            model, time.time() - t0
+        )
+        return None
+
+    if result_url:
+        logger.info("生图成功 model=%s 耗时=%.1fs", model, time.time() - t0)
+        return result_url
+
+    # Step 2: 主模型真失败（HTTP 重试耗尽 / failed / violation 重试耗尽），降级到 fallback 模型
+    if model != FALLBACK_IMAGE_MODEL:
+        logger.warning(
+            "主模型 %s 生图失败（已重试，总耗时=%.1fs），降级到 %s 重试...",
+            model, time.time() - t0, FALLBACK_IMAGE_MODEL
+        )
+        try:
+            fallback_url: Optional[str] = _call_image_with_model(
+                token=token,
+                prompt=prompt,
+                ref_images=ref_images,
+                aspect_ratio=aspect_ratio,
+                timeout=timeout,
+                max_retries=1,  # 降级只重试1次
+                model=FALLBACK_IMAGE_MODEL
+            )
+        except ImagePollTimeoutError:
+            logger.warning(
+                "降级模型 %s 轮询超时（任务可能仍在处理），不再重试（避免双倍计费）",
+                FALLBACK_IMAGE_MODEL
+            )
+            return None
         if fallback_url:
             logger.warning("降级模型 %s 生图成功（总耗时=%.1fs）",
                            FALLBACK_IMAGE_MODEL, time.time() - t0)
@@ -303,6 +326,26 @@ def _call_image_with_model(
 
     for attempt in range(max_retries + 1):
         try:
+            # ✅ v0.26 Sentry: 生图 span（trace 视图看每次生图耗时/模型/结果）
+            _span = None
+            try:
+                from utils.sentry_setup import start_node_span, finish_span
+                import sentry_sdk  # noqa
+                _tx = sentry_sdk.get_current_span()
+                if _tx is not None:
+                    _span = _tx.start_child(op="image_gen", description=f"image_{model}")
+                    _span.set_tag("model", model)
+                    _span.set_tag("attempt", attempt + 1)
+                    _span.set_tag("prompt", str(prompt)[:80])
+            except Exception:
+                _span = None
+
+            # ✅ v0.26 日志增强: 记录实际生效的提示词（验证热加载 + 核对生图 POST 次数）
+            logger.info(
+                "mxou 生图 POST (model=%s, attempt=%d/%d, prompt='%s...')",
+                model, attempt + 1, max_retries + 1, str(prompt)[:80],
+            )
+
             response = session.post(
                 MXOU_IMAGE_API_URL,
                 headers=headers,
@@ -312,6 +355,12 @@ def _call_image_with_model(
 
             if response.status_code != 200:
                 err_body = response.text[:300] if response.text else "no response"
+                try:
+                    if _span is not None:
+                        _span.set_tag("result", f"http_{response.status_code}")
+                        finish_span(_span, status="internal_error")
+                except Exception:
+                    pass
                 if attempt < max_retries:
                     logger.warning(
                         "mxou image API调用失败(第%d次, model=%s): HTTP %d, body=%s, 1秒后重试...",
@@ -338,26 +387,71 @@ def _call_image_with_model(
                 url = _extract_url_from_results(result)
                 if url:
                     logger.info("mxou同步返回图片(model=%s): %s", model, url[:80])
+                    try:
+                        if _span is not None:
+                            _span.set_tag("result", "succeeded")
+                            finish_span(_span, status="ok")
+                    except Exception:
+                        pass
                     return url
 
             # 有 task_id 但未同步返回 → 轮询
             if isinstance(task_id, str) and task_id:
                 logger.info("mxou任务(model=%s, status=%s)，开始轮询... task_id=%s", model, status, task_id)
-                return _poll_grsai_task(task_id, max_wait=timeout, token=token)
+                # ⚠️ v0.26 失败分类：
+                #   - 轮询超时（任务可能仍在处理）→ 抛 ImagePollTimeoutError，上层不重试不降级
+                #   - 轮询返回 None（failed/violation）→ 有界重试（重新 POST，violation 常因随机内容策略误伤，重试可能通过）
+                poll_result = _poll_grsai_task(task_id, max_wait=timeout, token=token)
+                try:
+                    if _span is not None:
+                        _span.set_tag("result", "succeeded" if poll_result else "failed_or_violation")
+                        finish_span(_span, status="ok" if poll_result else "internal_error")
+                except Exception:
+                    pass
+                if poll_result:
+                    return poll_result
+                if attempt < max_retries:
+                    logger.warning(
+                        "生图任务未成功(failed/violation, 第%d次, model=%s)，重新生成...",
+                        attempt + 1, model
+                    )
+                    time.sleep(1)
+                    continue
+                return None
 
-            # 失败/违规
+            # 失败/违规（无 task_id）
             error_msg: str = result.get("error", "unknown error")
             logger.error("mxou image API返回status=%s(model=%s), error=%s", status, model, error_msg)
             return None
 
         except requests.exceptions.Timeout:
+            try:
+                if _span is not None:
+                    _span.set_tag("result", "http_timeout")
+                    finish_span(_span, status="internal_error")
+            except Exception:
+                pass
             if attempt < max_retries:
                 logger.warning("mxou image API超时(第%d次, model=%s)，1秒后重试...", attempt + 1, model)
                 time.sleep(1)
                 continue
             logger.error("mxou image API超时(timeout=%ds, model=%s)", timeout, model)
             return None
+        except ImagePollTimeoutError:
+            try:
+                if _span is not None:
+                    _span.set_tag("result", "poll_timeout")
+                    finish_span(_span, status="unknown")  # 任务可能仍在处理
+            except Exception:
+                pass
+            raise  # 轮询超时 → 传给 call_mxou_image_api（不重试不降级）
         except Exception as e:
+            try:
+                if _span is not None:
+                    _span.set_tag("result", f"exception:{type(e).__name__}")
+                    finish_span(_span, status="internal_error")
+            except Exception:
+                pass
             if attempt < max_retries:
                 logger.warning("mxou image API异常(第%d次, model=%s): %s，1秒后重试...", attempt + 1, model, str(e))
                 time.sleep(1)
@@ -461,8 +555,9 @@ def _poll_grsai_task(task_id: str, max_wait: int = 90, token: str = "") -> Optio
         except Exception as e:
             logger.warning("grsai轮询异常: %s", str(e))
 
+    # ⚠️ v0.26: 轮询超时 ≠ 生成失败 — 抛 ImagePollTimeoutError，上层不重试不降级（避免双倍计费）
     logger.error("grsai轮询超时: task_id=%s (max_wait=%ds)", task_id, max_wait)
-    return None
+    raise ImagePollTimeoutError(f"grsai轮询超时 task_id={task_id}")
 
 
 def _poll_mxou_task_fallback(task_id: str, max_wait: int = 90, token: str = "") -> Optional[str]:
@@ -509,8 +604,9 @@ def _poll_mxou_task_fallback(task_id: str, max_wait: int = 90, token: str = "") 
         except Exception as e:
             logger.warning("mxou fallback轮询异常: %s", str(e))
 
+    # ⚠️ v0.26: fallback 轮询超时同样抛 ImagePollTimeoutError（任务可能仍在处理，不重试不降级）
     logger.error("mxou fallback轮询超时: task_id=%s (max_wait=%ds)", task_id, max_wait)
-    return None
+    raise ImagePollTimeoutError(f"mxou fallback轮询超时 task_id={task_id}")
 
 
 # ============================================================

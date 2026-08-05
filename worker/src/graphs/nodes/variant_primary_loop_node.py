@@ -13,6 +13,7 @@ from graphs.state import GlobalState, VariantLoopState, VariantLoopOutput, Varia
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
+from utils.task_image_cache import get_image, save_image, _task_id_from_config  # ✅ v0.26: 重跑不重烧生图
 
 
 class VariantPrimaryLoopInput(BaseModel):
@@ -69,6 +70,14 @@ def variant_primary_loop_node(
             sku_name = variant.get("name", f"variant_{idx}")
             sku_image_url = variant.get("image", "")
 
+            # ✅ v0.26: 重跑不重烧生图 — 该变体已生成过 → 直接复用
+            _tid = _task_id_from_config(config)
+            if _tid:
+                cached = get_image(_tid, f"variant_{idx}")
+                if cached:
+                    logging.info(f"[variant_primary_loop_node] variant[{idx}] 命中生图缓存，复用")
+                    return cached
+
             # ✅ 修复：variant.image为空时，使用fallback参考图（白底图/多角度图）
             if not sku_image_url or not isinstance(sku_image_url, str) or not sku_image_url.strip():
                 if fallback_ref:
@@ -91,12 +100,14 @@ def variant_primary_loop_node(
                 prompt=get_image_prompt("variant_white_bg"),
                 ref_images=ref_images,
                 aspect_ratio="3:4",
-                timeout=90,
-                max_retries=3
+                timeout=180,  # ⚠️ v0.26: 90→180 匹配 grsai 30s+5s 轮询节奏，减少假超时
+                max_retries=1  # ⚠️ v0.26: 3→1，violation/failed 有界重试，防变体图无限重烧
             )
 
             if image_url and isinstance(image_url, str) and image_url:
                 logging.info(f"[variant_primary_loop_node] variant[{idx}]生成成功: {image_url[:100]}")
+                if _tid:
+                    save_image(_tid, f"variant_{idx}", image_url)
                 return image_url
             logging.error(f"[variant_primary_loop_node] variant[{idx}]生成失败: API未返回有效URL")
             return ""  # 不写 alicdn URL，留空让上层处理
