@@ -579,6 +579,10 @@ class OzonStatusInput(BaseModel):
     error_message: str = Field(default="", description="错误信息")
     upload_status: str = Field(default="", description="上传状态")
     stages: Dict[str, str] = Field(default_factory=dict, description="各阶段执行状态")
+    # ⚠️ v0.26 FIX: 条件边收到的是节点输入 schema 强转的 state，缺此字段会被剥掉
+    # → graph.should_handle_error 读 moderation_retry_count 恒 0 → "审核中" 自环永不退出
+    # → 击穿 recursion_limit（Sentry GraphRecursionError 实证）。与 OzonStatusOutput 对齐。
+    moderation_retry_count: int = Field(default=0, description="审核 pending 重试次数（最多3次）")
 
 
 class OzonStatusOutput(BaseModel):
