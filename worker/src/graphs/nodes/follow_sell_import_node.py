@@ -14,6 +14,7 @@
   - import-by-sku 优先，不可复制时自动降级
 """
 import logging
+import re
 import time
 from typing import Any
 
@@ -132,11 +133,16 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     # 我们管线重做类目/属性/生图，天然防同款/侵权检测）；api=import-by-sku 1:1 复制。
     # ⚠️ 触发规则：hand 需要 1688 货源数据重建；信封缺货源（无 purchase_url /
     # purchase_cost）→ hand 无法重建，自动降级 api 复制竞品（不丢单）。
+    # ✅ v0.26 增强: hand 类目解析失败（dc/tp 为空）也降级 api——官方 import-by-sku
+    # 复制竞品卡会带出完整类目（含 Canevia/NEATIFY 等品牌子类目，Seller 树查不到），
+    # 比 hand CREATE 硬失败（created=False，wave1 盘子实证）不丢单。
     _has_source = bool(draft.get("purchase_url") or draft.get("purchase_cost"))
-    if follow_type == "hand" and not _has_source:
+    _cat_ok = bool(dc_raw and type_raw)
+    if follow_type == "hand" and (not _has_source or not _cat_ok):
+        _reason = "缺 1688 货源数据" if not _has_source else f"类目解析失败 dc={dc_fallback}"
         logger.warning(
-            "⚠️ hand 模式缺 1688 货源数据（无 purchase_url/purchase_cost），"
-            "自动降级 api import-by-sku 复制竞品卡片"
+            "⚠️ hand 模式 %s，自动降级 api import-by-sku 复制竞品卡片（不丢单）",
+            _reason,
         )
         follow_type = "api"
     if follow_type == "api":
@@ -362,6 +368,13 @@ def _resolve_category_by_id(dc_id: int, type_name_hint: str = "", token: str = "
                 candidates.append(" > ".join(segments[-2:])) # 末两级
         if segments:
             candidates.append(segments[-1])                   # 末段（最后尝试）
+        # ✅ v0.26: 末段是品牌名（纯拉丁无西里尔，如 Canevia/NEATIFY）时，
+        # 上述候选全含品牌 → pg_trgm 必然失败（wave1 盘子「Тарелки > Canevia」
+        # created=False 实证）。追加「去品牌」候选：品牌前一段 / 品牌前两级。
+        if len(segments) >= 2 and not re.search(r"[а-яёА-ЯЁ]", segments[-1]):
+            candidates.append(segments[-2])                   # 品牌前一段（Тарелки）
+            if len(segments) >= 3:
+                candidates.append(" > ".join(segments[-3:-1]))  # 品牌前两级
         for _cand in candidates:
             logger.info("🔍 数字 ID %d 直查失败，尝试 pg_trgm(lang=%s): '%s'", dc_id, lang, _cand)
             dc_text, type_text = _resolve_category(_cand, _cand, language=lang)

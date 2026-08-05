@@ -549,6 +549,132 @@ def test_case_6_import_timeout_no_fallback_create():
 
 
 # ═══════════════════════════════════════════════════════════
+# 用例 7/8: v0.26 wave1 盘子类目修复
+# ═══════════════════════════════════════════════════════════
+def test_case_7_brand_leaf_category_fallback():
+    """v0.26: RU 面包屑末段是品牌名（Canevia，纯拉丁无西里尔）→
+    _resolve_category_by_id 应追加「去品牌」候选（品牌前一段 Тарелки），
+    而不是只试含品牌的完整路径导致全部失败（wave1 盘子 created=False 根因）。"""
+    from unittest import mock
+    import importlib
+    import graphs.nodes.follow_sell_import_node as mod
+    # ⚠️ 前序用例（1/4/5/8）会污染 mod._resolve_category_by_id/_resolve_category
+    # mock 且不恢复 → reload 模块恢复真实函数（v0.26 测试隔离修复）
+    mod = importlib.reload(mod)
+
+    tried: list[str] = []
+    def _capture_resolve(dc, tp, language="RU"):
+        tried.append(str(dc))
+        if str(dc) == "Тарелки":  # 品牌前一段命中
+            return ("17027910", "92532")
+        return ("", "")
+
+    class _FakeQuery:
+        def get_node_by_description_category_id(self, dc_id):
+            return None  # 数字 ID 直查失败（Widget ID 不在 Seller 树）
+
+    orig_resolve = mod._resolve_category
+    mod._resolve_category = _capture_resolve
+    import utils.ozon_category_query as _ocq
+    try:
+        with mock.patch.object(_ocq, "get_category_query", return_value=_FakeQuery()):
+            result = mod._resolve_category_by_id(
+                102080114,
+                type_name_hint="Дом и сад > Посуда и кухонные принадлежности > "
+                               "Одноразовая посуда и скатерти > Тарелки > Canevia",
+            )
+    finally:
+        mod._resolve_category = orig_resolve
+
+    print(f"  尝试候选: {tried}")
+    checks = [
+        ("候选含 'Тарелки'（品牌前一段，去品牌兜底）", "Тарелки" in tried),
+        ("解析结果非空（不再全候选失败）", bool(result[0])),
+        ("dc=17027910", result[0] == "17027910"),
+        ("type=92532", result[1] == "92532"),
+    ]
+    all_pass = True
+    for name, passed in checks:
+        status = "✅" if passed else "❌"
+        if not passed:
+            all_pass = False
+        print(f"  {status} {name}")
+    return all_pass
+
+
+def test_case_8_hand_category_fail_falls_back_api():
+    """v0.26: hand 模式类目解析失败（dc/tp 空）→ 自动降级 api import-by-sku
+    （官方复制带出完整类目，不硬失败；wave1 盘子 follow_type=hand + Canevia
+    解析失败 → created=False 实证）。"""
+    import graphs.nodes.follow_sell_import_node as mod
+
+    mod._resolve_category_by_id = _mock_resolve_category_fail
+    mod._resolve_category = lambda dc, tp, language="": (None, None)
+
+    import requests as req
+    calls = []
+    _orig = req.post
+    class _Resp8:
+        status_code = 200
+        def json(self):
+            return {"result": {"task_id": "12345"}}
+    class _RespInfo8:
+        status_code = 200
+        def json(self):
+            return {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}}
+    def _counting_post8(url, *a, **k):
+        if "import-by-sku" in url:
+            calls.append("ibs")
+            return _Resp8()
+        if "import/info" in url:
+            return _RespInfo8()
+        return _Resp8()
+    req.post = _counting_post8
+    try:
+        env = {
+            "draft": {
+                "ozon_product_id": "4474160291",
+                "title": "Одноразовые тарелки",
+                "ozon_title": "Одноразовые тарелки из багассы",
+                "images": ["https://cdn.ozon.ru/img1.jpg"],
+                "ozon_category": {
+                    "description_category_id": "102080114",  # Widget ID，直查失败
+                    "type_id": "102080114",
+                    "category_path": "Дом и сад > Посуда > Тарелки > Canevia",
+                },
+                "purchase_cost": 2.4,
+                "purchase_url": "https://detail.1688.com/offer/840720791119.html",
+                "currency": "CNY",
+                "weight": 160,
+                "dimensions": {"length": 100, "width": 100, "height": 10},
+                "item_id": "840720791119",
+            },
+            "extensions": {"follow_sell": True, "follow_type": "hand"},
+        }
+        from graphs.nodes.follow_sell_import_node import follow_sell_import_node
+        state = FakeState(envelope=env)
+        result = follow_sell_import_node(state)
+    finally:
+        req.post = _orig
+
+    print(f"  import-by-sku 调用: {len(calls)}")
+    print(f"  product_id: {result.get('product_id')}")
+
+    checks = [
+        ("import-by-sku 被调用（类目失败自动降级 api）", len(calls) == 1),
+        ("product_id='999888777'（复制成功）", result.get("product_id") == "999888777"),
+        ("error_message 为空（不硬失败）", not result.get("error_message")),
+    ]
+    all_pass = True
+    for name, passed in checks:
+        status = "✅" if passed else "❌"
+        if not passed:
+            all_pass = False
+        print(f"  {status} {name}")
+    return all_pass
+
+
+# ═══════════════════════════════════════════════════════════
 # 主入口
 # ═══════════════════════════════════════════════════════════
 if __name__ == "__main__":
@@ -565,6 +691,8 @@ if __name__ == "__main__":
         "用例6 (import超时不fallback CREATE)": test_case_6_import_timeout_no_fallback_create(),
         "用例2 (正常-跟卖流程)": test_case_2_normal_follow_sell(),
         "用例3 (边界-空product_id)": test_case_3_empty_product_id(),
+        "用例7 (品牌末段类目兜底)": test_case_7_brand_leaf_category_fallback(),
+        "用例8 (hand类目失败降级api)": test_case_8_hand_category_fail_falls_back_api(),
     }
 
     print("\n" + "=" * 60)
