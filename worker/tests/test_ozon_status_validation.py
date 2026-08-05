@@ -66,6 +66,7 @@ def test_validation_failed_returns_failed_with_errors():
     assert "error_attribute_values_empty" in out.error_message
     assert "8292" in out.error_message
     assert any(e.get("attribute_id") == 8292 for e in out.errors)
+    assert out.product_id == "5812496806"  # 真实 product_id，而非 import 任务 ID（v0.25 修复）
 
 
 def test_in_moderating_stays_pending():

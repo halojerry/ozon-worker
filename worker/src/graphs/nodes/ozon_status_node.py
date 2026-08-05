@@ -323,7 +323,8 @@ def ozon_status_node(
                                     )
                                     logger.error("❌ Ozon validation 失败: %s", _detail)
                                     return OzonStatusOutput(
-                                        product_id=product_id,
+                                        # ✅ v0.25: 用解析出的真实 product_id（product_id 可能是 import 任务 ID）
+                                        product_id=str(all_pids_int[0]) if all_pids_int else product_id,
                                         product_ids=all_pids_int,
                                         status="failed",
                                         moderation_status="validation_failed",
