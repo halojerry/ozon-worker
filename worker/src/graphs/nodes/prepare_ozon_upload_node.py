@@ -663,6 +663,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                 if not _ru_color and _cn_color:
                     # 已是俄语（来自标题推断 infer_color_ru）→ 直接用
                     _ru_color = _cn_color
+                _hit = None
                 if _ru_color:
                     _vals = dict_values.get(str(aid)) or []
                     _hit = find_dict_value_id(_vals, _ru_color)
@@ -678,9 +679,26 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                                 _hit = (int(_hits[0].get("id") or 0), str(_hits[0].get("value") or _ru_color))
                         except Exception:
                             _hit = None
-                    if _hit and _hit[0] > 0:
-                        attrs.append({"id": aid, "values": [{"dictionary_value_id": _hit[0], "value": _hit[1]}]})
-                        logger.info("✅ 必填字典属性 %s(%s) 颜色补齐: %s (id=%s)", aid, attr.get("name"), _ru_color, _hit[0])
+                if not _hit:
+                    # ✅ v0.25: 无任何颜色来源 → 中性默认色（прозрачный → белый 依次尝试）
+                    for _def_color in ("прозрачный", "белый"):
+                        try:
+                            from utils.ozon_dict_values import search_dictionary_values as _sdvc
+                            _hits_c = _sdvc(
+                                getattr(state, "ozon_client_id", "") or "",
+                                getattr(state, "ozon_api_key", "") or "",
+                                aid, int(dc) if dc else 0, int(tp) if tp else 0, _def_color,
+                            )
+                            if _hits_c:
+                                _hit = (int(_hits_c[0].get("id") or 0), str(_hits_c[0].get("value") or _def_color))
+                                logger.info("✅ 必填字典属性 %s(%s) 颜色用中性默认: %s (id=%s)",
+                                            aid, attr.get("name"), _hit[1], _hit[0])
+                                break
+                        except Exception:
+                            _hit = None
+                if _hit and _hit[0] > 0:
+                    attrs.append({"id": aid, "values": [{"dictionary_value_id": _hit[0], "value": _hit[1]}]})
+                    logger.info("✅ 必填字典属性 %s(%s) 颜色补齐: %s (id=%s)", aid, attr.get("name"), _hit[1], _hit[0])
                 continue
             # 尺码候选（供 4295/尺寸属性搜索用）：优先 1688 属性/变体，其次 SKU 名（排除包装数量）
             size_cn = ""
