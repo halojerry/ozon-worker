@@ -347,12 +347,12 @@ def test_case_5_hand_without_source_falls_back_api():
     def _counting_post(url, *a, **k):
         if "import-by-sku" in url:
             calls.append(url)
-            # v0.22: offer_id 必须与后续 upload 一致（follow_{竞品ID}），防双卡
+            # ✅ v0.25: offer_id 统一裸竞品 ID（与 assemble/prepare 一致，防双卡）
             body = k.get("json") or {}
             items = body.get("items") or []
             if items:
                 oid = items[0].get("offer_id", "")
-                assert oid == "follow_3852000144", f"offer_id 不一致: {oid}"
+                assert oid == "3852000144", f"offer_id 不一致: {oid}"
             return _Resp2()
         if "import/info" in url:
             return type("R", (), {"status_code": 200,

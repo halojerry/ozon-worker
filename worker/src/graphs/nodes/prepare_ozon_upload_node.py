@@ -1708,12 +1708,15 @@ def prepare_ozon_upload_node(
             logger.info(f"✅ 属性22508(品牌注册国)硬编码为：Китай")
         
         # ✅ 关键修复：文本类属性必须为俄语
-        # 4191(Описание/描述)、4180(关键字)、9048(Название модели/产品名称) 必须翻译
+        # 4191(Описание/描述)、4180(关键字) 必须翻译
         # 4384(Комплектация/包装内容)、4389(Страна/原产国) 也需翻译
         # 23171(hashtags)也需要俄语化（Ozon俄罗斯市场要求标签为俄语）
+        # ⚠️ v0.25 FIX: 9048(Название модели) 从本清单移除——型号是数字/字母（如
+        #   "4090989133"），LLM 会把数字翻译成道歉文本（"Извините, я не могу..."）→
+        #   9048 被跳过为空。数字/拉丁型号 Ozon 接受；若型号含中文仍走下方中文翻译。
         # 排除：9024(SKU编码) — 允许英文/数字（但含中文仍走下方中文检查翻译）
         # ✅ v0.25 FIX: 23487(制造商) 加入中文零容忍（同上）
-        _russian_required_attrs = (4191, 4180, 9048, 4384, 4389, 23171, 23487)
+        _russian_required_attrs = (4191, 4180, 4384, 4389, 23171, 23487)
         if attribute_id_int in _russian_required_attrs and value_str and not _has_cyrillic(value_str):
             logger.warning(f"⚠️ 属性{attribute_id_int}值为拉丁字母，翻译为俄语：{value_str[:60]}...")
             _translated_value = _translate_to_russian_llm(value_str, mxou_token, source_lang="auto")
