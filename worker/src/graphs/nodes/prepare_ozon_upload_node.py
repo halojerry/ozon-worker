@@ -644,8 +644,29 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
             if aid == 23487 or "производител" in str(attr.get("name") or "").lower() or "制造商" in str(attr.get("name") or ""):
                 _sup = str((draft or {}).get("supplier") or "")
                 if _sup:
-                    attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": _sup[:100]}]})
-                    logger.info("✅ 必填自由文本属性 %s(制造商) 用 supplier 补齐: %s", aid, _sup[:40])
+                    _sup_ru = _sup[:100]
+                    # ✅ v0.25 FIX: 制造商必须俄语 — 中文供应商名整单被 Ozon 拒
+                    # （BR_chinese_hieroglyphs_in_attribute，浴刷 5821877126 wave4 实证，
+                    #   错误级导致整单更新失败 → 图片也落不上）
+                    if _has_chinese(_sup_ru):
+                        _token = getattr(state, "token", "") or ""
+                        if _token:
+                            try:
+                                _tr = _translate_to_russian_llm(
+                                    _sup, _token, source_lang="zh", text_type="description"
+                                )
+                            except Exception:
+                                _tr = ""
+                            if _tr and not _has_chinese(_tr):
+                                _sup_ru = _tr[:100]
+                                logger.info("✅ 制造商 supplier 已翻译为俄语: %s", _sup_ru[:40])
+                        if _has_chinese(_sup_ru):
+                            _sup_ru = "Китайская компания"
+                            logger.warning(
+                                "⚠️ 制造商 supplier 翻译失败/仍含中文，用安全兜底: Китайская компания"
+                            )
+                    attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": _sup_ru}]})
+                    logger.info("✅ 必填自由文本属性 %s(制造商) 用 supplier 补齐: %s", aid, _sup_ru[:40])
                 continue
             # ✅ v0.25 修复: 颜色(10096/10097) — 1688 颜色 → RU 映射 → 字典 id
             if aid in (10096, 10097) or "цвет" in str(attr.get("name") or "").lower() or "颜色" in str(attr.get("name") or ""):
@@ -1558,7 +1579,9 @@ def prepare_ozon_upload_node(
     # 排除特殊处理属性（4191 富文本 HTML / 4180 关键字 / 23171 hashtag / 9048 型号名）
     _BATCH_SEP = "\n===\n"
     _batch_translated: Dict[str, str] = {}
-    _russian_required_attrs = (4191, 4180, 9048, 4384, 4389, 23171)
+    # ✅ v0.25 FIX: 23487(制造商) 加入中文零容忍 — 中文供应商名整单被 Ozon 拒
+    # （BR_chinese_hieroglyphs_in_attribute，wave4 浴刷实证）
+    _russian_required_attrs = (4191, 4180, 9048, 4384, 4389, 23171, 23487)
     _english_allowed_attrs = (9024,)
     _cn_re_b = re.compile(r'[\u4e00-\u9fff]')
     _batch_pending: List[str] = []
@@ -1658,7 +1681,8 @@ def prepare_ozon_upload_node(
         # 4384(Комплектация/包装内容)、4389(Страна/原产国) 也需翻译
         # 23171(hashtags)也需要俄语化（Ozon俄罗斯市场要求标签为俄语）
         # 排除：9024(SKU编码) — 允许英文/数字（但含中文仍走下方中文检查翻译）
-        _russian_required_attrs = (4191, 4180, 9048, 4384, 4389, 23171)
+        # ✅ v0.25 FIX: 23487(制造商) 加入中文零容忍（同上）
+        _russian_required_attrs = (4191, 4180, 9048, 4384, 4389, 23171, 23487)
         if attribute_id_int in _russian_required_attrs and value_str and not _has_cyrillic(value_str):
             logger.warning(f"⚠️ 属性{attribute_id_int}值为拉丁字母，翻译为俄语：{value_str[:60]}...")
             _translated_value = _translate_to_russian_llm(value_str, mxou_token, source_lang="auto")
