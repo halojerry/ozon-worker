@@ -179,6 +179,45 @@ def test_density_genuine_heavy_still_corrected():
     assert weight < 5000, f"体积合理时仍应修正密度，实际 {weight}"
 
 
+# ── 修8: seller analytics 借道 + 分段佣金解析（毛子 CROSS_TAB 对照）──
+
+def test_analytics_segmented_commission_parsed():
+    """v0.26: fbp_rate/rfbs_rate 是分段对象 {fbp_leq_1500, fbp_leq_5000, fbp_gt_5000}，
+    旧代码 _to_float(dict) → 恒 0（毛子实测根因）。分段解析应取中间段。"""
+    from scripts.lib.ozon_seller_analytics import _extract_metrics
+    item = {
+        "soldCount": "120",
+        "soldSum": "5000",
+        "fbp_rate": {"fbp_leq_1500": 0.15, "fbp_leq_5000": 0.12, "fbp_gt_5000": 0.09},
+        "rfbs_rate": {"rfbs_leq_5000": 0.08},
+        "attributes": [{"id": 4497, "value": "250"}, {"id": 9454, "value": "10"}, {"id": 9456, "value": "20"}],
+    }
+    m = _extract_metrics(item)
+    assert m["sold_count"] == 120, m
+    assert m["commission_fbp"] == 0.12, f"应取中间段 0.12，实际 {m['commission_fbp']}"
+    assert m["commission_rfbs"] == 0.08, m["commission_rfbs"]
+    assert m["weight_g"] == 250
+    assert m["length_mm"] == 10.0
+    assert m["height_mm"] == 20.0
+
+
+def test_analytics_scalar_commission_fallback():
+    """标量佣金（旧结构）仍兼容。"""
+    from scripts.lib.ozon_seller_analytics import _extract_metrics
+    m = _extract_metrics({"soldCount": "5", "fbpRate": 0.2})
+    assert m["commission_fbp"] == 0.2, m["commission_fbp"]
+    assert m["sold_count"] == 5
+
+
+def test_seller_analytics_js_has_credentials():
+    """v0.26: 借道 JS 必须带 credentials:'include'（毛子对照，分区 cookie 关键）。"""
+    from scripts.lib import ozon_seller_analytics as osa
+    assert "credentials: 'include'" in osa._SELLER_ANALYTICS_JS, \
+        "fetch 缺 credentials:'include' → 分区 cookie 可能不带上"
+    # 非 2xx 时返回带 status 的错误（不再吞 401/403/429）
+    assert "HTTP \" + resp.status" in osa._SELLER_ANALYTICS_JS
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0
