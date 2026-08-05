@@ -230,18 +230,21 @@ def test_prepare_size_one_size_fallback():
 
 
 def test_prepare_manufacturer_from_supplier():
-    """制造商 23487（自由文本）→ 用 supplier 填充（v0.25 修复）。"""
+    """制造商 23487（自由文本）→ 用 supplier 填充，但中文供应商必须俄语化（v0.25 修复）。
+    无 token 时 LLM 不可用 → 安全兜底 Китайская компания（中文会被 Ozon 整单拒绝）。"""
     from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
     from types import SimpleNamespace
 
     schema = [{"id": 23487, "name": "Производитель", "is_required": True, "dictionary_id": 0}]
-    state = SimpleNamespace(dictionary_values={}, description_category_id="1", type_id="1")
+    state = SimpleNamespace(dictionary_values={}, description_category_id="1", type_id="1", token="")
     items = [{"offer_id": "x_0", "name": "Щётка", "attributes": []}]
     draft = {"item_id": "x", "title": "浴刷", "supplier": "义乌市xx日用品厂"}
     result = _fill_missing_required_dict_attrs(items, schema, draft, state)
     attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
     assert attr_map[23487]["values"][0]["dictionary_value_id"] == 0
-    assert attr_map[23487]["values"][0]["value"] == "义乌市xx日用品厂"
+    val = attr_map[23487]["values"][0]["value"]
+    assert val == "Китайская компания"
+    assert not any('\u4e00' <= c <= '\u9fff' for c in val), "制造商不得含中文"
 
 
 def test_prepare_gender_neutral_default():
