@@ -835,7 +835,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
             # 8292 在该类目是自由文本（dict_id=0）→ 填「Нет」不合并（dictionary_value_id=0）
             if not resolved and aid in (8292,):
                 try:
-                    from utils.attr_defaults import MERGE_CARD_ATTR_IDS  # noqa: F401
+                    from utils.attr_defaults import MERGE_CARD_ATTR_IDS
                 except Exception:
                     pass
                 _schema_attr = next((a for a in schema_list if isinstance(a, dict) and int(a.get("id") or 0) == aid), None)
@@ -1540,7 +1540,11 @@ def prepare_ozon_upload_node(
         # ✅ v0.25 T4: 描述追加规格参数表（俄语属性名/值 + 重量/尺寸）
         try:
             description = _append_spec_table(
-                description, final_attributes, weight_grams, dimensions, attributes_schema
+                description,
+                final_attributes,
+                weight_g,
+                {"length": depth_mm, "width": width_mm, "height": height_mm},
+                attributes_schema,
             )
         except Exception:
             pass  # 规格表失败不影响描述主流程

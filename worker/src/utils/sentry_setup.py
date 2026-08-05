@@ -64,7 +64,7 @@ def init_sentry(dsn: Optional[str] = None) -> bool:
         )
         _SENTRY_ENABLED = True
         logger.info("✅ Sentry 监测已启用 (env=%s, release=%s)", env, release or "dev")
-    except Exception as e:  # noqa: BLE001 — SDK 故障不影响服务运行
+    except Exception as e:
         logger.warning("Sentry 初始化失败（不影响服务运行）: %s", e)
         return False
     return True
@@ -96,5 +96,5 @@ def capture_task_error(
             sentry_sdk.capture_message(message)
         # 任务失败路径是异常场景，同步 flush 确保事件送达（最多阻塞 2s）
         sentry_sdk.flush(timeout=2)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("Sentry 上报失败: %s", e)
