@@ -119,6 +119,10 @@ def ozon_status_node(
         ozon_api_url: str = "https://api-seller.ozon.ru/v1/product/import/info"
         payload: Dict[str, Any] = {"task_id": task_id_int}
 
+        # ✅ v0.25 FIX: 允许 404 后回退（避免「审核通过 → 重试 → 404 误判失败」）
+        # 真实运行中 ozon_status 可能被图重试并以 product_id 充当 task_id 轮询，
+        # import/info 必然 404 → 之前直接判失败触发修复循环（wave4 浴刷/面具实证）。
+        _fallback_from_404: bool = False
         for attempt in range(MAX_POLL_ATTEMPTS if task_id_to_poll else 0):
             logger.info(f"轮询第{attempt + 1}/{MAX_POLL_ATTEMPTS}次...")
             progress.log_node_action(f"轮询Ozon状态第{attempt + 1}/{MAX_POLL_ATTEMPTS}次...")
@@ -126,6 +130,17 @@ def ozon_status_node(
             response = session.post(ozon_api_url, headers=headers, json=payload, timeout=60)
 
             if response.status_code != 200:
+                # ✅ v0.25 FIX: import/info 任务不存在（404）→ 卡片已存在/任务已过期，
+                # 用已知 product_id 直接查 info/list，不判失败
+                if response.status_code == 404 and product_id and str(product_id).strip().isdigit():
+                    logger.warning(
+                        f"⚠️ import/info 任务不存在(task_id={payload.get('task_id')})，"
+                        f"回退用 product_id={product_id} 直接查审核状态"
+                    )
+                    real_product_ids = [str(product_id)]
+                    total_item_count = len(real_product_ids)
+                    _fallback_from_404 = True
+                    break
                 logger.error(f"Ozon API调用失败: {response.status_code}, {response.text[:200]}")
                 return OzonStatusOutput(
                     product_id=product_id,
@@ -480,6 +495,27 @@ def ozon_status_node(
                             logger.info(f"⏳ 审核进行中(statuses={set(all_moderate_statuses.values())})，等待{MODERATE_POLL_INTERVAL_SECONDS}秒...")
                             time.sleep(MODERATE_POLL_INTERVAL_SECONDS)
                     else:
+                        # ✅ v0.25 FIX: 404 回退路径下 info/list 查无此商品 → 立即失败，
+                        # 避免空轮询 10 分钟（product_id 是伪造的 import task_id 时发生）
+                        if _fallback_from_404 and attempt2 == 0:
+                            logger.error(
+                                f"❌ import/info 404 回退后 product_id={all_pids_int} 在 info/list 查无此商品"
+                            )
+                            return OzonStatusOutput(
+                                product_id=str(all_pids_int[0]) if all_pids_int else product_id,
+                                product_ids=all_pids_int,
+                                status="failed",
+                                moderation_status="error",
+                                upload_status="failed",
+                                errors=[{"error": "PRODUCT_NOT_FOUND", "message": f"product_id={all_pids_int} 查无此商品"}],
+                                purchase_url=purchase_url,
+                                purchase_cost=purchase_cost,
+                                sku_id=sku_id,
+                                profit_estimation=profit_estimation,
+                                error_message=f"[PRODUCT_NOT_FOUND] product_id={all_pids_int} 查无此商品",
+                                failed_stage="ozon_status",
+                                stages={"ozon_status": "product_not_found"},
+                            )
                         logger.warning(f"第{attempt2 + 1}次查询moderate_status无结果")
                         time.sleep(MODERATE_POLL_INTERVAL_SECONDS)
                 else:

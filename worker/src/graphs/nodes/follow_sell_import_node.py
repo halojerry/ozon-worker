@@ -61,10 +61,11 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         logger.error("❌ 跟卖: ozon_product_id 为空")
         return {"error_message": "跟卖需要竞品 ozon_product_id", "failed_stage": "follow_sell_import"}
 
-    # ⚠️ v0.22: offer_id 统一 follow_{竞品ID}，与 _assemble_follow_sell 一致。
-    # 旧代码用 ozon_product_id（如 3852000144），后续 upload 用 follow_3852000144
-    # → v3/import 按 offer_id 匹配不到 → 重复 CREATE 第二张卡（双卡 bug）。
-    offer_id = f"follow_{ozon_product_id}"
+    # ⚠️ v0.25 FIX: offer_id 统一用竞品 ID（无 follow_ 前缀），与 prepare/upload 一致。
+    # 旧 v0.22 曾改 import-by-sku 用 follow_{id}，但 prepare 层 upload 一直用裸 {id}，
+    # 导致 api 复制模式 import 卡 offer_id=follow_x，后续 UPDATE 用 x 匹配不到 → 双卡。
+    # 现有 hand 模式卡片 offer_id 都是裸 {id}（如 3807171071），统一裸 ID 全部兼容。
+    offer_id = str(ozon_product_id)
     ozon_title = draft.get("title", "") or draft.get("ozon_title", "") or ""
     ozon_images = draft.get("images", []) or []
     ozon_cat = draft.get("ozon_category", {}) or {}

@@ -305,7 +305,9 @@ def _assemble_follow_sell(
 
     # 构建 payload items
     sku_id = draft.get("sku_id", draft.get("item_id", ""))
-    offer_id = f"follow_{draft.get('ozon_product_id', sku_id)}"
+    # ✅ v0.25 FIX: 统一裸竞品 ID（无 follow_ 前缀），与 follow_sell_import/prepare 一致，
+    # 避免 api 复制模式与后续 UPDATE 的 offer_id 不一致导致双卡
+    offer_id = str(draft.get("ozon_product_id", sku_id))
     weight_g = draft.get("weight", 100)
     dims = draft.get("dimensions", {}) or {}
     # ✅ v0.22: 1688 数据缺失时用竞品重量/尺寸兜底（follow 链路 skill 透传）
