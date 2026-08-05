@@ -307,14 +307,17 @@ def should_handle_error(state):
         logger.info("✅ 审核通过(approved)，进入 learning_record")
         return "成功"
 
-    # ✅ v0.25 FIX: moderation_status 偶发未传播时的兜底 — 节点已返回
-    # status=imported + upload_status=success + 有真实 product_id + 无错误 → 视为成功。
-    # （pending 超时返回 status=pending/timeout，不会误命中）
+    # ✅ v0.25 FIX: LangGraph 条件边收到的是节点输入 schema（OzonStatusInput）强转的 state，
+    # moderation_status 不在输入 schema 中被剥掉 → 路由永远看不到 approved。
+    # 兜底：ozon_status_result 已回退为 status="imported"（approved 返回带的 status）
+    # + upload_status="success" + 有真实 product_id + 无错误 → 视为成功。
+    # （pending 返回 status=pending、timeout 返回 status=timeout，不会误命中；
+    #   审核通过重试死循环实证：wave4 浴刷/面具，07:32 起每秒重跑 ozon_status）
     _st = getattr(state, 'status', '') or ''
     _up = getattr(state, 'upload_status', '') or ''
     _pid = getattr(state, 'product_id', None)
     if (
-        not ozon_status_result
+        ozon_status_result == "imported"
         and _st == "imported"
         and _up == "success"
         and _pid
