@@ -13,6 +13,7 @@ from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
+from utils.task_image_cache import get_image, save_image, _task_id_from_config  # ✅ v0.26: 重跑不重烧生图
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,14 @@ def scene_2_gen_node(state: Scene2Input, config: RunnableConfig, runtime: Runtim
     
     if not draft or not token:
         return Scene2Output(scene_2_image=None)
+    
+    # ✅ v0.26: 重跑不重烧生图 — 同一任务已生成过 → 直接复用（队列重试/重启不再全量重烧）
+    _tid = _task_id_from_config(config)
+    if _tid:
+        cached = get_image(_tid, "scene_2")
+        if cached:
+            logger.info("命中任务生图缓存(scene_2)，复用已有图片，跳过生图")
+            return Scene2Output(scene_2_image=cached)
     
     scene_context_2 = state.scene_context_2 or '户外休闲场景'  # ✅ 优先使用LLM生成的场景，兜底使用默认值
     # ⚠️ v0.15: 提示词外置 config/image_prompts.json（热加载，改文件即生效，无需重建镜像）
@@ -68,6 +77,8 @@ def scene_2_gen_node(state: Scene2Input, config: RunnableConfig, runtime: Runtim
         )
         
         if image_url and isinstance(image_url, str) and image_url:
+            if _tid:
+                save_image(_tid, "scene_2", image_url)
             return Scene2Output(scene_2_image=image_url)
         
         return Scene2Output(scene_2_image=None)

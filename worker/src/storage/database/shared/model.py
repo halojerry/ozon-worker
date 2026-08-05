@@ -347,3 +347,25 @@ class DomainHint(Base):
     __table_args__ = (
         Index("idx_domain_hint_active", "priority"),
     )
+
+
+class TaskGeneratedImage(Base):
+    """v0.26: 任务生图缓存 — 重跑/重启不重烧生图额度。
+
+    每次图节点生成成功后写入 (task_id, slot) → url；
+    同一任务被队列重试/重启重新执行时，图节点先查缓存，命中直接复用，
+    不再重新调用生图 API（P0 修复：重跑必重烧 9+N 张图，Sentry 超时×100/failed×120 实证）。
+    slot 取值: main/white_bg/multi_angle/detail/social_proof/comparison/scene_1/scene_2/scene_3/variant_{idx}
+    """
+    __tablename__ = "task_generated_images"
+
+    task_id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="PG 任务 ID（config.configurable.thread_id）")
+    slot: Mapped[str] = mapped_column(String(32), primary_key=True, comment="图片槽位（见模块注释）")
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_task_images_task", "task_id"),
+    )
