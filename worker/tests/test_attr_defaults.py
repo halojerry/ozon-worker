@@ -10,7 +10,7 @@ os.environ["APP_WORKSPACE_PATH"] = os.path.abspath(os.path.join(os.path.dirname(
 from utils.attr_defaults import (
     find_dict_value_id, resolve_brand_default, resolve_gender_default,
     resolve_size_default, resolve_merge_card_default,
-    resolve_missing_mandatory_dict_attr, dict_search_terms,
+    resolve_missing_mandatory_dict_attr, dict_search_terms, resolve_ozon_attr_value,
 )
 
 
@@ -163,6 +163,53 @@ def test_dict_search_terms_per_attr():
     assert "Нет" in dict_search_terms(8292, "Объединить на одной карточке")
     terms = dict_search_terms(8229, "Тип", product_name_ru="Носки мужские", title_cn="男袜")
     assert "Носки мужские" in terms and "男袜" in terms
+
+
+def test_dict_search_terms_type_short_words_first():
+    terms = dict_search_terms(8229, "Тип", product_name_ru="Носки женские капроновые, 6 пар", title_cn="女袜")
+    assert terms[0] == "Носки"
+    assert "Носки женские" in terms
+
+
+def test_resolve_ozon_attr_value_matches_semantics():
+    attrs = {"Пол": "Женский", "Цвет": "черный", "Тип": "Носки", "Размер": "36-38"}
+    assert resolve_ozon_attr_value(9163, "Пол", attrs) == "Женский"
+    assert resolve_ozon_attr_value(10096, "Цвет", attrs) == "черный"
+    assert resolve_ozon_attr_value(8229, "Тип", attrs) == "Носки"
+    assert resolve_ozon_attr_value(4295, "Российский размер", attrs) == "36-38"
+    assert resolve_ozon_attr_value(999, "x", attrs) is None
+    assert resolve_ozon_attr_value(9163, "Пол", {}) is None
+
+
+def test_prepare_uses_ozon_attrs_first():
+    """竞品 Ozon 属性（Пол/Тип）→ search 填 dictionary_value_id，优先于 1688 推断。"""
+    from graphs.nodes.prepare_ozon_upload_node import _fill_missing_required_dict_attrs
+    from types import SimpleNamespace
+    from unittest import mock
+
+    schema = [
+        {"id": 9163, "name": "Пол", "is_required": True, "dictionary_id": 501},
+        {"id": 8229, "name": "Тип", "is_required": True, "dictionary_id": 504},
+    ]
+    state = SimpleNamespace(
+        dictionary_values={}, description_category_id="200001517", type_id="93157",
+        ozon_client_id="5381204", ozon_api_key="key",
+    )
+    items = [{"offer_id": "x_0", "name": "Носки женские", "attributes": []}]
+    draft = {"item_id": "x", "title": "女袜", "ozon_attributes": {"Пол": "Женский", "Тип": "Носки"}}
+
+    def fake_search(client_id, api_key, aid, dc, tp, value, language="RU"):
+        if aid == 9163 and value == "Женский":
+            return [{"id": 22881, "value": "Женский"}]
+        if aid == 8229 and value == "Носки":
+            return [{"id": 93157, "value": "Носки"}]
+        return []
+
+    with mock.patch("utils.ozon_dict_values.search_dictionary_values", side_effect=fake_search):
+        result = _fill_missing_required_dict_attrs(items, schema, draft, state)
+    attr_map = {a["id"]: a for it in result for a in it.get("attributes", [])}
+    assert attr_map[9163]["values"][0]["dictionary_value_id"] == 22881
+    assert attr_map[8229]["values"][0]["dictionary_value_id"] == 93157
 
 
 def test_resolve_type_default_takes_first_value():

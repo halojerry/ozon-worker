@@ -80,6 +80,34 @@ def infer_gender_ru(title_text: str) -> Optional[str]:
     return None
 
 
+def resolve_ozon_attr_value(attr_id: int, attr_name: str, ozon_attrs: Any) -> Optional[str]:
+    """从竞品 Ozon 属性表（俄语键值）取对应属性的值，按属性语义关键词匹配。"""
+    if not isinstance(ozon_attrs, dict) or not ozon_attrs:
+        return None
+    attr_id = int(attr_id or 0)
+    name = str(attr_name or "").lower()
+    if attr_id in (85, 31, 5076) or any(k in name for k in BRAND_NAME_KEYWORDS):
+        keys = ("бренд", "品牌", "brand")
+    elif attr_id == 9163 or any(k in name for k in GENDER_NAME_KEYWORDS):
+        keys = ("пол", "性别", "gender")
+    elif attr_id in (4295, 4411) or any(k in name for k in SIZE_NAME_KEYWORDS):
+        keys = ("размер", "尺码", "size")
+    elif attr_id == 8229 or any(k in name for k in TYPE_NAME_KEYWORDS):
+        keys = ("тип", "类型", "вид")
+    elif attr_id in (10096, 10097) or "цвет" in name or "颜色" in name:
+        keys = ("цвет", "颜色", "color")
+    elif any(k in name for k in ("материал", "材质", "material")):
+        keys = ("материал", "材质", "material")
+    else:
+        return None
+    for k, v in ozon_attrs.items():
+        kl = str(k or "").lower()
+        if any(kw in kl for kw in keys):
+            val = str(v or "").strip()
+            return val if val else None
+    return None
+
+
 def dict_search_terms(
     attr_id: int,
     attr_name: str,
@@ -106,6 +134,13 @@ def dict_search_terms(
         return ["Нет", "не объединять"]
     if attr_id == 8229 or any(k in name for k in TYPE_NAME_KEYWORDS):
         terms = [product_name_ru, title_cn]
+        # 短词优先：产品名首词/前两词（如 "Носки" 可搜到，全名搜不到）
+        if product_name_ru:
+            words = str(product_name_ru).replace(",", " ").split()
+            if words:
+                terms.insert(0, words[0])
+            if len(words) >= 2:
+                terms.insert(1, " ".join(words[:2]))
         return [t for t in terms if t]
     return []
 
