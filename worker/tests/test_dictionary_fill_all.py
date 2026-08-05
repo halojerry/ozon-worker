@@ -4,7 +4,7 @@
 修复：对 schema 中 dictionary_id>0 且未填的属性，三阶段填满：
   ① 缓存字典值精确匹配（dictionary_value_cache）
   ② /values/search（RU 关键词）
-  ③ /values 列表包含匹配（多值属性取全部匹配）
+  ③ /values 列表包含匹配（多值属性取全部匹配；单值属性取精确/首值）
 匹配不到 → 跳过（不盲补）。
 
 运行（Docker 内）：
@@ -33,12 +33,20 @@ SYNONYMS = {
         "ozon_name_keywords": ["сезон"],
         "value_map": {"四季": "Всесезонный"},
     },
+    "material": {
+        "zh_keywords": ["材质", "材料"],
+        "ozon_name_keywords": ["материал"],
+        "value_map": {"金属": "Металл"},
+    },
 }
 
 SCHEMA = [
-    {"id": 10096, "name": "Цвет товара", "dictionary_id": 1494, "is_required": True},
+    # 10096 颜色为真实多值属性（is_collection=True）
+    {"id": 10096, "name": "Цвет товара", "dictionary_id": 1494, "is_required": True, "is_collection": True},
     {"id": 22391, "name": "Сезон", "dictionary_id": 9999, "is_required": False},
     {"id": 22392, "name": "Свободный текст", "dictionary_id": 0, "is_required": False},
+    # 22393 材质为单值属性（无 is_collection/is_multivalue）
+    {"id": 22393, "name": "Материал", "dictionary_id": 7777, "is_required": False},
 ]
 
 
@@ -111,6 +119,20 @@ def test_list_contain_match_multivalue():
     assert len(g["values"]) == 2, f"多值应取全部匹配，实际 {g['values']}"
     texts = {v["value"] for v in g["values"]}
     assert texts == {"Черный", "Черный матовый"}, texts
+
+
+def test_single_value_attr_takes_exact_only():
+    """③ 单值属性（无 is_collection/is_multivalue）：列表包含多命中只取精确匹配，
+    防 Ozon ATTRIBUTE_VALUE_COUNT_EXCEEDED（"Металл" + "Металл матовый" 都命中 → 只取精确的 1 个）。"""
+    out, _sdv, _ldv = _call(
+        {"材质": "金属"},
+        dict_values_override={"22393": []},
+        search_return=[],
+        list_return=[{"id": 7001, "value": "Металл"}, {"id": 7002, "value": "Металл матовый"},
+                     {"id": 7003, "value": "Дерево"}],
+    )
+    g = next(a for a in out[0]["attributes"] if a.get("id") == 22393)
+    assert g["values"] == [{"dictionary_value_id": 7001, "value": "Металл"}], g["values"]
 
 
 def test_no_match_skipped():
