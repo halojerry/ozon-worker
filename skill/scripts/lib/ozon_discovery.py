@@ -954,6 +954,19 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
         scored.append((badge_eff * 40 + conf * 30, r))
 
     if not scored:
+        # ⚠️ v0.26 诊断: 记录为何无候选进入评分（badge 0/N / 无价格 / 空标题）
+        _reasons = []
+        for r in results[:8]:
+            _b = r.get("badge", "") or ""
+            _p = r.get("price", 0)
+            _t = (r.get("title", "") or "")[:22]
+            if re.search(r"符合\s*0\s*/\s*\d+\s*个条件", _b):
+                _reasons.append(f"badge0/N:{_t}")
+            elif not (float(_p or 0) > 0):
+                _reasons.append(f"无价:{_t}")
+            else:
+                _reasons.append(f"其他:{_t}")
+        logger.warning("图搜 %d 个候选全部被过滤: %s", len(results), " | ".join(_reasons[:6]))
         return None
     scored.sort(key=lambda x: x[0], reverse=True)
     best_score, best = scored[0]
@@ -975,6 +988,23 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
         logger.info("图搜徽标全部符合（matchBadgeFull）直接放行: %s", best.get("title", "")[:40])
         return best
 
+    # ⚠️ v0.26 FIX: LLM 语义兜底——词对词典覆盖极窄（「палочки от комаров 驱蚊棒」无词对 → conf=0），
+    # best 常是不相关的最高分项（如檀香贡香），相关项排后面被整体拒绝（"匹配了却不选"根因）。
+    # 在护栏拒绝前，对 top-N 候选逐个 LLM 判定（RU↔ZH 是否同品），任一命中即返回。
+    # LLM 判定可靠（直接问是否同品），不破坏"宁缺毋滥"语义。
+    def _llm_rescue() -> dict | None:
+        if not token:
+            return None
+        _seen_best_title = (best.get("title", "") or "")[:40]
+        for _sc, _r in scored[:6]:
+            _t = (_r.get("title", "") or "")[:40]
+            if _t == _seen_best_title[:40] or not _t:
+                continue
+            if _llm_semantic_match(ozon_title, _r.get("title", "") or "", token):
+                logger.info("LLM 语义判定 top-%d 候选同品，放行: %s", 6, _t)
+                return _r
+        return None
+
     # ✅ v0.19/v0.22: 无徽标降级（未登录 1688 / 页面未渲染徽标）：整页无任何有效徽标时，
     # 按标题相关性取最优，conf ≥ 0.3 即放行（用户确认可接受牺牲一点准确度）
     any_badge = any(
@@ -985,11 +1015,13 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
             logger.info("图搜无徽标（badge-less），标题相关性 conf=%.2f 放行: %s",
                         _conf_of_best, best.get("title", "")[:40])
             return best
-        # ⚠️ v0.26 FIX: 无徽标且词对相关性弱 → 仍可能同品（词对词典覆盖极窄，
-        # 如「палочки от комаров 驱蚊棒」词典无词对）。用 LLM 语义判定救回。
+        # ⚠️ v0.26 FIX: 无徽标且词对相关性弱 → LLM 语义判定救回（先 best 再 top-N）
         if _llm_semantic_match(ozon_title, _bt, token):
             logger.info("图搜无徽标，LLM 语义判定同品，放行: %s", _bt[:40])
             return best
+        _rescued = _llm_rescue()
+        if _rescued:
+            return _rescued
         logger.debug("图搜无徽标且标题相关性弱（conf=%.2f），拒绝: %s",
                      _conf_of_best, best.get("title", "")[:40])
         return None
@@ -999,11 +1031,13 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
                      best.get("badge", ""), best_score, best.get("title", "")[:40])
         return None
     if badge_eff_of_best < 0.5 and _conf_of_best < 0.3:
-        # ⚠️ v0.26 FIX: badge 轻微匹配但词对相关性弱 → 先 LLM 语义判定（词对词典覆盖窄，
-        # 误拒同品是「匹配了却不选」根因）；LLM 判定同品 → 放行
+        # ⚠️ v0.26 FIX: badge 轻微匹配但词对相关性弱 → 先 LLM 语义判定（先 best 再 top-N）
         if _llm_semantic_match(ozon_title, _bt, token):
             logger.info("图搜 badge 轻微匹配 + LLM 语义判定同品，放行: %s", _bt[:40])
             return best
+        _rescued = _llm_rescue()
+        if _rescued:
+            return _rescued
         logger.warning("图搜候选 badge 轻微匹配但标题相关性弱（badge=%s, conf=%.2f），拒绝: %s",
                        best.get("badge", ""), _conf_of_best, best.get("title", "")[:40])
         return None
@@ -1040,11 +1074,14 @@ def _llm_semantic_match(ozon_title: str, cn_title: str, token: str = "") -> bool
             json={
                 "model": "deepseek-v4-flash",
                 "messages": [
-                    {"role": "system", "content": "判断两个产品标题是否指同一个产品（俄语 vs 中文）。只看产品本身，忽略规格差异（数量/尺寸/颜色）。只回答 YES 或 NO。"},
-                    {"role": "user", "content": f"俄语标题: {oz_short}\n中文标题: {cn_short}\n是否为同一产品？"},
+                    {"role": "system", "content": "判断两个产品标题是否指向同一货源/可代工关系（俄语 vs 中文）。同物理形态且可互相加工即算 YES：如竹签香可浸驱蚊液制成驱蚊棒（香茅/柠檬草/驱蚊竹签香 → 驱蚊棒 = YES）；供佛香/檀香/贡香与驱蚊棒用途无关 = NO。只看产品本身，忽略规格差异（数量/尺寸/颜色）。只回答 YES 或 NO。"},
+                    {"role": "user", "content": f"俄语标题: {oz_short}\n中文标题: {cn_short}\n是否为同一货源？"},
                 ],
                 "temperature": 0,
-                "max_tokens": 10,
+                # ⚠️ deepseek-v4-flash 默认启用推理，reasoning_tokens 消耗 max_tokens 配额
+                # （AGENTS.md 已知坑）：max_tokens 至少 200，否则输出为空 → 判定恒 False
+                "thinking": {"type": "disabled"},
+                "max_tokens": 200,
             },
             timeout=20,
         )
