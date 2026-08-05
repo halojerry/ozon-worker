@@ -207,6 +207,7 @@ def process_ozon_url(
     api_key: str,
     worker_url: str,
     dry_run: bool,
+    store_id: str = "",
 ) -> dict[str, Any]:
     """Process a single Ozon URL: follow-sell pipeline → submit."""
     from scripts.cloud_probe import follow_sell_cloud, submit_envelope
@@ -227,7 +228,10 @@ def process_ozon_url(
         os.environ["OZON_API_KEY"] = api_key
 
         print(f"  🔗 [{product_id}] 跟卖流程 (Ozon抓图 → 1688搜同款 → 上架)...", flush=True)
-        follow_result = follow_sell_cloud(url, auto_submit=not dry_run)
+        # ✅ v0.26 FIX: 透传 store_id — 此前漏传导致 follow_sell_cloud 用默认店铺：
+        # ① extensions 定价参数（margin/commission/fx）取默认店铺为空 → Worker 用
+        #    默认值（利润计算与主店铺不符）；② 物流费率/币种走默认店铺 profile。
+        follow_result = follow_sell_cloud(url, auto_submit=not dry_run, store_id=store_id)
 
         result["follow_result"] = follow_result
         result["card_copied"] = follow_result.get("card_copied", False)
@@ -494,6 +498,7 @@ def main() -> int:
                 api_key=args.api_key,
                 worker_url=args.worker_url,
                 dry_run=args.dry_run,
+                store_id=args.store_id,
             )
 
         results.append(r)
