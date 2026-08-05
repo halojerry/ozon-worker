@@ -1055,12 +1055,35 @@ def _validate_and_fix_product_data(
         volume_cm3 = (l * w * h) / 1000.0  # mm³ → cm³
         density_g_cm3 = weight_g / volume_cm3 if volume_cm3 > 0 else 0
         if density_g_cm3 > 10:  # 比铅（11.3）还密？明显异常（塑料~1, 金属~7）
-            estimated_g = max(int(volume_cm3 * 1.0), 50)
-            logger.warning(
-                "物品 %s 密度过高 %.1f g/cm³（%dg / %.0f cm³），修正为 %dg",
-                item_id, density_g_cm3, weight_g, volume_cm3, estimated_g,
-            )
-            weight_g = estimated_g
+            if volume_cm3 < 10:
+                # ⚠️ v0.26 FIX: 体积荒谬（<10cm³ 装不下几百克）→ 尺寸是脏数据。
+                # 实测：一次性盘子 160g 被解析成 10×10×10mm（1cm³），密度 160 被砍成 50g，
+                # 运费/售价/利润全错。与 v0.21 低密度分支同理：商家重量可信，
+                # 重估尺寸（复用 800kg/m³ 估算），保留商家重量。
+                _density = 800.0
+                _vol_m3 = (weight_g / 1000.0) / _density
+                _vol_mm3 = _vol_m3 * 1e9
+                _ratio_p = 3.0
+                _base_mm = max((_vol_mm3 / _ratio_p) ** (1 / 3) if _vol_mm3 > 0 else 50.0, 30.0)
+                dimensions = {
+                    "length": round(_base_mm * 2.0),
+                    "width": round(_base_mm * 1.5),
+                    "height": round(_base_mm * 1.0),
+                }
+                estimated = True
+                logger.warning(
+                    "物品 %s 密度过高 %.1f g/cm³（%dg / %.0f cm³）且体积荒谬，"
+                    "判定尺寸脏数据，重估尺寸 %d×%d×%dmm，保留商家重量 %dg",
+                    item_id, density_g_cm3, weight_g, volume_cm3,
+                    dimensions["length"], dimensions["width"], dimensions["height"], weight_g,
+                )
+            else:
+                estimated_g = max(int(volume_cm3 * 1.0), 50)
+                logger.warning(
+                    "物品 %s 密度过高 %.1f g/cm³（%dg / %.0f cm³），修正为 %dg",
+                    item_id, density_g_cm3, weight_g, volume_cm3, estimated_g,
+                )
+                weight_g = estimated_g
         elif density_g_cm3 < 0.25 and volume_cm3 > 1000:  # 大体积但极轻（比泡沫还轻？数据错误）
             # v0.21 P2: 商家已提供真实重量 → 信任重量，不再用体积反推覆盖
             # （根因：风扇 300g→30.4kg、工具 400g→364kg 都是这个分支干的）
