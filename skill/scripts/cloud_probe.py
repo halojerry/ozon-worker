@@ -2748,7 +2748,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             # 现在用竞品标题（俄语）做相关性校验：badge "符合0/N" 跳过、RU→ZH 标题
             # 重叠打分、相关性过弱拒绝（返回 None → 不组装 envelope，宁缺毋滥）。
             from scripts.lib.ozon_discovery import _pick_best_match
-            best = _pick_best_match(matches, ozon_title) if ozon_title else matches[0]
+            # ⚠️ v0.26: 传 mxou_token — 护栏边界时 LLM 语义判定（词对词典覆盖窄，
+            # 「палочки от комаров 驱蚊棒」等无词对 → conf=0 误拒，修"匹配了却不选"）
+            best = _pick_best_match(matches, ozon_title, token=mxou_token) if ozon_title else matches[0]
             if best:
                 result["best_match"] = best
                 result["success"] = True
@@ -2870,48 +2872,17 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             except Exception as e:
                 result["envelope_error"] = str(e)
     elif result.get("no_relevant_match"):
-        # ⚠️ v0.22: 图搜无 1688 货源匹配 → api 强制跟卖（import-by-sku 复制竞品卡片）。
-        # 触发规则：有竞品图+标题+类目即可复制；无货源不丢单
-        # （1:1 复制有下架风险，result 标记 api_fallback 供 agent 知晓）。
-        if ozon_images and ozon_title and result.get("ozon_category"):
-            envelope = {
-                "envelope": {
-                    "draft": {
-                        "ozon_product_id": product_id,
-                        "title": ozon_title,
-                        "images": ozon_images[:10],
-                        "ozon_category": result["ozon_category"],
-                        "currency": "CNY",
-                        "item_id": product_id,
-                    },
-                    "extensions": {"follow_sell": True, "follow_type": "api"},
-                },
-            }
-            _comp_price = result.get("competitor_price", "")
-            if _comp_price:
-                envelope["envelope"]["draft"]["competitor_price"] = _comp_price
-            for _k in ("competitor_weight_g", "competitor_dimensions_mm",
-                       "ozon_monthly_sales", "ozon_gmv"):
-                if result.get(_k) not in (None, "", 0, {}, []):
-                    envelope["envelope"]["extensions"][_k] = result[_k]
-            envelope["ozon_client_id"] = client_id
-            envelope["ozon_api_key"] = api_key
-            envelope["token"] = mxou_token
-            result["envelope"] = envelope
-            result["envelope_built"] = True
-            result["api_fallback"] = True
-            logger.warning(
-                "⚠️ 图搜无货源匹配 → api 强制跟卖（import-by-sku 复制竞品卡片），"
-                "有下架风险（1:1 复制）"
-            )
-            if auto_submit:
-                submit_res = submit_envelope(envelope)
-                result["submit_result"] = submit_res
-                result["task_id"] = submit_res.get("task_id", "")
-        else:
-            logger.warning(
-                "⚠️ 无货源且竞品信息不完整（缺图/标题/类目），无法 api 强制跟卖"
-            )
+        # ⚠️ v0.26 FIX: 图搜无 1688 货源匹配 → 不再 api 强制跟卖（import-by-sku 复制竞品卡）。
+        # 原逻辑（v0.22）组装「无采购价/无 1688 属性」空壳信封提交 → worker 定价/属性全缺
+        # （Ozon 实证：无货源 api 跟卖提交空壳，价格 0/属性缺失被拒）。
+        # 决策（用户确认）：无货源必须拦截，不丢单也不上空壳。
+        result["blocked_reason"] = "no_relevant_match"
+        result["envelope_built"] = False
+        result["api_fallback"] = False
+        logger.warning(
+            "⛔ 图搜无 1688 货源匹配，拦截提交（no_relevant_match）。"
+            "候选列表中有相关商品但相关性护栏拒绝——可调低护栏或改用 LLM 语义判定"
+        )
 
     # ⚠️ v0.14 E5: 收尾关闭共享连接（Step 2/3a 用完后释放）
     if shared_cdp is not None:

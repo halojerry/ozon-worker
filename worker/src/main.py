@@ -1134,7 +1134,9 @@ async def http_progress(run_id: str):
 def _validate_draft_required_fields(draft: dict, extensions: dict) -> str | None:
     """返回缺失字段错误信息；通过返回 None。
     api 强制跟卖（follow_sell + follow_type=api）走 import-by-sku 复制竞品，
-    不需要 1688 货源字段（weight/dimensions/purchase_cost/purchase_url）。"""
+    不需要 1688 货源字段（weight/dimensions/purchase_cost/purchase_url），
+    但 ⚠️ v0.26 FIX: 必须带 ozon_product_id（竞品身份）——否则是空壳信封，
+    worker 拿不到竞品卡去复制（原漏洞：空壳能通过校验，定价/属性全缺被 Ozon 拒）。"""
     _is_api_follow = bool(
         (extensions or {}).get("follow_sell")
         and str((extensions or {}).get("follow_type") or "hand").lower() == "api"
@@ -1154,6 +1156,11 @@ def _validate_draft_required_fields(draft: dict, extensions: dict) -> str | None
             if expected_type == (int, float) and isinstance(val, (int, float)):
                 continue
             missing.append(f"draft.{field}(类型错误: 期望{expected_type}, 实际{type(val).__name__})")
+    # ⚠️ v0.26: api 跟卖必须带竞品身份（ozon_product_id 或 competitor_price 二选一），
+    # 否则拦截（防空壳信封——图搜无货源仍提交）
+    if _is_api_follow:
+        if not str(draft.get("ozon_product_id") or "").strip() and not str(draft.get("competitor_price") or "").strip():
+            missing.append("draft.ozon_product_id/competitor_price（api 跟卖必须有竞品身份）")
     return f"envelope.draft 缺少必填字段: {', '.join(missing)}" if missing else None
 
 
