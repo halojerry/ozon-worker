@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import platform
+import re
 import shutil
 import signal
 import socket
@@ -192,7 +193,6 @@ def _find_chrome_processes() -> list[dict]:
                 cmd = parts[1]
                 port = None
                 if "--remote-debugging-port=" in cmd:
-                    import re
                     m = re.search(r"--remote-debugging-port=(\d+)", cmd)
                     if m:
                         port = int(m.group(1))
