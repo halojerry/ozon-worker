@@ -35,7 +35,7 @@ _NODE_STAGE_MAP = {
 
 
 class ProgressCallback:
-    """LangGraph 回调：节点执行时更新进度"""
+    """LangGraph 回调：节点执行时更新进度 + Sentry 节点 span（v0.26）"""
     # LangChain >=0.3 required callback attributes
     run_inline = True
     ignore_chain = False
@@ -45,22 +45,47 @@ class ProgressCallback:
     ignore_chat_model = False
     raise_error = False
 
-    def __init__(self, task_id: str, update_fn):
+    def __init__(self, task_id: str, update_fn, transaction=None):
         self.task_id = task_id
         self.update_fn = update_fn
+        self.transaction = transaction
+        self._spans: dict = {}  # run_id → span
 
     def on_chain_start(self, serialized, inputs, **kwargs):
         node_name = serialized.get("name", "") if isinstance(serialized, dict) else ""
         stage = _NODE_STAGE_MAP.get(node_name, node_name)
         if stage and self.update_fn:
             self.update_fn(self.task_id, stage, f"执行 {node_name}...")
+        # ✅ v0.26 Sentry: 节点 span（trace 视图看节点耗时/重跑次数）
+        if self.transaction is not None and node_name:
+            try:
+                from utils.sentry_setup import start_node_span
+                run_id = kwargs.get("run_id") or str(len(self._spans))
+                self._spans[run_id] = start_node_span(self.transaction, node_name)
+            except Exception:
+                pass
 
     def on_chain_end(self, outputs, **kwargs):
-        pass
+        run_id = kwargs.get("run_id")
+        span = self._spans.pop(run_id, None) if run_id else None
+        if span is not None:
+            try:
+                from utils.sentry_setup import finish_span
+                finish_span(span, status="ok")
+            except Exception:
+                pass
 
     def on_chain_error(self, error, **kwargs):
         if self.update_fn:
             self.update_fn(self.task_id, "error", str(error)[:100])
+        run_id = kwargs.get("run_id")
+        span = self._spans.pop(run_id, None) if run_id else None
+        if span is not None:
+            try:
+                from utils.sentry_setup import finish_span
+                finish_span(span, status="internal_error")
+            except Exception:
+                pass
 
 
 class SupabaseTaskProcessor:
@@ -362,6 +387,26 @@ class SupabaseTaskProcessor:
         except Exception as e:
             logger.error(f"任务失败处理异常: {e}")
 
+    async def _heartbeat(self, task_id: str) -> None:
+        """每 60s 刷新任务 updated_at —— 健康但慢的任务（生图轮询 180s/LLM 长耗时）不再被
+        main._periodic_task_cleanup 的「30 分钟未更新 → stale」误判卡死重置（v0.26 保活）。"""
+        if not task_id or task_id == "unknown":
+            return
+        try:
+            while True:
+                await asyncio.sleep(60)
+                try:
+                    with self.engine.connect() as conn:
+                        conn.execute(text(
+                            "UPDATE ozon_product_tasks SET updated_at = NOW() "
+                            "WHERE id = :tid AND status = 'running'"
+                        ), {"tid": task_id})
+                        conn.commit()
+                except Exception:
+                    pass  # 心跳失败不阻断主流程，下次周期再试
+        except asyncio.CancelledError:
+            pass
+
     async def execute_graph_with_timeout(
         self,
         payload: Dict[str, Any],
@@ -377,18 +422,27 @@ class SupabaseTaskProcessor:
         Returns:
             LangGraph输出结果
         """
+        task_id = payload.get("task_id", "unknown")
+        # ⚠️ v0.26: 心跳保活 — 图执行期间每 60s 刷新 updated_at，防慢任务被 stale 清理重置
+        heartbeat = asyncio.create_task(self._heartbeat(task_id))
+        # ✅ v0.26 Sentry: 任务级 transaction（trace 视图看全链路节点耗时）
+        transaction = None
+        try:
+            from utils.sentry_setup import start_task_transaction
+            transaction = start_task_transaction(task_id=task_id, tenant_id=payload.get("tenant_id", ""))
+        except Exception:
+            transaction = None
         try:
             from langchain_core.runnables import RunnableConfig
             from main import update_progress, set_current_task_id
 
-            task_id = payload.get("task_id", "unknown")
             # ✅ v0.10: 设置全局当前 task_id，使 ProgressLogger 能自动获取
             set_current_task_id(task_id)
             config = RunnableConfig(
                 configurable={"thread_id": task_id},
                 run_name=f"task_{task_id}",
                 metadata={"task_id": task_id},
-                callbacks=[ProgressCallback(task_id, update_progress)],
+                callbacks=[ProgressCallback(task_id, update_progress, transaction=transaction)],
             )
             result = await asyncio.wait_for(
                 main_graph.ainvoke(payload, config=config),
@@ -399,6 +453,14 @@ class SupabaseTaskProcessor:
         except TimeoutError:
             raise TimeoutError(f"LangGraph流程执行超时（{timeout}秒）")
         finally:
+            # 停止心跳
+            heartbeat.cancel()
+            # ✅ v0.26 Sentry: 结束任务 transaction
+            try:
+                from utils.sentry_setup import finish_transaction
+                finish_transaction(transaction, status="ok")
+            except Exception:
+                pass
             # ✅ v0.10: 清除全局 task_id 上下文
             try:
                 from main import set_current_task_id
