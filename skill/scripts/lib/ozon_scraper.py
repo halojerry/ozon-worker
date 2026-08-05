@@ -24,6 +24,32 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+def parse_ru_weight(text) -> int | None:
+    """从 '900 г' / '1,2 кг' / '500 g' 解析克数。"""
+    t = str(text or "").lower().replace(",", ".")
+    m = re.search(r"([\d.]+)\s*(кг|kg|г|g|грамм)", t)
+    if not m:
+        return None
+    try:
+        val = float(m.group(1))
+    except ValueError:
+        return None
+    return int(val * 1000) if m.group(2) in ("кг", "kg") else int(val)
+
+
+def parse_ru_dims(text) -> dict | None:
+    """从 '20x15x5 см' 解析 mm 尺寸（仅三边齐全时返回，避免瞎估）。"""
+    t = str(text or "").replace("×", "x").replace("х", "x").lower()
+    m = re.search(r"([\d.]+)\s*[xх]\s*([\d.]+)\s*[xх]\s*([\d.]+)", t)
+    if not m:
+        return None
+    try:
+        vals = [float(x) for x in m.groups()]
+    except ValueError:
+        return None
+    mult = 10 if ("см" in t or "cm" in t) else 1
+    return {"length": int(vals[0] * mult), "width": int(vals[1] * mult), "height": int(vals[2] * mult)}
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -493,6 +519,7 @@ def scrape_ozon_product_via_cdp(
                 if (!data) return JSON.stringify({{error: "entrypoint fetch failed"}});
                 const widgets = data.widgetStates || data.widgetState || {{}};
                 const out = {{chars: [], breadcrumbs: [], hashtags: [],
+                             fullChars: [], aspects: [],
                              rating: "", reviewCount: 0, seller: "", questionCount: 0,
                              sellerCount: 0, minPrice: ""}};
                 for (const [k, v] of Object.entries(widgets)) {{
@@ -503,6 +530,35 @@ def scrape_ozon_product_via_cdp(
                                 title: c.title?.textRs?.[0]?.content || "",
                                 value: c.values?.[0]?.text || ""
                             }}));
+                        }} catch {{}}
+                    }}
+                    if (k.includes("webCharacteristics")) {{
+                        try {{
+                            const parsed = JSON.parse(v);
+                            const walk = (arr) => {{
+                                for (const g of (arr || [])) {{
+                                    if (g.title?.textRs?.[0]?.content) {{
+                                        out.fullChars.push({{title: g.title.textRs[0].content,
+                                                           value: (g.values || []).map(x => x.text || "").join(", ")}});
+                                    }}
+                                    if (g.characteristics) walk(g.characteristics);
+                                }}
+                            }};
+                            walk(parsed.characteristics || []);
+                        }} catch {{}}
+                    }}
+                    if (k.includes("webAspects")) {{
+                        try {{
+                            const parsed = JSON.parse(v);
+                            const names = [];
+                            for (const a of (parsed.aspects || parsed.variants || [])) {{
+                                if (a.name) names.push(a.name);
+                                for (const vv of (a.values || [])) {{
+                                    if (typeof vv === "string") names.push(vv);
+                                    else if (vv && vv.text) names.push(vv.text);
+                                }}
+                            }}
+                            out.aspects = names.slice(0, 20);
                         }} catch {{}}
                     }}
                     if (k.includes("breadCrumbs")) {{
@@ -585,6 +641,11 @@ def scrape_ozon_product_via_cdp(
                         if c.get("title") and c.get("value"):
                             attrs[c["title"]] = c["value"]
                     result["attributes"] = attrs
+                # ✅ v0.25: 全量特性（含 Вес/Габариты/Размер）+ 变体 aspects（含颜色）
+                if api_data.get("fullChars"):
+                    result["characteristics"] = api_data["fullChars"]
+                if api_data.get("aspects"):
+                    result["aspects"] = api_data["aspects"]
                 # ✅ v0.19.1 P1: 评分/评论/卖家/提问/跟卖（可选字段，契约兼容）
                 if api_data.get("rating"):
                     result["ozon_rating"] = api_data.get("rating")

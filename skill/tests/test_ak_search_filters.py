@@ -67,6 +67,21 @@ def test_extract_source_category_id_empty():
     assert _extract_source_category_id([{"name": "x"}]) is None
 
 
+def test_parse_ru_weight():
+    from ozon_scraper import parse_ru_weight
+    assert parse_ru_weight("900 г") == 900
+    assert parse_ru_weight("1,2 кг") == 1200
+    assert parse_ru_weight("500 g") == 500
+    assert parse_ru_weight("нет данных") is None
+
+
+def test_parse_ru_dims():
+    from ozon_scraper import parse_ru_dims
+    assert parse_ru_dims("20×15×5 см") == {"length": 200, "width": 150, "height": 50}
+    assert parse_ru_dims("25x15x8 см") == {"length": 250, "width": 150, "height": 80}
+    assert parse_ru_dims("70x140") is None  # 只有两边 → 不瞎估
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0

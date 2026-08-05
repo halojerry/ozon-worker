@@ -2795,6 +2795,36 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     _ozon_attrs = cdp_data.get("attributes") or {}
                     if _ozon_attrs:
                         draft["ozon_attributes"] = _ozon_attrs
+                    _full = cdp_data.get("characteristics") or []
+                    _attrs_all = dict(_ozon_attrs)
+                    for _fc in _full:
+                        if isinstance(_fc, dict) and _fc.get("title") and _fc.get("value"):
+                            _attrs_all.setdefault(str(_fc["title"]), str(_fc["value"]))
+                    if _attrs_all:
+                        draft["ozon_attributes"] = _attrs_all
+                    if not any("цвет" in k.lower() or "颜色" in k for k in _attrs_all):
+                        _aspects = cdp_data.get("aspects") or []
+                        _color_ru = next(
+                            (str(a) for a in _aspects if any(
+                                c in str(a).lower() for c in
+                                ("черн", "бел", "сер", "син", "красн", "зелен", "розов", "беж", "коричн", "золот")
+                            )), ""
+                        )
+                        if _color_ru:
+                            draft["ozon_attributes"]["Цвет"] = _color_ru
+                    if not result.get("competitor_weight_g") or not result.get("competitor_dimensions_mm"):
+                        try:
+                            from scripts.lib.ozon_scraper import parse_ru_weight, parse_ru_dims
+                            _w = parse_ru_weight(next((v for k, v in _attrs_all.items()
+                                                       if any(x in k.lower() for x in ("вес", "масса", "重量"))), ""))
+                            _d = parse_ru_dims(next((v for k, v in _attrs_all.items()
+                                                     if any(x in k.lower() for x in ("габарит", "размер упаковки"))), ""))
+                            if _w:
+                                result.setdefault("competitor_weight_g", _w)
+                            if _d:
+                                result.setdefault("competitor_dimensions_mm", _d)
+                        except Exception:
+                            pass
                     # ✅ Ozon 类目 ID（从竞品页面提取，Worker 跳过 1688 类目匹配）
                     ozon_cat = result.get("ozon_category")
                     if ozon_cat:
