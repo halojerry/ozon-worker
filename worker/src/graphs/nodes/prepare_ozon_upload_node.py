@@ -611,6 +611,9 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
             int(a.get("dictionary_id") or 0) > 0
             or int(a.get("id") or 0) in (22390,)
             or int(a.get("id") or 0) in (8292,)  # 合并卡片：可能是字典也可能是自由文本
+            or int(a.get("id") or 0) in (23487,)  # 制造商：自由文本 = supplier
+            or "производител" in str(a.get("name") or "").lower()
+            or "制造商" in str(a.get("name") or "")
             or "модель" in str(a.get("name") or "").lower()
         )
     ]
@@ -636,6 +639,13 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
             if aid in (22390,) or "модель" in str(attr.get("name") or "").lower():
                 attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": item_id}]})
                 logger.info("✅ 型号 %s(%s) = itemId %s", aid, attr.get("name"), item_id)
+                continue
+            # 制造商 23487 = 自由文本，填 1688 供应商名
+            if aid == 23487 or "производител" in str(attr.get("name") or "").lower() or "制造商" in str(attr.get("name") or ""):
+                _sup = str((draft or {}).get("supplier") or "")
+                if _sup:
+                    attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": _sup[:100]}]})
+                    logger.info("✅ 必填自由文本属性 %s(制造商) 用 supplier 补齐: %s", aid, _sup[:40])
                 continue
             # ✅ v0.25 修复: 颜色(10096/10097) — 1688 颜色 → RU 映射 → 字典 id
             if aid in (10096, 10097) or "цвет" in str(attr.get("name") or "").lower() or "颜色" in str(attr.get("name") or ""):
@@ -830,6 +840,21 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                             resolved = (int(_sv.get("id") or 0), str(_sv.get("value") or ""))
                             logger.info("✅ 尺码 %s 无来源，用 One size 兜底: %s", aid, resolved[1])
                             break
+                except Exception:
+                    resolved = None
+            # 9163 性别无来源 → 中性默认 Унисекс（同颜色中性默认策略）
+            if not resolved and aid in (9163,):
+                try:
+                    from utils.ozon_dict_values import search_dictionary_values as _sdvg
+                    _hits_g = _sdvg(
+                        getattr(state, "ozon_client_id", "") or "",
+                        getattr(state, "ozon_api_key", "") or "",
+                        aid, int(dc) if dc else 0, int(tp) if tp else 0, "Унисекс",
+                    )
+                    if _hits_g:
+                        _g = find_dict_value_id(_hits_g, "Унисекс")
+                        resolved = _g or (int(_hits_g[0].get("id") or 0), str(_hits_g[0].get("value") or "Унисекс"))
+                        logger.info("✅ 性别无来源，用中性 Унисекс 兜底: %s (id=%s)", resolved[1], resolved[0])
                 except Exception:
                     resolved = None
             if not resolved:
