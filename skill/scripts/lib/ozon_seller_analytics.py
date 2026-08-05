@@ -27,6 +27,8 @@ DEFAULT_BATCH_DELAY = 1.0
 EVALUATE_TIMEOUT = 30
 
 # what_to_sell 请求模板。__COMPANY_ID__ / __SKU__ 由 Python 侧替换。
+# ✅ v0.26（参考 maozi CROSS_TAB）：credentials:"include" — 同源 fetch 默认 same-origin
+# 也会带 cookie，但显式 include 覆盖 __Secure-* 分区 cookie / CHIPS 差异，零成本。
 _SELLER_ANALYTICS_JS = r'''(async () => {
     try {
         const resp = await fetch('/api/site/seller-analytics/what_to_sell/data/v3', {
@@ -36,6 +38,7 @@ _SELLER_ANALYTICS_JS = r'''(async () => {
                 'x-o3-company-id': __COMPANY_ID__,
                 'x-o3-language': 'zh-Hans',
             },
+            credentials: 'include',
             body: JSON.stringify({
                 limit: "50",
                 offset: "0",
@@ -43,7 +46,11 @@ _SELLER_ANALYTICS_JS = r'''(async () => {
                 sort: {key: "sum_gmv_desc"}
             }),
         });
-        const data = await resp.json();
+        const text = await resp.text();
+        let data;
+        try { data = JSON.parse(text); }
+        catch (e) { return JSON.stringify({error: "非JSON响应 status=" + resp.status + " body=" + text.slice(0, 200)}); }
+        if (!resp.ok) { return JSON.stringify({error: "HTTP " + resp.status + " " + text.slice(0, 200)}); }
         return JSON.stringify(data);
     } catch (e) {
         return JSON.stringify({error: String((e && e.message) || e)});
@@ -69,6 +76,21 @@ def _to_float(v: Any) -> float:
         return float(str(v).replace(" ", "").replace(",", ""))
     except (TypeError, ValueError):
         return 0.0
+
+
+def _to_rate(v: Any) -> float:
+    """佣金率解析（v0.26 修 maozi 实测根因）。
+
+    毛子实测：what_to_sell 响应的 fbp_rate / rfbs_rate 是**分段对象**
+    {fbp_leq_1500, fbp_leq_5000, fbp_gt_5000}，旧代码 _to_float 对 dict
+    直接 str() → 恒 0。取中间段（5000 内）代表佣金；标量直接转。
+    """
+    if isinstance(v, dict):
+        for k in ("fbp_leq_5000", "rfbs_leq_5000", "fbp_leq_1500", "fbp_gt_5000"):
+            if v.get(k) not in (None, ""):
+                return _to_float(v.get(k))
+        return 0.0
+    return _to_float(v)
 
 
 def _first(item: dict, *keys: str, default: Any = 0) -> Any:
@@ -98,8 +120,8 @@ def _extract_metrics(item: dict) -> dict[str, Any]:
         "session_count_search": _to_int(_first(item, "sessionCountSearch", "session_count_search")),
         "rating": _to_float(_first(item, "rating", "avgRating")),
         "review_count": _to_int(_first(item, "reviewsCount", "review_count")),
-        "commission_fbp": _to_float(_first(item, "fbpRate", "fbp_rate", "commissionFbp")),
-        "commission_rfbs": _to_float(_first(item, "rfbsRate", "rfbs_rate", "commissionRfbs")),
+        "commission_fbp": _to_rate(_first(item, "fbp_rate", "commissionFbp", "fbpRate")),
+        "commission_rfbs": _to_rate(_first(item, "rfbs_rate", "commissionRfbs", "rfbsRate")),
     }
 
     # 重量/尺寸在 attributes（毛子: 4497 重量, 9454/9455/9456 长/宽/高, 单位 mm）
@@ -135,17 +157,54 @@ def _parse_response(data: dict) -> dict[str, Any]:
     return {}
 
 
+def _tab_for_seller(cdp) -> tuple:
+    """获取 seller.ozon.ru 的可用 Tab —— ✅ v0.26 参考 maozi CROSS_TAB 借道。
+
+    优先复用用户已打开的 seller.ozon.ru Tab（登录态天然在 cookie 里），
+    而不是新建 Tab（新 Tab 打开根路径会被重定向到 /app/ 或登录页，
+    sc_company_id 拿不到 → 0/1 SKUs have data 头号根因）。
+
+    Returns:
+        (tab, reused)：reused=True 表示复用用户 Tab（调用方必须 release +
+        close(close_remote=False) 防误关用户标签页）；False 表示新建（可正常 close）。
+    """
+    try:
+        reused = cdp.find_tab("seller.ozon.ru")
+        if reused is not None:
+            logger.info("seller.ozon.ru: 复用用户已登录 seller Tab（跨 Tab 借道）")
+            return reused, True
+    except Exception as exc:
+        logger.debug("find_tab seller.ozon.ru 失败（降级新建）: %s", exc)
+    logger.info("seller.ozon.ru: 未找到已打开 seller Tab，新建（可能需重新登录）")
+    tab = cdp.new_tab()
+    tab.navigate(SELLER_URL, wait_until="domcontentloaded", timeout=30)
+    time.sleep(3)  # 等登录态/SPA 初始化
+    return tab, False
+
+
+def _close_seller_tab(cdp, tab, reused: bool) -> None:
+    """关闭/归还 seller Tab。reused=True 时只关 WS 不关远程（防误关用户标签页）。"""
+    if tab is None:
+        return
+    try:
+        if reused:
+            cdp.release(tab)
+            tab.close(close_remote=False)
+        else:
+            tab.close()
+    except Exception:
+        pass
+
+
 def check_seller_login(cdp) -> bool:
     """检测 seller.ozon.ru 卖家后台登录态（运营数据可用性）。
 
     登录成功 → sc_company_id cookie 存在。返回 True/False。
-    用独立 tab，用完关闭。
+    优先复用用户已打开的 seller Tab；否则新建检测。
     """
-    tab = None
+    tab, reused = None, False
     try:
-        tab = cdp.new_tab()
-        tab.navigate(SELLER_URL, wait_until="domcontentloaded", timeout=30)
-        time.sleep(3)
+        tab, reused = _tab_for_seller(cdp)
         company_id = ""
         try:
             company_id = str(tab.evaluate(_GET_COMPANY_ID_JS, timeout=10) or "")
@@ -164,11 +223,7 @@ def check_seller_login(cdp) -> bool:
     except Exception:
         return False
     finally:
-        if tab is not None:
-            try:
-                tab.close()
-            except Exception:
-                pass
+        _close_seller_tab(cdp, tab, reused)
 
 
 def fetch_sales_analytics(
@@ -194,11 +249,9 @@ def fetch_sales_analytics(
 
     skus = [str(s) for s in skus[:max_skus]]
 
-    tab = None
+    tab, reused = None, False
     try:
-        tab = cdp.new_tab()
-        tab.navigate(SELLER_URL, wait_until="domcontentloaded", timeout=30)
-        time.sleep(3)  # 等登录态/SPA 初始化
+        tab, reused = _tab_for_seller(cdp)
 
         # 1. 取 sc_company_id cookie（document.cookie 优先，HttpOnly 走 CDP 网络域兜底）
         company_id = ""
@@ -230,13 +283,18 @@ def fetch_sales_analytics(
                 if raw:
                     data = json.loads(raw)
                     if data.get("error"):
-                        logger.debug("sku %s analytics error: %s", sku, data["error"])
+                        # ✅ v0.26: 失败日志升级 — 旧 debug 把 401/403/429/空 items 全吞掉，
+                        # 无法定位（毛子对照后改进，保留原始错误正文前 200 字）
+                        logger.warning("sku %s analytics error: %s", sku, str(data["error"])[:200])
                     else:
                         metrics = _parse_response(data)
                         if metrics:
                             results[sku] = metrics
+                        else:
+                            logger.warning("sku %s analytics 响应无可用 item（可能接口结构变化）: %s",
+                                           sku, str(raw)[:200])
             except Exception as exc:
-                logger.debug("sku %s analytics fetch failed: %s", sku, exc)
+                logger.warning("sku %s analytics fetch failed: %s", sku, str(exc)[:200])
 
             if i < len(skus) - 1:
                 time.sleep(batch_delay)
@@ -248,11 +306,7 @@ def fetch_sales_analytics(
         logger.warning("seller.ozon.ru analytics 整体失败，降级: %s", exc)
         return {}
     finally:
-        if tab is not None:
-            try:
-                tab.close()
-            except Exception:
-                pass
+        _close_seller_tab(cdp, tab, reused)
 
 
 def apply_analytics_to_candidate(candidate, metrics: dict) -> bool:
