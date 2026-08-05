@@ -1051,6 +1051,33 @@ def _build_shared_marketing_images(state: Any, is_follow_sell: bool) -> tuple[Li
     return shared_marketing_images, (main_image or "")
 
 
+_COS_REGION_RE = re.compile(r'cos\.[a-z0-9\-]+\.myqcloud\.com')
+
+
+def _to_ozon_image_url(url: str) -> str:
+    """COS 区域域名 → 全球加速域名（Ozon 跨境抓图更稳定，wave4 图抓取失败频发）。
+
+    例：https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/... 
+        → https://yss-1256275613.cos.accelerate.myqcloud.com/...
+    幂等：加速域名再走一次不变。
+    """
+    if isinstance(url, str) and "myqcloud.com" in url:
+        return _COS_REGION_RE.sub("cos.accelerate.myqcloud.com", url)
+    return url
+
+
+def _rewrite_payload_images_to_accelerate(payload: Dict[str, Any]) -> None:
+    """把 payload 所有 item 的 primary_image/images 改写成 COS 全球加速域名。"""
+    for item in payload.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        if isinstance(item.get("primary_image"), str) and item["primary_image"]:
+            item["primary_image"] = _to_ozon_image_url(item["primary_image"])
+        imgs = item.get("images")
+        if isinstance(imgs, list):
+            item["images"] = [_to_ozon_image_url(u) for u in imgs if isinstance(u, str)]
+
+
 def prepare_ozon_upload_node(
     state: PrepareOzonUploadInput,
     config: RunnableConfig,
@@ -2542,6 +2569,12 @@ def prepare_ozon_upload_node(
         validation_errors.append("价格无效（price must be > 0）")
     if weight_g == 0:
         validation_errors.append("重量无效（weight must be > 0）")
+
+    # ✅ v0.25 FIX: COS 区域域名 → 全球加速域名（Ozon 跨境抓图更稳定）
+    # wave4 实证：图片在 ap-guangzhou 域名上 Ozon 抓取偶发失败（pics_http_error /
+    # primary_image_load_failed / 整卡 0 图）。加速域名经腾讯全球加速网络，
+    # Ozon 服务器拉取更稳。幂等改写。
+    _rewrite_payload_images_to_accelerate(ozon_payload)
     
     # ✅ dimension_weight_issues仅作为日志记录，不加入validation_errors（已用默认值修复）
     if dimension_weight_issues:

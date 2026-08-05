@@ -1,6 +1,7 @@
-"""v0.25 图片/制造商兜底修复单测 — ① 跟卖上传绝不用竞品 ir.ozone.ru 图
+"""v0.25 图片/制造商/URL 兜底修复单测 — ① 跟卖上传绝不用竞品 ir.ozone.ru 图
 （wave4 浴刷 0 图下架实证）；② 制造商 23487 中文供应商必须俄语化
-（BR_chinese_hieroglyphs_in_attribute 整单拒绝实证）。
+（BR_chinese_hieroglyphs_in_attribute 整单拒绝实证）；③ COS 区域域名 →
+全球加速域名（Ozon 跨境抓图更稳定）。
 
 运行：
     cd worker && PYTHONPATH=src python3 tests/test_image_fallback_v025.py
@@ -110,6 +111,40 @@ def test_manufacturer_chinese_supplier_fallback():
     val = out[0]["attributes"][0]["values"][0]["value"]
     assert val == "Китайская компания"
     assert not any('\u4e00' <= c <= '\u9fff' for c in val)
+
+
+def test_cos_region_rewritten_to_accelerate():
+    """COS ap-guangzhou 域名 → 全球加速域名（Ozon 抓图更稳）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _to_ozon_image_url
+
+    src = "https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/abc.jpeg"
+    out = _to_ozon_image_url(src)
+    assert out == "https://yss-1256275613.cos.accelerate.myqcloud.com/file/images/abc.jpeg"
+    # 幂等
+    assert _to_ozon_image_url(out) == out
+    # 非 COS 域名不动
+    assert _to_ozon_image_url("https://ir.ozone.ru/x.jpg") == "https://ir.ozone.ru/x.jpg"
+    assert _to_ozon_image_url("https://cbu01.alicdn.com/img/x.jpg") == "https://cbu01.alicdn.com/img/x.jpg"
+
+
+def test_payload_images_rewritten():
+    """payload 的 primary_image/images 全部改写为加速域名。"""
+    from graphs.nodes.prepare_ozon_upload_node import _rewrite_payload_images_to_accelerate
+
+    payload = {
+        "items": [{
+            "primary_image": "https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/a.png",
+            "images": [
+                "https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/b.jpeg",
+                "https://ir.ozone.ru/s3/x.jpg",
+            ],
+        }]
+    }
+    _rewrite_payload_images_to_accelerate(payload)
+    item = payload["items"][0]
+    assert item["primary_image"].startswith("https://yss-1256275613.cos.accelerate.myqcloud.com/")
+    assert item["images"][0].startswith("https://yss-1256275613.cos.accelerate.myqcloud.com/")
+    assert item["images"][1] == "https://ir.ozone.ru/s3/x.jpg"  # 非 COS 不动
 
 
 if __name__ == "__main__":
