@@ -933,7 +933,7 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
     对 schema 中 dictionary_id>0 且当前未填的属性：
     ① 同义词规则（attr_synonyms.json，1688 属性名 → Ozon 属性名 + value_map 中文→RU）
     ② /values/search（RU 关键词）精确取 dictionary_value_id
-    ③ /values 列表模式在值里做包含匹配（多值属性取全部匹配）
+    ③ /values 列表模式在值里做包含匹配（多值属性取全部匹配；单值属性取精确/首值）
     匹配不到 → 跳过（不盲补首值，防「属性值不正确」）。
 
     覆盖范围从 v0.25「仅非必填+同义词」扩展为「全部未填字典属性（含必填兜底失败者）」。
@@ -948,6 +948,13 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
     draft_attrs = dict((draft or {}).get("attributes") or {})
     if not draft_attrs or not synonyms:
         return items
+    # v0.26 P1-3 fix: 集合属性（schema 的 is_collection / is_multivalue）才允许多值；
+    # 单值属性只填 1 个值，否则列表包含匹配可能多命中 → Ozon ATTRIBUTE_VALUE_COUNT_EXCEEDED。
+    multivalue_ids = {
+        int(a.get("id") or 0)
+        for a in (schema or [])
+        if isinstance(a, dict) and (a.get("is_collection") or a.get("is_multivalue"))
+    }
     dict_values = dict(getattr(state, "dictionary_values", None) or {})
     dc = str(getattr(state, "description_category_id", "") or "")
     tp = str(getattr(state, "type_id", "") or "")
@@ -1001,14 +1008,20 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                         except Exception:
                             hits = []
                     if hits:
-                        # 多值：取全部匹配；单值：取第一个（含搜索/缓存命中）
+                        # 多值属性：取全部匹配；单值属性：优先精确命中，无则取第一个（含缓存/搜索/列表命中）
+                        if aid not in multivalue_ids and len(hits) > 1:
+                            exact = [h for h in hits
+                                     if str(h.get("value") or "").lower() == mapped.lower()]
+                            chosen = exact[:1] or hits[:1]
+                        else:
+                            chosen = hits
                         attrs.append({"id": aid, "values": [
                             {"dictionary_value_id": int(h.get("id") or 0),
                              "value": str(h.get("value") or mapped)}
-                            for h in hits
+                            for h in chosen
                         ]})
                         logger.info("✅ 字典属性 %s(%s) 填满: %s", aid, attr.get("name"),
-                                    [str(h.get("value") or "") for h in hits])
+                                    [str(h.get("value") or "") for h in chosen])
                     break
     return items
 
