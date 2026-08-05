@@ -154,6 +154,52 @@ def test_no_import_info_poll_with_product_id_after_imported():
     assert any("info/list" in u for u, _ in calls)
 
 
+def test_import_info_polled_when_ozon_task_id_present():
+    """有 ozon_task_id → 阶段一用任务 ID 轮询 import/info 拿到真实 product_id，再查 info/list（v0.25 回归）。"""
+    from graphs.nodes import ozon_status_node as mod
+    from graphs.nodes.ozon_status_node import ozon_status_node
+
+    state = SimpleNamespace(
+        ozon_task_id="5312849091", product_id="5312849091",
+        ozon_payload={"items": [{"offer_id": "x_0"}]},
+        ozon_client_id="5381204", ozon_api_key="key",
+        purchase_url="", purchase_cost="", sku_id="", profit_estimation={},
+    )
+    import time
+    orig_sleep = time.sleep
+    time.sleep = lambda s: None
+    calls = []
+
+    class _RespImport:
+        status_code = 200
+        def json(self):
+            return {"result": {"items": [{"offer_id": "x_0", "product_id": 5814015268, "status": "imported"}]}}
+
+    class _RespInfo:
+        status_code = 200
+        def json(self):
+            return {"items": [{
+                "id": 5814015268, "offer_id": "x_0",
+                "statuses": {"validation_status": "success", "is_created": True, "moderate_status": "in-moderating"},
+                "errors": [],
+            }]}
+
+    def _post(url, *a, **k):
+        calls.append((url, k.get("json") or {}))
+        if "import/info" in url:
+            return _RespImport()
+        return _RespInfo()
+
+    with mock.patch.object(mod.session, "post", side_effect=_post):
+        try:
+            out = ozon_status_node(state, None, FAKE_RUNTIME)
+        finally:
+            time.sleep = orig_sleep
+    assert any("import/info" in u and str(p.get("task_id")) == "5312849091" for u, p in calls), "必须用 import 任务 ID 轮询 import/info"
+    assert any("info/list" in u for u, _ in calls)
+    assert out.moderation_status == "pending"  # in-moderating 轮询超时 → pending（软成功）
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0

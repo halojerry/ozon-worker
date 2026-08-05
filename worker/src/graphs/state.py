@@ -562,6 +562,7 @@ class OzonValidateOutput(BaseModel):
 # ==================== Ozon状态轮询节点 ====================
 class OzonStatusInput(BaseModel):
     """Ozon状态轮询节点输入"""
+    ozon_task_id: str = Field(default="", description="Ozon import 任务 ID（upload 节点写入，阶段一 import/info 轮询用）")
     product_id: Optional[str] = Field(default=None, description="Ozon商品ID（可选，上传失败时为None）")
     ozon_client_id: str = Field(..., description="Ozon Client-Id")
     ozon_api_key: str = Field(..., description="Ozon Api-Key")
