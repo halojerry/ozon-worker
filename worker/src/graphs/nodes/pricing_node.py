@@ -226,23 +226,14 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 old_price = math.ceil(price * 1.2)
             currency_unit = "RUB"
         
-        # ✅ 跟卖模式：如果竞品价格已有利润（≥ 成本*1.3），保持竞品价格以增加竞争力
-        competitor_price_str = getattr(state, 'competitor_price', '') or ''
-        # ✅ P2 修复：用 extensions.follow_sell 判断，而非 product_id（1688 管线也会设置）
+        # ⚠️ v0.26 决策：跟卖不再用竞品价定价（已删除原「竞品价 ≥ 成本×1.3 保持竞品价」分支）。
+        # 原因（用户拍板，2026-08-05）：竞品价（RUB）与成本（CNY）直接比较是单位 bug，
+        # 一旦触发会把竞品 RUB 数当 CNY 定价 → 暴利 10 倍 / 亏损；且跟卖默认 follow_type=hand
+        # 是重做类目/属性/生图的产品卡，非 1:1 复制，价格必须按我方成本公式算，防亏钱。
+        # 竞品价仅作审计参考（state.competitor_price 保留），不参与定价。
+        # （原分支同时存在 schema 缺陷：PricingInput 缺 competitor_price 字段，条件边转换
+        #  会剥掉该字段 → 分支本就永不触发；现显式删除，避免未来补字段后误激活。）
         extensions = getattr(state, 'extensions', {}) or {}
-        is_follow_sell = bool(extensions.get('follow_sell', False))
-        if is_follow_sell and competitor_price_str:
-            try:
-                comp_price = float(competitor_price_str)
-                min_viable = total_cost_cny * 1.3  # 最低可接受售价（30% margin）
-                if comp_price >= min_viable:
-                    logger.info(f"💰 跟卖定价: 竞品价 {comp_price} ≥ 最低 {min_viable:.0f}，保持竞品价格")
-                    price = math.ceil(comp_price)
-                    old_price = max(price + 5, math.ceil(price * 1.2)) if price <= 25 else math.ceil(price * 1.2)
-                else:
-                    logger.info(f"💰 跟卖定价: 竞品价 {comp_price} < 最低 {min_viable:.0f}，使用公式重算 {price}")
-            except (ValueError, TypeError):
-                pass
         
         # Step 6: 计算利润预估
         # 利润 = 最终价格 - 总成本
