@@ -686,10 +686,46 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
 
             # ✅ v0.25 修复: 缓存先试 → 解析失败必走 live search（不因缓存有值而跳过）
             vals = dict_values.get(str(aid)) or []
-            resolved = resolve_missing_mandatory_dict_attr(
+            resolved = None
+            # ① 优先竞品 Ozon 属性（俄语值 → search/列表 → id，最准）
+            try:
+                from utils.attr_defaults import resolve_ozon_attr_value
+                _ozon_val = resolve_ozon_attr_value(
+                    aid, str(attr.get("name") or ""), (draft or {}).get("ozon_attributes")
+                )
+                if _ozon_val:
+                    from utils.ozon_dict_values import search_dictionary_values as _sdv
+                    _hits_o = _sdv(
+                        getattr(state, "ozon_client_id", "") or "",
+                        getattr(state, "ozon_api_key", "") or "",
+                        aid, int(dc) if dc else 0, int(tp) if tp else 0, _ozon_val,
+                    )
+                    if _hits_o:
+                        resolved = resolve_missing_mandatory_dict_attr(
+                            aid, str(attr.get("name") or ""),
+                            title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
+                            dict_vals=_hits_o,
+                        )
+                    if not resolved:
+                        from utils.ozon_dict_values import list_dictionary_values as _ldv
+                        _all_o = _ldv(
+                            getattr(state, "ozon_client_id", "") or "",
+                            getattr(state, "ozon_api_key", "") or "",
+                            aid, int(dc) if dc else 0, int(tp) if tp else 0,
+                        )
+                        resolved = resolve_missing_mandatory_dict_attr(
+                            aid, str(attr.get("name") or ""),
+                            title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
+                            dict_vals=_all_o,
+                        )
+            except Exception:
+                resolved = None
+            # ② 1688 推断（缓存 → 语义关键词 live search）
+            if not resolved:
+                resolved = resolve_missing_mandatory_dict_attr(
                 aid, str(attr.get("name") or ""),
                 title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn, dict_vals=vals,
-            )
+                )
             if not resolved:
                 try:
                     from utils.attr_defaults import dict_search_terms

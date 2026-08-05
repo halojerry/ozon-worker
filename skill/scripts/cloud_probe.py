@@ -2790,6 +2790,11 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     # ✅ 竞品俄语标题（覆盖 1688 中文标题，保留 SEO 优化后的竞品原标题）
                     if ozon_title:
                         draft["title"] = ozon_title
+                    # ✅ v0.25: 竞品 Ozon 属性表透传（Пол/Размер/Цвет/Тип 等俄语键值，
+                    # 供 worker 必填字典属性优先填充，避免从 1688 推断/缺值）
+                    _ozon_attrs = cdp_data.get("attributes") or {}
+                    if _ozon_attrs:
+                        draft["ozon_attributes"] = _ozon_attrs
                     # ✅ Ozon 类目 ID（从竞品页面提取，Worker 跳过 1688 类目匹配）
                     ozon_cat = result.get("ozon_category")
                     if ozon_cat:
