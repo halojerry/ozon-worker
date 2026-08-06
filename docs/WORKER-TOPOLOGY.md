@@ -5,62 +5,81 @@
 
 ---
 
-## 1. 节点拓扑（主图）
+## 1. 节点拓扑（主图，v0.27 与 `graph.py` 逐行核对）
+
+> ⚠️ 更新日期：2026-08-05。相比 v0.11 旧版：新增 `auth → check_quota` 早期配额检查、
+> 跟卖/直采双分支、`follow_sell_import → pricing` 汇合、删除 `multi_info_gen`。
 
 ```
 ENTRY
   │
   ▼
-auth ──→ ingest ──→ pricing ──→ assemble_ozon_product ──→ scene_generation_llm
-                                                                   │
-                                                    ┌──────────────┴──────────────┐
-                                                    ▼                              ▼
-                                             white_bg_gen                   multi_angle_gen
-                                                    │                              │
-                              ┌─────────────────────┤──────────────────────────────┤
-                              ▼                     ▼                              ▼
-                        variant_primary         main_image_gen          7个并行Phase2节点
-                        (多SKU路径)             (单SKU路径)             multi_info_gen
-                                                                       detail_gen
-                                                                       social_proof_gen
-                                                                       comparison_gen
-                                                                       scene_1/2/3_gen
-                              │                     │                              │
-                              └─────────────────────┴──────────────────────────────┘
-                                                    │
-                                                    ▼
-                                          prepare_ozon_upload
-                                                    │
-                                                    ▼
-                                             ozon_validate
-                                                    │
-                                     ┌──────────────┴──────────────┐
-                                     ▼                              ▼
-                              [SUCCESS]                        [FAILURE]
-                                     │                              │
-                                     ▼                              ▼
-                              ozon_upload                 validation_retry_wrapper
-                                     │                    (调用子图, 最多3次)
-                                     ▼                              │
-                              ozon_status                          ▼
-                                     │                    ┌────────┴────────┐
-                         ┌───────────┴───────────┐        ▼                 ▼
-                         ▼                       ▼     [SUCCESS]        [FAILURE]
-                    [SUCCESS]               [FAILURE]      │                 │
-                         │                       │         ▼                 ▼
-                         ▼                       ▼   learning_record       END
-                learning_record     validation_retry_wrapper
-                         │
-                         ▼
-                        END
+auth ──→(失败)→ END
+  │通过
+  ▼
+check_quota ──(quota blocked)→ END
+  │通过
+  ├──(follow_sell=true)──▶ follow_sell_import ──(ozon_product_id为空/类目解析失败)→ END / validation_retry_wrapper
+  │                         │正常
+  │                         ▼
+  └──(1688 直采)─────────▶ ingest
+                            │
+                            ▼
+                        pricing ──([PRICING_FAILED])→ END
+                            │成功
+                            ▼
+                  assemble_ozon_product ──(类目匹配失败 / conf<0.3)→ END
+                            │成功
+                            ▼
+                  scene_generation_llm
+                            │
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+       white_bg_gen                 multi_angle_gen        ← Phase1（并行）
+              │                           │
+              └─────────────┬─────────────┘
+                            ▼
+        ┌──────────┬────────┼─────────┬─────────┬─────────┬─────────┐
+        ▼          ▼        ▼         ▼         ▼         ▼         ▼
+  detail_gen  social_  comparison scene_1  scene_2  scene_3  variant_primary_loop
+              proof_gen            gen      gen      gen     (多SKU)  main_image_gen(单SKU)
+        └──────────┴────────┴─────────┴─────────┴─────────┴─────────┘   ← Phase2（并行）
+                            │
+                            ▼
+                  prepare_ozon_upload
+                            │
+                            ▼
+                     ozon_validate ──(失败)→ validation_retry_wrapper
+                            │通过
+                            ▼
+                      ozon_upload
+                            │
+                            ▼
+                      ozon_status ──(pending, ≤3次)──▶ 自身重试
+                            │
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+        (approved)                 (error / 未知)
+              │                           │
+              ▼                           ▼
+      learning_record          validation_retry_wrapper
+              │                           │(success/pending)
+              ▼                           ▼
+             END                    learning_record → END
+                                     (失败 → END)
 ```
 
 ### 条件分支
 
 | 分支点 | 条件 | 成功路径 | 失败路径 |
 |--------|------|---------|---------|
+| `route_after_auth` | `error_code == AUTH_SUCCESS` | `check_quota` | `END` |
+| `route_after_early_quota` | 无 `[QUOTA_BLOCKED]` | 按 sell_type → `follow_sell_import` / `ingest` | `END` |
+| `route_after_follow_sell_import` | `ozon_product_id` 非空且类目解析成功 | `pricing` | `END` / `validation_retry_wrapper` |
+| `route_after_pricing` | 无 `[PRICING_FAILED]` | `assemble_ozon_product` | `END` |
+| `route_after_assemble` | 类目匹配成功且 `conf ≥ 0.3` | `scene_generation_llm` | `END` |
 | `should_upload_after_validate` | `is_valid=True` 且无错误 | `ozon_upload` | `validation_retry_wrapper` |
-| `should_handle_error` | 无错误 + 状态含success | `learning_record` | `validation_retry_wrapper` |
+| `should_handle_error` | `moderation_status=approved`（或 imported+success+product_id 齐备兜底） | `learning_record` | `validation_retry_wrapper`（pending ≤3 次回自身） |
 | `should_learn_after_repair` | `upload_status in (success, pending)` | `learning_record` | `END` |
 
 ---
