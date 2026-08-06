@@ -296,19 +296,13 @@ def ensure_chrome_cdp(
         (success, message)
     """
     # 0. CDP 已经可用？
+    # ⚠️ v0.28.3: 不再因"缺 --remote-allow-origins"杀重启——_has_remote_allow_origins
+    # 依赖 ps/PowerShell 命令行解析, 任何解析失败/截断都会误判 → 每次命令杀+重启
+    # Chrome(用户反馈"一直重复开启浏览器", Windows/Mac 均有发生)。工具自启实例
+    # 参数必然正确(下方写死); 用户环境的 Chrome 无 CDP 不在此分支。CDP 可用即信任,
+    # WebSocket 连接 403 由调用方自然报错, 绝不杀浏览器。
     if _is_cdp_available(port):
-        if _has_remote_allow_origins(port):
-            return True, f"CDP 已就绪 (port {port})"
-        else:
-            # CDP 可用但缺少 --remote-allow-origins，WebSocket 会 403
-            if auto_restart:
-                logger.info("CDP running without --remote-allow-origins, restarting Chrome")
-                _kill_chrome_processes("缺少 --remote-allow-origins 参数")
-            else:
-                return False, (
-                    f"Chrome CDP 已启动但缺少 --remote-allow-origins=* 参数，"
-                    f"WebSocket 连接会被拒绝。请重启 Chrome。"
-                )
+        return True, f"CDP 已就绪 (port {port})"
 
     # 1. 找 Chrome 可执行文件
     chrome_exe = _find_chrome_executable()
@@ -340,16 +334,9 @@ def ensure_chrome_cdp(
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
         # Double-check CDP after acquiring lock — another process may have launched Chrome
+        # ⚠️ v0.28.3: 同初始检查, 不再因 allow-origins 误判杀重启
         if _is_cdp_available(port):
-            if _has_remote_allow_origins(port):
-                return True, f"Chrome CDP 就绪 (port {port}, 其他进程已启动)"
-            elif auto_restart:
-                _kill_chrome_processes("缺少 --remote-allow-origins 参数")
-            else:
-                return False, (
-                    f"Chrome CDP 已启动但缺少 --remote-allow-origins=* 参数，"
-                    f"WebSocket 连接会被拒绝。请重启 Chrome。"
-                )
+            return True, f"Chrome CDP 就绪 (port {port}, 其他进程已启动)"
 
         # 3. 检查是否有 Chrome 在运行（无 CDP）
         existing = _find_chrome_processes()
@@ -390,17 +377,18 @@ def ensure_chrome_cdp(
         logger.info("  Profile: %s", profile_path)
         logger.info("  CDP port: %d", port)
 
+        launched_proc = None
         try:
             if platform.system() == "Windows":
                 # Windows: CREATE_NEW_PROCESS_GROUP 让 Chrome 独立运行
-                subprocess.Popen(
+                launched_proc = subprocess.Popen(
                     cmd,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
                 )
             else:
-                subprocess.Popen(
+                launched_proc = subprocess.Popen(
                     cmd,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
@@ -414,6 +402,9 @@ def ensure_chrome_cdp(
             time.sleep(1)
             if _is_cdp_available(port):
                 logger.info("Chrome CDP ready after %d seconds", i + 1)
+                # v0.28.3: 记录本次启动的 PID, 供命令出口 close_tool_chrome() 精确关闭
+                if launched_proc:
+                    _write_launched_pid(launched_proc.pid)
                 return True, f"Chrome 已启动，CDP 就绪 (port {port})"
             # 每 10 秒检查 Chrome 进程是否还活着
             if i > 0 and i % 10 == 0 and not _find_chrome_processes():
@@ -436,6 +427,62 @@ def ensure_chrome_cdp(
 def get_cdp_url(port: int = CDP_PORT) -> str:
     """返回 CDP URL"""
     return f"http://{CDP_HOST}:{port}"
+
+
+def _tool_pid_file() -> Path:
+    """工具自启 Chrome 的 PID 记录文件(skill 根/data/browser/)"""
+    return Path(__file__).resolve().parent.parent.parent / "data" / "browser" / ".launched_chrome.pid"
+
+
+def _write_launched_pid(pid: int) -> None:
+    """记录工具自启 Chrome 的 PID(跨平台文本文件, 供命令出口关闭)"""
+    try:
+        pid_file = _tool_pid_file()
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(str(pid))
+    except Exception as e:
+        logger.warning("写工具 Chrome PID 文件失败: %s", e)
+
+
+def close_tool_chrome() -> None:
+    """关闭工具自启的 Chrome(命令出口 finally 调用)。
+
+    ⚠️ v0.28.3: 解决"用户每次使用都重复开启浏览器"——工具自启实例
+    (独立 profile + debug 端口)用完即关, 不影响用户日常 Chrome。
+    仅当本进程启动过 Chrome(PID 文件存在)才动作; 复用已有 CDP 时不关。
+    """
+    try:
+        pid_file = _tool_pid_file()
+        if not pid_file.exists():
+            return
+        pid = int(pid_file.read_text().strip() or 0)
+        pid_file.unlink()  # 先删文件, 防重复执行
+        if pid <= 0:
+            return
+        logger.info("关闭工具 Chrome (PID %d)", pid)
+        if platform.system() == "Windows":
+            # /T 杀进程树(Chrome 主进程+渲染子进程)
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True, timeout=15,
+            )
+        else:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                return
+            for _ in range(8):
+                time.sleep(0.5)
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    return
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    except Exception as e:
+        logger.warning("关闭工具 Chrome 失败: %s", e)
 
 
 def get_chrome_info() -> dict:

@@ -1165,7 +1165,17 @@ def main() -> int:
     # ⚠️ 每次命令静默检查更新（后台不阻塞，失败静默；update 命令本身跳过）
     _silent_update_check(args.command)
 
-    return args.func(args)
+    try:
+        return args.func(args)
+    finally:
+        # v0.28.3: 命令出口关闭工具自启 Chrome(独立 profile + debug 端口,
+        # 不碰用户日常 Chrome)。解决"每次使用都重复开启浏览器"——
+        # 工具实例用完即关, 下次命令如有需要再启动(一次一个窗口)。
+        try:
+            from scripts.lib.chrome_launcher import close_tool_chrome
+            close_tool_chrome()
+        except Exception:
+            pass
 
 
 def _silent_update_check(command: str) -> None:

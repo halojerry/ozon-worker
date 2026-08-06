@@ -578,4 +578,13 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        _exit_code = main()
+    finally:
+        # v0.28.3: 关闭工具自启 Chrome(独立 profile, 不碰用户 Chrome)
+        try:
+            from scripts.lib.chrome_launcher import close_tool_chrome
+            close_tool_chrome()
+        except Exception:
+            pass
+    sys.exit(_exit_code)
