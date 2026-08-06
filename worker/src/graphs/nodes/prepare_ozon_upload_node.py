@@ -615,6 +615,16 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
             or "производител" in str(a.get("name") or "").lower()
             or "制造商" in str(a.get("name") or "")
             or "модель" in str(a.get("name") or "").lower()
+            # ✅ v0.27: 性别属性强制进 required_dict — 部分类目(如帽子) schema
+            # 里 9163 dictionary_id=0 被筛掉 → 性别兜底不触发 → 缺 9163 → Ozon 拒。
+            # 语义识别: aid=9163 或名称含 пол/性别/gender(与 868 行兜底一致)
+            or (
+                int(a.get("id") or 0) == 9163
+                or "性别" in str(a.get("name") or "")
+                or "gender" in str(a.get("name") or "").lower()
+                or str(a.get("name") or "").lower() == "пол"
+                or str(a.get("name") or "").lower().startswith("пол ")
+            )
         )
     ]
     if not required_dict:
@@ -1273,7 +1283,7 @@ def prepare_ozon_upload_node(
     # 但 5076 可能不在 schema（品牌属性ID因类目而异）→ 不在 dict_attr_lookup →
     # 转换时被当自由文本 → dictionary_value_id 被置 0 → Ozon 报"请从列表中选择"。
     # 此处强制保留其 dict_id。
-    for _brand_id in (85, 5076):
+    for _brand_id in (85, 31, 5076):
         dict_attr_lookup.setdefault(_brand_id, 0)
     logger.info(f"✅ 字典属性查找表：{len(dict_attr_lookup)}个字典类型属性")
     
