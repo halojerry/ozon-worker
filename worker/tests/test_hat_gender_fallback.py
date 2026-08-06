@@ -120,6 +120,31 @@ def test_non_gender_attr_not_touched():
     assert g is None, "非性别属性不应被性别双值逻辑补齐"
 
 
+def test_gender_attr_with_dict_id_zero_still_filled():
+    """v0.27: 部分类目(如帽子) schema 里 9163 dictionary_id=0(被当自由文本)——
+    required_dict 筛选会把它排除 → 性别兜底不触发 → 缺 9163 被 Ozon 拒。
+    修复: 性别属性语义识别强制进 required_dict, 即使 dictionary_id=0。"""
+    import graphs.nodes.prepare_ozon_upload_node as mod
+    import utils.ozon_dict_values as odv
+
+    schema_attr = {
+        "id": 9163, "name": "Пол", "dictionary_id": 0,  # ← 关键: dict_id=0
+        "is_required": True, "type": "String",
+    }
+    items_in = [{"offer_id": "x", "name": "Панама", "attributes": []}]
+
+    with mock.patch.object(odv, "list_dictionary_values", return_value=HAT_GENDER_VALUES) as _ldv, \
+         mock.patch.object(odv, "search_dictionary_values", return_value=[]) as _sdv:
+        out = mod._fill_missing_required_dict_attrs(
+            items_in, [schema_attr], {"title": "帽子"}, _State()
+        )
+    attrs = out[0].get("attributes", [])
+    g = next((a for a in attrs if a.get("id") == 9163), None)
+    assert g is not None, "dictionary_id=0 的性别属性也必须被补齐"
+    texts = {v["value"] for v in g["values"]}
+    assert texts == {"Мужской", "Женский"}, texts
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0

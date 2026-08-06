@@ -147,7 +147,7 @@ logger = logging.getLogger(__name__)
 # ==================== 常量 ====================
 
 # 品牌属性ID列表（按优先级）
-BRAND_ATTRIBUTE_IDS = [85, 5076]
+BRAND_ATTRIBUTE_IDS = [85, 31, 5076]  # 31=服装和鞋类品牌(帽子等服装类目必填, wave4 风扇帽实证缺 31 被拒)
 
 # "无品牌" 字典值
 NO_BRAND_DICT_ID = 126745801

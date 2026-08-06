@@ -185,6 +185,10 @@ class GraphOutput(BaseModel):
     upload_status: str = Field(default="", description="上传状态（success/pending/failed）")
     failed_stage: str = Field(default="", description="失败节点名称")
     error_code: str = Field(default="", description="错误码（Ozon 错误码或内部错误码）")
+    # ✅ v0.27: moderation_status 透出 — 与 upload_status 同理会被 output_schema 过滤,
+    # 缺失导致 agent 看不到审核状态(ozon_status 出参恒空)。OzonStatusInput 已补
+    # 该字段(路由能读 approved), GraphOutput 补上终态才可见。
+    moderation_status: str = Field(default="", description="Ozon审核状态 (approved/pending/error)")
 
 
 # ==================== 认证节点 ====================
@@ -584,6 +588,9 @@ class OzonStatusInput(BaseModel):
 
     # 条件分支路径函数需要访问的字段（ozon_status节点输出后合并到GlobalState）
     status: str = Field(default="", description="Ozon商品状态")
+    # ✅ v0.27: moderation_status 补进输入 schema — v0.25 实证条件边强转
+    # OzonStatusInput 时该字段被剥 → 路由/终态永远看不到 approved → ozon_status 出参空
+    moderation_status: str = Field(default="", description="v4: Ozon审核状态 (approved/pending/error)")
     errors: List[Dict[str, Any]] = Field(default_factory=list, description="Ozon API返回的错误列表")
     error_message: str = Field(default="", description="错误信息")
     upload_status: str = Field(default="", description="上传状态")
