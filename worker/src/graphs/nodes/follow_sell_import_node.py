@@ -82,7 +82,33 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     type_raw = str(ozon_cat.get("type_id") or "")
     dc_fallback, type_fallback = dc_raw, type_raw
     language = ozon_cat.get("language", "")
-    if dc_raw and dc_raw.isdigit():
+    # ✅ v0.26 权威类目信任：skill 已从 what_to_sell 拿到 Seller 空间权威组合
+    # （category2=dc + category3=type，schema API 200 验证有效，wave2 眉笔实证）。
+    # 此时 dc/type 都有效 → 直接信任，不二次解析——
+    # 否则 _resolve_category_by_id 数字直查会返回该 dc 下**第一个** type
+    # （眉笔 dc=17028990 → PG 返回 93409 BB-средство，覆盖权威 93418 → 类目又错）。
+    _dc_valid = bool(dc_raw and dc_raw.isdigit() and int(dc_raw) > 0)
+    _type_valid = bool(type_raw and str(type_raw).isdigit() and int(type_raw) > 0)
+    _cat_trusted = False
+    if _dc_valid and _type_valid:
+        # ✅ v0.26 权威类目信任（自校验）：skill 已从 what_to_sell 拿到 Seller 空间
+        # 权威组合（category2=dc + category3=type，schema API 200 验证有效，wave2 眉笔实证）。
+        # 但 Widget 空间的面包屑 ID 也是数字（如盘子 102080114）→ 不能只看"是数字"就信任。
+        # 用 schema API 自校验：200 有效 → 信任（不二次解析，防 _resolve_category_by_id
+        # 数字直查返回该 dc 下第一个 type 覆盖权威 type）；400 无效 → 回退二次解析。
+        _cat_trusted = _verify_category_schema(
+            getattr(state, "ozon_client_id", "") or "",
+            getattr(state, "ozon_api_key", "") or "",
+            dc_raw, type_raw,
+        )
+        if _cat_trusted:
+            logger.info("✅ 信封类目 schema 验证通过（dc=%s type=%s），直接信任不二次解析", dc_raw, type_raw)
+        else:
+            logger.warning(
+                "⚠️ 信封类目 schema 验证失败（dc=%s type=%s，疑似 Widget 无效 ID），回退二次解析",
+                dc_raw, type_raw,
+            )
+    if not _cat_trusted and dc_raw and dc_raw.isdigit():
         category_hint = ozon_cat.get("category_path", "") or ozon_cat.get("category", "")
         # ✅ v0.25 FIX: 传完整 category_path（不是只有末段）——「Головные уборы」
         # 「Прочие аксессуары」等泛化末段 pg_trgm 会匹配到医用头饰/钓鱼配件等错误类目
@@ -94,7 +120,7 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
             logger.warning("数字 ID 直查+pg_trgm 均失败: dc=%s type=%s", dc_fallback, type_fallback)
             # ✅ v0.20 A: 解析失败绝不保留原始值（品牌页 ID 会被当有效类目上传 → Ozon 拒）
             dc_raw, type_raw = "", ""
-    elif dc_raw:
+    elif not _cat_trusted and dc_raw:
         if not language:
             language = _detect_language(dc_raw)
         resolved_dc, resolved_type = _resolve_category(dc_raw, type_raw or dc_raw, language=language)
@@ -334,6 +360,27 @@ def _translate_to_russian(text: str, token: str = "") -> str:
     except Exception as e:
         logger.warning("LLM 翻译类目失败: %s", e)
     return ""
+
+
+def _verify_category_schema(client_id: str, api_key: str, dc: str, tp: str) -> bool:
+    """v0.26 权威类目自校验：dc+type 组合是否有效（schema API 200 且返回属性列表）。
+
+    用于区分「what_to_sell 权威组合」（有效，信任）与「Widget 空间面包屑 ID」
+    （数字但无效，如盘子 dc=102080114 报 'category ... is not found'）。
+    """
+    try:
+        _resp = requests.post(
+            "https://api-seller.ozon.ru/v1/description-category/attribute",
+            headers={"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"},
+            json={"description_category_id": int(dc), "type_id": int(tp), "language": "RU"},
+            timeout=15,
+        )
+        if _resp.status_code == 200:
+            result = _resp.json().get("result", [])
+            return isinstance(result, list)  # 空列表也算有效（类目可能无属性）
+        return False
+    except Exception:
+        return False
 
 
 def _resolve_category_by_id(dc_id: int, type_name_hint: str = "", token: str = "") -> tuple[str, str]:

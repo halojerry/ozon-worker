@@ -94,6 +94,7 @@ def _run_node(envelope_override=None):
     # 注入 mock
     mod._resolve_category_by_id = _mock_resolve_category_success
     mod._resolve_category = lambda dc, tp, language="": _mock_resolve_category_success(0)
+    mod._verify_category_schema = lambda cid, akey, dc, tp: True  # v0.26 权威信任：避免真实网络请求
 
     base_envelope = {
         "draft": {
@@ -610,6 +611,8 @@ def test_case_8_hand_category_fail_falls_back_api():
 
     mod._resolve_category_by_id = _mock_resolve_category_fail
     mod._resolve_category = lambda dc, tp, language="": (None, None)
+    # v0.26 权威类目自校验：Widget 无效 ID → 返回 False → 回退二次解析
+    mod._verify_category_schema = lambda cid, akey, dc, tp: False
 
     import requests as req
     calls = []
@@ -675,6 +678,86 @@ def test_case_8_hand_category_fail_falls_back_api():
 
 
 # ═══════════════════════════════════════════════════════════
+# 用例 9: v0.26 权威类目信任（what_to_sell 组合不二次解析）
+# ═══════════════════════════════════════════════════════════
+def test_case_9_authoritative_category_trusted():
+    """v0.26 时序根因修复：skill 已从 what_to_sell 拿到权威组合
+    dc=17028990/type=93418（schema 验证有效），worker 必须直接信任、
+    不得二次解析（否则 _resolve_category_by_id 数字直查返回该 dc 下
+    第一个 type=93409 覆盖权威 93418 → 类目又错 → DESCRIPTION_DECLINE）。"""
+    import importlib
+    import graphs.nodes.follow_sell_import_node as mod
+    mod = importlib.reload(mod)  # 恢复真实函数（前序用例污染）
+
+    called_by_id = []
+    mod._verify_category_schema = lambda cid, akey, dc, tp: True  # 权威组合 → 校验通过
+    mod._resolve_category_by_id = lambda dc_id, type_name_hint="", token="": (
+        called_by_id.append(dc_id) or ("17028990", "93409")  # 若被调=bug，返回错误 type
+    )
+    mod._resolve_category = lambda dc, tp, language="": (None, None)
+
+    import requests as req
+    _orig = req.post
+    class _Resp9:
+        status_code = 200
+        def json(self):
+            return {"result": {"task_id": "12345"}}
+    def _counting_post9(url, *a, **k):
+        if "import-by-sku" in url:
+            return _Resp9()
+        if "import/info" in url:
+            return type("R", (), {"status_code": 200,
+                                  "json": lambda self: {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}}})()
+        return _Resp9()
+    req.post = _counting_post9
+    try:
+        env = {
+            "draft": {
+                "ozon_product_id": "4401035335",
+                "title": "Маркер для бровей",
+                "ozon_title": "Маркер для бровей двойной наконечник",
+                "images": ["https://cdn.ozon.ru/img1.jpg"],
+                "ozon_category": {
+                    "description_category_id": "17028990",  # 权威 dc（what_to_sell category2）
+                    "type_id": "93418",                     # 权威 type（what_to_sell category3）
+                    "language": "RU",
+                    "category_path": "Красота и здоровье > Макияж > Брови > Карандаши и лайнеры",
+                },
+                "purchase_cost": 3.99,
+                "purchase_url": "https://detail.1688.com/offer/955730486059.html",
+                "currency": "CNY",
+                "weight": 100,
+                "dimensions": {"length": 69, "width": 52, "height": 35},
+                "item_id": "955730486059",
+            },
+            "extensions": {"follow_sell": True, "follow_type": "hand"},
+        }
+        from graphs.nodes.follow_sell_import_node import follow_sell_import_node
+        state = FakeState(envelope=env)
+        result = follow_sell_import_node(state)
+    finally:
+        req.post = _orig
+
+    print(f"  _resolve_category_by_id 调用: {called_by_id}")
+    print(f"  dc_id: {result.get('description_category_id')}")
+    print(f"  tp_id: {result.get('type_id')}")
+
+    checks = [
+        ("_resolve_category_by_id 未被调（权威信任）", len(called_by_id) == 0),
+        ("dc=17028990 保留（未被覆盖）", result.get("description_category_id") == "17028990"),
+        ("type=93418 保留（未被覆盖成 93409）", result.get("type_id") == "93418"),
+        ("error_message 为空", not result.get("error_message")),
+    ]
+    all_pass = True
+    for name, passed in checks:
+        status = "✅" if passed else "❌"
+        if not passed:
+            all_pass = False
+        print(f"  {status} {name}")
+    return all_pass
+
+
+# ═══════════════════════════════════════════════════════════
 # 主入口
 # ═══════════════════════════════════════════════════════════
 if __name__ == "__main__":
@@ -693,6 +776,7 @@ if __name__ == "__main__":
         "用例3 (边界-空product_id)": test_case_3_empty_product_id(),
         "用例7 (品牌末段类目兜底)": test_case_7_brand_leaf_category_fallback(),
         "用例8 (hand类目失败降级api)": test_case_8_hand_category_fail_falls_back_api(),
+        "用例9 (权威类目信任)": test_case_9_authoritative_category_trusted(),
     }
 
     print("\n" + "=" * 60)
