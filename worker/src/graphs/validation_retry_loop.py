@@ -1514,13 +1514,25 @@ def repair_dimensions_node(state: ValidationRetryLoopState) -> ValidationRetryLo
         if recalc_vw > 0:
             ratio = weight_g / recalc_vw
             if ratio > 3.0 or ratio < 0.33:
-                # 重量与体积严重不匹配，调整重量为体积重量
-                old_weight = int(weight_g)
-                weight_g = max(40, min(int(recalc_vw), 120000))
-                item["weight"] = str(int(weight_g))
+                # ⚠️ v0.26 FIX: 方向反转。旧代码保留尺寸、把重量改成体积重量——
+                # 重量是可信真实数据（1688/竞品），改成体积重量会让运费/定价全错
+                # （wave2 清洁片 387g 被 115×32×115mm 的体积重量 84.6g 覆盖 → 更错）。
+                # Ozon ML 要求「体积重量 ≈ 实际重量」（比值超阈值报
+                # ML_INCORRECT_VOLUME_WEIGHT），因此改为：保持重量、重算尺寸
+                # 使体积重量严格等于实际重量（目标体积 = weight × 5000 mm³）。
+                _vol_mm3 = weight_g * 5000.0
+                _side = max(10.0, (_vol_mm3 / 3.0) ** (1.0 / 3.0))  # 2*1.5*1=3
+                new_depth = max(30, int(_side * 2.0))
+                new_width = max(30, int(_side * 1.5))
+                new_height = max(20, int(_side * 1.0))
+                item["depth"] = str(new_depth)
+                item["width"] = str(new_width)
+                item["height"] = str(new_height)
+                item["dimension_unit"] = "mm"
                 logger.warning(
-                    f"  item[{i}] 重量与体积不匹配(比值={ratio:.1f}x): "
-                    f"重量 {old_weight}g → {int(weight_g)}g (体积重量={int(recalc_vw)}g)"
+                    f"  item[{i}] 体积重量与实际重量不匹配(比值={ratio:.1f}x)，"
+                    f"保持重量 {int(weight_g)}g、重算尺寸使体积重量≈重量: "
+                    f"{new_depth}×{new_width}×{new_height}mm"
                 )
 
         logger.info(

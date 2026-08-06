@@ -270,6 +270,40 @@ class SupabaseTaskProcessor:
                     except Exception as _ps_err:
                         logger.warning("product_summary 组装失败（不影响任务结果）: %s", _ps_err)
                     
+                    # ✅ v0.26 假成功修复：图执行完成 ≠ 上架成功。wave2 实证：
+                    # created=False 的卡（ML_INCORRECT_VOLUME_WEIGHT 等）此前
+                    # 无条件 completed，final_error 全空——用户无法感知失败。
+                    # 现在按 graph_result 失败标记如实落库：
+                    #   upload_status=failed / error_message 非空 → status=failed
+                    _up = str(graph_result.get("upload_status") or "")
+                    _err = str(graph_result.get("error_message") or "")
+                    _stg = str(graph_result.get("failed_stage") or "")
+                    _is_failed = (
+                        _up in ("failed",)
+                        or _err.startswith("[")
+                        or bool(_err and _stg)
+                    )
+                    if _is_failed:
+                        graph_result["_harness_status"] = "failed"
+                        graph_result["_harness_error"] = _err or f"上架失败（stage={_stg}, upload_status={_up}）"
+                        log_task_event("failed", task_id=task_id, user_id=tenant_id,
+                                       error_message=graph_result["_harness_error"])
+                        # 使用SQL UPDATE更新任务状态为failed（如实反映，不再假成功）
+                        with self.engine.connect() as conn:
+                            conn.execute(text("""
+                                UPDATE ozon_product_tasks
+                                SET status = 'failed', result = :result_json,
+                                    error_message = :err, completed_at = NOW()
+                                WHERE id = :task_id
+                            """), {
+                                "task_id": task_id,
+                                "result_json": json.dumps(graph_result),
+                                "err": graph_result["_harness_error"],
+                            })
+                            conn.commit()
+                        clear_trace_context()
+                        return graph_result
+
                     # 使用SQL UPDATE更新任务状态为completed
                     update_completed_sql = text("""
                         UPDATE ozon_product_tasks
