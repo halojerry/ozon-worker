@@ -167,12 +167,15 @@ jobs:
           VERSION="$REF"
           tar czf "pounding-ozon-probe-v${VERSION}.tar.gz" -C dist .
           # ⚠️ 硬校验: 包内 VERSION 必须 == manifest 版本, 否则 updater 死循环
-          INNER=$(tar -xOzf "pounding-ozon-probe-v${VERSION}.tar.gz" VERSION)
+          # (`-C dist .` 打包成员名带 ./ 前缀, GNU tar(CI) 精确名 VERSION 匹配不到
+          #  ./VERSION → 先列出成员名再提取, 跨 GNU/BSD tar 兼容)
+          VFILE=$(tar -tzf "pounding-ozon-probe-v${VERSION}.tar.gz" | grep -E '(^|/)VERSION$' | head -1)
+          INNER=$(tar -xOzf "pounding-ozon-probe-v${VERSION}.tar.gz" "$VFILE")
           if [ "$INNER" != "$VERSION" ]; then
             echo "::error::包内 VERSION($INNER) != 发布版本($VERSION), 自动更新将死循环"
             exit 1
           fi
-          echo "✅ 硬校验通过: 包内 VERSION=$INNER == 发布版本 $VERSION"
+          echo "✅ 硬校验通过: 包内 VERSION=$INNER == 发布版本 $VERSION (成员: $VFILE)"
           ls -lh "pounding-ozon-probe-v${VERSION}.tar.gz"
 
       - name: Compute sha256 and generate manifest
