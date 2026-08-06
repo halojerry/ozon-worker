@@ -149,18 +149,38 @@ jobs:
           rm -f data/config/stores.json data/config/settings.json
           find . -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 
+      # ⚠️ P0 修复(2026-08-06): 包内 VERSION 与 manifest 版本分离导致自动更新死循环。
+      # 根因: compile.py 复制 skill/VERSION(0.25.0) 进 dist, 而打包名/manifest 用
+      # 根 VERSION(0.27.0) → updater 判定 0.27.0 > 0.25.0 每次命令都下载覆盖, 永不收敛。
+      # 修复: ① 打包前用发布 tag 强制写包内 VERSION ② 硬校验包内 VERSION == manifest 版本。
+      - name: Pin package VERSION to release tag
+        working-directory: skill/dist
+        run: |
+          REF="${GITHUB_REF_NAME#v}"
+          printf '%s' "$REF" > VERSION
+          echo "✅ 包内 VERSION=$(cat VERSION) (来自 tag $GITHUB_REF_NAME)"
+
       - name: Create distributable package
         working-directory: skill
         run: |
-          VERSION=$(cat ../VERSION 2>/dev/null || echo "0.4.0")
+          REF="${GITHUB_REF_NAME#v}"
+          VERSION="$REF"
           tar czf "pounding-ozon-probe-v${VERSION}.tar.gz" -C dist .
+          # ⚠️ 硬校验: 包内 VERSION 必须 == manifest 版本, 否则 updater 死循环
+          INNER=$(tar -xOzf "pounding-ozon-probe-v${VERSION}.tar.gz" VERSION)
+          if [ "$INNER" != "$VERSION" ]; then
+            echo "::error::包内 VERSION($INNER) != 发布版本($VERSION), 自动更新将死循环"
+            exit 1
+          fi
+          echo "✅ 硬校验通过: 包内 VERSION=$INNER == 发布版本 $VERSION"
           ls -lh "pounding-ozon-probe-v${VERSION}.tar.gz"
 
       - name: Compute sha256 and generate manifest
         id: manifest
         working-directory: skill
         run: |
-          VERSION=$(cat ../VERSION 2>/dev/null || echo "0.4.0")
+          REF="${GITHUB_REF_NAME#v}"
+          VERSION="$REF"
           # ⚠️ 精确匹配版本包名（勿用 *.tar.gz：目录里有历史遗留旧包
           # 如 pounding-ozon-probe-darwin-arm64-py312.tar.gz，字母序排在
           # v 之前会被误选）
