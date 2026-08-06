@@ -273,12 +273,16 @@ jobs:
           COUNT=$(echo "$PKGS" | grep -c . || true)
           echo "提取到版本包 $COUNT 个: $(echo "$PKGS" | tr '\n' ' ')"
           if [ "$COUNT" -gt 2 ]; then
-            # ⚠️ head -n -2 是 GNU 语法(BSD head 不支持), 用 awk 行号法跨平台
-            echo "$PKGS" | awk -v t="$COUNT" 'NR <= t-2' | while IFS= read -r old; do
+            # ⚠️ v0.28.2: coscli rm 会从 stdin 读数据, 吞掉 while 管道剩余行
+            # (实证: 9 行只删了 5 个隔行的 0.12/0.18/0.20/0.25/0.27.2)。
+            # 修复: awk 结果先落临时文件, 循环读文件; rm 加 </dev/null 防吞输入。
+            echo "$PKGS" | awk -v t="$COUNT" 'NR <= t-2' > /tmp/prune_list.txt
+            while IFS= read -r old; do
               echo "🗑️ 删除旧包: $old"
-              coscli_cmd rm "cos://${COS_BUCKET}/ozon-skill/$old" \
+              coscli_cmd rm "cos://${COS_BUCKET}/ozon-skill/$old" </dev/null \
                 || echo "⚠️ 删除 $old 失败(忽略, 下次发布再试)"
-            done
+            done < /tmp/prune_list.txt
+            rm -f /tmp/prune_list.txt
           else
             echo "无需清理(保留最近 2 个)"
           fi
