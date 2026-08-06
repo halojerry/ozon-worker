@@ -369,7 +369,7 @@ def fetch_sales_analytics(
         for i, sku in enumerate(skus):
             try:
                 js = _SELLER_ANALYTICS_JS.replace("__COMPANY_ID__", json.dumps(company_id)) \
-                                         .replace("__SKU__", json.dumps(sku))
+                                         .replace("__SKU__", sku)  # 模板已带引号，裸值替换（防双重引号）
                 raw = tab.evaluate(js, await_promise=True, timeout=EVALUATE_TIMEOUT)
                 if raw:
                     data = json.loads(raw)
