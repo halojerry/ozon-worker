@@ -19,7 +19,7 @@ python3 scripts/cli.py graph --item-id "980815374096" --category-query "поил
 - **输入**：1688 商品 URL、店铺名
 - **参数**：
   - `--url` / `--item-id`（二选一）：1688 商品链接 或 商品 ID
-  - `--store`：Ozon 店铺名（定价/凭证来源）
+  - `--store`：Ozon 店铺名（定价/凭证来源），省略时用默认店铺
   - `--category-query`：Ozon 类目俄语关键词（帮助类目匹配，可选）
   - `--retries`：CDP 抓取重试次数（默认 3）
   - `--no-submit`：只组装信封不提交 Worker（调试）
@@ -114,7 +114,9 @@ Discover v2 四阶段：采集（搜索/中国站懒加载）→ 全量数据（
 
 ## 管线 E：趋势驱动选品（trend，v0.25）
 
-**触发**：用户说"帮我找 {品类} 的蓝海/热卖/趋势商品"
+**触发**：用户说"帮我找 {品类} 的**热卖/趋势/新品风向**商品"。
+注意：只说"蓝海"默认走**管线 C**（discover 跟卖选品，蓝海评分体系在 C）；
+用户明确说"蓝海趋势/市场分析/趋势选品"才走 E。
 
 ```bash
 python3 scripts/cli.py trend --category "玩具" --market-info trend_info.txt --max-price 50 --max-moq 10 --min-ship-rate-48h 80 --min-sales 100
@@ -151,6 +153,8 @@ python3 scripts/batch_test.py --urls-file urls.txt --submit --start 5 --limit 10
 URL 文件混合 1688/Ozon 链接，自动识别管线。
 
 参数：`--urls-file`（必填）、`--submit`（提交 Worker，默认不提交）、`--wait`（轮询到完成，含产品明细）、`--dry-run`（只组装验证）、`--start` / `--limit`（处理范围）、`--delay`（间隔秒）、`--wait-timeout`（轮询超时秒，默认 900）、`--type-filter`（按类型过滤 URL）。
+
+凭证：`--store-id <店铺名>` 从 `data/config/stores.json` 取凭证（同 graph/follow 的 `--store`）；不指定时用环境变量 `OZON_CLIENT_ID` / `OZON_API_KEY`。
 
 ## 其他命令（辅助）
 
