@@ -1,5 +1,6 @@
 ---
 name: pounding-ozon-probe
+version: "0.27.1"
 description: >
   Ozon 上架工具。当用户发送 1688 链接时直接上架，发送 Ozon 链接时直接跟卖。
   当用户说"帮我找蓝海产品""帮我选品"且没有给链接时，去 Ozon 中国站自动选品。
@@ -50,6 +51,18 @@ python3.12 scripts/cli.py check
 
 全部 ✅ 后方可执行业务操作。如有 ❌，按提示修复。
 
+**check 失败排查表**：
+
+| ❌ 项 | 原因 | 修复 |
+|---|---|---|
+| Chrome 未安装 | 系统无 Google Chrome | 安装 Google Chrome（工具自动启动，无需手动配置） |
+| Chrome 版本过旧 | Chrome < 100 | 升级 Chrome 到最新版 |
+| 1688 AK 无效 | AK 过期或未配置 | `python3.12 scripts/cli.py get_ak`（自动获取）或 `set_ak` 手动设置 |
+| 1688 未登录 | Chrome 中未登录 1688 | 在 Chrome 打开 1688.com 登录（工具会提示） |
+| Ozon 店铺未配置 | `data/config/stores.json` 无店铺 | `python3.12 scripts/cli.py set_store --name 主店铺 --client-id xxx --api-key xxx` |
+| MXOU_TOKEN 无效 | token 过期或未配置 | 向用户索取新 token：`python3.12 scripts/cli.py set_token --token <token>` |
+| Worker 不可达 | 网络问题或 Worker 宕机 | 检查网络；`curl -s https://worker.mxou.cn/health` 确认服务状态 |
+
 ### 2.4 环境要求
 
 - Python 3.12（必须）
@@ -61,29 +74,64 @@ python3.12 scripts/cli.py check
 
 **先判断用户意图，再选管线。每次操作前重新判断，不因上下文而惯性选择。**
 
+### 决策表（按优先级从上到下）
+
 ```
 用户输入
-  ├─ 有 1688 URL？              → 【管线 A】1688 直接上架
-  ├─ 有 Ozon URL？              → 【管线 B】Ozon 跟卖
-  ├─ "有什么好跟卖的"？无 URL    → 【管线 C】Ozon 中国站发现 → 跟卖
-  └─ "帮我选品上架"？无 URL      → 【管线 D】1688 搜索/图搜 → 直接上架
-  ├─ "找蓝海/热卖/趋势选品" + 品类 → 【管线 E】趋势选品（web_search/SearXNG → AI 关键词 → AK 搜索）
+ ├─ ① 有 URL？ → 先判 URL 类型：
+ │    商品页 detail.1688.com/offer/…  → 【管线 A】1688 直接上架
+ │    商品页 ozon.ru/product/…        → 【管线 B】Ozon 跟卖
+ │    搜索页/类目页（ozon.ru/search 或 /category/）→ 【管线 C】discover --url 采集该页
+ │    多 URL / 混合（1688+Ozon）      → 追问用户按顺序处理（一次只处理一个任务）
+ ├─ ② 有图片（无 URL）？             → 【管线 D1】image_search 以图搜款
+ ├─ ③ 无 URL → 按意图词优先级：
+ │    "趋势/热卖/新品风向" + 品类     → 【管线 E】趋势选品（先 web_search，见下）
+ │    "跟卖/找能跟卖的"              → 【管线 C】discover 跟卖选品
+ │    "选品上架/直接上架"            → 【管线 D】discover 选品上架
+ │    "蓝海" → 默认 【管线 C】（蓝海评分体系在 C）；用户明确说"蓝海趋势/市场分析"才走 E
+ │    "选品" 无任何修饰              → 追问（跟卖 or 上架 or 趋势）
+ ├─ ④ 问店铺商品状态/被拒原因        → 引导用户在 Ozon 卖家后台查看（工具不直接查询）
+ └─ ⑤ 指代不清（"类似的""这个""它"） → 必须追问确认，禁止猜测
 ```
 
-**关键规则：**
-- 有 URL = 直接处理该 URL，不去别的平台搜索
-- 无 URL = 根据用户意图选管线 C 或 D
-- 蓝海评分只在管线 C 中使用
-- 管线 C（跟卖选品）和管线 D（选品上架）要区分："跟卖"→C，"上架"→D
+### 关键规则
+
+- **有 URL 时先判类型**：搜索页/类目页 URL 走 C（discover --url），**绝不去 B 跟卖单商品**（解析会失败）
+- 无 URL = 按意图词优先级选 C / D / E
+- **蓝海评分只在管线 C 中使用**；「蓝海」默认路由 C，避免与 E 的「趋势」触发词冲突
+- 管线 C（跟卖选品）和管线 D（选品上架）命令相同（discover），**区别只在提交给 Worker 的 follow_type**，采集流程一致
 - ⚠️ **管线 E 必须先用 web_search 收集趋势**：调用 `trend` 命令前，先搜索
   `"{品类} Ozon 热门趋势 蓝海 细分品类 2025"`（可加俄语 `Ozon тренды 2025`、平台
   变体 `ozon.ru trends` 多角度搜），收集 3-5 条结果存文件，用 `--market-info` 传入。
   **不传 `--market-info` = 半残模式**（AI 只凭品类名总结，选品质量明显下降），
   除非用户明确表示不用搜索。
+- ⚠️ **管线 B 降级语义变化**：Ozon 页面禁止复制时降级走管线 A（直采重建）——这是
+  **重建直采卡，不是跟卖复制**（offer_id/定价都会变），必须向用户说明
+- **指代不清必须追问**：用户说"类似的/这个/它"时，禁止根据上下文惯性猜测，先确认指代对象
 
 ---
 
 ## 4. 命令参考
+
+> ⚠️ **速查表**：所有命令 + 副作用一览。完整参数见下方各管线小节（或 `--help`）。
+
+| 命令 | 用途 | 关键参数 | 副作用 | 适用场景 |
+|---|---|---|---|---|
+| `check` | 验证环境（Chrome/凭证/Worker） | 无 | 无 | 首次使用 / 排错 |
+| `set_store` | 配置 Ozon 店铺 | `--name --client-id --api-key` | 写 `data/config/` | 首次配置 |
+| `set_token` | 配置 MXOU_TOKEN | `--token` | 写 `data/config/` | 首次配置 |
+| `set_ak` | 配置 1688 AK | `--ak` | 写 `data/config/` | 首次配置 / AK 过期 |
+| `update` | 检查并应用自动更新 | 无 | **覆盖 skill 文件**（备份 + 保留 data/） | 版本升级 |
+| `get_ak` | 浏览器自动获取 1688 AK | `--timeout` | 无 | AK 过期时刷新 |
+| `list_stores` | 列出已配置店铺 | 无 | 无 | 查看配置 |
+| `graph` | 1688 上架（组装信封） | `--url/--item-id --store [--no-submit] [--category-query] [--retries]` | 提交 Worker（除非 `--no-submit`） | 用户发 1688 商品链接 |
+| `follow` | Ozon 跟卖 | `--ozon-url --store [--auto-submit]` | 提交 Worker（加 `--auto-submit`） | 用户发 Ozon 商品链接 |
+| `image_search` | 以图搜款 | `--image [--source cdp] [--sort] [--limit]` | 耗 1688 图搜配额 | 用户发图片 / 找同款 |
+| `discover` | Ozon 选品（采集→分析→挑选→货源） | `--keyword/--url/--max-products [--rules] [--export] [--auto-submit]` | 查 seller.ozon.ru 运营指标 | 找蓝海 / 跟卖选品 |
+| `trend` | 趋势驱动选品 | `--category [--market-info] [--max-price] [--export] [--with-skus]` | 耗 1688 配额 | 品类趋势 / 蓝海细分 |
+| `search` | 1688 关键词搜索 | `query [--page-size]` | 耗 1688 搜索配额 | 按词找货 |
+| `probe` | CDP 探针抓取单个 1688 商品 | `--url [--timeout]` | 无 | 调试单个商品 |
+| `batch_test.py` | 批量处理 URL 列表 | `--urls-file [--submit] [--wait] [--dry-run] [--start] [--limit] [--delay]` | 提交 Worker（加 `--submit`） | 批量上架 / 回归 |
 
 ### 管线 A：1688 上架
 
@@ -91,9 +139,21 @@ python3.12 scripts/cli.py check
 
 ```bash
 python3.12 scripts/cli.py graph --url "https://detail.1688.com/offer/xxx.html" --store "主店铺"
+
+# 只组装信封不提交（调试/确认场景，不会上架）
+python3.12 scripts/cli.py graph --url "https://..." --store "主店铺" --no-submit
+
+# 用商品 ID（无 URL 时）+ 指定 Ozon 类目俄语关键词
+python3.12 scripts/cli.py graph --item-id "980815374096" --category-query "поилка" --store "主店铺"
 ```
 
 - **输入**：1688 商品 URL、店铺名
+- **参数**：
+  - `--url` / `--item-id`（二选一）：1688 商品链接 或 商品 ID
+  - `--store`：Ozon 店铺名（定价/凭证来源）
+  - `--category-query`：Ozon 类目俄语关键词（帮助类目匹配，可选）
+  - `--retries`：CDP 抓取重试次数（默认 3）
+  - `--no-submit`：只组装信封不提交 Worker（调试）
 - **输出**：JSON `{summary, envelope, submit_result}`
   - `summary`：商品摘要（标题、价格、重量、尺寸、图片数、属性数、供应商）
   - `envelope`：完整的 GraphInput 信封（发给 Worker 的数据）
@@ -152,6 +212,10 @@ python3.12 scripts/cli.py discover --keyword "宠物用品" --no-analytics
   4. **批量货源**：只对选中的产品 1688 识图（CDP 图搜 → AK 图搜 → AK 关键词三级，含重试）→ 利润计算（真实重量/佣金）→ 蓝海评分 → 确认 → 提交
 - **输出**：候选产品列表（全量落盘 `data/discovery/`，CSV 可导出）
 - **规则字段**：`monthly_sales / gmv / drr / seller_count / margin / price / create_days / sales_growth / rating`
+- **其他参数**：
+  - `--rules`：自动筛选规则（跳过交互），逗号分隔，如 `"monthly_sales>=200,drr<=30,seller_count<=20"`
+  - `--export csv|json|both` + `--output <路径>`：导出全量+选中结果
+  - `--brand-filter`：`nobrand`（默认，只要无品牌/白牌）/ `known`（只过滤知名品牌黑名单）/ `all`（不过滤）
 - **表格符号**：`✅可挑` 待分析 · `⚠️夹带?` 标题不含关键词 · `⏭️价区间外` 超价格区间 · `💰有利` 符合条件 · `⚠️利润低` 利润不足 · `❌无货源` 1688 没匹配到 · `—` 运营列无数据（卖家后台未登录）
 
 **展示候选列表后，等用户确认再提交。不替用户选择。**
@@ -163,8 +227,15 @@ python3.12 scripts/cli.py discover --keyword "宠物用品" --no-analytics
 **子路径 D1：1688 图搜**
 ```bash
 python3.12 scripts/cli.py image_search --image "https://example.com/image.jpg"
+
+# 用 CDP 图搜（比默认 AK 更准，准确率~100%）+ 按价格排序 + 限制条数
+python3.12 scripts/cli.py image_search --image "https://..." --source cdp --sort price_asc --limit 5
 ```
 - **输入**：图片 URL 或本地路径
+- **参数**：
+  - `--source`：`ak`（默认，1688 AK API）或 `cdp`（浏览器图搜，更准）
+  - `--sort`：`price_asc` / `price_desc` / `sold_desc` / `yx_desc`
+  - `--limit`：返回条数（默认 10）
 - **输出**：JSON `{success, results: [{offer_id, title, price, image, shop_name}]}`
 
 **子路径 D2：Ozon 选品**
@@ -179,9 +250,36 @@ Discover v2 四阶段：采集（搜索/中国站懒加载）→ 全量数据（
 
 ```bash
 python3.12 scripts/batch_test.py --urls-file urls.txt --submit
+
+# 提交并轮询结果（完成后打印每个产品的 1688链接/利润率/售价/采购价/运费/净利润率/OzonID）
+python3.12 scripts/batch_test.py --urls-file urls.txt --submit --wait
+
+# 只组装信封不提交（验证信封，不花上架额度）
+python3.12 scripts/batch_test.py --urls-file urls.txt --dry-run
+
+# 从第 5 个开始处理 10 个，间隔 5 秒
+python3.12 scripts/batch_test.py --urls-file urls.txt --submit --start 5 --limit 10 --delay 5
 ```
 
 URL 文件混合 1688/Ozon 链接，自动识别管线。
+
+参数：`--urls-file`（必填）、`--submit`（提交 Worker，默认不提交）、`--wait`（轮询到完成，含产品明细）、`--dry-run`（只组装验证）、`--start` / `--limit`（处理范围）、`--delay`（间隔秒）、`--wait-timeout`（轮询超时秒，默认 900）、`--type-filter`（按类型过滤 URL）。
+
+### 其他命令（辅助）
+
+```bash
+# 1688 关键词搜索（按词找货，耗 1688 配额）
+python3.12 scripts/cli.py search "宠物饮水机" --page-size 5
+
+# 查看已配置店铺
+python3.12 scripts/cli.py list_stores
+
+# 浏览器自动获取 1688 AK（登录后自动复制）
+python3.12 scripts/cli.py get_ak --timeout 300
+
+# CDP 探针抓取单个 1688 商品（调试用）
+python3.12 scripts/cli.py probe --url "https://detail.1688.com/offer/xxx.html" --timeout 30
+```
 
 ### 管线 E：趋势驱动选品（v0.25）
 
@@ -202,6 +300,27 @@ python3.12 scripts/cli.py trend --category "玩具" --market-info trend_info.txt
 4. **展示**：细分市场卡片（图片/价格/起批量/48H 揽收率/销量/供应商）+ 全 SKU 明细表（3 倍建议价）+ 汇总表；`--with-skus` 用 CDP 拉 SKU，`--export json|csv` 导出。
 
 筛选参数：`--max-price`（元）、`--max-moq`（件）、`--min-ship-rate-48h`（%）、`--min-sales`（件）。
+其他参数：`--with-skus`（CDP 拉 Top 商品 SKU 明细）、`--export json|csv|both` + `--output <路径>`（导出结果）。
+
+### 4.1 输出字段解析
+
+所有业务命令（graph / follow / batch_test）输出 JSON，关键字段：
+
+| 字段 | 类型 | 含义 | agent 取值方式 |
+|---|---|---|---|
+| `summary` | dict | 商品摘要 | 提取标题、价格、重量、图片数 → 汇报给用户 |
+| `envelope` | dict | 完整 GraphInput 信封 | 内部数据，不需解析 |
+| `submit_result.ok` | bool | 提交是否成功 | `true` → 按 §5.1 回复；`false` → 按 §5.2 回复 |
+| `submit_result.task_id` | str | 任务 ID | 提取后告知用户，用于后续查询 |
+| `submit_result.error_code` | str | 错误码 | 按 §5.2 错误码表回复 |
+| `product_summary[]` | array | 产品明细（`--wait` 轮询后） | 提取 1688链接/利润率/售价/采购价/运费/净利润率/OzonID → 表格展示 |
+
+**成败判定**：`submit_result.ok == true` → 成功；否则按 `error_code` 查 §5.2 表。
+
+**汇报模板**：
+- 成功：`✅ 任务已提交，任务 ID: {task_id}。预计 10–20 分钟完成。`
+- 失败：按 §5.2 错误码表回复（含修复指引）。
+- 轮询完成（batch_test --wait）：`✅ 任务完成。产品明细：[表格]`。
 
 ---
 
@@ -220,7 +339,7 @@ Worker 返回：
 > ✅ 任务已提交到云端处理
 > - 任务 ID：`{task_id}`
 > - 预计耗时：10–20 分钟（类目匹配 → AI 生图 → Ozon 上架 → 审核）
-> - 流程完成后我会通知你。如有问题 Worker 会自动重试修复。
+> - 你可以在 Ozon 卖家后台查看上架结果，或稍后用 `batch_test --wait` 查询。如有问题 Worker 会自动重试修复。
 
 ### 5.2 提交失败
 
@@ -241,9 +360,11 @@ Worker 返回：
 
 用户问"进度"、"完成了没"时：
 
-- 任务提交后处于云端异步处理中，CLI 工具不提供实时进度查询
-- 告知用户：任务正在云端处理中（类目匹配 → AI 生图 → Ozon 上传 → 审核），预计 10–20 分钟
-- 不要频繁调用 Worker API 轮询状态
+- **批量提交**：用 `batch_test.py --wait` 自动轮询（每 5s 查一次），完成后打印每个产品的明细（1688链接/利润率/售价/采购价/运费/净利润率/OzonID）。
+- **单任务查询**：CLI 未暴露单任务查询子命令。如用户追问单个任务进度：
+  1. 告知任务正在云端处理中（类目匹配 → AI 生图 → Ozon 上传 → 审核），预计 10–20 分钟
+  2. 建议用户等待后用 `batch_test.py --wait` 查看结果，或在 Ozon 卖家后台查看商品状态
+  3. 不要自行调 Worker API 轮询（skill 无此命令）
 
 ---
 
@@ -322,3 +443,13 @@ python3.12 bootstrap_update.py
 如果运行 `graph`/`follow` 提示「未找到 scripts.cloud_probe（版本过旧）」，
 按上面 bootstrap 升级即可。手动确认当前版本：`python3.12 scripts/cli.py update`
 （显示「已是最新」即正常）。
+
+## 11. data/ 目录语义（防误删）
+
+| 路径 | 用途 | 可否删除 |
+|---|---|---|
+| `data/config/` | 凭证（stores.json / token / ak） | ❌ **绝对不能删**（删了要重新配置全部凭证） |
+| `data/discovery/` | discover 选品结果落盘 | 可清理旧文件 |
+| `data/logs/` | 运行日志 | 可清理旧文件 |
+| `data/cache/` | 磁盘缓存（TTL 自动过期） | 可清理 |
+| `wave*.txt` / `urls_*.txt` / `test_run_*` | 测试遗留文件 | 可删除 |
