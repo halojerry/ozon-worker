@@ -108,6 +108,11 @@ pounding-ozon-probe/
       browser_probe/
         service.py            # Chrome CDP 探针
         stealth.py            # 反检测
+  SKILL.md                    # Agent 操作手册（骨架，意图路由 + 速查表）
+  references/                 # 专题文档（命令参考/错误码/输出解析/环境准备）
+  envelope_example.json       # 信封结构示例
+  field_mapping.md            # 字段映射
+  VERSION                     # 版本（updater 比对依据）
 ```
 
 ## 与 pounding-ozon-hybrid 的关系
