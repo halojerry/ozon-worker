@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.28.4] - 2026-08-06
+
+> Chrome 跨平台重复开启修复 + 常驻复用 + 文档增强(0.28.2 后 4 个 commit 合并发布)。
+
+### Fixed
+
+- **Chrome 跨平台重复开启**(用户反馈"一直重复开启浏览器", Windows/Mac):
+  - 根因1: ensure_chrome_cdp 持锁复查依赖 ps/PowerShell 命令行解析判
+    --remote-allow-origins, 解析失败/截断 → 误判缺参 → 杀 Chrome → 重启 → 循环。
+    → 删除两处"缺 allow-origins 杀重启", CDP 可用即信任(连接 403 由调用方报错, 绝不杀浏览器)。
+  - 根因2: 工具 Chrome 用完不关, 用户手动关后下次又新开。
+    → v0.28.3 PID 追踪用完即关 → **v0.28.4 改为常驻复用**(更优):
+    check 启动后引导登录 1688 + Ozon Seller, 浏览器保持常驻, 后续命令 CDP 可用即复用,
+    不再每次弹新窗口; 用户手动关闭后下次命令自动重启。
+  - check 新增登录引导: 未登录 1688 自动打开 login.1688.com + seller.ozon.ru
+    (discover 运营指标需要卖家登录), 交互等待登录后 Enter; 非交互提示重跑。
+- 用户反馈 6 项: env-setup pip3.12 修正 / output-schema 补 product_summary 字段 /
+  error-codes check_task_status 同步提示 / C-D 澄清(--auto-submit 显式参数)。
+
+### Added
+
+- command-reference 并发限制表(Chrome 单实例串行/1688 配额/batch_test 内置 delay)+ 批量操作规则。
+- error-codes 错误恢复决策表(每错误码下一步 + 自动重试最多 1 次)。
+- output-schema submit_result/check_task_status JSON 示例 + status 取值/终态判定。
+- SKILL.md 管线 E 市场信息三级降级(web_search → SEARXNG_URL → 问用户手动提供/退回 C)。
+
+### Tests
+
+- skill 81 passed; 行号引用(5 处)与代码逐一核对无误。
+
+
 ## [0.28.0] - 2026-08-06
 
 > Skill 架构重构版(执行 PRD Phase A-F + 两轮 agent 实测修复)。Worker 代码零改动。
