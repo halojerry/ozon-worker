@@ -74,7 +74,7 @@ def comparison_gen_node(state: ComparisonInput, config: RunnableConfig, runtime:
             ref_images=ref_images if ref_images else None,
             aspect_ratio="3:4",
             timeout=180,
-            max_retries=2
+            max_retries=1
         )
         
         if image_url and isinstance(image_url, str) and image_url:
