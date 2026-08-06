@@ -47,6 +47,46 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _poll_task_result(task_id: str, worker_url: str, timeout: int = 900) -> dict[str, Any]:
+    """轮询 Worker task_status 直到终态（completed/failed），返回任务详情。
+
+    v0.22: skill 提交后默认不等待；--wait 时调用，拿到 product_summary。
+    """
+    url = f"{worker_url.rstrip('/')}/task_status/{task_id}"
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            resp = requests.get(url, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                status = data.get("status", "")
+                if status in ("completed", "failed", "cancelled"):
+                    return data
+            elif resp.status_code == 404:
+                return {"status": "not_found", "task_id": task_id}
+        except Exception as _e:
+            print(f"  ⏳ task_status 轮询异常（继续）: {_e}", flush=True)
+        time.sleep(10)
+    return {"status": "timeout", "task_id": task_id, "timeout_seconds": timeout}
+
+
+def _print_product_summary(entry: dict[str, Any]) -> None:
+    """打印单任务的产品经营明细（1688链接/利润率/售价/采购价/运费预估）。"""
+    rows = entry.get("result_summary") or []
+    if not rows:
+        return
+    label = entry.get("offer_id") or entry.get("product_id") or entry.get("id") or "?"
+    print(f"  ── 产品明细（{label}）──", flush=True)
+    for row in rows:
+        print(
+            f"    1688: {row.get('purchase_url', '')}\n"
+            f"    采购价: ¥{row.get('purchase_cost', 0)} | 利润率: {row.get('margin_rate', 0)}"
+            f" | 售价: {row.get('price', '')} | 运费预估: ¥{row.get('logistics_cost', 0)}"
+            f" | 净利润率: {row.get('profit_rate', 0)} | OzonID: {row.get('product_id', '')}",
+            flush=True,
+        )
+
+
 def parse_urls_file(filepath: str) -> list[dict[str, str]]:
     """Parse URL list file. Returns list of {type, url, id}."""
     results: list[dict[str, str]] = []
@@ -128,9 +168,21 @@ def process_1688_url(
         envelope["ozon_client_id"] = client_id
         envelope["ozon_api_key"] = api_key
 
-        # Step 3: Submit to Worker
+        # Step 3: Submit to Worker（v0.21: 429 限流指数退避重试 3 次：30/60/120s）
         print(f"  📤 [{offer_id}] 提交到 Worker...", flush=True)
-        submit_result = submit_envelope(envelope)
+        submit_result = None
+        for attempt in range(4):
+            try:
+                submit_result = submit_envelope(envelope)
+                break
+            except requests.exceptions.HTTPError as _e:
+                _status = _e.response.status_code if _e.response is not None else 0
+                if _status == 429 and attempt < 3:
+                    _wait = 30 * (2 ** attempt)
+                    print(f"  ⏳ [{offer_id}] 429 限流，{_wait}s 后重试 ({attempt + 1}/3)...", flush=True)
+                    time.sleep(_wait)
+                    continue
+                raise
         result["submit_result"] = submit_result
         result["task_id"] = submit_result.get("task_id", "")
         result["success"] = submit_result.get("ok", False)
@@ -155,6 +207,7 @@ def process_ozon_url(
     api_key: str,
     worker_url: str,
     dry_run: bool,
+    store_id: str = "",
 ) -> dict[str, Any]:
     """Process a single Ozon URL: follow-sell pipeline → submit."""
     from scripts.cloud_probe import follow_sell_cloud, submit_envelope
@@ -175,9 +228,24 @@ def process_ozon_url(
         os.environ["OZON_API_KEY"] = api_key
 
         print(f"  🔗 [{product_id}] 跟卖流程 (Ozon抓图 → 1688搜同款 → 上架)...", flush=True)
-        follow_result = follow_sell_cloud(url, auto_submit=not dry_run)
+        # ✅ v0.26 FIX: 透传 store_id — 此前漏传导致 follow_sell_cloud 用默认店铺：
+        # ① extensions 定价参数（margin/commission/fx）取默认店铺为空 → Worker 用
+        #    默认值（利润计算与主店铺不符）；② 物流费率/币种走默认店铺 profile。
+        follow_result = follow_sell_cloud(url, auto_submit=not dry_run, store_id=store_id)
 
-        # Restore old env vars
+        result["follow_result"] = follow_result
+        result["card_copied"] = follow_result.get("card_copied", False)
+        result["search_keyword"] = follow_result.get("search_keyword", "")
+        result["slug"] = follow_result.get("slug", "")
+
+        matches = follow_result.get("1688_matches", [])
+        result["matches_count"] = len(matches)
+    except Exception as e:
+        result["error"] = str(e)
+        print(f"  ❌ [{product_id}] 异常: {e}", flush=True)
+        return result
+    finally:
+        # ✅ 始终恢复环境变量（即使 follow_sell_cloud 异常）
         if old_cid:
             os.environ["OZON_CLIENT_ID"] = old_cid
         else:
@@ -187,13 +255,10 @@ def process_ozon_url(
         else:
             os.environ.pop("OZON_API_KEY", None)
 
-        result["follow_result"] = follow_result
-        result["card_copied"] = follow_result.get("card_copied", False)
-        result["search_keyword"] = follow_result.get("search_keyword", "")
-        result["slug"] = follow_result.get("slug", "")
-
-        matches = follow_result.get("1688_matches", [])
-        result["matches_count"] = len(matches)
+        # ⚠️ v0.14 E7: follow_result/matches 可能在异常时未绑定（finally 引用会 NameError 掩盖原异常）
+        # 用 locals().get 安全读取
+        follow_result = locals().get("follow_result") or {}
+        matches = locals().get("matches") or []
 
         if not follow_result.get("success"):
             result["error"] = follow_result.get("error", "跟卖流程未找到匹配")
@@ -217,10 +282,6 @@ def process_ozon_url(
         result["task_id"] = follow_result.get("task_id", "")
         if follow_result.get("submit_result"):
             result["submit_result"] = follow_result["submit_result"]
-
-    except Exception as e:
-        result["error"] = str(e)
-        print(f"  ❌ [{product_id}] 异常: {e}", flush=True)
 
     return result
 
@@ -266,6 +327,14 @@ def main() -> int:
         "--delay", type=float, default=3.0, help="每个 URL 之间的延迟秒数"
     )
     parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="提交后轮询任务结果，打印每个产品的 1688链接/利润率/售价/采购价/运费预估（v0.22）",
+    )
+    parser.add_argument(
+        "--wait-timeout", type=int, default=900, help="--wait 轮询超时秒数（默认 900）"
+    )
+    parser.add_argument(
         "--type-filter",
         choices=["1688", "ozon", "all"],
         default="all",
@@ -291,7 +360,9 @@ def main() -> int:
     _cdp_ok = False
     try:
         from scripts.lib.chrome_launcher import ensure_chrome_cdp
-        ok, msg = ensure_chrome_cdp(auto_restart=True)
+        from pathlib import Path as _P
+        _prof = str(_P(__file__).resolve().parent.parent / "data" / "browser" / "profiles" / "1688" / "default")
+        ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_prof)
         _cdp_ok = ok
         if not ok:
             issues.append(f"Chrome CDP 启动失败: {msg}")
@@ -303,60 +374,45 @@ def main() -> int:
             issues.append("→ 启动: Chrome --remote-debugging-port=9222 --remote-allow-origins='*'")
 
     # 1688 login check via CDP cookies (not session file)
+    # ⚠️ v0.14 E4: 用 CdpTab 封装替代手写 websocket（只读检查，不关远程 tab）
     if args.type_filter in ("1688", "all") and _cdp_ok:
         try:
-            import websocket as _ws
+            from scripts.lib.cdp_client import CdpTab
             _tabs = requests.get("http://127.0.0.1:9222/json", timeout=5).json()
-            _1688_ws = None
+            tab = None
             for _t in _tabs:
                 if _t.get("type") == "page" and "1688.com" in _t.get("url", ""):
-                    _1688_ws = _t.get("webSocketDebuggerUrl", "")
+                    tab = CdpTab("http://127.0.0.1:9222", _t.get("id", ""), _t.get("webSocketDebuggerUrl", ""))
                     break
-            if _1688_ws:
-                _ws_conn = _ws.create_connection(_1688_ws, timeout=8)
-                _ws_conn.send(json.dumps({"id":1,"method":"Runtime.evaluate","params":{
-                    "expression":"document.cookie.match(/cookie2=|__cn_logon__=/) ? 'LOGGED_IN' : 'NOT_LOGGED_IN'",
-                    "returnByValue":True}}))
-                _ws_conn.settimeout(5)
-                for _ in range(10):
-                    try:
-                        m = json.loads(_ws_conn.recv())
-                        if m.get("id") == 1:
-                            if m.get("result",{}).get("result",{}).get("value","") != "LOGGED_IN":
-                                issues.append("1688 未登录 (仅影响 1688 URL)")
-                                issues.append("→ 请在 Chrome 中登录 https://login.1688.com/")
-                            break
-                    except: continue
-                _ws_conn.close()
+            if tab:
+                val = tab.evaluate(
+                    "document.cookie.match(/cookie2=|__cn_logon__=/) ? 'LOGGED_IN' : 'NOT_LOGGED_IN'",
+                    timeout=8,
+                )
+                if val != "LOGGED_IN":
+                    issues.append("1688 未登录 (仅影响 1688 URL)")
+                    issues.append("→ 请在 Chrome 中登录 https://login.1688.com/")
+                tab.close(close_remote=False)  # 只关 WS，保留用户 1688 标签页
         except Exception:
             pass  # Non-critical, actual probe will catch it
 
     # Check Ozon DataDome trust
+    # ⚠️ v0.14 E4: 用 CdpConnection 封装替代手写 websocket（新建 tab 检查后全关）
     if args.type_filter in ("ozon", "all") and cdp.get("session_available"):
         try:
-            import websocket as _ws
-            import requests as _req
-            blank_resp = _req.put("http://127.0.0.1:9222/json/new?", timeout=5)
-            if blank_resp.status_code == 200:
-                tab = blank_resp.json()
-                ws = _ws.create_connection(tab.get("webSocketDebuggerUrl", ""), timeout=8)
-                ws.send(json.dumps({"id":1,"method":"Page.enable","params":{}}))
-                ws.send(json.dumps({"id":2,"method":"Page.navigate","params":{"url":"https://www.ozon.ru/"}}))
-                import time as _t; _t.sleep(3)
-                ws.send(json.dumps({"id":3,"method":"Runtime.evaluate",
-                    "params":{"expression":"!!document.body && document.body.innerText.includes('OZON')","returnByValue":True}}))
-                for __ in range(10):
-                    ws.settimeout(2)
-                    try:
-                        m = json.loads(ws.recv())
-                        if m.get("id") == 3:
-                            if not m.get("result",{}).get("result",{}).get("value"):
-                                issues.append("Ozon 被 DataDome 拦截！需先在 Chrome 中访问 ozon.ru")
-                                issues.append("→ 打开 https://www.ozon.ru/ 浏览一个商品即可建立信任")
-                            break
-                    except:
-                        break
-                ws.close()
+            from scripts.lib.cdp_client import CdpConnection
+            conn = CdpConnection("http://127.0.0.1:9222")
+            tab = conn.new_tab("https://www.ozon.ru/")
+            tab.wait_for_load(timeout=10)
+            val = tab.evaluate(
+                "!!document.body && document.body.innerText.includes('OZON')",
+                timeout=8,
+            )
+            if not val:
+                issues.append("Ozon 被 DataDome 拦截！需先在 Chrome 中访问 ozon.ru")
+                issues.append("→ 打开 https://www.ozon.ru/ 浏览一个商品即可建立信任")
+            tab.close()  # 新建 tab → 全关，不残留
+            conn.close()
         except Exception:
             pass
 
@@ -442,18 +498,37 @@ def main() -> int:
                 api_key=args.api_key,
                 worker_url=args.worker_url,
                 dry_run=args.dry_run,
+                store_id=args.store_id,
             )
 
         results.append(r)
+        # v0.22: --wait 时轮询任务终态并展示产品明细
+        if args.wait and r.get("success") and r.get("task_id"):
+            _label = r.get("offer_id") or r.get("product_id") or uid
+            print(f"  ⏳ [{_label}] 等待任务完成... task_id={r['task_id']}", flush=True)
+            # ✅ v0.25: _poll_task_result 偶发返回 None（worker 非 JSON 响应）→ 防御
+            final = _poll_task_result(r["task_id"], args.worker_url, timeout=args.wait_timeout) or {}
+            r["final_status"] = final.get("status", "")
+            # ✅ v0.25: worker 返回 error_message:null（JSON null）时 .get 默认值不生效
+            r["final_error"] = (final.get("error_message") or "")[:300]
+            r["result_summary"] = (final.get("result") or {}).get("product_summary", [])
+            if final.get("status") == "completed" and r["result_summary"]:
+                _print_product_summary(r)
+            elif final.get("status") in ("failed", "cancelled"):
+                print(f"  ❌ [{_label}] 任务{final.get('status')}: {r['final_error']}", flush=True)
+            elif final.get("status") == "timeout":
+                print(f"  ⏳ [{_label}] 轮询超时，可稍后查 task_status", flush=True)
         if r.get("success"):
             stats["success"] += 1
         else:
             stats["failed"] += 1
 
-        # Save incremental results
-        log_file.write_text(
-            json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        # ⚠️ v0.14 E7: 移除循环内全量覆写（O(n²) 写入）— 改为每 5 条增量落盘一次，
+        # 最终 summary 阶段完整写一次。崩溃时最多丢最近 5 条，而非全量重写 N 次。
+        if (i + 1) % 5 == 0:
+            log_file.write_text(
+                json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
 
         # Delay between URLs
         if i < len(urls) - 1:
@@ -483,6 +558,10 @@ def main() -> int:
             for r in results
         ],
     }
+    # ⚠️ v0.14 E7: 循环结束后完整写一次 log_file（增量每 5 条 + 此处兜底，保证全量落盘）
+    log_file.write_text(
+        json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     summary_file.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )

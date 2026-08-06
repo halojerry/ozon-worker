@@ -19,7 +19,7 @@ batch_test               批量处理 URL 列表
 
 from __future__ import annotations
 
-import argparse, json, sys, time
+import argparse, json, os, sys, time
 from pathlib import Path
 
 # Ensure scripts/ is on sys.path
@@ -27,7 +27,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def _out(obj: dict) -> None:
-    print(json.dumps(obj, ensure_ascii=False, indent=2), flush=True)
+    """输出 JSON（⚠️ v0.26: 凭证脱敏 — api_key/token 打码，防终端/日志泄漏）。"""
+    import copy as _copy
+    safe = _copy.deepcopy(obj)
+    _redact_keys(safe, {"api_key", "token", "ozon_api_key", "mxou_token", "ak", "ali_1688_ak"})
+    print(json.dumps(safe, ensure_ascii=False, indent=2), flush=True)
+
+
+def _redact_keys(obj, keys: set, _depth: int = 0) -> None:
+    """递归把 dict 中命中的键值打码（保留前 4 位便于区分）。"""
+    if _depth > 10 or obj is None:
+        return
+    if isinstance(obj, dict):
+        for k, v in list(obj.items()):
+            if isinstance(k, str) and k in keys and isinstance(v, str) and v:
+                obj[k] = v[:4] + "****"
+            else:
+                _redact_keys(v, keys, _depth + 1)
+    elif isinstance(obj, list):
+        for item in obj:
+            _redact_keys(item, keys, _depth + 1)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -71,7 +90,9 @@ def cmd_set_token(args: argparse.Namespace) -> int:
     """设置 MXOU_TOKEN."""
     from scripts.lib.config_store import set_mxou_token
     set_mxou_token(args.token)
-    _out({"success": True, "message": "MXOU_TOKEN 已保存到 settings.json"})
+    _out({"success": True,
+          "message": "MXOU_TOKEN 已保存到 settings.json",
+          "hint": "如还没有 Token，请访问 https://api.mxou.cn 注册并获取"})
     return 0
 
 
@@ -123,7 +144,12 @@ def cmd_probe(args: argparse.Namespace) -> int:
 def cmd_graph(args: argparse.Namespace) -> int:
     """组装 GraphInput envelope（1688 API + CDP → 完整请求）."""
     from scripts.lib.config_store import preflight_check, print_setup_guide, AuthError
-    from scripts.cloud_probe import build_graph_envelope_with_retry, ProductValidationError
+    try:
+        from scripts.cloud_probe import build_graph_envelope_with_retry, ProductValidationError
+    except ModuleNotFoundError:
+        print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
+              "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
+        return 1
 
     missing = preflight_check()
     if missing:
@@ -177,14 +203,36 @@ def cmd_graph(args: argparse.Namespace) -> int:
         "supplier": draft.get("supplier", "")[:30],
         "shipping": draft.get("shipping"),
     }
-    _out({"summary": summary, "envelope": graph})
+    # ✅ v0.10: 默认自动提交到 Worker（对齐 SKILL.md），--no-submit 跳过
+    submit_result = None
+    if not getattr(args, 'no_submit', False):
+        try:
+            from scripts.cloud_probe import submit_envelope
+        except ModuleNotFoundError:
+            print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
+                  "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
+            return 1
+        submit_result = submit_envelope(graph)
+        if submit_result.get("ok"):
+            import logging
+            _logger = logging.getLogger(__name__)
+            _logger.info("✅ 已提交 Worker: task_id=%s", submit_result.get("task_id"))
+            summary["task_id"] = submit_result.get("task_id")
+        else:
+            import logging
+            _logger = logging.getLogger(__name__)
+            _logger.error("❌ 提交失败: %s", submit_result.get("error"))
+    _out({"summary": summary, "envelope": graph, "submit_result": submit_result})
     return 0
 
 
 def cmd_image_search(args) -> int:
-    """以图搜款: 上传图片搜索 1688 同款/相似商品."""
+    """以图搜款: 上传图片搜索 1688 同款/相似商品。
+
+    --source ak  → 1688 AK API 图搜（默认，无需浏览器）
+    --source cdp → 1688 网页版 CDP 图搜（更准确，需 Chrome 登录 1688）
+    """
     from scripts.lib.config_store import preflight_check, print_setup_guide, AuthError
-    from scripts.lib.ak_1688_client import search_by_image
 
     missing = preflight_check(skip_store=True)
     if missing:
@@ -192,12 +240,22 @@ def cmd_image_search(args) -> int:
         return 1
 
     try:
-        results = search_by_image(
-            image_path=args.image if not args.image.startswith("http") else "",
-            image_url=args.image if args.image.startswith("http") else "",
-            page_size=args.limit,
-            sort_type=args.sort or "",
-        )
+        if args.source == "cdp":
+            from scripts.lib.ozon_image_search import search_by_image_cdp
+            results = search_by_image_cdp(
+                image_url=args.image,
+                page_size=max(args.limit, 20),
+                wait_seconds=10,
+                try_crop_regions=True,
+            )
+        else:
+            from scripts.lib.ak_1688_client import search_by_image
+            results = search_by_image(
+                image_path=args.image if not args.image.startswith("http") else "",
+                image_url=args.image if args.image.startswith("http") else "",
+                page_size=args.limit,
+                sort_type=args.sort or "",
+            )
     except AuthError as e:
         _out({"success": False, "error": str(e)})
         return 1
@@ -236,13 +294,26 @@ def cmd_get_ak(args) -> int:
 
     result = get_ak_via_browser(timeout=args.timeout)
 
-    # Auto-save AK if obtained successfully
-    if result.get("success") and result.get("ak"):
-        set_ali_1688_ak(result["ak"])
+    # ✅ get_ak_via_browser() 内部已通过 _save_ak() 保存真实 AK
+    # 这里只标记成功，不再二次保存（result["ak"] 是 masked 值，会破坏真实 AK）
+    if result.get("success"):
         result["saved_to"] = "settings.json"
 
     _out(result)
     return 0 if result.get("success") else 1
+
+
+def _chrome_profile_dir() -> str:
+    """独立 Chrome profile 目录。
+
+    ⚠️ Chrome 130+ 禁止在系统默认数据目录启用远程调试
+    （"DevTools remote debugging requires a non-default data directory"），
+    必须用 --user-data-dir 指向独立 profile。与 browser_probe/service.py
+    的 _profile_dir('default') 保持一致，登录态在独立 profile 中维护，
+    不污染用户日常 Chrome。
+    """
+    return str(Path(__file__).resolve().parent.parent
+               / "data" / "browser" / "profiles" / "1688" / "default")
 
 
 def cmd_check(args) -> int:
@@ -258,6 +329,17 @@ def cmd_check(args) -> int:
 
     def _ok(b: bool) -> str:
         return "✅" if b else "❌"
+
+    def _open_tab(url: str) -> None:
+        """在 CDP Chrome 中打开一个标签页（方便用户登录/建立信任），失败静默。"""
+        try:
+            from scripts.lib.cdp_client import CdpConnection
+            conn = CdpConnection("http://127.0.0.1:9222")
+            tab = conn.new_tab(url)
+            tab.close(close_remote=False)  # 保留标签页给用户，只关 WS
+            conn.close()
+        except Exception:
+            pass
 
     # ═══════════════════════════════════════════
     # 1. 浏览器检测（Chromium 内核）
@@ -328,7 +410,7 @@ def cmd_check(args) -> int:
             print(f"  🌐 Chrome: {Path(info['chrome_path']).name}")
         if not info["cdp_available"]:
             print(f"  ⏳ CDP 未运行，正在自动启动 Chrome...")
-            ok, msg = ensure_chrome_cdp(auto_restart=True)
+            ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
             if ok:
                 print(f"  ✅ {msg}")
                 session_ok = True
@@ -337,7 +419,7 @@ def cmd_check(args) -> int:
                 session_ok = False
         elif not info["has_remote_allow_origins"]:
             print(f"  ⚠️ CDP 运行中但缺少 --remote-allow-origins，正在重启 Chrome...")
-            ok, msg = ensure_chrome_cdp(auto_restart=True)
+            ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
             if ok:
                 print(f"  ✅ {msg}")
                 session_ok = True
@@ -363,50 +445,33 @@ def cmd_check(args) -> int:
     # 3. 1688 CDP 连通检查 + 登录检测
     # ═══════════════════════════════════════════
     alibaba_cdp_ok = False
+    login_ok = False  # ⚠️ v0.14 E4: 显式初始化（原代码 ws 分支异常时可能 NameError）
     if session_ok:
         print(f"\n  🔗 1688 CDP 连通检查...")
         try:
-            import websocket as _ws
-            import time as _time
+            from scripts.lib.cdp_client import CdpTab
 
-            _1688_ws_url = None
-            _tabs = req.get("http://127.0.0.1:9222/json", timeout=5).json()
-            for _t in _tabs:
-                if _t.get("type") == "page" and "1688.com" in _t.get("url", ""):
-                    _1688_ws_url = _t.get("webSocketDebuggerUrl", "")
-                    break
-
-            if _1688_ws_url:
-                ws = _ws.create_connection(_1688_ws_url, timeout=10)
-                ws.send(json.dumps({"id":1,"method":"Runtime.evaluate",
-                    "params":{"expression":"!!location.href && location.href.indexOf('1688.com')>=0 && location.href.indexOf('login.1688.com')<0","returnByValue":True}}))
-                ws.settimeout(8)
-                for _ in range(15):
-                    try:
-                        m = json.loads(ws.recv())
-                        if m.get("id") == 1:
-                            alibaba_cdp_ok = bool(m.get("result",{}).get("result",{}).get("value", False))
-                            break
-                    except _ws.WebSocketTimeoutException:
-                        continue
-                    except Exception:
+            # ⚠️ v0.14 E4: 复用已有 1688 tab（只读检查），替代手写 websocket + Runtime.evaluate
+            tab = None
+            try:
+                _tabs = req.get("http://127.0.0.1:9222/json", timeout=5).json()
+                for _t in _tabs:
+                    if _t.get("type") == "page" and "1688.com" in _t.get("url", ""):
+                        tab = CdpTab("http://127.0.0.1:9222", _t.get("id", ""), _t.get("webSocketDebuggerUrl", ""))
                         break
+            except Exception:
+                pass
+
+            if tab:
+                alibaba_cdp_ok = bool(tab.evaluate(
+                    "!!location.href && location.href.indexOf('1688.com')>=0 && location.href.indexOf('login.1688.com')<0"
+                ))
                 if alibaba_cdp_ok:
-                    ws.send(json.dumps({"id":2,"method":"Runtime.evaluate","params":{
-                        "expression":"document.cookie.match(/cookie2=|__cn_logon__=/) ? 'LOGGED_IN' : 'NOT_LOGGED_IN'",
-                        "returnByValue":True}}))
-                    for _ in range(15):
-                        try:
-                            m = json.loads(ws.recv())
-                            if m.get("id") == 2:
-                                val = m.get("result",{}).get("result",{}).get("value", "NOT_LOGGED_IN")
-                                login_ok = val == "LOGGED_IN"
-                                break
-                        except _ws.WebSocketTimeoutException:
-                            continue
-                        except Exception:
-                            break
-                ws.close()
+                    val = tab.evaluate(
+                        "document.cookie.match(/cookie2=|__cn_logon__=/) ? 'LOGGED_IN' : 'NOT_LOGGED_IN'"
+                    )
+                    login_ok = val == "LOGGED_IN"
+                tab.close(close_remote=False)  # 只关 WS，保留用户 1688 标签页
             else:
                 print(f"  ⚠️ 未找到已打开的 1688 标签页")
         except Exception as _dbg_e:
@@ -419,11 +484,13 @@ def cmd_check(args) -> int:
         print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
         if not login_ok:
             print(f"  → 在浏览器中打开 https://login.1688.com/ 登录")
+            _open_tab("https://login.1688.com/")
             all_ok = False
     elif session_ok:
         print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
         if not login_ok:
             print(f"  → 在浏览器中打开 https://login.1688.com/ 登录")
+            _open_tab("https://login.1688.com/")
             all_ok = False
 
     # ═══════════════════════════════════════════
@@ -433,44 +500,41 @@ def cmd_check(args) -> int:
     if session_ok:
         print(f"\n  🔗 Ozon CDP 连通检查 (DataDome)...")
         try:
-            import websocket as _ws
-            import time as _time
-            blank = req.put("http://127.0.0.1:9222/json/new?", timeout=5)
-            if blank.status_code == 200:
-                tab = blank.json()
-                ws = _ws.create_connection(tab.get("webSocketDebuggerUrl", ""), timeout=10)
-                ws.send(json.dumps({"id":1,"method":"Page.enable","params":{}}))
-                ws.send(json.dumps({"id":2,"method":"Page.navigate",
-                    "params":{"url":"https://www.ozon.ru/"}}))
-                deadline = _time.time() + 8
-                page_loaded = False
-                while _time.time() < deadline:
-                    try:
-                        ws.settimeout(1)
-                        m = json.loads(ws.recv())
-                        if m.get("method") == "Page.frameStoppedLoading":
-                            page_loaded = True
-                            _time.sleep(0.5)
+            from scripts.lib.cdp_client import CdpTab, CdpConnection
+
+            tab = None
+            tab_is_new = False
+
+            # ✅ v0.10: 优先复用已有 ozon.ru/product tab（保留 cookie/session，避免 DataDome）
+            # ⚠️ v0.14 E4: 用封装替代手写 websocket + Runtime.evaluate
+            try:
+                tabs_resp = req.get("http://127.0.0.1:9222/json", timeout=5)
+                if tabs_resp.status_code == 200:
+                    for t in tabs_resp.json():
+                        if t.get("type") == "page" and "ozon.ru" in t.get("url", "") and "ozon.ru/product/" in t.get("url", ""):
+                            tab = CdpTab("http://127.0.0.1:9222", t.get("id", ""), t.get("webSocketDebuggerUrl", ""))
                             break
-                    except _ws.WebSocketTimeoutException:
-                        if page_loaded: break
-                        continue
-                    except Exception:
-                        break
-                ws.send(json.dumps({"id":3,"method":"Runtime.evaluate",
-                    "params":{"expression":"location.href.indexOf('ozon.ru')>=0 && location.href.indexOf('captcha')<0","returnByValue":True}}))
-                for __ in range(15):
-                    try:
-                        ws.settimeout(1)
-                        m = json.loads(ws.recv())
-                        if m.get("id") == 3:
-                            ozon_cdp_ok = bool(m.get("result",{}).get("result",{}).get("value", False))
-                            break
-                    except _ws.WebSocketTimeoutException:
-                        continue
-                    except Exception:
-                        break
-                ws.close()
+            except Exception:
+                pass
+
+            # 没有已有 tab → 创建新 tab（仅检查后关闭，不残留）
+            if tab is None:
+                try:
+                    conn = CdpConnection("http://127.0.0.1:9222")
+                    tab = conn.new_tab("https://www.ozon.ru/")
+                    tab.wait_for_load(timeout=10)
+                    tab_is_new = True
+                except Exception:
+                    pass
+
+            if tab:
+                # 检查实际页面内容（不只是 URL），含 DataDome 拦截检测
+                ozon_cdp_ok = bool(tab.evaluate(
+                    "!!(document.body && document.body.innerText.length > 200 && document.title.length > 5 "
+                    "&& !document.querySelector('#datadome-captcha, iframe[src*=\"datadome\"]'))"
+                ))
+                # 新建 tab → 全关；复用的用户 tab → 只关 WS 不关远程
+                tab.close(close_remote=tab_is_new)
         except Exception:
             pass
         print(f"  {_ok(ozon_cdp_ok)} Ozon 可通过 DataDome")
@@ -479,7 +543,30 @@ def cmd_check(args) -> int:
 
     if session_ok and not ozon_cdp_ok:
         print(f"  → 在浏览器中打开 https://www.ozon.ru/ 浏览任意商品即可建立信任")
+        _open_tab("https://www.ozon.ru/")
         all_ok = False
+
+    # ═══════════════════════════════════════════
+    # 4.5 seller.ozon.ru 卖家后台登录检查（运营数据）
+    # ═══════════════════════════════════════════
+    # www.ozon.ru 是选品端；seller.ozon.ru 是卖家后台（运营数据/月销/利润率判断靠它）
+    print(f"\n  🔗 seller.ozon.ru 卖家后台登录检查（选品运营数据依赖）...")
+    seller_ok = False
+    if session_ok:
+        try:
+            from scripts.lib.cdp_client import CdpConnection
+            from scripts.lib.ozon_seller_analytics import check_seller_login
+            conn = CdpConnection("http://127.0.0.1:9222")
+            seller_ok = check_seller_login(conn)
+            conn.close()
+        except Exception:
+            pass
+    print(f"  {_ok(seller_ok)} seller.ozon.ru 卖家后台已登录（运营数据可用）")
+    if not seller_ok:
+        print(f"  → 请在 Chrome 中打开 https://seller.ozon.ru/ 登录卖家后台")
+        print(f"    （选品去 www.ozon.ru，运营数据在 seller.ozon.ru，两个登录态都要）")
+        if session_ok:
+            _open_tab("https://seller.ozon.ru/")
 
     # ═══════════════════════════════════════════
     # 5. 凭证检查
@@ -589,7 +676,12 @@ def cmd_check(args) -> int:
 def cmd_follow(args) -> int:
     """跟卖 Ozon 商品: Ozon URL → import-by-sku → 1688搜索 → CDP探针 → 上架"""
     from scripts.lib.config_store import preflight_check, print_setup_guide, AuthError
-    from scripts.cloud_probe import follow_sell_cloud
+    try:
+        from scripts.cloud_probe import follow_sell_cloud
+    except ModuleNotFoundError:
+        print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
+              "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
+        return 1
 
     missing = preflight_check()
     if missing:
@@ -609,106 +701,347 @@ def cmd_follow(args) -> int:
 # Main
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _parse_indexes(raw: str, total: int) -> list[int]:
+    """解析序号输入 "1,3,5-8" → 0-based 索引列表（去重排序）。"""
+    idxs: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            lo_s, hi_s = part.split("-", 1)
+            lo, hi = int(lo_s), int(hi_s)
+            if lo < 1 or hi > total or lo > hi:
+                raise ValueError(f"序号越界: {part}")
+            idxs.extend(range(lo - 1, hi))
+        else:
+            n = int(part)
+            if n < 1 or n > total:
+                raise ValueError(f"序号越界: {part}")
+            idxs.append(n - 1)
+    return sorted(set(idxs))
+
+
+def _print_discover_table(candidates: list) -> None:
+    """打印全量候选表格（指标 + 状态）。
+
+    has_analytics=False（seller.ozon.ru 未登录/降级）时运营列显示 —，
+    避免 0 误导为"真实销量为 0"。
+    """
+    status_map = {
+        "ok": "✅可挑", "uncertain": "⚠️夹带?", "error": "❌失败",
+        "filtered": "⏭️价区间外", "matched": "🔗已匹配", "profitable": "💰有利",
+        "rejected": "⚠️利润低", "no_match": "❌无货源",
+    }
+    print(f"\n{'─' * 112}")
+    print(f"{'#':>3} {'状态':<9} {'标题':<30} {'价格₽':>8} {'月销':>6} "
+          f"{'增长%':>6} {'广告%':>6} {'跟卖':>4} {'上架天':>6} {'评分':>5}")
+    print(f"{'─' * 112}")
+    for i, c in enumerate(candidates, 1):
+        title = c.ozon_title or c.error or "(无标题)"
+        if len(title) > 30:
+            title = title[:29] + "…"
+        if c.has_analytics:
+            sales_s, growth_s, drr_s, create_s = (
+                f"{c.monthly_sales:>6}", f"{c.sales_growth:>6.1f}",
+                f"{c.drr:>6.1f}", f"{c.create_days:>6}")
+        else:
+            sales_s = growth_s = drr_s = create_s = f"{'—':>6}"
+        print(f"{i:>3} {status_map.get(c.status, c.status):<9} {title:<30} "
+              f"{c.ozon_price:>8.0f} {sales_s} {growth_s} {drr_s} "
+              f"{c.competing_sellers:>4} {create_s} {c.rating:>5.1f}")
+    print(f"{'─' * 112}")
+
+
+def _interactive_select(candidates: list) -> list | None:
+    """交互挑选：输入序号（1,3,5-8 / all / 回车=全选可挑 / q=取消）。"""
+    print("\n🎯 挑选要分析货源的产品（只对选中产品花 1688 识图配额）")
+    print("   输入序号如 1,3,5-8 · all 全选 · 回车全选可挑 · q 取消", flush=True)
+    while True:
+        try:
+            raw = input("挑选: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if raw.lower() in ("q", "quit", "exit"):
+            return None
+        if raw in ("", "all"):
+            return [c for c in candidates if c.status in ("ok", "uncertain")]
+        try:
+            idxs = _parse_indexes(raw, len(candidates))
+        except ValueError as e:
+            print(f"  输入无效: {e}，请重试", flush=True)
+            continue
+        picked = [candidates[i] for i in idxs if candidates[i].status in ("ok", "uncertain")]
+        if not picked:
+            print("  所选产品都不可分析（失败/无数据），请重试", flush=True)
+            continue
+        return picked
+
+
 def cmd_discover(args: argparse.Namespace) -> int:
-    """Ozon 中国站选品 — 自动发现蓝海产品。"""
+    """Ozon 选品 v2 — 先全量采集 → 表格分析 → 挑完再找货源。"""
+    from scripts.lib.chrome_launcher import ensure_chrome_cdp
     from scripts.lib.ozon_discovery import (
-        discover_from_highlight,
+        DISCOVERY_CACHE_DIR,
+        apply_selection_rules,
+        collect_and_analyze,
         export_to_csv,
         export_to_json,
-        DISCOVERY_CACHE_DIR,
+        match_selected,
     )
-    from scripts.lib.chrome_launcher import ensure_chrome_cdp
 
-    print("🔍 Ozon 中国站选品", flush=True)
-    print(f"   最多分析: {args.max_products} 个产品", flush=True)
-    print(f"   最低利润率: {args.min_margin}%", flush=True)
-    print(f"   最大跟卖人数: {args.max_sellers}", flush=True)
-    print(f"   汇率: 1 RUB = {args.fx_rate} CNY", flush=True)
+    print("🔍 Ozon 选品 v2（先采集 → 表格分析 → 挑完再找货源）", flush=True)
+    print(f"   采集上限: {args.max_products} 个 | 最低利润率: {args.min_margin}% | 汇率: 1 RUB = {args.fx_rate} CNY", flush=True)
+    if args.url or args.keyword:
+        print(f"   来源: {'URL=' + args.url if args.url else '关键词=' + args.keyword}", flush=True)
+    if args.rules:
+        print(f"   自动筛选规则: {args.rules}", flush=True)
     print(flush=True)
 
-    if args.url or args.keyword:
-        print("⚠️ --url / --keyword 模式暂未接入 discover_from_highlight，使用默认中国站页面", flush=True)
-
-    ok, msg = ensure_chrome_cdp(auto_restart=True)
+    ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
     if not ok:
         print(f"❌ Chrome 启动失败: {msg}")
         return 1
     cdp_url = "http://127.0.0.1:9222"
 
-    def _discovery_progress(current, total, candidate):
-        status = '✅' if candidate.status == 'profitable' else '⚠️'
-        print(f'  [{current}/{total}] {status} {candidate.ozon_title[:40]}  '
-              f'跟卖={candidate.competing_sellers} 利润={candidate.profit_margin:.0f}%', flush=True)
+    def _collect_progress(current, total, candidate):
+        mark = '✅' if candidate.status in ("ok", "uncertain") else '❌'
+        print(f'  [{current}/{total}] {mark} {candidate.ozon_title[:36]}', flush=True)
 
-    # Call discover_from_highlight directly (eliminates duplicate discovery logic)
+    # ── 阶段①+② 采集 + 全量数据 + 运营指标 ──
+    print("\n⏳ 阶段 1/3：采集产品列表 + 全量数据...", flush=True)
     try:
-        profitable = discover_from_highlight(
+        candidates = collect_and_analyze(
             cdp_url=cdp_url,
+            url=args.url or "",
+            keyword=args.keyword or "",
             max_products=args.max_products,
-            fx_rate=args.fx_rate,
-            min_margin_pct=args.min_margin,
-            max_competitors=args.max_sellers,
-            progress_callback=_discovery_progress,
+            use_analytics=not args.no_analytics,
+            min_price=args.min_price,
+            max_price=args.max_price,
+            brand_filter=args.brand_filter,
+            progress_callback=_collect_progress,
         )
     except KeyboardInterrupt:
         print("\n⚠️ 用户中断")
         return 0
 
-    print(f"\n📊 分析完成: {len(profitable)} 个符合条件的产品\n")
-
-    if not profitable:
-        print("未找到符合条件的产品。尝试调低 min-margin 或增加 max-products。")
+    print(f"\n📊 采集完成: {len(candidates)} 个产品（全量已落盘 {DISCOVERY_CACHE_DIR}/）")
+    if not candidates:
+        print("未采集到产品。检查关键词/URL 或增大 --max-products。")
         return 0
 
-    # Export to CSV/JSON if requested
+    # ── 阶段③ 表格展示 + 挑选 ──
+    _print_discover_table(candidates)
+
+    if args.rules:
+        try:
+            selected = apply_selection_rules(candidates, args.rules)
+        except ValueError as e:
+            print(f"❌ 规则错误: {e}")
+            return 1
+        print(f"\n🎯 规则筛选: {len(selected)}/{len(candidates)} 个命中", flush=True)
+    else:
+        selected = _interactive_select(candidates)
+        if selected is None:
+            print("已取消")
+            return 0
+
+    if not selected:
+        print("未选择任何产品。")
+        return 0
+
+    # 全量导出（含 rejected/error，供表格分析）
     if args.export in ("csv", "both"):
         output = args.output or "data/discovery/discover_export.csv"
-        csv_path = export_to_csv(profitable, output)
-        print(f"📄 CSV 已导出: {csv_path}")
+        csv_path = export_to_csv(candidates, output)
+        print(f"📄 CSV 已导出（全量）: {csv_path}")
 
     if args.export in ("json", "both"):
         output = args.output or "data/discovery/discover_export.json"
         if args.export == "both":
-            output = args.output.replace(".csv", ".json") if args.output and args.output.endswith(".csv") else "data/discovery/discover_export.json"
-        json_path = export_to_json(profitable, output)
-        print(f"📄 JSON 已导出: {json_path}")
+            output = (args.output.replace(".csv", ".json")
+                      if args.output and args.output.endswith(".csv")
+                      else "data/discovery/discover_export.json")
+        json_path = export_to_json(candidates, output)
+        print(f"📄 JSON 已导出（全量）: {json_path}")
 
-    # Display results table
-    for i, c in enumerate(profitable[:20], 1):
-        print(f"{'─' * 60}")
-        print(f"  [{i}] {c.ozon_title[:50]}")
-        print(f"      Ozon 价格: {c.ozon_price:.0f} ₽  |  跟卖: {c.competing_sellers} 人")
-        print(f"      1688 采购: ¥{c.match_1688_price:.0f}  |  利润率: {c.profit_margin:.1f}%")
-        print(f"      净利润: ¥{c.estimated_profit_cny:.0f}")
-        print(f"      Ozon: {c.ozon_url[:60]}")
-        if c.match_1688_url:
-            print(f"      1688:  {c.match_1688_url[:60]}")
-    print(f"{'─' * 60}")
+    # ── 阶段④ 批量货源（只对选中产品花 1688 配额）──
+    print(f"\n⏳ 阶段 2/3：对选中的 {len(selected)} 个产品批量找 1688 货源...", flush=True)
+    from scripts.lib.config_store import get_store_profile
 
-    # Auto-submit if requested
+    store_profile = {}
+    try:
+        store_profile = get_store_profile(args.store or "")
+    except Exception:
+        pass
+    commission_rate = float(store_profile.get("commission_rate", 0) or 0)
+
+    def _match_progress(current, total, candidate):
+        mark = {'profitable': '💰', 'rejected': '⚠️', 'no_match': '❌'}.get(candidate.status, '·')
+        print(f'  [{current}/{total}] {mark} {candidate.ozon_title[:36]}  '
+              f'1688=¥{candidate.match_1688_price:.0f} 利润={candidate.profit_margin:.1f}%', flush=True)
+
+    try:
+        from scripts.lib.config_store import get_mxou_token as _get_tok
+        match_selected(
+            selected,
+            cdp_url,
+            fx_rate=args.fx_rate,
+            min_margin_pct=args.min_margin,
+            commission_rate=commission_rate,
+            progress_callback=_match_progress,
+            mxou_token=_get_tok() or "",
+        )
+    except KeyboardInterrupt:
+        print("\n⚠️ 用户中断")
+        return 0
+
+    # ── 结果展示 ──
+    print("\n📊 阶段 3/3：货源分析结果\n")
+    _print_discover_table(selected)
+
+    profitable = [c for c in selected if c.status == "profitable"]
+    print(f"\n✅ 符合条件: {len(profitable)} 个 | 利润不足: {sum(1 for c in selected if c.status == 'rejected')} 个 | 无货源: {sum(1 for c in selected if c.status == 'no_match')} 个")
+
+    # 选中+货源结果导出（仅当请求导出时追加一份 _matched 文件）
+    if args.export in ("csv", "both"):
+        base = args.output or "data/discovery/discover_export.csv"
+        matched_csv = base.replace(".csv", "_matched.csv") if base.endswith(".csv") \
+            else "data/discovery/discover_matched.csv"
+        csv_path = export_to_csv(selected, matched_csv)
+        print(f"📄 CSV 已导出（选中+货源）: {csv_path}")
+
+    # ── auto-submit ──
     if args.auto_submit:
-        print("\n🚀 自动提交到 Worker...", flush=True)
-        confirm = input("确认提交以上产品到 Worker？(y/N) ")
-        if confirm.lower() == 'y':
-            from scripts.cloud_probe import build_envelope_from_discovery, submit_envelope
-            from scripts.lib.config_store import load_store_config
-            store_config = load_store_config(args.store) if hasattr(args, 'store') and args.store else {}
-            if not store_config:
-                store_config = {"client_id": args.client_id or "", "api_key": args.api_key or ""}
-            for c in profitable:
-                if c.match_1688_url:
-                    try:
-                        envelope = build_envelope_from_discovery(c, store_config)
-                        result = submit_envelope(envelope)
-                        task_id = result.get("task_id", "")
-                        print(f"  ✓ 已提交: {c.ozon_title[:40]} → task_id={task_id}")
-                    except Exception as e:
-                        print(f"  ✗ 提交失败: {c.ozon_title[:40]} — {e}")
-        else:
+        to_submit = [c for c in selected if c.status == "profitable" and c.match_1688_url]
+        if not to_submit:
+            print("\n⚠️ 没有符合条件的 profitable 产品可提交")
+            return 0
+        print(f"\n🚀 提交 {len(to_submit)} 个产品到 Worker...", flush=True)
+        confirm = input("确认提交？(y/N) ")
+        if confirm.lower() != 'y':
             print("已取消")
+            return 0
+        try:
+            from scripts.cloud_probe import build_envelope_from_discovery, submit_envelope
+        except ModuleNotFoundError:
+            print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
+                  "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
+            return 1
+        from scripts.lib.config_store import get_store
+
+        store = get_store(args.store or "") or {}
+        store_config = {
+            "client_id": store.get("client_id", ""),
+            "api_key": store.get("api_key", ""),
+        }
+        store_id = args.store or ""
+        for c in to_submit:
+            try:
+                envelope = build_envelope_from_discovery(c, store_config, store_id=store_id)
+                if not envelope:
+                    print(f"  ✗ 跳过（无 1688 URL）: {c.ozon_title[:40]}")
+                    continue
+                result = submit_envelope(envelope)
+                task_id = result.get("task_id", "")
+                print(f"  ✓ 已提交: {c.ozon_title[:40]} → task_id={task_id}")
+            except Exception as e:
+                print(f"  ✗ 提交失败: {c.ozon_title[:40]} — {e}")
 
     print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
     return 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 管线 E：趋势驱动选品（v0.25 S3）
+# ═══════════════════════════════════════════════════════════════════════════
+def cmd_trend(args: argparse.Namespace) -> int:
+    """趋势驱动选品：web 趋势 → AI 细分关键词 → 1688 AK 搜索（满 3 即停）→ 展示。"""
+    from scripts.lib.config_store import get_mxou_token
+    from scripts.lib.trend_selection import (
+        collect_market_info, summarize_keywords, search_by_keywords, render_results,
+    )
+    token = get_mxou_token() or ""
+    if not token:
+        _out({"error": "缺少 MXOU_TOKEN，请先 set_token"})
+        return 1
+    searxng = os.environ.get("SEARXNG_URL", "")
+    info = collect_market_info(args.category, args.market_info, searxng)
+    if "（未提供市场信息" in info:
+        print("⚠️ 未提供市场信息（--market-info 或 SEARXNG_URL），AI 将基于品类名总结，建议先用 web_search 收集趋势结果传入。", flush=True)
+    try:
+        keywords = summarize_keywords(token, info, args.category)
+    except ValueError as e:
+        _out({"error": str(e)})
+        return 1
+    if not keywords:
+        _out({"error": "AI 未提炼出有效关键词"})
+        return 1
+    filters = {}
+    for k in ("max_price", "max_moq", "min_ship_rate_48h", "min_sales"):
+        v = getattr(args, k, None)
+        if v is not None:
+            filters[k] = v
+    results = search_by_keywords(keywords, max_results=3, **filters)
+    if args.with_skus:
+        _attach_skus_via_cdp(results)
+    print(render_results(results), flush=True)
+    if args.export:
+        _export_trend(results, args.export, args.output)
+    return 0
+
+
+def _attach_skus_via_cdp(results: list) -> None:
+    """用 CDP 详情抓取补 SKU 明细（失败跳过，不阻断）。"""
+    from scripts.cloud_probe import build_graph_envelope
+    for r in results:
+        url = (r.get("item") or {}).get("detail_url") or ""
+        if not url:
+            continue
+        import re as _re
+        m = _re.search(r"/(\d+)\.html", url)
+        if not m:
+            continue
+        try:
+            env = build_graph_envelope(item_id=m.group(1), detail_url=url)
+            variants = ((env or {}).get("draft") or {}).get("variants") or []
+            skus = []
+            for v in variants:
+                try:
+                    price = float(v.get("price") or 0)
+                except (TypeError, ValueError):
+                    price = 0
+                skus.append({
+                    "name": str(v.get("name") or v.get("spec") or ""),
+                    "price": price,
+                    "suggestedPrice": round(price * 3, 2),
+                    "stock": v.get("stock", ""),
+                })
+            if skus:
+                r["item"]["skus"] = skus
+        except Exception as e:
+            print(f"⚠️ SKU 抓取失败（跳过）: {e}", flush=True)
+
+
+def _export_trend(results: list, fmt: str, output: str) -> None:
+    import csv as _csv
+    rows = [{
+        "keyword": r["keyword"], "title": r["item"].get("title", ""),
+        "price": r["item"].get("price", ""), "moq": r["item"].get("moq", ""),
+        "ship_rate_48h": r["item"].get("ship_rate_48h", ""),
+        "sales": r["item"].get("sales", ""), "supplier": r["item"].get("supplier", ""),
+        "detail_url": r["item"].get("detail_url", ""),
+    } for r in results]
+    base = output or f"data/discovery/trend_{int(time.time())}"
+    if fmt in ("json", "both"):
+        with open(f"{base}.json", "w", encoding="utf-8") as f:
+            json.dump(results, f, ensure_ascii=False, indent=2)
+    if fmt in ("csv", "both"):
+        with open(f"{base}.csv", "w", encoding="utf-8-sig", newline="") as f:
+            w = _csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else [])
+            w.writeheader()
+            w.writerows(rows)
 
 
 def main() -> int:
@@ -764,6 +1097,7 @@ def main() -> int:
     gp.add_argument("--category-query", default="", help="Ozon 类目关键词（俄语）")
     gp.add_argument("--retries", type=int, default=3, help="CDP 重试次数")
     gp.add_argument("--store", default="", help="Ozon 店铺名称（不指定则用默认店铺）")
+    gp.add_argument("--no-submit", action="store_true", help="只组装信封不提交 Worker")
     gp.set_defaults(func=cmd_graph)
 
     # image_search
@@ -771,6 +1105,8 @@ def main() -> int:
     ip.add_argument("--image", required=True, help="图片路径或 URL")
     ip.add_argument("--limit", type=int, default=10, help="返回数量")
     ip.add_argument("--sort", default="", help="排序: price_asc/price_desc/sold_desc/yx_desc")
+    ip.add_argument("--source", choices=["ak", "cdp"], default="ak",
+                    help="图搜引擎: ak=1688 AK API（默认），cdp=1688 网页 CDP（更准确）")
     ip.set_defaults(func=cmd_image_search)
 
     # get_ak
@@ -785,25 +1121,82 @@ def main() -> int:
     fp.add_argument("--store", default="", help="Ozon 店铺名称")
     fp.set_defaults(func=cmd_follow)
 
-    dp = sub.add_parser("discover", help="Ozon 中国站选品（蓝海+利润筛选）")
-    dp.add_argument("--url", default="", help="Ozon 页面 URL（搜索页/类目页/中国站等）")
-    dp.add_argument("--keyword", default="", help="搜索关键词（自动构造搜索 URL）")
-    dp.add_argument("--max-products", type=int, default=50, help="最多分析产品数（默认 50）")
+    dp = sub.add_parser("discover", help="Ozon 选品 v2（先采集 → 表格分析 → 挑完再找货源）")
+    dp.add_argument("--url", default="", help="Ozon 页面 URL（搜索页/类目页等，直接采集该页）")
+    dp.add_argument("--keyword", default="", help="搜索关键词（自动构造 /search/?text= 搜索页）")
+    dp.add_argument("--max-products", type=int, default=50, help="最多采集产品数（默认 50）")
     dp.add_argument("--min-margin", type=float, default=15.0, help="最低利润率%%")
-    dp.add_argument("--max-sellers", type=int, default=10, help="最大跟卖人数")
+    dp.add_argument("--max-sellers", type=int, default=10, help="最大跟卖人数（兼容保留，v2 中不硬过滤）")
     dp.add_argument("--fx-rate", type=float, default=0.075, help="RUB→CNY 汇率")
-    dp.add_argument("--client-id", default="", help="Ozon Client ID（获取佣金+重量）")
-    dp.add_argument("--api-key", default="", help="Ozon API Key")
-    dp.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式")
+    dp.add_argument("--store", default="", help="Ozon 店铺名（定价参数/提交凭证来源）")
+    dp.add_argument("--no-analytics", action="store_true", help="不查 seller.ozon.ru 运营指标（默认自动尝试）")
+    dp.add_argument("--min-price", type=float, default=0, help="价格下限（RUB，0=不限），区间外产品标记价区间外")
+    dp.add_argument("--max-price", type=float, default=0, help="价格上限（RUB，0=不限）")
+    dp.add_argument("--brand-filter", choices=["nobrand", "known", "all"], default="nobrand",
+                    help="品牌过滤: nobrand=只要无品牌/白牌（默认），known=只过滤知名品牌黑名单，all=不过滤")
+    dp.add_argument("--rules", default="", help="自动筛选规则，如 \"monthly_sales>=200,drr<=30\"（跳过交互挑选）")
+    dp.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式（全量+选中）")
     dp.add_argument("--output", default="", help="导出文件路径")
-    dp.add_argument("--auto-submit", action="store_true", help="用户确认后自动提交到 Worker")
+    dp.add_argument("--auto-submit", action="store_true", help="确认后提交 profitable 产品到 Worker")
     dp.set_defaults(func=cmd_discover)
+
+    # ── 管线 E：趋势驱动选品（web_search/SearXNG → AI 关键词 → AK 搜索）──
+    tr = sub.add_parser("trend", help="趋势驱动选品：web 趋势 → AI 细分关键词 → 1688 AK 搜索")
+    tr.add_argument("--category", required=True, help="大品类，如 玩具/家居/3C数码")
+    tr.add_argument("--market-info", default="", help="web_search 结果文本文件（推荐）；不传则用 SEARXNG_URL")
+    tr.add_argument("--max-price", type=float, default=None, help="最高单价（元）")
+    tr.add_argument("--max-moq", type=int, default=None, help="最大起批量（件）")
+    tr.add_argument("--min-ship-rate-48h", type=float, default=None, help="最低48H发货率（%%）")
+    tr.add_argument("--min-sales", type=int, default=None, help="最低年销量（件）")
+    tr.add_argument("--with-skus", action="store_true", help="用 CDP 抓 Top 商品 SKU 明细")
+    tr.add_argument("--export", choices=["json", "csv", "both"], default="", help="导出格式")
+    tr.add_argument("--output", default="", help="导出文件路径")
+    tr.set_defaults(func=cmd_trend)
+
+    # ── 自动更新 ──
+    up = sub.add_parser("update", help="检查并应用 Skill 自动更新")
+    up.set_defaults(func=cmd_update)
 
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
         return 0
+
+    # ⚠️ 每次命令静默检查更新（后台不阻塞，失败静默；update 命令本身跳过）
+    _silent_update_check(args.command)
+
     return args.func(args)
+
+
+def _silent_update_check(command: str) -> None:
+    """每次命令检查 Skill 更新（不阻塞主流程，失败静默）。
+
+    默认自动应用（v0.18.0）：有新版本即备份-覆盖-失败回滚；
+    SKILL_AUTO_UPDATE=0 时退回「提示 + 手动 skill update」模式。
+    """
+    if command == "update":
+        return
+    try:
+        from scripts.lib import updater
+        if os.environ.get("SKILL_AUTO_UPDATE", "1") != "0":
+            result = updater.auto_update_if_available()
+            if result and result.get("ok"):
+                print(f"\n✅ 已自动更新至 v{result['new_version']}，请重启终端后重新运行命令", flush=True)
+            elif result:
+                print(f"\n❌ 自动更新失败（已回滚）: {result['error']}", flush=True)
+            return
+        info = updater.check_update()
+        if info:
+            print(f"\n📦 发现新版本 v{info.get('version')}（当前 v{updater.get_local_version()}）"
+                  f"—— 运行 `skill update` 更新", flush=True)
+    except Exception:
+        pass
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    """检查并应用 Skill 自动更新（从 COS manifest 下载全覆盖）。"""
+    from scripts.lib.updater import run_update_command
+    return run_update_command()
 
 
 if __name__ == "__main__":

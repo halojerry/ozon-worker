@@ -75,7 +75,9 @@ def get_store(store_id: str = "") -> dict[str, str] | None:
 
 
 def set_store(store_id: str, client_id: str, api_key: str,
-              currency: str = "", shipping_provider: str = "", shipping_service: str = "") -> dict[str, Any]:
+              currency: str = "", shipping_provider: str = "", shipping_service: str = "",
+              margin_rate: float | None = None, commission_rate: float | None = None,
+              fx_buffer: float | None = None) -> dict[str, Any]:
     """Upsert a store profile."""
     data = _load_stores_file()
     if "stores" not in data or not isinstance(data.get("stores"), dict):
@@ -93,6 +95,12 @@ def set_store(store_id: str, client_id: str, api_key: str,
         store["shipping_provider"] = shipping_provider
     if shipping_service:
         store["shipping_service"] = shipping_service
+    if margin_rate is not None:
+        store["margin_rate"] = margin_rate
+    if commission_rate is not None:
+        store["commission_rate"] = commission_rate
+    if fx_buffer is not None:
+        store["fx_buffer"] = fx_buffer
 
     data["stores"][str(store_id)] = store
 
@@ -326,17 +334,19 @@ def _load_pounding_config() -> dict[str, Any]:
     return {}
 
 
-def get_store_profile(store_id: str = "") -> dict[str, str]:
-    """Get store-specific config (currency, shipping) from stores.json.
+def get_store_profile(store_id: str = "") -> dict[str, Any]:
+    """Get store-specific config from stores.json.
 
-    Returns dict with keys: currency, shipping_provider, shipping_service.
+    Returns dict with keys: currency, shipping_provider, shipping_service,
+    margin_rate, commission_rate, fx_buffer.
     Returns empty dict if store not configured.
     """
     store = get_store(store_id)
     if not store:
         return {}
-    return {k: v for k, v in store.items()
-            if k in ('currency', 'shipping_provider', 'shipping_service') and isinstance(v, str)}
+    allowed = ('currency', 'shipping_provider', 'shipping_service',
+               'margin_rate', 'commission_rate', 'fx_buffer')
+    return {k: v for k, v in store.items() if k in allowed}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

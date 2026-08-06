@@ -30,15 +30,22 @@ COMPILE_FILES = [
     "scripts/lib/ozon_scraper.py",
     "scripts/lib/ozon_image_search.py",
     "scripts/lib/reference_images.py",
-    "scripts/capabilities/browser_probe/stealth.py",
+    "scripts/lib/ozon_discovery.py",   # 选品发现引擎（蓝海评分）
+    "scripts/lib/ozon_api.py",         # Ozon API 封装（类目搜索/属性匹配）
+    "scripts/capabilities/browser_probe/stealth.py",  # 反检测 JS（稳定，保护价值最高）
 ]
 
-# 复制但不编译的文件（有复杂依赖或需要直接查看）
+# 复制但不编译的文件（入口脚本，无需保护源码）
 COPY_FILES = [
     "scripts/cli.py",
-    "scripts/cloud_probe.py",
     "scripts/batch_test.py",
-    "scripts/capabilities/browser_probe/service.py",  # 2300 行，含动态 import，Cython 不兼容
+    # ⚠️ cloud_probe.py 明文（2026-08-02 从编译移回）：非语法问题（macOS
+    # 同版本 Cython 编译成功），根因是 Cython 生成 65k 行 C + 单个 ~9000 行
+    # 函数击穿 MSVC 编译器堆限制（仅 win32 失败，缺 .pyd → graph/follow
+    # 报 No native binary for cloud_probe on win32）。且它是信封组装核心、
+    # 改动频繁，明文跨平台一致 + 可快速迭代（service.py 同款先例）。
+    "scripts/cloud_probe.py",
+    "scripts/bootstrap_update.py",   # 旧包一键升级引导（无 updater 的 v0.12 前版本）
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）
@@ -49,14 +56,18 @@ AUX_FILES = [
     "scripts/lib/__init__.py",
     "scripts/lib/task_paths.py",
     "scripts/lib/logging_utils.py",
-    "scripts/lib/ozon_api.py",  # cloud_probe.py 4 处 lazy import，无法编译（依赖 requests）
-    "scripts/lib/cdp_client.py",  # CDP 客户端（替代 Playwright）
-    "scripts/lib/utils.py",  # 共享工具函数（parse_price 等）
-    "scripts/lib/ozon_seller.py",  # Ozon Seller API 客户端（佣金/属性）
-    "scripts/lib/ozon_widget.py",  # Ozon Widget API 客户端（产品/跟卖）
-    "scripts/lib/ozon_discovery.py",  # 选品发现引擎
+    "scripts/lib/cdp_client.py",     # CDP 客户端（替代 Playwright）
+    "scripts/lib/utils.py",          # 共享工具函数（parse_price 等）
+    "scripts/lib/cache.py",          # 通用磁盘缓存（JSON + TTL + SHA256 key）
+    "scripts/lib/ozon_seller.py",    # Ozon Seller API 客户端（佣金/属性）
+    "scripts/lib/ozon_widget.py",    # Ozon Widget API 客户端（产品/跟卖）
+    "scripts/lib/ozon_seller_analytics.py",  # 运营指标借道（Discover v2 新增）
+    "scripts/lib/updater.py",        # 自动更新（COS manifest 检测 + 下载/回滚）
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
+    # ⚠️ service.py 明文（不编译）：探针是改动最频繁的模块，需本地快速迭代
+    # 与可调试性；历史 1e98bcd 曾踩 stub 变量名冲突，已修复
+    "scripts/capabilities/browser_probe/service.py",
 ]
 
 # 参考文件（客户端文档 + 依赖）
@@ -65,6 +76,7 @@ DOC_FILES = [
     "envelope_example.json",
     "field_mapping.md",
     "requirements.txt",
+    "VERSION",   # 自动更新版本比对依据（updater.py 读取）
 ]
 
 # 平台映射
@@ -135,7 +147,12 @@ def compile_file(py_file: str, build_dir: str) -> bool:
         if result.returncode == 0:
             return True
         else:
-            print(f"  ❌ {result.stderr.split(chr(10))[-2] if result.stderr else 'unknown error'}")
+            # ⚠️ 打印完整 stderr（最后 30 行）——之前只打 1 行导致
+            # cl.exe 真实错误被吞（win32 缺 cloud_probe.pyd 根因之一）
+            err_lines = [l for l in (result.stderr or "").splitlines() if l.strip()]
+            print(f"  ❌ 编译失败（returncode={result.returncode}）")
+            for line in err_lines[-30:]:
+                print(f"     {line}")
             return False
     except Exception as e:
         print(f"  ❌ 编译失败: {e}")
@@ -447,9 +464,27 @@ def main():
     print(f"  📝 data/config/settings.json (空模板)")
     print(f"  📝 data/config/stores.json (空模板)")
 
+    # 清理 dist 中的 __pycache__ / .pyc（编译时 import 会生成，避免污染发布包）
+    cleaned = 0
+    for cache_dir in dist_dir.rglob("__pycache__"):
+        shutil.rmtree(cache_dir, ignore_errors=True)
+        cleaned += 1
+    for pyc in dist_dir.rglob("*.pyc"):
+        pyc.unlink(missing_ok=True)
+        cleaned += 1
+    if cleaned:
+        print(f"\n🧹 已清理 {cleaned} 个 __pycache__/.pyc（发布包保持干净）")
+
     print(f"\n✅ 编译完成: {success} 成功, {failed} 失败")
     print(f"   平台: {plat_dir_name}")
     print(f"   输出目录: {dist_dir}")
+
+    # ⚠️ 编译失败必须"带响"退出（非零码）：否则 CI 会把残缺包当成功发布
+    # （win32 缺 cloud_probe.pyd 的教训：编译失败静默，Build job 仍 Success）
+    if failed > 0:
+        print(f"\n❌ 有 {failed} 个模块编译失败，构建中止（dist 不完整，禁止发布）")
+        sys.exit(1)
+
     print(f"\n💡 跨平台分发:")
     print(f"   1. 在 macOS 上运行: python3.12 compile.py")
     print(f"   2. 在 Windows 上运行: python3.12 compile.py")

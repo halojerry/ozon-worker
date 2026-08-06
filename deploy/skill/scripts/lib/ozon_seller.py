@@ -33,13 +33,22 @@ def _seller_post(client_id: str, api_key: str, path: str, body: dict, timeout: i
 
 
 def _seller_post_with_retry(client_id: str, api_key: str, path: str, body: dict, timeout: int = 30, retries: int = 2) -> dict:
-    """POST with retry for transient failures only."""
+    """POST with retry for transient failures only (429/5xx)."""
     for attempt in range(retries + 1):
         try:
             result = _seller_post(client_id, api_key, path, body, timeout)
-            return result  # success or transient failure (empty dict)
-        except requests.exceptions.HTTPError:
-            raise  # auth failure -- don't retry
+            return result
+        except requests.exceptions.HTTPError as e:
+            # Only auth failures (401/403) are permanent; everything else retries
+            status = e.response.status_code if e.response else 500
+            if status in (401, 403):
+                raise
+            if attempt < retries:
+                wait = 2 ** attempt
+                logger.warning("Seller API HTTP %d (attempt %d/%d), retrying in %ds...", status, attempt + 1, retries, wait)
+                time.sleep(wait)
+                continue
+            return {}
         except requests.exceptions.ConnectionError:
             if attempt < retries:
                 logger.warning("Seller API connection failed (attempt %d/%d), retrying...", attempt + 1, retries)

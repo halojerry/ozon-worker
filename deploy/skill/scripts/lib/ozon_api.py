@@ -83,10 +83,28 @@ def _post(
 def _query_category_tree(
     client_id: str, api_key: str, language: str = "ZH_HANS"
 ) -> list[dict[str, Any]]:
+    # ⚠️ v0.14 C1: 类目树 TTL 缓存（24h）— 旧代码每次搜索都重拉整棵 ~2-5s 的树
+    # 复用 scripts.lib.cache 命名空间缓存，按 language 缓存（中/俄各一棵）
+    try:
+        from scripts.lib.cache import cache_get, cache_set
+        cache_key = f"category_tree_{language}"
+        cached = cache_get("category_tree", cache_key)
+        if cached is not None:
+            return cached
+    except Exception:
+        pass
+
     payload = _post(
         client_id, api_key, "/v1/description-category/tree", {"language": language}
     )
-    return list(payload.get("result") or [])
+    tree = list(payload.get("result") or [])
+
+    try:
+        from scripts.lib.cache import cache_set
+        cache_set("category_tree", f"category_tree_{language}", tree, ttl=86400)
+    except Exception:
+        pass
+    return tree
 
 
 def _get_import_info(

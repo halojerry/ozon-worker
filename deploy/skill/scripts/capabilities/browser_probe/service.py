@@ -61,7 +61,7 @@ from scripts.lib.task_paths import current_task_id, task_media_dir
 
 
 EXTRACT_1688_JS = r"""
-() => {
+(() => {
   // Trigger lazy-load DOM by scrolling
   try {
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
@@ -547,6 +547,8 @@ skuContainers.forEach((featureEl, featureIndex) => {
       document.querySelector('.mod-detail'),
       document.querySelector('.description-content'),
       document.querySelector('[data-module=\"od_product_detail\"]'),
+      document.querySelector('.module-od-product-attributes'),
+      document.querySelector('.module-od-product-description'),
     ].filter(Boolean);
     let detailText = sources.map(el => (el.textContent || el.innerText || '')).join(' ');
     detailText = detailText.replace(/\\s+/g, ' ').trim();
@@ -554,7 +556,7 @@ skuContainers.forEach((featureEl, featureIndex) => {
     if (!detailText || detailText.length < 20) {
       const bodyText = (document.body.textContent || document.body.innerText || '');
       const lines = bodyText.split(/[\\n\\r]+/).filter(l =>
-        /MEAS|尺寸|单个|箱规|净重|重量|包装.*重|specification|dimension/i.test(l)
+        /MEAS|尺寸|单个|箱规|净重|重量|规格|体积|外观尺寸|包装体积|包装.*重|specification|dimension/i.test(l)
       );
       detailText = lines.join(' ');
     }
@@ -609,6 +611,40 @@ skuContainers.forEach((featureEl, featureIndex) => {
         packagingRows[0] = existing;
       }
     }
+  }
+
+  /* ── v0.21 P2: 尺寸候选行收集（供 Python 侧 extract_dimensions_from_texts 判定）──
+     风扇页实证：module-od-product-attributes 有带单位「规格 8.5*6.5*11cm」，
+     旧 fallback 容器未覆盖该模块且 body 正则漏「规格/体积」→ 只抓到无单位的
+     「外观尺寸 85*65*11」→ cm×10 放大 10 倍。这里把带单位候选行全部收上来，
+     Python 侧带单位优先 + cm/mm 交叉判定。 */
+  const dimTextCandidates = [];
+  {
+    const attrMod = document.querySelector('.module-od-product-attributes');
+    if (attrMod) {
+      Array.from(attrMod.querySelectorAll('tr')).forEach((tr) => {
+        const cells = Array.from(tr.querySelectorAll('th, td'))
+          .map(c => normalizeText(c.innerText || c.textContent)).filter(Boolean);
+        if (cells.length >= 2 && /(\d+(\.\d+)?\s*\*\s*\d+(\.\d+)?\s*\*\s*\d+(\.\d+)?)/.test(cells.join(' '))) {
+          dimTextCandidates.push(cells.join(' '));
+        }
+      });
+    }
+    const bodyText = (document.body.textContent || document.body.innerText || '');
+    bodyText.split(/[\\n\\r]+/).map(l => normalizeText(l)).filter(Boolean).forEach((line) => {
+      if (/尺寸|规格|体积|外观尺寸|包装体积|MEAS|单个|箱规|长.{0,6}宽.{0,6}高/i.test(line)
+          && /(\d+(\.\d+)?\s*\*\s*\d+(\.\d+)?\s*\*\s*\d+(\.\d+)?)/.test(line)) {
+        dimTextCandidates.push(line);
+      }
+    });
+    const seen = new Set();
+    const deduped = dimTextCandidates.filter((t) => {
+      if (seen.has(t)) return false;
+      seen.add(t);
+      return true;
+    });
+    dimTextCandidates.length = 0;
+    dimTextCandidates.push(...deduped);
   }
 
   const skuDetails = [];
@@ -732,6 +768,7 @@ skuContainers.forEach((featureEl, featureIndex) => {
     packagingHeaders,
     packagingTableText,
     packagingRows: dedupe(packagingRows),
+    dimTextCandidates,
     shipping,
     shopStats,
     skuDetails: dedupe(skuDetails),
@@ -752,7 +789,7 @@ skuContainers.forEach((featureEl, featureIndex) => {
       packagingTableTextLength: packagingTableText ? packagingTableText.length : 0,
     },
   };
-}
+})()
 """
 
 
@@ -965,19 +1002,17 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
                         if Path(p).exists() and p not in seen:
                             seen.add(p)
                         break
-        # Insert running browsers FIRST (before static paths)
-        for rp in seen:
-            paths.insert(0, rp)
     except Exception:
         pass
 
     # Phase 3: Playwright bundled Chromium (pip install playwright)
     # ═══════════════════════════════════════════════════════════════════════
     try:
+        import platform as _plat
         import playwright  # noqa: F401
         import glob as _glob
 
-        system = platform.system() if 'platform' in dir() else __import__('platform').system()
+        system = _plat.system()
         if system == 'Darwin':
             pattern = str(Path.home() / 'Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium')
         elif system == 'Linux':
@@ -1000,8 +1035,9 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
     if _auto_install_browser():
         # Recurse once to find the newly installed browser
         try:
+            import platform as _plat2
             import glob as _glob2
-            system = __import__('platform').system()
+            system = _plat2.system()
             if system == 'Darwin':
                 pattern = str(Path.home() / 'Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium')
             elif system == 'Linux':
@@ -1426,10 +1462,10 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
         if created and time.time() - created > 86400:
             session.pop('login_detected', None)
     cdp_url = str(session.get('cdp_url') or '').strip()
-    expected_dir = str(_profile_dir(profile))
-    if cdp_url and _cdp_available(cdp_url) and _chrome_user_data_dir_matches(cdp_url, expected_dir):
+    # 如果 CDP 可用，直接使用（不管 profile 是否匹配，不杀用户已经打开的 Chrome）
+    if cdp_url and _cdp_available(cdp_url):
         return session
-    # Cached session is stale — delete it so we don't keep returning dead CDP URLs
+    # Cached session has dead CDP URL — clean up
     if session:
         try:
             _session_file(profile).unlink(missing_ok=True)
@@ -1737,20 +1773,30 @@ def _wait_for_login_session(
         _login_done_event.wait(timeout=max(timeout_seconds, 60))
         return _login_result
 
-    with _login_lock:
+    # ✅ 修复：使用 flag 标记是否需要释放锁，避免 double-release
+    _login_lock.acquire()
+    _should_release = True
+    try:
         # Double-check after acquiring lock
         if _login_in_progress:
             _logger.info("Login already in progress (race), waiting...")
             _login_lock.release()
+            _should_release = False
             try:
                 _login_done_event.wait(timeout=max(timeout_seconds, 60))
             finally:
                 _login_lock.acquire()
+                _should_release = True
             return _login_result
 
         _login_in_progress = True
         _login_done_event.clear()
         _login_result = None
+
+        # ... rest of login logic inside try block ...
+    finally:
+        if _should_release:
+            _login_lock.release()
 
     from scripts.capabilities.browser_probe.stealth import STEALTH_JS, REALISTIC_UA
 
@@ -1856,11 +1902,11 @@ def _wait_for_login_session(
 
 
 def _check_1688_login_live(cdp_url: str) -> bool:
-    """Check 1688 login status by inspecting cookies in a live Chrome tab.
+    """Check 1688 login status by navigating to a product page.
 
-    Opens a CDP connection, finds any existing 1688 tab (or opens a temp one),
-    checks document.cookie for login indicators, and returns True if logged in.
-    Closes the temp tab if one was created.
+    Instead of reading cookies (which are often HttpOnly and invisible to JS),
+    we navigate to a known product page and check if product content loads.
+    If redirected to login page, login is expired.
     """
     import logging as _logging
     _logger = _logging.getLogger(__name__)
@@ -1872,60 +1918,54 @@ def _check_1688_login_live(cdp_url: str) -> bool:
     temp_tab = None
     try:
         conn = CdpConnection(cdp_url)
+        temp_tab = conn.new_tab()
 
-        # Try to find an existing 1688 tab
-        target_tab = None
+        # 注入反检测脚本（防止1688滑块验证码）
+        from scripts.capabilities.browser_probe.stealth import STEALTH_JS, REALISTIC_UA
+        temp_tab.add_init_script(STEALTH_JS)
+        temp_tab.set_extra_headers({'User-Agent': REALISTIC_UA})
+
+        # Navigate to a product page (any 1688 product)
         try:
-            target_tab = conn.find_tab("1688.com")
+            temp_tab.navigate(
+                "https://detail.1688.com/offer/770530889059.html",
+                wait_until='domcontentloaded', timeout=15,
+            )
+            temp_tab.wait_for_load(timeout=5)
         except Exception:
             pass
+        time.sleep(1)
 
-        created_temp = False
-        if target_tab is None:
-            # Open a temp tab on 1688 to check cookies
-            try:
-                temp_tab = conn.new_tab()
-                temp_tab.navigate("https://www.1688.com/", wait_until='domcontentloaded', timeout=15)
-                try:
-                    temp_tab.wait_for_load(timeout=5)
-                except Exception:
-                    pass
-                time.sleep(1)
-                target_tab = temp_tab
-                created_temp = True
-            except Exception as exc:
-                _logger.debug("_check_1688_login_live: failed to open temp tab: %s", exc)
-                return False
-
-        # Check cookies for login indicators
+        # Check if product content loaded (not redirected to login)
         try:
-            cookie_js = "() => document.cookie"
-            cookies = target_tab.evaluate(cookie_js)
-            if not cookies:
+            url = temp_tab.evaluate("() => window.location.href", timeout=5) or ""
+            title_el = temp_tab.evaluate(
+                "document.querySelector('.title-content')?.innerText || ''",
+                timeout=5,
+            ) or ""
+
+            # If redirected to login or title is empty (login wall), not logged in
+            if "login.1688.com" in url or "signin" in url:
+                _logger.debug("_check_1688_login_live: redirected to login page")
                 return False
-            # Look for 1688/Taobao login cookie patterns
-            has_cookie2 = 'cookie2=' in cookies and len(cookies.split('cookie2=')[1].split(';')[0].strip()) > 4
-            has_cn_logon = '__cn_logon__=' in cookies
-            logged_in = has_cookie2 or has_cn_logon
-            if logged_in:
-                _logger.info("_check_1688_login_live: login detected (cookie2=%s, cn_logon=%s)", has_cookie2, has_cn_logon)
-            else:
-                _logger.debug("_check_1688_login_live: no login cookies found")
-            return logged_in
+            if not title_el:
+                _logger.debug("_check_1688_login_live: product title not found (possible login wall)")
+                return False
+
+            _logger.info("_check_1688_login_live: login OK (product title: %s)", title_el[:30])
+            return True
         except Exception as exc:
-            _logger.debug("_check_1688_login_live: cookie check failed: %s", exc)
+            _logger.debug("_check_1688_login_live: page check failed: %s", exc)
             return False
     except Exception as exc:
-        _logger.debug("_check_1688_login_live: CDP connection failed: %s", exc)
+        _logger.debug("_check_1688_login_live: CDP failed: %s", exc)
         return False
     finally:
-        # Close temp tab if we created one
         if temp_tab:
             try:
                 temp_tab.close()
             except Exception:
                 pass
-        # Close CDP connection to prevent WebSocket leak
         if conn:
             try:
                 conn.close()
@@ -2249,6 +2289,7 @@ def probe_1688_page_safe(
                     'images': _filter_probe_images(list(probe.get('images') or [])),
                     'weight_grams': (probe.get('packagingRows') or [{}])[0].get('weightGrams') if probe.get('packagingRows') else None,
                     'packaging_rows': probe.get('packagingRows', []),
+                    'dim_text_candidates': probe.get('dimTextCandidates', []),
                     'shipping': probe.get('shipping', {}),
                     'description': probe.get('description', ''),
                     'sku_details': probe.get('skuDetails', []),
@@ -2266,6 +2307,7 @@ def probe_1688_page_safe(
                     'title': '', 'price': '', 'brand': '', 'seller': '',
                     'images': [], 'weight_grams': None,
                     'packaging_rows': [], 'shipping': {},
+                    'dim_text_candidates': [],
                     'description': '',
                     'sku_details': [], 'attributes': [], 'option_groups': [],
                 },
@@ -2338,9 +2380,27 @@ def probe_1688_page(
         raise ConfigError('未发现可复用的 1688 浏览器会话，请先执行 browser_login 完成登录，或保持同一 profile 的 Chrome 会话可连接')
 
     # Live cookie check: verify 1688 login before navigating to product page
-    if not _check_1688_login_live(cdp_url):
-        import logging as _logging
-        _logging.getLogger(__name__).info("1688 login not detected via live cookie check, prompting login...")
+    # ⚠️ v0.14 P1-6: 仅当本次调用未检测到登录态时才执行 live 检查，避免重复 CDP 页面跳转
+    # （login_detected 标志在其他路径已赋值，如 login_ok 通过的会话）
+    import logging as _logging
+    _logger_svc = _logging.getLogger(__name__)
+    if session.get('login_detected'):
+        _logger_svc.debug("已检测到登录态（login_detected），跳过 live cookie check")
+        login_ok = True
+    else:
+        try:
+            login_ok = _check_1688_login_live(cdp_url)
+        except ConnectionError:
+            # CDP 连接断开（Chrome 死了或 tab 被关）— 重启 Chrome 而非触发登录
+            _logger_svc.warning("CDP connection died during login check, restarting Chrome...")
+            session = _resolve_browser_session.__wrapped__(profile_name) if hasattr(_resolve_browser_session, '__wrapped__') else _resolve_browser_session(profile_name)
+            cdp_url = str(session.get('cdp_url') or '').strip()
+            if not cdp_url or not _cdp_available(cdp_url):
+                raise ConfigError('Chrome CDP 连接断开且无法重启，请手动重启 Chrome')
+            login_ok = True  # 新 Chrome session 用已有 profile，cookie 有效
+
+    if not login_ok:
+        _logger_svc.info("1688 login not detected via live cookie check, prompting login...")
         session = _wait_for_login_session(
             target_url,
             profile_name=profile_name,

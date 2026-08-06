@@ -10,6 +10,7 @@ def parse_price(price_str: str) -> float:
     - Currency symbols (₽, ¥, $, €)
     - Thousands separators (spaces)
     - Comma as decimal separator (European format)
+    - Multiple prices (e.g., '¥12.70 ¥22.00') — takes the first
     """
     if not price_str:
         return 0.0
@@ -17,6 +18,6 @@ def parse_price(price_str: str) -> float:
     cleaned = re.sub(r'[₽¥$€\s]', '', str(price_str))
     # Replace comma with dot for decimal
     cleaned = cleaned.replace(',', '.')
-    # Extract numeric value
-    m = re.search(r'[\d.]+', cleaned)
-    return float(m.group()) if m else 0.0
+    # Extract all numeric values, take the first one (current price)
+    numbers = re.findall(r'\d+(?:\.\d+)?', cleaned)
+    return float(numbers[0]) if numbers else 0.0

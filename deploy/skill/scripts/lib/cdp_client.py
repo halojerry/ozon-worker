@@ -75,6 +75,9 @@ class CdpTab:
 
         Events (messages without ``id``) are silently discarded.
         Returns the matched message dict or ``None`` on timeout.
+
+        Raises ``ConnectionError`` immediately if the WebSocket is closed
+        (instead of silently looping until the full timeout).
         """
         deadline = time.time() + timeout
         while time.time() < deadline:
@@ -88,6 +91,15 @@ class CdpTab:
                 # Otherwise it is an event -- discard.
             except websocket.WebSocketTimeoutException:
                 continue
+            except websocket.WebSocketConnectionClosedException:
+                self._closed = True
+                raise ConnectionError("CDP WebSocket closed (target may have been destroyed)")
+            except websocket.WebSocketProtocolException:
+                self._closed = True
+                raise ConnectionError("CDP WebSocket protocol error")
+            except OSError as e:
+                self._closed = True
+                raise ConnectionError(f"CDP socket error: {e}")
             except Exception:
                 continue
         return None
@@ -109,6 +121,12 @@ class CdpTab:
                     return msg
             except websocket.WebSocketTimeoutException:
                 continue
+            except websocket.WebSocketConnectionClosedException:
+                self._closed = True
+                raise ConnectionError("CDP WebSocket closed")
+            except OSError as e:
+                self._closed = True
+                raise ConnectionError(f"CDP socket error: {e}")
             except Exception:
                 continue
         return None
@@ -129,6 +147,12 @@ class CdpTab:
             of a JS ``Promise`` is awaited before returning.
         timeout:
             Maximum seconds to wait for the response.
+
+        Raises
+        ------
+        ConnectionError
+            If the WebSocket is closed (target destroyed, Chrome killed, etc.).
+            Callers should NOT retry on this error — the tab is dead.
         """
         params: dict[str, Any] = {
             "expression": js,
@@ -141,6 +165,16 @@ class CdpTab:
         resp = self._recv_until_id(msg_id, timeout=timeout)
         if resp is None:
             logger.warning("evaluate() timed out after %ss for: %s", timeout, js[:120])
+            return ""
+        # Check for CDP error responses
+        if "error" in resp:
+            err = resp["error"]
+            code = err.get("code", 0)
+            msg = err.get("message", "")
+            if code == -32000 and "target" in msg.lower():
+                self._closed = True
+                raise ConnectionError(f"CDP target gone: {msg}")
+            logger.warning("evaluate() CDP error: %s", msg)
             return ""
         return resp.get("result", {}).get("result", {}).get("value", "")
 
@@ -191,8 +225,13 @@ class CdpTab:
         self._send("Network.enable", msg_id=0)
         self._send("Network.setExtraHTTPHeaders", {"headers": headers})
 
-    def close(self) -> None:
-        """Close WebSocket and the remote tab."""
+    def close(self, close_remote: bool = True) -> None:
+        """Close WebSocket; optionally also close the remote tab.
+
+        ⚠️ v0.14 E4: ``close_remote=False`` 只关闭 WebSocket 连接、保留远程 tab
+        （用于只读检查/复用用户已有 tab 的场景——避免误关用户浏览器标签页）。
+        默认 ``True`` 保持原行为（关 WS + 远程 ``GET /json/close``）。
+        """
         if self._closed:
             return
         self._closed = True
@@ -200,13 +239,14 @@ class CdpTab:
             self._ws.close()
         except Exception:
             pass
-        try:
-            requests.get(
-                f"{self._cdp_url}/json/close/{self._tab_id}",
-                timeout=3,
-            )
-        except Exception:
-            pass
+        if close_remote:
+            try:
+                requests.get(
+                    f"{self._cdp_url}/json/close/{self._tab_id}",
+                    timeout=3,
+                )
+            except Exception:
+                pass
 
     def __repr__(self) -> str:
         return f"<CdpTab tab_id={self._tab_id!r}>"
@@ -289,14 +329,29 @@ class CdpConnection:
                 return tab
         return None
 
-    def close(self) -> None:
-        """Close all tabs opened through this connection."""
+    def close(self, close_remote: bool = True) -> None:
+        """Close all tabs opened through this connection.
+
+        ⚠️ v0.14 E4: ``close_remote=False`` 时对所有 tab 只关 WS、保留远程 tab。
+        复用用户已有 tab（``find_tab`` 命中）前请先 ``release(tab)``，避免被这里远程关闭。
+        """
         for tab in self._tabs:
             try:
-                tab.close()
+                tab.close(close_remote=close_remote)
             except Exception:
                 pass
         self._tabs.clear()
+
+    def release(self, tab: CdpTab) -> None:
+        """⚠️ v0.14 E4: 从本连接的 tab 管理列表中移除 *tab*。
+
+        用于 ``find_tab`` 命中的**用户已有 tab**（只读复用，不应随 ``conn.close()``
+        被远程关闭）。移出后由调用方显式 ``tab.close(close_remote=...)`` 管理。
+        """
+        try:
+            self._tabs.remove(tab)
+        except ValueError:
+            pass
 
     def __repr__(self) -> str:
         return f"<CdpConnection cdp_url={self._cdp_url!r} tabs={len(self._tabs)}>"
