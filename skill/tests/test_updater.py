@@ -239,6 +239,50 @@ def test_auto_update_file_locked_hint():
         _cleanup(root)
 
 
+# ── v0.27.1 P0 收敛回归（包内 VERSION 与 manifest 版本分离死循环）──────────
+
+def test_auto_update_converges_after_package_version_match():
+    """修复闭环: 更新后包内 VERSION == manifest → 下次检查不再触发下载。
+
+    死循环根因(3744ca8 修复前): 包内 VERSION 恒为旧值(0.25.0), manifest 0.27.x
+    → updater 永远判定有更新 → 每次命令都下载覆盖。修复后 CI 用 tag 写包内
+    VERSION, 更新一次即收敛。
+    """
+    root = make_skill_root("0.25.0")  # 旧坏包
+    try:
+        pkg = make_package_bytes("0.27.1")  # 修复后: 包内 VERSION == manifest
+        manifest = make_manifest("0.27.1", pkg)
+        with mock.patch.object(updater, "skill_dir", return_value=root), \
+             mock.patch.object(updater, "requests") as fake_requests:
+            fake_requests.get.side_effect = fake_get_side_effect(manifest, pkg)
+            # 第一次: 0.25.0 < 0.27.1 → 下载更新
+            result = updater.auto_update_if_available()
+            assert result is not None and result["ok"] is True
+            assert (root / "VERSION").read_text() == "0.27.1"
+            # 第二次(模拟下一次命令): 本地 0.27.1 == manifest 0.27.1 → 收敛, 不下载
+            info = updater.check_update()
+        assert info is None  # ✅ 不再触发下载 = 死循环收敛
+        assert (root / "VERSION").read_text() == "0.27.1"  # 版本未被覆盖, 保持
+    finally:
+        _cleanup(root)
+
+
+def test_old_broken_package_0_25_0_recovers_to_latest():
+    """坏包(0.25.0)用户仍能被救回: 0.25.0 < 0.27.1 → 正常触发一次更新。"""
+    root = make_skill_root("0.25.0")
+    try:
+        pkg = make_package_bytes("0.27.1")
+        manifest = make_manifest("0.27.1", pkg)
+        with mock.patch.object(updater, "skill_dir", return_value=root), \
+             mock.patch.object(updater, "requests") as fake_requests:
+            fake_requests.get.side_effect = fake_get_side_effect(manifest, pkg)
+            result = updater.auto_update_if_available()
+        assert result is not None and result["ok"] is True
+        assert (root / "VERSION").read_text() == "0.27.1"
+    finally:
+        _cleanup(root)
+
+
 # ── 独立运行入口（无 pytest 环境）─────────────────────────────────────────
 
 def _main() -> int:
