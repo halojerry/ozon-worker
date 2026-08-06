@@ -49,6 +49,42 @@ def test_suspect_flag_ok_for_normal_weight():
     assert out["suspect"] is False
 
 
+# ── v0.28.5 D1: 缺失/零值拦截 ──
+
+def test_rejects_zero_weight():
+    """weight=0(缺失) → 拦截(定价无意义)。"""
+    err = validate_draft_sanity({"weight": 0, "dimensions": {"length": 100, "width": 50, "height": 30}})
+    assert err is not None
+    assert "weight" in err
+
+
+def test_rejects_missing_weight():
+    """weight 键缺失 → 拦截。"""
+    err = validate_draft_sanity({"dimensions": {"length": 100, "width": 50, "height": 30}})
+    assert err is not None
+    assert "weight" in err
+
+
+def test_rejects_zero_dimension():
+    """dimensions 含 0 → 拦截。"""
+    err = validate_draft_sanity({"weight": 500, "dimensions": {"length": 100, "width": 0, "height": 30}})
+    assert err is not None
+    assert "dimensions" in err
+
+
+def test_rejects_missing_dimensions():
+    """dimensions 缺失 → 拦截。"""
+    err = validate_draft_sanity({"weight": 500})
+    assert err is not None
+    assert "dimensions" in err
+
+
+def test_d1_does_not_break_normal():
+    """正常值不受 D1 影响(回归)。"""
+    err = validate_draft_sanity({"weight": 500, "dimensions": {"length": 100, "width": 50, "height": 30}})
+    assert err is None
+
+
 if __name__ == "__main__":
     import traceback
 

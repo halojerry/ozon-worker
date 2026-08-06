@@ -1170,6 +1170,11 @@ def main() -> int:
     up = sub.add_parser("update", help="检查并应用 Skill 自动更新")
     up.set_defaults(func=cmd_update)
 
+    # ── 任务查询(v0.28.5 C1)──
+    q = sub.add_parser("query", help="查询 Worker 任务状态(任务 ID)")
+    q.add_argument("task_id", help="submit/follow 返回的任务 ID(UUID)")
+    q.set_defaults(func=cmd_query)
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -1213,6 +1218,50 @@ def cmd_update(args: argparse.Namespace) -> int:
     """检查并应用 Skill 自动更新（从 COS manifest 下载全覆盖）。"""
     from scripts.lib.updater import run_update_command
     return run_update_command()
+
+
+def cmd_query(args: argparse.Namespace) -> int:
+    """查询 Worker 任务状态（v0.28.5 C1: agent 不再只能盲等, 可主动查进度）。
+
+    返回: completed → 0; 终态(failed/cancelled/not_found) → 0(信息完整);
+          非终态(processing/queued) → 0(展示进度); 查询失败 → 1。
+    """
+    from scripts.cloud_probe import check_task_status
+
+    r = check_task_status(args.task_id)
+    status = r.get("status", "unknown")
+    print(f"任务 {args.task_id}: {status}")
+    if r.get("started_at"):
+        print(f"  开始: {r.get('started_at')}")
+    if r.get("completed_at"):
+        print(f"  完成: {r.get('completed_at')}")
+    if r.get("retry_count"):
+        print(f"  重试次数: {r.get('retry_count')}")
+
+    if r.get("ok"):
+        result = r.get("result_json") or {}
+        ps = result.get("product_summary") or []
+        if ps:
+            print(f"  ✅ 产品明细({len(ps)}):")
+            for p in ps:
+                pid = p.get("product_id") or "-"
+                price = p.get("price") or "-"
+                profit = p.get("profit_rate") or "-"
+                ostatus = p.get("ozon_status") or "-"
+                err = f" | 备注: {p.get('ozon_error')}" if p.get("ozon_error") else ""
+                print(f"    - OzonID {pid} | 售价 {price} | 净利润率 {profit} | 审核 {ostatus}{err}")
+        else:
+            print("  ✅ 任务完成(无产品明细)")
+    elif r.get("error_message"):
+        print(f"  ❌ 错误: {r.get('error_message')}")
+    elif status == "not_found":
+        print("  ⚠️ 任务不存在(可能已过期或 ID 有误)")
+    elif status == "worker_unreachable":
+        print("  ⚠️ Worker 不可达, 请检查网络/Worker 地址")
+    else:
+        print("  ⏳ 处理中...")
+
+    return 0
 
 
 if __name__ == "__main__":

@@ -88,6 +88,7 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 | `set_token` | 配置 MXOU_TOKEN | `--token` | 写 `data/config/` | 首次配置 |
 | `set_ak` | 配置 1688 AK | `--ak` | 写 `data/config/` | 首次配置 / AK 过期 |
 | `update` | 检查并应用自动更新 | 无 | **覆盖 skill 文件**（备份 + 保留 data/） | 版本升级 |
+| `query` | 查询 Worker 任务状态 | `<任务ID>`（位置参数，submit/follow 返回的 UUID） | 只读，无副作用 | 提交后查进度/成败/产品明细 |
 | `get_ak` | 浏览器自动获取 1688 AK | `--timeout` | 无 | AK 过期时刷新 |
 | `list_stores` | 列出已配置店铺 | 无 | 无 | 查看配置 |
 | `graph` | 1688 上架 | `--url/--item-id --store [--no-submit] [--category-query]` | 提交 Worker（除非 `--no-submit`） | 用户发 1688 商品链接 |
