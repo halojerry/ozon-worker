@@ -1,14 +1,19 @@
 # pounding-ozon-probe
 
-1688 (Alibaba) → Ozon 产品数据采集工具。只做数据采集和信封组装，**不上架**。
+> ⚠️ 本文件为维护者文档。AI Agent 请遵循 `SKILL.md`。
+
+1688 (Alibaba) → Ozon 全流程工具：选品、采集、信封组装、上架 Ozon。
 
 ## 安装
 
 ```bash
 pip install -r requirements.txt
-playwright install chromium
-cp .env.example .env    # 填入你的 1688 AK 和 Ozon API Key
+# Chrome 自动启动（CDP），无需安装 Playwright
 ```
+
+## 凭证
+
+凭证存储在 `data/config/`（非环境变量）：用 `python3 scripts/cli.py set_token / set_ak / set_store` 配置。
 
 ## 用法
 
@@ -24,6 +29,8 @@ python3 scripts/cli.py graph --item-id 980815374096 --category-query "поилк
 ```
 
 ## Python API
+
+> ⚠️ Agent 请勿自行写代码调 API（见 SKILL.md §8）。以下为维护者参考：
 
 ```python
 from scripts.cloud_probe import build_graph_envelope_with_retry

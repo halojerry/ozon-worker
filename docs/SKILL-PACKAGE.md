@@ -112,6 +112,9 @@ skill/dist/
 | 3 | chrome_launcher 裸 "chrome" 匹配误杀 Electron 进程 | 只匹配 google chrome/chromium + 排除 electron | chrome_launcher.py |
 | 4 | Chrome 130+ 禁止默认 profile 远程调试 | cli/batch_test 统一独立 profile | cli.py/batch_test.py |
 
+> ⚠️ **`audit_products.py` 为开发排查工具，不进 dist 包**（编译时排除，勿加入 COMPILE_FILES/AUX_FILES）。
+> 同理 `bootstrap_update.py` 只在「旧包无 updater」升级场景单独分发（GitHub Release 附件）。
+
 ### 3.2 稳定性验证流程（每次改动后）
 
 ```bash
@@ -135,6 +138,8 @@ cd dist && python3.12 scripts/cli.py check
 - [ ] 新增模块 → 加入 `COMPILE_FILES`（要保护源码）或 `AUX_FILES`（纯复制）
 - [ ] 修改编译模块 → 4 平台各重编译（CI 会自动做，本地验证 darwin-arm64 即可）
 - [ ] 更新 AGENTS.md「源码保护」清单
+- [ ] **新增/修改命令 → 同步 SKILL.md「速查表 → 意图路由 → 错误表」三处**（防文档与代码漂移）
+- [ ] **SKILL.md frontmatter `version` 与 `skill/VERSION` 一致**（updater 收敛依据）
 - [ ] 跑 3.2 稳定性验证流程
 - [ ] dist 包发布走 CI（`git tag v*` → build-skill.yml 全平台构建 + Release）
 
