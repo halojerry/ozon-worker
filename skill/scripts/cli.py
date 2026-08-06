@@ -483,15 +483,28 @@ def cmd_check(args) -> int:
     if session_ok and alibaba_cdp_ok:
         print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
         if not login_ok:
-            print(f"  → 在浏览器中打开 https://login.1688.com/ 登录")
-            _open_tab("https://login.1688.com/")
+            print(f"  → 需登录 1688")
             all_ok = False
     elif session_ok:
         print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
         if not login_ok:
-            print(f"  → 在浏览器中打开 https://login.1688.com/ 登录")
-            _open_tab("https://login.1688.com/")
+            print(f"  → 需登录 1688")
             all_ok = False
+
+    # ── v0.28.4: 登录引导 — 打开 1688 + Ozon Seller 登录页, 交互等待 ──
+    # 用户方案: 先打开让用户登录, 之后工具 Chrome 常驻复用, 静默工作。
+    if session_ok and not login_ok:
+        _open_tab("https://login.1688.com/")
+        _open_tab("https://seller.ozon.ru/")  # discover 运营指标(what_to_sell)需要卖家登录
+        print("  → 已在浏览器打开 1688 登录页 + Ozon Seller 卖家后台")
+        if sys.stdin.isatty():
+            try:
+                input("  ⏸ 请在浏览器中完成 1688 与 Ozon Seller 登录, 完成后按 Enter 继续...")
+            except EOFError:
+                pass
+            print("  → 继续验证...")
+        else:
+            print("  → 非交互环境: 请登录后重跑 `check` 确认")
 
     # ═══════════════════════════════════════════
     # 4. Ozon CDP 连通检查
@@ -1165,17 +1178,10 @@ def main() -> int:
     # ⚠️ 每次命令静默检查更新（后台不阻塞，失败静默；update 命令本身跳过）
     _silent_update_check(args.command)
 
-    try:
-        return args.func(args)
-    finally:
-        # v0.28.3: 命令出口关闭工具自启 Chrome(独立 profile + debug 端口,
-        # 不碰用户日常 Chrome)。解决"每次使用都重复开启浏览器"——
-        # 工具实例用完即关, 下次命令如有需要再启动(一次一个窗口)。
-        try:
-            from scripts.lib.chrome_launcher import close_tool_chrome
-            close_tool_chrome()
-        except Exception:
-            pass
+    # v0.28.3→0.28.4: 工具 Chrome 改为「常驻复用」——check 启动后引导用户登录
+    # 1688/Ozon Seller, 之后命令复用同一实例(CDP 可用即用, 不再每次新开/用完即关,
+    # 避免"每次使用都弹浏览器")。用户手动关闭后, 下次命令检测 CDP 不可用会自动重启。
+    return args.func(args)
 
 
 def _silent_update_check(command: str) -> None:
