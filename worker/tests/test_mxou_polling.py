@@ -34,7 +34,8 @@ def test_poll_starts_after_30s_then_every_5s():
 
 
 def test_poll_respects_max_wait():
-    """max_wait=90 → 首等 30s 后 12 次 5s 轮询（覆盖 90s）。"""
+    """max_wait=90 → 首等 30s 后 12 次 5s 轮询（覆盖 90s），
+    超时抛 ImagePollTimeoutError（v0.26 P0-3：轮询超时≠失败，不重试不降级防双倍计费）。"""
     sleeps = []
     orig_sleep = time.sleep
     time.sleep = lambda s: sleeps.append(s)
@@ -46,11 +47,16 @@ def test_poll_respects_max_wait():
 
     session = mock.MagicMock()
     session.get.return_value = _Resp()
+    raised = False
     with mock.patch.object(mod, "_get_session", return_value=session):
         try:
-            mod._poll_grsai_task("t1", max_wait=90, token="k")
+            try:
+                mod._poll_grsai_task("t1", max_wait=90, token="k")
+            except mod.ImagePollTimeoutError:
+                raised = True
         finally:
             time.sleep = orig_sleep
+    assert raised, "轮询超时应抛 ImagePollTimeoutError（v0.26 防双倍计费）"
     assert sleeps[0] == 30
     assert sleeps[1:] == [5] * 12
     assert session.get.call_count == 12

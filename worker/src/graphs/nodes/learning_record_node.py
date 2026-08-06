@@ -195,17 +195,32 @@ def learning_record_node(
                         if _r2: cat_ru = _r2[0]
                 except Exception:
                     pass
-                local_db.add_category_mapping(
-                    source_category_leaf=leaf,
-                    source_category_id=int(_src_cat_id) if _src_cat_id else None,
-                    description_category_id=int(description_category_id),
-                    type_id=tp_val,
-                    source_category_path=source_category,
-                    source_keywords=jieba_kws,
-                    category_path_zh=cat_zh, category_path_ru=cat_ru,
-                    confidence=0.85, source="learned_approved",
-                )
-                logger.info(f"📚 category_mapping: '{leaf}' → [{description_category_id}/{tp_val}]")
+                # ⚠️ v0.27: dc/type 存在性校验 — 防品牌页 ID/错配固化
+                # (实证: 甩脂机 type_id=101029485 是品牌 Luxhommè 的 ID,树中无此节点仍被写入 → 毒化同款上架)
+                _mapping_valid = False
+                try:
+                    from sqlalchemy import text as _sql_t3
+                    from storage.database.db import get_session as _gs3
+                    with _gs3() as _s3:
+                        _mapping_valid = bool(_s3.execute(_sql_t3(
+                            "SELECT 1 FROM category_tree_nodes WHERE description_category_id=:dc AND type_id=:tp LIMIT 1"
+                        ), {"dc": int(description_category_id), "tp": tp_val}).fetchone())
+                except Exception as _mapping_err:
+                    logger.warning(f"category_mapping 存在性校验异常(跳过写入): {_mapping_err}")
+                if _mapping_valid:
+                    local_db.add_category_mapping(
+                        source_category_leaf=leaf,
+                        source_category_id=int(_src_cat_id) if _src_cat_id else None,
+                        description_category_id=int(description_category_id),
+                        type_id=tp_val,
+                        source_category_path=source_category,
+                        source_keywords=jieba_kws,
+                        category_path_zh=cat_zh, category_path_ru=cat_ru,
+                        confidence=0.85, source="learned_approved",
+                    )
+                    logger.info(f"📚 category_mapping: '{leaf}' → [{description_category_id}/{tp_val}]")
+                else:
+                    logger.warning(f"category_mapping 跳过写入: dc/tp 树中不存在 ({leaf} → [{description_category_id}/{tp_val}]),疑似品牌页 ID/错配")
         except Exception as e:
             logger.warning(f"category_mapping写入失败（非致命）: {e}")
     

@@ -1269,9 +1269,12 @@ def build_graph_envelope(
         if search_text:
             try:
                 from scripts.lib.ozon_api import search_categories
+                # ✅ v0.27: 语言按搜索词自动选择 — 1688 中文类目/标题搜 ZH_HANS 树,
+                # 俄语标题才搜 RU 树(旧代码恒 RU 搜中文 → 必空 → poll_category 形同虚设)
+                _lang = "ZH_HANS" if any("\u4e00" <= ch <= "\u9fff" for ch in search_text) else "RU"
                 cats = search_categories(
                     ozon_creds["client_id"], ozon_creds["api_key"],
-                    search_text, language="RU", max_results=1,
+                    search_text, language=_lang, max_results=1,
                 )
                 if cats:
                     best = cats[0]
@@ -1523,7 +1526,6 @@ def build_graph_envelope(
                 "image": variant_img,
                 "price": variant_price,
                 "original_price": variant_price,
-                "stock": 100,
                 "attributes": all_attrs,
                 "variant_type": variant_type,
             })
@@ -1551,7 +1553,6 @@ def build_graph_envelope(
                 "image": sd.get("image") or "",
                 "price": sd_price,
                 "original_price": sd_price,
-                "stock": 100,
                 "attributes": parsed,
                 "variant_type": vt,
             })
@@ -1566,7 +1567,6 @@ def build_graph_envelope(
             "image": "",
             "price": cost_cny,
             "original_price": cost_cny,
-            "stock": 100,
             "attributes": {},
             "variant_type": "single",
         })
@@ -1644,7 +1644,6 @@ def build_graph_envelope(
         "purchase_url": detail_url,
         "purchase_cost": cost_cny,
         "supplier": supplier,
-        "stock": 100,
     }
     if shipping:
         draft["shipping"] = shipping
@@ -1677,10 +1676,8 @@ def build_graph_envelope(
             "category_id": source_category_id,  # ✅ v0.25 S2: 1688 叶子类目数字 ID
         },
         "extensions": {
-            "max_skus": effective_max_skus,
-            "dropped_skus": dropped_skus,
-            "drop_reason": drop_reason or "",
-            "filtered_skus": filtered_skus_info,
+            # ✅ v0.27: 删除 max_skus/dropped_skus/drop_reason/filtered_skus(无人消费);
+            # margin_rate/commission_rate/fx_buffer 由下方 6.5 段注入
         },
     }
 
@@ -1830,7 +1827,6 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         "purchase_cost": candidate.match_1688_price or 0,
         "purchase_url": candidate.match_1688_url or "",
         "supplier": getattr(candidate, 'match_1688_supplier', ''),
-        "stock": 100,
     }
 
     source = {
@@ -1882,7 +1878,9 @@ def build_graph_envelope_with_retry(
                 detail_url=detail_url,
                 category_query=category_query,
                 store_id=store_id,
-                poll_category=False,
+                # ✅ v0.27: 打开 Ozon 官方类目解析(Seller 空间 search_categories),
+                # 直采信封从此携带正确的 description_category_id/type_id(旧: False → 类目全靠 worker 猜)
+                poll_category=True,
                 max_skus=max_skus,
             )
         except RuntimeError as exc:
@@ -2883,14 +2881,11 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                         draft["competitor_price"] = comp_price
                     # ✅ v0.19.1 P1: 竞品信息透传（可选字段，GraphInput envelope 为 Dict 无 extra 限制，
                     # Worker 忽略未知字段，契约兼容）。供后续蓝海评分/展示使用。
+                    # ✅ v0.27: 竞品信息只透传 worker 兜底用的物理字段(重量/尺寸);
+                    # 运营字段(月销/GMV/评分/跟卖数等)属 agent 判定层, 移出信封(ENVELOPE-STANDARD)
                     for _info_key in (
-                        "competitor_sellers", "competitor_min_price",
-                        "ozon_rating", "ozon_reviews", "ozon_questions",
-                        "ozon_seller", "ozon_listing_date",
-                        "ozon_monthly_sales", "ozon_gmv",
-                        # ✅ v0.22: 竞品重量/尺寸（worker 1688 数据缺失时兜底）
+                        # worker assemble 兜底消费: 1688 物理数据缺失时用竞品值
                         "competitor_weight_g", "competitor_dimensions_mm",
-                        "ozon_listing_days",
                     ):
                         _info_val = result.get(_info_key)
                         if _info_val not in (None, "", [], {}):

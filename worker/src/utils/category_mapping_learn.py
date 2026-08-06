@@ -10,7 +10,8 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-MIN_SUCCESS_COUNT = 1
+# v0.27: 学习映射须累计成功 3 次才被视为可信(甩脂机/手串 success_count=1 即固化 → 66% 污染率实证)
+MIN_SUCCESS_COUNT = 3
 MIN_CONFIDENCE = 0.6
 
 

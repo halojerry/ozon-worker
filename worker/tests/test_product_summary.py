@@ -95,3 +95,46 @@ if __name__ == "__main__":
                 traceback.print_exc()
     print(f"\n{total - failed}/{total} passed")
     sys.exit(1 if failed else 0)
+
+
+def test_ozon_status_mapping():
+    """v0.27: 审核状态映射 — approved/pending/declined + 拒绝原因透出。"""
+    from utils.product_summary import build_product_summary
+
+    draft = {"purchase_url": "http://x", "purchase_cost": 1.0}
+    # approved
+    r = build_product_summary({"product_id": "1", "moderation_status": "approved"}, draft)[0]
+    assert r["ozon_status"] == "approved"
+    # pending
+    r = build_product_summary({"product_id": "2", "moderation_status": "pending"}, draft)[0]
+    assert r["ozon_status"] == "pending"
+    # declined(error + 原因)
+    r = build_product_summary({
+        "product_id": "3", "moderation_status": "error",
+        "error_message": "DESCRIPTION_DECLINE",
+    }, draft)[0]
+    assert r["ozon_status"] == "declined"
+    assert r["ozon_error"] == "DESCRIPTION_DECLINE"
+    # 假成功(无 moderation_status 但有 failed 标记)
+    r = build_product_summary({
+        "product_id": "4", "_harness_status": "failed",
+        "_harness_error": "上架失败（stage=ozon_upload）",
+    }, draft)[0]
+    assert r["ozon_status"] == "declined"
+    # 未走到审核
+    r = build_product_summary({"product_id": "5"}, draft)[0]
+    assert r["ozon_status"] == ""
+
+
+if __name__ == "__main__":
+    import traceback
+    failed = total = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            total += 1
+            try:
+                fn(); print(f"PASS {name}")
+            except Exception:
+                failed += 1; print(f"FAIL {name}"); traceback.print_exc()
+    print(f"\n{total - failed}/{total} passed")
+    sys.exit(1 if failed else 0)
