@@ -177,6 +177,15 @@ class GraphOutput(BaseModel):
     error_message: str = Field(default="", description="错误信息")
     stages: Dict[str, str] = Field(default_factory=dict, description="处理阶段状态")
 
+    # ✅ v0.26 假成功修复：失败状态必须透出到 GraphOutput。
+    # wave2 实证：3 张 created=False 的卡（ML_INCORRECT_VOLUME_WEIGHT /
+    # DESCRIPTION_DECLINE / error_attribute_values_empty）任务全部 completed、
+    # final_error 全空——根因是 output_schema=GraphOutput 过滤时丢了
+    # upload_status/failed_stage/error_code，task_processor 无脑标 completed。
+    upload_status: str = Field(default="", description="上传状态（success/pending/failed）")
+    failed_stage: str = Field(default="", description="失败节点名称")
+    error_code: str = Field(default="", description="错误码（Ozon 错误码或内部错误码）")
+
 
 # ==================== 认证节点 ====================
 class AuthInput(BaseModel):
