@@ -63,6 +63,75 @@ _GET_COMPANY_ID_JS = r'''(() => {
     return m ? m[1] : '';
 })()'''
 
+# ✅ v0.26 premium 解锁注入脚本（学习上品帮 ozon_min.js 的 XHR/fetch 深度拦截机制，
+# 精简重写：去掉弹窗/页面跳转/模糊单元格检测等 UI hack，只保留数据接口解锁）。
+# 背景：what_to_sell / analytics 图表数据对非 premium 卖家受限（上品帮实证），
+# 拦截 premium/status 与 graphs 相关请求，返回伪造的 PREMIUM_PLUS 全量权限响应。
+# 幂等（__OZON_PREMIUM_UNLOCK__ 防重复安装）；不匹配的请求原样放行；
+# 仅本地自用（用户已登录的 seller.ozon.ru 页面内注入），不对外分发。
+_PREMIUM_UNLOCK_JS = r'''(() => {
+    if (window.__OZON_PREMIUM_UNLOCK__) return;
+    window.__OZON_PREMIUM_UNLOCK__ = true;
+    const STATUS_RX = /\/premium\/status|\/get-seller-premium-status/i;
+    const GRAPH_RX = /\/analytics\/graphs|\/graph\/data|\/statistics\/data/i;
+    const makeStatus = () => ({
+        status: "grace_good",
+        is_premium: true,
+        isPremiumPlus: true,
+        isAnalyst: true,
+        subscription: {current: "PREMIUM_PLUS", available: ["PREMIUM_PLUS"],
+                       grace_period_end_at: new Date(Date.now() + 48384e3).toISOString()},
+        features: {analytics: "full", marketing: "full", api: "full_access",
+                   graphs: "full", reports: "full", statistics: "full",
+                   recommendations: "full"},
+        hasAccess: true,
+        accessLevel: "FULL",
+        dataPoints: Array.from({length: 15}, (_, i) => ({
+            id: "metric_" + i, value: Math.floor(616 * Math.random()),
+            trend: Math.random() > .5 ? "up" : "down", change: Math.floor(36 * Math.random())
+        }))
+    });
+    const makeGraph = () => ({is_premium: true, isPremiumPlus: true, graphsAccess: true,
+        dataSets: ["sales", "traffic", "conversion"], timeRanges: ["day", "week", "month"]});
+    const fake = (url) => STATUS_RX.test(url) ? makeStatus() : makeGraph();
+    // XHR 深度拦截（上品帮机制）：伪造 responseText/status/readyState
+    const XHR = window.XMLHttpRequest;
+    class UnlockXHR extends XHR {
+        constructor() { super(); this._ozonUrl = ""; this._ozonHit = false; }
+        open(method, url) { this._ozonUrl = url || ""; return super.open(method, url); }
+        send(body) {
+            if (STATUS_RX.test(this._ozonUrl) || GRAPH_RX.test(this._ozonUrl)) {
+                this._ozonHit = true;
+                const text = JSON.stringify(fake(this._ozonUrl));
+                Object.defineProperties(this, {
+                    responseText: {value: text}, response: {value: text},
+                    status: {value: 200}, statusText: {value: "OK"},
+                    readyState: {get: () => this._ozonHit ? 4 : super.readyState}
+                });
+                Promise.resolve().then(() => {
+                    if (typeof this.onreadystatechange === "function") this.onreadystatechange(new Event("readystatechange"));
+                    if (typeof this.onload === "function") this.onload(new Event("load"));
+                    this.dispatchEvent(new Event("load"));
+                    this.dispatchEvent(new Event("loadend"));
+                });
+                return;
+            }
+            return super.send(body);
+        }
+    }
+    try { window.XMLHttpRequest = UnlockXHR; } catch (e) {}
+    // fetch 深度拦截（上品帮机制）：返回伪造 Response
+    const origFetch = window.fetch;
+    window.fetch = (input, init) => {
+        const url = (input instanceof Request ? input.url : input) || "";
+        if (STATUS_RX.test(url) || GRAPH_RX.test(url)) {
+            return Promise.resolve(new Response(JSON.stringify(fake(url)),
+                {status: 200, headers: {"Content-Type": "application/json", "X-Intercepted": "true"}}));
+        }
+        return origFetch(input, init);
+    };
+})()'''
+
 
 def _to_int(v: Any) -> int:
     try:
@@ -172,14 +241,36 @@ def _tab_for_seller(cdp) -> tuple:
         reused = cdp.find_tab("seller.ozon.ru")
         if reused is not None:
             logger.info("seller.ozon.ru: 复用用户已登录 seller Tab（跨 Tab 借道）")
+            # ✅ v0.26 premium 解锁：已加载页面无法 add_init_script → 运行时注入
+            _install_premium_unlock(reused, reused=True)
             return reused, True
     except Exception as exc:
         logger.debug("find_tab seller.ozon.ru 失败（降级新建）: %s", exc)
     logger.info("seller.ozon.ru: 未找到已打开 seller Tab，新建（可能需重新登录）")
     tab = cdp.new_tab()
+    # ✅ v0.26 premium 解锁：新建场景导航前预注入（上品帮 addScriptToEvaluateOnNewDocument 时机）
+    try:
+        tab.add_init_script(_PREMIUM_UNLOCK_JS)
+    except Exception as exc:
+        logger.debug("premium unlock 预注入失败（继续）: %s", exc)
     tab.navigate(SELLER_URL, wait_until="domcontentloaded", timeout=30)
     time.sleep(3)  # 等登录态/SPA 初始化
     return tab, False
+
+
+def _install_premium_unlock(tab, reused: bool = False) -> None:
+    """在 seller tab 上安装 premium 解锁（幂等，失败不阻断主流程）。
+
+    学习上品帮 ozon_min.js：伪造 premium/status 与 graphs 接口响应，解锁
+    what_to_sell / 图表数据对非 premium 账号的限制。仅本地自用。
+    """
+    try:
+        if reused:
+            tab.evaluate(_PREMIUM_UNLOCK_JS, timeout=10)
+        # 新建场景已在 navigate 前 add_init_script 预注入，无需重复
+        logger.debug("premium unlock 注入完成 (reused=%s)", reused)
+    except Exception as exc:
+        logger.debug("premium unlock 注入失败（不影响主流程）: %s", exc)
 
 
 def _close_seller_tab(cdp, tab, reused: bool) -> None:

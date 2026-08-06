@@ -218,6 +218,30 @@ def test_seller_analytics_js_has_credentials():
     assert "HTTP \" + resp.status" in osa._SELLER_ANALYTICS_JS
 
 
+# ── 修9: premium 解锁注入（学习上品帮 ozon_min.js XHR/fetch 深度拦截）──
+
+def test_premium_unlock_js_structure():
+    """v0.26: premium 解锁脚本应幂等 + 拦截 premium/status 与 graphs + 伪造
+    PREMIUM_PLUS 权限（上品帮机制移植，仅本地自用）。"""
+    from scripts.lib import ozon_seller_analytics as osa
+    js = osa._PREMIUM_UNLOCK_JS
+    assert "__OZON_PREMIUM_UNLOCK__" in js, "应幂等（防重复安装）"
+    assert r"\/premium\/status" in js, "应拦截 premium/status"
+    assert r"\/analytics\/graphs" in js and r"\/statistics\/data" in js, "应拦截 graphs 类接口"
+    assert "PREMIUM_PLUS" in js, "应伪造 PREMIUM_PLUS 权限"
+    assert "window.XMLHttpRequest = UnlockXHR" in js, "应深度拦截 XHR"
+    assert "new Response" in js, "应拦截 fetch（返回伪造 Response）"
+    assert "features" in js and "analytics: \"full\"" in js, "应伪造全量功能权限"
+
+
+def test_premium_unlock_installed_in_flow():
+    """v0.26: 借道流程必须安装 premium 解锁（复用 Tab 运行时注入 / 新建预注入）。"""
+    from scripts.lib import ozon_seller_analytics as osa
+    src = open(os.path.join(os.path.dirname(osa.__file__), "ozon_seller_analytics.py"), encoding="utf-8").read()
+    assert "_install_premium_unlock(reused, reused=True)" in src, "复用 Tab 应运行时注入"
+    assert "tab.add_init_script(_PREMIUM_UNLOCK_JS)" in src, "新建 Tab 应导航前预注入"
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0
