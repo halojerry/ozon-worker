@@ -1,5 +1,7 @@
 # Worker 响应处理与错误码
 
+> v0.28.5 C2: failed 任务的 `error_message` 已转为中文可读说明(如「描述被拒绝:标题/描述含违规内容…」),agent 可直接照读给用户,无需翻译原始错误码。
+
 ## 提交成功（submit_result.ok == true）
 
 Worker 返回：

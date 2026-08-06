@@ -276,7 +276,9 @@ class SupabaseTaskProcessor:
                     # 现在按 graph_result 失败标记如实落库：
                     #   upload_status=failed / error_message 非空 → status=failed
                     _up = str(graph_result.get("upload_status") or "")
-                    _err = str(graph_result.get("error_message") or "")
+                    # v0.28.5 C2: notice(中文可读)优先作为失败信息, 否则原始错误
+                    _notice = str(graph_result.get("notice") or "")
+                    _err = str(_notice or graph_result.get("error_message") or "")
                     _stg = str(graph_result.get("failed_stage") or "")
                     _is_failed = (
                         _up in ("failed",)

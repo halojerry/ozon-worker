@@ -35,5 +35,17 @@ def validate_draft_sanity(draft: dict | None) -> str | None:
     """入队前校验：返回错误信息；通过返回 None。"""
     if not isinstance(draft, dict):
         return None
+    # v0.28.5 D1: 重量缺失/为零 → 定价无意义(此前仅拦超大, 0 重量直接进物流费)
+    try:
+        weight = float(draft.get("weight") or 0)
+    except (TypeError, ValueError):
+        weight = 0.0
+    if weight <= 0:
+        return "weight 缺失或为 0(无法定价)"
+    # v0.28.5 D1: 尺寸缺失/含 0 → 无效(此前仅拦负数, 0 尺寸会让密度兜底乱估)
+    dims = draft.get("dimensions") or {}
+    dim_vals = [dims.get(k) for k in ("length", "width", "height")]
+    if not all(isinstance(v, (int, float)) and v > 0 for v in dim_vals):
+        return "dimensions 缺失或含 0(尺寸无效)"
     out = check_weight_suspect(draft.get("weight"), draft.get("dimensions"))
     return out["reason"] if out["suspect"] else None

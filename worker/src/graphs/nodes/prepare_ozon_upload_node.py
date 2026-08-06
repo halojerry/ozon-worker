@@ -2322,11 +2322,23 @@ def prepare_ozon_upload_node(
                 ozon_payload["items"][0]["images"] = remaining_images[:29]
                 logger.info(f"✅ 单SKU产品（fallback）：images数量={len(ozon_payload['items'][0]['images'])}")
             else:
-                # ✅ 所有AI生成图都失败，不使用alicdn原始图（Ozon无法访问）
-                logger.error("❌ 所有AI生成图均失败，不使用alicdn原始图（Ozon无法下载），请检查mxou生图节点")
-                validation_errors.append("营销图片全部为空，生图节点可能全部失败")
-                ozon_payload["items"][0]["primary_image"] = ""
-                ozon_payload["items"][0]["images"] = []
+                # v0.28.5 E1: 全部AI生图失败 → 转存原始图到 COS 补位(Ozon 可访问 COS URL)
+                # 未配置 COS 或原图全失效(404) → 保持原警告路径
+                try:
+                    from utils.cos_uploader import salvage_original_images
+                    saved = salvage_original_images(getattr(state, "original_images", []) or [])
+                except Exception as _e1:
+                    logger.warning("E1 原始图转存异常(忽略): %s", _e1)
+                    saved = []
+                if saved:
+                    ozon_payload["items"][0]["primary_image"] = saved[0]
+                    ozon_payload["items"][0]["images"] = saved[1:10]
+                    logger.info(f"✅ E1 原始图转存 COS 补位 {len(saved)} 张(替代不可用的 alicdn 原图)")
+                else:
+                    logger.error("❌ 所有AI生成图均失败且无可用原始图，不使用alicdn原始图（Ozon无法下载），请检查mxou生图节点")
+                    validation_errors.append("营销图片全部为空，生图节点可能全部失败")
+                    ozon_payload["items"][0]["primary_image"] = ""
+                    ozon_payload["items"][0]["images"] = []
     
     logger.info(f"✅ 图片设置完成：primary_image单独指定，images数组按IMG_ORDER顺序")
     

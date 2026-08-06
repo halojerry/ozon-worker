@@ -124,6 +124,41 @@ class ValidationRetryLoopOutput(BaseModel):
     error_message: str = Field(default="", description="最终错误信息")
     product_id: Optional[str] = Field(default=None, description="商品ID")
     upload_status: str = Field(default="", description="上传状态")
+    notice: str = Field(default="", description="用户可读失败说明(v0.28.5 C2, 中文)")
+
+
+# v0.28.5 C2: 错误码 → 用户可读中文说明(供 task_status/最终结果展示)
+ERROR_NOTICE_MAP: Dict[str, str] = {
+    "DESCRIPTION_DECLINE": "描述被拒绝:标题/描述含违规内容(拉丁/中文/物流信息/营销词等),已净化重传",
+    "BR_chinese_hieroglyphs": "含中文字符被拒绝:已俄语化/净化处理",
+    "BR_chinese_hieroglyphs_in_attribute": "属性值含中文字符被拒绝:已净化处理",
+    "INVALID_ATTRIBUTE_VALUE": "属性值不正确:已尝试按字典值修正或跳过",
+    "MISSING_REQUIRED_ATTRIBUTE": "缺少必填属性:已尝试自动补全",
+    "VALUE_MUST_BE_INTEGER": "属性值应为整数(如数量/重量):已尝试类型转换",
+    "VALUE_MUST_BE_DECIMAL": "属性值应为小数(如尺寸):已尝试类型转换",
+    "ATTRIBUTE_VALUE_COUNT_EXCEEDED": "多值属性超出数量限制:已删多值保留首个",
+    "CONDITIONAL_ATTRIBUTE_ERROR": "条件属性不匹配:已尝试按类目规则修正",
+    "INCORRECT_DENSITY": "密度不合理(重量与尺寸不匹配):已修正尺寸",
+    "BR_hazard_class1": "危险品分类被拒:商品可能属管制/禁售类,无法自动修复",
+    "SPU_ALREADY_EXISTS_IN_ANOTHER_ACCOUNT": "该商品已在其他 Ozon 账号上架,无法重复上架",
+    "PRODUCT_ALREADY_EXISTS": "商品已存在(重复上架)",
+    "pics_http_error": "图片上传失败(网络/URL 不可达),需检查图片来源",
+    "pics_cant_decode": "图片无法解码(格式损坏),需更换图片",
+    "all_image_failed": "全部图片生成/上传失败,需重新生图",
+    "BR_hashtag_brand": "标签与品牌冲突被拒:已移除违规标签",
+}
+
+
+def _build_notice(error_type: str, error_message: str, upload_status: str) -> str:
+    """生成用户可读失败说明: 上传成功→空; 有映射→中文说明; 否则原始错误码摘要。"""
+    if upload_status == "success":
+        return ""
+    if error_type in ERROR_NOTICE_MAP:
+        return ERROR_NOTICE_MAP[error_type]
+    msg = (error_message or "").strip()
+    if msg:
+        return f"Ozon 审核拒绝({error_type or '未知'}): {msg[:200]}"
+    return f"Ozon 审核拒绝({error_type or '未知错误'}),重试后仍未通过"
 
 
 # ============================================================
@@ -170,6 +205,23 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "FB_LIGHTER": "unfixable",
     # ✅ 密度错误 → 走 repair_prepare 修复尺寸
     "INCORRECT_DENSITY": "repair_prepare",
+    # ✅ v0.28.5 A1: 补全审计发现的未映射错误码(50 次错误不再 LLM 盲修)
+    # 数值类型错误 → 强制类型转换(LLM 改不了数据类型)
+    "VALUE_MUST_BE_INTEGER": "repair_prepare",
+    "VALUE_MUST_BE_DECIMAL": "repair_prepare",
+    # 多值超限 → 删多值保留首个
+    "ATTRIBUTE_VALUE_COUNT_EXCEEDED": "repair_prepare",
+    # 需要补值 → LLM 搜索字典值
+    "EMPTY_REQUIRED_AFTER_WARNING_DELETING": "error_repair_llm",
+    "warning_attribute_values_empty": "error_repair_llm",
+    "erased_attribute_value": "error_repair_llm",
+    "CONDITIONAL_ATTRIBUTE_ERROR": "error_repair_llm",
+    # 商品已在其他账号 → 不可修复, 不浪费重试
+    "SPU_ALREADY_EXISTS_IN_ANOTHER_ACCOUNT": "unfixable",
+    # 所有图片失败 → 需重新生图非 LLM 修
+    "all_image_failed": "unfixable",
+    # 标记码自动纠正 → 走 attributes 修复(明确化, 原走默认 error_repair_llm)
+    "marking_auto_corrected": "error_repair_llm",
 }
 
 
@@ -185,6 +237,12 @@ FIX_TYPE_ATTRIBUTES: set = {
     "MISSING_ATTRIBUTE", "MISSING_REQUIRED_ATTRIBUTE", "INVALID_ATTRIBUTE_VALUE",
     "BR_hashtag_validation", "BR_hashtag_brand", "BR_CRITICAL_OIL_BRAND",
     "marking_auto_corrected",
+    # ✅ v0.28.5 A1: 补审计发现属性类错误码
+    "VALUE_MUST_BE_INTEGER", "VALUE_MUST_BE_DECIMAL",
+    "ATTRIBUTE_VALUE_COUNT_EXCEEDED",
+    "EMPTY_REQUIRED_AFTER_WARNING_DELETING",
+    "warning_attribute_values_empty", "erased_attribute_value",
+    "CONDITIONAL_ATTRIBUTE_ERROR",
 }
 
 # 价格类错误 → POST /v1/product/prices/update（增量，无需重新审核）
@@ -207,6 +265,8 @@ FIX_TYPE_UNFIXABLE: set = {
     "some_image_failed", "warning_all_image_failed",
     "BR_hazard_class1", "FB_fire_hazardous_goods", "FB_LIGHTER",
     "PRODUCT_ALREADY_EXISTS",
+    # ✅ v0.28.5 A1: 商品已在其他账号 / 所有图片失败 → 不可修复
+    "SPU_ALREADY_EXISTS_IN_ANOTHER_ACCOUNT", "all_image_failed",
 }
 
 
@@ -2406,7 +2466,8 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
         error_type=state.error_type,
         error_message=final_error_message,
         product_id=state.product_id if state.product_id else None,
-        upload_status=state.upload_status
+        upload_status=state.upload_status,
+        notice=_build_notice(state.error_type, final_error_message, state.upload_status),
     )
 
 
