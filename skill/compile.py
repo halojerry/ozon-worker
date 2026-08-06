@@ -24,7 +24,6 @@ from pathlib import Path
 COMPILE_FILES = [
     "scripts/lib/ak_1688_client.py",
     "scripts/lib/ak_callback.py",
-    "scripts/lib/chrome_launcher.py",
     "scripts/lib/config_store.py",
     "scripts/lib/image_preprocessor.py",
     "scripts/lib/ozon_scraper.py",
@@ -46,6 +45,10 @@ COPY_FILES = [
     # 改动频繁，明文跨平台一致 + 可快速迭代（service.py 同款先例）。
     "scripts/cloud_probe.py",
     "scripts/bootstrap_update.py",   # 旧包一键升级引导（无 updater 的 v0.12 前版本）
+    # ⚠️ chrome_launcher.py 明文（2026-08-07 从编译移回）：CDP 启动/生命周期
+    # 逻辑反复调整（v0.28.3→v0.28.6 独立 profile 改造），编译态 .so/.pyd 无法
+    # 热迭代，且跨平台 Cython 编译风险（cloud_probe 同款）。明文跨平台一致。
+    "scripts/lib/chrome_launcher.py",
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）

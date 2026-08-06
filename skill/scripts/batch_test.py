@@ -578,5 +578,13 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    # v0.28.4: 工具 Chrome 常驻复用(见 cli.py main 注释), 不再用完即关
-    sys.exit(main())
+    # v0.28.6: 工具 Chrome「独立 profile + 用完即关」(同 cli.py main 注释),
+    # 不再常驻复用 —— 常驻实例被用户关闭后重启撞单实例锁, 反复杀/重启失败。
+    try:
+        sys.exit(main())
+    finally:
+        try:
+            from scripts.lib.chrome_launcher import close_tool_chrome
+            close_tool_chrome()
+        except Exception:
+            pass
