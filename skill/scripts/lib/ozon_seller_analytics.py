@@ -203,6 +203,16 @@ def _extract_metrics(item: dict) -> dict[str, Any]:
         "review_count": _to_int(_first(item, "reviewsCount", "review_count")),
         "commission_fbp": _to_rate(_first(item, "fbp_rate", "commissionFbp", "fbpRate")),
         "commission_rfbs": _to_rate(_first(item, "rfbs_rate", "commissionRfbs", "rfbsRate")),
+        # ✅ v0.26 权威类目（Seller 空间，wave2 眉笔类目错配根因修复）：
+        # what_to_sell 返回 category1Id/category2Id/category3Id —— category2Id 即
+        # Seller 树的 description_category_id(dc)、category3Id 即叶子 type_id。
+        # 实测验证：眉笔 dc=17028990 + type=93418 → schema API 200 有效。
+        # skill 抓竞品页面拿到的只是 Widget 空间面包屑 ID（如 dc=6522），
+        # worker 得靠 pg_trgm 猜（sim=0.353 误匹配 → DESCRIPTION_DECLINE 类目不符）。
+        # 用权威 Seller 类目直接覆盖 draft.ozon_category → worker 数字直查命中，不再猜。
+        "category1_id": _to_int(item.get("category1Id")),
+        "category2_id": _to_int(item.get("category2Id")),
+        "category3_id": _to_int(item.get("category3Id")),
     }
 
     # 重量/尺寸在 attributes（毛子: 4497 重量, 9454/9455/9456 长/宽/高, 单位 mm）

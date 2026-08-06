@@ -274,6 +274,39 @@ def test_extract_metrics_real_competitor_item():
     assert m["has_sales_data"] is True
 
 
+# ── 修11: 竞品权威类目透出（what_to_sell category2/3 → 覆盖 Widget 面包屑）──
+
+def test_extract_metrics_category_ids():
+    """v0.26: what_to_sell 返回 Seller 空间权威类目 category1/2/3Id，
+    _extract_metrics 必须解析（wave2 眉笔 dc=6522 Widget ID → 权威 dc=17028990/type=93418）。"""
+    from scripts.lib.ozon_seller_analytics import _extract_metrics
+    item = {
+        "soldCount": "5931", "category1Id": "17027489",
+        "category2Id": "17028990", "category3Id": "93418",
+    }
+    m = _extract_metrics(item)
+    assert m["category1_id"] == 17027489, m
+    assert m["category2_id"] == 17028990, m
+    assert m["category3_id"] == 93418, m
+
+
+def test_follow_uses_authoritative_category():
+    """v0.26 时序根因修复：follow 拿到 what_to_sell 权威类目（category2=dc, category3=type）
+    必须覆盖页面面包屑的 Widget 空间 ID（否则 worker pg_trgm 猜 sim=0.353 误匹配）。"""
+    from scripts.lib import ozon_seller_analytics as osa
+    # 1. _extract_metrics 解析出权威类目
+    m = osa._extract_metrics({
+        "soldCount": "10", "category1Id": "17027489",
+        "category2Id": "17028990", "category3Id": "93418",
+    })
+    assert m["category2_id"] == 17028990 and m["category3_id"] == 93418
+    # 2. cloud_probe follow 流程必须有「权威类目覆盖面包屑」逻辑
+    src = open(os.path.join(os.path.dirname(osa.__file__), "..", "cloud_probe.py"), encoding="utf-8").read()
+    assert 'result["ozon_category"] = {' in src, "follow 应有权威类目覆盖"
+    assert '"description_category_id": str(_m["category2_id"])' in src, "应把 category2 当 dc"
+    assert '"type_id": str(_m["category3_id"])' in src, "应把 category3 当 type"
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0

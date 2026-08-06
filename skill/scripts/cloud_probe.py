@@ -2655,6 +2655,22 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                 result["ozon_gmv"] = float(_m["gmv_sum"])
             if _m.get("create_days"):
                 result["ozon_listing_days"] = int(_m["create_days"])
+            # ✅ v0.26 权威类目覆盖（wave2 眉笔类目错配根因修复）：
+            # what_to_sell 返回 Seller 空间权威类目 category2Id(dc)/category3Id(type)，
+            # 页面面包屑只是 Widget 空间 ID（worker pg_trgm 猜 sim=0.353 误匹配
+            # → DESCRIPTION_DECLINE 类目不符）。有权威 ID 时覆盖面包屑类目。
+            if _m.get("category2_id") and _m.get("category3_id"):
+                result["ozon_category"] = {
+                    "description_category_id": str(_m["category2_id"]),
+                    "type_id": str(_m["category3_id"]),
+                    "language": "RU",
+                    "category_path": (result.get("ozon_category") or {}).get("category_path", ""),
+                }
+                logger.info(
+                    "✅ 竞品权威类目（Seller 空间）: dc=%s type=%s（覆盖 Widget 面包屑 %s）",
+                    _m["category2_id"], _m["category3_id"],
+                    (result.get("ozon_category") or {}).get("description_category_id"),
+                )
             if result.get("competitor_weight_g") or result.get("competitor_dimensions_mm"):
                 logger.info(
                     "✅ 竞品数据（what_to_sell）: weight=%s dims=%s sales=%s gmv=%s",
