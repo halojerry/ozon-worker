@@ -5,7 +5,7 @@ agent_created: true
 description: >
   Ozon 跨境电商上架工具。此技能在以下场景触发：用户发送 1688 商品链接时
   直接上架到 Ozon；用户发送 Ozon 商品链接时跟卖；用户发送图片时以图搜款找
-  1688 同款；用户说"选品""找蓝海""找趋势商品"时自动搜索 Ozon 中国站并匹配
+  1688 同款；用户请求选品（找蓝海/热卖/趋势商品）时搜索 Ozon 中国站并匹配
   1688 货源；用户发送多个链接时批量处理。覆盖选品、跟卖、上架、以图搜款、
   趋势选品全流程。
 ---
@@ -44,7 +44,7 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
  │    "蓝海" → 默认 【管线 C】（蓝海评分体系在 C）；用户明确说"蓝海趋势/市场分析"才走 E
  │    "选品" 无任何修饰              → 追问（跟卖 or 上架 or 趋势）
  ├─ ④ 问店铺商品状态/被拒原因        → 引导用户在 Ozon 卖家后台查看（工具不直接查询）
- └─ ⑤ 指代不清（"类似的""这个""它"） → 必须追问确认，禁止猜测
+ └─ ⑤ 指代不清 / 数量不符（"类似的""这个""它"；声称 5 个链接只发来 2 个）→ 必须追问核对确认，禁止猜测
 ```
 
 ### 关键规则
@@ -52,7 +52,7 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 - **有 URL 时先判类型**：搜索页/类目页 URL 走 C（discover --url），**绝不去 B 跟卖单商品**（解析会失败）
 - 无 URL = 按意图词优先级选 C / D / E
 - **蓝海评分只在管线 C 中使用**；「蓝海」默认路由 C，避免与 E 的「趋势」触发词冲突
-- 管线 C（跟卖选品）和管线 D（选品上架）命令相同（discover），**区别只在提交给 Worker 的 follow_type**，采集流程一致
+- 管线 C（跟卖选品）和管线 D（选品上架）命令相同（discover），仅用途叙述与是否 `--auto-submit` 的差别；discover **无 follow_type 参数**，跟卖标记由 follow 内部注入
 - ⚠️ **管线 E 必须先用 web_search 收集趋势**：调用 `trend` 命令前，先搜索
   `"{品类} Ozon 热门趋势 蓝海 细分品类 2025"`（可加俄语 `Ozon тренды 2025`、平台
   变体 `ozon.ru trends` 多角度搜），收集 3-5 条结果存文件，用 `--market-info` 传入。
@@ -78,8 +78,8 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 | `graph` | 1688 上架 | `--url/--item-id --store [--no-submit] [--category-query]` | 提交 Worker（除非 `--no-submit`） | 用户发 1688 商品链接 |
 | `follow` | Ozon 跟卖 | `--ozon-url --store [--auto-submit]` | 提交 Worker（加 `--auto-submit`） | 用户发 Ozon 商品链接 |
 | `image_search` | 以图搜款 | `--image [--source cdp] [--sort] [--limit]` | 耗 1688 图搜配额 | 用户发图片 / 找同款 |
-| `discover` | Ozon 选品 | `--keyword/--url [--rules] [--export] [--auto-submit]` | 查 seller.ozon.ru 运营指标 | 找蓝海 / 跟卖选品 |
-| `trend` | 趋势驱动选品 | `--category [--market-info] [--export] [--with-skus]` | 耗 1688 配额 | 品类趋势 / 蓝海细分 |
+| `discover` | Ozon 选品 | `--keyword/--url [--rules] [--export] [--auto-submit]` | 查 seller.ozon.ru 运营指标；`--auto-submit` 提交 Worker | 找蓝海 / 跟卖选品 |
+| `trend` | 趋势驱动选品 | `--category [--market-info] [--export] [--with-skus]` | 耗 1688 配额 | 品类趋势 / 蓝海细分（明确趋势场景时） |
 | `search` | 1688 关键词搜索 | `query [--page-size]` | 耗 1688 搜索配额 | 按词找货 |
 | `probe` | CDP 探针抓取单个 1688 商品 | `--url [--timeout]` | 无 | 调试单个商品 |
 | `batch_test.py` | 批量处理 URL 列表 | `--urls-file [--submit] [--wait] [--dry-run]` | 提交 Worker（加 `--submit`） | 批量上架 / 回归 |
