@@ -242,6 +242,38 @@ def test_premium_unlock_installed_in_flow():
     assert "tab.add_init_script(_PREMIUM_UNLOCK_JS)" in src, "新建 Tab 应导航前预注入"
 
 
+# ── 修10: 竞品运营数据真机验证（登录 seller 后 what_to_sell 对任意 SKU 可查）──
+
+def test_extract_metrics_real_competitor_item():
+    """v0.26 真机验证（2026-08-05，seller.ozon.ru 已登录）：
+    what_to_sell/data/v3 对竞品 SKU 2485870561 返回真实运营数据——
+    月销量 5931 / 月销售额 122万₽ / 广告占比 19.63% / 退货率 3.5%。
+    用真实 item 结构固化解析（竞品视图无重量/尺寸/佣金字段 → None 不崩）。"""
+    from scripts.lib.ozon_seller_analytics import _extract_metrics
+    real_item = {
+        "variantId": 2485870561, "soldCount": "5931", "minSellerPrice": 15.36,
+        "salesDynamics": -22.8, "stock": "4542", "gmvSum": 1220223.012,
+        "qtyViewPdp": "52344", "pdpToCartConversion": 23.36,
+        "skuName": "NEATIFY Fridge Odor Absorber", "sellerName": "BONNMM",
+        "sessionCountSearch": "51158", "convToCartSearch": 2.16,
+        "drr": 19.63, "nullableRedemptionRate": 96.5,
+        "nullableCreateDate": "2025-07-17T00:00:00Z", "views": "2057028",
+        "convViewToOrder": 0.288, "avgOrdersOnAccDays": 219.885,
+        "avgGmvOnAccDays": 45425.611,
+    }
+    m = _extract_metrics(real_item)
+    assert m["sold_count"] == 5931, f"月销量应 5931，实际 {m['sold_count']}"
+    assert abs(m["gmv_sum"] - 1220223.012) < 0.01, m["gmv_sum"]
+    assert abs(m["sales_dynamics"] - (-22.8)) < 0.01, m["sales_dynamics"]
+    assert abs(m["drr"] - 19.63) < 0.01, m["drr"]
+    assert m["create_date"] == "2025-07-17T00:00:00Z", m["create_date"]
+    # 竞品视图无重量/尺寸/佣金字段 → 缺省不崩（1688 数据兜底）
+    assert not m.get("weight_g"), m
+    assert not m.get("length_mm"), m
+    assert not m.get("commission_fbp"), m
+    assert m["has_sales_data"] is True
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0
