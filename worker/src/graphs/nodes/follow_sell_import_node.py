@@ -369,7 +369,7 @@ def _verify_category_schema(client_id: str, api_key: str, dc: str, tp: str) -> b
     （数字但无效，如盘子 dc=102080114 报 'category ... is not found'）。
     """
     try:
-        _resp = requests.post(
+        _resp = req.post(
             "https://api-seller.ozon.ru/v1/description-category/attribute",
             headers={"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"},
             json={"description_category_id": int(dc), "type_id": int(tp), "language": "RU"},
