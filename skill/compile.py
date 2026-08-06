@@ -73,6 +73,10 @@ AUX_FILES = [
 # 参考文件（客户端文档 + 依赖）
 DOC_FILES = [
     "SKILL.md",
+    "references/command-reference.md",
+    "references/error-codes.md",
+    "references/output-schema.md",
+    "references/env-setup.md",
     "envelope_example.json",
     "field_mapping.md",
     "requirements.txt",
@@ -447,7 +451,9 @@ def main():
     for doc_file in DOC_FILES:
         src = skill_dir / doc_file
         if src.exists():
-            shutil.copy2(src, dist_dir / doc_file)
+            dst = dist_dir / doc_file
+            dst.parent.mkdir(parents=True, exist_ok=True)  # references/ 子目录
+            shutil.copy2(src, dst)
             print(f"  📚 {doc_file}")
 
     # 配置目录（生成空模板，不泄露真实凭证）
