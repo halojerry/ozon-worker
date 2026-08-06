@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import platform
+import re
 import shutil
 import signal
 import socket
@@ -133,28 +134,34 @@ def _find_chrome_processes() -> list[dict]:
 
     try:
         if system == "Windows":
-            result = subprocess.run(
-                ["wmic", "process", "where", "name='chrome.exe'", "get",
-                 "ProcessId,CommandLine", "/format:list"],
-                capture_output=True, text=True, timeout=5,
+            # ⚠️ v0.22: Win11 弃用 wmic → 改用 PowerShell Get-CimInstance。
+            # 旧 wmic 在 Win11 返回空 → 误判"无 Chrome" → 每次启动新实例（频繁开新窗口）。
+            ps_script = (
+                "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+                "Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
             )
-            # Parse wmic output
-            pid, cmd = None, ""
-            for line in result.stdout.split("\n"):
-                line = line.strip()
-                if line.startswith("CommandLine="):
-                    cmd = line[len("CommandLine="):]
-                elif line.startswith("ProcessId="):
-                    pid = int(line[len("ProcessId="):])
-                    if pid and cmd:
-                        port = None
-                        if "--remote-debugging-port=" in cmd:
-                            import re
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_script],
+                capture_output=True, text=True, timeout=10,
+            )
+            import json as _json
+            try:
+                raw = result.stdout.strip()
+                if raw:
+                    data = _json.loads(raw)
+                    if isinstance(data, dict):
+                        data = [data]
+                    for proc in data:
+                        pid = int(proc.get("ProcessId") or 0)
+                        cmd = str(proc.get("CommandLine") or "")
+                        if pid and cmd:
+                            port = None
                             m = re.search(r"--remote-debugging-port=(\d+)", cmd)
                             if m:
                                 port = int(m.group(1))
-                        processes.append({"pid": pid, "cmd": cmd, "port": port})
-                        pid, cmd = None, ""
+                            processes.append({"pid": pid, "cmd": cmd, "port": port})
+            except Exception as _ps_e:
+                logger.debug("PowerShell 进程解析失败: %s", _ps_e)
         else:
             result = subprocess.run(
                 ["ps", "-axo", f"pid,command"],
@@ -164,9 +171,15 @@ def _find_chrome_processes() -> list[dict]:
                 line = line.strip()
                 if not line:
                     continue
-                # Skip our own grep/ps processes
                 lower = line.lower()
-                if "chrome" not in lower and "chromium" not in lower:
+                # ⚠️ 不能用裸 "chrome" 匹配：Electron 应用（ZCode/Doubao/Docker
+                # Desktop 等）的 helper 进程路径含 "Electron Framework/.../Chrome
+                # Helper"，会被误判为 Chrome 并误杀（会杀掉正在运行的 Agent 自身）。
+                # 只匹配真正的 Google Chrome / Chromium（路径含 "google chrome" 或
+                # "chromium"，且不在 Electron 框架内）。
+                if "google chrome" not in lower and "chromium" not in lower:
+                    continue
+                if "electron" in lower:
                     continue
                 if "grep" in lower or "ps -axo" in lower:
                     continue
@@ -180,7 +193,6 @@ def _find_chrome_processes() -> list[dict]:
                 cmd = parts[1]
                 port = None
                 if "--remote-debugging-port=" in cmd:
-                    import re
                     m = re.search(r"--remote-debugging-port=(\d+)", cmd)
                     if m:
                         port = int(m.group(1))
@@ -191,18 +203,35 @@ def _find_chrome_processes() -> list[dict]:
     return processes
 
 
-def _kill_chrome_processes(reason: str = "") -> bool:
-    """终止所有 Chrome 进程。返回是否有进程被终止。"""
+def _kill_chrome_processes(reason: str = "", port: int | None = None) -> bool:
+    """终止 Chrome 进程。返回是否有进程被终止。
+
+    ⚠️ v0.14 D5: 仅杀带 --remote-debugging-port 的实例（port 匹配），
+    旧代码杀所有 Chrome/Chromium 进程，会误杀用户日常无 debug 端口的 Chrome 窗口。
+    """
     processes = _find_chrome_processes()
     if not processes:
         return False
 
+    # 只杀目标端口实例（未指定 port 时也仅杀带 debug 参数的，绝不误杀普通 Chrome）
+    targets = []
+    for proc in processes:
+        if port is not None:
+            if proc.get("port") == port:
+                targets.append(proc)
+        else:
+            if proc.get("port"):
+                targets.append(proc)
+    if not targets:
+        logger.debug("无目标 Chrome 实例（带 --remote-debugging-port 的）可杀")
+        return False
+
     logger.info("Terminating %d Chrome process(es)%s",
-                len(processes), f" ({reason})" if reason else "")
+                len(targets), f" ({reason})" if reason else "")
 
     system = platform.system()
     killed = False
-    for proc in processes:
+    for proc in targets:
         try:
             pid = proc["pid"]
             if system == "Windows":
@@ -224,7 +253,7 @@ def _kill_chrome_processes(reason: str = "") -> bool:
         else:
             # SIGTERM 无效，尝试 SIGKILL（非 Windows）
             if platform.system() != "Windows":
-                for proc in processes:
+                for proc in targets:
                     try:
                         os.kill(proc["pid"], signal.SIGKILL)
                     except (ProcessLookupError, OSError):
@@ -292,6 +321,13 @@ def ensure_chrome_cdp(
     else:
         profile_path = _default_profile_dir()
 
+    # ⚠️ v0.22: profile 目录不存在时自动创建——缺失会导致不带 --user-data-dir
+    # 启动全新浏览器（无登录态 + 每次新窗口），Windows 上体验尤其明显
+    try:
+        profile_path.mkdir(parents=True, exist_ok=True)
+    except Exception as _mk_e:
+        logger.debug("profile 目录创建失败（将继续）: %s", _mk_e)
+
     # Use a file lock to prevent two processes from launching Chrome simultaneously.
     # Double-check CDP after acquiring lock to avoid duplicate launches.
     lock_path = Path(tempfile.gettempdir()) / 'skill-chrome-launch.lock'
@@ -339,6 +375,10 @@ def ensure_chrome_cdp(
             "--no-pings",
             "--disable-blink-features=AutomationControlled",
             "--disable-infobars",
+            # ⚠️ v0.14 E5: 禁用弹窗拦截（1688 图搜/登录跳转的 window.open 弹窗）
+            # 本 Chrome 是专用抓取实例（独立 profile + debug 端口），不影响用户日常 Chrome。
+            # 与 image_search 的 window.open 覆盖（JS 层当前 tab 导航）双保险，无需手动设置站点放行。
+            "--disable-popup-blocking",
         ]
 
         # 使用默认 profile（保留登录态）

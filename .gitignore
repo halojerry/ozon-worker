@@ -100,3 +100,7 @@ _update_backup/
 reasonix.toml
 docs/superpowers/
 skill/data/test_run_*/
+
+# 1688 AK 凭证(本地)
+skill/.1688-AK/
+deploy/skill/.1688-AK/

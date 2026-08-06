@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.27.0] - 2026-08-06
+
+> 合并 v0.26(生图额度/队列/帽类属性)+ v0.27(信封治理/类目修复/出参审核状态)。
+> 本地 Docker 真实上架验证(挂脖风扇/风扇帽/蚊香盘 3 个 approved),wave4 实测三修复。
+
+### Added
+
+- **信封治理标准(ENVELOPE-STANDARD.md)**:skill→agent→worker 三方数据边界——🅰 判定层
+  (运营数据)不进信封、🅱 worker 执行层必须全消费、🅳 出参标准;逐字段核实(删除前
+  验证 worker 实际消费)。
+- **出参审核状态(v0.27)**:product_summary 补 `ozon_status`(approved/pending/declined)+
+  `ozon_error`;OzonStatusInput + GraphOutput 补 moderation_status(output_schema 过滤
+  致终态丢审核状态的根因)。
+- **学习表治理(v0.27)**:删污染(甩脂机品牌ID 101029485/手串错配,66% 污染率实证)、
+  写入前 dc/type 树存在性校验、查询门槛 success_count≥3。
+- **方案B 直采类目(v0.27)**:skill poll_category=True + search_categories 语言自动选择
+  (中文→ZH_HANS);worker `_resolve_skill_category` 校验采用 Seller 空间类目(跳过 pg_trgm 猜)。
+- **性别双值兜底通用化(v0.27)**:9163 或属性名含 пол/性别/gender 的必填属性一律
+  「中性词→男+女双值」兜底;dictionary_id=0 也强制进 required_dict(帽子类实证)。
+- **品牌 31 补全**:BRAND_ATTRIBUTE_IDS=[85,5076] 缺 31(服装和鞋类品牌,帽子类必填)。
+- **v0.26**:生图额度暴烧修复(P0-1 图内 pending 死循环/P0-2 队列无限重跑有界化/
+  P0-3 生图失败分类不重POST/P0-4 task_generated_images 生图幂等)、帽类 9163 男+女双值、
+  数字属性类型校验(8205/11650/4497/7444)、字典属性全量填满、工具链(offline_validate/
+  analyze_category_mismatch/audit_products/Sentry 全局监控)、wave1/2 实测修复
+  (seller analytics 借道/premium 解锁/退货率/图搜徽标降级/空壳跟卖拦截/定价统一公式/
+  假成功透出/尺寸方向反转)。
+
+### Fixed
+
+- wave4 实测三修复(本地 Docker 真实上架):9163 dict_id=0 被筛出 required_dict →
+  性别兜底失效 → 缺 9163 被拒;品牌 31 缺失;GraphOutput 缺 moderation_status →
+  ozon_status 出参恒空。
+- test_mxou_polling 同步 v0.26 超时抛异常(v0.25 断言过期)。
+
+### 信封清理(v0.27)
+
+- 删除无用字段:stock×5、max_skus/dropped_skus/drop_reason/filtered_skus;
+- 10 个竞品运营字段移出信封(属判定层,skill 采集/展示保留);
+- 保留 worker 兜底物理字段:competitor_weight_g/competitor_dimensions_mm;
+- shipping/price/original_price 标记废弃保留(展示/折叠内部用)。
+
+### Tests
+
+- 新增 test_skill_category_direct(5 用例)/test_ozon_status_mapping(5 断言)/
+  test_gender_attr_with_dict_id_zero(1 用例);全量 211 passed。
+
+
 ## [0.25.0] - 2026-08-05
 
 > wave3/wave4 本地真机测试 + 修复：跟卖/直采 12 个产品 11 个 approved（浴刷已救活），

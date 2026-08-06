@@ -400,7 +400,42 @@ def _parse_product_item(item: dict[str, Any]) -> dict[str, Any]:
         "promotion_tags": item.get("promotionTags", []),
         "service_infos": item.get("serviceInfos", []),
         "selling_points": item.get("sellingPoints", []),
+        # ✅ v0.25 S1: 选品筛选结构化字段（参考 ozon-product-selection）
+        "moq": item.get("quantityBegin"),
+        "sales": item.get("soldOut", 0),
+        "ship_rate_48h": _parse_rate_from_infos(item.get("serviceInfos", [])) or _parse_rate_48h(
+            " ".join(str(s) for s in (item.get("sellingPoints") or [])[:3])
+        ),
+        "location": _parse_location(item.get("serviceInfos", [])),
+        "supplier_tags": list(item.get("promotionTags") or []),
     }
+
+
+def _parse_rate_48h(text) -> float | None:
+    """从 '48小时发货 95%' / '48H揽收率 88.5%' 文本提取百分比。"""
+    t = str(text or "")
+    if "48" not in t and "48H" not in t.upper():
+        return None
+    import re as _re
+    m = _re.search(r"([\d.]+)\s*%", t)
+    return float(m.group(1)) if m else None
+
+
+def _parse_location(infos) -> str:
+    for it in infos or []:
+        if "发货地" in str(it.get("label", "")) + str(it.get("name", "")):
+            return str(it.get("value", "")).strip()
+    return ""
+
+
+def _parse_rate_from_infos(infos) -> float | None:
+    for it in infos or []:
+        label = str(it.get("label", "")) + str(it.get("name", ""))
+        if "48" in label and ("发货" in label or "揽收" in label):
+            r = _parse_rate_48h(label + " " + str(it.get("value", "")))
+            if r is not None:
+                return r
+    return None
 
 
 def search_products(
@@ -413,6 +448,10 @@ def search_products(
     purchase_amount: int = 1,
     tags: str = "",
     ic_tags: Optional[str] = None,
+    max_price: Optional[float] = None,
+    max_moq: Optional[int] = None,
+    min_ship_rate_48h: Optional[float] = None,
+    min_sales: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     """Search 1688 products by keyword.
 
@@ -464,7 +503,26 @@ def search_products(
     
     if not isinstance(data, list):
         return []
-    return [_parse_product_item(item) for item in data]
+    items = [_parse_product_item(item) for item in data]
+    # ✅ v0.25 S1: 筛选（max-price/max-moq/min-ship-rate-48h/min-sales）
+    if max_price is not None or max_moq is not None or min_ship_rate_48h is not None or min_sales is not None:
+        out = []
+        for it in items:
+            if max_price is not None:
+                try:
+                    if float(it.get("price") or 0) > max_price:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            if max_moq is not None and (it.get("moq") or 0) > max_moq:
+                continue
+            if min_ship_rate_48h is not None and (it.get("ship_rate_48h") or 0) < min_ship_rate_48h:
+                continue
+            if min_sales is not None and (it.get("sales") or 0) < min_sales:
+                continue
+            out.append(it)
+        items = out
+    return items
 
 
 def search_by_image(
@@ -671,19 +729,34 @@ def get_product_details(item_ids: list[str]) -> dict[str, dict[str, Any]]:
         RateLimitError: 请求被限流
         ServiceError: 服务异常
     """
+    from scripts.lib.cache import cache_get, cache_set
+
     if not item_ids:
         return {}
-    
+
+    details: dict[str, dict[str, Any]] = {}
+    uncached_ids = []
+    for nid in item_ids:
+        nid = str(nid).strip()
+        if not nid:
+            continue
+        cached = cache_get("1688", nid)
+        if cached is not None:
+            details[nid] = cached
+        else:
+            uncached_ids.append(nid)
+    if not uncached_ids:
+        return details
+
     result = _post_1688(
         WORKFLOW_API,
-        {"code": "offer_detail", "bizParams": {"item_id": [str(i).strip() for i in item_ids]}},
+        {"code": "offer_detail", "bizParams": {"item_id": uncached_ids}},
         base_url=AINEXT_BASE_URL,
     )
     model = result.get("model") or {}
     biz_data = model.get("bizData") or {}
     if not isinstance(biz_data, dict):
-        return {}
-    details: dict[str, dict[str, Any]] = {}
+        return details
     for item_id, item in biz_data.items():
         if not isinstance(item, dict):
             continue
@@ -724,6 +797,7 @@ def get_product_details(item_ids: list[str]) -> dict[str, dict[str, Any]]:
             "weight_grams": packaging["weight_grams"],
             "dimensions_mm": packaging["dimensions_mm"],
         }
+        cache_set("1688", nid, details[nid], ttl=86400)
     return details
 
 
@@ -934,6 +1008,11 @@ def enrich_product_with_cdp(
         return result
 
     # ── Merge CDP data over API data ──
+    # ✅ 使用 _pick() 代替 or 运算符：避免 0/0.0/False 被当作"无值"跳过
+    def _pick(key, fallback):
+        v = probe_data.get(key)
+        return v if v is not None and v != "" else fallback
+
     result['data'].update({
         # API title is the full product title (e.g. "东南亚爆款638手持便携式高速电风扇...")
         # CDP may extract short snippets ("638 usb", "X05").  Prefer the longer title.
@@ -942,11 +1021,11 @@ def enrich_product_with_cdp(
             if len(result['data']['title'] or '') >= len(probe_data.get('title') or '')
             else probe_data.get('title')
         ),
-        'price': probe_data.get('price') or result['data']['price'],
-        'brand': probe_data.get('brand') or result['data']['brand'],
-        'seller': probe_data.get('seller') or result['data']['seller'],
-        'images': probe_data.get('images') or result['data']['images'],
-        'weight_grams': probe_data.get('weight_grams') or result['data']['weight_grams'],
+        'price': _pick('price', result['data']['price']),
+        'brand': _pick('brand', result['data']['brand']),
+        'seller': _pick('seller', result['data']['seller']),
+        'images': _pick('images', result['data']['images']),
+        'weight_grams': _pick('weight_grams', result['data']['weight_grams']),
         'packaging_rows': probe_data.get('packaging_rows') or [],
         'shipping': probe_data.get('shipping') or {},
         'description': probe_data.get('description') or '',

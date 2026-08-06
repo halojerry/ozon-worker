@@ -124,12 +124,9 @@ def _load_path_registry() -> dict[str, str]:
     except Exception as e:
         logger.debug('path_registry.json load failed: %s', e)
 
-    # 2. Try cloud API service discovery (tag-based, always current)
-    try:
-        _refresh_from__discovery_api(defaults)
-    except Exception as e:
-        logger.debug('cloud API discovery failed: %s', e)
-
+    # ⚠️ v0.14 E2: 模块加载不做网络 discovery（旧代码 import 时同步发 HTTP GET timeout=10，
+    # 每次命令 graph/follow 额外 +10s 阻塞）。discovery 惰性化：submit_task(deprecated webhook) 首次调用前触发。
+    # 本地 registry 文件仍是权威默认值，网络 discovery 仅补充更新。
     return defaults
 
 
@@ -204,6 +201,21 @@ IMAGE_GEN_PATH = _paths["image_gen"]
 ATTR_LEARN_PATH = _paths["attr_learn"]
 TASK_STATUS_PATH = _paths["task_status"]
 
+# ⚠️ v0.14 E2: discovery 惰性化 — 进程级缓存，仅 deprecated webhook 路径（submit_task）首次调用前触发
+_discovery_done = False
+
+
+def _ensure_paths_discovered() -> None:
+    """惰性触发云端 discovery（进程内只做一次）。仅 submit_task(deprecated) 需要。"""
+    global _discovery_done
+    if _discovery_done:
+        return
+    _discovery_done = True
+    try:
+        _refresh_from__discovery_api(_paths)
+    except Exception:
+        pass
+
 
 def _get_api_base() -> str:
     return CLOUD_API_BASE
@@ -222,6 +234,13 @@ def _get_ozon_credentials(store_id: str | None = None) -> dict[str, str]:
     Returns empty strings if not configured.
     """
     from scripts.lib.config_store import get_ozon_credentials
+    # ✅ v0.25 FIX (F4): 显式环境变量优先 — batch_test 通过 --client-id/--api-key
+    # 设置 OZON_CLIENT_ID/OZON_API_KEY，此前 follow_sell_cloud 忽略 env 只读
+    # stores.json 默认店（5381204），导致指定 5371047 仍落错店铺
+    _env_cid = str(os.environ.get("OZON_CLIENT_ID", "") or "").strip()
+    _env_akey = str(os.environ.get("OZON_API_KEY", "") or "").strip()
+    if _env_cid and _env_akey:
+        return {"client_id": _env_cid, "api_key": _env_akey}
     creds = get_ozon_credentials(store_id or "")
     if creds:
         return creds
@@ -435,7 +454,34 @@ def submit_envelope(
     try:
         import requests
         resp = requests.post(url, json=body, timeout=30)
-        resp.raise_for_status()
+        # v0.22: 非 2xx 也要把服务端原因（error_code/message/detail）解析出来，
+        # 让 agent/用户知道怎么解决（token 无效/余额不足/配额不足/信封异常等）
+        try:
+            payload = resp.json()
+        except Exception:
+            payload = None
+        if resp.status_code >= 400:
+            if isinstance(payload, dict):
+                reason = (
+                    payload.get("message")
+                    or (payload.get("detail") if isinstance(payload.get("detail"), str) else "")
+                    or f"HTTP {resp.status_code}"
+                )
+                extra = payload.get("detail") if isinstance(payload.get("detail"), dict) else None
+                return {
+                    "ok": False,
+                    "error": reason,
+                    "error_code": payload.get("error_code") or "",
+                    "detail": extra or payload.get("detail", ""),
+                    "http_status": resp.status_code,
+                    "task_id": task_id,
+                }
+            return {
+                "ok": False,
+                "error": f"HTTP {resp.status_code}: {resp.text[:300]}",
+                "http_status": resp.status_code,
+                "task_id": task_id,
+            }
         return resp.json()
     except requests.exceptions.ConnectionError:
         return {"ok": False, "error": f"Worker unreachable: {url}", "task_id": task_id}
@@ -590,13 +636,13 @@ def _filter_bait_and_custom_skus(
                 # Only filter the bait one, keep the rest
                 for i, v in enumerate(variants):
                     if i != min_idx:
-                        filtered.append(v)
-                        # Keyword check for remaining
+                        # Keyword check BEFORE adding to filtered
                         skip, kw = _is_skip_sku(str(v.get("name", v.get("color", ""))))
                         if skip:
                             removed.append(v)
                             reasons.append(f"SKU关键词: {kw}")
-                            continue
+                        else:
+                            filtered.append(v)
                 # Update stats
                 total_removed = len(removed)
                 new_drop = drop_reason
@@ -847,6 +893,114 @@ class ProductValidationError(Exception):
     pass
 
 
+# ── v0.21 P2: 尺寸/重量解析与合理性守卫 ──────────────────────────────────
+# 根因（2026-08-04 实证）：
+# 1. 风扇页 module-od-product-attributes 有带单位「规格 8.5*6.5*11cm」，但
+#    probe fallback 容器未覆盖该模块 + body 正则漏「规格/包装体积」，只抓到
+#    无单位的「外观尺寸 85*65*11」并按 cm ×10 → 850×650×110mm。
+# 2. 工具页「长(cm)」表商家实际填 mm 值（260）→ 按表头 cm ×10 → 2600mm，
+#    体积放大 1000 倍。
+# 3. density 兜底把「轻而大」的商品重量按体积×0.5 放大（风扇 300g→30.4kg、
+#    工具 400g→364kg），无视商家已提供的真实重量。
+
+MAX_DIM_MM = 5000          # 单边物理上限 5m，超过视为脏数据
+MAX_EST_WEIGHT_G = 30000   # 无商家重量时估算上限 30kg
+_DIM_LWH_RE = re.compile(
+    r"(?:\(?(cm|CM|mm|MM)\)?\s*(?:[：:]\s*)?)?"
+    r"(\d+\.?\d*)\s*\*\s*(\d+\.?\d*)\s*\*\s*(\d+\.?\d*)"
+    r"(?:\s*(cm|CM|mm|MM))?"
+)
+_DIM_VALUE_RE = re.compile(r"\s*(\d+\.?\d*)\s*(cm|CM|mm|MM)?\s*$")
+
+
+def _parse_dim_value(text: Any) -> tuple[float, str | None]:
+    """解析单个维度文本（'85' / '85cm' / '85 mm'）→ (数值, 单位|None)。"""
+    m = _DIM_VALUE_RE.match(str(text or "").strip())
+    if not m:
+        return 0.0, None
+    unit = (m.group(2) or "").lower() or None
+    return float(m.group(1)), unit
+
+
+def extract_dimensions_from_texts(texts: list[str]) -> dict | None:
+    """从候选文本行提取 L*W*H 尺寸（输出 mm）。
+
+    优先级：带单位候选（cm/mm）> 无单位候选（unit='unknown'，保守按原值 mm，
+    不乘 10）。单边 > MAX_DIM_MM 拒绝。
+    """
+    united: dict | None = None
+    unitless: dict | None = None
+    for text in texts or []:
+        m = _DIM_LWH_RE.search(str(text or ""))
+        if not m:
+            continue
+        l, w, h = float(m.group(2)), float(m.group(3)), float(m.group(4))
+        unit = (m.group(5) or m.group(1) or "").lower() or None
+        if l <= 0 or w <= 0 or h <= 0:
+            continue
+        if unit == "cm":
+            dims = {"length": int(l * 10), "width": int(w * 10), "height": int(h * 10), "unit": "cm"}
+        elif unit == "mm":
+            dims = {"length": int(l), "width": int(w), "height": int(h), "unit": "mm"}
+        else:
+            dims = {"length": int(l), "width": int(w), "height": int(h), "unit": "unknown"}
+        if max(dims["length"], dims["width"], dims["height"]) > MAX_DIM_MM:
+            continue
+        if dims["unit"] != "unknown" and united is None:
+            united = dims
+        elif dims["unit"] == "unknown" and unitless is None:
+            unitless = dims
+    return united or unitless
+
+
+def resolve_packaging_dimensions(pkg_row: dict, weight_g: int | float) -> dict:
+    """解析 packaging row → mm 尺寸（含 cm/mm 交叉判定）。
+
+    判定规则：row 数值无显式单位时，分别按 cm（×10）与 mm（×1）计算密度
+    （g/cm³），取落在 [0.05, 8] 合理区间的一方；两方都在区间内或都不在时
+    保持 cm（不臆断）。weight<=0 无法判定时保持 cm。
+    """
+    l_val, l_unit = _parse_dim_value(pkg_row.get("lengthText"))
+    w_val, w_unit = _parse_dim_value(pkg_row.get("widthText"))
+    h_val, h_unit = _parse_dim_value(pkg_row.get("heightText"))
+    units = [u for u in (l_unit, w_unit, h_unit) if u]
+    if l_val <= 0 or w_val <= 0 or h_val <= 0:
+        return {"length": 0, "width": 0, "height": 0, "unit_used": "unknown", "suspected": False}
+
+    if units:
+        unit = "cm" if "cm" in units else "mm"
+        mult = 10 if unit == "cm" else 1
+        return {
+            "length": int(l_val * mult), "width": int(w_val * mult), "height": int(h_val * mult),
+            "unit_used": unit,
+            "suspected": False,
+        }
+
+    weight = float(weight_g or 0)
+    if weight <= 0:
+        return {
+            "length": int(l_val * 10), "width": int(w_val * 10), "height": int(h_val * 10),
+            "unit_used": "cm", "suspected": False,
+        }
+
+    def _density(mult: float) -> float:
+        vol_mm3 = (l_val * mult) * (w_val * mult) * (h_val * mult)
+        return weight / (vol_mm3 / 1000.0) if vol_mm3 > 0 else 0.0
+
+    d_cm = _density(10.0)
+    d_mm = _density(1.0)
+    in_cm = 0.05 <= d_cm <= 8.0
+    in_mm = 0.05 <= d_mm <= 8.0
+    if in_mm and not in_cm:
+        unit_used, mult, suspected = "mm", 1, True
+    else:
+        unit_used, mult, suspected = "cm", 10, False
+    return {
+        "length": int(l_val * mult), "width": int(w_val * mult), "height": int(h_val * mult),
+        "unit_used": unit_used, "suspected": suspected,
+    }
+
+
 def _validate_and_fix_product_data(
     item_id: str,
     title: str,
@@ -856,13 +1010,16 @@ def _validate_and_fix_product_data(
     dimensions: dict,
     variants: list,
     option_groups: list,
-) -> tuple[int, dict, list[str]]:
+) -> tuple[int, dict, list[str], bool]:
     """校验产品数据完整性，并应用软兜底默认值。
 
-    返回 (weight_g, dimensions, errors)。
+    返回 (weight_g, dimensions, errors, estimated)。
     errors 为空表示通过；非空表示硬阻断，应跳过该产品。
+    estimated=True 表示尺寸是估算值（1688 页面未提供尺寸），
+    Ozon 可能报 INCORRECT_DIMENSION——由调用方标记到信封供 worker 决策。
     """
     errors: list[str] = []
+    estimated: bool = False
 
     # ── 软兜底：重量 ──
     if weight_g <= 0:
@@ -871,26 +1028,80 @@ def _validate_and_fix_product_data(
 
     # ── 软兜底：尺寸 ──
     if dimensions.get("length", 0) <= 0 and dimensions.get("width", 0) <= 0 and dimensions.get("height", 0) <= 0:
-        # 基于重量估算合理默认尺寸（假设密度 ~250 kg/m³，典型消费品）
+        # 基于重量估算合理默认尺寸（密度 ~800 kg/m³，混合材质消费品）
         # 体积 = weight / density, 假设长方体各边比例 2:1.5:1
-        # side = (volume * ratio)^(1/3)
-        density = 250.0  # kg/m³
+        density = 800.0  # kg/m³ (250 太低，Ozon 报 INCORRECT_DIMENSION)
         volume_m3 = (weight_g / 1000.0) / density  # m³
         volume_mm3 = volume_m3 * 1e9  # mm³
         # 长方体比例 2:1.5:1
         ratio_product = 2.0 * 1.5 * 1.0  # = 3.0
         base_mm = (volume_mm3 / ratio_product) ** (1/3) if volume_mm3 > 0 else 50.0
         # 限制最小值（太小会被 Ozon ML 拒绝）
-        base_mm = max(base_mm, 30.0)
+        base_mm = max(float(base_mm), 30.0)
         est_length = round(base_mm * 2.0)
         est_width = round(base_mm * 1.5)
         est_height = round(base_mm * 1.0)
         dimensions = {"length": est_length, "width": est_width, "height": est_height}
+        estimated = True
         logger.warning(
             "物品 %s 尺寸缺失，根据重量 %dg 估算: "
             "%d×%d×%dmm（密度=%.0fkg/m³）",
             item_id, weight_g, est_length, est_width, est_height, density,
         )
+
+    # ✅ v0.10: 密度合理性检查 — 防止商家脏数据和异常估算
+    l, w, h = dimensions.get("length", 0), dimensions.get("width", 0), dimensions.get("height", 0)
+    if weight_g > 0 and l > 0 and w > 0 and h > 0:
+        volume_cm3 = (l * w * h) / 1000.0  # mm³ → cm³
+        density_g_cm3 = weight_g / volume_cm3 if volume_cm3 > 0 else 0
+        if density_g_cm3 > 10:  # 比铅（11.3）还密？明显异常（塑料~1, 金属~7）
+            if volume_cm3 < 10:
+                # ⚠️ v0.26 FIX: 体积荒谬（<10cm³ 装不下几百克）→ 尺寸是脏数据。
+                # 实测：一次性盘子 160g 被解析成 10×10×10mm（1cm³），密度 160 被砍成 50g，
+                # 运费/售价/利润全错。与 v0.21 低密度分支同理：商家重量可信，
+                # 重估尺寸（复用 800kg/m³ 估算），保留商家重量。
+                _density = 800.0
+                _vol_m3 = (weight_g / 1000.0) / _density
+                _vol_mm3 = _vol_m3 * 1e9
+                _ratio_p = 3.0
+                _base_mm = max((_vol_mm3 / _ratio_p) ** (1 / 3) if _vol_mm3 > 0 else 50.0, 30.0)
+                dimensions = {
+                    "length": round(_base_mm * 2.0),
+                    "width": round(_base_mm * 1.5),
+                    "height": round(_base_mm * 1.0),
+                }
+                estimated = True
+                logger.warning(
+                    "物品 %s 密度过高 %.1f g/cm³（%dg / %.0f cm³）且体积荒谬，"
+                    "判定尺寸脏数据，重估尺寸 %d×%d×%dmm，保留商家重量 %dg",
+                    item_id, density_g_cm3, weight_g, volume_cm3,
+                    dimensions["length"], dimensions["width"], dimensions["height"], weight_g,
+                )
+            else:
+                estimated_g = max(int(volume_cm3 * 1.0), 50)
+                logger.warning(
+                    "物品 %s 密度过高 %.1f g/cm³（%dg / %.0f cm³），修正为 %dg",
+                    item_id, density_g_cm3, weight_g, volume_cm3, estimated_g,
+                )
+                weight_g = estimated_g
+        elif density_g_cm3 < 0.25 and volume_cm3 > 1000:  # 大体积但极轻（比泡沫还轻？数据错误）
+            # v0.21 P2: 商家已提供真实重量 → 信任重量，不再用体积反推覆盖
+            # （根因：风扇 300g→30.4kg、工具 400g→364kg 都是这个分支干的）
+            if weight_g > 0:
+                logger.warning(
+                    "物品 %s 密度过低 %.2f g/cm³（%dg / %.0f cm³），"
+                    "但商家已提供重量，保留商家重量 %dg（尺寸可能单位错误）",
+                    item_id, density_g_cm3, weight_g, volume_cm3, weight_g,
+                )
+            else:
+                # 无商家重量才估算，且封顶 MAX_EST_WEIGHT_G，防止脏尺寸把重量推上天
+                estimated_g = max(int(volume_cm3 * 0.5), 100)
+                estimated_g = min(estimated_g, MAX_EST_WEIGHT_G)
+                logger.warning(
+                    "物品 %s 密度过低 %.2f g/cm³（%dg / %.0f cm³），估算为 %dg（封顶 %dg）",
+                    item_id, density_g_cm3, weight_g, volume_cm3, estimated_g, MAX_EST_WEIGHT_G,
+                )
+                weight_g = estimated_g
 
     # ── 硬阻断：图片 ──
     if not images:
@@ -935,7 +1146,26 @@ def _validate_and_fix_product_data(
 
     if errors:
         logger.warning("❌ 物品 %s 校验不通过: %s", item_id, '; '.join(errors))
-    return weight_g, dimensions, errors
+    return weight_g, dimensions, errors, estimated
+
+
+def _extract_source_category_id(source_categories) -> int | None:
+    """从 1688 类目列表取最末级（叶子）类目数字 ID。兼容 id/leafId/thirdCategoryId/categoryId。"""
+    if not isinstance(source_categories, list):
+        return None
+    last_id = None
+    for c in source_categories:
+        if not isinstance(c, dict):
+            continue
+        for key in ("id", "leafId", "thirdCategoryId", "categoryId"):
+            val = c.get(key)
+            try:
+                if val is not None and str(val).isdigit():
+                    last_id = int(val)
+                    break
+            except (TypeError, ValueError):
+                continue
+    return last_id
 
 
 def build_graph_envelope(
@@ -1039,9 +1269,12 @@ def build_graph_envelope(
         if search_text:
             try:
                 from scripts.lib.ozon_api import search_categories
+                # ✅ v0.27: 语言按搜索词自动选择 — 1688 中文类目/标题搜 ZH_HANS 树,
+                # 俄语标题才搜 RU 树(旧代码恒 RU 搜中文 → 必空 → poll_category 形同虚设)
+                _lang = "ZH_HANS" if any("\u4e00" <= ch <= "\u9fff" for ch in search_text) else "RU"
                 cats = search_categories(
                     ozon_creds["client_id"], ozon_creds["api_key"],
-                    search_text, language="RU", max_results=1,
+                    search_text, language=_lang, max_results=1,
                 )
                 if cats:
                     best = cats[0]
@@ -1065,56 +1298,62 @@ def build_graph_envelope(
         weight_g = 0  # 管线定价需要真实重量，0 会让运费计算降到最低
 
     # 尺寸：取 CDP 探针解析的 packaging_rows 数据
-    # 1688 使用 cm，Ozon 使用 mm → ×10
-    def _parse_pkg_dim(pkg_row, key_text, key_cm, default=0):
-        """Parse dimension from packaging row, converting cm→mm."""
-        val_text = pkg_row.get(key_text)  # e.g. "19.20"
-        if val_text:
-            try:
-                return int(float(str(val_text).strip()) * 10)  # cm → mm
-            except (ValueError, TypeError):
-                pass
-        return default
-
+    # v0.21 P2: cm/mm 交叉判定（工具页 cm 表实际填 mm 值 → 按密度合理性切到 mm）
     if pkg_first:
+        resolved = resolve_packaging_dimensions(pkg_first, weight_g)
         dimensions = {
-            "length": _parse_pkg_dim(pkg_first, "lengthText", "lengthCm"),
-            "width": _parse_pkg_dim(pkg_first, "widthText", "widthCm"),
-            "height": _parse_pkg_dim(pkg_first, "heightText", "heightCm"),
+            "length": resolved["length"],
+            "width": resolved["width"],
+            "height": resolved["height"],
         }
     else:
         dimensions = {"length": 0, "width": 0, "height": 0}
 
-    # 降级: 如果 packaging 表格没有尺寸，从 description 文本提取
+    # 降级: 如果 packaging 表格没有尺寸，优先用 probe 收集的候选行
+    # （module-od-product-attributes 属性表 / 描述区 / body 行，v0.21 P2）
     if (dimensions["length"] == 0 and dimensions["width"] == 0 and dimensions["height"] == 0):
+        import re as _re
+        candidates = data.get("dim_text_candidates") or []
+        parsed = extract_dimensions_from_texts(candidates) if candidates else None
+        if parsed:
+            dimensions = {
+                "length": parsed["length"],
+                "width": parsed["width"],
+                "height": parsed["height"],
+            }
+            logger.info(
+                "物品 %s packaging 无尺寸，从候选文本提取 %s（unit=%s）",
+                item_id, dimensions, parsed.get("unit"),
+            )
+        # 再兜底: description 文本正则（旧路径，保持兼容）
         desc = data.get("description") or ""
-        if desc:
-            import re as _re
+        if desc and (dimensions["length"] == 0 and dimensions["width"] == 0 and dimensions["height"] == 0):
             # 匹配 L*W*H 格式: "34*25*2CM", "尺寸：30*9.5*4.5cm", "MEAS:51*35*42CM"
             dim_pat = _re.search(
                 r'(?:尺寸|单个|产品尺寸|MEAS|meas|箱规)?[：:\s]*'
-                r'(\d+\.?\d*)\s*\*\s*(\d+\.?\d*)\s*\*\s*(\d+\.?\d*)\s*(?:cm|CM|mm)?',
+                r'(\d+\.?\d*)\s*\*\s*(\d+\.?\d*)\s*\*\s*(\d+\.?\d*)\s*(cm|CM|mm|MM)?',
                 desc
             )
             if dim_pat:
                 try:
                     l, w, h = float(dim_pat.group(1)), float(dim_pat.group(2)), float(dim_pat.group(3))
+                    unit = (dim_pat.group(4) or "").lower()
                     if 0 < l < 300 and 0 < w < 300 and 0 < h < 300:  # sanity: < 3m
-                        dimensions = {
-                            "length": int(l * 10),  # cm → mm
-                            "width": int(w * 10),
-                            "height": int(h * 10),
-                        }
+                        if unit == "mm":
+                            dimensions = {"length": int(l), "width": int(w), "height": int(h)}
+                        else:
+                            # 默认 cm → mm
+                            dimensions = {"length": int(l * 10), "width": int(w * 10), "height": int(h * 10)}
                 except (ValueError, TypeError):
                     pass
-            # 提取 weight: "净重：53g", "含包装：61.8g"
-            if not weight_g:
-                wt_pat = _re.search(r'(?:净重|重量|含包装|毛重)[：:\s]*(\d+\.?\d*)\s*(?:g|G|克)', desc)
-                if wt_pat:
-                    try:
-                        weight_g = int(float(wt_pat.group(1)))
-                    except (ValueError, TypeError):
-                        pass
+        # 提取 weight: "净重：53g", "含包装：61.8g"
+        if not weight_g:
+            wt_pat = _re.search(r'(?:净重|重量|含包装|毛重)[：:\s]*(\d+\.?\d*)\s*(?:g|G|克)', desc)
+            if wt_pat:
+                try:
+                    weight_g = int(float(wt_pat.group(1)))
+                except (ValueError, TypeError):
+                    pass
 
     # 物流信息
     shipping = data.get("shipping") or {}
@@ -1287,7 +1526,6 @@ def build_graph_envelope(
                 "image": variant_img,
                 "price": variant_price,
                 "original_price": variant_price,
-                "stock": 100,
                 "attributes": all_attrs,
                 "variant_type": variant_type,
             })
@@ -1315,7 +1553,6 @@ def build_graph_envelope(
                 "image": sd.get("image") or "",
                 "price": sd_price,
                 "original_price": sd_price,
-                "stock": 100,
                 "attributes": parsed,
                 "variant_type": vt,
             })
@@ -1330,7 +1567,6 @@ def build_graph_envelope(
             "image": "",
             "price": cost_cny,
             "original_price": cost_cny,
-            "stock": 100,
             "attributes": {},
             "variant_type": "single",
         })
@@ -1353,16 +1589,18 @@ def build_graph_envelope(
             )
 
     # ── 5.4.1 单产品折叠：多变体 → 单变体 ──
-    if len(variants) > 1:
-        original_count = len(variants)
-        variants, cost_cny = _collapse_variants_to_single(variants, cost_cny, shipping)
-        logger.info(
-            "单产品折叠: %d个变体 → 1个 (采购成本=%.2f CNY, 含运费)",
-            original_count, cost_cny,
-        )
+    # ⚠️ v0.14 P0-4: 无条件调用（_collapse_variants_to_single 内部已兼容 0/1/N 个变体）
+    # 旧守卫 if len(variants) > 1 导致单SKU/跟卖/发现商品跳过折叠 → cost_cny 不含国内运费(freightCny)，
+    # 采购成本偏低 → 定价利润失真（每单必现）。
+    original_count = len(variants)
+    variants, cost_cny = _collapse_variants_to_single(variants, cost_cny, shipping)
+    logger.info(
+        "单产品折叠: %d个变体 → 1个 (采购成本=%.2f CNY, 含运费)",
+        original_count, cost_cny,
+    )
 
     # ── 5.5 校验门：硬阻断 + 软兜底 ──
-    weight_g, dimensions, validation_errors = _validate_and_fix_product_data(
+    weight_g, dimensions, validation_errors, dimensions_estimated = _validate_and_fix_product_data(
         item_id=str(item_id),
         title=item_title,
         cost_cny=cost_cny,
@@ -1390,11 +1628,13 @@ def build_graph_envelope(
     else:
         source_category_path = ""
         source_category_short = ""
+    # ✅ v0.25 S2: 1688 类目数字 ID（最末级，供 Worker 类目学习/定向兜底）
+    source_category_id = _extract_source_category_id(source_categories)
 
     draft: dict[str, Any] = {
         "item_id": str(item_id),
         "title": item_title,
-        "description": "",
+        "description": (data.get("description") or "")[:5000],
         "currency": "CNY",
         "images": images,
         "attributes": attrs,
@@ -1404,14 +1644,20 @@ def build_graph_envelope(
         "purchase_url": detail_url,
         "purchase_cost": cost_cny,
         "supplier": supplier,
-        "stock": 100,
     }
     if shipping:
         draft["shipping"] = shipping
+    if dimensions_estimated:
+        draft["dimensions_estimated"] = True  # ✅ v0.21: 尺寸为估算值，供 worker 决策
     if ozon_category:
         draft["ozon_category"] = ozon_category
-    if source_category_short:
-        draft["source_category"] = source_category_short  # 1688 类目（最具体两级），供 worker 类目匹配
+    # ✅ v0.21: 传完整 1688 类目路径（旧版只传末两级，丢失顶级信号如"成人用品"导致类目错配）
+    if source_category_path:
+        draft["source_category"] = source_category_path
+    elif source_category_short:
+        draft["source_category"] = source_category_short
+    if source_category_id:
+        draft["source_category_id"] = source_category_id
 
     if is_multi:
         draft["variants"] = variants
@@ -1427,14 +1673,62 @@ def build_graph_envelope(
             "purchase_url": detail_url,
             "purchase_cost": cost_cny,
             "source_category_path": source_category_path,  # 完整 1688 类目路径，供后续建立映射表
+            "category_id": source_category_id,  # ✅ v0.25 S2: 1688 叶子类目数字 ID
         },
         "extensions": {
-            "max_skus": effective_max_skus,
-            "dropped_skus": dropped_skus,
-            "drop_reason": drop_reason or "",
-            "filtered_skus": filtered_skus_info,
+            # ✅ v0.27: 删除 max_skus/dropped_skus/drop_reason/filtered_skus(无人消费);
+            # margin_rate/commission_rate/fx_buffer 由下方 6.5 段注入
         },
     }
+
+    # ── 6.5 注入定价参数 ──
+    from scripts.lib.config_store import get_store_profile
+    store_profile = get_store_profile(store_id)
+    margin_rate = float(store_profile.get("margin_rate", 0) or 0)
+    commission_rate = float(store_profile.get("commission_rate", 0) or 0)
+    fx_buffer = float(store_profile.get("fx_buffer", 0) or 0)
+
+    # ⚠️ v0.14 P1-7: 删除"用 1688 item_id 查 Ozon 佣金"死代码块
+    # 原 fetch_product_commissions 用 product_id filter 查 /v5/product/info/prices，
+    # 传入的是 1688 offer ID（非 Ozon product_id）→ 恒返回空，永远无效。
+    # 佣金率由 store_config（get_store_profile）或 Worker 默认值提供。
+
+    # 只传非零值（Worker 用默认值兜底）
+    if margin_rate > 0:
+        envelope["extensions"]["margin_rate"] = margin_rate
+    if commission_rate > 0:
+        envelope["extensions"]["commission_rate"] = commission_rate
+    if fx_buffer > 0:
+        envelope["extensions"]["fx_buffer"] = fx_buffer
+
+    # ── 6.6 完整性审计 ──
+    try:
+        _audit = AuditLogger(task_id=str(item_id))
+        _audit.log("envelope", "integrity", "info", "Envelope assembled", {
+            "item_id": str(item_id),
+            "has_title": bool(item_title),
+            "has_images": len(images) > 0,
+            "has_weight": weight_g > 0,
+            "has_dimensions": any(d > 0 for d in [dimensions.get("length"), dimensions.get("width"), dimensions.get("height")]),
+            "has_ozon_category": bool(ozon_category),
+            "has_description": bool(data.get("description")),
+            "image_count": len(images),
+            "cdp_source": cdp_source,
+            "margin_rate": envelope["extensions"].get("margin_rate", 0),
+            "commission_rate": envelope["extensions"].get("commission_rate", 0),
+        })
+    except Exception:
+        pass
+
+    try:
+        _audit.log("envelope", "pricing", "info", "Pricing params", {
+            "margin_rate": envelope["extensions"].get("margin_rate", 0),
+            "commission_rate": envelope["extensions"].get("commission_rate", 0),
+            "fx_buffer": envelope["extensions"].get("fx_buffer", 0),
+            "source": "ozon_api" if envelope["extensions"].get("commission_rate", 0) > 0 else "store_config",
+        })
+    except Exception:
+        pass
 
     # ── 7. 组装 GraphInput ──
     mxou_token = _get_mxou_token() or _get_token()
@@ -1446,22 +1740,83 @@ def build_graph_envelope(
     }
 
 
-def build_envelope_from_discovery(candidate, store_config: dict) -> dict:
+def build_envelope_from_discovery(candidate, store_config: dict, store_id: str = "") -> dict:
     """Build Worker GraphInput envelope from a discovery candidate.
+
+    ✅ P0 修复：调用完整 build_graph_envelope_with_retry() 走 AK+CDP 双通道，
+    不再手动组装空属性/零尺寸/猜重量的信封。
 
     Args:
         candidate: ProductCandidate from ozon_discovery
         store_config: {"client_id": "...", "api_key": "...", "currency": "RUB"}
+        store_id: 店铺名（用于获取定价参数）
 
     Returns:
-        GraphInput dict: {token, ozon_client_id, ozon_api_key, envelope}
+        GraphInput dict: {token, ozon_client_id, ozon_api_key, envelope} or None
     """
     from scripts.lib.config_store import get_mxou_token
 
     token = get_mxou_token() or ""
 
+    # 提取 1688 item_id
+    best_id = candidate.match_1688_url.split("/offer/")[-1].rstrip(".html") if "/offer/" in candidate.match_1688_url else ""
+    if not best_id:
+        return None
+
+    detail_url = f"https://detail.1688.com/offer/{best_id}.html"
+
+    # ✅ 调用完整 AK+CDP 链路（包含 get_product_details + CDP 浏览器富集）
+    try:
+        result = build_graph_envelope_with_retry(
+            item_id=best_id,
+            detail_url=detail_url,
+            store_id=store_id,
+            max_skus=1,
+        )
+    except Exception as e:
+        logger.warning("build_graph_envelope_with_retry 失败，降级使用原始候选品数据: %s", e)
+        result = None
+
+    if result and result.get("envelope"):
+        draft = result["envelope"].get("draft", {})
+        extensions = result["envelope"].get("extensions", {})
+
+        # 跟卖标记：如果 Ozon 有竞品则标记为跟卖
+        if candidate.competing_sellers > 0:
+            draft["ozon_product_id"] = candidate.ozon_product_id
+            extensions["follow_sell"] = True
+
+        # 注入 Ozon 类目（候选品数据）
+        ozon_cat = getattr(candidate, 'ozon_category', None)
+        if ozon_cat:
+            draft["ozon_category"] = ozon_cat
+
+        # ✅ P0-5 修复：优先透传 build_graph_envelope_with_retry 已解析的凭证
+        # （store_config 仅作兜底，避免提交空 Ozon 凭证）
+        return {
+            "token": token,
+            "ozon_client_id": result.get("ozon_client_id")
+                or store_config.get("client_id", ""),
+            "ozon_api_key": result.get("ozon_api_key")
+                or store_config.get("api_key", ""),
+            "envelope": {
+                "draft": draft,
+                "source": result["envelope"].get("source", {}),
+                "extensions": extensions,
+            }
+        }
+
+    # 降级：保留原始简单组装（向后兼容）
+    # ✅ 定价参数走 store profile（不再硬编码 0.25/10%）
+    store_profile = {}
+    try:
+        from scripts.lib.config_store import get_store_profile
+        store_profile = get_store_profile(store_id) or {}
+    except Exception:
+        pass
+
     draft = {
-        "item_id": candidate.match_1688_url.split("/offer/")[1].split(".")[0] if "/offer/" in candidate.match_1688_url else "",
+        "item_id": best_id,
         "title": candidate.match_1688_title or candidate.ozon_title,
         "description": "",
         "currency": "CNY",
@@ -1472,7 +1827,6 @@ def build_envelope_from_discovery(candidate, store_config: dict) -> dict:
         "purchase_cost": candidate.match_1688_price or 0,
         "purchase_url": candidate.match_1688_url or "",
         "supplier": getattr(candidate, 'match_1688_supplier', ''),
-        "stock": 100,
     }
 
     source = {
@@ -1482,8 +1836,8 @@ def build_envelope_from_discovery(candidate, store_config: dict) -> dict:
 
     extensions = {
         "follow_sell": candidate.competing_sellers > 0,
-        "margin_rate": 0.25,
-        "commission_rate": (getattr(candidate, 'commission_fbp', 0) or 10) / 100,
+        "margin_rate": float(store_profile.get("margin_rate", 0) or 0.25),
+        "commission_rate": float(store_profile.get("commission_rate", 0) or 0.10),
     }
 
     return {
@@ -1524,7 +1878,9 @@ def build_graph_envelope_with_retry(
                 detail_url=detail_url,
                 category_query=category_query,
                 store_id=store_id,
-                poll_category=False,
+                # ✅ v0.27: 打开 Ozon 官方类目解析(Seller 空间 search_categories),
+                # 直采信封从此携带正确的 description_category_id/type_id(旧: False → 类目全靠 worker 猜)
+                poll_category=True,
                 max_skus=max_skus,
             )
         except RuntimeError as exc:
@@ -2227,16 +2583,44 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     }
     
     # Step 2: CDP 抓取 Ozon 商品页 → 竞品图片 + 标题
+    # ⚠️ v0.14 E5: Step 2（抓 Ozon）+ Step 3a（1688 图搜）共享一个 CdpConnection，
+    # 省 2-3 个冗余 WS 连接（旧代码各建各的连接）。Step 5 envelope 链路（probe_1688_page）
+    # 有独立会话引导/登录检查逻辑，保持独立更安全。
     ozon_images: list[str] = []
     ozon_title: str = ""
-    
+    shared_cdp = None
+    try:
+        from scripts.lib.cdp_client import CdpConnection
+        shared_cdp = CdpConnection("http://127.0.0.1:9222")
+    except Exception:
+        pass
+
     try:
         from scripts.lib.ozon_scraper import scrape_ozon_product_via_cdp
-        cdp_data = scrape_ozon_product_via_cdp(ozon_url, cdp_url="http://127.0.0.1:9222", timeout=30)
+        cdp_data = scrape_ozon_product_via_cdp(ozon_url, cdp_url="http://127.0.0.1:9222", timeout=30, conn=shared_cdp)
         if cdp_data.get("success"):
             ozon_images = cdp_data.get("images", [])
             ozon_title = cdp_data.get("title", "")
+            # ⚠️ v0.14 P0-6: 抓取 Ozon 竞品售价（scraper 已解析 price 字段），
+            # 供 Worker 跟卖定价用（避免误用 1688 采购价当竞品价）
+            ozon_price = str(cdp_data.get("price", "") or "").strip()
+            if ozon_price:
+                result["competitor_price"] = ozon_price
+                logger.info("💰 Ozon 竞品售价: %s", ozon_price)
             result["scrape_source"] = "cdp"
+            # ✅ 从 Ozon 页面提取类目 ID（面包屑链接中的数字 ID，优先）
+            scraped_dc = cdp_data.get("description_category_id", "")
+            scraped_type = cdp_data.get("type_id", "") or scraped_dc
+            scraped_lang = cdp_data.get("breadcrumb_language", "")
+            scraped_path = cdp_data.get("category_path", "")
+            if scraped_dc:
+                result["ozon_category"] = {
+                    "description_category_id": str(scraped_dc),
+                    "type_id": str(scraped_type),
+                    "language": scraped_lang,
+                    "category_path": scraped_path,
+                }
+                logger.info("✅ Ozon 类目从页面提取: dc=%s type=%s lang=%s", scraped_dc, scraped_type, scraped_lang)
             logger.info("✅ CDP 抓取 Ozon 成功: %d 张图, title=%s", len(ozon_images), ozon_title[:60])
     except Exception as e:
         logger.debug("CDP Ozon scraper unavailable: %s", e)
@@ -2245,6 +2629,54 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     result["images"] = ozon_images
     if ozon_title:
         result["title"] = ozon_title
+
+    # ── Step 2.5: 竞品运营数据 + 重量/尺寸（what_to_sell，卖家后台借道）──
+    # v0.22（参考 maozi）：竞品重量(4497)/尺寸(9454/9455/9456)/月销/GMV 从
+    # seller.ozon.ru what_to_sell 获取，1688 数据缺失时 worker 用它兜底。
+    # 未登录 seller 后台 → 降级跳过，不阻断跟卖。
+    if shared_cdp is not None:
+        try:
+            from scripts.lib.ozon_seller_analytics import fetch_sales_analytics
+            _metrics_map = fetch_sales_analytics(shared_cdp, [str(product_id)])
+            _m = _metrics_map.get(str(product_id)) or {}
+            if _m.get("weight_g"):
+                result["competitor_weight_g"] = int(_m["weight_g"])
+            if _m.get("length_mm") or _m.get("width_mm") or _m.get("height_mm"):
+                result["competitor_dimensions_mm"] = {
+                    "length": int(_m.get("length_mm") or 0),
+                    "width": int(_m.get("width_mm") or 0),
+                    "height": int(_m.get("height_mm") or 0),
+                }
+            if _m.get("sold_count"):
+                result["ozon_monthly_sales"] = int(_m["sold_count"])
+            if _m.get("gmv_sum"):
+                result["ozon_gmv"] = float(_m["gmv_sum"])
+            if _m.get("create_days"):
+                result["ozon_listing_days"] = int(_m["create_days"])
+            # ✅ v0.26 权威类目覆盖（wave2 眉笔类目错配根因修复）：
+            # what_to_sell 返回 Seller 空间权威类目 category2Id(dc)/category3Id(type)，
+            # 页面面包屑只是 Widget 空间 ID（worker pg_trgm 猜 sim=0.353 误匹配
+            # → DESCRIPTION_DECLINE 类目不符）。有权威 ID 时覆盖面包屑类目。
+            if _m.get("category2_id") and _m.get("category3_id"):
+                result["ozon_category"] = {
+                    "description_category_id": str(_m["category2_id"]),
+                    "type_id": str(_m["category3_id"]),
+                    "language": "RU",
+                    "category_path": (result.get("ozon_category") or {}).get("category_path", ""),
+                }
+                logger.info(
+                    "✅ 竞品权威类目（Seller 空间）: dc=%s type=%s（覆盖 Widget 面包屑 %s）",
+                    _m["category2_id"], _m["category3_id"],
+                    (result.get("ozon_category") or {}).get("description_category_id"),
+                )
+            if result.get("competitor_weight_g") or result.get("competitor_dimensions_mm"):
+                logger.info(
+                    "✅ 竞品数据（what_to_sell）: weight=%s dims=%s sales=%s gmv=%s",
+                    result.get("competitor_weight_g"), result.get("competitor_dimensions_mm"),
+                    result.get("ozon_monthly_sales"), result.get("ozon_gmv"),
+                )
+        except Exception as _se:
+            logger.debug("竞品 what_to_sell 获取失败（降级）: %s", _se)
 
     # Step 3: 1688 搜索（图片搜索优先，文字搜索为辅）
     search_text = ozon_title if ozon_title else slug
@@ -2258,9 +2690,38 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         logger.info("🔍 以图搜款: %s", main_img[:80])
 
         # 3a-1. CDP 网页版以图搜款（更准确，用1688网页搜索引擎）
+        # ⚠️ v0.14 E5+: 匹配质量差（badge 全 0/无有效评分）时自动重新图搜最多 3 次取最佳
+        # （1688 图搜算法偶发匹配差，重搜可显著提高命中质量）
+        # ✅ v0.19: page_size 20 + 仅在页面确实渲染了徽标且质量差时才重搜；
+        # 无徽标（未登录/未渲染）不重搜，交给 _pick_best_match 标题相关性降级
         try:
-            from scripts.lib.ozon_image_search import search_by_image_cdp
-            cdp_results = search_by_image_cdp(image_url=main_img, page_size=5, wait_seconds=10)
+            from scripts.lib.ozon_image_search import search_by_image_cdp, _get_badge_score
+            cdp_results = search_by_image_cdp(image_url=main_img, page_size=20, wait_seconds=10, conn=shared_cdp)
+            # ✅ v0.19: CDP 空结果先原地重试 1 次（页面渲染偶发失败，甩脂机案例），
+            # 仍空才降级 AK API
+            if not cdp_results:
+                logger.info("🔄 CDP图搜空结果，等待后原地重试 1 次...")
+                time.sleep(3)
+                cdp_results = search_by_image_cdp(
+                    image_url=main_img, page_size=20, wait_seconds=15,
+                    conn=shared_cdp, force_refresh=True)
+            if cdp_results:
+                badge_scores = [_get_badge_score(p.get("badge", "") or "") for p in cdp_results]
+                has_badge = any(s > 0 for s in badge_scores)
+                top_score = max(badge_scores, default=0)
+                _re_attempt = 0
+                while has_badge and top_score <= 1 and _re_attempt < 2:
+                    _re_attempt += 1
+                    logger.info(f"🔄 图搜匹配质量低(badge={top_score})，重新图搜 {_re_attempt}/2...")
+                    retry_results = search_by_image_cdp(image_url=main_img, page_size=20, wait_seconds=15, conn=shared_cdp, force_refresh=True)
+                    if not retry_results:
+                        break
+                    retry_score = max((_get_badge_score(p.get("badge", "")) for p in retry_results), default=0)
+                    if retry_score > top_score:
+                        cdp_results = retry_results
+                        top_score = retry_score
+                if top_score > 1:
+                    logger.info(f"✅ 重搜后图搜质量提升: badge={top_score}")
             if cdp_results:
                 matches_raw = cdp_results
                 search_method = "cdp"
@@ -2295,18 +2756,53 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     # Step 4: 整理搜索结果
     matches = []
     if matches_raw:
-        matches = [{"id": p.get("product_id", p.get("itemId", "")), "title": p.get("title", "")[:80],
-                    "price": p.get("price", ""), "image": p.get("image", "")} 
-                   for p in matches_raw if p.get("product_id") or p.get("itemId")]
+        # ✅ 保留 badge 评分（1688 图搜匹配质量）
+        from scripts.lib.ozon_image_search import _get_badge_score
+
+        matches = []
+        for p in matches_raw:
+            pid = p.get("product_id") or p.get("itemId") or str(p.get("id", ""))
+            if not pid:
+                continue
+            badge_text = p.get("badge", "")
+            badge_score = _get_badge_score(badge_text) if badge_text else 0
+            matches.append({
+                "id": pid,
+                "title": p.get("title", "")[:80],
+                "price": p.get("price", ""),
+                "image": p.get("image", ""),
+                "badge": badge_text,
+                "badge_score": badge_score,
+            })
+
+        # 按 badge_score 降序排列（最高分在前）
+        matches.sort(key=lambda m: m["badge_score"], reverse=True)
+
         result["1688_matches"] = matches
+        if matches:
+            # ⚠️ v0.14 E5: 标题相关性护栏（复用 discover 的 _pick_best_match）
+            # 旧逻辑只按 badge 排序取第一个 → 图搜匹配到不同产品也组装信封。
+            # 现在用竞品标题（俄语）做相关性校验：badge "符合0/N" 跳过、RU→ZH 标题
+            # 重叠打分、相关性过弱拒绝（返回 None → 不组装 envelope，宁缺毋滥）。
+            from scripts.lib.ozon_discovery import _pick_best_match
+            # ⚠️ v0.26: 传 mxou_token — 护栏边界时 LLM 语义判定（词对词典覆盖窄，
+            # 「палочки от комаров 驱蚊棒」等无词对 → conf=0 误拒，修"匹配了却不选"）
+            best = _pick_best_match(matches, ozon_title, token=mxou_token) if ozon_title else matches[0]
+            if best:
+                result["best_match"] = best
+                result["success"] = True
+                logger.info("📊 图搜匹配质量: %d 个结果, 最佳 badge=%s (score=%d)",
+                           len(matches), best.get("badge", "?"), best.get("badge_score", 0))
+                if best.get("badge_score", 0) <= 1:
+                    logger.warning("⚠️ 最佳匹配 badge 评分仅 %d，图搜可能不准确，建议人工核实", best.get("badge_score"))
+            else:
+                result["no_relevant_match"] = True
+                logger.warning("⚠️ 图搜结果与竞品标题相关性过低，拒绝匹配（不组装信封）")
 
-    if matches:
-        result["success"] = True
-        result["best_match"] = matches[0]
-
-    # Step 5: 组装 envelope（跟卖标记）— 有匹配就组装，auto_submit 时才提交
-    if matches:
-        best = matches[0]
+    # Step 5: 组装 envelope（跟卖标记）— 有相关匹配才组装，auto_submit 时才提交
+    # ⚠️ v0.14 E5: 用相关性筛选后的 best_match（旧逻辑无脑取 matches[0]，不同产品也组装）
+    if result.get("best_match"):
+        best = result["best_match"]
         best_id = best.get("id", "")
         if best_id:
             try:
@@ -2323,10 +2819,77 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     # 跟卖标记: Worker 走跟卖管线
                     draft["ozon_product_id"] = product_id
                     extensions["follow_sell"] = True
+                    # ✅ v0.22（参考 maozi follow_type）: hand=防侵权跟卖（默认，
+                    # 跳过 import-by-sku 1:1 复制，走 CREATE 重建——我们管线重做
+                    # 类目/属性/生图，天然防同款/侵权检测）；api=import-by-sku 强制
+                    extensions["follow_type"] = extensions.get("follow_type") or "hand"
+                    # 注入定价参数
+                    from scripts.lib.config_store import get_store_profile as _gsp
+                    _sp = _gsp(store_id)
+                    for _pk in ("margin_rate", "commission_rate", "fx_buffer"):
+                        _pv = float(_sp.get(_pk, 0) or 0)
+                        if _pv > 0:
+                            extensions[_pk] = _pv
                     envelope["envelope"]["extensions"] = extensions
-                    # 竞品图片
-                    if ozon_images:
-                        draft["images"] = ozon_images
+                    # 竞品图片 — 跟卖始终用 Ozon 竞品原图，绝不漏 1688 alicdn
+                    draft["images"] = ozon_images if ozon_images else []
+                    # ✅ 竞品俄语标题（覆盖 1688 中文标题，保留 SEO 优化后的竞品原标题）
+                    if ozon_title:
+                        draft["title"] = ozon_title
+                    # ✅ v0.25: 竞品 Ozon 属性表透传（Пол/Размер/Цвет/Тип 等俄语键值，
+                    # 供 worker 必填字典属性优先填充，避免从 1688 推断/缺值）
+                    _ozon_attrs = cdp_data.get("attributes") or {}
+                    if _ozon_attrs:
+                        draft["ozon_attributes"] = _ozon_attrs
+                    _full = cdp_data.get("characteristics") or []
+                    _attrs_all = dict(_ozon_attrs)
+                    for _fc in _full:
+                        if isinstance(_fc, dict) and _fc.get("title") and _fc.get("value"):
+                            _attrs_all.setdefault(str(_fc["title"]), str(_fc["value"]))
+                    if _attrs_all:
+                        draft["ozon_attributes"] = _attrs_all
+                    if not any("цвет" in k.lower() or "颜色" in k for k in _attrs_all):
+                        _aspects = cdp_data.get("aspects") or []
+                        _color_ru = next(
+                            (str(a) for a in _aspects if any(
+                                c in str(a).lower() for c in
+                                ("черн", "бел", "сер", "син", "красн", "зелен", "розов", "беж", "коричн", "золот")
+                            )), ""
+                        )
+                        if _color_ru:
+                            draft["ozon_attributes"]["Цвет"] = _color_ru
+                    if not result.get("competitor_weight_g") or not result.get("competitor_dimensions_mm"):
+                        try:
+                            from scripts.lib.ozon_scraper import parse_ru_weight, parse_ru_dims
+                            _w = parse_ru_weight(next((v for k, v in _attrs_all.items()
+                                                       if any(x in k.lower() for x in ("вес", "масса", "重量"))), ""))
+                            _d = parse_ru_dims(next((v for k, v in _attrs_all.items()
+                                                     if any(x in k.lower() for x in ("габарит", "размер упаковки"))), ""))
+                            if _w:
+                                result.setdefault("competitor_weight_g", _w)
+                            if _d:
+                                result.setdefault("competitor_dimensions_mm", _d)
+                        except Exception:
+                            pass
+                    # ✅ Ozon 类目 ID（从竞品页面提取，Worker 跳过 1688 类目匹配）
+                    ozon_cat = result.get("ozon_category")
+                    if ozon_cat:
+                        draft["ozon_category"] = ozon_cat
+                    # ⚠️ v0.14 P0-6: 注入 Ozon 竞品售价（独立字段，避免与 1688 采购价 draft.price 混淆）
+                    comp_price = result.get("competitor_price", "")
+                    if comp_price:
+                        draft["competitor_price"] = comp_price
+                    # ✅ v0.19.1 P1: 竞品信息透传（可选字段，GraphInput envelope 为 Dict 无 extra 限制，
+                    # Worker 忽略未知字段，契约兼容）。供后续蓝海评分/展示使用。
+                    # ✅ v0.27: 竞品信息只透传 worker 兜底用的物理字段(重量/尺寸);
+                    # 运营字段(月销/GMV/评分/跟卖数等)属 agent 判定层, 移出信封(ENVELOPE-STANDARD)
+                    for _info_key in (
+                        # worker assemble 兜底消费: 1688 物理数据缺失时用竞品值
+                        "competitor_weight_g", "competitor_dimensions_mm",
+                    ):
+                        _info_val = result.get(_info_key)
+                        if _info_val not in (None, "", [], {}):
+                            extensions[_info_key] = _info_val
                     # 凭证（顶层）
                     envelope["ozon_client_id"] = client_id
                     envelope["ozon_api_key"] = api_key
@@ -2342,6 +2905,24 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     result["envelope_error"] = "build_graph_envelope 返回空"
             except Exception as e:
                 result["envelope_error"] = str(e)
+    elif result.get("no_relevant_match"):
+        # ⚠️ v0.26 FIX: 图搜无 1688 货源匹配 → 不再 api 强制跟卖（import-by-sku 复制竞品卡）。
+        # 原逻辑（v0.22）组装「无采购价/无 1688 属性」空壳信封提交 → worker 定价/属性全缺
+        # （Ozon 实证：无货源 api 跟卖提交空壳，价格 0/属性缺失被拒）。
+        # 决策（用户确认）：无货源必须拦截，不丢单也不上空壳。
+        result["blocked_reason"] = "no_relevant_match"
+        result["envelope_built"] = False
+        result["api_fallback"] = False
+        logger.warning(
+            "⛔ 图搜无 1688 货源匹配，拦截提交（no_relevant_match）。"
+            "候选列表中有相关商品但相关性护栏拒绝——可调低护栏或改用 LLM 语义判定"
+        )
+
+    # ⚠️ v0.14 E5: 收尾关闭共享连接（Step 2/3a 用完后释放）
+    if shared_cdp is not None:
+        try:
+            shared_cdp.close()
+        except Exception:
+            pass
 
     return result
-

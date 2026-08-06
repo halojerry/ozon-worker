@@ -51,6 +51,10 @@ def is_likely_product_image(url: str) -> bool:
         '671120191-0-cib',
         # 非主图 CDN
         'cbu-pkgorigin-fx.1688.com',
+        # 含物流/快递/运费信息的图片（Ozon 审核拒绝原因）
+        'kuaidi', 'wuliu', 'yunfei', 'baoyou', 'fahuo', 'tuihuo',
+        'shipping', 'delivery', 'express', 'freight', 'logistics',
+        'почта', 'доставк', 'возврат',
     )
     if any(token in lowered for token in bad_tokens):
         return False

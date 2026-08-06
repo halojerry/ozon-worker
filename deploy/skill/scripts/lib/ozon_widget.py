@@ -34,13 +34,15 @@ def extract_product_id(url: str) -> str:
       /product/slug-123456789/
       /product/123456789/
       https://www.ozon.ru/product/slug-123456789/
+      /product/slug-123456789/?query=params
     """
+    clean = str(url).split("?")[0].split("#")[0]  # strip query and hash
     # Try slug-123456789 pattern first (most common Ozon URL format)
-    m = re.search(r"-(\d{5,})/?$", str(url))
+    m = re.search(r"-(\d{5,})/?$", clean)
     if m:
         return m.group(1)
     # Fallback: /product/123456789/ (bare numeric ID)
-    m = re.search(r"/(\d{5,})/?$", str(url))
+    m = re.search(r"/(\d{5,})/?$", clean)
     return m.group(1) if m else ""
 
 
@@ -103,7 +105,9 @@ _FETCH_PRODUCT_JS = r'''(() => {
             }
 
             // Price from webPrice
-            const priceKey = Object.keys(ws).find(k => k.includes('webPrice'));
+            // ⚠️ 必须匹配 "webPrice-" 前缀：k.includes('webPrice') 会先命中
+            // webPricePerStars（Ozon 金融广告 widget，无 price 字段）导致价格恒空
+            const priceKey = Object.keys(ws).find(k => k.includes('webPrice-'));
             if (priceKey) {
                 try {
                     const p = JSON.parse(ws[priceKey]);
@@ -151,6 +155,16 @@ _FETCH_PRODUCT_JS = r'''(() => {
                 try {
                     const b = JSON.parse(ws[brandKey]);
                     result.brand = b.brand || b.title || '';
+                } catch(e) {}
+            }
+
+            // Rating & reviews from webReviewProductScore（评分 widget 的真实 key）
+            const revKey = Object.keys(ws).find(k => k.includes('webReviewProductScore'));
+            if (revKey) {
+                try {
+                    const r = JSON.parse(ws[revKey]);
+                    result.rating = r.score || r.totalScore || 0;
+                    result.reviewCount = r.reviewsCount || 0;
                 } catch(e) {}
             }
 
@@ -254,7 +268,12 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, 
     images, primaryImage, description, characteristics, aspects, brand.
     Missing keys default to empty string / empty list.
     """
+    from scripts.lib.cache import cache_get, cache_set
     from scripts.lib.cdp_client import CdpConnection
+
+    cached = cache_get("ozon", product_id)
+    if cached is not None:
+        return cached
 
     js = _FETCH_PRODUCT_JS.replace("__PRODUCT_ID__", product_id)
 
@@ -292,6 +311,10 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, 
         # Fallback: try direct HTTP (may fail due to geo/cookies)
         result = _fetch_product_info_http(product_id, result)
 
+    # ⚠️ 只缓存有效数据（标题 + 价格都有），避免残缺数据（如限流时
+    # price 为空）被缓存 1 小时污染后续运行（降级数据不缓存）
+    if result.get("title") and (result.get("price") or result.get("cardPrice")):
+        cache_set("ozon", product_id, result, ttl=3600)
     return result
 
 
