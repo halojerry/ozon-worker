@@ -40,13 +40,13 @@ class _State:
     dictionary_values = {}
 
 
-def _call_prepare(items, schema, values):
+def _call_prepare(items, schema, values, *, aid=9163, name="Пол"):
     """直接调用 prepare 节点的 _fill_missing_required_dict_attrs。"""
     import graphs.nodes.prepare_ozon_upload_node as mod
     import utils.ozon_dict_values as odv
 
     schema_attr = {
-        "id": 9163, "name": "Пол", "dictionary_id": 320,
+        "id": aid, "name": name, "dictionary_id": 320,
         "is_required": True, "type": "String",
     }
     items_in = [
@@ -96,6 +96,28 @@ def test_gender_pair_format_is_multivalue():
     for v in g["values"]:
         assert v["dictionary_value_id"] > 0
         assert isinstance(v["value"], str) and v["value"]
+
+
+def test_other_gender_attr_uses_male_female():
+    """非 9163 但属性名含「Пол」的必填性别属性（如 4180 Пол получателя）
+    无中性词时同样走男+女双值兜底（v0.26 通用化）。"""
+    out, _, _ = _call_prepare(None, None, HAT_GENDER_VALUES, aid=4180, name="Пол получателя")
+    attrs = out[0].get("attributes", [])
+    g = next((a for a in attrs if a.get("id") == 4180), None)
+    assert g is not None, "4180 应被补齐"
+    texts = {v["value"] for v in g["values"]}
+    assert texts == {"Мужской", "Женский"}, texts
+    ids = {v["dictionary_value_id"] for v in g["values"]}
+    assert ids == {22880, 22881}, ids
+
+
+def test_non_gender_attr_not_touched():
+    """非性别属性（如 4295 尺码）不受性别双值逻辑影响。"""
+    out, _, _ = _call_prepare(None, None, HAT_GENDER_VALUES, aid=4295, name="Размер")
+    attrs = out[0].get("attributes", [])
+    g = next((a for a in attrs if a.get("id") == 4295), None)
+    # 尺码无匹配默认 → 不补齐（不进性别分支）
+    assert g is None, "非性别属性不应被性别双值逻辑补齐"
 
 
 if __name__ == "__main__":

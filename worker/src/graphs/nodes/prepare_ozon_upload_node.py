@@ -635,7 +635,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
             aid = int(attr.get("id") or 0)
             if aid in existing:
                 continue
-            # ✅ v0.26: 9163 无中性词类目「男+女」双值兜底（列表填充）
+            # ✅ v0.26: 性别属性无中性词类目「男+女」双值兜底（列表填充）
             _gender_pair: list = []
             # 22390 型号 = 自由文本，填 1688 itemId（同商品所有 SKU 同值）
             if aid in (22390,) or "модель" in str(attr.get("name") or "").lower():
@@ -865,8 +865,19 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                             break
                 except Exception:
                     resolved = None
-            # 9163 性别无来源 → 中性默认 Унисекс（同颜色中性默认策略）
-            if not resolved and aid in (9163,):
+            # 性别属性无来源 → 中性默认 Унисекс（同颜色中性默认策略）。
+            # v0.26 通用化：不限于 9163（Пол）——所有需填性别的必填字典属性
+            # （属性名含 пол/性别/gender，如 4180 Пол получателя）无中性词时
+            # 一律走「男+女」双值兜底，保证必填不空。
+            _an = str(attr.get("name") or "").lower()
+            _is_gender_attr = (
+                aid == 9163
+                or "性别" in _an
+                or "gender" in _an
+                or _an == "пол"
+                or _an.startswith("пол ")
+            )
+            if not resolved and _is_gender_attr:
                 try:
                     from utils.ozon_dict_values import search_dictionary_values as _sdvg
                     # 依次尝试搜索中性词；搜不到则列表模式按关键词匹配（各品类值名不同）

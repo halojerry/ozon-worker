@@ -2,6 +2,24 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.25.0 — 尺码表入库 + 类目学习闭环 + 竞品属性优先 + 生图模型路由）
+
+> 2026-08-05。v0.17→v0.25 累计（真实上架 E2E 实测驱动）：v0.19 跟卖 0/3 全拒 → v0.20 跟卖 0 图 → v0.21 类目错配/假成功 → v0.22 经营数据闭环 → v0.25 尺码表/学习闭环。详见 `CHANGELOG.md`。
+
+- **尺码表入库（F1a）**：`docs/*尺码表.csv` 4 张随镜像分发，`init_data.py` 导入 PG `size_mappings`；`size_mapper` 查询优先（PG → 本地兜底）。必填字典属性语义默认值（attr_defaults：品牌/性别/尺码/8292/型号）；无颜色来源 → 中性默认色，性别无来源 → Унисекс。
+- **跟卖双模式** `extensions.follow_type`：`hand` 防侵权跟卖（**默认**，CREATE 重建）/ `api` 强制跟卖（import-by-sku 复制）；有 1688 货源→hand，图搜无匹配→skill 自动 api，hand 缺货源数据 worker 自动降级 api。**offer_id 统一 `follow_{竞品ID}`** 防双卡；import-by-sku 轮询 60s 超时**不** fallback CREATE（P2a）。
+- **成功判据收紧（v0.21）**：learning_record 只认 `moderate_status=="approved"`；「imported 即 success」「pending+product_id 视为成功」「不可修复标 success」三处假成功已改 pending_moderation/rejected_unfixable；`scripts/clean_category_mapping.py` 一键清理污染学习缓存。
+- **类目映射学习闭环（T1）**：信封补 `source_category_id`，worker follow/直采优先查学习表 `category_mapping`，approved 后回写；`config/category_synonyms.json` 同义词外置（v0.21，L0 命中须与 L1 top5 一致）；末级类目词命中节点名 +0.5 打破 tie。
+- **危险品安全兜底（v0.21 P0-2）**：删除必填字典属性「取第一个字典值」兜底（曾把 9782 填成「爆炸物 Category 1」→ BR_hazard_class1）；只挑「非危险」安全默认 `get_safe_hazard_default`，取不到则跳过；普通属性仅字典值唯一时才兜底。
+- **竞品属性优先填充（v0.25 wave3）**：follow 信封透传 `ozon_attributes`，worker 按竞品俄语值搜索 → 1688 推断 → 兜底；8229 短词搜索；One-size 尺码兜底。竞品重量/尺寸缺失兜底 `apply_competitor_fallback`（v0.22，参考 maozi what_to_sell）。
+- **跟卖上传禁竞品图（wave4，0 图下架根因）**：AI 图不足 10 张**不再**用竞品 ir.ozone.ru 补位（Ozon 抓竞品 CDN 图失败 → 整卡 0 图被下架）。
+- **生图模型路由（v0.25）**：main/social_proof 用 gpt-image-2，其余 banana；grsai 轮询前 30s 不轮询 + 每 5s 一次；主模型超时 180s、重试 3 次真失败才降级（v0.19 修频繁降级）。提示词 v0.25 修订热加载。
+- **尺寸/重量防线（v0.21 P2）**：`utils/draft_sanity.py` submit 拦截 weight>50kg/单边>5m（INVALID_REQUEST）；density 兜底**不再覆盖商家真实重量**，无重量才估算且封顶 30kg（修挂脖风扇 300g→30.4kg 价格炸到 2134 CNY）；信封 `dimensions_estimated` 标记。
+- **Sentry（v0.23）**：`SENTRY_DSN` 可配，任务异常/超时自动上报。
+- **制造商 23487 中文零容忍（wave4）**：中文供应商名必须俄语化（LLM 翻译，失败兜底「Китайская компания」）——中文供应商整单被 Ozon 拒（BR_chinese_hieroglyphs）。
+- **自动更新默认自动应用（v0.18）**：每次命令检测新版本自动备份 → 覆盖 → 失败回滚（`data/` 保留）；`SKILL_AUTO_UPDATE=0` 退回手动；源码开发目录仍拒绝自动更新。COS 上传加 600s 有界超时（v0.19.2，防 TCP 黑洞无限挂死）。
+- **task_status 产品明细（v0.22）**：完成结果 `product_summary[]`（1688链接/利润率/售价/采购价/运费/净利润率/Ozon 商品ID）；skill `batch_test --wait` 轮询展示。
+
 ## 最近更新（v0.16.0 — 属性填满 + 中文零容忍 + 海关编码跳过）
 
 > 2026-08-03。随 v0.15.0（生图提示词外置）一并部署。
@@ -219,6 +237,11 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | worker | `PYTHONPATH=src python3 tests/integration_attribute_fill_v013.py`（assemble→prepare 全链路，mock 外部 API） |
 | worker | `PYTHONPATH=src python3 tests/test_image_prompts_config.py`（生图提示词配置热加载单测，12 断言，无需 PG/GPU） |
 | worker | `PYTHONPATH=src python3 tests/test_attribute_fill_v016.py`（v0.16 属性填满/中文零容忍/海关跳过单测，10 断言，无需 PG/GPU） |
+| worker | `PYTHONPATH=src python3 tests/test_learning_record_gate.py`（v0.21 成功判据收紧回归，5 用例，无需 PG） |
+| worker | `PYTHONPATH=src python3 tests/test_hazard_attr_fallback.py`（v0.21 危险品安全兜底回归，7 用例，无需 PG） |
+| worker | `PYTHONPATH=src python3 tests/test_category_match_v021.py`（v0.21 类目同义词/学习缓存一致性，5 用例） |
+| skill | `python3.12 tests/test_updater.py`（v0.18 自动更新器单测，11 断言，mock 网络） |
+| skill | `python3.12 tests/test_envelope_fields.py`（v0.21 信封字段完整性，2 用例） |
 | worker | `bash scripts/local_run.sh -m flow -i '{...}'` 跑全流程 |
 | worker | `bash scripts/local_run.sh -m node -n <节点ID> -i '{...}'` 跑单节点 |
 | 本地Docker | `cd deploy && docker compose up -d --build`（启动 Worker + PG） |
@@ -244,6 +267,7 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
   - `RATE_LIMIT_PER_MINUTE` — API 限流（默认 300）
   - `MAX_CONCURRENT` — 并发任务数（**默认 30**，v0.14 起；4核4G 服务器安全值。⚠️ `num_workers` 已联动此值，旧版硬编码 10 已修）
   - `LOG_FORMAT` / `LOG_LEVEL` / `LOG_FILE` — 日志配置（见 LOGGING.md）
+  - `SENTRY_DSN` — Sentry 错误监测（v0.23 起可配，任务异常/超时自动上报）
 - Skill 环境变量: `WORKER_URL`（Worker 地址）、`OZON_CLIENT_ID`、`OZON_API_KEY`
 - ⚠️ 已移除: `COZE_BUCKET_*`（S3 存储已废弃，图片 URL 直传）、`MXOU_TOKEN`（Worker 从请求 token 获取）
 
@@ -381,17 +405,27 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - **品牌默认无品牌**：所有产品强制默认为 `Нет бренда`（dictionary_value_id=126745801）。不管 1688 数据或 LLM 匹配到什么品牌，一律覆盖。品牌属性不存在时自动补充。代码位置：`assemble_ozon_product_node.py:1007-1022`。
 - **制造商用 supplier 填充**：attr=23487（Производитель）是自由文本属性（dictionary_id=0），不是字典属性。用 `draft.supplier`（1688供应商名）填充，不写空值。
 - **描述强制净化**：`_sanitize_description()` 在翻译后移除拉丁文、中文、URL、邮件、电话、营销词。代码位置：`prepare_ozon_upload_node.py`。
-- **9782 危险品等级不能跳过**：attr=9782 是某些类目的必填属性，从 SKIP_ATTR_IDS 中移除（3处：prepare/validate/status）。代码位置见 `WORKER-TOPOLOGY.md` 关键属性ID表。
+- **9782 危险品等级安全兜底**（v0.21 修正）：attr=9782 是某些类目的必填属性，从 SKIP_ATTR_IDS 中移除（3处：prepare/validate/status），但取值**只挑「非危险」安全默认** `get_safe_hazard_default`，取不到则跳过——删除「取第一个字典值」兜底（曾填成「爆炸物 Category 1」被拒 BR_hazard_class1）。代码位置见 `WORKER-TOPOLOGY.md` 关键属性ID表。
 - **cm→mm 阈值 200**：`max_dim < 200` 判断为 cm 转 mm（原 50 太保守，推车等大物品被误判）。
 - **小重量自动乘 1000**：`weight_g < 10g` 但尺寸 > 50mm 时自动乘 1000（疑似 kg→g 单位错误）。
 - **物流费率表必须初始化**：`logistics_rates` 表为空时兜底费率 `weight * 0.15 CNY` 严重虚高。deploy.sh 须确保 `init_data.py` 在 worker 启动前执行完毕。
 - **定价公式已修正**：CNY 店铺不使用 fx_buffer（无汇率风险），佣金公式改为 `售价 = 总成本 * (1+利润率) / (1-佣金率)`。兜底物流费率从 0.15 降到 0.05 CNY/g。
 - **图片顺序规范**：`primary_image` = `main_image`（营销主图，单独指定），`images` 数组按 IMG_ORDER：social_proof → detail → scene_1 → scene_2 → scene_3 → comparison → multi_angle（倒数第二）→ white_bg（最后）。
 - **变体图片降级**：白底图生成失败 → 统一营销主图（非 1688 alicdn 原图）。
-- WARNING 级 Ozon 错误过滤不算失败；`ozon_status` 返回 `pending` 视为软成功。
+- WARNING 级 Ozon 错误过滤不算失败；`ozon_status` 返回 `pending` 视为软成功（**仅限审核中状态路由**；v0.21 起成功判据收紧——learning_record 只认 `moderate_status=="approved"`，「pending+product_id 视为成功」已删除）。
 - `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
 - **Docker 部署**: `deploy/docker-compose.yml` 含 PG + Worker，`HEALTHCHECK` 已配置。
 - **API 版本化**: 新端点走 `/api/v1/`，旧路径保持兼容。
+
+### v0.17-v0.25 新增关键约定（改跟卖/成功判据/属性兜底前必看）
+
+- **跟卖双模式** `extensions.follow_type`：hand（默认，CREATE 重建防侵权）/ api（import-by-sku 复制）；skill 有货源→hand、无货源→api，worker hand 缺货源数据自动降级 api。
+- **offer_id 统一 `follow_{竞品ID}`**：import-by-sku/assemble/prepare 三处一致，防 api 模式双卡（旧代码不一致 → import-by-sku 建一张 + upload 又 CREATE 一张）。
+- **成功判据收紧**：learning_record 只认 `moderate_status=="approved"`；假成功三处已改（imported 即 success / pending+product_id / 不可修复标 success → pending_moderation/rejected_unfixable）。学习缓存污染用 `worker/scripts/clean_category_mapping.py` 清理。
+- **危险品安全兜底**：9782 必填但只挑非危险默认 `get_safe_hazard_default`，不取第一个字典值。
+- **竞品数据兜底**：`apply_competitor_fallback` 用竞品重量/尺寸填补 1688 缺失；`ozon_attributes` 竞品俄语属性值优先填充。
+- **禁竞品图补位**：AI 生图不足 10 张不用竞品 ir.ozone.ru 图补（整卡 0 图下架根因）。
+- **draft_sanity 入队防线**：`worker/src/utils/draft_sanity.py`——weight>50kg/单边>5m 信封 submit 直接 INVALID_REQUEST。
 
 ### v0.13/v0.14 新增关键约定（改属性/图搜/CDP 前必看）
 

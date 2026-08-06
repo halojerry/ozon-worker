@@ -351,6 +351,46 @@ def _assemble_follow_sell(
     }
 
 
+def _resolve_skill_category(draft_ozon_cat: dict) -> dict | None:
+    """v0.27 方案B: 校验 Skill 传入的直采类目(Seller 空间)是否在树中有效。
+
+    直采信封若带 draft.ozon_category(search_categories / poll_category=True 解析),
+    dc+tp 组合在 category_tree_nodes 存在即返回 l0_hit 结构(供 assemble 跳过 pg_trgm);
+    品牌页 ID / 错配 / 文本值 → None(退回 pg_trgm 猜)。
+
+    Returns:
+        {"description_category_id", "type_id", "full_path", ...} 或 None
+    """
+    if not draft_ozon_cat or not draft_ozon_cat.get("description_category_id"):
+        return None
+    _dc_s = str(draft_ozon_cat["description_category_id"])
+    _tp_s = str(draft_ozon_cat.get("type_id", _dc_s))
+    if not (_dc_s.isdigit() and _tp_s.isdigit()):
+        return None
+    try:
+        from sqlalchemy import text as _sql_t0
+        with get_session() as _s0:
+            _row0 = _s0.execute(_sql_t0(
+                "SELECT full_path FROM category_tree_nodes "
+                "WHERE description_category_id=:dc AND type_id=:tp AND language='ZH_HANS' LIMIT 1"
+            ), {"dc": int(_dc_s), "tp": int(_tp_s)}).fetchone()
+        if not _row0:
+            logger.warning(f"⚠️ 直采 Skill 类目 {_dc_s}/{_tp_s} 树中不存在, 不走用, 退回 pg_trgm")
+            return None
+        return {
+            "description_category_id": int(_dc_s),
+            "type_id": int(_tp_s),
+            "full_path": _row0[0] or "",
+            "node_name": "",
+            "similarity": 1.0,
+            "confidence": 0.95,
+            "reason": "skill_search_categories",
+        }
+    except Exception as _e0:
+        logger.warning(f"直采 Skill 类目校验异常(退回 pg_trgm): {_e0}")
+        return None
+
+
 def assemble_ozon_product_node(
     state: GlobalState,
     config: RunnableConfig,
@@ -461,6 +501,21 @@ def assemble_ozon_product_node(
     query = get_category_query()
 
     # =====================================================
+    # Step 0.5 (v0.27): Skill 类目优先 — 直采信封若带 Seller 空间类目
+    # (skill search_categories / poll_category=True 解析), dc+tp 组合在树中
+    # 存在即采用, 跳过 pg_trgm 猜。与跟卖分支共用同一校验逻辑。
+    # =====================================================
+    _skill_l0_hit = None
+    if (not extensions.get("follow_sell")
+            and draft_ozon_cat.get("description_category_id")
+            and not getattr(state, "description_category_id", None)):
+        _skill_l0_hit = _resolve_skill_category(draft_ozon_cat)
+        if _skill_l0_hit:
+            logger.info(f"✅ 直采类目(来自 Skill search_categories, 已校验): "
+                        f"dc={_skill_l0_hit['description_category_id']} "
+                        f"type={_skill_l0_hit['type_id']} ({(_skill_l0_hit['full_path'] or '')[:70]})")
+
+    # =====================================================
     # Step 1: 类目匹配
     # =====================================================
     logger.info(f"🔍 Step 1: 类目匹配 — 产品: {title[:60]}")
@@ -562,6 +617,9 @@ def assemble_ozon_product_node(
     candidates = _merge_candidates(src_candidates, kw_candidates)
     if candidates:
         logger.info(f"   ✅ 双路搜索合并：{len(candidates)} 个候选（src={len(src_candidates)} + kw={len(kw_candidates)}）")
+    # ✅ v0.27: Skill 类目优先 — 校验通过的 Skill 类目置于候选首位, 后续 best=candidates[0] 命中
+    if _skill_l0_hit:
+        candidates.insert(0, _skill_l0_hit)
     
     if not candidates:
         # 回退：不过滤 node_type
@@ -615,6 +673,12 @@ def assemble_ozon_product_node(
         query, source_category, source_keywords, keywords, candidates, leaf_name,
         source_category_id=draft.get("source_category_id"),
     ) if source_category else None
+    # ✅ v0.27: Skill 类目优先(直采) — 校验通过则直接采用, 不走学习表/一致性检查
+    if not l0_hit and _skill_l0_hit:
+        l0_hit = _skill_l0_hit
+        match_layer = "Skill"
+        match_confidence = 0.95
+        logger.info(f"   ✅ Skill类目覆盖: [{l0_hit['description_category_id']}/{l0_hit['type_id']}]")
 
     # ✅ v0.21: L0 映射必须与 L1 高分候选一致，否则忽略（防旧脏数据固化错类目）
     if l0_hit and not _l0_consistent(l0_hit, candidates):

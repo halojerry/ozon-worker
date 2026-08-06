@@ -93,3 +93,10 @@ _update_backup/
 # v0.11.5: top-200 子集（~2MB）提交 git，Docker 构建时自动包含
 # worker/assets/attribute_schemas_zh.json
 # worker/assets/dictionary_values_zh.json
+
+# 本地工具/构建缓存
+.docker-buildx/
+.reasonix/
+reasonix.toml
+docs/superpowers/
+skill/data/test_run_*/
