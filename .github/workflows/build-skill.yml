@@ -249,6 +249,39 @@ jobs:
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
           COS_REGION: ${{ secrets.COS_REGION }}
 
+      # ⚠️ 旧包清理(2026-08-06): 上传只 cp 不删, 旧版本(含死循环坏包如 0.27.0)
+      # 永久残留 bucket, 手动用旧 URL 可下载到。每次发布后保留最新 2 个包
+      # (当前 + 上一个), 其余删除——updater 只读 manifest(指向当前), 删旧包安全。
+      - name: Prune old skill packages from COS
+        timeout-minutes: 10
+        working-directory: skill
+        run: |
+          coscli_cmd() {
+            ./coscli "$@" -e "cos.accelerate.myqcloud.com" \
+              -i "$COS_SECRET_ID" -k "$COS_SECRET_KEY" \
+              --init-skip=true --disable-log=true
+          }
+          # 列出 ozon-skill/ 下的版本包(排除 manifest.json 与其它文件), 按版本升序
+          PKGS=$(coscli_cmd ls "cos://${COS_BUCKET}/ozon-skill/" 2>/dev/null \
+            | grep -oE 'pounding-ozon-probe-v[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz' | sort -V)
+          COUNT=$(echo "$PKGS" | grep -c . || true)
+          echo "bucket 内版本包共 $COUNT 个: $(echo "$PKGS" | tr '\n' ' ')"
+          if [ "$COUNT" -gt 2 ]; then
+            # ⚠️ head -n -2 是 GNU 语法(BSD head 不支持), 用 awk 行号法跨平台
+            echo "$PKGS" | awk -v t="$COUNT" 'NR <= t-2' | while IFS= read -r old; do
+              echo "🗑️ 删除旧包: $old"
+              coscli_cmd rm "cos://${COS_BUCKET}/ozon-skill/$old" \
+                || echo "⚠️ 删除 $old 失败(忽略, 下次发布再试)"
+            done
+          else
+            echo "无需清理(保留最近 2 个)"
+          fi
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_BUCKET: ${{ secrets.COS_BUCKET }}
+          COS_REGION: ${{ secrets.COS_REGION }}
+
       # ⚠️ 分发一致性校验：COS 包 sha256 必须与本地包一致、公网必须可访问。
       # （旧链路只校验 Release 资产，COS 上传超时/断供无人发现——掩耳盗铃）
       - name: Verify COS endpoints and sha256
