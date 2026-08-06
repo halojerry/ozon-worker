@@ -111,6 +111,7 @@ python3 scripts/cli.py discover --keyword "宠物用品"
 python3 scripts/cli.py discover --max-products 30
 ```
 Discover v2 四阶段：采集（搜索/中国站懒加载）→ 全量数据（含运营指标）→ 表格挑选 → 批量 1688 货源 → 确认提交（详见管线 C）。
+> **C 与 D 命令相同（都是 discover）**：区别仅在 agent 按用户意图处理——C（跟卖）与 D（上架）都不带 `--auto-submit` 时展示候选等用户确认；`--auto-submit` 是**显式参数**，不存在「D 默认自动提交」；提交时机按 SKILL.md §3 决策边界（discover 选品后的最终提交必须确认）控制。
 
 ## 管线 E：趋势驱动选品（trend，v0.25）
 
