@@ -162,6 +162,15 @@ def _to_rate(v: Any) -> float:
     return _to_float(v)
 
 
+def _compute_return_rate(redemption: Any) -> float | None:
+    """退货率 = 100 - nullableRedemptionRate（0-100）；无数据/0 → None。"""
+    try:
+        r = float(str(redemption).replace(" ", "").replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+    return (100.0 - r) if r > 0 else None
+
+
 def _first(item: dict, *keys: str, default: Any = 0) -> Any:
     """取第一个非空候选 key 的值。"""
     for k in keys:
@@ -185,6 +194,9 @@ def _extract_metrics(item: dict) -> dict[str, Any]:
         "drr": _to_float(_first(item, "drr", "adShare", "ad_share")),
         "create_days": _to_int(_first(item, "createDays", "upTimeDays", "upTime")),
         "create_date": str(_first(item, "nullableCreateDate", "createDate", default="")),
+        # ✅ v0.26: 退货率 = 100 - 复购/履约率（毛子字段表：nullableRedemptionRate 为 0-100，
+        # 100 - 该值 = 退货率；上品帮后端同样 100-nullableRedemptionRate 得到 returnRate）
+        "return_rate": _compute_return_rate(item.get("nullableRedemptionRate")),
         "conv_to_cart_search": _to_float(_first(item, "convToCartSearch", "conv_to_cart_search")),
         "session_count_search": _to_int(_first(item, "sessionCountSearch", "session_count_search")),
         "rating": _to_float(_first(item, "rating", "avgRating")),
