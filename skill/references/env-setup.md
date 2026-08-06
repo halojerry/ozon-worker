@@ -3,7 +3,7 @@
 ## 安装依赖
 
 ```bash
-cd skill && pip3.12 install -r requirements.txt
+cd skill && python3 -m pip install -r requirements.txt
 ```
 
 ## 获取凭证
