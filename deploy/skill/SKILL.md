@@ -1,6 +1,6 @@
 ---
 name: pounding-ozon-probe
-version: "0.27.2"
+version: "0.28.0"
 agent_created: true
 description: >
   Ozon 跨境电商上架工具。此技能在以下场景触发：用户发送 1688 商品链接时

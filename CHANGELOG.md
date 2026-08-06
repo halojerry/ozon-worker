@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.28.0] - 2026-08-06
+
+> Skill 架构重构版(执行 PRD Phase A-F + 两轮 agent 实测修复)。Worker 代码零改动。
+
+### Added
+
+- **references/ 渐进式披露**:SKILL.md 455→150 行骨架(意图路由/速查表/边界/越界/索引/更新),
+  拆 4 个专题文件:command-reference/error-codes/output-schema/env-setup;compile.py DOC_FILES
+  含 references/(复制支持子目录)。
+- **frontmatter 合规**:agent_created + description 第三人称 + version(与 VERSION 一致)。
+- **口语化意图路由**:真实用户表达全覆盖——「帮我上产品/选50个/上点/有什么好卖的/昨天那个再上一遍/
+  整一批夏季爆款」;口语动词归一、无对象追问(③a)、数量词规则、复合意图消歧、重上已上商品防重复、
+  图搜→上架确认衔接、URL+弱化词先 --no-submit。
+- **跨 Agent 兼容**:python3.12→python3(38处)+ §0 定位 Skill 目录(SKILL_DIR/当前/上级)。
+
+### Fixed
+
+- 蓝海触发词冲突(command-reference vs 决策表相反)→ 统一「蓝海→C,蓝海趋势/市场分析→E」。
+- 「C/D 区别只在 follow_type」不实声明删除(discover 无此参数,跟卖标记内部注入)。
+- frontmatter description 与决策表语义不一致;batch_test 凭证来源说明;声称数量与链接数不符追问;
+  check 故障表;审核被拒 vs 提交失败区分;管线 E 无搜索兜底。
+
+### Tests
+
+- agent 实测两轮:工程化 9 场景(修复 9 项)+ 真实口语 10 场景(修复后 10/10 可路由)。
+- skill 全量 81 passed;deploy/skill 同步一致。
+
+
 ## [0.27.0] - 2026-08-06
 
 > 合并 v0.26(生图额度/队列/帽类属性)+ v0.27(信封治理/类目修复/出参审核状态)。
