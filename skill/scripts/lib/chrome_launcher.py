@@ -37,20 +37,18 @@ CDP_PORT = 9222
 CDP_HOST = "127.0.0.1"
 
 # ── 平台默认 Chrome profile 路径 ──
-def _default_profile_dir() -> Optional[Path]:
-    """返回用户默认 Chrome profile 目录（跨平台）"""
-    system = platform.system()
-    if system == "Darwin":
-        p = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
-    elif system == "Windows":
-        local = os.environ.get("LOCALAPPDATA", "")
-        if local:
-            p = Path(local) / "Google" / "Chrome" / "User Data"
-        else:
-            p = Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "User Data"
-    else:  # Linux
-        p = Path.home() / ".config" / "google-chrome"
-    return p if p.exists() else None
+def _default_profile_dir() -> Path:
+    """返回工具 Chrome 的独立 profile 目录（跨平台, 不碰用户 Chrome）。
+
+    v0.28.6: 改为独立 profile —— 解决「用户 Chrome 占用默认 profile → 单实例
+    冲突 → 工具 Chrome 反复启动失败/被杀重启」（用户电脑实测复现）。
+
+    放 skill 包 data/browser/ 下（与 PID 文件同目录）而非用户主目录:
+    - macOS ~/Library/Application Support/ 受 TCC 保护, 沙箱/未签名进程写入被拒
+    - data/ 随 skill 更新保留(updater 保留 data/), 登录态不丢
+    - 打包分发自带 data/ 空目录, 运行时自动创建
+    """
+    return Path(__file__).resolve().parent.parent.parent / "data" / "browser" / "profile"
 
 
 # ── Chrome 可执行文件查找 ──
@@ -362,6 +360,10 @@ def ensure_chrome_cdp(
             "--no-pings",
             "--disable-blink-features=AutomationControlled",
             "--disable-infobars",
+            # v0.28.6: 禁 Crashpad——它固定写用户 Chrome 目录(~/Library/Application
+            # Support/Google/Chrome/Crashpad), 不随 --user-data-dir, 沙箱/权限受限
+            # 环境下导致启动崩溃; 真实环境也污染用户 Chrome 目录
+            "--disable-crash-reporter",
             # ⚠️ v0.14 E5: 禁用弹窗拦截（1688 图搜/登录跳转的 window.open 弹窗）
             # 本 Chrome 是专用抓取实例（独立 profile + debug 端口），不影响用户日常 Chrome。
             # 与 image_search 的 window.open 覆盖（JS 层当前 tab 导航）双保险，无需手动设置站点放行。
@@ -406,8 +408,9 @@ def ensure_chrome_cdp(
                 if launched_proc:
                     _write_launched_pid(launched_proc.pid)
                 return True, f"Chrome 已启动，CDP 就绪 (port {port})"
-            # 每 10 秒检查 Chrome 进程是否还活着
-            if i > 0 and i % 10 == 0 and not _find_chrome_processes():
+            # 每 10 秒检查启动的进程是否还活着（用 Popen 对象, 不依赖 ps——
+            # macOS 沙箱/Windows 命令行截断都会让 ps 解析误判）
+            if i > 0 and i % 10 == 0 and launched_proc is not None and launched_proc.poll() is not None:
                 return False, "Chrome 进程已退出（可能崩溃）"
 
         return False, "Chrome 已启动但 CDP 未就绪（等待 40 秒超时）"

@@ -1183,10 +1183,21 @@ def main() -> int:
     # ⚠️ 每次命令静默检查更新（后台不阻塞，失败静默；update 命令本身跳过）
     _silent_update_check(args.command)
 
-    # v0.28.3→0.28.4: 工具 Chrome 改为「常驻复用」——check 启动后引导用户登录
-    # 1688/Ozon Seller, 之后命令复用同一实例(CDP 可用即用, 不再每次新开/用完即关,
-    # 避免"每次使用都弹浏览器")。用户手动关闭后, 下次命令检测 CDP 不可用会自动重启。
-    return args.func(args)
+    # ⚠️ v0.28.6: 工具 Chrome 改回「独立 profile + 用完即关」(v0.28.3 方案)。
+    # v0.28.4 的「常驻复用」实测有坑: 常驻实例被用户手动关闭后, 下次命令检测
+    # CDP 不可用 → 重启撞上「用户 Chrome 占用默认 profile」单实例锁 → 反复
+    # 杀/重启失败(用户电脑实测复现)。独立 profile + 命令出口关闭:
+    #   - 独立 profile 不与用户 Chrome 冲突, 启动必成功
+    #   - 用完即关, 不累积窗口、不常驻、不反复
+    #   - close_tool_chrome 仅关本进程启动过的实例(PID 文件), 复用已有 CDP 不关
+    try:
+        return args.func(args)
+    finally:
+        try:
+            from scripts.lib.chrome_launcher import close_tool_chrome
+            close_tool_chrome()
+        except Exception:
+            pass
 
 
 def _silent_update_check(command: str) -> None:
