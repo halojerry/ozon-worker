@@ -261,11 +261,17 @@ jobs:
               -i "$COS_SECRET_ID" -k "$COS_SECRET_KEY" \
               --init-skip=true --disable-log=true
           }
-          # 列出 ozon-skill/ 下的版本包(排除 manifest.json 与其它文件), 按版本升序
-          PKGS=$(coscli_cmd ls "cos://${COS_BUCKET}/ozon-skill/" 2>/dev/null \
-            | grep -oE 'pounding-ozon-probe-v[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz' | sort -V)
+          # 调试: 打印 ls 原始输出(前 15 行), 便于定位格式不匹配
+          echo "--- coscli ls 原始输出(前15行) ---"
+          coscli_cmd ls "cos://${COS_BUCKET}/ozon-skill/" 2>&1 | head -15
+          # ⚠️ v0.28.1: coscli ls 输出格式与精确 grep 不匹配导致 COUNT=0 静默不删。
+          # 改用宽松匹配(容忍路径前缀/列分隔/宽度填充), 并打印提取结果。
+          RAW=$(coscli_cmd ls "cos://${COS_BUCKET}/ozon-skill/" 2>&1)
+          PKGS=$(echo "$RAW" \
+            | grep -oE '[^ |]*pounding-ozon-probe-v[0-9][^ |]*\.tar\.gz' \
+            | sed -E 's#.*/##' | sort -V)
           COUNT=$(echo "$PKGS" | grep -c . || true)
-          echo "bucket 内版本包共 $COUNT 个: $(echo "$PKGS" | tr '\n' ' ')"
+          echo "提取到版本包 $COUNT 个: $(echo "$PKGS" | tr '\n' ' ')"
           if [ "$COUNT" -gt 2 ]; then
             # ⚠️ head -n -2 是 GNU 语法(BSD head 不支持), 用 awk 行号法跨平台
             echo "$PKGS" | awk -v t="$COUNT" 'NR <= t-2' | while IFS= read -r old; do
