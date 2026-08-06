@@ -64,6 +64,12 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
   变体 `ozon.ru trends` 多角度搜），收集 3-5 条结果存文件，用 `--market-info` 传入。
   **不传 `--market-info` = 半残模式**（AI 只凭品类名总结，选品质量明显下降），
   除非用户明确表示不用搜索。
+- ⚠️ **管线 E 市场信息获取优先级**（跨 Agent 能力降级）：
+  1. agent 有 web_search 能力 → 搜索品类趋势 → 结果存文本文件 → 传 `--market-info <文件路径>`
+  2. agent 无 web_search 但环境配置了 `SEARXNG_URL` → trend 命令自动调用
+  3. 两者都没有 → 向用户说明"趋势选品需要市场信息，当前环境无法自动搜索"
+     → 询问用户：(a) 手动提供品类趋势描述文本，或 (b) 退回管线 C 常规选品
+     → 不跳过此步直接跑 trend（仅靠品类名生成关键词，选品质量差）
 - ⚠️ **管线 B 降级语义变化**：Ozon 页面禁止复制时降级走管线 A（直采重建）——这是
   **重建直采卡，不是跟卖复制**（offer_id/定价都会变），必须向用户说明
 - **复合意图消歧**：输入同时含趋势词（爆款/热卖）与上架词（上架/整一批）时，追问：「要趋势出款（E）还是按词选品直接上（D）？」；批量上架需链接列表走 batch，选品数量不是批量参数
@@ -118,14 +124,14 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 
 ## 5. 参考文件索引
 
-| 文件 | 用途 |
-|------|------|
-| `references/command-reference.md` | 各管线完整参数、示例、输入输出 |
-| `references/error-codes.md` | Worker 错误码表 + 进度查询口径 + CLI 错误处理 |
-| `references/output-schema.md` | submit_result / product_summary 字段解析 + 汇报模板 |
-| `references/env-setup.md` | 环境准备 + 凭证 + check 故障排查 + data/ 目录语义 |
-| `envelope_example.json` | 完整信封结构示例（单 SKU + 跟卖两种模式） |
-| `field_mapping.md` | 1688/Ozon 字段 → 信封字段的映射规则 |
+| 文件 | 何时读取 | 内容概要 |
+|------|----------|----------|
+| `references/command-reference.md` | 选定管线后、执行命令前 → 查完整参数和示例 | 各管线完整参数、输入输出、示例 |
+| `references/error-codes.md` | 命令执行出错、或用户问进度时 → 查错误码和回复模板 | Worker 错误码表 + 进度查询口径 + CLI 错误处理 + 错误恢复决策 |
+| `references/output-schema.md` | 命令执行成功、需要向用户汇报结果时 → 查字段解析和汇报模板 | submit_result / check_task_status / product_summary 字段解析 + JSON 示例 + 汇报模板 |
+| `references/env-setup.md` | 首次使用、check 失败、或用户问凭证配置时 → 查环境准备和故障排查 | 环境准备 + 凭证 + check 故障排查 + data/ 目录语义 |
+| `envelope_example.json` | 需要确认信封字段结构时 → 查示例。读取路径：`_单SKU选品.envelope`（直采）或 `_跟卖示例.envelope`（跟卖）；`_说明`/`_关键约定` 是文档说明非数据字段 | 完整信封结构示例（单 SKU + 跟卖两种模式） |
+| `field_mapping.md` | 需要确认 1688/Ozon 字段如何映射到信封时 → 查映射规则 | 1688/Ozon 字段 → 信封字段的映射规则 |
 
 ## 6. 更新与旧包升级
 

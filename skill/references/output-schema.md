@@ -13,7 +13,70 @@
 
 **成败判定**：`submit_result.ok == true` → 成功；否则按 `error_code` 查错误码表。
 
-**product_summary[] 字段详解**（batch_test --wait 轮询后 task_status 返回）：
+## submit_result JSON 示例
+
+**成功**（cloud_probe.py:483，Worker 返回）：
+```json
+{
+  "ok": true,
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "message": "Task submitted to queue"
+}
+```
+
+**失败**（cloud_probe.py:471-491）：
+```json
+{
+  "ok": false,
+  "error": "Token invalid or expired",
+  "error_code": "TOKEN_INVALID",
+  "detail": "",
+  "http_status": 401,
+  "task_id": null
+}
+```
+
+> 失败时 `error_code` 可能为空字符串——此时取 `error` 字段描述问题，按 error-codes.md CLI 错误处理表回复。
+
+## check_task_status 返回结构
+
+`check_task_status(task_id)` 返回（cloud_probe.py:2478-2490）：
+
+```json
+{
+  "task_id": "550e8400-...",
+  "status": "completed",
+  "ok": true,
+  "terminal": true,
+  "error_message": null,
+  "result_json": {
+    "product_summary": [
+      {
+        "purchase_url": "https://detail.1688.com/offer/980815374096.html",
+        "purchase_cost": 33.5,
+        "margin_rate": 0.25,
+        "price": "69",
+        "logistics_cost": 14.04,
+        "profit_rate": 0.39,
+        "product_id": "5840335148",
+        "ozon_status": "approved",
+        "ozon_error": ""
+      }
+    ]
+  },
+  "retry_count": 0,
+  "started_at": "2026-08-06T10:00:00Z",
+  "completed_at": "2026-08-06T10:15:00Z"
+}
+```
+
+**status 取值**：`completed`（成功终态）/ `failed`（失败终态）/ `cancelled`（取消终态）/ `pending` / `running`（非终态）/ `not_found` / `worker_unreachable` / `query_error`
+
+**终态判定**：`terminal == true` → 任务结束（completed/failed/cancelled）；`terminal == false` → 仍在处理中。
+
+> CLI 未暴露单任务查询子命令。批量查询用 `batch_test.py --wait` 自动轮询。详见 error-codes.md 进度查询口径。
+
+## product_summary[] 字段详解
 
 | 字段 | 类型 | 示例值 | 含义 | 展示列 |
 |---|---|---|---|---|
