@@ -1064,6 +1064,14 @@ def _append_spec_table(description: str, attrs, weight_g=0, dimensions=None, sch
         name = name_map.get(aid) or str(a.get("name") or "")
         vals = a.get("values") or []
         val = str(vals[0].get("value") or "") if vals and isinstance(vals[0], dict) else str(a.get("value") or "")
+        # v0.29.2 FIX: 属性值可能含拉丁/中文(Black/USB/One Size 等字典值)。
+        # 本函数在 _sanitize_description 之后追加 → 不净化会重新污染描述
+        # (Ozon 拒"描述含有拉丁字符")。追加前清理, 清空则跳过该行。
+        val = re.sub(r'[a-zA-Z]{2,}', ' ', val)
+        val = re.sub(r'[\u2e80-\u2eff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+', ' ', val)
+        val = re.sub(r'https?://\S+', '', val)
+        val = re.sub(r'\+?\d[\d\s\-()]{7,}\d', '', val)
+        val = re.sub(r'\s+', ' ', val).strip()
         if name and val and name.lower() != "описание":
             rows.append((name, val))
     dims = dimensions or {}
