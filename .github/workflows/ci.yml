@@ -195,4 +195,14 @@ jobs:
     needs: [test-worker, test-skill]
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t ozon-worker:ci -f worker/Dockerfile worker/ && echo "✅ Docker 构建成功"
+      - uses: docker/setup-buildx-action@v3
+      # v0.29.1: gha 缓存 — pip/基础镜像层跨发版复用(worker 构建 5-10min → 1-2min)
+      - uses: docker/build-push-action@v6
+        with:
+          context: worker/
+          file: worker/Dockerfile
+          load: true
+          tags: ozon-worker:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - run: docker images ozon-worker:ci && echo "✅ Docker 构建成功"
