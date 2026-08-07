@@ -244,15 +244,19 @@ def ozon_validate_node(
             # 检查description字段（商品简介）
             description = item.get("description", "")
             if description:
+                # v0.29.2 FIX: 规格表 HTML(<table class="ozon-spec"><caption> 等)
+                # 标签本身是拉丁字符 —— 直接检测必然误报"描述含拉丁字母"。
+                # 先剔除 HTML 标签再检测正文(正文已由 prepare 净化, 应纯俄语)。
+                _desc_text = re.sub(r'<[^>]+>', ' ', description)
                 # 拉丁文检测：不管是否混合西里尔，有拉丁文就报错
-                if _latin_re.search(description):
+                if _latin_re.search(_desc_text):
                     # 提取拉丁文片段用于日志
-                    _latin_fragments = re.findall(r'[a-zA-Z]{2,}', description)
+                    _latin_fragments = re.findall(r'[a-zA-Z]{2,}', _desc_text)
                     item_errors.append(f"item[{i}].description含拉丁字母（Ozon要求纯俄语描述）: {', '.join(_latin_fragments[:3])}")
-                    logger.error(f"❌ item[{i}]描述含拉丁字母: {description[:80]}...")
-                if _chinese_re.search(description):
+                    logger.error(f"❌ item[{i}]描述含拉丁字母: {_desc_text[:80]}...")
+                if _chinese_re.search(_desc_text):
                     item_errors.append(f"item[{i}].description含中文字符（Ozon要求俄语描述）")
-                    logger.error(f"❌ item[{i}]描述含中文字符: {description[:80]}...")
+                    logger.error(f"❌ item[{i}]描述含中文字符: {_desc_text[:80]}...")
 
             # 检查所有属性值 — 拉丁字母检测（关键属性）+ 中文字符检测（所有属性）
             for attr in attributes:
