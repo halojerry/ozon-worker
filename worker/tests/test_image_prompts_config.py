@@ -60,14 +60,14 @@ def test_render_scene_context():
 def test_no_var_prompt():
     """无占位符提示词（comparison）原样返回"""
     p = get_image_prompt("comparison")
-    assert "对比电商展示图" in p
+    assert "对比展示图" in p
     assert "{{" not in p
 
 
 def test_variant_white_bg():
     """变体白底图提示词"""
     p = get_image_prompt("variant_white_bg")
-    assert "纯白底图" in p
+    assert "产品摄影" in p
 
 
 def test_all_default_keys_rendered():
@@ -93,7 +93,7 @@ def test_missing_key_falls_back_to_default():
     with _fake_workspace(prompts={"main": "自定义主图提示词"}):
         p = get_image_prompt("white_bg", title="花盆")
         assert "花盆" in p
-        assert "纯白底产品图" in p  # 默认提示词内容
+        assert "纯白背景" in p  # 默认提示词内容
 
 
 def test_corrupt_json_falls_back():
@@ -108,7 +108,7 @@ def test_missing_file_falls_back():
     """配置文件不存在 → 回退默认提示词（不抛异常）"""
     with _fake_workspace(no_config=True):
         p = get_image_prompt("detail")
-        assert "详情展示图" in p
+        assert "微距细节特写图" in p
 
 
 def test_unknown_key_returns_empty():
