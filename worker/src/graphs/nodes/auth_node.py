@@ -381,11 +381,25 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
         used_quota: float = float(user_record.get("used_quota", 0))
         balance: float = quota - used_quota
 
-        # ⚠️ 无限额度 token 放行（与 main.py _check_mxou_balance 一致）：
-        # users.quota-used_quota 可能是 0/负，但 unlimited_quota=true 时不应拦截
+        # ⚠️ v0.29.3 统一余额来源：优先查 MXOU 平台真实余额（unlimited_quota
+        # 不再跳过实查 —— Sentry 实证: unlimited=true 但平台欠费仍放行 → 生图 403）
+        mxou_checked = False
+        try:
+            from utils.mxou_api import get_mxou_balance
+            raw_key = str((token_record or {}).get("key", "") or "")
+            if raw_key:
+                mxou_balance = get_mxou_balance(raw_key)
+                if mxou_balance is not None:
+                    balance = mxou_balance
+                    mxou_checked = True
+                    logger.info(f"MXOU 平台余额: {mxou_balance} (user_id={user_id})")
+        except Exception as _mxou_e:
+            logger.warning("MXOU 余额查询异常(用 Supabase 值兜底): %s", _mxou_e)
+
+        # ⚠️ 无限额度 token 放行（仅 Supabase 兜底路径; MXOU 实查成功时欠费必拒）
         unlimited_quota = bool(token_record.get("unlimited_quota")) if token_record else False
-        if unlimited_quota:
-            balance = 999.0  # 标记有额度，避免 balance<=0 误拦
+        if unlimited_quota and balance <= 0 and not mxou_checked:
+            balance = 999.0  # 标记有额度，避免 balance<=0 误拦（仅 Supabase 兜底路径）
             logger.info(f"无限额度 token 放行: user_id={user_id}")
 
         # Step 3: 查询Ozon店铺信息（获取currency_code）- 提前查询，确保所有情况都能获取

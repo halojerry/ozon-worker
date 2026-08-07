@@ -1032,21 +1032,31 @@ async def store_health(client_id: str = None, api_key: str = None):
 
 
 def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
-    """检查 MXOU 用户余额（v0.22 根因修复：统一查用户级 users.quota）。
+    """检查用户余额（v0.29.3 统一：优先查 MXOU 平台真实余额）。
 
-    历史问题（2026-08-04 实证）：unlimited 分支返回 key 级 tokens.remain_quota
-    （僵尸字段，同账户两 key 一正一负 +4.4亿/-5808万）；非 unlimited 时 users
-    查询失败降级 remain_quota → 负数误报余额不足（"有余额却报不足"根因）。
+    背景（2026-08-07 Sentry 实证）：此前查 Supabase users.quota + unlimited_quota
+    放行 —— unlimited_quota=true 时永远放行, 但 MXOU 平台按真实余额扣费,
+    平台欠费(¥-0.068)仍放行 → 任务入队后 LLM/生图全 403 失败(253 次错误)。
 
-    修复原则：
-    - balance 一律来自 users.quota（用户级：充值加 quota、调用扣 quota）
-    - unlimited_quota=true 仅影响判定（放行），balance 仍显示用户级 quota
-    - users 查询失败/无记录：unlimited 放行；非 unlimited 拒绝（不再降级僵尸字段，
-      数据异常应暴露，宁缺毋滥）
+    修复原则（统一余额来源 = MXOU 平台）：
+    - 优先调 MXOU /v1/dashboard/billing/subscription 拿真实 balance
+      （balance > 0 放行; <= 0 拒绝"MXOU 余额不足, 请充值"）
+    - MXOU 查询失败(网络/接口) → 降级 Supabase users.quota（现有逻辑兜底）
+    - unlimited_quota 仅作 Supabase 兜底分支的放行标记, 不再跳过 MXOU 实查
 
-    Returns: (balance, ok) — ok=True 表示有额度（用户级余额>0 或无限额度）
+    Returns: (balance, ok) — ok=True 表示有额度
     """
     try:
+        # ⚠️ 1. MXOU 平台真实余额优先（统一来源）
+        raw_key = str(token_record.get("key", "") or "")
+        mxou_balance = None
+        if raw_key:
+            from utils.mxou_api import get_mxou_balance
+            mxou_balance = get_mxou_balance(raw_key)
+        if mxou_balance is not None:
+            return mxou_balance, mxou_balance > 0
+
+        # ⚠️ 2. MXOU 查询失败 → 降级 Supabase users.quota（原逻辑兜底）
         user_id = token_record.get("user_id", "")
         supabase = get_supabase_client()
         if supabase is None or not user_id:
