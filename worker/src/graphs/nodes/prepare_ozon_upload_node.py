@@ -1939,11 +1939,18 @@ def prepare_ozon_upload_node(
         
         if dictionary_value_id_int > 0 and is_dict_attr:
             # 有字典值ID：必须填写dictionary_value_id
+            # ⚠️ v0.29.x: value 若含中文(ZH_HANS 缓存命中时的中文文本) → 置空。
+            # Ozon 字典属性以 dictionary_value_id 为权威, 中文 value 文本会被审核拒
+            # (Sentry 实证: 「属性8229含中文字符: 杀虫剂」/「属性值含中文」)。
+            _dict_value_clean = str(value_str).strip()
+            if _dict_value_clean and re.search(r'[\u4e00-\u9fff]', _dict_value_clean):
+                logger.info(f"   🧹 字典属性 attr={attribute_id_int} value 含中文 → 置空(dict_id={dictionary_value_id_int} 权威)")
+                _dict_value_clean = ""
             ozon_attr["values"].append({
                 "dictionary_value_id": dictionary_value_id_int,  # ← 字典值ID
-                "value": value_str  # ← 值名称（可选，但建议填写）
+                "value": _dict_value_clean  # ← 值名称（RU/空；字典属性以 id 为准）
             })
-            logger.info(f"✅ 转换成功：attr_id={attribute_id_int}, dictionary_value_id={dictionary_value_id_int}, value={value_str}")
+            logger.info(f"✅ 转换成功：attr_id={attribute_id_int}, dictionary_value_id={dictionary_value_id_int}, value={_dict_value_clean}")
         elif is_dict_attr:
             # ⚠️ v0.13: 字典属性无有效 dictionary_value_id → 跳过该属性，绝不文本兜底上传！
             # 根因：v0.8.0 Bug#5 曾用 dictionary_value_id=0 + 手填文本上传，Ozon 审核返回
