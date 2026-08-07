@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.28.6] - 2026-08-07
+
+> Chrome 独立 profile 根治「无限重启」+ 登录态持久化 + env-setup 文档更新。
+
+### Fixed
+
+- **Chrome 无限重启根治**(用户电脑 Windows/mac x86 实测复现):
+  - 根因: check/discover 直接 ensure 用**默认 profile**(用户 Chrome), 用户 Chrome
+    无 CDP 占用 profile → 杀不掉(只杀带 --remote-debugging-port 的实例)→ 启动
+    新实例撞单实例锁 → 反复杀/重启失败; service 探针(graph/follow)早已用独立
+    profile, 两条路径不一致。
+  - 修复: `_default_profile_dir` → skill `data/browser/profile`(独立, 不碰用户
+    Chrome, 避开 macOS TCC; data/ 随更新保留登录态)。**用户 Chrome 永不被杀/重启**。
+  - 进程活着检查改 `Popen.poll()`(不依赖 ps/PowerShell 命令行解析, Windows/mac
+    命令行截断/沙箱禁 ps 都不再误判)。
+  - cli.py/batch_test 出口 finally `close_tool_chrome`(用完即关, 不常驻不累积;
+    v0.28.4 常驻方案在「用户 Chrome 常开」场景死锁)。
+  - 启动命令加 `--disable-crash-reporter`/`--disable-breakpad`(Crashpad 固定写
+    用户 Chrome 目录, 权限受限环境导致启动崩溃)。
+  - **登录态持久化**: cookies 存磁盘 profile, 关浏览器不丢, 重启自动恢复(已实测)。
+- chrome_launcher 移回明文(编译态无法热迭代, cloud_probe 同款先例)。
+- B1 补提交: 8 辅助生图节点 max_retries 2→1(a128249 遗漏, v0.28.5)。
+
 ## [0.28.5] - 2026-08-07
 
 > Worker 八项优化(基于 Ozon 三店审计 317 商品/65 问题/20.5% 问题率, 本地 wave5 实测 5/5 上架成功)。
