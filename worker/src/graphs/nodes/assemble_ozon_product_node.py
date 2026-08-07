@@ -1871,6 +1871,10 @@ def _validate_and_enrich_items(
                                 "type_id": int(type_id),
                                 "value": str(value).strip(),
                                 "limit": 3,
+                                # ⚠️ v0.29.x: 1688 中文属性值 → ZH_HANS 直查
+                                # (旧代码无 language 参数=默认 RU → 中文搜不到 → 翻译再搜,
+                                #  绕一大圈。dictionary_value_id 跨语言通用, 中文直查即命中)
+                                "language": "ZH_HANS",
                             }
                             resp = session.post(url, json=payload, headers=headers, timeout=15)
                             if resp.status_code == 200:
@@ -2073,8 +2077,10 @@ def _validate_and_enrich_items(
                                 "type_id": int(type_id),
                                 "value": draft_title[:50],
                                 "limit": 5,
+                                # ⚠️ v0.29.x: draft_title 是 1688 中文标题 → ZH_HANS 直查
+                                # (旧代码 language=RU → 中文搜不到)
                             },
-                            language="RU",
+                            language="ZH_HANS",
                         )
                         search_results = search_resp.get("result", [])
                         if search_results:
@@ -2266,8 +2272,9 @@ def _validate_and_enrich_items(
                                 "type_id": int(type_id),
                                 "value": (draft_title[:50] if draft_title else opt_name)[:50],
                                 "limit": 5,
+                                # ⚠️ v0.29.x: 搜索词是 1688 中文标题 → ZH_HANS 直查
                             },
-                            language="RU",
+                            language="ZH_HANS",
                         )
                         _results = _search.get("result", [])
                         if _results:

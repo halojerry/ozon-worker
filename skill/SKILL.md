@@ -89,6 +89,7 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 | `set_ak` | 配置 1688 AK | `--ak` | 写 `data/config/` | 首次配置 / AK 过期 |
 | `update` | 检查并应用自动更新 | 无 | **覆盖 skill 文件**（备份 + 保留 data/） | 版本升级 |
 | `query` | 查询 Worker 任务状态 | `<任务ID>`（位置参数，submit/follow 返回的 UUID） | 只读，无副作用 | 提交后查进度/成败/产品明细 |
+| `seller` | 卖家店铺全产品运营分析 | `--seller-id [--max-products] [--max-skus]` | 查 seller.ozon.ru 运营指标（逐 SKU，受限速） | 跟卖前20名卖家 → 店铺选品（v0.29.x 新增） |
 | `get_ak` | 浏览器自动获取 1688 AK | `--timeout` | 无 | AK 过期时刷新 |
 | `list_stores` | 列出已配置店铺 | 无 | 无 | 查看配置 |
 | `graph` | 1688 上架 | `--url/--item-id --store [--no-submit] [--category-query]` | 提交 Worker（除非 `--no-submit`） | 用户发 1688 商品链接 |
