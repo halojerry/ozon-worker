@@ -228,6 +228,7 @@ def resolve_missing_mandatory_dict_attr(
     product_name_ru: str = "",
     size_cn: str = "",
     dict_vals: Any = None,
+    type_id: int = 0,
 ) -> Optional[tuple[int, str]]:
     """按属性语义解析必填字典属性的安全默认值；查不到返回 None。"""
     attr_id = int(attr_id or 0)
@@ -244,11 +245,48 @@ def resolve_missing_mandatory_dict_attr(
         return resolve_size_default(size_cn, product_name_ru, dict_vals)
     if attr_id == 8229 or any(k in name for k in TYPE_NAME_KEYWORDS):
         values = _as_list(dict_vals)
-        if values and isinstance(values[0], dict):
-            vid = values[0].get("id") or values[0].get("dictionary_value_id") or 0
-            if vid:
-                return int(vid), str(values[0].get("value") or "")
-        return None
+        if not values:
+            return None
+        # ⚠️ v0.29.x 修复: 8229(类型)的字典值 id == type_id(类目 type 节点本身,
+        # 实测手持风扇 148495146 / 杀虫剂 99385)。优先按 type_id 匹配, 绝不取
+        # 第一个字典值(同大类下其他小类, 如「套娃」→ 错配被 Ozon 拒)。
+        if type_id and int(type_id) > 0:
+            for _v in values:
+                if isinstance(_v, dict) and int(_v.get("id") or _v.get("dictionary_value_id") or 0) == int(type_id):
+                    return int(type_id), str(_v.get("value") or "")
+        # 次选: 标题/产品名关键词匹配(避免取到无关首值)
+        _kw = ""
+        for _src in (title_cn, product_name_ru):
+            if _src and len(str(_src).strip()) >= 2:
+                _kw = str(_src).strip()
+                break
+        if _kw:
+            _kw_str = str(_kw)
+            for _v in values:
+                if not isinstance(_v, dict):
+                    continue
+                _vt = str(_v.get("value") or "")
+                if not _vt:
+                    continue
+                # 匹配: 精确/包含/词/2-gram 子串(中文分词粒度粗, 用相邻双字子串
+                # 如「手持」「风扇」能命中「手持风扇」, 解决「手持小风扇」vs「手持风扇」)
+                _match = _vt in _kw_str or _kw_str in _vt
+                if not _match and len(_kw_str) >= 2:
+                    for _gi in range(len(_kw_str) - 1):
+                        _gram = _kw_str[_gi:_gi + 2]
+                        if _gram and _gram in _vt:
+                            _match = True
+                            break
+                if _match:
+                    vid2 = _v.get("id") or _v.get("dictionary_value_id") or 0
+                    if vid2:
+                        return int(vid2), _vt
+        # 唯一值场景 → 直接命中(单值语义确定, 不会错配)
+        if len(values) == 1 and isinstance(values[0], dict):
+            _vid1 = values[0].get("id") or values[0].get("dictionary_value_id") or 0
+            if _vid1:
+                return int(_vid1), str(values[0].get("value") or "")
+        return None  # 无匹配不盲补(宁缺毋滥, 交 Ozon 报可修复错)
     if attr_id == 9782 or any(k in name for k in ("класс опасности", "класс опас", "опасности товара", "危险品等级", "危险等级", "hazard")):
         # ⚠️ v0.29.x: 9782 必填但只能填"非危险"安全默认(填爆炸物→BR_hazard_class1)。
         # 复用 get_safe_hazard_default(RU+ZH 关键词), 取不到返回 None(跳过, 交 Ozon 报可修复错)。

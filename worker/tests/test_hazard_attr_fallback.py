@@ -84,7 +84,7 @@ def test_attr_defaults_resolve_9782():
 
 
 def test_attr_defaults_resolve_8229_first_value():
-    """8229 分支保持取第一个字典值(不回归)。"""
+    """8229 单值场景仍命中(不回归); 多值时按 type_id/关键词, 绝不取第一个(套娃 bug)。"""
     from utils.attr_defaults import resolve_missing_mandatory_dict_attr
     got = resolve_missing_mandatory_dict_attr(8229, "Тип товара", dict_vals=[{"id": 100, "value": "Носки"}])
     assert got == (100, "Носки")
