@@ -56,16 +56,19 @@ fi
 
 echo "✅ 环境检查通过"
 
-# 构建镜像
+# 构建镜像(同时 tag latest, 避免 up 时无 VERSION 落到旧 latest)
 echo ""
 echo "📦 构建 Docker 镜像 (v${VERSION})..."
 cd "$SCRIPT_DIR"
 VERSION="$VERSION" BUILD_TIME="$BUILD_TIME" docker compose build
+# v0.29.1: 修复① — build 只出 v{VERSION} 标签, up 不带 VERSION 时
+# compose 落到 image 默认 latest(旧镜像)。显式 tag latest 保持一致。
+docker tag "ozon-worker:${VERSION}" ozon-worker:latest 2>/dev/null || true
 
-# 启动服务
+# 启动服务(带 VERSION, 保证 image 标签一致)
 echo ""
 echo "🚀 启动服务..."
-	docker compose up -d
+VERSION="$VERSION" docker compose up -d
 
 	# 等待 PG 就绪后初始化数据（建表 + 导入类目树 + 物流费率 + 属性缓存）
 	echo ""
