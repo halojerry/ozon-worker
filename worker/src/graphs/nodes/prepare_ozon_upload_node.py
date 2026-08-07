@@ -996,6 +996,33 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
             if aid in existing:
                 continue
             aname = str(attr.get("name") or "").lower()
+            # ⚠️ v0.29.x 竞品属性复用: 同类目竞品 ozon_attributes(俄语值, follow 已透传)
+            # 对可选字典属性也优先复用 —— resolve_ozon_attr_value 支持品牌/性别/尺码/
+            # 类型/颜色/材质 6 类语义, 值比 1688 推断更准。
+            _ozon_val = ""
+            try:
+                from utils.attr_defaults import resolve_ozon_attr_value
+                _ozon_val = resolve_ozon_attr_value(aid, aname, (draft or {}).get("ozon_attributes")) or ""
+            except Exception:
+                _ozon_val = ""
+            if _ozon_val:
+                try:
+                    from utils.ozon_dict_values import search_dictionary_values as _sdvo
+                    from utils.attr_defaults import find_dict_value_id as _fdvo
+                    _hits_o = _sdvo(_cid, _key, aid, int(dc) if dc else 0, int(tp) if tp else 0, _ozon_val)
+                    _res_o = _fdvo(_hits_o, _ozon_val) if _hits_o else None
+                    if not _res_o and _hits_o:
+                        _first_o = _hits_o[0]
+                        _res_o = (int(_first_o.get("id") or 0), str(_first_o.get("value") or ""))
+                    if _res_o:
+                        attrs.append({"id": aid, "values": [
+                            {"dictionary_value_id": int(_res_o[0]), "value": str(_res_o[1])}
+                        ]})
+                        logger.info("✅ 可选字典属性 %s(%s) 竞品复用: %s → id=%s",
+                                    aid, attr.get("name"), _ozon_val, _res_o[0])
+                        continue
+                except Exception:
+                    pass
             for rule in synonyms.values():
                 if not any(kw in aname for kw in rule.get("ozon_name_keywords", [])):
                     continue
@@ -1976,6 +2003,23 @@ def prepare_ozon_upload_node(
                         break
             except Exception:
                 pass
+            # ①b ⚠️ v0.29.x 学习表复用: 同类目历史成功属性映射(approved 后写入
+            # ozon_attribute_mappings)。1688 值命中 source_value → 直接复用
+            # dictionary_value_id + target_value(RU), 比 values/search 更准且零 API 调用。
+            if not _resolved_dict_id and value_str:
+                try:
+                    from utils.local_db_manager import LocalDBManager
+                    _lm = LocalDBManager()
+                    _mappings = _lm.get_attribute_mappings(int(description_category_id or 0)) or []
+                    for _mp in _mappings:
+                        if (int(_mp.get("attribute_id") or 0) == attribute_id_int
+                                and str(_mp.get("source_value") or "") == str(value_str).strip()
+                                and int(_mp.get("dictionary_value_id") or 0) > 0):
+                            _resolved_dict_id = int(_mp["dictionary_value_id"])
+                            _resolved_dict_val = str(_mp.get("target_value") or "")
+                            break
+                except Exception:
+                    pass
             # ② API /values/search 中文直查(values/search 无 language, 语言无关;
             #    search_dictionary_values 内置 RU→ZH_HANS 回退链)
             if not _resolved_dict_id and value_str and len(str(value_str).strip()) >= 2:

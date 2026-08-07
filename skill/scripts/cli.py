@@ -184,6 +184,25 @@ def cmd_graph(args: argparse.Namespace) -> int:
             max_retries=args.retries,
             store_id=args.store or "",
         )
+
+        # ⚠️ v0.29.x 竞品属性复用: --ozon-ref-url 抓 Ozon 竞品属性表 → draft.ozon_attributes
+        # (同类目竞品属性值大多一致, worker 对 1688 缺的属性用竞品值兜底)
+        if getattr(args, 'ozon_ref_url', '') and isinstance(graph.get("envelope", {}), dict):
+            try:
+                import re as _re2
+                from scripts.lib.ozon_scraper import scrape_ozon_product_via_cdp
+                _oz = scrape_ozon_product_via_cdp(args.ozon_ref_url, cdp_url="http://127.0.0.1:9222", timeout=30)
+                _oa = _oz.get("attributes") or {}
+                _full = _oz.get("characteristics") or []
+                _attrs_all = dict(_oa)
+                for _fc in _full:
+                    if isinstance(_fc, dict) and _fc.get("title") and _fc.get("value"):
+                        _attrs_all.setdefault(str(_fc["title"]), str(_fc["value"]))
+                if _attrs_all:
+                    graph["envelope"]["draft"]["ozon_attributes"] = _attrs_all
+                    print(f"✅ 竞品属性透传: {len(_attrs_all)} 个(ozon-ref-url)")
+            except Exception as _oz_e:
+                print(f"⚠️ 竞品属性抓取失败(继续): {_oz_e}")
     except ProductValidationError as e:
         _out({"error": str(e), "skipped": True, "item_id": item_id})
         return 2
@@ -1145,6 +1164,7 @@ def main() -> int:
     gp.add_argument("--retries", type=int, default=3, help="CDP 重试次数")
     gp.add_argument("--store", default="", help="Ozon 店铺名称（不指定则用默认店铺）")
     gp.add_argument("--no-submit", action="store_true", help="只组装信封不提交 Worker")
+    gp.add_argument("--ozon-ref-url", default="", help="Ozon 竞品参考链接(抓同类目属性复用, 可选, v0.29.x)")
     gp.set_defaults(func=cmd_graph)
 
     # image_search
