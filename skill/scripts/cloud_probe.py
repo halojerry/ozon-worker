@@ -30,9 +30,11 @@ Cloud handles (stable, rarely changes):
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import re
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -42,17 +44,13 @@ import requests
 
 from scripts._const import CLOUD_API_BASE, SKILL_VERSION
 from scripts._errors import (
-    ERR_CLOUD_UNAVAILABLE,
     ERR_CLOUD_REJECTED,
     ERR_CLOUD_TIMEOUT,
-    ERR_CLOUD_FAILED,
+    ERR_CLOUD_UNAVAILABLE,
 )
-from scripts.lib.config_store import init_sentry, capture_exception
+from scripts.lib.config_store import capture_exception, init_sentry
 from scripts.lib.reference_images import get_best_product_images
 from scripts.lib.task_paths import cleanup_old_files
-
-import logging
-import sys
 
 # Configure root logger for agent observability.
 # This ensures ALL logger.info/warning/error calls are visible to the agent
@@ -91,6 +89,7 @@ except Exception as e:
 
 from scripts.lib.logging_utils import AuditLogger
 
+
 # Backward-compatible wrapper
 def _log_task(task_id: str, component: str, stage: str, level: str,
             msg: str, data: dict | None = None) -> None:
@@ -119,7 +118,7 @@ def _load_path_registry() -> dict[str, str]:
             with open(registry_path) as f:
                 data = json.load(f)
             for key in defaults:
-                if key in data and data[key]:
+                if data.get(key):
                     defaults[key] = data[key]
     except Exception as e:
         logger.debug('path_registry.json load failed: %s', e)
@@ -530,6 +529,7 @@ _COLOR_WORDS = frozenset({
 
 # 尺码模式：S/M/L/XL/XXL，大/中/小号，数字+cm/mm，40*40cm 等
 import re as _re_type
+
 _SIZE_PATTERN = _re_type.compile(
     r'(?:^|[^a-zA-Z])'
     r'(?:S|M|L|XL|XXL|XXXL|XXXXL)'
@@ -890,7 +890,6 @@ def _detect_group_variant_type(values: list[dict]) -> str:
 
 class ProductValidationError(Exception):
     """产品数据校验不通过——不应重试，直接跳过该品。"""
-    pass
 
 
 # ── v0.21 P2: 尺寸/重量解析与合理性守卫 ──────────────────────────────────
@@ -953,7 +952,7 @@ def extract_dimensions_from_texts(texts: list[str]) -> dict | None:
     return united or unitless
 
 
-def resolve_packaging_dimensions(pkg_row: dict, weight_g: int | float) -> dict:
+def resolve_packaging_dimensions(pkg_row: dict, weight_g: float) -> dict:
     """解析 packaging row → mm 尺寸（含 cm/mm 交叉判定）。
 
     判定规则：row 数值无显式单位时，分别按 cm（×10）与 mm（×1）计算密度
@@ -1190,7 +1189,7 @@ def build_graph_envelope(
     """
     from scripts.lib.config_store import _require_auth
     _require_auth()
-    from scripts.lib.ak_1688_client import get_product_details, enrich_product_with_cdp
+    from scripts.lib.ak_1688_client import enrich_product_with_cdp, get_product_details
     from scripts.lib.reference_images import get_best_product_images
 
     # ── 1. 1688 API ──
@@ -1533,7 +1532,7 @@ def build_graph_envelope(
 
     elif sku_details:
         # Fallback: no option_groups but have sku_details
-        max_skus_applied = min(len(sku_details), effective_max_skus)
+        _max_skus_applied = min(len(sku_details), effective_max_skus)
         if len(sku_details) > effective_max_skus:
             dropped_skus = len(sku_details) - effective_max_skus
             drop_reason = f"sku_details truncation: {len(sku_details)} > max_skus={effective_max_skus}"
@@ -1958,7 +1957,10 @@ def get_ozon_product_info(client_id: str, api_key: str, product_id: str) -> dict
     try:
         # Try cloud package first, then fallback to direct import
         try:
-            from scripts.lib.ozon_api import list_product_infos, get_product_attributes_v4
+            from scripts.lib.ozon_api import (
+                get_product_attributes_v4,
+                list_product_infos,
+            )
         except ImportError:
             # Direct HTTP call as fallback
             import requests as _r
@@ -2123,7 +2125,7 @@ def publish_product_new(
     This is useful when the caller has already validated the category via Ozon
     API (e.g. batch scripts, strict mode).
     """
-    from scripts.lib.ak_1688_client import get_product_details, enrich_product_with_cdp
+    from scripts.lib.ak_1688_client import enrich_product_with_cdp, get_product_details
 
     result: dict[str, Any] = {
         'ok': False, 'task_id': f'task-{item_id}', 'stage': 'init',
@@ -2210,7 +2212,9 @@ def publish_product_new(
         # Step 3b: If no self-learning hit, search Ozon API locally
         if not category_candidates:
             try:
-                from scripts.lib.ozon_api import search_categories_validated as _search_validated
+                from scripts.lib.ozon_api import (
+                    search_categories_validated as _search_validated,
+                )
                 # Ozon tree API supports ZH_HANS, EN, RU natively — pick the right language
                 if any('一' <= c <= '鿿' for c in (search_text or '')):
                     _lang = 'ZH_HANS'
@@ -2559,7 +2563,8 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     """
     from scripts.lib.config_store import _require_auth
     _require_auth()
-    import re, requests as req
+    import re
+
 
     # Step 1: 解析 Ozon URL
     parsed = parse_ozon_url(ozon_url)
@@ -2695,7 +2700,10 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         # ✅ v0.19: page_size 20 + 仅在页面确实渲染了徽标且质量差时才重搜；
         # 无徽标（未登录/未渲染）不重搜，交给 _pick_best_match 标题相关性降级
         try:
-            from scripts.lib.ozon_image_search import search_by_image_cdp, _get_badge_score
+            from scripts.lib.ozon_image_search import (
+                _get_badge_score,
+                search_by_image_cdp,
+            )
             cdp_results = search_by_image_cdp(image_url=main_img, page_size=20, wait_seconds=10, conn=shared_cdp)
             # ✅ v0.19: CDP 空结果先原地重试 1 次（页面渲染偶发失败，甩脂机案例），
             # 仍空才降级 AK API
@@ -2860,7 +2868,10 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                             draft["ozon_attributes"]["Цвет"] = _color_ru
                     if not result.get("competitor_weight_g") or not result.get("competitor_dimensions_mm"):
                         try:
-                            from scripts.lib.ozon_scraper import parse_ru_weight, parse_ru_dims
+                            from scripts.lib.ozon_scraper import (
+                                parse_ru_dims,
+                                parse_ru_weight,
+                            )
                             _w = parse_ru_weight(next((v for k, v in _attrs_all.items()
                                                        if any(x in k.lower() for x in ("вес", "масса", "重量"))), ""))
                             _d = parse_ru_dims(next((v for k, v in _attrs_all.items()

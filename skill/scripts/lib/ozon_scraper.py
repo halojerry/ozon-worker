@@ -20,7 +20,6 @@ import json
 import logging
 import re
 from typing import Any
-from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -327,7 +326,7 @@ def scrape_ozon_product(
             if "ozon-antibot" in str(html).lower() or "datadome" in str(html).lower():
                 result["error"] = "Ozon 反爬拦截 (DataDome)。需要俄罗斯代理或更换 IP。"
             else:
-                result["error"] = f"Ozon 返回 403 (已拦截)"
+                result["error"] = "Ozon 返回 403 (已拦截)"
             return result
 
         if status_code != 200:
@@ -379,9 +378,9 @@ def scrape_ozon_product_via_cdp(
     """
     from scripts.lib.config_store import _require_auth
     _require_auth()
-    import requests as req_lib
-    import time
     import json as _json
+
+    import requests as req_lib
 
     product_id = _parse_product_id_from_url(ozon_url)
     if not product_id:

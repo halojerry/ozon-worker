@@ -53,24 +53,107 @@ jobs:
             -exec sh -c 'python3 -c "import py_compile; py_compile.compile(\"$1\",doraise=True)" 2>/dev/null || echo $1' _ {} \;)
           [ -z "$errors" ] && echo "✅ 语法通过" || { echo "$errors"; exit 1; }
 
-  # ═══ Quality: pyflakes (快速，仅 Blocking 错误) ═══
-  quality:
-    name: Quality
+  # ═══ Secret Scan: gitleaks（阻断, 只扫近 3 个月提交避开历史已泄露基线）═══
+  secret-scan:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        with:
+          # 只扫近 3 个月提交 —— 仓库 git 历史在 2026-08 前泄露过密钥,
+          # 全历史扫描必炸且无法修复; 新泄露 3 个月内必被抓
+          log-opts: --since="3 months ago"
+
+  # ═══ Lint: ruff（阻断, 不再 || true）═══
+  lint-worker:
+    name: Lint Worker (ruff)
     runs-on: ubuntu-latest
     needs: syntax
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
-      - run: pip install pyflakes
-      - run: pyflakes worker/src/ || true
-      - run: pyflakes skill/scripts/ || true
+      - run: pip install ruff
+      - name: Ruff check worker
+        working-directory: worker
+        run: ruff check src/
+
+  lint-skill:
+    name: Lint Skill (ruff)
+    runs-on: ubuntu-latest
+    needs: syntax
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install ruff
+      - name: Ruff check skill (语法级 F 类)
+        working-directory: skill
+        # --select F: 未定义名/未使用 import 等真实 bug 级; --ignore F821:
+        # 字符串注解(lazy import + from __future__ import annotations)无害
+        run: ruff check scripts/ --select F --ignore F821
+
+  # ═══ Unit Tests ═══
+  test-worker:
+    name: Worker Tests
+    runs-on: ubuntu-latest
+    needs: lint-worker
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ozon_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PYTHONPATH: /home/runner/work/ozon-worker/ozon-worker/worker/src
+      PGDATABASE_URL: postgresql://postgres:postgres@localhost:5432/ozon_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Install dependencies
+        working-directory: worker
+        run: |
+          pip install -e . 2>/dev/null || pip install requests pydantic fastapi uvicorn sqlalchemy psycopg2-binary langchain-core langgraph langgraph-checkpoint supabase jinja2 jieba chardet python-dotenv websocket-client pandas openpyxl
+          pip install pytest pytest-asyncio
+      - name: Run tests
+        working-directory: worker
+        run: python -m pytest tests/ -v --tb=short
+
+  test-skill:
+    name: Skill Tests
+    runs-on: ubuntu-latest
+    needs: lint-skill
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Install dependencies
+        working-directory: skill
+        run: pip install pytest requests websocket-client Pillow -q
+      - name: Run tests
+        working-directory: skill
+        run: python -m pytest tests/ -q
 
   # ═══ Import: 核心模块导入验证 ═══
   imports:
     name: Import
     runs-on: ubuntu-latest
-    needs: quality
+    needs: [lint-worker, lint-skill]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -88,11 +171,28 @@ jobs:
           print('✅ Skill')
           "
 
-  # ═══ Build: Docker ═══
-  build:
-    name: Docker
+  # ═══ Dependency Audit: pip-audit（警告模式, 不阻断）═══
+  pip-audit:
+    name: Dependency Audit
     runs-on: ubuntu-latest
     needs: imports
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: pip-audit
+        continue-on-error: true  # 首次警告不阻断, 稳定后收紧
+        working-directory: worker
+        run: |
+          pip install pip-audit -q
+          pip-audit --path . || true
+
+  # ═══ Build: Docker ═══
+  docker-build:
+    name: Docker
+    runs-on: ubuntu-latest
+    needs: [test-worker, test-skill]
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t ozon-worker:ci -f worker/Dockerfile worker/ && echo "✅ Docker 构建成功"

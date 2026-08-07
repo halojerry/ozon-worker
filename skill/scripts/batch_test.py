@@ -31,10 +31,11 @@ import os
 import re
 import sys
 import time
-import requests
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import requests
 
 # Ensure skill/scripts/ is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -44,7 +45,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _poll_task_result(task_id: str, worker_url: str, timeout: int = 900) -> dict[str, Any]:
@@ -210,7 +211,7 @@ def process_ozon_url(
     store_id: str = "",
 ) -> dict[str, Any]:
     """Process a single Ozon URL: follow-sell pipeline → submit."""
-    from scripts.cloud_probe import follow_sell_cloud, submit_envelope
+    from scripts.cloud_probe import follow_sell_cloud
 
     result: dict[str, Any] = {
         "type": "ozon",
@@ -359,8 +360,9 @@ def main() -> int:
     # Auto-launch Chrome via chrome_launcher (same as check command)
     _cdp_ok = False
     try:
-        from scripts.lib.chrome_launcher import ensure_chrome_cdp
         from pathlib import Path as _P
+
+        from scripts.lib.chrome_launcher import ensure_chrome_cdp
         _prof = str(_P(__file__).resolve().parent.parent / "data" / "browser" / "profiles" / "1688" / "default")
         ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_prof)
         _cdp_ok = ok
@@ -567,7 +569,7 @@ def main() -> int:
     )
 
     print(f"\n{'='*60}")
-    print(f"📊 结果:")
+    print("📊 结果:")
     print(f"   成功: {stats['success']}")
     print(f"   失败: {stats['failed']}")
     print(f"   详情: {log_file}")

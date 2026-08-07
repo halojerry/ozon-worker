@@ -100,8 +100,7 @@ def main() -> int:
         resp = requests.get(url, timeout=DOWNLOAD_TIMEOUT, stream=True)
         resp.raise_for_status()
         with open(archive, "wb") as f:
-            for chunk in resp.iter_content(65536):
-                f.write(chunk)
+            f.writelines(resp.iter_content(65536))
         resp.close()
 
         got = _sha256(archive)

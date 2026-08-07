@@ -4,8 +4,11 @@ Uses the official Ozon Seller API (api-seller.ozon.ru) with Client-Id/Api-Key.
 Also provides Premium analytics spoofing via CDP.
 """
 from __future__ import annotations
-import json, logging, time, re
-from typing import Any
+
+import json
+import logging
+import time
+
 import requests
 
 logger = logging.getLogger(__name__)

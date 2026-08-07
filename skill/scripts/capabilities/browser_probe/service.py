@@ -6,20 +6,18 @@ import json
 import random
 import re
 import shutil
+import socket as _socket
 import subprocess
 import sys
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from urllib.request import urlopen
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
-import socket as _socket
+from urllib.request import urlopen
 
 from scripts._const import DATA_DIR, DEFAULT_CACHE_TTL_SECONDS, get_config_profile
-
 from scripts.lib.cdp_client import CdpConnection, CdpTab
 
 # Backward compat aliases for except blocks
@@ -48,17 +46,17 @@ def navigation_delay() -> None:
 
 
 _CACHE_TTL = DEFAULT_CACHE_TTL_SECONDS  # 24h — reuse cached probe results within this window
-from scripts._errors import ConfigError, ValidationError
-
 # Module-level flag to prevent concurrent login waits
 import threading as _threading
+
+from scripts._errors import ConfigError, ValidationError
+
 _login_in_progress: bool = False
 _login_lock = _threading.Lock()
 _login_result: dict[str, Any] | None = None
 _login_done_event = _threading.Event()
 from scripts.lib.reference_images import is_likely_product_image
 from scripts.lib.task_paths import current_task_id, task_media_dir
-
 
 EXTRACT_1688_JS = r"""
 (() => {
@@ -927,7 +925,6 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
 
     elif system == 'Windows':
         # Windows: try registry query for default browser, then common install paths
-        import os as _os
         # Check Chrome via registry
         for reg_key in [
             r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe',
@@ -1008,9 +1005,10 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
     # Phase 3: Playwright bundled Chromium (pip install playwright)
     # ═══════════════════════════════════════════════════════════════════════
     try:
-        import platform as _plat
-        import playwright  # noqa: F401
         import glob as _glob
+        import platform as _plat
+
+        import playwright  # noqa: F401
 
         system = _plat.system()
         if system == 'Darwin':
@@ -1035,8 +1033,8 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
     if _auto_install_browser():
         # Recurse once to find the newly installed browser
         try:
-            import platform as _plat2
             import glob as _glob2
+            import platform as _plat2
             system = _plat2.system()
             if system == 'Darwin':
                 pattern = str(Path.home() / 'Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium')
@@ -1104,8 +1102,8 @@ def _looks_like_failure_page(probe: dict[str, Any] | None) -> bool:
     body_hints = ' '.join([
         title,
         description,
-        str((probe.get('seller') or '')).lower(),
-        str((probe.get('error') or '')).lower(),
+        str(probe.get('seller') or '').lower(),
+        str(probe.get('error') or '').lower(),
     ])
     failure_tokens = [
         'wrongpage',
@@ -1160,7 +1158,7 @@ def _probe_ready(probe: dict[str, Any] | None) -> bool:
         return False
     if _looks_like_failure_page(probe):
         return False
-    if len(((probe.get('runtimeSkuData') or {}).get('sku') or [])) > 0:
+    if len((probe.get('runtimeSkuData') or {}).get('sku') or []) > 0:
         return True
     if len(probe.get('skuDetails') or []) > 0:
         return True
@@ -1292,8 +1290,8 @@ def _load_browser_session(profile: str) -> dict[str, Any] | None:
 
 
 def _write_browser_session(profile: str, payload: dict[str, Any]) -> Path:
-    import tempfile
     import os as _os_atomic
+    import tempfile
     target = _session_file(profile)
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(target.parent), prefix='.session-', suffix='.json')
@@ -1414,7 +1412,7 @@ def _find_live_cdp_session_for_profile(
         if not _cdp_available(cdp_url):
             continue
 
-        matched_user_data_dir = expected_user_data_dir
+        _matched_user_data_dir = expected_user_data_dir
         data_dir_match = re.search(r'--user-data-dir=(\S+)', command)
         actual_data_dir = data_dir_match.group(1) if data_dir_match else ''
 
@@ -1505,8 +1503,10 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
             _logger.debug("chrome_launcher not available, using legacy launch")
 
         # Fallback: legacy launch with separate profile
+        import socket as _sock
+        import subprocess as _sp
+
         from scripts.capabilities.browser_probe.stealth import STEALTH_ARGS
-        import random as _random, socket as _sock, subprocess as _sp
 
         profile_dir = _profile_dir(profile)
         profile_dir.mkdir(parents=True, exist_ok=True)
@@ -1563,7 +1563,6 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
 def _connect_existing_chrome(cdp_url: str) -> tuple[CdpConnection, bool]:
     """Connect to an existing Chrome instance via CDP.
     """
-    import platform
     import logging as _logging
     _logger = _logging.getLogger(__name__)
 
@@ -1617,7 +1616,7 @@ def _open_target_page_in_existing_browser(
     *,
     timeout_seconds: int,
 ) -> CdpTab:
-    from scripts.capabilities.browser_probe.stealth import STEALTH_JS, REALISTIC_UA
+    from scripts.capabilities.browser_probe.stealth import REALISTIC_UA, STEALTH_JS
 
     tab = cdp.new_tab()
 
@@ -1763,8 +1762,8 @@ def _wait_for_login_session(
     of starting a second concurrent login flow.
     """
     global _login_in_progress, _login_result
-    import logging as _logging
     import base64 as _base64
+    import logging as _logging
     _logger = _logging.getLogger(__name__)
 
     # Prevent double login: if another thread is already waiting, block until it finishes
@@ -1798,7 +1797,7 @@ def _wait_for_login_session(
         if _should_release:
             _login_lock.release()
 
-    from scripts.capabilities.browser_probe.stealth import STEALTH_JS, REALISTIC_UA
+    from scripts.capabilities.browser_probe.stealth import REALISTIC_UA, STEALTH_JS
 
     session = _resolve_browser_session(profile_name)
     login_url = 'https://login.1688.com/member/signin.htm'
@@ -1853,7 +1852,7 @@ def _wait_for_login_session(
             except Exception:
                 qr_path = None
 
-            print(f'\n📱 请用手机 1688/淘宝 App 扫下方二维码登录：\n',
+            print('\n📱 请用手机 1688/淘宝 App 扫下方二维码登录：\n',
                   file=sys.stderr)
             print(f'  🔗 data:image/png;base64,{img_data[:40]}...',
                   file=sys.stderr)
@@ -1921,7 +1920,7 @@ def _check_1688_login_live(cdp_url: str) -> bool:
         temp_tab = conn.new_tab()
 
         # 注入反检测脚本（防止1688滑块验证码）
-        from scripts.capabilities.browser_probe.stealth import STEALTH_JS, REALISTIC_UA
+        from scripts.capabilities.browser_probe.stealth import REALISTIC_UA, STEALTH_JS
         temp_tab.add_init_script(STEALTH_JS)
         temp_tab.set_extra_headers({'User-Agent': REALISTIC_UA})
 
@@ -2231,7 +2230,7 @@ def check_cdp_prerequisites(
         suggestions.append('直接运行 publish-new，首次会自动打开 Chrome 登录页')
         suggestions.append('或手动启动 Chrome 并登录 1688:')
         suggestions.append(
-            f'  Chrome 需带参数: --remote-debugging-port=9222 --user-data-dir=<profile目录>'
+            '  Chrome 需带参数: --remote-debugging-port=9222 --user-data-dir=<profile目录>'
         )
 
     # 3. Check login — use saved session flag, don't open new pages (CDP-incompatible)

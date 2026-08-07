@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
@@ -479,8 +478,9 @@ def match_selected(
     selected = [c for c in candidates if c.status in ("ok", "uncertain")]
     stats = {"matched": 0, "rejected": 0, "no_match": 0, "error": 0}
     # ⚠️ v0.14 E6: 批量 1688 识图复用同一 CDP 连接（旧代码每候选新建 CdpConnection+CdpTab）
-    from scripts.lib.cdp_client import CdpConnection
     import contextlib
+
+    from scripts.lib.cdp_client import CdpConnection
     with contextlib.closing(CdpConnection(cdp_url)) as shared_cdp:
         for i, candidate in enumerate(selected):
             try:
@@ -744,7 +744,6 @@ def export_to_json(candidates: list[ProductCandidate], filepath: str) -> str:
 
 from scripts.lib.utils import parse_price as _parse_price
 
-
 # 俄语产品词 → 中文关键词（1688 标题相关性校验用，覆盖常见品类）
 # badge 为空时俄语 Ozon 标题无法直接与中文 1688 标题重叠校验，
 # 用该映射把标题中的俄语产品词翻译后做包含匹配。
@@ -925,7 +924,6 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
        （conf < 0.3）→ 先 LLM 语义判定（词对词典覆盖窄，误拒同品是
        「匹配了却不选」根因），判定同品 → 放行；否则拒绝（宁缺毋滥）
     """
-    from scripts.lib.ozon_image_search import _get_badge_score
 
     is_ru_title = bool(re.search(r"[а-яёА-ЯЁ]", ozon_title or ""))
 

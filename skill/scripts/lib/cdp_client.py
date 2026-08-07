@@ -273,7 +273,7 @@ class CdpConnection:
     def __enter__(self) -> CdpConnection:
         return self
 
-    def __exit__(self, *exc: Any) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()
 
     # ------------------------------------------------------------------

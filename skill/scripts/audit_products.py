@@ -11,6 +11,7 @@
     python3 audit_products.py --json out.json   # 输出聚合 JSON
 """
 from __future__ import annotations
+
 import json
 import sys
 import time
@@ -138,12 +139,12 @@ def main() -> None:
                 if len(err_examples[ec]) < 3:
                     err_examples[ec].append(i["offer_id"])
 
-        print(f"  状态分布: validation_status×moderate_status")
+        print("  状态分布: validation_status×moderate_status")
         for k, v in status_counter.most_common(12):
             print(f"    {k} = {v}")
         print(f"\n  问题商品数: {len(problem)} / {len(infos)}")
         if err_counter:
-            print(f"\n  错误项 TOP（按频率）:")
+            print("\n  错误项 TOP（按频率）:")
             for ec, cnt in err_counter.most_common(25):
                 print(f"    [{cnt:4d}] {ec}")
                 for oid in err_examples[ec]:

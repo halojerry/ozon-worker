@@ -917,7 +917,7 @@ def enrich_product_with_cdp(
     # ── Check CDP prerequisites ──
     prereqs = check_cdp_prerequisites()
     if not prereqs['browser_available']:
-        issues = prereqs.get('issues', [])
+        _issues = prereqs.get('issues', [])
         suggestions = prereqs.get('suggestions', [])
         result['degraded_reason'] = (
             '未找到 Chromium 内核浏览器（Chrome/Edge/Brave/360等）。'

@@ -15,12 +15,10 @@ import platform
 import re
 import shutil
 import signal
-import socket
 import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Optional, Tuple
 
 # Cross-platform file locking
 if platform.system() == 'Windows':
@@ -52,7 +50,7 @@ def _default_profile_dir() -> Path:
 
 
 # ── Chrome 可执行文件查找 ──
-def _find_chrome_executable() -> Optional[str]:
+def _find_chrome_executable() -> str | None:
     """跨平台查找 Chrome 可执行文件"""
     system = platform.system()
 
@@ -162,7 +160,7 @@ def _find_chrome_processes() -> list[dict]:
                 logger.debug("PowerShell 进程解析失败: %s", _ps_e)
         else:
             result = subprocess.run(
-                ["ps", "-axo", f"pid,command"],
+                ["ps", "-axo", "pid,command"],
                 capture_output=True, text=True, timeout=5,
             )
             for line in result.stdout.split("\n"):
@@ -274,8 +272,8 @@ def _has_remote_allow_origins(port: int = CDP_PORT) -> bool:
 def ensure_chrome_cdp(
     port: int = CDP_PORT,
     auto_restart: bool = True,
-    profile_dir: Optional[str] = None,
-) -> Tuple[bool, str]:
+    profile_dir: str | None = None,
+) -> tuple[bool, str]:
     """
     确保 Chrome CDP 可用。用户零配置调用。
 

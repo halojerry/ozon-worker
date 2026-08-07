@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import requests
 
@@ -11,7 +10,7 @@ MXOU_CHAT_API_URL = "https://api.mxou.cn/v1/chat/completions"
 
 
 def call_chat(token: str, system_prompt: str, user_prompt: str,
-              model: str = "deepseek-v4-flash", max_tokens: int = 4096) -> Optional[str]:
+              model: str = "deepseek-v4-flash", max_tokens: int = 4096) -> str | None:
     if not token or not token.strip():
         logger.error("mxou chat 调用失败: token 为空")
         return None
