@@ -2,6 +2,20 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.29.x — 属性语言路由 + 运费查询端点 + 卖家店铺分析 + Chrome 常驻 + 余额直查）
+
+> 2026-08-07。当前 dev = v0.29.4(未发版), skill 包 v0.29.3 已发布(COS)。详见 `CHANGELOG.md` 与 `docs/OZON-ATTRIBUTE-API.md`。
+
+- **属性语言路由(核心修复, test_language_routing.py 锁定)**: 按输入来源选查询语言——1688 中文属性值/标题 → `values/search` 中文直查(该接口**无 language 参数**, 语言无关, 实测「杀虫剂」→ id=99385 命中); Ozon 类目名(type_name 俄语) → RU。dictionary_value_id 跨语言通用。
+- **字典属性中文 value 清零**: dict 命中 ZH_HANS 缓存时 value 是中文「塑料」→ Ozon 拒「属性含中文」。assemble `_clean_dict_value` + prepare 双保险置空(dict_id 权威)。
+- **8229/9782 语言错位修复(Sentry 286+58 次错误根因)**: 8229 本地 ZH_HANS 匹配失败 → 官方 API values/search 搜 type_name(RU)拿 dict_id; 9782 中文关键词兼容 + 强制 RU 拉取 + attr_defaults 9782 分支。
+- **运费查询收敛 worker**: 新公共模块 `worker/src/utils/logistics_quote.py`(3PL 探测 + Q1→Q3 费率 + 体积重)+ 新端点 `POST /api/v1/logistics/quote` + skill `_query_logistics_from_worker`(缓存 + 离线降级本地 40 CNY/kg)。
+- **卖家店铺分析选品**: `skill seller --seller-id` 命令 + `fetch_seller_products`(店铺页采集)+ `fetch_seller_analysis`(what_to_sell 逐 SKU 运营数据); 跟卖卖家透传 10→20 + sellerId/rating。
+- **工具 Chrome 独立 profile + 常驻**(v0.29.3): 命令出口不再 close_tool_chrome, 登录态常驻复用, 与用户 Chrome 互不干扰(v0.28.4 常驻的坑已被独立 profile 消除)。
+- **REALISTIC_UA 混装根因修复**(v0.29.3, 用户电脑 CDP 全崩): stealth 极简版删了 REALISTIC_UA, service.py 4 处裸引用未删 → 一调即崩。已删引用 + follow 前置 `ensure_chrome_cdp`。
+- **MXOU 余额本地直查**: skill check 显示余额/欠费预警(fetch_mxou_balance); Worker auth/submit/auth_node 三处统一查 MXOU 平台真实余额(欠费不再放行, Sentry 253 次 403 实证)。
+- **Sentry 持久查询**: `~/.sentryclirc` 配 sntryu_ token(org=halo-fx, project=pouding_ozon, url=us.sentry.io), sentry-cli / REST API 直接查, 无需反复 OAuth。
+
 ## 最近更新（v0.25.0 — 尺码表入库 + 类目学习闭环 + 竞品属性优先 + 生图模型路由）
 
 > 2026-08-05。v0.17→v0.25 累计（真实上架 E2E 实测驱动）：v0.19 跟卖 0/3 全拒 → v0.20 跟卖 0 图 → v0.21 类目错配/假成功 → v0.22 经营数据闭环 → v0.25 尺码表/学习闭环。详见 `CHANGELOG.md`。
@@ -241,6 +255,7 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | worker | `PYTHONPATH=src python3 tests/test_learning_record_gate.py`（v0.21 成功判据收紧回归，5 用例，无需 PG） |
 | worker | `PYTHONPATH=src python3 tests/test_hazard_attr_fallback.py`（v0.21 危险品安全兜底回归，7 用例，无需 PG） |
 | worker | `PYTHONPATH=src python3 tests/test_category_match_v021.py`（v0.21 类目同义词/学习缓存一致性，5 用例） |
+| worker | `PYTHONPATH=src python3 tests/test_language_routing.py`（v0.29 语言路由：1688 中文→ZH_HANS/Ozon 类目名→RU/无中文残留，4 用例） |
 | skill | `python3.12 tests/test_updater.py`（v0.18 自动更新器单测，11 断言，mock 网络） |
 | skill | `python3.12 tests/test_envelope_fields.py`（v0.21 信封字段完整性，2 用例） |
 | worker | `bash scripts/local_run.sh -m flow -i '{...}'` 跑全流程 |
@@ -389,6 +404,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - **`docs/CONTRACT-v4.md`** — ⭐ Skill↔Worker API 契约 v4.0（端点、请求/响应、错误码、节点合约；`CONTRACT.md` 是 v3.0 旧版）
 - **`docs/LOGGING.md`** — 日志系统架构 + 查看命令 + 故障排查流程
 - **`docs/CONVENTIONS.md`** — 分支命名 + commit 规范 + 发版流程
+- **`docs/OZON-ATTRIBUTE-API.md`** — ⭐ Ozon 属性/类目 API 参考（5 接口定义 + 属性填满策略 + 关键属性 ID 表，开发直接查）
 - **`worker/AGENTS.md`** — Worker 完整文档：节点流程、Ozon API 坑
 - **`worker/src/api/errors.py`** — 统一错误码（改错误响应前必看）
 - **`worker/src/api/schemas.py`** — Pydantic schemas（改 API 前必看）
@@ -417,6 +433,14 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
 - **Docker 部署**: `deploy/docker-compose.yml` 含 PG + Worker，`HEALTHCHECK` 已配置。
 - **API 版本化**: 新端点走 `/api/v1/`，旧路径保持兼容。
+
+### v0.29 新增关键约定（改属性匹配/运费/Chrome/余额前必看）
+
+- **属性语言路由(测试锁定)**: `values/search` **无 language 参数**(语言无关, 中文直查); schema/values 全量接口 language 决定返回文本语言。1688 中文值 → 中文直查; Ozon 类目名 → RU。字典属性 value 文本**禁止中文**(命中 ZH_HANS 缓存时置空/用 RU, dict_id 权威)。
+- **运费端点**: `POST /api/v1/logistics/quote`(worker)与 `utils/logistics_quote.py` 公共模块同源, pricing_node 已改用它。skill 端 `_query_logistics_from_worker` 失败降级本地 40 CNY/kg。
+- **Chrome 常驻**: 工具 Chrome 独立 profile(`data/browser/profile`)+ 常驻, **命令出口不关**; close_tool_chrome 仅显式调用。用户手动关后下次命令独立 profile 重启必成功(无单实例锁)。
+- **余额统一**: Worker auth/submit/auth_node + skill check 全部查 MXOU 平台真实余额(`users.quota`), 不用 `remain_quota`(僵尸字段)。
+- **Sentry**: `~/.sentryclirc`(sntryu_ token, us.sentry.io, pouding_ozon); 查错误用 `sentry-cli issues list` 或 REST API。
 
 ### v0.17-v0.25 新增关键约定（改跟卖/成功判据/属性兜底前必看）
 
