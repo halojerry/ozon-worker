@@ -200,6 +200,11 @@ def cmd_graph(args: argparse.Namespace) -> int:
                         _attrs_all.setdefault(str(_fc["title"]), str(_fc["value"]))
                 if _attrs_all:
                     graph["envelope"]["draft"]["ozon_attributes"] = _attrs_all
+                    # ⚠️ v0.29.x: 透传竞品类目(供 worker 校验类目一致才复用,
+                    # 防跨类目属性错配——实测手持风扇 vs 护发素)
+                    _oz_cat = _oz.get("description_category_id") or ""
+                    if str(_oz_cat).isdigit():
+                        graph["envelope"]["draft"]["ozon_attributes_category"] = int(_oz_cat)
                     print(f"✅ 竞品属性透传: {len(_attrs_all)} 个(ozon-ref-url)")
             except Exception as _oz_e:
                 print(f"⚠️ 竞品属性抓取失败(继续): {_oz_e}")

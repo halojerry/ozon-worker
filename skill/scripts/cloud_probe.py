@@ -1661,6 +1661,21 @@ def build_graph_envelope(
     if is_multi:
         draft["variants"] = variants
     else:
+        # ⚠️ v0.29.x 防御: 无 option_groups 且无 sku_details 时 variants 可能为空
+        # (如护发素单规格商品) → 兜底单变体, 避免 variants[0] IndexError
+        if not variants:
+            variants = [{
+                "sku_id": str(item_id),
+                "name": "default",
+                "color": "default",
+                "model": "",
+                "size": "one size",
+                "image": "",
+                "price": cost_cny,
+                "original_price": cost_cny,
+                "attributes": {},
+                "variant_type": "single",
+            }]
         v0 = variants[0]
         draft["sku_id"] = v0["sku_id"]
         draft["price"] = v0["price"]
