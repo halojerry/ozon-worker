@@ -115,6 +115,9 @@ jobs:
           EOF
           echo "SHA256: $SHA"
           ls -la pkg/
+        env:
+          COS_BUCKET: ${{ secrets.COS_BUCKET }}
+          COS_REGION: ${{ secrets.COS_REGION }}
 
       - name: Install coscli
         run: |
