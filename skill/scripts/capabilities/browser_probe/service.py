@@ -1616,15 +1616,12 @@ def _open_target_page_in_existing_browser(
     *,
     timeout_seconds: int,
 ) -> CdpTab:
-    from scripts.capabilities.browser_probe.stealth import REALISTIC_UA, STEALTH_JS
+    from scripts.capabilities.browser_probe.stealth import STEALTH_JS
 
     tab = cdp.new_tab()
 
     # 注入反检测 JS
     tab.add_init_script(STEALTH_JS)
-
-    # UA 覆盖
-    tab.set_extra_headers({'User-Agent': REALISTIC_UA})
 
     timeout_sec = max(int(timeout_seconds), 45)
     tab.navigate(target_url, wait_until='domcontentloaded', timeout=timeout_sec)
@@ -1797,7 +1794,7 @@ def _wait_for_login_session(
         if _should_release:
             _login_lock.release()
 
-    from scripts.capabilities.browser_probe.stealth import REALISTIC_UA, STEALTH_JS
+    from scripts.capabilities.browser_probe.stealth import STEALTH_JS
 
     session = _resolve_browser_session(profile_name)
     login_url = 'https://login.1688.com/member/signin.htm'
@@ -1831,9 +1828,6 @@ def _wait_for_login_session(
 
         # 注入反检测 JS
         tab.add_init_script(STEALTH_JS)
-
-        # UA 覆盖
-        tab.set_extra_headers({'User-Agent': REALISTIC_UA})
 
         # Navigate to login page
         _logger.info("Navigating to 1688 login page...")
@@ -1920,9 +1914,8 @@ def _check_1688_login_live(cdp_url: str) -> bool:
         temp_tab = conn.new_tab()
 
         # 注入反检测脚本（防止1688滑块验证码）
-        from scripts.capabilities.browser_probe.stealth import REALISTIC_UA, STEALTH_JS
+        from scripts.capabilities.browser_probe.stealth import STEALTH_JS
         temp_tab.add_init_script(STEALTH_JS)
-        temp_tab.set_extra_headers({'User-Agent': REALISTIC_UA})
 
         # Navigate to a product page (any 1688 product)
         try:

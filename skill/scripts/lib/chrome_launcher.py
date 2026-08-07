@@ -446,8 +446,11 @@ def _write_launched_pid(pid: int) -> None:
 
 
 def close_tool_chrome() -> None:
-    """关闭工具自启的 Chrome(命令出口 finally 调用)。
+    """关闭工具自启的 Chrome(显式调用, 命令出口不再自动调用)。
 
+    ⚠️ v0.29.x: 默认「独立 profile + 常驻」—— 命令结束不关闭 Chrome,
+    登录态常驻复用(下次命令 CDP 可用即直接使用)。close_tool_chrome 仅在
+    用户需要显式关闭时调用(如手动清理残留实例)。
     ⚠️ v0.28.3: 解决"用户每次使用都重复开启浏览器"——工具自启实例
     (独立 profile + debug 端口)用完即关, 不影响用户日常 Chrome。
     仅当本进程启动过 Chrome(PID 文件存在)才动作; 复用已有 CDP 时不关。
