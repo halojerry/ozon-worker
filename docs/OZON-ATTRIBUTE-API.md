@@ -128,14 +128,14 @@ worker `category_tree_nodes` 表已缓存双语, 类目匹配用 pg_trgm(不用 
 
 按文本模糊搜索字典值, 拿 `id`。**无 language 参数**(语言无关, 中文/俄语都能搜)。
 
-**请求体**:
+**请求体**(官方定义, 全部 required):
 ```json
 {
-  "attribute_id": 8229,
-  "description_category_id": 17028747,
-  "type_id": 99385,
-  "value": "Эпоксидная смола для творчества",   // ≥2 字符
-  "limit": 5                                     // ≤100
+  "attribute_id": 8229,                  // required: 属性 ID
+  "description_category_id": 17028747,   // required: 类目 ID
+  "type_id": 99385,                      // required: 类型 ID
+  "value": "Эпоксидная смола",           // required: 搜索词, 最少 2 字符
+  "limit": 5                             // required: 1-100
 }
 ```
 
