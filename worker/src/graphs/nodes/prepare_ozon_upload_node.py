@@ -767,10 +767,13 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
             vals = dict_values.get(str(aid)) or []
             resolved = None
             # ① 优先竞品 Ozon 属性（俄语值 → search/列表 → id，最准）
+            # ⚠️ v0.29.x 类目一致性校验: 跨类目(如 风扇 vs 护发素)不复用, 防属性错配
             try:
-                from utils.attr_defaults import resolve_ozon_attr_value
+                from utils.attr_defaults import ozon_attrs_allowed, resolve_ozon_attr_value
                 _ozon_val = resolve_ozon_attr_value(
-                    aid, str(attr.get("name") or ""), (draft or {}).get("ozon_attributes")
+                    aid, str(attr.get("name") or ""),
+                    (draft or {}).get("ozon_attributes")
+                    if ozon_attrs_allowed(draft, dc) else None,
                 )
                 if _ozon_val:
                     from utils.ozon_dict_values import search_dictionary_values as _sdv
@@ -1001,8 +1004,12 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
             # 类型/颜色/材质 6 类语义, 值比 1688 推断更准。
             _ozon_val = ""
             try:
-                from utils.attr_defaults import resolve_ozon_attr_value
-                _ozon_val = resolve_ozon_attr_value(aid, aname, (draft or {}).get("ozon_attributes")) or ""
+                from utils.attr_defaults import ozon_attrs_allowed, resolve_ozon_attr_value
+                _ozon_val = resolve_ozon_attr_value(
+                    aid, aname,
+                    (draft or {}).get("ozon_attributes")
+                    if ozon_attrs_allowed(draft, dc) else None,
+                ) or ""
             except Exception:
                 _ozon_val = ""
             if _ozon_val:

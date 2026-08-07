@@ -485,3 +485,32 @@ if __name__ == "__main__":
                 failed += 1; print(f"FAIL {name}"); traceback.print_exc()
     print(f"\n{total - failed}/{total} passed")
     sys.exit(1 if failed else 0)
+
+
+# ═══ v0.29.x 竞品属性复用类目一致性 ═══
+
+def test_ozon_attrs_allowed_same_category():
+    """竞品类目与当前类目一致 → 允许复用。"""
+    from utils.attr_defaults import ozon_attrs_allowed
+    draft = {"ozon_attributes": {"Тип": "X"}, "ozon_attributes_category": 17028747}
+    assert ozon_attrs_allowed(draft, 17028747) is True
+
+
+def test_ozon_attrs_allowed_cross_category_blocked():
+    """跨类目(风扇 vs 护发素) → 禁止复用(防属性错配)。"""
+    from utils.attr_defaults import ozon_attrs_allowed
+    draft = {"ozon_attributes": {"Тип волос": "Для всех"}, "ozon_attributes_category": 17028747}
+    assert ozon_attrs_allowed(draft, 12345678) is False
+
+
+def test_ozon_attrs_allowed_follow_no_category_trusted():
+    """follow 路径无 category 字段(类目天然来自竞品) → 信任同源。"""
+    from utils.attr_defaults import ozon_attrs_allowed
+    assert ozon_attrs_allowed({"ozon_attributes": {"Пол": "Унисекс"}}, 17028747) is True
+
+
+def test_ozon_attrs_allowed_no_attrs():
+    """无 ozon_attributes → 不复用。"""
+    from utils.attr_defaults import ozon_attrs_allowed
+    assert ozon_attrs_allowed({"title": "x"}, 17028747) is False
+    assert ozon_attrs_allowed(None, 17028747) is False

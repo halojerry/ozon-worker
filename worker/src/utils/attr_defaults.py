@@ -105,6 +105,32 @@ def infer_gender_ru(title_text: str) -> Optional[str]:
     return None
 
 
+def ozon_attrs_allowed(draft: Any, current_dc: Any) -> bool:
+    """竞品属性复用类目一致性校验（v0.29.x）。
+
+    - 无 ozon_attributes → False(不消费)
+    - 有 ozon_attributes_category(follow/ozon-ref-url 透传) → 必须与当前类目
+      description_category_id 一致才复用；不一致 → False(防跨类目属性错配,
+      实测手持风扇 vs 护发素)
+    - 无 category 字段(follow 旧路径, 类目天然来自竞品) → True(信任同源)
+    """
+    if not isinstance(draft, dict) or not draft.get("ozon_attributes"):
+        return False
+    cat = draft.get("ozon_attributes_category")
+    if cat is None:
+        return True  # follow 同源(类目即竞品类目)
+    try:
+        cur = int(current_dc or 0)
+        ref = int(cat or 0)
+    except (TypeError, ValueError):
+        return False
+    if cur and ref and cur == ref:
+        return True
+    if not cur:  # 当前类目未知, 保守不复用
+        return False
+    return False
+
+
 def resolve_ozon_attr_value(attr_id: int, attr_name: str, ozon_attrs: Any) -> Optional[str]:
     """从竞品 Ozon 属性表（俄语键值）取对应属性的值，按属性语义关键词匹配。"""
     if not isinstance(ozon_attrs, dict) or not ozon_attrs:
