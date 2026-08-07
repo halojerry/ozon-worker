@@ -2177,24 +2177,35 @@ def prepare_ozon_upload_node(
             found_4958 = True
             break
     if not found_4958:
-        _dict_4958: List[Dict[str, Any]] = []
-        if dictionary_values:
-            _dict_4958 = dictionary_values.get(str(4958), []) or []
-        if _dict_4958:
-            _first_4958 = _dict_4958[0]
-            _vid_4958: int = int(_first_4958.get("id", 0))
-            _vval_4958: str = str(_first_4958.get("value", ""))
-            if _vid_4958 > 0:
-                ozon_attributes.append({
-                    "complex_id": 0,
-                    "id": 4958,
-                    "values": [{"dictionary_value_id": _vid_4958, "value": _vval_4958}]
-                })
-                logger.info(f"✅ 兜底添加属性4958（专为），字典值: {_vval_4958} (dict_id={_vid_4958})")
-                seen_attr_ids.add(4958)
+        # ⚠️ v0.29.x: 4958(专为/用途)不再取字典缓存第一个(盲补首值语义随机,
+        # 同 8229「套娃」类风险)。改为 /values/search 按标题中文直查
+        # (语言无关, 标题含「宠物/工具/通用」等用途词可命中); 无命中跳过。
+        _vid_4958, _vval_4958 = 0, ""
+        try:
+            from utils.ozon_dict_values import search_dictionary_values as _sdv4958
+            _title4958 = str((draft or {}).get("title") or "")
+            _hits4958 = _sdv4958(
+                getattr(state, "ozon_client_id", "") or "",
+                getattr(state, "ozon_api_key", "") or "",
+                4958, int(description_category_id or 0), int(type_id or 0),
+                _title4958[:50] if _title4958 else "универсальный",
+            ) or []
+            if _hits4958:
+                _vid_4958 = int(_hits4958[0].get("id") or 0)
+                _vval_4958 = str(_hits4958[0].get("value") or "")
+        except Exception:
+            pass
+        if _vid_4958 > 0:
+            ozon_attributes.append({
+                "complex_id": 0,
+                "id": 4958,
+                "values": [{"dictionary_value_id": _vid_4958, "value": _vval_4958}]
+            })
+            logger.info(f"✅ 兜底添加属性4958（专为），标题搜索: {_vval_4958} (dict_id={_vid_4958})")
+            seen_attr_ids.add(4958)
         else:
-            # 无字典缓存 → 跳过（避免文本兜底被Ozon拒绝）
-            logger.warning("⚠️ 属性4958（专为）无字典值缓存，跳过（不做文本兜底）")
+            # 搜索无命中 → 跳过（不做文本兜底/不盲补首值, 防「属性值不正确」）
+            logger.warning("⚠️ 属性4958（专为）标题搜索无命中，跳过")
 
     # ✅ 补充常见必填自由文本属性的默认值（Ozon 审核拒绝原因：error_attribute_values_empty）
     # ⚠️ v0.13: 9782（Класс опасности товара/危险品等级）是字典属性，已移出本表——文本兜底会被 Ozon 拒绝
