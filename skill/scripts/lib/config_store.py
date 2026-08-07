@@ -17,7 +17,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from scripts._const import CONFIG_DIR, SKILL_ROOT
+from scripts._const import CONFIG_DIR
 
 # Config file paths
 STORES_FILE = CONFIG_DIR / 'stores.json'
@@ -427,7 +427,6 @@ def load_config(config_path: Path | None = None) -> dict[str, Any]:
 
 def load_env_file() -> None:
     """No-op. Config is now in stores.json/settings.json."""
-    pass
 
 
 def get_required_keys() -> dict[str, dict[str, str]]:
@@ -453,7 +452,6 @@ AUTH_CACHE_TTL = 86400  # 24 小时
 
 class AuthError(Exception):
     """凭证缺失或无效。"""
-    pass
 
 
 def _load_auth_cache() -> dict[str, Any]:
@@ -505,6 +503,7 @@ def verify_with_worker(token: str, client_id: str = "", api_key: str = "") -> di
         AuthError: Worker unreachable or auth endpoint not available
     """
     import requests
+
     from scripts._const import CLOUD_API_BASE
     url = f"{CLOUD_API_BASE}/api/v1/auth/verify"
     try:

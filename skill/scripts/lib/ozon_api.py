@@ -5,6 +5,7 @@ actually used by cloud_client.py are ported; the heavier cloud-only modules
 (COS, Windmill, orchestration, attribute resolution, etc.) are not needed here.
 """
 from __future__ import annotations
+
 import logging
 import time
 from typing import Any
@@ -26,7 +27,6 @@ OZON_BASE_URL = "https://api-seller.ozon.ru"
 
 class OzonApiError(RuntimeError):
     """Raised when Ozon API calls fail."""
-    pass
 
 
 # ---------------------------------------------------------------------------
@@ -326,9 +326,7 @@ def search_categories(
                     r["score"] += 15
                 key = (int(r["description_category_id"]), int(r["type_id"]))
                 # Single-word exact or near-exact match always beats original partial match
-                if key in merged and r["score"] < merged[key]["score"]:
-                    merged[key] = r
-                elif key not in merged:
+                if key in merged and r["score"] < merged[key]["score"] or key not in merged:
                     merged[key] = r
 
         results = sorted(merged.values(), key=lambda r: (
@@ -822,7 +820,7 @@ def update_existing_product(
         result = _post(
             client_id, api_key, "/v3/product/import", {"items": [item]}, timeout=30
         )
-        task_id = str(((result.get("result") or {}).get("task_id", "")))
+        task_id = str((result.get("result") or {}).get("task_id", ""))
         return {
             "ok": True,
             "task_id": task_id,

@@ -19,7 +19,11 @@ batch_test               批量处理 URL 列表
 
 from __future__ import annotations
 
-import argparse, json, os, sys, time
+import argparse
+import json
+import os
+import sys
+import time
 from pathlib import Path
 
 # Ensure scripts/ is on sys.path
@@ -69,7 +73,7 @@ def cmd_set_store(args: argparse.Namespace) -> int:
 
 def cmd_list_stores(args: argparse.Namespace) -> int:
     """列出所有已配置的 Ozon 店铺."""
-    from scripts.lib.config_store import list_stores, get_store
+    from scripts.lib.config_store import list_stores
     stores = list_stores()
     if not stores:
         _out({"stores": {}, "message": "未配置任何店铺。使用 set_store 命令配置。"})
@@ -143,9 +147,12 @@ def cmd_probe(args: argparse.Namespace) -> int:
 
 def cmd_graph(args: argparse.Namespace) -> int:
     """组装 GraphInput envelope（1688 API + CDP → 完整请求）."""
-    from scripts.lib.config_store import preflight_check, print_setup_guide, AuthError
+    from scripts.lib.config_store import AuthError, preflight_check, print_setup_guide
     try:
-        from scripts.cloud_probe import build_graph_envelope_with_retry, ProductValidationError
+        from scripts.cloud_probe import (
+            ProductValidationError,
+            build_graph_envelope_with_retry,
+        )
     except ModuleNotFoundError:
         print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
               "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
@@ -232,7 +239,7 @@ def cmd_image_search(args) -> int:
     --source ak  → 1688 AK API 图搜（默认，无需浏览器）
     --source cdp → 1688 网页版 CDP 图搜（更准确，需 Chrome 登录 1688）
     """
-    from scripts.lib.config_store import preflight_check, print_setup_guide, AuthError
+    from scripts.lib.config_store import AuthError, preflight_check, print_setup_guide
 
     missing = preflight_check(skip_store=True)
     if missing:
@@ -290,7 +297,6 @@ def cmd_image_search(args) -> int:
 def cmd_get_ak(args) -> int:
     """通过浏览器获取 1688 AK，自动保存到 settings.json."""
     from scripts.lib.ak_callback import get_ak_via_browser
-    from scripts.lib.config_store import set_ali_1688_ak
 
     result = get_ak_via_browser(timeout=args.timeout)
 
@@ -318,11 +324,18 @@ def _chrome_profile_dir() -> str:
 
 def cmd_check(args) -> int:
     """诊断前置条件：浏览器 / CDP / 1688 / Ozon / 凭证 / Worker"""
-    from scripts.lib.config_store import check_config, list_stores, get_mxou_token, get_ali_1688_ak
-    from scripts.capabilities.browser_probe.service import _candidate_browser_paths
-    import requests as req
     import os as _os
     import shutil
+
+    import requests as req
+
+    from scripts.capabilities.browser_probe.service import _candidate_browser_paths
+    from scripts.lib.config_store import (
+        check_config,
+        get_ali_1688_ak,
+        get_mxou_token,
+        list_stores,
+    )
 
     config = check_config()
     all_ok = True
@@ -393,15 +406,15 @@ def cmd_check(args) -> int:
             tag = "（推荐）" if name == "Google Chrome" else ""
             print(f"  ✅ {name} {tag}")
     else:
-        print(f"  ❌ 未检测到可用浏览器")
-        print(f"  → 请安装 Google Chrome: https://www.google.com/chrome/")
+        print("  ❌ 未检测到可用浏览器")
+        print("  → 请安装 Google Chrome: https://www.google.com/chrome/")
         all_ok = False
         return 0 if all_ok else 1
 
     # ═══════════════════════════════════════════
     # 2. CDP 远程调试检查（自动启动 Chrome）
     # ═══════════════════════════════════════════
-    print(f"\n🔗 CDP 远程调试 (127.0.0.1:9222):")
+    print("\n🔗 CDP 远程调试 (127.0.0.1:9222):")
 
     try:
         from scripts.lib.chrome_launcher import ensure_chrome_cdp, get_chrome_info
@@ -409,7 +422,7 @@ def cmd_check(args) -> int:
         if info["chrome_found"]:
             print(f"  🌐 Chrome: {Path(info['chrome_path']).name}")
         if not info["cdp_available"]:
-            print(f"  ⏳ CDP 未运行，正在自动启动 Chrome...")
+            print("  ⏳ CDP 未运行，正在自动启动 Chrome...")
             ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
             if ok:
                 print(f"  ✅ {msg}")
@@ -418,7 +431,7 @@ def cmd_check(args) -> int:
                 print(f"  ❌ {msg}")
                 session_ok = False
         elif not info["has_remote_allow_origins"]:
-            print(f"  ⚠️ CDP 运行中但缺少 --remote-allow-origins，正在重启 Chrome...")
+            print("  ⚠️ CDP 运行中但缺少 --remote-allow-origins，正在重启 Chrome...")
             ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
             if ok:
                 print(f"  ✅ {msg}")
@@ -428,15 +441,15 @@ def cmd_check(args) -> int:
                 session_ok = False
         else:
             session_ok = True
-            print(f"  ✅ CDP 已启动")
+            print("  ✅ CDP 已启动")
     except ImportError:
         cdp = config.get("cdp", {})
         session_ok = cdp.get("session_available", False) or cdp.get("cdp_running", False)
         print(f"  {_ok(session_ok)} CDP 已启动")
         if not session_ok:
-            print(f"  ⚠️ 自动启动模块不可用，请手动启动 Chrome:")
-            print(f"  macOS: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\")
-            print(f"    --remote-debugging-port=9222 --remote-allow-origins='*'")
+            print("  ⚠️ 自动启动模块不可用，请手动启动 Chrome:")
+            print("  macOS: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\")
+            print("    --remote-debugging-port=9222 --remote-allow-origins='*'")
 
     cdp = config.get("cdp", {})
     login_ok = not cdp.get("login_required", True)
@@ -447,7 +460,7 @@ def cmd_check(args) -> int:
     alibaba_cdp_ok = False
     login_ok = False  # ⚠️ v0.14 E4: 显式初始化（原代码 ws 分支异常时可能 NameError）
     if session_ok:
-        print(f"\n  🔗 1688 CDP 连通检查...")
+        print("\n  🔗 1688 CDP 连通检查...")
         try:
             from scripts.lib.cdp_client import CdpTab
 
@@ -473,22 +486,17 @@ def cmd_check(args) -> int:
                     login_ok = val == "LOGGED_IN"
                 tab.close(close_remote=False)  # 只关 WS，保留用户 1688 标签页
             else:
-                print(f"  ⚠️ 未找到已打开的 1688 标签页")
+                print("  ⚠️ 未找到已打开的 1688 标签页")
         except Exception as _dbg_e:
             print(f"  ⚠️ 1688 CDP 异常: {_dbg_e}")
         print(f"  {_ok(alibaba_cdp_ok)} 1688 页面可访问 (仅影响 1688 URL)")
     else:
-        print(f"\n  🔗 1688 CDP: ⏭️ 跳过（CDP 未启动）")
+        print("\n  🔗 1688 CDP: ⏭️ 跳过（CDP 未启动）")
 
-    if session_ok and alibaba_cdp_ok:
+    if session_ok and alibaba_cdp_ok or session_ok:
         print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
         if not login_ok:
-            print(f"  → 需登录 1688")
-            all_ok = False
-    elif session_ok:
-        print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
-        if not login_ok:
-            print(f"  → 需登录 1688")
+            print("  → 需登录 1688")
             all_ok = False
 
     # ── v0.28.4: 登录引导 — 打开 1688 + Ozon Seller 登录页, 交互等待 ──
@@ -511,9 +519,9 @@ def cmd_check(args) -> int:
     # ═══════════════════════════════════════════
     ozon_cdp_ok = False
     if session_ok:
-        print(f"\n  🔗 Ozon CDP 连通检查 (DataDome)...")
+        print("\n  🔗 Ozon CDP 连通检查 (DataDome)...")
         try:
-            from scripts.lib.cdp_client import CdpTab, CdpConnection
+            from scripts.lib.cdp_client import CdpConnection, CdpTab
 
             tab = None
             tab_is_new = False
@@ -552,10 +560,10 @@ def cmd_check(args) -> int:
             pass
         print(f"  {_ok(ozon_cdp_ok)} Ozon 可通过 DataDome")
     else:
-        print(f"\n  🔗 Ozon CDP: ⏭️ 跳过（CDP 未启动）")
+        print("\n  🔗 Ozon CDP: ⏭️ 跳过（CDP 未启动）")
 
     if session_ok and not ozon_cdp_ok:
-        print(f"  → 在浏览器中打开 https://www.ozon.ru/ 浏览任意商品即可建立信任")
+        print("  → 在浏览器中打开 https://www.ozon.ru/ 浏览任意商品即可建立信任")
         _open_tab("https://www.ozon.ru/")
         all_ok = False
 
@@ -563,7 +571,7 @@ def cmd_check(args) -> int:
     # 4.5 seller.ozon.ru 卖家后台登录检查（运营数据）
     # ═══════════════════════════════════════════
     # www.ozon.ru 是选品端；seller.ozon.ru 是卖家后台（运营数据/月销/利润率判断靠它）
-    print(f"\n  🔗 seller.ozon.ru 卖家后台登录检查（选品运营数据依赖）...")
+    print("\n  🔗 seller.ozon.ru 卖家后台登录检查（选品运营数据依赖）...")
     seller_ok = False
     if session_ok:
         try:
@@ -576,27 +584,27 @@ def cmd_check(args) -> int:
             pass
     print(f"  {_ok(seller_ok)} seller.ozon.ru 卖家后台已登录（运营数据可用）")
     if not seller_ok:
-        print(f"  → 请在 Chrome 中打开 https://seller.ozon.ru/ 登录卖家后台")
-        print(f"    （选品去 www.ozon.ru，运营数据在 seller.ozon.ru，两个登录态都要）")
+        print("  → 请在 Chrome 中打开 https://seller.ozon.ru/ 登录卖家后台")
+        print("    （选品去 www.ozon.ru，运营数据在 seller.ozon.ru，两个登录态都要）")
         if session_ok:
             _open_tab("https://seller.ozon.ru/")
 
     # ═══════════════════════════════════════════
     # 5. 凭证检查
     # ═══════════════════════════════════════════
-    print(f"\n📋 凭证:")
+    print("\n📋 凭证:")
 
     # MXOU_TOKEN
     mxou = get_mxou_token()
     print(f"  {_ok(bool(mxou))} MXOU_TOKEN")
     if not mxou:
-        print(f"  → python3 scripts/cli.py set_token --token <你的token>")
+        print("  → python3 scripts/cli.py set_token --token <你的token>")
 
     # 1688 AK
     ak = get_ali_1688_ak()
     print(f"  {_ok(bool(ak))} 1688 AK")
     if not ak:
-        print(f"  → python3 scripts/cli.py get_ak  # 自动获取")
+        print("  → python3 scripts/cli.py get_ak  # 自动获取")
 
     # Ozon stores
     stores = list_stores()
@@ -607,7 +615,7 @@ def cmd_check(args) -> int:
             print(f"    • {name}: {cid[:8]}***" if cid else f"    • {name}: (未配置)")
     else:
         print(f"  {_ok(False)} Ozon 店铺未配置")
-        print(f"  → python3 scripts/cli.py set_store --name \"店铺名\" --client-id <ID> --api-key <KEY>")
+        print("  → python3 scripts/cli.py set_store --name \"店铺名\" --client-id <ID> --api-key <KEY>")
         all_ok = False
 
     # ═══════════════════════════════════════════
@@ -631,7 +639,7 @@ def cmd_check(args) -> int:
     # ═══════════════════════════════════════════
     # 7. Ozon API 验证（用第一个店铺）
     # ═══════════════════════════════════════════
-    print(f"\n🏪 Ozon API:")
+    print("\n🏪 Ozon API:")
     if stores:
         first_name = next(iter(stores))
         first_cfg = stores[first_name]
@@ -649,7 +657,7 @@ def cmd_check(args) -> int:
                 else:
                     print(f"  {_ok(True)} API 认证通过")
             except Exception:
-                print(f"  ⚠️ 网络超时（不影响后续使用）")
+                print("  ⚠️ 网络超时（不影响后续使用）")
     else:
         print(f"  {_ok(False)} 无可用店铺配置")
 
@@ -659,10 +667,10 @@ def cmd_check(args) -> int:
     print(f"\n{'='*55}")
     if all_ok:
         print("✅ 所有前置条件满足！")
-        print(f"\n  python3 scripts/cli.py search <关键词>         # 1688搜索")
-        print(f"  python3 scripts/cli.py graph --url <1688 URL>   # 组装信封")
-        print(f"  python3 scripts/cli.py follow --ozon-url <Ozon URL>  # 跟卖")
-        print(f"  python3 scripts/batch_test.py --urls-file <文件> --submit  # 批量")
+        print("\n  python3 scripts/cli.py search <关键词>         # 1688搜索")
+        print("  python3 scripts/cli.py graph --url <1688 URL>   # 组装信封")
+        print("  python3 scripts/cli.py follow --ozon-url <Ozon URL>  # 跟卖")
+        print("  python3 scripts/batch_test.py --urls-file <文件> --submit  # 批量")
     else:
         print("❌ 请先解决以上问题")
     print(f"{'='*55}")
@@ -681,14 +689,14 @@ def cmd_check(args) -> int:
             if not ozon_cdp_ok:
                 print(f"  {step}. 访问 Ozon: https://www.ozon.ru/ （随便点一个商品即可，不需要注册账号）")
                 step += 1
-            print(f"\n  完成后重新运行: python3 scripts/cli.py check")
+            print("\n  完成后重新运行: python3 scripts/cli.py check")
 
     return 0 if all_ok else 1
 
 
 def cmd_follow(args) -> int:
     """跟卖 Ozon 商品: Ozon URL → import-by-sku → 1688搜索 → CDP探针 → 上架"""
-    from scripts.lib.config_store import preflight_check, print_setup_guide, AuthError
+    from scripts.lib.config_store import AuthError, preflight_check, print_setup_guide
     try:
         from scripts.cloud_probe import follow_sell_cloud
     except ModuleNotFoundError:
@@ -937,7 +945,10 @@ def cmd_discover(args: argparse.Namespace) -> int:
             print("已取消")
             return 0
         try:
-            from scripts.cloud_probe import build_envelope_from_discovery, submit_envelope
+            from scripts.cloud_probe import (
+                build_envelope_from_discovery,
+                submit_envelope,
+            )
         except ModuleNotFoundError:
             print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
                   "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
@@ -973,7 +984,10 @@ def cmd_trend(args: argparse.Namespace) -> int:
     """趋势驱动选品：web 趋势 → AI 细分关键词 → 1688 AK 搜索（满 3 即停）→ 展示。"""
     from scripts.lib.config_store import get_mxou_token
     from scripts.lib.trend_selection import (
-        collect_market_info, summarize_keywords, search_by_keywords, render_results,
+        collect_market_info,
+        render_results,
+        search_by_keywords,
+        summarize_keywords,
     )
     token = get_mxou_token() or ""
     if not token:

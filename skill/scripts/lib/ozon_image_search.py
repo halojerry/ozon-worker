@@ -11,8 +11,6 @@ import re
 import time
 from typing import Any
 
-import requests
-
 from scripts.lib.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
@@ -227,8 +225,8 @@ def search_by_image_cdp(
     Returns:
         [{"id": "offer_id", "title": "...", "price": float, "badge": "..."}, ...]
     """
-    from scripts.lib.config_store import _require_auth
     from scripts.lib.cdp_client import CdpConnection
+    from scripts.lib.config_store import _require_auth
 
     _require_auth()
 

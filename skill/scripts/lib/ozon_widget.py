@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from typing import Any
 
 import requests
@@ -46,7 +45,7 @@ def extract_product_id(url: str) -> str:
     return m.group(1) if m else ""
 
 
-def _ensure_ozon_tab(cdp: "CdpConnection") -> "CdpTab":
+def _ensure_ozon_tab(cdp: CdpConnection) -> CdpTab:
     """Find an existing ozon.ru tab or create a new one.
 
     Reuses an existing tab to preserve cookies/session state.

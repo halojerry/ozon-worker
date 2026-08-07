@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import contextvars
 import json
 import os
 import threading
@@ -37,18 +38,39 @@ init_sentry()
 # ── 进度追踪（内存存储，重启清空） ──
 # 格式: {task_id: {stage, stage_index, total_stages, percent, message, updated_at}}
 _task_progress: Dict[str, Dict[str, Any]] = {}
-_current_task_id: str | None = None  # ✅ v0.10: thread-local 当前处理中的 task_id
+# ✅ v0.29 P0(PRD-cicd-stability): 模块级全局 → contextvars
+# 原实现是模块级 global, 注释谎称 "thread-local" —— asyncio 多任务并发时
+# set/get 之间被其他协程 set 覆盖 → 日志/进度/Sentry 串号(PRD 复现路径)。
+# ContextVar 按任务协程隔离, 子任务自动继承。
+_current_task_id: "contextvars.ContextVar[str | None]" = contextvars.ContextVar(
+    "current_task_id", default=None
+)
+
+# ✅ v0.29(PRD-cicd-stability): 优雅关闭标志
+# 收到 SIGTERM/docker stop 后: worker_loop 不再拉新任务 → drain 运行中任务
+# (最多 5 分钟) → 超时才 cancel。避免 update.sh --force-recreate 强杀用户任务。
+SHUTDOWN_FLAG = False
+
+
+def request_shutdown() -> None:
+    """请求优雅关闭(停止接收新任务)。"""
+    global SHUTDOWN_FLAG
+    SHUTDOWN_FLAG = True
+
+
+def is_shutting_down() -> bool:
+    """是否正在优雅关闭。"""
+    return SHUTDOWN_FLAG
 
 
 def set_current_task_id(task_id: str | None):
-    """设置当前正在处理的 task_id（供 ProgressLogger 等模块使用）"""
-    global _current_task_id
-    _current_task_id = task_id
+    """设置当前协程正在处理的 task_id（供 ProgressLogger 等模块使用）"""
+    _current_task_id.set(task_id)
 
 
 def get_current_task_id() -> str | None:
-    """获取当前正在处理的 task_id"""
-    return _current_task_id
+    """获取当前协程正在处理的 task_id"""
+    return _current_task_id.get()
 
 # 节点执行顺序（用于计算进度百分比）
 STAGE_ORDER = [
@@ -473,7 +495,33 @@ async def lifespan(app: FastAPI):
     worker_task = asyncio.create_task(task_processor.start_workers(num_workers=max_concurrent))
     
     yield
-    
+
+    # ✅ v0.29(PRD-cicd-stability): 优雅关闭 — 不再强杀运行中任务
+    # 1. 停止接收新任务(worker_loop 检查 SHUTDOWN_FLAG 后 break)
+    request_shutdown()
+    logger.info("🛑 收到关闭信号, 停止接收新任务, 等待运行中任务排空(最多 5 分钟)...")
+    # 2. drain: 轮询 PG 中 running 任务数, 直到为 0 或超时 300s
+    try:
+        from sqlalchemy import text as _sa_text
+        for _drain_i in range(300):
+            sess = get_session()
+            try:
+                _running = sess.execute(
+                    _sa_text("SELECT COUNT(*) FROM ozon_product_tasks WHERE status='running'")
+                ).scalar() or 0
+            finally:
+                sess.close()
+            if _running == 0:
+                logger.info("✅ 运行中任务已全部完成, 优雅关闭")
+                break
+            if _drain_i % 30 == 0:
+                logger.info(f"⏳ 排空中: 仍有 {_running} 个任务运行中 ({_drain_i}s)")
+            await asyncio.sleep(1)
+        else:
+            logger.warning("⚠️ 排空超时(5 分钟), 取消剩余任务(zombie cleanup 兜底)")
+    except Exception as _drain_e:
+        logger.warning(f"⚠️ 排空检查异常(继续关闭): {_drain_e}")
+
     # 关闭时停止Worker
     if worker_task is not None:
         worker_task.cancel()

@@ -28,6 +28,9 @@ services:
         BUILD_TIME: ${BUILD_TIME:-unknown}
     image: ozon-worker:${VERSION:-latest}
     restart: unless-stopped
+    # ✅ v0.29(PRD-cicd-stability): 优雅关闭 — 给运行中任务 5 分钟排空时间
+    # (FastAPI lifespan drain + worker_loop 停拉新任务; 默认 10s 会强杀任务)
+    stop_grace_period: 5m
     ports:
       - "0.0.0.0:8080:5000"
     env_file:

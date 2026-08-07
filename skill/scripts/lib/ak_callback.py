@@ -16,11 +16,11 @@ import logging
 import secrets
 import threading
 import webbrowser
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
 from typing import Any
-from urllib.parse import urlencode, urlparse, parse_qs
+from urllib.parse import parse_qs, urlencode, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ CALLBACK_PORT_RETRIES = 10
 
 # AK 写入路径（与 ak_1688_client.py 的 get_ak_from_file 兼容）
 from scripts._const import SKILL_ROOT
+
 _AK_STORE_DIR = SKILL_ROOT / ".1688-AK"
 _AK_STORE_FILE = _AK_STORE_DIR / ".ak_store.json"
 
@@ -238,12 +239,12 @@ def get_ak_via_browser(timeout: int = 300) -> dict[str, Any]:
     params = {"mode": "AK", "state": state, "redirect_uri": redirect_uri}
     auth_url = f"{AUTHORIZE_ENDPOINT}?{urlencode(params)}"
 
-    print(f"\n🌐 正在打开浏览器获取 1688 AK...")
+    print("\n🌐 正在打开浏览器获取 1688 AK...")
     print(f"   如未自动打开，请手动访问:\n   {auth_url}\n")
 
     opened = webbrowser.open(auth_url)
     if not opened:
-        print(f"⚠️ 无法自动打开浏览器，请手动复制上方链接")
+        print("⚠️ 无法自动打开浏览器，请手动复制上方链接")
 
     print(f"⏳ 等待完成 (超时 {timeout} 秒)...")
 
@@ -257,7 +258,7 @@ def get_ak_via_browser(timeout: int = 300) -> dict[str, Any]:
     thread.join(timeout=3)
 
     if completed:
-        success = server_ref["success"]
+        _success = server_ref["success"]
         result = server_ref["result"]
 
     if not completed:
@@ -267,8 +268,8 @@ def get_ak_via_browser(timeout: int = 300) -> dict[str, Any]:
     # 失败时打印手动获取指引
     if not result.get("success"):
         print(f"\n❌ 自动获取 AK 失败: {result.get('error_description', '未知错误')}")
-        print(f"   请手动获取 1688 AK:")
-        print(f"   1. 浏览器打开 https://clawhub.1688.com → 登录 → 复制 AK")
-        print(f"   2. 设置: python3.12 scripts/cli.py set_ak --ak <你的AK>\n")
+        print("   请手动获取 1688 AK:")
+        print("   1. 浏览器打开 https://clawhub.1688.com → 登录 → 复制 AK")
+        print("   2. 设置: python3.12 scripts/cli.py set_ak --ak <你的AK>\n")
 
     return result

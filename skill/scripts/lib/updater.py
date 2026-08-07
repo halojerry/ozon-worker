@@ -14,7 +14,6 @@ manifest.json 格式（CI 发布时生成，见 build-skill.yml）：
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import logging
 import os
@@ -186,8 +185,7 @@ def apply_update(update_info: dict[str, Any], auto_confirm: bool = False) -> dic
         resp = requests.get(dl_url, timeout=DOWNLOAD_TIMEOUT, stream=True)
         resp.raise_for_status()
         with open(archive, "wb") as f:
-            for chunk in resp.iter_content(65536):
-                f.write(chunk)
+            f.writelines(resp.iter_content(65536))
         resp.close()
 
         # 2. sha256 校验

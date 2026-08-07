@@ -516,6 +516,14 @@ class SupabaseTaskProcessor:
         logger.info("Worker开始运行")
         
         while True:
+            # ✅ v0.29(PRD-cicd-stability): 优雅关闭 — 不再接收新任务
+            try:
+                from main import is_shutting_down
+                if is_shutting_down():
+                    logger.info("🛑 Worker 收到关闭信号, 停止拉取新任务")
+                    break
+            except Exception:
+                pass
             try:
                 result = await self.process_next_task()
                 
