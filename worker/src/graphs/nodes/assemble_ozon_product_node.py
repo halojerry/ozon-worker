@@ -1636,6 +1636,15 @@ def _build_items_deterministically(
                 if pv_lower in vv or vv in pv_lower:
                     return (v.get("id", 0), str(v.get("value", "")))
         return (0, product_value)
+
+    # ⚠️ v0.29.x: _find_dict_value 命中时返回的 value 可能是 ZH_HANS 中文
+    # (dict_lookup 缓存是中文)。上传前 value 字段必须去中文(字典属性以
+    # dictionary_value_id 为权威, 中文 value 文本会被 Ozon 审核拒)。
+    def _clean_dict_value(dict_id: int, value: str) -> str:
+        import re as _re
+        if dict_id > 0 and value and _re.search(r"[\u4e00-\u9fff]", str(value)):
+            return ""
+        return str(value or "")
     
     # ── 构建变体列表 ──
     variants = draft.get("variants", [])
@@ -1716,6 +1725,8 @@ def _build_items_deterministically(
             if dict_id and dict_id > 0 and product_value:
                 # 字典属性 → 查找 dictionary_value_id
                 dict_val_id, dict_val = _find_dict_value(attr_id, product_value)
+                # ⚠️ v0.29.x: 命中缓存(ZH_HANS)时 value 可能是中文 → 置空(dict_id 权威)
+                dict_val = _clean_dict_value(dict_val_id, dict_val)
                 if dict_val_id > 0:
                     attrs.append({
                         "complex_id": 0,
@@ -2096,6 +2107,8 @@ def _validate_and_enrich_items(
 
                 if not matched:
                     # 回退1：用属性名（俄语）搜索字典值
+                    # ⚠️ v0.29.x: attr_name 来自属性 schema(ZH_HANS 中文名, 如「材质」)
+                    # → 必须 ZH_HANS 查询; 旧代码 language=RU 中文搜不到必然失败。
                     if not matched and attr_name:
                         try:
                             from utils.ozon_client import ozon_post
@@ -2110,7 +2123,7 @@ def _validate_and_enrich_items(
                                     "value": attr_name[:30],
                                     "limit": 5,
                                 },
-                                language="RU",
+                                language="ZH_HANS",
                             )
                             _name_results = _name_search.get("result", [])
                             if _name_results:
