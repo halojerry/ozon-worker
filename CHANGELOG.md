@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.29.0] - 2026-08-07
+
+> CI/CD 规范化 + Worker 稳定性(PRD-cicd-stability 第一批 7 项)+ cos-update.sh 一键升级。
+
+### Worker 稳定性
+
+- **P0 并发竞态修复**: `_current_task_id` 模块级 global → `contextvars.ContextVar`
+  (asyncio 多任务并发不再串号; 新增 4 断言并发测试)。
+- **优雅关闭**: `SHUTDOWN_FLAG` + lifespan drain(轮询 PG running 数, 最多 5 分钟)
+  + docker-compose `stop_grace_period: 5m` —— `--force-recreate` 不再强杀运行中任务。
+- **Dockerfile 多阶段构建**: builder(编译链) → runtime(libpq5+curl),
+  镜像 ~800MB → ~400MB。
+
+### CI/CD
+
+- **CI 合并**: 单一 ci.yml(worker-ci.yml 删除, push 不再双跑); 去 `|| true` —
+  worker ruff 全规则阻断(修 1 错), skill ruff `--select F --ignore F821` 阻断
+  (ruff --fix 修 skill 160 处 + F841 下划线)。
+- **gitleaks 密钥扫描**(近 3 个月, 避开历史已泄露基线)。
+- **pip-audit 依赖漏洞**(警告模式)。
+- **cd.yml cos-deploy**: tag push 自动打包 deploy/+worker/ 源码 →
+  COS `/ozon-worker/` + manifest.json(sha256; tar 排除 .env/旧包/凭证)。
+- **deploy/cos-update.sh 一键升级**: 读 manifest → sha256 校验 → 备份 →
+  覆盖(保留 .env) → 优雅重建 → 健康检查失败自动回滚。
+
 ## [0.28.6] - 2026-08-07
 
 > Chrome 独立 profile 根治「无限重启」+ 登录态持久化 + env-setup 文档更新。
