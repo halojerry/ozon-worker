@@ -212,7 +212,7 @@ class SupabaseTaskProcessor:
                     # - 跳过已被锁定的行（自动选择下一个任务）
                     # - 避免同一任务被重复认领
                     select_sql = text("""
-                        SELECT id, tenant_id, priority, payload, timeout_seconds
+                        SELECT id, tenant_id, priority, payload, timeout_seconds, retry_count
                         FROM ozon_product_tasks
                         WHERE status = 'pending'
                         ORDER BY priority DESC, created_at ASC
@@ -232,6 +232,23 @@ class SupabaseTaskProcessor:
                     priority = task_row[2]
                     payload = task_row[3] if isinstance(task_row[3], dict) else json.loads(task_row[3])
                     timeout_seconds = task_row[4]
+                    retry_count = int(task_row[5] or 0)
+
+                    # v0.29.2 监控: 重跑任务(非首次)上报 Sentry — 判断是否有僵尸/超时
+                    # 恢复导致的重跑(用户可见的"偷偷跑任务")
+                    if retry_count > 0:
+                        try:
+                            from utils.sentry_setup import capture_task_event
+                            capture_task_event(
+                                "task_rerun",
+                                f"任务重跑(第 {retry_count+1} 次): 可能来自重启/超时恢复",
+                                task_id=task_id,
+                                tenant_id=tenant_id,
+                                level="warning",
+                                retry_count=retry_count,
+                            )
+                        except Exception:
+                            pass
 
                     # ✅ P1 修复：注入 PG UUID 到 payload，使 progress callback 能按 task_id 追踪
                     payload["task_id"] = task_id
