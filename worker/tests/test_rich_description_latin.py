@@ -47,3 +47,34 @@ def test_latin_single_letters_kept():
     html = "<p>Размер 5 cm, вес 100 g</p>"
     out = _sanitize_rich_description(html)
     assert "cm" in out or "g" in out or "5" in out
+
+
+# ── v0.29.2: 规格表属性值净化(追加在净化后, 属性值拉丁重新污染描述) ──
+
+def test_spec_table_cleans_latin_values():
+    """规格表属性值含英文(Black/USB) → 被清, 表格结构保留。"""
+    from graphs.nodes.prepare_ozon_upload_node import _append_spec_table
+    attrs = [
+        {"id": 1, "name": "Цвет", "value": "Black"},
+        {"id": 2, "name": "Материал", "value": "100% Cotton"},
+        {"id": 3, "name": "Размер", "value": "One Size"},
+    ]
+    out = _append_spec_table("Описание товара.", attrs, weight_g=100,
+                             dimensions={"length": 10, "width": 5, "height": 3})
+    assert "Black" not in out
+    assert "Cotton" not in out
+    assert "One Size" not in out
+    assert "<table" in out
+    # 属性值清空的行被跳过(Цвет/Black、Размер/One Size), 保留非空行(Материал → 100%)
+    assert "<td>Цвет" not in out
+    assert "<td>Материал" in out and "100%" in out
+    assert "Вес" in out and "г" in out
+
+
+def test_spec_table_skips_empty_after_clean():
+    """属性值净化后为空(纯英文) → 该行跳过。"""
+    from graphs.nodes.prepare_ozon_upload_node import _append_spec_table
+    attrs = [{"id": 1, "name": "Бренд", "value": "USB"}]
+    out = _append_spec_table("Описание.", attrs)
+    assert "USB" not in out
+    assert "<td>Бренд" not in out  # 行被跳过
