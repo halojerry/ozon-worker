@@ -14,6 +14,19 @@ echo "════════════════════════�
 echo "  Ozon Worker 部署 v${VERSION}"
 echo "═══════════════════════════════════════"
 
+# v0.29.0: 首次部署引导 — 服务器无法访问 GitHub 时, 本地无 worker 源码,
+# 自动从 COS 拉取最新部署包(cos-update.sh: manifest → 下载 → 校验 → 解压覆盖)
+if [ ! -d "$PROJECT_DIR/worker/src" ]; then
+    echo "⚠️  本地无 worker 源码, 从 COS 拉取最新部署包..."
+    bash "$SCRIPT_DIR/cos-update.sh" || {
+        echo "❌ COS 拉取失败。首次部署请手动执行:"
+        echo "   curl -O <COS 部署包 URL> && tar -xzf ozon-worker-deploy-v*.tar.gz"
+        exit 1
+    }
+    # cos-update.sh 已更新 VERSION
+    VERSION=$(cat "$PROJECT_DIR/VERSION" 2>/dev/null || echo "dev")
+fi
+
 # 检查 Docker
 if ! command -v docker &> /dev/null; then
     echo "❌ Docker 未安装，请先安装 Docker"
@@ -73,7 +86,7 @@ echo "⏳ 等待服务就绪..."
 MAX_WAIT=60
 WAITED=0
 while [ $WAITED -lt $MAX_WAIT ]; do
-    if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+    if curl -sf http://localhost:8080/api/v1/health > /dev/null 2>&1; then
         echo "✅ Worker 服务已就绪"
         echo ""
         echo "═══════════════════════════════════════"
