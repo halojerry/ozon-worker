@@ -1901,10 +1901,18 @@ def prepare_ozon_upload_node(
                         # 保持原有 dictionary_value_id（跨语言通用）
                         logger.info(f"  ℹ️ 字典属性{attribute_id_int}翻译完成，保留 dict_id={dictionary_value_id_int}, value={value_str[:40]}")
                 else:
-                    # 翻译失败/仍含中文/非俄语 → 跳过该属性（不写中文、不写空值）
-                    logger.error(f"❌ 属性{attribute_id_int}翻译失败或非俄语，跳过该属性: {value_str[:60]}"
-                                 f" -> '{str(_translated_value)[:40]}'（避免 Ozon 拒绝中文/空值）")
-                    continue
+                    # 翻译失败/仍含中文/非俄语
+                    # ⚠️ v0.29.x 「查了不丢」: 字典属性翻译失败不丢弃——
+                    # 字典值以 dictionary_value_id 为权威, 不需要俄语文本,
+                    # 保留中文值交给下方 is_dict_attr 分支用 /values/search 中文直查补 dict_id。
+                    if attribute_id_int in dict_attr_lookup:
+                        logger.info(f"  ℹ️ 字典属性{attribute_id_int}翻译失败, 保留原值走词典直查(dict_id 权威)")
+                        # 不清空 value_str, 继续向下, is_dict_attr 分支处理
+                    else:
+                        # 自由文本翻译失败 → 跳过(不写中文/空值)
+                        logger.error(f"❌ 属性{attribute_id_int}翻译失败或非俄语，跳过该属性: {value_str[:60]}"
+                                     f" -> '{str(_translated_value)[:40]}'（避免 Ozon 拒绝中文/空值）")
+                        continue
         
         # ✅ 属性23171(hashtags)：过滤掉品牌名 + 确保俄语标签格式
         if attribute_id_int == 23171 and value_str:
@@ -1952,17 +1960,57 @@ def prepare_ozon_upload_node(
             })
             logger.info(f"✅ 转换成功：attr_id={attribute_id_int}, dictionary_value_id={dictionary_value_id_int}, value={_dict_value_clean}")
         elif is_dict_attr:
-            # ⚠️ v0.13: 字典属性无有效 dictionary_value_id → 跳过该属性，绝不文本兜底上传！
-            # 根因：v0.8.0 Bug#5 曾用 dictionary_value_id=0 + 手填文本上传，Ozon 审核返回
-            # "属性值不正确。所有可用值以列表形式被收集了——请仅指定它们"（用途/商品颜色/风格等报错来源）。
-            # Ozon 字典属性只接受列表中的 dictionary_value_id，手填文本一律拒绝。
-            # 若该属性必需，validation_retry_loop 会走字典 API 匹配后修复。
-            dict_id_for_attr: int = dict_attr_lookup.get(attribute_id_int, 0)
-            logger.warning(
-                f"⚠️ 跳过字典属性(attr_id={attribute_id_int}, dict_id={dict_id_for_attr})"
-                f" 值='{value_str}' 无有效 dictionary_value_id（避免文本兜底被Ozon拒绝）"
-            )
-            continue
+            # ⚠️ v0.13: 字典属性无有效 dictionary_value_id → 不直接跳过！
+            # ⚠️ v0.29.x 「查了不丢」: 丢弃前先查词典 —— ①缓存精确匹配
+            # ② /values/search 中文直查(RU→ZH_HANS 链)。命中填 dict_id,
+            # 未命中才跳过(避免文本兜底被 Ozon 拒)。
+            _resolved_dict_id = 0
+            _resolved_dict_val = ""
+            # ① state.dictionary_values 缓存精确/包含匹配(兼容 RU/ZH 缓存)
+            try:
+                for _cv in (getattr(state, "dictionary_values", None) or {}).get(str(attribute_id_int)) or []:
+                    _cv_txt = str(_cv.get("value") or "")
+                    if _cv_txt and (_cv_txt == value_str or _cv_txt in value_str or value_str in _cv_txt):
+                        _resolved_dict_id = int(_cv.get("id") or 0)
+                        _resolved_dict_val = _cv_txt
+                        break
+            except Exception:
+                pass
+            # ② API /values/search 中文直查(values/search 无 language, 语言无关;
+            #    search_dictionary_values 内置 RU→ZH_HANS 回退链)
+            if not _resolved_dict_id and value_str and len(str(value_str).strip()) >= 2:
+                try:
+                    from utils.ozon_dict_values import search_dictionary_values
+                    for _h in search_dictionary_values(
+                        getattr(state, "ozon_client_id", "") or "",
+                        getattr(state, "ozon_api_key", "") or "",
+                        attribute_id_int,
+                        int(description_category_id or 0),
+                        int(type_id or 0),
+                        str(value_str).strip(),
+                    ) or []:
+                        if int(_h.get("id") or 0) > 0 and str(_h.get("value") or "").strip():
+                            _resolved_dict_id = int(_h.get("id") or 0)
+                            _resolved_dict_val = str(_h.get("value") or "")
+                            break
+                except Exception:
+                    pass
+            if _resolved_dict_id > 0:
+                _dict_val_final = _resolved_dict_val
+                if re.search(r'[\u4e00-\u9fff]', _dict_val_final):
+                    _dict_val_final = ""  # 中文置空, dict_id 权威
+                ozon_attr["values"].append({
+                    "dictionary_value_id": _resolved_dict_id,
+                    "value": _dict_val_final,
+                })
+                logger.info(f"   ✅ 字典属性{attribute_id_int} 搜索补全 dict_id={_resolved_dict_id} (值='{value_str}')")
+            else:
+                dict_id_for_attr: int = dict_attr_lookup.get(attribute_id_int, 0)
+                logger.warning(
+                    f"⚠️ 跳过字典属性(attr_id={attribute_id_int}, dict_id={dict_id_for_attr})"
+                    f" 值='{value_str}' 搜索无命中（避免文本兜底被Ozon拒绝）"
+                )
+                continue
         else:
             # 无字典值ID：自由文本值
             ozon_attr["values"].append({
