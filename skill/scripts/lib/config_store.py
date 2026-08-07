@@ -525,6 +525,33 @@ def verify_with_worker(token: str, client_id: str = "", api_key: str = "") -> di
         )
 
 
+def fetch_mxou_balance(token: str) -> float | None:
+    """查询 MXOU 平台真实余额(v0.29.3 与 Worker 统一来源)。
+
+    调 OpenAI 兼容 /v1/dashboard/billing/subscription; token 自动补 sk- 前缀。
+    返回 balance(负=欠费); 失败/网络异常 → None。
+    """
+    if not token:
+        return None
+    import requests
+
+    _MXOU_API = "https://api.mxou.cn"  # 与 Worker mxou_api.py 一致
+    tok = token if token.startswith("sk-") else f"sk-{token}"
+    try:
+        resp = requests.get(
+            f"{_MXOU_API}/v1/dashboard/billing/subscription",
+            headers={"Authorization": f"Bearer {tok}"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        balance = data.get("balance") if isinstance(data, dict) else None
+        return float(balance) if balance is not None else None
+    except Exception:
+        return None
+
+
 def _require_auth() -> None:
     """Core function auth guard. Raises AuthError if credentials are invalid.
 

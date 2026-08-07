@@ -637,6 +637,26 @@ def cmd_check(args) -> int:
         all_ok = False
 
     # ═══════════════════════════════════════════
+    # 6.5 MXOU 平台余额(v0.29.3 本地直查, 与 Worker 统一来源)
+    # ═══════════════════════════════════════════
+    try:
+        from scripts.lib.config_store import fetch_mxou_balance, get_mxou_token
+        _mtok = get_mxou_token()
+        if _mtok:
+            _mbal = fetch_mxou_balance(_mtok)
+            if _mbal is None:
+                print("  ⚠️ MXOU 余额查询失败(网络/接口)")
+            elif _mbal <= 0:
+                print(f"  {_ok(False)} MXOU 余额不足: {_mbal:.2f}(请到 https://api.mxou.cn 充值)")
+                all_ok = False
+            else:
+                print(f"  {_ok(True)} MXOU 余额: {_mbal:.2f}")
+        else:
+            print("  ⚠️ 未配置 MXOU token(set_token)")
+    except Exception:
+        pass
+
+    # ═══════════════════════════════════════════
     # 7. Ozon API 验证（用第一个店铺）
     # ═══════════════════════════════════════════
     print("\n🏪 Ozon API:")
