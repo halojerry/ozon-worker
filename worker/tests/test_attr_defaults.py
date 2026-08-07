@@ -365,8 +365,12 @@ def test_prepare_ozon_attr_exact_match_for_size():
 
 
 def test_resolve_type_default_takes_first_value():
+    # ⚠️ v0.29.x: 8229 不再盲取第一个——单值场景仍命中, 多值按 type_id/关键词
     vals = [{"id": 94435, "value": "Спортивная бутылка"}]
     assert resolve_missing_mandatory_dict_attr(8229, "Тип", dict_vals=vals) == (94435, "Спортивная бутылка")
+    # 多值无 type_id 无关键词 → None(不取第一个, 防「套娃」式错配)
+    multi = [{"id": 91965, "value": "套娃"}, {"id": 94435, "value": "Спортивная бутылка"}]
+    assert resolve_missing_mandatory_dict_attr(8229, "Тип", dict_vals=multi) is None
 
 
 def test_prepare_fills_clothing_required_attrs_with_curated_search():
@@ -514,3 +518,34 @@ def test_ozon_attrs_allowed_no_attrs():
     from utils.attr_defaults import ozon_attrs_allowed
     assert ozon_attrs_allowed({"title": "x"}, 17028747) is False
     assert ozon_attrs_allowed(None, 17028747) is False
+
+
+# ═══ v0.29.x 8229 按 type_id 匹配(不取第一个字典值) ═══
+
+def test_8229_resolve_prefers_type_id():
+    """8229 优先按 type_id 匹配(值 id == type_id), 绝不取第一个(套娃 bug)。"""
+    from utils.attr_defaults import resolve_missing_mandatory_dict_attr
+    vals = [
+        {"id": 91965, "value": "套娃"},
+        {"id": 148495146, "value": "手持风扇"},
+        {"id": 93735, "value": "纪念品"},
+    ]
+    got = resolve_missing_mandatory_dict_attr(
+        8229, "类型", dict_vals=vals, type_id=148495146)
+    assert got == (148495146, "手持风扇"), f"应匹配 type_id, 实际 {got}"
+
+
+def test_8229_resolve_no_type_id_no_first_value():
+    """无 type_id 且无关键词匹配 → 返回 None, 不取第一个(宁缺毋滥)。"""
+    from utils.attr_defaults import resolve_missing_mandatory_dict_attr
+    vals = [{"id": 91965, "value": "套娃"}, {"id": 93735, "value": "纪念品"}]
+    assert resolve_missing_mandatory_dict_attr(8229, "类型", dict_vals=vals) is None
+
+
+def test_8229_resolve_title_kw_fallback():
+    """无 type_id 时按标题关键词匹配(避免无关首值)。"""
+    from utils.attr_defaults import resolve_missing_mandatory_dict_attr
+    vals = [{"id": 91965, "value": "套娃"}, {"id": 148495146, "value": "手持风扇"}]
+    got = resolve_missing_mandatory_dict_attr(
+        8229, "类型", title_cn="USB风扇 手持制冷迷你", dict_vals=vals)
+    assert got is not None and got[0] == 148495146

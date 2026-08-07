@@ -889,6 +889,8 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 product_name_ru=state.product_name or "",
                 size_cn="",
                 dict_vals=_vals or [],
+                # ⚠️ v0.29.x: 8229(类型)优先按 type_id 匹配(值 id == type_id)
+                type_id=int(type_id or 0),
             )
             if _resolved:
                 _vid, _val = _resolved

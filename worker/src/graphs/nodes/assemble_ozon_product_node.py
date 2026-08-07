@@ -1928,30 +1928,47 @@ def _validate_and_enrich_items(
                 # 查找 8229 的 schema 确认是字典还是文本属性
                 schema_8229 = attr_by_id.get(TYPE_ATTR_ID, {})
                 if schema_8229.get("dictionary_id", 0) > 0:
-                    # 字典属性：搜索匹配的字典值
+                    # ⚠️ v0.29.x 修复: 8229(类型)的字典值 id == type_id 本身
+                    # (实测手持风扇 148495146 / 杀虫剂 99385)。优先按 type_id
+                    # 从字典值里精确匹配, 失败才退回类目名搜索。
                     dict_vals = dict_lookup.get(TYPE_ATTR_ID, [])
                     found = False
                     if isinstance(dict_vals, list):
                         for dv in dict_vals:
-                            if isinstance(dv, dict) and dv.get("value", "").lower() == type_name.lower():
+                            if isinstance(dv, dict) and int(dv.get("id") or 0) == int(type_id or 0):
                                 validated_attrs.append({
                                     "complex_id": 0, "id": TYPE_ATTR_ID,
-                                    "values": [{"dictionary_value_id": dv["id"], "value": dv["value"]}],
+                                    "values": [{"dictionary_value_id": int(type_id), "value": dv.get("value", "")}],
                                 })
                                 found = True
-                                logger.info(f"   🎯 attr 8229 精确匹配: {type_name} (dict_id={dv['id']})")
+                                logger.info(f"   🎯 attr 8229 按 type_id 匹配: {type_id} → {dv.get('value', '')}")
                                 break
-                    if not found and isinstance(dict_vals, list) and dict_vals:
-                        # 模糊匹配
-                        for dv in dict_vals:
-                            if isinstance(dv, dict) and (type_name.lower() in dv.get("value", "").lower() or dv.get("value", "").lower() in type_name.lower()):
-                                validated_attrs.append({
-                                    "complex_id": 0, "id": TYPE_ATTR_ID,
-                                    "values": [{"dictionary_value_id": dv["id"], "value": dv["value"]}],
-                                })
-                                found = True
-                                logger.info(f"   🎯 attr 8229 模糊匹配: {type_name} → {dv['value']}")
-                                break
+                    if not found:
+                        # 字典属性：按类目名匹配字典值(type_name 俄语 vs ZH_HANS 中文,
+                        # 精确/包含通常失败, 走 API 搜索兜底)
+                        # ⚠️ v0.29.x: 本地匹配(ZH_HANS)对俄语 type_name 必然失败,
+                        # 直接走下方 API /values/search(RU) 搜索, 保留此段仅作兜底。
+                        if isinstance(dict_vals, list):
+                            for dv in dict_vals:
+                                if isinstance(dv, dict) and dv.get("value", "").lower() == type_name.lower():
+                                    validated_attrs.append({
+                                        "complex_id": 0, "id": TYPE_ATTR_ID,
+                                        "values": [{"dictionary_value_id": dv["id"], "value": dv["value"]}],
+                                    })
+                                    found = True
+                                    logger.info(f"   🎯 attr 8229 精确匹配: {type_name} (dict_id={dv['id']})")
+                                    break
+                        if not found and isinstance(dict_vals, list) and dict_vals:
+                            # 模糊匹配
+                            for dv in dict_vals:
+                                if isinstance(dv, dict) and (type_name.lower() in dv.get("value", "").lower() or dv.get("value", "").lower() in type_name.lower()):
+                                    validated_attrs.append({
+                                        "complex_id": 0, "id": TYPE_ATTR_ID,
+                                        "values": [{"dictionary_value_id": dv["id"], "value": dv["value"]}],
+                                    })
+                                    found = True
+                                    logger.info(f"   🎯 attr 8229 模糊匹配: {type_name} → {dv['value']}")
+                                    break
                     if not found:
                         # ⚠️ v0.29.x 修复: dict_lookup 是 ZH_HANS 中文值, type_name 是俄语
                         # (如 "Секаторы") → 本地匹配必然失败(286 次缺失根因)。
