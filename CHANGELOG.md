@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.29.2] - 2026-08-07
+
+> 描述拉丁字符修复(Sentry POUDING_OZON-60 实证) + Sentry 任务重跑监控 + 生图提示词线上配置入库。
+
+### Fixed(描述含拉丁字符, Sentry 实证三层根因)
+
+- **validate 误报主因**: `ozon_validate_node` 的 `[a-zA-Z]` 直接检测整个 description,
+  规格表 HTML `<table class="ozon-spec"><caption>` 标签本身是拉丁 → 凡有规格表的
+  描述必报「描述含拉丁字母」。修复: 检测前剔除 `<[^>]+>` 标签, 只查正文。
+- **富文本描述(4191)漏清拉丁**: `_sanitize_rich_description` 注释说清拉丁但代码
+  漏了(HTML 标签含拉丁, 当初跳过) → 补 `[a-zA-Z]{2,}` 正文清理。
+- **规格表属性值污染**: `_append_spec_table` 在净化后追加, 属性值(Black/USB/One Size)
+  不经净化直接进描述 → 追加前清理, 清空跳过该行。
+
+### Added(监控)
+
+- **Sentry 任务重跑监控**: `capture_task_event` 通用事件上报; 三监控点——
+  启动 zombie 恢复(`zombie_reset`) / 超时 stale 重置(`stale_running_reset`) /
+  重跑任务 `retry_count>0`(`task_rerun`)。Sentry 搜 `task_event:*` 可查
+  「是否偷偷跑任务/异常重跑」。
+
+### Changed
+
+- **生图提示词以线上配置为准入库**: main/scene_1/scene_2 无「均禁止」后缀(按线上),
+  scene_2/3 修「任何、水印」笔误; JSON + `_DEFAULT_PROMPTS` 同步(漂移测试过)。
+- Sentry MCP OAuth token 已配入本机 `~/.reasonix/config.toml`(1h 过期, 需刷新)。
+
 ## [0.29.1] - 2026-08-07
 
 > 服务器 v0.29.0 部署实测 3 修复 + gha 构建缓存 + tests 进部署包。
