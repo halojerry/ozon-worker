@@ -433,7 +433,10 @@ def _sanitize_rich_description(description: str) -> str:
             cleaned.append(part)  # 保留 HTML 标签
         else:
             # 清理正文：去中文、去拉丁单词、去 URL/邮箱/电话
+            # v0.29.2 FIX: 补拉丁单词移除 —— 原实现注释说清拉丁但代码漏了,
+            # LLM 生成的富文本残留英文(尺寸/材质/型号) → Ozon 拒"描述含有拉丁字符"
             part = re.sub(r'[\u2e80-\u2eff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+', ' ', part)
+            part = re.sub(r'[a-zA-Z]{2,}', ' ', part)
             part = re.sub(r'https?://\S+', '', part)
             part = re.sub(r'\b[\w.-]+@[\w.-]+\.\w+\b', '', part)
             part = re.sub(r'\+?\d[\d\s\-()]{7,}\d', '', part)
