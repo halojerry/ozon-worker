@@ -2588,6 +2588,15 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     }
     
     # Step 2: CDP 抓取 Ozon 商品页 → 竞品图片 + 标题
+    # ⚠️ v0.29.x 修复: 前置确保 Chrome 就绪 —— 命令出口会关闭工具 Chrome(独立
+    # profile 方案), 下次 follow 若不 ensure, Ozon 抓取连不上 9222 → 空数据 →
+    # 图搜用错图/文字搜索兜底(错配货源根因之一)。
+    try:
+        from scripts.lib.chrome_launcher import ensure_chrome_cdp
+        ensure_chrome_cdp(port=9222)
+    except Exception as e:
+        logger.warning("ensure_chrome_cdp 失败(继续尝试抓取): %s", e)
+
     # ⚠️ v0.14 E5: Step 2（抓 Ozon）+ Step 3a（1688 图搜）共享一个 CdpConnection，
     # 省 2-3 个冗余 WS 连接（旧代码各建各的连接）。Step 5 envelope 链路（probe_1688_page）
     # 有独立会话引导/登录检查逻辑，保持独立更安全。

@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.29.3] - 2026-08-07
+
+> 用户电脑 CDP 全崩根因修复(REALISTIC_UA 混装) + follow 前置 ensure Chrome + MXOU 余额本地直查 + 工具 Chrome 常驻。
+
+### Fixed(REALISTIC_UA 混装, 今天所有抓取故障源头)
+
+- **stealth.py 极简版删了 REALISTIC_UA, service.py 4 处裸引用未删**(1619/1800/1836/1923):
+  一调即崩 `cannot import name 'REALISTIC_UA'` → CDP 图搜/探针/graph 抓取全挂 →
+  降级 API → 匹配垃圾结果/无货源。修复: 4 处引用删除(真实 Chrome 用真实 UA,
+  伪造 UA 反而增加检测风险, 与 v0.28.7 极简设计一致), 仅保留 STEALTH_JS 注入。
+- **follow 未前置 ensure Chrome**: 命令出口关闭 Chrome 后, 下次 follow 抓 Ozon
+  连不上 9222 → 空数据 → 图搜用错图/文字搜索兜底(错配货源根因之一)。
+  修复: `follow_sell_cloud` Step 2 前 `ensure_chrome_cdp(port=9222)`。
+
+### Changed(工具 Chrome 生命周期, 用户反馈体验一致)
+
+- **独立 profile + 常驻**(去掉命令出口 close_tool_chrome):
+  v0.28.6「用完即关」被反馈体验不一致——每次命令 Chrome 被关, 用户手动开的
+  浏览器却能保持。常驻后登录态复用, 下次命令 CDP 可用即直接用;
+  v0.28.4 常驻的坑(撞用户 Chrome 默认 profile 单实例锁)已被独立 profile 消除。
+  close_tool_chrome() 保留但不自动调用。
+
+### Feat
+
+- **MXOU 余额本地直查**(config_store.fetch_mxou_balance): check 命令显示余额/
+  欠费标红预警, 与 Worker 鉴权同源(欠费 key 提前暴露, 不再白跑生图)。
+
 ## [0.29.2] - 2026-08-07
 
 > 描述拉丁字符修复(Sentry POUDING_OZON-60 实证) + Sentry 任务重跑监控 + 生图提示词线上配置入库。
