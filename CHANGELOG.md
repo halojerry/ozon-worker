@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.28.5] - 2026-08-07
+
+> Worker 八项优化(基于 Ozon 三店审计 317 商品/65 问题/20.5% 问题率, 本地 wave5 实测 5/5 上架成功)。
+
+### Added
+
+- **A1 错误码映射补全**: REPAIR_STRATEGY 补 9 个未映射错误码(审计 50 次错误不再 LLM 盲修):
+  - `VALUE_MUST_BE_INTEGER`/`VALUE_MUST_BE_DECIMAL`/`ATTRIBUTE_VALUE_COUNT_EXCEEDED` → repair_prepare
+  - `EMPTY_REQUIRED_AFTER_WARNING_DELETING`/`warning_attribute_values_empty`/`erased_attribute_value`/`CONDITIONAL_ATTRIBUTE_ERROR` → error_repair_llm
+  - `SPU_ALREADY_EXISTS_IN_ANOTHER_ACCOUNT`/`all_image_failed` → unfixable(不浪费重试)
+  - `marking_auto_corrected` 明确化 → error_repair_llm
+- **C1 skill query 命令**: `cli.py query <任务ID>` 查状态/耗时/产品明细(agent 不再盲等)
+- **C2 失败中文 notice**: ERROR_NOTICE_MAP 17 码 → 中文可读失败说明, task_status error_message 直接可读
+- **E1 原始图转存 COS**: `utils/cos_uploader.py`(boto3 S3 兼容 COS), AI 生图全失败时下载原始图转存 COS 补位(未配置 COS 优雅降级)
+
+### Changed
+
+- **B1 生图重试 2→1**: 8 个辅助生图节点(comparison/detail/multi_angle/scene×3/social_proof/white_bg)max_retries 2→1, 主图保留 2(单商品省 8 次潜在 API 调用)
+- **B2 提示词物流排除**: 10 条生图提示词统一加「物流信息/退换货说明/地址/电话/联系方式/店铺名称」排除(JSON + 模块默认同步, 热加载)
+- **D1 draft_sanity**: 入队防线补 weight<=0/尺寸缺失或含 0 拦截(防 0 重量打爆定价)
+- **A3 回归测试**: 核实 prepare 主路径已有标题/描述/属性值净化链(sanitize_title + 中文清除), 补 6 断言确认零拉丁/中文
+
+### 部署注意
+
+- deploy/.env 新增 COS 凭证启用 E1: `COS_SECRET_ID`/`COS_SECRET_KEY`/`COS_BUCKET`/`COS_REGION`(可选 `COS_PUBLIC_DOMAIN`)
+- 新增测试: test_repair_strategy_mapping(7) / test_notice_build(7) / test_title_sanitizer(6) / test_cos_uploader(6)
+
 ## [0.28.4] - 2026-08-06
 
 > Chrome 跨平台重复开启修复 + 常驻复用 + 文档增强(0.28.2 后 4 个 commit 合并发布)。
