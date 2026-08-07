@@ -92,7 +92,7 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 | `seller` | 卖家店铺全产品运营分析 | `--seller-id [--max-products] [--max-skus]` | 查 seller.ozon.ru 运营指标（逐 SKU，受限速） | 跟卖前20名卖家 → 店铺选品（v0.29.x 新增） |
 | `get_ak` | 浏览器自动获取 1688 AK | `--timeout` | 无 | AK 过期时刷新 |
 | `list_stores` | 列出已配置店铺 | 无 | 无 | 查看配置 |
-| `graph` | 1688 上架 | `--url/--item-id --store [--no-submit] [--category-query]` | 提交 Worker（除非 `--no-submit`） | 用户发 1688 商品链接 |
+| `graph` | 1688 上架 | `--url/--item-id --store [--no-submit] [--category-query] [--ozon-ref-url]` | 提交 Worker（除非 `--no-submit`） | 用户发 1688 商品链接（`--ozon-ref-url` 传 Ozon 竞品参考链接, 同类目属性复用） |
 | `follow` | Ozon 跟卖 | `--ozon-url --store [--auto-submit]` | 提交 Worker（加 `--auto-submit`） | 用户发 Ozon 商品链接 |
 | `image_search` | 以图搜款 | `--image [--source cdp] [--sort] [--limit]` | 耗 1688 图搜配额 | 用户发图片 / 找同款 |
 | `discover` | Ozon 选品 | `--keyword/--url [--rules] [--export] [--auto-submit]` | 查 seller.ozon.ru 运营指标；`--auto-submit` 提交 Worker | 找蓝海 / 跟卖选品 |
