@@ -205,10 +205,16 @@ _FETCH_SELLERS_JS = r'''(() => {
             resolve(JSON.stringify({
                 count: sellers.length,
                 min_price: sellers[0] ? sellers[0].priceNum : 0,
-                sellers: sellers.slice(0, 10).map(s => ({
+                // ⚠️ v0.29.x: 透传前 20 名卖家 + sellerId/sellerUrl/rating
+                // (供「跟卖卖家店铺全产品分析选品」用, 之前只透传 10 个 3 字段)
+                sellers: sellers.slice(0, 20).map(s => ({
                     sku: s.sku || '',
                     price: s.priceNum,
-                    seller_name: s.sellerName || s.seller || ''
+                    seller_name: s.sellerName || s.seller || '',
+                    seller_id: s.sellerId || s.id || '',
+                    seller_url: s.sellerUrl || (s.sellerId ? '/seller/' + s.sellerId : ''),
+                    rating: (s.rating && (s.rating.value || s.rating.rating)) || 0,
+                    review_count: (s.rating && s.rating.count) || 0
                 }))
             }));
         } catch(e) {

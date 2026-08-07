@@ -9,7 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml ./
 # pytest 一起装进 /opt/venv(本地 docker run pytest 依赖; 体积 ~50MB, 可接受)
-RUN pip install --no-cache-dir --prefix=/opt/venv . pytest pytest-asyncio
+# PIP_INDEX_URL 可覆盖(pypi.org 在国内网络不稳): 本地/国内构建传清华源
+ARG PIP_INDEX_URL=https://pypi.org/simple
+RUN pip install --no-cache-dir --index-url "$PIP_INDEX_URL" --prefix=/opt/venv . pytest pytest-asyncio
 
 
 # ── Stage 2: runtime — 只带运行所需 libpq5/curl, 镜像从 ~800MB → ~350MB ──

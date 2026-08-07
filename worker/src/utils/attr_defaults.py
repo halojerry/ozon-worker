@@ -223,4 +223,9 @@ def resolve_missing_mandatory_dict_attr(
             if vid:
                 return int(vid), str(values[0].get("value") or "")
         return None
+    if attr_id == 9782 or any(k in name for k in ("класс опасности", "класс опас", "опасности товара", "危险品等级", "危险等级", "hazard")):
+        # ⚠️ v0.29.x: 9782 必填但只能填"非危险"安全默认(填爆炸物→BR_hazard_class1)。
+        # 复用 get_safe_hazard_default(RU+ZH 关键词), 取不到返回 None(跳过, 交 Ozon 报可修复错)。
+        from utils.attribute_utils import get_safe_hazard_default
+        return get_safe_hazard_default(dict_vals)
     return None

@@ -36,7 +36,7 @@ from utils.mxou_llm import call_mxou_chat_api
 from utils.progress_logger import ProgressLogger
 from utils.ozon_category_query import get_category_query, OzonCategoryQuery
 from utils.http_session import session
-from utils.attribute_utils import is_customs_attr, pick_dict_fallback_value  # ⚠️ v0.16 海关不填 / v0.21 兜底规则
+from utils.attribute_utils import HAZARD_DICT_ATTR_IDS, is_customs_attr, pick_dict_fallback_value  # ⚠️ v0.16 海关不填 / v0.21 兜底规则
 
 # ── v0.21: 外置同义词映射（1688 词 → Ozon ZH 类目词），解决字面匹配同义词不通 ──
 _SYNONYMS_CACHE: dict | None = None
@@ -1938,6 +1938,37 @@ def _validate_and_enrich_items(
                                 logger.info(f"   🎯 attr 8229 模糊匹配: {type_name} → {dv['value']}")
                                 break
                     if not found:
+                        # ⚠️ v0.29.x 修复: dict_lookup 是 ZH_HANS 中文值, type_name 是俄语
+                        # (如 "Секаторы") → 本地匹配必然失败(286 次缺失根因)。
+                        # 用官方 API /values/search(language=RU) 搜 type_name,
+                        # dictionary_value_id 跨语言通用, 拿到的 id 直接可用。
+                        try:
+                            from utils.ozon_client import ozon_post
+                            _resp = ozon_post(
+                                client_id=ozon_client_id,
+                                api_key=ozon_api_key,
+                                endpoint="/v1/description-category/attribute/values/search",
+                                body={
+                                    "attribute_id": TYPE_ATTR_ID,
+                                    "description_category_id": int(description_category_id),
+                                    "type_id": int(type_id),
+                                    "value": type_name,
+                                    "limit": 5,
+                                },
+                                language="RU",
+                            )
+                            _results = _resp.get("result", [])
+                            if _results:
+                                first = _results[0]
+                                validated_attrs.append({
+                                    "complex_id": 0, "id": TYPE_ATTR_ID,
+                                    "values": [{"dictionary_value_id": first.get("id", 0), "value": first.get("value", "")}],
+                                })
+                                found = True
+                                logger.info(f"   🎯 attr 8229 API搜索匹配: {type_name} → {first.get('value', '')} (dict_id={first.get('id')})")
+                        except Exception as _api_e:
+                            logger.debug(f"   attr 8229 API搜索失败: {_api_e}")
+                    if not found:
                         logger.warning(f"   ⚠️ attr 8229 在字典中未找到 '{type_name}'，跳过（交由 Ozon 验证）")
                 else:
                     # 自由文本属性：直接用俄语类目末级
@@ -1998,7 +2029,9 @@ def _validate_and_enrich_items(
                 matched = False
 
                 # 如果缓存无值，从 Ozon API 获取
-                if not isinstance(dict_vals, list) or not dict_vals:
+                # ⚠️ v0.29.x: 9782(危险等级)强制 RU 拉取——ZH_HANS 值匹配"非危险"
+                # 不可靠(中文表述多样), 必填属性必须用 RU 官方值确认安全默认。
+                if missing_id in HAZARD_DICT_ATTR_IDS or not isinstance(dict_vals, list) or not dict_vals:
                     try:
                         from utils.ozon_client import ozon_post
                         _fetch_resp = ozon_post(

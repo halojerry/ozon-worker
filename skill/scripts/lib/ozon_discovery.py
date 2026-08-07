@@ -1262,6 +1262,134 @@ def _extract_search_keywords(title: str) -> str:
     return " ".join(words[:6])
 
 
+_LOGISTICS_QUOTE_CACHE: dict[int, float | None] = {}
+
+
+def fetch_seller_products(
+    cdp_url: str = "http://127.0.0.1:9222",
+    seller_id: str = "",
+    max_products: int = 60,
+    tab: Any = None,
+) -> list[str]:
+    """采集 Ozon 卖家店铺全部在售产品 ID（v0.29.x 选品分析）。
+
+    打开 https://www.ozon.ru/seller/{seller_id}/products/ → 滚动懒加载采集。
+    复用 _lazy_collect_urls(.tile-root 选择器, 与搜索页同结构)。
+    """
+    if not seller_id:
+        return []
+    try:
+        from scripts.lib.cdp_client import CdpConnection, CdpTab
+
+        own_conn = None
+        if tab is None:
+            conn = CdpConnection(cdp_url)
+            tab = conn.new_tab("about:blank")
+            own_conn = conn
+        try:
+            tab.navigate(f"https://www.ozon.ru/seller/{seller_id}/products/", timeout=25)
+            import time
+            time.sleep(4)
+            return _lazy_collect_urls(tab, max_products=max_products)
+        finally:
+            if own_conn is not None:
+                try:
+                    tab.close()
+                    own_conn.close()
+                except Exception:
+                    pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"fetch_seller_products 失败 seller={seller_id}: {e}")
+        return []
+
+
+def fetch_seller_analysis(
+    seller_id: str,
+    cdp_url: str = "http://127.0.0.1:9222",
+    max_products: int = 60,
+    max_skus: int = 30,
+) -> dict:
+    """卖家店铺全产品运营分析（v0.29.x）: 采集店铺产品 → what_to_sell 逐 SKU 拉运营数据。
+
+    Returns: {seller_id, product_count, analyzed_count, products: [{product_id, title,
+             price, monthly_sales, monthly_revenue, sales_dynamics, drr}]}
+    - 受 what_to_sell 逐 SKU 限速(~1s/SKU)与 max_skus 上限约束, 店铺产品太多时只分析前 N。
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    product_ids = fetch_seller_products(cdp_url=cdp_url, seller_id=seller_id, max_products=max_products)
+    if not product_ids:
+        return {"seller_id": seller_id, "product_count": 0, "analyzed_count": 0, "products": []}
+
+    # 逐 SKU 拉运营数据(复用 ozon_seller_analytics, 间隔 1s 限速)
+    try:
+        from scripts.lib.ozon_seller_analytics import fetch_sales_analytics
+        metrics = fetch_sales_analytics(product_ids[:max_skus], cdp_url=cdp_url) or {}
+    except Exception as e:
+        logger.warning(f"fetch_seller_analysis 运营数据失败: {e}")
+        metrics = {}
+
+    products = []
+    for pid in product_ids[:max_skus]:
+        m = metrics.get(pid) or {}
+        products.append({
+            "product_id": pid,
+            "monthly_sales": m.get("soldCount") or 0,
+            "monthly_revenue": m.get("gmvSum") or 0,
+            "sales_dynamics": m.get("salesDynamics"),
+            "drr": m.get("drr"),
+            "create_days": m.get("createDays"),
+            "category": m.get("category_name") or "",
+        })
+    return {
+        "seller_id": seller_id,
+        "product_count": len(product_ids),
+        "analyzed_count": len(products),
+        "products": products,
+    }
+
+
+def _query_logistics_from_worker(weight_g: int) -> float | None:
+    """调 Worker /api/v1/logistics/quote 查真实物流费率（v0.29.x）。
+
+    - 按重量查询(尺寸默认 10cm 立方, 体积重影响可忽略)；带进程内缓存。
+    - Worker 不可达 / 超时 / 无 token → 返回 None(调用方降级本地估算)。
+    """
+    if weight_g is None or weight_g <= 0:
+        return None
+    if weight_g in _LOGISTICS_QUOTE_CACHE:
+        return _LOGISTICS_QUOTE_CACHE[weight_g]
+
+    try:
+        from scripts._const import CLOUD_API_BASE
+        from scripts.lib.config_store import get_mxou_token
+        import requests as _req
+
+        token = get_mxou_token()
+        if not token:
+            return None
+        resp = _req.post(
+            f"{CLOUD_API_BASE}/api/v1/logistics/quote",
+            json={
+                "token": token,
+                "weight_g": int(weight_g),
+                "depth_cm": 10.0, "width_cm": 10.0, "height_cm": 10.0,
+            },
+            timeout=6,
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        cost = data.get("logistics_cost_cny")
+        if isinstance(cost, (int, float)) and cost > 0:
+            _LOGISTICS_QUOTE_CACHE[weight_g] = float(cost)
+            return float(cost)
+        return None
+    except Exception:
+        return None
+
+
 def _calculate_profit(
     candidate: ProductCandidate,
     fx_rate: float = DEFAULT_FX_RATE,
@@ -1269,7 +1397,6 @@ def _calculate_profit(
     commission_rate: float = 0,
 ) -> None:
     """Calculate profit margin for a candidate.
-
     Updates candidate fields in-place:
       estimated_logistics_cny, estimated_commission,
       estimated_profit_cny, profit_margin
@@ -1291,8 +1418,13 @@ def _calculate_profit(
     if revenue_cny <= 0:
         return
 
-    # 物流估算：有真实重量按重量（40 CNY/kg，保底 8），否则固定值
-    if candidate.weight_g > 0:
+    # 物流估算：优先查 Worker 费率表（精确, 按重量+体积重），失败降级本地估算
+    # ⚠️ v0.29.x: skill 端不再硬编码 40 CNY/kg —— 调 /api/v1/logistics/quote
+    # (worker 侧 PG logistics_rates 142 条真实费率), 无重量/离线时降级旧逻辑。
+    worker_cost = _query_logistics_from_worker(candidate.weight_g)
+    if worker_cost is not None:
+        candidate.estimated_logistics_cny = worker_cost
+    elif candidate.weight_g > 0:
         candidate.estimated_logistics_cny = max(
             8.0, candidate.weight_g / 1000.0 * LOGISTICS_PER_KG_CNY)
     else:

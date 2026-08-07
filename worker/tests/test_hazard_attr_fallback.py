@@ -55,3 +55,36 @@ def test_regular_attr_unique_value_still_filled():
 def test_regular_attr_multi_value_skipped():
     """普通属性多值无匹配 → 不再取第一个，返回 None。"""
     assert pick_dict_fallback_value(8229, "Тип", [{"id": 100, "value": "A"}, {"id": 101, "value": "B"}]) is None
+
+
+# ═══ v0.29.x 新增: ZH_HANS 中文安全值 + attr_defaults 9782 分支 + 8229 语言错位 ═══
+
+SAFE_ZH = {"id": 970593901, "value": "非危险货物"}
+UNSAFE_ZH = {"id": 970593902, "value": "爆炸物 Category 1"}
+
+
+def test_safe_default_zh_hans_value():
+    """v0.29.x: ZH_HANS 中文"非危险"值也能识别(缓存预热只存 ZH_HANS 时的场景)。"""
+    assert get_safe_hazard_default([UNSAFE_ZH, SAFE_ZH]) == (970593901, "非危险货物")
+
+
+def test_safe_default_zh_mixed_ru_first():
+    """中英混排: RU 值在首位 + 中文安全值在后。"""
+    assert get_safe_hazard_default([SAFE, SAFE_ZH]) == (970593900, "Не опасный груз")
+
+
+def test_attr_defaults_resolve_9782():
+    """attr_defaults.resolve_missing_mandatory_dict_attr 增加 9782 分支。"""
+    from utils.attr_defaults import resolve_missing_mandatory_dict_attr
+    got = resolve_missing_mandatory_dict_attr(9782, "Класс опасности товара", dict_vals=[EXPLOSIVES, SAFE])
+    assert got == (970593900, "Не опасный груз")
+    got_zh = resolve_missing_mandatory_dict_attr(9782, "Класс опасности товара", dict_vals=[UNSAFE_ZH, SAFE_ZH])
+    assert got_zh == (970593901, "非危险货物")
+    assert resolve_missing_mandatory_dict_attr(9782, "Класс опасности товара", dict_vals=[EXPLOSIVES]) is None
+
+
+def test_attr_defaults_resolve_8229_first_value():
+    """8229 分支保持取第一个字典值(不回归)。"""
+    from utils.attr_defaults import resolve_missing_mandatory_dict_attr
+    got = resolve_missing_mandatory_dict_attr(8229, "Тип товара", dict_vals=[{"id": 100, "value": "Носки"}])
+    assert got == (100, "Носки")
