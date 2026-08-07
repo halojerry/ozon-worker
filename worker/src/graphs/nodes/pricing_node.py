@@ -181,10 +181,12 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             
         fx_buffer: float = float(extensions.get("fx_buffer", 0.05))  # 汇率缓冲 5%
         
-        # Step 2: 查询物流费率（SQLite logistics_rates + Ozon API获取3PL/服务等级）
-        tpl_provider, service_level = _get_store_logistics_config(ozon_client_id, ozon_api_key)
+        # Step 2: 查询物流费率（PG logistics_rates + Ozon API获取3PL/服务等级）
+        # ⚠️ v0.29.x: 改用公共模块 logistics_quote(与 /api/v1/logistics/quote 端点同源)
+        from utils.logistics_quote import get_store_logistics_config, query_logistics_cost
+        tpl_provider, service_level = get_store_logistics_config(ozon_client_id, ozon_api_key)
         logger.info(f"🔍 DEBUG 物流查询参数: weight={weight}g, dims={depth}x{width}x{height}cm, tpl={tpl_provider}, svc={service_level}, cost_cny={cost_cny}")
-        logistics_cost, logistics_channel = _query_logistics_from_sqlite(
+        logistics_cost, logistics_channel, _detail = query_logistics_cost(
             weight, depth, width, height, tpl_provider, service_level
         )
         
@@ -347,166 +349,6 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             error_message=f"[PRICING_FAILED] Pricing calculation failed: {str(e)}"
         )
 
-
-def _get_store_logistics_config(ozon_client_id: str, ozon_api_key: str) -> tuple:
-    """查询Ozon API获取店铺第三方物流(3PL)和服务等级"""
-    try:
-        headers = {
-            "Client-Id": ozon_client_id,
-            "Api-Key": ozon_api_key,
-            "Content-Type": "application/json"
-        }
-        resp = session.post(
-            "https://api-seller.ozon.ru/v2/delivery-method/list",
-            headers=headers, json={"limit": 100}, timeout=30
-        )
-        if resp.status_code != 200:
-            logger.warning(f"Ozon配送方式查询失败: {resp.status_code}")
-            return ("RETS", "Standard")
-
-        data: Any = resp.json()
-        methods = data.get("delivery_methods", [])
-        if not methods:
-            return ("RETS", "Standard")
-
-        # 从配送方式名称中提取3PL和服务等级
-        # 名称格式如: "RETS Standard Longyan rFBS Courier" 或 "RETS Economy..."
-        first_method_name = methods[0].get("name", "")
-        tpl_provider = "RETS"
-        service_level = "Standard"
-
-        # 已知的3PL列表
-        known_tpls = ["RETS", "ATC", "ZTO", "Ural", "GUOO", "CEL", "GBS", "OYX", "ABT", "Xingyuan", "Tanais"]
-        for tpl in known_tpls:
-            if tpl.lower() in first_method_name.lower():
-                tpl_provider = tpl
-                break
-
-        # 服务等级匹配
-        name_upper = first_method_name.upper()
-        if "ECONOMY" in name_upper:
-            service_level = "Economy"
-        elif "EXPRESS" in name_upper:
-            service_level = "Express"
-        elif "STANDARD" in name_upper:
-            service_level = "Standard"
-
-        logger.info(f"店铺物流配置: 3PL={tpl_provider}, 服务等级={service_level}, 配送方式名={first_method_name}")
-        return (tpl_provider, service_level)
-
-    except Exception as e:
-        logger.error(f"查询店铺物流配置失败: {str(e)}")
-        return ("RETS", "Standard")
-
-
-def _query_logistics_from_sqlite(weight: float, depth_cm: float, width_cm: float, height_cm: float, tpl_provider: str, service_level: str) -> tuple:
-    """从 PG 物流费率表查询，按 3PL+服务等级+评分组精确匹配"""
-    from storage.database.db import get_session
-    from storage.database.shared.model import LogisticsRate
-    from sqlalchemy import and_, select
-
-    session = get_session()
-    try:
-        dims = sorted([depth_cm, width_cm, height_cm], reverse=True)
-        longest_cm = dims[0] if dims else 0
-        sum_cm = sum(dims)
-
-        # 查询1: 3PL + 服务等级 + 重量 + 尺寸全匹配
-        logger.info(f"🔍 DEBUG Q1: tpl={tpl_provider}, svc={service_level}, w={int(weight)}, sum={int(sum_cm)}, longest={int(longest_cm)}")
-        rows = session.execute(
-            select(LogisticsRate).where(
-                and_(
-                    LogisticsRate.tpl_provider == tpl_provider,
-                    LogisticsRate.service_level == service_level,
-                    LogisticsRate.weight_min <= int(weight),
-                    LogisticsRate.weight_max >= int(weight),
-                    LogisticsRate.sum_limit_cm >= int(sum_cm),
-                    LogisticsRate.longest_limit_cm >= int(longest_cm),
-                )
-            ).order_by(LogisticsRate.base_cost.asc()).limit(1)
-        ).scalars().all()
-        logger.info(f"🔍 DEBUG Q1 result: {len(rows)} rows")
-
-        # 查询2: 尺寸不满足，仅按重量 + 3PL匹配
-        if not rows:
-            logger.info(f"🔍 DEBUG Q2 fallback: weight-only filter")
-            rows = session.execute(
-                select(LogisticsRate).where(
-                    and_(
-                        LogisticsRate.tpl_provider == tpl_provider,
-                        LogisticsRate.service_level == service_level,
-                        LogisticsRate.weight_min <= int(weight),
-                        LogisticsRate.weight_max >= int(weight),
-                    )
-                ).order_by(LogisticsRate.base_cost.asc()).limit(1)
-                ).scalars().all()
-            logger.info(f"🔍 DEBUG Q2 result: {len(rows)} rows")
-
-        # 查询3: 该3PL无匹配，同服务等级其他3PL
-        if not rows:
-            logger.info(f"🔍 DEBUG Q3 fallback: cross-3PL, same service_level")
-            rows = session.execute(
-                select(LogisticsRate).where(
-                    and_(
-                        LogisticsRate.service_level == service_level,
-                        LogisticsRate.weight_min <= int(weight),
-                        LogisticsRate.weight_max >= int(weight),
-                        LogisticsRate.sum_limit_cm >= int(sum_cm),
-                        LogisticsRate.longest_limit_cm >= int(longest_cm),
-                    )
-                ).order_by(LogisticsRate.base_cost.asc()).limit(1)
-            ).scalars().all()
-            logger.info(f"🔍 DEBUG Q3 result: {len(rows)} rows")
-
-        if rows:
-            row = rows[0]
-            base_cost = float(row.base_cost)
-            per_gram_rate = float(row.per_gram_rate)
-            vol_divisor = int(row.vol_weight_divisor)
-
-            billable_weight = weight
-            if vol_divisor > 1:
-                vol_weight = (depth_cm * width_cm * height_cm) / vol_divisor
-                billable_weight = max(weight, vol_weight)
-
-            logistics_cost = base_cost + per_gram_rate * billable_weight
-            channel_name = f"{row.tpl_provider}_{row.service_level}_{row.scoring_group}"
-
-            logger.info(
-                f"PG 物流费率匹配: 3PL={row.tpl_provider}, 等级={row.service_level}, 评分组={row.scoring_group}, "
-                f"weight={weight}g, billable={billable_weight:.1f}g, "
-                f"base={base_cost}, rate={per_gram_rate}/g, cost={logistics_cost:.2f} CNY"
-            )
-            return (logistics_cost, channel_name)
-
-        # 最终fallback：使用RETS Standard
-        fb_row = session.execute(
-            select(LogisticsRate).where(
-                and_(
-                    LogisticsRate.tpl_provider == "RETS",
-                    LogisticsRate.service_level == "Standard",
-                    LogisticsRate.weight_min <= int(weight),
-                    LogisticsRate.weight_max >= int(weight),
-                )
-            ).order_by(LogisticsRate.weight_min.asc()).limit(1)
-        ).scalar_one_or_none()
-
-        if fb_row:
-            base_cost = float(fb_row.base_cost)
-            per_gram_rate = float(fb_row.per_gram_rate)
-            logistics_cost = base_cost + per_gram_rate * weight
-            logger.warning(f"物流费率最终fallback到RETS Standard: cost={logistics_cost:.2f}")
-            return (logistics_cost, "RETS_Standard_fallback")
-
-        # 绝对最后fallback
-        logger.warning(f"PG 物流费率表无数据，使用默认费率")
-        return (max(5.0, weight * 0.05), "default_fallback")
-    
-    except Exception as e:
-        logger.error(f"PG 物流费率查询失败: {str(e)}")
-        return (max(5.0, weight * 0.05), "error_fallback")
-    finally:
-        session.close()
 
 
 def _get_exchange_rate(supabase_url: str, supabase_key: str, currency_code: str = "RUB") -> float:

@@ -1565,6 +1565,74 @@ async def http_graph_inout_parameter(request: Request):
     return service.graph_inout_schema()
 
 
+@app.post("/api/v1/logistics/quote")
+async def logistics_quote(request: Request):
+    """物流运费报价端点（v0.29.x, skill 选品利润估算用）。
+
+    入参: {token?, weight_g, depth_cm, width_cm, height_cm,
+           tpl_provider?, service_level?, ozon_client_id?, ozon_api_key?}
+    - 未传 tpl_provider/service_level 时, 若有 ozon 凭证自动探测 3PL;
+      否则默认 RETS/Standard。
+    - token 校验与 auth_verify 一致(Supabase 未配置时本地放行)。
+
+    返回: {logistics_cost_cny, channel, tpl_provider_used, service_level_used,
+           base_cost, per_gram_rate, billable_weight, weight, dims_cm, fallback_chain}
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_request: body must be JSON")
+
+    token = str(body.get("token", "") or "")
+    client_id = str(body.get("ozon_client_id", "") or "")
+    api_key = str(body.get("ozon_api_key", "") or "")
+
+    # 鉴权(与 auth_verify 相同: Supabase 未配置 → 本地放行)
+    if token:
+        clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+        supabase = get_supabase_client()
+        if supabase is not None:
+            try:
+                token_records = supabase.table("tokens").select(
+                    "status"
+                ).eq("key", clean_token).is_("deleted_at", "null").execute()
+                if not token_records.data or int(token_records.data[0].get("status", 0)) != 1:
+                    raise HTTPException(status_code=401, detail="token_invalid or account_inactive")
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=503, detail="service_unavailable")
+
+    try:
+        weight = float(body.get("weight_g", 0) or 0)
+        depth = float(body.get("depth_cm", 0) or 0)
+        width = float(body.get("width_cm", 0) or 0)
+        height = float(body.get("height_cm", 0) or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="weight/dimensions must be numeric")
+
+    if weight <= 0:
+        raise HTTPException(status_code=400, detail="weight_g must be > 0")
+    if depth <= 0 or width <= 0 or height <= 0:
+        raise HTTPException(status_code=400, detail="dimensions must be > 0")
+
+    tpl = str(body.get("tpl_provider", "") or "") or None
+    svc = str(body.get("service_level", "") or "") or None
+
+    from utils.logistics_quote import quote_logistics
+    detail = quote_logistics(
+        ozon_client_id=client_id or None,
+        ozon_api_key=api_key or None,
+        weight=weight,
+        depth_cm=depth,
+        width_cm=width,
+        height_cm=height,
+        tpl_provider=tpl,
+        service_level=svc,
+    )
+    return detail
+
+
 # ==================== API v1 路由 ====================
 # 新端点统一走 /api/v1/ 前缀，旧路径通过重定向兼容
 

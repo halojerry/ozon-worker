@@ -1209,6 +1209,13 @@ def main() -> int:
     q.add_argument("task_id", help="submit/follow 返回的任务 ID(UUID)")
     q.set_defaults(func=cmd_query)
 
+    # ── 卖家店铺分析(v0.29.x ②)──
+    sel = sub.add_parser("seller", help="卖家店铺全产品运营分析(跟卖前20名卖家 → 店铺选品)")
+    sel.add_argument("--seller-id", required=True, help="Ozon 卖家 ID(跟卖列表透传的 seller_id)")
+    sel.add_argument("--max-products", type=int, default=60, help="采集店铺产品数上限(默认 60)")
+    sel.add_argument("--max-skus", type=int, default=30, help="运营分析 SKU 数上限(默认 30, 受 what_to_sell 限速)")
+    sel.set_defaults(func=cmd_seller)
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -1252,6 +1259,20 @@ def _silent_update_check(command: str) -> None:
                   f"—— 运行 `skill update` 更新", flush=True)
     except Exception:
         pass
+
+
+def cmd_seller(args: argparse.Namespace) -> int:
+    """卖家店铺全产品运营分析(v0.29.x): 采集店铺产品 → what_to_sell 逐 SKU 拉运营数据。"""
+    from scripts.lib.ozon_discovery import fetch_seller_analysis
+    import json
+
+    result = fetch_seller_analysis(
+        seller_id=args.seller_id,
+        max_products=args.max_products,
+        max_skus=args.max_skus,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
 
 
 def cmd_update(args: argparse.Namespace) -> int:
