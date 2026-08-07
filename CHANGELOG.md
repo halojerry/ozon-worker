@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.29.1] - 2026-08-07
+
+> 服务器 v0.29.0 部署实测 3 修复 + gha 构建缓存 + tests 进部署包。
+
+### Fixed(服务器实测)
+
+- **① deploy.sh latest 标签**: build 后显式 `docker tag v{VERSION} latest` + `up -d` 带
+  `VERSION` —— 原 up 无 VERSION 落到旧 latest 镜像(服务器跑旧 0.27.0)。
+- **② 多阶段镜像 PYTHONPATH**: compose 的 `PYTHONPATH=/app/src` 覆盖镜像
+  `/opt/venv/...` 导致 uvicorn/依赖找不到容器重启 → 改为
+  `/opt/venv/lib/python3.12/site-packages:/app/src`。
+- **③ 部署包含 tests**: cd.yml 打包不再排除 `worker/tests`(服务器可跑 pytest)。
+- **④ cos-deploy manifest url 空字段**: manifest 生成 step 补 `COS_BUCKET/REGION` env。
+
+### Changed
+
+- **worker 镜像 gha 构建缓存**: ci.yml/cd.yml `docker build` → `build-push-action` +
+  `cache-from/to: type=gha`(pip/基础镜像层跨发版复用, 5-10min → 1-2min)。
+- 宝塔环境 `stop_grace_period` 若被面板丢弃属环境限制, 原生 Docker 生效
+  (Docker 28 + compose 2.32 实测支持, 见 DEPLOY-CHECKLIST.md)。
+
 ## [0.29.0] - 2026-08-07
 
 > CI/CD 规范化 + Worker 稳定性(PRD-cicd-stability 第一批 7 项)+ cos-update.sh 一键升级。
