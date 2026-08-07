@@ -104,7 +104,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           mkdir -p pkg
           tar -czf "pkg/ozon-worker-deploy-${VERSION}.tar.gz" \
-            --exclude='worker/tests' --exclude='__pycache__' --exclude='*.pyc' \
+            --exclude='__pycache__' --exclude='*.pyc' \
             --exclude='worker/.venv*' --exclude='worker/src/**/__pycache__' \
             --exclude='deploy/.env' --exclude='deploy/skill' \
             --exclude='deploy/*.tar.gz' \
