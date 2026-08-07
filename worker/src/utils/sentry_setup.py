@@ -70,6 +70,42 @@ def init_sentry(dsn: Optional[str] = None) -> bool:
     return True
 
 
+def capture_task_event(
+    event_type: str,
+    message: str,
+    *,
+    task_id: str = "",
+    tenant_id: str = "",
+    level: str = "warning",
+    **extras,
+) -> None:
+    """通用任务事件上报(v0.29.2 监控): 重跑/僵尸恢复/超时重置等。
+
+    - event_type: 事件分类(如 task_rerun / zombie_reset / stale_running)
+    - message: 人类可读说明
+    - level: info/warning/error
+    - extras: 额外字段(retry_count 等)进 event extras
+    未启用时 no-op。同步 flush(最多 1s)确保事件送达。
+    """
+    if not _SENTRY_ENABLED:
+        return
+    try:
+        import sentry_sdk  # type: ignore
+
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("task_event", event_type)
+            if task_id:
+                scope.set_tag("task_id", task_id)
+            if tenant_id:
+                scope.set_tag("tenant_id", tenant_id)
+            for k, v in extras.items():
+                scope.set_extra(k, v)
+        sentry_sdk.capture_message(message, level=level)
+        sentry_sdk.flush(timeout=1)
+    except Exception as e:
+        logger.warning("Sentry 事件上报失败: %s", e)
+
+
 def capture_task_error(
     exc: Optional[BaseException] = None,
     *,

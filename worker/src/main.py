@@ -482,6 +482,20 @@ async def lifespan(app: FastAPI):
             sess.commit()
             if zombie_running or zombie_running_failed or zombie_failed:
                 logger.info(f"🧹 启动清理: {zombie_running} 个僵尸 running → pending, {zombie_running_failed} 个 running → failed(耗尽), {zombie_failed} 个 failed → pending")
+                # v0.29.2 监控: 启动时任务重跑/恢复上报 Sentry(带数量)
+                try:
+                    from utils.sentry_setup import capture_task_event
+                    capture_task_event(
+                        "zombie_reset",
+                        f"启动僵尸恢复: running→pending {zombie_running}, "
+                        f"running→failed(耗尽) {zombie_running_failed}, failed→pending {zombie_failed}",
+                        level="warning",
+                        zombie_running=zombie_running,
+                        zombie_running_failed=zombie_running_failed,
+                        zombie_failed=zombie_failed,
+                    )
+                except Exception:
+                    pass
         finally:
             sess.close()
     except Exception as _cleanup_e:
@@ -918,6 +932,20 @@ async def _periodic_task_cleanup(interval_seconds: int = 60):
                 conn.commit()
                 if r1 or r1f or r2:
                     logger.info(f"🧹 定期清理: {r1} stale running → pending(重试+1), {r1f} stale running → failed(耗尽), {r2} old completed deleted")
+                    # v0.29.2 监控: 超时任务重跑/终止上报 Sentry
+                    try:
+                        from utils.sentry_setup import capture_task_event
+                        capture_task_event(
+                            "stale_running_reset",
+                            f"定期清理: stale running→pending(重试+1) {r1}, "
+                            f"stale running→failed(耗尽) {r1f}, 清理completed {r2}",
+                            level="warning",
+                            stale_pending=r1,
+                            stale_failed=r1f,
+                            old_completed_deleted=r2,
+                        )
+                    except Exception:
+                        pass
                 # ✅ v0.26: 清理任务生图缓存（7 天前，防表无限膨胀）
                 try:
                     from utils.task_image_cache import cleanup_old
