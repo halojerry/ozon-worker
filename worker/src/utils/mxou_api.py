@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 MXOU_IMAGE_API_URL = "https://api.mxou.cn/v1/images/generations"
 MXOU_CHAT_API_URL = "https://api.mxou.cn/v1/chat/completions"
+MXOU_BALANCE_API_URL = "https://api.mxou.cn/v1/dashboard/billing/subscription"
 
 # grsai 进度查询 API
 GRSAI_API_URL = "https://grsai.dakka.com.cn/v1/api/result"
@@ -330,7 +331,7 @@ def _call_image_with_model(
             _span = None
             try:
                 from utils.sentry_setup import start_node_span, finish_span
-                import sentry_sdk  # noqa
+                import sentry_sdk
                 _tx = sentry_sdk.get_current_span()
                 if _tx is not None:
                     _span = _tx.start_child(op="image_gen", description=f"image_{model}")
@@ -684,3 +685,41 @@ def clean_title_for_image_prompt(title: str) -> str:
     # 去掉首尾标点
     cleaned = cleaned.strip(' ,.-;:!?，。、；：！？')
     return cleaned if cleaned else title  # 如果全部清空了，保留原标题
+
+
+def get_mxou_balance(token: str) -> float | None:
+    """查询 MXOU 平台真实余额(v0.29.3 统一余额来源)。
+
+    - 调 OpenAI 兼容 /v1/dashboard/billing/subscription, 解析 balance
+    - token 无 sk- 前缀时自动补(supabase tokens 表 key 列不带前缀,
+      但 MXOU API 需要 sk-)
+    - 返回 float(balance, 负=欠费); 查询失败/网络异常 → None(调用方降级)
+
+    实测(2026-08-07): 余额充足 token 返回 balance=141629.24;
+    欠费 token 返回负值。判断正负即可, 不依赖具体单位。
+    """
+    if not token:
+        return None
+    tok = token if token.startswith("sk-") else f"sk-{token}"
+    try:
+        mxou_acquire(token)  # 与 chat/image 共享限流器
+        resp = _get_session().get(
+            MXOU_BALANCE_API_URL,
+            headers={"Authorization": f"Bearer {tok}"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            logger.warning("mxou 余额查询失败: HTTP %d", resp.status_code)
+            return None
+        data = resp.json()
+        if not isinstance(data, dict):
+            return None
+        balance = data.get("balance")
+        if balance is None:
+            # new-api 也返回 hard_limit_usd 等; 取不到 balance 视为失败
+            logger.warning("mxou 余额响应无 balance 字段: %s", str(data)[:200])
+            return None
+        return float(balance)
+    except Exception as e:
+        logger.warning("mxou 余额查询异常(降级): %s", e)
+        return None
