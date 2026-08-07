@@ -31,7 +31,6 @@ COMPILE_FILES = [
     "scripts/lib/reference_images.py",
     "scripts/lib/ozon_discovery.py",   # 选品发现引擎（蓝海评分）
     "scripts/lib/ozon_api.py",         # Ozon API 封装（类目搜索/属性匹配）
-    "scripts/capabilities/browser_probe/stealth.py",  # 反检测 JS（稳定，保护价值最高）
 ]
 
 # 复制但不编译的文件（入口脚本，无需保护源码）
@@ -49,6 +48,10 @@ COPY_FILES = [
     # 逻辑反复调整（v0.28.3→v0.28.6 独立 profile 改造），编译态 .so/.pyd 无法
     # 热迭代，且跨平台 Cython 编译风险（cloud_probe 同款）。明文跨平台一致。
     "scripts/lib/chrome_launcher.py",
+    # ⚠️ stealth.py 明文（2026-08-07 从编译移回）：v0.28.7 极简化（真实指纹
+    # 无需伪造），反检测是对抗性代码——1688/Ozon 升级检测必须能快速调，
+    # 且编译态改 3 行就要重编译 4 平台。明文跨平台一致。
+    "scripts/capabilities/browser_probe/stealth.py",
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）

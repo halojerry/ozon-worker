@@ -130,7 +130,7 @@ jobs:
           # v0.28.6: chrome_launcher 移回明文(独立 profile 改造, 不再编译)
           for mod in ak_1688_client ak_callback config_store \
                      image_preprocessor ozon_scraper ozon_image_search \
-                     reference_images ozon_discovery ozon_api stealth; do
+                     reference_images ozon_discovery ozon_api; do
             for plat in darwin-arm64 darwin-x86_64 linux win32; do
               if ! ls "$plat"/"$mod".* 2>/dev/null | grep -qE "\.(so|pyd)$"; then
                 echo "❌ 缺失: $mod → $plat"
@@ -142,7 +142,7 @@ jobs:
             echo "::error::$MISSING 个二进制缺失，构建中止"
             exit 1
           fi
-          echo "✅ 4 平台 × 10 模块 = 40 个二进制全部就位"
+          echo "✅ 4 平台 × 9 模块 = 36 个二进制全部就位"
 
       - name: Clean and create package
         working-directory: skill/dist
