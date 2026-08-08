@@ -35,8 +35,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import requests
-
 # Ensure skill/scripts/ is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -288,6 +286,17 @@ def process_ozon_url(
 
 
 def main() -> int:
+    # ⚠️ PR-A (v0.31): 前置 runtime 检测 — 当前解释器非 3.12 时扫描 PATH 自动切换
+    # （requests 等依赖 import 延迟到此处之后，错误解释器下不会在模块级崩）
+    import sys as _sys
+    from scripts.runtime_probe import re_exec_if_needed, resolve_python
+    if _sys.version_info < (3, 12):
+        _py_cmd, _is_cur = resolve_python()
+        if not _is_cur:
+            re_exec_if_needed(_py_cmd, str(Path(__file__).resolve()), list(_sys.argv[1:]))
+
+    import requests
+
     parser = argparse.ArgumentParser(
         description="批量测试 1688/Ozon URL → Worker 上架"
     )
