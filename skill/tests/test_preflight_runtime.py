@@ -45,8 +45,10 @@ def test_preflight_reports_missing_deps():
             raise ImportError("No module named 'requests'")
         return real_import(name, *args, **kwargs)
 
+    # ⚠️ PR-B: mock ensure_venv 返回 failed —— 避免测试触发真实 venv 创建
     with mock.patch("scripts.cli.sys.version_info", (3, 12, 0)), \
-         mock.patch("builtins.__import__", side_effect=fake_import):
+         mock.patch("builtins.__import__", side_effect=fake_import), \
+         mock.patch("scripts.runtime_probe.ensure_venv", return_value=("/x/venv/bin/python", "failed")):
         ok, msg = _preflight_runtime()
     assert ok is False
     assert "pip install" in msg

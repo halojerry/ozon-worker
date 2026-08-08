@@ -1362,6 +1362,21 @@ def _preflight_runtime() -> tuple[bool, str]:
         except ImportError:
             missing.append(_pkg)
     if missing:
+        # ⚠️ PR-B (L3): 自动 venv — 当前解释器是 3.12 但缺依赖 → 建 data/.venv + re-exec
+        # SKILL_NO_VENV=1 逃生舱：跳过自动 venv，回退手动 pip 指引
+        if _sys.version_info >= (3, 12) and _sys.version_info < (3, 13) \
+                and os.environ.get("SKILL_NO_VENV", "0") != "1":
+            from scripts.runtime_probe import ensure_venv
+            _venv_py, _venv_status = ensure_venv(_sys.executable)
+            if _venv_status in ("ok", "created"):
+                from scripts.runtime_probe import re_exec_if_needed
+                re_exec_if_needed(_venv_py, str(Path(__file__).resolve()), list(_sys.argv[1:]))
+            # venv 失败 → 落回手动提示（带 .failed 诊断）
+            _fb_path = Path(__file__).resolve().parent.parent / "data" / ".venv" / ".failed"
+            _fb_hint = f"\n  ⚠️ 自动 venv 失败诊断见: {_fb_path}" if _fb_path.exists() else ""
+            return (False, f"缺少依赖: {', '.join(missing)}，且自动 venv 创建失败。"
+                           f"请运行: pip install -r requirements.txt（或 pip install {' '.join(missing)}）"
+                           f"{_fb_hint}")
         return (False, f"缺少依赖: {', '.join(missing)}。请运行: "
                        f"pip install -r requirements.txt（或 pip install {' '.join(missing)}）")
     return (True, "")
