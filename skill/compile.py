@@ -72,6 +72,11 @@ AUX_FILES = [
     "scripts/lib/ozon_seller.py",    # Ozon Seller API 客户端（佣金/属性）
     "scripts/lib/ozon_widget.py",    # Ozon Widget API 客户端（产品/跟卖）
     "scripts/lib/ozon_seller_analytics.py",  # 运营指标借道（Discover v2 新增）
+    # ⚠️ v0.31 排查补漏（2026-08-08）：trend 命令链路缺文件事故——cli.py import
+    # trend_selection → import mxou_chat，但两者都不在打包清单，dist 用户跑 trend
+    # 必 ModuleNotFoundError。明文复制（小文件 + 纯 stdlib/requests 依赖）。
+    "scripts/lib/mxou_chat.py",
+    "scripts/lib/trend_selection.py",
     "scripts/lib/updater.py",        # 自动更新（COS manifest 检测 + 下载/回滚）
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
@@ -361,6 +366,68 @@ def _generate_import_stubs(dist_dir: Path, compile_files: list[str]) -> None:
         print(f"  📄 {Path(py_file).parent}/{stem}.py (stub → native)")
 
 
+def _find_missing_imports(dist_dir: Path) -> list[str]:
+    """扫描 dist 内所有 .py 的 scripts.* import，返回被引用但不在 dist 的模块路径。
+
+    v0.31 新增：防 trend_selection/mxou_chat 类缺文件事故（被 import 但漏打包，
+    用户运行对应命令 ModuleNotFoundError）。
+
+    模块判定：dist 内存在 scripts/lib/x.py（明文）或 scripts/lib/_native/*/x.so/.pyd
+    （编译产物）或 scripts/lib/x.py stub（_generate_import_stubs 生成）即视为已覆盖。
+    """
+    import ast as _ast
+
+    # 收集 dist 内所有 Python 模块名（去扩展名，含 _native 编译产物）
+    py_modules: set[str] = set()
+    compiled_modules: set[str] = set()
+    for p in dist_dir.rglob("*.py"):
+        rel = p.relative_to(dist_dir)
+        py_modules.add(str(rel)[:-3].replace("/", "."))
+    for p in list(dist_dir.rglob("_native/*/*.so")) + list(dist_dir.rglob("_native/*/*.pyd")):
+        compiled_modules.add(p.stem)
+
+    def _covered(mod: str) -> bool:
+        # scripts.lib.x → 检查 scripts/lib/x（py_modules 是点分形式）或 x 有编译产物
+        if mod in py_modules:
+            return True
+        # 包形式：scripts.lib → scripts/lib/__init__.py
+        if mod + ".__init__" in py_modules:
+            return True
+        leaf = mod.rsplit(".", 1)[-1] if "." in mod else mod
+        return leaf in compiled_modules
+
+    missing: set[str] = set()
+    for py in dist_dir.rglob("*.py"):
+        try:
+            tree = _ast.parse(py.read_text(encoding="utf-8"))
+        except Exception:
+            continue  # 语法错误由 py_compile/import 阶段暴露
+        # 收集被 try/except ImportError 包裹的 import（可选依赖，缺失时优雅降级）
+        optional_imports: set[str] = set()
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Try) and any(
+                isinstance(h.type, _ast.Name) and h.type.id == "ImportError"
+                for h in node.handlers
+            ):
+                for sub in _ast.walk(node):
+                    if isinstance(sub, _ast.Import):
+                        optional_imports.update(a.name for a in sub.names if a.name.startswith("scripts"))
+                    elif isinstance(sub, _ast.ImportFrom) and sub.module and sub.module.startswith("scripts"):
+                        optional_imports.add(sub.module)
+        for node in _ast.walk(tree):
+            mod = None
+            if isinstance(node, _ast.Import):
+                for a in node.names:
+                    if a.name.startswith("scripts"):
+                        mod = a.name
+                        break
+            elif isinstance(node, _ast.ImportFrom) and node.module and node.module.startswith("scripts"):
+                mod = node.module
+            if mod and mod not in optional_imports and not _covered(mod):
+                missing.add(f"{mod} (被 {py.relative_to(dist_dir)} import)")
+    return sorted(missing)
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Skill 核心库 Cython 编译")
@@ -508,6 +575,15 @@ def main():
     if failed > 0:
         print(f"\n❌ 有 {failed} 个模块编译失败，构建中止（dist 不完整，禁止发布）")
         sys.exit(1)
+
+    # ⚠️ v0.31 产物完整性校验：扫描 dist 内所有 .py 的 scripts.* import，
+    # 被引用但不在 dist 的模块 → 中止（防 trend_selection/mxou_chat 类缺文件事故复发）
+    _missing_imports = _find_missing_imports(dist_dir)
+    if _missing_imports:
+        print(f"\n❌ dist 内 import 缺失（用户运行会 ModuleNotFoundError）: {_missing_imports}")
+        print("   → 检查 compile.py 的 COMPILE_FILES/COPY_FILES/AUX_FILES 是否遗漏")
+        sys.exit(1)
+    print("   ✅ import 完整性校验通过（dist 内全部 scripts.* import 已覆盖）")
 
     print(f"\n💡 跨平台分发:")
     print(f"   1. 在 macOS 上运行: python3.12 compile.py")
