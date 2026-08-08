@@ -109,6 +109,63 @@ def test_repair_pricing_blocks_without_pricing_info():
     assert out.ozon_payload["items"][0]["price"] != "999"
 
 
+# ── PR-1: retry 盲补首值删除 + 守卫 ──────────────────────────────────────
+
+def test_retry_no_blind_first_value_fill():
+    """PR-1: error_repair_llm 的字典属性盲补首值分支已删除。
+    验证 Step 2.5 分支（dict attr 未命中）直接跳过，不再取 _dict_vals[0]。
+    """
+    import inspect
+    from graphs.validation_retry_loop import error_repair_llm_node
+    src = inspect.getsource(error_repair_llm_node)
+    # 盲补首值的标志性实现代码不应存在（取列表首元素并写入 final_attributes）
+    assert "_dict_vals[0]" not in src
+    assert "retry_dict_first" not in src
+    # 跳过分支应存在（宁缺毋滥纪律）
+    assert "绝不盲补首值" in src
+
+
+def test_retry_revalidate_has_hazard_guard():
+    """PR-1: revalidate_node 危险品 9782 守卫（非安全值跳过重传）。"""
+    import inspect
+    from graphs.validation_retry_loop import revalidate_node
+    src = inspect.getsource(revalidate_node)
+    assert "is_hazard_attr" in src
+    assert "get_safe_hazard_default" in src
+
+
+def test_retry_revalidate_has_aspect_guard():
+    """PR-1: revalidate_node 方面属性 is_aspect 守卫（不可改属性跳过重传）。"""
+    import inspect
+    from graphs.validation_retry_loop import revalidate_node
+    src = inspect.getsource(revalidate_node)
+    assert "is_aspect_attr" in src
+
+
+def test_retry_recheck_skips_unfixable():
+    """PR-1: recheck_status_node 对 rejected_unfixable 不再带旧 task_id 空轮询。"""
+    import inspect
+    from graphs.validation_retry_loop import recheck_status_node
+    src = inspect.getsource(recheck_status_node)
+    assert '"rejected_unfixable"' in src
+
+
+def test_retry_known_defaults_no_8292():
+    """PR-1: 8292 已移出 _KNOWN_DEFAULTS_RETRY（统一走 attr_defaults 字典解析）。"""
+    import inspect
+    from graphs.validation_retry_loop import error_repair_llm_node
+    src = inspect.getsource(error_repair_llm_node)
+    # 8292 不应出现在自由文本默认值表里
+    assert "8292: \"0\"" not in src
+    assert "8292:" not in src
+
+
+def test_wrapper_input_carries_retry_count():
+    """PR-1 (D3): ValidationRetryWrapperInput 带 retry_count 跨入口累积字段。"""
+    from graphs.state import ValidationRetryWrapperInput
+    assert "retry_count" in ValidationRetryWrapperInput.model_fields
+
+
 if __name__ == "__main__":
     import traceback
 

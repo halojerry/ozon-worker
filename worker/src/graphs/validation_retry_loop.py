@@ -112,6 +112,8 @@ class ValidationRetryLoopInput(BaseModel):
     dictionary_values: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict, description="字典值数据")
     learned_attributes: Dict[str, Any] = Field(default_factory=dict, description="已学习的属性映射")
     pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格信息")
+    # ⚠️ PR-1 (D3): 跨入口累积重试次数 — wrapper 从 GlobalState 传入，子图在此基础上继续
+    retry_count: int = Field(default=0, description="已累计重试次数（跨入口不重置）")
 
 
 class ValidationRetryLoopOutput(BaseModel):
@@ -245,7 +247,7 @@ FIX_TYPE_ATTRIBUTES: set = {
     "CONDITIONAL_ATTRIBUTE_ERROR",
 }
 
-# 价格类错误 → POST /v1/product/prices/update（增量，无需重新审核）
+# 价格类错误 → POST /v1/product/import/prices（增量，无需重新审核）
 FIX_TYPE_PRICES: set = {
     "INVALID_PRICE", "discount_for_low_price",
 }
@@ -403,8 +405,23 @@ def _find_alternative_type_id(ozon_client_id: str, ozon_api_key: str,
 
 
 def _get_attribute_schema(ozon_client_id: str, ozon_api_key: str,
-                           category_id: str, type_id: str, language: str) -> List[Dict[str, Any]]:
-    """查询类目属性schema"""
+                          category_id: str, type_id: str, language: str) -> List[Dict[str, Any]]:
+    """查询类目属性schema（PR-2: PG 缓存优先 → Ozon 直查降级，与主路径共享缓存）"""
+    # ⚠️ PR-2: 先查 PG attribute_cache（主路径同款缓存），未命中再调 Ozon。
+    # retry 场景语言为 RU，与共享 util 默认 ZH_HANS 不同 → 显式传 language。
+    try:
+        from utils.ozon_category_query import get_category_query
+        cached = get_category_query().get_attribute_schema(
+            int(category_id) if category_id else 0,
+            int(type_id) if type_id else 0,
+            language=language,
+        )
+        if cached:
+            logger.info(f"✅ 属性schema 命中 PG 缓存 (dc={category_id}, tp={type_id}, lang={language})")
+            return cached if isinstance(cached, list) else []
+    except Exception as _cache_e:
+        logger.debug("属性schema PG 缓存查询失败，走 Ozon 直查: %s", _cache_e)
+
     result: Dict[str, Any] = _call_ozon_api(
         ozon_client_id, ozon_api_key,
         "/v1/description-category/attribute",
@@ -924,7 +941,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                         "description_category_id": int(category_id) if category_id else 0,
                         "type_id": int(type_id) if type_id else 0,
                         "language": "RU",
-                        "limit": 5000,
+                        "limit": 2000,  # ⚠️ PR-1: Ozon官方 /values 单次 max=2000，5000 会被静默截断
                         "last_value_id": 0,
                     }
                 )
@@ -989,19 +1006,15 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
 
         logger.warning(f"⚠️ API搜索未命中（所有关键词），转LLM兜底修复")
 
-    # ========== Step 2.5: 自由文本/字典属性 → 已知默认值兜底 ==========
-    # 对齐 assemble_ozon_product_node._validate_and_enrich_items 的 KNOWN_DEFAULTS
-    # 和 prepare_ozon_upload_node 的 _FALLBACK_FREE_TEXT_ATTRS
-    # 避免对常见空属性浪费 LLM 调用
-    # ⚠️ v0.13: 字典属性（9163 Пол / 4958 Назначение / 9782 Класс опасности）已从本表移除！
-    # 它们绝不能塞文本默认值（dictionary_value_id=0）——Ozon 只接受列表中的 dictionary_value_id，
-    # 文本默认值触发"属性值不正确，请从列表中选择一个属性值"。改走下方"取字典第一个有效值"路径。
+    # ========== Step 2.5: 自由文本属性已知默认值兜底 ==========
+    # ⚠️ v0.13: 字典属性（9163 Пол / 4958 Назначение / 9782 Класс опасности）不在本表！
+    # 它们绝不能塞文本默认值（dictionary_value_id=0）——Ozon 只接受列表中的 dictionary_value_id。
+    # ⚠️ PR-1: 8292 已从本表移除 → 走 attr_defaults.resolve_merge_card_default 统一字典解析路径
     _KNOWN_DEFAULTS_RETRY: dict[int, str] = {
-        # 必填属性默认值（来自 assemble_ozon_product_node）— 自由文本类
+        # 必填属性默认值 — 自由文本类
         8205: "730",               # Срок годности в днях — 2年
         8962: "1",                 # Количество предметов
-        8292: "0",                 # Объединить на одной карточке — 不合并
-        # 非必填但常报错的默认值（来自 prepare_ozon_upload_node + Ozon 实际）— 自由文本类
+        # 非必填但常报错的默认值 — 自由文本类
         7578: "365",               # Срок годности (дни)
         10350: "40",               # Макс. температура хранения
         10351: "0",                # Мин. температура хранения
@@ -1011,55 +1024,17 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         23487: "",                 # Производитель — 不设默认值，用 supplier 填充
     }
 
-    # ⚠️ v0.13: 字典属性（Step 2 搜索未命中走到这里）→ 拉全字典值取第一个有效 dictionary_value_id
-    # 与 assemble_ozon_product_node 的"回退2：取第一个可用字典值"对齐。
-    # limit 5000 拉全，避免大字典（如颜色 1494 条）截断导致取不到值。
+    # ========== Step 2.5: 字典属性未命中 → 直接跳过（绝不取第一个字典值） ==========
+    # ⚠️ v0.29.x PR-1: 删除「取第一个有效字典值」盲补（曾与 assemble 旧版"回退2"对齐，
+    # 但 assemble 已删该模式）。取首值 = 语义随机：8229(类型)首值可能是同大类下其他小类
+    # （「套娃」错配实证），9782(危险等级)首值可能是「Класс 1 爆炸物」→ BR_hazard_class1。
+    # 纪律：语义匹配 → type_id → 标题2-gram → 唯一值 → None（宁缺毋滥）。
+    # 未命中 → 跳过，由 revalidate 重新标记 MISSING_REQUIRED_ATTRIBUTE（受 max_retries 约束收敛）。
     if attr_id > 0 and dictionary_id > 0 and attr_id not in _KNOWN_DEFAULTS_RETRY:
-        try:
-            _dict_resp = _call_ozon_api(
-                ozon_client_id, ozon_api_key,
-                "/v1/description-category/attribute/values",
-                {
-                    "attribute_id": attr_id,
-                    "description_category_id": int(category_id) if category_id else 0,
-                    "type_id": int(type_id) if type_id else 0,
-                    "language": "RU",
-                    "limit": 5000,
-                    "last_value_id": 0,
-                }
-            )
-            _dict_vals: list = _dict_resp.get("result", [])
-            if _dict_vals:
-                _first = _dict_vals[0]
-                _fid: int = int(_first.get("id", 0))
-                _fval: str = str(_first.get("value", ""))
-                if _fid > 0:
-                    logger.info(f"📋 字典属性{attr_id}({attr_name})取第一个有效字典值: '{_fval}' (id={_fid})")
-                    updated_attrs = []
-                    found = False
-                    for attr in state.final_attributes:
-                        if not isinstance(attr, dict):
-                            updated_attrs.append(attr)
-                            continue
-                        if attr.get("id") == attr_id or attr.get("attribute_id") == attr_id:
-                            attr["value"] = _fval
-                            attr["dictionary_value_id"] = _fid
-                            found = True
-                            logger.info(f"✅ 属性{attr_id}已用字典值修复: '{_fval}' (id={_fid})")
-                        updated_attrs.append(attr)
-                    if not found:
-                        updated_attrs.append({
-                            "attribute_id": attr_id, "id": attr_id,
-                            "value": _fval, "dictionary_value_id": _fid,
-                            "source": "retry_dict_first"
-                        })
-                        logger.info(f"✅ 已添加缺失字典属性{attr_id}，值: '{_fval}' (id={_fid})")
-                    state.final_attributes = updated_attrs
-                    return state
-        except Exception as _de:
-            logger.warning(f"⚠️ 字典属性{attr_id}取第一个值失败: {_de}")
-        # 字典 API 也无值 → 跳过（绝不塞文本兜底，避免 Ozon 拒绝）
-        logger.warning(f"⚠️ 字典属性{attr_id}({attr_name})无法获取字典值，跳过修复（避免文本兜底）")
+        logger.warning(
+            f"⚠️ 字典属性{attr_id}({attr_name})语义解析+API搜索均未命中，"
+            f"跳过修复（绝不盲补首值，避免语义随机错配）"
+        )
         return state
 
     if attr_id > 0 and attr_id in _KNOWN_DEFAULTS_RETRY:
@@ -1690,7 +1665,7 @@ def _fix_via_prices_update(state: ValidationRetryLoopState) -> bool:
     product_id = state.product_id
 
     if not offer_id or not product_id:
-        logger.warning("⚠️ prices/update: offer_id 或 product_id 缺失")
+        logger.warning("⚠️ import/prices: offer_id 或 product_id 缺失")
         return False
 
     # 获取价格：优先从 ozon_payload，其次从 pricing_info
@@ -1707,7 +1682,7 @@ def _fix_via_prices_update(state: ValidationRetryLoopState) -> bool:
             min_price = str(int(suggested_price * 0.9))
 
     if not price:
-        logger.warning("⚠️ prices/update: 无法确定价格")
+        logger.warning("⚠️ import/prices: 无法确定价格")
         return False
 
     update_body = {
@@ -1738,10 +1713,10 @@ def _fix_via_prices_update(state: ValidationRetryLoopState) -> bool:
             first_item["min_price"] = str(update_body["prices"][0]["min_price"])
             return True
         else:
-            logger.warning(f"⚠️ prices/update 返回 {resp.status_code}: {resp.text[:200]}")
+            logger.warning(f"⚠️ import/prices 返回 {resp.status_code}: {resp.text[:200]}")
             return False
     except Exception as e:
-        logger.warning(f"⚠️ prices/update 异常: {e}")
+        logger.warning(f"⚠️ import/prices 异常: {e}")
         return False
 
 
@@ -1836,7 +1811,7 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
             SKIP_ATTR_IDS: set = {23536}  # 23536: код маркировки, Ozon自动设置
             # ⚠️ v0.16: 海关编码属性（ТН ВЭД 等）revalidate 重传时也跳过——平台/税费系统自动关联
             try:
-                from utils.attribute_utils import CUSTOMS_ATTR_IDS
+                from utils.attribute_utils import CUSTOMS_ATTR_IDS, get_safe_hazard_default, is_aspect_attr, is_hazard_attr
                 SKIP_ATTR_IDS.update(CUSTOMS_ATTR_IDS)
             except ImportError:
                 pass
@@ -1906,6 +1881,28 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                     logger.warning(
                         f"⚠️ 跳过字典属性{attr_id_int}重传（dictionary_value_id=0 文本值，"
                         f"Ozon 只接受列表中的 dict_id，避免重复报错）"
+                    )
+                    continue
+
+                # ⚠️ PR-1 防御纵深（对称 prepare_ozon_upload_node.py:1877-1881）：
+                # 危险品等级(9782)在 retry 阶段只放行「非危险」安全值，其余一律跳过——
+                # 防止 retry 路径把危险等级（如「Класс 1 爆炸物」）重新带上传
+                if is_hazard_attr(attr_id_int, ""):
+                    safe = get_safe_hazard_default(
+                        [{"id": int(dict_value_id or 0), "value": str(attr_value or "")}]
+                    )
+                    if not safe:
+                        logger.warning(
+                            f"✅ 跳过危险品等级属性{attr_id_int}重传"
+                            f"（值非安全默认: {str(attr_value)[:40]}）"
+                        )
+                        continue
+
+                # ⚠️ PR-1 (A4): 方面属性（is_aspect=true）创建/出仓后不可改 —
+                # retry 重传会被 Ozon 拒绝，白白消耗一轮。按 schema 标志 + 名称关键词识别后跳过。
+                if is_aspect_attr(attr_id_int, "", state.attributes_schema):
+                    logger.warning(
+                        f"✅ 跳过方面属性{attr_id_int}重传（is_aspect 不可改）"
                     )
                     continue
 
@@ -2173,7 +2170,7 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
 
     根据 product_id 和 error_code 选择最优的 Ozon API 端点：
     - 有 product_id + 属性错误 → attributes/update（增量，~3s，无需审核）
-    - 有 product_id + 价格错误 → prices/update（增量，~3s，无需审核）
+    - 有 product_id + 价格错误 → import/prices（增量，~3s，无需审核）
     - 有 product_id + 类目/尺寸/描述错误 → product/import UPDATE 模式（需审核轮询）
     - 无 product_id → 全量 product/import CREATE 模式（首次上传失败场景）
     - 不可修复错误 → 直接标记 success（不浪费重试）
@@ -2206,7 +2203,7 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
             logger.warning("⚠️ attributes/update 失败，回退到 product/import UPDATE")
             fix_type = "product_import"  # 回退
 
-    # 类型 2: 价格错误 → prices/update（增量，无需审核轮询）
+    # 类型 2: 价格错误 → import/prices（增量，无需审核轮询）
     if fix_type == "prices":
         if _fix_via_prices_update(state):
             state.upload_status = "success"
@@ -2214,7 +2211,7 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
             logger.info("✅ 价格增量更新成功，跳过审核轮询")
             return state
         else:
-            logger.warning("⚠️ prices/update 失败，回退到 product/import UPDATE")
+            logger.warning("⚠️ import/prices 失败，回退到 product/import UPDATE")
             fix_type = "product_import"  # 回退
 
     # 类型 3: 类目/尺寸/描述/图片 → product/import UPDATE 模式
@@ -2283,9 +2280,10 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
     如果增量API已成功（upload_status=success），跳过轮询直接返回。"""
     logger.info("🔍 开始查询重新上传状态...")
 
-    # ✅ 增量 API 已成功（attributes/update 或 prices/update），无需轮询
-    if state.upload_status == "success":
-        logger.info("✅ 增量 API 已成功，跳过审核轮询")
+    # ✅ 增量 API 已成功（attributes/update 或 import/prices），无需轮询
+    # ⚠️ PR-1: rejected_unfixable 同样无需轮询（不可修复，无 Ozon task_id 可查，避免带旧 UUID 空轮询）
+    if state.upload_status in ("success", "rejected_unfixable"):
+        logger.info(f"✅ 增量 API 已成功/不可修复（{state.upload_status}），跳过审核轮询")
         return state
 
     task_id: str = state.task_id

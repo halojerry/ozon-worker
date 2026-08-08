@@ -52,6 +52,8 @@ def validation_retry_wrapper_node(
         dictionary_values=state.dictionary_values,
         learned_attributes=state.learned_attributes,
         pricing_info=state.pricing_info,
+        # ⚠️ PR-1 (D3): 跨入口累积 — 从 GlobalState 传入已累计次数，子图在此基础上继续
+        retry_count=state.retry_count,
     )
 
     # 调用子图

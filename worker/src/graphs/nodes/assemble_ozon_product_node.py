@@ -1936,12 +1936,18 @@ def _validate_and_enrich_items(
                     if isinstance(dict_vals, list):
                         for dv in dict_vals:
                             if isinstance(dv, dict) and int(dv.get("id") or 0) == int(type_id or 0):
+                                # ⚠️ v0.30.0: dict_lookup 是 ZH_HANS 中文缓存，value 可能是中文
+                                # （实测「垂钓诱饵」→ validate 拦截 8229 含中文）。
+                                # dict_id 权威 → value 置空（与 _clean_dict_value 一致）。
+                                _v8229 = dv.get("value", "")
+                                if any('\u4e00' <= ch <= '\u9fff' for ch in str(_v8229)):
+                                    _v8229 = ""
                                 validated_attrs.append({
                                     "complex_id": 0, "id": TYPE_ATTR_ID,
-                                    "values": [{"dictionary_value_id": int(type_id), "value": dv.get("value", "")}],
+                                    "values": [{"dictionary_value_id": int(type_id), "value": _v8229}],
                                 })
                                 found = True
-                                logger.info(f"   🎯 attr 8229 按 type_id 匹配: {type_id} → {dv.get('value', '')}")
+                                logger.info(f"   🎯 attr 8229 按 type_id 匹配: {type_id} → {dv.get('value', '')}{' [中文已置空]' if _v8229 != dv.get('value', '') else ''}")
                                 break
                     if not found:
                         # 字典属性：按类目名匹配字典值(type_name 俄语 vs ZH_HANS 中文,

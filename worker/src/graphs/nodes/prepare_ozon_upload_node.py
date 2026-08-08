@@ -949,8 +949,15 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                             aid, attr.get("name"), [v for _, v in _gender_pair])
             elif resolved:
                 vid, val = resolved
-                attrs.append({"id": aid, "values": [{"dictionary_value_id": vid, "value": val}]})
-                logger.info("✅ 必填字典属性 %s(%s) 已用默认值补齐: %s (id=%s)", aid, attr.get("name"), val, vid)
+                # ⚠️ PR-1: post-fill 在主转换循环(L1982-1990)之后 append，中文 value 无第二道净化。
+                # dict_id 权威，value 含中文直接置空（Ozon 拒「属性含中文」，空 value+dict_id 合法）
+                _val_for_payload = val
+                if _val_for_payload and any('\u4e00' <= ch <= '\u9fff' for ch in str(_val_for_payload)):
+                    _val_for_payload = ""
+                attrs.append({"id": aid, "values": [{"dictionary_value_id": vid, "value": _val_for_payload}]})
+                logger.info("✅ 必填字典属性 %s(%s) 已用默认值补齐: %s (id=%s)%s",
+                            aid, attr.get("name"), val, vid,
+                            " [中文值已置空，dict_id 权威]" if _val_for_payload != val else "")
     return items
 
 
@@ -1073,11 +1080,17 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                             chosen = exact[:1] or hits[:1]
                         else:
                             chosen = hits
-                        attrs.append({"id": aid, "values": [
-                            {"dictionary_value_id": int(h.get("id") or 0),
-                             "value": str(h.get("value") or mapped)}
-                            for h in chosen
-                        ]})
+                        # ⚠️ PR-1: 同 L952 post-fill 中文清零（缓存命中可能为 ZH 中文文本）
+                        _vals_clean = []
+                        for _h in chosen:
+                            _hv = str(_h.get("value") or mapped)
+                            if any('\u4e00' <= ch <= '\u9fff' for ch in _hv):
+                                _hv = ""
+                            _vals_clean.append({
+                                "dictionary_value_id": int(_h.get("id") or 0),
+                                "value": _hv,
+                            })
+                        attrs.append({"id": aid, "values": _vals_clean})
                         logger.info("✅ 字典属性 %s(%s) 填满: %s", aid, attr.get("name"),
                                     [str(h.get("value") or "") for h in chosen])
                     break
@@ -2019,8 +2032,17 @@ def prepare_ozon_upload_node(
                     _lm = LocalDBManager()
                     _mappings = _lm.get_attribute_mappings(int(description_category_id or 0)) or []
                     for _mp in _mappings:
+                        # ⚠️ PR-6 (R15): 跳过 fabricated source_value（`[{name}]` 非真实 1688 映射）
+                        _mp_sv = str(_mp.get("source_value") or "")
+                        if _mp_sv.startswith("[{"):
+                            continue
+                        # ⚠️ PR-6: 按置信消费 —
+                        # retry_recovered 隔离（未经验证）不消费；default_fallback 可出场（success_count 不增长）；
+                        # learned_approved / fetch_back_corrected 正常复用。
+                        if _mp.get("source") == "retry_recovered":
+                            continue
                         if (int(_mp.get("attribute_id") or 0) == attribute_id_int
-                                and str(_mp.get("source_value") or "") == str(value_str).strip()
+                                and _mp_sv == str(value_str).strip()
                                 and int(_mp.get("dictionary_value_id") or 0) > 0):
                             _resolved_dict_id = int(_mp["dictionary_value_id"])
                             _resolved_dict_val = str(_mp.get("target_value") or "")
