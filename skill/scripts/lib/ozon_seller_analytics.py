@@ -451,6 +451,9 @@ def apply_analytics_to_candidate(candidate, metrics: dict) -> bool:
             candidate.commission_fbp = float(metrics["commission_fbp"])
         if metrics.get("commission_rfbs"):
             candidate.commission_rfbs = float(metrics["commission_rfbs"])
+        cat2 = metrics.get("category2_id") or 0
+        if cat2:
+            candidate.category = str(cat2)
         candidate.has_analytics = bool(
             metrics.get("has_sales_data")
             or metrics.get("sales_dynamics")

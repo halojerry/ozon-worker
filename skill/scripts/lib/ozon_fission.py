@@ -173,8 +173,11 @@ def run_fission(
         time_budget=time_budget,
     )
     out: list[ProductCandidate] = list(seed_products)
+    seed_category = next((str(c.category) for c in seed_products if c.category), "")
     for c in seed_products:
         state.mark_product_seen(c.ozon_product_id)
+        if seed_category:
+            c._seed_category_id = seed_category
     frontier = [("product", c.ozon_product_id, 0, []) for c in seed_products]
 
     with CdpConnection(cdp_url) as cdp:
@@ -184,10 +187,10 @@ def run_fission(
                 break
             if node_type == "product":
                 _expand_product(state, cdp, cdp_url, node_id, depth, chain,
-                                frontier, out, max_sellers_per_product)
+                                frontier, out, max_sellers_per_product, seed_category)
             else:
                 _expand_seller(state, cdp, cdp_url, node_id, depth, chain,
-                               frontier, out, max_products_per_seller)
+                               frontier, out, max_products_per_seller, seed_category)
             if checkpoint_dir:
                 path = os.path.join(checkpoint_dir, f"fission_state_{session_id}.json")
                 try:
@@ -203,7 +206,7 @@ def run_fission(
 
 def _expand_product(state: FissionState, cdp: Any, cdp_url: str, pid: str,
                     depth: int, chain: list, frontier: list, out: list,
-                    max_sellers: int) -> None:
+                    max_sellers: int, seed_category: str = "") -> None:
     if not state.depth_allowed(depth + 1):
         return
     # 种子节点（depth=0）直接用候选已保留的 competing_seller_list（P3 零成本）；
@@ -229,7 +232,7 @@ def _expand_product(state: FissionState, cdp: Any, cdp_url: str, pid: str,
 
 def _expand_seller(state: FissionState, cdp: Any, cdp_url: str, sid: str,
                    depth: int, chain: list, frontier: list, out: list,
-                   max_products: int) -> None:
+                   max_products: int, seed_category: str = "") -> None:
     pids = ozon_discovery.fetch_seller_products(
         cdp_url=cdp_url, seller_id=sid, max_products=max_products, cdp=cdp)
     for pid in pids:
@@ -241,6 +244,7 @@ def _expand_seller(state: FissionState, cdp: Any, cdp_url: str, sid: str,
         candidate = ozon_discovery._analyze_product(cdp_url, cdp, pid)
         candidate.chain_depth = depth
         candidate.source_chain = chain
+        candidate._seed_category_id = seed_category
         out.append(candidate)
         new_chain = state.extend_chain(chain, "product", pid,
                                        candidate.ozon_title[:30] or pid, depth)
