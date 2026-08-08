@@ -5,12 +5,11 @@ import os
 import sys
 from unittest import mock
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts", "lib"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import ozon_discovery
-import ozon_fission
-from ozon_discovery import ProductCandidate
+from scripts.lib import ozon_discovery as ozon_discovery
+from scripts.lib import ozon_fission as ozon_fission
+from scripts.lib.ozon_discovery import ProductCandidate
 
 
 def _mk_seed(pid: str, sellers: list) -> ProductCandidate:
@@ -91,8 +90,8 @@ def test_e2e_loop_truncated_by_visited():
 
 def test_seed_category_propagated_to_fission_candidates():
     """种子类目透传: 裂变候选 _seed_category_id = 种子 category, 同/跨类目评分生效。"""
-    import ozon_seller_analytics
-    from ozon_discovery import calculate_blue_ocean_score
+    from scripts.lib import ozon_seller_analytics as ozon_seller_analytics
+    from scripts.lib.ozon_discovery import calculate_blue_ocean_score
 
     seed = _mk_seed("S1", [{"seller_id": "10001", "seller_name": "卖家A"}])
     seed.category = "17000001"
@@ -126,8 +125,8 @@ def test_seed_category_propagated_to_fission_candidates():
 
 def test_apply_analytics_sets_category_from_category2_id():
     """apply_analytics_to_candidate 从 category2_id（Seller 权威类目）写 candidate.category。"""
-    import ozon_seller_analytics
-    from ozon_discovery import ProductCandidate
+    from scripts.lib import ozon_seller_analytics as ozon_seller_analytics
+    from scripts.lib.ozon_discovery import ProductCandidate
 
     c = ProductCandidate(ozon_product_id="p1", ozon_title="T", ozon_price=100)
     metrics = {"category2_id": 17000001, "sold_count": 5}
