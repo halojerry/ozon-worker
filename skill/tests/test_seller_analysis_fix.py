@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import ozon_discovery
 import scripts.lib.cdp_client as cdp_client
 import scripts.lib.ozon_seller_analytics as ozon_seller_analytics
+import scripts.lib.ozon_widget as ozon_widget
 
 
 def _fake_cdp():
@@ -109,17 +110,19 @@ def test_analysis_empty_products_returns_early():
 
 
 def test_seller_products_reuses_provided_cdp():
-    """fetch_seller_products(cdp=...) 复用连接创建 tab，不自建新 CdpConnection。"""
+    """fetch_seller_products(cdp=...) 复用 _ensure_ozon_tab，不自建新 CdpConnection、不 new_tab。"""
     conn, tab = _fake_cdp()
     with mock.patch.object(cdp_client, "CdpConnection") as conn_cls:
         with mock.patch.object(ozon_discovery, "_lazy_collect_urls",
                                return_value=["111", "222"]) as lcu:
-            pids = ozon_discovery.fetch_seller_products(
-                seller_id="999", max_products=10, cdp=conn)
+            with mock.patch.object(ozon_widget, "_ensure_ozon_tab",
+                                   return_value=tab) as ensure:
+                pids = ozon_discovery.fetch_seller_products(
+                    seller_id="999", max_products=10, cdp=conn)
+            ensure.assert_called_once()
             conn_cls.assert_not_called()
-            conn.new_tab.assert_called_once()
-            tab.navigate.assert_called_once()
-            tab.close.assert_called_once()
+            conn.new_tab.assert_not_called()
+            tab.close.assert_not_called()  # 复用已有 tab，不关（跨卖家复用）
             conn.close.assert_not_called()
             assert pids == ["111", "222"]
 
@@ -131,9 +134,10 @@ def test_seller_products_no_cdp_self_manage():
         conn_cls.return_value = conn
         with mock.patch.object(ozon_discovery, "_lazy_collect_urls",
                                return_value=["111"]):
-            ozon_discovery.fetch_seller_products(seller_id="999", max_products=10)
+            with mock.patch.object(ozon_widget, "_ensure_ozon_tab",
+                                   return_value=tab):
+                ozon_discovery.fetch_seller_products(seller_id="999", max_products=10)
             conn_cls.assert_called_once()
-            tab.close.assert_called_once()
             conn.close.assert_called_once()
 
 

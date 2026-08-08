@@ -1284,38 +1284,41 @@ def fetch_seller_products(
     打开 https://www.ozon.ru/seller/{seller_id}/products/ → 滚动懒加载采集。
     复用 _lazy_collect_urls(.tile-root 选择器, 与搜索页同结构)。
     cdp= 提供时复用调用方连接（不 close）；tab= 优先于 cdp 新建；两者皆无 → 自建。
+    ⚠️ v0.31.1: 改为复用 _ensure_ozon_tab —— fission 批量卖家时不再 per-seller new_tab
+    （20 卖家曾增殖 20 tab）；复用已有 ozon.ru tab（含存活校验 + release 契约）。
     """
     if not seller_id:
         return []
     try:
         from scripts.lib.cdp_client import CdpConnection
+        from scripts.lib.ozon_widget import _ensure_ozon_tab
 
         own_conn = None
+        target_url = f"https://www.ozon.ru/seller/{seller_id}/products/"
         if tab is None:
-            if cdp is not None:
-                tab = cdp.new_tab("about:blank")
-            else:
-                conn = CdpConnection(cdp_url)
-                tab = conn.new_tab("about:blank")
-                own_conn = conn
+            if cdp is None:
+                own_conn = CdpConnection(cdp_url)
+                cdp = own_conn
+            # v0.31.1: 复用已有 ozon tab（find_tab + 存活校验 + release 契约），
+            # 不 per-seller new_tab —— fission 不再增殖 tab
+            tab = _ensure_ozon_tab(cdp, target_url)
+        else:
+            # 调用方显式传入 tab → 直接导航（保持旧契约）
+            tab.navigate(target_url, timeout=25)
         try:
-            tab.navigate(f"https://www.ozon.ru/seller/{seller_id}/products/", timeout=25)
             import time
             time.sleep(4)
             return _lazy_collect_urls(tab, max_products=max_products)
         finally:
             if own_conn is not None:
                 try:
-                    tab.close()
                     own_conn.close()
                 except Exception:
                     pass
             elif cdp is not None and tab is not None:
-                # 复用连接创建的 tab：只关 tab 不关连接（连接归调用方管理）
-                try:
-                    tab.close()
-                except Exception:
-                    pass
+                # 复用调用方连接创建的 tab：不关 tab（复用已有 ozon tab 保登录态，
+                # 后续卖家继续复用；连接归调用方管理，勿 close）
+                pass
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"fetch_seller_products 失败 seller={seller_id}: {e}")
