@@ -37,6 +37,10 @@ COMPILE_FILES = [
 COPY_FILES = [
     "scripts/cli.py",
     "scripts/batch_test.py",
+    # ⚠️ runtime_probe.py 明文（v0.31 PR-A）：它是「错误解释器下运行的第一个文件」
+    # （检测 Python 版本/扫描 PATH/re-exec）。编译产物是 py312 ABI —— 在 3.11 下
+    # 自己就崩，自动发现失去全部意义。必须纯 stdlib 明文。
+    "scripts/runtime_probe.py",
     # ⚠️ cloud_probe.py 明文（2026-08-02 从编译移回）：非语法问题（macOS
     # 同版本 Cython 编译成功），根因是 Cython 生成 65k 行 C + 单个 ~9000 行
     # 函数击穿 MSVC 编译器堆限制（仅 win32 失败，缺 .pyd → graph/follow
@@ -441,6 +445,14 @@ def main():
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
             print(f"  📄 {copy_file}")
+
+    # ⚠️ PR-A 产物完整性断言：runtime_probe.py 必须明文在 dist（编译 .so 在错误
+    # 解释器下无法运行，自动发现失效）；data/.venv 绝不能进发布包（用户态产物）
+    if not (dist_dir / "scripts" / "runtime_probe.py").exists():
+        raise SystemExit("❌ 产物完整性校验失败: dist/scripts/runtime_probe.py 缺失"
+                         "（必须明文 COPY_FILES，未编译）")
+    if (dist_dir / "data" / ".venv").exists():
+        raise SystemExit("❌ 产物完整性校验失败: dist 含 data/.venv（用户态 venv 不得打包）")
 
     # 复制辅助文件
     print(f"\n📎 复制辅助文件")

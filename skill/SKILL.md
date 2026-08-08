@@ -160,6 +160,15 @@ python3 scripts/migrate_profile.py --apply   # 实际迁移
 `pip install -r requirements.txt` 指引并退出（不再链路深处炸 traceback）。
 `check` 命令现在是无浏览器也继续探测 Worker/MXOU/凭证的全量诊断。
 
+**Runtime 自动发现（v0.31.0 起，PR-A/PR-B）**：命令入口自动检测可用 Python：
+- 当前解释器非 3.12 → 扫描 PATH 找 `python3.12` 并 os.execve 无感切换（agent
+  无需关心用哪个 python 跑，`python3 scripts/cli.py <cmd>` 照旧）
+- 当前 3.12 但缺依赖 → 自动创建 `data/.venv`（独立 venv，**不碰 agent/系统环境**）
+  并安装依赖后继续（首次约 30-60s，进度实时回显；`.ready` 标记短路后续零开销）
+- 逃生舱：`SKILL_NO_VENV=1` 关闭自动 venv（回退手动 pip install 指引）；
+  `SKILL_PYTHON=/path/to/python3.12` 显式指定解释器
+- ⚠️ .so ABI 绑定 3.12：3.13/3.14 会被拒绝（cpython tag 不匹配）
+
 **旧包升级（v0.12.0 之前的包没有 updater，不会自动提示）**：
 
 ```bash
