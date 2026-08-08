@@ -25,7 +25,8 @@ def search_dictionary_values(
     language: str = "RU",
 ) -> list[dict]:
     """按关键词搜索字典值（RU 优先；ZH_HANS 兜底）。返回 values/search 数组。"""
-    if not value:
+    # ⚠️ PR-1: 官方 /values/search value 最少 2 字符，短词直接返回（避免无效 API 调用）
+    if not value or len(str(value).strip()) < 2:
         return []
     headers = {"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"}
     payload = {
@@ -33,7 +34,8 @@ def search_dictionary_values(
         "description_category_id": int(description_category_id),
         "type_id": int(type_id),
         "value": value,
-        "language": language,
+        # ⚠️ PR-2: 官方 /values/search 无 language 参数（语言无关），不再塞 body；
+        # language 参数仅控制下方 RU→ZH_HANS fallback 链
         "limit": 50,
     }
     try:

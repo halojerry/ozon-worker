@@ -715,6 +715,9 @@ class ValidationRetryWrapperInput(BaseModel):
     upload_status: str = Field(default="", description="上传状态（success/failed）")
     is_valid: bool = Field(default=True, description="修复后是否有效")
     product_id: Optional[str] = Field(default=None, description="Ozon商品ID（ozon_status已分配，用于靶向修复）")
+    # ⚠️ PR-1 (D3): 跨入口累积重试次数 — 从 GlobalState 传入，避免 ozon_validate/ozon_status
+    # 两次入口各自从 0 开始（合计可达 2×max_retries 却无感知）
+    retry_count: int = Field(default=0, description="已累计重试次数（跨入口不重置）")
 
 
 class ValidationRetryWrapperOutput(BaseModel):
@@ -744,6 +747,9 @@ class LearningRecordInput(BaseModel):
     status: Optional[str] = Field(default="", description="Ozon状态（processed/failed/blocked）")
     # ✅ 新增：upload_status字段（从validation_retry_wrapper传入，修复后成功状态）
     upload_status: Optional[str] = Field(default="", description="上传状态（success/failed/pending）")
+    # ✅ PR-0: fetch_back 回读结果（learning 门据此排除被擦除/Ozon 自动填默认的属性）
+    fetch_back_result: Optional[Dict[str, Any]] = Field(default_factory=dict,
+                                                        description="fetch-back diff 结果")
 
 
 class LearningRecordOutput(BaseModel):
@@ -751,6 +757,25 @@ class LearningRecordOutput(BaseModel):
     progress_counter: int = Field(default=24, description="节点计数器（更新为24）")
     
     recorded_count: int = Field(..., description="记录的属性数量")
+
+
+# ==================== fetch-back 回读节点（PR-0） ====================
+class FetchBackInput(BaseModel):
+    """fetch-back 回读节点输入（approved 后 /v4/product/info/attributes 回读真实存储值）"""
+    product_id: Optional[str] = Field(default=None, description="Ozon商品ID（ozon_status 已分配）")
+    ozon_client_id: str = Field(default="", description="Ozon Client ID")
+    ozon_api_key: str = Field(default="", description="Ozon API Key")
+    final_attributes: list = Field(default_factory=list, description="我们上传的最终属性")
+    attributes_schema: list = Field(default_factory=list, description="属性Schema（备用）")
+    description_category_id: str = Field(default="", description="Ozon类目ID")
+    type_id: str = Field(default="", description="Ozon类型ID")
+
+
+class FetchBackOutput(BaseModel):
+    """fetch-back 回读节点输出"""
+    progress_counter: int = Field(default=25, description="节点计数器（更新为25）")
+    fetch_back_result: Dict[str, Any] = Field(default_factory=dict,
+                                              description="回读 diff 结果（mismatches/erased/defaulted_by_ozon/stored_attrs）")
 
 
 # ==================== 修复结果判断在 graph.py 的 should_learn_after_repair 中处理 ====================

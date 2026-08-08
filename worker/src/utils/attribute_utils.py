@@ -23,6 +23,16 @@ CUSTOMS_ATTR_NAME_KEYWORDS = (
 # 危险品等级属性（Класс опасности товара）— 填"爆炸物 Category 1"会被 Ozon 整包拒绝
 HAZARD_DICT_ATTR_IDS = (9782,)
 
+# 方面属性（is_aspect=true）：用于区分同类商品不同特征的属性，部分在创建/出仓后不可改。
+# retry 阶段对已上架商品修改 aspect 属性会被 Ozon 拒绝 → revalidate 应跳过（与 hazard 同理）。
+ASPECT_ATTR_NAME_KEYWORDS = (
+    "тип", "типа", "вид", "модель", "модели", "размер", "размера", "цвет", "цвета",
+    "类型", "型号", "尺寸", "颜色",
+)
+
+# 已知方面属性 ID 硬编码（schema 缺失 is_aspect 时的兜底，实测确认后逐步补充）
+ASPECT_ATTR_ID_OVERRIDES: tuple = ()
+
 # 「非危险」字典值关键词（RU + ZH_HANS，属性名/值可能来自两种语言）
 # ⚠️ v0.29.x: 字典值缓存同时存 RU/ZH_HANS, 旧代码只有 RU 关键词 →
 # 中文值(如"非危险货物")匹配不到 → 9782 必填缺失(58 次错误根因之一)。
@@ -57,6 +67,31 @@ def is_hazard_attr(attr_id: int | None, attr_name: str = "") -> bool:
     if attr_name:
         name_lower = str(attr_name).strip().lower()
         if any(kw in name_lower for kw in ("опасности", "класс опас", "危险品等级", "危险等级", "hazard")):
+            return True
+    return False
+
+
+def is_aspect_attr(attr_id: int | None, attr_name: str = "", schema_entries: list | None = None) -> bool:
+    """判断是否为方面属性（is_aspect=true，部分类目创建后不可改）。
+
+    优先用 schema 中显式 is_aspect 标志；schema 无该字段时按属性名关键词兜底。
+    retry 阶段对已上架商品的 aspect 属性修改会被 Ozon 拒绝 → 调用方应跳过。
+    """
+    if schema_entries:
+        for entry in schema_entries or []:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                entry_id = int(entry.get("id") or 0)
+            except (ValueError, TypeError):
+                continue
+            if attr_id is not None and entry_id == int(attr_id):
+                return bool(entry.get("is_aspect", False))
+    if attr_id is not None and int(attr_id) in ASPECT_ATTR_ID_OVERRIDES:
+        return True
+    if attr_name:
+        name_lower = str(attr_name).strip().lower()
+        if any(kw in name_lower for kw in ASPECT_ATTR_NAME_KEYWORDS):
             return True
     return False
 
