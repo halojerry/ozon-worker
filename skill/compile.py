@@ -72,11 +72,6 @@ AUX_FILES = [
     "scripts/lib/ozon_seller.py",    # Ozon Seller API 客户端（佣金/属性）
     "scripts/lib/ozon_widget.py",    # Ozon Widget API 客户端（产品/跟卖）
     "scripts/lib/ozon_seller_analytics.py",  # 运营指标借道（Discover v2 新增）
-    # ⚠️ v0.31 排查补漏（2026-08-08）：trend 命令链路缺文件事故——cli.py import
-    # trend_selection → import mxou_chat，但两者都不在打包清单，dist 用户跑 trend
-    # 必 ModuleNotFoundError。明文复制（小文件 + 纯 stdlib/requests 依赖）。
-    "scripts/lib/mxou_chat.py",
-    "scripts/lib/trend_selection.py",
     "scripts/lib/updater.py",        # 自动更新（COS manifest 检测 + 下载/回滚）
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
@@ -369,9 +364,6 @@ def _generate_import_stubs(dist_dir: Path, compile_files: list[str]) -> None:
 def _find_missing_imports(dist_dir: Path) -> list[str]:
     """扫描 dist 内所有 .py 的 scripts.* import，返回被引用但不在 dist 的模块路径。
 
-    v0.31 新增：防 trend_selection/mxou_chat 类缺文件事故（被 import 但漏打包，
-    用户运行对应命令 ModuleNotFoundError）。
-
     模块判定：dist 内存在 scripts/lib/x.py（明文）或 scripts/lib/_native/*/x.so/.pyd
     （编译产物）或 scripts/lib/x.py stub（_generate_import_stubs 生成）即视为已覆盖。
     """
@@ -576,8 +568,8 @@ def main():
         print(f"\n❌ 有 {failed} 个模块编译失败，构建中止（dist 不完整，禁止发布）")
         sys.exit(1)
 
-    # ⚠️ v0.31 产物完整性校验：扫描 dist 内所有 .py 的 scripts.* import，
-    # 被引用但不在 dist 的模块 → 中止（防 trend_selection/mxou_chat 类缺文件事故复发）
+    # ⚠️ 产物完整性校验：扫描 dist 内所有 .py 的 scripts.* import，
+    # 被引用但不在 dist 的模块 → 中止（防"被 import 但漏打包"事故复发）
     _missing_imports = _find_missing_imports(dist_dir)
     if _missing_imports:
         print(f"\n❌ dist 内 import 缺失（用户运行会 ModuleNotFoundError）: {_missing_imports}")

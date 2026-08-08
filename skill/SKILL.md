@@ -39,12 +39,13 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
  ├─ ② 有图片（无 URL）？             → 【管线 D1】image_search 以图搜款
  │    图搜出候选 → 展示让用户确认哪一款 → 再 graph 上架（不允许图搜后直接上架）
  ├─ ③ 无 URL → 按意图词优先级：
- │    "趋势/热卖/新品风向/爆款" + 品类 → 【管线 E】趋势选品（先 web_search，见下）
+  │    "趋势/热卖/新品风向/爆款" + 品类 → 趋势选品：agent 先 web_search + LLM 提炼
+  │      细分关键词 → discover --keyword <细分关键词>（见「关键规则」）
  │    "跟卖/找能跟卖的"              → 【管线 C】discover 跟卖选品
  │    "上架/上货/上点/上产品/整一批"  → 【管线 D】discover 选品上架
- │    "蓝海" → 默认 【管线 C】（蓝海评分体系在 C）；用户明确说"蓝海趋势/市场分析"才走 E
- │    "选品/选 N 个" 无修饰          → 追问（跟卖 or 上架 or 趋势）+ 品类
- │    "有什么好卖的/卖得动"          → 追问（热卖趋势 E or 跟卖推荐 C）+ 品类
+ │    "蓝海" → 默认 【管线 C】（蓝海评分体系在 C）；用户明确说"蓝海趋势/市场分析"才走趋势选品（agent 分析 + discover）
+ │    "选品/选 N 个" 无修饰          → 追问（跟卖 or 上架 or 趋势选品）+ 品类
+ │    "有什么好卖的/卖得动"          → 追问（趋势选品 or 跟卖推荐）+ 品类
  ├─ ③a 无对象：上架/选品 但无 URL/图/关键词 → 先追问：发链接或图片(→A/D1)，
  │    还是给品类让我选品(D)。禁止直接中国站兜底采集
  ├─ ④ 问店铺商品状态/被拒原因        → 引导用户在 Ozon 卖家后台查看（工具不直接查询）
@@ -59,21 +60,16 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 - 无 URL = 按意图词优先级选 C / D / E
 - **蓝海评分只在管线 C 中使用**；「蓝海」默认路由 C，避免与 E 的「趋势」触发词冲突
 - 管线 C（跟卖选品）和管线 D（选品上架）命令相同（discover），仅用途叙述与是否 `--auto-submit` 的差别；discover **无 follow_type 参数**，跟卖标记由 follow 内部注入
-- ⚠️ **管线 E 必须先用 web_search 收集趋势**：调用 `trend` 命令前，先搜索
-  `"{品类} Ozon 热门趋势 蓝海 细分品类 2025"`（可加俄语 `Ozon тренды 2025`、平台
-  变体 `ozon.ru trends` 多角度搜），收集 3-5 条结果存文件，用 `--market-info` 传入。
-  **不传 `--market-info` = 半残模式**（AI 只凭品类名总结，选品质量明显下降），
-  除非用户明确表示不用搜索。
-- ⚠️ **管线 E 市场信息获取优先级**（跨 Agent 能力降级）：
-  1. agent 有 web_search 能力 → 搜索品类趋势 → 结果存文本文件 → 传 `--market-info <文件路径>`
-  2. agent 无 web_search 但环境配置了 `SEARXNG_URL` → trend 命令自动调用
-  3. 两者都没有 → 向用户说明"趋势选品需要市场信息，当前环境无法自动搜索"
-     → 询问用户：(a) 手动提供品类趋势描述文本，或 (b) 退回管线 C 常规选品
-     → 不跳过此步直接跑 trend（仅靠品类名生成关键词，选品质量差）
+- ⚠️ **趋势选品 = agent 自主分析 + discover 执行**：命令层已无 `trend`，趋势选品流程为——
+  1. agent 用自带 web_search 搜索 `"{品类} Ozon 热门趋势 蓝海 细分品类 2025"`（可加俄语
+     `Ozon тренды 2025`、平台变体 `ozon.ru trends` 多角度搜），收集 3-5 条结果；
+  2. agent 用自带 LLM 从结果提炼 3-5 个细分关键词（如「宠物用品」→ 驱蚊项圈/宠物驱蚊喷雾）；
+  3. agent 用 `discover --keyword <细分关键词>` 执行选品（管线 C 流程，含蓝海评分）。
+  跳过 web_search 直接猜关键词 = 选品质量明显下降，除非用户明确表示不用搜索。
 - ⚠️ **管线 B 降级语义变化**：Ozon 页面禁止复制时降级走管线 A（直采重建）——这是
   **重建直采卡，不是跟卖复制**（offer_id/定价都会变），必须向用户说明
-- **复合意图消歧**：输入同时含趋势词（爆款/热卖）与上架词（上架/整一批）时，追问：「要趋势出款（E）还是按词选品直接上（D）？」；批量上架需链接列表走 batch，选品数量不是批量参数
-- **数量词**：「选 N 个/来 N 个」→ 追问意图（跟卖/上架/趋势）+ 确认 N 是挑选规模还是硬性要求；discover 是展示候选→挑选，不直接产 N 个结果
+- **复合意图消歧**：输入同时含趋势词（爆款/热卖）与上架词（上架/整一批）时，追问：「要趋势出款（agent 分析 + discover）还是按词选品直接上（D）？」；批量上架需链接列表走 batch，选品数量不是批量参数
+- **数量词**：「选 N 个/来 N 个」→ 追问意图（跟卖/上架/趋势选品）+ 确认 N 是挑选规模还是硬性要求；discover 是展示候选→挑选，不直接产 N 个结果
 - **截图处理**：收到的图片需先保存为本地路径或转 URL 供 `image_search --image` 使用；**截图即目标商品时**，可先向用户索要该商品 1688 链接走 A（省图搜配额），图搜用于「找同款」场景
 - **URL + 弱化意图词**：用户说"看看/评估/能不能上"时，先用 `graph --no-submit` 展示再等确认，不直接提交
 
@@ -96,8 +92,7 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 | `graph` | 1688 上架 | `--url/--item-id --store [--no-submit] [--category-query] [--ozon-ref-url]` | 提交 Worker（除非 `--no-submit`） | 用户发 1688 商品链接（`--ozon-ref-url` 传 Ozon 竞品参考链接, 同类目属性复用） |
 | `follow` | Ozon 跟卖 | `--ozon-url --store [--auto-submit]` | 提交 Worker（加 `--auto-submit`） | 用户发 Ozon 商品链接 |
 | `image_search` | 以图搜款 | `--image [--source cdp] [--sort] [--limit]` | 耗 1688 图搜配额 | 用户发图片 / 找同款 |
-| `discover` | Ozon 选品 | `--keyword/--url [--rules] [--export] [--auto-submit]` | 查 seller.ozon.ru 运营指标；`--auto-submit` 提交 Worker | 找蓝海 / 跟卖选品 |
-| `trend` | 趋势驱动选品 | `--category [--market-info] [--export] [--with-skus]` | 耗 1688 配额 | 品类趋势 / 蓝海细分（明确趋势场景时） |
+| `discover` | Ozon 选品 | `--keyword/--url [--rules] [--export] [--auto-submit]` | 查 seller.ozon.ru 运营指标；`--auto-submit` 提交 Worker | 找蓝海 / 跟卖选品 / 趋势选品执行（关键词由 agent 提炼） |
 | `search` | 1688 关键词搜索 | `query [--page-size]` | 耗 1688 搜索配额 | 按词找货 |
 | `probe` | CDP 探针抓取单个 1688 商品 | `--url [--timeout]` | 无 | 调试单个商品 |
 | `batch_test.py` | 批量处理 URL 列表 | `--urls-file [--submit] [--wait] [--dry-run]` | 提交 Worker（加 `--submit`） | 批量上架 / 回归 |
