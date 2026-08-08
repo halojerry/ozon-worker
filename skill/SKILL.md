@@ -92,7 +92,7 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 | `graph` | 1688 上架 | `--url/--item-id --store [--no-submit] [--category-query] [--ozon-ref-url]` | 提交 Worker（除非 `--no-submit`） | 用户发 1688 商品链接（`--ozon-ref-url` 传 Ozon 竞品参考链接, 同类目属性复用） |
 | `follow` | Ozon 跟卖 | `--ozon-url --store [--auto-submit]` | 提交 Worker（加 `--auto-submit`） | 用户发 Ozon 商品链接 |
 | `image_search` | 以图搜款 | `--image [--source cdp] [--sort] [--limit]` | 耗 1688 图搜配额 | 用户发图片 / 找同款 |
-| `discover` | Ozon 选品 | `--keyword/--url [--rules] [--export] [--auto-submit]` | 查 seller.ozon.ru 运营指标；`--auto-submit` 提交 Worker | 找蓝海 / 跟卖选品 / 趋势选品执行（关键词由 agent 提炼） |
+| `discover` | Ozon 选品 | `--keyword/--url [--rules] [--export] [--auto-submit] [--fission] [--max-depth 2] [--non-interactive]` | 查 seller.ozon.ru 运营指标；`--auto-submit` 提交 Worker；`--fission` 裂变选品（v3） | 找蓝海 / 跟卖选品 / 趋势选品执行 / 裂变选品 |
 | `search` | 1688 关键词搜索 | `query [--page-size]` | 耗 1688 搜索配额 | 按词找货 |
 | `probe` | CDP 探针抓取单个 1688 商品 | `--url [--timeout]` | 无 | 调试单个商品 |
 | `batch_test.py` | 批量处理 URL 列表 | `--urls-file [--submit] [--wait] [--dry-run]` | 提交 Worker（加 `--submit`） | 批量上架 / 回归 |
