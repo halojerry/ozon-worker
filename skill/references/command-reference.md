@@ -98,6 +98,29 @@ python3 scripts/cli.py discover --keyword "宠物用品" --no-analytics
   - `--brand-filter`：`nobrand`（默认，只要无品牌/白牌）/ `known`（只过滤知名品牌黑名单）/ `all`（不过滤）
 - **表格符号**：`✅可挑` 待分析 · `⚠️夹带?` 标题不含关键词 · `⏭️价区间外` 超价格区间 · `💰有利` 符合条件 · `⚠️利润低` 利润不足 · `❌无货源` 1688 没匹配到 · `—` 运营列无数据（卖家后台未登录）
 
+### 管线 C 增强：裂变选品（discover --fission，v0.31）
+
+**触发**：用户要"无限找货 / 从同行卖家挖货 / 顺着卖家找更多产品"。
+
+**原理**：跟卖卖家 = 最好的选品工具。种子商品 → 抓跟卖卖家（widget API 前 20）→ 扫每家店铺产品 → 再发现 → BFS 扩散（默认深度 2）。
+
+```bash
+# ⑧ 种子采集 + 裂变展开（关键词 → 种子 → 卖家 → 店铺产品）
+python3 scripts/cli.py discover --keyword "宠物用品" --fission
+
+# ⑨ 深度 3（指数爆炸，需显式 allow）+ 更紧的候选上限
+python3 scripts/cli.py discover --keyword "玩具" --fission --max-depth 3 --allow-depth-3 --max-total-products 500
+
+# ⑩ 非交互（层间不询问继续，适合脚本/CI）
+python3 scripts/cli.py discover --keyword "收纳" --fission --non-interactive
+```
+
+- **参数**：`--max-depth`（默认 2，>3 需 `--allow-depth-3`）、`--max-total-products`（默认 300，**主成本控制**）、`--time-budget`（默认 600s）、`--max-sellers-per-product`（默认 20）、`--max-products-per-seller`（默认 15）、`--non-interactive`
+- **流程**：先走管线 C 阶段①②（种子采集 + 全量数据）→ 裂变展开（BFS）→ 回到③表格挑选 → ④批量货源（全部复用）
+- **数据**：裂变候选带 `chain_depth`（0=种子/1/2）+ `source_chain`（来源链路 种子→卖家→产品，选中产品时展示）+ `_seed_category_id`（种子类目，同类目 +10 / 跨类目 +3 / 无数据 +0 评分）
+- **⚠️ 慢操作**：卖家页串行导航（≥3s 间隔）+ what_to_sell 逐 SKU 限速（1s/SKU），10-60 分钟/次；裂变中阶段展示每层候选数 + 已展开卖家数
+- **⚠️ 依赖**：跟卖卖家来自 widget API（需 Ozon 页面正常加载 + 登录态）；部分产品反爬偶发失败 → 自动降级跳过，不影响整体
+
 **展示候选列表后，等用户确认再提交。不替用户选择。**
 
 ## 管线 D：选品上架
