@@ -127,28 +127,20 @@ python3 scripts/cli.py discover --max-products 30
 Discover v2 四阶段：采集（搜索/中国站懒加载）→ 全量数据（含运营指标）→ 表格挑选 → 批量 1688 货源 → 确认提交（详见管线 C）。
 > **C 与 D 命令相同（都是 discover）**：区别仅在 agent 按用户意图处理——C（跟卖）与 D（上架）都不带 `--auto-submit` 时展示候选等用户确认；`--auto-submit` 是**显式参数**，不存在「D 默认自动提交」；提交时机按 SKILL.md §3 决策边界（discover 选品后的最终提交必须确认）控制。
 
-## 管线 E：趋势驱动选品（trend，v0.25）
+## 管线 E：趋势选品（agent 自主分析 + discover 执行，v0.31 起）
 
 **触发**：用户说"帮我找 {品类} 的**热卖/趋势/新品风向**商品"。
-注意：只说"蓝海"默认走**管线 C**（discover 跟卖选品，蓝海评分体系在 C）；
-用户明确说"蓝海趋势/市场分析/趋势选品"才走 E。
+注意：只说"蓝海"默认走**管线 C**（discover 跟卖选品，蓝海评分体系在 C）。
 
-```bash
-python3 scripts/cli.py trend --category "玩具" --market-info trend_info.txt --max-price 50 --max-moq 10 --min-ship-rate-48h 80 --min-sales 100
-```
+命令层已无 `trend` 命令（v0.31 移除——agent 自带 LLM + web_search，趋势分析不再由 skill 代做）。趋势选品流程：
 
-**流程**：
-1. **收集市场信息（强制第 0 步）**：用 web_search（或 SearXNG）搜索，建议多角度各搜 1 次：
+1. **agent 用 web_search 收集市场信息（强制第 0 步）**：建议多角度各搜 1 次：
    - 中文：`"{品类} Ozon 热门趋势 蓝海 细分品类 2025"`
    - 俄语：`"{品类} Ozon тренды 2025 ниша"`
    - 平台：`"ozon.ru {品类} bestsellers"`
-   把 3-5 条结果内容保存为文本文件，用 `--market-info <文件>` 传入；配置了 `SEARXNG_URL` 时也可自动抓取。**不要跳过此步直接跑 trend**——没有市场信息的 AI 总结质量明显下降。
-2. **AI 提炼关键词**：复用 mxou LLM，输出 5-8 个可直接搜 1688 的中文细分关键词（严格 JSON，含潜力原因）；解析失败 → 明确报错，不脑补。
-3. **AK 搜索**：并发搜索前 3 个关键词（≤3 在飞），每个取 Top1；**累计满 3 个有效商品立即停止**；某关键词无结果则补位下一个。
-4. **展示**：细分市场卡片（图片/价格/起批量/48H 揽收率/销量/供应商）+ 全 SKU 明细表（3 倍建议价）+ 汇总表；`--with-skus` 用 CDP 拉 SKU，`--export json|csv` 导出。
-
-筛选参数：`--max-price`（元）、`--max-moq`（件）、`--min-ship-rate-48h`（%）、`--min-sales`（件）。
-其他参数：`--with-skus`（CDP 拉 Top 商品 SKU 明细）、`--export json|csv|both` + `--output <路径>`（导出结果）。
+2. **agent 用自带 LLM 提炼 3-5 个细分关键词**（如「玩具」→ 儿童益智积木/磁力片/惯性车模）。
+3. **agent 调 `discover --keyword <细分关键词>` 执行选品**（管线 C 流程，含蓝海评分/1688 匹配）。
+   跳过 web_search 直接猜关键词 = 选品质量明显下降，除非用户明确表示不用搜索。
 
 ## 批量处理（batch_test.py）
 
