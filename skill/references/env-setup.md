@@ -41,6 +41,13 @@ python3 scripts/cli.py check
 缺依赖立即提示 `pip install -r requirements.txt` 并退出；`check` 无浏览器也继续探测
 Worker/MXOU/凭证（全量诊断，不再 early return）。
 
+**v0.31 Runtime 自动发现（PR-A/PR-B）**：
+- 非 3.12 解释器 → 自动扫 PATH 找 python3.12 并 re-exec 切换（agent 无感知）
+- 3.12 缺依赖 → 自动建 `data/.venv` 装依赖（独立 venv 不碰系统/agent 环境；
+  首次 30-60s 进度回显；`.ready` sha256 标记短路；requirements 变化自动重建）
+- `SKILL_NO_VENV=1` 逃生舱（回退手动 pip）；`SKILL_PYTHON` 显式指定
+- ⚠️ ABI 绑定 3.12：3.13/3.14 拒绝（cpython-312 tag 硬匹配）
+
 **v0.30 升级（Chrome profile 统一）**：旧版 profile 在 `data/browser/profile`，升级后首次
 运行前执行迁移保留登录态（只复制不删除，可回退）：
 ```bash
@@ -71,6 +78,7 @@ python3 scripts/migrate_profile.py --apply   # 实际迁移
 |---|---|---|
 | `data/config/` | 凭证（stores.json / token / ak） | ❌ **绝对不能删**（删了要重新配置全部凭证） |
 | `data/browser/profiles/1688/default/` | 工具 Chrome 登录态（1688/Ozon cookie） | ❌ **绝对不能删**（删了要重新登录全部站点） |
+| `data/.venv/` | 自动创建的 Python 虚拟环境（v0.31，依赖安装产物） | 可删（下次命令自动重建，但重建需 30-60s 重装依赖） |
 | `data/discovery/` | discover 选品结果落盘 | 可清理旧文件 |
 | `data/logs/` | 运行日志 | 可清理旧文件 |
 | `data/cache/` | 磁盘缓存（TTL 自动过期） | 可清理 |
