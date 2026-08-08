@@ -1270,11 +1270,13 @@ def fetch_seller_products(
     seller_id: str = "",
     max_products: int = 60,
     tab: Any = None,
+    cdp: Any = None,
 ) -> list[str]:
     """采集 Ozon 卖家店铺全部在售产品 ID（v0.29.x 选品分析）。
 
     打开 https://www.ozon.ru/seller/{seller_id}/products/ → 滚动懒加载采集。
     复用 _lazy_collect_urls(.tile-root 选择器, 与搜索页同结构)。
+    cdp= 提供时复用调用方连接（不 close）；tab= 优先于 cdp 新建；两者皆无 → 自建。
     """
     if not seller_id:
         return []
@@ -1283,9 +1285,12 @@ def fetch_seller_products(
 
         own_conn = None
         if tab is None:
-            conn = CdpConnection(cdp_url)
-            tab = conn.new_tab("about:blank")
-            own_conn = conn
+            if cdp is not None:
+                tab = cdp.new_tab("about:blank")
+            else:
+                conn = CdpConnection(cdp_url)
+                tab = conn.new_tab("about:blank")
+                own_conn = conn
         try:
             tab.navigate(f"https://www.ozon.ru/seller/{seller_id}/products/", timeout=25)
             import time
@@ -1296,6 +1301,12 @@ def fetch_seller_products(
                 try:
                     tab.close()
                     own_conn.close()
+                except Exception:
+                    pass
+            elif cdp is not None and tab is not None:
+                # 复用连接创建的 tab：只关 tab 不关连接（连接归调用方管理）
+                try:
+                    tab.close()
                 except Exception:
                     pass
     except Exception as e:
@@ -1309,45 +1320,61 @@ def fetch_seller_analysis(
     cdp_url: str = "http://127.0.0.1:9222",
     max_products: int = 60,
     max_skus: int = 30,
+    cdp: Any = None,
 ) -> dict:
     """卖家店铺全产品运营分析（v0.29.x）: 采集店铺产品 → what_to_sell 逐 SKU 拉运营数据。
 
     Returns: {seller_id, product_count, analyzed_count, products: [{product_id, title,
              price, monthly_sales, monthly_revenue, sales_dynamics, drr}]}
     - 受 what_to_sell 逐 SKU 限速(~1s/SKU)与 max_skus 上限约束, 店铺产品太多时只分析前 N。
+    - cdp= 提供时复用调用方连接（不 close）；None 时自建并 close。
     """
     import logging
     logger = logging.getLogger(__name__)
-    product_ids = fetch_seller_products(cdp_url=cdp_url, seller_id=seller_id, max_products=max_products)
-    if not product_ids:
-        return {"seller_id": seller_id, "product_count": 0, "analyzed_count": 0, "products": []}
 
-    # 逐 SKU 拉运营数据(复用 ozon_seller_analytics, 间隔 1s 限速)
+    own_conn = None
+    if cdp is None:
+        from scripts.lib.cdp_client import CdpConnection
+        own_conn = CdpConnection(cdp_url)
+        cdp = own_conn
     try:
-        from scripts.lib.ozon_seller_analytics import fetch_sales_analytics
-        metrics = fetch_sales_analytics(product_ids[:max_skus], cdp_url=cdp_url) or {}
-    except Exception as e:
-        logger.warning(f"fetch_seller_analysis 运营数据失败: {e}")
-        metrics = {}
+        product_ids = fetch_seller_products(cdp_url=cdp_url, seller_id=seller_id,
+                                            max_products=max_products, cdp=cdp)
+        if not product_ids:
+            return {"seller_id": seller_id, "product_count": 0, "analyzed_count": 0, "products": []}
 
-    products = []
-    for pid in product_ids[:max_skus]:
-        m = metrics.get(pid) or {}
-        products.append({
-            "product_id": pid,
-            "monthly_sales": m.get("soldCount") or 0,
-            "monthly_revenue": m.get("gmvSum") or 0,
-            "sales_dynamics": m.get("salesDynamics"),
-            "drr": m.get("drr"),
-            "create_days": m.get("createDays"),
-            "category": m.get("category_name") or "",
-        })
-    return {
-        "seller_id": seller_id,
-        "product_count": len(product_ids),
-        "analyzed_count": len(products),
-        "products": products,
-    }
+        # 逐 SKU 拉运营数据(复用 ozon_seller_analytics, 间隔 1s 限速)
+        try:
+            from scripts.lib.ozon_seller_analytics import fetch_sales_analytics
+            metrics = fetch_sales_analytics(cdp, product_ids[:max_skus]) or {}
+        except Exception as e:
+            logger.warning(f"fetch_seller_analysis 运营数据失败: {e}")
+            metrics = {}
+
+        products = []
+        for pid in product_ids[:max_skus]:
+            m = metrics.get(pid) or {}
+            products.append({
+                "product_id": pid,
+                "monthly_sales": m.get("sold_count") or 0,
+                "monthly_revenue": m.get("gmv_sum") or 0,
+                "sales_dynamics": m.get("sales_dynamics"),
+                "drr": m.get("drr"),
+                "create_days": m.get("create_days"),
+                "category": m.get("category_name") or "",
+            })
+        return {
+            "seller_id": seller_id,
+            "product_count": len(product_ids),
+            "analyzed_count": len(products),
+            "products": products,
+        }
+    finally:
+        if own_conn is not None:
+            try:
+                own_conn.close()
+            except Exception:
+                pass
 
 
 def _query_logistics_from_worker(weight_g: int) -> float | None:
