@@ -112,17 +112,32 @@ def test_repair_pricing_blocks_without_pricing_info():
 # ── PR-1: retry 盲补首值删除 + 守卫 ──────────────────────────────────────
 
 def test_retry_no_blind_first_value_fill():
-    """PR-1: error_repair_llm 的字典属性盲补首值分支已删除。
-    验证 Step 2.5 分支（dict attr 未命中）直接跳过，不再取 _dict_vals[0]。
+    """PR-1: error_repair_llm 的字典属性盲补首值分支已删除（行为断言）。
+
+    v0.31 T3 重写：旧断言 `_dict_vals[0] not in src` 是源码 inspect，对
+    search_result[0] 盲取 bug 天然失明。改为行为断言——多值字典属性（材质，
+    非品牌/性别/尺码/8229/9782 语义）无语义命中 → 返回 None 走跳过（保持空值），
+    绝不取 search_result[0]（首值「塑料」）。
     """
-    import inspect
-    from graphs.validation_retry_loop import error_repair_llm_node
-    src = inspect.getsource(error_repair_llm_node)
-    # 盲补首值的标志性实现代码不应存在（取列表首元素并写入 final_attributes）
-    assert "_dict_vals[0]" not in src
-    assert "retry_dict_first" not in src
-    # 跳过分支应存在（宁缺毋滥纪律）
-    assert "绝不盲补首值" in src
+    from graphs.validation_retry_loop import ValidationRetryLoopState, error_repair_llm_node
+    state = ValidationRetryLoopState(
+        error_code="BR_chinese_hieroglyphs_in_attribute",
+        attribute_id=9999,
+        token="t", ozon_client_id="c", ozon_api_key="k",
+        description_category_id="17028746", type_id="92780",
+        product_name="Средство от насекомых",
+        ozon_payload={"items": [{"name": "Тест", "offer_id": "x", "price": "100"}]},
+        final_attributes=[{"id": 9999, "value": "", "dictionary_value_id": 0}],
+        attributes_schema=[{"id": 9999, "name": "Материал", "dictionary_id": 13}],
+        dictionary_values={"9999": [
+            {"id": 300, "value": "塑料"},
+            {"id": 301, "value": "金属"},
+        ]},
+    )
+    out = error_repair_llm_node(state)
+    attr = next(a for a in out.final_attributes if a.get("id") == 9999)
+    assert attr["dictionary_value_id"] == 0
+    assert attr["value"] == ""
 
 
 def test_retry_revalidate_has_hazard_guard():
