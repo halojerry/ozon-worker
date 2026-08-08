@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.31.0] - 2026-08-08
+
+> discover v3 裂变选品（同行卖家 = 选品引擎）+ trend 管线移除（agent 自带 LLM/web_search）+ 真实 CLI 链路修复。规划文件：`.omo/plans/discover-v3-fission-selection.md`。
+
+### Feat(skill 裂变选品 — discover --fission)
+
+- **裂变选品引擎 `ozon_fission.py`**：二分图 BFS（商品↔卖家）——种子商品 → 跟卖卖家（widget API 前 20）→ 卖家店铺产品 → 再发现。双 visited 集合（product_id / normalized seller_id）截断环路 + 三重预算（`--max-depth 2` / `--max-total-products 300` / `--time-budget 600`）任一触顶即停，**不会无界扩散**。
+- **CLI 接线**：`discover --keyword <词> --fission`（种子采集 → 裂变 → 表格挑选 → 批量货源，下游全复用）；新参数 `--max-depth` / `--allow-depth-3`（>3 显式）/ `--max-total-products` / `--time-budget` / `--max-sellers-per-product` / `--max-products-per-seller` / `--non-interactive`；阶段展示（每层候选数 + 已展开卖家数）。
+- **证据链**：裂变候选带 `source_chain`（种子→卖家→产品，选中时展示）+ `chain_depth`（深度越浅评分越高 10/7/4/0）。
+- **蓝海评分扩展**：`calculate_blue_ocean_score` 加 `chain_depth`（10 分）+ `category_consistency`（10 分，同类目 10/跨类目 3/无数据 0）因子；权重再平衡（competing_sellers 30→20、profit_margin 30→20），两模式总和均 ≤100。`apply_analytics_to_candidate` 从 `category2_id`（Seller 权威类目）写 `candidate.category`；`run_fission` 种子类目透传裂变候选。
+- **`_analyze_product` 保留 `competing_seller_list`**（完整 sellers[]，之前只取 count/min_price 丢弃——裂变种子零成本）。
+- **`fetch_seller_analysis` 双 bug 修复**：签名错（`cdp_url` 非合法参数 + list 当 cdp 传）→ 正确 `(cdp, skus)`；camelCase（soldCount）→ snake_case（sold_count）——seller 命令从此返回真实运营数据。`fetch_seller_products`/`fetch_seller_analysis` 加 `cdp=` 连接级复用参数（cmd_seller 兼容）。
+
+### Refactor(skill trend 移除)
+
+- **砍 trend 管线**：删 `trend_selection.py`(161 行) + `mxou_chat.py`(38 行) + `cmd_trend`/`_export_trend`/`_attach_skus_via_cdp` + `test_trend_selection.py`。理由：agent 自带 LLM + web_search（能力替代）+ 与 discover 重复实现。SKILL.md 管线 E 重写为「agent web_search + LLM 提炼关键词 → discover --keyword」；command-reference/AGENTS/README 同步。worker 侧 `mxou_api.py` 保留（云端无 agent）。
+
+### Fix(skill 真实链路)
+
+- **跟卖卖家字段名修正**（maozi 插件实证）：webSellerList 真实字段是 `id`/`link`/`name`（非 sellerId/sellerUrl）——之前 seller_name/seller_url 恒空，裂变 normalize 拿不到卖家 ID。
+- **stale tab 存活校验**：`_ensure_ozon_tab` 复用前 evaluate ping，失败新建（防「No such target id」500）。
+- **DataDome 页面校验**：`_ensure_ozon_tab(cdp, target_url)` 复用 tab 后导航到目标商品页再 fetch（学 ozon_scraper；在无关页 fetch 被 DataDome 拦）。
+- **`normalize_seller_id` 前缀剥离顺序修正**：先剥 `/seller/` 再 rstrip（防 `/seller/` 误留）。
+- **preflight 源码模式跳过版本门**：无 `.so` 时任何 ≥3.12 解释器可运行（开发友好；dist 分发版本门照常）。
+
+### 测试
+
+- 新增 `test_fission_budget.py`（9 断言：预算触顶/双 visited/seller_id 归一化/checkpoint/共识排名）、`test_fission_e2e_mock.py`（4 断言：3 种子 depth=1 <5s + source_chain + visited 截断 + category 透传）、`test_blue_ocean_extension.py`（6 断言：chain_depth 四档/category 三态/两模式 ≤100）、`test_seller_analysis_fix.py`（7 断言：签名/字段名/cdp 复用）。
+- 真实 CLI 验证：`discover --keyword 宠物用品 --fission` → 3 种子 → 45 真实跟卖卖家 → 6 候选（含 3 裂变产品：拉力器/宠物梳/削皮器）→ 表格 → EXIT=0。
+
 ## [0.30.0] - 2026-08-08
 
 > hyperplan 对抗规划落地：worker 属性匹配修复（retry 止血 + fetch-back 回读闭环 + 学习 provenance）+ skill runtime 稳定化（顶层 preflight + CDP 统一）。规划文件：`.omo/plans/attribute-matching-runtime-stability.md`。
