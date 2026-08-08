@@ -1,5 +1,57 @@
 # Changelog
 
+## [0.30.0] - 2026-08-08
+
+> hyperplan 对抗规划落地：worker 属性匹配修复（retry 止血 + fetch-back 回读闭环 + 学习 provenance）+ skill runtime 稳定化（顶层 preflight + CDP 统一）。规划文件：`.omo/plans/attribute-matching-runtime-stability.md`。
+
+### Fixed(worker retry 止血 — 上品成功率核心)
+
+- **删 retry 盲补字典首值**（`validation_retry_loop.py` Step 2.5）：字典属性语义解析+API 搜索未命中 → 直接跳过，绝不取 `_dict_vals[0]`。首值=语义随机：8229 可能取同大类其他小类（「套娃」错配实证）、9782 可能取「Класс 1 爆炸物」→ BR_hazard_class1。与 assemble/prepare 已统一的「宁缺毋滥」纪律对齐。
+- **revalidate 加危险品守卫**（对称 prepare_ozon_upload_node.py:1877）：9782 在 retry 阶段只放行「非危险」安全值，其余跳过重传。
+- **revalidate 加 is_aspect 守卫**（`attribute_utils.is_aspect_attr` 新增，A4 首次落地）：schema `is_aspect=true` 属性（交付出仓后不可改）retry 跳过，避免 attributes/update 被拒白烧一轮。
+- **recheck 对 rejected_unfixable 早退**：不再带旧 task_id 空轮询（省 API 调用）。
+- **`/values` limit 5000→2000**（官方 max）；**`/values/search` ≥2 字符守卫**（官方 value 最少 2 字符）。
+- **prepare post-fill 中文清零**（L952 必填 + L1083 可选）：主转换循环（L1982-1990）之后 append 的字典属性 value 含中文直接置空（dict_id 权威），堵住「双保险」的第三处漏修。
+- **8292 移出 `_KNOWN_DEFAULTS_RETRY`** → 统一走 `attr_defaults.resolve_merge_card_default` 字典解析路径。
+- **stale 注释清理**：9 处 `/v1/product/prices/update` → `/v1/product/import/prices`（旧端点不存在）。
+- **assemble 8229 type_id 匹配中文清零（Sentry POUDING_OZON-AA/9Y/9T 等实证）**：`_validate_and_enrich_items` 的 8229 type_id 分支从 ZH_HANS dict_lookup 取值未过 `_clean_dict_value` → 「垂钓诱饵/桑拿香薰/儿童泡泡机」等中文 value 直达 payload（ozon_validate 拦截上报）。修复：type_id 命中时 value 含中文置空（dict_id 权威），与 prepare post-fill 一致。
+- **zombie recovery 安全开关（Sentry 实证触发真实上架）**：启动清理会复活 `retry_count < max_retries` 的 failed 任务——本地/测试环境会用真实凭证重新上架旧任务（实测 4 个任务被激活真实上传）。新增 `SKIP_ZOMBIE_RECOVERY=1` 环境变量跳过全部复活；本地测试必开（`deploy/.env` 已加，容器内验证「任务保持 failed 不复活」）。
+
+### Fixed(worker 学习闭环 — 切断 Goodhart 棘轮)
+
+- **fetch-back 回读闭环（P0）**：`fetch_back_node` 在 approved 后调 `/v4/product/info/attributes` 回读 Ozon 真实存储值 → diff 发送 vs 存储 → 检出 dict_id 漂移/被擦除/Ozon 自动填默认（`attributes_with_defaults`）→ `attr.outcome` 结构化遥测。graph 路由：`成功 → fetch_back → learning_record`。
+- **学习门收紧（R6）**：被 Ozon 擦除 + 自动填默认的属性不写入学习（「Ozon 没查这个字段」不再被学习成「这个值是对的」）。
+- **9782 erase 事件入遥测（R7）**：IGNORABLE_CODES 保留（防 retry 死循环）但擦除不再静默。
+- **学习 provenance（PR-6）**：`ozon_attribute_mappings.source` 列（learned_approved/default_fallback/retry_recovered/fetch_back_corrected）+ 幂等迁移；default_fallback 复用不增长 success_count（切棘轮）；prepare 按置信消费（retry_recovered 隔离、fabricated `[{name}]` 跳过）；`scripts/backfill_mapping_source.py` 历史回填（dry-run 默认）。
+
+### Fixed(skill runtime 稳定化 — 链路体验)
+
+- **顶层 `_preflight_runtime`**：Python≥3.12 + requests/websocket/PIL 探测，缺依赖立即精确提示 + return 1（不再链路深处炸 traceback）。
+- **4 处 ModuleNotFoundError 精确归因**：缺依赖 → pip 指引；缺模块 → 升级指引（不再误导「版本过旧」）。
+- **cmd_check 不 early return**：无浏览器也继续探测 Worker/MXOU/凭证，一次性全环境诊断。
+- **graph/follow/image_search(cdp) 入口前置 ensure_chrome_cdp**：缺 Chrome 立即报错（不再等 enrich 60s）。
+- **updater 跨进程锁**（fcntl/msvcrt on data/.update.lock）：并发 CLI auto-update 不再竞态破坏安装。
+- **RATE_LIMIT_PER_MINUTE 默认 10→300**：与 AGENTS.md/.env.example 对齐（批量提交不再 429）。
+- **CDP 统一**：profile 双轨消除（全部 `profiles/1688/default`）、删 legacy 无锁 Popen、find_tab 复用用户 tab 后立即 release（不再误关用户标签页）、`_check_1688_login_live` cookie 优先零 tab 检测（降级导航 5 分钟缓存）、`scripts/migrate_profile.py` 迁移脚本（dry-run 默认）。
+- **follow 信封透传 `ozon_attributes_category`**（与 graph --ozon-ref-url 一致）：worker 类目一致性校验防跨类目属性错配。
+
+### Refactored
+
+- **retry schema 查询 PG 缓存优先**（`_get_attribute_schema` 先查 attribute_cache 再 Ozon 直查，与主路径共享缓存）；`/values/search` body 去掉 language 字段（官方无此参数，语言仅控制 fallback 链）。
+
+### 测试
+
+- worker 257 passed（新增 15：retry 盲填删除/hazard/aspect 守卫/unfixable 早退/8292/retry_count/fetch_back 7 用例）；skill 87 passed（新增 6：preflight 4 + updater 锁 2）。
+- 本地 Docker 实测：graph 26 节点编译（含 fetch_back）、PR-1 守卫源码断言、fetch_back diff 端到端（mock /v4）、provenance 消费门全部通过。
+- 遗留 14 个环境失败（PGDATABASE_URL/uvicorn 缺失）与本次改动无关（git stash 验证）。
+
+### 已知边界（显式 scope-out）
+
+- PR-2 assemble 大函数物理移动 → `docs/TODO-attribute-util-extraction.md`
+- PR-5 attr_defaults 扩消费（9554/18270/9160 无实证不盲加）→ 计划文件
+- D1 类目错路径 category-repair 节点 → `docs/TODO-category-repair.md`
+- zombie recovery 复活 failed 任务在本地环境会误激活旧任务（真实上架）→ 本地测试需先清空任务表
+
 ## [0.29.3] - 2026-08-07
 
 > 用户电脑 CDP 全崩根因修复(REALISTIC_UA 混装) + follow 前置 ensure Chrome + MXOU 余额本地直查 + 工具 Chrome 常驻。
