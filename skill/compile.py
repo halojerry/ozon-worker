@@ -375,8 +375,8 @@ def _find_missing_imports(dist_dir: Path) -> list[str]:
     compiled_modules: set[str] = set()
     for p in dist_dir.rglob("*.py"):
         rel = p.relative_to(dist_dir)
-        # ⚠️ win32: as_posix() 统一 `/`（Path 在 Windows 上是 `\`，直接 replace("/") 失效）
-        py_modules.add(rel.as_posix()[:-3])
+        # ⚠️ win32: Path 在 Windows 上是 `\`，先 as_posix() 统一 `/` 再转点分模块名
+        py_modules.add(rel.as_posix()[:-3].replace("/", "."))
     for p in list(dist_dir.rglob("_native/*/*.so")) + list(dist_dir.rglob("_native/*/*.pyd")):
         compiled_modules.add(p.stem)
 
