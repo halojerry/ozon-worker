@@ -23,9 +23,12 @@ def test_preflight_ok_with_deps():
 
 
 def test_preflight_blocks_old_python():
-    """Python < 3.12 → 阻断并提示版本。"""
+    """Python < 3.12 → 阻断并提示版本（PATH 无可用 3.12 时）。"""
     from scripts.cli import _preflight_runtime
-    with mock.patch("scripts.cli.sys.version_info", (3, 10, 0)):
+    # ⚠️ PR-A: mock shutil.which 返回 None —— 避免测试真实扫描 PATH（开发机 python3.12
+    # 可能是坏解释器，subprocess 调用会挂起）
+    with mock.patch("scripts.cli.sys.version_info", (3, 10, 0)), \
+         mock.patch("scripts.runtime_probe.shutil.which", return_value=None):
         ok, msg = _preflight_runtime()
     assert ok is False
     assert "3.12" in msg
