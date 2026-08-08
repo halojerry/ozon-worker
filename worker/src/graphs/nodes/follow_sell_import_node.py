@@ -301,13 +301,31 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     orig_images = ozon_images[:10]
     variants = []
     item_id = draft.get("item_id", ozon_product_id)
-    final_attrs = [
-        {"id": 85, "values": [{"dictionary_value_id": BRAND_DICT_ID, "value": "Нет бренда"}]},
-        {"id": 5076, "values": [{"dictionary_value_id": BRAND_DICT_ID, "value": "Нет бренда"}]},
-        {"id": 4389, "values": [{"dictionary_value_id": CHINA_DICT_ID, "value": "Китай"}]},
-        {"id": 9048, "values": [{"dictionary_value_id": 0, "value": str(ozon_product_id)}]},
-        {"id": 8962, "values": [{"dictionary_value_id": 0, "value": "1"}]},
-    ]
+    # ⚠️ v0.31 T1: 跟卖属性合并链 — draft.ozon_attributes(RU 名→attr_id→dict_id 字典解析)
+    # → draft.attributes(1688 中文) → 硬编码兜底。旧代码把硬编码 5 属性当竞品数据
+    # （品牌85/5076+产地4389+型号9048+数量8962），真实竞品属性(draft.ozon_attributes)全丢。
+    # 合并链在 attr_defaults.build_follow_attr_merge: 字典属性 /values/search 解析 dict_id,
+    # 竞品文本值无字典匹配 → 跳过(绝不注入原文)；硬编码 5 属性仅作双无兜底。
+    try:
+        from utils.attr_defaults import build_follow_attr_merge
+        final_attrs = build_follow_attr_merge(
+            draft=draft,
+            schema=attrs_schema,
+            dc_id=dc_id,
+            tp_id=tp_id,
+            client_id=client_id,
+            api_key=api_key,
+            product_id=ozon_product_id,
+        )
+    except Exception as _merge_err:
+        logger.warning("跟卖属性合并链异常，回退硬编码 5 属性: %s", _merge_err)
+        final_attrs = [
+            {"id": 85, "values": [{"dictionary_value_id": BRAND_DICT_ID, "value": "Нет бренда"}]},
+            {"id": 5076, "values": [{"dictionary_value_id": BRAND_DICT_ID, "value": "Нет бренда"}]},
+            {"id": 4389, "values": [{"dictionary_value_id": CHINA_DICT_ID, "value": "Китай"}]},
+            {"id": 9048, "values": [{"dictionary_value_id": 0, "value": str(ozon_product_id)}]},
+            {"id": 8962, "values": [{"dictionary_value_id": 0, "value": "1"}]},
+        ]
     up_status = "pending"
 
     logger.info("✅ 跟卖 v5: product_id=%s, cat=%s/%s, imgs=%d",
