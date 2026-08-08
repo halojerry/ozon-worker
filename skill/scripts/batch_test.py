@@ -21,7 +21,8 @@
     --client-id 5371047 --api-key 411afbd4-c7ea-4fb3-b14f-3d9c2f246214
 
 环境变量:
-  MXOU_API_BASE - Worker 地址 (默认 https://worker.mxou.cn)
+  WORKER_URL - Worker 地址（优先）
+  MXOU_API_BASE - Worker 地址（回退，默认 https://worker.mxou.cn）
 """
 from __future__ import annotations
 
@@ -40,6 +41,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "data" / "batch_results"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _default_worker_url() -> str:
+    """Worker 地址默认值: WORKER_URL 优先，其次 MXOU_API_BASE，最后生产默认。"""
+    return (os.environ.get("WORKER_URL") or os.environ.get("MXOU_API_BASE")
+            or "https://worker.mxou.cn")
+
+
+def _resolve_credentials(client_id: str, api_key: str, store_id: str = "") -> tuple[str, str]:
+    """凭证解析: 显式 --client-id/--api-key 优先；空则回退 stores.json(get_ozon_credentials)。
+
+    Returns (client_id, api_key)。未配置 → 空串。
+    """
+    cid = (client_id or "").strip()
+    akey = (api_key or "").strip()
+    if cid and akey:
+        return cid, akey
+    from scripts.lib.config_store import get_ozon_credentials
+    creds = get_ozon_credentials(store_id)
+    if creds:
+        return (creds.get("client_id", "") or "").strip(), (creds.get("api_key", "") or "").strip()
+    return cid, akey
 
 
 def _now_iso() -> str:
@@ -104,7 +127,10 @@ def parse_urls_file(filepath: str) -> list[dict[str, str]]:
                     seen_ids.add(pid)
                     results.append({"type": "ozon", "url": line, "id": pid})
             elif "1688.com" in line:
+                # v0.31.1: 兼容 m 站 detail.m.1688.com/page/index.html?offerId=xxx
                 m = re.search(r"offer/(\d+)", line)
+                if not m:
+                    m = re.search(r"[?&]offerId=(\d+)", line)
                 oid = m.group(1) if m else ""
                 if oid and oid not in seen_ids:
                     seen_ids.add(oid)
@@ -219,10 +245,12 @@ def process_ozon_url(
         "success": False,
     }
 
+    old_cid = os.environ.get("OZON_CLIENT_ID", "")
+    old_akey = os.environ.get("OZON_API_KEY", "")
+    follow_result: dict[str, Any] = {}
+    matches: list[dict[str, Any]] = []
     try:
         # Temporarily override env vars for this call
-        old_cid = os.environ.get("OZON_CLIENT_ID", "")
-        old_akey = os.environ.get("OZON_API_KEY", "")
         os.environ["OZON_CLIENT_ID"] = client_id
         os.environ["OZON_API_KEY"] = api_key
 
@@ -237,12 +265,11 @@ def process_ozon_url(
         result["search_keyword"] = follow_result.get("search_keyword", "")
         result["slug"] = follow_result.get("slug", "")
 
-        matches = follow_result.get("1688_matches", [])
+        matches = follow_result.get("1688_matches", []) or []
         result["matches_count"] = len(matches)
     except Exception as e:
         result["error"] = str(e)
         print(f"  ❌ [{product_id}] 异常: {e}", flush=True)
-        return result
     finally:
         # ✅ 始终恢复环境变量（即使 follow_sell_cloud 异常）
         if old_cid:
@@ -254,33 +281,29 @@ def process_ozon_url(
         else:
             os.environ.pop("OZON_API_KEY", None)
 
-        # ⚠️ v0.14 E7: follow_result/matches 可能在异常时未绑定（finally 引用会 NameError 掩盖原异常）
-        # 用 locals().get 安全读取
-        follow_result = locals().get("follow_result") or {}
-        matches = locals().get("matches") or []
-
-        if not follow_result.get("success"):
-            result["error"] = follow_result.get("error", "跟卖流程未找到匹配")
-            print(f"  ⚠️ [{product_id}] 跟卖未找到匹配: {result['error']}", flush=True)
-            if not dry_run:
-                return result
-
-        if matches:
-            best = matches[0]
-            result["best_match_id"] = best.get("id", "")
-            result["best_match_title"] = best.get("title", "")
-            print(f"  ✅ [{product_id}] 最佳匹配: {best.get('title', '')[:60]}", flush=True)
-
-        if dry_run:
-            result["success"] = follow_result.get("success", False)
-            result["dry_run"] = True
+    # v0.31.1: return 移出 finally（消除 SyntaxWarning: 'return' in 'finally' block）
+    if not follow_result.get("success"):
+        result["error"] = follow_result.get("error", "跟卖流程未找到匹配")
+        print(f"  ⚠️ [{product_id}] 跟卖未找到匹配: {result['error']}", flush=True)
+        if not dry_run:
             return result
 
-        # Submit mode: result already includes task_id from auto_submit
+    if matches:
+        best = matches[0]
+        result["best_match_id"] = best.get("id", "")
+        result["best_match_title"] = best.get("title", "")
+        print(f"  ✅ [{product_id}] 最佳匹配: {best.get('title', '')[:60]}", flush=True)
+
+    if dry_run:
         result["success"] = follow_result.get("success", False)
-        result["task_id"] = follow_result.get("task_id", "")
-        if follow_result.get("submit_result"):
-            result["submit_result"] = follow_result["submit_result"]
+        result["dry_run"] = True
+        return result
+
+    # Submit mode: result already includes task_id from auto_submit
+    result["success"] = follow_result.get("success", False)
+    result["task_id"] = follow_result.get("task_id", "")
+    if follow_result.get("submit_result"):
+        result["submit_result"] = follow_result["submit_result"]
 
     return result
 
@@ -305,7 +328,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--worker-url",
-        default=os.environ.get("MXOU_API_BASE", "https://worker.mxou.cn"),
+        default=_default_worker_url(),
         help="Worker 地址",
     )
     parser.add_argument(
@@ -353,8 +376,12 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    if args.submit and not args.client_id:
-        print("❌ --submit 需要 --client-id 和 --api-key（或设置 OZON_CLIENT_ID / OZON_API_KEY 环境变量）")
+    if args.submit:
+        # v0.31.1: 未显式传凭证 → 回退 stores.json(get_ozon_credentials)
+        args.client_id, args.api_key = _resolve_credentials(
+            args.client_id, args.api_key, args.store_id)
+    if args.submit and (not args.client_id or not args.api_key):
+        print("❌ --submit 需要 --client-id 和 --api-key（或设置 OZON_CLIENT_ID / OZON_API_KEY 环境变量，或 stores.json 已配置店铺凭证）")
         return 1
 
     # ── Pre-flight check ──
