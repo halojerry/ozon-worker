@@ -153,9 +153,14 @@ def cmd_graph(args: argparse.Namespace) -> int:
             ProductValidationError,
             build_graph_envelope_with_retry,
         )
-    except ModuleNotFoundError:
-        print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
-              "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
+    except ModuleNotFoundError as _e:
+        # PR-3: 精确归因 — 缺依赖（preflight 兜底遗漏）vs 缺模块（包不完整）
+        _ename = getattr(_e, "name", "") or ""
+        if _ename and _ename not in ("scripts.cloud_probe", "cloud_probe"):
+            print(f"❌ 缺少依赖模块 '{_ename}'。请运行: pip install -r requirements.txt", flush=True)
+        else:
+            print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
+                  "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
         return 1
 
     missing = preflight_check()
@@ -175,6 +180,19 @@ def cmd_graph(args: argparse.Namespace) -> int:
         return 1
 
     detail_url = args.url or f"https://detail.1688.com/offer/{item_id}.html"
+
+    # ⚠️ PR-3: CDP 前置 — 进 enrich 前确保 Chrome 就绪（不再等到链路深处 60s 才报）
+    try:
+        from scripts.lib.chrome_launcher import ensure_chrome_cdp
+        _ok_cdp, _msg_cdp = ensure_chrome_cdp(profile_dir=_chrome_profile_dir())
+        if not _ok_cdp:
+            print(f"❌ Chrome CDP 不可用: {_msg_cdp}", flush=True)
+            print("  → 请运行 `python3 scripts/cli.py check` 查看环境诊断", flush=True)
+            return 1
+    except Exception as _cdp_e:
+        print(f"❌ Chrome CDP 前置检查异常: {_cdp_e}", flush=True)
+        print("  → 请运行 `python3 scripts/cli.py check` 查看环境诊断", flush=True)
+        return 1
 
     try:
         graph = build_graph_envelope_with_retry(
@@ -239,9 +257,14 @@ def cmd_graph(args: argparse.Namespace) -> int:
     if not getattr(args, 'no_submit', False):
         try:
             from scripts.cloud_probe import submit_envelope
-        except ModuleNotFoundError:
-            print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
-                  "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
+        except ModuleNotFoundError as _e:
+            # PR-3: 精确归因 — 缺依赖 vs 缺模块
+            _ename = getattr(_e, "name", "") or ""
+            if _ename and _ename not in ("scripts.cloud_probe", "cloud_probe"):
+                print(f"❌ 缺少依赖模块 '{_ename}'。请运行: pip install -r requirements.txt", flush=True)
+            else:
+                print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
+                      "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
             return 1
         submit_result = submit_envelope(graph)
         if submit_result.get("ok"):
@@ -269,6 +292,20 @@ def cmd_image_search(args) -> int:
     if missing:
         print_setup_guide(missing)
         return 1
+
+    # ⚠️ PR-3: --source cdp 需要 Chrome；ak 引擎无需浏览器不探测
+    if args.source == "cdp":
+        try:
+            from scripts.lib.chrome_launcher import ensure_chrome_cdp
+            _ok_cdp, _msg_cdp = ensure_chrome_cdp(profile_dir=_chrome_profile_dir())
+            if not _ok_cdp:
+                print(f"❌ Chrome CDP 不可用: {_msg_cdp}", flush=True)
+                print("  → 请运行 `python3 scripts/cli.py check` 查看环境诊断", flush=True)
+                return 1
+        except Exception as _cdp_e:
+            print(f"❌ Chrome CDP 前置检查异常: {_cdp_e}", flush=True)
+            print("  → 请运行 `python3 scripts/cli.py check` 查看环境诊断", flush=True)
+            return 1
 
     try:
         if args.source == "cdp":
@@ -430,10 +467,11 @@ def cmd_check(args) -> int:
             tag = "（推荐）" if name == "Google Chrome" else ""
             print(f"  ✅ {name} {tag}")
     else:
+        # PR-3: 不再 early return — 标记失败后继续探测 Worker/MXOU/凭证，
+        # 让 check 一次性给出全环境诊断（浏览器缺失不影响远程探测项）
         print("  ❌ 未检测到可用浏览器")
         print("  → 请安装 Google Chrome: https://www.google.com/chrome/")
         all_ok = False
-        return 0 if all_ok else 1
 
     # ═══════════════════════════════════════════
     # 2. CDP 远程调试检查（自动启动 Chrome）
@@ -743,14 +781,32 @@ def cmd_follow(args) -> int:
     from scripts.lib.config_store import AuthError, preflight_check, print_setup_guide
     try:
         from scripts.cloud_probe import follow_sell_cloud
-    except ModuleNotFoundError:
-        print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
-              "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
+    except ModuleNotFoundError as _e:
+        # PR-3: 精确归因 — 缺依赖（preflight 兜底遗漏）vs 缺模块（包不完整）
+        _ename = getattr(_e, "name", "") or ""
+        if _ename and _ename not in ("scripts.cloud_probe", "cloud_probe"):
+            print(f"❌ 缺少依赖模块 '{_ename}'。请运行: pip install -r requirements.txt", flush=True)
+        else:
+            print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
+                  "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
         return 1
 
     missing = preflight_check()
     if missing:
         print_setup_guide(missing)
+        return 1
+
+    # ⚠️ PR-3: CDP 前置 — follow 全链路依赖 Chrome，启动失败立即报（不再 warning+continue 空跑）
+    try:
+        from scripts.lib.chrome_launcher import ensure_chrome_cdp
+        _ok_cdp, _msg_cdp = ensure_chrome_cdp(profile_dir=_chrome_profile_dir())
+        if not _ok_cdp:
+            print(f"❌ Chrome CDP 不可用: {_msg_cdp}", flush=True)
+            print("  → 请运行 `python3 scripts/cli.py check` 查看环境诊断", flush=True)
+            return 1
+    except Exception as _cdp_e:
+        print(f"❌ Chrome CDP 前置检查异常: {_cdp_e}", flush=True)
+        print("  → 请运行 `python3 scripts/cli.py check` 查看环境诊断", flush=True)
         return 1
 
     try:
@@ -993,9 +1049,14 @@ def cmd_discover(args: argparse.Namespace) -> int:
                 build_envelope_from_discovery,
                 submit_envelope,
             )
-        except ModuleNotFoundError:
-            print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
-                  "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
+        except ModuleNotFoundError as _e:
+            # PR-3: 精确归因 — 缺依赖 vs 缺模块
+            _ename = getattr(_e, "name", "") or ""
+            if _ename and _ename not in ("scripts.cloud_probe", "cloud_probe"):
+                print(f"❌ 缺少依赖模块 '{_ename}'。请运行: pip install -r requirements.txt", flush=True)
+            else:
+                print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
+                      "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
             return 1
         from scripts.lib.config_store import get_store
 
@@ -1246,6 +1307,14 @@ def main() -> int:
         parser.print_help()
         return 0
 
+    # ⚠️ PR-3: 顶层 runtime preflight — Python 版本 + 核心依赖探测。
+    # 在 _silent_update_check 之前（update check 本身也 import 依赖），缺则立即退出。
+    if args.command not in ("update", "set_token", "set_ak", "set_store"):
+        _ok, _msg = _preflight_runtime()
+        if not _ok:
+            print(f"\n❌ {_msg}", flush=True)
+            return 1
+
     # ⚠️ 每次命令静默检查更新（后台不阻塞，失败静默；update 命令本身跳过）
     _silent_update_check(args.command)
 
@@ -1259,6 +1328,30 @@ def main() -> int:
     # profile 重新启动即可, 不再有单实例锁问题。
     # close_tool_chrome() 保留(不自动调用), 需要时显式执行。
     return args.func(args)
+
+
+def _preflight_runtime() -> tuple[bool, str]:
+    """PR-3: 顶层 runtime preflight — 一次性探测 Python 版本 + 核心依赖。
+
+    返回 (ok, message)。缺依赖时给出精确的安装指引（不再让 ModuleNotFoundError
+    在链路深处炸出误导性 traceback）。
+    """
+    import sys as _sys
+
+    py_ver = _sys.version_info
+    if py_ver < (3, 12):
+        return (False, f"Python 版本过低（{_sys.version.split()[0]}），需要 ≥3.12。"
+                       f"请安装 Python 3.12+ 后重试。")
+    missing = []
+    for _mod, _pkg in (("requests", "requests"), ("websocket", "websocket-client"), ("PIL", "Pillow")):
+        try:
+            __import__(_mod)
+        except ImportError:
+            missing.append(_pkg)
+    if missing:
+        return (False, f"缺少依赖: {', '.join(missing)}。请运行: "
+                       f"pip install -r requirements.txt（或 pip install {' '.join(missing)}）")
+    return (True, "")
 
 
 def _silent_update_check(command: str) -> None:
