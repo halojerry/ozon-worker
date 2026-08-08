@@ -18,8 +18,8 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
-import ozon_discovery
-from ozon_discovery import ProductCandidate
+from scripts.lib import ozon_discovery
+from scripts.lib.ozon_discovery import ProductCandidate
 
 DEFAULT_CACHE_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),

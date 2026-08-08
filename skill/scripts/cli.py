@@ -1269,24 +1269,30 @@ def _preflight_runtime() -> tuple[bool, str]:
     """PR-3 + PR-A: 顶层 runtime preflight — 自动发现可用解释器 + 核心依赖探测。
 
     返回 (ok, message)。流程：
-    1. 当前解释器 ≥3.12 → 直接走依赖检查（零开销）
-    2. 当前解释器 <3.12 → resolve_python() 扫 PATH 找 3.12/3.13：
+    1. 源码开发模式（scripts/lib 下无编译产物）→ 跳过版本门（纯 Python 任何 ≥3.12 都能跑）
+    2. 当前解释器 ≥3.12 → 直接走依赖检查（零开销）
+    3. 当前解释器 <3.12 → resolve_python() 扫 PATH 找 3.12/3.13：
        - 找到 → os.execve 无感切换（永不返回）
        - 没有 → 报版本错误（含 SKILL_PYTHON 提示）
-    3. 依赖探测：缺 requests/websocket/PIL → 精确 pip 指引
+    4. 依赖探测：缺 requests/websocket/PIL → 精确 pip 指引
     """
     import sys as _sys
 
     from scripts.runtime_probe import re_exec_if_needed, resolve_python
 
-    # ⚠️ PR-A (CF-2): 双边界——3.14+ 的 cpython-314 tag 与 cpython-312 .so 不匹配，
-    # 即使版本 ≥3.12 也会 import .so 崩。只接受 3.12.x。
-    if _sys.version_info < (3, 12) or _sys.version_info >= (3, 13):
-        python_cmd, is_current = resolve_python()
-        if not is_current:
-            re_exec_if_needed(python_cmd, str(Path(__file__).resolve()), list(_sys.argv[1:]))
-        return (False, f"Python 版本不匹配（{_sys.version.split()[0]}），需要 3.12.x（.so ABI 绑定 cpython-312）。"
-                       f"请安装 Python 3.12，或设置 SKILL_PYTHON=/path/to/python3.12 后重试。")
+    # ⚠️ v0.31: 源码模式跳过版本门——本仓库脚本目录无 .so 时任何解释器均可运行
+    #（纯 Python 明文），版本门只约束 dist 分发（.so ABI 绑定 cpython-312）。
+    _lib_dir = Path(__file__).resolve().parent / "lib"
+    _has_native = any(_lib_dir.glob("_native")) or any(_lib_dir.glob("*.so"))
+    if _has_native:
+        # ⚠️ PR-A (CF-2): 双边界——3.14+ 的 cpython-314 tag 与 cpython-312 .so 不匹配，
+        # 即使版本 ≥3.12 也会 import .so 崩。只接受 3.12.x。
+        if _sys.version_info < (3, 12) or _sys.version_info >= (3, 13):
+            python_cmd, is_current = resolve_python()
+            if not is_current:
+                re_exec_if_needed(python_cmd, str(Path(__file__).resolve()), list(_sys.argv[1:]))
+            return (False, f"Python 版本不匹配（{_sys.version.split()[0]}），需要 3.12.x（.so ABI 绑定 cpython-312）。"
+                           f"请安装 Python 3.12，或设置 SKILL_PYTHON=/path/to/python3.12 后重试。")
 
     missing = []
     for _mod, _pkg in (("requests", "requests"), ("websocket", "websocket-client"), ("PIL", "Pillow")):

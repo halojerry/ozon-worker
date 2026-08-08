@@ -45,10 +45,12 @@ def extract_product_id(url: str) -> str:
     return m.group(1) if m else ""
 
 
-def _ensure_ozon_tab(cdp: CdpConnection) -> CdpTab:
-    """Find an existing ozon.ru tab or create a new one.
+def _ensure_ozon_tab(cdp: CdpConnection, target_url: str = "") -> CdpTab:
+    """Find an existing ozon.ru tab or create a new one, navigated to target_url.
 
-    Reuses an existing tab to preserve cookies/session state.
+    Reuses an existing tab to preserve cookies/session state (avoid DataDome),
+    then navigates it to target_url — Ozon API 按页面会话校验，在无关页面
+    （如用户打开的别的商品页）上 fetch 会被 DataDome 拦。
     ⚠️ v0.31: find_tab 可能返回刚被 fetch_seller_products 关闭的 stale tab
     （Chrome 延迟清理 /json 列表），复用前验证存活，失败则新建。
     """
@@ -61,8 +63,15 @@ def _ensure_ozon_tab(cdp: CdpConnection) -> CdpTab:
         else:
             # PR-4: 命中用户已有 tab → 立即 release，防止 conn.close() 远程关闭用户标签页
             cdp.release(tab)
+            if target_url:
+                try:
+                    tab.navigate(target_url, timeout=25)
+                    time.sleep(3)
+                except Exception:
+                    pass
             return tab
-    # Create a new tab pointing at Ozon homepage (sets cookies)
+    if target_url:
+        return cdp.new_tab(target_url)
     return cdp.new_tab(f"{OZON_BASE}/")
 
 
@@ -304,7 +313,7 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, 
 
     try:
         if cdp is not None:
-            tab = _ensure_ozon_tab(cdp)
+            tab = _ensure_ozon_tab(cdp, f"{OZON_BASE}/product/{product_id}/")
             raw = tab.evaluate(js, await_promise=True, timeout=20)
             parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
             if parsed.get("error"):
@@ -313,7 +322,7 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, 
             result.update(parsed)
         else:
             with CdpConnection(cdp_url) as _cdp:
-                tab = _ensure_ozon_tab(_cdp)
+                tab = _ensure_ozon_tab(_cdp, f"{OZON_BASE}/product/{product_id}/")
                 raw = tab.evaluate(js, await_promise=True, timeout=20)
                 parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
                 if parsed.get("error"):
@@ -409,7 +418,7 @@ def fetch_competing_sellers(cdp_url: str, product_id: str, *, cdp=None) -> dict[
 
     try:
         if cdp is not None:
-            tab = _ensure_ozon_tab(cdp)
+            tab = _ensure_ozon_tab(cdp, f"{OZON_BASE}/product/{product_id}/")
             raw = tab.evaluate(js, await_promise=True, timeout=20)
             parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
             if parsed.get("error"):
@@ -422,7 +431,7 @@ def fetch_competing_sellers(cdp_url: str, product_id: str, *, cdp=None) -> dict[
             })
         else:
             with CdpConnection(cdp_url) as _cdp:
-                tab = _ensure_ozon_tab(_cdp)
+                tab = _ensure_ozon_tab(_cdp, f"{OZON_BASE}/product/{product_id}/")
                 raw = tab.evaluate(js, await_promise=True, timeout=20)
                 parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
                 if parsed.get("error"):
@@ -454,7 +463,7 @@ def fetch_sku_variants(cdp_url: str, product_id: str) -> list[dict[str, Any]]:
 
     try:
         with CdpConnection(cdp_url) as cdp:
-            tab = _ensure_ozon_tab(cdp)
+            tab = _ensure_ozon_tab(cdp, f"{OZON_BASE}/product/{product_id}/")
             raw = tab.evaluate(js, await_promise=True, timeout=20)
             parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or [])
             if isinstance(parsed, list):

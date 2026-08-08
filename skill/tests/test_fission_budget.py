@@ -6,11 +6,10 @@ import sys
 import tempfile
 from unittest import mock
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts", "lib"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import ozon_fission
-from ozon_fission import (
+from scripts.lib import ozon_fission as ozon_fission
+from scripts.lib.ozon_fission import (
     FissionBudget,
     FissionState,
     normalize_seller_id,
