@@ -126,6 +126,12 @@ class ProductCandidate:
     # Ozon 类目（面包屑/候选品数据，供提交）
     ozon_category: dict = field(default_factory=dict)
 
+    # 裂变字段（v3 新增）
+    competing_seller_list: list = field(default_factory=list)  # fetch_competing_sellers 完整 sellers[]
+    source_chain: list = field(default_factory=list)           # 证据链 [{type,id,name,depth}]
+    chain_depth: int = 0                                        # 裂变深度（0=种子）
+    _seed_category_id: int = 0                                  # 种子类目（类目一致性检查用）
+
     # Blue ocean
     blue_ocean_score: int = 0
 
@@ -330,6 +336,7 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str) -> ProductCandidate:
         sellers = fetch_competing_sellers(cdp_url, pid, cdp=cdp)
         candidate.competing_sellers = sellers.get("count", 0)
         candidate.min_competing_price = sellers.get("min_price", 0)
+        candidate.competing_seller_list = sellers.get("sellers", [])
         candidate.status = "ok"
     except Exception as exc:
         candidate.status = "error"
