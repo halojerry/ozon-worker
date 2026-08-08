@@ -100,22 +100,27 @@ python3 scripts/cli.py discover --keyword "宠物用品" --no-analytics
 
 ### 管线 C 增强：裂变选品（discover --fission，v0.31）
 
-**触发**：用户要"无限找货 / 从同行卖家挖货 / 顺着卖家找更多产品"。
+**触发**：用户要"找更多同类产品 / 挖同行货源"（在种子选品基础上再深挖一层）。
 
-**原理**：跟卖卖家 = 最好的选品工具。种子商品 → 抓跟卖卖家（widget API 前 20）→ 扫每家店铺产品 → 再发现 → BFS 扩散（默认深度 2）。
+**流程**：种子商品 → 跟卖卖家（widget API 前 20）→ 卖家店铺产品 → 再发现（默认深度 2）。
 
 ```bash
 # ⑧ 种子采集 + 裂变展开（关键词 → 种子 → 卖家 → 店铺产品）
 python3 scripts/cli.py discover --keyword "宠物用品" --fission
 
-# ⑨ 深度 3（指数爆炸，需显式 allow）+ 更紧的候选上限
+# ⑨ 深度 3（需显式 allow）+ 更紧的候选上限
 python3 scripts/cli.py discover --keyword "玩具" --fission --max-depth 3 --allow-depth-3 --max-total-products 500
 
 # ⑩ 非交互（层间不询问继续，适合脚本/CI）
 python3 scripts/cli.py discover --keyword "收纳" --fission --non-interactive
 ```
 
-- **参数**：`--max-depth`（默认 2，>3 需 `--allow-depth-3`）、`--max-total-products`（默认 300，**主成本控制**）、`--time-budget`（默认 600s）、`--max-sellers-per-product`（默认 20）、`--max-products-per-seller`（默认 15）、`--non-interactive`
+- **⚠️ 有硬性默认限制，不会无限跑**：
+  - `--max-total-products 300`（默认 300，候选总量上限，**主成本控制**）
+  - `--max-depth 2`（默认 2，>3 需 `--allow-depth-3` 显式开启）
+  - `--time-budget 600`（默认 600s 时间预算）、`--max-sellers-per-product 20`、`--max-products-per-seller 15`
+  - 任一预算触顶立即停止，不会无界扩散
+- **参数**：`--max-depth`、`--allow-depth-3`、`--max-total-products`、`--time-budget`、`--max-sellers-per-product`、`--max-products-per-seller`、`--non-interactive`
 - **流程**：先走管线 C 阶段①②（种子采集 + 全量数据）→ 裂变展开（BFS）→ 回到③表格挑选 → ④批量货源（全部复用）
 - **数据**：裂变候选带 `chain_depth`（0=种子/1/2）+ `source_chain`（来源链路 种子→卖家→产品，选中产品时展示）+ `_seed_category_id`（种子类目，同类目 +10 / 跨类目 +3 / 无数据 +0 评分）
 - **⚠️ 慢操作**：卖家页串行导航（≥3s 间隔）+ what_to_sell 逐 SKU 限速（1s/SKU），10-60 分钟/次；裂变中阶段展示每层候选数 + 已展开卖家数
