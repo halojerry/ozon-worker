@@ -201,6 +201,9 @@ def apply_update(update_info: dict[str, Any], auto_confirm: bool = False) -> dic
 def _apply_update_locked(update_info: dict[str, Any], auto_confirm: bool,
                          result: dict[str, Any]) -> dict[str, Any]:
     """加锁后的更新主流程（原 apply_update 主体）。"""
+    dl_url = update_info.get("url", "")
+    expect_sha = update_info.get("sha256", "")
+    root = skill_dir()
 
     if not auto_confirm:
         confirm = input(f"发现新版本 {result['new_version']}，是否更新？(y/N) ")
