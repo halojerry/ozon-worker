@@ -2,6 +2,19 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.30.0 — retry 止血 + fetch-back 回读闭环 + 学习 provenance + skill runtime 稳定化）
+
+> 2026-08-08。hyperplan 对抗规划落地（`.omo/plans/attribute-matching-runtime-stability.md`）。详见 `CHANGELOG.md`。
+
+- **retry 盲补首值系统性删除(PR-1 收官)**: `validation_retry_loop.py` Step 2.5 字典属性未命中直接跳过，绝不取 `_dict_vals[0]`（8229 首值可能=同大类其他小类「套娃」、9782 首值可能=「爆炸物 Category 1」）。revalidate 加 hazard+is_aspect 双守卫；recheck 对 rejected_unfixable 早退；`/values` limit 2000；`/values/search` ≥2 字符守卫。
+- **prepare post-fill 中文清零(第三处漏修)**: `_fill_missing_required_dict_attrs`/`_fill_optional_dict_attrs` 在主转换循环之后 append 的字典 value 含中文置空（dict_id 权威）——之前「双保险」只覆盖了 assemble+prepare 主转换。
+- **fetch-back 回读闭环(P0, 唯一能校准 dict 漂移的机制)**: `worker/src/graphs/nodes/fetch_back_node.py` 在 approved 后调 `/v4/product/info/attributes` 回读真实存储值 → diff 发送 vs 存储 → 检出 dict_id 漂移/被擦除/`attributes_with_defaults` → `attr.outcome` 遥测。graph 路由 `成功 → fetch_back → learning_record`。
+- **学习门收紧(R6)+ provenance(PR-6)**: 被擦除/Ozon 自动填默认的属性不写入学习；`ozon_attribute_mappings.source` 列（learned_approved/default_fallback/retry_recovered/fetch_back_corrected）；default_fallback 复用不增长 success_count（切断 Goodhart 棘轮）；prepare 按置信消费；`worker/scripts/backfill_mapping_source.py` 历史回填。
+- **skill 顶层 preflight + updater 锁(PR-3)**: `_preflight_runtime`（Python≥3.12+deps 探测）+ 4 处 ModuleNotFoundError 精确归因 + check 不 early return + graph/follow/image_search 入口前置 ensure Chrome + updater 跨进程锁 + RATE_LIMIT 对齐 300。
+- **CDP 统一(PR-4)**: profile 双轨消除（全部 `profiles/1688/default`）+ 删 legacy 无锁 Popen + find_tab 复用用户 tab 立即 release + `_check_1688_login_live` cookie 优先零 tab + `scripts/migrate_profile.py` 迁移。
+- **follow 信封透传 `ozon_attributes_category`(PR-5)**: 与 graph --ozon-ref-url 一致，worker 类目一致性校验防跨类目属性错配。
+- ⚠️ **zombie recovery 本地陷阱**: 启动清理会把 `retry_count < max_retries` 的 failed 任务复活为 pending——本地测试环境会误激活旧任务**真实上架**（用真实凭证）。本地测试前必须清空任务表（`DELETE FROM ozon_product_tasks WHERE status IN ('pending','failed','running')`）。
+
 ## 最近更新（v0.29.x — 属性语言路由 + 运费查询端点 + 卖家店铺分析 + Chrome 常驻 + 余额直查）
 
 > 2026-08-07。当前 dev = v0.29.4(未发版), skill 包 v0.29.3 已发布(COS)。详见 `CHANGELOG.md` 与 `docs/OZON-ATTRIBUTE-API.md`。
@@ -433,6 +446,18 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
 - **Docker 部署**: `deploy/docker-compose.yml` 含 PG + Worker，`HEALTHCHECK` 已配置。
 - **API 版本化**: 新端点走 `/api/v1/`，旧路径保持兼容。
+
+### v0.30 新增关键约定（改 retry/属性匹配/学习闭环/CDP 前必看）
+
+- **retry 字典属性纪律(测试锁定)**: 语义匹配 → type_id → 标题2-gram → 唯一值 → None（绝不取第一个）。`validation_retry_loop.py` Step 2.5 与 assemble/prepare 已统一，改 retry 属性修复勿再引入盲补首值。
+- **revalidate 双守卫**: hazard（9782 只放行安全默认）+ is_aspect（schema `is_aspect=true` 属性创建后不可改，retry 跳过）。`attribute_utils.is_aspect_attr` 是唯一入口，schema 缺字段时按名称关键词兜底。
+- **fetch-back 是唯一 dict 漂移校准机制**: approved 后 `fetch_back_node` 调 `/v4/product/info/attributes` 回读 → diff → `attr.outcome` 遥测。改 graph 路由时**不要移除** `成功 → fetch_back → learning_record` 边。
+- **学习门**: 被擦除（erased）/Ozon 自动填默认（`attributes_with_defaults`）的属性**不写入** `ozon_attribute_mappings`。
+- **provenance 消费**: `ozon_attribute_mappings.source` 列——learned_approved/fetch_back_corrected 可复用；default_fallback 可出场但 success_count 不增长；retry_recovered 隔离待 fetch-back 确认；fabricated `[{name}]` source_value 一律跳过。历史数据用 `worker/scripts/backfill_mapping_source.py` 回填。
+- **skill 顶层 preflight**: `_preflight_runtime`（Python≥3.12+requests/websocket/PIL）在 `main()` 解析后立即执行，缺依赖 return 1。新命令要豁免需显式加入豁免清单。
+- **Chrome profile 统一**: 工具 Chrome 全部用 `data/browser/profiles/1688/default`（`chrome_launcher._default_profile_dir`/`cli._chrome_profile_dir`/`service._profile_dir` 三处一致）。改 Chrome 启动逻辑勿再引入第二 profile 路径；老路径迁移用 `scripts/migrate_profile.py`。
+- **find_tab 释放契约**: `find_tab` 命中**用户已有 tab** → 必须 `cdp.release(tab)`，否则 `conn.close()` 远程关闭用户标签页。新代码复用已有 tab 一律先 release。
+- ⚠️ **zombie recovery 本地陷阱**: 启动清理复活 failed→pending，本地测试会误激活旧任务真实上架。本地 Docker 测试前先 `DELETE FROM ozon_product_tasks WHERE status IN ('pending','failed','running')`。
 
 ### v0.29 新增关键约定（改属性匹配/运费/Chrome/余额前必看）
 
