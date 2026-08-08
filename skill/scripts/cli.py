@@ -207,7 +207,6 @@ def cmd_graph(args: argparse.Namespace) -> int:
         # (同类目竞品属性值大多一致, worker 对 1688 缺的属性用竞品值兜底)
         if getattr(args, 'ozon_ref_url', '') and isinstance(graph.get("envelope", {}), dict):
             try:
-                import re as _re2
                 from scripts.lib.ozon_scraper import scrape_ozon_product_via_cdp
                 _oz = scrape_ozon_product_via_cdp(args.ozon_ref_url, cdp_url="http://127.0.0.1:9222", timeout=30)
                 _oa = _oz.get("attributes") or {}

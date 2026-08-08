@@ -23,12 +23,14 @@ def test_preflight_ok_with_deps():
 
 
 def test_preflight_blocks_old_python():
-    """Python < 3.12 → 阻断并提示版本（PATH 无可用 3.12 时）。"""
+    """dist 模式（有 .so）下 Python < 3.12 → 阻断并提示版本（PATH 无可用 3.12 时）。"""
     from scripts.cli import _preflight_runtime
     # ⚠️ PR-A: mock shutil.which 返回 None —— 避免测试真实扫描 PATH（开发机 python3.12
     # 可能是坏解释器，subprocess 调用会挂起）
+    # ⚠️ v0.31: 源码模式（无 .so）跳过版本门 → 测试需 mock 出 _native 目录模拟 dist 模式
     with mock.patch("scripts.cli.sys.version_info", (3, 10, 0)), \
-         mock.patch("scripts.runtime_probe.shutil.which", return_value=None):
+         mock.patch("scripts.runtime_probe.shutil.which", return_value=None), \
+         mock.patch.object(Path, "glob", return_value=[Path("_native/darwin/x.so")]):
         ok, msg = _preflight_runtime()
     assert ok is False
     assert "3.12" in msg
