@@ -259,6 +259,8 @@ def fetch_analytics_via_premium_spoof(cdp_url: str, product_ids: list[str]) -> d
         if not tab:
             logger.warning("No seller.ozon.ru tab found. User must be logged in to seller panel.")
             return result
+        # PR-4: find_tab 命中用户已有 tab → 立即 release，防止 conn.close() 远程关闭用户标签页
+        cdp.release(tab)
 
         # Inject Premium spoof
         tab.add_init_script(SPOOF_JS)

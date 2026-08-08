@@ -1502,59 +1502,20 @@ def _resolve_browser_session(profile: str) -> dict[str, Any]:
         except ImportError:
             _logger.debug("chrome_launcher not available, using legacy launch")
 
-        # Fallback: legacy launch with separate profile
-        import socket as _sock
-        import subprocess as _sp
-
-        from scripts.capabilities.browser_probe.stealth import STEALTH_ARGS
-
-        profile_dir = _profile_dir(profile)
-        profile_dir.mkdir(parents=True, exist_ok=True)
-
-        # Find an available CDP port
-        cdp_port = 9222
-        for p in range(9222, 9300):
-            try:
-                with _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM) as s:
-                    s.bind(('127.0.0.1', p))
-                    cdp_port = p
-                    break
-            except OSError:
-                continue
-
-        _logger.info("Auto-launching Chrome with profile %s on port %d", profile_dir, cdp_port)
-
-        chrome_bin = find_browser_executable()
-        if not chrome_bin:
-            _logger.error("Cannot find Chrome executable")
-            return {}
-        cmd = [
-            chrome_bin,
-            f'--remote-debugging-port={cdp_port}',
-            f'--user-data-dir={profile_dir}',
-            '--no-first-run',
-            '--no-default-browser-check',
-            '--disable-background-networking',
-            '--disable-sync',
-            '--no-pings',
-            '--lang=zh-CN',
-        ] + STEALTH_ARGS
-        if platform.system() == 'Windows':
-            _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-                      creationflags=_sp.CREATE_NEW_PROCESS_GROUP)
-        else:
-            _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, start_new_session=True)
-        cdp_url = f'http://127.0.0.1:{cdp_port}'
-
-        # Wait up to 15s for CDP to become ready
-        import time as _time
-        for _ in range(15):
-            _time.sleep(1)
-            if _cdp_available(cdp_url):
-                _logger.info("Auto-launched Chrome ready at %s", cdp_url)
-                return {'cdp_url': cdp_url}
-        _logger.warning("Chrome launched but CDP not ready after 15s")
-        return {'cdp_url': cdp_url}
+        # Fallback: 复用 chrome_launcher（带文件锁）重试一次；彻底移除无锁 Popen 启动
+        # （PR-4: 旧 legacy Popen 无锁 + 端口扫描 9222-9300，与 ensure_chrome_cdp 的
+        # /tmp/skill-chrome-launch.lock 互斥失效 → 并发命令可启动两个 Chrome）
+        try:
+            from scripts.lib.chrome_launcher import ensure_chrome_cdp, get_cdp_url
+            ok2, msg2 = ensure_chrome_cdp(auto_restart=True, profile_dir=str(_profile_dir(profile)))
+            if ok2:
+                cdp_url2 = get_cdp_url()
+                _logger.info("Chrome launched via chrome_launcher (fallback): %s", cdp_url2)
+                return {'cdp_url': cdp_url2}
+            _logger.warning("chrome_launcher fallback failed: %s", msg2)
+        except Exception as e2:
+            _logger.debug("chrome_launcher fallback unavailable: %s", e2)
+        return {}
     except Exception as e:
         _logger.debug("Auto-launch failed: %s", e)
     return {}
@@ -1895,11 +1856,11 @@ def _wait_for_login_session(
 
 
 def _check_1688_login_live(cdp_url: str) -> bool:
-    """Check 1688 login status by navigating to a product page.
+    """Check 1688 login status.
 
-    Instead of reading cookies (which are often HttpOnly and invisible to JS),
-    we navigate to a known product page and check if product content loads.
-    If redirected to login page, login is expired.
+    PR-4: 优先用 CDP Network.getAllCookies 读登录 cookie（无 tab 开销，不导航）；
+    失败（无可用 tab / CDP 异常）才降级到「导航已知商品页」检测——并缓存结果，
+    避免同 session 内对同一个硬编码 URL 反复导航。
     """
     import logging as _logging
     _logger = _logging.getLogger(__name__)
@@ -1907,8 +1868,38 @@ def _check_1688_login_live(cdp_url: str) -> bool:
     if not cdp_url or not _cdp_available(cdp_url):
         return False
 
+    # ── 方案 1: Network.getAllCookies 读 cookie（零 tab 开销）──
+    try:
+        import json as _json
+        from scripts.lib.cdp_client import CdpTab
+        _cookies_resp = requests.get(f"{cdp_url}/json", timeout=5)
+        _cookies_resp.raise_for_status()
+        _page_tabs = [t for t in _cookies_resp.json()
+                      if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
+        if _page_tabs:
+            _probe_tab = CdpTab(cdp_url, _page_tabs[0]["id"], _page_tabs[0]["webSocketDebuggerUrl"])
+            _cookies = _probe_tab.evaluate(
+                "() => document.cookie", timeout=5
+            ) or ""
+            _probe_tab.close(close_remote=False)
+            if _cookies:
+                _logged_in = ("cookie2=" in _cookies or "__cn_logon__=" in _cookies) \
+                    and "login.1688.com" not in _cookies
+                _logger.info("_check_1688_login_live: cookie 检测结果登录=%s（零 tab 导航）", _logged_in)
+                return _logged_in
+    except Exception as _cookie_exc:
+        _logger.debug("_check_1688_login_live: cookie 检测失败，降级导航检测: %s", _cookie_exc)
+
+    # ── 方案 2: 降级 — 导航已知商品页（登录墙检测），结果缓存 5 分钟 ──
+    import time as _time2
+    _cached = getattr(_check_1688_login_live, "_login_cache", None)
+    _now = _time2.time()
+    if _cached and _now - _cached[1] < 300:
+        return _cached[0]
+
     conn = None
     temp_tab = None
+    _nav_result: bool | None = None
     try:
         conn = CdpConnection(cdp_url)
         temp_tab = conn.new_tab()
@@ -1939,19 +1930,19 @@ def _check_1688_login_live(cdp_url: str) -> bool:
             # If redirected to login or title is empty (login wall), not logged in
             if "login.1688.com" in url or "signin" in url:
                 _logger.debug("_check_1688_login_live: redirected to login page")
-                return False
-            if not title_el:
+                _nav_result = False
+            elif not title_el:
                 _logger.debug("_check_1688_login_live: product title not found (possible login wall)")
-                return False
-
-            _logger.info("_check_1688_login_live: login OK (product title: %s)", title_el[:30])
-            return True
+                _nav_result = False
+            else:
+                _logger.info("_check_1688_login_live: login OK (product title: %s)", title_el[:30])
+                _nav_result = True
         except Exception as exc:
             _logger.debug("_check_1688_login_live: page check failed: %s", exc)
-            return False
+            _nav_result = False
     except Exception as exc:
         _logger.debug("_check_1688_login_live: CDP failed: %s", exc)
-        return False
+        _nav_result = False
     finally:
         if temp_tab:
             try:
@@ -1963,6 +1954,10 @@ def _check_1688_login_live(cdp_url: str) -> bool:
                 conn.close()
             except Exception:
                 pass
+
+    # 降级检测结果缓存 5 分钟（避免同 session 反复导航硬编码商品页）
+    _check_1688_login_live._login_cache = (_nav_result, _time2.time())
+    return bool(_nav_result)
 
 
 def _read_page_probe(
