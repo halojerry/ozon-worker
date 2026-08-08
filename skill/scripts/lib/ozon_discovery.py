@@ -1475,15 +1475,17 @@ def _calculate_profit(
 def calculate_blue_ocean_score(candidate: ProductCandidate) -> int:
     """Calculate blue ocean score 0-100.
 
-    Factors（v3 增强，2026-08-01）:
-    - competing_sellers (weight 30): <5 → 30, <10 → 27, <50 → 18, <200 → 9, >200 → 3
-    - profit_margin (weight 30): >40% → 30, >30% → 25.5, >20% → 21, >10% → 12, <10% → 4.5
+    Factors（v3 增强，2026-08-01; v3 裂变增强 2026-08-08）:
+    - competing_sellers (weight 20): <5 → 20, <10 → 17, <50 → 12, <200 → 6, >200 → 2
+    - profit_margin (weight 20): >40% → 20, >30% → 17, >20% → 14, >10% → 8, <10% → 3
     - monthly_sales (weight 10 有 analytics / 20 无): 1-50 → 10/16 (niche),
       50-200 → 8/12, 200-1000 → 5/8, >1000 → 2/4, 0 → 10/10 (unknown)
     - sales_growth (weight 5, 需 analytics): >30% → 5, 10-30% → 4, 0-10% → 2, <0 → 0
     - drr 广告占比 (weight 5, 需 analytics): <10% → 5, 10-25% → 3, 25-50% → 1, >50% → 0
     - price_range (weight 10): 500-5000 RUB → 10, 100-500 → 7, >5000 → 5, <100 → 3
     - commission_rate (weight 10): <10% → 10, <15% → 7, <20% → 4, >20% → 2
+    - chain_depth (weight 10, v3 裂变): depth=0 → 10, 1 → 7, 2 → 4, ≥3 → 0
+    - category_consistency (weight 10, v3 裂变): 同类目 → 10, 跨类目 → 3, 无数据 → 0
 
     无 analytics（seller.ozon.ru 未登录降级）时增长/广告因子为 0，
     monthly_sales 权重回 20——两套评分上限一致（100），可比。
@@ -1491,21 +1493,21 @@ def calculate_blue_ocean_score(candidate: ProductCandidate) -> int:
     score = 0.0
     has_analytics = bool(getattr(candidate, 'has_analytics', False))
 
-    # Competing sellers (30%)
+    # Competing sellers (20%)
     sellers = candidate.competing_sellers
-    if sellers < 5: score += 30
-    elif sellers < 10: score += 27
-    elif sellers < 50: score += 18
-    elif sellers < 200: score += 9
-    else: score += 3
+    if sellers < 5: score += 20
+    elif sellers < 10: score += 17
+    elif sellers < 50: score += 12
+    elif sellers < 200: score += 6
+    else: score += 2
 
-    # Profit margin (30%)
+    # Profit margin (20%)
     margin = candidate.profit_margin
-    if margin > 40: score += 30
-    elif margin > 30: score += 25.5
-    elif margin > 20: score += 21
-    elif margin > 10: score += 12
-    else: score += 4.5
+    if margin > 40: score += 20
+    elif margin > 30: score += 17
+    elif margin > 20: score += 14
+    elif margin > 10: score += 8
+    else: score += 3
 
     # Monthly sales (10% 有 analytics / 20% 无)
     sales = getattr(candidate, 'monthly_sales', 0)
@@ -1551,6 +1553,23 @@ def calculate_blue_ocean_score(candidate: ProductCandidate) -> int:
     elif comm < 15: score += 7
     elif comm < 20: score += 4
     else: score += 2
+
+    # Chain depth (10%, v3 裂变) — 深度越浅越可信（直接来自种子 vs 隔多跳）
+    chain_depth = int(getattr(candidate, 'chain_depth', 0) or 0)
+    if chain_depth == 0: score += 10
+    elif chain_depth == 1: score += 7
+    elif chain_depth == 2: score += 4
+    # chain_depth >= 3 → 0 分
+
+    # Category consistency (10%, v3 裂变) — 与种子同品类更相关；无类目数据安全默认 0
+    seed_cat = getattr(candidate, '_seed_category_id', 0) or ""
+    cand_cat = getattr(candidate, 'category', "") or ""
+    if seed_cat and cand_cat:
+        if str(seed_cat) == str(cand_cat):
+            score += 10
+        else:
+            score += 3
+    # seed_cat 空 或 cand_cat 空 → 无数据 → +0
 
     return min(100, max(0, int(round(score))))
 
