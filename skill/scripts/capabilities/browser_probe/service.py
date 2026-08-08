@@ -1452,7 +1452,6 @@ def _find_live_cdp_session_for_profile(
 
 
 def _resolve_browser_session(profile: str) -> dict[str, Any]:
-    import platform
     session = _load_browser_session(profile) or {}
     # Expire login after 24h
     if session.get('login_detected'):
@@ -1870,7 +1869,6 @@ def _check_1688_login_live(cdp_url: str) -> bool:
 
     # ── 方案 1: Network.getAllCookies 读 cookie（零 tab 开销）──
     try:
-        import json as _json
         from scripts.lib.cdp_client import CdpTab
         _cookies_resp = requests.get(f"{cdp_url}/json", timeout=5)
         _cookies_resp.raise_for_status()

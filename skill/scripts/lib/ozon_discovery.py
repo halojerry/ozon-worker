@@ -1288,7 +1288,7 @@ def fetch_seller_products(
     if not seller_id:
         return []
     try:
-        from scripts.lib.cdp_client import CdpConnection, CdpTab
+        from scripts.lib.cdp_client import CdpConnection
 
         own_conn = None
         if tab is None:

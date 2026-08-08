@@ -132,7 +132,6 @@ def get_ak_via_browser(timeout: int = 300) -> dict[str, Any]:
         {"success": bool, "ak": str (masked), "path": str}
     """
     state = secrets.token_urlsafe(32)
-    success = False
     result: dict[str, Any] = {"success": False}
     done = threading.Event()
     server: HTTPServer | None = None

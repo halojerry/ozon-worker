@@ -163,9 +163,6 @@ def apply_update(update_info: dict[str, Any], auto_confirm: bool = False) -> dic
     """
     result = {"ok": False, "old_version": get_local_version(),
               "new_version": update_info.get("version", ""), "error": ""}
-    root = skill_dir()
-    dl_url = update_info.get("url", "")
-    expect_sha = update_info.get("sha256", "")
 
     # ⚠️ 源码开发目录拒绝自动更新：会误删 compile.py 等非包文件（P2）
     if _is_source_layout():
@@ -204,9 +201,6 @@ def apply_update(update_info: dict[str, Any], auto_confirm: bool = False) -> dic
 def _apply_update_locked(update_info: dict[str, Any], auto_confirm: bool,
                          result: dict[str, Any]) -> dict[str, Any]:
     """加锁后的更新主流程（原 apply_update 主体）。"""
-    root = skill_dir()
-    dl_url = update_info.get("url", "")
-    expect_sha = update_info.get("sha256", "")
 
     if not auto_confirm:
         confirm = input(f"发现新版本 {result['new_version']}，是否更新？(y/N) ")
