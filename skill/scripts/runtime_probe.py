@@ -65,20 +65,30 @@ def _version_ok(ver: tuple | None) -> bool:
 
 
 def _probe_candidate(cmd: str, timeout: int = 10) -> str | None:
-    """验证候选解释器版本。坏解释器可能挂起 → 必须有 timeout（agent 场景挂起=死等）。"""
+    """验证候选解释器版本 + stdlib 完整性。坏解释器可能挂起 → 必须有 timeout。
+
+    ⚠️ v0.31 增强：除了版本号，再验证 stdlib 关键模块可 import（开发机实测
+    Homebrew 升级破坏的 python3.12 能 import sys 报 3.12 版本号但 pathlib 崩——
+    只验版本会 re-exec 到坏解释器直接崩溃）。
+    """
     try:
         proc = subprocess.run(
-            [cmd, "-c", "import sys;print('%d.%d'%sys.version_info[:2])"],
+            [cmd, "-c",
+             "import sys;print('%d.%d'%sys.version_info[:2]);"
+             "import pathlib, subprocess, tempfile, hashlib;print('OK')"],
             capture_output=True, text=True, timeout=timeout,
         )
     except (subprocess.TimeoutExpired, OSError):
         return None
     if proc.returncode != 0:
         return None
-    ver = _parse_version(proc.stdout)
-    if _version_ok(ver):
-        return cmd
-    return None
+    out = proc.stdout or ""
+    ver = _parse_version(out)
+    if not _version_ok(ver):
+        return None
+    if "OK" not in out:
+        return None  # stdlib 不完整（坏解释器）→ 拒绝
+    return cmd
 
 
 def _scan_candidates() -> str | None:

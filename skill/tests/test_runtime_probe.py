@@ -50,7 +50,7 @@ def test_resolve_python_scans_and_finds_312():
     with mock.patch.object(rp.sys, "version_info", (3, 10, 0, "final", 0)), \
          mock.patch.object(rp.shutil, "which", side_effect=lambda name: f"/usr/local/bin/{name}" if name == "python3.12" else None), \
          mock.patch.object(rp.subprocess, "run") as _run:
-        _run.return_value = mock.MagicMock(returncode=0, stdout="Python 3.12.3\n")
+        _run.return_value = mock.MagicMock(returncode=0, stdout="Python 3.12.3\nOK\n")
         cmd, is_current = rp.resolve_python()
     assert is_current is False
     assert "python3.12" in cmd
