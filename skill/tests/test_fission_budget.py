@@ -27,6 +27,8 @@ def test_normalize_seller_id_extracts_from_url():
     assert normalize_seller_id("/seller/12345/") == "12345"
     assert normalize_seller_id("/seller/12345?from=modal") == "12345"
     assert normalize_seller_id("/seller/abc-123") == "abc-123"
+    assert normalize_seller_id("seller/10001") == "10001"
+    assert normalize_seller_id("/seller/") is None
 
 
 def test_normalize_seller_id_rejects_invalid():
