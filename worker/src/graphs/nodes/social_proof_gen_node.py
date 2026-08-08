@@ -50,7 +50,7 @@ def social_proof_gen_node(state: SocialProofInput, config: RunnableConfig, runti
     
     title = clean_title_for_image_prompt(draft.get("title", ""))
     # ⚠️ v0.15: 提示词外置 config/image_prompts.json（热加载，改文件即生效，无需重建镜像）
-    prompt = get_image_prompt("social_proof")
+    prompt = get_image_prompt("social_proof", title=title)
     
     # 构建参考图列表：使用Phase1的图片作为参考（内联逻辑）
     ref_images: List[str] = []

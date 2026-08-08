@@ -11,6 +11,7 @@ from runtime.context import Context
 from graphs.state_image_gen import Scene2Input, Scene2Output
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
+from utils.mxou_api import clean_title_for_image_prompt
 from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
 from utils.task_image_cache import get_image, save_image, _task_id_from_config  # ✅ v0.26: 重跑不重烧生图
@@ -48,8 +49,9 @@ def scene_2_gen_node(state: Scene2Input, config: RunnableConfig, runtime: Runtim
             return Scene2Output(scene_2_image=cached)
     
     scene_context_2 = state.scene_context_2 or '户外休闲场景'  # ✅ 优先使用LLM生成的场景，兜底使用默认值
+    title = clean_title_for_image_prompt(draft.get("title", ""))
     # ⚠️ v0.15: 提示词外置 config/image_prompts.json（热加载，改文件即生效，无需重建镜像）
-    prompt = get_image_prompt("scene_2", scene_context=scene_context_2)
+    prompt = get_image_prompt("scene_2", scene_context=scene_context_2, title=title)
     
     # 构建参考图列表：使用Phase1的图片作为参考（内联逻辑）
     ref_images: List[str] = []
