@@ -377,8 +377,21 @@ def ozon_status_node(
                                     err_level = err.get("level", "")
                                     # 按 code 白名单跳过（即使 level 是 ERROR）
                                     if isinstance(err_code, int) and err_code in IGNORABLE_CODES:
+                                        # ✅ PR-0 (R7): erased 事件入遥测（不再静默丢弃）—
+                                        # 让「我们的值是否活过审核」可度量；9782 出场由
+                                        # assemble/prepare 的 get_safe_hazard_default 现取。
+                                        logger.info(
+                                            "attr.outcome erased_by_ozon attr=%s product_id=%s (IGNORABLE 白名单跳过)",
+                                            err_code, item_pid,
+                                            extra={"namespace": "attr.outcome"},
+                                        )
                                         continue
                                     if isinstance(err_code, str) and err_code.isdigit() and int(err_code) in IGNORABLE_CODES:
+                                        logger.info(
+                                            "attr.outcome erased_by_ozon attr=%s product_id=%s (IGNORABLE 白名单跳过)",
+                                            err_code, item_pid,
+                                            extra={"namespace": "attr.outcome"},
+                                        )
                                         continue
                                     if err_level != "ERROR_LEVEL_WARNING":
                                         real_errs.append(err)

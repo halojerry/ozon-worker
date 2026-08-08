@@ -90,7 +90,14 @@ def learning_record_node(
     # ✅ 记录成功的属性映射到 PG 数据库
     local_db = LocalDBManager()
     recorded_count: int = 0
-    
+
+    # ✅ PR-0 (R6): 学习门 — fetch-back 回读结果决定哪些属性「真的被 Ozon 接受」。
+    # 被擦除的（erased）与 Ozon 自动填默认的（defaulted_by_ozon）属性不写入学习，
+    # 否则「Ozon 没查这个字段」被学习成「这个值是对的」（Goodhart 棘轮）。
+    _fb: Dict[str, Any] = getattr(state, "fetch_back_result", None) or {}
+    _fb_erased: set = {int(x) for x in (_fb.get("erased") or [])}
+    _fb_defaulted: set = {int(x) for x in (_fb.get("defaulted_by_ozon") or [])}
+
     logger.info(f"📝 开始记录{len(final_attributes)}个属性映射（PostgreSQL）...")
     
     for attr in final_attributes:
@@ -117,6 +124,14 @@ def learning_record_node(
         except (ValueError, TypeError) as e:
             logger.warning(f"⚠️ 属性类型转换失败，跳过：{e}")
             continue
+
+        # ✅ PR-0 (R6): 学习门 — 被 Ozon 擦除 / 自动填默认的属性不学习
+        if attribute_id_int in _fb_erased:
+            logger.info(f"⏭️ PR-0 学习门: attr={attribute_id_int} 被 Ozon 擦除，不写入学习")
+            continue
+        if attribute_id_int in _fb_defaulted:
+            logger.info(f"⏭️ PR-0 学习门: attr={attribute_id_int} 由 Ozon 自动填默认，不写入学习")
+            continue
         
         # 获取属性名称（从attr_name_map）
         attribute_name: str = attr_name_map.get(attribute_id_int, "")
@@ -133,6 +148,13 @@ def learning_record_node(
         # 如果未找到匹配，使用属性值本身但标注来源
         if not source_value:
             source_value = f"[{attribute_name or 'unknown'}]" if attribute_name else ""
+
+        # ✅ PR-6: provenance 标记 —
+        # 真 1688 源值匹配 → learned_approved（可复用且增长置信）
+        # fabricated `[{name}]` 兜底 → default_fallback（可出场但 success_count 不增长，非真实映射）
+        _source_marker: str = "learned_approved"
+        if source_value.startswith("[{") or source_value.startswith("["):
+            _source_marker = "default_fallback"
         
         # 跳过硬编码属性（如品牌"无品牌"），无学习价值
         attr_source: Any = attr.get("source", "")
@@ -147,7 +169,8 @@ def learning_record_node(
             attribute_name=attribute_name,
             source_value=source_value,
             target_value=value_str,
-            dictionary_value_id=dictionary_value_id_int
+            dictionary_value_id=dictionary_value_id_int,
+            source=_source_marker,
         )
         
         recorded_count += 1

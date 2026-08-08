@@ -27,6 +27,7 @@ from graphs.nodes.ozon_status_node import ozon_status_node  # 状态轮询节点
 # ✅ 新增导入：validation_retry_wrapper节点 + learning_record节点
 from graphs.nodes.validation_retry_wrapper_node import validation_retry_wrapper_node  # 验证循环修复包装器节点（调用子图）
 from graphs.nodes.learning_record_node import learning_record_node  # 学习记录节点（上传成功后记录学习数据）
+from graphs.nodes.fetch_back_node import fetch_back_node  # PR-0: approved 后回读 Ozon 存储属性
 
 # 导入图片生成节点（Phase1和Phase2）
 from graphs.nodes.variant_primary_loop_node import variant_primary_loop_node  # wrapper节点：调用variant_primary_loop子图
@@ -239,9 +240,10 @@ builder.add_edge([
 # 预检测节点：上传前检测Ozon payload是否符合规范
 builder.add_edge("prepare_ozon_upload", "ozon_validate")
 
-# ==================== 新增节点：validation_retry_wrapper + learning_record ====================
+# ==================== 新增节点：validation_retry_wrapper + learning_record + fetch_back ====================
 builder.add_node("validation_retry_wrapper", validation_retry_wrapper_node, metadata={"type": "loopcond"})  # ← 调用validation_retry_loop子图
 builder.add_node("learning_record", learning_record_node)  # ← 上传成功后记录学习数据
+builder.add_node("fetch_back", fetch_back_node)  # ← PR-0: approved 后回读 Ozon 存储属性（diff + 遥测）
 
 # ✅ P0 修复：配额已在 auth 后检查，ozon_validate 直接到 ozon_upload
 # 定义条件判断函数：根据ozon_validate_node的验证结果决定后续流程
@@ -347,16 +349,19 @@ def should_handle_error(state):
     logger.warning(f"未知状态: {ozon_status_result}，进入修复循环")
     return "失败"
 
-# ✅ 修改条件分支：成功 → learning_record → END，失败 → validation_retry_wrapper（修复循环）
+# ✅ 修改条件分支：成功 → fetch_back（PR-0 回读）→ learning_record → END，失败 → validation_retry_wrapper（修复循环）
 builder.add_conditional_edges(
     source="ozon_status",
     path=should_handle_error,
     path_map={
-        "成功": "learning_record",
+        "成功": "fetch_back",
         "失败": "validation_retry_wrapper",
         "审核中": "ozon_status",  # ← 重新轮询审核
     }
 )
+
+# ✅ PR-0: fetch_back（approved 后 /v4 回读 diff）→ learning_record（学习门用回读结果）
+builder.add_edge("fetch_back", "learning_record")
 
 # ✅ 新增：learning_record → END（学习闭环结束）
 builder.add_edge("learning_record", END)
