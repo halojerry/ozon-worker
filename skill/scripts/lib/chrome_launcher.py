@@ -45,8 +45,11 @@ def _default_profile_dir() -> Path:
     - macOS ~/Library/Application Support/ 受 TCC 保护, 沙箱/未签名进程写入被拒
     - data/ 随 skill 更新保留(updater 保留 data/), 登录态不丢
     - 打包分发自带 data/ 空目录, 运行时自动创建
+
+    PR-4: 统一为 profiles/1688/default（与 cli._chrome_profile_dir / service._profile_dir
+    一致）—— 消除双轨（旧 data/browser/profile）导致的重复 Chrome 实例 + 登录态错位。
     """
-    return Path(__file__).resolve().parent.parent.parent / "data" / "browser" / "profile"
+    return Path(__file__).resolve().parent.parent.parent / "data" / "browser" / "profiles" / "1688" / "default"
 
 
 # ── Chrome 可执行文件查找 ──

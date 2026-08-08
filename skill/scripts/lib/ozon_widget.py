@@ -52,6 +52,8 @@ def _ensure_ozon_tab(cdp: CdpConnection) -> CdpTab:
     """
     tab = cdp.find_tab("ozon.ru")
     if tab is not None:
+        # PR-4: 命中用户已有 tab → 立即 release，防止 conn.close() 远程关闭用户标签页
+        cdp.release(tab)
         return tab
     # Create a new tab pointing at Ozon homepage (sets cookies)
     return cdp.new_tab(f"{OZON_BASE}/")
