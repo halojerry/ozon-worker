@@ -947,6 +947,36 @@ def cmd_discover(args: argparse.Namespace) -> int:
         print("\n⚠️ 用户中断")
         return 0
 
+    # ── 阶段②b 裂变选品（v3, --fission）──
+    if args.fission and candidates:
+        from scripts.lib.ozon_fission import run_fission
+        if args.max_depth > 3 and not args.allow_depth_3:
+            print(f"❌ 裂变深度 {args.max_depth} > 3 需显式 --allow-depth-3（指数爆炸风险）")
+            return 1
+        print(f"\n⏳ 裂变选品（depth≤{args.max_depth}, 候选上限 {args.max_total_products}, 时间预算 {args.time_budget:.0f}s）...", flush=True)
+        try:
+            def _stage_done(total, sellers, depth):
+                print(f"  [深度 {depth}] 候选 {total} 个 | 已展开卖家 {sellers} 个", flush=True)
+            candidates = run_fission(
+                seed_products=candidates,
+                cdp_url=cdp_url,
+                max_depth=args.max_depth,
+                max_total_products=args.max_total_products,
+                time_budget=args.time_budget,
+                max_sellers_per_product=args.max_sellers_per_product,
+                max_products_per_seller=args.max_products_per_seller,
+                session_id=f"discover_{int(time.time())}",
+                stage_callback=_stage_done,
+            )
+            if not args.non_interactive and len(candidates) > args.max_products:
+                print(f"\n📊 裂变完成: {len(candidates)} 个候选（原始 {args.max_products} + 裂变新增）。继续展示表格？[y/n] ", end="", flush=True)
+                if input().strip().lower() not in ("y", "yes", ""):
+                    print("已取消")
+                    return 0
+        except KeyboardInterrupt:
+            print("\n⚠️ 用户中断")
+            return 0
+
     print(f"\n📊 采集完成: {len(candidates)} 个产品（全量已落盘 {DISCOVERY_CACHE_DIR}/）")
     if not candidates:
         print("未采集到产品。检查关键词/URL 或增大 --max-products。")
@@ -1177,6 +1207,15 @@ def main() -> int:
     dp.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式（全量+选中）")
     dp.add_argument("--output", default="", help="导出文件路径")
     dp.add_argument("--auto-submit", action="store_true", help="确认后提交 profitable 产品到 Worker")
+    dp.add_argument("--fission", action="store_true",
+                    help="裂变选品（v3）：种子商品 → 竞品卖家 → 店铺产品 BFS 扩散")
+    dp.add_argument("--max-depth", type=int, default=2, help="裂变深度（默认 2；>3 需 --allow-depth-3）")
+    dp.add_argument("--allow-depth-3", action="store_true", help="允许裂变深度 3（指数爆炸，需谨慎）")
+    dp.add_argument("--max-total-products", type=int, default=300, help="裂变候选总量上限（默认 300）")
+    dp.add_argument("--time-budget", type=float, default=600.0, help="裂变时间预算（秒，默认 600）")
+    dp.add_argument("--max-sellers-per-product", type=int, default=20, help="每商品展开的卖家数（默认 20）")
+    dp.add_argument("--max-products-per-seller", type=int, default=15, help="每卖家采集的产品数（默认 15）")
+    dp.add_argument("--non-interactive", action="store_true", help="裂变阶段展示后不询问继续，直接跑完")
     dp.set_defaults(func=cmd_discover)
 
 

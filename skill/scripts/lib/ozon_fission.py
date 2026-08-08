@@ -203,9 +203,17 @@ def _expand_product(state: FissionState, cdp: Any, cdp_url: str, pid: str,
                     max_sellers: int) -> None:
     if not state.depth_allowed(depth + 1):
         return
-    from scripts.lib.ozon_widget import fetch_competing_sellers
-
-    sellers = fetch_competing_sellers(cdp_url, pid, cdp=cdp).get("sellers", []) or []
+    # 种子节点（depth=0）直接用候选已保留的 competing_seller_list（P3 零成本）；
+    # 裂变商品节点（depth>0）才重新调 widget API。
+    sellers = []
+    if depth == 0:
+        for c in out:
+            if c.ozon_product_id == pid:
+                sellers = c.competing_seller_list
+                break
+    else:
+        from scripts.lib.ozon_widget import fetch_competing_sellers
+        sellers = fetch_competing_sellers(cdp_url, pid, cdp=cdp).get("sellers", []) or []
     for s in sellers[:max_sellers]:
         sid = normalize_seller_id(s.get("seller_id") or s.get("seller_url"))
         if not sid or not state.should_visit_seller(sid):
