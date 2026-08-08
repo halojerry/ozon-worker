@@ -2,6 +2,18 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.31.0 — discover v3 裂变选品 + trend 移除 + 真实链路修复）
+
+> 2026-08-08 发版（tag v0.31.0，worker+skill 均发布，COS 已分发）。hyperplan 对抗规划落地（`.omo/plans/discover-v3-fission-selection.md`）。详见 `CHANGELOG.md`。
+
+- **裂变选品（discover --fission）**: `ozon_fission.py` BFS 引擎（商品↔卖家二部图，双 visited 截断环路 + 三重预算 max-depth 2/max-total-products 300/time-budget 600 防无界扩散）；CLI 接线 + 阶段展示 + source_chain 证据链 + 断点续跑 checkpoint。
+- **蓝海评分扩展**: +chain_depth（10/7/4/0）+category_consistency（同类目 10/跨类目 3/无数据 0）因子；权重再平衡（competing_sellers/profit_margin 30→20）；`apply_analytics_to_candidate` 从 category2_id 写 category；run_fission 种子类目透传。
+- **fetch_seller_analysis 双 bug 修复**: 签名错（list 当 cdp 传 + cdp_url 非法 kwarg）→ (cdp, skus)；camelCase→snake_case。fetch_seller_products/analysis 加 `cdp=` 连接级复用。seller 命令从此返回真实运营数据。
+- **trend 管线移除**: 删 trend_selection/mxou_chat/cmd_trend（agent 自带 LLM+web_search，能力替代+去重复）。SKILL.md 管线 E 重写为「agent web_search + LLM → discover --keyword」。
+- **真实链路修复（maozi 插件学习）**: webSellerList 字段名修正（id/link/name 非 sellerId/sellerUrl——之前 seller_url 恒空裂变失效）；stale tab 存活校验（防 No such target id 500）；_ensure_ozon_tab 复用后导航目标页（DataDome 按页面会话校验）；normalize_seller_id 前缀剥离。
+- **preflight 源码模式跳过版本门**: 无 .so 时任何 ≥3.12 解释器可运行（dist 分发版本门照常）。
+- ⚠️ **测试环境规范（红线）**: 功能测试一律本地 Docker（localhost:8080），**禁止用云端 worker.mxou.cn 做功能测试**（生产是真实数据+真实上架凭证）；云端只做用户视角验证。详见「测试」章节。
+
 ## 最近更新（v0.30.0 — retry 止血 + fetch-back 回读闭环 + 学习 provenance + skill runtime 稳定化）
 
 > 2026-08-08。hyperplan 对抗规划落地（`.omo/plans/attribute-matching-runtime-stability.md`）。详见 `CHANGELOG.md`。
@@ -235,6 +247,13 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 违反以上约束会导致：空白 Chrome 窗口泛滥、登录态丢失、管线混乱、数据错误。
 
 ## 测试
+
+> ⚠️ **测试环境规范（v0.31 红线）**：本地开发/测试一律走**本地环境**——
+> - Worker 功能测试用**本地 Docker**（`cd deploy && docker compose up`，`http://localhost:8080`）；skill 指向本地 `WORKER_URL=http://localhost:8080`
+> - **禁止用云端生产环境（worker.mxou.cn）做功能测试**（auth/verify、submit_task 等只读/写操作都不行——生产是真实数据 + 真实上架凭证）
+> - 云端只能做「用户视角」验证（如确认服务在线/用户反馈问题复现），做完不留测试痕迹
+> - skill 的 Chrome/Ozon 页面抓取测试本身在本地浏览器（用户机器），不涉及云
+> - 本地测试前按 zombie 警告清空任务表（`DELETE FROM ozon_product_tasks WHERE status IN ('pending','failed','running')`），避免误激活旧任务真实上架
 
 ```bash
 # Worker 单元测试（Mock 模式，无需 PG/GPU）
