@@ -2608,7 +2608,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     # 图搜用错图/文字搜索兜底(错配货源根因之一)。
     try:
         from scripts.lib.chrome_launcher import ensure_chrome_cdp
-        ensure_chrome_cdp(port=9222)
+        from scripts.cli import _chrome_profile_dir
+        # PR-4: 显式传统一 profile（profiles/1688/default），杜绝双轨登录态错位
+        ensure_chrome_cdp(port=9222, profile_dir=_chrome_profile_dir())
     except Exception as e:
         logger.warning("ensure_chrome_cdp 失败(继续尝试抓取): %s", e)
 
@@ -2880,6 +2882,12 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                             _attrs_all.setdefault(str(_fc["title"]), str(_fc["value"]))
                     if _attrs_all:
                         draft["ozon_attributes"] = _attrs_all
+                    # ✅ PR-5: follow 也透传竞品类目 dc（与 graph --ozon-ref-url 一致）。
+                    # worker ozon_attrs_allowed 对显式 category 做一致性校验，
+                    # 防 what_to_sell 类目与页面面包屑类目漂移时跨类目属性错配。
+                    _oz_cat_dc = (result.get("ozon_category") or {}).get("description_category_id") or ""
+                    if str(_oz_cat_dc).isdigit():
+                        draft["ozon_attributes_category"] = int(_oz_cat_dc)
                     if not any("цвет" in k.lower() or "颜色" in k for k in _attrs_all):
                         _aspects = cdp_data.get("aspects") or []
                         _color_ru = next(

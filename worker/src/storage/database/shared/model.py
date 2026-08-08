@@ -183,6 +183,8 @@ class OzonAttributeMapping(Base):
     source_value: Mapped[str] = mapped_column(String(500), nullable=True)
     target_value: Mapped[str] = mapped_column(String(500), nullable=True)
     dictionary_value_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # PR-6: provenance — 区分 learned_approved / default_fallback / retry_recovered / fetch_back_corrected
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="learned_approved")
     success_count: Mapped[int] = mapped_column(Integer, default=0)
     fail_count: Mapped[int] = mapped_column(Integer, default=0)
     last_used_at: Mapped[int] = mapped_column(Integer, nullable=True)

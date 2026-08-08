@@ -28,12 +28,36 @@ from storage.database.shared.model import (
 
 logger = logging.getLogger(__name__)
 
+# PR-6: 一次性迁移标记 — ALTER TABLE ADD COLUMN source 只跑一次/进程
+_source_column_migrated = False
+
+
+def _ensure_source_column() -> None:
+    """PR-6: 幂等迁移 — 给 ozon_attribute_mappings 加 source 列（老库无此列）。"""
+    global _source_column_migrated
+    if _source_column_migrated:
+        return
+    try:
+        from sqlalchemy import text as _text
+        with get_session() as _s:
+            _s.execute(_text(
+                "ALTER TABLE ozon_attribute_mappings "
+                "ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'learned_approved'"
+            ))
+            _s.commit()
+        _source_column_migrated = True
+        logger.info("✅ PR-6 迁移: ozon_attribute_mappings.source 列已就位")
+    except Exception as _e:
+        logger.warning(f"⚠️ PR-6 迁移 ozon_attribute_mappings.source 失败（非致命）: {_e}")
+        _source_column_migrated = True  # 避免反复重试
+
 
 class LocalDBManager:
     """PostgreSQL 缓存管理器（保持与旧 SQLite 版本相同的方法签名）"""
 
     def __init__(self, db_path: str = ""):
         """初始化（db_path 参数保留兼容，实际不再使用 SQLite 文件路径）"""
+        _ensure_source_column()
         logger.info("✅ PostgreSQL 缓存管理器已初始化")
 
     # ============================================================
@@ -189,6 +213,7 @@ class LocalDBManager:
                         "source_value": r.source_value,
                         "target_value": r.target_value,
                         "dictionary_value_id": r.dictionary_value_id,
+                        "source": r.source,
                         "success_count": r.success_count,
                         "fail_count": r.fail_count,
                         "last_used_at": r.last_used_at,
@@ -355,8 +380,8 @@ class LocalDBManager:
         finally:
             session.close()
 
-    def add_attribute_mapping(self, category_id: int, attribute_id: int, attribute_name: str, source_value: str, target_value: str, dictionary_value_id: Optional[int] = None):
-        """添加属性映射学习记录"""
+    def add_attribute_mapping(self, category_id: int, attribute_id: int, attribute_name: str, source_value: str, target_value: str, dictionary_value_id: Optional[int] = None, source: str = "learned_approved"):
+        """添加属性映射学习记录（PR-6: source 标记 provenance — learned_approved/default_fallback/retry_recovered/fetch_back_corrected）"""
         current_time = int(time.time())
         session = get_session()
         try:
@@ -372,7 +397,12 @@ class LocalDBManager:
             ).scalar_one_or_none()
 
             if existing:
-                existing.success_count = (existing.success_count or 0) + 1
+                # ⚠️ PR-6: default_fallback 复用不增长 success_count（切断 Goodhart 棘轮）—
+                # 「Ozon 没查这个字段」不应被累积成「这个值被验证过」。
+                if source == "default_fallback":
+                    logger.info(f"⏭️ PG 映射已存在（source=default_fallback，success_count 不增长）")
+                else:
+                    existing.success_count = (existing.success_count or 0) + 1
                 existing.last_used_at = current_time
                 session.commit()
                 logger.info(f"✅ PG 更新成功：ozon_attribute_mappings（映射已存在，success_count+1）")
@@ -384,13 +414,14 @@ class LocalDBManager:
                     source_value=source_value,
                     target_value=target_value,
                     dictionary_value_id=dictionary_value_id,
+                    source=source,
                     success_count=1,
                     last_used_at=current_time,
                     created_at=current_time,
                 )
                 session.add(new_mapping)
                 session.commit()
-                logger.info(f"✅ PG 写入成功：ozon_attribute_mappings（新映射）")
+                logger.info(f"✅ PG 写入成功：ozon_attribute_mappings（新映射, source={source}）")
         finally:
             session.close()
 
