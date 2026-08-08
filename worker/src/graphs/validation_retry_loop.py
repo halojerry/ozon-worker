@@ -380,6 +380,78 @@ def _search_dictionary_values_chain(
     return None
 
 
+def _schema_attr_name(state: ValidationRetryLoopState, attr_id: int) -> str:
+    """从 state.attributes_schema 取属性名（语义解析需要，缺失返回空串）。"""
+    for _sa in (getattr(state, "attributes_schema", None) or []):
+        if isinstance(_sa, dict) and int(_sa.get("id") or 0) == attr_id:
+            return str(_sa.get("name") or "")
+    return ""
+
+
+def _resolve_payload_dict_attr(
+    state: ValidationRetryLoopState,
+    attr_id: int,
+    attr_name: str = "",
+) -> Optional[tuple[int, str]]:
+    """统一语义解析字典属性 → (dictionary_value_id, value)；无安全候选返回 None（绝不盲补首值）。
+
+    v0.31 T3 与 error_repair_llm / prepare post-fill 纪律一致：
+    1. attr_defaults.resolve_missing_mandatory_dict_attr —— 8229 按 type_id+判别词、9782 只放行
+       非危险安全默认、品牌/性别/尺码/8292 语义解析、唯一值命中；
+    2. attribute_utils.pick_dict_fallback_value —— 仅字典值唯一才填。
+    """
+    _vals: list = (getattr(state, "dictionary_values", None) or {}).get(str(attr_id)) or []
+    if not _vals:
+        try:
+            from utils.ozon_category_query import get_category_query
+            _vals = get_category_query().get_dictionary_values(
+                attr_id,
+                int(state.description_category_id or 0),
+                int(state.type_id or 0),
+            ) or []
+        except Exception:
+            _vals = []
+    _draft = getattr(state, "draft", None) or {}
+    _title_cn = str(_draft.get("title", "") or "") if isinstance(_draft, dict) else ""
+    try:
+        from utils.attr_defaults import resolve_missing_mandatory_dict_attr
+        _res = resolve_missing_mandatory_dict_attr(
+            attr_id, attr_name,
+            title_cn=_title_cn,
+            product_name_ru=getattr(state, "product_name", "") or "",
+            size_cn="",
+            dict_vals=_vals or [],
+            type_id=int(state.type_id or 0),
+        )
+        if _res:
+            return _res
+    except Exception:
+        pass
+    from utils.attribute_utils import pick_dict_fallback_value
+    return pick_dict_fallback_value(attr_id, attr_name, _vals or [])
+
+
+def _upsert_payload_attr(items: list, attr_id: int, dict_value_id: int, value: str) -> None:
+    """把字典属性写入 items[0]（payload 格式；已存在则更新值，否则追加）。"""
+    if not items:
+        return
+    first_item = items[0]
+    if not isinstance(first_item, dict):
+        return
+    attrs = first_item.get("attributes") or []
+    new_attr = {
+        "complex_id": 0,
+        "id": attr_id,
+        "values": [{"dictionary_value_id": int(dict_value_id or 0), "value": str(value or "")}],
+    }
+    for a in attrs:
+        if isinstance(a, dict) and int(a.get("id", 0)) == attr_id:
+            a["values"] = new_attr["values"]
+            return
+    attrs.append(new_attr)
+    first_item["attributes"] = attrs
+
+
 def _find_alternative_type_id(ozon_client_id: str, ozon_api_key: str,
                                description_category_id: int, current_type_id: int) -> int:
     """查找同一类目下的替代 type_id（排除当前失败的 type_id）。
@@ -806,23 +878,26 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
             val = str(attr.get("value", ""))
             dict_val_id = attr.get("dictionary_value_id", 0)
 
-            # ✅ 处理空值字典属性：用产品名搜索字典值
+            # ✅ 处理空值字典属性：统一语义解析（v0.31 T3，绝不盲取 search_result[0]）
+            # 旧代码用产品名调 /values/search 后取 search_result[0] —— 多值字典属性首值
+            # 语义随机（如 8229 首值可能是同大类其他小类「套娃」），违反 retry 纪律。
+            # 新代码：attr_defaults 语义解析（8229 按 type_id/判别词、9782 只放行非危险
+            # 安全默认、品牌/性别/尺码/8292 语义、唯一值命中）→ 无命中跳过（宁缺毋滥）。
             if not val and dict_val_id == 0 and product_name:
-                logger.info(f"  属性{aid}值为空，尝试用产品名搜索: {product_name[:30]}")
+                logger.info(f"  属性{aid}值为空，尝试语义解析: {product_name[:30]}")
                 try:
-                    search_result = _search_dictionary_values(
-                        ozon_client_id, ozon_api_key, aid,
-                        category_id, type_id, product_name[:30], "RU"
+                    _resolved = _resolve_payload_dict_attr(
+                        state, aid, _schema_attr_name(state, aid),
                     )
-                    if search_result:
-                        best = search_result[0]
-                        attr["value"] = best.get("value", "")
-                        attr["dictionary_value_id"] = best.get("id", 0)
+                    if _resolved:
+                        attr["value"] = _resolved[1]
+                        attr["dictionary_value_id"] = _resolved[0]
                         translated_count += 1
-                        logger.info(f"  ✅ 属性{aid}搜索到值: {attr['value'][:30]}")
+                        logger.info(f"  ✅ 属性{aid}语义解析命中: {attr['value'][:30]}")
                         continue
+                    logger.warning(f"  ⚠️ 属性{aid}语义解析无安全候选，跳过（不盲取首值）")
                 except Exception as _search_e:
-                    logger.debug(f"  属性{aid}搜索失败: {_search_e}")
+                    logger.debug(f"  属性{aid}语义解析失败: {_search_e}")
 
             if val and _chinese_re.search(val):
                 logger.info(f"  翻译属性{aid}: {val[:60]}...")
@@ -1424,6 +1499,27 @@ def repair_prepare_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         first_item["height"] = height
         logger.info(f"✅ 尺寸重量已修正（{weight}g, {depth}x{width}x{height}mm）")
 
+    # ⚠️ v0.31 T3: 字典属性错误 → 重跑字典 post-fill（revalidate 抹掉的字典值在这里回填）。
+    # 主图 prepare 只在主管线执行，retry 子图不重跑 → 字典值缺失/空时由语义解析器
+    # 重新解析（9782 只放行非危险安全默认）写入 payload。
+    if state.attribute_id > 0:
+        _resolved = _resolve_payload_dict_attr(
+            state, state.attribute_id,
+            _schema_attr_name(state, state.attribute_id),
+        )
+        if _resolved:
+            _vid, _vtext = _resolved
+            _upsert_payload_attr(items, state.attribute_id, _vid, _vtext)
+            logger.info(
+                f"✅ repair_prepare 字典 post-fill: attr={state.attribute_id} "
+                f"→ '{_vtext}' (dictionary_value_id={_vid})"
+            )
+        else:
+            logger.warning(
+                f"⚠️ repair_prepare 字典属性{state.attribute_id}语义解析无安全候选，"
+                f"跳过（绝不盲补首值）"
+            )
+
     logger.info(f"✅ prepare修复完成，retry_count={state.retry_count}")
     return state
 
@@ -1844,7 +1940,27 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                     except (ValueError, TypeError):
                         continue
 
-            ozon_attrs: list = []
+            # ⚠️ v0.31 T3: revalidate 覆盖 → 合并（9782 首填值存活根因修复）。
+            # 旧逻辑用 state.final_attributes 整体覆盖 first_item["attributes"]——首次 post-fill
+            # 的 9782 不在 final_attributes 里（retry 子图不重跑主图 prepare），一覆盖就被抹掉。
+            # 新逻辑：以 payload 快照（first_item["attributes"]）为基线，final_attributes 只做
+            # 「定向修复」（翻译 / dict_id 强制 / 9782 安全守卫 / is_aspect 跳过 / 9048 payload
+            # 值复用）；快照有而 final_attributes 无的属性保留；remove_attrs / SKIP 显式删除仍生效。
+            remove_ids: set = set(SKIP_ATTR_IDS) | set((state.repair_metadata or {}).get("remove_attrs", []))
+            snapshot_attrs: list = first_item.get("attributes") or []
+            merged_attrs: Dict[int, Dict[str, Any]] = {}
+            for _sa in snapshot_attrs:
+                if not isinstance(_sa, dict):
+                    continue
+                try:
+                    _sa_id: int = int(_sa.get("id", 0))
+                except (ValueError, TypeError):
+                    continue
+                if _sa_id in remove_ids:
+                    logger.info(f"✅ revalidate合并删除快照属性 {_sa_id}（禁止编辑/remove_attrs）")
+                    continue
+                merged_attrs[_sa_id] = _sa
+
             skipped_attrs: list = []
             for attr in state.final_attributes:
                 if not isinstance(attr, dict):
@@ -1855,25 +1971,32 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
 
                 attr_id_int: int = int(attr_id_val) if attr_id_val else 0
 
-                # 跳过禁止编辑的属性
-                if attr_id_int in SKIP_ATTR_IDS:
+                # 跳过禁止编辑 + remove_attrs 显式删除（合并中不复活）
+                if attr_id_int in remove_ids:
                     skipped_attrs.append(attr_id_int)
                     continue
 
                 # 属性4389(原产国)硬编码为Китай
                 if attr_id_int == 4389:
-                    ozon_attrs.append({
+                    merged_attrs[4389] = {
                         "complex_id": 0,
                         "id": 4389,
                         "values": [{
                             "dictionary_value_id": 90296,
                             "value": "Китай"
                         }]
-                    })
+                    }
                     continue
 
                 attr_value: Any = attr.get("value", "")
                 dict_value_id: Any = attr.get("dictionary_value_id", 0)
+
+                # ⚠️ 合并保护：快照已有值而 final 值为空 → 保留快照（防定向修复抹掉已填值，
+                # 如 9782 首填值 + final 空值场景）
+                _snap_existing: Optional[Dict[str, Any]] = merged_attrs.get(attr_id_int)
+                if _snap_existing and not str(attr_value or "").strip() and not int(dict_value_id or 0):
+                    skipped_attrs.append(attr_id_int)
+                    continue
 
                 # ⚠️ v0.13.1: 字典属性重传防御 — schema 中 dictionary_id>0 但 dict_value_id=0
                 # = 手填文本兜底值（Ozon 只接受列表中的 dict_id）→ 跳过，避免"请从列表中选择"死循环重传
@@ -1966,10 +2089,11 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                         "value": str(attr_value) if attr_value else ""
                     }]
                 }
-                ozon_attrs.append(ozon_attr)
+                merged_attrs[attr_id_int] = ozon_attr
 
+            ozon_attrs: list = list(merged_attrs.values())
             if skipped_attrs:
-                logger.info(f"✅ revalidate跳过禁止编辑的属性: {skipped_attrs}")
+                logger.info(f"✅ revalidate跳过/保留属性: {skipped_attrs}")
 
             # ✅ 确保属性9048（型号名称）存在 - 这是Ozon必填属性
             # 与prepare_ozon_upload_node使用相同的逻辑：优先用8229(产品类型名)，其次用draft中的title
@@ -2008,7 +2132,7 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                     logger.info(f"✅ revalidate补充属性9048（型号名称），值: {model_name_val[:80]}")
 
             first_item["attributes"] = ozon_attrs
-            logger.info(f"✅ 已更新{len(ozon_attrs)}个属性到items[0]（跳过{len(skipped_attrs)}个）")
+            logger.info(f"✅ 已合并{len(ozon_attrs)}个属性到items[0]（快照基线+final定向修复，跳过{len(skipped_attrs)}个）")
 
             # ✅ 关键修复：同步共享属性到所有变体items（不只是items[0]）
             # 变体之间只能有颜色、尺寸(4295)、价格、主图不同

@@ -636,6 +636,9 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
     dict_values = dict(getattr(state, "dictionary_values", None) or {})
     dc = str(getattr(state, "description_category_id", "") or "")
     tp = str(getattr(state, "type_id", "") or "")
+    # ⚠️ v0.31 T2: 8229(类型) 值 id == type_id(类目 type 节点本身) — type_id 必须
+    # 透传 attr_defaults, 否则 follow 路径 8229 只能靠 2-gram 猜(泛词「风扇」恒过→错配)。
+    _tp_i = int(tp) if str(tp or "").isdigit() else 0
     title_cn = str((draft or {}).get("title") or "")
     item_id = str((draft or {}).get("item_id") or "")
 
@@ -790,7 +793,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                             resolved = resolve_missing_mandatory_dict_attr(
                                 aid, str(attr.get("name") or ""),
                                 title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
-                                dict_vals=_hits_o,
+                                dict_vals=_hits_o, type_id=_tp_i,
                             )
                     if not resolved:
                         from utils.ozon_dict_values import list_dictionary_values as _ldv
@@ -802,7 +805,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                         resolved = resolve_missing_mandatory_dict_attr(
                             aid, str(attr.get("name") or ""),
                             title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
-                            dict_vals=_all_o,
+                            dict_vals=_all_o, type_id=_tp_i,
                         )
             except Exception:
                 resolved = None
@@ -811,6 +814,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                 resolved = resolve_missing_mandatory_dict_attr(
                 aid, str(attr.get("name") or ""),
                 title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn, dict_vals=vals,
+                type_id=_tp_i,
                 )
             if not resolved:
                 try:
@@ -831,10 +835,31 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                             resolved = resolve_missing_mandatory_dict_attr(
                                 aid, str(attr.get("name") or ""),
                                 title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
-                                dict_vals=_hits,
+                                dict_vals=_hits, type_id=_tp_i,
                             )
                             if resolved:
                                 break
+                except Exception:
+                    resolved = None
+            # ⚠️ v0.32 T3 补漏: 通用 list 兜底 — 9782(危险等级)/4295(尺码) 等无竞品值、
+            # 无缓存、search 词为空的必填字典属性，此前永远无法填充（list 拉取
+            # 只嵌在 ① 竞品分支 if _ozon_val: 内，对无竞品值属性不可达）。
+            # 对任何 unresolved 必填字典属性执行全量 list → resolve_missing_*
+            # （9782 走 get_safe_hazard_default 安全默认；其它走语义/唯一值）。
+            if not resolved:
+                try:
+                    from utils.ozon_dict_values import list_dictionary_values as _ldv_gen
+                    _all_gen = _ldv_gen(
+                        getattr(state, "ozon_client_id", "") or "",
+                        getattr(state, "ozon_api_key", "") or "",
+                        aid, int(dc) if dc else 0, int(tp) if tp else 0,
+                    )
+                    if _all_gen:
+                        resolved = resolve_missing_mandatory_dict_attr(
+                            aid, str(attr.get("name") or ""),
+                            title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
+                            dict_vals=_all_gen, type_id=_tp_i,
+                        )
                 except Exception:
                     resolved = None
             # 8292: search 兜底仍失败 → 列表模式取「不合并」
@@ -980,7 +1005,10 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
     except Exception:
         synonyms = {}
     draft_attrs = dict((draft or {}).get("attributes") or {})
-    if not draft_attrs or not synonyms:
+    # 早期返回仅当「双无」: follow 信封可能只有 draft.ozon_attributes（无 1688 attributes）
+    if not draft_attrs and not (draft or {}).get("ozon_attributes"):
+        return items
+    if not synonyms and not (draft or {}).get("ozon_attributes"):
         return items
     # v0.26 P1-3 fix: 集合属性（schema 的 is_collection / is_multivalue）才允许多值；
     # 单值属性只填 1 个值，否则列表包含匹配可能多命中 → Ozon ATTRIBUTE_VALUE_COUNT_EXCEEDED。
