@@ -41,8 +41,11 @@ def normalize_seller_id(raw: Any) -> Optional[str]:
     m = re.match(r"/seller/([^/?#]+)", s)
     if m:
         s = m.group(1)
+    elif s.startswith("/seller/"):
+        s = s[len("/seller/"):]
+    elif s.startswith("seller/"):
+        s = s[len("seller/"):]
     s = s.rstrip("/").split("?")[0].split("#")[0]
-    s = s.removeprefix("/seller").removeprefix("seller")
     if not s:
         return None
     if re.fullmatch(r"\d+", s) and len(s) < 5:
