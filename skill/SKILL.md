@@ -1,6 +1,6 @@
 ---
 name: pounding-ozon-probe
-version: "0.28.4"
+version: "0.30.0"
 agent_created: true
 description: >
   Ozon 跨境电商上架工具。此技能在以下场景触发：用户发送 1688 商品链接时
@@ -83,11 +83,12 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 
 | 命令 | 用途 | 关键参数 | 副作用 | 适用场景 |
 |---|---|---|---|---|
-| `check` | 验证环境 | 无 | 无 | 首次使用 / 排错 |
+| `check` | 验证环境（v0.30: 全量诊断，缺依赖/无浏览器也继续探测 Worker/MXOU/凭证） | 无 | 无 | 首次使用 / 排错 |
 | `set_store` | 配置 Ozon 店铺 | `--name --client-id --api-key` | 写 `data/config/` | 首次配置 |
 | `set_token` | 配置 MXOU_TOKEN | `--token` | 写 `data/config/` | 首次配置 |
 | `set_ak` | 配置 1688 AK | `--ak` | 写 `data/config/` | 首次配置 / AK 过期 |
-| `update` | 检查并应用自动更新 | 无 | **覆盖 skill 文件**（备份 + 保留 data/） | 版本升级 |
+| `update` | 检查并应用自动更新（v0.30: 跨进程锁，并发命令不会竞态破坏安装） | 无 | **覆盖 skill 文件**（备份 + 保留 data/） | 版本升级 |
+| `migrate_profile` | 迁移 Chrome profile 到统一路径（旧 `data/browser/profile` → `profiles/1688/default`） | `[--apply] [--check]` | 复制 profile（默认 dry-run 不写） | v0.30 升级后首次使用（登录态迁移） |
 | `query` | 查询 Worker 任务状态 | `<任务ID>`（位置参数，submit/follow 返回的 UUID） | 只读，无副作用 | 提交后查进度/成败/产品明细 |
 | `seller` | 卖家店铺全产品运营分析 | `--seller-id [--max-products] [--max-skus]` | 查 seller.ozon.ru 运营指标（逐 SKU，受限速） | 跟卖前20名卖家 → 店铺选品（v0.29.x 新增） |
 | `get_ak` | 浏览器自动获取 1688 AK | `--timeout` | 无 | AK 过期时刷新 |
@@ -139,10 +140,25 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 
 **自动更新（v0.18.0 起，默认开启）**：每次运行命令时，若 COS 上有新版本，
 自动备份旧文件 → 覆盖升级 → 失败自动回滚（`data/` 凭证/登录态/缓存全程保留），
-升级成功后提示重启终端。
+升级成功后提示重启终端。v0.30.0 起 updater 有跨进程锁：并发命令同时触发更新时
+只一个执行，其余静默跳过（不会破坏安装）。
 
 - 关闭自动更新：`export SKILL_AUTO_UPDATE=0`，退回「提示 + 手动 `skill update`」模式。
 - 手动更新：`python3 scripts/cli.py update`
+
+**v0.30.0 升级注意（Chrome profile 统一）**：profile 路径已统一为
+`data/browser/profiles/1688/default`（旧 `data/browser/profile` 弃用）。
+**旧版本升级后首次运行前**执行 profile 迁移（保留 1688/Ozon 登录态，只复制不删除）：
+
+```bash
+python3 scripts/migrate_profile.py --check   # dry-run 预览
+python3 scripts/migrate_profile.py --apply   # 实际迁移
+```
+
+**环境前置检查（v0.30.0 起）**：所有命令入口自动探测 Python ≥3.12 +
+`requests`/`websocket-client`/`Pillow`，缺依赖时立即给出
+`pip install -r requirements.txt` 指引并退出（不再链路深处炸 traceback）。
+`check` 命令现在是无浏览器也继续探测 Worker/MXOU/凭证的全量诊断。
 
 **旧包升级（v0.12.0 之前的包没有 updater，不会自动提示）**：
 
@@ -153,6 +169,7 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 python3 bootstrap_update.py
 ```
 
-如果运行 `graph`/`follow` 提示「未找到 scripts.cloud_probe（版本过旧）」，
-按上面 bootstrap 升级即可。手动确认当前版本：`python3 scripts/cli.py update`
+如果运行 `graph`/`follow` 提示「缺少依赖模块」或「未找到 scripts.cloud_probe」，
+前者按提示 `pip install -r requirements.txt`，后者按上面 bootstrap 升级即可。
+手动确认当前版本：`python3 scripts/cli.py update`
 （显示「已是最新」即正常）。
