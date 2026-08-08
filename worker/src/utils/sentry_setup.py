@@ -12,15 +12,73 @@
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
 _SENTRY_INITIALIZED = False
 _SENTRY_ENABLED = False
+
+# ============================================================
+# v0.32: before_send — 语言检查噪音指纹聚合（T5）
+# 62 个语言检查噪音 issue（中文/拉丁字符验证错误）走 sentry_sdk 默认
+# LoggingIntegration（节点内 logger.error 自动上报，extra 无 task_id），
+# 不经 capture_task_event → 只能在 before_send 按消息特征+logger 名拦截。
+# 命中 → 聚合为单一 fingerprint + level 降 warning + 确定性 trace_id 注入。
+# ============================================================
+
+_LANG_NOISE_FINGERPRINT = "language-noise-validation"
+_LANG_NOISE_KEYWORDS = ("中文字符", "拉丁字母", "含中文", "描述含")
+_LANG_NOISE_LOGGER_SUFFIXES = (
+    "ozon_validate_node",
+    "prepare_ozon_upload_node",
+    "validation_retry_loop",
+    "assemble_ozon_product_node",
+    "fetch_back_node",
+)
+
+
+def _event_message(event: dict) -> str:
+    msg = event.get("message") or ""
+    logentry = event.get("logentry")
+    if isinstance(logentry, dict):
+        msg = msg or logentry.get("formatted") or logentry.get("message") or ""
+    return msg
+
+
+def _is_lang_noise_event(event: dict) -> bool:
+    logger_name = (event.get("logger") or "").lower()
+    if not any(logger_name.endswith(s) for s in _LANG_NOISE_LOGGER_SUFFIXES):
+        return False
+    msg = _event_message(event)
+    return any(kw in msg for kw in _LANG_NOISE_KEYWORDS)
+
+
+def _lang_noise_trace_id(message: str) -> str:
+    digest = hashlib.sha1(message.encode("utf-8", errors="replace")).hexdigest()[:12]
+    return f"lang-noise-{digest}"
+
+
+def _before_send(event: dict, hint: Optional[dict] = None) -> dict:
+    """语言检查噪音指纹聚合。未启用短路零开销；噪音 → fingerprint/level/trace_id；其余原样返回。"""
+    if not _SENTRY_ENABLED or not isinstance(event, dict):
+        return event
+    if not _is_lang_noise_event(event):
+        return event
+    msg = _event_message(event)
+    event["fingerprint"] = [_LANG_NOISE_FINGERPRINT]
+    event["level"] = "warning"
+    extra = event.setdefault("extra", {})
+    if not isinstance(extra, dict):
+        extra = {}
+        event["extra"] = extra
+    extra["noise_group"] = "language_validation"
+    extra["trace_id"] = _lang_noise_trace_id(msg)
+    return event
 
 
 def _is_test_process() -> bool:
@@ -61,6 +119,7 @@ def init_sentry(dsn: Optional[str] = None) -> bool:
             environment=env,
             release=release,
             traces_sample_rate=traces_sample_rate,
+            before_send=_before_send,
         )
         _SENTRY_ENABLED = True
         logger.info("✅ Sentry 监测已启用 (env=%s, release=%s)", env, release or "dev")

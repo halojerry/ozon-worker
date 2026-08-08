@@ -82,6 +82,114 @@ def test_capture_task_error_sets_context_and_flushes():
         scope.set_tag.assert_any_call("tenant_id", "u1")
 
 
+def test_init_wires_before_send():
+    """init_sentry 注册 before_send（语言噪音聚合回调）。"""
+    _reset()
+    fake_sdk = mock.MagicMock()
+    with mock.patch.object(mod, "_is_test_process", return_value=False), mock.patch.dict(
+        sys.modules, {"sentry_sdk": fake_sdk}
+    ), mock.patch.dict(os.environ, {"SENTRY_DSN": "https://x@o1.ingest.us.sentry.io/2"}, clear=True):
+        assert mod.init_sentry() is True
+        kwargs = fake_sdk.init.call_args.kwargs
+        assert callable(kwargs.get("before_send"))
+
+
+# ============================================================
+# v0.32 before_send — 语言噪音指纹聚合（T5）
+# 62 个语言检查噪音 issue 走 sentry_sdk 默认 LoggingIntegration
+# （节点内 logger.error 自动上报，extra 无 task_id），必须在 before_send
+# 按「消息特征 + logger 名」拦截：fingerprint 聚合 + level 降 warning
+# + trace_id 注入；非噪音原样通过；_SENTRY_ENABLED=False 短路零开销。
+# ============================================================
+
+def _noise_event() -> dict:
+    """伪造一条语言检查噪音事件（模拟 ozon_validate_node 的 logger.error 上报）。"""
+    return {
+        "message": "❌ item[0]名称含中文字符: 太阳能草坪灯",
+        "logger": "graphs.nodes.ozon_validate_node",
+        "level": "error",
+        "extra": {},
+    }
+
+
+def test_before_send_aggregates_lang_noise():
+    """语言噪音事件 → 单一 fingerprint 聚合 + level 降 warning + trace_id 注入。"""
+    _reset()
+    mod._SENTRY_ENABLED = True
+    event = _noise_event()
+    out = mod._before_send(event, hint={})
+    assert out is event  # 原地修改
+    assert out["fingerprint"] == [mod._LANG_NOISE_FINGERPRINT]
+    assert out["level"] == "warning"
+    assert out["extra"]["noise_group"] == "language_validation"
+    assert out["extra"]["trace_id"].startswith("lang-noise-")
+
+
+def test_before_send_trace_id_deterministic():
+    """trace_id 注入确定性：同一消息两次调用结果一致。"""
+    _reset()
+    mod._SENTRY_ENABLED = True
+    e1 = mod._before_send(_noise_event())["extra"]["trace_id"]
+    e2 = mod._before_send(_noise_event())["extra"]["trace_id"]
+    assert e1 == e2
+
+
+def test_before_send_handles_logentry_format():
+    """sentry LoggingIntegration 事件走 logentry.message 字段也能识别。"""
+    _reset()
+    mod._SENTRY_ENABLED = True
+    event = {
+        "logentry": {"message": "❌ 属性8229含中文字符: 杀虫剂", "params": []},
+        "logger": "graphs.nodes.ozon_validate_node",
+        "level": "error",
+    }
+    out = mod._before_send(event)
+    assert out["fingerprint"] == [mod._LANG_NOISE_FINGERPRINT]
+    assert out["level"] == "warning"
+
+
+def test_before_send_passthrough_non_noise():
+    """非噪音错误 → 原样通过（不修改任何字段）。"""
+    _reset()
+    mod._SENTRY_ENABLED = True
+    event = {
+        "message": "Ozon API 500: rate limited",
+        "logger": "utils.ozon_client",
+        "level": "error",
+    }
+    out = mod._before_send(event)
+    assert out is event
+    assert "fingerprint" not in out
+    assert "noise_group" not in out.get("extra", {})
+    assert out["level"] == "error"
+
+
+def test_before_send_wrong_logger_passthrough():
+    """消息含噪音关键词但 logger 名不是已知噪音源 → 原样通过。"""
+    _reset()
+    mod._SENTRY_ENABLED = True
+    event = {
+        "message": "❌ 描述含中文字符",
+        "logger": "some.other.module",
+        "level": "error",
+    }
+    out = mod._before_send(event)
+    assert out is event
+    assert "fingerprint" not in out
+    assert out["level"] == "error"
+
+
+def test_before_send_short_circuit_when_disabled():
+    """_SENTRY_ENABLED=False → 短路，事件原样返回零修改。"""
+    _reset()
+    mod._SENTRY_ENABLED = False
+    event = _noise_event()
+    out = mod._before_send(event)
+    assert out is event
+    assert "fingerprint" not in out
+    assert out["level"] == "error"
+
+
 if __name__ == "__main__":
     import traceback
 
