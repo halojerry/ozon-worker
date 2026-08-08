@@ -30,11 +30,23 @@ python3 scripts/cli.py check
 
 全部 ✅ 后方可执行业务操作。如有 ❌，按提示修复。
 
-**首次使用（v0.28.6）**：`check` 会启动工具专用 Chrome（**独立 profile，完全不影响日常浏览器**，
+**首次使用（v0.28.6 起，v0.30 更新）**：`check` 会启动工具专用 Chrome（**独立 profile，完全不影响日常浏览器**，
 也不会杀/重启用户自己的 Chrome），未登录 1688 时自动打开登录页 + Ozon Seller 卖家后台
 （discover 运营指标需要），交互环境等待登录后按 Enter 继续。
-**登录状态保存在工具独立 profile**（`data/browser/`，更新时保留），一次性登录长期有效；
-命令结束自动关闭工具 Chrome（用完即关，不累积窗口、不常驻）。
+**登录状态保存在工具独立 profile**（`data/browser/profiles/1688/default`，v0.30 统一路径，
+更新时保留），一次性登录长期有效；**工具 Chrome 常驻**（命令结束不关闭，登录态跨命令复用）；
+用户手动关闭后下次命令自动用独立 profile 重启。
+
+**v0.30 环境前置（自动）**：所有命令入口自动探测 Python ≥3.12 + `requests`/`websocket-client`/`Pillow`，
+缺依赖立即提示 `pip install -r requirements.txt` 并退出；`check` 无浏览器也继续探测
+Worker/MXOU/凭证（全量诊断，不再 early return）。
+
+**v0.30 升级（Chrome profile 统一）**：旧版 profile 在 `data/browser/profile`，升级后首次
+运行前执行迁移保留登录态（只复制不删除，可回退）：
+```bash
+python3 scripts/migrate_profile.py --check   # dry-run 预览
+python3 scripts/migrate_profile.py --apply   # 实际迁移
+```
 
 ## check 失败排查表
 
@@ -58,6 +70,7 @@ python3 scripts/cli.py check
 | 路径 | 用途 | 可否删除 |
 |---|---|---|
 | `data/config/` | 凭证（stores.json / token / ak） | ❌ **绝对不能删**（删了要重新配置全部凭证） |
+| `data/browser/profiles/1688/default/` | 工具 Chrome 登录态（1688/Ozon cookie） | ❌ **绝对不能删**（删了要重新登录全部站点） |
 | `data/discovery/` | discover 选品结果落盘 | 可清理旧文件 |
 | `data/logs/` | 运行日志 | 可清理旧文件 |
 | `data/cache/` | 磁盘缓存（TTL 自动过期） | 可清理 |
