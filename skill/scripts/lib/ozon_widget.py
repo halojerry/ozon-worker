@@ -49,12 +49,19 @@ def _ensure_ozon_tab(cdp: CdpConnection) -> CdpTab:
     """Find an existing ozon.ru tab or create a new one.
 
     Reuses an existing tab to preserve cookies/session state.
+    ⚠️ v0.31: find_tab 可能返回刚被 fetch_seller_products 关闭的 stale tab
+    （Chrome 延迟清理 /json 列表），复用前验证存活，失败则新建。
     """
     tab = cdp.find_tab("ozon.ru")
     if tab is not None:
-        # PR-4: 命中用户已有 tab → 立即 release，防止 conn.close() 远程关闭用户标签页
-        cdp.release(tab)
-        return tab
+        try:
+            tab.evaluate("1", timeout=5)
+        except Exception:
+            tab = None
+        else:
+            # PR-4: 命中用户已有 tab → 立即 release，防止 conn.close() 远程关闭用户标签页
+            cdp.release(tab)
+            return tab
     # Create a new tab pointing at Ozon homepage (sets cookies)
     return cdp.new_tab(f"{OZON_BASE}/")
 
@@ -207,14 +214,14 @@ _FETCH_SELLERS_JS = r'''(() => {
             resolve(JSON.stringify({
                 count: sellers.length,
                 min_price: sellers[0] ? sellers[0].priceNum : 0,
-                // ⚠️ v0.29.x: 透传前 20 名卖家 + sellerId/sellerUrl/rating
-                // (供「跟卖卖家店铺全产品分析选品」用, 之前只透传 10 个 3 字段)
+                // ⚠️ v0.31: 字段名修正（maozi 插件实证 webSellerList 真实结构）
+                // 真实字段: id(卖家ID) / link(/seller/{id}/) / name，而非 sellerId/sellerUrl
                 sellers: sellers.slice(0, 20).map(s => ({
                     sku: s.sku || '',
                     price: s.priceNum,
-                    seller_name: s.sellerName || s.seller || '',
-                    seller_id: s.sellerId || s.id || '',
-                    seller_url: s.sellerUrl || (s.sellerId ? '/seller/' + s.sellerId : ''),
+                    seller_name: s.name || s.sellerName || s.seller || '',
+                    seller_id: s.id || s.sellerId || '',
+                    seller_url: s.link || s.sellerUrl || (s.id ? '/seller/' + s.id : ''),
                     rating: (s.rating && (s.rating.value || s.rating.rating)) || 0,
                     review_count: (s.rating && s.rating.count) || 0
                 }))
