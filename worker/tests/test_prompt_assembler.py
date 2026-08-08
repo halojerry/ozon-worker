@@ -1,0 +1,281 @@
+# -*- coding: utf-8 -*-
+"""
+v0.32 Wave 1 — 生图流程优化基础部分：prompt_assembler 工具函数（纯新增）。
+
+覆盖：
+(a) 10 个 slot_key 渲染出非空 prompt（title 注入生效）
+(b) slot_scene_context 覆盖 scene_context（scene_1/2/3 差异化）
+(c) material/color/size/weight/category 注入（模板含占位符时渲染进 prompt）
+(d) 模板无占位符时额外变量静默忽略（不报错、不注入）
+(e) 缺失变量 → 无 {{ 残留、无 None/Undefined 字符串
+(f) assemble_prompt 失败 → 回退 get_image_prompt 中文兜底
+(g) extract_visual_vars_from_draft 单测：中文键命中 / mm 拼接 / 缺失→""
+
+运行：cd worker && PYTHONPATH=src python3 -m pytest tests/test_prompt_assembler.py -v
+      cd worker && PYTHONPATH=src python3 tests/test_prompt_assembler.py
+"""
+import json
+import os
+import shutil
+import sys
+import tempfile
+from contextlib import contextmanager
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+from utils.prompt_assembler import assemble_prompt, extract_visual_vars_from_draft  # noqa: E402
+
+# 10 个生图节点 slot_key（与 image_prompts.json / _DEFAULT_PROMPTS 对齐）
+SLOT_KEYS = [
+    "main", "white_bg", "multi_angle",
+    "scene_1", "scene_2", "scene_3",
+    "comparison", "detail", "social_proof", "variant_white_bg",
+]
+
+# 含全部 visual vars 占位符的自定义模板（模拟 Wave 1-C 模板增强后的形态）
+_CUSTOM_TEMPLATE = {
+    "main": (
+        "产品：{{title}}。材质：{{material}}。颜色：{{color}}。"
+        "尺寸：{{size}}。重量：{{weight}}。类目：{{category}}。"
+    ),
+}
+
+
+@contextmanager
+def _real_workspace():
+    """指向 worker/ 目录（读真实 config/image_prompts.json，不依赖调用方 cwd）"""
+    old = os.environ.get("APP_WORKSPACE_PATH")
+    try:
+        os.environ["APP_WORKSPACE_PATH"] = os.path.join(os.path.dirname(__file__), "..")
+        yield
+    finally:
+        if old is None:
+            os.environ.pop("APP_WORKSPACE_PATH", None)
+        else:
+            os.environ["APP_WORKSPACE_PATH"] = old
+
+
+@contextmanager
+def _fake_workspace(prompts=None, corrupt=False, no_config=False):
+    """临时 APP_WORKSPACE_PATH，可注入自定义提示词 JSON（prompts dict 或损坏/缺失）"""
+    tmp = tempfile.mkdtemp(prefix="prompt_asm_test_")
+    old_workspace = os.environ.get("APP_WORKSPACE_PATH")
+    try:
+        if not no_config:
+            cfg_dir = os.path.join(tmp, "config")
+            os.makedirs(cfg_dir, exist_ok=True)
+            if corrupt:
+                with open(os.path.join(cfg_dir, "image_prompts.json"), "w", encoding="utf-8") as fd:
+                    fd.write("{ 这不是合法 JSON !!!")
+            elif prompts is not None:
+                with open(os.path.join(cfg_dir, "image_prompts.json"), "w", encoding="utf-8") as fd:
+                    json.dump(prompts, fd, ensure_ascii=False)
+        os.environ["APP_WORKSPACE_PATH"] = tmp
+        yield tmp
+    finally:
+        if old_workspace is None:
+            os.environ.pop("APP_WORKSPACE_PATH", None)
+        else:
+            os.environ["APP_WORKSPACE_PATH"] = old_workspace
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ── (a) 10 个 slot_key 渲染非空 + title 注入 ──
+def test_all_10_slots_render_nonempty():
+    for key in SLOT_KEYS:
+        with _real_workspace():
+            p = assemble_prompt(key, title="产品A")
+            assert isinstance(p, str) and p, f"slot {key} 渲染结果为空"
+            assert "产品A" in p, f"slot {key} 未注入 title"
+            assert "{{" not in p, f"slot {key} 残留未渲染占位符"
+
+
+# ── (b) slot_scene_context 覆盖 scene_context ──
+def test_slot_scene_context_overrides_scene_context():
+    with _real_workspace():
+        p = assemble_prompt(
+            "scene_1",
+            title="产品A",
+            scene_context="全局场景描述",
+            slot_scene_context="局部特写描述",
+        )
+        assert "局部特写描述" in p
+        assert "全局场景描述" not in p
+
+
+def test_scene_context_used_when_no_slot_override():
+    with _real_workspace():
+        p = assemble_prompt("scene_2", title="产品A", scene_context="全局场景描述")
+        assert "全局场景描述" in p
+
+
+# ── (c) visual vars 注入（模板含占位符时）──
+def test_visual_vars_rendered_when_placeholders_exist():
+    with _fake_workspace(prompts=_CUSTOM_TEMPLATE):
+        p = assemble_prompt(
+            "main",
+            title="保温杯",
+            material="不锈钢",
+            color="银色",
+            size="120×80×60 mm",
+            weight="227 г",
+            category="水具",
+        )
+        for token in ("保温杯", "不锈钢", "银色", "120×80×60 mm", "227 г", "水具"):
+            assert token in p, f"变量 {token!r} 未渲染进 prompt"
+        assert "{{" not in p
+
+
+# ── (d) 模板无占位符时额外变量静默忽略 ──
+def test_extra_vars_silently_ignored_without_placeholders():
+    # 现有 main 模板只有 {{title}}，无 visual vars / extra 占位符
+    with _real_workspace():
+        p = assemble_prompt(
+            "main",
+            title="保温杯",
+            material="ABS",
+            color="黑色",
+            size="100×60×60 mm",
+            weight="200 г",
+            category="水具",
+            model="cinematic",
+            action="产品特写",
+        )
+        assert "保温杯" in p
+        assert "ABS" not in p, "模板无占位符时 extra 变量不应注入"
+        assert "{{" not in p
+
+
+# ── (e) 缺失变量 → 无 {{ 残留、无 None/Undefined 字符串 ──
+def test_missing_vars_no_residue_or_none():
+    with _real_workspace():
+        p = assemble_prompt("main")
+        assert "{{" not in p
+        assert "None" not in p
+        assert "Undefined" not in p
+
+
+def test_missing_vars_render_empty_not_none():
+    # 模板含占位符但变量缺省 → 渲染为空串而非 "None"
+    with _fake_workspace(prompts=_CUSTOM_TEMPLATE):
+        p = assemble_prompt("main", title="保温杯")
+        assert "材质：" in p
+        assert "None" not in p
+        assert "Undefined" not in p
+        assert "{{" not in p
+
+
+# ── (f) 失败 → 回退 get_image_prompt 中文兜底（绝不抛异常）──
+def test_corrupt_config_falls_back_to_default():
+    with _fake_workspace(corrupt=True):
+        p = assemble_prompt("main", title="雨衣")
+        assert "雨衣" in p
+        assert "营销主图" in p  # 默认中文提示词内容
+
+
+def test_render_failure_falls_back_to_get_image_prompt():
+    # 非法 Jinja2 filter → assemble_prompt 渲染失败 → 回退 get_image_prompt 中文兜底（不抛异常）。
+    # get_image_prompt 对同一坏模板自身也回退默认模板原文（不重渲染），故断言回退产物而非 title 注入。
+    with _fake_workspace(prompts={"main": "产品：{{title | no_such_filter}} 主图"}):
+        p = assemble_prompt("main", title="花洒")
+        assert p, "回退产物为空"
+        assert "no_such_filter" not in p, "仍含坏模板"
+        assert "营销主图" in p, "回退产物应为默认中文提示词"
+
+
+def test_missing_config_file_falls_back():
+    with _fake_workspace(no_config=True):
+        p = assemble_prompt("detail", title="手电筒")
+        assert "手电筒" in p
+        assert "微距细节特写图" in p
+
+
+def test_unknown_slot_returns_empty_gracefully():
+    with _fake_workspace(no_config=True):
+        p = assemble_prompt("not_exist_key_xyz")
+        assert p == ""
+
+
+# ── (g) extract_visual_vars_from_draft 单测 ──
+def test_extract_material_color_size_weight_category():
+    draft = {
+        "attributes": {"材质": "ABS塑料", "颜色": "黑色"},
+        "dimensions": {"length": 120, "width": 80, "height": 60},
+        "weight": 227,
+        "category": "宠物用品",
+    }
+    v = extract_visual_vars_from_draft(draft)
+    assert v == {
+        "material": "ABS塑料",
+        "color": "黑色",
+        "size": "120×80×60 mm",
+        "weight": "227 г",
+        "category": "宠物用品",
+    }
+
+
+def test_extract_first_hit_material_key():
+    # 候选键顺序「材质/材料/material」——attributes 同时含两者时取首个命中
+    draft = {"attributes": {"材料": "硅胶", "材质": "ABS"}}
+    assert extract_visual_vars_from_draft(draft)["material"] == "ABS"
+
+
+def test_extract_english_material_color():
+    draft = {"attributes": {"Material": "Stainless Steel", "color": "Silver"}}
+    v = extract_visual_vars_from_draft(draft)
+    assert v["material"] == "Stainless Steel"
+    assert v["color"] == "Silver"
+
+
+def test_extract_missing_dimension_skips_size():
+    draft = {"dimensions": {"length": 120, "width": 80}}
+    assert extract_visual_vars_from_draft(draft)["size"] == ""
+
+
+def test_extract_empty_draft_all_empty():
+    assert extract_visual_vars_from_draft({}) == {
+        "material": "", "color": "", "size": "", "weight": "", "category": "",
+    }
+
+
+def test_extract_attributes_missing_all_empty():
+    draft = {"category": "宠物用品"}
+    v = extract_visual_vars_from_draft(draft)
+    assert v["material"] == ""
+    assert v["color"] == ""
+    assert v["category"] == "宠物用品"
+
+
+if __name__ == "__main__":
+    import traceback
+
+    tests = [
+        test_all_10_slots_render_nonempty,
+        test_slot_scene_context_overrides_scene_context,
+        test_scene_context_used_when_no_slot_override,
+        test_visual_vars_rendered_when_placeholders_exist,
+        test_extra_vars_silently_ignored_without_placeholders,
+        test_missing_vars_no_residue_or_none,
+        test_missing_vars_render_empty_not_none,
+        test_corrupt_config_falls_back_to_default,
+        test_render_failure_falls_back_to_get_image_prompt,
+        test_missing_config_file_falls_back,
+        test_unknown_slot_returns_empty_gracefully,
+        test_extract_material_color_size_weight_category,
+        test_extract_first_hit_material_key,
+        test_extract_english_material_color,
+        test_extract_missing_dimension_skips_size,
+        test_extract_empty_draft_all_empty,
+        test_extract_attributes_missing_all_empty,
+    ]
+    passed = 0
+    for t in tests:
+        try:
+            t()
+            print(f"  ✅ {t.__name__}")
+            passed += 1
+        except Exception:
+            print(f"  ❌ {t.__name__}")
+            traceback.print_exc()
+    print(f"\n{passed}/{len(tests)} 通过")
+    sys.exit(0 if passed == len(tests) else 1)
