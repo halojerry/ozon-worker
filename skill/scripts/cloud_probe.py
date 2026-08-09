@@ -1848,7 +1848,7 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         "title": candidate.match_1688_title or candidate.ozon_title,
         "description": "",
         "currency": "CNY",
-        "images": candidate.match_1688_images or candidate.ozon_images[:3],
+        "images": candidate.match_1688_images or candidate.ozon_images[:1],
         "attributes": {},
         "weight": getattr(candidate, 'weight_g', 0) or 300,
         "dimensions": getattr(candidate, 'dimensions_mm', None) or {"length": 0, "width": 0, "height": 0},
@@ -2880,7 +2880,10 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                             extensions[_pk] = _pv
                     envelope["envelope"]["extensions"] = extensions
                     # 竞品图片 — 跟卖始终用 Ozon 竞品原图，绝不漏 1688 alicdn
-                    draft["images"] = ozon_images if ozon_images else []
+                    # ✅ v0.33.1: 只拿第一张主图（对齐 1688 get_best_product_images 主图优先逻辑）
+                    # ——竞品 104 张全塞会混入带品牌 logo/促销文字的细节图，Phase1 当参考图
+                    # 被 AI 复刻（GardLuna 水印实测）。第一张 = 产品主图，相对干净。
+                    draft["images"] = ozon_images[:1] if ozon_images else []
                     # ✅ 竞品俄语标题（覆盖 1688 中文标题，保留 SEO 优化后的竞品原标题）
                     if ozon_title:
                         draft["title"] = ozon_title
