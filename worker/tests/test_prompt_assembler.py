@@ -135,7 +135,8 @@ def test_visual_vars_rendered_when_placeholders_exist():
 
 # ── (d) 非视觉 extra 变量静默忽略（visual vars 注入增强后的真实模板）──
 def test_extra_vars_silently_ignored_without_placeholders():
-    # Wave 1-C 后: visual vars 已含占位符 → 注入；model/action 无占位符 → 静默忽略
+    # v6 后: main 模板不含 material/size/weight/category 占位符（产品外观由 {{product}}
+    # 视觉变量承担）→ 确定性变量静默忽略；模板不含的未知变量同样静默忽略（不报错、不注入）
     with _real_workspace():
         p = assemble_prompt(
             "main",
@@ -144,19 +145,19 @@ def test_extra_vars_silently_ignored_without_placeholders():
             size="100×60×60 mm",
             weight="200 г",
             category="水具",
-            model="cinematic",
-            action="产品特写",
+            unknown_extra_var="XYZ",
         )
         assert "保温杯" in p
-        assert "ABS" in p, "visual var（material）应注入增强后的模板"
-        assert "cinematic" not in p, "extra 变量（model）不应注入"
-        assert "产品特写" not in p, "extra 变量（action）不应注入"
+        assert "ABS" not in p, "v6: main 无 material 占位符 → 静默忽略"
+        assert "100×60×60 mm" not in p, "v6: main 无 size 占位符 → 静默忽略"
+        assert "XYZ" not in p, "未知变量不应注入"
         assert "{{" not in p
 
 
 # ── (h) Wave 1-C 真实模板增强：draft visual vars 渲染进真实模板 ──
 def test_real_template_renders_draft_visual_vars():
-    """含 material 的 draft → 增强后的真实 main 模板渲染出「ABS塑料」（v0.32: color 已移除）"""
+    """含 material 的 draft → v6 真实 white_bg 模板渲染出「ABS塑料」+ 尺寸
+    （v6 main 已移除确定性变量占位符，白底图保留 material/size 描述）"""
     draft = {
         "attributes": {"材质": "ABS塑料", "颜色": "白色"},
         "dimensions": {"length": 120, "width": 80, "height": 60},
@@ -164,12 +165,11 @@ def test_real_template_renders_draft_visual_vars():
         "category": "水具",
     }
     with _real_workspace():
-        p = assemble_prompt("main", title="保温杯", **extract_visual_vars_from_draft(draft))
+        p = assemble_prompt("white_bg", title="保温杯", **extract_visual_vars_from_draft(draft))
         assert "ABS塑料" in p, "材质未渲染进 prompt"
         assert "120×80×60 mm" in p, "尺寸未渲染进 prompt"
-        assert "227 г" in p, "重量未渲染进 prompt"
-        assert "水具" in p, "类目未渲染进 prompt"
         assert "白色" not in p, "v0.32: color 不再注入（参考图承担颜色）"
+        assert "227 г" not in p, "white_bg 模板不含重量占位符 → 静默忽略"
         assert "{{" not in p
 
 
@@ -185,11 +185,10 @@ def test_draft_without_visual_vars_no_residue():
 
 
 def test_title_stays_first_sentence_with_visual_vars():
-    """增强模板下 title 仍为首句（位于材质/尺寸描述之前）"""
+    """v6: title 仍为首句（Product: {{title}} 前缀，位于其余描述之前）"""
     with _real_workspace():
         p = assemble_prompt("main", title="保温杯", material="ABS塑料", size="100×60×60 mm")
-        assert p.startswith("产品：保温杯"), f"title 非首句: {p[:30]!r}"
-        assert p.index("保温杯") < p.index("ABS塑料")
+        assert p.startswith("Product: 保温杯"), f"title 非首句: {p[:30]!r}"
 
 
 # ── (e) 缺失变量 → 无 {{ 残留、无 None/Undefined 字符串 ──
@@ -216,24 +215,24 @@ def test_corrupt_config_falls_back_to_default():
     with _fake_workspace(corrupt=True):
         p = assemble_prompt("main", title="雨衣")
         assert "雨衣" in p
-        assert "营销主图" in p  # 默认中文提示词内容
+        assert "Professional Ozon e-commerce product photography" in p  # 默认英文提示词内容
 
 
 def test_render_failure_falls_back_to_get_image_prompt():
-    # 非法 Jinja2 filter → assemble_prompt 渲染失败 → 回退 get_image_prompt 中文兜底（不抛异常）。
+    # 非法 Jinja2 filter → assemble_prompt 渲染失败 → 回退 get_image_prompt 默认兜底（不抛异常）。
     # get_image_prompt 对同一坏模板自身也回退默认模板原文（不重渲染），故断言回退产物而非 title 注入。
     with _fake_workspace(prompts={"main": "产品：{{title | no_such_filter}} 主图"}):
         p = assemble_prompt("main", title="花洒")
         assert p, "回退产物为空"
         assert "no_such_filter" not in p, "仍含坏模板"
-        assert "营销主图" in p, "回退产物应为默认中文提示词"
+        assert "Professional Ozon e-commerce product photography" in p, "回退产物应为默认英文提示词"
 
 
 def test_missing_config_file_falls_back():
     with _fake_workspace(no_config=True):
         p = assemble_prompt("detail", title="手电筒")
         assert "手电筒" in p
-        assert "微距细节特写图" in p
+        assert "Extreme close-up macro shot" in p
 
 
 def test_unknown_slot_returns_empty_gracefully():
@@ -453,6 +452,38 @@ def test_resolve_category_ignores_non_string_draft_category():
     assert _resolve_category_for_prompt({"category": {"type_id": 1}}, state_category_name="收纳") == "收纳"
 
 
+# ── (l) v6 单阶段俄文生图模板期望（RED 任务：锁定未来英文 v6 模板特征，当前中文模板下应失败）──
+def test_assemble_prompt_renders_v6_russian_vars():
+    """v6: RU/风格变量透传 → 模板含占位符时全部渲染进 prompt"""
+    with _real_workspace():
+        p = assemble_prompt(
+            "main",
+            title="x",
+            product_ru="ПАЛОЧКИ",
+            cta_ru="ЗАЩИТА",
+            selling_points_ru="a; b",
+            effect_data_ru="45 мин",
+            target_ru="комары",
+            headline_style="EXCLAIM",
+            brand_primary="#16A34A",
+            accent="#F59E0B",
+            color_preset="GARDEN",
+        )
+        for token in (
+            "ПАЛОЧКИ", "ЗАЩИТА", "a; b", "45 мин", "комары",
+            "EXCLAIM", "#16A34A", "#F59E0B", "GARDEN",
+        ):
+            assert token in p, f"v6 RU/风格变量 {token!r} 未渲染进 prompt"
+
+
+def test_assemble_prompt_empty_ru_no_residue():
+    """v6: 无 RU 值 → 不残留 {{product_ru 占位符、不出现 None"""
+    with _real_workspace():
+        p = assemble_prompt("main", title="x")
+        assert "{{product_ru" not in p
+        assert "None" not in p
+
+
 if __name__ == "__main__":
     import traceback
 
@@ -475,17 +506,20 @@ if __name__ == "__main__":
         test_extract_material_color_size_weight_category,
         test_extract_first_hit_material_key,
         test_extract_english_material_color,
-        test_extract_missing_dimension_skips_size,
         test_extract_empty_draft_all_empty,
         test_extract_attributes_missing_all_empty,
         test_merge_llm_does_not_override_chinese_material,
         test_merge_carries_category_and_weight,
+        test_merge_state_category_name_fallback,
+        test_merge_draft_category_prefers_over_state,
         test_merge_llm_does_not_override_deterministic_keys_at_all,
         test_resolve_category_prefers_draft_category,
         test_resolve_category_falls_back_to_state_name,
         test_resolve_category_empty_draft_category_falls_back_to_state_name,
         test_resolve_category_all_missing_empty,
         test_resolve_category_ignores_non_string_draft_category,
+        test_assemble_prompt_renders_v6_russian_vars,
+        test_assemble_prompt_empty_ru_no_residue,
     ]
     passed = 0
     for t in tests:
