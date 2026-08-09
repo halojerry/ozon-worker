@@ -37,6 +37,8 @@ from utils.progress_logger import ProgressLogger
 from utils.ozon_category_query import get_category_query, OzonCategoryQuery
 from utils.http_session import session
 from utils.attribute_utils import HAZARD_DICT_ATTR_IDS, is_customs_attr, pick_dict_fallback_value  # ⚠️ v0.16 海关不填 / v0.21 兜底规则
+from utils.attribute_utils import match_attr_name_synonym  # v0.32 属性名词汇分歧同义词匹配
+from utils.attr_synonyms import load_attr_synonyms  # v0.32 共享同义词加载器（单一事实源）
 
 # ── v0.21: 外置同义词映射（1688 词 → Ozon ZH 类目词），解决字面匹配同义词不通 ──
 _SYNONYMS_CACHE: dict | None = None
@@ -1678,8 +1680,16 @@ def _build_items_deterministically(
             product_attrs[str(k).strip()] = str(v).strip()
     
     # ── 属性名匹配辅助函数 ──
+    # v0.32: 共享同义词表（原本只在 prepare _fill_optional_dict_attrs 用，assemble 0 映射）
+    _synonyms = load_attr_synonyms()
+
     def _match_product_attr(ozon_attr_name: str) -> Optional[str]:
-        """用 Ozon 属性中文名匹配 1688 产品属性值"""
+        """用 Ozon 属性中文名匹配 1688 产品属性值
+
+        v0.32 词汇分歧修复：原 3 层（精确 / 包含 / 空格 split 分词）对无空格中文
+        完全失效（.split() 只按空格切，中文整串一个 token），且同义词表不进本函数
+        → 日志实证「属性映射数=0」。现改为：精确 → 包含 → jieba 分词子串重叠 → 同义词组。
+        """
         name_lower = ozon_attr_name.lower().strip()
         # 精确匹配
         for pa_name, pa_val in product_attrs.items():
@@ -1689,12 +1699,23 @@ def _build_items_deterministically(
         for pa_name, pa_val in product_attrs.items():
             if name_lower in pa_name.lower() or pa_name.lower() in name_lower:
                 return pa_val
-        # 关键词重叠匹配
-        ozon_words = set(name_lower.split())
-        for pa_name, pa_val in product_attrs.items():
-            pa_words = set(pa_name.lower().split())
-            if ozon_words & pa_words:
-                return pa_val
+        # jieba 分词子串重叠匹配（v0.32 替代失效的 .split()）
+        # 对「属性名」分词取 ≥2 字词，任一 token 互相包含即命中
+        # （如「商品材质」vs「主要材质」共享 token「材质」——既非子串也非同义词组）。
+        try:
+            import jieba as _jieba
+            ozon_tokens = [w for w in _jieba.cut(name_lower) if len(w) >= 2]
+            if ozon_tokens:
+                for pa_name, pa_val in product_attrs.items():
+                    pa_tokens = [w for w in _jieba.cut(pa_name.lower()) if len(w) >= 2]
+                    if pa_tokens and any(o in p or p in o for o in ozon_tokens for p in pa_tokens):
+                        return pa_val
+        except Exception:
+            pass
+        # 同义词组匹配（attr_synonyms.json）：同组双向包含才返回，防错误值
+        matched_name = match_attr_name_synonym(name_lower, product_attrs.keys(), _synonyms)
+        if matched_name is not None:
+            return product_attrs[matched_name]
         return None
     
     def _find_dict_value(attr_id: int, product_value: str) -> tuple[int, str]:
