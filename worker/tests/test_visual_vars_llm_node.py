@@ -28,6 +28,10 @@ from graphs.nodes.visual_vars_llm_node import visual_vars_llm_node  # noqa: E402
 from graphs.state import VisualVarsInput  # noqa: E402
 
 import graphs.nodes.visual_vars_llm_node as _node_mod  # noqa: E402
+from graphs.nodes.visual_vars_llm_node import (  # noqa: E402
+    _DEFAULT_SP,
+    _build_fallback_vars,
+)
 
 # ── 19 个视觉变量 key（PRD §2.2/§7.1）──
 REQUIRED_KEYS = [
@@ -115,7 +119,7 @@ def _run_node(draft=None, llm_content=None, llm_exc=None, scene_context_1=""):
 def test_valid_json_parses_all_19_vars():
     out, _calls = _run_node(draft=DRAFT, llm_content=json.dumps(VALID_JSON))
     vv = out.visual_vars
-    assert set(vv.keys()) == set(ALL_KEYS), f"缺失 key: {set(ALL_KEYS) - set(vv.keys())}"
+    assert set(ALL_KEYS) <= set(vv.keys()), f"缺失 key: {set(ALL_KEYS) - set(vv.keys())}"
     for key in ALL_KEYS:
         assert vv[key] == VALID_JSON[key], f"{key} 未从 LLM 结果正确解析"
 
@@ -125,7 +129,7 @@ def test_markdown_wrapped_json_tolerated():
     content = "Here is the result:\n```json\n" + json.dumps(VALID_JSON) + "\n```"
     out, _calls = _run_node(draft=DRAFT, llm_content=content)
     vv = out.visual_vars
-    assert set(vv.keys()) == set(ALL_KEYS)
+    assert set(ALL_KEYS) <= set(vv.keys())
     assert vv["product"] == VALID_JSON["product"]
     assert vv["lighting"] == VALID_JSON["lighting"]
 
@@ -142,7 +146,7 @@ def test_plain_text_lines_extracted_by_regex():
 def test_truly_garbage_content_falls_back_not_crash():
     out, _calls = _run_node(draft=DRAFT, llm_content="完全没有 JSON 的废话文本 %%%")
     vv = out.visual_vars
-    assert set(vv.keys()) == set(ALL_KEYS), "垃圾内容应回退默认并保持 19 key"
+    assert set(ALL_KEYS) <= set(vv.keys()), "垃圾内容应回退默认并覆盖全部 19 key"
     for key in REQUIRED_KEYS:
         assert vv[key], f"必填 {key} 在回退后仍为空"
 
@@ -152,7 +156,7 @@ def test_partial_fields_fallback_to_extract_and_defaults():
     partial = {"product": "IPL photo epilator", "color": "white + rose gold"}
     out, _calls = _run_node(draft=DRAFT, llm_content=json.dumps(partial))
     vv = out.visual_vars
-    assert set(vv.keys()) == set(ALL_KEYS)
+    assert set(ALL_KEYS) <= set(vv.keys())
     # LLM 提供的值保留
     assert vv["product"] == "IPL photo epilator"
     assert vv["color"] == "white + rose gold"
@@ -171,7 +175,7 @@ def test_partial_fields_fallback_to_extract_and_defaults():
 def test_llm_exception_falls_back_and_does_not_crash():
     out, _calls = _run_node(draft=DRAFT, llm_exc=RuntimeError("api down"))
     vv = out.visual_vars
-    assert set(vv.keys()) == set(ALL_KEYS)
+    assert set(ALL_KEYS) <= set(vv.keys())
     assert vv["material"] == "ABS塑料", "LLM 异常应回退 draft 材质"
     assert "150×50×30 mm" in vv["size"]
     for key in REQUIRED_KEYS:
@@ -181,7 +185,7 @@ def test_llm_exception_falls_back_and_does_not_crash():
 def test_llm_returns_none_falls_back():
     out, _calls = _run_node(draft=DRAFT, llm_content=None)
     vv = out.visual_vars
-    assert set(vv.keys()) == set(ALL_KEYS)
+    assert set(ALL_KEYS) <= set(vv.keys())
     # v0.32: color 已从生图变量移除（参考图承担颜色），fallback 用 neutral 默认
     assert vv["color"] == "neutral colors"
     for key in REQUIRED_KEYS:
@@ -192,7 +196,7 @@ def test_empty_draft_still_non_empty_required():
     # 极端：draft 为空 + LLM 失败 → 8 必填仍有通用英文默认（绝不阻断生图）
     out, _calls = _run_node(draft={}, llm_exc=ValueError("no token"))
     vv = out.visual_vars
-    assert set(vv.keys()) == set(ALL_KEYS)
+    assert set(ALL_KEYS) <= set(vv.keys())
     for key in REQUIRED_KEYS:
         assert vv[key], f"空 draft 下必填 {key} 为空"
 
@@ -212,6 +216,30 @@ def test_no_images_passed_to_llm():
     assert "ABS塑料" in calls["user_prompt"]
 
 
+# ── (f) v0.32 修复: 回退变量携带 category/weight + SP 不再强制必填变量全英文 ──
+def test_fallback_vars_include_category_and_weight():
+    """确定性回退输出必须携带 category/weight（生图 prompt 组装消费）。"""
+    vv = _build_fallback_vars(DRAFT)
+    assert vv["category"] == "美妆护肤", "回退输出应含 draft.category"
+    assert vv["weight"] == "227 г", "回退输出应含 draft.weight（克 → г）"
+
+
+def test_fallback_vars_empty_category_weight_when_draft_missing():
+    """draft 无 category/weight → 回退输出中这两 key 为 ""（不缺失、不残留）。"""
+    vv = _build_fallback_vars({})
+    assert vv["category"] == ""
+    assert vv["weight"] == ""
+
+
+def test_sp_accepts_non_english_material():
+    """_DEFAULT_SP 不再要求 material 等确定性值必须英文（source 中文原样保留）。"""
+    assert "in English" not in _DEFAULT_SP, "SP 不应再要求所有必填变量必须为英文"
+    low = _DEFAULT_SP.lower()
+    assert "material" in low, "SP 仍应提及 material"
+    assert "verbatim" in low or "not rewrite" in low or "never rewrite" in low, \
+        "SP 应要求 material/size/weight/category 原样保留、不得重写"
+
+
 if __name__ == "__main__":
     import traceback
 
@@ -225,6 +253,9 @@ if __name__ == "__main__":
         test_llm_returns_none_falls_back,
         test_empty_draft_still_non_empty_required,
         test_no_images_passed_to_llm,
+        test_fallback_vars_include_category_and_weight,
+        test_fallback_vars_empty_category_weight_when_draft_missing,
+        test_sp_accepts_non_english_material,
     ]
     passed = 0
     for t in tests:

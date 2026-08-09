@@ -103,6 +103,7 @@ def variant_primary_loop_node(
             _vv = merge_visual_vars(
                 state.draft if isinstance(state.draft, dict) else {},
                 getattr(state, "visual_vars", None),
+                getattr(state, "category_name", ""),
             )
             _cp = resolve_color_preset(
                 (state.draft or {}).get("category", "") if isinstance(state.draft, dict) else ""

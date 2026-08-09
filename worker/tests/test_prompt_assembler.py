@@ -25,7 +25,12 @@ from contextlib import contextmanager
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from utils.prompt_assembler import assemble_prompt, extract_visual_vars_from_draft  # noqa: E402
+from utils.prompt_assembler import (  # noqa: E402
+    _resolve_category_for_prompt,
+    assemble_prompt,
+    extract_visual_vars_from_draft,
+    merge_visual_vars,
+)
 
 # 10 个生图节点 slot_key（与 image_prompts.json / _DEFAULT_PROMPTS 对齐）
 SLOT_KEYS = [
@@ -375,6 +380,79 @@ def test_extract_material_strips_whitespace():
     assert extract_visual_vars_from_draft(draft)["material"] == "ABS塑料"
 
 
+# ── (j) v0.32 修复: LLM 不得覆盖确定性提取的中文材质/尺寸/重量/类目 ──
+def test_merge_llm_does_not_override_chinese_material():
+    """draft 材质「ABS塑料」+ LLM material="Plastic" → merged 保持「ABS塑料」；
+    创意变量 lighting 仍由 LLM 生效（LLM 只补创意，不覆盖确定性值）。"""
+    draft = {"attributes": {"材质": "ABS塑料"}}
+    merged = merge_visual_vars(draft, {"material": "Plastic", "lighting": "warm"})
+    assert merged["material"] == "ABS塑料", "LLM 不应覆盖确定性提取的中文材质"
+    assert merged["lighting"] == "warm", "创意变量（lighting）仍应由 LLM 生效"
+
+
+def test_merge_carries_category_and_weight():
+    """draft 含 category/weight → merged 原样保留（LLM 空值时）。"""
+    merged = merge_visual_vars({"category": "文具", "weight": 227}, {})
+    assert merged["category"] == "文具"
+    assert merged["weight"] == "227 г"
+
+
+def test_merge_state_category_name_fallback():
+    """draft.category 空 + state_category_name 非空 → 兜底进 merged["category"]（防 {{category}} 恒空）。"""
+    merged = merge_visual_vars({}, {}, state_category_name="文具收纳盒")
+    assert merged["category"] == "文具收纳盒"
+
+
+def test_merge_draft_category_prefers_over_state():
+    """draft.category 非空 → state_category_name 不覆盖。"""
+    merged = merge_visual_vars({"category": "文具"}, {}, state_category_name="儿童学习挂图")
+    assert merged["category"] == "文具"
+
+
+def test_merge_llm_does_not_override_deterministic_keys_at_all():
+    """LLM 同时给 material/size/weight/category 英文值 → 全部被排除，保留确定性中文值。"""
+    draft = {
+        "attributes": {"材质": "ABS塑料"},
+        "dimensions": {"length": 120, "width": 80, "height": 60},
+        "weight": 227,
+        "category": "水具",
+    }
+    merged = merge_visual_vars(
+        draft,
+        {"material": "Plastic", "size": "10x8x6 cm", "weight": "200 g", "category": "Drinkware"},
+    )
+    assert merged["material"] == "ABS塑料"
+    assert merged["size"] == "120×80×60 mm"
+    assert merged["weight"] == "227 г"
+    assert merged["category"] == "水具"
+
+
+# ── (k) v0.32 修复: 类目名解析（draft → state.category_name → ""）──
+def test_resolve_category_prefers_draft_category():
+    """draft.category 非空 → 直接返回，state_category_name 被忽略。"""
+    assert _resolve_category_for_prompt({"category": "文具"}, state_category_name="文具收纳盒") == "文具"
+
+
+def test_resolve_category_falls_back_to_state_name():
+    """draft 无 category → 用 state.category_name（worker 类目匹配回填的末级名）。"""
+    assert _resolve_category_for_prompt({}, state_category_name="文具收纳盒") == "文具收纳盒"
+
+
+def test_resolve_category_empty_draft_category_falls_back_to_state_name():
+    """draft.category 为空白字符串 → 仍回退 state.category_name。"""
+    assert _resolve_category_for_prompt({"category": "   "}, state_category_name="文具收纳盒") == "文具收纳盒"
+
+
+def test_resolve_category_all_missing_empty():
+    """draft 与 state 均无类目 → ""。"""
+    assert _resolve_category_for_prompt({}, state_category_name="") == ""
+
+
+def test_resolve_category_ignores_non_string_draft_category():
+    """旧信封 draft.category 可能是 dict（state.category 语义误入）→ 不当作类目名，回退 state。"""
+    assert _resolve_category_for_prompt({"category": {"type_id": 1}}, state_category_name="收纳") == "收纳"
+
+
 if __name__ == "__main__":
     import traceback
 
@@ -400,6 +478,14 @@ if __name__ == "__main__":
         test_extract_missing_dimension_skips_size,
         test_extract_empty_draft_all_empty,
         test_extract_attributes_missing_all_empty,
+        test_merge_llm_does_not_override_chinese_material,
+        test_merge_carries_category_and_weight,
+        test_merge_llm_does_not_override_deterministic_keys_at_all,
+        test_resolve_category_prefers_draft_category,
+        test_resolve_category_falls_back_to_state_name,
+        test_resolve_category_empty_draft_category_falls_back_to_state_name,
+        test_resolve_category_all_missing_empty,
+        test_resolve_category_ignores_non_string_draft_category,
     ]
     passed = 0
     for t in tests:

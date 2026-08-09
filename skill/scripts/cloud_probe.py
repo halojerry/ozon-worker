@@ -1148,6 +1148,20 @@ def _validate_and_fix_product_data(
     return weight_g, dimensions, errors, estimated
 
 
+def _last_seg(path) -> str:
+    """取面包屑路径「 > 」分割的最后一段（最具体类目名），去空白；空 → ""。"""
+    if not path:
+        return ""
+    parts = [p.strip() for p in str(path).split(">") if p.strip()]
+    return parts[-1] if parts else ""
+
+
+def _resolve_envelope_category(category_name: str, source_category_path: str, category_query: str) -> str:
+    """信封 draft.category 解析（v0.32 修复，防恒空/俄语错位）：
+    Ozon 类目名 → 1688 面包屑末级（中文最具体类目）→ 查询词。"""
+    return category_name or _last_seg(source_category_path) or category_query
+
+
 def _extract_source_category_id(source_categories) -> int | None:
     """从 1688 类目列表取最末级（叶子）类目数字 ID。兼容 id/leafId/thirdCategoryId/categoryId。"""
     if not isinstance(source_categories, list):
@@ -1639,7 +1653,7 @@ def build_graph_envelope(
         "attributes": attrs,
         "weight": weight_g,
         "dimensions": dimensions,
-        "category": category_name or category_query,
+        "category": _resolve_envelope_category(category_name, source_category_path, category_query),
         "purchase_url": detail_url,
         "purchase_cost": cost_cny,
         "supplier": supplier,

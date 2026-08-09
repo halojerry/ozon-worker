@@ -68,6 +68,8 @@ class GlobalState(BaseModel):
     category: Optional[Dict[str, Any]] = Field(default=None, description="类目信息")
     description_category_id: str = Field(default="", description="描述类目ID")
     type_id: str = Field(default="", description="类型ID")
+    # ✅ v0.32 修复: 匹配类目中文末级名（assemble 回填，生图提示词 {{category}} 兜底）
+    category_name: str = Field(default="", description="匹配类目中文末级名（生图提示词用）")
     
     # 属性映射
     attributes_schema: List[Dict[str, Any]] = Field(default_factory=list, description="属性schema")
@@ -692,6 +694,7 @@ class VisualVarsInput(BaseModel):
     title: str = Field(default="", description="产品标题（draft 缺失时兜底）")
     description: str = Field(default="", description="产品描述（draft 缺失时兜底）")
     category: str = Field(default="", description="产品类目（draft 缺失时兜底）")
+    category_name: str = Field(default="", description="匹配类目中文末级名（draft.category 缺失时兜底）")
     attributes: Dict[str, Any] = Field(default_factory=dict, description="产品属性（draft 缺失时兜底）")
     token: str = Field(default="", description="api.mxou.cn的API Key（用于LLM调用）")
     color_preset: str = Field(default="HOME_LIFESTYLE", description="配色预设")
