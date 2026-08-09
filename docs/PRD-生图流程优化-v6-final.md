@@ -54,18 +54,22 @@
 
 ```
 Wave 0: 修 7/10 节点空 title bug（纯 bug 修复）                ✅ 已提交 e4fc7fb
-Wave 1: prompt_assembler + 中文模板变量增强（零状态写入）      ⏳ 基础已提交 b674763
-        ├─ 1-A/B: assembler + extract 函数（纯新增）          ✅ 已完成
-        ├─ 1-C: image_prompts.json 加 {{material/color/size/weight/category}} 占位符  ⛔ 阻塞
-        ├─ 1-D: 10 节点迁移到 assemble_prompt                 ⛔ 阻塞（依赖 1-C）
-        └─ 1-E/F: 基线测量 + 回归（真实生图成本）             ⛔ 阻塞（A/B 预算）
-Wave 2: visual_vars_llm + color_preset + slots（A/B 后）       ⛔ 阻塞（依赖 A/B）
-独立后续: ru_overlay（GraphOutput 扩展）                      ⛔ 阻塞（独立任务）
+Wave 1: prompt_assembler + 中文模板变量增强（零状态写入）      ✅ 全部完成
+        ├─ 1-A/B: assembler + extract 函数（纯新增）          ✅ b674763
+        ├─ 1-C: image_prompts.json 加 5 变量占位符            ✅ 11b4225
+        ├─ 1-D: 10 节点迁移到 assemble_prompt                 ✅ 7d6fc8e
+        └─ 1-E: 基线测量（零成本）                            ✅ 旧 28/105 → 新 63/105
+Wave 2: visual_vars_llm + color_preset + slots               ✅ 全部完成
+        ├─ color_preset_router（纯函数）                      ✅ 00827d8
+        ├─ visual_vars_llm_node + state/graph 接线            ✅ 32afaf3
+        └─ 10 节点接线（LLM 变量 + 配色三层合并）             ✅ 8c77c7c
+E2E 验证: 本地 Docker 真实生图                                ✅ completed（product 5882926788）
+独立后续: ru_overlay（GraphOutput 扩展）                      ⛔ 独立任务
 ```
 
 ---
 
-## 三、执行状态（2026-08-09）
+## 三、执行状态（2026-08-09 更新）
 
 ### 已落地
 
@@ -80,19 +84,39 @@ Wave 2: visual_vars_llm + color_preset + slots（A/B 后）       ⛔ 阻塞（�
 - `extract_visual_vars_from_draft`（material/color/size/weight/category 确定性提取，无 LLM）
 - **纯新增**，未触碰现有文件；`**extra` 预留 Wave 2
 
-### 阻塞项（需用户确认）
+**Wave 1-C**（11b4225）：模板增强
+- image_prompts.json 10 图位加 `{{material}}/{{color}}/{{size}}/{{weight}}/{{category}}` 占位符（自然中文嵌入）
+- image_prompts.py `_DEFAULT_PROMPTS` 同步（drift 测试约束）
+- RED 3→GREEN 42 passed（+20 新 +12 drift +10 title 回归）
 
-| # | 确认点 | 推荐默认 |
+**Wave 1-D**（7d6fc8e）：10 节点迁移
+- 全部节点 get_image_prompt → assemble_prompt + extract_visual_vars_from_draft
+- scene_1/2/3 传 slot_scene_context 差异化（防 F6 同场景）
+- RED 3→GREEN 45 passed，全量 352+3 基线零回归
+
+**Wave 1-E**：基线测量（零成本，plan agent 门禁）
+- 旧模板 28/105 变量覆盖 → 新模板 63/105（+35 提升）
+
+**Wave 2**（00827d8/32afaf3/8c77c7c）：LLM 层完整落地
+- `color_preset_router`：8 品类预设 + 默认 HOME_LIFESTYLE，纯函数无 LLM
+- `visual_vars_llm_node`：纯文本输入（F8）、2 层容错 JSON 解析、失败回退 extract+品类默认、AC-1 重写（8 必填+11 可选）
+- 接线：GlobalState.visual_vars + 10 Input schema 声明（F3）、merge_visual_vars 三层合并、assemble_prompt **extra 透传、模板 {{lighting}}/{{background}}/{{effects}}/{{atmosphere}}（Jinja2 if 守卫）
+- RED 7→GREEN 66 passed，全量 385+3 基线零回归
+
+**E2E 真实生图验证**（本地 Docker）
+- 任务 completed（product 5882926788）
+- 新模板真实渲染：「主色调为Transparent，材质为PP...」「品类产品，主色调为T...」——LLM 变量（英文值）+ 中文句式全链路生效
+
+### 剩余阻塞项（需用户拍板）
+
+| # | 确认点 | 状态 |
 |---|---|---|
-| ① | 基线样本来源 | 本地 PG 真实信封（脱敏）|
-| ② | A/B 预算 | 100 次生图/实验（2 arm × 5 产品 × 10 槽位，可降 3 产品）|
-| ③ | 模板改动范围 | 现有中文模板加 5 个占位符（不做英文重写）|
-| ④ | 两个已落地 commit 是否推送 | 推送（与 E2E 批次一致）|
-| ⑤ | 云端学习缓存排查 | 需用户提供生产 DB 访问方式 |
+| ① | A/B 实验（英文 vs 中文双倍生图成本）| 待确认预算 |
+| ② | 云端学习缓存排查 | SQL 已交云端同事执行，待结果确认 |
 
 ---
 
-## 四、Wave 1-C/2 详细方案（待确认后执行）
+## 四、Wave 1-C/2 实施记录（已完成，2026-08-09）
 
 ### Wave 1-C 模板增强
 - `worker/config/image_prompts.json`：现有中文模板加 `{{material}}`/`{{color}}`/`{{size}}`/`{{weight}}`/`{{category}}` 占位符
@@ -129,4 +153,4 @@ Wave 2: visual_vars_llm + color_preset + slots（A/B 后）       ⛔ 阻塞（�
 
 ---
 
-*PRD v6 — 2026-08-09，对抗验证后定稿。Wave 0/1 基础已落地，Wave 1-C/2 待用户确认执行。*
+*PRD v6 — 2026-08-09，对抗验证后定稿。Wave 0/1/2 全部落地并推送（8 commit），E2E 真实生图验证通过。剩余：A/B 实验（需预算确认）+ ru_overlay（独立任务）。*
