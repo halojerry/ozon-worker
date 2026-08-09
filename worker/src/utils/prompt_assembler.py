@@ -28,7 +28,7 @@ _ATTR_VALUE_MAX_LEN = 30
 _ATTR_SPLIT_SEP = ("，", ",", "、", ";", "；")
 
 # ⚠️ v0.32 修复: LLM 不得覆盖的确定性 key（source 语言已准确，LLM 只补创意扩展变量）
-_DETERMINISTIC_KEYS = ("material", "size", "weight", "category")
+_DETERMINISTIC_KEYS = ("material", "size", "weight", "category", "color")
 
 
 def _clean_attr_value(raw: str) -> str:

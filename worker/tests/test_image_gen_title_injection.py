@@ -259,11 +259,11 @@ def test_scene_slots_pass_distinct_slot_scene_context():
 
 
 def test_prompt_renders_material_from_draft():
-    """draft.attributes 含材质 → 节点 prompt 渲染出材质（v0.32: color 已移除不渲染）"""
-    from graphs.state_image_gen import MainImageInput
+    """draft.attributes 含材质 → white_bg 节点 prompt 渲染出材质（v6: main 用 product 描述，材质在 white_bg/detail 渲染）"""
+    from graphs.state_image_gen import WhiteBgInput
     draft = {"title": TITLE, "attributes": {"材质": "ABS塑料", "颜色": "白色"}}
-    state = MainImageInput(draft=draft, token="t", white_bg_image=REF_IMAGE)
-    for prompt in _run_node(main_image_gen_node, state, _main_image_mod):
+    state = WhiteBgInput(draft=draft, token="t")
+    for prompt in _run_node(white_bg_gen_node, state, _white_bg_mod):
         assert "ABS塑料" in prompt, f"材质未渲染进 prompt: {prompt[:80]!r}"
         assert "白色" not in prompt, f"v0.32: color 不应渲染（参考图承担颜色）: {prompt[:80]!r}"
         assert "{{" not in prompt, f"存在未渲染占位符: {prompt[:80]!r}"
@@ -300,14 +300,14 @@ def test_node_passes_color_preset_from_draft_category():
 
 
 def test_llm_visual_vars_not_inject_color():
-    """v0.32: 模板已移除 color 占位符 → LLM visual_vars 的 color 值静默忽略（参考图承担颜色）"""
-    from graphs.state_image_gen import MainImageInput
+    """v6: 模板已移除 color 占位符 → LLM visual_vars 的 color 值静默忽略（参考图承担颜色）；material 在 white_bg 渲染"""
+    from graphs.state_image_gen import WhiteBgInput
     draft = {"title": TITLE, "attributes": {"材质": "ABS塑料", "颜色": "白色"}}
-    state = MainImageInput(
-        draft=draft, token="t", white_bg_image=REF_IMAGE,
+    state = WhiteBgInput(
+        draft=draft, token="t",
         visual_vars={"color": "navy blue + rose gold"},
     )
-    for prompt in _run_node(main_image_gen_node, state, _main_image_mod):
+    for prompt in _run_node(white_bg_gen_node, state, _white_bg_mod):
         assert "navy blue + rose gold" not in prompt, \
             f"v0.32: color 值不应注入 prompt: {prompt[:100]!r}"
         assert "白色" not in prompt, f"color 不应渲染: {prompt[:100]!r}"
