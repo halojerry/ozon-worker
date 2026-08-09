@@ -91,6 +91,11 @@ class OzonCategoryQuery:
                             CategoryTreeNode.node_name.op("%")(query_text) |
                             CategoryTreeNode.full_path.op("%")(query_text)
                         ),
+                        # ✅ v0.31.x: 显式相似度门槛 ≥0.3（GUC 无关）。
+                        # `%` 操作符阈值受 pg_trgm.similarity_threshold GUC 影响
+                        # （db.py init_db 里 SET 0.05 仅临时 session 生效，worker 查询
+                        # 用 PG 默认 0.3——非确定性）。此处显式过滤保证结果稳定。
+                        func.greatest(similarity_expr, path_similarity_expr) >= 0.3,
                     )
                 )
                 .order_by(text("sim DESC"))
@@ -118,6 +123,7 @@ class OzonCategoryQuery:
                     "top_level_category_name": row["top_level_category_name"],
                     "depth": row["depth"],
                     "similarity": round(float(row["sim"]), 4),
+                    "matcher": "pg_trgm",
                 })
 
             logger.info(
@@ -264,6 +270,7 @@ class OzonCategoryQuery:
                     "depth": row["depth"],
                     "similarity": round(matched / max(len(tokens), 1), 4),
                     "matched_tokens": matched_tokens,
+                    "matcher": "jieba",
                     "_score": score,
                     "_generic_only": all(t in _GENERIC_WORDS or any(gw in t for gw in _GENERIC_WORDS if len(gw) >= 2) for t in matched_tokens),
                 }))
@@ -422,6 +429,7 @@ class OzonCategoryQuery:
                     "top_level_category_name": row["top_level_category_name"],
                     "depth": row["depth"],
                     "similarity": float(match_count) / max(len(words), 1),
+                    "matcher": "ili",
                 }))
             
             # 按分数降序排列

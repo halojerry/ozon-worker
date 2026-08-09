@@ -142,6 +142,52 @@ def _l0_consistent(l0_hit: dict | None, candidates: list, top_n: int = 5) -> boo
         for c in (candidates or [])[:top_n]
     )
 
+
+# ── v0.31.x: 类目匹配最低接受门槛（三路搜索 similarity 语义不同，不能共用数值门槛）──
+# - jieba (ZH_HANS): similarity = 匹配token数 / 总token数 → 0.5
+# - pg_trgm (RU): similarity = func.similarity 0-1 实数 → 0.3
+# - ILIKE fallback: similarity = 匹配词数 / 总词数 → 0.5
+MIN_SIM_BY_MATCHER = {"jieba": 0.5, "pg_trgm": 0.3, "ili": 0.5}
+
+
+def _acceptable_match(best: dict) -> bool:
+    """类目候选是否达到最低接受门槛（纯函数，可单测）。
+
+    从候选推断 matcher：
+    - 显式 `matcher` 字段优先
+    - 否则 `matched_tokens` 非空 → jieba
+    - 否则默认按 pg_trgm 标尺（最宽松，避免误拒无标记候选）
+    无 similarity 的候选不阻断（兼容无分候选）。
+
+    注意：L0/Skill 命中由调用方放行（不设门槛），本函数只判普通候选。
+    """
+    if not isinstance(best, dict) or not best:
+        return True
+    matcher = best.get("matcher")
+    if not matcher and best.get("matched_tokens"):
+        matcher = "jieba"
+    if not matcher:
+        matcher = "pg_trgm"
+    threshold = MIN_SIM_BY_MATCHER.get(matcher, MIN_SIM_BY_MATCHER["pg_trgm"])
+    sim = best.get("similarity")
+    if sim is None:
+        return True  # 无分候选不阻断
+    try:
+        return float(sim) >= threshold
+    except (TypeError, ValueError):
+        return True
+
+
+def _confidence_from_sim(sim) -> float:
+    """候选 similarity → match_confidence（0~1 clamp），无分默认 0.5。"""
+    if sim is None:
+        return 0.5
+    try:
+        return max(0.0, min(1.0, float(sim)))
+    except (TypeError, ValueError):
+        return 0.5
+
+
 logger = logging.getLogger(__name__)
 
 # ==================== 常量 ====================
@@ -696,12 +742,25 @@ def assemble_ozon_product_node(
     # pg_trgm 搜索已按 sim DESC 排序，candidates[0] 即最佳匹配
     # LLM 匹配不可靠（如玩具→鞋类），关键词匹配更准确
     best = candidates[0]
+    # ✅ v0.31.x: 低分候选（sim 低于接受门槛）不直接采用——记日志后走既有
+    # overlap 验证 → LLM fallback 链（最终采纳点在 L779 前再判定阻断）
+    if not l0_hit and not _acceptable_match(best):
+        _matcher = best.get("matcher", "pg_trgm")
+        logger.warning(
+            f"   ⚠️ 类目匹配 sim={best.get('similarity', 0):.3f} 低于接受门槛"
+            f"({MIN_SIM_BY_MATCHER.get(_matcher, MIN_SIM_BY_MATCHER['pg_trgm'])})，"
+            f"转 LLM fallback: {best['full_path'][:60]}"
+        )
+    # ✅ v0.31.x: match_confidence 挂钩真实 sim（L0/Skill 覆盖为 0.95）
+    match_confidence = _confidence_from_sim(best.get("similarity"))
     category_result = {
         "description_category_id": best["description_category_id"],
         "type_id": best["type_id"],
         "category_path": best["full_path"],
         "confidence": "high" if best.get("similarity", 0) > 0.3 else "medium",
         "reason": f"pg_trgm 最高相似度 ({best.get('similarity', 0):.3f}): {best['node_name']}",
+        "similarity": best.get("similarity", 0),
+        "matcher": best.get("matcher", "pg_trgm"),
     }
     logger.info(f"   ✅ 类目匹配 (pg_trgm): [{best['description_category_id']}/{best['type_id']}] {best['full_path']} (sim={best.get('similarity', 0):.3f})")
 
@@ -736,7 +795,10 @@ def assemble_ozon_product_node(
                     "category_path": _c["full_path"],
                     "confidence": "high",
                     "reason": f"pg_trgm+overlap (sim={_c.get('similarity', 0):.3f}, words={_specific_overlap})",
+                    "similarity": _c.get("similarity", 0),
+                    "matcher": _c.get("matcher", "pg_trgm"),
                 }
+                match_confidence = _confidence_from_sim(_c.get("similarity"))
                 logger.info(f"   ✅ 子串验证通过: 候选 '{_c['full_path'][:60]}' 包含源词 {_specific_overlap}")
                 break
         else:
@@ -754,7 +816,10 @@ def assemble_ozon_product_node(
                         "category_path": best_by_llm["full_path"],
                         "confidence": "medium",
                         "reason": f"LLM_fallback+overlap (words={_llm_overlap})",
+                        "similarity": best_by_llm.get("similarity", 0),
+                        "matcher": best_by_llm.get("matcher", "pg_trgm"),
                     }
+                    match_confidence = _confidence_from_sim(best_by_llm.get("similarity"))
                     logger.info(f"   ✅ LLM fallback 选中（有重叠）: {best_by_llm['full_path'][:80]} {_llm_overlap}")
                 else:
                     logger.error(
@@ -772,6 +837,20 @@ def assemble_ozon_product_node(
                 return {"error_message": "类目匹配失败：jieba搜索+LLM均无可靠结果，阻断上架避免错误类目",
                         "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
                         "match_confidence": 0.0}
+
+    # ✅ v0.31.x: 最终采纳点门槛 — 非 L0/Skill 且 sim 低于接受门槛 → 走既有阻断分支。
+    # 防低分错配（如 sim=0.200 的『儿童多功能学习挂图』）经 direct/overlap/LLM 任一
+    # 路径被采用；L0/Skill 直采不设门槛（来源可信）。
+    if match_layer not in ("L0", "Skill") and not _acceptable_match(category_result):
+        logger.error(
+            f"   🛑 类目匹配最终结果 sim={category_result.get('similarity', 0):.3f} "
+            f"低于接受门槛，阻断上架避免错误类目: "
+            f"{str(category_result.get('category_path', ''))[:80]}"
+        )
+        match_confidence = 0.0
+        return {"error_message": "类目匹配失败：类目相似度低于接受门槛（需人工确认类目），阻断上架",
+                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
+                "match_confidence": 0.0}
 
     # ✅ v4: 审计日志 — 记录本次匹配详情到 category_match_log
     _log_match_attempt(state, title, source_category, keywords, category_result, match_layer, match_confidence, candidates)
