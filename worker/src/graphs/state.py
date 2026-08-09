@@ -92,6 +92,9 @@ class GlobalState(BaseModel):
     scene_context_3: str = Field(default="", description="场景3的使用场景描述（LLM生成）")
     all_images: Dict[str, str] = Field(default_factory=dict, description="所有图片URLs")
     
+    # ✅ v0.32 Wave 2: 视觉变量（19 个，visual_vars_llm 从 draft 文本生成，供生图 prompt 组装）
+    visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成，LLM 失败时回退确定性提取）")
+    
     # 价格信息
     pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格计算结果")
     
@@ -680,6 +683,26 @@ class SceneGenerationOutput(BaseModel):
     error_message: str = Field(default="", description="错误信息")
     stages: Dict[str, Any] = Field(default_factory=dict, description="阶段信息")
     failed_stage: str = Field(default="video_gen", description="失败的节点名称")
+
+
+# ==================== 视觉变量生成LLM节点 ====================
+class VisualVarsInput(BaseModel):
+    """视觉变量生成LLM节点输入（PRD §8.1 v5 权威规格）"""
+    draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
+    title: str = Field(default="", description="产品标题（draft 缺失时兜底）")
+    description: str = Field(default="", description="产品描述（draft 缺失时兜底）")
+    category: str = Field(default="", description="产品类目（draft 缺失时兜底）")
+    attributes: Dict[str, Any] = Field(default_factory=dict, description="产品属性（draft 缺失时兜底）")
+    token: str = Field(default="", description="api.mxou.cn的API Key（用于LLM调用）")
+    color_preset: str = Field(default="HOME_LIFESTYLE", description="配色预设")
+    scene_context_1: str = Field(default="", description="场景1描述（SCENE 变量 hint）")
+    scene_context_2: str = Field(default="", description="场景2描述")
+    scene_context_3: str = Field(default="", description="场景3描述")
+
+
+class VisualVarsOutput(BaseModel):
+    """视觉变量生成LLM节点输出"""
+    visual_vars: Dict[str, str] = Field(default_factory=dict, description="19 个视觉变量（LLM 失败时回退确定性提取）")
 
 
 # ==================== 验证循环修复包装器节点 ====================

@@ -17,6 +17,7 @@ from graphs.nodes.ingest_node import ingest_node
 from graphs.nodes.follow_sell_import_node import follow_sell_import_node  # 🆕 跟卖导入节点
 from graphs.nodes.assemble_ozon_product_node import assemble_ozon_product_node  # 统一商品组装（替代 4 节点管线）
 from graphs.nodes.scene_generation_llm_node import scene_generation_llm_node  # 场景生成LLM节点
+from graphs.nodes.visual_vars_llm_node import visual_vars_llm_node  # 视觉变量生成LLM节点（Wave 2）
 from graphs.nodes.pricing_node import pricing_node
 from graphs.nodes.prepare_ozon_upload_node import prepare_ozon_upload_node  # 数据准备节点
 from graphs.nodes.ozon_upload_node import ozon_upload_node
@@ -65,6 +66,9 @@ builder.add_node("assemble_ozon_product", assemble_ozon_product_node, metadata={
 
 # Phase 3.5: 场景生成（使用LLM生成3个场景）
 builder.add_node("scene_generation_llm", scene_generation_llm_node, metadata={"type": "agent", "llm_cfg": "config/scene_generation_llm_cfg.json"})
+
+# Phase 3.6: 视觉变量生成（LLM 从 draft 文本推断 19 个视觉变量，纯文本输入不传 images）
+builder.add_node("visual_vars_llm", visual_vars_llm_node, metadata={"type": "agent", "llm_cfg": "config/visual_vars_llm_cfg.json"})
 
 # Phase 4: 图片生成 - 两阶段并行流程
 # Phase1（2节点并行）：white_bg + multi_angle，使用输入的原始产品图片作为参考
@@ -205,8 +209,9 @@ builder.add_conditional_edges(
         "失败": END,
     }
 )
-builder.add_edge("scene_generation_llm", "white_bg_gen")  # scene_generation_llm → Phase1开始
-builder.add_edge("scene_generation_llm", "multi_angle_gen")  # scene_generation_llm → Phase1开始
+builder.add_edge("scene_generation_llm", "visual_vars_llm")  # scene_generation_llm → visual_vars_llm
+builder.add_edge("visual_vars_llm", "white_bg_gen")  # visual_vars_llm → Phase1开始
+builder.add_edge("visual_vars_llm", "multi_angle_gen")  # visual_vars_llm → Phase1开始
 
 # Phase 4: 图片生成 - 两阶段并行流程 + 多SKU条件分支
 # Phase1（2节点并行）：使用输入的原始产品图片作为参考，生成白底图和多角度图
