@@ -279,15 +279,16 @@ def test_extra_vars_silently_ignored_without_placeholders_wave2():
 
 
 def test_real_template_renders_llm_visual_vars():
-    """真实模板已加 {{lighting}}/{{background}}/{{effects}}/{{atmosphere}} → 传入即渲染"""
+    """v8 真实模板含 {{scene_1}}/{{atmosphere}}/{{model}}/{{action}} → 传入即渲染"""
     with _real_workspace():
         p = assemble_prompt(
             "main", title="保温杯",
-            lighting="warm golden hour light",
-            background="cozy modern living room",
+            scene_1="夏日森林户外",
+            model="年轻妈妈",
+            action="手持产品微笑",
             atmosphere="premium and cozy",
         )
-        for token in ("warm golden hour light", "cozy modern living room", "premium and cozy"):
+        for token in ("夏日森林户外", "年轻妈妈", "手持产品微笑", "premium and cozy"):
             assert token in p, f"真实模板未渲染 extra 变量 {token!r}"
         assert "{{" not in p
 
