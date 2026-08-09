@@ -267,3 +267,75 @@ def test_prompt_renders_material_color_from_draft():
         assert "ABS塑料" in prompt, f"材质未渲染进 prompt: {prompt[:80]!r}"
         assert "白色" in prompt, f"颜色未渲染进 prompt: {prompt[:80]!r}"
         assert "{{" not in prompt, f"存在未渲染占位符: {prompt[:80]!r}"
+
+
+# ── Wave 2: 节点消费 state.visual_vars + resolve_color_preset ──
+
+def test_node_consumes_llm_visual_vars():
+    """state.visual_vars 含 lighting/background/atmosphere → 主图节点 prompt 渲染出 LLM 值"""
+    from graphs.state_image_gen import MainImageInput
+    state = MainImageInput(
+        draft={"title": TITLE, "category": "宠物用品"},
+        token="t", white_bg_image=REF_IMAGE,
+        visual_vars={
+            "lighting": "warm golden hour light",
+            "background": "cozy modern living room",
+            "atmosphere": "premium and cozy",
+        },
+    )
+    for prompt in _run_node(main_image_gen_node, state, _main_image_mod):
+        for token in ("warm golden hour light", "cozy modern living room", "premium and cozy"):
+            assert token in prompt, f"LLM 视觉变量 {token!r} 未渲染进 prompt: {prompt[:100]!r}"
+        assert "{{" not in prompt, f"存在未渲染占位符: {prompt[:80]!r}"
+
+
+def test_node_passes_color_preset_from_draft_category():
+    """draft.category → resolve_color_preset → assemble_prompt 收到 color_preset（spy 捕获）"""
+    from graphs.state_image_gen import MainImageInput
+    state = MainImageInput(draft={"title": TITLE, "category": "宠物用品"}, token="t", white_bg_image=REF_IMAGE)
+    _prompts, calls = _run_node_with_assembler_spy(main_image_gen_node, state, _main_image_mod)
+    assert calls, "main_image_gen_node 未调用 assemble_prompt"
+    assert calls[0][1].get("color_preset") == "PET_FUN", \
+        f"color_preset 未透传: {calls[0][1].get('color_preset')!r}，期望 PET_FUN"
+
+
+def test_llm_overrides_deterministic_vars():
+    """合并优先级：LLM 值非空时覆盖确定性 extract（color 被 LLM 覆盖，material 保留）"""
+    from graphs.state_image_gen import MainImageInput
+    draft = {"title": TITLE, "attributes": {"材质": "ABS塑料", "颜色": "白色"}}
+    state = MainImageInput(
+        draft=draft, token="t", white_bg_image=REF_IMAGE,
+        visual_vars={"color": "navy blue + rose gold"},
+    )
+    for prompt in _run_node(main_image_gen_node, state, _main_image_mod):
+        assert "navy blue + rose gold" in prompt, f"LLM color 未覆盖确定性值: {prompt[:100]!r}"
+        assert "白色" not in prompt, f"确定性 color 未被 LLM 覆盖（优先级错误）: {prompt[:100]!r}"
+        assert "ABS塑料" in prompt, f"material（无 LLM 值）应保留确定性提取: {prompt[:100]!r}"
+        assert "{{" not in prompt
+
+
+def test_empty_llm_vars_no_placeholder_residue():
+    """LLM 值为空串/空白/缺失 → 节点侧过滤，不产生 {{ 残留"""
+    from graphs.state_image_gen import MainImageInput
+    state = MainImageInput(
+        draft={"title": TITLE, "category": "宠物用品"}, token="t", white_bg_image=REF_IMAGE,
+        visual_vars={"lighting": "", "background": "   "},  # atmosphere 键缺失（LLM 未提供）
+    )
+    for prompt in _run_node(main_image_gen_node, state, _main_image_mod):
+        assert "{{" not in prompt, f"存在未渲染占位符: {prompt[:80]!r}"
+        assert TITLE in prompt
+        assert "None" not in prompt
+
+
+def test_variant_loop_consumes_llm_visual_vars():
+    """variant_primary_loop 也从 state.visual_vars 消费 LLM 变量（variant_white_bg 模板）"""
+    from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
+    state = VariantPrimaryLoopInput(
+        variants=[{"name": "variant_0", "image": "https://example.com/v0.jpg"}],
+        draft={"title": TITLE, "category": "宠物用品"},
+        token="t",
+        visual_vars={"lighting": "bright even studio light"},
+    )
+    for prompt in _run_node(variant_primary_loop_node, state, _variant_mod):
+        assert "bright even studio light" in prompt, f"LLM 视觉变量未渲染进 variant prompt: {prompt[:100]!r}"
+        assert "{{" not in prompt
