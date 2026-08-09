@@ -47,27 +47,28 @@ def test_render_title():
     p = get_image_prompt("main", title="测试 洒水壶")
     assert "测试 洒水壶" in p
     assert "{{title}}" not in p
-    assert "Professional Ozon e-commerce product photography" in p
+    assert "电商营销主图" in p  # v8 中文模板内容
 
 
 def test_render_scene_context():
-    """{{scene_context}} 占位符被场景描述替换（含中文特殊字符）"""
-    p = get_image_prompt("scene_1", scene_context="家庭生活场景·阳台")
+    """v8: {{scene_1}} 占位符被场景描述替换（scene 槽位独立变量，含中文特殊字符）"""
+    p = get_image_prompt("scene_1", scene_1="家庭生活场景·阳台")
     assert "家庭生活场景·阳台" in p
-    assert "{{scene_context}}" not in p
+    assert "{{scene_1}}" not in p
+    assert "{{scene_context}}" not in p  # v8 模板已无 scene_context 占位符
 
 
 def test_no_var_prompt():
-    """无占位符提示词（comparison）原样返回"""
+    """无变量提示词（comparison）原样返回"""
     p = get_image_prompt("comparison")
-    assert "Split composition" in p
+    assert "生成产品对比电商展示图" in p  # v8 中文模板内容
     assert "{{" not in p
 
 
 def test_variant_white_bg():
-    """变体白底图提示词"""
+    """变体白底图提示词（v8 禁文字 3 图之一，中文文案）"""
     p = get_image_prompt("variant_white_bg")
-    assert "pure white background" in p
+    assert "纯白底图" in p
 
 
 def test_all_default_keys_rendered():
@@ -93,7 +94,7 @@ def test_missing_key_falls_back_to_default():
     with _fake_workspace(prompts={"main": "自定义主图提示词"}):
         p = get_image_prompt("white_bg", title="花盆")
         assert "花盆" in p
-        assert "pure white background" in p  # 默认提示词内容
+        assert "纯白底" in p  # 默认提示词内容（v8 中文）
 
 
 def test_corrupt_json_falls_back():
@@ -101,14 +102,14 @@ def test_corrupt_json_falls_back():
     with _fake_workspace(corrupt=True):
         p = get_image_prompt("main", title="雨衣")
         assert "雨衣" in p
-        assert "Professional Ozon e-commerce product photography" in p
+        assert "电商营销主图" in p
 
 
 def test_missing_file_falls_back():
     """配置文件不存在 → 回退默认提示词（不抛异常）"""
     with _fake_workspace(no_config=True):
         p = get_image_prompt("detail")
-        assert "Extreme close-up macro shot" in p
+        assert "生成产品电商详情展示图" in p  # v8 detail 中文内容（微距句在 material 守卫内，不依赖）
 
 
 def test_unknown_key_returns_empty():
@@ -122,7 +123,7 @@ def test_render_failure_falls_back():
     """模板渲染失败（非法 filter）→ 回退默认模板（不抛异常）"""
     with _fake_workspace(prompts={"main": "产品：{{title | no_such_filter}} 主图"}):
         p = get_image_prompt("main", title="花洒")
-        assert "Professional Ozon e-commerce product photography" in p  # 回退默认
+        assert "电商营销主图" in p  # 回退默认（v8 中文）
 
 
 # ── 热加载语义 ──
@@ -139,11 +140,11 @@ def test_hot_reload():
         assert p2 == "V2 更新后的提示词"
 
 
-# ── v6 单阶段俄文生图模板期望（RED 任务：锁定未来英文 v6 模板特征，当前中文模板下应失败）──
+# ── v6 单阶段俄文生图模板期望（已适配：v6 英文断言 → v8 中文语义，保留原意图）──
 def test_main_template_has_product_prefix():
-    """v6: main 模板首句 = "Product: {{title}}." 前缀（保留 title 接地）"""
+    """main 模板首句 = "产品：{{title}}。" 中文前缀（保留 title 接地，v6 的 "Product: " 已改中文）"""
     p = get_image_prompt("main", title="保温杯")
-    assert "Product: 保温杯" in p
+    assert "产品：保温杯" in p
 
 
 def test_main_renders_russian_placeholders():
@@ -160,9 +161,9 @@ def test_main_renders_russian_placeholders():
 
 
 def test_white_bg_has_no_text_rule():
-    """v6: white_bg（后缀 B）含英文硬规则 'no text of any kind'"""
+    """white_bg（后缀 B 禁文字图）含中文硬规则「（俄语/中文/英文均禁止）」（v6 的 'no text of any kind' 已改中文）"""
     p = get_image_prompt("white_bg")
-    assert "no text of any kind" in p
+    assert "（俄语/中文/英文均禁止）" in p
 
 
 def test_white_bg_has_no_russian_placeholder():
@@ -173,9 +174,9 @@ def test_white_bg_has_no_russian_placeholder():
 
 
 def test_main_negative_embedded():
-    """v6: main（后缀 A）内嵌负面规则 "no Chinese text"（不禁俄文）"""
+    """main（后缀 A 允许俄文图）内嵌中文负面规则「严禁出现水印」（v6 的 "no Chinese text" 已改中文）"""
     p = get_image_prompt("main")
-    assert "no Chinese text" in p
+    assert "严禁出现水印" in p
 
 
 def test_empty_ru_no_residue():

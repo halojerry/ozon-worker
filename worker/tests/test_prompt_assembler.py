@@ -98,22 +98,24 @@ def test_all_10_slots_render_nonempty():
             assert "{{" not in p, f"slot {key} 残留未渲染占位符"
 
 
-# ── (b) slot_scene_context 覆盖 scene_context ──
+# ── (b) scene 槽位场景传递（v8 起由 scene_N 独立变量承担，{{scene_context}} 占位符已移除）──
 def test_slot_scene_context_overrides_scene_context():
+    """scene_1 变量（槽位场景）优先于全局 scene_context：局部渲染、全局不注入"""
     with _real_workspace():
         p = assemble_prompt(
             "scene_1",
             title="产品A",
             scene_context="全局场景描述",
-            slot_scene_context="局部特写描述",
+            scene_1="局部特写描述",
         )
         assert "局部特写描述" in p
         assert "全局场景描述" not in p
 
 
 def test_scene_context_used_when_no_slot_override():
+    """无槽位场景变量时，场景描述通过 scene_2 变量渲染（v8 场景传递语义）"""
     with _real_workspace():
-        p = assemble_prompt("scene_2", title="产品A", scene_context="全局场景描述")
+        p = assemble_prompt("scene_2", title="产品A", scene_2="全局场景描述")
         assert "全局场景描述" in p
 
 
@@ -185,10 +187,10 @@ def test_draft_without_visual_vars_no_residue():
 
 
 def test_title_stays_first_sentence_with_visual_vars():
-    """v6: title 仍为首句（Product: {{title}} 前缀，位于其余描述之前）"""
+    """title 仍为首句（「产品：{{title}}」中文前缀，位于其余描述之前，v6 的 "Product: " 已改中文）"""
     with _real_workspace():
         p = assemble_prompt("main", title="保温杯", material="ABS塑料", size="100×60×60 mm")
-        assert p.startswith("Product: 保温杯"), f"title 非首句: {p[:30]!r}"
+        assert p.startswith("产品：保温杯"), f"title 非首句: {p[:30]!r}"
 
 
 # ── (e) 缺失变量 → 无 {{ 残留、无 None/Undefined 字符串 ──
@@ -215,7 +217,7 @@ def test_corrupt_config_falls_back_to_default():
     with _fake_workspace(corrupt=True):
         p = assemble_prompt("main", title="雨衣")
         assert "雨衣" in p
-        assert "Professional Ozon e-commerce product photography" in p  # 默认英文提示词内容
+        assert "电商营销主图" in p  # 默认中文提示词内容
 
 
 def test_render_failure_falls_back_to_get_image_prompt():
@@ -225,14 +227,14 @@ def test_render_failure_falls_back_to_get_image_prompt():
         p = assemble_prompt("main", title="花洒")
         assert p, "回退产物为空"
         assert "no_such_filter" not in p, "仍含坏模板"
-        assert "Professional Ozon e-commerce product photography" in p, "回退产物应为默认英文提示词"
+        assert "电商营销主图" in p, "回退产物应为默认中文提示词"
 
 
 def test_missing_config_file_falls_back():
     with _fake_workspace(no_config=True):
         p = assemble_prompt("detail", title="手电筒")
         assert "手电筒" in p
-        assert "Extreme close-up macro shot" in p
+        assert "生成产品电商详情展示图" in p
 
 
 def test_unknown_slot_returns_empty_gracefully():
@@ -452,9 +454,10 @@ def test_resolve_category_ignores_non_string_draft_category():
     assert _resolve_category_for_prompt({"category": {"type_id": 1}}, state_category_name="收纳") == "收纳"
 
 
-# ── (l) v6 单阶段俄文生图模板期望（RED 任务：锁定未来英文 v6 模板特征，当前中文模板下应失败）──
-def test_assemble_prompt_renders_v6_russian_vars():
-    """v6: RU/风格变量透传 → 模板含占位符时全部渲染进 prompt"""
+# ── (l) v8 单阶段俄文生图模板期望（v6 英文模板已改为 v8 中文模板：target_ru/headline_style/color_preset
+#      占位符已从 main 移除，保留 v8 main 实际含的 RU/HEX 变量断言）──
+def test_assemble_prompt_renders_v8_russian_vars():
+    """v8: RU/风格变量透传 → 模板含占位符时全部渲染进 prompt"""
     with _real_workspace():
         p = assemble_prompt(
             "main",
@@ -463,17 +466,14 @@ def test_assemble_prompt_renders_v6_russian_vars():
             cta_ru="ЗАЩИТА",
             selling_points_ru="a; b",
             effect_data_ru="45 мин",
-            target_ru="комары",
-            headline_style="EXCLAIM",
             brand_primary="#16A34A",
             accent="#F59E0B",
-            color_preset="GARDEN",
         )
         for token in (
-            "ПАЛОЧКИ", "ЗАЩИТА", "a; b", "45 мин", "комары",
-            "EXCLAIM", "#16A34A", "#F59E0B", "GARDEN",
+            "ПАЛОЧКИ", "ЗАЩИТА", "a; b", "45 мин",
+            "#16A34A", "#F59E0B",
         ):
-            assert token in p, f"v6 RU/风格变量 {token!r} 未渲染进 prompt"
+            assert token in p, f"v8 RU/风格变量 {token!r} 未渲染进 prompt"
 
 
 def test_assemble_prompt_empty_ru_no_residue():
@@ -545,7 +545,7 @@ if __name__ == "__main__":
         test_resolve_category_empty_draft_category_falls_back_to_state_name,
         test_resolve_category_all_missing_empty,
         test_resolve_category_ignores_non_string_draft_category,
-        test_assemble_prompt_renders_v6_russian_vars,
+        test_assemble_prompt_renders_v8_russian_vars,
         test_assemble_prompt_empty_ru_no_residue,
         test_assemble_v8_chinese_main,
         test_assemble_empty_v8_no_residue,

@@ -138,11 +138,12 @@ def test_comparison_prompt_contains_title():
 
 
 def test_scene_1_prompt_contains_title():
-    """scene_1_gen_node 的 prompt 必须含产品标题（同时保留 scene_context）"""
+    """scene_1_gen_node 的 prompt 必须含产品标题（同时保留 scene 场景：v8 由 visual_vars.scene_1 透传渲染）"""
     from graphs.state_image_gen import Scene1Input
     state = Scene1Input(
         draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE,
         scene_context_1="家庭生活场景",
+        visual_vars={"scene_1": "家庭生活场景"},
     )
     for prompt in _run_node(scene_1_gen_node, state, _scene_1_mod):
         _assert_title_in_prompt(prompt)
@@ -150,11 +151,12 @@ def test_scene_1_prompt_contains_title():
 
 
 def test_scene_2_prompt_contains_title():
-    """scene_2_gen_node 的 prompt 必须含产品标题（同时保留 scene_context）"""
+    """scene_2_gen_node 的 prompt 必须含产品标题（同时保留 scene 场景：v8 由 visual_vars.scene_2 透传渲染）"""
     from graphs.state_image_gen import Scene2Input
     state = Scene2Input(
         draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE,
         scene_context_2="户外休闲场景",
+        visual_vars={"scene_2": "户外休闲场景"},
     )
     for prompt in _run_node(scene_2_gen_node, state, _scene_2_mod):
         _assert_title_in_prompt(prompt)
@@ -162,11 +164,12 @@ def test_scene_2_prompt_contains_title():
 
 
 def test_scene_3_prompt_contains_title():
-    """scene_3_gen_node 的 prompt 必须含产品标题（同时保留 scene_context）"""
+    """scene_3_gen_node 的 prompt 必须含产品标题（同时保留 scene 场景：v8 由 visual_vars.scene_3 透传渲染）"""
     from graphs.state_image_gen import Scene3Input
     state = Scene3Input(
         draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE,
         scene_context_3="工作办公场景",
+        visual_vars={"scene_3": "工作办公场景"},
     )
     for prompt in _run_node(scene_3_gen_node, state, _scene_3_mod):
         _assert_title_in_prompt(prompt)
@@ -272,14 +275,15 @@ def test_prompt_renders_material_from_draft():
 # ── Wave 2: 节点消费 state.visual_vars + resolve_color_preset ──
 
 def test_node_consumes_llm_visual_vars():
-    """state.visual_vars 含 lighting/background/atmosphere → 主图节点 prompt 渲染出 LLM 值"""
+    """state.visual_vars 含场景/氛围/前景变量 → 主图节点 prompt 渲染出 LLM 值
+    （v8 main 占位符为 scene_1/atmosphere/model——v6 的 lighting/background 占位符已移除）"""
     from graphs.state_image_gen import MainImageInput
     state = MainImageInput(
         draft={"title": TITLE, "category": "宠物用品"},
         token="t", white_bg_image=REF_IMAGE,
         visual_vars={
-            "lighting": "warm golden hour light",
-            "background": "cozy modern living room",
+            "scene_1": "warm golden hour light",
+            "model": "cozy modern living room",
             "atmosphere": "premium and cozy",
         },
     )
@@ -330,13 +334,14 @@ def test_empty_llm_vars_no_placeholder_residue():
 
 
 def test_variant_loop_consumes_llm_visual_vars():
-    """variant_primary_loop 也从 state.visual_vars 消费 LLM 变量（variant_white_bg 模板）"""
+    """variant_primary_loop 也从 state.visual_vars 消费 LLM 变量（variant_white_bg 模板）
+    （v8 variant_white_bg 无 {{lighting}} 占位符，V6-T5 lighting 守卫改由 {{appearance}} 承担）"""
     from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
     state = VariantPrimaryLoopInput(
         variants=[{"name": "variant_0", "image": "https://example.com/v0.jpg"}],
         draft={"title": TITLE, "category": "宠物用品"},
         token="t",
-        visual_vars={"lighting": "bright even studio light"},
+        visual_vars={"appearance": "bright even studio light"},
     )
     for prompt in _run_node(variant_primary_loop_node, state, _variant_mod):
         assert "bright even studio light" in prompt, f"LLM 视觉变量未渲染进 variant prompt: {prompt[:100]!r}"
