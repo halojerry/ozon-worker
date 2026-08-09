@@ -27,6 +27,9 @@ _COLOR_KEYS = ("颜色", "color")
 _ATTR_VALUE_MAX_LEN = 30
 _ATTR_SPLIT_SEP = ("，", ",", "、", ";", "；")
 
+# ⚠️ v0.32 修复: LLM 不得覆盖的确定性 key（source 语言已准确，LLM 只补创意扩展变量）
+_DETERMINISTIC_KEYS = ("material", "size", "weight", "category")
+
 
 def _clean_attr_value(raw: str) -> str:
     """清洗 1688 属性值：去空白、多选串取首项、长度截断。空 → "". """
@@ -95,19 +98,46 @@ def extract_visual_vars_from_draft(draft: dict) -> dict:
     }
 
 
-def merge_visual_vars(draft: dict, llm_vars: dict) -> dict:
+def merge_visual_vars(draft: dict, llm_vars: dict, state_category_name: str = "") -> dict:
     """合并视觉变量 3 源（Wave 2 接线）: 确定性 extract（低优先） + LLM 19 变量（高优先）。
+
+    ⚠️ v0.32 修复: material/size/weight/category 是确定性提取（source 语言已准确），
+    LLM 值**不得覆盖**（否则英文 "Plastic" 覆盖中文「ABS塑料」）——LLM 只补创意
+    扩展变量（lighting/effects/atmosphere 等）。
 
     - LLM 值非空字符串时覆盖确定性值；空串/空白/None/非 dict 一律忽略
       （不产生空占位符残留）
+    - category 兜底链: draft.category → state_category_name（worker 类目匹配回填的
+      中文末级类目名）→ ""（防 {{category}} 恒空）
     - 返回 {material, size, weight, category, ...LLM 扩展变量}
     """
     merged = extract_visual_vars_from_draft(draft)
+    if not (merged.get("category") or "").strip() and isinstance(state_category_name, str) and state_category_name.strip():
+        merged["category"] = state_category_name.strip()
     if isinstance(llm_vars, dict):
         merged.update(
-            {k: v for k, v in llm_vars.items() if isinstance(v, str) and v.strip()}
+            {
+                k: v
+                for k, v in llm_vars.items()
+                if k not in _DETERMINISTIC_KEYS and isinstance(v, str) and v.strip()
+            }
         )
     return merged
+
+
+def _resolve_category_for_prompt(draft: dict, state_category_name: str = "") -> str:
+    """解析生图 prompt 用类目名（纯函数）: draft.category 非空优先，否则
+    state.category_name（worker 类目匹配回填的中文末级名），否则 ""。
+
+    防御旧信封 draft.category 可能为 dict（state.category 语义误入）——非 str 不当作类目名。
+    """
+    draft = draft or {}
+    category = draft.get("category", "")
+    if isinstance(category, str) and category.strip():
+        return category.strip()
+    if isinstance(state_category_name, str) and state_category_name.strip():
+        return state_category_name.strip()
+    return ""
 
 
 def assemble_prompt(

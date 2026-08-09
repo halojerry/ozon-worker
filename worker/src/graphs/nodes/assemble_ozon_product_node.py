@@ -1208,6 +1208,8 @@ def assemble_ozon_product_node(
     return {
         "description_category_id": str(description_category_id),
         "type_id": str(type_id),
+        # ⚠️ v0.32 修复: 匹配类目中文末级名回填 state（生图提示词 {{category}} 兜底，draft.category 恒空时）
+        "category_name": category_path.split(">")[-1].strip() if category_path else "",
         "attributes_schema": attr_list,
         "dictionary_values": {str(k): v for k, v in dict_lookup.items()},  # ← 键必须是 str（PrepareOzonUploadInput 要求）
         "final_attributes": final_attributes,

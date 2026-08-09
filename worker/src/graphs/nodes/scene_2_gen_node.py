@@ -53,7 +53,7 @@ def scene_2_gen_node(state: Scene2Input, config: RunnableConfig, runtime: Runtim
     title = clean_title_for_image_prompt(draft.get("title", ""))
     # ⚠️ v0.31+Wave 2: 确定性 extract 低优先 + state.visual_vars LLM 高优先 + 配色预设
     # slot_scene_context=scene_context_2 保证三张场景图差异化（F6，不覆盖）
-    _vv = merge_visual_vars(draft or {}, getattr(state, "visual_vars", None))
+    _vv = merge_visual_vars(draft or {}, getattr(state, "visual_vars", None), getattr(state, "category_name", ""))
     _cp = resolve_color_preset((draft or {}).get("category", ""))
     prompt = assemble_prompt(
         "scene_2",

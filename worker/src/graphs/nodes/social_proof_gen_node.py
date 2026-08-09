@@ -51,7 +51,7 @@ def social_proof_gen_node(state: SocialProofInput, config: RunnableConfig, runti
     
     title = clean_title_for_image_prompt(draft.get("title", ""))
     # ⚠️ v0.31+Wave 2: 确定性 extract 低优先 + state.visual_vars LLM 高优先 + 配色预设
-    _vv = merge_visual_vars(draft or {}, getattr(state, "visual_vars", None))
+    _vv = merge_visual_vars(draft or {}, getattr(state, "visual_vars", None), getattr(state, "category_name", ""))
     _cp = resolve_color_preset((draft or {}).get("category", ""))
     prompt = assemble_prompt("social_proof", title=title, **_vv, color_preset=_cp)
     

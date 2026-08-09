@@ -21,7 +21,7 @@ from graphs.state import VisualVarsInput, VisualVarsOutput
 from utils.progress_logger import ProgressLogger
 from utils.mxou_llm import call_mxou_chat_api
 from utils.mxou_api import clean_title_for_image_prompt
-from utils.prompt_assembler import extract_visual_vars_from_draft
+from utils.prompt_assembler import _resolve_category_for_prompt, extract_visual_vars_from_draft
 
 # 19 个视觉变量 key（PRD §2.2/§7.1）
 REQUIRED_KEYS = [
@@ -123,6 +123,10 @@ def _build_fallback_vars(draft: dict) -> Dict[str, str]:
         base["size"] = weight
     elif size:
         base["size"] = size
+
+    # ⚠️ v0.32 修复: 回退输出携带 category/weight（生图 prompt 组装消费，不再恒空）
+    base["category"] = extracted.get("category", "")
+    base["weight"] = extracted.get("weight", "")
     return base
 
 
@@ -196,10 +200,13 @@ def _format_attributes(attributes: dict, limit: int = 30) -> str:
 
 _DEFAULT_SP = (
     "You are an expert e-commerce product photography art director. "
-    "Given product text data, infer 19 visual variables in English (JSON object) "
+    "Given product text data, infer visual variables as a JSON object "
     "for Ozon marketplace AI image generation prompts. "
-    "Required keys must be non-empty English: product, color, material, appearance, size, "
-    "lighting, effects, text_areas. "
+    "Source-language preservation: material, size, weight and category are provided "
+    "verbatim in the source data (often Chinese) and are already accurate — copy them "
+    "verbatim into the corresponding output values, NEVER rewrite, translate, or summarize them. "
+    "Required keys: product, color, material, appearance, size, lighting, effects, text_areas "
+    "(material and size are copied verbatim from the source data; all other required values are English). "
     "Optional keys with sensible English defaults: model, action, scene, background, icons, "
     "inset, gift, atmosphere, packaging, problem_scene, comparison. "
     "Output ONLY a JSON object with these 19 keys, no markdown, no extra text."
@@ -239,7 +246,12 @@ def visual_vars_llm_node(state: VisualVarsInput, config: RunnableConfig, runtime
     draft = state.draft if isinstance(state.draft, dict) else {}
     title = clean_title_for_image_prompt(draft.get("title", "")) or state.title or ""
     description = draft.get("description", "") or state.description or ""
-    category = draft.get("category", "") or state.category or ""
+    # ⚠️ v0.32 修复: draft.category → state.category_name（assemble 回填的中文末级名）→ state.category(str) → ""
+    category = _resolve_category_for_prompt(
+        draft, getattr(state, "category_name", "")
+    )
+    if not category and isinstance(state.category, str) and state.category.strip():
+        category = state.category.strip()
     attributes = draft.get("attributes") or state.attributes or {}
 
     # 纯文本输入（F8 实证：deepseek-v4-flash 无视觉，不传 images）

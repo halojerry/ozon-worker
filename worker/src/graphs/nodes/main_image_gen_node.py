@@ -73,7 +73,7 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
     
     title = clean_title_for_image_prompt(draft.get("title", ""))
     # ⚠️ v0.31+Wave 2: 提示词走 prompt_assembler（确定性 extract 低优先 + state.visual_vars LLM 高优先 + 配色预设）
-    _vv = merge_visual_vars(draft or {}, getattr(state, "visual_vars", None))
+    _vv = merge_visual_vars(draft or {}, getattr(state, "visual_vars", None), getattr(state, "category_name", ""))
     _cp = resolve_color_preset((draft or {}).get("category", ""))
     prompt = assemble_prompt("main", title=title, **_vv, color_preset=_cp)
 
