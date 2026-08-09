@@ -12,6 +12,11 @@ v0.32 Wave 2 — visual_vars_llm_node 视觉变量生成 LLM 节点。
     cta_ru/selling_points_ru/effect_data_ru/target_ru）→ ALL_KEYS=25；brand_primary/accent
     为确定性产出（来自 color_preset 的 get_preset_colors，不进 ALL_KEYS，LLM 不可覆盖）；
     输出 visual_vars 绝不含 color_preset key（防 assemble_prompt **_vv, color_preset=_cp 碰撞）
+(g) v8 中文模板 + SCENE_1/2/3 独立变量: visual_vars 输出新增 scene_1/2/3——从
+    state.scene_context_1/2/3 确定性透传中文场景文案（不翻译、不重写）；scene_context
+    为空 → scene_N = ""（模板 {% if %} 守卫处理）；scene_N 不进 ALL_KEYS（LLM 不生成、
+    不可覆盖，_dict_from_obj/_merge_parsed 的 ALL_KEYS 白名单会过滤丢弃 LLM 返回的
+    scene_N）；_build_fallback_vars 签名需加 scene_contexts 参数（dict: scene_N → 文案）
 
 运行：cd worker && PYTHONPATH=src python3 -m pytest tests/test_visual_vars_llm_node.py -v
       cd worker && PYTHONPATH=src python3 tests/test_visual_vars_llm_node.py
@@ -112,7 +117,8 @@ def _workspace():
             os.environ["APP_WORKSPACE_PATH"] = old
 
 
-def _run_node(draft=None, llm_content=None, llm_exc=None, scene_context_1=""):
+def _run_node(draft=None, llm_content=None, llm_exc=None,
+              scene_context_1="", scene_context_2="", scene_context_3=""):
     """执行节点，mock 模块内绑定的 call_mxou_chat_api。返回 (output, captured_kwargs)。"""
     captured = {}
 
@@ -125,7 +131,13 @@ def _run_node(draft=None, llm_content=None, llm_exc=None, scene_context_1=""):
             raise llm_exc
         return llm_content
 
-    state = VisualVarsInput(draft=draft or {}, token="sk-test", scene_context_1=scene_context_1)
+    state = VisualVarsInput(
+        draft=draft or {},
+        token="sk-test",
+        scene_context_1=scene_context_1,
+        scene_context_2=scene_context_2,
+        scene_context_3=scene_context_3,
+    )
     with _workspace(), patch.object(_node_mod, "call_mxou_chat_api", side_effect=_fake):
         out = visual_vars_llm_node(state, _CFG, _RUNTIME)
     return out, captured
@@ -314,6 +326,70 @@ def test_llm_ru_values_pass_through():
     assert vv["target_ru"] == "комары; мухи", "target_ru 应透传 LLM 值"
 
 
+# ── (h) v8 中文模板 + SCENE_1/2/3 独立变量：scene_context_N 确定性透传 ──
+# scene_1/2/3 不进 ALL_KEYS（LLM 不生成、不可覆盖），走 fallback 确定性透传。
+# _build_fallback_vars 需新增 scene_contexts 参数（dict: scene_N → 中文场景文案）。
+SCENE_CTX = {
+    "scene_1": "夏日森林户外",
+    "scene_2": "露营帐篷内暖光",
+    "scene_3": "野餐垫上野餐场景",
+}
+
+
+def test_scene_contexts_passthrough_to_scene_vars():
+    """state.scene_context_1/2/3 → visual_vars 输出 scene_1/2/3（中文文案直接透传，不翻译不重写）。"""
+    out, _calls = _run_node(
+        draft=DRAFT, llm_content=json.dumps(VALID_JSON),
+        scene_context_1=SCENE_CTX["scene_1"],
+        scene_context_2=SCENE_CTX["scene_2"],
+        scene_context_3=SCENE_CTX["scene_3"],
+    )
+    vv = out.visual_vars
+    # scene_N 是额外 key（不进 ALL_KEYS），现有子集断言形式不受影响
+    assert set(ALL_KEYS) <= set(vv.keys()), f"缺失 key: {set(ALL_KEYS) - set(vv.keys())}"
+    assert vv["scene_1"] == "夏日森林户外", "scene_1 应透传 state.scene_context_1（不翻译、不重写）"
+    assert vv["scene_2"] == "露营帐篷内暖光", "scene_2 应透传 state.scene_context_2"
+    assert vv["scene_3"] == "野餐垫上野餐场景", "scene_3 应透传 state.scene_context_3"
+
+
+def test_scene_vars_empty_when_context_empty():
+    """scene_context_N 为空 → scene_N = ""（模板 {% if %} 守卫处理，绝不中文顶替）。"""
+    out, _calls = _run_node(draft=DRAFT, llm_content=json.dumps(VALID_JSON))
+    vv = out.visual_vars
+    assert vv["scene_1"] == "", "无 scene_context_1 时 scene_1 应为空串"
+    assert vv["scene_2"] == "", "无 scene_context_2 时 scene_2 应为空串"
+    assert vv["scene_3"] == "", "无 scene_context_3 时 scene_3 应为空串"
+
+
+def test_llm_cannot_overwrite_scene_passthrough():
+    """scene_N 不进 ALL_KEYS → LLM 返回的 scene_N 被白名单过滤丢弃，透传值保留。"""
+    evil = {**VALID_JSON, "scene_1": "WRONG_SCENE", "scene_2": "WRONG_SCENE_2"}
+    out, _calls = _run_node(
+        draft=DRAFT, llm_content=json.dumps(evil),
+        scene_context_1=SCENE_CTX["scene_1"],
+        scene_context_2=SCENE_CTX["scene_2"],
+    )
+    vv = out.visual_vars
+    assert vv["scene_1"] == "夏日森林户外", "LLM 的 scene_1 不得覆盖 state.scene_context_1 透传值"
+    assert vv["scene_2"] == "露营帐篷内暖光", "LLM 的 scene_2 不得覆盖 state.scene_context_2 透传值"
+
+
+def test_fallback_build_accepts_scene_contexts():
+    """_build_fallback_vars 需按新签名接收 scene_contexts（dict: scene_N → 中文文案）。"""
+    vv = _build_fallback_vars(DRAFT, scene_contexts=dict(SCENE_CTX))
+    assert vv["scene_1"] == "夏日森林户外", "回退函数应按 scene_contexts 透传 scene_1"
+    assert vv["scene_2"] == "露营帐篷内暖光", "回退函数应按 scene_contexts 透传 scene_2"
+    assert vv["scene_3"] == "野餐垫上野餐场景", "回退函数应按 scene_contexts 透传 scene_3"
+
+
+def test_fallback_scene_vars_empty_by_default():
+    """不传 scene_contexts → scene_1/2/3 恒为空串（key 不缺失、不残留）。"""
+    vv = _build_fallback_vars(DRAFT)
+    assert vv["scene_1"] == "", "无 scene_contexts 时 scene_1 应为空串"
+    assert vv["scene_2"] == "", "无 scene_contexts 时 scene_2 应为空串"
+    assert vv["scene_3"] == "", "无 scene_contexts 时 scene_3 应为空串"
+
+
 if __name__ == "__main__":
     import traceback
 
@@ -336,6 +412,11 @@ if __name__ == "__main__":
         test_visual_vars_never_contains_color_preset,
         test_sp_mentions_cyrillic_ru_keys_and_25_vars,
         test_llm_ru_values_pass_through,
+        test_scene_contexts_passthrough_to_scene_vars,
+        test_scene_vars_empty_when_context_empty,
+        test_llm_cannot_overwrite_scene_passthrough,
+        test_fallback_build_accepts_scene_contexts,
+        test_fallback_scene_vars_empty_by_default,
     ]
     passed = 0
     for t in tests:
