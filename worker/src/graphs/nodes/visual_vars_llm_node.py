@@ -105,7 +105,7 @@ def _category_defaults(category: str) -> Dict[str, str]:
     return {}
 
 
-def _build_fallback_vars(draft: dict) -> Dict[str, str]:
+def _build_fallback_vars(draft: dict, scene_contexts: dict | None = None) -> Dict[str, str]:
     """确定性回退：extract_visual_vars_from_draft + 品类默认，25 key 全覆盖。
 
     - material/color ← draft.attributes（中文键直提）
@@ -114,6 +114,8 @@ def _build_fallback_vars(draft: dict) -> Dict[str, str]:
     - scene/lighting/atmosphere ← 品类默认
     - headline_style ← 默认 EXCLAIM；5 个 RU key ← ""（不用中文顶替）
     - brand_primary/accent ← color_preset 确定性路由（不进 ALL_KEYS，LLM 不可覆盖）
+    - scene_1/2/3 ← scene_contexts 确定性透传（dict: scene_N → 中文场景文案，不翻译不重写；
+      不进 ALL_KEYS，LLM 不可覆盖）；context 为空 → ""（模板 {% if %} 守卫处理）
     - 输出绝不含 color_preset key（防 assemble_prompt **_vv, color_preset=_cp 碰撞）
     - 其余 9 必填用通用英文默认（保证非空），16 可选默认化
     """
@@ -150,6 +152,11 @@ def _build_fallback_vars(draft: dict) -> Dict[str, str]:
     _colors = get_preset_colors(resolve_color_preset(extracted.get("category", "")))
     base["brand_primary"] = _colors["primary"]
     base["accent"] = _colors["accent"]
+
+    # ⚠️ v8: scene_1/2/3 为确定性透传（LLM 不可覆盖）——scene_contexts dict: scene_N → 中文场景文案
+    scene_contexts = scene_contexts or {}
+    for _n in (1, 2, 3):
+        base[f"scene_{_n}"] = (scene_contexts.get(f"scene_{_n}") or "").strip()
     return base
 
 
@@ -199,9 +206,13 @@ def _parse_visual_vars(content: str) -> Dict[str, str]:
     return _extract_by_regex(text)
 
 
-def _merge_parsed(parsed: Dict[str, str], draft: dict) -> Dict[str, str]:
-    """LLM 结果覆盖在确定性回退之上；空值不覆盖（保证 8 必填非空）。"""
-    result = _build_fallback_vars(draft)
+def _merge_parsed(parsed: Dict[str, str], draft: dict, scene_contexts: dict | None = None) -> Dict[str, str]:
+    """LLM 结果覆盖在确定性回退之上；空值不覆盖（保证 8 必填非空）。
+
+    scene_N 不在 ALL_KEYS → 上方 ALL_KEYS 白名单过滤自动丢弃 LLM 返回的 scene_N，
+    scene_1/2/3 由 scene_contexts 透传（LLM 不可覆盖）。
+    """
+    result = _build_fallback_vars(draft, scene_contexts)
     if isinstance(parsed, dict):
         for key, value in parsed.items():
             if key in ALL_KEYS and isinstance(value, str) and value.strip():
@@ -316,4 +327,10 @@ def visual_vars_llm_node(state: VisualVarsInput, config: RunnableConfig, runtime
     except Exception as e:
         progress.log_node_error(f"LLM 调用失败: {e}", "回退 extract_visual_vars_from_draft + 品类默认")
 
-    return VisualVarsOutput(visual_vars=_merge_parsed(parsed, draft))
+    # ⚠️ v8: scene_context_N → scene_N 确定性透传（LLM 不可覆盖，不翻译不重写）
+    scene_contexts = {
+        "scene_1": getattr(state, "scene_context_1", ""),
+        "scene_2": getattr(state, "scene_context_2", ""),
+        "scene_3": getattr(state, "scene_context_3", ""),
+    }
+    return VisualVarsOutput(visual_vars=_merge_parsed(parsed, draft, scene_contexts))

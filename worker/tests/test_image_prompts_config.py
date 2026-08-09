@@ -184,6 +184,54 @@ def test_empty_ru_no_residue():
     assert "{{product_ru" not in p
 
 
+# ── v8 中文模板期望（RED 任务：锁定未来 v8 中文模板特征，当前 v6 英文模板下应失败）──
+def test_main_template_chinese_prefix():
+    """v8: main 模板首句 = "产品：{{title}}。" 中文前缀（v8 中文文案）"""
+    p = get_image_prompt("main", title="保温杯")
+    assert "产品：保温杯" in p, "v8 main 缺中文前缀「产品：」"
+
+
+def test_main_renders_v8_russian_placeholders():
+    """v8: main 含俄文/场景独立变量占位符 → 传入即渲染（{{product_ru}}/{{cta_ru}}/{{scene_1}}）"""
+    p = get_image_prompt(
+        "main",
+        title="x",
+        product_ru="ПАЛОЧКИ",
+        cta_ru="ЗАЩИТА",
+        selling_points_ru="a;b",
+        effect_data_ru="45 мин",
+        target_ru="комары",
+        scene_1="夏日森林",
+    )
+    assert "ПАЛОЧКИ" in p, "{{product_ru}} 未渲染"
+    assert "ЗАЩИТА" in p, "{{cta_ru}} 未渲染"
+    assert "夏日森林" in p, "{{scene_1}} 未渲染（v8 场景槽位用 scene_N 独立变量）"
+
+
+def test_white_bg_chinese_no_text():
+    """v8: white_bg（禁文字 3 图之一）含中文负面规则「禁止任何文字」，且不含 RU 占位符"""
+    p = get_image_prompt("white_bg")
+    assert ("禁止任何文字" in p) or ("俄语/中文/英文均禁止" in p), "v8 white_bg 缺中文禁文字规则"
+    assert "product_ru" not in p
+    assert "{{product_ru}}" not in p
+
+
+def test_multi_angle_no_text():
+    """v8: multi_angle 禁一切文字（用户纠正 v8 HTML——即使 HTML 标俄文角标，multi_angle 也不允许任何文字）"""
+    p = get_image_prompt("multi_angle")
+    assert "{{product_ru}}" not in p
+    assert "{{cta_ru}}" not in p
+    assert "ВИД" not in p, "multi_angle 不得含俄文角标（ВИД 等）"
+    assert "product_ru" not in p
+
+
+def test_scene_slots_use_scene_vars():
+    """v8: scene_N 槽位用独立变量 {{scene_1}} 渲染（不再依赖 {{scene_context}}）"""
+    p = get_image_prompt("scene_1", scene_1="夏日森林")
+    assert "夏日森林" in p, "{{scene_1}} 未渲染"
+    assert "{{scene_1" not in p
+
+
 if __name__ == "__main__":
     import traceback
 
@@ -206,6 +254,11 @@ if __name__ == "__main__":
         test_white_bg_has_no_russian_placeholder,
         test_main_negative_embedded,
         test_empty_ru_no_residue,
+        test_main_template_chinese_prefix,
+        test_main_renders_v8_russian_placeholders,
+        test_white_bg_chinese_no_text,
+        test_multi_angle_no_text,
+        test_scene_slots_use_scene_vars,
     ]
     passed = 0
     for t in tests:

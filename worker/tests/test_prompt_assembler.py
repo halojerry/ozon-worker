@@ -484,6 +484,33 @@ def test_assemble_prompt_empty_ru_no_residue():
         assert "None" not in p
 
 
+# ── (m) v8 中文模板期望（RED 任务：锁定未来 v8 中文模板特征，当前 v6 英文模板下应失败）──
+def test_assemble_v8_chinese_main():
+    """v8: main 中文文案 + 场景独立变量 + 俄文变量 + HEX 全部渲染进 prompt"""
+    with _real_workspace():
+        p = assemble_prompt(
+            "main",
+            title="保温杯",
+            scene_1="夏日森林",
+            product_ru="ПАЛОЧКИ",
+            cta_ru="ЗАЩИТА",
+            brand_primary="#16A34A",
+            accent="#F59E0B",
+            model="年轻妈妈",
+        )
+        for token in ("产品：保温杯", "夏日森林", "ПАЛОЧКИ", "ЗАЩИТА", "#16A34A", "#F59E0B"):
+            assert token in p, f"v8 变量 {token!r} 未渲染进 prompt"
+
+
+def test_assemble_empty_v8_no_residue():
+    """v8: 无 RU/场景值 → 不残留 {{product_ru / {{scene_1 占位符、不出现 None"""
+    with _real_workspace():
+        p = assemble_prompt("main", title="x")
+        assert "{{product_ru" not in p
+        assert "{{scene_1" not in p
+        assert "None" not in p
+
+
 if __name__ == "__main__":
     import traceback
 
@@ -520,6 +547,8 @@ if __name__ == "__main__":
         test_resolve_category_ignores_non_string_draft_category,
         test_assemble_prompt_renders_v6_russian_vars,
         test_assemble_prompt_empty_ru_no_residue,
+        test_assemble_v8_chinese_main,
+        test_assemble_empty_v8_no_residue,
     ]
     passed = 0
     for t in tests:
