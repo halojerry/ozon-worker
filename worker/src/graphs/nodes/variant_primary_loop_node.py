@@ -12,7 +12,7 @@ from graphs.state import GlobalState, VariantLoopState, VariantLoopOutput, Varia
 
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.mxou_api import clean_title_for_image_prompt
-from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
+from utils.prompt_assembler import assemble_prompt, extract_visual_vars_from_draft  # ✅ v0.31: 视觉变量注入
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
 from utils.task_image_cache import get_image, save_image, _task_id_from_config  # ✅ v0.26: 重跑不重烧生图
 
@@ -97,13 +97,17 @@ def variant_primary_loop_node(
             title = clean_title_for_image_prompt(
                 state.draft.get("title", "") if isinstance(state.draft, dict) else ""
             )
+            # ⚠️ v0.31: 提示词走 prompt_assembler（从 state.draft 提取视觉变量注入，模板无占位符时静默忽略）
+            _vv = extract_visual_vars_from_draft(
+                state.draft if isinstance(state.draft, dict) else {}
+            )
 
             # ✅ 调用统一mxou API（正确参数: images/aspectRatio/replyType）
             # ⚠️ v0.15: 提示词外置 config/image_prompts.json（热加载，改文件即生效，无需重建镜像）
             image_url = call_mxou_image_api(
                 model=get_image_model("variant_white_bg"),
                 token=state.token,
-                prompt=get_image_prompt("variant_white_bg", title=title),
+                prompt=assemble_prompt("variant_white_bg", title=title, **_vv),
                 ref_images=ref_images,
                 aspect_ratio="3:4",
                 timeout=180,  # ⚠️ v0.26: 90→180 匹配 grsai 30s+5s 轮询节奏，减少假超时

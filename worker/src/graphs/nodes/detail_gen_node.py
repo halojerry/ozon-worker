@@ -12,7 +12,7 @@ from graphs.state_image_gen import DetailImageInput, DetailImageOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.mxou_api import clean_title_for_image_prompt
-from utils.image_prompts import get_image_prompt  # ✅ v0.15: 提示词外置配置（热加载）
+from utils.prompt_assembler import assemble_prompt, extract_visual_vars_from_draft  # ✅ v0.31: 视觉变量注入
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
 from utils.task_image_cache import get_image, save_image, _task_id_from_config  # ✅ v0.26: 重跑不重烧生图
 
@@ -49,8 +49,9 @@ def detail_gen_node(state: DetailImageInput, config: RunnableConfig, runtime: Ru
             return DetailImageOutput(detail_image=cached)
     
     title = clean_title_for_image_prompt(draft.get("title", ""))
-    # ⚠️ v0.15: 提示词外置 config/image_prompts.json（热加载，改文件即生效，无需重建镜像）
-    prompt = get_image_prompt("detail", title=title)
+    # ⚠️ v0.31: 提示词走 prompt_assembler（注入 draft 视觉变量，模板无占位符时静默忽略）
+    _vv = extract_visual_vars_from_draft(draft or {})
+    prompt = assemble_prompt("detail", title=title, **_vv)
     
     # 构建参考图列表：使用Phase1的图片作为参考（内联逻辑）
     ref_images: List[str] = []
