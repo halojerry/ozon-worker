@@ -13,6 +13,7 @@ class WhiteBgInput(BaseModel):
     
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
+    visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（参考图）")
 
 class WhiteBgOutput(BaseModel):
@@ -30,6 +31,7 @@ class MultiAngleInput(BaseModel):
     
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
+    visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（参考图）")
 
 class MultiAngleOutput(BaseModel):
@@ -48,6 +50,7 @@ class MainImageInput(BaseModel):
     
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
+    visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（Phase1失败时回退参考图）")
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
@@ -68,6 +71,7 @@ class MultiInfoInput(BaseModel):
     
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
+    visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（Phase1失败时回退参考图）")
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
@@ -87,6 +91,7 @@ class DetailImageInput(BaseModel):
     
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
+    visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（Phase1失败时回退参考图）")
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
@@ -106,6 +111,7 @@ class SocialProofInput(BaseModel):
     
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
+    visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（Phase1失败时回退参考图）")
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
@@ -122,6 +128,7 @@ class Scene1Input(BaseModel):
     """场景图1生成节点输入"""
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
+    visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（Phase1失败时回退参考图）")
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
@@ -139,6 +146,7 @@ class Scene2Input(BaseModel):
     """场景图2生成节点输入"""
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
+    visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（Phase1失败时回退参考图）")
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
@@ -156,6 +164,7 @@ class Scene3Input(BaseModel):
     """场景图3生成节点输入"""
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
+    visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（Phase1失败时回退参考图）")
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
@@ -173,6 +182,7 @@ class ComparisonInput(BaseModel):
     """对比图生成节点输入"""
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
+    visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（Phase1失败时回退参考图）")
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
@@ -191,6 +201,7 @@ class ImageGenSubgraphState(BaseModel):
     """图片生成子图状态"""
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
+    visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     ozon_client_id: str = Field(default="", description="Ozon Client-Id")
     ozon_api_key: str = Field(default="", description="Ozon Api-Key")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（参考图）")
@@ -219,6 +230,7 @@ class ImageGenSubgraphInput(BaseModel):
     """图片生成子图输入"""
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
+    visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     ozon_client_id: str = Field(default="", description="Ozon Client-Id")
     ozon_api_key: str = Field(default="", description="Ozon Api-Key")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（参考图）")
