@@ -76,6 +76,11 @@ class ValidationRetryLoopState(BaseModel):
     upload_status: str = Field(default="", description="上传状态")
     product_id: str = Field(default="", description="商品ID")
     status: str = Field(default="", description="Ozon处理状态")
+    # Ozon审核状态（recheck_status_node 轮询写入；缺字段会抛 pydantic
+    # "has no field" 被 except 吞掉 → approved/declined 分支永不执行）
+    moderation_status: str = Field(default="", description="Ozon审核状态 (approved/pending/error)")
+    # 失败节点名称（repair_pricing PRICING_FAILED 阻断分支写入）
+    failed_stage: str = Field(default="", description="失败节点名称")
     
     # 类目重匹配标志（DESCRIPTION_DECLINE + attr 8229 时设置）
     needs_recategorization: bool = Field(default=False, description="是否需要重新匹配类目")
@@ -126,6 +131,8 @@ class ValidationRetryLoopOutput(BaseModel):
     error_message: str = Field(default="", description="最终错误信息")
     product_id: Optional[str] = Field(default=None, description="商品ID")
     upload_status: str = Field(default="", description="上传状态")
+    # 审核状态透出（recheck_status_node 轮询结果，供 wrapper/主图消费）
+    moderation_status: str = Field(default="", description="Ozon审核状态 (approved/pending/error)")
     notice: str = Field(default="", description="用户可读失败说明(v0.28.5 C2, 中文)")
 
 
@@ -2591,6 +2598,7 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
         error_message=final_error_message,
         product_id=state.product_id if state.product_id else None,
         upload_status=state.upload_status,
+        moderation_status=state.moderation_status,
         notice=_build_notice(state.error_type, final_error_message, state.upload_status),
     )
 

@@ -757,6 +757,8 @@ class ValidationRetryWrapperOutput(BaseModel):
     error_message: str = Field(default="", description="最终错误信息")
     product_id: Optional[str] = Field(default=None, description="修复后的商品ID（如果重新上传成功）")
     upload_status: str = Field(default="", description="上传状态：success/failed/pending")
+    # 修复后 Ozon 审核状态（子图 recheck_status 轮询结果透出）
+    moderation_status: str = Field(default="", description="Ozon审核状态 (approved/pending/error)")
 
 
 # ==================== 学习记录节点 ====================

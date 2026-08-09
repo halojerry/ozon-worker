@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import sys
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 os.environ["APP_WORKSPACE_PATH"] = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -30,8 +31,12 @@ from graphs.validation_retry_loop import (
     ValidationRetryLoopState,
     revalidate_node,
     repair_prepare_node,
+    repair_pricing_node,
+    recheck_status_node,
     error_repair_llm_node,
+    time as _retry_time,
 )
+from utils.http_session import session
 
 # ── 危险等级字典值 ─────────────────────────────────────────────────────────
 EXPLOSIVES = {"id": 970593901, "value": "Категория 1. Взрывчатые вещества"}
@@ -213,6 +218,85 @@ def test_e_revalidate_variant_sync_keeps_9048_payload_value():
     item1_attrs = {int(a["id"]): a for a in out.ozon_payload["items"][1]["attributes"]}
     assert item1_attrs[9048]["values"][0]["value"] == "ABC123", "变体 9048 必须复用 payload 已有值（防重译不一致）"
     assert item1_attrs[10096]["values"][0]["dictionary_value_id"] == 61572, "变体特有颜色必须保留"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# (f) ValidationRetryLoopState 缺字段 bug（Pydantic v2 "has no field"）
+# 根因：recheck_status_node L2505 `state.moderation_status = mod_status` 抛
+#   `"ValidationRetryLoopState" object has no field "moderation_status"` 被
+#   L2517 `except Exception` 吞掉 → approved/declined 分支永不执行 → 轮询
+#   60×5s 超时置 pending_moderation；repair_pricing L1556 failed_stage 同理崩。
+# ═══════════════════════════════════════════════════════════════════════
+def test_state_has_moderation_status_field():
+    """ValidationRetryLoopState 补字段：赋值 moderation_status 不抛异常且读回正确。"""
+    state = ValidationRetryLoopState()
+    state.moderation_status = "approved"
+    assert state.moderation_status == "approved"
+
+
+def test_state_has_failed_stage_field():
+    """ValidationRetryLoopState 补字段：赋值 failed_stage 不抛异常。"""
+    state = ValidationRetryLoopState()
+    state.failed_stage = "pricing"
+    assert state.failed_stage == "pricing"
+
+
+class _FakeResp:
+    def __init__(self, data, status_code=200):
+        self._data = data
+        self.status_code = status_code
+
+    def json(self):
+        return self._data
+
+
+def _run_recheck(moderate_status):
+    """跑 recheck_status_node：mock session.post —— import/info 返回 imported+product_id，
+    info/list 返回指定 moderate_status。返回修复后的 state。"""
+    import_resp = _FakeResp({"result": {"items": [{"status": "imported", "product_id": "111", "errors": []}]}})
+    mod_resp = _FakeResp({"items": [{"statuses": {"moderate_status": moderate_status}, "errors": []}]})
+
+    def side_effect(url, **kwargs):
+        if "info/list" in url:
+            return mod_resp
+        return import_resp
+
+    state = ValidationRetryLoopState(
+        task_id="1234567890", token="t", ozon_client_id="c", ozon_api_key="k",
+        ozon_payload={"items": []},
+    )
+    with mock.patch.object(session, "post", side_effect=side_effect), \
+         mock.patch.object(_retry_time, "sleep"):
+        out = recheck_status_node(state)
+    return out
+
+
+def test_recheck_status_sets_moderation_on_approved():
+    """mock 返回 moderate_status="approved" → state.moderation_status=="approved"、
+    upload_status=="success"（修复前缺字段被 except 吞 → 轮询超时 pending_moderation）。"""
+    out = _run_recheck("approved")
+    assert out.moderation_status == "approved"
+    assert out.upload_status == "success"
+
+
+def test_recheck_status_sets_moderation_on_declined():
+    """mock 返回 moderate_status="declined" → state.moderation_status=="declined"、
+    upload_status=="failed"。"""
+    out = _run_recheck("declined")
+    assert out.moderation_status == "declined"
+    assert out.upload_status == "failed"
+
+
+def test_repair_pricing_sets_failed_stage():
+    """pricing_info 空 + force_reprice → PRICING_FAILED 阻断分支写 failed_stage="pricing" 不抛异常。"""
+    state = ValidationRetryLoopState(
+        error_code="price_out_of_range",
+        pricing_info={},
+        ozon_payload={"items": [{"price": "25290"}]},
+    )
+    out = repair_pricing_node(state)
+    assert out.failed_stage == "pricing"
+    assert "PRICING_FAILED" in out.error_message
 
 
 if __name__ == "__main__":
