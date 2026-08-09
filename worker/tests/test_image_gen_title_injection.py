@@ -51,6 +51,9 @@ import graphs.nodes.scene_3_gen_node as _scene_3_mod  # noqa: E402
 import graphs.nodes.comparison_gen_node as _comparison_mod  # noqa: E402
 import graphs.nodes.variant_primary_loop_node as _variant_mod  # noqa: E402
 
+# Wave 1-D: assemble_prompt 真实现（spy 委托它保证渲染语义与生产一致）
+from utils.prompt_assembler import assemble_prompt as _real_assemble_prompt  # noqa: E402
+
 # ⚠️ 标题不能含 clean_title_for_image_prompt 的 junk 词（如「产品」「爆款」——
 # 它会被清洗掉，导致已修好的节点也断言失败）。「保温杯」不在 junk 表，原样保留。
 TITLE = "保温杯"
@@ -180,3 +183,87 @@ def test_variant_primary_loop_prompt_contains_title():
     )
     for prompt in _run_node(variant_primary_loop_node, state, _variant_mod):
         _assert_title_in_prompt(prompt)
+
+
+# ── Wave 1-D: 10 节点迁移到 assemble_prompt（RED→GREEN 目标）──
+
+def _node_cases():
+    """10 个生图节点的 (节点函数, 最小合法 state, 模块, 期望 slot_key) 用例表"""
+    from graphs.state_image_gen import (
+        WhiteBgInput, MultiAngleInput, MainImageInput,
+        DetailImageInput, SocialProofInput, ComparisonInput,
+        Scene1Input, Scene2Input, Scene3Input,
+    )
+    from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
+    return [
+        (white_bg_gen_node, WhiteBgInput(draft={"title": TITLE}, token="t"), _white_bg_mod, "white_bg"),
+        (multi_angle_gen_node, MultiAngleInput(draft={"title": TITLE}, token="t"), _multi_angle_mod, "multi_angle"),
+        (main_image_gen_node, MainImageInput(draft={"title": TITLE}, token="t", white_bg_image=REF_IMAGE), _main_image_mod, "main"),
+        (detail_gen_node, DetailImageInput(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE), _detail_mod, "detail"),
+        (social_proof_gen_node, SocialProofInput(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE), _social_proof_mod, "social_proof"),
+        (comparison_gen_node, ComparisonInput(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE), _comparison_mod, "comparison"),
+        (scene_1_gen_node, Scene1Input(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE, scene_context_1="家庭生活场景"), _scene_1_mod, "scene_1"),
+        (scene_2_gen_node, Scene2Input(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE, scene_context_2="户外休闲场景"), _scene_2_mod, "scene_2"),
+        (scene_3_gen_node, Scene3Input(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE, scene_context_3="工作办公场景"), _scene_3_mod, "scene_3"),
+        (variant_primary_loop_node, VariantPrimaryLoopInput(variants=[{"name": "variant_0", "image": "https://example.com/v0.jpg"}], draft={"title": TITLE}, token="t"), _variant_mod, "variant_white_bg"),
+    ]
+
+
+def _run_node_with_assembler_spy(node_fn, state, node_module):
+    """执行节点，patch call_mxou_image_api 捕获 prompt + spy assemble_prompt 捕获调用。
+
+    返回 (captured_prompts, assemble_calls)，assemble_calls 为 [(slot_key, kwargs), ...]。
+    spy 委托真实 assemble_prompt（patch create=True：迁移前属性不存在 → 调用记录为空 → RED）。
+    """
+    captured_prompts = []
+    assemble_calls = []
+
+    def _capture(token, prompt, ref_images=None, **kwargs):
+        captured_prompts.append(prompt)
+        return "https://example.com/mock_image.jpg"
+
+    def _spy(slot_key, **kwargs):
+        assemble_calls.append((slot_key, kwargs))
+        return _real_assemble_prompt(slot_key, **kwargs)
+
+    with patch.object(node_module, "call_mxou_image_api", side_effect=_capture), \
+         patch.object(node_module, "assemble_prompt", create=True, side_effect=_spy):
+        node_fn(state, _CONFIG, _RUNTIME)
+    assert captured_prompts, f"{node_fn.__name__} 未调用 call_mxou_image_api（state 构造可能触发短路分支）"
+    return captured_prompts, assemble_calls
+
+
+def test_all_nodes_call_assemble_prompt():
+    """10 个生图节点都必须调用 assemble_prompt（mock 验证），slot_key 与模板一致"""
+    for node_fn, state, mod, expected_key in _node_cases():
+        _prompts, calls = _run_node_with_assembler_spy(node_fn, state, mod)
+        assert calls, f"{node_fn.__name__} 未调用 assemble_prompt（仍走 get_image_prompt）"
+        assert calls[0][0] == expected_key, \
+            f"{node_fn.__name__} assemble_prompt slot_key 错误: {calls[0][0]!r}，期望 {expected_key!r}"
+
+
+def test_scene_slots_pass_distinct_slot_scene_context():
+    """scene_1/2/3 必须传各自的 scene_context 到 slot_scene_context（三张场景图差异化）"""
+    scene_ctx = {"scene_1": "家庭生活场景", "scene_2": "户外休闲场景", "scene_3": "工作办公场景"}
+    for node_fn, state, mod, expected_key in _node_cases():
+        if not expected_key.startswith("scene_"):
+            continue
+        _prompts, calls = _run_node_with_assembler_spy(node_fn, state, mod)
+        assert calls, f"{node_fn.__name__} 未调用 assemble_prompt"
+        slot_kwargs = calls[0][1]
+        assert slot_kwargs.get("slot_scene_context") == scene_ctx[expected_key], \
+            f"{expected_key} slot_scene_context 错误: {slot_kwargs.get('slot_scene_context')!r}，" \
+            f"期望 {scene_ctx[expected_key]!r}"
+        assert slot_kwargs.get("scene_context") == scene_ctx[expected_key], \
+            f"{expected_key} scene_context 应同时透传（兼容）"
+
+
+def test_prompt_renders_material_color_from_draft():
+    """draft.attributes 含材质/颜色 → 节点 prompt 渲染出材质/颜色（真实模板验证）"""
+    from graphs.state_image_gen import MainImageInput
+    draft = {"title": TITLE, "attributes": {"材质": "ABS塑料", "颜色": "白色"}}
+    state = MainImageInput(draft=draft, token="t", white_bg_image=REF_IMAGE)
+    for prompt in _run_node(main_image_gen_node, state, _main_image_mod):
+        assert "ABS塑料" in prompt, f"材质未渲染进 prompt: {prompt[:80]!r}"
+        assert "白色" in prompt, f"颜色未渲染进 prompt: {prompt[:80]!r}"
+        assert "{{" not in prompt, f"存在未渲染占位符: {prompt[:80]!r}"
