@@ -11,6 +11,17 @@
 - **fetch_seller_analysis 双 bug 修复**: 签名错（list 当 cdp 传 + cdp_url 非法 kwarg）→ (cdp, skus)；camelCase→snake_case。fetch_seller_products/analysis 加 `cdp=` 连接级复用。seller 命令从此返回真实运营数据。
 - **trend 管线移除**: 删 trend_selection/mxou_chat/cmd_trend（agent 自带 LLM+web_search，能力替代+去重复）。SKILL.md 管线 E 重写为「agent web_search + LLM → discover --keyword」。
 
+## 最近更新（v0.33.0 — 生图 v6 单阶段俄文直出）
+
+> 2026-08-09。用户提供 `prompt-template-v6.html` 模板系统落地：俄文文字 AI 直接渲染进图（单阶段），不再两阶段 PS 叠加。详见 `CHANGELOG.md`。
+
+- **v6 单阶段**: visual_vars_llm 扩 25 key（+headline_style + 5 个俄文变量 product_ru/cta_ru/selling_points_ru/effect_data_ru/target_ru，Cyrillic 生成）；确定性产出 brand_primary/accent HEX；max_tokens 4096。
+- **10 图位英文模板**: 后缀 A（7 图 AI 直出俄文：main/scene×3/comparison/detail/social_proof）+ 后缀 B（3 图禁文字：white_bg/multi_angle/variant_white_bg）；首句 `Product: {{title}}`；全部变量 `{% if %}` 守卫。
+- **关键约定**: ① RU 回退=空串→干净无文字图（绝不用中文 title 顶替，中文进图被 Ozon 拒）；② `color_preset` 不进 visual_vars（防 assemble_prompt kwargs 碰撞）；③ negative prompt 内嵌模板尾部（mxou API 无 negative_prompt 字段）；④ 占位符大写{v6}→小写{{jinja2}}；⑤ color 确定性（`_DETERMINISTIC_KEYS` +color，LLM 英文色不覆盖）。
+- **10 个生图节点零改动**（模板+变量层全在配置/工具层）。
+
+## 最近更新（v0.31.0 — discover v3 裂变选品 + trend 移除 + 真实链路修复）
+
 ## 最近更新（v0.32.0 — 生图视觉变量体系 + 四修复）
 
 > 2026-08-09。v0.32 生图改动 + 四个线上实测驱动的修复（5371047 店铺 3 产品 E2E：2 approved + 1 validation_failed）。详见 `CHANGELOG.md`。

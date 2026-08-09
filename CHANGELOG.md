@@ -67,6 +67,29 @@
 - 全量 worker pytest 428 passed / 2 基线失败（`learning_record_gate`、`full_pipeline_context`，git worktree 基线 d73472a 同败，非本次引入）；mock 管线 12/12；skill 测试全过；`ci.sh --quick` 通过。
 - 真实链路验证（本地 Docker）：笔筒 sim=0.200 拒绝（门槛 0.5）✅、正常 0.667 接受 ✅、pg_trgm 0.31 接受 ✅；同义词「季节↔适用季节」「材质↔主要材质」「款式↔风格」匹配 ✅、跨组负例 None ✅。
 
+## [0.33.0] - 2026-08-09
+
+> 生图 v6 单阶段模板落地——俄文文字 AI 直出（不再两阶段 PS 叠加）。用户提供 `prompt-template-v6.html` 模板系统，按「全英文模板 + visual_vars_llm 扩展 + 10 图位全升级」三决策落地。
+
+### Feat(worker v6 单阶段俄文生图)
+
+- **v6 核心变化**：从 v5 两阶段（AI 干净图 → PS 叠加俄文）→ v6 单阶段（俄文文字直接写进 prompt，AI 一步生成含俄文的完整图）。
+- **visual_vars_llm 25 key**：ALL_KEYS 19→25——`headline_style`（必填，6 风格 EXCLAIM/PROMISE/NUMBER/CONTRAST/QUESTION/TWO_LINE_TWO_COLOR）+ `product_ru`/`cta_ru`/`selling_points_ru`/`effect_data_ru`/`target_ru`（俄文内容，Cyrillic 生成）；确定性产出 `brand_primary`/`accent`（HEX，get_preset_colors，LLM 不可覆盖）；max_tokens 2048→4096。
+- **俄文回退安全**：5 个 RU key 回退空串 → LLM 失败时干净无文字图（绝不用中文 title 顶替——中文进图被 Ozon 拒）。
+- **10 图位英文 v6 模板**（image_prompts.json + _DEFAULT_PROMPTS 逐字一致）：
+  - 首句 `Product: {{title}}`（title 接地，保住标题注入护栏）。
+  - 后缀 A（7 图 AI 直出俄文）：main/scene_1/2/3/comparison/detail/social_proof 内嵌 `{{product_ru}}`/`{{cta_ru}}`/`{{selling_points_ru}}`/`{{effect_data_ru}}`/`{{target_ru}}` + `{{headline_style}}`/`{{brand_primary}}`/`{{accent}}`；负面禁中文/英文/水印/价格（**不禁俄文**）。
+  - 后缀 B（3 图禁一切文字）：white_bg/multi_angle/variant_white_bg 零 RU 占位符 + 严格负面（`no text of any kind`）。
+  - 全部 RU/LLM/风格变量 `{% if %}` 守卫（空值→干净图，无 `{{` 残留/None）。
+- **color 确定性**：`_DETERMINISTIC_KEYS` +color——LLM 英文 color 不覆盖（参考图承担颜色，防 1688 脏多选串）。
+- **10 个生图节点零改动**（模板+变量层全在配置/工具层，`git diff --stat` 确认）。
+
+### 测试
+
+- 扩展 `test_visual_vars_llm_node.py`（18 断言：25 key/RU 回退/HEX/防 color_preset 碰撞/SP 俄文指令）、`test_image_prompts_config.py`（18：Product 前缀/RU 占位符渲染/白底禁文字/负面内嵌）、`test_prompt_assembler.py`（32：RU 变量渲染/空值无残留）、`test_image_gen_title_injection.py`（18：material 断言迁移 white_bg/color 不注入）。
+- 全量 worker pytest **442 passed**（排除 2 个已知基线失败 + 2 个需 PG 文件）。
+- 真实渲染验证（本地 Docker）：main prompt 含俄文标题「НАДЁЖНЫЙ ЗВУК」+ 品名 + 卖点 + HEX #F59E0B + `Product:` 前缀 ✅；LLM 失败回退干净无文字 ✅；white_bg 禁一切文字 + 材质渲染 ✅。
+
 ## [0.30.0] - 2026-08-08
 
 
