@@ -1,10 +1,14 @@
-"""视觉变量生成 LLM 节点 — 从 draft 文本推断 19 个视觉变量（英文）。
+"""视觉变量生成 LLM 节点 — 从 draft 文本推断 25 个视觉变量（英文 + 俄文内容）。
 
-对抗定案（Wave 2）：
+对抗定案（Wave 2 + v6 单阶段俄文生图模板）：
 - 纯文本输入：deepseek-v4-flash 无视觉（F8 实证），绝不把 images 传给 LLM
 - 2 层容错 JSON 解析（镜像 scene_generation_llm_node）：json.loads → 正则/文本提取
 - 失败回退 extract_visual_vars_from_draft + 品类默认，绝不阻断生图
-- AC-1 重写：8 必填非空 + 11 可选默认化（不是全部 19 必须非空）
+- AC-1 重写：9 必填非空 + 16 可选默认化（不是全部 25 必须非空）
+- v6 扩展：REQUIRED + headline_style、OPTIONAL + 5 俄文变量（product_ru/cta_ru/
+  selling_points_ru/effect_data_ru/target_ru）→ ALL_KEYS=25；brand_primary/accent 为
+  确定性产出（来自 color_preset 的 get_preset_colors，不进 ALL_KEYS，LLM 不可覆盖）；
+  输出 visual_vars 绝不含 color_preset key（防 assemble_prompt **_vv, color_preset=_cp 碰撞）
 - SCENE 变量是全局兜底，scene_1/2/3 节点仍用各自 scene_context_N（不覆盖）
 """
 import json
@@ -18,23 +22,27 @@ from langgraph.runtime import Runtime
 from runtime.context import Context
 
 from graphs.state import VisualVarsInput, VisualVarsOutput
+from utils.color_preset import get_preset_colors, resolve_color_preset
 from utils.progress_logger import ProgressLogger
 from utils.mxou_llm import call_mxou_chat_api
 from utils.mxou_api import clean_title_for_image_prompt
 from utils.prompt_assembler import _resolve_category_for_prompt, extract_visual_vars_from_draft
 
-# 19 个视觉变量 key（PRD §2.2/§7.1）
+# 25 个视觉变量 key（PRD §2.2/§7.1 + v6 单阶段俄文生图模板）
+# v6 扩展: REQUIRED + headline_style（9 个）; OPTIONAL + 5 俄文变量（16 个）; ALL = 25
 REQUIRED_KEYS = [
     "product", "color", "material", "appearance", "size",
     "lighting", "effects", "text_areas",
+    "headline_style",
 ]
 OPTIONAL_KEYS = [
     "model", "action", "scene", "background", "icons",
     "inset", "gift", "atmosphere", "packaging", "problem_scene", "comparison",
+    "product_ru", "cta_ru", "selling_points_ru", "effect_data_ru", "target_ru",
 ]
 ALL_KEYS = REQUIRED_KEYS + OPTIONAL_KEYS
 
-# 通用兜底：8 必填全非空，11 可选给默认值（AC-1）
+# 通用兜底：9 必填全非空，16 可选给默认值（AC-1）
 _GENERIC_VARS = {
     "product": "product",
     "color": "neutral colors",
@@ -44,6 +52,7 @@ _GENERIC_VARS = {
     "lighting": "soft natural studio lighting",
     "effects": "subtle soft glow",
     "text_areas": "clean negative space for text overlay",
+    "headline_style": "EXCLAIM",
     "model": "",
     "action": "",
     "scene": "clean modern environment",
@@ -55,6 +64,12 @@ _GENERIC_VARS = {
     "packaging": "",
     "problem_scene": "",
     "comparison": "",
+    # v6 俄文内容变量：LLM 失败回退恒空串（绝不用中文 title 顶替，中文会污染俄文模板）
+    "product_ru": "",
+    "cta_ru": "",
+    "selling_points_ru": "",
+    "effect_data_ru": "",
+    "target_ru": "",
 }
 
 # 品类默认（category 关键词命中 → 覆盖通用兜底）
@@ -91,13 +106,16 @@ def _category_defaults(category: str) -> Dict[str, str]:
 
 
 def _build_fallback_vars(draft: dict) -> Dict[str, str]:
-    """确定性回退：extract_visual_vars_from_draft + 品类默认，19 key 全覆盖。
+    """确定性回退：extract_visual_vars_from_draft + 品类默认，25 key 全覆盖。
 
     - material/color ← draft.attributes（中文键直提）
     - size ← draft.dimensions(mm) + weight(g)
     - product ← draft.title
     - scene/lighting/atmosphere ← 品类默认
-    - 其余 8 必填用通用英文默认（保证非空），11 可选默认化
+    - headline_style ← 默认 EXCLAIM；5 个 RU key ← ""（不用中文顶替）
+    - brand_primary/accent ← color_preset 确定性路由（不进 ALL_KEYS，LLM 不可覆盖）
+    - 输出绝不含 color_preset key（防 assemble_prompt **_vv, color_preset=_cp 碰撞）
+    - 其余 9 必填用通用英文默认（保证非空），16 可选默认化
     """
     draft = draft or {}
     extracted = extract_visual_vars_from_draft(draft)
@@ -127,6 +145,11 @@ def _build_fallback_vars(draft: dict) -> Dict[str, str]:
     # ⚠️ v0.32 修复: 回退输出携带 category/weight（生图 prompt 组装消费，不再恒空）
     base["category"] = extracted.get("category", "")
     base["weight"] = extracted.get("weight", "")
+
+    # ⚠️ v6: brand_primary/accent 为确定性产出（LLM 不可覆盖），来自 color_preset 预设路由
+    _colors = get_preset_colors(resolve_color_preset(extracted.get("category", "")))
+    base["brand_primary"] = _colors["primary"]
+    base["accent"] = _colors["accent"]
     return base
 
 
@@ -205,25 +228,37 @@ _DEFAULT_SP = (
     "Source-language preservation: material, size, weight and category are provided "
     "verbatim in the source data (often Chinese) and are already accurate — copy them "
     "verbatim into the corresponding output values, NEVER rewrite, translate, or summarize them. "
-    "Required keys: product, color, material, appearance, size, lighting, effects, text_areas "
-    "(material and size are copied verbatim from the source data; all other required values are English). "
+    "Required keys (values MUST be non-empty): product, color, material, appearance, size, "
+    "lighting, effects, text_areas, headline_style "
+    "(material and size are copied verbatim from the source data; the other required values are English). "
     "Optional keys with sensible English defaults: model, action, scene, background, icons, "
     "inset, gift, atmosphere, packaging, problem_scene, comparison. "
-    "Output ONLY a JSON object with these 19 keys, no markdown, no extra text."
+    "headline_style is a 6-way choice for the on-image headline, pick exactly one per category: "
+    "EXCLAIM (tech products), PROMISE (tools), NUMBER (spec-heavy products), "
+    "CONTRAST (pain-point products), QUESTION (comparison products), "
+    "TWO_LINE_TWO_COLOR (high-impact products). "
+    "Generate 5 Russian content variables in Cyrillic (never Latin or CJK), derived from the product data: "
+    "product_ru = short Russian product name ≤40 chars (on-image subtitle); "
+    "cta_ru = short Russian call-to-action headline, 2-4 words in CAPS (e.g. НАДЁЖНАЯ защита); "
+    "selling_points_ru = 3-4 Russian selling points from attributes/description, semicolon-separated, each ≤3 words; "
+    "effect_data_ru = 1-3 numeric effect data points from numeric attributes (e.g. 45 минут; до 20 м²; 120 штук), semicolon-separated; "
+    "target_ru = Russian target objects/categories, semicolon-separated. "
+    "Output ONLY a JSON object with exactly these 25 keys "
+    "(19 visual variables + headline_style + 5 Russian variables), no markdown, no extra text."
 )
 _DEFAULT_UP = (
     "Product title: {{title}}\nProduct description: {{description}}\n"
     "Product category: {{category}}\nProduct attributes:\n{{attributes}}\n"
     "Product size: {{size}}\nProduct weight: {{weight}}\n"
     "Scene context hint: {{scene_context}}\n\n"
-    "Return the JSON object of the 19 visual variables (English, no markdown)."
+    "Return the JSON object of the 25 variables (English visual + Russian content, no markdown)."
 )
 
 
 def visual_vars_llm_node(state: VisualVarsInput, config: RunnableConfig, runtime: Runtime[Context]) -> VisualVarsOutput:
     """
     title: 视觉变量生成LLM节点
-    desc: 使用deepseek-V4-flash模型，从draft文本推断19个视觉变量（英文），失败回退确定性提取
+    desc: 使用deepseek-V4-flash模型，从draft文本推断25个视觉变量（英文视觉 + 俄文内容），失败回退确定性提取
     integrations: api.mxou.cn LLM (deepseek-v4-flash)
     """
     ctx = runtime.context
@@ -274,7 +309,7 @@ def visual_vars_llm_node(state: VisualVarsInput, config: RunnableConfig, runtime
             user_prompt=user_prompt,
             model=llm_config.get("model", "deepseek-v4-flash"),
             temperature=llm_config.get("temperature", 0.7),
-            max_tokens=llm_config.get("max_tokens", 2048),
+            max_tokens=llm_config.get("max_tokens", 4096),
         )
         if content and content.strip():
             parsed = _parse_visual_vars(content)
