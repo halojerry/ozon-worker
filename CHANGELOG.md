@@ -90,6 +90,24 @@
 - 全量 worker pytest **442 passed**（排除 2 个已知基线失败 + 2 个需 PG 文件）。
 - 真实渲染验证（本地 Docker）：main prompt 含俄文标题「НАДЁЖНЫЙ ЗВУК」+ 品名 + 卖点 + HEX #F59E0B + `Product:` 前缀 ✅；LLM 失败回退干净无文字 ✅；white_bg 禁一切文字 + 材质渲染 ✅。
 
+## [0.33.1] - 2026-08-09
+
+> v8 中文模板修正（用户迭代：v6 英文模板 → v8 中文文案 + SCENE 独立变量 + multi_angle 禁文字纠正）。
+
+### Refactor(worker 生图模板 v8 中文)
+
+- **v6 英文模板 → v8 中文**：`image_prompts.json` 10 图位改中文文案（用户提供 `prompt-template-v8.html`），首句「产品：{{title}}」，`_DEFAULT_PROMPTS` 逐字同步。
+- **SCENE_1/2/3 独立变量**：`visual_vars_llm` 透传 `scene_context_1/2/3` → 输出 `scene_1/scene_2/scene_3`（中文场景文案，确定性透传，LLM 不可覆盖，空值回退 `""`）；scene 节点模板改用 `{{scene_N}}` 替代 `{{scene_context}}`。
+- **文字规则（最终确认）**：允许俄文 7 图（main/scene×3/comparison/detail/social_proof，含 `{{product_ru}}` 等 AI 渲染）+ 禁一切文字 3 图（white_bg/multi_angle/variant_white_bg）。
+- **multi_angle 禁文字纠正**：用户口头修正 v8 HTML 的「俄文角标」设计——multi_angle 不允许任何文字（无 ВИД 角标，与 v6 一致）。
+- 视觉变量保持英文（SP 不动）；所有 RU/场景/风格变量 `{% if %}` 守卫（空值→干净图无残留）。
+
+### 测试
+
+- 适配 3 个测试文件（v6 英文断言 → v8 中文语义：`Product:`→`产品：`、`no text`→`禁止任何文字`、scene_context→scene_N）。
+- 全量 worker pytest **454 passed**（排除 2 个基线失败 + 2 个需 PG 文件）。
+- 真实渲染验证（本地 Docker）：main 中文 prompt 含「夏日户外野餐」场景 + 「НАДЁЖНЫЙ ЗВУК」俄文标题 + HEX + 中文负面 ✅；white_bg/multi_angle 中文禁文字 ✅；scene_1 用 `{{scene_1}}` 渲染 ✅。
+
 ## [0.30.0] - 2026-08-08
 
 

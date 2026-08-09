@@ -2,6 +2,15 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.33.1 — 生图模板 v8 中文修正）
+
+> 2026-08-09。用户迭代：v6 英文模板 → v8 中文文案（`prompt-template-v8.html`）+ SCENE 独立变量 + multi_angle 禁文字纠正。详见 `CHANGELOG.md`。
+
+- **v8 中文模板**: 10 图位改中文文案（首句「产品：{{title}}」），`_DEFAULT_PROMPTS` 逐字同步。允许俄文 7 图（main/scene×3/comparison/detail/social_proof 含 `{{product_ru}}` 等 AI 渲染）+ 禁文字 3 图（white_bg/multi_angle/variant_white_bg）。
+- **SCENE_1/2/3 独立变量**: visual_vars_llm 透传 scene_context_1/2/3 → scene_1/2/3（中文场景，LLM 不可覆盖，空值回退）；scene 节点模板用 `{{scene_N}}`。
+- **multi_angle 禁文字纠正**: 用户口头修正（v8 HTML 标"允许俄文"但实际不允许任何文字，无 ВИД 角标）。
+- **关键约定沿用**: ① RU 回退=空串→干净无文字图；② `color_preset` 不进 visual_vars；③ negative prompt 内嵌模板尾部；④ 视觉变量英文 + 模板中文；⑤ color 确定性。
+
 ## 最近更新（v0.31.0 — discover v3 裂变选品 + trend 移除 + 真实链路修复）
 
 > 2026-08-08 发版（tag v0.31.0，worker+skill 均发布，COS 已分发）。hyperplan 对抗规划落地（`.omo/plans/discover-v3-fission-selection.md`）。详见 `CHANGELOG.md`。
@@ -19,8 +28,6 @@
 - **10 图位英文模板**: 后缀 A（7 图 AI 直出俄文：main/scene×3/comparison/detail/social_proof）+ 后缀 B（3 图禁文字：white_bg/multi_angle/variant_white_bg）；首句 `Product: {{title}}`；全部变量 `{% if %}` 守卫。
 - **关键约定**: ① RU 回退=空串→干净无文字图（绝不用中文 title 顶替，中文进图被 Ozon 拒）；② `color_preset` 不进 visual_vars（防 assemble_prompt kwargs 碰撞）；③ negative prompt 内嵌模板尾部（mxou API 无 negative_prompt 字段）；④ 占位符大写{v6}→小写{{jinja2}}；⑤ color 确定性（`_DETERMINISTIC_KEYS` +color，LLM 英文色不覆盖）。
 - **10 个生图节点零改动**（模板+变量层全在配置/工具层）。
-
-## 最近更新（v0.31.0 — discover v3 裂变选品 + trend 移除 + 真实链路修复）
 
 ## 最近更新（v0.32.0 — 生图视觉变量体系 + 四修复）
 
