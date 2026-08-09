@@ -39,10 +39,12 @@ def _first_attr_value(attributes: dict, keys: tuple[str, ...]) -> str:
 
 
 def extract_visual_vars_from_draft(draft: dict) -> dict:
-    """确定性从 draft 提取视觉变量（无 LLM）。返回 {material, color, size, weight, category}。
+    """确定性从 draft 提取视觉变量（无 LLM）。返回 {material, size, weight, category}。
+
+    ⚠️ v0.32: color 已移除——参考图已含产品真实颜色，prompt 注入颜色（尤其
+    1688 多选逗号串脏值）反而误导生图。颜色由参考图 + 模板承担。
 
     - material ← draft.attributes 键「材质/材料/material」（首个命中）
-    - color ← draft.attributes 键「颜色/color」（首个命中）
     - size ← draft.dimensions {length,width,height} mm → "120×80×60 mm"（缺任一维度→""）
     - weight ← draft.weight（int 克）→ "227 г"
     - category ← draft.category
@@ -62,7 +64,6 @@ def extract_visual_vars_from_draft(draft: dict) -> dict:
 
     return {
         "material": _first_attr_value(attributes, _MATERIAL_KEYS),
-        "color": _first_attr_value(attributes, _COLOR_KEYS),
         "size": size,
         "weight": weight,
         "category": draft.get("category", ""),
@@ -74,7 +75,7 @@ def merge_visual_vars(draft: dict, llm_vars: dict) -> dict:
 
     - LLM 值非空字符串时覆盖确定性值；空串/空白/None/非 dict 一律忽略
       （不产生空占位符残留）
-    - 返回 {material, color, size, weight, category, ...LLM 扩展变量}
+    - 返回 {material, size, weight, category, ...LLM 扩展变量}
     """
     merged = extract_visual_vars_from_draft(draft)
     if isinstance(llm_vars, dict):

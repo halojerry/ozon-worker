@@ -258,14 +258,14 @@ def test_scene_slots_pass_distinct_slot_scene_context():
             f"{expected_key} scene_context 应同时透传（兼容）"
 
 
-def test_prompt_renders_material_color_from_draft():
-    """draft.attributes 含材质/颜色 → 节点 prompt 渲染出材质/颜色（真实模板验证）"""
+def test_prompt_renders_material_from_draft():
+    """draft.attributes 含材质 → 节点 prompt 渲染出材质（v0.32: color 已移除不渲染）"""
     from graphs.state_image_gen import MainImageInput
     draft = {"title": TITLE, "attributes": {"材质": "ABS塑料", "颜色": "白色"}}
     state = MainImageInput(draft=draft, token="t", white_bg_image=REF_IMAGE)
     for prompt in _run_node(main_image_gen_node, state, _main_image_mod):
         assert "ABS塑料" in prompt, f"材质未渲染进 prompt: {prompt[:80]!r}"
-        assert "白色" in prompt, f"颜色未渲染进 prompt: {prompt[:80]!r}"
+        assert "白色" not in prompt, f"v0.32: color 不应渲染（参考图承担颜色）: {prompt[:80]!r}"
         assert "{{" not in prompt, f"存在未渲染占位符: {prompt[:80]!r}"
 
 
@@ -299,8 +299,8 @@ def test_node_passes_color_preset_from_draft_category():
         f"color_preset 未透传: {calls[0][1].get('color_preset')!r}，期望 PET_FUN"
 
 
-def test_llm_overrides_deterministic_vars():
-    """合并优先级：LLM 值非空时覆盖确定性 extract（color 被 LLM 覆盖，material 保留）"""
+def test_llm_visual_vars_not_inject_color():
+    """v0.32: 模板已移除 color 占位符 → LLM visual_vars 的 color 值静默忽略（参考图承担颜色）"""
     from graphs.state_image_gen import MainImageInput
     draft = {"title": TITLE, "attributes": {"材质": "ABS塑料", "颜色": "白色"}}
     state = MainImageInput(
@@ -308,8 +308,10 @@ def test_llm_overrides_deterministic_vars():
         visual_vars={"color": "navy blue + rose gold"},
     )
     for prompt in _run_node(main_image_gen_node, state, _main_image_mod):
-        assert "navy blue + rose gold" in prompt, f"LLM color 未覆盖确定性值: {prompt[:100]!r}"
-        assert "白色" not in prompt, f"确定性 color 未被 LLM 覆盖（优先级错误）: {prompt[:100]!r}"
+        assert "navy blue + rose gold" not in prompt, \
+            f"v0.32: color 值不应注入 prompt: {prompt[:100]!r}"
+        assert "白色" not in prompt, f"color 不应渲染: {prompt[:100]!r}"
+        assert "ABS塑料" in prompt, "material 仍应渲染"
         assert "ABS塑料" in prompt, f"material（无 LLM 值）应保留确定性提取: {prompt[:100]!r}"
         assert "{{" not in prompt
 
