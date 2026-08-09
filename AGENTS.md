@@ -10,6 +10,16 @@
 - **蓝海评分扩展**: +chain_depth（10/7/4/0）+category_consistency（同类目 10/跨类目 3/无数据 0）因子；权重再平衡（competing_sellers/profit_margin 30→20）；`apply_analytics_to_candidate` 从 category2_id 写 category；run_fission 种子类目透传。
 - **fetch_seller_analysis 双 bug 修复**: 签名错（list 当 cdp 传 + cdp_url 非法 kwarg）→ (cdp, skus)；camelCase→snake_case。fetch_seller_products/analysis 加 `cdp=` 连接级复用。seller 命令从此返回真实运营数据。
 - **trend 管线移除**: 删 trend_selection/mxou_chat/cmd_trend（agent 自带 LLM+web_search，能力替代+去重复）。SKILL.md 管线 E 重写为「agent web_search + LLM → discover --keyword」。
+
+## 最近更新（v0.32.0 — 生图视觉变量体系 + 四修复）
+
+> 2026-08-09。v0.32 生图改动 + 四个线上实测驱动的修复（5371047 店铺 3 产品 E2E：2 approved + 1 validation_failed）。详见 `CHANGELOG.md`。
+
+- **生图 `{{category}}` 恒空修复**: skill `draft.category` 兜底 1688 面包屑末级；worker 类目匹配后回填 `category_name` → `GlobalState`；`merge_visual_vars` 排除确定性 key（LLM 英文 Plastic 不再覆盖中文「ABS塑料」）；SP 放宽（确定性变量保留源语言）。
+- **类目 sim 接受门槛**: `MIN_SIM_BY_MATCHER`（jieba 0.5/pg_trgm 0.3/ili 0.5）；低分候选不直接采用 → overlap → LLM fallback → 最终硬阻断；`match_confidence` 挂钩真实 sim（graph `<0.3` 路由从此生效）；pg_trgm 显式 `>=0.3`（GUC 无关）。
+- **retry moderation 字段**: `ValidationRetryLoopState` 补 `moderation_status`/`failed_stage`（修复 60 次审核轮询超时 + PRICING_FAILED 分支崩溃）。
+- **属性名同义词匹配**: `_match_product_attr` 四层（精确→包含→jieba 分词重叠→同义词组）；共享 `load_attr_synonyms()`（prepare/assemble 单一来源）；扩充 attr_synonyms.json（+color/type/quantity 组）。
+- ⚠️ 测试环境规范不变：功能测试本地 Docker（localhost:8080），禁止云端。
 - **真实链路修复（maozi 插件学习）**: webSellerList 字段名修正（id/link/name 非 sellerId/sellerUrl——之前 seller_url 恒空裂变失效）；stale tab 存活校验（防 No such target id 500）；_ensure_ozon_tab 复用后导航目标页（DataDome 按页面会话校验）；normalize_seller_id 前缀剥离。
 - **preflight 源码模式跳过版本门**: 无 .so 时任何 ≥3.12 解释器可运行（dist 分发版本门照常）。
 - ⚠️ **测试环境规范（红线）**: 功能测试一律本地 Docker（localhost:8080），**禁止用云端 worker.mxou.cn 做功能测试**（生产是真实数据+真实上架凭证）；云端只做用户视角验证。详见「测试」章节。

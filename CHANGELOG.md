@@ -30,7 +30,45 @@
 - 新增 `test_fission_budget.py`（9 断言：预算触顶/双 visited/seller_id 归一化/checkpoint/共识排名）、`test_fission_e2e_mock.py`（4 断言：3 种子 depth=1 <5s + source_chain + visited 截断 + category 透传）、`test_blue_ocean_extension.py`（6 断言：chain_depth 四档/category 三态/两模式 ≤100）、`test_seller_analysis_fix.py`（7 断言：签名/字段名/cdp 复用）。
 - 真实 CLI 验证：`discover --keyword 宠物用品 --fission` → 3 种子 → 45 真实跟卖卖家 → 6 候选（含 3 裂变产品：拉力器/宠物梳/削皮器）→ 表格 → EXIT=0。
 
+## [0.32.0] - 2026-08-09
+
+> 生图提示词视觉变量体系（Wave 1-C/2 占位符 + color_preset + 模型路由）+ 四修复（生图类目补链 / 类目 sim 接受门槛 / retry moderation 字段 / 属性同义词匹配）。规划来源：线上 E2E 实测驱动（5371047 店铺 3 产品，2 approved + 1 validation_failed）。
+
+### Feat(worker 生图 v0.32)
+
+- **生图模板占位符体系**：`image_prompts.json` 10 图位加入确定性视觉变量占位符（`{{material}}/{{size}}/{{weight}}/{{category}}` + LLM 扩展 `{{lighting}}/{{background}}/{{effects}}/{{atmosphere}}`，`{% if %}` 守卫缺省整句省略）。
+- **visual_vars_llm 节点**（Wave 2）：deepseek-v4-flash 推断 19 个视觉变量（2 层容错 JSON 解析，失败回退确定性提取 + 品类默认，绝不阻断生图）；10 生图节点接线消费 + `color_preset` 配色预设路由。
+- **生图移除 color 变量**：参考图承担产品颜色（1688 多选逗号串脏值防误导）；GIFT 禁编造 + 1688 属性值清洗（多选串取首项 + 30 字符截断）。
+- 文档：`docs/IMAGE-PROMPT-GUIDE.md`（10 占位符 + 图位组合 + 模型路由表）。
+
+### Fix(worker 四修复)
+
+- **生图 `{{category}}` 恒空修复**（实测日志：prompt 渲染「突出品类产品的优势」= category 空）：
+  - skill `cloud_probe.py`：`draft.category` 兜底 1688 面包屑末级（`category_name` 为空时），不再空/俄语。
+  - worker `assemble` 类目匹配后回填 `category_name`（ZH 末级类目名）→ `GlobalState`。
+  - `visual_vars_llm` 兜底输出补 `category/weight` + 类目解析接 `state.category_name`。
+  - `merge_visual_vars` 排除确定性 key（`material/size/weight/category`）——LLM 英文 `Plastic` 不再覆盖中文「ABS塑料」；SP 放宽：确定性变量保留源语言，创意变量英文。
+  - 10 生图节点 `merge_visual_vars` 传 `state.category_name`。
+- **类目匹配 sim 接受门槛**（实测：笔筒 sim=0.200 错配「儿童多功能学习挂图」被直接采用 → 属性映射 0）：
+  - `MIN_SIM_BY_MATCHER`（jieba 0.5 / pg_trgm 0.3 / ili 0.5，三路标尺不可共用）；低分候选不直接采用 → overlap 验证 → LLM fallback → 最终采纳点硬阻断（`match_confidence=0.0` + 阻断上架）。
+  - `match_confidence` 从硬编码 0.5 改为挂钩真实 sim（`graph.py` `<0.3` 路由阻断从此真正生效）。
+  - `ozon_category_query` pg_trgm 显式 `>=0.3` 过滤（GUC 无关，消除 `db.py` SET 连接级失效的非确定性）。
+- **retry 审核轮询超时修复**（实测日志：`"ValidationRetryLoopState" object has no field "moderation_status"` → 60×5s 轮询超时未决）：
+  - `ValidationRetryLoopState` 补 `moderation_status`/`failed_stage` 字段（Pydantic v2 严格禁止未定义字段赋值）；透出链：子图 → `ValidationRetryLoopOutput` → wrapper → `GlobalState`。
+  - 附带修复 `repair_pricing_node` PRICING_FAILED 分支 `state.failed_stage` 无 try/except 崩溃风险。
+- **属性名同义词匹配**（实测：1688 笔筒 15 属性映射 0——`_match_product_attr` 纯字符串匹配对无空格中文失效 + 同义词表不进 assemble）：
+  - `_match_product_attr` 改四层：精确 → 包含 → jieba 分词子串重叠 → 同义词组（`match_attr_name_synonym` 同组双向包含，防错误值）。
+  - 共享加载器 `load_attr_synonyms()`（prepare `_fill_optional_dict_attrs` 改用同一来源）；扩充 `attr_synonyms.json`（主要材质/适用季节/款式 + color/type/quantity 3 新组）。
+
+### 测试
+
+- 新增 `test_category_match_threshold.py`（11 断言：三路门槛/L0-Skill 豁免/sim 挂钩）、`test_attr_synonym_match.py`（13 断言：词汇分歧/负例/jieba 重叠/管道）、`test_envelope_category_fallback.py`（7 断言：面包屑末级兜底）。
+- 扩展 `test_prompt_assembler.py`（+9：merge 防英文覆盖/category/weight 携带/state 兜底）、`test_visual_vars_llm_node.py`（+3）、`test_attribute_fill_v016.py`（+1：分歧属性入输出）、`test_retry_attr_snapshot.py`（+5：moderation 字段/approved/declined/failed_stage）。
+- 全量 worker pytest 428 passed / 2 基线失败（`learning_record_gate`、`full_pipeline_context`，git worktree 基线 d73472a 同败，非本次引入）；mock 管线 12/12；skill 测试全过；`ci.sh --quick` 通过。
+- 真实链路验证（本地 Docker）：笔筒 sim=0.200 拒绝（门槛 0.5）✅、正常 0.667 接受 ✅、pg_trgm 0.31 接受 ✅；同义词「季节↔适用季节」「材质↔主要材质」「款式↔风格」匹配 ✅、跨组负例 None ✅。
+
 ## [0.30.0] - 2026-08-08
+
 
 > hyperplan 对抗规划落地：worker 属性匹配修复（retry 止血 + fetch-back 回读闭环 + 学习 provenance）+ skill runtime 稳定化（顶层 preflight + CDP 统一）。规划文件：`.omo/plans/attribute-matching-runtime-stability.md`。
 
