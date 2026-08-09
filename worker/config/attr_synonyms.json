@@ -1,7 +1,7 @@
 {
   "material": {
-    "zh_keywords": ["材质", "面料", "材料"],
-    "ozon_name_keywords": ["материал", "材质", "material"],
+    "zh_keywords": ["材质", "面料", "材料", "主要材质"],
+    "ozon_name_keywords": ["материал", "材质", "材料", "material"],
     "value_map": {
       "不锈钢": "Нержавеющая сталь",
       "塑料": "Пластик",
@@ -24,7 +24,7 @@
   },
   "season": {
     "zh_keywords": ["季节", "适用季节"],
-    "ozon_name_keywords": ["сезон", "季节", "season"],
+    "ozon_name_keywords": ["сезон", "季节", "适用季节", "season"],
     "value_map": {"夏季": "Лето", "冬季": "Зима", "春秋": "Демисезон", "四季": "Всесезонный"}
   },
   "use": {
@@ -34,7 +34,7 @@
   },
   "style": {
     "zh_keywords": ["风格", "款式", "造型"],
-    "ozon_name_keywords": ["стиль", "风格", "стиль дизайна"],
+    "ozon_name_keywords": ["стиль", "风格", "款式", "стиль дизайна"],
     "value_map": {
       "卡通风": "Мультяшный",
       "简约": "Минимализм",
@@ -47,6 +47,21 @@
       "休闲": "Повседневный",
       "运动": "Спортивный"
     }
+  },
+  "color": {
+    "zh_keywords": ["颜色", "颜色分类"],
+    "ozon_name_keywords": ["цвет", "цвет товара", "颜色", "color"],
+    "value_map": {}
+  },
+  "type": {
+    "zh_keywords": ["类型", "产品类型", "型号"],
+    "ozon_name_keywords": ["тип", "типа", "тип товара", "类型", "型号", "модель"],
+    "value_map": {}
+  },
+  "quantity": {
+    "zh_keywords": ["数量", "件数"],
+    "ozon_name_keywords": ["количеств", "数量", "quantity"],
+    "value_map": {}
   },
   "packaging": {
     "zh_keywords": ["包装", "包装方式", "包装规格"],

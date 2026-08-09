@@ -171,6 +171,33 @@ def test_customs_attr_utils_detection():
     assert not is_customs_attr(9999, "商品颜色")
 
 
+def test_vocab_divergence_attr_enters_output():
+    """1688「材料」→ Ozon schema「材质」：词汇分歧（非子串）经同义词组匹配 → 值进入输出
+    （v0.32 修复前该分歧名 0 匹配 → 属性不进入 items）"""
+    schema = [{"id": 55555, "name": "材质", "dictionary_id": 0, "is_required": False}]
+    draft = {k: v for k, v in _draft().items() if k != "attributes"}
+    draft["attributes"] = {"材料": "ABS"}
+    items = _build_items_deterministically(
+        draft=draft,
+        description_category_id=17028830,
+        type_id=971206780,
+        attr_list=schema,
+        dict_lookup={},
+        images=draft["images"],
+        ozon_client_id="test_client",
+        ozon_api_key="test_key",
+        weight_grams=int(draft["weight"]),
+        dimensions=draft["dimensions"],
+        price_rub=str(draft["price"]),
+        old_price_rub=str(draft["original_price"]),
+        currency_code="RUB",
+        token="sk-test",
+    )
+    am = {int(a["id"]): a for a in items[0]["attributes"]}
+    assert 55555 in am, "词汇分歧属性应经同义词组匹配进入输出"
+    assert am[55555]["values"][0]["value"] == "ABS"
+
+
 # ── prepare 侧：中文零容忍 ──
 def test_prepare_russian_required_translation_failure_skipped():
     """_russian_required_attrs（4191）翻译返回拉丁 → 跳过该属性（绝不拉丁原文上传）"""

@@ -131,6 +131,32 @@ def pick_dict_fallback_value(attr_id: int | None, attr_name: str, dict_vals) -> 
     return None
 
 
+def match_attr_name_synonym(ozon_name, product_attr_names, synonyms) -> str | None:
+    """同组双向包含匹配（v0.32 词汇分歧修复）。
+
+    规则（严格，防错误值）：Ozon 属性名含某组 `ozon_name_keywords` 中任一
+    **AND** 1688 属性名含**同一组** `zh_keywords` 中任一 → 返回该 1688 属性名。
+    宽松单侧命中 / 跨组命中 / 无同义词组 → None（绝不引入错误值）。
+
+    例：Ozon「款式」(style 组 ozon 关键词) + 1688「风格」(style 组 zh 关键词) → "风格"。
+    """
+    if not ozon_name or not product_attr_names or not synonyms:
+        return None
+    ozon_lower = str(ozon_name).strip().lower()
+    for rule in synonyms.values():
+        if not isinstance(rule, dict):
+            continue
+        ozon_kws = [str(k).lower() for k in rule.get("ozon_name_keywords") or []]
+        if not any(kw in ozon_lower for kw in ozon_kws):
+            continue
+        zh_kws = [str(k).lower() for k in rule.get("zh_keywords") or []]
+        for pa_name in product_attr_names:
+            pa_lower = str(pa_name).strip().lower()
+            if any(kw in pa_lower for kw in zh_kws):
+                return pa_name
+    return None
+
+
 def has_chinese(text: str | None) -> bool:
     """是否含中文字符"""
     return bool(text) and bool(_CJK_RE.search(str(text)))

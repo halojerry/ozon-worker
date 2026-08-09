@@ -997,13 +997,8 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
 
     覆盖范围从 v0.25「仅非必填+同义词」扩展为「全部未填字典属性（含必填兜底失败者）」。
     """
-    import json as _json
-    cfg_path = os.path.join(os.getenv("APP_WORKSPACE_PATH", "/app"), "config", "attr_synonyms.json")
-    try:
-        with open(cfg_path, "r", encoding="utf-8") as _f:
-            synonyms = _json.load(_f)
-    except Exception:
-        synonyms = {}
+    from utils.attr_synonyms import load_attr_synonyms  # v0.32 共享加载器（单一事实源，与 assemble 一致）
+    synonyms = load_attr_synonyms()
     draft_attrs = dict((draft or {}).get("attributes") or {})
     # 早期返回仅当「双无」: follow 信封可能只有 draft.ozon_attributes（无 1688 attributes）
     if not draft_attrs and not (draft or {}).get("ozon_attributes"):
