@@ -69,6 +69,7 @@ def validation_retry_wrapper_node(
     final_error_message: str = result.get("error_message", "")
     product_id: Any = result.get("product_id", None)
     upload_status: str = result.get("upload_status", "")
+    moderation_status: str = result.get("moderation_status", "")
 
     logger.info(f"✅ 子图执行完成：is_valid={is_valid}, retry_count={retry_count}, upload_status={upload_status}")
 
@@ -81,5 +82,6 @@ def validation_retry_wrapper_node(
         error_message=final_error_message,
         product_id=product_id if product_id else None,
         upload_status=upload_status,
+        moderation_status=moderation_status,
         progress_counter=21
     )
