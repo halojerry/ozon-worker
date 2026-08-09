@@ -12,7 +12,8 @@ from graphs.state_image_gen import SocialProofInput, SocialProofOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.mxou_api import clean_title_for_image_prompt
-from utils.prompt_assembler import assemble_prompt, extract_visual_vars_from_draft  # ✅ v0.31: 视觉变量注入
+from utils.prompt_assembler import assemble_prompt, merge_visual_vars  # ✅ v0.31: 视觉变量注入（Wave 2: LLM + 确定性合并）
+from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色预设路由
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
 from utils.task_image_cache import get_image, save_image, _task_id_from_config  # ✅ v0.26: 重跑不重烧生图
 
@@ -49,9 +50,10 @@ def social_proof_gen_node(state: SocialProofInput, config: RunnableConfig, runti
             return SocialProofOutput(social_proof_image=cached)
     
     title = clean_title_for_image_prompt(draft.get("title", ""))
-    # ⚠️ v0.31: 提示词走 prompt_assembler（注入 draft 视觉变量，模板无占位符时静默忽略）
-    _vv = extract_visual_vars_from_draft(draft or {})
-    prompt = assemble_prompt("social_proof", title=title, **_vv)
+    # ⚠️ v0.31+Wave 2: 确定性 extract 低优先 + state.visual_vars LLM 高优先 + 配色预设
+    _vv = merge_visual_vars(draft or {}, getattr(state, "visual_vars", None))
+    _cp = resolve_color_preset((draft or {}).get("category", ""))
+    prompt = assemble_prompt("social_proof", title=title, **_vv, color_preset=_cp)
     
     # 构建参考图列表：使用Phase1的图片作为参考（内联逻辑）
     ref_images: List[str] = []

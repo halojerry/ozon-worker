@@ -6,9 +6,9 @@
   任何失败回退 `image_prompts.get_image_prompt`（现有中文模板兜底，绝不抛异常）
 
 模板占位符现状: {{title}} / {{scene_context}}（v0.16）。
-material/color/size/weight/category 占位符由 Wave 1-C 模板增强加入——
-模板不含时 Jinja2 静默忽略多余 kwargs（预期行为，不报错）。
-extra 变量（model/action/lighting 等）为 Wave 2 预留，当前不透传到模板。
+material/color/size/weight/category 占位符由 Wave 1-C 模板增强加入；
+extra 视觉变量（lighting/background/effects/atmosphere 等 LLM 值）由 Wave 2
+透传到 Jinja2 render——模板含对应占位符则渲染，无则静默忽略（预期行为，不报错）。
 """
 import logging
 
@@ -69,6 +69,21 @@ def extract_visual_vars_from_draft(draft: dict) -> dict:
     }
 
 
+def merge_visual_vars(draft: dict, llm_vars: dict) -> dict:
+    """合并视觉变量 3 源（Wave 2 接线）: 确定性 extract（低优先） + LLM 19 变量（高优先）。
+
+    - LLM 值非空字符串时覆盖确定性值；空串/空白/None/非 dict 一律忽略
+      （不产生空占位符残留）
+    - 返回 {material, color, size, weight, category, ...LLM 扩展变量}
+    """
+    merged = extract_visual_vars_from_draft(draft)
+    if isinstance(llm_vars, dict):
+        merged.update(
+            {k: v for k, v in llm_vars.items() if isinstance(v, str) and v.strip()}
+        )
+    return merged
+
+
 def assemble_prompt(
     slot_key: str,
     *,
@@ -80,13 +95,14 @@ def assemble_prompt(
     size: str = "",
     weight: str = "",
     category: str = "",
-    **extra,  # Wave 2 变量（model/action/lighting 等），当前不透传到模板
+    **extra,  # Wave 2 变量（lighting/background/effects/atmosphere/color_preset 等），透传模板渲染
 ) -> str:
     """组装生图 prompt。
 
     - 场景优先级: slot_scene_context > scene_context > 模板默认
     - 渲染: 读 config/image_prompts.json 模板（热加载，同 image_prompts.py 模式），
-      把 title/scene_context/material/color/size/weight/category 注入 Jinja2
+      把 title/scene_context/5 固定视觉变量 + extra 全部注入 Jinja2
+      （模板含对应占位符才渲染，多余 kwargs 静默忽略）
     - 兜底: 任何失败 → 调用 image_prompts.get_image_prompt(slot_key, title=title,
       scene_context=有效场景)（现有中文模板兜底）
     - slot_scene_context 非空 → 作为 {{scene_context}} 渲染（scene_1/2/3 差异化）
@@ -106,6 +122,8 @@ def assemble_prompt(
             "weight": weight,
             "category": category,
         }
+        # Wave 2: extra 变量透传 Jinja2 render —— 模板含占位符则渲染，无则静默忽略
+        render_kwargs.update({k: v for k, v in extra.items() if isinstance(v, str)})
         return Template(template).render(**render_kwargs)
     except Exception as e:
         logger.warning("prompt_assembler 渲染失败(key=%s): %s，回退 get_image_prompt", slot_key, e)

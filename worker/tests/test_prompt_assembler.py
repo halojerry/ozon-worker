@@ -240,6 +240,65 @@ def test_unknown_slot_returns_empty_gracefully():
         assert p == ""
 
 
+# ── (i) Wave 2: **extra 视觉变量透传 Jinja2 render ──
+
+# 含 {{lighting}}/{{background}} 等 LLM 变量占位符的自定义模板（模拟 Wave 2 模板增强后的形态）
+_LLM_TEMPLATE = {
+    "main": (
+        "产品：{{title}}。光线：{{lighting}}。背景：{{background}}。"
+        "特效：{{effects}}。氛围：{{atmosphere}}。"
+    ),
+}
+
+
+def test_extra_visual_vars_render_when_placeholders_exist():
+    """extra={lighting:...} 且模板含 {{lighting}} → 渲染进 prompt"""
+    with _fake_workspace(prompts=_LLM_TEMPLATE):
+        p = assemble_prompt(
+            "main", title="保温杯",
+            lighting="soft studio light",
+            background="cozy living room",
+            effects="subtle soft glow",
+            atmosphere="premium and cozy",
+        )
+        for token in ("保温杯", "soft studio light", "cozy living room", "subtle soft glow", "premium and cozy"):
+            assert token in p, f"extra 变量 {token!r} 未渲染进 prompt"
+        assert "{{" not in p
+
+
+def test_extra_vars_silently_ignored_without_placeholders_wave2():
+    """模板不含 {{lighting}} → extra lighting 被静默忽略（不报错、不注入）"""
+    with _fake_workspace(prompts=_CUSTOM_TEMPLATE):  # _CUSTOM_TEMPLATE 无 lighting 占位符
+        p = assemble_prompt("main", title="保温杯", lighting="studio light")
+        assert "保温杯" in p
+        assert "studio light" not in p, "extra 变量（lighting）不应注入无占位符模板"
+        assert "{{" not in p
+
+
+def test_real_template_renders_llm_visual_vars():
+    """真实模板已加 {{lighting}}/{{background}}/{{effects}}/{{atmosphere}} → 传入即渲染"""
+    with _real_workspace():
+        p = assemble_prompt(
+            "main", title="保温杯",
+            lighting="warm golden hour light",
+            background="cozy modern living room",
+            atmosphere="premium and cozy",
+        )
+        for token in ("warm golden hour light", "cozy modern living room", "premium and cozy"):
+            assert token in p, f"真实模板未渲染 extra 变量 {token!r}"
+        assert "{{" not in p
+
+
+def test_empty_extra_vars_no_residue():
+    """LLM 值空串 → 模板有占位符但值为空 → 不产生 {{ 残留 / None（Jinja2 空串渲染）"""
+    with _fake_workspace(prompts=_LLM_TEMPLATE):
+        p = assemble_prompt("main", title="保温杯", lighting="", background="", effects="", atmosphere="")
+        assert "{{" not in p
+        assert "None" not in p
+        assert "Undefined" not in p
+        assert "保温杯" in p
+
+
 # ── (g) extract_visual_vars_from_draft 单测 ──
 def test_extract_material_color_size_weight_category():
     draft = {
