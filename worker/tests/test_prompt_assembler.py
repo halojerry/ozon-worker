@@ -347,6 +347,34 @@ def test_extract_attributes_missing_all_empty():
     assert v["category"] == "宠物用品"
 
 
+# ── (i) v0.32 属性值清洗（多选逗号串/超长/空白）──
+def test_extract_material_cleans_comma_multi_select():
+    """1688 材质多选逗号串 → 取首个片段（防脏值污染 prompt）"""
+    draft = {"attributes": {"材质": "ABS塑料,PP,PC"}}
+    assert extract_visual_vars_from_draft(draft)["material"] == "ABS塑料"
+
+
+def test_extract_material_cleans_chinese_comma_and_semicolon():
+    """中文逗号/顿号/分号分隔 → 取首个片段"""
+    for dirty in ("ABS塑料，PP", "ABS塑料、PP", "ABS塑料;PP"):
+        draft = {"attributes": {"材质": dirty}}
+        assert extract_visual_vars_from_draft(draft)["material"] == "ABS塑料", f"{dirty!r}"
+
+
+def test_extract_material_truncates_very_long():
+    """超长属性值（货号前缀等）→ 截断到 30 字符"""
+    long_val = "X13桌面迷你风扇-黑色X13桌面迷你风扇-白色X13桌面迷你风扇-绿色超长值"
+    draft = {"attributes": {"材质": long_val}}
+    v = extract_visual_vars_from_draft(draft)["material"]
+    assert len(v) <= 30, f"应截断到 30 字符，got {len(v)}"
+
+
+def test_extract_material_strips_whitespace():
+    """前后空白 → 清理"""
+    draft = {"attributes": {"材质": "  ABS塑料  "}}
+    assert extract_visual_vars_from_draft(draft)["material"] == "ABS塑料"
+
+
 if __name__ == "__main__":
     import traceback
 

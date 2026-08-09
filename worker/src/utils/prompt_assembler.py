@@ -22,9 +22,34 @@ logger = logging.getLogger(__name__)
 _MATERIAL_KEYS = ("材质", "材料", "material")
 _COLOR_KEYS = ("颜色", "color")
 
+# ⚠️ v0.32: 1688 属性值清洗上限（防脏值污染 prompt）
+# 实测「X13桌面迷你风扇-黑色,X13桌面迷你风扇-白色,...」多选逗号串原样进 prompt
+_ATTR_VALUE_MAX_LEN = 30
+_ATTR_SPLIT_SEP = ("，", ",", "、", ";", "；")
+
+
+def _clean_attr_value(raw: str) -> str:
+    """清洗 1688 属性值：去空白、多选串取首项、长度截断。空 → "". """
+    if not raw:
+        return ""
+    value = str(raw).strip()
+    if not value:
+        return ""
+    # 多选串（逗号/顿号/分号分隔）→ 取首个片段（prompt 只描述主值，避免脏串）
+    for sep in _ATTR_SPLIT_SEP:
+        if sep in value:
+            value = value.split(sep)[0].strip()
+            break
+    # 截断超长值（防货号前缀等噪声）
+    if len(value) > _ATTR_VALUE_MAX_LEN:
+        value = value[:_ATTR_VALUE_MAX_LEN].rstrip()
+    return value
+
 
 def _first_attr_value(attributes: dict, keys: tuple[str, ...]) -> str:
-    """按候选键顺序取 attributes 首个命中的值（大小写不敏感）。缺失/空 → "". """
+    """按候选键顺序取 attributes 首个命中的值（大小写不敏感）。缺失/空 → "".
+    返回前经 _clean_attr_value 清洗（多选串/超长/空白）。
+    """
     if not isinstance(attributes, dict):
         return ""
     lowered = {str(k).lower(): v for k, v in attributes.items()}
@@ -34,7 +59,7 @@ def _first_attr_value(attributes: dict, keys: tuple[str, ...]) -> str:
             continue
         if isinstance(value, (list, tuple)) and value:
             value = value[0]
-        return "" if value is None else str(value)
+        return _clean_attr_value(value)
     return ""
 
 

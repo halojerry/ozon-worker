@@ -31,7 +31,7 @@
 | 项 | 处置 |
 |---|---|
 | negative_prompt / `\|\|NEG\|\|` | **整体砍掉**（双方同罪：未验证断言；后缀内嵌禁令保留）|
-| ru_overlay 进主路径 | **移出**（GraphOutput 无字段，需扩展+回写；Q-4 验收删除）|
+| ru_overlay 进主路径 | **砍掉**（用户决策全 AI 生成，不提供 PS 叠加文案；GraphOutput 无字段非唯一原因）|
 | 多模态推断 | **移除**（纯文本模型）|
 | Jinja2 沙箱 | **移除**（错误威胁模型）|
 | Wave 1 的 10 schema 扩展 | **否决** → 第三路线（节点内即时计算、零状态写入）|
@@ -64,7 +64,7 @@ Wave 2: visual_vars_llm + color_preset + slots               ✅ 全部完成
         ├─ visual_vars_llm_node + state/graph 接线            ✅ 32afaf3
         └─ 10 节点接线（LLM 变量 + 配色三层合并）             ✅ 8c77c7c
 E2E 验证: 本地 Docker 真实生图                                ✅ completed（product 5882926788）
-独立后续: ru_overlay（GraphOutput 扩展）                      ⛔ 独立任务
+独立后续: 无（ru_overlay 已砍——用户决策全 AI 生成，不提供 PS 叠加文案）
 ```
 
 ---
@@ -153,4 +153,4 @@ E2E 验证: 本地 Docker 真实生图                                ✅ comple
 
 ---
 
-*PRD v6 — 2026-08-09，对抗验证后定稿。Wave 0/1/2 全部落地并推送（8 commit），E2E 真实生图验证通过。剩余：A/B 实验（需预算确认）+ ru_overlay（独立任务）。*
+*PRD v6 — 2026-08-09，对抗验证后定稿。Wave 0/1/2 全部落地并推送（8 commit），E2E 真实生图验证通过。v0.32 修订：移除 color 变量（参考图承担颜色）+ GIFT 禁编造 + ru_overlay 砍掉（全 AI 生成）+ 属性值清洗。剩余：A/B 实验（需预算确认）。*
