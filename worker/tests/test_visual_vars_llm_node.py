@@ -182,7 +182,8 @@ def test_llm_returns_none_falls_back():
     out, _calls = _run_node(draft=DRAFT, llm_content=None)
     vv = out.visual_vars
     assert set(vv.keys()) == set(ALL_KEYS)
-    assert vv["color"] == "白色"
+    # v0.32: color 已从生图变量移除（参考图承担颜色），fallback 用 neutral 默认
+    assert vv["color"] == "neutral colors"
     for key in REQUIRED_KEYS:
         assert vv[key], f"必填 {key} 回退后为空"
 

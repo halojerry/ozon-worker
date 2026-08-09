@@ -35,9 +35,10 @@ SLOT_KEYS = [
 ]
 
 # 含全部 visual vars 占位符的自定义模板（模拟 Wave 1-C 模板增强后的形态）
+# ⚠️ v0.32: color 占位符已移除（参考图承担颜色）
 _CUSTOM_TEMPLATE = {
     "main": (
-        "产品：{{title}}。材质：{{material}}。颜色：{{color}}。"
+        "产品：{{title}}。材质：{{material}}。"
         "尺寸：{{size}}。重量：{{weight}}。类目：{{category}}。"
     ),
 }
@@ -118,12 +119,11 @@ def test_visual_vars_rendered_when_placeholders_exist():
             "main",
             title="保温杯",
             material="不锈钢",
-            color="银色",
             size="120×80×60 mm",
             weight="227 г",
             category="水具",
         )
-        for token in ("保温杯", "不锈钢", "银色", "120×80×60 mm", "227 г", "水具"):
+        for token in ("保温杯", "不锈钢", "120×80×60 mm", "227 г", "水具"):
             assert token in p, f"变量 {token!r} 未渲染进 prompt"
         assert "{{" not in p
 
@@ -136,7 +136,6 @@ def test_extra_vars_silently_ignored_without_placeholders():
             "main",
             title="保温杯",
             material="ABS",
-            color="黑色",
             size="100×60×60 mm",
             weight="200 г",
             category="水具",
@@ -145,7 +144,6 @@ def test_extra_vars_silently_ignored_without_placeholders():
         )
         assert "保温杯" in p
         assert "ABS" in p, "visual var（material）应注入增强后的模板"
-        assert "黑色" in p, "visual var（color）应注入增强后的模板"
         assert "cinematic" not in p, "extra 变量（model）不应注入"
         assert "产品特写" not in p, "extra 变量（action）不应注入"
         assert "{{" not in p
@@ -153,7 +151,7 @@ def test_extra_vars_silently_ignored_without_placeholders():
 
 # ── (h) Wave 1-C 真实模板增强：draft visual vars 渲染进真实模板 ──
 def test_real_template_renders_draft_visual_vars():
-    """含 material/color 的 draft → 增强后的真实 main 模板渲染出「ABS塑料」/「白色」"""
+    """含 material 的 draft → 增强后的真实 main 模板渲染出「ABS塑料」（v0.32: color 已移除）"""
     draft = {
         "attributes": {"材质": "ABS塑料", "颜色": "白色"},
         "dimensions": {"length": 120, "width": 80, "height": 60},
@@ -163,10 +161,10 @@ def test_real_template_renders_draft_visual_vars():
     with _real_workspace():
         p = assemble_prompt("main", title="保温杯", **extract_visual_vars_from_draft(draft))
         assert "ABS塑料" in p, "材质未渲染进 prompt"
-        assert "白色" in p, "颜色未渲染进 prompt"
         assert "120×80×60 mm" in p, "尺寸未渲染进 prompt"
         assert "227 г" in p, "重量未渲染进 prompt"
         assert "水具" in p, "类目未渲染进 prompt"
+        assert "白色" not in p, "v0.32: color 不再注入（参考图承担颜色）"
         assert "{{" not in p
 
 
@@ -182,12 +180,11 @@ def test_draft_without_visual_vars_no_residue():
 
 
 def test_title_stays_first_sentence_with_visual_vars():
-    """增强模板下 title 仍为首句（位于材质/颜色描述之前）"""
+    """增强模板下 title 仍为首句（位于材质/尺寸描述之前）"""
     with _real_workspace():
-        p = assemble_prompt("main", title="保温杯", material="ABS塑料", color="白色")
+        p = assemble_prompt("main", title="保温杯", material="ABS塑料", size="100×60×60 mm")
         assert p.startswith("产品：保温杯"), f"title 非首句: {p[:30]!r}"
         assert p.index("保温杯") < p.index("ABS塑料")
-        assert p.index("保温杯") < p.index("白色")
 
 
 # ── (e) 缺失变量 → 无 {{ 残留、无 None/Undefined 字符串 ──
@@ -308,13 +305,14 @@ def test_extract_material_color_size_weight_category():
         "category": "宠物用品",
     }
     v = extract_visual_vars_from_draft(draft)
+    # ⚠️ v0.32: color 已从生图变量移除（参考图承担颜色），不再提取
     assert v == {
         "material": "ABS塑料",
-        "color": "黑色",
         "size": "120×80×60 mm",
         "weight": "227 г",
         "category": "宠物用品",
     }
+    assert "color" not in v
 
 
 def test_extract_first_hit_material_key():
@@ -327,7 +325,7 @@ def test_extract_english_material_color():
     draft = {"attributes": {"Material": "Stainless Steel", "color": "Silver"}}
     v = extract_visual_vars_from_draft(draft)
     assert v["material"] == "Stainless Steel"
-    assert v["color"] == "Silver"
+    assert "color" not in v
 
 
 def test_extract_missing_dimension_skips_size():
@@ -337,7 +335,7 @@ def test_extract_missing_dimension_skips_size():
 
 def test_extract_empty_draft_all_empty():
     assert extract_visual_vars_from_draft({}) == {
-        "material": "", "color": "", "size": "", "weight": "", "category": "",
+        "material": "", "size": "", "weight": "", "category": "",
     }
 
 
@@ -345,7 +343,7 @@ def test_extract_attributes_missing_all_empty():
     draft = {"category": "宠物用品"}
     v = extract_visual_vars_from_draft(draft)
     assert v["material"] == ""
-    assert v["color"] == ""
+    assert "color" not in v
     assert v["category"] == "宠物用品"
 
 
