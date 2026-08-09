@@ -6,10 +6,12 @@ v0.32 Wave 1 — 生图流程优化基础部分：prompt_assembler 工具函数�
 (a) 10 个 slot_key 渲染出非空 prompt（title 注入生效）
 (b) slot_scene_context 覆盖 scene_context（scene_1/2/3 差异化）
 (c) material/color/size/weight/category 注入（模板含占位符时渲染进 prompt）
-(d) 模板无占位符时额外变量静默忽略（不报错、不注入）
+(d) 非视觉 extra 变量（model/action）静默忽略（不报错、不注入）；
+    visual vars 在增强后的真实模板中渲染进 prompt
 (e) 缺失变量 → 无 {{ 残留、无 None/Undefined 字符串
 (f) assemble_prompt 失败 → 回退 get_image_prompt 中文兜底
 (g) extract_visual_vars_from_draft 单测：中文键命中 / mm 拼接 / 缺失→""
+(h) Wave 1-C 真实模板增强：draft visual vars 渲染进真实模板 / 缺失无残留 / title 首句
 
 运行：cd worker && PYTHONPATH=src python3 -m pytest tests/test_prompt_assembler.py -v
       cd worker && PYTHONPATH=src python3 tests/test_prompt_assembler.py
@@ -126,9 +128,9 @@ def test_visual_vars_rendered_when_placeholders_exist():
         assert "{{" not in p
 
 
-# ── (d) 模板无占位符时额外变量静默忽略 ──
+# ── (d) 非视觉 extra 变量静默忽略（visual vars 注入增强后的真实模板）──
 def test_extra_vars_silently_ignored_without_placeholders():
-    # 现有 main 模板只有 {{title}}，无 visual vars / extra 占位符
+    # Wave 1-C 后: visual vars 已含占位符 → 注入；model/action 无占位符 → 静默忽略
     with _real_workspace():
         p = assemble_prompt(
             "main",
@@ -142,8 +144,50 @@ def test_extra_vars_silently_ignored_without_placeholders():
             action="产品特写",
         )
         assert "保温杯" in p
-        assert "ABS" not in p, "模板无占位符时 extra 变量不应注入"
+        assert "ABS" in p, "visual var（material）应注入增强后的模板"
+        assert "黑色" in p, "visual var（color）应注入增强后的模板"
+        assert "cinematic" not in p, "extra 变量（model）不应注入"
+        assert "产品特写" not in p, "extra 变量（action）不应注入"
         assert "{{" not in p
+
+
+# ── (h) Wave 1-C 真实模板增强：draft visual vars 渲染进真实模板 ──
+def test_real_template_renders_draft_visual_vars():
+    """含 material/color 的 draft → 增强后的真实 main 模板渲染出「ABS塑料」/「白色」"""
+    draft = {
+        "attributes": {"材质": "ABS塑料", "颜色": "白色"},
+        "dimensions": {"length": 120, "width": 80, "height": 60},
+        "weight": 227,
+        "category": "水具",
+    }
+    with _real_workspace():
+        p = assemble_prompt("main", title="保温杯", **extract_visual_vars_from_draft(draft))
+        assert "ABS塑料" in p, "材质未渲染进 prompt"
+        assert "白色" in p, "颜色未渲染进 prompt"
+        assert "120×80×60 mm" in p, "尺寸未渲染进 prompt"
+        assert "227 г" in p, "重量未渲染进 prompt"
+        assert "水具" in p, "类目未渲染进 prompt"
+        assert "{{" not in p
+
+
+def test_draft_without_visual_vars_no_residue():
+    """无 visual vars 的 draft → 无空占位符残留、无 {{ / None / Undefined"""
+    draft = {"title": "保温杯"}
+    with _real_workspace():
+        p = assemble_prompt("main", title="保温杯", **extract_visual_vars_from_draft(draft))
+        assert "{{" not in p, "存在未渲染占位符"
+        assert "None" not in p
+        assert "Undefined" not in p
+        assert "保温杯" in p
+
+
+def test_title_stays_first_sentence_with_visual_vars():
+    """增强模板下 title 仍为首句（位于材质/颜色描述之前）"""
+    with _real_workspace():
+        p = assemble_prompt("main", title="保温杯", material="ABS塑料", color="白色")
+        assert p.startswith("产品：保温杯"), f"title 非首句: {p[:30]!r}"
+        assert p.index("保温杯") < p.index("ABS塑料")
+        assert p.index("保温杯") < p.index("白色")
 
 
 # ── (e) 缺失变量 → 无 {{ 残留、无 None/Undefined 字符串 ──
@@ -257,6 +301,10 @@ if __name__ == "__main__":
         test_extra_vars_silently_ignored_without_placeholders,
         test_missing_vars_no_residue_or_none,
         test_missing_vars_render_empty_not_none,
+        test_extra_vars_silently_ignored_without_placeholders,
+        test_real_template_renders_draft_visual_vars,
+        test_draft_without_visual_vars_no_residue,
+        test_title_stays_first_sentence_with_visual_vars,
         test_corrupt_config_falls_back_to_default,
         test_render_failure_falls_back_to_get_image_prompt,
         test_missing_config_file_falls_back,
