@@ -89,6 +89,10 @@ AUX_FILES = [
 # 参考文件（客户端文档 + 依赖）
 DOC_FILES = [
     "SKILL.md",
+    # ⚠️ Q10/Q13 (Wave2): SKILL.md 瘦身后细纲迁移至 references/，需随包分发
+    "references/anti-patterns.md",
+    "references/discover-fission.md",
+    "references/trend-selection.md",
     "references/command-reference.md",
     "references/error-codes.md",
     "references/output-schema.md",
@@ -427,6 +431,38 @@ def _find_missing_imports(dist_dir: Path) -> list[str]:
     return sorted(missing)
 
 
+def _rewrite_skill_frontmatter_version(skill_md_text: str, version: str) -> str:
+    """用 VERSION 内容覆写 SKILL.md frontmatter 的 version 字段（引号保留）。
+
+    只替换 frontmatter 中的第一个 `version: "x.y.z"`（count=1），
+    正文里的 version 字样不受影响；无该字段 → 原样返回。
+    """
+    import re as _re
+    return _re.sub(
+        r'version:\s*"[0-9]+\.[0-9]+\.[0-9]+"',
+        f'version: "{version.strip()}"',
+        skill_md_text,
+        count=1,
+    )
+
+
+def _assert_dist_safety(dist_dir: Path) -> None:
+    """PR-A 产物完整性断言：打包产物不允许携带用户态数据。
+
+    - dist/scripts/runtime_probe.py 必须明文（编译 .so 在错误解释器下无法运行）
+    - dist/data/.venv（用户态 venv）与 dist/data/browser（Chrome profile 登录态，
+      Q12 追加）是用户态产物，绝不能进发布包 —— 违反即 SystemExit 阻断打包。
+    """
+    if not (dist_dir / "scripts" / "runtime_probe.py").exists():
+        raise SystemExit("❌ 产物完整性校验失败: dist/scripts/runtime_probe.py 缺失"
+                         "（必须明文 COPY_FILES，未编译）")
+    if (dist_dir / "data" / ".venv").exists():
+        raise SystemExit("❌ 产物完整性校验失败: dist 含 data/.venv（用户态 venv 不得打包）")
+    if (dist_dir / "data" / "browser").exists():
+        raise SystemExit("❌ 产物完整性校验失败: dist 含 data/browser"
+                         "（Chrome profile 登录态）——禁止打包分发")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Skill 核心库 Cython 编译")
@@ -512,13 +548,8 @@ def main():
             shutil.copy2(src, dst)
             print(f"  📄 {copy_file}")
 
-    # ⚠️ PR-A 产物完整性断言：runtime_probe.py 必须明文在 dist（编译 .so 在错误
-    # 解释器下无法运行，自动发现失效）；data/.venv 绝不能进发布包（用户态产物）
-    if not (dist_dir / "scripts" / "runtime_probe.py").exists():
-        raise SystemExit("❌ 产物完整性校验失败: dist/scripts/runtime_probe.py 缺失"
-                         "（必须明文 COPY_FILES，未编译）")
-    if (dist_dir / "data" / ".venv").exists():
-        raise SystemExit("❌ 产物完整性校验失败: dist 含 data/.venv（用户态 venv 不得打包）")
+    # ⚠️ PR-A 产物完整性断言（_assert_dist_safety，含 data/browser 登录态拦截）
+    _assert_dist_safety(dist_dir)
 
     # 复制辅助文件
     print(f"\n📎 复制辅助文件")
@@ -538,6 +569,16 @@ def main():
             dst = dist_dir / doc_file
             dst.parent.mkdir(parents=True, exist_ok=True)  # references/ 子目录
             shutil.copy2(src, dst)
+            # Q10/Q13 (Wave2): dist/SKILL.md frontmatter version 与 VERSION 同步，
+            # 防 SKILL.md 内版本号滞后于发布包（agent 读取的 version 必须等于 VERSION）
+            if doc_file == "SKILL.md":
+                _ver = (skill_dir / "VERSION").read_text(encoding="utf-8").strip()
+                dst.write_text(
+                    _rewrite_skill_frontmatter_version(
+                        dst.read_text(encoding="utf-8"), _ver
+                    ),
+                    encoding="utf-8",
+                )
             print(f"  📚 {doc_file}")
 
     # 配置目录（生成空模板，不泄露真实凭证）
