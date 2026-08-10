@@ -1799,11 +1799,22 @@ async def _handle_analytics_report(request: Request, kind: str):
     clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
     _verify_analytics_token(clean_token)
 
+    # v0.34 security: 按 token 限流（防单 token 批量打爆共享 PG；与 submit_task 同 RateLimiter）
+    allowed, remaining = rate_limiter.check(clean_token)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
+
     raw_items = body.get(list_key)
     if not isinstance(raw_items, list) or not raw_items:
         return error_response(
             WorkerErrorCode.INVALID_REQUEST,
             f"{list_key} must be a non-empty list",
+        )
+    # v0.34 security: 单次上报条数上限（防超大 JSON → 内存/DB 压力）
+    if len(raw_items) > 2000:
+        return error_response(
+            WorkerErrorCode.INVALID_REQUEST,
+            f"{list_key} too large: max 2000 items per request",
         )
 
     parsed = []
@@ -1815,10 +1826,11 @@ async def _handle_analytics_report(request: Request, kind: str):
             )
         try:
             parsed.append(item_model(**it))
-        except Exception as e:
+        except Exception:
+            # v0.34 security: 不把 Pydantic 校验异常原文回显给客户端（可能泄露字段/结构细节）
             return error_response(
                 WorkerErrorCode.INVALID_REQUEST,
-                f"invalid {list_key} item: {e}",
+                f"invalid {list_key} item: check required fields",
             )
 
     rows = []
@@ -1834,7 +1846,7 @@ async def _handle_analytics_report(request: Request, kind: str):
         logger.error("analytics upsert failed (kind=%s): %s", kind, e)
         return error_response(
             WorkerErrorCode.INTERNAL_ERROR,
-            f"analytics upsert failed: {e}",
+            "analytics upsert failed",
         )
 
     return {"status": "ok", "inserted": inserted, "upserted": upserted}

@@ -833,12 +833,27 @@ def assemble_ozon_product_node(
                         if re_cands:
                             candidates = _merge_candidates(re_cands, candidates)
                             logger.info(f"   ✅ 建议词二次搜索: {len(re_cands)} 候选并入")
+                            # ⚠️ v0.34 review fix: 合并后必须重跑 LLM 排名——
+                            # 否则 best_by_llm 仍是 suggest 标记 dict(full_path 为空) →
+                            # 下方重叠检查恒失败 → 硬阻断, 二次搜索白做 (与 L1237 路径对齐)
+                            best_by_llm = _llm_rank_categories(candidates[:10], source_keywords or keywords, draft, state)
                     except Exception as _se:
                         logger.warning(f"   ⚠️ 建议词二次搜索失败: {_se}")
             if best_by_llm:
                 # ✅ v0.21: LLM 结果也必须与源词有具体重叠，否则不硬猜（阻断，需人工确认类目）
                 _llm_path = str(best_by_llm.get("full_path", "")).lower()
                 _llm_overlap = {sw for sw in _source_words if sw in _llm_path} - _GENERIC_OVERLAP
+                # ⚠️ v0.34 review fix: 重跑后若 LLM 仍返回 suggest 标记(候选并入但全不满意)——
+                # 从合并后 candidates 取 top1(已含二次搜索高分候选)回退, 不再硬阻断白做二次搜索
+                if not _llm_overlap and best_by_llm.get("_llm_suggest") and candidates:
+                    _fb = candidates[0]
+                    _fb_path = str(_fb.get("full_path", "")).lower()
+                    _fb_overlap = {sw for sw in _source_words if sw in _fb_path} - _GENERIC_OVERLAP
+                    if _fb_overlap:
+                        best_by_llm = _fb
+                        _llm_overlap = _fb_overlap
+                        _llm_path = _fb_path
+                        logger.info(f"   🔍 suggest 回退: 采用二次搜索 top1 '{_fb.get('full_path', '')[:60]}'")
                 if _llm_overlap:
                     category_result = {
                         "description_category_id": best_by_llm["description_category_id"],

@@ -199,3 +199,30 @@ def test_bulk_1000_rows_fast(monkeypatch):
     elapsed = time.monotonic() - t0
     assert resp == {"status": "ok", "inserted": 1000, "upserted": 0}
     assert elapsed < 2.0, f"1000 条处理耗时 {elapsed:.2f}s 超过 2s 上限"
+
+
+# ── v0.34 security 加固：限流 / 条数上限 / 错误脱敏 ──
+
+def test_rate_limit_exceeded_returns_429(monkeypatch):
+    """单 token 超限 → 429（防批量打爆共享 PG）。"""
+    import main
+    monkeypatch.setattr(main.rate_limiter, "check", lambda token: (False, 0))
+    body = {"token": "sk-ok", "queries": [{"query": "x"}]}
+    with pytest.raises(main.HTTPException) as ei:
+        _call("queries", body, monkeypatch)
+    assert ei.value.status_code == 429
+
+
+def test_too_many_items_rejected(monkeypatch):
+    """单次上报 > 2000 条 → 400（防超大 JSON 内存/DB 压力）。"""
+    items = [{"query": f"k{i}"} for i in range(2001)]
+    resp, _ = _call("queries", {"token": "sk-ok", "queries": items}, monkeypatch)
+    _assert_error(resp, 400)
+
+
+def test_invalid_item_error_not_leak_internal(monkeypatch):
+    """Pydantic 校验失败 → 响应不含内部异常细节（防泄露字段/结构）。"""
+    resp, _ = _call("queries", {"token": "sk-ok", "queries": [{"count": "not-a-number"}]}, monkeypatch)
+    _assert_error(resp, 400)
+    body = resp.body.decode() if hasattr(resp, "body") else str(resp)
+    assert "int_parsing" not in body and "Input should" not in body
