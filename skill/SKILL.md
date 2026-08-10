@@ -67,7 +67,7 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
   2. agent 用自带 LLM 从结果提炼 3-5 个细分关键词（如「宠物用品」→ 驱蚊项圈/宠物驱蚊喷雾）；
   3. agent 用 `discover --keyword <细分关键词>` 执行选品（管线 C 流程，含蓝海评分）。
   跳过 web_search 直接猜关键词 = 选品质量明显下降，除非用户明确表示不用搜索。
-- ⚠️ **裂变选品（discover --fission，v0.31）**：在种子选品基础上再往深挖一层（卖家店铺里的其他产品），适合「找更多同类/挖同行货源」的意图。用法：
+- ⚠️ **裂变选品（discover --fission）**：在种子选品基础上再往深挖一层（卖家店铺里的其他产品），适合「找更多同类/挖同行货源」的意图。用法：
   - `discover --keyword <品类词> --fission`：先正常采集种子（管线 C 阶段①②），
     再裂变展开（种子商品 → 跟卖卖家 → 卖家店铺产品）
   - ⚠️ **有硬性默认限制，不会无限跑**：`--max-total-products 300`（候选总量上限，
@@ -91,23 +91,23 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 
 | 命令 | 用途 | 关键参数 | 副作用 | 适用场景 |
 |---|---|---|---|---|
-| `check` | 验证环境（v0.30: 全量诊断，缺依赖/无浏览器也继续探测 Worker/MXOU/凭证） | 无 | 无 | 首次使用 / 排错 |
+| `check` | 验证环境（全量诊断，缺依赖/无浏览器也继续探测 Worker/MXOU/凭证） | 无 | 无 | 首次使用 / 排错 |
 | `set_store` | 配置 Ozon 店铺 | `--name --client-id --api-key` | 写 `data/config/` | 首次配置 |
 | `set_token` | 配置 MXOU_TOKEN | `--token` | 写 `data/config/` | 首次配置 |
 | `set_ak` | 配置 1688 AK | `--ak` | 写 `data/config/` | 首次配置 / AK 过期 |
-| `update` | 检查并应用自动更新（v0.30: 跨进程锁，并发命令不会竞态破坏安装） | 无 | **覆盖 skill 文件**（备份 + 保留 data/） | 版本升级 |
-| `migrate_profile` | 迁移 Chrome profile 到统一路径（旧 `data/browser/profile` → `profiles/1688/default`） | `[--apply] [--check]` | 复制 profile（默认 dry-run 不写） | v0.30 升级后首次使用（登录态迁移） |
+| `update` | 检查并应用自动更新（跨进程锁，并发命令不会竞态破坏安装） | 无 | **覆盖 skill 文件**（备份 + 保留 data/） | 版本升级 |
+| `migrate_profile` | 迁移 Chrome profile 到统一路径（旧 `data/browser/profile` → `profiles/1688/default`） | `[--apply] [--check]` | 复制 profile（默认 dry-run 不写） | 升级后首次使用（登录态迁移） |
 | `query` | 查询 Worker 任务状态 | `<任务ID>`（位置参数，submit/follow 返回的 UUID） | 只读，无副作用 | 提交后查进度/成败/产品明细 |
-| `seller` | 卖家店铺全产品运营分析 | `--seller-id [--max-products] [--max-skus]` | 查 seller.ozon.ru 运营指标（逐 SKU，受限速） | 跟卖前20名卖家 → 店铺选品（v0.29.x 新增） |
+| `seller` | 卖家店铺全产品运营分析 | `--seller-id [--max-products] [--max-skus]` | 查 seller.ozon.ru 运营指标（逐 SKU，受限速） | 跟卖前20名卖家 → 店铺选品 |
 | `get_ak` | 浏览器自动获取 1688 AK | `--timeout` | 无 | AK 过期时刷新 |
 | `list_stores` | 列出已配置店铺 | 无 | 无 | 查看配置 |
 | `graph` | 1688 上架 | `--url/--item-id --store [--no-submit] [--category-query] [--ozon-ref-url]` | 提交 Worker（除非 `--no-submit`） | 用户发 1688 商品链接（`--ozon-ref-url` 传 Ozon 竞品参考链接, 同类目属性复用） |
 | `follow` | Ozon 跟卖 | `--ozon-url --store [--auto-submit]` | 提交 Worker（加 `--auto-submit`） | 用户发 Ozon 商品链接 |
 | `image_search` | 以图搜款 | `--image [--source cdp] [--sort] [--limit]` | 耗 1688 图搜配额 | 用户发图片 / 找同款 |
-| `discover` | Ozon 选品 | `--keyword/--url [--rules] [--export] [--auto-submit] [--fission] [--max-depth 2] [--non-interactive] [--blue-ocean-source csv --blue-ocean-csv <path>]` | 查 seller.ozon.ru 运营指标；`--auto-submit` 提交 Worker；`--fission` 裂变选品（v3）；`--blue-ocean-source` 用 all_queries CSV 反哺蓝海评分（v0.34，默认找 `/tmp/queries_all.csv`，无数据降级原流程） | 找蓝海 / 跟卖选品 / 趋势选品执行 / 裂变选品 |
+| `discover` | Ozon 选品 | `--keyword/--url [--rules] [--export] [--auto-submit] [--fission] [--max-depth 2] [--non-interactive] [--blue-ocean-source csv --blue-ocean-csv <path>]` | 查 seller.ozon.ru 运营指标；`--auto-submit` 提交 Worker；`--fission` 裂变选品；`--blue-ocean-source` 用 all_queries CSV 反哺蓝海评分（默认找 `/tmp/queries_all.csv`，无数据降级原流程） | 找蓝海 / 跟卖选品 / 趋势选品执行 / 裂变选品；货源分析后自动生成 `data/discovery/analysis_*.md`\|`json` 结构性分析文档（Agent 可直接汇报） |
 | `search` | 1688 关键词搜索 | `query [--page-size]` | 耗 1688 搜索配额 | 按词找货 |
 | `probe` | CDP 探针抓取单个 1688 商品 | `--url [--timeout]` | 无 | 调试单个商品 |
-| `queries` | what-to-sell 蓝海/榜单查询（v0.34） | `--type all-queries\|ozon-bestsellers\|market-bestsellers [--keyword] [--sku] [--category-id] [--price-min] [--price-max] [--export csv\|json] [--output <path>]` | 查 seller.ozon.ru what-to-sell SPA 数据；成功后**自动上报 worker PG**（异步，无 token 跳过）；可 `--export` 本地 CSV/JSON | 选品前查关键词蓝海（count/ca/uniq_sellers）、Ozon 畅销榜、跨平台畅销榜 |
+| `queries` | what-to-sell 蓝海/榜单查询 | `--type all-queries\|ozon-bestsellers\|market-bestsellers [--keyword] [--sku] [--category-id] [--price-min] [--price-max] [--export csv\|json] [--output <path>]` | 查 seller.ozon.ru what-to-sell SPA 数据；成功后**自动上报 worker PG**（异步，无 token 跳过）；可 `--export` 本地 CSV/JSON | 选品前查关键词蓝海（count/ca/uniq_sellers）、Ozon 畅销榜、跨平台畅销榜 |
 | `batch_test.py` | 批量处理 URL 列表 | `--urls-file [--submit] [--wait] [--dry-run]` | 提交 Worker（加 `--submit`） | 批量上架 / 回归 |
 
 ## 3. 决策边界
@@ -144,49 +144,7 @@ Python 要求 ≥ 3.12。使用环境中可用的 `python3`（或 `python3.12`�
 | `envelope_example.json` | 需要确认信封字段结构时 → 查示例。读取路径：`_单SKU选品.envelope`（直采）或 `_跟卖示例.envelope`（跟卖）；`_说明`/`_关键约定` 是文档说明非数据字段 | 完整信封结构示例（单 SKU + 跟卖两种模式） |
 | `field_mapping.md` | 需要确认 1688/Ozon 字段如何映射到信封时 → 查映射规则 | 1688/Ozon 字段 → 信封字段的映射规则 |
 
-## 6. 更新与旧包升级
+## 6. 常见问题与升级
 
-**自动更新（v0.18.0 起，默认开启）**：每次运行命令时，若 COS 上有新版本，
-自动备份旧文件 → 覆盖升级 → 失败自动回滚（`data/` 凭证/登录态/缓存全程保留），
-升级成功后提示重启终端。v0.30.0 起 updater 有跨进程锁：并发命令同时触发更新时
-只一个执行，其余静默跳过（不会破坏安装）。
-
-- 关闭自动更新：`export SKILL_AUTO_UPDATE=0`，退回「提示 + 手动 `skill update`」模式。
-- 手动更新：`python3 scripts/cli.py update`
-
-**v0.30.0 升级注意（Chrome profile 统一）**：profile 路径已统一为
-`data/browser/profiles/1688/default`（旧 `data/browser/profile` 弃用）。
-**旧版本升级后首次运行前**执行 profile 迁移（保留 1688/Ozon 登录态，只复制不删除）：
-
-```bash
-python3 scripts/migrate_profile.py --check   # dry-run 预览
-python3 scripts/migrate_profile.py --apply   # 实际迁移
-```
-
-**环境前置检查（v0.30.0 起）**：所有命令入口自动探测 Python ≥3.12 +
-`requests`/`websocket-client`/`Pillow`，缺依赖时立即给出
-`pip install -r requirements.txt` 指引并退出（不再链路深处炸 traceback）。
-`check` 命令现在是无浏览器也继续探测 Worker/MXOU/凭证的全量诊断。
-
-**Runtime 自动发现（v0.31.0 起，PR-A/PR-B）**：命令入口自动检测可用 Python：
-- 当前解释器非 3.12 → 扫描 PATH 找 `python3.12` 并 os.execve 无感切换（agent
-  无需关心用哪个 python 跑，`python3 scripts/cli.py <cmd>` 照旧）
-- 当前 3.12 但缺依赖 → 自动创建 `data/.venv`（独立 venv，**不碰 agent/系统环境**）
-  并安装依赖后继续（首次约 30-60s，进度实时回显；`.ready` 标记短路后续零开销）
-- 逃生舱：`SKILL_NO_VENV=1` 关闭自动 venv（回退手动 pip install 指引）；
-  `SKILL_PYTHON=/path/to/python3.12` 显式指定解释器
-- ⚠️ .so ABI 绑定 3.12：3.13/3.14 会被拒绝（cpython tag 不匹配）
-
-**旧包升级（v0.12.0 之前的包没有 updater，不会自动提示）**：
-
-```bash
-# 1. 从最新 GitHub Release 下载 bootstrap_update.py 到 skill 包目录
-#    https://github.com/halojerry/ozon-worker/releases
-# 2. 运行（会下载最新包 → sha256 校验 → 覆盖升级 → 失败回滚）
-python3 bootstrap_update.py
-```
-
-如果运行 `graph`/`follow` 提示「缺少依赖模块」或「未找到 scripts.cloud_probe」，
-前者按提示 `pip install -r requirements.txt`，后者按上面 bootstrap 升级即可。
-手动确认当前版本：`python3 scripts/cli.py update`
-（显示「已是最新」即正常）。
+- 缺依赖（提示 `pip install`）→ 运行 `pip install -r requirements.txt`
+- `graph`/`follow` 提示「缺少依赖模块」或「未找到 scripts.cloud_probe」→ 走 bootstrap 升级（`python3.12 bootstrap_update.py` 或重新下载最新包）
