@@ -1231,11 +1231,12 @@ def build_graph_envelope(
     data = enriched.get("data", {})
     cdp_source = enriched.get("source", "?")
 
-    # 完全失败：CDP 没拿到任何数据
+    # Q2: CDP 完全失败 → 降级透传 API 数据（enrich data 仍含 API title/price/images），
+    # 数据质量由下方 _validate_and_fix_product_data 校验门把关
     if cdp_source == "api_only":
-        raise RuntimeError(
-            f"CDP completely failed for {item_id}: "
-            f"{enriched.get('degraded_reason', 'unknown')}"
+        logger.warning(
+            "build_graph_envelope: %s — CDP 完全失败(%s)，降级用 1688 API 数据组装信封",
+            item_id, enriched.get('degraded_reason', 'unknown'),
         )
 
     # 图片质量校验：过滤 1688 API 兜底占位图和反爬追踪像素
@@ -1739,6 +1740,9 @@ def build_graph_envelope(
         envelope["extensions"]["commission_rate"] = commission_rate
     if fx_buffer > 0:
         envelope["extensions"]["fx_buffer"] = fx_buffer
+    # Q2: api_only 降级透传 → 标记 degraded，供 worker/审计识别数据来源
+    if cdp_source == "api_only":
+        envelope["extensions"]["cdp_degraded"] = True
 
     # ── 6.6 完整性审计 ──
     try:
@@ -2559,6 +2563,11 @@ def _translate_slug_to_cn(slug: str, mxou_token: str) -> str:
     """LLM 翻译俄语 slug → 中文 1688 搜索关键词，带 fallback."""
     if not mxou_token or not slug:
         return slug
+    # Q7: LLM 翻译成本高（deepseek-v4-flash），同 slug 30 天内复用翻译结果
+    from scripts.lib.cache import cache_get, cache_set
+    _cached_kw = cache_get("slug_cn", slug)
+    if _cached_kw is not None:
+        return _cached_kw
     
     import requests as req
     
@@ -2581,6 +2590,7 @@ def _translate_slug_to_cn(slug: str, mxou_token: str) -> str:
                 content = choices[0].get("message", {}).get("content", "")
                 if isinstance(content, str) and content.strip():
                     kw = content.strip()[:200]  # cap to prevent LLM hallucination overflow
+                    cache_set("slug_cn", slug, kw, ttl=30 * 24 * 3600)
                     return kw
         except Exception:
             if attempt == 0:
@@ -2678,6 +2688,19 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         "images": [], "title": "", "category": "",
         "1688_matches": [],
     }
+    # Q7: envelope 级缓存（6h）——同 product_id+store_id 的完整跟卖结果直接复用，
+    # 命中且有 images+1688_matches 才返回（空壳/no_relevant_match 不缓存）
+    from scripts.lib.cache import cache_get, cache_set
+    _follow_cache_key = f"{product_id}:{store_id}"
+    _cached_follow = cache_get("follow", _follow_cache_key)
+    if _cached_follow and _cached_follow.get("images") and _cached_follow.get("1688_matches"):
+        logger.info("♻️ follow 信封缓存命中: %s", _follow_cache_key)
+        _cached_follow["from_cache"] = True
+        if auto_submit and _cached_follow.get("envelope"):
+            _sub = submit_envelope(_cached_follow["envelope"])
+            _cached_follow["submit_result"] = _sub
+            _cached_follow["task_id"] = _sub.get("task_id", "")
+        return _cached_follow
     
     # Step 2: CDP 抓取 Ozon 商品页 → 竞品图片 + 标题
     # ⚠️ v0.29.x 修复: 前置确保 Chrome 就绪 —— 命令出口会关闭工具 Chrome(独立
@@ -3048,5 +3071,11 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             shared_cdp.close()
         except Exception:
             pass
+
+    # Q7: 成功且有图+匹配才写 envelope 缓存（失败/拦截结果不缓存，避免毒化后续复用）
+    if result.get("success") and result.get("images") and result.get("1688_matches"):
+        cache_set("follow", _follow_cache_key, result, ttl=21600)
+        logger.info("💾 follow 信封缓存写入: %s (%d 图, %d 匹配)",
+                    _follow_cache_key, len(result["images"]), len(result["1688_matches"]))
 
     return result
