@@ -2,6 +2,18 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.34.0 — Sentry 修复 + 选品数据回传 + 类目匹配优化）
+
+> 2026-08-10。Sentry 生产错误修复（品牌 85/类目错配/描述中文/富文本 4191）+ 选品数据回传（C5：queries 命令 + analytics 上报）+ 店铺埋点（C6）+ 类目匹配四重优化 + Sentry 用户上下文。规划文件：`.omo/plans/sentry-attribute-fixes.md`。
+
+- **Wave1 四修复**: C1 必填属性兜底链（8229/9163 等 10 attr 三处一致）/ C3 FB_INSTA 词边界净化 / C2 竞品尺寸重量兜底（`_resolve_weight_dimensions` 三级兜底）/ C8 富文本 4191（title 空最小 HTML + 每属性翻译跳过 HTML）。
+- **C5 选品数据回传**: 3 张 PG 表（blue_ocean_queries/ozon_bestsellers/market_bestsellers）+ `/api/v1/analytics/*` 三端点（token 鉴权、ON CONFLICT 去重、限流 + 2000 条上限 + 错误脱敏）+ skill `queries` 命令（CDP 探测 what-to-sell 真实端点）+ `analytics_upload.py` 异步上报 + discover `--blue-ocean-source` 反哺蓝海评分。
+- **C6 店铺埋点**: `shop_usage_stats` 表 + task_processor 3 处终态钩子增量写入（task_count=执行次数含重试，common_errors top-5）。
+- **类目匹配四重优化**: 末级词搜索（specific_terms `[-2:]→[-1:]`）/ LLM max_tokens 10→4096（deepseek 推理吃 token 致 fallback 恒失败）/ `_merge_candidates` 保高 sim / 同义词表 +10 高频映射。
+- **Sentry 用户上下文**: `_token_fingerprint` 脱敏 + `set_user`——错误可按 token 指纹筛选用户（此前 user 全 null）。
+- 其他修复: leaf_name 默认空串、品牌 85 直写无品牌、match_layer 重置、规格表中文属性名净化、suggest 二次搜索重排（review 修复）。
+- **测试**: worker 544 passed 全绿（含 7 新用例）；skill 174 passed（1 个 pre-existing 环境基线）。
+
 ## 最近更新（v0.33.1 — 生图模板 v8 中文修正）
 
 > 2026-08-09。用户迭代：v6 英文模板 → v8 中文文案（`prompt-template-v8.html`）+ SCENE 独立变量 + multi_angle 禁文字纠正。详见 `CHANGELOG.md`。
