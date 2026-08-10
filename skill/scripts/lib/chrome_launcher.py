@@ -75,9 +75,21 @@ def _find_chrome_executable() -> str | None:
 
     if find_browser_executable is not None:
         try:
-            resolved = find_browser_executable(None)
-            if resolved:
-                return resolved
+            # ⚠️ 禁用自动安装（Phase 4）：chrome_launcher 路径只探测不装浏览器。
+            # service.find_browser_executable 找不到浏览器时默认触发
+            # _auto_install_browser（下载 300MB Playwright Chromium），
+            # 在无 Chrome 环境（Docker/CI/慢网络）会让每个命令挂起数分钟。
+            # 自动安装保留给显式入口（enrich_product_with_cdp 的
+            # check_cdp_prerequisites / install-browser 命令）。
+            from scripts.capabilities.browser_probe import service as _service_mod
+            _orig_auto = _service_mod._auto_install_browser
+            _service_mod._auto_install_browser = lambda: False
+            try:
+                resolved = find_browser_executable(None)
+                if resolved:
+                    return resolved
+            finally:
+                _service_mod._auto_install_browser = _orig_auto
         except Exception:
             pass
 
