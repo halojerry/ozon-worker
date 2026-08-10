@@ -54,7 +54,33 @@ def _default_profile_dir() -> Path:
 
 # ── Chrome 可执行文件查找 ──
 def _find_chrome_executable() -> str | None:
-    """跨平台查找 Chrome 可执行文件"""
+    """跨平台查找 Chrome 可执行文件。
+
+    统一策略（v0.35.x）：先复用 service.find_browser_executable 的富实现
+    （mdfind 多浏览器/运行中浏览器探测/Playwright 兜底/自动安装），失败再回退
+    本函数精简逻辑（5 名字 + 平台路径 + mdfind）。消除「service 判定有浏览器但
+    chrome_launcher 启动不了」的分裂。
+
+    ⚠️ 必须 lazy import service：service.py 在多个函数内 import 本模块，
+    顶层 import 会循环。
+    """
+    try:
+        from scripts.capabilities.browser_probe.service import (
+            _candidate_browser_paths,
+            find_browser_executable,
+        )
+    except Exception:
+        _candidate_browser_paths = None
+        find_browser_executable = None
+
+    if find_browser_executable is not None:
+        try:
+            resolved = find_browser_executable(None)
+            if resolved:
+                return resolved
+        except Exception:
+            pass
+
     system = platform.system()
 
     # 1. 常见名称（PATH 搜索）
@@ -73,6 +99,10 @@ def _find_chrome_executable() -> str | None:
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
             "/Applications/Chromium.app/Contents/MacOS/Chromium",
             "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            # macOS 非标准安装位置（~/Applications 等用户级安装）兜底
+            os.path.expanduser("~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            os.path.expanduser("~/Applications/Chromium.app/Contents/MacOS/Chromium"),
+            os.path.expanduser("~/Library/Application Support/Google/Chrome"),
         ]
     elif system == "Windows":
         for env in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"]:
@@ -90,6 +120,13 @@ def _find_chrome_executable() -> str | None:
             "/usr/bin/chromium",
             "/snap/bin/chromium",
         ]
+
+    # 与 service._candidate_browser_paths 共享同一候选列表（含 Playwright Chromium）
+    if _candidate_browser_paths is not None:
+        try:
+            candidates.extend(_candidate_browser_paths())
+        except Exception:
+            pass
 
     for p in candidates:
         if os.path.exists(p):
