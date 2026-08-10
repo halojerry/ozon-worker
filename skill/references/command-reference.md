@@ -2,6 +2,37 @@
 
 > 各管线的触发条件、完整参数、示例、输入输出。速查表见 SKILL.md §2。
 
+## 意图路由决策树
+
+> 从 SKILL.md §1 迁移。先判断用户意图，再选管线；每次操作前重新判断，不因上下文惯性选择。
+
+```
+用户输入
+ ├─ ① 有 URL？ → 先判 URL 类型：
+ │    商品页 detail.1688.com/offer/…  → 【管线 A】1688 直接上架
+ │    商品页 ozon.ru/product/…        → 【管线 B】Ozon 跟卖
+ │    搜索页/类目页（ozon.ru/search 或 /category/）→ 【管线 C】discover --url 采集该页
+ │    多 URL / "批量处理这些"         → 【管线 F】batch_test 批量
+ ├─ ② 有图片（无 URL）？             → 【管线 D1】image_search 以图搜款
+ │    图搜出候选 → 展示让用户确认哪一款 → 再 graph 上架（不允许图搜后直接上架）
+ ├─ ③ 无 URL → 按意图词优先级：
+  │    "趋势/热卖/新品风向/爆款" + 品类 → 趋势选品：agent 先 web_search + LLM 提炼
+  │      细分关键词 → discover --keyword <细分关键词>（见 references/trend-selection.md）
+  │    "跟卖/找能跟卖的"              → 【管线 C】discover 跟卖选品
+  │    "找更多同类/挖同行货源/顺着卖家找" → 【管线 C】discover 裂变选品（`--fission`，
+  │      见 references/discover-fission.md）
+  │    "上架/上货/上点/上产品/整一批"  → 【管线 D】discover 选品上架
+  │    "蓝海" → 默认 【管线 C】（蓝海评分体系在 C）；用户明确说"蓝海趋势/市场分析"才走趋势选品（agent 分析 + discover）
+  │    "选品/选 N 个" 无修饰          → 追问（跟卖 or 上架 or 趋势选品）+ 品类
+  │    "有什么好卖的/卖得动"          → 追问（趋势选品 or 跟卖推荐）+ 品类
+ ├─ ③a 无对象：上架/选品 但无 URL/图/关键词 → 先追问：发链接或图片(→A/D1)，
+ │    还是给品类让我选品(D)。禁止直接中国站兜底采集
+ ├─ ④ 问店铺商品状态/被拒原因        → 引导用户在 Ozon 卖家后台查看（工具不直接查询）
+ └─ ⑤ 指代不清 / 数量不符 / 重上已上商品
+      （"类似的""这个""它"；声称 5 个只发 2 个；"昨天那个再上一遍"）
+      → 必须追问核对 + 检查是否已上过（防重复提交），禁止猜测
+```
+
 ## 并发限制
 
 | 资源 | 限制 | 影响 |
@@ -102,29 +133,7 @@ python3 scripts/cli.py discover --keyword "宠物用品" --no-analytics
 
 **触发**：用户要"找更多同类产品 / 挖同行货源"（在种子选品基础上再深挖一层）。
 
-**流程**：种子商品 → 跟卖卖家（widget API 前 20）→ 卖家店铺产品 → 再发现（默认深度 2）。
-
-```bash
-# ⑧ 种子采集 + 裂变展开（关键词 → 种子 → 卖家 → 店铺产品）
-python3 scripts/cli.py discover --keyword "宠物用品" --fission
-
-# ⑨ 深度 3（需显式 allow）+ 更紧的候选上限
-python3 scripts/cli.py discover --keyword "玩具" --fission --max-depth 3 --allow-depth-3 --max-total-products 500
-
-# ⑩ 非交互（层间不询问继续，适合脚本/CI）
-python3 scripts/cli.py discover --keyword "收纳" --fission --non-interactive
-```
-
-- **⚠️ 有硬性默认限制，不会无限跑**：
-  - `--max-total-products 300`（默认 300，候选总量上限，**主成本控制**）
-  - `--max-depth 2`（默认 2，>3 需 `--allow-depth-3` 显式开启）
-  - `--time-budget 600`（默认 600s 时间预算）、`--max-sellers-per-product 20`、`--max-products-per-seller 15`
-  - 任一预算触顶立即停止，不会无界扩散
-- **参数**：`--max-depth`、`--allow-depth-3`、`--max-total-products`、`--time-budget`、`--max-sellers-per-product`、`--max-products-per-seller`、`--non-interactive`
-- **流程**：先走管线 C 阶段①②（种子采集 + 全量数据）→ 裂变展开（BFS）→ 回到③表格挑选 → ④批量货源（全部复用）
-- **数据**：裂变候选带 `chain_depth`（0=种子/1/2）+ `source_chain`（来源链路 种子→卖家→产品，选中产品时展示）+ `_seed_category_id`（种子类目，同类目 +10 / 跨类目 +3 / 无数据 +0 评分）
-- **⚠️ 慢操作**：卖家页串行导航（≥3s 间隔）+ what_to_sell 逐 SKU 限速（1s/SKU），10-60 分钟/次；裂变中阶段展示每层候选数 + 已展开卖家数
-- **⚠️ 依赖**：跟卖卖家来自 widget API（需 Ozon 页面正常加载 + 登录态）；部分产品反爬偶发失败 → 自动降级跳过，不影响整体
+> 完整细则（流程/预算限制/参数/数据字段/注意事项）见 `references/discover-fission.md`。
 
 **展示候选列表后，等用户确认再提交。不替用户选择。**
 
@@ -157,18 +166,10 @@ Discover v2 四阶段：采集（搜索/中国站懒加载）→ 全量数据（
 
 ## 管线 E：趋势选品（agent 自主分析 + discover 执行，v0.31 起）
 
-**触发**：用户说"帮我找 {品类} 的**热卖/趋势/新品风向**商品"。
+**触发**：用户说"帮我找 {品类} 的**热卖/趋势/新品风向**"商品。
 注意：只说"蓝海"默认走**管线 C**（discover 跟卖选品，蓝海评分体系在 C）。
 
-命令层已无 `trend` 命令（v0.31 移除——agent 自带 LLM + web_search，趋势分析不再由 skill 代做）。趋势选品流程：
-
-1. **agent 用 web_search 收集市场信息（强制第 0 步）**：建议多角度各搜 1 次：
-   - 中文：`"{品类} Ozon 热门趋势 蓝海 细分品类 2025"`
-   - 俄语：`"{品类} Ozon тренды 2025 ниша"`
-   - 平台：`"ozon.ru {品类} bestsellers"`
-2. **agent 用自带 LLM 提炼 3-5 个细分关键词**（如「玩具」→ 儿童益智积木/磁力片/惯性车模）。
-3. **agent 调 `discover --keyword <细分关键词>` 执行选品**（管线 C 流程，含蓝海评分/1688 匹配）。
-   跳过 web_search 直接猜关键词 = 选品质量明显下降，除非用户明确表示不用搜索。
+> 完整流程（web_search 多角度 → LLM 提炼 → discover 执行）与纪律见 `references/trend-selection.md`。
 
 ## 批量处理（batch_test.py）
 
