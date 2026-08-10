@@ -72,6 +72,7 @@ AUX_FILES = [
     "scripts/lib/ozon_seller.py",    # Ozon Seller API 客户端（佣金/属性）
     "scripts/lib/ozon_widget.py",    # Ozon Widget API 客户端（产品/跟卖）
     "scripts/lib/ozon_seller_analytics.py",  # 运营指标借道（Discover v2 新增）
+    "scripts/lib/analytics_upload.py",       # 采集数据上报 worker /analytics/*（v0.34 C5）
     "scripts/lib/ozon_fission.py",   # 裂变选品引擎（discover v3 BFS 卖家扩散）
     "scripts/lib/updater.py",        # 自动更新（COS manifest 检测 + 下载/回滚）
     "scripts/capabilities/__init__.py",

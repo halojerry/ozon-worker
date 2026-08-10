@@ -853,10 +853,10 @@ def _print_discover_table(candidates: list) -> None:
         "filtered": "⏭️价区间外", "matched": "🔗已匹配", "profitable": "💰有利",
         "rejected": "⚠️利润低", "no_match": "❌无货源",
     }
-    print(f"\n{'─' * 112}")
+    print(f"\n{'─' * 104}")
     print(f"{'#':>3} {'状态':<9} {'标题':<30} {'价格₽':>8} {'月销':>6} "
-          f"{'增长%':>6} {'广告%':>6} {'跟卖':>4} {'上架天':>6} {'评分':>5}")
-    print(f"{'─' * 112}")
+          f"{'增长%':>6} {'广告%':>6} {'跟卖':>4} {'上架天':>6} {'评分':>5} {'蓝海':>5}")
+    print(f"{'─' * 104}")
     for i, c in enumerate(candidates, 1):
         title = c.ozon_title or c.error or "(无标题)"
         if len(title) > 30:
@@ -869,8 +869,9 @@ def _print_discover_table(candidates: list) -> None:
             sales_s = growth_s = drr_s = create_s = f"{'—':>6}"
         print(f"{i:>3} {status_map.get(c.status, c.status):<9} {title:<30} "
               f"{c.ozon_price:>8.0f} {sales_s} {growth_s} {drr_s} "
-              f"{c.competing_sellers:>4} {create_s} {c.rating:>5.1f}")
-    print(f"{'─' * 112}")
+              f"{c.competing_sellers:>4} {create_s} {c.rating:>5.1f} "
+              f"{getattr(c, 'blue_ocean_score', 0):>5}")
+    print(f"{'─' * 104}")
 
 
 def _interactive_select(candidates: list) -> list | None:
@@ -916,6 +917,19 @@ def cmd_discover(args: argparse.Namespace) -> int:
         print(f"   来源: {'URL=' + args.url if args.url else '关键词=' + args.keyword}", flush=True)
     if args.rules:
         print(f"   自动筛选规则: {args.rules}", flush=True)
+
+    # ── C4 step2: all_queries 蓝海数据反哺（--blue-ocean-source，本地 CSV）──
+    # 可选增强源：加载成功 → 每候选按标题计算 competitor_keyword_density 注入蓝海评分；
+    # CSV 缺失/解析失败 → 打印降级提示，走原流程（绝不崩）。
+    blue_ocean_rows: list[dict] = []
+    if args.blue_ocean_source:
+        from scripts.lib.ozon_discovery import load_blue_ocean_csv
+        csv_path = args.blue_ocean_csv or "/tmp/queries_all.csv"
+        blue_ocean_rows = load_blue_ocean_csv(csv_path)
+        if blue_ocean_rows:
+            print(f"🌊 蓝海增强: 载入 {len(blue_ocean_rows)} 个关键词（{csv_path}）", flush=True)
+        else:
+            print("no blue_ocean data, fallback to original", flush=True)
     print(flush=True)
 
     ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
@@ -981,6 +995,18 @@ def cmd_discover(args: argparse.Namespace) -> int:
         print("未采集到产品。检查关键词/URL 或增大 --max-products。")
         return 0
 
+    # ── C4 step2: 蓝海反哺预计算（阶段③ 表格展示前，便于挑选）──
+    if blue_ocean_rows:
+        from scripts.lib.ozon_discovery import (
+            calculate_blue_ocean_score,
+            compute_competitor_keyword_density,
+        )
+        for c in candidates:
+            density = compute_competitor_keyword_density(
+                blue_ocean_rows, c.ozon_title or args.keyword or "")
+            c.blue_ocean_score = calculate_blue_ocean_score(
+                c, competitor_keyword_density=density)
+
     # ── 阶段③ 表格展示 + 挑选 ──
     _print_discover_table(candidates)
 
@@ -1042,6 +1068,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
             commission_rate=commission_rate,
             progress_callback=_match_progress,
             mxou_token=_get_tok() or "",
+            blue_ocean_rows=blue_ocean_rows or None,
         )
     except KeyboardInterrupt:
         print("\n⚠️ 用户中断")
@@ -1215,6 +1242,10 @@ def main() -> int:
     dp.add_argument("--max-sellers-per-product", type=int, default=20, help="每商品展开的卖家数（默认 20）")
     dp.add_argument("--max-products-per-seller", type=int, default=15, help="每卖家采集的产品数（默认 15）")
     dp.add_argument("--non-interactive", action="store_true", help="裂变阶段展示后不询问继续，直接跑完")
+    dp.add_argument("--blue-ocean-source", choices=["csv", "queries"], default="",
+                    help="蓝海增强数据源（C4 step2）: csv/queries 均指本地 all-queries CSV（--blue-ocean-csv）")
+    dp.add_argument("--blue-ocean-csv", default="",
+                    help="蓝海关键词 CSV 路径（--blue-ocean-source 时；默认 /tmp/queries_all.csv）")
     dp.set_defaults(func=cmd_discover)
 
 
@@ -1412,6 +1443,16 @@ def cmd_queries(args: argparse.Namespace) -> int:
     except Exception as exc:
         print(f"❌ queries 执行失败: {exc}", flush=True)
         return 1
+
+    # C5 todo8: 采集成功后 fire-and-forget 上报 worker（失败/无 token 均不阻断主流程）
+    if rows:
+        try:
+            from scripts.lib import analytics_upload
+            kind = "queries" if args.type == "all-queries" else args.type
+            analytics_upload.upload_in_background(kind, rows)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("queries 上报触发失败: %s", exc)
 
     if not rows:
         print("（无数据）", flush=True)

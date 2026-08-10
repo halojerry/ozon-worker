@@ -163,10 +163,12 @@ def test_csv_export_format():
             with mock.patch.object(osa, "fetch_all_queries", return_value=rows):
                 with mock.patch("scripts.lib.cdp_client.CdpConnection") as conn_cls:
                     conn_cls.return_value = mock.MagicMock()
-                    args = argparse.Namespace(
-                        type="all-queries", keyword="поилка", sku="", category_id="",
-                        price_min=None, price_max=None, export="csv", output=out_path)
-                    rc = cmd_queries(args)
+                    # C5 todo8 接线后 cmd_queries 会上报采集数据——测试里打桩防真实网络请求
+                    with mock.patch("scripts.lib.analytics_upload.upload_in_background"):
+                        args = argparse.Namespace(
+                            type="all-queries", keyword="поилка", sku="", category_id="",
+                            price_min=None, price_max=None, export="csv", output=out_path)
+                        rc = cmd_queries(args)
         assert rc == 0
         raw = open(out_path, "rb").read()
         assert raw.startswith(b"\xef\xbb\xbf"), "CSV 应带 utf-8-sig BOM"
