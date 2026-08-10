@@ -575,6 +575,8 @@ def assemble_ozon_product_node(
     # ✅ v0.21: 优先用 source.source_category_path（skill 新信封为完整路径），兼容旧 draft.source_category
     _src = getattr(state, "source", None) or {}
     source_category = str(_src.get("source_category_path") or "").strip() or draft.get("source_category", "")
+    # ⚠️ v0.34: leaf_name 默认空串 — 信封无 source_category 时防 UnboundLocalError（v0.21 引入的 pre-existing bug）
+    leaf_name = ""
     source_keywords = ""
     if source_category:
         # ✅ 分割所有分隔符：> 、 / → 空格
