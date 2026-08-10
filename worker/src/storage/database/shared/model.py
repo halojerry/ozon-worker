@@ -371,3 +371,90 @@ class TaskGeneratedImage(Base):
     __table_args__ = (
         Index("idx_task_images_task", "task_id"),
     )
+
+
+# ==================== 选品分析数据表（v0.34: skill what-to-sell 上报） ====================
+# 数据来源于用户、服务于用户：skill 采集的蓝海/榜单数据集体沉淀到 worker PG。
+# 去重键 = 数据自然键 + contributed_by_token_id（用户隔离，同一用户重复采集走 upsert 更新）。
+# source 列区分采集来源（fetched=skill 采集），预留后续扩展。
+
+class BlueOceanQuery(Base):
+    """skill what-to-sell all-queries 关键词蓝海数据（v0.34 C5）。
+
+    去重键 (query, contributed_by_token_id)：同一用户重复上报同一关键词 → upsert 覆盖。
+    """
+    __tablename__ = "blue_ocean_queries"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    query: Mapped[str] = mapped_column(Text, nullable=False, comment="蓝海关键词")
+    count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="商品数")
+    ca: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="CA 系数")
+    avg_ca_rub: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="平均 CA（卢布）")
+    avg_count_items: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="平均商品数")
+    items_views: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="商品浏览量")
+    uniq_queries_wca: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="含 CA 的独立查询数")
+    uniq_sellers: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="独立卖家数")
+    contributed_by_token_id: Mapped[str] = mapped_column(Text, nullable=False, comment="上报用户 token（去 sk- 前缀后的 key）")
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="fetched", comment="采集来源")
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("query", "contributed_by_token_id", name="uq_blue_ocean_query_token"),
+        Index("idx_blue_ocean_query_token", "contributed_by_token_id"),
+    )
+
+
+class OzonBestseller(Base):
+    """skill ozon-bestsellers 榜单数据（v0.34 C5）。
+
+    去重键 (sku_or_id, contributed_by_token_id)。
+    """
+    __tablename__ = "ozon_bestsellers"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    sku_or_id: Mapped[str] = mapped_column(Text, nullable=False, comment="Ozon SKU 或商品 ID")
+    brand: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="品牌")
+    category_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, comment="Ozon 类目 ID")
+    category_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="类目路径")
+    ordering_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="订购金额")
+    ordering_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="订购数量")
+    avg_price_rub: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="平均售价（卢布）")
+    contributed_by_token_id: Mapped[str] = mapped_column(Text, nullable=False, comment="上报用户 token（去 sk- 前缀后的 key）")
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="fetched", comment="采集来源")
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("sku_or_id", "contributed_by_token_id", name="uq_ozon_bestseller_token"),
+        Index("idx_ozon_bestseller_token", "contributed_by_token_id"),
+    )
+
+
+class MarketBestseller(Base):
+    """skill market-bestsellers 全平台榜单数据（v0.34 C5）。
+
+    去重键 (product_name, contributed_by_token_id)。
+    """
+    __tablename__ = "market_bestsellers"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    product_name: Mapped[str] = mapped_column(Text, nullable=False, comment="商品名称")
+    brand: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="品牌")
+    category_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, comment="类目 ID")
+    category_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="类目路径")
+    ordering_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="订购金额")
+    daily_avg: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="日均销量")
+    other_platform_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="其他平台价格")
+    contributed_by_token_id: Mapped[str] = mapped_column(Text, nullable=False, comment="上报用户 token（去 sk- 前缀后的 key）")
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="fetched", comment="采集来源")
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("product_name", "contributed_by_token_id", name="uq_market_bestseller_token"),
+        Index("idx_market_bestseller_token", "contributed_by_token_id"),
+    )
