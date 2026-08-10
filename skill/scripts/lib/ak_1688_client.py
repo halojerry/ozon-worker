@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import requests
 
 from scripts._const import SKILL_ROOT
+from scripts.lib.utils import safe_unlink
 
 logger = logging.getLogger(__name__)
 
@@ -487,9 +488,27 @@ def search_products(
         body["sortType"] = sort_type
     if ic_tags:
         body["icTags"] = ic_tags
-    
-    result = _post_1688(FIND_PRODUCT_API, body)
-    
+
+    from scripts.lib.cache import cache_get, cache_set
+    # 缓存 key：query + 规范化请求参数 —— follow/discover 重复同 key 不再耗 1688 配额
+    cache_key = json.dumps(
+        {"query": query, "page": page, "page_size": page_size,
+         "sort_type": sort_type or "", "score_level": score_level or "",
+         "purchase_amount": purchase_amount, "tags": tags or "", "ic_tags": ic_tags or ""},
+        ensure_ascii=False, sort_keys=True,
+    )
+    result = cache_get("ak_search", cache_key)
+    if result is None:
+        result = _post_1688(FIND_PRODUCT_API, body)
+        # 仅缓存非空结果：空列表 / 瞬时失败不写缓存，下次重试真实请求
+        _raw = result.get("data")
+        if isinstance(_raw, dict):
+            _raw = _raw.get("data", [])
+        elif _raw is None:
+            _raw = (result.get("model") or {}).get("data", [])
+        if isinstance(_raw, list) and _raw:
+            cache_set("ak_search", cache_key, result, ttl=86400)
+
     # 处理不同的响应结构
     data = result.get("data")
     if isinstance(data, dict):
@@ -550,7 +569,6 @@ def search_by_image(
     """
     from scripts.lib.config_store import _require_auth
     _require_auth()
-    import os as _os
     from scripts.lib.image_preprocessor import preprocess_image, image_to_base64
 
     img_base64 = ""
@@ -593,19 +611,28 @@ def search_by_image(
     if sort_type:
         body["sortType"] = sort_type
 
-    try:
-        result = _post_1688(FIND_PRODUCT_API, body)
-    finally:
-        if converted_path:
-            try:
-                _os.unlink(converted_path)
-            except OSError:
-                pass
-        if download_tmp:
-            try:
-                _os.unlink(download_tmp.name)
-            except OSError:
-                pass
+    from scripts.lib.cache import cache_get, cache_set
+    # 仅 imageUrl 模式可缓存（本地文件 base64 无法稳定复用）；防 follow 重复耗 1688 配额
+    img_cache_key = img_url
+    cached = cache_get("ak_img_search", img_cache_key) if img_cache_key else None
+    if cached is not None:
+        result = cached
+    else:
+        try:
+            result = _post_1688(FIND_PRODUCT_API, body)
+        finally:
+            if converted_path:
+                safe_unlink(converted_path)
+            if download_tmp:
+                safe_unlink(download_tmp.name)
+        # 仅缓存非空结果：空列表 / 瞬时失败不写缓存，下次重试真实请求
+        _raw = result.get("data")
+        if isinstance(_raw, dict):
+            _raw = _raw.get("data", [])
+        elif _raw is None:
+            _raw = (result.get("model") or {}).get("data", [])
+        if isinstance(_raw, list) and _raw and img_cache_key:
+            cache_set("ak_img_search", img_cache_key, result, ttl=21600)
 
     # 解析响应
     data = result.get("data")
@@ -651,7 +678,7 @@ def search_by_image(
                 if isinstance(data2, list) and data2:
                     products = [_parse_product_item(item) for item in data2]
             finally:
-                _os.unlink(tmp.name)
+                safe_unlink(tmp.name)
         except Exception as _e:
             _logging.getLogger(__name__).debug("imgBase64 fallback failed: %s", _e)
 
@@ -951,23 +978,46 @@ def enrich_product_with_cdp(
                 url = 'https://detail.1688.com/'
 
             resolved_browser = find_browser_executable(None)
-            new_session = _wait_for_login_session(
+            if not resolved_browser:
+                # 浏览器不存在（preflight 判定过后被移除/竞态）→ 明确提示装浏览器
+                result['degraded_reason'] = (
+                    '未找到 Chromium 内核浏览器（Chrome/Edge/Brave/360等）。'
+                )
+                result['user_action'] = (
+                    '请安装任一 Chromium 内核浏览器后重试，或用 CHROME_PATH 环境变量指定浏览器路径。'
+                )
+                return result
+
+            login_wait = _wait_for_login_session(
                 url,
                 profile_name=profile_name,
-                browser_path=resolved_browser or '',
+                browser_path=resolved_browser,
                 timeout_seconds=max(timeout_seconds, 60),
-            )
+            ) or {}
+            new_session = login_wait.get('session')
             if new_session and new_session.get('login_detected'):
                 session = new_session
             elif new_session and new_session.get('cdp_url'):
                 session = new_session
-            else:
+            elif login_wait.get('reason') == 'timeout':
+                # CDP 会话已建立但用户未在超时窗口内完成扫码 → 登录超时
                 result['degraded_reason'] = (
                     '等待 1688 登录超时。请在自动打开的浏览器窗口中扫码登录。'
                 )
                 result['user_action'] = (
                     '请在浏览器中打开 https://login.1688.com/member/signin.htm '
                     '扫码登录 1688 后重试。支持 Chrome/Edge/Brave 等 Chromium 内核浏览器。'
+                )
+                return result
+            else:
+                # 浏览器存在但 CDP 会话未建立（no_cdp/cdp_error）→ 浏览器启动失败，
+                # 与「登录超时」明确区分，避免用户误以为只需重新扫码
+                result['degraded_reason'] = (
+                    '浏览器启动失败：无法建立 CDP 会话。'
+                )
+                result['user_action'] = (
+                    '请手动启动 Chrome 后重试，或删除 data/browser/profiles/1688 下损坏的 '
+                    'profile 缓存再运行。'
                 )
                 return result
         # else: logged in but Chrome isn't running — _resolve_browser_session()
