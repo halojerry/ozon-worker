@@ -18,6 +18,77 @@ from graphs.graph import main_graph  # 导入LangGraph主图
 logger = get_logger(__name__)
 
 
+# v0.34 C6: 店铺使用埋点 upsert SQL，按 (ozon_client_id, stat_date) 按天聚合。
+#   task_count/approved_count/validation_failed_count 用 EXCLUDED 增量累加；
+#   common_errors 拼接当日最近 5 条失败 error_message（成功路径传 NULL → 保持不增）；
+#   last_error 仅在失败路径更新（成功路径传 NULL → COALESCE 保留旧值）。
+_SHOP_USAGE_UPSERT_SQL = text("""
+    INSERT INTO shop_usage_stats
+        (ozon_client_id, stat_date, task_count, approved_count, validation_failed_count,
+         common_errors, last_error, updated_at)
+    VALUES
+        (:ozon_client_id, CURRENT_DATE, :task_delta, :approved_delta, :validation_failed_delta,
+         :common_errors, :last_error, NOW())
+    ON CONFLICT (ozon_client_id, stat_date) DO UPDATE SET
+        task_count = shop_usage_stats.task_count + EXCLUDED.task_count,
+        approved_count = shop_usage_stats.approved_count + EXCLUDED.approved_count,
+        validation_failed_count = shop_usage_stats.validation_failed_count + EXCLUDED.validation_failed_count,
+        common_errors = CASE
+            WHEN EXCLUDED.common_errors IS NULL THEN shop_usage_stats.common_errors
+            ELSE (
+                SELECT jsonb_agg(q.elem ORDER BY q.ord)
+                FROM (
+                    SELECT elem, ord
+                    FROM jsonb_array_elements(
+                        COALESCE(shop_usage_stats.common_errors, '[]'::jsonb) || EXCLUDED.common_errors
+                    ) WITH ORDINALITY AS e(elem, ord)
+                    ORDER BY ord DESC
+                    LIMIT 5
+                ) q
+            )
+        END,
+        last_error = COALESCE(EXCLUDED.last_error, shop_usage_stats.last_error),
+        updated_at = NOW()
+""")
+
+
+def _moderation_status_deltas(graph_result):
+    """按 graph_result.moderation_status 判定 approved/validation_failed 计数增量。
+
+    approved → (1, 0)；validation_failed → (0, 1)；其余/缺失 → (0, 0)。
+    """
+    moderation_status = str((graph_result or {}).get("moderation_status") or "").lower()
+    if moderation_status == "approved":
+        return 1, 0
+    if moderation_status == "validation_failed":
+        return 0, 1
+    return 0, 0
+
+
+def _upsert_shop_usage(conn, ozon_client_id, *, task_delta=1, approved_delta=0,
+                       validation_failed_delta=0, error_message=None):
+    """店铺使用埋点增量写入（v0.34 C6）。尽力而为：任何失败只 log warning，不影响主流程。
+
+    task_count = 任务执行次数（每次终态 +1，重试重新计数是预期行为）。
+    common_errors 降级实现：JSONB 数组保留当日最近 5 条失败 error_message（非 top-5 聚合），
+    只在失败终态路径累积；成功路径 error_message=None → common_errors/last_error 不增。
+    """
+    try:
+        if not ozon_client_id:
+            return
+        msg = str(error_message)[:500] if error_message else None
+        conn.execute(_SHOP_USAGE_UPSERT_SQL, {
+            "ozon_client_id": str(ozon_client_id),
+            "task_delta": int(task_delta),
+            "approved_delta": int(approved_delta),
+            "validation_failed_delta": int(validation_failed_delta),
+            "common_errors": json.dumps([msg]) if msg is not None else None,
+            "last_error": msg,
+        })
+    except Exception as e:
+        logger.warning("shop_usage_stats 埋点写入失败（不影响主流程）: %s", e)
+
+
 # ── 进度回调 ──
 # 节点名 → 阶段名映射
 _NODE_STAGE_MAP = {
@@ -319,6 +390,16 @@ class SupabaseTaskProcessor:
                                 "result_json": json.dumps(graph_result),
                                 "err": graph_result["_harness_error"],
                             })
+                            # v0.34 C6: 店铺使用埋点（与终态 SQL 同事务，尽力而为）
+                            _app_delta, _vf_delta = _moderation_status_deltas(graph_result)
+                            _upsert_shop_usage(
+                                conn,
+                                (payload or {}).get("ozon_client_id", ""),
+                                task_delta=1,
+                                approved_delta=_app_delta,
+                                validation_failed_delta=_vf_delta,
+                                error_message=graph_result.get("_harness_error"),
+                            )
                             conn.commit()
                         clear_trace_context()
                         return graph_result
@@ -335,6 +416,16 @@ class SupabaseTaskProcessor:
                             "task_id": task_id,
                             "result_json": json.dumps(graph_result)
                         })
+                        # v0.34 C6: 店铺使用埋点（成功路径 common_errors/last_error 不增）
+                        _app_delta, _vf_delta = _moderation_status_deltas(graph_result)
+                        _upsert_shop_usage(
+                            conn,
+                            (payload or {}).get("ozon_client_id", ""),
+                            task_delta=1,
+                            approved_delta=_app_delta,
+                            validation_failed_delta=_vf_delta,
+                            error_message=None,
+                        )
                         conn.commit()
                     
                     log_task_event("completed", task_id=task_id, user_id=tenant_id)
@@ -381,7 +472,7 @@ class SupabaseTaskProcessor:
         try:
             # 使用SQL SELECT获取任务详情
             select_sql = text("""
-                SELECT retry_count, max_retries
+                SELECT retry_count, max_retries, payload
                 FROM ozon_product_tasks
                 WHERE id = :task_id
             """)
@@ -396,6 +487,12 @@ class SupabaseTaskProcessor:
             
             retry_count = task_row[0]
             max_retries = task_row[1]
+            # v0.34 C6: 从 payload 取 ozon_client_id 供店铺使用埋点
+            payload_raw = task_row[2] if len(task_row) > 2 else None
+            payload = payload_raw if isinstance(payload_raw, dict) else (
+                json.loads(payload_raw) if payload_raw else {}
+            )
+            ozon_client_id = str(payload.get("ozon_client_id", "")) if payload else ""
             
             if retry_count < max_retries:
                 # 临时错误自动重试，使用SQL UPDATE
@@ -432,6 +529,13 @@ class SupabaseTaskProcessor:
                         "task_id": task_id,
                         "error_message": error_message
                     })
+                    # v0.34 C6: 店铺使用埋点（重试耗尽终态，与终态 SQL 同事务，尽力而为）
+                    _upsert_shop_usage(
+                        conn,
+                        ozon_client_id,
+                        task_delta=1,
+                        error_message=error_message,
+                    )
                     conn.commit()
 
                 log_task_event("failed", task_id=task_id, error_message=error_message,

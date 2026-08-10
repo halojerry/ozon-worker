@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, DateTime, Identity, Index, Integer, JSON, PrimaryKeyConstraint, Text, text, String, Float, UniqueConstraint, ARRAY, func
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Identity, Index, Integer, JSON, PrimaryKeyConstraint, Text, text, String, Float, UniqueConstraint, ARRAY, func
 from typing import Optional
 import datetime
 import uuid
@@ -457,4 +457,45 @@ class MarketBestseller(Base):
     __table_args__ = (
         UniqueConstraint("product_name", "contributed_by_token_id", name="uq_market_bestseller_token"),
         Index("idx_market_bestseller_token", "contributed_by_token_id"),
+    )
+
+
+# ==================== 店铺使用埋点表（v0.34 C6: shop_usage_stats） ====================
+# worker task_processor 在任务终态（failed/completed/重试耗尽）增量写入，按 (ozon_client_id, stat_date) 按天聚合。
+# ⚠️ task_count 语义 = 任务执行次数（每次终态 +1，重试/僵尸恢复重新计数是预期行为）。
+# ⚠️ common_errors 降级实现：JSONB 数组保留当日最近 5 条失败 error_message（非按日 top-5 聚合），
+#    只在失败终态路径累积，成功路径不增（见 task_processor._upsert_shop_usage 注释）。
+
+class ShopUsageStats(Base):
+    """店铺使用埋点 — 每次任务终态增量写入，按 (ozon_client_id, stat_date) 按天聚合。"""
+    __tablename__ = "shop_usage_stats"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    ozon_client_id: Mapped[str] = mapped_column(Text, nullable=False, comment="Ozon 店铺 Client-Id")
+    stat_date: Mapped[datetime.date] = mapped_column(
+        Date, nullable=False, server_default=func.current_date(), comment="统计日期（按天聚合）"
+    )
+    task_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+        comment="任务执行次数（每次终态 +1，重试重新计数）"
+    )
+    approved_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0"), comment="审核通过次数"
+    )
+    validation_failed_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0"), comment="审核失败次数"
+    )
+    common_errors: Mapped[Optional[list]] = mapped_column(
+        JSONB, nullable=True, comment="当日最近 5 条失败 error_message（降级实现，成功路径不增）"
+    )
+    last_error: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="当日最近一次失败 error_message"
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("ozon_client_id", "stat_date", name="uq_shop_usage_client_date"),
+        Index("idx_shop_usage_client_date", "ozon_client_id", "stat_date"),
     )
