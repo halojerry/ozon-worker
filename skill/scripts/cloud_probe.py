@@ -2591,6 +2591,35 @@ def _search_1688_with_fallback(search_kw: str) -> list[dict[str, Any]]:
     return []
 
 
+def _cached_ozon_scrape(
+    url: str,
+    *,
+    cdp_url: str = "http://127.0.0.1:9222",
+    timeout: int = 30,
+    conn=None,
+) -> dict[str, Any]:
+    """CDP Ozon 商品页抓取磁盘缓存包装（v0.36，昂贵操作 6h 复用）。
+
+    不改编译的 ozon_scraper.py，只在明文调用方包缓存。key = 原始 URL
+    （URL 即语言维度：lang=ru/country=RU 参数内嵌），只缓存 success 结果，
+    失败/未命中照常抓取。
+    """
+    from scripts.lib.cache import cache_get, cache_set
+
+    url = str(url or "").strip()
+    if not url:
+        return {"success": False, "error": "空 Ozon URL"}
+    cached = cache_get("ozon_cdp", url)
+    if cached is not None:
+        return cached
+    from scripts.lib.ozon_scraper import scrape_ozon_product_via_cdp
+
+    result = scrape_ozon_product_via_cdp(url, cdp_url=cdp_url, timeout=timeout, conn=conn)
+    if result and result.get("success"):
+        cache_set("ozon_cdp", url, result, ttl=21600)
+    return result
+
+
 def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = "") -> dict[str, Any]:
     """
     跟卖 Ozon 商品 (v9: Skill 不调 Ozon API, import-by-sku 移到 Worker):
@@ -2612,8 +2641,8 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         return {"success": False, "error": "无法解析 Ozon URL"}
 
     product_id = parsed["product_id"]
-    m = re.search(r'/product/(.+?)-(\d{6,15})/', ozon_url)
-    slug = m.group(1).replace("-", " ") if m else ""
+    m = re.search(r'/products?/(?:([^/]+)-)?(\d{6,15})', ozon_url)
+    slug = m.group(1).replace("-", " ") if m and m.group(1) else ""
 
     ozon_creds = _get_ozon_credentials(store_id)
     client_id = ozon_creds.get("client_id", "")
@@ -2652,8 +2681,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         pass
 
     try:
-        from scripts.lib.ozon_scraper import scrape_ozon_product_via_cdp
-        cdp_data = scrape_ozon_product_via_cdp(ozon_url, cdp_url="http://127.0.0.1:9222", timeout=30, conn=shared_cdp)
+        # ✅ v0.36: 昂贵 CDP 抓取走磁盘缓存包装（_cached_ozon_scrape，6h）
+        cdp_data = _cached_ozon_scrape(
+            ozon_url, cdp_url="http://127.0.0.1:9222", timeout=30, conn=shared_cdp)
         if cdp_data.get("success"):
             ozon_images = cdp_data.get("images", [])
             ozon_title = cdp_data.get("title", "")

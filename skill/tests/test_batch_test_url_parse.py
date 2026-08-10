@@ -78,6 +78,108 @@ def test_parse_mixed_desktop_mobile_dedup():
     assert sum(1 for i in items if i["type"] == "1688") == 1, "同 offerId 应去重"
 
 
+# ── 1b. Ozon 纯数字 product_id 解析（v0.35.x）──
+
+def test_parse_ozon_bare_numeric_product_id():
+    """纯数字 Ozon 链接 /product/4767514314 → 解析出 4767514314。"""
+    path = _write_urls(["https://www.ozon.ru/product/4767514314"])
+    try:
+        items = batch_test.parse_urls_file(path)
+    finally:
+        os.unlink(path)
+    assert len(items) == 1, f"应解析出 1 条，实际 {items}"
+    assert items[0]["type"] == "ozon"
+    assert items[0]["id"] == "4767514314", items[0]
+
+
+def test_parse_ozon_slug_form_still_works():
+    """slug 形式 /product/my-product-4767514314 仍解析（回归）。"""
+    path = _write_urls(["https://www.ozon.ru/product/my-product-4767514314"])
+    try:
+        items = batch_test.parse_urls_file(path)
+    finally:
+        os.unlink(path)
+    assert len(items) == 1
+    assert items[0]["type"] == "ozon"
+    assert items[0]["id"] == "4767514314", items[0]
+
+
+def test_parse_ozon_mixed_forms_both_parse_and_dedup():
+    """纯数字 + slug 混合：两种形式都解析，同 product_id 去重只留一条。"""
+    path = _write_urls([
+        "https://www.ozon.ru/product/1234567890",          # 纯数字
+        "https://www.ozon.ru/product/slug-1234567890",     # 同 ID slug 形式
+        "https://www.ozon.ru/product/other-0987654321",    # 独立 slug 产品
+    ])
+    try:
+        items = batch_test.parse_urls_file(path)
+    finally:
+        os.unlink(path)
+    ids = {i["id"] for i in items}
+    assert ids == {"1234567890", "0987654321"}, ids
+    assert sum(1 for i in items if i["id"] == "1234567890") == 1, \
+        "纯数字 + slug 同 ID 应去重"
+
+
+# ── 1c. Ozon URL 边界形态（v0.35.x 回归）──
+
+def test_parse_ozon_trailing_slash():
+    """尾部斜杠 /product/4767514314/ → 解析出。"""
+    path = _write_urls(["https://www.ozon.ru/product/4767514314/"])
+    try:
+        items = batch_test.parse_urls_file(path)
+    finally:
+        os.unlink(path)
+    assert len(items) == 1
+    assert items[0]["id"] == "4767514314", items
+
+
+def test_parse_ozon_query_params():
+    """查询参数 /product/4767514314?utm_source=x → 解析出。"""
+    path = _write_urls(["https://www.ozon.ru/product/4767514314?utm_source=x&ref=y"])
+    try:
+        items = batch_test.parse_urls_file(path)
+    finally:
+        os.unlink(path)
+    assert len(items) == 1
+    assert items[0]["id"] == "4767514314", items
+
+
+def test_parse_ozon_uppercase_domain():
+    """大写域名 https://www.OZON.RU/product/4767514314 → 解析出（域名检查不区分大小写）。"""
+    path = _write_urls(["https://www.OZON.RU/product/4767514314"])
+    try:
+        items = batch_test.parse_urls_file(path)
+    finally:
+        os.unlink(path)
+    assert len(items) == 1, f"大写域名应解析，实际 {items}"
+    assert items[0]["type"] == "ozon"
+    assert items[0]["id"] == "4767514314", items
+
+
+def test_parse_ozon_no_www():
+    """无 www https://ozon.ru/product/4767514314 → 解析出。"""
+    path = _write_urls(["https://ozon.ru/product/4767514314"])
+    try:
+        items = batch_test.parse_urls_file(path)
+    finally:
+        os.unlink(path)
+    assert len(items) == 1
+    assert items[0]["id"] == "4767514314", items
+
+
+def test_parse_uppercase_1688_offer():
+    """大写 1688 域名 detail.1688.COM → 解析出（域名检查不区分大小写）。"""
+    path = _write_urls(["https://detail.1688.COM/offer/980815374096.html"])
+    try:
+        items = batch_test.parse_urls_file(path)
+    finally:
+        os.unlink(path)
+    assert len(items) == 1, f"大写 1688 域名应解析，实际 {items}"
+    assert items[0]["type"] == "1688"
+    assert items[0]["id"] == "980815374096", items
+
+
 # ── 2. worker-url 优先级: WORKER_URL > MXOU_API_BASE ──
 
 def test_default_worker_url_prefers_worker_url():

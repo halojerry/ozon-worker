@@ -53,7 +53,7 @@ def parse_ru_dims(text) -> dict | None:
 # Constants
 # ---------------------------------------------------------------------------
 OZON_PRODUCT_URL_RE = re.compile(
-    r"ozon\.ru/product/(.+?)-(\d{6,20})", re.IGNORECASE
+    r"ozon\.ru/products?/(?:[^/]+-)?(\d{6,20})", re.IGNORECASE
 )
 
 USER_AGENTS = [
@@ -84,7 +84,7 @@ BASE_HEADERS = {
 def _parse_product_id_from_url(url: str) -> str | None:
     """Extract product_id from Ozon URL."""
     m = OZON_PRODUCT_URL_RE.search(url)
-    return m.group(2) if m else None
+    return m.group(1) if m else None
 
 
 def _pick_category_from_crumbs(crumbs: list[dict]) -> dict | None:
@@ -303,9 +303,9 @@ def scrape_ozon_product(
     if not product_id:
         return {"success": False, "error": f"无法解析 Ozon URL: {url}"}
 
-    # Extract slug
-    m = re.search(r"/product/(.+?)-(\d{6,20})", url)
-    slug = m.group(1).replace("-", " ") if m else ""
+    # Extract slug (optional: 纯数字 product_id 无 slug)
+    m = re.search(r"/products?/(?:([^/]+)-)?(\d{6,20})", url)
+    slug = m.group(1).replace("-", " ") if m and m.group(1) else ""
 
     result: dict[str, Any] = {
         "success": False,
@@ -386,8 +386,8 @@ def scrape_ozon_product_via_cdp(
     if not product_id:
         return {"success": False, "error": f"无法解析 Ozon URL: {ozon_url}"}
 
-    m = re.search(r"/product/(.+?)-(\d{6,20})", ozon_url)
-    slug = m.group(1).replace("-", " ") if m else ""
+    m = re.search(r"/products?/(?:([^/]+)-)?(\d{6,20})", ozon_url)
+    slug = m.group(1).replace("-", " ") if m and m.group(1) else ""
 
     result: dict[str, Any] = {
         "success": False, "product_id": product_id, "slug": slug,

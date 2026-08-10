@@ -101,6 +101,50 @@ def test_live_tab_reused_and_released():
     conn.release.assert_called_once_with(live)  # ← release 契约
 
 
+# ── geo-redirect 重试兜底（CN IP → from_global 搜索页）──
+
+def test_geo_redirect_retry_on_search_page():
+    """from_global=true 地理重定向 → 用 ?lang=ru&country=RU 重试导航。"""
+    conn = mock.MagicMock()
+    tab = mock.MagicMock()
+    tab.url = "https://www.ozon.ru/search/?from_global=true&text=4767514314"
+    conn.find_tab.return_value = None
+    conn.new_tab.return_value = tab
+    with mock.patch("scripts.lib.ozon_widget.time.sleep"):
+        got = ozon_widget._ensure_ozon_tab(
+            conn, "https://www.ozon.ru/product/4767514314/")
+    assert got is tab
+    nav_calls = [c.args[0] for c in tab.navigate.call_args_list]
+    assert any("lang=ru&country=RU" in u for u in nav_calls), nav_calls
+
+
+def test_geo_redirect_not_triggered_on_product_page():
+    """正常商品页（无重定向）→ 不触发二次导航。"""
+    conn = mock.MagicMock()
+    tab = mock.MagicMock()
+    tab.url = "https://www.ozon.ru/product/my-product-4767514314/"
+    conn.find_tab.return_value = None
+    conn.new_tab.return_value = tab
+    with mock.patch("scripts.lib.ozon_widget.time.sleep"):
+        got = ozon_widget._ensure_ozon_tab(
+            conn, "https://www.ozon.ru/product/4767514314/")
+    assert got is tab
+    assert tab.navigate.call_count == 0, "不应有重试导航"
+
+
+def test_geo_redirect_skipped_for_non_product_target():
+    """非商品页（如 seller 页）即使落到搜索页也不重试。"""
+    conn = mock.MagicMock()
+    tab = mock.MagicMock()
+    tab.url = "https://www.ozon.ru/search/?from_global=true&text=999"
+    conn.find_tab.return_value = None
+    conn.new_tab.return_value = tab
+    with mock.patch("scripts.lib.ozon_widget.time.sleep"):
+        got = ozon_widget._ensure_ozon_tab(conn, _SELLER_URL)
+    assert got is tab
+    assert tab.navigate.call_count == 0, "非商品页不应触发商品重试"
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0
