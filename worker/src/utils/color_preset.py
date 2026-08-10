@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """color_preset_router — 品类 → 配色预设的确定性路由（纯函数，无 LLM 无 I/O）
 
 PRD v5 §5.2.2（L307-319）实现：按 draft.category 匹配关键词 → 输出
