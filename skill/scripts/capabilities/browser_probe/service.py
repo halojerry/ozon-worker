@@ -889,6 +889,19 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
             return found
         raise ConfigError(f'浏览器可执行文件不存在: {candidate}')
 
+    # Phase 0: CHROME_PATH 环境变量显式指定（服务器/CI 无默认浏览器时强覆盖，优先级
+    # 在 explicit 参数之后、已知路径扫描之前）。路径不存在则报错——显式配置错误不静默忽略。
+    import os as _os
+    chrome_path = str(_os.environ.get('CHROME_PATH') or '').strip()
+    if chrome_path:
+        path = Path(chrome_path).expanduser()
+        if path.exists():
+            return str(path)
+        found = shutil.which(chrome_path)
+        if found:
+            return found
+        raise ConfigError(f'CHROME_PATH 指定的浏览器可执行文件不存在: {chrome_path}')
+
     # Phase 1: check all known paths (fast, no subprocess)
     for item in _candidate_browser_paths():
         found = shutil.which(item)
@@ -1717,6 +1730,10 @@ def _wait_for_login_session(
 
     If a login is already in progress, waits for it to complete instead
     of starting a second concurrent login flow.
+
+    ⚠️ Q3: 返回结构化结果 {ok, session, reason} 以区分失败原因：
+      - ok=True  → session = 登录成功的会话 dict（含 cdp_url/login_detected，兼容旧调用方），reason=None
+      - ok=False → session = None，reason ∈ {'no_cdp', 'timeout', 'cdp_error'}
     """
     global _login_in_progress, _login_result
     import base64 as _base64
@@ -1727,7 +1744,7 @@ def _wait_for_login_session(
     if _login_in_progress:
         _logger.info("Login already in progress, waiting for it to complete...")
         _login_done_event.wait(timeout=max(timeout_seconds, 60))
-        return _login_result
+        return _login_result or {'ok': False, 'session': None, 'reason': 'cdp_error'}
 
     # ✅ 修复：使用 flag 标记是否需要释放锁，避免 double-release
     _login_lock.acquire()
@@ -1743,7 +1760,7 @@ def _wait_for_login_session(
             finally:
                 _login_lock.acquire()
                 _should_release = True
-            return _login_result
+            return _login_result or {'ok': False, 'session': None, 'reason': 'cdp_error'}
 
         _login_in_progress = True
         _login_done_event.clear()
@@ -1772,7 +1789,8 @@ def _wait_for_login_session(
                 cdp_url = str(recovered.get('cdp_url') or '')
         if not cdp_url:
             _logger.error("No Chrome CDP session found — cannot wait for login")
-            return None
+            _login_result = {'ok': False, 'session': None, 'reason': 'no_cdp'}
+            return _login_result
 
         # Save session info
         session['cdp_url'] = cdp_url
@@ -1828,17 +1846,19 @@ def _wait_for_login_session(
                     merged['login_detected'] = True
                     merged['login_check_url'] = snapshot.get('url')
                     _logger.info("1688 login detected at %s", snapshot.get('url'))
-                    _login_result = merged
-                    return merged
+                    _login_result = {'ok': True, 'session': merged, 'reason': None}
+                    return _login_result
             except Exception:
                 pass
             time.sleep(3)
 
         _logger.warning("_wait_for_login_session: login timeout after %ds", timeout_sec)
-        return None
+        _login_result = {'ok': False, 'session': None, 'reason': 'timeout'}
+        return _login_result
     except Exception as exc:
         _logger.error("_wait_for_login_session: CDP error: %s", exc)
-        return None
+        _login_result = {'ok': False, 'session': None, 'reason': 'cdp_error'}
+        return _login_result
     finally:
         if tab:
             try:
@@ -2081,15 +2101,17 @@ def _auto_install_browser() -> bool:
         import playwright  # noqa: F401
     except ImportError:
         try:
+            # --break-system-packages：PEP 668 externally-managed-environment 系统
+            # Python（Debian/Ubuntu 等）拒绝 pip 安装，缺此 flag 自动安装被阻断
             _sp.run(
-                [python, '-m', 'pip', 'install', 'playwright', '-i', 'https://pypi.tuna.tsinghua.edu.cn/simple'],
+                [python, '-m', 'pip', 'install', '--break-system-packages', 'playwright', '-i', 'https://pypi.tuna.tsinghua.edu.cn/simple'],
                 check=True, capture_output=True, timeout=120, env=mirror_env,
             )
         except Exception:
             # Fallback: try without mirror
             try:
                 _sp.run(
-                    [python, '-m', 'pip', 'install', 'playwright'],
+                    [python, '-m', 'pip', 'install', '--break-system-packages', 'playwright'],
                     check=True, capture_output=True, timeout=120,
                 )
             except Exception:
@@ -2324,8 +2346,12 @@ def probe_1688_page(
     if '1688.com' not in target_url:
         raise ValidationError('browser_probe 当前只支持 1688 页面 URL')
 
-    # Cache-aside: reuse cached probe result if fresh (avoid 1688 rate limiting)
-    cached = _find_cached_probe(target_url, task_id, max_age_seconds=_CACHE_TTL)
+    # Cache-aside: 标准 cache.py 命名空间缓存优先（Q7），_find_cached_probe 工件扫描兜底
+    # （旧工件是历史产物，仍可复用；新结果统一走 cache.py 便于 cache stats/清理）
+    from scripts.lib.cache import cache_get, cache_set
+    cached = cache_get("probe1688", target_url)
+    if cached is None:
+        cached = _find_cached_probe(target_url, task_id, max_age_seconds=_CACHE_TTL)
     if cached is not None:
         cached['artifact_path'] = str(_artifact_path(task_id or current_task_id()))
         return cached
@@ -2353,12 +2379,13 @@ def probe_1688_page(
     session = _resolve_browser_session(profile_name)
     cdp_url = str(session.get('cdp_url') or '').strip()
     if not cdp_url or not _cdp_available(cdp_url):
-        session = _wait_for_login_session(
+        login_wait = _wait_for_login_session(
             target_url,
             profile_name=profile_name,
             browser_path=resolved_browser,
             timeout_seconds=timeout_seconds,
         ) or {}
+        session = login_wait.get('session') or {}
         cdp_url = str(session.get('cdp_url') or '').strip()
         launch_meta['session_bootstrapped'] = bool(cdp_url)
     if not cdp_url or not _cdp_available(cdp_url):
@@ -2386,12 +2413,13 @@ def probe_1688_page(
 
     if not login_ok:
         _logger_svc.info("1688 login not detected via live cookie check, prompting login...")
-        session = _wait_for_login_session(
+        login_wait = _wait_for_login_session(
             target_url,
             profile_name=profile_name,
             browser_path=resolved_browser,
             timeout_seconds=timeout_seconds,
-        ) or session
+        ) or {}
+        session = login_wait.get('session') or session
         cdp_url = str(session.get('cdp_url') or cdp_url).strip()
         if not cdp_url or not _cdp_available(cdp_url):
             raise ConfigError('1688 登录未完成，无法继续探测')
@@ -2482,4 +2510,7 @@ def probe_1688_page(
     probe['images'] = _filter_probe_images(list(probe.get('images') or []))
     result['summary'] = _build_summary(probe)
     artifact.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+    # Q7: 只缓存可用的探测结果（ready 且非失败页/验证码），避免缓存反爬/失败页
+    if result.get('ready') and not result.get('failure_page') and not result.get('captcha_intercepted'):
+        cache_set("probe1688", target_url, result, ttl=_CACHE_TTL)
     return result
