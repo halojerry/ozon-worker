@@ -95,6 +95,28 @@ def test_spec_table_keeps_legal_word():
     assert "<td>Назначение" in out
 
 
+# ── _append_spec_table: 中文属性名净化 (Sentry C2 根因锁定) ──
+
+def test_spec_table_cleans_chinese_attr_name():
+    """schema 以 ZH_HANS 返回时属性名是中文(品牌/原产国) → 规格表必须净化,
+    否则描述含中文字符 → ozon_validate 拦截 (Sentry POUDING_OZON-C2)。"""
+    attrs = [{"id": 85, "name": "品牌", "value": "Нет бренда"},
+             {"id": 4389, "name": "原产国", "value": "Китай"}]
+    out = _append_spec_table("Описание.", attrs)
+    # 中文属性名被清空 → 整行跳过（不渲染 <td>品牌</td>）
+    assert "品牌" not in out
+    assert "原产国" not in out
+    assert "<td>Нет бренда" not in out  # 值虽合法但属性名净化后为空 → 行跳过
+
+
+def test_spec_table_keeps_cyrillic_attr_name():
+    """俄语属性名(Характеристики/Материал) → 正常保留。"""
+    attrs = [{"id": 10, "name": "Материал", "value": "полипропилен"}]
+    out = _append_spec_table("Описание.", attrs)
+    assert "<td>Материал</td>" in out
+    assert "полипропилен" in out
+
+
 # ── retry loop: FB_INSTA → unfixable ──
 
 def test_classify_fix_type_fb_insta_unfixable():
