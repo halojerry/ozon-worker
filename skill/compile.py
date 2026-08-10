@@ -29,7 +29,6 @@ COMPILE_FILES = [
     "scripts/lib/ozon_scraper.py",
     "scripts/lib/ozon_image_search.py",
     "scripts/lib/reference_images.py",
-    "scripts/lib/ozon_discovery.py",   # 选品发现引擎（蓝海评分）
     "scripts/lib/ozon_api.py",         # Ozon API 封装（类目搜索/属性匹配）
 ]
 
@@ -56,6 +55,11 @@ COPY_FILES = [
     # 无需伪造），反检测是对抗性代码——1688/Ozon 升级检测必须能快速调，
     # 且编译态改 3 行就要重编译 4 平台。明文跨平台一致。
     "scripts/capabilities/browser_probe/stealth.py",
+    # ⚠️ ozon_discovery.py 明文（2026-08-10 从编译移回）：discover 运营指标
+    # 链路（ozon_seller_analytics/analytics_upload/ozon_fission）需适配任意
+    # ≥3.12 解释器（用户 ulw 环境为 3.14，编译态 .so 是 py312 ABI 无法加载）。
+    # cloud_probe/chrome_launcher 同款先例：明文跨平台一致 + 可快速迭代。
+    "scripts/lib/ozon_discovery.py",
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）
