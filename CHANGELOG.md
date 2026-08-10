@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.36.0] - 2026-08-11
+
+> Wave 4 稳定性批次：浏览器链路修复（CHROME_PATH / PEP 668 / 登录误判区分 / api_only 降级）+ 1688 配额缓存（AK 搜索/图搜）+ 批量断点续传 + 打包安全（dist 断言 / config 原子写 / Chrome profile 并发锁）+ SKILL.md 瘦身与 references 迁移。
+
+### Feat(skill 浏览器链路)
+
+- **Q1 `CHROME_PATH` 环境变量**（`service.py:883 find_browser_executable` Phase 0）：显式指定浏览器可执行文件（服务器/CI 无默认浏览器时强覆盖），优先级在 explicit 参数之后、候选路径扫描之前；路径不存在 → `ConfigError` 明确报错（显式配置错误不静默忽略），报错提示同时指引 CHROME_PATH 兜底。
+- **Q6 PEP 668 自动安装**（`service.py:2078 _auto_install_browser`）：两处 `pip install playwright`（镜像源 + 兜底分支）加 `--break-system-packages`——uv 托管 Python（Debian/Ubuntu externally-managed-environment）此前直接拒绝安装，自动装浏览器被静默阻断。
+- **Q3 登录结果结构化**（`service.py _wait_for_login_session`）：返回 `{ok, session, reason}`——`ok=True` 兼容旧调用方（session 含 cdp_url/login_detected），`ok=False` 时 `reason ∈ {no_cdp, timeout, cdp_error}`，失败原因不再混为一谈。
+- **Q4 登录误判区分**（`ak_1688_client.py enrich_product_with_cdp` 消费侧）：按 reason 区分三种失败并给出各自可执行提示——浏览器不存在（→ 安装 Chromium 或设 CHROME_PATH）/ 登录超时（→ 超时窗口内重新扫码）/ 浏览器启动失败（→ 手动启动 Chrome 或删除 data/browser/profiles/1688 下损坏 profile 缓存）。此前「登录超时 vs 浏览器启动失败」混淆，用户被误导反复扫码。
+
+### Feat(skill 1688 配额缓存)
+
+- **Q9 AK 搜索缓存**（`ak_1688_client.py search_products`）：磁盘缓存 `ak_search`（key = 查询词 + 规范化请求参数 JSON，`sort_keys` 保证同参同 key），TTL 24h——follow/discover 重复同 key 不再耗 1688 AK 配额；**仅缓存非空结果**（空列表/瞬时失败不写缓存，下次重试真实请求）。
+- **Q9 图搜缓存**（`ak_1688_client.py` 图搜接口）：磁盘缓存 `ak_img_search`（key = imageUrl），TTL 6h——仅 imageUrl 模式可缓存（本地文件 base64 无法稳定复用），防 follow 重复图搜耗配额。
+- **Q7 follow 链路三级缓存**：① `service.py probe_1688_page` 标准 cache.py 命名空间缓存（`probe1688`, key=url, TTL 24h）优先，原 `_find_cached_probe` 工件扫描保留作二级兜底；② `cloud_probe.py _translate_slug_to_cn` LLM 翻译缓存（`slug_cn`, TTL 30d——LLM 成本高，同 slug 不重复调用）；③ `follow_sell_cloud` envelope 级缓存（`follow`, key=`{product_id}:{store_id}`, TTL 6h——命中且有 images/1688_matches 直接复用，auto_submit 照常提交，不重复 CDP 抓取/图搜/LLM）。
+
+### Feat(skill 批量断点续传)
+
+- **Q8 `batch_test --resume`**（`batch_test.py`）：新参数 `--resume`（自动找最新 `batch_*.json`，排除 `*_summary.json`）+ `--resume-from FILE`（显式指定）；只跳过上次 `success=true` 项（1688 offer_id / Ozon product_id），失败项自动重试（防漏上架），成功项不重跑（防重复上架）；结果合并写回原结果文件（不拆文件），summary 记录 `resume_from`、`stats.skipped` 计入；URL 解析 + resume 判定前置到 Chrome 启动之前——无历史快速退出 rc=1、全部完成 rc=0，不再白启 Chrome。未传 `--resume` 行为完全不变。
+
+### Feat(skill 打包安全)
+
+- **Q15 config 原子写**（`config_store.py`）：stores.json/settings.json/auth_cache 三处 `write_text` → `_atomic_write_json`（临时文件 + os.replace 同目录原子替换，Windows 文件锁失败短等待重试一次，仿 cache.py v0.14 E3）——并发 CLI 进程（check/set_token/set_store 同开）不再读到半截 JSON / 丢凭证。
+- **Q15 Chrome profile 并发锁**（`chrome_launcher.py`）：原 tempdir 全局锁 + flock LOCK_NB（非阻塞，第二个并发进程直接抛未捕获 BlockingIOError）→ per-profile 锁（`data/browser/.profile-{name}.lock`，仿 updater.py .update.lock 模式，fcntl/msvcrt 双分支）+ 阻塞等待 30s 超时 + 超时优雅降级；不同 profile 不再无谓串行。
+- **Q12 dist 完整性断言**（`compile.py _assert_dist_safety`）：追加 `dist/data/browser`（Chrome profile 登录态）禁止打包断言——违反即 SystemExit 阻断打包分发，防登录态泄露；原有 runtime_probe.py 必须明文 + `data/.venv` 排除断言保留。
+
+### Refactor(skill SKILL.md 瘦身 + references 迁移)
+
+- **Q13**：SKILL.md 150→100 行——完整意图路由决策树细纲迁至 `references/command-reference.md`（SKILL.md 保留要点速记 + 链接）；新增 `references/anti-patterns.md` / `references/discover-fission.md` / `references/trend-selection.md` 三个专题文档。
+- **Q10 分发版本覆写**（`compile.py`）：新增 `_rewrite_skill_frontmatter_version`——打包时用 `skill/VERSION` 覆写 dist 内 SKILL.md frontmatter 的 `version` 字段（count=1 仅改第一处，正文不动）；3 个新 references 文件纳入 `DOC_FILES` 随包分发。
+
+### Feat(skill 版本四源统一)
+
+- **Q11**：`VERSION` 四源统一为 0.36.0——root `VERSION` / `skill/VERSION` / `deploy/skill/VERSION`（此前滞留 0.34.0）/ `SKILL.md` frontmatter `version`（此前滞留 0.30.0）；`build-skill.yml` 新增 frontmatter 校验 step——从 `dist/SKILL.md` frontmatter 提取 version 断言 == 发布 tag（与既有包内 VERSION 硬校验并列），防 `_rewrite_skill_frontmatter_version` 覆写失效或源码 frontmatter 漂移。
+
+### 测试
+
+- 新增 9 文件 66 断言全绿：`test_batch_test_resume.py`（13：最新文件查找排除 summary / 损坏容错 / 成功 ID 提取 / main 集成跳过+重试+合并写回）、`test_follow_cache.py`（10：probe 缓存命中跳过浏览器 / 工件兜底 / slug LLM 缓存 / envelope 级命中复用）、`test_login_misjudge.py`、`test_service_chrome_path_autoinstall.py`（Q1/Q6）、`test_api_only_degraded.py`（Q2）、`test_config_atomic_write.py` + `test_chrome_profile_lock.py`（Q15）、`test_compile_frontmatter.py`（Q10/Q13）、`test_compile_no_profile.py`（Q12）。
+- 全量 skill pytest 251 passed（排除网络类 6 文件）；batch_test 既有 URL 解析回归 16 断言全过。
+
+### 待补
+
+- **Q5 safe_unlink**（`utils.py`）：Windows 沙箱 fail-open 安全删除——`safe_unlink`（Path.unlink → 降级 os.remove → warning 返回 False）+ `safe_rmtree`（ignore_errors=True + warning）；替换 7 处裸删除（cache.py 过期清理 / task_paths.py / updater.py 回滚 / bootstrap_update.py / chrome_launcher.py PID 文件）；新增 `test_safe_unlink.py`（7 断言：成功 / PermissionError 降级 / 双败返回 False / missing_ok / rmtree 双态）。
+
 ## [0.35.0] - 2026-08-10
 
 > SKILL.md 精简为纯操作手册 + discover 选品结构性分析文档（MD+JSON）+ Skill 端 Sentry 错误上报（复用 pouding_ozon，environment=skill）。规划：参考毛子ERP/上品帮选品逻辑调研（月销/增长/跟卖数/drr 四指标已覆盖，广告位 DOM 解析不引入——主流工具均用转化率替代）。

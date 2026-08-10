@@ -190,6 +190,26 @@ jobs:
           printf '%s' "$REF" > VERSION
           echo "✅ 包内 VERSION=$(cat VERSION) (来自 tag $GITHUB_REF_NAME)"
 
+      # ⚠️ Q11 (v0.36): SKILL.md frontmatter version 校验——compile.py
+      # `_rewrite_skill_frontmatter_version` 负责打包时用 skill/VERSION 覆写，
+      # 此处硬校验覆写结果 == 发布 tag，防覆写机制失效/源码 frontmatter 漂移
+      # 导致 Agent 侧 SKILL.md version 与包内 VERSION 不一致。
+      - name: Validate SKILL.md frontmatter version matches release tag
+        working-directory: skill/dist
+        run: |
+          REF="${GITHUB_REF_NAME#v}"
+          FM=$(grep -m1 -E '^version: "[0-9]+\.[0-9]+\.[0-9]+"' SKILL.md | \
+               sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')
+          if [ -z "$FM" ]; then
+            echo "::error::dist/SKILL.md frontmatter 无 version 字段"
+            exit 1
+          fi
+          if [ "$FM" != "$REF" ]; then
+            echo "::error::dist/SKILL.md frontmatter version($FM) != 发布版本($REF)"
+            exit 1
+          fi
+          echo "✅ frontmatter version=$FM == 发布版本 $REF"
+
       - name: Create distributable package
         working-directory: skill
         run: |
