@@ -96,3 +96,71 @@
 - 成功：`✅ 任务已提交，任务 ID: {task_id}。预计 10–20 分钟完成。`
 - 失败：按 error-codes.md 错误码表回复（含修复指引）。
 - 轮询完成（batch_test --wait）：`✅ 任务完成。产品明细：[表格]`。
+
+## discover 选品分析文档
+
+`discover` 在 **match_selected（1688 货源分析）完成后自动生成** 结构性分析文档，无需 `--export`。输出到 `data/discovery/`：
+
+- `analysis_{YYYYMMDD_HHMMSS}.md`，人类可读报告
+- `analysis_{YYYYMMDD_HHMMSS}.json`，机器可读数据（与 MD 同 ts 配对）
+
+实现位置：`scripts/lib/ozon_discovery.py` 的 `export_analysis_report`（候选为空时不生成文件）。
+
+### JSON schema
+
+```json
+{
+  "generated_at": "ISO 时间（如 2026-08-10T14:30:00）",
+  "summary": {
+    "total": 候选总数,
+    "status_distribution": {"状态": 数量},
+    "blue_ocean": {"max": 最高蓝海分, "avg": 平均蓝海分},
+    "profit": {"max": 最高利润率%, "median": 中位利润率%, "profitable_count": 可盈利数量}
+  },
+  "candidates": [候选全字段，字段为 ProductCandidate asdict],
+  "top_blue_ocean": [按蓝海分降序前 N 个（默认 5），字段同上]
+}
+```
+
+**summary 字段说明**：
+
+| 字段 | 含义 |
+|---|---|
+| `total` | 候选产品总数 |
+| `status_distribution` | 各状态计数（profitable / rejected / no_match / error 等，key 为候选 `status`） |
+| `blue_ocean.max` / `blue_ocean.avg` | 蓝海分最高值 / 平均值 |
+| `profit.max` | 最高利润率（%） |
+| `profit.median` | 中位利润率（%） |
+| `profit.profitable_count` | 可盈利数量（`status=="profitable"` 或 `profit_margin>0` 均计入） |
+
+**candidates / top_blue_ocean 关键字段**（ProductCandidate asdict，字段名见 `ozon_discovery.py`）：
+
+| 字段 | 含义 |
+|---|---|
+| `ozon_title` | Ozon 商品标题 |
+| `ozon_price` | Ozon 售价（RUB） |
+| `monthly_sales` | 月销量 |
+| `sales_growth` | 月增长率（%） |
+| `drr` | 广告费占比（%） |
+| `competing_sellers` | 跟卖数 |
+| `create_days` | 上架天数 |
+| `rating` | 评分 |
+| `blue_ocean_score` | 蓝海分 |
+| `profit_margin` | 利润率（%） |
+| `match_1688_url` | 1688 货源 URL（未匹配为空串） |
+| `match_1688_price` | 1688 采购价（CNY） |
+| `status` | profitable / rejected / no_match / error 等 |
+
+### MD 结构
+
+1. 头部汇总：候选总数、状态分布、蓝海分（最高/平均）、利润率（最高/中位/可盈利数）
+2. 蓝海 Top-N 表：序号 | 标题 | 蓝海分 | 利润率% | 月销 | 价格₽
+3. 每产品详情块：价格、月销、月增长率、广告占比、跟卖数、上架天数、评分、蓝海分、利润率、1688 货源 URL、采购价、审核状态
+
+### Agent 汇报模板
+
+读 `analysis_*.md`（或 JSON）后可直接向用户汇报，无需再读原始 `discovery_*.json` 缓存。示例：
+
+> 已分析 N 个候选产品，其中 X 个可盈利、Y 个无货源。蓝海 Top：
+> - **{标题}**：月销 {n}，蓝海分 {score}，利润率 {p}%，跟卖 {s} 家，1688 货源 {url}。
+> 完整数据见 `data/discovery/analysis_{ts}.md`（每产品含价格/增长率/广告占比/评分等明细）。
