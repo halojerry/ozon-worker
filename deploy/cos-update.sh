@@ -165,3 +165,25 @@ fi
 
 log "🎉 升级完成: v${LOCAL_VERSION:-无} → v${VERSION}, 健康检查通过"
 log "备份保留在: $BACKUP_PATH(如需回滚: bash deploy/cos-update.sh v${LOCAL_VERSION:-0.0.0})"
+
+# ── 8. Docker 清理(--no-cache 构建累积历史镜像层/缓存, 防磁盘膨胀) ──
+# v0.34.0: 只清理本项目的未使用镜像层 + 全部构建缓存。
+# ⚠️ 不用 docker image prune -a(会删服务器上所有未引用镜像, 可能误伤其他项目):
+#   仅清理 dangling(无 tag 的孤儿层) + 旧的 ozon-worker 历史镜像(保留 latest + 当前运行)。
+log "🧹 Docker 清理(dangling 镜像层 + 构建缓存)..."
+if command -v docker >/dev/null 2>&1; then
+  # 1) 构建缓存(BuildKit 累积, --no-cache 每次全量构建最占空间)
+  docker builder prune -a -f >/dev/null 2>&1 && log "  ✅ 构建缓存已清理" || warn "  ⚠️ builder prune 失败(忽略)"
+  # 2) dangling 镜像层(历史 --no-cache 构建留下的 <none> 层)
+  docker image prune -f >/dev/null 2>&1 && log "  ✅ dangling 镜像已清理" || warn "  ⚠️ image prune 失败(忽略)"
+  # 3) 旧的 ozon-worker 历史版本镜像(保留 latest + 当前运行, 只删更旧的 untagged/历史 tag)
+  docker images ozon-worker --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null | grep -v 'latest' | while read -r _img _id; do
+    if [ -n "$_id" ]; then
+      docker rmi "$_id" >/dev/null 2>&1 && log "  ✅ 移除旧镜像层 $_id" || warn "  ⚠️ 移除 $_id 失败(可能被引用, 忽略)"
+    fi
+  done
+  log "🧹 Docker 清理完成"
+else
+  warn "未找到 docker, 跳过清理"
+fi
+log "📦 最终磁盘占用: $(docker system df 2>/dev/null | grep -E 'Images|Build Cache' | tr '\n' ' ' || echo 'N/A')"
