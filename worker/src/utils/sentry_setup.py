@@ -63,6 +63,19 @@ def _lang_noise_trace_id(message: str) -> str:
     return f"lang-noise-{digest}"
 
 
+def _token_fingerprint(token: str) -> str:
+    """mxou token 脱敏指纹——不泄露明文, 仅用于 Sentry 按用户区分。
+
+    sk-开头取前 8 位字符 + sha1 前 6, 形如 'sk-abc12345-a1b2c3'。
+    """
+    if not token:
+        return "no-token"
+    raw = token[3:] if token.startswith("sk-") else token
+    prefix = raw[:8]
+    suffix = hashlib.sha1(raw.encode("utf-8", errors="replace")).hexdigest()[:6]
+    return f"{prefix}-{suffix}"
+
+
 def _before_send(event: dict, hint: Optional[dict] = None) -> dict:
     """语言检查噪音指纹聚合。未启用短路零开销；噪音 → fingerprint/level/trace_id；其余原样返回。"""
     if not _SENTRY_ENABLED or not isinstance(event, dict):
@@ -170,9 +183,10 @@ def capture_task_error(
     *,
     task_id: str = "",
     tenant_id: str = "",
+    token: str = "",
     message: str = "",
 ) -> None:
-    """任务级异常上报：带 task_id/tenant_id 上下文。未启用时 no-op。"""
+    """任务级异常上报：带 task_id/tenant_id/token 指纹上下文。未启用时 no-op。"""
     if not _SENTRY_ENABLED:
         return
     try:
@@ -185,6 +199,11 @@ def capture_task_error(
             if tenant_id:
                 scope.set_tag("tenant_id", tenant_id)
                 scope.set_extra("tenant_id", tenant_id)
+            if token:
+                # v0.34: token 脱敏指纹 → Sentry user（能按用户/店铺筛选错误）
+                _fp = _token_fingerprint(token)
+                scope.set_user({"id": tenant_id or _fp, "username": _fp})
+                scope.set_tag("mxou_token_fp", _fp)
         if exc is not None:
             sentry_sdk.capture_exception(exc)
         if message:
