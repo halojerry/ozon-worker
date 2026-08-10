@@ -16,14 +16,15 @@ import re
 import shutil
 import signal
 import subprocess
-import tempfile
 import time
 from pathlib import Path
+
+from scripts.lib.utils import safe_unlink
 
 # Cross-platform file locking
 if platform.system() == 'Windows':
     import msvcrt
-    _LOCK_EX = 0x00000001  # _LK_LOCK equivalent
+    _LOCK_NBEX = 0x00000002  # _LK_NBLCK: 非阻塞尝试（循环控制等待时机）
     _LOCK_UN = 0x00000000
 else:
     import fcntl
@@ -320,6 +321,75 @@ def _has_remote_allow_origins(port: int = CDP_PORT) -> bool:
     return False
 
 
+# ── Chrome profile 并发锁 ──
+# Q15: 原 tempdir 全局锁 + flock LOCK_NB（非阻塞）有两个问题：
+#   1) 第二个并发进程拿不到锁直接抛 BlockingIOError（未捕获）→ ensure_chrome_cdp 崩溃
+#   2) 锁与 profile 无关——不同 profile 无谓串行
+# 改为：per-profile 锁（data/browser/.profile-{name}.lock，仿 updater.py
+# data/.update.lock 模式）+ 阻塞等待带超时 + 超时优雅降级。
+
+def _profile_lock_path(profile_dir: Path) -> Path:
+    """per-profile 启动锁路径（与 .launched_chrome.pid 同目录）。
+
+    标准结构 data/browser/profiles/<name>/<sub> → .profile-{name}.lock
+    （如 profiles/1688/default → .profile-1688.lock）; 其他路径取末两段
+    （父目录-目录名），保证不同 profile 互不冲突。
+    """
+    profile_dir = Path(profile_dir)
+    parts = profile_dir.parts
+    if len(parts) >= 3 and parts[-3] == "profiles":
+        name = parts[-2]
+    else:
+        name = "-".join(parts[-2:]) if len(parts) >= 2 else profile_dir.name
+    return Path(__file__).resolve().parent.parent.parent / "data" / "browser" / f".profile-{name}.lock"
+
+
+def _try_acquire_lock(lock_path: Path, timeout: float = 30.0) -> int | None:
+    """阻塞获取排他锁, 最长等待 timeout 秒。
+
+    成功 → 返回打开的锁文件 fd; 超时/失败 → None（调用方降级, 不抛异常）。
+    进程退出时 OS 自动释放锁, 锁文件残留无害。
+    """
+    try:
+        fd = open(lock_path, "w")
+    except OSError:
+        return None
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            if platform.system() == "Windows":
+                msvcrt.locking(fd.fileno(), _LOCK_NBEX, 1)
+            else:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except (OSError, BlockingIOError):
+            if time.monotonic() >= deadline:
+                try:
+                    fd.close()
+                except OSError:
+                    pass
+                return None
+            time.sleep(0.1)
+
+
+def _release_lock(fd) -> None:
+    """释放锁并关闭 fd。失败静默（OS 在进程退出时兜底释放）。"""
+    if fd is None:
+        return
+    try:
+        if platform.system() == "Windows":
+            fd.seek(0)
+            msvcrt.locking(fd.fileno(), _LOCK_UN, 1)
+        else:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    except Exception:
+        pass
+    try:
+        fd.close()
+    except Exception:
+        pass
+
+
 # ── 主入口 ──
 def ensure_chrome_cdp(
     port: int = CDP_PORT,
@@ -370,17 +440,16 @@ def ensure_chrome_cdp(
     except Exception as _mk_e:
         logger.debug("profile 目录创建失败（将继续）: %s", _mk_e)
 
-    # Use a file lock to prevent two processes from launching Chrome simultaneously.
-    # Double-check CDP after acquiring lock to avoid duplicate launches.
-    lock_path = Path(tempfile.gettempdir()) / 'skill-chrome-launch.lock'
-    lock_fd = None
+    # Use a per-profile file lock to prevent two processes from launching Chrome
+    # with the same profile simultaneously. Double-check CDP after acquiring the
+    # lock to avoid duplicate launches.
+    lock_fd = _try_acquire_lock(_profile_lock_path(profile_path))
+    if lock_fd is None:
+        return False, (
+            "另一个进程正在启动 Chrome（获取 profile 启动锁超时）。"
+            "请稍后重试，或关闭残留的 Chrome 进程后重试。"
+        )
     try:
-        lock_fd = open(lock_path, 'w')
-        if platform.system() == 'Windows':
-            msvcrt.locking(lock_fd.fileno(), _LOCK_EX, 1)
-        else:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-
         # Double-check CDP after acquiring lock — another process may have launched Chrome
         # ⚠️ v0.28.3: 同初始检查, 不再因 allow-origins 误判杀重启
         if _is_cdp_available(port):
@@ -465,16 +534,7 @@ def ensure_chrome_cdp(
 
         return False, "Chrome 已启动但 CDP 未就绪（等待 40 秒超时）"
     finally:
-        if lock_fd:
-            try:
-                if platform.system() == 'Windows':
-                    lock_fd.seek(0)
-                    msvcrt.locking(lock_fd.fileno(), _LOCK_UN, 1)
-                else:
-                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            except Exception:
-                pass
-            lock_fd.close()
+        _release_lock(lock_fd)
 
 
 def get_cdp_url(port: int = CDP_PORT) -> str:
@@ -512,7 +572,7 @@ def close_tool_chrome() -> None:
         if not pid_file.exists():
             return
         pid = int(pid_file.read_text().strip() or 0)
-        pid_file.unlink()  # 先删文件, 防重复执行
+        safe_unlink(pid_file)  # 先删文件, 防重复执行
         if pid <= 0:
             return
         logger.info("关闭工具 Chrome (PID %d)", pid)

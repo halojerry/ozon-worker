@@ -16,6 +16,13 @@
   # 从第 10 个开始，跑 20 个
   python3 batch_test.py --urls-file urls.txt --submit --start 10 --limit 20
 
+  # 断点续传（跳过上次成功项，只重试失败项，续写上次结果文件）
+  python3 batch_test.py --urls-file urls.txt --submit --resume
+
+  # 指定续传来源（默认自动找最新 batch_*.json）
+  python3 batch_test.py --urls-file urls.txt --submit \
+    --resume-from data/batch_results/batch_20260811_090000.json
+
   # 指定新店铺凭证
   python3 batch_test.py --urls-file urls.txt --submit \
     --client-id 5371047 --api-key 411afbd4-c7ea-4fb3-b14f-3d9c2f246214
@@ -139,6 +146,47 @@ def parse_urls_file(filepath: str) -> list[dict[str, str]]:
                     results.append({"type": "1688", "url": line, "id": oid})
 
     return results
+
+
+def find_latest_batch_file(output_dir: Path) -> Path | None:
+    """找最新 batch_*.json（排除 *_summary.json）供 --resume 续传。按 mtime 取最新。"""
+    files = [p for p in output_dir.glob("batch_*.json")
+             if not p.name.endswith("_summary.json")]
+    if not files:
+        return None
+    return max(files, key=lambda p: p.stat().st_mtime)
+
+
+def load_resume_results(log_file: Path) -> list[dict[str, Any]]:
+    """读取历史 batch 结果列表；文件缺失/损坏/非 list → []（不阻断续传）。"""
+    try:
+        data = json.loads(log_file.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def successful_ids(results: list[dict[str, Any]]) -> set[str]:
+    """提取已成功项的 ID 集合（--resume 跳过用）。
+
+    ⚠️ 只收集 success=true：失败项必须重试，跳过会漏上架；
+       已成功项必须跳过，重跑会造成重复上架。
+    """
+    done: set[str] = set()
+    for r in results:
+        if r.get("success"):
+            _id = r.get("offer_id") or r.get("product_id")
+            if _id:
+                done.add(str(_id))
+    return done
+
+
+def filter_unprocessed(
+    urls: list[dict[str, str]], done_ids: set[str]
+) -> tuple[list[dict[str, str]], int]:
+    """过滤掉已成功处理的 URL。返回 (剩余列表, 跳过数量)。"""
+    remaining = [u for u in urls if u["id"] not in done_ids]
+    return remaining, len(urls) - len(remaining)
 
 
 def process_1688_url(
@@ -375,6 +423,14 @@ def main() -> int:
         default="all",
         help="只处理特定类型的 URL",
     )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="断点续传：跳过上次已成功项，只重试失败项，续写最新 batch_*.json",
+    )
+    parser.add_argument(
+        "--resume-from", default="",
+        help="显式指定续传来源结果文件（默认自动找最新 batch_*.json）",
+    )
 
     args = parser.parse_args()
 
@@ -384,6 +440,57 @@ def main() -> int:
             args.client_id, args.api_key, args.store_id)
     if args.submit and (not args.client_id or not args.api_key):
         print("❌ --submit 需要 --client-id 和 --api-key（或设置 OZON_CLIENT_ID / OZON_API_KEY 环境变量，或 stores.json 已配置店铺凭证）")
+        return 1
+
+    # ── Parse URLs（前置：resume 判定不依赖 Chrome，避免无历史/全部完成时白启 Chrome）──
+    print(f"📖 读取 {args.urls_file}...")
+    all_urls = parse_urls_file(args.urls_file)
+    print(f"   总计 {len(all_urls)} 个唯一 URL")
+
+    # Filter by type
+    if args.type_filter != "all":
+        all_urls = [u for u in all_urls if u["type"] == args.type_filter]
+        print(f"   过滤后 ({args.type_filter}): {len(all_urls)} 个")
+
+    # Apply start/limit
+    urls = all_urls[args.start :]
+    if args.limit > 0:
+        urls = urls[: args.limit]
+
+    # ── v0.36: --resume 断点续传 ──
+    # 语义: 跳过上次已成功项（防重复上架），失败项重试（防漏上架）；
+    # 结果合并写回原结果文件，不另起新文件。
+    resumed_file: Path | None = None
+    old_results: list[dict[str, Any]] = []
+    _skipped = 0
+    if args.resume or args.resume_from:
+        src = Path(args.resume_from) if args.resume_from else find_latest_batch_file(OUTPUT_DIR)
+        if src is None or not src.exists():
+            print("❌ --resume 未找到历史结果文件（data/batch_results/batch_*.json），")
+            print("   可用 --resume-from 显式指定文件")
+            return 1
+        old_results = load_resume_results(src)
+        done_ids = successful_ids(old_results)
+        urls, _skipped = filter_unprocessed(urls, done_ids)
+        resumed_file = src
+        print(f"♻️  断点续传: {src.name} 已成功 {len(done_ids)} 个，本批剩余 {len(urls)} 个")
+        if not urls:
+            print("✅ 全部 URL 均已完成，无需续传")
+            return 0
+
+    if not urls:
+        print("❌ 没有要处理的 URL")
+        return 1
+
+    print(f"📋 本批处理: {len(urls)} 个 URL (start={args.start}, limit={args.limit or 'all'})")
+    if args.dry_run:
+        print("🔍 模式: DRY RUN (只组装信封，不提交)")
+    elif args.submit:
+        print(f"🚀 模式: 实际提交到 {args.worker_url}")
+        print(f"   Client ID: {args.client_id}")
+    else:
+        print("⚠️  模式: 既不 --dry-run 也不 --submit，不会做任何事")
+        print("   请添加 --dry-run (试跑) 或 --submit (提交)")
         return 1
 
     # ── Pre-flight check ──
@@ -470,43 +577,18 @@ def main() -> int:
     else:
         print("✅ 前置条件检查通过\n")
 
-    # Parse URLs
-    print(f"📖 读取 {args.urls_file}...")
-    all_urls = parse_urls_file(args.urls_file)
-    print(f"   总计 {len(all_urls)} 个唯一 URL")
-
-    # Filter by type
-    if args.type_filter != "all":
-        all_urls = [u for u in all_urls if u["type"] == args.type_filter]
-        print(f"   过滤后 ({args.type_filter}): {len(all_urls)} 个")
-
-    # Apply start/limit
-    urls = all_urls[args.start :]
-    if args.limit > 0:
-        urls = urls[: args.limit]
-
-    if not urls:
-        print("❌ 没有要处理的 URL")
-        return 1
-
-    print(f"📋 本批处理: {len(urls)} 个 URL (start={args.start}, limit={args.limit or 'all'})")
-    if args.dry_run:
-        print("🔍 模式: DRY RUN (只组装信封，不提交)")
-    elif args.submit:
-        print(f"🚀 模式: 实际提交到 {args.worker_url}")
-        print(f"   Client ID: {args.client_id}")
-    else:
-        print("⚠️  模式: 既不 --dry-run 也不 --submit，不会做任何事")
-        print("   请添加 --dry-run (试跑) 或 --submit (提交)")
-        return 1
-
-    # Output log file
+    # Output log file（续传模式续写原文件，避免结果拆两个文件）
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = OUTPUT_DIR / f"batch_{ts}.json"
-    summary_file = OUTPUT_DIR / f"batch_{ts}_summary.json"
+    if resumed_file is not None:
+        log_file = resumed_file
+        summary_file = OUTPUT_DIR / f"{resumed_file.stem}_summary.json"
+    else:
+        log_file = OUTPUT_DIR / f"batch_{ts}.json"
+        summary_file = OUTPUT_DIR / f"batch_{ts}_summary.json"
 
-    results: list[dict[str, Any]] = []
-    stats = {"total": len(urls), "success": 0, "failed": 0, "skipped": 0}
+    # 续传时把历史结果并入本次列表：增量落盘/最终写回都保留旧条目
+    results: list[dict[str, Any]] = list(old_results) if resumed_file is not None else []
+    stats = {"total": len(urls), "success": 0, "failed": 0, "skipped": _skipped}
 
     print(f"\n{'='*60}")
     print(f"开始处理 {len(urls)} 个 URL...")
@@ -584,6 +666,7 @@ def main() -> int:
             "type_filter": args.type_filter,
             "start": args.start,
             "limit": args.limit,
+            "resume_from": str(resumed_file) if resumed_file is not None else "",
         },
         "stats": stats,
         "results": [

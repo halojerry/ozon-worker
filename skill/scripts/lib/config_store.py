@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,30 @@ SETTINGS_FILE = CONFIG_DIR / 'settings.json'
 
 # Ensure config directory exists
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Atomic JSON write — 并发安全的原子写（Q15，与 cache.py v0.14 E3 同模式）
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
+    """原子写 JSON 文件：临时文件 + os.replace。
+
+    ⚠️ Q15: 原实现直接 `Path.write_text()` 覆写——并发 CLI 进程（check/
+    set_token/set_store 同开）同时写同一 JSON 时，读者可能读到半截文件 →
+    JSONDecodeError、凭证丢失。os.replace 在**同目录**内是原子操作
+    （临时文件用 with_suffix 生成，保证与目标同文件系统），Windows 上
+    os.replace 可能因文件锁失败 → 短等待重试一次。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + '.tmp')
+    tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    try:
+        os.replace(tmp_path, path)
+    except OSError:
+        # Windows 文件锁重试（cache.py E3 同款）
+        time.sleep(0.05)
+        os.replace(tmp_path, path)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -42,8 +67,8 @@ def _load_stores_file() -> dict[str, Any]:
 
 
 def _save_stores_file(data: dict[str, Any]) -> None:
-    """Save stores.json."""
-    STORES_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    """Save stores.json (atomic, Q15)."""
+    _atomic_write_json(STORES_FILE, data)
 
 
 def list_stores() -> dict[str, dict[str, str]]:
@@ -151,8 +176,8 @@ def _load_settings_file() -> dict[str, Any]:
 
 
 def _save_settings_file(data: dict[str, Any]) -> None:
-    """Save settings.json."""
-    SETTINGS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    """Save settings.json (atomic, Q15)."""
+    _atomic_write_json(SETTINGS_FILE, data)
 
 
 def get_setting(key: str, default: Any = None) -> Any:
@@ -465,14 +490,14 @@ def _load_auth_cache() -> dict[str, Any]:
 
 
 def _save_auth_cache(token: str, expires_in: int) -> None:
-    """Save auth verification result to disk."""
+    """Save auth verification result to disk (atomic, Q15)."""
     now = _time.time()
     cache = {
         "token_hash": hashlib.sha256(token.encode()).hexdigest(),
         "verified_at": now,
         "expires_at": now + expires_in,
     }
-    AUTH_CACHE_FILE.write_text(json.dumps(cache, indent=2), encoding='utf-8')
+    _atomic_write_json(AUTH_CACHE_FILE, cache)
 
 
 def is_auth_valid() -> bool:
