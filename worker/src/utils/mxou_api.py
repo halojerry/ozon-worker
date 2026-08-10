@@ -52,6 +52,31 @@ def _get_session() -> requests.Session:
 # LLM Chat API
 # ============================================================
 
+def _token_fingerprint(token: str) -> str:
+    """mxou token 脱敏指纹——复用 sentry_setup._token_fingerprint 单一实现。"""
+    try:
+        from utils.sentry_setup import _token_fingerprint as _fp
+        return _fp(token)
+    except Exception:
+        return (token or "no-token")[:8]
+
+
+def _sentry_set_user_context(token: str, endpoint: str = "") -> None:
+    """Sentry 用户上下文（v0.34）——mxou API 错误时把 token 指纹 + 端点设为 user tag。
+
+    LoggingIntegration 自动上报的 logger.error 无 task 上下文, 加 token 指纹后
+    能按用户/店铺定位「谁触发了 403/超时/生图失败」。未启用 Sentry 时 no-op。
+    """
+    try:
+        import sentry_sdk  # type: ignore
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("mxou_token_fp", _token_fingerprint(token))
+            if endpoint:
+                scope.set_tag("mxou_endpoint", endpoint)
+    except Exception:
+        pass
+
+
 def call_mxou_chat_api(
     token: str,
     system_prompt: str,
@@ -152,6 +177,7 @@ def call_mxou_chat_api(
             err_body = response.text[:500] if response.text else "no response body"
             # 4xx 除 429 外不重试（请求/鉴权/参数错误，重试无意义）
             if 400 <= status_code < 500 and status_code != 429:
+                _sentry_set_user_context(token, "chat")
                 logger.error(
                     "mxou chat API 调用失败: HTTP %d, model=%s, body=%s",
                     status_code, model, err_body
@@ -162,6 +188,7 @@ def call_mxou_chat_api(
                 logger.warning("mxou chat API 429 限流 (第%d次, model=%s)", attempt + 1, model)
                 if handle_mxou_429(token, attempt, max_retries=2):
                     continue
+                _sentry_set_user_context(token, "chat")
                 logger.error("mxou chat API 429 重试耗尽 (model=%s)", model)
                 return None
             # 5xx → 退避重试
@@ -373,6 +400,7 @@ def _call_image_with_model(
                     "mxou image API调用失败(model=%s): HTTP %d, body=%s",
                     model, response.status_code, err_body
                 )
+                _sentry_set_user_context(token, "image")
                 return None
 
             result: Any = response.json()

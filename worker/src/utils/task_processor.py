@@ -437,6 +437,7 @@ class SupabaseTaskProcessor:
                         message=f"任务超时（{timeout_seconds}秒）",
                         task_id=task_id,
                         tenant_id=tenant_id,
+                        token=(payload or {}).get("token", ""),
                     )
                     log_task_event("failed", task_id=task_id, user_id=tenant_id,
                                    error_message=f"timeout ({timeout_seconds}s)")
@@ -445,7 +446,8 @@ class SupabaseTaskProcessor:
                     
                 except Exception as e:
                     logger.error("任务执行异常: %s\n%s", str(e), _traceback.format_exc())
-                    capture_task_error(e, task_id=task_id, tenant_id=tenant_id)
+                    capture_task_error(e, task_id=task_id, tenant_id=tenant_id,
+                                       token=(payload or {}).get("token", ""))
                     log_task_event("failed", task_id=task_id, user_id=tenant_id,
                                    error_message=str(e), error_type=type(e).__name__)
                     await self.handle_task_failure(task_id, str(e))
