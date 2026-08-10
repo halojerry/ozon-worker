@@ -155,6 +155,7 @@ ERROR_NOTICE_MAP: Dict[str, str] = {
     "pics_cant_decode": "图片无法解码(格式损坏),需更换图片",
     "all_image_failed": "全部图片生成/上传失败,需重新生图",
     "BR_hashtag_brand": "标签与品牌冲突被拒:已移除违规标签",
+    "FB_INSTA": "描述含 Instagram/Facebook 等社交媒体，俄政府认定极端组织，已自动过滤重试",
 }
 
 
@@ -212,6 +213,9 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "BR_hazard_class1": "unfixable",
     "FB_fire_hazardous_goods": "unfixable",
     "FB_LIGHTER": "unfixable",
+    # ✅ 描述含社交媒体词(Instagram/Facebook 等) → 俄政府认定极端组织, 不可自动修复
+    # (prepare 已词边界过滤仍被拒 → 需用户/agent 手动改描述)
+    "FB_INSTA": "unfixable",
     # ✅ 密度错误 → 走 repair_prepare 修复尺寸
     "INCORRECT_DENSITY": "repair_prepare",
     # ✅ v0.28.5 A1: 补全审计发现的未映射错误码(50 次错误不再 LLM 盲修)
@@ -272,7 +276,7 @@ FIX_TYPE_PRODUCT_IMPORT: set = {
 FIX_TYPE_UNFIXABLE: set = {
     "pics_http_error", "pics_cant_decode", "primary_image_load_failed",
     "some_image_failed", "warning_all_image_failed",
-    "BR_hazard_class1", "FB_fire_hazardous_goods", "FB_LIGHTER",
+    "BR_hazard_class1", "FB_fire_hazardous_goods", "FB_LIGHTER", "FB_INSTA",
     "PRODUCT_ALREADY_EXISTS",
     # ✅ v0.28.5 A1: 商品已在其他账号 / 所有图片失败 → 不可修复
     "SPU_ALREADY_EXISTS_IN_ANOTHER_ACCOUNT", "all_image_failed",

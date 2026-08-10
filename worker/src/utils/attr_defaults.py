@@ -86,12 +86,35 @@ TITLE_COLOR_MAP = (
     ("прозрачн", "прозрачный"), ("желт", "желтый"),
 )
 
+# 1688 中文标题颜色词 → 俄语颜色（路由器颜色分支用；与 prepare COLOR_CN_TO_RU
+# 语义一致，复合色优先于基础色/泛化词，防「深绿色」被「绿色」抢占）。
+COLOR_ZH_TO_RU = (
+    ("深绿色", "темно-зеленый"), ("浅绿色", "светло-зеленый"),
+    ("深蓝色", "темно-синий"), ("浅蓝色", "светло-синий"),
+    ("深灰色", "темно-серый"), ("浅灰色", "светло-серый"),
+    ("酒红色", "бордовый"), ("墨绿色", "темно-зеленый"), ("藏青色", "темно-синий"),
+    ("黑色", "черный"), ("白色", "белый"), ("红色", "красный"), ("蓝色", "синий"),
+    ("绿色", "зеленый"), ("灰色", "серый"), ("粉色", "розовый"), ("紫色", "фиолетовый"),
+    ("黄色", "желтый"), ("棕色", "коричневый"), ("橙色", "оранжевый"), ("透明", "прозрачный"),
+    ("银色", "серебристый"), ("金色", "золотой"), ("米色", "бежевый"), ("卡其色", "хаки"),
+    ("深色", "темный"), ("浅色", "светлый"),
+)
+
 
 def infer_color_ru(title_text: str) -> Optional[str]:
     """从标题（1688 中文或 Ozon 俄语）推断颜色词。"""
     t = str(title_text or "").lower()
     for kw, ru in TITLE_COLOR_MAP:
         if kw in t:
+            return ru
+    return None
+
+
+def infer_color_zh(title_text: str) -> Optional[str]:
+    """从 1688 中文标题推断俄语颜色词；无则 None。"""
+    t = str(title_text or "")
+    for zh, ru in COLOR_ZH_TO_RU:
+        if zh in t:
             return ru
     return None
 
@@ -367,6 +390,21 @@ def resolve_missing_mandatory_dict_attr(
         return resolve_gender_default(title_cn, dict_vals)
     if attr_id in (4295, 4411) or any(k in name for k in SIZE_NAME_KEYWORDS):
         return resolve_size_default(size_cn, product_name_ru, dict_vals)
+    if attr_id in (10096, 10097) or "цвет" in name or "颜色" in name:
+        # ⚠️ C1: 颜色分支缺失修复 — infer_color_ru 此前从未被路由器接线 → 10096/10097
+        # 在 retry 路径恒走 API 搜索/LLM（Sentry 缺失 99 次）。从标题/产品名推断
+        # 颜色词（RU 标题 TITLE_COLOR_MAP + 1688 中文 COLOR_ZH_TO_RU）→ 查字典值 id。
+        # 无推断 → None（绝不盲补首值，颜色多值时首值语义随机）。
+        _ru_color = infer_color_ru(f"{title_cn} {product_name_ru}") or ""
+        if not _ru_color:
+            _ru_color = infer_color_zh(title_cn)
+        if _ru_color:
+            return find_dict_value_id(dict_vals, _ru_color)
+        return None
+    if attr_id == 4389 or "原产国" in name or ("страна" in name and "бренд" not in name and "品牌" not in name):
+        # 原产国: 1688 中国货 → 业务规则硬编码 Китай（与 assemble/prepare 强制一致）。
+        # 仅当字典值里精确存在 Китай 才填（find_dict_value_id 精确匹配），无 → None。
+        return find_dict_value_id(dict_vals, "Китай")
     if attr_id == 8229 or any(k in name for k in TYPE_NAME_KEYWORDS):
         values = _as_list(dict_vals)
         if not values:
