@@ -108,6 +108,44 @@
 - 全量 worker pytest **454 passed**（排除 2 个基线失败 + 2 个需 PG 文件）。
 - 真实渲染验证（本地 Docker）：main 中文 prompt 含「夏日户外野餐」场景 + 「НАДЁЖНЫЙ ЗВУК」俄文标题 + HEX + 中文负面 ✅；white_bg/multi_angle 中文禁文字 ✅；scene_1 用 `{{scene_1}}` 渲染 ✅。
 
+## [0.34.0] - 2026-08-10
+
+> Sentry 生产错误修复（品牌/类目/描述/富文本）+ 选品数据回传（C5）+ 店铺埋点（C6）+ 类目匹配四重优化 + Sentry 用户上下文。规划文件：`.omo/plans/sentry-attribute-fixes.md`。
+
+### Fix(worker Wave1 Sentry 四修复)
+
+- **C1 必填属性兜底链**：attr_defaults 补 8229/9163/10096/4295/31/8292/23487/4389 安全默认分支，assemble/prepare/retry 三处一致（Sentry 967+ 次缺失归因）。
+- **C3 FB_INSTA**：`_sanitize_description` 加西里尔社交词（词边界匹配，防误杀 телеграмма/одноклассники）+ `_sanitize_rich_description`/`_append_spec_table` 同步；FB_INSTA 路由 FIX_TYPE_UNFIXABLE + REPAIR_STRATEGY + ERROR_NOTICE_MAP。
+- **C2 竞品尺寸重量兜底**：`PrepareOzonUploadInput` 加 `extensions` 字段；`draft_sanity` 竞品放行（weight=0 + competitor_weight_g>0 通过）；`_resolve_weight_dimensions` 抽独立函数——draft → 竞品 → 100g/300×200×50mm 三级兜底（修复 v0.9 死代码：main.py 原传 `payload.extensions` 恒空）。
+- **C8 富文本 4191**：`title_ru` 空时最小 HTML 追加 + 每属性翻译跳过 4191 HTML 值（`_looks_like_html` 守卫，保留 `<p>/<b>/<ul>/<li>` 结构）。
+- **其他**：leaf_name 默认空串（信封无 source_category 时防 UnboundLocalError，v0.21 引入）；品牌 85/31/5076 直写「无品牌」跳过字典兜底（消除误导性「无法获取字典值」ERROR + 无谓 API 拉取）；`_append_spec_table` 属性名中文净化（Sentry C2：schema ZH_HANS 中文属性名进规格表 → 描述含中文）。
+
+### Feat(worker C5 选品数据回传 + C6 埋点)
+
+- **C5 三张 PG 表**（ORM）：`blue_ocean_queries` / `ozon_bestsellers` / `market_bestsellers`（唯一键含 contributed_by_token_id，`INSERT ON CONFLICT UPDATE` 去重）；`/api/v1/analytics/{queries,ozon-bestsellers,market-bestsellers}` 三端点接收 skill 上报（token 鉴权，Supabase 未配置本地放行）。
+- **C5 skill 侧**：`queries` 命令（CDP 探测 3 个 what-to-sell 真实端点 + CSV/JSON 导出）；`analytics_upload.py` daemon thread fire-and-forget 上报（无 token 跳过/失败降级）；discover `--blue-ocean-source` 从 all_queries CSV 反哺蓝海评分（competitor_keyword_density 因子）。
+- **C6 埋点**：`shop_usage_stats` 表（ozon_client_id+stat_date 唯一）+ task_processor 3 处终态钩子（成功/异常/重试耗尽）增量写入（task_count=执行次数含重试；common_errors 当日 top-5 JSONB；成功路径不增）。
+- 竞品插件（maozi）调研落地：明文 JSON 上报，不复制 gzip+AES 加密链路；不上传 cookie/PII。
+
+### Fix(worker+skill 类目匹配四重优化)
+
+- **末级词搜索**：`specific_terms = cat_terms[-2:] → [-1:]`——「科教玩具 其他益智玩具」分词后「玩具」token 稀释末级词信号，sim 0.5→0.333 错配甜品套装；只留末级词整体 sim=0.5 命中益智游戏。
+- **LLM max_tokens 10→4096**：deepseek-v4-flash 推理模型 reasoning_tokens 吃光 max_tokens 配额 → 输出恒空 → LLM fallback 恒失败（用户观察「LLM 查询成功率很低」的直接根因）；`_llm_rank_categories` 结构化 JSON 输出（candidate_index + suggest_keywords），候选都不合适时建议词二次搜索。
+- **merge 保高 sim**：`_merge_candidates` 同 dc/tp 保留 similarity 高版本——源搜索 sim=0.80 正确类目被全标题 sim=0.455 覆盖致 `_acceptable_match` 误拒。
+- **同义词表 +10**：益智玩具→益智游戏/教育游戏/教学玩具、封口夹→密封夹、洗碗海绵→清洁海绵等高频映射。
+- **skill search_text 末级词**：cloud_probe 优先用 1688 类目末级词（非长标题）查 ZH_HANS 树 + 提前提取 source_category_path 修复 UnboundLocalError。
+- **实测**：竹知了玩具从类目阻断 → approved（product_id 5895655339）。
+
+### Feat(worker Sentry 用户上下文)
+
+- `_token_fingerprint` 脱敏（前 8 位 + sha1 前 6，不泄露明文）；`capture_task_error` 加 token 参数 → `scope.set_user({id: tenant_id, username: token_fp})` + `mxou_token_fp` tag；mxou_api chat/image 403/429/5xx 错误分支设 token 上下文——Sentry 从此可按用户筛选错误（此前 user 全 null，无法定位「哪个账号余额不足」）。
+
+### 测试
+
+- 新增 25+ 测试：test_attr_defaults_wave1（20）/test_fb_insta_handling（15）/test_resolve_weight_dimensions（6）/test_rich_desc_4191（5）/test_shop_usage_stats（12）/test_analytics_endpoints（9）/test_llm_suggest_rerank（4）等。
+- 全量 worker pytest **537 passed**（0 失败；原 3 个基线失败为本地缺 pytest-asyncio/psycopg2 + PG URL，环境补齐后全绿）；skill pytest **174 passed**（1 个 pre-existing 环境基线 test_runtime_probe）。
+- 真实链路：竹知了 1688 产品类目阻断→approved（5895655339）；queries 命令 51 行真实数据→上报→PG 51 行；C5/C6 端点 + 埋点实测。
+
 ## [0.30.0] - 2026-08-08
 
 

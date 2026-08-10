@@ -45,6 +45,9 @@
 | `/api/v1/task_statistics` | GET | 无 | 5s |
 | `/api/v1/auth/verify` | POST | token (Supabase) | 5s |
 | `/api/v1/health` | GET | 无 | 2s |
+| `/api/v1/analytics/queries` | POST | token (Supabase) | 10s |
+| `/api/v1/analytics/ozon-bestsellers` | POST | token (Supabase) | 10s |
+| `/api/v1/analytics/market-bestsellers` | POST | token (Supabase) | 10s |
 
 **基础 URL**: `http://<worker-host>:8080`
 
@@ -431,7 +434,61 @@ Step 3: 返回 {status, message, db, queue}
 
 ---
 
-### 1.7 自测用例（API 合约）
+### 1.7 POST /api/v1/analytics/*（选品数据上报，v0.34 C5）
+
+#### 1.7.1 职责
+
+接收 Skill what-to-sell 采集的蓝海/榜单数据，去重落库到 worker PG（数据来源于用户、服务于用户）。三个端点共享同一套鉴权与 upsert 逻辑，仅字段不同。
+
+#### 1.7.2 端点与请求格式
+
+| 端点 | body 列表字段 | 每项字段 |
+|------|-------------|----------|
+| `/api/v1/analytics/queries` | `queries` | `query`(必填), `count`, `ca`, `avg_ca_rub`, `avg_count_items`, `items_views`, `uniq_queries_wca`, `uniq_sellers` |
+| `/api/v1/analytics/ozon-bestsellers` | `items` | `sku_or_id`(必填), `brand`, `category_id`, `category_path`, `ordering_amount`, `ordering_count`, `avg_price_rub` |
+| `/api/v1/analytics/market-bestsellers` | `items` | `product_name`(必填), `brand`, `category_id`, `category_path`, `ordering_amount`, `daily_avg`, `other_platform_price` |
+
+通用字段：
+
+| 字段 | 类型 | 必填 | 校验规则 |
+|------|------|------|----------|
+| `token` | string | ✅ | 非空；Supabase `tokens` 表校验 `status=1` 且未软删；Supabase 未配置时本地放行（开发模式） |
+| 列表字段 | array | ✅ | 非空数组；每项经 Pydantic 校验（必填字段缺失 → 422） |
+
+#### 1.7.3 执行逻辑
+
+```
+Step 1: token 鉴权（_verify_analytics_token：Supabase 未配置 → 本地放行）
+Step 2: 列表字段 Pydantic 校验（非法项 → 422）
+Step 3: 字段白名单过滤（未知字段丢弃）+ INSERT ON CONFLICT (唯一键, contributed_by_token_id) DO UPDATE 去重
+Step 4: 返回 {status: "ok", inserted, upserted}
+```
+
+**去重键**（`contributed_by_token_id` 为去 sk- 前缀后的 token key）：
+- queries: `(query, contributed_by_token_id)`
+- ozon-bestsellers: `(sku_or_id, contributed_by_token_id)`
+- market-bestsellers: `(product_name, contributed_by_token_id)`
+
+#### 1.7.4 响应
+
+```json
+// 成功 200
+{ "status": "ok", "inserted": 50, "upserted": 3 }
+// 鉴权失败 401
+{ "ok": false, "error_code": "AUTH_INVALID", "message": "token_invalid or account_inactive" }
+// 列表为空/字段非法 422
+{ "ok": false, "error_code": "INVALID_REQUEST", "message": "..." }
+```
+
+#### 1.7.5 说明
+
+- **无加密回传**：明文 JSON over HTTPS 到自家 worker（不复制竞品插件 gzip+AES 链路）。
+- **只入库指标数据**：不上传 cookie / Ozon 凭证 / PII（隐私边界）。
+- **`contributed_by_token_id` 为完整 token key（非指纹）**：与 `ozon_product_tasks.payload` 既有明文存储同先例；如需收紧可改 sha256。
+
+---
+
+### 1.8 自测用例（API 合约）
 
 以下 curl 命令可在部署后直接执行验证。
 

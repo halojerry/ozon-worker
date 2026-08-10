@@ -187,7 +187,7 @@ ozon-worker/
 
 **Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
 
-**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 **11 个**：lib/（ak_1688_client、ak_callback、chrome_launcher、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_discovery、ozon_api）+ capabilities/browser_probe/stealth.py。以下明文复制（依赖复杂/改动频繁/跨平台编译失败）：cli.py、batch_test.py、cloud_probe.py、lib/（cdp_client、utils、cache、ozon_seller、ozon_widget、ozon_seller_analytics、updater、task_paths、logging_utils）、capabilities/browser_probe/service.py。
+**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 **11 个**：lib/（ak_1688_client、ak_callback、chrome_launcher、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_discovery、ozon_api）+ capabilities/browser_probe/stealth.py。以下明文复制（依赖复杂/改动频繁/跨平台编译失败）：cli.py、batch_test.py、cloud_probe.py、lib/（cdp_client、utils、cache、ozon_seller、ozon_widget、ozon_seller_analytics、analytics_upload、ozon_fission、updater、task_paths、logging_utils）、capabilities/browser_probe/service.py。
 - **cloud_probe.py 明文**（2026-08-02 移回）：非语法问题（macOS 同 Cython 编译成功），是 Cython 生成 65k 行 C + 单个 ~9000 行函数击穿 **MSVC 编译器堆限制**（仅 win32 失败 → 缺 .pyd → graph/follow 报 `No native binary for cloud_probe on win32`）。信封组装核心、改动频繁，明文跨平台一致。
 - **service.py 明文**（2026-08-01 移回）：探针改动最频繁。
 - **compile.py 编译失败"带响"**（v0.12.0）：失败打印完整 stderr（最后 30 行）+ `failed>0` 时 `sys.exit(1)`，CI 不再静默发布残缺包。CI 另有产物完整性校验（4 平台 × 11 模块共 44 个二进制必须就位）。
@@ -242,6 +242,9 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | LangGraph 进度 | `GET /progress/{run_id}` | GET |
 | 健康检查 | `GET /api/v1/health` | GET |
 | Swagger UI | `GET /api/v1/docs` | GET |
+| 蓝海数据上报 | `POST /api/v1/analytics/queries` | POST |
+| 畅销榜数据上报 | `POST /api/v1/analytics/ozon-bestsellers` | POST |
+| 跨平台畅销榜上报 | `POST /api/v1/analytics/market-bestsellers` | POST |
 
 **`task_status` 返回 `progress` 字段**：`{stage, percent, stages_completed[], stages_remaining[], message}`。
 进度基于内存中 12 阶段 `STAGE_ORDER` 计算，节点执行时 `ProgressCallback` 自动更新。
