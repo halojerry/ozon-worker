@@ -100,6 +100,31 @@ def test_returns_none_when_no_browser():
     assert result is None
 
 
+def test_probe_disables_auto_install():
+    """无浏览器环境：_find_chrome_executable 不触发 service 自动安装（防 300MB Playwright 下载挂起）。
+
+    锁死 chrome_launcher._find_chrome_executable 委托 service 时的禁用补丁
+    （L84-86 临时把 service._auto_install_browser 替换为 lambda: False）。
+    若该补丁被删，service.find_browser_executable 的 Phase 4 会调用真实
+    _auto_install_browser（spy 被调用）→ assert_not_called 失败。
+    """
+    home = tempfile.mkdtemp()
+    auto_install = mock.Mock(return_value=False)
+    with mock.patch.dict(os.environ, {"HOME": home}):
+        with _enter(_mocked(which=lambda name: None, existing=set(), home=home)):
+            import scripts.capabilities.browser_probe.service as svc
+            svc._auto_install_browser = auto_install  # spy：记录是否被调用
+            try:
+                from scripts.lib.chrome_launcher import _find_chrome_executable
+                result = _find_chrome_executable()
+            finally:
+                # chrome_launcher 的 finally 已还原 spy；此处 del 让 mock.patch
+                # 退出时恢复原始模块属性（避免残留）
+                del svc._auto_install_browser
+    assert result is None
+    auto_install.assert_not_called()  # 禁用补丁被删时此断言失败
+
+
 def _mocked_windows(which, existing, program_files):
     """构造 Windows 全 mock 上下文（ProgramFiles 路径命中场景）。"""
     existing = set(existing)
