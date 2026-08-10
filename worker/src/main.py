@@ -17,7 +17,8 @@ from api.errors import WorkerErrorCode, error_response
 from api.schemas import (
     SubmitTaskRequest, SubmitTaskResponse, TaskStatusResponse,
     CancelTaskResponse, HealthResponse, TaskStatisticsResponse, ErrorBody,
-    AuthVerifyResponse,
+    AuthVerifyResponse, AnalyticsReportResponse,
+    BlueOceanQueryItem, OzonBestsellerItem, MarketBestsellerItem,
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
@@ -25,12 +26,15 @@ from langgraph.graph.state import CompiledStateGraph
 from storage.database.db import get_session, get_engine, init_db
 from storage.database.supabase_client import get_supabase_client
 from storage.memory.memory_saver import get_memory_saver
-from storage.database.shared.model import Base
+from storage.database.shared.model import (
+    Base, BlueOceanQuery, OzonBestseller, MarketBestseller,
+)
 from utils.task_processor import SupabaseTaskProcessor
 from utils.ozon_client import ozon_check_quota  # 配额检查
 from utils.draft_sanity import validate_draft_sanity  # v0.21 P2 入队防线
 from utils.sentry_setup import init_sentry  # v0.23 Sentry 错误监测
 from sqlalchemy import event
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 # ✅ v0.23: Sentry 错误监测（SENTRY_DSN 为空则 no-op；HTTP 与 CLI 入口共用）
 init_sentry()
@@ -1697,6 +1701,161 @@ async def v1_task_statistics(request: Request):
     """
     resp = await http_task_statistics(request)
     return resp.get("statistics", {})
+
+
+# ==================== /api/v1/analytics/* — skill 选品数据上报（v0.34 C5） ====================
+# skill what-to-sell 采集的蓝海/榜单数据集体沉淀到 worker PG（数据来源于用户、服务于用户）。
+# 每类数据: (表名, 去重冲突列, 可更新数据列, 条目 Pydantic 模型, body 列表字段名)
+
+_ANALYTICS_KINDS = {
+    "queries": (
+        BlueOceanQuery,
+        ("query", "contributed_by_token_id"),
+        ("query", "count", "ca", "avg_ca_rub", "avg_count_items",
+         "items_views", "uniq_queries_wca", "uniq_sellers"),
+        BlueOceanQueryItem,
+        "queries",
+    ),
+    "ozon-bestsellers": (
+        OzonBestseller,
+        ("sku_or_id", "contributed_by_token_id"),
+        ("sku_or_id", "brand", "category_id", "category_path",
+         "ordering_amount", "ordering_count", "avg_price_rub"),
+        OzonBestsellerItem,
+        "items",
+    ),
+    "market-bestsellers": (
+        MarketBestseller,
+        ("product_name", "contributed_by_token_id"),
+        ("product_name", "brand", "category_id", "category_path",
+         "ordering_amount", "daily_avg", "other_platform_price"),
+        MarketBestsellerItem,
+        "items",
+    ),
+}
+
+
+def _verify_analytics_token(clean_token: str) -> None:
+    """analytics 上报鉴权（与 logistics_quote 一致：Supabase 未配置 → 本地放行）。"""
+    supabase = get_supabase_client()
+    if supabase is None:
+        return
+    try:
+        token_records = supabase.table("tokens").select(
+            "status"
+        ).eq("key", clean_token).is_("deleted_at", "null").execute()
+        if not token_records.data or len(token_records.data) == 0 or int(token_records.data[0].get("status", 0)) != 1:
+            raise HTTPException(status_code=401, detail="token_invalid or account_inactive")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="service_unavailable")
+
+
+def _upsert_analytics(
+    model,
+    conflict_cols: tuple[str, ...],
+    data_cols: tuple[str, ...],
+    rows: list[dict],
+) -> tuple[int, int]:
+    """两趟 upsert（单语句多行 VALUES，每趟一次往返）：
+    第一趟 ON CONFLICT DO NOTHING → rowcount = 真实新增行数；
+    第二趟全量 ON CONFLICT DO UPDATE → rowcount = 批内全部行数（第一趟新增的行此时也冲突）；
+    upserted = 第二趟 - 第一趟 = 本次被覆盖更新的行数。
+    """
+    if not rows:
+        return 0, 0
+    stmt = pg_insert(model).values(rows)
+    stmt_nothing = stmt.on_conflict_do_nothing(index_elements=list(conflict_cols))
+    stmt_update = stmt.on_conflict_do_update(
+        index_elements=list(conflict_cols),
+        set_={c: stmt.excluded[c] for c in data_cols if c not in conflict_cols},
+    )
+    engine = get_engine()
+    with engine.connect() as conn:
+        r1 = conn.execute(stmt_nothing)
+        inserted = int(r1.rowcount or 0)
+        conn.commit()
+    with engine.connect() as conn:
+        r2 = conn.execute(stmt_update)
+        total = int(r2.rowcount or 0)
+        conn.commit()
+    return inserted, max(total - inserted, 0)
+
+
+async def _handle_analytics_report(request: Request, kind: str):
+    """analytics 上报公共处理：token 鉴权 → Pydantic 校验 → upsert → 计数响应。"""
+    model, conflict_cols, data_cols, item_model, list_key = _ANALYTICS_KINDS[kind]
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_request: body must be JSON")
+
+    token = str(body.get("token", "") or "")
+    if not token:
+        raise HTTPException(status_code=401, detail="token is required")
+
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean_token)
+
+    raw_items = body.get(list_key)
+    if not isinstance(raw_items, list) or not raw_items:
+        return error_response(
+            WorkerErrorCode.INVALID_REQUEST,
+            f"{list_key} must be a non-empty list",
+        )
+
+    parsed = []
+    for it in raw_items:
+        if not isinstance(it, dict):
+            return error_response(
+                WorkerErrorCode.INVALID_REQUEST,
+                f"{list_key} items must be JSON objects",
+            )
+        try:
+            parsed.append(item_model(**it))
+        except Exception as e:
+            return error_response(
+                WorkerErrorCode.INVALID_REQUEST,
+                f"invalid {list_key} item: {e}",
+            )
+
+    rows = []
+    for p in parsed:
+        row = p.model_dump(exclude_none=True)
+        row["contributed_by_token_id"] = clean_token
+        row["source"] = "fetched"
+        rows.append(row)
+
+    try:
+        inserted, upserted = _upsert_analytics(model, conflict_cols, data_cols, rows)
+    except Exception as e:
+        logger.error("analytics upsert failed (kind=%s): %s", kind, e)
+        return error_response(
+            WorkerErrorCode.INTERNAL_ERROR,
+            f"analytics upsert failed: {e}",
+        )
+
+    return {"status": "ok", "inserted": inserted, "upserted": upserted}
+
+
+@v1.post("/analytics/queries", response_model=AnalyticsReportResponse, tags=["analytics"])
+async def v1_analytics_queries(request: Request):
+    """skill what-to-sell all-queries 关键词蓝海数据上报（去重键 query+token，重复上报 upsert 更新）。"""
+    return await _handle_analytics_report(request, "queries")
+
+
+@v1.post("/analytics/ozon-bestsellers", response_model=AnalyticsReportResponse, tags=["analytics"])
+async def v1_analytics_ozon_bestsellers(request: Request):
+    """skill ozon-bestsellers 榜单数据上报（去重键 sku_or_id+token）。"""
+    return await _handle_analytics_report(request, "ozon-bestsellers")
+
+
+@v1.post("/analytics/market-bestsellers", response_model=AnalyticsReportResponse, tags=["analytics"])
+async def v1_analytics_market_bestsellers(request: Request):
+    """skill market-bestsellers 全平台榜单数据上报（去重键 product_name+token）。"""
+    return await _handle_analytics_report(request, "market-bestsellers")
 
 
 # 注册 v1 路由（/api/v1/* 端点）

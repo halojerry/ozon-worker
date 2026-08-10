@@ -139,3 +139,67 @@ class AuthVerifyResponse(BaseModel):
     reason: str = Field("ok", description="原因: ok / token_invalid / balance_insufficient / account_inactive")
     expires_in: int = Field(86400, description="缓存有效期（秒）")
     ozon_valid: Optional[bool] = Field(None, description="Ozon API 是否有效（仅当传了 client_id/api_key 时返回）")
+
+
+# ──────────────────────────────────────────────
+# /api/v1/analytics/* — skill what-to-sell 采集数据上报
+# ──────────────────────────────────────────────
+
+
+class BlueOceanQueryItem(BaseModel):
+    """all-queries 关键词蓝海数据单条。"""
+    query: str = Field(..., description="蓝海关键词")
+    count: int = Field(0, description="商品数")
+    ca: Optional[float] = Field(None, description="CA 系数")
+    avg_ca_rub: Optional[float] = Field(None, description="平均 CA（卢布）")
+    avg_count_items: Optional[float] = Field(None, description="平均商品数")
+    items_views: Optional[float] = Field(None, description="商品浏览量")
+    uniq_queries_wca: Optional[int] = Field(None, description="含 CA 的独立查询数")
+    uniq_sellers: Optional[float] = Field(None, description="独立卖家数")
+
+
+class AnalyticsQueriesRequest(BaseModel):
+    """蓝海关键词上报请求。"""
+    token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
+    queries: list[BlueOceanQueryItem] = Field(default_factory=list, description="蓝海关键词列表")
+
+
+class OzonBestsellerItem(BaseModel):
+    """ozon-bestsellers 榜单数据单条。"""
+    sku_or_id: str = Field(..., description="Ozon SKU 或商品 ID")
+    brand: Optional[str] = Field(None, description="品牌")
+    category_id: Optional[int] = Field(None, description="Ozon 类目 ID")
+    category_path: Optional[str] = Field(None, description="类目路径")
+    ordering_amount: Optional[float] = Field(None, description="订购金额")
+    ordering_count: Optional[int] = Field(None, description="订购数量")
+    avg_price_rub: Optional[float] = Field(None, description="平均售价（卢布）")
+
+
+class AnalyticsOzonBestsellersRequest(BaseModel):
+    """Ozon 榜单上报请求。"""
+    token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
+    items: list[OzonBestsellerItem] = Field(default_factory=list, description="榜单条目列表")
+
+
+class MarketBestsellerItem(BaseModel):
+    """market-bestsellers 全平台榜单数据单条。"""
+    product_name: str = Field(..., description="商品名称")
+    brand: Optional[str] = Field(None, description="品牌")
+    category_id: Optional[int] = Field(None, description="类目 ID")
+    category_path: Optional[str] = Field(None, description="类目路径")
+    ordering_amount: Optional[float] = Field(None, description="订购金额")
+    daily_avg: Optional[float] = Field(None, description="日均销量")
+    other_platform_price: Optional[float] = Field(None, description="其他平台价格")
+
+
+class AnalyticsMarketBestsellersRequest(BaseModel):
+    """全平台榜单上报请求。"""
+    token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
+    items: list[MarketBestsellerItem] = Field(default_factory=list, description="榜单条目列表")
+
+
+class AnalyticsReportResponse(BaseModel):
+    """上报成功响应。"""
+    status: str = Field("ok", description="状态: ok / error")
+    inserted: int = Field(0, description="本次新增行数")
+    upserted: int = Field(0, description="本次覆盖更新行数")
