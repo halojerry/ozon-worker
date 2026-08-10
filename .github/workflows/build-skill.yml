@@ -61,6 +61,34 @@ jobs:
             echo "✅ Renamed darwin-arm64 → darwin-x86_64"
           fi
 
+      # ⚠️ 编译产物 3.12 冒烟导入：静态 ls 完整性校验（package job）无法发现
+      # 「.so/.pyd 存在但 import 即崩」的运行时问题（如 ABI 不匹配/缺符号）。
+      # 每平台编译后立即用 Python 3.12 实际 import 8 个编译模块，任一失败 → exit 1。
+      # 本地 Docker 预验证（python:3.12-slim + gcc，无 display/网络）：8 模块全部导入成功。
+      # 注意 shell: bash —— win32 默认 pwsh 不支持 heredoc。
+      - name: Smoke import compiled binaries (3.12)
+        shell: bash
+        working-directory: skill/dist
+        run: |
+          set -e
+          PYTHONPATH=. python - <<'EOF'
+          import importlib, sys
+          mods = ["ak_1688_client", "ak_callback", "config_store",
+                  "image_preprocessor", "ozon_scraper", "ozon_image_search",
+                  "reference_images", "ozon_api"]
+          failed = []
+          for m in mods:
+              try:
+                  importlib.import_module(f"scripts.lib.{m}")
+                  print(f"  OK {m}")
+              except Exception as e:
+                  failed.append(f"{m}: {type(e).__name__}: {e}")
+          if failed:
+              print("::error::编译产物导入失败:\n" + "\n".join(failed))
+              sys.exit(1)
+          print(f"8 个编译模块全部导入成功 (Python {sys.version.split()[0]})")
+          EOF
+
       - name: Upload native binaries
         uses: actions/upload-artifact@v4
         with:
