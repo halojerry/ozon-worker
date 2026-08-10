@@ -292,22 +292,50 @@ def _first(item: dict, *keys: str, default: Any = 0) -> Any:
 def _extract_metrics(item: dict) -> dict[str, Any]:
     """从 what_to_sell 的单个 item 中防御式提取运营指标。
 
-    字段名参考 maozi-plugin（what_to_sell 响应透传）：
-    soldCount/gmvSum/salesDynamics/drr/createDays/...，
+    字段名参考 maozi-plugin（what_to_sell 响应透传），camelCase 与 snake_case
+    双兼容。27+ 字段覆盖：销量/销售额/日销/广告/促销/流量/转化/跟卖/货币等，
     重量(4497)与尺寸(9454/9455/9456)在 attributes 数组里。
     """
     metrics: dict[str, Any] = {
+        "sku": str(_first(item, "sku", "variantId", default="")),
+        "brand": str(_first(item, "brand", default="")),
         "sold_count": _to_int(_first(item, "soldCount", "sold_count", "ordersCount")),
         "gmv_sum": _to_float(_first(item, "gmvSum", "gmv_sum", "soldSum")),
+        "sold_sum": _to_float(_first(item, "soldSum", "sold_sum", "gmvSum")),
         "sales_dynamics": _to_float(_first(item, "salesDynamics", "sales_dynamics")),
+        # 日销/日GMV（毛子 avgOrdersOnAccDays / avgGmvOnAccDays）
+        "avg_orders_on_acc_days": _to_int(_first(item, "avgOrdersOnAccDays", "avg_orders_on_acc_days")),
+        "avg_gmv_on_acc_days": _to_float(_first(item, "avgGmvOnAccDays", "avg_gmv_on_acc_days")),
         "drr": _to_float(_first(item, "drr", "adShare", "ad_share")),
+        # 促销参与
+        "days_in_promo": _to_int(_first(item, "daysInPromo", "days_in_promo")),
+        "discount": _to_float(_first(item, "discount", "promoDiscount")),
+        "promo_revenue_share": _to_float(_first(item, "promoRevenueShare", "promo_revenue_share")),
+        "days_with_trafarets": _to_int(_first(item, "daysWithTrafarets", "days_with_trafarets")),
+        # 流量/转化
+        "qty_view_pdp": _to_int(_first(item, "qtyViewPdp", "qty_view_pdp")),
+        "conv_to_cart_pdp": _to_float(_first(item, "convToCartPdp", "conv_to_cart_pdp")),
+        "session_count_search": _to_int(_first(item, "sessionCountSearch", "session_count_search")),
+        "conv_to_cart_search": _to_float(_first(item, "convToCartSearch", "conv_to_cart_search")),
+        "conv_view_to_order": _to_float(_first(item, "convViewToOrder", "conv_view_to_order")),
+        "custom_click_rate": _to_float(_first(item, "customClickRate", "custom_click_rate")),
+        # 发货模式 / 退货取消率（return_rate = 100 - nullableRedemptionRate）
+        "sales_schema": str(_first(item, "salesSchema", "sales_schema", default="")),
+        "nullable_redemption_rate": _to_float(item.get("nullableRedemptionRate")),
+        # 体积/重量（custom_volume 为尺寸串，custom_weight 为克）
+        "custom_volume": str(_first(item, "customVolume", "custom_volume", default="")),
+        "custom_weight": _to_float(_first(item, "customWeight", "custom_weight")),
         "create_days": _to_int(_first(item, "createDays", "upTimeDays", "upTime")),
         "create_date": str(_first(item, "nullableCreateDate", "createDate", default="")),
-        # ✅ v0.26: 退货率 = 100 - 复购/履约率（毛子字段表：nullableRedemptionRate 为 0-100，
-        # 100 - 该值 = 退货率；上品帮后端同样 100-nullableRedemptionRate 得到 returnRate）
+        "nullable_create_date": str(_first(item, "nullableCreateDate", "createDate", default="")),
+        # 跟卖（otherOffersFromSellers 同源）
+        "follow_info": _first(item, "followInfo", "follow_info", default=[]),
+        "follow_min_price": _to_float(_first(item, "followMinPrice", "follow_min_price")),
+        "follow_max_price": _to_float(_first(item, "followMaxPrice", "follow_max_price")),
+        # 货币双通道（soldSumCny / soldSumRub）
+        "sold_sum_cny": _to_float(_first(item, "soldSumCny", "sold_sum_cny")),
+        "sold_sum_rub": _to_float(_first(item, "soldSumRub", "sold_sum_rub")),
         "return_rate": _compute_return_rate(item.get("nullableRedemptionRate")),
-        "conv_to_cart_search": _to_float(_first(item, "convToCartSearch", "conv_to_cart_search")),
-        "session_count_search": _to_int(_first(item, "sessionCountSearch", "session_count_search")),
         "rating": _to_float(_first(item, "rating", "avgRating")),
         "review_count": _to_int(_first(item, "reviewsCount", "review_count")),
         "commission_fbp": _to_rate(_first(item, "fbp_rate", "commissionFbp", "fbpRate")),
@@ -453,6 +481,7 @@ def fetch_sales_analytics(
     skus: list[str],
     batch_delay: float = DEFAULT_BATCH_DELAY,
     max_skus: int = 200,
+    lang: str = "zh-Hans",
 ) -> dict[str, dict]:
     """批量获取 SKU 的 seller.ozon.ru 运营指标。
 
@@ -461,6 +490,8 @@ def fetch_sales_analytics(
         skus: Ozon SKU（商品 ID 数字串）列表
         batch_delay: 每次调用间隔（秒），防反爬
         max_skus: 单次最多查询数量保护
+        lang: 请求语言（what_to_sell 用 zh-Hans）；缓存 key 含语言维度，
+            防固化错误货币/语言数据
 
     Returns:
         {sku: metrics_dict}；未登录/接口失败 → 空 dict（调用方降级）。
@@ -470,6 +501,14 @@ def fetch_sales_analytics(
         return {}
 
     skus = [str(s) for s in skus[:max_skus]]
+
+    # ✅ v0.36 磁盘缓存（昂贵 CDP fetch，6h 复用）。key = sorted skus hash + lang，
+    # 语言维度防跨语言固化错误货币数据。只缓存有结果的（失败/未登录不缓存，可重试）。
+    from scripts.lib.cache import cache_get, cache_set
+    cache_key = f"{','.join(sorted(skus))}|{lang}"
+    cached = cache_get("seller_analytics", cache_key)
+    if cached is not None:
+        return cached
 
     tab, reused = None, False
     try:
@@ -522,6 +561,8 @@ def fetch_sales_analytics(
                 time.sleep(batch_delay)
 
         logger.info("seller analytics: %d/%d SKUs have data", len(results), len(skus))
+        if results:
+            cache_set("seller_analytics", cache_key, results, ttl=21600)
         return results
 
     except Exception as exc:
