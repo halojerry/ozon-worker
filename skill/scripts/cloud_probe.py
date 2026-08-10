@@ -1215,6 +1215,17 @@ def build_graph_envelope(
     if not api_data:
         api_data = {"title": title or "", "price": "", "images": []}
 
+    # v0.34: 提前提取 1688 类目面包屑（供 Ozon 类目搜索用末级词，见 L1285）
+    _src_cats = api_data.get("categories", [])
+    if isinstance(_src_cats, list) and _src_cats:
+        _src_path = " > ".join(c["name"] for c in _src_cats if c.get("name"))
+        _src_parts = [p.strip() for p in _src_path.split(">") if p.strip()]
+        source_category_path = _src_path
+        source_category_short = " > ".join(_src_parts[-2:]) if len(_src_parts) >= 2 else (_src_parts[0] if _src_parts else "")
+    else:
+        source_category_path = ""
+        source_category_short = ""
+
     # ── 2. CDP 浏览器富化（必须成功，不允许降级）──
     enriched = enrich_product_with_cdp(detail_url=detail_url, api_data=api_data)
     data = enriched.get("data", {})
@@ -1278,7 +1289,15 @@ def build_graph_envelope(
     category_name = ""
     ozon_category = {}
     if poll_category:
-        search_text = category_query or title or (data.get("title") or "")
+        # ⚠️ v0.34: 优先用 1688 类目末级词（source_category_short 最后一级）搜索——
+        # 长标题中文分词查 ZH_HANS 树 token 过多、泛化词(玩具/用品)稀释, 错配率高
+        # (实证: 洗碗海绵→厨房秤, 竹知了益智玩具→甜品套装)。末级词整体辨识度最高。
+        _src_short = ""
+        if source_category_path:
+            _src_parts = [p.strip() for p in source_category_path.split(">") if p.strip()]
+            if _src_parts:
+                _src_short = _src_parts[-1]
+        search_text = category_query or _src_short or title or (data.get("title") or "")
         if search_text:
             try:
                 from scripts.lib.ozon_api import search_categories
@@ -1631,17 +1650,9 @@ def build_graph_envelope(
     # ── 6. 组装 envelope (三层结构: draft / source / extensions) ──
     is_multi = len(variants) > 1
 
-    # 提取 1688 类目面包屑（供 worker 类目匹配使用）
-    source_categories = api_data.get("categories", [])
-    if isinstance(source_categories, list) and source_categories:
-        source_category_path = " > ".join(c["name"] for c in source_categories if c.get("name"))
-        # 取最后两级（最具体的分类）
-        names = [c["name"] for c in source_categories if c.get("name")]
-        source_category_short = " > ".join(names[-2:]) if len(names) >= 2 else (names[0] if names else "")
-    else:
-        source_category_path = ""
-        source_category_short = ""
     # ✅ v0.25 S2: 1688 类目数字 ID（最末级，供 Worker 类目学习/定向兜底）
+    # (source_category_path/short 已在函数开头提前提取，供 L1285 Ozon 类目搜索用末级词)
+    source_categories = api_data.get("categories", [])
     source_category_id = _extract_source_category_id(source_categories)
 
     draft: dict[str, Any] = {
