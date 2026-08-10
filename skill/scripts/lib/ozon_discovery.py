@@ -470,11 +470,14 @@ def match_selected(
     commission_rate: float = 0,
     progress_callback=None,
     mxou_token: str = "",
+    blue_ocean_rows: list[dict] | None = None,
 ) -> list[ProductCandidate]:
     """Discover v2 阶段④：对选中候选批量 1688 识图 + 利润 + 蓝海评分。
 
     就地更新候选状态：matched / profitable / rejected / no_match。
     仅处理 status in (ok, uncertain) 的候选（error 跳过）。
+    blue_ocean_rows: all_queries 蓝海关键词行（C4 step2），非空时按候选标题
+    计算 competitor_keyword_density 注入蓝海评分；None/空 → 原流程不加因子。
     """
     from scripts.lib.config_store import get_store_profile
 
@@ -507,7 +510,12 @@ def match_selected(
                         logistics_cny=logistics_cny,
                         commission_rate=commission_rate,
                     )
-                    candidate.blue_ocean_score = calculate_blue_ocean_score(candidate)
+                    density = None
+                    if blue_ocean_rows:
+                        density = compute_competitor_keyword_density(
+                            blue_ocean_rows, candidate.ozon_title or "")
+                    candidate.blue_ocean_score = calculate_blue_ocean_score(
+                        candidate, competitor_keyword_density=density)
 
                     if candidate.profit_margin >= min_margin_pct:
                         candidate.status = "profitable"
@@ -1475,10 +1483,13 @@ def _calculate_profit(
     candidate.profit_margin = (candidate.estimated_profit_cny / revenue_cny) * 100.0
 
 
-def calculate_blue_ocean_score(candidate: ProductCandidate) -> int:
+def calculate_blue_ocean_score(
+    candidate: ProductCandidate,
+    competitor_keyword_density: float | None = None,
+) -> int:
     """Calculate blue ocean score 0-100.
 
-    Factors（v3 增强，2026-08-01; v3 裂变增强 2026-08-08）:
+    Factors（v3 增强，2026-08-01; v3 裂变增强 2026-08-08; C4 step2 all_queries 反哺）:
     - competing_sellers (weight 20): <5 → 20, <10 → 17, <50 → 12, <200 → 6, >200 → 2
     - profit_margin (weight 20): >40% → 20, >30% → 17, >20% → 14, >10% → 8, <10% → 3
     - monthly_sales (weight 10 有 analytics / 20 无): 1-50 → 10/16 (niche),
@@ -1489,6 +1500,9 @@ def calculate_blue_ocean_score(candidate: ProductCandidate) -> int:
     - commission_rate (weight 10): <10% → 10, <15% → 7, <20% → 4, >20% → 2
     - chain_depth (weight 10, v3 裂变): depth=0 → 10, 1 → 7, 2 → 4, ≥3 → 0
     - category_consistency (weight 10, v3 裂变): 同类目 → 10, 跨类目 → 3, 无数据 → 0
+    - competitor_keyword_density (weight 10, C4 step2 all_queries 反哺): 可选 0-1 因子，
+      非 None 时 +density*10 —— uniq_sellers 越低 density 越接近 1，蓝海越大。
+      无匹配关键词/无数据 → None → 不加因子。
 
     无 analytics（seller.ozon.ru 未登录降级）时增长/广告因子为 0，
     monthly_sales 权重回 20——两套评分上限一致（100），可比。
@@ -1574,7 +1588,89 @@ def calculate_blue_ocean_score(candidate: ProductCandidate) -> int:
             score += 3
     # seed_cat 空 或 cand_cat 空 → 无数据 → +0
 
+    # Competitor keyword density (10%, C4 step2 all_queries 反哺)
+    # 可选因子：非 None 时 +density*10（0-10 分），clip 由最终 min/max 兜底。
+    if competitor_keyword_density is not None:
+        score += max(0.0, min(float(competitor_keyword_density), 1.0)) * 10
+
     return min(100, max(0, int(round(score))))
+
+
+def load_blue_ocean_csv(csv_path: str) -> list[dict]:
+    """载入 all-queries 蓝海关键词 CSV（cmd_queries --export csv 产出）。
+
+    表头含 query/count/ca/avg_ca_rub/uniq_sellers/ordering_amount/gmv 等；
+    值保留字符串（compute_competitor_keyword_density 内做数值转换）。
+    文件不存在 / 解析失败 / 无 query 列 → 返回 []，绝不抛异常（discover 降级原流程）。
+    """
+    import csv as _csv
+
+    path = Path(csv_path)
+    if not path.exists():
+        logger.warning("blue ocean CSV not found: %s", csv_path)
+        return []
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            reader = _csv.DictReader(f)
+            if not reader.fieldnames or "query" not in reader.fieldnames:
+                return []
+            rows = []
+            for raw in reader:
+                if not raw:
+                    continue
+                row = {}
+                for k, v in raw.items():
+                    if v is None:
+                        continue
+                    row[str(k or "").strip()] = v.strip() if isinstance(v, str) else v
+                if row.get("query"):
+                    rows.append(row)
+        return rows
+    except Exception as exc:
+        logger.warning("load blue ocean CSV failed (%s): %s", csv_path, exc)
+        return []
+
+
+def compute_competitor_keyword_density(rows: list[dict], keyword: str) -> float | None:
+    """从蓝海关键词行计算 competitor_keyword_density（0-1，越高蓝海越大）。
+
+    匹配：row.query 与 keyword 双向子串包含（不区分大小写）；多条匹配取
+    count 最高者（最具代表性搜索词）。因子 = 1 - min(uniq_sellers / 50, 1)，
+    uniq_sellers 越低 → density 越接近 1，与 competing_sellers 因子同向。
+    无匹配 / 该行缺有效 uniq_sellers → None（调用方不加因子）。
+    """
+    if not rows or not keyword:
+        return None
+    kw = keyword.lower().strip()
+    best: dict | None = None
+    best_count = -1
+    for row in rows:
+        q = str(row.get("query") or "").strip()
+        if not q:
+            continue
+        ql = q.lower()
+        if kw not in ql and ql not in kw:
+            continue
+        try:
+            count = int(float(row.get("count") or 0))
+        except (TypeError, ValueError):
+            count = 0
+        if count > best_count:
+            best_count = count
+            best = row
+    if best is None:
+        return None
+    raw_sellers = best.get("uniq_sellers")
+    if raw_sellers is None or raw_sellers == "":
+        return None
+    try:
+        sellers = int(float(raw_sellers))
+    except (TypeError, ValueError):
+        return None
+    if sellers < 0:
+        sellers = 0
+    density = 1.0 - min(sellers / float(DEFAULT_MAX_COMPETITORS), 1.0)
+    return max(0.0, min(density, 1.0))
 
 
 def verify_1688_match(ozon_title: str, match_1688_title: str, match_1688_url: str = "") -> dict:
