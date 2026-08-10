@@ -2,17 +2,15 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
-## 最近更新（v0.34.0 — Sentry 修复 + 选品数据回传 + 类目匹配优化）
+## 最近更新（v0.35.0 — Skill 三模块：SKILL.md 精简 + discover 分析文档 + Skill Sentry 埋点）
 
-> 2026-08-10。Sentry 生产错误修复（品牌 85/类目错配/描述中文/富文本 4191）+ 选品数据回传（C5）+ 店铺埋点（C6）+ 类目匹配四重优化 + Sentry 用户上下文 + Docker 自动清理。规划文件：`.omo/plans/sentry-attribute-fixes.md`；完整历史见 `CHANGELOG.md`。
+> 2026-08-10。SKILL.md 精简为纯操作手册（192→150 行，§6 压缩为排错指引，全文去版本注记）+ discover 选品后自动生成结构性分析文档（MD+JSON，Agent 可直接汇报）+ Skill 端 Sentry 错误上报（复用 pouding_ozon 项目，environment=skill，依赖 3→4）。完整历史见 `CHANGELOG.md`。
 
-- **Wave1 四修复**: C1 必填属性兜底链 / C3 FB_INSTA 词边界净化 / C2 竞品尺寸重量兜底 / C8 富文本 4191。
-- **C5 选品数据回传**: 3 张 PG 表 + `/api/v1/analytics/*` 三端点 + skill `queries` 命令 + discover `--blue-ocean-source`。
-- **C6 店铺埋点**: `shop_usage_stats` 表 + task_processor 3 处终态钩子。
-- **类目匹配四重优化**: 末级词搜索 / LLM max_tokens 4096 / merge 保高 sim / 同义词表 +10。
-- **Sentry 用户上下文**: token 脱敏指纹 + set_user（可按用户筛选错误）。
-- **测试**: worker 544 passed 全绿；skill 174 passed（1 个 pre-existing 环境基线）。
-- **部署**: `cos-update.sh` 升级成功后自动清理 Docker（防 `--no-cache` 构建累积磁盘）。
+- **discover 结构性分析文档**: `export_analysis_report()`（ozon_discovery.py:829）在货源分析后自动写 `data/discovery/analysis_*.md` + `analysis_*.json`（无需 --export）；MD 头部汇总 + 每产品详情块，Agent 直接据此汇报。
+- **Skill Sentry 埋点**: `_init_sentry()`/`_capture_exception()`（cli.py:1167/1193）——`SENTRY_DSN` env 启用（environment=skill、release=VERSION），凭证零上传；DSN 未设/sdk 缺失/测试进程静默 no-op。查询错误：`sentry issue list halo-fx/pouding_ozon`（tag environment:skill 区分）。
+- **SKILL.md 精简**: §6 工程元信息（自动更新/venv/ABI/profile 迁移）→ 4 行排错指引；8 处版本号注记清除。
+- **测试**: skill 24 测试文件全绿（新增 test_discovery_analysis_report 10 断言 + test_sentry_skill 5 断言）；compile.py 9 模块编译 + import 校验通过；ci.sh --quick 通过。
+- **Sentry 近期高发问题**（v0.34 Worker 侧）: 翻译/生成失败用中文原文（CA x12 等）→ DESCRIPTION_DECLINE；类目匹配阻断（DF/DC/DH）——详见 Sentry `sentry issue list halo-fx/pouding_ozon`。
 
 
 ## 工作区概述
@@ -103,7 +101,7 @@ ozon-worker/
 - **compile.py 编译失败"带响"**（v0.12.0）：失败打印完整 stderr（最后 30 行）+ `failed>0` 时 `sys.exit(1)`，CI 不再静默发布残缺包。CI 另有产物完整性校验（4 平台 × 11 模块共 44 个二进制必须就位）。
 - 编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。
 
-**依赖**：仅 3 个 — `requests`、`websocket-client`、`Pillow`（Playwright 已移除，统一用原生 CDP）。
+**依赖**：仅 4 个 — `requests`、`websocket-client`、`Pillow`、`sentry-sdk`（Sentry 错误上报，v0.35 起；缺失时 cli.py lazy import 静默降级，不阻塞任何命令）。
 
 **三条管线**：
 - **1688 选品**：1688 URL → CDP 抓取 → 组装信封 → Worker 全流程

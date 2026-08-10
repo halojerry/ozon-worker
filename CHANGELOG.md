@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.35.0] - 2026-08-10
+
+> SKILL.md 精简为纯操作手册 + discover 选品结构性分析文档（MD+JSON）+ Skill 端 Sentry 错误上报（复用 pouding_ozon，environment=skill）。规划：参考毛子ERP/上品帮选品逻辑调研（月销/增长/跟卖数/drr 四指标已覆盖，广告位 DOM 解析不引入——主流工具均用转化率替代）。
+
+### Feat(skill discover 结构性分析文档)
+
+- **`export_analysis_report()`**（`ozon_discovery.py:829`）：match_selected（1688 货源分析）完成后自动生成 `data/discovery/analysis_{ts}.md` + `analysis_{ts}.json`（同 ts 配对，无需 `--export`）——MD 头部汇总（总数/状态分布/蓝海 Top-N/利润分布）+ 每产品详情块（标题/价格/月销/增长%/广告%/跟卖数/上架天/评分/蓝海分/利润率%/1688 货源/审核状态），密度足够 Agent 直接据此向用户汇报，无需再读原始 `discovery_*.json` 缓存；JSON 为 `{generated_at, summary{total,status_distribution,blue_ocean{max,avg},profit{max,median,profitable_count}}, candidates, top_blue_ocean}`。
+- **cmd_discover 接线**（`cli.py`）：货源分析后打印两行文档路径；fail-open（生成失败仅 warning，不影响选品主流程，rc 仍 0）。
+- **文档**：SKILL.md discover 行 + `references/output-schema.md` 新增「discover 选品分析文档」章节（schema + Agent 汇报模板）。
+
+### Feat(skill Sentry 错误上报)
+
+- **`_init_sentry()` / `_capture_exception()`**（`cli.py:1167/1193`）：main() 入口初始化 `sentry_sdk`（`environment="skill"`、`release=VERSION`、`traces_sample_rate=0.0`）；命令异常捕获后上报再 re-raise（保留 traceback + 退出码 1，不吞异常）。tags 仅非敏感字段（command/skill_version/os/platform），**凭证零上传**。
+- **安全降级**：`SENTRY_DSN` 未设置 / sentry-sdk 未安装 / 测试进程 → 全链路静默 no-op，不阻塞任何命令；lazy import 保证缺依赖时行为不变。
+- **依赖 3→4**：`requirements.txt` 正式加入 `sentry-sdk>=2.0.0`。
+
+### Refactor(skill SKILL.md 精简)
+
+- **§6「更新与旧包升级」（45 行）压缩为「常见问题与升级」（4 行）**：只保留缺依赖 → `pip install -r requirements.txt`、`graph`/`follow` 缺模块 → bootstrap 升级两条排错指引；删除自动更新机制/venv 自动发现/ABI 绑定/profile 迁移叙述（维护者内容，非 Agent 操作手册该有的）。
+- **全文版本号注记清除**：8 处 `v0.xx`/`v3`/`v4` 内嵌注记改写为无版本表述（`check`/`update`/`migrate_profile`/`seller`/`discover`/`queries`/fission 规则），功能描述不变。192 行 → 150 行。
+
+### 测试
+
+- 新增 `test_discovery_analysis_report.py`（10 断言：双文件生成/JSON schema/状态分布/top 排序/非 ASCII/空列表/同 ts 配对/利润指标）、`test_sentry_skill.py`（5 断言：无 DSN no-op/init 参数/ImportError 降级/无凭证 tags/测试进程跳过）。
+- 全量 skill 测试 24 文件全绿；`compile.py` 9 模块编译成功 + import 完整性校验通过（ozon_discovery.py cythonize 安全）；`ci.sh --quick` 通过。
+
 ## [0.31.0] - 2026-08-08
 
 > discover v3 裂变选品（同行卖家 = 选品引擎）+ trend 管线移除（agent 自带 LLM/web_search）+ 真实 CLI 链路修复。规划文件：`.omo/plans/discover-v3-fission-selection.md`。

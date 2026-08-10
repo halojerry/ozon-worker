@@ -2,7 +2,7 @@
 
 > 1688 选品 → AI 生图 → 自动上架 Ozon 的一站式跨境电商工具。把「人工选品、翻译、做图、填属性、等审核」的繁琐流程，压缩成几条命令。
 
-当前版本：**v0.34.0**（详见 [`CHANGELOG.md`](CHANGELOG.md)）
+当前版本：**v0.35.0**（详见 [`CHANGELOG.md`](CHANGELOG.md)）
 
 ---
 
@@ -37,7 +37,7 @@
 └──────────────────────────────────────────────────────────────┘
 ```
 
-- **Skill**：客户本地 Python 工具，自动启动 Chrome（CDP 抓取，保留登录态），核心库 Cython 编译为二进制分发（源码保护），依赖仅 `requests` / `websocket-client` / `Pillow`
+- **Skill**：客户本地 Python 工具，自动启动 Chrome（CDP 抓取，保留登录态），核心库 Cython 编译为二进制分发（源码保护），依赖仅 `requests` / `websocket-client` / `Pillow` / `sentry-sdk`（Sentry 上报，缺失时静默降级）
 - **Worker**：云端 FastAPI + LangGraph 工作流，默认 30 并发任务（`MAX_CONCURRENT` 可配），PG 队列 + 断点恢复 + 僵尸任务清理
 - **接口契约**：`GraphInput` 三层信封结构（`worker/src/graphs/state.py`），详见 [`docs/CONTRACT-v4.md`](docs/CONTRACT-v4.md)
 
