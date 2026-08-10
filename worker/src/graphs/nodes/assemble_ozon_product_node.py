@@ -124,8 +124,14 @@ def _merge_candidates(a: list, b: list) -> list:
         key = (c.get("description_category_id"), c.get("type_id"))
         if not all(key):
             continue
-        score = float(c.get("_score", c.get("similarity", 0)))
-        if key not in merged or score > float(merged[key].get("_score", 0)):
+        if key not in merged:
+            merged[key] = c
+            continue
+        # v0.34: 同 dc/tp 保留 similarity 更高的版本——否则源搜索 sim=0.80 的正确类目
+        # 被全标题搜索 sim=0.455 的同一类目覆盖, 导致 _acceptable_match 误拒 (竹知了实证)
+        sim_cur = merged[key].get("similarity")
+        sim_new = c.get("similarity")
+        if sim_new is not None and (sim_cur is None or float(sim_new) > float(sim_cur)):
             merged[key] = c
     return sorted(merged.values(), key=lambda x: -(float(x.get("_score", x.get("similarity", 0)))))
 
@@ -584,13 +590,15 @@ def assemble_ozon_product_node(
         cleaned = _re.sub(r'[>、/→]', ' ', source_category)
         cat_terms = [t.strip() for t in cleaned.split() if len(t.strip()) >= 2]
         if cat_terms:
-            # 提取最具体的末级类目词（最后 1-2 个词，如"戏水玩具"）
-            specific_terms = cat_terms[-2:] if len(cat_terms) >= 2 else cat_terms
+            # 提取最具体的末级类目词（最后 1 个，如"其他益智玩具"；末级词整体辨识度最高）
+            # ⚠️ v0.34: 原取最后 2 级(cat_terms[-2:])——"科教玩具 其他益智玩具"分词后
+            # 「玩具」token 稀释末级词信号, sim 0.5→0.333 错配到甜品套装。只留末级词整体。
+            specific_terms = cat_terms[-1:]
             # 泛化词黑名单（在多类目中出现，稀释信号）
             _GENERIC_WORDS = {"运动", "休闲", "传统", "家用", "日用", "通用", "其他", "配件", "附件"}
             specific_terms = [t for t in specific_terms if t not in _GENERIC_WORDS]
             if not specific_terms:
-                specific_terms = [t for t in cat_terms if t not in _GENERIC_WORDS][-2:]
+                specific_terms = [t for t in cat_terms if t not in _GENERIC_WORDS][-1:]
             leaf_name = cat_terms[-1] if cat_terms else ""  # v4: L0学习缓存key
             
             # 中文同义词映射（1688 用语 → Ozon ZH_HANS 用语）
@@ -814,6 +822,19 @@ def assemble_ozon_product_node(
             # 无候选有重叠 → LLM fallback：让 LLM 从 top-5 候选中选择最佳匹配
             logger.warning(f"   ⚠️ 所有 {len(candidates)} 个候选与源词无子串重叠，触发 LLM fallback")
             best_by_llm = _llm_rank_categories(candidates[:5], source_keywords or keywords, draft, state)
+            # v0.34: LLM 认为候选都不合适 → 用建议搜索词二次搜索
+            if best_by_llm and best_by_llm.get("_llm_suggest"):
+                _sugg = str(best_by_llm.get("suggest_keywords", "") or "").strip()
+                logger.info(f"   🔍 LLM 建议搜索词: {_sugg}，二次搜索类目")
+                if _sugg:
+                    try:
+                        query = get_category_query()
+                        re_cands = query.search_nodes(_sugg, top_k=10, node_type="type")
+                        if re_cands:
+                            candidates = _merge_candidates(re_cands, candidates)
+                            logger.info(f"   ✅ 建议词二次搜索: {len(re_cands)} 候选并入")
+                    except Exception as _se:
+                        logger.warning(f"   ⚠️ 建议词二次搜索失败: {_se}")
             if best_by_llm:
                 # ✅ v0.21: LLM 结果也必须与源词有具体重叠，否则不硬猜（阻断，需人工确认类目）
                 _llm_path = str(best_by_llm.get("full_path", "")).lower()
@@ -1216,6 +1237,25 @@ def assemble_ozon_product_node(
                 (draft or {}).get("attributes", {})
             )
             best_by_llm = _llm_rank_categories(all_candidates[:5], product_keywords, draft, state)
+            # v0.34: LLM 认为候选都不合适 → 用建议搜索词二次搜索并入候选
+            if best_by_llm and best_by_llm.get("_llm_suggest"):
+                _sugg2 = str(best_by_llm.get("suggest_keywords", "") or "").strip()
+                logger.info(f"   🔍 LLM 建议搜索词: {_sugg2}，二次搜索并入候选")
+                if _sugg2:
+                    try:
+                        query = get_category_query()
+                        _re2 = query.search_nodes(_sugg2, top_k=10, node_type="type")
+                        if _re2:
+                            _seen_keys = {(c.get("description_category_id"), c.get("type_id")) for c in all_candidates}
+                            for _rc in _re2:
+                                _key = (_rc.get("description_category_id"), _rc.get("type_id"))
+                                if _key not in _seen_keys:
+                                    all_candidates.append(_rc)
+                                    _seen_keys.add(_key)
+                            best_by_llm = _llm_rank_categories(all_candidates[:10], product_keywords, draft, state)
+                            logger.info(f"   ✅ 建议词二次搜索后重试 LLM: 候选 {len(all_candidates)}")
+                    except Exception as _se2:
+                        logger.warning(f"   ⚠️ 建议词二次搜索失败: {_se2}")
             if best_by_llm:
                 llm_cid = best_by_llm.get("description_category_id", 0)
                 llm_tid = best_by_llm.get("type_id", 0)
@@ -2612,7 +2652,7 @@ def _llm_rank_categories(
     candidates: list[dict], keywords: str, draft: dict, state
 ) -> dict | None:
     """v4 LLM fallback：低置信度时让 LLM 从候选类目中选最佳匹配。
-    增强：domain_hint 引导 + 1688类目面包屑
+    增强：domain_hint 引导 + 1688类目面包屑 + 建议搜索词（候选都不合适时二次搜索）
     """
     try:
         from utils.mxou_api import call_mxou_chat_api
@@ -2651,28 +2691,47 @@ def _llm_rank_categories(
             for i, c in enumerate(candidates)
         )
 
-        prompt = f"""Choose the best Ozon category for this product.
+        # v0.34: 结构化输出 JSON —— LLM 选候选编号；若候选都不合适, 输出 suggest_keywords
+        # 供上层用建议词二次搜索正确类目（deepseek-v4-flash 推理模型 max_tokens 需足够大,
+        # 10/200 都会被 reasoning_tokens 吃光输出为空 → fallback 恒失败）
+        prompt = f"""Choose the best Ozon category for this product. Output JSON only.
 
-产品: {product_title[:100]}
-1688类目: {source_cat[:100]}
-关键词: {keywords[:100]}
+产品: {product_title[:150]}
+1688类目: {source_cat[:150]}
+关键词: {keywords[:150]}
 属性: {attr_text or 'N/A'}
 {domain_guidance}
 候选类目:
 {cand_text}
 
-返回 ONLY 数字 (1-{len(candidates)})，不解释。"""
+返回 JSON:
+{{"candidate_index": <1-{len(candidates)} 的整数, 候选中最匹配的; 若都不合适填 0>,
+ "suggest_keywords": "<候选都不合适时, 给出 1-3 个俄语或中文搜索词用于重新搜索正确类目; 合适则空字符串>"}}"""
 
         result = call_mxou_chat_api(
             token=getattr(state, "token", ""),
-            system_prompt="You are a product categorization expert. Follow domain rules if provided.",
+            system_prompt="You are a product categorization expert. Follow domain rules if provided. Output valid JSON.",
             user_prompt=prompt,
-            model="deepseek-v4-flash", temperature=0.0, max_tokens=10,
+            model="deepseek-v4-flash", temperature=0.0, max_tokens=4096,
         )
-        if result and result.strip().isdigit():
-            idx = int(result.strip()) - 1
-            if 0 <= idx < len(candidates):
-                return candidates[idx]
+        if not result:
+            return None
+        # 解析 JSON（容忍首尾非 JSON 字符）
+        import json as _json, re as _re2
+        _m = _re2.search(r'\{.*\}', result, _re2.DOTALL)
+        if not _m:
+            return None
+        try:
+            parsed = _json.loads(_m.group(0))
+        except Exception:
+            return None
+        idx = int(parsed.get("candidate_index", 0) or 0)
+        if 1 <= idx <= len(candidates):
+            return candidates[idx - 1]
+        # 候选都不合适 → 返回带建议词的标记, 上层用 suggest_keywords 二次搜索
+        suggest = str(parsed.get("suggest_keywords", "") or "").strip()
+        if suggest:
+            return {"suggest_keywords": suggest, "_llm_suggest": True}
     except Exception as e:
         logger.warning("LLM category ranking failed: %s", e)
     return None
