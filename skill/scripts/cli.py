@@ -1234,6 +1234,19 @@ def main() -> int:
     sel.add_argument("--max-skus", type=int, default=30, help="运营分析 SKU 数上限(默认 30, 受 what_to_sell 限速)")
     sel.set_defaults(func=cmd_seller)
 
+    # ── what-to-sell SPA 查询(v0.33.2, C4 step1)──
+    qp = sub.add_parser("queries", help="what-to-sell SPA 查询(all-queries/ozon-bestsellers/market-bestsellers)")
+    qp.add_argument("--type", choices=["all-queries", "ozon-bestsellers", "market-bestsellers"],
+                    default="all-queries", help="查询类型(默认 all-queries)")
+    qp.add_argument("--keyword", default="", help="all-queries: 搜索关键词(默认空=全部)")
+    qp.add_argument("--sku", default="", help="ozon-bestsellers: 按 SKU 过滤(默认空=全榜)")
+    qp.add_argument("--category-id", default="", help="market-bestsellers: 类目 ID 过滤")
+    qp.add_argument("--price-min", type=float, default=None, help="market-bestsellers: 价格下限 RUB")
+    qp.add_argument("--price-max", type=float, default=None, help="market-bestsellers: 价格上限 RUB")
+    qp.add_argument("--export", choices=["csv", "json"], default="csv", help="导出格式(默认 csv)")
+    qp.add_argument("--output", default="", help="输出文件路径(默认打印到 stdout)")
+    qp.set_defaults(func=cmd_queries)
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -1356,6 +1369,73 @@ def cmd_seller(args: argparse.Namespace) -> int:
         max_skus=args.max_skus,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_queries(args: argparse.Namespace) -> int:
+    """what-to-sell SPA 三页查询(v0.33.2, C4 step1): all-queries / ozon-bestsellers / market-bestsellers。
+
+    通过 CDP 复用已登录 seller.ozon.ru tab 页面内 fetch 真实端点（见
+    .omo/evidence/sentry-attribute-fixes/task-5-c4a.endpoints.json），
+    输出 CSV(utf-8-sig, Excel 兼容) 或 JSON。
+    """
+    import csv
+    import io
+
+    from scripts.lib.cdp_client import CdpConnection
+    from scripts.lib import ozon_seller_analytics as osa
+
+    if not args.output:
+        try:
+            from scripts.lib.chrome_launcher import ensure_chrome_cdp
+            ensure_chrome_cdp()
+        except Exception:
+            pass
+
+    rows: list[dict] = []
+    try:
+        with CdpConnection() as cdp:
+            if not osa.check_seller_login(cdp):
+                print("未登录 seller.ozon.ru", flush=True)
+                return 0
+            if args.type == "all-queries":
+                rows = osa.fetch_all_queries(cdp, keyword=args.keyword or None)
+            elif args.type == "ozon-bestsellers":
+                rows = osa.fetch_ozon_bestsellers(cdp, sku_or_id=args.sku or None)
+            else:
+                rows = osa.fetch_market_bestsellers(
+                    cdp,
+                    category_id=args.category_id or None,
+                    price_rub_min=args.price_min,
+                    price_rub_max=args.price_max,
+                )
+    except Exception as exc:
+        print(f"❌ queries 执行失败: {exc}", flush=True)
+        return 1
+
+    if not rows:
+        print("（无数据）", flush=True)
+        return 0
+
+    if args.export == "json":
+        text = json.dumps(rows, ensure_ascii=False, indent=2)
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as f:
+                f.write(text)
+        else:
+            print(text, flush=True)
+    else:
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()), extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+        text = buf.getvalue()
+        if args.output:
+            with open(args.output, "w", encoding="utf-8-sig", newline="") as f:
+                f.write(text)
+        else:
+            print(text, end="", flush=True)
     return 0
 
 
