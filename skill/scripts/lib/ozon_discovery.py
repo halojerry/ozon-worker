@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
@@ -750,6 +751,154 @@ def export_to_json(candidates: list[ProductCandidate], filepath: str) -> str:
     data = [asdict(c) for c in candidates]
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
     return str(path)
+
+
+def _median(values: list[float]) -> float:
+    """取排序后中位数（偶数个时取中间两数均值）。"""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    n = len(ordered)
+    mid = n // 2
+    if n % 2 == 1:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    """原子写：先写临时文件再 os.replace（防半写文件）。"""
+    tmp = Path(str(path) + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _render_analysis_md(
+    candidates: list[ProductCandidate],
+    summary: dict[str, Any],
+    top_blue_ocean: list[ProductCandidate],
+    generated_at: str,
+) -> str:
+    """渲染选品分析 MD 文档（头部汇总 + 蓝海 Top-N 表 + 每产品详情块）。"""
+    lines = ["# 选品分析报告", "", f"- 生成时间: {generated_at}", ""]
+    lines.append("## 汇总")
+    lines.append("")
+    lines.append(f"- 候选总数: {summary['total']}")
+    dist = summary["status_distribution"]
+    if dist:
+        dist_str = ", ".join(f"{k}={v}" for k, v in sorted(dist.items()))
+        lines.append(f"- 状态分布: {dist_str}")
+    bo = summary["blue_ocean"]
+    pf = summary["profit"]
+    lines.append(f"- 蓝海分: 最高 {bo['max']} / 平均 {bo['avg']}")
+    lines.append(
+        f"- 利润率: 最高 {pf['max']}% / 中位 {pf['median']}% / "
+        f"可盈利 {pf['profitable_count']} 个"
+    )
+    lines.append("")
+    lines.append("## 蓝海 Top-N")
+    lines.append("")
+    lines.append("| # | 标题 | 蓝海分 | 利润率% | 月销 | 价格₽ |")
+    lines.append("|---|---|---|---|---|---|")
+    for i, c in enumerate(top_blue_ocean, 1):
+        lines.append(
+            f"| {i} | {c.ozon_title} | {c.blue_ocean_score} | "
+            f"{c.profit_margin:.1f} | {c.monthly_sales} | {c.ozon_price:.0f} |"
+        )
+    lines.append("")
+    lines.append("## 产品详情")
+    for i, c in enumerate(candidates, 1):
+        lines.append("")
+        lines.append(f"### {i}. {c.ozon_title}")
+        lines.append("")
+        lines.append(f"- 价格: {c.ozon_price:.0f} ₽")
+        lines.append(f"- 月销: {c.monthly_sales}")
+        lines.append(f"- 月增长率: {c.sales_growth}%")
+        lines.append(f"- 广告占比: {c.drr}%")
+        lines.append(f"- 跟卖数: {c.competing_sellers}")
+        lines.append(f"- 上架天数: {c.create_days}")
+        lines.append(f"- 评分: {c.rating}")
+        lines.append(f"- 蓝海分: {c.blue_ocean_score}")
+        lines.append(f"- 利润率: {c.profit_margin}%")
+        lines.append(f"- 1688 货源: {c.match_1688_url or '(未匹配)'}")
+        lines.append(f"- 采购价: {c.match_1688_price} CNY")
+        lines.append(f"- 审核状态: {c.status}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def export_analysis_report(
+    candidates: list[ProductCandidate],
+    out_dir: str | None = None,
+    top_n: int = 5,
+) -> dict:
+    """match_selected 完成后生成结构性选品分析文档（MD + JSON 双份，同 ts 配对）。
+
+    - 输出到 out_dir（默认 DISCOVERY_CACHE_DIR）/analysis_{ts}.md + .json
+    - JSON: {generated_at, summary, candidates, top_blue_ocean}
+      - summary: {total, status_distribution, blue_ocean{max,avg}, profit{max,median,profitable_count}}
+    - 空 candidates → 返回 {}（不写文件不崩溃）
+    返回 {"md": Path, "json": Path} 或 {}。
+    """
+    if not candidates:
+        return {}
+
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    generated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+    base_dir = Path(out_dir) if out_dir else DISCOVERY_CACHE_DIR
+
+    # ---- summary ----
+    status_distribution: dict[str, int] = {}
+    for c in candidates:
+        st = c.status or "pending"
+        status_distribution[st] = status_distribution.get(st, 0) + 1
+
+    scores = [c.blue_ocean_score or 0 for c in candidates]
+    margins = [c.profit_margin or 0 for c in candidates]
+    profitable_count = sum(
+        1 for c in candidates
+        if c.status == "profitable" or (c.profit_margin or 0) > 0
+    )
+    summary = {
+        "total": len(candidates),
+        "status_distribution": status_distribution,
+        "blue_ocean": {
+            "max": max(scores, default=0),
+            "avg": round(sum(scores) / len(scores), 2),
+        },
+        "profit": {
+            "max": max(margins, default=0),
+            "median": _median(margins),
+            "profitable_count": profitable_count,
+        },
+    }
+
+    # 蓝海 Top-N：按 blue_ocean_score 降序截断（≤top_n）
+    top_blue_ocean = sorted(
+        candidates, key=lambda c: c.blue_ocean_score or 0, reverse=True
+    )[:top_n]
+
+    payload = {
+        "generated_at": generated_at,
+        "summary": summary,
+        "candidates": [asdict(c) for c in candidates],
+        "top_blue_ocean": [asdict(c) for c in top_blue_ocean],
+    }
+
+    md_text = _render_analysis_md(candidates, summary, top_blue_ocean, generated_at)
+
+    try:
+        base_dir.mkdir(parents=True, exist_ok=True)
+        md_path = base_dir / f"analysis_{ts}.md"
+        json_path = base_dir / f"analysis_{ts}.json"
+        _atomic_write(md_path, md_text)
+        _atomic_write(json_path, json.dumps(payload, ensure_ascii=False, indent=2))
+    except Exception as exc:
+        logger.error("Failed to write analysis report: %s", exc)
+        return {}
+
+    logger.info("Analysis report saved: %s / %s (%d products)",
+                md_path, json_path, len(candidates))
+    return {"md": md_path, "json": json_path}
 
 
 # ---------------------------------------------------------------------------
