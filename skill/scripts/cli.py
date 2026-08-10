@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import sys
 import time
 from pathlib import Path
@@ -1089,6 +1090,18 @@ def cmd_discover(args: argparse.Namespace) -> int:
         csv_path = export_to_csv(selected, matched_csv)
         print(f"📄 CSV 已导出（选中+货源）: {csv_path}")
 
+    # ── 自动生成结构性分析文档（MD+JSON，供 Agent/用户直接汇报）──
+    try:
+        from scripts.lib.ozon_discovery import export_analysis_report
+        _report = export_analysis_report(selected)
+        if _report:
+            print(f"📄 分析文档已生成: {_report['md']}")
+            print(f"📄 结构化 JSON: {_report['json']}")
+    except Exception as exc:
+        import logging
+        _logger = logging.getLogger(__name__)
+        _logger.warning("分析文档生成失败（不影响选品主流程）: %s", exc)
+
     # ── auto-submit ──
     if args.auto_submit:
         to_submit = [c for c in selected if c.status == "profitable" and c.match_1688_url]
@@ -1138,7 +1151,80 @@ def cmd_discover(args: argparse.Namespace) -> int:
     return 0
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Sentry 错误上报（v0.35）— 参考 worker/src/utils/sentry_setup.py 模式，内联实现。
+# DSN 未设置 / sentry-sdk 未安装 / 测试进程 → 全部静默 no-op，绝不影响任何命令行为。
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _read_skill_version() -> str:
+    """读取本地 skill/VERSION（与 updater.get_local_version() 同源；读不到回退 0.0.0）。"""
+    try:
+        v = (Path(__file__).resolve().parent.parent / "VERSION").read_text(encoding="utf-8").strip()
+        return v or "0.0.0"
+    except Exception:
+        return "0.0.0"
+
+
+def _is_sentry_test_process() -> bool:
+    """测试进程（sys.argv[0] 含 test_ / pytest / PYTEST_CURRENT_TEST）跳过上报，避免测试噪音污染监测。"""
+    script = sys.argv[0] if sys.argv else ""
+    return (
+        "test_" in script
+        or script.endswith(("pytest", "py.test"))
+        or bool(os.environ.get("PYTEST_CURRENT_TEST"))
+    )
+
+
+def _init_sentry() -> bool:
+    """初始化 Sentry SDK（environment="skill"，release=本地 VERSION）。返回是否启用。
+
+    DSN 未设置 / sentry-sdk 未安装 / 测试进程 / 任何异常 → 静默 no-op 返回 False。
+    sentry-sdk 缺失时靠 lazy import 自动降级（requirements.txt 已列为正式依赖，
+    但客户机器可能未升级，绝不因此阻断命令）。
+    """
+    dsn = os.environ.get("SENTRY_DSN", "").strip()
+    if not dsn:
+        return False
+    if _is_sentry_test_process():
+        return False
+    try:
+        import sentry_sdk  # noqa: F401
+
+        sentry_sdk.init(
+            dsn=dsn,
+            environment="skill",
+            release=_read_skill_version(),
+            traces_sample_rate=0.0,  # 仅错误事件上报，不上报性能 trace
+        )
+    except Exception:
+        return False
+    return True
+
+
+def _capture_exception(exc: Exception, command: str) -> None:
+    """上报命令异常到 Sentry（带非敏感 tags，绝不含 token/ak/api_key/client_id 等凭证）。
+
+    失败静默——绝不因 Sentry 故障影响命令退出。同步 flush(1s) 确保事件送达。
+    """
+    try:
+        import sentry_sdk  # noqa: F401
+
+        sentry_sdk.set_tag("command", command)
+        sentry_sdk.set_tag("skill_version", _read_skill_version())
+        sentry_sdk.set_tag("os", platform.system())
+        sentry_sdk.set_tag("platform", platform.machine())
+        sentry_sdk.capture_exception(exc)
+        sentry_sdk.flush(timeout=1)
+    except Exception:
+        pass
+
+
 def main() -> int:
+    # ⚠️ v0.35: Sentry 错误上报（environment="skill"）。argparse 解析之前调用——
+    # DSN 未设置 / SDK 缺失 / 测试进程时静默 no-op，绝不影响 --help / argparse 报错。
+    _init_sentry()
+
     parser = argparse.ArgumentParser(description="pounding-ozon-probe — 1688 数据采集 + GraphInput 组装")
     sub = parser.add_subparsers(dest="command", help="命令")
 
@@ -1305,7 +1391,13 @@ def main() -> int:
     # 启动必成功; 用户手动关闭常驻实例后, 下次命令检测 CDP 不可用 → 用独立
     # profile 重新启动即可, 不再有单实例锁问题。
     # close_tool_chrome() 保留(不自动调用), 需要时显式执行。
-    return args.func(args)
+    # ⚠️ v0.35: Sentry 异常上报——捕获后 re-raise（保留 traceback + 退出码 1，不吞异常）。
+    # KeyboardInterrupt/SystemExit 是 BaseException 子类，不会被 Exception 捕获 → 自然透传。
+    try:
+        return args.func(args)
+    except Exception as exc:
+        _capture_exception(exc, getattr(args, "command", "unknown"))
+        raise
 
 
 def _preflight_runtime() -> tuple[bool, str]:

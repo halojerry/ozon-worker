@@ -11,6 +11,4 @@
 requests>=2.28                 # HTTP 请求（Worker API / Ozon API）
 websocket-client>=1.6.0        # Chrome DevTools Protocol 通信
 Pillow>=10.0.0                 # 图片处理（1688 图搜 / 图片预处理）
-
-# --- 可选依赖（错误追踪） ---
-# sentry-sdk>=1.40.0           # Sentry 错误追踪（可选，不装不影响功能）
+sentry-sdk>=2.0.0              # Sentry 错误上报（缺失时 cli.py lazy import 静默降级，不影响功能）
