@@ -26,6 +26,8 @@ from typing import Any
 
 import requests
 
+from scripts.lib.utils import safe_rmtree, safe_unlink
+
 logger = logging.getLogger(__name__)
 
 # COS manifest 地址：环境变量 SKILL_MANIFEST_URL 覆盖
@@ -316,9 +318,9 @@ def _rollback(result: dict) -> None:
                 target = root / item.name
                 if target.exists():
                     if target.is_dir():
-                        shutil.rmtree(target)
+                        safe_rmtree(target)
                     else:
-                        target.unlink()
+                        safe_unlink(target)
                 shutil.move(str(item), str(root / item.name))
             shutil.rmtree(backup, ignore_errors=True)
         logger.warning("更新失败，已回滚")

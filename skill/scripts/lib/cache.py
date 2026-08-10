@@ -21,6 +21,7 @@ import time
 from typing import Any
 
 from scripts._const import CACHE_DIR
+from scripts.lib.utils import safe_unlink
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +86,9 @@ def cache_clear(namespace: str | None = None) -> int:
     if target.exists():
         for f in target.rglob("*.json"):
             try:
-                f.unlink()
-                count += 1
+                # Q5: 裸 unlink → safe_unlink（Windows 沙箱 fail-open，不 raise）
+                if safe_unlink(f):
+                    count += 1
             except Exception:
                 pass
     return count

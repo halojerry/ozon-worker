@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from scripts._const import DATA_DIR
+from scripts.lib.utils import safe_unlink
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,8 @@ def cleanup_old_files(max_age_days: int = 7, *, dry_run: bool = False) -> dict[s
                 if f.stat().st_mtime < cutoff:
                     size = f.stat().st_size
                     if not dry_run:
-                        f.unlink()
+                        if not safe_unlink(f):
+                            errors += 1
                     deleted += 1
                     bytes_freed += size
             except OSError:
