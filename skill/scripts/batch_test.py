@@ -120,13 +120,15 @@ def parse_urls_file(filepath: str) -> list[dict[str, str]]:
             if not line:
                 continue
 
-            if "ozon.ru" in line:
-                m = re.search(r"/product/[^/]+-(\d{6,20})", line)
+            line_lower = line.lower()
+            if "ozon.ru" in line_lower:
+                # v0.35.x: 兼容纯数字 product_id（/product/4767514314）与 slug 形式
+                m = re.search(r"/products?/(?:[^/]+-)?(\d{6,20})", line)
                 pid = m.group(1) if m else ""
                 if pid and pid not in seen_ids:
                     seen_ids.add(pid)
                     results.append({"type": "ozon", "url": line, "id": pid})
-            elif "1688.com" in line:
+            elif "1688.com" in line_lower:
                 # v0.31.1: 兼容 m 站 detail.m.1688.com/page/index.html?offerId=xxx
                 m = re.search(r"offer/(\d+)", line)
                 if not m:

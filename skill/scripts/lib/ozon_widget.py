@@ -46,6 +46,40 @@ def extract_product_id(url: str) -> str:
     return m.group(1) if m else ""
 
 
+def _is_geo_redirect(url: str) -> bool:
+    """Detect Ozon geo-redirect (CN IP → search page): from_global=true / /search/."""
+    return bool(url) and ("from_global=true" in url or "/search/" in url)
+
+
+def _apply_geo_redirect_retry(tab: CdpTab, target_url: str) -> None:
+    """Product 页导航后检测地理重定向，用 ?lang=ru&country=RU 重试一次。
+
+    Ozon 对中国区 IP 把 /product/{id} 302 到搜索页（from_global=true），
+    页面无 JSON-LD 产品数据、widget API 返回搜索页状态 → CDP 抓不到数据。
+    """
+    if not target_url or "/product/" not in target_url:
+        return
+    try:
+        current = str(tab.url or "")
+    except Exception:
+        current = ""
+    if not _is_geo_redirect(current):
+        return
+    product_id = extract_product_id(target_url)
+    if not product_id:
+        return
+    logger.warning(
+        "Ozon 地理重定向到搜索页（%s）→ 用 ?lang=ru&country=RU 重试 product %s",
+        current, product_id,
+    )
+    retry_url = f"{OZON_BASE}/product/{product_id}/?lang=ru&country=RU"
+    try:
+        tab.navigate(retry_url, timeout=25)
+        time.sleep(3)
+    except Exception:
+        pass
+
+
 def _ensure_ozon_tab(cdp: CdpConnection, target_url: str = "") -> CdpTab:
     """Find an existing ozon.ru tab or create a new one, navigated to target_url.
 
@@ -68,11 +102,14 @@ def _ensure_ozon_tab(cdp: CdpConnection, target_url: str = "") -> CdpTab:
                 try:
                     tab.navigate(target_url, timeout=25)
                     time.sleep(3)
+                    _apply_geo_redirect_retry(tab, target_url)
                 except Exception:
                     pass
             return tab
     if target_url:
-        return cdp.new_tab(target_url)
+        tab = cdp.new_tab(target_url)
+        _apply_geo_redirect_retry(tab, target_url)
+        return tab
     return cdp.new_tab(f"{OZON_BASE}/")
 
 
@@ -84,6 +121,23 @@ def _safe_json_parse(text: str) -> dict[str, Any]:
         return json.loads(text)
     except (json.JSONDecodeError, TypeError):
         return {}
+
+
+def _normalize_price_to_rub(result: dict[str, Any]) -> dict[str, Any]:
+    """把 widget 返回的价格统一归一化为 RUB（唯一真源，v0.36）。
+
+    webPrice.currency.code 为 CNY 时按 CNY_TO_RUB 汇率换算 price/cardPrice/
+    originalPrice；RUB 或未知货币原样 parse_price。所有价格归一化为数字串，
+    result 恒带 currency="RUB"。
+    """
+    from scripts.lib.utils import normalize_ozon_price
+
+    currency_code = str(result.get("currency") or "").strip().upper()
+    for field in ("price", "cardPrice", "originalPrice"):
+        if result.get(field):
+            result[field] = str(normalize_ozon_price(str(result[field]), currency_code))
+    result["currency"] = "RUB"
+    return result
 
 
 def _find_widget(widget_states: dict[str, str], substring: str) -> dict[str, Any]:
@@ -132,6 +186,9 @@ _FETCH_PRODUCT_JS = r'''(() => {
                     result.price = p.price || '';
                     result.cardPrice = (p.cardPrice && p.cardPrice.price) || '';
                     result.originalPrice = p.originalPrice || '';
+                    // ✅ v0.36 货币识别：webPrice.currency.code（RUB/CNY/...），
+                    // Python 侧据此归一化为 RUB（唯一真源）
+                    result.currency = (p.currency && p.currency.code) || '';
                 } catch(e) {}
             }
 
@@ -282,7 +339,7 @@ _FETCH_VARIANTS_JS = r'''(() => {
 # ---------------------------------------------------------------------------
 
 
-def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, Any]:
+def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None, lang: str = "ru") -> dict[str, Any]:
     """Fetch product info via CDP using Ozon widget API.
 
     If *cdp* is provided, reuse the existing CdpConnection (caller owns it).
@@ -291,11 +348,15 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, 
     Returns dict with keys: title, price, cardPrice, originalPrice,
     images, primaryImage, description, characteristics, aspects, brand.
     Missing keys default to empty string / empty list.
+
+    ⚠️ v0.36: 价格统一归一化为 RUB（webPrice.currency.code 识别 CNY → 汇率换算），
+    result 恒带 ``currency: "RUB"``。缓存 key 含语言维度（防固化错误货币数据）。
     """
     from scripts.lib.cache import cache_get, cache_set
     from scripts.lib.cdp_client import CdpConnection
 
-    cached = cache_get("ozon", product_id)
+    cache_key = f"{product_id}:{lang}"
+    cached = cache_get("ozon", cache_key)
     if cached is not None:
         return cached
 
@@ -310,6 +371,7 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, 
         "primaryImage": "",
         "description": "",
         "brand": "",
+        "currency": "RUB",
     }
 
     try:
@@ -321,6 +383,7 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, 
                 logger.warning("Widget API error for product %s: %s",
                                product_id, parsed["error"])
             result.update(parsed)
+            _normalize_price_to_rub(result)
         else:
             with CdpConnection(cdp_url) as _cdp:
                 tab = _ensure_ozon_tab(_cdp, f"{OZON_BASE}/product/{product_id}/")
@@ -330,6 +393,7 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, 
                     logger.warning("Widget API error for product %s: %s",
                                    product_id, parsed["error"])
                 result.update(parsed)
+                _normalize_price_to_rub(result)
     except Exception as exc:
         logger.error("fetch_product_info(%s) CDP failed: %s", product_id, exc)
         # Fallback: try direct HTTP (may fail due to geo/cookies)
@@ -338,7 +402,7 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, 
     # ⚠️ 只缓存有效数据（标题 + 价格都有），避免残缺数据（如限流时
     # price 为空）被缓存 1 小时污染后续运行（降级数据不缓存）
     if result.get("title") and (result.get("price") or result.get("cardPrice")):
-        cache_set("ozon", product_id, result, ttl=3600)
+        cache_set("ozon", cache_key, result, ttl=3600)
     return result
 
 
@@ -380,6 +444,9 @@ def _fetch_product_info_http(
             defaults["originalPrice"] = price_data.get(
                 "originalPrice", defaults["originalPrice"]
             )
+            currency = price_data.get("currency")
+            if isinstance(currency, dict):
+                defaults["currency"] = currency.get("code", defaults.get("currency"))
 
         gallery_data = _find_widget(ws, "webGallery")
         if gallery_data:
@@ -388,13 +455,16 @@ def _fetch_product_info_http(
                 defaults["images"] = imgs
                 defaults["primaryImage"] = gallery_data.get("cover", imgs[0])
 
+        _normalize_price_to_rub(defaults)
+
     except Exception as exc:
         logger.debug("HTTP fallback for product %s also failed: %s", product_id, exc)
 
     return defaults
 
 
-def fetch_competing_sellers(cdp_url: str, product_id: str, *, cdp=None) -> dict[str, Any]:
+def fetch_competing_sellers(cdp_url: str, product_id: str, *, cdp=None,
+                            lang: str = "ru") -> dict[str, Any]:
     """Fetch competing sellers data for a product.
 
     If *cdp* is provided, reuse the existing CdpConnection (caller owns it).
@@ -410,8 +480,17 @@ def fetch_competing_sellers(cdp_url: str, product_id: str, *, cdp=None) -> dict[
                 ...
             ],
         }
+
+    ⚠️ v0.36 磁盘缓存（6h，namespace ozon_sellers）：key = ``{pid}:{lang}``
+    含语言维度（防固化错误货币数据）；只缓存有结果的（sellers 非空）。
     """
+    from scripts.lib.cache import cache_get, cache_set
     from scripts.lib.cdp_client import CdpConnection
+
+    cache_key = f"{product_id}:{lang}"
+    cached = cache_get("ozon_sellers", cache_key)
+    if cached is not None:
+        return cached
 
     js = _FETCH_SELLERS_JS.replace("__PRODUCT_ID__", product_id)
 
@@ -446,6 +525,8 @@ def fetch_competing_sellers(cdp_url: str, product_id: str, *, cdp=None) -> dict[
     except Exception as exc:
         logger.error("fetch_competing_sellers(%s) failed: %s", product_id, exc)
 
+    if result.get("sellers"):
+        cache_set("ozon_sellers", cache_key, result, ttl=21600)
     return result
 
 
