@@ -1211,6 +1211,11 @@ def _append_spec_table(description: str, attrs, weight_g=0, dimensions=None, sch
         val = re.sub(r'\+?\d[\d\s\-()]{7,}\d', '', val)
         val = _remove_social_words(val)
         val = re.sub(r'\s+', ' ', val).strip()
+        # v0.34 FIX (Sentry C2): schema 以 ZH_HANS 返回时属性名是中文(品牌/原产国)，
+        # 直接进规格表 → 描述含中文 → validate 拦截。对 name 做同款净化。
+        name = re.sub(r'[\u2e80-\u2eff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+', ' ', name)
+        name = re.sub(r'[a-zA-Z]{2,}', ' ', name)
+        name = re.sub(r'\s+', ' ', name).strip()
         if name and val and name.lower() != "описание":
             rows.append((name, val))
     dims = dimensions or {}

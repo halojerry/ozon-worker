@@ -741,6 +741,11 @@ def assemble_ozon_product_node(
             f"[{_cand_desc}]"
         )
         l0_hit = None
+        # v0.34: 丢弃 Skill/L0 后必须重置 match_layer——否则 stale "Skill" 会跳过
+        # L848 的接受门槛（sim=0.2 低分候选被采用但 confidence 低 → route 阻断，
+        # 行为矛盾：正确类目被采用却被 0.2 置信度卡死）
+        if match_layer in ("L0", "Skill"):
+            match_layer = "L1"
 
     # 1c. 直接使用 pg_trgm 最高相似度候选（不用 LLM）
     # pg_trgm 搜索已按 sim DESC 排序，candidates[0] 即最佳匹配
@@ -2139,6 +2144,11 @@ def _validate_and_enrich_items(
         for missing_id in sorted(missing_required):
             schema_attr = attr_by_id.get(missing_id, {})
             if not schema_attr:
+                continue
+
+            # 品牌(85/31/5076) 不走字典兜底——恒为「无品牌」，由下方 BRAND_ATTRIBUTE_IDS
+            # 强制段统一补充，避免无谓的 Ozon 字典拉取 + 误导性「无法获取字典值」ERROR
+            if missing_id in BRAND_ATTRIBUTE_IDS:
                 continue
 
             attr_name = schema_attr.get("name", "?")
