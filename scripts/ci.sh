@@ -143,6 +143,23 @@ else
 fi
 
 # ═══════════════════════
+# Step 5b: 测试 — Skill (pytest, .venv314)
+# ═══════════════════════
+echo ""
+echo "🧪 Step 5b/6: Skill 测试..."
+cd "$SKILL_DIR"
+if [ -x "$SKILL_DIR/.venv314/bin/python" ]; then
+    if "$SKILL_DIR/.venv314/bin/python" -m pytest tests/ -q 2>/dev/null; then
+        green "   ✅ Skill 测试"
+    else
+        red "   ❌ Skill 测试失败"
+        FAILED=1
+    fi
+else
+    yellow "   ⚠️  skill/.venv314 缺失，跳过 Skill 测试（pip install -r requirements.txt）"
+fi
+
+# ═══════════════════════
 # Step 6: Docker build（--quick 跳过）
 # ═══════════════════════
 if [[ "$*" != *"--quick"* ]]; then
