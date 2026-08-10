@@ -352,6 +352,22 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
 # ── 标题净化（v4: 提取到 utils/title_sanitizer.py）──
 # sanitize_title() 已从 utils.title_sanitizer 导入
 
+# ⚠️ 西里尔社交词清单（C3, sentry-attribute-fixes）：俄罗斯认定 Meta(Instagram/Facebook)、
+# Telegram、YouTube 为极端组织，描述含这些词被 Ozon 拒（FB_INSTA）。必须词边界匹配——
+# 子串匹配会误杀合法词（"телеграм" ⊂ "телеграмма" 电报）。
+# ⚠️ 不列入 "одноклассники"：俄语合法词"同学们"，review 判定歧义，宁漏勿杀。
+_SOCIAL_MEDIA_WORDS_RU: list = [
+    "вконтакте", "инстаграм", "фейсбук", "телеграм", "ютуб",
+]
+
+
+def _remove_social_words(text: str) -> str:
+    """词边界移除西里尔社交词（大小写不敏感）：只删独立词，不伤词内子串。"""
+    for word in _SOCIAL_MEDIA_WORDS_RU:
+        text = re.sub(rf'(?<!\w){re.escape(word)}(?!\w)', '', text, flags=re.IGNORECASE)
+    return text
+
+
 def _sanitize_description(description: str) -> str:
     """
     描述后净化：确保描述符合Ozon规范。
@@ -392,6 +408,9 @@ def _sanitize_description(description: str) -> str:
     ]
     for word in marketing_words:
         sanitized = re.sub(re.escape(word), '', sanitized, flags=re.IGNORECASE)
+
+    # 6.5 移除西里尔社交词（词边界匹配，防误杀合法词，见 _remove_social_words）
+    sanitized = _remove_social_words(sanitized)
 
     # 7. 清理多余空格和标点
     sanitized = re.sub(r'\s+', ' ', sanitized).strip()
@@ -440,6 +459,7 @@ def _sanitize_rich_description(description: str) -> str:
             part = re.sub(r'https?://\S+', '', part)
             part = re.sub(r'\b[\w.-]+@[\w.-]+\.\w+\b', '', part)
             part = re.sub(r'\+?\d[\d\s\-()]{7,}\d', '', part)
+            part = _remove_social_words(part)
             cleaned.append(part)
 
     sanitized = ''.join(cleaned)
@@ -567,6 +587,24 @@ def _generate_rich_description_fallback(product_name: str, attributes: dict, des
     return html[:2000]
 
 
+_HTML_TAG_RE = re.compile(r'<[a-zA-Z/][^>]*>')
+
+
+def _looks_like_html(text: str) -> bool:
+    """判断文本是否含 HTML 标签结构（<tag>）。用于属性 4191 富文本识别。
+
+    4191 的富文本值禁止走每属性 LLM 翻译（翻译会把 <b>/<ul>/<li> 标签当文本翻译成词，
+    破坏 HTML 结构）。普通文本（如 "a < b"）不含标签 → 返回 False，仍走翻译。
+    """
+    return bool(text and _HTML_TAG_RE.search(text))
+
+
+def _strip_cjk_chars(text: str) -> str:
+    """剥离中日韩统一表意文字（保留 HTML 标签与西里尔正文）。
+    字符集与 _sanitize_rich_description / _sanitize_description 一致。"""
+    return re.sub(r'[\u2e80-\u2eff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+', '', text or "")
+
+
 def _get_category_fallback_title(state: "PrepareOzonUploadInput") -> str:
     """用 Ozon 类目名生成兜底标题，替代固定文案 'Товар для дома'。"""
     try:
@@ -596,6 +634,36 @@ def _get_category_fallback_title(state: "PrepareOzonUploadInput") -> str:
     except Exception as e:
         logger.debug(f"获取类目兜底标题失败: {e}")
     return ""
+
+
+def _ensure_rich_description_attr(final_attributes, rich_desc, title_ru, draft_attrs, description, state):
+    """
+    C8: 确保属性 4191（Описание 富文本 HTML）追加到 final_attributes。
+
+    - LLM 生成失败/为空时自动触发兜底——不依赖 title_ru 非空：
+      title_ru 为空（LLM 空输出/deepseek 空输出已知坑、无 token）时用类目兜底标题，
+      保证 4191 恒有最小 HTML 追加。修复前 `if not rich_desc and title_ru:` 守卫在
+      title_ru 为空时静默不触发 fallback → 4191 缺失。
+    - 已存在 4191（如 state 带入的 LLM 属性）时不重复追加。
+    返回 (final_attributes, rich_desc)。
+    """
+    if not rich_desc:
+        _rich_title = title_ru or _get_category_fallback_title(state) or "Товар для дома, универсальный"
+        rich_desc = _generate_rich_description_fallback(_rich_title, draft_attrs, description or "")
+        if rich_desc:
+            logger.info(f"📝 富文本兜底描述: {len(rich_desc)} 字符")
+
+    if rich_desc and len(rich_desc) > 50:
+        # 检查 final_attributes 中是否已有 4191，避免重复
+        if 4191 not in {int(fa.get("attribute_id", 0)) for fa in final_attributes if fa}:
+            final_attributes.append({
+                "attribute_id": 4191,
+                "value": rich_desc,
+                "dictionary_value_id": 0,  # 自由文本属性
+            })
+            logger.info("✅ 属性 4191（HTML 富文本描述）已追加到 final_attributes")
+
+    return final_attributes, rich_desc
 
 
 def _fill_missing_required_dict_attrs(items, schema, draft, state):
@@ -1141,6 +1209,7 @@ def _append_spec_table(description: str, attrs, weight_g=0, dimensions=None, sch
         val = re.sub(r'[\u2e80-\u2eff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+', ' ', val)
         val = re.sub(r'https?://\S+', '', val)
         val = re.sub(r'\+?\d[\d\s\-()]{7,}\d', '', val)
+        val = _remove_social_words(val)
         val = re.sub(r'\s+', ' ', val).strip()
         if name and val and name.lower() != "описание":
             rows.append((name, val))
@@ -1293,6 +1362,161 @@ def _convert_numeric_attrs(final_attributes: list, attributes_schema) -> list:
     return _keep_attrs
 
 
+def _resolve_weight_dimensions(draft: dict, extensions: dict | None = None) -> tuple[int, int, int, int]:
+    """提取并修正重量/尺寸，返回 (weight_g, depth_mm, width_mm, height_mm)。
+
+    优先级：draft 原值 → 竞品 extensions 兜底（competitor_weight_g /
+    competitor_dimensions_mm）→ 硬编码默认（100g / 300×200×50mm）。
+    保留 kg→g 自动修正、尺寸 <5mm 默认、密度 1.293~13546 校验逻辑。
+    """
+    weight_raw = draft.get("weight", 0)
+
+    # ✅ 尺寸提取：优先从dimensions嵌套对象提取，兼容扁平字段
+    dimensions_obj = draft.get("dimensions", {})
+    if isinstance(dimensions_obj, dict) and dimensions_obj:
+        depth_raw = dimensions_obj.get("length", 0) or dimensions_obj.get("depth", 0)
+        width_raw = dimensions_obj.get("width", 0)
+        height_raw = dimensions_obj.get("height", 0)
+    else:
+        depth_raw = draft.get("depth", 0) or draft.get("length", 0)
+        width_raw = draft.get("width", 0)
+        height_raw = draft.get("height", 0)
+
+    # ✅ 重量单位判断：skill 保证发送克，仅当带小数点时判定为 kg
+    if weight_raw and isinstance(weight_raw, str) and '.' in str(weight_raw):
+        try:
+            weight_g = int(float(weight_raw) * 1000)  # kg → g
+            logger.info(f"重量单位判断：{weight_raw}kg → {weight_g}g")
+        except (ValueError, TypeError):
+            weight_g = 100  # 默认 100g
+            logger.warning(f"重量无法解析（{weight_raw}），使用默认值 100g")
+    else:
+        try:
+            weight_g = int(float(weight_raw)) if weight_raw else 0
+        except (ValueError, TypeError):
+            weight_g = 100
+            logger.warning(f"重量无法解析（{weight_raw}），使用默认值 100g")
+        logger.info(f"重量单位判断：{weight_raw}g（直接使用）")
+
+    # ✅ 尺寸单位智能判断：1688数据可能是cm或mm
+    # Ozon API 要求 mm 单位
+    def _safe_float(val) -> float:
+        try:
+            return float(val) if val else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+
+    # ✅ 重量合理性检查：如果重量过小（<10g）但尺寸较大（>50mm），可能是kg写成g
+    if 0 < weight_g < 10:
+        _d = _safe_float(depth_raw)
+        _w = _safe_float(width_raw)
+        _h = _safe_float(height_raw)
+        if max(_d, _w, _h) > 50:
+            old_w = weight_g
+            weight_g = weight_g * 1000
+            logger.warning(f"⚠️ 重量{old_w}g过小而尺寸较大(max={max(_d,_w,_h):.0f})，疑似单位kg→g，修正为{weight_g}g")
+
+    # ✅ 尺寸转换
+    d_val = _safe_float(depth_raw)
+    w_val = _safe_float(width_raw)
+    h_val = _safe_float(height_raw)
+
+    max_dim = max(d_val, w_val, h_val)
+    # ✅ Skill层已输出mm，直接使用。不做二次cm→mm转换（阈值误判是INCORRECT_DENSITY根因）
+    depth_mm = int(d_val)
+    width_mm = int(w_val)
+    height_mm = int(h_val)
+    # 仅当所有维度都极小时（< 5mm），可能是数据异常，设置合理默认值
+    if max_dim > 0 and max_dim < 5:
+        logger.warning(f"尺寸异常小(max={max_dim}mm)，使用默认100×100×50mm")
+        depth_mm = 100
+        width_mm = 100
+        height_mm = 50
+    logger.info(f"尺寸：{depth_mm}×{width_mm}×{height_mm}mm")
+
+    # C2: 1688 缺重量 → 竞品 what_to_sell 重量兜底
+    if weight_g == 0 and extensions:
+        try:
+            _comp_w_f = float(extensions.get("competitor_weight_g", 0))
+        except (TypeError, ValueError):
+            _comp_w_f = 0.0
+        if _comp_w_f > 0:
+            weight_g = int(_comp_w_f)
+            logger.info(f"竞品重量兜底：{weight_g}g（draft.weight 缺失）")
+
+    # C2: 1688 缺尺寸 → 竞品 what_to_sell 尺寸兜底（competitor_dimensions_mm: {length,width,height}）
+    if extensions and (depth_mm == 0 or width_mm == 0 or height_mm == 0):
+        _comp_dims = extensions.get("competitor_dimensions_mm") or {}
+        if isinstance(_comp_dims, dict):
+            def _fill_dim(_cur: int, _key: str) -> int:
+                if _cur != 0:
+                    return _cur
+                try:
+                    _cv = float(_comp_dims.get(_key, 0) or 0)
+                except (TypeError, ValueError):
+                    _cv = 0.0
+                return int(_cv) if _cv > 0 else _cur
+            _nd, _nw, _nh = _fill_dim(depth_mm, "length"), _fill_dim(width_mm, "width"), _fill_dim(height_mm, "height")
+            if (_nd, _nw, _nh) != (depth_mm, width_mm, height_mm):
+                logger.info(f"竞品尺寸兜底：{_nd}×{_nw}×{_nh}mm（draft.dimensions 缺失部分维）")
+            depth_mm, width_mm, height_mm = _nd, _nw, _nh
+
+    # ✅ 尺寸重量验证
+    dimension_weight_issues = []
+
+    # ✅ 关键修复：dimensions全为0时使用默认值（Ozon API明确要求"不要指定0"）
+    if weight_g == 0:
+        weight_g = 100  # 默认100g
+        dimension_weight_issues.append(f"重量缺失（使用默认值{weight_g}g）")
+        logger.warning(f"⚠️ 重量为0，使用默认值: {weight_g}g")
+
+    if depth_mm == 0 and width_mm == 0 and height_mm == 0:
+        depth_mm = 300
+        width_mm = 200
+        height_mm = 50
+        dimension_weight_issues.append(f"尺寸全为0（使用默认值{depth_mm}×{width_mm}×{height_mm}mm）")
+        logger.warning(f"⚠️ 尺寸全为0，使用默认值: {depth_mm}×{width_mm}×{height_mm}mm")
+    else:
+        if depth_mm == 0:
+            depth_mm = 100
+            logger.warning(f"⚠️ 长度为0，使用默认值: {depth_mm}mm")
+        if width_mm == 0:
+            width_mm = 100
+            logger.warning(f"⚠️ 宽度为0，使用默认值: {width_mm}mm")
+        if height_mm == 0:
+            height_mm = 50
+            logger.warning(f"⚠️ 高度为0，使用默认值: {height_mm}mm")
+
+    # ✅ dimension_weight_issues仅作为日志记录，不再加入validation_errors（已用默认值修复）
+
+    if dimension_weight_issues:
+        logger.error(f"❌ 尺寸重量问题：{dimension_weight_issues}")
+
+    # ✅ 密度验证：Ozon要求密度在 1.293 ~ 13546 kg/m³ 之间
+    # density (kg/m³) = weight(g) / 1000 / (depth* width * height(mm) / 1e9)
+    if weight_g > 0 and depth_mm > 0 and width_mm > 0 and height_mm > 0:
+        volume_m3: float = (depth_mm * width_mm * height_mm) / 1e9
+        density_kg_m3: float = (weight_g / 1000.0) / volume_m3 if volume_m3 > 0 else 0.0
+        logger.info(f"密度验证：{weight_g}g / {volume_m3:.6f}m³ = {density_kg_m3:.1f} kg/m³ (范围: 1.293~13546)")
+        if density_kg_m3 > 13546:
+            # 密度过高，重量可能被错误放大，尝试除以1000
+            adjusted_weight: int = max(1, weight_g // 1000)
+            adjusted_density: float = (adjusted_weight / 1000.0) / volume_m3
+            if 1.293 <= adjusted_density <= 13546:
+                logger.warning(f"⚠️ 密度{density_kg_m3:.1f}超出范围，重量{weight_g}g→{adjusted_weight}g（可能误将g当kg转换）")
+                weight_g = adjusted_weight
+            else:
+                logger.error(f"❌ 密度{density_kg_m3:.1f}严重超出范围，即使调整重量也无法修正")
+        elif density_kg_m3 < 1.293 and density_kg_m3 > 0:
+            # 密度过低，可能是尺寸单位错误（cm当mm）或重量偏小
+            # 不再盲目乘10——很多轻小物品（手链30g、支架15g）密度天然就低
+            logger.warning(f"⚠️ 密度{density_kg_m3:.1f}低于范围({weight_g}g, {depth_mm}×{width_mm}×{height_mm}mm)，可能是尺寸单位或重量数据问题，保持原值")
+
+    logger.info(f"最终尺寸：{depth_mm}×{width_mm}×{height_mm}mm, 重量={weight_g}g")
+
+    return weight_g, depth_mm, width_mm, height_mm
+
+
 def prepare_ozon_upload_node(
     state: PrepareOzonUploadInput,
     config: RunnableConfig,
@@ -1417,123 +1641,9 @@ def prepare_ozon_upload_node(
     logger.info(f"已生成变体主图数量：{len(variant_primary_images)}")
     
     # 提取重量和尺寸（兼容两种格式：扁平字段 or dimensions嵌套对象）
-    weight_raw = draft.get("weight", 0)
-    
-    # ✅ 尺寸提取：优先从dimensions嵌套对象提取，兼容扁平字段
-    dimensions_obj = draft.get("dimensions", {})
-    if isinstance(dimensions_obj, dict) and dimensions_obj:
-        depth_raw = dimensions_obj.get("length", 0) or dimensions_obj.get("depth", 0)
-        width_raw = dimensions_obj.get("width", 0)
-        height_raw = dimensions_obj.get("height", 0)
-    else:
-        depth_raw = draft.get("depth", 0) or draft.get("length", 0)
-        width_raw = draft.get("width", 0)
-        height_raw = draft.get("height", 0)
-    
-    # ✅ 重量单位判断：skill 保证发送克，仅当带小数点时判定为 kg
-    if weight_raw and isinstance(weight_raw, str) and '.' in str(weight_raw):
-        try:
-            weight_g = int(float(weight_raw) * 1000)  # kg → g
-            logger.info(f"重量单位判断：{weight_raw}kg → {weight_g}g")
-        except (ValueError, TypeError):
-            weight_g = 100  # 默认 100g
-            logger.warning(f"重量无法解析（{weight_raw}），使用默认值 100g")
-    else:
-        try:
-            weight_g = int(float(weight_raw)) if weight_raw else 0
-        except (ValueError, TypeError):
-            weight_g = 100
-            logger.warning(f"重量无法解析（{weight_raw}），使用默认值 100g")
-        logger.info(f"重量单位判断：{weight_raw}g（直接使用）")
-    
-    # ✅ 尺寸单位智能判断：1688数据可能是cm或mm
-    # Ozon API 要求 mm 单位
-    def _safe_float(val) -> float:
-        try:
-            return float(val) if val else 0.0
-        except (ValueError, TypeError):
-            return 0.0
-
-    # ✅ 重量合理性检查：如果重量过小（<10g）但尺寸较大（>50mm），可能是kg写成g
-    if 0 < weight_g < 10:
-        _d = _safe_float(depth_raw)
-        _w = _safe_float(width_raw)
-        _h = _safe_float(height_raw)
-        if max(_d, _w, _h) > 50:
-            old_w = weight_g
-            weight_g = weight_g * 1000
-            logger.warning(f"⚠️ 重量{old_w}g过小而尺寸较大(max={max(_d,_w,_h):.0f})，疑似单位kg→g，修正为{weight_g}g")
-
-    # ✅ 尺寸转换
-    d_val = _safe_float(depth_raw)
-    w_val = _safe_float(width_raw)
-    h_val = _safe_float(height_raw)
-    
-    max_dim = max(d_val, w_val, h_val)
-    # ✅ Skill层已输出mm，直接使用。不做二次cm→mm转换（阈值误判是INCORRECT_DENSITY根因）
-    depth_mm = int(d_val)
-    width_mm = int(w_val)
-    height_mm = int(h_val)
-    # 仅当所有维度都极小时（< 5mm），可能是数据异常，设置合理默认值
-    if max_dim > 0 and max_dim < 5:
-        logger.warning(f"尺寸异常小(max={max_dim}mm)，使用默认100×100×50mm")
-        depth_mm = 100
-        width_mm = 100
-        height_mm = 50
-    logger.info(f"尺寸：{depth_mm}×{width_mm}×{height_mm}mm")
-    
-    # ✅ 尺寸重量验证
-    dimension_weight_issues = []
-    
-    # ✅ 关键修复：dimensions全为0时使用默认值（Ozon API明确要求"不要指定0"）
-    if weight_g == 0:
-        weight_g = 100  # 默认100g
-        dimension_weight_issues.append(f"重量缺失（使用默认值{weight_g}g）")
-        logger.warning(f"⚠️ 重量为0，使用默认值: {weight_g}g")
-    
-    if depth_mm == 0 and width_mm == 0 and height_mm == 0:
-        depth_mm = 300
-        width_mm = 200
-        height_mm = 50
-        dimension_weight_issues.append(f"尺寸全为0（使用默认值{depth_mm}×{width_mm}×{height_mm}mm）")
-        logger.warning(f"⚠️ 尺寸全为0，使用默认值: {depth_mm}×{width_mm}×{height_mm}mm")
-    else:
-        if depth_mm == 0:
-            depth_mm = 100
-            logger.warning(f"⚠️ 长度为0，使用默认值: {depth_mm}mm")
-        if width_mm == 0:
-            width_mm = 100
-            logger.warning(f"⚠️ 宽度为0，使用默认值: {width_mm}mm")
-        if height_mm == 0:
-            height_mm = 50
-            logger.warning(f"⚠️ 高度为0，使用默认值: {height_mm}mm")
-    
-    # ✅ dimension_weight_issues仅作为日志记录，不再加入validation_errors（已用默认值修复）
-    
-    if dimension_weight_issues:
-        logger.error(f"❌ 尺寸重量问题：{dimension_weight_issues}")
-    
-    # ✅ 密度验证：Ozon要求密度在 1.293 ~ 13546 kg/m³ 之间
-    # density (kg/m³) = weight(g) / 1000 / (depth* width * height(mm) / 1e9)
-    if weight_g > 0 and depth_mm > 0 and width_mm > 0 and height_mm > 0:
-        volume_m3: float = (depth_mm * width_mm * height_mm) / 1e9
-        density_kg_m3: float = (weight_g / 1000.0) / volume_m3 if volume_m3 > 0 else 0.0
-        logger.info(f"密度验证：{weight_g}g / {volume_m3:.6f}m³ = {density_kg_m3:.1f} kg/m³ (范围: 1.293~13546)")
-        if density_kg_m3 > 13546:
-            # 密度过高，重量可能被错误放大，尝试除以1000
-            adjusted_weight: int = max(1, weight_g // 1000)
-            adjusted_density: float = (adjusted_weight / 1000.0) / volume_m3
-            if 1.293 <= adjusted_density <= 13546:
-                logger.warning(f"⚠️ 密度{density_kg_m3:.1f}超出范围，重量{weight_g}g→{adjusted_weight}g（可能误将g当kg转换）")
-                weight_g = adjusted_weight
-            else:
-                logger.error(f"❌ 密度{density_kg_m3:.1f}严重超出范围，即使调整重量也无法修正")
-        elif density_kg_m3 < 1.293 and density_kg_m3 > 0:
-            # 密度过低，可能是尺寸单位错误（cm当mm）或重量偏小
-            # 不再盲目乘10——很多轻小物品（手链30g、支架15g）密度天然就低
-            logger.warning(f"⚠️ 密度{density_kg_m3:.1f}低于范围({weight_g}g, {depth_mm}×{width_mm}×{height_mm}mm)，可能是尺寸单位或重量数据问题，保持原值")
-    
-    logger.info(f"最终尺寸：{depth_mm}×{width_mm}×{height_mm}mm, 重量={weight_g}g")
+    # C2: 1688 缺数据时优先用竞品 extensions 兜底，再落到 100g / 300×200×50mm 终极兜底
+    weight_g, depth_mm, width_mm, height_mm = _resolve_weight_dimensions(draft, state.extensions or {})
+    dimension_weight_issues = []  # 默认值/兜底日志已由 _resolve_weight_dimensions 记录
     
     # 提取1688 SKU_ID（作为offer_id）
     sku_id = draft.get("sku_id", "") or draft.get("offer_id", "")
@@ -1780,15 +1890,16 @@ def prepare_ozon_upload_node(
             if rich_desc:
                 logger.info(f"✅ 富文本描述已生成: {len(rich_desc)} 字符")
         # v5: LLM 失败或无 token 时用兜底
-        if not rich_desc and title_ru:
-            rich_desc = _generate_rich_description_fallback(title_ru, draft_attrs, description or "")
-            if rich_desc:
-                logger.info(f"📝 富文本兜底描述: {len(rich_desc)} 字符")
+        # C8: 兜底不依赖 title_ru 非空——title_ru 空时用类目兜底标题，保证 4191 有最小 HTML
+        final_attributes, rich_desc = _ensure_rich_description_attr(
+            final_attributes, rich_desc, title_ru, draft_attrs, description or "", state
+        )
     except Exception as e:
         logger.warning(f"⚠️ 富文本描述生成失败: {e}")
         # 最终兜底
-        if title_ru:
-            rich_desc = _generate_rich_description_fallback(title_ru, draft_attrs, description or "")
+        final_attributes, rich_desc = _ensure_rich_description_attr(
+            final_attributes, rich_desc, title_ru, draft_attrs, description or "", state
+        )
 
     # Step 6: 组装Ozon payload（严格遵守Ozon结构规范）
     logger.info("组装Ozon payload（严格遵守Ozon结构规范）")
@@ -1813,17 +1924,6 @@ def prepare_ozon_upload_node(
     
     # ✅ 去重：记录已处理的attribute_id，防止重复
     seen_attr_ids: set = set()
-
-    # ✅ P2 修复：追加富文本描述为属性 4191（支持 HTML 标签的完整描述）
-    if rich_desc and len(rich_desc) > 50:
-        # 检查 final_attributes 中是否已有 4191，避免重复
-        if 4191 not in {int(fa.get("attribute_id", 0)) for fa in final_attributes if fa}:
-            final_attributes.append({
-                "attribute_id": 4191,
-                "value": rich_desc,
-                "dictionary_value_id": 0,  # 自由文本属性
-            })
-            logger.info("✅ 属性 4191（HTML 富文本描述）已追加到 final_attributes")
 
     # ⚠️ v0.14 B1: 属性合并批量翻译 —— 收集所有含中文/拉丁的普通属性值，一次 LLM 调用翻译全部
     # （省 40-60% LLM 调用；LLM 保留分隔符拆回，失败回退逐条兜底）
@@ -1926,6 +2026,15 @@ def prepare_ozon_upload_node(
         if attribute_id_int == 22508:
             value_str = "Китай"
             logger.info(f"✅ 属性22508(品牌注册国)硬编码为：Китай")
+
+        # ✅ C8 修复: 属性4191(Описание) 富文本 HTML 值禁止走每属性 LLM 翻译
+        # —— LLM 会把 <b>/<ul>/<li> 标签当文本翻译成词 → HTML 结构破坏 → Ozon 拒
+        # （与批量翻译 :1913 排除、assemble :1808 跳过同款；4191 生成结果已是俄语 HTML）。
+        # 中文残留只剥离不翻译（保留标签结构，与 _sanitize_rich_description 行为一致）。
+        _rich_html_4191 = attribute_id_int == 4191 and _looks_like_html(value_str)
+        if _rich_html_4191:
+            value_str = _strip_cjk_chars(value_str)
+            logger.info(f"✅ 属性4191 富文本 HTML 跳过逐属性翻译（保留标签结构）")
         
         # ✅ 关键修复：文本类属性必须为俄语
         # 4191(Описание/描述)、4180(关键字) 必须翻译
@@ -1937,7 +2046,7 @@ def prepare_ozon_upload_node(
         # 排除：9024(SKU编码) — 允许英文/数字（但含中文仍走下方中文检查翻译）
         # ✅ v0.25 FIX: 23487(制造商) 加入中文零容忍（同上）
         _russian_required_attrs = (4191, 4180, 4384, 4389, 23171, 23487)
-        if attribute_id_int in _russian_required_attrs and value_str and not _has_cyrillic(value_str):
+        if not _rich_html_4191 and attribute_id_int in _russian_required_attrs and value_str and not _has_cyrillic(value_str):
             logger.warning(f"⚠️ 属性{attribute_id_int}值为拉丁字母，翻译为俄语：{value_str[:60]}...")
             _translated_value = _translate_to_russian_llm(value_str, mxou_token, source_lang="auto")
             # ⚠️ v0.16: 翻译结果必须为俄语（含西里尔且无中文），否则跳过该属性——绝不把
@@ -1953,7 +2062,7 @@ def prepare_ozon_upload_node(
         # ⚠️ v0.13.1: 翻译失败/仍含中文 → 跳过该属性，绝不写中文或空值上传！
         # ⚠️ v0.14 B1: 优先查批量翻译映射（一次 LLM 调用翻译全部），未命中才逐条兜底
         # ⚠️ v0.16: 9024(SKU) 不再豁免中文检查——只豁免"非中文值"（拉丁/数字直传），含中文一律翻译
-        if value_str and has_chinese(value_str):
+        if not _rich_html_4191 and value_str and has_chinese(value_str):
             _cached_trans = _batch_translated.get(value_str, "")
             if _cached_trans:
                 value_str = _cached_trans

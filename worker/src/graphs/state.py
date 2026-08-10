@@ -435,6 +435,7 @@ class PrepareOzonUploadInput(BaseModel):
     ozon_api_key: str = Field(default="", description="Ozon Api-Key")
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿数据")
     source: Optional[Dict[str, Any]] = Field(default=None, description="产品来源数据（采购信息）")  # ✅ 新增：采购来源信息
+    extensions: Optional[Dict[str, Any]] = Field(default=None, description="信封 extensions（含 competitor_weight_g/competitor_dimensions_mm）")  # C2: 竞品兜底数据透传
     pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格计算结果")
     description_category_id: str = Field(default="", description="Ozon类目ID")
     type_id: str = Field(default="", description="Ozon类型ID")

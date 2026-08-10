@@ -85,6 +85,55 @@ def test_d1_does_not_break_normal():
     assert err is None
 
 
+# ── C2 (sentry-attribute-fixes): 竞品放行 + None-guard ──
+
+def test_competitor_weight_passes_zero_weight():
+    """weight=0 + 竞品重量 500g → 放行(返回 None)。"""
+    err = validate_draft_sanity(
+        {"weight": 0, "dimensions": {"length": 100, "width": 50, "height": 30}},
+        {"competitor_weight_g": 500},
+    )
+    assert err is None
+
+
+def test_competitor_dimensions_pass_zero_dims():
+    """dimensions 全 0 + 竞品 120×80×60 → 放行。"""
+    err = validate_draft_sanity(
+        {"weight": 500, "dimensions": {"length": 0, "width": 0, "height": 0}},
+        {"competitor_dimensions_mm": {"length": 120, "width": 80, "height": 60}},
+    )
+    assert err is None
+
+
+def test_competitor_weight_does_not_fix_bad_dims():
+    """仅竞品重量放行 weight，尺寸仍无效 → 依旧拒绝。"""
+    err = validate_draft_sanity(
+        {"weight": 0, "dimensions": {"length": 0, "width": 0, "height": 0}},
+        {"competitor_weight_g": 500},
+    )
+    assert err is not None
+    assert "dimensions" in err
+
+
+def test_none_extensions_does_not_crash():
+    """extensions=None 不崩溃（None-guard）→ 正常拒绝 weight=0。"""
+    err = validate_draft_sanity(
+        {"weight": 0, "dimensions": {"length": 100, "width": 50, "height": 30}},
+        None,
+    )
+    assert err is not None
+    assert "weight" in err
+
+
+def test_none_extensions_keeps_normal_pass():
+    """extensions=None + 正常 draft → 仍通过（向后兼容）。"""
+    err = validate_draft_sanity(
+        {"weight": 500, "dimensions": {"length": 100, "width": 50, "height": 30}},
+        None,
+    )
+    assert err is None
+
+
 if __name__ == "__main__":
     import traceback
 

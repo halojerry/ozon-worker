@@ -1335,7 +1335,8 @@ async def http_submit_task(request: Request):
                 )
 
         # v0.21 P2: 物理合理性防线 — 脏重量/脏尺寸直接拒绝，防止打爆定价
-        sanity_err = validate_draft_sanity(draft)
+        # C2: 传 envelope.extensions（竞品 competitor_weight_g/competitor_dimensions_mm 可放行）
+        sanity_err = validate_draft_sanity(draft, envelope.get("extensions") or {})
         if sanity_err:
             logger.warning("❌ 信封数据异常被拒: %s", sanity_err)
             return error_response(
