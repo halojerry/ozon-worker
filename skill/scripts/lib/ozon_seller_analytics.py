@@ -3,12 +3,25 @@
 Ozon 公开页面（www.ozon.ru）不提供月销量/销售增长率/广告占比/上架日期等
 运营数据；这些数据位于卖家后台 seller.ozon.ru 的分析接口：
 
-    POST /api/site/seller-analytics/what_to_sell/data/v3
+    POST /api/site/seller-analytics/what_to_sell/data/v3   （畅销榜商品数据）
+    POST /api/site/searchteam/Stats/queries/search/v2      （all-queries 关键词蓝海）
 
 本模块通过 CDP 打开 seller.ozon.ru（用户浏览器已登录，登录态保留），
 在页面上下文内 fetch 同源接口，携带 x-o3-company-id（cookie sc_company_id）
-与 zh-Hans 语言头。任何失败 → 返回 {}，调用方降级为公开替代指标，
+与 zh-Hans 语言头。任何失败 → 返回 {}（或空 list），调用方降级为公开替代指标，
 绝不阻断主流程。
+
+what-to-sell SPA 三页真实端点（2026-08-10 CDP 探测证据，见
+`.omo/evidence/sentry-attribute-fixes/task-5-c4a.endpoints.json`）：
+
+- all-queries:      POST /api/site/searchteam/Stats/queries/search/v2
+                    body: {"text","limit","offset","sort_by","sort_dir","period"}
+                    响应 data.data[]：query/count/ca/avgCaRub/uniqSellers/ord/gmv/...
+- ozon-bestsellers: POST /api/site/seller-analytics/what_to_sell/data/v3
+                    filter: {stock, period: weekly, categories: []}
+                    sort: {key: "session_count_search_desc"}（无 sku → Ozon 畅销榜）
+- market-bestsellers: 同上端点，filter 加 platform: "PLATFORM_ALL" + 可选
+                    categories/[minPrice,maxPrice]（跨平台畅销榜）
 """
 from __future__ import annotations
 
@@ -60,6 +73,103 @@ _SELLER_ANALYTICS_JS = r'''(async () => {
 _GET_COMPANY_ID_JS = r'''(() => {
     const m = document.cookie.match(/(?:^|;\s*)sc_company_id=([^;]+)/);
     return m ? m[1] : '';
+})()'''
+
+# ── what-to-sell SPA 三页独立模板（v0.33.2，CDP 探测真实端点，勿合并进上面旧模板）──
+
+# ① all-queries 关键词蓝海查询（CDP 探测：POST /api/site/searchteam/Stats/queries/search/v2）
+# 响应 data.data[]：query/count/ca/avgCaRub/uniqSellers/ord/gmv/uniqQueriesWCa/searchUsersToOrdUsers
+_QUERIES_SEARCH_JS = r'''(async () => {
+    try {
+        const resp = await fetch('/api/site/searchteam/Stats/queries/search/v2', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-o3-company-id': __COMPANY_ID__,
+                'x-o3-language': 'zh-Hans',
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+                text: __KEYWORD__,
+                limit: "50",
+                offset: "0",
+                sort_by: "count",
+                sort_dir: "desc",
+                period: "days_7"
+            }),
+        });
+        const text = await resp.text();
+        let data;
+        try { data = JSON.parse(text); }
+        catch (e) { return JSON.stringify({error: "非JSON响应 status=" + resp.status + " body=" + text.slice(0, 200)}); }
+        if (!resp.ok) { return JSON.stringify({error: "HTTP " + resp.status + " " + text.slice(0, 200)}); }
+        return JSON.stringify(data);
+    } catch (e) {
+        return JSON.stringify({error: String((e && e.message) || e)});
+    }
+})()'''
+
+# ② ozon-bestsellers Ozon 畅销榜（CDP 探测：POST what_to_sell/data/v3，period=weekly，
+# sort=session_count_search_desc，无 sku。sku_or_id 传入时按单 SKU 过滤）
+_QUERIES_OZON_BESTSELLERS_JS = r'''(async () => {
+    try {
+        const filter = {stock: "any_stock", period: "weekly", categories: []};
+        if (__SKU__) { filter.sku = __SKU__; }
+        const resp = await fetch('/api/site/seller-analytics/what_to_sell/data/v3', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-o3-company-id': __COMPANY_ID__,
+                'x-o3-language': 'zh-Hans',
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+                limit: "50",
+                offset: "0",
+                filter: filter,
+                sort: {key: "session_count_search_desc"}
+            }),
+        });
+        const text = await resp.text();
+        let data;
+        try { data = JSON.parse(text); }
+        catch (e) { return JSON.stringify({error: "非JSON响应 status=" + resp.status + " body=" + text.slice(0, 200)}); }
+        if (!resp.ok) { return JSON.stringify({error: "HTTP " + resp.status + " " + text.slice(0, 200)}); }
+        return JSON.stringify(data);
+    } catch (e) {
+        return JSON.stringify({error: String((e && e.message) || e)});
+    }
+})()'''
+
+# ③ market-bestsellers 跨平台畅销榜（CDP 探测：同上端点 + platform=PLATFORM_ALL +
+# 可选 categories/minPrice/maxPrice。__CATEGORIES__ 形如 ["286"]，__PRICE_FILTER__ 形如
+# ',"minPrice":"500","maxPrice":"2000"' 或空串——注意保留合法 JSON 拼装）
+_QUERIES_MARKET_BESTSELLERS_JS = r'''(async () => {
+    try {
+        const resp = await fetch('/api/site/seller-analytics/what_to_sell/data/v3', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-o3-company-id': __COMPANY_ID__,
+                'x-o3-language': 'zh-Hans',
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+                limit: "50",
+                offset: "0",
+                filter: {stock: "any_stock", period: "weekly", categories: __CATEGORIES__, platform: "PLATFORM_ALL" __PRICE_FILTER__},
+                sort: {key: "session_count_search_desc"}
+            }),
+        });
+        const text = await resp.text();
+        let data;
+        try { data = JSON.parse(text); }
+        catch (e) { return JSON.stringify({error: "非JSON响应 status=" + resp.status + " body=" + text.slice(0, 200)}); }
+        if (!resp.ok) { return JSON.stringify({error: "HTTP " + resp.status + " " + text.slice(0, 200)}); }
+        return JSON.stringify(data);
+    } catch (e) {
+        return JSON.stringify({error: String((e && e.message) || e)});
+    }
 })()'''
 
 # ✅ v0.26 premium 解锁注入脚本（学习上品帮 ozon_min.js 的 XHR/fetch 深度拦截机制，
@@ -417,6 +527,219 @@ def fetch_sales_analytics(
     except Exception as exc:
         logger.warning("seller.ozon.ru analytics 整体失败，降级: %s", exc)
         return {}
+    finally:
+        _close_seller_tab(cdp, tab, reused)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# what-to-sell SPA 三页查询（v0.33.2）— 独立 fetch，失败返回 []，绝不抛异常
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _parse_query_items(data: dict) -> list[dict]:
+    """从 all-queries 响应中提取关键词蓝海列表。
+
+    响应结构：{result: {items: [...]}} 或 {data: {data: [...]}}（CDP 实测
+    data.data[] 数组）。每项含 query/count/ca/avgCaRub/uniqSellers/ord/gmv/
+    uniqQueriesWCa/searchUsersToOrdUsers 等（maozi what_to_sell 同族字段）。
+    """
+    result = data.get("result") or {}
+    items = result.get("items") or data.get("data") or data.get("items") or []
+    if isinstance(items, dict):
+        items = items.get("data") or items.get("items") or []
+    rows: list[dict] = []
+    for item in items or []:
+        try:
+            if not isinstance(item, dict):
+                continue
+            rows.append({
+                "query": str(_first(item, "query", default="")),
+                "count": _to_int(_first(item, "count", "queryCount")),
+                "ca": _to_float(_first(item, "ca", "conversion")),
+                "avg_ca_rub": _to_float(_first(item, "avgCaRub", "avg_ca_rub")),
+                "uniq_sellers": _to_int(_first(item, "uniqSellers", "uniq_sellers")),
+                "ordering_amount": _to_int(_first(item, "ord", "orderingAmount", "ordering_amount")),
+                "daily_avg": _to_int(_first(item, "dailyAvg", "daily_avg")),
+                "gmv": _to_float(_first(item, "gmv", "gmvSum")),
+                "uniq_queries_w_ca": _to_int(_first(item, "uniqQueriesWCa", "uniq_queries_w_ca")),
+                "search_users_to_ord_users": _to_float(
+                    _first(item, "searchUsersToOrdUsers", "search_users_to_ord_users")),
+            })
+        except Exception as exc:
+            logger.debug("parse query item failed: %s", exc)
+    return rows
+
+
+def _parse_bestseller_items(data: dict) -> list[dict]:
+    """从 data/v3 响应中提取畅销榜商品列表。
+
+    响应结构：{result: {items: [...]}} 或 {data: {items: [...]}}（CDP 实测
+    data.items[]）。每项含 sku/name/brand/soldCount/gmvSum/salesDynamics/
+    sessionCountSearch/convToCartSearch/drr/category1Id/2/3/attributes 等。
+    """
+    result = data.get("result") or data.get("data") or {}
+    items = result.get("items") or data.get("items") or []
+    rows: list[dict] = []
+    for item in items or []:
+        try:
+            if not isinstance(item, dict):
+                continue
+            m = _extract_metrics(item)
+            m.update({
+                "sku": str(_first(item, "sku", "variantId", default="")),
+                "name": str(_first(item, "name", "skuName", default="")),
+                "brand": str(_first(item, "brand", default="")),
+                "category1": str(_first(item, "category1", default="")),
+                "category3": str(_first(item, "category3", default="")),
+                "link": str(_first(item, "link", default="")),
+                "avg_price": _to_float(_first(item, "avgPrice", "avg_price")),
+                "session_count_search": _to_int(
+                    _first(item, "sessionCountSearch", "session_count_search")),
+                "conv_to_cart_search": _to_float(
+                    _first(item, "convToCartSearch", "conv_to_cart_search")),
+                "views": _to_int(_first(item, "views", "qtyViewPdp")),
+                "category1_id": _to_int(item.get("category1Id")),
+                "category2_id": _to_int(item.get("category2Id")),
+                "category3_id": _to_int(item.get("category3Id")),
+            })
+            rows.append(m)
+        except Exception as exc:
+            logger.debug("parse bestseller item failed: %s", exc)
+    return rows
+
+
+def _eval_seller_fetch(tab, js: str) -> tuple[dict, bool]:
+    """执行页面内 fetch 模板，返回 (data, ok)。data 含 error 键视为失败。"""
+    try:
+        raw = tab.evaluate(js, await_promise=True, timeout=EVALUATE_TIMEOUT)
+    except Exception as exc:
+        logger.warning("seller fetch evaluate failed: %s", str(exc)[:200])
+        return {}, False
+    if not raw:
+        return {}, False
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return {}, False
+    if isinstance(data, dict) and data.get("error"):
+        logger.warning("seller fetch error: %s", str(data["error"])[:200])
+        return {}, False
+    return data, True
+
+
+def _read_company_id(tab) -> str:
+    """读 sc_company_id：document.cookie 优先，HttpOnly 走 CDP 网络域兜底。"""
+    company_id = ""
+    try:
+        company_id = str(tab.evaluate(_GET_COMPANY_ID_JS, timeout=10) or "")
+    except Exception as exc:
+        logger.debug("read sc_company_id via JS failed: %s", exc)
+    if not company_id:
+        try:
+            msg_id = tab._send("Network.getCookies", {"urls": [SELLER_URL]})
+            resp = tab._recv_until_id(msg_id, timeout=10) or {}
+            for c in (resp.get("result", {}).get("cookies") or []):
+                if c.get("name") == "sc_company_id":
+                    company_id = str(c.get("value") or "")
+                    break
+        except Exception as exc:
+            logger.debug("read sc_company_id via CDP cookies failed: %s", exc)
+    return company_id
+
+
+def fetch_all_queries(cdp, keyword: str | None = None, company_id: str | None = None) -> list[dict]:
+    """all-queries 关键词蓝海查询（what-to-sell SPA）。
+
+    CDP 探测端点：POST /api/site/searchteam/Stats/queries/search/v2
+    body: {text, limit:50, offset:0, sort_by:count, sort_dir:desc, period:days_7}
+    返回 list[dict]（query/count/ca/avg_ca_rub/uniq_sellers/ordering_amount/
+    gmv/...）；未登录/失败 → []，绝不抛异常。
+    """
+    tab, reused = None, False
+    try:
+        tab, reused = _tab_for_seller(cdp)
+        cid = company_id or _read_company_id(tab)
+        if not cid:
+            logger.warning("seller.ozon.ru 未登录（无 sc_company_id），all-queries 降级为空")
+            return []
+        js = _QUERIES_SEARCH_JS.replace("__COMPANY_ID__", json.dumps(cid)) \
+                               .replace("__KEYWORD__", json.dumps(keyword or ""))
+        data, ok = _eval_seller_fetch(tab, js)
+        return _parse_query_items(data) if ok else []
+    except Exception as exc:
+        logger.warning("fetch_all_queries 整体失败，降级: %s", exc)
+        return []
+    finally:
+        _close_seller_tab(cdp, tab, reused)
+
+
+def fetch_ozon_bestsellers(cdp, sku_or_id: str | None = None,
+                           company_id: str | None = None) -> list[dict]:
+    """ozon-bestsellers Ozon 畅销榜（what-to-sell SPA）。
+
+    CDP 探测端点：POST /api/site/seller-analytics/what_to_sell/data/v3
+    filter: {stock: any_stock, period: weekly, categories: [], sku?}
+    sort: {key: session_count_search_desc}
+    sku_or_id 传入时按单 SKU 过滤；None 返回全榜。
+    返回 list[dict]（sku/name/brand/sold_count/gmv_sum/sales_dynamics/...）；
+    未登录/失败 → []。
+    """
+    tab, reused = None, False
+    try:
+        tab, reused = _tab_for_seller(cdp)
+        cid = company_id or _read_company_id(tab)
+        if not cid:
+            logger.warning("seller.ozon.ru 未登录（无 sc_company_id），ozon-bestsellers 降级为空")
+            return []
+        js = _QUERIES_OZON_BESTSELLERS_JS.replace("__COMPANY_ID__", json.dumps(cid))
+        if sku_or_id:
+            js = js.replace("__SKU__", json.dumps(str(sku_or_id)))
+        else:
+            js = js.replace("__SKU__", '""')
+        data, ok = _eval_seller_fetch(tab, js)
+        return _parse_bestseller_items(data) if ok else []
+    except Exception as exc:
+        logger.warning("fetch_ozon_bestsellers 整体失败，降级: %s", exc)
+        return []
+    finally:
+        _close_seller_tab(cdp, tab, reused)
+
+
+def fetch_market_bestsellers(cdp, category_id: str | int | None = None,
+                             price_rub_min: int | float | None = None,
+                             price_rub_max: int | float | None = None,
+                             company_id: str | None = None) -> list[dict]:
+    """market-bestsellers 跨平台畅销榜（what-to-sell SPA）。
+
+    CDP 探测端点：POST /api/site/seller-analytics/what_to_sell/data/v3
+    filter 含 platform: "PLATFORM_ALL"，可叠加 categories=[category_id] 与
+    minPrice/maxPrice（RUB 字符串）。
+    返回 list[dict]；未登录/失败 → []。
+    """
+    tab, reused = None, False
+    try:
+        tab, reused = _tab_for_seller(cdp)
+        cid = company_id or _read_company_id(tab)
+        if not cid:
+            logger.warning("seller.ozon.ru 未登录（无 sc_company_id），market-bestsellers 降级为空")
+            return []
+        categories = json.dumps([str(category_id)]) if category_id is not None else "[]"
+        price_filter = ""
+        if price_rub_min is not None or price_rub_max is not None:
+            parts = []
+            if price_rub_min is not None:
+                parts.append(f'"minPrice":"{int(price_rub_min)}"')
+            if price_rub_max is not None:
+                parts.append(f'"maxPrice":"{int(price_rub_max)}"')
+            price_filter = "," + ",".join(parts)
+        js = _QUERIES_MARKET_BESTSELLERS_JS.replace("__COMPANY_ID__", json.dumps(cid)) \
+                                           .replace("__CATEGORIES__", categories) \
+                                           .replace("__PRICE_FILTER__", price_filter)
+        data, ok = _eval_seller_fetch(tab, js)
+        return _parse_bestseller_items(data) if ok else []
+    except Exception as exc:
+        logger.warning("fetch_market_bestsellers 整体失败，降级: %s", exc)
+        return []
     finally:
         _close_seller_tab(cdp, tab, reused)
 
