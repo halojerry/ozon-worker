@@ -1830,6 +1830,29 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         if ozon_cat:
             draft["ozon_category"] = ozon_cat
 
+        # ✅ v0.35.x: 竞品重量/尺寸注入 extensions（worker 兜底链 C2）
+        # what_to_sell 的竞品重量(4497)/尺寸(9454/9455/9456)经
+        # apply_analytics_to_candidate 写入候选——1688 数据缺失时 worker
+        # _resolve_weight_dimensions（prepare_ozon_upload_node.py:1373）用
+        # extensions.competitor_weight_g / competitor_dimensions_mm 兜底，
+        # 否则退到 100g/300×200×50mm 硬编码（上品尺寸不准）。
+        _cand_w = getattr(candidate, "weight_g", 0) or 0
+        _cand_dims = getattr(candidate, "dimensions_mm", None) or {}
+        if _cand_w:
+            extensions["competitor_weight_g"] = int(_cand_w)
+        if _cand_dims.get("length") and _cand_dims.get("width") and _cand_dims.get("height"):
+            extensions["competitor_dimensions_mm"] = {
+                "length": int(_cand_dims["length"]),
+                "width": int(_cand_dims["width"]),
+                "height": int(_cand_dims["height"]),
+            }
+        if extensions.get("competitor_weight_g") or extensions.get("competitor_dimensions_mm"):
+            logger.info(
+                "✅ 竞品数据注入（discover）: weight=%s dims=%s",
+                extensions.get("competitor_weight_g"),
+                extensions.get("competitor_dimensions_mm"),
+            )
+
         # ✅ P0-5 修复：优先透传 build_graph_envelope_with_retry 已解析的凭证
         # （store_config 仅作兜底，避免提交空 Ozon 凭证）
         return {
