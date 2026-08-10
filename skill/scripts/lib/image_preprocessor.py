@@ -14,6 +14,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from scripts.lib.utils import safe_unlink
+
 logger = logging.getLogger(__name__)
 
 _JPEG_EXTENSIONS = {".jpg", ".jpeg"}
@@ -109,12 +111,12 @@ def _convert_to_jpeg(src_path: str, quality: int = 90, resize_to: tuple | None =
         tmp.close()
     except Exception:
         tmp.close()
-        os.unlink(tmp.name)
+        safe_unlink(tmp.name)
         raise
 
     # ✅ 注册 atexit 清理，防止临时文件累积
     import atexit
-    atexit.register(lambda p=tmp.name: os.unlink(p) if os.path.exists(p) else None)
+    atexit.register(lambda p=tmp.name: safe_unlink(p))
     return tmp.name
 
 

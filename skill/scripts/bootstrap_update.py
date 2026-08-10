@@ -23,6 +23,7 @@ import tempfile
 from pathlib import Path
 
 import requests
+from scripts.lib.utils import safe_unlink
 
 # COS manifest 唯一真源（与 updater.py 保持一致）
 MANIFEST_URL = "https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/ozon-skill/manifest.json"
@@ -137,15 +138,15 @@ def main() -> int:
                 else:
                     shutil.copy2(item, target)
         except Exception as exc:
-            print(f"❌ 覆盖失败，回滚旧版本: {exc}")
-            for item in backup.iterdir():
-                target = root / item.name
-                if target.is_dir():
-                    shutil.rmtree(target, ignore_errors=True)
-                elif target.exists():
-                    target.unlink()
-                shutil.move(str(item), str(root / item.name))
-            return 1
+             print(f"❌ 覆盖失败，回滚旧版本: {exc}")
+             for item in backup.iterdir():
+                 target = root / item.name
+                 if target.is_dir():
+                     shutil.rmtree(target, ignore_errors=True)
+                 elif target.exists():
+                     safe_unlink(target)
+                 shutil.move(str(item), str(root / item.name))
+             return 1
 
         shutil.rmtree(backup, ignore_errors=True)
         print(f"✅ 升级完成: v{current} → v{version}（data/ 已保留）")
