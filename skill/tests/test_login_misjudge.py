@@ -15,6 +15,7 @@ Q4: ak_1688_client.enrich_product_with_cdp 在 session_alive=False 时区分：
 """
 from __future__ import annotations
 
+import itertools
 import sys
 from contextlib import ExitStack
 from pathlib import Path
@@ -80,8 +81,10 @@ def test_wait_login_timeout_returns_reason():
     """CDP 可用但轮询超时 → {ok: False, reason: 'timeout'}（旧行为返回 None）。"""
     from scripts.capabilities.browser_probe.service import _wait_for_login_session
     session = {"cdp_url": "http://127.0.0.1:9999", "profile": "default"}
-    # 第一次 time.time()（start）返回 0，第二次（循环条件）返回 1000 → 立即超时
-    time_values = iter([0.0, 1000.0])
+    # ⚠️ 用 itertools.count 提供无限递增时间（首次 0 即 start，之后每次 +1 秒）
+    # ——不依赖 time.time() 调用次数（3.12 循环体内调用次数与 3.14 不同，
+    # 固定列表 mock 会 StopIteration；CI Docker 3.12 实测暴露）。
+    time_values = itertools.count()  # 0, 1, 2, ... 首次 start=0，循环条件立即超时
     with _enter(_login_mocks(session=session, snapshot_url="https://login.1688.com/", login_required=True)):
         with mock.patch("time.time", side_effect=lambda: next(time_values)):
             result = _wait_for_login_session(
