@@ -275,6 +275,11 @@ def _post_1688(path: str, body: dict[str, Any], *, base_url: str = BASE_URL) -> 
                 # Retry with new AK (caller will handle retry via _with_retry)
                 raise _RetriableHTTPError(401)
             raise _ak_expired_error()
+        if status == 403:
+            # 403: AK 无权限/被网关拒绝 → 同 401 自动刷新一次再重试
+            if _try_refresh_ak():
+                raise _RetriableHTTPError(403)
+            raise _ak_expired_error()
         if status == 429:
             raise RateLimitError("请求被限流（429），请稍后重试")
         if status == 400:
@@ -294,6 +299,11 @@ def _post_1688(path: str, body: dict[str, Any], *, base_url: str = BASE_URL) -> 
         if "401" in msg_code:
             if _try_refresh_ak():
                 raise _RetriableHTTPError(401)
+            raise _ak_expired_error()
+        if "403" in msg_code:
+            # 403: AK 无权限 → 同 401 自动刷新一次再重试
+            if _try_refresh_ak():
+                raise _RetriableHTTPError(403)
             raise _ak_expired_error()
         if "429" in msg_code:
             raise RateLimitError("请求被限流（429）")

@@ -48,6 +48,7 @@ from scripts._errors import (
     ERR_CLOUD_TIMEOUT,
     ERR_CLOUD_UNAVAILABLE,
 )
+from scripts.lib.ak_1688_client import AkAuthError
 from scripts.lib.config_store import capture_exception, init_sentry
 from scripts.lib.reference_images import get_best_product_images
 from scripts.lib.task_paths import cleanup_old_files
@@ -2632,6 +2633,9 @@ def _search_1688_with_fallback(search_kw: str) -> list[dict[str, Any]]:
             products = search_products(search_kw, page_size=5)
             if products:
                 return products
+        except AkAuthError as e:
+            logger.error("1688 AK 认证失败（403），不再降级重试: %s", e)
+            raise
         except Exception:
             pass
     
@@ -2642,6 +2646,9 @@ def _search_1688_with_fallback(search_kw: str) -> list[dict[str, Any]]:
             products = search_products(" ".join(slug_words[:3]), page_size=5)
             if products:
                 return products
+        except AkAuthError as e:
+            logger.error("1688 AK 认证失败（403），不再降级重试: %s", e)
+            raise
         except Exception:
             pass
     
@@ -2897,6 +2904,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     matches_raw = img_results
                     search_method = "image"
                     logger.info("✅ API图搜命中 %d 个结果", len(matches_raw))
+            except AkAuthError as e:
+                logger.error("1688 AK 认证失败（403），不再降级重试: %s", e)
+                raise
             except Exception as e:
                 logger.debug("图片搜索失败: %s", e)
 
