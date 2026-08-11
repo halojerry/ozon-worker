@@ -41,6 +41,14 @@ def create_tables(engine):
         conn.execute(text(
             "ALTER TABLE category_mapping ADD COLUMN IF NOT EXISTS source_category_id BIGINT"
         ))
+        # ✅ v0.37 P0-1: ozon_product_tasks 追加 SKU 去重列 + 部分唯一索引（幂等）
+        conn.execute(text(
+            "ALTER TABLE ozon_product_tasks ADD COLUMN IF NOT EXISTS sku_key TEXT"
+        ))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_ozon_product_tasks_tenant_sku "
+            "ON ozon_product_tasks(tenant_id, sku_key) WHERE sku_key IS NOT NULL"
+        ))
         conn.commit()
     logger.info("✅ 表结构已就绪")
 

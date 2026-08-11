@@ -1267,6 +1267,33 @@ def _validate_draft_required_fields(draft: dict, extensions: dict) -> str | None
 
 # ==================== Supabase任务队列API ====================
 
+
+def _find_existing_task(tenant_id: str, sku_key: str) -> Optional[tuple[str, str]]:
+    """查询同租户同 SKU 的活跃任务（非 failed/cancelled），返回 (task_id, status) 或 None。
+
+    P0-1: 提交层去重防线 — 防同一商品重跑产生重复 Ozon listing。
+    去重查询失败时放行（fail-open，不因去重引入新的 500）。
+    """
+    from sqlalchemy import text
+    try:
+        _engine = get_engine()
+        with _engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT id, status FROM ozon_product_tasks "
+                    "WHERE tenant_id = :t AND sku_key = :k "
+                    "AND status NOT IN ('failed', 'cancelled') "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"t": tenant_id, "k": sku_key},
+            ).fetchone()
+        if row:
+            return str(row[0]), str(row[1])
+        return None
+    except Exception as e:
+        logger.warning("SKU 去重查询失败，跳过去重检查: %s", str(e)[:200])
+        return None
+
 @app.post("/submit_task")
 async def http_submit_task(request: Request):
     """
@@ -1447,13 +1474,34 @@ async def http_submit_task(request: Request):
             "user_id": user_id,  # ✅ 添加user_id字段
             "envelope": envelope
         }
+
+        # ✅ P0-1: SKU 级重复提交防护 — 同一商品已有活跃任务则拒绝二次入队
+        #   跟卖走 draft.ozon_product_id，1688 走 draft.item_id，兜底 draft.sku_id；
+        #   无任何商品 ID 时跳过去重（sku_key 为空）。
+        sku_key = f"{user_id}:{str(draft.get('ozon_product_id') or draft.get('item_id') or draft.get('sku_id') or '').strip()}"
+        if sku_key.endswith(":"):
+            sku_key = ""
+        if sku_key:
+            existing = _find_existing_task(user_id, sku_key)
+            if existing:
+                existing_id, existing_status = existing
+                log_task_event(
+                    "duplicate_submit_blocked", task_id=existing_id, user_id=user_id,
+                    trace_id=trace_id, sku_key=sku_key, status=existing_status,
+                )
+                return error_response(
+                    WorkerErrorCode.DUPLICATE_SUBMIT,
+                    f"该商品已在提交队列 (task_id={existing_id})，请勿重复提交",
+                    detail={"task_id": existing_id, "status": existing_status},
+                )
         
         task_id = await task_processor.submit_task(
             tenant_id=user_id,
             payload=payload_with_user_id,
             priority=priority,
             timeout_seconds=timeout_seconds,
-            max_retries=max_retries
+            max_retries=max_retries,
+            sku_key=sku_key,
         )
 
         # ✅ 更新 trace context + 生命周期日志

@@ -33,6 +33,7 @@ class WorkerErrorCode(str, Enum):
     TASK_NOT_FOUND = "TASK_NOT_FOUND"
     TASK_NOT_CANCELLABLE = "TASK_NOT_CANCELLABLE"
     TASK_SUBMIT_FAILED = "TASK_SUBMIT_FAILED"
+    DUPLICATE_SUBMIT = "DUPLICATE_SUBMIT"
 
     # 系统
     INTERNAL_ERROR = "INTERNAL_ERROR"
@@ -51,6 +52,7 @@ ERROR_STATUS_MAP: dict[WorkerErrorCode, int] = {
     WorkerErrorCode.TASK_NOT_FOUND: 404,
     WorkerErrorCode.TASK_NOT_CANCELLABLE: 409,
     WorkerErrorCode.TASK_SUBMIT_FAILED: 500,
+    WorkerErrorCode.DUPLICATE_SUBMIT: 409,
     WorkerErrorCode.INTERNAL_ERROR: 500,
     WorkerErrorCode.SERVICE_UNAVAILABLE: 503,
     WorkerErrorCode.INVALID_REQUEST: 400,
