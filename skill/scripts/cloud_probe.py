@@ -2684,13 +2684,17 @@ def _cached_ozon_scrape(
     return result
 
 
-def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = "") -> dict[str, Any]:
+def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = "",
+                      review: bool = False) -> dict[str, Any]:
     """
     跟卖 Ozon 商品 (v9: Skill 不调 Ozon API, import-by-sku 移到 Worker):
       1. CDP 抓取 Ozon 商品页 → 拿到竞品图片 + 标题
       2. LLM 翻译标题 → 1688 搜索同款
       3. CDP 探针 1688 → 采购成本 + 规格
       4. (auto_submit) 组装 GraphInput(follow_sell=true) → Worker 跟卖管线
+
+    review: D3 L3 人工评审暂停——展示全部 1688 候选，人工接受/改选/拒绝；
+    拒绝 → no_relevant_match（不组装信封不提交），决策写 review_log。
 
     Returns: {success, product_id, slug, images, title, 1688_matches, task_id}
     """
@@ -2959,6 +2963,41 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             best = _pick_best_match(matches, ozon_title, token=mxou_token) if ozon_title else matches[0]
             if best:
                 result["best_match"] = best
+                # ── D3 L3: 人工评审暂停（--review）──
+                # 展示全部候选 + 自动最佳元数据；接受最佳 / 选序号改选 / n 拒绝全部。
+                # 拒绝 → no_relevant_match=True（跳过信封组装+提交），决策写 review_log。
+                if review:
+                    from scripts.lib.review_log import write_review_record
+                    print(f"\n🔍 人工评审（--review）：{len(matches)} 个 1688 候选", flush=True)
+                    for _i, _m in enumerate(matches, 1):
+                        print(f"  [{_i}] ¥{_m.get('price', '?')} badge={_m.get('badge', '')!r} "
+                              f"{_m.get('title', '')[:48]}", flush=True)
+                    print(f"  → 自动最佳: confidence={float(best.get('confidence', 0) or 0):.2f} "
+                          f"badge_eff={float(best.get('badge_eff', 0) or 0):.2f} "
+                          f"{best.get('title', '')[:48]}", flush=True)
+                    _ans = input("  接受最佳 (回车/y) / 选序号 / n=拒绝全部: ").strip().lower()
+                    if _ans in ("n", "no"):
+                        write_review_record({
+                            "task_id": "",
+                            "product_id": product_id,
+                            "ozon_title": ozon_title,
+                            "match_title": best.get("title", ""),
+                            "match_url": (f"https://detail.1688.com/offer/"
+                                          f"{best.get('id', '')}.html"),
+                            "confidence": float(best.get("confidence", 0) or 0),
+                            "badge_eff": float(best.get("badge_eff", 0) or 0),
+                            "score": best.get("score", 0),
+                            "reject_reason": "agent_review_reject",
+                            "decision": "agent_reject",
+                            "image_urls": [best.get("image", "")] if best.get("image") else [],
+                        })
+                        result.pop("best_match", None)
+                        result["no_relevant_match"] = True
+                        logger.warning(
+                            "⚠️ 人工评审拒绝全部候选（no_relevant_match），不组装信封不提交")
+                    elif _ans.isdigit() and 1 <= int(_ans) <= len(matches):
+                        result["best_match"] = matches[int(_ans) - 1]
+                        logger.info("✅ 人工改选第 %s 个候选", _ans)
                 logger.info("📊 图搜匹配质量: %d 个结果, 最佳 badge=%s (score=%d)",
                            len(matches), best.get("badge", "?"), best.get("badge_score", 0))
                 if best.get("badge_score", 0) <= 1:

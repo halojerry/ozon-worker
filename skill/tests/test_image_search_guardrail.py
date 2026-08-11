@@ -18,6 +18,7 @@ from scripts.lib.ozon_discovery import (  # noqa: E402
     _ru_zh_title_overlap,
 )
 from scripts.lib.ozon_image_search import _get_badge_score  # noqa: E402
+from unittest import mock  # noqa: E402
 
 WRENCH_RU = "Ключ комбинированный трещоточный шарнирный 13 мм"
 WRENCH_CN = "活动头棘轮扳手梅花开口双头两用快速活头镜面扳手五金汽修工具"
@@ -55,7 +56,9 @@ def test_zero_match_skipped():
         {"title": "不相关商品甲", "price": 10.0, "badge": "符合0/1个条件"},
         {"title": "不相关商品乙", "price": 12.0, "badge": "符合0/1个条件"},
     ]
-    assert _pick_best_match(results, WRENCH_RU) is None
+    # D3: block 出口写 review_log——mock 防真实落盘污染 data/
+    with mock.patch("scripts.lib.ozon_discovery._log_review_record"):
+        assert _pick_best_match(results, WRENCH_RU) is None
 
 
 def test_badge_less_accepts_good_title():
@@ -69,20 +72,23 @@ def test_badge_less_accepts_good_title():
 def test_badge_less_rejects_weak_title():
     """无徽标但标题完全不相关 → 拒绝。"""
     results = [{"title": "纯棉毛巾加厚家用吸水洗脸巾", "price": 9.9, "badge": ""}]
-    assert _pick_best_match(results, WRENCH_RU) is None
+    with mock.patch("scripts.lib.ozon_discovery._log_review_record"):
+        assert _pick_best_match(results, WRENCH_RU) is None
 
 
 def test_partial_badge_weak_conf_rejected():
     """有徽标（1/3）但标题相关性极弱 → 保留原护栏拒绝（防错配）。"""
     results = [{"title": "纯棉毛巾加厚家用吸水洗脸巾", "price": 9.9,
                 "badge": "符合1/3个条件"}]
-    assert _pick_best_match(results, WRENCH_RU) is None
+    with mock.patch("scripts.lib.ozon_discovery._log_review_record"):
+        assert _pick_best_match(results, WRENCH_RU) is None
 
 
 def test_no_price_candidate_skipped():
     """无价格候选跳过（价格是利润核心）。"""
     results = [{"title": WRENCH_CN, "price": 0, "badge": "全部符合"}]
-    assert _pick_best_match(results, WRENCH_RU) is None
+    with mock.patch("scripts.lib.ozon_discovery._log_review_record"):
+        assert _pick_best_match(results, WRENCH_RU) is None
 
 
 # ── RU→ZH 词映射（v0.19 新增五金/健身词）─────────────────────────────────
