@@ -785,6 +785,33 @@ def fetch_market_bestsellers(cdp, category_id: str | int | None = None,
         _close_seller_tab(cdp, tab, reused)
 
 
+def fetch_bestseller_metrics_map(
+    cdp,
+    company_id: str | None = None,
+    lang: str = "zh-Hans",
+) -> dict[str, dict]:
+    """批量畅销榜指标 map：单次 data/v3 调用（fetch_ozon_bestsellers）按 sku 建索引。
+
+    替代逐 SKU 的 fetch_sales_analytics（1 调用/SKU @1s 瓶颈）。返回
+    {sku: metrics_dict}，字段见 _extract_metrics()（含 category1/2/3_id、
+    sold_count/gmv_sum/weight_g/尺寸等）；未登录/失败 → {}（调用方降级）。
+
+    磁盘缓存 6h（namespace seller_analytics），key 含 lang + company_id 维度
+    （防跨账号/跨语言固化错误数据）；只缓存有结果的成功响应，失败可重试。
+    """
+    from scripts.lib.cache import cache_get, cache_set
+    cache_key = f"bestseller_map|{lang}|{company_id or ''}"
+    cached = cache_get("seller_analytics", cache_key)
+    if cached is not None:
+        return cached
+
+    rows = fetch_ozon_bestsellers(cdp, company_id=company_id)
+    result = {row["sku"]: row for row in rows if row.get("sku")}
+    if result:
+        cache_set("seller_analytics", cache_key, result, ttl=21600)
+    return result
+
+
 def apply_analytics_to_candidate(candidate, metrics: dict) -> bool:
     """把运营指标写入 ProductCandidate（存在即覆盖，不存在的字段保留兜底）。
 
@@ -818,6 +845,13 @@ def apply_analytics_to_candidate(candidate, metrics: dict) -> bool:
         cat2 = metrics.get("category2_id") or 0
         if cat2:
             candidate.category = str(cat2)
+            # ✅ P1b: Seller 权威类目写 ozon_category（shape 与 follow 链路一致），
+            # discover 信封不再空类目 → worker pg_trgm 猜错（DESCRIPTION_DECLINE）。
+            cat3 = metrics.get("category3_id") or 0
+            candidate.ozon_category = {
+                "description_category_id": str(cat2),
+                "type_id": str(cat3),
+            }
         candidate.has_analytics = bool(
             metrics.get("has_sales_data")
             or metrics.get("sales_dynamics")
