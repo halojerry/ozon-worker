@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.37.0] - 2026-08-11
+
+> 重量/尺寸兜底根治批次：废除「<10g×1000 轻物误伤」「密度÷1000 改写」等 8 处改写真实值的启发式，改为「只对缺失兜底、对已有值仅标记放行 + Sentry 留痕 + 原始信封保留」；skill 端修 parseWeightGrams 源头读错 + 高密度保留商家重量；Sentry DSN 内置硬编码（用户零配置）。
+
+### Feat(worker 重量尺寸根治)
+
+- **统一归一化模块**（新增 `worker/src/utils/weight_dimension_normalizer.py`）：收敛 prepare/pricing/validate/retry 四处各自实现的密度/单位启发式为单一裁决点。核心原则——数据缺失（weight≤0/dim≤0）才兜底（draft → 竞品 → 100g/300×200×50mm）；数据已有（非零真实值）默认信任，密度/单位异常仅打 `marks` 标疑，绝不改写。`weight_source`（draft/competitor/default）、`weight_estimated`、`dimensions_suspected`、`reasons` 贯通 pricing_info.wd_audit + payload._wd_audit + Sentry 上报。
+- **废除 `<10g×1000` 轻物误伤**（prepare `_resolve_weight_dimensions` + pricing_node 两处）：旧启发式把真实轻物（3g 薄膜/5g 垫片/8g 塑料件）当"kg 误写 g"×1000 → 物流费 40× 爆炸（实测 3g→3000g，运费 3.23→132 CNY，售价 22→201 CNY）。改为标记 `light_weight_suspect` 放行不修正；字符串带小数点的明确 kg 证据仍允许转换。
+- **废除密度÷1000 改写**（prepare A8 + skill A3）：密度异常只标记 `dimensions_suspected`/`weight_estimated`，保留商家重量（300g 铅坠不再被体积×1.0 砍成 24g）。
+- **收敛 retry 子图**（`validation_retry_loop.repair_dimensions_node`）：删除「<40g 抬升到 40g」「无条件按密度重算三边」「体积重比值超阈值重算尺寸」——真实尺寸一律保留（比值判据对低密度真实商品天然不成立），仅尺寸全缺失才按重量推算。
+- **draft_sanity 轻物放行**：`check_weight_suspect` 对 `<10g+尺寸>50mm` 仅标记不拦截；`validate_draft_sanity` 只拦物理超限（>50kg/单边>5m），真实轻物正常入队。
+- **Sentry 标疑上报**：pricing 标疑时 `capture_task_error` 上报 `[WEIGHT_DIM_SUSPECT]`（放行但留痕）；route_after_pricing 消费 wd_audit 告警。原始信封天然保留在 PG `ozon_product_tasks.payload`（含原始 draft.weight/dimensions，可回溯分析）。
+
+### Feat(skill 源头修复 + Sentry 零配置)
+
+- **B4 parseWeightGrams 修复**（`service.py`）：旧 `parseInteger` 用 `replace(/[^\d]/g,'')` 剥离小数点——`'61.8g'→618`（放大10倍）、`'1.2kg'→12`（应为1200）、`'0.5kg'→5`。新增 `parseWeightGrams`（parseFloat 保留小数 + kg→g 换算），packaging 表重量解析改用它；minOrderQty 仍用 parseInteger（纯整数）。
+- **A3 高密度保留商家重量**（`cloud_probe._validate_and_fix_product_data`）：密度>10 g/cm³ 且体积≥10cm³ 时不再 `weight=体积×1.0` 覆盖真实重量，改为保留 + 标记 `weight_estimated`（信封 `draft.weight_estimated` 透传 worker 审计）。
+- **Sentry DSN 内置硬编码**（`config_store.DEFAULT_SENTRY_DSN` + `cli._init_sentry` 统一）：skill 用户零配置即可上报错误（与 worker 同 org/project pouding_ozon，`environment="skill"` 区分）；`settings.json.sentry_dsn` 可覆盖（自建 Sentry）。上报仅异常堆栈 + 非敏感 tags，绝不含 token/ak/api_key 凭证。
+
+### Test
+
+- 新增 `worker/tests/test_weight_dimension_normalizer.py`（12 断言：轻物不放大/缺失兜底/竞品优先/密度标疑/字符串kg转换）、`skill/tests/test_parse_weight_grams.py`（5 断言：61.8g 不放大/kg 换算/None 容错）。
+- 更新 `test_wave2_fixes.py`（retry 真实尺寸保留语义）、`test_resolve_weight_dimensions.py`（密度保留+标疑）、`test_draft_sanity.py`（轻物放行 5 断言）、`test_wave1_fixes.py`/`test_dimension_units.py`/`test_envelope_fields.py`（5 元组解包 + A3 新语义）。
+- 全量验证：worker 545 passed（2 既有失败与本改动无关）、skill 相关 38 passed、编译态 dist 8 .so + import 校验通过。
+
 ## [0.36.0] - 2026-08-11
 
 > Wave 4 稳定性批次：浏览器链路修复（CHROME_PATH / PEP 668 / 登录误判区分 / api_only 降级）+ 1688 配额缓存（AK 搜索/图搜）+ 批量断点续传 + 打包安全（dist 断言 / config 原子写 / Chrome profile 并发锁）+ SKILL.md 瘦身与 references 迁移。

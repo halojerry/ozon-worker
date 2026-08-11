@@ -154,7 +154,7 @@ def test_density_absurd_volume_preserves_merchant_weight():
     """一次性盘子 160g / 10×10×10mm（1cm³）→ 保留 160g + 重估尺寸，
     不再被密度护栏砍成 50g（运费/售价/利润全错的根因）。"""
     from scripts.cloud_probe import _validate_and_fix_product_data
-    weight, dims, errors, estimated = _validate_and_fix_product_data(
+    weight, dims, errors, estimated, weight_estimated = _validate_and_fix_product_data(
         item_id="840720791119", title="一次性盘子", cost_cny=2.4,
         images=["http://img/1.jpg"], weight_g=160,
         dimensions={"length": 10, "width": 10, "height": 10},
@@ -167,16 +167,19 @@ def test_density_absurd_volume_preserves_merchant_weight():
     assert v >= 3000, f"重估尺寸体积不应荒谬: {dims}"
 
 
-def test_density_genuine_heavy_still_corrected():
-    """体积合理（≥10cm³）且密度>10 → 仍按体积修正重量（原逻辑不回归）。"""
+def test_density_genuine_heavy_preserves_weight():
+    """体积合理（≥10cm³）且密度>10（实心铅块）→ v0.37 A3: 保留商家重量，
+    标记 weight_estimated（旧逻辑按体积×1.0 改写成 100g 销毁真实值）。"""
     from scripts.cloud_probe import _validate_and_fix_product_data
-    weight, dims, errors, estimated = _validate_and_fix_product_data(
+    weight, dims, errors, estimated, weight_estimated = _validate_and_fix_product_data(
         item_id="t1", title="实心铅块", cost_cny=1.0,
         images=["http://img/1.jpg"], weight_g=5000,
         dimensions={"length": 100, "width": 50, "height": 20},  # 100cm³
         variants=[], option_groups=[],
     )
-    assert weight < 5000, f"体积合理时仍应修正密度，实际 {weight}"
+    assert weight == 5000, f"v0.37 A3: 应保留商家重量 5000g，实际 {weight}"
+    assert dims["length"] == 100
+    assert weight_estimated is True, "应标记 weight_estimated（密度存疑但保留真实值）"
 
 
 # ── 修8: seller analytics 借道 + 分段佣金解析（毛子 CROSS_TAB 对照）──

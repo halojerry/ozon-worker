@@ -16,6 +16,7 @@ def check_weight_suspect(weight_g: Any, dimensions: dict | None) -> dict:
     """检查重量/尺寸是否超出物理合理范围。
 
     返回 {"suspect": bool, "reason": str}。仅拦截明显脏数据，不拦截正常大件。
+    v0.37: 轻物（<10g 且尺寸>50mm）→ 标记 suspect（不拦截），供审计排查。
     """
     try:
         weight = float(weight_g or 0)
@@ -28,6 +29,15 @@ def check_weight_suspect(weight_g: Any, dimensions: dict | None) -> dict:
         dim_val = (dimensions or {}).get(key, 0)
         if isinstance(dim_val, (int, float)) and dim_val > MAX_DIM_MM:
             reasons.append(f"dimensions.{key}={dim_val:g}mm > {MAX_DIM_MM}mm")
+    # ⚠️ v0.37 A2: 轻物标记（<10g 且任一维>50mm）——历史 <10g×1000 启发式的
+    # 触发条件。旧逻辑会误伤真实轻物（3g 薄膜/5g 垫片），现仅标记不修正。
+    if 0 < weight < 10:
+        dim_vals = [(dimensions or {}).get(k, 0) for k in ("length", "width", "height")]
+        dim_vals = [v for v in dim_vals if isinstance(v, (int, float))]
+        if dim_vals and max(dim_vals) > 50:
+            reasons.append(
+                f"light_weight_suspect({weight:g}g < 10g but max_dim={max(dim_vals):g}mm)"
+            )
     return {"suspect": bool(reasons), "reason": "; ".join(reasons)}
 
 
@@ -69,4 +79,10 @@ def validate_draft_sanity(draft: dict | None, extensions: dict | None = None) ->
     if not all(isinstance(v, (int, float)) and v > 0 for v in dim_vals):
         return "dimensions 缺失或含 0(尺寸无效)"
     out = check_weight_suspect(draft.get("weight"), draft.get("dimensions"))
-    return out["reason"] if out["suspect"] else None
+    # ⚠️ v0.37: 轻物标记（light_weight_suspect）放行——只拦截物理超限
+    # （>50kg / 单边>5m）。真实轻物 <10g 是正常商品，不因疑似 kg→g 拦截。
+    if out["suspect"]:
+        _light_only = all("light_weight_suspect" in r for r in out["reason"].split("; "))
+        if not _light_only:
+            return out["reason"]
+    return None

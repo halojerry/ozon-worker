@@ -1009,20 +1009,24 @@ def _validate_and_fix_product_data(
     dimensions: dict,
     variants: list,
     option_groups: list,
-) -> tuple[int, dict, list[str], bool]:
+) -> tuple[int, dict, list[str], bool, bool]:
     """校验产品数据完整性，并应用软兜底默认值。
 
-    返回 (weight_g, dimensions, errors, estimated)。
+    返回 (weight_g, dimensions, errors, dimensions_estimated, weight_estimated)。
     errors 为空表示通过；非空表示硬阻断，应跳过该产品。
-    estimated=True 表示尺寸是估算值（1688 页面未提供尺寸），
+    dimensions_estimated=True 表示尺寸是估算值（1688 页面未提供尺寸），
     Ozon 可能报 INCORRECT_DIMENSION——由调用方标记到信封供 worker 决策。
+    weight_estimated=True 表示重量被兜底/改写（缺失兜底或高密度保留），
+    供 worker/审计识别数据来源可信度。
     """
     errors: list[str] = []
     estimated: bool = False
+    weight_estimated: bool = False
 
     # ── 软兜底：重量 ──
     if weight_g <= 0:
         weight_g = 50
+        weight_estimated = True
         logger.warning("物品 %s 重量缺失，使用默认值 50g", item_id)
 
     # ── 软兜底：尺寸 ──
@@ -1077,12 +1081,15 @@ def _validate_and_fix_product_data(
                     dimensions["length"], dimensions["width"], dimensions["height"], weight_g,
                 )
             else:
-                estimated_g = max(int(volume_cm3 * 1.0), 50)
+                # ⚠️ v0.37 A3 修复: 密度>10 且体积≥10cm³ 时不再改写真实重量。
+                # 旧逻辑 weight = volume×1.0 会销毁商家真实值（300g 铅坠→24g）。
+                # 商家重量可信（v0.21/v0.26 已确立原则）→ 保留，仅告警标记。
+                weight_estimated = True
                 logger.warning(
-                    "物品 %s 密度过高 %.1f g/cm³（%dg / %.0f cm³），修正为 %dg",
-                    item_id, density_g_cm3, weight_g, volume_cm3, estimated_g,
+                    "物品 %s 密度过高 %.1f g/cm³（%dg / %.0f cm³），"
+                    "保留商家重量 %dg（可能为高密度材质或尺寸单位偏差）",
+                    item_id, density_g_cm3, weight_g, volume_cm3, weight_g,
                 )
-                weight_g = estimated_g
         elif density_g_cm3 < 0.25 and volume_cm3 > 1000:  # 大体积但极轻（比泡沫还轻？数据错误）
             # v0.21 P2: 商家已提供真实重量 → 信任重量，不再用体积反推覆盖
             # （根因：风扇 300g→30.4kg、工具 400g→364kg 都是这个分支干的）
@@ -1145,7 +1152,7 @@ def _validate_and_fix_product_data(
 
     if errors:
         logger.warning("❌ 物品 %s 校验不通过: %s", item_id, '; '.join(errors))
-    return weight_g, dimensions, errors, estimated
+    return weight_g, dimensions, errors, estimated, weight_estimated
 
 
 def _last_seg(path) -> str:
@@ -1633,7 +1640,7 @@ def build_graph_envelope(
     )
 
     # ── 5.5 校验门：硬阻断 + 软兜底 ──
-    weight_g, dimensions, validation_errors, dimensions_estimated = _validate_and_fix_product_data(
+    weight_g, dimensions, validation_errors, dimensions_estimated, weight_estimated = _validate_and_fix_product_data(
         item_id=str(item_id),
         title=item_title,
         cost_cny=cost_cny,
@@ -1674,6 +1681,8 @@ def build_graph_envelope(
         draft["shipping"] = shipping
     if dimensions_estimated:
         draft["dimensions_estimated"] = True  # ✅ v0.21: 尺寸为估算值，供 worker 决策
+    if weight_estimated:
+        draft["weight_estimated"] = True  # ✅ v0.37 A3: 重量被兜底/保留（非原始抓取值），供 worker/审计识别
     if ozon_category:
         draft["ozon_category"] = ozon_category
     # ✅ v0.21: 传完整 1688 类目路径（旧版只传末两级，丢失顶级信号如"成人用品"导致类目错配）

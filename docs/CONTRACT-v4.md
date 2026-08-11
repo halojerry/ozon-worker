@@ -78,6 +78,10 @@
 | `envelope.draft.images` | string[] | ✅ | — | 非空数组，每项为 http/https URL |
 | `envelope.draft.weight` | int | ✅ | — | ≥ 0，单位克(g) |
 | `envelope.draft.dimensions` | object | ✅ | — | `{length, width, height}`，均为 int ≥ 0，单位 mm |
+| `envelope.draft.weight_estimated` | bool | ❌ | v0.37 | 重量为估算/兜底值（非 1688 原始抓取），worker 审计用 |
+| `envelope.draft.dimensions_estimated` | bool | ❌ | v0.21 | 尺寸为估算值，worker 决策用 |
+| `envelope.extensions.competitor_weight_g` | int | ❌ | v0.22 | what_to_sell 竞品重量（克），draft.weight 缺失时兜底 |
+| `envelope.extensions.competitor_dimensions_mm` | object | ❌ | v0.22 | what_to_sell 竞品尺寸（mm），draft.dimensions 缺失时兜底 |
 | `envelope.draft.purchase_cost` | float | ✅ | — | ≥ 0 |
 | `envelope.draft.purchase_url` | string | ✅ | — | 非空，http/https URL |
 | `envelope.draft.currency` | string | ✅ | — | 固定 `"CNY"` |
@@ -1043,17 +1047,22 @@ input_3 = GlobalState(envelope={"draft": {"ozon_category": {"description_categor
 Step 1: 更新进度: update_progress(task_id, "pricing", "计算售价中...")
 Step 2: 提取参数:
         purchase_cost = draft.purchase_cost (CNY)
-        weight_g = draft.weight
+        weight_g, dims_mm, wd_marks = normalize_weight_dimensions(draft, extensions)
+            # ⚠️ v0.37: 统一走 utils.weight_dimension_normalizer（与 prepare 同源）
         dimensions = draft.dimensions
         margin_rate = extensions.get("margin_rate", 0.25)
         commission_rate = extensions.get("commission_rate", 0.10)
         fx_buffer = extensions.get("fx_buffer", 0.05)
-Step 3: 重量合理性检查:
-        - 如果 weight_g < 10g 但 max(dimensions) > 50mm → weight_g *= 1000 (疑似 kg→g 错误)
-Step 4: 密度检查:
+Step 3: 重量合理性检查（v0.37 A2 修复，仅标记不修正）:
+        - weight_g < 10g 且 max(dimensions) > 50mm → 标记 light_weight_suspect
+          （真实轻物如 3g 薄膜/5g 垫片是正常商品，旧逻辑 ×1000 误伤已废除）
+        - 缺失/0 → 竞品 competitor_weight_g 兜底 → 默认 100g（weight_source 标记）
+Step 4: 密度检查（v0.37 仅标记不改写）:
         - volume_cm3 = (length*width*height) / 1000
         - density = weight_g / volume_cm3
-        - 如果 density < 0.25 g/cm³ → weight_g = volume_cm3 * 0.5 (低密度体积推算)
+        - 超范围 → 标记 dimensions_suspected，保留真实值（不再体积推算覆盖重量）
+        - wd_marks → pricing_info.wd_audit {weight_source, weight_estimated, dimensions_suspected, reasons}
+          + Sentry 事件 [WEIGHT_DIM_SUSPECT]（放行但留痕）
 Step 5: 查询物流费率: SELECT * FROM logistics_rates WHERE weight_g BETWEEN min_weight AND max_weight
         - 命中 → logistics_cost = rate_per_g * weight_g
         - 未命中 → 兜底: logistics_cost = weight_g * 0.05 (CNY/g)

@@ -162,6 +162,19 @@ EXTRACT_1688_JS = r"""
     const digits = String(value).replace(/[^\d]/g, '');
     return digits ? Number(digits) : null;
   };
+  // ⚠️ v0.37 B4: 重量解析专用——旧 parseInteger 用 replace(/[^\d]/g,'')
+  // 会剥离小数点与单位：'61.8g'→618（放大10倍）、'1.2kg'→12（应为1200）。
+  // 改为 parseFloat 保留小数 + kg→g 换算；解析失败返回 null（调用方兜底）。
+  const parseWeightGrams = (value) => {
+    if (value == null) return null;
+    const text = String(value).replace(/,/g, '.').trim().toLowerCase();
+    const m = text.match(/(-?\d+(?:\.\d+)?)\s*(kg|kgs?|g|克|公斤|千克)?/);
+    if (!m) return null;
+    const num = Number(m[1]);
+    const unit = (m[2] || '').toLowerCase();
+    if (unit.startsWith('kg') || unit === '公斤' || unit === '千克') return Math.round(num * 1000);
+    return Math.round(num); // g/克/无单位 → 直接克
+  };
   const readImages = (selectors, root = document, limit = 100) => {
     const items = [];
     // 非产品图的 DOM 容器（评价区头像、交易信息等）
@@ -516,7 +529,7 @@ skuContainers.forEach((featureEl, featureIndex) => {
         color: packagingColorIndex >= 0 && packagingColorIndex < cells.length ? cells[packagingColorIndex] : (cells.length >= 1 ? cells[0] : null),
         capacity: packagingSpecIndex >= 0 && packagingSpecIndex < cells.length ? cells[packagingSpecIndex] : (cells.length >= 2 ? cells[1] : null),
         weightText: packagingWeightIndex >= 0 && packagingWeightIndex < cells.length ? cells[packagingWeightIndex] : null,
-        weightGrams: packagingWeightIndex >= 0 && packagingWeightIndex < cells.length ? parseInteger(cells[packagingWeightIndex]) : null,
+        weightGrams: packagingWeightIndex >= 0 && packagingWeightIndex < cells.length ? parseWeightGrams(cells[packagingWeightIndex]) : null,
         lengthText: packagingLengthIndex >= 0 && packagingLengthIndex < cells.length ? cells[packagingLengthIndex] : null,
         widthText: packagingWidthIndex >= 0 && packagingWidthIndex < cells.length ? cells[packagingWidthIndex] : null,
         heightText: packagingHeightIndex >= 0 && packagingHeightIndex < cells.length ? cells[packagingHeightIndex] : null,
@@ -525,7 +538,7 @@ skuContainers.forEach((featureEl, featureIndex) => {
         rowData.color = null;
         rowData.capacity = null;
         rowData.weightText = cells[0];
-        rowData.weightGrams = parseInteger(cells[0]);
+        rowData.weightGrams = parseWeightGrams(cells[0]);
       }
       packagingRows.push(rowData);
     }

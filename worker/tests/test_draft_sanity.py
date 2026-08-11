@@ -134,6 +134,38 @@ def test_none_extensions_keeps_normal_pass():
     assert err is None
 
 
+def test_light_weight_passes_v037():
+    """v0.37 A2: 真实 3g 轻物 + 200×200×10mm → 放行（不再因 <10g 拦截/改写）。"""
+    err = validate_draft_sanity(
+        {"weight": 3, "dimensions": {"length": 200, "width": 200, "height": 10}},
+        None,
+    )
+    assert err is None
+
+
+def test_light_weight_marks_suspect():
+    """v0.37 A2: 轻物 → check_weight_suspect 标记 light_weight_suspect（不拦截）。"""
+    out = check_weight_suspect(3, {"length": 200, "width": 200, "height": 10})
+    assert out["suspect"] is True
+    assert "light_weight_suspect" in out["reason"]
+
+
+def test_light_weight_small_dims_not_marked():
+    """3g + 小尺寸（30×20×10mm）→ 不标记（尺寸不大，非疑似 kg 误写）。"""
+    out = check_weight_suspect(3, {"length": 30, "width": 20, "height": 10})
+    assert out["suspect"] is False
+
+
+def test_physical_overlimit_still_rejected():
+    """物理超限（>50kg）仍拦截——轻物放行不放松物理上限。"""
+    err = validate_draft_sanity(
+        {"weight": 60000, "dimensions": {"length": 100, "width": 50, "height": 30}},
+        None,
+    )
+    assert err is not None
+    assert "60000" in err
+
+
 if __name__ == "__main__":
     import traceback
 
