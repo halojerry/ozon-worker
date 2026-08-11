@@ -2385,8 +2385,11 @@ def probe_1688_page(
         cached['artifact_path'] = str(_artifact_path(task_id or current_task_id()))
         return cached
 
-    # Pre-probe random delay: simulate human browsing pace, avoid rate limiting
-    pre_delay_ms = random.randint(2000, 5000)
+    # Pre-probe random delay: simulate human browsing pace, avoid rate limiting.
+    # D5-A: interval 可经 settings.json 的 probe_interval_seconds 调整（默认 2.5s）。
+    from scripts.lib.config_store import get_setting
+    _probe_interval = float(get_setting("probe_interval_seconds", 2.5) or 2.5)
+    pre_delay_ms = random.randint(int(_probe_interval * 1000), int(_probe_interval * 2500))
     time.sleep(pre_delay_ms / 1000.0)
 
     external_connection = cdp is not None
