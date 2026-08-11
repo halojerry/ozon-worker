@@ -80,7 +80,8 @@ def _apply_geo_redirect_retry(tab: CdpTab, target_url: str) -> None:
         pass
 
 
-def _ensure_ozon_tab(cdp: CdpConnection, target_url: str = "") -> CdpTab:
+def _ensure_ozon_tab(cdp: CdpConnection, target_url: str = "",
+                     force_new_tab: bool = False) -> CdpTab:
     """Find an existing ozon.ru tab or create a new one, navigated to target_url.
 
     Reuses an existing tab to preserve cookies/session state (avoid DataDome),
@@ -88,24 +89,30 @@ def _ensure_ozon_tab(cdp: CdpConnection, target_url: str = "") -> CdpTab:
     （如用户打开的别的商品页）上 fetch 会被 DataDome 拦。
     ⚠️ v0.31: find_tab 可能返回刚被 fetch_seller_products 关闭的 stale tab
     （Chrome 延迟清理 /json 列表），复用前验证存活，失败则新建。
+
+    force_new_tab=True（P2）: 跳过 find_tab，直接 new_tab 开全新 tab。用于
+    多线程并发（discover 每线程独立连接）——find_tab 会命中用户第一个
+    ozon.ru tab，并发 worker 抢同一 tab 是 v0.31.1 教训；每 worker 开自己的
+    tab，连接关闭时一并收走（new_tab 的 tab 归本连接所有，无需 release）。
     """
-    tab = cdp.find_tab("ozon.ru")
-    if tab is not None:
-        try:
-            tab.evaluate("1", timeout=5)
-        except Exception:
-            tab = None
-        else:
-            # PR-4: 命中用户已有 tab → 立即 release，防止 conn.close() 远程关闭用户标签页
-            cdp.release(tab)
-            if target_url:
-                try:
-                    tab.navigate(target_url, timeout=25)
-                    time.sleep(3)
-                    _apply_geo_redirect_retry(tab, target_url)
-                except Exception:
-                    pass
-            return tab
+    if not force_new_tab:
+        tab = cdp.find_tab("ozon.ru")
+        if tab is not None:
+            try:
+                tab.evaluate("1", timeout=5)
+            except Exception:
+                tab = None
+            else:
+                # PR-4: 命中用户已有 tab → 立即 release，防止 conn.close() 远程关闭用户标签页
+                cdp.release(tab)
+                if target_url:
+                    try:
+                        tab.navigate(target_url, timeout=25)
+                        time.sleep(3)
+                        _apply_geo_redirect_retry(tab, target_url)
+                    except Exception:
+                        pass
+                return tab
     if target_url:
         tab = cdp.new_tab(target_url)
         _apply_geo_redirect_retry(tab, target_url)
@@ -339,11 +346,15 @@ _FETCH_VARIANTS_JS = r'''(() => {
 # ---------------------------------------------------------------------------
 
 
-def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None, lang: str = "ru") -> dict[str, Any]:
+def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None, lang: str = "ru",
+                       force_new_tab: bool = False) -> dict[str, Any]:
     """Fetch product info via CDP using Ozon widget API.
 
     If *cdp* is provided, reuse the existing CdpConnection (caller owns it).
     Otherwise, create a temporary connection.
+
+    force_new_tab=True: 跳过 find_tab（多线程并发场景每线程开自己的 tab，
+    避免并发 worker 抢用户第一个 ozon.ru tab）。
 
     Returns dict with keys: title, price, cardPrice, originalPrice,
     images, primaryImage, description, characteristics, aspects, brand.
@@ -376,7 +387,8 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None, lang: str = "
 
     try:
         if cdp is not None:
-            tab = _ensure_ozon_tab(cdp, f"{OZON_BASE}/product/{product_id}/")
+            tab = _ensure_ozon_tab(cdp, f"{OZON_BASE}/product/{product_id}/",
+                                   force_new_tab=force_new_tab)
             raw = tab.evaluate(js, await_promise=True, timeout=20)
             parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
             if parsed.get("error"):
@@ -386,7 +398,8 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None, lang: str = "
             _normalize_price_to_rub(result)
         else:
             with CdpConnection(cdp_url) as _cdp:
-                tab = _ensure_ozon_tab(_cdp, f"{OZON_BASE}/product/{product_id}/")
+                tab = _ensure_ozon_tab(_cdp, f"{OZON_BASE}/product/{product_id}/",
+                                       force_new_tab=force_new_tab)
                 raw = tab.evaluate(js, await_promise=True, timeout=20)
                 parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
                 if parsed.get("error"):
@@ -464,11 +477,14 @@ def _fetch_product_info_http(
 
 
 def fetch_competing_sellers(cdp_url: str, product_id: str, *, cdp=None,
-                            lang: str = "ru") -> dict[str, Any]:
+                            lang: str = "ru", force_new_tab: bool = False) -> dict[str, Any]:
     """Fetch competing sellers data for a product.
 
     If *cdp* is provided, reuse the existing CdpConnection (caller owns it).
     Otherwise, create a temporary connection.
+
+    force_new_tab=True: 跳过 find_tab（多线程并发场景每线程开自己的 tab，
+    避免并发 worker 抢用户第一个 ozon.ru tab）。
 
     Returns::
 
@@ -498,7 +514,8 @@ def fetch_competing_sellers(cdp_url: str, product_id: str, *, cdp=None,
 
     try:
         if cdp is not None:
-            tab = _ensure_ozon_tab(cdp, f"{OZON_BASE}/product/{product_id}/")
+            tab = _ensure_ozon_tab(cdp, f"{OZON_BASE}/product/{product_id}/",
+                                   force_new_tab=force_new_tab)
             raw = tab.evaluate(js, await_promise=True, timeout=20)
             parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
             if parsed.get("error"):
@@ -511,7 +528,8 @@ def fetch_competing_sellers(cdp_url: str, product_id: str, *, cdp=None,
             })
         else:
             with CdpConnection(cdp_url) as _cdp:
-                tab = _ensure_ozon_tab(_cdp, f"{OZON_BASE}/product/{product_id}/")
+                tab = _ensure_ozon_tab(_cdp, f"{OZON_BASE}/product/{product_id}/",
+                                       force_new_tab=force_new_tab)
                 raw = tab.evaluate(js, await_promise=True, timeout=20)
                 parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
                 if parsed.get("error"):
