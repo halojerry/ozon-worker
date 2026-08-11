@@ -996,7 +996,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
             max_price=args.max_price,
             brand_filter=args.brand_filter,
             progress_callback=_collect_progress,
-            china=args.china,
+            china=(not args.local) or args.china,
         )
     except KeyboardInterrupt:
         print("\n⚠️ 用户中断")
@@ -1368,8 +1368,9 @@ def main() -> int:
 
     dp = sub.add_parser("discover", help="Ozon 选品 v2（先采集 → 表格分析 → 挑完再找货源）")
     dp.add_argument("--url", default="", help="Ozon 页面 URL（搜索页/类目页等，直接采集该页）")
-    dp.add_argument("--keyword", default="", help="搜索关键词（自动构造 /search/?text= 搜索页；配合 --china 走中国站 highlight 页内搜索）")
-    dp.add_argument("--china", action="store_true", help="中国站筛选（highlight + 关键词，跨境卖家为主）")
+    dp.add_argument("--keyword", default="", help="搜索关键词（默认走中国站 highlight 页内搜索；--local 走主站 /search/?text=）")
+    dp.add_argument("--local", action="store_true", help="主站搜索（默认中国站）")
+    dp.add_argument("--china", action="store_true", help=argparse.SUPPRESS)
     dp.add_argument("--max-products", type=int, default=50, help="最多采集产品数（默认 50）")
     dp.add_argument("--min-margin", type=float, default=15.0, help="最低利润率%%")
     dp.add_argument("--max-sellers", type=int, default=10, help="最大跟卖人数（兼容保留，v2 中不硬过滤）")

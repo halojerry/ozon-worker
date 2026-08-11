@@ -372,14 +372,15 @@ def collect_and_analyze(
     max_price: float = 0,
     brand_filter: str = "nobrand",
     progress_callback=None,
-    china: bool = False,
+    china: bool = True,
 ) -> list[ProductCandidate]:
     """Discover v2 阶段①+②：采集 + 全量数据 + seller.ozon.ru 运营指标。
 
     - url 优先；否则 china=True + keyword → 中国站 highlight 页内搜索
       （CHINA_HIGHLIGHT_URL?text=...）；否则 keyword 构造真实搜索页；
       否则中国站 highlight 页
-    - china=False（默认）→ 行为与 v0.36 完全一致（零回归）
+    - china=True（默认）→ 中国站（跨境卖家主战场，主站 /search/ 返回本地仓
+      卖家，跨境无法竞争）；--local（china=False）→ 主站搜索页
     - min_price/max_price（RUB，0=不限）：价格区间外的候选标记 filtered，
       跳过运营指标查询（省调用），不参与挑选
     - brand_filter（参考 maozi 插件 brand_option）：nobrand=只要无品牌/白牌（默认，

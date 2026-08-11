@@ -60,7 +60,7 @@ def _discover_args(**overrides):
         fission=False, max_depth=2, allow_depth_3=False, max_total_products=300,
         time_budget=600.0, max_sellers_per_product=20, max_products_per_seller=15,
         non_interactive=False, blue_ocean_source="queries", blue_ocean_csv="",
-        china=False,
+        china=False, local=False,
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
