@@ -119,6 +119,11 @@ class ProductCandidate:
     estimated_profit_cny: float = 0.0
     profit_margin: float = 0.0  # percentage
 
+    # Logistics estimate provenance (P1-5): False=Worker 实时费率（权威）；
+    # True=last-good 缓存 / 40/kg 兜底估算（非权威，仅供选品参考）。
+    logistics_estimated: bool = False
+    logistics_fallback_chain: str = ""  # worker fallback_chain / last_good / flat_per_kg_40 / default_15
+
     # Seller API data
     category: str = ''
     brand: str = ''
@@ -844,7 +849,8 @@ def export_to_csv(candidates: list[ProductCandidate], filepath: str) -> str:
         'sales_growth', 'drr', 'create_days', 'rating', 'review_count',
         'has_analytics',
         'competing_sellers', 'min_competitor_price', 'weight_g', 'dimensions',
-        'match_1688_url', 'match_1688_price', 'profit_margin', 'blue_ocean_score', 'verdict'
+        'match_1688_url', 'match_1688_price', 'profit_margin', 'blue_ocean_score', 'verdict',
+        'logistics_estimated', 'logistics_fallback_chain'
     ]
 
     with open(path, 'w', newline='', encoding='utf-8-sig') as f:
@@ -877,6 +883,8 @@ def export_to_csv(candidates: list[ProductCandidate], filepath: str) -> str:
                 'profit_margin': round(c.profit_margin, 1),
                 'blue_ocean_score': getattr(c, 'blue_ocean_score', 0),
                 'verdict': c.status,
+                'logistics_estimated': getattr(c, 'logistics_estimated', False),
+                'logistics_fallback_chain': getattr(c, 'logistics_fallback_chain', ''),
             })
 
     return str(path)
@@ -959,7 +967,8 @@ def _render_analysis_md(
         lines.append(f"- 上架天数: {c.create_days}")
         lines.append(f"- 评分: {c.rating}")
         lines.append(f"- 蓝海分: {c.blue_ocean_score}")
-        lines.append(f"- 利润率: {c.profit_margin}%")
+        est = " ⚠️估算" if getattr(c, "logistics_estimated", False) else ""
+        lines.append(f"- 利润率: {c.profit_margin}%{est}")
         lines.append(f"- 1688 货源: {c.match_1688_url or '(未匹配)'}")
         lines.append(f"- 采购价: {c.match_1688_price} CNY")
         lines.append(f"- 审核状态: {c.status}")
@@ -1667,6 +1676,67 @@ def _extract_search_keywords(title: str) -> str:
     return " ".join(words[:6])
 
 
+@dataclass(frozen=True)
+class LogisticsQuote:
+    """Worker /api/v1/logistics/quote 报价结果（含估算来源标记）。
+
+    estimated=False: Worker 实时费率（权威）; True: last-good 缓存兜底估算。
+    """
+
+    cost: float
+    fallback_chain: str = ""   # worker fallback_chain（逗号连接）或 last_good
+    channel: str = ""          # worker channel（如 RETS_Standard_fallback）
+    estimated: bool = False
+
+
+_LAST_GOOD_LOGISTICS: dict[int, tuple[float, float]] = {}  # {weight_band: (rate_cny, ts)}
+_LAST_GOOD_TTL_SECONDS = 24 * 3600
+
+
+def _logistics_weight_band(weight_g: int) -> int:
+    """物流 last-good 费率按 250g 分带（±125g 内复用同带费率）。"""
+    return max(250, int(round(max(1, int(weight_g)) / 250.0)) * 250)
+
+
+def _last_good_quote(weight_g: int) -> LogisticsQuote | None:
+    """API 失败时复用同重量带 last-good 费率（24h TTL）。无有效缓存 → None。"""
+    band = _logistics_weight_band(weight_g)
+    entry = _LAST_GOOD_LOGISTICS.get(band)
+    if not entry:
+        return None
+    rate, ts = entry
+    if time.time() - ts > _LAST_GOOD_TTL_SECONDS:
+        return None
+    return LogisticsQuote(cost=rate, fallback_chain="last_good", estimated=True)
+
+
+def _dims_mm_to_cm(dims_mm) -> dict[str, float] | None:
+    """mm 尺寸（dict {length,width,height} 或 3 元组/列表）→ cm 请求参数。
+
+    无有效尺寸 → None（调用方用默认 10cm 立方）。
+    """
+    if not dims_mm:
+        return None
+    if isinstance(dims_mm, (tuple, list)):
+        if len(dims_mm) < 3:
+            return None
+        d, w, h = dims_mm[0], dims_mm[1], dims_mm[2]
+    elif isinstance(dims_mm, dict):
+        d = dims_mm.get("length") or dims_mm.get("depth")
+        w = dims_mm.get("width")
+        h = dims_mm.get("height")
+    else:
+        return None
+    try:
+        vals = [float(x) for x in (d, w, h)]
+    except (TypeError, ValueError):
+        return None
+    if any(v <= 0 for v in vals):
+        return None
+    return {"depth_cm": vals[0] / 10.0, "width_cm": vals[1] / 10.0,
+            "height_cm": vals[2] / 10.0}
+
+
 _LOGISTICS_QUOTE_CACHE: dict[int, float | None] = {}
 
 
@@ -1785,16 +1855,26 @@ def fetch_seller_analysis(
                 pass
 
 
-def _query_logistics_from_worker(weight_g: int) -> float | None:
-    """调 Worker /api/v1/logistics/quote 查真实物流费率（v0.29.x）。
+def _query_logistics_from_worker(weight_g: int, dims_mm=None) -> LogisticsQuote | None:
+    """调 Worker /api/v1/logistics/quote 查真实物流费率（v0.29.x / P1-5 加固）。
 
-    - 按重量查询(尺寸默认 10cm 立方, 体积重影响可忽略)；带进程内缓存。
-    - Worker 不可达 / 超时 / 无 token → 返回 None(调用方降级本地估算)。
+    - 按重量查询；dims_mm（mm 尺寸 dict/元组）转 cm 随请求，缺省 10cm 立方。
+    - 进程内成功缓存（_LOGISTICS_QUOTE_CACHE，只缓存成功结果）。
+    - Worker 不可达/超时/无 token → 复用同重量带 last-good 费率（24h TTL，
+      标记 estimated=True）；连 last-good 都没有 → None（调用方 40/kg 兜底）。
     """
     if weight_g is None or weight_g <= 0:
         return None
-    if weight_g in _LOGISTICS_QUOTE_CACHE:
-        return _LOGISTICS_QUOTE_CACHE[weight_g]
+    cached = _LOGISTICS_QUOTE_CACHE.get(weight_g)
+    if cached is not None:
+        return LogisticsQuote(cost=cached)
+
+    payload = {"weight_g": int(weight_g)}
+    dims_cm = _dims_mm_to_cm(dims_mm)
+    if dims_cm:
+        payload.update(dims_cm)
+    else:
+        payload.update({"depth_cm": 10.0, "width_cm": 10.0, "height_cm": 10.0})
 
     try:
         from scripts._const import CLOUD_API_BASE
@@ -1803,26 +1883,31 @@ def _query_logistics_from_worker(weight_g: int) -> float | None:
 
         token = get_mxou_token()
         if not token:
-            return None
+            return _last_good_quote(weight_g)
         resp = _req.post(
             f"{CLOUD_API_BASE}/api/v1/logistics/quote",
-            json={
-                "token": token,
-                "weight_g": int(weight_g),
-                "depth_cm": 10.0, "width_cm": 10.0, "height_cm": 10.0,
-            },
+            json={"token": token, **payload},
             timeout=6,
         )
         if resp.status_code != 200:
-            return None
+            return _last_good_quote(weight_g)
         data = resp.json()
         cost = data.get("logistics_cost_cny")
         if isinstance(cost, (int, float)) and cost > 0:
-            _LOGISTICS_QUOTE_CACHE[weight_g] = float(cost)
-            return float(cost)
-        return None
+            cost_f = float(cost)
+            _LOGISTICS_QUOTE_CACHE[weight_g] = cost_f
+            _LAST_GOOD_LOGISTICS[_logistics_weight_band(weight_g)] = (cost_f, time.time())
+            chain = data.get("fallback_chain", "")
+            if isinstance(chain, (list, tuple)):
+                chain = ",".join(str(x) for x in chain)
+            return LogisticsQuote(
+                cost=cost_f,
+                fallback_chain=str(chain or ""),
+                channel=str(data.get("channel", "") or ""),
+            )
+        return _last_good_quote(weight_g)
     except Exception:
-        return None
+        return _last_good_quote(weight_g)
 
 
 def _calculate_profit(
@@ -1856,14 +1941,22 @@ def _calculate_profit(
     # 物流估算：优先查 Worker 费率表（精确, 按重量+体积重），失败降级本地估算
     # ⚠️ v0.29.x: skill 端不再硬编码 40 CNY/kg —— 调 /api/v1/logistics/quote
     # (worker 侧 PG logistics_rates 142 条真实费率), 无重量/离线时降级旧逻辑。
-    worker_cost = _query_logistics_from_worker(candidate.weight_g)
-    if worker_cost is not None:
-        candidate.estimated_logistics_cny = worker_cost
-    elif candidate.weight_g > 0:
-        candidate.estimated_logistics_cny = max(
-            8.0, candidate.weight_g / 1000.0 * LOGISTICS_PER_KG_CNY)
+    # ⚠️ P1-5: API 失败优先复用同重量带 last-good 费率（24h TTL）再谈 40/kg；
+    # 非实时费率一律标记 logistics_estimated=True（选品参考，非权威报价）。
+    quote = _query_logistics_from_worker(candidate.weight_g, dims_mm=candidate.dimensions_mm)
+    if quote is not None:
+        candidate.estimated_logistics_cny = quote.cost
+        candidate.logistics_estimated = quote.estimated
+        candidate.logistics_fallback_chain = quote.fallback_chain
     else:
-        candidate.estimated_logistics_cny = logistics_cny
+        candidate.logistics_estimated = True
+        if candidate.weight_g > 0:
+            candidate.estimated_logistics_cny = max(
+                8.0, candidate.weight_g / 1000.0 * LOGISTICS_PER_KG_CNY)
+            candidate.logistics_fallback_chain = "flat_per_kg_40"
+        else:
+            candidate.estimated_logistics_cny = logistics_cny
+            candidate.logistics_fallback_chain = "default_15"
 
     # Commission
     candidate.estimated_commission = revenue_cny * effective_commission
