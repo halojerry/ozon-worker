@@ -15,6 +15,7 @@ import json
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -144,6 +145,15 @@ def rank_by_consensus(candidates: list[dict], top_k: int = 10) -> list[dict]:
     return ranked[:top_k]
 
 
+def _parallel_workers() -> int:
+    """并行 worker 数：min(max(2, os.cpu_count() or 4), 4)。
+
+    纯 stdlib（无 psutil），上限 4 —— CDP 单浏览器多 tab 并发收益有限且 Chrome
+    负载随 tab 数上升，4 为实测安全值（worker 端 ThreadPoolExecutor 先例同为 4）。
+    """
+    return min(max(2, os.cpu_count() or 4), 4)
+
+
 def run_fission(
     seed_products: list[ProductCandidate],
     cdp_url: str = "http://127.0.0.1:9222",
@@ -230,22 +240,82 @@ def _expand_product(state: FissionState, cdp: Any, cdp_url: str, pid: str,
         frontier.append(("seller", sid, depth + 1, new_chain))
 
 
+def _analyze_product_parallel(cdp_url: str, pid: str) -> ProductCandidate:
+    """线程 worker：独立 CdpConnection + 独立 tab 分析单产品。
+
+    ⚠️ 并行安全（v0.31.1 教训）：``CdpConnection._tabs`` 非线程安全，绝不跨线程共享
+    连接；``find_tab`` 是**浏览器级**查询（返回「第一个 ozon.ru tab」——可能是用户 tab
+    或首个 worker tab），并行 worker 若走默认 find_tab 会抢同一 tab 导航 → 实例级覆盖
+    ``find_tab`` 恒返回本线程自己 new_tab 创建的 tab。本线程 tab 非用户 tab，关闭走
+    release-before-close 契约：``_ensure_ozon_tab`` 复用后 ``release`` 移出连接管理，
+    finally 中显式 ``tab.close(close_remote=True)`` + ``conn.close`` 兜底（连接内所有
+    tab 均为本线程创建，可安全远程关闭，不误伤用户标签页）。
+    """
+    from scripts.lib.cdp_client import CdpConnection
+
+    conn = CdpConnection(cdp_url)
+    tab = None
+    try:
+        tab = conn.new_tab()  # about:blank 零导航；_ensure_ozon_tab 之后再导航到产品页
+        conn.find_tab = lambda _pattern: tab  # 实例级覆盖：绝不命中用户首个 ozon.ru tab
+        return ozon_discovery._analyze_product(cdp_url, conn, pid)
+    finally:
+        if tab is not None:
+            try:
+                tab.close(close_remote=True)
+            except Exception:
+                pass
+        try:
+            conn.close(close_remote=True)
+        except Exception:
+            pass
+
+
+def _finalize_product_candidate(state: FissionState, candidate: ProductCandidate,
+                                pid: str, depth: int, chain: list, frontier: list,
+                                out: list, seed_category: str = "") -> None:
+    """主线程收尾：写 FissionState 相关字段 + 追加 out/frontier（全部主线程执行）。"""
+    candidate.chain_depth = depth
+    candidate.source_chain = chain
+    candidate._seed_category_id = seed_category
+    out.append(candidate)
+    new_chain = state.extend_chain(chain, "product", pid,
+                                   candidate.ozon_title[:30] or pid, depth)
+    frontier.append(("product", pid, depth, new_chain))
+
+
 def _expand_seller(state: FissionState, cdp: Any, cdp_url: str, sid: str,
                    depth: int, chain: list, frontier: list, out: list,
                    max_products: int, seed_category: str = "") -> None:
     pids = ozon_discovery.fetch_seller_products(
         cdp_url=cdp_url, seller_id=sid, max_products=max_products, cdp=cdp)
+    # 主线程预过滤：budget + visited 守卫后再派发（预算精确记账，绝不跨线程动 FissionState）
+    work: list[str] = []
     for pid in pids:
         if not state.can_add_product():
-            return
+            break
         if not state.should_visit_product(pid):
             continue
         state.mark_product_seen(pid)
-        candidate = ozon_discovery._analyze_product(cdp_url, cdp, pid)
-        candidate.chain_depth = depth
-        candidate.source_chain = chain
-        candidate._seed_category_id = seed_category
-        out.append(candidate)
-        new_chain = state.extend_chain(chain, "product", pid,
-                                       candidate.ozon_title[:30] or pid, depth)
-        frontier.append(("product", pid, depth, new_chain))
+        work.append(pid)
+    if not work:
+        return
+    workers = _parallel_workers()
+    if workers <= 1:
+        # 单 worker：沿用共享 cdp 串行路径（零回归，不新建连接）
+        for pid in work:
+            candidate = ozon_discovery._analyze_product(cdp_url, cdp, pid)
+            _finalize_product_candidate(state, candidate, pid, depth, chain,
+                                        frontier, out, seed_category)
+        return
+    # 并行：只把每 pid 的 _analyze_product I/O 丢给线程池；状态收集回主线程
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        future_to_pid = {
+            pool.submit(_analyze_product_parallel, cdp_url, pid): pid
+            for pid in work
+        }
+        for fut in as_completed(future_to_pid):
+            pid = future_to_pid[fut]
+            candidate = fut.result()
+            _finalize_product_candidate(state, candidate, pid, depth, chain,
+                                        frontier, out, seed_category)
