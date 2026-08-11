@@ -58,6 +58,7 @@ def test_match_selected_parallel_concurrency_and_main_thread_callbacks():
          mock.patch.object(od, "_search_1688_source", side_effect=fake_search), \
          mock.patch.object(od, "_query_logistics_from_worker", return_value=None), \
          mock.patch.object(od, "_save_discovery_log"), \
+         mock.patch.object(od, "_log_review_record"), \
          mock.patch("time.sleep"):
         result = od.match_selected(cands, "http://127.0.0.1:9222",
                                    min_margin_pct=1, progress_callback=cb)
@@ -85,6 +86,7 @@ def test_match_selected_serial_no_match_preserves_semantics():
     with mock.patch.object(od, "_discover_workers", return_value=1), \
          mock.patch.object(od, "_search_1688_source", return_value=None), \
          mock.patch.object(od, "_save_discovery_log"), \
+         mock.patch.object(od, "_log_review_record"), \
          mock.patch("time.sleep"):
         result = od.match_selected(cands, "http://127.0.0.1:9222")
     # error 候选不被处理（保持 error）；ok 候选 → no_match

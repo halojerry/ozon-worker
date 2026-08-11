@@ -812,7 +812,9 @@ def cmd_follow(args) -> int:
         return 1
 
     try:
-        result = follow_sell_cloud(args.ozon_url, auto_submit=args.auto_submit, store_id=args.store or "")
+        result = follow_sell_cloud(args.ozon_url, auto_submit=args.auto_submit,
+                                   store_id=args.store or "",
+                                   review=getattr(args, "review", False))
     except AuthError as e:
         _out({"success": False, "error": str(e)})
         return 1
@@ -1123,6 +1125,61 @@ def cmd_discover(args: argparse.Namespace) -> int:
     profitable = [c for c in selected if c.status == "profitable"]
     print(f"\n✅ 符合条件: {len(profitable)} 个 | 利润不足: {sum(1 for c in selected if c.status == 'rejected')} 个 | 无货源: {sum(1 for c in selected if c.status == 'no_match')} 个")
 
+    # ── D3 L3: 人工评审暂停（--review 或设置 visual_review）──
+    # 弱匹配候选（badge_eff<0.5 或 conf<0.3）逐个过目：y=approved / n=agent_reject，
+    # 决策写 review_log（判定不静默消失）。默认（无 --review）零 input() 调用。
+    from scripts.lib.config_store import get_setting
+    if getattr(args, "review", False) or get_setting("visual_review", False):
+        weak = [c for c in selected
+                if c.match_1688_url
+                and (c.match_badge_eff < 0.5 or c.match_confidence < 0.3)]
+        if weak:
+            from scripts.lib.review_log import write_review_record
+
+            print(f"\n🔍 人工评审：{len(weak)} 个弱匹配候选需要确认"
+                  f"（badge_eff<0.5 或 confidence<0.3）", flush=True)
+            for i, c in enumerate(weak, 1):
+                print(f"\n[{i}/{len(weak)}] {c.ozon_title[:60]}", flush=True)
+                print(f"    1688: {c.match_1688_title[:60]}", flush=True)
+                print(f"    URL: {c.match_1688_url}", flush=True)
+                if c.match_1688_images:
+                    print(f"    图: {', '.join(c.match_1688_images[:3])}", flush=True)
+                print(f"    confidence={c.match_confidence:.2f} "
+                      f"badge_eff={c.match_badge_eff:.2f}", flush=True)
+                ans = input("    接受该货源？[y/N/a=全部接受/s=跳过] ").strip().lower()
+                decision = ""
+                if ans in ("a", "all"):
+                    decision = "approved"
+                    c.review_decision = "approved"
+                    for c2 in weak[i:]:
+                        c2.review_decision = "approved"
+                    print(f"    ✅ 已接受（含剩余 {len(weak) - i} 个）", flush=True)
+                elif ans in ("y", "yes", ""):
+                    decision = "approved"
+                    c.review_decision = "approved"
+                elif ans in ("n", "no"):
+                    decision = "agent_reject"
+                    c.review_decision = "agent_reject"
+                else:
+                    print("    跳过（按自动规则处理）", flush=True)
+                if decision:
+                    write_review_record({
+                        "task_id": "",
+                        "product_id": c.ozon_product_id,
+                        "ozon_title": c.ozon_title,
+                        "match_title": c.match_1688_title,
+                        "match_url": c.match_1688_url,
+                        "confidence": c.match_confidence,
+                        "badge_eff": c.match_badge_eff,
+                        "score": 0.0,
+                        "reject_reason": "" if decision == "approved"
+                        else "agent_review_reject",
+                        "decision": decision,
+                        "image_urls": list(c.match_1688_images or []),
+                    })
+                if ans in ("a", "all"):
+                    break
+
     # 选中+货源结果导出（仅当请求导出时追加一份 _matched 文件）
     if args.export in ("csv", "both"):
         base = args.output or "data/discovery/discover_export.csv"
@@ -1145,7 +1202,10 @@ def cmd_discover(args: argparse.Namespace) -> int:
 
     # ── auto-submit ──
     if args.auto_submit:
-        to_submit = [c for c in selected if c.status == "profitable" and c.match_1688_url]
+        # D3 L3: 人工评审拒绝的候选（review_decision=agent_reject）绝不提交
+        to_submit = [c for c in selected
+                     if c.status == "profitable" and c.match_1688_url
+                     and c.review_decision != "agent_reject"]
         if not to_submit:
             print("\n⚠️ 没有符合条件的 profitable 产品可提交")
             return 0
@@ -1364,6 +1424,8 @@ def main() -> int:
     fp.add_argument("--ozon-url", required=True, help="Ozon 商品页 URL")
     fp.add_argument("--auto-submit", action="store_true", help="自动提交到 Worker")
     fp.add_argument("--store", default="", help="Ozon 店铺名称")
+    fp.add_argument("--review", action="store_true",
+                    help="人工评审暂停：展示全部 1688 候选，人工接受/改选/拒绝")
     fp.set_defaults(func=cmd_follow)
 
     dp = sub.add_parser("discover", help="Ozon 选品 v2（先采集 → 表格分析 → 挑完再找货源）")
@@ -1399,6 +1461,8 @@ def main() -> int:
                          "queries=实时 what_to_sell 查询（需 --keyword + seller 登录，失败降级 CSV）")
     dp.add_argument("--blue-ocean-csv", default="",
                     help="蓝海关键词 CSV 路径（--blue-ocean-source 时；默认 /tmp/queries_all.csv）")
+    dp.add_argument("--review", action="store_true",
+                    help="人工评审暂停：弱匹配候选逐个确认（y/N/a=全部/s=跳过），决策写入 review_log")
     dp.set_defaults(func=cmd_discover)
 
 
