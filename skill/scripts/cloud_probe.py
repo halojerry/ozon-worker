@@ -1197,6 +1197,8 @@ def build_graph_envelope(
     title: str = "",
     poll_category: bool = True,
     max_skus: int | None = None,
+    fallback_images: list[str] | None = None,
+    cdp: Any = None,
 ) -> dict[str, Any]:
     """1688 API + CDP → GraphInput 格式 envelope。
 
@@ -1207,6 +1209,10 @@ def build_graph_envelope(
     
     Args:
         max_skus: SKU 数量上限（None=使用默认值15，0=不限制）
+        fallback_images: 1688 图片为空时使用的兜底图（如 follow 的 Ozon 竞品主图）。
+            仅当 get_best_product_images 结果为空时生效，放行「产品图片为空」校验门。
+        cdp: 可选外部 CdpConnection 复用（P5/T3）——传入时 enrich 跳过浏览器查找/
+            登录等待，直接用调用方连接探测。连接归调用方所有，本函数不关闭。
     """
     from scripts.lib.config_store import _require_auth
     _require_auth()
@@ -1234,7 +1240,7 @@ def build_graph_envelope(
         source_category_short = ""
 
     # ── 2. CDP 浏览器富化（必须成功，不允许降级）──
-    enriched = enrich_product_with_cdp(detail_url=detail_url, api_data=api_data)
+    enriched = enrich_product_with_cdp(detail_url=detail_url, api_data=api_data, cdp=cdp)
     data = enriched.get("data", {})
     cdp_source = enriched.get("source", "?")
 
@@ -1400,6 +1406,10 @@ def build_graph_envelope(
 
     # 图片
     images = get_best_product_images(data.get("images", []), limit=10)
+    # ⚠️ P4: 1688 图片为空但调用方提供兜底图（follow 的 Ozon 竞品主图）→ 用兜底，
+    # 放行「产品图片为空」校验门（1688 api_only 降级时图片可能为空）
+    if not images and fallback_images:
+        images = list(fallback_images)
 
     # 属性（取前 15 个有效 kv）
     attrs: dict[str, str] = {}
@@ -1936,6 +1946,8 @@ def build_graph_envelope_with_retry(
     max_retries: int = 3,
     retry_delay: float = 15.0,
     max_skus: int | None = None,
+    fallback_images: list[str] | None = None,
+    cdp: Any = None,
 ) -> dict[str, Any]:
     """build_graph_envelope() with CDP retry on degradation.
 
@@ -1957,6 +1969,8 @@ def build_graph_envelope_with_retry(
                 # 直采信封从此携带正确的 description_category_id/type_id(旧: False → 类目全靠 worker 猜)
                 poll_category=True,
                 max_skus=max_skus,
+                fallback_images=fallback_images,
+                cdp=cdp,
             )
         except RuntimeError as exc:
             last_error = exc
@@ -2193,6 +2207,7 @@ def publish_product_new(
     skip_self_learning: bool = False,  # Skip webhook self-learning lookup (when tables are empty/cleaned)
     skip_images: bool = False,  # Reuse existing COS image URLs (don't call mxou image gen)
     reuse_images: list[str] | None = None,  # Existing image URLs to populate ctx.image_urls
+    cdp: Any = None,  # 可选外部 CdpConnection 复用（T3/P4），传入时 enrich 跳过浏览器查找/登录等待
 ) -> dict[str, Any]:
     """1688 → Ozon. Client collects raw data; pipeline handles all Ozon work.
 
@@ -2222,7 +2237,7 @@ def publish_product_new(
 
     # 2. CDP browser enrichment
     _log_task(task_id, 'cdp', 'probe', 'info', f'CDP probing {detail_url[:60]}')
-    enriched = enrich_product_with_cdp(detail_url=detail_url, api_data=api_data)
+    enriched = enrich_product_with_cdp(detail_url=detail_url, api_data=api_data, cdp=cdp)
     result['enriched'] = enriched.get('data', {})
     result['cdp_source'] = enriched.get('source', 'api_only')
     result['cdp_degraded'] = enriched.get('degraded', True)
@@ -2934,7 +2949,6 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             best = _pick_best_match(matches, ozon_title, token=mxou_token) if ozon_title else matches[0]
             if best:
                 result["best_match"] = best
-                result["success"] = True
                 logger.info("📊 图搜匹配质量: %d 个结果, 最佳 badge=%s (score=%d)",
                            len(matches), best.get("badge", "?"), best.get("badge_score", 0))
                 if best.get("badge_score", 0) <= 1:
@@ -2951,11 +2965,15 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         if best_id:
             try:
                 detail_url = f"https://detail.1688.com/offer/{best_id}.html"
+                # ⚠️ P4: 1688 api_only 图片可能为空 → 用 Ozon 竞品主图兜底放行图片
+                # 校验门（draft.images 下方仍会被 Ozon 主图覆盖）；cdp 复用 shared 连接
                 envelope = build_graph_envelope_with_retry(
                     item_id=best_id,
                     detail_url=detail_url,
                     store_id=store_id,
                     max_skus=1,
+                    fallback_images=ozon_images[:1] if ozon_images else None,
+                    cdp=shared_cdp,
                 )
                 if envelope and envelope.get("envelope"):
                     draft = envelope["envelope"].get("draft", {})
@@ -3052,15 +3070,21 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     envelope["token"] = mxou_token
                     result["envelope"] = envelope
                     result["envelope_built"] = True
-                    # auto_submit 时才提交
+                    # ⚠️ P4: success 必须在提交之后才置位——图搜命中 ≠ 上架成功
                     if auto_submit:
                         submit_res = submit_envelope(envelope)
                         result["submit_result"] = submit_res
                         result["task_id"] = submit_res.get("task_id", "")
+                        result["success"] = bool(submit_res.get("ok")) and bool(submit_res.get("task_id"))
+                    else:
+                        # dry-run：仅组装信封，构建成功即算成功
+                        result["success"] = True
                 else:
                     result["envelope_error"] = "build_graph_envelope 返回空"
+                    result["success"] = False
             except Exception as e:
                 result["envelope_error"] = str(e)
+                result["success"] = False
     elif result.get("no_relevant_match"):
         # ⚠️ v0.26 FIX: 图搜无 1688 货源匹配 → 不再 api 强制跟卖（import-by-sku 复制竞品卡）。
         # 原逻辑（v0.22）组装「无采购价/无 1688 属性」空壳信封提交 → worker 定价/属性全缺
