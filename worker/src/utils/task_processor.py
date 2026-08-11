@@ -198,7 +198,8 @@ class SupabaseTaskProcessor:
         payload: Dict[str, Any], 
         priority: int = 0,
         timeout_seconds: int = 1800,
-        max_retries: int = 3
+        max_retries: int = 3,
+        sku_key: str = "",
     ) -> str:
         """
         提交任务到Supabase队列
@@ -228,16 +229,17 @@ class SupabaseTaskProcessor:
             "priority": priority,
             "payload": payload,
             "timeout_seconds": timeout_seconds,
-            "max_retries": max_retries
+            "max_retries": max_retries,
+            "sku_key": sku_key or None,
         }
         
         try:
             # 使用SQL INSERT直接操作PostgreSQL（绕过PostgREST schema cache）
             insert_sql = text("""
                 INSERT INTO ozon_product_tasks (
-                    tenant_id, status, priority, payload, timeout_seconds, max_retries, retry_count
+                    tenant_id, status, priority, payload, timeout_seconds, max_retries, retry_count, sku_key
                 ) VALUES (
-                    :tenant_id, 'pending', :priority, :payload_json, :timeout_seconds, :max_retries, 0
+                    :tenant_id, 'pending', :priority, :payload_json, :timeout_seconds, :max_retries, 0, :sku_key
                 ) RETURNING id
             """)
             
@@ -247,7 +249,8 @@ class SupabaseTaskProcessor:
                     "priority": priority,
                     "payload_json": json.dumps(payload),
                     "timeout_seconds": timeout_seconds,
-                    "max_retries": max_retries
+                    "max_retries": max_retries,
+                    "sku_key": sku_key or None,
                 })
                 task_id = str(result.fetchone()[0])
                 conn.commit()

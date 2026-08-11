@@ -49,6 +49,11 @@ class OzonProductTask(Base):
         JSONB, nullable=True,
         comment="实时进度数据 {stage, percent, stages_completed[], stages_remaining[], message}"
     )
+    # v0.37 P0-1: SKU 级重复提交防护 — 空值存 NULL 不参与部分唯一索引
+    sku_key: Mapped[Optional[str]] = mapped_column(
+        String(200), nullable=True,
+        comment="SKU 级去重键 {user_id}:{product_id}"
+    )
 
     __table_args__ = (
         Index(
@@ -57,6 +62,12 @@ class OzonProductTask(Base):
             postgresql_where=text("status = 'pending'"),
         ),
         Index("idx_ozon_product_tasks_tenant_id", "tenant_id"),
+        Index(
+            "uq_ozon_product_tasks_tenant_sku",
+            "tenant_id", "sku_key",
+            unique=True,
+            postgresql_where=text("sku_key IS NOT NULL"),
+        ),
     )
 
 
