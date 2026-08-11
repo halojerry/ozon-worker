@@ -78,7 +78,7 @@ def test_resolve_packaging_keeps_cm_when_mm_absurd():
 
 def test_density_guard_keeps_merchant_weight():
     """挂脖风扇：850×650×110mm + 300g 商家重量 → 不放大，保留 300g。"""
-    w, d, errs, est = _validate_and_fix_product_data(
+    w, d, errs, est, w_est = _validate_and_fix_product_data(
         item_id="892889757604", title="风扇", cost_cny=11.3, images=["x"],
         weight_g=300, dimensions={"length": 850, "width": 650, "height": 110},
         variants=[], option_groups=[],
@@ -86,17 +86,19 @@ def test_density_guard_keeps_merchant_weight():
     assert w == 300
     assert d["length"] == 850
     assert errs == []
+    assert w_est is False
 
 
 def test_density_estimate_capped_when_no_merchant_weight():
     """无商家重量时估算重量，但封顶 30000g，不再输出 364kg 级离谱值。"""
-    w, d, errs, est = _validate_and_fix_product_data(
+    w, d, errs, est, w_est = _validate_and_fix_product_data(
         item_id="965229015779", title="工具套装", cost_cny=162.68, images=["x"],
         weight_g=0, dimensions={"length": 2600, "width": 800, "height": 350},
         variants=[], option_groups=[],
     )
     assert w <= 30000
     assert w > 0
+    assert w_est is True
 
 
 if __name__ == "__main__":

@@ -1611,78 +1611,76 @@ def repair_dimensions_node(state: ValidationRetryLoopState) -> ValidationRetryLo
             logger.info(f"  item[{i}].weight 为0，设为默认 100g")
 
         # Ozon 重量范围限制: 40g - 120000g
+        # ⚠️ v0.37 D3a 修复: 低于 40g 不再抬升为 40g——真实轻物（3g 薄膜/5g 垫片）
+        # 被抬到 40g 是误伤（运费按 40g 算）。仅记录告警，保留真实值。
         OZON_WEIGHT_MIN = 40
         OZON_WEIGHT_MAX = 120000
         if weight_g < OZON_WEIGHT_MIN:
-            weight_g = OZON_WEIGHT_MIN
-            item["weight"] = str(int(weight_g))
-            logger.warning(f"  item[{i}].weight {weight_g}g < 最小值{OZON_WEIGHT_MIN}g，已修正")
+            logger.warning(
+                f"  item[{i}].weight {weight_g}g < Ozon 最小值{OZON_WEIGHT_MIN}g，"
+                f"保留真实值（v0.37 不再抬升）"
+            )
         elif weight_g > OZON_WEIGHT_MAX:
-            weight_g = OZON_WEIGHT_MAX
-            item["weight"] = str(int(weight_g))
-            logger.warning(f"  item[{i}].weight {weight_g}g > 最大值{OZON_WEIGHT_MAX}g，已修正")
+            logger.warning(
+                f"  item[{i}].weight {weight_g}g > 最大值{OZON_WEIGHT_MAX}g，"
+                f"保留真实值（物理超限由 draft_sanity 入口拦截）"
+            )
 
         # 读取当前尺寸（mm）
         depth = int(float(str(item.get("depth", "0")) or "0"))
         width = int(float(str(item.get("width", "0")) or "0"))
         height = int(float(str(item.get("height", "0")) or "0"))
 
-        # ✅ 自适应密度：根据重量范围选择合适的密度
-        # 小物品（<500g）：密度较高（塑料/金属）
-        # 中等物品（500-5000g）：密度中等
-        # 大物品（>5000g）：密度较低（大件轻质物品）
-        if weight_g < 500:
-            density = 0.8  # g/cm³（小物品：塑料、金属、化妆品等）
-        elif weight_g < 5000:
-            density = 0.3  # g/cm³（中等物品：家居用品、工具等）
+        # ⚠️ v0.37 D3c/D3d 修复: 真实尺寸一律保留（无论体积重比值多少）。
+        # 旧逻辑无条件按密度重算三边 / 比值超阈值就重算——真实轻物（3g 薄膜/垫片，
+        # 比值可低至 0.04）被改写成"推测立方体"，运费/包装全错。体积重比值是
+        # Ozon ML 判据，但对真实低密度商品天然不成立；retry 不应猜改真实数据。
+        # 唯一允许推算的路径：尺寸全缺失（此时用重量反推合理默认）。
+        if depth <= 0 and width <= 0 and height <= 0:
+            # ✅ 自适应密度：根据重量范围选择合适的密度
+            # 小物品（<500g）：密度较高（塑料/金属）
+            # 中等物品（500-5000g）：密度中等
+            # 大物品（>5000g）：密度较低（大件轻质物品）
+            if weight_g < 500:
+                density = 0.8  # g/cm³（小物品：塑料、金属、化妆品等）
+            elif weight_g < 5000:
+                density = 0.3  # g/cm³（中等物品：家居用品、工具等）
+            else:
+                density = 0.1  # g/cm³（大物品：家具、推车、大型玩具等）
+            volume_cm3 = weight_g / density
+            # 立方体边长（cm）→ 转 mm
+            side_cm = max(1.0, volume_cm3 ** (1.0 / 3.0))
+            side_mm = max(30, min(int(side_cm * 10), 500))
+
+            # 分配三边：略做差异化（不是完美立方体）
+            new_depth = side_mm
+            new_width = max(30, int(side_mm * 0.8))
+            new_height = max(20, int(side_mm * 0.6))
+            item["depth"] = str(new_depth)
+            item["width"] = str(new_width)
+            item["height"] = str(new_height)
+            item["dimension_unit"] = "mm"
+            item["weight_unit"] = "g"
+            logger.warning(
+                f"  item[{i}] 尺寸全缺失，按重量 {int(weight_g)}g 推算: "
+                f"{new_depth}×{new_width}×{new_height}mm (密度≈{density} g/cm³)"
+            )
         else:
-            density = 0.1  # g/cm³（大物品：家具、推车、大型玩具等）
-        volume_cm3 = weight_g / density
-        # 立方体边长（cm）→ 转 mm
-        side_cm = max(1.0, volume_cm3 ** (1.0 / 3.0))
-        side_mm = max(30, min(int(side_cm * 10), 500))
-
-        # 分配三边：略做差异化（不是完美立方体）
-        new_depth = side_mm
-        new_width = max(30, int(side_mm * 0.8))
-        new_height = max(20, int(side_mm * 0.6))
-
-        item["depth"] = str(new_depth)
-        item["width"] = str(new_width)
-        item["height"] = str(new_height)
-        item["dimension_unit"] = "mm"
-        item["weight_unit"] = "g"
-
-        # ✅ 一致性校验：体积重量 vs 实际重量
-        recalc_vw = (new_depth * new_width * new_height) / 5000.0
-        if recalc_vw > 0:
-            ratio = weight_g / recalc_vw
-            if ratio > 3.0 or ratio < 0.33:
-                # ⚠️ v0.26 FIX: 方向反转。旧代码保留尺寸、把重量改成体积重量——
-                # 重量是可信真实数据（1688/竞品），改成体积重量会让运费/定价全错
-                # （wave2 清洁片 387g 被 115×32×115mm 的体积重量 84.6g 覆盖 → 更错）。
-                # Ozon ML 要求「体积重量 ≈ 实际重量」（比值超阈值报
-                # ML_INCORRECT_VOLUME_WEIGHT），因此改为：保持重量、重算尺寸
-                # 使体积重量严格等于实际重量（目标体积 = weight × 5000 mm³）。
-                _vol_mm3 = weight_g * 5000.0
-                _side = max(10.0, (_vol_mm3 / 3.0) ** (1.0 / 3.0))  # 2*1.5*1=3
-                new_depth = max(30, int(_side * 2.0))
-                new_width = max(30, int(_side * 1.5))
-                new_height = max(20, int(_side * 1.0))
-                item["depth"] = str(new_depth)
-                item["width"] = str(new_width)
-                item["height"] = str(new_height)
-                item["dimension_unit"] = "mm"
+            # 真实尺寸保留（v0.37 最小干预：不猜改）
+            new_depth, new_width, new_height = depth, width, height
+            recalc_vw = (depth * width * height) / 5000.0
+            if recalc_vw > 0:
+                ratio = weight_g / recalc_vw
                 logger.warning(
-                    f"  item[{i}] 体积重量与实际重量不匹配(比值={ratio:.1f}x)，"
-                    f"保持重量 {int(weight_g)}g、重算尺寸使体积重量≈重量: "
-                    f"{new_depth}×{new_width}×{new_height}mm"
+                    f"  item[{i}] 体积重量比值 {ratio:.2f}x（Ozon 理想 0.33~3.0），"
+                    f"但保留真实尺寸 {new_depth}×{new_width}×{new_height}mm "
+                    f"（v0.37 D3d: 真实数据不猜改；若 Ozon 持续拒绝请核对 1688 原始数据）"
                 )
 
         logger.info(
-            f"  item[{i}] 尺寸已修复: weight={int(weight_g)}g, "
-            f"dimensions={new_depth}×{new_width}×{new_height}mm "
-            f"(密度≈{density} g/cm³, 体积重量≈{int(recalc_vw)}g)"
+            f"  item[{i}] 尺寸已处理: weight={int(weight_g)}g, "
+            f"dimensions={new_depth}×{new_width}×{new_height}mm, "
+            f"体积重量≈{int((new_depth * new_width * new_height) / 5000.0)}g"
         )
 
     logger.info(f"✅ dimensions修复完成，retry_count={state.retry_count}")

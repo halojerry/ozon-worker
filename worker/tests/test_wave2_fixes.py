@@ -50,8 +50,10 @@ def test_harness_failed_detection():
 # ── A: 尺寸方向反转（保持重量、重算尺寸使体积重量≈重量）──
 
 def test_repair_dimensions_keeps_weight():
-    """wave2 清洁片 387g / 115×32×115mm → 比值 4.6x > 3。
-    修复后必须保持重量 387g（重算尺寸），不得把重量改成体积重量 84.6g。"""
+    """wave2 清洁片 387g / 115×32×115mm → 比值 4.6x。
+    v0.26 确保不把重量改成体积重量（387g 保留）。
+    v0.37 D3d: 比值 4.6x 未达极端（>10）→ 真实尺寸也保留（防误伤）。
+    """
     from graphs.validation_retry_loop import repair_dimensions_node
     from graphs.validation_retry_loop import ValidationRetryLoopState
 
@@ -74,16 +76,15 @@ def test_repair_dimensions_keeps_weight():
     item = out.ozon_payload["items"][0]
     weight = int(item["weight"])
     assert weight == 387, f"应保持重量 387g，实际 {weight}（旧逻辑会改成体积重量 84.6g）"
-    # 重算尺寸后体积重量 ≈ 387g（比值应 < 3）
-    vw = (int(item["depth"]) * int(item["width"]) * int(item["height"])) / 5000.0
-    ratio = weight / vw
-    assert 0.33 <= ratio <= 3.0, f"修复后体积重量≈重量（比值 {ratio:.2f}），尺寸 {item['depth']}×{item['width']}×{item['height']}"
+    # v0.37 D3d: 比值 4.6x 未达极端（>10），真实尺寸保留
+    assert (int(item["depth"]), int(item["width"]), int(item["height"])) == (115, 32, 115)
     assert item["dimension_unit"] == "mm"
 
 
 def test_repair_dimensions_always_consistent():
-    """节点契约（v0.26）：收到 ML_INCORRECT_VOLUME_WEIGHT 即按重量重算尺寸，
-    任何输入下：① 重量保留（不改成体积重量）；② 重算后体积重量≈重量（比值在区间内）。"""
+    """节点契约（v0.26 + v0.37 D3d）：
+    收到 ML_INCORRECT_VOLUME_WEIGHT → ① 重量始终保留（绝不改成体积重量）；
+    ② 真实尺寸保留；仅当尺寸全缺失或比值极端（<0.1 或 >10）才重算三边。"""
     from graphs.validation_retry_loop import repair_dimensions_node
     from graphs.validation_retry_loop import ValidationRetryLoopState
 
@@ -107,15 +108,21 @@ def test_repair_dimensions_always_consistent():
         item = repair_dimensions_node(state).ozon_payload["items"][0]
         return item
 
+    # 真实尺寸非极端比值 → 保留原尺寸（v0.37 D3d 防误伤）
     for weight, d, w, h in [(387, 115, 32, 115), (250, 100, 80, 60), (1200, 200, 150, 100)]:
         item = _run(weight, d, w, h)
         w_keep = int(item["weight"])
         assert w_keep == weight, f"{weight}g 应保留（实际 {w_keep}）"
-        vw = (int(item["depth"]) * int(item["width"]) * int(item["height"])) / 5000.0
-        ratio = weight / vw
-        assert 0.33 <= ratio <= 3.0, \
-            f"{weight}g: 修复后体积重量≈重量（比值 {ratio:.2f}），尺寸 {item['depth']}×{item['width']}×{item['height']}"
+        assert (int(item["depth"]), int(item["width"]), int(item["height"])) == (d, w, h), \
+            f"{weight}g: 真实尺寸应保留（v0.37），实际 {item['depth']}×{item['width']}×{item['height']}"
         assert item["dimension_unit"] == "mm"
+
+    # 尺寸全缺失 → 按重量推算三边（唯一允许重算的路径）
+    item = _run(387, 0, 0, 0)
+    assert int(item["weight"]) == 387
+    d, w, h = int(item["depth"]), int(item["width"]), int(item["height"])
+    assert d > 0 and w > 0 and h > 0
+    assert item["dimension_unit"] == "mm"
 
 
 if __name__ == "__main__":

@@ -380,14 +380,31 @@ def get_store_profile(store_id: str = "") -> dict[str, Any]:
 
 _SENTRY_INITIALIZED = False
 
+# ⚠️ v0.37: skill 内置默认 Sentry DSN（用户零配置）。与 worker 同 org/project
+# （pouding_ozon），用 environment 标签区分来源（skill）。DSN 的 public key
+# 本就是设计为暴露的（SDK 初始化必需），硬编码是标准做法；上报内容仅异常
+# 堆栈 + 非敏感 tags，绝不含 token/ak/api_key/client_id 凭证。
+# 高级用户可用 settings.json `sentry_dsn` 覆盖（如自建 Sentry）。
+DEFAULT_SENTRY_DSN = "https://a2491a4381126cbb40068fae5e79aee6@o4511410803441664.ingest.us.sentry.io/4511432541339648"
+
+
+def _skill_version_tag() -> str:
+    """读取 skill/VERSION 作为 Sentry release 标签（读不到回退 0.0.0）。"""
+    try:
+        from scripts._const import SKILL_ROOT
+        v = (SKILL_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        return v or "0.0.0"
+    except Exception:
+        return "0.0.0"
+
 
 def init_sentry() -> bool:
-    """Initialize Sentry SDK. Reads DSN from settings.json."""
+    """Initialize Sentry SDK. DSN: settings.json `sentry_dsn` → 内置默认。"""
     global _SENTRY_INITIALIZED
     if _SENTRY_INITIALIZED:
         return True
 
-    dsn = str(get_setting("sentry_dsn", "")).strip()
+    dsn = str(get_setting("sentry_dsn", "")).strip() or DEFAULT_SENTRY_DSN
     if not dsn:
         logger.debug('Sentry DSN not configured — error tracking disabled')
         return False
@@ -396,9 +413,9 @@ def init_sentry() -> bool:
         import sentry_sdk  # type: ignore
         sentry_sdk.init(
             dsn=dsn,
-            traces_sample_rate=0.1,
-            environment=os.environ.get('APP_ENV', 'production'),
-            _experiments={'continuous_profiling_auto_start': False},
+            traces_sample_rate=0.0,  # 仅错误事件，不上报性能 trace（省额度）
+            environment="skill",
+            release=_skill_version_tag(),
         )
         _SENTRY_INITIALIZED = True
         return True

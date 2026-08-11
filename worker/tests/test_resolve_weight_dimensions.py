@@ -61,13 +61,16 @@ def test_default_100g_when_no_extensions():
     assert result == (100, 100, 50, 30)
 
 
-def test_density_validation_still_applies():
-    """密度校验仍生效：20kg/100³mm 密度 20000 > 13546 → 重量 ÷1000 修正为 20g。"""
+def test_density_validation_marks_not_rewrites():
+    """v0.37 A8 修复：密度 20000 > 13546 → 保留商家重量 20000g（不再 ÷1000 改写），
+    由公共模块打 density_too_high 标记。"""
     result = _resolve_weight_dimensions(
         {"weight": 20000, "dimensions": {"length": 100, "width": 100, "height": 100}},
         None,
     )
-    assert result == (20, 100, 100, 100)
+    assert result == (20000, 100, 100, 100)
+    marks = _resolve_weight_dimensions._wd_marks
+    assert any("density_too_high" in r for r in marks["reasons"])
 
 
 def test_partial_dim_fill_from_competitor():

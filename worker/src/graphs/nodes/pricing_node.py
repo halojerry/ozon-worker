@@ -90,64 +90,58 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         # Step 1: 获取基础数据
         # ✅ 关键修复：兼容purchase_cost字段（扁平信封使用purchase_cost而非cost_cny）
         cost_cny: float = float(draft.get("cost_cny", 0) or draft.get("purchase_cost", 0) or 0)
-        weight_raw = draft.get("weight", 0)
-        try:
-            weight: float = float(weight_raw) if weight_raw else 0.0
-        except (ValueError, TypeError):
-            weight = 0.0
-            logger.warning(f"定价节点：weight 无法解析为数字（{weight_raw}），使用默认 0")
-        # ✅ 单位转换：kg → g 判定
-        if isinstance(weight_raw, str) and '.' in str(weight_raw) and 0 < weight < 10000:
-            weight = weight * 1000  # kg → g
-            logger.info(f"定价节点重量转换：{weight_raw}kg → {weight}g")
-        
-        # 提前提取尺寸对象（用于小重量检测和后续定价计算）
+        # ⚠️ v0.37 A2/B2 修复: 重量/尺寸归一化统一走公共模块（与 prepare 同源）。
+        # 旧逻辑在此独立实现 <10g×1000 轻物误伤（真实 3g→3000g → 物流费爆炸）。
+        # 公共模块只对缺失兜底、对已有值仅标记，绝不改写。
+        from utils.weight_dimension_normalizer import normalize_weight_dimensions
+
         dims_obj = draft.get("dimensions", {})
-        def _safe_float(val) -> float:
-            try:
-                return float(val) if val else 0.0
-            except (ValueError, TypeError):
-                return 0.0
-        
-        # ✅ v0.11: 小重量+大尺寸 → 疑似 kg 当 g 传（与 prepare_ozon_upload 一致）
-        if 0 < weight < 10:
-            l = _safe_float(dims_obj.get("length", 0))
-            w = _safe_float(dims_obj.get("width", 0))
-            h = _safe_float(dims_obj.get("height", 0))
-            if max(l, w, h) > 50:
-                weight = weight * 1000
-                logger.warning(f"定价节点：weight={weight_raw}g 但 max_dim={max(l,w,h)}mm，疑似 kg→g 修正为 {weight}g")
-        
-        # ✅ 关键修复：从嵌套的 dimensions 对象中提取尺寸（mm→cm）
-        if isinstance(dims_obj, dict):
-            depth_mm = _safe_float(dims_obj.get("length") or dims_obj.get("depth"))
-            width_mm = _safe_float(dims_obj.get("width"))
-            height_mm = _safe_float(dims_obj.get("height"))
-        else:
-            depth_mm = _safe_float(draft.get("depth"))
-            width_mm = _safe_float(draft.get("width"))
-            height_mm = _safe_float(draft.get("height"))
-        # mm → cm
-        depth: float = depth_mm / 10.0
-        width: float = width_mm / 10.0
-        height: float = height_mm / 10.0
-        # 逐维度补默认值（与 prepare_ozon_upload_node 一致：depth→3cm, width→2cm, height→0.5cm）
+        if not (isinstance(dims_obj, dict) and dims_obj):
+            dims_obj = {
+                "length": draft.get("depth", 0) or draft.get("length", 0),
+                "width": draft.get("width", 0),
+                "height": draft.get("height", 0),
+            }
+        weight, dims_mm, _wd_marks = normalize_weight_dimensions(
+            draft.get("weight", 0), dims_obj, extensions
+        )
+        # mm → cm（物流费率表按 cm 匹配）
+        depth: float = dims_mm["length"] / 10.0
+        width: float = dims_mm["width"] / 10.0
+        height: float = dims_mm["height"] / 10.0
+        # 逐维度补默认值（depth→3cm, width→2cm, height→0.5cm，仅当兜底后仍 0）
         if depth <= 0:
             depth = 3.0
         if width <= 0:
             width = 2.0
         if height <= 0:
             height = 0.5
-        
-        # ✅ 重量为0时使用默认值（与prepare_ozon_upload_node一致）
-        if weight <= 0:
-            weight = 300.0  # 默认300克
-            logger.warning("⚠️ weight为0或空，使用默认值: 300克")
 
         # v0.21 P2: 重量/尺寸合理性打标（第二道防线；main.py 已拦超限，这里兜底标记）
         weight_suspect_reason: str = check_weight_suspect(weight, dims_obj)["reason"]
         if weight_suspect_reason:
             logger.warning("⚠️ 定价节点：重量/尺寸疑似异常（%s）——价格可能不可靠", weight_suspect_reason)
+        if _wd_marks.get("reasons"):
+            logger.warning(
+                "定价节点：重量/尺寸标疑（%s）——价格基于标疑数据，供审计排查",
+                "; ".join(_wd_marks["reasons"]),
+            )
+            # ✅ v0.37 A2/B2: 标疑放行但上报 Sentry（留痕，不阻断定价）
+            try:
+                from utils.sentry_setup import capture_task_error
+                capture_task_error(
+                    message=(
+                        f"[WEIGHT_DIM_SUSPECT] weight={weight}g dims="
+                        f"{dims_mm['length']}×{dims_mm['width']}×{dims_mm['height']}mm "
+                        f"source={_wd_marks.get('weight_source')} "
+                        f"reasons={'; '.join(_wd_marks['reasons'])}"
+                    ),
+                    task_id=str(getattr(state, "task_id", "") or ""),
+                    tenant_id=str(getattr(state, "tenant_id", "") or ""),
+                    token=str(getattr(state, "token", "") or ""),
+                )
+            except Exception:
+                pass
         
         # cost_cny为0时使用默认值
         if cost_cny <= 0:
@@ -265,6 +259,14 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             "old_price": old_price,
             "currency_unit": currency_unit,
             "weight_suspect": weight_suspect_reason,
+            # ✅ v0.37 A2/B2: 重量/尺寸归一化标疑明细（weight_source/reasons），
+            # 供审计排查「价格离谱是否源于重量误伤」
+            "wd_audit": {
+                "weight_source": _wd_marks.get("weight_source", "draft"),
+                "weight_estimated": _wd_marks.get("weight_estimated", False),
+                "dimensions_suspected": _wd_marks.get("dimensions_suspected", False),
+                "reasons": _wd_marks.get("reasons", []),
+            },
             "price_formula": "total_cost × (1 + margin) / (1 - commission) [× (1 + fx_buffer) × exchange_rate if RUB]",
             # ✅ 新增：利润预估明细
             "profit_estimation": {

@@ -171,11 +171,21 @@ builder.add_edge("ingest", "pricing")
 # 1688 产品：_build_items_deterministically 完整模式
 # ⚠️ v0.14 P1-4: 定价失败（[PRICING_FAILED]）→ 阻断管线，不兜底 1000 上架
 def route_after_pricing(state):
-    """定价后路由：定价失败 → 阻断，正常 → assemble"""
+    """定价后路由：定价失败 → 阻断，正常 → assemble。
+    v0.37: 重量/尺寸标疑（weight_suspect）→ 放行但告警（用户决策：标记放行 + Sentry 留痕）。"""
     error_msg = getattr(state, 'error_message', '') or ''
     if '[PRICING_FAILED]' in error_msg:
         logger.error("⛔ 定价失败，阻断管线（不兜底价格上架）: %s", error_msg[:120])
         return "END"
+    # ✅ v0.37 A2/B2: 标疑不阻断，仅告警（wd_audit 已写入 pricing_info 供审计）
+    pricing_info = getattr(state, 'pricing_info', {}) or {}
+    wd_audit = pricing_info.get('wd_audit', {}) or {}
+    if wd_audit.get('reasons'):
+        logger.warning(
+            "定价后路由：重量/尺寸标疑放行（%s）——价格基于标疑数据，"
+            "原始信封存 PG payload 供排查",
+            "; ".join(wd_audit["reasons"]),
+        )
     return "assemble"
 
 builder.add_conditional_edges(

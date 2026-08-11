@@ -1181,11 +1181,15 @@ def _is_sentry_test_process() -> bool:
 def _init_sentry() -> bool:
     """初始化 Sentry SDK（environment="skill"，release=本地 VERSION）。返回是否启用。
 
-    DSN 未设置 / sentry-sdk 未安装 / 测试进程 / 任何异常 → 静默 no-op 返回 False。
+    DSN: settings.json `sentry_dsn` → 内置默认（v0.37 起用户零配置）→ 空则禁用。
     sentry-sdk 缺失时靠 lazy import 自动降级（requirements.txt 已列为正式依赖，
-    但客户机器可能未升级，绝不因此阻断命令）。
+    但客户机器可能未升级，绝不因此阻断命令）。测试进程跳过上报。
     """
-    dsn = os.environ.get("SENTRY_DSN", "").strip()
+    try:
+        from scripts.lib.config_store import DEFAULT_SENTRY_DSN, get_setting
+        dsn = str(get_setting("sentry_dsn", "")).strip() or DEFAULT_SENTRY_DSN
+    except Exception:
+        dsn = os.environ.get("SENTRY_DSN", "").strip()
     if not dsn:
         return False
     if _is_sentry_test_process():

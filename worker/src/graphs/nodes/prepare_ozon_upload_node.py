@@ -1368,155 +1368,36 @@ def _convert_numeric_attrs(final_attributes: list, attributes_schema) -> list:
 
 
 def _resolve_weight_dimensions(draft: dict, extensions: dict | None = None) -> tuple[int, int, int, int]:
-    """提取并修正重量/尺寸，返回 (weight_g, depth_mm, width_mm, height_mm)。
+    """提取重量/尺寸，返回 (weight_g, depth_mm, width_mm, height_mm)。
 
-    优先级：draft 原值 → 竞品 extensions 兜底（competitor_weight_g /
-    competitor_dimensions_mm）→ 硬编码默认（100g / 300×200×50mm）。
-    保留 kg→g 自动修正、尺寸 <5mm 默认、密度 1.293~13546 校验逻辑。
+    ⚠️ v0.37 A2/B2/A8 修复：委托 utils.weight_dimension_normalizer 统一裁决。
+    只对缺失兜底（draft → 竞品 → 100g/300×200×50mm），对已有值仅标记
+    绝不改写——删除了旧 <10g×1000 轻物误伤与密度÷1000 改写。
+    单位级证据（字符串带小数点）仍允许 kg→g 转换。
+
+    marks 写入 self._wd_marks（供 prepare 主流程写 payload/审计）。
     """
-    weight_raw = draft.get("weight", 0)
+    from utils.weight_dimension_normalizer import normalize_weight_dimensions
 
-    # ✅ 尺寸提取：优先从dimensions嵌套对象提取，兼容扁平字段
-    dimensions_obj = draft.get("dimensions", {})
-    if isinstance(dimensions_obj, dict) and dimensions_obj:
-        depth_raw = dimensions_obj.get("length", 0) or dimensions_obj.get("depth", 0)
-        width_raw = dimensions_obj.get("width", 0)
-        height_raw = dimensions_obj.get("height", 0)
-    else:
-        depth_raw = draft.get("depth", 0) or draft.get("length", 0)
-        width_raw = draft.get("width", 0)
-        height_raw = draft.get("height", 0)
+    dims_obj = draft.get("dimensions", {})
+    if not (isinstance(dims_obj, dict) and dims_obj):
+        dims_obj = {
+            "length": draft.get("depth", 0) or draft.get("length", 0),
+            "width": draft.get("width", 0),
+            "height": draft.get("height", 0),
+        }
+    weight_g, dims_mm, marks = normalize_weight_dimensions(
+        draft.get("weight", 0), dims_obj, extensions or {}
+    )
+    _resolve_weight_dimensions._wd_marks = marks
+    depth_mm, width_mm, height_mm = dims_mm["length"], dims_mm["width"], dims_mm["height"]
 
-    # ✅ 重量单位判断：skill 保证发送克，仅当带小数点时判定为 kg
-    if weight_raw and isinstance(weight_raw, str) and '.' in str(weight_raw):
-        try:
-            weight_g = int(float(weight_raw) * 1000)  # kg → g
-            logger.info(f"重量单位判断：{weight_raw}kg → {weight_g}g")
-        except (ValueError, TypeError):
-            weight_g = 100  # 默认 100g
-            logger.warning(f"重量无法解析（{weight_raw}），使用默认值 100g")
-    else:
-        try:
-            weight_g = int(float(weight_raw)) if weight_raw else 0
-        except (ValueError, TypeError):
-            weight_g = 100
-            logger.warning(f"重量无法解析（{weight_raw}），使用默认值 100g")
-        logger.info(f"重量单位判断：{weight_raw}g（直接使用）")
-
-    # ✅ 尺寸单位智能判断：1688数据可能是cm或mm
-    # Ozon API 要求 mm 单位
-    def _safe_float(val) -> float:
-        try:
-            return float(val) if val else 0.0
-        except (ValueError, TypeError):
-            return 0.0
-
-    # ✅ 重量合理性检查：如果重量过小（<10g）但尺寸较大（>50mm），可能是kg写成g
-    if 0 < weight_g < 10:
-        _d = _safe_float(depth_raw)
-        _w = _safe_float(width_raw)
-        _h = _safe_float(height_raw)
-        if max(_d, _w, _h) > 50:
-            old_w = weight_g
-            weight_g = weight_g * 1000
-            logger.warning(f"⚠️ 重量{old_w}g过小而尺寸较大(max={max(_d,_w,_h):.0f})，疑似单位kg→g，修正为{weight_g}g")
-
-    # ✅ 尺寸转换
-    d_val = _safe_float(depth_raw)
-    w_val = _safe_float(width_raw)
-    h_val = _safe_float(height_raw)
-
-    max_dim = max(d_val, w_val, h_val)
-    # ✅ Skill层已输出mm，直接使用。不做二次cm→mm转换（阈值误判是INCORRECT_DENSITY根因）
-    depth_mm = int(d_val)
-    width_mm = int(w_val)
-    height_mm = int(h_val)
-    # 仅当所有维度都极小时（< 5mm），可能是数据异常，设置合理默认值
-    if max_dim > 0 and max_dim < 5:
-        logger.warning(f"尺寸异常小(max={max_dim}mm)，使用默认100×100×50mm")
-        depth_mm = 100
-        width_mm = 100
-        height_mm = 50
-    logger.info(f"尺寸：{depth_mm}×{width_mm}×{height_mm}mm")
-
-    # C2: 1688 缺重量 → 竞品 what_to_sell 重量兜底
-    if weight_g == 0 and extensions:
-        try:
-            _comp_w_f = float(extensions.get("competitor_weight_g", 0))
-        except (TypeError, ValueError):
-            _comp_w_f = 0.0
-        if _comp_w_f > 0:
-            weight_g = int(_comp_w_f)
-            logger.info(f"竞品重量兜底：{weight_g}g（draft.weight 缺失）")
-
-    # C2: 1688 缺尺寸 → 竞品 what_to_sell 尺寸兜底（competitor_dimensions_mm: {length,width,height}）
-    if extensions and (depth_mm == 0 or width_mm == 0 or height_mm == 0):
-        _comp_dims = extensions.get("competitor_dimensions_mm") or {}
-        if isinstance(_comp_dims, dict):
-            def _fill_dim(_cur: int, _key: str) -> int:
-                if _cur != 0:
-                    return _cur
-                try:
-                    _cv = float(_comp_dims.get(_key, 0) or 0)
-                except (TypeError, ValueError):
-                    _cv = 0.0
-                return int(_cv) if _cv > 0 else _cur
-            _nd, _nw, _nh = _fill_dim(depth_mm, "length"), _fill_dim(width_mm, "width"), _fill_dim(height_mm, "height")
-            if (_nd, _nw, _nh) != (depth_mm, width_mm, height_mm):
-                logger.info(f"竞品尺寸兜底：{_nd}×{_nw}×{_nh}mm（draft.dimensions 缺失部分维）")
-            depth_mm, width_mm, height_mm = _nd, _nw, _nh
-
-    # ✅ 尺寸重量验证
-    dimension_weight_issues = []
-
-    # ✅ 关键修复：dimensions全为0时使用默认值（Ozon API明确要求"不要指定0"）
-    if weight_g == 0:
-        weight_g = 100  # 默认100g
-        dimension_weight_issues.append(f"重量缺失（使用默认值{weight_g}g）")
-        logger.warning(f"⚠️ 重量为0，使用默认值: {weight_g}g")
-
-    if depth_mm == 0 and width_mm == 0 and height_mm == 0:
-        depth_mm = 300
-        width_mm = 200
-        height_mm = 50
-        dimension_weight_issues.append(f"尺寸全为0（使用默认值{depth_mm}×{width_mm}×{height_mm}mm）")
-        logger.warning(f"⚠️ 尺寸全为0，使用默认值: {depth_mm}×{width_mm}×{height_mm}mm")
-    else:
-        if depth_mm == 0:
-            depth_mm = 100
-            logger.warning(f"⚠️ 长度为0，使用默认值: {depth_mm}mm")
-        if width_mm == 0:
-            width_mm = 100
-            logger.warning(f"⚠️ 宽度为0，使用默认值: {width_mm}mm")
-        if height_mm == 0:
-            height_mm = 50
-            logger.warning(f"⚠️ 高度为0，使用默认值: {height_mm}mm")
-
-    # ✅ dimension_weight_issues仅作为日志记录，不再加入validation_errors（已用默认值修复）
-
-    if dimension_weight_issues:
-        logger.error(f"❌ 尺寸重量问题：{dimension_weight_issues}")
-
-    # ✅ 密度验证：Ozon要求密度在 1.293 ~ 13546 kg/m³ 之间
-    # density (kg/m³) = weight(g) / 1000 / (depth* width * height(mm) / 1e9)
-    if weight_g > 0 and depth_mm > 0 and width_mm > 0 and height_mm > 0:
-        volume_m3: float = (depth_mm * width_mm * height_mm) / 1e9
-        density_kg_m3: float = (weight_g / 1000.0) / volume_m3 if volume_m3 > 0 else 0.0
-        logger.info(f"密度验证：{weight_g}g / {volume_m3:.6f}m³ = {density_kg_m3:.1f} kg/m³ (范围: 1.293~13546)")
-        if density_kg_m3 > 13546:
-            # 密度过高，重量可能被错误放大，尝试除以1000
-            adjusted_weight: int = max(1, weight_g // 1000)
-            adjusted_density: float = (adjusted_weight / 1000.0) / volume_m3
-            if 1.293 <= adjusted_density <= 13546:
-                logger.warning(f"⚠️ 密度{density_kg_m3:.1f}超出范围，重量{weight_g}g→{adjusted_weight}g（可能误将g当kg转换）")
-                weight_g = adjusted_weight
-            else:
-                logger.error(f"❌ 密度{density_kg_m3:.1f}严重超出范围，即使调整重量也无法修正")
-        elif density_kg_m3 < 1.293 and density_kg_m3 > 0:
-            # 密度过低，可能是尺寸单位错误（cm当mm）或重量偏小
-            # 不再盲目乘10——很多轻小物品（手链30g、支架15g）密度天然就低
-            logger.warning(f"⚠️ 密度{density_kg_m3:.1f}低于范围({weight_g}g, {depth_mm}×{width_mm}×{height_mm}mm)，可能是尺寸单位或重量数据问题，保持原值")
-
+    if marks["reasons"]:
+        logger.warning(
+            "重量/尺寸标疑 (%s): weight=%dg dims=%d×%d×%dmm source=%s",
+            "; ".join(marks["reasons"]), weight_g,
+            depth_mm, width_mm, height_mm, marks["weight_source"],
+        )
     logger.info(f"最终尺寸：{depth_mm}×{width_mm}×{height_mm}mm, 重量={weight_g}g")
 
     return weight_g, depth_mm, width_mm, height_mm
@@ -2447,7 +2328,15 @@ def prepare_ozon_upload_node(
                     }
                 ]
             }
-        ]
+        ],
+        # ✅ v0.37 A2/B2: 重量/尺寸归一化审计（原始信封保留 + 标疑原因）
+        # 供 worker 审计/用户 query 排查「价格离谱是否源于重量误伤」
+        "_wd_audit": {
+            "weight_source": _resolve_weight_dimensions._wd_marks.get("weight_source", "draft"),
+            "weight_estimated": _resolve_weight_dimensions._wd_marks.get("weight_estimated", False),
+            "dimensions_suspected": _resolve_weight_dimensions._wd_marks.get("dimensions_suspected", False),
+            "reasons": _resolve_weight_dimensions._wd_marks.get("reasons", []),
+        },
     }
     
     # ✅ 修复1：添加description_json字段（Ozon结构化描述）
