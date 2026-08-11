@@ -20,10 +20,26 @@ import os
 import time
 from typing import Any
 
-from scripts._const import CACHE_DIR
+from scripts._const import CACHE_DIR, SKILL_ROOT
 from scripts.lib.utils import safe_unlink
 
 logger = logging.getLogger(__name__)
+
+# 版本指纹：key 哈希前缀。skill 升级（VERSION 变更）→ 全部命名空间一次性失效，
+# 防旧版本缓存污染新版本逻辑（cache poisoning）。⚠️ 勿用 _const.SKILL_VERSION——
+# 它是过期残留（0.4.0），真实版本在 SKILL_ROOT/VERSION。
+_CACHE_VERSION: str | None = None
+
+
+def _cache_version() -> str:
+    """惰性加载 skill/VERSION 作为指纹；读取失败兜底 "0"（退化为无指纹）。"""
+    global _CACHE_VERSION
+    if _CACHE_VERSION is None:
+        try:
+            _CACHE_VERSION = (SKILL_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        except Exception:
+            _CACHE_VERSION = "0"
+    return _CACHE_VERSION
 
 
 def _cache_dir(namespace: str):
@@ -33,7 +49,7 @@ def _cache_dir(namespace: str):
 
 
 def _cache_path(namespace: str, key: str):
-    key_hash = hashlib.sha256(key.encode()).hexdigest()[:16]
+    key_hash = hashlib.sha256(f"{_cache_version()}:{key}".encode()).hexdigest()[:16]
     return _cache_dir(namespace) / f"{key_hash}.json"
 
 
