@@ -78,6 +78,7 @@ AUX_FILES = [
     "scripts/lib/cache.py",          # 通用磁盘缓存（JSON + TTL + SHA256 key）
     "scripts/lib/ozon_widget.py",    # Ozon Widget API 客户端（产品/跟卖）
     "scripts/lib/updater.py",        # 自动更新（COS manifest 检测 + 下载/回滚）
+    "scripts/lib/review_log.py",     # 决策审计落盘（D3 L2，data/review_log.jsonl）
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
     # ⚠️ service.py 明文（不编译）：探针是改动最频繁的模块，需本地快速迭代
