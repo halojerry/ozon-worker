@@ -61,7 +61,8 @@ def cache_get(namespace: str, key: str) -> dict | None:
     try:
         record = json.loads(path.read_text(encoding="utf-8"))
         if time.time() > record.get("expires_at", 0):
-            path.unlink(missing_ok=True)
+            # Q5: 裸 unlink → safe_unlink（Windows 沙箱 fail-open，不 raise）
+            safe_unlink(path)
             return None
         logger.debug("Cache hit: %s/%s (age=%.0fs)", namespace, key[:20],
                       time.time() - record.get("created_at", 0))

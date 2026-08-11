@@ -1512,6 +1512,18 @@ def main() -> int:
     qp.add_argument("--output", default="", help="输出文件路径(默认打印到 stdout)")
     qp.set_defaults(func=cmd_queries)
 
+    # ── 磁盘清理(N3 profile 缓存 + N7 垃圾文件清扫)──
+    clp = sub.add_parser("cleanup", help="磁盘清理：profile 缓存 / 磁盘缓存 / 临时孤儿文件 / 过期结果文件")
+    clp.add_argument("--profile-cache", action="store_true",
+                     help="清理 Chrome profile 可再生缓存目录（登录态保留；Chrome 运行时跳过）")
+    clp.add_argument("--cache", action="store_true", help="清理磁盘缓存（全部命名空间）")
+    clp.add_argument("--temp", action="store_true", help="清理 .json.tmp 孤儿文件 + 旧任务/会话文件")
+    clp.add_argument("--old-results", action="store_true", help="清理过期结果/日志文件（配合 --days）")
+    clp.add_argument("--days", type=int, default=30, help="--old-results 保留天数（默认 30）")
+    clp.add_argument("--dry-run", action="store_true", help="只预览将删除内容，不实际删除")
+    clp.add_argument("--all", action="store_true", help="执行全部清理项")
+    clp.set_defaults(func=cmd_cleanup)
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -1793,6 +1805,245 @@ def cmd_query(args: argparse.Namespace) -> int:
 
     r = check_task_status(args.task_id)
     _print_query_result(args.task_id, r)
+    return 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Cleanup Commands（N3 profile 缓存 + N7 垃圾文件清扫）
+# ═══════════════════════════════════════════════════════════════════════════
+
+# 可再生 Chrome profile 子目录白名单（相对 profile_dir，即 --user-data-dir）。
+# 全部可安全重建（缓存/临时模型/组件）；登录态文件（Default/Cookies、Local
+# Storage、Login Data、Preferences 等）绝不在名单内，清理后保留。实测合计
+# 4.9GB 级膨胀主源（Default/Cache 78M + Code Cache 37M + Service Worker 16M
+# + optimization_guide_model_store 43M + component_crx_cache 29M 等）。
+_PROFILE_CACHE_DIRS: tuple[str, ...] = (
+    "Default/Cache",
+    "Default/Code Cache",
+    "Default/Service Worker",
+    "Default/GPUCache",
+    "optimization_guide_model_store",
+    "component_crx_cache",
+    "WasmTtsEngine",
+    "GraphiteDawnCache",
+)
+
+
+def _dir_size(path: Path) -> int:
+    """递归统计目录占用字节数（只读统计，失败降级为已扫部分）。"""
+    total = 0
+    try:
+        for f in path.rglob("*"):
+            if f.is_file():
+                try:
+                    total += f.stat().st_size
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
+
+
+def _cleanup_profile_cache(profile_dir: str, dry_run: bool = False) -> dict[str, int]:
+    """清理 Chrome profile 中可再生的缓存目录（保留登录态）。
+
+    - 只删 ``_PROFILE_CACHE_DIRS`` 白名单目录（safe_rmtree，fail-open）
+    - ``Default/(Cookies|Local Storage|Login Data|Preferences)`` 登录态绝不动
+    - Chrome 进程运行时跳过（缓存文件被进程锁定，硬删会损坏）→ 返回
+      ``skipped_chrome_running=1``，调用方打印 warning
+
+    Returns: {removed, bytes_freed, errors, skipped_chrome_running}
+    """
+    from scripts.lib.chrome_launcher import _find_chrome_processes
+    from scripts.lib.utils import safe_rmtree
+
+    result = {"removed": 0, "bytes_freed": 0, "errors": 0, "skipped_chrome_running": 0}
+    if _find_chrome_processes():
+        print("⚠️ Chrome 正在运行，跳过 profile 缓存清理（缓存文件被进程锁定）。"
+              "请先关闭 Chrome 再运行 --profile-cache", flush=True)
+        result["skipped_chrome_running"] = 1
+        return result
+
+    root = Path(profile_dir)
+    for rel in _PROFILE_CACHE_DIRS:
+        target = root / rel
+        if not target.is_dir():
+            continue
+        try:
+            size = _dir_size(target)
+            if dry_run:
+                print(f"  [dry-run] 将删除: {target}", flush=True)
+            elif not safe_rmtree(target):
+                result["errors"] += 1
+                print(f"  ⚠️ 删除失败: {target}", flush=True)
+                continue
+            result["removed"] += 1
+            result["bytes_freed"] += size
+        except Exception as exc:
+            result["errors"] += 1
+            print(f"  ⚠️ 清理失败 {target}: {exc}", flush=True)
+    return result
+
+
+def _cleanup_temp_files(dry_run: bool = False,
+                        scan_dirs: list[Path] | None = None) -> dict[str, int]:
+    """清理 .json.tmp 孤儿文件（cache_set 临时文件双败残留）+ 旧任务/会话文件。
+
+    Returns: {removed, bytes_freed, errors, old_files}（old_files 为
+    task_paths.cleanup_old_files 返回的 {deleted, bytes_freed, errors}）。
+    """
+    from scripts._const import CACHE_DIR, DATA_DIR
+    from scripts.lib.utils import safe_unlink
+
+    if scan_dirs is None:
+        scan_dirs = [CACHE_DIR, DATA_DIR]
+    result = {"removed": 0, "bytes_freed": 0, "errors": 0}
+    seen: set[Path] = set()
+    for scan_dir in scan_dirs:
+        if not scan_dir.is_dir():
+            continue
+        try:
+            for f in scan_dir.rglob("*.json.tmp"):
+                if f in seen:
+                    continue
+                seen.add(f)
+                try:
+                    size = f.stat().st_size
+                    if dry_run:
+                        print(f"  [dry-run] 将删除: {f}", flush=True)
+                    elif not safe_unlink(f):
+                        result["errors"] += 1
+                        continue
+                    result["removed"] += 1
+                    result["bytes_freed"] += size
+                except OSError:
+                    result["errors"] += 1
+        except OSError as exc:
+            result["errors"] += 1
+            print(f"  ⚠️ 扫描失败 {scan_dir}: {exc}", flush=True)
+
+    from scripts.lib import task_paths
+    old = task_paths.cleanup_old_files(max_age_days=7, dry_run=dry_run)
+    result["old_files"] = old
+    result["errors"] += old.get("errors", 0)
+    return result
+
+
+def _cleanup_old_results(days: int, dry_run: bool = False,
+                         scan_dirs: list[Path] | None = None) -> dict[str, int]:
+    """清扫 batch_results / discovery / logs 中早于 ``days`` 天的旧文件（保留近期）。
+
+    Returns: {removed, bytes_freed, errors}
+    """
+    from scripts._const import DATA_DIR
+    from scripts.lib.utils import safe_unlink
+
+    if scan_dirs is None:
+        scan_dirs = [DATA_DIR / "batch_results", DATA_DIR / "discovery", DATA_DIR / "logs"]
+    cutoff = time.time() - (days * 86400)
+    result = {"removed": 0, "bytes_freed": 0, "errors": 0}
+    for scan_dir in scan_dirs:
+        if not scan_dir.is_dir():
+            continue
+        try:
+            for f in scan_dir.iterdir():
+                if not f.is_file():
+                    continue
+                try:
+                    if f.stat().st_mtime >= cutoff:
+                        continue
+                    size = f.stat().st_size
+                    if dry_run:
+                        print(f"  [dry-run] 将删除: {f}", flush=True)
+                    elif not safe_unlink(f):
+                        result["errors"] += 1
+                        continue
+                    result["removed"] += 1
+                    result["bytes_freed"] += size
+                except OSError:
+                    result["errors"] += 1
+        except OSError as exc:
+            result["errors"] += 1
+            print(f"  ⚠️ 扫描失败 {scan_dir}: {exc}", flush=True)
+    return result
+
+
+def _cleanup_cache(dry_run: bool = False) -> dict[str, int]:
+    """清理磁盘缓存（全部命名空间）。dry_run 只统计不删除。"""
+    from scripts.lib import cache as cache_mod
+
+    if dry_run:
+        stats = cache_mod.cache_stats()
+        total = sum(s.get("total", 0) for s in stats.values())
+        print(f"  [dry-run] 缓存文件: {total} 个", flush=True)
+        return {"removed": 0, "bytes_freed": 0, "errors": 0, "files": total}
+    removed = cache_mod.cache_clear(None)
+    return {"removed": removed, "bytes_freed": 0, "errors": 0}
+
+
+def cmd_cleanup(args: argparse.Namespace) -> int:
+    """磁盘清理：Chrome profile 缓存 / 磁盘缓存 / 临时孤儿文件 / 过期结果文件。
+
+    N3 (P1-3) + N7 (P2-7): 一键控制 4.9GB profile 膨胀 + 数百个垃圾文件堆积。
+    - ``--profile-cache``: 只删可再生缓存目录（登录态保留；Chrome 运行时跳过）
+    - ``--cache``: 磁盘缓存全清（cache_clear(None)）
+    - ``--temp``: .json.tmp 孤儿文件 + 旧任务/会话文件
+    - ``--old-results --days N``: 清扫 batch_results/discovery/logs 中 N 天前文件
+    - ``--dry-run``: 只预览不删除；``--all``: 以上全部
+    任何删除失败仅 warning 不崩溃（safe_unlink/safe_rmtree fail-open）。
+    """
+    actions: list[str] = []
+    if getattr(args, "all", False):
+        actions = ["profile_cache", "cache", "temp", "old_results"]
+    else:
+        if args.profile_cache:
+            actions.append("profile_cache")
+        if args.cache:
+            actions.append("cache")
+        if args.temp:
+            actions.append("temp")
+        if args.old_results:
+            actions.append("old_results")
+    if not actions:
+        print("未指定清理项。可用: --profile-cache / --cache / --temp / --old-results / --all"
+              "（--dry-run 预演）", flush=True)
+        return 0
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    summary: dict[str, dict] = {}
+    if "profile_cache" in actions:
+        print("🧹 清理 Chrome profile 缓存:", flush=True)
+        summary["profile_cache"] = _cleanup_profile_cache(_chrome_profile_dir(), dry_run=dry_run)
+    if "cache" in actions:
+        print("🧹 清理磁盘缓存:", flush=True)
+        summary["cache"] = _cleanup_cache(dry_run=dry_run)
+    if "temp" in actions:
+        print("🧹 清理临时孤儿文件:", flush=True)
+        summary["temp"] = _cleanup_temp_files(dry_run=dry_run)
+    if "old_results" in actions:
+        days = int(getattr(args, "days", 30) or 30)
+        print(f"🧹 清理 {days} 天前的结果/日志文件:", flush=True)
+        summary["old_results"] = _cleanup_old_results(days, dry_run=dry_run)
+
+    # 汇总
+    print("\n" + "=" * 52, flush=True)
+    for name, r in summary.items():
+        if name == "profile_cache":
+            note = "（Chrome 运行中已跳过）" if r.get("skipped_chrome_running") else ""
+            print(f"  profile-cache: 删除 {r['removed']} 项 / 释放 "
+                  f"{r['bytes_freed'] // (1024 * 1024)} MB / 错误 {r['errors']}{note}", flush=True)
+        elif name == "cache":
+            print(f"  cache: 清理 {r['removed']} 个缓存文件 / 错误 {r['errors']}", flush=True)
+        elif name == "temp":
+            old = r.get("old_files") or {}
+            print(f"  temp: 删除 {r['removed']} 个 .json.tmp / 旧任务文件 "
+                  f"{old.get('deleted', 0)} / 错误 {r['errors']}", flush=True)
+        elif name == "old_results":
+            print(f"  old-results: 删除 {r['removed']} 个文件 / 释放 "
+                  f"{r['bytes_freed'] // (1024 * 1024)} MB / 错误 {r['errors']}", flush=True)
+    if dry_run:
+        print("  （--dry-run: 仅预览，未实际删除）", flush=True)
+    print("=" * 52, flush=True)
     return 0
 
 
