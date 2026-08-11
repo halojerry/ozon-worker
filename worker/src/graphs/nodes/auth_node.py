@@ -45,6 +45,24 @@ def _verify_mxou_token(token: str) -> tuple:
         return (False, f"MXOU API 不可达: {e}")
 
 
+def _fail_open_balance(clean_token: str) -> float:
+    """Supabase 降级路径余额：默认 999.0 前先探 MXOU 真实余额。
+
+    请求 token 即 MXOU key（get_mxou_balance 自动补 sk- 前缀）。
+    MXOU 命中 → 用真实余额（零/负 → 下游 AUTH_EXHAUSTED 语义保留）；
+    MXOU 返回 None（本地开发环境）→ 才回退 999.0 fail-open。
+    """
+    try:
+        from utils.mxou_api import get_mxou_balance
+        mxou_balance = get_mxou_balance(clean_token)
+        if mxou_balance is not None:
+            logger.info(f"MXOU 平台余额(fail-open 降级路径): {mxou_balance}")
+            return mxou_balance
+    except Exception as _mxou_e:
+        logger.warning("MXOU 余额查询异常(降级路径, 回退 999.0): %s", _mxou_e)
+    return 999.0
+
+
 def query_ozon_seller_info(ozon_client_id: str, ozon_api_key: str) -> Dict[str, Any]:
     """
     查询Ozon店铺信息，获取currency_code
@@ -222,10 +240,11 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
                 break
         if supabase_unreachable:
             logger.warning("Supabase不可达，使用降级模式继续执行工作流")
+            fail_open_balance = _fail_open_balance(clean_token)
             return AuthOutput(
                 user_id="supabase_offline",
                 token_id="supabase_offline",
-                balance=999.0,
+                balance=fail_open_balance,
                 supabase_url=supabase_url,
                 supabase_key=supabase_key,
                 ozon_client_id=ozon_client_id,
@@ -241,10 +260,11 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
         
         if response is not None and response.status_code >= 500:
             logger.warning(f"Supabase服务器错误({response.status_code})，降级处理")
+            fail_open_balance = _fail_open_balance(clean_token)
             return AuthOutput(
                 user_id="supabase_offline",
                 token_id="supabase_offline",
-                balance=999.0,
+                balance=fail_open_balance,
                 supabase_url=supabase_url,
                 supabase_key=supabase_key,
                 ozon_client_id=ozon_client_id,
@@ -377,10 +397,9 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
             )
         
         user_record: Dict[str, Any] = users_data[0]
-        quota: float = float(user_record.get("quota", 0))
-        used_quota: float = float(user_record.get("used_quota", 0))
-        balance: float = quota - used_quota
-
+        # ⚠️ 与 main.py _check_mxou_balance 对齐：余额判定只看 users.quota
+        # （used_quota 是历史累计，判定不参与 —— AGENTS.md 约定）
+        balance: float = float(user_record.get("quota", 0))
         # ⚠️ v0.29.3 统一余额来源：优先查 MXOU 平台真实余额（unlimited_quota
         # 不再跳过实查 —— Sentry 实证: unlimited=true 但平台欠费仍放行 → 生图 403）
         mxou_checked = False

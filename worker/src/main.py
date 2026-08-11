@@ -1142,7 +1142,7 @@ async def auth_verify(request: Request):
     else:
         try:
             token_records = supabase.table("tokens").select(
-                "user_id, remain_quota, status, expired_time, unlimited_quota"
+                "user_id, key, remain_quota, status, expired_time, unlimited_quota"
             ).eq("key", clean_token).is_("deleted_at", "null").execute()
 
             if not token_records.data or len(token_records.data) == 0:
@@ -1374,7 +1374,7 @@ async def http_submit_task(request: Request):
         else:
             try:
                 token_records = supabase.table("tokens").select(
-                    "user_id, remain_quota, status, expired_time, unlimited_quota"
+                    "user_id, key, remain_quota, status, expired_time, unlimited_quota"
                 ).eq("key", token).is_("deleted_at", "null").execute()
 
                 if not token_records.data or len(token_records.data) == 0:
@@ -1396,9 +1396,9 @@ async def http_submit_task(request: Request):
                 #    原实现只查 remain_quota 会把无限额度 token 误判余额不足）
                 balance, has_quota = _check_mxou_balance(token_record)
                 if not has_quota:
-                    raise HTTPException(
-                        status_code=402,
-                        detail=f"Insufficient balance (current: {balance}). Please top up your MXOU account."
+                    return error_response(
+                        WorkerErrorCode.INSUFFICIENT_BALANCE,
+                        f"MXOU 余额不足 (current: {balance}). 请充值",
                     )
 
             except Exception as e:
