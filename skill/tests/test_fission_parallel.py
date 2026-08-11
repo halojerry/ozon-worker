@@ -44,6 +44,7 @@ def test_parallel_workers_true_concurrency():
 
     with mock.patch("scripts.lib.cdp_client.CdpConnection") as conn_cls, \
          mock.patch.object(ozon_fission, "_parallel_workers", return_value=2), \
+         mock.patch.object(ozon_fission, "fetch_seller_products_shallow", return_value=[]), \
          mock.patch.object(ozon_discovery, "fetch_seller_products",
                            side_effect=lambda **kw: ["P1", "P2"]), \
          mock.patch.object(ozon_discovery, "_analyze_product", side_effect=analyze):
@@ -69,6 +70,7 @@ def test_single_worker_reuses_shared_connection():
     seeds = [_mk_seed("A", [{"seller_id": "10001", "seller_name": "卖家A"}])]
     with mock.patch("scripts.lib.cdp_client.CdpConnection") as conn_cls, \
          mock.patch.object(ozon_fission, "_parallel_workers", return_value=1), \
+         mock.patch.object(ozon_fission, "fetch_seller_products_shallow", return_value=[]), \
          mock.patch.object(ozon_discovery, "fetch_seller_products",
                            side_effect=lambda **kw: ["P1", "P2", "P3"]), \
          mock.patch.object(ozon_discovery, "_analyze_product",
@@ -90,6 +92,7 @@ def test_parallel_respects_product_budget_and_visited():
     pids = [f"P{i}" for i in range(10)]
     with mock.patch("scripts.lib.cdp_client.CdpConnection"), \
          mock.patch.object(ozon_fission, "_parallel_workers", return_value=4), \
+         mock.patch.object(ozon_fission, "fetch_seller_products_shallow", return_value=[]), \
          mock.patch.object(ozon_discovery, "fetch_seller_products",
                            side_effect=lambda **kw: list(pids)), \
          mock.patch.object(ozon_discovery, "_analyze_product",
