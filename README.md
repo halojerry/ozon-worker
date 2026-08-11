@@ -212,7 +212,7 @@ python3.12 scripts/cli.py query <任务ID>
 | `get_ak` | 浏览器自动获取 1688 AK |
 | `batch_test --urls-file urls.txt` | 批量处理 URL 列表 |
 | `query <任务ID>` | 查询任务状态 / 耗时 / 产品明细 |
-| `cache --stats / --clear` | 磁盘缓存查看 / 清理 |
+| `cleanup` | 磁盘清理：`--profile-cache`（Chrome profile 可再生缓存）/ `--cache`（磁盘缓存）/ `--temp`（孤儿 .json.tmp）/ `--old-results --days N`（过期结果），`--dry-run` 预演 |
 
 > Agent 调用完整手册见 [`skill/SKILL.md`](skill/SKILL.md)。维护者代码说明见 [`skill/README.md`](skill/README.md)。
 

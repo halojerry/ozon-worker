@@ -489,6 +489,18 @@ def ensure_chrome_cdp(
             "--disable-popup-blocking",
         ]
 
+        # CHROME_DISK_CACHE_SIZE_MB（可选）→ 限制磁盘/媒体缓存上限，防 profile
+        # 无限膨胀（Default/Cache 可再生，但占用磁盘）。默认不设置=无行为变化。
+        _cache_mb = os.environ.get("CHROME_DISK_CACHE_SIZE_MB", "").strip()
+        if _cache_mb:
+            try:
+                _mb = int(_cache_mb)
+                if _mb > 0:
+                    cmd.append(f"--disk-cache-size={_mb * 1024 * 1024}")
+                    cmd.append(f"--media-cache-size={_mb * 1024 * 1024 // 2}")
+            except ValueError:
+                logger.warning("CHROME_DISK_CACHE_SIZE_MB 非整数，忽略: %s", _cache_mb)
+
         # 使用默认 profile（保留登录态）
         if profile_path and profile_path.exists():
             cmd.append(f"--user-data-dir={profile_path}")

@@ -26,6 +26,10 @@ python3 scripts/cli.py probe --url https://detail.1688.com/offer/980815374096.ht
 
 # 3. 组装完整 GraphInput envelope
 python3 scripts/cli.py graph --item-id 980815374096 --category-query "поилка"
+
+# 4. 磁盘清理（profile 缓存 / 磁盘缓存 / 垃圾文件）
+python3 scripts/cli.py cleanup --all --dry-run   # 预演
+python3 scripts/cli.py cleanup --all             # 实际执行（登录态保留）
 ```
 
 ## Python API
