@@ -902,6 +902,36 @@ def _interactive_select(candidates: list) -> list | None:
         return picked
 
 
+def _fetch_live_blue_ocean_queries(cdp_url: str, keyword: str) -> list[dict]:
+    """实时 what_to_sell all-queries 蓝海行（--blue-ocean-source queries 专用）。
+
+    复用 cmd_queries 的 seller tab 机制（check_seller_login + fetch_all_queries，
+    fetch_all_queries 内部自建/复用 seller tab）。行结构与 load_blue_ocean_csv
+    同构（query/count/ca/avg_ca_rub/uniq_sellers/ordering_amount/daily_avg/gmv/
+    uniq_queries_w_ca/search_users_to_ord_users）。未登录/异常/空 → []，
+    调用方降级本地 CSV（绝不崩/绝不阻塞）。
+    """
+    import logging
+    _logger = logging.getLogger(__name__)
+    try:
+        from scripts.lib.cdp_client import CdpConnection
+        from scripts.lib.ozon_seller_analytics import (
+            check_seller_login,
+            fetch_all_queries,
+        )
+        with CdpConnection(cdp_url) as cdp:
+            if not check_seller_login(cdp):
+                _logger.warning("seller.ozon.ru 未登录，蓝海实时查询降级本地 CSV")
+                return []
+            rows = fetch_all_queries(cdp, keyword=keyword or None)
+            if rows:
+                return rows
+            _logger.warning("what_to_sell all-queries 无结果，蓝海降级本地 CSV")
+    except Exception as exc:
+        _logger.warning("蓝海实时查询失败，降级本地 CSV: %s", exc)
+    return []
+
+
 def cmd_discover(args: argparse.Namespace) -> int:
     """Ozon 选品 v2 — 先全量采集 → 表格分析 → 挑完再找货源。"""
     from scripts.lib.chrome_launcher import ensure_chrome_cdp
@@ -921,25 +951,33 @@ def cmd_discover(args: argparse.Namespace) -> int:
     if args.rules:
         print(f"   自动筛选规则: {args.rules}", flush=True)
 
-    # ── C4 step2: all_queries 蓝海数据反哺（--blue-ocean-source，本地 CSV）──
+    # ── C4 step2: all_queries 蓝海数据反哺（--blue-ocean-source）──
     # 可选增强源：加载成功 → 每候选按标题计算 competitor_keyword_density 注入蓝海评分；
     # CSV 缺失/解析失败 → 打印降级提示，走原流程（绝不崩）。
-    blue_ocean_rows: list[dict] = []
-    if args.blue_ocean_source:
-        from scripts.lib.ozon_discovery import load_blue_ocean_csv
-        csv_path = args.blue_ocean_csv or "/tmp/queries_all.csv"
-        blue_ocean_rows = load_blue_ocean_csv(csv_path)
-        if blue_ocean_rows:
-            print(f"🌊 蓝海增强: 载入 {len(blue_ocean_rows)} 个关键词（{csv_path}）", flush=True)
-        else:
-            print("no blue_ocean data, fallback to original", flush=True)
-    print(flush=True)
-
+    # --blue-ocean-source queries + --keyword：优先实时 what_to_sell 查询
+    # （复用 cmd_queries 的 seller tab 机制）；未登录/异常/空 → 静默降级本地 CSV。
     ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
     if not ok:
         print(f"❌ Chrome 启动失败: {msg}")
         return 1
     cdp_url = "http://127.0.0.1:9222"
+
+    blue_ocean_rows: list[dict] = []
+    if args.blue_ocean_source:
+        from scripts.lib.ozon_discovery import load_blue_ocean_csv
+        csv_path = args.blue_ocean_csv or "/tmp/queries_all.csv"
+        _live = False
+        if args.blue_ocean_source == "queries" and (args.keyword or "").strip():
+            blue_ocean_rows = _fetch_live_blue_ocean_queries(cdp_url, args.keyword)
+            _live = bool(blue_ocean_rows)
+        if not blue_ocean_rows:
+            blue_ocean_rows = load_blue_ocean_csv(csv_path)
+        if blue_ocean_rows:
+            _src = "what_to_sell 实时查询" if _live else csv_path
+            print(f"🌊 蓝海增强: 载入 {len(blue_ocean_rows)} 个关键词（{_src}）", flush=True)
+        else:
+            print("no blue_ocean data, fallback to original", flush=True)
+    print(flush=True)
 
     def _collect_progress(current, total, candidate):
         mark = '✅' if candidate.status in ("ok", "uncertain") else '❌'
@@ -958,6 +996,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
             max_price=args.max_price,
             brand_filter=args.brand_filter,
             progress_callback=_collect_progress,
+            china=args.china,
         )
     except KeyboardInterrupt:
         print("\n⚠️ 用户中断")
@@ -1137,17 +1176,34 @@ def cmd_discover(args: argparse.Namespace) -> int:
             "api_key": store.get("api_key", ""),
         }
         store_id = args.store or ""
-        for c in to_submit:
+
+        def _submit_one(c):
+            """worker 线程执行：构建信封 → 提交 → 返回 (c, task_id, state)。
+
+            state: ok / skip（无 1688 URL）/ error 描述；异常内部捕获不中断批次。
+            """
             try:
                 envelope = build_envelope_from_discovery(c, store_config, store_id=store_id)
                 if not envelope:
-                    print(f"  ✗ 跳过（无 1688 URL）: {c.ozon_title[:40]}")
-                    continue
+                    return c, "", "skip"
                 result = submit_envelope(envelope)
-                task_id = result.get("task_id", "")
-                print(f"  ✓ 已提交: {c.ozon_title[:40]} → task_id={task_id}")
+                return c, result.get("task_id", ""), "ok"
             except Exception as e:
-                print(f"  ✗ 提交失败: {c.ozon_title[:40]} — {e}")
+                return c, "", str(e)
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        submitted_task_ids: list[str] = []
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(_submit_one, c) for c in to_submit]
+            for fut in as_completed(futures):
+                c, task_id, state = fut.result()
+                if state == "skip":
+                    print(f"  ✗ 跳过（无 1688 URL）: {c.ozon_title[:40]}")
+                elif state == "ok":
+                    submitted_task_ids.append(task_id)
+                    print(f"  ✓ 已提交: {c.ozon_title[:40]} → task_id={task_id}")
+                else:
+                    print(f"  ✗ 提交失败: {c.ozon_title[:40]} — {state}")
 
     print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
     return 0
@@ -1312,7 +1368,8 @@ def main() -> int:
 
     dp = sub.add_parser("discover", help="Ozon 选品 v2（先采集 → 表格分析 → 挑完再找货源）")
     dp.add_argument("--url", default="", help="Ozon 页面 URL（搜索页/类目页等，直接采集该页）")
-    dp.add_argument("--keyword", default="", help="搜索关键词（自动构造 /search/?text= 搜索页）")
+    dp.add_argument("--keyword", default="", help="搜索关键词（自动构造 /search/?text= 搜索页；配合 --china 走中国站 highlight 页内搜索）")
+    dp.add_argument("--china", action="store_true", help="中国站筛选（highlight + 关键词，跨境卖家为主）")
     dp.add_argument("--max-products", type=int, default=50, help="最多采集产品数（默认 50）")
     dp.add_argument("--min-margin", type=float, default=15.0, help="最低利润率%%")
     dp.add_argument("--max-sellers", type=int, default=10, help="最大跟卖人数（兼容保留，v2 中不硬过滤）")
@@ -1337,7 +1394,8 @@ def main() -> int:
     dp.add_argument("--max-products-per-seller", type=int, default=15, help="每卖家采集的产品数（默认 15）")
     dp.add_argument("--non-interactive", action="store_true", help="裂变阶段展示后不询问继续，直接跑完")
     dp.add_argument("--blue-ocean-source", choices=["csv", "queries"], default="",
-                    help="蓝海增强数据源（C4 step2）: csv/queries 均指本地 all-queries CSV（--blue-ocean-csv）")
+                    help="蓝海增强数据源（C4 step2）: csv=本地 all-queries CSV（--blue-ocean-csv）；"
+                         "queries=实时 what_to_sell 查询（需 --keyword + seller 登录，失败降级 CSV）")
     dp.add_argument("--blue-ocean-csv", default="",
                     help="蓝海关键词 CSV 路径（--blue-ocean-source 时；默认 /tmp/queries_all.csv）")
     dp.set_defaults(func=cmd_discover)
