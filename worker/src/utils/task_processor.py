@@ -376,6 +376,13 @@ class SupabaseTaskProcessor:
                         or _err.startswith("[")
                         or bool(_err and _stg)
                     )
+                    # ✅ P0-2 审核被拒自动修复链：Ozon 审核 rejected/declined → 不可修复
+                    # 时如实标记 rejected（此前 rejected_unfixable 落 completed，拒绝原因
+                    # 被埋没在 result 里 → 任务"消失"，用户无法触发重新提交）
+                    _mod_rejected = (
+                        _up == "rejected_unfixable"
+                        or str(graph_result.get("moderation_status") or "") in ("rejected", "declined")
+                    )
                     if _is_failed:
                         graph_result["_harness_status"] = "failed"
                         graph_result["_harness_error"] = _err or f"上架失败（stage={_stg}, upload_status={_up}）"
@@ -394,6 +401,37 @@ class SupabaseTaskProcessor:
                                 "err": graph_result["_harness_error"],
                             })
                             # v0.34 C6: 店铺使用埋点（与终态 SQL 同事务，尽力而为）
+                            _app_delta, _vf_delta = _moderation_status_deltas(graph_result)
+                            _upsert_shop_usage(
+                                conn,
+                                (payload or {}).get("ozon_client_id", ""),
+                                task_delta=1,
+                                approved_delta=_app_delta,
+                                validation_failed_delta=_vf_delta,
+                                error_message=graph_result.get("_harness_error"),
+                            )
+                            conn.commit()
+                        clear_trace_context()
+                        return graph_result
+
+                    elif _mod_rejected:
+                        graph_result["_harness_status"] = "rejected"
+                        graph_result["moderation_rejected"] = True
+                        graph_result["_harness_error"] = _err or f"审核被拒（stage={_stg}, upload_status={_up}）"
+                        log_task_event("rejected", task_id=task_id, user_id=tenant_id,
+                                       error_message="审核被拒，已标记 rejected")
+                        with self.engine.connect() as conn:
+                            conn.execute(text("""
+                                UPDATE ozon_product_tasks
+                                SET status = 'rejected', result = :result_json,
+                                    error_message = :err, completed_at = NOW()
+                                WHERE id = :task_id
+                            """), {
+                                "task_id": task_id,
+                                "result_json": json.dumps(graph_result),
+                                "err": graph_result["_harness_error"],
+                            })
+                            # v0.34 C6: 店铺使用埋点（rejected 计入 task_count，不算 approved/validation_failed）
                             _app_delta, _vf_delta = _moderation_status_deltas(graph_result)
                             _upsert_shop_usage(
                                 conn,

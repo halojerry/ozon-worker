@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import contextvars
+import copy
 import json
 import os
 import threading
@@ -1551,6 +1552,12 @@ async def http_task_status(task_id: str):
                 "stage": "failed", "percent": 100,
                 "message": task_status.get("error_message", "")
             }
+        elif task_status.get("status") == "rejected":
+            # ✅ P0-2: rejected 是终态 — progress 直接归位，指引用户走重新提交
+            task_status["progress"] = {
+                "stage": "rejected", "percent": 100,
+                "message": "审核被拒，可调用 /resubmit_task/{task_id} 重新提交",
+            }
         else:
             progress = get_progress(task_id)
             if progress:
@@ -1593,6 +1600,75 @@ async def http_cancel_task(task_id: str):
     except Exception as e:
         logger.error(f"Cancel task error: {e}, traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to cancel task: {str(e)}")
+
+
+@app.post("/resubmit_task/{task_id}")
+async def http_resubmit_task(task_id: str):
+    """重新提交终态任务（审核被拒/失败自动修复链入口，P0-2）。
+
+    仅 rejected/failed 终态任务可重试：复制原载荷 → 注入 parent_task_id +
+    extensions.image_regen=True → 重新入队（pending）。返回新任务 task_id。
+    """
+    if task_processor is None:
+        raise HTTPException(status_code=503, detail="Task processor not initialized")
+
+    try:
+        task_status = await task_processor.get_task_status(task_id)
+        if task_status is None:
+            return error_response(
+                WorkerErrorCode.TASK_NOT_FOUND,
+                f"Task {task_id} not found",
+            )
+
+        status = str(task_status.get("status") or "")
+        if status not in ("rejected", "failed"):
+            return error_response(
+                WorkerErrorCode.TASK_NOT_RESUBMITTABLE,
+                f"任务状态 {status} 不可重新提交，仅 rejected/failed 终态任务可重试",
+                detail={"task_id": task_id, "status": status},
+            )
+
+        # 深拷贝原载荷（避免改到 DB 返回的原始 dict），注入重提交标记
+        payload = copy.deepcopy(task_status.get("payload") or {})
+        payload["parent_task_id"] = task_id
+        envelope = payload.get("envelope")
+        if not isinstance(envelope, dict):
+            envelope = {}
+        extensions = envelope.get("extensions")
+        if not isinstance(extensions, dict):
+            extensions = {}
+        extensions["image_regen"] = True
+        envelope["extensions"] = extensions
+        payload["envelope"] = envelope
+
+        # sku_key 从原载荷 draft 派生（与 submit_task 去重口径一致）
+        draft = envelope.get("draft") or {}
+        product_id = str(
+            draft.get("ozon_product_id") or draft.get("item_id") or draft.get("sku_id") or ""
+        ).strip()
+        tenant_id = str(task_status.get("tenant_id") or "local_dev")
+        sku_key = f"{tenant_id}:{product_id}" if product_id else ""
+
+        new_task_id = await task_processor.submit_task(
+            tenant_id=tenant_id,
+            payload=payload,
+            priority=0,
+            timeout_seconds=int(task_status.get("timeout_seconds") or 1800),
+            max_retries=int(task_status.get("max_retries") or 3),
+            sku_key=sku_key,
+        )
+
+        log_task_event("resubmitted", task_id=new_task_id, user_id=tenant_id,
+                       parent_task_id=task_id, from_status=status)
+        return {
+            "ok": True,
+            "task_id": new_task_id,
+            "message": f"任务 {task_id} 已重新提交（{status} → pending，parent_task_id={task_id}）",
+        }
+
+    except Exception as e:
+        logger.error(f"Resubmit task error: {e}, traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to resubmit task: {str(e)}")
 
 
 @app.get("/task_statistics")
@@ -1737,6 +1813,13 @@ async def v1_task_status(task_id: str):
 async def v1_cancel_task(task_id: str):
     """取消待处理的任务。"""
     return await http_cancel_task(task_id)
+
+
+@v1.post("/resubmit_task/{task_id}", response_model=SubmitTaskResponse, tags=["task"],
+         responses={404: {"model": ErrorBody}, 409: {"model": ErrorBody}})
+async def v1_resubmit_task(task_id: str):
+    """重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口）。"""
+    return await http_resubmit_task(task_id)
 
 
 @v1.get("/task_statistics", response_model=TaskStatisticsResponse, tags=["task"])
