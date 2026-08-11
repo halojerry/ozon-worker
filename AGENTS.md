@@ -104,7 +104,7 @@ ozon-worker/
 - **service.py 明文**（2026-08-01 移回）：探针改动最频繁。
 - **ozon_discovery.py 明文**（v0.36 移回）：discover 运营指标链路适配任意 ≥3.12 解释器（含 Python 3.14）。改它无需重编译。
 - **compile.py 编译失败"带响"**（v0.12.0）：失败打印完整 stderr（最后 30 行）+ `failed>0` 时 `sys.exit(1)`，CI 不再静默发布残缺包。CI 另有产物完整性校验（**4 平台 × 8 模块 = 32 个二进制必须就位**，build-skill.yml）。
-- 编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。⚠️ 本机 python3.12 有 stdlib 问题——用 `PYTHONHOME=/Volumes/os/opt/homebrew/Cellar/python@3.12/3.12.13_4/Frameworks/Python.framework/Versions/3.12` 修复；Cython 用 `--user --break-system-packages` 装。
+- 编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。⚠️ 曾因 Homebrew 从 /opt/homebrew 迁移到 /Volumes/os 导致 python3.12 前缀解析失败——已用符号链接 `/opt/homebrew -> /Volumes/os/opt/homebrew` 修复（2026-08-11），无 PYTHONHOME 可直接跑。Cython 用 `--user --break-system-packages` 装。
 
 **依赖**：仅 4 个 — `requests`、`websocket-client`、`Pillow`、`sentry-sdk`（Sentry 错误上报，v0.35 起；缺失时 cli.py lazy import 静默降级，不阻塞任何命令）。
 
@@ -209,7 +209,7 @@ cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_at
 # Worker 单元测试（Mock 模式，无需 PG/GPU）
 cd worker && PYTHONPATH=src ../skill/.venv314/bin/python tests/test_full_pipeline_mock_images.py
 
-# Skill 测试（本机 3.14 快速验证；⚠️ 系统 python3.12 有 stdlib 问题，勿用）
+# Skill 测试（本机 3.14 快速验证；⚠️ python3.12 曾因 Homebrew 迁移前缀损坏，已用符号链接修复可直接用）
 cd skill && .venv314/bin/python -m pytest tests/ -q
 
 # Skill 测试（Docker 3.12——与编译 ABI 一致，v0.36 起 CI 标准；本机 3.14 测不出环境差异）
