@@ -63,13 +63,13 @@ jobs:
 
       # ⚠️ 编译产物 3.12 冒烟导入：静态 ls 完整性校验（package job）无法发现
       # 「.so/.pyd 存在但 import 即崩」的运行时问题（如 ABI 不匹配/缺符号）。
-      # 每平台编译后立即用 Python 3.12 实际 import 8 个编译模块，任一失败 → exit 1。
-      # 本地 Docker 预验证（python:3.12-slim + gcc，无 display/网络）：8 模块全部导入成功。
+      # 每平台编译后立即用 Python 3.12 实际 import 14 个编译模块，任一失败 → exit 1。
+      # 本地 Docker 预验证（python:3.12-slim + gcc，无 display/网络）：14 模块全部导入成功。
       # 注意 shell: bash —— win32 默认 pwsh 不支持 heredoc。
       # ⚠️ darwin-x86_64 跳过：macos-latest runner 已切 Apple Silicon（arm64 硬件），
       # x64 Python 是 Rosetta 翻译；x86_64 .so 在 dlopen 时 mach-o 架构校验失败
       # （have 'x86_64', need 'arm64'）——架构正确的产物在 CI 无法加载，属基础设施限制。
-      # 该平台完整性由 package job 的静态 32 二进制校验覆盖。
+      # 该平台完整性由 package job 的静态 56 二进制校验覆盖。
       - name: Smoke import compiled binaries (3.12)
         if: matrix.platform != 'darwin-x86_64'
         shell: bash
@@ -83,7 +83,9 @@ jobs:
           import importlib, sys
           mods = ["ak_1688_client", "ak_callback", "config_store",
                   "image_preprocessor", "ozon_scraper", "ozon_image_search",
-                  "reference_images", "ozon_api"]
+                  "reference_images", "ozon_api",
+                  "ozon_seller_analytics", "analytics_upload", "ozon_fission",
+                  "ozon_discovery", "ozon_seller", "cdp_client"]
           failed = []
           for m in mods:
               try:
@@ -94,7 +96,7 @@ jobs:
           if failed:
               print("::error::编译产物导入失败:\n" + "\n".join(failed))
               sys.exit(1)
-          print(f"8 个编译模块全部导入成功 (Python {sys.version.split()[0]})")
+          print(f"14 个编译模块全部导入成功 (Python {sys.version.split()[0]})")
           EOF
 
       - name: Upload native binaries
@@ -165,9 +167,12 @@ jobs:
           MISSING=0
           # v0.28.6: chrome_launcher 移回明文(独立 profile 改造, 不再编译)
           # v0.35.1: ozon_discovery 移回明文(discover 运营指标链路适配任意 ≥3.12 解释器)
+          # v0.37 (P6): ozon_discovery 重新编译 + 5 个 discover/CDP 链路模块晋升编译 (8→14)
           for mod in ak_1688_client ak_callback config_store \
                      image_preprocessor ozon_scraper ozon_image_search \
-                     reference_images ozon_api; do
+                     reference_images ozon_api \
+                     ozon_seller_analytics analytics_upload ozon_fission \
+                     ozon_discovery ozon_seller cdp_client; do
             for plat in darwin-arm64 darwin-x86_64 linux win32; do
               if ! ls "$plat"/"$mod".* 2>/dev/null | grep -qE "\.(so|pyd)$"; then
                 echo "❌ 缺失: $mod → $plat"
@@ -179,7 +184,7 @@ jobs:
             echo "::error::$MISSING 个二进制缺失，构建中止"
             exit 1
           fi
-          echo "✅ 4 平台 × 8 模块 = 32 个二进制全部就位"
+          echo "✅ 4 平台 × 14 模块 = 56 个二进制全部就位"
 
       - name: Clean and create package
         working-directory: skill/dist

@@ -99,11 +99,12 @@ ozon-worker/
 
 **Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
 
-**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 **8 个**：lib/（ak_1688_client、ak_callback、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_api）+ capabilities/browser_probe/stealth.py。以下明文复制（依赖复杂/改动频繁/跨平台编译失败）：cli.py、batch_test.py、cloud_probe.py、lib/（cdp_client、utils、cache、ozon_seller、ozon_widget、ozon_seller_analytics、analytics_upload、ozon_fission、ozon_discovery、updater、task_paths、logging_utils）、capabilities/browser_probe/service.py。
+**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 **14 个**：lib/（ak_1688_client、ak_callback、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_api、ozon_seller_analytics、analytics_upload、ozon_fission、ozon_discovery、ozon_seller、cdp_client）。以下明文复制（依赖复杂/改动频繁/跨平台编译失败）：cli.py、batch_test.py、cloud_probe.py、lib/（utils、cache、ozon_widget、updater、task_paths、logging_utils）、capabilities/browser_probe/service.py + stealth.py。
 - **cloud_probe.py 明文**（2026-08-02 移回）：非语法问题（macOS 同 Cython 编译成功），是 Cython 生成 65k 行 C + 单个 ~9000 行函数击穿 **MSVC 编译器堆限制**（仅 win32 失败 → 缺 .pyd → graph/follow 报 `No native binary for cloud_probe on win32`）。信封组装核心、改动频繁，明文跨平台一致。
 - **service.py 明文**（2026-08-01 移回）：探针改动最频繁。
-- **ozon_discovery.py 明文**（v0.36 移回）：discover 运营指标链路适配任意 ≥3.12 解释器（含 Python 3.14）。改它无需重编译。
-- **compile.py 编译失败"带响"**（v0.12.0）：失败打印完整 stderr（最后 30 行）+ `failed>0` 时 `sys.exit(1)`，CI 不再静默发布残缺包。CI 另有产物完整性校验（**4 平台 × 8 模块 = 32 个二进制必须就位**，build-skill.yml）。
+- **stealth.py 明文**（2026-08-07 移回）：反检测是对抗性代码（真实指纹无需伪造），1688/Ozon 升级检测需快速调。已在 COPY_FILES（非编译清单）。
+- **ozon_discovery.py 已编译**（v0.37 P6）：从 COPY_FILES 晋升编译（同批还有 ozon_seller_analytics/analytics_upload/ozon_fission/ozon_seller/cdp_client），8 → 14。⚠️ 用户 Python 3.14 环境跑 discover 需用 py312 ABI 兼容解释器（Docker 3.12 或符号链接修复后的 python3.12），编译态 .so 无法在 3.14 加载。
+- **compile.py 编译失败"带响"**（v0.12.0）：失败打印完整 stderr（最后 30 行）+ `failed>0` 时 `sys.exit(1)`，CI 不再静默发布残缺包。CI 另有产物完整性校验（**4 平台 × 14 模块 = 56 个二进制必须就位**，build-skill.yml）。
 - 编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。⚠️ 曾因 Homebrew 从 /opt/homebrew 迁移到 /Volumes/os 导致 python3.12 前缀解析失败——已用符号链接 `/opt/homebrew -> /Volumes/os/opt/homebrew` 修复（2026-08-11），无 PYTHONHOME 可直接跑。Cython 用 `--user --break-system-packages` 装。
 
 **依赖**：仅 4 个 — `requests`、`websocket-client`、`Pillow`、`sentry-sdk`（Sentry 错误上报，v0.35 起；缺失时 cli.py lazy import 静默降级，不阻塞任何命令）。
@@ -624,7 +625,7 @@ GitHub Actions 自动检查每次 push/PR（`ci.yml`）：
   （`/skill/<包>.tar.gz` + `/manifest.json`）→ 用户每次命令静默检查，`skill update`
   应用（sha256 校验 + 备份 + 保留 data/）。需配置 GitHub Secrets：
   `COS_SECRET_ID/COS_SECRET_KEY/COS_BUCKET/COS_REGION/COS_MANIFEST_BASE_URL`。
-- ⚠️ **build-skill 冒烟导入（v0.36）**: 每平台编译后 Python 3.12 实际 import 8 个编译模块（防 .so 存在但 import 崩）。**darwin-x86_64 跳过冒烟**——macos-latest 已切 Apple Silicon，x86_64 .so 无法 dlopen（基础设施限制，静态校验覆盖）。
+- ⚠️ **build-skill 冒烟导入（v0.36）**: 每平台编译后 Python 3.12 实际 import 编译模块（防 .so 存在但 import 崩；v0.37 P6 起 14 个）。**darwin-x86_64 跳过冒烟**——macos-latest 已切 Apple Silicon，x86_64 .so 无法 dlopen（基础设施限制，静态校验覆盖）。
 
 本地: `bash scripts/ci.sh [--quick] [--strict]`（Step 5b 会用 skill/.venv314 跑 skill pytest）
 Pre-commit: `git config core.hooksPath .githooks`（语法 + 密钥拦截）

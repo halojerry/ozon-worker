@@ -30,6 +30,15 @@ COMPILE_FILES = [
     "scripts/lib/ozon_image_search.py",
     "scripts/lib/reference_images.py",
     "scripts/lib/ozon_api.py",         # Ozon API 封装（类目搜索/属性匹配）
+    # ⚠️ P6 (v0.37): 6 个 discover/CDP 链路模块从明文晋升编译（8 → 14）。
+    # 模块两属（同时进 AUX/COPY）会被 AUX 复制在 stub 生成后覆盖回明文——
+    # 必须同步从 AUX_FILES/COPY_FILES 移除（test_compile_lists 锁定）。
+    "scripts/lib/ozon_seller_analytics.py",  # 运营指标借道（Discover v2）
+    "scripts/lib/analytics_upload.py",       # 采集数据上报 worker /analytics/*
+    "scripts/lib/ozon_fission.py",           # 裂变选品引擎（discover v3 BFS）
+    "scripts/lib/ozon_discovery.py",         # 选品发现引擎（P6 从 COPY 晋升，蓝海评分/1688匹配）
+    "scripts/lib/ozon_seller.py",            # Ozon Seller API 客户端（佣金/属性）
+    "scripts/lib/cdp_client.py",             # 原生 CDP WebSocket 客户端（替代 Playwright）
 ]
 
 # 复制但不编译的文件（入口脚本，无需保护源码）
@@ -55,11 +64,6 @@ COPY_FILES = [
     # 无需伪造），反检测是对抗性代码——1688/Ozon 升级检测必须能快速调，
     # 且编译态改 3 行就要重编译 4 平台。明文跨平台一致。
     "scripts/capabilities/browser_probe/stealth.py",
-    # ⚠️ ozon_discovery.py 明文（2026-08-10 从编译移回）：discover 运营指标
-    # 链路（ozon_seller_analytics/analytics_upload/ozon_fission）需适配任意
-    # ≥3.12 解释器（用户 ulw 环境为 3.14，编译态 .so 是 py312 ABI 无法加载）。
-    # cloud_probe/chrome_launcher 同款先例：明文跨平台一致 + 可快速迭代。
-    "scripts/lib/ozon_discovery.py",
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）
@@ -70,14 +74,9 @@ AUX_FILES = [
     "scripts/lib/__init__.py",
     "scripts/lib/task_paths.py",
     "scripts/lib/logging_utils.py",
-    "scripts/lib/cdp_client.py",     # CDP 客户端（替代 Playwright）
     "scripts/lib/utils.py",          # 共享工具函数（parse_price 等）
     "scripts/lib/cache.py",          # 通用磁盘缓存（JSON + TTL + SHA256 key）
-    "scripts/lib/ozon_seller.py",    # Ozon Seller API 客户端（佣金/属性）
     "scripts/lib/ozon_widget.py",    # Ozon Widget API 客户端（产品/跟卖）
-    "scripts/lib/ozon_seller_analytics.py",  # 运营指标借道（Discover v2 新增）
-    "scripts/lib/analytics_upload.py",       # 采集数据上报 worker /analytics/*（v0.34 C5）
-    "scripts/lib/ozon_fission.py",   # 裂变选品引擎（discover v3 BFS 卖家扩散）
     "scripts/lib/updater.py",        # 自动更新（COS manifest 检测 + 下载/回滚）
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
