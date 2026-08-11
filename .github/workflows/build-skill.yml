@@ -66,7 +66,12 @@ jobs:
       # 每平台编译后立即用 Python 3.12 实际 import 8 个编译模块，任一失败 → exit 1。
       # 本地 Docker 预验证（python:3.12-slim + gcc，无 display/网络）：8 模块全部导入成功。
       # 注意 shell: bash —— win32 默认 pwsh 不支持 heredoc。
+      # ⚠️ darwin-x86_64 跳过：macos-latest runner 已切 Apple Silicon（arm64 硬件），
+      # x64 Python 是 Rosetta 翻译；x86_64 .so 在 dlopen 时 mach-o 架构校验失败
+      # （have 'x86_64', need 'arm64'）——架构正确的产物在 CI 无法加载，属基础设施限制。
+      # 该平台完整性由 package job 的静态 32 二进制校验覆盖。
       - name: Smoke import compiled binaries (3.12)
+        if: matrix.platform != 'darwin-x86_64'
         shell: bash
         working-directory: skill/dist
         env:
