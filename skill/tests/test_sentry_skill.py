@@ -37,14 +37,20 @@ def _skill_version() -> str:
     return v or "0.0.0"
 
 
-def test_init_sentry_no_dsn_returns_false_and_never_inits():
-    """DSN 未设置 → _init_sentry() False，sentry_sdk.init 从未被调用。"""
+def test_init_sentry_no_dsn_uses_builtin_default():
+    """v0.37: DSN 未配置（env/settings 均空）→ 用内置默认 DSN，init 被调用（用户零配置）。"""
+    from scripts.lib.config_store import DEFAULT_SENTRY_DSN
     m = _install_mock_sentry()
     try:
-        with mock.patch.dict(os.environ, {"SENTRY_DSN": ""}, clear=False):
+        with mock.patch.dict(os.environ, {"SENTRY_DSN": ""}, clear=False), \
+             mock.patch("scripts.cli._is_sentry_test_process", return_value=False):
             result = cli._init_sentry()
-        assert result is False
-        m.init.assert_not_called()
+        assert result is True
+        m.init.assert_called_once()
+        kwargs = m.init.call_args.kwargs
+        assert kwargs["dsn"] == DEFAULT_SENTRY_DSN
+        assert kwargs["environment"] == "skill"
+        assert kwargs["traces_sample_rate"] == 0.0
     finally:
         _teardown_mock_sentry()
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """P1a/B4 回归：service.py parseWeightGrams 重量解析行为锁定。
 
-背景（v0.37）：旧 parseInteger 用 replace(/[^\d]/g,'') 剥离所有非数字，
+背景（v0.37）：旧 parseInteger 用 replace(/[^0-9]/g,'') 剥离所有非数字，
 导致 '61.8g'→618（放大10倍）、'1.2kg'→12（应为1200）、'0.5kg'→5。
 修复为 parseWeightGrams（parseFloat 保留小数 + kg→g 换算）。
 

@@ -146,7 +146,7 @@ def _parse_weight_g(weight_raw: Any, marks: Dict[str, Any]) -> int:
             marks["reasons"].append(f"weight_str_kg_parsed({weight_raw}kg→{weight_g}g)")
             return weight_g
         weight_g = int(float(weight_raw))
-        return weight_g if weight_g > 0 else 0
+        return max(0, weight_g)
     except (TypeError, ValueError):
         return 0
 
