@@ -107,6 +107,12 @@ class ProductCandidate:
     match_1688_price: float = 0.0  # CNY
     match_1688_images: list[str] = field(default_factory=list)
 
+    # D3 L1: 1688 匹配决策元数据（judgments 不静默消失）
+    match_confidence: float = 0.0   # 标题相关性置信度（_pick_best_match 透传）
+    match_badge_eff: float = 0.0    # badge 匹配有效性 0-1
+    match_reject_reason: str = ""   # 拒绝原因（auto_reject / block 原因）
+    review_decision: str = ""       # 人工评审决策: ""=自动 / approved / agent_reject
+
     # Profit estimates
     estimated_logistics_cny: float = 0.0
     estimated_commission: float = 0.0
@@ -576,6 +582,10 @@ def match_selected(
             candidate.match_1688_title = match.get("title", "")
             candidate.match_1688_price = float(match.get("price", 0))
             candidate.match_1688_images = match.get("images", [])
+            # D3 L1: 决策元数据透传（_pick_best_match → _search_1688_source → 候选）
+            candidate.match_confidence = float(match.get("confidence", 0) or 0)
+            candidate.match_badge_eff = float(match.get("badge_eff", 0) or 0)
+            candidate.match_reject_reason = str(match.get("reject_reason", "") or "")
             candidate.status = "matched"
 
             _calculate_profit(
@@ -593,12 +603,35 @@ def match_selected(
 
             if candidate.profit_margin >= min_margin_pct:
                 candidate.status = "profitable"
+                _review_log_write(candidate, match, "auto_pass", "")
             else:
                 candidate.status = "rejected"
                 candidate.error = (f"margin too low "
                                    f"({candidate.profit_margin:.1f}% < {min_margin_pct}%)")
+                _review_log_write(candidate, match, "auto_reject", candidate.error)
         else:
             candidate.status = "no_match"
+            _review_log_write(candidate, None, "no_match", "")
+
+    def _review_log_write(candidate, match, decision: str, reason: str) -> None:
+        """候选级决策写 review_log（D3 L2）——fail-open，审计失败不阻断主流程。"""
+        m = match or {}
+        try:
+            _log_review_record({
+                "task_id": "",
+                "product_id": candidate.ozon_product_id,
+                "ozon_title": candidate.ozon_title,
+                "match_title": candidate.match_1688_title or m.get("title", ""),
+                "match_url": candidate.match_1688_url or m.get("url", "") or m.get("detail_url", ""),
+                "confidence": candidate.match_confidence,
+                "badge_eff": candidate.match_badge_eff,
+                "score": float(m.get("score", 0) or 0),
+                "reject_reason": str(reason or ""),
+                "decision": decision,
+                "image_urls": list(candidate.match_1688_images or []),
+            })
+        except Exception:
+            pass
 
     def _finalize(i: int, candidate: ProductCandidate) -> None:
         stats[candidate.status if candidate.status in stats else "error"] += 1
@@ -1180,6 +1213,48 @@ def _badge_effectiveness(badge_str: str) -> float:
     return 0.0
 
 
+def _title_conf(ozon_title: str, cand: dict[str, Any], is_ru: bool) -> float:
+    """标题相关性置信度：RU 标题走词对映射，中文标题走关键词重叠。"""
+    _t = cand.get("title", "") or ""
+    if _t and re.search(r"[\u4e00-\u9fff]", _t):
+        if is_ru:
+            return _ru_zh_title_overlap(ozon_title, _t)
+        return verify_1688_match(ozon_title, _t).get("confidence", 0.0)
+    return 0.0
+
+
+def _attach_match_meta(
+    m: dict[str, Any],
+    conf: float,
+    badge_eff: float,
+    score: float,
+    reason: str = "",
+) -> dict[str, Any]:
+    """返回携带决策元数据的匹配 dict 副本（D3 L1）。
+
+    keys: confidence / badge_eff / score / badge_str / reject_reason。
+    _pick_best_match 所有 PASS 出口统一调用——_search_1688_source 与
+    _process_match 据此透传，关键判定不再静默消失。
+    """
+    meta = dict(m)
+    meta["confidence"] = round(float(conf), 3)
+    meta["badge_eff"] = round(float(badge_eff), 3)
+    meta["score"] = round(float(score), 3)
+    meta["badge_str"] = str(m.get("badge", "") or "")
+    meta["reject_reason"] = str(reason or "")
+    return meta
+
+
+def _log_review_record(record: dict[str, Any]) -> None:
+    """写一条决策 review 记录（D3 L2）——fail-open，绝不 raise。"""
+    try:
+        from scripts.lib.review_log import write_review_record
+
+        write_review_record(record)
+    except Exception:
+        pass
+
+
 def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str = "") -> dict[str, Any] | None:
     """从图搜结果中挑选最相关的匹配。
 
@@ -1199,6 +1274,24 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
 
     is_ru_title = bool(re.search(r"[а-яёА-ЯЁ]", ozon_title or ""))
 
+    # D3 L1: 判定不静默消失——block 出口写 review_log（decision="block"）。
+    def _block_record(reason: str, cand: dict[str, Any] | None, conf: float) -> dict[str, Any]:
+        _c = cand or {}
+        _img = _c.get("image") or _c.get("image_url") or ""
+        return {
+            "task_id": "",
+            "product_id": "",
+            "ozon_title": ozon_title,
+            "match_title": _c.get("title", ""),
+            "match_url": _c.get("detail_url", ""),
+            "confidence": round(conf, 3),
+            "badge_eff": round(_badge_effectiveness(_c.get("badge", "") or ""), 3),
+            "score": 0.0,
+            "reject_reason": reason,
+            "decision": "block",
+            "image_urls": [_img] if _img else [],
+        }
+
     scored: list[tuple[float, int, dict[str, Any]]] = []  # (score, 原图搜位置, result)
     for idx, r in enumerate(results):
         badge_str = r.get("badge", "") or ""
@@ -1214,14 +1307,7 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
             continue
         badge_eff = _badge_effectiveness(badge_str)
         # 标题相关性
-        conf = 0.0
-        r_title = r.get("title", "") or ""
-        if r_title and re.search(r"[\u4e00-\u9fff]", r_title):
-            if is_ru_title:
-                conf = _ru_zh_title_overlap(ozon_title, r_title)
-            else:
-                v = verify_1688_match(ozon_title, r_title)
-                conf = v.get("confidence", 0.0)
+        conf = _title_conf(ozon_title, r, is_ru_title)
         # ⚠️ v0.26 FIX: 评分改为「图搜位置（图片符合度）为主，标题语义为辅，badge 仅加分」。
         # 用户实证：徽标不是绝对能匹配产品一致性，且有时无徽标 DOM——badge 不再主导排序。
         # 图搜本身是以图搜图，返回顺序即图片相似度（1688 已按图匹配排好）；
@@ -1244,6 +1330,8 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
             else:
                 _reasons.append(f"其他:{_t}")
         logger.warning("图搜 %d 个候选全部被过滤: %s", len(results), " | ".join(_reasons[:6]))
+        _log_review_record(_block_record(
+            "all_filtered", results[0] if results else None, 0.0))
         return None
     scored.sort(key=lambda x: x[0], reverse=True)
     _best_score, best_idx, best = scored[0]
@@ -1254,22 +1342,20 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
     # ⚠️ v0.14 E5: 1688 图搜偶发把不同产品误标轻微匹配（实测"花插 ¥1"当遛狗带货源、
     # "水龙头"被标符合1/3），仅凭 badge 放行会组装错产品；标题重叠是更可靠的证据。
     badge_eff_of_best = _badge_effectiveness(best.get("badge", "") or "")
-    _conf_of_best = 0.0
+    _conf_of_best = _title_conf(ozon_title, best, is_ru_title)
     _bt = best.get("title", "") or ""
-    if _bt and re.search(r"[\u4e00-\u9fff]", _bt):
-        _conf_of_best = _ru_zh_title_overlap(ozon_title, _bt) if is_ru_title else verify_1688_match(ozon_title, _bt).get("confidence", 0.0)
 
     # ✅ v0.19: 1688 官方"全部符合"（matchBadgeFull）直接放行——最强信号，
     # 不再被标题相关性否决（修复棘轮扳手/创可贴卷误拒）
     if badge_eff_of_best >= 1.0:
         logger.info("图搜徽标全部符合（matchBadgeFull）直接放行: %s", best.get("title", "")[:40])
-        return best
+        return _attach_match_meta(best, _conf_of_best, badge_eff_of_best, _best_score)
 
     # ⚠️ v0.26 FIX: LLM 语义兜底——词对词典覆盖极窄（「палочки от комаров 驱蚊棒」无词对 → conf=0），
     # best 常是不相关的最高分项（如檀香贡香），相关项排后面被整体拒绝（"匹配了却不选"根因）。
     # 在护栏拒绝前，对 top-N 候选逐个 LLM 判定（RU↔ZH 是否同品），任一命中即返回。
     # LLM 判定可靠（直接问是否同品），不破坏"宁缺毋滥"语义。
-    def _llm_rescue() -> dict | None:
+    def _llm_rescue() -> tuple[float, int, dict[str, Any]] | None:
         if not token:
             return None
         _seen_best_title = (best.get("title", "") or "")[:40]
@@ -1279,8 +1365,19 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
                 continue
             if _llm_semantic_match(ozon_title, _r.get("title", "") or "", token):
                 logger.info("LLM 语义判定 top-%d 候选同品，放行: %s", 6, _t)
-                return _r
+                return (_sc, _idx, _r)
         return None
+
+    def _rescued_pass(_rescued: tuple[float, int, dict[str, Any]] | None) -> dict[str, Any] | None:
+        if not _rescued:
+            return None
+        _sc, _idx, _r = _rescued
+        return _attach_match_meta(
+            _r,
+            _title_conf(ozon_title, _r, is_ru_title),
+            _badge_effectiveness(_r.get("badge", "") or ""),
+            _sc,
+        )
 
     # ✅ v0.19/v0.22: 无徽标降级（未登录 1688 / 页面未渲染徽标）：整页无任何有效徽标时，
     # 按标题相关性取最优，conf ≥ 0.3 即放行（用户确认可接受牺牲一点准确度）
@@ -1291,16 +1388,18 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
         if _conf_of_best >= 0.3:
             logger.info("图搜无徽标（badge-less），标题相关性 conf=%.2f 放行: %s",
                         _conf_of_best, best.get("title", "")[:40])
-            return best
+            return _attach_match_meta(best, _conf_of_best, badge_eff_of_best, _best_score)
         # ⚠️ v0.26 FIX: 无徽标且词对相关性弱 → LLM 语义判定救回（先 best 再 top-N）
         if _llm_semantic_match(ozon_title, _bt, token):
             logger.info("图搜无徽标，LLM 语义判定同品，放行: %s", _bt[:40])
-            return best
-        _rescued = _llm_rescue()
-        if _rescued:
-            return _rescued
+            return _attach_match_meta(best, _conf_of_best, badge_eff_of_best, _best_score)
+        _rescued_pass_ret = _rescued_pass(_llm_rescue())
+        if _rescued_pass_ret is not None:
+            return _rescued_pass_ret
         logger.debug("图搜无徽标且标题相关性弱（conf=%.2f），拒绝: %s",
                      _conf_of_best, best.get("title", "")[:40])
+        _log_review_record(_block_record(
+            "badge_less_conf_weak", best, _conf_of_best))
         return None
 
     # ⚠️ v0.26 徽标降级: 原「badge 无分 + 总分<15」护栏已并入下面统一护栏（新分制下
@@ -1310,14 +1409,16 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
         # ⚠️ v0.26 FIX: badge 弱匹配但词对相关性弱 → 先 LLM 语义判定（先 best 再 top-N）
         if _llm_semantic_match(ozon_title, _bt, token):
             logger.info("图搜 badge 弱匹配 + LLM 语义判定同品，放行: %s", _bt[:40])
-            return best
-        _rescued = _llm_rescue()
-        if _rescued:
-            return _rescued
+            return _attach_match_meta(best, _conf_of_best, badge_eff_of_best, _best_score)
+        _rescued_pass_ret = _rescued_pass(_llm_rescue())
+        if _rescued_pass_ret is not None:
+            return _rescued_pass_ret
         logger.warning("图搜候选 badge 弱匹配（badge=%s, rank=%d, conf=%.2f）且 LLM 判定不同品，拒绝: %s",
                        best.get("badge", ""), best_idx, _conf_of_best, best.get("title", "")[:40])
+        _log_review_record(_block_record(
+            "guardrail_blocked", best, _conf_of_best))
         return None
-    return best
+    return _attach_match_meta(best, _conf_of_best, badge_eff_of_best, _best_score)
 
 
 _LLM_SEMANTIC_CACHE: dict = {}
@@ -1423,6 +1524,10 @@ def _search_1688_source(
                         "title": best.get("title", ""),
                         "price": float(price) if price else 0,
                         "images": [best.get("image", "")] if best.get("image") else [],
+                        "confidence": float(best.get("confidence", 0) or 0),
+                        "badge_eff": float(best.get("badge_eff", 0) or 0),
+                        "score": best.get("score", 0),
+                        "reject_reason": str(best.get("reject_reason", "") or ""),
                     }
                 if not results and attempt < max_retries:
                     logger.info("CDP 图搜空结果（偶发），重试 %d/%d",
@@ -1457,6 +1562,10 @@ def _search_1688_source(
                         "title": best.get("title", ""),
                         "price": float(best.get("price", 0) or 0),
                         "images": [best.get("image_url", "")] if best.get("image_url") else [],
+                        "confidence": float(best.get("confidence", 0) or 0),
+                        "badge_eff": float(best.get("badge_eff", 0) or 0),
+                        "score": best.get("score", 0),
+                        "reject_reason": str(best.get("reject_reason", "") or ""),
                     }
                 if not results and attempt < 1:
                     logger.info("AK 图搜空结果，重试 %d/2", attempt + 1)
@@ -1489,6 +1598,11 @@ def _search_1688_source(
                             "title": best.get("title", ""),
                             "price": float(best.get("price", 0) or 0),
                             "images": [best.get("image_url", "")] if best.get("image_url") else [],
+                            # D3 L1: 关键词路径无图搜护栏判定 → 元数据写 0/None/""（诚实标注无判定）
+                            "confidence": 0.0,
+                            "badge_eff": 0.0,
+                            "score": None,
+                            "reject_reason": "",
                         }
                 if attempt < 1:
                     time.sleep(1)
