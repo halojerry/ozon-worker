@@ -46,13 +46,16 @@ def test_e2e_three_seeds_depth1_mocked():
                 ap.side_effect = lambda cdp_url, cdp, pid: _mk_seed(pid, [])
                 with mock.patch("scripts.lib.ozon_widget.fetch_competing_sellers") as fcs:
                     fcs.side_effect = lambda cdp_url, pid, cdp: {"count": 0, "min_price": 0, "sellers": []}
-                    t0 = __import__("time").time()
-                    result = ozon_fission.run_fission(
-                        seed_products=seeds, max_depth=1,
-                        max_total_products=20, max_sellers_per_product=10,
-                        max_products_per_seller=5, time_budget=30,
-                    )
-                    elapsed = __import__("time").time() - t0
+                    # D2: 强制 stage-1 浅抓走深抓回退（mock 场景无真实 CDP，浅抓导航会拖慢 <5s 预算）
+                    with mock.patch.object(ozon_fission, "fetch_seller_products_shallow",
+                                           return_value=[]):
+                        t0 = __import__("time").time()
+                        result = ozon_fission.run_fission(
+                            seed_products=seeds, max_depth=1,
+                            max_total_products=20, max_sellers_per_product=10,
+                            max_products_per_seller=5, time_budget=30,
+                        )
+                        elapsed = __import__("time").time() - t0
     assert elapsed < 5, f"e2e mock 应 <5s, got {elapsed:.1f}s"
     assert len(result) >= 6, f"3 种子 + 至少 3 裂变商品, got {len(result)}"
     fissioned = [c for c in result if c.chain_depth > 0]
@@ -77,10 +80,12 @@ def test_e2e_loop_truncated_by_visited():
                                    side_effect=lambda cdp_url, cdp, pid: _mk_seed(pid, [])):
                 with mock.patch("scripts.lib.ozon_widget.fetch_competing_sellers",
                                        side_effect=lambda cdp_url, pid, cdp: {"count": 0, "min_price": 0, "sellers": []}):
-                    result = ozon_fission.run_fission(
-                        seed_products=seeds, max_depth=1, max_total_products=20,
-                        max_sellers_per_product=10, max_products_per_seller=5, time_budget=30,
-                    )
+                    with mock.patch.object(ozon_fission, "fetch_seller_products_shallow",
+                                           return_value=[]):
+                        result = ozon_fission.run_fission(
+                            seed_products=seeds, max_depth=1, max_total_products=20,
+                            max_sellers_per_product=10, max_products_per_seller=5, time_budget=30,
+                        )
     seller_fetches = [c for c in result]
     assert len(seller_fetches) >= 3, f"种子2 + 裂变1 = 3, got {len(seller_fetches)}"
     # 卖家 10001 只应被展开一次：种子 A + 种子 B + 店铺产品 P1 = 3 个候选（去重后）
@@ -104,10 +109,12 @@ def test_seed_category_propagated_to_fission_candidates():
                                    side_effect=lambda cdp_url, cdp, pid: _mk_seed(pid, [])) as ap:
                 with mock.patch("scripts.lib.ozon_widget.fetch_competing_sellers",
                                 side_effect=lambda cdp_url, pid, cdp: {"count": 0, "min_price": 0, "sellers": []}):
-                    result = ozon_fission.run_fission(
-                        seed_products=[seed], max_depth=1, max_total_products=20,
-                        max_sellers_per_product=10, max_products_per_seller=5, time_budget=30,
-                    )
+                    with mock.patch.object(ozon_fission, "fetch_seller_products_shallow",
+                                           return_value=[]):
+                        result = ozon_fission.run_fission(
+                            seed_products=[seed], max_depth=1, max_total_products=20,
+                            max_sellers_per_product=10, max_products_per_seller=5, time_budget=30,
+                        )
     fissioned = [c for c in result if c.chain_depth > 0]
     assert fissioned, "应有裂变候选"
     f = fissioned[0]
