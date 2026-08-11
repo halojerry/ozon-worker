@@ -77,26 +77,13 @@ def _now_iso() -> str:
 
 
 def _poll_task_result(task_id: str, worker_url: str, timeout: int = 900) -> dict[str, Any]:
-    """轮询 Worker task_status 直到终态（completed/failed），返回任务详情。
+    """轮询 Worker task_status 直到终态 —— 委托 cloud_probe.poll_task_status。
 
-    v0.22: skill 提交后默认不等待；--wait 时调用，拿到 product_summary。
+    worker_url 仅作签名兼容（与 cloud_probe._get_api_base 同源：
+    WORKER_URL/MXOU_API_BASE env）。返回结构化终态 dict（含 result_json）。
     """
-    url = f"{worker_url.rstrip('/')}/task_status/{task_id}"
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            resp = requests.get(url, timeout=15)
-            if resp.status_code == 200:
-                data = resp.json()
-                status = data.get("status", "")
-                if status in ("completed", "failed", "cancelled"):
-                    return data
-            elif resp.status_code == 404:
-                return {"status": "not_found", "task_id": task_id}
-        except Exception as _e:
-            print(f"  ⏳ task_status 轮询异常（继续）: {_e}", flush=True)
-        time.sleep(10)
-    return {"status": "timeout", "task_id": task_id, "timeout_seconds": timeout}
+    from scripts.cloud_probe import poll_task_status
+    return poll_task_status(task_id, timeout=timeout)
 
 
 def _print_product_summary(entry: dict[str, Any]) -> None:
@@ -197,6 +184,7 @@ def process_1688_url(
     worker_url: str,
     dry_run: bool,
     store_id: str = "",
+    notify: bool = False,
 ) -> dict[str, Any]:
     """Process a single 1688 URL: CDP probe → graph envelope → submit."""
     from scripts.cloud_probe import build_graph_envelope_with_retry, submit_envelope
@@ -243,6 +231,10 @@ def process_1688_url(
         envelope["ozon_client_id"] = client_id
         envelope["ozon_api_key"] = api_key
 
+        # P1-4 --notify: 顶层透传，Worker 收到 payload.notify 后推 webhook
+        if notify:
+            envelope["notify"] = True
+
         # Step 3: Submit to Worker（v0.21: 429 限流指数退避重试 3 次：30/60/120s）
         print(f"  📤 [{offer_id}] 提交到 Worker...", flush=True)
         submit_result = None
@@ -283,6 +275,7 @@ def process_ozon_url(
     worker_url: str,
     dry_run: bool,
     store_id: str = "",
+    notify: bool = False,
 ) -> dict[str, Any]:
     """Process a single Ozon URL: follow-sell pipeline → submit."""
     from scripts.cloud_probe import follow_sell_cloud
@@ -308,7 +301,8 @@ def process_ozon_url(
         # ✅ v0.26 FIX: 透传 store_id — 此前漏传导致 follow_sell_cloud 用默认店铺：
         # ① extensions 定价参数（margin/commission/fx）取默认店铺为空 → Worker 用
         #    默认值（利润计算与主店铺不符）；② 物流费率/币种走默认店铺 profile。
-        follow_result = follow_sell_cloud(url, auto_submit=not dry_run, store_id=store_id)
+        follow_result = follow_sell_cloud(url, auto_submit=not dry_run, store_id=store_id,
+                                          notify=notify)
 
         result["follow_result"] = follow_result
         result["card_copied"] = follow_result.get("card_copied", False)
@@ -418,6 +412,10 @@ def main() -> int:
     )
     parser.add_argument(
         "--wait-timeout", type=int, default=900, help="--wait 轮询超时秒数（默认 900）"
+    )
+    parser.add_argument(
+        "--notify", action="store_true",
+        help="P1-4: 提交时 GraphInput 顶层携带 notify=True（Worker 完成推送 webhook），--wait 终态时打印通知",
     )
     parser.add_argument(
         "--type-filter",
@@ -596,6 +594,9 @@ def main() -> int:
     print(f"开始处理 {len(urls)} 个 URL...")
     print(f"{'='*60}\n")
 
+    # P1-4 --notify: 仅当开启时以关键字传入，旧签名 mock（无 notify 参数）零回归
+    _notify_kw = {"notify": True} if args.notify else {}
+
     for i, item in enumerate(urls):
         idx = args.start + i + 1  # 1-based for display
         url_type = item["type"]
@@ -613,6 +614,7 @@ def main() -> int:
                 worker_url=args.worker_url,
                 dry_run=args.dry_run,
                 store_id=args.store_id,
+                **_notify_kw,
             )
         else:
             r = process_ozon_url(
@@ -623,6 +625,7 @@ def main() -> int:
                 worker_url=args.worker_url,
                 dry_run=args.dry_run,
                 store_id=args.store_id,
+                **_notify_kw,
             )
 
         results.append(r)
@@ -635,13 +638,17 @@ def main() -> int:
             r["final_status"] = final.get("status", "")
             # ✅ v0.25: worker 返回 error_message:null（JSON null）时 .get 默认值不生效
             r["final_error"] = (final.get("error_message") or "")[:300]
-            r["result_summary"] = (final.get("result") or {}).get("product_summary", [])
+            r["result_summary"] = (final.get("result_json") or {}).get("product_summary", [])
             if final.get("status") == "completed" and r["result_summary"]:
                 _print_product_summary(r)
             elif final.get("status") in ("failed", "cancelled"):
                 print(f"  ❌ [{_label}] 任务{final.get('status')}: {r['final_error']}", flush=True)
             elif final.get("status") == "timeout":
                 print(f"  ⏳ [{_label}] 轮询超时，可稍后查 task_status", flush=True)
+            # P1-4 --notify: 任务终态通知（webhook 由 Worker 实际推送，此处仅确认）
+            if args.notify and final.get("status") in ("completed", "failed", "cancelled"):
+                print(f"  🔔 [{_label}] 任务 {final.get('status')} —— Worker 完成通知已触发",
+                      flush=True)
         if r.get("success"):
             stats["success"] += 1
         else:
