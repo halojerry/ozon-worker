@@ -363,14 +363,14 @@ def get_store_profile(store_id: str = "") -> dict[str, Any]:
     """Get store-specific config from stores.json.
 
     Returns dict with keys: currency, shipping_provider, shipping_service,
-    margin_rate, commission_rate, fx_buffer.
+    margin_rate, commission_rate, fx_buffer, fx_rate.
     Returns empty dict if store not configured.
     """
     store = get_store(store_id)
     if not store:
         return {}
     allowed = ('currency', 'shipping_provider', 'shipping_service',
-               'margin_rate', 'commission_rate', 'fx_buffer')
+               'margin_rate', 'commission_rate', 'fx_buffer', 'fx_rate')
     return {k: v for k, v in store.items() if k in allowed}
 
 

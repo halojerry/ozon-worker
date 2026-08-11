@@ -942,6 +942,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
     """Ozon 选品 v2 — 先全量采集 → 表格分析 → 挑完再找货源。"""
     from scripts.lib.chrome_launcher import ensure_chrome_cdp
     from scripts.lib.ozon_discovery import (
+        DEFAULT_FX_RATE,
         DISCOVERY_CACHE_DIR,
         apply_selection_rules,
         collect_and_analyze,
@@ -949,9 +950,17 @@ def cmd_discover(args: argparse.Namespace) -> int:
         export_to_json,
         match_selected,
     )
+    from scripts.lib.config_store import get_setting, get_store_profile
+
+    # P2-6: fx_rate 三级解析 —— CLI 显式 > 店铺 stores.json fx_rate > settings.json fx_rate > 0.075
+    # （卢布波动时按店铺/全局配置调整，避免利润估算失真）
+    fx_rate = args.fx_rate if args.fx_rate is not None else float(
+        (get_store_profile(args.store) or {}).get("fx_rate")
+        or get_setting("fx_rate", DEFAULT_FX_RATE)
+        or DEFAULT_FX_RATE)
 
     print("🔍 Ozon 选品 v2（先采集 → 表格分析 → 挑完再找货源）", flush=True)
-    print(f"   采集上限: {args.max_products} 个 | 最低利润率: {args.min_margin}% | 汇率: 1 RUB = {args.fx_rate} CNY", flush=True)
+    print(f"   采集上限: {args.max_products} 个 | 最低利润率: {args.min_margin}% | 汇率: 1 RUB = {fx_rate} CNY", flush=True)
     if args.url or args.keyword:
         print(f"   来源: {'URL=' + args.url if args.url else '关键词=' + args.keyword}", flush=True)
     if args.rules:
@@ -1111,7 +1120,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
         match_selected(
             selected,
             cdp_url,
-            fx_rate=args.fx_rate,
+            fx_rate=fx_rate,
             min_margin_pct=args.min_margin,
             commission_rate=commission_rate,
             progress_callback=_match_progress,
@@ -1447,7 +1456,8 @@ def main() -> int:
     dp.add_argument("--max-products", type=int, default=50, help="最多采集产品数（默认 50）")
     dp.add_argument("--min-margin", type=float, default=15.0, help="最低利润率%%")
     dp.add_argument("--max-sellers", type=int, default=10, help="最大跟卖人数（兼容保留，v2 中不硬过滤）")
-    dp.add_argument("--fx-rate", type=float, default=0.075, help="RUB→CNY 汇率")
+    dp.add_argument("--fx-rate", type=float, default=None,
+                    help="RUB→CNY 汇率（默认取店铺 fx_rate → settings fx_rate → 0.075）")
     dp.add_argument("--store", default="", help="Ozon 店铺名（定价参数/提交凭证来源）")
     dp.add_argument("--no-analytics", action="store_true", help="不查 seller.ozon.ru 运营指标（默认自动尝试）")
     dp.add_argument("--min-price", type=float, default=0, help="价格下限（RUB，0=不限），区间外产品标记价区间外")
