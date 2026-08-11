@@ -349,9 +349,11 @@ def process_ozon_url(
         result["dry_run"] = True
         return result
 
-    # Submit mode: result already includes task_id from auto_submit
-    result["success"] = follow_result.get("success", False)
+    # Submit mode: result already includes task_id from auto_submit.
+    # ⚠️ P4: 提交模式下 success 必须要求真实 Worker task_id——follow_sell_cloud 曾因
+    # envelope 构建失败仍 success=True（图搜命中即置位）导致 task_id 空却报成功。
     result["task_id"] = follow_result.get("task_id", "")
+    result["success"] = bool(follow_result.get("task_id"))
     if follow_result.get("submit_result"):
         result["submit_result"] = follow_result["submit_result"]
 
