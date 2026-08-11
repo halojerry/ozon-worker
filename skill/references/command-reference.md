@@ -47,6 +47,32 @@
 - 用户要求批量选品时 → 使用 `discover` 一次调用（内部批量），不并行多个 `discover`
 - 用户要求同时选品 + 上架时 → 先完成选品 → 再执行上架，不交叉并行
 
+## 多店铺（P2-8）
+
+**stores.json 格式**（`skill/data/config/stores.json`，`set_store` 自动写入）：
+
+```json
+{
+  "default": "主店铺",
+  "stores": {
+    "主店铺": {"client_id": "4718259", "api_key": "...", "currency": "CNY", "fx_rate": 0.10},
+    "副店铺": {"client_id": "5371047", "api_key": "...", "currency": "RUB"}
+  }
+}
+```
+
+- 顶层 `"default"` 是**指针**（声明的默认店铺名）；`"stores"` 是店铺字典。
+- `set_store --name <店铺名> --client-id <ID> --api-key <KEY> [--currency CNY|RUB]` 新增/更新店铺；**第一个店铺自动成为默认**。
+- `list_stores` 查看全部店铺（client_id 打码）。改默认店铺：手动编辑 stores.json 的 `"default"` 字段（当前无 CLI 命令，首个店铺自动设为默认）。
+
+**`--store` 指定店铺**：graph / follow / discover / batch_test（`--store-id`）均支持，决定**凭证 + 定价参数**（`currency`/`margin_rate`/`commission_rate`/`fx_buffer`/`fx_rate`）来源；省略时用默认店铺。用户提到"某某店铺"时必须显式传 `--store`，不要默认用默认店铺。
+
+**POUNDING_OZON_STORE（遗留）**：该环境变量只切换 `runtime_config.{profile}.json`（旧运行时配置），**不参与 stores.json 多店铺选择**——多店铺只认 `--store` / stores.json 的 `"default"` 指针。
+
+**⚠️ 名为 "default" 的店铺歧义**：若某店铺恰好叫 `"default"`，它与顶层 `"default"` 指针字段同名冲突。解析规则（config_store.py `get_store`，v0.38 P2-8）：**指针字段优先**——`get_store("")` 按指针解析（指针指向谁就用谁），并在解析默认时**告警一次**提示重命名该店铺。建议店铺名避免使用 `"default"`。
+
+**store_id 全链路透传**（已实测）：`cmd_discover` → `build_envelope_from_discovery(store_id)` → 信封 `extensions.store_id`；`cmd_follow` → `follow_sell_cloud(store_id)`（follow 缓存 key = `product_id:store_id`，不同店铺不串缓存）；`cmd_graph` → `build_graph_envelope_with_retry(store_id)`；`batch_test` → `_resolve_credentials` 按 `--store-id` 解析凭证。
+
 ## 管线 A：1688 上架（graph）
 
 **触发**：用户消息含 `1688.com` 链接，或管线 B 降级
@@ -59,6 +85,9 @@ python3 scripts/cli.py graph --url "https://..." --store "主店铺" --no-submit
 
 # 用商品 ID（无 URL 时）+ 指定 Ozon 类目俄语关键词
 python3 scripts/cli.py graph --item-id "980815374096" --category-query "поилка" --store "主店铺"
+
+# 复用 Ozon 竞品参考链接（同类目属性，提升属性填充准确率）
+python3 scripts/cli.py graph --url "https://..." --store "主店铺" --ozon-ref-url "https://www.ozon.ru/product/xxx/"
 ```
 
 - **输入**：1688 商品 URL、店铺名
@@ -68,8 +97,13 @@ python3 scripts/cli.py graph --item-id "980815374096" --category-query "поил
   - `--category-query`：Ozon 类目俄语关键词（帮助类目匹配，可选）
   - `--retries`：CDP 抓取重试次数（默认 3）
   - `--no-submit`：只组装信封不提交 Worker（调试）
+  - `--ozon-ref-url`：Ozon 竞品参考链接（v0.29.x）——抓该竞品同类目属性复用，属性填充更准（可选）
+  - `--notify`：提交时 GraphInput 顶层携带 `notify=True`，Worker 完成推送 webhook（需 Worker 配置 `TASK_NOTIFY_URL`）
 - **输出**：JSON `{summary, envelope, submit_result}`（字段解析见 output-schema.md）
 - **自动完成**：CDP 抓取 1688 → 组装信封 → 提交 Worker
+- **Agent 决策**：用户给了 1688 URL → 直接执行（决策边界 §3 自动类）；`--no-submit` 用于"看看/评估/能不能上"场景，展示信封等用户确认后再提交
+
+**多店铺**：`--store` 指定店铺名（`data/config/stores.json` 的 key）；省略用 `default` 字段指向的默认店铺。不同店铺各自持有独立凭证/定价参数（`set_store --currency` 可配 RUB/CNY 店铺），提交时按店铺取凭证与 `fx_rate`。用户提到"某某店铺"时必须显式传 `--store`，不要默认用默认店铺。
 
 ## 管线 B：Ozon 跟卖（follow）
 
@@ -77,13 +111,36 @@ python3 scripts/cli.py graph --item-id "980815374096" --category-query "поил
 
 ```bash
 python3 scripts/cli.py follow --ozon-url "https://www.ozon.ru/product/xxx/" --store "主店铺" --auto-submit
+
+# 人工评审：展示全部 1688 候选，人工接受/改选/拒绝后组装（不自动挑）
+python3 scripts/cli.py follow --ozon-url "https://www.ozon.ru/product/xxx/" --store "主店铺" --auto-submit --review
+
+# 完成时推送 webhook 通知（需 Worker 配置 TASK_NOTIFY_URL）
+python3 scripts/cli.py follow --ozon-url "https://www.ozon.ru/product/xxx/" --store "主店铺" --auto-submit --notify
 ```
 
 - **输入**：Ozon 商品 URL、店铺名
-- **输出**：JSON `{summary, envelope, submit_result}`
+- **参数**：
+  - `--ozon-url`（必填）：Ozon 商品页 URL
+  - `--store`：Ozon 店铺名
+  - `--auto-submit`：自动提交 Worker（不加则只组装不提交）
+  - `--review`：人工评审暂停（v0.38）——展示全部 1688 候选，人工接受/改选/拒绝，决策写 review_log
+  - `--notify`：提交时 GraphInput 顶层 `notify=True`，Worker 完成推 webhook
+- **输出**：JSON `{success, product_id, slug, images, title, 1688_matches, task_id}`
 - **自动完成**：CDP 抓取 Ozon → 图搜 1688 同款 → 组装信封 → 提交 Worker
 
-**降级**：Ozon 页面禁止复制（DataDome 拦截）时：
+**跟卖双模式（`extensions.follow_type`，v0.22 起）**：
+
+| 模式 | 说明 | 适用 |
+|------|------|------|
+| `hand`（默认） | 防侵权——跳过 import-by-sku 1:1 复制，走 CREATE 重建（管线重做类目/属性/生图，天然防同款/侵权检测） | Skill 找到 1688 货源 |
+| `api` | import-by-sku 复制竞品卡 | Skill 无货源时由 Worker 自动降级 |
+
+- **offer_id 约定**：统一 `follow_{竞品ID}`（import-by-sku / assemble / prepare 三处一致，防 api 模式双卡）
+- **自动降级**：Skill 无 1688 货源 → Worker hand 模式自动降级 api 复制；图搜 `no_relevant_match`（相关性护栏拒绝）→ **直接拦截不组装**（v0.26 起，不提交空壳）
+- **Agent 决策**：用户给了 Ozon URL → 直接执行；跟卖走 Worker 跟卖管线（`follow_sell=true`），与管线 A 直采上架不同
+
+**降级（DataDome 拦截）**：Ozon 页面禁止复制时：
 1. 用 Ozon Widget API 获取产品信息
 2. 用产品图片在 1688 图搜同款
 3. 走管线 A（直采重建，非跟卖复制——offer_id/定价都会变，须向用户说明）
@@ -113,6 +170,15 @@ python3 scripts/cli.py discover --keyword "宠物用品" --auto-submit
 
 # ⑦ 不查 seller.ozon.ru 运营指标（未登录卖家后台时自动降级，无需手动加）
 python3 scripts/cli.py discover --keyword "宠物用品" --no-analytics
+
+# ⑧ 蓝海增强数据源（v0.33 C4）：实时 what_to_sell 查询反哺蓝海评分（需 --keyword + seller 登录；未登录自动降级 CSV）
+python3 scripts/cli.py discover --keyword "宠物用品" --blue-ocean-source queries
+
+# ⑨ 人工评审暂停（v0.38）：弱匹配候选逐个确认（y=接受 / N=拒绝 / a=全部 / s=跳过），决策写 review_log
+python3 scripts/cli.py discover --keyword "宠物用品" --blue-ocean-source queries --review
+
+# ⑩ 主站搜索（默认中国站 highlight 页；--china 是隐藏反向别名）
+python3 scripts/cli.py discover --keyword "宠物用品" --local
 ```
 
 - **输入**：搜索关键词 或 Ozon 页面 URL 或 无（→ 中国站懒加载）
@@ -128,6 +194,10 @@ python3 scripts/cli.py discover --keyword "宠物用品" --no-analytics
   - `--export csv|json|both` + `--output <路径>`：导出全量+选中结果
   - `--brand-filter`：`nobrand`（默认，只要无品牌/白牌）/ `known`（只过滤知名品牌黑名单）/ `all`（不过滤）
   - `--fx-rate`：RUB→CNY 汇率，显式指定时优先；缺省按 店铺 `stores.json` 的 `fx_rate` → `settings.json` 的 `fx_rate` → 0.075 解析（P2-6：卢布波动时在店铺/全局配置中调整，避免利润估算失真）
+  - `--local`：主站搜索（默认中国站 highlight 页内搜索）；`--china`（隐藏别名，`argparse.SUPPRESS`，等价默认中国站）
+  - `--blue-ocean-source csv|queries` + `--blue-ocean-csv <path>`：蓝海增强数据源（v0.33 C4）——`csv` 用本地 all-queries CSV 反哺蓝海评分（默认找 `/tmp/queries_all.csv`，无数据降级原流程）；`queries` 实时 what_to_sell 查询（需 `--keyword` + seller 登录，未登录/异常静默降级 CSV）
+  - `--review`：人工评审暂停（v0.38）——弱匹配候选逐个确认（`y`/`N`/`a`=全部/`s`=跳过），决策写入 review_log；settings.json `visual_review: true` 可全局开启
+  - `--notify`：提交时 GraphInput 顶层 `notify=True`，Worker 完成推 webhook
 - **表格符号**：`✅可挑` 待分析 · `⚠️夹带?` 标题不含关键词 · `⏭️价区间外` 超价格区间 · `💰有利` 符合条件 · `⚠️利润低` 利润不足 · `❌无货源` 1688 没匹配到 · `—` 运营列无数据（卖家后台未登录）
 
 ### 管线 C 增强：裂变选品（discover --fission，v0.31）
@@ -185,13 +255,116 @@ python3 scripts/batch_test.py --urls-file urls.txt --dry-run
 
 # 从第 5 个开始处理 10 个，间隔 5 秒
 python3 scripts/batch_test.py --urls-file urls.txt --submit --start 5 --limit 10 --delay 5
+
+# 断点续传（v0.36）：跳过上次已成功项，只重试失败项（自动找最新 data/batch_results/batch_*.json）
+python3 scripts/batch_test.py --urls-file urls.txt --submit --resume
+
+# 显式指定续传来源结果文件
+python3 scripts/batch_test.py --urls-file urls.txt --submit --resume-from data/batch_results/batch_20260811_090000.json
+
+# 完成时推送 webhook 通知（需 Worker 配置 TASK_NOTIFY_URL）
+python3 scripts/batch_test.py --urls-file urls.txt --submit --wait --notify
 ```
 
 URL 文件混合 1688/Ozon 链接，自动识别管线。
 
-参数：`--urls-file`（必填）、`--submit`（提交 Worker，默认不提交）、`--wait`（轮询到完成，含产品明细）、`--dry-run`（只组装验证）、`--start` / `--limit`（处理范围）、`--delay`（间隔秒）、`--wait-timeout`（轮询超时秒，默认 900）、`--type-filter`（按类型过滤 URL）。
+参数：`--urls-file`（必填）、`--submit`（提交 Worker，默认不提交）、`--wait`（轮询到完成，含产品明细）、`--dry-run`（只组装验证）、`--start` / `--limit`（处理范围）、`--delay`（间隔秒，默认 3.0）、`--wait-timeout`（轮询超时秒，默认 900）、`--type-filter`（按类型过滤 URL：`1688`/`ozon`/`all`）、`--resume`（断点续传，跳过已成功项）、`--resume-from`（显式指定续传来源结果文件，默认自动找最新）、`--notify`（提交时 `notify=True`，Worker 完成推 webhook）。
 
 凭证：`--store-id <店铺名>` 从 `data/config/stores.json` 取凭证（同 graph/follow 的 `--store`）；不指定时用环境变量 `OZON_CLIENT_ID` / `OZON_API_KEY`。
+
+## 任务查询（query）
+
+**触发**：用户问"任务/上架进度"、"完成了吗"、追问 `graph`/`follow`/`batch_test` 提交后返回的 task_id 状态。
+
+```bash
+# 单次查询（非终态返回当前进度，终态打印明细）
+python3 scripts/cli.py query 550e8400-e29b-41d4-a716-446655440000
+
+# 轮询直到终态（每 10s 查一次，打印进度中间态；--timeout 默认 900s 超时）
+python3 scripts/cli.py query 550e8400-... --watch
+
+# 长任务（生图/审核慢）调大轮询上限
+python3 scripts/cli.py query 550e8400-... --watch --timeout 1800
+```
+
+- **输入**：`<task_id>`（位置参数，`graph`/`follow` 提交返回的 UUID；`batch_test --wait` 另走批量轮询）
+- **参数**：`--watch`（轮询到终态，每 10s）、`--timeout`（watch 超时秒，默认 900）
+- **输出**（非 JSON，人读格式）：`任务 {id}: {status}` + 开始/完成时间 + 重试次数；终态成功 → 产品明细行（OzonID | 售价 | 净利润率 | 审核状态 | 备注）；失败 → `❌ 错误: {error_message}`；`not_found`/`worker_unreachable`/`timeout` 各有明确提示
+- **status 取值**：`completed`/`failed`/`cancelled`（终态）/ `pending`/`running`（非终态）/ `not_found`/`worker_unreachable`/`query_error`（查询异常）
+- **Agent 决策**：提交后可直接 `query --watch` 等终态再向用户汇报，不必让用户盲等；终态字段解析见 output-schema.md
+
+## 卖家店铺分析（seller）
+
+**触发**：跟卖选品时发现某卖家店铺整体强（竞品多/销量好），要"挖这个卖家整店"。
+
+```bash
+# 采集店铺产品 + 逐 SKU 拉运营指标（默认前 60 个产品、前 30 个 SKU 分析）
+python3 scripts/cli.py seller --seller-id 472316509
+```
+
+- **输入**：`--seller-id`（必填，Ozon 卖家 ID，跟卖列表透传的 seller_id）
+- **参数**：`--max-products`（采集店铺产品上限，默认 60）、`--max-skus`（运营分析 SKU 上限，默认 30）
+- **输出**：JSON `{seller_id, product_count, analyzed_count, products: [{product_id, monthly_sales, monthly_revenue, sales_dynamics, drr, create_days, category}]}`
+- **⚠️ 限速**：what_to_sell 逐 SKU 查询 ~1s/SKU，`--max-skus 30` 约 30s；店铺产品太多只分析前 N
+- **依赖**：seller.ozon.ru 已登录（工具 Chrome 登录态）
+- **Agent 决策**：拿到卖家产品清单后可从中挑选候选 → `graph`/`follow` 上架，或喂给 `discover --fission` 裂变
+
+## what-to-sell 蓝海/榜单查询（queries）
+
+**触发**：选品前查"哪些关键词有蓝海"（count/ca/uniq_sellers）、Ozon 畅销榜、跨平台畅销榜。
+
+```bash
+# 关键词蓝海查询（all-queries 全量，可带关键词过滤）
+python3 scripts/cli.py queries --type all-queries --keyword "поилка" --export csv --output /tmp/queries_all.csv
+
+# Ozon 畅销榜（按 SKU 过滤）
+python3 scripts/cli.py queries --type ozon-bestsellers
+
+# 跨平台畅销榜（按类目/价格过滤）
+python3 scripts/cli.py queries --type market-bestsellers --category-id 17028929 --price-min 300 --price-max 2000
+
+# 导出 JSON 到指定路径（默认打印 stdout）
+python3 scripts/cli.py queries --type all-queries --export json --output data/queries.json
+```
+
+- **输入**：`--type`（必填：`all-queries`/`ozon-bestsellers`/`market-bestsellers`）
+- **参数**：`--keyword`（all-queries 关键词过滤）、`--sku`（ozon-bestsellers SKU 过滤）、`--category-id`/`--price-min`/`--price-max`（market-bestsellers 过滤）、`--export csv|json`（默认 csv）、`--output <路径>`（默认打印 stdout）
+- **输出**：CSV（utf-8-sig，Excel 兼容）或 JSON 行
+- **⚠️ 前置**：需 seller.ozon.ru 已登录（CDP 复用已登录 tab 页内 fetch 真实端点）；未登录打印「未登录 seller.ozon.ru」
+- **自动上报**：采集成功后 fire-and-forget 上报 worker PG（异步，无 token 跳过，不阻断主流程）
+- **Agent 决策**：`all-queries` 结果可作蓝海关键词依据（反哺 `discover --blue-ocean-source`）；榜单数据可直接作为选品参考
+
+## 自动更新（update）
+
+**触发**：提示"发现新版本 vX.Y.Z"或用户要求升级 Skill。
+
+```bash
+python3 scripts/cli.py update
+```
+
+- **行为**：从 COS manifest 下载最新包 → sha256 校验 → 备份当前（`_update_backup`）→ 覆盖 `scripts/`/文档 → **保留 `data/`**（凭证/登录态/缓存/选品日志）→ 失败自动回滚
+- **⚠️ 跨进程锁**：并发 CLI 同时 auto-update 会互相破坏备份/覆盖，有文件锁防竞态
+- **Agent 决策**：版本升级由用户主导，不自动触发；升级提示按 SKILL.md §6 引导用户执行
+
+## 磁盘清理（cleanup）
+
+**触发**：用户问"占空间太大/清理一下"、磁盘满、Chrome profile 膨胀（实测可再生缓存累计可达 GB 级）。
+
+```bash
+# 预演（只打印将删除内容，不实际删）
+python3 scripts/cli.py cleanup --all --dry-run
+
+# 清理全部：Chrome profile 可再生缓存 + 磁盘缓存 + 孤儿 .json.tmp + 过期结果（--days 默认 30）
+python3 scripts/cli.py cleanup --all
+
+# 只清过期结果/日志文件（保留最近 7 天）
+python3 scripts/cli.py cleanup --old-results --days 7
+```
+
+- **参数**：`--profile-cache`（Chrome profile 可再生缓存目录白名单，**登录态绝不动**）、`--cache`（磁盘缓存全部命名空间）、`--temp`（孤儿 .json.tmp + 旧任务/会话文件）、`--old-results`（过期结果/日志，配合 `--days` 默认 30）、`--dry-run`（只预览）、`--all`（全部）
+- **⚠️ profile-cache 需 Chrome 关闭**：Chrome 进程运行时跳过（缓存文件被锁，硬删会损坏），返回 `skipped_chrome_running` warning
+- **安全**：删除走 `safe_rmtree`（fail-open），登录态文件（Cookies/Local Storage/Login Data/Preferences）绝不在清理名单
+- **Agent 决策**：环境类操作，用户要求即执行；`--dry-run` 先预览是稳妥做法
 
 ## 其他命令（辅助）
 
@@ -207,4 +380,22 @@ python3 scripts/cli.py get_ak --timeout 300
 
 # CDP 探针抓取单个 1688 商品（调试用）
 python3 scripts/cli.py probe --url "https://detail.1688.com/offer/xxx.html" --timeout 30
+
+# 环境检查 + 自动启动 Chrome + 凭证验证（首次使用/排错，env-setup.md）
+python3 scripts/cli.py check
 ```
+
+## settings.json 可调参数
+
+> 位于 `data/config/settings.json`（与凭证同目录），高级用户/维护者按需调整；普通 agent 操作不涉及。
+
+| key | 默认 | 作用 |
+|-----|------|------|
+| `probe_interval_seconds` | 2.5 | 1688 CDP 探针页内操作间隔秒数（T5；调大更稳防验证码，调小更快） |
+| `match_min_conf` | 0.3 | 图搜匹配主护栏置信度下限（T7；无徽标路径 conf ≥ 阈值放行；调高更严格） |
+| `match_badge_eff_min` | 0.5 | 图搜匹配 badge 有效性下限（T7；主护栏 badge 下限） |
+| `visual_review` | false | 全局开启 discover/follow 人工评审暂停（D3-L3；等价每次加 `--review`） |
+| `fx_rate` | 0.075 | RUB→CNY 全局汇率兜底（N6；CLI `--fx-rate` > 店铺 stores.json `fx_rate` > 此值 > 0.075） |
+| `sentry_dsn` | 内置默认 | Sentry 错误上报 DSN 覆盖（可选） |
+
+修改后即时生效（读取时加载，无需重启）。
