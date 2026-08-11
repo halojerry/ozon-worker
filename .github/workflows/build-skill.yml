@@ -69,6 +69,9 @@ jobs:
       - name: Smoke import compiled binaries (3.12)
         shell: bash
         working-directory: skill/dist
+        env:
+          # ⚠️ win32 bash 默认 cp1252 编码，print 中文报 UnicodeEncodeError
+          PYTHONIOENCODING: utf-8
         run: |
           set -e
           PYTHONPATH=. python - <<'EOF'
