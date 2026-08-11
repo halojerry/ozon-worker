@@ -1,7 +1,8 @@
-"""P1a: discover --china 标志 — parser 解析 + cmd_discover 透传 collect_and_analyze。
+"""P1a: discover --local 标志（默认中国站）— parser 解析 + cmd_discover 透传 collect_and_analyze。
 
-- parser（main() 内联构造）: --china → args.china=True；缺省 → False
-- cmd_discover: 把 china=args.china 传给 collect_and_analyze（T7 已实现 china 路由）
+- parser（main() 内联构造）: --local → args.local=True（默认 False）；隐藏别名 --china 仍解析
+- cmd_discover: 把 china=(not args.local) or args.china 传给 collect_and_analyze——
+  缺省（无 --local）→ china=True（中国站）；--local → china=False（主站）
 """
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ def _discover_args(**overrides):
         fission=False, max_depth=2, allow_depth_3=False, max_total_products=300,
         time_budget=600.0, max_sellers_per_product=20, max_products_per_seller=15,
         non_interactive=False, blue_ocean_source="", blue_ocean_csv="",
-        china=False,
+        china=False, local=False,
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -53,17 +54,24 @@ def _parse_discover(argv: list[str]):
     return md.call_args.args[0]
 
 
-def test_parser_china_flag_sets_true():
-    """parser: --china → args.china is True（关键词一并解析）。"""
-    args = _parse_discover(["--china", "--keyword", "手套"])
-    assert args.china is True, "--china 应解析为 True"
+def test_parser_local_flag_sets_true():
+    """parser: --local → args.local is True（关键词一并解析）。"""
+    args = _parse_discover(["--local", "--keyword", "手套"])
+    assert args.local is True, "--local 应解析为 True"
     assert args.keyword == "手套"
 
 
-def test_parser_china_flag_default_false():
-    """parser: 不带 --china → args.china is False（零回归）。"""
+def test_parser_local_flag_default_false():
+    """parser: 不带 --local → args.local is False（默认走中国站）。"""
     args = _parse_discover(["--keyword", "поилка"])
-    assert args.china is False, "缺省 --china 应为 False"
+    assert args.local is False, "缺省 --local 应为 False"
+
+
+def test_parser_china_alias_still_parses():
+    """parser: 隐藏别名 --china（向后兼容）→ args.china is True。"""
+    args = _parse_discover(["--china", "--keyword", "手套"])
+    assert args.china is True, "--china 别名应解析为 True"
+    assert args.local is False, "--china 不应设置 --local"
 
 
 def test_cmd_discover_passes_china_true_to_collect_and_analyze():
@@ -85,8 +93,8 @@ def test_cmd_discover_passes_china_true_to_collect_and_analyze():
         f"collect_and_analyze 应收到 china=True, got {ca.call_args.kwargs}"
 
 
-def test_cmd_discover_passes_china_false_by_default():
-    """cmd_discover: 缺省 → collect_and_analyze(china=False)（行为不变）。"""
+def test_cmd_discover_passes_china_true_by_default():
+    """cmd_discover: 缺省（无 --local）→ collect_and_analyze(china=True)（默认中国站）。"""
     from scripts import cli
     c = _mk()
     args = _discover_args(keyword="поилка")
@@ -100,8 +108,27 @@ def test_cmd_discover_passes_china_false_by_default():
         with mock.patch("sys.stdout", new_callable=io.StringIO):
             rc = cli.cmd_discover(args)
     assert rc == 0
+    assert ca.call_args.kwargs.get("china") is True, \
+        f"缺省应传 china=True, got {ca.call_args.kwargs}"
+
+
+def test_cmd_discover_local_passes_china_false():
+    """cmd_discover: --local → collect_and_analyze(china=False)（切主站搜索）。"""
+    from scripts import cli
+    c = _mk()
+    args = _discover_args(keyword="поилка", local=True)
+    with mock.patch("scripts.lib.chrome_launcher.ensure_chrome_cdp",
+                    return_value=(True, "ok")), \
+         mock.patch("scripts.lib.ozon_discovery.collect_and_analyze",
+                    return_value=[c]) as ca, \
+         mock.patch("scripts.cli._interactive_select", return_value=[]), \
+         mock.patch("scripts.lib.ozon_discovery.match_selected"), \
+         mock.patch("scripts.lib.config_store.get_mxou_token", return_value=""):
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            rc = cli.cmd_discover(args)
+    assert rc == 0
     assert ca.call_args.kwargs.get("china") is False, \
-        f"缺省应传 china=False, got {ca.call_args.kwargs}"
+        f"--local 应传 china=False, got {ca.call_args.kwargs}"
 
 
 if __name__ == "__main__":

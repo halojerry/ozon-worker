@@ -5,7 +5,8 @@
 全部中国站页或全部搜索结果页。china=True + keyword 应构造
 CHINA_HIGHLIGHT_URL?text=<quote(keyword)>（China goods highlight 页内搜索）。
 
-验证: 断言 collect 阶段传给 cdp.new_tab 的 target_url 正确。
+v0.38: 默认翻转 — china 缺省即 True（跨境卖家主战场），--local 显式传 False
+切主站 /search/。验证: 断言 collect 阶段传给 cdp.new_tab 的 target_url 正确。
 """
 from __future__ import annotations
 
@@ -41,8 +42,11 @@ class _FakeCdp:
         pass
 
 
-def _target_url(china=False, keyword="", url=""):
-    """跑 collect_and_analyze（串行路径），返回 collect 阶段 new_tab 的目标 URL。"""
+def _target_url(china=None, keyword="", url=""):
+    """跑 collect_and_analyze（串行路径），返回 collect 阶段 new_tab 的目标 URL。
+
+    china=None（默认）→ 不传 china kwarg，验证函数缺省值（默认中国站）。
+    """
     _FakeCdp.instances = []
     with mock.patch.object(od, "_discover_workers", return_value=1):
         with mock.patch("scripts.lib.cdp_client.CdpConnection", side_effect=_FakeCdp):
@@ -53,11 +57,18 @@ def _target_url(china=False, keyword="", url=""):
                                            ozon_price=100.0)):
                     with mock.patch.object(od, "_save_discovery_log"):
                         with mock.patch("time.sleep"):
-                            od.collect_and_analyze(
-                                "http://127.0.0.1:9222", url=url, keyword=keyword,
-                                china=china, use_analytics=False)
+                            kwargs = dict(url=url, keyword=keyword, use_analytics=False)
+                            if china is not None:
+                                kwargs["china"] = china
+                            od.collect_and_analyze("http://127.0.0.1:9222", **kwargs)
     assert len(_FakeCdp.instances) == 1, "串行路径应只建一个主连接"
     return _FakeCdp.instances[0].new_tab.call_args.args[0]
+
+
+def test_default_keyword_routes_to_china_highlight():
+    """缺省（不传 china）→ 默认中国站：keyword 走 CHINA_HIGHLIGHT_URL?text=（不落主站 /search/）。"""
+    target = _target_url(keyword="手套")
+    assert target == f"{CHINA}?text={urllib.parse.quote('手套')}", target
 
 
 def test_china_keyword_builds_highlight_with_text():
