@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.38.0] - 2026-08-12
+
+> 第二批全量交付（P1a-P6 + D1-D5 + N1-N9）：discover 中国站模式 + 采集/匹配/裂变全链路并行化 + what_to_sell 批量畅销榜指标 + 源码保护扩至 14 模块；裂变两阶段 widget API、agent-in-loop 决策审计（review_log + --review + AK403 自动刷新）、缓存 VERSION 指纹一键失效、护栏阈值 settings 化；worker 端 SKU 去重防重复上架、moderation 拒绝显性化（rejected 终态 + resubmit）、余额不足拦截复活、webhook 终态通知；skill 端 cleanup 清扫、物流兜底硬化、fx_rate 三级解析、多店铺校验。
+
+### Feat(skill discover 选品增强)
+
+- **D1 discover 默认中国站**（`ozon_discovery.py`）：discover 默认 Ozon 中国站（cn）选品（`--local` 切回主站，`--china` 参数保留兼容）——中国站价格/库存/物流与俄语卖家视角一致，选品数据更可操作。
+- **P1a discover 采集/匹配并行化**（`ozon_discovery.py`）：采集→分析→匹配→裂变各阶段线程级并行（`concurrent.futures` + CDP 连接复用），中国站大批量 URL 耗时显著下降；`--auto-submit` 支持并行提交。
+- **P1b/P1c what_to_sell 批量畅销榜指标**（`ozon_seller_analytics.py`）：候选产品批量拉取月销/增长/跟卖数/drr 等运营指标，`candidate.ozon_category` 注入 what_to_sell 权威类目（category2_id/3_id），提交链路优先采用。
+- **P4 follow success 判据移到提交后**（`cloud_probe.py`）：task_id 为空不再报成功——提交失败如实返回错误，不误导用户。
+
+### Feat(skill 裂变 + agent-in-loop)
+
+- **D2 裂变两阶段 widget API**（`ozon_fission.py`）：fission 第一阶段用 widget API 批量拉卖家全部产品浅层评分，第二阶段对高分候选逐产品深挖——卖家产品量大时深度抓取成本大幅下降；`_expand_seller` 逐产品并行化（线程级 CDP 连接）。
+- **D3-L1 匹配决策元数据透传**（`ozon_discovery.py`/`ak_1688_client.py`）：confidence/badge_eff/score/reject_reason 贯通采集→匹配→组装全链路，决策依据不再黑盒。
+- **D3-L2 review_log 决策审计模块**（新增 `scripts/lib/review_log.py`）：`data/review_log.jsonl` 追加式记录每次候选匹配决策（置信度/图搜 badge/拒绝原因/人工确认结果），审计可回溯。
+- **D3-L3 `--review` 低置信人工确认**（`discover`/`follow`）：低于 `match_min_conf`/`match_badge_eff_min` 阈值的候选进入交互式确认（展示候选 + 依据，用户接受/跳过），低置信不再静默上架。
+- **D3-L4 1688 AK 403 自动刷新重试**（`ak_1688_client.py`）：AK 403（配额/过期）自动刷新 token 重试一次；follow 不再吞 `AkAuthError`（此前 403 被静默吞掉导致候选为空、用户看到空结果）。
+
+### Feat(skill 缓存指纹 + settings 参数化)
+
+- **D4 缓存 VERSION 指纹**（`cache.py`）：缓存 key 前缀并入 `_cache_version()`（读 skill/VERSION）——发版即一键失效全部命名空间（probe1688/slug_cn/follow/ak_search/ak_img_search/…），旧版缓存数据不污染新版逻辑。
+- **D5 护栏阈值 settings 化**：`probe_interval_seconds`（1688 探针节流间隔）、`match_min_conf`/`match_badge_eff_min`（匹配置信度/图搜 badge 门槛）从硬编码改为 `settings.json` 可配——调松紧无需重新发版。
+- **P5 CDP 连接复用**（`enrich_product_with_cdp`）：支持外部传入 `CdpTab` 复用，批量富化不再 N 次重建连接。
+- **P6 源码保护扩至 14 模块**（`compile.py`）：ozon_discovery/ozon_seller_analytics/analytics_upload/ozon_fission/ozon_seller/cdp_client 从明文复制晋升 Cython 编译（8→14），`_find_missing_imports` 兜底 + dist 完整性断言；`test_compile_lists.py` 锁定模块清单。
+
+### Feat(worker 提交防护 + 审核闭环)
+
+- **N1 SKU 级重复提交防护**（`supabase_task_processor` + DB）：`sku_key`（item_id + 变体维度）唯一索引 + `DUPLICATE_SUBMIT` 错误码——同一 SKU 重复提交直接返回已存在任务，防重复上架。
+- **N2 moderation 拒绝显性化**（`main.py` + recheck 节点）：`rejected` 终态 + `POST /api/v1/resubmit_task/{id}` 重提交端点——被 Ozon 审核拒绝的任务不再模糊标记，修正后一键重提。
+- **N4-w 任务终态 webhook 通知**（`task_processor.py`）：配置 `TASK_NOTIFY_URL` 后任务成功/失败自动 POST 终态通知。
+- **余额不足拦截修复**（`main.py` auth）：MXOU 余额实查复活 + auth_node 对齐 + 统一错误码——`users.quota` 耗尽不再靠僵尸 `remain_quota` 误判。
+
+### Feat(skill 运维与配置)
+
+- **N3+N7 cleanup 命令**（`cli.py`）：`cleanup --profile-cache`（Chrome profile 可再生缓存）/ `--cache`（磁盘缓存）/ `--temp`（孤儿 .json.tmp）/ `--old-results --days N`（过期结果），`--dry-run` 预演，登录态保留。
+- **N4-s query --watch + --notify**（`cli.py`）：`query --watch` 轮询任务进度至终态；`graph/follow/discover/batch --notify` 命令结束时输出任务通知。
+- **N5 物流估算兜底硬化**（`cloud_probe.py`）：`fallback_chain` 透传 + last-good 费率缓存——Worker 物流报价失败时复用上次成功费率，不再退化到默认虚高兜底。
+- **N6 fx_rate 三级解析**（`config_store.py`）：汇率按 店铺 `stores.json` → `settings.json` → 内置 0.075 三级回退，不再硬编码。
+- **N8 多店铺校验**（`cli.py`/`config_store.py`）：default 名冲突守卫（禁止覆盖既有 default 店铺）+ 双店铺透传测试。
+
+### Docs
+
+- **N9 references 增强**（`skill/references/`）：stale 纠偏 + 命令全覆盖 + settings 参数表——command-reference/error-codes/env-setup 补全新命令（cleanup/query --watch/--notify/--review）与参数。
+
+### Test
+
+- skill 新增 36 文件：`test_china_mode`/`test_cli_china_flag`（D1）、`test_fission_shallow`/`test_fission_e2e_mock`/`test_fission_parallel`（D2）、`test_review_log`/`test_cli_review`/`test_match_decision_metadata`/`test_ak_403`（D3）、`test_cache_versioning`（D4）、`test_service_probe_interval`/`test_settings_guardrail`（D5）、`test_cleanup`（N3+N7）、`test_query_watch`（N4-s）、`test_logistics_fallback`（N5）、`test_fx_rate_config`（N6）、`test_multi_store`（N8）、`test_compile_lists`（P6，锁 14 模块清单）、`test_collect_analyze_parallel`/`test_match_selected_parallel`/`test_cli_auto_submit_parallel`/`test_bestseller_metrics_map`/`test_blue_ocean_live_queries`/`test_ozon_category_populate`/`test_follow_success_after_submit`/`test_enrich_reuse_conn`/`test_probe_reuse_cdp` 等（P1-P5）。
+- worker 新增 7 文件：`test_submit_dedup`（N1）、`test_moderation_rejected`（N2）、`test_task_notify`（N4-w）、`test_auth_key_column`/`test_auth_node_balance_align`/`test_auth_node_failopen_mxou`/`test_submit_insufficient_balance`（余额拦截）。
+- 全量验证：skill 本机 + Docker 3.12 双环境 pytest、worker pytest、ruff worker/src + skill scripts 全绿（详见 release commit 验证记录）。
+
 ## [0.37.0] - 2026-08-11
 
 > 重量/尺寸兜底根治批次：废除「<10g×1000 轻物误伤」「密度÷1000 改写」等 8 处改写真实值的启发式，改为「只对缺失兜底、对已有值仅标记放行 + Sentry 留痕 + 原始信封保留」；skill 端修 parseWeightGrams 源头读错 + 高密度保留商家重量；Sentry DSN 内置硬编码（用户零配置）。
