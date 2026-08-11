@@ -1255,6 +1255,20 @@ def _log_review_record(record: dict[str, Any]) -> None:
         pass
 
 
+def _guardrail_threshold(key: str, default: float) -> float:
+    """读取护栏阈值配置（D5-B，agent 可经 settings.json 实时调整）。
+
+    空值/None/非数值一律回退默认——配置损坏不得改变护栏行为。
+    函数级 lazy import 与 match_selected 的 config_store 用法一致。
+    """
+    from scripts.lib.config_store import get_setting
+
+    try:
+        return float(get_setting(key, default) or default)
+    except (TypeError, ValueError):
+        return default
+
+
 def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str = "") -> dict[str, Any] | None:
     """从图搜结果中挑选最相关的匹配。
 
@@ -1273,6 +1287,11 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
     """
 
     is_ru_title = bool(re.search(r"[а-яёА-ЯЁ]", ozon_title or ""))
+
+    # D5-B: 护栏阈值参数化——每次调用读取 settings.json（读盘开销可忽略），
+    # agent 调整 match_badge_eff_min / match_min_conf 即时生效，无需改代码。
+    _min_badge = _guardrail_threshold("match_badge_eff_min", 0.5)
+    _min_conf = _guardrail_threshold("match_min_conf", 0.3)
 
     # D3 L1: 判定不静默消失——block 出口写 review_log（decision="block"）。
     def _block_record(reason: str, cand: dict[str, Any] | None, conf: float) -> dict[str, Any]:
@@ -1385,7 +1404,7 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
         _badge_effectiveness(r.get("badge", "") or "") > 0 for r in results
     )
     if not any_badge:
-        if _conf_of_best >= 0.3:
+        if _conf_of_best >= _min_conf:
             logger.info("图搜无徽标（badge-less），标题相关性 conf=%.2f 放行: %s",
                         _conf_of_best, best.get("title", "")[:40])
             return _attach_match_meta(best, _conf_of_best, badge_eff_of_best, _best_score)
@@ -1405,7 +1424,7 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
     # ⚠️ v0.26 徽标降级: 原「badge 无分 + 总分<15」护栏已并入下面统一护栏（新分制下
     # badge=0 时该条件要求图搜排名≥4 且 conf<0.1，被「badge<0.5 + conf<0.3」完全覆盖；
     # 且旧护栏直接拒绝不救 LLM，会误杀排位靠后的同品候选）。
-    if badge_eff_of_best < 0.5 and _conf_of_best < 0.3:
+    if badge_eff_of_best < _min_badge and _conf_of_best < _min_conf:
         # ⚠️ v0.26 FIX: badge 弱匹配但词对相关性弱 → 先 LLM 语义判定（先 best 再 top-N）
         if _llm_semantic_match(ozon_title, _bt, token):
             logger.info("图搜 badge 弱匹配 + LLM 语义判定同品，放行: %s", _bt[:40])
