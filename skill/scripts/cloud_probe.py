@@ -2578,9 +2578,42 @@ def check_task_status(task_id: str) -> dict[str, Any]:
         "terminal": terminal,
         "error_message": data.get("error_message"),
         "result_json": result,
+        # P1-4 --watch: Worker task_status 顶层 progress {stage, percent, ...}
+        "progress": data.get("progress"),
         "retry_count": data.get("retry_count", 0),
         "started_at": data.get("started_at"),
         "completed_at": data.get("completed_at"),
+    }
+
+
+def poll_task_status(
+    task_id: str,
+    timeout: int = 900,
+    on_status=None,
+) -> dict[str, Any]:
+    """轮询 Worker task_status 直到终态（P1-4 主动状态通知）。
+
+    复用 check_task_status（每 10s 一次，返回同样的结构化 dict）：
+    completed/failed/cancelled → 立即返回终态 dict；超时返回
+    {status: "timeout", timeout_seconds, ...}（非终态）。
+
+    on_status(result): 每次非终态轮询后回调（供 --watch 打印进度中间态，
+    如 "⏳ running (35%)..."）；终态不回调（终态由返回值呈现）。
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r = check_task_status(task_id)
+        if r.get("terminal"):
+            return r
+        if on_status is not None:
+            on_status(r)
+        time.sleep(10)
+    return {
+        "task_id": task_id,
+        "status": "timeout",
+        "ok": False,
+        "terminal": False,
+        "timeout_seconds": timeout,
     }
 
 
@@ -2685,7 +2718,7 @@ def _cached_ozon_scrape(
 
 
 def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = "",
-                      review: bool = False) -> dict[str, Any]:
+                      review: bool = False, notify: bool = False) -> dict[str, Any]:
     """
     跟卖 Ozon 商品 (v9: Skill 不调 Ozon API, import-by-sku 移到 Worker):
       1. CDP 抓取 Ozon 商品页 → 拿到竞品图片 + 标题
@@ -2732,7 +2765,10 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         logger.info("♻️ follow 信封缓存命中: %s", _follow_cache_key)
         _cached_follow["from_cache"] = True
         if auto_submit and _cached_follow.get("envelope"):
-            _sub = submit_envelope(_cached_follow["envelope"])
+            _env = dict(_cached_follow["envelope"])
+            if notify:
+                _env["notify"] = True
+            _sub = submit_envelope(_env)
             _cached_follow["submit_result"] = _sub
             _cached_follow["task_id"] = _sub.get("task_id", "")
         return _cached_follow
@@ -3121,6 +3157,8 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     result["envelope_built"] = True
                     # ⚠️ P4: success 必须在提交之后才置位——图搜命中 ≠ 上架成功
                     if auto_submit:
+                        if notify:
+                            envelope["notify"] = True
                         submit_res = submit_envelope(envelope)
                         result["submit_result"] = submit_res
                         result["task_id"] = submit_res.get("task_id", "")

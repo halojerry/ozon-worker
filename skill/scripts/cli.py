@@ -268,6 +268,9 @@ def cmd_graph(args: argparse.Namespace) -> int:
                 print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
                       "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
             return 1
+        # P1-4 --notify: 顶层透传，Worker 收到 payload.notify 后任务终态推 webhook
+        if getattr(args, 'notify', False):
+            graph["notify"] = True
         submit_result = submit_envelope(graph)
         if submit_result.get("ok"):
             import logging
@@ -814,7 +817,8 @@ def cmd_follow(args) -> int:
     try:
         result = follow_sell_cloud(args.ozon_url, auto_submit=args.auto_submit,
                                    store_id=args.store or "",
-                                   review=getattr(args, "review", False))
+                                   review=getattr(args, "review", False),
+                                   notify=getattr(args, "notify", False))
     except AuthError as e:
         _out({"success": False, "error": str(e)})
         return 1
@@ -1246,6 +1250,9 @@ def cmd_discover(args: argparse.Namespace) -> int:
                 envelope = build_envelope_from_discovery(c, store_config, store_id=store_id)
                 if not envelope:
                     return c, "", "skip"
+                # P1-4 --notify: 顶层透传，Worker 收到 payload.notify 后推 webhook
+                if getattr(args, "notify", False):
+                    envelope["notify"] = True
                 result = submit_envelope(envelope)
                 return c, result.get("task_id", ""), "ok"
             except Exception as e:
@@ -1403,6 +1410,8 @@ def main() -> int:
     gp.add_argument("--store", default="", help="Ozon 店铺名称（不指定则用默认店铺）")
     gp.add_argument("--no-submit", action="store_true", help="只组装信封不提交 Worker")
     gp.add_argument("--ozon-ref-url", default="", help="Ozon 竞品参考链接(抓同类目属性复用, 可选, v0.29.x)")
+    gp.add_argument("--notify", action="store_true",
+                    help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
     gp.set_defaults(func=cmd_graph)
 
     # image_search
@@ -1426,6 +1435,8 @@ def main() -> int:
     fp.add_argument("--store", default="", help="Ozon 店铺名称")
     fp.add_argument("--review", action="store_true",
                     help="人工评审暂停：展示全部 1688 候选，人工接受/改选/拒绝")
+    fp.add_argument("--notify", action="store_true",
+                    help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
     fp.set_defaults(func=cmd_follow)
 
     dp = sub.add_parser("discover", help="Ozon 选品 v2（先采集 → 表格分析 → 挑完再找货源）")
@@ -1463,6 +1474,8 @@ def main() -> int:
                     help="蓝海关键词 CSV 路径（--blue-ocean-source 时；默认 /tmp/queries_all.csv）")
     dp.add_argument("--review", action="store_true",
                     help="人工评审暂停：弱匹配候选逐个确认（y/N/a=全部/s=跳过），决策写入 review_log")
+    dp.add_argument("--notify", action="store_true",
+                    help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
     dp.set_defaults(func=cmd_discover)
 
 
@@ -1473,6 +1486,10 @@ def main() -> int:
     # ── 任务查询(v0.28.5 C1)──
     q = sub.add_parser("query", help="查询 Worker 任务状态(任务 ID)")
     q.add_argument("task_id", help="submit/follow 返回的任务 ID(UUID)")
+    q.add_argument("--watch", action="store_true",
+                   help="P1-4: 轮询直到终态（每 10s 查一次，打印进度中间态）")
+    q.add_argument("--timeout", type=int, default=900,
+                   help="--watch 轮询超时秒数（默认 900）")
     q.set_defaults(func=cmd_query)
 
     # ── 卖家店铺分析(v0.29.x ②)──
@@ -1709,17 +1726,18 @@ def cmd_update(args: argparse.Namespace) -> int:
     return run_update_command()
 
 
-def cmd_query(args: argparse.Namespace) -> int:
-    """查询 Worker 任务状态（v0.28.5 C1: agent 不再只能盲等, 可主动查进度）。
-
-    返回: completed → 0; 终态(failed/cancelled/not_found) → 0(信息完整);
-          非终态(processing/queued) → 0(展示进度); 查询失败 → 1。
-    """
-    from scripts.cloud_probe import check_task_status
-
-    r = check_task_status(args.task_id)
+def _query_watch_progress(r: dict) -> None:
     status = r.get("status", "unknown")
-    print(f"任务 {args.task_id}: {status}")
+    pct = ""
+    prog = r.get("progress")
+    if isinstance(prog, dict) and prog.get("percent"):
+        pct = f" ({int(prog['percent'])}%)"
+    print(f"⏳ {status}{pct}...", flush=True)
+
+
+def _print_query_result(task_id: str, r: dict) -> None:
+    status = r.get("status", "unknown")
+    print(f"任务 {task_id}: {status}")
     if r.get("started_at"):
         print(f"  开始: {r.get('started_at')}")
     if r.get("completed_at"):
@@ -1747,9 +1765,34 @@ def cmd_query(args: argparse.Namespace) -> int:
         print("  ⚠️ 任务不存在(可能已过期或 ID 有误)")
     elif status == "worker_unreachable":
         print("  ⚠️ Worker 不可达, 请检查网络/Worker 地址")
+    elif status == "timeout":
+        print(f"  ⏳ 轮询超时（--timeout {r.get('timeout_seconds')}s 内未到终态），可稍后 query 查询")
     else:
         print("  ⏳ 处理中...")
 
+
+def cmd_query(args: argparse.Namespace) -> int:
+    """查询 Worker 任务状态（v0.28.5 C1: agent 不再只能盲等, 可主动查进度）。
+
+    --watch（P1-4）: 首次查询非终态后每 10s 轮询（poll_task_status）直到终态，
+    中间态打印 "⏳ running (35%)..."，终态后复用 _print_query_result 输出明细。
+
+    返回: completed → 0; 终态(failed/cancelled/not_found) → 0(信息完整);
+          非终态(processing/queued) → 0(展示进度); 查询失败 → 1。
+    """
+    from scripts.cloud_probe import check_task_status, poll_task_status
+
+    if getattr(args, "watch", False):
+        r = poll_task_status(
+            args.task_id,
+            timeout=getattr(args, "timeout", 900),
+            on_status=_query_watch_progress,
+        )
+        _print_query_result(args.task_id, r)
+        return 0
+
+    r = check_task_status(args.task_id)
+    _print_query_result(args.task_id, r)
     return 0
 
 
