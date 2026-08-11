@@ -75,6 +75,15 @@ def _is_branded(brand: str) -> bool:
     return True
 
 
+def _discover_workers() -> int:
+    """Discover 并行 worker 数：min(max(2, os.cpu_count() or 4), 4)。
+
+    纯 stdlib（无 psutil），上限 4 —— CDP 单浏览器多 tab 并发收益有限且 Chrome
+    负载随 tab 数上升，4 为实测安全值（ozon_fission._parallel_workers 同源公式）。
+    """
+    return min(max(2, os.cpu_count() or 4), 4)
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -300,8 +309,13 @@ def _lazy_collect_urls(tab: Any, max_products: int,
     return pids[:max_products]
 
 
-def _analyze_product(cdp_url: str, cdp: Any, pid: str) -> ProductCandidate:
-    """单产品全量数据（widget API）：标题/价格/图/品牌/评分/评论数 + 跟卖。"""
+def _analyze_product(cdp_url: str, cdp: Any, pid: str,
+                     force_new_tab: bool = False) -> ProductCandidate:
+    """单产品全量数据（widget API）：标题/价格/图/品牌/评分/评论数 + 跟卖。
+
+    force_new_tab=True（P2）: 透传给 fetch_product_info / fetch_competing_sellers
+    —— 多线程并发时每线程开自己的 tab（跳过 find_tab，防并发 worker 抢用户 tab）。
+    """
     from scripts.lib.ozon_widget import (
         fetch_competing_sellers,
         fetch_product_info,
@@ -318,7 +332,7 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str) -> ProductCandidate:
     )
 
     try:
-        info = fetch_product_info(cdp_url, pid, cdp=cdp)
+        info = fetch_product_info(cdp_url, pid, cdp=cdp, force_new_tab=force_new_tab)
         candidate.ozon_title = info.get("title", "")
         # webPrice 结构 price 可能为空，fallback cardPrice（实测部分商品 price 字段为空）
         candidate.ozon_price = _parse_price(
@@ -334,7 +348,8 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str) -> ProductCandidate:
             return candidate
 
         # 跟卖数/最低跟卖价
-        sellers = fetch_competing_sellers(cdp_url, pid, cdp=cdp)
+        sellers = fetch_competing_sellers(cdp_url, pid, cdp=cdp,
+                                          force_new_tab=force_new_tab)
         candidate.competing_sellers = sellers.get("count", 0)
         candidate.min_competing_price = sellers.get("min_price", 0)
         candidate.competing_seller_list = sellers.get("sellers", [])
@@ -357,21 +372,31 @@ def collect_and_analyze(
     max_price: float = 0,
     brand_filter: str = "nobrand",
     progress_callback=None,
+    china: bool = False,
 ) -> list[ProductCandidate]:
     """Discover v2 阶段①+②：采集 + 全量数据 + seller.ozon.ru 运营指标。
 
-    - url 优先；否则 keyword 构造真实搜索页；否则中国站 highlight 页
+    - url 优先；否则 china=True + keyword → 中国站 highlight 页内搜索
+      （CHINA_HIGHLIGHT_URL?text=...）；否则 keyword 构造真实搜索页；
+      否则中国站 highlight 页
+    - china=False（默认）→ 行为与 v0.36 完全一致（零回归）
     - min_price/max_price（RUB，0=不限）：价格区间外的候选标记 filtered，
       跳过运营指标查询（省调用），不参与挑选
     - brand_filter（参考 maozi 插件 brand_option）：nobrand=只要无品牌/白牌（默认，
       规避品牌侵权）；known=只过滤知名品牌黑名单；all=不过滤
     - 返回全部候选（status: ok/uncertain/filtered/error），**不做 1688 匹配**（阶段④）
     - 关键词校验：标题含中文但无关键词 → uncertain（表格标黄，仍可选）
+    - P2: 多 pid 分析并行（每线程独立 CdpConnection + 独立 tab），过滤/回调/
+      落盘留在主线程，候选按 pid 原始顺序返回。
     """
     from scripts.lib.cdp_client import CdpConnection
 
     if url:
         target_url = url
+    elif china and keyword and keyword.strip():
+        import urllib.parse
+        target_url = f"{CHINA_HIGHLIGHT_URL}?text={urllib.parse.quote(keyword.strip())}"
+        logger.info("Opening Ozon China highlight search page: %s", target_url)
     elif keyword and keyword.strip():
         import urllib.parse
         target_url = f"https://www.ozon.ru/search/?text={urllib.parse.quote(keyword.strip())}"
@@ -396,19 +421,22 @@ def collect_and_analyze(
                 pass
 
         # ── 阶段② 全量数据 ──
-        for i, pid in enumerate(pids):
-            candidate = _analyze_product(cdp_url, cdp, pid)
-
+        # P2: 多 worker 并行分析（每线程独立 CdpConnection + 独立 tab），
+        # 品牌/关键词/价格过滤 + 落盘 + 进度回调留在主线程。
+        def _apply_filters(candidate: ProductCandidate) -> None:
+            """品牌/关键词/价格过滤（主线程执行，含候选顺序与回调次序）。"""
             # ⚠️ v0.22: 品牌过滤（参考 maozi：brand 字段布尔判断 + 配置开关）
             if candidate.status == "ok" and candidate.brand:
                 if brand_filter == "nobrand" and _is_branded(candidate.brand):
                     candidate.status = "filtered"
                     candidate.error = f"品牌产品（{candidate.brand}），自动跳过"
-                    logger.info("品牌过滤(nobrand): %s（%s）", candidate.ozon_title[:40], candidate.brand)
+                    logger.info("品牌过滤(nobrand): %s（%s）",
+                                candidate.ozon_title[:40], candidate.brand)
                 elif brand_filter == "known" and _is_known_brand(candidate.brand):
                     candidate.status = "filtered"
                     candidate.error = f"知名品牌产品（{candidate.brand}），自动跳过"
-                    logger.info("品牌过滤(known): %s（%s）", candidate.ozon_title[:40], candidate.brand)
+                    logger.info("品牌过滤(known): %s（%s）",
+                                candidate.ozon_title[:40], candidate.brand)
 
             # 关键词相关性校验（仅对含中文的标题有效，俄语标题无法判断）
             if (keyword and candidate.status == "ok"
@@ -429,26 +457,77 @@ def collect_and_analyze(
                     candidate.status = "filtered"
                     candidate.error = f"价格高于上限 {max_price:.0f}₽"
 
-            candidates.append(candidate)
-            if progress_callback:
-                progress_callback(i + 1, len(pids), candidate)
-            time.sleep(0.5)
+        workers = _discover_workers()
+        if workers <= 1:
+            # 串行（零回归）：复用主连接，force_new_tab 保持默认 False
+            for i, pid in enumerate(pids):
+                candidate = _analyze_product(cdp_url, cdp, pid)
+                _apply_filters(candidate)
+                candidates.append(candidate)
+                if progress_callback:
+                    progress_callback(i + 1, len(pids), candidate)
+                time.sleep(0.5)
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+
+            def _analyze_thread(pid: str) -> ProductCandidate:
+                # 每 worker 自己的 CdpConnection（绝不共享主连接——CdpConnection
+                # 的 _tabs 无锁，跨线程共享会竞态）。force_new_tab=True 跳过
+                # find_tab：防并发 worker 抢用户第一个 ozon.ru tab（v0.31.1）。
+                with CdpConnection(cdp_url) as thread_cdp:
+                    return _analyze_product(cdp_url, thread_cdp, pid,
+                                            force_new_tab=True)
+
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_analyze_thread, pid) for pid in pids]
+                # 按 pid 原始顺序收集（进度回调次序稳定，测试依赖）
+                for i, pid in enumerate(pids):
+                    try:
+                        candidate = futures[i].result()
+                    except Exception as exc:
+                        # _analyze_product 已内捕异常；此处兜底连接层失败
+                        candidate = ProductCandidate(
+                            ozon_product_id=pid, ozon_title="", ozon_price=0.0,
+                            ozon_url=f"https://www.ozon.ru/product/{pid}")
+                        candidate.status = "error"
+                        candidate.error = str(exc)
+                        logger.warning("Product %s analysis failed: %s", pid, exc)
+                    _apply_filters(candidate)
+                    candidates.append(candidate)
+                    if progress_callback:
+                        progress_callback(i + 1, len(pids), candidate)
+                    time.sleep(0.5)
 
         # ── 阶段②b 运营指标（借道 seller.ozon.ru，失败自动降级）──
         # 只对价格区间内的候选查询（filtered 跳过，省 API 调用）
+        # P1c: 先批量畅销榜 map（单次 data/v3 调用，sku-keyed）命中即用；
+        # 未命中 pids 降级逐 SKU fetch_sales_analytics（保持原可用性）。
         if use_analytics:
             to_enrich = [c for c in candidates if c.status in ("ok", "uncertain")]
             if to_enrich:
                 from scripts.lib.ozon_seller_analytics import (
                     apply_analytics_to_candidate,
+                    fetch_bestseller_metrics_map,
                     fetch_sales_analytics,
                 )
-                metrics_map = fetch_sales_analytics(
-                    cdp, [c.ozon_product_id for c in to_enrich])
+                enriched: dict[str, dict] = {}
+                metrics_map = fetch_bestseller_metrics_map(cdp, company_id=None)
+                remaining = [c for c in to_enrich
+                             if c.ozon_product_id not in metrics_map]
                 for c in to_enrich:
-                    apply_analytics_to_candidate(
-                        c, metrics_map.get(c.ozon_product_id, {}))
-                if not metrics_map:
+                    if c.ozon_product_id in metrics_map:
+                        apply_analytics_to_candidate(
+                            c, metrics_map[c.ozon_product_id])
+                        enriched[c.ozon_product_id] = metrics_map[c.ozon_product_id]
+                if remaining:
+                    per_sku = fetch_sales_analytics(
+                        cdp, [c.ozon_product_id for c in remaining])
+                    for c in remaining:
+                        apply_analytics_to_candidate(
+                            c, per_sku.get(c.ozon_product_id, {}))
+                        if c.ozon_product_id in per_sku:
+                            enriched[c.ozon_product_id] = per_sku[c.ozon_product_id]
+                if not enriched:
                     logger.warning(
                         "⚠️ 运营数据全部缺失（seller.ozon.ru 未登录或无权限）："
                         "请在 Chrome 打开 https://seller.ozon.ru 登录卖家后台，"
@@ -488,55 +567,83 @@ def match_selected(
 
     selected = [c for c in candidates if c.status in ("ok", "uncertain")]
     stats = {"matched": 0, "rejected": 0, "no_match": 0, "error": 0}
-    # ⚠️ v0.14 E6: 批量 1688 识图复用同一 CDP 连接（旧代码每候选新建 CdpConnection+CdpTab）
-    import contextlib
 
-    from scripts.lib.cdp_client import CdpConnection
-    with contextlib.closing(CdpConnection(cdp_url)) as shared_cdp:
-        for i, candidate in enumerate(selected):
-            try:
-                match = _search_1688_source(
-                    cdp_url, candidate.ozon_images, candidate.ozon_title, conn=shared_cdp,
-                    mxou_token=mxou_token)
-                if match:
-                    candidate.match_1688_url = match.get("url", "")
-                    candidate.match_1688_title = match.get("title", "")
-                    candidate.match_1688_price = float(match.get("price", 0))
-                    candidate.match_1688_images = match.get("images", [])
-                    candidate.status = "matched"
+    def _process_match(candidate: ProductCandidate, match) -> None:
+        """1688 匹配结果写回 + 利润/蓝海评分 + 状态分配（主线程执行）。"""
+        if match:
+            candidate.match_1688_url = match.get("url", "")
+            candidate.match_1688_title = match.get("title", "")
+            candidate.match_1688_price = float(match.get("price", 0))
+            candidate.match_1688_images = match.get("images", [])
+            candidate.status = "matched"
 
-                    _calculate_profit(
-                        candidate,
-                        fx_rate=fx_rate,
-                        logistics_cny=logistics_cny,
-                        commission_rate=commission_rate,
-                    )
-                    density = None
-                    if blue_ocean_rows:
-                        density = compute_competitor_keyword_density(
-                            blue_ocean_rows, candidate.ozon_title or "")
-                    candidate.blue_ocean_score = calculate_blue_ocean_score(
-                        candidate, competitor_keyword_density=density)
+            _calculate_profit(
+                candidate,
+                fx_rate=fx_rate,
+                logistics_cny=logistics_cny,
+                commission_rate=commission_rate,
+            )
+            density = None
+            if blue_ocean_rows:
+                density = compute_competitor_keyword_density(
+                    blue_ocean_rows, candidate.ozon_title or "")
+            candidate.blue_ocean_score = calculate_blue_ocean_score(
+                candidate, competitor_keyword_density=density)
 
-                    if candidate.profit_margin >= min_margin_pct:
-                        candidate.status = "profitable"
-                    else:
-                        candidate.status = "rejected"
-                        candidate.error = (f"margin too low "
-                                           f"({candidate.profit_margin:.1f}% < {min_margin_pct}%)")
-                else:
-                    candidate.status = "no_match"
-            except Exception as exc:
-                candidate.status = "error"
-                candidate.error = str(exc)
-                logger.warning("1688 match failed for %s: %s",
-                               candidate.ozon_product_id, exc)
+            if candidate.profit_margin >= min_margin_pct:
+                candidate.status = "profitable"
+            else:
+                candidate.status = "rejected"
+                candidate.error = (f"margin too low "
+                                   f"({candidate.profit_margin:.1f}% < {min_margin_pct}%)")
+        else:
+            candidate.status = "no_match"
 
+    def _finalize(i: int, candidate: ProductCandidate) -> None:
         stats[candidate.status if candidate.status in stats else "error"] += 1
-
         if progress_callback:
             progress_callback(i + 1, len(selected), candidate)
         time.sleep(0.5)
+
+    workers = _discover_workers()
+    if workers <= 1:
+        # 串行（零回归）：批量识图复用同一 CDP 连接（v0.14 E6）
+        import contextlib
+
+        from scripts.lib.cdp_client import CdpConnection
+        with contextlib.closing(CdpConnection(cdp_url)) as shared_cdp:
+            for i, candidate in enumerate(selected):
+                try:
+                    match = _search_1688_source(
+                        cdp_url, candidate.ozon_images, candidate.ozon_title,
+                        conn=shared_cdp, mxou_token=mxou_token)
+                    _process_match(candidate, match)
+                except Exception as exc:
+                    candidate.status = "error"
+                    candidate.error = str(exc)
+                    logger.warning("1688 match failed for %s: %s",
+                                   candidate.ozon_product_id, exc)
+                _finalize(i, candidate)
+    else:
+        # P2: 并行识图——conn=None 让每线程自建独立连接（_search_1688_source
+        # 内部对 conn=None 新建并自持），结果按候选顺序写回主线程。
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_search_1688_source, cdp_url=cdp_url,
+                                   images=c.ozon_images, title=c.ozon_title,
+                                   conn=None, mxou_token=mxou_token)
+                       for c in selected]
+            for i, candidate in enumerate(selected):
+                try:
+                    match = futures[i].result()
+                    _process_match(candidate, match)
+                except Exception as exc:
+                    candidate.status = "error"
+                    candidate.error = str(exc)
+                    logger.warning("1688 match failed for %s: %s",
+                                   candidate.ozon_product_id, exc)
+                _finalize(i, candidate)
 
     logger.info("1688 匹配统计: %s", stats)
     # 匹配结果落盘（collect_and_analyze 保存的是匹配前的全量数据，
