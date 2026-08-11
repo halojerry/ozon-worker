@@ -2,15 +2,19 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
-## 最近更新（v0.35.0 — Skill 三模块：SKILL.md 精简 + discover 分析文档 + Skill Sentry 埋点）
+## 最近更新（v0.36.0 — 16 问题四类处理 + 发布演练）
 
-> 2026-08-10。SKILL.md 精简为纯操作手册（192→150 行，§6 压缩为排错指引，全文去版本注记）+ discover 选品后自动生成结构性分析文档（MD+JSON，Agent 可直接汇报）+ Skill 端 Sentry 错误上报（复用 pouding_ozon 项目，environment=skill，依赖 3→4）。完整历史见 `CHANGELOG.md`。
+> 2026-08-11。真实 tag 发布演练（v0.36.0）暴露并修复 4 个 CI 平台 bug（Docker 3.12 time.mock / Rosetta 目录 / win32 编码 / x86_64 dlopen）+ 浏览器链路修复（CHROME_PATH/PEP 668/登录误判）+ 缓存复用 + 批量续传 + 打包安全 + SKILL.md 重构 + 版本四源统一。完整历史见 `CHANGELOG.md`。
 
-- **discover 结构性分析文档**: `export_analysis_report()`（ozon_discovery.py:829）在货源分析后自动写 `data/discovery/analysis_*.md` + `analysis_*.json`（无需 --export）；MD 头部汇总 + 每产品详情块，Agent 直接据此汇报。
-- **Skill Sentry 埋点**: `_init_sentry()`/`_capture_exception()`（cli.py:1167/1193）——`SENTRY_DSN` env 启用（environment=skill、release=VERSION），凭证零上传；DSN 未设/sdk 缺失/测试进程静默 no-op。查询错误：`sentry issue list halo-fx/pouding_ozon`（tag environment:skill 区分）。
-- **SKILL.md 精简**: §6 工程元信息（自动更新/venv/ABI/profile 迁移）→ 4 行排错指引；8 处版本号注记清除。
-- **测试**: skill 24 测试文件全绿（新增 test_discovery_analysis_report 10 断言 + test_sentry_skill 5 断言）；compile.py 9 模块编译 + import 校验通过；ci.sh --quick 通过。
-- **Sentry 近期高发问题**（v0.34 Worker 侧）: 翻译/生成失败用中文原文（CA x12 等）→ DESCRIPTION_DECLINE；类目匹配阻断（DF/DC/DH）——详见 Sentry `sentry issue list halo-fx/pouding_ozon`。
+- **浏览器链路修复**: `find_browser_executable` 支持 `CHROME_PATH` env（service.py:892）；`_auto_install_browser` pip 加 `--break-system-packages`（PEP 668）；`_wait_for_login_session` 返回结构化 `{ok, session, reason}`——区分「未找到浏览器/登录超时/启动失败」（enrich 消费侧 ak_1688_client.py:953-982）。
+- **数据缓存复用**: probe_1688_page（ns `probe1688` 24h）+ `_translate_slug_to_cn`（ns `slug_cn` 30d）+ follow envelope（ns `follow` 6h）+ AK 图搜（`ak_img_search` 6h）/关键词（`ak_search` 24h）——重跑不重复抓图/耗 LLM/耗配额。**缓存 key 必须含语言/ID 维度**（防固化错误货币数据）。
+- **api_only 降级透传**: build_graph_envelope 不再对 api_only 硬 raise——enrich 透传的 api title/price/images 组装信封（cloud_probe.py:1236）。
+- **safe_unlink/safe_rmtree**（utils.py）: Windows 沙箱 fail-open 安全删除——unlink → os.remove → warning 返回 False，绝不 raise。替换了 cache/task_paths/updater/bootstrap/chrome_launcher 的裸删除。
+- **config 原子写 + profile 锁**: config_store 三处 write_text → `_atomic_write_json`（tmp+os.replace）；chrome_launcher profile 加进程级 flock（防并发双启）。
+- **SKILL.md 100 行**: §4 越界行为 → `references/anti-patterns.md`；裂变/趋势细则 → `references/discover-fission.md` + `trend-selection.md`。
+- **版本四源统一 0.36.0**: root/skill/deploy-skill VERSION + SKILL.md frontmatter；compile.py 打包时用 skill/VERSION 覆写 frontmatter；build-skill.yml 加 frontmatter 校验。
+- **发布演练教训**: ① CI test-skill 用 Docker 3.12（本机 3.14 测不出环境差异）② build-skill 冒烟导入 3.12 ③ darwin-x86_64 跳过冒烟（macos-latest 已切 Apple Silicon，x86_64 .so 无法 dlopen）。
+- **测试**: skill 39 测试文件 306 断言全绿（本机 3.14 + Docker 3.12 双环境）；compile.py 8 模块编译 + import 校验通过。
 
 
 ## 工作区概述
@@ -90,7 +94,7 @@ ozon-worker/
 | Ozon 选品 | `discover` | Ozon 中国站/搜索/类目页自动选品，蓝海评分，1688匹配，利润计算，CSV/JSON导出 |
 | 以图搜款 | `image_search` | CDP 网页版图搜（准确率~100%） |
 | 获取 AK | `get_ak` | 浏览器自动获取 1688 AK |
-| 批量处理 | `batch_test` | 批量处理 URL 列表 |
+| 批量处理 | `batch_test` | 批量处理 URL 列表（v0.36 支持 `--resume` 断点续传——读上次 log_file 跳过已成功项，失败项重试） |
 | what-to-sell 查询 | `queries` | Ozon 蓝海/榜单数据查询（v0.34，all-queries/ozon-bestsellers/market-bestsellers，采集后自动上报 worker PG） |
 
 **Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
@@ -98,8 +102,9 @@ ozon-worker/
 **源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 **8 个**：lib/（ak_1688_client、ak_callback、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_api）+ capabilities/browser_probe/stealth.py。以下明文复制（依赖复杂/改动频繁/跨平台编译失败）：cli.py、batch_test.py、cloud_probe.py、lib/（cdp_client、utils、cache、ozon_seller、ozon_widget、ozon_seller_analytics、analytics_upload、ozon_fission、ozon_discovery、updater、task_paths、logging_utils）、capabilities/browser_probe/service.py。
 - **cloud_probe.py 明文**（2026-08-02 移回）：非语法问题（macOS 同 Cython 编译成功），是 Cython 生成 65k 行 C + 单个 ~9000 行函数击穿 **MSVC 编译器堆限制**（仅 win32 失败 → 缺 .pyd → graph/follow 报 `No native binary for cloud_probe on win32`）。信封组装核心、改动频繁，明文跨平台一致。
 - **service.py 明文**（2026-08-01 移回）：探针改动最频繁。
-- **compile.py 编译失败"带响"**（v0.12.0）：失败打印完整 stderr（最后 30 行）+ `failed>0` 时 `sys.exit(1)`，CI 不再静默发布残缺包。CI 另有产物完整性校验（4 平台 × 11 模块共 44 个二进制必须就位）。
-- 编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。
+- **ozon_discovery.py 明文**（v0.36 移回）：discover 运营指标链路适配任意 ≥3.12 解释器（含 Python 3.14）。改它无需重编译。
+- **compile.py 编译失败"带响"**（v0.12.0）：失败打印完整 stderr（最后 30 行）+ `failed>0` 时 `sys.exit(1)`，CI 不再静默发布残缺包。CI 另有产物完整性校验（**4 平台 × 8 模块 = 32 个二进制必须就位**，build-skill.yml）。
+- 编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。⚠️ 本机 python3.12 有 stdlib 问题——用 `PYTHONHOME=/Volumes/os/opt/homebrew/Cellar/python@3.12/3.12.13_4/Frameworks/Python.framework/Versions/3.12` 修复；Cython 用 `--user --break-system-packages` 装。
 
 **依赖**：仅 4 个 — `requests`、`websocket-client`、`Pillow`、`sentry-sdk`（Sentry 错误上报，v0.35 起；缺失时 cli.py lazy import 静默降级，不阻塞任何命令）。
 
@@ -203,6 +208,13 @@ cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_at
 
 # Worker 单元测试（Mock 模式，无需 PG/GPU）
 cd worker && PYTHONPATH=src ../skill/.venv314/bin/python tests/test_full_pipeline_mock_images.py
+
+# Skill 测试（本机 3.14 快速验证；⚠️ 系统 python3.12 有 stdlib 问题，勿用）
+cd skill && .venv314/bin/python -m pytest tests/ -q
+
+# Skill 测试（Docker 3.12——与编译 ABI 一致，v0.36 起 CI 标准；本机 3.14 测不出环境差异）
+docker run --rm -e PYTHONUTF8=1 -v $PWD:/workspace -w /workspace/skill python:3.12-slim \
+  sh -c "pip install -q -r requirements.txt pytest && timeout 600 python -m pytest tests/ -q"
 
 # Skill 单节点测试
 cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
@@ -369,7 +381,8 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 - 版本号: `VERSION` 文件（语义化版本 `MAJOR.MINOR.PATCH`）
 - 变更记录: `CHANGELOG.md`
-- 发版: 改 VERSION → 更新 CHANGELOG → `git tag v{x.y.z}` → `VERSION={ver} bash deploy/deploy.sh`
+- ⚠️ **版本四源统一（v0.36）**: root `VERSION` / `skill/VERSION` / `deploy/skill/VERSION` / `skill/SKILL.md` frontmatter 必须一致。compile.py 打包时自动用 skill/VERSION 覆写 frontmatter；build-skill.yml 有 frontmatter 校验（不一致 fail）。改版本时四处同步。
+- 发版: 改 VERSION（四处）→ 更新 CHANGELOG → `git tag v{x.y.z} && git push origin v{x.y.z}`（触发 build-skill.yml 4 平台编译 + cd.yml 部署两条链路）→ 服务器 `bash deploy/cos-update.sh` 升级 worker；skill 用户端 updater 自动更新。
 
 ## 开发规范
 
@@ -380,7 +393,8 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## 深入阅读（改前先看）
 
-- **`skill/SKILL.md`** — ⭐ Agent 调用指南（Chrome 启动、选品、跟卖、以图搜款、批量处理）
+- **`skill/SKILL.md`** — ⭐ Agent 调用指南（Chrome 启动、选品、跟卖、以图搜款、批量处理；100 行精简版，越界/裂变/趋势细则在 `references/`）
+- **`skill/references/*.md`** — SKILL.md 外置细则：anti-patterns（越界行为）/ discover-fission（裂变选品）/ trend-selection（趋势选品）/ command-reference（命令参数）
 - **`docs/DEPLOY.md`** — ⭐ Worker 云端部署完整指南（Docker、Nginx、HTTPS、运维）
 - **`docs/WORKER-TOPOLOGY.md`** — Worker 拓扑与错误处理手册（节点流、错误映射、数据流、改代码快速参考）
 - **`docs/CONTRACT-v4.md`** — ⭐ Skill↔Worker API 契约 v4.0（端点、请求/响应、错误码、节点合约；`CONTRACT.md` 是 v3.0 旧版）
@@ -415,6 +429,16 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
 - **Docker 部署**: `deploy/docker-compose.yml` 含 PG + Worker，`HEALTHCHECK` 已配置。
 - **API 版本化**: 新端点走 `/api/v1/`，旧路径保持兼容。
+
+### v0.36 新增关键约定（改缓存/删除/版本/浏览器链路前必看）
+
+- **缓存纪律**: 磁盘缓存统一走 `cache.py`（namespace+TTL+SHA256 key），只缓存成功结果。新增缓存 namespace：`probe1688`(24h)/`slug_cn`(30d)/`follow`(6h)/`ak_img_search`(6h)/`ak_search`(24h)/`ozon_sellers`(6h)。**key 必须含语言/ID 维度**（防固化错误货币数据——用户 Ozon 页面可能 CNY/RUB 混杂）。改 follow/discover 链路勿移除这些缓存。
+- **safe_unlink/safe_rmtree（utils.py）**: Windows 沙箱删除文件必须用（fail-open：unlink → os.remove → warning 返回 False 不 raise）。**新增裸 `Path.unlink()`/`shutil.rmtree()` 调用会被 CI 之外的 review 拦截**——统一走安全删除。
+- **discover 竞品数据注入信封**: `build_envelope_from_discovery` 把候选的 `weight_g/dimensions_mm` 注入 `extensions.competitor_weight_g/competitor_dimensions_mm`（worker `_resolve_weight_dimensions` 兜底链 C2）；`ozon_category` 优先用 what_to_sell 权威类目（category2_id/3_id）。改 discover 提交链路勿丢这两个注入。
+- **what_to_sell 27 字段**: `_extract_metrics`（ozon_seller_analytics.py）解析全部运营指标（sold_count/sold_sum/sales_dynamics/drr/days_in_promo/discount/promo_revenue_share/days_with_trafarets/qty_view_pdp/conv_to_cart_pdp/session_count_search/conv_to_cart_search/conv_view_to_order/custom_click_rate/sales_schema/nullable_redemption_rate/重量4497/尺寸9454/9455/9456/权威类目）。新增字段时保持 camelCase→snake_case 映射一致。
+- **浏览器检测统一**: `chrome_launcher._find_chrome_executable` 委托 `service.find_browser_executable`（富实现），探测期间**禁用自动安装**（`_auto_install_browser` 置 False——防无 Chrome 环境挂起 300MB 下载）；支持 `CHROME_PATH` env（Phase 0）。改浏览器查找勿分裂成两条逻辑。
+- **登录误判**: `_wait_for_login_session` 返回 `{ok, session, reason}`（reason: no_cdp/timeout/cdp_error）——enrich 按 reason 区分「未找到浏览器/登录超时/启动失败」。勿把三者混为一谈（曾误导用户反复扫码）。
+- **version 四源**: 改版本必须同步 root/skill/deploy-skill VERSION + SKILL.md frontmatter（compile.py 打包时覆写 frontmatter，但源码 frontmatter 也保持同步避免误导）。
 
 ### v0.34 新增关键约定（改类目匹配/品牌/Sentry/analytics 前必看）
 
@@ -586,18 +610,23 @@ Skill 已适配 Windows，但有以下注意事项：
 
 ## CI/CD
 
-GitHub Actions 自动检查每次 push/PR：
-- **Syntax**: 全量 .py 文件语法检查（阻断）
-- **Quality**: pyflakes 快速质量检查
+GitHub Actions 自动检查每次 push/PR（`ci.yml`）：
+- **repo-hygiene**: 禁止跟踪运行时/构建产物（skill/data/browser 等）
+- **Syntax**: 全量 .py 语法检查（阻断）
+- **secret-scan**: gitleaks 只扫近 3 个月（历史已泄露基线）
+- **Quality**: ruff（worker src/ 全量；skill scripts/ --select F）
 - **Import**: Worker + Skill 核心模块导入验证（阻断）
-- **Docker**: 镜像构建验证（阻断）
-- **CD**: `git tag v*` → Docker build → push ghcr.io → GitHub Release
-- **Skill 自动更新**: `git tag v*` → build-skill.yml 打包 4 平台 → 上传 COS
+- **test-worker**: ubuntu + postgres:16 service + pytest 全量
+- **test-skill**: **Docker python:3.12-slim 容器跑 pytest**（v0.36 起——ubuntu 预装 Chrome 测不出无浏览器场景；cp312 ABI 与发布二进制一致）
+- **docker-build**: worker/Dockerfile 构建（gha 缓存）
+- **CD**（cd.yml）: `git tag v*` → Docker build → push ghcr.io → GitHub Release → COS 部署包（服务器 `cos-update.sh` 用）
+- **Skill 构建**（build-skill.yml）: `git tag v*` → 4 平台编译（darwin-arm64/x86_64/linux/win32）→ 合并 32 二进制 → 完整性校验 → frontmatter 校验 → 上传 COS
   （`/skill/<包>.tar.gz` + `/manifest.json`）→ 用户每次命令静默检查，`skill update`
   应用（sha256 校验 + 备份 + 保留 data/）。需配置 GitHub Secrets：
   `COS_SECRET_ID/COS_SECRET_KEY/COS_BUCKET/COS_REGION/COS_MANIFEST_BASE_URL`。
+- ⚠️ **build-skill 冒烟导入（v0.36）**: 每平台编译后 Python 3.12 实际 import 8 个编译模块（防 .so 存在但 import 崩）。**darwin-x86_64 跳过冒烟**——macos-latest 已切 Apple Silicon，x86_64 .so 无法 dlopen（基础设施限制，静态校验覆盖）。
 
-本地: `bash scripts/ci.sh [--quick] [--strict]`
+本地: `bash scripts/ci.sh [--quick] [--strict]`（Step 5b 会用 skill/.venv314 跑 skill pytest）
 Pre-commit: `git config core.hooksPath .githooks`（语法 + 密钥拦截）
 
 ⚠️ **密钥轮换**: MXOU_TOKEN、1688 AK、Ozon API Key 曾暴露在 git 历史中，已移除追踪但历史仍存在，请尽快轮换。
