@@ -395,7 +395,15 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 ## 深入阅读（改前先看）
 
 - **`skill/SKILL.md`** — ⭐ Agent 调用指南（Chrome 启动、选品、跟卖、以图搜款、批量处理；100 行精简版，越界/裂变/趋势细则在 `references/`）
-- **`skill/references/*.md`** — SKILL.md 外置细则：anti-patterns（越界行为）/ discover-fission（裂变选品）/ trend-selection（趋势选品）/ command-reference（命令参数）
+- **`skill/references/command-reference.md`** — ⭐ 全命令参考：意图路由决策树 + 各管线（A/B/C/D/E/F）触发条件、完整参数、示例、输入输出
+- **`skill/references/env-setup.md`** — 环境准备：凭证获取/配置、check 故障排查、data/ 目录语义（防误删）
+- **`skill/references/error-codes.md`** — Worker 错误码表 + 进度查询口径 + CLI 错误处理 + 错误恢复决策
+- **`skill/references/output-schema.md`** — 输出字段解析：submit_result / check_task_status / product_summary / discover 分析文档
+- **`skill/references/discover-fission.md`** — 裂变选品（discover --fission）流程、预算限制、参数、数据字段
+- **`skill/references/trend-selection.md`** — 趋势选品（agent 自主分析 + discover 执行）三步法 + 纪律
+- **`skill/references/anti-patterns.md`** — 越界行为 → 后果 → 正确做法对照表 + 核心纪律
+- **`skill/field_mapping.md`** — 1688/Ozon 字段 → 信封字段映射规则 + 单位转换 + 图片顺序规范
+- **`skill/envelope_example.json`** — 完整信封结构示例（单 SKU + 跟卖两种模式）
 - **`docs/DEPLOY.md`** — ⭐ Worker 云端部署完整指南（Docker、Nginx、HTTPS、运维）
 - **`docs/WORKER-TOPOLOGY.md`** — Worker 拓扑与错误处理手册（节点流、错误映射、数据流、改代码快速参考）
 - **`docs/CONTRACT-v4.md`** — ⭐ Skill↔Worker API 契约 v4.0（端点、请求/响应、错误码、节点合约；`CONTRACT.md` 是 v3.0 旧版）

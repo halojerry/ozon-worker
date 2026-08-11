@@ -58,12 +58,9 @@ Worker 返回：
 
 用户问"进度"、"完成了没"时：
 
+- **单任务查询**：用 `query <task_id>`（cli.py v0.28.5+，参数与输出见 command-reference.md）查状态；需要等终态时加 `--watch`（每 10s 轮询直到完成，`--timeout` 控制上限，默认 900s）。任务 ID 是 `graph`/`follow`/`batch_test` 提交时返回的 UUID。
 - **批量提交**：用 `batch_test.py --wait` 自动轮询（每 5s 查一次），完成后打印每个产品的明细（1688链接/利润率/售价/采购价/运费/净利润率/OzonID）。
-- **单任务查询**：CLI 未暴露单任务查询子命令（`check_task_status` 存在于 cloud_probe.py 但未注册为 cli 子命令）。用户追问单个任务进度时：
-  1. 告知任务正在云端处理中（类目匹配 → AI 生图 → Ozon 上传 → 审核），预计 10–20 分钟
-  2. 建议用户等待后用 `batch_test.py --wait` 查看结果，或在 Ozon 卖家后台查看商品状态
-  3. 不要自行调 Worker API 轮询（skill 无此命令）
-  > ⚠️ 维护者提示：若未来把 `check_task_status` 注册为 cli 子命令，本节需同步更新。
+- 单任务非终态时，可告知预计耗时 10–20 分钟（类目匹配 → AI 生图 → Ozon 上传 → 审核），建议 `query --watch` 或稍后重查。
 
 ## CLI 错误处理
 
@@ -77,7 +74,6 @@ Worker 返回：
 | 图搜无结果 | "1688 上未找到同款产品。要不要试试用关键词搜索？" |
 | Worker 返回错误 | 按上文错误码表回复用户 |
 | AI 关键词输出非法 JSON | 明确报错「关键词总结失败：JSON 解析错误」，不猜测关键词继续 |
-| 市场信息缺失 | 提示用 --market-info 传入 web_search 结果或配置 SEARXNG_URL；不凭空编造趋势 |
-| 无 web_search 且未配置 SEARXNG_URL | 明确告知用户需要市场信息才能做趋势选品，询问是否退回管线 C 常规选品 |
+| 无 web_search 且未配置搜索渠道 | 明确告知用户需要市场信息才能做趋势选品，询问是否退回管线 C 常规选品（趋势流程见 `references/trend-selection.md`） |
 
 **遇到任何错误，描述问题并引导用户修复。不自己修代码、不自己探索项目结构。**

@@ -74,7 +74,7 @@
 
 **终态判定**：`terminal == true` → 任务结束（completed/failed/cancelled）；`terminal == false` → 仍在处理中。
 
-> CLI 未暴露单任务查询子命令。批量查询用 `batch_test.py --wait` 自动轮询。详见 error-codes.md 进度查询口径。
+> CLI 单任务查询用 `query <task_id>`（v0.28.5+），`--watch` 轮询到终态；批量查询用 `batch_test.py --wait` 自动轮询。详见 error-codes.md 进度查询口径与 command-reference.md 的 `query` 命令。
 
 ## product_summary[] 字段详解
 

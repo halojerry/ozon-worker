@@ -29,22 +29,22 @@
 
 | 字段 | 1688 原始单位 | 信封单位 | 转换 |
 |------|-------------|---------|------|
-| weight | kg 或 g | **克（int）** | < 10g 且尺寸 > 50mm → 自动 ×1000 |
+| weight | kg 或 g | **克（int）** | 1688 原值直传（v0.37 起**不做** <10g×1000 自动乘——可疑单位仅标记交给 Worker 侧 `_resolve_weight_dimensions` 兜底链处理） |
 | dimensions | cm | **mm（int）** | max_dim < 200 → 自动 ×10 |
 | price | CNY | **CNY（float）** | 直传，Worker 负责定价 |
 
 ## 图片顺序规范
 
-Worker 按以下顺序排列图片：
+Worker 按以下顺序排列图片（IMG_ORDER，与 AGENTS.md 一致）：
 
-1. `detail` — 详情图
-2. `scene_1/2/3` — 场景图
-3. `comparison` — 对比图
-4. `social_proof` — 社交证明图
+1. `social_proof` — 社交证明图（第一）
+2. `detail` — 详情图
+3. `scene_1/2/3` — 场景图
+4. `comparison` — 对比图
 5. `multi_angle` — 多角度图（倒数第二）
 6. `white_bg` — 白底图（最后）
 
-`primary_image` = `main_image`（营销主图，单独指定）
+`primary_image` = `main_image`（营销主图，单独指定，不参与上述排序）
 
 ## 定价公式
 
