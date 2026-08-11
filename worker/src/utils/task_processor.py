@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import logging
+import requests  # 任务终态 webhook 通知（P1-4）
 import traceback as _traceback
 from typing import Dict, Any, Optional
 from utils.logger import get_logger, set_trace_context, log_task_event, clear_trace_context
@@ -87,6 +88,40 @@ def _upsert_shop_usage(conn, ozon_client_id, *, task_delta=1, approved_delta=0,
         })
     except Exception as e:
         logger.warning("shop_usage_stats 埋点写入失败（不影响主流程）: %s", e)
+
+
+def _send_task_notify(task_id, status, graph_result, payload) -> None:
+    """任务终态 webhook 通知（P1-4，fire-and-forget，绝不抛出）。
+
+    触发条件：TASK_NOTIFY_URL 环境变量（Server酱等任意 webhook）已配置，
+    或 payload 顶层 notify=True（skill --notify 传入，经 raw dict 存储直通）。
+    命中后向 URL POST 终态摘要 {task_id, status, product_summary,
+    error_message, product_id, ozon_client_id}（timeout=5s）。
+    任何异常只 log warning，不影响任务主流程。
+    """
+    try:
+        env_url = os.environ.get("TASK_NOTIFY_URL") or ""
+        if not (env_url or (payload or {}).get("notify")):
+            return
+        if not env_url:
+            logger.warning("notify 已请求但未配置 TASK_NOTIFY_URL，跳过 webhook 通知")
+            return
+        graph_result = graph_result or {}
+        draft = ((payload or {}).get("envelope") or {}).get("draft") or {}
+        body = {
+            "task_id": task_id,
+            "status": status,
+            "product_summary": graph_result.get("product_summary"),
+            "error_message": graph_result.get("_harness_error")
+            or graph_result.get("error_message") or "",
+            "product_id": graph_result.get("product_id")
+            or draft.get("product_id") or draft.get("item_id") or "",
+            "ozon_client_id": str((payload or {}).get("ozon_client_id") or ""),
+        }
+        requests.post(env_url, json=body, timeout=5)
+        logger.info("任务终态通知已发送 task_id=%s status=%s", task_id, status)
+    except Exception as e:
+        logger.warning("任务终态 webhook 通知失败（不影响主流程）: %s", e)
 
 
 # ── 进度回调 ──
@@ -411,6 +446,7 @@ class SupabaseTaskProcessor:
                                 error_message=graph_result.get("_harness_error"),
                             )
                             conn.commit()
+                        _send_task_notify(task_id, "failed", graph_result, payload)
                         clear_trace_context()
                         return graph_result
 
@@ -442,6 +478,7 @@ class SupabaseTaskProcessor:
                                 error_message=graph_result.get("_harness_error"),
                             )
                             conn.commit()
+                        _send_task_notify(task_id, "rejected", graph_result, payload)
                         clear_trace_context()
                         return graph_result
 
@@ -469,6 +506,7 @@ class SupabaseTaskProcessor:
                         )
                         conn.commit()
                     
+                    _send_task_notify(task_id, "completed", graph_result, payload)
                     log_task_event("completed", task_id=task_id, user_id=tenant_id)
                     clear_trace_context()
                     return graph_result
