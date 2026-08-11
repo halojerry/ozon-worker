@@ -2277,6 +2277,8 @@ def check_cdp_prerequisites(
 
 def probe_1688_page_safe(
     url: str,
+    *,
+    cdp: Any | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Call probe_1688_page() with graceful error handling.
@@ -2286,6 +2288,10 @@ def probe_1688_page_safe(
 
     Detects asyncio event loop and runs Playwright sync code in a separate
     thread to avoid "Playwright Sync API inside the asyncio loop" errors.
+
+    ``cdp`` — 可选的调用方已有 CdpConnection（P5）。传入时跳过浏览器查找/会话
+    解析/登录检查，直接复用该连接探测。⚠️ 调用方必须为每个线程传入**独立**连接
+    （CdpConnection 非线程安全），且连接归调用方所有——本函数不会关闭它。
     """
     # Check if we're inside an asyncio event loop
     _in_async = False
@@ -2296,7 +2302,7 @@ def probe_1688_page_safe(
 
     def _do_probe():
         try:
-            result = probe_1688_page(url, **kwargs)
+            result = probe_1688_page(url, cdp=cdp, **kwargs)
             probe = result.get('probe', {})
             return {
                 'ok': result.get('ready', False),
@@ -2352,7 +2358,17 @@ def probe_1688_page(
     profile: str | None = None,
     browser_path: str | None = None,
     task_id: str | None = None,
+    cdp: Any | None = None,
 ) -> dict[str, Any]:
+    """Probe a 1688 product page via CDP.
+
+    ``cdp`` — 可选的外部 CdpConnection 复用（P5）。传入时跳过浏览器查找、
+    会话解析、登录检查与连接建立，直接在该连接上 find_tab/new_tab 探测。
+    ⚠️ 连接归调用方所有：本函数**不会** close 它（finally 只关自建 tab），
+    且 find_tab 命中的用户已有 tab 会 release()——避免调用方后续 conn.close()
+    远程关闭用户标签页。调用方必须为每个线程传入**独立**连接（CdpConnection
+    非线程安全，_tabs 无锁）。
+    """
     target_url = str(url or '').strip()
     if not target_url:
         raise ValidationError('1688 页面 URL 不能为空')
@@ -2373,76 +2389,98 @@ def probe_1688_page(
     pre_delay_ms = random.randint(2000, 5000)
     time.sleep(pre_delay_ms / 1000.0)
 
-    resolved_browser = find_browser_executable(browser_path)
-    if not resolved_browser:
-        raise ConfigError('未找到可用的 Chrome/Chromium 浏览器，请先安装 Google Chrome 或传入 --browser-path')
-    profile_name = str(profile or get_config_profile() or 'default').strip() or 'default'
-    user_data_dir = _profile_dir(profile_name)
+    external_connection = cdp is not None
     artifact = _artifact_path(task_id or current_task_id())
-    launch_meta = {
-        'browser_path': resolved_browser,
-        'profile': profile_name,
-        'user_data_dir': str(user_data_dir),
-        'headed': bool(headed),
-        'timeout_seconds': int(timeout_seconds),
-        'poll_ms': int(poll_ms),
-        'attach_only': False,
-        'auto_open_disabled': False,
-    }
-    session = _resolve_browser_session(profile_name)
-    cdp_url = str(session.get('cdp_url') or '').strip()
-    if not cdp_url or not _cdp_available(cdp_url):
-        login_wait = _wait_for_login_session(
-            target_url,
-            profile_name=profile_name,
-            browser_path=resolved_browser,
-            timeout_seconds=timeout_seconds,
-        ) or {}
-        session = login_wait.get('session') or {}
-        cdp_url = str(session.get('cdp_url') or '').strip()
-        launch_meta['session_bootstrapped'] = bool(cdp_url)
-    if not cdp_url or not _cdp_available(cdp_url):
-        raise ConfigError('未发现可复用的 1688 浏览器会话，请先执行 browser_login 完成登录，或保持同一 profile 的 Chrome 会话可连接')
-
-    # Live cookie check: verify 1688 login before navigating to product page
-    # ⚠️ v0.14 P1-6: 仅当本次调用未检测到登录态时才执行 live 检查，避免重复 CDP 页面跳转
-    # （login_detected 标志在其他路径已赋值，如 login_ok 通过的会话）
-    import logging as _logging
-    _logger_svc = _logging.getLogger(__name__)
-    if session.get('login_detected'):
-        _logger_svc.debug("已检测到登录态（login_detected），跳过 live cookie check")
+    if external_connection:
+        # P5: 外部连接复用 —— 跳过浏览器查找/会话解析/登录检查/连接建立，
+        # 直接用调用方传入的连接（find_tab/new_tab 均在该连接上执行）。
+        cdp_url = str(getattr(cdp, 'cdp_url', '') or '').strip()
+        profile_name = str(profile or 'external') or 'external'
+        session: dict[str, Any] = {}
+        connected_to_existing = True
         login_ok = True
+        launch_meta = {
+            'browser_path': '',
+            'profile': profile_name,
+            'user_data_dir': '',
+            'headed': bool(headed),
+            'timeout_seconds': int(timeout_seconds),
+            'poll_ms': int(poll_ms),
+            'attach_only': True,
+            'auto_open_disabled': False,
+            'external_connection': True,
+        }
     else:
-        try:
-            login_ok = _check_1688_login_live(cdp_url)
-        except ConnectionError:
-            # CDP 连接断开（Chrome 死了或 tab 被关）— 重启 Chrome 而非触发登录
-            _logger_svc.warning("CDP connection died during login check, restarting Chrome...")
-            session = _resolve_browser_session.__wrapped__(profile_name) if hasattr(_resolve_browser_session, '__wrapped__') else _resolve_browser_session(profile_name)
-            cdp_url = str(session.get('cdp_url') or '').strip()
-            if not cdp_url or not _cdp_available(cdp_url):
-                raise ConfigError('Chrome CDP 连接断开且无法重启，请手动重启 Chrome')
-            login_ok = True  # 新 Chrome session 用已有 profile，cookie 有效
-
-    if not login_ok:
-        _logger_svc.info("1688 login not detected via live cookie check, prompting login...")
-        login_wait = _wait_for_login_session(
-            target_url,
-            profile_name=profile_name,
-            browser_path=resolved_browser,
-            timeout_seconds=timeout_seconds,
-        ) or {}
-        session = login_wait.get('session') or session
-        cdp_url = str(session.get('cdp_url') or cdp_url).strip()
+        resolved_browser = find_browser_executable(browser_path)
+        if not resolved_browser:
+            raise ConfigError('未找到可用的 Chrome/Chromium 浏览器，请先安装 Google Chrome 或传入 --browser-path')
+        profile_name = str(profile or get_config_profile() or 'default').strip() or 'default'
+        user_data_dir = _profile_dir(profile_name)
+        launch_meta = {
+            'browser_path': resolved_browser,
+            'profile': profile_name,
+            'user_data_dir': str(user_data_dir),
+            'headed': bool(headed),
+            'timeout_seconds': int(timeout_seconds),
+            'poll_ms': int(poll_ms),
+            'attach_only': False,
+            'auto_open_disabled': False,
+        }
+        session = _resolve_browser_session(profile_name)
+        cdp_url = str(session.get('cdp_url') or '').strip()
         if not cdp_url or not _cdp_available(cdp_url):
-            raise ConfigError('1688 登录未完成，无法继续探测')
+            login_wait = _wait_for_login_session(
+                target_url,
+                profile_name=profile_name,
+                browser_path=resolved_browser,
+                timeout_seconds=timeout_seconds,
+            ) or {}
+            session = login_wait.get('session') or {}
+            cdp_url = str(session.get('cdp_url') or '').strip()
+            launch_meta['session_bootstrapped'] = bool(cdp_url)
+        if not cdp_url or not _cdp_available(cdp_url):
+            raise ConfigError('未发现可复用的 1688 浏览器会话，请先执行 browser_login 完成登录，或保持同一 profile 的 Chrome 会话可连接')
 
-    cdp, connected_to_existing = _connect_existing_chrome(cdp_url)
+        # Live cookie check: verify 1688 login before navigating to product page
+        # ⚠️ v0.14 P1-6: 仅当本次调用未检测到登录态时才执行 live 检查，避免重复 CDP 页面跳转
+        # （login_detected 标志在其他路径已赋值，如 login_ok 通过的会话）
+        import logging as _logging
+        _logger_svc = _logging.getLogger(__name__)
+        if session.get('login_detected'):
+            _logger_svc.debug("已检测到登录态（login_detected），跳过 live cookie check")
+            login_ok = True
+        else:
+            try:
+                login_ok = _check_1688_login_live(cdp_url)
+            except ConnectionError:
+                # CDP 连接断开（Chrome 死了或 tab 被关）— 重启 Chrome 而非触发登录
+                _logger_svc.warning("CDP connection died during login check, restarting Chrome...")
+                session = _resolve_browser_session.__wrapped__(profile_name) if hasattr(_resolve_browser_session, '__wrapped__') else _resolve_browser_session(profile_name)
+                cdp_url = str(session.get('cdp_url') or '').strip()
+                if not cdp_url or not _cdp_available(cdp_url):
+                    raise ConfigError('Chrome CDP 连接断开且无法重启，请手动重启 Chrome')
+                login_ok = True  # 新 Chrome session 用已有 profile，cookie 有效
+
+        if not login_ok:
+            _logger_svc.info("1688 login not detected via live cookie check, prompting login...")
+            login_wait = _wait_for_login_session(
+                target_url,
+                profile_name=profile_name,
+                browser_path=resolved_browser,
+                timeout_seconds=timeout_seconds,
+            ) or {}
+            session = login_wait.get('session') or session
+            cdp_url = str(session.get('cdp_url') or cdp_url).strip()
+            if not cdp_url or not _cdp_available(cdp_url):
+                raise ConfigError('1688 登录未完成，无法继续探测')
+
+        cdp, connected_to_existing = _connect_existing_chrome(cdp_url)
+
     opened_tab: CdpTab | None = None
+    matched_existing_tab: CdpTab | None = None
     try:
         # Find existing tab with matching offer
         offer_id = _extract_offer_id(target_url)
-        matched_existing_tab = None
         if offer_id:
             matched_existing_tab = cdp.find_tab(offer_id)
         if not matched_existing_tab:
@@ -2450,11 +2488,19 @@ def probe_1688_page(
             if tmp and _page_matches_target_offer(tmp, target_url):
                 matched_existing_tab = tmp
             elif tmp:
-                # Wrong tab — close the browser tab we found (it's not the one user wants)
-                try:
-                    tmp.close()
-                except Exception:
-                    pass
+                if external_connection:
+                    # P5: 外部连接——绝不关闭用户已有 tab，仅取消跟踪
+                    # （调用方 conn.close() 不应远程关闭用户标签页）
+                    try:
+                        cdp.release(tmp)
+                    except Exception:
+                        pass
+                else:
+                    # Wrong tab — close the browser tab we found (it's not the one user wants)
+                    try:
+                        tmp.close()
+                    except Exception:
+                        pass
 
         tab = matched_existing_tab
         opened_page = False
@@ -2504,11 +2550,21 @@ def probe_1688_page(
                 opened_tab.close()
             except Exception:
                 pass
-        # Close CDP connection to prevent WebSocket leak
-        try:
-            cdp.close()
-        except Exception:
-            pass
+        if external_connection:
+            # P5: 外部连接归调用方所有 —— 释放 find_tab 命中的用户已有 tab，
+            # 避免调用方后续 conn.close() 远程关闭用户标签页；绝不由本函数关闭连接。
+            for owned in (opened_tab, matched_existing_tab):
+                if owned is not None:
+                    try:
+                        cdp.release(owned)
+                    except Exception:
+                        pass
+        else:
+            # Close CDP connection to prevent WebSocket leak
+            try:
+                cdp.close()
+            except Exception:
+                pass
     result = {
         'ready': bool(probe.get('ready')),
         'timed_out': bool(probe.get('timed_out')),

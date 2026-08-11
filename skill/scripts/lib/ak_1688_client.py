@@ -869,12 +869,18 @@ def enrich_product_with_cdp(
     *,
     api_data: Optional[dict[str, Any]] = None,
     timeout_seconds: int = 30,
+    cdp: Optional[Any] = None,
 ) -> dict[str, Any]:
     """Enrich a 1688 product with CDP browser data.  Single entry point.
 
     Call this after ``get_product_details()`` — it handles everything:
     Chrome check, login check, CDP probe, API+CDP merge, and graceful
     degradation.  **Never raises** — always returns a structured result.
+
+    ``cdp`` — 可选的外部 CdpConnection 复用（P5）。传入时跳过浏览器查找/
+    会话解析/登录等待/CDP 可用性检查，直接用调用方传入的连接探测。
+    ⚠️ 连接归调用方所有：本函数**不会**关闭它；且 CdpConnection 非线程安全，
+    调用方必须为每个线程传入**独立**连接，禁止多线程共享同一连接。
 
     Returns::
 
@@ -940,89 +946,96 @@ def enrich_product_with_cdp(
         'source': 'api_only',
     }
 
-    # ── Check CDP prerequisites ──
-    prereqs = check_cdp_prerequisites()
-    if not prereqs['browser_available']:
-        _issues = prereqs.get('issues', [])
-        suggestions = prereqs.get('suggestions', [])
-        result['degraded_reason'] = (
-            '未找到 Chromium 内核浏览器（Chrome/Edge/Brave/360等）。'
+    if cdp is not None:
+        # P5: 外部 CDP 连接复用 —— 跳过浏览器查找/会话解析/登录等待/CDP 可用性检查。
+        # 连接归调用方所有，本函数不关闭它（probe_1688_page_safe 内部同样不关外部连接）。
+        prereqs = {'browser_available': True, 'login_required': False}
+        session: dict[str, Any] = {}
+        profile_name = 'default'
+    else:
+        # ── Check CDP prerequisites ──
+        prereqs = check_cdp_prerequisites()
+        if not prereqs['browser_available']:
+            _issues = prereqs.get('issues', [])
+            suggestions = prereqs.get('suggestions', [])
+            result['degraded_reason'] = (
+                '未找到 Chromium 内核浏览器（Chrome/Edge/Brave/360等）。'
+            )
+            result['user_action'] = (
+                '请安装任一 Chromium 内核浏览器后重试。\n'
+                + '\n'.join(f'  • {s}' for s in suggestions) +
+                '\n  已安装？运行: pounding-ozon install-browser 强制检测'
+            )
+            result['source'] = 'api_only'
+            return result
+
+        # ── Handle missing session or login: auto-launch + wait ──
+        from scripts.capabilities.browser_probe.service import (
+            _resolve_browser_session,
+            _cdp_available,
+            _wait_for_login_session,
+            find_browser_executable,
         )
-        result['user_action'] = (
-            '请安装任一 Chromium 内核浏览器后重试。\n'
-            + '\n'.join(f'  • {s}' for s in suggestions) +
-            '\n  已安装？运行: pounding-ozon install-browser 强制检测'
-        )
-        result['source'] = 'api_only'
-        return result
 
-    # ── Handle missing session or login: auto-launch + wait ──
-    from scripts.capabilities.browser_probe.service import (
-        _resolve_browser_session,
-        _cdp_available,
-        _wait_for_login_session,
-        find_browser_executable,
-    )
+        profile_name = 'default'
+        session = _resolve_browser_session(profile_name)
+        cdp_url = str(session.get('cdp_url') or '').strip()
+        session_alive = bool(cdp_url and _cdp_available(cdp_url))
+        session_logged_in = bool(session.get('login_detected'))
 
-    profile_name = 'default'
-    session = _resolve_browser_session(profile_name)
-    cdp_url = str(session.get('cdp_url') or '').strip()
-    session_alive = bool(cdp_url and _cdp_available(cdp_url))
-    session_logged_in = bool(session.get('login_detected'))
+        if not session_alive:
+            if not session_logged_in:
+                # No live Chrome AND never logged in — need full login flow
+                url = str(detail_url or api.get('detail_url') or '').strip()
+                if not url:
+                    url = 'https://detail.1688.com/'
 
-    if not session_alive:
-        if not session_logged_in:
-            # No live Chrome AND never logged in — need full login flow
-            url = str(detail_url or api.get('detail_url') or '').strip()
-            if not url:
-                url = 'https://detail.1688.com/'
+                resolved_browser = find_browser_executable(None)
+                if not resolved_browser:
+                    # 浏览器不存在（preflight 判定过后被移除/竞态）→ 明确提示装浏览器
+                    result['degraded_reason'] = (
+                        '未找到 Chromium 内核浏览器（Chrome/Edge/Brave/360等）。'
+                    )
+                    result['user_action'] = (
+                        '请安装任一 Chromium 内核浏览器后重试，或用 CHROME_PATH 环境变量指定浏览器路径。'
+                    )
+                    return result
 
-            resolved_browser = find_browser_executable(None)
-            if not resolved_browser:
-                # 浏览器不存在（preflight 判定过后被移除/竞态）→ 明确提示装浏览器
-                result['degraded_reason'] = (
-                    '未找到 Chromium 内核浏览器（Chrome/Edge/Brave/360等）。'
-                )
-                result['user_action'] = (
-                    '请安装任一 Chromium 内核浏览器后重试，或用 CHROME_PATH 环境变量指定浏览器路径。'
-                )
-                return result
-
-            login_wait = _wait_for_login_session(
-                url,
-                profile_name=profile_name,
-                browser_path=resolved_browser,
-                timeout_seconds=max(timeout_seconds, 60),
-            ) or {}
-            new_session = login_wait.get('session')
-            if new_session and new_session.get('login_detected'):
-                session = new_session
-            elif new_session and new_session.get('cdp_url'):
-                session = new_session
-            elif login_wait.get('reason') == 'timeout':
-                # CDP 会话已建立但用户未在超时窗口内完成扫码 → 登录超时
-                result['degraded_reason'] = (
-                    '等待 1688 登录超时。请在自动打开的浏览器窗口中扫码登录。'
-                )
-                result['user_action'] = (
-                    '请在浏览器中打开 https://login.1688.com/member/signin.htm '
-                    '扫码登录 1688 后重试。支持 Chrome/Edge/Brave 等 Chromium 内核浏览器。'
-                )
-                return result
-            else:
-                # 浏览器存在但 CDP 会话未建立（no_cdp/cdp_error）→ 浏览器启动失败，
-                # 与「登录超时」明确区分，避免用户误以为只需重新扫码
-                result['degraded_reason'] = (
-                    '浏览器启动失败：无法建立 CDP 会话。'
-                )
-                result['user_action'] = (
-                    '请手动启动 Chrome 后重试，或删除 data/browser/profiles/1688 下损坏的 '
-                    'profile 缓存再运行。'
-                )
-                return result
-        # else: logged in but Chrome isn't running — _resolve_browser_session()
-        # already auto-launched a new Chrome with the persistent profile.
-        # Cookies are preserved, so just use it directly.
+                login_wait = _wait_for_login_session(
+                    url,
+                    profile_name=profile_name,
+                    browser_path=resolved_browser,
+                    timeout_seconds=max(timeout_seconds, 60),
+                ) or {}
+                new_session = login_wait.get('session')
+                if new_session and new_session.get('login_detected'):
+                    session = new_session
+                elif new_session and new_session.get('cdp_url'):
+                    session = new_session
+                elif login_wait.get('reason') == 'timeout':
+                    # CDP 会话已建立但用户未在超时窗口内完成扫码 → 登录超时
+                    result['degraded_reason'] = (
+                        '等待 1688 登录超时。请在自动打开的浏览器窗口中扫码登录。'
+                    )
+                    result['user_action'] = (
+                        '请在浏览器中打开 https://login.1688.com/member/signin.htm '
+                        '扫码登录 1688 后重试。支持 Chrome/Edge/Brave 等 Chromium 内核浏览器。'
+                    )
+                    return result
+                else:
+                    # 浏览器存在但 CDP 会话未建立（no_cdp/cdp_error）→ 浏览器启动失败，
+                    # 与「登录超时」明确区分，避免用户误以为只需重新扫码
+                    result['degraded_reason'] = (
+                        '浏览器启动失败：无法建立 CDP 会话。'
+                    )
+                    result['user_action'] = (
+                        '请手动启动 Chrome 后重试，或删除 data/browser/profiles/1688 下损坏的 '
+                        'profile 缓存再运行。'
+                    )
+                    return result
+            # else: logged in but Chrome isn't running — _resolve_browser_session()
+            # already auto-launched a new Chrome with the persistent profile.
+            # Cookies are preserved, so just use it directly.
 
     # ── CDP probe ──
     url = str(detail_url or api.get('detail_url') or '').strip()
@@ -1030,7 +1043,11 @@ def enrich_product_with_cdp(
         result['degraded_reason'] = '缺少 1688 商品链接，无法启动浏览器探测。'
         return result
 
-    probe_result = probe_1688_page_safe(url, timeout_seconds=timeout_seconds)
+    probe_result = probe_1688_page_safe(
+        url,
+        timeout_seconds=timeout_seconds,
+        cdp=cdp,
+    )
     probe_data = probe_result.get('data', {})
 
     if probe_result['ok']:
