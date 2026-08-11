@@ -78,15 +78,27 @@ def list_stores() -> dict[str, dict[str, str]]:
     return {k: v for k, v in stores.items() if isinstance(v, dict)}
 
 
+# ⚠️ P2-8 多店铺: stores.json 顶层 "default" 字段是**指针**（声明的默认店铺名），
+# 若某店铺恰好也叫 "default"，该字段与店铺名歧义。解析规则：指针字段优先，
+# 进程内只告警一次（避免一条命令多次 get_store 调用刷屏）。
+_STORE_DEFAULT_AMBIGUITY_WARNED = False
+
+
 def get_store(store_id: str = "") -> dict[str, str] | None:
     """Get a specific store by name. Returns None if not found.
 
     If store_id is empty, returns the default store.
+
+    ⚠️ P2-8: 顶层 ``"default"`` 是指针字段（声明默认店铺名），**优先于**任何店铺名；
+    若存在名为 ``"default"`` 的店铺，解析默认时告警一次（指针优先，不崩）。
     """
+    global _STORE_DEFAULT_AMBIGUITY_WARNED
     data = _load_stores_file()
     stores = data.get("stores", {})
     if not store_id:
-        store_id = data.get("default", "")
+        default_pointer = data.get("default", "")
+        _warn_default_ambiguity(default_pointer, stores)
+        store_id = default_pointer
     if not store_id:
         # Return first store if no default
         for sid, profile in stores.items():
@@ -97,6 +109,33 @@ def get_store(store_id: str = "") -> dict[str, str] | None:
     if isinstance(store, dict):
         return store
     return None
+
+
+def _warn_default_ambiguity(default_pointer: Any, stores: dict[str, Any]) -> None:
+    """P2-8: 默认店铺解析歧义告警（进程内一次，`_STORE_DEFAULT_AMBIGUITY_WARNED` 去重）。
+
+    - 未声明默认（指针空）且多店铺 → 回退第一个，告警提示显式声明。
+    - 存在名为 "default" 的店铺 → 指针字段与店铺名歧义，指针优先，告警提示重命名。
+    """
+    global _STORE_DEFAULT_AMBIGUITY_WARNED
+    if _STORE_DEFAULT_AMBIGUITY_WARNED:
+        return
+    dict_stores = [k for k, v in stores.items() if isinstance(v, dict)]
+    if not default_pointer:
+        if len(dict_stores) > 1:
+            _STORE_DEFAULT_AMBIGUITY_WARNED = True
+            logger.warning(
+                'stores.json 未声明默认店铺（"default" 指针为空），将使用第一个店铺。'
+                '多店铺场景建议显式指定 --store 或设置默认店铺，避免歧义。'
+            )
+    elif "default" in dict_stores:
+        # 指针字段与名为 "default" 的店铺同名歧义——指针是声明的默认，优先解析。
+        _STORE_DEFAULT_AMBIGUITY_WARNED = True
+        logger.warning(
+            'stores.json: 店铺名为 "default" 与 "default" 指针字段同名歧义——'
+            '按指针声明解析（默认店铺 = "%s"）。建议重命名该店铺，避免误读。',
+            default_pointer,
+        )
 
 
 def set_store(store_id: str, client_id: str, api_key: str,
