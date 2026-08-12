@@ -34,6 +34,9 @@ MOCK_ITEM = {
     "companyName": "深圳市一宠科技有限公司",
     "offerPublishTime": "2023/03/10",
     "normalizationScore": "0.046148162335157394",
+    "cateLevel1Id": "122916001",
+    "cateLevel2Id": "201305503",
+    "categoryName": "宠物及园艺",
 }
 
 MOCK_SEARCH_RESP = (
@@ -129,6 +132,13 @@ def test_aibuy_image_search_normalizes(mock_mtop):
     assert r0["normalization_score"] == 0.046148162335157394
     assert r0["badge"] == ""  # aibuy 无徽章
     assert r0["supplier"] == "深圳市一宠科技有限公司"
+    # v0.39 Issue3: cateLevel 类目字段透传（类目匹配增强）
+    assert r0["cate_level1_id"] == "122916001"
+    assert r0["cate_level2_id"] == "201305503"
+    assert r0["category_name"] == "宠物及园艺"
+    # 缺 cateLevel 字段的候选不报错（容错）
+    assert results[1]["cate_level1_id"] == ""
+    assert results[1]["cate_level2_id"] == ""
     # data 是第 2 个位置参数（api, data, cookies）；searchParam 含 imageRegion
     _api, call_data, _cookies = mock_mtop.call_args.args
     search_param = __import__("json").loads(call_data["searchParam"])

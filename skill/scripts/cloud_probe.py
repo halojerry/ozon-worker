@@ -2262,6 +2262,24 @@ def publish_product_new(
     category_candidates = []
     ozon_creds = _get_ozon_credentials(store_id)
 
+    # ⚠️ v0.39 Issue3 修复（对齐 build_graph_envelope:1232-1315）:
+    # 类目搜索关键词优先用 1688 类目末级词（source_category_path 最后一级）——
+    # 长中文标题 token 过多/含歧义词（水枪→Пистолет、护手霜→Крем интимный、
+    # 收纳盒→Органайзер рыболовный）导致错配或空类目（10/22 上架被阻断根因）。
+    # 末级词（如"宠物项圈"）整体辨识度最高。
+    source_category_path = ""
+    _src_cats = api_data.get("categories", [])
+    if isinstance(_src_cats, list) and _src_cats:
+        _src_path = " > ".join(c["name"] for c in _src_cats if c.get("name"))
+        if _src_path.strip():
+            source_category_path = _src_path
+    if not source_category_path:
+        # aibuy 通道类目线索兜底（Issue3 协同：cate_level 字段，AK 详情失败时）
+        _cl1 = api_data.get("cate_level1_id") or api_data.get("cateLevel1Id")
+        _cl2 = api_data.get("cate_level2_id") or api_data.get("cateLevel2Id")
+        if _cl1 or _cl2:
+            logger.debug("1688 API 无 categories，用 aibuy 类目 ID 兜底: cl1=%s cl2=%s", _cl1, _cl2)
+
     if resolved_category:
         # Pre-resolved category injected by caller (e.g. batch script with Ozon API validation)
         _cat = resolved_category
@@ -2277,7 +2295,13 @@ def publish_product_new(
         _log_task(task_id, "ozon", "category", "info",
                 f"Using pre-resolved category: dc={_cat['description_category_id']} type={_cat['type_id']}")
     else:
-        search_text = category_query or title or ""
+        # ⚠️ v0.39 Issue3: 优先 1688 类目末级词（替代歧义标题）→ category_query → title
+        _src_short = ""
+        if source_category_path:
+            _src_parts = [p.strip() for p in source_category_path.split(">") if p.strip()]
+            if _src_parts:
+                _src_short = _src_parts[-1]
+        search_text = category_query or _src_short or title or ""
         if search_text:
             # Step 3a: Check pipeline Supabase via webhook (self-learning)
             if not skip_self_learning:
@@ -2378,15 +2402,22 @@ def publish_product_new(
 
     if not category_candidates:
         # No validated category from client-side Ozon API search.
-        # Submit anyway — pipeline Category node has self-learning
-        # (Steps 2-4b: Supabase lookup, fuzzy match, ozon_attribute_mappings)
-        # that will resolve the category and record it for future requests.
-        logger.info('No validated category from Ozon API — delegating to pipeline self-learning')
-        _log_task(task_id, 'ozon', 'category', 'info',
-                f'Category deferred to pipeline self-learning for "{category_query or title}"')
+        # ⚠️ v0.39 Issue3: 从静默放行升级为可见告警——本地匹配不到类目直接放行上送，
+        # 云端 self-learning 兜底不可靠时阻断上架（10/22 被阻断根因之一）。
+        # 保留放行（不硬阻断，避免误伤），但必须可见，供用户/agent 决策。
+        logger.warning(
+            '⚠️ 未匹配到有效 Ozon 类目（search_text="%s"）——提交后云端可能阻断上架。'
+            '建议用 `python3 scripts/cli.py category "<1688类目末级词>"` 核对类目后重提。',
+            (category_query or title or "")[:60],
+        )
+        _log_task(task_id, 'ozon', 'category', 'warn',
+                f'Category NOT resolved locally (search_text="{category_query or title}") — cloud may block upload',
+                {'source_category_path': source_category_path})
 
     result['category_candidates'] = category_candidates
     result['category'] = resolved_category  # may be empty — pipeline handles this
+    # ⚠️ v0.39 Issue3: 信封带 1688 类目面包屑，云端核对优先读它而非猜标题
+    result['source_category_path'] = source_category_path
 
     _log_task(task_id, 'ozon', 'category', 'info',
             f'Category resolved: {resolved_category.get("description_category_id", "none") if resolved_category else "none"} conf={resolved_category.get("confidence", 0) if resolved_category else 0}',
