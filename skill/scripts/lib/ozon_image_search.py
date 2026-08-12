@@ -1,21 +1,43 @@
-"""1688 以图搜款 — 通过 CDP 操作浏览器网页版。
+"""1688 以图搜款 — 双通道：CDP 网页版 + aibuy mtop API 直调。
 
-流程：粘贴图片URL到搜索框 → 等预览加载 → 点击图搜 → 从新标签页提取结果
-支持 YOLO crop region 自动选择（框选主体），提升多主体图片的匹配准确率。
+流程：
+- CDP 通道（search_by_image_cdp）：粘贴图片URL到搜索框 → 点图搜 → 从结果页提取
+- aibuy API 通道（search_by_image_aibuy）：Chrome 会话 cookie → mtop 签名直调
+  `mtop.com.alibaba.cbu.crossBorder.lp.imageSearch`（免浏览器，秒级返回结构化结果，
+  含 offerId/标题/价格/月销/回头率/类目/供应商/normalizationScore）
+
+v0.39: aibuy API 通道（Step 0 实测打通——offerId 直给、guest 视图排序=精准图搜排序、
+customerId 用通用 cbu、同 token 连续调用稳定）。fail-fast 纪律：无 token/失败快速返回
+[] 由调用方降级，不阻塞 CDP/AK 路径。
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
 import time
 from typing import Any
 
+import requests
+
 from scripts.lib.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
 
 IMAGE_SEARCH_URL = "https://air.1688.com/kapp/1688-search/pc-image-search/"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# aibuy mtop API 直调（v0.39，Step 0 实测打通）
+# ═══════════════════════════════════════════════════════════════════════════
+AIBUY_IMAGE_UPLOAD_API = "mtop.com.alibaba.global.select.aibuy.image.upload"
+AIBUY_IMAGE_SEARCH_API = "mtop.com.alibaba.cbu.crossBorder.lp.imageSearch"
+MTOP_BASE_URL = "https://h5api.m.1688.com/h5/{api}/1.0/"
+MTOP_APP_KEY = "12574478"
+# token 缓存 key（存 settings.json；含时间戳用于过期判断）
+AIBUY_TOKEN_KEY = "aibuy_mtop_token"
+AIBUY_TOKEN_TTL_SECONDS = 6 * 3600  # 6h 后需重新从 Chrome 会话刷新
+_AIBUY_COOKIE_KEYS = ("_m_h5_tk", "_m_h5_tk_enc", "tfstk", "isg")
 
 
 def _get_badge_score(badge: str) -> int:
@@ -422,3 +444,239 @@ def search_by_image_cdp(
                 conn.close()
             except Exception:
                 pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# aibuy mtop API 直调（v0.39，免浏览器图搜）
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _mtop_sign(token: str, t: str, data: str, app_key: str = MTOP_APP_KEY) -> str:
+    """mtop 签名：md5(token & t & appKey & data)。实测成功路径（Step 0）。"""
+    return hashlib.md5(f"{token}&{t}&{app_key}&{data}".encode()).hexdigest()
+
+
+def _parse_mtop_jsonp(text: str) -> dict[str, Any]:
+    """解析 JSONP 响应 `callback({...})`，失败返回 {}（fail-fast，不 raise）。"""
+    start = text.find("({")
+    end = text.rfind("})")
+    if start < 0 or end < 0:
+        return {}
+    try:
+        return json.loads(text[start + 1:end + 1])
+    except (json.JSONDecodeError, ValueError):
+        return {}
+
+
+def _read_aibuy_token() -> dict[str, Any] | None:
+    """读取缓存的 mtop token（settings.json）。过期返回 None 触发刷新。"""
+    from scripts.lib.config_store import get_setting
+
+    cached = get_setting(AIBUY_TOKEN_KEY) or {}
+    if not isinstance(cached, dict):
+        return None
+    saved_at = float(cached.get("saved_at") or 0)
+    if time.time() - saved_at > AIBUY_TOKEN_TTL_SECONDS:
+        logger.info("aibuy mtop token 过期（%ds），需从 Chrome 会话刷新", int(time.time() - saved_at))
+        return None
+    return cached
+
+
+def _save_aibuy_token(cookies: dict[str, str]) -> None:
+    """缓存 mtop token 到 settings.json（含时间戳）。⚠️ 不打印明文（日志脱敏）。"""
+    from scripts.lib.config_store import set_setting
+
+    set_setting(AIBUY_TOKEN_KEY, {**cookies, "saved_at": time.time()})
+
+
+def _fetch_aibuy_cookies_from_chrome(cdp_url: str = "http://127.0.0.1:9222") -> dict[str, str]:
+    """从 Chrome 会话读取 1688 cookie（复用常驻 Chrome，无需启动新浏览器）。
+
+    返回 {cookie名: 值}，缺任何关键 cookie 返回 {}（fail-fast）。
+    """
+    from scripts.lib.cdp_client import CdpConnection
+
+    tab = None
+    conn = None
+    try:
+        conn = CdpConnection(cdp_url)
+        tab = conn.new_tab()
+        # 打开 1688 首页触发 cookie 就绪（会话已有则直接读）
+        tab.navigate("https://www.1688.com/", timeout=20)
+        time.sleep(2)
+        raw = tab.evaluate("document.cookie", timeout=10) or ""
+        cookies: dict[str, str] = {}
+        for part in str(raw).split(";"):
+            part = part.strip()
+            if "=" in part:
+                k, v = part.split("=", 1)
+                if k in _AIBUY_COOKIE_KEYS:
+                    cookies[k] = v
+        return cookies if all(k in cookies for k in _AIBUY_COOKIE_KEYS) else {}
+    except Exception as e:
+        logger.warning("读取 Chrome cookie 失败（%s），aibuy API 通道不可用", e)
+        return {}
+    finally:
+        if tab:
+            try:
+                tab.close()
+            except Exception:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _mtop_request(
+    api: str,
+    data: dict[str, Any],
+    token_cookies: dict[str, str],
+    timeout: int = 15,
+) -> dict[str, Any]:
+    """mtop 签名请求（GET + JSONP）。失败返回 {}（fail-fast，不 raise）。"""
+    mh5tk = token_cookies.get("_m_h5_tk", "")
+    token = mh5tk.split("_")[0] if "_" in mh5tk else mh5tk
+    if not token:
+        logger.warning("aibuy mtop token 为空，通道不可用")
+        return {}
+    data_str = json.dumps(data, ensure_ascii=False)
+    t = str(int(time.time() * 1000))
+    sign = _mtop_sign(token, t, data_str)
+    params = {
+        "jsv": "2.7.5", "appKey": MTOP_APP_KEY, "t": t, "sign": sign,
+        "api": api, "v": "1.0", "H5Request": "true",
+        "type": "jsonp", "dataType": "jsonp", "callback": "mtopjsonp_aibuy",
+        "data": data_str,
+    }
+    try:
+        resp = requests.get(
+            MTOP_BASE_URL.format(api=api),
+            params=params,
+            timeout=timeout,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                              "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://aibuy.1688.com/",
+                "Accept": "*/*",
+            },
+            cookies=token_cookies,
+        )
+        if resp.status_code != 200:
+            logger.warning("aibuy mtop %s HTTP %d", api, resp.status_code)
+            return {}
+        parsed = _parse_mtop_jsonp(resp.text)
+        ret = parsed.get("ret") or []
+        if ret and "SUCCESS" not in str(ret[0]):
+            logger.debug("aibuy mtop %s ret: %s", api, ret[0])
+            return {}
+        return parsed.get("data") or {}
+    except Exception as e:
+        logger.warning("aibuy mtop %s 请求异常: %s", api, e)
+        return {}
+
+
+def _aibuy_image_upload(image_url: str, token_cookies: dict[str, str]) -> str:
+    """image.upload 拿 yoloCropRegion（主体裁剪区域）。失败返回空串。"""
+    data = {"imageUrl": image_url}
+    result = _mtop_request(AIBUY_IMAGE_UPLOAD_API, data, token_cookies)
+    inner = result.get("result") or {}
+    return str(inner.get("yoloCropRegion") or "")
+
+
+def _aibuy_image_search(
+    image_url: str,
+    token_cookies: dict[str, str],
+    region: str = "",
+    page_size: int = 20,
+) -> list[dict[str, Any]]:
+    """imagesearch 直调，返回归一化候选列表（含 offerId）。失败返回 []。"""
+    search_param: dict[str, Any] = {
+        "imageAddress": image_url,
+        "beginPage": 1,
+        "pageSize": page_size,
+    }
+    if region:
+        search_param["imageRegion"] = region
+    data = {
+        "bizType": "ERP",
+        "customerId": "cbu",
+        "language": "zh",
+        "currency": "CNY",
+        "searchParam": json.dumps(search_param, ensure_ascii=False),
+    }
+    result = _mtop_request(AIBUY_IMAGE_SEARCH_API, data, token_cookies)
+    items = ((result.get("result") or {}).get("data")) or []
+    normalized: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        offer_id = str(item.get("offerId") or "")
+        if not offer_id:
+            continue
+        price = item.get("price") or "0"
+        try:
+            price_f = float(str(price).replace(",", ""))
+        except (TypeError, ValueError):
+            price_f = 0.0
+        normalized.append({
+            "id": offer_id,
+            "title": str(item.get("title") or item.get("translateTitle") or ""),
+            "price": price_f,
+            "image": str(item.get("imageUrl") or ""),
+            "badge": "",  # aibuy 无徽章，靠官方排序 + normalizationScore
+            "badge_score": 0,
+            "normalization_score": float(item.get("normalizationScore") or 0),
+            "month_sold": str(item.get("monthSold") or ""),
+            "repurchase_rate": str(item.get("repurchaseRate") or ""),
+            "supplier": str(item.get("companyName") or ""),
+            "offer_publish_time": str(item.get("offerPublishTime") or ""),
+        })
+    return normalized
+
+
+def search_by_image_aibuy(
+    image_url: str,
+    cdp_url: str = "http://127.0.0.1:9222",
+    page_size: int = 20,
+    force_refresh: bool = False,
+) -> list[dict[str, Any]]:
+    """aibuy mtop API 直调图搜（免浏览器，v0.39）。
+
+    主路径：Chrome 会话 cookie → image.upload 拿 yoloCropRegion → imagesearch 签名直调。
+    fail-fast 纪律（Momus 评审）：无 token / 请求失败 → 快速返回 []，由调用方降级
+    到 CDP/AK——不 raise、不重试、不慢等。
+
+    Returns:
+        [{"id": offerId, "title", "price", "image", "badge": "", "normalization_score", ...}, ...]
+    """
+    from scripts.lib.config_store import _require_auth
+
+    _require_auth()
+
+    if not force_refresh:
+        cached = cache_get("aibuy_search", image_url)
+        if cached is not None:
+            return cached
+
+    token_cookies = _read_aibuy_token()
+    if token_cookies is None:
+        # 刷新：从 Chrome 会话读 cookie
+        token_cookies = _fetch_aibuy_cookies_from_chrome(cdp_url)
+        if not token_cookies:
+            logger.warning("aibuy token 刷新失败（Chrome 无 1688 会话），降级 CDP/AK 图搜")
+            return []
+        _save_aibuy_token(token_cookies)
+
+    # 先上传拿主体区域（提升多主体图匹配率），失败不阻塞搜索
+    region = _aibuy_image_upload(image_url, token_cookies)
+    results = _aibuy_image_search(image_url, token_cookies, region=region, page_size=page_size)
+    if not results:
+        logger.warning("aibuy image search 返回空，降级 CDP/AK 图搜")
+        return []
+
+    logger.info("aibuy image search: %d results, best: %s",
+                len(results), results[0].get("title", "")[:30])
+    if results:
+        cache_set("aibuy_search", image_url, results, ttl=21600)
+    return results
