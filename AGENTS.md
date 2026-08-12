@@ -99,7 +99,12 @@ ozon-worker/
 
 **Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
 
-**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 **14 个**：lib/（ak_1688_client、ak_callback、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_api、ozon_seller_analytics、analytics_upload、ozon_fission、ozon_discovery、ozon_seller、cdp_client）。以下明文复制（依赖复杂/改动频繁/跨平台编译失败）：cli.py、batch_test.py、cloud_probe.py、lib/（utils、cache、ozon_widget、updater、task_paths、logging_utils）、capabilities/browser_probe/service.py + stealth.py。
+**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 **14 个**（`COMPILE_FILES`，均在 `scripts/lib/`）：ak_1688_client、ak_callback、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_api、ozon_seller_analytics、analytics_upload、ozon_fission、ozon_discovery、ozon_seller、cdp_client。
+
+明文复制分两批（`compile.py` 的 `COPY_FILES` 7 个 + `AUX_FILES` 中的明文模块 8 个，依赖复杂/改动频繁/跨平台编译失败）：
+- **COPY_FILES（入口/核心明文）**：cli.py、batch_test.py、runtime_probe.py、cloud_probe.py、bootstrap_update.py、lib/chrome_launcher.py、capabilities/browser_probe/stealth.py
+- **AUX_FILES 明文模块**：lib/（utils、cache、ozon_widget、updater、task_paths、logging_utils、review_log）、capabilities/browser_probe/service.py
+- **编译/明文判断**：改模块归属必须同步改 compile.py 三清单（COMPILE_FILES/COPY_FILES/AUX_FILES）+ 跑 `test_compile_lists.py`（锁定 14 模块不变式 + 三清单互斥）——模块两属会被 AUX 复制覆盖回明文。
 - **cloud_probe.py 明文**（2026-08-02 移回）：非语法问题（macOS 同 Cython 编译成功），是 Cython 生成 65k 行 C + 单个 ~9000 行函数击穿 **MSVC 编译器堆限制**（仅 win32 失败 → 缺 .pyd → graph/follow 报 `No native binary for cloud_probe on win32`）。信封组装核心、改动频繁，明文跨平台一致。
 - **service.py 明文**（2026-08-01 移回）：探针改动最频繁。
 - **stealth.py 明文**（2026-08-07 移回）：反检测是对抗性代码（真实指纹无需伪造），1688/Ozon 升级检测需快速调。已在 COPY_FILES（非编译清单）。
@@ -605,14 +610,10 @@ Skill 已适配 Windows，但有以下注意事项：
 `compile.py` 生成自包含的 `skill/dist/` 目录：
 
 - `scripts/lib/_native/{platform}/` — 编译后的二进制（darwin-arm64、win32、linux）
-- `scripts/lib/*.py` — 自动加载 stub（检测平台 → 加载对应二进制）
+- `scripts/lib/*.py` — 编译模块的自动加载 stub（检测平台 → 加载对应二进制）
 - `scripts/capabilities/browser_probe/stealth.py` — stub 位于原始目录（非 lib/），指向 `../../lib/_native/`
-- `scripts/lib/ozon_api.py` — 纯 Python 复制（不编译）
-- `scripts/lib/cdp_client.py` — 原生 CDP 客户端（纯 Python 复制）
-- `scripts/lib/ozon_widget.py` — Ozon Widget API（纯 Python 复制）
-- `scripts/lib/ozon_seller.py` — Ozon Seller API（纯 Python 复制）
-- `scripts/lib/ozon_discovery.py` — 选品发现引擎（纯 Python 复制）
-- `scripts/lib/utils.py` — 共享工具函数（纯 Python 复制）
+- `scripts/lib/ozon_widget.py` — Ozon Widget API（明文 AUX 复制）
+- `scripts/lib/utils.py` / `cache.py` / `updater.py` / `task_paths.py` / `logging_utils.py` / `review_log.py` — 明文 AUX 复制
 - `data/config/settings.json` / `stores.json` — **空模板**（编译时自动生成，不泄露凭证）
 
 跨平台分发流程：在 macOS/Windows/Linux 各跑一次 `python3.12 compile.py`，合并 `_native/` 目录后打包。

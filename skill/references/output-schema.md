@@ -70,9 +70,11 @@
 }
 ```
 
-**status 取值**：`completed`（成功终态）/ `failed`（失败终态）/ `cancelled`（取消终态）/ `pending` / `running`（非终态）/ `not_found` / `worker_unreachable` / `query_error`
+**status 取值**：`completed`（成功终态）/ `failed`（失败终态）/ `rejected`（Ozon 审核被拒，终态，v0.38 可重提）/ `cancelled`（取消终态）/ `pending` / `running`（非终态）/ `not_found` / `worker_unreachable` / `query_error`
 
-**终态判定**：`terminal == true` → 任务结束（completed/failed/cancelled）；`terminal == false` → 仍在处理中。
+**终态判定**：`terminal == true` → 任务结束（completed/failed/rejected/cancelled）；`terminal == false` → 仍在处理中。
+
+> **rejected/failed 重提（v0.38 N2）**：被拒/失败任务是终态但可重试——调 Worker `POST /api/v1/resubmit_task/{task_id}`（需请求体带 token，复制原载荷 + 重生成图片重新入队）。rejected 的 `task_status` 端点返回 `progress.stage="rejected"` + 重提指引。跨租户访问返回 404（不泄露任务存在性）。
 
 > CLI 单任务查询用 `query <task_id>`（v0.28.5+），`--watch` 轮询到终态；批量查询用 `batch_test.py --wait` 自动轮询。详见 error-codes.md 进度查询口径与 command-reference.md 的 `query` 命令。
 

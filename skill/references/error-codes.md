@@ -25,6 +25,9 @@ Worker 返回：
 | `RATE_LIMITED` | 请求太频繁 | "请求太频繁，请稍后再试（每分钟限制 {limit} 次）。" |
 | `INVALID_REQUEST` | 信封数据不完整 | "产品数据不完整：{message}。请检查 1688 商品页是否正常加载，或重试。" |
 | `TASK_SUBMIT_FAILED` | 队列写入失败 | "任务入队失败，Worker 内部错误。请稍后重试。" |
+| `DUPLICATE_SUBMIT` | 同商品已有活跃任务（pending/running） | "该商品已在提交队列（task_id={detail.task_id}），请勿重复提交。若上次任务被拒/失败，可用 `query <task_id>` 确认后走重提交。" |
+| `TASK_NOT_FOUND` | 任务不存在（或跨租户访问被拒） | "任务不存在或无权访问。" |
+| `TASK_NOT_RESUBMITTABLE` | 任务状态不可重提（仅 rejected/failed 可） | "任务状态 {detail.status} 不可重新提交，仅审核被拒/失败的任务可重试。" |
 | `SERVICE_UNAVAILABLE` | 服务不可用 | "云端服务暂时不可用，请稍后重试。" |
 | `INTERNAL_ERROR` | 未知内部错误 | "Worker 内部错误：{message}。请稍后重试，如持续出现请联系技术支持。" |
 | 网络错误（ConnectionError） | Worker 不可达 | "无法连接云端服务。请检查网络连接和 WORKER_URL 配置。" |
@@ -59,6 +62,7 @@ Worker 返回：
 用户问"进度"、"完成了没"时：
 
 - **单任务查询**：用 `query <task_id>`（cli.py v0.28.5+，参数与输出见 command-reference.md）查状态；需要等终态时加 `--watch`（每 10s 轮询直到完成，`--timeout` 控制上限，默认 900s）。任务 ID 是 `graph`/`follow`/`batch_test` 提交时返回的 UUID。
+- **终态语义（v0.38）**：`completed`=审核通过；`rejected`=Ozon 审核被拒（终态，可重提）；`failed`=执行失败（终态，可重提）；`cancelled`=取消。`rejected`/`failed` 任务可调 `POST /api/v1/resubmit_task/{task_id}` 重提（需带 token，跨租户 404）——重提自动重新生成图片，适合"修正后一键重试"。
 - **批量提交**：用 `batch_test.py --wait` 自动轮询（每 5s 查一次），完成后打印每个产品的明细（1688链接/利润率/售价/采购价/运费/净利润率/OzonID）。
 - 单任务非终态时，可告知预计耗时 10–20 分钟（类目匹配 → AI 生图 → Ozon 上传 → 审核），建议 `query --watch` 或稍后重查。
 
