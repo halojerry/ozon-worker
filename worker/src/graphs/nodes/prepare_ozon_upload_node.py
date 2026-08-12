@@ -1144,12 +1144,23 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                     for v in vals:
                         if str(v.get("value") or "").lower() == mapped.lower():
                             hits.append(v)
-                    # ② RU 搜索（/values/search）
+                    # ② 搜索（/values/search）—— v0.40 Phase 6: 中文优先
+                    # 实测：/values/search 语言无关，中文值直搜命中率高（'白色'→61571、
+                    # '塑料袋'→85839），RU 翻译词常空（'инсектицид'→空）。因此
+                    # 原始中文值(raw)优先搜，mapped RU 词兜底。
                     if not hits:
                         try:
                             from utils.ozon_dict_values import search_dictionary_values
-                            _found = search_dictionary_values(_cid, _key, aid, int(dc) if dc else 0, int(tp) if tp else 0, mapped)
-                            hits = [h for h in _found if str(h.get("value") or "").strip()]
+                            _search_terms = [raw] if str(raw).strip() != str(mapped).strip() else []
+                            if str(raw).strip():
+                                _search_terms.append(raw)
+                            if str(mapped).strip() and str(mapped).strip() not in _search_terms:
+                                _search_terms.append(mapped)
+                            for _term in _search_terms:
+                                _found = search_dictionary_values(_cid, _key, aid, int(dc) if dc else 0, int(tp) if tp else 0, _term)
+                                hits = [h for h in _found if str(h.get("value") or "").strip()]
+                                if hits:
+                                    break
                         except Exception:
                             hits = []
                     # ③ 列表模式包含匹配（/values 全量，多值属性取全部）
