@@ -2,19 +2,20 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
-## 最近更新（v0.36.0 — 16 问题四类处理 + 发布演练）
+## 最近更新（v0.39 — aibuy 图搜通道 + 类目消歧 + 6 Issue 修复 + 3 新需求）
 
-> 2026-08-11。真实 tag 发布演练（v0.36.0）暴露并修复 4 个 CI 平台 bug（Docker 3.12 time.mock / Rosetta 目录 / win32 编码 / x86_64 dlopen）+ 浏览器链路修复（CHROME_PATH/PEP 668/登录误判）+ 缓存复用 + 批量续传 + 打包安全 + SKILL.md 重构 + 版本四源统一。完整历史见 `CHANGELOG.md`。
+> 2026-08-12。图搜重大升级（aibuy mtop API 免浏览器直调）+ 用户 6 Issue 修复 + 3 体验新需求。完整历史见 `CHANGELOG.md`。
 
-- **浏览器链路修复**: `find_browser_executable` 支持 `CHROME_PATH` env（service.py:892）；`_auto_install_browser` pip 加 `--break-system-packages`（PEP 668）；`_wait_for_login_session` 返回结构化 `{ok, session, reason}`——区分「未找到浏览器/登录超时/启动失败」（enrich 消费侧 ak_1688_client.py:953-982）。
-- **数据缓存复用**: probe_1688_page（ns `probe1688` 24h）+ `_translate_slug_to_cn`（ns `slug_cn` 30d）+ follow envelope（ns `follow` 6h）+ AK 图搜（`ak_img_search` 6h）/关键词（`ak_search` 24h）——重跑不重复抓图/耗 LLM/耗配额。**缓存 key 必须含语言/ID 维度**（防固化错误货币数据）。
-- **api_only 降级透传**: build_graph_envelope 不再对 api_only 硬 raise——enrich 透传的 api title/price/images 组装信封（cloud_probe.py:1236）。
-- **safe_unlink/safe_rmtree**（utils.py）: Windows 沙箱 fail-open 安全删除——unlink → os.remove → warning 返回 False，绝不 raise。替换了 cache/task_paths/updater/bootstrap/chrome_launcher 的裸删除。
-- **config 原子写 + profile 锁**: config_store 三处 write_text → `_atomic_write_json`（tmp+os.replace）；chrome_launcher profile 加进程级 flock（防并发双启）。
-- **SKILL.md 100 行**: §4 越界行为 → `references/anti-patterns.md`；裂变/趋势细则 → `references/discover-fission.md` + `trend-selection.md`。
-- **版本四源统一 0.36.0**: root/skill/deploy-skill VERSION + SKILL.md frontmatter；compile.py 打包时用 skill/VERSION 覆写 frontmatter；build-skill.yml 加 frontmatter 校验。
-- **发布演练教训**: ① CI test-skill 用 Docker 3.12（本机 3.14 测不出环境差异）② build-skill 冒烟导入 3.12 ③ darwin-x86_64 跳过冒烟（macos-latest 已切 Apple Silicon，x86_64 .so 无法 dlopen）。
-- **测试**: skill 39 测试文件 306 断言全绿（本机 3.14 + Docker 3.12 双环境）；compile.py 8 模块编译 + import 校验通过。
+- **aibuy 图搜通道（免浏览器）**: `search_by_image_aibuy`（ozon_image_search.py）——Chrome 会话 cookie（`_m_h5_tk/_m_h5_tk_enc/tfstk/isg`）→ mtop 签名直调 `mtop.com.alibaba.cbu.crossBorder.lp.imageSearch`，秒级返回结构化结果（offerId/标题/价格/月销/回头率/类目/供应商/normalizationScore）。**免开 Chrome、免登录、免徽章 DOM**。token 缓存 settings.json（6h 过期自动刷新）；fail-fast 纪律（无 token/失败快速返回 [] 由调用方降级 CDP/AK）。
+- **trusted_source 分通道护栏**: `_pick_best_match` 加 `trusted_source` 参数——仅 aibuy 信任官方排序（放行 = 原始图搜位置 idx ≤ 1 前 2 位；normalizationScore 实测最高分≠最相似，仅作加分不作用放行信号）；AK/CDP 维持 conf≥0.3 + LLM rescue 护栏。
+- **AK similarity_score 上膛**: `_pick_best_match` 消费 AK 候选 `similarity_score`（ak_1688_client.py:397 解析但从未使用）——评分加分（上限 20 分）+ no-badge 分支高分放行（≥0.8 且 idx_rank≥0.5）。
+- **三调用点接入 aibuy**: follow_sell_cloud Step 3a-0（search_method=aibuy 传 trusted_source）+ `_search_1688_source` Strategy 1 + `cli.py image_search --source aibuy`（默认）。
+- **类目匹配修复（用户 Issue3）**: publish_product_new 同步 `source_category_path` 末级词优先（对齐 build_graph_envelope v0.34）+ 复合词顿号分拆净化（`_category_search_variants`，实证 "化妆刷、刷包"空/"化妆刷"命中）+ 匹配不到→可见告警（不再静默放行）+ **LLM 消歧**（`_llm_disambiguate_category`——护手霜/粉扑/收纳盒等深度歧义词多候选语义判定）。
+- **用户 Issue 修复**: ① Windows subprocess 编码 `errors=replace`（8 处，service.py/chrome_launcher）② 文档补 query 命令 ③ 类目（见上）④ `category` CLI 子命令（类目查询，替代临时脚本）⑤ check 命令 Sentry 状态诊断 ⑥ search 增强（利润估算/排序/CSV/--rules/--auto-submit）。
+- **定价复用 worker 公式**: cmd_search/cmd_graph 利润估算改用 worker pricing_node 同源公式（售价=总成本×(1+margin)/(1-commission)）+ 真实运费（`_query_logistics_from_worker`）+ 店铺参数——不再独立估算（避免两套公式漂移）。graph 提交前打印 `💰 预估: 采购¥X+运费¥Y → 售价≈¥Z (利润¥W, 率R%)`。
+- **query 展示采购明细**: `_print_query_result` 展示 product_summary 完整字段（采购链接/采购价/运费，此前只展示 OzonID/售价/利润率/审核）+ 💡 比价建议（引导去 1688/淘宝/拼多多/阿里国际站对比货源）。
+- **词典扩充 104→333 词对**: `_RU_ZH_PRODUCT_WORDS` 按 17 类目（宠物/家居/厨房/服饰/母婴/美妆/汽车/户外/数码/五金/清洁/照明/收纳/园艺/玩具/办公）扩充。
+- **测试**: skill 487 passed（含 aibuy 图搜 27 单测 + 类目消歧 3 单测）；worker 600 passed。
 
 
 ## 工作区概述
@@ -45,7 +46,7 @@ ozon-worker/
 │       │   ├── ak_1688_client.py      # 1688 AK API 搜索
 │       │   ├── chrome_launcher.py     # 跨平台 Chrome CDP 自动启动（用户零配置）
 │       │   ├── ozon_scraper.py        # Ozon 商品页 CDP 抓取（完整字段）
-│       │   ├── ozon_image_search.py   # CDP 网页版以图搜款（准确率~100%）
+│       │   ├── ozon_image_search.py   # 1688 以图搜款（aibuy mtop API 直调 + CDP 网页版双通道）
 │       │   ├── config_store.py        # 凭证管理
 │       │   ├── cdp_client.py          # 原生 CDP WebSocket 客户端（替代 Playwright）
 │       │   ├── ozon_widget.py         # Ozon Widget API 客户端（产品信息/跟卖/SKU）
@@ -88,11 +89,13 @@ ozon-worker/
 
 | 能力 | 命令 | 说明 |
 |------|------|------|
-| 环境检查 | `check` | 自动启动 Chrome、检测登录态、验证凭证 |
-| 1688 选品 | `graph` | CDP 抓取 1688 → 组装信封 → 提交 Worker |
+| 环境检查 | `check` | 自动启动 Chrome、检测登录态、验证凭证、Sentry 状态诊断 |
+| 1688 选品 | `graph` | CDP 抓取 1688 → 组装信封 → 提交 Worker（提交前打印预估售价） |
 | Ozon 跟卖 | `follow` | Ozon 竞品图搜 1688 同款 → 组装信封 → 提交 Worker |
 | Ozon 选品 | `discover` | Ozon 中国站/搜索/类目页自动选品，蓝海评分，1688匹配，利润计算，CSV/JSON导出 |
-| 以图搜款 | `image_search` | CDP 网页版图搜（准确率~100%） |
+| 以图搜款 | `image_search` | 1688 图搜（`--source aibuy` 默认免浏览器 / `cdp` 网页版 / `ak` API） |
+| 1688 关键词选品 | `search` | 1688 AK 关键词搜索 + 利润估算 + 排序 + CSV 导出 + `--rules` 筛选 + `--auto-submit` 批量上架 |
+| 类目查询 | `category` | Ozon 类目树查询（`--lang ZH_HANS\|EN\|RU`，替代临时脚本，Issue4） |
 | 获取 AK | `get_ak` | 浏览器自动获取 1688 AK |
 | 批量处理 | `batch_test` | 批量处理 URL 列表（v0.36 支持 `--resume` 断点续传——读上次 log_file 跳过已成功项，失败项重试） |
 | what-to-sell 查询 | `queries` | Ozon 蓝海/榜单数据查询（v0.34，all-queries/ozon-bestsellers/market-bestsellers，采集后自动上报 worker PG） |
@@ -236,7 +239,10 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | skill | `python3.12 scripts/cli.py follow --ozon-url <Ozon URL>`（Ozon 跟卖） |
 | skill | `python3.12 scripts/cli.py discover --keyword "宠物用品" --max-products 50`（Ozon 选品） |
 | skill | `python3.12 scripts/cli.py discover --keyword "..." --export csv --output results.csv`（选品+导出） |
-| skill | `python3.12 scripts/cli.py image_search --image <URL>`（以图搜款） |
+| skill | `python3.12 scripts/cli.py image_search --image <URL>`（以图搜款，默认 --source aibuy 免浏览器） |
+| skill | `python3.12 scripts/cli.py category "护手霜" --lang ZH_HANS`（类目查询，Issue4） |
+| skill | `python3.12 scripts/cli.py search "宠物饮水机" --sort price_desc --rules "profit_margin>=0.1" --export out.csv`（1688 选品+筛选+导出） |
+| skill | `python3.12 -m pytest tests/test_aibuy_search.py -q`（aibuy 图搜 + trusted_source + 类目消歧 27 单测） |
 | skill | `python3.12 scripts/batch_test.py --urls-file urls.txt --client-id xxx --api-key xxx --submit` |
 | skill | `python3.12 compile.py`（Cython 编译核心库 → .so/.pyd，必须用 Python 3.12） |
 | skill | `python3.12 compile.py --clean`（清理 build/dist 后重新编译） |
@@ -399,6 +405,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## 深入阅读（改前先看）
 
+- **`docs/PLAN-skill-image-search-v1.md`** — ⭐ 图搜改造方案（aibuy 通道/trusted_source/类目消歧/定价复用/6 Issue 落地记录——改图搜/类目前必读）
 - **`skill/SKILL.md`** — ⭐ Agent 调用指南（Chrome 启动、选品、跟卖、以图搜款、批量处理；100 行精简版，越界/裂变/趋势细则在 `references/`）
 - **`skill/references/command-reference.md`** — ⭐ 全命令参考：意图路由决策树 + 各管线（A/B/C/D/E/F）触发条件、完整参数、示例、输入输出
 - **`skill/references/env-setup.md`** — 环境准备：凭证获取/配置、check 故障排查、data/ 目录语义（防误删）
@@ -443,6 +450,16 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
 - **Docker 部署**: `deploy/docker-compose.yml` 含 PG + Worker，`HEALTHCHECK` 已配置。
 - **API 版本化**: 新端点走 `/api/v1/`，旧路径保持兼容。
+
+### v0.39 新增关键约定（改图搜/类目匹配/定价/查询展示前必看）
+
+- **aibuy 图搜是主通道（免浏览器）**: `search_by_image_aibuy`（ozon_image_search.py）——Chrome cookie（`_m_h5_tk` 等 4 个）→ mtop 签名直调 imagesearch API。**冷启动 requests 拿不到 token（1688 反爬）**，必须从 Chrome 会话读。token 缓存在 settings.json（key `aibuy_mtop_token`，6h 过期自动刷新）；**fail-fast 纪律**：无 token/失败快速返回 [] 由调用方降级 CDP/AK，不 raise 不慢等（test_follow_* 未 mock aibuy 依赖此）。缓存 ns `aibuy_search` 6h。
+- **mtop 签名**：`md5(token&t&appKey&data)` + `H5Request=true` + UA/Referer/cookie 组合——封装为 `_mtop_sign`/`_mtop_request`，**不复用 `_post_1688`**（那是 AK 网关 x-csk，认证体系不同）。
+- **trusted_source 分通道护栏**: `_pick_best_match(..., trusted_source=True)` 仅 aibuy 来源置 True——放行规则 = `idx ≤ 1`（前 2 位），**normalizationScore 不是放行信号**（实测最高分≠最相似，仅 norm_bonus 加分 ≤5）。AK/CDP 恒 False 维持 conf≥0.3 + LLM rescue。改 `_pick_best_match` 勿全放松（历史错配案例"花插¥1/活体羊驼¥2000"）。
+- **AK similarity_score 上膛**: `_pick_best_match` 消费 AK 候选 `similarity_score`（0-100 归一化，评分加分 ≤20 + no-badge 高分放行 ≥0.8）。aibuy 候选无此字段不受影响。
+- **类目匹配三层信号**: ① `source_category_path` 末级词优先（1688 三级类目面包屑）② 复合词顿号分拆（`_category_search_variants`，"化妆刷、刷包"→"化妆刷"命中）③ 候选>1 时 LLM 消歧（`_llm_disambiguate_category`，护手霜/粉扑/收纳盒等深度歧义词）。**匹配不到→可见告警**（不再静默放行）。改 publish_product_new/build_graph_envelope 类目搜索须同步两处。
+- **定价复用 worker 公式**: skill 端利润估算 = `总成本×(1+margin)/(1-commission)`（与 worker pricing_node 同源）+ 真实运费（`_query_logistics_from_worker` 调 `/api/v1/logistics/quote`）+ 店铺 margin/commission（与信封 extensions 同源）。**勿在 skill 另写独立估算公式**（两套公式会漂移）。
+- **query 展示完整明细**: `_print_query_result` 展示 product_summary 的 purchase_url/purchase_cost/logistics_cost（worker 已算好，skill 展示层此前丢弃）+ 比价建议。新增字段勿只展示 OzonID/售价/利润率。
 
 ### v0.36 新增关键约定（改缓存/删除/版本/浏览器链路前必看）
 
