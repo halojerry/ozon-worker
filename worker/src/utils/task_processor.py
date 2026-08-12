@@ -118,10 +118,21 @@ def _send_task_notify(task_id, status, graph_result, payload) -> None:
             or draft.get("product_id") or draft.get("item_id") or "",
             "ozon_client_id": str((payload or {}).get("ozon_client_id") or ""),
         }
-        requests.post(env_url, json=body, timeout=5)
+        # allow_redirects=False：重定向可能把通知 payload 转发到意外主机（v0.38.1）
+        requests.post(env_url, json=body, timeout=5, allow_redirects=False)
         logger.info("任务终态通知已发送 task_id=%s status=%s", task_id, status)
     except Exception as e:
         logger.warning("任务终态 webhook 通知失败（不影响主流程）: %s", e)
+
+
+async def _send_task_notify_async(task_id, status, graph_result, payload) -> None:
+    """任务终态 webhook 通知（async 版，v0.38.1）。
+
+    _send_task_notify 内是阻塞 requests.post（最多 5s）——在 async
+    process_next_task 中直接调用会阻塞整个事件循环（30 并发 worker 全部卡住）。
+    用 asyncio.to_thread 丢线程池，不阻塞事件循环。
+    """
+    await asyncio.to_thread(_send_task_notify, task_id, status, graph_result, payload)
 
 
 # ── 进度回调 ──
@@ -446,7 +457,7 @@ class SupabaseTaskProcessor:
                                 error_message=graph_result.get("_harness_error"),
                             )
                             conn.commit()
-                        _send_task_notify(task_id, "failed", graph_result, payload)
+                        await _send_task_notify_async(task_id, "failed", graph_result, payload)
                         clear_trace_context()
                         return graph_result
 
@@ -478,7 +489,7 @@ class SupabaseTaskProcessor:
                                 error_message=graph_result.get("_harness_error"),
                             )
                             conn.commit()
-                        _send_task_notify(task_id, "rejected", graph_result, payload)
+                        await _send_task_notify_async(task_id, "rejected", graph_result, payload)
                         clear_trace_context()
                         return graph_result
 
@@ -506,7 +517,7 @@ class SupabaseTaskProcessor:
                         )
                         conn.commit()
                     
-                    _send_task_notify(task_id, "completed", graph_result, payload)
+                    await _send_task_notify_async(task_id, "completed", graph_result, payload)
                     log_task_event("completed", task_id=task_id, user_id=tenant_id)
                     clear_trace_context()
                     return graph_result

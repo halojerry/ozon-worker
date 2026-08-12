@@ -45,9 +45,15 @@ def create_tables(engine):
         conn.execute(text(
             "ALTER TABLE ozon_product_tasks ADD COLUMN IF NOT EXISTS sku_key TEXT"
         ))
+        # ⚠️ v0.38.1: 索引谓词加状态过滤（只对 pending/running 唯一）——修复 resubmit
+        # 以相同 sku_key 重插新行撞唯一索引 → 500。旧谓词索引必须 DROP 重建才能生效。
+        conn.execute(text(
+            "DROP INDEX IF EXISTS uq_ozon_product_tasks_tenant_sku"
+        ))
         conn.execute(text(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_ozon_product_tasks_tenant_sku "
-            "ON ozon_product_tasks(tenant_id, sku_key) WHERE sku_key IS NOT NULL"
+            "ON ozon_product_tasks(tenant_id, sku_key) "
+            "WHERE sku_key IS NOT NULL AND status IN ('pending', 'running')"
         ))
         conn.commit()
     logger.info("✅ 表结构已就绪")

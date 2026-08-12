@@ -1047,6 +1047,41 @@ async def store_health(client_id: str = None, api_key: str = None):
         return {"status": "error", "message": str(e)}
 
 
+def _authenticate_token(token: str) -> str:
+    """鉴权 token → user_id（Supabase tokens 表，剥离 sk- 前缀）。
+
+    submit_task / resubmit_task 共用。失败抛 HTTPException(401/403)。
+    Supabase 未配置（本地开发）→ 返回 "local_dev"。
+    """
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    allowed, _remaining = rate_limiter.check(token)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute",
+        )
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    supabase = get_supabase_client()
+    if supabase is None:
+        logger.warning("Supabase未配置，跳过token鉴权（本地开发模式）")
+        return "local_dev"
+    token_records = supabase.table("tokens").select(
+        "user_id, key, remain_quota, status, expired_time, unlimited_quota"
+    ).eq("key", clean_token).is_("deleted_at", "null").execute()
+    if not token_records.data or len(token_records.data) == 0:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    token_record = token_records.data[0]
+    status = int(token_record.get("status", 0))
+    if status != 1:
+        status_desc = {2: "disabled", 3: "expired", 4: "quota exhausted"}
+        raise HTTPException(
+            status_code=403,
+            detail=f"Token is {status_desc.get(status, 'unknown')}: status={status}",
+        )
+    return str(token_record.get("user_id", ""))
+
+
 def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
     """检查用户余额（v0.29.3 统一：优先查 MXOU 平台真实余额）。
 
@@ -1270,7 +1305,7 @@ def _validate_draft_required_fields(draft: dict, extensions: dict) -> str | None
 
 
 def _find_existing_task(tenant_id: str, sku_key: str) -> Optional[tuple[str, str]]:
-    """查询同租户同 SKU 的活跃任务（非 failed/cancelled），返回 (task_id, status) 或 None。
+    """查询同租户同 SKU 的活跃任务（pending/running），返回 (task_id, status) 或 None。
 
     P0-1: 提交层去重防线 — 防同一商品重跑产生重复 Ozon listing。
     去重查询失败时放行（fail-open，不因去重引入新的 500）。
@@ -1283,7 +1318,7 @@ def _find_existing_task(tenant_id: str, sku_key: str) -> Optional[tuple[str, str
                 text(
                     "SELECT id, status FROM ozon_product_tasks "
                     "WHERE tenant_id = :t AND sku_key = :k "
-                    "AND status NOT IN ('failed', 'cancelled') "
+                    "AND status IN ('pending', 'running') "
                     "ORDER BY created_at DESC LIMIT 1"
                 ),
                 {"t": tenant_id, "k": sku_key},
@@ -1476,10 +1511,17 @@ async def http_submit_task(request: Request):
             "envelope": envelope
         }
 
-        # ✅ P0-1: SKU 级重复提交防护 — 同一商品已有活跃任务则拒绝二次入队
+        # ✅ P0-1: SKU 级重复提交防护 — 同一用户同一店铺同一商品已有活跃任务则拒绝二次入队
         #   跟卖走 draft.ozon_product_id，1688 走 draft.item_id，兜底 draft.sku_id；
         #   无任何商品 ID 时跳过去重（sku_key 为空）。
-        sku_key = f"{user_id}:{str(draft.get('ozon_product_id') or draft.get('item_id') or draft.get('sku_id') or '').strip()}"
+        #   ⚠️ v0.38.1: sku_key 加入店铺维度 {user}:{ozon_client_id}:{product}——
+        #   修复同用户两店铺提交同款被误拦（N8 多店铺与 N1 去重冲突）。
+        _store_dim = str(ozon_client_id or "").strip()
+        sku_key = (
+            f"{user_id}:{_store_dim}:{str(draft.get('ozon_product_id') or draft.get('item_id') or draft.get('sku_id') or '').strip()}"
+            if _store_dim else
+            f"{user_id}:{str(draft.get('ozon_product_id') or draft.get('item_id') or draft.get('sku_id') or '').strip()}"
+        )
         if sku_key.endswith(":"):
             sku_key = ""
         if sku_key:
@@ -1603,18 +1645,32 @@ async def http_cancel_task(task_id: str):
 
 
 @app.post("/resubmit_task/{task_id}")
-async def http_resubmit_task(task_id: str):
+async def http_resubmit_task(task_id: str, request: Request):
     """重新提交终态任务（审核被拒/失败自动修复链入口，P0-2）。
 
     仅 rejected/failed 终态任务可重试：复制原载荷 → 注入 parent_task_id +
     extensions.image_regen=True → 重新入队（pending）。返回新任务 task_id。
+
+    ⚠️ v0.38.1 安全修复：请求体必须携带调用者 token（与 submit_task 一致），
+    校验 token 归属租户 == 任务 tenant_id，防跨租户凭证重放（CRITICAL）。
     """
     if task_processor is None:
         raise HTTPException(status_code=503, detail="Task processor not initialized")
 
     try:
+        body = await request.json()
+        token = (body.get("payload") or body).get("token", "")
+        caller_user_id = _authenticate_token(token)
+
         task_status = await task_processor.get_task_status(task_id)
         if task_status is None:
+            return error_response(
+                WorkerErrorCode.TASK_NOT_FOUND,
+                f"Task {task_id} not found",
+            )
+
+        task_tenant = str(task_status.get("tenant_id") or "")
+        if task_tenant and caller_user_id != "local_dev" and task_tenant != caller_user_id:
             return error_response(
                 WorkerErrorCode.TASK_NOT_FOUND,
                 f"Task {task_id} not found",
@@ -1641,13 +1697,18 @@ async def http_resubmit_task(task_id: str):
         envelope["extensions"] = extensions
         payload["envelope"] = envelope
 
-        # sku_key 从原载荷 draft 派生（与 submit_task 去重口径一致）
+        # sku_key 从原载荷 draft 派生（与 submit_task 去重口径一致，含店铺维度）
         draft = envelope.get("draft") or {}
         product_id = str(
             draft.get("ozon_product_id") or draft.get("item_id") or draft.get("sku_id") or ""
         ).strip()
         tenant_id = str(task_status.get("tenant_id") or "local_dev")
-        sku_key = f"{tenant_id}:{product_id}" if product_id else ""
+        _store_dim = str((payload or {}).get("ozon_client_id") or "").strip()
+        sku_key = (
+            f"{tenant_id}:{_store_dim}:{product_id}"
+            if _store_dim else
+            f"{tenant_id}:{product_id}"
+        ) if product_id else ""
 
         new_task_id = await task_processor.submit_task(
             tenant_id=tenant_id,
@@ -1666,9 +1727,15 @@ async def http_resubmit_task(task_id: str):
             "message": f"任务 {task_id} 已重新提交（{status} → pending，parent_task_id={task_id}）",
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Resubmit task error: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to resubmit task: {str(e)}")
+        # 不向客户端回传 str(e)（防内部路径/DB 细节泄露，v0.38.1）
+        return error_response(
+            WorkerErrorCode.INTERNAL_ERROR,
+            "重提交任务失败，请稍后重试",
+        )
 
 
 @app.get("/task_statistics")
@@ -1817,9 +1884,9 @@ async def v1_cancel_task(task_id: str):
 
 @v1.post("/resubmit_task/{task_id}", response_model=SubmitTaskResponse, tags=["task"],
          responses={404: {"model": ErrorBody}, 409: {"model": ErrorBody}})
-async def v1_resubmit_task(task_id: str):
+async def v1_resubmit_task(task_id: str, request: Request):
     """重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口）。"""
-    return await http_resubmit_task(task_id)
+    return await http_resubmit_task(task_id, request)
 
 
 @v1.get("/task_statistics", response_model=TaskStatisticsResponse, tags=["task"])

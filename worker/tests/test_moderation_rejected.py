@@ -192,6 +192,20 @@ class _FakeTaskStatusProcessor:
         return self.next_id
 
 
+class _ResubmitRequest:
+    """携带 token 的重提交请求替身。"""
+
+    def __init__(self, body):
+        self._body = body
+
+    async def json(self):
+        return self._body
+
+
+def _resubmit_body(token="sk-tok123"):
+    return {"token": token}
+
+
 def _task_status(status, payload=None, tenant_id="u1"):
     return {
         "id": "task-old",
@@ -229,8 +243,12 @@ def test_resubmit_rejected_creates_new_pending():
     import main as main_mod
 
     proc = _FakeTaskStatusProcessor(_task_status("rejected", _original_payload()))
-    with patch.object(main_mod, "task_processor", proc):
-        resp = asyncio.run(main_mod.http_resubmit_task("task-old"))
+    with patch.object(main_mod, "task_processor", proc), patch(
+        "main._authenticate_token", return_value="u1"
+    ):
+        resp = asyncio.run(
+            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+        )
 
     assert resp["ok"] is True
     assert resp["task_id"] == "task-resub-1"
@@ -240,7 +258,7 @@ def test_resubmit_rejected_creates_new_pending():
     new_payload = kwargs["payload"]
     assert new_payload["parent_task_id"] == "task-old"
     assert new_payload["envelope"]["extensions"]["image_regen"] is True
-    assert kwargs["sku_key"] == "u1:1688abc"
+    assert kwargs["sku_key"] == "u1:c1:1688abc"
 
 
 def test_resubmit_failed_creates_new_pending():
@@ -248,8 +266,12 @@ def test_resubmit_failed_creates_new_pending():
     import main as main_mod
 
     proc = _FakeTaskStatusProcessor(_task_status("failed", _original_payload()))
-    with patch.object(main_mod, "task_processor", proc):
-        resp = asyncio.run(main_mod.http_resubmit_task("task-old"))
+    with patch.object(main_mod, "task_processor", proc), patch(
+        "main._authenticate_token", return_value="u1"
+    ):
+        resp = asyncio.run(
+            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+        )
 
     assert resp["ok"] is True
     kwargs = proc.submit_calls[0]
@@ -262,8 +284,12 @@ def test_resubmit_completed_rejected_with_409():
     import main as main_mod
 
     proc = _FakeTaskStatusProcessor(_task_status("completed", _original_payload()))
-    with patch.object(main_mod, "task_processor", proc):
-        resp = asyncio.run(main_mod.http_resubmit_task("task-old"))
+    with patch.object(main_mod, "task_processor", proc), patch(
+        "main._authenticate_token", return_value="u1"
+    ):
+        resp = asyncio.run(
+            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+        )
 
     assert resp.status_code == 409
     body = json.loads(resp.body)
@@ -277,13 +303,92 @@ def test_resubmit_not_found_404():
     import main as main_mod
 
     proc = _FakeTaskStatusProcessor(None)
-    with patch.object(main_mod, "task_processor", proc):
-        resp = asyncio.run(main_mod.http_resubmit_task("ghost"))
+    with patch.object(main_mod, "task_processor", proc), patch(
+        "main._authenticate_token", return_value="u1"
+    ):
+        resp = asyncio.run(
+            main_mod.http_resubmit_task("ghost", _ResubmitRequest(_resubmit_body()))
+        )
 
     assert resp.status_code == 404
     body = json.loads(resp.body)
     assert body["error_code"] == "TASK_NOT_FOUND"
     assert proc.submit_calls == []
+
+
+def test_resubmit_cross_tenant_blocked():
+    """v0.38.1 安全：调用者 token 归属租户 ≠ 任务 tenant_id → 404（不泄露任务存在性）。"""
+    import main as main_mod
+
+    proc = _FakeTaskStatusProcessor(_task_status("rejected", _original_payload(), tenant_id="victim"))
+    with patch.object(main_mod, "task_processor", proc), patch(
+        "main._authenticate_token", return_value="attacker"
+    ):
+        resp = asyncio.run(
+            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+        )
+
+    assert resp.status_code == 404
+    body = json.loads(resp.body)
+    assert body["error_code"] == "TASK_NOT_FOUND"
+    assert proc.submit_calls == [], "跨租户重提交必须拒绝，不得复制受害者载荷重新入队"
+
+
+def test_resubmit_missing_token_401():
+    """v0.38.1 安全：请求体无 token → 鉴权拒绝 401，不入队。"""
+    import pytest
+    import main as main_mod
+
+    proc = _FakeTaskStatusProcessor(_task_status("rejected", _original_payload()))
+    with patch.object(main_mod, "task_processor", proc), patch(
+        "main._authenticate_token", side_effect=main_mod.HTTPException(401, "Token is required")
+    ), pytest.raises(main_mod.HTTPException) as exc_info:
+        asyncio.run(
+            main_mod.http_resubmit_task("task-old", _ResubmitRequest({}))
+        )
+
+    assert exc_info.value.status_code == 401
+    assert proc.submit_calls == [], "未鉴权不得触发重提交"
+
+
+def test_resubmit_sku_key_includes_store_dimension():
+    """v0.38.1：sku_key 含店铺维度（与原载荷 ozon_client_id 一致）。"""
+    import main as main_mod
+
+    proc = _FakeTaskStatusProcessor(_task_status("rejected", _original_payload()))
+    with patch.object(main_mod, "task_processor", proc), patch(
+        "main._authenticate_token", return_value="u1"
+    ):
+        resp = asyncio.run(
+            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+        )
+
+    assert resp["ok"] is True
+    assert proc.submit_calls[0]["sku_key"] == "u1:c1:1688abc"
+
+
+def test_resubmit_error_does_not_leak_internal_detail():
+    """v0.38.1：内部异常不向客户端回传 str(e)（防路径/DB 细节泄露）。"""
+    import main as main_mod
+
+    proc = _FakeTaskStatusProcessor(_task_status("rejected", _original_payload()))
+
+    async def _boom(**kwargs):
+        raise RuntimeError("psycopg2 detail: /secret/db/path: relation does not exist")
+
+    proc.submit_task = _boom
+    with patch.object(main_mod, "task_processor", proc), patch(
+        "main._authenticate_token", return_value="u1"
+    ):
+        resp = asyncio.run(
+            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+        )
+
+    assert resp.status_code == 500
+    body = json.loads(resp.body)
+    assert body["error_code"] == "INTERNAL_ERROR"
+    assert "/secret/db/path" not in body["message"], "内部异常细节不得回传客户端"
+    assert "psycopg2" not in body["message"]
 
 
 def test_task_status_endpoint_rejected_progress():
