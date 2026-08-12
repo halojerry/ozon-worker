@@ -58,13 +58,11 @@ def test_price_out_of_range_routes_to_repair_pricing():
 # ── 3. 字典值搜索语言链 ZH→RU→EN ─────────────────────────────────────────
 
 def test_search_chain_prefers_ru_when_zh_miss():
-    """ZH 搜不到 → 换 RU（Ozon 字典值是俄语），RU 命中即返回，不浪费 EN。"""
+    """俄语搜索词 → RU 优先（lang_route v0.40）；RU 命中即返回，不浪费 ZH。"""
     calls: list[str] = []
 
     def fake_search(cid, key, aid, cat, tp, value, lang):
         calls.append(lang)
-        if lang == "ZH_HANS":
-            return []
         if lang == "RU":
             return [{"id": 148495146, "value": "Hand Fan"}]
         return []
@@ -75,11 +73,39 @@ def test_search_chain_prefers_ru_when_zh_miss():
     )
     assert out is not None
     assert out["id"] == 148495146
-    assert calls == ["ZH_HANS", "RU"]
+    assert calls == ["RU"]
+
+
+def test_search_chain_zh_word_prefers_zh():
+    """中文搜索词 → ZH 优先（实测中文直搜命中率高）。"""
+    calls: list[str] = []
+
+    def fake_search(cid, key, aid, cat, tp, value, lang):
+        calls.append(lang)
+        return [{"id": 61571, "value": "Белый"}] if lang == "ZH_HANS" else []
+
+    from graphs.validation_retry_loop import _search_dictionary_values_chain
+    out = _search_dictionary_values_chain("1", "k", 8229, "1", "1", ["白色"], fake_search)
+    assert out["id"] == 61571
+    assert calls == ["ZH_HANS"]
+
+
+def test_search_chain_ru_miss_falls_back_zh():
+    """RU 搜不到 → 回退 ZH（含中文词场景的兜底）。"""
+    calls: list[str] = []
+
+    def fake_search(cid, key, aid, cat, tp, value, lang):
+        calls.append(lang)
+        return [{"id": 61571, "value": "Белый"}] if lang == "ZH_HANS" else []
+
+    from graphs.validation_retry_loop import _search_dictionary_values_chain
+    out = _search_dictionary_values_chain("1", "k", 8229, "1", "1", ["вентилятор"], fake_search)
+    assert out["id"] == 61571
+    assert calls == ["RU", "ZH_HANS"]
 
 
 def test_search_chain_zh_hit_no_ru():
-    """ZH 命中直接返回，不调 RU。"""
+    """ZH 命中直接返回，不调 RU（与 zh_word_prefers_zh 互补：中文词走 ZH）。"""
     calls: list[str] = []
 
     def fake_search(cid, key, aid, cat, tp, value, lang):

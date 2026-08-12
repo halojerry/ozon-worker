@@ -371,16 +371,22 @@ def _search_dictionary_values_chain(
     search_terms: List[str],
     search_fn=None,
 ) -> Optional[Dict[str, Any]]:
-    """按语言链 ZH_HANS→RU→EN 搜索字典值（v0.22）。
+    """按搜索词语言路由搜索字典值（v0.40 lang_route 修复）。
 
-    背景：Ozon 字典值是俄语，中文搜不到必须换 **RU**（旧代码换 EN 永远搜不到
-    8229「вентилятор→Hand Fan」这类值）。search_fn 可注入用于单测。
+    背景：/values/search 无 language 参数（语言无关），搜索词本身的语言决定
+    命中率。旧代码固定 ZH_HANS→RU→EN：俄语搜索词（вентилятор）先撞 ZH 空转
+    一轮再回 RU（浪费且与共享层 RU→ZH 方向冲突——漂移根因）。
+    现改为 lang_route：搜索词含中文 → ZH 优先；否则 → RU 优先；EN 尾链兜底。
+    search_fn 可注入用于单测（签名：searcher(cid,key,aid,cat,tp,term,lang)）。
     """
+    from utils.attr_value_matcher import lang_route  # type: ignore
     searcher = search_fn or _search_dictionary_values
     for term in search_terms:
         if not term:
             continue
-        for lang in ("ZH_HANS", "RU", "EN"):
+        primary = lang_route(str(term))
+        chain = (primary, "RU") if primary == "ZH_HANS" else (primary, "ZH_HANS")
+        for lang in (*chain, "EN"):
             result = searcher(
                 ozon_client_id, ozon_api_key,
                 attribute_id, category_id, type_id,
