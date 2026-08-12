@@ -292,6 +292,67 @@ def test_pick_best_match_normalization_score_bonus_does_not_override_rank():
     assert best["id"] == "1", "rank1 应胜出，norm_bonus 不应压倒 idx_rank"
 
 
+# ── Step 3: AK similarity_score 上膛（v0.39）──────────────────────────────
+
+def test_pick_best_match_ak_high_score_passes_no_badge():
+    """AK 候选官方相似度高（≥0.8）+ 排名前 2 → no-badge 分支放行（此前只看 conf/LLM）。"""
+    import scripts.lib.ozon_discovery as od
+    od._LLM_SEMANTIC_CACHE.clear()
+    results = [
+        {"id": "1", "title": "完全无关标题词", "price": 8.0, "badge": "",
+         "similarity_score": 92.0},  # AK find_product score 0-100
+    ]
+    with mock.patch.object(od, "_llm_semantic_match", return_value=False):
+        best = od._pick_best_match(results, "Ошейник для кошки", token="t")
+    assert best is not None, "AK 高分相似度应放行"
+    assert best["id"] == "1"
+
+
+def test_pick_best_match_ak_low_score_still_rejected():
+    """AK 相似度低（<0.8）+ conf 弱 + LLM False → 仍拒绝（高分放行有下限）。"""
+    import scripts.lib.ozon_discovery as od
+    od._LLM_SEMANTIC_CACHE.clear()
+    results = [
+        {"id": "1", "title": "花开富贵香开花香檀香供佛香", "price": 8.0, "badge": "",
+         "similarity_score": 30.0},
+    ]
+    with mock.patch.object(od, "_llm_semantic_match", return_value=False):
+        best = od._pick_best_match(results, "Палочки от комаров", token="t")
+    assert best is None, "AK 低分相似度应维持拒绝"
+
+
+def test_pick_best_match_ak_score_bonus_ranks_high():
+    """AK score 加分使高相似度候选排名提升——rank1 被过滤（无价）时高相似度 rank2 胜出。"""
+    import scripts.lib.ozon_discovery as od
+    od._LLM_SEMANTIC_CACHE.clear()
+    results = [
+        {"id": "1", "title": "完全不相关A", "price": 0.0, "badge": "",  # 无价 → 被过滤
+         "similarity_score": 0.0},
+        {"id": "2", "title": "完全不相关B", "price": 10.0, "badge": "",
+         "similarity_score": 95.0},  # 唯一候选，相似度极高
+    ]
+    # trusted_source=False（AK 路径），conf 弱 → 高 AK 相似度（95→19分加分）应放行
+    with mock.patch.object(od, "_llm_semantic_match", return_value=False):
+        best = od._pick_best_match(results, "Ошейник для кошки", token="t")
+    assert best is not None
+    assert best["id"] == "2", "高相似度 AK 候选应凭高分放行"
+
+
+def test_pick_best_match_ak_score_ignored_for_aibuy():
+    """trusted_source=True（aibuy）时 similarity_score 不参与加分（aibuy 无此信号）。"""
+    import scripts.lib.ozon_discovery as od
+    od._LLM_SEMANTIC_CACHE.clear()
+    results = [
+        {"id": "1", "title": "跨境苹果airtag猫咪宠物项圈围脖", "price": 10.9,
+         "badge": "", "normalization_score": 0.0, "similarity_score": 99.0},
+        {"id": "2", "title": "宠物梳子套装", "price": 5.5,
+         "badge": "", "normalization_score": 0.0, "similarity_score": 0.0},
+    ]
+    best = od._pick_best_match(results, "Ошейник для кошки", token="t", trusted_source=True)
+    assert best is not None
+    assert best["id"] == "1", "aibuy 通道靠 idx_rank 放行（前 2 位），similarity_score 不干扰"
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))

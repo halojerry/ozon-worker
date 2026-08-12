@@ -1609,7 +1609,19 @@ def _pick_best_match(
                 norm_bonus = min(_ns, 1.0) * 5  # 上限 5 分，不压倒 idx_rank
             except (TypeError, ValueError):
                 pass
-        score = idx_rank * 50 + conf * 30 + badge_eff * 20 + norm_bonus
+        # v0.39 Step3 (AK score 上膛): AK 通道候选的官方相似度 similarity_score
+        # 作为加分（与 badge_eff 同权重 20，上限 20 分）——AK 结果 badge 恒空，
+        # 此前官方相似度信号被丢弃。aibuy 候选无此字段（=0）不受影响。
+        ak_bonus = 0.0
+        if "similarity_score" in r and not trusted_source:
+            try:
+                _ak = float(r.get("similarity_score") or 0)
+                # 取值域兼容：0-1 直接用，0-100 归一化（AK find_product score 实测 0-100）
+                _ak_norm = _ak / 100.0 if _ak > 1.0 else _ak
+                ak_bonus = min(max(_ak_norm, 0.0), 1.0) * 20
+            except (TypeError, ValueError):
+                pass
+        score = idx_rank * 50 + conf * 30 + badge_eff * 20 + norm_bonus + ak_bonus
         scored.append((score, idx, r))
 
     if not scored:
@@ -1698,6 +1710,20 @@ def _pick_best_match(
         if _conf_of_best >= _min_conf:
             logger.info("图搜无徽标（badge-less），标题相关性 conf=%.2f 放行: %s",
                         _conf_of_best, best.get("title", "")[:40])
+            return _attach_match_meta(best, _conf_of_best, badge_eff_of_best, _best_score)
+        # ✅ v0.39 Step3 (AK score 上膛): AK 候选官方相似度高且排名靠前 → 放行
+        # （AK 结果 badge 恒空 → 恒走此 no-badge 分支，此前只看 conf/LLM；
+        # 高分相似度是 AK 通道的官方信号，conf 弱时不应一票否决）
+        _ak_eff_best = 0.0
+        if "similarity_score" in best:
+            try:
+                _ak_best = float(best.get("similarity_score") or 0)
+                _ak_eff_best = _ak_best / 100.0 if _ak_best > 1.0 else _ak_best
+            except (TypeError, ValueError):
+                pass
+        if _ak_eff_best >= 0.8 and (1.0 / (1.0 + best_idx)) >= 0.5:
+            logger.info("图搜无徽标，AK 相似度 %.2f 高分放行（rank=%d）: %s",
+                        _ak_eff_best, best_idx + 1, best.get("title", "")[:40])
             return _attach_match_meta(best, _conf_of_best, badge_eff_of_best, _best_score)
         # ⚠️ v0.26 FIX: 无徽标且词对相关性弱 → LLM 语义判定救回（先 best 再 top-N）
         if _llm_semantic_match(ozon_title, _bt, token):
