@@ -369,3 +369,53 @@ if __name__ == "__main__":
                 traceback.print_exc()
     print(f"\n{total - failed}/{total} passed")
     sys.exit(1 if failed else 0)
+
+
+# ── v0.38.1: EOF/非交互安全 ─────────────────────────────────────────────
+
+def test_review_eof_skips_instead_of_crash():
+    """--review + input() 抛 EOFError（自动化/管道模式）→ 按自动规则跳过，不崩溃。"""
+    from scripts.lib.ozon_discovery import ProductCandidate
+    strong = _profitable("p1", "Товар один")
+    weak = _profitable("p2", "Товар два", conf=0.2, badge_eff=0.0)
+    submitted: list[str] = []
+
+    def _build(c, store_config, store_id=""):
+        return {"draft": {"title": c.ozon_title, "item_id": c.ozon_product_id}}
+
+    def _submit(envelope):
+        submitted.append(envelope["draft"]["item_id"])
+        return {"ok": True, "task_id": f"T-{envelope['draft']['item_id']}"}
+
+    args = _discover_args(auto_submit=True, review=True)
+    rc, out = _run_discover(
+        args, [strong, weak], [strong, weak],
+        input_side_effect=EOFError,  # 每次 input() 都抛 EOFError
+        extra_patches=[
+            mock.patch("scripts.cloud_probe.build_envelope_from_discovery",
+                       side_effect=_build),
+            mock.patch("scripts.cloud_probe.submit_envelope", side_effect=_submit),
+        ],
+    )
+    assert rc == 0, "EOF 不应导致崩溃"
+    assert "非交互模式" in out, "应提示非交互模式处理"
+    # EOF 在评审 input 与提交确认 input 两处都触发 → 评审跳过 + 提交取消（安全默认）
+    assert submitted == [], "EOF 场景不应产生任何提交"
+
+
+def test_auto_submit_confirm_eof_cancels():
+    """auto-submit 确认 input() 抛 EOFError → 取消提交（安全默认），rc=0。"""
+    strong = _profitable("p1", "Товар один")
+    args = _discover_args(auto_submit=True, review=False)
+    rc, out = _run_discover(
+        args, [strong], [strong],
+        input_side_effect=EOFError,
+        extra_patches=[
+            mock.patch("scripts.cloud_probe.build_envelope_from_discovery",
+                       return_value={"draft": {"title": "x", "item_id": "p1"}}),
+            mock.patch("scripts.cloud_probe.submit_envelope",
+                       return_value={"ok": True, "task_id": "T-1"}),
+        ],
+    )
+    assert rc == 0
+    assert "已取消" in out, "EOF 应取消提交"
