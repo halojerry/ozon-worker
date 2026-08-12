@@ -279,3 +279,56 @@ parse_error ──→ classify_error ──→ repair_node_selector（条件分�
 | LLM翻译对专业术语（3D打印、儿童用品）失败率高 | 导致标题翻译三连失败 | 已改进兜底机制 |
 | pg_trgm阈值0.05可能引入噪声候选 | 类目匹配可能选错 | 已加LLM领域消歧规则 |
 | 图片生成模型不能100%保证无文字 | DESCRIPTION_DECLINE(attr=4194/4195) | 已标记为warning不阻断 |
+
+---
+
+## 7. 任务终态与重提交（v0.38）
+
+### 7.1 状态机
+
+```
+pending → running → completed          （审核通过，成功）
+                   → rejected          （Ozon 审核拒绝，终态，可重提）
+                   → failed            （执行失败，终态，可重提）
+                   → cancelled         （用户取消，终态，不可重提）
+```
+
+- **`rejected`**（v0.38 N2）：`ozon_status` 判定 `moderate_status` 被拒 / 不可修复
+  时，`task_processor.py:453-483` 置 `status='rejected'` + `completed_at`。
+  `task_status` 端点对 rejected 返回归位进度（stage=rejected, 100%）并提示重提。
+- **`failed`**：重试耗尽或不可恢复错误（`task_processor.py:403-451`）。
+- **成功判据**（v0.21）：仅 `moderate_status=="approved"` 记成功；`pending`+product_id
+  不算成功（防假成功）。
+
+### 7.2 重提交端点（N2）
+
+`POST /api/v1/resubmit_task/{task_id}`（旧路径同）：仅 `rejected`/`failed` 可重提，
+复制原载荷 + `parent_task_id` + `image_regen=True` 重新入队。
+**v0.38.1 起需鉴权**：请求体 `token` 必须与任务 `tenant_id` 归属一致（跨租户返回 404）。
+
+### 7.3 SKU 去重（N1）
+
+- `sku_key = {user_id}[:{ozon_client_id}]:{product_id}`（v0.38.1 起含店铺维度，
+  修复同用户两店铺同款误拦）。
+- 提交层 `_find_existing_task` 只拦活跃任务（`pending`/`running`）；
+  终态行（`rejected`/`failed`/`completed`/`cancelled`）不拦截。
+- DB 唯一索引 `uq_ozon_product_tasks_tenant_sku` 谓词
+  `WHERE sku_key IS NOT NULL AND status IN ('pending','running')`——
+  **v0.38.1 修复**（旧版无状态过滤，resubmit 同 sku_key 插新行撞唯一索引 → 500）。
+  ⚠️ 升级需在 PG 执行 DROP 旧索引 + 重建（`init_data.py` 已幂等处理）。
+
+### 7.4 终态 webhook（N4-w）
+
+Worker 配置 `TASK_NOTIFY_URL`（Server酱等）后，终态 POST
+`{task_id, status, product_summary, error_message, product_id, ozon_client_id}`。
+skill `--notify` 传 `payload.notify=true`。实现：`task_processor._send_task_notify` +
+`_send_task_notify_async`（v0.38.1 起 `asyncio.to_thread` 包装，防阻塞事件循环）。
+
+### 7.5 改代码快速参考
+
+| 需求 | 文件 |
+|------|------|
+| 改去重逻辑 | `main.py:_find_existing_task` / `submit_task` / `resubmit_task` |
+| 改终态判定 | `task_processor.py` 终态分支（failed/rejected/completed） |
+| 改重提载荷 | `main.py:http_resubmit_task` |
+| 改 webhook | `task_processor.py:_send_task_notify` |

@@ -12,6 +12,7 @@
   - [1.1 POST /api/v1/submit_task](#11-post-apiv1submit_task)
   - [1.2 GET /api/v1/task_status/{task_id}](#12-get-apiv1task_statustask_id)
   - [1.3 POST /api/v1/cancel_task/{task_id}](#13-post-apiv1cancel_tasktask_id)
+  - [1.3b POST /api/v1/resubmit_task/{task_id}](#13b-post-apiv1resubmit_tasktask_id)
   - [1.4 GET /api/v1/task_statistics](#14-get-apiv1task_statistics)
   - [1.5 POST /api/v1/auth/verify](#15-post-apiv1authverify)
   - [1.6 GET /api/v1/health](#16-get-apiv1health)
@@ -42,6 +43,7 @@
 | `/api/v1/submit_task` | POST | token (Supabase) | 5s |
 | `/api/v1/task_status/{task_id}` | GET | 无 | 3s |
 | `/api/v1/cancel_task/{task_id}` | POST | 无 | 3s |
+| `/api/v1/resubmit_task/{task_id}` | POST | token (Supabase) | 3s |
 | `/api/v1/task_statistics` | GET | 无 | 5s |
 | `/api/v1/auth/verify` | POST | token (Supabase) | 5s |
 | `/api/v1/health` | GET | 无 | 2s |
@@ -147,7 +149,20 @@ Step 9: 返回 {ok: true, task_id, message}
 }
 ```
 
-错误码全集: `TOKEN_MISSING`(401) | `TOKEN_INVALID`(401) | `TOKEN_DISABLED`(403) | `TOKEN_EXPIRED`(403) | `INSUFFICIENT_BALANCE`(402) | `RATE_LIMITED`(429) | `TASK_SUBMIT_FAILED`(500) | `SERVICE_UNAVAILABLE`(503) | `INVALID_REQUEST`(400) | `INTERNAL_ERROR`(500)
+错误码全集: `TOKEN_MISSING`(401) | `TOKEN_INVALID`(401) | `TOKEN_DISABLED`(403) | `TOKEN_EXPIRED`(403) | `INSUFFICIENT_BALANCE`(402) | `RATE_LIMITED`(429) | `TASK_SUBMIT_FAILED`(500) | `SERVICE_UNAVAILABLE`(503) | `INVALID_REQUEST`(400) | `INTERNAL_ERROR`(500) | `TASK_NOT_FOUND`(404) | `TASK_NOT_CANCELLABLE`(409) | `TASK_NOT_RESUBMITTABLE`(409) | `DUPLICATE_SUBMIT`(409)
+
+**任务状态机（v0.38）**: `pending` → `running` → `completed` / `failed` / `rejected` / `cancelled`。
+`rejected` = Ozon 审核拒绝（终态，可经 `/resubmit_task` 重提）；`failed` = 执行失败（终态，可重提）。
+**SKU 去重**: `submit_task` 以 `sku_key = {user_id}[:{ozon_client_id}]:{product_id}` 查询
+活跃任务（`pending`/`running`），命中返回 409 `DUPLICATE_SUBMIT`。唯一索引
+`uq_ozon_product_tasks_tenant_sku` 只约束 `pending`/`running`——终态行（含 `rejected`/`failed`）
+不占用去重名额，可正常重提（v0.38.1 修复）。
+
+**任务终态 webhook（v0.38 N4-w）**: Worker 配置 `TASK_NOTIFY_URL` 环境变量（Server酱等任意
+webhook）后，任务落 `completed`/`failed`/`rejected` 终态时 POST 通知
+`{task_id, status, product_summary, error_message, product_id, ozon_client_id}`（timeout=5s，
+异常不影响任务主流程）。skill 侧 `graph/follow/discover/batch_test --notify` 会把
+`payload.notify=true` 传给 Worker 请求通知。
 
 ---
 
@@ -276,6 +291,65 @@ Step 5: 返回
 
 // 不可取消 409
 {"ok": false, "error_code": "TASK_NOT_CANCELLABLE", "message": "Task is in 'running' status, cannot cancel"}
+```
+
+---
+
+### 1.3b POST /api/v1/resubmit_task/{task_id}
+
+> v0.38 新增（N2）。被 Ozon 审核拒绝（`rejected`）或执行失败（`failed`）的
+> 终态任务可一键重提。**v0.38.1 起需鉴权**：请求体必须携带调用者 `token`
+> （与 `submit_task` 相同格式），且 token 归属租户必须等于任务 `tenant_id`，
+> 否则返回 404（不泄露任务存在性）。
+
+#### 1.3b.1 职责
+
+复制原任务载荷 → 注入 `parent_task_id` + `extensions.image_regen=True` →
+重新入队（`pending`），返回新任务 `task_id`。重提交任务沿用原载荷中的
+Ozon 凭证与店铺配置，并重新生成图片。
+
+#### 1.3b.2 请求格式
+
+| 参数 | 类型 | 位置 | 必填 | 校验 |
+|------|------|------|------|------|
+| `task_id` | string | path | ✅ | UUID v4 格式 |
+| `token` | string | body | ✅ | 与 submit_task 相同鉴权（Supabase tokens 表） |
+
+#### 1.3b.3 执行逻辑
+
+```
+Step 1: 鉴权 — token → Supabase tokens 表 → user_id（剥离 sk- 前缀）
+Step 2: 查询 PG: SELECT * FROM ozon_product_tasks WHERE id = task_id
+        - 不存在 → TASK_NOT_FOUND
+        - task.tenant_id != user_id（非本地开发）→ TASK_NOT_FOUND（防跨租户）
+Step 3: 检查 status
+        - ∈ {rejected, failed} → 继续
+        - 其他 → TASK_NOT_RESUBMITTABLE
+Step 4: 深拷贝 payload → parent_task_id=task_id, extensions.image_regen=True
+Step 5: 派生 sku_key = {tenant}:{ozon_client_id}:{product_id}
+Step 6: INSERT 新 pending 任务（同 sku_key 不冲突——唯一索引只约束
+        pending/running，见「任务去重」）
+Step 7: log_task_event('resubmitted', parent_task_id=task_id)
+```
+
+#### 1.3b.4 状态上报
+
+| 状态 | 时机 | 上报 |
+|------|------|------|
+| 成功 | INSERT 完成后 | `log_task_event('resubmitted', ...)` |
+| 跨租户/不存在 | 鉴权或查询后 | 统一 TASK_NOT_FOUND（不泄露存在性） |
+
+#### 1.3b.5 响应格式
+
+```json
+// 成功 200
+{"ok": true, "task_id": "new-uuid", "message": "任务 task-old 已重新提交（rejected → pending）"}
+
+// 任务不存在 404
+{"ok": false, "error_code": "TASK_NOT_FOUND", "message": "Task xxx not found"}
+
+// 不可重提 409
+{"ok": false, "error_code": "TASK_NOT_RESUBMITTABLE", "message": "任务状态 completed 不可重新提交"}
 ```
 
 ---

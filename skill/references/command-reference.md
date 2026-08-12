@@ -1,6 +1,25 @@
 # 全命令参考
 
 > 各管线的触发条件、完整参数、示例、输入输出。速查表见 SKILL.md §2。
+> 所有命令都是黑盒：先 `--help` 看用法，勿读 `cli.py` 源码。
+
+## 目录
+- [意图路由决策树](#意图路由决策树)
+- [并发限制](#并发限制)
+- [多店铺（P2-8）](#多店铺p2-8)
+- [管线 A：1688 上架（graph）](#管线-a1688-上架graph)
+- [管线 B：Ozon 跟卖（follow）](#管线-bozon-跟卖follow)
+- [管线 C：跟卖选品（discover，Discover v2）](#管线-c跟卖选品discoverdiscover-v2)
+- [管线 D：选品上架](#管线-d选品上架)
+- [管线 E：趋势选品](#管线-e趋势选品agent-自主分析--discover-执行v031-起)
+- [批量处理（batch_test.py）](#批量处理batch_testpy)
+- [任务查询（query）](#任务查询query)
+- [卖家店铺分析（seller）](#卖家店铺分析seller)
+- [what-to-sell 蓝海/榜单查询（queries）](#what-to-sell-蓝海榜单查询queries)
+- [自动更新（update）](#自动更新update)
+- [磁盘清理（cleanup）](#磁盘清理cleanup)
+- [其他命令（辅助）](#其他命令辅助)
+- [settings.json 可调参数](#settingsjson-可调参数)
 
 ## 意图路由决策树
 
@@ -102,6 +121,8 @@ python3 scripts/cli.py graph --url "https://..." --store "主店铺" --ozon-ref-
 - **输出**：JSON `{summary, envelope, submit_result}`（字段解析见 output-schema.md）
 - **自动完成**：CDP 抓取 1688 → 组装信封 → 提交 Worker
 - **Agent 决策**：用户给了 1688 URL → 直接执行（决策边界 §3 自动类）；`--no-submit` 用于"看看/评估/能不能上"场景，展示信封等用户确认后再提交
+- **⚠️ SKU 去重（v0.38 N1）**：同店铺同商品已有活跃任务（pending/running）时重复提交返回 409 `DUPLICATE_SUBMIT`。去重键含店铺维度 `{user}:{store}:{product}`——**同用户不同店铺可提交同款**（互不拦截）。终态任务（completed/failed/rejected/cancelled）不占用去重名额，可重新提交。收到 `DUPLICATE_SUBMIT` 时用 `query <task_id>` 查既有任务状态，而非反复重提
+- **执行后验证**：① `--no-submit` → 对照 `envelope_example.json` 检查信封字段完整性（title/images/weight/dimensions/purchase_cost 必填）再提交；② 已提交 → 记录返回的 `task_id`，主动 `query <task_id> --watch` 跟踪，终态后再向用户汇报（勿让用户盲等）
 
 **多店铺**：`--store` 指定店铺名（`data/config/stores.json` 的 key）；省略用 `default` 字段指向的默认店铺。不同店铺各自持有独立凭证/定价参数（`set_store --currency` 可配 RUB/CNY 店铺），提交时按店铺取凭证与 `fx_rate`。用户提到"某某店铺"时必须显式传 `--store`，不要默认用默认店铺。
 
@@ -128,6 +149,7 @@ python3 scripts/cli.py follow --ozon-url "https://www.ozon.ru/product/xxx/" --st
   - `--notify`：提交时 GraphInput 顶层 `notify=True`，Worker 完成推 webhook
 - **输出**：JSON `{success, product_id, slug, images, title, 1688_matches, task_id}`
 - **自动完成**：CDP 抓取 Ozon → 图搜 1688 同款 → 组装信封 → 提交 Worker
+- **执行后验证**：① 图搜 `1688_matches` 为空且 `no_relevant_match=true` → 告知用户"1688 未找到同款"，不提交空壳，询问是否换货源或改关键词；② 已提交 → `query <task_id> --watch` 跟踪，`rejected`（审核被拒）时按 error-codes.md 引导用户看 Ozon 卖家后台拒绝原因
 
 **跟卖双模式（`extensions.follow_type`，v0.22 起）**：
 
@@ -199,6 +221,7 @@ python3 scripts/cli.py discover --keyword "宠物用品" --local
   - `--review`：人工评审暂停（v0.38）——弱匹配候选逐个确认（`y`/`N`/`a`=全部/`s`=跳过），决策写入 review_log；settings.json `visual_review: true` 可全局开启
   - `--notify`：提交时 GraphInput 顶层 `notify=True`，Worker 完成推 webhook
 - **表格符号**：`✅可挑` 待分析 · `⚠️夹带?` 标题不含关键词 · `⏭️价区间外` 超价格区间 · `💰有利` 符合条件 · `⚠️利润低` 利润不足 · `❌无货源` 1688 没匹配到 · `—` 运营列无数据（卖家后台未登录）
+- **执行后验证**：① 采集完成 → 检查 `data/discovery/` 落盘 + 候选数量非零；② 货源分析后 → 读 `data/discovery/analysis_*.md` 核对候选状态分布（profitable/rejected/no_match）；③ 表格挑选/`--rules` 筛选后 → 向用户展示候选清单等确认，确认后才提交
 
 ### 管线 C 增强：裂变选品（discover --fission，v0.31）
 
@@ -225,6 +248,7 @@ python3 scripts/cli.py image_search --image "https://..." --source cdp --sort pr
   - `--sort`：`price_asc` / `price_desc` / `sold_desc` / `yx_desc`
   - `--limit`：返回条数（默认 10）
 - **输出**：JSON `{success, results: [{offer_id, title, price, image, shop_name}]}`
+- **执行后验证**：`results` 为空 → 告知用户"1688 未找到同款"，询问换图/换关键词；非空 → 展示候选让用户确认哪一款，**确认后再走 graph 上架**（图搜结果不直接上架）
 
 **子路径 D2：Ozon 选品（discover）**
 ```bash
@@ -272,6 +296,8 @@ URL 文件混合 1688/Ozon 链接，自动识别管线。
 
 凭证：`--store-id <店铺名>` 从 `data/config/stores.json` 取凭证（同 graph/follow 的 `--store`）；不指定时用环境变量 `OZON_CLIENT_ID` / `OZON_API_KEY`。
 
+**执行后验证**：① `--dry-run` → 核对每个信封字段完整性（对照 envelope_example.json）；② `--wait` 完成后 → 逐产品核对明细（OzonID/利润率/审核状态），失败的标记出来单独汇报；③ 部分失败 → 可 `--resume` 断点续传只重试失败项。
+
 ## 任务查询（query）
 
 **触发**：用户问"任务/上架进度"、"完成了吗"、追问 `graph`/`follow`/`batch_test` 提交后返回的 task_id 状态。
@@ -290,8 +316,10 @@ python3 scripts/cli.py query 550e8400-... --watch --timeout 1800
 - **输入**：`<task_id>`（位置参数，`graph`/`follow` 提交返回的 UUID；`batch_test --wait` 另走批量轮询）
 - **参数**：`--watch`（轮询到终态，每 10s）、`--timeout`（watch 超时秒，默认 900）
 - **输出**（非 JSON，人读格式）：`任务 {id}: {status}` + 开始/完成时间 + 重试次数；终态成功 → 产品明细行（OzonID | 售价 | 净利润率 | 审核状态 | 备注）；失败 → `❌ 错误: {error_message}`；`not_found`/`worker_unreachable`/`timeout` 各有明确提示
-- **status 取值**：`completed`/`failed`/`cancelled`（终态）/ `pending`/`running`（非终态）/ `not_found`/`worker_unreachable`/`query_error`（查询异常）
+- **status 取值**：`completed`/`failed`/`rejected`/`cancelled`（终态，v0.38 起 `rejected`=Ozon 审核被拒）/ `pending`/`running`（非终态）/ `not_found`/`worker_unreachable`/`query_error`（查询异常）
 - **Agent 决策**：提交后可直接 `query --watch` 等终态再向用户汇报，不必让用户盲等；终态字段解析见 output-schema.md
+- **执行后验证**：① 终态 `completed` → 确认 `moderate_status` 后再向用户报成功；② `rejected`/`failed` → 按 error-codes.md 引导（看 Ozon 后台拒绝原因 / 可重提）；③ `pending`/`running` 非终态 → 告知预计 10-20 分钟，建议 `--watch` 或稍后重查
+- **⚠️ rejected/failed 重提（v0.38 N2）**：`rejected`（审核被拒）与 `failed`（执行失败）是终态但可重试——重新提交同款会被 SKU 去重放行（终态不占用去重名额）。重提方式：调 Worker `POST /api/v1/resubmit_task/{task_id}`（请求体带 `token`，复制原载荷 + 重生成图片重新入队）。CLI 暂未内置 resubmit 命令，需 API 调用；重提后返回新 task_id，用 `query <新id> --watch` 跟踪。
 
 ## 卖家店铺分析（seller）
 
