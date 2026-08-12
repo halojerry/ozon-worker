@@ -576,6 +576,7 @@ def assemble_ozon_product_node(
     # 1a. 提取搜索关键词（jieba 分词 + 1688 类目面包屑）
     keywords = _extract_keywords(title, description, attributes_1688)
     parent_terms: list[str] = []  # v0.40: 1688 上级类目词（末级失败时的回退通道）
+    parent_fallback_used: bool = False  # v0.40: 上级类目词回退已命中（跳过 overlap 验证）
     
     # 追加 1688 类目面包屑作为搜索词（与 Ozon ZH_HANS 类目名直接匹配）
     # ✅ v0.21: 优先用 source.source_category_path（skill 新信封为完整路径），兼容旧 draft.source_category
@@ -700,6 +701,7 @@ def assemble_ozon_product_node(
             if _pt_cands:
                 logger.info(f"   ✅ 上级类目词回退: '{_pt}' → {len(_pt_cands)} 候选")
                 candidates = _pt_cands
+                parent_fallback_used = True  # v0.40: 与 L801 低 sim 路径一致，跳过 overlap 验证
                 break
 
     if not candidates:
@@ -773,7 +775,6 @@ def assemble_ozon_product_node(
     # pg_trgm 搜索已按 sim DESC 排序，candidates[0] 即最佳匹配
     # LLM 匹配不可靠（如玩具→鞋类），关键词匹配更准确
     best = candidates[0]
-    parent_fallback_used: bool = False  # v0.40: 上级类目词重搜已命中（跳过 overlap 验证）
     # ✅ v0.31.x: 低分候选（sim 低于接受门槛）不直接采用——记日志后走既有
     # overlap 验证 → LLM fallback 链（最终采纳点在 L779 前再判定阻断）
     if not l0_hit and not _acceptable_match(best):
@@ -790,13 +791,51 @@ def assemble_ozon_product_node(
         if parent_terms:
             for _pt in parent_terms:
                 _pt_cands = query.search_nodes(_pt, top_k=10, node_type="type")
-                if _pt_cands and _acceptable_match(_pt_cands[0]):
-                    logger.info(f"   ✅ 上级类目词重搜: '{_pt}' → 命中 "
-                                f"{_pt_cands[0]['full_path'][:60]} (sim={_pt_cands[0].get('similarity', 0):.3f})")
-                    candidates = _pt_cands
-                    best = _pt_cands[0]
-                    parent_fallback_used = True  # v0.40: 标记跳过 overlap 验证
-                    break
+                if _pt_cands:
+                    # v0.40: 大类内规则过滤——排除配件类（紧固件/套管/支架等），
+                    # 优先主体类目（甩脂机→健身大类下"踏步机/健身车"而非"滑板公园"）
+                    _PARENT_GENERIC = ("配件", "紧固件", "套管", "支架", "工具", "附件", "连接件")
+                    _filtered = [c for c in _pt_cands
+                                 if not any(g in str(c.get("node_name", "")) for g in _PARENT_GENERIC)]
+                    if not _filtered:
+                        _filtered = _pt_cands  # 全配件类时维持原序
+                    if _acceptable_match(_filtered[0]):
+                        # v0.40: 大类内 LLM 子类选择——回退命中大类后候选 sim 常为
+                        # 1.0（大类名完全匹配），取 [0] 会误配（甩脂机→滑板公园）。
+                        # 用标题/属性上下文让 LLM 选最接近末级词语义的子类。
+                        _llm_pick = _llm_rank_categories(
+                            _filtered[:8], source_keywords or keywords, draft, state,
+                        )
+                        _chosen = None
+                        if _llm_pick and not _llm_pick.get("_llm_suggest") and _llm_pick.get("description_category_id"):
+                            _chosen = _llm_pick
+                        elif _llm_pick and _llm_pick.get("_llm_suggest"):
+                            # v0.40: LLM 认为大类候选都不合适 → 用建议词二次搜索
+                            #（可能找到正确子类，如"踏步机"而非"滑板公园"）
+                            _sugg3 = str(_llm_pick.get("suggest_keywords", "") or "").strip()
+                            if _sugg3:
+                                from utils.attr_value_matcher import lang_route  # type: ignore
+                                _s3_cands = query.search_nodes(
+                                    _sugg3, top_k=8, node_type="type",
+                                    language=lang_route(_sugg3),
+                                )
+                                _s3_filtered = [c for c in _s3_cands
+                                                if not any(g in str(c.get("node_name", "")) for g in _PARENT_GENERIC)]
+                                if _s3_filtered and _acceptable_match(_s3_filtered[0]):
+                                    _chosen = _s3_filtered[0]
+                                    logger.info(f"   ✅ 上级类目词+LLM建议词二次搜索: '{_sugg3}' → "
+                                                f"{_chosen['full_path'][:60]}")
+                        if _chosen:
+                            logger.info(f"   ✅ 上级类目词重搜+LLM选子类: '{_pt}' → "
+                                        f"{_chosen['full_path'][:60]}")
+                        else:
+                            _chosen = _filtered[0]
+                            logger.info(f"   ✅ 上级类目词重搜: '{_pt}' → 命中 "
+                                        f"{_chosen['full_path'][:60]} (sim={_chosen.get('similarity', 0):.3f})")
+                        candidates = [_chosen]
+                        best = _chosen
+                        parent_fallback_used = True  # v0.40: 标记跳过 overlap 验证
+                        break
     # ✅ v0.31.x: match_confidence 挂钩真实 sim（L0/Skill 覆盖为 0.95）
     match_confidence = _confidence_from_sim(best.get("similarity"))
     category_result = {
