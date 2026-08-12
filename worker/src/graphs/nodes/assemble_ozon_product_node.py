@@ -37,7 +37,6 @@ from utils.progress_logger import ProgressLogger
 from utils.ozon_category_query import get_category_query, OzonCategoryQuery
 from utils.http_session import session
 from utils.attribute_utils import HAZARD_DICT_ATTR_IDS, is_customs_attr, pick_dict_fallback_value  # ⚠️ v0.16 海关不填 / v0.21 兜底规则
-from utils.attribute_utils import match_attr_name_synonym  # v0.32 属性名词汇分歧同义词匹配
 from utils.attr_synonyms import load_attr_synonyms  # v0.32 共享同义词加载器（单一事实源）
 
 # ── v0.21: 外置同义词映射（1688 词 → Ozon ZH 类目词），解决字面匹配同义词不通 ──
@@ -1746,59 +1745,34 @@ def _build_items_deterministically(
     _synonyms = load_attr_synonyms()
 
     def _match_product_attr(ozon_attr_name: str) -> Optional[str]:
-        """用 Ozon 属性中文名匹配 1688 产品属性值
+        """用 Ozon 属性中文名匹配 1688 产品属性值（v0.40 迁移共享 matcher）。
 
-        v0.32 词汇分歧修复：原 3 层（精确 / 包含 / 空格 split 分词）对无空格中文
-        完全失效（.split() 只按空格切，中文整串一个 token），且同义词表不进本函数
-        → 日志实证「属性映射数=0」。现改为：精确 → 包含 → jieba 分词子串重叠 → 同义词组。
+        v0.32 词汇分歧修复（精确 → 包含 → jieba → 同义词）逐字提取到
+        utils/attr_value_matcher.match_attr_name，此处委托保证行为一致。
         """
-        name_lower = ozon_attr_name.lower().strip()
-        # 精确匹配
-        for pa_name, pa_val in product_attrs.items():
-            if pa_name.lower() == name_lower:
-                return pa_val
-        # 包含匹配
-        for pa_name, pa_val in product_attrs.items():
-            if name_lower in pa_name.lower() or pa_name.lower() in name_lower:
-                return pa_val
-        # jieba 分词子串重叠匹配（v0.32 替代失效的 .split()）
-        # 对「属性名」分词取 ≥2 字词，任一 token 互相包含即命中
-        # （如「商品材质」vs「主要材质」共享 token「材质」——既非子串也非同义词组）。
-        try:
-            import jieba as _jieba
-            ozon_tokens = [w for w in _jieba.cut(name_lower) if len(w) >= 2]
-            if ozon_tokens:
-                for pa_name, pa_val in product_attrs.items():
-                    pa_tokens = [w for w in _jieba.cut(pa_name.lower()) if len(w) >= 2]
-                    if pa_tokens and any(o in p or p in o for o in ozon_tokens for p in pa_tokens):
-                        return pa_val
-        except Exception:
-            pass
-        # 同义词组匹配（attr_synonyms.json）：同组双向包含才返回，防错误值
-        matched_name = match_attr_name_synonym(name_lower, product_attrs.keys(), _synonyms)
+        from utils.attr_value_matcher import match_attr_name  # type: ignore
+        matched_name = match_attr_name(ozon_attr_name, product_attrs, _synonyms)
         if matched_name is not None:
             return product_attrs[matched_name]
         return None
     
     def _find_dict_value(attr_id: int, product_value: str) -> tuple[int, str]:
-        """在字典值中查找匹配，返回 (dictionary_value_id, value)"""
+        """在字典值中查找匹配，返回 (dictionary_value_id, value)（v0.40 迁移 matcher）。
+
+        语义：matcher.match_dict_value 返回全部存活候选；assemble 原逻辑
+        （精确→包含取首个）由 match_dict_value 的第一个候选等价覆盖；
+        无命中返回 (0, product_value) 由调用方 dict_val_id>0 守卫拦截。
+        """
+        from utils.attr_value_matcher import match_dict_value  # type: ignore
         if not product_value:
             return (0, "")
         values = dict_lookup.get(attr_id, [])
         if not values:
             return (0, product_value)
-        # 精确匹配
-        pv_lower = product_value.lower().strip()
-        for v in values:
-            if isinstance(v, dict):
-                if str(v.get("value", "")).lower().strip() == pv_lower:
-                    return (v.get("id", 0), str(v.get("value", "")))
-        # 包含匹配
-        for v in values:
-            if isinstance(v, dict):
-                vv = str(v.get("value", "")).lower().strip()
-                if pv_lower in vv or vv in pv_lower:
-                    return (v.get("id", 0), str(v.get("value", "")))
+        hits = match_dict_value(attr_id, product_value, values)
+        if hits:
+            first = hits[0]
+            return (int(first.get("id") or 0), str(first.get("value") or ""))
         return (0, product_value)
 
     # ⚠️ v0.29.x: _find_dict_value 命中时返回的 value 可能是 ZH_HANS 中文
