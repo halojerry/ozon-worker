@@ -1184,6 +1184,19 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                         attrs.append({"id": aid, "values": _vals_clean})
                         logger.info("✅ 字典属性 %s(%s) 填满: %s", aid, attr.get("name"),
                                     [str(h.get("value") or "") for h in chosen])
+                        try:  # v0.40 Phase 5: 属性匹配审计（非致命）
+                            from utils.attr_match_log import log_attr_match
+                            log_attr_match(
+                                task_id=str(getattr(state, "task_id", "") or ""),
+                                attr_id=aid, attr_name=str(attr.get("name") or ""),
+                                source_value=str(raw or ""),
+                                status="matched", match_layer="synonym",
+                                dictionary_value_id=int(chosen[0].get("id") or 0) if chosen else 0,
+                                confidence=1.0, should_fill=True,
+                                candidates=hits[:10],
+                            )
+                        except Exception:
+                            pass
                     break
     return items
 
