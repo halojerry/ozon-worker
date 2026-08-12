@@ -1170,6 +1170,22 @@ def _resolve_envelope_category(category_name: str, source_category_path: str, ca
     return category_name or _last_seg(source_category_path) or category_query
 
 
+def _category_search_variants(source_category_path: str) -> list[str]:
+    """1688 类目末级词 → 类目搜索候选词列表（v0.39 Issue3 净化）。
+
+    末级词常为复合词（"化妆刷、刷包"/"粉扑、美妆蛋"）——Ozon 类目树按单段
+    匹配，复合词必空（实证 "化妆刷、刷包" 空 / "化妆刷" 命中 78032222/93961）。
+    按顿号分拆出各单段，供调用方逐个探测命中。
+    """
+    if not source_category_path:
+        return []
+    _parts = [p.strip() for p in source_category_path.split(">") if p.strip()]
+    if not _parts:
+        return []
+    _last = _parts[-1]
+    return [s.strip() for s in _last.split("、") if s.strip()] or [_last]
+
+
 def _extract_source_category_id(source_categories) -> int | None:
     """从 1688 类目列表取最末级（叶子）类目数字 ID。兼容 id/leafId/thirdCategoryId/categoryId。"""
     if not isinstance(source_categories, list):
@@ -2296,13 +2312,29 @@ def publish_product_new(
                 f"Using pre-resolved category: dc={_cat['description_category_id']} type={_cat['type_id']}")
     else:
         # ⚠️ v0.39 Issue3: 优先 1688 类目末级词（替代歧义标题）→ category_query → title
+        # 末级词常为复合词（"化妆刷、刷包"/"粉扑、美妆蛋"）——顿号分拆逐个尝试，
+        # ZH_HANS 树按单段匹配（实证 "化妆刷、刷包" 空 / "化妆刷" 命中 78032222/93961）
         _src_short = ""
+        _src_short_variants: list[str] = []
         if source_category_path:
             _src_parts = [p.strip() for p in source_category_path.split(">") if p.strip()]
             if _src_parts:
                 _src_short = _src_parts[-1]
+                _src_short_variants = _category_search_variants(source_category_path)
         search_text = category_query or _src_short or title or ""
         if search_text:
+            # 末级词多段时优先试各单段（"化妆刷、刷包" → 先试 "化妆刷"）
+            if len(_src_short_variants) > 1:
+                for _variant in _src_short_variants:
+                    try:
+                        from scripts.lib.ozon_api import search_categories as _probe_cats
+                        _v_lang = "ZH_HANS" if any('\u4e00' <= c <= '\u9fff' for c in _variant) else "RU"
+                        if _probe_cats(ozon_creds['client_id'], ozon_creds['api_key'],
+                                       _variant, language=_v_lang, max_results=1):
+                            search_text = _variant
+                            break
+                    except Exception:
+                        pass
             # Step 3a: Check pipeline Supabase via webhook (self-learning)
             if not skip_self_learning:
                 lookup = lookup_category_webhook(search_text)
