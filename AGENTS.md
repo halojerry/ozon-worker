@@ -2,9 +2,16 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
-## 最近更新（v0.39 — aibuy 图搜通道 + 类目消歧 + 6 Issue 修复 + 3 新需求）
+## 最近更新（v0.40 — 属性填充共享匹配层 + LLM 消歧 + 缺口量化）
 
-> 2026-08-12。图搜重大升级（aibuy mtop API 免浏览器直调）+ 用户 6 Issue 修复 + 3 体验新需求。完整历史见 `CHANGELOG.md`。
+> 2026-08-12。属性特征填满工程（hyperplan 对抗规划驱动）：三处属性匹配统一 + 中文直搜 + LLM 消歧安全三件套 + 缺口量化 + 审计遥测。完整历史见 `CHANGELOG.md`。
+
+- **共享匹配层 attr_value_matcher.py**: assemble/prepare/retry 三处属性匹配统一走纯函数层（精确→包含→jieba→同义词→唯一值→None），合同测试锁定三处 dict_id 一致（结构性防漂移）。
+- **retry 语言链修复**: `_search_dictionary_values_chain` 固定 ZH→RU→EN 改为 lang_route 语言路由（中文词 ZH 优先/俄语词 RU 优先）——修掉与共享层 RU→ZH 方向冲突的漂移根因。
+- **LLM 属性消歧**（默认关）: `disambiguate_candidates` 安全三件套——-1 出口/候选索引输出（dict_id 确定性重查证）/abstain 跳过，max_tokens=2048 防 reasoning 截断。
+- **缺口量化**: `attr_gap.py` should_fill 过滤五类本不该填属性 + `gap_report.py` CLI 离线输出缺口表——34 属性只填 15-16 的模糊感知变可量化。
+- **字典值搜索中文优先**: prepare 搜索路径原始中文值优先搜（实测命中率高），RU 映射词兜底。
+- **审计遥测**: `attr_match_log` 表（仿 category_match_log）+ attempted_fill_rate 即时回归 / verified_fill_rate 月度校准双轨。
 
 - **aibuy 图搜通道（免浏览器）**: `search_by_image_aibuy`（ozon_image_search.py）——Chrome 会话 cookie（`_m_h5_tk/_m_h5_tk_enc/tfstk/isg`）→ mtop 签名直调 `mtop.com.alibaba.cbu.crossBorder.lp.imageSearch`，秒级返回结构化结果（offerId/标题/价格/月销/回头率/类目/供应商/normalizationScore）。**免开 Chrome、免登录、免徽章 DOM**。token 缓存 settings.json（6h 过期自动刷新）；fail-fast 纪律（无 token/失败快速返回 [] 由调用方降级 CDP/AK）。
 - **trusted_source 分通道护栏**: `_pick_best_match` 加 `trusted_source` 参数——仅 aibuy 信任官方排序（放行 = 原始图搜位置 idx ≤ 1 前 2 位；normalizationScore 实测最高分≠最相似，仅作加分不作用放行信号）；AK/CDP 维持 conf≥0.3 + LLM rescue 护栏。
@@ -450,6 +457,15 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
 - **Docker 部署**: `deploy/docker-compose.yml` 含 PG + Worker，`HEALTHCHECK` 已配置。
 - **API 版本化**: 新端点走 `/api/v1/`，旧路径保持兼容。
+
+### v0.40 新增关键约定（改属性填充/匹配/遥测前必看）
+
+- **共享匹配层 attr_value_matcher.py**: 三处（assemble 构建期/prepare 补全期/retry 修复期）属性匹配统一走 `utils/attr_value_matcher.py`（L1 纯函数：match_attr_name/match_dict_value/unique_or_none/lang_route）。**新增属性匹配逻辑必须进 matcher，禁止三处各自内联**（防漂移，合同测试 test_contract_attr_consistency 锁定三处 dict_id 一致）。
+- **LLM 消歧安全三件套**（`disambiguate_candidates`，默认关 `ATTR_MATCH_LLM_DISAMBIGUATE`）：① prompt 显式「以上都不对 → 输出 -1」出口 ② LLM 只输出**候选索引**，dict_id 一律从确定性候选列表重查证（绝不信任 LLM 数字）③ 解析失败/越界/异常 → abstain 跳过，**绝不降级取第一个**。照搬 skill `_llm_disambiguate_category`（无 none 出口）会系统性错填。
+- **多候选绝不盲补首值**: `unique_or_none` 单候选才填（matched）、多候选 → llm_eligible（Phase 4 消歧）、0 候选 → skipped。**禁止恢复「取第一个」**（v0.13 套娃教训 + 实测多命中取 [0] 是既有雷）。
+- **搜索语言路由 lang_route**: /values/search 无 language 参数（语言无关），**搜索词语言决定结果**。中文词 → ZH 优先、俄语词 → RU 优先（retry `_search_dictionary_values_chain` 已改，prepare 搜索路径中文值优先搜、RU 映射词兜底——实测 '白色'→61571 命中/'инсектицид'→空）。
+- **缺口量化**: `utils/attr_gap.py` 的 `should_fill` 过滤五类"本就不该填"（海关 is_customs_attr/23536 标记码/9782 危险品/品牌 85-31-5076 强制 Нет бренда/4389 原产国硬编码/9048-4191-4180-23171 系统生成/23487-22390 专用路径）——改 `_fill_optional_dict_attrs` 前先跑 `scripts/gap_report.py` 看真实缺口。
+- **属性审计 attr_match_log**: 每次属性解析写 `attr_match_log` 表（非致命 writer `utils/attr_match_log.py`，task_id 空跳过/DB 异常 warning）。**attempted_fill_rate 做即时回归**（每次改动可测），**verified_fill_rate 做月度校准**（fetch-back 回读确认；注意 fetch-back 只回读 approved 卡，审核超时 pending 无数据 → 双通道：零错误 import + 审核通过）。
 
 ### v0.39 新增关键约定（改图搜/类目匹配/定价/查询展示前必看）
 
