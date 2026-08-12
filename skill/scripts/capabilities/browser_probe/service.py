@@ -1901,29 +1901,54 @@ def _check_1688_login_live(cdp_url: str) -> bool:
         return False
 
     # ── 方案 1: Network.getAllCookies 读 cookie（零 tab 开销）──
-    try:
-        from scripts.lib.cdp_client import CdpTab
-        import requests as _req
-        _cookies_resp = _req.get(f"{cdp_url}/json", timeout=5)
-        _cookies_resp.raise_for_status()
-        _page_tabs = [t for t in _cookies_resp.json()
-                      if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
-        if _page_tabs:
-            _probe_tab = CdpTab(cdp_url, _page_tabs[0]["id"], _page_tabs[0]["webSocketDebuggerUrl"])
-            _cookies = _probe_tab.evaluate(
-                "() => document.cookie", timeout=5
-            ) or ""
-            _probe_tab.close(close_remote=False)
-            if _cookies:
-                _logged_in = ("cookie2=" in _cookies or "__cn_logon__=" in _cookies) \
-                    and "login.1688.com" not in _cookies
-                _logger.info("_check_1688_login_live: cookie 检测结果登录=%s（零 tab 导航）", _logged_in)
-                return _logged_in
-    except Exception as _cookie_exc:
-        _logger.debug("_check_1688_login_live: cookie 检测失败，降级导航检测: %s", _cookie_exc)
+    # v0.40: 失败时重试一次（含新建空白 tab 再读），仍失败才降级导航——
+    # 降低硬编码探针页反复弹出的概率。
+    _try_conn = None
+    for _attempt in (1, 2):
+        try:
+            from scripts.lib.cdp_client import CdpTab
+            import requests as _req
+            _cookies_resp = _req.get(f"{cdp_url}/json", timeout=5)
+            _cookies_resp.raise_for_status()
+            _page_tabs = [t for t in _cookies_resp.json()
+                          if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
+            _probe_tab = None
+            if _page_tabs:
+                _probe_tab = CdpTab(cdp_url, _page_tabs[0]["id"], _page_tabs[0]["webSocketDebuggerUrl"])
+            elif _attempt == 1:
+                # 无可用 page tab（可能只有 service worker/空标签）→ 新建临时 tab 再试
+                _try_conn = CdpConnection(cdp_url)
+                _probe_tab = _try_conn.new_tab()
+            if _probe_tab:
+                _cookies = _probe_tab.evaluate(
+                    "() => document.cookie", timeout=5
+                ) or ""
+                _probe_tab.close(close_remote=False)
+                if _cookies:
+                    _logged_in = ("cookie2=" in _cookies or "__cn_logon__=" in _cookies) \
+                        and "login.1688.com" not in _cookies
+                    _logger.info("_check_1688_login_live: cookie 检测结果登录=%s（零 tab 导航）", _logged_in)
+                    return _logged_in
+            if _attempt == 1:
+                _logger.debug("_check_1688_login_live: cookie 检测无结果，重试一次")
+        except Exception as _cookie_exc:
+            _logger.debug("_check_1688_login_live: cookie 检测失败(第%d次)，降级导航检测: %s", _attempt, _cookie_exc)
+            if _attempt == 1:
+                _logger.debug("_check_1688_login_live: cookie 检测异常，重试一次")
+                continue
+        finally:
+            # 清理重试时新建的临时连接（防 tab/WS 泄漏）
+            try:
+                if _try_conn:
+                    _try_conn.close(close_remote=False)
+                    _try_conn = None
+            except Exception:
+                pass
 
     # ── 方案 2: 降级 — 导航已知商品页（登录墙检测），结果缓存 5 分钟 ──
+    # v0.40: 降级时打 INFO 日志，避免"莫名弹出商品页"的困惑
     import time as _time2
+    _logger.info("_check_1688_login_live: cookie 检测两次均失败，降级导航已知商品页检测登录（约 1-2s）")
     _cached = getattr(_check_1688_login_live, "_login_cache", None)
     _now = _time2.time()
     if _cached and _now - _cached[1] < 300:
