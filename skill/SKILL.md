@@ -65,6 +65,8 @@ description: >
 | `search` | 1688 关键词搜索 | `query [--page-size]` | 耗 1688 搜索配额 | 按词找货 |
 | `probe` | CDP 探针抓取单个 1688 商品 | `--url [--timeout]` | 无 | 调试单个商品 |
 | `queries` | what-to-sell 蓝海/榜单查询 | `--type all-queries\|ozon-bestsellers\|market-bestsellers [--keyword] [--export]` | 成功后自动上报 worker PG；可 `--export` CSV/JSON | 选品前查蓝海/畅销榜 |
+| `category` | 查询 Ozon 类目 | `<关键词> [--lang ZH_HANS\|EN\|RU] [--max N]` | 只读 | 类目确认 / 排查类目匹配 |
+| `cleanup` | 磁盘清理 | `[--profile-cache] [--cache] [--temp] [--old-results --days N]` | 删缓存/孤儿文件（登录态保留） | 磁盘占用高 |
 | `batch_test.py` | 批量处理 URL 列表 | `--urls-file [--submit] [--wait] [--dry-run]` | 提交 Worker（加 `--submit`） | 批量上架 / 回归 |
 
 ## 3. 决策边界
