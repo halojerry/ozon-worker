@@ -169,3 +169,29 @@ if __name__ == "__main__":
                 traceback.print_exc()
     print(f"\n{total - failed}/{total} passed")
     sys.exit(1 if failed else 0)
+
+
+def test_search_chinese_priority():
+    """v0.40 Phase 6: 中文值优先搜，RU 映射词兜底（实测中文命中率高）。"""
+    import graphs.nodes.prepare_ozon_upload_node as mod
+    import utils.ozon_dict_values as odv
+    calls: list[str] = []
+    state = _State()
+    state.dictionary_values = {"10096": []}
+
+    def fake_search(cid, key, aid, cat, tp, value, lang="RU"):
+        calls.append(value)
+        if value == "白色":
+            return [{"id": 61572, "value": "Белый"}]
+        return []
+
+    items = [{"offer_id": "x", "name": "Панама", "attributes": []}]
+    tmp = _setup_synonyms()
+    with mock.patch.dict(os.environ, {"APP_WORKSPACE_PATH": tmp}), \
+         mock.patch.object(odv, "search_dictionary_values", side_effect=fake_search), \
+         mock.patch.object(odv, "list_dictionary_values", return_value=[]):
+        out = mod._fill_optional_dict_attrs(items, SCHEMA, {"attributes": {"颜色分类": "白色"}}, state)
+    g = next(a for a in out[0]["attributes"] if a.get("id") == 10096)
+    assert g["values"] == [{"dictionary_value_id": 61572, "value": "Белый"}]
+    # 中文值"白色"必须先于 RU 映射词"Белый"被搜索
+    assert calls[0] == "白色", f"中文优先，实际搜索顺序 {calls}"
