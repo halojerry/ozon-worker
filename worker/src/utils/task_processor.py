@@ -203,6 +203,19 @@ class ProgressCallback:
                 finish_span(span, status="internal_error")
             except Exception:
                 pass
+        # v0.40: 节点级异常上报 Sentry——LangGraph 节点抛异常时走到这里，
+        # 此前只结束 span，异常详情丢失（110 个节点 except 全静默）。
+        # 上报后云端可见"哪些节点/哪类错误频繁"，驱动后续优化。
+        # token/tenant 由 task_processor 顶层捕获补充，此处只带 task_id。
+        try:
+            from utils.sentry_setup import capture_task_error
+            capture_task_error(
+                error if isinstance(error, BaseException) else None,
+                task_id=self.task_id,
+                message=f"LangGraph 节点异常: {str(error)[:200]}",
+            )
+        except Exception:
+            pass
 
 
 class SupabaseTaskProcessor:
