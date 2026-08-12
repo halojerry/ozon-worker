@@ -1278,7 +1278,12 @@ def _guardrail_threshold(key: str, default: float) -> float:
         return default
 
 
-def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str = "") -> dict[str, Any] | None:
+def _pick_best_match(
+    results: list[dict[str, Any]],
+    ozon_title: str,
+    token: str = "",
+    trusted_source: bool = False,
+) -> dict[str, Any] | None:
     """从图搜结果中挑选最相关的匹配。
 
     1688 图搜列表第一张卡片往往是不相关商品（badge 标"符合 0/N 个条件"），
@@ -1293,6 +1298,13 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
     4. 相关性护栏（多信号全弱才拒）：badge 弱匹配（<0.5）且标题相关性弱
        （conf < 0.3）→ 先 LLM 语义判定（词对词典覆盖窄，误拒同品是
        「匹配了却不选」根因），判定同品 → 放行；否则拒绝（宁缺毋滥）
+
+    Args:
+        trusted_source: v0.39 aibuy 通道标记。True 时信任官方图搜排序
+            （aibuy 是 1688 官方引擎按图片相似度排好序），无徽章且前 2 位
+            （idx_rank ≥ 0.33）即放行——与 AK/CDP 通道的 conf 护栏区分。
+            ⚠️ 实测 normalizationScore 最高分≠最相似（质量分），不作放行
+            信号，仅作评分加分。AK/CDP 来源保持 False 维持现有护栏。
     """
 
     is_ru_title = bool(re.search(r"[а-яёА-ЯЁ]", ozon_title or ""))
@@ -1341,7 +1353,16 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
         # 图搜本身是以图搜图，返回顺序即图片相似度（1688 已按图匹配排好）；
         # 标题相关性（conf）验证产品语义；badge 仅在明确时加分（matchBadgeFull 仍直接放行）。
         idx_rank = 1.0 / (1.0 + idx)          # 图搜第1位=1.0, 第2位=0.5, 第3位=0.33...
-        score = idx_rank * 50 + conf * 30 + badge_eff * 20
+        # v0.39 aibuy 通道: normalizationScore 作微调加分（实测最高分≠最相似，
+        # 仅锦上添花不作放行信号——放行靠 trusted_source 的 idx_rank 规则）
+        norm_bonus = 0.0
+        if trusted_source:
+            try:
+                _ns = float(r.get("normalization_score") or 0)
+                norm_bonus = min(_ns, 1.0) * 5  # 上限 5 分，不压倒 idx_rank
+            except (TypeError, ValueError):
+                pass
+        score = idx_rank * 50 + conf * 30 + badge_eff * 20 + norm_bonus
         scored.append((score, idx, r))
 
     if not scored:
@@ -1378,6 +1399,20 @@ def _pick_best_match(results: list[dict[str, Any]], ozon_title: str, token: str 
     if badge_eff_of_best >= 1.0:
         logger.info("图搜徽标全部符合（matchBadgeFull）直接放行: %s", best.get("title", "")[:40])
         return _attach_match_meta(best, _conf_of_best, badge_eff_of_best, _best_score)
+
+    # ✅ v0.39: aibuy 通道（trusted_source）信任官方图搜排序——1688 引擎按图片
+    # 相似度排好序（guest 视图实测=精准排序），无徽章时前 2 位（idx_rank>0.33，
+    # 即原始图搜位置 idx ≤ 1）即放行，不依赖标题词对词典（覆盖窄）。
+    # ⚠️ 仅 aibuy 置 True——AK/CDP 维持下方 conf+LLM 护栏（历史错配案例
+    # "花插¥1/活体羊驼¥2000"正是无徽章场景）。
+    if trusted_source:
+        if best_idx <= 1:
+            logger.info("aibuy 官方排序放行（rank=%d, norm=%.3f）: %s",
+                        best_idx + 1,
+                        float(best.get("normalization_score") or 0),
+                        best.get("title", "")[:40])
+            return _attach_match_meta(best, _conf_of_best, badge_eff_of_best, _best_score)
+        logger.debug("aibuy 前 2 位无匹配（best rank=%d），继续护栏", best_idx + 1)
 
     # ⚠️ v0.26 FIX: LLM 语义兜底——词对词典覆盖极窄（「палочки от комаров 驱蚊棒」无词对 → conf=0），
     # best 常是不相关的最高分项（如檀香贡香），相关项排后面被整体拒绝（"匹配了却不选"根因）。

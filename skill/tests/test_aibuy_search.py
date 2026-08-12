@@ -218,6 +218,70 @@ def test_image_upload_failure_does_not_block_search():
         assert region == ""
 
 
+# ── Step 2: _pick_best_match trusted_source 分通道护栏 ──────────────────
+
+def test_pick_best_match_trusted_rank1_passes_without_badge():
+    """aibuy trusted_source: 无徽章 + 官方排序前 2 位 → 直接放行（不依赖词对词典）。"""
+    import scripts.lib.ozon_discovery as od
+    od._LLM_SEMANTIC_CACHE.clear()
+    results = [
+        {"id": "1", "title": "跨境苹果airtag猫咪宠物项圈围脖", "price": 10.9,
+         "badge": "", "normalization_score": 0.03},
+        {"id": "2", "title": "宠物梳子套装", "price": 5.5,
+         "badge": "", "normalization_score": 0.05},
+    ]
+    best = od._pick_best_match(results, "Ошейник для кошки", token="t", trusted_source=True)
+    assert best is not None
+    assert best["id"] == "1"
+    assert best["normalization_score"] == 0.03  # 元数据透传
+
+
+def test_pick_best_match_trusted_rank3_still_guardrailed():
+    """aibuy trusted_source 但 best 排第 3 位之后（idx_rank<0.33）→ 仍走 conf 护栏。"""
+    import scripts.lib.ozon_discovery as od
+    od._LLM_SEMANTIC_CACHE.clear()
+    results = [
+        {"id": "0", "title": "符合0条件", "price": 10.0, "badge": "符合 0/3 个条件",
+         "normalization_score": 0.9},
+        {"id": "1", "title": "无价格", "price": 0.0, "badge": "",
+         "normalization_score": 0.9},
+        {"id": "3", "title": "完全无关C", "price": 10.0, "badge": "",
+         "normalization_score": 0.9},
+    ]
+    # 前 2 位被过滤（0/N 徽章 + 无价格）→ best 是第 3 位，idx_rank=0.25 < 0.33
+    # 词对 conf 为 0 + LLM 判 False → 应拒绝（排名靠后不因 trusted 放行）
+    with mock.patch.object(od, "_llm_semantic_match", return_value=False):
+        best = od._pick_best_match(results, "Ошейник для кошки", token="t", trusted_source=True)
+    assert best is None, "第 3 位之后即使 normalizationScore 高也不应放行"
+
+
+def test_pick_best_match_trusted_false_preserves_old_guardrail():
+    """trusted_source=False（AK/CDP 默认）：无徽章 + 弱标题 → 仍拒绝（护栏不放松）。"""
+    import scripts.lib.ozon_discovery as od
+    od._LLM_SEMANTIC_CACHE.clear()
+    results = [
+        {"id": "1", "title": "花开富贵香开花香檀香供佛香", "price": 8.0, "badge": ""},
+    ]
+    with mock.patch.object(od, "_llm_semantic_match", return_value=False):
+        best = od._pick_best_match(results, "Палочки от комаров", token="t")
+    assert best is None, "非 trusted 无徽章弱标题应维持拒绝"
+
+
+def test_pick_best_match_normalization_score_bonus_does_not_override_rank():
+    """norm_bonus 上限 5 分，不压倒 idx_rank 主信号（rank1 无 norm 仍胜 rank2 高 norm）。"""
+    import scripts.lib.ozon_discovery as od
+    od._LLM_SEMANTIC_CACHE.clear()
+    results = [
+        {"id": "1", "title": "跨境苹果airtag猫咪宠物项圈围脖", "price": 10.9,
+         "badge": "", "normalization_score": 0.0},
+        {"id": "2", "title": "宠物梳子套装", "price": 5.5,
+         "badge": "", "normalization_score": 1.0},
+    ]
+    best = od._pick_best_match(results, "Ошейник для кошки", token="t", trusted_source=True)
+    assert best is not None
+    assert best["id"] == "1", "rank1 应胜出，norm_bonus 不应压倒 idx_rank"
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))
