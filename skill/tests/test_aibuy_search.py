@@ -375,6 +375,50 @@ def test_category_search_variants_empty_path():
     assert _category_search_variants("  ") == []
 
 
+# ── 需求3: 类目歧义 LLM 消歧（v0.39）─────────────────────────────────────
+
+def test_llm_disambiguate_category_selects_correct():
+    """护手霜案例：LLM 选中护肤霜（Крем для ухода）而非首位私密霜。"""
+    import scripts.lib.ozon_discovery as od
+    cands = [
+        {"category_name": "Интимная", "type_name": "Крем интимный"},
+        {"category_name": "Уход", "type_name": "Крем для ухода за кожей"},
+    ]
+    with mock.patch("requests.post", return_value=mock.Mock(
+            status_code=200,
+            json=lambda: {"choices": [{"message": {"content": "1"}}]},
+        )):
+        idx = od._llm_disambiguate_category("护手霜", cands, token="t")
+    assert idx == 1
+
+
+def test_llm_disambiguate_category_fallback_first():
+    """LLM 失败/无 token → 返回 0（维持首位，宁缺毋滥不放大错误）。"""
+    import scripts.lib.ozon_discovery as od
+    cands = [{"type_name": "A"}, {"type_name": "B"}]
+    # 无 token → 0
+    assert od._llm_disambiguate_category("护手霜", cands, token="") == 0
+    # 单候选 → 0（无需消歧）
+    assert od._llm_disambiguate_category("护手霜", [cands[0]], token="t") == 0
+    # HTTP 失败 → 0
+    with mock.patch("requests.post", return_value=mock.Mock(status_code=500, json=lambda: {})):
+        assert od._llm_disambiguate_category("护手霜", cands, token="t") == 0
+    # 异常 → 0
+    with mock.patch("requests.post", side_effect=Exception("conn refused")):
+        assert od._llm_disambiguate_category("护手霜", cands, token="t") == 0
+
+
+def test_llm_disambiguate_category_bounds():
+    """LLM 返回越界索引 → 0（防候选越界）。"""
+    import scripts.lib.ozon_discovery as od
+    cands = [{"type_name": "A"}, {"type_name": "B"}]
+    with mock.patch("requests.post", return_value=mock.Mock(
+            status_code=200,
+            json=lambda: {"choices": [{"message": {"content": "99"}}]},
+        )):
+        assert od._llm_disambiguate_category("护手霜", cands, token="t") == 0
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))
