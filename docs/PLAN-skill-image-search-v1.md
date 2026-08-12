@@ -20,7 +20,7 @@
   - `badge_eff >= 1.0` → 直接放行（:1378-1380）
   - 无徽章 → 走降级分支，只靠标题相关性 `conf >= 0.3`（:1415-1424）
 - `follow_sell_cloud`（cloud_probe.py:2898-2899）注释明说"无徽标不重搜，交给标题相关性降级"
-- 标题相关性依赖 `_RU_ZH_PRODUCT_WORDS` 词对词典（ozon_discovery.py:1064-1177）——**仅 ~70 词对，覆盖极窄**，自认"覆盖极窄"
+- 标题相关性依赖 `_RU_ZH_PRODUCT_WORDS` 词对词典（ozon_discovery.py:1064-1177）——**仅 104 词对，覆盖极窄**，自认"覆盖极窄"（✅ 已扩充至 333，见 §3.1）
 
 **结论：我们依赖了一个官方页面默认不展示的装饰性元素作为核心匹配信号，导致无徽章时匹配质量暴跌。**
 
@@ -116,7 +116,7 @@ const ZQ = async (url) => {
   - **mtop 签名封装**：新增 `_mtop_sign`/`_mtop_post` 私有函数（ozon_image_search.py 内），**不复用 `_post_1688`**（那是 AK 网关 x-csk 签名，认证体系不同）；完整请求模板（UA/Referer/cookie 组合/H5Request）锁进单函数 + 单测防漂移
   - **兜底路径（CDP）**：token 失效且无法刷新时，CDP 打开 aibuy 落地页 + 事件驱动等待 + 卡片提取
   - **无徽章依赖**——官方返回 `normalizationScore`（相关度分数）+ 结果顺序即官方相关性排序（guest 视图实测=精准排序）
-- 缓存纪律：namespace `aibuy_search`（24h，key=image_url+语言维度）；token 缓存进 `data/config/`（含过期时间，过期自动刷新；⚠️ 日志脱敏，不打印 cookie/token 明文）
+- 缓存纪律：namespace `aibuy_search`（**ttl=6h**，⚠️ 终审修正：非 24h，与代码一致；key 含语言/ID 维度）；token 缓存进 `settings.json`（含时间戳，6h 过期自动刷新；⚠️ 日志脱敏，不打印 cookie/token 明文）
 - **限流**（Momus 评审）：discover 并行路径（ozon_discovery.py:671-675 ThreadPoolExecutor）可能并发 N 个图搜 API 调用触发风控——aibuy 通道**并发上限 2** + 调用间小延迟；follow/cli 单次调用天然安全
 - 与 AK 通道关系：aibuy 结果含 offerId 后直接进富化链路（`build_graph_envelope_with_retry`），**不经过 AK 图搜**；AK 图搜保留为无 Chrome 环境的兜底
 
@@ -127,16 +127,18 @@ const ZQ = async (url) => {
 - **建议二期评估**：先落地 A，A 验证通过后评估 B 的授权门槛
 
 **无徽章去依赖（与 A 配套，必须做，⚠️ 分通道护栏）**：
-- `_pick_best_match` 徽章分支重构——**必须加 `trusted_source` 参数区分通道**：
-  - **仅 aibuy 来源**（`trusted_source=True`）信任官方排序：**用 API 返回的 `normalizationScore` 做放行信号**（Momus 评审：比 idx_rank 更精准）——`normalization_score_eff ≥ 阈值`（取值域实测确认后定，0-1 或 0-100）即放行，idx_rank 仅作 tiebreak；无 normalizationScore 时退化 `idx_rank ≥ 0.33`（前 2 位）
+- `_pick_best_match` 徽章分支重构——**已实现 `trusted_source` 参数区分通道**（✅ 终审确认）：
+  - **仅 aibuy 来源**（`trusted_source=True`）信任官方排序：**放行信号 = 原始图搜位置 `idx ≤ 1`（前 2 位）**（✅ 已实现，ozon_discovery.py:1655-1662）——实测发现 **normalizationScore 最高分≠最相似（质量分），不作放行信号**，仅作评分加分 `norm_bonus = min(ns,1)*5`（上限 5 分不压倒 idx_rank，✅ ozon_discovery.py:1605-1612）
   - **AK/CDP 来源维持现有护栏不变**（conf≥0.3 + LLM rescue）——**绝不全放松**，否则 discover 的历史错配案例（"花插 ¥1"/"活体羊驼 ¥2000"，代码注释记载）会重放
   - `badge_eff` 从"核心放行条件"降级为"可选加分项"（已 v0.26 部分降权；full-badge 直通 :1378 仅对 badge≥1.0 的候选保留，不影响无徽章路径）
-  - 删除/弱化 `follow_sell_cloud` 中"无徽标不重搜"逻辑（cloud_probe.py:2898-2899）
-- 标题相关性增强：`_RU_ZH_PRODUCT_WORDS` 词典扩充（70→300）**降为 P2 独立并行轨道**——v0.26 已有 LLM semantic rescue 兜底窄覆盖，不阻塞主链路
+  - ⚠️ "删无徽标不重搜"**未实际删除**（终审发现）：cloud_probe.py:2913/2933 仍保留 `while has_badge and top_score <= 1` 重搜逻辑——aibuy 优先使其无害（CDP 仅兜底），但文档声明与实际不符，需标注"已无害化保留"或按计划删除
+- 标题相关性增强：`_RU_ZH_PRODUCT_WORDS` 词典扩充（✅ 已实现 **104→333** 词对，commit 1febb8e——⚠️ 非文档写的 70→300）**降为 P2 独立并行轨道**——v0.26 已有 LLM semantic rescue 兜底窄覆盖，不阻塞主链路
 
-### 3.2 匹配层：AK similarity_score 上膛（P1）
+### 3.2 匹配层：AK similarity_score 上膛（P1，⚠️ 未实现——终审确认）
 
 **目标**：AK 通道的官方相似度信号不再被丢弃。
+
+> ⚠️ **实现状态**：本项**未实现**（grep `ak_score_eff` 无匹配，4 个提交均不含此功能）。文档此前误标为"已实现"。属 P1 待办，与 §7 Issue 落地顺序并列，需补做。
 
 - `_parse_product_item`（ak_1688_client.py:397）已解析 `similarity_score`，但无人消费
 - 在 `_pick_best_match` 增加 AK score 映射：
@@ -215,38 +217,38 @@ aibuy 图搜 API (找品)                    → offerId + 标题/价格/图/月
 - **推荐实现**：`search_by_image_aibuy` = 读 Chrome cookie（`document.cookie` 或 CDP `Network.getCookies`）→ requests 签名直调 imagesearch API → 解析结构化结果。**CDP 页面解析降级为备选**（token 过期且无法刷新时）。
 - **URL 构造定稿**：`https://aibuy.1688.com/landingpage/home/inventory/products.html?bizType=ERP&customerId=cbu&outImageAddress={url}`（或省略 customerId 让 1688 自动补）——仅作为 token 失效时的 CDP 兜底路径。
 
-### Step 1（P0）：aibuy 通道（API 直调为主 + CDP 兜底）
-- [ ] `ozon_image_search.py` 新增 `search_by_image_aibuy`：cookie 读取 → image.upload 拿 yoloCropRegion → imagesearch 签名直调 → 结构化解析；CDP 兜底路径
-- [ ] token 缓存：`data/config/`（含过期时间，过期自动刷新）；调用失败自动降级 CDP
-- [ ] 缓存：`aibuy_search` ns 24h，key 含语言/ID 维度；发布/验收时 `cache_clear("follow")` 或 key 加通道版本（防旧信封缓存掩盖新通道）
-- [ ] 测试：`test_aibuy_search.py`（mock mtop 响应，断言签名/URL 构造/解析/缓存 key/降级逻辑）
-- **验收**：真实 token 调用提取 ≥5 条结构化候选（含 offerId）；token 失效时自动降级 CDP 出结果
+### Step 1（P0）：aibuy 通道（API 直调为主 + CDP 兜底）—— ✅ 已实现（commit fd6e300）
+- [x] `ozon_image_search.py` 新增 `search_by_image_aibuy`：cookie 读取 → image.upload 拿 yoloCropRegion → imagesearch 签名直调 → 结构化解析；CDP 兜底路径
+- [x] token 缓存：`settings.json`（含时间戳，6h 过期自动刷新——⚠️ 终审修正：TTL 6h 非文档原写；调用失败自动降级 CDP）
+- [x] 缓存：`aibuy_search` ns，**ttl=21600s=6h**（⚠️ 终审修正：非 24h，与代码/测试一致）；key 含语言/ID 维度
+- [x] 测试：`test_aibuy_search.py`（13 单测，断言签名/URL 构造/解析/缓存 key/降级逻辑）
+- [x] **验收通过**：真实 token 调用提取 20 条结构化候选（含 offerId）；token 失效时 fail-fast 降级
 
-### Step 2（P0）：匹配逻辑去徽章依赖（分通道护栏）
-- [ ] `_pick_best_match` 加 `trusted_source` 参数：仅 aibuy 信任官方排序（`normalization_score_eff ≥ 阈值` 放行，取值域实测确认；无此字段退化 idx_rank≥0.33）；AK/CDP 维持现有护栏
-- [ ] `follow_sell_cloud` 删"无徽标不重搜"（cloud_probe.py:2898-2899）
-- [ ] **列出会翻转/新增的测试用例**：如 `test_pick_best_match_llm_rescue_all_false_still_rejects`（test_wave1_fixes.py:116）在 aibuy trusted_source 下行为变化、AK/CDP 路径维持原断言
-- **验收**：`test_image_search_guardrail.py` / `test_wave1_fixes.py` 全绿 + 新增"aibuy trusted 无徽章+靠前放行"、"AK/CDP 无徽章+弱 conf 仍拒绝"双向断言
+### Step 2（P0）：匹配逻辑去徽章依赖（分通道护栏）—— ✅ 已实现（commit 21dd5f9）
+- [x] `_pick_best_match` 加 `trusted_source` 参数：仅 aibuy 信任官方排序（**放行 = `idx ≤ 1` 前 2 位**，normalizationScore 仅加分——⚠️ 终审修正：实测发现最高分≠最相似，非放行信号）；AK/CDP 维持现有护栏
+- [ ] ⚠️ `follow_sell_cloud` 删"无徽标不重搜"（cloud_probe.py:2898-2899）——**未删**（终审发现：2913/2933 仍保留，aibuy 优先使其无害化，待清理或标注）
+- [x] 列出会翻转/新增的测试用例：test_aibuy_search.py 新增 4 个 trusted_source 断言（放行/护栏/非 trusted 维持/norm_bonus 不压倒 idx_rank）
+- [x] **验收通过**：test_image_search_guardrail / test_wave1_fixes 全绿 + 双向断言（✅ 断言在 test_aibuy_search.py:223-282——⚠️ 终审修正：非文档写的 guardrail 文件）
 
-### Step 3（P1）：AK score 上膛
+### Step 3（P1）：AK score 上膛 —— ⚠️ 未实现（终审确认，待补做）
 - [ ] 确认 score 取值域（真实 AK 调用打日志）
 - [ ] `_pick_best_match` 接入 `ak_score_eff`（评分公式 + **护栏分支高分放行**：`ak_score_eff≥0.8 且 idx_rank≥0.5`）
 - [ ] `test_image_search_guardrail.py` 补 AK score 场景（"无徽标+AK高score放行"）
 - **验收**：AK 结果排序不再垫底；高 score 项不再被 conf<0.3 拦截
 
-### Step 4（P1，提前）：链路对接（三调用点统一接入）
-- [ ] aibuy 候选 → `{id,title,price,image,normalization_score}` 归一化插入 matches（follow_sell_cloud:2972-2985）；`trusted_source=True` 作为 **`_pick_best_match` 函数参数**（非候选 dict 字段——aibuy 结果单通道同质，无需逐候选标记）
-- [ ] `_search_1688_source` CDP 分支（ozon_discovery.py:1542）加 aibuy 优先分支
-- [ ] `cli.py image_search --source cdp`（:317-323）加 aibuy 优先分支
-- [ ] offerId 直接来自 API 响应字段（API 直调主路径无需"同款找商链接解析"——那是 CDP 时代残留）
-- **验收**：`test_follow_*` + discover 相关测试全绿（aibuy 未 mock 时 fail-fast 返回 [] 不破坏断言）；follow/discover/image_search 真机冒烟（aibuy 找到品 → 富化 → 信封），冒烟前清 follow 缓存
+### Step 4（P1，提前）：链路对接（三调用点统一接入）—— ✅ 已实现（commit 92952f8）
+- [x] aibuy 候选 → `{id,title,price,image,normalization_score}` 归一化插入 matches（follow_sell_cloud:2979-3006）；`trusted_source=True` 作为 **`_pick_best_match` 函数参数**（`search_method=="aibuy"`）
+- [x] `_search_1688_source` 新增 Strategy 1 aibuy（ozon_discovery.py:1817-1840）——⚠️ 终审修正：非文档原写"CDP 分支加 aibuy"
+- [x] `cli.py image_search` 新增 `--source aibuy` 默认（cli.py:1450）——⚠️ 终审修正：新增选项而非"cdp 分支加 aibuy"
+- [x] offerId 直接来自 API 响应字段（API 直调主路径无需"同款找商链接解析"）
+- [x] **验收通过**：skill 477 passed（aibuy 未 mock 时 fail-fast 返回 [] 不破坏断言）；端到端真机命中同款（airtag 项圈 ¥10.9）
 
-### Step 5（P2）：词典扩充（独立并行轨道）
-- [ ] `_RU_ZH_PRODUCT_WORDS` 70→300 词对，按高频类目分批
-- [ ] 抽查词对质量（错误词对会引入新误匹配，LLM rescue 是最后防线）
-- **验收**：抽样 N 个真实 Ozon 标题，`_ru_zh_title_overlap` 命中率提升（如 40%→70%）
+### Step 5（P2）：词典扩充（独立并行轨道）—— ✅ 已实现（commit 1febb8e）
+- [x] `_RU_ZH_PRODUCT_WORDS` **104→333** 词对（⚠️ 终审修正：非 70→300，实际起点 104），按高频类目分批（17 类目）
+- [x] 抽查词对质量（无重复词对；抽查命中 conf 0.7-0.85）
+- [ ] ⚠️ **验收未做**：抽样真实 Ozon 标题的 `_ru_zh_title_overlap` 命中率对比（40%→70%）——commit 只做扩充未做命中率验证，待补
 
-### Step 6（P3 可选）：稳定性移植
+### Step 6（P3 可选）：稳定性移植 —— ⚠️ 未做
 - [ ] 视方案 B（iframe+postMessage）需要决定是否做 CSP 处理——⚠️ DNR 是 Chrome 扩展 API，我们走 CDP 需用 `Page.setBypassCSP`（新版 Chrome 已移除，需评估替代）；未用 iframe 则跳过
 
 ---
@@ -263,7 +265,7 @@ aibuy 图搜 API (找品)                    → offerId + 标题/价格/图/月
 | **mtop 响应格式版本漂移**（字段名变更） | 结构化解析失败 | 宽松解析（字段缺失不 raise）+ artifact 快照 + 定期回归 |
 | **image.upload 失败**（yoloCropRegion 拿不到） | 图搜主路径中断 | Step 1 验证 imagesearch 是否可省 imageRegion（仅 imageAddress）；失败降级 CDP |
 | **旧缓存掩盖新通道**（follow 6h 信封缓存 / search CDP 缓存） | 切换后不生效、验收被绕过 | `cache_clear("follow")` + 缓存 key 通道版本 + settings.json 通道开关 |
-| **无发布级回滚开关** | 出问题无法快速回退 | settings.json 加 `image_search_channel=aibuy|cdp`（复用参数化模式，零发版回滚） |
+| **无发布级回滚开关** | 出问题无法快速回退 | ⚠️ **未实现**（终审确认）：settings.json 加 `image_search_channel=aibuy|cdp`（复用参数化模式，零发版回滚）——待补做 |
 | distribution 授权门槛（方案 B） | 全自动采集不可用 | 先落 A，B 二期评估 |
 | `_pick_best_match` 分制改动破坏现有测试 | 回归 | test_settings_guardrail 阈值参数化约束 + trusted_source 分通道 + 逐条列出翻转测试 |
 | 全局放松护栏波及 discover 宁缺毋滥防线 | 历史错配案例重放 | **trusted_source 仅 aibuy 置 True**，AK/CDP 维持护栏 |
@@ -273,7 +275,7 @@ aibuy 图搜 API (找品)                    → offerId + 标题/价格/图/月
 **决策点（需确认）**：
 1. 方案 A（aibuy 直连替换）vs 方案 B（iframe+postMessage 全自动）——建议先 A
 2. aibuy 落地页 offerId 提取方式——**Step 0 真机侦察后定**（不写入 P0 验收）
-3. 词典扩充工作量（70→300 词对）——P2 独立并行轨道，可多人分批
+3. 词典扩充工作量（✅ 已完成 104→333 词对；命中率验证待补）——P2 独立并行轨道，可多人分批
 
 ---
 
@@ -296,3 +298,127 @@ aibuy 图搜 API (找品)                    → offerId + 标题/价格/图/月
 /api.wb.shop/simple_lists      # WB 店铺列表
 /api.shop/lists / set_cookies / sync_warehouse   # 店铺/仓储
 ```
+
+---
+
+## 7. 用户 v0.37 Issue 深度分析与落地计划（2026-08-12 反馈）
+
+> 反馈来源：Ozon 店铺运营（Client ID 4718259/5371047），Windows 11 + uv Python 3.12，skill 0.37.0。
+> 6 个 issue，其中 **Issue 3 严重（10/22 商品上架被阻断）**。以下为代码级根因验证 + 落地计划。
+> ⚠️ Issue 3 与本章案 §3.3 富化层直接相关（aibuy/AK 返回的类目字段可增强类目匹配），合并执行。
+
+### Issue 1【低】中文 Windows subprocess UnicodeDecodeError
+
+**根因验证**：`subprocess.run(capture_output=True, text=True)` 在 UTF-8 模式 Python 下按 UTF-8 解码 GBK 输出（`reg query`/`wmic`/`powershell`）→ `UnicodeDecodeError` 噪音。
+
+**涉及位置**（已 grep 确认 9 处）：
+- `service.py:939/:960/:973/:1346/:1357`（reg query chrome/msedge + wmic process + 进程扫描）
+- `chrome_launcher.py:151/:192/:215/:287`（powershell Get-CimInstance + taskkill）
+
+**修复**：9 处 `subprocess.run(...)` 统一加 `errors="replace"`（或 `encoding="utf-8", errors="replace"`）。用户已验证本地临时修复有效。
+
+**优先级**：P2（低影响高频噪音，一行一处）
+
+### Issue 2【低】文档过时——`query` 命令已存在但文档声称没有
+
+**根因验证**：`cli.py query <task_id>` 已实现（cli.py:1351 注册），但 `error-codes.md`/`output-schema.md` 仍是旧描述（"CLI 未暴露单任务查询"）。用户本地已修两处文档。
+
+**修复**：
+- `error-codes.md`：进度查询口径改 `python3 scripts/cli.py query <任务ID>`
+- `output-schema.md`：同步修正
+- `command-reference.md`：补 `query` 命令段（当前缺，管线查询节只有 `--watch` 描述）
+
+**优先级**：P1（误导 agent，导致查进度走弯路）
+
+### Issue 3【高】类目匹配质量不稳定——10/22 商品上架被阻断
+
+**根因验证（代码级确认）**：
+```
+cloud_probe.py:2280  publish_product_new（graph/batch 提交主路径）
+  search_text = category_query or title   ← 用完整商品标题搜 Ozon 类目树
+  → 歧义词错配：水枪→Пистолет-маркиратор / 护手霜→Крем интимный / 收纳盒→Органайзер рыболовный
+cloud_probe.py:1315  build_graph_envelope（另一路径）
+  search_text = category_query or _src_short or title   ← v0.34 已实现 source_category_path 末级词优先
+  → 两处行为不一致！publish_product_new 未同步 v0.34 修复
+cloud_probe.py:2379-2384  匹配不到 → 静默放行（"delegating to pipeline self-learning"）
+  → 空类目上送云端 → 云端安全机制阻断
+```
+
+**⭐ 类目信号源全景（用户提示后补充盘点——Ozon 侧已有强信号未被 publish_product_new 消费）**：
+
+| 信号源 | 内容 | 获取方式 | 当前消费 |
+|---|---|---|---|
+| **Ozon 页面面包屑类目**（follow 场景） | `description_category_id/type_id/category_path`（官方类目 ID + 俄语路径） | `ozon_scraper._pick_category_from_crumbs`（v0.19.1 品牌页排除） | ✅ follow（cloud_probe.py:2815-2826）❌ publish_product_new |
+| **what_to_sell 权威类目**（Seller 空间） | `category2Id(dc)/category3Id(type)`——**官方权威**，覆盖面包屑（v0.26 眉笔错配修复） | `ozon_seller_analytics.fetch_sales_analytics` | ✅ follow（cloud_probe.py:2859-2869）❌ publish_product_new |
+| **1688 AK 三级类目** | 宠物及园艺→宠物服饰配饰→宠物项圈（中文面包屑） | `get_product_details` → `categories` → `source_category_path` | ✅ build_graph_envelope（:1233-1241）❌ publish_product_new |
+| **aibuy 图搜类目 ID** | `cateLevel1Id/cateLevel2Id`（1688 类目 ID） | aibuy imagesearch 响应 | 🔄 本章案新增 |
+| Ozon 类目树 API 搜索 | 中文/俄语关键词 → 候选类目 | `search_categories_validated` | 兜底（两路径都在用） |
+
+**核心洞察**：follow 场景 Ozon 侧类目信号（面包屑+权威）**已经实现且可靠**；Issue 3 的 10 个失败商品是 **graph/batch 直采 1688 商品**（无 Ozon 竞品）——此时**无 Ozon 侧信号**，只能靠 1688 类目 + Ozon 树搜索。但 publish_product_new 连 1688 的 `source_category_path` 都没用（2280 行直接 title 搜），这是最大缺口。
+
+**修复计划（三层信号优先级）**：
+1. **P0-1：publish_product_new 消费已有 Ozon 信号**（若调用方传入 `ozon_category`/`resolved_category`）——follow 流程已传，graph/batch 直采场景无此信号则跳过
+2. **P0-2：publish_product_new 同步 `source_category_path` 末级词逻辑**（对齐 build_graph_envelope:1307-1315）——1688 AK 三级类目末级词（如"宠物项圈"）搜 Ozon 树，替代歧义标题（"水枪/护手霜"）
+3. **P0-3：匹配不到 → 告警而非静默**（2379-2384）——warning 升级可见告警 + 信封带 `extensions.source_category_path` 供云端精确核对
+4. **协同：aibuy 候选带 `cateLevel1Id/cateLevel2Id`** → 富化时优先解析 1688 类目（即使无 AK 详情也能拿到类目线索）——⚠️ **终审发现：已实现代码未提取该字段**（`_aibuy_image_search` 归一化仅含 offerId/title/price/image/normalization_score 等），Issue 3 修复时**必须先补提取 + 单测**，否则协同项落空
+
+**回归测试数据**（用户提供 10 个失败商品确认类目）：表格见 issue 原文——回归时逐条验证类目命中（陀螺→Юла 17028973/92884、化妆包→Косметичка 17027904/93337、门铃→Дверной звонок 88265327/94537 等）。
+
+**优先级**：**P0（阻塞上架，最优先）**
+
+### Issue 4【中】CLI 无类目查询子命令
+
+**根因验证**：`search_categories_validated`（ozon_api.py）存在但未暴露 CLI。
+
+**修复**：新增 `category` 子命令：
+```bash
+python3 scripts/cli.py category "<关键词>" [--lang ZH_HANS|EN|RU] [--max 5]
+# 返回候选：description_category_id / type_id / 类目名 / 类型名 / 分数
+```
+
+**优先级**：P2（排查辅助，Issue 3 修复后可加）
+
+### Issue 5【中】Sentry 上报未生效——依赖缺失静默降级
+
+**根因验证**：`_init_sentry()`（cli.py:1332）lazy import `sentry_sdk` 失败返回 False，不阻断命令 → 用户 venv 未装依赖 → 后台收不到错误。DSN 不是问题（`DEFAULT_SENTRY_DSN` 内置）。
+
+**修复计划**：
+1. `check` 命令加 Sentry 状态诊断项：`_init_sentry()` 是否 True + 提示 `pip install -r requirements.txt`
+2. 可选：`check` 时缺失 sentry-sdk → 明确提示（而非静默）
+
+**优先级**：P2（可观测性，不发版也能修）
+
+### Issue 6【中】无「1688 直接选品」管线
+
+**根因验证**：现有选品均为 Ozon 端（discover 是 Ozon→1688）；`search` 命令（1688 关键词）是半成品——无评分/利润/筛选/导出。
+
+**修复计划**（新增 1688 直选链路，与本章案 §3.3 富化层衔接）：
+```
+Agent web_search 趋势 → LLM 提炼关键词
+  → search <词>（AK 关键词，返回 offer_id 候选）
+      → 增强：候选附加利润率估算/蓝海评分/Ozon 匹配度（复用 discover 评分体系）
+      → 批量筛选（--rules）→ 导出 CSV
+          → 选中品 graph 富化上架（AK 富化 + CDP 补物理数据 → 信封）
+```
+
+**实现要点**：
+- `search` 命令增强：结果附加 `estimated_profit/blue_ocean_score/ozon_match`（复用 `_calculate_profit`/`calculate_blue_ocean_score`）
+- 支持 `--rules` 筛选 + `--export csv` 导出（对齐 discover 的规则/导出体系）
+- 可选 `--auto-submit` 批量上架（决策边界：批量提交仍需用户确认）
+
+**优先级**：P1（效率提升，用户体验核心诉求）
+
+### 落地顺序汇总
+
+| 优先级 | Issue / 待办 | 涉及文件 | 协同 |
+|---|---|---|---|
+| **P0** | #3 类目匹配 | cloud_probe.py + **ozon_image_search.py**（补 cateLevel 提取） | 与 aibuy/AK 类目字段协同（本章案）；⚠️ 先补 aibuy 类目字段提取 |
+| P1 | **§4 Step 3 AK score 上膛**（终审确认未实现） | ozon_discovery.py + ak_1688_client.py | 与 trusted_source 分通道一致 |
+| P1 | #2 文档过时 | error-codes/output-schema/command-reference | 独立 |
+| P1 | #6 1688 直选 | cli.py search + discover 评分复用 | 与富化层衔接 |
+| P2 | #1 Windows 编码 | service.py/chrome_launcher（9 处） | 独立 |
+| P2 | #4 category 命令 | cli.py + ozon_api | Issue 3 后 |
+| P2 | #5 Sentry 诊断 | cli.py check | 独立 |
+| P2 | **§4 Step 2 删"无徽标不重搜"**（终审确认未删） | cloud_probe.py | 已无害化，清理或标注 |
+| P2 | **§4 Step 5 词典命中率验证**（未做） | tests | commit 只做扩充未验证 |
+| P2 | **§5 image_search_channel 回滚开关**（未实现） | settings.json + cli | 独立 |
