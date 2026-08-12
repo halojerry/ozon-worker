@@ -938,7 +938,7 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
             try:
                 result = subprocess.run(
                     ['mdfind', f'kMDItemKind == "Application" && kMDItemDisplayName == "{app_name}"'],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True, text=True, timeout=5, errors="replace",
                 )
                 for line in result.stdout.strip().split('\n'):
                     line = line.strip()
@@ -959,7 +959,7 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
             try:
                 result = subprocess.run(
                     ['reg', 'query', reg_key, '/ve'],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True, text=True, timeout=5, errors="replace",
                 )
                 for line in result.stdout.split('\n'):
                     if '.exe' in line.lower():
@@ -972,7 +972,7 @@ def find_browser_executable(explicit: str | None = None) -> str | None:
         try:
             result = subprocess.run(
                 ['reg', 'query', r'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe', '/ve'],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True, text=True, timeout=5, errors="replace",
             )
             for line in result.stdout.split('\n'):
                 if '.exe' in line.lower():
@@ -1346,7 +1346,7 @@ def _list_browser_commands() -> list[str]:
             r = subprocess.run(
                 ['wmic', 'process', 'where', "name='chrome.exe' or name='msedge.exe'",
                  'get', 'CommandLine', '/format:list'],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True, text=True, timeout=5, errors="replace",
             )
             return [
                 l.split('=', 1)[1].strip()
@@ -1356,7 +1356,7 @@ def _list_browser_commands() -> list[str]:
         else:
             r = subprocess.run(
                 ['ps', '-axo', 'command='],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True, text=True, timeout=5, errors="replace",
             )
             return [l for l in (r.stdout or '').splitlines() if l.strip()]
     except Exception:
@@ -1903,7 +1903,8 @@ def _check_1688_login_live(cdp_url: str) -> bool:
     # ── 方案 1: Network.getAllCookies 读 cookie（零 tab 开销）──
     try:
         from scripts.lib.cdp_client import CdpTab
-        _cookies_resp = requests.get(f"{cdp_url}/json", timeout=5)
+        import requests as _req
+        _cookies_resp = _req.get(f"{cdp_url}/json", timeout=5)
         _cookies_resp.raise_for_status()
         _page_tabs = [t for t in _cookies_resp.json()
                       if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
