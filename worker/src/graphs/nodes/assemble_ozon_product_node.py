@@ -827,8 +827,13 @@ def assemble_ozon_product_node(
                 logger.info(f"   🔍 LLM 建议搜索词: {_sugg}，二次搜索类目")
                 if _sugg:
                     try:
+                        from utils.attr_value_matcher import lang_route  # type: ignore
                         query = get_category_query()
-                        re_cands = query.search_nodes(_sugg, top_k=10, node_type="type")
+                        # v0.40: 建议词可能是俄语（LLM 输出 вибромассажер 等）→ 按语言路由
+                        # （旧代码固定 ZH_HANS → 俄语词 jieba LIKE 0 候选 → 二次搜索白做 → 阻断）
+                        re_cands = query.search_nodes(
+                            _sugg, top_k=10, node_type="type", language=lang_route(_sugg),
+                        )
                         if re_cands:
                             candidates = _merge_candidates(re_cands, candidates)
                             logger.info(f"   ✅ 建议词二次搜索: {len(re_cands)} 候选并入")
@@ -1257,8 +1262,12 @@ def assemble_ozon_product_node(
                 logger.info(f"   🔍 LLM 建议搜索词: {_sugg2}，二次搜索并入候选")
                 if _sugg2:
                     try:
+                        from utils.attr_value_matcher import lang_route  # type: ignore
                         query = get_category_query()
-                        _re2 = query.search_nodes(_sugg2, top_k=10, node_type="type")
+                        # v0.40: 与主路径一致——建议词按语言路由（俄语词 RU 搜索）
+                        _re2 = query.search_nodes(
+                            _sugg2, top_k=10, node_type="type", language=lang_route(_sugg2),
+                        )
                         if _re2:
                             _seen_keys = {(c.get("description_category_id"), c.get("type_id")) for c in all_candidates}
                             for _rc in _re2:
