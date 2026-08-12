@@ -1323,11 +1323,15 @@ def build_graph_envelope(
         # ⚠️ v0.34: 优先用 1688 类目末级词（source_category_short 最后一级）搜索——
         # 长标题中文分词查 ZH_HANS 树 token 过多、泛化词(玩具/用品)稀释, 错配率高
         # (实证: 洗碗海绵→厨房秤, 竹知了益智玩具→甜品套装)。末级词整体辨识度最高。
+        # ⚠️ v0.39 Issue3: 末级词常为复合词（"化妆刷、刷包"）→ 顿号分拆逐个尝试
+        # （实证 "化妆刷、刷包" 空 / "化妆刷" 命中 78032222/93961）
         _src_short = ""
+        _src_variants: list[str] = []
         if source_category_path:
             _src_parts = [p.strip() for p in source_category_path.split(">") if p.strip()]
             if _src_parts:
                 _src_short = _src_parts[-1]
+                _src_variants = _category_search_variants(source_category_path)
         search_text = category_query or _src_short or title or (data.get("title") or "")
         if search_text:
             try:
@@ -1335,10 +1339,19 @@ def build_graph_envelope(
                 # ✅ v0.27: 语言按搜索词自动选择 — 1688 中文类目/标题搜 ZH_HANS 树,
                 # 俄语标题才搜 RU 树(旧代码恒 RU 搜中文 → 必空 → poll_category 形同虚设)
                 _lang = "ZH_HANS" if any("\u4e00" <= ch <= "\u9fff" for ch in search_text) else "RU"
-                cats = search_categories(
-                    ozon_creds["client_id"], ozon_creds["api_key"],
-                    search_text, language=_lang, max_results=1,
-                )
+                # 复合末级词：先试各单段命中（"化妆刷、刷包" → "化妆刷"）
+                _search_words = [search_text]
+                if len(_src_variants) > 1:
+                    _search_words = _src_variants + [search_text]
+                cats = []
+                for _word in _search_words:
+                    cats = search_categories(
+                        ozon_creds["client_id"], ozon_creds["api_key"],
+                        _word, language=_lang, max_results=1,
+                    )
+                    if cats:
+                        search_text = _word
+                        break
                 if cats:
                     best = cats[0]
                     ozon_category = {
