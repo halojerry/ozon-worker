@@ -29,7 +29,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        from storage.database import get_session  # type: ignore
+        from storage.database.db import get_session  # type: ignore
         from utils.attr_gap import compute_gap, summarize_gaps  # type: ignore
     except Exception as e:
         print(f"⚠️ 依赖加载失败（需在 worker 环境运行）: {e}")
