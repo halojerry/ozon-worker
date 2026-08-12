@@ -62,11 +62,17 @@ class OzonProductTask(Base):
             postgresql_where=text("status = 'pending'"),
         ),
         Index("idx_ozon_product_tasks_tenant_id", "tenant_id"),
+        # ⚠️ v0.38.1: 唯一索引加状态过滤——只对活跃任务(pending/running)唯一。
+        # 修复 N1×N2 冲突：旧谓词 WHERE sku_key IS NOT NULL 无状态过滤，旧 rejected/failed
+        # 行保留 sku_key，resubmit 以相同 sku_key INSERT 新行 → IntegrityError → 500。
+        # 现在 rejected/failed/completed 终态行不参与唯一约束，可正常重提交。
         Index(
             "uq_ozon_product_tasks_tenant_sku",
             "tenant_id", "sku_key",
             unique=True,
-            postgresql_where=text("sku_key IS NOT NULL"),
+            postgresql_where=text(
+                "sku_key IS NOT NULL AND status IN ('pending', 'running')"
+            ),
         ),
     )
 

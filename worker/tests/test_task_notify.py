@@ -131,6 +131,7 @@ def test_env_url_fires_notify_on_completed():
     assert body["status"] == "completed"
     assert body["product_id"] == "PID-1"
     assert body["product_summary"] and isinstance(body["product_summary"], list)
+    assert kwargs.get("allow_redirects") is False, "v0.38.1: 禁重定向防 payload 转发到意外主机"
     # 通知是附加行为，终态落库不受影响
     sql, _params = _terminal_update(engine)
     assert "status = 'completed'" in sql

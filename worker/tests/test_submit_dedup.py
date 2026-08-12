@@ -1,7 +1,8 @@
-"""P0-1: SKU 级重复提交防护 — 同一用户同一商品已有活跃任务 → DUPLICATE_SUBMIT。
+"""P0-1: SKU 级重复提交防护 — 同一用户同一店铺同一商品已有活跃任务 → DUPLICATE_SUBMIT。
 
-http_submit_task 在提交队列前计算 sku_key = {user_id}:{product_id}，
-查询 ozon_product_tasks 是否存在非 failed/cancelled 的同 sku_key 活跃任务；
+http_submit_task 在提交队列前计算 sku_key = {user_id}[:{ozon_client_id}]:{product_id}
+（v0.38.1 起含店铺维度，修复同用户两店铺同款误拦），查询 ozon_product_tasks 是否存在
+pending/running 的同 sku_key 活跃任务（v0.38.1 起 rejected/failed/completed 终态不拦截）；
 命中则返回 409 + DUPLICATE_SUBMIT（不消耗 MXOU/生图额度），未命中则正常入队。
 """
 import asyncio
@@ -37,7 +38,7 @@ def _fake_supabase() -> MagicMock:
     return fake
 
 
-def _submit_body(item_id="123456", ozon_product_id=None, sku_id=None) -> dict:
+def _submit_body(item_id="123456", ozon_product_id=None, sku_id=None, ozon_client_id="") -> dict:
     draft = {
         "item_id": item_id,
         "title": "测试商品",
@@ -54,7 +55,7 @@ def _submit_body(item_id="123456", ozon_product_id=None, sku_id=None) -> dict:
         draft["sku_id"] = sku_id
     return {
         "token": "sk-tok123",
-        "ozon_client_id": "",
+        "ozon_client_id": ozon_client_id,
         "ozon_api_key": "",
         "envelope": {"draft": draft},
     }
@@ -145,6 +146,66 @@ def test_resubmit_allowed_when_no_active_task():
     assert resp["task_id"] == "task-new"
     assert len(fake_proc.calls) == 1
     assert fake_proc.calls[0]["sku_key"] == "u1:123456"
+
+
+def test_sku_key_includes_store_dimension():
+    """有店铺时 sku_key = {user}:{ozon_client_id}:{product}——两店铺同款不互相拦截。"""
+    import main as main_mod
+
+    fake_engine = _FakeEngine(_FakeResult(None))
+    fake_proc = _FakeProcessor()
+
+    with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
+        "main._check_mxou_balance", return_value=(100.0, True)
+    ), patch("main.get_engine", return_value=fake_engine), patch.object(
+        main_mod, "task_processor", fake_proc
+    ):
+        resp = asyncio.run(
+            main_mod.http_submit_task(FakeRequest(_submit_body(item_id="123456", ozon_client_id="storeA")))
+        )
+
+    assert resp["ok"] is True
+    _sql, params = fake_engine.conn.executed[0]
+    assert params["k"] == "u1:storeA:123456"
+    assert fake_proc.calls[0]["sku_key"] == "u1:storeA:123456"
+
+
+def test_same_sku_different_stores_not_blocked():
+    """店铺 A 已有活跃任务时，店铺 B 提交同款不拦截（sku_key 含店铺维度）。"""
+    import main as main_mod
+
+    fake_engine = _FakeEngine(_FakeResult(None))  # storeB 查不到 storeA 的任务
+    fake_proc = _FakeProcessor()
+
+    with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
+        "main._check_mxou_balance", return_value=(100.0, True)
+    ), patch("main.get_engine", return_value=fake_engine), patch.object(
+        main_mod, "task_processor", fake_proc
+    ):
+        resp = asyncio.run(
+            main_mod.http_submit_task(FakeRequest(_submit_body(item_id="123456", ozon_client_id="storeB")))
+        )
+
+    assert resp["ok"] is True
+    assert fake_proc.calls[0]["sku_key"] == "u1:storeB:123456"
+
+
+def test_rejected_task_no_longer_blocks_resubmit():
+    """rejected 是终态（v0.38.1）→ 去重查询不再拦截，可正常重新提交。"""
+    import main as main_mod
+
+    fake_engine = _FakeEngine(_FakeResult(None))  # rejected 行不被查到
+    fake_proc = _FakeProcessor()
+
+    with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
+        "main._check_mxou_balance", return_value=(100.0, True)
+    ), patch("main.get_engine", return_value=fake_engine), patch.object(
+        main_mod, "task_processor", fake_proc
+    ):
+        resp = asyncio.run(main_mod.http_submit_task(FakeRequest(_submit_body())))
+
+    assert resp["ok"] is True
+    assert len(fake_proc.calls) == 1
 
 
 def test_sku_key_uses_ozon_product_id_for_follow():
