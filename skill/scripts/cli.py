@@ -119,35 +119,53 @@ def cmd_search(args: argparse.Namespace) -> int:
 
     --sort     price_asc / price_desc / sold_desc（按销量）
     --export   CSV 导出路径（含利润估算）
+    定价复用 worker 同源公式（售价 = 总成本×(1+margin)/(1-commission)，
+    与 pricing_node.py 一致）——不做独立估算逻辑，避免两套公式漂移。
     """
     from scripts.lib.ak_1688_client import search_products
-    from scripts.lib.ozon_discovery import (
-        DEFAULT_COMMISSION_PCT,
-        DEFAULT_FX_RATE,
-        DEFAULT_LOGISTICS_CNY,
-    )
+    from scripts.lib.config_store import get_ozon_credentials
+
+    # 店铺定价参数（与信封 extensions 注入同源，worker 实际用同一份）
+    _margin = 0.25
+    _commission = 0.10
+    try:
+        _store = get_ozon_credentials(args.store)
+        if _store:
+            _margin = float(_store.get("margin_rate") or _margin)
+            _commission = float(_store.get("commission_rate") or _commission)
+    except Exception:
+        pass
 
     products = search_products(args.query, page_size=args.page_size)
 
-    # v0.39 Issue6: 轻量利润估算（1688 直选场景无 Ozon 竞品价，用固定参数估算）：
-    # 预计 Ozon 售价 = 采购价*(1+fx_buffer 补偿) → 利润 = 售价 - 采购价 - 物流 - 佣金
-    # 与 discover 的 _calculate_profit 同源常量，方向一致（仅缺真实竞品价）
+    # v0.39 Issue6: 利润估算复用 worker 定价公式——真实运费（worker quote）
+    # + 店铺 margin/commission，与 graph 提交后 worker 实算结果一致
+    from scripts.lib.ozon_discovery import _query_logistics_from_worker
     estimated = []
     for p in products:
         try:
             cost_cny = float(p.get("price") or 0)
         except (TypeError, ValueError):
             cost_cny = 0.0
-        est_retail = round(cost_cny * 3.5, 2)  # 1688→Ozon 典型 3-4x 加价
-        est_logistics = DEFAULT_LOGISTICS_CNY
-        est_commission = est_retail * DEFAULT_COMMISSION_PCT
-        est_profit = round(est_retail - cost_cny - est_logistics - est_commission, 2)
-        margin = round(est_profit / est_retail, 3) if est_retail > 0 else 0.0
+        if cost_cny <= 0:
+            estimated.append({**p, "estimated_retail_cny": 0, "estimated_profit_cny": 0,
+                              "profit_margin": 0.0, "estimated_logistics_cny": 0})
+            continue
+        _w = float(p.get("weight_grams") or p.get("moq_weight") or 0)
+        _quote = _query_logistics_from_worker(int(_w)) if _w > 0 else None
+        _logistics = float(_quote.cost) if _quote and _quote.cost else (_w / 1000 * 15.0 if _w > 0 else 0)
+        # 与 worker pricing_node 一致：售价 = (采购+物流+包装) × (1+margin) / (1-commission)
+        _total = cost_cny + _logistics
+        _divisor = (1.0 - _commission)
+        _retail = round(_total * (1 + _margin) / _divisor, 2) if _divisor > 0 else 0.0
+        _profit = round(_retail - _total, 2)
+        _margin_r = round(_profit / _retail, 4) if _retail > 0 else 0.0
         estimated.append({
             **p,
-            "estimated_retail_rub": round(est_retail * (1 / DEFAULT_FX_RATE) if DEFAULT_FX_RATE else 0),
-            "estimated_profit_cny": est_profit,
-            "profit_margin": margin,
+            "estimated_retail_cny": _retail,
+            "estimated_logistics_cny": round(_logistics, 2),
+            "estimated_profit_cny": _profit,
+            "profit_margin": _margin_r,
         })
 
     # v0.39 Issue6: 排序（--sort）
@@ -165,12 +183,72 @@ def cmd_search(args: argparse.Namespace) -> int:
         from pathlib import Path
         _out_path = Path(args.export)
         _fieldnames = ["product_id", "title", "price", "similarity_score",
-                       "estimated_retail_rub", "estimated_profit_cny", "profit_margin"]
+                       "estimated_retail_cny", "estimated_logistics_cny",
+                       "estimated_profit_cny", "profit_margin"]
         with _out_path.open("w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=_fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(estimated)
         print(f"📄 已导出 {len(estimated)} 条到 {_out_path}", flush=True)
+
+    # v0.39 Issue6: 规则筛选（--rules，适配 search 场景字段）
+    if args.rules:
+        import re as _re
+        _sel = []
+        for p in estimated:
+            _ok = True
+            for _rule in args.rules.split(","):
+                _rule = _rule.strip()
+                _m = _re.match(r"^([a-z_]+)\s*(>=|<=|>|<|=)\s*([\d.]+)$", _rule, _re.IGNORECASE)
+                if not _m:
+                    raise ValueError(f"无法解析规则: {_rule!r}（格式: profit_margin>=0.1,price<=20）")
+                _field, _op, _val = _m.group(1).lower(), _m.group(2), float(_m.group(3))
+                _pv = p.get(_field)
+                if _pv is None:
+                    _ok = False
+                    break
+                try:
+                    _pv = float(_pv)
+                except (TypeError, ValueError):
+                    _ok = False
+                    break
+                if not {"==": _pv == _val, ">=": _pv >= _val, "<=": _pv <= _val,
+                        ">": _pv > _val, "<": _pv < _val, "=": _pv == _val}[_op]:
+                    _ok = False
+                    break
+            if _ok:
+                _sel.append(p)
+        estimated = _sel
+        print(f"🎯 规则筛选 {args.rules}: 剩 {len(estimated)} 条", flush=True)
+
+    # v0.39 Issue6: 批量提交上架（--auto-submit，走完整 worker 管线定价）
+    if args.auto_submit:
+        from scripts.cloud_probe import submit_envelope
+        from scripts.cloud_probe import build_graph_envelope_with_retry
+        _submitted = 0
+        _failed = 0
+        for p in estimated:
+            _pid = p.get("product_id") or p.get("itemId") or p.get("id", "")
+            if not _pid:
+                _failed += 1
+                continue
+            try:
+                _graph = build_graph_envelope_with_retry(
+                    item_id=str(_pid),
+                    detail_url=f"https://detail.1688.com/offer/{_pid}.html",
+                    store_id=args.store or "",
+                )
+                _resp = submit_envelope(_graph)
+                if _resp.get("ok"):
+                    _submitted += 1
+                    print(f"  ✓ 已提交 {str(p.get('title'))[:30]} → task_id={_resp.get('task_id')}", flush=True)
+                else:
+                    _failed += 1
+                    print(f"  ✗ 提交失败 {str(p.get('title'))[:30]}: {_resp.get('error')}", flush=True)
+            except Exception as _e:
+                _failed += 1
+                print(f"  ✗ 提交异常 {str(p.get('title'))[:30]}: {_e}", flush=True)
+        print(f"📦 批量提交完成: 成功 {_submitted} / 失败 {_failed}", flush=True)
 
     _out({"count": len(estimated), "products": estimated})
     return 0
@@ -341,12 +419,11 @@ def cmd_graph(args: argparse.Namespace) -> int:
         "supplier": draft.get("supplier", "")[:30],
         "shipping": draft.get("shipping"),
     }
-    # ✅ v0.39 需求1: 提交前预估售价（真实运费 + 定价公式）——让用户提前知道大概卖多少
+    # ✅ v0.39 需求1: 提交前预估售价——复用 worker 定价公式（售价=总成本×(1+margin)/(1-commission)），
+    # 参数与信封 extensions 同源（worker 实算用同一份 margin/commission）
     try:
-        from scripts.lib.ozon_discovery import (
-            _query_logistics_from_worker,
-            DEFAULT_COMMISSION_PCT,
-        )
+        from scripts.lib.ozon_discovery import _query_logistics_from_worker
+        from scripts.lib.config_store import get_ozon_credentials as _get_oz_creds
         _w = draft.get("weight") or 0
         _cost = draft.get("purchase_cost") or 0
         _dim = draft.get("dimensions") or {}
@@ -356,11 +433,21 @@ def cmd_graph(args: argparse.Namespace) -> int:
         except (TypeError, ValueError):
             _cost_f, _w_f = 0.0, 0.0
         if _cost_f > 0 and _w_f > 0:
+            # 店铺定价参数（与信封 extensions 注入同源）
+            _margin = 0.25
+            _commission = 0.10
+            try:
+                _store_cfg = _get_oz_creds(args.store or "")
+                if _store_cfg:
+                    _margin = float(_store_cfg.get("margin_rate") or _margin)
+                    _commission = float(_store_cfg.get("commission_rate") or _commission)
+            except Exception:
+                pass
             _quote = _query_logistics_from_worker(int(_w_f), dims_mm=_dim)
             _logistics = float(_quote.cost) if _quote and _quote.cost else (_w_f / 1000 * 15.0)
             _total = _cost_f + _logistics
-            _margin = float(summary.get("category") and 0.25 or 0.25)
-            _est_price = round(_total * (1 + _margin) / (1 - DEFAULT_COMMISSION_PCT), 2)
+            _divisor = (1.0 - _commission)
+            _est_price = round(_total * (1 + _margin) / _divisor, 2) if _divisor > 0 else 0.0
             _est_profit = round(_est_price - _total, 2)
             _est_rate = round(_est_profit / _est_price * 100, 1) if _est_price > 0 else 0.0
             summary["estimated_retail_price_cny"] = _est_price
@@ -1552,6 +1639,10 @@ def main() -> int:
     sp.add_argument("--sort", choices=["price_asc", "price_desc", "sold_desc"],
                     default="", help="排序（v0.39 Issue6）")
     sp.add_argument("--export", default="", help="CSV 导出路径（v0.39 Issue6）")
+    sp.add_argument("--rules", default="", help="筛选规则（v0.39 Issue6）：如 \"profit_margin>=0.1,price<=20\"")
+    sp.add_argument("--store", default="", help="Ozon 店铺名（--auto-submit 提交凭证来源）")
+    sp.add_argument("--auto-submit", action="store_true",
+                    help="筛选后批量提交上架（v0.39 Issue6，逐个 graph 提交）")
     sp.set_defaults(func=cmd_search)
 
     # category（v0.39 Issue4: Ozon 类目查询，替代临时脚本）
