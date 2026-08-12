@@ -351,6 +351,36 @@ class CategoryMatchLog(Base):
     )
 
 
+class AttrMatchLog(Base):
+    """v0.40: 属性匹配审计日志 — 每次属性解析记录，用于填满率评估 + A/B + 误配复盘。
+
+    对照 category_match_log 先例：task_id 定位 + status/match_layer 分桶 +
+    candidates_json 快照 + source_value 截断（500）。
+    """
+    __tablename__ = "attr_match_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    task_id: Mapped[str] = mapped_column(Text, nullable=False)
+    attr_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    attr_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    candidate_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    match_layer: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    dictionary_value_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    should_fill: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    candidates_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_attr_match_log_task", "task_id"),
+        Index("idx_attr_match_log_layer", "match_layer", "created_at"),
+        Index("idx_attr_match_log_attr", "attr_id", "created_at"),
+    )
+
+
 class DomainHint(Base):
     """v4: 领域消歧规则 — 特定关键词强制导向某Ozon顶级类目"""
     __tablename__ = "domain_hint"
