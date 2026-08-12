@@ -2247,16 +2247,54 @@ def prepare_ozon_upload_node(
         _vid_4958, _vval_4958 = 0, ""
         try:
             from utils.ozon_dict_values import search_dictionary_values as _sdv4958
+            from utils.attr_value_matcher import lang_route  # type: ignore
+            _search_terms_4958: list = []
+
+            # ① v0.40 修复: 优先用 1688 属性值（"适用对象/用途/适合"等中文值，
+            #    实测 "猫狗通用" 拆分后 "猫咪"→33754 命中；旧逻辑只搜标题必败）
+            _draft_attrs_4958 = (draft or {}).get("attributes") or {}
+            if isinstance(_draft_attrs_4958, dict):
+                _use_attr_keys = ("适用", "用途", "适合", "对象", "назнач", "примен")
+                for _k, _v in _draft_attrs_4958.items():
+                    _k = str(_k or "")
+                    if any(kw in _k for kw in _use_attr_keys):
+                        _raw_v = str(_v or "").strip()
+                        if not _raw_v:
+                            continue
+                        _search_terms_4958.append(_raw_v[:40])
+                        # 值拆分+关键词抽取: "猫狗通用" 无分隔符时按常见用途词
+                        # 抽取（/values/search value 最少 2 字符，单字被 PR-1
+                        # 拦截; 语义映射 "含猫"→"猫咪"→33754 实测命中）
+                        _single_to_double = (
+                            ("猫", "猫咪"), ("狗", "狗狗"), ("鸟", "鸟类"),
+                            ("鼠", "鼠类"), ("兔", "兔类"), ("鱼", "鱼类"),
+                        )
+                        for _s, _d in _single_to_double:
+                            if _s in _raw_v and _d not in _search_terms_4958:
+                                _search_terms_4958.append(_d)
+                        for _kw in ("通用型", "宠物用", "家禽", "啮齿"):
+                            if _kw in _raw_v and _kw not in _search_terms_4958:
+                                _search_terms_4958.append(_kw)
+
+            # ② 标题整句兜底
             _title4958 = str((draft or {}).get("title") or "")
-            _hits4958 = _sdv4958(
-                getattr(state, "ozon_client_id", "") or "",
-                getattr(state, "ozon_api_key", "") or "",
-                4958, int(description_category_id or 0), int(type_id or 0),
-                _title4958[:50] if _title4958 else "универсальный",
-            ) or []
-            if _hits4958:
-                _vid_4958 = int(_hits4958[0].get("id") or 0)
-                _vval_4958 = str(_hits4958[0].get("value") or "")
+            if _title4958:
+                _search_terms_4958.append(_title4958[:50])
+
+            _search_terms_4958 = list(dict.fromkeys(
+                t for t in _search_terms_4958 if t and len(t.strip()) >= 2
+            ))
+            for _term in _search_terms_4958 or ["универсальный"]:
+                _hits4958 = _sdv4958(
+                    getattr(state, "ozon_client_id", "") or "",
+                    getattr(state, "ozon_api_key", "") or "",
+                    4958, int(description_category_id or 0), int(type_id or 0),
+                    _term, lang_route(_term),
+                ) or []
+                if _hits4958:
+                    _vid_4958 = int(_hits4958[0].get("id") or 0)
+                    _vval_4958 = str(_hits4958[0].get("value") or "")
+                    break
         except Exception:
             pass
         if _vid_4958 > 0:
@@ -2265,11 +2303,11 @@ def prepare_ozon_upload_node(
                 "id": 4958,
                 "values": [{"dictionary_value_id": _vid_4958, "value": _vval_4958}]
             })
-            logger.info(f"✅ 兜底添加属性4958（专为），标题搜索: {_vval_4958} (dict_id={_vid_4958})")
+            logger.info(f"✅ 兜底添加属性4958（专为）: {_vval_4958} (dict_id={_vid_4958})")
             seen_attr_ids.add(4958)
         else:
             # 搜索无命中 → 跳过（不做文本兜底/不盲补首值, 防「属性值不正确」）
-            logger.warning("⚠️ 属性4958（专为）标题搜索无命中，跳过")
+            logger.warning("⚠️ 属性4958（专为）搜索无命中（适用对象值/标题），跳过")
 
     # ✅ 补充常见必填自由文本属性的默认值（Ozon 审核拒绝原因：error_attribute_values_empty）
     # ⚠️ v0.13: 9782（Класс опасности товара/危险品等级）是字典属性，已移出本表——文本兜底会被 Ozon 拒绝
