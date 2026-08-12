@@ -14,6 +14,9 @@
 """
 from __future__ import annotations
 
+import json
+import logging
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -24,6 +27,8 @@ from utils.attribute_utils import (  # type: ignore
     is_hazard_attr,
     match_attr_name_synonym,
 )
+
+_logger = logging.getLogger(__name__)
 
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
@@ -223,3 +228,135 @@ def resolve_cached(
         )
     hits = match_dict_value(attr_id, product_value, cached_values or [])
     return unique_or_none(attr_id, attr_name, hits, hazard_safe=hazard_safe, aspect_skip=aspect_skip)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# L2 编排层：LLM 消歧（Phase 4，安全三件套，默认关）
+# ══════════════════════════════════════════════════════════════════════
+# 对抗评审 reasoner-ultrabrain ①裁决（三件套，缺一不可）：
+#   1. prompt 显式加「以上都不对 → 输出 -1」出口——照搬 skill
+#      _llm_disambiguate_category（无 none 出口）会系统性错填
+#   2. LLM 只输出候选列表内索引，绝不输出 dict_id（dict_id 一律由
+#      确定性候选列表重查证，防幻觉数字 ID）
+#   3. 解析失败/越界/异常 → None（abstain），宁缺毋滥
+# 注意：max_tokens 从 config 读（≥200，deepseek-v4-flash reasoning
+# tokens 吃配额，v0.34 教训 10/200 输出必空）。
+
+_CFG_CACHE: dict = {}
+_CFG_CACHE_PATH: str = ""
+
+
+def load_disambiguation_cfg(config_path: str = "") -> dict:
+    """加载 attr_disambiguation_cfg.json（模块级缓存 + APP_WORKSPACE_PATH 定位）。"""
+    global _CFG_CACHE, _CFG_CACHE_PATH
+    workspace = os.environ.get("APP_WORKSPACE_PATH") or os.getcwd()
+    path = config_path or os.path.join(workspace, "config", "attr_disambiguation_cfg.json")
+    if _CFG_CACHE and _CFG_CACHE_PATH == path:
+        return _CFG_CACHE
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            _CFG_CACHE = json.load(f)
+            _CFG_CACHE_PATH = path
+    except Exception:
+        _CFG_CACHE = {}
+        _CFG_CACHE_PATH = path
+    return _CFG_CACHE
+
+
+def build_disambiguation_prompt(
+    attr_name: str,
+    product_value: str,
+    candidates: List[dict],
+) -> tuple[str, str]:
+    """构造消歧 prompt（sp + up），候选列表带编号+文本+id 供 LLM 选索引。"""
+    cfg = load_disambiguation_cfg()
+    sp = str(cfg.get("sp") or "")
+    up_tpl = str(cfg.get("up") or "")
+    lines = []
+    for i, c in enumerate(candidates[:20]):
+        val = str(c.get("value") or "")
+        vid = c.get("id") or c.get("dictionary_value_id") or 0
+        lines.append(f"- {i}. {val} (id={vid})")
+    up = up_tpl.replace("{{attr_name}}", str(attr_name or "")[:60]) \
+               .replace("{{product_value}}", str(product_value or "")[:80]) \
+               .replace("{{candidates}}", "\n".join(lines))
+    return sp, up
+
+
+def parse_disambiguation_index(llm_text: str, n: int) -> Optional[int]:
+    """解析 LLM 输出为候选索引；-1/None/越界/垃圾 → None（abstain）。
+
+    安全三件套 ③：绝不把解析失败当成「选第一个」。
+    """
+    if not llm_text:
+        return None
+    m = re.search(r"-?\d+", str(llm_text).strip())
+    if not m:
+        return None
+    idx = int(m.group(0))
+    if idx == -1:
+        return None
+    if 0 <= idx < n:
+        return idx
+    return None
+
+
+def disambiguate_candidates(
+    resolution: AttrResolution,
+    token: str,
+    *,
+    enabled: bool = False,
+    llm_cfg: Optional[dict] = None,
+) -> AttrResolution:
+    """多候选 LLM 消歧（Phase 4，默认关 enabled=False 时原样返回）。
+
+    enabled=True 时对 llm_eligible 状态的 resolution 调 LLM 选索引；
+    命中 → dict_id 从确定性候选列表重查证（绝不信任 LLM 数字本身）；
+    失败/abstain → skipped（不降级为取第一个）。
+    """
+    if not enabled or resolution.status != "llm_eligible" or not token:
+        return resolution
+    if not resolution.candidates:
+        resolution.status = "skipped"
+        resolution.reason = "no_candidates"
+        return resolution
+    try:
+        from utils.mxou_api import call_mxou_chat_api  # type: ignore
+        cfg = llm_cfg or load_disambiguation_cfg()
+        cc = cfg.get("config") or {}
+        max_tokens = int(cc.get("max_completion_tokens") or cc.get("max_tokens") or 2048)
+        sp, up = build_disambiguation_prompt(
+            resolution.attr_name, resolution.product_value, resolution.candidates,
+        )
+        out = call_mxou_chat_api(
+            token=token,
+            system_prompt=sp,
+            user_prompt=up,
+            model=str(cc.get("model") or "deepseek-v4-flash"),
+            temperature=float(cc.get("temperature") or 0.0),
+            max_tokens=max_tokens,
+            timeout=30,
+        )
+        idx = parse_disambiguation_index(out, len(resolution.candidates))
+        if idx is None:
+            resolution.status = "skipped"
+            resolution.reason = "llm_abstain"
+            return resolution
+        chosen = resolution.candidates[idx]
+        vid = int(chosen.get("id") or chosen.get("dictionary_value_id") or 0)
+        if vid <= 0:
+            resolution.status = "skipped"
+            resolution.reason = "llm_chosen_invalid_dict_id"
+            return resolution
+        resolution.status = "llm_disambiguated"
+        resolution.match_layer = "llm"
+        resolution.dictionary_value_id = vid
+        resolution.value = clean_dict_value(vid, str(chosen.get("value") or ""))
+        resolution.confidence = 0.8
+        resolution.reason = f"llm_picked_idx={idx}"
+        return resolution
+    except Exception as e:
+        resolution.status = "skipped"
+        resolution.reason = "llm_error"
+        _logger.debug("LLM 消歧失败（宁缺毋滥跳过）: %s", e)
+        return resolution
