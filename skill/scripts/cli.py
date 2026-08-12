@@ -341,6 +341,36 @@ def cmd_graph(args: argparse.Namespace) -> int:
         "supplier": draft.get("supplier", "")[:30],
         "shipping": draft.get("shipping"),
     }
+    # ✅ v0.39 需求1: 提交前预估售价（真实运费 + 定价公式）——让用户提前知道大概卖多少
+    try:
+        from scripts.lib.ozon_discovery import (
+            _query_logistics_from_worker,
+            DEFAULT_COMMISSION_PCT,
+        )
+        _w = draft.get("weight") or 0
+        _cost = draft.get("purchase_cost") or 0
+        _dim = draft.get("dimensions") or {}
+        try:
+            _cost_f = float(_cost)
+            _w_f = float(_w)
+        except (TypeError, ValueError):
+            _cost_f, _w_f = 0.0, 0.0
+        if _cost_f > 0 and _w_f > 0:
+            _quote = _query_logistics_from_worker(int(_w_f), dims_mm=_dim)
+            _logistics = float(_quote.cost) if _quote and _quote.cost else (_w_f / 1000 * 15.0)
+            _total = _cost_f + _logistics
+            _margin = float(summary.get("category") and 0.25 or 0.25)
+            _est_price = round(_total * (1 + _margin) / (1 - DEFAULT_COMMISSION_PCT), 2)
+            _est_profit = round(_est_price - _total, 2)
+            _est_rate = round(_est_profit / _est_price * 100, 1) if _est_price > 0 else 0.0
+            summary["estimated_retail_price_cny"] = _est_price
+            summary["estimated_logistics_cny"] = round(_logistics, 2)
+            summary["estimated_profit_cny"] = _est_profit
+            summary["estimated_profit_rate"] = _est_rate
+            print(f"💰 预估: 采购¥{_cost_f:.2f} + 运费¥{_logistics:.2f} → "
+                  f"售价≈¥{_est_price:.2f} (利润¥{_est_profit:.2f}, 率{_est_rate}%)", flush=True)
+    except Exception as _pe:
+        pass
     # ✅ v0.10: 默认自动提交到 Worker（对齐 SKILL.md），--no-submit 跳过
     submit_result = None
     if not getattr(args, 'no_submit', False):
@@ -1908,6 +1938,15 @@ def _print_query_result(task_id: str, r: dict) -> None:
                 ostatus = p.get("ozon_status") or "-"
                 err = f" | 备注: {p.get('ozon_error')}" if p.get("ozon_error") else ""
                 print(f"    - OzonID {pid} | 售价 {price} | 净利润率 {profit} | 审核 {ostatus}{err}")
+                # ✅ v0.39 需求2: 展示采购链接/采购价/运费（用户反馈"上完架还要自己去找货"）
+                purl = p.get("purchase_url") or "-"
+                pcost = p.get("purchase_cost") or "-"
+                logistics = p.get("logistics_cost") or "-"
+                print(f"      采购链接: {purl}")
+                print(f"      采购价: ¥{pcost} | 运费: ¥{logistics} | 售价: {price}")
+                # ✅ v0.39 需求2: 比价建议（引导用户去各大平台核价找更高性价比货源）
+                print(f"      💡 建议: 去 1688/淘宝/拼多多/阿里巴巴 国际站对比同款价格，"
+                      f"如有更低采购价货源可提升利润空间")
         else:
             print("  ✅ 任务完成(无产品明细)")
     elif r.get("error_message"):
