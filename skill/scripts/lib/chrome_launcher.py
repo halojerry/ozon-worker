@@ -150,7 +150,7 @@ def _find_chrome_executable() -> str | None:
         try:
             result = subprocess.run(
                 ["mdfind", "kMDItemCFBundleIdentifier == 'com.google.Chrome'"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True, text=True, timeout=5, errors="replace",
             )
             for line in result.stdout.strip().split("\n"):
                 if line.strip():
@@ -191,7 +191,7 @@ def _find_chrome_processes() -> list[dict]:
             )
             result = subprocess.run(
                 ["powershell", "-NoProfile", "-Command", ps_script],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True, text=True, timeout=10, errors="replace",
             )
             import json as _json
             try:
@@ -214,7 +214,7 @@ def _find_chrome_processes() -> list[dict]:
         else:
             result = subprocess.run(
                 ["ps", "-axo", "pid,command"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True, text=True, timeout=5, errors="replace",
             )
             for line in result.stdout.split("\n"):
                 line = line.strip()
