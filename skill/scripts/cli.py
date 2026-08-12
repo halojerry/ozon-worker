@@ -176,6 +176,40 @@ def cmd_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_category(args: argparse.Namespace) -> int:
+    """查询 Ozon 类目（v0.39 Issue4）：按关键词返回候选类目。
+
+    --lang  ZH_HANS（默认，中文直查）/ EN / RU
+    --store 指定店铺（凭证来源，默认店铺）
+    """
+    from scripts.lib.config_store import get_ozon_credentials, preflight_check, print_setup_guide
+    from scripts.lib.ozon_api import search_categories_validated
+
+    missing = preflight_check(skip_store=True)
+    if missing:
+        print_setup_guide(missing)
+        return 1
+
+    creds = get_ozon_credentials(args.store)
+    if not creds:
+        print(f"❌ 未找到店铺 '{args.store or 'default'}' 的 Ozon 凭证。请先 set_store 配置", flush=True)
+        return 1
+
+    cats = search_categories_validated(
+        creds["client_id"], creds["api_key"],
+        args.query, language=args.lang, max_results=args.max,
+    )
+    out = [{
+        "description_category_id": str(c["description_category_id"]),
+        "type_id": str(c["type_id"]),
+        "category_name": c.get("category_name", ""),
+        "type_name": c.get("type_name", ""),
+        "score": c.get("score", 0),
+    } for c in cats]
+    _out({"query": args.query, "count": len(out), "categories": out})
+    return 0
+
+
 def cmd_probe(args: argparse.Namespace) -> int:
     """CDP 浏览器抓取 1688 商品."""
     from scripts.lib.ak_1688_client import enrich_product_with_cdp
@@ -1478,6 +1512,15 @@ def main() -> int:
                     default="", help="排序（v0.39 Issue6）")
     sp.add_argument("--export", default="", help="CSV 导出路径（v0.39 Issue6）")
     sp.set_defaults(func=cmd_search)
+
+    # category（v0.39 Issue4: Ozon 类目查询，替代临时脚本）
+    cp = sub.add_parser("category", help="查询 Ozon 类目（关键词 → 候选类目）")
+    cp.add_argument("query", help="类目关键词")
+    cp.add_argument("--lang", choices=["ZH_HANS", "EN", "RU"], default="ZH_HANS",
+                    help="类目树语言（默认中文直查）")
+    cp.add_argument("--max", type=int, default=5, help="返回最大候选数")
+    cp.add_argument("--store", default="", help="Ozon 店铺名称（凭证来源）")
+    cp.set_defaults(func=cmd_category)
 
     # probe
     pp = sub.add_parser("probe", help="CDP 探针抓取 1688 商品")
