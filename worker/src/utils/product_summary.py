@@ -61,6 +61,20 @@ def build_product_summary(graph_result: dict, draft: dict) -> list[dict[str, Any
             or graph_result.get("validation_errors")
             or ""
         ),
+        # ✅ v0.40: 类目/属性信息透出 — 用户能知道产品挂到哪个 Ozon 类目
+        #（dc/type 可读格式）、填了多少属性、1688 货源类目路径（选品溯源）
+        "_ozon_cat": draft.get("ozon_category") or {},
+        "category_path": "{dc}/{tp}".format(
+            dc=(draft.get("ozon_category") or {}).get("description_category_id", "-"),
+            tp=(draft.get("ozon_category") or {}).get("type_id", "-"),
+        ),
+        "attribute_count": len(graph_result.get("final_attributes") or []),
+        "source_category_path": str(
+            draft.get("source_category_path")
+            or (draft.get("source") or {}).get("source_category_path")
+            or draft.get("source_category")
+            or ""
+        ),
     }
 
     variants = pi.get("variant_prices") or []
