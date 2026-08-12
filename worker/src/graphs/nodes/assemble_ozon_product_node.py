@@ -907,71 +907,71 @@ def assemble_ozon_product_node(
                 # 无候选有重叠 → LLM fallback：让 LLM 从 top-5 候选中选择最佳匹配
                 logger.warning(f"   ⚠️ 所有 {len(candidates)} 个候选与源词无子串重叠，触发 LLM fallback")
                 best_by_llm = _llm_rank_categories(candidates[:5], source_keywords or keywords, draft, state)
-            # v0.34: LLM 认为候选都不合适 → 用建议搜索词二次搜索
-            if best_by_llm and best_by_llm.get("_llm_suggest"):
-                _sugg = str(best_by_llm.get("suggest_keywords", "") or "").strip()
-                logger.info(f"   🔍 LLM 建议搜索词: {_sugg}，二次搜索类目")
-                if _sugg:
-                    try:
-                        from utils.attr_value_matcher import lang_route  # type: ignore
-                        query = get_category_query()
-                        # v0.40: 建议词可能是俄语（LLM 输出 вибромассажер 等）→ 按语言路由
-                        # （旧代码固定 ZH_HANS → 俄语词 jieba LIKE 0 候选 → 二次搜索白做 → 阻断）
-                        re_cands = query.search_nodes(
-                            _sugg, top_k=10, node_type="type", language=lang_route(_sugg),
+                # v0.34: LLM 认为候选都不合适 → 用建议搜索词二次搜索
+                if best_by_llm and best_by_llm.get("_llm_suggest"):
+                    _sugg = str(best_by_llm.get("suggest_keywords", "") or "").strip()
+                    logger.info(f"   🔍 LLM 建议搜索词: {_sugg}，二次搜索类目")
+                    if _sugg:
+                        try:
+                            from utils.attr_value_matcher import lang_route  # type: ignore
+                            query = get_category_query()
+                            # v0.40: 建议词可能是俄语（LLM 输出 вибромассажер 等）→ 按语言路由
+                            # （旧代码固定 ZH_HANS → 俄语词 jieba LIKE 0 候选 → 二次搜索白做 → 阻断）
+                            re_cands = query.search_nodes(
+                                _sugg, top_k=10, node_type="type", language=lang_route(_sugg),
+                            )
+                            if re_cands:
+                                candidates = _merge_candidates(re_cands, candidates)
+                                logger.info(f"   ✅ 建议词二次搜索: {len(re_cands)} 候选并入")
+                                # ⚠️ v0.34 review fix: 合并后必须重跑 LLM 排名——
+                                # 否则 best_by_llm 仍是 suggest 标记 dict(full_path 为空) →
+                                # 下方重叠检查恒失败 → 硬阻断, 二次搜索白做 (与 L1237 路径对齐)
+                                best_by_llm = _llm_rank_categories(candidates[:10], source_keywords or keywords, draft, state)
+                        except Exception as _se:
+                            logger.warning(f"   ⚠️ 建议词二次搜索失败: {_se}")
+                if best_by_llm:
+                    # ✅ v0.21: LLM 结果也必须与源词有具体重叠，否则不硬猜（阻断，需人工确认类目）
+                    _llm_path = str(best_by_llm.get("full_path", "")).lower()
+                    _llm_overlap = {sw for sw in _source_words if sw in _llm_path} - _GENERIC_OVERLAP
+                    # ⚠️ v0.34 review fix: 重跑后若 LLM 仍返回 suggest 标记(候选并入但全不满意)——
+                    # 从合并后 candidates 取 top1(已含二次搜索高分候选)回退, 不再硬阻断白做二次搜索
+                    if not _llm_overlap and best_by_llm.get("_llm_suggest") and candidates:
+                        _fb = candidates[0]
+                        _fb_path = str(_fb.get("full_path", "")).lower()
+                        _fb_overlap = {sw for sw in _source_words if sw in _fb_path} - _GENERIC_OVERLAP
+                        if _fb_overlap:
+                            best_by_llm = _fb
+                            _llm_overlap = _fb_overlap
+                            _llm_path = _fb_path
+                            logger.info(f"   🔍 suggest 回退: 采用二次搜索 top1 '{_fb.get('full_path', '')[:60]}'")
+                    if _llm_overlap:
+                        category_result = {
+                            "description_category_id": best_by_llm["description_category_id"],
+                            "type_id": best_by_llm["type_id"],
+                            "category_path": best_by_llm["full_path"],
+                            "confidence": "medium",
+                            "reason": f"LLM_fallback+overlap (words={_llm_overlap})",
+                            "similarity": best_by_llm.get("similarity", 0),
+                            "matcher": best_by_llm.get("matcher", "pg_trgm"),
+                        }
+                        match_confidence = _confidence_from_sim(best_by_llm.get("similarity"))
+                        logger.info(f"   ✅ LLM fallback 选中（有重叠）: {best_by_llm['full_path'][:80]} {_llm_overlap}")
+                    else:
+                        logger.error(
+                            f"   🛑 LLM fallback 结果与源词无具体重叠，阻断上架避免错误类目: "
+                            f"{best_by_llm.get('full_path', '')[:80]}"
                         )
-                        if re_cands:
-                            candidates = _merge_candidates(re_cands, candidates)
-                            logger.info(f"   ✅ 建议词二次搜索: {len(re_cands)} 候选并入")
-                            # ⚠️ v0.34 review fix: 合并后必须重跑 LLM 排名——
-                            # 否则 best_by_llm 仍是 suggest 标记 dict(full_path 为空) →
-                            # 下方重叠检查恒失败 → 硬阻断, 二次搜索白做 (与 L1237 路径对齐)
-                            best_by_llm = _llm_rank_categories(candidates[:10], source_keywords or keywords, draft, state)
-                    except Exception as _se:
-                        logger.warning(f"   ⚠️ 建议词二次搜索失败: {_se}")
-            if best_by_llm:
-                # ✅ v0.21: LLM 结果也必须与源词有具体重叠，否则不硬猜（阻断，需人工确认类目）
-                _llm_path = str(best_by_llm.get("full_path", "")).lower()
-                _llm_overlap = {sw for sw in _source_words if sw in _llm_path} - _GENERIC_OVERLAP
-                # ⚠️ v0.34 review fix: 重跑后若 LLM 仍返回 suggest 标记(候选并入但全不满意)——
-                # 从合并后 candidates 取 top1(已含二次搜索高分候选)回退, 不再硬阻断白做二次搜索
-                if not _llm_overlap and best_by_llm.get("_llm_suggest") and candidates:
-                    _fb = candidates[0]
-                    _fb_path = str(_fb.get("full_path", "")).lower()
-                    _fb_overlap = {sw for sw in _source_words if sw in _fb_path} - _GENERIC_OVERLAP
-                    if _fb_overlap:
-                        best_by_llm = _fb
-                        _llm_overlap = _fb_overlap
-                        _llm_path = _fb_path
-                        logger.info(f"   🔍 suggest 回退: 采用二次搜索 top1 '{_fb.get('full_path', '')[:60]}'")
-                if _llm_overlap:
-                    category_result = {
-                        "description_category_id": best_by_llm["description_category_id"],
-                        "type_id": best_by_llm["type_id"],
-                        "category_path": best_by_llm["full_path"],
-                        "confidence": "medium",
-                        "reason": f"LLM_fallback+overlap (words={_llm_overlap})",
-                        "similarity": best_by_llm.get("similarity", 0),
-                        "matcher": best_by_llm.get("matcher", "pg_trgm"),
-                    }
-                    match_confidence = _confidence_from_sim(best_by_llm.get("similarity"))
-                    logger.info(f"   ✅ LLM fallback 选中（有重叠）: {best_by_llm['full_path'][:80]} {_llm_overlap}")
+                        match_confidence = 0.0
+                        return {"error_message": "类目匹配失败：LLM fallback 无可靠结果（需人工确认类目），阻断上架",
+                                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
+                                "match_confidence": 0.0}
                 else:
-                    logger.error(
-                        f"   🛑 LLM fallback 结果与源词无具体重叠，阻断上架避免错误类目: "
-                        f"{best_by_llm.get('full_path', '')[:80]}"
-                    )
+                    # ✅ v5: LLM 也失败 → 阻断上架，不硬用低质量候选
                     match_confidence = 0.0
-                    return {"error_message": "类目匹配失败：LLM fallback 无可靠结果（需人工确认类目），阻断上架",
+                    logger.error(f"   🛑 LLM fallback 也失败，无可靠类目匹配，阻断上架")
+                    return {"error_message": "类目匹配失败：jieba搜索+LLM均无可靠结果，阻断上架避免错误类目",
                             "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
                             "match_confidence": 0.0}
-            else:
-                # ✅ v5: LLM 也失败 → 阻断上架，不硬用低质量候选
-                match_confidence = 0.0
-                logger.error(f"   🛑 LLM fallback 也失败，无可靠类目匹配，阻断上架")
-                return {"error_message": "类目匹配失败：jieba搜索+LLM均无可靠结果，阻断上架避免错误类目",
-                        "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
-                        "match_confidence": 0.0}
 
     # ✅ v0.31.x: 最终采纳点门槛 — 非 L0/Skill 且 sim 低于接受门槛 → 走既有阻断分支。
     # 防低分错配（如 sim=0.200 的『儿童多功能学习挂图』）经 direct/overlap/LLM 任一
