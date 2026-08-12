@@ -1441,13 +1441,46 @@ def build_graph_envelope(
     if not images and fallback_images:
         images = list(fallback_images)
 
-    # 属性（取前 15 个有效 kv）
+    # 属性（v0.40: contextPath featureAttributes 全量优先，DOM 属性表补充）
+    # 上品帮采集方案借鉴——1688 页面 context(...) 内嵌 JSON 的 featureAttributes
+    # 是结构化全量属性（含产地/材质/型号等），比 DOM 属性表更全更稳。
     attrs: dict[str, str] = {}
-    for a in data.get("attributes", [])[:15]:
+    ctx_path = None
+    for _sd in data.get("pageStructuredData") or []:
+        if isinstance(_sd, dict) and _sd.get("name") == "contextPath":
+            ctx_path = _sd
+            break
+    if ctx_path:
+        try:
+            import json as _json
+            _sample = ctx_path.get("sample")
+            _cp = _json.loads(_sample) if isinstance(_sample, str) else (_sample or {})
+            for a in _cp.get("featureAttributes") or []:
+                name = str(a.get("name", "")).strip()
+                val = str(a.get("value", "") or "").strip()
+                if name and val and len(name) < 30 and len(val) < 80:
+                    attrs[name] = val
+        except Exception:
+            pass
+    # DOM 属性表补充（contextPath 缺失的属性名，如"颜色分类"等页面特有字段）
+    for a in data.get("attributes", []):
         name = str(a.get("name", "")).strip()
         val = str(a.get("value", "")).strip()
-        if name and val and len(name) < 30 and len(val) < 80:
+        if name and val and name not in attrs and len(name) < 30 and len(val) < 80:
             attrs[name] = val
+        if len(attrs) >= 40:  # 上限 40（信封体积控制）
+            break
+    # 单件重量（contextPath unitWeight，克）——缺重量时的可靠来源
+    if ctx_path and not (data.get("weight") or data.get("unit_weight")):
+        try:
+            import json as _json
+            _sample = ctx_path.get("sample")
+            _cp = _json.loads(_sample) if isinstance(_sample, str) else (_sample or {})
+            _uw = _cp.get("unitWeight")
+            if _uw:
+                data["unit_weight"] = float(_uw) * 1000  # 0.1kg → 100g
+        except Exception:
+            pass
 
     # 卖家
     seller_raw = data.get("seller", "") or ""

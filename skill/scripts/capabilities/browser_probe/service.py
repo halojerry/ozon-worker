@@ -315,11 +315,64 @@ EXTRACT_1688_JS = r"""
         candidates.push({ name, keys, sample, dimensionHints });
       }
     };
+    // v0.40: 解析 window.contextPath script 的 context(...) 内嵌 JSON —— 上品帮
+    // 采集方案（1688 页面全量数据）。完整 result JSON 含非 JSON 内容（函数等），
+    // 故用平衡括号分段提取 featureAttributes/skuProps/unitWeight/categoryChain。
+    try {
+      const cpScript = Array.from(document.querySelectorAll('script'))
+        .find((s) => (s.textContent || '').includes('contextPath') && (s.textContent || '').includes('"result"'));
+      if (cpScript) {
+        const t = cpScript.textContent || '';
+        // 平衡括号提取工具
+        const extractBalanced = (text, key, open, close) => {
+          const kIdx = text.indexOf(key);
+          if (kIdx < 0) return null;
+          const sIdx = text.indexOf(open, kIdx);
+          if (sIdx < 0) return null;
+          let depth = 0;
+          for (let i = sIdx; i < text.length; i++) {
+            if (text[i] === open) depth++;
+            else if (text[i] === close) { depth--; if (depth === 0) return text.slice(sIdx, i + 1); }
+          }
+          return null;
+        };
+        // featureAttributes（商品属性全量）
+        const faArrStr = extractBalanced(t, '"featureAttributes":', '[', ']');
+        let featureAttrs = [];
+        if (faArrStr) {
+          try { featureAttrs = JSON.parse(faArrStr).slice(0, 60); } catch (e) {}
+        }
+        // skuProps（规格组）
+        const skuPropsStr = extractBalanced(t, '"skuProps":', '[', ']');
+        let skuProps = [];
+        if (skuPropsStr) {
+          try { skuProps = JSON.parse(skuPropsStr).slice(0, 30); } catch (e) {}
+        }
+        // 单件重量
+        let unitWeight = null;
+        const uwMatch = t.match(/"unitWeight"\s*:\s*([\d.]+)/);
+        if (uwMatch) unitWeight = parseFloat(uwMatch[1]);
+        // 1688 类目链（categoryChain: ["电工电气","绝缘材料","绝缘子"]）
+        let categoryChain = null;
+        const ccStr = extractBalanced(t, '"categoryChain":', '[', ']');
+        if (ccStr) {
+          try { categoryChain = JSON.parse(ccStr).slice(0, 6); } catch (e) {}
+        }
+        if (featureAttrs.length || skuProps.length || categoryChain) {
+          addCandidate('contextPath', {
+            featureAttributes: featureAttrs.map((a) => ({ name: a.name || '', value: a.value || a.values?.[0] || '' })),
+            skuProps: skuProps.map((g) => ({ name: g.name || g.showName || '', values: (g.value || []).slice(0, 20) })),
+            unitWeight,
+            categoryChain,
+          });
+        }
+      }
+    } catch (e) { /* contextPath 提取失败则跳过 */ }
     addCandidate('__INIT_DATA__', getWindowInitData());
     try { addCandidate('globalData', window.globalData || globalThis.globalData || null); } catch {}
     try { addCandidate('__PRELOADED_STATE__', window.__PRELOADED_STATE__ || globalThis.__PRELOADED_STATE__ || null); } catch {}
     try { addCandidate('__NUXT__', window.__NUXT__ || globalThis.__NUXT__ || null); } catch {}
-    return candidates.slice(0, 10);
+    return candidates.slice(0, 12);
   };
   const extractRuntimeSkuData = () => {
     const roots = [
