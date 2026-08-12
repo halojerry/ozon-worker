@@ -1159,7 +1159,12 @@ def cmd_discover(args: argparse.Namespace) -> int:
                     print(f"    图: {', '.join(c.match_1688_images[:3])}", flush=True)
                 print(f"    confidence={c.match_confidence:.2f} "
                       f"badge_eff={c.match_badge_eff:.2f}", flush=True)
-                ans = input("    接受该货源？[y/N/a=全部接受/s=跳过] ").strip().lower()
+                try:
+                    ans = input("    接受该货源？[y/N/a=全部接受/s=跳过] ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    # 自动化/非交互模式：EOF 视为跳过（按自动规则处理），不崩溃
+                    print("\n    非交互模式，按自动规则处理（跳过）", flush=True)
+                    ans = "s"
                 decision = ""
                 if ans in ("a", "all"):
                     decision = "approved"
@@ -1223,7 +1228,12 @@ def cmd_discover(args: argparse.Namespace) -> int:
             print("\n⚠️ 没有符合条件的 profitable 产品可提交")
             return 0
         print(f"\n🚀 提交 {len(to_submit)} 个产品到 Worker...", flush=True)
-        confirm = input("确认提交？(y/N) ")
+        try:
+            confirm = input("确认提交？(y/N) ")
+        except (EOFError, KeyboardInterrupt):
+            # 自动化/非交互模式：EOF 视为取消（提交是高风险操作，默认不提交）
+            print("\n已取消（非交互模式不自动确认提交）")
+            return 0
         if confirm.lower() != 'y':
             print("已取消")
             return 0

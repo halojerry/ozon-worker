@@ -107,6 +107,18 @@ def test_parallel_respects_product_budget_and_visited():
     assert len(set(pids_out)) == len(pids_out), "不应有重复 pid"
 
 
+def test_parallel_workers_formula_lower_bound_one():
+    """v0.38.1：_parallel_workers() 下限为 1（单核走串行），上限为 4。"""
+    import os as _os
+    with mock.patch.object(_os, "cpu_count", return_value=1):
+        assert ozon_fission._parallel_workers() == 1, \
+            "cpu_count=1 时应返回 1（串行路径真实可达，消除死代码）"
+    with mock.patch.object(_os, "cpu_count", return_value=8):
+        assert ozon_fission._parallel_workers() == 4, "上限 4（实测安全值）"
+    with mock.patch.object(_os, "cpu_count", return_value=None):
+        assert ozon_fission._parallel_workers() in (1, 2, 3, 4), "cpu_count=None 时回退默认"
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0

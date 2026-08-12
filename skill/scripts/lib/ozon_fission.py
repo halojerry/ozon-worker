@@ -150,12 +150,14 @@ def rank_by_consensus(candidates: list[dict], top_k: int = 10) -> list[dict]:
 
 
 def _parallel_workers() -> int:
-    """并行 worker 数：min(max(2, os.cpu_count() or 4), 4)。
+    """并行 worker 数：min(max(1, os.cpu_count() or 2), 4)。
 
     纯 stdlib（无 psutil），上限 4 —— CDP 单浏览器多 tab 并发收益有限且 Chrome
     负载随 tab 数上升，4 为实测安全值（worker 端 ThreadPoolExecutor 先例同为 4）。
+    下限 1：单核/受限容器（cpu_count=1）走串行路径（workers<=1 分支真实可达，
+    v0.38.1 修复——原 max(2,...) 使串行分支成为不可达死代码）。
     """
-    return min(max(2, os.cpu_count() or 4), 4)
+    return min(max(1, os.cpu_count() or 2), 4)
 
 
 # ---------------------------------------------------------------------------
@@ -565,6 +567,16 @@ def _expand_seller(state: FissionState, cdp: Any, cdp_url: str, sid: str,
         }
         for fut in as_completed(future_to_pid):
             pid = future_to_pid[fut]
-            candidate = fut.result()
+            try:
+                candidate = fut.result()
+            except Exception as exc:
+                # _analyze_product 已内捕业务异常；此处兜底连接层失败
+                # （new_tab/CDP 断连等）——单线程失败不中止整个 fission。
+                candidate = ProductCandidate(
+                    ozon_product_id=pid, ozon_title="", ozon_price=0.0,
+                    ozon_url=f"https://www.ozon.ru/product/{pid}")
+                candidate.status = "error"
+                candidate.error = str(exc)
+                logger.warning("Fission product %s analysis failed: %s", pid, exc)
             _finalize_product_candidate(state, candidate, pid, depth, chain,
                                         frontier, out, seed_category)
