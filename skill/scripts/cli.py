@@ -115,11 +115,64 @@ def cmd_set_ak(args: argparse.Namespace) -> int:
 
 
 def cmd_search(args: argparse.Namespace) -> int:
-    """搜索 1688 商品."""
+    """搜索 1688 商品（v0.39 Issue6 增强：附加利润估算 + 排序 + 导出）。
+
+    --sort     price_asc / price_desc / sold_desc（按销量）
+    --export   CSV 导出路径（含利润估算）
+    """
     from scripts.lib.ak_1688_client import search_products
+    from scripts.lib.ozon_discovery import (
+        DEFAULT_COMMISSION_PCT,
+        DEFAULT_FX_RATE,
+        DEFAULT_LOGISTICS_CNY,
+    )
 
     products = search_products(args.query, page_size=args.page_size)
-    _out({"count": len(products), "products": products})
+
+    # v0.39 Issue6: 轻量利润估算（1688 直选场景无 Ozon 竞品价，用固定参数估算）：
+    # 预计 Ozon 售价 = 采购价*(1+fx_buffer 补偿) → 利润 = 售价 - 采购价 - 物流 - 佣金
+    # 与 discover 的 _calculate_profit 同源常量，方向一致（仅缺真实竞品价）
+    estimated = []
+    for p in products:
+        try:
+            cost_cny = float(p.get("price") or 0)
+        except (TypeError, ValueError):
+            cost_cny = 0.0
+        est_retail = round(cost_cny * 3.5, 2)  # 1688→Ozon 典型 3-4x 加价
+        est_logistics = DEFAULT_LOGISTICS_CNY
+        est_commission = est_retail * DEFAULT_COMMISSION_PCT
+        est_profit = round(est_retail - cost_cny - est_logistics - est_commission, 2)
+        margin = round(est_profit / est_retail, 3) if est_retail > 0 else 0.0
+        estimated.append({
+            **p,
+            "estimated_retail_rub": round(est_retail * (1 / DEFAULT_FX_RATE) if DEFAULT_FX_RATE else 0),
+            "estimated_profit_cny": est_profit,
+            "profit_margin": margin,
+        })
+
+    # v0.39 Issue6: 排序（--sort）
+    if args.sort == "price_asc":
+        estimated.sort(key=lambda x: float(x.get("price") or 0))
+    elif args.sort == "price_desc":
+        estimated.sort(key=lambda x: float(x.get("price") or 0), reverse=True)
+    elif args.sort == "sold_desc":
+        estimated.sort(key=lambda x: float(x.get("sold_count") or x.get("month_sold") or 0),
+                       reverse=True)
+
+    # v0.39 Issue6: CSV 导出（--export）
+    if args.export:
+        import csv
+        from pathlib import Path
+        _out_path = Path(args.export)
+        _fieldnames = ["product_id", "title", "price", "similarity_score",
+                       "estimated_retail_rub", "estimated_profit_cny", "profit_margin"]
+        with _out_path.open("w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=_fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(estimated)
+        print(f"📄 已导出 {len(estimated)} 条到 {_out_path}", flush=True)
+
+    _out({"count": len(estimated), "products": estimated})
     return 0
 
 
@@ -1421,6 +1474,9 @@ def main() -> int:
     sp = sub.add_parser("search", help="搜索 1688 商品")
     sp.add_argument("query", help="搜索关键词")
     sp.add_argument("--page-size", type=int, default=5, help="返回数量")
+    sp.add_argument("--sort", choices=["price_asc", "price_desc", "sold_desc"],
+                    default="", help="排序（v0.39 Issue6）")
+    sp.add_argument("--export", default="", help="CSV 导出路径（v0.39 Issue6）")
     sp.set_defaults(func=cmd_search)
 
     # probe
