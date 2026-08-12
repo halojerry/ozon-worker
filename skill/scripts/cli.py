@@ -781,6 +781,17 @@ def cmd_check(args) -> int:
         print("  → python3 scripts/cli.py set_store --name \"店铺名\" --client-id <ID> --api-key <KEY>")
         all_ok = False
 
+    # Sentry 状态（v0.39 Issue5: 依赖缺失静默降级不可见 → 显式诊断）
+    try:
+        from scripts.cli import _init_sentry
+        sentry_ok = _init_sentry()
+        print(f"  {_ok(sentry_ok)} Sentry 错误上报")
+        if not sentry_ok:
+            print("  → 错误上报未启用（sentry-sdk 缺失？）：`pip install -r requirements.txt` 后生效")
+    except Exception:
+        print(f"  {_ok(False)} Sentry 错误上报")
+        print("  → 错误上报未启用：`pip install -r requirements.txt` 后生效")
+
     # ═══════════════════════════════════════════
     # 6. Worker 连通检查
     # ═══════════════════════════════════════════
