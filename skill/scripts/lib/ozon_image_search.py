@@ -631,6 +631,11 @@ def _aibuy_image_search(
             "repurchase_rate": str(item.get("repurchaseRate") or ""),
             "supplier": str(item.get("companyName") or ""),
             "offer_publish_time": str(item.get("offerPublishTime") or ""),
+            # v0.39 Issue3 协同: 1688 类目 ID（Issue 3 类目匹配增强——即使 AK 详情
+            # 失败也能拿到类目线索，供 source_category_path 推导）
+            "cate_level1_id": str(item.get("cateLevel1Id") or ""),
+            "cate_level2_id": str(item.get("cateLevel2Id") or ""),
+            "category_name": str(item.get("categoryName") or ""),
         })
     return normalized
 
