@@ -1945,8 +1945,8 @@ def _print_query_result(task_id: str, r: dict) -> None:
                 print(f"      采购链接: {purl}")
                 print(f"      采购价: ¥{pcost} | 运费: ¥{logistics} | 售价: {price}")
                 # ✅ v0.39 需求2: 比价建议（引导用户去各大平台核价找更高性价比货源）
-                print(f"      💡 建议: 去 1688/淘宝/拼多多/阿里巴巴 国际站对比同款价格，"
-                      f"如有更低采购价货源可提升利润空间")
+                print("      💡 建议: 去 1688/淘宝/拼多多/阿里巴巴 国际站对比同款价格，"
+                      "如有更低采购价货源可提升利润空间")
         else:
             print("  ✅ 任务完成(无产品明细)")
     elif r.get("error_message"):
