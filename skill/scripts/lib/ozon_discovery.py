@@ -1552,9 +1552,10 @@ def _search_1688_source(
     """Search 1688 for a matching source product.
 
     Strategy:
-    1. Try CDP-based image search (best quality, uses YOLO crop regions)
-    2. Fall back to AK API image search
-    3. Fall back to AK API keyword search using the Ozon title
+    1. aibuy mtop API 图搜（v0.39 优先，免浏览器官方排序精准，trusted_source）
+    2. CDP-based image search (best quality, uses YOLO crop regions)
+    3. Fall back to AK API image search
+    4. Fall back to AK API keyword search using the Ozon title
 
     Retry 机制（偶发失败容错）：
     - CDP 图搜空结果（页面加载失败/超时等偶发）→ 重试 max_retries 次
@@ -1566,7 +1567,32 @@ def _search_1688_source(
 
     Returns dict with: url, title, price, images  (or None if no match).
     """
-    # --- Strategy 1: CDP image search ---
+    # --- Strategy 1: aibuy mtop API 图搜（v0.39 优先，免浏览器）---
+    # fail-fast：无 token/失败快速返回 [] → 降级 CDP，不阻塞
+    if images:
+        try:
+            from scripts.lib.ozon_image_search import search_by_image_aibuy
+
+            logger.debug("1688 aibuy image search with: %s", images[0][:80])
+            results = search_by_image_aibuy(images[0], page_size=20)
+            if results:
+                best = _pick_best_match(results, title, token=mxou_token, trusted_source=True)
+                if best:
+                    return {
+                        "url": f"https://detail.1688.com/offer/{best.get('id', '')}.html"
+                            if best.get("id") else "",
+                        "title": best.get("title", ""),
+                        "price": float(best.get("price", 0) or 0),
+                        "images": [best.get("image", "")] if best.get("image") else [],
+                        "confidence": float(best.get("confidence", 0) or 0),
+                        "badge_eff": float(best.get("badge_eff", 0) or 0),
+                        "score": best.get("score", 0),
+                        "reject_reason": str(best.get("reject_reason", "") or ""),
+                    }
+        except Exception as exc:
+            logger.debug("aibuy image search failed: %s", exc)
+
+    # --- Strategy 2: CDP image search ---
     if images:
         for attempt in range(max_retries + 1):
             try:

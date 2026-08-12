@@ -288,8 +288,9 @@ def cmd_graph(args: argparse.Namespace) -> int:
 def cmd_image_search(args) -> int:
     """以图搜款: 上传图片搜索 1688 同款/相似商品。
 
-    --source ak  → 1688 AK API 图搜（默认，无需浏览器）
-    --source cdp → 1688 网页版 CDP 图搜（更准确，需 Chrome 登录 1688）
+    --source aibuy → 1688 mtop API 直调图搜（v0.39 默认，免浏览器官方排序）
+    --source ak    → 1688 AK API 图搜（无需浏览器）
+    --source cdp   → 1688 网页版 CDP 图搜（需 Chrome 登录 1688）
     """
     from scripts.lib.config_store import AuthError, preflight_check, print_setup_guide
 
@@ -298,7 +299,7 @@ def cmd_image_search(args) -> int:
         print_setup_guide(missing)
         return 1
 
-    # ⚠️ PR-3: --source cdp 需要 Chrome；ak 引擎无需浏览器不探测
+    # ⚠️ PR-3: --source cdp 需要 Chrome；aibuy/ak 引擎无需浏览器不探测
     if args.source == "cdp":
         try:
             from scripts.lib.chrome_launcher import ensure_chrome_cdp
@@ -313,7 +314,13 @@ def cmd_image_search(args) -> int:
             return 1
 
     try:
-        if args.source == "cdp":
+        if args.source == "aibuy":
+            from scripts.lib.ozon_image_search import search_by_image_aibuy
+            results = search_by_image_aibuy(
+                image_url=args.image,
+                page_size=max(args.limit, 20),
+            )
+        elif args.source == "cdp":
             from scripts.lib.ozon_image_search import search_by_image_cdp
             results = search_by_image_cdp(
                 image_url=args.image,
@@ -342,13 +349,15 @@ def cmd_image_search(args) -> int:
     products = []
     for p in results:
         products.append({
-            "id": p.get("product_id", ""),
+            "id": p.get("product_id") or p.get("itemId") or p.get("id", ""),
             "title": p.get("title", "")[:100],
             "price": p.get("price", ""),
-            "image": p.get("image_url", ""),
-            "detail_url": p.get("detail_url", ""),
-            "supplier": p.get("supplier", ""),
-            "sold_count": p.get("sold_count", 0),
+            "image": p.get("image_url") or p.get("image", ""),
+            "detail_url": p.get("detail_url", "")
+                or (f"https://detail.1688.com/offer/{p.get('id', '')}.html"
+                    if p.get("id") else ""),
+            "supplier": p.get("supplier") or p.get("company_name", ""),
+            "sold_count": p.get("sold_count") or p.get("month_sold", ""),
         })
 
     _out({
@@ -1438,7 +1447,7 @@ def main() -> int:
     ip.add_argument("--image", required=True, help="图片路径或 URL")
     ip.add_argument("--limit", type=int, default=10, help="返回数量")
     ip.add_argument("--sort", default="", help="排序: price_asc/price_desc/sold_desc/yx_desc")
-    ip.add_argument("--source", choices=["ak", "cdp"], default="ak",
+    ip.add_argument("--source", choices=["aibuy", "ak", "cdp"], default="aibuy",
                     help="图搜引擎: ak=1688 AK API（默认），cdp=1688 网页 CDP（更准确）")
     ip.set_defaults(func=cmd_image_search)
 

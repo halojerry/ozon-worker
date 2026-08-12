@@ -2892,48 +2892,62 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         main_img = ozon_images[0]  # 第一张 = 产品主图
         logger.info("🔍 以图搜款: %s", main_img[:80])
 
-        # 3a-1. CDP 网页版以图搜款（更准确，用1688网页搜索引擎）
-        # ⚠️ v0.14 E5+: 匹配质量差（badge 全 0/无有效评分）时自动重新图搜最多 3 次取最佳
-        # （1688 图搜算法偶发匹配差，重搜可显著提高命中质量）
-        # ✅ v0.19: page_size 20 + 仅在页面确实渲染了徽标且质量差时才重搜；
-        # 无徽标（未登录/未渲染）不重搜，交给 _pick_best_match 标题相关性降级
+        # 3a-0. aibuy mtop API 直调（v0.39 优先）— 免浏览器秒级返回结构化结果，
+        # 官方排序精准（实测 guest 视图=精准图搜排序）。fail-fast：无 token/失败
+        # 快速返回 [] 由下方 CDP/AK 降级承接，不阻塞。
         try:
-            from scripts.lib.ozon_image_search import (
-                _get_badge_score,
-                search_by_image_cdp,
-            )
-            cdp_results = search_by_image_cdp(image_url=main_img, page_size=20, wait_seconds=10, conn=shared_cdp)
-            # ✅ v0.19: CDP 空结果先原地重试 1 次（页面渲染偶发失败，甩脂机案例），
-            # 仍空才降级 AK API
-            if not cdp_results:
-                logger.info("🔄 CDP图搜空结果，等待后原地重试 1 次...")
-                time.sleep(3)
-                cdp_results = search_by_image_cdp(
-                    image_url=main_img, page_size=20, wait_seconds=15,
-                    conn=shared_cdp, force_refresh=True)
-            if cdp_results:
-                badge_scores = [_get_badge_score(p.get("badge", "") or "") for p in cdp_results]
-                has_badge = any(s > 0 for s in badge_scores)
-                top_score = max(badge_scores, default=0)
-                _re_attempt = 0
-                while has_badge and top_score <= 1 and _re_attempt < 2:
-                    _re_attempt += 1
-                    logger.info(f"🔄 图搜匹配质量低(badge={top_score})，重新图搜 {_re_attempt}/2...")
-                    retry_results = search_by_image_cdp(image_url=main_img, page_size=20, wait_seconds=15, conn=shared_cdp, force_refresh=True)
-                    if not retry_results:
-                        break
-                    retry_score = max((_get_badge_score(p.get("badge", "")) for p in retry_results), default=0)
-                    if retry_score > top_score:
-                        cdp_results = retry_results
-                        top_score = retry_score
-                if top_score > 1:
-                    logger.info(f"✅ 重搜后图搜质量提升: badge={top_score}")
-            if cdp_results:
-                matches_raw = cdp_results
-                search_method = "cdp"
-                logger.info("✅ CDP图搜命中 %d 个结果", len(matches_raw))
+            from scripts.lib.ozon_image_search import search_by_image_aibuy
+            aibuy_results = search_by_image_aibuy(image_url=main_img, page_size=20)
+            if aibuy_results:
+                matches_raw = aibuy_results
+                search_method = "aibuy"
+                logger.info("✅ aibuy图搜命中 %d 个结果", len(matches_raw))
         except Exception as e:
-            logger.debug("CDP image search failed: %s", e)
+            logger.debug("aibuy image search failed: %s", e)
+
+        # 3a-1. CDP 网页版以图搜款（aibuy 不可用时，用1688网页搜索引擎）
+        if not matches_raw:
+            # ⚠️ v0.14 E5+: 匹配质量差（badge 全 0/无有效评分）时自动重新图搜最多 3 次取最佳
+            # （1688 图搜算法偶发匹配差，重搜可显著提高命中质量）
+            # ✅ v0.19: page_size 20 + 仅在页面确实渲染了徽标且质量差时才重搜；
+            # 无徽标（未登录/未渲染）不重搜，交给 _pick_best_match 标题相关性降级
+            try:
+                from scripts.lib.ozon_image_search import (
+                    _get_badge_score,
+                    search_by_image_cdp,
+                )
+                cdp_results = search_by_image_cdp(image_url=main_img, page_size=20, wait_seconds=10, conn=shared_cdp)
+                # ✅ v0.19: CDP 空结果先原地重试 1 次（页面渲染偶发失败，甩脂机案例），
+                # 仍空才降级 AK API
+                if not cdp_results:
+                    logger.info("🔄 CDP图搜空结果，等待后原地重试 1 次...")
+                    time.sleep(3)
+                    cdp_results = search_by_image_cdp(
+                        image_url=main_img, page_size=20, wait_seconds=15,
+                        conn=shared_cdp, force_refresh=True)
+                if cdp_results:
+                    badge_scores = [_get_badge_score(p.get("badge", "") or "") for p in cdp_results]
+                    has_badge = any(s > 0 for s in badge_scores)
+                    top_score = max(badge_scores, default=0)
+                    _re_attempt = 0
+                    while has_badge and top_score <= 1 and _re_attempt < 2:
+                        _re_attempt += 1
+                        logger.info(f"🔄 图搜匹配质量低(badge={top_score})，重新图搜 {_re_attempt}/2...")
+                        retry_results = search_by_image_cdp(image_url=main_img, page_size=20, wait_seconds=15, conn=shared_cdp, force_refresh=True)
+                        if not retry_results:
+                            break
+                        retry_score = max((_get_badge_score(p.get("badge", "")) for p in retry_results), default=0)
+                        if retry_score > top_score:
+                            cdp_results = retry_results
+                            top_score = retry_score
+                    if top_score > 1:
+                        logger.info(f"✅ 重搜后图搜质量提升: badge={top_score}")
+                if cdp_results:
+                    matches_raw = cdp_results
+                    search_method = "cdp"
+                    logger.info("✅ CDP图搜命中 %d 个结果", len(matches_raw))
+            except Exception as e:
+                logger.debug("CDP image search failed: %s", e)
 
         # 3a-2. API 以图搜款（后备）
         if not matches_raw:
@@ -2975,14 +2989,18 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                 continue
             badge_text = p.get("badge", "")
             badge_score = _get_badge_score(badge_text) if badge_text else 0
-            matches.append({
+            _m = {
                 "id": pid,
                 "title": p.get("title", "")[:80],
                 "price": p.get("price", ""),
                 "image": p.get("image", ""),
                 "badge": badge_text,
                 "badge_score": badge_score,
-            })
+            }
+            # v0.39 aibuy 通道: 透传 normalization_score（trusted_source 放行信号辅助）
+            if "normalization_score" in p:
+                _m["normalization_score"] = p.get("normalization_score")
+            matches.append(_m)
 
         # 按 badge_score 降序排列（最高分在前）
         matches.sort(key=lambda m: m["badge_score"], reverse=True)
@@ -2996,7 +3014,10 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             from scripts.lib.ozon_discovery import _pick_best_match
             # ⚠️ v0.26: 传 mxou_token — 护栏边界时 LLM 语义判定（词对词典覆盖窄，
             # 「палочки от комаров 驱蚊棒」等无词对 → conf=0 误拒，修"匹配了却不选"）
-            best = _pick_best_match(matches, ozon_title, token=mxou_token) if ozon_title else matches[0]
+            # ✅ v0.39: aibuy 来源 trusted_source=True（信任官方排序前 2 位放行），
+            # CDP/AK 来源保持 False 维持原护栏
+            _trusted = search_method == "aibuy"
+            best = _pick_best_match(matches, ozon_title, token=mxou_token, trusted_source=_trusted) if ozon_title else matches[0]
             if best:
                 result["best_match"] = best
                 # ── D3 L3: 人工评审暂停（--review）──
