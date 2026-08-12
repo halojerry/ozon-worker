@@ -1814,6 +1814,69 @@ def _llm_semantic_match(ozon_title: str, cn_title: str, token: str = "") -> bool
         return False
 
 
+def _llm_disambiguate_category(
+    source_word: str,
+    candidates: list[dict[str, Any]],
+    token: str = "",
+) -> int:
+    """LLM 判定 Ozon 类目候选与 1688 末级词的中文语义相关性（v0.39 需求3）。
+
+    背景：深度歧义词（护手霜→Крем интимный、化妆品收纳盒→Органайзер рыболовный、
+    粉扑→丙烯酸粉单体）——RU 翻译本身歧义，Ozon 树按字面词匹配到错误类目。
+    候选列表（search_categories_validated 已返回多候选）按词匹配排序，但正确项
+    可能不在首位。LLM 直接判断"1688 中文末级词"与"候选类目名"是否语义相关，
+    选最相关候选。
+
+    Returns: 选中的候选索引；无 token/失败/无候选 → 0（维持首位，不因 LLM 故障
+    放大错误——宁缺毋滥）。
+    """
+    if not token or len(candidates) <= 1:
+        return 0
+    try:
+        import requests as req
+        _src = (source_word or "").strip()[:30]
+        _items = []
+        for i, c in enumerate(candidates[:5]):
+            _name = f"{c.get('category_name', '')}/{c.get('type_name', '')}"
+            _items.append(f"{i}. {_name}")
+        if not _items:
+            return 0
+        resp = req.post(
+            "https://api.mxou.cn/v1/chat/completions",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={
+                "model": "deepseek-v4-flash",
+                "messages": [
+                    {"role": "system", "content": (
+                        "你判断商品关键词属于哪个类目。给定中文商品关键词（来自1688类目）和候选类目列表（俄语），"
+                        "选择语义最匹配的一个。只回答候选编号（单个数字），不解释。"
+                        "例：关键词'护手霜'，候选['Крем интимный(私密霜)', 'Крем для ухода за кожей(护肤霜)'] → 应选 1。"
+                        "只输出数字。" )},
+                    {"role": "user", "content": f"商品关键词: {_src}\n候选类目:\n{chr(10).join(_items)}\n选择编号:"},
+                ],
+                "temperature": 0,
+                "thinking": {"type": "disabled"},
+                "max_tokens": 10,
+            },
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return 0
+        content = ""
+        choices = resp.json().get("choices", [])
+        if choices:
+            content = str(choices[0].get("message", {}).get("content", "") or "").strip()
+        _m = re.search(r"\d+", content)
+        if _m:
+            idx = int(_m.group(0))
+            if 0 <= idx < len(candidates):
+                return idx
+        return 0
+    except Exception as e:
+        logger.debug("LLM 类目消歧失败（维持首位）: %s", e)
+        return 0
+
+
 def _search_1688_source(
     cdp_url: str,
     images: list[str],

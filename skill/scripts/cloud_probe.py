@@ -2425,6 +2425,23 @@ def publish_product_new(
                     except Exception:
                         pass
                 if cats:
+                    # ✅ v0.39 需求3: 类目歧义 LLM 消歧——候选>1 且首位可能错配
+                    # （护手霜→Крем интимный 案例）时，用 1688 末级词中文语义判定
+                    # 最相关候选（失败维持首位，宁缺毋滥）
+                    if len(cats) > 1:
+                        try:
+                            from scripts.lib.ozon_discovery import _llm_disambiguate_category
+                            _tok = _get_token()
+                            _pick_idx = _llm_disambiguate_category(
+                                _src_short or search_text, cats, token=_tok)
+                            if _pick_idx != 0:
+                                logger.info('LLM 类目消歧: 首位=%s/%s → 选中=%s/%s (idx=%d)',
+                                            cats[0].get('type_name'), cats[0].get('category_name'),
+                                            cats[_pick_idx].get('type_name'),
+                                            cats[_pick_idx].get('category_name'), _pick_idx)
+                                cats = [cats[_pick_idx]] + [c for i, c in enumerate(cats) if i != _pick_idx]
+                        except Exception:
+                            pass
                     best = cats[0]
                     score = best.get('score', 999)
                     resolved_category = {
