@@ -353,6 +353,28 @@ def test_pick_best_match_ak_score_ignored_for_aibuy():
     assert best["id"] == "1", "aibuy 通道靠 idx_rank 放行（前 2 位），similarity_score 不干扰"
 
 
+# ── Issue3: 类目末级词净化（v0.39）───────────────────────────────────────
+
+def test_category_search_variants_split_compound():
+    """复合末级词（顿号）分拆：'化妆刷、刷包' → ['化妆刷', '刷包']（Ozon 树按单段匹配）。"""
+    from scripts.cloud_probe import _category_search_variants
+    v = _category_search_variants("美容护肤/彩妆 > 美妆工具 > 化妆刷、刷包")
+    assert v == ["化妆刷", "刷包"]
+
+
+def test_category_search_variants_single():
+    """无顿号末级词返回单段。"""
+    from scripts.cloud_probe import _category_search_variants
+    assert _category_search_variants("玩具 > 运动、休闲、传统玩具 > 陀螺") == ["陀螺"]
+
+
+def test_category_search_variants_empty_path():
+    """空面包屑返回空列表（无候选词）。"""
+    from scripts.cloud_probe import _category_search_variants
+    assert _category_search_variants("") == []
+    assert _category_search_variants("  ") == []
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))
