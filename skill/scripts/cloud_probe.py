@@ -1441,10 +1441,24 @@ def build_graph_envelope(
     if not images and fallback_images:
         images = list(fallback_images)
 
-    # 属性（v0.40: contextPath featureAttributes 全量优先，DOM 属性表补充）
+    # 属性（v0.40: AK CPV/SKU 属性优先 + contextPath featureAttributes 全量 + DOM 补充）
     # 上品帮采集方案借鉴——1688 页面 context(...) 内嵌 JSON 的 featureAttributes
     # 是结构化全量属性（含产地/材质/型号等），比 DOM 属性表更全更稳。
     attrs: dict[str, str] = {}
+    # v0.40: AK 必填 CPV 属性（最大承重/功率/品牌）——API 直取，无需 CDP
+    for _cpv_map in (api_data.get("cpv_attributes") or {}).items():
+        _k, _v_list = _cpv_map
+        _k = str(_k or "").strip()
+        _v = str(_v_list[0] if isinstance(_v_list, list) and _v_list else _v_list or "").strip()
+        if _k and _v and len(_k) < 30 and len(_v) < 80:
+            attrs[_k] = _v
+    # v0.40: AK SKU 属性（颜色/规格等）——多值取首个
+    for _sk_map in (api_data.get("sku_attributes") or {}).items():
+        _k, _v_list = _sk_map
+        _k = str(_k or "").strip()
+        _v = str(_v_list[0] if isinstance(_v_list, list) and _v_list else _v_list or "").strip()
+        if _k and _v and _k not in attrs and len(_k) < 30 and len(_v) < 80:
+            attrs[_k] = _v
     ctx_path = None
     for _sd in data.get("pageStructuredData") or []:
         if isinstance(_sd, dict) and _sd.get("name") == "contextPath":

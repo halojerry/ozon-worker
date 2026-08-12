@@ -368,6 +368,10 @@ def parse_offer_detail_info(all_info: str) -> dict[str, Any]:
     price_section = _extract_markdown_section(all_info, "商品价格")
     category_section = _extract_markdown_section(all_info, "商品类目")
     sku_section = _extract_markdown_section(all_info, "商品SKU属性")
+    # v0.40: 必填 CPV 属性（最大承重/功率/品牌等——worker 属性填充可直接消费）
+    cpv_section = _extract_markdown_section(all_info, "商品必填CPV属性")
+    # v0.40: 商家信息（地址/注册城市/经营模式/实力商家——供应商质量信号）
+    merchant_section = _extract_markdown_section(all_info, "商家信息")
     title = next((line.strip() for line in title_section.splitlines() if line.strip()), "")
     price_match = re.search(r"([0-9]+(?:\.[0-9]+)?)", price_section)
     return {
@@ -375,6 +379,8 @@ def parse_offer_detail_info(all_info: str) -> dict[str, Any]:
         "price": float(price_match.group(1)) if price_match else None,
         "categories": _parse_category_table(category_section),
         "sku_attributes": _parse_markdown_kv_table(sku_section),
+        "cpv_attributes": _parse_markdown_kv_table(cpv_section),
+        "merchant_info": _parse_markdown_kv_table(merchant_section),
         "all_info": str(all_info or ""),
     }
 
