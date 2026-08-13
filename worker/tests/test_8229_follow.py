@@ -180,6 +180,34 @@ def test_discipline_no_first_value_fallback():
     assert resolve_missing_mandatory_dict_attr(8229, "Тип", dict_vals=vals) is None
 
 
+# ═══ v0.40.1: _fetch_ru_dict_value 补 RU 文本（中文 value 置空后）═══
+def _run_fetch_ru_dict_value(mock_resp, *, dict_id=93171):
+    from graphs.nodes.assemble_ozon_product_node import _fetch_ru_dict_value
+    with mock.patch("utils.http_session.session.post") as m_post:
+        m_post.return_value = mock.Mock(status_code=200, json=lambda: {"result": mock_resp})
+        return _fetch_ru_dict_value("cid", "key", 41777465, 93171, 8229, dict_id, fallback="Перчатки")
+
+
+def test_fetch_ru_dict_value_hits_same_id():
+    """RU /values/search 命中同 dict_id → 返回俄语文本。"""
+    got = _run_fetch_ru_dict_value([{"id": 93171, "value": "Перчатки"}, {"id": 93153, "value": "Митенки"}])
+    assert got == "Перчатки"
+
+
+def test_fetch_ru_dict_value_no_match_returns_fallback():
+    """RU 搜索无同 id → 返回 fallback（俄语类目末级名）。"""
+    got = _run_fetch_ru_dict_value([{"id": 999, "value": "Другое"}])
+    assert got == "Перчатки"
+
+
+def test_fetch_ru_dict_value_api_error_returns_fallback():
+    """API 异常 → 返回 fallback，不抛异常。"""
+    from graphs.nodes.assemble_ozon_product_node import _fetch_ru_dict_value
+    with mock.patch("utils.http_session.session.post", side_effect=Exception("boom")):
+        got = _fetch_ru_dict_value("cid", "key", 41777465, 93171, 8229, 93171, fallback="Перчатки")
+    assert got == "Перчатки"
+
+
 if __name__ == "__main__":
     import traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

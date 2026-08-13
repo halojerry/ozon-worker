@@ -2091,6 +2091,21 @@ def prepare_ozon_upload_node(
             if _dict_value_clean and re.search(r'[\u4e00-\u9fff]', _dict_value_clean):
                 logger.info(f"   🧹 字典属性 attr={attribute_id_int} value 含中文 → 置空(dict_id={dictionary_value_id_int} 权威)")
                 _dict_value_clean = ""
+            # ⚠️ v0.40.1: 8229(类型) 中文置空后必须补 RU 文本——Ozon 审核类型属性
+            # 需要 value（实测 value="" 报「照片与类型不符」DESCRIPTION_DECLINE）。
+            if not _dict_value_clean and int(attribute_id_int) == 8229 and dictionary_value_id_int > 0:
+                from utils.ozon_dict_values import fetch_ru_dict_value as _fetch_ru_dict_value_8229
+                _dict_value_clean = _fetch_ru_dict_value_8229(
+                    getattr(state, "ozon_client_id", "") or "",
+                    getattr(state, "ozon_api_key", "") or "",
+                    int(description_category_id or 0),
+                    int(type_id or 0),
+                    8229,
+                    int(dictionary_value_id_int),
+                    fallback="",
+                )
+                if _dict_value_clean:
+                    logger.info(f"   ✅ attr=8229 中文置空后 RU 补查: dict_id={dictionary_value_id_int} → '{_dict_value_clean}'")
             ozon_attr["values"].append({
                 "dictionary_value_id": dictionary_value_id_int,  # ← 字典值ID
                 "value": _dict_value_clean  # ← 值名称（RU/空；字典属性以 id 为准）
@@ -2162,6 +2177,20 @@ def prepare_ozon_upload_node(
                 _dict_val_final = _resolved_dict_val
                 if re.search(r'[\u4e00-\u9fff]', _dict_val_final):
                     _dict_val_final = ""  # 中文置空, dict_id 权威
+                # ⚠️ v0.40.1: 8229(类型) 空 value 会触发 Ozon「照片与类型不符」
+                # DESCRIPTION_DECLINE（实测 value="" 被拒）。中文置空后必须补
+                # RU 文本——Ozon 审核类型属性需要 value 文本。
+                if not _dict_val_final and int(attribute_id_int) == 8229:
+                    from utils.ozon_dict_values import fetch_ru_dict_value as _fetch_ru_dict_value
+                    _dict_val_final = _fetch_ru_dict_value(
+                        getattr(state, "ozon_client_id", "") or "",
+                        getattr(state, "ozon_api_key", "") or "",
+                        int(description_category_id or 0),
+                        int(type_id or 0),
+                        8229,
+                        _resolved_dict_id,
+                        fallback="",
+                    )
                 ozon_attr["values"].append({
                     "dictionary_value_id": _resolved_dict_id,
                     "value": _dict_val_final,

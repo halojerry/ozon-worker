@@ -91,3 +91,44 @@ def list_dictionary_values(
     except Exception as e:
         logger.warning("字典值 list 失败(attr=%s): %s", attribute_id, e)
     return all_values
+
+
+def fetch_ru_dict_value(
+    client_id: str,
+    api_key: str,
+    description_category_id: int,
+    type_id: int,
+    attribute_id: int,
+    dict_id: int,
+    fallback: str = "",
+) -> str:
+    """按 dictionary_value_id 精确查同值的俄语文本（v0.40.1）。
+
+    背景: dict_lookup / search 可能命中 ZH_HANS 中文缓存，8229(类型) value 中文
+    置空后上传 value="" → Ozon 报「照片与类型不符」DESCRIPTION_DECLINE。
+    用 /values(RU) 列表模式按 dict_id 精确匹配拿俄语文本（search 按数字 id 搜不到）。
+    失败 → 返回 fallback，再失败 → 空串（调用方容忍）。
+    """
+    if not dict_id:
+        return fallback
+    try:
+        headers = {"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"}
+        payload = {
+            "attribute_id": int(attribute_id),
+            "description_category_id": int(description_category_id),
+            "type_id": int(type_id),
+            "language": "RU",
+            "limit": 5000,
+            "last_value_id": 0,
+        }
+        resp = session.post(LIST_URL, headers=headers, json=payload, timeout=15)
+        if resp.status_code != 200:
+            logger.warning("RU 字典值补查 HTTP %s（attr=%s dict_id=%s）", resp.status_code, attribute_id, dict_id)
+            return fallback
+        for r in resp.json().get("result", []):
+            if int(r.get("id") or 0) == int(dict_id) and r.get("value"):
+                return str(r["value"])
+        return fallback
+    except Exception as e:
+        logger.debug("RU 字典值补查异常: %s", e)
+        return fallback
