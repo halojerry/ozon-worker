@@ -1838,6 +1838,27 @@ def prepare_ozon_upload_node(
             final_attributes, rich_desc, title_ru, draft_attrs, description or "", state
         )
 
+    # v0.40: 富内容（Rich Content，属性 11254）——Ozon 图文交错小插件，
+    # 用 AI 图 + 俄语卖点组装 chess 布局（attributes id=11254 传 JSON）。
+    # 富内容代替描述显示，提升商品卡转化（Ozon 官方 +2% 销量）。
+    try:
+        _rc_images = [img for img in shared_marketing_images if isinstance(img, str) and img.strip()]
+        # 卖点文字：从 4191 富文本提取纯文本段（去 HTML 标签）
+        _rc_texts: list[str] = []
+        if rich_desc:
+            import re as _re_rc
+            _plain = _re_rc.sub(r'<[^>]+>', ' ', rich_desc)
+            _rc_texts = [t.strip() for t in _plain.split('.') if len(t.strip()) > 15][:6]
+        _rc_json = _build_rich_content_json(_rc_images, title_ru, _rc_texts)
+        if _rc_json:
+            final_attributes.append({
+                "id": 11254,
+                "values": [{"dictionary_value_id": 0, "value": _rc_json}],
+            })
+            logger.info(f"✅ 富内容(Rich Content 11254)已构建: {len(_rc_json)} 字符，{min(len(_rc_images), 6)} 图")
+    except Exception as _rc_exc:
+        logger.warning(f"⚠️ 富内容构建失败（不影响主流程）: {_rc_exc}")
+
     # Step 6: 组装Ozon payload（严格遵守Ozon结构规范）
     logger.info("组装Ozon payload（严格遵守Ozon结构规范）")
 
@@ -3047,3 +3068,65 @@ def prepare_ozon_upload_node(
         error_message="",
         failed_stage=""
     )
+
+
+def _build_rich_content_json(
+    images: list[str],
+    title_ru: str,
+    selling_texts: list[str],
+) -> str:
+    """v0.40: 构建 Ozon 富内容（Rich Content）JSON（属性 11254）。
+
+    Ozon 富内容 = 图文交错小插件（chess 棋盘格），商家通过 attributes
+    id=11254 传 JSON（POST /v2/product/import 方式）。格式参考
+    rich-content.ozon.ru/docs：{"content":[{widgetName:raShowcase,
+    type:chess,blocks:[{img,title,text,reverse}]}],"version":0.3}。
+    chess 最低 2 个 blocks、最高 6 个。
+
+    用 AI 生成图（COS 公开 URL）+ 俄语标题/卖点组装。图片不足 2 张时
+    返回空串（chess 最低 2 blocks，缺图不如不上）。
+    """
+    import json as _json
+
+    imgs = [i for i in (images or []) if isinstance(i, str) and i.strip()]
+    if len(imgs) < 2:
+        logger.warning("⚠️ 富内容构建跳过：AI 图不足 2 张（chess 最低 2 blocks）")
+        return ""
+    blocks: list[dict] = []
+    texts = [t for t in (selling_texts or []) if t and t.strip()]
+    default_text = "Качественный товар для вашего комфорта"
+    for i, img in enumerate(imgs[:6]):
+        t = texts[i] if i < len(texts) else default_text
+        blocks.append({
+            "img": {
+                "src": img,
+                "srcMobile": img,
+                "alt": (title_ru or "")[:60],
+                "width": 708,
+                "height": 708,
+                "widthMobile": 640,
+                "heightMobile": 640,
+            },
+            "title": {
+                "content": [(title_ru or "")[:60]],
+                "size": "size4",
+                "align": "left",
+                "color": "color1",
+            },
+            "text": {
+                "size": "size2",
+                "align": "left",
+                "color": "color1",
+                "content": [t[:120]],
+            },
+            "reverse": bool(i % 2),
+        })
+    payload = {
+        "content": [{
+            "widgetName": "raShowcase",
+            "type": "chess",
+            "blocks": blocks,
+        }],
+        "version": 0.3,
+    }
+    return _json.dumps(payload, ensure_ascii=False)
