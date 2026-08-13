@@ -1643,21 +1643,24 @@ def prepare_ozon_upload_node(
         if not isinstance(attr, dict):
             continue
         try:
-            attr_id_int = int(attr.get("attribute_id", 0))
+            # v0.40: 兼容 id/attribute_id 双字段名（与 _convert_numeric_attrs 一致）
+            attr_id_int = int(attr.get("attribute_id", 0) or attr.get("id", 0))
         except (ValueError, TypeError):
             continue
         if attr_id_int in NUMERIC_WEIGHT_ATTRS:
             val = str(attr.get("value", ""))
-            # Remove common weight unit suffixes
-            val_clean = re.sub(r'(?i)\s*(g|kg|克|斤|公斤|г|кг|gram|kilogram)\s*$', '', val).strip()
+            # v0.40: 提取数字而非清洗后缀——实测 '330g（kg）'（全角括号中文单位）
+            # 旧正则只处理结尾单位，g 不在结尾 → 清洗失败 → 空值 → VALUE_MUST_BE_DECIMAL
+            _num_m = re.search(r'-?\d+(?:[.,]\d+)?', val.replace(',', '.'))
+            if _num_m:
+                val_clean = _num_m.group()
+            else:
+                val_clean = ""
             if val_clean != val:
                 attr["value"] = val_clean
-                logger.info(f"✅ 重量属性 {attr_id_int} 数值清洗: '{val}' → '{val_clean}'")
-            # Also validate it's a number
-            try:
-                float(val_clean)
-            except ValueError:
-                logger.warning(f"⚠️ 重量属性 {attr_id_int} 非数字: '{val_clean}'，设为空")
+                logger.info(f"✅ 重量属性 {attr_id_int} 数值提取: '{val}' → '{val_clean}'")
+            if not val_clean:
+                logger.warning(f"⚠️ 重量属性 {attr_id_int} 非数字: '{val}'，设为空")
                 attr["value"] = ""
         # 4383 重量单位修正（kg→g）
         if attr_id_int == 4383:
