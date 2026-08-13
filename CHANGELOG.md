@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.40.1] - 2026-08-13
+
+> 生图合规 + 跟卖图片污染 + 类型属性 value 空 三连修复（v0.40 实测批量上架根因）：成人用品不注入标题（违禁词触发生图 violation）；跟卖参考图不再混入上传图片；8229 类型属性中文 value 置空后补 RU 文本；skill 端部分尺寸缺失按比例补齐。
+
+### Fix(worker 生图合规)
+
+- **成人用品生图不注入标题**（`utils/prompt_assembler.py`）：新增 `is_adult_product` 检测（成人/情趣/肛塞/后庭/性用品等中英俄关键词），`assemble_prompt` 检测到成人品类时清空 `title`/`category` + `product`/`appearance`/俄文文案等产品描述变量，保留场景/配色（靠参考图传达外观）。根因：肛塞等 1688 标题含违禁词，gpt-image-2/nano-banana-fast 内容审核直接 violation，实测 10 个生图节点大部分失败 → images count 仅 4。新增 7 单测。
+
+### Fix(worker 跟卖参考图泄漏)
+
+- **`_assemble_follow_sell` 不再把竞品参考图放进上传 payload**（`assemble_ozon_product_node.py`）：`images` 从 `draft.images`（Ozon 竞品图）改为 `[]`，AI 图由 prepare 阶段注入。
+- **E1 兜底过滤扩展**（`utils/cos_uploader.py`）：`salvage_original_images` 新增 `_is_reference_image`——过滤 `ozonstatic`/`ir-20.`/`_460x460`/`.webp` 缩略图（原只查 `ir.ozone.ru`，漏掉 ir-20.ozonstatic.cn 竞品图 + 1688 图搜缩略图，被当成产品图转存上传）。
+- 实测：园艺手套跟卖上传 9 张图全为 AI 生成 COS 图，0 参考图混入（`907172129`/`7786491361`/`ozonstatic`/`alicdn`/`460x460`/`.webp` 全绿）。
+
+### Fix(worker 8229 类型属性 value 空)
+
+- **8229(类型) 中文 value 置空后补 RU 文本**（`utils/ozon_dict_values.py` + `prepare_ozon_upload_node.py` + `assemble_ozon_product_node.py`）：新增 `fetch_ru_dict_value`（按 dictionary_value_id 用 /values(RU) 列表精确查俄语文本）。根因：dict_lookup 是 ZH_HANS 中文缓存，8229 value 中文「手套」置空 → 上传 `value=""` → Ozon 报「Фото товара не соответствует его типу」（照片与类型不符）。修复后 value=`Перчатки`，错误推进到类目层（`description_category_has_no_description_type`，防护手套应匹配「建筑和装修>防护和消防设备>防护手套」而非「服装>配饰>手套」）。新增 3 单测。
+
+### Fix(skill 部分尺寸缺失)
+
+- **部分维度缺失按比例补齐**（`scripts/cloud_probe.py`）：`length=250,width=90,height=0` 这类只缺一边时按 长:宽:高=2:1.5:1 补齐缺失边（原只处理全 0，导致 draft_sanity 拦截含 0 信封）。
+
+### Test
+
+- worker 全量 691 passed、skill 全量 487 passed（`test_8229_follow` 8→11、`test_prompt_assembler` 48→55）。
+
 ## [0.38.0] - 2026-08-12
 
 > 第二批全量交付（P1a-P6 + D1-D5 + N1-N9）：discover 中国站模式 + 采集/匹配/裂变全链路并行化 + what_to_sell 批量畅销榜指标 + 源码保护扩至 14 模块；裂变两阶段 widget API、agent-in-loop 决策审计（review_log + --review + AK403 自动刷新）、缓存 VERSION 指纹一键失效、护栏阈值 settings 化；worker 端 SKU 去重防重复上架、moderation 拒绝显性化（rejected 终态 + resubmit）、余额不足拦截复活、webhook 终态通知；skill 端 cleanup 清扫、物流兜底硬化、fx_rate 三级解析、多店铺校验。

@@ -1055,6 +1055,29 @@ def _validate_and_fix_product_data(
             "%d×%d×%dmm（密度=%.0fkg/m³）",
             item_id, weight_g, est_length, est_width, est_height, density,
         )
+    else:
+        # v0.40.1: 部分维度缺失（如手套只解析出 长×宽，height=0）→ 用已有维度
+        # 比例补齐缺失边，避免 draft_sanity 拦截含 0 的 dimensions。
+        # 比例按 长:宽:高 = 2:1.5:1 回填（与全缺失估算一致）。
+        _l0, _w0, _h0 = (
+            int(dimensions.get("length", 0) or 0),
+            int(dimensions.get("width", 0) or 0),
+            int(dimensions.get("height", 0) or 0),
+        )
+        if _l0 <= 0 or _w0 <= 0 or _h0 <= 0:
+            _missing = [k for k, v in (("length", _l0), ("width", _w0), ("height", _h0)) if v <= 0]
+            _present = [v for v in (_l0, _w0, _h0) if v > 0]
+            _avg_present = (sum(_present) / len(_present)) if _present else 30.0
+            for _mk in _missing:
+                dimensions[_mk] = max(round(_avg_present * 0.7), 30)
+            estimated = True
+            logger.warning(
+                "物品 %s 部分尺寸缺失(%s)，按比例补齐: %d×%d×%dmm",
+                item_id, "+".join(_missing),
+                int(dimensions.get("length", 0) or 0),
+                int(dimensions.get("width", 0) or 0),
+                int(dimensions.get("height", 0) or 0),
+            )
 
     # ✅ v0.10: 密度合理性检查 — 防止商家脏数据和异常估算
     l, w, h = dimensions.get("length", 0), dimensions.get("width", 0), dimensions.get("height", 0)
