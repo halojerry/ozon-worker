@@ -43,13 +43,17 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
         return MainImageOutput(main_image=None)
     
     # 构建参考图：优先使用Phase1白底图（更干净），其次多角度图，最后回退到原始产品图
+    # ⚠️ v0.40: 只用白底图（颜色最纯）——多角度图角度色差 + gpt-image-2 创意漂移
+    # 导致主图颜色与其他图不一致（用户实测）。单参考图 + prompt 保真约束更稳。
     ref_images: List[str] = []
     white_bg = getattr(state, "white_bg_image", None)
     multi_angle = getattr(state, "multi_angle_image", None)
     
     if white_bg and isinstance(white_bg, str) and white_bg.strip():
         ref_images.append(white_bg.strip())
-    if multi_angle and isinstance(multi_angle, str) and multi_angle.strip():
+    # v0.40: multi_angle 不再作为第二参考图（避免两参考图色差综合漂移）；
+    # 仅白底图缺失时兜底
+    elif multi_angle and isinstance(multi_angle, str) and multi_angle.strip():
         ref_images.append(multi_angle.strip())
     # 如果都没有，回退到原始产品图
     if not ref_images:
