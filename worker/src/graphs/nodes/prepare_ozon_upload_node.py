@@ -1362,7 +1362,9 @@ def _convert_numeric_attrs(final_attributes: list, attributes_schema) -> list:
             _keep_attrs.append(attr)
             continue
         try:
-            attr_id_int = int(attr.get("attribute_id", 0))
+            # v0.40: 兼容 id/attribute_id 双字段名（assemble 不同路径产物字段不一致，
+            # 只读 attribute_id 会漏掉读 id 的属性 → VALUE_MUST_BE_INTEGER 漏修）
+            attr_id_int = int(attr.get("attribute_id", 0) or attr.get("id", 0))
         except (ValueError, TypeError):
             _keep_attrs.append(attr)
             continue
@@ -1612,6 +1614,28 @@ def prepare_ozon_upload_node(
     if len(deduped_attributes) < len(final_attributes):
         logger.warning(f"⚠️ 属性去重：{len(final_attributes)}→{len(deduped_attributes)}（移除{len(final_attributes)-len(deduped_attributes)}个重复）")
     final_attributes = deduped_attributes
+
+    # 1.5) v0.40: 属性内 values 去重——同一属性多个相同 dictionary_value_id 会触发
+    # ATTRIBUTE_VALUE_COUNT_EXCEEDED（实测 8449 蜘蛛侠面具 3 连重复）。
+    for attr in final_attributes:
+        if not isinstance(attr, dict):
+            continue
+        vals = attr.get("values")
+        if not isinstance(vals, list) or len(vals) <= 1:
+            continue
+        seen_vals: list = []
+        seen_keys: set = set()
+        for v in vals:
+            if not isinstance(v, dict):
+                seen_vals.append(v)
+                continue
+            vk = v.get("dictionary_value_id") or v.get("value") or ""
+            if vk not in seen_keys:
+                seen_keys.add(vk)
+                seen_vals.append(v)
+        if len(seen_vals) < len(vals):
+            logger.warning(f"⚠️ 属性 {attr.get('attribute_id', attr.get('id'))} values 去重: {len(vals)}→{len(seen_vals)}")
+            attr["values"] = seen_vals
 
     # 2) 重量属性数值清洗（4383/4497：去除 g/kg/克/斤 等非数字后缀）
     NUMERIC_WEIGHT_ATTRS = {4383, 4497}

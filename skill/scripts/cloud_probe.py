@@ -1032,9 +1032,12 @@ def _validate_and_fix_product_data(
 
     # ── 软兜底：尺寸 ──
     if dimensions.get("length", 0) <= 0 and dimensions.get("width", 0) <= 0 and dimensions.get("height", 0) <= 0:
-        # 基于重量估算合理默认尺寸（密度 ~800 kg/m³，混合材质消费品）
-        # 体积 = weight / density, 假设长方体各边比例 2:1.5:1
-        density = 800.0  # kg/m³ (250 太低，Ozon 报 INCORRECT_DIMENSION)
+        # 基于重量估算合理默认尺寸（密度 ~400 kg/m³，混合材质消费品偏抛）
+        # v0.40: 密度 800→400——800 时 50g→60×45×30mm(0.62g/cm³) 偏"实"，
+        # Ozon ML 报 ML_INCORRECT_VOLUME_WEIGHT（体积重量与类目期望不符，
+        # 实测 96 商品 3 个 FAIL）。400 时体积翻倍（69×52×35mm, 0.40g/cm³）
+        # 更接近轻抛货特征，ML 通过率更高。
+        density = 400.0  # kg/m³
         volume_m3 = (weight_g / 1000.0) / density  # m³
         volume_mm3 = volume_m3 * 1e9  # mm³
         # 长方体比例 2:1.5:1
