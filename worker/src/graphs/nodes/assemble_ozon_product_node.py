@@ -384,7 +384,9 @@ def _assemble_follow_sell(
         "old_price": old_price_rub,
         "vat": "0",
         "currency_code": getattr(state, 'currency_code', None) or "RUB",
-        "images": images[:10] if images else [],
+        # v0.40.1: 不放竞品参考图（draft.images 是 Ozon 竞品图，实测混入商品卡）。
+        # AI 生成图由 prepare_ozon_upload_node 阶段注入 primary_image/images。
+        "images": [],
         "attributes": attrs_for_payload,
         "depth": max(1, depth // 10),  # mm → cm
         "width": max(1, width // 10),
@@ -394,7 +396,7 @@ def _assemble_follow_sell(
         "weight_unit": "g",
     }]
 
-    logger.info(f"✅ 跟卖组装完成: offer_id={offer_id}, images={len(images)}, price={price_rub}")
+    logger.info(f"✅ 跟卖组装完成: offer_id={offer_id}, images=[] (AI 图由 prepare 注入), price={price_rub}")
 
     return {
         "ozon_payload": {"items": items},
@@ -2175,12 +2177,22 @@ def _validate_and_enrich_items(
                                 _v8229 = dv.get("value", "")
                                 if any('\u4e00' <= ch <= '\u9fff' for ch in str(_v8229)):
                                     _v8229 = ""
+                                # v0.40.1: 中文 value 置空后必须补 RU 文本——Ozon 审核 8229(类型)
+                                # 需要俄语值文本（实测 value="" 报「照片与类型不符」DESCRIPTION_DECLINE）。
+                                # 用 /values/search(RU) 按 dict_id 精确查同值俄语文本。
+                                if not _v8229:
+                                    _v8229 = _fetch_ru_dict_value(
+                                        ozon_client_id, ozon_api_key,
+                                        description_category_id, type_id,
+                                        TYPE_ATTR_ID, int(dv.get("id") or 0),
+                                        fallback=type_name,
+                                    )
                                 validated_attrs.append({
                                     "complex_id": 0, "id": TYPE_ATTR_ID,
                                     "values": [{"dictionary_value_id": int(type_id), "value": _v8229}],
                                 })
                                 found = True
-                                logger.info(f"   🎯 attr 8229 按 type_id 匹配: {type_id} → {dv.get('value', '')}{' [中文已置空]' if _v8229 != dv.get('value', '') else ''}")
+                                logger.info(f"   🎯 attr 8229 按 type_id 匹配: {type_id} → {_v8229 or '(RU补查失败,留空)'}{' [中文已置空+RU补查]' if _v8229 != dv.get('value', '') else ''}")
                                 break
                     if not found:
                         # 字典属性：按类目名匹配字典值(type_name 俄语 vs ZH_HANS 中文,
@@ -2684,6 +2696,23 @@ def _cache_dict_values(
         logger.info(f"   ✅ 字典值缓存写入成功: attr={attribute_id}, {len(values)} 条")
     except Exception as e:
         logger.warning(f"   ⚠️ 字典值缓存写入失败: {e}")
+
+
+def _fetch_ru_dict_value(
+    ozon_client_id: str,
+    ozon_api_key: str,
+    description_category_id: int,
+    type_id: int,
+    attribute_id: int,
+    dict_id: int,
+    fallback: str = "",
+) -> str:
+    """按 dictionary_value_id 精确查同值的俄语文本（v0.40.1，转发公共实现）。"""
+    from utils.ozon_dict_values import fetch_ru_dict_value as _impl
+    return _impl(
+        ozon_client_id, ozon_api_key,
+        description_category_id, type_id, attribute_id, dict_id, fallback,
+    )
 
 
 # ==================== Hashtag 生成 ====================

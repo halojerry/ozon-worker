@@ -30,6 +30,32 @@ _ATTR_SPLIT_SEP = ("，", ",", "、", ";", "；")
 # ⚠️ v0.32 修复: LLM 不得覆盖的确定性 key（source 语言已准确，LLM 只补创意扩展变量）
 _DETERMINISTIC_KEYS = ("material", "size", "weight", "category", "color")
 
+# ⚠️ v0.40.1: 成人用品（成人/情趣）生图合规 —— 标题含违禁词（肛塞/后庭/情趣用品等）
+# 会触发 mxou 生图内容审核 violation（gpt-image-2 / nano-banana-fast 均拒绝，实测
+# 肛塞产品 10 个生图节点大部分 violation → images count 仅 4）。检测到成人品类时
+# **不把标题注入生图 prompt**（保留场景/配色等通用描述，靠参考图传达产品外观）。
+_ADULT_KEYWORDS = (
+    "成人用品", "情趣", "性用品", "性玩具", "性爱", "成人",
+    "肛塞", "后庭", "女用", "男用", "自慰", "震动棒", "跳蛋",
+    "飞机杯", "阳具", "假阳具", "阴茎", "阴道", "阴蒂", "口交",
+    "情趣内衣", "催情", "助情", "延时", "壮阳", "SM", "bdsm",
+    "anal", "dildo", "vibrator", "sex toy", "adult toy", "masturbat",
+    "анальн", "дилдо", "вибратор", "секс", "интим", "эротик",
+)
+
+
+def is_adult_product(title: str = "", category: str = "", source_category: str = "") -> bool:
+    """判断是否为成人用品（生图合规用）。
+
+    命中信号（任一即 True）：
+    - title 含成人关键词（肛塞/后庭/情趣等，违规词主要来自 1688 中文标题）
+    - category / source_category 含「成人/情趣/性」类目词（兜底：标题措辞隐晦时）
+    """
+    if not title and not category and not source_category:
+        return False
+    haystack = " ".join([title, category, source_category]).lower()
+    return any(kw in haystack for kw in _ADULT_KEYWORDS)
+
 
 def _clean_attr_value(raw: str) -> str:
     """清洗 1688 属性值：去空白、多选串取首项、长度截断。空 → "". """
@@ -164,6 +190,15 @@ def assemble_prompt(
     - slot_scene_context 非空 → 作为 {{scene_context}} 渲染（scene_1/2/3 差异化）
     """
     effective_scene = slot_scene_context or scene_context
+    # ⚠️ v0.40.1: 成人用品不注入标题/产品描述（违禁词触发生图 violation），
+    # 保留场景/配色等通用描述，靠参考图传达产品外观。
+    # 清空 key 含产品文本描述：title/category + extra 里的 product/appearance/俄文文案
+    if is_adult_product(title=title, category=category):
+        title = ""
+        category = ""
+        for _ak in ("product", "appearance", "product_ru", "cta_ru",
+                    "selling_points_ru", "effect_data_ru", "target_ru"):
+            extra[_ak] = ""
     try:
         template = _load_prompt_config().get(slot_key) or _DEFAULT_PROMPTS.get(slot_key, "")
         if not template:

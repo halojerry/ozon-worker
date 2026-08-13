@@ -89,11 +89,33 @@ def _stable_key(url: str, prefix: str) -> str:
     return f"{prefix}/salvage/{digest}.jpg"
 
 
+def _is_reference_image(url: str) -> bool:
+    """判断是否为参考图（竞品图 / 1688 缩略图），E1 兜底必须跳过。
+
+    v0.40.1 修复: 跟卖流程 original_images 含 Ozon 竞品图（ir.ozone.ru /
+    ir-20.ozonstatic.cn）和 1688 图搜缩略图（_460x460q100.jpg_.webp）——
+    只过滤 ir.ozone.ru 时这些参考图被当成产品图转存上传，Ozon 商品卡混入
+    竞品图/缩略图（实测 907172129...webp + 7786491361.webp）。
+    """
+    if not isinstance(url, str):
+        return True
+    lowered = url.strip().lower()
+    if not lowered:
+        return True
+    # 竞品图 CDN
+    if "ir.ozone.ru" in lowered or "ozonstatic" in lowered or "ir-20." in lowered:
+        return True
+    # 1688 图搜缩略图（含 _460x460q100 / .webp 转换后缀）
+    if "_460x460" in lowered or lowered.endswith(".webp") or ".jpg_.webp" in lowered:
+        return True
+    return False
+
+
 def salvage_original_images(original_images: List[str], max_n: int = 8,
                             prefix: str = "ozon-1688") -> List[str]:
     """下载原始图(1688 alicdn) → 转存 COS → 返回可访问 URL 列表。
 
-    - 未配置 COS / 下载失败(404/超时) / 竞品图(ir.ozone.ru) → 跳过
+    - 未配置 COS / 下载失败(404/超时) / 参考图(竞品图+1688缩略图) → 跳过
     - 全部失败 → [] (调用方保持原有警告路径)
     """
     saved: List[str] = []
@@ -104,7 +126,7 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
     for url in original_images:
         if len(saved) >= max_n:
             break
-        if not isinstance(url, str) or not url.strip() or "ir.ozone.ru" in url:
+        if _is_reference_image(url):
             continue
         try:
             resp = requests.get(url.strip(), timeout=15,

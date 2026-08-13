@@ -29,6 +29,7 @@ from utils.prompt_assembler import (  # noqa: E402
     _resolve_category_for_prompt,
     assemble_prompt,
     extract_visual_vars_from_draft,
+    is_adult_product,
     merge_visual_vars,
 )
 
@@ -512,6 +513,71 @@ def test_assemble_empty_v8_no_residue():
         assert "None" not in p
 
 
+# ── (n) v0.40.1 成人用品生图合规：检测 + prompt 不注入标题/产品描述 ──
+def test_is_adult_product_detects_chinese_keywords():
+    assert is_adult_product(title="去愉 蝴蝶结流苏尾巴肛塞可拆卸金属肛塞后庭女用情趣用品毛绒狐狸尾巴")
+    assert is_adult_product(title="成人用品 震动棒")
+    assert is_adult_product(category="其他情趣用品")
+    assert is_adult_product(category="成人用品", title="普通商品")
+
+
+def test_is_adult_product_detects_english_russian():
+    assert is_adult_product(title="Butterfly bow tassel tail anal plug")
+    assert is_adult_product(title="vibrator adult toy")
+    assert is_adult_product(title="Анальная пробка")
+
+
+def test_is_adult_product_false_for_normal():
+    assert not is_adult_product(title="园艺手套带爪子防刺手套挖沙挖土花园")
+    assert not is_adult_product(title="宠物自动饮水器")
+    assert not is_adult_product(title="", category="园艺工具")
+    assert not is_adult_product(title="", category="", source_category="")
+
+
+def test_assemble_prompt_adult_blank_title_and_product_desc():
+    """成人用品: title/category/product/appearance/RU 文案全部清空，场景/配色保留"""
+    with _real_workspace():
+        p = assemble_prompt(
+            "main",
+            title="去愉 蝴蝶结流苏尾巴肛塞可拆卸金属肛塞后庭女用情趣用品毛绒狐狸尾巴",
+            category="其他情趣用品",
+            scene_1="万圣节派对",
+            product="Butterfly bow tassel tail anal plug",
+            appearance="metal anal plug",
+            product_ru="Анальная пробка",
+            brand_primary="#FF6B6B",
+        )
+        # 违禁词不注入
+        assert "肛塞" not in p
+        assert "后庭" not in p
+        assert "情趣" not in p
+        assert "anal plug" not in p
+        assert "Анальная" not in p
+        assert "Butterfly" not in p
+        # 场景/配色保留
+        assert "万圣节派对" in p
+        assert "#FF6B6B" in p
+
+
+def test_assemble_prompt_normal_product_keeps_title():
+    """非成人产品: 标题正常注入"""
+    with _real_workspace():
+        p = assemble_prompt("white_bg", title="园艺手套带爪子")
+        assert "园艺手套带爪子" in p
+
+
+def test_assemble_prompt_adult_white_bg_blank():
+    """成人用品 white_bg 槽位也不注入标题"""
+    with _real_workspace():
+        p = assemble_prompt(
+            "white_bg",
+            title="去愉 蝴蝶结流苏尾巴肛塞",
+            material="合金,毛绒",
+        )
+        assert "肛塞" not in p
+        assert "后庭" not in p
+
+
 if __name__ == "__main__":
     import traceback
 
@@ -550,6 +616,12 @@ if __name__ == "__main__":
         test_assemble_prompt_empty_ru_no_residue,
         test_assemble_v8_chinese_main,
         test_assemble_empty_v8_no_residue,
+        test_is_adult_product_detects_chinese_keywords,
+        test_is_adult_product_detects_english_russian,
+        test_is_adult_product_false_for_normal,
+        test_assemble_prompt_adult_blank_title_and_product_desc,
+        test_assemble_prompt_normal_product_keeps_title,
+        test_assemble_prompt_adult_white_bg_blank,
     ]
     passed = 0
     for t in tests:
