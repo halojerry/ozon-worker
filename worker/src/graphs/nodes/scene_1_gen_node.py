@@ -66,7 +66,7 @@ def scene_1_gen_node(state: Scene1Input, config: RunnableConfig, runtime: Runtim
     
     # 构建参考图列表：使用Phase1的图片作为参考（内联逻辑）
     ref_images: List[str] = []
-    clean_ref = multi_angle_image or white_bg_image  # 选择multi_angle优先，否则white_bg
+    clean_ref = white_bg_image or multi_angle_image  # v0.40: 白底图优先（颜色最纯一致，多角度图角度色差）
     if clean_ref and isinstance(clean_ref, str) and clean_ref:
         ref_images.append(clean_ref)
     
