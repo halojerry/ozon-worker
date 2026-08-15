@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Identity, Index, Integer, JSON, PrimaryKeyConstraint, Text, text, String, Float, UniqueConstraint, ARRAY, func
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Identity, Index, Integer, JSON, LargeBinary, PrimaryKeyConstraint, Text, text, String, Float, UniqueConstraint, ARRAY, func
 from typing import Optional
 import datetime
 import uuid
@@ -405,17 +405,34 @@ class TaskGeneratedImage(Base):
     同一任务被队列重试/重启重新执行时，图节点先查缓存，命中直接复用，
     不再重新调用生图 API（P0 修复：重跑必重烧 9+N 张图，Sentry 超时×100/failed×120 实证）。
     slot 取值: main/white_bg/multi_angle/detail/social_proof/comparison/scene_1/scene_2/scene_3/variant_{idx}
+
+    v0.41 (WebUI T1, 契约 C3): 主键扩为 (task_id, slot, version)——
+    - version: 重生成（webui force_regen）→ version++ 写新行，正常管线读最新版本；
+    - params: 完整节点 Input schema JSONB 原样快照（重生成/预览用）；
+    - image_parent_task_id: resubmit 图片血缘（原 task_id），缓存 miss 时回溯父行复用，
+      ⚠️ 区别于任务级 payload.parent_task_id（任务血缘），勿混用。
     """
     __tablename__ = "task_generated_images"
 
     task_id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="PG 任务 ID（config.configurable.thread_id）")
     slot: Mapped[str] = mapped_column(String(32), primary_key=True, comment="图片槽位（见模块注释）")
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1"),
+        primary_key=True, comment="生成版本（1 起；force_regen 递增，正常管线恒 1）"
+    )
     url: Mapped[str] = mapped_column(Text, nullable=False)
+    params: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True, comment="节点 Input schema 原样快照（如 Scene1Input 7 字段）"
+    )
+    image_parent_task_id: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, comment="resubmit 图片血缘：原 task_id（区别于任务级 payload.parent_task_id）"
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
     __table_args__ = (
+        PrimaryKeyConstraint("task_id", "slot", "version", name="task_generated_images_pkey"),
         Index("idx_task_images_task", "task_id"),
     )
 
@@ -545,4 +562,129 @@ class ShopUsageStats(Base):
     __table_args__ = (
         UniqueConstraint("ozon_client_id", "stat_date", name="uq_shop_usage_client_date"),
         Index("idx_shop_usage_client_date", "ozon_client_id", "stat_date"),
+    )
+
+
+# ==================== WebUI v1 表（v0.41，契约 C1/C1b/C2） ====================
+# 单向权威 + 双向可见：skill=采集权威（CDP）、webui=审阅/编辑权威、worker=执行权威。
+# 独立草稿表（不复用 ozon_product_tasks）：规避不可变 sku_key 换店铺删插 + 唯一索引污染。
+
+class ProductDraft(Base):
+    """C1 采集箱：永久草稿（文档），手动删除前保留，可被多次引用（多店铺）。
+
+    payload = envelope {draft, source, extensions}；NO raw credentials（POST /drafts 剥离）。
+    version 乐观并发：编辑页修改 → version++（PATCH 带旧 version，不匹配 → 409）。
+    """
+    __tablename__ = "product_drafts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        server_default=text("gen_random_uuid()")
+    )
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False, comment="user_id from _authenticate_token")
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, comment="envelope {draft,source,extensions}; NO raw credentials")
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="skill", server_default=text("'skill'"), comment="'skill' | 'webui'")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"), comment="乐观并发；编辑页修改 → version++")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_product_drafts_tenant", "tenant_id", text("updated_at DESC")),
+    )
+
+
+class DraftSubmission(Base):
+    """C1 提交记录：每次「上架至OZON」= 一行；换店铺 = 新行，draft.id 永不变。
+
+    status 驱动上架状态列：未上架 = 无行 / 已上架 = published / 失败 = failed。
+    """
+    __tablename__ = "draft_submissions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        server_default=text("gen_random_uuid()")
+    )
+    draft_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("product_drafts.id", ondelete="CASCADE"),
+        nullable=False, comment="草稿（级联删除）"
+    )
+    credential_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True, comment="NULL → 用 is_default=true 店铺"
+    )
+    store_client_id: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="提交时选定的店铺 client_id"
+    )
+    extensions: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True, comment="提交时定价/仓库/库存快照"
+    )
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="pending", server_default=text("'pending'"),
+        comment="pending/uploading/published/failed"
+    )
+    submitted_task_id: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="ozon_product_tasks.id"
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_draft_submissions_draft", "draft_id"),
+    )
+
+
+class Credential(Base):
+    """C2 凭证表（三层防御：掩码 + AES-256-GCM 列级加密 + 轮换提醒）。
+
+    ozon_api_key_enc = BYTEA 密文（utils/credential_cipher.py，env CREDENTIAL_MASTER_KEY）；
+    API key 永不完整回显（仅 api_key_masked）；轮换 = 新行 + 旧行 revoked。
+    """
+    __tablename__ = "credentials"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        server_default=text("gen_random_uuid()")
+    )
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    ozon_client_id: Mapped[str] = mapped_column(Text, nullable=False, comment="半公开")
+    ozon_api_key_enc: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False, comment="AES-256-GCM 密文（env CREDENTIAL_MASTER_KEY）"
+    )
+    api_key_masked: Mapped[str] = mapped_column(Text, nullable=False, comment='"****abcd"（仅后 4 位）')
+    shop_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="店铺名称（绑定弹窗）")
+    currency: Mapped[str] = mapped_column(Text, nullable=False, default="CNY", server_default=text("'CNY'"), comment="CNY/RUB")
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"), comment="「默认上传产品的店铺」radio")
+    credential_type: Mapped[str] = mapped_column(Text, nullable=False, default="api_key", server_default=text("'api_key'"), comment="'api_key' | 'oauth'（预留）")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="active", server_default=text("'active'"), comment="active/revoked")
+    last_validated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_rotated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("uq_credentials_tenant_client", "tenant_id", "ozon_client_id", unique=True),
+        # 部分唯一索引：每租户最多一个 is_default=true（第二默认被拒 → 409）
+        Index("uq_credentials_default", "tenant_id", unique=True, postgresql_where=text("is_default")),
+    )
+
+
+class ProductTaskIndex(Base):
+    """C1b 商品↔任务索引：product_id 7 天归档后仍可定位商品。
+
+    T14 上传成功 + ozon_status approved 时回填；查询用于「① product_task_index 定位商品」。
+    与 uq_ozon_product_tasks_tenant_sku（任务入队去重）职责不同，都保留。
+    """
+    __tablename__ = "product_task_index"
+
+    product_id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="Ozon product_id（上传成功后回填）")
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    offer_id: Mapped[str] = mapped_column(String(128), nullable=False, comment="信封 sku_id / follow_{id}")
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ozon_product_tasks.id"), nullable=False
+    )
+    credential_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("credentials.id"), nullable=True, comment="定位店铺"
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_pti_tenant_offer", "tenant_id", "offer_id"),
     )

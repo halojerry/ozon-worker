@@ -56,6 +56,9 @@ def create_tables(engine):
             "WHERE sku_key IS NOT NULL AND status IN ('pending', 'running')"
         ))
         conn.commit()
+    # ✅ v0.41 WebUI T1: task_generated_images ALTER + 新表索引（幂等，二次运行 no-op）
+    from migrate_webui_v1 import run_migrations
+    run_migrations(engine)
     logger.info("✅ 表结构已就绪")
 
 
