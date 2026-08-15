@@ -17,6 +17,12 @@
   - [1.5 POST /api/v1/auth/verify](#15-post-apiv1authverify)
   - [1.6 GET /api/v1/health](#16-get-apiv1health)
   - [1.7 自测用例（API 合约）](#17-自测用例api-合约)
+- [Part 1b: WebUI v1 API 契约](#part-1b-webui-v1-api-契约)（v0.41.0 新增）
+  - [1b.1 WebUI v1 新端点清单](#1b1-webui-v1-新端点清单)
+  - [1b.2 新数据表（C1/C1b/C2）](#1b2-新数据表c1c1bc2)
+  - [1b.3 envelope extensions 新字段（C4）](#1b3-envelope-extensions-新字段c4)
+  - [1b.4 skill --to-box 约定（C7）](#1b4-skill---to-box-约定c7)
+  - [1b.5 多店铺重复商品校验（C5 v1 两层规则）](#1b5-多店铺重复商品校验c5-v1-两层规则)
 - [Part 2: Worker 内部节点合约](#part-2-worker-内部节点合约)
   - [2.1 auth](#21-auth)
   - [2.2 check_quota](#22-check_quota)
@@ -658,6 +664,141 @@ curl -s -X POST http://localhost:8080/api/v1/auth/verify \
   -H "Content-Type: application/json" \
   -d '{"token": "sk-test-valid-token", "client_id": "123456", "api_key": "test-key"}' | python3 -m json.tool
 ```
+
+---
+
+## Part 1b: WebUI v1 API 契约
+
+> v0.41.0 新增（2026-08-15）。WebUI 是 worker 域内的浏览器管理面：React SPA 静态托管在 worker 域名 `/app`（零 CORS），与 skill 双向互通。架构纪律：**单向权威 + 双向可见**——skill=采集权威（CDP）、webui=审阅/编辑权威、worker=执行权威（状态机仲裁），三者永不直接通信，只读写 worker 状态。全部新端点走 `routes/`（薄层）+ `services/`（厚层）分层，`api/schemas.py` 是 Pydantic 契约（OpenAPI 自动生成，前端 openapi-typescript 消费），**main.py 不内联业务逻辑**。设计依据：`docs/PLAN-webui-v1.md` §2（C1-C7 冻结契约）。
+
+### 1b.1 WebUI v1 新端点清单
+
+全部位于 `/api/v1` 前缀下，鉴权方式与现有端点一致（`token` body 字段或 Bearer，经 `_authenticate_token` 校验 Supabase `tokens` 表，租户 = `user_id`）。所有写操作返回标准 `{ok: false, error_code, message, detail?}` 错误格式。
+
+| 端点 | 方法 | 用途 | 路由/服务 |
+|------|------|------|-----------|
+| `/api/v1/credentials` | GET | 凭证列表（仅掩码 `api_key_masked`，**绝不回显明文 key**） | credentials_routes → credential_service |
+| `/api/v1/credentials` | POST | 创建凭证（AES-256-GCM 加密存储，`CREDENTIAL_MASTER_KEY` 主密钥） | 同上 |
+| `/api/v1/credentials/{id}` | PATCH | 轮换（旧行 revoked + 新行 active；旧行 `ozon_client_id` 追加 `:revoked:` 后缀释放唯一槽） | 同上 |
+| `/api/v1/credentials/{id}` | DELETE | 吊销（软删 status=revoked） | 同上 |
+| `/api/v1/credentials/{id}/validate` | POST | 解密 → Ozon `/v1/product/info/list` probe → 返回 `{valid, reason}` | 同上 |
+| `/api/v1/drafts` | GET | 采集箱列表（租户隔离 + 上架状态列来自 draft_submissions） | drafts_routes → draft_service |
+| `/api/v1/drafts` | POST | 创建草稿（**skill `--to-box` 目标**；剥离凭证 → 只存 envelope-only payload） | 同上 |
+| `/api/v1/drafts/{id}` | GET | 读取草稿（envelope 全文，无凭证） | 同上 |
+| `/api/v1/drafts/{id}` | PATCH | 编辑（**version 乐观锁**，stale → 409；成功后 `version++`） | 同上 |
+| `/api/v1/drafts/{id}` | DELETE | 删除草稿（级联删 draft_submissions） | 同上 |
+| `/api/v1/drafts/{id}/submit` | POST | 提交上架：C5 重复校验 → 凭证注入（解 `credential_id` 或默认店铺）→ 重建 GraphInput → `task_processor.submit_task` → 写 submission 行 | 同上 |
+| `/api/v1/drafts/{id}/ai/{field}` | POST | 单字段 AI 重新生成（field ∈ title/description/attributes/…，复用 `call_mxou_chat_api` + 翻译路径，返回 RU **只读**，前端决定 PATCH 保存） | drafts_routes → ai_field_service |
+| `/api/v1/tasks` | GET | 任务列表（租户隔离 + 分页，返回 status/progress/product_summary） | tasks_routes → task_service |
+| `/api/v1/tasks/{task_id}/images` | GET | 生图缓存读取：10 slot + versions + params 快照 | images_routes → image_service |
+| `/api/v1/tasks/{task_id}/images/{slot}/regen` | POST | 强制重生成（`force_regen` → `version++` 新行新 URL，**无静默缓存命中**） | 同上 |
+| `/api/v1/products/{product_id}/update_images` | POST | 在线商品改图全量重传：`product_task_index` 定位 → URL 存活检查 → `/v3/product/import` 重传 → status → `pending_moderation` | products_routes → image_service |
+
+**端点/服务分层规则**（写入评审门）：`routes/*` 只做参数解析 → 鉴权 → 调 `services/*` → 返回；`services/*` 是唯一业务实现（DB / utils / graphs 能力 / Ozon API），未来抽独立 BFF = 搬走 `services/` + 加 HTTP 门面，零手术。
+
+### 1b.2 新数据表（C1/C1b/C2）
+
+> 全部走 `init_data.py` 幂等建表（`worker/src/storage/database/shared/model.py`），`migrate_webui_v1.py` 处理 `task_generated_images` 存量 ALTER。
+
+**`product_drafts`（C1 永久草稿，文档语义，手动删除前保留，可被多次引用）**
+
+```sql
+CREATE TABLE product_drafts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id VARCHAR(50) NOT NULL,          -- user_id from _authenticate_token
+    payload JSONB NOT NULL,                   -- envelope {draft,source,extensions}; NO raw credentials
+    source TEXT NOT NULL DEFAULT 'skill',     -- 'skill' | 'webui'
+    version INT NOT NULL DEFAULT 1,           -- optimistic concurrency; 编辑页修改 → version++
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_product_drafts_tenant ON product_drafts (tenant_id, updated_at DESC);
+```
+
+**`draft_submissions`（C1 提交记录：每次「上架至OZON」= 一行；换店铺 = 新行，draft.id 永不变）**
+
+```sql
+CREATE TABLE draft_submissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    draft_id UUID NOT NULL REFERENCES product_drafts(id) ON DELETE CASCADE,
+    credential_id UUID,                        -- NULL → 用 is_default=true 店铺
+    store_client_id TEXT,                      -- 提交时选定的店铺 client_id
+    extensions JSONB,                          -- 提交时定价/仓库/库存快照
+    status TEXT NOT NULL DEFAULT 'pending',    -- pending/uploading/published/failed
+    submitted_task_id TEXT,                    -- ozon_product_tasks.id
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_draft_submissions_draft ON draft_submissions (draft_id);
+```
+
+**`credentials`（C2 凭证三层防御：掩码 + AES-256-GCM 列级加密 + 轮换提醒）**
+
+```sql
+CREATE TABLE credentials (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id VARCHAR(50) NOT NULL,
+    ozon_client_id TEXT NOT NULL,                 -- 半公开
+    ozon_api_key_enc BYTEA NOT NULL,              -- AES-256-GCM 密文（env CREDENTIAL_MASTER_KEY，32 字节，随机 nonce/值，AAD = tenant_id:ozon_client_id）
+    api_key_masked TEXT NOT NULL,                 -- "****abcd"（仅后 4 位）
+    shop_name TEXT,                               -- 店铺名称
+    currency TEXT NOT NULL DEFAULT 'CNY',         -- CNY/RUB
+    is_default BOOLEAN NOT NULL DEFAULT false,    -- 「默认上传产品的店铺」radio
+    credential_type TEXT NOT NULL DEFAULT 'api_key', -- 'api_key' | 'oauth'（预留）
+    status TEXT NOT NULL DEFAULT 'active',        -- active/revoked
+    last_validated_at TIMESTAMPTZ,
+    last_rotated_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE UNIQUE INDEX uq_credentials_tenant_client ON credentials (tenant_id, ozon_client_id);
+CREATE UNIQUE INDEX uq_credentials_default ON credentials (tenant_id) WHERE is_default;
+```
+
+**`product_task_index`（C1b 商品↔任务定位：product_id 7 天归档后仍可定位，T14 用）**
+
+```sql
+CREATE TABLE product_task_index (
+    product_id VARCHAR(64) PRIMARY KEY,        -- Ozon product_id（上传成功后回填）
+    tenant_id VARCHAR(50) NOT NULL,
+    offer_id VARCHAR(128) NOT NULL,            -- 信封 sku_id / follow_{id}
+    task_id UUID NOT NULL REFERENCES ozon_product_tasks(id),
+    credential_id UUID REFERENCES credentials(id),  -- 定位店铺
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_pti_tenant_offer ON product_task_index (tenant_id, offer_id);
+```
+
+**`task_generated_images` ALTER（C3 生图缓存版本化）**：新增 `version INTEGER NOT NULL DEFAULT 1`、`params JSONB`（完整节点 Input schema 原样）、`image_parent_task_id TEXT`（resubmit 血缘）；PK 改为 `(task_id, slot, version)`。⚠️ 两处 parent_task 语义不同，勿混用：任务级 `payload.parent_task_id`（main.py:1689，任务血缘）vs 图缓存级 `image_parent_task_id`（图片血缘，存原 task_id）。
+
+**职责边界**：`uq_ozon_product_tasks_tenant_sku`（partial，status IN pending/running）是「任务入队去重」；`product_task_index` 是「商品↔任务定位」。职责不同，**都保留**。
+
+### 1b.3 envelope extensions 新字段（C4）
+
+```
+extensions: {
+  margin_rate, commission_rate, fx_buffer, follow_sell, follow_type,   # 现有
+  warehouse_id:   str | null,   # 选择仓库（商品编辑页「选择仓库」）
+  stock:          int | null,   # 库存数量（每 SKU）
+  scheduled_at:   str | null    # 定时上架 ISO-8601（⚠️ v2 调度器；v1 仅 UI 预留 + 字段透传持久化）
+}
+```
+
+**Flow**：skill envelope → `product_drafts.payload.extensions` →（submit）快照进 `draft_submissions.extensions` → worker `prepare_ozon_upload_node` 透传到 Ozon `/v3/product/import`。`warehouse_id`/`stock` 的透传权威在 `draft_service.submit`（submit 路径）+ Ozon 侧消费（T14 update_images 全量重传同样携带）。
+
+### 1b.4 skill --to-box 约定（C7）
+
+- `graph` / `follow` 命令新增 `--to-box` flag：替代 `submit_envelope` → POST `/api/v1/drafts`（worker 剥离凭证 → 存 `credential_id` + 加密凭证表，payload 只留 envelope）。
+- 成功返回 `draft_id`，skill 打印 `📥 已入采集箱，请到 WebUI 认领: draft_id=...`。
+- **冷启动降级**：老 skill 无 `--to-box` → 直接 submit（行为不变）；WebUI 首页横幅提示「检测到旧版 skill 直接上架，升级后可用采集箱」。
+- 无 `--to-box` 时保持直接上架行为，与既有 `submit_envelope` 完全一致。
+
+### 1b.5 多店铺重复商品校验（C5 v1 两层规则）
+
+> ⚠️ Ozon「个人中心跨店重复」语义未经官方文档/实测确认 → v1 只落地保守两层，v2 待确认后实现跨店硬拦截。
+
+1. **per-store 校验（硬，409）**：`POST /drafts/{id}/submit` 前按确定性 `offer_id` 查**目标店铺** `/v1/product/info/list`，已存在 → `409 {"error_code": "DUPLICATE_PRODUCT", "message": "重复商品：目标店铺已存在相同商品"}`。Ozon API 错误 **fail-open**（log warning 不阻塞，对齐 auth/balance fail-open 先例）。
+2. **跨店铺提醒（软，不硬拦）**：submit 时 `_cross_store_scan` 检查该 draft 是否已提交到其他店铺 → 响应带 `confirm_required: true` + `existing_stores` 列表，前端弹确认「该商品已上架到店铺X，确认继续上架到店铺Y？注意 Ozon 个人中心可能拒绝重复商品」→ 用户确认后二次提交。**不硬拦截跨店**（约束未实测确认）。
+3. v2（待确认 Ozon 个人中心跨店重复真实语义后）：`credentials` 表加个人中心维度字段 + 跨店硬拦截。
 
 ---
 

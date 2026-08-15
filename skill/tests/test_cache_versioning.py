@@ -54,7 +54,7 @@ def test_cache_miss_after_version_bump():
 
 
 def test_cache_version_reads_repo_version_not_stale_const():
-    """_cache_version() 读 skill/VERSION（0.38.0），与过期 SKILL_VERSION（0.4.0）不同。"""
+    """_cache_version() 读 skill/VERSION（动态），与过期 _const.SKILL_VERSION 不同。"""
     from scripts._const import SKILL_ROOT, SKILL_VERSION
     from scripts.lib import cache
 
@@ -64,7 +64,7 @@ def test_cache_version_reads_repo_version_not_stale_const():
     finally:
         cache._CACHE_VERSION = None
     real = (SKILL_ROOT / "VERSION").read_text(encoding="utf-8").strip()
-    assert v == real == "0.38.0", f"应读 skill/VERSION，实际 {v!r}，文件 {real!r}"
+    assert v == real, f"应读 skill/VERSION，实际 {v!r}，文件 {real!r}"
     assert v != SKILL_VERSION, f"禁止用过期的 _const.SKILL_VERSION（{SKILL_VERSION}）"
 
 

@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.41.0] - 2026-08-15
+
+> WebUI v1 + 双向互通首批交付（`docs/PLAN-webui-v1.md` 18 任务全部验收通过）：worker 新增 routes/services 分层（凭证/草稿/任务/生图/在线商品 5 组端点）+ 4 新表 + 生图缓存 version/params 版本化 + image_gen_plan 类型选择 + 更新在线商品全量重传；webui 新增 React SPA（登录 + 采集箱/商品编辑/店铺管理/任务进度/生图工作台 5 页，静态托管 /app）；skill graph/follow 新增 `--to-box` 入采集箱；凭证三层防御（AES-256-GCM 列级加密 + 掩码 + 轮换）。worker 822 passed / skill 493 passed / 前端 build 成功。
+
+### Feat(worker WebUI 数据层与端点)
+
+- **T1 数据层迁移**（`storage/database/shared/model.py` + `init_data.py` 幂等建表）：新增 `product_drafts`（永久草稿，envelope-only，无凭证）/ `draft_submissions`（每次提交一行，换店铺新行 draft.id 不变）/ `credentials`（三层防御凭证表）/ `product_task_index`（商品↔任务定位，product_id 归档后可回溯）；`task_generated_images` ALTER 新增 `version`/`params`/`image_parent_task_id`，PK 改 `(task_id, slot, version)`；`migrate_webui_v1.py` 存量迁移。
+- **T2 credential_cipher**（`utils/credential_cipher.py`）：AES-256-GCM 列级加密（env `CREDENTIAL_MASTER_KEY`，随机 nonce/值，AAD=tenant:client_id）+ `mask` 掩码（仅后 4 位）+ 轮换提醒字段。
+- **T3 鉴权门**：`/run` `/stream_run` `/node_run` `/v1/chat/completions` 补齐 `_authenticate_token` + `rate_limiter.check()`，无/空 token → 401、超限 → 429（nginx deny 兜底）。
+- **T5 凭证 CRUD + validate**（`routes/credentials_routes.py` + `services/credential_service.py`）：GET 列表仅掩码回显（明文 key 永不出现于响应/DB 明文列）；POST 加密创建；PATCH 轮换（旧行 revoked + 新行 active，`:revoked:` 后缀释放唯一槽）；DELETE 吊销；validate 解密 → Ozon probe → valid/reason。**租户隔离**：列表按 tenant_id 过滤。
+- **T6 草稿 CRUD + submit**（`routes/drafts_routes.py` + `services/draft_service.py`）：POST /drafts 收 GraphInput → **剥离凭证**（payload 无 api_key，存 credential_id）；GET/PATCH（version 乐观锁 stale→409）；submit → C5 两层校验（per-store 409「重复商品」fail-open + 跨店 confirm 标记）→ 解密凭证重建 GraphInput → 入队 + submission 行；warehouse_id/stock 透传进 extensions 快照。
+- **T8 任务列表端点**（`routes/tasks_routes.py` + `services/task_service.py`）：GET /tasks 租户隔离 + 分页，返回 status/progress/product_summary。
+- **T14b 草稿 AI 单字段端点**（`services/ai_field_service.py`）：POST /drafts/{id}/ai/{field} 复用 `call_mxou_chat_api` + 翻译路径，返回 RU 只读（前端决定 PATCH 保存），未知 field → 400。
+
+### Feat(worker 生图缓存版本化 + image_gen_plan)
+
+- **T7a 缓存 version++ 显式重生成**（`task_image_cache.py`）：get/save 支持 version/params 快照；regen 端点 `force_regen` → 新行 version+1 新 URL，**无静默缓存命中**；resubmit 血缘回溯 `image_parent_task_id`（存原 task_id，与任务级 `payload.parent_task_id` 区分）→ 复用父图**不烧额度**。
+- **T7b image_gen_plan 受限映射**（C3b 冻结）：`image_gen_plan`（type→count）只控制现有 10 slot 子集执行/跳过，不新增 slot、不改 graph 层；plan 校验：必须含 Phase1（white_bg 或 multi_angle），仅选 Phase2 类型 → 拒绝；默认全 10 张向后兼容。
+- **T14 更新在线商品端点**（`routes/products_routes.py` + `services/image_service.py`）：POST /products/{id}/update_images：`product_task_index` 定位 → URL 存活检查（GET+Range）→ `/v3/product/import` 全量重传（product_id + offer_id + 新 images）→ status → `pending_moderation`「重新审核中」→ 索引行回填（upload 成功 + approved 路径挂钩）。
+
+### Feat(webui 五页 SPA)
+
+- **T4 前端脚手架**（`webui/` Vite React TS）：登录（token → Bearer 持久化）、路由、Axios 拦截器；`src/api/client.ts` 由 worker openapi.json 用 openapi-typescript 生成（单一真相源）；FastAPI `/app` StaticFiles + SPA fallback（未构建 dist 跳过挂载不阻断）。
+- **T10 采集箱页面**：区间采集价 / SKU 数 / 来源 / 上架状态列（draft_submissions）/ 批量删除 / 清空级联。
+- **T10b 商品编辑页**（上品帮 editGoods 版）：三区块锚点导航（主要信息/产品属性/变体设置）；上架店铺下拉 / 标题 3 AI 按钮 / 重量尺寸🤖 / 变体表格同首行填充 / 选择仓库 + 库存 / 定时上架 stub（persist scheduled_at）/ 立即上架（跨店 confirm 弹框闭环）。
+- **T11 店铺管理页面**：绑定弹窗（shop_name/currency/is_default radio）/ 仅掩码列表 / 轮换/吊销/立即校验 / 轮换提醒 banner。
+- **T12 任务进度页**：上架记录列（售价/划线价/货源/竞品/方式/时间）+ 筛选 + 异常重上（→ resubmit_task）+ 今日上架数。
+- **T13 生图工作台**：原图 ≤3 / 卖点 AI 帮写 / 现有 slot 类型 ±1（材质/尺寸置灰）→ image_gen_plan / **生成前余额 + 预计消耗（N 张 = N 次）确认弹窗** / 余额 ≤0 阻止生成 / 分类型预览。
+
+### Feat(skill --to-box)
+
+- **T9 graph/follow `--to-box`**（`cli.py` + `cloud_probe.py`）：替代 `submit_envelope` → POST `/api/v1/drafts`（worker 剥离凭证），打印 `draft_id` + 「已入采集箱，请到 WebUI 认领」；老 skill 冷启动降级直接 submit + WebUI 横幅提示。
+
+### Test
+
+- worker 新增 13 文件：`test_webui_migrations`（T1）/ `test_credential_cipher`（T2）/ `test_auth_gates`（T3）/ `test_credentials_api`（T5，含租户隔离 + 明文 grep）/ `test_drafts_api`（T6，含 409 重复商品 + fail-open + 跨店 confirm + 隔离）/ `test_image_cache_version`（T7a，regen 新行新 URL + resubmit 复用父图不调 API）/ `test_image_gen_plan`（T7b，跳过断言 + Phase1 校验）/ `test_tasks_api`（T8）/ `test_draft_ai_endpoint`（T14b）/ `test_update_product`（T14）/ `test_webui_e2e`（T15）。
+- skill 新增 `test_to_box`（T9，含 404 fallback）+ `test_compile_lists.py` 回归（cloud_probe 仍明文 COPY_FILES）。
+- 全量验证：worker 822 passed、skill 493 passed（+1 预存）、前端 `npm run build` 成功、T15 架构评审门通过（新端点全部走 routes/services，main.py 仅注册路由）。
+
 ## [0.40.1] - 2026-08-13
 
 > 生图合规 + 跟卖图片污染 + 类型属性 value 空 三连修复（v0.40 实测批量上架根因）：成人用品不注入标题（违禁词触发生图 violation）；跟卖参考图不再混入上传图片；8229 类型属性中文 value 置空后补 RU 文本；skill 端部分尺寸缺失按比例补齐。
