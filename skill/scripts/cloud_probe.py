@@ -491,6 +491,66 @@ def submit_envelope(
         return {"ok": False, "error": str(e), "task_id": task_id}
 
 
+def submit_draft(
+    graph_input: dict[str, Any],
+    worker_url: str | None = None,
+) -> dict[str, Any]:
+    """T9: 入采集箱 — POST GraphInput 到 Worker 的 /api/v1/drafts。
+
+    Worker 端剥离凭证存 credential_id，只留 envelope 进 product_drafts
+    （WebUI 认领 → 编辑 → 确认后上架）。请求体与 submit_task 相同
+    （含顶层 token，Worker _authenticate 支持 body token 兜底）。
+
+    Returns:
+        成功: {"ok": True, "draft_id": str, "message": "已入采集箱..."}
+        冷启动降级（老 Worker 无 /drafts 端点）: 404 / 连接失败/超时
+            → 自动降级 submit_envelope()（直接上架），
+            返回 {"ok": ..., "task_id": ..., "degraded": True, "message": "已直接上架"}
+        其他 4xx/5xx: {"ok": False, "error": str}（不降级，避免掩盖真实错误）
+    """
+    from scripts.lib.config_store import _require_auth
+    _require_auth()
+    base = (worker_url or _get_api_base()).rstrip("/")
+    url = f"{base}/api/v1/drafts"
+
+    def _fallback(sub_result: dict[str, Any]) -> dict[str, Any]:
+        sub_result["degraded"] = True
+        sub_result["message"] = "WebUI 采集箱不可用，已直接上架"
+        return sub_result
+
+    try:
+        import requests
+        resp = requests.post(url, json=graph_input, timeout=30)
+        try:
+            payload = resp.json()
+        except Exception:
+            payload = None
+        if resp.status_code == 404:
+            # 老 Worker 没有 /api/v1/drafts 端点 → 降级直接上架
+            return _fallback(submit_envelope(graph_input))
+        if resp.status_code >= 400:
+            if isinstance(payload, dict):
+                reason = (
+                    payload.get("message")
+                    or (payload.get("detail") if isinstance(payload.get("detail"), str) else "")
+                    or f"HTTP {resp.status_code}"
+                )
+            else:
+                reason = f"HTTP {resp.status_code}"
+            return {"ok": False, "error": reason, "http_status": resp.status_code}
+        draft_id = str(payload.get("id") or payload.get("draft_id") or "") if isinstance(payload, dict) else ""
+        return {
+            "ok": bool(draft_id),
+            "draft_id": draft_id,
+            "message": f"已入采集箱，请到 WebUI 认领（draft_id={draft_id}）",
+        }
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        # 连接失败/超时 → 冷启动降级直接上架
+        return _fallback(submit_envelope(graph_input))
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def submit_task(
     envelope: dict[str, Any],
     *,
@@ -2884,7 +2944,8 @@ def _cached_ozon_scrape(
 
 
 def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = "",
-                      review: bool = False, notify: bool = False) -> dict[str, Any]:
+                      review: bool = False, notify: bool = False,
+                      to_box: bool = False) -> dict[str, Any]:
     """
     跟卖 Ozon 商品 (v9: Skill 不调 Ozon API, import-by-sku 移到 Worker):
       1. CDP 抓取 Ozon 商品页 → 拿到竞品图片 + 标题
@@ -2934,9 +2995,13 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             _env = dict(_cached_follow["envelope"])
             if notify:
                 _env["notify"] = True
-            _sub = submit_envelope(_env)
+            _sub = submit_draft(_env) if to_box else submit_envelope(_env)
             _cached_follow["submit_result"] = _sub
-            _cached_follow["task_id"] = _sub.get("task_id", "")
+            if to_box:
+                _cached_follow["draft_id"] = _sub.get("draft_id", "")
+                _cached_follow["degraded"] = _sub.get("degraded", False)
+            else:
+                _cached_follow["task_id"] = _sub.get("task_id", "")
         return _cached_follow
     
     # Step 2: CDP 抓取 Ozon 商品页 → 竞品图片 + 标题
@@ -3346,10 +3411,17 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     if auto_submit:
                         if notify:
                             envelope["notify"] = True
-                        submit_res = submit_envelope(envelope)
+                        submit_res = submit_draft(envelope) if to_box else submit_envelope(envelope)
                         result["submit_result"] = submit_res
-                        result["task_id"] = submit_res.get("task_id", "")
-                        result["success"] = bool(submit_res.get("ok")) and bool(submit_res.get("task_id"))
+                        if to_box:
+                            result["draft_id"] = submit_res.get("draft_id", "")
+                            result["degraded"] = submit_res.get("degraded", False)
+                            result["success"] = bool(submit_res.get("ok")) and bool(
+                                submit_res.get("draft_id") or submit_res.get("task_id")
+                            )
+                        else:
+                            result["task_id"] = submit_res.get("task_id", "")
+                            result["success"] = bool(submit_res.get("ok")) and bool(submit_res.get("task_id"))
                     else:
                         # dry-run：仅组装信封，构建成功即算成功
                         result["success"] = True
