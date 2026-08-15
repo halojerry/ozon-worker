@@ -1,0 +1,39 @@
+"""M2.1: 在售商品列表路由薄层 — 鉴权 + 参数解析 + 调 shelf_service，无业务逻辑。
+
+端点（挂载在 /api/v1 下，main.py v1.include_router）：
+    GET /products?limit=&offset=   按租户返回在售商品列表（product_task_index + moderation_status）
+
+token 来源：Authorization: Bearer 优先，query param token 兜底（GET 无 body）。
+"""
+from __future__ import annotations
+
+from fastapi import APIRouter, Request
+
+from api.schemas import ProductListResponse
+from services import shelf_service
+
+router = APIRouter(prefix="/products", tags=["products"])
+
+
+async def _authenticate(request: Request) -> str:
+    from main import _authenticate_token  # 延迟导入防循环
+
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return _authenticate_token(auth[7:].strip())
+    token = request.query_params.get("token", "")
+    return _authenticate_token(token)
+
+
+@router.get("", response_model=ProductListResponse)
+async def list_products(request: Request):
+    tenant_id = await _authenticate(request)
+    try:
+        limit = int(request.query_params.get("limit", 20))
+    except (TypeError, ValueError):
+        limit = 20
+    try:
+        offset = int(request.query_params.get("offset", 0))
+    except (TypeError, ValueError):
+        offset = 0
+    return shelf_service.list_products(tenant_id, limit=limit, offset=offset)
