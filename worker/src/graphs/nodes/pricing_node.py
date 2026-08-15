@@ -190,37 +190,31 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         # Step 4: 查询汇率（根据currency_code决定汇率方向）
         exchange_rate: float = _get_exchange_rate(supabase_url, supabase_key, currency_code)
         
-        # Step 5: 价格计算公式
+        # Step 5+6: 价格计算公式（M1.2 共享公式：utils/pricing_estimate.compute_price 唯一定义处，
+        # 与 estimate 端点同源。公式 = 总成本 × (1+margin)/(1-commission) [× (1+fx_buffer)×汇率 if RUB]）
         # 总成本 = 产品成本 + 物流成本 + 包装成本
         total_cost_cny: float = cost_cny + logistics_cost + packaging_cost
         
-        # Ozon佣金是售价的百分比，所以正确公式：售价 = 总成本 / (1 - 佣金率 - 利润率)
-        # 简化：售价 = 总成本 * (1 + margin_rate) / (1 - commission_rate)
+        # 除零守卫保留给下方变体定价循环使用（变体 old_price 规则与单 SKU 不同，独立计算）
         commission_divisor: float = (1.0 - commission_rate)
         if commission_divisor <= 0:
             commission_divisor = 0.9  # 防止除零
-        
-        # 根据currency_code决定价格计算方式
-        if currency_code == "CNY":
-            # 店铺是CNY，直接计算人民币价格（CNY店铺无汇率风险，不使用fx_buffer）
-            base_price_cny: float = total_cost_cny * (1 + margin_rate) / commission_divisor
-            price: int = math.ceil(base_price_cny)
-            # Ozon规则：折扣至少 20%（price≤25 时 old_price-price≥5；否则 20% 加价）
-            if price <= 25:
-                old_price: int = max(price + 5, math.ceil(price * 1.2))
-            else:
-                old_price = math.ceil(price * 1.2)
-            currency_unit = "CNY"
-        else:
-            # 店铺是RUB，计算俄罗斯卢布价格
-            base_price_rub: float = total_cost_cny * (1 + margin_rate) * (1 + fx_buffer) / commission_divisor * exchange_rate
-            price: int = math.ceil(base_price_rub)
-            # Ozon规则：折扣至少 20%
-            if price <= 25:
-                old_price = max(price + 5, math.ceil(price * 1.2))
-            else:
-                old_price = math.ceil(price * 1.2)
-            currency_unit = "RUB"
+
+        from utils.pricing_estimate import compute_price
+        _est = compute_price(
+            total_cost_cny=total_cost_cny,
+            margin_rate=margin_rate,
+            commission_rate=commission_rate,
+            fx_buffer=fx_buffer,
+            currency_code=currency_code,
+            exchange_rate=exchange_rate,  # CNY 时 _get_exchange_rate 返回 1.0（CNY 路径不使用）
+        )
+        price: int = _est["price"]
+        old_price: int = _est["old_price"]
+        currency_unit = "CNY" if currency_code == "CNY" else "RUB"
+        profit_cny: float = _est["profit_cny"]
+        profit_rate_actual: float = _est["profit_rate"]
+        base_price_for_profit: float = _est["base_price"]
         
         # ⚠️ v0.26 决策：跟卖不再用竞品价定价（已删除原「竞品价 ≥ 成本×1.3 保持竞品价」分支）。
         # 原因（用户拍板，2026-08-05）：竞品价（RUB）与成本（CNY）直接比较是单位 bug，
@@ -230,18 +224,6 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         # （原分支同时存在 schema 缺陷：PricingInput 缺 competitor_price 字段，条件边转换
         #  会剥掉该字段 → 分支本就永不触发；现显式删除，避免未来补字段后误激活。）
         extensions = getattr(state, 'extensions', {}) or {}
-        
-        # Step 6: 计算利润预估
-        # 利润 = 最终价格 - 总成本
-        if currency_code == "CNY":
-            profit_cny: float = price - total_cost_cny
-            base_price_for_profit: float = base_price_cny
-        else:
-            # RUB店铺：利润需要转换回CNY计算
-            profit_cny: float = (price / exchange_rate) - total_cost_cny
-            base_price_for_profit: float = base_price_rub / exchange_rate
-        
-        profit_rate_actual: float = profit_cny / total_cost_cny if total_cost_cny > 0 else 0.0
         
         # Step 7: 组装价格信息（包含profit_estimation）
         pricing_info: Dict[str, Any] = {
