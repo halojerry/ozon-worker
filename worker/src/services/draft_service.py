@@ -135,10 +135,28 @@ def list_drafts(tenant_id: str) -> list[dict]:
 def delete_draft(tenant_id: str, draft_id: str) -> None:
     """DELETE /drafts/{id}：租户隔离删除草稿（draft_submissions 由 FK ON DELETE CASCADE 级联删）。
 
-    不存在/跨租户 → 404；无返回值（204 语义）。
+    不存在/跨租户 → 404；存在进行中的上架任务（pending/running）→ 409；
+    无返回值（204 语义）。
     """
     uid = _parse_draft_uuid(draft_id)
     with get_engine().begin() as conn:
+        # 租户隔离：先按 tenant_id 查归属（不存在/跨租户 → 404，先于守卫）
+        owner = conn.execute(text(
+            "SELECT 1 FROM product_drafts WHERE id=:id AND tenant_id=:tenant_id LIMIT 1"
+        ), {"id": uid, "tenant_id": tenant_id}).fetchone()
+        if owner is None:
+            raise HTTPException(status_code=404, detail="草稿不存在或无权访问")
+        # 守卫：存在进行中的上架任务（pending/running）→ 409，禁止删除
+        active = conn.execute(text(
+            "SELECT 1 FROM draft_submissions ds "
+            "JOIN ozon_product_tasks t ON t.id::text = ds.submitted_task_id "
+            "WHERE ds.draft_id=:id AND t.status IN ('pending','running') LIMIT 1"
+        ), {"id": uid}).fetchone()
+        if active is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="草稿存在进行中的上架任务，请先取消任务再删除",
+            )
         result = conn.execute(text(
             "DELETE FROM product_drafts WHERE id=:id AND tenant_id=:tenant_id"
         ), {"id": uid, "tenant_id": tenant_id})
