@@ -45,19 +45,29 @@ worker 启动时 `_mount_webui_static`（`worker/src/main.py`）自动挂载：
 
 ### 2.3 生产部署（Docker）
 
-```bash
-# 宿主机构建前端（或 CI 中构建）
-cd webui && npm install && npm run build
+**v0.41 起 CI 自动构建分发，服务器零前端操作：**
 
-# 确保 worker 容器能读到 dist：挂载目录并设 WEBUI_DIST
-# deploy/docker-compose.yml 追加：
-#   volumes:
-#     - ../webui/dist:/app/webui/dist:ro
-#   environment:
-#     - WEBUI_DIST=/app/webui/dist
+```text
+git tag v0.41.0 → GitHub Actions（cd.yml cos-deploy）
+  → ① setup-node + npm ci + npm run build（产出 webui/dist）
+  → ② tar 打包 deploy/ + worker/ + webui/（含 dist，排除 node_modules）
+  → ③ 传 COS /ozon-worker/ + manifest.json
+  → 服务器 bash deploy/update.sh（cos-update.sh）
+  → ④ 解压覆盖（webui/dist 就位，脚本校验 index.html 存在）
+  → ⑤ docker compose build + up（compose 已配 ../webui/dist 挂载 + WEBUI_DIST）
+```
+
+compose 挂载（`deploy/docker-compose.yml`，已提交）：
+```yaml
+volumes:
+  - ../webui/dist:/app/webui/dist:ro
+environment:
+  - WEBUI_DIST=/app/webui/dist
 ```
 
 访问 `http://<worker-host>:8080/app/` 即进入 WebUI 登录页。
+
+> ⚠️ 手动/非 tag 部署（如本地 Docker）：先 `cd webui && npm ci && npm run build` 产出 dist 再 `docker compose up -d --build`。dist 未构建时 worker 正常启动，但 `/app/` 不挂前端（日志 warning）。
 
 ### 2.4 凭证加密密钥
 
@@ -66,6 +76,7 @@ cd webui && npm install && npm run build
 
 ```bash
 CREDENTIAL_MASTER_KEY=$(openssl rand -base64 32)
+# 写入 deploy/.env（docker-compose.yml 自动读取）；⚠️ 更换密钥后历史凭证无法解密
 ```
 
 ---

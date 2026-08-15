@@ -47,10 +47,13 @@ services:
       - LOG_FILE=${LOG_FILE:-/app/logs/worker.log}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
+      - WEBUI_DIST=/app/webui/dist
     volumes:
       - logs:/app/logs
       # ⚠️ v0.15: config 目录 bind mount → 宿主机改配置（如 image_prompts.json / LLM cfg）无需重建镜像/重启容器，下一次调用即生效
       - ../worker/config:/app/config:ro
+      # ✅ v0.41: WebUI 静态产物挂载（WEBUI_DIST 指向容器内路径；未构建时跳过挂载不阻断）
+      - ../webui/dist:/app/webui/dist:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -133,6 +133,14 @@ tar -xzf "$TMP_DIR/$PKG" -C "$ROOT_DIR"
 echo "$VERSION" > "$VERSION_FILE"
 log "✅ 新版本文件就位 v${VERSION}"
 
+# ── 5.5 WebUI 前端校验(v0.41: 部署包含 webui/dist, compose 挂载到容器 /app/webui/dist) ──
+if [ -f "$ROOT_DIR/webui/dist/index.html" ]; then
+  log "✅ WebUI 前端产物就位: webui/dist/index.html"
+else
+  warn "⚠️ 部署包缺少 webui/dist/index.html —— WebUI 将不挂载(worker 正常启动, 访问 /app/ 返回 API 而非前端)"
+  warn "   修复: 确认 tag 构建时 cd.yml cos-deploy 执行了 npm run build(产出 webui/dist) 再发版"
+fi
+
 # ── 6. 优雅重建(compose 已配 stop_grace_period: 5m) ──
 log "docker compose build + up(优雅关闭, 排空运行中任务)..."
 cd "$SCRIPT_DIR"
