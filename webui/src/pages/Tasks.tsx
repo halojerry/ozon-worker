@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+  getTaskDraft,
   getTaskStatus,
   listTasks,
   resubmitTask,
@@ -304,6 +305,10 @@ export default function Tasks() {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [confirmResubmit, setConfirmResubmit] = useState(false)
+  /** 已探明「无草稿来源」的任务（直连提交）→ 回采集箱改按钮禁用 */
+  const [noDraftIds, setNoDraftIds] = useState<Set<string>>(new Set())
+  /** 正在查询 draft_id 的任务（按钮显示查询中…） */
+  const [draftBusyIds, setDraftBusyIds] = useState<Set<string>>(new Set())
   const fetchingRef = useRef(false)
 
   const load = useCallback(async (silent = false) => {
@@ -431,6 +436,29 @@ export default function Tasks() {
       setBusy(false)
     }
   }
+
+  /* ── 回采集箱改：查询任务草稿来源 → 跳编辑页；无草稿（直连）→ 禁用提示 ── */
+  const openInCollectBox = useCallback(async (taskId: string) => {
+    setNotice('')
+    setDraftBusyIds((prev) => new Set(prev).add(taskId))
+    try {
+      const { draft_id } = await getTaskDraft(taskId)
+      if (draft_id) {
+        navigate(`/products/${draft_id}`)
+      } else {
+        setNoDraftIds((prev) => new Set(prev).add(taskId))
+        setNotice('该任务无草稿来源（直连提交），不可回采集箱修改')
+      }
+    } catch (err) {
+      setNotice(extractError(err, '查询草稿来源失败'))
+    } finally {
+      setDraftBusyIds((prev) => {
+        const next = new Set(prev)
+        next.delete(taskId)
+        return next
+      })
+    }
+  }, [navigate])
 
   return (
     <div className="page">
@@ -703,6 +731,16 @@ export default function Tasks() {
                         >
                           生图
                         </button>
+                        {resubmittable && (
+                          <button
+                            className="row-action"
+                            disabled={busy || draftBusyIds.has(t.id) || noDraftIds.has(t.id)}
+                            onClick={() => openInCollectBox(t.id)}
+                            title={noDraftIds.has(t.id) ? '无草稿来源（直连提交，不可回采集箱修改）' : '回采集箱修改草稿'}
+                          >
+                            {draftBusyIds.has(t.id) ? '查询中…' : '回采集箱改'}
+                          </button>
+                        )}
                         {resubmittable && (
                           <button className="row-action danger" disabled={busy} onClick={() => resubmitOne(t.id)}>
                             异常重上
