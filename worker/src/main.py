@@ -2154,9 +2154,17 @@ v1.include_router(tasks_router)
 from routes.drafts_routes import router as drafts_router
 app.include_router(drafts_router)
 
+# ── WebUI 草稿预估售价端点（M1.2）：routes/services 分层，定价公式在 utils/pricing_estimate.py 单处定义 ──
+from routes.estimate_routes import router as estimate_router
+app.include_router(estimate_router)
+
 # ── WebUI 在线商品更新端点（T14 改图全量重传）：routes/services 分层，业务逻辑在 services/image_service.py ──
 from routes.products_routes import router as products_router
 v1.include_router(products_router)
+
+# ── WebUI 在售商品列表端点（M2.1）：routes/services 分层，业务逻辑在 services/shelf_service.py ──
+from routes.shelf_routes import router as shelf_router
+v1.include_router(shelf_router)
 
 
 # 注册 v1 路由（/api/v1/* 端点）
