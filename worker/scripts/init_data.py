@@ -55,6 +55,18 @@ def create_tables(engine):
             "ON ozon_product_tasks(tenant_id, sku_key) "
             "WHERE sku_key IS NOT NULL AND status IN ('pending', 'running')"
         ))
+        # ✅ v0.42 M0.1: WebUI 运营工作台数据模型迁移（幂等，二次运行 no-op）
+        # 存量行 draft_id/error_message 保持 NULL（无可信反向链接，不回填）
+        conn.execute(text(
+            "ALTER TABLE draft_submissions ADD COLUMN IF NOT EXISTS error_message TEXT"
+        ))
+        # 存量库 draft_id 仍为 NOT NULL → 必须解除约束，直连任务（draft_id=NULL）行才能插入
+        conn.execute(text(
+            "ALTER TABLE draft_submissions ALTER COLUMN draft_id DROP NOT NULL"
+        ))
+        conn.execute(text(
+            "ALTER TABLE product_task_index ADD COLUMN IF NOT EXISTS draft_id UUID"
+        ))
         conn.commit()
     # ✅ v0.41 WebUI T1: task_generated_images ALTER + 新表索引（幂等，二次运行 no-op）
     from migrate_webui_v1 import run_migrations

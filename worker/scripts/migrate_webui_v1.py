@@ -26,6 +26,7 @@ _NEW_TABLE_INDEXES = [
     ("CREATE INDEX IF NOT EXISTS idx_product_drafts_tenant ON product_drafts (tenant_id, updated_at DESC)",),
     ("CREATE INDEX IF NOT EXISTS idx_draft_submissions_draft ON draft_submissions (draft_id)",),
     ("CREATE INDEX IF NOT EXISTS idx_pti_tenant_offer ON product_task_index (tenant_id, offer_id)",),
+    ("CREATE INDEX IF NOT EXISTS idx_pti_draft ON product_task_index (draft_id)",),
     ("CREATE UNIQUE INDEX IF NOT EXISTS uq_credentials_tenant_client ON credentials (tenant_id, ozon_client_id)",),
     ("CREATE UNIQUE INDEX IF NOT EXISTS uq_credentials_default ON credentials (tenant_id) WHERE is_default",),
 ]
