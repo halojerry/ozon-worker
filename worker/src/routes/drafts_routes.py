@@ -1,0 +1,155 @@
+"""T6/T14b: 草稿路由（薄层：鉴权 → 读取 → 调 service → 错误码映射）。
+
+端点：
+    POST   ""                         创建（凭证剥离，payload 只存 envelope）
+    GET    ""                         列表（租户隔离 + 最新 submission 状态）
+    GET    /{draft_id}                读取（租户隔离）
+    PATCH  /{draft_id}               编辑（version 乐观锁，stale → 409）
+    DELETE /{draft_id}               删除（draft_submissions 级联删，T10 采集箱）
+    POST   /{draft_id}/submit        提交（per-store 重复 409 + 跨店确认）
+    POST   /{draft_id}/ai/{field}    单字段 AI 重新生成（T14b，只读）
+
+业务逻辑在 services/draft_service.py + services/ai_field_service.py。
+"""
+
+import json
+import logging
+import uuid
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Request
+from sqlalchemy import select
+
+from api.schemas import DraftAiResponse, DraftOut, DraftPatch, SubmitResponse
+from services import draft_service
+from services.ai_field_service import AI_FIELDS, extract_current_value, regenerate_field
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/v1/drafts", tags=["drafts"])
+
+
+async def _authenticate(request: Request) -> str:
+    """token 来源：Authorization: Bearer 优先，body token 兜底（C6「token body 或 Bearer」）。"""
+    from main import _authenticate_token  # 延迟导入防循环
+
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return _authenticate_token(auth[7:].strip())
+    try:
+        raw = await request.body()
+        if raw:
+            data = json.loads(raw.decode("utf-8"))
+            token = str(data.get("token", "") or "")
+            if token:
+                return _authenticate_token(token)
+    except Exception:
+        pass
+    return _authenticate_token("")
+
+
+@router.post("", response_model=DraftOut)
+async def create_draft(request: Request):
+    tenant_id = await _authenticate(request)
+    body = await request.json()
+    return draft_service.create_draft(tenant_id, body)
+
+
+@router.get("", response_model=list[DraftOut])
+async def list_drafts(request: Request):
+    tenant_id = await _authenticate(request)
+    return draft_service.list_drafts(tenant_id)
+
+
+@router.get("/{draft_id}", response_model=DraftOut)
+async def get_draft(draft_id: str, request: Request):
+    tenant_id = await _authenticate(request)
+    return draft_service.get_draft(tenant_id, draft_id)
+
+
+@router.patch("/{draft_id}", response_model=DraftOut)
+async def patch_draft(draft_id: str, request: Request):
+    tenant_id = await _authenticate(request)
+    body = await request.json()
+    return draft_service.patch_draft(tenant_id, draft_id, DraftPatch.model_validate(body))
+
+
+@router.delete("/{draft_id}", status_code=204)
+async def delete_draft(draft_id: str, request: Request):
+    """T10 采集箱删除：租户隔离；draft_submissions 由 FK CASCADE 级联删（验收：清空/删除级联删 submissions）。"""
+    tenant_id = await _authenticate(request)
+    draft_service.delete_draft(tenant_id, draft_id)
+
+
+@router.post("/{draft_id}/submit", response_model=SubmitResponse)
+async def submit_draft(draft_id: str, request: Request):
+    tenant_id = await _authenticate(request)
+    body = await request.json()
+    token = str(body.get("token", "") or "")
+    credential_id = body.get("credential_id")
+    return await draft_service.submit_draft(tenant_id, draft_id, token, credential_id)
+
+
+def _load_draft_payload(draft_id: str, tenant_id: str) -> Optional[dict]:
+    """按 id + tenant 读取草稿 payload（租户隔离；未找到/跨租户 → None）。"""
+    from storage.database.db import get_engine
+    from storage.database.shared.model import ProductDraft
+
+    try:
+        draft_uuid = uuid.UUID(draft_id)
+    except (ValueError, TypeError, AttributeError):
+        return None
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            row = conn.execute(
+                select(ProductDraft.payload).where(
+                    ProductDraft.id == draft_uuid,
+                    ProductDraft.tenant_id == tenant_id,
+                )
+            ).first()
+    except Exception as exc:  # DB 不可用 → 视为未找到（fail-open 语义由 T6 定，这里 404）
+        logger.warning("读取草稿失败 draft_id=%s: %s", draft_id, exc)
+        return None
+    if row is None:
+        return None
+    return row[0]
+
+
+@router.post("/{draft_id}/ai/{field}", response_model=DraftAiResponse)
+async def draft_ai_field(draft_id: str, field: str, request: Request):
+    """单字段 AI 重新生成（T14b）：只读，返回 RU 值，不写回草稿（前端 PATCH 保存）。
+
+    错误映射：无/无效 token → 401（_authenticate_token）；未知 field → 400；
+    草稿不存在/跨租户 → 404；草稿字段为空或 LLM 失败/含中文拉丁残留 → 422。
+    """
+    from main import _authenticate_token, _extract_token_from_body  # 局部 import 防循环
+
+    raw_body = (await request.body()).decode("utf-8", errors="replace")
+    token = _extract_token_from_body(raw_body)
+    tenant_id = _authenticate_token(token)  # 401/403/429（在 DB 读取之前）
+
+    if field not in AI_FIELDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"未知字段: {field}（支持 {sorted(AI_FIELDS)}；brand 强制 Нет бренда 不做 AI 生成）",
+        )
+
+    payload = _load_draft_payload(draft_id, tenant_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="草稿不存在或无权访问")
+
+    current_value = extract_current_value(field, payload)
+    if not current_value:
+        raise HTTPException(status_code=422, detail=f"草稿 {field} 为空，无可重新生成内容")
+
+    mxou_token = token[3:] if token.startswith("sk-") else token
+    value = regenerate_field(field, current_value, mxou_token)
+    if value is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"AI 重新生成失败或结果含中文/拉丁残留（field={field}），请重试",
+        )
+
+    logger.info("draft_ai 重新生成成功: draft_id=%s field=%s 长度=%d", draft_id, field, len(value))
+    return {"field": field, "value": value}
