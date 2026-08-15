@@ -2507,6 +2507,38 @@ input {
   background: var(--color-surface);
 }
 
+/* ── 在售货架页（M2.1） ── */
+
+.images-textarea {
+  height: auto;
+  min-height: 132px;
+  padding: var(--space-3);
+  resize: vertical;
+  margin-bottom: var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.pager-buttons {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.pager .btn-small {
+  margin-right: 0;
+}
+
+.row-action {
+  text-decoration: none;
+}
+
 @media (max-width: 768px) {
   .compare-grid {
     grid-template-columns: 1fr;

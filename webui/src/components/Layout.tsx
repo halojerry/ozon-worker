@@ -47,6 +47,15 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    to: '/on-sale',
+    label: '在售货架',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <path d="M4 5.5h16M4 5.5L2.8 9.2a2.3 2.3 0 004.5.6 2.3 2.3 0 004.5 0 2.3 2.3 0 004.5-.6L20 5.5M5 10.5V19h14v-8.5M9 19v-5h6v5" />
+      </svg>
+    ),
+  },
+  {
     to: '/image-studio',
     label: '生图工作台',
     icon: (
