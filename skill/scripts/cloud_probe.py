@@ -501,22 +501,21 @@ def submit_draft(
     （WebUI 认领 → 编辑 → 确认后上架）。请求体与 submit_task 相同
     （含顶层 token，Worker _authenticate 支持 body token 兜底）。
 
+    ⚠️ fail-hard（v0.42 M0.5）: 采集箱不可用（404/连接失败/超时）一律如实
+    失败返回，绝不静默降级 submit_envelope() 直接上架——用户以为已入箱、
+    实际已上架，是对 WebUI 运营中心的背叛。
+
     Returns:
         成功: {"ok": True, "draft_id": str, "message": "已入采集箱..."}
-        冷启动降级（老 Worker 无 /drafts 端点）: 404 / 连接失败/超时
-            → 自动降级 submit_envelope()（直接上架），
-            返回 {"ok": ..., "task_id": ..., "degraded": True, "message": "已直接上架"}
-        其他 4xx/5xx: {"ok": False, "error": str}（不降级，避免掩盖真实错误）
+        404（老 Worker 无 /drafts 端点）:
+            {"ok": False, "error": "采集箱端点不可用(404)...", "http_status": 404}
+        连接失败/超时: {"ok": False, "error": "Worker 不可达，无法入箱", "http_status": 0}
+        其他 4xx/5xx: {"ok": False, "error": str, "http_status": int}（不掩盖真实错误）
     """
     from scripts.lib.config_store import _require_auth
     _require_auth()
     base = (worker_url or _get_api_base()).rstrip("/")
     url = f"{base}/api/v1/drafts"
-
-    def _fallback(sub_result: dict[str, Any]) -> dict[str, Any]:
-        sub_result["degraded"] = True
-        sub_result["message"] = "WebUI 采集箱不可用，已直接上架"
-        return sub_result
 
     try:
         import requests
@@ -526,8 +525,12 @@ def submit_draft(
         except Exception:
             payload = None
         if resp.status_code == 404:
-            # 老 Worker 没有 /api/v1/drafts 端点 → 降级直接上架
-            return _fallback(submit_envelope(graph_input))
+            # 老 Worker 没有 /api/v1/drafts 端点 → fail-hard，绝不降级直接上架
+            return {
+                "ok": False,
+                "error": "采集箱端点不可用(404)，请升级 Worker 或显式去掉 --to-box 直连上架",
+                "http_status": 404,
+            }
         if resp.status_code >= 400:
             if isinstance(payload, dict):
                 reason = (
@@ -545,8 +548,8 @@ def submit_draft(
             "message": f"已入采集箱，请到 WebUI 认领（draft_id={draft_id}）",
         }
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-        # 连接失败/超时 → 冷启动降级直接上架
-        return _fallback(submit_envelope(graph_input))
+        # 连接失败/超时 → fail-hard，绝不降级直接上架
+        return {"ok": False, "error": "Worker 不可达，无法入箱", "http_status": 0}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
