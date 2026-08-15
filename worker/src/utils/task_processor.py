@@ -15,8 +15,23 @@ from storage.database.supabase_client import get_supabase_client
 from storage.database.db import get_engine
 from utils.task_statistics import statistics_payload
 from graphs.graph import main_graph  # 导入LangGraph主图
+from utils.draft_status_writeback import writeback_submission_status, map_worker_status  # M0.3
 
 logger = get_logger(__name__)
+
+
+def _writeback_status(task_id: str, status: str, error_message: str | None = None) -> None:
+    """draft_submissions 终态写回（M0.3）。必须在任务终态 conn.commit() 之后调用——
+    写回独立于终态事务（该事务已含 shop_usage upsert），写回失败绝不能回滚任务状态。
+
+    writeback_submission_status 本身非致命（内部吞异常）；这里再兜一层，
+    防未来 writeback 实现回归成会 raise 时破坏任务终态落库（测试锁定该行为）。
+    """
+    try:
+        writeback_submission_status(task_id, map_worker_status(status), error_message)
+    except Exception:
+        logger.warning("draft_submissions 状态写回调用异常（不影响任务终态）task=%s status=%s",
+                       task_id, status, exc_info=True)
 
 
 # v0.34 C6: 店铺使用埋点 upsert SQL，按 (ozon_client_id, stat_date) 按天聚合。
@@ -470,6 +485,8 @@ class SupabaseTaskProcessor:
                                 error_message=graph_result.get("_harness_error"),
                             )
                             conn.commit()
+                        # M0.3: draft_submissions 状态写回（在 commit 之后，不扩事务）
+                        _writeback_status(task_id, "failed", graph_result.get("_harness_error"))
                         await _send_task_notify_async(task_id, "failed", graph_result, payload)
                         clear_trace_context()
                         return graph_result
@@ -502,6 +519,8 @@ class SupabaseTaskProcessor:
                                 error_message=graph_result.get("_harness_error"),
                             )
                             conn.commit()
+                        # M0.3: draft_submissions 状态写回（在 commit 之后，不扩事务）
+                        _writeback_status(task_id, "rejected", graph_result.get("_harness_error"))
                         await _send_task_notify_async(task_id, "rejected", graph_result, payload)
                         clear_trace_context()
                         return graph_result
@@ -529,7 +548,9 @@ class SupabaseTaskProcessor:
                             error_message=None,
                         )
                         conn.commit()
-                    
+
+                    # M0.3: draft_submissions 状态写回（在 commit 之后，不扩事务）
+                    _writeback_status(task_id, "completed", None)
                     await _send_task_notify_async(task_id, "completed", graph_result, payload)
                     log_task_event("completed", task_id=task_id, user_id=tenant_id)
                     clear_trace_context()
@@ -643,6 +664,8 @@ class SupabaseTaskProcessor:
                     )
                     conn.commit()
 
+                # M0.3: draft_submissions 状态写回（在 commit 之后，不扩事务）
+                _writeback_status(task_id, "failed", error_message)
                 log_task_event("failed", task_id=task_id, error_message=error_message,
                                retry_count=retry_count, max_retries=max_retries, permanent=True)
                 
