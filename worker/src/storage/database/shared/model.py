@@ -604,9 +604,9 @@ class DraftSubmission(Base):
         UUID(as_uuid=True), primary_key=True,
         server_default=text("gen_random_uuid()")
     )
-    draft_id: Mapped[uuid.UUID] = mapped_column(
+    draft_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("product_drafts.id", ondelete="CASCADE"),
-        nullable=False, comment="草稿（级联删除）"
+        nullable=True, comment="采集箱草稿 id；直连任务为 NULL（CASCADE 不作用于 NULL 行）"
     )
     credential_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True, comment="NULL → 用 is_default=true 店铺"
@@ -619,7 +619,10 @@ class DraftSubmission(Base):
     )
     status: Mapped[str] = mapped_column(
         Text, nullable=False, default="pending", server_default=text("'pending'"),
-        comment="pending/uploading/published/failed"
+        comment="pending/uploading/published/failed/rejected"
+    )
+    error_message: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="失败/被拒原因（直连任务失败信息；草稿模式跟随 submitted_task_id）"
     )
     submitted_task_id: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True, comment="ozon_product_tasks.id"
@@ -683,8 +686,12 @@ class ProductTaskIndex(Base):
     credential_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("credentials.id"), nullable=True, comment="定位店铺"
     )
+    draft_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True, comment="采集箱草稿 id；直连任务为 NULL"
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
 
     __table_args__ = (
         Index("idx_pti_tenant_offer", "tenant_id", "offer_id"),
+        Index("idx_pti_draft", "draft_id"),
     )
