@@ -132,12 +132,30 @@ async def regen_image(
 
 # C1b: 索引行 UPSERT（回填/刷新商品↔任务↔店铺映射，approved 路径挂钩）
 _INDEX_UPSERT_SQL = text(
-    "INSERT INTO product_task_index (product_id, tenant_id, offer_id, task_id, credential_id) "
-    "VALUES (:product_id, :tenant_id, :offer_id, :task_id, :credential_id) "
+    "INSERT INTO product_task_index "
+    "(product_id, tenant_id, offer_id, task_id, credential_id, draft_id) "
+    "VALUES (:product_id, :tenant_id, :offer_id, :task_id, :credential_id, :draft_id) "
     "ON CONFLICT (product_id) DO UPDATE SET "
     "  offer_id = EXCLUDED.offer_id, task_id = EXCLUDED.task_id, "
-    "  credential_id = EXCLUDED.credential_id, created_at = NOW()"
+    "  credential_id = EXCLUDED.credential_id, draft_id = EXCLUDED.draft_id, created_at = NOW()"
 )
+
+
+def _resolve_draft_id(task_id: str) -> Optional[str]:
+    """draft_submissions 定位草稿：submitted_task_id → draft_id；无记录/直连任务 → None。"""
+    try:
+        with get_engine().connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT draft_id FROM draft_submissions "
+                    "WHERE submitted_task_id = :task_id LIMIT 1"
+                ),
+                {"task_id": task_id},
+            ).fetchone()
+        return str(row[0]) if row and row[0] is not None else None
+    except Exception as e:
+        logger.debug("image_service._resolve_draft_id 失败(task=%s): %s", task_id, e)
+        return None
 
 
 def _lookup_index(tenant_id: str, product_id: str) -> Optional[dict]:
@@ -145,8 +163,8 @@ def _lookup_index(tenant_id: str, product_id: str) -> Optional[dict]:
     try:
         with get_engine().connect() as conn:
             row = conn.execute(text(
-                "SELECT product_id, offer_id, task_id, credential_id FROM product_task_index "
-                "WHERE product_id=:pid AND tenant_id=:tenant_id"
+                "SELECT product_id, offer_id, task_id, credential_id, draft_id "
+                "FROM product_task_index WHERE product_id=:pid AND tenant_id=:tenant_id"
             ), {"pid": product_id, "tenant_id": tenant_id}).fetchone()
     except Exception as e:
         logger.warning("product_task_index 查询失败 product_id=%s: %s", product_id, e)
@@ -158,14 +176,18 @@ def _lookup_index(tenant_id: str, product_id: str) -> Optional[dict]:
         "offer_id": str(row[1]),
         "task_id": str(row[2]),
         "credential_id": str(row[3]) if row[3] is not None else None,
+        "draft_id": str(row[4]) if row[4] is not None else None,
     }
 
 
-def _upsert_index(tenant_id: str, product_id: str, offer_id: str, task_id: str, credential_id: str) -> None:
+def _upsert_index(
+    tenant_id: str, product_id: str, offer_id: str, task_id: str, credential_id: str,
+    draft_id: Optional[str] = None,
+) -> None:
     with get_engine().begin() as conn:
         conn.execute(_INDEX_UPSERT_SQL, {
             "product_id": product_id, "tenant_id": tenant_id, "offer_id": offer_id,
-            "task_id": task_id, "credential_id": credential_id,
+            "task_id": task_id, "credential_id": credential_id, "draft_id": draft_id,
         })
 
 
@@ -243,7 +265,10 @@ def update_product_images(
 
     import_task_id = str((result.get("result") or {}).get("task_id", ""))
     if _query_ozon_status(client_id, api_key, product_id, post) == "approved":
-        _upsert_index(tenant_id, product_id, index["offer_id"], index["task_id"], index["credential_id"])
+        _upsert_index(
+            tenant_id, product_id, index["offer_id"], index["task_id"], index["credential_id"],
+            draft_id=_resolve_draft_id(index["task_id"]),
+        )
         return {
             "ok": True, "product_id": product_id, "offer_id": index["offer_id"],
             "import_task_id": import_task_id, "status": "approved", "re_under_review": False,
