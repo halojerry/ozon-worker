@@ -3,8 +3,8 @@
 
 覆盖:
   - `submit_draft` 正常路径: POST {base}/api/v1/drafts → {ok, draft_id}
-  - 冷启动降级: 404 → 降级 submit_envelope（POST /submit_task）+ degraded 标记
-  - 冷启动降级: 连接失败（ConnectionError/Timeout）→ 降级 submit_envelope
+  - fail-hard（v0.42 M0.5）: 404 → {ok: False, http_status: 404} 且绝不降级 submit_envelope
+  - fail-hard: 连接失败（ConnectionError/Timeout）→ {ok: False, http_status: 0} 且绝不降级
   - 非 404 错误（400）→ {ok: False} 且不降级（不掩盖真实错误）
   - worker_url 显式覆盖
 
@@ -26,6 +26,9 @@ from scripts.cloud_probe import submit_draft  # noqa: E402
 
 API_BASE = "https://worker.mxou.cn"
 
+ERR_404 = "采集箱端点不可用(404)，请升级 Worker 或显式去掉 --to-box 直连上架"
+ERR_UNREACHABLE = "Worker 不可达，无法入箱"
+
 
 # ── helpers ────────────────────────────────────────────────────────────
 
@@ -44,11 +47,6 @@ def _http_resp(status: int, payload: dict | None = None) -> mock.Mock:
     resp.text = str(payload or {})
     resp.json.return_value = payload
     return resp
-
-
-def _task_resp(task_id: str) -> mock.Mock:
-    """submit_envelope 成功响应形状（{ok, task_id}）。"""
-    return _http_resp(200, {"ok": True, "task_id": task_id, "message": "submitted"})
 
 
 def _patch_auth() -> mock.Mock:
@@ -95,57 +93,54 @@ def test_submit_draft_custom_worker_url():
     assert m_post.call_args[0][0] == "http://localhost:8080/api/v1/drafts"
 
 
-# ── 冷启动降级 ─────────────────────────────────────────────────────────
+# ── fail-hard：绝不静默降级直接上架（v0.42 M0.5）────────────────────────
 
 
-def test_submit_draft_404_falls_back_to_submit_envelope():
-    """Given 老 worker 无 /drafts（404），When submit_draft，Then 降级直接上架并标记 degraded。"""
-    def _route(url, **kwargs):
-        if url.endswith("/api/v1/drafts"):
-            return _http_resp(404, {"detail": "Not Found"})
-        return _task_resp("task-uuid-fallback")
-
-    with mock.patch("requests.post", side_effect=_route) as m_post:
+def test_submit_draft_404_fails_hard():
+    """Given /drafts 404（老 Worker 无端点），When submit_draft，Then {ok: False} 且绝不降级。"""
+    with mock.patch("requests.post", return_value=_http_resp(404, {"detail": "Not Found"})) as m_post, \
+         mock.patch("scripts.cloud_probe.submit_envelope") as m_fallback:
         res = submit_draft(_graph_input())
 
-    assert res["ok"] is True
-    assert res["degraded"] is True
-    assert res["task_id"] == "task-uuid-fallback"
-    assert "已直接上架" in res["message"]
-    # 降级后确实走了 /submit_task
-    urls = [c[0][0] for c in m_post.call_args_list]
-    assert f"{API_BASE}/submit_task" in urls
+    assert res["ok"] is False
+    assert res["error"] == ERR_404
+    assert res["http_status"] == 404
+    # 绝不调用 submit_envelope（直接上架）
+    m_fallback.assert_not_called()
+    # 只打了一次 /drafts，没有走 /submit_task
+    assert len(m_post.call_args_list) == 1
+    assert m_post.call_args_list[0][0][0] == f"{API_BASE}/api/v1/drafts"
 
 
-def test_submit_draft_connection_error_falls_back():
-    """Given 连接失败，When submit_draft，Then 降级直接上架并标记 degraded。"""
-    def _route(url, **kwargs):
-        if url.endswith("/api/v1/drafts"):
-            raise requests.ConnectionError("Worker unreachable")
-        return _task_resp("task-uuid-fallback")
-
-    with mock.patch("requests.post", side_effect=_route) as m_post:
+def test_submit_draft_connection_error_fails_hard():
+    """Given 连接失败，When submit_draft，Then {ok: False, http_status: 0} 且绝不降级。"""
+    with mock.patch(
+        "requests.post", side_effect=requests.ConnectionError("Worker unreachable")
+    ) as m_post, \
+         mock.patch("scripts.cloud_probe.submit_envelope") as m_fallback:
         res = submit_draft(_graph_input())
 
-    assert res["ok"] is True
-    assert res["degraded"] is True
-    assert res["task_id"] == "task-uuid-fallback"
-    urls = [c[0][0] for c in m_post.call_args_list]
-    assert f"{API_BASE}/submit_task" in urls
+    assert res["ok"] is False
+    assert res["error"] == ERR_UNREACHABLE
+    assert res["http_status"] == 0
+    m_fallback.assert_not_called()
+    # 没有发起第二次请求（不会重定向到 /submit_task）
+    assert len(m_post.call_args_list) == 1
 
 
-def test_submit_draft_timeout_falls_back():
-    """Given 超时，When submit_draft，Then 降级直接上架。"""
-    def _route(url, **kwargs):
-        if url.endswith("/api/v1/drafts"):
-            raise requests.Timeout("slow")
-        return _task_resp("task-uuid-fallback")
-
-    with mock.patch("requests.post", side_effect=_route):
+def test_submit_draft_timeout_fails_hard():
+    """Given 超时，When submit_draft，Then {ok: False, http_status: 0} 且绝不降级。"""
+    with mock.patch(
+        "requests.post", side_effect=requests.Timeout("slow")
+    ) as m_post, \
+         mock.patch("scripts.cloud_probe.submit_envelope") as m_fallback:
         res = submit_draft(_graph_input())
 
-    assert res["ok"] is True
-    assert res["degraded"] is True
+    assert res["ok"] is False
+    assert res["error"] == ERR_UNREACHABLE
+    assert res["http_status"] == 0
+    m_fallback.assert_not_called()
+    assert len(m_post.call_args_list) == 1
 
 
 # ── 非 404 错误不降级 ──────────────────────────────────────────────────
@@ -158,22 +153,6 @@ def test_submit_draft_400_no_fallback():
 
     assert res["ok"] is False
     assert "envelope 不能为空" in res["error"]
-    assert res.get("degraded") is not True
     # 只打了一次 /drafts，没有走 /submit_task
     assert len(m_post.call_args_list) == 1
     assert m_post.call_args_list[0][0][0] == f"{API_BASE}/api/v1/drafts"
-
-
-def test_submit_draft_fallback_failure_surfaces_error():
-    """Given 降级后直接上架也失败，When submit_draft，Then 透传失败且 degraded 标记保留。"""
-    def _route(url, **kwargs):
-        if url.endswith("/api/v1/drafts"):
-            raise requests.ConnectionError("Worker unreachable")
-        return _http_resp(500, {"message": "server error"})
-
-    with mock.patch("requests.post", side_effect=_route):
-        res = submit_draft(_graph_input())
-
-    assert res["ok"] is False
-    assert res["degraded"] is True
-    assert res["error"]

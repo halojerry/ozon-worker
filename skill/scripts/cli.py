@@ -485,14 +485,9 @@ def cmd_graph(args: argparse.Namespace) -> int:
             _logger = logging.getLogger(__name__)
             if getattr(args, 'to_box', False):
                 summary["draft_id"] = submit_result.get("draft_id", "")
-                if submit_result.get("degraded"):
-                    _logger.info("⚠️ WebUI 采集箱不可用，已直接上架: task_id=%s",
-                                 submit_result.get("task_id"))
-                    summary["task_id"] = submit_result.get("task_id")
-                else:
-                    print(f"📥 已入采集箱，请到 WebUI 认领: draft_id={submit_result.get('draft_id')}",
-                          flush=True)
-                    _logger.info("✅ 已入采集箱: draft_id=%s", submit_result.get("draft_id"))
+                print(f"📥 已入采集箱，请到 WebUI 认领: draft_id={submit_result.get('draft_id')}",
+                      flush=True)
+                _logger.info("✅ 已入采集箱: draft_id=%s", submit_result.get("draft_id"))
             else:
                 _logger.info("✅ 已提交 Worker: task_id=%s", submit_result.get("task_id"))
                 summary["task_id"] = submit_result.get("task_id")
