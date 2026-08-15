@@ -15,7 +15,8 @@ from utils.mxou_api import clean_title_for_image_prompt
 from utils.prompt_assembler import assemble_prompt, merge_visual_vars  # ✅ v0.31: 视觉变量注入（Wave 2: LLM + 确定性合并）
 from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色预设路由
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
-from utils.task_image_cache import get_image, save_image, _task_id_from_config  # ✅ v0.26: 重跑不重烧生图
+from utils.task_image_cache import get_image, save_image, _task_id_from_config, _force_regen_from_config, _regen_version_from_config  # v0.26/v0.41: 重跑不重烧生图 + 版本化
+from utils.image_gen_plan import slot_enabled  # T7b: image_gen_plan 前置条件（plan 无该 slot → 跳过）
 
 
 class VariantPrimaryLoopInput(BaseModel):
@@ -26,7 +27,7 @@ class VariantPrimaryLoopInput(BaseModel):
     draft: Dict[str, Any] = Field(default_factory=dict, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn API Key（用于图片生成）")
     visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
-
+    image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
 
 def variant_primary_loop_node(
     state: VariantPrimaryLoopInput,
@@ -45,6 +46,10 @@ def variant_primary_loop_node(
     integrations: api.mxou.cn图片生成API
     """
     ctx = runtime.context
+    # ✅ T7b: image_gen_plan 前置条件（plan 无 variant_primary_loop → 跳过变体主图）
+    if not slot_enabled(config, "variant_primary_loop", state):
+        logging.warning("[variant_primary_loop_node] image_gen_plan 未选择变体主图，跳过")
+        return VariantPrimaryLoopOutput(variant_primary_images=[], stages={"variant_primary_loop": "plan跳过"})
     
     # ✅ Step 1: 获取variants列表
     variants = state.variants
@@ -73,9 +78,9 @@ def variant_primary_loop_node(
             sku_name = variant.get("name", f"variant_{idx}")
             sku_image_url = variant.get("image", "")
 
-            # ✅ v0.26: 重跑不重烧生图 — 该变体已生成过 → 直接复用
+            # ✅ v0.26/v0.41: 重跑不重烧生图 + force_regen 绕过缓存读（webui 重生成）
             _tid = _task_id_from_config(config)
-            if _tid:
+            if _tid and not _force_regen_from_config(config):
                 cached = get_image(_tid, f"variant_{idx}")
                 if cached:
                     logging.info(f"[variant_primary_loop_node] variant[{idx}] 命中生图缓存，复用")
@@ -124,7 +129,9 @@ def variant_primary_loop_node(
             if image_url and isinstance(image_url, str) and image_url:
                 logging.info(f"[variant_primary_loop_node] variant[{idx}]生成成功: {image_url[:100]}")
                 if _tid:
-                    save_image(_tid, f"variant_{idx}", image_url)
+                    save_image(_tid, f"variant_{idx}", image_url,
+                               version=_regen_version_from_config(config),
+                               params=state.model_dump())
                 return image_url
             logging.error(f"[variant_primary_loop_node] variant[{idx}]生成失败: API未返回有效URL")
             return ""  # 不写 alicdn URL，留空让上层处理

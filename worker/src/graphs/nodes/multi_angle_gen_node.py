@@ -18,7 +18,8 @@ from utils.mxou_api import clean_title_for_image_prompt
 from utils.prompt_assembler import assemble_prompt, merge_visual_vars  # ✅ v0.31: 视觉变量注入（Wave 2: LLM + 确定性合并）
 from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色预设路由
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
-from utils.task_image_cache import get_image, save_image, _task_id_from_config  # ✅ v0.26: 重跑不重烧生图
+from utils.task_image_cache import get_image, save_image, _task_id_from_config, _force_regen_from_config, _regen_version_from_config  # v0.26/v0.41: 重跑不重烧生图 + 版本化
+from utils.image_gen_plan import slot_enabled  # T7b: image_gen_plan 前置条件（plan 无该 slot → 跳过）
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,10 @@ def multi_angle_gen_node(state: MultiAngleInput, config: RunnableConfig, runtime
     integrations: api.mxou.cn图片生成API
     """
     ctx = runtime.context
+    # ✅ T7b: image_gen_plan 前置条件（plan 无 multi_angle → 直接跳过，不调生图 API）
+    if not slot_enabled(config, "multi_angle", state):
+        logger.info("image_gen_plan 未选择 multi_angle，跳过生图")
+        return MultiAngleOutput(multi_angle_image=None)
     draft = state.draft
     token = state.token
     original_images = state.original_images  # 原始产品图片（参考图）
@@ -43,9 +48,9 @@ def multi_angle_gen_node(state: MultiAngleInput, config: RunnableConfig, runtime
         logger.warning("Missing draft or token for multi_angle_gen")
         return MultiAngleOutput(multi_angle_image=None)
     
-    # ✅ v0.26: 重跑不重烧生图 — 同一任务已生成过 → 直接复用
+    # ✅ v0.26/v0.41: 重跑不重烧生图 + force_regen 绕过缓存读（webui 重生成）
     _tid = _task_id_from_config(config)
-    if _tid:
+    if _tid and not _force_regen_from_config(config):
         cached = get_image(_tid, "multi_angle")
         if cached:
             logger.info("命中任务生图缓存(multi_angle)，复用已有图片，跳过生图")
@@ -103,7 +108,9 @@ def multi_angle_gen_node(state: MultiAngleInput, config: RunnableConfig, runtime
         if image_url and isinstance(image_url, str) and image_url:
             logger.info(f"多角度图生成成功：图片URL长度={len(image_url)}字符")
             if _tid:
-                save_image(_tid, "multi_angle", image_url)
+                save_image(_tid, "multi_angle", image_url,
+                           version=_regen_version_from_config(config),
+                           params=state.model_dump())
             return MultiAngleOutput(multi_angle_image=image_url)
         
         logger.error("API未返回有效图片URL")
