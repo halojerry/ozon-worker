@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -67,6 +68,7 @@ class TaskStatus(str, Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     REJECTED = "rejected"
+    PENDING_MODERATION = "pending_moderation"  # T14: 在线商品改图重传后重新审核中
 
 
 class TaskStatusResponse(BaseModel):
@@ -204,3 +206,223 @@ class AnalyticsReportResponse(BaseModel):
     status: str = Field("ok", description="状态: ok / error")
     inserted: int = Field(0, description="本次新增行数")
     upserted: int = Field(0, description="本次覆盖更新行数")
+
+
+# ──────────────────────────────────────────────
+# /api/v1/drafts — 采集箱草稿（WebUI T6，契约 C1/C4/C5）
+# ──────────────────────────────────────────────
+
+
+class DraftCreate(BaseModel):
+    """POST /drafts：收 GraphInput 信封 + 凭证。
+
+    Worker 剥离凭证（AES-256-GCM 加密存 credentials 表），payload 只存 envelope。
+    """
+    token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
+    ozon_client_id: str = Field("", description="Ozon 卖家 Client-Id（剥离存储）")
+    ozon_api_key: str = Field("", description="Ozon 卖家 Api-Key（剥离加密存储）")
+    envelope: dict[str, Any] = Field(..., description="产品数据信封 {draft, source, extensions}；NO raw credentials")
+    source: str = Field("skill", description="'skill' | 'webui'")
+
+
+class DraftOut(BaseModel):
+    """草稿详情（payload = envelope，不含任何凭证）。"""
+    id: UUID = Field(..., description="草稿 ID")
+    tenant_id: str = Field(..., description="归属用户（_authenticate_token 的 user_id）")
+    payload: dict[str, Any] = Field(..., description="envelope {draft, source, extensions}；无 api_key 明文")
+    source: str = Field("skill", description="'skill' | 'webui'")
+    version: int = Field(1, description="乐观并发版本（PATCH 带旧 version，不匹配 → 409）")
+    created_at: Optional[datetime] = Field(None, description="创建时间")
+    updated_at: Optional[datetime] = Field(None, description="更新时间")
+    submission_status: Optional[str] = Field(
+        None,
+        description="最新一次提交状态（draft_submissions.status）：pending/uploading/published/failed；NULL = 未上架（C1 状态机，T10 采集箱列）",
+    )
+
+
+class DraftPatch(BaseModel):
+    """PATCH /drafts/{id}：乐观锁更新。"""
+    version: int = Field(..., description="必须等于当前 version，否则 409（stale）")
+    payload: dict[str, Any] = Field(..., description="新的 envelope；成功后 version++")
+    source: Optional[str] = Field(None, description="可选更新 source 字段")
+
+
+class DraftSubmitRequest(BaseModel):
+    """POST /drafts/{id}/submit：凭证注入 → 入队。"""
+    token: str = Field(..., description="MXOU API Key（重建 GraphInput 用）")
+    credential_id: Optional[UUID] = Field(
+        None, description="目标店铺凭证 ID；NULL → 用 is_default=true 店铺"
+    )
+
+
+class SubmitResponse(BaseModel):
+    """提交成功响应（含 C5 跨店确认标记）。"""
+    ok: bool = True
+    draft_id: UUID = Field(..., description="草稿 ID（多次提交永不变）")
+    submission_id: Optional[UUID] = Field(None, description="本次提交记录 ID（draft_submissions.id）")
+    task_id: str = Field("", description="ozon_product_tasks.id")
+    status: str = Field("pending", description="提交记录状态：pending/uploading/published/failed")
+    confirm_required: bool = Field(False, description="跨店提醒：该草稿已提交到其他店铺（不硬拦）")
+    existing_stores: list[str] = Field(default_factory=list, description="已有提交的店铺 client_id 列表")
+
+
+# ──────────────────────────────────────────────
+# /api/v1/credentials (T5) — 凭证三层防御（掩码 + AES-GCM 加密 + 轮换）
+# ──────────────────────────────────────────────
+
+
+class CredentialCreate(BaseModel):
+    """创建凭证请求。
+
+    明文 api_key 仅存在于请求体；响应只回 api_key_masked，永不回显明文。
+    """
+    ozon_client_id: str = Field(..., description="Ozon 卖家 Client-Id（半公开）")
+    api_key: str = Field(..., description="Ozon 卖家 Api-Key（仅请求，永不回显）")
+    shop_name: Optional[str] = Field(None, description="店铺名称（绑定弹窗）")
+    currency: str = Field("CNY", description="CNY/RUB")
+    is_default: bool = Field(False, description="「默认上传产品的店铺」radio；置 true 时同租户旧默认自动清")
+    credential_type: str = Field("api_key", description="api_key | oauth（预留）")
+
+
+class CredentialUpdate(BaseModel):
+    """轮换凭证请求（旧行 revoked + 新行 active，默认标记继承）。"""
+    api_key: str = Field(..., description="新 Api-Key")
+    shop_name: Optional[str] = Field(None, description="可选更新店铺名称")
+    currency: Optional[str] = Field(None, description="可选更新货币")
+
+
+class CredentialOut(BaseModel):
+    """凭证响应 — 仅掩码，永不包含明文 api_key / ozon_api_key_enc。"""
+    id: str = Field(..., description="凭证 UUID")
+    ozon_client_id: str = Field(..., description="Ozon 卖家 Client-Id")
+    api_key_masked: str = Field(..., description="掩码 ****abcd（仅后 4 位）")
+    shop_name: Optional[str] = Field(None, description="店铺名称")
+    currency: str = Field("CNY", description="CNY/RUB")
+    is_default: bool = Field(False, description="默认店铺标记")
+    credential_type: str = Field("api_key", description="api_key | oauth（预留）")
+    status: str = Field("active", description="active/revoked")
+    last_validated_at: Optional[datetime] = Field(None, description="最近一次校验时间")
+    last_rotated_at: Optional[datetime] = Field(None, description="最近一次轮换时间")
+    created_at: Optional[datetime] = Field(None, description="创建时间")
+    updated_at: Optional[datetime] = Field(None, description="更新时间")
+
+
+class ValidateResponse(BaseModel):
+    """凭证校验响应。"""
+    valid: bool = Field(..., description="key 是否有效")
+    reason: str = Field(..., description="ok / invalid_key / ozon_api_error / decrypt_failed")
+    last_validated_at: Optional[datetime] = Field(None, description="本次校验时间")
+
+
+# ──────────────────────────────────────────────
+# T14b 草稿 AI 单字段重新生成
+# ──────────────────────────────────────────────
+
+
+class DraftAiRequest(BaseModel):
+    """T14b: 单字段 AI 重新生成请求。
+
+    请求体仅携带 token（与全站一致：token 在 body 而非 header）；
+    草稿读取由 {draft_id} + token 鉴权得到的 tenant_id 共同限定。
+    """
+    token: str = Field(..., description="mxou API Key（用于 LLM 调用与鉴权）")
+
+
+class DraftAiResponse(BaseModel):
+    """T14b: 单字段 AI 重新生成响应（只读结果，前端决定 PATCH 保存）。"""
+    field: str = Field(..., description="title/description/attributes/tags")
+    value: str = Field(..., description="俄语 RU 值（非空，无中文/拉丁残留）")
+
+
+# ──────────────────────────────────────────────
+# /api/v1/tasks (T8) — 任务列表（租户隔离 + 分页）
+# ──────────────────────────────────────────────
+
+
+class TaskListItem(BaseModel):
+    """任务列表项 — 只读摘要，不含 payload（体积大且含敏感 token）。"""
+    id: str = Field(..., description="任务 UUID")
+    status: TaskStatus = Field(..., description="任务状态")
+    progress: Optional[dict[str, Any]] = Field(None, description="实时进度 {stage, percent, stages_completed[], stages_remaining[], message}")
+    product_summary: list[dict[str, Any]] = Field(default_factory=list, description="产品摘要（result.product_summary，completed 时有值）")
+    created_at: Optional[datetime] = Field(None, description="创建时间")
+    updated_at: Optional[datetime] = Field(None, description="更新时间")
+    # ── T12 前端表格列（task_service 从 payload 安全提取，不含 token/密钥） ──
+    title: Optional[str] = Field(None, description="产品标题（payload envelope.draft.title）")
+    image: Optional[str] = Field(None, description="产品主图 URL（draft.images[0]）")
+    item_id: Optional[str] = Field(None, description="货号（draft.item_id，筛选用）")
+    ozon_client_id: Optional[str] = Field(None, description="账号（payload.ozon_client_id）")
+    shop_name: Optional[str] = Field(None, description="店铺名（payload.shop_name，可为空）")
+    follow_sell: bool = Field(False, description="跟卖标记（envelope.extensions.follow_sell）")
+
+
+class TaskListResponse(BaseModel):
+    """任务列表响应（T8）。"""
+    items: list[TaskListItem] = Field(default_factory=list, description="任务列表（created_at DESC）")
+    total: int = Field(0, description="该租户任务总数（分页前）")
+    limit: int = Field(20, description="本次分页大小（1-100）")
+    offset: int = Field(0, description="本次偏移")
+
+
+# ──────────────────────────────────────────────
+# /api/v1/tasks/{id}/images — 生图缓存版本化（WebUI T7a，契约 C3）
+# ──────────────────────────────────────────────
+
+
+class TaskImageItem(BaseModel):
+    """单张生图缓存行（URL 元数据，不存二进制）。"""
+    slot: str = Field(..., description="槽位: main/white_bg/multi_angle/detail/social_proof/comparison/scene_1..3/variant_{idx}")
+    version: int = Field(..., description="生成版本（1 起；regen 递增）")
+    url: str = Field(..., description="图片 URL（COS/1688 alicdn/Ozon，前端自行处理失效）")
+    params: Optional[dict[str, Any]] = Field(None, description="节点 Input schema 原样快照")
+    image_parent_task_id: Optional[str] = Field(None, description="resubmit 图片血缘（原 task_id；区别于任务级 payload.parent_task_id）")
+    created_at: Optional[datetime] = Field(None, description="生成时间")
+
+
+class TaskImagesResponse(BaseModel):
+    """GET /tasks/{id}/images 响应。"""
+    ok: bool = True
+    task_id: str = Field(..., description="任务 UUID")
+    images: list[TaskImageItem] = Field(default_factory=list, description="全部槽位 × 版本")
+
+
+class ImageRegenResponse(BaseModel):
+    """POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。"""
+    ok: bool = True
+    task_id: str = Field(..., description="任务 UUID")
+    slot: str = Field(..., description="槽位")
+    version: int = Field(..., description="新版本号（prev+1）")
+    url: str = Field(..., description="新图片 URL")
+    params: Optional[dict[str, Any]] = Field(None, description="节点 Input schema 快照")
+    image_parent_task_id: Optional[str] = Field(None, description="resubmit 图片血缘")
+
+
+# ──────────────────────────────────────────────
+# /api/v1/products/{product_id}/update_images — 在线商品改图全量重传（WebUI T14，契约 C1b/C6）
+# ──────────────────────────────────────────────
+
+
+class UpdateProductImagesRequest(BaseModel):
+    """POST /products/{product_id}/update_images 请求。
+
+    全量重传：新 images 整体替换在线商品图片（死 URL 自动过滤后再提交）。
+    token 也可走 Authorization: Bearer 头（C6「token body 或 Bearer」）。
+    """
+    token: str = Field("", description="MXOU API Key（body token 兜底；优先 Bearer）")
+    images: list[str] = Field(..., description="新的图片 URL 列表（全量重传；死 URL 自动过滤）")
+
+
+class UpdateProductImagesResponse(BaseModel):
+    """T14 在线商品改图重传响应。"""
+    ok: bool = True
+    product_id: str = Field(..., description="Ozon product_id")
+    offer_id: str = Field(..., description="信封 offer_id（sku_id / follow_{id}）")
+    import_task_id: str = Field("", description="Ozon /v3/product/import 返回的 task_id")
+    status: str = Field(
+        ...,
+        description="'pending_moderation' 商品重新审核中 | 'approved' 已通过",
+    )
+    re_under_review: bool = Field(..., description="「重新审核中」标记（改图触发重新审核）")
+    message: str = Field(..., description="人类可读消息")
+    images: list[str] = Field(default_factory=list, description="实际提交的存活图片 URL")
+    images_filtered: list[str] = Field(default_factory=list, description="被过滤的死 URL")
