@@ -4,13 +4,15 @@
 - 租户隔离：WHERE tenant_id=:tenant_id（A 租户看不到 B 租户的任务）
 - 分页：ORDER BY created_at DESC + LIMIT/OFFSET；total 用 COUNT(*) 独立查询
 - product_summary 从 result JSONB 的 product_summary 键提取（task_processor 写入）
+- M1.1 resolve_draft_by_task：失败/被拒任务 → 找回采集箱草稿（重上闭环 worker 侧）
 """
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Optional
 
+from fastapi import HTTPException
 from sqlalchemy import text
 
 from storage.database.db import get_engine
@@ -88,3 +90,39 @@ def list_tasks(tenant_id: str, limit: int = 20, offset: int = 0) -> dict[str, An
         "limit": limit,
         "offset": offset,
     }
+
+
+def resolve_draft_by_task(tenant_id: str, task_id: str) -> Optional[str]:
+    """task → 采集箱草稿解析（M1.1 重上闭环 worker 侧）。
+
+    解析顺序：
+        1. draft_submissions.submitted_task_id=:task_id → draft_id（采集任务）
+        2. product_task_index.task_id=:task_id → draft_id（直连任务回落）
+        3. 都无 → None（直连任务无草稿关联）
+
+    租户隔离：task 必须先确认属于该 tenant（ozon_product_tasks WHERE id AND tenant_id）；
+    任务不存在/跨租户 → 404（在解析前拦截，避免泄露其他租户的草稿关联）。
+    """
+    with get_engine().connect() as conn:
+        owner = conn.execute(text(
+            "SELECT 1 FROM ozon_product_tasks "
+            "WHERE id::text=:task_id AND tenant_id=:tenant_id LIMIT 1"
+        ), {"task_id": task_id, "tenant_id": tenant_id}).fetchone()
+        if owner is None:
+            raise HTTPException(status_code=404, detail="任务不存在或无权访问")
+
+        row = conn.execute(text(
+            "SELECT draft_id FROM draft_submissions "
+            "WHERE submitted_task_id=:task_id LIMIT 1"
+        ), {"task_id": task_id}).fetchone()
+        if row is not None and row[0] is not None:
+            return str(row[0])
+
+        row = conn.execute(text(
+            "SELECT draft_id FROM product_task_index "
+            "WHERE task_id::text=:task_id LIMIT 1"
+        ), {"task_id": task_id}).fetchone()
+        if row is not None and row[0] is not None:
+            return str(row[0])
+
+    return None

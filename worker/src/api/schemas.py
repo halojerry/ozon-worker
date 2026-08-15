@@ -364,6 +364,15 @@ class TaskListResponse(BaseModel):
     offset: int = Field(0, description="本次偏移")
 
 
+class TaskDraftResponse(BaseModel):
+    """GET /tasks/{task_id}/draft 响应（M1.1 失败/被拒任务 → 找回采集箱草稿）。
+
+    解析顺序：draft_submissions.submitted_task_id → product_task_index.task_id → None
+    （直连任务无 submission 行时回落到 product_task_index；都无 → draft_id=None）。
+    """
+    draft_id: Optional[str] = Field(None, description="采集箱草稿 UUID；无关联草稿（直连任务）→ None")
+
+
 # ──────────────────────────────────────────────
 # /api/v1/tasks/{id}/images — 生图缓存版本化（WebUI T7a，契约 C3）
 # ──────────────────────────────────────────────
@@ -395,6 +404,33 @@ class ImageRegenResponse(BaseModel):
     url: str = Field(..., description="新图片 URL")
     params: Optional[dict[str, Any]] = Field(None, description="节点 Input schema 快照")
     image_parent_task_id: Optional[str] = Field(None, description="resubmit 图片血缘")
+
+
+# ──────────────────────────────────────────────
+# /api/v1/products — 在售商品列表（WebUI M2.1，product_task_index 数据源）
+# ──────────────────────────────────────────────
+
+
+class ProductListItem(BaseModel):
+    """在售商品列表项 — 只读，product_task_index 行 + 任务 result 审核状态。"""
+    product_id: str = Field(..., description="Ozon product_id（上传成功后回填）")
+    offer_id: str = Field(..., description="信封 offer_id（sku_id / follow_{id}）")
+    task_id: str = Field(..., description="上架任务 UUID")
+    draft_id: Optional[str] = Field(None, description="采集箱草稿 id；直连任务为 null")
+    credential_id: Optional[str] = Field(None, description="店铺凭证 id")
+    created_at: Optional[datetime] = Field(None, description="索引创建时间")
+    moderation_status: Optional[str] = Field(
+        None,
+        description="审核状态（从任务 result JSONB 尽力提取，无 → null；不实时调 Ozon，任务终态即最新）",
+    )
+
+
+class ProductListResponse(BaseModel):
+    """在售商品列表响应（M2.1）。"""
+    items: list[ProductListItem] = Field(default_factory=list, description="在售商品列表（created_at DESC）")
+    total: int = Field(0, description="该租户商品总数（分页前）")
+    limit: int = Field(20, description="本次分页大小（1-100）")
+    offset: int = Field(0, description="本次偏移")
 
 
 # ──────────────────────────────────────────────
