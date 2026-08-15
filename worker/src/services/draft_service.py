@@ -177,6 +177,37 @@ def get_draft(tenant_id: str, draft_id: str) -> dict:
     return _draft_row_to_dict(row)
 
 
+def _submission_row_to_dict(row) -> dict:
+    extensions = row.extensions
+    return {
+        "id": str(row.id),
+        "store_client_id": row.store_client_id,
+        "status": row.status,
+        "error_message": row.error_message,
+        "extensions": extensions if isinstance(extensions, dict) else json.loads(extensions or "{}"),
+        "submitted_task_id": row.submitted_task_id,
+        "created_at": row.created_at,
+    }
+
+
+def list_submissions(tenant_id: str, draft_id: str) -> list[dict]:
+    """GET /drafts/{id}/submissions：草稿提交时间线（M2.2）。
+
+    先校验草稿归属（get_draft 租户隔离，不存在/跨租户 → 404），再按 draft_id
+    查全部 submission 行，created_at 倒序。直连任务草稿（draft_id=NULL 的
+    submission 行）天然被 WHERE draft_id 过滤掉，不出现。
+    """
+    get_draft(tenant_id, draft_id)
+    uid = _parse_draft_uuid(draft_id)
+    with get_engine().connect() as conn:
+        rows = conn.execute(text(
+            "SELECT id, store_client_id, status, error_message, extensions, "
+            "submitted_task_id, created_at "
+            "FROM draft_submissions WHERE draft_id=:id ORDER BY created_at DESC"
+        ), {"id": uid}).fetchall()
+    return [_submission_row_to_dict(r) for r in rows]
+
+
 def patch_draft(tenant_id: str, draft_id: str, data: DraftPatch) -> dict:
     """PATCH /drafts/{id}：version 乐观锁（stale → 409），成功后 version++。"""
     uid = _parse_draft_uuid(draft_id)
