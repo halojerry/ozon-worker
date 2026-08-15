@@ -2,6 +2,16 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.40.1 — 生图合规 + 参考图泄漏 + 8229 类型值修复）
+
+> 2026-08-13。实测上架根因三连修（本轮排查还定位了 **COS 图片消失根因**——见下方「⚠️ COS 图片存储真相」）。
+
+- **成人用品生图不注入标题**（`utils/prompt_assembler.py`）：`is_adult_product` 检测（成人/情趣/肛塞等中英俄关键词）命中后清空 title/category + 产品描述变量，保留场景/配色（靠参考图传达外观）——1688 成人标题含违禁词，gpt-image-2/nano-banana 内容审核直接 violation，实测 10 图节点大部分失败仅 4 图。
+- **跟卖参考图泄漏修复**：`_assemble_follow_sell` images 改 `[]`（竞品图不再进 payload）+ `cos_uploader._is_reference_image` 拦 `ozonstatic/ir-20./_460x460/.webp`（原只拦 ir.ozone.ru，漏竞品 CDN + 1688 缩略图）。实测跟卖 9 图全为 AI 图 0 泄漏。
+- **8229(类型) value 空修复**：`utils/ozon_dict_values.py` 新增 `fetch_ru_dict_value`（按 dict_id 用 /values(RU) 列表精确查俄语文本）+ prepare 两处中文置空后补 RU + assemble 薄封装——修掉「Фото товара не соответствует его типу」DESCRIPTION_DECLINE。实测 `value=Перчатки` 后错误推进到类目层（防护手套应匹配 72163739/888258667 而非服装配饰）。
+- **部分尺寸缺失兜底**（skill `cloud_probe.py`）：length/width 有值 height=0 时按 2:1.5:1 补齐（原只处理全 0 → draft_sanity 拦截）。
+- **测试**: worker 691 passed / skill 487 passed。
+
 ## 最近更新（v0.40 — 属性填充共享匹配层 + LLM 消歧 + 缺口量化）
 
 > 2026-08-12。属性特征填满工程（hyperplan 对抗规划驱动）：三处属性匹配统一 + 中文直搜 + LLM 消歧安全三件套 + 缺口量化 + 审计遥测。完整历史见 `CHANGELOG.md`。
@@ -22,7 +32,7 @@
 - **定价复用 worker 公式**: cmd_search/cmd_graph 利润估算改用 worker pricing_node 同源公式（售价=总成本×(1+margin)/(1-commission)）+ 真实运费（`_query_logistics_from_worker`）+ 店铺参数——不再独立估算（避免两套公式漂移）。graph 提交前打印 `💰 预估: 采购¥X+运费¥Y → 售价≈¥Z (利润¥W, 率R%)`。
 - **query 展示采购明细**: `_print_query_result` 展示 product_summary 完整字段（采购链接/采购价/运费，此前只展示 OzonID/售价/利润率/审核）+ 💡 比价建议（引导去 1688/淘宝/拼多多/阿里国际站对比货源）。
 - **词典扩充 104→333 词对**: `_RU_ZH_PRODUCT_WORDS` 按 17 类目（宠物/家居/厨房/服饰/母婴/美妆/汽车/户外/数码/五金/清洁/照明/收纳/园艺/玩具/办公）扩充。
-- **测试**: skill 487 passed（含 aibuy 图搜 27 单测 + 类目消歧 3 单测）；worker 600 passed。
+- **测试**: skill 487 passed（含 aibuy 图搜 27 单测 + 类目消歧 3 单测）；worker 691 passed。
 
 
 ## 工作区概述
@@ -294,7 +304,16 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
   - `LOG_FORMAT` / `LOG_LEVEL` / `LOG_FILE` — 日志配置（见 LOGGING.md）
   - `SENTRY_DSN` — Sentry 错误监测（v0.23 起可配，任务异常/超时自动上报）
 - Skill 环境变量: `WORKER_URL`（Worker 地址）、`OZON_CLIENT_ID`、`OZON_API_KEY`
-- ⚠️ 已移除: `COZE_BUCKET_*`（S3 存储已废弃，图片 URL 直传）、`MXOU_TOKEN`（Worker 从请求 token 获取）
+- ⚠️ 已移除: `COZE_BUCKET_*`（worker 不再自建 S3 存储；**但图片仍托管在 COS**——见「⚠️ COS 图片存储真相」）、`MXOU_TOKEN`（Worker 从请求 token 获取）
+
+## ⚠️ COS 图片存储真相（2026-08-13 实测定位，改图片链路前必读）
+
+> **图片「消失」根因**：AI 生图 URL 由 MXOU 直接托管在**项目自己的 COS bucket `yss-1256275613`（ap-guangzhou）**（`file/images/*` 路径），worker 把该 URL 原样传给 Ozon（`prepare_ozon_upload_node.py`「图片URL直接使用COS URL」）。**Ozon 不存图片副本**，商品卡实时引用 URL——若 bucket 在腾讯云控制台开了生命周期规则（如 N 天删除），对象被删 → URL 404 → Ozon 商品图全部消失，且不可恢复（需重新上架）。
+
+- **仓库内无任何生命周期规则**（仅 CI 清理 `ozon-skill/`/`ozon-worker/` 部署包，保留最近 2 个）——规则只可能在腾讯云控制台手动配置。
+- **bucket 多用途共享**：产品图（`file/images/`、`ozon/images/`、`ozon-1688/salvage/`）+ skill 包（`ozon-skill/`）+ worker 部署包（`ozon-worker/`）。生命周期规则**绝不能覆盖图片路径**，否则图消失 + 更新中断。
+- **worker 侧唯一 COS 上传**是 `utils/cos_uploader.py`（v0.28.5 E1 兜底）：AI 生图全失败时把 1688 原图转存 COS `ozon-1688/salvage/{md5}.jpg` 补位；未配置 `COS_SECRET_ID/KEY/BUCKET/REGION` 时静默降级（`deploy/.env.example` 未收录这些变量，生产可能未启用）。
+- **`_rewrite_payload_images_to_accelerate`**（prepare L1311）：COS 区域域名 → 全球加速域名 `cos.accelerate.myqcloud.com`（Ozon 跨境抓图更稳，幂等）。改图 URL 链路勿绕过。
 
 ## 部署
 
