@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.42.0] - 2026-08-16
+
+> WebUI 运营工作台（hyperplan 对抗规划 14 任务 5 Wave 全量交付）：M0 数据脊柱（draft_submissions.status 写回复活 + running 删除守卫 + skill fail-hard + 直连任务也写 submission 行）→ M1 失败闭环 + 决策列（task→draft 解析端点 + estimate 共享定价端点）→ M2 在售货架 + 提交历史 + 首页工作台 + 设计系统（tokens.json 单一真相源）。worker 894 passed / skill 493 passed / 前端 build + tokens:validate 绿。
+
+### Feat(M0 数据脊柱 — 生命周期单一事实来源)
+
+- **M0.1 数据模型迁移**：`draft_submissions.draft_id` 改 nullable（直连任务行 draft_id=NULL，FK CASCADE 不作用于 NULL 行）+ `error_message` 列 + `status` 含 rejected；`product_task_index` 加 `draft_id` 列 + idx；init_data 幂等迁移（ADD COLUMN IF NOT EXISTS + DROP NOT NULL 解除存量约束）。
+- **M0.2/M0.3 status 写回**：`utils/draft_status_writeback.py`（map_worker_status：completed→published/failed→failed/rejected→rejected/pending_moderation→uploading）+ task_processor 4 终态点接入（failed/rejected/completed/handle_task_failure），写回在 conn.commit() 之后（不扩事务，失败绝不回滚任务终态）。**采集箱「上架状态」列从此真实流转**（此前死字段恒 pending）。
+- **M0.4 running 删除守卫**：DELETE /drafts/{id} 前查 draft_submissions ⋈ ozon_product_tasks status IN (pending,running) → 409；租户归属预查先于守卫（跨租户 404 不泄漏 active 任务存在性）。
+- **M0.5 skill fail-hard**：`cloud_probe.submit_draft` 删除静默降级（_fallback）——worker 不可达/404 一律 {ok:False} 明确报错，绝不代用户直接上架（入箱语义不被背叛）。
+- **M0.6/M0.7 draft_id 全覆盖（用户拍板方案）**：product_task_index 传播 draft_id（approved 路径解析）+ **直连任务也写 submission 行**（draft_id=NULL，main.py submit_task 端点，失败容忍不阻断入队）——所有任务都有 submission 行，生命周期视图完全统一，无「无草稿来源」特例。
+
+### Feat(M1 失败闭环 + 决策列)
+
+- **M1.1 task→draft 解析**：`GET /api/v1/tasks/{task_id}/draft`（归属校验→draft_submissions.submitted_task_id→product_task_index.task_id→None）+ 重上不变式锁定（同一 draft 重复提交 offer_id 一致 + per-store 409 防双卡）；Tasks 页「回采集箱改」按钮（无草稿禁用 + 草稿已删由编辑页 404 兜底）。
+- **M1.2 estimate 共享定价**：`utils/pricing_estimate.compute_price`（pricing_node 同源公式**单处定义**，消除第三次漂移）+ `POST /api/v1/drafts/{id}/estimate`（读草稿 envelope + logistics_quote + 共享公式，纯读不落库）；采集箱三决策列（预估售价/利润/利润率，懒加载 Promise 缓存去重 + 并发≤4 + 失败静默）——采集箱从「暂存」变「决策台」。
+
+### Feat(M2 在售货架 + 提交历史 + 首页 + 设计系统)
+
+- **M2.1 在售货架**：`GET /api/v1/products`（product_task_index + LEFT JOIN 任务 result 提取 moderation_status，不实时调 Ozon）+ OnSale 页面（审核状态/草稿来源/改图弹窗复用 T14 update_images/Ozon 链接/分页/空态）。
+- **M2.2 提交历史**：`GET /api/v1/drafts/{id}/submissions` 时间线（每草稿×每店铺提交记录 + 终态 + 错误原因）+ SubmissionHistory 弹窗（采集箱行「提交历史」入口）。
+- **M2.3 首页工作台**：坏消息优先五分组（被拒/失败/待处理草稿/进行中/已上架）+ 一键重上/回采集箱改/去上架 + estimate 决策注入 + 空态引导；**条件侧边栏**（在售货架有数据才显示，加载中显示全部防闪烁，路由变化静默重拉）。
+- **M2.4 设计系统 Figma-ready**：`src/tokens/tokens.json`（Tokens Studio 格式 67 token）单一真相源 → `scripts/sync-tokens.mjs` 生成 :root CSS 变量（tokens:sync/validate）+ 硬编码 hex 归零 + 补 font-weight/line-height/breakpoint/duration/easing/z-index token 类目 + `components/ui/`（Button/Badge/EmptyState/Skeleton）+ Playwright 视觉回归基线。未来 Figma：Tokens Studio 导出同名 JSON → 替换 → sync → 全局生效。
+
+### Test
+
+- worker 新增：test_draft_status_writeback（M0.2）/ test_task_processor_writeback（M0.3）/ test_delete_draft_guard（M0.4）/ test_image_service_index_draft（M0.6）/ test_submit_task_direct_writes_submission（M0.7）/ test_task_draft_resolver + test_resubmit_offer_id_invariant（M1.1）/ test_estimate_endpoint（M1.2）/ test_shelf（M2.1）/ test_submissions_timeline（M2.2）。
+- skill 更新：test_to_box 改 fail-hard 断言（删降级测试）。
+- 全量：**worker 894 passed**（基线 822 + 72 新）/ **skill 493 passed** / webui build + tokens:validate 绿。
+- 修复：test_task_draft_resolver test_route_404_passthrough 漏 stopall 导致的 mock 泄漏（跨文件测试污染 test_step5，全量 887→894）。
+
 ## [0.41.0] - 2026-08-15
 
 > WebUI v1 + 双向互通首批交付（`docs/PLAN-webui-v1.md` 18 任务全部验收通过）：worker 新增 routes/services 分层（凭证/草稿/任务/生图/在线商品 5 组端点）+ 4 新表 + 生图缓存 version/params 版本化 + image_gen_plan 类型选择 + 更新在线商品全量重传；webui 新增 React SPA（登录 + 采集箱/商品编辑/店铺管理/任务进度/生图工作台 5 页，静态托管 /app）；skill graph/follow 新增 `--to-box` 入采集箱；凭证三层防御（AES-256-GCM 列级加密 + 掩码 + 轮换）。worker 822 passed / skill 493 passed / 前端 build 成功。
