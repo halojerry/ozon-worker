@@ -8,6 +8,7 @@ import Products from './pages/Products'
 import Stores from './pages/Stores'
 import Tasks from './pages/Tasks'
 import ImageStudio from './pages/ImageStudio'
+import OnSale from './pages/OnSale'
 
 /** 受保护路由：未登录一律回 /login */
 function Protected({ children }: { children: React.ReactNode }) {
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="products/:draftId" element={<Products />} />
         <Route path="stores" element={<Stores />} />
         <Route path="tasks" element={<Tasks />} />
+        <Route path="on-sale" element={<OnSale />} />
         <Route path="image-studio" element={<ImageStudio />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
