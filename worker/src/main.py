@@ -13,7 +13,7 @@ from typing import Any, Dict, Iterable, AsyncIterable, AsyncGenerator, Optional
 import uvicorn
 import time
 from fastapi import FastAPI, HTTPException, Query, Request, APIRouter
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from api.errors import WorkerErrorCode, error_response
 from api.schemas import (
     SubmitTaskRequest, SubmitTaskResponse, TaskStatusResponse,
@@ -379,7 +379,7 @@ class GraphService:
             }
 
     # 运行指定节点：本地/HTTP 通用
-    async def run_node(self, node_id: str, payload: Dict[str, Any], ctx=None) -> Any:
+    async def run_node(self, node_id: str, payload: Dict[str, Any], ctx=None, extra_config=None) -> Any:
         if ctx is None or Context.run_id == "":
             ctx = new_context(method="node_run")
 
@@ -398,6 +398,8 @@ class GraphService:
         _graph = _g.compile()
 
         run_config: RunnableConfig = {"configurable": {"thread_id": ctx.run_id}}
+        if extra_config:  # v0.41 T7a: regen 端点注入 force_regen/regen_version（合并到 configurable）
+            run_config["configurable"].update(extra_config or {})
         return await _graph.ainvoke(payload, config=run_config)
 
     def graph_inout_schema(self) -> Any:
@@ -677,6 +679,9 @@ async def http_run(request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=400,
                             detail=f"Invalid JSON format: {body_text}, traceback: {traceback.format_exc()}, error: {e}")
 
+    # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
+    _authenticate_token(_extract_token_from_body(body_text))
+
     ctx = new_context(method="run", headers=request.headers)
     # 优先使用上游指定的 run_id，保证 cancel 能精确匹配
     upstream_run_id = request.headers.get(HEADER_X_RUN_ID)
@@ -777,6 +782,17 @@ def _register_task(run_id: str, task: asyncio.Task):
 
 @app.post("/stream_run")
 async def http_stream_run(request: Request):
+    raw_body = await request.body()
+    try:
+        body_text = raw_body.decode("utf-8")
+    except Exception as e:
+        body_text = str(raw_body)
+        raise HTTPException(status_code=400,
+                            detail=f"Invalid JSON format: {body_text}, traceback: {extract_core_stack()}, error: {e}")
+
+    # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
+    _authenticate_token(_extract_token_from_body(body_text))
+
     ctx = new_context(method="stream_run", headers=request.headers)
     # 优先使用上游指定的 run_id，保证 cancel 能精确匹配
     upstream_run_id = request.headers.get(HEADER_X_RUN_ID)
@@ -785,13 +801,6 @@ async def http_stream_run(request: Request):
     workflow_stream_mode = request.headers.get(HEADER_X_WORKFLOW_STREAM_MODE, "").lower()
     workflow_debug = workflow_stream_mode == "debug"
     request_context.set(ctx)
-    raw_body = await request.body()
-    try:
-        body_text = raw_body.decode("utf-8")
-    except Exception as e:
-        body_text = str(raw_body)
-        raise HTTPException(status_code=400,
-                            detail=f"Invalid JSON format: {body_text}, traceback: {extract_core_stack()}, error: {e}")
     run_id = ctx.run_id
     is_agent = graph_helper.is_agent_proj()
     logger.info(
@@ -855,6 +864,10 @@ async def http_node_run(node_id: str, request: Request):
     except UnicodeDecodeError:
         body_text = str(raw_body)
         raise HTTPException(status_code=400, detail=f"Invalid JSON format: {body_text}")
+
+    # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
+    _authenticate_token(_extract_token_from_body(body_text))
+
     ctx = new_context(method="node_run", headers=request.headers)
     request_context.set(ctx)
     logger.info(
@@ -895,6 +908,15 @@ async def http_node_run(node_id: str, request: Request):
 @app.post("/v1/chat/completions")
 async def openai_chat_completions(request: Request):
     """OpenAI Chat Completions API 兼容接口"""
+    raw_body = await request.body()
+    try:
+        body_text = raw_body.decode("utf-8")
+    except Exception:
+        body_text = ""
+
+    # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
+    _authenticate_token(_extract_token_from_body(body_text))
+
     ctx = new_context(method="openai_chat", headers=request.headers)
     request_context.set(ctx)
 
@@ -1045,6 +1067,17 @@ async def store_health(client_id: str = None, api_key: str = None):
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+def _extract_token_from_body(body_text: str) -> str:
+    """从请求体 JSON 提取 token（解析失败/非 dict → 视为无 token → 鉴权 401）。"""
+    try:
+        data = json.loads(body_text)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    return str(data.get("token", "") or "")
 
 
 def _authenticate_token(token: str) -> str:
@@ -2068,9 +2101,64 @@ async def v1_analytics_market_bestsellers(request: Request):
     return await _handle_analytics_report(request, "market-bestsellers")
 
 
+# ── WebUI 凭证端点（T5）：routes/services 分层，业务逻辑在 services/credential_service.py ──
+from routes.credentials_routes import router as credentials_router
+v1.include_router(credentials_router)
+
+# ── WebUI 生图工作台端点（T7a）：生图缓存版本化 + 强制重生成 ──
+from routes.images_routes import router as images_router
+v1.include_router(images_router)
+
+
+# ── WebUI 任务列表端点（T8）：routes/services 分层，业务逻辑在 services/task_service.py ──
+from routes.tasks_routes import router as tasks_router
+v1.include_router(tasks_router)
+
+# ── WebUI 草稿端点（T6 采集箱 CRUD/submit + T14b AI 字段）：routes/services 分层 ──
+from routes.drafts_routes import router as drafts_router
+app.include_router(drafts_router)
+
+# ── WebUI 在线商品更新端点（T14 改图全量重传）：routes/services 分层，业务逻辑在 services/image_service.py ──
+from routes.products_routes import router as products_router
+v1.include_router(products_router)
+
+
 # 注册 v1 路由（/api/v1/* 端点）
 # 旧路径（/health, /submit_task 等）仍然可用，向后兼容
 app.include_router(v1)
+
+
+# ── WebUI SPA 静态托管（/app，docs/PLAN-webui-v1.md §1.4 T4） ──
+# dist 默认 webui/dist（env WEBUI_DIST 覆盖）；未构建时跳过挂载不阻断 worker。
+# SPA fallback：非静态文件路径回 index.html（前端路由直连/刷新不 404），
+# 仅允许 dist 目录内的文件（防路径穿越）。
+_WEBUI_DIST_DEFAULT = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "webui", "dist",
+))
+WEBUI_DIST = os.environ.get("WEBUI_DIST", _WEBUI_DIST_DEFAULT)
+
+
+def _mount_webui_static(app: FastAPI) -> None:
+    dist = os.path.realpath(WEBUI_DIST)
+    index_file = os.path.join(dist, "index.html")
+    if not os.path.isfile(index_file):
+        logger.warning(
+            "WebUI dist 未构建（%s），/app 挂载跳过 —— 先 cd webui && npm run build", WEBUI_DIST)
+        return
+
+    @app.get("/app", include_in_schema=False)
+    @app.get("/app/", include_in_schema=False)
+    @app.get("/app/{full_path:path}", include_in_schema=False)
+    async def spa_serve(full_path: str = ""):
+        if full_path:
+            candidate = os.path.realpath(os.path.join(dist, full_path))
+            if candidate.startswith(dist + os.sep) and os.path.isfile(candidate):
+                return FileResponse(candidate)
+        return FileResponse(index_file)
+
+
+_mount_webui_static(app)
 
 
 def parse_args():
