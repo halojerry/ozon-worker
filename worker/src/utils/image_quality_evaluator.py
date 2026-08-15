@@ -4,9 +4,27 @@
 """
 import requests
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def check_url_alive(url: str, timeout: int = 10) -> bool:
+    """URL 存活检查 — GET + Range bytes=0-0（与 evaluate_image_quality 同模式，兼容 1688 alicdn 拒绝 HEAD）。
+
+    T14 在线商品改图重传复用：死 URL 过滤；任何异常/非 2xx → False。
+    """
+    try:
+        with requests.get(
+            url,
+            timeout=timeout,
+            allow_redirects=True,
+            stream=True,
+            headers={"Range": "bytes=0-0"},
+        ) as response:
+            return response.status_code in (200, 206)
+    except Exception:
+        return False
 
 
 def evaluate_image_quality(image_urls: List[str], max_evaluation_count: int = 5) -> List[Dict[str, Any]]:

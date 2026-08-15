@@ -15,6 +15,7 @@ class WhiteBgInput(BaseModel):
     token: str = Field(default="", description="api.mxou.cn token")
     visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（参考图）")
+    image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
 
 class WhiteBgOutput(BaseModel):
     """白底图生成节点输出"""
@@ -33,6 +34,7 @@ class MultiAngleInput(BaseModel):
     token: str = Field(default="", description="api.mxou.cn token")
     visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（参考图）")
+    image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
 
 class MultiAngleOutput(BaseModel):
     """多角度图生成节点输出"""
@@ -55,6 +57,7 @@ class MainImageInput(BaseModel):
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
     variants: list = Field(default_factory=list, description="变体SKU列表（非空时跳过主图生成，由variant_primary_loop处理）")
+    image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
 
 class MainImageOutput(BaseModel):
     """主图生成节点输出"""
@@ -75,6 +78,7 @@ class MultiInfoInput(BaseModel):
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（Phase1失败时回退参考图）")
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
+    image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
 
 class MultiInfoOutput(BaseModel):
     """多信息图生成节点输出"""
@@ -95,6 +99,7 @@ class DetailImageInput(BaseModel):
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（Phase1失败时回退参考图）")
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
+    image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
 
 class DetailImageOutput(BaseModel):
     """详情图生成节点输出"""
@@ -115,6 +120,7 @@ class SocialProofInput(BaseModel):
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（Phase1失败时回退参考图）")
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
+    image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
 
 class SocialProofOutput(BaseModel):
     """社交证明图生成节点输出"""
@@ -133,6 +139,7 @@ class Scene1Input(BaseModel):
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
     scene_context_1: str = Field(default="", description="场景1的使用场景描述（LLM生成）")
+    image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
 
 class Scene1Output(BaseModel):
     """场景图1生成节点输出"""
@@ -151,6 +158,7 @@ class Scene2Input(BaseModel):
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
     scene_context_2: str = Field(default="", description="场景2的使用场景描述（LLM生成）")
+    image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
 
 class Scene2Output(BaseModel):
     """场景图2生成节点输出"""
@@ -169,6 +177,7 @@ class Scene3Input(BaseModel):
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
     scene_context_3: str = Field(default="", description="场景3的使用场景描述（LLM生成）")
+    image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
 
 class Scene3Output(BaseModel):
     """场景图3生成节点输出"""
@@ -186,6 +195,7 @@ class ComparisonInput(BaseModel):
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（Phase1失败时回退参考图）")
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（Phase1）")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
+    image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
 
 class ComparisonOutput(BaseModel):
     """对比图生成节点输出"""
