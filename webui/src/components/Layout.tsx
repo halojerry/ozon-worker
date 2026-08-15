@@ -1,17 +1,32 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth, clearToken, getToken } from '../stores/auth'
+import { getDrafts, listProducts, listTasks } from '../api/client'
 
 interface NavItem {
   to: string
   label: string
-  /** 计划 §1.4 页面清单：T10-T13 逐页填充 */
   icon: React.ReactNode
+  /** always=始终显示；products=在售货架有数据（listProducts total>0）才显示 */
+  show: 'always' | 'products'
 }
 
+/** M2.3 条件侧边栏：首页置顶 + 按工作流排序（采集箱 → 任务进度 → 在售货架 → 生图 → 店铺） */
 const NAV_ITEMS: NavItem[] = [
+  {
+    to: '/',
+    label: '工作台',
+    show: 'always',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <path d="M4 10.5L12 4l8 6.5V20h-6v-6h-4v6H4v-9.5z" />
+      </svg>
+    ),
+  },
   {
     to: '/collect-box',
     label: '采集箱',
+    show: 'always',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
         <path d="M4 7h16M4 7l1.5 13h13L20 7M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2" />
@@ -19,26 +34,9 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
-    to: '/products',
-    label: '商品编辑',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-        <path d="M6 3h12a1 1 0 011 1v17l-7-4-7 4V4a1 1 0 011-1z" />
-      </svg>
-    ),
-  },
-  {
-    to: '/stores',
-    label: '店铺管理',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-        <path d="M4 9.5V20h16V9.5M3 5h18l-1.5 4.5a3.2 3.2 0 01-6.3 0 3.2 3.2 0 01-6.4 0L3 5z" />
-      </svg>
-    ),
-  },
-  {
     to: '/tasks',
     label: '任务进度',
+    show: 'always',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
         <rect x="3.5" y="4" width="17" height="16" rx="2.5" />
@@ -49,6 +47,7 @@ const NAV_ITEMS: NavItem[] = [
   {
     to: '/on-sale',
     label: '在售货架',
+    show: 'products',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
         <path d="M4 5.5h16M4 5.5L2.8 9.2a2.3 2.3 0 004.5.6 2.3 2.3 0 004.5 0 2.3 2.3 0 004.5-.6L20 5.5M5 10.5V19h14v-8.5M9 19v-5h6v5" />
@@ -58,6 +57,7 @@ const NAV_ITEMS: NavItem[] = [
   {
     to: '/image-studio',
     label: '生图工作台',
+    show: 'always',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
         <rect x="3.5" y="3.5" width="17" height="17" rx="2.5" />
@@ -66,11 +66,54 @@ const NAV_ITEMS: NavItem[] = [
       </svg>
     ),
   },
+  {
+    to: '/stores',
+    label: '店铺管理',
+    show: 'always',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <path d="M4 9.5V20h16V9.5M3 5h18l-1.5 4.5a3.2 3.2 0 01-6.3 0 3.2 3.2 0 01-6.4 0L3 5z" />
+      </svg>
+    ),
+  },
 ]
+
+interface NavCounts {
+  /** null = 加载中/未知（未知时导航项全部显示，避免闪烁） */
+  drafts: number | null
+  tasks: number | null
+  products: number | null
+}
 
 export default function Layout() {
   const authed = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const [counts, setCounts] = useState<NavCounts>({ drafts: null, tasks: null, products: null })
+
+  /* M2.3：挂载时并行拉取 drafts/tasks/products 计数（limit=1 只取 total），
+     路由变化时静默重拉（上架/采集后导航项自动出现/消失）；失败保持未知 → 显示 */
+  useEffect(() => {
+    let alive = true
+    Promise.allSettled([getDrafts(), listTasks({ limit: 1 }), listProducts({ limit: 1 })]).then(
+      ([draftRes, taskRes, productRes]) => {
+        if (!alive) return
+        setCounts({
+          drafts: draftRes.status === 'fulfilled' ? draftRes.value.length : null,
+          tasks: taskRes.status === 'fulfilled' ? taskRes.value.total : null,
+          products: productRes.status === 'fulfilled' ? productRes.value.total : null,
+        })
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [location.pathname])
+
+  /** 在售货架：加载中/失败（null）时显示全部；确认 total=0 才隐藏 */
+  const visibleItems = NAV_ITEMS.filter(
+    (item) => item.show === 'always' || counts.products === null || counts.products > 0,
+  )
 
   function handleLogout() {
     clearToken()
@@ -99,14 +142,25 @@ export default function Layout() {
         </div>
 
         <nav className="sidebar-nav" aria-label="主导航">
-          {NAV_ITEMS.map((item) => (
+          {visibleItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
+              end={item.to === '/'}
               className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
             >
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
+              {item.to === '/collect-box' && counts.drafts !== null && counts.drafts > 0 && (
+                <span className="nav-count" title={`${counts.drafts} 个草稿`}>
+                  {counts.drafts}
+                </span>
+              )}
+              {item.to === '/tasks' && counts.tasks !== null && counts.tasks > 0 && (
+                <span className="nav-count" title={`${counts.tasks} 个任务`}>
+                  {counts.tasks}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>
