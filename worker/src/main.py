@@ -1363,6 +1363,38 @@ def _find_existing_task(tenant_id: str, sku_key: str) -> Optional[tuple[str, str
         logger.warning("SKU 去重查询失败，跳过去重检查: %s", str(e)[:200])
         return None
 
+def _write_direct_submission_row(task_id: str, tenant_id: str, ozon_client_id: str) -> None:
+    """直连提交（skill submit_task 端点）写 draft_submissions 行 — 非致命。
+
+    A4 决策：所有任务（skill 直连 + 采集箱提交）都有 draft_submissions 行，
+    提交历史/在售货架/生命周期视图对两条路径完全统一。直连任务：
+    - draft_id=NULL（无草稿）、credential_id=NULL（凭证在 payload，不落 credential 表）
+    - store_client_id=payload 的 ozon_client_id、status='pending'（终态由 M0.3 写回）
+    - submitted_task_id=task_id、extensions=NULL
+
+    采集路径由 draft_service.submit_draft 自行写行（draft_id 有值）——本辅助只被
+    http_submit_task 端点层调用，绝不进 task_processor.submit_task（否则双写）。
+
+    写行失败仅 warning，绝不阻断任务入队（与 M0.2 同纪律）。
+    """
+    try:
+        from sqlalchemy import text
+        with get_engine().begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO draft_submissions "
+                    "(draft_id, credential_id, store_client_id, extensions, status, submitted_task_id) "
+                    "VALUES (NULL, NULL, :store_client_id, NULL, 'pending', :task_id)"
+                ),
+                {"store_client_id": ozon_client_id, "task_id": task_id},
+            )
+    except Exception as exc:
+        logger.warning(
+            "直连提交写 draft_submissions 行失败（不阻断）task=%s tenant=%s client=%s: %s",
+            task_id, tenant_id, ozon_client_id, str(exc)[:200],
+        )
+
+
 @app.post("/submit_task")
 async def http_submit_task(request: Request):
     """
@@ -1584,6 +1616,10 @@ async def http_submit_task(request: Request):
         set_trace_context(task_id=task_id, user_id=user_id)
         log_task_event("submitted", task_id=task_id, user_id=user_id,
                        trace_id=trace_id, priority=priority, timeout_seconds=timeout_seconds)
+
+        # ✅ M0.7: 直连提交写 draft_submissions 行（A4：所有任务都有 submission 行）。
+        #   非致命——写行失败不阻断任务入队；采集路径由 draft_service 自行写行不在此处。
+        _write_direct_submission_row(task_id, user_id, ozon_client_id)
 
         return {
             "ok": True,
