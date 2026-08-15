@@ -20,7 +20,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 
-from api.schemas import DraftAiResponse, DraftOut, DraftPatch, SubmitResponse
+from api.schemas import DraftAiResponse, DraftOut, DraftPatch, SubmissionTimelineItem, SubmitResponse
 from services import draft_service
 from services.ai_field_service import AI_FIELDS, extract_current_value, regenerate_field
 
@@ -65,6 +65,16 @@ async def list_drafts(request: Request):
 async def get_draft(draft_id: str, request: Request):
     tenant_id = await _authenticate(request)
     return draft_service.get_draft(tenant_id, draft_id)
+
+
+@router.get("/{draft_id}/submissions", response_model=list[SubmissionTimelineItem])
+async def list_submissions(draft_id: str, request: Request):
+    """M2.2 提交时间线：草稿被提交过几次、到过哪些店、结果如何（created_at 倒序）。
+
+    先校验草稿归属（不存在/跨租户 → 404），再返回全部 submission 行。
+    """
+    tenant_id = await _authenticate(request)
+    return draft_service.list_submissions(tenant_id, draft_id)
 
 
 @router.patch("/{draft_id}", response_model=DraftOut)

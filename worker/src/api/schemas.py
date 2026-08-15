@@ -334,6 +334,20 @@ class DraftAiResponse(BaseModel):
     value: str = Field(..., description="俄语 RU 值（非空，无中文/拉丁残留）")
 
 
+class SubmissionTimelineItem(BaseModel):
+    """M2.2: 草稿提交时间线条目（draft_submissions 行，created_at 倒序）。
+
+    供 WebUI 展示「这个草稿被提交过几次、到过哪些店、结果如何」。
+    """
+    id: UUID = Field(..., description="submission 记录 ID（draft_submissions.id）")
+    store_client_id: Optional[str] = Field(None, description="目标店铺 Ozon Client-Id")
+    status: str = Field(..., description="提交状态：pending/uploading/published/failed/rejected（M0.3 写回）")
+    error_message: Optional[str] = Field(None, description="失败/被拒原因")
+    extensions: dict[str, Any] = Field(default_factory=dict, description="提交时 extensions 快照（定价/仓库/库存）")
+    submitted_task_id: Optional[str] = Field(None, description="关联任务 ID（ozon_product_tasks.id）")
+    created_at: Optional[datetime] = Field(None, description="提交时间")
+
+
 # ──────────────────────────────────────────────
 # /api/v1/tasks (T8) — 任务列表（租户隔离 + 分页）
 # ──────────────────────────────────────────────
