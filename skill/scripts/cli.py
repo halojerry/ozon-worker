@@ -462,7 +462,7 @@ def cmd_graph(args: argparse.Namespace) -> int:
     submit_result = None
     if not getattr(args, 'no_submit', False):
         try:
-            from scripts.cloud_probe import submit_envelope
+            from scripts.cloud_probe import submit_draft, submit_envelope
         except ModuleNotFoundError as _e:
             # PR-3: 精确归因 — 缺依赖 vs 缺模块
             _ename = getattr(_e, "name", "") or ""
@@ -475,12 +475,27 @@ def cmd_graph(args: argparse.Namespace) -> int:
         # P1-4 --notify: 顶层透传，Worker 收到 payload.notify 后任务终态推 webhook
         if getattr(args, 'notify', False):
             graph["notify"] = True
-        submit_result = submit_envelope(graph)
+        # T9 --to-box: 入采集箱（WebUI 认领后上架）；无该 flag 保持直接上架不变
+        if getattr(args, 'to_box', False):
+            submit_result = submit_draft(graph)
+        else:
+            submit_result = submit_envelope(graph)
         if submit_result.get("ok"):
             import logging
             _logger = logging.getLogger(__name__)
-            _logger.info("✅ 已提交 Worker: task_id=%s", submit_result.get("task_id"))
-            summary["task_id"] = submit_result.get("task_id")
+            if getattr(args, 'to_box', False):
+                summary["draft_id"] = submit_result.get("draft_id", "")
+                if submit_result.get("degraded"):
+                    _logger.info("⚠️ WebUI 采集箱不可用，已直接上架: task_id=%s",
+                                 submit_result.get("task_id"))
+                    summary["task_id"] = submit_result.get("task_id")
+                else:
+                    print(f"📥 已入采集箱，请到 WebUI 认领: draft_id={submit_result.get('draft_id')}",
+                          flush=True)
+                    _logger.info("✅ 已入采集箱: draft_id=%s", submit_result.get("draft_id"))
+            else:
+                _logger.info("✅ 已提交 Worker: task_id=%s", submit_result.get("task_id"))
+                summary["task_id"] = submit_result.get("task_id")
         else:
             import logging
             _logger = logging.getLogger(__name__)
@@ -1042,11 +1057,14 @@ def cmd_follow(args) -> int:
         result = follow_sell_cloud(args.ozon_url, auto_submit=args.auto_submit,
                                    store_id=args.store or "",
                                    review=getattr(args, "review", False),
-                                   notify=getattr(args, "notify", False))
+                                   notify=getattr(args, "notify", False),
+                                   to_box=getattr(args, "to_box", False))
     except AuthError as e:
         _out({"success": False, "error": str(e)})
         return 1
     _out(result)
+    if getattr(args, "to_box", False) and result.get("draft_id"):
+        print(f"📥 已入采集箱，请到 WebUI 认领: draft_id={result['draft_id']}", flush=True)
     return 0 if result.get("success") else 1
 
 
@@ -1668,6 +1686,8 @@ def main() -> int:
     gp.add_argument("--retries", type=int, default=3, help="CDP 重试次数")
     gp.add_argument("--store", default="", help="Ozon 店铺名称（不指定则用默认店铺）")
     gp.add_argument("--no-submit", action="store_true", help="只组装信封不提交 Worker")
+    gp.add_argument("--to-box", action="store_true",
+                    help="T9: 组装后入采集箱（POST /api/v1/drafts，WebUI 认领后再上架），替代直接提交")
     gp.add_argument("--ozon-ref-url", default="", help="Ozon 竞品参考链接(抓同类目属性复用, 可选, v0.29.x)")
     gp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
@@ -1691,6 +1711,8 @@ def main() -> int:
     fp = sub.add_parser("follow", help="跟卖 Ozon 商品（Ozon URL → 1688找同款 → 上架）")
     fp.add_argument("--ozon-url", required=True, help="Ozon 商品页 URL")
     fp.add_argument("--auto-submit", action="store_true", help="自动提交到 Worker")
+    fp.add_argument("--to-box", action="store_true",
+                    help="T9: 组装后入采集箱（POST /api/v1/drafts，WebUI 认领后再上架），替代直接提交")
     fp.add_argument("--store", default="", help="Ozon 店铺名称")
     fp.add_argument("--review", action="store_true",
                     help="人工评审暂停：展示全部 1688 候选，人工接受/改选/拒绝")
