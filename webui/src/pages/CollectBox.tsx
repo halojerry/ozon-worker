@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { deleteDraft, getDrafts, type Draft, type DraftSubmissionStatus } from '../api/client'
+import {
+  deleteDraft,
+  estimateDraft,
+  getDrafts,
+  type Draft,
+  type DraftEstimate,
+  type DraftSubmissionStatus,
+} from '../api/client'
 
 /* ── 上架状态映射（C1 状态机：无 submission 行 = 未上架） ── */
 const STATUS_META: Record<string, { label: string; className: string }> = {
@@ -8,6 +15,7 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
   uploading: { label: '上架中', className: 'status-uploading' },
   published: { label: '已上架', className: 'status-published' },
   failed: { label: '失败', className: 'status-failed' },
+  rejected: { label: '审核被拒', className: 'status-failed' },
 }
 
 function statusMeta(status: DraftSubmissionStatus | null | undefined) {
@@ -30,6 +38,75 @@ function priceLabel(draft: Draft): string {
 function skuCount(draft: Draft): number {
   const variants = draft.payload?.draft?.variants
   return Array.isArray(variants) && variants.length > 0 ? variants.length : 1
+}
+
+/* ── M1.2 预估懒加载：模块级 Promise 缓存去重（同 draft 只请求一次）+ 并发节流 ── */
+const estimateCache = new Map<string, Promise<DraftEstimate | null>>()
+const ESTIMATE_MAX_IN_FLIGHT = 4
+let estimateInFlight = 0
+const estimateWaiters: Array<() => void> = []
+
+function acquireEstimateSlot(): Promise<void> {
+  if (estimateInFlight < ESTIMATE_MAX_IN_FLIGHT) {
+    estimateInFlight++
+    return Promise.resolve()
+  }
+  return new Promise((resolve) => estimateWaiters.push(resolve))
+}
+
+function releaseEstimateSlot(): void {
+  estimateInFlight--
+  estimateWaiters.shift()?.()
+}
+
+function loadEstimate(draftId: string): Promise<DraftEstimate | null> {
+  const hit = estimateCache.get(draftId)
+  if (hit) return hit
+  const pending = (async () => {
+    await acquireEstimateSlot()
+    try {
+      return await estimateDraft(draftId)
+    } catch {
+      return null
+    } finally {
+      releaseEstimateSlot()
+    }
+  })()
+  estimateCache.set(draftId, pending)
+  return pending
+}
+
+const CURRENCY_SYMBOL: Record<string, string> = { CNY: '¥', RUB: '₽', USD: '$' }
+
+function fmtMoney(v: number | undefined, currency?: string): string {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return '—'
+  const sym = (currency && CURRENCY_SYMBOL[currency]) || '¥'
+  return `${sym}${v.toFixed(2)}`
+}
+
+function fmtRate(v: number | undefined): string {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return '—'
+  return `${(v * 100).toFixed(1)}%`
+}
+
+function EstimateCells({ draftId }: { draftId: string }) {
+  const [est, setEst] = useState<DraftEstimate | null>(null)
+  useEffect(() => {
+    let alive = true
+    loadEstimate(draftId).then((r) => {
+      if (alive) setEst(r)
+    })
+    return () => {
+      alive = false
+    }
+  }, [draftId])
+  return (
+    <>
+      <td className="col-price">{est ? fmtMoney(est.price, est.currency) : '—'}</td>
+      <td className="col-price">{est ? fmtMoney(est.profit_cny, est.currency) : '—'}</td>
+      <td className="col-price">{est ? fmtRate(est.profit_rate) : '—'}</td>
+    </>
+  )
 }
 
 function fmtTime(iso?: string | null): string {
@@ -233,6 +310,9 @@ export default function CollectBox() {
                 <th>图片</th>
                 <th>产品名称</th>
                 <th>采集价格</th>
+                <th>预估售价</th>
+                <th>预估利润</th>
+                <th>利润率</th>
                 <th>sku数量</th>
                 <th>采集来源</th>
                 <th>备注</th>
@@ -267,6 +347,7 @@ export default function CollectBox() {
                       </span>
                     </td>
                     <td className="col-price">{priceLabel(draft)}</td>
+                    <EstimateCells draftId={draft.id} />
                     <td className="col-num">{skuCount(draft)}</td>
                     <td>
                       <span className={`source-tag source-${draft.source}`}>

@@ -50,8 +50,8 @@ export interface AuthVerifyResponse {
 
 /* ── T10 采集箱：草稿 + 提交状态（C1 两表模型，响应见 worker DraftOut） ── */
 
-/** draft_submissions.status 状态机（C1）：无行 = 未上架 */
-export type DraftSubmissionStatus = 'pending' | 'uploading' | 'published' | 'failed'
+/** draft_submissions.status 状态机（C1）：无行 = 未上架；rejected = Ozon 审核被拒（M0.3 写回） */
+export type DraftSubmissionStatus = 'pending' | 'uploading' | 'published' | 'failed' | 'rejected'
 
 export interface Envelope {
   draft: {
@@ -291,6 +291,25 @@ export async function aiField(draftId: string, field: string): Promise<DraftAiRe
   return data
 }
 
+/** M1.2 定价预估响应（worker 定价引擎计算；前端只展示，禁止自算公式） */
+export interface DraftEstimate {
+  price: number
+  old_price?: number
+  profit_cny: number
+  /** 利润率（小数，如 0.32 = 32%；前端仅格式化展示） */
+  profit_rate: number
+  logistics_cost_cny?: number
+  currency: string
+}
+
+/** POST /api/v1/drafts/{id}/estimate —— 预估售价/利润/利润率（采集箱决策列） */
+export async function estimateDraft(draftId: string): Promise<DraftEstimate> {
+  const { data } = await api.post<DraftEstimate>(`/drafts/${draftId}/estimate`, {
+    token: getStoredToken(),
+  })
+  return data
+}
+
 /* ────────────────────────────────────────────────────────────
  * /api/v1/tasks (T8) + /task_status/{id} + /resubmit_task/{id} (T12)
  * 任务进度页：列表 / 详情进度（13 阶段）/ 异常重上
@@ -434,6 +453,75 @@ export async function resubmitTask(taskId: string): Promise<ResubmitResponse> {
   const { data } = await api.post<ResubmitResponse>(`/resubmit_task/${taskId}`, {
     token: getStoredToken(),
   })
+  return data
+}
+
+/** GET /api/v1/tasks/{id}/draft —— 任务 → 采集箱草稿来源（直连提交任务无草稿 → draft_id=null） */
+export interface TaskDraftResponse {
+  draft_id: string | null
+}
+
+export async function getTaskDraft(taskId: string): Promise<TaskDraftResponse> {
+  const { data } = await api.get<TaskDraftResponse>(`/tasks/${taskId}/draft`)
+  return data
+}
+
+/* ────────────────────────────────────────────────────────────
+ * /api/v1/products (M2.1) — 在售货架（在线商品索引 product_task_index）
+ * ──────────────────────────────────────────────────────────── */
+
+/** Ozon 在线商品审核状态（product_task_index.moderation_status / 任务状态回写） */
+export type ProductModerationStatus =
+  | 'approved'
+  | 'pending_moderation'
+  | 'pending'
+  | 'failed'
+  | 'declined'
+  | 'rejected'
+
+export interface ProductItem {
+  /** Ozon 商品 product_id */
+  product_id: string
+  offer_id: string
+  task_id: string
+  draft_id?: string | null
+  credential_id?: string | null
+  /** 上架/改图时间 */
+  created_at?: string | null
+  /** 审核状态：approved=已上架 / pending_moderation=重新审核中 / 其他=未知 */
+  moderation_status?: ProductModerationStatus | null
+}
+
+export interface ProductListResponse {
+  items: ProductItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
+/** GET /api/v1/products —— 在售货架列表（租户隔离 + limit/offset 分页） */
+export async function listProducts(params?: { limit?: number; offset?: number }): Promise<ProductListResponse> {
+  const { data } = await api.get<ProductListResponse>('/products', { params })
+  return data
+}
+
+/** POST /api/v1/products/{product_id}/update_images —— 在线商品改图全量重传（T14） */
+export interface UpdateProductImagesResponse {
+  ok: boolean
+  product_id: string
+  offer_id?: string
+  /** Ozon /v3/product/import 返回的 task_id（pending_moderation 时有值） */
+  import_task_id?: string
+  /** 触发重新审核时返回 */
+  status?: string
+  re_under_review?: boolean
+}
+
+export async function updateProductImages(
+  productId: string,
+  images: string[],
+): Promise<UpdateProductImagesResponse> {
+  const { data } = await api.post<UpdateProductImagesResponse>(`/products/${productId}/update_images`, { images })
   return data
 }
 
