@@ -737,6 +737,11 @@ def poll_import_task(
     }
 
 
+# ⚠️ DEAD CODE（T14 验证，2026-08-15）：`update_existing_product` 从未被接线——
+# 全仓 grep 无任何调用点，worker 侧也无对应实现。在线商品改图重传由 worker
+# POST /api/v1/products/{product_id}/update_images 承担（services/image_service.py
+# update_product_images → /v3/product/import）。保留仅作历史参考；若未来需要，
+# 必须在 worker 侧实现并接线后删除此副本。
 def update_existing_product(
     client_id: str,
     api_key: str,
