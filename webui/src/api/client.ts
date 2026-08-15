@@ -232,6 +232,27 @@ export async function deleteDraft(id: string): Promise<void> {
   await api.delete(`/drafts/${id}`)
 }
 
+/** M2.2 提交历史单行（draft_submissions；M0.7 直连提交行 draft_id=NULL） */
+export interface DraftSubmission {
+  id: string
+  /** 提交到的店铺（Ozon Client-Id；直连行可能为 null） */
+  store_client_id?: string | null
+  status: DraftSubmissionStatus
+  /** 失败/审核被拒原因（M0.1/M0.3 写回） */
+  error_message?: string | null
+  /** 提交时 extensions 快照（定价配置/跟卖标记等） */
+  extensions?: Record<string, unknown> | null
+  /** 对应 ozon_product_tasks 任务 ID */
+  submitted_task_id?: string | null
+  created_at?: string | null
+}
+
+/** GET /api/v1/drafts/{id}/submissions —— 提交历史时间线（按时间倒序，draft_service.list_submissions） */
+export async function getDraftSubmissions(draftId: string): Promise<DraftSubmission[]> {
+  const { data } = await api.get<DraftSubmission[]>(`/drafts/${draftId}/submissions`)
+  return data
+}
+
 /* ────────────────────────────────────────────────────────────
  * /api/v1/drafts (T6/T14b) — 草稿单读/乐观锁编辑/立即上架/AI 单字段（T10b 消费）
  * 注：submit 与 ai 端点 body 需携带 token（submit 的 token 用于重建 GraphInput）

@@ -8,6 +8,7 @@ import {
   type DraftEstimate,
   type DraftSubmissionStatus,
 } from '../api/client'
+import SubmissionHistory from '../components/SubmissionHistory'
 
 /* ── 上架状态映射（C1 状态机：无 submission 行 = 未上架） ── */
 const STATUS_META: Record<string, { label: string; className: string }> = {
@@ -187,6 +188,8 @@ export default function CollectBox() {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirm, setConfirm] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null)
+  /** M2.2 提交历史弹窗目标草稿（行按钮触发） */
+  const [historyDraft, setHistoryDraft] = useState<Draft | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -366,6 +369,9 @@ export default function CollectBox() {
                       <button className="btn btn-small btn-primary" onClick={() => navigate(`/products/${draft.id}`)}>
                         编辑上架
                       </button>
+                      <button className="btn btn-small" onClick={() => setHistoryDraft(draft)}>
+                        提交历史
+                      </button>
                       <button className="btn btn-small btn-danger-text" onClick={() => askDelete([draft.id], '删除草稿')}>
                         删除
                       </button>
@@ -390,6 +396,14 @@ export default function CollectBox() {
             action().catch((err) => setError(err instanceof Error ? err.message : '删除失败'))
           }}
           onCancel={() => setConfirm(null)}
+        />
+      )}
+
+      {historyDraft && (
+        <SubmissionHistory
+          draftId={historyDraft.id}
+          draftTitle={historyDraft.payload?.draft?.title}
+          onClose={() => setHistoryDraft(null)}
         />
       )}
     </div>
