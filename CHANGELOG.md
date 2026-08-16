@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.54.0] - 2026-08-17
+
+> WebUI 架构升级：照搬 mxou（api.mxou.cn / new-api default）主题 + 组件 + 布局 + TanStack Router，视觉与 mxou 完全一致。worker 1094 passed / webui build 0 错误。
+
+### Feat(WebUI 照搬 mxou 架构)
+
+- **整包复制** new-api default：theme.css（oklch 色板）+ 61 个 shadcn 风格 UI 组件 + layout + lib + 品牌资产（favicon/logo/landing）。
+- **React 18 → 19.2.6** + @base-ui/react 1.5 + Tailwind 4（`@theme inline` 桥接 tokens）。
+- **保留 Vite** 构建链（删 rsbuild/netlify/knip）；bun 装依赖（catalog 版本化）。
+- **TanStack Router** 文件路由接入（routeTree 自动生成，basepath=/app）；react-router-dom 业务页经 `router-compat.ts` 兼容层迁移（8 页只改 import）。
+- **业务 14 页**迁入 `_authenticated` 路由组；导航 `use-sidebar-data.ts` 重写为业务菜单（工作台/运营/配置/管理员）。
+- **登录/注册完全保留 mxou**（New API 用户体系，cookie 会话）；业务 worker 鉴权用同一 Supabase tokens 表（sk-token Bearer）。
+- **管理员独立化**：/admin 路由组 + role 守卫（`ROLE.ADMIN=10` 不足跳 /403，已验证 role=1→403 / role=100→进入）；worker `require_admin` 服务端防线保持。
+- **worker role 字段**：mxou 登录响应加 `role`（查 users.role，admin_service 同源）。
+- **连接横幅** WorkbenchConnectBanner（mxou cookie ≠ worker token，未配置 sk-token 时引导去 API Keys）；keys 创建成功自动连接。
+
+### Docs
+- `docs/WEBUI-CONVENTIONS.md`（双体系规范 + 版权出处 AGPL 备注）。
+
+### Test
+- webui build 0 错误；playwright 验证 6 业务页渲染 + 管理员守卫；worker 1094 passed（mxou 69 测试含 role）。
+
+---
+
 ## [0.53.0] - 2026-08-16
 
 > P2/P3 批量交付：消息催评自动化（P2c）+ 数据大屏（P3）。P1a-d 已并入 v0.52。worker 1088 passed / skill 493 / webui build + tokens:validate 绿。
