@@ -365,6 +365,46 @@ class ListingTemplateOut(BaseModel):
 
 
 # ──────────────────────────────────────────────
+# /api/v1/orders (P0-4) — Ozon FBS 订单（实时拉取，不建表）
+# ──────────────────────────────────────────────
+
+
+class OrderProductOut(BaseModel):
+    """订单内商品行。"""
+    name: str = Field("", description="商品名称")
+    sku: Optional[int] = Field(None, description="Ozon SKU")
+    quantity: int = Field(0, description="数量")
+    price: Optional[float] = Field(None, description="单价")
+    offer_id: str = Field("", description="货号")
+
+
+class OrderOut(BaseModel):
+    """订单行（Ozon FBS posting 标准化）。"""
+    posting_number: str = Field(..., description="货件编号")
+    status: str = Field(..., description="统一态：pending/awaiting/waiting/delivering/delivered/cancelled/other")
+    raw_status: str = Field("", description="Ozon 原始状态")
+    created_at: Optional[str] = Field(None, description="下单时间（ISO）")
+    products: list[OrderProductOut] = Field(default_factory=list, description="商品行")
+    product_count: int = Field(0, description="商品总件数")
+    total_amount: float = Field(0.0, description="订单金额")
+    commission_amount: float = Field(0.0, description="平台费用")
+    profit: Optional[float] = Field(None, description="估算利润（金额-费用）")
+    warehouse: str = Field("", description="仓库")
+    delivery_method: str = Field("", description="配送方式")
+    cancel_reason: str = Field("", description="取消原因")
+    cancellation: str = Field("", description="取消方/类型")
+
+
+class OrderListResponse(BaseModel):
+    """订单列表响应。"""
+    items: list[OrderOut] = Field(default_factory=list)
+    total: int = Field(0, description="订单总数")
+    limit: int = Field(50, description="本次页大小")
+    offset: int = Field(0, description="偏移")
+    store: dict = Field(default_factory=dict, description="查询店铺 {id, ozon_client_id}")
+
+
+# ──────────────────────────────────────────────
 # T14b 草稿 AI 单字段重新生成
 # ──────────────────────────────────────────────
 
