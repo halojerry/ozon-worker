@@ -507,6 +507,20 @@ export async function estimateDraft(draftId: string): Promise<DraftEstimate> {
   return data
 }
 
+/** P2a 独立定价器：POST /api/v1/estimate（无 draft_id，直接传 envelope + 覆盖参数） */
+export async function estimateEnvelope(payload: {
+  envelope: Envelope
+  margin_rate?: number
+  commission_rate?: number
+  fx_buffer?: number
+}): Promise<DraftEstimate> {
+  const { data } = await api.post<DraftEstimate>('/estimate', {
+    token: getStoredToken(),
+    ...payload,
+  })
+  return data
+}
+
 /* ────────────────────────────────────────────────────────────
  * /api/v1/tasks (T8) + /task_status/{id} + /resubmit_task/{id} (T12)
  * 任务进度页：列表 / 详情进度（13 阶段）/ 异常重上

@@ -12,6 +12,7 @@ import OnSale from './pages/OnSale'
 import Templates from './pages/Templates'
 import Orders from './pages/Orders'
 import Admin from './pages/Admin'
+import PricingTool from './pages/PricingTool'
 
 /** 受保护路由：未登录一律回 /login */
 function Protected({ children }: { children: React.ReactNode }) {
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="tasks" element={<Tasks />} />
         <Route path="on-sale" element={<OnSale />} />
         <Route path="orders" element={<Orders />} />
+        <Route path="pricing-tool" element={<PricingTool />} />
         <Route path="admin" element={<Admin />} />
         <Route path="image-studio" element={<ImageStudio />} />
       </Route>

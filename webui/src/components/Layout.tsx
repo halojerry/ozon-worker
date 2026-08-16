@@ -67,6 +67,16 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    to: '/pricing-tool',
+    label: '定价工具',
+    show: 'always',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5M3 12h18" />
+      </svg>
+    ),
+  },
+  {
     to: '/image-studio',
     label: '生图工作台',
     show: 'always',
