@@ -127,8 +127,12 @@ def _normalize_posting(p: dict) -> dict:
 
 
 def _build_filter(status: Optional[str], since_days: int) -> dict:
-    since = (datetime.now(timezone.utc) - timedelta(days=max(1, min(int(since_days), 90)))).isoformat()
-    f: dict[str, Any] = {"since": since}
+    # ⚠️ Ozon 要求 since/to 严格 YYYY-MM-DDTHH:MM:SSZ（isoformat 微秒+偏移会 400），
+    #    且 filter 必须同时设置 since 和 to（缺 to → 400 processed_at_to must be set）
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(days=max(1, min(int(since_days), 90)))).strftime("%Y-%m-%dT%H:%M:%SZ")
+    to = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    f: dict[str, Any] = {"since": since, "to": to}
     if status and status != "all":
         f["status"] = status
     return f

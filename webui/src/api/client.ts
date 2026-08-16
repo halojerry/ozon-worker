@@ -850,6 +850,38 @@ export async function listProducts(params?: { limit?: number; offset?: number })
   return data
 }
 
+/* ────────────────────────────────────────────────────────────
+ * v0.50 在线商品实时拉取（修复「配置店铺看不到在线商品」）
+ * ──────────────────────────────────────────────────────────── */
+
+export interface OzonProductOut {
+  product_id: string
+  offer_id: string
+  name: string
+  image?: string | null
+  price?: number | null
+  stock?: number | null
+  currency: string
+}
+
+export interface OzonProductListResponse {
+  items: OzonProductOut[]
+  total: number
+  limit: number
+  offset: number
+  store: { id: string; ozon_client_id: string }
+}
+
+/** GET /api/v1/products/ozon —— 实时拉取 Ozon 店铺在线商品（含非本系统上架） */
+export async function listOzonProducts(params?: {
+  credential_id?: string
+  limit?: number
+  offset?: number
+}): Promise<OzonProductListResponse> {
+  const { data } = await api.get<OzonProductListResponse>('/products/ozon', { params })
+  return data
+}
+
 /** POST /api/v1/products/{product_id}/update_images —— 在线商品改图全量重传（T14） */
 export interface UpdateProductImagesResponse {
   ok: boolean

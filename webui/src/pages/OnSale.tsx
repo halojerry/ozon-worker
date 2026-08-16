@@ -2,8 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   getProductEdit,
+  listCredentials,
+  listOzonProducts,
   listProducts,
   updateProductImages,
+  type CredentialOut,
+  type OzonProductOut,
   type ProductItem,
   type ProductModerationStatus,
 } from '../api/client'
@@ -138,6 +142,14 @@ export default function OnSale() {
   const [editError, setEditError] = useState('')
   const [editing, setEditing] = useState<ProductItem | null>(null)
   const [editBusyId, setEditBusyId] = useState<string | null>(null)
+  /** v0.50 视图切换：system=本系统上架 / ozon=店铺商品（实时拉取） */
+  const [view, setView] = useState<'system' | 'ozon'>('system')
+  const [ozonItems, setOzonItems] = useState<OzonProductOut[]>([])
+  const [ozonTotal, setOzonTotal] = useState(0)
+  const [ozonCredentials, setOzonCredentials] = useState<CredentialOut[]>([])
+  const [ozonCredentialId, setOzonCredentialId] = useState('')
+  const [ozonLoading, setOzonLoading] = useState(false)
+  const [ozonError, setOzonError] = useState('')
   const navigate = useNavigate()
 
   async function handleEdit(item: ProductItem) {
@@ -177,6 +189,42 @@ export default function OnSale() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /** v0.50 店铺商品视图：加载店铺 + 拉取 Ozon 商品 */
+  const loadOzon = useCallback(
+    async (silent = false) => {
+      if (!ozonCredentialId) return
+      if (!silent) setOzonLoading(true)
+      try {
+        const data = await listOzonProducts({ credential_id: ozonCredentialId, limit: 100 })
+        setOzonItems(data.items)
+        setOzonTotal(data.total)
+        setOzonError('')
+      } catch (err) {
+        setOzonError(extractError(err, '拉取店铺商品失败'))
+      } finally {
+        setOzonLoading(false)
+      }
+    },
+    [ozonCredentialId],
+  )
+
+  useEffect(() => {
+    if (view !== 'ozon') return
+    if (ozonCredentials.length === 0) {
+      listCredentials()
+        .then((creds) => {
+          setOzonCredentials(creds)
+          const def = creds.find((c) => c.is_default)
+          setOzonCredentialId((prev) => prev || def?.id || '')
+        })
+        .catch(() => setOzonError('加载店铺列表失败'))
+    }
+  }, [view, ozonCredentials.length])
+
+  useEffect(() => {
+    if (view === 'ozon' && ozonCredentialId) loadOzon()
+  }, [view, ozonCredentialId, loadOzon])
+
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const pageIndex = Math.floor(offset / PAGE_SIZE) + 1
   const hasPrev = offset > 0
@@ -189,6 +237,103 @@ export default function OnSale() {
         <span className="page-badge">M2.1</span>
       </header>
 
+      {/* v0.50 视图切换：本系统上架（索引）/ 店铺商品（实时拉取） */}
+      <div className="order-tabs">
+        <button className={`order-tab${view === 'system' ? ' active' : ''}`} onClick={() => setView('system')}>
+          本系统上架
+        </button>
+        <button className={`order-tab${view === 'ozon' ? ' active' : ''}`} onClick={() => setView('ozon')}>
+          店铺商品
+        </button>
+      </div>
+
+      {view === 'ozon' ? (
+        <div className="card stores-table-wrap">
+          <div className="toolbar">
+            <select
+              className="form-select"
+              style={{ width: '220px' }}
+              value={ozonCredentialId}
+              onChange={(e) => setOzonCredentialId(e.target.value)}
+            >
+              <option value="">请选择店铺</option>
+              {ozonCredentials.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.shop_name || c.ozon_client_id}（{c.ozon_client_id}
+                  {c.is_default ? ' · 默认' : ''}）
+                </option>
+              ))}
+            </select>
+            <button className="btn" disabled={ozonLoading || !ozonCredentialId} onClick={() => loadOzon()}>
+              {ozonLoading ? '拉取中…' : '刷新'}
+            </button>
+            <span className="toolbar-hint">店铺商品 = Ozon 店铺全部在线商品（含手动上架/其他工具）</span>
+          </div>
+          {ozonLoading ? (
+            <div className="empty-state">
+              <div className="spinner" style={{ borderColor: 'rgba(0, 91, 255, 0.2)', borderTopColor: 'var(--color-brand)' }} />
+              <p className="empty-state-text">拉取店铺商品…</p>
+            </div>
+          ) : ozonError ? (
+            <div className="empty-state">
+              <div className="form-error" role="alert"><span>{ozonError}</span></div>
+              <button className="btn" onClick={() => loadOzon()}>重试</button>
+            </div>
+          ) : ozonItems.length === 0 ? (
+            <div className="empty-state">
+              <p className="empty-state-title">暂无店铺商品</p>
+              <p className="empty-state-text">请先选择上方店铺（未配置店铺可到店铺管理添加）</p>
+            </div>
+          ) : (
+            <table className="stores-table">
+              <thead>
+                <tr>
+                  <th>商品</th>
+                  <th>货号</th>
+                  <th className="col-price">售价</th>
+                  <th>库存</th>
+                  <th>货币</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ozonItems.map((p) => (
+                  <tr key={p.product_id}>
+                    <td className="col-title">
+                      <div className="task-product">
+                        {p.image ? (
+                          <img
+                            className="task-thumb"
+                            src={p.image}
+                            alt={p.name}
+                            style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 }}
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                          />
+                        ) : (
+                          <div className="img-placeholder" role="img" aria-label="无图片">无图</div>
+                        )}
+                        <div className="task-product-info">
+                          <span className="draft-title" title={p.name}>{p.name || '（无名称）'}</span>
+                          <span className="task-product-meta mono">{p.product_id}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="mono">{p.offer_id || '—'}</td>
+                    <td className="col-price">{p.price != null ? `${p.currency} ${p.price}` : '—'}</td>
+                    <td>{p.stock != null ? p.stock : '—'}</td>
+                    <td>{p.currency || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {ozonTotal > 0 && (
+            <div className="toolbar">
+              <span className="toolbar-count">共 {ozonTotal} 个商品（显示前 {ozonItems.length}）</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
       <div className="toolbar">
         <span className="toolbar-count">共 {total} 个商品</span>
         <button className="btn" onClick={() => load(offset)} disabled={loading}>
@@ -327,6 +472,8 @@ export default function OnSale() {
             load(offset, true)
           }}
         />
+      )}
+        </>
       )}
     </div>
   )

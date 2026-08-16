@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.50.0] - 2026-08-16
+
+> 修复「配置店铺后看不到在线商品」+ 在线商品实时拉取（PRD `docs/PRD-ozon-shelf-v0.50.md`）。worker 1047 passed（+6）/ skill 493 / webui build + tokens:validate 绿。
+
+### 修复(订单接口)
+
+- **Ozon FBS 订单 400 bug**（v0.47 引入）：`/v3/posting/fbs/list` 的 `filter.since` 用 isoformat（微秒+偏移）且**缺 `to` 字段** → `processed_at_to must be set`。修复：严格 `YYYY-MM-DDTHH:MM:SSZ` 格式 + 必须同时含 since/to。**真实订单已拉到 50 条**（此前接口 502）。
+- 本地凭证解密失败：dev 环境 worker 用随机 master key 导致 credentials 密文无法解密——改用 deploy/.env 固定 key。
+
+### Feat(在线商品实时拉取)
+
+- **`shelf_service.list_ozon_products`**：`GET /api/v1/products/ozon`——两步拼接 `/v3/product/list`（245 个商品）→ `/v3/product/info/list`（名称/图片/价格/库存/货币）——**覆盖 Ozon 店铺全部在线商品**（含手动上架/其他工具，此前 OnSale 只显示本系统上架）。
+- 踩坑修复（实测发现）：
+  - `/v3/product/info/list` 批量查询**必须传整数数组**（字符串返回空 items）
+  - Ozon 对 info/list 有**速率限制**：高频下静默返回空 items（不报错）→ **退避重试 3 次**（1s/2s）
+  - info 响应结构：price 顶层字符串、stocks.stocks[0].present（非 v1 嵌套）
+  - info 失败降级返回列表（不阻断）
+- **WebUI OnSale 双视图**：`order-tabs` 切换「本系统上架」（product_task_index，含编辑入口）/「店铺商品」（实时拉取 + 店铺下拉 + 商品图/售价/库存）。
+
+### Test
+- `tests/test_shelf_ozon.py`（6 用例）：两步拼接 + 字段提取（v3 结构）+ 无默认店铺 400 + list 502 + info 降级 + 显式 credential。
+- 全量回归 worker **1047 passed**（1041 基线 + 6 新）；webui build + tokens:validate。
+
+---
+
 ## [0.49.0] - 2026-08-16
 
 > WebUI 订单写入操作 P1-2（PRD `docs/PRD-order-actions-v0.49.md`）：备货发货 + 取消订单（真实影响操作）。worker 1041 passed（+8）/ skill 493 / webui build + tokens:validate 绿。
