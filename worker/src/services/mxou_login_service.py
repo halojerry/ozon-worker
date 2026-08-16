@@ -122,14 +122,19 @@ def login(username: str, password: str) -> dict:
 
     access_token = result.get("access_token")
     user = result.get("user") if isinstance(result.get("user"), dict) else {}
-    user_id = str(user.get("id") or "")
+    user_id_raw = result.get("user_id")
+    if user_id_raw is None:
+        user_id_raw = user.get("id")
+    user_id = str(user_id_raw or "")
+    # 平台调用补 user_id → New-Api-User 认证头（cookie 由 session 携带）；空值 → None
+    user_id_val = user_id or None
     expires_at = result.get("expires_at")
 
     # balance：mxou_get_self 失败 → None 不阻断
     balance = None
     if access_token:
         try:
-            info = mxou_platform.mxou_get_self(session, access_token)
+            info = mxou_platform.mxou_get_self(session, access_token, user_id=user_id_val)
             balance = info.get("balance")
         except MxouLoginError as e:
             logger.warning("mxou_get_self 失败 username=%s reason=%s（balance=None 不阻断）",
@@ -142,7 +147,7 @@ def login(username: str, password: str) -> dict:
     selected_key_id: str | None = None
     if access_token:
         try:
-            raw_keys = mxou_platform.mxou_list_tokens(session, access_token) or []
+            raw_keys = mxou_platform.mxou_list_tokens(session, access_token, user_id=user_id_val) or []
         except MxouLoginError as e:
             logger.warning("mxou_list_tokens 失败 username=%s reason=%s（keys=[] 不阻断）",
                            username, e.reason)
@@ -152,7 +157,8 @@ def login(username: str, password: str) -> dict:
         for k in raw_keys:
             if k.get("status") == 1 and k.get("id"):
                 try:
-                    full_key = mxou_platform.mxou_get_token_key(session, access_token, k["id"])
+                    full_key = mxou_platform.mxou_get_token_key(
+                        session, access_token, k["id"], user_id=user_id_val)
                 except Exception as exc:
                     logger.warning("mxou_get_token_key 失败 token_id=%s: %s", k.get("id"), exc)
                     continue
@@ -162,9 +168,13 @@ def login(username: str, password: str) -> dict:
                         _upsert_supabase_token(user_id, full_key)
                 break
 
-    # session 缓存（供 T4 密钥管理复用）
+    # session 缓存（供 T4 密钥管理复用；含 user_id 供 New-Api-User 认证）
     if user_id:
-        session_store.put(user_id, {"access_token": access_token, "expires_at": expires_at})
+        session_store.put(user_id, {
+            "access_token": access_token,
+            "expires_at": expires_at,
+            "user_id": user_id_val,
+        })
 
     # 响应 keys 脱敏：只留 id/name/status/masked（full_key 只在服务端流转）
     masked_keys = [
@@ -218,8 +228,9 @@ def _map_key_error(e: MxouLoginError) -> HTTPException:
 def list_keys(tenant_id: str) -> list[dict]:
     """列出该账号 API Key（脱敏：id/name/status/masked，绝不含 full_key）。"""
     session_data, access_token = _get_session_for_tenant(tenant_id)
+    user_id = session_data.get("user_id")
     try:
-        raw = mxou_platform.mxou_list_tokens(session_data, access_token) or []
+        raw = mxou_platform.mxou_list_tokens(session_data, access_token, user_id=user_id) or []
     except MxouLoginError as e:
         raise _map_key_error(e) from e
     return [
@@ -237,8 +248,9 @@ def list_keys(tenant_id: str) -> list[dict]:
 def create_key(tenant_id: str, name: str) -> dict:
     """新建 API Key → upsert 进 Supabase tokens → 返回 {id, name, key}（key 仅此一次）。"""
     session_data, access_token = _get_session_for_tenant(tenant_id)
+    user_id = session_data.get("user_id")
     try:
-        result = mxou_platform.mxou_create_token(session_data, access_token, name)
+        result = mxou_platform.mxou_create_token(session_data, access_token, name, user_id=user_id)
     except MxouLoginError as e:
         raise _map_key_error(e) from e
     full_key = result.get("full_key") or ""
@@ -254,8 +266,9 @@ def create_key(tenant_id: str, name: str) -> dict:
 def revoke_key(tenant_id: str, key_id: str) -> bool:
     """吊销 API Key；MXOU 失败 → 502。"""
     session_data, access_token = _get_session_for_tenant(tenant_id)
+    user_id = session_data.get("user_id")
     try:
-        ok = mxou_platform.mxou_revoke_token(session_data, access_token, key_id)
+        ok = mxou_platform.mxou_revoke_token(session_data, access_token, key_id, user_id=user_id)
     except MxouLoginError as e:
         raise HTTPException(status_code=502, detail="MXOU 吊销失败，请稍后重试") from e
     if not ok:
@@ -266,8 +279,9 @@ def revoke_key(tenant_id: str, key_id: str) -> bool:
 def select_key(tenant_id: str, key_id: str) -> dict:
     """解出指定 key 明文 → upsert 进 Supabase tokens → 返回 {key}（仅此一次）。"""
     session_data, access_token = _get_session_for_tenant(tenant_id)
+    user_id = session_data.get("user_id")
     try:
-        full_key = mxou_platform.mxou_get_token_key(session_data, access_token, key_id)
+        full_key = mxou_platform.mxou_get_token_key(session_data, access_token, key_id, user_id=user_id)
     except MxouLoginError as e:
         raise _map_key_error(e) from e
     if full_key:

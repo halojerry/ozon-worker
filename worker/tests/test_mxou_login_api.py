@@ -133,6 +133,47 @@ def test_login_success(client):
 
 # ═══ 2-6. 错误映射 ═══
 
+def test_login_passes_user_id_to_platform(client):
+    """T1.1：login 返回 user_id → get_self/list_tokens/get_token_key 全部透传 user_id kwarg。"""
+    calls = {"self": [], "list": [], "key": []}
+
+    def _login(session, username, password):
+        return {"access_token": "at-1", "user_id": "uid-42",
+                "user": {"id": "uid-42", "username": "alice"},
+                "expires_at": "2026-09-01T00:00:00Z", "shape": "newapi_jwt"}
+
+    def _self(session, access_token=None, user_id=None):
+        calls["self"].append({"access_token": access_token, "user_id": user_id})
+        return {"id": "uid-42", "username": "alice", "balance": 88.8}
+
+    def _list(session, access_token=None, user_id=None):
+        calls["list"].append({"access_token": access_token, "user_id": user_id})
+        return [{"id": "tok-1", "name": "default", "status": 1, "masked": True, "full_key": None}]
+
+    def _key(session, access_token=None, token_id=None, user_id=None):
+        calls["key"].append({"access_token": access_token, "token_id": token_id, "user_id": user_id})
+        return "sk-abc123def456"
+
+    with patch.object(mxou_platform, "mxou_login", side_effect=_login), \
+         patch.object(mxou_platform, "mxou_get_self", side_effect=_self), \
+         patch.object(mxou_platform, "mxou_list_tokens", side_effect=_list), \
+         patch.object(mxou_platform, "mxou_get_token_key", side_effect=_key):
+        resp = client.post("/api/v1/mxou/login",
+                           json={"username": "alice", "password": PASSWORD})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["selected_key_id"] == "tok-1"
+    for c in calls["self"]:
+        assert c["user_id"] == "uid-42"
+    for c in calls["list"]:
+        assert c["user_id"] == "uid-42"
+    for c in calls["key"]:
+        assert c["user_id"] == "uid-42"
+        assert c["token_id"] == "tok-1"
+    # session 缓存含 user_id（供 T4 密钥管理复用）
+    cached = mxou_login_service.session_store.get("uid-42")
+    assert cached and cached["user_id"] == "uid-42"
+
+
 def test_login_bad_credentials(client):
     with _platform_mocks(login_error=mxou_platform.MxouLoginError("bad_credentials")):
         resp = client.post("/api/v1/mxou/login",

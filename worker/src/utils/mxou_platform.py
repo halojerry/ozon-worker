@@ -54,8 +54,18 @@ def _base_url() -> str:
     return os.environ.get("MXOU_BASE", MXOU_BASE)
 
 
-def _bearer(access_token: str, content_type_json: bool = False) -> dict:
-    headers = {"Authorization": f"Bearer {access_token}"}
+def _auth_headers(access_token: str | None, user_id: str | int | None = None,
+                  content_type_json: bool = False) -> dict:
+    """认证头：有 access_token → Bearer；有 user_id → New-Api-User header（cookie 由 session 携带）。
+
+    两者都有 → 都带（newapi 兼容）；都无 → 空 dict。真实平台（one-api cookie 形态）
+    只认 New-Api-User，Bearer 是 newapi 形态的兼容路径。
+    """
+    headers = {}
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    if user_id is not None:
+        headers["New-Api-User"] = str(user_id)
     if content_type_json:
         headers["Content-Type"] = "application/json"
     return headers
@@ -106,7 +116,8 @@ def _is_masked(key: str) -> bool:
 def mxou_login(session, username: str, password: str) -> dict:
     """登录 MXOU 平台。
 
-    返回 {"access_token", "user", "expires_at", "shape"}。
+    返回 {"access_token", "user_id", "user", "expires_at", "shape"}。
+    user_id 取自 data.id（top-level）或 user.id 兜底——T2 用它补 New-Api-User 认证头。
     shape ∈ {"newapi_jwt", "oneapi_cookie"}，均不匹配抛 unknown_shape。
 
     解析纪律：先看 JSON success 字段（HTTP 200 但 success=false → bad_credentials）；
@@ -161,12 +172,19 @@ def mxou_login(session, username: str, password: str) -> dict:
     if not isinstance(user, dict):
         user = None
 
+    # user_id：真实平台 data.id（top-level）优先；user 子对象兜底
+    user_id = data.get("id")
+    if user_id is None and isinstance(user, dict):
+        user_id = user.get("id")
+    if not isinstance(user_id, (str, int)):
+        user_id = None
+
     # 形态判定：有 token 且 session.expires_at → newapi_jwt；
-    # 无任何 token 字段但有 user → oneapi_cookie（access_token=None）
+    # 无任何 token 字段但有 user 或 data.id → oneapi_cookie（access_token=None）
     shape = None
     if token_val and expires_at:
         shape = "newapi_jwt"
-    elif token_val is None and user is not None:
+    elif token_val is None and (user is not None or user_id is not None):
         shape = "oneapi_cookie"
 
     if shape is None:
@@ -180,6 +198,7 @@ def mxou_login(session, username: str, password: str) -> dict:
     logger.info("mxou login: success shape=%s", shape)
     return {
         "access_token": token_val,
+        "user_id": user_id,
         "user": user,
         "expires_at": expires_at,
         "shape": shape,
@@ -190,7 +209,7 @@ def mxou_login(session, username: str, password: str) -> dict:
 # 用户信息
 # ════════════════════════════════════════════════════════════════
 
-def mxou_get_self(session, access_token: str) -> dict:
+def mxou_get_self(session, access_token: str | None = None, user_id: str | int | None = None) -> dict:
     """查询用户信息。
 
     白名单字段 {id, username, display_name, role, status, balance}：
@@ -199,7 +218,7 @@ def mxou_get_self(session, access_token: str) -> dict:
     """
     url = f"{_base_url()}/api/user/self"
     logger.info("mxou self: GET /api/user/self")
-    resp = _call(session, "get", url, headers=_bearer(access_token))
+    resp = _call(session, "get", url, headers=_auth_headers(access_token, user_id))
 
     status = getattr(resp, "status_code", None)
     body = _safe_json(resp)
@@ -235,7 +254,7 @@ def mxou_get_self(session, access_token: str) -> dict:
 # token 列表 / 解钥 / 新建 / 吊销
 # ════════════════════════════════════════════════════════════════
 
-def mxou_list_tokens(session, access_token: str) -> list[dict]:
+def mxou_list_tokens(session, access_token: str | None = None, user_id: str | int | None = None) -> list[dict]:
     """列出该账号下 API Key。
 
     兼容三种形态：分页 (data.items) / 数组 (data) / 双层包裹 (data.data)。
@@ -243,7 +262,7 @@ def mxou_list_tokens(session, access_token: str) -> list[dict]:
     """
     url = f"{_base_url()}/api/token/"
     logger.info("mxou tokens: GET /api/token/")
-    resp = _call(session, "get", url, headers=_bearer(access_token))
+    resp = _call(session, "get", url, headers=_auth_headers(access_token, user_id))
 
     status = getattr(resp, "status_code", None)
     body = _safe_json(resp)
@@ -281,11 +300,12 @@ def mxou_list_tokens(session, access_token: str) -> list[dict]:
     return normalized
 
 
-def mxou_get_token_key(session, access_token: str, token_id: str) -> str:
+def mxou_get_token_key(session, access_token: str | None = None, token_id: str | None = None,
+                       user_id: str | int | None = None) -> str:
     """POST /api/token/{id}/key 解出明文 key。解析 data.key 或 data 是字符串。失败 → unavailable。"""
     url = f"{_base_url()}/api/token/{token_id}/key"
     logger.info("mxou token key: POST /api/token/{token_id}/key")
-    resp = _call(session, "post", url, headers=_bearer(access_token))
+    resp = _call(session, "post", url, headers=_auth_headers(access_token, user_id))
 
     status = getattr(resp, "status_code", None)
     body = _safe_json(resp)
@@ -302,12 +322,13 @@ def mxou_get_token_key(session, access_token: str, token_id: str) -> str:
     raise MxouLoginError("unavailable", "MXOU 解出 token key 失败: 响应无 key 字段")
 
 
-def mxou_create_token(session, access_token: str, name: str) -> dict:
+def mxou_create_token(session, access_token: str | None = None, name: str | None = None,
+                      user_id: str | int | None = None) -> dict:
     """创建 API Key（newapi 语义：remain_quota=-1 无限额度）。返回 {"id", "name", "full_key"}。"""
     url = f"{_base_url()}/api/token"
     logger.info("mxou create token: POST /api/token")
     resp = _call(session, "post", url,
-                 headers=_bearer(access_token, content_type_json=True),
+                 headers=_auth_headers(access_token, user_id, content_type_json=True),
                  json={"name": name, "remain_quota": -1})
 
     status = getattr(resp, "status_code", None)
@@ -327,11 +348,12 @@ def mxou_create_token(session, access_token: str, name: str) -> dict:
     }
 
 
-def mxou_revoke_token(session, access_token: str, token_id: str) -> bool:
+def mxou_revoke_token(session, access_token: str | None = None, token_id: str | None = None,
+                      user_id: str | int | None = None) -> bool:
     """DELETE /api/token/{id} 吊销 API Key；2xx → True。"""
     url = f"{_base_url()}/api/token/{token_id}"
     logger.info("mxou revoke token: DELETE /api/token/{token_id}")
-    resp = _call(session, "delete", url, headers=_bearer(access_token))
+    resp = _call(session, "delete", url, headers=_auth_headers(access_token, user_id))
 
     status = getattr(resp, "status_code", None)
     if status is not None and 200 <= status < 300:
