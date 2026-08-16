@@ -10,12 +10,15 @@
 /* __TOKENS_SYNC_BEGIN__ */
 :root {
   /* ── 颜色：品牌 / 中性 / 文本 / 语义 ── */
-  --color-bg: #f5f7fb;
-  --color-border: #e4e8f0;
-  --color-brand: #005bff;
-  --color-brand-hover: #0049cc;
-  --color-brand-light: #3d82ff;
-  --color-brand-soft: rgba(0, 91, 255, 0.08);
+  --color-bg: #ffffff;
+  --color-border: #e5e5e5;
+  --color-brand: #1a1a1a;
+  --color-brand_hover: #3d3d3d;
+  --color-brand_light: #737373;
+  --color-brand_soft: #f5f5f5;
+  --color-brand-hover: #3d3d3d;
+  --color-brand-light: #737373;
+  --color-brand-soft: #f5f5f5;
   --color-danger: #dc2626;
   --color-danger-light: #fca5a5;
   --color-sidebar: #0f172a;
@@ -43,12 +46,15 @@
   --bp-lg: 1024px;
   --bp-md: 768px;
   --bp-sm: 640px;
-  --color-bg: #f5f7fb;
-  --color-border: #e4e8f0;
-  --color-brand: #005bff;
-  --color-brand-hover: #0049cc;
-  --color-brand-light: #3d82ff;
-  --color-brand-soft: rgba(0, 91, 255, 0.08);
+  --color-bg: #ffffff;
+  --color-border: #e5e5e5;
+  --color-brand: #1a1a1a;
+  --color-brand_hover: #3d3d3d;
+  --color-brand_light: #737373;
+  --color-brand_soft: #f5f5f5;
+  --color-brand-hover: #3d3d3d;
+  --color-brand-light: #737373;
+  --color-brand-soft: #f5f5f5;
   --color-danger: #dc2626;
   --color-danger-light: #fca5a5;
   --color-sidebar: #0f172a;
@@ -146,12 +152,15 @@
   --bp-lg: 1024px;
   --bp-md: 768px;
   --bp-sm: 640px;
-  --color-bg: #f5f7fb;
-  --color-border: #e4e8f0;
-  --color-brand: #005bff;
-  --color-brand-hover: #0049cc;
-  --color-brand-light: #3d82ff;
-  --color-brand-soft: rgba(0, 91, 255, 0.08);
+  --color-bg: #ffffff;
+  --color-border: #e5e5e5;
+  --color-brand: #1a1a1a;
+  --color-brand_hover: #3d3d3d;
+  --color-brand_light: #737373;
+  --color-brand_soft: #f5f5f5;
+  --color-brand-hover: #3d3d3d;
+  --color-brand-light: #737373;
+  --color-brand-soft: #f5f5f5;
   --color-danger: #dc2626;
   --color-danger-light: #fca5a5;
   --color-sidebar: #0f172a;
