@@ -17,6 +17,8 @@ import {
   type ProductItem,
   type ProductModerationStatus,
 } from '../api/client'
+import { fmtTime } from '../lib/business/format'
+import { extractError } from '../lib/business/errors'
 
 const PAGE_SIZE = 20
 
@@ -32,19 +34,6 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
 
 function statusMeta(status: ProductModerationStatus | null | undefined) {
   return STATUS_META[status ?? ''] ?? { label: '未知', className: 'status-muted' }
-}
-
-function fmtTime(iso?: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function extractError(err: unknown, fallback: string): string {
-  const resp = (err as { response?: { data?: { detail?: string } } } | null)?.response
-  return resp?.data?.detail || fallback
 }
 
 /* ── P1a 批量操作弹窗：改价 / 改库存 ── */

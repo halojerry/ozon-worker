@@ -1,20 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getAdminOverview, listOrders, type AdminOverview } from '../api/client'
+import { fmtTime } from '../lib/business/format'
+import { extractError } from '../lib/business/errors'
 
 /* P3 数据大屏：实时订单 + 平台概览（复用现有端点，纯前端聚合） */
-
-function fmtTime(iso?: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
-
-function extractError(err: unknown, fallback: string): string {
-  const resp = (err as { response?: { data?: { detail?: string } } } | null)?.response
-  return resp?.data?.detail || fallback
-}
 
 export default function DataScreen() {
   const [overview, setOverview] = useState<AdminOverview | null>(null)

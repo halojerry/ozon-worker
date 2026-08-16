@@ -44,10 +44,17 @@ mxou 体系（框架/登录/组件）          Ozon 业务体系（14 页业务�
 5. **样式**：mxou 用 Tailwind 语义类（`bg-primary` 等，token 驱动）；
    业务页旧样式在 `src/index.css`（main.tsx 在 mxou 样式后加载覆盖 preflight）。
    新业务代码优先 Tailwind；**禁止硬编码 hex**（`tokens:validate` 检查）。
-6. **API 层**：业务请求一律走 `src/api/client.ts`（baseURL=/api/v1 + Bearer sk-token），
-   禁止页面裸 fetch/新建 axios 实例。mxou 请求走 `src/lib/api.ts`（New API cookie）。
-   ⚠️ 401 拦截器：业务 token 失效 ≠ 需重登——若 mxou 登录态存在（localStorage user）只清 token
-   不跳转，否则跳 sign-in（生产构建曾因此无限重定向，见 git dee53f8）。
+ 6. **API 层**：业务请求一律走 `src/api/client.ts`（baseURL=/api/v1 + Bearer sk-token），
+    禁止页面裸 fetch/新建 axios 实例。mxou 请求走 `src/lib/api.ts`（New API cookie）。
+    ⚠️ 401 拦截器：业务 token 失效 ≠ 需重登——若 mxou 登录态存在（localStorage user）只清 token
+    不跳转，否则跳 sign-in（生产构建曾因此无限重定向，见 git dee53f8）。
+ 7. **业务共享工具（S2.2 抽取，禁再次内联）**：
+    - `src/lib/business/errors.ts` → `extractError`（detail → message → fallback）
+    - `src/lib/business/format.ts` → `fmtTime` / `fmtMoney(v, currency?)` / `fmtRate`
+    - `src/lib/business/status.ts` → `taskStatusMeta` / `draftStatusMeta`（任务/草稿状态映射）
+    - `src/lib/business/components.tsx` → `ImageCell` / `loadEstimate` / `EstimateBadges`
+    - 页面专属状态映射（OnSale 产品审核 / Orders 订单）**不抽取**，留在页面局部。
+    新增页面遇到同款工具函数必须 import 共享版，禁止复制实现（防行为漂移）。
 
 ## 三、依赖管理
 - 包管理：bun（`bun add`）。mxou 依赖含 `catalog:` 引用——本项目已把 catalog 值

@@ -7,6 +7,7 @@ import {
   validateCredential,
   type CredentialOut,
 } from '../api/client'
+import { extractError } from '../lib/business/errors'
 
 const ROTATION_WARN_DAYS = 30
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -35,11 +36,6 @@ function effectiveRotationAt(c: CredentialOut): number | null {
 
 function reasonText(reason: string): string {
   return VALIDATE_REASON[reason] ?? reason
-}
-
-function extractError(err: unknown, fallback: string): string {
-  const resp = (err as { response?: { data?: { detail?: string } } } | null)?.response
-  return resp?.data?.detail || fallback
 }
 
 interface RowValidate {

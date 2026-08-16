@@ -10,11 +10,7 @@ import {
   type ListingTemplateConfig,
   type ListingTemplateOut,
 } from '../api/client'
-
-function extractError(e: unknown, fallback: string): string {
-  const err = e as { response?: { data?: { detail?: string } }; message?: string }
-  return err?.response?.data?.detail ?? err?.message ?? fallback
-}
+import { extractError } from '../lib/business/errors'
 
 function formatTime(iso: string | null | undefined): string {
   if (!iso) return '—'

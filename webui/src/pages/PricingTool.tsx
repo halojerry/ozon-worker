@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { estimateEnvelope, type Envelope } from '../api/client'
+import { extractError } from '../lib/business/errors'
 
 /* P2a 定价工具：输入成本/重量/尺寸/利润率 → worker 同源公式预估（前端不写公式） */
 
@@ -23,11 +24,6 @@ const EMPTY_INPUT: EstimateInput = {
   marginRate: '25',
   commissionRate: '',
   fxBuffer: '5',
-}
-
-function extractError(err: unknown, fallback: string): string {
-  const resp = (err as { response?: { data?: { detail?: string } } } | null)?.response
-  return resp?.data?.detail || fallback
 }
 
 export default function PricingTool() {
