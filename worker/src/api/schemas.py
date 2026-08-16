@@ -478,6 +478,22 @@ class UpdateProductImagesResponse(BaseModel):
     images_filtered: list[str] = Field(default_factory=list, description="被过滤的死 URL")
 
 
+class ProductEditResponse(BaseModel):
+    """T6: GET /products/{product_id}/edit — 在线商品编辑初值。
+
+    数据来源：product_task_index 关联草稿（直连任务无草稿 → 409，仅改图走 update_images）。
+    """
+    product_id: str = Field(..., description="Ozon product_id")
+    offer_id: str = Field(..., description="信封 offer_id（sku_id / follow_{id}）")
+    credential_id: str | None = Field(None, description="店铺凭证 id")
+    draft_id: str = Field(..., description="关联草稿 id（product_task_index.draft_id）")
+    payload: dict = Field(..., description="关联草稿 envelope（编辑表单初值）")
+    moderation_status: str | None = Field(
+        None,
+        description="审核状态（从任务 result JSONB 尽力提取；无 → null，不实时调 Ozon）",
+    )
+
+
 # ──────────────────────────────────────────────
 # /api/v1/mxou/login — MXOU 账号密码登录（WebUI T2）
 # ──────────────────────────────────────────────

@@ -12,7 +12,11 @@ import json
 
 from fastapi import APIRouter, Request
 
-from api.schemas import UpdateProductImagesRequest, UpdateProductImagesResponse
+from api.schemas import (
+    ProductEditResponse,
+    UpdateProductImagesRequest,
+    UpdateProductImagesResponse,
+)
 from services import image_service
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -42,3 +46,13 @@ async def update_product_images(product_id: str, request: Request):
     body = await request.json()
     req = UpdateProductImagesRequest.model_validate(body)
     return image_service.update_product_images(tenant_id, product_id, req.images)
+
+
+@router.get("/{product_id}/edit", response_model=ProductEditResponse)
+async def get_product_edit(product_id: str, request: Request):
+    """T6: 在线商品编辑初值（product_task_index 关联草稿 envelope + 审核状态）。
+
+    404 = 无索引/草稿缺失；409 = 无草稿来源（仅改图可用 update_images）。
+    """
+    tenant_id = await _authenticate(request)
+    return image_service.get_product_edit_data(tenant_id, product_id)
