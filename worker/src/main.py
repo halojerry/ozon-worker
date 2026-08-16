@@ -2137,6 +2137,38 @@ async def v1_analytics_market_bestsellers(request: Request):
     return await _handle_analytics_report(request, "market-bestsellers")
 
 
+@v1.get("/analytics/bestsellers", tags=["analytics"])
+async def v1_analytics_list_bestsellers(request: Request):
+    """P2b 榜单浏览：读 skill 上报的 ozon-bestsellers（按上报 token 隔离）。
+
+    query: category?（类目筛选）/ order_by?（ordering_amount|ordering_count|avg_price_rub）/ limit/offset
+    鉴权与上报一致：token 即 contributed_by_token_id。
+    """
+    from services.analytics_service import list_bestsellers
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean_token)
+
+    q = request.query_params
+    try:
+        limit = int(q.get("limit", 50))
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        offset = int(q.get("offset", 0))
+    except (TypeError, ValueError):
+        offset = 0
+    return list_bestsellers(
+        clean_token,
+        category=q.get("category"),
+        order_by=q.get("order_by") or "ordering_amount",
+        limit=limit, offset=offset,
+    )
+
+
 # ── WebUI 凭证端点（T5）：routes/services 分层，业务逻辑在 services/credential_service.py ──
 from routes.credentials_routes import router as credentials_router
 v1.include_router(credentials_router)

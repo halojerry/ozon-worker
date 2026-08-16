@@ -99,6 +99,16 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    to: '/bestsellers',
+    label: '榜单选品',
+    show: 'always',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <path d="M4 19V9M10 19V5M16 19v-7M22 19H2M12 3l2.5 4.5L19 8l-4 3.5 1 5-4-2.5-4 2.5 1-5L5 8l4.5-.5L12 3z" />
+      </svg>
+    ),
+  },
+  {
     to: '/admin',
     label: '管理后台',
     show: 'always',

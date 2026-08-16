@@ -507,7 +507,7 @@ export async function estimateDraft(draftId: string): Promise<DraftEstimate> {
   return data
 }
 
-/** P2a 独立定价器：POST /api/v1/estimate（无 draft_id，直接传 envelope + 覆盖参数） */
+/** POST /api/v1/estimate —— 独立定价器（无 draft_id，直接传 envelope + 覆盖参数） */
 export async function estimateEnvelope(payload: {
   envelope: Envelope
   margin_rate?: number
@@ -518,6 +518,35 @@ export async function estimateEnvelope(payload: {
     token: getStoredToken(),
     ...payload,
   })
+  return data
+}
+
+/** P2b 榜单选品：skill 上报的 ozon-bestsellers 浏览（按上报 token 隔离） */
+
+export interface BestsellerItem {
+  sku_or_id: string
+  brand: string
+  category_path: string
+  ordering_amount?: number | null
+  ordering_count?: number | null
+  avg_price_rub?: number | null
+}
+
+export interface BestsellerListResponse {
+  items: BestsellerItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
+/** GET /api/v1/analytics/bestsellers —— 榜单浏览（类目筛选 + 排序） */
+export async function listBestsellers(params?: {
+  category?: string
+  order_by?: 'ordering_amount' | 'ordering_count' | 'avg_price_rub'
+  limit?: number
+  offset?: number
+}): Promise<BestsellerListResponse> {
+  const { data } = await api.get<BestsellerListResponse>('/analytics/bestsellers', { params })
   return data
 }
 
