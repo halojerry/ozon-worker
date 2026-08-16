@@ -89,6 +89,17 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    to: '/admin',
+    label: '管理后台',
+    show: 'always',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <circle cx="12" cy="8" r="3.2" />
+        <path d="M5 20c.8-3.5 3.7-5.5 7-5.5s6.2 2 7 5.5M20.5 3l.5 1.5L22.5 5 21 5.5 20.5 7 20 5.5 18.5 5 20 4.5 20.5 3zM4 10l.4 1.1L5.5 11.5 4.4 12 4 13.1 3.6 12 2.5 11.5 3.6 11 4 10z" />
+      </svg>
+    ),
+  },
+  {
     to: '/templates',
     label: '上架配置',
     show: 'always',

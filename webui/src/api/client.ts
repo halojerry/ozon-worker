@@ -882,6 +882,78 @@ export async function listOzonProducts(params?: {
   return data
 }
 
+/* ────────────────────────────────────────────────────────────
+ * /api/v1/admin (v0.51) — 管理员面板（平台运营视图，仅管理员）
+ * ──────────────────────────────────────────────────────────── */
+
+export interface AdminOverview {
+  user_count: number
+  store_count: number
+  task_total: number
+  task_today: number
+  success_rate: number
+  statistics: Record<string, unknown>
+}
+
+export interface AdminUserOut {
+  id: string
+  username: string
+  quota?: number | null
+  role: string
+  created_at?: string | null
+  store_count: number
+  task_count: number
+}
+
+export interface AdminStoreOut {
+  id: string
+  tenant_id: string
+  ozon_client_id: string
+  shop_name: string
+  currency: string
+  is_default: boolean
+  status: string
+  last_validated_at?: string | null
+}
+
+export interface AdminUserDetail {
+  id: string
+  stores: AdminStoreOut[]
+  task_total: number
+  task_completed: number
+  task_failed: number
+}
+
+/** GET /api/v1/admin/overview —— 平台概览（管理员） */
+export async function getAdminOverview(): Promise<AdminOverview> {
+  const { data } = await api.get<AdminOverview>('/admin/overview')
+  return data
+}
+
+/** GET /api/v1/admin/users —— 用户列表（管理员） */
+export async function listAdminUsers(): Promise<AdminUserOut[]> {
+  const { data } = await api.get<AdminUserOut[]>('/admin/users')
+  return data
+}
+
+/** GET /api/v1/admin/users/{id} —— 用户详情（管理员） */
+export async function getAdminUserDetail(userId: string): Promise<AdminUserDetail> {
+  const { data } = await api.get<AdminUserDetail>(`/admin/users/${encodeURIComponent(userId)}`)
+  return data
+}
+
+/** GET /api/v1/admin/stores —— 店铺列表（跨用户，管理员） */
+export async function listAdminStores(): Promise<AdminStoreOut[]> {
+  const { data } = await api.get<AdminStoreOut[]>('/admin/stores')
+  return data
+}
+
+/** GET /api/v1/admin/tasks —— 任务统计（全租户，管理员） */
+export async function getAdminTasks(): Promise<Record<string, unknown>> {
+  const { data } = await api.get<Record<string, unknown>>('/admin/tasks')
+  return data
+}
+
 /** POST /api/v1/products/{product_id}/update_images —— 在线商品改图全量重传（T14） */
 export interface UpdateProductImagesResponse {
   ok: boolean

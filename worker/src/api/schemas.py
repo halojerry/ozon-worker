@@ -475,6 +475,53 @@ class OzonProductListResponse(BaseModel):
 
 
 # ──────────────────────────────────────────────
+# /api/v1/admin (v0.51) — 管理员面板（平台运营视图）
+# ──────────────────────────────────────────────
+
+
+class AdminOverviewOut(BaseModel):
+    """平台概览。"""
+    user_count: int = Field(0, description="用户数")
+    store_count: int = Field(0, description="活跃店铺数")
+    task_total: int = Field(0, description="任务总数")
+    task_today: int = Field(0, description="今日任务数")
+    success_rate: float = Field(0.0, description="成功率（%）")
+    statistics: dict = Field(default_factory=dict, description="任务统计明细")
+
+
+class AdminUserOut(BaseModel):
+    """用户行（平台视角）。"""
+    id: str = Field(..., description="用户 ID")
+    username: str = Field("", description="用户名/显示名")
+    quota: Optional[float] = Field(None, description="余额")
+    role: str = Field("user", description="user/admin")
+    created_at: Optional[str] = Field(None, description="注册时间")
+    store_count: int = Field(0, description="活跃店铺数")
+    task_count: int = Field(0, description="任务总数")
+
+
+class AdminStoreOut(BaseModel):
+    """店铺行（跨用户平台视角）。"""
+    id: str = Field(..., description="凭证 UUID")
+    tenant_id: str = Field(..., description="归属用户 ID")
+    ozon_client_id: str = Field(..., description="Ozon Client-Id")
+    shop_name: str = Field("", description="店铺名")
+    currency: str = Field("CNY", description="货币")
+    is_default: bool = Field(False, description="默认店铺")
+    status: str = Field("active", description="active/revoked")
+    last_validated_at: Optional[str] = Field(None, description="最近校验")
+
+
+class AdminUserDetailOut(BaseModel):
+    """用户详情（店铺 + 任务统计）。"""
+    id: str = Field(..., description="用户 ID")
+    stores: list[AdminStoreOut] = Field(default_factory=list, description="店铺列表")
+    task_total: int = Field(0, description="任务总数")
+    task_completed: int = Field(0, description="已完成")
+    task_failed: int = Field(0, description="失败")
+
+
+# ──────────────────────────────────────────────
 # T14b 草稿 AI 单字段重新生成
 # ──────────────────────────────────────────────
 
