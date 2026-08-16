@@ -285,6 +285,8 @@ export interface ListingTemplateOut {
   platform: string
   is_default: boolean
   config: ListingTemplateConfig
+  /** P1b 店铺级覆盖：{credential_id: {margin_rate?, stock?...}} */
+  store_overrides?: Record<string, Partial<ListingTemplateConfig>> | null
   created_at?: string | null
   updated_at?: string | null
 }

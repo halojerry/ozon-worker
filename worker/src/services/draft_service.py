@@ -250,12 +250,15 @@ def _apply_listing_template(
     template_id: Optional[str],
     *,
     is_update: bool,
+    credential_id: Optional[str] = None,
 ) -> dict:
     """P0-1: 把上架配置模板注入 envelope.extensions（返回副本）。
 
     显式 template_id → 校验归属后注入；未指定 → 租户默认模板兜底
     （无默认模板 → 原样返回）。模板补缺省，草稿 extensions 已有值优先；
     is_update（更新上架）→ 忽略 offer_id_prefix（重上不变式）。
+    P1b 多店铺差异化：credential_id 在模板 store_overrides 有覆盖 →
+    覆盖值优先于全局 config。
     """
     from services.template_service import apply_template_to_envelope, get_default_template, get_template
 
@@ -269,7 +272,7 @@ def _apply_listing_template(
         return envelope
     if not template:
         return envelope
-    return apply_template_to_envelope(envelope, template, is_update=is_update)
+    return apply_template_to_envelope(envelope, template, is_update=is_update, credential_id=credential_id)
 
 
 def _cross_store_scan(tenant_id: str, draft_id: str, current_client_id: str) -> tuple[list[str], bool]:
@@ -365,9 +368,10 @@ async def submit_draft(
         if update_offer_id:
             payload_ext["update_offer_id"] = update_offer_id
 
-    # P0-1 上架配置模板注入（模板补缺省，草稿已有值优先）
+    # P0-1 上架配置模板注入（模板补缺省，草稿已有值优先；P1b 按店铺覆盖）
     payload_envelope = _apply_listing_template(
-        tenant_id, payload_envelope, template_id, is_update=bool(update_product_id)
+        tenant_id, payload_envelope, template_id, is_update=bool(update_product_id),
+        credential_id=client_id,
     )
 
     graph_payload = {

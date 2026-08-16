@@ -717,6 +717,7 @@ class ListingTemplate(Base):
     platform: Mapped[str] = mapped_column(Text, nullable=False, default="OZON", server_default=text("'OZON'"), comment="平台（当前仅 OZON）")
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"), comment="默认模板（提交未指定时自动使用）")
     config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"), comment="白名单扩展参数")
+    store_overrides: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"), comment="P1b 店铺级覆盖：{credential_id: {config 子集}}")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
 

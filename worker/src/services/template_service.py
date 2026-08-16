@@ -38,7 +38,7 @@ _NUMERIC_LIMITS = {
 
 
 def _select_cols() -> str:
-    return "id, tenant_id, name, description, platform, is_default, config, created_at, updated_at"
+    return "id, tenant_id, name, description, platform, is_default, config, store_overrides, created_at, updated_at"
 
 
 def _row_to_dict(row) -> dict:
@@ -50,6 +50,7 @@ def _row_to_dict(row) -> dict:
         "platform": row.platform,
         "is_default": row.is_default,
         "config": row.config or {},
+        "store_overrides": row.store_overrides or {},
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
@@ -103,6 +104,20 @@ def _validate_config(config: dict) -> dict:
     return cleaned
 
 
+def _validate_store_overrides(overrides: Any) -> dict:
+    """P1b 店铺级覆盖校验：{credential_id: {config 子集}}，逐店铺跑 _validate_config。"""
+    if overrides in (None, ""):
+        return {}
+    if not isinstance(overrides, dict):
+        raise HTTPException(status_code=422, detail="store_overrides 必须是对象 {credential_id: {config}}")
+    cleaned: dict = {}
+    for cred_id, cfg in overrides.items():
+        if not isinstance(cfg, dict):
+            raise HTTPException(status_code=422, detail=f"store_overrides[{cred_id}] 必须是对象")
+        cleaned[str(cred_id)] = _validate_config(cfg)
+    return cleaned
+
+
 def list_templates(tenant_id: str) -> list[dict]:
     with get_engine().connect() as conn:
         rows = conn.execute(text(
@@ -137,9 +152,9 @@ def create_template(tenant_id: str, data: dict) -> dict:
         try:
             row = conn.execute(text(
                 "INSERT INTO listing_templates "
-                "(tenant_id, name, description, platform, is_default, config) "
-                "VALUES (:tenant_id, :name, :description, :platform, :is_default, CAST(:config AS jsonb)) "
-                "RETURNING id, tenant_id, name, description, platform, is_default, config, created_at, updated_at"
+                "(tenant_id, name, description, platform, is_default, config, store_overrides) "
+                "VALUES (:tenant_id, :name, :description, :platform, :is_default, CAST(:config AS jsonb), CAST(:store_overrides AS jsonb)) "
+                "RETURNING id, tenant_id, name, description, platform, is_default, config, store_overrides, created_at, updated_at"
             ), {
                 "tenant_id": tenant_id,
                 "name": name,
@@ -147,6 +162,7 @@ def create_template(tenant_id: str, data: dict) -> dict:
                 "platform": str(data.get("platform") or "OZON"),
                 "is_default": is_default,
                 "config": __import__("json").dumps(config, ensure_ascii=False),
+                "store_overrides": __import__("json").dumps(_validate_store_overrides(data.get("store_overrides")), ensure_ascii=False),
             }).fetchone()
         except IntegrityError as exc:
             raise HTTPException(status_code=409, detail="同一租户只能有一个默认配置模板")
@@ -177,6 +193,10 @@ def update_template(tenant_id: str, template_id: str, data: dict) -> dict:
     if "config" in data:
         fields.append("config=CAST(:config AS jsonb)")
         params["config"] = __import__("json").dumps(_validate_config(data.get("config")), ensure_ascii=False)
+    if "store_overrides" in data:
+        fields.append("store_overrides=CAST(:store_overrides AS jsonb)")
+        params["store_overrides"] = __import__("json").dumps(
+            _validate_store_overrides(data.get("store_overrides")), ensure_ascii=False)
     if "is_default" in data:
         want_default = bool(data.get("is_default"))
         if want_default:
@@ -191,7 +211,7 @@ def update_template(tenant_id: str, template_id: str, data: dict) -> dict:
             row = conn.execute(text(
                 f"UPDATE listing_templates SET {', '.join(fields)}, updated_at=NOW() "
                 "WHERE id=:id AND tenant_id=:tenant_id "
-                "RETURNING id, tenant_id, name, description, platform, is_default, config, created_at, updated_at"
+                "RETURNING id, tenant_id, name, description, platform, is_default, config, store_overrides, created_at, updated_at"
             ), params).fetchone()
         except IntegrityError as exc:
             raise HTTPException(status_code=409, detail="同一租户只能有一个默认配置模板")
@@ -217,7 +237,7 @@ def set_default(tenant_id: str, template_id: str) -> dict:
         row = conn.execute(text(
             "UPDATE listing_templates SET is_default=true, updated_at=NOW() "
             "WHERE id=:id AND tenant_id=:tenant_id "
-            "RETURNING id, tenant_id, name, description, platform, is_default, config, created_at, updated_at"
+            "RETURNING id, tenant_id, name, description, platform, is_default, config, store_overrides, created_at, updated_at"
         ), {"id": uid, "tenant_id": tenant_id}).fetchone()
     return _row_to_dict(row)
 
@@ -245,16 +265,33 @@ def _clear_default(tenant_id: str, exclude: Optional[uuid.UUID] = None) -> None:
             ), {"tenant_id": tenant_id})
 
 
-def apply_template_to_envelope(envelope: dict, template: dict, *, is_update: bool = False) -> dict:
+def apply_template_to_envelope(
+    envelope: dict,
+    template: dict,
+    *,
+    is_update: bool = False,
+    credential_id: Optional[str] = None,
+) -> dict:
     """把模板参数注入 envelope.extensions（草稿已有值优先，模板补缺省）。
 
     is_update=True（更新上架）→ 忽略 offer_id_prefix（重上不变式：
     更新必须保持原 offer_id 不变，否则 Ozon 创建新卡）。
 
+    P1b 多店铺差异化：credential_id 在 template.store_overrides 有覆盖 →
+    该店铺的覆盖参数（合并进 config，覆盖值优先于全局 config 同 key）。
+
     返回深拷贝后的 envelope，不修改入参。
     """
     result = copy.deepcopy(envelope)
-    config = template.get("config") or {}
+    config = dict(template.get("config") or {})
+    # P1b：店铺级覆盖合并进 config（覆盖值优先）
+    overrides = template.get("store_overrides") or {}
+    if credential_id and isinstance(overrides, dict):
+        store_cfg = overrides.get(str(credential_id))
+        if isinstance(store_cfg, dict):
+            for k, v in store_cfg.items():
+                if v is not None:
+                    config[k] = v
     if not config:
         return result
     ext = result.setdefault("extensions", {})
