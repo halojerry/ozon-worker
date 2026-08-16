@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.43.0] - 2026-08-16
+
+> WebUI 运营工作台 v0.43（PRD `docs/PRD-webui-workbench-v0.43.md` 三大功能块全量交付）：MXOU 账号登录 + 商品编辑板块（全量重传更新 + 从零新建 + 生图内嵌）。worker 969 passed / skill 493 passed / 前端 build + tokens:validate 绿。
+
+### Feat(F1 — MXOU 账号登录)
+
+- **双登录模式**：WebUI 登录页「账号密码」tab（新增）+「API Key 直登」tab（存量保留）。
+- **登录代理端点** `POST /api/v1/mxou/login`（`routes/mxou_routes.py` + `services/mxou_login_service.py`）：调 api.mxou.cn（newapi 平台）`/api/user/login` → session token → `/api/user/self` 余额 → `/api/token/` 密钥列表；错误映射 401 密码错/400 2FA/429 平台限流/502 不可达；`rate_limiter` 按 username 防爆破。
+- **防御解析客户端** `utils/mxou_platform.py`（T1）：success 优先（不信任 HTTP status）、token 阶梯 `access_token→token→session_token`、形态判定 `newapi_jwt/oneapi_cookie/unknown`、`/api/user/self` 白名单脱敏（剥离 password/access_token）、`/api/token/` 三形态兼容 + 脱敏检测、建/吊销 key；密码/完整 key 永不进日志。
+- **tokens 幂等 upsert**：登录/新建/选择 key 时 `INSERT ... ON CONFLICT (key) DO UPDATE` 到 Supabase tokens（去 sk- 前缀、status=1）——WebUI 新建的 key 也能通过现有 `_authenticate_token` 鉴权（**关键闭环**：此前 worker 只有 SELECT，新建 key 无同步路径）。
+- **密钥管理**：`GET/POST/DELETE /api/v1/mxou/keys` + `POST /keys/{id}/select`（全走 `_authenticate` 租户隔离）；`KeyManager` 组件（列表脱敏/复制激活/新建一次展示完整 key/吊销 confirm）+ 侧边栏用户名 + 余额 badge（`MxouSessionStore` 内存 TTL 60s，单进程安全）。
+- **T3 预留 T4-HOOK**：账号登录成功 → session store（username/balance/keys 脱敏）→ 密钥管理激活 key 即完成「账号登录即登录」。
+
+### Feat(F2 — 商品编辑板块：全量重传更新 + 从零新建)
+
+- **`product_index_service.py` 共享抽取**（T6）：`lookup_index/upsert_index` 从 image_service 抽为共享模块（改图/编辑/学习回填三处复用，防漂移）。
+- **上传成功回填索引**（T9 前置修复）：`learning_record_node` approved 分支调 `upsert_index`（product_id/task_id=thread_id/tenant_id/credential_id/offer_id 守卫 + DB 异常非阻断）——普通上传也建索引，OnSale/编辑/更新依赖自此完整。
+- **在线商品编辑数据** `GET /api/v1/products/{id}/edit`（T6）：索引定位 → 关联草稿 payload 返回（无索引 404 / 无草稿来源 409「仅改图可用 update_images」）。
+- **更新模式提交**（T7）：`submit_draft(update_product_id=...)` —— 跳过 per-store 409（更新语义）→ graph_payload 副本注入 `extensions.update_product_id/update_offer_id`（**绝不持久化到草稿**）→ 入队后 upsert 索引新 task_id；正常模式 100% 不变。
+- **upload 节点 UPDATE 模式**（T8）：读 `extensions.update_product_id` → item 带 `product_id`（Ozon UPDATE 而非 CREATE），优先于 follow_sell；无 marker → 行为字节级不变（防双卡）。
+- **WebUI 三模式**（T10）：`ProductEditor` `mode='draft'|'online'|'new'`——draft 原行为不变 / online（`getProductEdit` → 表单 → 「更新上架」= `submitDraftUpdate`，隐藏保留采集数据防误删草稿来源）/ new（`/products/new` 空表单 + 必填校验 → `createDraft` 接线 → 转 draft 模式）；OnSale 行「编辑商品」入口（409/404 专用提示）。
+
+### Feat(F3 — 生图内嵌）
+
+- **`ImageStudioEmbed` 抽取**（T11）：原图选择/卖点/图配置/生成/新旧对比全封装，props 驱动（mode/draftId/taskId/initialOriginals/initialSelling/onGenerated/onClose）零路由依赖；`ImageStudio.tsx` 重构为 63 行薄壳（独立页行为不变）。
+- **编辑页内嵌**（T12）：ProductEditor 新增「商品套图」区块——draft/online 模式 `initialOriginals=编辑中图片 + initialSelling=标题+属性前8条`，`onGenerated` 回填 form.images（随全量重传）；new 模式禁用提示；online 因 T6 响应无 task_id 暂按草稿渲染（未来加 task_id 一行激活实时生成）。
+
+### Test
+
+- worker 新增：test_mxou_platform（20，T1）/ test_mxou_login_api（21，T2+T4）/ test_product_edit（8，T6）/ test_index_backfill（7，T9）/ test_drafts_api 更新模式（8，T7）/ test_update_product_marker（10，T8）。
+- 全量：**worker 969 passed**（基线 894 + 75 新）/ **skill 493 passed** / webui build + tokens:validate 绿。
+- 探测脚本：`worker/scripts/probe_mxou_login.py`（T0，用户运行验证 MXOU 真实形态；响应不匹配 → 降级「仅 API Key 直登」）。
+
 ## [0.42.0] - 2026-08-16
 
 > WebUI 运营工作台（hyperplan 对抗规划 14 任务 5 Wave 全量交付）：M0 数据脊柱（draft_submissions.status 写回复活 + running 删除守卫 + skill fail-hard + 直连任务也写 submission 行）→ M1 失败闭环 + 决策列（task→draft 解析端点 + estimate 共享定价端点）→ M2 在售货架 + 提交历史 + 首页工作台 + 设计系统（tokens.json 单一真相源）。worker 894 passed / skill 493 passed / 前端 build + tokens:validate 绿。
