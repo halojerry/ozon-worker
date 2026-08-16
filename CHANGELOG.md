@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.53.0] - 2026-08-16
+
+> P2/P3 批量交付：消息催评自动化（P2c）+ 数据大屏（P3）。P1a-d 已并入 v0.52。worker 1088 passed / skill 493 / webui build + tokens:validate 绿。
+
+### Feat(P2c 消息催评自动化)
+
+- **内置 3 模板**（催护照/催取货/索好评，俄语文案 + `[货件编号]`/`[商品名称]` 占位符，对标上品帮 autoMsg/毛子）。
+- **`send_order_message`**：`/v1/chat/start`（按订单建聊天，实测契约）→ `/v1/chat/send/message` 两步发送。
+- **`order_messages` 表**：发送记录留痕（成功/失败都记，含 chat_id/error）；长度校验（空 422 / 超长截断 1000）。
+- **API**：`GET /orders/message-templates` + `POST /orders/{pn}/message` + `GET /orders/messages`。
+- **WebUI**：订单行「发消息」弹窗（模板下拉 + 俄语预览编辑 + 发送）；工具栏「消息记录」。
+
+### Feat(P3 数据大屏)
+
+- **`/data-screen` 页**：实时时钟 + 平台概览卡片（任务总数/今日/成功率/店铺/用户）+ 实时订单滚动列表（15s 自动刷新），复用 admin overview + orders 端点（纯前端聚合，无新后端）。
+
+### 说明(P2d AI 套图)
+
+- 现有 ImageStudio 已覆盖对标能力（白底/场景/卖点/对比/多角度/社交 6 类型 + 一键批量生成 + 单张重绘 + 失败分类），无需开发。
+
+### Test
+- `tests/test_order_messages.py`（8 用例）：chat/start + send 两步请求体、模板/占位符、空 422/超长截断、记录留痕（成功/失败）、无默认 400。
+- 全量回归 worker **1088 passed**（1080 基线 + 8 新）；webui build + tokens:validate。
+
+---
+
 ## [0.52.0] - 2026-08-16
 
 > WebUI 在线商品批量操作 P1a（PRD `docs/PRD-product-bulk-v0.52.md`）：店铺商品视图批量改价/改库存/归档/恢复。worker 1062 passed（+7）/ skill 493 / webui build + tokens:validate 绿。
