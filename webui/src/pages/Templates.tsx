@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   createTemplate,
   deleteTemplate,
+  listCredentials,
   listTemplates,
   patchTemplate,
   setTemplateDefault,
+  type CredentialOut,
   type ListingTemplateConfig,
   type ListingTemplateOut,
 } from '../api/client'
@@ -37,6 +39,8 @@ interface TemplateFormState {
   followType: string
   stock: string
   warehouseId: string
+  /** P1b 店铺差异化覆盖：每行 {credential_id, margin_rate%, stock} */
+  storeOverrides: { credentialId: string; marginRate: string; stock: string }[]
 }
 
 const EMPTY_FORM: TemplateFormState = {
@@ -50,6 +54,7 @@ const EMPTY_FORM: TemplateFormState = {
   followType: 'hand',
   stock: '',
   warehouseId: '',
+  storeOverrides: [],
 }
 
 function formToPayload(f: TemplateFormState) {
@@ -61,16 +66,26 @@ function formToPayload(f: TemplateFormState) {
   if (f.followType === 'api') config.follow_type = 'api'
   if (f.stock.trim() !== '') config.stock = Number(f.stock)
   if (f.warehouseId.trim() !== '') config.warehouse_id = f.warehouseId.trim()
+  const storeOverrides: Record<string, Record<string, unknown>> = {}
+  for (const row of f.storeOverrides) {
+    if (!row.credentialId) continue
+    const cfg: Record<string, unknown> = {}
+    if (row.marginRate.trim() !== '') cfg.margin_rate = Number(row.marginRate) / 100
+    if (row.stock.trim() !== '') cfg.stock = Number(row.stock)
+    if (Object.keys(cfg).length > 0) storeOverrides[row.credentialId] = cfg
+  }
   return {
     name: f.name.trim(),
     description: f.description.trim(),
     is_default: f.isDefault,
     config,
+    ...(Object.keys(storeOverrides).length > 0 ? { store_overrides: storeOverrides } : {}),
   }
 }
 
 function templateToForm(t: ListingTemplateOut): TemplateFormState {
   const c = t.config ?? {}
+  const overrides = t.store_overrides ?? {}
   return {
     name: t.name,
     description: t.description ?? '',
@@ -82,6 +97,11 @@ function templateToForm(t: ListingTemplateOut): TemplateFormState {
     followType: c.follow_type ?? 'hand',
     stock: c.stock != null ? String(c.stock) : '',
     warehouseId: c.warehouse_id ?? '',
+    storeOverrides: Object.entries(overrides).map(([credentialId, cfg]) => ({
+      credentialId,
+      marginRate: cfg.margin_rate != null ? String(Math.round(cfg.margin_rate * 100)) : '',
+      stock: cfg.stock != null ? String(cfg.stock) : '',
+    })),
   }
 }
 
@@ -98,9 +118,34 @@ function TemplateModal({ target, defaultDefault, onClose, onSave }: TemplateModa
   )
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  /** P1b 店铺差异化：店铺列表（选择覆盖目标） */
+  const [credentials, setCredentials] = useState<CredentialOut[]>([])
+
+  useEffect(() => {
+    listCredentials().then(setCredentials).catch(() => {})
+  }, [])
 
   function set<K extends keyof TemplateFormState>(key: K, value: TemplateFormState[K]) {
     setForm((f) => ({ ...f, [key]: value }))
+  }
+
+  /** P1b 店铺覆盖行操作 */
+  function setOverrideRow(idx: number, patch: Partial<{ credentialId: string; marginRate: string; stock: string }>) {
+    setForm((f) => ({
+      ...f,
+      storeOverrides: f.storeOverrides.map((r, i) => (i === idx ? { ...r, ...patch } : r)),
+    }))
+  }
+
+  function addOverrideRow() {
+    setForm((f) => ({
+      ...f,
+      storeOverrides: [...f.storeOverrides, { credentialId: '', marginRate: '', stock: '' }],
+    }))
+  }
+
+  function removeOverrideRow(idx: number) {
+    setForm((f) => ({ ...f, storeOverrides: f.storeOverrides.filter((_, i) => i !== idx) }))
   }
 
   const canSubmit = form.name.trim() !== '' && !submitting
@@ -265,6 +310,50 @@ function TemplateModal({ target, defaultDefault, onClose, onSave }: TemplateModa
                 onChange={(e) => set('warehouseId', e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="field">
+            <span className="field-label">店铺差异化覆盖（选填）</span>
+            <p className="field-hint">指定店铺用覆盖参数（利润率/库存），未覆盖店铺用上方全局参数</p>
+            {form.storeOverrides.map((row, idx) => (
+              <div key={idx} className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr auto', gap: '8px', marginBottom: '8px' }}>
+                <select
+                  className="field-select"
+                  value={row.credentialId}
+                  onChange={(e) => setOverrideRow(idx, { credentialId: e.target.value })}
+                >
+                  <option value="">选择店铺</option>
+                  {credentials.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.shop_name || c.ozon_client_id}（{c.ozon_client_id}）
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="field-input"
+                  type="number"
+                  min="0"
+                  max="100"
+                  placeholder="利润率%"
+                  value={row.marginRate}
+                  onChange={(e) => setOverrideRow(idx, { marginRate: e.target.value })}
+                />
+                <input
+                  className="field-input"
+                  type="number"
+                  min="0"
+                  placeholder="库存"
+                  value={row.stock}
+                  onChange={(e) => setOverrideRow(idx, { stock: e.target.value })}
+                />
+                <button type="button" className="btn btn-danger-text" onClick={() => removeOverrideRow(idx)}>
+                  删除
+                </button>
+              </div>
+            ))}
+            <button type="button" className="btn" onClick={addOverrideRow}>
+              + 添加店铺覆盖
+            </button>
           </div>
 
           {error && (

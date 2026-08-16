@@ -67,6 +67,10 @@ def create_tables(engine):
         conn.execute(text(
             "ALTER TABLE product_task_index ADD COLUMN IF NOT EXISTS draft_id UUID"
         ))
+        # ✅ v0.52 P1b: listing_templates 追加店铺级覆盖列（幂等）
+        conn.execute(text(
+            "ALTER TABLE listing_templates ADD COLUMN IF NOT EXISTS store_overrides JSONB NOT NULL DEFAULT '{}'::jsonb"
+        ))
         conn.commit()
     # ✅ v0.41 WebUI T1: task_generated_images ALTER + 新表索引（幂等，二次运行 no-op）
     from migrate_webui_v1 import run_migrations
