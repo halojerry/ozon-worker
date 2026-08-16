@@ -109,6 +109,16 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    to: '/data-screen',
+    label: '数据大屏',
+    show: 'always',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <path d="M4 19V9M10 19V5M16 19v-7M22 19H2" />
+      </svg>
+    ),
+  },
+  {
     to: '/admin',
     label: '管理后台',
     show: 'always',
