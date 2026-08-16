@@ -186,6 +186,7 @@ export function ApiKeysMutateDrawer({
         // Create mode - handle batch creation
         const count = data.tokenCount || 1
         let successCount = 0
+        let firstKey: string | undefined
 
         for (let i = 0; i < count; i++) {
           const result = await createApiKey({
@@ -197,6 +198,7 @@ export function ApiKeysMutateDrawer({
           })
           if (result.success) {
             successCount++
+            if (!firstKey) firstKey = result.data?.key
           } else {
             toast.error(result.message || t(ERROR_MESSAGES.CREATE_FAILED))
             break
@@ -209,6 +211,13 @@ export function ApiKeysMutateDrawer({
               count: successCount,
             })
           )
+          // 自动连接 Ozon 工作台：若未配置业务 token，用新创建的 key 建立连接
+          if (!localStorage.getItem('ozon_webui_token')) {
+            if (firstKey) {
+              localStorage.setItem('ozon_webui_token', firstKey)
+              toast.info('已连接 Ozon 工作台（使用新创建的 Key）')
+            }
+          }
           onOpenChange(false)
           triggerRefresh()
         }
