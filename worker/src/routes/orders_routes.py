@@ -103,3 +103,27 @@ async def cancel_order(posting_number: str, request: Request):
     reason_id = int(body.get("cancel_reason_id") or 0)
     return order_service.cancel_order(
         tenant_id, posting_number, reason_id, credential_id=body.get("credential_id"))
+
+
+@router.get("/message-templates")
+async def message_templates(request: Request):
+    tenant_id = await _authenticate(request)
+    return order_service.get_message_templates()
+
+
+@router.post("/{posting_number}/message")
+async def send_message(posting_number: str, request: Request):
+    tenant_id = await _authenticate(request)
+    body = await request.json()
+    return order_service.send_order_message(
+        tenant_id, posting_number,
+        str(body.get("message") or ""),
+        template_key=str(body.get("template_key") or "custom"),
+        credential_id=body.get("credential_id"),
+    )
+
+
+@router.get("/messages")
+async def list_messages(request: Request, limit: int = 50, offset: int = 0):
+    tenant_id = await _authenticate(request)
+    return order_service.list_order_messages(tenant_id, limit=limit, offset=offset)

@@ -2,14 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   cancelOrder,
+  getMessageTemplates,
   getOrderLabel,
   getOrderNotes,
   listCancelReasons,
+  listOrderMessages,
   listCredentials,
   listOrders,
+  sendOrderMessage,
   shipOrder,
   upsertOrderNotes,
   type CredentialOut,
+  type MessageTemplateOut,
+  type OrderMessageRecord,
   type OrderNoteOut,
   type OrderOut,
   type OrderStatus,
@@ -301,6 +306,160 @@ function CancelModal({ order, onClose, onCancelled }: CancelModalProps) {
   )
 }
 
+
+/* ── P2c 发消息弹窗：模板选择 + 预览编辑 + 发送 ── */
+
+interface MessageModalProps {
+  order: OrderOut
+  onClose: () => void
+  onSent: () => void
+}
+
+function MessageModal({ order, onClose, onSent }: MessageModalProps) {
+  const [templates, setTemplates] = useState<MessageTemplateOut[] | null>(null)
+  const [templateKey, setTemplateKey] = useState('')
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    getMessageTemplates()
+      .then((tpls) => {
+        setTemplates(tpls)
+        if (tpls.length > 0) {
+          setTemplateKey(tpls[0].key)
+          setMessage(fillTemplate(tpls[0].text, order))
+        }
+      })
+      .catch((e) => setError(extractError(e, '加载模板失败')))
+  }, [order])
+
+  function fillTemplate(text: string, o: OrderOut): string {
+    const product = o.products[0]?.name || o.posting_number
+    return text.replace(/\[货件编号\]/g, o.posting_number).replace(/\[商品名称\]/g, product.slice(0, 60))
+  }
+
+  function selectTemplate(key: string) {
+    setTemplateKey(key)
+    const tpl = templates?.find((t) => t.key === key)
+    if (tpl) setMessage(fillTemplate(tpl.text, order))
+  }
+
+  async function handleSend() {
+    if (!message.trim()) {
+      setError('消息内容不能为空')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      await sendOrderMessage(order.posting_number, message, templateKey)
+      onSent()
+      onClose()
+    } catch (e) {
+      setError(extractError(e, '发送失败'))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="发送消息">
+        <div className="modal-header">
+          <h2 className="modal-title">发送消息</h2>
+          <button type="button" className="modal-close" aria-label="关闭" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          <div className="sub-history-title mono">{order.posting_number}</div>
+          {error && <div className="form-error" role="alert"><span>{error}</span></div>}
+          {templates && templates.length > 0 && (
+            <div className="field">
+              <label className="field-label" htmlFor="msg-template">消息模板</label>
+              <select id="msg-template" className="field-select" value={templateKey} onChange={(e) => selectTemplate(e.target.value)}>
+                {templates.map((t) => (
+                  <option key={t.key} value={t.key}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="field">
+            <label className="field-label" htmlFor="msg-text">消息内容（俄语）</label>
+            <textarea id="msg-text" className="field-input images-textarea" rows={5} value={message} onChange={(e) => setMessage(e.target.value)} />
+          </div>
+          <p className="field-hint">将发送 Ozon 站内信给买家（真实生效）</p>
+        </div>
+        <div className="modal-foot">
+          <button type="button" className="btn" onClick={onClose} disabled={busy}>取消</button>
+          <button type="button" className="btn btn-primary" onClick={handleSend} disabled={busy}>
+            {busy ? '发送中…' : '发送'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── P2c 消息记录弹窗 ── */
+
+function MessageLogModal({ onClose }: { onClose: () => void }) {
+  const [records, setRecords] = useState<OrderMessageRecord[] | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    listOrderMessages()
+      .then((r) => setRecords(r.items))
+      .catch((e) => setError(extractError(e, '加载消息记录失败')))
+  }, [])
+
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal sub-history-modal" role="dialog" aria-modal="true" aria-label="消息记录">
+        <div className="modal-header">
+          <h2 className="modal-title">消息记录</h2>
+          <button type="button" className="modal-close" aria-label="关闭" onClick={onClose}>×</button>
+        </div>
+        {records === null ? (
+          <div className="empty-state"><div className="spinner-inline" /><p>加载记录…</p></div>
+        ) : error ? (
+          <div className="empty-state"><div className="form-error" role="alert"><span>{error}</span></div></div>
+        ) : records.length === 0 ? (
+          <div className="empty-state"><p className="empty-state-title">暂无消息记录</p></div>
+        ) : (
+          <div className="modal-body">
+            <table className="stores-table">
+              <thead>
+                <tr>
+                  <th>货件编号</th>
+                  <th>模板</th>
+                  <th>状态</th>
+                  <th>时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((r, i) => (
+                  <tr key={i}>
+                    <td className="mono">{r.posting_number}</td>
+                    <td>{r.template_key}</td>
+                    <td>
+                      <span className={`badge ${r.status === 'sent' ? 'badge-ok' : 'badge-fail'}`}>
+                        {r.status === 'sent' ? '已发送' : '失败'}
+                      </span>
+                    </td>
+                    <td className="col-time">{fmtTime(r.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="modal-foot">
+          <button type="button" className="btn" onClick={onClose}>关闭</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Orders() {
   const [orders, setOrders] = useState<OrderOut[]>([])
   const [credentials, setCredentials] = useState<CredentialOut[]>([])
@@ -315,6 +474,9 @@ export default function Orders() {
   /** P1-2 取消弹窗目标 + 操作提示 */
   const [cancelTarget, setCancelTarget] = useState<OrderOut | null>(null)
   const [notice, setNotice] = useState('')
+  /** P2c 发消息目标 + 消息记录开关 */
+  const [messageTarget, setMessageTarget] = useState<OrderOut | null>(null)
+  const [logOpen, setLogOpen] = useState(false)
 
   /* 店铺列表（默认店铺默认选中） */
   useEffect(() => {
@@ -408,6 +570,9 @@ export default function Orders() {
         </select>
         <button className="btn" disabled={orders.length === 0} onClick={() => exportCsv(orders)}>
           导出 CSV
+        </button>
+        <button className="btn" onClick={() => setLogOpen(true)}>
+          消息记录
         </button>
         <span className="toolbar-spacer" />
         <button className="btn btn-ghost" onClick={() => load()} disabled={loading}>
@@ -532,6 +697,9 @@ export default function Orders() {
                           备货发货
                         </button>
                       )}
+                      <button className="btn btn-small" onClick={() => setMessageTarget(o)}>
+                        发消息
+                      </button>
                       <button className="btn btn-small btn-danger-text" onClick={() => setCancelTarget(o)}>
                         取消
                       </button>
@@ -605,6 +773,18 @@ export default function Orders() {
           }}
         />
       )}
+
+      {messageTarget && (
+        <MessageModal
+          order={messageTarget}
+          onClose={() => setMessageTarget(null)}
+          onSent={() => {
+            setNotice(`消息已发送：${messageTarget.posting_number}`)
+          }}
+        />
+      )}
+
+      {logOpen && <MessageLogModal onClose={() => setLogOpen(false)} />}
 
       {cancelTarget && (
         <CancelModal
