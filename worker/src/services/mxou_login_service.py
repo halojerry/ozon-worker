@@ -205,6 +205,9 @@ def login(username: str, password: str) -> dict:
         if isinstance(k, dict)
     ]
 
+    # role：查 Supabase users.role（WebUI 管理员路由守卫用；admin_service.require_admin 同源）
+    role = _fetch_user_role(user_id_val)
+
     return {
         "username": str(user.get("username") or user_info.get("username") or username),
         "balance": balance,
@@ -212,7 +215,25 @@ def login(username: str, password: str) -> dict:
         "selected_key_id": selected_key_id,
         "key": selected_full_key,
         "session_expires_at": expires_at,
+        "role": role,
     }
+
+
+def _fetch_user_role(user_id: str) -> str:
+    """查 Supabase users.role（'admin'/'user'）；无 Supabase 或查询失败 → 'user'。"""
+    try:
+        from storage.database.db import get_engine
+        from sqlalchemy import text
+        engine = get_engine()
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT role FROM users WHERE id = :uid LIMIT 1"), {"uid": user_id}
+            ).fetchone()
+        if row and row[0]:
+            return str(row[0]).lower()
+    except Exception:
+        logger.warning("查询用户 role 失败 user_id=%s（默认 user）", user_id)
+    return "user"
 
 
 # ════════════════════════════════════════════════════════════════
