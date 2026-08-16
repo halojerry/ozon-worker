@@ -476,3 +476,34 @@ class UpdateProductImagesResponse(BaseModel):
     message: str = Field(..., description="人类可读消息")
     images: list[str] = Field(default_factory=list, description="实际提交的存活图片 URL")
     images_filtered: list[str] = Field(default_factory=list, description="被过滤的死 URL")
+
+
+# ──────────────────────────────────────────────
+# /api/v1/mxou/login — MXOU 账号密码登录（WebUI T2）
+# ──────────────────────────────────────────────
+
+
+class MxouLoginRequest(BaseModel):
+    """MXOU 账号密码登录请求。
+
+    登录入口无 token 鉴权（登录本身是入口）；防爆破在端点层按 username 限流。
+    """
+    username: str = Field(..., description="MXOU 平台账号（api.mxou.cn）")
+    password: str = Field(..., description="MXOU 平台密码（不落库不日志）")
+
+
+class MxouKeyItem(BaseModel):
+    """MXOU API Key 条目（脱敏展示，绝不含 full_key）。"""
+    id: str = Field(..., description="token id")
+    name: str = Field("", description="token 名称")
+    masked: bool = Field(True, description="key 是否为脱敏形态（masked=true 时不含明文）")
+    status: int = Field(1, description="token 状态（1=enabled）")
+
+
+class MxouLoginResponse(BaseModel):
+    """MXOU 登录成功响应（keys 已脱敏；full_key 只在服务端流转/写 tokens 表）。"""
+    username: str = Field(..., description="MXOU 用户名")
+    balance: float | None = Field(None, description="平台余额（quota/balance 合并；查询失败 None）")
+    keys: list[MxouKeyItem] = Field(default_factory=list, description="API Key 列表（已脱敏，无 full_key）")
+    selected_key_id: str | None = Field(None, description="选中的 enabled key id（未选到 None）")
+    session_expires_at: str | None = Field(None, description="MXOU 登录 session 过期时间")
