@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  batchOrderLabels,
+  batchShipOrders,
   cancelOrder,
   getMessageTemplates,
   getOrderLabel,
@@ -477,6 +479,8 @@ export default function Orders() {
   /** P2c 发消息目标 + 消息记录开关 */
   const [messageTarget, setMessageTarget] = useState<OrderOut | null>(null)
   const [logOpen, setLogOpen] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [batchBusy, setBatchBusy] = useState('')
 
   /* 店铺列表（默认店铺默认选中） */
   useEffect(() => {
@@ -491,6 +495,68 @@ export default function Orders() {
         setLoading(false)
       })
   }, [])
+
+  function toggleSelect(pn: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(pn)) next.delete(pn)
+      else next.add(pn)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    setSelected((prev) => {
+      if (prev.size === orders.length && orders.length > 0) return new Set()
+      return new Set(orders.map((o) => o.posting_number))
+    })
+  }
+
+  async function handleBatchLabels() {
+    const pns = [...selected]
+    if (pns.length === 0) return
+    setBatchBusy('labels')
+    setNotice('')
+    try {
+      const r = await batchOrderLabels(pns)
+      for (const item of r.items) {
+        const bytes = atob(item.label_base64)
+        const arr = new Uint8Array(bytes.length)
+        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+        const blob = new Blob([arr], { type: item.content_type || 'application/pdf' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${item.posting_number}.pdf`
+        a.click()
+        URL.revokeObjectURL(url)
+      }
+      const parts = [`已下载 ${r.items.length} 张面单`]
+      if (r.failed.length) parts.push(`失败 ${r.failed.length}：${r.failed.map((f) => f.posting_number).join('、')}`)
+      setNotice(parts.join('；'))
+    } catch (e) {
+      setNotice(extractError(e, '批量面单失败'))
+    }
+    setBatchBusy('')
+  }
+
+  async function handleBatchShip() {
+    const pns = [...selected]
+    if (pns.length === 0) return
+    if (!window.confirm(`确认对 ${pns.length} 个订单批量备货发货？将对 Ozon 实际生效。`)) return
+    setBatchBusy('ship')
+    setNotice('')
+    try {
+      const r = await batchShipOrders(pns)
+      const parts = [`已备货 ${r.shipped.length} 单`]
+      if (r.failed.length) parts.push(`失败 ${r.failed.length}：${r.failed.map((f) => `${f.posting_number}(${f.error})`).join('、')}`)
+      setNotice(parts.join('；'))
+      setSelected(new Set())
+    } catch (e) {
+      setNotice(extractError(e, '批量备货失败'))
+    }
+    setBatchBusy('')
+  }
 
   const load = useCallback(
     async (silent = false) => {
@@ -558,7 +624,10 @@ export default function Orders() {
           className="form-select"
           style={{ width: '220px' }}
           value={credentialId}
-          onChange={(e) => setCredentialId(e.target.value)}
+          onChange={(e) => {
+            setCredentialId(e.target.value)
+            setSelected(new Set())
+          }}
         >
           <option value="">请选择店铺</option>
           {credentials.map((c) => (
@@ -568,6 +637,16 @@ export default function Orders() {
             </option>
           ))}
         </select>
+        {selected.size > 0 && (
+          <>
+            <button className="btn" disabled={!!batchBusy} onClick={handleBatchLabels}>
+              {batchBusy === 'labels' ? '下载中…' : `批量面单 (${selected.size})`}
+            </button>
+            <button className="btn btn-primary" disabled={!!batchBusy} onClick={handleBatchShip}>
+              {batchBusy === 'ship' ? '备货中…' : `批量备货 (${selected.size})`}
+            </button>
+          </>
+        )}
         <button className="btn" disabled={orders.length === 0} onClick={() => exportCsv(orders)}>
           导出 CSV
         </button>
@@ -631,6 +710,9 @@ export default function Orders() {
           <table className="stores-table">
             <thead>
               <tr>
+                <th style={{ width: 36 }}>
+                  <input type="checkbox" checked={selected.size > 0 && selected.size === orders.length} onChange={toggleSelectAll} aria-label="全选" />
+                </th>
                 <th>货件编号</th>
                 <th>状态</th>
                 <th>商品信息</th>
@@ -648,6 +730,9 @@ export default function Orders() {
                 const meta = statusMeta(o.status)
                 return (
                   <tr key={o.posting_number}>
+                    <td>
+                      <input type="checkbox" checked={selected.has(o.posting_number)} onChange={() => toggleSelect(o.posting_number)} aria-label={`选择 ${o.posting_number}`} />
+                    </td>
                     <td><span className="mono">{o.posting_number}</span></td>
                     <td>
                       <span className={`status-badge ${meta.className}`}>{meta.label}</span>

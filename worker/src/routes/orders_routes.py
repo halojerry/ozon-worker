@@ -59,6 +59,24 @@ async def list_orders(
     )
 
 
+@router.post("/batch/labels")
+async def batch_labels(request: Request):
+    """P1-3 批量面单：{posting_numbers: [...], credential_id?} → items + failed（失败隔离）。"""
+    tenant_id = await _authenticate(request)
+    body = await request.json()
+    return order_service.batch_order_labels(
+        tenant_id, body.get("posting_numbers") or [], credential_id=body.get("credential_id"))
+
+
+@router.post("/batch/ship")
+async def batch_ship(request: Request):
+    """P1-3 批量备货：{posting_numbers: [...], credential_id?} → shipped + failed（失败隔离）。"""
+    tenant_id = await _authenticate(request)
+    body = await request.json()
+    return order_service.batch_ship_orders(
+        tenant_id, body.get("posting_numbers") or [], credential_id=body.get("credential_id"))
+
+
 @router.get("/{posting_number}/notes", response_model=OrderNoteOut)
 async def get_order_notes(posting_number: str, request: Request):
     tenant_id = await _authenticate(request)
