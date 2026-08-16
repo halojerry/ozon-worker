@@ -163,8 +163,8 @@ webui/
 > 未按原计划重写为 worker 拦截器——双 API 通道是最终形态（见 WEBUI-CONVENTIONS §6）。
 > S2.2 工具函数抽取未做（业务页仍用本地实现，功能正常，归入 Tailwind 渐进迁移）。
 
-- [ ] S2.1 `lib/api.ts` 参照 mxou 重写（拦截器 + 401 + GET 去重 + sonner toast）；`lib/format.ts`/`lib/errors.ts`/`lib/status-meta.ts` 抽取
-- [ ] S2.2 Home/Tasks/CollectBox 三处重复工具函数迁移到 lib/（删本地实现）
+- [~] S2.1 已决策不执行：保留 mxou 原版 lib/api.ts，业务独立走 src/api/client.ts（双 API 通道是最终形态，见执行备注）
+- [x] S2.2 工具函数抽取（webui/src/lib/business/，10 页去重，commit 0241ccf）
 - [x] S2.3 布局：复制 mxou layout 结构重写（app-sidebar 我们菜单 + app-header 用户区 + KeyManager 保留）
 - **验收**：`npm run build` 绿；三处重复工具函数清零；导航结构照 mxou 骨架
 
@@ -186,7 +186,7 @@ webui/
 ### Step 5：收尾（0.5 天）
 - [x] S5.1 `docs/WEBUI-CONVENTIONS.md`（组件书写规则 + 禁硬编码 hex + import 顺序 + 出处备注「源自 new-api default，AGPL-3.0」）
 - [x] S5.2 全量回归：`npm run build` + `tokens:validate` + worker 全量 pytest（webui 改动不碰 worker，应全绿）+ 手测关键页
-- [ ] S5.3 版本 v0.54.0 四源 + CHANGELOG + 提交
+- [x] S5.3 版本 v0.54.0 四源 + CHANGELOG + 提交（commit df891fe）
 
 ## 四、风险与应对
 | 风险 | 应对 |
