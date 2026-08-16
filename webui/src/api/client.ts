@@ -141,6 +141,35 @@ export async function verifyToken(payload: AuthVerifyRequest): Promise<AuthVerif
 }
 
 /* ────────────────────────────────────────────────────────────
+ * /api/v1/mxou (T3) — MXOU 账号密码登录（登录页账号 tab 消费；
+ *   本端点无 token 鉴权，请求拦截器对空 token 天然容忍——见上方
+ *   `if (token)` 守卫。完整 key 需 T4 的 /keys/{id}/select 端点获取）
+ * ──────────────────────────────────────────────────────────── */
+
+/** MXOU API Key 条目（脱敏展示，绝不含完整 key；与 worker MxouKeyItem 同构） */
+export interface MxouKeyItem {
+  id: string
+  name?: string
+  masked?: boolean
+  status?: number
+}
+
+/** POST /api/v1/mxou/login 成功响应（keys 已脱敏；full_key 只在服务端流转/写 tokens 表） */
+export interface MxouLoginResponse {
+  username: string
+  balance?: number | null
+  keys?: MxouKeyItem[]
+  selected_key_id?: string | null
+  session_expires_at?: string | null
+}
+
+/** POST /api/v1/mxou/login —— MXOU 账号密码登录（返回会话元数据；不含完整 key） */
+export async function mxouLogin(username: string, password: string): Promise<MxouLoginResponse> {
+  const { data } = await api.post<MxouLoginResponse>('/mxou/login', { username, password })
+  return data
+}
+
+/* ────────────────────────────────────────────────────────────
  * /api/v1/credentials (T5) — 店铺凭证（掩码回显/轮换/校验，T11 消费）
  * ──────────────────────────────────────────────────────────── */
 
