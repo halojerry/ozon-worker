@@ -42,6 +42,8 @@ import './i18n/config'
 import { routeTree } from './routeTree.gen'
 // Styles
 import './styles/index.css'
+// 业务页面样式（Ozon 工作台页面使用；Tailwind preflight 之后加载以覆盖默认重置）
+import './index.css'
 
 // Ensure VChart theme is initialized before any chart mounts (prevents white default theme flash)
 // VChart theme is driven by our ThemeProvider (html.light/html.dark) via per-chart `theme` prop.
@@ -103,6 +105,8 @@ const router = createRouter({
   context: { queryClient },
   defaultPreload: 'intent',
   defaultPreloadStaleTime: 0,
+  // 部署在 /app 下（vite base + FastAPI 静态托管），路由路径去掉 base 前缀
+  basepath: '/app',
 })
 
 // Register the router instance for type safety

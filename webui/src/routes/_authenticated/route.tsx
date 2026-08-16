@@ -37,20 +37,14 @@ export const Route = createFileRoute('/_authenticated')({
     }
 
     // 本地有用户信息，但需要验证 session 是否有效（每个会话只验证一次）
+    // ⚠️ getSelf 失败（New API 后端不可达）不重置登录态——保留 localStorage user
+    //    继续渲染（业务页独立走 worker /api/v1，不依赖 mxou session 验证）
     if (!sessionVerified) {
       const res = await getSelf().catch(() => null)
       if (res?.success && res.data) {
-        // 验证成功，更新用户信息（可能有变化）
         auth.setUser(res.data)
-        sessionVerified = true
-      } else {
-        // 验证失败或 API 调用失败，清除本地缓存并跳转登录页
-        auth.reset()
-        throw redirect({
-          to: '/sign-in',
-          search: { redirect: location.href },
-        })
       }
+      sessionVerified = true
     }
   },
   component: AuthenticatedLayout,

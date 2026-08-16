@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from '@/lib/router-compat'
 import { verifyToken, mxouLogin, type AuthVerifyReason } from '../api/client'
 import { setToken } from '../stores/auth'
 import { setSession, type SessionState } from '../stores/session'
