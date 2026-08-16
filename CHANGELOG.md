@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.51.0] - 2026-08-16
+
+> WebUI 管理员面板（PRD `docs/PRD-admin-panel-v0.51.md`）：平台运营视图——用户/店铺/任务跨租户聚合。worker 1055 passed（+8）/ skill 493 / webui build + tokens:validate 绿。
+
+### Feat(管理员面板)
+
+- **`admin_service.py`**：只读聚合（不做写操作）——overview（用户数/店铺数/任务总数/今日/成功率）、用户列表（Supabase users + PG 店铺/任务数 JOIN）、用户详情（店铺列表 + 任务统计）、店铺列表（跨用户）、任务统计（复用 task_processor）。
+- **管理员鉴权** `require_admin`：Supabase `users.role='admin'`；本地开发（无 Supabase）`local_dev` 放行；非管理员 403。
+- **API** `routes/admin_routes.py`：`GET /admin/overview` + `/admin/users` + `/admin/users/{id}` + `/admin/stores` + `/admin/tasks`（全走管理员鉴权）。
+- **WebUI 管理后台** `/admin`：概览卡片（用户/店铺/任务/今日/成功率）+ 用户/店铺/任务统计三 tab + 用户详情弹窗（店铺 + 任务统计）；Layout 菜单新增「管理后台」（非管理员访问 403 提示）。
+
+### Test
+- `tests/test_admin_service.py`（8 用例）：管理员判定（admin/user/local_dev/403）、overview 聚合、用户列表 JOIN、用户详情、跨租户店铺列表。
+- 全量回归 worker **1055 passed**（1047 基线 + 8 新）；webui build + tokens:validate。
+
+---
+
 ## [0.50.0] - 2026-08-16
 
 > 修复「配置店铺后看不到在线商品」+ 在线商品实时拉取（PRD `docs/PRD-ozon-shelf-v0.50.md`）。worker 1047 passed（+6）/ skill 493 / webui build + tokens:validate 绿。

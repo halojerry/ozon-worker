@@ -2149,6 +2149,10 @@ v1.include_router(templates_router)
 from routes.orders_routes import router as orders_router
 v1.include_router(orders_router)
 
+# ── WebUI 管理员面板端点（v0.51）：routes/services 分层，业务逻辑在 services/admin_service.py ──
+from routes.admin_routes import router as admin_router
+v1.include_router(admin_router)
+
 # ── WebUI 生图工作台端点（T7a）：生图缓存版本化 + 强制重生成 ──
 from routes.images_routes import router as images_router
 v1.include_router(images_router)
