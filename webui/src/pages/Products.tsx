@@ -1,21 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   aiField,
+  createDraft,
   deleteDraft,
   getDraft,
   getDrafts,
+  getProductEdit,
   listCredentials,
   patchDraft,
   submitDraft,
+  submitDraftUpdate,
   type CredentialOut,
   type Draft,
   type DraftVariant,
   type Envelope,
+  type ProductEditData,
   type SubmitResponse,
 } from '../api/client'
 
 const DUP_FALLBACK = '重复商品：目标店铺已存在相同商品'
+
+const EMPTY_ENVELOPE: Envelope = { draft: {}, extensions: {} }
 
 const SECTIONS = [
   { id: 'section-main', label: '主要信息' },
@@ -144,6 +150,12 @@ interface EditForm {
   height: string
   stock: string
   warehouseId: string
+  /** 每行一个图片 URL（F2.3 新建模式编辑；draft/online 模式原样往返） */
+  images: string
+  /** 采购成本 CNY（F2.3 新建模式编辑） */
+  purchaseCost: string
+  /** 货源地址（F2.3 新建模式编辑） */
+  purchaseUrl: string
   attrs: AttrRow[]
   variants: VariantRow[]
 }
@@ -177,13 +189,16 @@ function initForm(payload: Envelope): EditForm {
     height: d.dimensions?.height != null ? String(d.dimensions.height) : '',
     stock: ext.stock != null ? String(ext.stock) : '',
     warehouseId: ext.warehouse_id != null ? String(ext.warehouse_id) : '',
+    images: (d.images ?? []).join('\n'),
+    purchaseCost: d.purchase_cost != null ? String(d.purchase_cost) : '',
+    purchaseUrl: d.purchase_url ?? '',
     attrs: Object.entries(d.attributes ?? {}).map(([key, value]) => ({ key, value: String(value) })),
     variants: (d.variants ?? []).map(variantToRow),
   }
 }
 
-function buildEnvelope(f: EditForm, original: Draft, scheduledAt: string): Envelope {
-  const env = JSON.parse(JSON.stringify(original.payload)) as Envelope
+function buildEnvelope(f: EditForm, basePayload: Envelope, scheduledAt: string): Envelope {
+  const env = JSON.parse(JSON.stringify(basePayload)) as Envelope
   const d = env.draft
   d.title = f.title
   d.description = f.description || undefined
@@ -195,6 +210,13 @@ function buildEnvelope(f: EditForm, original: Draft, scheduledAt: string): Envel
     width: f.width.trim() !== '' ? Number(f.width) : 0,
     height: f.height.trim() !== '' ? Number(f.height) : 0,
   }
+  const imageUrls = f.images
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (imageUrls.length > 0) d.images = imageUrls
+  if (f.purchaseCost.trim() !== '') d.purchase_cost = Number(f.purchaseCost)
+  if (f.purchaseUrl.trim() !== '') d.purchase_url = f.purchaseUrl.trim()
   const attrs: Record<string, string> = {}
   for (const row of f.attrs) {
     const key = row.key.trim()
@@ -234,13 +256,21 @@ function errText(e: unknown): string {
 }
 
 /* ────────────────────────────────────────────────
- * 路由入口：/products（列表）与 /products/{draftId}（编辑）
+ * 路由入口：/products（列表）/products/{draftId}（draft 模式）
+ * /products/new（新建）/products/{draftId}?mode=online&product_id=X（更新在线商品）
  * ──────────────────────────────────────────────── */
 
 export default function Products() {
   const { draftId } = useParams<{ draftId: string }>()
-  if (draftId) return <EditDraft draftId={draftId} key={draftId} />
-  return <DraftPicker />
+  const [searchParams] = useSearchParams()
+  if (!draftId) return <DraftPicker />
+  if (draftId === 'new') return <ProductEditor mode="new" key="new" />
+  const mode = searchParams.get('mode')
+  const productId = searchParams.get('product_id')
+  if (mode === 'online' && productId) {
+    return <ProductEditor mode="online" draftId={draftId} productId={productId} key={`${draftId}-${productId}`} />
+  }
+  return <ProductEditor mode="draft" draftId={draftId} key={draftId} />
 }
 
 /* ────────────────────────────────────────────────
@@ -313,11 +343,23 @@ function DraftPicker() {
 }
 
 /* ────────────────────────────────────────────────
- * EditDraft：三区块锚点导航 + 编辑 + 保存 + 立即上架
+ * ProductEditor：三模式（draft 采集箱草稿 / online 更新在线商品 / new 从零新建）
+ * 表单渲染共享；模式差异收敛在「加载数据源 + 保存动作 + 上架动作」
  * ──────────────────────────────────────────────── */
 
-function EditDraft({ draftId }: { draftId: string }) {
+type EditorMode = 'draft' | 'online' | 'new'
+
+interface ProductEditorProps {
+  mode: EditorMode
+  /** draft/online 模式：关联草稿 id（online 由 getProductEdit 返回后二次确认） */
+  draftId?: string
+  /** online 模式：Ozon product_id（更新目标） */
+  productId?: string
+}
+
+function ProductEditor({ mode, draftId, productId }: ProductEditorProps) {
   const [draft, setDraft] = useState<Draft | null>(null)
+  const [productInfo, setProductInfo] = useState<ProductEditData | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [form, setForm] = useState<EditForm | null>(null)
   const [dirty, setDirty] = useState(false)
@@ -338,6 +380,9 @@ function EditDraft({ draftId }: { draftId: string }) {
   const nextKeyRef = useRef(0)
   const navigate = useNavigate()
 
+  const isOnline = mode === 'online'
+  const isNew = mode === 'new'
+
   function updateForm(patch: Partial<EditForm> | ((f: EditForm) => EditForm)) {
     setForm((prev) => {
       if (!prev) return prev
@@ -350,15 +395,36 @@ function EditDraft({ draftId }: { draftId: string }) {
     let alive = true
     ;(async () => {
       try {
-        const [d, creds] = await Promise.all([getDraft(draftId), listCredentials()])
+        const creds = await listCredentials()
         if (!alive) return
-        setDraft(d)
         setCredentials(creds)
         const def = creds.find((c) => c.is_default)
-        setCredentialId(def?.id ?? '')
-        setForm(initForm(d.payload))
-        setScheduledAt(isoToLocalInput(d.payload.extensions?.scheduled_at))
-        nextKeyRef.current = (d.payload.draft.variants ?? []).length
+        if (isNew) {
+          setForm(initForm(EMPTY_ENVELOPE))
+          return
+        }
+        if (isOnline && productId) {
+          const edit = await getProductEdit(productId)
+          if (!alive) return
+          setProductInfo(edit)
+          const d = await getDraft(edit.draft_id)
+          if (!alive) return
+          setDraft(d)
+          setCredentialId(edit.credential_id ?? def?.id ?? '')
+          setForm(initForm(d.payload))
+          setScheduledAt(isoToLocalInput(d.payload.extensions?.scheduled_at))
+          nextKeyRef.current = (d.payload.draft.variants ?? []).length
+          return
+        }
+        if (mode === 'draft' && draftId) {
+          const d = await getDraft(draftId)
+          if (!alive) return
+          setDraft(d)
+          setCredentialId(def?.id ?? '')
+          setForm(initForm(d.payload))
+          setScheduledAt(isoToLocalInput(d.payload.extensions?.scheduled_at))
+          nextKeyRef.current = (d.payload.draft.variants ?? []).length
+        }
       } catch (e: unknown) {
         if (alive) setLoadError(errText(e))
       }
@@ -366,7 +432,7 @@ function EditDraft({ draftId }: { draftId: string }) {
     return () => {
       alive = false
     }
-  }, [draftId])
+  }, [mode, draftId, productId, isNew, isOnline])
 
   useEffect(() => {
     const scroller: Element | Window = document.querySelector('.app-main') ?? window
@@ -454,16 +520,28 @@ function EditDraft({ draftId }: { draftId: string }) {
   }
 
   async function saveDraft(): Promise<Draft | null> {
-    if (!draft || !form) return null
+    if (!form) return null
     setSaving(true)
     try {
-      const saved = await patchDraft(draft.id, draft.version, buildEnvelope(form, draft, scheduledAt))
+      const env = buildEnvelope(form, draft ? draft.payload : EMPTY_ENVELOPE, scheduledAt)
+      if (isNew) {
+        const msg = validateNewForm()
+        if (msg) {
+          setSubmitError(msg)
+          return null
+        }
+        const created = await createDraft(env)
+        navigate(`/products/${created.id}`)
+        return created
+      }
+      if (!draft) return null
+      const saved = await patchDraft(draft.id, draft.version, env)
       setDraft(saved)
       setDirty(false)
       setNotice(`草稿已保存（version ${saved.version}）`)
       return saved
     } catch (e: unknown) {
-      if ((e as { response?: { status?: number } })?.response?.status === 409) {
+      if (!isNew && (e as { response?: { status?: number } })?.response?.status === 409 && draft) {
         const fresh = await getDraft(draft.id)
         setDraft(fresh)
         setForm(initForm(fresh.payload))
@@ -476,6 +554,23 @@ function EditDraft({ draftId }: { draftId: string }) {
     } finally {
       setSaving(false)
     }
+  }
+
+  function validateNewForm(): string | null {
+    if (!form) return '表单尚未初始化'
+    if (!form.title.trim()) return '请填写产品标题（必填）'
+    if (form.weight.trim() === '' || Number(form.weight) <= 0) return '请填写包装重量（克，必填）'
+    if (form.length.trim() === '' || form.width.trim() === '' || form.height.trim() === '') {
+      return '请填写包装尺寸（长×宽×高，mm，必填）'
+    }
+    const urls = form.images
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (urls.length === 0) return '请至少填写一张商品图片 URL（必填）'
+    if (form.purchaseCost.trim() === '') return '请填写采购成本（CNY，必填）'
+    if (form.purchaseUrl.trim() === '') return '请填写货源地址（必填）'
+    return null
   }
 
   async function afterSubmit(res: SubmitResponse) {
@@ -491,7 +586,7 @@ function EditDraft({ draftId }: { draftId: string }) {
   }
 
   async function doSubmit() {
-    if (!draft) return
+    if (isNew || !draft) return
     setSubmitBusy(true)
     setSubmitError(null)
     try {
@@ -501,7 +596,10 @@ function EditDraft({ draftId }: { draftId: string }) {
         if (!saved) return
         current = saved
       }
-      const res = await submitDraft(current.id, credentialId || undefined)
+      const res =
+        isOnline && productId
+          ? await submitDraftUpdate(current.id, credentialId || undefined, productId)
+          : await submitDraft(current.id, credentialId || undefined)
       if (res.confirm_required && res.existing_stores.length > 0) {
         setConfirm({ stores: res.existing_stores, target: targetShopName })
         return
@@ -511,7 +609,7 @@ function EditDraft({ draftId }: { draftId: string }) {
       if ((e as { response?: { status?: number } })?.response?.status === 409) {
         setSubmitError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? DUP_FALLBACK)
       } else {
-        setSubmitError(`上架提交失败：${errText(e)}`)
+        setSubmitError(isOnline ? `更新上架失败：${errText(e)}` : `上架提交失败：${errText(e)}`)
       }
     } finally {
       setSubmitBusy(false)
@@ -519,18 +617,21 @@ function EditDraft({ draftId }: { draftId: string }) {
   }
 
   async function confirmSubmit() {
-    if (!draft) return
+    if (isNew || !draft) return
     setConfirm(null)
     setSubmitBusy(true)
     setSubmitError(null)
     try {
-      const res = await submitDraft(draft.id, credentialId || undefined)
+      const res =
+        isOnline && productId
+          ? await submitDraftUpdate(draft.id, credentialId || undefined, productId)
+          : await submitDraft(draft.id, credentialId || undefined)
       await afterSubmit(res)
     } catch (e: unknown) {
       if ((e as { response?: { status?: number } })?.response?.status === 409) {
         setSubmitError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? DUP_FALLBACK)
       } else {
-        setSubmitError(`上架提交失败：${errText(e)}`)
+        setSubmitError(isOnline ? `更新上架失败：${errText(e)}` : `上架提交失败：${errText(e)}`)
       }
     } finally {
       setSubmitBusy(false)
@@ -604,14 +705,25 @@ function EditDraft({ draftId }: { draftId: string }) {
           <IconAlert />
           <span>{loadError}</span>
         </div>
-        <Link className="btn" to="/collect-box">
-          返回采集箱
+        <Link className="btn" to={isNew ? '/products' : '/collect-box'}>
+          {isNew ? '返回商品编辑' : '返回采集箱'}
         </Link>
       </div>
     )
   }
 
-  if (!draft || !form) {
+  if (!form) {
+    return (
+      <div className="page">
+        <div className="page-loading">
+          <span className="spinner-inline" />
+          加载草稿…
+        </div>
+      </div>
+    )
+  }
+
+  if (!isNew && !draft) {
     return (
       <div className="page">
         <div className="page-loading">
@@ -631,9 +743,17 @@ function EditDraft({ draftId }: { draftId: string }) {
       <div className="page-header">
         <h1 className="page-title">商品编辑</h1>
         <span className="page-badge">T10b</span>
-        <span className="draft-row-meta">
-          {draft.id.slice(0, 8)}… · v{draft.version}
-        </span>
+        {isOnline && productId && (
+          <span className="badge badge-default" title={`Ozon product_id: ${productId}`}>
+            更新商品 #{productId}
+          </span>
+        )}
+        {!isNew && draft && (
+          <span className="draft-row-meta">
+            {draft.id.slice(0, 8)}… · v{draft.version}
+            {isOnline && productInfo?.moderation_status ? ` · ${productInfo.moderation_status}` : ''}
+          </span>
+        )}
       </div>
 
       <nav className="anchor-nav" aria-label="编辑区块导航">
@@ -668,15 +788,16 @@ function EditDraft({ draftId }: { draftId: string }) {
         <div className="alert alert-success">
           <IconCheck />
           <span>
-            已提交上架任务：task_id <code>{submitSuccess.task_id}</code>（状态 {submitSuccess.status}
-            ）{!keepCollected && '；已按设置移除采集箱草稿'}
+            {isOnline ? '已提交更新上架任务' : '已提交上架任务'}：task_id <code>{submitSuccess.task_id}</code>（状态{' '}
+            {submitSuccess.status}）
+            {!keepCollected && '；已按设置移除采集箱草稿'}
           </span>
           <span className="alert-actions">
             <Link className="btn btn-sm" to={`/tasks?task_id=${submitSuccess.task_id}`}>
               查看进度
             </Link>
-            <Link className="btn btn-sm" to="/collect-box">
-              返回采集箱
+            <Link className="btn btn-sm" to={isOnline ? '/on-sale' : '/collect-box'}>
+              {isOnline ? '返回在售货架' : '返回采集箱'}
             </Link>
           </span>
         </div>
@@ -762,7 +883,7 @@ function EditDraft({ draftId }: { draftId: string }) {
               <button
                 className="ai-btn"
                 title="AI 生成/翻译（俄语）"
-                disabled={aiBusy.has('title')}
+                disabled={aiBusy.has('title') || !draft}
                 onClick={() => runAi('title')}
               >
                 {aiBusy.has('title') ? <span className="spinner-inline" /> : <IconSparkles />}
@@ -826,6 +947,53 @@ function EditDraft({ draftId }: { draftId: string }) {
               </button>
             </div>
           </div>
+          {isNew && (
+            <>
+              <div className="field">
+                <label className="form-label" htmlFor="purchase-cost-input">
+                  采购成本（CNY）
+                  <span className="hint">必填：上架定价基准</span>
+                </label>
+                <input
+                  id="purchase-cost-input"
+                  className="field-input"
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={form.purchaseCost}
+                  placeholder="如 12.5"
+                  onChange={(e) => updateForm({ purchaseCost: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label className="form-label" htmlFor="purchase-url-input">
+                  货源地址
+                  <span className="hint">必填：1688 或其他货源链接</span>
+                </label>
+                <input
+                  id="purchase-url-input"
+                  className="field-input"
+                  value={form.purchaseUrl}
+                  placeholder="https://detail.1688.com/offer/…"
+                  onChange={(e) => updateForm({ purchaseUrl: e.target.value })}
+                />
+              </div>
+              <div className="field span-2">
+                <label className="form-label" htmlFor="images-input">
+                  商品图片（每行一个 URL）
+                  <span className="hint">必填：至少 1 张，支持 alicdn/COS 图片</span>
+                </label>
+                <textarea
+                  id="images-input"
+                  className="field-input images-textarea"
+                  rows={5}
+                  value={form.images}
+                  placeholder={'https://…/image1.jpg\nhttps://…/image2.jpg'}
+                  onChange={(e) => updateForm({ images: e.target.value })}
+                />
+              </div>
+            </>
+          )}
         </div>
       </section>
 
@@ -839,7 +1007,7 @@ function EditDraft({ draftId }: { draftId: string }) {
           <span className="toolbar-spacer" />
           <button
             className="btn btn-small"
-            disabled={aiBusy.has('attributes')}
+            disabled={aiBusy.has('attributes') || !draft}
             onClick={() => runAi('attributes')}
           >
             {aiBusy.has('attributes') ? <span className="spinner-inline" /> : <IconSparkles />}
@@ -876,7 +1044,7 @@ function EditDraft({ draftId }: { draftId: string }) {
               <button
                 className="ai-btn"
                 title="AI 生成主题标签（俄语）"
-                disabled={aiBusy.has('tags')}
+                disabled={aiBusy.has('tags') || !draft}
                 onClick={() => runAi('tags')}
               >
                 {aiBusy.has('tags') ? <span className="spinner-inline" /> : <IconSparkles />}
@@ -899,7 +1067,7 @@ function EditDraft({ draftId }: { draftId: string }) {
               <button
                 className="ai-btn"
                 title="AI 生成简介（俄语）"
-                disabled={aiBusy.has('description')}
+                disabled={aiBusy.has('description') || !draft}
                 onClick={() => runAi('description')}
               >
                 {aiBusy.has('description') ? <span className="spinner-inline" /> : <IconSparkles />}
@@ -1198,38 +1366,44 @@ function EditDraft({ draftId }: { draftId: string }) {
 
       {/* ── 底部操作栏 ── */}
       <div className="bottom-bar">
-        <label className="checkbox-label">
-          <input
-            type="checkbox"
-            checked={keepCollected}
-            onChange={(e) => setKeepCollected(e.target.checked)}
-          />
-          保留采集数据
-        </label>
-        <button className="btn" onClick={aiFillAll} disabled={bulkBusy || submitBusy || !!submitSuccess}>
+        {mode === 'draft' && (
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={keepCollected}
+              onChange={(e) => setKeepCollected(e.target.checked)}
+            />
+            保留采集数据
+          </label>
+        )}
+        <button className="btn" onClick={aiFillAll} disabled={!draft || bulkBusy || submitBusy || !!submitSuccess}>
           {bulkBusy ? <span className="spinner-inline" /> : <IconSparkles />}
           {bulkBusy ? 'AI 填写中…' : 'AI 填写产品信息'}
         </button>
-        <button
-          className="btn"
-          onClick={() => navigate(`/image-studio?draftId=${draftId}`)}
-          disabled={submitBusy}
-          title="生图工作台：配置 AI 商品套图"
-        >
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.7">
-            <rect x="3.5" y="3.5" width="17" height="17" rx="2.5" />
-            <circle cx="9" cy="9" r="1.8" />
-            <path d="M4.5 18.5l5-5 3.5 3.5 3-3 3.5 3.5" />
-          </svg>
-          AI商品套图
-        </button>
-        <button
-          className="btn"
-          onClick={() => saveDraft()}
-          disabled={saving || submitBusy || !dirty || !!submitSuccess}
-        >
-          {saving ? '保存中…' : '保存草稿'}
-        </button>
+        {!isNew && (
+          <button
+            className="btn"
+            onClick={() => draft && navigate(`/image-studio?draftId=${draft.id}`)}
+            disabled={!draft || submitBusy}
+            title="生图工作台：配置 AI 商品套图"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.7">
+              <rect x="3.5" y="3.5" width="17" height="17" rx="2.5" />
+              <circle cx="9" cy="9" r="1.8" />
+              <path d="M4.5 18.5l5-5 3.5 3.5 3-3 3.5 3.5" />
+            </svg>
+            AI商品套图
+          </button>
+        )}
+        {!isNew && (
+          <button
+            className="btn"
+            onClick={() => saveDraft()}
+            disabled={saving || submitBusy || !dirty || !!submitSuccess}
+          >
+            {saving ? '保存中…' : '保存草稿'}
+          </button>
+        )}
         <span className="toolbar-spacer" />
         <div className="schedule-field">
           <span className="field-label">定时上架</span>
@@ -1243,14 +1417,25 @@ function EditDraft({ draftId }: { draftId: string }) {
             }}
           />
         </div>
-        <button className="btn btn-ghost" onClick={() => navigate('/collect-box')} disabled={submitBusy}>
+        <button
+          className="btn btn-ghost"
+          onClick={() => navigate(isOnline ? '/on-sale' : isNew ? '/products' : '/collect-box')}
+          disabled={submitBusy}
+        >
           <IconClose />
           关闭
         </button>
-        <button className="btn btn-primary" onClick={doSubmit} disabled={submitBusy || !!submitSuccess}>
-          {submitBusy ? <span className="spinner" /> : null}
-          {submitBusy ? '提交中…' : '立即上架'}
-        </button>
+        {isNew ? (
+          <button className="btn btn-primary" onClick={() => saveDraft()} disabled={saving || submitBusy}>
+            {saving ? <span className="spinner" /> : null}
+            {saving ? '创建中…' : '创建草稿'}
+          </button>
+        ) : (
+          <button className="btn btn-primary" onClick={doSubmit} disabled={submitBusy || !!submitSuccess}>
+            {submitBusy ? <span className="spinner" /> : null}
+            {submitBusy ? '提交中…' : isOnline ? '更新上架' : '立即上架'}
+          </button>
+        )}
       </div>
 
       {/* ── 跨店确认弹窗（C5 v1：不硬拦，确认后二次提交） ── */}

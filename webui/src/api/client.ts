@@ -298,6 +298,12 @@ export async function getDrafts(): Promise<Draft[]> {
   return data
 }
 
+/** F2.3 从零新建：POST /api/v1/drafts（worker create_draft 读取 body.envelope，只存 envelope） */
+export async function createDraft(envelope: Envelope): Promise<Draft> {
+  const { data } = await api.post<Draft>('/drafts', { token: getStoredToken(), envelope })
+  return data
+}
+
 /** DELETE /api/v1/drafts/{id} —— 删除草稿（draft_submissions 由 FK 级联删） */
 export async function deleteDraft(id: string): Promise<void> {
   await api.delete(`/drafts/${id}`)
@@ -366,6 +372,20 @@ export async function submitDraft(draftId: string, credentialId?: string): Promi
   const { data } = await api.post<SubmitResponse>(`/drafts/${draftId}/submit`, {
     token: getStoredToken(),
     credential_id: credentialId || undefined,
+  })
+  return data
+}
+
+/** F2.1 更新上架：POST /drafts/{id}/submit 带 update_product_id（T7 更新模式：跳过 409 + 索引回填） */
+export async function submitDraftUpdate(
+  draftId: string,
+  credentialId: string | undefined,
+  updateProductId: string,
+): Promise<SubmitResponse> {
+  const { data } = await api.post<SubmitResponse>(`/drafts/${draftId}/submit`, {
+    token: getStoredToken(),
+    credential_id: credentialId || undefined,
+    update_product_id: updateProductId,
   })
   return data
 }
@@ -614,6 +634,22 @@ export async function updateProductImages(
   images: string[],
 ): Promise<UpdateProductImagesResponse> {
   const { data } = await api.post<UpdateProductImagesResponse>(`/products/${productId}/update_images`, { images })
+  return data
+}
+
+/** F2.1 在线商品编辑数据：GET /api/v1/products/{id}/edit（T6；409 = 无草稿来源仅改图，404 = 商品未找到） */
+export interface ProductEditData {
+  product_id: string
+  offer_id: string
+  credential_id?: string | null
+  /** 关联草稿 id（product_task_index.draft_id；编辑表单初值 = 该草稿 envelope） */
+  draft_id: string
+  payload: Envelope
+  moderation_status?: string | null
+}
+
+export async function getProductEdit(productId: string): Promise<ProductEditData> {
+  const { data } = await api.get<ProductEditData>(`/products/${productId}/edit`)
   return data
 }
 

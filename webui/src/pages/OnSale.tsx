@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
+  getProductEdit,
   listProducts,
   updateProductImages,
   type ProductItem,
@@ -133,7 +135,27 @@ export default function OnSale() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [notice, setNotice] = useState('')
+  const [editError, setEditError] = useState('')
   const [editing, setEditing] = useState<ProductItem | null>(null)
+  const [editBusyId, setEditBusyId] = useState<string | null>(null)
+  const navigate = useNavigate()
+
+  async function handleEdit(item: ProductItem) {
+    setEditBusyId(item.product_id)
+    setEditError('')
+    setNotice('')
+    try {
+      const data = await getProductEdit(item.product_id)
+      navigate(`/products/${data.draft_id}?mode=online&product_id=${item.product_id}`)
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 409) setEditError(`商品 ${item.product_id} 无草稿来源，仅支持改图`)
+      else if (status === 404) setEditError(`商品 ${item.product_id} 未找到，可能已归档`)
+      else setEditError(`获取编辑数据失败：${extractError(err, '未知错误')}`)
+    } finally {
+      setEditBusyId(null)
+    }
+  }
 
   const load = useCallback(async (targetOffset = offset, silent = false) => {
     if (!silent) setLoading(true)
@@ -179,6 +201,16 @@ export default function OnSale() {
           <span>{notice}</span>
           <button className="btn btn-small btn-ghost" onClick={() => setNotice('')}>
             知道了
+          </button>
+        </div>
+      )}
+
+      {editError && (
+        <div className="alert alert-error" role="alert">
+          <WarningIcon />
+          <span>{editError}</span>
+          <button className="btn btn-small btn-ghost" onClick={() => setEditError('')}>
+            关闭
           </button>
         </div>
       )}
@@ -239,6 +271,14 @@ export default function OnSale() {
                     <td className="col-time">{fmtTime(item.created_at)}</td>
                     <td className="col-actions">
                       <div className="row-actions">
+                        <button
+                          className="row-action"
+                          disabled={!!editing || editBusyId !== null}
+                          onClick={() => handleEdit(item)}
+                          title="加载该商品的草稿来源，进入编辑页全量更新"
+                        >
+                          {editBusyId === item.product_id ? '加载中…' : '编辑商品'}
+                        </button>
                         <button className="row-action" disabled={!!editing} onClick={() => setEditing(item)}>
                           改图
                         </button>
