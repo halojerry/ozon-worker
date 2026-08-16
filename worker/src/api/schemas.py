@@ -733,6 +733,7 @@ class MxouLoginResponse(BaseModel):
     selected_key_id: str | None = Field(None, description="选中的 enabled key id（未选到 None）")
     key: str | None = Field(None, description="选中 key 完整值（sk- 前缀；仅登录成功返回一次，WebUI 用它建立登录态）")
     session_expires_at: str | None = Field(None, description="MXOU 登录 session 过期时间")
+    role: str = Field("user", description="用户角色（admin/user，WebUI 管理员路由守卫用）")
 
 
 class MxouKeyCreateRequest(BaseModel):
