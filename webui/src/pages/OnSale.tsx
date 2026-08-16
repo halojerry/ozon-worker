@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+  bulkArchive,
+  bulkUpdatePrices,
+  bulkUpdateStocks,
   getProductEdit,
   listCredentials,
   listOzonProducts,
@@ -41,8 +44,75 @@ function extractError(err: unknown, fallback: string): string {
   return resp?.data?.detail || fallback
 }
 
-function ExternalIcon() {
+/* ── P1a 批量操作弹窗：改价 / 改库存 ── */
+
+interface BulkActionModalProps {
+  action: 'price' | 'stock'
+  count: number
+  onClose: () => void
+  onApplyPrice: (price: string, oldPrice: string, minPrice: string) => void
+  onApplyStock: (stock: number) => void
+}
+
+function BulkActionModal({ action, count, onClose, onApplyPrice, onApplyStock }: BulkActionModalProps) {
+  const [price, setPrice] = useState('')
+  const [oldPrice, setOldPrice] = useState('')
+  const [minPrice, setMinPrice] = useState('')
+  const [stock, setStock] = useState('')
+
   return (
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="批量操作">
+        <div className="modal-header">
+          <h2 className="modal-title">{action === 'price' ? '批量改价' : '批量改库存'}</h2>
+          <button type="button" className="modal-close" aria-label="关闭" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          <p className="modal-text">将应用到 {count} 个商品（真实生效）</p>
+          {action === 'price' ? (
+            <>
+              <div className="field">
+                <label className="field-label" htmlFor="bulk-price">新售价</label>
+                <input id="bulk-price" className="field-input" type="number" min="0" placeholder="如 99" value={price} onChange={(e) => setPrice(e.target.value)} />
+              </div>
+              <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div className="field">
+                  <label className="field-label" htmlFor="bulk-old-price">划线价（选填）</label>
+                  <input id="bulk-old-price" className="field-input" type="number" min="0" placeholder="如 129" value={oldPrice} onChange={(e) => setOldPrice(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label className="field-label" htmlFor="bulk-min-price">最低价（选填）</label>
+                  <input id="bulk-min-price" className="field-input" type="number" min="0" placeholder="如 89" value={minPrice} onChange={(e) => setMinPrice(e.target.value)} />
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="field">
+              <label className="field-label" htmlFor="bulk-stock">库存数量</label>
+              <input id="bulk-stock" className="field-input" type="number" min="0" placeholder="如 100" value={stock} onChange={(e) => setStock(e.target.value)} />
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button type="button" className="btn" onClick={onClose}>取消</button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={action === 'price' ? price.trim() === '' : stock.trim() === ''}
+            onClick={() => {
+              if (action === 'price') onApplyPrice(price.trim(), oldPrice.trim(), minPrice.trim())
+              else onApplyStock(Number(stock))
+            }}
+          >
+            确认应用
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ExternalIcon() {  return (
     <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M14 4h6v6M20 4L10 14M19 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1h6" />
     </svg>
@@ -150,6 +220,10 @@ export default function OnSale() {
   const [ozonCredentialId, setOzonCredentialId] = useState('')
   const [ozonLoading, setOzonLoading] = useState(false)
   const [ozonError, setOzonError] = useState('')
+  /** P1a 批量操作：多选 + 弹窗类型 */
+  const [ozonSelected, setOzonSelected] = useState<Set<string>>(new Set())
+  const [bulkAction, setBulkAction] = useState<'price' | 'stock' | 'archive' | 'unarchive' | null>(null)
+  const [bulkNotice, setBulkNotice] = useState('')
   const navigate = useNavigate()
 
   async function handleEdit(item: ProductItem) {
@@ -225,6 +299,76 @@ export default function OnSale() {
     if (view === 'ozon' && ozonCredentialId) loadOzon()
   }, [view, ozonCredentialId, loadOzon])
 
+  /** P1a 多选切换 */
+  const toggleOzonSelect = (id: string) => {
+    setOzonSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleOzonAll = () => {
+    const all = ozonItems.map((p) => p.product_id)
+    const allSelected = all.every((id) => ozonSelected.has(id))
+    setOzonSelected(allSelected ? new Set() : new Set(all))
+  }
+
+  const selectedOzon = ozonItems.filter((p) => ozonSelected.has(p.product_id))
+
+  /** P1a 批量改价 */
+  const applyBulkPrice = async (price: string, oldPrice: string, minPrice: string) => {
+    try {
+      await bulkUpdatePrices(
+        selectedOzon.map((p) => ({
+          offer_id: p.offer_id,
+          price,
+          ...(oldPrice ? { old_price: oldPrice } : {}),
+          ...(minPrice ? { min_price: minPrice } : {}),
+        })),
+      )
+      setBulkNotice(`已提交批量改价：${selectedOzon.length} 个商品`)
+      setBulkAction(null)
+      setOzonSelected(new Set())
+      loadOzon()
+    } catch (e) {
+      setBulkNotice(`批量改价失败：${extractError(e, '批量改价失败')}`)
+    }
+  }
+
+  /** P1a 批量改库存 */
+  const applyBulkStock = async (stock: number) => {
+    try {
+      await bulkUpdateStocks(
+        selectedOzon.map((p) => ({ offer_id: p.offer_id, product_id: p.product_id, stock })),
+      )
+      setBulkNotice(`已提交批量改库存：${selectedOzon.length} 个商品`)
+      setBulkAction(null)
+      setOzonSelected(new Set())
+      loadOzon()
+    } catch (e) {
+      setBulkNotice(`批量改库存失败：${extractError(e, '批量改库存失败')}`)
+    }
+  }
+
+  /** P1a 批量归档/恢复 */
+  const applyBulkArchive = async (archive: boolean) => {
+    const ok = window.confirm(
+      `确认${archive ? '归档' : '恢复'} ${selectedOzon.length} 个商品？${archive ? '归档后商品从 Ozon 前台下架（真实生效）' : ''}`,
+    )
+    if (!ok) return
+    try {
+      await bulkArchive(selectedOzon.map((p) => p.product_id), archive)
+      setBulkNotice(`已${archive ? '归档' : '恢复'} ${selectedOzon.length} 个商品`)
+      setBulkAction(null)
+      setOzonSelected(new Set())
+      loadOzon()
+    } catch (e) {
+      setBulkNotice(`${archive ? '归档' : '恢复'}失败：${extractError(e, '批量归档失败')}`)
+    }
+  }
+
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const pageIndex = Math.floor(offset / PAGE_SIZE) + 1
   const hasPrev = offset > 0
@@ -267,6 +411,22 @@ export default function OnSale() {
             <button className="btn" disabled={ozonLoading || !ozonCredentialId} onClick={() => loadOzon()}>
               {ozonLoading ? '拉取中…' : '刷新'}
             </button>
+            {ozonSelected.size > 0 && (
+              <>
+                <button className="btn" onClick={() => setBulkAction('price')}>
+                  批量改价 ({ozonSelected.size})
+                </button>
+                <button className="btn" onClick={() => setBulkAction('stock')}>
+                  批量改库存 ({ozonSelected.size})
+                </button>
+                <button className="btn" onClick={() => applyBulkArchive(true)}>
+                  批量归档 ({ozonSelected.size})
+                </button>
+                <button className="btn" onClick={() => applyBulkArchive(false)}>
+                  批量恢复 ({ozonSelected.size})
+                </button>
+              </>
+            )}
             <span className="toolbar-hint">店铺商品 = Ozon 店铺全部在线商品（含手动上架/其他工具）</span>
           </div>
           {ozonLoading ? (
@@ -288,6 +448,14 @@ export default function OnSale() {
             <table className="stores-table">
               <thead>
                 <tr>
+                  <th className="col-check">
+                    <input
+                      type="checkbox"
+                      checked={ozonItems.length > 0 && ozonSelected.size === ozonItems.length}
+                      onChange={toggleOzonAll}
+                      aria-label="全选店铺商品"
+                    />
+                  </th>
                   <th>商品</th>
                   <th>货号</th>
                   <th className="col-price">售价</th>
@@ -297,7 +465,15 @@ export default function OnSale() {
               </thead>
               <tbody>
                 {ozonItems.map((p) => (
-                  <tr key={p.product_id}>
+                  <tr key={p.product_id} className={ozonSelected.has(p.product_id) ? 'row-selected' : undefined}>
+                    <td className="col-check">
+                      <input
+                        type="checkbox"
+                        checked={ozonSelected.has(p.product_id)}
+                        onChange={() => toggleOzonSelect(p.product_id)}
+                        aria-label={`选择 ${p.name}`}
+                      />
+                    </td>
                     <td className="col-title">
                       <div className="task-product">
                         {p.image ? (
@@ -471,6 +647,33 @@ export default function OnSale() {
             setNotice(`商品 ${editing.product_id} 改图已提交，进入重新审核`)
             load(offset, true)
           }}
+        />
+      )}
+
+      {bulkNotice && (
+        <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && setBulkNotice('')}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="批量操作结果">
+            <div className="modal-header">
+              <h2 className="modal-title">批量操作</h2>
+              <button type="button" className="modal-close" aria-label="关闭" onClick={() => setBulkNotice('')}>×</button>
+            </div>
+            <div className="modal-body">
+              <p className="modal-text">{bulkNotice}</p>
+            </div>
+            <div className="modal-foot">
+              <button type="button" className="btn btn-primary" onClick={() => setBulkNotice('')}>知道了</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkAction && (bulkAction === 'price' || bulkAction === 'stock') && (
+        <BulkActionModal
+          action={bulkAction}
+          count={ozonSelected.size}
+          onClose={() => setBulkAction(null)}
+          onApplyPrice={applyBulkPrice}
+          onApplyStock={applyBulkStock}
         />
       )}
         </>

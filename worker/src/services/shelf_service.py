@@ -181,3 +181,82 @@ def list_ozon_products(
         "offset": offset,
         "store": {"id": store_id, "ozon_client_id": client_id},
     }
+
+
+# ──────────────────────────────────────────────
+# P1a 在线商品批量操作（改价/库存/归档，真实影响）
+# ──────────────────────────────────────────────
+
+
+def _resolve_cred(tenant_id: str, credential_id: str | None) -> tuple[str, str]:
+    """凭证解析（credential_id 或默认店铺）；无默认 → 400。"""
+    from fastapi import HTTPException
+    from services.credential_service import get_decrypted, get_default_credential
+    if credential_id:
+        return get_decrypted(tenant_id, str(credential_id))
+    default = get_default_credential(tenant_id)
+    if default is None:
+        raise HTTPException(
+            status_code=400,
+            detail="未配置默认店铺：请传 credential_id 或先在店铺管理设置默认店铺",
+        )
+    return default["ozon_client_id"], default["api_key"]
+
+
+def _bulk_action(endpoint: str, body: dict, tenant_id: str, credential_id: str | None, what: str) -> dict:
+    """统一批量写入包装：ozon_post → result；失败 502。"""
+    from fastapi import HTTPException
+    from utils.ozon_client import ozon_post
+    client_id, api_key = _resolve_cred(tenant_id, credential_id)
+    try:
+        resp = ozon_post(client_id, api_key, endpoint, body, timeout=30, language="RU")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("%s失败 client=%s: %s", what, client_id, str(exc)[:200])
+        raise HTTPException(status_code=502, detail=f"Ozon {what}失败：{str(exc)[:120]}")
+    return resp.get("result") or {}
+
+
+def bulk_update_prices(
+    tenant_id: str,
+    prices: list[dict],
+    credential_id: str | None = None,
+) -> dict:
+    """批量改价：/v1/product/import/prices {prices:[{offer_id, price, old_price?, min_price?}]}。"""
+    return {
+        "ok": True,
+        "result": _bulk_action(
+            "/v1/product/import/prices", {"prices": prices},
+            tenant_id, credential_id, "批量改价"),
+    }
+
+
+def bulk_update_stocks(
+    tenant_id: str,
+    stocks: list[dict],
+    credential_id: str | None = None,
+) -> dict:
+    """批量改库存：/v2/products/stocks {stocks:[{offer_id, product_id, stock}]}。"""
+    return {
+        "ok": True,
+        "result": _bulk_action(
+            "/v2/products/stocks", {"stocks": stocks},
+            tenant_id, credential_id, "批量改库存"),
+    }
+
+
+def bulk_archive(
+    tenant_id: str,
+    product_ids: list[str],
+    archive: bool,
+    credential_id: str | None = None,
+) -> dict:
+    """批量归档/恢复：/v1/product/archive 或 /v1/product/unarchive {product_id:[...]}。"""
+    ids = [int(pid) for pid in product_ids if str(pid).isdigit()]
+    endpoint = "/v1/product/archive" if archive else "/v1/product/unarchive"
+    return {
+        "ok": True,
+        "result": _bulk_action(endpoint, {"product_id": ids}, tenant_id, credential_id,
+                               "批量归档" if archive else "批量恢复"),
+    }

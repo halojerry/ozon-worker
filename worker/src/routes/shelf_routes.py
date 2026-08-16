@@ -53,3 +53,28 @@ async def list_ozon_products(request: Request):
     credential_id = request.query_params.get("credential_id")
     return shelf_service.list_ozon_products(
         tenant_id, credential_id=credential_id, limit=limit, offset=offset)
+
+
+@router.post("/bulk-prices")
+async def bulk_prices(request: Request):
+    tenant_id = await _authenticate(request)
+    body = await request.json()
+    return shelf_service.bulk_update_prices(
+        tenant_id, body.get("prices") or [], credential_id=body.get("credential_id"))
+
+
+@router.post("/bulk-stocks")
+async def bulk_stocks(request: Request):
+    tenant_id = await _authenticate(request)
+    body = await request.json()
+    return shelf_service.bulk_update_stocks(
+        tenant_id, body.get("stocks") or [], credential_id=body.get("credential_id"))
+
+
+@router.post("/bulk-archive")
+async def bulk_archive(request: Request):
+    tenant_id = await _authenticate(request)
+    body = await request.json()
+    return shelf_service.bulk_archive(
+        tenant_id, body.get("product_ids") or [], bool(body.get("archive", True)),
+        credential_id=body.get("credential_id"))
