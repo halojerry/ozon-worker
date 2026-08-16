@@ -44,6 +44,7 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="collect-box" element={<CollectBox />} />
         <Route path="products" element={<Products />} />
+        <Route path="products/new" element={<Products />} />
         <Route path="products/:draftId" element={<Products />} />
         <Route path="stores" element={<Stores />} />
         <Route path="tasks" element={<Tasks />} />
