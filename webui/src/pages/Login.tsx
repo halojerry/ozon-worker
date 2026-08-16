@@ -85,14 +85,16 @@ export default function Login() {
         session_expires_at: resp.session_expires_at ?? null,
       }
       setSession(session)
+      // 账号登录即登录：登录响应直接返回选中 key 的完整值（key 字段，仅此一次），
+      // 建立 token 登录态后直接进工作台——无需再手动切 API Key tab。
+      if (resp.key) {
+        setToken(resp.key)
+        navigate('/', { replace: true })
+        return
+      }
+      // 未选到 enabled key（账号无可用密钥）→ 展示账号信息 + 引导去 MXOU 平台创建
       setAccountInfo(session)
-      // T4-HOOK：T4 密钥管理交付后在此接线 —— 完整 key 需经 POST /api/v1/mxou/keys/{id}/select 获取：
-      //   if (session.selected_key_id) {
-      //     const { key } = await selectMxouKey(session.selected_key_id)
-      //     setToken(key)
-      //     navigate('/', { replace: true })
-      //   }
-      // 在此之前账号 tab 只做会话元数据展示，登录主路径仍走 API Key tab。
+      setAccountError('账号下没有可用的 API Key，请到 MXOU 平台创建后重试')
     } catch (err) {
       const status = (err as { response?: { status?: number } })?.response?.status
       setAccountError(status === 401 ? '账号或密码错误，请重试' : NETWORK_ERROR)

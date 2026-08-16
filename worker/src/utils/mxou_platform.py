@@ -237,11 +237,11 @@ def mxou_get_self(session, access_token: str | None = None, user_id: str | int |
 
     quota = data.get("quota")
     balance = data.get("balance")
-    if quota is not None:
-        result["balance"] = quota
-    elif balance is not None:
+    if balance is not None:
         result["balance"] = balance
     else:
+        # quota 不在此换算——真实余额统一走 worker 现有 get_mxou_balance()
+        # （/v1/dashboard/billing/subscription 的 balance 美元字段）
         result["balance"] = None
 
     # 防御：剥掉敏感字段（绝不外泄）

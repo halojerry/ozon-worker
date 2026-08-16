@@ -520,11 +520,12 @@ class MxouKeyItem(BaseModel):
 
 
 class MxouLoginResponse(BaseModel):
-    """MXOU 登录成功响应（keys 已脱敏；full_key 只在服务端流转/写 tokens 表）。"""
+    """MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返回用于建立登录态）。"""
     username: str = Field(..., description="MXOU 用户名")
-    balance: float | None = Field(None, description="平台余额（quota/balance 合并；查询失败 None）")
+    balance: float | None = Field(None, description="平台真实余额（美元，/v1/dashboard/billing/subscription 同源；查询失败 None）")
     keys: list[MxouKeyItem] = Field(default_factory=list, description="API Key 列表（已脱敏，无 full_key）")
     selected_key_id: str | None = Field(None, description="选中的 enabled key id（未选到 None）")
+    key: str | None = Field(None, description="选中 key 完整值（sk- 前缀；仅登录成功返回一次，WebUI 用它建立登录态）")
     session_expires_at: str | None = Field(None, description="MXOU 登录 session 过期时间")
 
 

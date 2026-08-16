@@ -160,10 +160,11 @@ export interface MxouLoginResponse {
   balance?: number | null
   keys?: MxouKeyItem[]
   selected_key_id?: string | null
+  key?: string | null
   session_expires_at?: string | null
 }
 
-/** POST /api/v1/mxou/login —— MXOU 账号密码登录（返回会话元数据；不含完整 key） */
+/** POST /api/v1/mxou/login —— MXOU 账号密码登录（成功返回选中 key 完整值，直接建立登录态） */
 export async function mxouLogin(username: string, password: string): Promise<MxouLoginResponse> {
   const { data } = await api.post<MxouLoginResponse>('/mxou/login', { username, password })
   return data
