@@ -772,3 +772,35 @@ class OrderMessage(Base):
     __table_args__ = (
         Index("idx_order_messages_tenant", "tenant_id"),
     )
+
+
+# ==================== 站点运营表（v0.55: 系统设置-站点运营） ====================
+# 站点 Banner/通告：管理端 CRUD（仅管理员）+ 公开只读端点（前端首页/弹窗展示）。
+
+
+class SiteBanner(Base):
+    """站点 Banner（系统设置-站点运营，v0.55）。"""
+    __tablename__ = "site_banners"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    image_url: Mapped[str] = mapped_column(Text, nullable=False, comment="Banner 图片 URL")
+    link_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="点击跳转 URL（可空）")
+    title: Mapped[str] = mapped_column(String(128), nullable=False, default="", comment="标题")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="排序（小在前）")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, comment="启停")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("idx_site_banners_sort", "sort_order", "enabled"),)
+
+
+class SiteAnnouncement(Base):
+    """站点通告（系统设置-站点运营，v0.55）。"""
+    __tablename__ = "site_announcements"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    title: Mapped[str] = mapped_column(String(128), nullable=False, default="", comment="标题")
+    content: Mapped[str] = mapped_column(Text, nullable=False, comment="内容")
+    announcement_type: Mapped[str] = mapped_column(String(16), nullable=False, default="banner", comment="banner/popup")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, comment="启停")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
