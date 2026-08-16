@@ -8,6 +8,7 @@ import {
   getDrafts,
   getProductEdit,
   listCredentials,
+  listTemplates,
   patchDraft,
   submitDraft,
   submitDraftUpdate,
@@ -15,6 +16,7 @@ import {
   type Draft,
   type DraftVariant,
   type Envelope,
+  type ListingTemplateOut,
   type ProductEditData,
   type SubmitResponse,
 } from '../api/client'
@@ -376,6 +378,8 @@ function ProductEditor({ mode, draftId, productId }: ProductEditorProps) {
   const [confirm, setConfirm] = useState<{ stores: string[]; target: string } | null>(null)
   const [credentials, setCredentials] = useState<CredentialOut[]>([])
   const [credentialId, setCredentialId] = useState('')
+  const [templates, setTemplates] = useState<ListingTemplateOut[]>([])
+  const [templateId, setTemplateId] = useState('')
   const [keepCollected, setKeepCollected] = useState(true)
   const [scheduledAt, setScheduledAt] = useState('')
   const [activeSection, setActiveSection] = useState<string>(SECTIONS[0].id)
@@ -397,10 +401,13 @@ function ProductEditor({ mode, draftId, productId }: ProductEditorProps) {
     let alive = true
     ;(async () => {
       try {
-        const creds = await listCredentials()
+        const [creds, tpls] = await Promise.all([listCredentials(), listTemplates()])
         if (!alive) return
         setCredentials(creds)
+        setTemplates(tpls)
         const def = creds.find((c) => c.is_default)
+        const defTpl = tpls.find((t) => t.is_default)
+        setTemplateId(defTpl?.id ?? '')
         if (isNew) {
           setForm(initForm(EMPTY_ENVELOPE))
           return
@@ -621,8 +628,8 @@ function ProductEditor({ mode, draftId, productId }: ProductEditorProps) {
       }
       const res =
         isOnline && productId
-          ? await submitDraftUpdate(current.id, credentialId || undefined, productId)
-          : await submitDraft(current.id, credentialId || undefined)
+          ? await submitDraftUpdate(current.id, credentialId || undefined, productId, templateId || undefined)
+          : await submitDraft(current.id, credentialId || undefined, templateId || undefined)
       if (res.confirm_required && res.existing_stores.length > 0) {
         setConfirm({ stores: res.existing_stores, target: targetShopName })
         return
@@ -647,8 +654,8 @@ function ProductEditor({ mode, draftId, productId }: ProductEditorProps) {
     try {
       const res =
         isOnline && productId
-          ? await submitDraftUpdate(draft.id, credentialId || undefined, productId)
-          : await submitDraft(draft.id, credentialId || undefined)
+          ? await submitDraftUpdate(draft.id, credentialId || undefined, productId, templateId || undefined)
+          : await submitDraft(draft.id, credentialId || undefined, templateId || undefined)
       await afterSubmit(res)
     } catch (e: unknown) {
       if ((e as { response?: { status?: number } })?.response?.status === 409) {
@@ -1462,6 +1469,26 @@ function ProductEditor({ mode, draftId, productId }: ProductEditorProps) {
           </button>
         )}
         <span className="toolbar-spacer" />
+        {!isNew && (
+          <div className="schedule-field">
+            <span className="field-label">上架配置</span>
+            <select
+              className="form-select"
+              style={{ width: '200px', height: '36px' }}
+              value={templateId}
+              title="提交时按模板补缺省参数（草稿已有值优先；更新模式忽略货号前缀）"
+              onChange={(e) => setTemplateId(e.target.value)}
+            >
+              <option value="">不使用（worker 默认参数）</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {t.is_default ? '（默认）' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="schedule-field">
           <span className="field-label">定时上架</span>
           <input

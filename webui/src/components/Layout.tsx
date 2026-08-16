@@ -78,6 +78,16 @@ const NAV_ITEMS: NavItem[] = [
       </svg>
     ),
   },
+  {
+    to: '/templates',
+    label: '上架配置',
+    show: 'always',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <path d="M9 3h6v6l5 5-6 6-5-5H3V9l6-6zM14.5 6.5h.01M10 17l-4 4" />
+      </svg>
+    ),
+  },
 ]
 
 interface NavCounts {

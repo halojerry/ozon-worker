@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.44.0] - 2026-08-16
+
+> WebUI 上架配置模板（P0-1，对标上品帮 UpGoodsSetting，PRD `docs/PRD-listing-template-v0.44.md`）：可复用的上架策略模板（定价/货号前缀/跟卖/库存），提交草稿时一键套用。worker 1008 passed（+32 模板用例）/ skill 493 passed / 前端 build + tokens:validate 绿。
+
+### Feat(上架配置模板)
+
+- **`listing_templates` 表**（`shared/model.py` `ListingTemplate`）：租户隔离 + 每租户最多一个 `is_default`（部分唯一索引，设默认先清旧默认）。
+- **`template_service.py`**：CRUD + 设默认 + `apply_template_to_envelope` 注入引擎——**模板补缺省，草稿 extensions 已有值优先**（不覆盖采集数据带入的参数）；config 白名单 7 字段（margin_rate/commission_rate/fx_buffer/offer_id_prefix/follow_type/stock/warehouse_id）+ 数值边界校验（非法 key 422）。
+- **模板 API** `routes/templates_routes.py`：`GET/POST /templates` + `PATCH/DELETE /{id}` + `POST /{id}/default`（全走 `_authenticate` 租户隔离，仿 credentials_routes）。
+- **submit_draft 集成**：请求体新增可选 `template_id`——显式指定 → 校验归属后注入；未指定 → 租户默认模板兜底；模板不存在 → fail-open 不阻断。注入后 envelope 进 graph payload，快照记录注入值（update marker 仍排除，T7 契约不变）。
+- **货号前缀 `offer_id_prefix`**（prepare 层）：新建模式 offer_id 前加 `{prefix}_`（同店铺多批次防重）；**更新模式/跟卖忽略**（重上不变式 + follow 绑定保持）。
+- **WebUI 上架配置页** `pages/Templates.tsx`：列表（默认标记/定价摘要/货号前缀/库存仓库）+ 新建/编辑弹窗（定价三参数 + 前缀 + 跟卖方式 + 库存/仓库）+ 删除 confirm + 设默认。
+- **编辑页集成**（Products.tsx）：提交栏「上架配置」下拉（默认选中 is_default 模板）→ `submitDraft/submitDraftUpdate` 传 `template_id`；update 模式 Worker 自动忽略前缀。
+
+### Test
+- `tests/test_template_service.py`（16 用例）：CRUD + 租户隔离 + 设默认清旧 + 白名单/数值校验 + 注入语义（草稿优先/前缀仅新建/空 config 返回副本）。
+- `tests/test_templates_api.py`（8 用例）：鉴权 401 + CRUD 端点 + 设默认端点 + 白名单 422 + 跨租户 404。
+- `tests/test_submit_draft_template.py`（7 用例）：显式 template 注入 / 草稿值优先 / 默认模板兜底 / 无模板无默认原样 / 更新模式忽略前缀 / 模板不存在 fail-open / 快照记录注入值。
+- 全量回归 worker **1008 passed**（976 基线 + 32 新）；skill 493；webui build + tokens:validate。
+
+---
+
 ## [0.43.0] - 2026-08-16
 
 > WebUI 运营工作台 v0.43（PRD `docs/PRD-webui-workbench-v0.43.md` 三大功能块全量交付）：MXOU 账号登录 + 商品编辑板块（全量重传更新 + 从零新建 + 生图内嵌）。worker 969 passed / skill 493 passed / 前端 build + tokens:validate 绿。

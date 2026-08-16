@@ -2432,6 +2432,18 @@ def prepare_ozon_upload_node(
         if update_offer_id:
             logger.info(f"✏️ 编辑更新模式：offer_id 覆盖为 update_offer_id={update_offer_id}")
 
+    # ✅ P0-1 上架配置模板：货号前缀 offer_id_prefix（仅新建模式生效——更新模式重上不变式
+    #    必须保持原 offer_id；跟卖 follow_ 前缀同样保持，避免破坏与竞品的绑定）。
+    #    前缀用于同店铺多批次防重：new_offer_id = f"{prefix}_{original}"
+    _offer_id_prefix = str(_extensions.get("offer_id_prefix") or "").strip() if isinstance(_extensions, dict) else ""
+    if _offer_id_prefix and not is_update_mode and not is_follow_sell:
+        _base_offer_id = str(follow_offer_id if is_follow_sell else sku_id)
+        _prefixed_offer_id = f"{_offer_id_prefix}_{_base_offer_id}" if _base_offer_id else ""
+        logger.info(f"🔖 货号前缀（模板）: {_offer_id_prefix}_{_base_offer_id}")
+    else:
+        _prefixed_offer_id = ""
+        _base_offer_id = ""
+
     # ✅ 关键修复：Ozon API /v2/product/import 需要批量上传结构（items数组）
     # 根据Ozon官方文档，每次请求最多可以提交1000种商品的信息
     ozon_payload: Dict[str, Any] = {
@@ -2443,8 +2455,10 @@ def prepare_ozon_upload_node(
                 "vat": "0",                                    # ✅ 增值税率：0%（Ozon要求默认为"0"，平台按类目自动计算）
                 # ✅ 编辑更新模式：offer_id 用 update_offer_id（用户改 item_id 后 offer_id 漂移时覆盖）
                 #    否则保留原 offer_id（跟卖 follow_ 或 1688 sku_id）
+                # ✅ P0-1 模板货号前缀：新建模式（非更新非跟卖）且模板配了前缀 → 用 {prefix}_{sku_id}
                 "offer_id": (str(update_offer_id) if is_update_mode and update_offer_id
-                             else (follow_offer_id if is_follow_sell else str(sku_id))),  # 1688: item_id 直接做 offer_id，无时间戳
+                             else (_prefixed_offer_id if _prefixed_offer_id
+                                   else (follow_offer_id if is_follow_sell else str(sku_id)))),  # 1688: item_id 直接做 offer_id，无时间戳
                 # ✅ 编辑更新模式：update_product_id 优先 → 指定 product_id 走 UPDATE（覆盖 follow_sell 的 product_id）
                 # ✅ 跟卖产品：指定 product_id 让 Ozon 走 UPDATE 模式（更新已有商品而非创建新的）
                 **({"product_id": int(_update_pid_raw)} if is_update_mode else

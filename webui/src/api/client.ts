@@ -256,6 +256,81 @@ export interface ValidateResponse {
   last_validated_at?: string | null
 }
 
+/* ────────────────────────────────────────────────────────────
+ * /api/v1/templates (P0-1) — 上架配置模板（对标上品帮 UpGoodsSetting）
+ * ──────────────────────────────────────────────────────────── */
+
+export interface ListingTemplateConfig {
+  /** 利润率（0-1）；不设则 worker 默认 0.25 */
+  margin_rate?: number | null
+  /** 佣金率（0-0.5）；0=让 worker 自动查店铺真实佣金 */
+  commission_rate?: number | null
+  /** 汇率缓冲（0-0.5）；不设则 worker 默认 0.05 */
+  fx_buffer?: number | null
+  /** 货号前缀（仅新建上架生效；更新模式忽略） */
+  offer_id_prefix?: string | null
+  /** 跟卖方式：hand 防侵权 / api 强制 */
+  follow_type?: 'hand' | 'api' | null
+  /** 上架后库存 */
+  stock?: number | null
+  /** 仓库 */
+  warehouse_id?: string | null
+}
+
+export interface ListingTemplateOut {
+  id: string
+  tenant_id: string
+  name: string
+  description: string
+  platform: string
+  is_default: boolean
+  config: ListingTemplateConfig
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface ListingTemplateCreateRequest {
+  name: string
+  description?: string
+  platform?: string
+  is_default?: boolean
+  config?: ListingTemplateConfig
+}
+
+/** GET /api/v1/templates —— 上架配置模板列表（默认模板在前） */
+export async function listTemplates(): Promise<ListingTemplateOut[]> {
+  const { data } = await api.get<ListingTemplateOut[]>('/templates')
+  return data
+}
+
+/** POST /api/v1/templates —— 创建（is_default=true 清旧默认） */
+export async function createTemplate(
+  payload: ListingTemplateCreateRequest,
+): Promise<ListingTemplateOut> {
+  const { data } = await api.post<ListingTemplateOut>('/templates', payload)
+  return data
+}
+
+/** PATCH /api/v1/templates/{id} —— 部分更新 */
+export async function patchTemplate(
+  id: string,
+  payload: Partial<ListingTemplateCreateRequest>,
+): Promise<ListingTemplateOut> {
+  const { data } = await api.patch<ListingTemplateOut>(`/templates/${id}`, payload)
+  return data
+}
+
+/** DELETE /api/v1/templates/{id} —— 删除 */
+export async function deleteTemplate(id: string): Promise<void> {
+  await api.delete(`/templates/${id}`)
+}
+
+/** POST /api/v1/templates/{id}/default —— 设为默认（清旧默认） */
+export async function setTemplateDefault(id: string): Promise<ListingTemplateOut> {
+  const { data } = await api.post<ListingTemplateOut>(`/templates/${id}/default`)
+  return data
+}
+
 /** GET /api/v1/credentials —— 列表（仅掩码） */
 export async function listCredentials(): Promise<CredentialOut[]> {
   const { data } = await api.get<CredentialOut[]>('/credentials')
@@ -369,10 +444,15 @@ export interface SubmitResponse {
 }
 
 /** POST /api/v1/drafts/{id}/submit —— 立即上架（per-store 重复 → 409；跨店 → confirm_required） */
-export async function submitDraft(draftId: string, credentialId?: string): Promise<SubmitResponse> {
+export async function submitDraft(
+  draftId: string,
+  credentialId?: string,
+  templateId?: string,
+): Promise<SubmitResponse> {
   const { data } = await api.post<SubmitResponse>(`/drafts/${draftId}/submit`, {
     token: getStoredToken(),
     credential_id: credentialId || undefined,
+    template_id: templateId || undefined,
   })
   return data
 }
@@ -382,11 +462,13 @@ export async function submitDraftUpdate(
   draftId: string,
   credentialId: string | undefined,
   updateProductId: string,
+  templateId?: string,
 ): Promise<SubmitResponse> {
   const { data } = await api.post<SubmitResponse>(`/drafts/${draftId}/submit`, {
     token: getStoredToken(),
     credential_id: credentialId || undefined,
     update_product_id: updateProductId,
+    template_id: templateId || undefined,
   })
   return data
 }

@@ -2141,6 +2141,10 @@ async def v1_analytics_market_bestsellers(request: Request):
 from routes.credentials_routes import router as credentials_router
 v1.include_router(credentials_router)
 
+# ── WebUI 上架配置模板端点（P0-1）：routes/services 分层，业务逻辑在 services/template_service.py ──
+from routes.templates_routes import router as templates_router
+v1.include_router(templates_router)
+
 # ── WebUI 生图工作台端点（T7a）：生图缓存版本化 + 强制重生成 ──
 from routes.images_routes import router as images_router
 v1.include_router(images_router)

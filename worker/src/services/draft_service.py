@@ -244,6 +244,34 @@ def patch_draft(tenant_id: str, draft_id: str, data: DraftPatch) -> dict:
 # ──────────────────────────────────────────────
 
 
+def _apply_listing_template(
+    tenant_id: str,
+    envelope: dict,
+    template_id: Optional[str],
+    *,
+    is_update: bool,
+) -> dict:
+    """P0-1: 把上架配置模板注入 envelope.extensions（返回副本）。
+
+    显式 template_id → 校验归属后注入；未指定 → 租户默认模板兜底
+    （无默认模板 → 原样返回）。模板补缺省，草稿 extensions 已有值优先；
+    is_update（更新上架）→ 忽略 offer_id_prefix（重上不变式）。
+    """
+    from services.template_service import apply_template_to_envelope, get_default_template, get_template
+
+    try:
+        if template_id:
+            template = get_template(tenant_id, str(template_id))
+        else:
+            template = get_default_template(tenant_id)
+    except Exception as exc:
+        logger.warning("上架配置模板解析失败（跳过注入不阻断）template=%s: %s", template_id, str(exc)[:200])
+        return envelope
+    if not template:
+        return envelope
+    return apply_template_to_envelope(envelope, template, is_update=is_update)
+
+
 def _cross_store_scan(tenant_id: str, draft_id: str, current_client_id: str) -> tuple[list[str], bool]:
     """该草稿已提交到其他店铺（exclude 当前目标店）；返回 (existing_stores, confirm_required)。"""
     uid = _parse_draft_uuid(draft_id)
@@ -274,13 +302,18 @@ async def submit_draft(
     token: str,
     credential_id: Optional[str] = None,
     update_product_id: Optional[str] = None,
+    template_id: Optional[str] = None,
 ) -> dict:
-    """POST /drafts/{id}/submit：凭证注入 → 重复校验 → 入队 → submission 行。
+    """POST /drafts/{id}/submit：凭证注入 → 模板注入 → 重复校验 → 入队 → submission 行。
 
     update_product_id（T7 更新模式）：商品已存在 → 跳过 per-store 409 重复校验；
     offer_id 优先从 product_task_index 复用（重上不变式）；graph_payload 注入
     extensions.update_product_id/update_offer_id（仅副本，绝不持久化到草稿）；
     入队后 upsert_index 回填新 task_id（失败仅 warning 不阻断）。
+
+    template_id（P0-1 上架配置模板）：显式指定 → 校验归属后注入；
+    未指定 → 租户默认模板兜底。注入语义：模板补缺省，草稿 extensions 已有值优先；
+    update_product_id（更新模式）→ 忽略 offer_id_prefix（重上不变式）。
     """
     draft = get_draft(tenant_id, draft_id)
     envelope = draft["payload"]
@@ -332,6 +365,11 @@ async def submit_draft(
         if update_offer_id:
             payload_ext["update_offer_id"] = update_offer_id
 
+    # P0-1 上架配置模板注入（模板补缺省，草稿已有值优先）
+    payload_envelope = _apply_listing_template(
+        tenant_id, payload_envelope, template_id, is_update=bool(update_product_id)
+    )
+
     graph_payload = {
         "token": token,
         "ozon_client_id": client_id,
@@ -353,7 +391,11 @@ async def submit_draft(
                 "索引回填失败（不阻断提交）product_id=%s: %s", update_product_id, str(exc)[:200],
             )
 
-    extensions_snapshot = copy.deepcopy(envelope.get("extensions") or {})
+    # 快照 = 模板注入后的 extensions，但排除 update marker（T7 契约：
+    # update_product_id/update_offer_id 只进 graph payload 副本，不持久化）
+    extensions_snapshot = copy.deepcopy(payload_envelope.get("extensions") or {})
+    for _mk in ("update_product_id", "update_offer_id"):
+        extensions_snapshot.pop(_mk, None)
     with get_engine().begin() as conn:
         sub = conn.execute(text(
             "INSERT INTO draft_submissions "
