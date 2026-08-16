@@ -2418,7 +2418,20 @@ def prepare_ozon_upload_node(
     
     logger.info(f"最终属性数量：{len(ozon_attributes)}")
     logger.info(f"✅ offer_id唯一后缀: _{offer_id_suffix}")
-    
+
+    # ✅ 编辑更新模式（T7 注入）：extensions.update_product_id → Ozon UPDATE 模式（同 product_id 更新而非 CREATE）
+    # 契约：draft_service.submit_draft(update_product_id=...) 在 graph_payload.envelope.extensions 注入
+    #       update_product_id（必）+ update_offer_id（可选）；绝不持久化到 draft 表
+    _extensions: dict = state.extensions or {}
+    update_product_id = _extensions.get("update_product_id") if isinstance(_extensions, dict) else None
+    update_offer_id = _extensions.get("update_offer_id") if isinstance(_extensions, dict) else None
+    _update_pid_raw = str(update_product_id or "").strip()
+    is_update_mode = bool(_update_pid_raw and _update_pid_raw not in ("0", "None", "none", "null"))
+    if is_update_mode:
+        logger.info(f"✏️ 编辑更新模式（T8）：update_product_id={_update_pid_raw} → Ozon UPDATE（同卡更新而非 CREATE）")
+        if update_offer_id:
+            logger.info(f"✏️ 编辑更新模式：offer_id 覆盖为 update_offer_id={update_offer_id}")
+
     # ✅ 关键修复：Ozon API /v2/product/import 需要批量上传结构（items数组）
     # 根据Ozon官方文档，每次请求最多可以提交1000种商品的信息
     ozon_payload: Dict[str, Any] = {
@@ -2428,9 +2441,14 @@ def prepare_ozon_upload_node(
                 "name": title_ru,                              # 标题（俄语）
                 "description": description,                     # ✅ 产品描述（Ozon必填字段）
                 "vat": "0",                                    # ✅ 增值税率：0%（Ozon要求默认为"0"，平台按类目自动计算）
-                "offer_id": follow_offer_id if is_follow_sell else str(sku_id),  # 1688: item_id 直接做 offer_id，无时间戳
+                # ✅ 编辑更新模式：offer_id 用 update_offer_id（用户改 item_id 后 offer_id 漂移时覆盖）
+                #    否则保留原 offer_id（跟卖 follow_ 或 1688 sku_id）
+                "offer_id": (str(update_offer_id) if is_update_mode and update_offer_id
+                             else (follow_offer_id if is_follow_sell else str(sku_id))),  # 1688: item_id 直接做 offer_id，无时间戳
+                # ✅ 编辑更新模式：update_product_id 优先 → 指定 product_id 走 UPDATE（覆盖 follow_sell 的 product_id）
                 # ✅ 跟卖产品：指定 product_id 让 Ozon 走 UPDATE 模式（更新已有商品而非创建新的）
-                **({"product_id": int(state.product_id)} if is_follow_sell and state.product_id and str(state.product_id) not in ("0", "None", "") else {}),
+                **({"product_id": int(_update_pid_raw)} if is_update_mode else
+                   ({"product_id": int(state.product_id)} if is_follow_sell and state.product_id and str(state.product_id) not in ("0", "None", "") else {})),
                 
                 # 重量和尺寸（单位转换后）
                 "weight": weight_g,                             # 重量（克）
