@@ -9,7 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
 import { Route as authRouteRouteImport } from './routes/(auth)/route'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
@@ -24,7 +23,7 @@ import { Route as errors403RouteImport } from './routes/(errors)/403'
 import { Route as errors404RouteImport } from './routes/(errors)/404'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
-import { Route as AuthenticatedIndexIndexRouteImport } from './routes/_authenticated/index/index'
+import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as AuthenticatedBestsellersIndexRouteImport } from './routes/_authenticated/bestsellers/index'
@@ -43,11 +42,6 @@ import { Route as AuthenticatedStoresIndexRouteImport } from './routes/_authenti
 import { Route as AuthenticatedTasksIndexRouteImport } from './routes/_authenticated/tasks/index'
 import { Route as AuthenticatedTemplatesIndexRouteImport } from './routes/_authenticated/templates/index'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const authRouteRoute = authRouteRouteImport.update({
   id: '/(auth)',
   getParentRoute: () => rootRouteImport,
@@ -116,9 +110,9 @@ const errors503Route = errors503RouteImport.update({
   path: '/503',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedIndexIndexRoute = AuthenticatedIndexIndexRouteImport.update({
-  id: '/index/',
-  path: '/index/',
+const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const authUserResetRoute = authUserResetRouteImport.update({
@@ -220,7 +214,7 @@ const AuthenticatedTemplatesIndexRoute =
   } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
+  '/': typeof AuthenticatedIndexRoute
   '/forgot-password': typeof authForgotPasswordRoute
   '/oauth': typeof authOauthRoute
   '/otp': typeof authOtpRoute
@@ -241,7 +235,6 @@ export interface FileRoutesByFullPath {
   '/data-screen/': typeof AuthenticatedDataScreenIndexRoute
   '/home/': typeof AuthenticatedHomeIndexRoute
   '/image-studio/': typeof AuthenticatedImageStudioIndexRoute
-  '/index/': typeof AuthenticatedIndexIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/on-sale/': typeof AuthenticatedOnSaleIndexRoute
   '/orders/': typeof AuthenticatedOrdersIndexRoute
@@ -253,7 +246,6 @@ export interface FileRoutesByFullPath {
   '/templates/': typeof AuthenticatedTemplatesIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
   '/forgot-password': typeof authForgotPasswordRoute
   '/oauth': typeof authOauthRoute
   '/otp': typeof authOtpRoute
@@ -266,6 +258,7 @@ export interface FileRoutesByTo {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/': typeof AuthenticatedIndexRoute
   '/user/reset': typeof authUserResetRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
@@ -274,7 +267,6 @@ export interface FileRoutesByTo {
   '/data-screen': typeof AuthenticatedDataScreenIndexRoute
   '/home': typeof AuthenticatedHomeIndexRoute
   '/image-studio': typeof AuthenticatedImageStudioIndexRoute
-  '/index': typeof AuthenticatedIndexIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/on-sale': typeof AuthenticatedOnSaleIndexRoute
   '/orders': typeof AuthenticatedOrdersIndexRoute
@@ -287,7 +279,6 @@ export interface FileRoutesByTo {
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
   '/(auth)': typeof authRouteRouteWithChildren
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/(auth)/forgot-password': typeof authForgotPasswordRoute
@@ -302,6 +293,7 @@ export interface FileRoutesById {
   '/(errors)/404': typeof errors404Route
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
+  '/_authenticated/': typeof AuthenticatedIndexRoute
   '/(auth)/user/reset': typeof authUserResetRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
@@ -310,7 +302,6 @@ export interface FileRoutesById {
   '/_authenticated/data-screen/': typeof AuthenticatedDataScreenIndexRoute
   '/_authenticated/home/': typeof AuthenticatedHomeIndexRoute
   '/_authenticated/image-studio/': typeof AuthenticatedImageStudioIndexRoute
-  '/_authenticated/index/': typeof AuthenticatedIndexIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/on-sale/': typeof AuthenticatedOnSaleIndexRoute
   '/_authenticated/orders/': typeof AuthenticatedOrdersIndexRoute
@@ -345,7 +336,6 @@ export interface FileRouteTypes {
     | '/data-screen/'
     | '/home/'
     | '/image-studio/'
-    | '/index/'
     | '/keys/'
     | '/on-sale/'
     | '/orders/'
@@ -357,7 +347,6 @@ export interface FileRouteTypes {
     | '/templates/'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
     | '/forgot-password'
     | '/oauth'
     | '/otp'
@@ -370,6 +359,7 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
+    | '/'
     | '/user/reset'
     | '/errors/$error'
     | '/admin'
@@ -378,7 +368,6 @@ export interface FileRouteTypes {
     | '/data-screen'
     | '/home'
     | '/image-studio'
-    | '/index'
     | '/keys'
     | '/on-sale'
     | '/orders'
@@ -390,7 +379,6 @@ export interface FileRouteTypes {
     | '/templates'
   id:
     | '__root__'
-    | '/'
     | '/(auth)'
     | '/_authenticated'
     | '/(auth)/forgot-password'
@@ -405,6 +393,7 @@ export interface FileRouteTypes {
     | '/(errors)/404'
     | '/(errors)/500'
     | '/(errors)/503'
+    | '/_authenticated/'
     | '/(auth)/user/reset'
     | '/_authenticated/errors/$error'
     | '/_authenticated/admin/'
@@ -413,7 +402,6 @@ export interface FileRouteTypes {
     | '/_authenticated/data-screen/'
     | '/_authenticated/home/'
     | '/_authenticated/image-studio/'
-    | '/_authenticated/index/'
     | '/_authenticated/keys/'
     | '/_authenticated/on-sale/'
     | '/_authenticated/orders/'
@@ -426,7 +414,6 @@ export interface FileRouteTypes {
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
   authRouteRoute: typeof authRouteRouteWithChildren
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   errors401Route: typeof errors401Route
@@ -438,13 +425,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/(auth)': {
       id: '/(auth)'
       path: ''
@@ -543,11 +523,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof errors503RouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/index/': {
-      id: '/_authenticated/index/'
-      path: '/index'
-      fullPath: '/index/'
-      preLoaderRoute: typeof AuthenticatedIndexIndexRouteImport
+    '/_authenticated/': {
+      id: '/_authenticated/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/(auth)/user/reset': {
@@ -699,6 +679,7 @@ const authRouteRouteWithChildren = authRouteRoute._addFileChildren(
 )
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
   AuthenticatedBestsellersIndexRoute: typeof AuthenticatedBestsellersIndexRoute
@@ -706,7 +687,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDataScreenIndexRoute: typeof AuthenticatedDataScreenIndexRoute
   AuthenticatedHomeIndexRoute: typeof AuthenticatedHomeIndexRoute
   AuthenticatedImageStudioIndexRoute: typeof AuthenticatedImageStudioIndexRoute
-  AuthenticatedIndexIndexRoute: typeof AuthenticatedIndexIndexRoute
   AuthenticatedKeysIndexRoute: typeof AuthenticatedKeysIndexRoute
   AuthenticatedOnSaleIndexRoute: typeof AuthenticatedOnSaleIndexRoute
   AuthenticatedOrdersIndexRoute: typeof AuthenticatedOrdersIndexRoute
@@ -719,6 +699,7 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
   AuthenticatedBestsellersIndexRoute: AuthenticatedBestsellersIndexRoute,
@@ -726,7 +707,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDataScreenIndexRoute: AuthenticatedDataScreenIndexRoute,
   AuthenticatedHomeIndexRoute: AuthenticatedHomeIndexRoute,
   AuthenticatedImageStudioIndexRoute: AuthenticatedImageStudioIndexRoute,
-  AuthenticatedIndexIndexRoute: AuthenticatedIndexIndexRoute,
   AuthenticatedKeysIndexRoute: AuthenticatedKeysIndexRoute,
   AuthenticatedOnSaleIndexRoute: AuthenticatedOnSaleIndexRoute,
   AuthenticatedOrdersIndexRoute: AuthenticatedOrdersIndexRoute,
@@ -742,7 +722,6 @@ const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
   authRouteRoute: authRouteRouteWithChildren,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   errors401Route: errors401Route,

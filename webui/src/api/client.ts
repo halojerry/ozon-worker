@@ -116,14 +116,15 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// 响应拦截器：401 → 清除本地凭证并回登录页
+// 响应拦截器：401 → 清除本地凭证并回登录页（TanStack Router sign-in，base /app）
 api.interceptors.response.use(
   (resp) => resp,
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem(TOKEN_STORAGE_KEY)
-      if (window.location.pathname !== '/app/login') {
-        window.location.href = '/app/login'
+      const signIn = '/app/sign-in'
+      if (window.location.pathname !== signIn) {
+        window.location.href = signIn
       }
     }
     return Promise.reject(error)
