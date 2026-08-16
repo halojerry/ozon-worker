@@ -2218,6 +2218,22 @@ v1.include_router(products_router)
 from routes.shelf_routes import router as shelf_router
 v1.include_router(shelf_router)
 
+# ── 系统设置：站点运营（v0.55）：站点 Banner/通告 管理（仅管理员）──
+from routes.admin_site_routes import router as admin_site_router
+v1.include_router(admin_site_router)
+
+# ── 系统设置：站点公开端点（v0.55）：Banner/通告 只读公开 ──
+from routes.site_public_routes import router as site_public_router
+v1.include_router(site_public_router)
+
+# ── 系统设置：引擎配置（v0.55）：提示词编辑/运费费率/选品库（仅管理员）──
+from routes.admin_config_routes import router as admin_config_router
+v1.include_router(admin_config_router)
+from routes.admin_logistics_routes import router as admin_logistics_router
+v1.include_router(admin_logistics_router)
+from routes.admin_queries_routes import router as admin_queries_router
+v1.include_router(admin_queries_router)
+
 
 # 注册 v1 路由（/api/v1/* 端点）
 # 旧路径（/health, /submit_task 等）仍然可用，向后兼容
