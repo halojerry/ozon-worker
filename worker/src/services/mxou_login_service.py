@@ -131,8 +131,10 @@ def login(username: str, password: str) -> dict:
     expires_at = result.get("expires_at")
 
     # balance：mxou_get_self 失败 → None 不阻断
+    # ⚠️ 守卫：access_token 或 user_id 任一存在即调（one-api cookie 形态 access_token=None 但
+    #    有 user_id → New-Api-User header 认证；T1.1 实测 api.mxou.cn 需要此 header）
     balance = None
-    if access_token:
+    if access_token or user_id_val:
         try:
             info = mxou_platform.mxou_get_self(session, access_token, user_id=user_id_val)
             balance = info.get("balance")
@@ -145,7 +147,7 @@ def login(username: str, password: str) -> dict:
     # keys：list_tokens 失败 → [] 不阻断；选第一个 enabled → 解明文 → upsert
     raw_keys: list[dict] = []
     selected_key_id: str | None = None
-    if access_token:
+    if access_token or user_id_val:
         try:
             raw_keys = mxou_platform.mxou_list_tokens(session, access_token, user_id=user_id_val) or []
         except MxouLoginError as e:
