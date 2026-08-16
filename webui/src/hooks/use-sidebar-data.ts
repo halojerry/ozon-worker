@@ -58,7 +58,7 @@ export function useSidebarData(): SidebarData {
         title: t('管理员'),
         items: [
           { title: t('管理后台'), url: '/admin', icon: Users },
-          { title: t('系统设置'), url: '/system-settings/site', activeUrls: ['/system-settings'], icon: Settings },
+          { title: t('系统设置'), url: '/system-settings', activeUrls: ['/system-settings'], icon: Settings },
         ],
       },
     ],
