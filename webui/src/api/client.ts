@@ -856,6 +856,49 @@ export async function cancelOrder(
   return data
 }
 
+/** P2c 消息催评 */
+
+export interface MessageTemplateOut {
+  key: string
+  name: string
+  text: string
+}
+
+export interface OrderMessageRecord {
+  posting_number: string
+  template_key: string
+  message: string
+  chat_id: string
+  status: string
+  error: string
+  created_at?: string | null
+}
+
+/** GET /api/v1/orders/message-templates —— 内置消息模板（催护照/催取货/索好评） */
+export async function getMessageTemplates(): Promise<MessageTemplateOut[]> {
+  const { data } = await api.get<MessageTemplateOut[]>('/orders/message-templates')
+  return data
+}
+
+/** POST /api/v1/orders/{posting_number}/message —— 发送订单消息（chat/start + send/message） */
+export async function sendOrderMessage(
+  postingNumber: string,
+  message: string,
+  templateKey: string,
+): Promise<{ ok: boolean; posting_number: string; chat_id: string; message: string }> {
+  const { data } = await api.post(`/orders/${encodeURIComponent(postingNumber)}/message`, {
+    message,
+    template_key: templateKey,
+  })
+  return data
+}
+
+/** GET /api/v1/orders/messages —— 发送记录（租户隔离） */
+export async function listOrderMessages(): Promise<{ items: OrderMessageRecord[]; total: number }> {
+  const { data } = await api.get('/orders/messages', { params: { limit: 100 } })
+  return data
+}
+
 /* ────────────────────────────────────────────────────────────
  * /api/v1/products (M2.1) — 在售货架（在线商品索引 product_task_index）
  * ──────────────────────────────────────────────────────────── */

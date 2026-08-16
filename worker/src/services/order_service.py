@@ -397,3 +397,122 @@ def cancel_order(
         {"posting_number": posting_number, "cancel_reason_id": int(cancel_reason_id)},
         client_id, api_key, "取消订单")
     return {"ok": True, "posting_number": posting_number, "result": result}
+
+
+# ──────────────────────────────────────────────
+# P2c 消息催评：内置模板 + chat/start + send/message + 发送记录
+# ──────────────────────────────────────────────
+
+MESSAGE_TEMPLATES = [
+    {
+        "key": "passport",
+        "name": "催护照",
+        "text": "Здравствуйте! Товар, который вы покупаете: [货件编号] ([商品名称]), "
+                "Вы еще не заполнили паспорт, поторопитесь заполнить паспортные данные "
+                "и я организую доставку в кратчайшие сроки!",
+    },
+    {
+        "key": "pickup",
+        "name": "催取货",
+        "text": "Здравствуйте! Ваш товар [货件编号] прибыл в пункт выдачи, "
+                "поторопитесь и заберите посылку. Желаю вам хорошего дня!",
+    },
+    {
+        "key": "review",
+        "name": "索好评",
+        "text": "Здравствуйте! Вы получили товар [货件编号]? Если вы довольны покупкой, "
+                "пожалуйста, оставьте отзыв. Спасибо и хорошего дня!",
+    },
+]
+
+
+def get_message_templates() -> list[dict]:
+    """内置消息模板（静态，纯读）。"""
+    return MESSAGE_TEMPLATES
+
+
+def _fill_template(template_text: str, posting_number: str, product_name: str = "") -> str:
+    """占位符替换：[货件编号]→posting_number，[商品名称]→product_name（截断 60）。"""
+    name = (product_name or "")[:60]
+    return template_text.replace("[货件编号]", posting_number).replace("[商品名称]", name or posting_number)
+
+
+def list_order_messages(tenant_id: str, limit: int = 50, offset: int = 0) -> dict:
+    """发送记录（租户隔离，时间倒序）。"""
+    from storage.database.db import get_engine
+    from sqlalchemy import text
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    with get_engine().connect() as conn:
+        rows = conn.execute(text(
+            "SELECT posting_number, template_key, message, chat_id, status, error, created_at "
+            "FROM order_messages WHERE tenant_id=:tid "
+            "ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+        ), {"tid": tenant_id, "limit": limit, "offset": offset}).fetchall()
+        total = conn.execute(text(
+            "SELECT COUNT(*) FROM order_messages WHERE tenant_id=:tid"
+        ), {"tid": tenant_id}).scalar()
+    items = [{
+        "posting_number": str(r[0]),
+        "template_key": str(r[1] or ""),
+        "message": str(r[2] or ""),
+        "chat_id": str(r[3] or ""),
+        "status": str(r[4] or "sent"),
+        "error": str(r[5] or ""),
+        "created_at": r[6].isoformat() if r[6] else None,
+    } for r in rows]
+    return {"items": items, "total": int(total or 0), "limit": limit, "offset": offset}
+
+
+def send_order_message(
+    tenant_id: str,
+    posting_number: str,
+    message: str,
+    template_key: str = "custom",
+    credential_id: Optional[str] = None,
+) -> dict:
+    """发送订单消息：chat/start → send/message → 本地记录（成功/失败都留痕）。
+
+    message 1-1000 字符（Ozon 契约），超长截断到 1000。
+    """
+    from storage.database.db import get_engine
+    from sqlalchemy import text
+
+    client_id, api_key = _resolve_credential(tenant_id, credential_id)
+    msg = (message or "").strip()
+    if not msg:
+        raise HTTPException(status_code=422, detail="消息内容不能为空")
+    msg = msg[:1000]
+
+    chat_id = ""
+    status = "sent"
+    error = ""
+    try:
+        # 1. chat/start 按订单建立聊天
+        start_result = _ozon_action(
+            "/v1/chat/start", {"posting_number": posting_number}, client_id, api_key, "开启聊天")
+        chat_id = str((start_result or {}).get("chat_id") or "")
+        if not chat_id:
+            raise HTTPException(status_code=502, detail="Ozon 未返回 chat_id")
+        # 2. send/message
+        _ozon_action(
+            "/v1/chat/send/message", {"chat_id": chat_id, "message": msg},
+            client_id, api_key, "发送消息")
+    except HTTPException as exc:
+        status = "failed"
+        error = str(exc.detail)[:300]
+
+    # 本地记录（成功/失败都留痕）
+    with get_engine().begin() as conn:
+        conn.execute(text(
+            "INSERT INTO order_messages "
+            "(tenant_id, posting_number, template_key, message, chat_id, status, error) "
+            "VALUES (:tid, :pn, :tk, :msg, :chat, :st, :err)"
+        ), {
+            "tid": tenant_id, "pn": posting_number, "tk": template_key,
+            "msg": msg, "chat": chat_id, "st": status, "err": error,
+        })
+
+    if status == "failed":
+        raise HTTPException(status_code=502, detail=error or "消息发送失败")
+    return {"ok": True, "posting_number": posting_number, "chat_id": chat_id, "message": msg}

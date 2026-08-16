@@ -750,3 +750,25 @@ class OrderNote(Base):
     __table_args__ = (
         Index("idx_order_notes_tenant", "tenant_id"),
     )
+
+
+class OrderMessage(Base):
+    """订单消息发送记录（P2c 催评自动化：chat/start + send/message 结果留痕）。"""
+    __tablename__ = "order_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        server_default=text("gen_random_uuid()")
+    )
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    posting_number: Mapped[str] = mapped_column(String(64), nullable=False, comment="Ozon FBS 货件编号")
+    template_key: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"), comment="passport/pickup/review/custom")
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"), comment="发送的完整消息（俄语）")
+    chat_id: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"), comment="chat/start 返回的 chat_id")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="sent", server_default=text("'sent'"), comment="sent/failed")
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"), comment="失败原因")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_order_messages_tenant", "tenant_id"),
+    )
