@@ -57,6 +57,16 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    to: '/orders',
+    label: '订单管理',
+    show: 'always',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <path d="M4 4h16v4H4zM4 11h16v9H4zM9 4v4M15 4v4" />
+      </svg>
+    ),
+  },
+  {
     to: '/image-studio',
     label: '生图工作台',
     show: 'always',

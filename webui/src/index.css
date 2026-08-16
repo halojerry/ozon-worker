@@ -2283,6 +2283,54 @@ input {
   color: var(--color-brand);
 }
 
+/* ── P0-4 订单页：状态 tab + 详情 ── */
+
+.order-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.order-tab {
+  padding: 6px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.order-tab:hover {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+
+.order-tab.active {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--color-surface);
+}
+
+.order-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 24px;
+  margin-bottom: var(--space-4);
+}
+
+.order-detail-label {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin-right: 8px;
+}
+
+.order-detail-title {
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+
 .task-price {
   font-weight: 600;
   color: var(--color-text);

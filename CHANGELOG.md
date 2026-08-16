@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.47.0] - 2026-08-16
+
+> WebUI 订单管理（P0-4，PRD `docs/PRD-orders-v0.47.md`）：Ozon FBS 订单实时拉取 + 状态映射 + 订单页（状态 tab / 表格 / 详情 / CSV 导出）。P0 四项全部落地。worker 1023 passed（+7）/ skill 493 / webui build + tokens:validate 绿。
+
+### Feat(订单管理)
+
+- **`order_service.py`**：`/v3/posting/fbs/list` 实时拉取（不建表）→ 标准化——状态映射（Ozon raw → 统一 7 态：待处理/待备货/待发运/运输中/已签收/已取消/其他，15 个 raw 枚举全映射）+ products/金额/平台费用/估算利润/仓库/配送/取消原因提取。
+- **`GET /api/v1/orders`**（`orders_routes.py`）：credential_id（或默认店铺）+ status 筛选 + limit/offset/since_days；凭证归属校验（跨租户 404）；无默认店铺 → 400；Ozon API 失败 → 502。
+- **WebUI 订单页** `/orders`（`Orders.tsx`）：店铺下拉（默认店铺默认选中）+ 8 状态 tab（含计数）+ 表格（货件编号/状态/商品信息/金额/费用/利润/仓库配送/时间）+ 详情弹窗（全部商品明细 + 取消原因/取消方）+ CSV 导出（UTF-8 BOM）。
+- Layout 菜单新增「订单管理」（在售货架后）。
+
+### Test
+- `tests/test_order_service.py`（7 用例）：状态映射全枚举（15 raw）、products/financial/warehouse 标准化提取、取消原因提取、status 筛选透传、无默认店铺 400、Ozon API 失败 502、跨租户凭证 404。
+- 全量回归 worker **1023 passed**（1016 基线 + 7 新）；webui build + tokens:validate（新增 order-tabs/order-detail 样式走 design token）。
+
+---
+
 ## [0.46.0] - 2026-08-16
 
 > WebUI 上架记录增强（P0-2，PRD `docs/PRD-task-record-v0.46.md`）：上架方式细分（重上/编辑更新/跟卖/选品）+ CSV 导出当前筛选结果。worker 1016 passed（+8）/ skill 493 / webui build + tokens:validate 绿。

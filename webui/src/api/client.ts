@@ -666,6 +666,57 @@ export async function getTaskDraft(taskId: string): Promise<TaskDraftResponse> {
 }
 
 /* ────────────────────────────────────────────────────────────
+ * /api/v1/orders (P0-4) — Ozon FBS 订单（实时拉取，不建表）
+ * ──────────────────────────────────────────────────────────── */
+
+/** 订单统一态（Ozon raw status 映射，前端 tab 用） */
+export type OrderStatus = 'pending' | 'awaiting' | 'waiting' | 'delivering' | 'delivered' | 'cancelled' | 'other'
+
+export interface OrderProductOut {
+  name: string
+  sku?: number | null
+  quantity: number
+  price?: number | null
+  offer_id: string
+}
+
+export interface OrderOut {
+  posting_number: string
+  status: OrderStatus
+  raw_status: string
+  created_at?: string | null
+  products: OrderProductOut[]
+  product_count: number
+  total_amount: number
+  commission_amount: number
+  profit?: number | null
+  warehouse: string
+  delivery_method: string
+  cancel_reason: string
+  cancellation: string
+}
+
+export interface OrderListResponse {
+  items: OrderOut[]
+  total: number
+  limit: number
+  offset: number
+  store: { id: string; ozon_client_id: string }
+}
+
+/** GET /api/v1/orders —— 实时拉取 Ozon FBS 订单（credential_id 必填或默认店铺） */
+export async function listOrders(params?: {
+  credential_id?: string
+  status?: string
+  limit?: number
+  offset?: number
+  since_days?: number
+}): Promise<OrderListResponse> {
+  const { data } = await api.get<OrderListResponse>('/orders', { params })
+  return data
+}
+
+/* ────────────────────────────────────────────────────────────
  * /api/v1/products (M2.1) — 在售货架（在线商品索引 product_task_index）
  * ──────────────────────────────────────────────────────────── */
 

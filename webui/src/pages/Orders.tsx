@@ -1,0 +1,332 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import {
+  listCredentials,
+  listOrders,
+  type CredentialOut,
+  type OrderOut,
+  type OrderStatus,
+} from '../api/client'
+
+const STATUS_TABS: { key: string; label: string }[] = [
+  { key: 'all', label: '全部' },
+  { key: 'pending', label: '待处理' },
+  { key: 'awaiting', label: '待备货' },
+  { key: 'waiting', label: '待发运' },
+  { key: 'delivering', label: '运输中' },
+  { key: 'delivered', label: '已签收' },
+  { key: 'cancelled', label: '已取消' },
+  { key: 'other', label: '其他' },
+]
+
+const STATUS_META: Record<OrderStatus, { label: string; className: string }> = {
+  pending: { label: '待处理', className: 'status-muted' },
+  awaiting: { label: '待备货', className: 'status-uploading' },
+  waiting: { label: '待发运', className: 'status-uploading' },
+  delivering: { label: '运输中', className: 'status-uploading' },
+  delivered: { label: '已签收', className: 'status-published' },
+  cancelled: { label: '已取消', className: 'status-failed' },
+  other: { label: '其他', className: 'status-muted' },
+}
+
+function statusMeta(status: OrderStatus) {
+  return STATUS_META[status] ?? STATUS_META.other
+}
+
+function fmtTime(iso?: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function fmtMoney(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '—'
+  return `₽${v.toFixed(2)}`
+}
+
+function extractError(err: unknown, fallback: string): string {
+  const resp = (err as { response?: { data?: { detail?: string } } } | null)?.response
+  return resp?.data?.detail || fallback
+}
+
+/* ── CSV 导出（当前筛选结果，UTF-8 BOM） ── */
+
+function exportCsv(orders: OrderOut[]): void {
+  const esc = (v: unknown): string => {
+    const s = v === null || v === undefined ? '' : String(v)
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const header = ['货件编号', '状态', '商品', '件数', '金额(₽)', '费用(₽)', '利润(₽)', '仓库', '配送方式', '取消原因', '下单时间']
+  const rows = orders.map((o) => [
+    o.posting_number,
+    statusMeta(o.status).label,
+    o.products[0]?.name ?? '',
+    o.product_count,
+    o.total_amount,
+    o.commission_amount,
+    o.profit ?? '',
+    o.warehouse,
+    o.delivery_method,
+    o.cancel_reason,
+    fmtTime(o.created_at),
+  ])
+  const csv = '\uFEFF' + [header, ...rows].map((r) => r.map(esc).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const stamp = new Date().toISOString().slice(0, 10)
+  a.href = url
+  a.download = `订单-${stamp}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+export default function Orders() {
+  const [orders, setOrders] = useState<OrderOut[]>([])
+  const [credentials, setCredentials] = useState<CredentialOut[]>([])
+  const [credentialId, setCredentialId] = useState('')
+  const [statusTab, setStatusTab] = useState('all')
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [detail, setDetail] = useState<OrderOut | null>(null)
+
+  /* 店铺列表（默认店铺默认选中） */
+  useEffect(() => {
+    listCredentials()
+      .then((creds) => {
+        setCredentials(creds)
+        const def = creds.find((c) => c.is_default)
+        setCredentialId((prev) => prev || def?.id || '')
+      })
+      .catch(() => {
+        setLoadError('加载店铺列表失败')
+        setLoading(false)
+      })
+  }, [])
+
+  const load = useCallback(
+    async (silent = false) => {
+      if (!credentialId) return
+      if (!silent) setLoading(true)
+      try {
+        const data = await listOrders({
+          credential_id: credentialId,
+          status: statusTab === 'all' ? undefined : statusTab,
+          limit: 200,
+          since_days: 30,
+        })
+        setOrders(data.items)
+        setLoadError('')
+      } catch (err) {
+        setLoadError(extractError(err, '加载订单失败'))
+      } finally {
+        setLoading(false)
+      }
+    },
+    [credentialId, statusTab],
+  )
+
+  useEffect(() => {
+    if (credentialId) load()
+  }, [credentialId, statusTab, load])
+
+  const counts = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const o of orders) m.set(o.status, (m.get(o.status) ?? 0) + 1)
+    return m
+  }, [orders])
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <h1 className="page-title">订单管理</h1>
+        <span className="page-badge">{orders.length > 0 ? `${orders.length} 条` : 'P0-4'}</span>
+      </header>
+
+      <div className="toolbar">
+        <select
+          className="form-select"
+          style={{ width: '220px' }}
+          value={credentialId}
+          onChange={(e) => setCredentialId(e.target.value)}
+        >
+          <option value="">请选择店铺</option>
+          {credentials.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.shop_name || c.ozon_client_id}（{c.ozon_client_id}
+              {c.is_default ? ' · 默认' : ''}）
+            </option>
+          ))}
+        </select>
+        <button className="btn" disabled={orders.length === 0} onClick={() => exportCsv(orders)}>
+          导出 CSV
+        </button>
+        <span className="toolbar-spacer" />
+        <button className="btn btn-ghost" onClick={() => load()} disabled={loading}>
+          {loading ? '加载中…' : '刷新'}
+        </button>
+      </div>
+
+      {/* 状态 tab */}
+      <div className="order-tabs">
+        {STATUS_TABS.map((t) => {
+          const count = t.key === 'all' ? orders.length : counts.get(t.key) ?? 0
+          return (
+            <button
+              key={t.key}
+              className={`order-tab${statusTab === t.key ? ' active' : ''}`}
+              onClick={() => setStatusTab(t.key)}
+            >
+              {t.label}
+              {count > 0 ? ` (${count})` : ''}
+            </button>
+          )
+        })}
+      </div>
+
+      {!credentialId && !loading ? (
+        <div className="card">
+          <div className="empty-state">
+            <p className="empty-state-title">未配置店铺</p>
+            <p className="empty-state-text">请先在店铺管理绑定 Ozon 店铺，或选择上方店铺下拉</p>
+            <Link className="btn btn-primary" to="/stores">去店铺管理</Link>
+          </div>
+        </div>
+      ) : loading ? (
+        <div className="card">
+          <div className="empty-state">
+            <div className="spinner" style={{ borderColor: 'rgba(0, 91, 255, 0.2)', borderTopColor: 'var(--color-brand)' }} />
+            <p className="empty-state-text">加载订单…</p>
+          </div>
+        </div>
+      ) : loadError ? (
+        <div className="card">
+          <div className="empty-state">
+            <div className="form-error" role="alert"><span>{loadError}</span></div>
+            <button className="btn" onClick={() => load()}>重试</button>
+          </div>
+        </div>
+      ) : orders.length === 0 ? (
+        <div className="card">
+          <div className="empty-state">
+            <p className="empty-state-title">暂无订单</p>
+            <p className="empty-state-text">该店铺最近 30 天没有匹配的 FBS 订单</p>
+          </div>
+        </div>
+      ) : (
+        <div className="card stores-table-wrap">
+          <table className="stores-table">
+            <thead>
+              <tr>
+                <th>货件编号</th>
+                <th>状态</th>
+                <th>商品信息</th>
+                <th className="col-price">金额(₽)</th>
+                <th className="col-price">费用(₽)</th>
+                <th className="col-price">利润(₽)</th>
+                <th>仓库 / 配送</th>
+                <th className="col-time">下单时间</th>
+                <th className="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((o) => {
+                const meta = statusMeta(o.status)
+                return (
+                  <tr key={o.posting_number}>
+                    <td><span className="mono">{o.posting_number}</span></td>
+                    <td>
+                      <span className={`status-badge ${meta.className}`}>{meta.label}</span>
+                      {o.cancel_reason && (
+                        <div className="task-error-hint" title={o.cancel_reason}>
+                          {o.cancel_reason.slice(0, 30)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="col-title">
+                      <span className="draft-title" title={o.products[0]?.name}>
+                        {o.products[0]?.name || '（无商品信息）'}
+                      </span>
+                      <span className="task-product-meta mono">
+                        {o.product_count > 0 ? `共 ${o.product_count} 件 · ${o.products.length} 行` : ''}
+                        {o.products[0]?.offer_id ? ` · ${o.products[0].offer_id}` : ''}
+                      </span>
+                    </td>
+                    <td className="col-price">{fmtMoney(o.total_amount)}</td>
+                    <td className="col-price">{fmtMoney(o.commission_amount)}</td>
+                    <td className="col-price">{fmtMoney(o.profit)}</td>
+                    <td>
+                      <div className="task-account">
+                        <span className="task-shop">{o.delivery_method || '—'}</span>
+                        <span className="task-client mono">{o.warehouse || '—'}</span>
+                      </div>
+                    </td>
+                    <td className="col-time">{fmtTime(o.created_at)}</td>
+                    <td className="col-actions">
+                      <button className="btn btn-small" onClick={() => setDetail(o)}>
+                        详情
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {detail && (
+        <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && setDetail(null)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="订单详情">
+            <div className="modal-header">
+              <h2 className="modal-title">订单详情</h2>
+              <button type="button" className="modal-close" aria-label="关闭" onClick={() => setDetail(null)}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="sub-history-title mono">{detail.posting_number}</div>
+              <div className="order-detail-grid">
+                <div><span className="order-detail-label">状态</span>{statusMeta(detail.status).label}（{detail.raw_status}）</div>
+                <div><span className="order-detail-label">下单时间</span>{fmtTime(detail.created_at)}</div>
+                <div><span className="order-detail-label">金额</span>{fmtMoney(detail.total_amount)}</div>
+                <div><span className="order-detail-label">费用</span>{fmtMoney(detail.commission_amount)}</div>
+                <div><span className="order-detail-label">利润</span>{fmtMoney(detail.profit)}</div>
+                <div><span className="order-detail-label">仓库</span>{detail.warehouse || '—'}</div>
+                <div><span className="order-detail-label">配送方式</span>{detail.delivery_method || '—'}</div>
+                {detail.cancel_reason && <div><span className="order-detail-label">取消原因</span>{detail.cancel_reason}</div>}
+                {detail.cancellation && <div><span className="order-detail-label">取消方</span>{detail.cancellation}</div>}
+              </div>
+              <div className="order-detail-title">商品明细</div>
+              <table className="stores-table">
+                <thead>
+                  <tr>
+                    <th>商品</th>
+                    <th>货号</th>
+                    <th>数量</th>
+                    <th className="col-price">单价(₽)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.products.map((p, i) => (
+                    <tr key={i}>
+                      <td className="col-title">{p.name}</td>
+                      <td className="mono">{p.offer_id || '—'}</td>
+                      <td>{p.quantity}</td>
+                      <td className="col-price">{p.price != null ? `₽${p.price}` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="modal-foot">
+              <button type="button" className="btn" onClick={() => setDetail(null)}>关闭</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
