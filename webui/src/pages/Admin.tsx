@@ -10,19 +10,8 @@ import {
   type AdminUserDetail,
   type AdminUserOut,
 } from '../api/client'
-
-function fmtTime(iso?: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function extractError(err: unknown, fallback: string): string {
-  const resp = (err as { response?: { data?: { detail?: string } } } | null)?.response
-  return resp?.data?.detail || fallback
-}
+import { fmtTime } from '../lib/business/format'
+import { extractError } from '../lib/business/errors'
 
 /* ── 概览卡片 ── */
 

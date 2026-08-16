@@ -11,6 +11,10 @@ import {
   type TaskStatus,
   type TaskStatusDetail,
 } from '../api/client'
+import { extractError } from '../lib/business/errors'
+import { fmtTime } from '../lib/business/format'
+import { taskStatusMeta } from '../lib/business/status'
+import { ImageCell } from '../lib/business/components'
 
 /* ── T12 常量：13 阶段（与 worker main.py STAGE_ORDER 一致） ── */
 
@@ -57,27 +61,7 @@ function progressPercent(p: TaskProgress | null | undefined): number {
 
 const RESUBMITTABLE: TaskStatus[] = ['failed', 'rejected']
 
-const STATUS_META: Record<TaskStatus, { label: string; className: string }> = {
-  pending: { label: '排队中', className: 'status-muted' },
-  running: { label: '上架中', className: 'status-uploading' },
-  completed: { label: '已完成', className: 'status-published' },
-  failed: { label: '失败', className: 'status-failed' },
-  rejected: { label: '审核被拒', className: 'status-failed' },
-}
-
-function statusMeta(status: TaskStatus) {
-  return STATUS_META[status] ?? STATUS_META.pending
-}
-
 /* ── 工具函数 ── */
-
-function fmtTime(iso?: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
 
 function isToday(iso?: string | null): boolean {
   if (!iso) return false
@@ -123,7 +107,7 @@ function exportCsv(tasks: TaskListItem[]): void {
       t.item_id ?? '',
       t.shop_name ?? '',
       t.ozon_client_id ?? '',
-      statusMeta(t.status).label,
+      taskStatusMeta(t.status).label,
       s?.price ?? '',
       s?.old_price ?? '',
       s?.profit_rate != null ? `${(Number(s.profit_rate) * 100).toFixed(1)}%` : '',
@@ -141,11 +125,6 @@ function exportCsv(tasks: TaskListItem[]): void {
   a.download = `上架记录-${stamp}.csv`
   a.click()
   URL.revokeObjectURL(url)
-}
-
-function extractError(err: unknown, fallback: string): string {
-  const resp = (err as { response?: { data?: { detail?: string } } } | null)?.response
-  return resp?.data?.detail || fallback
 }
 
 /* ── 图标 ── */
@@ -173,22 +152,6 @@ function CheckIcon() {
       <path d="M4.5 12.5l5 5 10-11" />
     </svg>
   )
-}
-
-function ImageCell({ src, alt }: { src?: string; alt: string }) {
-  const [broken, setBroken] = useState(false)
-  if (!src || broken) {
-    return (
-      <div className="img-placeholder" role="img" aria-label={`图片加载失败：${alt}`}>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <rect x="3.5" y="3.5" width="17" height="17" rx="2.5" />
-          <circle cx="9" cy="9" r="1.8" />
-          <path d="M4.5 18.5l5-5 3.5 3.5 3-3 3.5 3.5" />
-        </svg>
-      </div>
-    )
-  }
-  return <img className="draft-thumb" src={src} alt={alt} loading="lazy" onError={() => setBroken(true)} />
 }
 
 /* ── 详情弹窗（13 阶段进度条，2.5s 轮询 task_status） ── */
@@ -236,7 +199,7 @@ function DetailModal({
   const draftImage = detail?.payload?.envelope?.draft?.images?.[0] ?? task.image
   const itemId = detail?.payload?.envelope?.draft?.item_id ?? task.item_id
   const status = detail?.status ?? task.status
-  const meta = statusMeta(status)
+  const meta = taskStatusMeta(status)
   const progress = detail?.progress ?? task.progress
   const pct = progressPercent(progress)
   const errorMsg = detail?.error_message ?? ''
@@ -694,7 +657,7 @@ export default function Tasks() {
             </thead>
             <tbody>
               {filtered.map((t) => {
-                const meta = statusMeta(t.status)
+                const meta = taskStatusMeta(t.status)
                 const resubmittable = RESUBMITTABLE.includes(t.status)
                 const summary = t.product_summary?.[0]
                 return (

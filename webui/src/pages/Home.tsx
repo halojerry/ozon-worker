@@ -1,144 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@/lib/router-compat'
 import {
-  estimateDraft,
   getDrafts,
   getTaskDraft,
   listTasks,
   resubmitTask,
   type Draft,
-  type DraftEstimate,
   type DraftSubmissionStatus,
   type TaskListItem,
   type TaskStatus,
 } from '../api/client'
-
-/* ── 状态元数据（与 Tasks/CollectBox 同源映射） ── */
-
-const TASK_STATUS_META: Record<TaskStatus, { label: string; className: string }> = {
-  pending: { label: '排队中', className: 'status-muted' },
-  running: { label: '上架中', className: 'status-uploading' },
-  completed: { label: '已完成', className: 'status-published' },
-  failed: { label: '失败', className: 'status-failed' },
-  rejected: { label: '审核被拒', className: 'status-failed' },
-}
-
-const DRAFT_STATUS_META: Record<string, { label: string; className: string }> = {
-  pending: { label: '未上架', className: 'status-muted' },
-  uploading: { label: '上架中', className: 'status-uploading' },
-  published: { label: '已上架', className: 'status-published' },
-  failed: { label: '失败', className: 'status-failed' },
-  rejected: { label: '审核被拒', className: 'status-failed' },
-}
-
-function taskStatusMeta(status: TaskStatus) {
-  return TASK_STATUS_META[status] ?? TASK_STATUS_META.pending
-}
-
-function draftStatusMeta(status: DraftSubmissionStatus | null | undefined) {
-  return DRAFT_STATUS_META[status ?? ''] ?? DRAFT_STATUS_META.pending
-}
-
-/* ── 工具函数（与 Tasks/CollectBox 同款本地实现） ── */
-
-function fmtTime(iso?: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function extractError(err: unknown, fallback: string): string {
-  const resp = (err as { response?: { data?: { detail?: string } } } | null)?.response
-  return resp?.data?.detail || fallback
-}
-
-function ImageCell({ src, alt }: { src?: string; alt: string }) {
-  const [broken, setBroken] = useState(false)
-  if (!src || broken) {
-    return (
-      <div className="img-placeholder" role="img" aria-label={`图片加载失败：${alt}`}>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <rect x="3.5" y="3.5" width="17" height="17" rx="2.5" />
-          <circle cx="9" cy="9" r="1.8" />
-          <path d="M4.5 18.5l5-5 3.5 3.5 3-3 3.5 3.5" />
-        </svg>
-      </div>
-    )
-  }
-  return <img className="draft-thumb" src={src} alt={alt} loading="lazy" onError={() => setBroken(true)} />
-}
-
-/* ── M1.2 预估懒加载：模块级 Promise 缓存去重 + 并发节流（同 CollectBox） ── */
-const estimateCache = new Map<string, Promise<DraftEstimate | null>>()
-const ESTIMATE_MAX_IN_FLIGHT = 4
-let estimateInFlight = 0
-const estimateWaiters: Array<() => void> = []
-
-function acquireEstimateSlot(): Promise<void> {
-  if (estimateInFlight < ESTIMATE_MAX_IN_FLIGHT) {
-    estimateInFlight++
-    return Promise.resolve()
-  }
-  return new Promise((resolve) => estimateWaiters.push(resolve))
-}
-
-function releaseEstimateSlot(): void {
-  estimateInFlight--
-  estimateWaiters.shift()?.()
-}
-
-function loadEstimate(draftId: string): Promise<DraftEstimate | null> {
-  const hit = estimateCache.get(draftId)
-  if (hit) return hit
-  const pending = (async () => {
-    await acquireEstimateSlot()
-    try {
-      return await estimateDraft(draftId)
-    } catch {
-      return null // 预估失败静默降级「—」，不阻断卡片
-    } finally {
-      releaseEstimateSlot()
-    }
-  })()
-  estimateCache.set(draftId, pending)
-  return pending
-}
-
-const CURRENCY_SYMBOL: Record<string, string> = { CNY: '¥', RUB: '₽', USD: '$' }
-
-function fmtMoney(v: number | undefined, currency?: string): string {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return '—'
-  const sym = (currency && CURRENCY_SYMBOL[currency]) || '¥'
-  return `${sym}${v.toFixed(2)}`
-}
-
-function fmtRate(v: number | undefined): string {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return '—'
-  return `${(v * 100).toFixed(1)}%`
-}
-
-/** 待处理草稿的决策注入：预估售价/利润/利润率（worker 定价引擎值，前端不自算） */
-function EstimateBadges({ draftId }: { draftId: string }) {
-  const [est, setEst] = useState<DraftEstimate | null>(null)
-  useEffect(() => {
-    let alive = true
-    loadEstimate(draftId).then((r) => {
-      if (alive) setEst(r)
-    })
-    return () => {
-      alive = false
-    }
-  }, [draftId])
-  return (
-    <span className="home-estimate" title="预估售价 / 预估利润 / 利润率（worker 定价引擎）">
-      <span className="home-est-price">售价 {est ? fmtMoney(est.price, est.currency) : '—'}</span>
-      <span className="home-est-profit">利润 {est ? fmtMoney(est.profit_cny, est.currency) : '—'}</span>
-      <span className="home-est-rate">率 {est ? fmtRate(est.profit_rate) : '—'}</span>
-    </span>
-  )
-}
+import { extractError } from '../lib/business/errors'
+import { fmtMoney, fmtRate, fmtTime } from '../lib/business/format'
+import { draftStatusMeta, taskStatusMeta } from '../lib/business/status'
+import { EstimateBadges, ImageCell, loadEstimate } from '../lib/business/components'
 
 /* ── 分组卡片头 ── */
 

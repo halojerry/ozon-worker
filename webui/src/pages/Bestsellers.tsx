@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { listBestsellers, type BestsellerItem } from '../api/client'
+import { extractError } from '../lib/business/errors'
 
 /* P2b 榜单选品：浏览 skill 上报的 ozon-bestsellers（类目筛选 + 排序） */
 
@@ -12,11 +13,6 @@ const ORDER_OPTIONS = [
 function fmtNum(v: number | null | undefined): string {
   if (v === null || v === undefined) return '—'
   return Number(v).toLocaleString('zh-CN')
-}
-
-function extractError(err: unknown, fallback: string): string {
-  const resp = (err as { response?: { data?: { detail?: string } } } | null)?.response
-  return resp?.data?.detail || fallback
 }
 
 export default function Bestsellers() {

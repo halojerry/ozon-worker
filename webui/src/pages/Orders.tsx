@@ -21,6 +21,8 @@ import {
   type OrderOut,
   type OrderStatus,
 } from '../api/client'
+import { extractError } from '../lib/business/errors'
+import { fmtMoney, fmtTime } from '../lib/business/format'
 
 const STATUS_TABS: { key: string; label: string }[] = [
   { key: 'all', label: '全部' },
@@ -45,24 +47,6 @@ const STATUS_META: Record<OrderStatus, { label: string; className: string }> = {
 
 function statusMeta(status: OrderStatus) {
   return STATUS_META[status] ?? STATUS_META.other
-}
-
-function fmtTime(iso?: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function fmtMoney(v: number | null | undefined): string {
-  if (v === null || v === undefined) return '—'
-  return `₽${v.toFixed(2)}`
-}
-
-function extractError(err: unknown, fallback: string): string {
-  const resp = (err as { response?: { data?: { detail?: string } } } | null)?.response
-  return resp?.data?.detail || fallback
 }
 
 /* ── CSV 导出（当前筛选结果，UTF-8 BOM） ── */
@@ -751,9 +735,9 @@ export default function Orders() {
                         {o.products[0]?.offer_id ? ` · ${o.products[0].offer_id}` : ''}
                       </span>
                     </td>
-                    <td className="col-price">{fmtMoney(o.total_amount)}</td>
-                    <td className="col-price">{fmtMoney(o.commission_amount)}</td>
-                    <td className="col-price">{fmtMoney(o.profit)}</td>
+                    <td className="col-price">{fmtMoney(o.total_amount, '₽')}</td>
+                    <td className="col-price">{fmtMoney(o.commission_amount, '₽')}</td>
+                    <td className="col-price">{fmtMoney(o.profit, '₽')}</td>
                     <td>
                       <div className="task-account">
                         <span className="task-shop">{o.delivery_method || '—'}</span>
@@ -811,9 +795,9 @@ export default function Orders() {
               <div className="order-detail-grid">
                 <div><span className="order-detail-label">状态</span>{statusMeta(detail.status).label}（{detail.raw_status}）</div>
                 <div><span className="order-detail-label">下单时间</span>{fmtTime(detail.created_at)}</div>
-                <div><span className="order-detail-label">金额</span>{fmtMoney(detail.total_amount)}</div>
-                <div><span className="order-detail-label">费用</span>{fmtMoney(detail.commission_amount)}</div>
-                <div><span className="order-detail-label">利润</span>{fmtMoney(detail.profit)}</div>
+                <div><span className="order-detail-label">金额</span>{fmtMoney(detail.total_amount, '₽')}</div>
+                <div><span className="order-detail-label">费用</span>{fmtMoney(detail.commission_amount, '₽')}</div>
+                <div><span className="order-detail-label">利润</span>{fmtMoney(detail.profit, '₽')}</div>
                 <div><span className="order-detail-label">仓库</span>{detail.warehouse || '—'}</div>
                 <div><span className="order-detail-label">配送方式</span>{detail.delivery_method || '—'}</div>
                 {detail.cancel_reason && <div><span className="order-detail-label">取消原因</span>{detail.cancel_reason}</div>}
