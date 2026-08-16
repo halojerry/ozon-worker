@@ -18,6 +18,7 @@ import {
   type ProductEditData,
   type SubmitResponse,
 } from '../api/client'
+import ImageStudioEmbed from '../components/ImageStudioEmbed'
 
 const DUP_FALLBACK = '重复商品：目标店铺已存在相同商品'
 
@@ -26,6 +27,7 @@ const EMPTY_ENVELOPE: Envelope = { draft: {}, extensions: {} }
 const SECTIONS = [
   { id: 'section-main', label: '主要信息' },
   { id: 'section-attrs', label: '产品属性' },
+  { id: 'section-images', label: '商品套图' },
   { id: 'section-variants', label: '变体设置' },
 ] as const
 
@@ -478,6 +480,27 @@ function ProductEditor({ mode, draftId, productId }: ProductEditorProps) {
     const c = credentials.find((x) => x.id === credentialId)
     return c?.shop_name || c?.ozon_client_id || '目标店铺'
   })()
+
+  /* ── 商品套图（T12）：Embed 注入值 ── */
+  /* 编辑中的图片列表（form.images 换行分隔 → URL 数组；比草稿原始更即时） */
+  const draftImages = useMemo(() => {
+    if (!form) return []
+    return form.images
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }, [form])
+  /* 卖点文本：标题 + 关键属性（前 8 条）拼接，作为生图卖点输入 */
+  const sellingText = useMemo(() => {
+    if (!form) return ''
+    const parts: string[] = []
+    if (form.title.trim()) parts.push(form.title.trim())
+    const attrParts = form.attrs
+      .map((r) => `${r.key.trim()}：${r.value.trim()}`)
+      .filter((s) => !s.startsWith('：'))
+    if (attrParts.length > 0) parts.push(attrParts.slice(0, 8).join('；'))
+    return parts.join('\n')
+  }, [form])
 
   async function runAi(field: AiField): Promise<boolean> {
     if (!draft) return false
@@ -1127,6 +1150,40 @@ function ProductEditor({ mode, draftId, productId }: ProductEditorProps) {
               </button>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* ── 商品套图（T12：生图内嵌，结果回填） ── */}
+      <section id="section-images" className="card section-card">
+        <div className="section-head">
+          <h2 className="section-title">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+              <rect x="3.5" y="3.5" width="17" height="17" rx="2.5" />
+              <circle cx="9" cy="9" r="1.8" />
+              <path d="M4.5 18.5l5-5 3.5 3.5 3-3 3.5 3.5" />
+            </svg>
+            商品套图
+          </h2>
+          <span className="section-sub">
+            配置 AI 商品图方案（原图/卖点/图型计划），保存后提交上架时按计划生成；已生成图片可回填商品图片列表
+          </span>
+        </div>
+        <div className="section-body">
+          {isNew ? (
+            <div className="empty-state">
+              <p className="empty-state-text">创建草稿后可生成商品图（保存草稿后回到本页即可配置）</p>
+            </div>
+          ) : (
+            <ImageStudioEmbed
+              mode="draft"
+              draftId={draft?.id}
+              initialOriginals={draftImages}
+              initialSelling={sellingText}
+              onGenerated={(imgs) => {
+                updateForm({ images: imgs.join('\n') })
+              }}
+            />
+          )}
         </div>
       </section>
 
