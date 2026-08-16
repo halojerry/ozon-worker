@@ -134,6 +134,71 @@ def test_require_admin_forbidden():
 
 
 # ============================================================
+# 1b. is_admin_role 纯函数（v0.55：New API 整数角色体系）
+# ============================================================
+
+def test_is_admin_role_root_int():
+    """role=100（RoleRootUser）→ 管理员。"""
+    assert admin_service.is_admin_role(100) is True
+
+
+def test_is_admin_role_admin_int():
+    """role=10（RoleAdminUser）→ 管理员。"""
+    assert admin_service.is_admin_role(10) is True
+
+
+def test_is_admin_role_common_int():
+    """role=1（RoleCommonUser）→ 非管理员。"""
+    assert admin_service.is_admin_role(1) is False
+
+
+def test_is_admin_role_guest_int():
+    """role=0（RoleGuestUser）→ 非管理员。"""
+    assert admin_service.is_admin_role(0) is False
+
+
+def test_is_admin_role_str_compat():
+    """字符串 '100'/'10'/'admin'/'root' 兼容（历史代码/测试形态）。"""
+    assert admin_service.is_admin_role("100") is True
+    assert admin_service.is_admin_role("10") is True
+    assert admin_service.is_admin_role("admin") is True
+    assert admin_service.is_admin_role("root") is True
+    assert admin_service.is_admin_role("1") is False
+    assert admin_service.is_admin_role("user") is False
+
+
+def test_is_admin_role_edge():
+    """None/空串/bool/非法字符串 → 非管理员（安全默认）。"""
+    assert admin_service.is_admin_role(None) is False
+    assert admin_service.is_admin_role("") is False
+    assert admin_service.is_admin_role("  ") is False
+    assert admin_service.is_admin_role(True) is False
+    assert admin_service.is_admin_role(False) is False
+    assert admin_service.is_admin_role("abc") is False
+
+
+def test_is_admin_user_role_100_int():
+    """Supabase 实际存储整数 100 → 管理员（修复前恒 False 的 bug 回归）。"""
+    fake = _FakeSupabase({"u1": {"id": "u1", "role": 100, "username": "boss"}})
+    with patch("main.get_supabase_client", return_value=fake):
+        assert admin_service.is_admin_user("u1") is True
+
+
+def test_is_admin_user_role_10_int():
+    """Supabase 整数 10（admin）→ 管理员。"""
+    fake = _FakeSupabase({"u1": {"id": "u1", "role": 10, "username": "op"}})
+    with patch("main.get_supabase_client", return_value=fake):
+        assert admin_service.is_admin_user("u1") is True
+
+
+def test_is_admin_user_role_1_int():
+    """Supabase 整数 1（普通用户）→ 非管理员。"""
+    fake = _FakeSupabase({"u1": {"id": "u1", "role": 1, "username": "user"}})
+    with patch("main.get_supabase_client", return_value=fake):
+        assert admin_service.is_admin_user("u1") is False
+
+
+# ============================================================
 # 2. overview 聚合
 # ============================================================
 

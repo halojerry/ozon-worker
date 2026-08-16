@@ -16,9 +16,39 @@ from utils.task_statistics import statistics_payload
 
 logger = logging.getLogger(__name__)
 
+# New API 角色体系（common/constants.go:190-193）：
+#   RoleRootUser=100（root，最高）、RoleAdminUser=10（admin）、RoleCommonUser=1、RoleGuestUser=0
+# 管理员判定 = role >= 10（root 与 admin 都是管理员）。兼容整数与字符串两种存储形态。
+ADMIN_ROLE_MIN = 10
+
+
+def is_admin_role(role) -> bool:
+    """统一管理员角色判定：role >= 10（New API RoleAdminUser/RoleRootUser）。
+
+    兼容：
+    - 整数（Supabase 实际存储：100=root / 10=admin / 1=user / 0=guest）
+    - 字符串 '100'/'10'/'admin'/'root'（历史代码/测试曾用字符串）
+    - None/空 → False
+    """
+    if role is None:
+        return False
+    if isinstance(role, bool):  # True 不等于管理员数值
+        return False
+    if isinstance(role, int):
+        return role >= ADMIN_ROLE_MIN
+    s = str(role).strip().lower()
+    if not s:
+        return False
+    if s in ("admin", "root", "superadmin"):
+        return True
+    try:
+        return int(s) >= ADMIN_ROLE_MIN
+    except ValueError:
+        return False
+
 
 def is_admin_user(user_id: str) -> bool:
-    """管理员判定：Supabase users.role='admin'；本地开发（无 Supabase）放行。"""
+    """管理员判定：Supabase users.role >= 10（root/admin）；本地开发（无 Supabase）放行。"""
     if user_id == "local_dev":
         return True
     try:
@@ -28,7 +58,7 @@ def is_admin_user(user_id: str) -> bool:
             return True  # 无 Supabase（本地）→ 放行
         rows = supabase.table("users").select("role").eq("id", user_id).limit(1).execute()
         if rows.data:
-            return str(rows.data[0].get("role") or "").lower() == "admin"
+            return is_admin_role(rows.data[0].get("role"))
     except Exception as exc:
         logger.warning("管理员判定失败 user=%s: %s", user_id, str(exc)[:200])
     return False

@@ -220,17 +220,20 @@ def login(username: str, password: str) -> dict:
 
 
 def _fetch_user_role(user_id: str) -> str:
-    """查 Supabase users.role（'admin'/'user'）；无 Supabase 或查询失败 → 'user'。"""
+    """查 Supabase users.role（'admin'/'user'）；无 Supabase 或查询失败 → 'user'。
+
+    修复 v0.54 遗留：原实现用 get_engine() 查本地 PG（无 users 表）恒返回 'user'。
+    现改走 Supabase，与 admin_service.is_admin_user 同源；role >= 10 判 admin。
+    """
     try:
-        from storage.database.db import get_engine
-        from sqlalchemy import text
-        engine = get_engine()
-        with engine.connect() as conn:
-            row = conn.execute(
-                text("SELECT role FROM users WHERE id = :uid LIMIT 1"), {"uid": user_id}
-            ).fetchone()
-        if row and row[0]:
-            return str(row[0]).lower()
+        from main import get_supabase_client
+        from services.admin_service import is_admin_role
+        supabase = get_supabase_client()
+        if supabase is None:
+            return "user"
+        rows = supabase.table("users").select("role").eq("id", user_id).limit(1).execute()
+        if rows.data:
+            return "admin" if is_admin_role(rows.data[0].get("role")) else "user"
     except Exception:
         logger.warning("查询用户 role 失败 user_id=%s（默认 user）", user_id)
     return "user"
