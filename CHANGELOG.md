@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.55.0] - 2026-08-17
+
+> 系统设置（运营配置中心）：站点运营/商业/引擎配置三块落地 + 管理员角色判定修复。架构定调——用户/充值/订阅走 api.mxou.cn 复用 New API（零后端开发），业务数据/系统设置走 worker 本地 PG。worker 1148 passed / webui build 0 错误。
+
+### Fix(管理员角色判定)
+
+- **Supabase 整数 role 兼容**：`is_admin_user` 原比较字符串 'admin'，但 users.role 实际是整数（New API RoleRootUser=100/RoleAdminUser=10）→ 管理员永远 403。新增共享 `is_admin_role`（role>=10 即管理员，兼容整数/字符串），admin_service.py 单一真相源。
+- **`_fetch_user_role` 查库修正**：原用 get_engine() 查本地 PG（无 users 表恒返回 'user'），改走 Supabase 客户端，与 is_admin_user 同源。
+- **auth_node raw REST 不收敛**（决策）：独立 3 次重试/5xx 降级链是可用性关键，标记 PRD 远期收敛项。
+- 新增 9 个 role 单测（整数 100/10/1/0 + 字符串兼容 + None/bool 边界），11 个 role 用例全过。
+
+### Feat(系统设置 A 站点运营)
+
+- 新表 `site_banners` / `site_announcements`（BigInteger Identity PK + timestamptz，Base.metadata.create_all 自动建表，无迁移）。
+- `site_service.py`：Banner/通告 CRUD + 公开只读（enabled-only + sort_order asc）。
+- `admin_site_routes.py`：/admin/site/* 8 端点（require_admin，模块内 Pydantic，announcement_type 校验 400）+ `site_public_routes.py`：/site/* 2 公开只读。
+- 13 个测试：公开只返 enabled / 403 守卫 / CRUD / type 校验。
+
+### Feat(系统设置 C 引擎配置)
+
+- **C1 提示词编辑**：`config_service.py`——13 个 config JSON 读/写/备份（保留 5 份）/回滚，路径穿越防护 + 原子写 + 非法 JSON 拒绝（写前备份，改前可回滚）。
+- **C2 运费费率管理**：`logistics_service.py`——logistics_rates 列表/单条更新（weight 区间 + vol_divisor 校验）/CSV 导入（代码层按自然键 upsert，utf-8-sig）。
+- **C3 选品库**：`queries_service.py`——blue_ocean_queries 列表/CSV+JSON 导入（ON CONFLICT (query,token_id) + admin_import 保留字 + RETURNING xmax 区分 imported/updated）/删除。
+- 3 个 admin 路由 + main.py 注册；30 个测试（config 9 文件系统 / logistics 12 / queries 9）。
+
+### Feat(WebUI 系统设置页)
+
+- **侧边栏死链修复**：/system-settings/site（无路由 404）→ /system-settings。
+- `client.ts` +244 行：/api/v1/admin/site|config|logistics|queries 22 个类型化函数。
+- `SystemSettings.tsx`：4 内页 tab——站点运营（Banner/通告 CRUD）/ 引擎配置（JSON 编辑+校验+备份回滚）/ 选品库（搜索/分页/CSV 导入/删除）/ 商业（订阅+充值启动卡）。
+- 路由 _authenticated/system-settings/（admin guard role<10 → /403）。
+
+### Feat(P3 商业接回，复用 New API)
+
+- 从 ponding-api（只读源）复制回 83 文件：features/subscriptions/（17）+ features/wallet/（30）+ components/data-table/（31）+ system-settings api/types/hook + 2 路由。
+- 生产 webui 部署于 api.mxou.cn 域，同源 /api/subscription/*、/api/user/topup* 直达 New API（无需 worker 代理）。
+- 修复 3 处 ponding 源自身类型错误（ponding 不跑 tsc）：purchase-dialog 4 未定义变量按既有字段推导 / Select onValueChange 适配 webui 模式。
+- formatQuota 已存在无需补；/subscriptions + /wallet 注册 routeTree。
+
+### 验证
+
+- worker 全量 1148 passed（基线 1105 + 43 新）；webui build 0 错误。
+- 7 个验收场景：权限 403 / 公开只返 enabled / 提示词非法 JSON 拒绝+备份 / 费率区间校验+CSV / 选品库去重 / role 渲染 / 订阅钱包渲染。
+
 ## [0.54.0] - 2026-08-17
 
 > WebUI 架构升级：照搬 mxou（api.mxou.cn / new-api default）主题 + 组件 + 布局 + TanStack Router，视觉与 mxou 完全一致。worker 1094 passed / webui build 0 错误。
