@@ -134,6 +134,37 @@ def test_login_429():
     assert ei.value.reason == "rate_limited"
 
 
+def test_login_extracts_user_id():
+    """真实探测形态：data.id=38（top-level，无 user 子对象、无 token）→ 返回 dict 新增 user_id=38。
+
+    oneapi_cookie 形态判定放宽：无 token 但 data 含 id → oneapi_cookie（真实平台
+    Set-Cookie session + 无 access_token 字段）。
+    """
+    s = _session(_resp(200, {
+        "success": True,
+        "data": {
+            "display_name": "test", "group": "default",
+            "id": 38, "role": 1, "status": 1, "username": "test",
+        },
+    }))
+    result = mp.mxou_login(s, "test", "Aa123456")
+    assert result["user_id"] == 38
+    assert result["access_token"] is None
+    assert result["shape"] == "oneapi_cookie"
+    # user_id 也可从 user 子对象兜底（newapi_jwt 形态）
+    s2 = _session(_resp(200, {
+        "success": True,
+        "data": {
+            "access_token": "t1",
+            "user": {"id": 7, "username": "bob"},
+            "session": {"expires_at": "2026-09-01"},
+        },
+    }))
+    result2 = mp.mxou_login(s2, "bob", "pw")
+    assert result2["user_id"] == 7
+    assert result2["shape"] == "newapi_jwt"
+
+
 def test_login_network_error_unavailable():
     """网络异常（session.post 抛错）→ unavailable。"""
     s = unittest.mock.Mock()
@@ -188,6 +219,44 @@ def test_self_quota_or_balance():
     assert mp.mxou_get_self(s, "tk")["balance"] is None
 
 
+def test_self_with_new_api_user_header():
+    """真实认证形态：access_token=None + user_id=38 → 请求头带 New-Api-User: 38（cookie 由 session 携带）。"""
+    s = _session(_resp(200, {"success": True, "data": {"id": 38, "quota": 251630586}}))
+    result = mp.mxou_get_self(s, None, user_id=38)
+    headers = s.get.call_args.kwargs["headers"]
+    assert headers.get("New-Api-User") == "38"
+    assert "Authorization" not in headers
+    assert result["balance"] == 251630586
+
+
+def test_self_bearer_still_works():
+    """向后兼容：access_token="sk-x" + user_id=None → 只带 Authorization: Bearer sk-x。"""
+    s = _session(_resp(200, {"data": {"id": 1, "quota": 10}}))
+    mp.mxou_get_self(s, "sk-x")
+    headers = s.get.call_args.kwargs["headers"]
+    assert headers.get("Authorization") == "Bearer sk-x"
+    assert "New-Api-User" not in headers
+
+
+def test_self_both_headers():
+    """两者都有 → Authorization 和 New-Api-User 都在（newapi 兼容）。"""
+    s = _session(_resp(200, {"data": {"id": 38, "quota": 10}}))
+    mp.mxou_get_self(s, "sk-x", user_id=38)
+    headers = s.get.call_args.kwargs["headers"]
+    assert headers.get("Authorization") == "Bearer sk-x"
+    assert headers.get("New-Api-User") == "38"
+
+
+def test_quota_passthrough():
+    """真实探测：self 返回 quota=251630586（无 balance）→ balance 原值透传（单位转换是展示层职责）。"""
+    s = _session(_resp(200, {"success": True, "data": {
+        "id": 38, "username": "test", "quota": 251630586,
+    }}))
+    result = mp.mxou_get_self(s, None, user_id=38)
+    assert result["balance"] == 251630586
+    assert result["id"] == 38
+
+
 # ═══ mxou_list_tokens ═══
 
 def test_list_tokens_paginated():
@@ -234,6 +303,19 @@ def test_list_tokens_masked_detection():
     tokens = mp.mxou_list_tokens(s, "tk")
     assert tokens[0]["masked"] is True
     assert tokens[0]["full_key"] is None
+
+
+def test_token_list_new_api_user():
+    """同 self：access_token=None + user_id=38 → New-Api-User header + data.items 分页解析。"""
+    s = _session(_resp(200, {"data": {"items": [
+        {"id": 1, "name": "a", "status": 1, "key": "qzFw**********k5dr"},
+    ]}}))
+    tokens = mp.mxou_list_tokens(s, None, user_id=38)
+    assert s.get.call_args.kwargs["headers"].get("New-Api-User") == "38"
+    assert "Authorization" not in s.get.call_args.kwargs["headers"]
+    assert len(tokens) == 1
+    assert tokens[0]["id"] == "1"
+    assert tokens[0]["masked"] is True
 
 
 # ═══ mxou_get_token_key / create / revoke ═══
