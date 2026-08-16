@@ -2169,6 +2169,9 @@ app.include_router(drafts_router)
 # ── WebUI 草稿预估售价端点（M1.2）：routes/services 分层，定价公式在 utils/pricing_estimate.py 单处定义 ──
 from routes.estimate_routes import router as estimate_router
 app.include_router(estimate_router)
+# P2a 独立定价器（无 draft_id）：POST /api/v1/estimate
+from routes.estimate_routes import router_estimate
+app.include_router(router_estimate)
 
 # ── WebUI MXOU 登录端点（T2）：routes/services 分层，业务逻辑在 services/mxou_login_service.py ──
 # 唯一无 token 鉴权端点（登录入口本身），防爆破在端点层按 username 限流

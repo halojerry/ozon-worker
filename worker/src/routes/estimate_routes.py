@@ -89,3 +89,29 @@ async def estimate_draft(draft_id: str, request: Request):
         raise HTTPException(status_code=404, detail="草稿不存在或无权访问")
 
     return estimate_service.estimate_from_envelope(payload, **_parse_overrides(raw_body))
+
+
+# ── P2a 独立定价器（无 draft_id）：单独 router，路径 /api/v1/estimate ──
+router_estimate = APIRouter(prefix="/api/v1/estimate", tags=["estimate"])
+
+
+@router_estimate.post("")
+async def estimate_envelope_standalone(request: Request):
+    """P2a 独立定价器：直接传 envelope（无 draft_id）→ 同源公式预估。
+
+    body: {envelope: {draft:{purchase_cost, weight, dimensions}, extensions:{}},
+           margin_rate?, commission_rate?, fx_buffer?}
+    与 /api/v1/drafts/{id}/estimate 同公式（estimate_from_envelope）；
+    前端/skill 不写公式铁律不变。
+    """
+    from main import _extract_token_from_body  # 局部 import 防循环
+
+    raw_body = (await request.body()).decode("utf-8", errors="replace")
+    tenant_id = _authenticate_token(_extract_token_from_body(raw_body))  # 401/403/429
+
+    body = json.loads(raw_body) if raw_body else {}
+    envelope = body.get("envelope")
+    if not isinstance(envelope, dict) or not envelope.get("draft"):
+        raise HTTPException(status_code=422, detail="缺少 envelope.draft（定价输入）")
+
+    return estimate_service.estimate_from_envelope(envelope, **_parse_overrides(raw_body))
