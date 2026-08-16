@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.45.0] - 2026-08-16
+
+> WebUI 采集箱批量上架（P0-3，PRD `docs/PRD-batch-submit-v0.45.md`）：勾选多个草稿 → 统一选店铺/上架配置模板 → 逐条提交（失败隔离）。前端改动，Worker 零改动——完全复用 v0.44 模板注入 + submit_draft 已验证逻辑。worker 1008 / skill 493 / webui build + tokens:validate 绿。
+
+### Feat(采集箱批量上架)
+
+- **采集箱工具栏「批量上架」按钮**（勾选 ≥1 草稿后可用，`pages/CollectBox.tsx`）。
+- **`BatchSubmitModal` 组件**：选目标店铺（默认店铺默认选中）+ 选上架配置模板（默认模板默认选中，复用 v0.44）+ 汇总（草稿数/采购总成本）。
+- **逐条提交循环**：`submitDraft(draftId, credentialId, templateId)` 逐个调用——**失败隔离**：单条 409（目标店铺已存在）/其他错误不中断其余，记录原因。
+- **结果视图**：成功/失败分组——成功项 task_id 可跳 `/tasks?task_id=`；失败项显示草稿标题 + 原因 + 「去编辑」链接 `/products/{id}`。
+- 提交完成后自动清空勾选并刷新采集箱（新提交状态列更新）。
+- 弹窗店铺/模板懒加载（`listCredentials` + `listTemplates`，失败降级为空下拉不阻断提交）。
+
+### Test
+- webui build + tokens:validate 绿；dev server 冒烟 200。
+- Worker 零改动（复用 submitDraft 1008 测试覆盖），无新增 worker 测试。
+
+---
+
 ## [0.44.0] - 2026-08-16
 
 > WebUI 上架配置模板（P0-1，对标上品帮 UpGoodsSetting，PRD `docs/PRD-listing-template-v0.44.md`）：可复用的上架策略模板（定价/货号前缀/跟卖/库存），提交草稿时一键套用。worker 1008 passed（+32 模板用例）/ skill 493 passed / 前端 build + tokens:validate 绿。
