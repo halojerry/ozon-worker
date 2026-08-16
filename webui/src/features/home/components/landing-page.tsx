@@ -145,7 +145,7 @@ export function LandingPage() {
           {langOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={() => setLangOpen(false)} />}
 
           {/* Download button — always visible */}
-          <Link to='/download' style={{
+          <Link to='/sign-in' style={{
             display: 'inline-flex', alignItems: 'center', gap: '4px',
             padding: '8px 18px', borderRadius: '100px',
             fontSize: '13.5px', fontWeight: 450, color: 'var(--ink-70)',
@@ -157,7 +157,7 @@ export function LandingPage() {
           </Link>
 
           {isAuth ? (
-            <Link to='/dashboard' className='btn-primary' style={{
+            <Link to='/' className='btn-primary' style={{
               padding: '8px 18px', fontSize: '13.5px', textDecoration: 'none',
               animation: 'none', boxShadow: '0 1px 2px rgba(19,17,28,0.08), 0 4px 12px rgba(75,60,122,0.18)', borderRadius: '100px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 500,
               background: 'var(--ink)', color: 'var(--canvas)',
