@@ -8,8 +8,11 @@ import {
   listCredentials,
   listOzonProducts,
   listProducts,
+  listTemplates,
+  submitDraft,
   updateProductImages,
   type CredentialOut,
+  type ListingTemplateOut,
   type OzonProductOut,
   type ProductItem,
   type ProductModerationStatus,
@@ -130,6 +133,95 @@ function WarningIcon() {
 
 /* ── 改图弹窗（T14：输入新图片 URL 列表 → update_images → 刷新 + 重新审核中） ── */
 
+/* ── P1c 商品搬家弹窗：选目标店铺 + 上架模板 → 跨店重上 ── */
+
+interface MoveModalProps {
+  item: ProductItem
+  credentials: CredentialOut[]
+  templates: ListingTemplateOut[]
+  onClose: () => void
+  onMoved: (notice: string) => void
+}
+
+function MoveModal({ item, credentials, templates, onClose, onMoved }: MoveModalProps) {
+  const [credentialId, setCredentialId] = useState('')
+  const [templateId, setTemplateId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const def = credentials.find((c) => c.is_default)
+    setCredentialId(def?.id ?? '')
+  }, [credentials])
+
+  async function handleMove() {
+    if (!credentialId || !item.draft_id) return
+    setBusy(true)
+    setError('')
+    try {
+      const res = await submitDraft(item.draft_id, credentialId, templateId || undefined)
+      onMoved(`已提交搬家任务 ${res.task_id.slice(0, 8)}…（商品 ${item.product_id} → 新店铺）`)
+      onClose()
+    } catch (e) {
+      setError(extractError(e, '搬家失败'))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="商品搬家">
+        <div className="modal-header">
+          <h2 className="modal-title">商品搬家</h2>
+          <button type="button" className="modal-close" aria-label="关闭" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          <div className="sub-history-title mono">{item.product_id}</div>
+          <p className="modal-text">将把该商品（含草稿数据）复制上架到目标店铺（跨店重上）</p>
+          {error && <div className="form-error" role="alert"><span>{error}</span></div>}
+          <div className="field">
+            <label className="field-label" htmlFor="move-store">目标店铺</label>
+            <select
+              id="move-store"
+              className="field-select"
+              value={credentialId}
+              onChange={(e) => setCredentialId(e.target.value)}
+            >
+              <option value="">请选择店铺</option>
+              {credentials.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.shop_name || c.ozon_client_id}（{c.ozon_client_id}
+                  {c.is_default ? ' · 默认' : ''}）
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="move-template">上架配置（选填）</label>
+            <select
+              id="move-template"
+              className="field-select"
+              value={templateId}
+              onChange={(e) => setTemplateId(e.target.value)}
+            >
+              <option value="">不使用</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}{t.is_default ? '（默认）' : ''}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button type="button" className="btn" onClick={onClose} disabled={busy}>取消</button>
+          <button type="button" className="btn btn-primary" onClick={handleMove} disabled={busy || !credentialId}>
+            {busy ? '搬家中…' : '确认搬家'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function UpdateImagesModal({
   product,
   onClose,
@@ -224,7 +316,22 @@ export default function OnSale() {
   const [ozonSelected, setOzonSelected] = useState<Set<string>>(new Set())
   const [bulkAction, setBulkAction] = useState<'price' | 'stock' | 'archive' | 'unarchive' | null>(null)
   const [bulkNotice, setBulkNotice] = useState('')
+  /** P1c 商品搬家：目标商品 + 店铺/模板缓存 */
+  const [moveTarget, setMoveTarget] = useState<ProductItem | null>(null)
+  const [moveCredentials, setMoveCredentials] = useState<CredentialOut[]>([])
+  const [moveTemplates, setMoveTemplates] = useState<ListingTemplateOut[]>([])
   const navigate = useNavigate()
+
+  /** P1c 打开搬家弹窗：懒加载店铺 + 模板 */
+  const openMove = (item: ProductItem) => {
+    setMoveTarget(item)
+    Promise.all([listCredentials(), listTemplates()])
+      .then(([creds, tpls]) => {
+        setMoveCredentials(creds)
+        setMoveTemplates(tpls)
+      })
+      .catch(() => {})
+  }
 
   async function handleEdit(item: ProductItem) {
     setEditBusyId(item.product_id)
@@ -603,6 +710,11 @@ export default function OnSale() {
                         <button className="row-action" disabled={!!editing} onClick={() => setEditing(item)}>
                           改图
                         </button>
+                        {item.draft_id && (
+                          <button className="row-action" disabled={!!editing} onClick={() => openMove(item)}>
+                            搬店
+                          </button>
+                        )}
                         <a
                           className="row-action"
                           href={`https://www.ozon.ru/product/${item.product_id}/`}
@@ -674,6 +786,19 @@ export default function OnSale() {
           onClose={() => setBulkAction(null)}
           onApplyPrice={applyBulkPrice}
           onApplyStock={applyBulkStock}
+        />
+      )}
+
+      {moveTarget && (
+        <MoveModal
+          item={moveTarget}
+          credentials={moveCredentials}
+          templates={moveTemplates}
+          onClose={() => setMoveTarget(null)}
+          onMoved={(msg) => {
+            setNotice(msg)
+            load(offset, true)
+          }}
         />
       )}
         </>
