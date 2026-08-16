@@ -1,18 +1,31 @@
-/**
- * Skeleton — 加载占位基元（M2.4 组件抽象基线）
- * 消费 .skeleton 类（color/radius/duration/easing 全套 token），
- * 供列表/卡片加载态渐进迁移；prefers-reduced-motion 下自动降级为静态底色。
- */
+/*
+Copyright (C) 2023-2026 QuantumNous
 
-export interface SkeletonProps {
-  width?: number | string
-  height?: number | string
-  circle?: boolean
-  className?: string
-  style?: React.CSSProperties
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { cn } from '@/lib/utils'
+
+function Skeleton({ className, ...props }: React.ComponentProps<'div'>) {
+  return (
+    <div
+      data-slot='skeleton'
+      className={cn('bg-muted animate-pulse rounded-md', className)}
+      {...props}
+    />
+  )
 }
 
-export default function Skeleton({ width, height = 14, circle = false, className = '', style }: SkeletonProps) {
-  const classes = ['skeleton', circle ? 'circle' : '', className].filter(Boolean).join(' ')
-  return <span className={classes} style={{ width, height, ...style }} aria-hidden="true" />
-}
+export { Skeleton }
