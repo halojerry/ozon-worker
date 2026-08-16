@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -280,3 +281,118 @@ def test_password_not_in_logs(client):
                 texts.append(str(v))
     joined = " ".join(texts)
     assert PASSWORD not in joined, f"logger 泄漏密码: {joined[:200]}"
+
+
+# ════════════════════════════════════════════════════════════════
+# ═══ T4 密钥管理（list/create/revoke/select）═══════════════════
+# ════════════════════════════════════════════════════════════════
+# 鉴权：全 mock _authenticate（本地 supabase=None → tenant_id="local_dev"）；
+# 用 Bearer 头触发 _authenticate → _authenticate_token 真实本地降级路径。
+
+
+def _put_session(tenant_id: str = "local_dev", access_token: str = "at-1"):
+    """向模块级 session_store 写入 tenant session（测试前隔离）。"""
+    mxou_login_service.session_store.put(tenant_id, {"access_token": access_token, "expires_at": None})
+
+
+def test_list_keys_auth_required(client):
+    """无 Bearer/body token → _authenticate → 401。"""
+    resp = client.get("/api/v1/mxou/keys")
+    assert resp.status_code == 401
+
+
+def test_list_keys_ok(client):
+    """mock session + mxou_list_tokens → 列表脱敏（绝无 full_key）。"""
+    _put_session()
+    with patch.object(mxou_platform, "mxou_list_tokens", return_value=[
+        {"id": "tok-1", "name": "default", "status": 1, "masked": True, "full_key": None},
+        {"id": "tok-2", "name": "work", "status": 0, "masked": True, "full_key": None},
+    ]):
+        resp = client.get("/api/v1/mxou/keys", headers={"Authorization": "Bearer sk-local"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == [
+        {"id": "tok-1", "name": "default", "status": 1, "masked": True},
+        {"id": "tok-2", "name": "work", "status": 0, "masked": True},
+    ]
+    assert "full_key" not in resp.text
+
+
+def test_list_keys_no_session(client):
+    """MxouSessionStore 无记录 → 401「请重新登录」。"""
+    mxou_login_service.session_store.pop("local_dev")
+    resp = client.get("/api/v1/mxou/keys", headers={"Authorization": "Bearer sk-local"})
+    assert resp.status_code == 401
+    assert "重新登录" in resp.text
+
+
+def test_create_key_ok(client):
+    """mxou_create_token 返回 full_key → upsert（去 sk- 前缀 status=1）→ 响应含完整 key（仅一次）。"""
+    sb = FakeSupabase()
+    _put_session()
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=sb), \
+         patch.object(mxou_platform, "mxou_create_token",
+                      return_value={"id": "tok-new", "name": "my-key", "full_key": "sk-xyz789abc"}):
+        resp = client.post("/api/v1/mxou/keys", json={"name": "my-key"},
+                           headers={"Authorization": "Bearer sk-local"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["id"] == "tok-new"
+    assert body["name"] == "my-key"
+    assert body["key"] == "sk-xyz789abc"  # 新建一次性返回完整 key（用户复制）
+    # upsert 被调：key 已去 sk- 前缀 + status=1 + on_conflict=key
+    rows, on_conflict = sb._tokens.calls[0]
+    assert rows == [{"key": "xyz789abc", "user_id": "local_dev", "status": 1}]
+    assert on_conflict == "key"
+
+
+def test_create_key_no_session(client):
+    """无 session → 401「请重新登录」。"""
+    mxou_login_service.session_store.pop("local_dev")
+    resp = client.post("/api/v1/mxou/keys", json={"name": "x"},
+                       headers={"Authorization": "Bearer sk-local"})
+    assert resp.status_code == 401
+    assert "重新登录" in resp.text
+
+
+def test_revoke_key_ok(client):
+    """mxou_revoke_token → True → 204。"""
+    _put_session()
+    with patch.object(mxou_platform, "mxou_revoke_token", return_value=True):
+        resp = client.delete("/api/v1/mxou/keys/tok-1", headers={"Authorization": "Bearer sk-local"})
+    assert resp.status_code == 204, resp.text
+
+
+def test_select_key_ok(client):
+    """mxou_get_token_key → {key: full_key}（仅一次）+ upsert 被调（去 sk- 前缀 status=1）。"""
+    sb = FakeSupabase()
+    _put_session()
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=sb), \
+         patch.object(mxou_platform, "mxou_get_token_key", return_value="sk-abc123def456"):
+        resp = client.post("/api/v1/mxou/keys/tok-1/select",
+                           headers={"Authorization": "Bearer sk-local"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"key": "sk-abc123def456"}
+    rows, on_conflict = sb._tokens.calls[0]
+    assert rows == [{"key": "abc123def456", "user_id": "local_dev", "status": 1}]
+    assert on_conflict == "key"
+
+
+def test_tenant_isolation():
+    """A 的 session 不供 B 用：put userA，get userB → None → _get_session_for_tenant 401。"""
+    mxou_login_service.session_store.put("userA", {"access_token": "at-A"})
+    with pytest.raises(HTTPException) as ei:
+        mxou_login_service._get_session_for_tenant("userB")
+    assert ei.value.status_code == 401
+    assert "重新登录" in ei.value.detail
+    # A 自己的 session 正常解出
+    data, token = mxou_login_service._get_session_for_tenant("userA")
+    assert token == "at-A"
+
+
+def test_cookie_session_no_token():
+    """session 有但 access_token 空（oneapi cookie 形态）→ 401「会话无效」。"""
+    mxou_login_service.session_store.put("cookie-tenant", {"access_token": "", "expires_at": None})
+    with pytest.raises(HTTPException) as ei:
+        mxou_login_service._get_session_for_tenant("cookie-tenant")
+    assert ei.value.status_code == 401
+    assert "会话无效" in ei.value.detail
