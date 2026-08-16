@@ -311,3 +311,85 @@ def get_order_label(
         "content_type": "application/pdf",
         "label_base64": pdf_b64 if isinstance(pdf_b64, str) else base64.b64encode(pdf_b64).decode(),
     }
+
+
+# ──────────────────────────────────────────────
+# P1-2 订单写入操作：备货发货 / 取消（真实影响，谨慎调用）
+# ──────────────────────────────────────────────
+
+def _resolve_credential(tenant_id: str, credential_id: Optional[str]) -> tuple[str, str]:
+    """凭证解析（credential_id 或默认店铺）；无默认 → 400。"""
+    if credential_id:
+        return get_decrypted(tenant_id, str(credential_id))
+    default = get_default_credential(tenant_id)
+    if default is None:
+        raise HTTPException(
+            status_code=400,
+            detail="未配置默认店铺：请传 credential_id 或先在店铺管理设置默认店铺",
+        )
+    return default["ozon_client_id"], default["api_key"]
+
+
+def _ozon_action(endpoint: str, body: dict, client_id: str, api_key: str, what: str) -> dict:
+    """统一写入操作包装：ozon_post → result；失败 502。"""
+    try:
+        resp = ozon_post(client_id, api_key, endpoint, body, timeout=30, language="RU")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("%s失败 client=%s: %s", what, client_id, str(exc)[:200])
+        raise HTTPException(status_code=502, detail=f"Ozon {what}接口请求失败：{str(exc)[:120]}")
+    return resp.get("result") or {}
+
+
+def ship_order(
+    tenant_id: str,
+    posting_number: str,
+    credential_id: Optional[str] = None,
+) -> dict:
+    """备货发货：/v4/posting/fbs/ship（对标上品帮批量备货）。
+
+    packages[].products 从订单商品映射（product_id=sku, quantity）；
+    传入空时省略 products 让 Ozon 自动取单内全部商品（调用方需确认订单属主）。
+    """
+    client_id, api_key = _resolve_credential(tenant_id, credential_id)
+    packages = [{
+        "posting_number": posting_number,
+        "packages_count": 1,
+    }]
+    result = _ozon_action(
+        "/v4/posting/fbs/ship", {"packages": packages}, client_id, api_key, "备货发货")
+    return {"ok": True, "posting_number": posting_number, "result": result}
+
+
+def list_cancel_reasons(
+    tenant_id: str,
+    posting_number: str,
+    credential_id: Optional[str] = None,
+) -> list[dict]:
+    """取消原因列表：/v1/posting/fbs/cancel-reason → [{id, title}]。"""
+    client_id, api_key = _resolve_credential(tenant_id, credential_id)
+    result = _ozon_action(
+        "/v1/posting/fbs/cancel-reason", {"posting_number": posting_number},
+        client_id, api_key, "取消原因查询")
+    reasons = result.get("cancel_reasons") if isinstance(result, dict) else result
+    out = []
+    for r in reasons or []:
+        if isinstance(r, dict):
+            out.append({"id": int(r.get("id") or 0), "title": str(r.get("title") or "")})
+    return out
+
+
+def cancel_order(
+    tenant_id: str,
+    posting_number: str,
+    cancel_reason_id: int,
+    credential_id: Optional[str] = None,
+) -> dict:
+    """取消订单：/v2/posting/fbs/cancel（对标毛子取消货件选原因）。"""
+    client_id, api_key = _resolve_credential(tenant_id, credential_id)
+    result = _ozon_action(
+        "/v2/posting/fbs/cancel",
+        {"posting_number": posting_number, "cancel_reason_id": int(cancel_reason_id)},
+        client_id, api_key, "取消订单")
+    return {"ok": True, "posting_number": posting_number, "result": result}
