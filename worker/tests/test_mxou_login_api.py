@@ -103,9 +103,10 @@ def _platform_mocks(*, login_result=LOGIN_OK, login_error=None, self_result=None
 # ═══ 1. 登录成功 ═══
 
 def test_login_success(client):
-    """mock 四平台函数 → 返回 username/balance/keys(脱敏)/selected_key_id；upsert 去 sk- 前缀 + status=1。"""
+    """mock 四平台函数 → 返回 username/真实余额/keys(脱敏)/selected_key_id/key；upsert 去 sk- 前缀 + status=1。"""
     sb = FakeSupabase()
     with patch("storage.database.supabase_client.get_supabase_client", return_value=sb), \
+         patch("utils.mxou_api.get_mxou_balance", return_value=503.26), \
          _platform_mocks() as mocks:
         resp = client.post("/api/v1/mxou/login",
                            json={"username": "alice", "password": PASSWORD})
@@ -113,8 +114,10 @@ def test_login_success(client):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["username"] == "alice"
-    assert body["balance"] == 88.8
+    # 真实余额：get_mxou_balance（/v1/dashboard/billing/subscription 美元），非 quota 原值
+    assert body["balance"] == 503.26
     assert body["selected_key_id"] == "tok-1"
+    assert body["key"] == "sk-abc123def456"
     assert body["session_expires_at"] == "2026-09-01T00:00:00Z"
     # keys 脱敏（无 full_key）
     assert body["keys"] == [{"id": "tok-1", "name": "default", "status": 1, "masked": True}]
@@ -123,12 +126,29 @@ def test_login_success(client):
     rows, on_conflict = sb._tokens.calls[0]
     assert rows == [{"key": "abc123def456", "user_id": "uid-42", "status": 1}]
     assert on_conflict == "key"
-    # 明文 full_key 绝不在响应
-    assert "abc123def456" not in resp.text
-    assert "full_key" not in resp.text
-    # session 已按 user id 缓存（供 T4 密钥管理复用）
+    # 响应含选中 key 完整值（WebUI 用它直接建立登录态）
+    assert body["key"] in resp.text
+    # session 已按 user id 缓存（供 T4 密钥管理复用）+ selected_full_key
     cached = mxou_login_service.session_store.get("uid-42")
     assert cached and cached["access_token"] == "at-1"
+    assert cached and cached["selected_full_key"] == "sk-abc123def456"
+
+
+def test_login_key_prefix_normalized(client):
+    """MXOU 存储格式无 sk- 前缀（Supabase tokens 表同规）→ 返回前端 key 自动补 sk-。"""
+    with patch.object(mxou_platform, "mxou_login", return_value={
+        "access_token": "at-1", "user_id": "uid-42",
+        "user": {"id": "uid-42", "username": "alice"},
+        "expires_at": None, "shape": "oneapi_cookie",
+    }), patch.object(mxou_platform, "mxou_get_self", return_value={"id": "uid-42", "username": "alice"}), \
+         patch.object(mxou_platform, "mxou_list_tokens", return_value=[
+             {"id": "tok-1", "name": "default", "status": 1, "masked": True, "full_key": None},
+         ]), \
+         patch.object(mxou_platform, "mxou_get_token_key", return_value="abc123def456"):
+        resp = client.post("/api/v1/mxou/login",
+                           json={"username": "alice", "password": PASSWORD})
+    assert resp.status_code == 200
+    assert resp.json()["key"] == "sk-abc123def456"
 
 
 # ═══ 2-6. 错误映射 ═══
@@ -263,7 +283,7 @@ def test_login_upsert_local_no_supabase(client):
 # ═══ 10. keys 脱敏 ═══
 
 def test_login_keys_masked_in_response(client):
-    """响应 keys 字段集合 = {id, name, masked, status}，绝无 full_key。"""
+    """响应 keys 字段集合 = {id, name, masked, status}（无 full_key）；选中 key 完整值只在顶层 key 字段。"""
     with _platform_mocks(tokens=[
         {"id": "t1", "name": "a", "status": 1, "masked": True, "full_key": None},
         {"id": "t2", "name": "b", "status": 0, "masked": True, "full_key": None},
@@ -271,10 +291,12 @@ def test_login_keys_masked_in_response(client):
         resp = client.post("/api/v1/mxou/login",
                            json={"username": "alice", "password": PASSWORD})
     assert resp.status_code == 200
-    for item in resp.json()["keys"]:
+    body = resp.json()
+    for item in body["keys"]:
         assert set(item.keys()) == {"id", "name", "masked", "status"}
     assert "full_key" not in resp.text
-    assert "sk-" not in resp.text
+    # keys 列表不含完整 key；完整 key 只在顶层 key 字段（登录响应一次性返回）
+    assert body["key"] == "sk-abc123def456"
 
 
 # ═══ 11. session store TTL ═══

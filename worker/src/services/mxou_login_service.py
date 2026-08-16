@@ -133,13 +133,12 @@ def login(username: str, password: str) -> dict:
     # balance：mxou_get_self 失败 → None 不阻断
     # ⚠️ 守卫：access_token 或 user_id 任一存在即调（one-api cookie 形态 access_token=None 但
     #    有 user_id → New-Api-User header 认证；T1.1 实测 api.mxou.cn 需要此 header）
-    balance = None
+    user_info: dict = {}
     if access_token or user_id_val:
         try:
-            info = mxou_platform.mxou_get_self(session, access_token, user_id=user_id_val)
-            balance = info.get("balance")
+            user_info = mxou_platform.mxou_get_self(session, access_token, user_id=user_id_val) or {}
         except MxouLoginError as e:
-            logger.warning("mxou_get_self 失败 username=%s reason=%s（balance=None 不阻断）",
+            logger.warning("mxou_get_self 失败 username=%s reason=%s（user_info 空不阻断）",
                            username, e.reason)
         except Exception as exc:  # pragma: no cover - 防御未知异常
             logger.warning("mxou_get_self 异常 username=%s: %s", username, exc)
@@ -147,6 +146,7 @@ def login(username: str, password: str) -> dict:
     # keys：list_tokens 失败 → [] 不阻断；选第一个 enabled → 解明文 → upsert
     raw_keys: list[dict] = []
     selected_key_id: str | None = None
+    selected_full_key: str | None = None
     if access_token or user_id_val:
         try:
             raw_keys = mxou_platform.mxou_list_tokens(session, access_token, user_id=user_id_val) or []
@@ -166,19 +166,34 @@ def login(username: str, password: str) -> dict:
                     continue
                 if full_key:
                     selected_key_id = str(k["id"])
+                    # 存储格式无 sk- 前缀（Supabase tokens 表同规）；返回前端需 sk- 前缀
+                    # （_authenticate_token 剥离 sk- 后查表，get_mxou_balance 补 sk- 后调 API）
+                    selected_full_key = full_key if full_key.startswith("sk-") else f"sk-{full_key}"
                     if user_id:
                         _upsert_supabase_token(user_id, full_key)
                 break
 
-    # session 缓存（供 T4 密钥管理复用；含 user_id 供 New-Api-User 认证）
+    # 真实余额：用选中 key 走 worker 现有 get_mxou_balance（/v1/dashboard/billing/subscription
+    # 的 balance 美元字段，与 _check_mxou_balance 同源）；失败 → None 不阻断
+    balance = None
+    if selected_full_key:
+        from utils.mxou_api import get_mxou_balance
+        try:
+            balance = get_mxou_balance(selected_full_key)
+        except Exception as exc:  # pragma: no cover - 防御未知异常
+            logger.warning("get_mxou_balance 失败 username=%s: %s（balance=None 不阻断）", username, exc)
+
+    # session 缓存（供 T4 密钥管理复用；含 user_id 供 New-Api-User 认证 + selected key 供余额复用）
     if user_id:
         session_store.put(user_id, {
             "access_token": access_token,
             "expires_at": expires_at,
             "user_id": user_id_val,
+            "selected_full_key": selected_full_key,
         })
 
-    # 响应 keys 脱敏：只留 id/name/status/masked（full_key 只在服务端流转）
+    # 响应 keys 脱敏：只留 id/name/status/masked（full_key 只在服务端流转，
+    # 但登录成功返回选中 key 的完整值一次——WebUI 直接用它建立登录态）
     masked_keys = [
         {
             "id": k.get("id"),
@@ -191,10 +206,11 @@ def login(username: str, password: str) -> dict:
     ]
 
     return {
-        "username": str(user.get("username") or username),
+        "username": str(user.get("username") or user_info.get("username") or username),
         "balance": balance,
         "keys": masked_keys,
         "selected_key_id": selected_key_id,
+        "key": selected_full_key,
         "session_expires_at": expires_at,
     }
 

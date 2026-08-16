@@ -207,11 +207,11 @@ def test_self_whitelist_strips_sensitive():
 
 
 def test_self_quota_or_balance():
-    """quota → balance；仅 balance → balance；都无 → None。"""
-    # quota=100
+    """仅 balance → 原值（美元）；quota → None（真实余额走 get_mxou_balance）；都无 → None。"""
+    # quota=100 → None（不在此换算）
     s = _session(_resp(200, {"data": {"quota": 100}}))
-    assert mp.mxou_get_self(s, "tk")["balance"] == 100
-    # 仅 balance=5.5
+    assert mp.mxou_get_self(s, "tk")["balance"] is None
+    # 仅 balance=5.5（美元原值，不换算）
     s = _session(_resp(200, {"data": {"balance": 5.5}}))
     assert mp.mxou_get_self(s, "tk")["balance"] == 5.5
     # 都无 → None
@@ -226,7 +226,7 @@ def test_self_with_new_api_user_header():
     headers = s.get.call_args.kwargs["headers"]
     assert headers.get("New-Api-User") == "38"
     assert "Authorization" not in headers
-    assert result["balance"] == 251630586
+    assert result["balance"] is None  # quota 不在此换算（真实余额走 get_mxou_balance）
 
 
 def test_self_bearer_still_works():
@@ -248,12 +248,12 @@ def test_self_both_headers():
 
 
 def test_quota_passthrough():
-    """真实探测：self 返回 quota=251630586（无 balance）→ balance 原值透传（单位转换是展示层职责）。"""
+    """真实探测：self 返回 quota=251630586（无 balance）→ balance=None（换算职责在 get_mxou_balance）。"""
     s = _session(_resp(200, {"success": True, "data": {
         "id": 38, "username": "test", "quota": 251630586,
     }}))
     result = mp.mxou_get_self(s, None, user_id=38)
-    assert result["balance"] == 251630586
+    assert result["balance"] is None
     assert result["id"] == 38
 
 
