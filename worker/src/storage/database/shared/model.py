@@ -695,3 +695,33 @@ class ProductTaskIndex(Base):
         Index("idx_pti_tenant_offer", "tenant_id", "offer_id"),
         Index("idx_pti_draft", "draft_id"),
     )
+
+
+class ListingTemplate(Base):
+    """上架配置模板（P0-1，对标上品帮 UpGoodsSetting）。
+
+    config = JSONB：{margin_rate, commission_rate, fx_buffer, offer_id_prefix,
+    follow_type, stock, warehouse_id}——白名单字段（template_service 校验）。
+    提交草稿时可指定 template_id → worker 把模板参数注入 envelope.extensions
+    （草稿已显式设置的字段优先，模板只补缺省）；不指定 → 用租户默认模板。
+    """
+    __tablename__ = "listing_templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        server_default=text("gen_random_uuid()")
+    )
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False, comment="配置名称")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"), comment="备注")
+    platform: Mapped[str] = mapped_column(Text, nullable=False, default="OZON", server_default=text("'OZON'"), comment="平台（当前仅 OZON）")
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"), comment="默认模板（提交未指定时自动使用）")
+    config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"), comment="白名单扩展参数")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_listing_templates_tenant", "tenant_id"),
+        # 部分唯一索引：每租户最多一个 is_default=true（设默认时先清旧默认）
+        Index("uq_listing_templates_default", "tenant_id", unique=True, postgresql_where=text("is_default")),
+    )

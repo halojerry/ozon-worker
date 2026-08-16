@@ -318,6 +318,53 @@ class ValidateResponse(BaseModel):
 
 
 # ──────────────────────────────────────────────
+# /api/v1/templates (P0-1) — 上架配置模板
+# ──────────────────────────────────────────────
+
+
+class ListingTemplateConfig(BaseModel):
+    """模板扩展参数（白名单；全部可选，None 表示不注入）。"""
+    margin_rate: Optional[float] = Field(None, ge=0.0, le=1.0, description="利润率（0-1），不设则 worker 默认 0.25")
+    commission_rate: Optional[float] = Field(None, ge=0.0, le=0.5, description="佣金率；0=让 worker 自动查店铺真实佣金")
+    fx_buffer: Optional[float] = Field(None, ge=0.0, le=0.5, description="汇率缓冲（0-0.5），不设则 worker 默认 0.05")
+    offer_id_prefix: Optional[str] = Field(None, description="货号前缀（仅新建上架生效；更新模式忽略）")
+    follow_type: Optional[str] = Field(None, pattern="^(hand|api)$", description="跟卖方式：hand 防侵权 / api 强制")
+    stock: Optional[int] = Field(None, ge=0, description="上架后库存（extensions.stock）")
+    warehouse_id: Optional[str] = Field(None, description="仓库（extensions.warehouse_id）")
+
+
+class ListingTemplateCreate(BaseModel):
+    """创建上架配置模板请求。"""
+    name: str = Field(..., min_length=1, max_length=50, description="配置名称")
+    description: str = Field("", description="备注")
+    platform: str = Field("OZON", description="平台（当前仅 OZON）")
+    is_default: bool = Field(False, description="默认模板（置 true 时同租户旧默认自动清）")
+    config: ListingTemplateConfig = Field(default_factory=ListingTemplateConfig, description="扩展参数")
+
+
+class ListingTemplateUpdate(BaseModel):
+    """部分更新上架配置模板请求（仅提供需更新的字段）。"""
+    name: Optional[str] = Field(None, min_length=1, max_length=50)
+    description: Optional[str] = None
+    platform: Optional[str] = None
+    is_default: Optional[bool] = None
+    config: Optional[ListingTemplateConfig] = None
+
+
+class ListingTemplateOut(BaseModel):
+    """上架配置模板响应。"""
+    id: str = Field(..., description="模板 UUID")
+    tenant_id: str = Field(..., description="所属租户")
+    name: str = Field(..., description="配置名称")
+    description: str = Field("", description="备注")
+    platform: str = Field("OZON", description="平台")
+    is_default: bool = Field(False, description="默认模板标记")
+    config: ListingTemplateConfig = Field(default_factory=ListingTemplateConfig, description="扩展参数")
+    created_at: Optional[datetime] = Field(None, description="创建时间")
+    updated_at: Optional[datetime] = Field(None, description="更新时间")
+
+
+# ──────────────────────────────────────────────
 # T14b 草稿 AI 单字段重新生成
 # ──────────────────────────────────────────────
 
