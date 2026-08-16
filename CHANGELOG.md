@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.48.0] - 2026-08-16
+
+> WebUI 订单操作 P1-1（PRD `docs/PRD-order-notes-v0.48.md`）：订单货源/采购信息标注（本地元数据）+ 面单 PDF 下载。worker 1033 passed（+10）/ skill 493 / webui build + tokens:validate 绿。
+
+### Feat(订单操作)
+
+- **`order_notes` 表**（`OrderNote`）：货源地址/货源价格/货源备注 + 采购单号/采购快递/采购单号 6 字段，posting_number 主键 + 租户隔离（本地元数据，不对 Ozon 写入）。
+- **notes API**：`GET/PUT /api/v1/orders/{posting_number}/notes`——upsert（ON CONFLICT）+ 无记录返回空模板（先标注后同步订单也允许）；租户隔离（B 读 A 的 → 空模板）。
+- **面单代理**：`GET /api/v1/orders/{posting_number}/label` → `/v2/posting/fbs/package-label` → PDF base64；无默认店铺 400 / Ozon 失败 502 / 无 PDF 502。
+- **WebUI 订单页**：行操作「备注」弹窗（货源 + 采购 6 字段编辑保存）+「下载面单」；列表「备注」列（已标注 → 蓝色 badge 带货源链接 title，否则 —）；保存后本地缓存即时标记。
+
+### Test
+- `tests/test_order_notes.py`（10 用例）：upsert/get 幂等、租户隔离、空模板、source_cost 422、label 成功（endpoint/body 断言）/默认凭证/无默认 400/Ozon 错误 502/空 PDF 502。
+- 全量回归 worker **1033 passed**（1023 基线 + 10 新）；webui build + tokens:validate。
+
+---
+
 ## [0.47.0] - 2026-08-16
 
 > WebUI 订单管理（P0-4，PRD `docs/PRD-orders-v0.47.md`）：Ozon FBS 订单实时拉取 + 状态映射 + 订单页（状态 tab / 表格 / 详情 / CSV 导出）。P0 四项全部落地。worker 1023 passed（+7）/ skill 493 / webui build + tokens:validate 绿。

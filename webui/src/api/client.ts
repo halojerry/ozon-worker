@@ -716,6 +716,59 @@ export async function listOrders(params?: {
   return data
 }
 
+/** P1-1 订单货源/采购信息标注（本地元数据） */
+export interface OrderNoteOut {
+  posting_number: string
+  tenant_id: string
+  source_url: string
+  source_cost?: number | null
+  source_remark: string
+  purchase_no: string
+  purchase_carrier: string
+  purchase_tracking: string
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface OrderNoteUpsert {
+  source_url?: string
+  source_cost?: number | null
+  source_remark?: string
+  purchase_no?: string
+  purchase_carrier?: string
+  purchase_tracking?: string
+}
+
+/** GET /api/v1/orders/{posting_number}/notes —— 读取订单标注（无记录返回空模板） */
+export async function getOrderNotes(postingNumber: string): Promise<OrderNoteOut> {
+  const { data } = await api.get<OrderNoteOut>(`/orders/${encodeURIComponent(postingNumber)}/notes`)
+  return data
+}
+
+/** PUT /api/v1/orders/{posting_number}/notes —— upsert 订单标注 */
+export async function upsertOrderNotes(
+  postingNumber: string,
+  payload: OrderNoteUpsert,
+): Promise<OrderNoteOut> {
+  const { data } = await api.put<OrderNoteOut>(
+    `/orders/${encodeURIComponent(postingNumber)}/notes`,
+    payload,
+  )
+  return data
+}
+
+/** GET /api/v1/orders/{posting_number}/label —— 面单 PDF（base64） */
+export async function getOrderLabel(
+  postingNumber: string,
+  credentialId?: string,
+): Promise<{ posting_number: string; content_type: string; label_base64: string }> {
+  const { data } = await api.get<{ posting_number: string; content_type: string; label_base64: string }>(
+    `/orders/${encodeURIComponent(postingNumber)}/label`,
+    { params: credentialId ? { credential_id: credentialId } : undefined },
+  )
+  return data
+}
+
 /* ────────────────────────────────────────────────────────────
  * /api/v1/products (M2.1) — 在售货架（在线商品索引 product_task_index）
  * ──────────────────────────────────────────────────────────── */
