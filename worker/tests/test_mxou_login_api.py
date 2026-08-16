@@ -459,3 +459,29 @@ def test_cookie_session_no_token():
         mxou_login_service._get_session_for_tenant("cookie-tenant")
     assert ei.value.status_code == 401
     assert "会话无效" in ei.value.detail
+
+
+# ═══ role 字段（v0.54：WebUI 管理员路由守卫数据源）═══
+
+def test_login_returns_role_admin(client):
+    """登录响应含 role（_fetch_user_role 查 users.role，admin 透传）。"""
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=None), \
+         patch("utils.mxou_api.get_mxou_balance", return_value=503.26), \
+         patch.object(mxou_login_service, "_fetch_user_role", return_value="admin"), \
+         _platform_mocks() as mocks:
+        resp = client.post("/api/v1/mxou/login",
+                           json={"username": "alice", "password": PASSWORD})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["role"] == "admin"
+
+
+def test_login_returns_role_default_user(client):
+    """users.role 查询失败/无记录 → 默认 'user'（安全默认，不误放行 admin）。"""
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=None), \
+         patch("utils.mxou_api.get_mxou_balance", return_value=503.26), \
+         patch.object(mxou_login_service, "_fetch_user_role", return_value="user"), \
+         _platform_mocks() as mocks:
+        resp = client.post("/api/v1/mxou/login",
+                           json={"username": "alice", "password": PASSWORD})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["role"] == "user"
