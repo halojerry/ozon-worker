@@ -98,6 +98,51 @@ function formatPrice(v: number | string | undefined): string {
   return `¥${n.toFixed(2)}`
 }
 
+/* ── P0-2 上架方式三态推导：重上 > 编辑更新 > 跟卖 > 选品 ── */
+
+function listingMode(t: TaskListItem): { label: string; className: string; resubmit: boolean } {
+  if (t.parent_task_id) return { label: '重上', className: 'badge-follow', resubmit: true }
+  if (t.update_mode) return { label: '编辑更新', className: 'badge-update', resubmit: false }
+  if (t.follow_sell) return { label: '跟卖', className: 'badge-follow', resubmit: false }
+  return { label: '选品', className: 'badge-currency', resubmit: false }
+}
+
+/* ── P0-2 CSV 导出（当前筛选结果，UTF-8 BOM 兼容 Excel 中文） ── */
+
+function exportCsv(tasks: TaskListItem[]): void {
+  const esc = (v: unknown): string => {
+    const s = v === null || v === undefined ? '' : String(v)
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const header = ['商品标题', '货号', '店铺', '账号', '上架状态', '售价', '划线价', '利润率', '货源链接', '上架方式', '创建时间']
+  const rows = tasks.map((t) => {
+    const s = t.product_summary?.[0]
+    const mode = listingMode(t)
+    return [
+      t.title ?? '',
+      t.item_id ?? '',
+      t.shop_name ?? '',
+      t.ozon_client_id ?? '',
+      statusMeta(t.status).label,
+      s?.price ?? '',
+      s?.old_price ?? '',
+      s?.profit_rate != null ? `${(Number(s.profit_rate) * 100).toFixed(1)}%` : '',
+      s?.purchase_url ?? '',
+      mode.label,
+      fmtTime(t.created_at),
+    ]
+  })
+  const csv = '\uFEFF' + [header, ...rows].map((r) => r.map(esc).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const stamp = new Date().toISOString().slice(0, 10)
+  a.href = url
+  a.download = `上架记录-${stamp}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 function extractError(err: unknown, fallback: string): string {
   const resp = (err as { response?: { data?: { detail?: string } } } | null)?.response
   return resp?.data?.detail || fallback
@@ -572,6 +617,9 @@ export default function Tasks() {
           异常重上
           {selectedResubmittable.size > 0 ? ` (${selectedResubmittable.size})` : ''}
         </button>
+        <button className="btn" disabled={filtered.length === 0} onClick={() => exportCsv(filtered)}>
+          导出 CSV
+        </button>
         <button className="btn" onClick={() => load()} disabled={loading || busy}>
           刷新
         </button>
@@ -713,8 +761,8 @@ export default function Tasks() {
                       )}
                     </td>
                     <td>
-                      <span className={`badge ${t.follow_sell ? 'badge-follow' : 'badge-currency'}`}>
-                        {t.follow_sell ? '跟卖' : '选品'}
+                      <span className={`badge ${listingMode(t).className}`} title={listingMode(t).resubmit ? `由任务 ${t.parent_task_id} 重上` : undefined}>
+                        {listingMode(t).label}
                       </span>
                     </td>
                     <td className="col-time">{fmtTime(t.created_at)}</td>

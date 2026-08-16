@@ -555,6 +555,10 @@ export interface TaskListItem {
   ozon_client_id?: string
   shop_name?: string | null
   follow_sell?: boolean
+  /** P0-2 上架方式：编辑更新标记（extensions.update_product_id） */
+  update_mode?: boolean
+  /** P0-2 上架方式：重上来源任务 ID（有值 = 重上任务） */
+  parent_task_id?: string | null
 }
 
 export interface TaskListResponse {

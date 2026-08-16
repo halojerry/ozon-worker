@@ -2278,6 +2278,11 @@ input {
   color: var(--color-success);
 }
 
+.badge-update {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--color-brand);
+}
+
 .task-price {
   font-weight: 600;
   color: var(--color-text);
