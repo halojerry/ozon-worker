@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.49.0] - 2026-08-16
+
+> WebUI 订单写入操作 P1-2（PRD `docs/PRD-order-actions-v0.49.md`）：备货发货 + 取消订单（真实影响操作）。worker 1041 passed（+8）/ skill 493 / webui build + tokens:validate 绿。
+
+### Feat(订单写入操作)
+
+- **备货发货** `order_service.ship_order`：`POST /v4/posting/fbs/ship`（packages/posting_number/packages_count=1）→ 对标上品帮批量备货。
+- **取消原因** `list_cancel_reasons`：`POST /v1/posting/fbs/cancel-reason` → [{id, title}]。
+- **取消订单** `cancel_order`：`POST /v2/posting/fbs/cancel`（cancel_reason_id）→ 对标毛子取消货件选原因。
+- **统一凭证解析** `_resolve_credential`（credential_id 或默认店铺，无默认 400）+ `_ozon_action` 包装（失败 502）。
+- **路由**：`POST /orders/{pn}/ship` + `GET /orders/{pn}/cancel-reasons` + `POST /orders/{pn}/cancel`。
+- **WebUI**：待备货/待发运 tab 行操作「备货发货」（confirm 真实生效警告）；所有行「取消」→ 弹窗（拉取原因 → 下拉选择 → 确认，红色危险按钮）；操作结果 notice 提示 + 刷新。
+
+### Test
+- `tests/test_order_actions.py`（8 用例）：ship 请求体断言/成功/无默认 400/Ozon 502、cancel-reasons 成功/502、cancel 请求体/502、显式 credential 优先。
+- 全量回归 worker **1041 passed**（1033 基线 + 8 新）；webui build + tokens:validate。
+
+---
+
 ## [0.48.0] - 2026-08-16
 
 > WebUI 订单操作 P1-1（PRD `docs/PRD-order-notes-v0.48.md`）：订单货源/采购信息标注（本地元数据）+ 面单 PDF 下载。worker 1033 passed（+10）/ skill 493 / webui build + tokens:validate 绿。

@@ -769,6 +769,48 @@ export async function getOrderLabel(
   return data
 }
 
+/** P1-2 订单写入操作（真实影响，谨慎调用） */
+
+export interface OrderActionResponse {
+  ok: boolean
+  posting_number: string
+  result: Record<string, unknown>
+}
+
+export interface CancelReasonOut {
+  id: number
+  title: string
+}
+
+/** POST /api/v1/orders/{posting_number}/ship —— 备货发货 */
+export async function shipOrder(postingNumber: string): Promise<OrderActionResponse> {
+  const { data } = await api.post<OrderActionResponse>(
+    `/orders/${encodeURIComponent(postingNumber)}/ship`,
+    {},
+  )
+  return data
+}
+
+/** GET /api/v1/orders/{posting_number}/cancel-reasons —— 取消原因列表 */
+export async function listCancelReasons(postingNumber: string): Promise<CancelReasonOut[]> {
+  const { data } = await api.get<CancelReasonOut[]>(
+    `/orders/${encodeURIComponent(postingNumber)}/cancel-reasons`,
+  )
+  return data
+}
+
+/** POST /api/v1/orders/{posting_number}/cancel —— 取消订单（选原因） */
+export async function cancelOrder(
+  postingNumber: string,
+  cancelReasonId: number,
+): Promise<OrderActionResponse> {
+  const { data } = await api.post<OrderActionResponse>(
+    `/orders/${encodeURIComponent(postingNumber)}/cancel`,
+    { cancel_reason_id: cancelReasonId },
+  )
+  return data
+}
+
 /* ────────────────────────────────────────────────────────────
  * /api/v1/products (M2.1) — 在售货架（在线商品索引 product_task_index）
  * ──────────────────────────────────────────────────────────── */

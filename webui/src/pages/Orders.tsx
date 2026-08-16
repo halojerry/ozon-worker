@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  cancelOrder,
   getOrderLabel,
   getOrderNotes,
+  listCancelReasons,
   listCredentials,
   listOrders,
+  shipOrder,
   upsertOrderNotes,
   type CredentialOut,
   type OrderNoteOut,
@@ -207,6 +210,97 @@ function NotesModal({ postingNumber, credentialId, onClose, onSaved }: NotesModa
   )
 }
 
+/* ── P1-2 取消订单弹窗：拉取原因 → 下拉选择 → 确认取消 ── */
+
+interface CancelModalProps {
+  order: OrderOut
+  onClose: () => void
+  onCancelled: () => void
+}
+
+function CancelModal({ order, onClose, onCancelled }: CancelModalProps) {
+  const [reasons, setReasons] = useState<{ id: number; title: string }[] | null>(null)
+  const [reasonId, setReasonId] = useState('')
+  const [error, setError] = useState('')
+  const [cancelling, setCancelling] = useState(false)
+
+  useEffect(() => {
+    listCancelReasons(order.posting_number)
+      .then((rs) => {
+        setReasons(rs)
+        if (rs.length > 0) setReasonId(String(rs[0].id))
+      })
+      .catch((e) => setError(extractError(e, '加载取消原因失败')))
+  }, [order.posting_number])
+
+  async function handleCancel() {
+    if (!reasonId) {
+      setError('请选择取消原因')
+      return
+    }
+    setCancelling(true)
+    setError('')
+    try {
+      await cancelOrder(order.posting_number, Number(reasonId))
+      onCancelled()
+      onClose()
+    } catch (e) {
+      setError(extractError(e, '取消订单失败'))
+      setCancelling(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="取消订单">
+        <div className="modal-header">
+          <h2 className="modal-title">取消订单</h2>
+          <button type="button" className="modal-close" aria-label="关闭" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <div className="modal-body">
+          <div className="sub-history-title mono">{order.posting_number}</div>
+          <p className="modal-text">取消订单将对 Ozon 实际生效，请确认。</p>
+          {!reasons && !error && (
+            <div className="empty-state"><div className="spinner-inline" /><p>加载取消原因…</p></div>
+          )}
+          {error && <div className="form-error" role="alert"><span>{error}</span></div>}
+          {reasons && reasons.length === 0 && !error && (
+            <div className="form-error" role="alert"><span>该订单没有可用的取消原因</span></div>
+          )}
+          {reasons && reasons.length > 0 && (
+            <div className="field">
+              <label className="field-label" htmlFor="cancel-reason">取消原因</label>
+              <select
+                id="cancel-reason"
+                className="field-select"
+                value={reasonId}
+                onChange={(e) => setReasonId(e.target.value)}
+              >
+                {reasons.map((r) => (
+                  <option key={r.id} value={r.id}>{r.title}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button type="button" className="btn" onClick={onClose} disabled={cancelling}>取消</button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={handleCancel}
+            disabled={cancelling || !reasonId}
+          >
+            {cancelling ? '取消中…' : '确认取消订单'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Orders() {
   const [orders, setOrders] = useState<OrderOut[]>([])
   const [credentials, setCredentials] = useState<CredentialOut[]>([])
@@ -218,6 +312,9 @@ export default function Orders() {
   /** P1-1 备注弹窗目标订单 + 备注更新回调 */
   const [notesTarget, setNotesTarget] = useState<OrderOut | null>(null)
   const [notesMap, setNotesMap] = useState<Record<string, OrderNoteOut>>({})
+  /** P1-2 取消弹窗目标 + 操作提示 */
+  const [cancelTarget, setCancelTarget] = useState<OrderOut | null>(null)
+  const [notice, setNotice] = useState('')
 
   /* 店铺列表（默认店铺默认选中） */
   useEffect(() => {
@@ -265,12 +362,34 @@ export default function Orders() {
     return m
   }, [orders])
 
+  /** P1-2 备货发货：确认后调 ship → 提示 + 刷新 */
+  const handleShip = async (o: OrderOut) => {
+    const ok = window.confirm(`确认备货发货 ${o.posting_number}？\n备货后订单进入待发运（真实生效）。`)
+    if (!ok) return
+    try {
+      await shipOrder(o.posting_number)
+      setNotice(`备货成功：${o.posting_number}`)
+      load()
+    } catch (e) {
+      setNotice(`备货失败：${extractError(e, '备货失败')}`)
+    }
+  }
+
   return (
     <div className="page">
       <header className="page-header">
         <h1 className="page-title">订单管理</h1>
         <span className="page-badge">{orders.length > 0 ? `${orders.length} 条` : 'P0-4'}</span>
       </header>
+
+      {notice && (
+        <div className="alert alert-info">
+          <span>{notice}</span>
+          <span className="alert-actions">
+            <button className="btn btn-sm" onClick={() => setNotice('')}>关闭</button>
+          </span>
+        </div>
+      )}
 
       <div className="toolbar">
         <select
@@ -408,6 +527,14 @@ export default function Orders() {
                       <button className="btn btn-small" onClick={() => setNotesTarget(o)}>
                         备注
                       </button>
+                      {(o.status === 'awaiting' || o.status === 'waiting') && (
+                        <button className="btn btn-small btn-primary" onClick={() => handleShip(o)}>
+                          备货发货
+                        </button>
+                      )}
+                      <button className="btn btn-small btn-danger-text" onClick={() => setCancelTarget(o)}>
+                        取消
+                      </button>
                     </td>
                   </tr>
                 )
@@ -475,6 +602,17 @@ export default function Orders() {
           onClose={() => setNotesTarget(null)}
           onSaved={(notes) => {
             setNotesMap((m) => ({ ...m, [notes.posting_number]: notes }))
+          }}
+        />
+      )}
+
+      {cancelTarget && (
+        <CancelModal
+          order={cancelTarget}
+          onClose={() => setCancelTarget(null)}
+          onCancelled={() => {
+            setNotice(`已提交取消：${cancelTarget.posting_number}`)
+            load()
           }}
         />
       )}

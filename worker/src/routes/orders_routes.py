@@ -12,6 +12,9 @@ import json
 from fastapi import APIRouter, Request
 
 from api.schemas import (
+    CancelReasonOut,
+    CancelRequest,
+    OrderActionResponse,
     OrderLabelResponse,
     OrderListResponse,
     OrderNoteOut,
@@ -77,3 +80,26 @@ async def get_order_label(
 ):
     tenant_id = await _authenticate(request)
     return order_service.get_order_label(tenant_id, posting_number, credential_id)
+
+
+@router.post("/{posting_number}/ship", response_model=OrderActionResponse)
+async def ship_order(posting_number: str, request: Request):
+    tenant_id = await _authenticate(request)
+    body = await request.json()
+    return order_service.ship_order(
+        tenant_id, posting_number, credential_id=body.get("credential_id"))
+
+
+@router.get("/{posting_number}/cancel-reasons", response_model=list[CancelReasonOut])
+async def list_cancel_reasons(posting_number: str, request: Request):
+    tenant_id = await _authenticate(request)
+    return order_service.list_cancel_reasons(tenant_id, posting_number)
+
+
+@router.post("/{posting_number}/cancel", response_model=OrderActionResponse)
+async def cancel_order(posting_number: str, request: Request):
+    tenant_id = await _authenticate(request)
+    body = await request.json()
+    reason_id = int(body.get("cancel_reason_id") or 0)
+    return order_service.cancel_order(
+        tenant_id, posting_number, reason_id, credential_id=body.get("credential_id"))

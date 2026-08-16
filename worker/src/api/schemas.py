@@ -435,6 +435,25 @@ class OrderLabelResponse(BaseModel):
     label_base64: str = Field(..., description="PDF base64")
 
 
+class CancelReasonOut(BaseModel):
+    """订单取消原因（/v1/posting/fbs/cancel-reason）。"""
+    id: int = Field(..., description="原因 ID")
+    title: str = Field("", description="原因标题")
+
+
+class CancelRequest(BaseModel):
+    """取消订单请求。"""
+    cancel_reason_id: int = Field(..., description="取消原因 ID（先 GET cancel-reasons）")
+    credential_id: Optional[str] = Field(None, description="店铺凭证（默认店铺兜底）")
+
+
+class OrderActionResponse(BaseModel):
+    """订单写入操作响应（备货/取消）。"""
+    ok: bool = Field(True, description="操作是否提交成功")
+    posting_number: str = Field(..., description="货件编号")
+    result: dict = Field(default_factory=dict, description="Ozon 返回 result")
+
+
 # ──────────────────────────────────────────────
 # T14b 草稿 AI 单字段重新生成
 # ──────────────────────────────────────────────
