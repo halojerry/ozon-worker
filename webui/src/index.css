@@ -1401,7 +1401,7 @@ input {
   box-shadow: 0 0 0 3px var(--color-brand-soft);
 }
 
-/* ── 底部操作栏（吸底） ── *//* ── 草稿选择列表（/products 无参数兜底） ── */
+/* ── 草稿选择列表（/products 无参数兜底） ── */
 .draft-list {
   display: flex;
   flex-direction: column;
@@ -3377,7 +3377,7 @@ input {
   color: var(--color-warning);
 }
 
-/* ── Skeleton：加载占位（消费 --color-*/--radius-*/--duration-*/--ease-*） ── */
+/* ── Skeleton：加载占位（消费 --color-* 等 token 变量） ── */
 .skeleton {
   display: block;
   border-radius: var(--radius-sm);

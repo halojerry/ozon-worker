@@ -34,7 +34,10 @@ mxou 体系（框架/登录/组件）          Ozon 业务体系（14 页业务�
    `useNavigate() may be used only in the context of a <Router>`）。
 2. **路由注册**：新页面建 `src/routes/_authenticated/<path>/index.tsx`，
    `createFileRoute('/_authenticated/<path>/')`，组件用 `@/pages/...`。
-   routeTree.gen.ts 由 router-plugin 自动生成（dev/build 时），**不手改**。
+   routeTree.gen.ts 由 router-plugin 生成——**dev 的 HMR 自动生成，但 `vite build` 不生成**，
+   build 脚本已前置 `npm run gen:route`（`scripts/gen-route-tree.mjs`）显式生成。
+   ⚠️ 新增/修改路由后，若 build 报 `Cannot find module './routeTree.gen'` 或路由错乱
+   （子路由渲染成 index），先跑 `npm run gen:route` 确认 routeTree 已更新（见 git 58ec4a9）。
 3. **导航**：`src/hooks/use-sidebar-data.ts` 的 `navGroups`（我们的业务菜单）。
 4. **管理员路由**：`/_authenticated/admin/` beforeLoad 检查 `user.role >= ROLE.ADMIN(10)`，
    不足 `throw redirect({ to: '/403' })`。服务端 `worker require_admin` 是最终防线。
@@ -43,6 +46,8 @@ mxou 体系（框架/登录/组件）          Ozon 业务体系（14 页业务�
    新业务代码优先 Tailwind；**禁止硬编码 hex**（`tokens:validate` 检查）。
 6. **API 层**：业务请求一律走 `src/api/client.ts`（baseURL=/api/v1 + Bearer sk-token），
    禁止页面裸 fetch/新建 axios 实例。mxou 请求走 `src/lib/api.ts`（New API cookie）。
+   ⚠️ 401 拦截器：业务 token 失效 ≠ 需重登——若 mxou 登录态存在（localStorage user）只清 token
+   不跳转，否则跳 sign-in（生产构建曾因此无限重定向，见 git dee53f8）。
 
 ## 三、依赖管理
 - 包管理：bun（`bun add`）。mxou 依赖含 `catalog:` 引用——本项目已把 catalog 值
