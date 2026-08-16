@@ -33,6 +33,7 @@ import { Route as AuthenticatedDataScreenIndexRouteImport } from './routes/_auth
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedHomeIndexRouteImport } from './routes/_authenticated/home/index'
 import { Route as AuthenticatedImageStudioIndexRouteImport } from './routes/_authenticated/image-studio/index'
+import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedOnSaleIndexRouteImport } from './routes/_authenticated/on-sale/index'
 import { Route as AuthenticatedOrdersIndexRouteImport } from './routes/_authenticated/orders/index'
 import { Route as AuthenticatedPricingToolIndexRouteImport } from './routes/_authenticated/pricing-tool/index'
@@ -165,6 +166,11 @@ const AuthenticatedImageStudioIndexRoute =
     path: '/image-studio/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedKeysIndexRoute = AuthenticatedKeysIndexRouteImport.update({
+  id: '/keys/',
+  path: '/keys/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedOnSaleIndexRoute =
   AuthenticatedOnSaleIndexRouteImport.update({
     id: '/on-sale/',
@@ -236,6 +242,7 @@ export interface FileRoutesByFullPath {
   '/home/': typeof AuthenticatedHomeIndexRoute
   '/image-studio/': typeof AuthenticatedImageStudioIndexRoute
   '/index/': typeof AuthenticatedIndexIndexRoute
+  '/keys/': typeof AuthenticatedKeysIndexRoute
   '/on-sale/': typeof AuthenticatedOnSaleIndexRoute
   '/orders/': typeof AuthenticatedOrdersIndexRoute
   '/pricing-tool/': typeof AuthenticatedPricingToolIndexRoute
@@ -268,6 +275,7 @@ export interface FileRoutesByTo {
   '/home': typeof AuthenticatedHomeIndexRoute
   '/image-studio': typeof AuthenticatedImageStudioIndexRoute
   '/index': typeof AuthenticatedIndexIndexRoute
+  '/keys': typeof AuthenticatedKeysIndexRoute
   '/on-sale': typeof AuthenticatedOnSaleIndexRoute
   '/orders': typeof AuthenticatedOrdersIndexRoute
   '/pricing-tool': typeof AuthenticatedPricingToolIndexRoute
@@ -303,6 +311,7 @@ export interface FileRoutesById {
   '/_authenticated/home/': typeof AuthenticatedHomeIndexRoute
   '/_authenticated/image-studio/': typeof AuthenticatedImageStudioIndexRoute
   '/_authenticated/index/': typeof AuthenticatedIndexIndexRoute
+  '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/on-sale/': typeof AuthenticatedOnSaleIndexRoute
   '/_authenticated/orders/': typeof AuthenticatedOrdersIndexRoute
   '/_authenticated/pricing-tool/': typeof AuthenticatedPricingToolIndexRoute
@@ -337,6 +346,7 @@ export interface FileRouteTypes {
     | '/home/'
     | '/image-studio/'
     | '/index/'
+    | '/keys/'
     | '/on-sale/'
     | '/orders/'
     | '/pricing-tool/'
@@ -369,6 +379,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/image-studio'
     | '/index'
+    | '/keys'
     | '/on-sale'
     | '/orders'
     | '/pricing-tool'
@@ -403,6 +414,7 @@ export interface FileRouteTypes {
     | '/_authenticated/home/'
     | '/_authenticated/image-studio/'
     | '/_authenticated/index/'
+    | '/_authenticated/keys/'
     | '/_authenticated/on-sale/'
     | '/_authenticated/orders/'
     | '/_authenticated/pricing-tool/'
@@ -594,6 +606,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedImageStudioIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/keys/': {
+      id: '/_authenticated/keys/'
+      path: '/keys'
+      fullPath: '/keys/'
+      preLoaderRoute: typeof AuthenticatedKeysIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/on-sale/': {
       id: '/_authenticated/on-sale/'
       path: '/on-sale'
@@ -688,6 +707,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedHomeIndexRoute: typeof AuthenticatedHomeIndexRoute
   AuthenticatedImageStudioIndexRoute: typeof AuthenticatedImageStudioIndexRoute
   AuthenticatedIndexIndexRoute: typeof AuthenticatedIndexIndexRoute
+  AuthenticatedKeysIndexRoute: typeof AuthenticatedKeysIndexRoute
   AuthenticatedOnSaleIndexRoute: typeof AuthenticatedOnSaleIndexRoute
   AuthenticatedOrdersIndexRoute: typeof AuthenticatedOrdersIndexRoute
   AuthenticatedPricingToolIndexRoute: typeof AuthenticatedPricingToolIndexRoute
@@ -707,6 +727,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedHomeIndexRoute: AuthenticatedHomeIndexRoute,
   AuthenticatedImageStudioIndexRoute: AuthenticatedImageStudioIndexRoute,
   AuthenticatedIndexIndexRoute: AuthenticatedIndexIndexRoute,
+  AuthenticatedKeysIndexRoute: AuthenticatedKeysIndexRoute,
   AuthenticatedOnSaleIndexRoute: AuthenticatedOnSaleIndexRoute,
   AuthenticatedOrdersIndexRoute: AuthenticatedOrdersIndexRoute,
   AuthenticatedPricingToolIndexRoute: AuthenticatedPricingToolIndexRoute,
