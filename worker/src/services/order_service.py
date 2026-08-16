@@ -400,6 +400,53 @@ def cancel_order(
 
 
 # ──────────────────────────────────────────────
+# P1-3 订单批量操作：批量面单 / 批量备货（失败隔离，对标上品帮批量打单）
+# ──────────────────────────────────────────────
+
+def batch_order_labels(
+    tenant_id: str,
+    posting_numbers: list[str],
+    credential_id: Optional[str] = None,
+) -> dict:
+    """批量面单：逐单调 get_order_label，失败隔离。
+
+    Returns: {"ok": bool, "items": [OrderLabelResponse], "failed": [{posting_number, error}]}
+    """
+    items: list[dict] = []
+    failed: list[dict] = []
+    for pn in posting_numbers:
+        try:
+            items.append(get_order_label(tenant_id, pn, credential_id))
+        except HTTPException as exc:
+            failed.append({"posting_number": pn, "error": str(exc.detail)})
+        except Exception as exc:
+            failed.append({"posting_number": pn, "error": str(exc)[:120]})
+    return {"ok": len(failed) == 0, "items": items, "failed": failed}
+
+
+def batch_ship_orders(
+    tenant_id: str,
+    posting_numbers: list[str],
+    credential_id: Optional[str] = None,
+) -> dict:
+    """批量备货发货：逐单调 ship_order，失败隔离。
+
+    Returns: {"ok": bool, "shipped": [posting_number], "failed": [{posting_number, error}]}
+    """
+    shipped: list[str] = []
+    failed: list[dict] = []
+    for pn in posting_numbers:
+        try:
+            ship_order(tenant_id, pn, credential_id)
+            shipped.append(pn)
+        except HTTPException as exc:
+            failed.append({"posting_number": pn, "error": str(exc.detail)})
+        except Exception as exc:
+            failed.append({"posting_number": pn, "error": str(exc)[:120]})
+    return {"ok": len(failed) == 0, "shipped": shipped, "failed": failed}
+
+
+# ──────────────────────────────────────────────
 # P2c 消息催评：内置模板 + chat/start + send/message + 发送记录
 # ──────────────────────────────────────────────
 

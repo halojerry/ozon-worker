@@ -899,6 +899,46 @@ export async function listOrderMessages(): Promise<{ items: OrderMessageRecord[]
   return data
 }
 
+/** P1-3 订单批量操作 */
+
+export interface BatchLabelItem {
+  posting_number: string
+  content_type: string
+  label_base64: string
+}
+
+export interface BatchLabelsResult {
+  ok: boolean
+  items: BatchLabelItem[]
+  failed: { posting_number: string; error: string }[]
+}
+
+export interface BatchShipResult {
+  ok: boolean
+  shipped: string[]
+  failed: { posting_number: string; error: string }[]
+}
+
+/** POST /api/v1/orders/batch/labels —— 批量面单（失败隔离） */
+export async function batchOrderLabels(
+  postingNumbers: string[],
+): Promise<BatchLabelsResult> {
+  const { data } = await api.post<BatchLabelsResult>('/orders/batch/labels', {
+    posting_numbers: postingNumbers,
+  })
+  return data
+}
+
+/** POST /api/v1/orders/batch/ship —— 批量备货发货（真实生效，失败隔离） */
+export async function batchShipOrders(
+  postingNumbers: string[],
+): Promise<BatchShipResult> {
+  const { data } = await api.post<BatchShipResult>('/orders/batch/ship', {
+    posting_numbers: postingNumbers,
+  })
+  return data
+}
+
 /* ────────────────────────────────────────────────────────────
  * /api/v1/products (M2.1) — 在售货架（在线商品索引 product_task_index）
  * ──────────────────────────────────────────────────────────── */
