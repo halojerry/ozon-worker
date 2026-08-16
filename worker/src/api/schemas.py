@@ -523,3 +523,20 @@ class MxouLoginResponse(BaseModel):
     keys: list[MxouKeyItem] = Field(default_factory=list, description="API Key 列表（已脱敏，无 full_key）")
     selected_key_id: str | None = Field(None, description="选中的 enabled key id（未选到 None）")
     session_expires_at: str | None = Field(None, description="MXOU 登录 session 过期时间")
+
+
+class MxouKeyCreateRequest(BaseModel):
+    """新建 API Key 请求。"""
+    name: str = Field("default", description="密钥名称")
+
+
+class MxouKeyCreateResponse(BaseModel):
+    """新建 API Key 响应（key 仅此一次返回——用户复制后不再可查）。"""
+    id: str = Field(..., description="token id")
+    name: str = Field(..., description="token 名称")
+    key: str = Field(..., description="新建密钥完整值（仅此一次返回）")
+
+
+class MxouKeySelectResponse(BaseModel):
+    """切换密钥响应（key 仅此一次返回——用户复制后不再可查）。"""
+    key: str = Field(..., description="所选密钥完整值（仅此一次返回）")

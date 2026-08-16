@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth, clearToken, getToken } from '../stores/auth'
+import { useSession } from '../stores/session'
 import { getDrafts, listProducts, listTasks } from '../api/client'
+import KeyManager from './KeyManager'
 
 interface NavItem {
   to: string
@@ -85,11 +87,18 @@ interface NavCounts {
   products: number | null
 }
 
+function formatBalance(balance: number | null | undefined): string {
+  if (balance == null || !Number.isFinite(balance)) return '—'
+  return balance.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 export default function Layout() {
   const authed = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const session = useSession()
   const [counts, setCounts] = useState<NavCounts>({ drafts: null, tasks: null, products: null })
+  const [showKeys, setShowKeys] = useState(false)
 
   /* M2.3：挂载时并行拉取 drafts/tasks/products 计数（limit=1 只取 total），
      路由变化时静默重拉（上架/采集后导航项自动出现/消失）；失败保持未知 → 显示 */
@@ -121,6 +130,7 @@ export default function Layout() {
   }
 
   const maskedToken = authed && getToken() ? `${getToken()!.slice(0, 6)}…${getToken()!.slice(-4)}` : ''
+  const displayName = session?.username || maskedToken || '未登录'
 
   return (
     <div className="app-shell">
@@ -168,11 +178,20 @@ export default function Layout() {
         <div className="sidebar-footer">
           <div className="sidebar-user">
             <div className="sidebar-avatar" aria-hidden="true">
-              {maskedToken ? maskedToken[0] : '?'}
+              {displayName ? displayName[0].toUpperCase() : '?'}
             </div>
-            <span className="sidebar-token" title={maskedToken}>
-              {maskedToken || '未登录'}
-            </span>
+            <div className="sidebar-user-info">
+              <span className="sidebar-username" title={displayName}>
+                {displayName}
+              </span>
+              <button type="button" className="sidebar-balance" onClick={() => setShowKeys(true)} title="密钥管理">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <circle cx="8" cy="14" r="4" />
+                  <path d="M11 11L19.5 2.5M16 7l3 3" strokeLinecap="round" />
+                </svg>
+                余额 ¥{formatBalance(session?.balance)}
+              </button>
+            </div>
           </div>
           <button className="sidebar-logout" onClick={handleLogout}>
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -186,6 +205,8 @@ export default function Layout() {
       <main className="app-main">
         <Outlet />
       </main>
+
+      {showKeys && <KeyManager onClose={() => setShowKeys(false)} />}
     </div>
   )
 }

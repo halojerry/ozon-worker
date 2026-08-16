@@ -170,6 +170,48 @@ export async function mxouLogin(username: string, password: string): Promise<Mxo
 }
 
 /* ────────────────────────────────────────────────────────────
+ * /api/v1/mxou/keys (T4) — MXOU 密钥管理（列表/新建/吊销/切换）
+ *   全部走 Bearer 鉴权（请求拦截器自动注入）；完整 key 只在
+ *   create/select 响应中出现一次，前端复制后不再可查
+ * ──────────────────────────────────────────────────────────── */
+
+/** POST /api/v1/mxou/keys 新建密钥成功响应（key 仅此一次返回） */
+export interface MxouKeyCreateResponse {
+  id: string
+  name: string
+  /** 新建密钥完整值（仅此一次返回，复制后服务端不再回查） */
+  key: string
+}
+
+/** POST /api/v1/mxou/keys/{id}/select 切换密钥成功响应（key 仅此一次返回） */
+export interface MxouKeySelectResponse {
+  key: string
+}
+
+/** GET /api/v1/mxou/keys —— 密钥列表（脱敏，无完整 key） */
+export async function listMxouKeys(): Promise<MxouKeyItem[]> {
+  const { data } = await api.get<MxouKeyItem[]>('/mxou/keys')
+  return data
+}
+
+/** POST /api/v1/mxou/keys —— 新建密钥（响应含完整 key，仅一次） */
+export async function createMxouKey(name: string): Promise<MxouKeyCreateResponse> {
+  const { data } = await api.post<MxouKeyCreateResponse>('/mxou/keys', { name })
+  return data
+}
+
+/** DELETE /api/v1/mxou/keys/{id} —— 吊销密钥（204） */
+export async function revokeMxouKey(id: string): Promise<void> {
+  await api.delete(`/mxou/keys/${id}`)
+}
+
+/** POST /api/v1/mxou/keys/{id}/select —— 切换为密钥（返回完整 key，仅一次） */
+export async function selectMxouKey(id: string): Promise<MxouKeySelectResponse> {
+  const { data } = await api.post<MxouKeySelectResponse>(`/mxou/keys/${id}/select`)
+  return data
+}
+
+/* ────────────────────────────────────────────────────────────
  * /api/v1/credentials (T5) — 店铺凭证（掩码回显/轮换/校验，T11 消费）
  * ──────────────────────────────────────────────────────────── */
 

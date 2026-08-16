@@ -185,3 +185,91 @@ def login(username: str, password: str) -> dict:
         "selected_key_id": selected_key_id,
         "session_expires_at": expires_at,
     }
+
+
+# ════════════════════════════════════════════════════════════════
+# T4 密钥管理（list/create/revoke/select）
+# ════════════════════════════════════════════════════════════════
+
+
+def _get_session_for_tenant(tenant_id: str) -> tuple[dict, str]:
+    """读 tenant 的 MXOU session（T2 login 按 MXOU user id 缓存）。
+
+    - 无/过期 → 401「请重新登录」（前端回登录页走账号登录）
+    - access_token 为空（oneapi cookie 形态只有 cookie 无 token）→ 401「会话无效」
+    - 返回 (session_data, access_token)
+    """
+    session_data = session_store.get(tenant_id)
+    if not session_data:
+        raise HTTPException(status_code=401, detail="请重新登录")
+    access_token = str(session_data.get("access_token") or "")
+    if not access_token:
+        raise HTTPException(status_code=401, detail="会话无效，请重新登录")
+    return session_data, access_token
+
+
+def _map_key_error(e: MxouLoginError) -> HTTPException:
+    """密钥管理平台错误映射（非登录端点）：限流 429，其余统一 502。"""
+    if e.reason == "rate_limited":
+        return HTTPException(status_code=429, detail="MXOU 平台限流，请稍后重试")
+    return HTTPException(status_code=502, detail="MXOU 平台操作失败，请稍后重试或重新登录")
+
+
+def list_keys(tenant_id: str) -> list[dict]:
+    """列出该账号 API Key（脱敏：id/name/status/masked，绝不含 full_key）。"""
+    session_data, access_token = _get_session_for_tenant(tenant_id)
+    try:
+        raw = mxou_platform.mxou_list_tokens(session_data, access_token) or []
+    except MxouLoginError as e:
+        raise _map_key_error(e) from e
+    return [
+        {
+            "id": k.get("id"),
+            "name": k.get("name") or "",
+            "status": int(k.get("status") or 0),
+            "masked": bool(k.get("masked", True)),
+        }
+        for k in raw
+        if isinstance(k, dict)
+    ]
+
+
+def create_key(tenant_id: str, name: str) -> dict:
+    """新建 API Key → upsert 进 Supabase tokens → 返回 {id, name, key}（key 仅此一次）。"""
+    session_data, access_token = _get_session_for_tenant(tenant_id)
+    try:
+        result = mxou_platform.mxou_create_token(session_data, access_token, name)
+    except MxouLoginError as e:
+        raise _map_key_error(e) from e
+    full_key = result.get("full_key") or ""
+    if full_key:
+        _upsert_supabase_token(tenant_id, full_key)
+    return {
+        "id": str(result.get("id") or ""),
+        "name": str(result.get("name") or name),
+        "key": full_key,
+    }
+
+
+def revoke_key(tenant_id: str, key_id: str) -> bool:
+    """吊销 API Key；MXOU 失败 → 502。"""
+    session_data, access_token = _get_session_for_tenant(tenant_id)
+    try:
+        ok = mxou_platform.mxou_revoke_token(session_data, access_token, key_id)
+    except MxouLoginError as e:
+        raise HTTPException(status_code=502, detail="MXOU 吊销失败，请稍后重试") from e
+    if not ok:
+        raise HTTPException(status_code=502, detail="MXOU 吊销失败，请稍后重试")
+    return True
+
+
+def select_key(tenant_id: str, key_id: str) -> dict:
+    """解出指定 key 明文 → upsert 进 Supabase tokens → 返回 {key}（仅此一次）。"""
+    session_data, access_token = _get_session_for_tenant(tenant_id)
+    try:
+        full_key = mxou_platform.mxou_get_token_key(session_data, access_token, key_id)
+    except MxouLoginError as e:
+        raise _map_key_error(e) from e
+    if full_key:
+        _upsert_supabase_token(tenant_id, full_key)
+    return {"key": full_key}
