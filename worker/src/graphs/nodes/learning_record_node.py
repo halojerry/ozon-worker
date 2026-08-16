@@ -18,6 +18,109 @@ from graphs.state import (
 from utils.local_db_manager import LocalDBManager
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# T9: 上传成功回填 product_task_index（普通上传也建索引，OnSale/编辑/更新依赖）
+# product_task_index 目前只有 update_images 写（T6 共享 product_index_service），
+# 普通上传不写 → OnSale 货架/GET /edit 对普通上传商品查不到索引。本段在 approved
+# 成功路径补回填。任何守卫缺失/写失败 → 跳过 + warning，绝不阻断学习路径。
+# ═══════════════════════════════════════════════════════════════════════
+
+def _task_id_from_config(config) -> str:
+    """从 LangGraph RunnableConfig 提取任务 ID（configurable.thread_id = PG 任务 ID）。
+
+    ⚠️ 不要用 state.task_id —— 那是 ingest 节点随机生成的 UUID，与队列任务 ID 不一致
+    （task_image_cache.py 已锁定该纪律：task_id 取 thread_id，task_processor 注入）。
+    """
+    try:
+        if config is None:
+            return ""
+        if isinstance(config, dict):
+            conf = config.get("configurable", {}) or {}
+        else:
+            conf = getattr(config, "configurable", None) or {}
+        if isinstance(conf, dict):
+            return str(conf.get("thread_id", ""))
+        return str(conf or "")
+    except Exception:
+        return ""
+
+
+def _resolve_draft_submission(task_id: str) -> tuple:
+    """draft_submissions 定位草稿/凭证：submitted_task_id → (draft_id, credential_id)。
+
+    模式对齐 image_service._resolve_draft_id（采集任务有行）；直连任务（skill 直连，凭证在
+    payload 不落 credential 表）→ (None, None)。DB 异常 → (None, None)（非致命）。
+    """
+    if not task_id:
+        return None, None
+    try:
+        from sqlalchemy import text as _sql
+        from storage.database.db import get_engine as _get_engine
+        with _get_engine().connect() as conn:
+            row = conn.execute(_sql(
+                "SELECT draft_id, credential_id FROM draft_submissions "
+                "WHERE submitted_task_id = :task_id LIMIT 1"
+            ), {"task_id": task_id}).fetchone()
+        if row is None:
+            return None, None
+        draft_id = str(row[0]) if row[0] is not None else None
+        credential_id = str(row[1]) if row[1] is not None else None
+        return draft_id, credential_id
+    except Exception as e:
+        logger.warning("T9 索引回填: draft_submissions 查询失败（跳过）task=%s: %s", task_id, e)
+        return None, None
+
+
+def _backfill_product_index(state, config) -> None:
+    """T9: 上传成功回填 product_task_index（approved 分支内，非阻断追加）。
+
+    守卫：product_id 存在 + credential_id 可解析 + task_id 存在；任何缺失 → 跳过。
+    offer_id：跟卖 follow_{竞品id}，否则 draft.item_id / sku_id（对齐 draft_service._resolve_offer_id）。
+    draft_id：draft_submissions 定位（可空，直连任务为 NULL，upsert_index 签名接受 None）。
+    写失败（DB 异常）→ logger.warning 不抛（学习路径不被索引回填阻断）。
+    """
+    try:
+        product_id = getattr(state, "product_id", None)
+        if not product_id or str(product_id) in ("0", "None", ""):
+            logger.info("⏭️ T9 索引回填跳过: product_id 缺失/无效")
+            return
+        task_id = _task_id_from_config(config)
+        if not task_id:
+            logger.info("⏭️ T9 索引回填跳过: task_id 缺失（thread_id 不可解析）")
+            return
+        tenant_id = str(getattr(state, "user_id", "") or "").strip()
+        if not tenant_id:
+            logger.info("⏭️ T9 索引回填跳过: tenant_id(user_id) 缺失")
+            return
+        draft_id, credential_id = _resolve_draft_submission(task_id)
+        if not credential_id:
+            logger.info("⏭️ T9 索引回填跳过: credential_id 不可解析（直连任务无凭证落库）")
+            return
+
+        draft = getattr(state, "draft", None) or {}
+        envelope = getattr(state, "envelope", None) or {}
+        extensions = envelope.get("extensions") or {}
+        follow_sell = bool(extensions.get("follow_sell")) or bool(extensions.get("follow_type"))
+        if follow_sell:
+            competitor = str(draft.get("ozon_product_id") or "").strip()
+            offer_id = f"follow_{competitor}" if competitor else ""
+        else:
+            offer_id = str(draft.get("item_id") or draft.get("sku_id") or "").strip()
+        if not offer_id:
+            logger.info("⏭️ T9 索引回填跳过: offer_id 无法解析（draft.item_id/sku_id 均空）")
+            return
+
+        from services.product_index_service import upsert_index  # 懒导入防循环
+        upsert_index(
+            tenant_id=tenant_id, product_id=str(product_id), offer_id=offer_id,
+            task_id=task_id, credential_id=credential_id, draft_id=draft_id,
+        )
+        logger.info(f"✅ T9 索引回填成功: product_id={product_id} task_id={task_id} "
+                    f"offer_id={offer_id} draft_id={draft_id}")
+    except Exception as e:
+        logger.warning(f"⚠️ T9 索引回填失败（不阻断学习）: {e}")
+
+
 def learning_record_node(
     state: LearningRecordInput,
     config: RunnableConfig,
@@ -246,6 +349,9 @@ def learning_record_node(
                     logger.warning(f"category_mapping 跳过写入: dc/tp 树中不存在 ({leaf} → [{description_category_id}/{tp_val}]),疑似品牌页 ID/错配")
         except Exception as e:
             logger.warning(f"category_mapping写入失败（非致命）: {e}")
+    
+    # ✅ T9: 上传成功（approved）回填 product_task_index — 非阻断，任何缺失/异常仅 warning
+    _backfill_product_index(state, config)
     
     return LearningRecordOutput(
         recorded_count=recorded_count,
