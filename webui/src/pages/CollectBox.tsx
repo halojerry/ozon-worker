@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   deleteDraft,
   estimateDraft,
   getDrafts,
+  listCredentials,
+  listTemplates,
+  submitDraft,
+  type CredentialOut,
   type Draft,
   type DraftEstimate,
   type DraftSubmissionStatus,
+  type ListingTemplateOut,
+  type SubmitResponse,
 } from '../api/client'
 import SubmissionHistory from '../components/SubmissionHistory'
 
@@ -181,6 +187,200 @@ function ConfirmDialog({
   )
 }
 
+/* ── P0-3 批量上架：选店铺/模板 → 逐个提交（失败隔离）→ 结果视图 ── */
+
+interface BatchOk {
+  draftId: string
+  title: string
+  taskId: string
+}
+
+interface BatchFail {
+  draftId: string
+  title: string
+  reason: string
+}
+
+interface BatchSubmitModalProps {
+  drafts: Draft[]
+  credentials: CredentialOut[]
+  templates: ListingTemplateOut[]
+  onClose: () => void
+  onDone: (okCount: number) => void
+}
+
+function BatchSubmitModal({ drafts, credentials, templates, onClose, onDone }: BatchSubmitModalProps) {
+  const [credentialId, setCredentialId] = useState('')
+  const [templateId, setTemplateId] = useState('')
+  const [phase, setPhase] = useState<'form' | 'running' | 'result'>('form')
+  const [progress, setProgress] = useState(0)
+  const [okList, setOkList] = useState<BatchOk[]>([])
+  const [failList, setFailList] = useState<BatchFail[]>([])
+
+  const totalCost = useMemo(
+    () =>
+      drafts.reduce((sum, d) => {
+        const cost = d.payload?.draft?.purchase_cost
+        return sum + (typeof cost === 'number' ? cost : 0)
+      }, 0),
+    [drafts],
+  )
+
+  const hasDefaultTpl = templates.some((t) => t.is_default)
+  useEffect(() => {
+    if (!credentialId) {
+      const def = credentials.find((c) => c.is_default)
+      setCredentialId(def?.id ?? '')
+    }
+    if (!templateId && hasDefaultTpl) {
+      const def = templates.find((t) => t.is_default)
+      setTemplateId(def?.id ?? '')
+    }
+  }, [credentials, templates, credentialId, templateId, hasDefaultTpl])
+
+  async function run() {
+    setPhase('running')
+    setOkList([])
+    setFailList([])
+    let okCount = 0
+    for (let i = 0; i < drafts.length; i++) {
+      const d = drafts[i]
+      setProgress(i + 1)
+      try {
+        const res: SubmitResponse = await submitDraft(d.id, credentialId || undefined, templateId || undefined)
+        okCount += 1
+        setOkList((prev) => [...prev, { draftId: d.id, title: d.payload?.draft?.title ?? d.id, taskId: res.task_id }])
+      } catch (e: unknown) {
+        const err = e as { response?: { data?: { detail?: string } }; message?: string }
+        const detail = err?.response?.data?.detail
+        let reason = detail ?? err?.message ?? '提交失败'
+        if ((e as { response?: { status?: number } })?.response?.status === 409) {
+          reason = detail ?? '目标店铺已存在相同商品'
+        }
+        setFailList((prev) => [...prev, { draftId: d.id, title: d.payload?.draft?.title ?? d.id, reason }])
+      }
+    }
+    setPhase('result')
+    onDone(okCount)
+  }
+
+  const submitDisabled = phase !== 'form' || !credentialId || drafts.length === 0
+
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && phase !== 'running' && onClose()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="批量上架">
+        <div className="modal-header">
+          <h2 className="modal-title">{phase === 'result' ? '批量上架结果' : '批量上架'}</h2>
+          <button type="button" className="modal-close" aria-label="关闭" onClick={onClose} disabled={phase === 'running'}>
+            ×
+          </button>
+        </div>
+
+        {phase === 'form' && (
+          <>
+            <p className="modal-text">
+              共 <strong>{drafts.length}</strong> 个草稿 · 采购总成本 ¥{totalCost.toFixed(2)}
+            </p>
+            <div className="modal-form">
+              <div className="field">
+                <label className="field-label" htmlFor="batch-store">目标店铺</label>
+                <select
+                  id="batch-store"
+                  className="field-select"
+                  value={credentialId}
+                  onChange={(e) => setCredentialId(e.target.value)}
+                >
+                  <option value="">请选择店铺</option>
+                  {credentials.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.shop_name || c.ozon_client_id}（{c.ozon_client_id}
+                      {c.is_default ? ' · 默认' : ''}）
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor="batch-template">上架配置</label>
+                <select
+                  id="batch-template"
+                  className="field-select"
+                  value={templateId}
+                  onChange={(e) => setTemplateId(e.target.value)}
+                >
+                  <option value="">不使用（worker 默认参数）</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                      {t.is_default ? '（默认）' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="field-hint">将逐条提交上架；某条失败不中断其余，完成后显示结果。</p>
+            </div>
+            <div className="modal-foot">
+              <button type="button" className="btn" onClick={onClose}>取消</button>
+              <button type="button" className="btn btn-primary" disabled={submitDisabled} onClick={run}>
+                批量上架
+              </button>
+            </div>
+          </>
+        )}
+
+        {phase === 'running' && (
+          <div className="modal-body">
+            <div className="empty-state">
+              <div className="spinner" style={{ borderColor: 'rgba(0, 91, 255, 0.2)', borderTopColor: 'var(--color-brand)' }} />
+              <p className="empty-state-text">正在提交 {progress}/{drafts.length}…</p>
+            </div>
+          </div>
+        )}
+
+        {phase === 'result' && (
+          <div className="modal-body">
+            <div className="empty-state">
+              <p className="empty-state-title">
+                成功 {okList.length} · 失败 {failList.length}
+              </p>
+            </div>
+            {okList.length > 0 && (
+              <div className="batch-result-block">
+                <div className="batch-result-title">成功</div>
+                <ul className="batch-result-list">
+                  {okList.map((r) => (
+                    <li key={r.draftId}>
+                      <span className="batch-result-item" title={r.title}>{r.title}</span>
+                      <Link className="btn btn-small" to={`/tasks?task_id=${r.taskId}`}>查看进度</Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {failList.length > 0 && (
+              <div className="batch-result-block">
+                <div className="batch-result-title">失败</div>
+                <ul className="batch-result-list">
+                  {failList.map((r) => (
+                    <li key={r.draftId}>
+                      <span className="batch-result-item" title={r.reason}>
+                        {r.title} — {r.reason}
+                      </span>
+                      <Link className="btn btn-small" to={`/products/${r.draftId}`}>去编辑</Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="modal-foot">
+              <button type="button" className="btn btn-primary" onClick={onClose}>关闭</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function CollectBox() {
   const navigate = useNavigate()
   const [drafts, setDrafts] = useState<Draft[]>([])
@@ -190,6 +390,24 @@ export default function CollectBox() {
   const [confirm, setConfirm] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null)
   /** M2.2 提交历史弹窗目标草稿（行按钮触发） */
   const [historyDraft, setHistoryDraft] = useState<Draft | null>(null)
+  /** P0-3 批量上架：弹窗开关 + 店铺/模板缓存 */
+  const [batchOpen, setBatchOpen] = useState(false)
+  const [credentials, setCredentials] = useState<CredentialOut[]>([])
+  const [templates, setTemplates] = useState<ListingTemplateOut[]>([])
+
+  /** P0-3 批量上架：打开弹窗时懒加载店铺 + 模板（缓存避免每次弹窗请求） */
+  const openBatch = useCallback(() => {
+    if (selected.size === 0) return
+    setBatchOpen(true)
+    Promise.all([listCredentials(), listTemplates()])
+      .then(([creds, tpls]) => {
+        setCredentials(creds)
+        setTemplates(tpls)
+      })
+      .catch(() => {
+        /* 店铺/模板加载失败：弹窗内下拉为空，用户仍可提交（用默认参数） */
+      })
+  }, [selected])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -259,6 +477,13 @@ export default function CollectBox() {
 
       <div className="card">
         <div className="collect-toolbar">
+          <button
+            className="btn btn-primary"
+            disabled={selected.size === 0}
+            onClick={openBatch}
+          >
+            批量上架
+          </button>
           <button
             className="btn btn-danger"
             disabled={selected.size === 0}
@@ -404,6 +629,21 @@ export default function CollectBox() {
           draftId={historyDraft.id}
           draftTitle={historyDraft.payload?.draft?.title}
           onClose={() => setHistoryDraft(null)}
+        />
+      )}
+
+      {batchOpen && (
+        <BatchSubmitModal
+          drafts={drafts.filter((d) => selected.has(d.id))}
+          credentials={credentials}
+          templates={templates}
+          onClose={() => setBatchOpen(false)}
+          onDone={(okCount) => {
+            if (okCount > 0) {
+              setSelected(new Set())
+              load()
+            }
+          }}
         />
       )}
     </div>
