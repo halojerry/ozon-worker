@@ -30,7 +30,6 @@ import { Route as AuthenticatedBestsellersIndexRouteImport } from './routes/_aut
 import { Route as AuthenticatedCollectBoxIndexRouteImport } from './routes/_authenticated/collect-box/index'
 import { Route as AuthenticatedDataScreenIndexRouteImport } from './routes/_authenticated/data-screen/index'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
-import { Route as AuthenticatedHomeIndexRouteImport } from './routes/_authenticated/home/index'
 import { Route as AuthenticatedImageStudioIndexRouteImport } from './routes/_authenticated/image-studio/index'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedOnSaleIndexRouteImport } from './routes/_authenticated/on-sale/index'
@@ -149,11 +148,6 @@ const AuthenticatedErrorsErrorRoute =
     path: '/errors/$error',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedHomeIndexRoute = AuthenticatedHomeIndexRouteImport.update({
-  id: '/home/',
-  path: '/home/',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedImageStudioIndexRoute =
   AuthenticatedImageStudioIndexRouteImport.update({
     id: '/image-studio/',
@@ -233,7 +227,6 @@ export interface FileRoutesByFullPath {
   '/bestsellers/': typeof AuthenticatedBestsellersIndexRoute
   '/collect-box/': typeof AuthenticatedCollectBoxIndexRoute
   '/data-screen/': typeof AuthenticatedDataScreenIndexRoute
-  '/home/': typeof AuthenticatedHomeIndexRoute
   '/image-studio/': typeof AuthenticatedImageStudioIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/on-sale/': typeof AuthenticatedOnSaleIndexRoute
@@ -265,7 +258,6 @@ export interface FileRoutesByTo {
   '/bestsellers': typeof AuthenticatedBestsellersIndexRoute
   '/collect-box': typeof AuthenticatedCollectBoxIndexRoute
   '/data-screen': typeof AuthenticatedDataScreenIndexRoute
-  '/home': typeof AuthenticatedHomeIndexRoute
   '/image-studio': typeof AuthenticatedImageStudioIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/on-sale': typeof AuthenticatedOnSaleIndexRoute
@@ -300,7 +292,6 @@ export interface FileRoutesById {
   '/_authenticated/bestsellers/': typeof AuthenticatedBestsellersIndexRoute
   '/_authenticated/collect-box/': typeof AuthenticatedCollectBoxIndexRoute
   '/_authenticated/data-screen/': typeof AuthenticatedDataScreenIndexRoute
-  '/_authenticated/home/': typeof AuthenticatedHomeIndexRoute
   '/_authenticated/image-studio/': typeof AuthenticatedImageStudioIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/on-sale/': typeof AuthenticatedOnSaleIndexRoute
@@ -334,7 +325,6 @@ export interface FileRouteTypes {
     | '/bestsellers/'
     | '/collect-box/'
     | '/data-screen/'
-    | '/home/'
     | '/image-studio/'
     | '/keys/'
     | '/on-sale/'
@@ -366,7 +356,6 @@ export interface FileRouteTypes {
     | '/bestsellers'
     | '/collect-box'
     | '/data-screen'
-    | '/home'
     | '/image-studio'
     | '/keys'
     | '/on-sale'
@@ -400,7 +389,6 @@ export interface FileRouteTypes {
     | '/_authenticated/bestsellers/'
     | '/_authenticated/collect-box/'
     | '/_authenticated/data-screen/'
-    | '/_authenticated/home/'
     | '/_authenticated/image-studio/'
     | '/_authenticated/keys/'
     | '/_authenticated/on-sale/'
@@ -572,13 +560,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/home/': {
-      id: '/_authenticated/home/'
-      path: '/home'
-      fullPath: '/home/'
-      preLoaderRoute: typeof AuthenticatedHomeIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/image-studio/': {
       id: '/_authenticated/image-studio/'
       path: '/image-studio'
@@ -685,7 +666,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedBestsellersIndexRoute: typeof AuthenticatedBestsellersIndexRoute
   AuthenticatedCollectBoxIndexRoute: typeof AuthenticatedCollectBoxIndexRoute
   AuthenticatedDataScreenIndexRoute: typeof AuthenticatedDataScreenIndexRoute
-  AuthenticatedHomeIndexRoute: typeof AuthenticatedHomeIndexRoute
   AuthenticatedImageStudioIndexRoute: typeof AuthenticatedImageStudioIndexRoute
   AuthenticatedKeysIndexRoute: typeof AuthenticatedKeysIndexRoute
   AuthenticatedOnSaleIndexRoute: typeof AuthenticatedOnSaleIndexRoute
@@ -705,7 +685,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedBestsellersIndexRoute: AuthenticatedBestsellersIndexRoute,
   AuthenticatedCollectBoxIndexRoute: AuthenticatedCollectBoxIndexRoute,
   AuthenticatedDataScreenIndexRoute: AuthenticatedDataScreenIndexRoute,
-  AuthenticatedHomeIndexRoute: AuthenticatedHomeIndexRoute,
   AuthenticatedImageStudioIndexRoute: AuthenticatedImageStudioIndexRoute,
   AuthenticatedKeysIndexRoute: AuthenticatedKeysIndexRoute,
   AuthenticatedOnSaleIndexRoute: AuthenticatedOnSaleIndexRoute,
