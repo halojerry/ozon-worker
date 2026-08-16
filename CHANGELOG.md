@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.52.0] - 2026-08-16
+
+> WebUI 在线商品批量操作 P1a（PRD `docs/PRD-product-bulk-v0.52.md`）：店铺商品视图批量改价/改库存/归档/恢复。worker 1062 passed（+7）/ skill 493 / webui build + tokens:validate 绿。
+
+### Feat(在线商品批量操作)
+
+- **`shelf_service` 批量写入**：`bulk_update_prices`（`/v1/product/import/prices`，prices 数组透传）、`bulk_update_stocks`（`/v2/products/stocks`）、`bulk_archive`（archive=true → `/v1/product/archive`，false → `/v1/product/unarchive`，product_id 转 int 过滤非数字）。
+- **API**：`POST /products/bulk-prices` + `/products/bulk-stocks` + `/products/bulk-archive`（credential_id 或默认店铺；无默认 400 / Ozon 502）。
+- **WebUI 店铺商品视图**：复选框多选（全选/单选）+ 工具栏批量操作（批量改价弹窗：新售价/划线价/最低价；批量改库存弹窗；批量归档/恢复带 confirm 真实生效警告）+ 结果提示 + 刷新。
+
+### Test
+- `tests/test_shelf_bulk.py`（7 用例）：prices/stocks 请求体透传、archive true/false 端点切换、非数字 product_id 过滤、无默认 400、Ozon 502。
+- 全量回归 worker **1062 passed**（1055 基线 + 7 新）；webui build + tokens:validate。
+
+---
+
 ## [0.51.0] - 2026-08-16
 
 > WebUI 管理员面板（PRD `docs/PRD-admin-panel-v0.51.md`）：平台运营视图——用户/店铺/任务跨租户聚合。worker 1055 passed（+8）/ skill 493 / webui build + tokens:validate 绿。

@@ -882,6 +882,33 @@ export async function listOzonProducts(params?: {
   return data
 }
 
+/** P1a 在线商品批量操作（真实影响，谨慎调用） */
+
+/** POST /api/v1/products/bulk-prices —— 批量改价 */
+export async function bulkUpdatePrices(
+  prices: { offer_id: string; price: string; old_price?: string; min_price?: string }[],
+): Promise<{ ok: boolean; result: Record<string, unknown> }> {
+  const { data } = await api.post('/products/bulk-prices', { prices })
+  return data
+}
+
+/** POST /api/v1/products/bulk-stocks —— 批量改库存 */
+export async function bulkUpdateStocks(
+  stocks: { offer_id: string; product_id: string; stock: number }[],
+): Promise<{ ok: boolean; result: Record<string, unknown> }> {
+  const { data } = await api.post('/products/bulk-stocks', { stocks })
+  return data
+}
+
+/** POST /api/v1/products/bulk-archive —— 批量归档/恢复 */
+export async function bulkArchive(
+  productIds: string[],
+  archive: boolean,
+): Promise<{ ok: boolean; result: Record<string, unknown> }> {
+  const { data } = await api.post('/products/bulk-archive', { product_ids: productIds, archive })
+  return data
+}
+
 /* ────────────────────────────────────────────────────────────
  * /api/v1/admin (v0.51) — 管理员面板（平台运营视图，仅管理员）
  * ──────────────────────────────────────────────────────────── */
