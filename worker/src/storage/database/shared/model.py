@@ -725,3 +725,27 @@ class ListingTemplate(Base):
         # 部分唯一索引：每租户最多一个 is_default=true（设默认时先清旧默认）
         Index("uq_listing_templates_default", "tenant_id", unique=True, postgresql_where=text("is_default")),
     )
+
+
+class OrderNote(Base):
+    """订单货源/采购信息标注（P1-1，本地元数据，不对 Ozon 写入）。
+
+    posting_number 全局唯一（Ozon 单号跨店铺唯一）；租户隔离（A 看不到 B）。
+    订单数据实时拉取不持久化，notes 独立持久化——先标注后同步订单也允许 upsert。
+    """
+    __tablename__ = "order_notes"
+
+    posting_number: Mapped[str] = mapped_column(String(64), primary_key=True, comment="Ozon FBS 货件编号")
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"), comment="货源地址")
+    source_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="货源价格（CNY）")
+    source_remark: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"), comment="货源备注")
+    purchase_no: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"), comment="采购单号")
+    purchase_carrier: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"), comment="采购快递")
+    purchase_tracking: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"), comment="采购快递单号")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_order_notes_tenant", "tenant_id"),
+    )

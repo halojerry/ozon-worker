@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  getOrderLabel,
+  getOrderNotes,
   listCredentials,
   listOrders,
+  upsertOrderNotes,
   type CredentialOut,
+  type OrderNoteOut,
   type OrderOut,
   type OrderStatus,
 } from '../api/client'
@@ -83,6 +87,126 @@ function exportCsv(orders: OrderOut[]): void {
   URL.revokeObjectURL(url)
 }
 
+/* ── P1-1 订单备注弹窗：货源 + 采购信息（本地元数据） ── */
+
+interface NotesModalProps {
+  postingNumber: string
+  credentialId: string
+  onClose: () => void
+  onSaved: (notes: OrderNoteOut) => void
+}
+
+function NotesModal({ postingNumber, credentialId, onClose, onSaved }: NotesModalProps) {
+  const [notes, setNotes] = useState<OrderNoteOut | null>(null)
+  const [form, setForm] = useState({ source_url: '', source_cost: '', source_remark: '', purchase_no: '', purchase_carrier: '', purchase_tracking: '' })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    getOrderNotes(postingNumber)
+      .then((n) => {
+        setNotes(n)
+        setForm({
+          source_url: n.source_url ?? '',
+          source_cost: n.source_cost != null ? String(n.source_cost) : '',
+          source_remark: n.source_remark ?? '',
+          purchase_no: n.purchase_no ?? '',
+          purchase_carrier: n.purchase_carrier ?? '',
+          purchase_tracking: n.purchase_tracking ?? '',
+        })
+      })
+      .catch((e) => setError(extractError(e, '加载订单备注失败')))
+  }, [postingNumber])
+
+  function set<K extends keyof typeof form>(key: K, value: string) {
+    setForm((f) => ({ ...f, [key]: value }))
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    setError('')
+    try {
+      const saved = await upsertOrderNotes(postingNumber, {
+        source_url: form.source_url.trim(),
+        source_cost: form.source_cost.trim() !== '' ? Number(form.source_cost) : null,
+        source_remark: form.source_remark.trim(),
+        purchase_no: form.purchase_no.trim(),
+        purchase_carrier: form.purchase_carrier.trim(),
+        purchase_tracking: form.purchase_tracking.trim(),
+      })
+      onSaved(saved)
+      onClose()
+    } catch (e) {
+      setError(extractError(e, '保存失败'))
+      setSaving(false)
+    }
+  }
+
+  async function handleLabel() {
+    setError('')
+    try {
+      const label = await getOrderLabel(postingNumber, credentialId)
+      const bytes = atob(label.label_base64)
+      const arr = new Uint8Array(bytes.length)
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+      const blob = new Blob([arr], { type: label.content_type || 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${postingNumber}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setError(extractError(e, '面单下载失败'))
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="订单备注">
+        <div className="modal-header">
+          <h2 className="modal-title">订单备注</h2>
+          <button type="button" className="modal-close" aria-label="关闭" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <div className="modal-body">
+          <div className="sub-history-title mono">{postingNumber}</div>
+          {!notes && !error && (
+            <div className="empty-state"><div className="spinner-inline" /><p>加载备注…</p></div>
+          )}
+          {error && <div className="form-error" role="alert"><span>{error}</span></div>}
+          <div className="field">
+            <span className="field-label">货源信息</span>
+            <input className="field-input" placeholder="货源地址（1688 等链接）" value={form.source_url} onChange={(e) => set('source_url', e.target.value)} />
+            <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '8px' }}>
+              <input className="field-input" type="number" min="0" placeholder="货源价格（CNY）" value={form.source_cost} onChange={(e) => set('source_cost', e.target.value)} />
+              <input className="field-input" placeholder="货源备注" value={form.source_remark} onChange={(e) => set('source_remark', e.target.value)} />
+            </div>
+          </div>
+          <div className="field">
+            <span className="field-label">采购信息</span>
+            <input className="field-input" placeholder="采购单号" value={form.purchase_no} onChange={(e) => set('purchase_no', e.target.value)} />
+            <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '8px' }}>
+              <input className="field-input" placeholder="采购快递" value={form.purchase_carrier} onChange={(e) => set('purchase_carrier', e.target.value)} />
+              <input className="field-input" placeholder="采购快递单号" value={form.purchase_tracking} onChange={(e) => set('purchase_tracking', e.target.value)} />
+            </div>
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button type="button" className="btn" onClick={handleLabel} disabled={saving}>
+            下载面单
+          </button>
+          <button type="button" className="btn" onClick={onClose} disabled={saving}>取消</button>
+          <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Orders() {
   const [orders, setOrders] = useState<OrderOut[]>([])
   const [credentials, setCredentials] = useState<CredentialOut[]>([])
@@ -91,6 +215,9 @@ export default function Orders() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [detail, setDetail] = useState<OrderOut | null>(null)
+  /** P1-1 备注弹窗目标订单 + 备注更新回调 */
+  const [notesTarget, setNotesTarget] = useState<OrderOut | null>(null)
+  const [notesMap, setNotesMap] = useState<Record<string, OrderNoteOut>>({})
 
   /* 店铺列表（默认店铺默认选中） */
   useEffect(() => {
@@ -227,6 +354,7 @@ export default function Orders() {
                 <th className="col-price">费用(₽)</th>
                 <th className="col-price">利润(₽)</th>
                 <th>仓库 / 配送</th>
+                <th>备注</th>
                 <th className="col-time">下单时间</th>
                 <th className="col-actions">操作</th>
               </tr>
@@ -263,10 +391,22 @@ export default function Orders() {
                         <span className="task-client mono">{o.warehouse || '—'}</span>
                       </div>
                     </td>
+                    <td>
+                      {notesMap[o.posting_number]?.source_url ? (
+                        <span className="badge badge-update" title={`货源：${notesMap[o.posting_number].source_url}`}>
+                          已备注
+                        </span>
+                      ) : (
+                        <span className="task-source-empty">—</span>
+                      )}
+                    </td>
                     <td className="col-time">{fmtTime(o.created_at)}</td>
                     <td className="col-actions">
                       <button className="btn btn-small" onClick={() => setDetail(o)}>
                         详情
+                      </button>
+                      <button className="btn btn-small" onClick={() => setNotesTarget(o)}>
+                        备注
                       </button>
                     </td>
                   </tr>
@@ -326,6 +466,17 @@ export default function Orders() {
             </div>
           </div>
         </div>
+      )}
+
+      {notesTarget && (
+        <NotesModal
+          postingNumber={notesTarget.posting_number}
+          credentialId={credentialId}
+          onClose={() => setNotesTarget(null)}
+          onSaved={(notes) => {
+            setNotesMap((m) => ({ ...m, [notes.posting_number]: notes }))
+          }}
+        />
       )}
     </div>
   )

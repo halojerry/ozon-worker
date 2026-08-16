@@ -11,7 +11,12 @@ import json
 
 from fastapi import APIRouter, Request
 
-from api.schemas import OrderListResponse
+from api.schemas import (
+    OrderLabelResponse,
+    OrderListResponse,
+    OrderNoteOut,
+    OrderNoteUpsert,
+)
 from services import order_service
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -49,3 +54,26 @@ async def list_orders(
         tenant_id, credential_id=credential_id, status=status,
         limit=limit, offset=offset, since_days=since_days,
     )
+
+
+@router.get("/{posting_number}/notes", response_model=OrderNoteOut)
+async def get_order_notes(posting_number: str, request: Request):
+    tenant_id = await _authenticate(request)
+    return order_service.get_order_notes(tenant_id, posting_number)
+
+
+@router.put("/{posting_number}/notes", response_model=OrderNoteOut)
+async def upsert_order_notes(posting_number: str, request: Request):
+    tenant_id = await _authenticate(request)
+    data = await request.json()
+    return order_service.upsert_order_notes(tenant_id, posting_number, data)
+
+
+@router.get("/{posting_number}/label", response_model=OrderLabelResponse)
+async def get_order_label(
+    posting_number: str,
+    request: Request,
+    credential_id: str | None = None,
+):
+    tenant_id = await _authenticate(request)
+    return order_service.get_order_label(tenant_id, posting_number, credential_id)

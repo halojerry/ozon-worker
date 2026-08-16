@@ -404,6 +404,37 @@ class OrderListResponse(BaseModel):
     store: dict = Field(default_factory=dict, description="查询店铺 {id, ozon_client_id}")
 
 
+class OrderNoteOut(BaseModel):
+    """订单货源/采购信息标注（P1-1 本地元数据）。"""
+    posting_number: str = Field(..., description="Ozon FBS 货件编号")
+    tenant_id: str = Field(..., description="所属租户")
+    source_url: str = Field("", description="货源地址")
+    source_cost: Optional[float] = Field(None, description="货源价格（CNY）")
+    source_remark: str = Field("", description="货源备注")
+    purchase_no: str = Field("", description="采购单号")
+    purchase_carrier: str = Field("", description="采购快递")
+    purchase_tracking: str = Field("", description="采购快递单号")
+    created_at: Optional[str] = Field(None, description="创建时间")
+    updated_at: Optional[str] = Field(None, description="更新时间")
+
+
+class OrderNoteUpsert(BaseModel):
+    """订单标注写入（部分字段可选，缺失字段清空）。"""
+    source_url: Optional[str] = None
+    source_cost: Optional[float] = Field(None, ge=0, description="货源价格（CNY）")
+    source_remark: Optional[str] = None
+    purchase_no: Optional[str] = None
+    purchase_carrier: Optional[str] = None
+    purchase_tracking: Optional[str] = None
+
+
+class OrderLabelResponse(BaseModel):
+    """面单 PDF 响应（base64，路由层编码）。"""
+    posting_number: str = Field(..., description="货件编号")
+    content_type: str = Field("application/pdf", description="MIME")
+    label_base64: str = Field(..., description="PDF base64")
+
+
 # ──────────────────────────────────────────────
 # T14b 草稿 AI 单字段重新生成
 # ──────────────────────────────────────────────
