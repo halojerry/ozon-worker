@@ -2158,6 +2158,11 @@ app.include_router(drafts_router)
 from routes.estimate_routes import router as estimate_router
 app.include_router(estimate_router)
 
+# ── WebUI MXOU 登录端点（T2）：routes/services 分层，业务逻辑在 services/mxou_login_service.py ──
+# 唯一无 token 鉴权端点（登录入口本身），防爆破在端点层按 username 限流
+from routes.mxou_routes import router as mxou_router
+app.include_router(mxou_router)
+
 # ── WebUI 在线商品更新端点（T14 改图全量重传）：routes/services 分层，业务逻辑在 services/image_service.py ──
 from routes.products_routes import router as products_router
 v1.include_router(products_router)
