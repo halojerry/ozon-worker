@@ -14,7 +14,8 @@ import requests
 from fastapi import HTTPException
 from sqlalchemy import text
 
-from services import credential_service  # T14 凭证解密（非循环依赖）
+from services import credential_service, draft_service  # T14 凭证解密 / T6 编辑读草稿（非循环依赖）
+from services.product_index_service import lookup_index, upsert_index  # T6 抽取的共享索引访问
 from storage.database.db import get_engine
 from utils import image_quality_evaluator, task_image_cache as tic
 from utils.ozon_client import ozon_post
@@ -129,16 +130,8 @@ async def regen_image(
 # ────────────────────────────────────────────────────────────
 # T14: 在线商品改图全量重传（POST /products/{product_id}/update_images）
 # ────────────────────────────────────────────────────────────
-
-# C1b: 索引行 UPSERT（回填/刷新商品↔任务↔店铺映射，approved 路径挂钩）
-_INDEX_UPSERT_SQL = text(
-    "INSERT INTO product_task_index "
-    "(product_id, tenant_id, offer_id, task_id, credential_id, draft_id) "
-    "VALUES (:product_id, :tenant_id, :offer_id, :task_id, :credential_id, :draft_id) "
-    "ON CONFLICT (product_id) DO UPDATE SET "
-    "  offer_id = EXCLUDED.offer_id, task_id = EXCLUDED.task_id, "
-    "  credential_id = EXCLUDED.credential_id, draft_id = EXCLUDED.draft_id, created_at = NOW()"
-)
+# 索引访问（UPSERT SQL / lookup / upsert）已抽取到 services.product_index_service（T6），
+# 改图/编辑/学习回填共用，勿在此重定义。
 
 
 def _resolve_draft_id(task_id: str) -> Optional[str]:
@@ -156,39 +149,6 @@ def _resolve_draft_id(task_id: str) -> Optional[str]:
     except Exception as e:
         logger.debug("image_service._resolve_draft_id 失败(task=%s): %s", task_id, e)
         return None
-
-
-def _lookup_index(tenant_id: str, product_id: str) -> Optional[dict]:
-    """product_task_index 定位（租户隔离）；无索引 → None（调用方转 404）。"""
-    try:
-        with get_engine().connect() as conn:
-            row = conn.execute(text(
-                "SELECT product_id, offer_id, task_id, credential_id, draft_id "
-                "FROM product_task_index WHERE product_id=:pid AND tenant_id=:tenant_id"
-            ), {"pid": product_id, "tenant_id": tenant_id}).fetchone()
-    except Exception as e:
-        logger.warning("product_task_index 查询失败 product_id=%s: %s", product_id, e)
-        return None
-    if row is None:
-        return None
-    return {
-        "product_id": str(row[0]),
-        "offer_id": str(row[1]),
-        "task_id": str(row[2]),
-        "credential_id": str(row[3]) if row[3] is not None else None,
-        "draft_id": str(row[4]) if row[4] is not None else None,
-    }
-
-
-def _upsert_index(
-    tenant_id: str, product_id: str, offer_id: str, task_id: str, credential_id: str,
-    draft_id: Optional[str] = None,
-) -> None:
-    with get_engine().begin() as conn:
-        conn.execute(_INDEX_UPSERT_SQL, {
-            "product_id": product_id, "tenant_id": tenant_id, "offer_id": offer_id,
-            "task_id": task_id, "credential_id": credential_id, "draft_id": draft_id,
-        })
 
 
 def _mark_task_pending_moderation(task_id: str) -> None:
@@ -233,7 +193,7 @@ def update_product_images(
     ③ /v3/product/import 全量重传（product_id + offer_id + 新 images）
     ④ ozon_status approved → 索引行回填；否则任务 status → pending_moderation + 「重新审核中」
     """
-    index = _lookup_index(tenant_id, product_id)
+    index = lookup_index(tenant_id, product_id)
     if index is None:
         raise HTTPException(status_code=404, detail="商品未找到，可能已归档")
     if not images:
@@ -265,7 +225,7 @@ def update_product_images(
 
     import_task_id = str((result.get("result") or {}).get("task_id", ""))
     if _query_ozon_status(client_id, api_key, product_id, post) == "approved":
-        _upsert_index(
+        upsert_index(
             tenant_id, product_id, index["offer_id"], index["task_id"], index["credential_id"],
             draft_id=_resolve_draft_id(index["task_id"]),
         )
@@ -280,4 +240,57 @@ def update_product_images(
         "ok": True, "product_id": product_id, "offer_id": index["offer_id"],
         "import_task_id": import_task_id, "status": "pending_moderation", "re_under_review": True,
         "message": "图片已更新，商品重新审核中", "images": alive, "images_filtered": dead,
+    }
+
+
+# ────────────────────────────────────────────────────────────
+# T6: 商品编辑数据（GET /products/{product_id}/edit）— 索引关联草稿 envelope 初值
+# ────────────────────────────────────────────────────────────
+
+
+def get_product_edit_data(tenant_id: str, product_id: str) -> dict:
+    """GET /products/{product_id}/edit — 编辑表单初值（product_task_index 关联草稿 envelope）。
+
+    ① 索引定位（租户隔离）；无索引 → 404「商品未找到，可能已归档」
+    ② 无草稿来源（draft_id NULL，直连任务）→ 409「仅改图可用 update_images」
+    ③ 读草稿 payload（draft_service.get_draft 租户隔离）→ 不存在/跨租户 → 404
+    ④ moderation_status：从 ozon_product_tasks result JSONB 尽力提取（对齐 shelf_service，不实时调 Ozon）
+    """
+    index = lookup_index(tenant_id, product_id)
+    if index is None:
+        raise HTTPException(status_code=404, detail="商品未找到，可能已归档")
+    if not index["draft_id"]:
+        raise HTTPException(
+            status_code=409,
+            detail="该商品无草稿来源，无法编辑（仅改图可用 update_images）",
+        )
+
+    draft_id = index["draft_id"]
+    try:
+        draft = draft_service.get_draft(tenant_id, draft_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("读取草稿失败 draft_id=%s: %s", draft_id, e)
+        raise HTTPException(status_code=404, detail="草稿不存在或无权访问")
+
+    moderation_status = None
+    try:
+        with get_engine().connect() as conn:
+            row = conn.execute(text(
+                "SELECT result->>'moderation_status' AS moderation_status "
+                "FROM ozon_product_tasks WHERE id = :tid"
+            ), {"tid": index["task_id"]}).fetchone()
+        if row:
+            moderation_status = row[0]
+    except Exception as e:  # 审核状态为辅助字段，fail-open 对齐 shelf_service
+        logger.debug("读取审核状态失败 task_id=%s: %s", index["task_id"], e)
+
+    return {
+        "product_id": index["product_id"],
+        "offer_id": index["offer_id"],
+        "credential_id": index["credential_id"],
+        "draft_id": draft_id,
+        "payload": draft["payload"],
+        "moderation_status": moderation_status,
     }

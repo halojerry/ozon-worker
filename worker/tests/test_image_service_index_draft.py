@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from services import image_service
+from services import image_service, product_index_service
 
 TENANT = "tenant-a"
 PRODUCT_ID = "1234567890"
@@ -69,8 +69,10 @@ class FakeEngine:
 
 
 def _make_engine(monkeypatch, pending_rows=None):
+    """同一 FakeEngine 注入 image_service + product_index_service（T6 抽取后索引访问在共享模块）。"""
     engine = FakeEngine(pending_rows)
     monkeypatch.setattr(image_service, "get_engine", lambda: engine)
+    monkeypatch.setattr(product_index_service, "get_engine", lambda: engine)
     return engine
 
 
@@ -106,19 +108,19 @@ def test_resolve_draft_id_row_null_draft(monkeypatch):
     assert image_service._resolve_draft_id(TASK_ID) is None
 
 
-# ── _lookup_index ──
+# ── lookup_index（T6 抽取后位于 product_index_service）──
 def test_lookup_index_returns_draft_id(monkeypatch):
     engine = _make_engine(monkeypatch, pending_rows=[
         (PRODUCT_ID, "sku-123", TASK_ID, CRED_ID, DRAFT_ID),
     ])
-    result = image_service._lookup_index(TENANT, PRODUCT_ID)
+    result = product_index_service.lookup_index(TENANT, PRODUCT_ID)
     assert result["draft_id"] == DRAFT_ID
     assert result["task_id"] == TASK_ID
 
 
 def test_lookup_index_draft_id_null(monkeypatch):
     engine = _make_engine(monkeypatch, pending_rows=[INDEX_ROW])
-    result = image_service._lookup_index(TENANT, PRODUCT_ID)
+    result = product_index_service.lookup_index(TENANT, PRODUCT_ID)
     assert result["draft_id"] is None
 
 
