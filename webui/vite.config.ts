@@ -1,10 +1,17 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { tanstackRouter } from '@tanstack/router-plugin/vite'
+import { fileURLToPath, URL } from 'node:url'
 
 // base='/app/'：与 worker FastAPI 静态托管挂载路径一致（生产 SPA 托管在 /app，
 // 见 worker/src/main.py 的 _mount_webui_static + webui/README.md）。
 export default defineConfig({
-  plugins: [react()],
+  plugins: [tanstackRouter(), react()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
   base: '/app/',
   server: {
     host: true,
