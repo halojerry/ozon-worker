@@ -363,6 +363,12 @@ class SupabaseTaskProcessor:
                         SELECT id, tenant_id, priority, payload, timeout_seconds, retry_count
                         FROM ozon_product_tasks
                         WHERE status = 'pending'
+                        -- P1d 定时上架：scheduled_at 未到时间不认领（payload extensions 里）
+                        AND (
+                            payload->'envelope'->'extensions'->>'scheduled_at' IS NULL
+                            OR payload->'envelope'->'extensions'->>'scheduled_at' = ''
+                            OR (payload->'envelope'->'extensions'->>'scheduled_at')::timestamptz <= now()
+                        )
                         ORDER BY priority DESC, created_at ASC
                         LIMIT 1
                         FOR UPDATE SKIP LOCKED
