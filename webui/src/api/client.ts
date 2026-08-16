@@ -116,15 +116,21 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// 响应拦截器：401 → 清除本地凭证并回登录页（TanStack Router sign-in，base /app）
+// 响应拦截器：401 → 业务 token 失效（mxou 登录态 ≠ worker token）。
+// 已登录 mxou（store user 存在）→ 只清 token 不跳转（避免 sign-in 循环）；
+// 未登录 → 跳 sign-in。
 api.interceptors.response.use(
   (resp) => resp,
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem(TOKEN_STORAGE_KEY)
-      const signIn = '/app/sign-in'
-      if (window.location.pathname !== signIn) {
-        window.location.href = signIn
+      const hasMxouSession =
+        typeof window !== 'undefined' && !!window.localStorage.getItem('user')
+      if (!hasMxouSession) {
+        const signIn = '/app/sign-in'
+        if (window.location.pathname !== signIn) {
+          window.location.href = signIn
+        }
       }
     }
     return Promise.reject(error)

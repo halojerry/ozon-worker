@@ -30,10 +30,12 @@ let sessionVerified = false
 
 export const Route = createFileRoute('/_authenticated')({
   beforeLoad: async ({ location }) => {
+    // ⚠️ 直接读 localStorage（生产构建 store 初始化时序不可靠，dev 正常 prod 偶发读不到）
     const { auth } = useAuthStore.getState()
+    const hasUser = auth.user || (typeof window !== 'undefined' && !!window.localStorage.getItem('user'))
 
     // 如果本地没有用户信息，直接跳转登录页
-    if (!auth.user) {
+    if (!hasUser) {
       throw redirect({
         to: '/sign-in',
         search: { redirect: location.href },
