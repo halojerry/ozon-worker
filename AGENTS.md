@@ -431,6 +431,10 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## 深入阅读（改前先看）
 
+- **`docs/competitor/README.md`** — ⭐ 竞品 ERP 调研总索引（上品帮 × 毛子ERP 全量字段级分析 + 自有 WebUI 复刻路线 P0-P3——做 WebUI 功能前必读）
+- **`docs/competitor/shangpinbang-full.md`** — 上品帮全站 24 章（18 菜单 40+ 页面字段/状态机/跳转/计费）
+- **`docs/competitor/maozier-backend-full.md`** — 毛子ERP 网页后台 18 章（11 菜单全路由/弹窗/毛豆计费/实操验证）
+- **`docs/competitor/maozier-plugin-full.md`** — 毛子ERP 插件 9 章（一键上架 11 字段/选品规则 22 条件/AI 套图/API）
 - **`docs/PLAN-skill-image-search-v1.md`** — ⭐ 图搜改造方案（aibuy 通道/trusted_source/类目消歧/定价复用/6 Issue 落地记录——改图搜/类目前必读）
 - **`skill/SKILL.md`** — ⭐ Agent 调用指南（Chrome 启动、选品、跟卖、以图搜款、批量处理；100 行精简版，越界/裂变/趋势细则在 `references/`）
 - **`skill/references/command-reference.md`** — ⭐ 全命令参考：意图路由决策树 + 各管线（A/B/C/D/E/F）触发条件、完整参数、示例、输入输出
