@@ -164,6 +164,20 @@ def test_status_filter_passed_to_api(_pg):
     assert fake.calls[0]["body"]["filter"]["status"] == "delivered"
 
 
+def test_since_format_ozon_compliant(_pg):
+    """Ozon 要求 since/to 严格 YYYY-MM-DDTHH:MM:SSZ，且 filter 必须同时含 since+to。"""
+    import re
+    cred = _store_credential(TENANT, "222222", "key-2")
+    fake = _fake_ozon({"postings": [], "total": 0})
+    with patch("services.order_service.ozon_post", fake):
+        order_service.list_orders(TENANT, credential_id=cred)
+    filt = fake.calls[0]["body"]["filter"]
+    for key in ("since", "to"):
+        val = filt[key]
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", val), f"{key} 格式不符: {val}"
+    assert "to" in filt  # 缺 to → Ozon 400 processed_at_to must be set
+
+
 # ============================================================
 # 3. 错误路径
 # ============================================================

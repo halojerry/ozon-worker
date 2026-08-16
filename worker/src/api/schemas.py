@@ -454,6 +454,26 @@ class OrderActionResponse(BaseModel):
     result: dict = Field(default_factory=dict, description="Ozon 返回 result")
 
 
+class OzonProductOut(BaseModel):
+    """Ozon 店铺在线商品（v0.50 实时拉取，覆盖非本系统上架商品）。"""
+    product_id: str = Field(..., description="Ozon product_id")
+    offer_id: str = Field("", description="货号")
+    name: str = Field("", description="商品名称")
+    image: Optional[str] = Field(None, description="主图 URL")
+    price: Optional[float] = Field(None, description="售价")
+    stock: Optional[int] = Field(None, description="可用库存")
+    currency: str = Field("", description="货币代码")
+
+
+class OzonProductListResponse(BaseModel):
+    """Ozon 在线商品列表响应。"""
+    items: list[OzonProductOut] = Field(default_factory=list)
+    total: int = Field(0, description="商品总数")
+    limit: int = Field(50, description="本次页大小")
+    offset: int = Field(0, description="偏移")
+    store: dict = Field(default_factory=dict, description="查询店铺 {id, ozon_client_id}")
+
+
 # ──────────────────────────────────────────────
 # T14b 草稿 AI 单字段重新生成
 # ──────────────────────────────────────────────

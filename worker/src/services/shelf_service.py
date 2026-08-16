@@ -57,3 +57,127 @@ def list_products(tenant_id: str, limit: int = 20, offset: int = 0) -> dict[str,
         "limit": limit,
         "offset": offset,
     }
+
+
+# ──────────────────────────────────────────────
+# v0.50 在线商品实时拉取（修复「配置店铺看不到在线商品」）
+# ──────────────────────────────────────────────
+
+
+def list_ozon_products(
+    tenant_id: str,
+    credential_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """实时拉取 Ozon 店铺在线商品（对标上品帮 /goodsManage、毛子 /product/online）。
+
+    两步拼接：
+      1. /v3/product/list {filter:{visibility:'ALL'}} → [product_id, offer_id]
+      2. /v1/product/info/list {product_id:[...]} → name/images/price/stocks
+    （product_task_index 只含本系统上架商品，此端点覆盖店铺全部商品。）
+
+    Returns: {items: [OzonProductOut], total, limit, offset, store}
+    """
+    from fastapi import HTTPException
+    from services.credential_service import get_decrypted, get_default_credential
+    from utils.ozon_client import ozon_post
+
+    if credential_id:
+        client_id, api_key = get_decrypted(tenant_id, str(credential_id))
+        store_id = str(credential_id)
+    else:
+        default = get_default_credential(tenant_id)
+        if default is None:
+            raise HTTPException(
+                status_code=400,
+                detail="未配置默认店铺：请传 credential_id 或先在店铺管理设置默认店铺",
+            )
+        client_id, api_key = default["ozon_client_id"], default["api_key"]
+        store_id = default["id"]
+
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+
+    try:
+        list_resp = ozon_post(
+            client_id, api_key, "/v3/product/list",
+            {"filter": {"visibility": "ALL"}, "limit": limit, "offset": offset, "sort_dir": "ASC"},
+            timeout=30, language="RU",
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("Ozon 商品列表拉取失败 client=%s: %s", client_id, str(exc)[:200])
+        raise HTTPException(status_code=502, detail=f"Ozon 商品列表接口请求失败：{str(exc)[:120]}")
+
+    result = list_resp.get("result") or {}
+    items_raw = result.get("items") or []
+    total = int(result.get("total") or len(items_raw))
+
+    product_ids = [str(it.get("product_id")) for it in items_raw if isinstance(it, dict) and it.get("product_id")]
+    info_map: dict[str, dict] = {}
+    if product_ids:
+        try:
+            # ⚠️ /v3/product/info/list 批量查询必须传整数数组（字符串数组返回空 items）
+            int_ids = [int(pid) for pid in product_ids if str(pid).isdigit()]
+            if int_ids:
+                # ⚠️ Ozon 对 info/list 有速率限制：高频下静默返回空 items（不报错）。
+                #    空结果时退避重试（1s/2s），避免误判「商品无详情」。
+                import time as _time
+                info_items: list = []
+                for _attempt in range(3):
+                    info_resp = ozon_post(
+                        client_id, api_key, "/v3/product/info/list",
+                        {"product_id": int_ids}, timeout=30, language="RU",
+                    )
+                    info_items = (info_resp.get("result") or {}).get("items") or []
+                    if info_items:
+                        break
+                    if _attempt < 2:
+                        _time.sleep(1 + _attempt)
+                if not info_items:
+                    logger.warning("Ozon info/list 重试 3 次仍空（疑似限流）ids=%s", int_ids[:5])
+                for it in info_items:
+                    if isinstance(it, dict) and it.get("id"):
+                        info_map[str(it.get("id"))] = it
+        except Exception as exc:
+            logger.warning("Ozon 商品详情拉取失败（降级返回列表）client=%s: %s", client_id, str(exc)[:200])
+
+    items = []
+    for it in items_raw:
+        if not isinstance(it, dict):
+            continue
+        pid = str(it.get("product_id"))
+        info = info_map.get(pid) or {}
+        images = info.get("images") or []
+        # ⚠️ /v3/product/info/list 结构：price 是顶层字符串、currency_code 顶层、
+        #    stocks.stocks[0].present（嵌套数组）
+        price = None
+        try:
+            price = float(info.get("price")) if info.get("price") else None
+        except (TypeError, ValueError):
+            price = None
+        currency = str(info.get("currency_code") or "")
+        stock = None
+        stocks_wrap = info.get("stocks") or {}
+        stock_list = stocks_wrap.get("stocks") if isinstance(stocks_wrap, dict) else None
+        if isinstance(stock_list, list) and stock_list:
+            stock = int((stock_list[0] or {}).get("present") or 0)
+        items.append({
+            "product_id": pid,
+            "offer_id": str(it.get("offer_id") or info.get("offer_id") or ""),
+            "name": info.get("name") or str(it.get("offer_id") or pid),
+            "image": images[0] if isinstance(images, list) and images else None,
+            "price": price,
+            "stock": stock,
+            "currency": currency,
+        })
+
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "store": {"id": store_id, "ozon_client_id": client_id},
+    }

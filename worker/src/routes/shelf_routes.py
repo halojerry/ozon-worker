@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from api.schemas import ProductListResponse
+from api.schemas import OzonProductListResponse, ProductListResponse
 from services import shelf_service
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -37,3 +37,19 @@ async def list_products(request: Request):
     except (TypeError, ValueError):
         offset = 0
     return shelf_service.list_products(tenant_id, limit=limit, offset=offset)
+
+
+@router.get("/ozon", response_model=OzonProductListResponse)
+async def list_ozon_products(request: Request):
+    tenant_id = await _authenticate(request)
+    try:
+        limit = int(request.query_params.get("limit", 50))
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        offset = int(request.query_params.get("offset", 0))
+    except (TypeError, ValueError):
+        offset = 0
+    credential_id = request.query_params.get("credential_id")
+    return shelf_service.list_ozon_products(
+        tenant_id, credential_id=credential_id, limit=limit, offset=offset)
