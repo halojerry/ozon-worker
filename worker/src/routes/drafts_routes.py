@@ -97,7 +97,9 @@ async def submit_draft(draft_id: str, request: Request):
     body = await request.json()
     token = str(body.get("token", "") or "")
     credential_id = body.get("credential_id")
-    return await draft_service.submit_draft(tenant_id, draft_id, token, credential_id)
+    update_product_id = str(body.get("update_product_id", "") or "") or None
+    return await draft_service.submit_draft(
+        tenant_id, draft_id, token, credential_id, update_product_id)
 
 
 def _load_draft_payload(draft_id: str, tenant_id: str) -> Optional[dict]:

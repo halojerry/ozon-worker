@@ -253,6 +253,9 @@ class DraftSubmitRequest(BaseModel):
     credential_id: Optional[UUID] = Field(
         None, description="目标店铺凭证 ID；NULL → 用 is_default=true 店铺"
     )
+    update_product_id: Optional[str] = Field(
+        None, description="更新模式：已存在商品的 Ozon product_id；设置后跳过 per-store 重复校验，注入 extensions.update_product_id"
+    )
 
 
 class SubmitResponse(BaseModel):

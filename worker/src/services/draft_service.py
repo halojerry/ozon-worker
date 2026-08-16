@@ -18,7 +18,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 from api.schemas import DraftPatch
-from services import credential_service
+from services import credential_service, product_index_service
 from storage.database.db import get_engine
 from utils.ozon_client import ozon_post
 
@@ -273,8 +273,15 @@ async def submit_draft(
     draft_id: str,
     token: str,
     credential_id: Optional[str] = None,
+    update_product_id: Optional[str] = None,
 ) -> dict:
-    """POST /drafts/{id}/submit：凭证注入 → 重复校验 → 入队 → submission 行。"""
+    """POST /drafts/{id}/submit：凭证注入 → 重复校验 → 入队 → submission 行。
+
+    update_product_id（T7 更新模式）：商品已存在 → 跳过 per-store 409 重复校验；
+    offer_id 优先从 product_task_index 复用（重上不变式）；graph_payload 注入
+    extensions.update_product_id/update_offer_id（仅副本，绝不持久化到草稿）；
+    入队后 upsert_index 回填新 task_id（失败仅 warning 不阻断）。
+    """
     draft = get_draft(tenant_id, draft_id)
     envelope = draft["payload"]
 
@@ -292,7 +299,13 @@ async def submit_draft(
         cred_id = default["id"]
 
     offer_id = _resolve_offer_id(envelope)
-    if offer_id:
+    update_offer_id: Optional[str] = None
+    if update_product_id:
+        index_row = product_index_service.lookup_index(tenant_id, update_product_id)
+        if index_row:
+            offer_id = index_row["offer_id"]
+            update_offer_id = index_row["offer_id"]
+    elif offer_id:
         try:
             info = ozon_post(
                 client_id, api_key, "/v1/product/info/list",
@@ -311,15 +324,34 @@ async def submit_draft(
 
     existing_stores, confirm_required = _cross_store_scan(tenant_id, draft_id, client_id)
 
+    payload_envelope = envelope
+    if update_product_id:
+        payload_envelope = copy.deepcopy(envelope)
+        payload_ext = payload_envelope.setdefault("extensions", {})
+        payload_ext["update_product_id"] = update_product_id
+        if update_offer_id:
+            payload_ext["update_offer_id"] = update_offer_id
+
     graph_payload = {
         "token": token,
         "ozon_client_id": client_id,
         "ozon_api_key": api_key,
-        "envelope": envelope,
+        "envelope": payload_envelope,
         "user_id": tenant_id,
     }
     sku_key = f"{tenant_id}:{client_id}:{offer_id}" if offer_id else ""
     task_id = await _submit_task(tenant_id, graph_payload, sku_key)
+
+    if update_product_id and update_offer_id:
+        try:
+            product_index_service.upsert_index(
+                tenant_id, update_product_id, update_offer_id, task_id, cred_id,
+                draft_id=draft_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "索引回填失败（不阻断提交）product_id=%s: %s", update_product_id, str(exc)[:200],
+            )
 
     extensions_snapshot = copy.deepcopy(envelope.get("extensions") or {})
     with get_engine().begin() as conn:
