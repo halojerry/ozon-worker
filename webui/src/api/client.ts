@@ -1152,4 +1152,248 @@ export async function getProductEdit(productId: string): Promise<ProductEditData
   return data
 }
 
+/* ────────────────────────────────────────────────────────────
+ * /api/v1/admin/site|config|logistics|queries (v0.55) — 系统设置（运营配置中心）
+ * ──────────────────────────────────────────────────────────── */
+
+/* ── 站点运营：Banner / 通告（管理端全量 CRUD） ── */
+
+export interface SiteBanner {
+  id: number
+  image_url: string
+  link_url?: string | null
+  title: string
+  sort_order: number
+  enabled: boolean
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface SiteBannerInput {
+  image_url: string
+  link_url?: string | null
+  title: string
+  sort_order: number
+  enabled: boolean
+}
+
+export interface SiteAnnouncement {
+  id: number
+  title: string
+  content: string
+  /** banner | popup */
+  announcement_type: string
+  enabled: boolean
+  created_at?: string | null
+}
+
+export interface SiteAnnouncementInput {
+  title: string
+  content: string
+  announcement_type: string
+  enabled: boolean
+}
+
+/** GET /api/v1/admin/site/banners —— Banner 列表（管理端全量） */
+export async function listSiteBanners(): Promise<SiteBanner[]> {
+  const { data } = await api.get<SiteBanner[]>('/admin/site/banners')
+  return data
+}
+
+/** POST /api/v1/admin/site/banners —— 创建 Banner（201） */
+export async function createSiteBanner(payload: SiteBannerInput): Promise<SiteBanner> {
+  const { data } = await api.post<SiteBanner>('/admin/site/banners', payload)
+  return data
+}
+
+/** PUT /api/v1/admin/site/banners/{id} —— 更新 Banner（404 缺失） */
+export async function updateSiteBanner(id: number, payload: SiteBannerInput): Promise<SiteBanner> {
+  const { data } = await api.put<SiteBanner>(`/admin/site/banners/${id}`, payload)
+  return data
+}
+
+/** DELETE /api/v1/admin/site/banners/{id} —— 删除 Banner（204） */
+export async function deleteSiteBanner(id: number): Promise<void> {
+  await api.delete(`/admin/site/banners/${id}`)
+}
+
+/** GET /api/v1/admin/site/announcements —— 通告列表（管理端全量） */
+export async function listSiteAnnouncements(): Promise<SiteAnnouncement[]> {
+  const { data } = await api.get<SiteAnnouncement[]>('/admin/site/announcements')
+  return data
+}
+
+/** POST /api/v1/admin/site/announcements —— 创建通告（201，announcement_type 非法 400） */
+export async function createSiteAnnouncement(payload: SiteAnnouncementInput): Promise<SiteAnnouncement> {
+  const { data } = await api.post<SiteAnnouncement>('/admin/site/announcements', payload)
+  return data
+}
+
+/** PUT /api/v1/admin/site/announcements/{id} —— 更新通告（404 缺失） */
+export async function updateSiteAnnouncement(id: number, payload: SiteAnnouncementInput): Promise<SiteAnnouncement> {
+  const { data } = await api.put<SiteAnnouncement>(`/admin/site/announcements/${id}`, payload)
+  return data
+}
+
+/** DELETE /api/v1/admin/site/announcements/{id} —— 删除通告（204） */
+export async function deleteSiteAnnouncement(id: number): Promise<void> {
+  await api.delete(`/admin/site/announcements/${id}`)
+}
+
+/* ── 引擎配置：JSON 配置管理（校验 + 自动备份 + 回滚） ── */
+
+export interface ConfigFileItem {
+  name: string
+}
+
+export interface ConfigBackupItem {
+  name: string
+  size: number
+  mtime: number
+}
+
+/** GET /api/v1/admin/config —— 配置列表（13 个 *.json） */
+export async function listConfigs(): Promise<ConfigFileItem[]> {
+  const { data } = await api.get<ConfigFileItem[]>('/admin/config')
+  return data
+}
+
+/** GET /api/v1/admin/config/{name} —— 读取单个配置（解析后的 JSON 对象） */
+export async function getConfig(name: string): Promise<Record<string, unknown>> {
+  const { data } = await api.get<Record<string, unknown>>(`/admin/config/${encodeURIComponent(name)}`)
+  return data
+}
+
+/** PUT /api/v1/admin/config/{name} —— 写入（校验 JSON + 自动备份，保留 5 份） */
+export async function putConfig(name: string, content: string): Promise<{ backup_path: string; updated: boolean }> {
+  const { data } = await api.put<{ backup_path: string; updated: boolean }>(
+    `/admin/config/${encodeURIComponent(name)}`,
+    { content },
+  )
+  return data
+}
+
+/** GET /api/v1/admin/config/{name}/backups —— 备份列表 */
+export async function listConfigBackups(name: string): Promise<ConfigBackupItem[]> {
+  const { data } = await api.get<ConfigBackupItem[]>(`/admin/config/${encodeURIComponent(name)}/backups`)
+  return data
+}
+
+/** POST /api/v1/admin/config/{name}/rollback —— 回滚到指定备份 */
+export async function rollbackConfig(name: string, backupName: string): Promise<{ name: string; restored: boolean }> {
+  const { data } = await api.post<{ name: string; restored: boolean }>(
+    `/admin/config/${encodeURIComponent(name)}/rollback`,
+    { backup_name: backupName },
+  )
+  return data
+}
+
+/* ── 物流费率（分页浏览 / 更新 / CSV 导入） ── */
+
+export interface LogisticsRateRow {
+  id: number
+  scoring_group: string
+  service_level: string
+  tpl_provider: string
+  delivery_method?: string | null
+  base_cost: number
+  per_gram_rate: number
+  weight_min: number
+  weight_max: number
+  sum_limit_cm: number
+  longest_limit_cm: number
+  charge_type: string
+  vol_weight_divisor: number
+  created_at?: string | null
+}
+
+export interface LogisticsRateUpdateInput {
+  scoring_group: string
+  service_level: string
+  tpl_provider: string
+  delivery_method?: string | null
+  base_cost: number
+  per_gram_rate: number
+  weight_min: number
+  weight_max: number
+  sum_limit_cm: number
+  longest_limit_cm: number
+  charge_type: string
+  vol_weight_divisor: number
+}
+
+export interface LogisticsImportResult {
+  imported: number
+  updated: number
+  errors: Record<string, unknown>[]
+}
+
+/** GET /api/v1/admin/logistics/rates —— 费率列表（limit/offset 分页） */
+export async function listLogisticsRates(params: {
+  limit?: number
+  offset?: number
+}): Promise<{ total: number; items: LogisticsRateRow[] }> {
+  const { data } = await api.get<{ total: number; items: LogisticsRateRow[] }>('/admin/logistics/rates', { params })
+  return data
+}
+
+/** PUT /api/v1/admin/logistics/rates/{id} —— 更新单条费率（400 校验失败 / 404 不存在） */
+export async function updateLogisticsRate(id: number, payload: LogisticsRateUpdateInput): Promise<LogisticsRateRow> {
+  const { data } = await api.put<LogisticsRateRow>(`/admin/logistics/rates/${id}`, payload)
+  return data
+}
+
+/** POST /api/v1/admin/logistics/rates/import —— CSV 批量导入（upsert） */
+export async function importLogisticsRatesCsv(csv: string): Promise<LogisticsImportResult> {
+  const { data } = await api.post<LogisticsImportResult>('/admin/logistics/rates/import', { csv })
+  return data
+}
+
+/* ── 选品库（关键词库浏览 / 导入 / 删除） ── */
+
+export interface QueryRow {
+  id: number
+  query: string
+  count: number
+  ca?: number | null
+  avg_ca_rub?: number | null
+  avg_count_items?: number | null
+  items_views?: number | null
+  uniq_queries_wca?: number | null
+  uniq_sellers?: number | null
+  source: string
+  created_at?: string | null
+}
+
+export interface QueryImportResult {
+  imported: number
+  updated: number
+  errors: Record<string, unknown>[]
+}
+
+/** GET /api/v1/admin/queries —— 关键词库浏览（limit/offset/search 分页） */
+export async function listQueries(params: {
+  limit?: number
+  offset?: number
+  search?: string
+}): Promise<{ total: number; items: QueryRow[] }> {
+  const { data } = await api.get<{ total: number; items: QueryRow[] }>('/admin/queries/', { params })
+  return data
+}
+
+/** POST /api/v1/admin/queries/import —— 导入（body 二选一：csv 文本 / items 数组） */
+export async function importQueries(payload: {
+  csv?: string
+  items?: Record<string, unknown>[]
+}): Promise<QueryImportResult> {
+  const { data } = await api.post<QueryImportResult>('/admin/queries/import', payload)
+  return data
+}
+
+/** DELETE /api/v1/admin/queries/{id} —— 删除关键词行 */
+export async function deleteQuery(id: number): Promise<{ ok: boolean; deleted: boolean }> {
+  const { data } = await api.delete<{ ok: boolean; deleted: boolean }>(`/admin/queries/${id}`)
+  return data
+}
+
 export default api
