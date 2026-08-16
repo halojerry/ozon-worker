@@ -418,6 +418,8 @@ class TaskListItem(BaseModel):
     ozon_client_id: Optional[str] = Field(None, description="账号（payload.ozon_client_id）")
     shop_name: Optional[str] = Field(None, description="店铺名（payload.shop_name，可为空）")
     follow_sell: bool = Field(False, description="跟卖标记（envelope.extensions.follow_sell）")
+    update_mode: bool = Field(False, description="编辑更新标记（extensions.update_product_id，在线商品改后重传）")
+    parent_task_id: Optional[str] = Field(None, description="重上来源任务 ID（resubmit 注入，有值=重上任务）")
 
 
 class TaskListResponse(BaseModel):

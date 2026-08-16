@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.46.0] - 2026-08-16
+
+> WebUI 上架记录增强（P0-2，PRD `docs/PRD-task-record-v0.46.md`）：上架方式细分（重上/编辑更新/跟卖/选品）+ CSV 导出当前筛选结果。worker 1016 passed（+8）/ skill 493 / webui build + tokens:validate 绿。
+
+### Feat(上架记录增强)
+
+- **上架方式细分**（task_service `_payload_meta` + `TaskListItem`）：新增 `update_mode`（`extensions.update_product_id` → 在线商品编辑更新）和 `parent_task_id`（resubmit 注入 → 重上来源标记）两个字段。
+- **前端三态推导**（Tasks.tsx `listingMode`）：优先级 重上 > 编辑更新 > 跟卖 > 选品——上架方式列从「跟卖/选品」二分升级为四态 badge（重上/编辑更新 蓝色、跟卖 绿色、选品 灰色）；重上项 title 提示来源任务。
+- **CSV 导出**：工具栏「导出 CSV」按钮导出**当前筛选结果**（11 列：商品标题/货号/店铺/账号/上架状态/售价/划线价/利润率/货源链接/上架方式/创建时间），UTF-8 BOM 兼容 Excel 中文不乱码，文件名 `上架记录-YYYY-MM-DD.csv`。
+- 现有批量重上/状态筛选/货源链接/5s 轮询行为不变。
+
+### Test
+- `tests/test_task_service_meta.py`（8 用例）：update_mode 提取（true/false）、parent_task_id（有/无）、敏感字段防护（token/api_key 绝不出现在 meta）、既有字段不回归、malformed payload 兜底。
+- 全量回归 worker **1016 passed**（1008 基线 + 8 新）；webui build + tokens:validate。
+
+---
+
 ## [0.45.0] - 2026-08-16
 
 > WebUI 采集箱批量上架（P0-3，PRD `docs/PRD-batch-submit-v0.45.md`）：勾选多个草稿 → 统一选店铺/上架配置模板 → 逐条提交（失败隔离）。前端改动，Worker 零改动——完全复用 v0.44 模板注入 + submit_draft 已验证逻辑。worker 1008 / skill 493 / webui build + tokens:validate 绿。

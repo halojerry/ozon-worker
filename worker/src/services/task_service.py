@@ -23,10 +23,10 @@ _SELECT_COLS = "id::text AS id, status, result, progress, payload, created_at, u
 
 
 def _payload_meta(payload: Any) -> dict:
-    """从 payload 安全提取非敏感展示字段（T12 前端表格列）。
+    """从 payload 安全提取非敏感展示字段（T12 前端表格列 + P0-2 上架方式）。
 
-    只取 title/图片/货号/账号/店铺/跟卖标记——绝不回显 token/api_key 等敏感字段。
-    payload 缺失或结构异常时全部兜底为空，不影响列表主流程。
+    只取 title/图片/货号/账号/店铺/跟卖标记/编辑更新/重上来源——绝不回显
+    token/api_key 等敏感字段。payload 缺失或结构异常时全部兜底为空。
     """
     if not isinstance(payload, dict):
         return {}
@@ -41,6 +41,9 @@ def _payload_meta(payload: Any) -> dict:
         "ozon_client_id": payload.get("ozon_client_id"),
         "shop_name": payload.get("shop_name"),
         "follow_sell": bool(ext.get("follow_sell")),
+        # P0-2 上架方式细分：编辑更新（update_product_id）/ 重上来源（parent_task_id）
+        "update_mode": bool(ext.get("update_product_id")),
+        "parent_task_id": str(payload.get("parent_task_id") or "") or None,
     }
 
 
