@@ -29,6 +29,18 @@ class ImagePollTimeoutError(Exception):
     避免双倍/多倍扣费（v0.26 失败分类：轮询超时 ≠ 生成失败）。"""
     pass
 
+
+class MxouOutOfQuotaError(Exception):
+    """MXOU 余额不足（OUT_OF_QUOTA）— 生图前 fast-fail，不把调用打到 MXOU 烧钱。"""
+    pass
+
+
+# W12: 生图前余额事中复查 — 余额低于该阈值直接 fast-fail（够 1 张图的最低成本）
+MIN_BALANCE_THRESHOLD = 1.0
+
+# 模块级余额缓存（_check_balance_cached 30s TTL），避免每次生图都打余额接口
+_BALANCE_CACHE: Dict[str, Any] = {"value": None, "ts": 0.0}
+
 # 内存优化：复用requests.Session，避免每次请求创建新TCP连接
 _session: Optional[requests.Session] = None
 
@@ -230,6 +242,40 @@ def call_mxou_chat_api(
 # 图片生成 API
 # ============================================================
 
+def _check_balance_cached(token: str, ttl: float = 30.0) -> float:
+    """MXOU 余额事中复查（30s TTL 缓存）— 余额不足时生图前 fast-fail。
+
+    返回 float 余额；余额查询失败返回 float("inf")（fail-open：余额 API
+    暂不可用时不能阻断生图，宁可打一单也不误伤正常调用）。
+    """
+    now = time.time()
+    cached = _BALANCE_CACHE["value"]
+    if cached is not None and now - _BALANCE_CACHE["ts"] < ttl:
+        return cached
+    balance = get_mxou_balance(token)
+    value = balance if balance is not None else float("inf")
+    _BALANCE_CACHE["value"] = value
+    _BALANCE_CACHE["ts"] = now
+    return value
+
+
+def _is_out_of_quota_response(status_code: int, body: str) -> bool:
+    """识别 OUT_OF_QUOTA 响应（403 或响应体含额度/余额不足关键词）。
+
+    W12: 此类错误是永久性的（余额/额度/权限），当普通失败重试只会继续烧钱。
+    """
+    if status_code == 403:
+        return True
+    lower = body.lower()
+    return any(
+        kw in lower
+        for kw in (
+            "out_of_quota", "out of quota", "insufficient balance",
+            "insufficient_quota", "no quota", "余额不足",
+        )
+    )
+
+
 def call_mxou_image_api(
     token: str,
     prompt: str,
@@ -257,6 +303,11 @@ def call_mxou_image_api(
     返回:
         生成的图片URL字符串；失败返回None
     """
+    # ⚠️ W12: 生图前余额事中复查 — 烧帮豆前止血，余额不足直接 fast-fail
+    if _check_balance_cached(token) < MIN_BALANCE_THRESHOLD:
+        raise MxouOutOfQuotaError(
+            "OUT_OF_QUOTA: MXOU balance insufficient before image gen"
+        )
     t0 = time.time()
     # Step 1: 用主模型尝试
     try:
@@ -383,6 +434,12 @@ def _call_image_with_model(
 
             if response.status_code != 200:
                 err_body = response.text[:300] if response.text else "no response"
+                # ⚠️ W12: 403/OUT_OF_QUOTA 是永久性错误 — 不当普通失败重试（task 直接 fail，不烧钱）
+                if _is_out_of_quota_response(response.status_code, err_body):
+                    raise MxouOutOfQuotaError(
+                        f"OUT_OF_QUOTA: MXOU image API rejected "
+                        f"(HTTP {response.status_code}, body={err_body})"
+                    )
                 try:
                     if _span is not None:
                         _span.set_tag("result", f"http_{response.status_code}")
@@ -474,6 +531,8 @@ def _call_image_with_model(
             except Exception:
                 pass
             raise  # 轮询超时 → 传给 call_mxou_image_api（不重试不降级）
+        except MxouOutOfQuotaError:
+            raise  # W12: 余额不足/403 → 直接失败，不重试不降级
         except Exception as e:
             try:
                 if _span is not None:
