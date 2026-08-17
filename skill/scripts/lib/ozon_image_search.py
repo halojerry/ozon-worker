@@ -686,9 +686,9 @@ def search_by_image_aibuy(
     Returns:
         [{"id": offerId, "title", "price", "image", "badge": "", "normalization_score", ...}, ...]
     """
-    from scripts.lib.config_store import _require_auth
-
-    _require_auth()
+    # ⚠️ 不调 _require_auth：aibuy 走 Chrome cookie 通道（无需 MXOU_TOKEN），
+    # 且 fail-fast 纪律要求无 token 快速返回 [] 由调用方降级——auth guard 会
+    # 在无 MXOU_TOKEN 环境抛 AuthError 破坏契约（CI 无 token 时 3 测试炸）。
 
     if not force_refresh:
         cached = cache_get("aibuy_search", image_url)
