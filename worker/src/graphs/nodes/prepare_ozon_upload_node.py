@@ -12,6 +12,7 @@ from graphs.state import PrepareOzonUploadInput, PrepareOzonUploadOutput
 from utils.progress_logger import ProgressLogger
 from utils.size_mapper import build_attribute_matching_table
 from utils.mxou_llm import call_mxou_chat_api
+from utils.mxou_api import MxouOutOfQuotaError
 from utils.title_sanitizer import sanitize_title
 from utils.attribute_utils import is_customs_attr, is_hazard_attr, get_safe_hazard_default, has_chinese  # ⚠️ v0.16 海关 / v0.21 危险品防御
 
@@ -344,6 +345,8 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
                 return gen_result
             logger.error(f"❌ 所有翻译和生成均失败，使用原文: '{text[:50]}'")
             return text  # 最终回退
+    except MxouOutOfQuotaError:
+        raise  # W12: 余额不足 → task 明确 fail「请充值」，不吞成原文回退（否则上架中文被 Ozon 拒）
     except Exception as e:
         logger.error(f"❌ LLM翻译异常: {str(e)}")
         return text  # 回退到原文
