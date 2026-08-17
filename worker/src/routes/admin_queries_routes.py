@@ -85,6 +85,7 @@ class QueryDeleteOut(BaseModel):
 # ──────────────────────────────────────────────
 
 
+@router.get("", response_model=QueryListOut)
 @router.get("/", response_model=QueryListOut)
 async def list_queries(request: Request, limit: int = 50, offset: int = 0, search: str = ""):
     await _authenticate_admin(request)
