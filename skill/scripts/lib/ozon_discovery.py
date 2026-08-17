@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -688,8 +689,13 @@ def collect_and_analyze(
             else:
                 logger.info("无价格区间内的候选，跳过运营指标查询")
 
-    # 全量落盘（含 error/uncertain/filtered，供表格与审计）
-    _save_discovery_log(candidates)
+    # 全量落盘（含 error/uncertain/filtered，供表格与审计）+ 上报 worker 归档（D12）
+    _save_discovery_log(
+        candidates,
+        keyword=keyword,
+        filters={"min_price": min_price, "max_price": max_price,
+                 "brand_filter": brand_filter},
+    )
     return candidates
 
 
@@ -2864,8 +2870,82 @@ def verify_1688_match(ozon_title: str, match_1688_title: str, match_1688_url: st
                 "reason": f"low overlap ({total_matches}/{min(len(ozon_kw), len(match_kw))})"}
 
 
-def _save_discovery_log(candidates: list[ProductCandidate]) -> Path | None:
+# ---------------------------------------------------------------------------
+# Discovery run 上报（D12: POST /api/v1/discovery/runs 归档到 worker）
+# ---------------------------------------------------------------------------
+
+# 白名单裁剪 REPORT_FIELDS：单条 ~500B × 50 = 25KB/run。去掉 competing_seller_list /
+# match_1688_images / ozon_images / source_chain 等大字段（PRD §3.2 已定稿）。
+REPORT_FIELDS: list[str] = [
+    "ozon_product_id", "ozon_title", "ozon_price", "competing_sellers",
+    "min_competing_price", "match_1688_url", "match_1688_price",
+    "profit_margin", "blue_ocean_score", "status", "category", "brand",
+    "monthly_sales", "monthly_revenue", "drr", "create_days", "rating",
+    "review_count", "weight_g", "dimensions_mm",
+]
+
+# 只上报这三种状态的候选（filtered/rejected/no_match/error/uncertain 不上报）
+REPORT_STATUSES: tuple[str, ...] = ("ok", "matched", "profitable")
+
+
+def _report_discovery_run(keyword: str, filters: dict | None,
+                          candidates: list[ProductCandidate]) -> None:
+    """同步上报 discover run 到 Worker /api/v1/discovery/runs（fail-open）。
+
+    白名单裁剪 + 仅 ok/matched/profitable 候选，单次 POST。任何异常只 warning，
+    绝不影响调用方（由 _spawn_discovery_report 在 daemon 线程中触发）。
+    """
+    try:
+        from scripts._const import CLOUD_API_BASE
+        from scripts.lib.config_store import get_mxou_token
+        import requests as _req
+
+        token = get_mxou_token()
+        if not token:
+            logger.warning("discovery run 上报跳过：无 token（set_token 配置）")
+            return
+
+        rows = [
+            {k: getattr(c, k) for k in REPORT_FIELDS if hasattr(c, k)}
+            for c in candidates
+            if getattr(c, "status", "") in REPORT_STATUSES
+        ]
+        payload = {
+            "token": token,
+            "keyword": keyword or "",
+            "filters": filters or {},
+            "candidates": rows,
+        }
+        resp = _req.post(
+            f"{CLOUD_API_BASE}/api/v1/discovery/runs",
+            json=payload,
+            timeout=8,
+        )
+        if resp.status_code >= 300:
+            logger.warning("discovery run 上报失败: HTTP %s", resp.status_code)
+    except Exception as exc:
+        logger.warning("discovery run 上报失败（本地落盘不受影响）: %s", exc)
+
+
+def _spawn_discovery_report(keyword: str, filters: dict | None,
+                            candidates: list[ProductCandidate]) -> None:
+    """非阻塞触发上报（daemon 线程，fail-open）。"""
+    try:
+        threading.Thread(
+            target=_report_discovery_run,
+            args=(keyword, filters, candidates),
+            daemon=True,
+        ).start()
+    except Exception as exc:
+        logger.warning("discovery run 上报线程启动失败: %s", exc)
+
+
+def _save_discovery_log(candidates: list[ProductCandidate], keyword: str = "",
+                        filters: dict | None = None) -> Path | None:
     """Save discovery results to a timestamped JSON cache file.
+
+    keyword/filters 非空时非阻塞上报 Worker /api/v1/discovery/runs
+    （白名单裁剪，fail-open，不影响本地落盘）。
 
     Returns the path to the saved file, or None on failure.
     """
@@ -2887,6 +2967,8 @@ def _save_discovery_log(candidates: list[ProductCandidate]) -> Path | None:
             encoding="utf-8",
         )
         logger.info("Discovery log saved: %s (%d products)", path, len(data))
+        if keyword or filters:
+            _spawn_discovery_report(keyword, filters, candidates)
         return path
     except Exception as exc:
         logger.error("Failed to save discovery log: %s", exc)
