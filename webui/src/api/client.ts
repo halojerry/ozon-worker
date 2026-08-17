@@ -202,6 +202,34 @@ export async function listMxouKeys(): Promise<MxouKeyItem[]> {
   return data
 }
 
+/** GET /api/v1/mxou/my-key?uid= —— 登录后自动获取用户已有 enabled key（免手动建 key） */
+export async function getMyKey(uid: number | string): Promise<string> {
+  const { data } = await api.get<{ key: string }>('/mxou/my-key', { params: { uid } })
+  return data.key ?? ''
+}
+
+/** 确保有可用 worker key：查不到 → 经代理调 New API 创建（带 cookie + New-Api-User）→ 再查。
+ * 返回 key（sk- 前缀）；创建失败 → 空串（调用方静默跳过）。 */
+export async function ensureMyKey(uid: number | string): Promise<string> {
+  const existing = await getMyKey(uid)
+  if (existing) return existing
+  try {
+    await fetch('/api/token/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'New-Api-User': String(uid) },
+      body: JSON.stringify({
+        name: 'webui-auto-key',
+        remain_quota: 500000,
+        expired_time: -1,
+        unlimited_quota: false,
+      }),
+    })
+  } catch {
+    return ''
+  }
+  return getMyKey(uid)
+}
+
 /** POST /api/v1/mxou/keys —— 新建密钥（响应含完整 key，仅一次） */
 export async function createMxouKey(name: string): Promise<MxouKeyCreateResponse> {
   const { data } = await api.post<MxouKeyCreateResponse>('/mxou/keys', { name })

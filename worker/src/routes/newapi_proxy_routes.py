@@ -29,7 +29,7 @@ MXOU_BASE = "https://api.mxou.cn"
 _NEWAPI_PREFIXES = (
     "user/", "subscription/", "option/", "log/", "group", "ratio_config",
     "ratio_sync/", "pricing", "performance/", "custom-oauth-provider/",
-    "upload/", "redemption/", "status", "notice",
+    "upload/", "redemption/", "status", "notice", "token/",
 )
 
 # 透传白名单：转发给上游的请求头（排除 hop-by-hop + 代理自身 host）

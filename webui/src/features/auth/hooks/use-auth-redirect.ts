@@ -21,6 +21,7 @@ import i18n from 'i18next'
 import { useAuthStore } from '@/stores/auth-store'
 import { getSelf } from '@/lib/api'
 import type { User } from '@/features/users/types'
+import { ensureMyKey, TOKEN_STORAGE_KEY } from '@/api/client'
 import { saveUserId } from '../lib/storage'
 
 function getSavedLanguage(user: User): string | undefined {
@@ -60,6 +61,21 @@ export function useAuthRedirect() {
     // Save user ID if available
     if (userData?.id) {
       saveUserId(userData.id)
+    }
+
+    // 自动获取/创建用户 worker key（业务 /api/v1 用 Bearer token，登录仅建立
+    // New API cookie session；查已有 key → 无则自动创建 → 存 localStorage）。
+    // 失败/无 key → 静默跳过（不阻断登录）。
+    try {
+      const uid = userData?.id ?? Number(window.localStorage.getItem('uid') ?? 0)
+      if (uid) {
+        const key = await ensureMyKey(uid)
+        if (key) {
+          window.localStorage.setItem(TOKEN_STORAGE_KEY, key)
+        }
+      }
+    } catch {
+      // 静默：业务 token 获取失败不阻断登录
     }
 
     // Fetch and set user data
