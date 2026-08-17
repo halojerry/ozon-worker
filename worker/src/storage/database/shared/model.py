@@ -804,3 +804,86 @@ class SiteAnnouncement(Base):
     announcement_type: Mapped[str] = mapped_column(String(16), nullable=False, default="banner", comment="banner/popup")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, comment="启停")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ==================== 店铺数据缓存表（v0.56: 15min 自动同步 + 手动同步） ====================
+# 订单/在线商品从「每次实时透传 Ozon API」改为「本地缓存 + 定时同步」：
+# - 页面读取走 PG（秒开），同步由调度器/手动按钮触发
+# - ⚠️ 租户隔离硬约束：所有行带 tenant_id，唯一键含 tenant_id，读取一律
+#   按 tenant_id + credential_id 过滤（credential 归属经 get_decrypted 校验）
+
+
+class OzonOrderCache(Base):
+    """Ozon FBS 订单缓存（按 posting_number 覆盖更新；delivered/cancelled 为终态不再变化）。"""
+    __tablename__ = "ozon_orders_cache"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False, comment="租户（user_id）")
+    credential_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, comment="店铺凭证 ID")
+    posting_number: Mapped[str] = mapped_column(String(64), nullable=False, comment="Ozon FBS 货件编号")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="", comment="归一化状态（中文）")
+    raw_status: Mapped[str] = mapped_column(String(32), nullable=False, default="", comment="Ozon 原始状态")
+    products: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"), comment="商品明细（jsonb）")
+    product_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="金额（₽）")
+    commission_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="费用（₽）")
+    profit: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="利润（₽）")
+    warehouse: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    delivery_method: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cancel_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cancellation: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    order_created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="Ozon 下单时间")
+    synced_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="最近同步时间")
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "credential_id", "posting_number", name="uq_order_cache_tenant_store_pn"),
+        Index("idx_order_cache_tenant_store", "tenant_id", "credential_id"),
+    )
+
+
+class OzonProductCache(Base):
+    """Ozon 在线商品缓存（全量同步语义；本次同步未出现的商品 → archived=True）。"""
+    __tablename__ = "ozon_products_cache"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False, comment="租户（user_id）")
+    credential_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, comment="店铺凭证 ID")
+    product_id: Mapped[str] = mapped_column(String(32), nullable=False, comment="Ozon product_id")
+    offer_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    image: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="主图 URL")
+    price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    old_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    stock: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="")
+    archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="本次同步未出现（已下架）")
+    synced_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "credential_id", "product_id", name="uq_product_cache_tenant_store_pid"),
+        Index("idx_product_cache_tenant_store", "tenant_id", "credential_id"),
+    )
+
+
+class CredentialSyncState(Base):
+    """店铺同步状态（每店一行；orders/products 最后同步时间 + 错误）。"""
+    __tablename__ = "credential_sync_state"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    credential_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    orders_last_synced_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    products_last_synced_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    orders_error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    products_error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "credential_id", name="uq_sync_state_tenant_store"),
+    )

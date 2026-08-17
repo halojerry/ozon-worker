@@ -13,6 +13,7 @@ import {
   listOrders,
   sendOrderMessage,
   shipOrder,
+  syncStore,
   upsertOrderNotes,
   type CredentialOut,
   type MessageTemplateOut,
@@ -453,6 +454,8 @@ export default function Orders() {
   const [statusTab, setStatusTab] = useState('all')
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
   const [detail, setDetail] = useState<OrderOut | null>(null)
   /** P1-1 备注弹窗目标订单 + 备注更新回调 */
   const [notesTarget, setNotesTarget] = useState<OrderOut | null>(null)
@@ -554,6 +557,7 @@ export default function Orders() {
           since_days: 30,
         })
         setOrders(data.items)
+        setLastSyncedAt(data.last_synced_at ?? null)
         setLoadError('')
       } catch (err) {
         setLoadError(extractError(err, '加载订单失败'))
@@ -563,6 +567,20 @@ export default function Orders() {
     },
     [credentialId, statusTab],
   )
+
+  /** v0.56 手动同步：拉取最新订单/商品到本地缓存，再刷新列表 */
+  const handleSync = useCallback(async () => {
+    if (!credentialId || syncing) return
+    setSyncing(true)
+    try {
+      await syncStore(credentialId)
+      await load(true)
+    } catch (err) {
+      setLoadError(extractError(err, '同步失败'))
+    } finally {
+      setSyncing(false)
+    }
+  }, [credentialId, syncing, load])
 
   useEffect(() => {
     if (credentialId) load()
@@ -638,9 +656,17 @@ export default function Orders() {
           消息记录
         </button>
         <span className="toolbar-spacer" />
+        <button className="btn" onClick={handleSync} disabled={!credentialId || syncing}>
+          {syncing ? '同步中…' : '立即同步'}
+        </button>
         <button className="btn btn-ghost" onClick={() => load()} disabled={loading}>
           {loading ? '加载中…' : '刷新'}
         </button>
+        {lastSyncedAt && (
+          <span className="text-muted" style={{ fontSize: '12px' }}>
+            上次同步 {new Date(lastSyncedAt).toLocaleString('zh-CN')}
+          </span>
+        )}
       </div>
 
       {/* 状态 tab */}

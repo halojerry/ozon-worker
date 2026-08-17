@@ -41,18 +41,34 @@ async def list_products(request: Request):
 
 @router.get("/ozon", response_model=OzonProductListResponse)
 async def list_ozon_products(request: Request):
+    """Ozon 店铺在线商品：PG 缓存读取（v0.56）——未同步懒同步，?refresh=1 强制。
+
+    租户隔离：store_sync_service 内 get_decrypted 校验凭证归属（跨租户 404）。
+    """
+    from services import store_sync_service
+
     tenant_id = await _authenticate(request)
+    limit = 50
+    offset = 0
     try:
         limit = int(request.query_params.get("limit", 50))
     except (TypeError, ValueError):
-        limit = 50
+        pass
     try:
         offset = int(request.query_params.get("offset", 0))
     except (TypeError, ValueError):
-        offset = 0
+        pass
     credential_id = request.query_params.get("credential_id")
-    return shelf_service.list_ozon_products(
-        tenant_id, credential_id=credential_id, limit=limit, offset=offset)
+    refresh = request.query_params.get("refresh") in ("1", "true")
+    if not credential_id:
+        from services.credential_service import get_default_credential
+        default = get_default_credential(tenant_id)
+        if default is None:
+            raise HTTPException(status_code=400,
+                                detail="未配置默认店铺：请传 credential_id 或先在店铺管理设置默认店铺")
+        credential_id = str(default["id"])
+    return store_sync_service.list_cached_products(
+        tenant_id, credential_id, limit=limit, offset=offset, lazy_sync=not refresh)
 
 
 @router.post("/bulk-prices")

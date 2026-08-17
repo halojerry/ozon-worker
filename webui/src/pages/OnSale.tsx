@@ -10,6 +10,7 @@ import {
   listProducts,
   listTemplates,
   submitDraft,
+  syncStore,
   updateProductImages,
   type CredentialOut,
   type ListingTemplateOut,
@@ -301,6 +302,8 @@ export default function OnSale() {
   const [ozonCredentialId, setOzonCredentialId] = useState('')
   const [ozonLoading, setOzonLoading] = useState(false)
   const [ozonError, setOzonError] = useState('')
+  const [ozonLastSyncedAt, setOzonLastSyncedAt] = useState<string | null>(null)
+  const [ozonSyncing, setOzonSyncing] = useState(false)
   /** P1a 批量操作：多选 + 弹窗类型 */
   const [ozonSelected, setOzonSelected] = useState<Set<string>>(new Set())
   const [bulkAction, setBulkAction] = useState<'price' | 'stock' | 'archive' | 'unarchive' | null>(null)
@@ -368,6 +371,7 @@ export default function OnSale() {
         const data = await listOzonProducts({ credential_id: ozonCredentialId, limit: 100 })
         setOzonItems(data.items)
         setOzonTotal(data.total)
+        setOzonLastSyncedAt(data.last_synced_at ?? null)
         setOzonError('')
       } catch (err) {
         setOzonError(extractError(err, '拉取店铺商品失败'))
@@ -377,6 +381,20 @@ export default function OnSale() {
     },
     [ozonCredentialId],
   )
+
+  /** v0.56 手动同步店铺商品到本地缓存 */
+  const handleOzonSync = useCallback(async () => {
+    if (!ozonCredentialId || ozonSyncing) return
+    setOzonSyncing(true)
+    try {
+      await syncStore(ozonCredentialId)
+      await loadOzon(true)
+    } catch (err) {
+      setOzonError(extractError(err, '同步失败'))
+    } finally {
+      setOzonSyncing(false)
+    }
+  }, [ozonCredentialId, ozonSyncing, loadOzon])
 
   useEffect(() => {
     if (view !== 'ozon') return
@@ -504,9 +522,17 @@ export default function OnSale() {
                 </option>
               ))}
             </select>
+            <button className="btn" onClick={handleOzonSync} disabled={ozonSyncing || !ozonCredentialId}>
+              {ozonSyncing ? '同步中…' : '立即同步'}
+            </button>
             <button className="btn" disabled={ozonLoading || !ozonCredentialId} onClick={() => loadOzon()}>
               {ozonLoading ? '拉取中…' : '刷新'}
             </button>
+            {ozonLastSyncedAt && (
+              <span className="text-muted" style={{ fontSize: '12px' }}>
+                上次同步 {new Date(ozonLastSyncedAt).toLocaleString('zh-CN')}
+              </span>
+            )}
             {ozonSelected.size > 0 && (
               <>
                 <button className="btn" onClick={() => setBulkAction('price')}>

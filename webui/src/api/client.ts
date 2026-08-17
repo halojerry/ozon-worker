@@ -782,15 +782,18 @@ export interface OrderListResponse {
   limit: number
   offset: number
   store: { id: string; ozon_client_id: string }
+  last_synced_at?: string | null
+  sync_error?: string | null
 }
 
-/** GET /api/v1/orders —— 实时拉取 Ozon FBS 订单（credential_id 必填或默认店铺） */
+/** GET /api/v1/orders —— 缓存读取（未同步自动懒同步；refresh=1 强制同步） */
 export async function listOrders(params?: {
   credential_id?: string
   status?: string
   limit?: number
   offset?: number
   since_days?: number
+  refresh?: number
 }): Promise<OrderListResponse> {
   const { data } = await api.get<OrderListResponse>('/orders', { params })
   return data
@@ -1033,15 +1036,41 @@ export interface OzonProductListResponse {
   limit: number
   offset: number
   store: { id: string; ozon_client_id: string }
+  last_synced_at?: string | null
+  sync_error?: string | null
 }
 
-/** GET /api/v1/products/ozon —— 实时拉取 Ozon 店铺在线商品（含非本系统上架） */
+/** GET /api/v1/products/ozon —— 缓存读取（未同步自动懒同步；refresh=1 强制） */
 export async function listOzonProducts(params?: {
   credential_id?: string
   limit?: number
   offset?: number
+  refresh?: number
 }): Promise<OzonProductListResponse> {
   const { data } = await api.get<OzonProductListResponse>('/products/ozon', { params })
+  return data
+}
+
+/** v0.56 店铺同步：POST /stores/{id}/sync —— 手动同步订单+商品（约 5-10s） */
+export async function syncStore(credentialId: string): Promise<{
+  credential_id: string
+  ozon_client_id: string
+  orders: { synced: number; error: string }
+  products: { synced: number; error: string }
+}> {
+  const { data } = await api.post(`/stores/${credentialId}/sync`)
+  return data
+}
+
+/** v0.56 店铺同步状态：GET /stores/{id}/sync-status */
+export async function getStoreSyncStatus(credentialId: string): Promise<{
+  credential_id: string
+  orders_last_synced_at: string | null
+  products_last_synced_at: string | null
+  orders_error: string
+  products_error: string
+}> {
+  const { data } = await api.get(`/stores/${credentialId}/sync-status`)
   return data
 }
 

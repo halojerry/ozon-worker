@@ -51,12 +51,33 @@ async def list_orders(
     limit: int = 50,
     offset: int = 0,
     since_days: int = 30,
+    refresh: int = 0,
 ):
+    """订单列表：PG 缓存读取（v0.56）——未同步自动懒同步，?refresh=1 强制同步后返回。
+
+    租户隔离：store_sync_service 内 get_decrypted 校验凭证归属（跨租户 404）。
+    """
+    from services import store_sync_service
+
     tenant_id = await _authenticate(request)
-    return order_service.list_orders(
-        tenant_id, credential_id=credential_id, status=status,
-        limit=limit, offset=offset, since_days=since_days,
-    )
+    if credential_id:
+        if refresh:
+            store_sync_service.sync_store(tenant_id, credential_id)
+            return store_sync_service.list_cached_orders(
+                tenant_id, credential_id, status=status,
+                limit=limit, offset=offset, since_days=since_days, lazy_sync=False)
+        return store_sync_service.list_cached_orders(
+            tenant_id, credential_id, status=status,
+            limit=limit, offset=offset, since_days=since_days)
+    # 未指定店铺：走默认店铺（保持向后兼容）
+    from services.credential_service import get_default_credential
+    default = get_default_credential(tenant_id)
+    if default is None:
+        raise HTTPException(status_code=400,
+                            detail="未配置默认店铺：请传 credential_id 或先在店铺管理设置默认店铺")
+    return store_sync_service.list_cached_orders(
+        tenant_id, str(default["id"]), status=status,
+        limit=limit, offset=offset, since_days=since_days)
 
 
 @router.post("/batch/labels")
