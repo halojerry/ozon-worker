@@ -1181,12 +1181,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
     from scripts.lib.chrome_launcher import ensure_chrome_cdp
     from scripts.lib.ozon_discovery import (
         DEFAULT_FX_RATE,
-        DISCOVERY_CACHE_DIR,
-        apply_selection_rules,
         collect_and_analyze,
-        export_to_csv,
-        export_to_json,
-        match_selected,
     )
     from scripts.lib.config_store import get_setting, get_store_profile
 
@@ -1285,6 +1280,23 @@ def cmd_discover(args: argparse.Namespace) -> int:
             print("\n⚠️ 用户中断")
             return 0
 
+    # ── 阶段③+④+提交（公共收尾：表格 → 挑选/规则 → 货源匹配 → 导出 → 提交。
+    # discover-multi 复用同一流程，保证输出/提交行为与 discover 一致）──
+    return _finish_discover_flow(args, candidates, cdp_url, fx_rate, blue_ocean_rows)
+
+
+def _finish_discover_flow(args: argparse.Namespace, candidates: list,
+                          cdp_url: str, fx_rate: float,
+                          blue_ocean_rows: list[dict] | None) -> int:
+    """discover / discover-multi 公共收尾：展示 → 挑选/规则 → 1688 匹配 → 导出 → 提交。"""
+    from scripts.lib.ozon_discovery import (
+        DISCOVERY_CACHE_DIR,
+        apply_selection_rules,
+        export_to_csv,
+        export_to_json,
+        match_selected,
+    )
+
     print(f"\n📊 采集完成: {len(candidates)} 个产品（全量已落盘 {DISCOVERY_CACHE_DIR}/）")
     if not candidates:
         print("未采集到产品。检查关键词/URL 或增大 --max-products。")
@@ -1296,9 +1308,10 @@ def cmd_discover(args: argparse.Namespace) -> int:
             calculate_blue_ocean_score,
             compute_competitor_keyword_density,
         )
+        _kw = getattr(args, "keyword", "") or ""
         for c in candidates:
             density = compute_competitor_keyword_density(
-                blue_ocean_rows, c.ozon_title or args.keyword or "")
+                blue_ocean_rows, c.ozon_title or _kw or "")
             c.blue_ocean_score = calculate_blue_ocean_score(
                 c, competitor_keyword_density=density)
 
@@ -1400,7 +1413,6 @@ def cmd_discover(args: argparse.Namespace) -> int:
                 try:
                     ans = input("    接受该货源？[y/N/a=全部接受/s=跳过] ").strip().lower()
                 except (EOFError, KeyboardInterrupt):
-                    # 自动化/非交互模式：EOF 视为跳过（按自动规则处理），不崩溃
                     print("\n    非交互模式，按自动规则处理（跳过）", flush=True)
                     ans = "s"
                 decision = ""
@@ -1469,7 +1481,6 @@ def cmd_discover(args: argparse.Namespace) -> int:
         try:
             confirm = input("确认提交？(y/N) ")
         except (EOFError, KeyboardInterrupt):
-            # 自动化/非交互模式：EOF 视为取消（提交是高风险操作，默认不提交）
             print("\n已取消（非交互模式不自动确认提交）")
             return 0
         if confirm.lower() != 'y':
@@ -1482,7 +1493,6 @@ def cmd_discover(args: argparse.Namespace) -> int:
                 submit_draft,
             )
         except ModuleNotFoundError as _e:
-            # PR-3: 精确归因 — 缺依赖 vs 缺模块
             _ename = getattr(_e, "name", "") or ""
             if _ename and _ename not in ("scripts.cloud_probe", "cloud_probe"):
                 print(f"❌ 缺少依赖模块 '{_ename}'。请运行: pip install -r requirements.txt", flush=True)
@@ -1539,6 +1549,255 @@ def cmd_discover(args: argparse.Namespace) -> int:
 
     print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
     return 0
+
+
+def _split_keywords(raw: str) -> list[str]:
+    """逗号分隔多关键词 → 去空白/去空串/去重（保序）。"""
+    return list(dict.fromkeys(k.strip() for k in (raw or "").split(",") if k.strip()))
+
+
+def _merge_pids(pid_batches: list[list[str]]) -> list[str]:
+    """合并多批 pid 列表 → 保序去重（discover-multi 串行滚动 → 合并候选去重）。"""
+    seen: set[str] = set()
+    merged: list[str] = []
+    for batch in pid_batches:
+        for pid in batch:
+            if pid is None:
+                continue
+            pid = str(pid)
+            if pid and pid not in seen:
+                seen.add(pid)
+                merged.append(pid)
+    return merged
+
+
+def _collect_keyword_pids(cdp_url: str, keyword: str, max_each: int,
+                          china: bool = True) -> list[str]:
+    """单关键词串行滚动采集 pid（同一 CdpConnection 内复用 _lazy_collect_urls）。
+
+    滚动是 discover-multi 的串行阶段——同一 Chrome 多 tab 同时滚动会被反爬
+    识别（上品帮 §5.3 纪律），N 关键词滚动总时长 ≈ N × 单关键词滚动。
+    """
+    import urllib.parse
+    from scripts.lib.cdp_client import CdpConnection
+    from scripts.lib.ozon_discovery import CHINA_HIGHLIGHT_URL, _lazy_collect_urls
+
+    kw = keyword.strip()
+    if china:
+        url = f"{CHINA_HIGHLIGHT_URL}?text={urllib.parse.quote(kw)}"
+    else:
+        url = f"https://www.ozon.ru/search/?text={urllib.parse.quote(kw)}"
+    with CdpConnection(cdp_url) as cdp:
+        tab = cdp.new_tab(url)
+        try:
+            time.sleep(5)  # 初始加载
+            return _lazy_collect_urls(tab, max_each)
+        finally:
+            try:
+                tab.close()
+            except Exception:
+                pass
+
+
+def _analyze_pids(cdp_url: str, pids: list[str], *,
+                  use_analytics: bool = True, min_price: float = 0,
+                  max_price: float = 0, brand_filter: str = "nobrand",
+                  progress_callback=None) -> list:
+    """合并 pid 批量并行分析（D7'：N 关键词滚动合并后只分析一次）。
+
+    复用 ozon_discovery 并行模型（_analyze_product + _discover_workers
+    ThreadPoolExecutor）——等价 collect_and_analyze 阶段②，多关键词场景
+    分析时长 ≈ 1 × 单关键词分析（并行线程吃合并 pid 列表）。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from scripts.lib.cdp_client import CdpConnection
+    from scripts.lib.ozon_discovery import (
+        ProductCandidate,
+        _analyze_product,
+        _discover_workers,
+        _is_branded,
+        _is_known_brand,
+        _passes_base_filter,
+    )
+
+    candidates: list[ProductCandidate] = []
+
+    def _apply_filters(candidate: ProductCandidate) -> None:
+        if candidate.status == "ok" and not _passes_base_filter(candidate):
+            candidate.status = "filtered"
+            candidate.error = "未通过 BASE 粗筛"
+            return
+        if candidate.status == "ok" and candidate.brand:
+            if brand_filter == "nobrand" and _is_branded(candidate.brand):
+                candidate.status = "filtered"
+                candidate.error = f"品牌产品（{candidate.brand}），自动跳过"
+            elif brand_filter == "known" and _is_known_brand(candidate.brand):
+                candidate.status = "filtered"
+                candidate.error = f"知名品牌产品（{candidate.brand}），自动跳过"
+        if candidate.status == "ok" and (min_price > 0 or max_price > 0):
+            if candidate.ozon_price <= 0:
+                candidate.status = "filtered"
+                candidate.error = "无有效价格"
+            elif min_price > 0 and candidate.ozon_price < min_price:
+                candidate.status = "filtered"
+                candidate.error = f"价格低于下限 {min_price:.0f}₽"
+            elif max_price > 0 and candidate.ozon_price > max_price:
+                candidate.status = "filtered"
+                candidate.error = f"价格高于上限 {max_price:.0f}₽"
+
+    workers = _discover_workers()
+    if workers <= 1:
+        with CdpConnection(cdp_url) as cdp:
+            for i, pid in enumerate(pids):
+                candidate = _analyze_product(cdp_url, cdp, pid)
+                _apply_filters(candidate)
+                candidates.append(candidate)
+                if progress_callback:
+                    progress_callback(i + 1, len(pids), candidate)
+                time.sleep(0.5)
+    else:
+        def _analyze_thread(pid: str) -> ProductCandidate:
+            with CdpConnection(cdp_url) as thread_cdp:
+                return _analyze_product(cdp_url, thread_cdp, pid,
+                                        force_new_tab=True)
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_analyze_thread, pid) for pid in pids]
+            for i, pid in enumerate(pids):
+                try:
+                    candidate = futures[i].result()
+                except Exception as exc:
+                    candidate = ProductCandidate(
+                        ozon_product_id=pid, ozon_title="", ozon_price=0.0,
+                        ozon_url=f"https://www.ozon.ru/product/{pid}")
+                    candidate.status = "error"
+                    candidate.error = str(exc)
+                _apply_filters(candidate)
+                candidates.append(candidate)
+                if progress_callback:
+                    progress_callback(i + 1, len(pids), candidate)
+                time.sleep(0.5)
+
+    if use_analytics:
+        to_enrich = [c for c in candidates if c.status in ("ok", "uncertain")]
+        if to_enrich:
+            from scripts.lib.ozon_seller_analytics import (
+                apply_analytics_to_candidate,
+                fetch_bestseller_metrics_map,
+                fetch_sales_analytics,
+            )
+            per_sku: dict = {}
+            with CdpConnection(cdp_url) as cdp:
+                metrics_map = fetch_bestseller_metrics_map(cdp, company_id=None)
+                remaining = [c for c in to_enrich
+                             if c.ozon_product_id not in metrics_map]
+                for c in to_enrich:
+                    if c.ozon_product_id in metrics_map:
+                        apply_analytics_to_candidate(
+                            c, metrics_map[c.ozon_product_id])
+                if remaining:
+                    per_sku = fetch_sales_analytics(
+                        cdp, [c.ozon_product_id for c in remaining])
+                    for c in remaining:
+                        apply_analytics_to_candidate(
+                            c, per_sku.get(c.ozon_product_id, {}))
+            if not metrics_map and not per_sku:
+                print("⚠️ 运营数据全部缺失（seller.ozon.ru 未登录或无权限）："
+                      "请在 Chrome 打开 https://seller.ozon.ru 登录卖家后台", flush=True)
+
+    return candidates
+
+
+def cmd_discover_multi(args: argparse.Namespace) -> int:
+    """Ozon 选品 · 多关键词并行（D7'）— N 关键词串行滚动 → 合并去重 → 单次并行分析。
+
+    滚动串行纪律（上品帮 §5.3）：同一 Chrome 多 tab 同时滚动会被反爬识别，
+    N 关键词滚动总时长 ≈ N × 单关键词滚动；分析复用 ThreadPoolExecutor
+    4-8 线程并行吃合并 pid 列表 → 分析时长 ≈ 1 × 单关键词分析。
+    """
+    from scripts.lib.chrome_launcher import ensure_chrome_cdp
+    from scripts.lib.config_store import get_setting, get_store_profile
+    from scripts.lib.ozon_discovery import DEFAULT_FX_RATE
+
+    keywords = _split_keywords(args.keywords)
+    if not keywords:
+        print("❌ --keywords 无有效关键词（逗号分隔，如 \"猫玩具,宠物饮水机,化妆刷\"）")
+        return 1
+
+    fx_rate = args.fx_rate if args.fx_rate is not None else float(
+        (get_store_profile(args.store) or {}).get("fx_rate")
+        or get_setting("fx_rate", DEFAULT_FX_RATE)
+        or DEFAULT_FX_RATE)
+
+    print("🔍 Ozon 选品 v2 · 多关键词并行（滚动串行 + 分析并行）", flush=True)
+    print(f"   关键词 {len(keywords)} 个: {', '.join(keywords)} | 每词上限: {args.max_each} | "
+          f"最低利润率: {args.min_margin}% | 汇率: 1 RUB = {fx_rate} CNY", flush=True)
+    if args.rules:
+        print(f"   自动筛选规则: {args.rules}", flush=True)
+
+    ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
+    if not ok:
+        print(f"❌ Chrome 启动失败: {msg}")
+        return 1
+    cdp_url = "http://127.0.0.1:9222"
+
+    blue_ocean_rows: list[dict] = []
+    if args.blue_ocean_source:
+        from scripts.lib.ozon_discovery import load_blue_ocean_csv
+        if args.blue_ocean_source == "queries":
+            print("⚠️ 多关键词场景不支持实时 queries，降级本地 CSV", flush=True)
+        csv_path = args.blue_ocean_csv or "/tmp/queries_all.csv"
+        blue_ocean_rows = load_blue_ocean_csv(csv_path)
+        if blue_ocean_rows:
+            print(f"🌊 蓝海增强: 载入 {len(blue_ocean_rows)} 个关键词（{csv_path}）", flush=True)
+        else:
+            print("no blue_ocean data, fallback to original", flush=True)
+    print(flush=True)
+
+    def _collect_progress(current, total, candidate):
+        mark = '✅' if candidate.status in ("ok", "uncertain") else '❌'
+        print(f'  [{current}/{total}] {mark} {candidate.ozon_title[:36]}', flush=True)
+
+    # ── 阶段① 串行滚动采集（同一 Chrome，多 tab 同时滚动反爬识别）──
+    print("\n⏳ 阶段 1/3：串行滚动采集 N 关键词...", flush=True)
+    try:
+        batches: list[list[str]] = []
+        for i, kw in enumerate(keywords, 1):
+            print(f"  [{i}/{len(keywords)}] 关键词: {kw}", flush=True)
+            batches.append(_collect_keyword_pids(
+                cdp_url, kw, args.max_each,
+                china=(not args.local) or args.china))
+        pids = _merge_pids(batches)
+    except KeyboardInterrupt:
+        print("\n⚠️ 用户中断")
+        return 0
+    print(f"  滚动完成: {sum(len(b) for b in batches)} → 合并去重 {len(pids)} 个唯一产品", flush=True)
+    if not pids:
+        print("未采集到产品。检查关键词或增大 --max-each。")
+        return 0
+
+    # ── 阶段② 单次并行分析（ThreadPoolExecutor 吃合并 pid 列表）──
+    print(f"\n⏳ 阶段 2/3：并行分析合并候选（{len(pids)} 个 pid）...", flush=True)
+    try:
+        candidates = _analyze_pids(
+            cdp_url, pids,
+            use_analytics=not args.no_analytics,
+            min_price=args.min_price,
+            max_price=args.max_price,
+            brand_filter=args.brand_filter,
+            progress_callback=_collect_progress,
+        )
+    except KeyboardInterrupt:
+        print("\n⚠️ 用户中断")
+        return 0
+
+    from scripts.lib.ozon_discovery import _save_discovery_log
+    _save_discovery_log(
+        candidates, keyword=", ".join(keywords),
+        filters={"min_price": args.min_price, "max_price": args.max_price,
+                 "brand_filter": args.brand_filter})
+
+    return _finish_discover_flow(args, candidates, cdp_url, fx_rate, blue_ocean_rows)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1769,6 +2028,42 @@ def main() -> int:
     dp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
     dp.set_defaults(func=cmd_discover)
+
+    dpm = sub.add_parser("discover-multi",
+                         help="Ozon 选品 · 多关键词并行（N 关键词串行滚动 → 合并去重 → 单次并行分析）")
+    dpm.add_argument("--keywords", required=True,
+                     help="逗号分隔多关键词（如 \"猫玩具,宠物饮水机,化妆刷\"）")
+    dpm.add_argument("--max-each", type=int, default=30,
+                     help="每个关键词采集上限（默认 30）")
+    dpm.add_argument("--local", action="store_true", help="主站搜索（默认中国站）")
+    dpm.add_argument("--china", action="store_true", help=argparse.SUPPRESS)
+    dpm.add_argument("--min-margin", type=float, default=15.0, help="最低利润率%%")
+    dpm.add_argument("--fx-rate", type=float, default=None,
+                     help="RUB→CNY 汇率（默认取店铺 fx_rate → settings fx_rate → 0.075）")
+    dpm.add_argument("--store", default="", help="Ozon 店铺名（定价参数/提交凭证来源）")
+    dpm.add_argument("--no-analytics", action="store_true", help="不查 seller.ozon.ru 运营指标（默认自动尝试）")
+    dpm.add_argument("--min-price", type=float, default=0, help="价格下限（RUB，0=不限），区间外产品标记价区间外")
+    dpm.add_argument("--max-price", type=float, default=0, help="价格上限（RUB，0=不限）")
+    dpm.add_argument("--brand-filter", choices=["nobrand", "known", "all"], default="nobrand",
+                     help="品牌过滤: nobrand=只要无品牌/白牌（默认），known=只过滤知名品牌黑名单，all=不过滤")
+    dpm.add_argument("--rules", default="",
+                     help="自动筛选规则，如 \"monthly_sales>=200,drr<=30\"（跳过交互挑选）；"
+                          "\"ai\" 一键应用销量阶梯门槛预设")
+    dpm.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式（全量+选中）")
+    dpm.add_argument("--output", default="", help="导出文件路径")
+    dpm.add_argument("--auto-submit", action="store_true", help="确认后提交 profitable 产品到 Worker")
+    dpm.add_argument("--to-box", action="store_true",
+                     help="T9: 组装后入采集箱（POST /api/v1/drafts，WebUI 认领后再上架），替代直接提交")
+    dpm.add_argument("--blue-ocean-source", choices=["csv", "queries"], default="",
+                     help="蓝海增强数据源: csv=本地 all-queries CSV（--blue-ocean-csv）；"
+                          "queries=实时 what_to_sell（多关键词不支持，自动降级 CSV）")
+    dpm.add_argument("--blue-ocean-csv", default="",
+                     help="蓝海关键词 CSV 路径（--blue-ocean-source 时；默认 /tmp/queries_all.csv）")
+    dpm.add_argument("--review", action="store_true",
+                     help="人工评审暂停：弱匹配候选逐个确认（y/N/a=全部/s=跳过），决策写入 review_log")
+    dpm.add_argument("--notify", action="store_true",
+                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    dpm.set_defaults(func=cmd_discover_multi)
 
 
     # ── 自动更新 ──
