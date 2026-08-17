@@ -606,53 +606,26 @@ def test_verify_session_user_id_match():
     """平台回传 id == 请求 uid → True。"""
     from services import mxou_login_service as svc
 
-    class _FakeResp:
-        status_code = 200
-        def json(self):
-            return {"data": {"id": 2, "username": "haloclawroot"}}
-
-    class _FakeSession:
-        headers = {}
-        def get(self, url, **kw):
-            return _FakeResp()
-
-    with patch.object(svc, "_get_session", return_value=_FakeSession()):
+    with patch.object(svc.mxou_platform, "mxou_get_self", return_value={"id": 2}) as m:
         assert svc.verify_session_user("session=valid", "2") is True
+        m.assert_called_once()
 
 
 def test_verify_session_user_id_mismatch():
     """平台回传 id != 请求 uid（伪造他人 uid）→ False。"""
     from services import mxou_login_service as svc
 
-    class _FakeResp:
-        status_code = 200
-        def json(self):
-            return {"data": {"id": 9, "username": "someone-else"}}
-
-    class _FakeSession:
-        headers = {}
-        def get(self, url, **kw):
-            return _FakeResp()
-
-    with patch.object(svc, "_get_session", return_value=_FakeSession()):
+    with patch.object(svc.mxou_platform, "mxou_get_self", return_value={"id": 9}):
         assert svc.verify_session_user("session=valid", "2") is False
 
 
 def test_verify_session_user_platform_error():
-    """平台 401（无效 session）→ MxouLoginError 被吞 → False。"""
+    """平台 401（无效 session）→ 异常被吞 → False。"""
     from services import mxou_login_service as svc
+    from utils.mxou_platform import MxouLoginError
 
-    class _FakeResp:
-        status_code = 401
-        def json(self):
-            return {"message": "无权进行此操作"}
-
-    class _FakeSession:
-        headers = {}
-        def get(self, url, **kw):
-            return _FakeResp()
-
-    with patch.object(svc, "_get_session", return_value=_FakeSession()):
+    with patch.object(svc.mxou_platform, "mxou_get_self",
+                      side_effect=MxouLoginError("unavailable", "HTTP 401")):
         assert svc.verify_session_user("session=invalid", "2") is False
 
 
@@ -660,5 +633,35 @@ def test_verify_session_user_empty_inputs():
     """空 cookie / 空 uid → False（不查平台）。"""
     from services import mxou_login_service as svc
 
-    assert svc.verify_session_user("", "2") is False
-    assert svc.verify_session_user("session=x", "") is False
+    with patch.object(svc.mxou_platform, "mxou_get_self") as m:
+        assert svc.verify_session_user("", "2") is False
+        assert svc.verify_session_user("session=x", "") is False
+        m.assert_not_called()
+
+
+def test_verify_session_user_uses_private_session():
+    """B3 回归：独立 Session 校验——绝不污染 _get_session() 全局单例 Cookie。
+
+    共享单例被 LLM/生图/余额所有 mxou 调用复用，写入用户 Cookie 会把
+    会话泄漏到后续无关上游请求（review CRITICAL）。
+    """
+    from utils.mxou_api import _get_session
+
+    captured = {}
+
+    def _capture(session, access_token=None, user_id=None):
+        captured["session"] = session
+        return {"id": 2}
+
+    from services import mxou_login_service as svc
+
+    shared = _get_session()
+    shared_before = dict(shared.headers)
+    with patch.object(svc.mxou_platform, "mxou_get_self", side_effect=_capture):
+        assert svc.verify_session_user("session=abc; other=1", "2") is True
+    # 捕获到的是本次调用的独立 session（带请求 cookie），不是全局单例
+    assert captured["session"] is not shared
+    assert captured["session"].headers.get("Cookie") == "session=abc; other=1"
+    # 全局单例 headers 原封不动（无 Cookie 残留）
+    assert dict(shared.headers) == shared_before
+    assert "Cookie" not in shared.headers

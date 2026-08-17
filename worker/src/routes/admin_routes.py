@@ -60,5 +60,6 @@ async def admin_stores(request: Request):
 
 @router.get("/tasks")
 async def admin_tasks(request: Request):
+    """任务统计（全租户）——get_task_stats 是 async，必须 await。"""
     await _authenticate_admin(request)
-    return admin_service.get_task_stats()
+    return await admin_service.get_task_stats()

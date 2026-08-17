@@ -6,6 +6,7 @@
 3. 用户列表拼装：Supabase users + PG 店铺/任务数
 4. 用户详情：店铺列表 + 任务统计
 """
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -260,3 +261,45 @@ def test_list_stores_cross_tenant(_pg):
     client_ids = {s["ozon_client_id"] for s in stores}
     assert "9101" in client_ids
     assert "9102" in client_ids
+
+
+# ============================================================
+# 1c. review 修复回归（v0.55.2：fail-closed + int role 500 + await）
+# ============================================================
+
+def test_is_admin_user_supabase_none_fail_closed():
+    """Supabase 未配置 → 非法 user 拒绝（原 fail-open 全员管理员，review CRITICAL）。"""
+    with patch("main.get_supabase_client", return_value=None):
+        assert admin_service.is_admin_user("u123") is False
+        assert admin_service.is_admin_user("2") is False
+
+
+def test_list_users_int_role_mapped_to_contract():
+    """Supabase 整数 role（100/1）→ AdminUserOut 契约 admin/user 字符串（防 500）。"""
+    fake = _FakeSupabase({
+        "2": {"id": "2", "role": 100, "username": "root", "quota": 141527.0},
+        "9": {"id": "9", "role": 1, "username": "peaclaw"},
+    })
+    with patch("main.get_supabase_client", return_value=fake), \
+         patch.object(admin_service, "_pg_count", return_value=0):
+        rows = admin_service.list_users()
+    by_id = {r["id"]: r for r in rows}
+    assert by_id["2"]["role"] == "admin"  # int 100 → admin（原样透传会 500）
+    assert by_id["9"]["role"] == "user"   # int 1 → user
+    # AdminUserOut 契约可序列化（原 bug：int 进 str 字段 → ResponseValidationError）
+    from api.schemas import AdminUserOut
+    AdminUserOut.model_validate(by_id["2"])
+    AdminUserOut.model_validate(by_id["9"])
+
+
+@pytest.mark.asyncio
+async def test_get_task_stats_awaitable_returns_dict():
+    """get_task_stats 是 async 且 await 后返回 dict（原缺 await → coroutine 500）。"""
+    class _FakeProcessor:
+        async def get_task_statistics(self, _tenant):
+            return {"total": 5, "completed": 3}
+
+    with patch("main.task_processor", _FakeProcessor()):
+        result = await admin_service.get_task_stats()
+    assert result == {"total": 5, "completed": 3}
+    assert not asyncio.iscoroutine(result)
