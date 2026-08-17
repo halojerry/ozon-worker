@@ -263,7 +263,7 @@ def test_validate_ok(client):
     # 服务端解密后拿明文调 Ozon probe（仅服务端内部，不落响应）
     assert m.call_args.args[0] == "1010"
     assert m.call_args.args[1] == "valid-key-1010"
-    assert m.call_args.args[2] == "/v1/product/info/list"
+    assert m.call_args.args[2] == "/v3/product/list"
 
 
 def test_validate_bad_key(client):

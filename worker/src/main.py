@@ -1099,9 +1099,15 @@ def _authenticate_token(token: str) -> str:
     if supabase is None:
         logger.warning("Supabase未配置，跳过token鉴权（本地开发模式）")
         return "local_dev"
-    token_records = supabase.table("tokens").select(
-        "user_id, key, remain_quota, status, expired_time, unlimited_quota"
-    ).eq("key", clean_token).is_("deleted_at", "null").execute()
+    try:
+        token_records = supabase.table("tokens").select(
+            "user_id, key, remain_quota, status, expired_time, unlimited_quota"
+        ).eq("key", clean_token).is_("deleted_at", "null").execute()
+    except Exception as exc:
+        # fail-closed：Supabase 瞬断（SSL/超时）绝不放行，也绝不 500 白屏——
+        # 503 让客户端可重试（401 会触发 webui 拦截器误清 token）
+        logger.warning("token 鉴权查询失败（Supabase 不可达）: %s", str(exc)[:200])
+        raise HTTPException(status_code=503, detail="鉴权服务暂不可用，请稍后重试")
     if not token_records.data or len(token_records.data) == 0:
         raise HTTPException(status_code=401, detail="Invalid token")
     token_record = token_records.data[0]
