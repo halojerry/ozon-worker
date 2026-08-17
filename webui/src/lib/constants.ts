@@ -22,7 +22,8 @@ For commercial licensing, please contact support@quantumnous.com
 
 // System Configuration Defaults
 export const DEFAULT_SYSTEM_NAME = 'New API'
-export const DEFAULT_LOGO = '/logo.png'
+// vite base 前缀（生产 /app/）；静态资源路径必须带前缀否则 404
+export const DEFAULT_LOGO = `${import.meta.env.BASE_URL ?? ''}logo.png`
 
 // LocalStorage Keys
 export const STORAGE_KEYS = {
