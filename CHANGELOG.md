@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.56.3] - 2026-08-17
+
+> CI Skill Tests (python:3.12 Docker) 失败修复：aibuy 图搜去掉 `_require_auth`——无 MXOU_TOKEN 环境不再抛 AuthError。
+
+### Fix(skill)
+
+- **`search_by_image_aibuy` 去掉 `_require_auth()`**：aibuy 走 Chrome cookie 通道（无需 MXOU_TOKEN），且 fail-fast 纪律（「无 token → 快速返回 [] 由调用方降级」）要求不 raise——auth guard 在 CI 无 token 环境抛 AuthError 破坏契约（3 个 aibuy 测试炸）。CDP 通道 `search_by_image_cdp` 的 `_require_auth` 保留（需登录态验证）。
+- 验证：无 MXOU_TOKEN 环境 skill 537 passed 全绿。
+
 ## [0.56.2] - 2026-08-17
 
 > CI Worker Tests 失败根因修复：`ozon_product_tasks` 关键列补 `server_default`——CI 干净建表后直接 INSERT 不传默认值不再违反 NOT NULL。
