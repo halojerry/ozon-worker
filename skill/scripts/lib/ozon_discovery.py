@@ -885,6 +885,34 @@ def _check_rule(actual: Any, op: str, expected: float) -> bool:
     return actual == expected
 
 
+# S6/T9: discover --rules ai 预设（上品帮 aiFilterData data-filter.services.js:110-153 同款）。
+# 四条硬淘汰 + 销量阶梯——越便宜利润薄必须走量，越贵放宽销量。
+AI_PRESET: dict[str, tuple[str, float]] = {
+    "create_days": ("<=", 365),    # 上架 ≤365 天
+    "seller_count": ("<=", 30),    # 跟卖 ≤30 人
+    "sales_growth": (">", 0),      # 月销售动态 > 0
+    "drr": ("<=", 15),             # 广告份额 ≤15%
+}
+AI_SALES_LADDER: list[tuple[float, float]] = [  # (价上限₽, 月销下限)
+    (500, 500), (1000, 150), (5000, 30), (10000, 15), (float("inf"), 5),
+]
+
+
+def _check_ai_preset(candidate: ProductCandidate) -> bool:
+    """ai 预设判定：先过 4 条硬淘汰，再过销量阶梯（价→月销下限）。"""
+    for field, (op, val) in AI_PRESET.items():
+        if not _check_rule(_SELECTION_FIELDS[field](candidate), op, val):
+            return False
+    price = _SELECTION_FIELDS["price"](candidate)
+    monthly_sales = _SELECTION_FIELDS["monthly_sales"](candidate)
+    if price is None or monthly_sales is None:
+        return True  # None = 不限（与 _check_rule 语义一致）
+    for max_price, min_sales in AI_SALES_LADDER:
+        if price <= max_price:
+            return monthly_sales > min_sales
+    return True
+
+
 # 18 项 BASE 粗筛（仿上品帮 data-filter.services.js:162-275 区间判定）。
 # 每项 (字段, min, max)；None = 不限（上品帮 checkRange 语义）。
 # 字段名全部在 _SELECTION_FIELDS 中；缺省 None 值天然放行（无数据 = 不限）。
@@ -954,10 +982,15 @@ def apply_selection_rules(candidates: list[ProductCandidate], rules: str) -> lis
     格式: "monthly_sales>=200,drr<=30,seller_count<=20"
     支持字段: monthly_sales/gmv/drr/seller_count/margin/price/create_days/sales_growth/rating
     比较符: >= / <= / > / < / =
+    rules == "ai" 时走 AI_PRESET 四条硬淘汰 + AI_SALES_LADDER 销量阶梯预设。
     返回满足全部规则的候选；rules 为空返回原列表。
     """
     if not rules or not rules.strip():
         return candidates
+
+    if rules.strip() == "ai":
+        return [c for c in candidates
+                if c.status != "error" and _check_ai_preset(c)]
 
     parsed = []
     for part in rules.split(","):
