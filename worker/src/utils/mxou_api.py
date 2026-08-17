@@ -117,6 +117,14 @@ def call_mxou_chat_api(
         logger.error("mxou chat API 调用失败: token 为空")
         return None
 
+    # ⚠️ W12: 余额 pre-check（与 call_mxou_image_api 对齐）——余额不足在烧钱前
+    # fast-fail 抛 OUT_OF_QUOTA，让 task 明确失败为「余额不足请充值」而非静默返回 None
+    if _check_balance_cached(token) < MIN_BALANCE_THRESHOLD:
+        _sentry_set_user_context(token, "chat")
+        raise MxouOutOfQuotaError(
+            "OUT_OF_QUOTA: MXOU balance insufficient before LLM call"
+        )
+
     headers: Dict[str, str] = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
@@ -187,6 +195,14 @@ def call_mxou_chat_api(
                 return content
 
             err_body = response.text[:500] if response.text else "no response body"
+            # ⚠️ W12: 403/OUT_OF_QUOTA 是永久性错误（余额/额度/鉴权）——直接抛，
+            # task 明确 fail「余额不足请充值」，不当普通 4xx 静默返回 None（会级联
+            # 属性空/翻译失败等误导性错误）
+            if _is_out_of_quota_response(status_code, err_body):
+                _sentry_set_user_context(token, "chat")
+                raise MxouOutOfQuotaError(
+                    f"OUT_OF_QUOTA: MXOU chat API rejected (HTTP {status_code}, body={err_body})"
+                )
             # 4xx 除 429 外不重试（请求/鉴权/参数错误，重试无意义）
             if 400 <= status_code < 500 and status_code != 429:
                 _sentry_set_user_context(token, "chat")
@@ -216,6 +232,8 @@ def call_mxou_chat_api(
             logger.error("mxou chat API 调用失败: %s (model=%s)", last_err, model)
             return None
 
+        except MxouOutOfQuotaError:
+            raise  # W12: 余额不足/403 → 直接失败（task 明确「余额不足请充值」），不重试不降级
         except requests.exceptions.Timeout:
             last_err = f"timeout({timeout}s)"
             if attempt < max_attempts - 1:
