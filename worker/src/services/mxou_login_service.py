@@ -80,6 +80,9 @@ def _upsert_supabase_token(user_id: str, full_key: str) -> bool:
     - 剥 sk- 前缀（tokens.key 列存纯 key，_authenticate_token 按 key eq 查）
     - supabase 为 None（本地未配置）→ return False（不抛，登录流程不阻断）
     - on_conflict="key" → 已存在的 key 更新 user_id/status=1；不覆盖 remain_quota 等
+    - ⚠️ unlimited_quota=true：key 层面不限制额度（用户语义：key 无限），
+      实际消费仍由 MXOU 平台真实余额 / users.quota 判定（见 _check_mxou_balance，
+      unlimited_quota 仅作 Supabase 兜底分支放行标记，MXOU 实查欠费必拒）
     - 异常 → logger.warning 返回 False（不阻断登录）
     """
     clean_key = full_key[3:] if full_key and full_key.startswith("sk-") else full_key
@@ -97,7 +100,8 @@ def _upsert_supabase_token(user_id: str, full_key: str) -> bool:
         return False
     try:
         supabase.table("tokens").upsert(
-            [{"key": clean_key, "user_id": str(user_id), "status": 1}],
+            [{"key": clean_key, "user_id": str(user_id), "status": 1,
+              "unlimited_quota": True}],
             on_conflict="key",
         ).execute()
         return True
