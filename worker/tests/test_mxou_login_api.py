@@ -522,8 +522,10 @@ def test_get_my_key_returns_enabled_key(client):
         {"user_id": "2", "key": "abc123def456", "status": 1, "deleted_at": None},
         {"user_id": "2", "key": "xyz789", "status": 4, "deleted_at": None},
     ])
-    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
-        resp = client.get("/api/v1/mxou/my-key", params={"uid": "2"})
+    with patch("services.mxou_login_service.verify_session_user", return_value=True), \
+         patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
+        resp = client.get("/api/v1/mxou/my-key", params={"uid": "2"},
+                          headers={"cookie": "session=valid"})
     assert resp.status_code == 200
     assert resp.json() == {"key": "sk-abc123def456"}
 
@@ -536,8 +538,10 @@ def test_get_my_key_prefers_enabled(client):
         {"user_id": "9", "key": "second-key", "status": 1, "deleted_at": None},
         {"user_id": "9", "key": "dead-key", "status": 4, "deleted_at": None},
     ])
-    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
-        resp = client.get("/api/v1/mxou/my-key", params={"uid": "9"})
+    with patch("services.mxou_login_service.verify_session_user", return_value=True), \
+         patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
+        resp = client.get("/api/v1/mxou/my-key", params={"uid": "9"},
+                          headers={"cookie": "session=valid"})
     assert resp.json() == {"key": "sk-first-key"}
 
 
@@ -552,8 +556,10 @@ def test_get_my_key_no_key_returns_empty(client):
     """用户无 enabled key → {key: ""}。"""
     fake = FakeSupabase()
     fake._tokens = FakeTokensTable(rows=[{"user_id": "3", "key": "k", "status": 4, "deleted_at": None}])
-    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
-        resp = client.get("/api/v1/mxou/my-key", params={"uid": "3"})
+    with patch("services.mxou_login_service.verify_session_user", return_value=True), \
+         patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
+        resp = client.get("/api/v1/mxou/my-key", params={"uid": "3"},
+                          headers={"cookie": "session=valid"})
     assert resp.json() == {"key": ""}
 
 
@@ -564,8 +570,10 @@ def test_get_my_key_skips_soft_deleted(client):
         {"user_id": "2", "key": "soft-deleted-key", "status": 1, "deleted_at": "2026-04-25T19:35:18+00:00"},
         {"user_id": "2", "key": "live-key", "status": 1, "deleted_at": None},
     ])
-    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
-        resp = client.get("/api/v1/mxou/my-key", params={"uid": "2"})
+    with patch("services.mxou_login_service.verify_session_user", return_value=True), \
+         patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
+        resp = client.get("/api/v1/mxou/my-key", params={"uid": "2"},
+                          headers={"cookie": "session=valid"})
     assert resp.json() == {"key": "sk-live-key"}
 
 
@@ -573,6 +581,84 @@ def test_get_my_key_keeps_existing_sk_prefix(client):
     """tokens.key 已带 sk- 前缀 → 不重复加。"""
     fake = FakeSupabase()
     fake._tokens = FakeTokensTable(rows=[{"user_id": "2", "key": "sk-already-prefixed", "status": 1, "deleted_at": None}])
-    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
-        resp = client.get("/api/v1/mxou/my-key", params={"uid": "2"})
+    with patch("services.mxou_login_service.verify_session_user", return_value=True), \
+         patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
+        resp = client.get("/api/v1/mxou/my-key", params={"uid": "2"},
+                          headers={"cookie": "session=valid"})
     assert resp.json() == {"key": "sk-already-prefixed"}
+
+
+def test_get_my_key_rejects_invalid_session(client):
+    """IDOR 防线：session 校验失败 → 401（绝不吐 key）。"""
+    fake = FakeSupabase()
+    fake._tokens = FakeTokensTable(rows=[
+        {"user_id": "2", "key": "abc123def456", "status": 1, "deleted_at": None},
+    ])
+    with patch("services.mxou_login_service.verify_session_user", return_value=False), \
+         patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
+        resp = client.get("/api/v1/mxou/my-key", params={"uid": "2"},
+                          headers={"cookie": "session=forged"})
+    assert resp.status_code == 401
+    assert "key" not in resp.json()
+
+
+def test_verify_session_user_id_match():
+    """平台回传 id == 请求 uid → True。"""
+    from services import mxou_login_service as svc
+
+    class _FakeResp:
+        status_code = 200
+        def json(self):
+            return {"data": {"id": 2, "username": "haloclawroot"}}
+
+    class _FakeSession:
+        headers = {}
+        def get(self, url, **kw):
+            return _FakeResp()
+
+    with patch.object(svc, "_get_session", return_value=_FakeSession()):
+        assert svc.verify_session_user("session=valid", "2") is True
+
+
+def test_verify_session_user_id_mismatch():
+    """平台回传 id != 请求 uid（伪造他人 uid）→ False。"""
+    from services import mxou_login_service as svc
+
+    class _FakeResp:
+        status_code = 200
+        def json(self):
+            return {"data": {"id": 9, "username": "someone-else"}}
+
+    class _FakeSession:
+        headers = {}
+        def get(self, url, **kw):
+            return _FakeResp()
+
+    with patch.object(svc, "_get_session", return_value=_FakeSession()):
+        assert svc.verify_session_user("session=valid", "2") is False
+
+
+def test_verify_session_user_platform_error():
+    """平台 401（无效 session）→ MxouLoginError 被吞 → False。"""
+    from services import mxou_login_service as svc
+
+    class _FakeResp:
+        status_code = 401
+        def json(self):
+            return {"message": "无权进行此操作"}
+
+    class _FakeSession:
+        headers = {}
+        def get(self, url, **kw):
+            return _FakeResp()
+
+    with patch.object(svc, "_get_session", return_value=_FakeSession()):
+        assert svc.verify_session_user("session=invalid", "2") is False
+
+
+def test_verify_session_user_empty_inputs():
+    """空 cookie / 空 uid → False（不查平台）。"""
+    from services import mxou_login_service as svc
+
+    assert svc.verify_session_user("", "2") is False
+    assert svc.verify_session_user("session=x", "") is False
