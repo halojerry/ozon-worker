@@ -2,6 +2,9 @@
 Copyright (C) 2023-2026 QuantumNous — GNU AGPL v3
 */
 import { useState, useEffect, useRef, useCallback } from 'react'
+
+// vite base 前缀（生产 /app/）；landing 静态资源必须带前缀否则 404
+const L = `${import.meta.env.BASE_URL ?? ''}landing/`
 import { useTranslation } from 'react-i18next'
 import { PoundingHeartLogo } from '../pounding-heart-logo'
 
@@ -61,12 +64,12 @@ export function Demo() {
   }, [view])
 
   const chatItems: ChatItem[] = [
-    { id: 'ppt', icon: 'img', img: '/landing/ppt-creator.jpg', label: 'Q2 融资路演' },
+    { id: 'ppt', icon: 'img', img: `${L}ppt-creator.jpg`, label: 'Q2 融资路演' },
     { id: 'claude', icon: 'svg', svg: <ClaudeSvg />, label: '重构 auth 模块' },
-    { id: 'codex' as ViewId, icon: 'img', img: '/landing/cowork.jpg', label: '整理下载文件夹' },
-    { id: 'excel', icon: 'img', img: '/landing/excel-creator.jpg', label: '周销售报表' },
-    { id: 'gemini', icon: 'img', img: '/landing/ui-ux-pro-max.jpg', label: '产品图精修' },
-    { id: 'paper', icon: 'img', img: '/landing/academic-paper.jpg', label: '拓扑绝缘体论文' },
+    { id: 'codex' as ViewId, icon: 'img', img: `${L}cowork.jpg`, label: '整理下载文件夹' },
+    { id: 'excel', icon: 'img', img: `${L}excel-creator.jpg`, label: '周销售报表' },
+    { id: 'gemini', icon: 'img', img: `${L}ui-ux-pro-max.jpg`, label: '产品图精修' },
+    { id: 'paper', icon: 'img', img: `${L}academic-paper.jpg`, label: '拓扑绝缘体论文' },
   ]
 
   const teamItems: TeamItem[] = [
@@ -227,7 +230,7 @@ export function Demo() {
 
       {/* Mobile fallback */}
       <div className='demo-inner demo-inner-mobile' aria-hidden='true' style={{ maxWidth: 1400, margin: '0 auto' }}>
-        <img src='/landing/mockup-mobile-fallback.webp' alt='New API Dashboard' style={{ width: '100%', height: 'auto', display: 'block' }} />
+        <img src={`${L}mockup-mobile-fallback.webp`} alt='New API Dashboard' style={{ width: '100%', height: 'auto', display: 'block' }} />
       </div>
     </section>
   )
@@ -277,12 +280,12 @@ function GuidView() {
         <div className='demo-guid-asst-label' style={{ fontSize: 11, color: '#86909c' }}>选一个助手开始任务</div>
         <div className='demo-guid-asst-grid' style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, width: '100%' }}>
           {[
-            { name: 'Patrick · PPT 制作师', desc: '要点转精致 PPT', img: '/landing/ppt-creator.jpg' },
-            { name: 'Emily · Excel 数据师', desc: '透视、图表、数据清洗', img: '/landing/excel-creator.jpg' },
-            { name: 'Warren · 财务建模师', desc: 'DCF、股权表、三表模型', img: '/landing/financial-model-creator.jpg' },
-            { name: 'Albert · 论文写作师', desc: '提纲或完整初稿', img: '/landing/academic-paper.jpg' },
-            { name: 'Stella · UI/UX 设计师', desc: '最佳实践驱动的设计', img: '/landing/ui-ux-pro-max.jpg' },
-            { name: 'Marco · 动态 PPT 师', desc: '电影级 PPT 演示', img: '/landing/morph-ppt.jpg' },
+            { name: 'Patrick · PPT 制作师', desc: '要点转精致 PPT', img: `${L}ppt-creator.jpg` },
+            { name: 'Emily · Excel 数据师', desc: '透视、图表、数据清洗', img: `${L}excel-creator.jpg` },
+            { name: 'Warren · 财务建模师', desc: 'DCF、股权表、三表模型', img: `${L}financial-model-creator.jpg` },
+            { name: 'Albert · 论文写作师', desc: '提纲或完整初稿', img: `${L}academic-paper.jpg` },
+            { name: 'Stella · UI/UX 设计师', desc: '最佳实践驱动的设计', img: `${L}ui-ux-pro-max.jpg` },
+            { name: 'Marco · 动态 PPT 师', desc: '电影级 PPT 演示', img: `${L}morph-ppt.jpg` },
           ].map(a => (
             <div key={a.name} className='demo-guid-asst-card' style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, border: '1px solid #e5e6eb', background: '#fff' }}>
               <img src={a.img} alt='' style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />

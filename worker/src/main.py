@@ -2239,6 +2239,11 @@ v1.include_router(admin_queries_router)
 # 旧路径（/health, /submit_task 等）仍然可用，向后兼容
 app.include_router(v1)
 
+# ── New API 通用代理（v0.55.1）：webui 同源 /api/* → api.mxou.cn（登录/订阅/钱包） ──
+# catch-all 必须在 v1 具体路由之后注册，否则吞掉 /api/v1
+from routes.newapi_proxy_routes import router as newapi_proxy_router
+app.include_router(newapi_proxy_router)
+
 
 # ── WebUI SPA 静态托管（/app，docs/PLAN-webui-v1.md §1.4 T4） ──
 # dist 默认 webui/dist（env WEBUI_DIST 覆盖）；未构建时跳过挂载不阻断 worker。

@@ -5,6 +5,9 @@ Based on PoundingInteractiveLogo.tsx from POUNDING desktop
 */
 import { useRef, useState, useEffect, useMemo, type MouseEvent } from 'react'
 
+// vite base 前缀（生产 /app/，dev 下同源）；landing 静态资源必须带此前缀，否则 404
+const BASE_URL = import.meta.env.BASE_URL ?? ''
+
 interface Props {
   size?: number
   compact?: boolean
@@ -83,15 +86,15 @@ export function PoundingHeartLogo({ size = 34, compact = false }: Props) {
         preserveAspectRatio='xMidYMid meet'
       >
         {/* POUNDING red heart base */}
-        <image href='/landing/pounding-heart.png' x={0} y={0} width={VB_W} height={VB_H} preserveAspectRatio='none' />
+        <image href={`${BASE_URL}landing/pounding-heart.png`} x={0} y={0} width={VB_W} height={VB_H} preserveAspectRatio='none' />
         {/* Eyes — tracks mouse */}
         <g transform={eyesTransform}>
           <g transform={blinkTransform}>
-            <image href='/landing/pounding-eyes.png' x={EYES_X} y={EYES_Y} width={EYES_W} height={EYES_H} preserveAspectRatio='none' />
+            <image href={`${BASE_URL}landing/pounding-eyes.png`} x={EYES_X} y={EYES_Y} width={EYES_W} height={EYES_H} preserveAspectRatio='none' />
           </g>
         </g>
         {/* Nose dot — tiny, precisely positioned */}
-        <image href='/landing/pounding-nose.png' x={NOSE_X} y={NOSE_Y} width={NOSE_SZ} height={NOSE_SZ} preserveAspectRatio='none' />
+        <image href={`${BASE_URL}landing/pounding-nose.png`} x={NOSE_X} y={NOSE_Y} width={NOSE_SZ} height={NOSE_SZ} preserveAspectRatio='none' />
       </svg>
     </div>
   )
