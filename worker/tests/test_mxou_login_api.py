@@ -145,10 +145,12 @@ def test_login_success(client):
     assert body["session_expires_at"] == "2026-09-01T00:00:00Z"
     # keys 脱敏（无 full_key）
     assert body["keys"] == [{"id": "tok-1", "name": "default", "status": 1, "masked": True}]
-    # upsert 被调：key 已去 sk- 前缀 + status=1 + on_conflict=key
+    # upsert 被调：key 已去 sk- 前缀 + status=1 + unlimited_quota=true（key 无限额度，
+    # 实际消费仍由 MXOU 真实余额判定）+ on_conflict=key
     assert "tokens" in sb.table_names
     rows, on_conflict = sb._tokens.calls[0]
-    assert rows == [{"key": "abc123def456", "user_id": "uid-42", "status": 1}]
+    assert rows == [{"key": "abc123def456", "user_id": "uid-42", "status": 1,
+                     "unlimited_quota": True}]
     assert on_conflict == "key"
     # 响应含选中 key 完整值（WebUI 用它直接建立登录态）
     assert body["key"] in resp.text
@@ -426,9 +428,10 @@ def test_create_key_ok(client):
     assert body["id"] == "tok-new"
     assert body["name"] == "my-key"
     assert body["key"] == "sk-xyz789abc"  # 新建一次性返回完整 key（用户复制）
-    # upsert 被调：key 已去 sk- 前缀 + status=1 + on_conflict=key
+    # upsert 被调：key 已去 sk- 前缀 + status=1 + unlimited_quota=true + on_conflict=key
     rows, on_conflict = sb._tokens.calls[0]
-    assert rows == [{"key": "xyz789abc", "user_id": "local_dev", "status": 1}]
+    assert rows == [{"key": "xyz789abc", "user_id": "local_dev", "status": 1,
+                     "unlimited_quota": True}]
     assert on_conflict == "key"
 
 
@@ -460,7 +463,8 @@ def test_select_key_ok(client):
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"key": "sk-abc123def456"}
     rows, on_conflict = sb._tokens.calls[0]
-    assert rows == [{"key": "abc123def456", "user_id": "local_dev", "status": 1}]
+    assert rows == [{"key": "abc123def456", "user_id": "local_dev", "status": 1,
+                     "unlimited_quota": True}]
     assert on_conflict == "key"
 
 
