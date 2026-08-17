@@ -23,15 +23,15 @@ class OzonProductTask(Base):
     )
     tenant_id: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="pending",
+        String(20), nullable=False, default="pending", server_default=text("'pending'"),
         comment="pending/running/completed/failed/cancelled"
     )
-    priority: Mapped[int] = mapped_column(Integer, default=0)
+    priority: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
     result: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    retry_count: Mapped[int] = mapped_column(Integer, default=0)
-    max_retries: Mapped[int] = mapped_column(Integer, default=3)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    max_retries: Mapped[int] = mapped_column(Integer, default=3, server_default=text("3"))
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("NOW()")
     )
@@ -44,7 +44,7 @@ class OzonProductTask(Base):
     completed_at: Mapped[Optional[datetime.datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    timeout_seconds: Mapped[int] = mapped_column(Integer, default=1800)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=1800, server_default=text("1800"))
     progress: Mapped[Optional[dict]] = mapped_column(
         JSONB, nullable=True,
         comment="实时进度数据 {stage, percent, stages_completed[], stages_remaining[], message}"
