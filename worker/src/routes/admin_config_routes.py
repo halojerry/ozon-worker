@@ -50,6 +50,7 @@ async def _authenticate_admin(request: Request) -> str:
     return user_id
 
 
+@router.get("", response_model=list[ConfigListItem])
 @router.get("/", response_model=list[ConfigListItem])
 async def list_configs(request: Request):
     await _authenticate_admin(request)
