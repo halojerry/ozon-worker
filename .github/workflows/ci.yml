@@ -53,7 +53,7 @@ jobs:
             -exec sh -c 'python3 -c "import py_compile; py_compile.compile(\"$1\",doraise=True)" 2>/dev/null || echo $1' _ {} \;)
           [ -z "$errors" ] && echo "✅ 语法通过" || { echo "$errors"; exit 1; }
 
-  # ═══ Secret Scan: gitleaks（阻断, 只扫近 3 个月提交避开历史已泄露基线）═══
+  # ═══ Secret Scan: gitleaks（阻断; v3 内部按 push/pull_request 范围扫描）═══
   secret-scan:
     name: Secret Scan (gitleaks)
     runs-on: ubuntu-latest
@@ -61,14 +61,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-        with:
-          # 只扫近 3 个月提交 —— 仓库 git 历史在 2026-08 前泄露过密钥,
-          # 全历史扫描必炸且无法修复; 新泄露 3 个月内必被抓
-          log-opts: --since="3 months ago"
 
   # ═══ Lint: ruff（阻断, 不再 || true）═══
   lint-worker:
