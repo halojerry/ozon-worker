@@ -2193,6 +2193,45 @@ async def v1_analytics_list_bestsellers(request: Request):
     )
 
 
+@v1.get("/mappings/lookup", tags=["analytics"])
+async def v1_mappings_lookup(request: Request):
+    """类目映射查询（W11）：skill 端按关键词查已学习 Ozon 类目映射。
+
+    query: keyword（1688 中文类目名）→ {found, mappings: [{dc, tp, confidence}]}
+    复用 category_mapping_learn.lookup_mapping（精确 leaf/ID，成功数+置信门槛）；
+    未命中时按 source_keywords 重叠兜底（ozon_category_query 同表同门槛）。
+    category_mapping 表全局共享（无 tenant 隔离——类目映射是平台级知识，PRD §3.3）。
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean_token)
+
+    keyword = (request.query_params.get("keyword") or "").strip()
+    if not keyword:
+        return {"found": False, "mappings": []}
+
+    from utils.category_mapping_learn import lookup_mapping, MIN_SUCCESS_COUNT, MIN_CONFIDENCE
+    result = lookup_mapping(leaf_name=keyword)
+    if result:
+        return {"found": True, "mappings": [result]}
+
+    from utils.ozon_category_query import OzonCategoryQuery
+    rows = OzonCategoryQuery().get_category_mapping_by_keywords([keyword], min_overlap=1, top_k=10)
+    mappings = []
+    for r in rows:
+        if (r.get("success_count") or 0) < MIN_SUCCESS_COUNT or (r.get("confidence") or 0) < MIN_CONFIDENCE:
+            continue
+        mappings.append({
+            "dc": str(r["description_category_id"]),
+            "tp": str(r["type_id"]),
+            "confidence": float(r.get("confidence") or 0.7),
+        })
+    return {"found": bool(mappings), "mappings": mappings}
+
+
 # ── WebUI 凭证端点（T5）：routes/services 分层，业务逻辑在 services/credential_service.py ──
 from routes.credentials_routes import router as credentials_router
 v1.include_router(credentials_router)
