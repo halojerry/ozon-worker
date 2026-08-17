@@ -1479,6 +1479,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
             from scripts.cloud_probe import (
                 build_envelope_from_discovery,
                 submit_envelope,
+                submit_draft,
             )
         except ModuleNotFoundError as _e:
             # PR-3: 精确归因 — 缺依赖 vs 缺模块
@@ -1499,7 +1500,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
         store_id = args.store or ""
 
         def _submit_one(c):
-            """worker 线程执行：构建信封 → 提交 → 返回 (c, task_id, state)。
+            """worker 线程执行：构建信封 → 提交（--to-box 入采集箱）→ 返回 (c, id, state)。
 
             state: ok / skip（无 1688 URL）/ error 描述；异常内部捕获不中断批次。
             """
@@ -1510,6 +1511,10 @@ def cmd_discover(args: argparse.Namespace) -> int:
                 # P1-4 --notify: 顶层透传，Worker 收到 payload.notify 后推 webhook
                 if getattr(args, "notify", False):
                     envelope["notify"] = True
+                # T9 --to-box: 入采集箱（WebUI 认领后上架）；无该 flag 保持直接上架不变
+                if getattr(args, "to_box", False):
+                    result = submit_draft(envelope)
+                    return c, result.get("draft_id", ""), "ok"
                 result = submit_envelope(envelope)
                 return c, result.get("task_id", ""), "ok"
             except Exception as e:
@@ -1520,12 +1525,15 @@ def cmd_discover(args: argparse.Namespace) -> int:
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(_submit_one, c) for c in to_submit]
             for fut in as_completed(futures):
-                c, task_id, state = fut.result()
+                c, rid, state = fut.result()
                 if state == "skip":
                     print(f"  ✗ 跳过（无 1688 URL）: {c.ozon_title[:40]}")
                 elif state == "ok":
-                    submitted_task_ids.append(task_id)
-                    print(f"  ✓ 已提交: {c.ozon_title[:40]} → task_id={task_id}")
+                    submitted_task_ids.append(rid)
+                    if getattr(args, "to_box", False):
+                        print(f"  📥 已入采集箱: {c.ozon_title[:40]} → draft_id={rid}")
+                    else:
+                        print(f"  ✓ 已提交: {c.ozon_title[:40]} → task_id={rid}")
                 else:
                     print(f"  ✗ 提交失败: {c.ozon_title[:40]} — {state}")
 
@@ -1740,6 +1748,8 @@ def main() -> int:
     dp.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式（全量+选中）")
     dp.add_argument("--output", default="", help="导出文件路径")
     dp.add_argument("--auto-submit", action="store_true", help="确认后提交 profitable 产品到 Worker")
+    dp.add_argument("--to-box", action="store_true",
+                    help="T9: 组装后入采集箱（POST /api/v1/drafts，WebUI 认领后再上架），替代直接提交")
     dp.add_argument("--fission", action="store_true",
                     help="裂变选品（v3）：种子商品 → 竞品卖家 → 店铺产品 BFS 扩散")
     dp.add_argument("--max-depth", type=int, default=2, help="裂变深度（默认 2；>3 需 --allow-depth-3）")
