@@ -461,7 +461,6 @@ async def lifespan(app: FastAPI):
     global task_processor
     max_concurrent = int(os.getenv("MAX_CONCURRENT", "30"))
     task_processor = SupabaseTaskProcessor(max_concurrent=max_concurrent)
-
     # ✅ 启动时僵尸任务恢复：重置重启前的 running 任务和可重试的 failed 任务
     # ⚠️ v0.30.0:
     #   SKIP_ZOMBIE_RECOVERY=1 — 跳过全部恢复（本地/测试环境必开，防止旧 failed 任务复活真实上架）
@@ -521,6 +520,15 @@ async def lifespan(app: FastAPI):
 
     # 启动定时清理任务
     cleanup_task = asyncio.create_task(_periodic_task_cleanup(interval_seconds=60))
+
+    # v0.56 店铺数据自动同步（15min 遍历全部租户 active 凭证；SKIP_STORE_SYNC=1 关闭）
+    global store_sync_task
+    if os.getenv("SKIP_STORE_SYNC", "0") == "1":
+        logger.info("⏸️ 店铺自动同步已关闭（SKIP_STORE_SYNC=1）")
+        store_sync_task = None
+    else:
+        from services.store_sync_scheduler import store_sync_loop
+        store_sync_task = asyncio.create_task(store_sync_loop())
 
     # 启动Worker后台任务（不阻塞主服务启动）
     # ⚠️ v0.14 E9: num_workers 联动 MAX_CONCURRENT（旧代码硬编码 10，调大 env 实际并发仍封顶 10）
@@ -2186,7 +2194,6 @@ v1.include_router(templates_router)
 # ── WebUI 订单端点（P0-4）：routes/services 分层，业务逻辑在 services/order_service.py ──
 from routes.orders_routes import router as orders_router
 v1.include_router(orders_router)
-
 # ── WebUI 管理员面板端点（v0.51）：routes/services 分层，业务逻辑在 services/admin_service.py ──
 from routes.admin_routes import router as admin_router
 v1.include_router(admin_router)
@@ -2223,6 +2230,10 @@ v1.include_router(products_router)
 # ── WebUI 在售商品列表端点（M2.1）：routes/services 分层，业务逻辑在 services/shelf_service.py ──
 from routes.shelf_routes import router as shelf_router
 v1.include_router(shelf_router)
+
+# ── 店铺数据同步（v0.56）：手动同步 + 同步状态 ──
+from routes.store_sync_routes import router as store_sync_router
+v1.include_router(store_sync_router)
 
 # ── 系统设置：站点运营（v0.55）：站点 Banner/通告 管理（仅管理员）──
 from routes.admin_site_routes import router as admin_site_router

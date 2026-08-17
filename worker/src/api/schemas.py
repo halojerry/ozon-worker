@@ -402,6 +402,8 @@ class OrderListResponse(BaseModel):
     limit: int = Field(50, description="本次页大小")
     offset: int = Field(0, description="偏移")
     store: dict = Field(default_factory=dict, description="查询店铺 {id, ozon_client_id}")
+    last_synced_at: Optional[str] = Field(None, description="最近同步时间（v0.56 缓存）")
+    sync_error: Optional[str] = Field(None, description="最近同步错误（v0.56）")
 
 
 class OrderNoteOut(BaseModel):
@@ -472,6 +474,8 @@ class OzonProductListResponse(BaseModel):
     limit: int = Field(50, description="本次页大小")
     offset: int = Field(0, description="偏移")
     store: dict = Field(default_factory=dict, description="查询店铺 {id, ozon_client_id}")
+    last_synced_at: Optional[str] = Field(None, description="最近同步时间（v0.56 缓存）")
+    sync_error: Optional[str] = Field(None, description="最近同步错误（v0.56）")
 
 
 # ──────────────────────────────────────────────
