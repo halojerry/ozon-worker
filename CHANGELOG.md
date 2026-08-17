@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.56.2] - 2026-08-17
+
+> CI Worker Tests 失败根因修复：`ozon_product_tasks` 关键列补 `server_default`——CI 干净建表后直接 INSERT 不传默认值不再违反 NOT NULL。
+
+### Fix(worker)
+
+- **priority/status/retry_count/max_retries/timeout_seconds 补 server_default**：原用 SQLAlchemy Python 层 `default`（不生成 DB DEFAULT），CI `init_data.py` 全新建表后这些列是 NOT NULL 无默认 → 测试直接 INSERT 违反约束（`psycopg2 NotNullViolation: null value in column "priority"`）。本地表是旧 schema 碰巧可空，1206 测试未覆盖。改为 `server_default`（status='pending'/priority=0/retry_count=0/max_retries=3/timeout_seconds=1800）。
+- 模拟 CI 全流程验证：`init_data.py --force` 建表后 FK 正确 + 不传默认值 INSERT 生效；worker 1206 passed。
+
 ## [0.56.1] - 2026-08-17
 
 > 发版质检修复（用户追问发版完整性暴露）：F821 缺 import 真 bug（无默认店铺分支 NameError）+ CI/CD ruff 全量清零 + CD bun 生态适配（webui 部署包首次真正上传 COS）。
