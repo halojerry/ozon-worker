@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.56.4] - 2026-08-17
+
+> chat 通道余额不足 fast-fail——Sentry 591 次 `insufficient_user_quota` 根因修复（v0.56 W12 只修了 image 通道漏了 chat）。
+
+### Fix(worker)
+
+- **`call_mxou_chat_api` 入口加余额 pre-check**：复用 `_check_balance_cached`（30s TTL），余额 < MIN_BALANCE_THRESHOLD → 抛 `MxouOutOfQuotaError`（零 POST）——与 image 通道对齐。
+- **chat 403/insufficient_user_quota 不再静默 return None**：原当普通 4xx 直接返回 None（级联属性空/翻译失败等误导性错误），现识别 OUT_OF_QUOTA 直接抛。
+- **prepare 翻译函数 `MxouOutOfQuotaError` re-raise**：不吞成原文回退（否则中文标题上架被 Ozon 拒）。
+- **mxou_llm 保持纯 re-export**：异常天然冒泡 → graph → task fail `error_message=OUT_OF_QUOTA`，用户 query 明确看到「余额不足请充值」。
+- 新增 chat 通道 3 单测；worker 1209 passed。
+
 ## [0.56.3] - 2026-08-17
 
 > CI Skill Tests (python:3.12 Docker) 失败修复：aibuy 图搜去掉 `_require_auth`——无 MXOU_TOKEN 环境不再抛 AuthError。
