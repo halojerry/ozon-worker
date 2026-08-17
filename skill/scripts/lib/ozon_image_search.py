@@ -39,6 +39,37 @@ AIBUY_TOKEN_KEY = "aibuy_mtop_token"
 AIBUY_TOKEN_TTL_SECONDS = 6 * 3600  # 6h 后需重新从 Chrome 会话刷新
 _AIBUY_COOKIE_KEYS = ("_m_h5_tk", "_m_h5_tk_enc", "tfstk", "isg")
 
+# 缓动滚动（3000ms ease-in-out + rAF，每屏 80% 视口——上品帮 scrollPage 反爬节奏）
+_EASE_SCROLL_JS = r'''(() => {
+    const duration = 3000;
+    const startY = window.scrollY;
+    const scrollAmount = Math.floor(window.innerHeight * 0.8);
+    const targetY = Math.min(startY + scrollAmount, document.documentElement.scrollHeight - window.innerHeight);
+    const startTime = performance.now();
+    function step(now) {
+        const progress = Math.min((now - startTime) / duration, 1);
+        const ease = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+        window.scrollTo(0, startY + (targetY - startY) * ease);
+        if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+})()'''
+
+# 缓动滚动回顶部（同缓动公式，targetY=0）
+_EASE_SCROLL_TOP_JS = r'''(() => {
+    const duration = 3000;
+    const startY = window.scrollY;
+    const targetY = 0;
+    const startTime = performance.now();
+    function step(now) {
+        const progress = Math.min((now - startTime) / duration, 1);
+        const ease = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+        window.scrollTo(0, startY + (targetY - startY) * ease);
+        if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+})()'''
+
 
 def _get_badge_score(badge: str) -> int:
     """从 badge 文本提取匹配分数（越高越好）。
@@ -375,7 +406,7 @@ def search_by_image_cdp(
         all_results: list[dict[str, Any]] = []
         _seen_ids: set[str] = set()
         for _scroll in range(3):
-            result_tab.evaluate('window.scrollTo(0, document.body.scrollHeight)', timeout=10)
+            result_tab.evaluate(_EASE_SCROLL_JS, timeout=10)
             time.sleep(2)
             _batch = _extract_results_from_tab(result_tab, page_size)
             for _r in _batch:
@@ -384,7 +415,7 @@ def search_by_image_cdp(
                     _seen_ids.add(_rid)
                     all_results.append(_r)
             logger.info("图搜滚动 %d/3: 累计 %d 个候选", _scroll + 1, len(all_results))
-        result_tab.evaluate('window.scrollTo(0, 0)', timeout=10)
+        result_tab.evaluate(_EASE_SCROLL_TOP_JS, timeout=10)
         time.sleep(1)
 
         # 7. 取合并结果（至少 page_size 条）
