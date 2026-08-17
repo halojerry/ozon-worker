@@ -393,9 +393,10 @@ CAT_LOOKUP_PATH = _paths.get("cat_lookup", "/webhook/cat-lookup-v1")
 
 
 def lookup_category_webhook(keyword: str, *, min_confidence: float = 0.8) -> dict[str, Any]:
-    """Query pipeline's Supabase for previously learned category mappings.
+    """Query worker for previously learned category mappings.
 
-    Calls the ``cat-lookup`` webhook which reads ``category_mapping_verified``.
+    Primary: GET {WORKER_URL}/api/v1/mappings/lookup（W11，worker category_mapping 自学习表）。
+    404/异常时自动降级老 n8n webhook ``/webhook/cat-lookup-v1``（老 hybrid 表）。
     Returns ``{found: true, mappings: [{description_category_id, type_id, confidence}]}``
     or ``{found: false}`` on miss/error.
 
@@ -405,16 +406,44 @@ def lookup_category_webhook(keyword: str, *, min_confidence: float = 0.8) -> dic
         return {"found": False, "keyword": keyword}
     base = _get_api_base()
     token = _get_token()
+    kw = keyword.strip()
+    headers = {"Authorization": f"Bearer {token}"}
+    # 主路径：worker /api/v1/mappings/lookup（W11）
+    try:
+        resp = requests.get(
+            f"{base.rstrip('/')}/api/v1/mappings/lookup",
+            params={"keyword": kw},
+            headers=headers,
+            timeout=15,
+        )
+        if resp.status_code == 404:
+            logger.info("lookup_category_webhook: worker 无 /api/v1/mappings/lookup，降级老 webhook")
+        else:
+            resp.raise_for_status()
+            result = resp.json() if resp.text else {}
+            if isinstance(result, dict) and result.get("found") and result.get("mappings"):
+                mappings = [
+                    {"description_category_id": m.get("dc"), "type_id": m.get("tp"),
+                     "confidence": float(m.get("confidence") or 0.0)}
+                    for m in result["mappings"] if m.get("dc") and m.get("tp")
+                ]
+                mappings = [m for m in mappings if m["confidence"] >= min_confidence]
+                if mappings:
+                    return {"found": True, "mappings": mappings, "keyword": kw}
+            return {"found": False, "keyword": kw}
+    except Exception as e:
+        logger.info("lookup_category_webhook: 新端点失败(%s)，降级老 webhook", e)
+    # 降级：老 n8n webhook（cat-lookup-v1）
     try:
         result = _cloud_post(
             f"{base.rstrip('/')}{CAT_LOOKUP_PATH}",
-            {"keyword": keyword.strip(), "min_confidence": min_confidence},
-            headers={"Authorization": f"Bearer {token}"},
+            {"keyword": kw, "min_confidence": min_confidence},
+            headers=headers,
             timeout_sec=15,
         )
         return result if isinstance(result, dict) else {"found": False}
     except Exception:
-        return {"found": False, "keyword": keyword}
+        return {"found": False, "keyword": kw}
 
 
 def submit_envelope(
