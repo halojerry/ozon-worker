@@ -164,8 +164,8 @@ def import_rates_csv(csv_text: str) -> dict[str, Any]:
         for idx, raw in enumerate(rows):
             row_no = idx + 2  # 第 1 行是表头
 
-            def field(name: str) -> str:
-                return str(raw.get(name) or "").strip()
+            def field(name: str, _raw: dict = raw) -> str:
+                return str(_raw.get(name) or "").strip()
 
             # 必填列缺失 → 跳过
             missing = [c for c in _REQUIRED_COLUMNS if field(c) == ""]

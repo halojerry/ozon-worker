@@ -7,7 +7,7 @@ token 来源：Authorization: Bearer 优先，query param token 兜底（GET 无
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from api.schemas import OzonProductListResponse, ProductListResponse
 from services import shelf_service

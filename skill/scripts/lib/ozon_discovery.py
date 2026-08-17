@@ -906,8 +906,8 @@ AI_SALES_LADDER: list[tuple[float, float]] = [  # (价上限₽, 月销下限)
 
 def _check_ai_preset(candidate: ProductCandidate) -> bool:
     """ai 预设判定：先过 4 条硬淘汰，再过销量阶梯（价→月销下限）。"""
-    for field, (op, val) in AI_PRESET.items():
-        if not _check_rule(_SELECTION_FIELDS[field](candidate), op, val):
+    for fkey, (op, val) in AI_PRESET.items():
+        if not _check_rule(_SELECTION_FIELDS[fkey](candidate), op, val):
             return False
     price = _SELECTION_FIELDS["price"](candidate)
     monthly_sales = _SELECTION_FIELDS["monthly_sales"](candidate)
@@ -946,8 +946,8 @@ _BASE_FILTER_RULES: tuple[tuple[str, float | None, float | None], ...] = (
 
 def _passes_base_filter(candidate: ProductCandidate) -> bool:
     """18 项 BASE 粗筛：全过返回 True（区间判定，None 值/无数据 = 不限）。"""
-    for field, lo, hi in _BASE_FILTER_RULES:
-        accessor = _SELECTION_FIELDS.get(field)
+    for fkey, lo, hi in _BASE_FILTER_RULES:
+        accessor = _SELECTION_FIELDS.get(fkey)
         if accessor is None:
             continue
         actual = accessor(candidate)

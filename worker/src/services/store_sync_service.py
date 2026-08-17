@@ -116,7 +116,7 @@ def _upsert_orders(tenant_id: str, credential_id: str, postings: list) -> None:
         created = None
         if norm.get("created_at"):
             try:
-                created = datetime.datetime.fromisoformat(norm["created_at"].replace("Z", "+00:00"))
+                created = datetime.datetime.fromisoformat(norm["created_at"])
             except (ValueError, TypeError):
                 created = None
         rows.append({

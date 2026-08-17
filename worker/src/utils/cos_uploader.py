@@ -106,9 +106,7 @@ def _is_reference_image(url: str) -> bool:
     if "ir.ozone.ru" in lowered or "ozonstatic" in lowered or "ir-20." in lowered:
         return True
     # 1688 图搜缩略图（含 _460x460q100 / .webp 转换后缀）
-    if "_460x460" in lowered or lowered.endswith(".webp") or ".jpg_.webp" in lowered:
-        return True
-    return False
+    return bool("_460x460" in lowered or lowered.endswith(".webp") or ".jpg_.webp" in lowered)
 
 
 def salvage_original_images(original_images: List[str], max_n: int = 8,

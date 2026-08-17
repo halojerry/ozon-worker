@@ -99,18 +99,16 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: Setup Node (WebUI 前端构建)
-        uses: actions/setup-node@v4
+      - name: Setup Bun (WebUI 前端构建)
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: webui/package-lock.json
+          bun-version: latest
 
       - name: Build WebUI (webui/dist)
         working-directory: webui
         run: |
-          npm ci
-          npm run build
+          bun install
+          bun run build
           test -f dist/index.html && echo "✅ dist/index.html 已生成"
 
       - name: Package deploy tarball (deploy/ + worker/ 源码 + webui/dist 前端, 服务器自行 build)

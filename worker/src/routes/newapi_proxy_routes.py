@@ -67,7 +67,7 @@ def _proxy_request(method: str, path: str, headers: dict, body: Optional[bytes],
                         if k.lower() in ("content-type", "set-cookie", "cache-control")}
         return Response(content=upstream.content, status_code=upstream.status_code,
                         headers=resp_headers)
-    except Exception as exc:  # noqa: BLE001 — 代理失败不 raise，返回 502 保 webui 不白屏
+    except Exception as exc:
         logger.warning("NewAPI 代理失败 %s %s: %s", method, path, exc)
         return JSONResponse(status_code=502, content={"error": "upstream unavailable"})
 
