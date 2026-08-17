@@ -20,9 +20,16 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import { useAuthStore } from '@/stores/auth-store'
 import { getSelf } from '@/lib/api'
 import { Outlet } from '@tanstack/react-router'
-// 临时测试布局：确认路由匹配是否正常
+import { AuthenticatedLayout } from '@/components/layout'
+
+// 认证布局壳：AppHeader + AppSidebar（侧边栏）+ SidebarInset（内容区），
+// 与 ponding 原版一致（v0.54 迁移误用裸 TestLayout 导致侧边栏丢失）
 function TestLayout() {
-  return <Outlet />
+  return (
+    <AuthenticatedLayout>
+      <Outlet />
+    </AuthenticatedLayout>
+  )
 }
 
 // 内存中的验证标记，避免同一会话中重复验证
