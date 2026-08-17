@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.56.1] - 2026-08-17
+
+> 发版质检修复（用户追问发版完整性暴露）：F821 缺 import 真 bug（无默认店铺分支 NameError）+ CI/CD ruff 全量清零 + CD bun 生态适配（webui 部署包首次真正上传 COS）。
+
+### Fix(worker)
+
+- **F821 真 bug**（v0.56 店铺缓存引入）：`orders_routes.py`/`shelf_routes.py` 使用 `HTTPException` 但未 import——触发「未配置默认店铺」分支会 NameError 崩溃（1206 测试 mock 了该分支未覆盖）。补 `HTTPException` import。
+- **ruff 全量清零**（CI 最新 ruff 暴露的 pre-existing 12 处）：SIM118（dict.keys()）/FURB162（tz 替换）/SIM103（条件直接返回）/RUF100（未用 noqa）/FLY002（join→f-string）/UP009（utf-8 声明）/B023（闭包捕获循环变量）最小修复，不改变行为。
+- **skill F402**（T8/T9 引入）：`_check_ai_preset`/`_passes_base_filter` 循环变量 `field` 遮蔽 `dataclasses.field` import → 改 `fkey`。
+
+### Fix(cd)
+
+- **webui 部署包从未上传 COS 的根因**：webui 是 bun 生态（`bun.lock`，`package-lock.json` 从不存在），CD 的 Setup Node `cache: npm` + `npm ci` 必然失败（`Some specified paths were not resolved`）——v0.55 及更早的 CD 一直失败。改为 `oven-sh/setup-bun` + `bun install` + `bun run build`。
+
+### 验证
+
+- worker ruff 全绿 / skill ruff 全绿 / worker 1206 passed / skill 537 passed / compile.py 14 成功 0 失败。
+
 ## [0.56.0] - 2026-08-17
 
 > Skill 学习上品帮 v1（13 Task / 4 Wave）：上架成功率对齐 follow（graph 信封补竞品数据）+ discover 2.5× 加速（18 项 BASE 粗筛砍 80% aibuy 配额）+ 选品跨机归档 + 多店铺开箱即用。skill 537 passed（基线 487 + 50 新）/ worker 1206 passed（基线 1179 + 27 新）。
