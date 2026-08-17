@@ -330,6 +330,25 @@ def select_key(tenant_id: str, key_id: str) -> dict:
     return {"key": full_key}
 
 
+def verify_session_user(cookie_header: str, user_id: str) -> bool:
+    """用请求自带的 New API cookie session 校验 uid 归属（my-key 端点防 IDOR）。
+
+    GET /api/user/self（透传 Cookie + New-Api-User）→ 200 且返回 id == user_id
+    才放行；uid 由客户端提供可伪造，唯一信任源是平台 session。
+    网络/鉴权失败/id 不匹配 → False（绝不放行未验证的 uid）。
+    """
+    if not cookie_header or not user_id:
+        return False
+    try:
+        session = _get_session()
+        session.headers["Cookie"] = cookie_header
+        self_info = mxou_platform.mxou_get_self(session, None, user_id)
+        return str(self_info.get("id", "")) == str(user_id)
+    except Exception as exc:
+        logger.info("verify_session_user 拒绝 uid=%s: %s", user_id, exc)
+        return False
+
+
 def get_my_key(user_id: str) -> dict:
     """按 New API user_id 查 Supabase tokens 表，返回第一个 enabled key。
 

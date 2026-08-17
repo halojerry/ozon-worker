@@ -86,14 +86,16 @@ async def list_mxou_keys(request: Request):
 async def get_my_key(request: Request, uid: str = ""):
     """WebUI 登录后自动获取该用户已有的 enabled key（免手动建 key）。
 
-    鉴权：query 传 uid（webui handleLoginSuccess 拿到 login 响应 user id），
-    非 Bearer——登录态是 New API cookie session，与 worker Bearer 不同体系。
-    查 Supabase tokens 表 user_id + status=1 → 返回 {key: "sk-..."}；
-    无 key/无 uid → {key: ""}（前端静默跳过）。
+    uid 来自 query/header（可伪造），必须经 verify_session_user 用请求自带的
+    New API cookie session 向平台校验 uid 归属（防 IDOR 枚举他人 key），
+    未通过 → 401。WebUI 同源 fetch 自动携带 cookie，正常登录链路无感。
     """
     user_id = (uid or request.headers.get("New-Api-User", "") or "").strip()
     if not user_id:
         return {"key": ""}
+    cookie = request.headers.get("cookie", "")
+    if not mxou_login_service.verify_session_user(cookie, user_id):
+        raise HTTPException(status_code=401, detail="session 校验失败，拒绝查询 key")
     return mxou_login_service.get_my_key(user_id)
 
 
