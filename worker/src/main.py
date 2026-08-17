@@ -1382,7 +1382,9 @@ def _write_direct_submission_row(task_id: str, tenant_id: str, ozon_client_id: s
 
     A4 决策：所有任务（skill 直连 + 采集箱提交）都有 draft_submissions 行，
     提交历史/在售货架/生命周期视图对两条路径完全统一。直连任务：
-    - draft_id=NULL（无草稿）、credential_id=NULL（凭证在 payload，不落 credential 表）
+    - draft_id=NULL（无草稿）
+    - credential_id=credentials 表按 (tenant_id, ozon_client_id) 反查（标量子查询注入，
+      未登记则 NULL）——修复 T9 索引回填因 credential_id=NULL 跳过（W6）
     - store_client_id=payload 的 ozon_client_id、status='pending'（终态由 M0.3 写回）
     - submitted_task_id=task_id、extensions=NULL
 
@@ -1398,9 +1400,17 @@ def _write_direct_submission_row(task_id: str, tenant_id: str, ozon_client_id: s
                 text(
                     "INSERT INTO draft_submissions "
                     "(draft_id, credential_id, store_client_id, extensions, status, submitted_task_id) "
-                    "VALUES (NULL, NULL, :store_client_id, NULL, 'pending', :task_id)"
+                    "VALUES (NULL, "
+                    "(SELECT id::text FROM credentials "
+                    " WHERE tenant_id = :tenant_id AND ozon_client_id = :store_client_id "
+                    "   AND status = 'active' ORDER BY created_at DESC LIMIT 1), "
+                    ":store_client_id, NULL, 'pending', :task_id)"
                 ),
-                {"store_client_id": ozon_client_id, "task_id": task_id},
+                {
+                    "tenant_id": tenant_id,
+                    "store_client_id": ozon_client_id,
+                    "task_id": task_id,
+                },
             )
     except Exception as exc:
         logger.warning(

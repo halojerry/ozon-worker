@@ -71,6 +71,38 @@ def _resolve_draft_submission(task_id: str) -> tuple:
         return None, None
 
 
+def _resolve_credential_from_payload(tenant_id: str, task_id: str) -> str:
+    """直连任务兜底：从任务 payload 反查 credential_id。
+
+    W6: draft_submissions 无 credential_id 时（直连任务凭证在 payload / 修复前已入队的任务），
+    走 ozon_product_tasks.payload.ozon_client_id → credentials(tenant_id, ozon_client_id).id 恢复。
+    任一环节查不到 → None（调用方仍 skip 索引回填）。DB 异常 → None + warning（非致命）。
+    """
+    if not task_id or not tenant_id:
+        return ""
+    try:
+        from sqlalchemy import text as _sql
+        from storage.database.db import get_engine as _get_engine
+        with _get_engine().connect() as conn:
+            row = conn.execute(_sql(
+                "SELECT payload->>'ozon_client_id' FROM ozon_product_tasks "
+                "WHERE id::text = :task_id LIMIT 1"
+            ), {"task_id": task_id}).fetchone()
+        client_id = str(row[0]).strip() if row and row[0] else ""
+        if not client_id:
+            return ""
+        with _get_engine().connect() as conn:
+            cred = conn.execute(_sql(
+                "SELECT id::text FROM credentials "
+                "WHERE tenant_id = :tenant_id AND ozon_client_id = :client_id AND status = 'active' "
+                "ORDER BY created_at DESC LIMIT 1"
+            ), {"tenant_id": tenant_id, "client_id": client_id}).fetchone()
+        return str(cred[0]) if cred and cred[0] else ""
+    except Exception as e:
+        logger.warning("T9 索引回填: task payload 反查 credential_id 失败（跳过）task=%s: %s", task_id, e)
+        return ""
+
+
 def _backfill_product_index(state, config) -> None:
     """T9: 上传成功回填 product_task_index（approved 分支内，非阻断追加）。
 
@@ -94,7 +126,14 @@ def _backfill_product_index(state, config) -> None:
             return
         draft_id, credential_id = _resolve_draft_submission(task_id)
         if not credential_id:
-            logger.info("⏭️ T9 索引回填跳过: credential_id 不可解析（直连任务无凭证落库）")
+            # 直连任务：draft_submissions 无 credential_id → 从任务 payload 反查兜底
+            credential_id = _resolve_credential_from_payload(tenant_id, task_id)
+        if not credential_id:
+            logger.info(
+                "⏭️ T9 索引回填跳过: credential_id 不可解析（draft_submissions 与 task payload "
+                "均无反查路径——直连任务未在 credentials 表登记店铺 %s）task=%s",
+                tenant_id, task_id,
+            )
             return
 
         draft = getattr(state, "draft", None) or {}
