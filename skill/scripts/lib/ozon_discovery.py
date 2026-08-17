@@ -221,21 +221,84 @@ _COLLECT_ROOT_SEL = (
     '[data-widget="skuGrid"] .tile-root'
 )
 
-# 采集容器内的产品 ID（去重）
+# 采集容器内产品全字段行（S5 列表内联解析：抽 price/oPrice/name/cover/rating/
+# reviewCount/id，仿上品帮 ozonListParser parse.services.js:10-109——粗筛前
+# 就该抽全字段，而非只取 href pid）。
 # ⚠️ 用 :is() 包裹多选择器列表——直接拼后缀会把逗号分隔的选择器列表拆坏
 # （前几个选择器变成选 .tile-root 本身，href 为空，采集恒为空）
-_COLLECT_URLS_JS = r'''(() => {
-    const links = document.querySelectorAll(':is(__ROOT_SEL__) a[href*="/product/"]');
+_COLLECT_ROWS_JS = r'''(() => {
+    const tiles = document.querySelectorAll(':is(__ROOT_SEL__)');
     const seen = new Set();
     const out = [];
-    for (const a of links) {
+    for (const tile of tiles) {
+        const a = tile.querySelector('a[href*="/product/"]');
+        if (!a) continue;
         const href = (a.href || '').split('?')[0];
         const m = href.match(/\/product\/(?:[^\/]+-)?(\d{5,})\/?$/);
         if (!m || seen.has(m[1])) continue;
         seen.add(m[1]);
-        out.push(m[1]);
+        const box = a.parentElement || tile;
+        const priceEl = box.querySelector('.tsHeadline500Medium');
+        const oPriceEl = box.querySelector('.tsBodyControl400Small');
+        const nameEl = box.querySelector('a div span');
+        const imgEl = box.querySelector('img');
+        let scoreText = '';
+        const scoreEl = box.querySelector('.tsBodyMBold') || box.querySelector('.tsBodyControl300XSmall');
+        if (scoreEl) scoreText = scoreEl.textContent.replace(/\u202F/g, ' ');
+        const mm = scoreText.match(/\s*([0-5]\.\d{1})\s*(\d[\d\s]*)\s*/i);
+        const oPriceMatch = oPriceEl ? oPriceEl.textContent.match(/[\d\s\u2009]+(?=₽)/) : null;
+        out.push({
+            id: m[1],
+            price: (priceEl ? priceEl.textContent : '').replace(/[\s\u2009₽]/g, ''),
+            oPrice: oPriceMatch ? oPriceMatch[0].replace(/[\s\u2009]/g, '') : '',
+            name: nameEl ? nameEl.textContent.trim() : '',
+            cover: imgEl ? (imgEl.src || imgEl.getAttribute('src') || '') : '',
+            rating: mm ? mm[1] : '',
+            reviewCount: mm ? mm[2].replace(/\s/g, '') : '',
+        });
     }
     return JSON.stringify(out);
+})()'''
+
+# 批量 webSellerList 跟卖（S5 列表内联：同函数内 fetch 拿 sellerNumber +
+# followMinPrice，仿上品帮 parse.services.js:90-107——跟卖最低价只取低于
+# 当前价的（"有没有人比我价低"信号），无则用当前价）
+_FETCH_SELLERS_BATCH_JS = r'''(() => {
+    return new Promise(async (resolve) => {
+        try {
+            const origin = window.location.origin;
+            const ids = __IDS__;
+            const priceMap = __PRICE_MAP__;
+            const out = {};
+            for (const id of ids) {
+                try {
+                    const url = origin + '/api/entrypoint-api.bx/page/json/v2?url='
+                        + encodeURIComponent('/modal/otherOffersFromSellers?product_id=' + id + '&page_changed=true');
+                    const resp = await fetch(url, {method: 'get', headers: {'Content-Type': 'application/json'}});
+                    const data = await resp.json();
+                    const ws = data.widgetStates || {};
+                    const sellerKey = Object.keys(ws).find(k => k.includes('webSellerList'));
+                    if (!sellerKey || !ws[sellerKey]) { out[id] = {sellerNumber: 0, followMinPrice: 0}; continue; }
+                    const sellers = JSON.parse(ws[sellerKey]).sellers || [];
+                    const cur = Number(priceMap[id]) || 0;
+                    const below = sellers.map(s => {
+                        const p = (s.price && s.price.cardPrice && s.price.cardPrice.price) || (s.price && s.price.price) || '';
+                        const n = parseFloat(String(p).replace(/,/g, '.').replace(/[^\d.]/g, ''));
+                        return n && n < cur ? n : 0;
+                    }).filter(n => n > 0);
+                    out[id] = {
+                        sellerNumber: sellers.length,
+                        followMinPrice: below.length ? Math.min(...below) : cur,
+                    };
+                } catch (e) {
+                    out[id] = {sellerNumber: 0, followMinPrice: 0};
+                }
+            }
+            resolve(JSON.stringify(out));
+        } catch (e) {
+            resolve(JSON.stringify({}));
+        }
+    });
 })()'''
 
 # 尝试点击分页器最后一页链接（类目页有 #paginator，搜索页多为无限滚动）
@@ -265,30 +328,35 @@ _EASE_SCROLL_JS = r'''(() => {
 })()'''
 
 
-def _lazy_collect_urls(tab: Any, max_products: int,
-                       max_scrolls: int = 60, stall_limit: int = 3) -> list[str]:
-    """逐屏滚动采集结果容器内的产品 ID（懒加载等待 + 翻页兜底）。
+def _lazy_collect_rows(tab: Any, max_products: int,
+                       max_scrolls: int = 60, stall_limit: int = 3) -> list[dict]:
+    """逐屏滚动采集结果容器内的产品全字段行（S5 列表内联解析 + 翻页兜底）。
 
     - 每屏缓动滚动 80% 视口高度（3000ms ease-in-out，反爬节奏）
     - 轮询 .tile-root 数量增长（每 0.5s，单屏最多 14s）确认新卡渲染完成
     - 连续 stall_limit 屏无新卡 → 尝试翻页 → 仍无 → 结束
+    - 采集结束后一次批量 webSellerList 跟卖（sellerNumber + followMinPrice）
+    - 失败降级：JS 解析异常时返回已收集行，webSellerList 失败字段留空
     """
-    js = _COLLECT_URLS_JS.replace("__ROOT_SEL__", _COLLECT_ROOT_SEL)
-    pids: list[str] = []
+    js = _COLLECT_ROWS_JS.replace("__ROOT_SEL__", _COLLECT_ROOT_SEL)
+    rows: list[dict] = []
+    seen: set[str] = set()
     stall = 0
     prev_tiles = 0
 
     for _ in range(max_scrolls):
-        # 1. 采集当前 DOM（容器限定）
+        # 1. 采集当前 DOM（容器限定，全字段行）
         try:
             raw = tab.evaluate(js, timeout=10)
             found = json.loads(raw) if raw else []
         except Exception:
             found = []
-        for pid in found:
-            if pid not in pids:
-                pids.append(pid)
-        if len(pids) >= max_products:
+        for r in found:
+            pid = r.get("id")
+            if pid and pid not in seen:
+                seen.add(pid)
+                rows.append(r)
+        if len(rows) >= max_products:
             break
 
         # 2. 缓动滚动触发懒加载（3000ms ease-in-out + rAF + 80% 视口，
@@ -331,7 +399,41 @@ def _lazy_collect_urls(tab: Any, max_products: int,
             logger.debug("Lazy collect: no new tiles and no next page, stopping")
             break
 
-    return pids[:max_products]
+    rows = rows[:max_products]
+    if rows:
+        _merge_seller_data(tab, rows)
+    return rows
+
+
+def _merge_seller_data(tab: Any, rows: list[dict]) -> None:
+    """列表内联 webSellerList 跟卖：sellerNumber + followMinPrice 并入行。"""
+    ids = [r["id"] for r in rows if r.get("id")]
+    if not ids:
+        return
+    price_map = {r["id"]: r.get("price") or 0 for r in rows if r.get("id")}
+    try:
+        seller_js = (_FETCH_SELLERS_BATCH_JS
+                     .replace("__IDS__", json.dumps(ids))
+                     .replace("__PRICE_MAP__", json.dumps(price_map)))
+        raw = tab.evaluate(seller_js, await_promise=True, timeout=30)
+        sellers = json.loads(raw) if raw else {}
+    except Exception:
+        return
+    for r in rows:
+        s = sellers.get(r.get("id")) or {}
+        r["sellerNumber"] = s.get("sellerNumber", 0)
+        r["followMinPrice"] = s.get("followMinPrice", 0)
+
+
+def _lazy_collect_urls(tab: Any, max_products: int,
+                       max_scrolls: int = 60, stall_limit: int = 3) -> list[str]:
+    """逐屏滚动采集结果容器内的产品 ID（保持 list[str] 兼容壳）。
+
+    内部走 _lazy_collect_rows 全字段解析，仅返回 pid 列表——调用方
+    （fetch_seller_products 等）签名语义不变。
+    """
+    rows = _lazy_collect_rows(tab, max_products, max_scrolls, stall_limit)
+    return [str(r["id"]) for r in rows if r.get("id")]
 
 
 def _analyze_product(cdp_url: str, cdp: Any, pid: str,
@@ -434,23 +536,47 @@ def collect_and_analyze(
     candidates: list[ProductCandidate] = []
 
     with CdpConnection(cdp_url) as cdp:
-        # ── 阶段① 采集 ──
+        # ── 阶段① 采集（S5 列表内联解析：全字段行 + webSellerList 跟卖）──
         tab = cdp.new_tab(target_url)
         try:
             time.sleep(5)  # 初始加载
-            pids = _lazy_collect_urls(tab, max_products)
-            logger.info("Collected %d product IDs", len(pids))
+            rows = _lazy_collect_rows(tab, max_products)
+            if not rows:
+                # 兼容兜底：JS 解析失败/旧页面 → 退回 pid-only 采集
+                rows = [{"id": p} for p in _lazy_collect_urls(tab, max_products)]
+            logger.info("Collected %d product IDs", len(rows))
         finally:
             try:
                 tab.close()
             except Exception:
                 pass
 
+        # ── 阶段①b BASE 粗筛（S5/B3：18 项区间判定，_analyze_product 前）──
+        # 仅通过项才上 widget + aibuy 配额（上品帮六阶段漏斗阶段③）。
+        # 用列表行构造轻量候选跑 _passes_base_filter；规则区间全 None = 不限。
+        rows_by_pid = {str(r["id"]): r for r in rows}
+        pids = list(rows_by_pid.keys())
+        base_rejected = set()
+        for pid, r in rows_by_pid.items():
+            if not _passes_base_filter(_row_candidate(pid, r)):
+                base_rejected.add(pid)
+        if base_rejected:
+            logger.info("BASE 粗筛砍 %d 条（%d → %d）",
+                        len(base_rejected), len(pids),
+                        len(pids) - len(base_rejected))
+        pids = [p for p in pids if p not in base_rejected]
+
         # ── 阶段② 全量数据 ──
         # P2: 多 worker 并行分析（每线程独立 CdpConnection + 独立 tab），
         # 品牌/关键词/价格过滤 + 落盘 + 进度回调留在主线程。
         def _apply_filters(candidate: ProductCandidate) -> None:
-            """品牌/关键词/价格过滤（主线程执行，含候选顺序与回调次序）。"""
+            """品牌/关键词/价格/BASE 粗筛（主线程执行，含候选顺序与回调次序）。"""
+            # S5/B3: 18 项 BASE 粗筛（区间判定；列表阶段①b 已粗筛，这里 widget
+            # 数据到位后重验——规则区间全 None=不限时零副作用）
+            if candidate.status == "ok" and not _passes_base_filter(candidate):
+                candidate.status = "filtered"
+                candidate.error = "未通过 BASE 粗筛"
+                return
             # ⚠️ v0.22: 品牌过滤（参考 maozi：brand 字段布尔判断 + 配置开关）
             if candidate.status == "ok" and candidate.brand:
                 if brand_filter == "nobrand" and _is_branded(candidate.brand):
@@ -722,12 +848,30 @@ _SELECTION_FIELDS: dict[str, Any] = {
     "create_days": lambda c: c.create_days,
     "sales_growth": lambda c: c.sales_growth,
     "rating": lambda c: c.rating,
+    # ── S5/B3: 13 个新粗筛字段（9+13=22）──
+    # 缺省属性用 getattr(None)——配合 _check_rule 的 None=不限 语义天然安全
+    "sales_dynamics": lambda c: c.sales_growth,  # 月销动态（sales_growth 同源）
+    "days_in_promo": lambda c: getattr(c, "days_in_promo", None),
+    "discount": lambda c: getattr(c, "discount", None),
+    "promo_revenue_share": lambda c: getattr(c, "promo_revenue_share", None),
+    "days_with_trafarets": lambda c: getattr(c, "days_with_trafarets", None),
+    "session_count": lambda c: getattr(c, "session_count", None),
+    "conv_to_cart_pdp": lambda c: getattr(c, "conv_to_cart_pdp", None),
+    "conv_to_cart_search": lambda c: getattr(c, "conv_to_cart_search", None),
+    "nullable_redemption_rate": lambda c: getattr(c, "nullable_redemption_rate", None),
+    "weight_g": lambda c: c.weight_g,
+    "dimensions": lambda c: (max(c.dimensions_mm.values())
+                             if c.dimensions_mm else None),
+    "return_cancel_rate": lambda c: getattr(c, "return_cancel_rate", None),
+    "review_count": lambda c: c.review_count,
 }
 
 
 def _check_rule(actual: Any, op: str, expected: float) -> bool:
+    if actual is None:
+        return True  # A7: None = 不限（上品帮 checkRange 语义）
     try:
-        actual = float(actual or 0)
+        actual = float(actual)
     except (TypeError, ValueError):
         return False
     if op == ">=":
@@ -739,6 +883,69 @@ def _check_rule(actual: Any, op: str, expected: float) -> bool:
     if op == "<":
         return actual < expected
     return actual == expected
+
+
+# 18 项 BASE 粗筛（仿上品帮 data-filter.services.js:162-275 区间判定）。
+# 每项 (字段, min, max)；None = 不限（上品帮 checkRange 语义）。
+# 字段名全部在 _SELECTION_FIELDS 中；缺省 None 值天然放行（无数据 = 不限）。
+_BASE_FILTER_RULES: tuple[tuple[str, float | None, float | None], ...] = (
+    ("monthly_sales", None, None),
+    ("gmv", None, None),
+    ("create_days", None, None),
+    ("sales_dynamics", None, None),
+    ("drr", None, None),
+    ("days_in_promo", None, None),
+    ("discount", None, None),
+    ("promo_revenue_share", None, None),
+    ("days_with_trafarets", None, None),
+    ("session_count", None, None),
+    ("conv_to_cart_pdp", None, None),
+    ("conv_to_cart_search", None, None),
+    ("seller_count", None, None),
+    ("nullable_redemption_rate", None, None),
+    ("weight_g", None, None),
+    ("dimensions", None, None),
+    ("return_cancel_rate", None, None),
+    ("review_count", None, None),
+)
+
+
+def _passes_base_filter(candidate: ProductCandidate) -> bool:
+    """18 项 BASE 粗筛：全过返回 True（区间判定，None 值/无数据 = 不限）。"""
+    for field, lo, hi in _BASE_FILTER_RULES:
+        accessor = _SELECTION_FIELDS.get(field)
+        if accessor is None:
+            continue
+        actual = accessor(candidate)
+        if actual is None:
+            continue
+        if lo is not None and not _check_rule(actual, ">=", lo):
+            return False
+        if hi is not None and not _check_rule(actual, "<=", hi):
+            return False
+    return True
+
+
+def _row_candidate(pid: str, row: dict) -> ProductCandidate:
+    """从列表内联行构造轻量候选（S5）：供 BASE 粗筛在 _analyze_product 前判定。
+
+    只填充列表页可得的字段（价格/评分/评论数/跟卖数/最低跟卖价），
+    analytics 类字段留空 → None = 不限，天然放行（数据在阶段②b 才到位）。
+    """
+    from scripts.lib.utils import parse_price as _parse_price
+
+    c = ProductCandidate(
+        ozon_product_id=pid,
+        ozon_title=row.get("name", ""),
+        ozon_price=_parse_price(row.get("price", "")),
+        ozon_images=[row["cover"]] if row.get("cover") else [],
+        ozon_url=f"https://www.ozon.ru/product/{pid}",
+    )
+    c.rating = float(row.get("rating") or 0)
+    c.review_count = int(row.get("reviewCount") or 0)
+    c.competing_sellers = int(row.get("sellerNumber") or 0)
+    c.min_competing_price = float(row.get("followMinPrice") or 0)
+    return c
 
 
 def apply_selection_rules(candidates: list[ProductCandidate], rules: str) -> list[ProductCandidate]:
