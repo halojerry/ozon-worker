@@ -56,9 +56,7 @@ def is_system_generated(schema_attr: dict[str, Any]) -> bool:
         return True
     if attr_id in _COUNTRY_IDS:
         return True
-    if attr_id in _FREE_TEXT_NON_SOURCE_IDS:
-        return True
-    return False
+    return attr_id in _FREE_TEXT_NON_SOURCE_IDS
 
 
 def should_fill(schema_attr: dict[str, Any]) -> bool:
@@ -100,7 +98,7 @@ def _source_hint(attr: dict[str, Any], draft: dict[str, Any]) -> str:
     # 1688 属性直接匹配（draft.attributes 中文名精确/包含）
     attrs_1688 = draft.get("attributes") or {}
     if isinstance(attrs_1688, dict):
-        for k in attrs_1688.keys():
+        for k in attrs_1688:
             k = str(k or "").strip()
             if k and (k == attr_name or k in attr_name or attr_name in k):
                 return "from_1688_attr"

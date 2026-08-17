@@ -45,7 +45,7 @@ def _fmt_dt(value: Any) -> Optional[str]:
     if not value:
         return None
     try:
-        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(str(value))
         return dt.astimezone().isoformat()
     except (ValueError, TypeError):
         return str(value)

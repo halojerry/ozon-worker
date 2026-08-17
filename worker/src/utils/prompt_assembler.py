@@ -53,7 +53,7 @@ def is_adult_product(title: str = "", category: str = "", source_category: str =
     """
     if not title and not category and not source_category:
         return False
-    haystack = " ".join([title, category, source_category]).lower()
+    haystack = f"{title} {category} {source_category}".lower()
     return any(kw in haystack for kw in _ADULT_KEYWORDS)
 
 

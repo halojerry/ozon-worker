@@ -100,11 +100,11 @@ def match_attr_name(
     if not name_lower:
         return None
     # 精确匹配
-    for pa_name in product_attrs.keys():
+    for pa_name in product_attrs:
         if normalize_text(pa_name) == name_lower:
             return pa_name
     # 包含匹配
-    for pa_name in product_attrs.keys():
+    for pa_name in product_attrs:
         pn = normalize_text(pa_name)
         if pn and (name_lower in pn or pn in name_lower):
             return pa_name
@@ -113,7 +113,7 @@ def match_attr_name(
         import jieba as _jieba
         ozon_tokens = [w for w in _jieba.cut(name_lower) if len(w) >= 2]
         if ozon_tokens:
-            for pa_name in product_attrs.keys():
+            for pa_name in product_attrs:
                 pa_tokens = [w for w in _jieba.cut(normalize_text(pa_name)) if len(w) >= 2]
                 if pa_tokens and any(o in p or p in o for o in ozon_tokens for p in pa_tokens):
                     return pa_name
