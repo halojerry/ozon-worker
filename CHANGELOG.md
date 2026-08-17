@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.56.0] - 2026-08-17
+
+> Skill 学习上品帮 v1（13 Task / 4 Wave）：上架成功率对齐 follow（graph 信封补竞品数据）+ discover 2.5× 加速（18 项 BASE 粗筛砍 80% aibuy 配额）+ 选品跨机归档 + 多店铺开箱即用。skill 537 passed（基线 487 + 50 新）/ worker 1206 passed（基线 1179 + 27 新）。
+
+### Feat(skill) 漏斗加速（S5/B3/S6）
+
+- **列表内联解析**：`_COLLECT_URLS_JS` → `_COLLECT_ROWS_JS` 一次抽 price/oPrice/name/cover/rating/reviewCount/id + 同函数内批量 fetch webSellerList 拿 sellerNumber/followMinPrice（仅取低于当前价的跟卖最低价）；`_lazy_collect_rows` 返回全字段行，`_lazy_collect_urls` 签名不变。
+- **粗筛 9→22 字段**：`_SELECTION_FIELDS` 补 sales_dynamics/days_in_promo/discount/promo_revenue_share/days_with_trafarets/session_count/conv_to_cart_pdp/conv_to_cart_search/nullable_redemption_rate/weight_g/dimensions/return_cancel_rate/review_count（getattr 缺省 None 安全）；`_check_rule` 加 None=不限（上品帮 checkRange 语义）。
+- **18 项 BASE 粗筛**：`_apply_filters` 前新增粗筛，仅通过项才上 widget + aibuy 配额（80% 配额节省，discover 5min→2min）。
+- **`--rules ai` 预设**：上架≤365d/跟卖≤30/销售动态>0/DRR≤15 四条硬淘汰 + 销量阶梯（价≤500₽月销>500、≤1000₽>150、≤5000₽>30、≤10000₽>15、其他>5）。
+- **滚动缓动**（S7）：4 处 scrollTo 改 3000ms ease-in-out + 80% 视口（上品帮 scrollPage 反爬节奏），`_lazy_collect_urls` stall timeout 调大防误触底。
+
+### Feat(skill+worker) graph 信封补竞品（S1）
+
+- **混合键结构**（PRD §3.1 定稿）：`extensions.competitor_weight_g` / `extensions.competitor_dimensions_mm` + `draft.ozon_attributes` / `draft.competitor_price` / `draft.follow_min_price`——与 follow 路径 100% 对齐，零 worker 改。
+- **Ozon 反查同款**：复用 `discover_from_keyword` + `_llm_semantic_match` + `_ru_zh_title_overlap` 语义匹配 top1 → fetch_competing_sellers + fetch_product_info 取重量/尺寸/俄语属性，全程 fail-open。
+- worker 消费链已就绪（weight_dimension_normalizer/apply_competitor_fallback），graph 路径上架成功率对齐 follow。
+
+### Feat(skill+worker) 选品归档（D12/W10）+ 多店铺（D11/W9）
+
+- worker `/api/v1/discovery/runs`：新 ORM DiscoveryRun（tenant_id 隔离）+ Pydantic + POST 上报/GET 读取（复用 analytics 模式）。
+- skill `_report_discovery_run`：REPORT_FIELDS 20 字段白名单裁剪（~25KB/run，去 competing_seller_list/match_1688_images 大字段）+ 单次 POST + fail-open 不影响本地落盘。
+- skill `get_template_profile`：读 worker `/api/v1/templates` is_default + store_overrides 店铺覆盖；cloud_probe 三段降级（显式 extensions > worker 模板 > 本地 stores.json）；cli graph `--template-id`。
+- worker `ListingTemplateOut` 补 `store_overrides` 字段（W9）。
+
+### Feat(skill+worker) 类目缓存端点（W11）+ 并行/通道
+
+- worker `/api/v1/mappings/lookup?keyword=`：复用 lookup_mapping（category_mapping 全局共享，无 tenant 隔离）；skill `lookup_category_webhook` 切新端点 + 老 /webhook/cat-lookup-v1 fallback。
+- **discover-multi**（D7'）：`--keywords "A,B,C"` 串行滚动（同 Chrome 多 tab 反爬纪律）+ 合并去重 + 复用 ThreadPoolExecutor 并行分析（总时长 ≈ N×滚动 + 1×分析）。
+- **discover --to-box**（D13）：`_submit_one` 分支走 submit_draft 入 webui 采集箱（不直接上架）。
+
+### Fix(worker)
+
+- **W6 graph 直连回填 product_task_index**：`_write_direct_submission_row` 从信封反查 credentials 表注入 credential_id；learning_record_node 先从 task payload 兜底解析，仍无才 skip（draft_id 保持 NULL）。
+- **W12 MXOU 余额事中复查**：call_mxou_image_api 入口 `_check_balance_cached`（30s TTL）+ MIN_BALANCE_THRESHOLD=1.0 → 余额不足抛 OUT_OF_QUOTA fast-fail；403/OUT_OF_QUOTA 响应不再普通重试。
+
+### 验证
+
+- skill 537 passed（基线 487 + 50 新：U1-U4 selection/rules/ai/envelope + D12/D11/D7'/D13 各测试）；worker 1206 passed（基线 1179 + 27 新：U5-U8 + W9/W10/W11 测试）。
+- curl 验收：G4 discovery/runs POST inserted:1 + GET 租户隔离 + 无效 token 401；G5 mappings/lookup hit/miss 结构正确；G10 skill 上报端到端落库（白名单裁剪生效）。
+- 真实上架类门（G2/G6/G9）需用户真实环境（Chrome/登录/Ozon 凭证）——本地已用单测 + curl + 模拟覆盖。
+
 ## [0.55.0] - 2026-08-17
 
 > 系统设置（运营配置中心）：站点运营/商业/引擎配置三块落地 + 管理员角色判定修复。架构定调——用户/充值/订阅走 api.mxou.cn 复用 New API（零后端开发），业务数据/系统设置走 worker 本地 PG。worker 1148 passed / webui build 0 错误。
