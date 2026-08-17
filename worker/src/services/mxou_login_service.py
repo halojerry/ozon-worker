@@ -108,7 +108,6 @@ def _upsert_supabase_token(user_id: str, full_key: str) -> bool:
 
 def login(username: str, password: str) -> dict:
     """MXOU 账号密码登录 → 返回脱敏 keys + 选中 key id + session 元数据。
-
     错误映射（MxouLoginError → HTTPException）：
         bad_credentials → 401 / 2fa_required → 400 / rate_limited → 429 /
         unavailable & unknown_shape → 502（提示 API Key 直登）。
@@ -329,3 +328,33 @@ def select_key(tenant_id: str, key_id: str) -> dict:
     if full_key:
         _upsert_supabase_token(tenant_id, full_key)
     return {"key": full_key}
+
+
+def get_my_key(user_id: str) -> dict:
+    """按 New API user_id 查 Supabase tokens 表，返回第一个 enabled key。
+
+    WebUI 登录后（New API cookie session + uid）业务页需要 worker Bearer token
+    调 /api/v1/*。本函数直接复用 tokens 表（登录/建 key 时已 upsert），
+    免去用户手动建 key——tokens.key 列存纯 key（去 sk- 前缀），返回补回前缀。
+    Supabase 未配置/无 key/异常 → 返回 {"key": ""}（前端静默跳过，不报错）。
+    """
+    try:
+        from storage.database.supabase_client import get_supabase_client
+
+        supabase = get_supabase_client()
+    except Exception as exc:
+        logger.warning("get_supabase_client 失败（get_my_key）: %s", exc)
+        return {"key": ""}
+    if supabase is None:
+        return {"key": ""}
+    try:
+        rows = supabase.table("tokens").select("key").eq("user_id", str(user_id)) \
+            .eq("status", 1).is_("deleted_at", "null").limit(1).execute()
+        data = rows.data if rows else []
+        if not data:
+            return {"key": ""}
+        key = str(data[0].get("key") or "")
+        return {"key": f"sk-{key}" if key and not key.startswith("sk-") else key}
+    except Exception as exc:
+        logger.warning("get_my_key 查询失败 user_id=%s: %s", user_id, exc)
+        return {"key": ""}

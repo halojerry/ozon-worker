@@ -41,15 +41,39 @@ TOKENS_OK = [{"id": "tok-1", "name": "default", "status": 1, "masked": True, "fu
 class FakeTokensTable:
     """tokens 表 fake：记录 upsert 调用，execute 返回空结果（不落库）。"""
 
-    def __init__(self):
+    def __init__(self, rows=None):
         self.calls = []
+        self.rows = rows or []
+        self._select = None
+        self._eqs = []
 
     def upsert(self, rows, on_conflict=None):
         self.calls.append((rows, on_conflict))
         return self
 
+    def select(self, *cols, **kwargs):
+        self._select = cols
+        return self
+
+    def eq(self, col, val):
+        self._eqs.append((col, val))
+        return self
+
+    def is_(self, col, val):
+        self._eqs.append((col, val))
+        return self
+
+    def limit(self, n):
+        return self
+
     def execute(self):
-        return SimpleNamespace(data=[])
+        filtered = self.rows
+        for col, val in self._eqs:
+            if val == "null":
+                filtered = [r for r in filtered if r.get(col) is None]
+            else:
+                filtered = [r for r in filtered if str(r.get(col)) == str(val)]
+        return SimpleNamespace(data=filtered[:1] if self._select == ("key",) else filtered)
 
 
 class FakeSupabase:
@@ -485,3 +509,70 @@ def test_login_returns_role_default_user(client):
                            json={"username": "alice", "password": PASSWORD})
     assert resp.status_code == 200, resp.text
     assert resp.json()["role"] == "user"
+
+
+# ============================================================
+# GET /api/v1/mxou/my-key（v0.55.1：WebUI 登录后免手动建 key）
+# ============================================================
+
+def test_get_my_key_returns_enabled_key(client):
+    """New-Api-User=2 + tokens 有 enabled key → 返回 sk- 前缀完整 key。"""
+    fake = FakeSupabase()
+    fake._tokens = FakeTokensTable(rows=[
+        {"user_id": "2", "key": "abc123def456", "status": 1, "deleted_at": None},
+        {"user_id": "2", "key": "xyz789", "status": 4, "deleted_at": None},
+    ])
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
+        resp = client.get("/api/v1/mxou/my-key", params={"uid": "2"})
+    assert resp.status_code == 200
+    assert resp.json() == {"key": "sk-abc123def456"}
+
+
+def test_get_my_key_prefers_enabled(client):
+    """多个 enabled key → 取第一个；disabled (status=4) 跳过。"""
+    fake = FakeSupabase()
+    fake._tokens = FakeTokensTable(rows=[
+        {"user_id": "9", "key": "first-key", "status": 1, "deleted_at": None},
+        {"user_id": "9", "key": "second-key", "status": 1, "deleted_at": None},
+        {"user_id": "9", "key": "dead-key", "status": 4, "deleted_at": None},
+    ])
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
+        resp = client.get("/api/v1/mxou/my-key", params={"uid": "9"})
+    assert resp.json() == {"key": "sk-first-key"}
+
+
+def test_get_my_key_no_header_returns_empty(client):
+    """无 New-Api-User header → {key: ""}（前端静默跳过）。"""
+    resp = client.get("/api/v1/mxou/my-key")
+    assert resp.status_code == 200
+    assert resp.json() == {"key": ""}
+
+
+def test_get_my_key_no_key_returns_empty(client):
+    """用户无 enabled key → {key: ""}。"""
+    fake = FakeSupabase()
+    fake._tokens = FakeTokensTable(rows=[{"user_id": "3", "key": "k", "status": 4, "deleted_at": None}])
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
+        resp = client.get("/api/v1/mxou/my-key", params={"uid": "3"})
+    assert resp.json() == {"key": ""}
+
+
+def test_get_my_key_skips_soft_deleted(client):
+    """软删除（deleted_at 非 null）的 key 不返回——与 _authenticate_token 一致。"""
+    fake = FakeSupabase()
+    fake._tokens = FakeTokensTable(rows=[
+        {"user_id": "2", "key": "soft-deleted-key", "status": 1, "deleted_at": "2026-04-25T19:35:18+00:00"},
+        {"user_id": "2", "key": "live-key", "status": 1, "deleted_at": None},
+    ])
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
+        resp = client.get("/api/v1/mxou/my-key", params={"uid": "2"})
+    assert resp.json() == {"key": "sk-live-key"}
+
+
+def test_get_my_key_keeps_existing_sk_prefix(client):
+    """tokens.key 已带 sk- 前缀 → 不重复加。"""
+    fake = FakeSupabase()
+    fake._tokens = FakeTokensTable(rows=[{"user_id": "2", "key": "sk-already-prefixed", "status": 1, "deleted_at": None}])
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
+        resp = client.get("/api/v1/mxou/my-key", params={"uid": "2"})
+    assert resp.json() == {"key": "sk-already-prefixed"}

@@ -82,6 +82,21 @@ async def list_mxou_keys(request: Request):
     return mxou_login_service.list_keys(tenant_id)
 
 
+@router.get("/my-key")
+async def get_my_key(request: Request, uid: str = ""):
+    """WebUI 登录后自动获取该用户已有的 enabled key（免手动建 key）。
+
+    鉴权：query 传 uid（webui handleLoginSuccess 拿到 login 响应 user id），
+    非 Bearer——登录态是 New API cookie session，与 worker Bearer 不同体系。
+    查 Supabase tokens 表 user_id + status=1 → 返回 {key: "sk-..."}；
+    无 key/无 uid → {key: ""}（前端静默跳过）。
+    """
+    user_id = (uid or request.headers.get("New-Api-User", "") or "").strip()
+    if not user_id:
+        return {"key": ""}
+    return mxou_login_service.get_my_key(user_id)
+
+
 @router.post("/keys", response_model=MxouKeyCreateResponse)
 async def create_mxou_key(request: Request):
     """新建密钥（响应含完整 key 仅一次；同时幂等 upsert 进 tokens 表）。"""
