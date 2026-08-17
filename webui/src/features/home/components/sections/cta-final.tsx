@@ -2,20 +2,23 @@
 Copyright (C) 2023-2026 QuantumNous — GNU AGPL v3
 */
 import { useEffect, useRef } from 'react'
+
+// vite base 前缀（生产 /app/）；landing 静态资源必须带前缀否则 404
+const L = `${import.meta.env.BASE_URL ?? ''}landing/`
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 interface CtaFinalProps { isAuthenticated?: boolean }
 
 const AVATARS = [
-  { label: 'O', img: '/landing/morph-ppt.jpg' },
-  { label: 'C', img: '/landing/excel-creator.jpg' },
-  { label: 'G', img: '/landing/word-creator.jpg' },
-  { label: 'D', img: '/landing/ui-ux-pro-max.jpg' },
-  { label: 'Q', img: '/landing/ppt-creator.jpg' },
-  { label: 'L', img: '/landing/dashboard-creator.jpg' },
-  { label: 'M', img: '/landing/academic-paper.jpg' },
-  { label: 'R', img: '/landing/story-roleplay.jpg' },
+  { label: 'O', img: `${L}morph-ppt.jpg` },
+  { label: 'C', img: `${L}excel-creator.jpg` },
+  { label: 'G', img: `${L}word-creator.jpg` },
+  { label: 'D', img: `${L}ui-ux-pro-max.jpg` },
+  { label: 'Q', img: `${L}ppt-creator.jpg` },
+  { label: 'L', img: `${L}dashboard-creator.jpg` },
+  { label: 'M', img: `${L}academic-paper.jpg` },
+  { label: 'R', img: `${L}story-roleplay.jpg` },
 ]
 
 export function CtaFinal({ isAuthenticated }: CtaFinalProps) {

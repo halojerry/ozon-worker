@@ -3,6 +3,9 @@ Copyright (C) 2023-2026 QuantumNous — GNU AGPL v3
 Platform section — Remote Control flow diagram style
 */
 import { useEffect, useRef, useState } from 'react'
+
+// vite base 前缀（生产 /app/）；landing 静态资源必须带前缀否则 404
+const L = `${import.meta.env.BASE_URL ?? ''}landing/`
 import { useTranslation } from 'react-i18next'
 
 const CHANNELS = [
@@ -14,9 +17,9 @@ const CHANNELS = [
 ]
 
 const AGENT_AVATARS = [
-  '/landing/ppt-creator.jpg',
-  '/landing/excel-creator.jpg',
-  '/landing/word-creator.jpg',
+  `${L}ppt-creator.jpg`,
+  `${L}excel-creator.jpg`,
+  `${L}word-creator.jpg`,
 ]
 
 export function Platform() {

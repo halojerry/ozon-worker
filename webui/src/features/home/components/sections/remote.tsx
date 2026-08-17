@@ -2,13 +2,16 @@
 Copyright (C) 2023-2026 QuantumNous — GNU AGPL v3
 */
 import { useEffect, useRef, useState } from 'react'
+
+// vite base 前缀（生产 /app/）；landing 静态资源必须带前缀否则 404
+const L = `${import.meta.env.BASE_URL ?? ''}landing/`
 import { useTranslation } from 'react-i18next'
 
 const CHANNELS = [
-  { name: 'Telegram', bg: '#2AABEE', src: '/landing/telegram.svg' },
-  { name: 'Discord', bg: '#5865F2', src: '/landing/discord.svg' },
-  { name: 'Slack', bg: '#4A154B', src: '/landing/slack.svg' },
-  { name: 'Lark', bg: '#3370FF', src: '/landing/lark.svg' },
+  { name: 'Telegram', bg: '#2AABEE', src: `${L}telegram.svg` },
+  { name: 'Discord', bg: '#5865F2', src: `${L}discord.svg` },
+  { name: 'Slack', bg: '#4A154B', src: `${L}slack.svg` },
+  { name: 'Lark', bg: '#3370FF', src: `${L}lark.svg` },
   { name: 'Web UI', bg: 'var(--plum)', icon: true },
 ]
 
@@ -74,7 +77,7 @@ export function Remote() {
 
         <div className='remote-screenshot'>
           <img
-            src='/landing/remote-telegram.webp'
+            src={`${L}remote-telegram.webp`}
             alt={t('Remote Telegram Control')}
             style={{ width: '100%', height: 'auto', display: 'block' }}
           />

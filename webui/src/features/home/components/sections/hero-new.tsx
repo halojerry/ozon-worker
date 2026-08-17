@@ -4,6 +4,9 @@ This program is free software... (GNU AGPL v3)
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback } from 'react'
+
+// vite base 前缀（生产 /app/）；landing 静态资源必须带前缀否则 404
+const L = `${import.meta.env.BASE_URL ?? ''}landing/`
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
@@ -22,16 +25,16 @@ const ROTATING_WORDS = [
 ]
 
 const MODEL_AVATARS = [
-  { name: 'OpenAI', img: '/landing/morph-ppt.jpg', letter: 'O' },
-  { name: 'Claude', img: '/landing/excel-creator.jpg', letter: 'C' },
-  { name: 'Gemini', img: '/landing/word-creator.jpg', letter: 'G' },
-  { name: 'DeepSeek', img: '/landing/ppt-creator.jpg', letter: 'D' },
-  { name: 'Qwen', img: '/landing/dashboard-creator.jpg', letter: 'Q' },
-  { name: 'Llama', img: '/landing/story-roleplay.jpg', letter: 'L' },
-  { name: 'Mistral', img: '/landing/academic-paper.jpg', letter: 'M' },
-  { name: 'Cohere', img: '/landing/ui-ux-pro-max.jpg', letter: 'C' },
-  { name: 'xAI', img: '/landing/financial-model-creator.jpg', letter: 'X' },
-  { name: '+More', img: '/landing/pitch-deck-creator.jpg', letter: '+' },
+  { name: 'OpenAI', img: `${L}morph-ppt.jpg`, letter: 'O' },
+  { name: 'Claude', img: `${L}excel-creator.jpg`, letter: 'C' },
+  { name: 'Gemini', img: `${L}word-creator.jpg`, letter: 'G' },
+  { name: 'DeepSeek', img: `${L}ppt-creator.jpg`, letter: 'D' },
+  { name: 'Qwen', img: `${L}dashboard-creator.jpg`, letter: 'Q' },
+  { name: 'Llama', img: `${L}story-roleplay.jpg`, letter: 'L' },
+  { name: 'Mistral', img: `${L}academic-paper.jpg`, letter: 'M' },
+  { name: 'Cohere', img: `${L}ui-ux-pro-max.jpg`, letter: 'C' },
+  { name: 'xAI', img: `${L}financial-model-creator.jpg`, letter: 'X' },
+  { name: '+More', img: `${L}pitch-deck-creator.jpg`, letter: '+' },
 ]
 
 export function HeroNew({ isAuthenticated }: HeroNewProps) {
