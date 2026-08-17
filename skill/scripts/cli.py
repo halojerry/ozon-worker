@@ -367,6 +367,7 @@ def cmd_graph(args: argparse.Namespace) -> int:
             category_query=args.category_query,
             max_retries=args.retries,
             store_id=args.store or "",
+            template_id=getattr(args, 'template_id', '') or "",
         )
 
         # ⚠️ v0.29.x 竞品属性复用: --ozon-ref-url 抓 Ozon 竞品属性表 → draft.ozon_attributes
@@ -1684,6 +1685,8 @@ def main() -> int:
     gp.add_argument("--to-box", action="store_true",
                     help="T9: 组装后入采集箱（POST /api/v1/drafts，WebUI 认领后再上架），替代直接提交")
     gp.add_argument("--ozon-ref-url", default="", help="Ozon 竞品参考链接(抓同类目属性复用, 可选, v0.29.x)")
+    gp.add_argument("--template-id", default="",
+                    help="D11: worker listing_templates 模板 ID（显式指定优先于默认模板）")
     gp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
     gp.set_defaults(func=cmd_graph)

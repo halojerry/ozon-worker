@@ -413,6 +413,68 @@ def get_store_profile(store_id: str = "") -> dict[str, Any]:
     return {k: v for k, v in store.items() if k in allowed}
 
 
+# ── worker listing_templates 默认配置（D11）────────────────────────────
+
+# config 白名单 7 字段（与 worker template_service.CONFIG_KEYS 一致）
+TEMPLATE_CONFIG_KEYS = ("margin_rate", "commission_rate", "fx_buffer",
+                        "offer_id_prefix", "follow_type", "stock", "warehouse_id")
+
+# 进程内 TTL 缓存（防每次装信封都打 worker /templates；成功 1h / 失败 60s）
+_TEMPLATE_CACHE: dict[str, tuple[float, dict[str, Any] | None]] = {}
+_TEMPLATE_CACHE_TTL_OK = 3600
+_TEMPLATE_CACHE_TTL_FAIL = 60
+
+
+def get_template_profile(token: str, *, credential_id: str | None = None,
+                         template_id: str = "") -> dict[str, Any] | None:
+    """读 worker 默认上架配置模板（GET /api/v1/templates，Authorization Bearer）。
+
+    取 template_id 显式指定 或 is_default=true 的模板，返回其 config 白名单 7 字段
+    （TEMPLATE_CONFIG_KEYS）；credential_id 在模板 store_overrides 有覆盖 →
+    该店铺覆盖值优先于顶层 config 同 key（W9）。API 失败/无匹配模板 → None
+    （调用方降级本地 stores.json）。
+    """
+    if not token:
+        return None
+    import requests
+
+    from scripts._const import CLOUD_API_BASE
+    cache_key = f"{hashlib.sha256(token.encode()).hexdigest()[:16]}|{template_id}|{credential_id or ''}"
+    _now = time.time()
+    _hit = _TEMPLATE_CACHE.get(cache_key)
+    if _hit and _now - _hit[0] < _TEMPLATE_CACHE_TTL_OK:
+        return _hit[1]
+    profile: dict[str, Any] | None = None
+    try:
+        resp = requests.get(
+            f"{CLOUD_API_BASE}/api/v1/templates",
+            headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            if isinstance(data, list):
+                tpl = next(
+                    (t for t in data if isinstance(t, dict) and (
+                        (template_id and str(t.get("id")) == str(template_id))
+                        or (not template_id and t.get("is_default")))),
+                    None,
+                )
+                if tpl:
+                    config = dict(tpl.get("config") or {})
+                    overrides = tpl.get("store_overrides") or {}
+                    if credential_id and isinstance(overrides, dict):
+                        store_cfg = overrides.get(str(credential_id))
+                        if isinstance(store_cfg, dict):
+                            for k, v in store_cfg.items():
+                                if v is not None:
+                                    config[k] = v
+                    profile = {k: config[k] for k in TEMPLATE_CONFIG_KEYS if k in config}
+    except Exception:
+        profile = None
+    _ttl = _TEMPLATE_CACHE_TTL_OK if profile else _TEMPLATE_CACHE_TTL_FAIL
+    _TEMPLATE_CACHE[cache_key] = (_now, profile)
+    return profile
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Sentry (best-effort error tracking)
 # ═══════════════════════════════════════════════════════════════════════════

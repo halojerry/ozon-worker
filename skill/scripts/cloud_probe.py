@@ -1450,6 +1450,34 @@ def _reverse_lookup_ozon_competitor(
     return out
 
 
+# 可注入 extensions 的配置键（与 worker template_service.CONFIG_KEYS 一致）
+_INJECTABLE_EXT_KEYS = ("margin_rate", "commission_rate", "fx_buffer",
+                        "offer_id_prefix", "follow_type", "stock", "warehouse_id")
+
+
+def _merge_config_tiers(ext: dict[str, Any], *, template_profile: dict[str, Any] | None,
+                        store_profile: dict[str, Any] | None) -> dict[str, Any]:
+    """D11: 三段降级合并——显式 extensions 恒优先 > worker 默认模板 > 本地 stores.json。
+
+    仅补缺省：ext 已有非空值不被覆盖（R5 已定稿）。margin/commission/fx 沿用旧行为
+    只注入非零值（Worker 默认兜底）。
+    """
+    template_profile = template_profile or {}
+    store_profile = store_profile or {}
+    for _key in _INJECTABLE_EXT_KEYS:
+        if ext.get(_key) not in (None, ""):
+            continue
+        _val = template_profile.get(_key)
+        if _val in (None, ""):
+            _val = store_profile.get(_key)
+        if _val in (None, ""):
+            continue
+        if _key in ("margin_rate", "commission_rate", "fx_buffer") and float(_val) == 0:
+            continue
+        ext[_key] = _val
+    return ext
+
+
 def build_graph_envelope(
     *,
     item_id: str,
@@ -1461,6 +1489,7 @@ def build_graph_envelope(
     max_skus: int | None = None,
     fallback_images: list[str] | None = None,
     cdp: Any = None,
+    template_id: str = "",
 ) -> dict[str, Any]:
     """1688 API + CDP → GraphInput 格式 envelope。
 
@@ -2062,25 +2091,27 @@ def build_graph_envelope(
         },
     }
 
-    # ── 6.5 注入定价参数 ──
-    from scripts.lib.config_store import get_store_profile
+    # ── 6.5 注入定价参数（D11 三段降级：显式 extensions > worker 默认模板 > 本地 stores.json）──
+    from scripts.lib.config_store import get_store_profile, get_template_profile
     store_profile = get_store_profile(store_id)
-    margin_rate = float(store_profile.get("margin_rate", 0) or 0)
-    commission_rate = float(store_profile.get("commission_rate", 0) or 0)
-    fx_buffer = float(store_profile.get("fx_buffer", 0) or 0)
+    template_profile = {}
+    try:
+        template_profile = get_template_profile(
+            _get_mxou_token() or "", credential_id=ozon_creds.get("client_id"),
+            template_id=template_id) or {}
+    except Exception:
+        template_profile = {}
+    _merge_config_tiers(
+        envelope["extensions"],
+        template_profile=template_profile,
+        store_profile=store_profile,
+    )
 
     # ⚠️ v0.14 P1-7: 删除"用 1688 item_id 查 Ozon 佣金"死代码块
     # 原 fetch_product_commissions 用 product_id filter 查 /v5/product/info/prices，
     # 传入的是 1688 offer ID（非 Ozon product_id）→ 恒返回空，永远无效。
     # 佣金率由 store_config（get_store_profile）或 Worker 默认值提供。
 
-    # 只传非零值（Worker 用默认值兜底）
-    if margin_rate > 0:
-        envelope["extensions"]["margin_rate"] = margin_rate
-    if commission_rate > 0:
-        envelope["extensions"]["commission_rate"] = commission_rate
-    if fx_buffer > 0:
-        envelope["extensions"]["fx_buffer"] = fx_buffer
     # Q2: api_only 降级透传 → 标记 degraded，供 worker/审计识别数据来源
     if cdp_source == "api_only":
         envelope["extensions"]["cdp_degraded"] = True
@@ -2293,6 +2324,7 @@ def build_graph_envelope_with_retry(
     max_skus: int | None = None,
     fallback_images: list[str] | None = None,
     cdp: Any = None,
+    template_id: str = "",
 ) -> dict[str, Any]:
     """build_graph_envelope() with CDP retry on degradation.
 
@@ -2316,6 +2348,7 @@ def build_graph_envelope_with_retry(
                 max_skus=max_skus,
                 fallback_images=fallback_images,
                 cdp=cdp,
+                template_id=template_id,
             )
         except RuntimeError as exc:
             last_error = exc
