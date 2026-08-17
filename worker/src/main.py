@@ -19,7 +19,7 @@ from api.schemas import (
     SubmitTaskRequest, SubmitTaskResponse, TaskStatusResponse,
     CancelTaskResponse, HealthResponse, TaskStatisticsResponse, ErrorBody,
     AuthVerifyResponse, AnalyticsReportResponse,
-    BlueOceanQueryItem, OzonBestsellerItem, MarketBestsellerItem,
+    BlueOceanQueryItem, OzonBestsellerItem, MarketBestsellerItem, DiscoveryRunItem,
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
@@ -28,7 +28,7 @@ from storage.database.db import get_session, get_engine, init_db
 from storage.database.supabase_client import get_supabase_client
 from storage.memory.memory_saver import get_memory_saver
 from storage.database.shared.model import (
-    Base, BlueOceanQuery, OzonBestseller, MarketBestseller,
+    Base, BlueOceanQuery, OzonBestseller, MarketBestseller, DiscoveryRun,
 )
 from utils.task_processor import SupabaseTaskProcessor
 from utils.ozon_client import ozon_check_quota  # 配额检查
@@ -2023,6 +2023,15 @@ _ANALYTICS_KINDS = {
         MarketBestsellerItem,
         "items",
     ),
+    # discovery_runs 是单条 run 归档（非批量 upsert，无自然冲突键），
+    # _handle_analytics_report 入口特判转 _handle_discovery_run_report（见下）。
+    "discovery_runs": (
+        DiscoveryRun,
+        ("keyword", "contributed_by_token_id"),
+        ("filters_json", "candidates_json"),
+        DiscoveryRunItem,
+        "runs",
+    ),
 }
 
 
@@ -2076,6 +2085,8 @@ def _upsert_analytics(
 
 async def _handle_analytics_report(request: Request, kind: str):
     """analytics 上报公共处理：token 鉴权 → Pydantic 校验 → upsert → 计数响应。"""
+    if kind == "discovery_runs":
+        return await _handle_discovery_run_report(request)
     model, conflict_cols, data_cols, item_model, list_key = _ANALYTICS_KINDS[kind]
 
     try:
@@ -2143,6 +2154,57 @@ async def _handle_analytics_report(request: Request, kind: str):
     return {"status": "ok", "inserted": inserted, "upserted": upserted}
 
 
+async def _handle_discovery_run_report(request: Request):
+    """discover 选品结果归档（W10 D12）：单条 run 落库，不做批量 upsert（无自然冲突键）。
+
+    鉴权/限流复用 analytics 模式；candidates 白名单裁剪在 skill 端，worker 原样存 JSONB。
+    tenant_id = clean token —— GET 按 tenant 过滤（A 查不到 B）。
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_request: body must be JSON")
+
+    token = str(body.get("token", "") or "")
+    if not token:
+        raise HTTPException(status_code=401, detail="token is required")
+
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean_token)
+
+    allowed, _remaining = rate_limiter.check(clean_token)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
+
+    try:
+        item = DiscoveryRunItem(**body)
+    except Exception:
+        return error_response(
+            WorkerErrorCode.INVALID_REQUEST,
+            "invalid discovery run: check required fields",
+        )
+
+    row = {
+        "tenant_id": clean_token,
+        "keyword": item.keyword,
+        "filters_json": item.filters,
+        "candidates_json": item.candidates,
+    }
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            r = conn.execute(pg_insert(DiscoveryRun).values([row]))
+            conn.commit()
+            inserted = int(r.rowcount or 0)
+    except Exception as e:
+        logger.error("discovery run insert failed: %s", e)
+        return error_response(
+            WorkerErrorCode.INTERNAL_ERROR,
+            "discovery run insert failed",
+        )
+    return {"status": "ok", "inserted": inserted, "upserted": 0}
+
+
 @v1.post("/analytics/queries", response_model=AnalyticsReportResponse, tags=["analytics"])
 async def v1_analytics_queries(request: Request):
     """skill what-to-sell all-queries 关键词蓝海数据上报（去重键 query+token，重复上报 upsert 更新）。"""
@@ -2159,6 +2221,12 @@ async def v1_analytics_ozon_bestsellers(request: Request):
 async def v1_analytics_market_bestsellers(request: Request):
     """skill market-bestsellers 全平台榜单数据上报（去重键 product_name+token）。"""
     return await _handle_analytics_report(request, "market-bestsellers")
+
+
+@v1.post("/discovery/runs", response_model=AnalyticsReportResponse, tags=["analytics"])
+async def v1_discovery_report_run(request: Request):
+    """discover 选品结果归档（W10 D12）：单次上报一条 run（keyword+filters+candidates），按 tenant 隔离。"""
+    return await _handle_analytics_report(request, "discovery_runs")
 
 
 @v1.get("/analytics/bestsellers", tags=["analytics"])
@@ -2191,6 +2259,52 @@ async def v1_analytics_list_bestsellers(request: Request):
         order_by=q.get("order_by") or "ordering_amount",
         limit=limit, offset=offset,
     )
+
+
+@v1.get("/discovery/runs", tags=["analytics"])
+async def v1_discovery_list_runs(request: Request):
+    """discover 选品结果历史读取（W10 D12）：按 tenant 过滤（A 查不到 B）。
+
+    query: limit/offset（分页，limit 上限 200）；鉴权与上报一致：token 即 tenant_id。
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean_token)
+
+    q = request.query_params
+    try:
+        limit = int(q.get("limit", 50))
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        offset = int(q.get("offset", 0))
+    except (TypeError, ValueError):
+        offset = 0
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    from sqlalchemy import text
+    with get_engine().connect() as conn:
+        rows = conn.execute(text(
+            "SELECT id, keyword, filters_json, candidates_json, created_at "
+            "FROM discovery_runs WHERE tenant_id = :tid "
+            "ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+        ), {"tid": clean_token, "limit": limit, "offset": offset}).fetchall()
+        total = conn.execute(text(
+            "SELECT COUNT(*) FROM discovery_runs WHERE tenant_id = :tid"
+        ), {"tid": clean_token}).scalar()
+
+    items = [{
+        "id": str(r[0]),
+        "keyword": str(r[1]),
+        "filters": r[2],
+        "candidates": r[3],
+        "created_at": r[4].isoformat() if r[4] is not None else None,
+    } for r in rows]
+    return {"items": items, "total": int(total or 0), "limit": limit, "offset": offset}
 
 
 @v1.get("/mappings/lookup", tags=["analytics"])

@@ -201,6 +201,16 @@ class AnalyticsMarketBestsellersRequest(BaseModel):
     items: list[MarketBestsellerItem] = Field(default_factory=list, description="榜单条目列表")
 
 
+class DiscoveryRunItem(BaseModel):
+    """discover 选品结果归档单条（W10 D12）。"""
+    token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
+    keyword: str = Field(..., description="选品关键词")
+    filters: Optional[dict[str, Any]] = Field(None, description="选品过滤条件")
+    candidates: list[dict[str, Any]] = Field(
+        default_factory=list, description="候选产品列表（skill 端白名单裁剪后）"
+    )
+
+
 class AnalyticsReportResponse(BaseModel):
     """上报成功响应。"""
     status: str = Field("ok", description="状态: ok / error")

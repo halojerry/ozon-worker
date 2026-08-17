@@ -524,6 +524,34 @@ class MarketBestseller(Base):
     )
 
 
+class DiscoveryRun(Base):
+    """discover 选品结果归档（W10 D12）：每次选品跑完一条 run，按 tenant_id 租户隔离（A 查不到 B）。
+
+    candidates_json 由 skill 端白名单裁剪后单次上报（单条 ~500B × 50 ≈ 25KB/run），worker 原样落库；
+    归档表无自然冲突键——多次跑同一关键词各存一行（历史可拉）。
+    """
+    __tablename__ = "discovery_runs"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(50), nullable=False, comment="上报用户 clean token（租户隔离：GET 只读本租户）"
+    )
+    keyword: Mapped[str] = mapped_column(Text, nullable=False, comment="选品关键词")
+    filters_json: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True, comment="选品过滤条件快照"
+    )
+    candidates_json: Mapped[list] = mapped_column(
+        JSONB, nullable=False, comment="候选产品列表（skill 白名单裁剪后）"
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_discovery_runs_tenant", "tenant_id"),
+    )
+
+
 # ==================== 店铺使用埋点表（v0.34 C6: shop_usage_stats） ====================
 # worker task_processor 在任务终态（failed/completed/重试耗尽）增量写入，按 (ozon_client_id, stat_date) 按天聚合。
 # ⚠️ task_count 语义 = 任务执行次数（每次终态 +1，重试/僵尸恢复重新计数是预期行为）。
