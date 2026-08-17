@@ -48,14 +48,19 @@ def is_admin_role(role) -> bool:
 
 
 def is_admin_user(user_id: str) -> bool:
-    """管理员判定：Supabase users.role >= 10（root/admin）；本地开发（无 Supabase）放行。"""
+    """管理员判定：Supabase users.role >= 10（root/admin）。
+
+    fail-closed：Supabase 不可用/未配置时除显式 local_dev 外一律拒绝
+    （对齐 auth/verify「DB 不可用不放行」原则——原 supabase is None → True
+    是 fail-open，env 误配即全员管理员）。
+    """
     if user_id == "local_dev":
         return True
     try:
         from main import get_supabase_client
         supabase = get_supabase_client()
         if supabase is None:
-            return True  # 无 Supabase（本地）→ 放行
+            return False  # fail-closed：未配置 Supabase 不放行（本地开发走 local_dev）
         rows = supabase.table("users").select("role").eq("id", user_id).limit(1).execute()
         if rows.data:
             return is_admin_role(rows.data[0].get("role"))
@@ -156,7 +161,9 @@ def list_users() -> list[dict]:
             "id": uid,
             "username": u.get("username") or u.get("display_name") or "",
             "quota": u.get("quota"),
-            "role": u.get("role") or "user",
+            # Supabase role 是整数（100=root/10=admin/1=user）——按 AdminUserOut
+            # 契约（webui u.role === 'admin'）映射为 admin/user 字符串，防 500
+            "role": "admin" if is_admin_role(u.get("role")) else "user",
             "created_at": str(u.get("created_at")) if u.get("created_at") else None,
             "store_count": store_count,
             "task_count": task_count,
@@ -225,17 +232,17 @@ def list_stores() -> list[dict]:
 # ──────────────────────────────────────────────
 
 
-def get_task_stats() -> dict:
-    """全租户任务统计（复用 task_processor.get_task_statistics）。"""
+async def get_task_stats() -> dict:
+    """全租户任务统计（复用 task_processor.get_task_statistics）。
+
+    async——内部 await task_processor.get_task_statistics；同步调用会拿到
+    coroutine 未 await → 响应序列化 500（QA 实测 /admin/tasks 崩溃根因）。
+    """
     try:
         from main import task_processor
         if task_processor is None:
             return {"error": "Task processor not initialized"}
-        return await_task_stats(task_processor)
+        return await task_processor.get_task_statistics(None)
     except Exception as exc:
         logger.warning("任务统计失败: %s", str(exc)[:200])
         return {"error": str(exc)[:200]}
-
-
-async def await_task_stats(task_processor) -> dict:
-    return await task_processor.get_task_statistics(None)

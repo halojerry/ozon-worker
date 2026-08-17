@@ -336,11 +336,17 @@ def verify_session_user(cookie_header: str, user_id: str) -> bool:
     GET /api/user/self（透传 Cookie + New-Api-User）→ 200 且返回 id == user_id
     才放行；uid 由客户端提供可伪造，唯一信任源是平台 session。
     网络/鉴权失败/id 不匹配 → False（绝不放行未验证的 uid）。
+
+    独立 Session：绝不变更 _get_session() 全局单例的 headers——该单例被
+    LLM/生图/余额等所有 mxou 调用共享，写入 Cookie 会把用户会话泄漏到
+    后续所有上游请求（review CRITICAL 项）。
     """
     if not cookie_header or not user_id:
         return False
     try:
-        session = _get_session()
+        import requests as _requests
+
+        session = _requests.Session()
         session.headers["Cookie"] = cookie_header
         self_info = mxou_platform.mxou_get_self(session, None, user_id)
         return str(self_info.get("id", "")) == str(user_id)

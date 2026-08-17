@@ -17,6 +17,7 @@ from typing import Optional
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
 logger = logging.getLogger(__name__)
@@ -73,11 +74,16 @@ def _proxy_request(method: str, path: str, headers: dict, body: Optional[bytes],
 
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def newapi_proxy(path: str, request: Request):
-    """catch-all：命中 New API 前缀 → 转发 api.mxou.cn；否则 404。"""
+    """catch-all：命中 New API 前缀 → 转发 api.mxou.cn；否则 404。
+
+    阻塞转发丢线程池——requests 是同步库，直接在 async handler 里跑会卡死
+    事件循环（上游慢时 submit_task/task_status/health 全部停摆，review MAJOR）。
+    """
     if not _should_proxy(path):
         raise HTTPException(status_code=404, detail="Not Found")
     body = await request.body()
-    return _proxy_request(
+    return await run_in_threadpool(
+        _proxy_request,
         request.method, path, dict(request.headers),
         body or None, dict(request.query_params), request.cookies,
     )
