@@ -2,6 +2,18 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.56.6 — skill 学习上品帮 v1 + 店铺缓存 + 余额/额度修复 + 发版质检）
+
+> 2026-08-17。13 Task / 4 Wave 交付 + 发版全链路质检（CI/CD/gitleaks/CD bun 生态）。完整历史见 `CHANGELOG.md`。
+
+- **skill 学习上品帮 v1（F1-F13）**：列表内联解析 + 22 字段粗筛 + 18 项 BASE 粗筛（discover 5min→2min，80% aibuy 配额节省）+ `--rules ai` 阶梯门槛 + graph 信封补竞品（S1 混合键：`extensions.competitor_weight_g/competitor_dimensions_mm` + `draft.ozon_attributes/competitor_price/follow_min_price`）+ `discover-multi --keywords` 并行 + `--to-box` 采集箱 + D12 上报归档 + 读 worker listing_templates 三段降级。详见 `docs/PRD-skill-learn-shangpinbang-v1.md` + `.omo/plans/skill-learn-shangpinbang-v1.md`。
+- **店铺数据缓存（v0.56 前一轮）**：Ozon 订单/在线商品 PG 缓存 + 15min 自动同步 + 手动同步按钮（`store_sync_service.py`/`store_sync_scheduler.py`/`store_sync_routes.py`），租户隔离硬约束（`tenant_id` 唯一键，A 查不到 B）。
+- **余额不足明确 fail「请充值」**（v0.56.4，Sentry 591 次 `insufficient_user_quota` 根因）：`call_mxou_chat_api` 入口加余额 pre-check（v0.56 W12 原只修 image 通道漏了 chat）+ 403/OUT_OF_QUOTA 不当普通 4xx 静默返回 None + prepare 翻译 `MxouOutOfQuotaError` re-raise + `mxou_llm` 纯 re-export 天然冒泡——链路：余额不足 → OUT_OF_QUOTA → task failed + error_message（用户 query 明确看到余额不足请充值）。
+- **key 无限额度 + 真实余额消费**（v0.56.5）：webui 自动创建 key `unlimited_quota=true`（`_upsert_supabase_token`），但实际消费仍走 MXOU 平台真实余额（`_check_mxou_balance` 优先 `get_mxou_balance`，`unlimited_quota` 仅兜底分支放行，MXOU 实查欠费必拒）。
+- **发版质检三连修**（v0.56.1-3）：F821 缺 import 真 bug（orders/shelf_routes 用 HTTPException 未 import）+ CI ruff 全量清零 + CD bun 生态适配（webui 是 bun.lock 生态，package-lock.json 从不存在，CD 的 `npm ci` 必失败——改 `oven-sh/setup-bun` + `bun install`）+ `ozon_product_tasks` 关键列补 `server_default`（CI 干净建表 NOT NULL 违约）+ aibuy 图搜去 `_require_auth`（CI 无 token 环境 AuthError）。
+- **gitleaks-action v2→v3**（v0.56.6）：v2 floating 版本拉到新版移除 `log-opts` input（Unexpected input 失败）；v3 内部按 push/PR 范围扫描，不暴露 log-opts/GITLEAKS_COMMAND_ARGS——**勿再加回 log-opts**。
+- **测试**: worker 1209 passed（基线 1179 + 30 新）/ skill 537 passed（基线 487 + 50 新）。
+
 ## 最近更新（v0.40.1 — 生图合规 + 参考图泄漏 + 8229 类型值修复）
 
 > 2026-08-13。实测上架根因三连修（本轮排查还定位了 **COS 图片消失根因**——见下方「⚠️ COS 图片存储真相」）。
@@ -184,6 +196,10 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | 蓝海数据上报 | `POST /api/v1/analytics/queries` | POST |
 | 畅销榜数据上报 | `POST /api/v1/analytics/ozon-bestsellers` | POST |
 | 跨平台畅销榜上报 | `POST /api/v1/analytics/market-bestsellers` | POST |
+| 选品结果归档（v0.56） | `POST/GET /api/v1/discovery/runs` | POST/GET |
+| 类目映射查询（v0.56） | `GET /api/v1/mappings/lookup?keyword=` | GET |
+| 店铺手动同步（v0.56） | `POST /api/v1/stores/{id}/sync` + `GET /stores/{id}/sync-status` | POST/GET |
+| 上架配置模板（v0.56） | `GET/POST/PATCH/DELETE /api/v1/templates` + `POST /templates/{id}/default` | 全 |
 
 **`task_status` 返回 `progress` 字段**：`{stage, percent, stages_completed[], stages_remaining[], message}`。
 进度基于内存中 12 阶段 `STAGE_ORDER` 计算，节点执行时 `ProgressCallback` 自动更新。
@@ -275,6 +291,12 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python tests/test_category_match_v021.py`（v0.21 类目同义词/学习缓存一致性，5 用例） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python tests/test_language_routing.py`（v0.29 语言路由：1688 中文→ZH_HANS/Ozon 类目名→RU/无中文残留，4 用例） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_shop_usage_stats.py tests/test_analytics_endpoints.py tests/test_llm_suggest_rerank.py -q`（v0.34 C5/C6/类目 suggest 单测，纯 mock 无需 PG） |
+| worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_discovery_runs_api.py tests/test_mappings_lookup_api.py tests/test_listing_template_store_overrides.py -q`（v0.56 W10/W11/W9 端点单测，mock 无需 PG） |
+| worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_store_sync.py -q`（v0.56 店铺缓存 9 单测：租户隔离/upsert/archived/懒同步/调度器，需本地 PG） |
+| worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_mxou_balance_precheck.py tests/test_learning_record_index_backfill.py -q`（v0.56 W12 余额复查 + W6 索引回填单测，mock 无需 PG） |
+| skill | `python3.12 -m pytest tests/test_selection_rules.py tests/test_ai_preset.py -q`（v0.56 粗筛字段 + --rules ai 单测） |
+| skill | `python3.12 -m pytest tests/test_graph_envelope_competitor.py tests/test_discovery_report_hook.py -q`（v0.56 S1 信封竞品 + D12 上报单测） |
+| skill | `python3.12 -m pytest tests/test_discover_multi.py tests/test_discover_to_box.py tests/test_template_profile.py -q`（v0.56 discover-multi/to-box/模板单测） |
 | skill | `python3.12 tests/test_updater.py`（v0.18 自动更新器单测，11 断言，mock 网络） |
 | skill | `python3.12 tests/test_envelope_fields.py`（v0.21 信封字段完整性，2 用例） |
 | worker | `bash scripts/local_run.sh -m flow -i '{...}'` 跑全流程 |
@@ -431,6 +453,8 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## 深入阅读（改前先看）
 
+- **`docs/PRD-skill-learn-shangpinbang-v1.md`** — ⭐ skill 学习上品帮 v1 PRD（F1-F13 需求分解 + S1 混合键/D12 白名单/W11 全局共享 3 决策定稿——改 discover 漏斗/graph 信封前必读）
+- **`docs/competitor/shangpinbang-skill-learning-notes.md`** — 上品帮客户端源码调研底稿（scrollPage 缓动公式/parse.services/BASE 粗筛/AI 阶梯门槛事实，改漏斗逻辑前查依据）
 - **`docs/competitor/README.md`** — ⭐ 竞品 ERP 调研总索引（上品帮 × 毛子ERP 全量字段级分析 + 自有 WebUI 复刻路线 P0-P3——做 WebUI 功能前必读）
 - **`docs/competitor/shangpinbang-full.md`** — 上品帮全站 24 章（18 菜单 40+ 页面字段/状态机/跳转/计费）
 - **`docs/competitor/maozier-backend-full.md`** — 毛子ERP 网页后台 18 章（11 菜单全路由/弹窗/毛豆计费/实操验证）
@@ -480,6 +504,18 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
 - **Docker 部署**: `deploy/docker-compose.yml` 含 PG + Worker，`HEALTHCHECK` 已配置。
 - **API 版本化**: 新端点走 `/api/v1/`，旧路径保持兼容。
+
+### v0.56 新增关键约定（改余额/额度/店铺缓存/skill 漏斗前必看）
+
+- **余额判定三处一致**（auth_verify/submit_task/auth_node）：**优先查 MXOU 平台真实余额**（`get_mxou_balance`），失败降级 Supabase `users.quota`；`unlimited_quota` 仅兜底分支放行标记，**MXOU 实查欠费必拒**。绝不用 `tokens.remain_quota`（僵尸字段）。
+- **余额不足 fast-fail 契约**（v0.56.4）：`call_mxou_chat_api`/`call_mxou_image_api` 入口都做余额 pre-check（`_check_balance_cached` 30s TTL，`MIN_BALANCE_THRESHOLD=1.0`），不足抛 `MxouOutOfQuotaError`；403/OUT_OF_QUOTA 响应**不当普通 4xx 静默返回 None**。改 MXOU 调用链时勿把 403 当普通失败重试。
+- **key 无限额度 vs 真实消费**：webui 自动创建 key 写 `unlimited_quota=true`（`_upsert_supabase_token`），但消费仍走 MXOU 真实余额——**勿因 unlimited_quota 跳过 MXOU 实查**（Sentry 实证：unlimited=true 但平台欠费仍放行 → 生图 403）。
+- **店铺缓存**：订单/商品读取走 PG 缓存表（`ozon_orders_cache`/`ozon_products_cache`/`credential_sync_state`，均含 `tenant_id` + 租户唯一键）；15min 调度器 + `POST /stores/{id}/sync` 手动 + 懒同步。**改读取必须按 tenant_id + credential_id 过滤**，凭证归属一律 `get_decrypted` 校验（跨租户 404）。
+- **S1 混合键**（skill 信封竞品数据）：`extensions.competitor_weight_g`/`competitor_dimensions_mm` + `draft.ozon_attributes`/`competitor_price`/`follow_min_price`——**勿用嵌套 `extensions.competitor.*`**（worker 读扁平键）。
+- **D12 上报裁剪**：`REPORT_FIELDS` 20 字段白名单（~25KB/run）单次 POST `/api/v1/discovery/runs`——勿上报 `competing_seller_list`/`match_1688_images` 大字段。
+- **W11 类目映射全局共享**：`category_mapping` 表无 tenant_id，保持全局——**勿加 tenant 隔离**（碎片化达不到 MIN_SUCCESS_COUNT=3 → 学习表失效）。
+- **webui 部署形态**：webui + worker **同一云端 docker-compose**，webui 静态产物 bind mount 进 worker 容器（`WEBUI_DIST=/app/webui/dist`），由 FastAPI `_mount_webui_static` 同进程伺服 `/app`——**不是独立服务**，单端口 8080 同时服务 API + webui。
+- **gitleaks v3**：CI secret-scan 用 `gitleaks/gitleaks-action@v3`（内部按 push/PR 范围扫描），**勿加回 log-opts**（v3 不支持，v2 floating 拉新版会 Unexpected input 失败）。
 
 ### v0.40 新增关键约定（改属性填充/匹配/遥测前必看）
 
@@ -679,7 +715,7 @@ Skill 已适配 Windows，但有以下注意事项：
 GitHub Actions 自动检查每次 push/PR（`ci.yml`）：
 - **repo-hygiene**: 禁止跟踪运行时/构建产物（skill/data/browser 等）
 - **Syntax**: 全量 .py 语法检查（阻断）
-- **secret-scan**: gitleaks 只扫近 3 个月（历史已泄露基线）
+- **secret-scan**: gitleaks（v3，内部按 push/pull_request 范围扫描——勿加回 log-opts input，v3 不支持）
 - **Quality**: ruff（worker src/ 全量；skill scripts/ --select F）
 - **Import**: Worker + Skill 核心模块导入验证（阻断）
 - **test-worker**: ubuntu + postgres:16 service + pytest 全量
