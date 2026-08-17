@@ -248,13 +248,29 @@ _TRY_NEXT_PAGE_JS = r'''(() => {
     return true;
 })()'''
 
+# 缓动滚动（3000ms ease-in-out + rAF，每屏 80% 视口——上品帮 scrollPage 反爬节奏）
+_EASE_SCROLL_JS = r'''(() => {
+    const duration = 3000;
+    const startY = window.scrollY;
+    const scrollAmount = Math.floor(window.innerHeight * 0.8);
+    const targetY = Math.min(startY + scrollAmount, document.documentElement.scrollHeight - window.innerHeight);
+    const startTime = performance.now();
+    function step(now) {
+        const progress = Math.min((now - startTime) / duration, 1);
+        const ease = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+        window.scrollTo(0, startY + (targetY - startY) * ease);
+        if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+})()'''
+
 
 def _lazy_collect_urls(tab: Any, max_products: int,
                        max_scrolls: int = 60, stall_limit: int = 3) -> list[str]:
     """逐屏滚动采集结果容器内的产品 ID（懒加载等待 + 翻页兜底）。
 
-    - 每屏滚动 85% 视口高度
-    - 轮询 .tile-root 数量增长（每 0.5s，单屏最多 10s）确认新卡渲染完成
+    - 每屏缓动滚动 80% 视口高度（3000ms ease-in-out，反爬节奏）
+    - 轮询 .tile-root 数量增长（每 0.5s，单屏最多 14s）确认新卡渲染完成
     - 连续 stall_limit 屏无新卡 → 尝试翻页 → 仍无 → 结束
     """
     js = _COLLECT_URLS_JS.replace("__ROOT_SEL__", _COLLECT_ROOT_SEL)
@@ -275,19 +291,17 @@ def _lazy_collect_urls(tab: Any, max_products: int,
         if len(pids) >= max_products:
             break
 
-        # 2. 滚动到接近底部触发懒加载（85% 视口步长太小，搜索页需滚多次
-        #    才接近底部触发加载——实测 4 次滚动才 +8 卡片；直接滚到
-        #    底部上方 1 屏，上品帮同款思路，1-2 次滚动即触发）
+        # 2. 缓动滚动触发懒加载（3000ms ease-in-out + rAF + 80% 视口，
+        #    上品帮 scrollPage 同款——反爬节奏，避免一跳到底被风控识别）
         try:
-            tab.evaluate(
-                "window.scrollTo(0, document.body.scrollHeight - window.innerHeight * 1.1)")
+            tab.evaluate(_EASE_SCROLL_JS)
         except Exception:
             pass
 
         # 3. 等新卡片渲染（轮询 tile 数量增长）
         # 注意: 用反引号包裹选择器（内含双引号 [data-widget="skuGrid"]，单引号会破坏 JS）
         grew = False
-        for _ in range(20):  # 最多 10s
+        for _ in range(28):  # 最多 14s（缓动 3s + 加载窗口）
             time.sleep(0.5)
             try:
                 tiles = int(tab.evaluate(
@@ -787,8 +801,8 @@ def discover_from_url(cdp_url: str, url: str, max_products: int = 50) -> list[st
             # Scroll to load products
             prev_count = 0
             for _ in range(max_products // 10 + 5):
-                tab.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                time.sleep(2)
+                tab.evaluate(_EASE_SCROLL_JS)
+                time.sleep(4)  # 缓动 3s + 沉降，防 count 未更新误判触底
 
                 # Check if new products loaded
                 count = tab.evaluate('document.querySelectorAll(".tile-root").length')
