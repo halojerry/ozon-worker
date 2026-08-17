@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -360,6 +360,7 @@ class ListingTemplateOut(BaseModel):
     platform: str = Field("OZON", description="平台")
     is_default: bool = Field(False, description="默认模板标记")
     config: ListingTemplateConfig = Field(default_factory=ListingTemplateConfig, description="扩展参数")
+    store_overrides: Optional[Dict[str, ListingTemplateConfig]] = Field(None, description="按店铺（credential_id）差异化覆盖配置")
     created_at: Optional[datetime] = Field(None, description="创建时间")
     updated_at: Optional[datetime] = Field(None, description="更新时间")
 
