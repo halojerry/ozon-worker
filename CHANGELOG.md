@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.56.5] - 2026-08-17
+
+> webui 自动创建 key 设 `unlimited_quota=true`——key 无限额度，实际消费仍走用户真实余额（MXOU 平台优先 / users.quota 兜底）。
+
+### Fix(worker)
+
+- **`_upsert_supabase_token` 写 `unlimited_quota=true`**：webui 登录/建 key 时 upsert 的 token 在 Supabase 兜底分支不再被误拒。消费语义不变——`_check_mxou_balance`/`auth_node` 优先查 MXOU 平台真实余额（欠费必拒，`unlimited_quota` 仅作 Supabase 兜底分支放行标记），符合「key 无限额度但实际扣用户真实余额」。
+- 测试：`test_mxou_login_api` 3 处断言补 `unlimited_quota=true`；worker 1209 passed。
+
 ## [0.56.4] - 2026-08-17
 
 > chat 通道余额不足 fast-fail——Sentry 591 次 `insufficient_user_quota` 根因修复（v0.56 W12 只修了 image 通道漏了 chat）。
