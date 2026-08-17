@@ -174,6 +174,17 @@ fi
 log "🎉 升级完成: v${LOCAL_VERSION:-无} → v${VERSION}, 健康检查通过"
 log "备份保留在: $BACKUP_PATH(如需回滚: bash deploy/cos-update.sh v${LOCAL_VERSION:-0.0.0})"
 
+# ── 7.5 数据库迁移(v0.56.7: 升级后必跑 init_data, 幂等) ──
+# init_data.py 内含全部幂等 ALTER(ADD COLUMN IF NOT EXISTS / SET DEFAULT)。
+# v0.56.3 教训: 列默认值只在 model.py 对新建表生效, 存量旧表缺默认值 →
+# 升级后任务表 INSERT 违反 NOT NULL。升级后自动跑, 无需手动补 ALTER。
+log "🛠️ 执行数据库迁移(init_data.py, 幂等)..."
+if docker compose exec -T worker python scripts/init_data.py >/dev/null 2>&1; then
+  log "✅ 数据库迁移完成"
+else
+  warn "⚠️ init_data.py 执行失败——检查日志; 建议手动: docker compose exec worker python scripts/init_data.py"
+fi
+
 # ── 8. Docker 清理(--no-cache 构建累积历史镜像层/缓存, 防磁盘膨胀) ──
 # v0.34.0: 只清理本项目的未使用镜像层 + 全部构建缓存。
 # ⚠️ 不用 docker image prune -a(会删服务器上所有未引用镜像, 可能误伤其他项目):

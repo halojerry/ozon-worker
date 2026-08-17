@@ -71,6 +71,24 @@ def create_tables(engine):
         conn.execute(text(
             "ALTER TABLE listing_templates ADD COLUMN IF NOT EXISTS store_overrides JSONB NOT NULL DEFAULT '{}'::jsonb"
         ))
+        # ✅ v0.56.7: ozon_product_tasks 关键列默认值补齐（幂等）
+        # v0.56.2 只在 model.py 加 server_default（对新建表生效），存量旧表缺默认值 →
+        # 升级后 INSERT 不显式传这些列违反 NOT NULL（生产实测 37 测试失败）。
+        # 双保险：ADD COLUMN 覆盖缺列场景；SET DEFAULT 覆盖"列在但无默认值"场景。
+        _task_col_defaults = [
+            ("status", "VARCHAR(20) NOT NULL DEFAULT 'pending'", "'pending'"),
+            ("priority", "INTEGER NOT NULL DEFAULT 0", "0"),
+            ("retry_count", "INTEGER NOT NULL DEFAULT 0", "0"),
+            ("max_retries", "INTEGER NOT NULL DEFAULT 3", "3"),
+            ("timeout_seconds", "INTEGER NOT NULL DEFAULT 1800", "1800"),
+        ]
+        for _col, _decl, _default in _task_col_defaults:
+            conn.execute(text(
+                f"ALTER TABLE ozon_product_tasks ADD COLUMN IF NOT EXISTS {_col} {_decl}"
+            ))
+            conn.execute(text(
+                f"ALTER TABLE ozon_product_tasks ALTER COLUMN {_col} SET DEFAULT {_default}"
+            ))
         conn.commit()
     # ✅ v0.41 WebUI T1: task_generated_images ALTER + 新表索引（幂等，二次运行 no-op）
     from migrate_webui_v1 import run_migrations
