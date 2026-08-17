@@ -192,9 +192,12 @@ def _touch_validated(credential_id: str) -> datetime.datetime:
 
 def _probe_ozon(client_id: str, api_key: str) -> tuple[bool, str]:
     try:
+        # /v3/product/list + visibility:ALL——与 shelf_service.list_ozon_products
+        # 第一步同源（实测可用）。原 /v1/product/info/list 带 filter/visibility
+        # 嵌套 body 不是该端点契约 → Ozon 404（E2E 实测凭证有效却报 invalid）。
         ozon_post(
-            client_id, api_key, "/v1/product/info/list",
-            {"filter": {"offer_id": [], "visibility": "ALL"}, "limit": 1},
+            client_id, api_key, "/v3/product/list",
+            {"filter": {"visibility": "ALL"}, "limit": 1},
             timeout=15, language="RU",
         )
         return True, "ok"

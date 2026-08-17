@@ -202,3 +202,28 @@ def test_auth_gate_chat_valid_token_passes():
          patch.object(main_mod.openai_handler, "handle", side_effect=fake_handle, create=True):
         result = _call_chat({"token": "sk-tok123", "messages": [{"role": "user", "content": "hi"}]})
     assert result["choices"][0]["message"]["content"] == "hi"
+
+def test_authenticate_token_supabase_outage_503():
+    """Supabase 瞬断（网络异常）→ 503 fail-closed（不放行、不 500、不清 token）。"""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+    from fastapi import HTTPException
+    from unittest.mock import patch
+    import main
+
+    class _Boom:
+        def table(self, *a, **k):
+            return self
+        def select(self, *a, **k):
+            return self
+        def eq(self, *a, **k):
+            return self
+        def is_(self, *a, **k):
+            return self
+        def execute(self):
+            raise ConnectionError("SSL: UNEXPECTED_EOF_WHILE_READING")
+
+    with patch.object(main, "get_supabase_client", return_value=_Boom()):
+        with pytest.raises(HTTPException) as ei:
+            main._authenticate_token("sk-validkey123")
+    assert ei.value.status_code == 503
