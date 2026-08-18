@@ -107,3 +107,13 @@ deploy/skill/.1688-AK/
 
 # 本地工具记忆
 .workbuddy/
+
+# ─── 内部工具/调研/设计交付（不入库）───
+.omo/
+*.png
+pounding-harness-shell/
+shopbang/
+design-deliverables/
+maozier-*.png
+shopbang-*.png
+dashboard*.png
