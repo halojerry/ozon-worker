@@ -1,242 +1,76 @@
-/*
-Copyright (C) 2023-2026 QuantumNous
+import dayjs from 'dayjs'
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
+/**
+ * 金额/数字/百分比/日期格式化（等宽数字配合 font-mono 使用）。
+ * spec §03：KPI 大数字 data-lg（28/700 mono），金额 data-md（20/700 mono）。
+ */
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
-*/
-import dayjs from '@/lib/dayjs'
-import {
-  formatCurrencyFromUSD,
-  formatQuotaWithCurrency,
-  getCurrencyDisplay,
-} from './currency'
-
-// ============================================================================
-// Number Formatting
-// ============================================================================
-
-export function formatNumber(
-  value: number | null | undefined,
-  locales?: Intl.LocalesArgument
-): string {
-  if (value == null || Number.isNaN(value as number)) return '-'
-  return Intl.NumberFormat(locales, { maximumFractionDigits: 2 }).format(
-    value as number
-  )
-}
-
-export function formatCompactNumber(
-  value: number | null | undefined,
-  locales?: Intl.LocalesArgument
-): string {
-  if (value == null || Number.isNaN(value as number)) return '-'
-  return Intl.NumberFormat(locales, {
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(value as number)
-}
-
-export function formatPercent(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value as number)) return '-'
-  return Intl.NumberFormat(undefined, {
-    style: 'percent',
+/** 金额：¥ 1,234.50（CNY 店铺） */
+export function formatCurrency(value: number | string | null | undefined, currency = 'CNY'): string {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
+  const n = Number(value)
+  const symbol = currency === 'CNY' ? '¥' : currency === 'RUB' ? '₽' : '$'
+  return `${symbol} ${new Intl.NumberFormat('zh-CN', {
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format((value as number) / 100)
+  }).format(n)}`
 }
 
-export function formatCurrencyUSD(value: number | null | undefined): string {
-  return formatCurrencyFromUSD(value == null ? null : (value as number))
+/** 金额（人民币，无小数位的场景） */
+export function formatYuan(value: number | string | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
+  return `¥ ${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(Number(value))}`
 }
 
-// ============================================================================
-// Quota Formatting (500,000 units = $1)
-// ============================================================================
-
-/**
- * Format quota into the configured display amount.
- * Quota is stored in units where `quotaPerUnit` equals 1 USD.
- */
-export function formatQuota(quota: number): string {
-  return formatQuotaWithCurrency(quota, {
-    digitsLarge: 2,
-    digitsSmall: 4,
-    abbreviate: true,
-  })
+/** 千分位数字：1,284 */
+export function formatNumber(value: number | string | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
+  return new Intl.NumberFormat('zh-CN').format(Number(value))
 }
 
-/**
- * Parse quota from the current display input back to quota units.
- */
-export function parseQuotaFromDollars(amount: number): number {
-  if (!Number.isFinite(amount)) return 0
-
-  const { config, meta } = getCurrencyDisplay()
-
-  // Tokens-only or raw quota mode
-  if (meta.kind === 'tokens') {
-    return Math.round(amount)
-  }
-
-  const exchangeRate =
-    meta.kind === 'currency' || meta.kind === 'custom' ? meta.exchangeRate : 1
-
-  const usdAmount = exchangeRate > 0 ? amount / exchangeRate : amount
-
-  return Math.round(usdAmount * config.quotaPerUnit)
+/** 百分比：12.4% */
+export function formatPercent(value: number | string | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
+  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits }).format(Number(value))}%`
 }
 
-/**
- * Convert quota units to the configured display amount.
- * Reverse of parseQuotaFromDollars.
- */
-export function quotaUnitsToDollars(units: number): number {
-  const { config, meta } = getCurrencyDisplay()
-
-  if (meta.kind === 'tokens') {
-    return units
-  }
-
-  const usdAmount = units / config.quotaPerUnit
-  const exchangeRate =
-    meta.kind === 'currency' || meta.kind === 'custom' ? meta.exchangeRate : 1
-
-  return usdAmount * exchangeRate
+/** 日期：2026-08-18 14:30 */
+export function formatDateTime(value: string | number | Date | null | undefined): string {
+  if (!value) return '—'
+  const d = dayjs(value)
+  return d.isValid() ? d.format('YYYY-MM-DD HH:mm') : '—'
 }
 
-// ============================================================================
-// Timestamp Formatting
-// ============================================================================
-
-/**
- * Format Unix timestamp (seconds) to YYYY-MM-DD HH:mm:ss
- */
-export function formatTimestamp(timestamp: number): string {
-  if (timestamp === -1) {
-    return 'Never'
-  }
-  return formatTimestampToDate(timestamp)
+/** 日期：2026-08-18 */
+export function formatDate(value: string | number | Date | null | undefined): string {
+  if (!value) return '—'
+  const d = dayjs(value)
+  return d.isValid() ? d.format('YYYY-MM-DD') : '—'
 }
 
-/**
- * Format timestamp to YYYY-MM-DD HH:mm:ss
- * @param timestamp - Timestamp in seconds or milliseconds
- * @param unit - Unit of the timestamp ('seconds' or 'milliseconds')
- */
-export function formatTimestampToDate(
-  timestamp?: number,
-  unit: 'seconds' | 'milliseconds' = 'seconds'
-): string {
-  if (!timestamp || timestamp === -1 || timestamp === 0) {
-    return '-'
-  }
-  const ms = unit === 'seconds' ? timestamp * 1000 : timestamp
-  return dayjs(ms).format('YYYY-MM-DD HH:mm:ss')
+/** 相对时间：5 分钟前 */
+export function formatRelative(value: string | number | Date | null | undefined): string {
+  if (!value) return '—'
+  const d = dayjs(value)
+  if (!d.isValid()) return '—'
+  const diffMin = dayjs().diff(d, 'minute')
+  if (diffMin < 1) return '刚刚'
+  if (diffMin < 60) return `${diffMin} 分钟前`
+  const diffHour = dayjs().diff(d, 'hour')
+  if (diffHour < 24) return `${diffHour} 小时前`
+  const diffDay = dayjs().diff(d, 'day')
+  if (diffDay < 30) return `${diffDay} 天前`
+  return d.format('YYYY-MM-DD')
 }
 
-/** Format a Date object to YYYY-MM-DD HH:mm:ss */
-export function formatDateTimeStr(date: Date): string {
-  return dayjs(date).format('YYYY-MM-DD HH:mm:ss')
-}
-
-/** Format a Date object to YYYY-MM-DD */
-export function formatDateStr(date: Date): string {
-  return dayjs(date).format('YYYY-MM-DD')
-}
-
-/** Format a Date object to HH:mm:ss */
-export function formatTimeStr(date: Date): string {
-  return dayjs(date).format('HH:mm:ss')
-}
-
-/**
- * Format quota for usage logs with higher precision
- * Uses 6 decimal places to show very small costs accurately
- */
-export function formatLogQuota(quota: number): string {
-  return formatQuotaWithCurrency(quota, {
-    digitsLarge: 4,
-    digitsSmall: 6,
-    abbreviate: false,
-  })
-}
-
-/**
- * Format tokens count with K/M suffixes
- */
-export function formatTokens(tokens: number): string {
-  if (tokens === 0) return '-'
-  if (tokens < 1000) return tokens.toString()
-  if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}K`
-  return `${(tokens / 1000000).toFixed(2)}M`
-}
-
-/**
- * Format use time in seconds with appropriate unit
- */
-export function formatUseTime(seconds: number): string {
-  if (seconds < 60) return `${seconds.toFixed(1)}s`
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = seconds % 60
-  return `${minutes}m ${remainingSeconds.toFixed(0)}s`
-}
-
-/**
- * Format timestamp to date input value (YYYY-MM-DDTHH:mm)
- */
-export function formatTimestampForInput(timestamp: number): string {
-  if (timestamp === -1) {
-    return ''
-  }
-  return dayjs(timestamp * 1000).format('YYYY-MM-DDTHH:mm')
-}
-
-/**
- * Parse datetime-local input to Unix timestamp
- */
-export function parseTimestampFromInput(value: string): number {
-  if (!value) {
-    return -1
-  }
-  const date = new Date(value)
-  return Math.floor(date.getTime() / 1000)
-}
-
-// ============================================================================
-// Color Generation
-// ============================================================================
-
-/**
- * Generate a consistent color from a string
- * Uses HSL for better color distribution
- */
-export function stringToColor(str: string): string {
-  if (!str) return 'gray'
-
-  // Generate hash from string
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash)
-    hash = hash & hash // Convert to 32-bit integer
-  }
-
-  // Use hash to generate hue (0-360)
-  const hue = Math.abs(hash % 360)
-
-  // Use saturation and lightness that work well for tags
-  const saturation = 65 + (Math.abs(hash) % 10) // 65-75%
-  const lightness = 55 + (Math.abs(hash >> 8) % 10) // 55-65%
-
-  return `hsl(${hue}, ${saturation}%, ${lightness}%)`
+/** 时长（毫秒）→ 人读：3 分 20 秒 */
+export function formatDuration(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || Number.isNaN(Number(ms))) return '—'
+  const totalSec = Math.round(Number(ms) / 1000)
+  if (totalSec < 60) return `${totalSec}s`
+  const min = Math.floor(totalSec / 60)
+  const sec = totalSec % 60
+  if (min < 60) return `${min} 分 ${sec} 秒`
+  const hour = Math.floor(min / 60)
+  return `${hour} 小时 ${min % 60} 分`
 }

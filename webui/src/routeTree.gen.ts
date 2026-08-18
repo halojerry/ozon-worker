@@ -9,107 +9,30 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as authRouteRouteImport } from './routes/(auth)/route'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
-import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
-import { Route as authOauthRouteImport } from './routes/(auth)/oauth'
-import { Route as authOtpRouteImport } from './routes/(auth)/otp'
-import { Route as authRegisterRouteImport } from './routes/(auth)/register'
-import { Route as authResetRouteImport } from './routes/(auth)/reset'
-import { Route as authSignInRouteImport } from './routes/(auth)/sign-in'
-import { Route as authSignUpRouteImport } from './routes/(auth)/sign-up'
-import { Route as errors401RouteImport } from './routes/(errors)/401'
-import { Route as errors403RouteImport } from './routes/(errors)/403'
-import { Route as errors404RouteImport } from './routes/(errors)/404'
-import { Route as errors500RouteImport } from './routes/(errors)/500'
-import { Route as errors503RouteImport } from './routes/(errors)/503'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
-import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
-import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
-import { Route as AuthenticatedBestsellersIndexRouteImport } from './routes/_authenticated/bestsellers/index'
-import { Route as AuthenticatedCollectBoxIndexRouteImport } from './routes/_authenticated/collect-box/index'
-import { Route as AuthenticatedDataScreenIndexRouteImport } from './routes/_authenticated/data-screen/index'
-import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
-import { Route as AuthenticatedImageStudioIndexRouteImport } from './routes/_authenticated/image-studio/index'
-import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
-import { Route as AuthenticatedOnSaleIndexRouteImport } from './routes/_authenticated/on-sale/index'
-import { Route as AuthenticatedOrdersIndexRouteImport } from './routes/_authenticated/orders/index'
-import { Route as AuthenticatedPricingToolIndexRouteImport } from './routes/_authenticated/pricing-tool/index'
-import { Route as AuthenticatedProductsIndexRouteImport } from './routes/_authenticated/products/index'
-import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
-import { Route as AuthenticatedStoresIndexRouteImport } from './routes/_authenticated/stores/index'
-import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
-import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
-import { Route as AuthenticatedTasksIndexRouteImport } from './routes/_authenticated/tasks/index'
-import { Route as AuthenticatedTemplatesIndexRouteImport } from './routes/_authenticated/templates/index'
-import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
+import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedBestsellersRouteImport } from './routes/_authenticated/bestsellers'
+import { Route as AuthenticatedCollectBoxRouteImport } from './routes/_authenticated/collect-box'
+import { Route as AuthenticatedDataScreenRouteImport } from './routes/_authenticated/data-screen'
+import { Route as AuthenticatedImageStudioRouteImport } from './routes/_authenticated/image-studio'
+import { Route as AuthenticatedOnSaleRouteImport } from './routes/_authenticated/on-sale'
+import { Route as AuthenticatedOrdersRouteImport } from './routes/_authenticated/orders'
+import { Route as AuthenticatedPricingRouteImport } from './routes/_authenticated/pricing'
+import { Route as AuthenticatedProductsRouteImport } from './routes/_authenticated/products'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthenticatedStoresRouteImport } from './routes/_authenticated/stores'
+import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated/tasks'
+import { Route as AuthenticatedTemplatesRouteImport } from './routes/_authenticated/templates'
 
-const authRouteRoute = authRouteRouteImport.update({
-  id: '/(auth)',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
-const authForgotPasswordRoute = authForgotPasswordRouteImport.update({
-  id: '/forgot-password',
-  path: '/forgot-password',
-  getParentRoute: () => authRouteRoute,
-} as any)
-const authOauthRoute = authOauthRouteImport.update({
-  id: '/oauth',
-  path: '/oauth',
-  getParentRoute: () => authRouteRoute,
-} as any)
-const authOtpRoute = authOtpRouteImport.update({
-  id: '/otp',
-  path: '/otp',
-  getParentRoute: () => authRouteRoute,
-} as any)
-const authRegisterRoute = authRegisterRouteImport.update({
-  id: '/register',
-  path: '/register',
-  getParentRoute: () => authRouteRoute,
-} as any)
-const authResetRoute = authResetRouteImport.update({
-  id: '/reset',
-  path: '/reset',
-  getParentRoute: () => authRouteRoute,
-} as any)
-const authSignInRoute = authSignInRouteImport.update({
-  id: '/sign-in',
-  path: '/sign-in',
-  getParentRoute: () => authRouteRoute,
-} as any)
-const authSignUpRoute = authSignUpRouteImport.update({
-  id: '/sign-up',
-  path: '/sign-up',
-  getParentRoute: () => authRouteRoute,
-} as any)
-const errors401Route = errors401RouteImport.update({
-  id: '/(errors)/401',
-  path: '/401',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const errors403Route = errors403RouteImport.update({
-  id: '/(errors)/403',
-  path: '/403',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const errors404Route = errors404RouteImport.update({
-  id: '/(errors)/404',
-  path: '/404',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const errors500Route = errors500RouteImport.update({
-  id: '/(errors)/500',
-  path: '/500',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const errors503Route = errors503RouteImport.update({
-  id: '/(errors)/503',
-  path: '/503',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
@@ -117,348 +40,189 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const authUserResetRoute = authUserResetRouteImport.update({
-  id: '/user/reset',
-  path: '/user/reset',
-  getParentRoute: () => authRouteRoute,
-} as any)
-const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
-  id: '/admin/',
-  path: '/admin/',
+const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedBestsellersIndexRoute =
-  AuthenticatedBestsellersIndexRouteImport.update({
-    id: '/bestsellers/',
-    path: '/bestsellers/',
+const AuthenticatedBestsellersRoute =
+  AuthenticatedBestsellersRouteImport.update({
+    id: '/bestsellers',
+    path: '/bestsellers',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedCollectBoxIndexRoute =
-  AuthenticatedCollectBoxIndexRouteImport.update({
-    id: '/collect-box/',
-    path: '/collect-box/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedDataScreenIndexRoute =
-  AuthenticatedDataScreenIndexRouteImport.update({
-    id: '/data-screen/',
-    path: '/data-screen/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedErrorsErrorRoute =
-  AuthenticatedErrorsErrorRouteImport.update({
-    id: '/errors/$error',
-    path: '/errors/$error',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedImageStudioIndexRoute =
-  AuthenticatedImageStudioIndexRouteImport.update({
-    id: '/image-studio/',
-    path: '/image-studio/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedKeysIndexRoute = AuthenticatedKeysIndexRouteImport.update({
-  id: '/keys/',
-  path: '/keys/',
+const AuthenticatedCollectBoxRoute = AuthenticatedCollectBoxRouteImport.update({
+  id: '/collect-box',
+  path: '/collect-box',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedOnSaleIndexRoute =
-  AuthenticatedOnSaleIndexRouteImport.update({
-    id: '/on-sale/',
-    path: '/on-sale/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedOrdersIndexRoute =
-  AuthenticatedOrdersIndexRouteImport.update({
-    id: '/orders/',
-    path: '/orders/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedPricingToolIndexRoute =
-  AuthenticatedPricingToolIndexRouteImport.update({
-    id: '/pricing-tool/',
-    path: '/pricing-tool/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedProductsIndexRoute =
-  AuthenticatedProductsIndexRouteImport.update({
-    id: '/products/',
-    path: '/products/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedProfileIndexRoute =
-  AuthenticatedProfileIndexRouteImport.update({
-    id: '/profile/',
-    path: '/profile/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedStoresIndexRoute =
-  AuthenticatedStoresIndexRouteImport.update({
-    id: '/stores/',
-    path: '/stores/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedSubscriptionsIndexRoute =
-  AuthenticatedSubscriptionsIndexRouteImport.update({
-    id: '/subscriptions/',
-    path: '/subscriptions/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedSystemSettingsIndexRoute =
-  AuthenticatedSystemSettingsIndexRouteImport.update({
-    id: '/system-settings/',
-    path: '/system-settings/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedTasksIndexRoute = AuthenticatedTasksIndexRouteImport.update({
-  id: '/tasks/',
-  path: '/tasks/',
+const AuthenticatedDataScreenRoute = AuthenticatedDataScreenRouteImport.update({
+  id: '/data-screen',
+  path: '/data-screen',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedTemplatesIndexRoute =
-  AuthenticatedTemplatesIndexRouteImport.update({
-    id: '/templates/',
-    path: '/templates/',
+const AuthenticatedImageStudioRoute =
+  AuthenticatedImageStudioRouteImport.update({
+    id: '/image-studio',
+    path: '/image-studio',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedWalletIndexRoute =
-  AuthenticatedWalletIndexRouteImport.update({
-    id: '/wallet/',
-    path: '/wallet/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
+const AuthenticatedOnSaleRoute = AuthenticatedOnSaleRouteImport.update({
+  id: '/on-sale',
+  path: '/on-sale',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedOrdersRoute = AuthenticatedOrdersRouteImport.update({
+  id: '/orders',
+  path: '/orders',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedPricingRoute = AuthenticatedPricingRouteImport.update({
+  id: '/pricing',
+  path: '/pricing',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedProductsRoute = AuthenticatedProductsRouteImport.update({
+  id: '/products',
+  path: '/products',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedStoresRoute = AuthenticatedStoresRouteImport.update({
+  id: '/stores',
+  path: '/stores',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedTasksRoute = AuthenticatedTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedTemplatesRoute = AuthenticatedTemplatesRouteImport.update({
+  id: '/templates',
+  path: '/templates',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
-  '/forgot-password': typeof authForgotPasswordRoute
-  '/oauth': typeof authOauthRoute
-  '/otp': typeof authOtpRoute
-  '/register': typeof authRegisterRoute
-  '/reset': typeof authResetRoute
-  '/sign-in': typeof authSignInRoute
-  '/sign-up': typeof authSignUpRoute
-  '/401': typeof errors401Route
-  '/403': typeof errors403Route
-  '/404': typeof errors404Route
-  '/500': typeof errors500Route
-  '/503': typeof errors503Route
-  '/user/reset': typeof authUserResetRoute
-  '/errors/$error': typeof AuthenticatedErrorsErrorRoute
-  '/admin/': typeof AuthenticatedAdminIndexRoute
-  '/bestsellers/': typeof AuthenticatedBestsellersIndexRoute
-  '/collect-box/': typeof AuthenticatedCollectBoxIndexRoute
-  '/data-screen/': typeof AuthenticatedDataScreenIndexRoute
-  '/image-studio/': typeof AuthenticatedImageStudioIndexRoute
-  '/keys/': typeof AuthenticatedKeysIndexRoute
-  '/on-sale/': typeof AuthenticatedOnSaleIndexRoute
-  '/orders/': typeof AuthenticatedOrdersIndexRoute
-  '/pricing-tool/': typeof AuthenticatedPricingToolIndexRoute
-  '/products/': typeof AuthenticatedProductsIndexRoute
-  '/profile/': typeof AuthenticatedProfileIndexRoute
-  '/stores/': typeof AuthenticatedStoresIndexRoute
-  '/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
-  '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
-  '/tasks/': typeof AuthenticatedTasksIndexRoute
-  '/templates/': typeof AuthenticatedTemplatesIndexRoute
-  '/wallet/': typeof AuthenticatedWalletIndexRoute
+  '/login': typeof LoginRoute
+  '/admin': typeof AuthenticatedAdminRoute
+  '/bestsellers': typeof AuthenticatedBestsellersRoute
+  '/collect-box': typeof AuthenticatedCollectBoxRoute
+  '/data-screen': typeof AuthenticatedDataScreenRoute
+  '/image-studio': typeof AuthenticatedImageStudioRoute
+  '/on-sale': typeof AuthenticatedOnSaleRoute
+  '/orders': typeof AuthenticatedOrdersRoute
+  '/pricing': typeof AuthenticatedPricingRoute
+  '/products': typeof AuthenticatedProductsRoute
+  '/settings': typeof AuthenticatedSettingsRoute
+  '/stores': typeof AuthenticatedStoresRoute
+  '/tasks': typeof AuthenticatedTasksRoute
+  '/templates': typeof AuthenticatedTemplatesRoute
 }
 export interface FileRoutesByTo {
-  '/forgot-password': typeof authForgotPasswordRoute
-  '/oauth': typeof authOauthRoute
-  '/otp': typeof authOtpRoute
-  '/register': typeof authRegisterRoute
-  '/reset': typeof authResetRoute
-  '/sign-in': typeof authSignInRoute
-  '/sign-up': typeof authSignUpRoute
-  '/401': typeof errors401Route
-  '/403': typeof errors403Route
-  '/404': typeof errors404Route
-  '/500': typeof errors500Route
-  '/503': typeof errors503Route
+  '/login': typeof LoginRoute
+  '/admin': typeof AuthenticatedAdminRoute
+  '/bestsellers': typeof AuthenticatedBestsellersRoute
+  '/collect-box': typeof AuthenticatedCollectBoxRoute
+  '/data-screen': typeof AuthenticatedDataScreenRoute
+  '/image-studio': typeof AuthenticatedImageStudioRoute
+  '/on-sale': typeof AuthenticatedOnSaleRoute
+  '/orders': typeof AuthenticatedOrdersRoute
+  '/pricing': typeof AuthenticatedPricingRoute
+  '/products': typeof AuthenticatedProductsRoute
+  '/settings': typeof AuthenticatedSettingsRoute
+  '/stores': typeof AuthenticatedStoresRoute
+  '/tasks': typeof AuthenticatedTasksRoute
+  '/templates': typeof AuthenticatedTemplatesRoute
   '/': typeof AuthenticatedIndexRoute
-  '/user/reset': typeof authUserResetRoute
-  '/errors/$error': typeof AuthenticatedErrorsErrorRoute
-  '/admin': typeof AuthenticatedAdminIndexRoute
-  '/bestsellers': typeof AuthenticatedBestsellersIndexRoute
-  '/collect-box': typeof AuthenticatedCollectBoxIndexRoute
-  '/data-screen': typeof AuthenticatedDataScreenIndexRoute
-  '/image-studio': typeof AuthenticatedImageStudioIndexRoute
-  '/keys': typeof AuthenticatedKeysIndexRoute
-  '/on-sale': typeof AuthenticatedOnSaleIndexRoute
-  '/orders': typeof AuthenticatedOrdersIndexRoute
-  '/pricing-tool': typeof AuthenticatedPricingToolIndexRoute
-  '/products': typeof AuthenticatedProductsIndexRoute
-  '/profile': typeof AuthenticatedProfileIndexRoute
-  '/stores': typeof AuthenticatedStoresIndexRoute
-  '/subscriptions': typeof AuthenticatedSubscriptionsIndexRoute
-  '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
-  '/tasks': typeof AuthenticatedTasksIndexRoute
-  '/templates': typeof AuthenticatedTemplatesIndexRoute
-  '/wallet': typeof AuthenticatedWalletIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/(auth)': typeof authRouteRouteWithChildren
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
-  '/(auth)/forgot-password': typeof authForgotPasswordRoute
-  '/(auth)/oauth': typeof authOauthRoute
-  '/(auth)/otp': typeof authOtpRoute
-  '/(auth)/register': typeof authRegisterRoute
-  '/(auth)/reset': typeof authResetRoute
-  '/(auth)/sign-in': typeof authSignInRoute
-  '/(auth)/sign-up': typeof authSignUpRoute
-  '/(errors)/401': typeof errors401Route
-  '/(errors)/403': typeof errors403Route
-  '/(errors)/404': typeof errors404Route
-  '/(errors)/500': typeof errors500Route
-  '/(errors)/503': typeof errors503Route
+  '/login': typeof LoginRoute
+  '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/bestsellers': typeof AuthenticatedBestsellersRoute
+  '/_authenticated/collect-box': typeof AuthenticatedCollectBoxRoute
+  '/_authenticated/data-screen': typeof AuthenticatedDataScreenRoute
+  '/_authenticated/image-studio': typeof AuthenticatedImageStudioRoute
+  '/_authenticated/on-sale': typeof AuthenticatedOnSaleRoute
+  '/_authenticated/orders': typeof AuthenticatedOrdersRoute
+  '/_authenticated/pricing': typeof AuthenticatedPricingRoute
+  '/_authenticated/products': typeof AuthenticatedProductsRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
+  '/_authenticated/stores': typeof AuthenticatedStoresRoute
+  '/_authenticated/tasks': typeof AuthenticatedTasksRoute
+  '/_authenticated/templates': typeof AuthenticatedTemplatesRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
-  '/(auth)/user/reset': typeof authUserResetRoute
-  '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
-  '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
-  '/_authenticated/bestsellers/': typeof AuthenticatedBestsellersIndexRoute
-  '/_authenticated/collect-box/': typeof AuthenticatedCollectBoxIndexRoute
-  '/_authenticated/data-screen/': typeof AuthenticatedDataScreenIndexRoute
-  '/_authenticated/image-studio/': typeof AuthenticatedImageStudioIndexRoute
-  '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
-  '/_authenticated/on-sale/': typeof AuthenticatedOnSaleIndexRoute
-  '/_authenticated/orders/': typeof AuthenticatedOrdersIndexRoute
-  '/_authenticated/pricing-tool/': typeof AuthenticatedPricingToolIndexRoute
-  '/_authenticated/products/': typeof AuthenticatedProductsIndexRoute
-  '/_authenticated/profile/': typeof AuthenticatedProfileIndexRoute
-  '/_authenticated/stores/': typeof AuthenticatedStoresIndexRoute
-  '/_authenticated/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
-  '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
-  '/_authenticated/tasks/': typeof AuthenticatedTasksIndexRoute
-  '/_authenticated/templates/': typeof AuthenticatedTemplatesIndexRoute
-  '/_authenticated/wallet/': typeof AuthenticatedWalletIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/forgot-password'
-    | '/oauth'
-    | '/otp'
-    | '/register'
-    | '/reset'
-    | '/sign-in'
-    | '/sign-up'
-    | '/401'
-    | '/403'
-    | '/404'
-    | '/500'
-    | '/503'
-    | '/user/reset'
-    | '/errors/$error'
-    | '/admin/'
-    | '/bestsellers/'
-    | '/collect-box/'
-    | '/data-screen/'
-    | '/image-studio/'
-    | '/keys/'
-    | '/on-sale/'
-    | '/orders/'
-    | '/pricing-tool/'
-    | '/products/'
-    | '/profile/'
-    | '/stores/'
-    | '/subscriptions/'
-    | '/system-settings/'
-    | '/tasks/'
-    | '/templates/'
-    | '/wallet/'
-  fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/forgot-password'
-    | '/oauth'
-    | '/otp'
-    | '/register'
-    | '/reset'
-    | '/sign-in'
-    | '/sign-up'
-    | '/401'
-    | '/403'
-    | '/404'
-    | '/500'
-    | '/503'
-    | '/'
-    | '/user/reset'
-    | '/errors/$error'
+    | '/login'
     | '/admin'
     | '/bestsellers'
     | '/collect-box'
     | '/data-screen'
     | '/image-studio'
-    | '/keys'
     | '/on-sale'
     | '/orders'
-    | '/pricing-tool'
+    | '/pricing'
     | '/products'
-    | '/profile'
+    | '/settings'
     | '/stores'
-    | '/subscriptions'
-    | '/system-settings'
     | '/tasks'
     | '/templates'
-    | '/wallet'
+  fileRoutesByTo: FileRoutesByTo
+  to:
+    | '/login'
+    | '/admin'
+    | '/bestsellers'
+    | '/collect-box'
+    | '/data-screen'
+    | '/image-studio'
+    | '/on-sale'
+    | '/orders'
+    | '/pricing'
+    | '/products'
+    | '/settings'
+    | '/stores'
+    | '/tasks'
+    | '/templates'
+    | '/'
   id:
     | '__root__'
-    | '/(auth)'
     | '/_authenticated'
-    | '/(auth)/forgot-password'
-    | '/(auth)/oauth'
-    | '/(auth)/otp'
-    | '/(auth)/register'
-    | '/(auth)/reset'
-    | '/(auth)/sign-in'
-    | '/(auth)/sign-up'
-    | '/(errors)/401'
-    | '/(errors)/403'
-    | '/(errors)/404'
-    | '/(errors)/500'
-    | '/(errors)/503'
+    | '/login'
+    | '/_authenticated/admin'
+    | '/_authenticated/bestsellers'
+    | '/_authenticated/collect-box'
+    | '/_authenticated/data-screen'
+    | '/_authenticated/image-studio'
+    | '/_authenticated/on-sale'
+    | '/_authenticated/orders'
+    | '/_authenticated/pricing'
+    | '/_authenticated/products'
+    | '/_authenticated/settings'
+    | '/_authenticated/stores'
+    | '/_authenticated/tasks'
+    | '/_authenticated/templates'
     | '/_authenticated/'
-    | '/(auth)/user/reset'
-    | '/_authenticated/errors/$error'
-    | '/_authenticated/admin/'
-    | '/_authenticated/bestsellers/'
-    | '/_authenticated/collect-box/'
-    | '/_authenticated/data-screen/'
-    | '/_authenticated/image-studio/'
-    | '/_authenticated/keys/'
-    | '/_authenticated/on-sale/'
-    | '/_authenticated/orders/'
-    | '/_authenticated/pricing-tool/'
-    | '/_authenticated/products/'
-    | '/_authenticated/profile/'
-    | '/_authenticated/stores/'
-    | '/_authenticated/subscriptions/'
-    | '/_authenticated/system-settings/'
-    | '/_authenticated/tasks/'
-    | '/_authenticated/templates/'
-    | '/_authenticated/wallet/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  authRouteRoute: typeof authRouteRouteWithChildren
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
-  errors401Route: typeof errors401Route
-  errors403Route: typeof errors403Route
-  errors404Route: typeof errors404Route
-  errors500Route: typeof errors500Route
-  errors503Route: typeof errors503Route
+  LoginRoute: typeof LoginRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/(auth)': {
-      id: '/(auth)'
-      path: ''
-      fullPath: ''
-      preLoaderRoute: typeof authRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/_authenticated': {
       id: '/_authenticated'
       path: ''
@@ -466,88 +230,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/(auth)/forgot-password': {
-      id: '/(auth)/forgot-password'
-      path: '/forgot-password'
-      fullPath: '/forgot-password'
-      preLoaderRoute: typeof authForgotPasswordRouteImport
-      parentRoute: typeof authRouteRoute
-    }
-    '/(auth)/oauth': {
-      id: '/(auth)/oauth'
-      path: '/oauth'
-      fullPath: '/oauth'
-      preLoaderRoute: typeof authOauthRouteImport
-      parentRoute: typeof authRouteRoute
-    }
-    '/(auth)/otp': {
-      id: '/(auth)/otp'
-      path: '/otp'
-      fullPath: '/otp'
-      preLoaderRoute: typeof authOtpRouteImport
-      parentRoute: typeof authRouteRoute
-    }
-    '/(auth)/register': {
-      id: '/(auth)/register'
-      path: '/register'
-      fullPath: '/register'
-      preLoaderRoute: typeof authRegisterRouteImport
-      parentRoute: typeof authRouteRoute
-    }
-    '/(auth)/reset': {
-      id: '/(auth)/reset'
-      path: '/reset'
-      fullPath: '/reset'
-      preLoaderRoute: typeof authResetRouteImport
-      parentRoute: typeof authRouteRoute
-    }
-    '/(auth)/sign-in': {
-      id: '/(auth)/sign-in'
-      path: '/sign-in'
-      fullPath: '/sign-in'
-      preLoaderRoute: typeof authSignInRouteImport
-      parentRoute: typeof authRouteRoute
-    }
-    '/(auth)/sign-up': {
-      id: '/(auth)/sign-up'
-      path: '/sign-up'
-      fullPath: '/sign-up'
-      preLoaderRoute: typeof authSignUpRouteImport
-      parentRoute: typeof authRouteRoute
-    }
-    '/(errors)/401': {
-      id: '/(errors)/401'
-      path: '/401'
-      fullPath: '/401'
-      preLoaderRoute: typeof errors401RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(errors)/403': {
-      id: '/(errors)/403'
-      path: '/403'
-      fullPath: '/403'
-      preLoaderRoute: typeof errors403RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(errors)/404': {
-      id: '/(errors)/404'
-      path: '/404'
-      fullPath: '/404'
-      preLoaderRoute: typeof errors404RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(errors)/500': {
-      id: '/(errors)/500'
-      path: '/500'
-      fullPath: '/500'
-      preLoaderRoute: typeof errors500RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(errors)/503': {
-      id: '/(errors)/503'
-      path: '/503'
-      fullPath: '/503'
-      preLoaderRoute: typeof errors503RouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/': {
@@ -557,223 +244,140 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/(auth)/user/reset': {
-      id: '/(auth)/user/reset'
-      path: '/user/reset'
-      fullPath: '/user/reset'
-      preLoaderRoute: typeof authUserResetRouteImport
-      parentRoute: typeof authRouteRoute
-    }
-    '/_authenticated/admin/': {
-      id: '/_authenticated/admin/'
+    '/_authenticated/admin': {
+      id: '/_authenticated/admin'
       path: '/admin'
-      fullPath: '/admin/'
-      preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
+      fullPath: '/admin'
+      preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/bestsellers/': {
-      id: '/_authenticated/bestsellers/'
+    '/_authenticated/bestsellers': {
+      id: '/_authenticated/bestsellers'
       path: '/bestsellers'
-      fullPath: '/bestsellers/'
-      preLoaderRoute: typeof AuthenticatedBestsellersIndexRouteImport
+      fullPath: '/bestsellers'
+      preLoaderRoute: typeof AuthenticatedBestsellersRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/collect-box/': {
-      id: '/_authenticated/collect-box/'
+    '/_authenticated/collect-box': {
+      id: '/_authenticated/collect-box'
       path: '/collect-box'
-      fullPath: '/collect-box/'
-      preLoaderRoute: typeof AuthenticatedCollectBoxIndexRouteImport
+      fullPath: '/collect-box'
+      preLoaderRoute: typeof AuthenticatedCollectBoxRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/data-screen/': {
-      id: '/_authenticated/data-screen/'
+    '/_authenticated/data-screen': {
+      id: '/_authenticated/data-screen'
       path: '/data-screen'
-      fullPath: '/data-screen/'
-      preLoaderRoute: typeof AuthenticatedDataScreenIndexRouteImport
+      fullPath: '/data-screen'
+      preLoaderRoute: typeof AuthenticatedDataScreenRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/errors/$error': {
-      id: '/_authenticated/errors/$error'
-      path: '/errors/$error'
-      fullPath: '/errors/$error'
-      preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/image-studio/': {
-      id: '/_authenticated/image-studio/'
+    '/_authenticated/image-studio': {
+      id: '/_authenticated/image-studio'
       path: '/image-studio'
-      fullPath: '/image-studio/'
-      preLoaderRoute: typeof AuthenticatedImageStudioIndexRouteImport
+      fullPath: '/image-studio'
+      preLoaderRoute: typeof AuthenticatedImageStudioRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/keys/': {
-      id: '/_authenticated/keys/'
-      path: '/keys'
-      fullPath: '/keys/'
-      preLoaderRoute: typeof AuthenticatedKeysIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/on-sale/': {
-      id: '/_authenticated/on-sale/'
+    '/_authenticated/on-sale': {
+      id: '/_authenticated/on-sale'
       path: '/on-sale'
-      fullPath: '/on-sale/'
-      preLoaderRoute: typeof AuthenticatedOnSaleIndexRouteImport
+      fullPath: '/on-sale'
+      preLoaderRoute: typeof AuthenticatedOnSaleRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/orders/': {
-      id: '/_authenticated/orders/'
+    '/_authenticated/orders': {
+      id: '/_authenticated/orders'
       path: '/orders'
-      fullPath: '/orders/'
-      preLoaderRoute: typeof AuthenticatedOrdersIndexRouteImport
+      fullPath: '/orders'
+      preLoaderRoute: typeof AuthenticatedOrdersRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/pricing-tool/': {
-      id: '/_authenticated/pricing-tool/'
-      path: '/pricing-tool'
-      fullPath: '/pricing-tool/'
-      preLoaderRoute: typeof AuthenticatedPricingToolIndexRouteImport
+    '/_authenticated/pricing': {
+      id: '/_authenticated/pricing'
+      path: '/pricing'
+      fullPath: '/pricing'
+      preLoaderRoute: typeof AuthenticatedPricingRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/products/': {
-      id: '/_authenticated/products/'
+    '/_authenticated/products': {
+      id: '/_authenticated/products'
       path: '/products'
-      fullPath: '/products/'
-      preLoaderRoute: typeof AuthenticatedProductsIndexRouteImport
+      fullPath: '/products'
+      preLoaderRoute: typeof AuthenticatedProductsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/profile/': {
-      id: '/_authenticated/profile/'
-      path: '/profile'
-      fullPath: '/profile/'
-      preLoaderRoute: typeof AuthenticatedProfileIndexRouteImport
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/stores/': {
-      id: '/_authenticated/stores/'
+    '/_authenticated/stores': {
+      id: '/_authenticated/stores'
       path: '/stores'
-      fullPath: '/stores/'
-      preLoaderRoute: typeof AuthenticatedStoresIndexRouteImport
+      fullPath: '/stores'
+      preLoaderRoute: typeof AuthenticatedStoresRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/subscriptions/': {
-      id: '/_authenticated/subscriptions/'
-      path: '/subscriptions'
-      fullPath: '/subscriptions/'
-      preLoaderRoute: typeof AuthenticatedSubscriptionsIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/system-settings/': {
-      id: '/_authenticated/system-settings/'
-      path: '/system-settings'
-      fullPath: '/system-settings/'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/tasks/': {
-      id: '/_authenticated/tasks/'
+    '/_authenticated/tasks': {
+      id: '/_authenticated/tasks'
       path: '/tasks'
-      fullPath: '/tasks/'
-      preLoaderRoute: typeof AuthenticatedTasksIndexRouteImport
+      fullPath: '/tasks'
+      preLoaderRoute: typeof AuthenticatedTasksRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/templates/': {
-      id: '/_authenticated/templates/'
+    '/_authenticated/templates': {
+      id: '/_authenticated/templates'
       path: '/templates'
-      fullPath: '/templates/'
-      preLoaderRoute: typeof AuthenticatedTemplatesIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/wallet/': {
-      id: '/_authenticated/wallet/'
-      path: '/wallet'
-      fullPath: '/wallet/'
-      preLoaderRoute: typeof AuthenticatedWalletIndexRouteImport
+      fullPath: '/templates'
+      preLoaderRoute: typeof AuthenticatedTemplatesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
   }
 }
 
-interface authRouteRouteChildren {
-  authForgotPasswordRoute: typeof authForgotPasswordRoute
-  authOauthRoute: typeof authOauthRoute
-  authOtpRoute: typeof authOtpRoute
-  authRegisterRoute: typeof authRegisterRoute
-  authResetRoute: typeof authResetRoute
-  authSignInRoute: typeof authSignInRoute
-  authSignUpRoute: typeof authSignUpRoute
-  authUserResetRoute: typeof authUserResetRoute
-}
-
-const authRouteRouteChildren: authRouteRouteChildren = {
-  authForgotPasswordRoute: authForgotPasswordRoute,
-  authOauthRoute: authOauthRoute,
-  authOtpRoute: authOtpRoute,
-  authRegisterRoute: authRegisterRoute,
-  authResetRoute: authResetRoute,
-  authSignInRoute: authSignInRoute,
-  authSignUpRoute: authSignUpRoute,
-  authUserResetRoute: authUserResetRoute,
-}
-
-const authRouteRouteWithChildren = authRouteRoute._addFileChildren(
-  authRouteRouteChildren,
-)
-
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedBestsellersRoute: typeof AuthenticatedBestsellersRoute
+  AuthenticatedCollectBoxRoute: typeof AuthenticatedCollectBoxRoute
+  AuthenticatedDataScreenRoute: typeof AuthenticatedDataScreenRoute
+  AuthenticatedImageStudioRoute: typeof AuthenticatedImageStudioRoute
+  AuthenticatedOnSaleRoute: typeof AuthenticatedOnSaleRoute
+  AuthenticatedOrdersRoute: typeof AuthenticatedOrdersRoute
+  AuthenticatedPricingRoute: typeof AuthenticatedPricingRoute
+  AuthenticatedProductsRoute: typeof AuthenticatedProductsRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedStoresRoute: typeof AuthenticatedStoresRoute
+  AuthenticatedTasksRoute: typeof AuthenticatedTasksRoute
+  AuthenticatedTemplatesRoute: typeof AuthenticatedTemplatesRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
-  AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
-  AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
-  AuthenticatedBestsellersIndexRoute: typeof AuthenticatedBestsellersIndexRoute
-  AuthenticatedCollectBoxIndexRoute: typeof AuthenticatedCollectBoxIndexRoute
-  AuthenticatedDataScreenIndexRoute: typeof AuthenticatedDataScreenIndexRoute
-  AuthenticatedImageStudioIndexRoute: typeof AuthenticatedImageStudioIndexRoute
-  AuthenticatedKeysIndexRoute: typeof AuthenticatedKeysIndexRoute
-  AuthenticatedOnSaleIndexRoute: typeof AuthenticatedOnSaleIndexRoute
-  AuthenticatedOrdersIndexRoute: typeof AuthenticatedOrdersIndexRoute
-  AuthenticatedPricingToolIndexRoute: typeof AuthenticatedPricingToolIndexRoute
-  AuthenticatedProductsIndexRoute: typeof AuthenticatedProductsIndexRoute
-  AuthenticatedProfileIndexRoute: typeof AuthenticatedProfileIndexRoute
-  AuthenticatedStoresIndexRoute: typeof AuthenticatedStoresIndexRoute
-  AuthenticatedSubscriptionsIndexRoute: typeof AuthenticatedSubscriptionsIndexRoute
-  AuthenticatedSystemSettingsIndexRoute: typeof AuthenticatedSystemSettingsIndexRoute
-  AuthenticatedTasksIndexRoute: typeof AuthenticatedTasksIndexRoute
-  AuthenticatedTemplatesIndexRoute: typeof AuthenticatedTemplatesIndexRoute
-  AuthenticatedWalletIndexRoute: typeof AuthenticatedWalletIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedBestsellersRoute: AuthenticatedBestsellersRoute,
+  AuthenticatedCollectBoxRoute: AuthenticatedCollectBoxRoute,
+  AuthenticatedDataScreenRoute: AuthenticatedDataScreenRoute,
+  AuthenticatedImageStudioRoute: AuthenticatedImageStudioRoute,
+  AuthenticatedOnSaleRoute: AuthenticatedOnSaleRoute,
+  AuthenticatedOrdersRoute: AuthenticatedOrdersRoute,
+  AuthenticatedPricingRoute: AuthenticatedPricingRoute,
+  AuthenticatedProductsRoute: AuthenticatedProductsRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedStoresRoute: AuthenticatedStoresRoute,
+  AuthenticatedTasksRoute: AuthenticatedTasksRoute,
+  AuthenticatedTemplatesRoute: AuthenticatedTemplatesRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
-  AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
-  AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
-  AuthenticatedBestsellersIndexRoute: AuthenticatedBestsellersIndexRoute,
-  AuthenticatedCollectBoxIndexRoute: AuthenticatedCollectBoxIndexRoute,
-  AuthenticatedDataScreenIndexRoute: AuthenticatedDataScreenIndexRoute,
-  AuthenticatedImageStudioIndexRoute: AuthenticatedImageStudioIndexRoute,
-  AuthenticatedKeysIndexRoute: AuthenticatedKeysIndexRoute,
-  AuthenticatedOnSaleIndexRoute: AuthenticatedOnSaleIndexRoute,
-  AuthenticatedOrdersIndexRoute: AuthenticatedOrdersIndexRoute,
-  AuthenticatedPricingToolIndexRoute: AuthenticatedPricingToolIndexRoute,
-  AuthenticatedProductsIndexRoute: AuthenticatedProductsIndexRoute,
-  AuthenticatedProfileIndexRoute: AuthenticatedProfileIndexRoute,
-  AuthenticatedStoresIndexRoute: AuthenticatedStoresIndexRoute,
-  AuthenticatedSubscriptionsIndexRoute: AuthenticatedSubscriptionsIndexRoute,
-  AuthenticatedSystemSettingsIndexRoute: AuthenticatedSystemSettingsIndexRoute,
-  AuthenticatedTasksIndexRoute: AuthenticatedTasksIndexRoute,
-  AuthenticatedTemplatesIndexRoute: AuthenticatedTemplatesIndexRoute,
-  AuthenticatedWalletIndexRoute: AuthenticatedWalletIndexRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
-  authRouteRoute: authRouteRouteWithChildren,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
-  errors401Route: errors401Route,
-  errors403Route: errors403Route,
-  errors404Route: errors404Route,
-  errors500Route: errors500Route,
-  errors503Route: errors503Route,
+  LoginRoute: LoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

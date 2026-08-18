@@ -1,120 +1,45 @@
-/*
-Copyright (C) 2023-2026 QuantumNous
+import type { HTMLAttributes, ReactNode } from 'react'
+import { cn } from '@/lib/cn'
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
+/**
+ * Card —— spec §06 卡片容器
+ * 圆角 10px（radius.card）+ 阴影 `0 1px 2px rgba(17,17,17,.04)`（shadow.card）
+ * 可选 `title`（h3 卡片标题）+ `action`（右上操作区）。
+ */
+export interface CardProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
+  title?: ReactNode
+  action?: ReactNode
+  /** 卡片主体是否需要内边距（表格类卡片传 false 铺满） */
+  padded?: boolean
+}
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
-*/
-import * as React from 'react'
-import { cn } from '@/lib/utils'
-
-function Card({
-  className,
-  size = 'default',
-  ...props
-}: React.ComponentProps<'div'> & { size?: 'default' | 'sm' }) {
+export function Card({ title, action, padded = true, className, children, ...props }: CardProps) {
   return (
     <div
-      data-slot='card'
-      data-size={size}
-      className={cn(
-        'group/card bg-card text-card-foreground ring-foreground/10 flex flex-col gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl',
-        className
+      className={cn('rounded-card border border-line bg-surface shadow-card', className)}
+      {...props}
+    >
+      {title != null && (
+        <div className="flex items-center justify-between gap-3 px-inset-card pb-3 pt-inset-card">
+          <h3 className="text-h3 text-ink">{title}</h3>
+          {action != null && <div className="shrink-0">{action}</div>}
+        </div>
       )}
-      {...props}
-    />
+      <div className={cn(padded && 'px-inset-card pb-inset-card')}>{children}</div>
+    </div>
   )
 }
 
-function CardHeader({ className, ...props }: React.ComponentProps<'div'>) {
+/**
+ * Panel —— 大容器（radius.panel 12px），用于侧栏面板 / 弹层类区域
+ */
+export function Panel({ className, children, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      data-slot='card-header'
-      className={cn(
-        'group/card-header @container/card-header grid auto-rows-min items-start gap-1 rounded-t-xl px-4 group-data-[size=sm]/card:px-3 has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-4 group-data-[size=sm]/card:[.border-b]:pb-3',
-        className
-      )}
+      className={cn('rounded-panel border border-line bg-surface shadow-raised', className)}
       {...props}
-    />
+    >
+      {children}
+    </div>
   )
-}
-
-function CardTitle({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot='card-title'
-      className={cn(
-        'text-base leading-snug font-medium group-data-[size=sm]/card:text-sm',
-        className
-      )}
-      {...props}
-    />
-  )
-}
-
-function CardDescription({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot='card-description'
-      className={cn('text-muted-foreground text-sm', className)}
-      {...props}
-    />
-  )
-}
-
-function CardAction({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot='card-action'
-      className={cn(
-        'col-start-2 row-span-2 row-start-1 self-start justify-self-end',
-        className
-      )}
-      {...props}
-    />
-  )
-}
-
-function CardContent({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot='card-content'
-      className={cn('px-4 group-data-[size=sm]/card:px-3', className)}
-      {...props}
-    />
-  )
-}
-
-function CardFooter({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot='card-footer'
-      className={cn(
-        'bg-muted/50 flex items-center rounded-b-xl border-t p-4 group-data-[size=sm]/card:p-3',
-        className
-      )}
-      {...props}
-    />
-  )
-}
-
-export {
-  Card,
-  CardHeader,
-  CardFooter,
-  CardTitle,
-  CardAction,
-  CardDescription,
-  CardContent,
 }
