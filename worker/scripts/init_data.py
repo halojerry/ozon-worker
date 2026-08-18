@@ -60,6 +60,10 @@ def create_tables(engine):
         conn.execute(text(
             "ALTER TABLE draft_submissions ADD COLUMN IF NOT EXISTS error_message TEXT"
         ))
+        # ✅ 任务状态写回依赖 updated_at 列（status_writeback UPDATE ... updated_at=NOW()）
+        conn.execute(text(
+            "ALTER TABLE draft_submissions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL"
+        ))
         # 存量库 draft_id 仍为 NOT NULL → 必须解除约束，直连任务（draft_id=NULL）行才能插入
         conn.execute(text(
             "ALTER TABLE draft_submissions ALTER COLUMN draft_id DROP NOT NULL"

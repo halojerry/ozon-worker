@@ -20,9 +20,11 @@ def list_bestsellers(
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """按上报 token 浏览榜单（contributed_by_token_id 存 clean token）；类目筛选 + 排序。
+    """全局浏览榜单（T4b.1：去掉 contributed_by_token_id 过滤，A 采集 B 可看）。
 
     order_by ∈ {ordering_amount 订购金额, ordering_count 订购数量, avg_price_rub 均价}
+    保留 contributed_by_token_id 贡献者列（干净 token）供前端标注贡献者。
+    token 仅作鉴权入参（端点层已验证），不再作数据过滤。
     """
     allowed_order = {"ordering_amount", "ordering_count", "avg_price_rub"}
     sort_col = order_by if order_by in allowed_order else "ordering_amount"
@@ -31,22 +33,23 @@ def list_bestsellers(
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
 
-    where = ["contributed_by_token_id = :tid"]
-    params: dict = {"tid": token, "limit": limit, "offset": offset}
+    where: list[str] = []
+    params: dict = {"limit": limit, "offset": offset}
     if category:
         where.append("category_path ILIKE :cat")
         params["cat"] = f"%{category}%"
 
-    where_sql = " AND ".join(where)
+    where_sql = " AND ".join(where) if where else "TRUE"
     with get_engine().connect() as conn:
         rows = conn.execute(text(
-            f"SELECT sku_or_id, brand, category_path, ordering_amount, ordering_count, avg_price_rub "
+            f"SELECT sku_or_id, brand, category_path, ordering_amount, ordering_count, avg_price_rub, "
+            f"contributed_by_token_id "
             f"FROM ozon_bestsellers WHERE {where_sql} "
             f"ORDER BY {sort_col} {order_dir} NULLS LAST LIMIT :limit OFFSET :offset"
         ), params).fetchall()
         total = conn.execute(text(
             f"SELECT COUNT(*) FROM ozon_bestsellers WHERE {where_sql}"
-        ), {"tid": token, "cat": params.get("cat")}).scalar()
+        ), {"cat": params.get("cat")}).scalar()
 
     items = [{
         "sku_or_id": str(r[0]),
@@ -55,5 +58,6 @@ def list_bestsellers(
         "ordering_amount": float(r[3]) if r[3] is not None else None,
         "ordering_count": int(r[4]) if r[4] is not None else None,
         "avg_price_rub": float(r[5]) if r[5] is not None else None,
+        "contributed_by_token_id": str(r[6] or ""),
     } for r in rows]
     return {"items": items, "total": int(total or 0), "limit": limit, "offset": offset}

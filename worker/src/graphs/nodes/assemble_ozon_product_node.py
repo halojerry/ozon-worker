@@ -757,7 +757,11 @@ def assemble_ozon_product_node(
         logger.info(f"   ✅ Skill类目覆盖: [{l0_hit['description_category_id']}/{l0_hit['type_id']}]")
 
     # ✅ v0.21: L0 映射必须与 L1 高分候选一致，否则忽略（防旧脏数据固化错类目）
-    if l0_hit and not _l0_consistent(l0_hit, candidates):
+    # ⚠️ v0.57 修复: Skill 直采类目（match_layer=="Skill"）跳过一致性检查——
+    # 它是 Skill 端从 Ozon 类目 API 精确解析的结果（pg_trgm 候选只是模糊猜测，
+    # 如「宠物饮水器」sim=0.375 低于门槛），一致性检查会把精确答案误杀，
+    # 随后 LLM fallback 用错误关键词（"美容"→脱毛剂）覆盖正确类目。
+    if l0_hit and match_layer != "Skill" and not _l0_consistent(l0_hit, candidates):
         _cand_desc = ", ".join(
             f"{c.get('description_category_id')}/{c.get('type_id')}" for c in candidates[:5]
         )

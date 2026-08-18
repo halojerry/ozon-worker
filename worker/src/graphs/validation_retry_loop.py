@@ -988,7 +988,10 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                         attr_id, int(category_id) if category_id else 0,
                         int(type_id) if type_id else 0,
                     ) or []
-                except Exception:
+                except Exception as _pg_e:
+                    logger.warning(
+                        f"⚠️ 字典值 PG 查询失败 attr={attr_id} dc={category_id} tp={type_id}: {_pg_e}"
+                    )
                     _vals = []
             _env = getattr(state, "envelope", None) or {}
             _title_cn = str((_env.get("draft") or {}).get("title") or "") if isinstance(_env, dict) else ""
@@ -1001,6 +1004,11 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 # ⚠️ v0.29.x: 8229(类型)优先按 type_id 匹配(值 id == type_id)
                 type_id=int(type_id or 0),
             )
+            if not _resolved:
+                logger.warning(
+                    f"⚠️ 语义解析未命中 attr={attr_id} title='{_title_cn[:40]}' "
+                    f"dict_vals={len(_vals or [])}条"
+                )
             if _resolved:
                 _vid, _val = _resolved
                 _updated = []
@@ -2423,6 +2431,22 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
     # ⚠️ PR-1: rejected_unfixable 同样无需轮询（不可修复，无 Ozon task_id 可查，避免带旧 UUID 空轮询）
     if state.upload_status in ("success", "rejected_unfixable"):
         logger.info(f"✅ 增量 API 已成功/不可修复（{state.upload_status}），跳过审核轮询")
+        # 增量更新后 Ozon 会重新审核：轻量查一次 moderate_status 写回，
+        # 否则 learning_record 读到首传旧状态（failed）误判整单失败。
+        _pid = getattr(state, "product_id", "") or ""
+        if _pid and state.ozon_client_id and state.ozon_api_key:
+            try:
+                _h = {"Client-Id": state.ozon_client_id, "Api-Key": state.ozon_api_key,
+                      "Content-Type": "application/json"}
+                _r = session.post("https://api-seller.ozon.ru/v3/product/info/list",
+                                  headers=_h, json={"product_id": [str(_pid)]}, timeout=20)
+                _items = (_r.json() or {}).get("items") or []
+                if _items:
+                    _mod = _items[0].get("statuses", {}).get("moderate_status", "")
+                    state.moderation_status = _mod
+                    logger.info(f"📊 增量修复后审核状态: {_mod} (product_id={_pid})")
+            except Exception as _e:
+                logger.warning(f"⚠️ 增量修复后审核状态查询失败: {_e}")
         return state
 
     task_id: str = state.task_id

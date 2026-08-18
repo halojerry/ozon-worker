@@ -66,7 +66,7 @@ class FakeEngine:
 
 
 class FakeReadConn:
-    """读路径 fake：按 SELECT 的 :tid 参数返回对应租户预置行（模拟 DB tenant 过滤）。"""
+    """读路径 fake：T4b.2 GET 全局共享——返回全部预置行（不再按 tenant 过滤）。"""
 
     def __init__(self, engine):
         self._engine = engine
@@ -78,8 +78,8 @@ class FakeReadConn:
         return False
 
     def execute(self, stmt, params=None):
-        tid = (params or {}).get("tid", "")
-        rows = self._engine.rows_for(tid)
+        self._engine.calls.append(str(stmt))
+        rows = self._engine.all_rows
         if "COUNT(*)" in str(stmt):
             return FakeResult(rows=[len(rows)])
         return FakeResult(rows=rows)
@@ -89,14 +89,12 @@ class FakeReadConn:
 
 
 class FakeReadEngine:
-    def __init__(self, rows_by_tenant):
-        self._rows_by_tenant = rows_by_tenant
+    def __init__(self, rows):
+        self.all_rows = rows
+        self.calls = []
 
     def connect(self):
         return FakeReadConn(self)
-
-    def rows_for(self, tid):
-        return self._rows_by_tenant.get(tid, [])
 
 
 class FakeSupabase:
@@ -233,29 +231,24 @@ def test_post_missing_keyword_rejected(monkeypatch):
     assert "INVALID_REQUEST" in body_s
 
 
-def test_get_tenant_isolation(monkeypatch):
-    """GET 按 tenant 过滤：A 的 token 只返回 A 的行，B 的行不可见。"""
-    rows_a = [
-        ("1", "宠物饮水机", {"min_margin": 0.2}, [{"offerId": "111"}], datetime(2026, 8, 17, 10, 0, 0)),
-        ("2", "猫玩具", None, [{"offerId": "222"}], datetime(2026, 8, 17, 9, 0, 0)),
+def test_get_global_sharing(monkeypatch):
+    """T4b.2：GET 全局共享——A 的 token 可见 A+B 全部归档，含贡献者列。"""
+    rows = [
+        ("1", "宠物饮水机", {"min_margin": 0.2}, [{"offerId": "111"}], datetime(2026, 8, 17, 10, 0, 0), "tenant-a"),
+        ("2", "猫玩具", None, [{"offerId": "222"}], datetime(2026, 8, 17, 9, 0, 0), "tenant-a"),
+        ("3", "化妆刷", None, [{"offerId": "333"}], datetime(2026, 8, 17, 8, 0, 0), "tenant-b"),
     ]
-    rows_b = [
-        ("3", "化妆刷", None, [{"offerId": "333"}], datetime(2026, 8, 17, 8, 0, 0)),
-    ]
-    rows_by_tenant = {"tenant-a": rows_a, "tenant-b": rows_b}
 
-    resp_a = _get("sk-tenant-a", monkeypatch, rows_by_tenant)
+    resp_a = _get("sk-tenant-a", monkeypatch, rows)
     keywords_a = [it["keyword"] for it in resp_a["items"]]
-    assert keywords_a == ["宠物饮水机", "猫玩具"]
-    assert "化妆刷" not in keywords_a
-    assert resp_a["total"] == 2
+    assert keywords_a == ["宠物饮水机", "猫玩具", "化妆刷"]  # 含 B 的归档
+    assert resp_a["total"] == 3
+    # 贡献者列：每条带 contributed_by_token_id
+    contributors = {it["contributed_by_token_id"] for it in resp_a["items"]}
+    assert contributors == {"tenant-a", "tenant-b"}
 
-    resp_b = _get("sk-tenant-b", monkeypatch, rows_by_tenant)
-    keywords_b = [it["keyword"] for it in resp_b["items"]]
-    assert keywords_b == ["化妆刷"]
-    assert "宠物饮水机" not in keywords_b
-    assert "猫玩具" not in keywords_b
-    assert resp_b["total"] == 1
+    resp_b = _get("sk-tenant-b", monkeypatch, rows)
+    assert resp_b["total"] == 3  # B 同样可见全部
 
 
 def test_get_requires_token(monkeypatch):

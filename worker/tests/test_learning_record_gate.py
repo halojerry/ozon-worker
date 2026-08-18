@@ -11,7 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
-def _make_state(moderation_status="", status="", upload_status="", ozon_upload_success=False):
+def _make_state(moderation_status="", status="", upload_status="", ozon_upload_success=False, product_id=""):
     return SimpleNamespace(
         description_category_id="17028959",
         type_id=96513,
@@ -19,6 +19,7 @@ def _make_state(moderation_status="", status="", upload_status="", ozon_upload_s
         status=status,
         upload_status=upload_status,
         ozon_upload_success=ozon_upload_success,
+        product_id=product_id,
         final_attributes=[
             {"attribute_id": 85, "value": "Нет бренда", "dictionary_value_id": 126745801, "source": "hardcoded"}
         ],
@@ -78,3 +79,28 @@ def test_should_reupload_pending_exits():
     st2 = SimpleNamespace(upload_status="pending", retry_count=0, max_retries=3,
                           product_id="123", errors=[])
     assert should_reupload(st2) == "exit"
+
+
+# v0.57 实测修正：修复循环增量更新成功放行（_is_real_upload_success）
+
+def test_repair_success_with_stale_failed_recorded():
+    """修复循环增量更新成功（upload_status=success + 有 product_id，moderation 停留首传 failed 旧值）
+    → 真实成功（商品已存在且更新被 Ozon 接受），必须写学习记录。"""
+    state = _make_state(moderation_status="failed", status="failed", upload_status="success", product_id="6017452168")
+    mock_db = _run_node(state)
+    mock_db.add_category_mapping.assert_called_once()
+
+
+def test_repair_success_with_empty_moderation_recorded():
+    """修复循环成功后 moderation 为空（增量查询未回写）但有 product_id → 仍放行。"""
+    state = _make_state(moderation_status="", status="", upload_status="success", product_id="6017452168")
+    mock_db = _run_node(state)
+    mock_db.add_category_mapping.assert_called_once()
+
+
+def test_pending_fake_success_still_blocked():
+    """v0.21 假成功（ozon_status_node 无 product_id 置 upload_status=success + moderation=pending）
+    → 继续拦截。无 product_id 是假成功与真成功的判别信号。"""
+    state = _make_state(moderation_status="pending", status="imported", upload_status="success")
+    mock_db = _run_node(state)
+    mock_db.add_category_mapping.assert_not_called()

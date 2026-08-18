@@ -367,6 +367,55 @@ def _match_dict_by_source_keywords(
     return None
 
 
+# 4958 专为/Назначение 适用对象：中文标题动物词 → 俄语字典值文本
+# （宠物类目实测值域：Для собак/птиц/кошек/грызунов；中文→俄语子串匹配必败，
+#  必须显式映射。仅命中才填，未命中返回 None——宁缺毋滥纪律不变。）
+AUDIENCE_ZH_TO_VALUES: dict[str, tuple[str, str]] = {
+    "猫": ("对于猫", "Для кошек"),
+    "狗": ("对于狗", "Для собак"),
+    "犬": ("对于狗", "Для собак"),
+    "鸟": ("对于鸟", "Для птиц"),
+    "鹦鹉": ("对于鸟", "Для птиц"),
+    "仓鼠": ("对于仓鼠", "Для грызунов"),
+    "鼠": ("对于仓鼠", "Для грызунов"),
+    "龙猫": ("对于仓鼠", "Для грызунов"),
+    "兔子": ("对于仓鼠", "Для грызунов"),
+    "兔": ("对于仓鼠", "Для грызунов"),
+}
+
+
+def _resolve_audience_default(
+    title_cn: str, product_name_ru: str, dict_vals: Any,
+) -> Optional[tuple[int, str]]:
+    """4958 专为：标题动物词 → 字典值匹配（缓存文本可能随搜索漂移：
+    「对于猫」/「Для кошек」/「猫咪用品」——先精确匹配，再按动物词包含兜底；
+    无命中返回 None）。"""
+    for _zh, (_zh_val, _ru_val) in AUDIENCE_ZH_TO_VALUES.items():
+        if _zh in title_cn:
+            for _val in (_zh_val, _ru_val):
+                _hit = find_dict_value_id(dict_vals, _val)
+                if _hit:
+                    return _hit
+            for _v in _as_list(dict_vals):
+                if not isinstance(_v, dict):
+                    continue
+                if _zh in str(_v.get("value") or ""):
+                    _vid = _v.get("id") or _v.get("dictionary_value_id") or 0
+                    if _vid:
+                        return int(_vid), str(_v.get("value") or "")
+    if product_name_ru:
+        _ru_lower = product_name_ru.lower()
+        for _ru_kw, _ru_val in (
+            ("кош", "Для кошек"), ("собак", "Для собак"),
+            ("птиц", "Для птиц"), ("грызун", "Для грызунов"),
+        ):
+            if _ru_kw in _ru_lower:
+                _hit = find_dict_value_id(dict_vals, _ru_val)
+                if _hit:
+                    return _hit
+    return None
+
+
 def resolve_missing_mandatory_dict_attr(
     attr_id: int,
     attr_name: str,
@@ -388,6 +437,8 @@ def resolve_missing_mandatory_dict_attr(
         return resolve_brand_default(dict_vals)
     if attr_id == 9163 or any(k in name for k in GENDER_NAME_KEYWORDS):
         return resolve_gender_default(title_cn, dict_vals)
+    if attr_id == 4958 or any(k in name for k in ("专为", "назначение", "назнач")):
+        return _resolve_audience_default(title_cn, product_name_ru, dict_vals)
     if attr_id in (4295, 4411) or any(k in name for k in SIZE_NAME_KEYWORDS):
         return resolve_size_default(size_cn, product_name_ru, dict_vals)
     if attr_id in (10096, 10097) or "цвет" in name or "颜色" in name:

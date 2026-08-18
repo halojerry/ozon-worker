@@ -2356,10 +2356,14 @@ def prepare_ozon_upload_node(
                             if _kw in _raw_v and _kw not in _search_terms_4958:
                                 _search_terms_4958.append(_kw)
 
-            # ② 标题整句兜底
+            # ② 标题整句兜底 + 单字→双字抽取（标题含「猫」但无 1688 属性时，
+            #    整句中文搜俄语字典必败；抽取「猫咪」等双字词可命中）
             _title4958 = str((draft or {}).get("title") or "")
             if _title4958:
                 _search_terms_4958.append(_title4958[:50])
+                for _s, _d in _single_to_double:
+                    if _s in _title4958 and _d not in _search_terms_4958:
+                        _search_terms_4958.append(_d)
 
             _search_terms_4958 = list(dict.fromkeys(
                 t for t in _search_terms_4958 if t and len(t.strip()) >= 2
@@ -2374,6 +2378,23 @@ def prepare_ozon_upload_node(
                 if _hits4958:
                     _vid_4958 = int(_hits4958[0].get("id") or 0)
                     _vval_4958 = str(_hits4958[0].get("value") or "")
+                    # 值文本必须俄语：搜索可能返回 ZH 文本（「对于猫」/「猫咪用品」），
+                    # dict_id 跨语言同一但 value 中文会被 ozon_validate 拦截。用动物词
+                    # 映射反查俄语值；映射不到且含中文 → 放弃（宁缺毋滥）。
+                    if _vid_4958 > 0:
+                        try:
+                            from utils.attr_defaults import AUDIENCE_ZH_TO_VALUES
+                            _ru_text = ""
+                            for _zh_word, (_zv, _rv) in AUDIENCE_ZH_TO_VALUES.items():
+                                if _zh_word in _vval_4958 or _vval_4958 in (_zv, _rv):
+                                    _ru_text = _rv
+                                    break
+                            if _ru_text:
+                                _vval_4958 = _ru_text
+                            elif any('\u4e00' <= c <= '\u9fff' for c in _vval_4958):
+                                _vid_4958 = 0
+                        except Exception:
+                            pass
                     break
         except Exception:
             pass
