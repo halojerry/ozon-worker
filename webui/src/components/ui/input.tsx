@@ -1,37 +1,67 @@
-/*
-Copyright (C) 2023-2026 QuantumNous
+import { forwardRef, useId, type InputHTMLAttributes, type ReactNode } from 'react'
+import { cn } from '@/lib/cn'
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
-*/
-import * as React from 'react'
-import { Input as InputPrimitive } from '@base-ui/react/input'
-import { cn } from '@/lib/utils'
-
-function Input({ className, type, ...props }: React.ComponentProps<'input'>) {
-  return (
-    <InputPrimitive
-      type={type}
-      data-slot='input'
-      className={cn(
-        'border-input file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 disabled:bg-input/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:ring-3 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 md:text-sm',
-        className
-      )}
-      {...props}
-    />
-  )
+/**
+ * Input —— spec §06 输入框实样
+ * 4 种状态：standard / focus（红边框 + 红光晕）/ error（红框 + 红浅底）/ disabled
+ * 可选 `leading`（前缀图标/字符）、`hint`（下方提示，error 时深红）。
+ */
+export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+  leading?: ReactNode
+  hint?: ReactNode
+  error?: boolean | string
+  wrapperClassName?: string
 }
 
-export { Input }
+export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
+  { leading, hint, error = false, wrapperClassName, className, id, disabled, ...props },
+  ref,
+) {
+  const autoId = useId()
+  const inputId = id ?? autoId
+  const errorMessage = typeof error === 'string' ? error : undefined
+  const hasError = Boolean(error)
+
+  return (
+    <div className={cn('w-full max-w-[320px]', wrapperClassName)}>
+      <div
+        className={cn(
+          'flex h-9 items-center gap-2 rounded-input border bg-surface px-3',
+          'transition-[border-color,box-shadow,background-color] duration-fast ease-standard',
+          hasError
+            ? 'border-accent bg-badge-accent'
+            : 'border-line focus-within:border-accent focus-within:shadow-glow',
+          disabled && 'pointer-events-none border-neutral-bg bg-badge-neutral',
+        )}
+      >
+        {leading != null && (
+          <span className={cn('shrink-0 text-[12px]', hasError ? 'text-accent-dark' : disabled ? 'text-ink-5' : 'text-ink-5')}>
+            {leading}
+          </span>
+        )}
+        <input
+          ref={ref}
+          id={inputId}
+          disabled={disabled}
+          className={cn(
+            'h-full w-full min-w-0 bg-transparent text-[13px] text-ink outline-none',
+            'placeholder:text-ink-5',
+            disabled && 'cursor-not-allowed text-ink-5 placeholder:text-ink-5',
+            className,
+          )}
+          aria-invalid={hasError || undefined}
+          aria-describedby={hint ? `${inputId}-hint` : undefined}
+          {...props}
+        />
+      </div>
+      {hint && (
+        <p
+          id={`${inputId}-hint`}
+          className={cn('mt-1.5 max-w-[320px] text-[11px] leading-normal', hasError ? 'text-accent-dark' : 'text-ink-aux')}
+        >
+          {errorMessage ?? hint}
+        </p>
+      )}
+    </div>
+  )
+})

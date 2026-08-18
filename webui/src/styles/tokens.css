@@ -1,0 +1,220 @@
+/* ═══════════════════════════════════════════════════════════════════
+ * Ozon ERP · 设计令牌落地
+ * 唯一事实源：design-deliverables/design-tokens.json（v1.0.0）
+ * 结构：
+ *   1) :root  —— 原始 primitive 令牌（供任意 CSS 直接 var() 使用）
+ *   2) @theme inline —— Tailwind v4 工具类映射（bg-page / text-ink /
+ *      rounded-card / shadow-card / font-mono / text-data-lg …）
+ * 修改令牌必须同步 design-tokens.json（scripts/verify-design-tokens.mjs 防漂移）。
+ * ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── color.primitive ─────────────────────────────────────────── */
+  --oz-white: #ffffff;
+  --oz-base: #f7f6f2;
+  --oz-header: #faf9f6;
+  --oz-ink-900: #111111;
+  --oz-ink-700: #2a2a2a;
+  --oz-ink-600: #4a4a4a;
+  --oz-ink-500: #6f6f6f;
+  --oz-ink-450: #8a8a8a;
+  --oz-ink-400: #8a8a8a;
+  --oz-ink-aux: #6a6a6a;
+  --oz-ink-300: #b4b0a9;
+  --oz-sidebar-hover: #1d1d1d;
+  --oz-sidebar-muted: #9a9a9a;
+  --oz-sidebar-text: #e8e8e8;
+  --oz-thumb-bg: #eae8e3;
+  --oz-white-border: #d9d6d0;
+  --oz-line: #e6e4df;
+  --oz-neutral-bg: #f1efea;
+  --oz-accent: #e20e0e;
+  --oz-accent-dark: #b30c0c;
+  --oz-accent-soft: #fdebeb;
+
+  /* ── color.semantic（引用 primitive，别名） ──────────────────── */
+  --oz-bg-page: var(--oz-base);
+  --oz-bg-surface: var(--oz-white);
+  --oz-bg-header: var(--oz-header);
+  --oz-bg-sidebar: var(--oz-ink-900);
+  --oz-bg-sidebar-hover: var(--oz-sidebar-hover);
+  --oz-bg-thumb: var(--oz-thumb-bg);
+  --oz-bg-badge-neutral: var(--oz-neutral-bg);
+  --oz-bg-badge-accent: var(--oz-accent-soft);
+  --oz-border-default: var(--oz-line);
+  --oz-border-sidebar: var(--oz-ink-700);
+  --oz-text-primary: var(--oz-ink-900);
+  --oz-text-secondary: var(--oz-ink-600);
+  --oz-text-tertiary: var(--oz-ink-400);
+  --oz-text-aux: var(--oz-ink-aux);
+  --oz-text-placeholder: var(--oz-ink-300);
+  --oz-text-ondark: var(--oz-white);
+  --oz-text-onsidebar: var(--oz-sidebar-text);
+  --oz-text-sidebar-muted: var(--oz-sidebar-muted);
+  --oz-text-sidebar-group: var(--oz-ink-450);
+  --oz-text-accent: var(--oz-accent);
+  --oz-text-accent-emphasis: var(--oz-accent-dark);
+  --oz-accent-default: var(--oz-accent);
+  --oz-accent-hover: var(--oz-accent-dark);
+  --oz-accent-active: var(--oz-accent-dark);
+
+  /* ── typography.family ───────────────────────────────────────── */
+  --oz-font-sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  --oz-font-mono: SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* ── spacing.scale（8pt 基准） ───────────────────────────────── */
+  --oz-space-1: 4px;
+  --oz-space-2: 8px;
+  --oz-space-3: 12px;
+  --oz-space-4: 16px;
+  --oz-space-5: 20px;
+  --oz-space-6: 24px;
+  --oz-space-8: 32px;
+  --oz-space-10: 40px;
+  --oz-space-12: 48px;
+  --oz-space-16: 64px;
+  /* spacing.semantic */
+  --oz-inset-card: 16px;
+  --oz-inset-panel: 20px;
+  --oz-gap-grid: 14px;
+  --oz-gap-section: 40px;
+  --oz-gap-hero: 28px;
+  --oz-page-pad: 32px;
+
+  /* ── radius ──────────────────────────────────────────────────── */
+  --oz-radius-input: 6px;
+  --oz-radius-button: 6px;
+  --oz-radius-card: 10px;
+  --oz-radius-panel: 12px;
+  --oz-radius-badge: 999px;
+
+  /* ── shadow ──────────────────────────────────────────────────── */
+  --oz-shadow-card: 0 1px 2px rgba(17, 17, 17, 0.04);
+  --oz-shadow-raised: 0 8px 24px rgba(17, 17, 17, 0.08);
+  --oz-shadow-overlay: 0 16px 48px rgba(17, 17, 17, 0.12);
+  --oz-shadow-glow: 0 0 24px rgba(226, 14, 14, 0.25);
+
+  /* ── motion ──────────────────────────────────────────────────── */
+  --oz-duration-fast: 100ms;
+  --oz-duration-base: 150ms;
+  --oz-duration-slow: 240ms;
+  --oz-duration-long: 400ms;
+  --oz-duration-pulse: 1600ms;
+  --oz-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --oz-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --oz-ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
+
+  /* ── breakpoint（多端适配 §07·5） ─────────────────────────────── */
+  --oz-bp-tablet: 768px;
+  --oz-bp-desktop: 1200px;
+}
+
+/* ── Tailwind v4 主题映射（inline = 生成工具类直接引用 :root 变量） ── */
+@theme inline {
+  /* 颜色：语义命名 → bg- / text- / border- / shadow- 工具类 */
+  --color-page: var(--oz-bg-page);
+  --color-surface: var(--oz-bg-surface);
+  --color-header: var(--oz-bg-header);
+  --color-sidebar: var(--oz-bg-sidebar);
+  --color-sidebar-hover: var(--oz-bg-sidebar-hover);
+  --color-thumb: var(--oz-bg-thumb);
+  --color-badge-neutral: var(--oz-bg-badge-neutral);
+  --color-badge-accent: var(--oz-bg-badge-accent);
+  --color-line: var(--oz-border-default);
+  --color-white-border: var(--oz-white-border);
+  --color-border-sidebar: var(--oz-border-sidebar);
+  --color-ink: var(--oz-ink-900);
+  --color-ink-2: var(--oz-ink-700);
+  --color-ink-3: var(--oz-ink-600);
+  --color-ink-4: var(--oz-ink-400);
+  --color-ink-5: var(--oz-ink-300);
+  --color-ink-aux: var(--oz-ink-aux);
+  --color-on-dark: var(--oz-white);
+  --color-on-sidebar: var(--oz-text-onsidebar);
+  --color-sidebar-muted: var(--oz-text-sidebar-muted);
+  --color-sidebar-group: var(--oz-text-sidebar-group);
+  --color-accent: var(--oz-accent);
+  --color-accent-dark: var(--oz-accent-dark);
+  --color-accent-soft: var(--oz-accent-soft);
+
+  /* 字体族 */
+  --font-sans: var(--oz-font-sans);
+  --font-mono: var(--oz-font-mono);
+
+  /* 字号阶梯 typography.scale */
+  --text-display: 48px;
+  --text-display--line-height: 1.15;
+  --text-display--font-weight: 800;
+  --text-h1: 28px;
+  --text-h1--line-height: 1.3;
+  --text-h1--font-weight: 700;
+  --text-h2: 20px;
+  --text-h2--line-height: 1.35;
+  --text-h2--font-weight: 700;
+  --text-h3: 16px;
+  --text-h3--line-height: 1.4;
+  --text-h3--font-weight: 600;
+  --text-body: 14px;
+  --text-body--line-height: 1.6;
+  --text-body-sm: 13px;
+  --text-body-sm--line-height: 1.55;
+  --text-caption: 12px;
+  --text-caption--line-height: 1.5;
+  --text-overline: 11px;
+  --text-overline--line-height: 1.4;
+  --text-overline--letter-spacing: 1px;
+  --text-overline--font-weight: 600;
+  --text-data-lg: 28px;
+  --text-data-lg--line-height: 1.2;
+  --text-data-lg--font-weight: 700;
+  --text-data-lg--font-family: var(--oz-font-mono);
+  --text-data-md: 20px;
+  --text-data-md--line-height: 1.3;
+  --text-data-md--font-weight: 700;
+  --text-data-md--font-family: var(--oz-font-mono);
+
+  /* 间距（8pt 基准） */
+  --spacing-1: var(--oz-space-1);
+  --spacing-2: var(--oz-space-2);
+  --spacing-3: var(--oz-space-3);
+  --spacing-4: var(--oz-space-4);
+  --spacing-5: var(--oz-space-5);
+  --spacing-6: var(--oz-space-6);
+  --spacing-8: var(--oz-space-8);
+  --spacing-10: var(--oz-space-10);
+  --spacing-12: var(--oz-space-12);
+  --spacing-16: var(--oz-space-16);
+  --spacing-inset-card: var(--oz-inset-card);
+  --spacing-inset-panel: var(--oz-inset-panel);
+  --spacing-gap-grid: var(--oz-gap-grid);
+  --spacing-gap-section: var(--oz-gap-section);
+  --spacing-gap-hero: var(--oz-gap-hero);
+  --spacing-page-pad: var(--oz-page-pad);
+
+  /* 圆角 */
+  --radius-input: var(--oz-radius-input);
+  --radius-button: var(--oz-radius-button);
+  --radius-card: var(--oz-radius-card);
+  --radius-panel: var(--oz-radius-panel);
+  --radius-badge: var(--oz-radius-badge);
+
+  /* 阴影 */
+  --shadow-card: var(--oz-shadow-card);
+  --shadow-raised: var(--oz-shadow-raised);
+  --shadow-overlay: var(--oz-shadow-overlay);
+  --shadow-glow: var(--oz-shadow-glow);
+
+  /* 动效时长与缓动 */
+  --duration-fast: var(--oz-duration-fast);
+  --duration-base: var(--oz-duration-base);
+  --duration-slow: var(--oz-duration-slow);
+  --duration-long: var(--oz-duration-long);
+  --duration-pulse: var(--oz-duration-pulse);
+  --ease-standard: var(--oz-ease-standard);
+  --ease-decelerate: var(--oz-ease-decelerate);
+  --ease-accelerate: var(--oz-ease-accelerate);
+
+  /* 断点（⚠️ 必须字面量：Tailwind v4 生成 @media (width >= X)，var() 引用在媒体查询中无效） */
+  --breakpoint-tablet: 768px;
+  --breakpoint-desktop: 1200px;
+}

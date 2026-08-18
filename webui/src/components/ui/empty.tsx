@@ -1,118 +1,29 @@
-/*
-Copyright (C) 2023-2026 QuantumNous
+import type { ReactNode } from 'react'
+import { cn } from '@/lib/cn'
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
+/**
+ * Empty —— spec §06 空态实样
+ * 虚线框 + 一句话说明 + 可选可行动入口（不放插画）。
+ */
+export interface EmptyProps {
+  title?: ReactNode
+  description?: ReactNode
+  /** 可行动入口（如「新建商品」按钮） */
+  action?: ReactNode
+  className?: string
+}
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
-*/
-import { cva, type VariantProps } from 'class-variance-authority'
-import { cn } from '@/lib/utils'
-
-function Empty({ className, ...props }: React.ComponentProps<'div'>) {
+export function Empty({ title = '暂无数据', description, action, className }: EmptyProps) {
   return (
     <div
-      data-slot='empty'
       className={cn(
-        'flex w-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-xl border-dashed p-6 text-center text-balance',
-        className
+        'flex flex-col items-center justify-center gap-2 rounded-card border border-dashed border-ink-5 px-5 py-7 text-center',
+        className,
       )}
-      {...props}
-    />
+    >
+      <div className="text-[13px] font-medium text-ink-3">{title}</div>
+      {description != null && <div className="max-w-sm text-[12px] leading-relaxed text-ink-aux">{description}</div>}
+      {action != null && <div className="mt-2">{action}</div>}
+    </div>
   )
-}
-
-function EmptyHeader({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot='empty-header'
-      className={cn('flex max-w-sm flex-col items-center gap-2', className)}
-      {...props}
-    />
-  )
-}
-
-const emptyMediaVariants = cva(
-  'mb-2 flex shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg]:shrink-0',
-  {
-    variants: {
-      variant: {
-        default: 'bg-transparent',
-        icon: "flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground [&_svg:not([class*='size-'])]:size-4",
-      },
-    },
-    defaultVariants: {
-      variant: 'default',
-    },
-  }
-)
-
-function EmptyMedia({
-  className,
-  variant = 'default',
-  ...props
-}: React.ComponentProps<'div'> & VariantProps<typeof emptyMediaVariants>) {
-  return (
-    <div
-      data-slot='empty-icon'
-      data-variant={variant}
-      className={cn(emptyMediaVariants({ variant, className }))}
-      {...props}
-    />
-  )
-}
-
-function EmptyTitle({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot='empty-title'
-      className={cn('text-sm font-medium tracking-tight', className)}
-      {...props}
-    />
-  )
-}
-
-function EmptyDescription({ className, ...props }: React.ComponentProps<'p'>) {
-  return (
-    <div
-      data-slot='empty-description'
-      className={cn(
-        'text-muted-foreground [&>a:hover]:text-primary text-sm/relaxed [&>a]:underline [&>a]:underline-offset-4',
-        className
-      )}
-      {...props}
-    />
-  )
-}
-
-function EmptyContent({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot='empty-content'
-      className={cn(
-        'flex w-full max-w-sm min-w-0 flex-col items-center gap-2.5 text-sm text-balance',
-        className
-      )}
-      {...props}
-    />
-  )
-}
-
-export {
-  Empty,
-  EmptyHeader,
-  EmptyTitle,
-  EmptyDescription,
-  EmptyContent,
-  EmptyMedia,
 }

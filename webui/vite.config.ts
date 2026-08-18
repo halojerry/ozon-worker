@@ -1,25 +1,24 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { tanstackRouter } from '@tanstack/router-plugin/vite'
-import { fileURLToPath, URL } from 'node:url'
+import path from 'node:path'
 
-// base='/app/'：与 worker FastAPI 静态托管挂载路径一致（生产 SPA 托管在 /app，
-// 见 worker/src/main.py 的 _mount_webui_static + webui/README.md）。
+// 生产：worker FastAPI 同进程伺服 /app（WEBUI_DIST bind mount），base 必须 /app/
+// 开发：vite dev server（5173），/api/v1 代理到本地 worker（8080）
 export default defineConfig({
-  plugins: [tanstackRouter(), react()],
+  base: '/app/',
+  plugins: [tanstackRouter(), react(), tailwindcss()],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@': path.resolve(__dirname, 'src'),
     },
   },
-  base: '/app/',
   server: {
-    host: true,
     port: 5173,
-    // 开发环境把 /api 代理到本地 Worker（部署: deploy/docker-compose.yml，API 8080）
     proxy: {
-      '/api': {
-        target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8080',
+      '/api/v1': {
+        target: 'http://localhost:8080',
         changeOrigin: true,
       },
     },

@@ -1,0 +1,87 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+/* ── 基础样式 ────────────────────────────────────────────────────── */
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-page text-ink text-body font-sans;
+  }
+
+  /* 全局 focus 可见性：2px 品牌红 */
+  :focus-visible {
+    outline: 2px solid var(--oz-accent);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--oz-accent);
+    color: #fff;
+  }
+
+  /* 克制滚动条 */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--oz-ink-300);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--oz-ink-400);
+  }
+}
+
+/* ── 动效（motion token，全部支持 prefers-reduced-motion） ───────── */
+@keyframes oz-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 数据大屏光晕脉冲 · 1600ms 单点循环呼吸（spec §05） */
+@keyframes oz-pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(226, 14, 14, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(226, 14, 14, 0);
+  }
+}
+
+/* 页面转场淡入 · 400ms decelerate（spec §05） */
+@keyframes oz-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@theme {
+  --animate-spin-slow: oz-spin 0.7s linear infinite;
+  --animate-pulse-glow: oz-pulse-glow 1.6s ease-in-out infinite;
+  --animate-fade-in: oz-fade-in 0.4s cubic-bezier(0, 0, 0.2, 1) both;
+}
+
+/* 兑现「支持系统减弱动效」承诺 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
