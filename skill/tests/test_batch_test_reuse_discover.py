@@ -181,21 +181,68 @@ def test_estimate_shipping_cny_consistency():
 
 
 def test_calculate_profit_missing_weight_uses_default_500g():
-    """_calculate_profit 无重量 → 按默认 500g 估算 ¥6（不再落 ¥15）。
+    """_calculate_profit 无重量 → 按默认 500g 查费率表（不再跳过费率表落本地 ¥15）。
 
-    回归：此前 discover 无重量 → DEFAULT_LOGISTICS_CNY=15，与上架管线
-    （500g → ¥6）差 ¥9/单，轻小件被误判利润不足。
+    回归：此前 _query_logistics_from_worker 对 weight≤0 直接 return None →
+    discover 落 DEFAULT_LOGISTICS_CNY=15，而上架管线默认 500g 走费率表，
+    两条路径不一致，轻小件被误判利润不足。修复后无重量也按 500g 查表。
     """
-    from scripts.lib.ozon_discovery import ProductCandidate, _calculate_profit
+    from scripts.lib.ozon_discovery import (
+        ProductCandidate,
+        _calculate_profit,
+    )
 
     c = ProductCandidate(ozon_product_id="1", ozon_title="t", ozon_price=1000.0)
     c.match_1688_price = 20.0
     c.weight_g = 0
+    # 费率表命中：Worker 返回真实费率（假设 500g → ¥8.5）
+    with mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker",
+                    return_value=mock.Mock(cost=8.5, estimated=False, fallback_chain="q1_hit")) as m_q:
+        _calculate_profit(c)
+    # 必须调用费率表查询（传候选原始 weight_g=0，转换在 _query_logistics_from_worker 内部）
+    m_q.assert_called_once()
+    assert m_q.call_args[0][0] == 0, f"应传候选原始 weight_g, got {m_q.call_args[0][0]}"
+    assert c.estimated_logistics_cny == 8.5, "应使用费率表真实费率"
+    assert c.logistics_fallback_chain == "q1_hit"
+
+    # 费率表+last-good 均不可达（worker 离线）→ 本地兜底与上架管线同源（默认 500g → ¥6）
+    c2 = ProductCandidate(ozon_product_id="2", ozon_title="t", ozon_price=1000.0)
+    c2.match_1688_price = 20.0
+    c2.weight_g = 0
     with mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker",
                     return_value=None):
-        _calculate_profit(c)
-    assert c.estimated_logistics_cny == 6.0, f"无重量应按默认 500g 估 ¥6, got {c.estimated_logistics_cny}"
-    assert c.logistics_fallback_chain == "default_500g"
+        _calculate_profit(c2)
+    assert c2.estimated_logistics_cny == 6.0, f"兜底应按默认 500g 估 ¥6, got {c2.estimated_logistics_cny}"
+    assert c2.logistics_fallback_chain == "default_500g"
+
+
+def test_query_logistics_from_worker_missing_weight_queries_default():
+    """_query_logistics_from_worker 无重量 → 按 DEFAULT_WEIGHT_G 查费率表（不再 return None）。"""
+    from scripts.lib.ozon_discovery import DEFAULT_WEIGHT_G, _query_logistics_from_worker
+
+    with mock.patch("scripts.lib.config_store.get_mxou_token",
+                    return_value="tok"), \
+         mock.patch("requests.post") as m_post, \
+         mock.patch.dict("scripts.lib.ozon_discovery._LOGISTICS_QUOTE_CACHE",
+                         {}, clear=True):
+        m_post.return_value.status_code = 200
+        m_post.return_value.json.return_value = {"logistics_cost_cny": 8.5}
+        q = _query_logistics_from_worker(0)
+    assert q is not None, "无重量也应按默认重量查费率表"
+    assert q.cost == 8.5
+    assert m_post.call_args[1]["json"]["weight_g"] == DEFAULT_WEIGHT_G, \
+        f"payload 应按默认 {DEFAULT_WEIGHT_G}g, got {m_post.call_args[1]['json']['weight_g']}"
+
+    with mock.patch("scripts.lib.config_store.get_mxou_token",
+                    return_value="tok"), \
+         mock.patch("requests.post") as m_post, \
+         mock.patch.dict("scripts.lib.ozon_discovery._LOGISTICS_QUOTE_CACHE",
+                         {}, clear=True):
+        m_post.return_value.status_code = 200
+        m_post.return_value.json.return_value = {"logistics_cost_cny": 7.0}
+        q = _query_logistics_from_worker(None)
+    assert q is not None
+    assert q.cost == 7.0
 
 
 if __name__ == "__main__":
