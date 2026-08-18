@@ -169,6 +169,109 @@ def test_read_aibuy_token_expired(mock_get):
     assert ois._read_aibuy_token() is None
 
 
+@mock.patch("scripts.lib.config_store.get_setting")
+def test_read_aibuy_token_poisoned_value_invalidates(mock_get):
+    """已落盘的毒 token（_m_h5_tk 空值、未过期）→ 视作无效，触发刷新（W5.2）。"""
+    mock_get.return_value = {**MOCK_COOKIES, "_m_h5_tk": "", "saved_at": time.time()}
+    assert ois._read_aibuy_token() is None
+
+
+# ── W5.1/W5.2: 毒 token value 校验（v0.57）──────────────────────────────
+
+def test_aibuy_token_valid_rejects_empty_value():
+    """_m_h5_tk value 空 → 无效（毒 token 不落盘，I-8 根因修复）。"""
+    assert ois._aibuy_token_valid(dict(MOCK_COOKIES, _m_h5_tk="")) is False
+    assert ois._aibuy_token_valid(dict(MOCK_COOKIES, _m_h5_tk="   ")) is False
+    assert ois._aibuy_token_valid({}) is False
+    assert ois._aibuy_token_valid(None) is False
+    assert ois._aibuy_token_valid({"a": 1}) is False
+    # 缺 4 key 中的任意一个 → 无效
+    assert ois._aibuy_token_valid({k: v for k, v in MOCK_COOKIES.items() if k != "isg"}) is False
+
+
+def test_aibuy_token_valid_accepts_real():
+    assert ois._aibuy_token_valid(MOCK_COOKIES) is True
+    assert ois._aibuy_token_valid({**MOCK_COOKIES, "saved_at": 123}) is True
+
+
+@mock.patch("scripts.lib.ozon_image_search.cache_get")
+@mock.patch("scripts.lib.ozon_image_search._read_aibuy_token")
+@mock.patch("scripts.lib.ozon_image_search._fetch_aibuy_cookies_from_chrome")
+@mock.patch("scripts.lib.ozon_image_search._save_aibuy_token")
+def test_search_by_image_aibuy_does_not_save_poison_token(mock_save, mock_chrome,
+                                                          mock_token, mock_cache):
+    """Chrome 返回空 value 的 cookie dict → 不落盘、快速返回 []（W5.2）。"""
+    mock_cache.return_value = None
+    mock_token.return_value = None
+    mock_chrome.return_value = {"_m_h5_tk": "", "_m_h5_tk_enc": "x", "tfstk": "y", "isg": "z"}
+    result = ois.search_by_image_aibuy("https://img.jpg")
+    assert result == []
+    mock_save.assert_not_called()
+
+
+@mock.patch("scripts.lib.ozon_image_search.cache_set")
+@mock.patch("scripts.lib.ozon_image_search._aibuy_image_search")
+@mock.patch("scripts.lib.ozon_image_search._aibuy_image_upload")
+@mock.patch("scripts.lib.ozon_image_search._save_aibuy_token")
+@mock.patch("scripts.lib.ozon_image_search._fetch_aibuy_cookies_from_chrome")
+@mock.patch("scripts.lib.ozon_image_search._read_aibuy_token")
+@mock.patch("scripts.lib.ozon_image_search.cache_get")
+def test_search_by_image_aibuy_saves_valid_fetched_token(mock_cache, mock_token, mock_chrome,
+                                                         mock_save, mock_upload, mock_search,
+                                                         mock_cache_set):
+    """Chrome 返回有效 cookie → 落盘 token 并继续搜索。"""
+    mock_cache.return_value = None
+    mock_token.return_value = None
+    mock_chrome.return_value = dict(MOCK_COOKIES)
+    mock_upload.return_value = ""
+    mock_search.return_value = [{"id": "1", "title": "T", "price": 1.0}]
+    results = ois.search_by_image_aibuy("https://img.jpg")
+    assert results
+    mock_save.assert_called_once_with(mock_chrome.return_value)
+
+
+# ── W5.3: mtop token 舞步等待（v0.57）────────────────────────────────────
+
+@mock.patch("scripts.lib.ozon_image_search.time.sleep")
+@mock.patch("scripts.lib.cdp_client.CdpConnection")
+def test_fetch_aibuy_cookies_polls_until_token_ready(mock_conn_cls, mock_sleep):
+    """导航后轮询 document.cookie：token 异步就绪时提前退出（非固定 2s）。"""
+    conn = mock.MagicMock()
+    tab = mock.MagicMock()
+    mock_conn_cls.return_value = conn
+    conn.new_tab.return_value = tab
+    tab.evaluate.side_effect = [
+        "tfstk=abc; isg=def; _m_h5_tk_enc=xyz",                       # 第 1 次：缺 _m_h5_tk
+        "tfstk=abc; isg=def; _m_h5_tk_enc=xyz; _m_h5_tk=" + MOCK_COOKIES["_m_h5_tk"],  # 第 2 次：就绪
+    ]
+    cookies = ois._fetch_aibuy_cookies_from_chrome()
+    assert cookies["_m_h5_tk"] == MOCK_COOKIES["_m_h5_tk"]
+    assert tab.evaluate.call_count == 2, "token 就绪后应立即退出轮询"
+    mock_sleep.assert_called_once()
+
+
+@mock.patch("scripts.lib.ozon_image_search.time.sleep")
+@mock.patch("scripts.lib.cdp_client.CdpConnection")
+def test_fetch_aibuy_cookies_poll_timeout_returns_empty(mock_conn_cls, mock_sleep):
+    """轮询到上限仍无有效 token → 返回 {}（毒 cookie 不过关）。"""
+    conn = mock.MagicMock()
+    tab = mock.MagicMock()
+    mock_conn_cls.return_value = conn
+    conn.new_tab.return_value = tab
+    # 每次 evaluate 返回缺 _m_h5_tk 或空 value 的 cookie 串
+    tab.evaluate.return_value = "tfstk=abc; isg=def; _m_h5_tk_enc=xyz; _m_h5_tk="
+    _clock = [0.0]
+
+    def _fake_time():
+        _clock[0] += 1.0  # 每次 +1s，快速越过 8s 上限
+        return _clock[0]
+
+    with mock.patch("scripts.lib.ozon_image_search.time.time", side_effect=_fake_time):
+        cookies = ois._fetch_aibuy_cookies_from_chrome()
+    assert cookies == {}
+    mock_sleep.assert_called()  # 确实走了轮询路径
+
+
 # ── 主入口 fail-fast + 缓存 ───────────────────────────────────────────────
 
 @mock.patch("scripts.lib.ozon_image_search.cache_get")

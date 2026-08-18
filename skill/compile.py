@@ -301,6 +301,14 @@ def _generate_import_stubs(dist_dir: Path, compile_files: list[str]) -> None:
     correctly.  The native binary is always loaded from
     ``dist/scripts/lib/_native/{platform}/`` regardless of stub location.
     """
+    # ⚠️ W5.7 (I-10): 编译二进制特征校验 —— 旧 .so 缺关键符号时显式 warning，
+    # 不静默降级 CDP。每个模块一个 (符号, 说明) 检查；只有有特征的模块才生成检查块。
+    stub_feature_checks: dict[str, tuple[str, str]] = {
+        "ozon_image_search": (
+            "search_by_image_aibuy",
+            "aibuy 免浏览器图搜不可用，image_search/follow/discover 将降级 CDP 图搜",
+        ),
+    }
     dist_lib_dir = dist_dir / "scripts" / "lib"
     for py_file in compile_files:
         stem = Path(py_file).stem
@@ -310,6 +318,20 @@ def _generate_import_stubs(dist_dir: Path, compile_files: list[str]) -> None:
         native_rel = os.path.relpath(dist_lib_dir / "_native", stub_parent)  # e.g. ../../lib/_native
         # Use string concatenation to avoid f-string escaping issues
         # Use sysconfig.EXT_SUFFIX for correct platform suffix (e.g., .cpython-312-darwin.so)
+        feature_check = ""
+        if stem in stub_feature_checks:
+            _symbol, _desc = stub_feature_checks[stem]
+            feature_check = (
+                '\n'
+                '        if not hasattr(_mod, "' + _symbol + '"):\n'
+                '            import warnings as _w\n'
+                '            _w.warn(\n'
+                '                "编译模块 ' + stem + ' 过旧：缺少 ' + _symbol + ' (' + _desc + ')。"\n'
+                '                "请更新 Skill 包后再使用静默采集",\n'
+                '                RuntimeWarning,\n'
+                '                stacklevel=2,\n'
+                '            )\n'
+            )
         stub_content = (
             '#!/usr/bin/env python3\n'
             '"""Auto-generated stub — loads native binary for current platform."""\n'
@@ -370,6 +392,7 @@ def _generate_import_stubs(dist_dir: Path, compile_files: list[str]) -> None:
             '        for _n in dir(_mod):\n'
             '            if not _n.startswith("__"):\n'
             '                globals()[_n] = getattr(_mod, _n)\n'
+            + feature_check +
             'else:\n'
             '    raise ImportError(f"No native binary for ' + stem + ' on {_plat_name}")\n'
         )

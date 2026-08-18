@@ -1077,10 +1077,12 @@ def discover_from_keyword(cdp_url: str, keyword: str, max_products: int = 50) ->
     """Search Ozon by keyword and discover products.
 
     Constructs search URL and calls discover_from_url().
+    固定走中国馆（跨境卖家竞争视角：主站 /search/ 返回本地仓卖家，跨境无法竞争；
+    S1 信封竞品反查 follow_min_price 必须与中国货源同场）。
     """
     import urllib.parse
     encoded = urllib.parse.quote(keyword)
-    url = f"https://www.ozon.ru/search/?text={encoded}"
+    url = f"{CHINA_HIGHLIGHT_URL}?text={encoded}"
     return discover_from_url(cdp_url, url, max_products)
 
 
@@ -2186,7 +2188,8 @@ def _search_1688_source(
                         "reject_reason": str(best.get("reject_reason", "") or ""),
                     }
         except Exception as exc:
-            logger.debug("aibuy image search failed: %s", exc)
+            # ✅ W5.4 (I-8): 降级出声——debug 静默 → warning 带原因（为什么走 CDP）
+            logger.warning("aibuy 图搜失败，降级 CDP 图搜: %s", exc)
 
     # --- Strategy 2: CDP image search ---
     if images:

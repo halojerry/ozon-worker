@@ -3349,7 +3349,8 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                 search_method = "aibuy"
                 logger.info("✅ aibuy图搜命中 %d 个结果", len(matches_raw))
         except Exception as e:
-            logger.debug("aibuy image search failed: %s", e)
+            # ✅ W5.4 (I-8): 降级出声——debug 静默 → warning 带原因（为什么走 CDP）
+            logger.warning("aibuy 图搜失败，降级 CDP 图搜: %s", e)
 
         # 3a-1. CDP 网页版以图搜款（aibuy 不可用时，用1688网页搜索引擎）
         if not matches_raw:

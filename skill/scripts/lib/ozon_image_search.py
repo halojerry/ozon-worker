@@ -9,6 +9,12 @@
 v0.39: aibuy API 通道（Step 0 实测打通——offerId 直给、guest 视图排序=精准图搜排序、
 customerId 用通用 cbu、同 token 连续调用稳定）。fail-fast 纪律：无 token/失败快速返回
 [] 由调用方降级，不阻塞 CDP/AK 路径。
+
+v0.57 (W5 / I-9 验证): 本机实测 `ir.ozone.ru` 对自动化请求返回 403（WAF/防盗链，
+浏览器 UA+Referer 亦被拒），`ozonstatic.com`/`ir-1.ozone.ru` DNS 指向 fake-IP 且 TLS
+握手失败——这是**本地网络/代理特性**（Clash fake-IP 拦截），与 aibuy 无关：aibuy 是
+1688 服务器 fetch 竞品图（阿里出口），实测 `ir.ozone.ru` 竞品图 URL 可直接图搜成功，
+**无需 COS 转存**。若遇 aibuy 空结果，走既有 CDP 兜底（用户浏览器本地抓图）。
 """
 from __future__ import annotations
 
@@ -38,6 +44,9 @@ MTOP_APP_KEY = "12574478"
 AIBUY_TOKEN_KEY = "aibuy_mtop_token"
 AIBUY_TOKEN_TTL_SECONDS = 6 * 3600  # 6h 后需重新从 Chrome 会话刷新
 _AIBUY_COOKIE_KEYS = ("_m_h5_tk", "_m_h5_tk_enc", "tfstk", "isg")
+# ⚠️ W5.3 (I-8): mtop token 舞步等待——导航后轮询 document.cookie 上限（5-10s 内）。
+# 冷启动时 1688 反爬 cookie 由页面脚本异步下发，固定 2s 睡眠经常读不到。
+AIBUY_TOKEN_WAIT_SECONDS = 8
 
 # 缓动滚动（3000ms ease-in-out + rAF，每屏 80% 视口——上品帮 scrollPage 反爬节奏）
 _EASE_SCROLL_JS = r'''(() => {
@@ -498,12 +507,35 @@ def _parse_mtop_jsonp(text: str) -> dict[str, Any]:
         return {}
 
 
+def _aibuy_token_valid(cookies: dict[str, Any] | None) -> bool:
+    """aibuy token cookie 集是否可用：4 key 齐备且 _m_h5_tk value 非空。
+
+    ⚠️ W5.1/W5.2 (I-8)：只查 key 存在会放行空 value 的毒 token——`_m_h5_tk=""`
+    的 dict 仍 truthy（`if not token_cookies:` 拦不住），签名前 split 出空串 →
+    `_mtop_request` 直接 return {} → 静默降级 CDP。value 与 token 部分都非空才有效。
+    """
+    if not isinstance(cookies, dict) or not cookies:
+        return False
+    if not all(k in cookies for k in _AIBUY_COOKIE_KEYS):
+        return False
+    mh5tk = str(cookies.get("_m_h5_tk") or "").strip()
+    if not mh5tk:
+        return False
+    token = mh5tk.split("_")[0] if "_" in mh5tk else mh5tk
+    return bool(token)
+
+
 def _read_aibuy_token() -> dict[str, Any] | None:
-    """读取缓存的 mtop token（settings.json）。过期返回 None 触发刷新。"""
+    """读取缓存的 mtop token（settings.json）。过期/毒 token 返回 None 触发刷新。"""
     from scripts.lib.config_store import get_setting
 
     cached = get_setting(AIBUY_TOKEN_KEY) or {}
     if not isinstance(cached, dict):
+        return None
+    # ⚠️ W5.2 (I-8)：历史已落盘的毒 token（_m_h5_tk 空值）即使未过期也不复用，
+    # 直接视作无效，从 Chrome 会话重新读取。
+    if not _aibuy_token_valid(cached):
+        logger.info("aibuy mtop token 无效（_m_h5_tk 为空），需从 Chrome 会话刷新")
         return None
     saved_at = float(cached.get("saved_at") or 0)
     if time.time() - saved_at > AIBUY_TOKEN_TTL_SECONDS:
@@ -522,7 +554,7 @@ def _save_aibuy_token(cookies: dict[str, str]) -> None:
 def _fetch_aibuy_cookies_from_chrome(cdp_url: str = "http://127.0.0.1:9222") -> dict[str, str]:
     """从 Chrome 会话读取 1688 cookie（复用常驻 Chrome，无需启动新浏览器）。
 
-    返回 {cookie名: 值}，缺任何关键 cookie 返回 {}（fail-fast）。
+    返回 {cookie名: 值}，缺任何关键 cookie 或 _m_h5_tk value 为空返回 {}（fail-fast）。
     """
     from scripts.lib.cdp_client import CdpConnection
 
@@ -533,18 +565,67 @@ def _fetch_aibuy_cookies_from_chrome(cdp_url: str = "http://127.0.0.1:9222") -> 
         tab = conn.new_tab()
         # 打开 1688 首页触发 cookie 就绪（会话已有则直接读）
         tab.navigate("https://www.1688.com/", timeout=20)
-        time.sleep(2)
-        raw = tab.evaluate("document.cookie", timeout=10) or ""
+        # ✅ W5.3 (I-8): mtop token 舞步等待 —— 导航后轮询 document.cookie ≤8s
+        # 等 _m_h5_tk 非空（冷启动反爬 cookie 异步下发），而非固定 2s 睡眠。
         cookies: dict[str, str] = {}
-        for part in str(raw).split(";"):
-            part = part.strip()
-            if "=" in part:
-                k, v = part.split("=", 1)
-                if k in _AIBUY_COOKIE_KEYS:
-                    cookies[k] = v
-        return cookies if all(k in cookies for k in _AIBUY_COOKIE_KEYS) else {}
+        deadline = time.time() + AIBUY_TOKEN_WAIT_SECONDS
+        while time.time() < deadline:
+            raw = tab.evaluate("document.cookie", timeout=10) or ""
+            cookies = {}
+            for part in str(raw).split(";"):
+                part = part.strip()
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    if k in _AIBUY_COOKIE_KEYS:
+                        cookies[k] = v
+            if _aibuy_token_valid(cookies):
+                break
+            time.sleep(0.5)
+        if not _aibuy_token_valid(cookies):
+            # ✅ W5.1 (I-8): value 非空校验——空 value 的 4-key dict 不再放行落盘
+            logger.warning("轮询 %ds 后 _m_h5_tk 仍为空（无 1688 反爬 cookie），aibuy 通道不可用",
+                           AIBUY_TOKEN_WAIT_SECONDS)
+            return {}
+        return cookies
     except Exception as e:
         logger.warning("读取 Chrome cookie 失败（%s），aibuy API 通道不可用", e)
+        return {}
+    finally:
+        if tab:
+            try:
+                tab.close()
+            except Exception:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _read_1688_cookies_silent(cdp_url: str = "http://127.0.0.1:9222") -> dict[str, str]:
+    """静默读工具 Chrome 中的 1688 反爬 cookie（不导航任何页面）。
+
+    与 _fetch_aibuy_cookies_from_chrome 的区别：后者导航 www.1688.com 主动预热
+    cookie；这里只读不导航——用于 check 命令的「cookie 是否已预热」检测
+    （T7b.4 / R-4 缓解）。返回 {name: value}，无有效 token → {}。
+    """
+    conn = None
+    tab = None
+    try:
+        from scripts.lib.cdp_client import CdpConnection
+
+        conn = CdpConnection(cdp_url)
+        tab = conn.new_tab("about:blank")
+        msg_id = tab._send("Network.getCookies", {"urls": ["https://www.1688.com/"]})
+        resp = tab._recv_until_id(msg_id, timeout=10) or {}
+        cookies: dict[str, str] = {}
+        for c in (resp.get("result", {}).get("cookies") or []):
+            name = c.get("name", "")
+            if name in _AIBUY_COOKIE_KEYS:
+                cookies[name] = str(c.get("value") or "")
+        return cookies if _aibuy_token_valid(cookies) else {}
+    except Exception:
         return {}
     finally:
         if tab:
@@ -699,8 +780,10 @@ def search_by_image_aibuy(
     if token_cookies is None:
         # 刷新：从 Chrome 会话读 cookie
         token_cookies = _fetch_aibuy_cookies_from_chrome(cdp_url)
-        if not token_cookies:
-            logger.warning("aibuy token 刷新失败（Chrome 无 1688 会话），降级 CDP/AK 图搜")
+        # ✅ W5.2 (I-8): 毒 token 不落盘——`if not token_cookies:` 只拦全空 dict，
+        # 空 value 的 4-key dict 会通过；改用 value 级校验（_aibuy_token_valid）。
+        if not _aibuy_token_valid(token_cookies):
+            logger.warning("无 1688 反爬 cookie，aibuy 不可用，降级 CDP/AK 图搜")
             return []
         _save_aibuy_token(token_cookies)
 

@@ -30,9 +30,12 @@ import logging
 import time
 from typing import Any
 
+import requests
+
 logger = logging.getLogger(__name__)
 
 SELLER_URL = "https://seller.ozon.ru/"
+SELLER_API_BASE = "https://seller.ozon.ru"
 
 # 每 SKU 一次调用（filter.sku 单值），间隔防反爬
 DEFAULT_BATCH_DELAY = 1.0
@@ -686,6 +689,130 @@ def _read_company_id(tab) -> str:
         except Exception as exc:
             logger.debug("read sc_company_id via CDP cookies failed: %s", exc)
     return company_id
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 静默 cookie 直调（W5.6 / I-13，v0.57）：免 CDP 导航，requests 直调内部端点。
+# 与 CDP 版同端点/同 body/同解析 → 结果形状一致；cookie 不可用/失败 → []，
+# 由 cmd_queries 降级 CDP（保留合规兜底，见 ISSUES I-13）。
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _fetch_seller_session_cookies(cdp_url: str = "http://127.0.0.1:9222") -> dict[str, str]:
+    """从工具 Chrome 会话静默读 seller.ozon.ru cookie（不导航任何页面）。
+
+    复用 aibuy cookie 读取模式（ozon_image_search.py）：连接常驻 Chrome →
+    Network.getCookies 只读 cookie → 立即关闭。核心 cookie 是 sc_company_id
+    （HttpOnly，document.cookie 读不到，必须走 CDP 网络域）。
+
+    Returns:
+        {cookie名: 值}。无 sc_company_id / Chrome 未运行 → {}（fail-fast）。
+    """
+    conn = None
+    tab = None
+    try:
+        from scripts.lib.cdp_client import CdpConnection
+
+        conn = CdpConnection(cdp_url)
+        tab = conn.new_tab("about:blank")
+        msg_id = tab._send("Network.getCookies", {"urls": [SELLER_URL]})
+        resp = tab._recv_until_id(msg_id, timeout=10) or {}
+        cookies: dict[str, str] = {}
+        for c in (resp.get("result", {}).get("cookies") or []):
+            name = c.get("name", "")
+            val = c.get("value")
+            if name and val not in (None, ""):
+                cookies[name] = str(val)
+        if not cookies.get("sc_company_id"):
+            logger.info("seller.ozon.ru 无 sc_company_id cookie（未登录或未加载过卖家后台）")
+            return {}
+        return cookies
+    except Exception as exc:
+        logger.debug("读取 seller.ozon.ru 会话 cookie 失败（%s），降级 CDP", exc)
+        return {}
+    finally:
+        if tab:
+            try:
+                tab.close()
+            except Exception:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _seller_direct_post(path: str, body: dict, cookies: dict[str, str],
+                        timeout: int = 20) -> tuple[dict, bool]:
+    """requests 直调 seller.ozon.ru 内部端点（携带 Chrome 会话 cookie + 公司头）。
+
+    Returns:
+        (data, ok)。缺 sc_company_id / HTTP 非 200 / 非 JSON / 异常 → ({}, False)。
+    """
+    company_id = str(cookies.get("sc_company_id") or "")
+    if not company_id:
+        logger.warning("静默直调缺 sc_company_id，不可用")
+        return {}, False
+    headers = {
+        "Content-Type": "application/json",
+        "x-o3-company-id": company_id,
+        "x-o3-language": "zh-Hans",
+        "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+        "Referer": SELLER_URL,
+        "Accept": "application/json, text/plain, */*",
+    }
+    try:
+        resp = requests.post(f"{SELLER_API_BASE}{path}", json=body,
+                             headers=headers, cookies=cookies, timeout=timeout)
+    except Exception as exc:
+        logger.warning("seller 静默直调 %s 请求异常: %s", path, exc)
+        return {}, False
+    if resp.status_code != 200:
+        logger.warning("seller 静默直调 %s HTTP %d", path, resp.status_code)
+        return {}, False
+    try:
+        return resp.json(), True
+    except ValueError as exc:
+        logger.warning("seller 静默直调 %s 非 JSON 响应: %s", path, exc)
+        return {}, False
+
+
+def fetch_all_queries_direct(cookies: dict[str, str], keyword: str | None = None) -> list[dict]:
+    """all-queries 关键词蓝海 —— 静默 cookie 直调（免 CDP 导航）。
+
+    与 fetch_all_queries 同一端点/同一 body/同一解析，结果形状一致。失败 → []。
+    """
+    body = {
+        "text": keyword or "",
+        "limit": "50",
+        "offset": "0",
+        "sort_by": "count",
+        "sort_dir": "desc",
+        "period": "days_7",
+    }
+    data, ok = _seller_direct_post("/api/site/searchteam/Stats/queries/search/v2", body, cookies)
+    return _parse_query_items(data) if ok else []
+
+
+def fetch_ozon_bestsellers_direct(cookies: dict[str, str],
+                                  sku_or_id: str | None = None) -> list[dict]:
+    """ozon-bestsellers Ozon 畅销榜 —— 静默 cookie 直调（免 CDP 导航）。
+
+    与 fetch_ozon_bestsellers 同一端点/同一 body/同一解析，结果形状一致。失败 → []。
+    """
+    filter_: dict[str, Any] = {"stock": "any_stock", "period": "weekly", "categories": []}
+    if sku_or_id:
+        filter_["sku"] = str(sku_or_id)
+    body = {
+        "limit": "50",
+        "offset": "0",
+        "filter": filter_,
+        "sort": {"key": "session_count_search_desc"},
+    }
+    data, ok = _seller_direct_post("/api/site/seller-analytics/what_to_sell/data/v3", body, cookies)
+    return _parse_bestseller_items(data) if ok else []
 
 
 def fetch_all_queries(cdp, keyword: str | None = None, company_id: str | None = None) -> list[dict]:

@@ -7,6 +7,7 @@ actually used by cloud_client.py are ported; the heavier cloud-only modules
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -198,6 +199,11 @@ def search_categories(
     """
     tree = _query_category_tree(client_id, api_key, language=language)
     query_lower = query.strip().lower()
+    # 中文无空格分词：整词包含匹配对「宠物饮水机」这类复合词必然 0 命中，
+    # 增加 2-gram 子串匹配兜底（宠物饮水机 → 宠物/物饮/饮水/水机），无需 jieba 依赖。
+    CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+    is_cjk = bool(CJK_RE.search(query_lower))
+    cjk_grams = [query_lower[i : i + 2] for i in range(max(len(query_lower) - 1, 0))] if is_cjk else []
     # Filter Russian stop words — they match too many unrelated categories
     RU_STOP = {'для', 'и', 'в', 'на', 'с', 'от', 'к', 'по', 'из', 'или', 'не', 'а', 'за', 'без', 'до', 'под', 'об', 'у', 'же', 'то', 'как', 'что', 'это', 'все', 'еще', 'бы', 'мы', 'вы', 'он', 'она', 'они', 'там', 'тут', 'где', 'его', 'ее', 'их', 'активного', 'активный', 'активная'}
     query_words = [w for w in query_lower.split() if w not in RU_STOP]
@@ -238,6 +244,13 @@ def search_categories(
                     score = 5  # Starts with
                 else:
                     score = 10  # Contains substring
+            elif cjk_grams:
+                # 中文 2-gram 兜底：节点名命中任一 gram 即候选，按命中率排序
+                matched_grams = sum(1 for g in cjk_grams if g in name_to_search)
+                if matched_grams:
+                    score = 100 - int(matched_grams / len(cjk_grams) * 80)  # 全命中=20
+                else:
+                    score = 999
             elif word_score > 0:
                 score = 100 - int(word_score * 90)  # 1/1=10, 1/2=55, 1/3=70
             else:
