@@ -267,6 +267,56 @@ def process_1688_url(
     return result
 
 
+def _find_discover_source(product_id: str) -> dict[str, Any] | None:
+    """从 discover 缓存找已匹配货源的候选（按 ozon_product_id）。
+
+    优先最新缓存（load_latest_discovery），要求 match_1688_url 非空且
+    status 为 profitable/matched（曾被护栏放行过的有效匹配）。
+
+    ⚠️ v0.58: batch_test 处理 Ozon URL 时先复用 discover 已匹配好的 1688
+    货源走直上管线，避免重复 CDP 抓 Ozon + 图搜（图搜质量差时护栏还会
+    拦截多个，既慢又容易漏）。返回候选 dict 或 None。
+    """
+    try:
+        from scripts.lib.ozon_discovery import load_latest_discovery
+        for c in load_latest_discovery():
+            if str(c.get("ozon_product_id", "")) != str(product_id):
+                continue
+            if not c.get("match_1688_url"):
+                continue
+            if c.get("status") not in ("profitable", "matched"):
+                continue
+            return c
+    except Exception:
+        pass
+    return None
+
+
+def _product_candidate_from_dict(c: dict[str, Any]) -> Any:
+    """把 discover 缓存 dict 还原为 ProductCandidate（build_envelope 消费）。"""
+    from scripts.lib.ozon_discovery import ProductCandidate
+
+    try:
+        return ProductCandidate(**c)
+    except Exception:
+        # 字段不全时最小构造（必填：ozon_product_id/ozon_title/ozon_price）
+        return ProductCandidate(
+            ozon_product_id=str(c.get("ozon_product_id", "")),
+            ozon_title=str(c.get("ozon_title", "") or ""),
+            ozon_price=float(c.get("ozon_price", 0) or 0),
+            ozon_images=list(c.get("ozon_images", []) or []),
+            ozon_url=str(c.get("ozon_url", "") or ""),
+            match_1688_url=str(c.get("match_1688_url", "") or ""),
+            match_1688_title=str(c.get("match_1688_title", "") or ""),
+            match_1688_price=float(c.get("match_1688_price", 0) or 0),
+            match_1688_images=list(c.get("match_1688_images", []) or []),
+            weight_g=int(c.get("weight_g", 0) or 0),
+            dimensions_mm=dict(c.get("dimensions_mm", {}) or {}),
+            competing_sellers=int(c.get("competing_sellers", 0) or 0),
+            status=str(c.get("status", "matched") or "matched"),
+        )
+
+
 def process_ozon_url(
     url: str,
     product_id: str,
@@ -277,8 +327,12 @@ def process_ozon_url(
     store_id: str = "",
     notify: bool = False,
 ) -> dict[str, Any]:
-    """Process a single Ozon URL: follow-sell pipeline → submit."""
-    from scripts.cloud_probe import follow_sell_cloud
+    """Process a single Ozon URL: follow-sell pipeline → submit.
+
+    ⚠️ v0.58: 优先复用 discover 缓存已匹配的 1688 货源走直上管线
+    （build_envelope_from_discovery），未命中才走完整 follow 图搜链路。
+    """
+    from scripts.cloud_probe import build_envelope_from_discovery, follow_sell_cloud, submit_envelope
 
     result: dict[str, Any] = {
         "type": "ozon",
@@ -287,6 +341,42 @@ def process_ozon_url(
         "timestamp": _now_iso(),
         "success": False,
     }
+
+    # ── v0.58: 复用 discover 已匹配货源（免重跑 CDP + 图搜）──
+    cached = _find_discover_source(product_id)
+    if cached:
+        try:
+            candidate = _product_candidate_from_dict(cached)
+            store_config = {"client_id": client_id, "api_key": api_key}
+            print(f"  ♻️  [{product_id}] 复用 discover 已匹配货源: "
+                  f"{cached.get('match_1688_url', '')[:60]}", flush=True)
+            envelope = build_envelope_from_discovery(candidate, store_config, store_id=store_id)
+            if envelope:
+                result["reused_discover_source"] = True
+                result["match_1688_url"] = cached.get("match_1688_url", "")
+                result["search_keyword"] = cached.get("ozon_title", "")[:60]
+                if notify:
+                    envelope["notify"] = True
+                if dry_run:
+                    result["success"] = True
+                    result["dry_run"] = True
+                    result["title"] = (cached.get("match_1688_title")
+                                       or cached.get("ozon_title", ""))[:80]
+                    print(f"  ✅ [{product_id}] 信封组装完成（复用 discover）", flush=True)
+                    return result
+                submit_result = submit_envelope(envelope)
+                result["submit_result"] = submit_result
+                result["task_id"] = submit_result.get("task_id", "")
+                result["success"] = bool(submit_result.get("ok", False))
+                result["error"] = submit_result.get("error", "")
+                if result["success"]:
+                    print(f"  🎉 [{product_id}] 已提交 task_id={result['task_id']}（复用 discover）", flush=True)
+                else:
+                    print(f"  ⚠️ [{product_id}] 提交失败: {result['error']}", flush=True)
+                return result
+        except Exception as e:
+            result["error"] = f"复用 discover 货源失败: {e}"
+            print(f"  ⚠️ [{product_id}] 复用失败，降级跟卖: {result['error']}", flush=True)
 
     old_cid = os.environ.get("OZON_CLIENT_ID", "")
     old_akey = os.environ.get("OZON_API_KEY", "")
@@ -494,6 +584,14 @@ def main() -> int:
         return 1
 
     # ── Pre-flight check ──
+    # ⚠️ v0.58: 预扫描哪些 URL 实际需要 CDP——复用 discover 货源的 Ozon URL
+    # 直上免浏览器，纯复用批次不再 ensure_chrome_cdp（此前每次命令都白启 Chrome）。
+    _need_cdp = any(
+        u["type"] == "1688"
+        or (u["type"] == "ozon" and _find_discover_source(u["id"]) is None)
+        for u in urls
+    )
+
     from scripts.lib.config_store import check_config
     config = check_config()
     cdp = config.get("cdp", {})
@@ -504,21 +602,24 @@ def main() -> int:
 
     # Auto-launch Chrome via chrome_launcher (same as check command)
     _cdp_ok = False
-    try:
-        from pathlib import Path as _P
+    if _need_cdp:
+        try:
+            from pathlib import Path as _P
 
-        from scripts.lib.chrome_launcher import ensure_chrome_cdp
-        _prof = str(_P(__file__).resolve().parent.parent / "data" / "browser" / "profiles" / "1688" / "default")
-        ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_prof)
-        _cdp_ok = ok
-        if not ok:
-            issues.append(f"Chrome CDP 启动失败: {msg}")
-    except ImportError:
-        if not cdp.get("browser_available"):
-            issues.append("Chrome 浏览器未安装")
-        if not cdp.get("session_available") and not cdp.get("cdp_running"):
-            issues.append("CDP Chrome 未启动 (端口 9222)")
-            issues.append("→ 启动: Chrome --remote-debugging-port=9222 --remote-allow-origins='*'")
+            from scripts.lib.chrome_launcher import ensure_chrome_cdp
+            _prof = str(_P(__file__).resolve().parent.parent / "data" / "browser" / "profiles" / "1688" / "default")
+            ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_prof)
+            _cdp_ok = ok
+            if not ok:
+                issues.append(f"Chrome CDP 启动失败: {msg}")
+        except ImportError:
+            if not cdp.get("browser_available"):
+                issues.append("Chrome 浏览器未安装")
+            if not cdp.get("session_available") and not cdp.get("cdp_running"):
+                issues.append("CDP Chrome 未启动 (端口 9222)")
+                issues.append("→ 启动: Chrome --remote-debugging-port=9222 --remote-allow-origins='*'")
+    else:
+        print("♻️  本批全部走 discover 复用直上（免 Chrome）", flush=True)
 
     # 1688 login check via CDP cookies (not session file)
     # ⚠️ v0.14 E4: 用 CdpTab 封装替代手写 websocket（只读检查，不关远程 tab）
