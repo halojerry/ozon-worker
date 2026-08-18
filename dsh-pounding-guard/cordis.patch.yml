@@ -1,0 +1,21 @@
+# dsh-pounding-guard 挂载配置（patch 层）
+# 注意：profile 默认已加载 @deepseek-ai/dsh-user-approval（审批 seam），
+# 不要在这里重复加 approval，否则 duplicate loader entry id 报错。
+# 合并到 $DSH_HOME/profiles/web/cordis.patch.yml，或 dsh web --patch "$PWD/cordis.patch.yml"
+
+- insert:
+    # 三级安全门控（本插件）
+    - id: pounding-guard
+      name: '@dsh-external/dsh-pounding-guard'
+
+    # pounding-mcp 工具（被门控拦截的对象）
+    - id: mcp-pounding
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: pounding
+        transport: stdio
+        command: /Volumes/os/dev/ozon-worker/pounding-mcp/.venv/bin/python3
+        args: ['-m', 'pounding_mcp.server']
+        env:
+          OZON_SKILL_DIR: '/Volumes/os/dev/ozon-worker/skill'
+        cwd: /Volumes/os/dev/ozon-worker/pounding-mcp

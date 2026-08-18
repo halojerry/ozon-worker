@@ -1,0 +1,18 @@
+# pounding-mcp 挂载到 dsh 的 patch 层配置（参照官方 examples/mcp-memory）
+# 用法：合并到 $DSH_HOME/profiles/web/cordis.patch.yml，或
+#       dsh web --patch "$PWD/cordis.patch.yml"
+#
+# 注意：patch 层用 insert 包裹；bundle 层（cordis.yml）才直接 - id:。
+# 工具在 dsh 中可见为 mcp__pounding__<tool>（如 mcp__pounding__graph）。
+- insert:
+    - id: mcp-pounding
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: pounding
+        transport: stdio
+        command: /Volumes/os/dev/ozon-worker/pounding-mcp/.venv/bin/python3
+        args: ['-m', 'pounding_mcp.server']
+        env:
+          # 指向 skill 目录（必填，或提前设好 OZON_SKILL_DIR）
+          OZON_SKILL_DIR: '/Volumes/os/dev/ozon-worker/skill'
+        cwd: /Volumes/os/dev/ozon-worker/pounding-mcp
