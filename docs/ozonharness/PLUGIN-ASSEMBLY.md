@@ -133,19 +133,26 @@ dsh agent（总调度，按需「装配」插件）
 
 ## 四、关键决策
 
-### 1. 侧栏面板（DSH-better-sidebar）—— 电商面板的嵌入点
+### 1. 侧栏面板（DSH-better-sidebar）—— 8 板块的容器
 
-`DSH-better-sidebar` 支持**三方插件注册新 Tab**。这是我们的「webui 经营面（核心 6 页）」嵌入 dsh 的关键机制：
+`DSH-better-sidebar` 支持**三方插件注册新 Tab**（`registerTab`）。这是客户端「侧边栏 8 板块」的容器：
 
 ```
 DSH-better-sidebar 侧栏
-├── 文件 Tab（内置）
-├── 终端 Tab（内置）
-├── Git Tab（内置）
-└── 【电商 Tab】（我们注册）→ webui 核心 6 页（仪表盘/采集箱/订单/任务/店铺/上架）
+├── Agent（dsh 原生对话）
+├── 文件/终端/Git（better-sidebar 内置）
+├── 【采集箱】（我们 registerTab 注册）
+├── 【任务中心】（我们 registerTab 注册）
+├── 【专家】（我们 registerTab 注册）
+├── 【知识库】（我们 registerTab 注册）
+├── 【爆品新闻】（我们 registerTab 注册）
+├── 【计算器】（我们 registerTab 注册，脚本直算）
+└── 【用量】（dsh token-meter / 社区 balance）
 ```
 
-这样「对话面（dsh）+ 经营面（webui）」在一个窗口里，双向驱动（对话 + 手动点按钮）都有了。
+> 8 板块的具体内容 + 能力归属（worker/skill/脚本/agent）见 `PRD.md` §2.2/2.3。
+
+这样「对话面（Agent）+ 7 个业务板块」在一个窗口里，双向驱动（对话 + 手动）都有了。
 
 ### 2. 手机远程 —— Quick Tunnel 免账号（已定，开箱即用）
 
