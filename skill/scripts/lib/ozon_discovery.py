@@ -35,6 +35,27 @@ DEFAULT_MIN_MARGIN_PCT = 15.0    # minimum profit margin %
 DEFAULT_MAX_COMPETITORS = 50     # skip products with too many sellers
 LOGISTICS_PER_KG_CNY = 40.0      # 跨境物流按重量估算 CNY/kg（保底 8 CNY）
 
+# ⚠️ v0.58: 默认重量与 graph/follow 上架管线同源（cloud_probe.py price_estimate 分段）——
+# 此前 discover 无重量时落到 DEFAULT_LOGISTICS_CNY=15，而上架管线默认 500g → ¥6，
+# 两条路径差 ¥9/单，轻小件被选品分析误判「利润不足」。此处统一分段估算。
+DEFAULT_WEIGHT_G = 500           # 重量缺失时的默认重量（克），与 cloud_probe 一致
+
+
+def estimate_shipping_cny(weight_g: int | None) -> float:
+    """按重量估算跨境运费 CNY（与 cloud_probe price_estimate 分段同源，防漂移）。
+
+    分段：≤500g → ¥6；≤1000g → ¥8；>1000g → ¥15。
+    重量缺失/非正 → 按 DEFAULT_WEIGHT_G(500g) 估算（¥6），与上架管线默认一致。
+    """
+    w = int(weight_g or 0)
+    if w <= 0:
+        w = DEFAULT_WEIGHT_G
+    if w <= 500:
+        return 6.0
+    if w <= 1000:
+        return 8.0
+    return 15.0
+
 # ⚠️ v0.22: 知名品牌黑名单（discover 直接过滤，避免浪费图搜/1688 匹配/生图资源）。
 # 只放知名品牌（跟卖会侵权/被拒）；1688 白牌/小厂牌（fansen 等）不在此列。
 KNOWN_BRAND_PATTERNS: list[str] = [
@@ -2615,8 +2636,11 @@ def _calculate_profit(
                 8.0, candidate.weight_g / 1000.0 * LOGISTICS_PER_KG_CNY)
             candidate.logistics_fallback_chain = "flat_per_kg_40"
         else:
-            candidate.estimated_logistics_cny = logistics_cny
-            candidate.logistics_fallback_chain = "default_15"
+            # ⚠️ v0.58: 无重量时与上架管线（cloud_probe price_estimate）同源分段估算
+            # （默认 500g → ¥6），不再落到 DEFAULT_LOGISTICS_CNY=15 —— 轻小件
+            # 曾因多估 ¥9/单被误判「利润不足」。
+            candidate.estimated_logistics_cny = estimate_shipping_cny(candidate.weight_g)
+            candidate.logistics_fallback_chain = f"default_{DEFAULT_WEIGHT_G}g"
 
     # Commission
     candidate.estimated_commission = revenue_cny * effective_commission

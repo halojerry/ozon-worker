@@ -2835,8 +2835,11 @@ def publish_product_new(
 
     # 4. Price estimate
     cost_cny = _parse_price(result['enriched'].get('price', ''))
-    weight_g = result['enriched'].get('weight_grams') or 500
-    est_shipping = 6.0 if weight_g <= 500 else (8.0 if weight_g <= 1000 else 15.0)
+    # ⚠️ v0.58: 默认重量/运费与 discover 选品分析同源（ozon_discovery.estimate_shipping_cny
+    # 分段 6/8/15）——此前默认 500g → ¥6，discover 无重量落 ¥15，差 ¥9/单误判利润不足。
+    from scripts.lib.ozon_discovery import DEFAULT_WEIGHT_G, estimate_shipping_cny
+    weight_g = result['enriched'].get('weight_grams') or DEFAULT_WEIGHT_G
+    est_shipping = estimate_shipping_cny(weight_g)
     est_retail = math.ceil((cost_cny + est_shipping + 2.0) * 1.44375)
     result['price_estimate'] = {
         'cost_cny': cost_cny,
