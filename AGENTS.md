@@ -105,11 +105,15 @@ ozon-worker/
 │   ├── update.sh               # 一键更新
 │   └── .env.example            # 环境变量模板
 ├── docs/
-│   ├── CONTRACT-v4.md          # Skill↔Worker API 契约 v4.0（最新；CONTRACT.md 为 v3.0 旧版）
+│   ├── CONTRACT-v4.md          # Skill↔Worker API 契约 v4.0（最新；v3.0 旧版已归档 archive/docs/legacy/）
 │   ├── DEPLOY.md               # Worker 云端部署完整指南
 │   ├── LOGGING.md              # 日志系统架构 + 查看命令 + 故障排查
 │   ├── WORKER-TOPOLOGY.md      # ⭐ Worker 拓扑 + 错误映射 + 数据流 + 改代码快速参考
 │   └── ...                     # PRD、Ozon API 文档、物流费率 Excel
+├── archive/                    # 归档区（过时产物统一存放，见 archive/README.md）
+│   ├── docs/legacy/            # 过时文档（旧版 PRD/CONTRACT，git mv 保留历史）
+│   ├── screenshots/            # 开发/竞品截图（本地保留，未入库）
+│   └── packages/               # 历史压缩包（本地保留，未入库）
 └── scripts/
     └── ci.sh                   # 本地 CI（lint → test → build）
 ```
@@ -472,7 +476,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - **`skill/envelope_example.json`** — 完整信封结构示例（单 SKU + 跟卖两种模式）
 - **`docs/DEPLOY.md`** — ⭐ Worker 云端部署完整指南（Docker、Nginx、HTTPS、运维）
 - **`docs/WORKER-TOPOLOGY.md`** — Worker 拓扑与错误处理手册（节点流、错误映射、数据流、改代码快速参考）
-- **`docs/CONTRACT-v4.md`** — ⭐ Skill↔Worker API 契约 v4.0（端点、请求/响应、错误码、节点合约；`CONTRACT.md` 是 v3.0 旧版）
+- **`docs/CONTRACT-v4.md`** — ⭐ Skill↔Worker API 契约 v4.0（端点、请求/响应、错误码、节点合约；v3.0 旧版已归档 `archive/docs/legacy/`）
 - **`docs/LOGGING.md`** — 日志系统架构 + 查看命令 + 故障排查流程
 - **`docs/CONVENTIONS.md`** — 分支命名 + commit 规范 + 发版流程
 - **`docs/OZON-ATTRIBUTE-API.md`** — ⭐ Ozon 属性/类目 API 参考（5 接口定义 + 属性填满策略 + 关键属性 ID 表，开发直接查）
