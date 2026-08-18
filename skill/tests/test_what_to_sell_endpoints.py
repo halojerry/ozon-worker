@@ -163,12 +163,14 @@ def test_csv_export_format():
             with mock.patch.object(osa, "fetch_all_queries", return_value=rows):
                 with mock.patch("scripts.lib.cdp_client.CdpConnection") as conn_cls:
                     conn_cls.return_value = mock.MagicMock()
-                    # C5 todo8 接线后 cmd_queries 会上报采集数据——测试里打桩防真实网络请求
-                    with mock.patch("scripts.lib.analytics_upload.upload_in_background"):
-                        args = argparse.Namespace(
-                            type="all-queries", keyword="поилка", sku="", category_id="",
-                            price_min=None, price_max=None, export="csv", output=out_path)
-                        rc = cmd_queries(args)
+                    # W5.6: 静默直调优先——无 Chrome 会话 cookie → 走 CDP 兜底
+                    with mock.patch.object(osa, "_fetch_seller_session_cookies", return_value={}):
+                        # C5 todo8 接线后 cmd_queries 会上报采集数据——测试里打桩防真实网络请求
+                        with mock.patch("scripts.lib.analytics_upload.upload_in_background"):
+                            args = argparse.Namespace(
+                                type="all-queries", keyword="поилка", sku="", category_id="",
+                                price_min=None, price_max=None, export="csv", output=out_path)
+                            rc = cmd_queries(args)
         assert rc == 0
         raw = open(out_path, "rb").read()
         assert raw.startswith(b"\xef\xbb\xbf"), "CSV 应带 utf-8-sig BOM"
@@ -190,13 +192,140 @@ def test_cmd_queries_not_logged_in_prints_and_returns_0():
     with mock.patch.object(osa, "check_seller_login", return_value=False):
         with mock.patch("scripts.lib.cdp_client.CdpConnection") as conn_cls:
             conn_cls.return_value = mock.MagicMock()
-            with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
-                args = argparse.Namespace(
-                    type="all-queries", keyword="", sku="", category_id="",
-                    price_min=None, price_max=None, export="csv", output="")
-                rc = cmd_queries(args)
+            with mock.patch.object(osa, "_fetch_seller_session_cookies", return_value={}):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                    args = argparse.Namespace(
+                        type="all-queries", keyword="", sku="", category_id="",
+                        price_min=None, price_max=None, export="csv", output="")
+                    rc = cmd_queries(args)
     assert rc == 0
     assert "未登录" in out.getvalue()
+
+
+# ── W5.6: 静默 cookie 直调（v0.57）────────────────────────────────────────
+
+def test_fetch_seller_session_cookies_reads_company_id():
+    """静默读 Chrome 会话 cookie：Network.getCookies 含 sc_company_id → dict。"""
+    conn = mock.MagicMock()
+    tab = mock.MagicMock()
+    conn.new_tab.return_value = tab
+    tab._recv_until_id.return_value = {
+        "result": {"cookies": [
+            {"name": "sc_company_id", "value": "5371047"},
+            {"name": "session_id", "value": "abc"},
+            {"name": "empty", "value": ""},
+        ]}}
+    with mock.patch("scripts.lib.cdp_client.CdpConnection", return_value=conn):
+        cookies = osa._fetch_seller_session_cookies()
+    assert cookies["sc_company_id"] == "5371047"
+    assert cookies["session_id"] == "abc"
+    assert "empty" not in cookies, "空值 cookie 不应收集"
+    tab.close.assert_called()  # 用完即关（静默，不残留 tab）
+
+
+def test_fetch_seller_session_cookies_missing_company_id_returns_empty():
+    """无 sc_company_id → {}（未登录/未加载过卖家后台）。"""
+    conn = mock.MagicMock()
+    tab = mock.MagicMock()
+    conn.new_tab.return_value = tab
+    tab._recv_until_id.return_value = {"result": {"cookies": [{"name": "other", "value": "x"}]}}
+    with mock.patch("scripts.lib.cdp_client.CdpConnection", return_value=conn):
+        assert osa._fetch_seller_session_cookies() == {}
+
+
+def test_fetch_seller_session_cookies_conn_fail_returns_empty():
+    """Chrome 未运行/连接失败 → {}（fail-fast，不 raise）。"""
+    with mock.patch("scripts.lib.cdp_client.CdpConnection", side_effect=Exception("conn refused")):
+        assert osa._fetch_seller_session_cookies() == {}
+
+
+@mock.patch("scripts.lib.ozon_seller_analytics.requests.post")
+def test_fetch_all_queries_direct_parses(mock_post):
+    """静默 cookie 直调 all-queries → 与 CDP 版同解析结果。"""
+    mock_post.return_value = mock.Mock(status_code=200, json=lambda: {"data": {"data": [
+        {"query": "поилка", "count": 9494, "ca": 27.14, "avgCaRub": 1585,
+         "uniqSellers": 30, "ord": 920, "gmv": 1385552,
+         "uniqQueriesWCa": 2577, "searchUsersToOrdUsers": 9.41},
+    ]}})
+    cookies = {"sc_company_id": "5371047", "session_id": "abc"}
+    rows = osa.fetch_all_queries_direct(cookies, keyword="поилка")
+    assert len(rows) == 1
+    assert rows[0]["query"] == "поилка"
+    assert rows[0]["count"] == 9494
+    assert rows[0]["ordering_amount"] == 920
+    args, kwargs = mock_post.call_args
+    assert args[0] == "https://seller.ozon.ru/api/site/searchteam/Stats/queries/search/v2"
+    assert kwargs["headers"]["x-o3-company-id"] == "5371047"
+    body = kwargs["json"]
+    assert body["text"] == "поилка"
+    assert body["period"] == "days_7"
+
+
+@mock.patch("scripts.lib.ozon_seller_analytics.requests.post")
+def test_fetch_ozon_bestsellers_direct_parses_and_sku(mock_post):
+    """静默 cookie 直调 ozon-bestsellers → 与 CDP 版同解析结果 + sku 过滤。"""
+    mock_post.return_value = mock.Mock(status_code=200, json=lambda: {"data": {"items": [
+        {"sku": "7969279", "name": "SvetoCopy Paper", "brand": "SvetoCopy",
+         "soldCount": "15136", "gmvSum": 6419792.282, "salesDynamics": 18,
+         "sessionCountSearch": "773518", "convToCartSearch": 1.33,
+         "category1Id": "17027492", "category2Id": "17029017", "category3Id": "91400",
+         "attributes": []},
+    ]}})
+    cookies = {"sc_company_id": "5371047"}
+    rows = osa.fetch_ozon_bestsellers_direct(cookies, sku_or_id="7969279")
+    assert len(rows) == 1
+    assert rows[0]["sku"] == "7969279"
+    assert rows[0]["name"] == "SvetoCopy Paper"
+    assert rows[0]["sold_count"] == 15136
+    assert rows[0]["category2_id"] == 17029017
+    args, kwargs = mock_post.call_args
+    assert args[0] == "https://seller.ozon.ru/api/site/seller-analytics/what_to_sell/data/v3"
+    assert kwargs["json"]["filter"]["sku"] == "7969279"
+    assert kwargs["json"]["sort"] == {"key": "session_count_search_desc"}
+
+
+def test_seller_direct_post_missing_company_id():
+    """缺 sc_company_id → ({}, False)，不发请求。"""
+    with mock.patch("scripts.lib.ozon_seller_analytics.requests.post") as mock_post:
+        data, ok = osa._seller_direct_post("/x", {}, {})
+    assert data == {} and ok is False
+    mock_post.assert_not_called()
+
+
+@mock.patch("scripts.lib.ozon_seller_analytics.requests.post")
+def test_seller_direct_post_http_error_returns_empty(mock_post):
+    """HTTP 非 200 → ({}, False)（fail-fast，不 raise）。"""
+    mock_post.return_value = mock.Mock(status_code=403, json=lambda: {})
+    data, ok = osa._seller_direct_post("/x", {}, {"sc_company_id": "1"})
+    assert data == {} and ok is False
+
+
+@mock.patch("scripts.lib.ozon_seller_analytics.requests.post")
+def test_seller_direct_post_non_json_returns_empty(mock_post):
+    """非 JSON 响应 → ({}, False)。"""
+    mock_post.return_value = mock.Mock(status_code=200, json=mock.Mock(side_effect=ValueError("no json")))
+    data, ok = osa._seller_direct_post("/x", {}, {"sc_company_id": "1"})
+    assert data == {} and ok is False
+
+
+def test_cmd_queries_direct_path_preferred_when_cookies_available():
+    """cookie 就绪 → 走静默直调（不调 CDP fetch）；直调有数据则不再触 CDP。"""
+    from scripts.cli import cmd_queries
+    import argparse
+
+    cookies = {"sc_company_id": "5371047"}
+    rows = [{"query": "поилка", "count": 5}]
+    with mock.patch.object(osa, "_fetch_seller_session_cookies", return_value=cookies):
+        with mock.patch.object(osa, "fetch_all_queries_direct", return_value=rows) as direct:
+            with mock.patch("scripts.lib.analytics_upload.upload_in_background"):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                    args = argparse.Namespace(
+                        type="all-queries", keyword="", sku="", category_id="",
+                        price_min=None, price_max=None, export="json", output="")
+                    rc = cmd_queries(args)
+    assert rc == 0
+    direct.assert_called_once()
+    assert "静默模式" in out.getvalue()
 
 
 if __name__ == "__main__":
