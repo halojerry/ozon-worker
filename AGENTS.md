@@ -2,17 +2,17 @@
 
 本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
-## 最近更新（v0.56.6 — skill 学习上品帮 v1 + 店铺缓存 + 余额/额度修复 + 发版质检）
+## 最近更新（v0.57 — webui 视觉 v2.0 全站落地 + 能力补齐 + 多用户聚合 + 静默采集）
 
-> 2026-08-17。13 Task / 4 Wave 交付 + 发版全链路质检（CI/CD/gitleaks/CD bun 生态）。完整历史见 `CHANGELOG.md`。
+> 2026-08-18。按 `integration-workplan/` 六件套（PRD/PLAN/TASKS/ISSUES/TODO/TEST v2.0，经评审 GATE APPROVE）执行。前端 6 文件 + worker 5 文件 + skill 6 文件 + 测试 8 文件。
 
-- **skill 学习上品帮 v1（F1-F13）**：列表内联解析 + 22 字段粗筛 + 18 项 BASE 粗筛（discover 5min→2min，80% aibuy 配额节省）+ `--rules ai` 阶梯门槛 + graph 信封补竞品（S1 混合键：`extensions.competitor_weight_g/competitor_dimensions_mm` + `draft.ozon_attributes/competitor_price/follow_min_price`）+ `discover-multi --keywords` 并行 + `--to-box` 采集箱 + D12 上报归档 + 读 worker listing_templates 三段降级。详见 `docs/PRD-skill-learn-shangpinbang-v1.md` + `.omo/plans/skill-learn-shangpinbang-v1.md`。
-- **店铺数据缓存（v0.56 前一轮）**：Ozon 订单/在线商品 PG 缓存 + 15min 自动同步 + 手动同步按钮（`store_sync_service.py`/`store_sync_scheduler.py`/`store_sync_routes.py`），租户隔离硬约束（`tenant_id` 唯一键，A 查不到 B）。
-- **余额不足明确 fail「请充值」**（v0.56.4，Sentry 591 次 `insufficient_user_quota` 根因）：`call_mxou_chat_api` 入口加余额 pre-check（v0.56 W12 原只修 image 通道漏了 chat）+ 403/OUT_OF_QUOTA 不当普通 4xx 静默返回 None + prepare 翻译 `MxouOutOfQuotaError` re-raise + `mxou_llm` 纯 re-export 天然冒泡——链路：余额不足 → OUT_OF_QUOTA → task failed + error_message（用户 query 明确看到余额不足请充值）。
-- **key 无限额度 + 真实余额消费**（v0.56.5）：webui 自动创建 key `unlimited_quota=true`（`_upsert_supabase_token`），但实际消费仍走 MXOU 平台真实余额（`_check_mxou_balance` 优先 `get_mxou_balance`，`unlimited_quota` 仅兜底分支放行，MXOU 实查欠费必拒）。
-- **发版质检三连修**（v0.56.1-3）：F821 缺 import 真 bug（orders/shelf_routes 用 HTTPException 未 import）+ CI ruff 全量清零 + CD bun 生态适配（webui 是 bun.lock 生态，package-lock.json 从不存在，CD 的 `npm ci` 必失败——改 `oven-sh/setup-bun` + `bun install`）+ `ozon_product_tasks` 关键列补 `server_default`（CI 干净建表 NOT NULL 违约）+ aibuy 图搜去 `_require_auth`（CI 无 token 环境 AuthError）。
-- **gitleaks-action v2→v3**（v0.56.6）：v2 floating 版本拉到新版移除 `log-opts` input（Unexpected input 失败）；v3 内部按 push/PR 范围扫描，不暴露 log-opts/GITLEAKS_COMMAND_ARGS——**勿再加回 log-opts**。
-- **测试**: worker 1209 passed（基线 1179 + 30 新）/ skill 537 passed（基线 487 + 50 新）。
+- **视觉全站落地（W1-W3）**：`theme.css` `:root`(light)/`.dark` 映射设计 token（bg `#F7F6F2` / primary `#E20E0E` / sidebar `#111` / border `#E6E4DF` / radius 10px）+ `--font-mono` 加入 `@theme inline`；`scripts/verify-design-tokens.mjs` 校验脚本（断言 theme.css 与 design-tokens.json 一致，防漂移）；`src/tokens/tokens.json` 标注 legacy；KPI 卡组件（data-lg 等宽数字）、表格 mono、空态组件对齐 spec；登录页迁移出 `src/index.css`（`styles/login.css`）；`main.tsx:46` `./index.css` **保留**（3519 行业务样式未迁移，不得整体删除）。
+- **API 接线（W4）**：`getTaskStatistics()`（GET `/api/v1/task_statistics`）新增 + KPI 卡接真实数字（今日订单=各店 today_orders 聚合 / AI 上品数=completed / 上架成功率）；SystemSettings 业务 Tab 接 logistics 三函数（表格/编辑/CSV 导入）；订单商品图 `OrderProductOut.image`（worker 按 **product_id** 批量 `/v3/product/info/list`，复用 `_fetch_info_map_by_ids`）；**订单接口 v3→v4**（`/v4/posting/fbs/list` cursor/has_next，order_service.py:293 + store_sync_service.py:58-72）；在售列表 `/products/ozon` 图/价；Stores 页今日统计列（`GET /stores/{id}/stats`，store_sync 聚合，**无评分字段**）。
+- **多用户聚合（W4b）**：热销榜（`list_bestsellers` 去 `contributed_by_token_id` 过滤）+ 发现归档（`GET /api/v1/discovery/runs` 去 tenant 过滤）**全局共享**（保留贡献者列）；订单/商品/草稿/凭证/任务隔离不动；蓝海（admin-only）/榜单（无读端点）**不开放**（TODO #12）。
+- **静默采集（W5）**：aibuy 毒 token 修复 4 处（`_aibuy_token_valid` value 级校验 + 读取失效 + 保存守卫 + token 舞步轮询 8s）；降级出声（cloud_probe.py:3353/ozon_discovery.py:2190 debug→warning）；热销榜 `queries --type ozon-bestsellers/all-queries` **cookie 直调**（`_fetch_seller_session_cookies` + `fetch_*_direct`，免 Chrome 导航，CDP 兜底）；compile.py stub 特征校验（`search_by_image_aibuy` 存在性 warning）；`check` 命令 1688 反爬 cookie 就绪检测。
+- **类型迁移（W6）**：client.ts **42 接口**迁移 `generated.d.ts`（27 纯别名 + 14 Omit 覆盖 + 2 内联），30 保留手写+注释；openapi 快照重新生成（97→98 paths，新增 `/stores/{id}/stats`）；占位页按 spec 空态规范（PricingTool 竞品对比 → /bestsellers、ImageStudio AI 背景编辑 → /products）。
+- **I-9 结论**（实测）：`ir.ozone.ru` 竞品图 **可直接 aibuy 图搜**（1688 服务器阿里出口可达）；本机 curl 403/fake-IP 是本地代理特性，与 aibuy 无关——**无需 COS 转存**（relay 过度设计已撤销）。
+- **测试**：worker **1212 passed**（基线 1209 + 新增 store stats/全局共享/v4 迁移）；skill **556 passed**（基线 537 + 19 新增：毒 token/轮询/直调/特征校验）；webui `tsc -b` 0 错误 + `npm run build` 通过。
 
 ## 最近更新（v0.40.1 — 生图合规 + 参考图泄漏 + 8229 类型值修复）
 
