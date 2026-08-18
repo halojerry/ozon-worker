@@ -2540,17 +2540,20 @@ def _query_logistics_from_worker(weight_g: int, dims_mm=None) -> LogisticsQuote 
     """调 Worker /api/v1/logistics/quote 查真实物流费率（v0.29.x / P1-5 加固）。
 
     - 按重量查询；dims_mm（mm 尺寸 dict/元组）转 cm 随请求，缺省 10cm 立方。
+    - ⚠️ v0.58: 重量缺失（None/≤0）时按 DEFAULT_WEIGHT_G(500g) 查表——此前
+      直接返回 None 跳过费率表，导致 discover 无重量时落到本地硬编码估算
+      （曾 ¥15），与上架管线默认 500g 的费率不一致。费率表是权威，无重量
+      只是少一个查询维度，不是放弃查表的理由。
     - 进程内成功缓存（_LOGISTICS_QUOTE_CACHE，只缓存成功结果）。
     - Worker 不可达/超时/无 token → 复用同重量带 last-good 费率（24h TTL，
-      标记 estimated=True）；连 last-good 都没有 → None（调用方 40/kg 兜底）。
+      标记 estimated=True）；连 last-good 都没有 → None（调用方本地兜底）。
     """
-    if weight_g is None or weight_g <= 0:
-        return None
-    cached = _LOGISTICS_QUOTE_CACHE.get(weight_g)
+    eff_weight = int(weight_g) if weight_g is not None and weight_g > 0 else DEFAULT_WEIGHT_G
+    cached = _LOGISTICS_QUOTE_CACHE.get(eff_weight)
     if cached is not None:
         return LogisticsQuote(cost=cached)
 
-    payload = {"weight_g": int(weight_g)}
+    payload = {"weight_g": int(eff_weight)}
     dims_cm = _dims_mm_to_cm(dims_mm)
     if dims_cm:
         payload.update(dims_cm)
@@ -2564,20 +2567,20 @@ def _query_logistics_from_worker(weight_g: int, dims_mm=None) -> LogisticsQuote 
 
         token = get_mxou_token()
         if not token:
-            return _last_good_quote(weight_g)
+            return _last_good_quote(eff_weight)
         resp = _req.post(
             f"{CLOUD_API_BASE}/api/v1/logistics/quote",
             json={"token": token, **payload},
             timeout=6,
         )
         if resp.status_code != 200:
-            return _last_good_quote(weight_g)
+            return _last_good_quote(eff_weight)
         data = resp.json()
         cost = data.get("logistics_cost_cny")
         if isinstance(cost, (int, float)) and cost > 0:
             cost_f = float(cost)
-            _LOGISTICS_QUOTE_CACHE[weight_g] = cost_f
-            _LAST_GOOD_LOGISTICS[_logistics_weight_band(weight_g)] = (cost_f, time.time())
+            _LOGISTICS_QUOTE_CACHE[eff_weight] = cost_f
+            _LAST_GOOD_LOGISTICS[_logistics_weight_band(eff_weight)] = (cost_f, time.time())
             chain = data.get("fallback_chain", "")
             if isinstance(chain, (list, tuple)):
                 chain = ",".join(str(x) for x in chain)
@@ -2586,9 +2589,9 @@ def _query_logistics_from_worker(weight_g: int, dims_mm=None) -> LogisticsQuote 
                 fallback_chain=str(chain or ""),
                 channel=str(data.get("channel", "") or ""),
             )
-        return _last_good_quote(weight_g)
+        return _last_good_quote(eff_weight)
     except Exception:
-        return _last_good_quote(weight_g)
+        return _last_good_quote(eff_weight)
 
 
 def _calculate_profit(
@@ -2636,9 +2639,9 @@ def _calculate_profit(
                 8.0, candidate.weight_g / 1000.0 * LOGISTICS_PER_KG_CNY)
             candidate.logistics_fallback_chain = "flat_per_kg_40"
         else:
-            # ⚠️ v0.58: 无重量时与上架管线（cloud_probe price_estimate）同源分段估算
-            # （默认 500g → ¥6），不再落到 DEFAULT_LOGISTICS_CNY=15 —— 轻小件
-            # 曾因多估 ¥9/单被误判「利润不足」。
+            # ⚠️ v0.58: 费率表+last-good 均不可达（worker 离线）时兜底——与上架
+            # 管线（cloud_probe price_estimate）同源分段（默认 500g → ¥6），
+            # 不再落到 DEFAULT_LOGISTICS_CNY=15（曾多估 ¥9/单误判利润不足）。
             candidate.estimated_logistics_cny = estimate_shipping_cny(candidate.weight_g)
             candidate.logistics_fallback_chain = f"default_{DEFAULT_WEIGHT_G}g"
 
