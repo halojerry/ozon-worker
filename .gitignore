@@ -117,3 +117,7 @@ design-deliverables/
 maozier-*.png
 shopbang-*.png
 dashboard*.png
+
+# ─── skill 运行时文件 ───
+skill/data/.venv.lock
+skill/data/review_log.jsonl
