@@ -69,6 +69,7 @@ def cmd_set_store(args: argparse.Namespace) -> int:
         currency=args.currency or "",
     )
     _out({"success": True, "store": args.name, "config": store})
+    _sync_stores_to_vault()
     return 0
 
 
@@ -88,7 +89,23 @@ def cmd_list_stores(args: argparse.Namespace) -> int:
             "currency": config.get("currency", "RUB"),
         }
     _out({"stores": result, "total": len(stores)})
+    _sync_stores_to_vault()
     return 0
+
+
+def _sync_stores_to_vault() -> None:
+    """把店铺配置落盘到 vault（配置自动落盘，脱敏，失败不阻断主流程）。"""
+    try:
+        from scripts.lib import vault_writer
+        from scripts.lib.config_store import list_stores
+        stores = list_stores()
+        vault_writer.write_markdown(
+            "01-Stores/stores.md",
+            vault_writer.render_stores(stores),
+        )
+    except Exception:
+        # 落盘是副作用，失败绝不能影响命令主流程
+        pass
 
 
 def cmd_set_token(args: argparse.Namespace) -> int:
@@ -783,6 +800,25 @@ def cmd_check(args) -> int:
         print(f"  {_ok(alibaba_cdp_ok)} 1688 页面可访问 (仅影响 1688 URL)")
     else:
         print("\n  🔗 1688 CDP: ⏭️ 跳过（CDP 未启动）")
+
+    # ── v0.57 T7b.4 (R-4): aibuy 反爬 cookie 就绪检测 ──
+    # aibuy 免浏览器图搜依赖工具 Chrome 加载过 1688 页面后下发的匿名反爬 cookie
+    # （_m_h5_tk 等，与登录无关）。未预热 → image_search/follow 降级 CDP（开 1688 页）。
+    # 这里静默只读检测（不导航）+ 明确提示，缓解「静默采集依赖 Chrome 常驻」的困惑。
+    aibuy_cookie_ok = False
+    if session_ok:
+        try:
+            from scripts.lib.ozon_image_search import _read_1688_cookies_silent
+            aibuy_cookie_ok = bool(_read_1688_cookies_silent())
+        except Exception:
+            pass
+    print(f"  {_ok(aibuy_cookie_ok)} 1688 反爬 cookie（aibuy 免浏览器图搜依赖）")
+    if not aibuy_cookie_ok:
+        print("  → 工具 Chrome 未加载过 1688 页面（反爬 cookie 未预热）")
+        print("    image_search/follow 的 aibuy 免浏览器图搜将不可用（自动降级 CDP 图搜）")
+        print("    在工具 Chrome 中打开 https://www.1688.com/ 一次即可预热（无需登录）")
+        if session_ok:
+            _open_tab("https://www.1688.com/")
 
     if session_ok and alibaba_cdp_ok or session_ok:
         print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
@@ -2243,45 +2279,64 @@ def cmd_seller(args: argparse.Namespace) -> int:
 
 
 def cmd_queries(args: argparse.Namespace) -> int:
-    """what-to-sell SPA 三页查询(v0.33.2, C4 step1): all-queries / ozon-bestsellers / market-bestsellers。
+    """what-to-sell SPA 三页查询(v0.33.2, C4 step1; v0.57 W5.6 静默 cookie 直调)。
 
-    通过 CDP 复用已登录 seller.ozon.ru tab 页面内 fetch 真实端点（见
-    .omo/evidence/sentry-attribute-fixes/task-5-c4a.endpoints.json），
+    all-queries / ozon-bestsellers 优先静默路径：读工具 Chrome 会话 cookie →
+    requests 直调 seller.ozon.ru 内部端点（免导航、免开新页面，见 ISSUES I-13）；
+    cookie 不可用或直调失败 → CDP 兜底（复用已登录 seller tab 页面内 fetch）。
+    market-bestsellers 保持 CDP（无静默直调需求）。
     输出 CSV(utf-8-sig, Excel 兼容) 或 JSON。
     """
     import csv
     import io
 
-    from scripts.lib.cdp_client import CdpConnection
     from scripts.lib import ozon_seller_analytics as osa
 
-    if not args.output:
-        try:
-            from scripts.lib.chrome_launcher import ensure_chrome_cdp
-            ensure_chrome_cdp()
-        except Exception:
-            pass
-
     rows: list[dict] = []
-    try:
-        with CdpConnection() as cdp:
-            if not osa.check_seller_login(cdp):
-                print("未登录 seller.ozon.ru", flush=True)
-                return 0
-            if args.type == "all-queries":
-                rows = osa.fetch_all_queries(cdp, keyword=args.keyword or None)
-            elif args.type == "ozon-bestsellers":
-                rows = osa.fetch_ozon_bestsellers(cdp, sku_or_id=args.sku or None)
-            else:
-                rows = osa.fetch_market_bestsellers(
-                    cdp,
-                    category_id=args.category_id or None,
-                    price_rub_min=args.price_min,
-                    price_rub_max=args.price_max,
-                )
-    except Exception as exc:
-        print(f"❌ queries 执行失败: {exc}", flush=True)
-        return 1
+    # ── 静默 cookie 直调优先（W5.6 / I-13）：免开可见 Chrome 页面 ──
+    if args.type in ("all-queries", "ozon-bestsellers"):
+        cookies = osa._fetch_seller_session_cookies()
+        if cookies:
+            try:
+                if args.type == "all-queries":
+                    rows = osa.fetch_all_queries_direct(cookies, keyword=args.keyword or None)
+                else:
+                    rows = osa.fetch_ozon_bestsellers_direct(cookies, sku_or_id=args.sku or None)
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning("queries 静默直调失败（降级 CDP）: %s", exc)
+                rows = []
+            if rows:
+                print("（静默模式：cookie 直调 seller.ozon.ru，无浏览器导航）", flush=True)
+
+    # ── CDP 兜底 ──
+    if not rows:
+        if not args.output:
+            try:
+                from scripts.lib.chrome_launcher import ensure_chrome_cdp
+                ensure_chrome_cdp()
+            except Exception:
+                pass
+        try:
+            from scripts.lib.cdp_client import CdpConnection
+            with CdpConnection() as cdp:
+                if not osa.check_seller_login(cdp):
+                    print("未登录 seller.ozon.ru", flush=True)
+                    return 0
+                if args.type == "all-queries":
+                    rows = osa.fetch_all_queries(cdp, keyword=args.keyword or None)
+                elif args.type == "ozon-bestsellers":
+                    rows = osa.fetch_ozon_bestsellers(cdp, sku_or_id=args.sku or None)
+                else:
+                    rows = osa.fetch_market_bestsellers(
+                        cdp,
+                        category_id=args.category_id or None,
+                        price_rub_min=args.price_min,
+                        price_rub_max=args.price_max,
+                    )
+        except Exception as exc:
+            print(f"❌ queries 执行失败: {exc}", flush=True)
+            return 1
 
     # C5 todo8: 采集成功后 fire-and-forget 上报 worker（失败/无 token 均不阻断主流程）
     if rows:

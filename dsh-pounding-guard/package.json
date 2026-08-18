@@ -1,0 +1,31 @@
+{
+  "name": "@dsh-external/dsh-pounding-guard",
+  "description": "Three-tier safety gate (read/write/destructive) for pounding-mcp tools via tools/pre-execute",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/index.d.ts"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "cordis.patch.yml"
+    }
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}
