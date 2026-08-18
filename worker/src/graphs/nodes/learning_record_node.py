@@ -25,6 +25,22 @@ from utils.local_db_manager import LocalDBManager
 # 成功路径补回填。任何守卫缺失/写失败 → 跳过 + warning，绝不阻断学习路径。
 # ═══════════════════════════════════════════════════════════════════════
 
+def _is_real_upload_success(state) -> bool:
+    """approved，或修复循环增量更新成功且商品已存在（有 product_id）。
+
+    假成功（ozon_status_node 无有效 product_id 时置 upload_status=success + moderation=pending）
+    靠 product_id 缺失拦截；修复循环成功（attributes/prices 增量 API 被 Ozon 接受）必有
+    product_id，moderation 停留首传旧值 failed/declined，是真实成功。
+    """
+    if (getattr(state, 'moderation_status', '') or getattr(state, 'status', '') or "") == "approved":
+        return True
+    repair_success: bool = (getattr(state, 'upload_status', '') or "") == "success"
+    if not repair_success:
+        return False
+    pid: str = str(getattr(state, 'product_id', '') or '')
+    return bool(pid and pid not in ("0", "None"))
+
+
 def _task_id_from_config(config) -> str:
     """从 LangGraph RunnableConfig 提取任务 ID（configurable.thread_id = PG 任务 ID）。
 
@@ -215,11 +231,10 @@ def learning_record_node(
     
     # ✅ v0.21 (P0-1): 只有审核 approved 才算成功，才允许写学习记录。
     # imported/active/processed 只是"导入成功"，不代表审核通过；
-    # upload_status=="success" / state.ozon_upload_success 是假成功来源，一律不再放行。
-    ozon_status: str = getattr(state, 'moderation_status', '') or state.status or ""
-    ozon_upload_success: bool = ozon_status == "approved"
+    # upload_status=="success" 是假成功来源，一律不再放行。
+    ozon_upload_success: bool = _is_real_upload_success(state)
     
-    logger.info(f"📊 Ozon状态：{ozon_status} → 是否上传成功：{ozon_upload_success}")
+    logger.info(f"📊 Ozon状态：{getattr(state, 'moderation_status', '') or getattr(state, 'status', '')} → 是否上传成功：{ozon_upload_success}")
     
     # 判断是否上传成功
     if not ozon_upload_success:

@@ -11,6 +11,7 @@
 需要本地 Docker PG；PG 不可达时 skip。
 """
 import asyncio
+import datetime
 import os
 import sys
 from pathlib import Path
@@ -129,21 +130,30 @@ def _cleanup():
     _db_execute("DELETE FROM credentials WHERE tenant_id IN ('tenant-a', 'tenant-b')")
 
 
-# 模拟 Ozon 响应
+# 模拟 Ozon 响应（v4 posting/fbs/list 扁平结构 + 商品 info 含主图）
 def _ozon_post_ok(method_calls, tenant):
-    """mock ozon_post：orders 1 页 + products 1 页 + info 详情。"""
+    """mock ozon_post：orders 1 页（v4）+ products 1 页 + info 详情。"""
     def _handler(client_id, api_key, path, body=None, **kw):
         method_calls.append((path, body))
-        if path == "/v3/posting/fbs/list":
-            return {"result": {"total": 1, "postings": [{
+        if path == "/v4/posting/fbs/list":
+            # v4：扁平响应（cursor/has_next/postings），products[].price 对象，
+            # financial_data commission 对象、product_id 与 posting sku 同值
+            now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            return {"has_next": False, "cursor": "", "postings": [{
                 "posting_number": f"PN-{tenant}-1",
                 "status": "delivered",
-                "in_process_at": "2026-07-19T06:19:51+00:00",
-                "products": [{"name": "Товар", "sku": 1, "quantity": 1, "price": 18.0, "offer_id": "o1"}],
-                "financial_data": {"products": [{"price": 18.0, "quantity": 1}], "services": []},
+                "in_process_at": now,
+                "products": [{
+                    "name": "Товар", "sku": 1, "quantity": 1,
+                    "price": {"amount": "18.00", "currency": "RUB"}, "offer_id": "o1",
+                }],
+                "financial_data": {"products": [
+                    {"price": 18.0, "quantity": 1, "product_id": 1,
+                     "commission": {"amount": 1.8, "currency": "RUB", "percent": 10}},
+                ], "services": []},
                 "analytics_data": {"warehouse": "wh-1"},
                 "delivery_method": {"name": "RETS"},
-            }]}}
+            }]}
         if path == "/v3/product/list":
             return {"result": {"total": 1, "items": [
                 {"product_id": 555, "offer_id": f"offer-{tenant}"},
@@ -152,6 +162,8 @@ def _ozon_post_ok(method_calls, tenant):
             return {"result": {"items": [
                 {"product_id": 555, "name": "Товар 555", "images": ["http://img/1.jpg"],
                  "price": {"price": 999.0}, "stocks": {"present": 7}},
+                {"product_id": 1, "name": "Товар 1", "images": ["http://img/order-1.jpg"],
+                 "price": {"price": 18.0}, "stocks": {"present": 1}},
             ]}}
         return {"result": {}}
     return _handler
@@ -187,6 +199,13 @@ def test_sync_and_cached_reads(client):
     assert products[0].stock == 7
     assert products[0].archived is False
 
+    # T4.3：订单商品图缓存进 products JSONB（v4 同步时按 product_id 拉主图）
+    cached = _db("SELECT products FROM ozon_orders_cache")
+    assert cached[0][0][0]["image"] == "http://img/order-1.jpg"
+    assert cached[0][0][0]["product_id"] == 1
+    # v4 金额适配：financial price=18，commission 对象 amount=1.8 → profit=16.2
+    assert cached[0][0][0]["price"] == 18.0
+
     # 同步状态
     st = client.get(f"/api/v1/stores/{c['id']}/sync-status", headers=_auth_headers("tenant-a"))
     assert st.status_code == 200
@@ -200,13 +219,39 @@ def test_sync_and_cached_reads(client):
     assert r.status_code == 200
     assert r.json()["total"] == 1
     assert r.json()["items"][0]["posting_number"] == "PN-A-1"
-    assert calls == []  # 缓存命中，零 Ozon 调用
+    # T4.3：响应商品行含 image + product_id
+    assert r.json()["items"][0]["products"][0]["image"] == "http://img/order-1.jpg"
+    assert r.json()["items"][0]["products"][0]["product_id"] == 1
+    assert calls == []  # 缓存命中（图已随同步缓存），零 Ozon 调用
 
     pr = client.get(f"/api/v1/products/ozon?credential_id={c['id']}", headers=_auth_headers("tenant-a"))
     assert pr.status_code == 200
     assert pr.json()["total"] == 1
     assert pr.json()["items"][0]["product_id"] == "555"
     assert calls == []  # 同上
+
+
+def test_store_stats_today_aggregation(client):
+    """T4.6：店铺卡统计聚合今日订单数/销售额/佣金/利润（无评分字段）。"""
+    _cleanup()
+    c = _create_cred(client, "tenant-a", cid="1111", key="k1111")
+    calls: list = []
+    with patch("utils.ozon_client.ozon_post",
+               side_effect=_ozon_post_ok(calls, "A")):
+        client.post(f"/api/v1/stores/{c['id']}/sync", headers=_auth_headers("tenant-a"))
+    # 订单 created_at 为今天（UTC）→ 计入今日统计
+    stats = client.get(f"/api/v1/stores/{c['id']}/stats", headers=_auth_headers("tenant-a"))
+    assert stats.status_code == 200
+    body = stats.json()
+    assert body["today_orders"] == 1
+    assert body["today_sales_amount"] == 18.0   # financial price=18（v4 对象适配）
+    assert body["today_commission"] == 1.8      # commission.amount 对象适配
+    assert body["today_profit"] == 16.2
+    assert body["today_product_count"] == 1
+    assert "rating" not in body  # ⚠️ 缓存无评分字段，卡片不显示评分
+    # 无鉴权 → 401
+    r = client.get(f"/api/v1/stores/{c['id']}/stats")
+    assert r.status_code == 401
 
 
 def test_lazy_sync_on_first_read(client):
@@ -219,7 +264,7 @@ def test_lazy_sync_on_first_read(client):
         r = client.get(f"/api/v1/orders?credential_id={c['id']}", headers=_auth_headers("tenant-a"))
     assert r.status_code == 200
     assert r.json()["total"] == 1  # 懒同步完成并返回
-    assert any(p == "/v3/posting/fbs/list" for p, _ in calls)  # 首次调了 Ozon
+    assert any(p == "/v4/posting/fbs/list" for p, _ in calls)  # 首次调了 Ozon（v4）
 
 
 def test_refresh_forces_sync(client):
@@ -230,9 +275,9 @@ def test_refresh_forces_sync(client):
     with patch("utils.ozon_client.ozon_post",
                side_effect=_ozon_post_ok(calls, "C")):
         client.get(f"/api/v1/orders?credential_id={c['id']}", headers=_auth_headers("tenant-a"))
-        n1 = len([x for x in calls if x[0] == "/v3/posting/fbs/list"])
+        n1 = len([x for x in calls if x[0] == "/v4/posting/fbs/list"])
         client.get(f"/api/v1/orders?credential_id={c['id']}&refresh=1", headers=_auth_headers("tenant-a"))
-        n2 = len([x for x in calls if x[0] == "/v3/posting/fbs/list"])
+        n2 = len([x for x in calls if x[0] == "/v4/posting/fbs/list"])
     assert n2 > n1  # refresh 触发第二次同步
 
 
@@ -243,8 +288,8 @@ def test_upsert_overwrites_order_status(client):
 
     def _status(status):
         def _handler(client_id, api_key, path, body=None, **kw):
-            if path == "/v3/posting/fbs/list":
-                return {"result": {"total": 1, "postings": [{
+            if path == "/v4/posting/fbs/list":
+                return {"has_next": False, "cursor": "", "postings": [{
                     "posting_number": "PN-UPSERT",
                     "status": status,
                     "in_process_at": "2026-07-19T06:19:51+00:00",
@@ -252,7 +297,7 @@ def test_upsert_overwrites_order_status(client):
                     "financial_data": {"products": [], "services": []},
                     "analytics_data": {},
                     "delivery_method": {},
-                }]}}
+                }]}
             return {"result": {"total": 0, "items": []}}
         return _handler
 
@@ -327,6 +372,9 @@ def test_tenant_isolation_cross_tenant_404(client):
         assert r.status_code == 404
         # A 查 B 的同步状态 → 404
         r = client.get(f"/api/v1/stores/{cb['id']}/sync-status", headers=_auth_headers("tenant-a"))
+        assert r.status_code == 404
+        # A 查 B 的店铺卡统计 → 404（T4.6 租户隔离锁定）
+        r = client.get(f"/api/v1/stores/{cb['id']}/stats", headers=_auth_headers("tenant-a"))
         assert r.status_code == 404
 
 

@@ -2158,7 +2158,7 @@ async def _handle_discovery_run_report(request: Request):
     """discover 选品结果归档（W10 D12）：单条 run 落库，不做批量 upsert（无自然冲突键）。
 
     鉴权/限流复用 analytics 模式；candidates 白名单裁剪在 skill 端，worker 原样存 JSONB。
-    tenant_id = clean token —— GET 按 tenant 过滤（A 查不到 B）。
+    tenant_id = clean token（POST 归属写入；GET 全局共享——见 v1_discovery_list_runs）。
     """
     try:
         body = await request.json()
@@ -2231,10 +2231,10 @@ async def v1_discovery_report_run(request: Request):
 
 @v1.get("/analytics/bestsellers", tags=["analytics"])
 async def v1_analytics_list_bestsellers(request: Request):
-    """P2b 榜单浏览：读 skill 上报的 ozon-bestsellers（按上报 token 隔离）。
+    """T4b.1 榜单浏览：读 skill 上报的 ozon-bestsellers（全局共享，含贡献者列）。
 
     query: category?（类目筛选）/ order_by?（ordering_amount|ordering_count|avg_price_rub）/ limit/offset
-    鉴权与上报一致：token 即 contributed_by_token_id。
+    鉴权与上报一致：token 即身份；token 不再作数据过滤（A 采集 B 可见）。
     """
     from services.analytics_service import list_bestsellers
     auth = request.headers.get("Authorization", "")
@@ -2263,9 +2263,10 @@ async def v1_analytics_list_bestsellers(request: Request):
 
 @v1.get("/discovery/runs", tags=["analytics"])
 async def v1_discovery_list_runs(request: Request):
-    """discover 选品结果历史读取（W10 D12）：按 tenant 过滤（A 查不到 B）。
+    """discover 选品结果历史读取（W4b.2）：全局共享（A 可见 B 的归档，含贡献者标注）。
 
-    query: limit/offset（分页，limit 上限 200）；鉴权与上报一致：token 即 tenant_id。
+    query: limit/offset（分页，limit 上限 200）；鉴权与上报一致：token 即身份。
+    蓝海（/admin/queries admin-only）与榜单（market_bestsellers 无读端点）保持关闭。
     """
     auth = request.headers.get("Authorization", "")
     token = auth[7:].strip() if auth.startswith("Bearer ") else ""
@@ -2289,13 +2290,13 @@ async def v1_discovery_list_runs(request: Request):
     from sqlalchemy import text
     with get_engine().connect() as conn:
         rows = conn.execute(text(
-            "SELECT id, keyword, filters_json, candidates_json, created_at "
-            "FROM discovery_runs WHERE tenant_id = :tid "
+            "SELECT id, keyword, filters_json, candidates_json, created_at, tenant_id "
+            "FROM discovery_runs "
             "ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
-        ), {"tid": clean_token, "limit": limit, "offset": offset}).fetchall()
+        ), {"limit": limit, "offset": offset}).fetchall()
         total = conn.execute(text(
-            "SELECT COUNT(*) FROM discovery_runs WHERE tenant_id = :tid"
-        ), {"tid": clean_token}).scalar()
+            "SELECT COUNT(*) FROM discovery_runs"
+        )).scalar()
 
     items = [{
         "id": str(r[0]),
@@ -2303,6 +2304,7 @@ async def v1_discovery_list_runs(request: Request):
         "filters": r[2],
         "candidates": r[3],
         "created_at": r[4].isoformat() if r[4] is not None else None,
+        "contributed_by_token_id": str(r[5] or ""),
     } for r in rows]
     return {"items": items, "total": int(total or 0), "limit": limit, "offset": offset}
 

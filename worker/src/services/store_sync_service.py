@@ -30,8 +30,8 @@ SYNC_ORDERS_WINDOW_DAYS = 90
 _SYNC_OVERLAP_HOURS = 1
 # 商品全量分页大小（Ozon /v3/product/list 单页上限 1000，保守取 500）
 _PRODUCT_PAGE = 500
-# 单店同步最大订单拉取页数（防超大店一次同步打爆配额；每页 200）
-_ORDER_PAGE = 200
+# 单店同步最大订单拉取页数（防超大店一次同步打爆配额；v4 单页上限 100）
+_ORDER_PAGE = 100
 _MAX_ORDER_PAGES = 25
 
 
@@ -53,7 +53,11 @@ def sync_store(tenant_id: str, credential_id: str) -> dict:
 
 
 def _sync_orders(tenant_id: str, credential_id: str, client_id: str, api_key: str) -> dict:
-    """订单增量同步：since = max(上次同步 − 1h 重叠, 90 天前) → 分页拉全 → upsert。"""
+    """订单增量同步：since = max(上次同步 − 1h 重叠, 90 天前) → 游标分页拉全 → upsert。
+
+    v4 兼容（I-11）：/v4/posting/fbs/list 用 cursor/has_next 分页（无 offset/total），
+    limit 上限 100；T4.3：同步时按 product_id 批量拉主图缓存进 products JSONB。
+    """
     from utils.ozon_client import ozon_post
 
     since_dt = _orders_since(tenant_id, credential_id)
@@ -61,16 +65,16 @@ def _sync_orders(tenant_id: str, credential_id: str, client_id: str, api_key: st
     to = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     synced = 0
-    offset = 0
+    cursor = ""
     for _page in range(_MAX_ORDER_PAGES):
         try:
             resp = ozon_post(
-                client_id, api_key, "/v3/posting/fbs/list",
+                client_id, api_key, "/v4/posting/fbs/list",
                 {
-                    "dir": "ASC",
+                    "sort_dir": "ASC",
                     "filter": {"since": since, "to": to},
                     "limit": _ORDER_PAGE,
-                    "offset": offset,
+                    "cursor": cursor,
                     "with": {"analytics_data": True, "financial_data": True},
                 },
                 timeout=30, language="RU",
@@ -82,14 +86,17 @@ def _sync_orders(tenant_id: str, credential_id: str, client_id: str, api_key: st
                             f"拉取失败: {str(exc)[:120]}")
             return {"synced": synced, "error": str(exc)[:120]}
 
-        result = resp.get("result") or {}
+        # v4 响应扁平（cursor/has_next/postings）；v3 包 result——兼容两者
+        result = resp.get("result") or resp
         postings = result.get("postings") or []
         if not postings:
             break
-        _upsert_orders(tenant_id, credential_id, postings)
+        _upsert_orders(tenant_id, credential_id, postings, client_id, api_key)
         synced += len(postings)
-        offset += len(postings)
-        if offset >= int(result.get("total") or offset):
+        if not result.get("has_next"):
+            break
+        cursor = result.get("cursor") or ""
+        if not cursor:
             break
 
     _set_sync_error(tenant_id, credential_id, "orders", "")
@@ -106,13 +113,22 @@ def _orders_since(tenant_id: str, credential_id: str) -> datetime.datetime:
     return now - datetime.timedelta(days=SYNC_ORDERS_WINDOW_DAYS)
 
 
-def _upsert_orders(tenant_id: str, credential_id: str, postings: list) -> None:
-    """订单 upsert（ON CONFLICT tenant+store+posting_number DO UPDATE 覆盖状态）。"""
+def _upsert_orders(tenant_id: str, credential_id: str, postings: list,
+                   client_id: Optional[str] = None, api_key: Optional[str] = None) -> None:
+    """订单 upsert（ON CONFLICT tenant+store+posting_number DO UPDATE 覆盖状态）。
+
+    T4.3：传入 client_id/api_key 时按 product_id 批量拉主图，把 image 缓存进 products JSONB
+    （幂等 fetch，列表读取秒开不再透传 Ozon）。
+    """
+    images: dict = {}
+    if client_id and api_key:
+        images = order_service.fetch_order_images(client_id, api_key, postings)
     rows = []
     for p in postings:
         if not isinstance(p, dict) or not p.get("posting_number"):
             continue
         norm = order_service._normalize_posting(p)
+        order_service.apply_product_images(norm.get("products") or [], images)
         created = None
         if norm.get("created_at"):
             try:
@@ -213,10 +229,18 @@ def _sync_products(tenant_id: str, credential_id: str, client_id: str, api_key: 
 
 def _fetch_info_map(client_id: str, api_key: str, items: list) -> dict:
     """批量补商品详情（复用 shelf_service 的限流退避逻辑，3 次 1s/2s）。"""
-    from utils.ozon_client import ozon_post
-
     ids = [int(it["product_id"]) for it in items
            if isinstance(it, dict) and str(it.get("product_id") or "").isdigit()]
+    return _fetch_info_map_by_ids(client_id, api_key, ids)
+
+
+def _fetch_info_map_by_ids(client_id: str, api_key: str, ids: list) -> dict:
+    """按 int product_id 批量拉 /v3/product/info/list → {str(product_id): info}。
+
+    与 _fetch_info_map 同源（限流退避 3 次 1s/2s）；供订单商品图按 product_id 复用（T4.3）。
+    """
+    from utils.ozon_client import ozon_post
+
     if not ids:
         return {}
     import time as _time
@@ -375,8 +399,9 @@ def list_cached_orders(
 
     租户隔离：credential 归属先经 get_decrypted 校验（跨租户 404），
     随后查询一律带 tenant_id + credential_id。
+    T4.3：旧缓存商品行缺图 → 按 product_id/sku 批量补一次并落库（幂等）。
     """
-    credential_service.get_decrypted(tenant_id, str(credential_id))  # 归属校验（跨租户 404）
+    client_id, api_key = credential_service.get_decrypted(tenant_id, str(credential_id))
     if lazy_sync and _needs_orders_sync(tenant_id, str(credential_id)):
         sync_store(tenant_id, str(credential_id))
 
@@ -419,6 +444,8 @@ def list_cached_orders(
             "cancel_reason": r.cancel_reason or "",
             "cancellation": r.cancellation or "",
         })
+    # T4.3：旧缓存行（v4 前同步）products 无 image → 批量补一次并落库（懒，失败不阻断）
+    _backfill_order_images(tenant_id, str(credential_id), client_id, api_key, items)
     status_info = get_sync_status(tenant_id, str(credential_id))
     store = {"id": str(credential_id),
              "ozon_client_id": credential_service.get_decrypted(tenant_id, str(credential_id))[0]}
@@ -479,4 +506,64 @@ def list_cached_products(
         "store": store,
         "last_synced_at": status_info["products_last_synced_at"],
         "sync_error": status_info["products_error"],
+    }
+
+
+def _backfill_order_images(
+    tenant_id: str, credential_id: str, client_id: str, api_key: str, items: list
+) -> None:
+    """旧缓存订单行无商品图 → 按 product_id/sku 批量补主图并落库（幂等，失败不阻断）。"""
+    missing = [it for it in items
+               if any(isinstance(p, dict) and not p.get("image") for p in (it.get("products") or []))]
+    if not missing:
+        return
+    images = order_service.fetch_order_images(
+        client_id, api_key, [{"products": it.get("products", [])} for it in missing])
+    if not images:
+        return
+    for it in missing:
+        order_service.apply_product_images(it.get("products") or [], images)
+    with get_engine().begin() as conn:
+        conn.execute(text(
+            "UPDATE ozon_orders_cache SET products=CAST(:products AS jsonb) "
+            "WHERE tenant_id=:t AND credential_id=:c AND posting_number=:pn"
+        ), [{
+            "products": json.dumps(it["products"], ensure_ascii=False),
+            "t": tenant_id, "c": credential_id, "pn": it["posting_number"],
+        } for it in missing])
+
+
+# ──────────────────────────────────────────────
+# 店铺卡统计（T4.6）：store_sync 缓存聚合（今日订单/销售额/利润）
+# ──────────────────────────────────────────────
+
+
+def get_store_stats(tenant_id: str, credential_id: str) -> dict:
+    """店铺卡统计：ozon_orders_cache 今日（UTC 自然日）订单数/销售额/佣金/利润/件数。
+
+    租户隔离：get_decrypted 归属校验（跨租户 404）；聚合 SQL 带 tenant_id + credential_id。
+    ⚠️ 无评分字段——缓存无 rating 数据，店铺卡不显示评分。
+    """
+    client_id, _api_key = credential_service.get_decrypted(tenant_id, str(credential_id))
+    if _needs_orders_sync(tenant_id, str(credential_id)):
+        sync_store(tenant_id, str(credential_id))
+    today_start = datetime.datetime.now(datetime.timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    with get_engine().connect() as conn:
+        row = conn.execute(text(
+            "SELECT COUNT(*), COALESCE(SUM(total_amount), 0), COALESCE(SUM(commission_amount), 0), "
+            "COALESCE(SUM(profit), 0), COALESCE(SUM(product_count), 0) "
+            "FROM ozon_orders_cache "
+            "WHERE tenant_id=:t AND credential_id=:c "
+            "AND (order_created_at IS NULL OR order_created_at >= :since)"
+        ), {"t": tenant_id, "c": str(credential_id), "since": today_start}).fetchone()
+    return {
+        "credential_id": str(credential_id),
+        "ozon_client_id": client_id,
+        "stats_date": today_start.date().isoformat(),
+        "today_orders": int(row[0] or 0),
+        "today_sales_amount": round(float(row[1] or 0), 2),
+        "today_commission": round(float(row[2] or 0), 2),
+        "today_profit": round(float(row[3] or 0), 2),
+        "today_product_count": int(row[4] or 0),
     }

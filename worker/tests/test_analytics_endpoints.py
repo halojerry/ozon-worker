@@ -83,6 +83,58 @@ class FakeRequest:
         return self._body
 
 
+class FakeGetRequest:
+    def __init__(self, token, query=None):
+        self._token = token
+        self.query_params = query or {}
+
+    @property
+    def headers(self):
+        return {"Authorization": f"Bearer {self._token}"}
+
+
+class FakeRows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def fetchall(self):
+        return self._rows
+
+    def scalar(self):
+        return self._rows[0] if self._rows else 0
+
+
+class FakeReadConn:
+    """GET 榜单读路径 fake：返回全部预置行（验证无 tenant 过滤）。"""
+
+    def __init__(self, engine):
+        self._engine = engine
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, stmt, params=None):
+        self._engine.calls.append(str(stmt))
+        if "COUNT(*)" in str(stmt):
+            return FakeRows([len(self._engine.rows)])
+        return FakeRows(self._engine.rows)
+
+    def commit(self):
+        pass
+
+
+class FakeReadEngine:
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    def connect(self):
+        return FakeReadConn(self)
+
+
 ENDPOINTS = {
     "queries": "v1_analytics_queries",
     "ozon-bestsellers": "v1_analytics_ozon_bestsellers",
@@ -226,3 +278,35 @@ def test_invalid_item_error_not_leak_internal(monkeypatch):
     _assert_error(resp, 400)
     body = resp.body.decode() if hasattr(resp, "body") else str(resp)
     assert "int_parsing" not in body and "Input should" not in body
+
+
+# ── T4b.1：GET /analytics/bestsellers 全局共享（无 tenant 过滤）+ 贡献者列 ──
+
+def test_bestsellers_get_global_sharing(monkeypatch):
+    """A 用户 token 可见 B 采集的榜单（全局共享），每条带 contributed_by_token_id。"""
+    import main
+    from services import analytics_service
+    monkeypatch.setattr(main, "get_supabase_client", lambda: None)
+    rows = [
+        ("sku-a", "品牌A", "宠物用品", 100.0, 10, 99.9, "tok-a"),
+        ("sku-b", "品牌B", "家居", 200.0, 20, 199.9, "tok-b"),
+    ]
+    engine = FakeReadEngine(rows)
+    monkeypatch.setattr(analytics_service, "get_engine", lambda: engine)
+    resp = asyncio.run(main.v1_analytics_list_bestsellers(
+        FakeGetRequest("sk-ok", {"limit": "50"})))
+    assert resp["total"] == 2
+    assert {i["sku_or_id"] for i in resp["items"]} == {"sku-a", "sku-b"}
+    assert {i["contributed_by_token_id"] for i in resp["items"]} == {"tok-a", "tok-b"}
+    sql = " ".join(engine.calls)
+    assert "contributed_by_token_id = " not in sql  # 无 tenant 过滤
+    assert "WHERE contributed_by_token_id" not in sql
+
+
+def test_bestsellers_get_requires_token(monkeypatch):
+    """无 token → 401。"""
+    import main
+    monkeypatch.setattr(main, "get_supabase_client", lambda: None)
+    with pytest.raises(main.HTTPException) as ei:
+        asyncio.run(main.v1_analytics_list_bestsellers(FakeGetRequest("")))
+    assert ei.value.status_code == 401

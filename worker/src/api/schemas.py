@@ -387,6 +387,8 @@ class OrderProductOut(BaseModel):
     quantity: int = Field(0, description="数量")
     price: Optional[float] = Field(None, description="单价")
     offer_id: str = Field("", description="货号")
+    product_id: Optional[int] = Field(None, description="Ozon product_id（与 sku 同值，供图查）")
+    image: Optional[str] = Field(None, description="主图 URL（T4.3：/v3/product/info/list images[0]）")
 
 
 class OrderOut(BaseModel):

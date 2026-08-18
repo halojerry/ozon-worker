@@ -2,6 +2,7 @@
 
     POST /api/v1/stores/{credential_id}/sync        手动同步单店（订单+商品）
     GET  /api/v1/stores/{credential_id}/sync-status 同步状态（最后时间/错误）
+    GET  /api/v1/stores/{credential_id}/stats       店铺卡统计（今日订单/销售额/利润）
 
 鉴权：Bearer token → user_id；凭证归属 store_sync_service 内 get_decrypted 校验。
 """
@@ -38,3 +39,13 @@ async def sync_status(credential_id: str, request: Request):
     tenant_id = await _authenticate(request)
     get_decrypted(tenant_id, credential_id)  # 归属校验（跨租户 404）
     return store_sync_service.get_sync_status(tenant_id, credential_id)
+
+
+@router.get("/{credential_id}/stats")
+async def store_stats(credential_id: str, request: Request):
+    """店铺卡统计（T4.6）：今日订单数/销售额/佣金/利润/件数（ozon_orders_cache 聚合）。
+
+    归属校验失败 → 404（跨租户不可见）；无评分字段——缓存无 rating 数据，卡片不显示评分。
+    """
+    tenant_id = await _authenticate(request)
+    return store_sync_service.get_store_stats(tenant_id, credential_id)

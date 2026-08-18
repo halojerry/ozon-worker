@@ -1,6 +1,11 @@
 """订单服务（P0-4）：Ozon FBS 订单实时拉取 + 状态映射 + 标准化。
 
-数据源 = Ozon Seller API `/v3/posting/fbs/list`（实时拉取，不建表）。
+数据源 = Ozon Seller API `/v4/posting/fbs/list`（实时拉取，不建表；v3 已弃用
+2026-06-01 停用）。v4 差异：游标分页（cursor/has_next，无 offset/total）、
+`filter.statuses` 数组（非 v3 的 status）、`products[].price` 为对象
+`{amount, currency}`、financial_data `commission` 对象（非 v3 的 commission_amount）。
+T4.3：按 product_id 批量 /v3/product/info/list 补订单商品主图（复用
+store_sync_service._fetch_info_map_by_ids 的 int product_id 批量模式）。
 状态机：Ozon raw status → 统一 7 态（前端 tab 用）：
   pending 待处理 / awaiting 待备货 / waiting 待发运 / delivering 运输中 /
   delivered 已签收 / cancelled 已取消 / other 其他
@@ -51,22 +56,54 @@ def _fmt_dt(value: Any) -> Optional[str]:
         return str(value)
 
 
+def _price_value(p: Any) -> float:
+    """商品单价提取：v3 标量 / v4 price 对象 {amount, ...} → float（兼容两者）。"""
+    if not isinstance(p, dict):
+        return 0.0
+    price = p.get("price")
+    if isinstance(price, dict):
+        price = price.get("amount")
+    try:
+        return float(price or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _sum_amount(products: Any) -> float:
-    """汇总 financial_data.products[].price（订单金额）。"""
+    """汇总 financial_data.products[].price 或 posting.products[].price（订单金额）。
+
+    v4 兼容：financial_data.products[].price 为标量（如 2500），
+    posting.products[].price 为对象 {amount, currency}——_price_value 统一处理。
+    """
     if not isinstance(products, list):
         return 0.0
     total = 0.0
     for p in products:
         if isinstance(p, dict):
             try:
-                total += float(p.get("price") or 0)
+                total += _price_value(p)
             except (TypeError, ValueError):
                 continue
     return round(total, 2)
 
 
+def _commission_value(p: Any) -> float:
+    """平台费用提取：v3 commission_amount 标量 / v4 commission {amount, ...} 对象 → float。"""
+    if not isinstance(p, dict):
+        return 0.0
+    commission = p.get("commission_amount")
+    if commission is None:
+        commission = p.get("commission") or {}
+        if isinstance(commission, dict):
+            commission = commission.get("amount")
+    try:
+        return float(commission or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _sum_commission(financial: Any) -> float:
-    """汇总 financial_data.products[].commission_amount（平台费用）。"""
+    """汇总 financial_data.products[].commission（平台费用）。"""
     if not isinstance(financial, dict):
         return 0.0
     products = financial.get("products")
@@ -76,26 +113,33 @@ def _sum_commission(financial: Any) -> float:
     for p in products:
         if isinstance(p, dict):
             try:
-                total += float(p.get("commission_amount") or 0)
+                total += _commission_value(p)
             except (TypeError, ValueError):
                 continue
     return round(total, 2)
 
 
 def _extract_products(postings_items: Any) -> list[dict]:
-    """posting.products[] → OrderProductOut（name/sku/quantity/price/offer_id）。"""
+    """posting.products[] → OrderProductOut（name/sku/quantity/price/offer_id/product_id/image）。
+
+    T4.3：product_id 取 posting 行 product_id 或 sku（Ozon posting 中 sku == product_id，
+    供 /v3/product/info/list 批量拉主图）；image 由上层 info_map 回填。
+    """
     if not isinstance(postings_items, list):
         return []
     out = []
     for p in postings_items:
         if not isinstance(p, dict):
             continue
+        price = _price_value(p) if p.get("price") is not None else None
         out.append({
             "name": p.get("name", ""),
             "sku": p.get("sku"),
             "quantity": int(p.get("quantity") or 0),
-            "price": float(p.get("price") or 0) if p.get("price") is not None else None,
+            "price": price,
             "offer_id": p.get("offer_id", ""),
+            "product_id": p.get("product_id") or p.get("sku"),
+            "image": None,
         })
     return out
 
@@ -128,14 +172,86 @@ def _normalize_posting(p: dict) -> dict:
 
 def _build_filter(status: Optional[str], since_days: int) -> dict:
     # ⚠️ Ozon 要求 since/to 严格 YYYY-MM-DDTHH:MM:SSZ（isoformat 微秒+偏移会 400），
-    #    且 filter 必须同时设置 since 和 to（缺 to → 400 processed_at_to must be set）
+    #    且 filter 必须同时设置 since 和 to（缺 to → 400 processed_at_to must be set）。
+    #    v4 兼容：状态用 statuses 数组（v3 的 status 字符串 v4 已废弃）。
     now = datetime.now(timezone.utc)
     since = (now - timedelta(days=max(1, min(int(since_days), 90)))).strftime("%Y-%m-%dT%H:%M:%SZ")
     to = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     f: dict[str, Any] = {"since": since, "to": to}
     if status and status != "all":
-        f["status"] = status
+        f["statuses"] = [status]
     return f
+
+
+def _collect_product_ids(postings: Any) -> list[int]:
+    """从 postings 收集订单商品 int product_id（v4 posting.products.sku == financial_data.product_id）。
+
+    供 /v3/product/info/list 批量拉主图（T4.3）。保持出现顺序去重。
+    """
+    ids: list[int] = []
+    if not isinstance(postings, list):
+        return ids
+    for p in postings:
+        if not isinstance(p, dict):
+            continue
+        for prod in p.get("products") or []:
+            if isinstance(prod, dict):
+                _append_pid(ids, prod.get("product_id") or prod.get("sku"))
+        financial = p.get("financial_data") or {}
+        if isinstance(financial, dict):
+            for prod in financial.get("products") or []:
+                if isinstance(prod, dict):
+                    _append_pid(ids, prod.get("product_id") or prod.get("sku"))
+    return ids
+
+
+def _append_pid(ids: list[int], pid: Any) -> None:
+    if pid is None:
+        return
+    try:
+        i = int(pid)
+    except (TypeError, ValueError):
+        return
+    if i not in ids:
+        ids.append(i)
+
+
+def fetch_order_images(client_id: str, api_key: str, postings: Any) -> dict:
+    """按 product_id 批量拉订单商品主图（/v3/product/info/list，复用 store_sync 限流重试）。
+
+    Returns: {str(product_id): 主图 URL}。任何异常 fail-open 返回 {}（图片不阻断订单列表）。
+    """
+    ids = _collect_product_ids(postings)
+    if not ids:
+        return {}
+    try:
+        from services.store_sync_service import _fetch_info_map_by_ids  # 延迟导入防循环
+        info_map = _fetch_info_map_by_ids(client_id, api_key, ids)
+    except Exception as exc:
+        logger.warning("订单商品图批量拉取失败（不阻断）: %s", str(exc)[:200])
+        return {}
+    images: dict[str, str] = {}
+    for pid, info in info_map.items():
+        imgs = info.get("images") if isinstance(info, dict) else None
+        if isinstance(imgs, list) and imgs:
+            images[str(pid)] = imgs[0]
+    return images
+
+
+def apply_product_images(products: list, images: dict) -> None:
+    """把 {str(product_id): 主图 URL} 回填到商品行（幂等：已有 image 不覆盖）。
+
+    product_id 缺省时回退 sku（旧缓存行无 product_id 键，sku 即 product_id）。
+    """
+    for prod in products:
+        if not isinstance(prod, dict) or prod.get("image"):
+            continue
+        pid = prod.get("product_id") or prod.get("sku")
+        if pid is None:
+            continue
+        url = images.get(str(pid))
+        if url:
+            prod["image"] = url
 
 
 def list_orders(
@@ -163,27 +279,34 @@ def list_orders(
         client_id, api_key = default["ozon_client_id"], default["api_key"]
         store_id = default["id"]
 
-    limit = max(1, min(int(limit), 200))
+    limit = max(1, min(int(limit), 100))  # v4 limit 上限 100（v3 为 1000）
     offset = max(0, int(offset))
 
     body = {
-        "dir": "ASC",
+        "sort_dir": "ASC",
         "filter": _build_filter(status, since_days),
         "limit": limit,
-        "offset": offset,
+        "cursor": "",
         "with": {"analytics_data": True, "financial_data": True},
     }
     try:
-        resp = ozon_post(client_id, api_key, "/v3/posting/fbs/list", body, timeout=30, language="RU")
+        resp = ozon_post(client_id, api_key, "/v4/posting/fbs/list", body, timeout=30, language="RU")
     except HTTPException:
         raise
     except Exception as exc:
         logger.warning("Ozon FBS 订单拉取失败 client=%s: %s", client_id, str(exc)[:200])
         raise HTTPException(status_code=502, detail=f"Ozon 订单接口请求失败：{str(exc)[:120]}")
 
-    result = resp.get("result") or {}
+    # v4 响应扁平（cursor/has_next/postings）；v3 包 result——兼容两者
+    result = resp.get("result") or resp
     postings = result.get("postings") or []
     items = [_normalize_posting(p) for p in postings if isinstance(p, dict)]
+
+    # T4.3：按 product_id 批量拉订单商品主图（fail-open，不阻断列表）
+    images = fetch_order_images(client_id, api_key, postings)
+    for item in items:
+        apply_product_images(item.get("products") or [], images)
+
     total = int(result.get("total") or len(items))
 
     return {

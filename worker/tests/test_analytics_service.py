@@ -1,6 +1,7 @@
-"""P2b: 榜单浏览服务测试（ozon_bestsellers 读取 + 筛选/排序）。
+"""P2b/T4b.1: 榜单浏览服务测试（ozon_bestsellers 读取 + 全局共享 + 筛选/排序）。
 
-验收门：token 隔离（A token 看不到 B）、类目筛选、排序字段白名单、分页。
+验收门：全局共享（A token 可见 B 采集的数据，含贡献者列）、类目筛选、
+排序字段白名单、分页。
 """
 import os
 import sys
@@ -67,43 +68,45 @@ def _cleanup(_pg):
     eng.dispose()
 
 
-def test_list_token_isolation():
-    """A token 只看到自己的 3 条，看不到 B 的。"""
+def test_list_global_sharing():
+    """T4b.1：A token 看到全部 4 条（含 B 的），每条带贡献者列。"""
     result = list_bestsellers(TOKEN_A)
-    assert result["total"] == 3
+    assert result["total"] == 4
     skus = {i["sku_or_id"] for i in result["items"]}
-    assert skus == {"sku-1", "sku-2", "sku-3"}
-    assert "sku-b" not in skus
+    assert skus == {"sku-1", "sku-2", "sku-3", "sku-b"}
+    by_sku = {i["sku_or_id"]: i for i in result["items"]}
+    assert by_sku["sku-b"]["contributed_by_token_id"] == TOKEN_B  # 贡献者标注保留
+    assert by_sku["sku-1"]["contributed_by_token_id"] == TOKEN_A
 
 
 def test_list_category_filter():
     result = list_bestsellers(TOKEN_A, category="宠物")
-    assert result["total"] == 2
+    assert result["total"] == 3  # A 2 条宠物 + B 1 条宠物（全局共享）
     assert all("宠物" in i["category_path"] for i in result["items"])
 
 
 def test_list_order_by_amount_desc():
     result = list_bestsellers(TOKEN_A, order_by="ordering_amount")
     amounts = [i["ordering_amount"] for i in result["items"]]
-    assert amounts == sorted(amounts, reverse=True)  # 2000, 1000, 500
-    assert result["items"][0]["sku_or_id"] == "sku-2"
+    assert amounts == sorted(amounts, reverse=True)  # 9999, 2000, 1000, 500
+    assert result["items"][0]["sku_or_id"] == "sku-b"  # B 的数据参与全局排序
 
 
 def test_list_order_by_count():
     result = list_bestsellers(TOKEN_A, order_by="ordering_count")
     counts = [i["ordering_count"] for i in result["items"]]
-    assert counts == sorted(counts, reverse=True)  # 80, 50, 20
-    assert result["items"][0]["sku_or_id"] == "sku-3"
+    assert counts == sorted(counts, reverse=True)  # 99, 80, 50, 20
+    assert result["items"][0]["sku_or_id"] == "sku-b"
 
 
 def test_list_invalid_order_falls_back():
     result = list_bestsellers(TOKEN_A, order_by="hack")
-    assert result["total"] == 3  # 白名单兜底，不报错
+    assert result["total"] == 4  # 白名单兜底，不报错
 
 
 def test_list_pagination():
     result = list_bestsellers(TOKEN_A, limit=2, offset=0)
     assert len(result["items"]) == 2
-    assert result["total"] == 3
+    assert result["total"] == 4
     result2 = list_bestsellers(TOKEN_A, limit=2, offset=2)
-    assert len(result2["items"]) == 1
+    assert len(result2["items"]) == 2

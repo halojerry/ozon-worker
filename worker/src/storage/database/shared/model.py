@@ -656,6 +656,10 @@ class DraftSubmission(Base):
         Text, nullable=True, comment="ozon_product_tasks.id"
     )
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("NOW()"), onupdate=text("NOW()"),
+        comment="任务状态写回时间"
+    )
 
     __table_args__ = (
         Index("idx_draft_submissions_draft", "draft_id"),

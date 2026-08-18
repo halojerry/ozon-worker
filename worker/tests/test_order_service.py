@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import uuid
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -69,9 +70,22 @@ def _fake_ozon(payload: dict, error: Exception | None = None):
         _fake.calls = calls
         if error is not None:
             raise error
+        if endpoint == "/v3/product/info/list":
+            # 订单商品图批量拉取（T4.3）：sku=123 → 主图
+            return {"result": {"items": [
+                {"product_id": 123, "name": "测试商品", "images": ["http://img/order.jpg"]},
+            ]}}
         return {"result": payload}
     _fake.calls = []
     return _fake
+
+
+def _patch_ozon(fake):
+    """同时 patch 两个命名空间：order_service 模块级 + utils.ozon_client（store_sync 延迟导入）。"""
+    stack = ExitStack()
+    stack.enter_context(patch("services.order_service.ozon_post", fake))
+    stack.enter_context(patch("utils.ozon_client.ozon_post", fake))
+    return stack
 
 
 def _posting(status: str, **kw) -> dict:
@@ -79,9 +93,12 @@ def _posting(status: str, **kw) -> dict:
         "posting_number": f"PN-{status}",
         "status": status,
         "in_process_at": "2026-08-15T10:00:00Z",
-        "products": [{"name": "测试商品", "sku": 123, "quantity": 2, "price": "99.5", "offer_id": "16880001"}],
+        # v4：products[].price 对象 {amount, currency}；financial commission 对象 + product_id
+        "products": [{"name": "测试商品", "sku": 123, "quantity": 2,
+                      "price": {"amount": "99.5", "currency": "RUB"}, "offer_id": "16880001"}],
         "financial_data": {
-            "products": [{"price": "99.5", "commission_amount": "9.95"}],
+            "products": [{"price": 99.5, "product_id": 123,
+                          "commission": {"amount": 9.95, "currency": "RUB", "percent": 10}}],
         },
         "delivery_method": {"name": "Стандарт", "warehouse": "Москва"},
         "analytics_data": {"warehouse": "Москва"},
@@ -119,25 +136,31 @@ def test_status_map_full():
 def test_extract_products_and_financial(_pg):
     cred = _store_credential(TENANT, "222222", "key-2")
     fake = _fake_ozon({"postings": [_posting("delivering")], "total": 1})
-    with patch("services.order_service.ozon_post", fake):
+    with _patch_ozon(fake):
         result = order_service.list_orders(TENANT, credential_id=cred)
     item = result["items"][0]
     assert item["status"] == "delivering"
     assert item["raw_status"] == "delivering"
     assert item["posting_number"] == "PN-delivering"
     assert item["total_amount"] == 99.5
-    assert item["commission_amount"] == 9.95
+    assert item["commission_amount"] == 9.95  # v4 commission 对象 amount 适配
     assert item["profit"] == 89.55
     assert item["product_count"] == 2
     assert item["warehouse"] == "Москва"
     assert item["delivery_method"] == "Стандарт"
+    # T4.3：v4 price 对象金额提取 + product_id + 主图
     assert item["products"][0]["name"] == "测试商品"
+    assert item["products"][0]["price"] == 99.5
+    assert item["products"][0]["product_id"] == 123
+    assert item["products"][0]["image"] == "http://img/order.jpg"
     assert result["total"] == 1
     assert result["store"]["ozon_client_id"] == "222222"
-    # 请求体：with.financial_data 打开 + since 默认 30 天
+    # 请求体：v4 游标分页 + with.financial_data 打开 + since 默认 30 天
     body = fake.calls[0]["body"]
     assert body["with"]["financial_data"] is True
-    assert "since" in body["filter"]
+    assert body["limit"] <= 100  # v4 单页上限 100
+    assert "cursor" in body
+    assert fake.calls[0]["endpoint"] == "/v4/posting/fbs/list"
 
 
 def test_cancelled_posting_extracts_reason(_pg):
@@ -148,7 +171,7 @@ def test_cancelled_posting_extracts_reason(_pg):
         cancellation={"reason": "buyer refused", "cancellation_type": "client"},
     )
     fake = _fake_ozon({"postings": [posting]})
-    with patch("services.order_service.ozon_post", fake):
+    with _patch_ozon(fake):
         result = order_service.list_orders(TENANT, credential_id=cred)
     item = result["items"][0]
     assert item["status"] == "cancelled"
@@ -157,11 +180,12 @@ def test_cancelled_posting_extracts_reason(_pg):
 
 
 def test_status_filter_passed_to_api(_pg):
+    """v4 状态过滤用 statuses 数组（v3 的 status 字符串已废弃）。"""
     cred = _store_credential(TENANT, "222222", "key-2")
-    fake = _fake_ozon({"postings": [], "total": 0})
-    with patch("services.order_service.ozon_post", fake):
+    fake = _fake_ozon({"postings": [], "has_next": False})
+    with _patch_ozon(fake):
         order_service.list_orders(TENANT, credential_id=cred, status="delivered")
-    assert fake.calls[0]["body"]["filter"]["status"] == "delivered"
+    assert fake.calls[0]["body"]["filter"]["statuses"] == ["delivered"]
 
 
 def test_since_format_ozon_compliant(_pg):
@@ -169,7 +193,7 @@ def test_since_format_ozon_compliant(_pg):
     import re
     cred = _store_credential(TENANT, "222222", "key-2")
     fake = _fake_ozon({"postings": [], "total": 0})
-    with patch("services.order_service.ozon_post", fake):
+    with _patch_ozon(fake):
         order_service.list_orders(TENANT, credential_id=cred)
     filt = fake.calls[0]["body"]["filter"]
     for key in ("since", "to"):
@@ -192,7 +216,7 @@ def test_no_default_store_400(_pg):
 def test_ozon_api_error_502(_pg):
     cred = _store_credential(TENANT, "222222", "key-2")
     fake = _fake_ozon({}, error=RuntimeError("boom"))
-    with patch("services.order_service.ozon_post", fake):
+    with _patch_ozon(fake):
         with pytest.raises(HTTPException) as ei:
             order_service.list_orders(TENANT, credential_id=cred)
     assert ei.value.status_code == 502

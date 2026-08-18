@@ -54,6 +54,55 @@ def test_8229_discriminant_conflict_rejected():
     assert got is None, "判别词冲突必须拒绝，绝不返回错误形态值"
 
 
+# ═══ 4958 专为/Назначение：中文动物词 → 俄语字典值（宠物类目必填）═══
+
+AUDIENCE = [
+    {"id": 33746, "value": "Для собак"},
+    {"id": 33751, "value": "Для птиц"},
+    {"id": 33754, "value": "Для кошек"},
+    {"id": 33755, "value": "Для грызунов"},
+]
+
+
+def test_4958_audience_cn_cat_title():
+    got = resolve_missing_mandatory_dict_attr(
+        4958, "专为", title_cn="猫咪自动饮水机无线泵活水流动循环宠物喂水器猫喝水碗",
+        dict_vals=AUDIENCE,
+    )
+    assert got == (33754, "Для кошек")
+
+
+def test_4958_audience_zh_cached_values():
+    zh = [{"id": 33746, "value": "对于狗"}, {"id": 33751, "value": "对于鸟类"},
+          {"id": 33754, "value": "对于猫"}, {"id": 33755, "value": "对于仓鼠"}]
+    got = resolve_missing_mandatory_dict_attr(
+        4958, "专为", title_cn="猫咪自动饮水机", dict_vals=zh,
+    )
+    assert got == (33754, "对于猫"), "ZH_HANS 缓存文本（对于猫）也必须命中同一 dict_id"
+
+
+def test_4958_audience_cn_dog_title():
+    got = resolve_missing_mandatory_dict_attr(
+        4958, "专为", title_cn="狗狗外出水杯宠物狗喝水器", dict_vals=AUDIENCE,
+    )
+    assert got == (33746, "Для собак")
+
+
+def test_4958_audience_ru_title():
+    got = resolve_missing_mandatory_dict_attr(
+        4958, "专为", title_cn="", product_name_ru="Поилка для кошек автоматическая",
+        dict_vals=AUDIENCE,
+    )
+    assert got == (33754, "Для кошек")
+
+
+def test_4958_audience_no_keyword_returns_none():
+    got = resolve_missing_mandatory_dict_attr(
+        4958, "专为", title_cn="宠物自动饮水器静音循环", dict_vals=AUDIENCE,
+    )
+    assert got is None, "无动物词绝不盲补首值（宁缺毋滥）"
+
+
 # ═══ 85/31 品牌 ═══
 
 def test_85_brand_returns_no_brand():
