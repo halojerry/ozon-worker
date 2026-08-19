@@ -1,0 +1,14 @@
+# pounding-sidebar bundle patch
+#
+# 挂载 pounding-sidebar 到 web profile：一条 insert 把 host half 的插件行
+# 加进插件树；client half 由包内 dsh.client 声明（platform: web + inject）
+# 随 profile boot 自动装载，无需额外配置。
+#
+#   dsh plugin --profile web add github:你的组织/pounding-sidebar
+#   （或手动在 profile 的 cordis.patch.yml 里追加本文件内容）
+#
+# 前置：先装 dsh-better-sidebar（本插件注册的 7 个业务板块需要它的
+# ctx.betterSidebar 服务；未装时本插件照常加载，注册静默跳过）。
+- insert:
+    - id: pounding-sidebar
+      name: pounding-sidebar
