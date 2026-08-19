@@ -18,6 +18,7 @@ v0.57 (W5 / I-9 验证): 本机实测 `ir.ozone.ru` 对自动化请求返回 403
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
@@ -305,8 +306,8 @@ def search_by_image_cdp(
         if own_conn:
             conn = CdpConnection(cdp_url)
 
-        # 1. 打开图搜页面
-        search_tab = conn.new_tab()
+        # 1. 打开图搜页面（后台 tab，静默无感，对齐竞品隐藏窗口体验）
+        search_tab = conn.new_tab(background=True)
         search_tab.navigate(IMAGE_SEARCH_URL, timeout=20)
         time.sleep(2)
 
@@ -541,7 +542,11 @@ def _read_aibuy_token() -> dict[str, Any] | None:
     if time.time() - saved_at > AIBUY_TOKEN_TTL_SECONDS:
         logger.info("aibuy mtop token 过期（%ds），需从 Chrome 会话刷新", int(time.time() - saved_at))
         return None
-    return cached
+    # ⚠️ ISSUE-001: 返回前剥离 saved_at（float）——它混进 cookie dict 后，
+    # requests 遍历 cookie value 调 str.startswith() 时对 float 抛
+    # AttributeError('float' object has no attribute 'startswith') → aibuy 静默降级 CDP。
+    # 只回传 4 个 cookie key（_m_h5_tk/_m_h5_tk_enc/tfstk/isg），saved_at 仅用于过期判断。
+    return {k: cached[k] for k in _AIBUY_COOKIE_KEYS if k in cached}
 
 
 def _save_aibuy_token(cookies: dict[str, str]) -> None:
@@ -645,8 +650,15 @@ def _mtop_request(
     data: dict[str, Any],
     token_cookies: dict[str, str],
     timeout: int = 15,
+    method: str = "GET",
 ) -> dict[str, Any]:
-    """mtop 签名请求（GET + JSONP）。失败返回 {}（fail-fast，不 raise）。"""
+    """mtop 签名请求。失败返回 {}（fail-fast，不 raise）。
+
+    method="GET" 走 query string（data 拼 URL，小数据可用）；method="POST"
+    走 form body（``data={json}`` 字段）——image.upload 的 imageBase64 高达
+    数百 KB，GET 会 414（URI Too Long），必须 POST。签名对 data_str 计算，
+    与 method 无关（mtop 协议约定）。
+    """
     mh5tk = token_cookies.get("_m_h5_tk", "")
     token = mh5tk.split("_")[0] if "_" in mh5tk else mh5tk
     if not token:
@@ -659,21 +671,32 @@ def _mtop_request(
         "jsv": "2.7.5", "appKey": MTOP_APP_KEY, "t": t, "sign": sign,
         "api": api, "v": "1.0", "H5Request": "true",
         "type": "jsonp", "dataType": "jsonp", "callback": "mtopjsonp_aibuy",
-        "data": data_str,
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                      "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://aibuy.1688.com/",
+        "Accept": "*/*",
     }
     try:
-        resp = requests.get(
-            MTOP_BASE_URL.format(api=api),
-            params=params,
-            timeout=timeout,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                              "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-                "Referer": "https://aibuy.1688.com/",
-                "Accept": "*/*",
-            },
-            cookies=token_cookies,
-        )
+        if method == "POST":
+            resp = requests.post(
+                MTOP_BASE_URL.format(api=api),
+                params=params,
+                data={"data": data_str},
+                timeout=timeout,
+                headers=headers,
+                cookies=token_cookies,
+            )
+        else:
+            params["data"] = data_str
+            resp = requests.get(
+                MTOP_BASE_URL.format(api=api),
+                params=params,
+                timeout=timeout,
+                headers=headers,
+                cookies=token_cookies,
+            )
         if resp.status_code != 200:
             logger.warning("aibuy mtop %s HTTP %d", api, resp.status_code)
             return {}
@@ -689,11 +712,34 @@ def _mtop_request(
 
 
 def _aibuy_image_upload(image_url: str, token_cookies: dict[str, str]) -> str:
-    """image.upload 拿 yoloCropRegion（主体裁剪区域）。失败返回空串。"""
-    data = {"imageUrl": image_url}
-    result = _mtop_request(AIBUY_IMAGE_UPLOAD_API, data, token_cookies)
+    """image.upload：下载图 → base64 → POST 上传，返回 1688 托管 imageUrl。
+
+    失败返回空串（调用方降级用原始 URL 直接搜）。⚠️ API 要 imageBase64
+    （base64 内容），非 imageUrl；且数百 KB base64 必须 POST body（GET 414）。
+    """
+    try:
+        img_resp = requests.get(
+            image_url, timeout=15,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                              "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://detail.1688.com/",
+            },
+        )
+        if img_resp.status_code != 200 or len(img_resp.content) < 100:
+            logger.warning("aibuy 图下载失败（HTTP %d），跳过 upload", img_resp.status_code)
+            return ""
+        b64 = base64.b64encode(img_resp.content).decode()
+    except Exception as e:
+        logger.warning("aibuy 图下载异常: %s", e)
+        return ""
+    result = _mtop_request(
+        AIBUY_IMAGE_UPLOAD_API, {"imageBase64": b64}, token_cookies, method="POST")
     inner = result.get("result") or {}
-    return str(inner.get("yoloCropRegion") or "")
+    uploaded = str(inner.get("imageUrl") or "")
+    if not uploaded:
+        logger.warning("aibuy image.upload 未返回 imageUrl: %s", str(inner)[:120])
+    return uploaded
 
 
 def _aibuy_image_search(
@@ -760,9 +806,9 @@ def search_by_image_aibuy(
 ) -> list[dict[str, Any]]:
     """aibuy mtop API 直调图搜（免浏览器，v0.39）。
 
-    主路径：Chrome 会话 cookie → image.upload 拿 yoloCropRegion → imagesearch 签名直调。
-    fail-fast 纪律（Momus 评审）：无 token / 请求失败 → 快速返回 []，由调用方降级
-    到 CDP/AK——不 raise、不重试、不慢等。
+    主路径：Chrome 会话 cookie → image.upload（base64 POST，拿 1688 托管 imageUrl）
+    → imagesearch 签名直调。fail-fast 纪律（Momus 评审）：无 token / 请求失败
+    → 快速返回 []，由调用方降级到 CDP/AK——不 raise、不重试、不慢等。
 
     Returns:
         [{"id": offerId, "title", "price", "image", "badge": "", "normalization_score", ...}, ...]
@@ -787,9 +833,11 @@ def search_by_image_aibuy(
             return []
         _save_aibuy_token(token_cookies)
 
-    # 先上传拿主体区域（提升多主体图匹配率），失败不阻塞搜索
-    region = _aibuy_image_upload(image_url, token_cookies)
-    results = _aibuy_image_search(image_url, token_cookies, region=region, page_size=page_size)
+    # 先上传拿 1688 托管 imageUrl（阿里服务器能直接抓，比原始境外 URL 更稳），
+    # 失败不阻塞搜索（回退用原始 image_url 直接搜）
+    uploaded_url = _aibuy_image_upload(image_url, token_cookies)
+    search_img = uploaded_url or image_url
+    results = _aibuy_image_search(search_img, token_cookies, page_size=page_size)
     if not results:
         logger.warning("aibuy image search 返回空，降级 CDP/AK 图搜")
         return []
