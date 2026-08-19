@@ -2348,6 +2348,64 @@ async def v1_mappings_lookup(request: Request):
     return {"found": bool(mappings), "mappings": mappings}
 
 
+# ==================== 佣金查询端点（任务 2.1） ====================
+# GET /api/v1/commissions/lookup?category_id={description_category_id}（+ legacy /commissions/lookup 双挂）
+# 读 category_commission 缓存表（全局共享，无 tenant 隔离——类目佣金是平台级知识）。
+# 鉴权与 analytics 读端点一致（Bearer token → _verify_analytics_token + rate_limiter）。
+
+@app.get("/commissions/lookup", tags=["commissions"])
+@app.get("/api/v1/commissions/lookup", tags=["commissions"])
+async def http_commissions_lookup(request: Request):
+    """类目佣金查询：按 description_category_id 查 category_commission 缓存表。
+
+    query: category_id（Ozon 类目 ID，必填整数）
+    → 命中  {"found": true, "fbs": {"leq_1500","leq_5000","gt_5000"}, "fbo": {...}, "source"}
+    → 未命中 {"found": false}
+    鉴权: Authorization: Bearer <token>（剥离 sk- 前缀）；Supabase 未配置 → 本地放行。
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean_token)
+
+    allowed, _remaining = rate_limiter.check(clean_token)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute",
+        )
+
+    raw = (request.query_params.get("category_id") or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="category_id is required")
+    try:
+        category_id = int(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="category_id must be an integer")
+
+    from utils.commission_resolver import get_category_commission
+
+    row = get_category_commission(category_id)
+    if row is None:
+        return {"found": False}
+    return {
+        "found": True,
+        "fbs": {
+            "leq_1500": row.get("fbs_leq_1500"),
+            "leq_5000": row.get("fbs_leq_5000"),
+            "gt_5000": row.get("fbs_gt_5000"),
+        },
+        "fbo": {
+            "leq_1500": row.get("fbo_leq_1500"),
+            "leq_5000": row.get("fbo_leq_5000"),
+            "gt_5000": row.get("fbo_gt_5000"),
+        },
+        "source": row.get("source"),
+    }
+
+
 # ── WebUI 凭证端点（T5）：routes/services 分层，业务逻辑在 services/credential_service.py ──
 from routes.credentials_routes import router as credentials_router
 v1.include_router(credentials_router)
