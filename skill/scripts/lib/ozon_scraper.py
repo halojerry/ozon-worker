@@ -37,8 +37,12 @@ def parse_ru_weight(text) -> int | None:
 
 
 def parse_ru_dims(text) -> dict | None:
-    """从 '20x15x5 см' 解析 mm 尺寸（仅三边齐全时返回，避免瞎估）。"""
-    t = str(text or "").replace("×", "x").replace("х", "x").lower()
+    """从 '20x15x5 см' / '190*64*230 мм' 解析 mm 尺寸（仅三边齐全时返回，避免瞎估）。
+
+    ⚠️ 分隔符兼容 x / х / × / *（Ozon 商品页 'Размеры, мм' 用 '*' 分隔，
+    'Длина/Ширина/Высота' 场景由 extract_weight_dims_from_attrs 拼三键）。
+    """
+    t = str(text or "").replace("×", "x").replace("х", "x").replace("*", "x").lower()
     m = re.search(r"([\d.]+)\s*[xх]\s*([\d.]+)\s*[xх]\s*([\d.]+)", t)
     if not m:
         return None
@@ -48,6 +52,86 @@ def parse_ru_dims(text) -> dict | None:
         return None
     mult = 10 if ("см" in t or "cm" in t) else 1
     return {"length": int(vals[0] * mult), "width": int(vals[1] * mult), "height": int(vals[2] * mult)}
+
+
+def extract_weight_dims_from_attrs(attrs: dict) -> tuple[int | None, dict | None]:
+    """从 Ozon 商品页 attributes 提取重量(g)与尺寸(mm)，覆盖多字段形态。
+
+    重量：键名含 вес/масса/重量，值 '270'（纯数字，单位在键名 'Вес товара, г'）
+          或 '270 г'（单位在值）。
+    尺寸：① 合并键（键名含 размер/габарит）'190*64*230' / '20x15x5 см'
+          ② 三键 Длина, см / Ширина, см / Высота, см 各自独立值。
+
+    Returns: (weight_g, dimensions_mm)，两者独立可缺省为 None。
+    """
+    if not attrs:
+        return None, None
+
+    weight_g: int | None = None
+    dimensions: dict | None = None
+    dim_3: dict[str, float] = {}
+    dim_3_unit_cm = False
+
+    for k, v in attrs.items():
+        kl = str(k).lower()
+        vs = str(v or "").strip()
+        if not vs:
+            continue
+
+        # 重量
+        if weight_g is None and ("вес" in kl or "масса" in kl or "重量" in kl):
+            w = parse_ru_weight(vs)
+            if w is None:
+                m = re.search(r"([\d.]+)", vs)
+                if m:
+                    try:
+                        w = int(float(m.group(1)))
+                    except (TypeError, ValueError):
+                        w = None
+            if w:
+                weight_g = w
+
+        # 尺寸合并键
+        if dimensions is None and ("размер" in kl or "габарит" in kl):
+            d = parse_ru_dims(vs)
+            if d:
+                dimensions = d
+
+        # 尺寸三键
+        if "длин" in kl:
+            m = re.search(r"([\d.]+)", vs)
+            if m:
+                try:
+                    dim_3["length"] = float(m.group(1))
+                except ValueError:
+                    pass
+            if "см" in kl or "cm" in kl:
+                dim_3_unit_cm = True
+        elif "ширин" in kl:
+            m = re.search(r"([\d.]+)", vs)
+            if m:
+                try:
+                    dim_3["width"] = float(m.group(1))
+                except ValueError:
+                    pass
+        elif "высот" in kl:
+            m = re.search(r"([\d.]+)", vs)
+            if m:
+                try:
+                    dim_3["height"] = float(m.group(1))
+                except ValueError:
+                    pass
+
+    # 三键齐全 → 组装（键名 'Длина, см' 含 см → ×10 转 mm；否则按 mm 原值）
+    if dimensions is None and all(x in dim_3 for x in ("length", "width", "height")):
+        mult = 10 if dim_3_unit_cm else 1
+        dimensions = {
+            "length": int(dim_3["length"] * mult),
+            "width": int(dim_3["width"] * mult),
+            "height": int(dim_3["height"] * mult),
+        }
+
+    return weight_g, dimensions
 
 # ---------------------------------------------------------------------------
 # Constants

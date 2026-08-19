@@ -1363,93 +1363,6 @@ def _flatten_ozon_characteristics(chars) -> dict[str, str]:
     return attrs
 
 
-def _reverse_lookup_ozon_competitor(
-    cn_title: str,
-    cdp_url: str = "http://127.0.0.1:9222",
-    token: str = "",
-    max_candidates: int = 10,
-) -> dict[str, Any]:
-    """Ozon 反查同款（S1）: 1688 标题 → Ozon 搜索页找候选 → 语义匹配 top1 →
-    fetch_competing_sellers(min price) + fetch_product_info(weight/dims/俄语属性)。
-
-    ⚠️ 复用 ozon_discovery.discover_from_keyword/_ru_zh_title_overlap/_llm_semantic_match
-    + ozon_widget.fetch_competing_sellers/fetch_product_info——不新写 Ozon 图搜 API。
-    fail-open：任何失败返回 {}，不影响主流程信封组装。
-
-    Returns（混合键，与 follow_sell_cloud:3400-3435 100% 对齐）:
-        competitor_weight_g / competitor_dimensions_mm   → extensions 侧
-        ozon_attributes / competitor_price / follow_min_price → draft 侧
-    """
-    out: dict[str, Any] = {}
-    try:
-        from scripts.lib.ozon_discovery import (
-            _llm_semantic_match,
-            _ru_zh_title_overlap,
-            discover_from_keyword,
-        )
-        from scripts.lib.ozon_widget import (
-            fetch_competing_sellers,
-            fetch_product_info,
-        )
-        from scripts.lib.ozon_scraper import parse_ru_dims, parse_ru_weight
-
-        keyword = (cn_title or "").strip()
-        if not keyword:
-            return out
-        # 1. Ozon 搜索页找同款候选（1688 标题作关键词，截断防超长）
-        urls = discover_from_keyword(cdp_url, keyword[:80], max_products=max_candidates) or []
-        if not urls:
-            return out
-        # 2. 逐个候选: fetch_product_info 拿标题 → 语义匹配 top1
-        best_pid, best_score, best_info = "", 0.0, {}
-        for url in urls:
-            m = re.search(r"/products?/(?:[^/]+-)?(\d{6,15})", str(url))
-            if not m:
-                continue
-            pid = m.group(1)
-            info = fetch_product_info(cdp_url, pid) or {}
-            oz_title = str(info.get("title") or "")
-            if not oz_title:
-                continue
-            score = _ru_zh_title_overlap(oz_title, keyword)
-            if score > best_score:
-                best_score, best_pid, best_info = score, pid, info
-        if not best_pid:
-            return out
-        # 3. 弱匹配（词对不足）→ LLM 语义兜底（护栏边界救回）
-        if best_score < 0.6 and token:
-            if _llm_semantic_match(str(best_info.get("title") or ""), keyword, token=token):
-                best_score = 1.0
-        if best_score <= 0:
-            return out
-        # 4. 竞品数据: sellerNumber/min price + weight/dims/俄语属性
-        sellers = fetch_competing_sellers(cdp_url, best_pid) or {}
-        min_price = float(sellers.get("min_price") or 0)
-        if min_price > 0:
-            out["follow_min_price"] = min_price
-        price = str(best_info.get("price") or best_info.get("cardPrice") or "").strip()
-        if price:
-            out["competitor_price"] = price
-        attrs = _flatten_ozon_characteristics(best_info.get("characteristics") or [])
-        if attrs:
-            out["ozon_attributes"] = attrs
-            _w = parse_ru_weight(next((v for k, v in attrs.items()
-                                       if any(x in k.lower() for x in ("вес", "масса", "重量"))), ""))
-            _d = parse_ru_dims(next((v for k, v in attrs.items()
-                                     if any(x in k.lower() for x in ("габарит", "размер упаковки"))), ""))
-            if _w:
-                out["competitor_weight_g"] = int(_w)
-            if _d:
-                out["competitor_dimensions_mm"] = _d
-        logger.info("✅ Ozon 反查同款: pid=%s score=%.2f weight=%s dims=%s price=%s min=%s",
-                    best_pid, best_score,
-                    out.get("competitor_weight_g"), out.get("competitor_dimensions_mm"),
-                    out.get("competitor_price"), out.get("follow_min_price"))
-    except Exception as e:
-        logger.debug("Ozon 反查同款失败（fail-open）: %s", e)
-    return out
-
-
 # 可注入 extensions 的配置键（与 worker template_service.CONFIG_KEYS 一致）
 _INJECTABLE_EXT_KEYS = ("margin_rate", "commission_rate", "fx_buffer",
                         "offer_id_prefix", "follow_type", "stock", "warehouse_id")
@@ -2115,29 +2028,6 @@ def build_graph_envelope(
     # Q2: api_only 降级透传 → 标记 degraded，供 worker/审计识别数据来源
     if cdp_source == "api_only":
         envelope["extensions"]["cdp_degraded"] = True
-
-    # ── 6.6 Ozon 反查同款（S1）: 1688 标题 → Ozon 搜索页找同款 → 竞品数据混合键注入 ──
-    # 复用 discover_from_keyword + 语义匹配（不新写图搜 API）；find top1 后取
-    # 竞品重量/尺寸/俄语属性/售价。混合键与 follow_sell_cloud 100% 对齐
-    # （extensions.competitor_weight_g/competitor_dimensions_mm +
-    # draft.ozon_attributes/competitor_price/follow_min_price）。
-    # ⚠️ fail-open：反查失败不影响主流程，信封照常组装。
-    # cdp_source == "api_only"（1688 CDP 完全失败）时跳过——无浏览器会话，
-    # 再开第二次 Ozon CDP 连接必然失败且浪费 10s+ 超时（api_only 测试也靠此保持快速）。
-    try:
-        if cdp_source != "api_only":
-            _comp = _reverse_lookup_ozon_competitor(
-                cn_title=item_title,
-                token=_get_mxou_token() or "",
-            )
-            for _k in ("competitor_weight_g", "competitor_dimensions_mm"):
-                if _comp.get(_k) not in (None, "", [], {}):
-                    envelope["extensions"][_k] = _comp[_k]
-            for _k in ("ozon_attributes", "competitor_price", "follow_min_price"):
-                if _comp.get(_k) not in (None, "", [], {}):
-                    draft[_k] = _comp[_k]
-    except Exception:
-        pass  # fail-open
 
     # ── 6.7 完整性审计 ──
     try:
@@ -3507,7 +3397,10 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                         logger.info("✅ 人工改选第 %s 个候选", _ans)
                 logger.info("📊 图搜匹配质量: %d 个结果, 最佳 badge=%s (score=%d)",
                            len(matches), best.get("badge", "?"), best.get("badge_score", 0))
-                if best.get("badge_score", 0) <= 1:
+                # ⚠️ badge 仅 CDP 通道的 DOM 信号（可选参考，非硬指标）。aibuy/AK 通道
+                # 无 badge（靠官方排序+norm），打「badge 评分仅 0」是误导性告警——
+                # 只对 cdp 通道且 badge 确实弱时提示。
+                if search_method == "cdp" and best.get("badge_score", 0) <= 1:
                     logger.warning("⚠️ 最佳匹配 badge 评分仅 %d，图搜可能不准确，建议人工核实", best.get("badge_score"))
             else:
                 result["no_relevant_match"] = True
@@ -3587,18 +3480,12 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                             draft["ozon_attributes"]["Цвет"] = _color_ru
                     if not result.get("competitor_weight_g") or not result.get("competitor_dimensions_mm"):
                         try:
-                            from scripts.lib.ozon_scraper import (
-                                parse_ru_dims,
-                                parse_ru_weight,
-                            )
-                            _w = parse_ru_weight(next((v for k, v in _attrs_all.items()
-                                                       if any(x in k.lower() for x in ("вес", "масса", "重量"))), ""))
-                            _d = parse_ru_dims(next((v for k, v in _attrs_all.items()
-                                                     if any(x in k.lower() for x in ("габарит", "размер упаковки"))), ""))
-                            if _w:
-                                result.setdefault("competitor_weight_g", _w)
-                            if _d:
-                                result.setdefault("competitor_dimensions_mm", _d)
+                            from scripts.lib.ozon_scraper import extract_weight_dims_from_attrs
+                            _wd_w, _wd_d = extract_weight_dims_from_attrs(_attrs_all)
+                            if _wd_w:
+                                result.setdefault("competitor_weight_g", _wd_w)
+                            if _wd_d:
+                                result.setdefault("competitor_dimensions_mm", _wd_d)
                         except Exception:
                             pass
                     # ✅ Ozon 类目 ID（从竞品页面提取，Worker 跳过 1688 类目匹配）

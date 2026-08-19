@@ -288,18 +288,69 @@ class CdpConnection:
     # Tab management
     # ------------------------------------------------------------------
 
-    def new_tab(self, url: str = "about:blank") -> CdpTab:
-        """Create a new tab via ``PUT /json/new?`` and return a :class:`CdpTab`."""
+    def new_tab(self, url: str = "about:blank", background: bool = False) -> CdpTab:
+        """Create a new tab and return a :class:`CdpTab`.
+
+        ``background=False`` 走 ``PUT /json/new?``（可见 tab，激活到前台）。
+        ``background=True`` 走浏览器级 ``Target.createTarget(background=true)``，
+        创建后台 tab（不激活、不弹前台）——用于静默图搜等用户无感场景。
+        """
         # 清理已关闭的 tab 引用
         self._tabs = [t for t in self._tabs if not t._closed]
 
-        resp = requests.put(f"{self._cdp_url}/json/new?", timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        tab_id = data.get("id", "")
-        ws_url = data.get("webSocketDebuggerUrl", "")
+        if not background:
+            resp = requests.put(f"{self._cdp_url}/json/new?", timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            tab_id = data.get("id", "")
+            ws_url = data.get("webSocketDebuggerUrl", "")
+            if not ws_url:
+                raise RuntimeError("CDP did not return a webSocketDebuggerUrl")
+
+            tab = CdpTab(self._cdp_url, tab_id, ws_url)
+            self._tabs.append(tab)
+
+            if url and url != "about:blank":
+                tab.navigate(url)
+
+            return tab
+
+        # 后台 tab：浏览器级 WebSocket → Target.createTarget(background=true)
+        ver = requests.get(f"{self._cdp_url}/json/version", timeout=5)
+        ver.raise_for_status()
+        browser_ws_url = ver.json().get("webSocketDebuggerUrl", "")
+        if not browser_ws_url:
+            raise RuntimeError("CDP did not return a browser webSocketDebuggerUrl")
+
+        target_id = ""
+        ws = websocket.create_connection(browser_ws_url, timeout=10)
+        try:
+            ws.send(_json.dumps({"id": 1, "method": "Target.createTarget",
+                                 "params": {"url": "about:blank", "background": True}}))
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                ws.settimeout(min(3.0, max(0.1, deadline - time.time())))
+                raw = ws.recv()
+                msg = _json.loads(raw)
+                if msg.get("id") == 1:
+                    target_id = msg.get("result", {}).get("targetId", "")
+                    break
+        finally:
+            ws.close()
+
+        if not target_id:
+            raise RuntimeError("Target.createTarget did not return targetId")
+
+        # 从 /json 列表按 targetId 定位该后台 tab 的 webSocketDebuggerUrl
+        tab_id = ""
+        ws_url = ""
+        for t in requests.get(f"{self._cdp_url}/json", timeout=5).json():
+            if t.get("id") == target_id:
+                tab_id = t.get("id", "")
+                ws_url = t.get("webSocketDebuggerUrl", "")
+                break
         if not ws_url:
-            raise RuntimeError("CDP did not return a webSocketDebuggerUrl")
+            raise RuntimeError("CDP did not return a webSocketDebuggerUrl for background tab")
 
         tab = CdpTab(self._cdp_url, tab_id, ws_url)
         self._tabs.append(tab)

@@ -518,11 +518,18 @@ def fetch_sales_analytics(
         tab, reused = _tab_for_seller(cdp)
 
         # 1. 取 sc_company_id cookie（document.cookie 优先，HttpOnly 走 CDP 网络域兜底）
+        # ⚠️ 时序修复：seller tab 刚开/复用时 cookie 可能未就绪（首跑 401 根因），
+        # 轮询等待 ≤8s 直到读到 sc_company_id（仿 aibuy token 舞步），读不到才降级。
         company_id = ""
-        try:
-            company_id = str(tab.evaluate(_GET_COMPANY_ID_JS, timeout=10) or "")
-        except Exception as exc:
-            logger.debug("read sc_company_id via JS failed: %s", exc)
+        _deadline = time.time() + 8
+        while time.time() < _deadline:
+            try:
+                company_id = str(tab.evaluate(_GET_COMPANY_ID_JS, timeout=10) or "")
+            except Exception as exc:
+                logger.debug("read sc_company_id via JS failed: %s", exc)
+            if company_id:
+                break
+            time.sleep(0.5)
         if not company_id:
             try:
                 cookies = tab._send("Network.getCookies", {"urls": [SELLER_URL]})

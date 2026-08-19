@@ -2070,7 +2070,7 @@ def _llm_semantic_match(ozon_title: str, cn_title: str, token: str = "") -> bool
             json={
                 "model": "deepseek-v4-flash",
                 "messages": [
-                    {"role": "system", "content": "判断两个产品标题是否指向同一货源/可代工关系（俄语 vs 中文）。同物理形态且可互相加工即算 YES：如竹签香可浸驱蚊液制成驱蚊棒（香茅/柠檬草/驱蚊竹签香 → 驱蚊棒 = YES）；供佛香/檀香/贡香与驱蚊棒用途无关 = NO。只看产品本身，忽略规格差异（数量/尺寸/颜色）。只回答 YES 或 NO。"},
+                    {"role": "system", "content": "判断两个产品标题是否指向同一货源/同款商品（俄语 vs 中文）。判定标准：核心功能与物理形态相同即 YES——同义/近义词（挂架=展示架=收纳架、挂钩=挂架）算同款；用途不同、品类不同（如宠物用品 vs 园艺工具）才算 NO。忽略规格差异（数量/尺寸/颜色/品牌）。只回答 YES 或 NO。"},
                     {"role": "user", "content": f"俄语标题: {oz_short}\n中文标题: {cn_short}\n是否为同一货源？"},
                 ],
                 "temperature": 0,
