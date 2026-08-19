@@ -19,9 +19,45 @@ export const Route = createFileRoute('/_authenticated/pricing')({
 
 const PAGE_SIZE = 10
 
+/** POST /api/v1/estimate 响应（含真实佣金 rate + source） */
+interface EstimateResult {
+  price?: number
+  old_price?: number
+  profit_cny?: number
+  profit_rate?: number
+  commission_rate?: number
+  commission_source?: string
+  currency?: string
+}
+
+const COMMISSION_BAND_LABEL: Record<string, string> = {
+  leq_1500: '≤1500₽',
+  leq_5000: '1500-5000₽',
+  gt_5000: '>5000₽',
+}
+
+function commissionPct(rate: number | undefined): string {
+  if (rate == null) return '--'
+  return `${(rate * 100).toFixed(1).replace(/\.0$/, '')}%`
+}
+
+/** source → 人读标签：explicit / cache:{band} / segments:{band} / fallback */
+function commissionSourceLabel(source: string | undefined): string {
+  if (!source) return '未获取'
+  if (source === 'explicit') return '手动指定'
+  if (source === 'fallback') return '默认兜底'
+  const m = /^(cache|segments):(leq_1500|leq_5000|gt_5000)$/.exec(source)
+  if (m) {
+    const kind = m[1] === 'cache' ? '类目佣金表' : '信封佣金分段'
+    return `${kind} · ${COMMISSION_BAND_LABEL[m[2]] ?? m[2]}`
+  }
+  return source
+}
+
 function PricingRoute() {
   const [page, setPage] = useState(1)
   const [applying, setApplying] = useState<string | null>(null)
+  const [lastEstimate, setLastEstimate] = useState<EstimateResult | null>(null)
 
   const { data, isLoading } = useQuery<OzonProductListResponse>({
     queryKey: ['products-ozon-pricing', page],
@@ -48,17 +84,25 @@ function PricingRoute() {
     setApplying(product.product_id)
     try {
       const res = await api.post('/estimate', {
-        draft: {
-          purchase_cost: product.price,
-          weight_g: 300,
-          dimensions: { length: 10, width: 10, height: 10 },
+        envelope: {
+          draft: {
+            purchase_cost: product.price,
+            weight: 300,
+            dimensions: { length: 10, width: 10, height: 10 },
+          },
+          extensions: { margin_rate: 0.25, commission_rate: 0.1, fx_buffer: 0.05 },
         },
-        extensions: { margin_rate: 0.25, commission_rate: 0.1, fx_buffer: 0.05 },
       })
-      const suggested = (res.data as { price?: number }).price
+      const est = res.data as EstimateResult
+      setLastEstimate(est)
+      const suggested = est.price
       if (suggested) {
         await api.post('/products/bulk-prices', { items: [{ product_id: product.product_id, price: suggested }] })
-        alert(`已应用建议价 ₽ ${suggested.toFixed(2)}`)
+        const src = est.commission_source ? ` · ${commissionSourceLabel(est.commission_source)}` : ''
+        alert(
+          `已应用建议价 ₽ ${suggested.toFixed(2)}` +
+            (est.commission_rate != null ? `（佣金 ${commissionPct(est.commission_rate)}${src}）` : ''),
+        )
       }
     } catch {
       alert('定价失败，请检查参数')
@@ -93,8 +137,15 @@ function PricingRoute() {
         </Card>
         <Card className="p-4">
           <p className="text-[12px] text-ink-aux">定价策略</p>
-          <p className="font-mono text-[24px] font-bold text-ink">25% / 10% / 5%</p>
+          <p className="font-mono text-[24px] font-bold text-ink">
+            25% / {commissionPct(lastEstimate?.commission_rate)} / 5%
+          </p>
           <p className="text-[11px] text-ink-aux">加价 / 佣金 / 汇率缓冲</p>
+          <p className="mt-1 font-mono text-[11px] text-accent">
+            {lastEstimate?.commission_source
+              ? `佣金来源：${commissionSourceLabel(lastEstimate.commission_source)}`
+              : '点击「一键应用」获取真实类目佣金'}
+          </p>
         </Card>
       </div>
 

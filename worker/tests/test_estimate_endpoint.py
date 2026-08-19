@@ -8,6 +8,8 @@
 4. 无 token → 401
 5. 防漂移锁定：pricing_node 单 SKU 定价必须引用 compute_price（公式单处定义）
 6. exchange_rate=None → 按 CNY 处理（与 skill 估算一致）
+7. 任务 2.3：响应含真实佣金 commission_rate + commission_source
+   （显式佣金 → explicit；mock get_category_commission → cache:{band}）
 
 运行：cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_estimate_endpoint.py -q
 """
@@ -99,6 +101,9 @@ def test_cny_draft_parity_with_pricing_formula(monkeypatch):
     )
     for key, expected in EXPECTED_CNY.items():
         assert result[key] == expected, f"{key}: 期望 {expected}，实际 {result[key]}"
+    # 任务 2.3: 显式佣金（信封 commission_rate=0.10）→ source=explicit，rate=0.10
+    assert result["commission_rate"] == 0.10
+    assert result["commission_source"] == "explicit"
 
 
 # ── 2. RUB 草稿（exchange_rate 有值）→ price 用汇率换算 ──
@@ -191,3 +196,43 @@ def test_payload_readonly(monkeypatch):
     )
     assert result["price"] > 0
     assert VALID_ENVELOPE == before, "端点不得修改 draft payload（纯读派生数据）"
+
+
+# ── 8. 任务 2.3: 真实类目佣金（mock 缓存表分段 → cache:{band}）──
+def test_estimate_returns_commission_source(monkeypatch):
+    """无显式佣金 + 类目佣金缓存命中 → 响应含 commission_rate + commission_source。
+
+    Given: 信封无 commission_rate（extensions 移除）+ draft.ozon_category 指定类目
+    When:  mock get_category_commission 返回分段（fbs_leq_1500=8.0%），调用 estimate
+    Then:  响应 commission_rate=0.08, commission_source="cache:leq_1500"
+           （CNY 无汇率 → 售价段走保守 leq_1500，与 pricing_node 同源解析链）
+    """
+    from services import estimate_service
+
+    envelope = copy.deepcopy(VALID_ENVELOPE)
+    envelope["extensions"].pop("commission_rate", None)
+    envelope["draft"]["ozon_category"] = {
+        "description_category_id": "17028929",
+        "type_id": "504866264",
+    }
+    monkeypatch.setattr(
+        estimate_service,
+        "get_category_commission",
+        lambda dc_id: {
+            "fbs_leq_1500": 8.0,
+            "fbs_leq_5000": 10.5,
+            "fbs_gt_5000": 12.0,
+            "fbo_leq_1500": 7.0,
+            "fbo_leq_5000": 9.0,
+            "fbo_gt_5000": 11.0,
+            "source": "what_to_sell",
+        },
+    )
+    result = _call_endpoint(
+        "11111111-1111-1111-1111-111111111111",
+        {"token": "sk-x"},
+        monkeypatch,
+        payload=envelope,
+    )
+    assert result["commission_source"] == "cache:leq_1500"
+    assert result["commission_rate"] == 0.08
