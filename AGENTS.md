@@ -1,6 +1,16 @@
 # AGENTS.md — ozon-worker 工作区
 
-本文件是工作区级导航。两个子项目各有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
+本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
+
+## 最近更新（v0.58 — 重量估算同源统一 + batch_test 复用 discover 货源 + pounding-sidebar 插件骨架）
+
+> 2026-08-19。重量链路修复（费率表权威）+ 客户端插件骨架，均未发版（VERSION 仍 0.56.6，代码注释已标 v0.58）。
+
+- **重量估算同源统一**：`ozon_discovery.py` 新增 `DEFAULT_WEIGHT_G=500` + `estimate_shipping_cny()`（分段 ≤500g ¥6 / ≤1000g ¥8 / >1000g ¥15）共享函数，cloud_probe `price_estimate` 改调它——修掉 discover 与 graph/follow 上架管线默认重量不一致（曾差 ¥9/单，轻小件被选品分析误判「利润不足」）。
+- **无重量也查费率表**：`_query_logistics_from_worker` 重量 None/≤0 时按 `DEFAULT_WEIGHT_G(500g)` 查表（此前直接 return None 跳过费率表落本地估算）——**费率表是权威**，无重量只是少一个查询维度，不是放弃查表的理由。last-good 缓存键/查询同步 eff_weight。
+- **batch_test 复用 discover 货源直上**：`_find_discover_source()` 优先复用 discover 已匹配好的 1688 货源（免重跑 CDP + 图搜），未命中才走 follow；pre-flight `_need_cdp` 预扫描，纯复用批次不启 Chrome。
+- **pounding-sidebar 插件骨架**：新子项目（dsh-better-sidebar 消费插件），注册 7 个业务板块 tab（采集箱/任务中心/专家/知识库/爆品新闻/计算器/用量）+ CSV 预览器；`ctx.betterSidebar.registerTab` **必须包 effect**（HMR/禁用自动撤销，否则报 already registered）；构建参照社区标准插件 dsh-sentinel 模板。
+- **测试**：skill **566 passed**（基线 556 + 10 新增 `test_batch_test_reuse_discover.py`）；worker 1212 不变（本轮未改 worker）。
 
 ## 最近更新（v0.57 — webui 视觉 v2.0 全站落地 + 能力补齐 + 多用户聚合 + 静默采集）
 
@@ -49,7 +59,7 @@
 
 ## 工作区概述
 
-两段式 Ozon 上架系统，职责严格分离：
+两段式 Ozon 上架系统（Skill/Worker 两段负责上架管线）+ 客户端侧边栏插件（pounding-sidebar，dsh-better-sidebar 消费插件），职责严格分离：
 
 | | Skill | Worker |
 |---|---|---|
@@ -101,9 +111,15 @@ ozon-worker/
 │   └── scripts/                # init_data.py / import_logistics.py / ci.sh
 ├── deploy/                     # 部署包
 │   ├── docker-compose.yml      # 生产环境（含 PG + Worker）
+│   ├── docker-compose.dsh.yml  # pounding dsh 电商客户端本地测试沙箱（127.0.0.1:3080）
+│   ├── dsh/                    # dsh 沙箱 Dockerfile + setup-profile.py
 │   ├── deploy.sh               # 一键部署（含自动初始化数据）
 │   ├── update.sh               # 一键更新
 │   └── .env.example            # 环境变量模板
+├── pounding-sidebar/           # 客户端侧边栏插件（dsh-better-sidebar 消费插件）
+│   ├── src/client/index.tsx    # 7 业务板块 tab（采集箱/任务中心/专家/知识库/爆品新闻/计算器/用量）+ CSV viewer
+│   ├── cordis.patch.yml        # 手动挂载补丁（~/.dsh/profiles/web/cordis.patch.yml）
+│   └── README.md               # ⭐ 插件开发指南（registerTab 契约/构建/挂载，见「深入阅读」）
 ├── docs/
 │   ├── CONTRACT-v4.md          # Skill↔Worker API 契约 v4.0（最新；v3.0 旧版已归档 archive/docs/legacy/）
 │   ├── DEPLOY.md               # Worker 云端部署完整指南
@@ -280,6 +296,7 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | skill | `python3.12 scripts/cli.py category "护手霜" --lang ZH_HANS`（类目查询，Issue4） |
 | skill | `python3.12 scripts/cli.py search "宠物饮水机" --sort price_desc --rules "profit_margin>=0.1" --export out.csv`（1688 选品+筛选+导出） |
 | skill | `python3.12 -m pytest tests/test_aibuy_search.py -q`（aibuy 图搜 + trusted_source + 类目消歧 27 单测） |
+| skill | `python3.12 -m pytest tests/test_batch_test_reuse_discover.py -q`（v0.58 batch_test 复用 discover 货源直上 10 单测） |
 | skill | `python3.12 scripts/batch_test.py --urls-file urls.txt --client-id xxx --api-key xxx --submit` |
 | skill | `python3.12 compile.py`（Cython 编译核心库 → .so/.pyd，必须用 Python 3.12） |
 | skill | `python3.12 compile.py --clean`（清理 build/dist 后重新编译） |
@@ -356,6 +373,8 @@ bash update.sh
 ```
 
 架构：Docker Compose（Worker + PostgreSQL），轻量级，主要瓶颈在外部 API（MXOU/Ozon），不在本地服务器。
+
+> 💡 **dsh 客户端本地沙箱**：`deploy/docker-compose.dsh.yml` + `deploy/dsh/` 起 pounding dsh 电商客户端（`docker compose -f docker-compose.dsh.yml up -d --build` → `http://127.0.0.1:3080`），供 pounding-sidebar 插件本地开发/挂载调试，与生产 worker 沙箱隔离。
 
 > 💡 **config 热加载**：`deploy/docker-compose.yml` 把 `../worker/config:/app/config:ro` bind mount——宿主机改任何 config JSON（LLM prompt、生图提示词、同义词表）**无需重建镜像/重启容器**，保存即生效（下次调用）。改提示词流程：服务器 `vim worker/config/image_prompts.json` → 保存生效。
 
@@ -474,6 +493,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - **`skill/references/anti-patterns.md`** — 越界行为 → 后果 → 正确做法对照表 + 核心纪律
 - **`skill/field_mapping.md`** — 1688/Ozon 字段 → 信封字段映射规则 + 单位转换 + 图片顺序规范
 - **`skill/envelope_example.json`** — 完整信封结构示例（单 SKU + 跟卖两种模式）
+- **`pounding-sidebar/README.md`** — ⭐ dsh-better-sidebar 消费插件开发指南（registerTab 契约三步：type-import/inject/包 effect；构建/挂载/调试；7 板块数据源）
 - **`docs/DEPLOY.md`** — ⭐ Worker 云端部署完整指南（Docker、Nginx、HTTPS、运维）
 - **`docs/WORKER-TOPOLOGY.md`** — Worker 拓扑与错误处理手册（节点流、错误映射、数据流、改代码快速参考）
 - **`docs/CONTRACT-v4.md`** — ⭐ Skill↔Worker API 契约 v4.0（端点、请求/响应、错误码、节点合约；v3.0 旧版已归档 `archive/docs/legacy/`）
@@ -508,6 +528,12 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
 - **Docker 部署**: `deploy/docker-compose.yml` 含 PG + Worker，`HEALTHCHECK` 已配置。
 - **API 版本化**: 新端点走 `/api/v1/`，旧路径保持兼容。
+
+### v0.58 新增关键约定（改重量估算/费率表/batch_test 货源复用前必看）
+
+- **重量估算同源统一**：skill 侧所有运费估算走 `ozon_discovery.estimate_shipping_cny(weight_g)` 共享函数（分段 ≤500g ¥6 / ≤1000g ¥8 / >1000g ¥15，缺失按 `DEFAULT_WEIGHT_G=500`）——cloud_probe `price_estimate` 与 discover `_calculate_profit` 同源调用，**禁止各自内联分段**（曾差 ¥9/单导致轻小件误判利润不足）。
+- **费率表是权威，无重量也查**：`_query_logistics_from_worker` 重量 None/≤0 时按 `DEFAULT_WEIGHT_G(500g)` 查 `/api/v1/logistics/quote`（`eff_weight` 同步进 last-good 缓存键）——无重量只是少一个查询维度，不是放弃查表的理由。本地估算仅作 worker 离线且无 last-good 时的末级兜底。
+- **batch_test 复用 discover 货源直上**：`process_ozon_url` 优先 `_find_discover_source()` 复用 discover 已匹配好的 1688 货源（`build_envelope_from_discovery` 直上，免 CDP + 图搜），未命中才走 follow；`_need_cdp` pre-flight 预扫描，纯复用批次不启 Chrome——改 batch_test 勿破坏复用分支（`test_batch_test_reuse_discover.py` 10 单测锁定）。
 
 ### v0.56 新增关键约定（改余额/额度/店铺缓存/skill 漏斗前必看）
 
