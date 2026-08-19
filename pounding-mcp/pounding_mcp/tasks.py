@@ -17,7 +17,10 @@ import time
 import uuid
 from pathlib import Path
 
-from .skill_runner import run_skill_command, _build_argv, _parse_output, SkillError, SKILL_DIR
+from .skill_runner import (
+    run_skill_command, _build_argv, _parse_output, SkillError, SKILL_DIR,
+    _wake_browser, _done_browser,
+)
 
 # 采集类命令 → 任务类型中文标签
 COLLECT_KINDS: dict[str, str] = {
@@ -151,6 +154,7 @@ class CollectTaskManager:
     def _run(self, task_id: str, kind: str, params: dict) -> None:
         """后台执行 skill 命令（Popen 逐行解析实时进度），完成后更新状态。"""
         started = time.time()
+        _wake_browser()  # 手动任务也唤醒浏览器宿主
         p = dict(params or {})
         positional = [p.pop(n) for n in _POSITIONAL.get(kind, []) if n in p and p[n] not in (None, "")]
         argv = _build_argv(kind, tuple(positional), p)
@@ -177,6 +181,7 @@ class CollectTaskManager:
             self._procs.pop(task_id, None)
             return
         self._procs.pop(task_id, None)
+        _done_browser()  # 命令完成 → 浏览器延迟静默
 
         stdout = "\n".join(out_lines)
         if code == 0:

@@ -299,8 +299,19 @@ class CdpConnection:
         self._tabs = [t for t in self._tabs if not t._closed]
 
         if not background:
-            resp = requests.put(f"{self._cdp_url}/json/new?", timeout=10)
-            resp.raise_for_status()
+            try:
+                resp = requests.put(f"{self._cdp_url}/json/new?", timeout=10)
+                resp.raise_for_status()
+            except Exception:
+                # ⚠️ Electron 浏览器宿主不支持 /json/new（HTTP 500）与 Target.createTarget。
+                # 降级：复用现有 page tab 导航到目标 URL（find_tab 命中则复用，否则取第一个 page tab）。
+                tab = self.find_tab("1688") or self.find_tab("ozon") or self.find_tab("taobao") or self._first_page_tab()
+                if tab is None:
+                    raise
+                self.release(tab)  # 用户已有 tab，只读复用，不随 conn.close() 远程关闭
+                if url and url != "about:blank":
+                    tab.navigate(url)
+                return tab
             data = resp.json()
             tab_id = data.get("id", "")
             ws_url = data.get("webSocketDebuggerUrl", "")
@@ -378,6 +389,21 @@ class CdpConnection:
                 tab = CdpTab(self._cdp_url, t.get("id", ""), ws_url)
                 self._tabs.append(tab)
                 return tab
+        return None
+
+    def _first_page_tab(self) -> CdpTab | None:
+        """取第一个 page 类型 tab（Electron 等不支持建新 tab 时复用）。"""
+        resp = requests.get(f"{self._cdp_url}/json", timeout=5)
+        resp.raise_for_status()
+        for t in resp.json():
+            if t.get("type") != "page":
+                continue
+            ws_url = t.get("webSocketDebuggerUrl", "")
+            if not ws_url:
+                continue
+            tab = CdpTab(self._cdp_url, t.get("id", ""), ws_url)
+            self._tabs.append(tab)
+            return tab
         return None
 
     def close(self, close_remote: bool = True) -> None:
