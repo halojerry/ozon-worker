@@ -48,4 +48,5 @@ RUN python3 /app/setup-profile.py \
     && cd "$HOME/.dsh/profiles/web" && pnpm install --silent
 
 EXPOSE 3080
-CMD ["dsh", "web", "--host", "0.0.0.0", "--port", "3080"]
+# ⚠️ dsh 安全限制：拒绝 --host 0.0.0.0（暴露远程代码执行风险）——必须 127.0.0.1
+CMD ["dsh", "web", "--host", "127.0.0.1", "--port", "3080"]

@@ -2,7 +2,9 @@
 
 bundle 树由各包 dsh.bundle.patch 合成（@deepseek-ai/dsh-base、dsh-web-app 来自
 全局 dsh 安装；pounding-guard / pounding-sidebar 为 link 依赖；dsh-better-sidebar
-走 npm）。profile 根 cordis.yml = []，用户 patch 层 cordis.patch.yml = []。
+走 npm）。profile 根 cordis.yml = []，用户 patch 层 cordis.patch.yml = []
+（空 mapping 列表——`- []` 会让 dsh 启动报
+"overlay entry must be a mapping"）。
 """
 import json
 import os
@@ -15,7 +17,7 @@ with open(os.path.join(WEB, "cordis.yml"), "w") as f:
     f.write("[]\n")
 
 with open(os.path.join(WEB, "cordis.patch.yml"), "w") as f:
-    f.write("- []\n")
+    f.write("[]\n")
 
 pkg = {
     "name": "dsh-profile-web",
