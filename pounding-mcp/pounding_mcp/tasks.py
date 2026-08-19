@@ -2,22 +2,22 @@
 
 agent（MCP 工具）和手动（任务中心 UI）触发都会走这里：
 - 采集类工具调用前 create → 任务状态 running
-- skill 命令在后台子进程执行，完成后 update → completed/failed
+- skill 命令在后台子进程执行（Popen 逐行解析进度），完成后 → completed/failed/cancelled
 - 任务注册表落盘 JSON，供独立 REST 服务（tasks_server.py）跨进程查询
-
-进度：MVP 记录状态 + 结果摘要（商品数/耗时）；实时进度（current/total）后续
-由 skill 命令输出进度行 + 本管理器解析增强。
+- 实时进度：解析 skill 输出的 `[N/M]`（商品进度）与 `阶段 X/Y` 行
 """
 
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 import threading
 import time
 import uuid
 from pathlib import Path
 
-from .skill_runner import run_skill_command, SkillError
+from .skill_runner import run_skill_command, _build_argv, _parse_output, SkillError, SKILL_DIR
 
 # 采集类命令 → 任务类型中文标签
 COLLECT_KINDS: dict[str, str] = {
@@ -38,6 +38,10 @@ _POSITIONAL: dict[str, list[str]] = {
     "category": ["query"],
 }
 
+# 进度行解析：商品进度 `[3/20]`、阶段 `阶段 1/3`
+_PROGRESS_RE = re.compile(r"\[(\d+)/(\d+)\]")
+_STAGE_RE = re.compile(r"阶段\s*(\d+)/(\d+)")
+
 
 def _exec(kind: str, params: dict) -> dict:
     """执行 skill 命令，正确处理位置参数（search 的 query 等）。"""
@@ -55,6 +59,7 @@ class CollectTaskManager:
         self._store_path = store_path or _DEFAULT_STORE
         self._lock = threading.Lock()
         self._tasks: dict[str, dict] = {}
+        self._procs: dict[str, subprocess.Popen] = {}
         self._load()
 
     def _load(self) -> None:
@@ -144,34 +149,105 @@ class CollectTaskManager:
             raise
 
     def _run(self, task_id: str, kind: str, params: dict) -> None:
+        """后台执行 skill 命令（Popen 逐行解析实时进度），完成后更新状态。"""
         started = time.time()
+        p = dict(params or {})
+        positional = [p.pop(n) for n in _POSITIONAL.get(kind, []) if n in p and p[n] not in (None, "")]
+        argv = _build_argv(kind, tuple(positional), p)
+        out_lines: list[str] = []
         try:
-            result = _exec(kind, params)
-            summary = self._summarize(kind, result)
-            with self._lock:
-                t = self._tasks.get(task_id)
-                if t:
-                    t["status"] = "completed"
-                    t["finished_at"] = time.time()
-                    t["summary"] = summary
+            proc = subprocess.Popen(
+                argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, cwd=str(SKILL_DIR),
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._finish(task_id, "failed", error=f"启动失败: {exc}", started=started)
+            return
+        self._procs[task_id] = proc
+        code = -1
+        try:
+            for line in proc.stdout:
+                line = line.rstrip()
+                out_lines.append(line)
+                self._maybe_progress(task_id, line)
+            proc.wait()
+            code = proc.returncode
+        except Exception as exc:  # noqa: BLE001
+            self._finish(task_id, "failed", error=f"执行异常: {exc}", started=started)
+            self._procs.pop(task_id, None)
+            return
+        self._procs.pop(task_id, None)
+
+        stdout = "\n".join(out_lines)
+        if code == 0:
+            try:
+                result = _parse_output(stdout, "")
+                summary = self._summarize(kind, result)
+                self._finish(task_id, "completed", summary=summary, started=started)
+            except Exception as exc:  # noqa: BLE001
+                self._finish(task_id, "failed", error=f"结果解析失败: {exc}", started=started)
+        else:
+            self._finish(task_id, "failed", error=(stdout[-300:] or f"退出码 {code}"), started=started)
+
+    def _maybe_progress(self, task_id: str, line: str) -> None:
+        """解析 skill 输出行里的进度（[N/M] 商品进度 / 阶段 X/Y），更新任务。"""
+        if not line:
+            return
+        m = _PROGRESS_RE.search(line)
+        if not m:
+            sm = _STAGE_RE.search(line)
+            if sm:
+                with self._lock:
+                    t = self._tasks.get(task_id)
+                    if t and t.get("status") == "running":
+                        t["stage"] = f"阶段 {sm.group(1)}/{sm.group(2)}"
+                        self._save()
+            return
+        with self._lock:
+            t = self._tasks.get(task_id)
+            if t and t.get("status") == "running":
+                t["progress"] = {"current": int(m.group(1)), "total": int(m.group(2))}
+                self._save()
+
+    def _finish(self, task_id: str, status: str, summary: dict | None = None,
+                error: str | None = None, started: float | None = None) -> None:
+        with self._lock:
+            t = self._tasks.get(task_id)
+            if not t:
+                return
+            # 已被取消：保留 cancelled，不覆盖
+            if t.get("status") == "cancelled":
+                if started is not None:
                     t["elapsed"] = round(time.time() - started, 1)
                     self._save()
-        except SkillError as exc:
-            with self._lock:
-                t = self._tasks.get(task_id)
-                if t:
-                    t["status"] = "failed"
-                    t["finished_at"] = time.time()
-                    t["error"] = str(exc)[:300]
-                    self._save()
-        except Exception as exc:  # noqa: BLE001
-            with self._lock:
-                t = self._tasks.get(task_id)
-                if t:
-                    t["status"] = "failed"
-                    t["finished_at"] = time.time()
-                    t["error"] = f"{type(exc).__name__}: {exc}"[:300]
-                    self._save()
+                return
+            t["status"] = status
+            t["finished_at"] = time.time()
+            if summary is not None:
+                t["summary"] = summary
+            if error is not None:
+                t["error"] = error
+            if started is not None:
+                t["elapsed"] = round(time.time() - started, 1)
+            self._save()
+
+    def cancel(self, task_id: str) -> bool:
+        """取消运行中的任务（终止子进程）。返回是否取消成功。"""
+        proc = self._procs.get(task_id)
+        cancelled = False
+        with self._lock:
+            t = self._tasks.get(task_id)
+            if t and t.get("status") == "running":
+                t["status"] = "cancelled"
+                t["finished_at"] = time.time()
+                cancelled = True
+                self._save()
+        if proc:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        return cancelled
 
     def _summarize(self, kind: str, result: dict) -> dict:
         """从 skill 结果提取展示摘要。"""

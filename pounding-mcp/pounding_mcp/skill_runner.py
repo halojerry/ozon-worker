@@ -73,12 +73,27 @@ def _done_browser() -> None:
         pass
 
 
+def _build_argv(cmd: str, positional: tuple = (), flags: dict | None = None) -> list[str]:
+    """构造 skill CLI argv（位置参数 + flags 映射）。"""
+    argv = [SKILL_PYTHON, str(_CLI), cmd]
+    argv += [str(p) for p in positional if p is not None and p != ""]
+    for key, val in (flags or {}).items():
+        if val is None or val is False or val == "":
+            continue
+        flag = f"--{key.replace('_', '-')}"
+        if val is True:
+            argv.append(flag)
+        else:
+            argv += [flag, str(val)]
+    return argv
+
+
 def run_skill_command(cmd: str, *positional, **flags) -> dict:
     """调用 skill CLI 的一个命令，返回解析后的 JSON dict。
 
     位置参数对应 CLI 的位置参数（如 search 的 query、query 的 task_id）。
     关键字参数映射为 `--flag value`；布尔 True 映射为 `--flag`（store_true）；
-    None / False 跳过。下划线自动转连字符（page_size → --page-size）。
+    None / False / "" 跳过。下划线自动转连字符（page_size → --page-size）。
 
     例：
         run_skill_command("search", "关键词", page_size=5, sort="sold_desc")
@@ -92,16 +107,7 @@ def run_skill_command(cmd: str, *positional, **flags) -> dict:
 
     _wake_browser()
 
-    argv = [SKILL_PYTHON, str(_CLI), cmd]
-    argv += [str(p) for p in positional if p is not None and p != ""]
-    for key, val in flags.items():
-        if val is None or val is False or val == "":
-            continue
-        flag = f"--{key.replace('_', '-')}"
-        if val is True:
-            argv.append(flag)
-        else:
-            argv += [flag, str(val)]
+    argv = _build_argv(cmd, positional, flags)
 
     proc = subprocess.run(
         argv,
