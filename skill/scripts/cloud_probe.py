@@ -2142,6 +2142,18 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
                 extensions.get("competitor_dimensions_mm"),
             )
 
+        # ✅ v0.58: 佣金分段透传 extensions（worker 定价用 fbs/fbo 分段费率）
+        # what_to_sell 三段佣金（_to_rate_segments: leq_1500/leq_5000/gt_5000）
+        # 经 apply_analytics_to_candidate 写入候选——rfbs→fbs、fbp→fbo 映射，
+        # 对齐 worker pricing 的 fbs/fbo 语义；无 segments 时不加该键。
+        _rfbs_seg = getattr(candidate, "commission_rfbs_segments", None) or {}
+        _fbp_seg = getattr(candidate, "commission_fbp_segments", None) or {}
+        if _rfbs_seg or _fbp_seg:
+            extensions["commission_segments"] = {
+                "fbs": dict(_rfbs_seg),
+                "fbo": dict(_fbp_seg),
+            }
+
         # ✅ P0-5 修复：优先透传 build_graph_envelope_with_retry 已解析的凭证
         # （store_config 仅作兜底，避免提交空 Ozon 凭证）
         return {
