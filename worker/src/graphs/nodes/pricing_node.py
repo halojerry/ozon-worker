@@ -11,8 +11,12 @@ from langgraph.runtime import Runtime
 from runtime.context import Context
 from graphs.state import PricingInput, PricingOutput
 from utils.logger import get_logger, set_trace_context, log_ozon_api_call
-from utils.ozon_client import ozon_post
 from utils.draft_sanity import check_weight_suspect  # v0.21 P2 定价防线
+from utils.commission_resolver import (  # 任务 1.3: 佣金唯一解析入口（explicit>缓存表>segments>0.10）
+    get_category_commission,
+    pick_price_band,
+    resolve_commission_rate,
+)
 import time as _time
 
 
@@ -151,28 +155,6 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         # 获取扩展配置
         margin_rate: float = float(extensions.get("margin_rate", 0.25))  # 利润率 25%
         
-        # ✅ 尝试从 Ozon API 获取真实佣金率
-        commission_rate: float = float(extensions.get("commission_rate", 0.0))
-        if commission_rate <= 0:
-            try:
-                # ✅ v0.11: 用 description_category_id 查佣金（offer_id 不存在）
-                # 查询 /v4/product/info/limit 获取类目级别的佣金信息
-                dc_id = getattr(state, 'description_category_id', '') or ''
-                if dc_id:
-                    price_resp = ozon_post(ozon_client_id, ozon_api_key,
-                        "/v5/product/info/prices",
-                        {"filter": {"offer_id": []}, "limit": 1},
-                        timeout=10)
-                    # 尝试从 store-level commission 获取
-                    comms = price_resp.get("result", {}).get("commissions", {})
-                    commission_rate = comms.get("sales_percent_rfbs", 0) / 100.0
-                if commission_rate > 0:
-                    logger.info(f"✅ 店铺佣金率 rFBS={commission_rate*100:.1f}%")
-            except Exception:
-                pass
-        if commission_rate <= 0:
-            commission_rate = 0.10  # fallback
-            
         fx_buffer: float = float(extensions.get("fx_buffer", 0.05))  # 汇率缓冲 5%
         
         # Step 2: 查询物流费率（PG logistics_rates + Ozon API获取3PL/服务等级）
@@ -195,12 +177,56 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         # 总成本 = 产品成本 + 物流成本 + 包装成本
         total_cost_cny: float = cost_cny + logistics_cost + packaging_cost
         
+        from utils.pricing_estimate import compute_price
+        
+        # ✅ 任务 1.3: 佣金三重 bug 修复（provisional-price band pass）
+        # 旧逻辑: 调 Ozon prices 接口用 offer_id 空数组 filter → 查不到数据 → 恒 fallback 0.10。
+        # 新逻辑: 佣金档位依赖售价、售价依赖佣金（鸡生蛋）——先用 0.10 算临时价（仅选档，
+        #         非最终价依据）→ 得 RUB 临时售价 → 选价格档 → resolve_commission_rate
+        #         （explicit > 缓存表 band 选段 > extensions segments > 0.10）→ 用真实佣金重算最终价。
+        explicit_commission: float = float(extensions.get("commission_rate", 0.0))
+        
+        _est_provisional = compute_price(
+            total_cost_cny=total_cost_cny,
+            margin_rate=margin_rate,
+            commission_rate=0.10,
+            fx_buffer=fx_buffer,
+            currency_code=currency_code,
+            exchange_rate=exchange_rate,
+        )
+        _provisional_price: float = float(_est_provisional["price"])
+        # 临时售价 → RUB 档位判定价：
+        # - RUB 店铺：price 即 RUB，直接用
+        # - CNY 店铺：有真实汇率(>1)时换算成 RUB 等价价选档
+        # - CNY 且无有效汇率 / 货币不明：中性档 leq_5000（避免低估佣金亏钱）
+        if currency_code == "RUB":
+            _price_rub = _provisional_price
+        elif exchange_rate and exchange_rate > 1:
+            _price_rub = _provisional_price * exchange_rate
+        else:
+            _price_rub = None
+        band: str = pick_price_band(_price_rub) if _price_rub is not None else "leq_5000"
+        
+        dc_id: str = getattr(state, "description_category_id", "") or ""
+        dc_id_int = int(dc_id) if str(dc_id).isdigit() else None
+        
+        commission_rate, commission_source = resolve_commission_rate(
+            description_category_id=dc_id_int,
+            price_rub=_price_rub,
+            explicit_commission=explicit_commission,
+            extensions_commission_segments=extensions.get("commission_segments"),
+            get_category_commission_fn=get_category_commission,
+        )
+        logger.info(
+            f"佣金来源(source)={commission_source}, 类目={dc_id or 'N/A'}, "
+            f"档={band}, 佣金={commission_rate*100:.1f}%"
+        )
+        
         # 除零守卫保留给下方变体定价循环使用（变体 old_price 规则与单 SKU 不同，独立计算）
         commission_divisor: float = (1.0 - commission_rate)
         if commission_divisor <= 0:
             commission_divisor = 0.9  # 防止除零
 
-        from utils.pricing_estimate import compute_price
         _est = compute_price(
             total_cost_cny=total_cost_cny,
             margin_rate=margin_rate,

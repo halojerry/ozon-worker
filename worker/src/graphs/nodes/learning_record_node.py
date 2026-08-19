@@ -176,6 +176,75 @@ def _backfill_product_index(state, config) -> None:
         logger.warning(f"⚠️ T9 索引回填失败（不阻断学习）: {e}")
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# 任务 1.4: 上传成功后回填类目佣金（approved 成功路径，非致命追加）
+# /v5/product/info/prices 用真实 product_id 查 commissions → parse_prices_commissions
+# → upsert_category_commission(source="prices_api") 填 fbs 对应价格段。
+# 任何守卫缺失/API 异常 → 跳过 + warning，绝不阻断学习路径（mirror T9 风格）。
+# ═══════════════════════════════════════════════════════════════════════
+
+def _backfill_category_commission(state) -> None:
+    """任务 1.4: 上传成功后回填 category_commission（approved 分支内，非阻断追加）。
+
+    守卫：product_id + description_category_id + 凭证（ozon_client_id/ozon_api_key，从
+    运行时合并 GlobalState 读，LearningRecordInput 不含）都存在，否则跳过。
+    /v5/product/info/prices 用真实 product_id 查询（不是空 offer_id），
+    parse_prices_commissions 取 items[0].commissions.sales_percent_rfbs 比例；
+    upsert 按 pick_price_band(售价) 填 fbs 对应段（百分比）；售价未知/非 RUB →
+    中性段 fbs_leq_5000。任何异常 → logger.warning，不抛（学习路径不被佣金回填阻断）。
+    """
+    try:
+        product_id = getattr(state, "product_id", None)
+        if not product_id or str(product_id) in ("0", "None", ""):
+            logger.info("⏭️ 佣金回填跳过: product_id 缺失/无效")
+            return
+        description_category_id = getattr(state, "description_category_id", None)
+        if not description_category_id:
+            logger.info("⏭️ 佣金回填跳过: description_category_id 缺失")
+            return
+        ozon_client_id = str(getattr(state, "ozon_client_id", "") or "").strip()
+        ozon_api_key = str(getattr(state, "ozon_api_key", "") or "").strip()
+        if not ozon_client_id or not ozon_api_key:
+            logger.info("⏭️ 佣金回填跳过: ozon_client_id/ozon_api_key 缺失（凭证不在 state）")
+            return
+
+        from utils.ozon_client import ozon_post  # 懒导入（模块级 import 会拖 PG/Supabase 依赖）
+        from utils.commission_resolver import (
+            parse_prices_commissions,
+            pick_price_band,
+            upsert_category_commission,
+        )
+
+        resp = ozon_post(
+            client_id=ozon_client_id,
+            api_key=ozon_api_key,
+            endpoint="/v5/product/info/prices",
+            body={"filter": {"product_id": [str(product_id)]}, "limit": 1},
+        )
+        commission_ratio = parse_prices_commissions(resp)
+        if commission_ratio is None:
+            logger.info("⏭️ 佣金回填跳过: prices 响应无 commissions（product_id=%s）", product_id)
+            return
+
+        # 选段：RUB 售价 → pick_price_band 选 fbs 对应段；售价未知/CNY → 中性段 leq_5000
+        pricing_info = getattr(state, "pricing_info", None) or {}
+        currency_code = str(pricing_info.get("currency_code") or "").upper()
+        price_rub = float(pricing_info.get("price") or 0) if currency_code == "RUB" else None
+        band = pick_price_band(price_rub) if price_rub and price_rub > 0 else "leq_5000"
+        segment = f"fbs_{band}"
+        pct = round(commission_ratio * 100.0, 4)  # 比例 → 百分比（upsert 段值约定）
+
+        upsert_category_commission(
+            int(description_category_id),
+            source="prices_api",
+            **{segment: pct},
+        )
+        logger.info("✅ 佣金回填成功: dc=%s %s=%.2f%% product_id=%s",
+                    description_category_id, segment, commission_ratio * 100.0, product_id)
+    except Exception as e:
+        logger.warning(f"⚠️ 佣金回填失败（不阻断学习）: {e}")
+
+
 def learning_record_node(
     state: LearningRecordInput,
     config: RunnableConfig,
@@ -406,6 +475,8 @@ def learning_record_node(
     
     # ✅ T9: 上传成功（approved）回填 product_task_index — 非阻断，任何缺失/异常仅 warning
     _backfill_product_index(state, config)
+    # ✅ 任务 1.4: 上传成功（approved）回填类目佣金 — 非阻断，任何缺失/异常仅 warning
+    _backfill_category_commission(state)
     
     return LearningRecordOutput(
         recorded_count=recorded_count,
