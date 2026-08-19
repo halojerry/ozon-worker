@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 # skill 目录：优先环境变量，否则按「本文件在 pounding-mcp/pounding_mcp/ 下 → ../../skill」推导
@@ -48,6 +49,20 @@ class SkillError(RuntimeError):
     """skill CLI 调用失败（非零退出码 / 非 JSON 输出 / 进程异常）。"""
 
 
+# 浏览器宿主唤醒：skill 需要浏览器时，POST 该端点让 Electron 窗口自动展开。
+# 未配置/宿主未启动时静默忽略（skill 会照常走自启 Chrome 或纯 API 模式）。
+_BROWSER_WAKE_URL = os.environ.get("POUNDING_BROWSER_WAKE_URL", "http://127.0.0.1:9224/show")
+
+
+def _wake_browser() -> None:
+    """调用 skill 前唤醒浏览器宿主（展开窗口）。失败静默——不影响 skill 执行。"""
+    try:
+        req = urllib.request.Request(_BROWSER_WAKE_URL, method="POST")
+        urllib.request.urlopen(req, timeout=0.5)
+    except Exception:
+        pass
+
+
 def run_skill_command(cmd: str, *positional, **flags) -> dict:
     """调用 skill CLI 的一个命令，返回解析后的 JSON dict。
 
@@ -64,6 +79,8 @@ def run_skill_command(cmd: str, *positional, **flags) -> dict:
     """
     if not _CLI.exists():
         raise SkillError(f"skill CLI 不存在：{_CLI}（请设置 OZON_SKILL_DIR）")
+
+    _wake_browser()
 
     argv = [SKILL_PYTHON, str(_CLI), cmd]
     argv += [str(p) for p in positional if p is not None and p != ""]
