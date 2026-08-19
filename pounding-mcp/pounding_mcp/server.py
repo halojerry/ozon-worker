@@ -170,8 +170,8 @@ def update() -> dict:
 
 @mcp.tool()
 def cleanup() -> dict:
-    """清理缓存/临时数据。破坏性操作（dsh 侧双重确认）。"""
-    return run_skill_command("cleanup")
+    """清理缓存/临时数据。默认预演（--all --dry-run）不真删；破坏性操作（dsh 侧双重确认）。"""
+    return run_skill_command("cleanup", all=True, dry_run=True)
 
 
 def main() -> None:
