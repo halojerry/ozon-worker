@@ -1,0 +1,16 @@
+# Pounding dsh 电商客户端 — Docker 测试沙箱
+# 用法: cp .env.example .env && vim .env   （DEEPSEEK_API_KEY 可选，验证渲染可省略）
+#       docker compose -f docker-compose.dsh.yml up -d --build
+#       open http://127.0.0.1:3080
+services:
+  dsh:
+    build:
+      context: ..
+      dockerfile: deploy/dsh/Dockerfile
+    image: pounding-dsh:dev
+    container_name: pounding-dsh-1
+    ports:
+      - "127.0.0.1:3080:3080"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+    restart: unless-stopped

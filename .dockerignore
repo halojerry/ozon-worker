@@ -1,0 +1,26 @@
+# dsh 沙箱镜像构建上下文（ozon-worker 根）的忽略清单 —— 只影响 dsh 构建
+.git
+.gitignore
+.codegraph
+**/node_modules
+**/.venv
+**/.venv.*
+**/__pycache__
+**/*.pyc
+**/dist
+**/logs
+**/*.log
+*.tar.gz
+pounding-harness-shell
+pounding-desktop
+shopbang
+archive
+docs
+api-integration
+design-deliverables
+integration-workplan
+webui
+worker
+deploy/skill
+deploy/*.tar.gz
+browser
