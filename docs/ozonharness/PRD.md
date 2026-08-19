@@ -95,7 +95,7 @@
 |---|---|---|---|
 | P1 | **profile 挂载** | ✅ 已在底座 rc.6 上挂 pounding-guard + mcp-pounding（patch 层），端到端验证通过（agent→guard→skill→结果）| 无 |
 | P2 | **网关扩展** | ✅ `/api/worker/*` 桥已实现（→ worker `/api/v1/*`，Bearer 注入，配置 `pounding-gateway.json`），health/鉴权透传验证通过 | P1 |
-| P3 | **+3 板块** | 采集箱 / 任务中心 / 计算器（前端 app.js 加板块 + 网关加数据 API）| P2 |
+| P3 | **+3 板块** | ✅ 采集箱/任务中心/计算器板块已上线（worker 桥数据 + 示例兜底 + 跨境定价器 compute_price），新闻已改电商爆品情报（e-commerce RSS）| P2 |
 | P3 | **新闻改造** | 新闻源 → 电商爆品情报 | P1 |
 | P4 | **专家对接** | skill 能力卡 → 专家卡 | P1 |
 | P5 | **壳** | Swift → Electron（跨平台，含 Windows）| 全 |
