@@ -964,6 +964,8 @@ def apply_analytics_to_candidate(candidate, metrics: dict) -> bool:
             candidate.drr = float(metrics["drr"])
         if metrics.get("create_days"):
             candidate.create_days = int(metrics["create_days"])
+        if metrics.get("sales_schema"):
+            candidate.sales_schema = str(metrics["sales_schema"])
         if metrics.get("weight_g"):
             candidate.weight_g = int(metrics["weight_g"])
         if metrics.get("length_mm") or metrics.get("width_mm") or metrics.get("height_mm"):
