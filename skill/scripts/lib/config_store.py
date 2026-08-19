@@ -409,7 +409,8 @@ def get_store_profile(store_id: str = "") -> dict[str, Any]:
     if not store:
         return {}
     allowed = ('currency', 'shipping_provider', 'shipping_service',
-               'margin_rate', 'commission_rate', 'fx_buffer', 'fx_rate')
+               'margin_rate', 'commission_rate', 'fx_buffer', 'fx_rate',
+               'sales_mode')
     return {k: v for k, v in store.items() if k in allowed}
 
 

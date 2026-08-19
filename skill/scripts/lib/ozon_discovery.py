@@ -165,6 +165,7 @@ class ProductCandidate:
     drr: float = 0.0              # 广告费占比 %
     create_days: int = 0          # 上架天数
     has_analytics: bool = False   # 是否拿到后台运营数据
+    sales_schema: str = ""        # 发货模式（FBO=官方仓/FBS=自发货/rFBS=跨境直发，可逗号拼接如 FBO,FBS）
 
     # Ozon 类目（面包屑/候选品数据，供提交）
     ozon_category: dict = field(default_factory=dict)
@@ -1130,7 +1131,7 @@ def export_to_csv(candidates: list[ProductCandidate], filepath: str) -> str:
         'product_id', 'title', 'price_rub', 'category', 'brand',
         'commission_fbp', 'commission_rfbs', 'monthly_sales', 'monthly_revenue',
         'sales_growth', 'drr', 'create_days', 'rating', 'review_count',
-        'has_analytics',
+        'sales_schema', 'has_analytics',
         'competing_sellers', 'min_competitor_price', 'weight_g', 'dimensions',
         'match_1688_url', 'match_1688_price', 'profit_margin', 'blue_ocean_score', 'verdict',
         'logistics_estimated', 'logistics_fallback_chain'
@@ -1156,6 +1157,7 @@ def export_to_csv(candidates: list[ProductCandidate], filepath: str) -> str:
                 'create_days': getattr(c, 'create_days', 0),
                 'rating': getattr(c, 'rating', 0),
                 'review_count': getattr(c, 'review_count', 0),
+                'sales_schema': getattr(c, 'sales_schema', ''),
                 'has_analytics': getattr(c, 'has_analytics', False),
                 'competing_sellers': c.competing_sellers,
                 'min_competitor_price': c.min_competing_price,

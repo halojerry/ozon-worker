@@ -1136,10 +1136,10 @@ def _print_discover_table(candidates: list) -> None:
         "filtered": "⏭️价区间外", "matched": "🔗已匹配", "profitable": "💰有利",
         "rejected": "⚠️利润低", "no_match": "❌无货源",
     }
-    print(f"\n{'─' * 104}")
+    print(f"\n{'─' * 112}")
     print(f"{'#':>3} {'状态':<9} {'标题':<30} {'价格₽':>8} {'月销':>6} "
-          f"{'增长%':>6} {'广告%':>6} {'跟卖':>4} {'上架天':>6} {'评分':>5} {'蓝海':>5}")
-    print(f"{'─' * 104}")
+          f"{'增长%':>6} {'广告%':>6} {'跟卖':>4} {'上架天':>6} {'评分':>5} {'发货':>6} {'蓝海':>5}")
+    print(f"{'─' * 112}")
     for i, c in enumerate(candidates, 1):
         title = c.ozon_title or c.error or "(无标题)"
         if len(title) > 30:
@@ -1150,11 +1150,12 @@ def _print_discover_table(candidates: list) -> None:
                 f"{c.drr:>6.1f}", f"{c.create_days:>6}")
         else:
             sales_s = growth_s = drr_s = create_s = f"{'—':>6}"
+        schema_s = (getattr(c, 'sales_schema', '') or '—')[:6]
         print(f"{i:>3} {status_map.get(c.status, c.status):<9} {title:<30} "
               f"{c.ozon_price:>8.0f} {sales_s} {growth_s} {drr_s} "
               f"{c.competing_sellers:>4} {create_s} {c.rating:>5.1f} "
-              f"{getattr(c, 'blue_ocean_score', 0):>5}")
-    print(f"{'─' * 104}")
+              f"{schema_s:>6} {getattr(c, 'blue_ocean_score', 0):>5}")
+    print(f"{'─' * 112}")
 
 
 def _interactive_select(candidates: list) -> list | None:
