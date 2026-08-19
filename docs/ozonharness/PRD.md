@@ -50,7 +50,11 @@
 | 08 | **任务中心** | **新增** | worker `/task_status` 采集+上架任务，状态/进度/审批 |
 | 09 | **计算器** | **新增** | OZON 跨境定价器（worker compute_price 公式前端直算，CNY/RUB/USD）|
 
-### 3.2 能力归属矩阵（开发视角）
+### 3.2 设置：skill 配置卡（已实现）
+
+设置 → Pounding 卡：店铺信息（client_id/api_key/毛利/佣金/汇率缓冲）、1688 AK、MXOU key。网关 `/api/pounding/skill-config`（读取脱敏、写时留空保持原值）读写 `skill/data/config/{stores,settings}.json`。
+
+### 3.3 能力归属矩阵（开发视角）
 
 | 能力 | 实现层 | 触发 | agent 能调 |
 |---|---|---|---|
