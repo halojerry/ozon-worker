@@ -49,15 +49,25 @@ class SkillError(RuntimeError):
     """skill CLI 调用失败（非零退出码 / 非 JSON 输出 / 进程异常）。"""
 
 
-# 浏览器宿主唤醒：skill 需要浏览器时，POST 该端点让 Electron 窗口自动展开。
+# 浏览器宿主唤醒/静默：skill 需要浏览器时 POST 唤醒展开窗口；命令完成后 POST 完成让宿主自动静默。
 # 未配置/宿主未启动时静默忽略（skill 会照常走自启 Chrome 或纯 API 模式）。
 _BROWSER_WAKE_URL = os.environ.get("POUNDING_BROWSER_WAKE_URL", "http://127.0.0.1:9224/show")
+_BROWSER_DONE_URL = os.environ.get("POUNDING_BROWSER_DONE_URL", "http://127.0.0.1:9224/done")
 
 
 def _wake_browser() -> None:
     """调用 skill 前唤醒浏览器宿主（展开窗口）。失败静默——不影响 skill 执行。"""
     try:
         req = urllib.request.Request(_BROWSER_WAKE_URL, method="POST")
+        urllib.request.urlopen(req, timeout=0.5)
+    except Exception:
+        pass
+
+
+def _done_browser() -> None:
+    """命令完成后通知浏览器宿主延迟静默。失败静默。"""
+    try:
+        req = urllib.request.Request(_BROWSER_DONE_URL, method="POST")
         urllib.request.urlopen(req, timeout=0.5)
     except Exception:
         pass
@@ -99,6 +109,8 @@ def run_skill_command(cmd: str, *positional, **flags) -> dict:
         text=True,
         cwd=str(SKILL_DIR),
     )
+    # 无论成败，通知浏览器宿主「命令完成」→ 延迟自动静默（期间新调用会先 /show 取消）
+    _done_browser()
 
     stdout = (proc.stdout or "").strip()
     stderr = (proc.stderr or "").strip()
