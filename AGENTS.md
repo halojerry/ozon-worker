@@ -2,6 +2,20 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.59 — 类目佣金缓存 + 定价佣金修正 + 多 SKU 配额调研）
+
+> 2026-08-20。佣金链路修复（费率权威化）+ 选品发货模式对齐，均未发版（VERSION 仍 0.56.6）。执行记录见 `.omo/plans/category-commission-cache.md`（Momus 评审 OKAY），问题台账 `docs/TEST-ISSUES-2026-08.md`。
+
+- **Ozon 佣金是「类目 × 发货模式 × 价格段」三维矩阵，无公开按类目查佣金的 API**（`/v5/product/info/prices` 需真实 offer_id、销售报告需已售记录、类目树无佣金字段）。唯一选品时可用的是 what_to_sell 的 `rfbs_rate`/`fbp_rate` 分段对象（`{leq_1500, leq_5000, gt_5000}`）。详见 `docs/OZON-MULTI-SKU-QUOTA.md` 同批调研。
+- **佣金缓存表 `category_commission`**（`worker/src/storage/database/shared/model.py`）：`description_category_id` 唯一，FBS/FBO 三段佣金%，全局共享无 tenant_id（对齐 category_mapping W11）。两条数据源渐进积累：上架成功回填（prices_api 源）+ what_to_sell 分段。
+- **`commission_resolver.py`**（`worker/src/utils/`）：`pick_price_band`/`parse_prices_commissions`/`resolve_commission_rate`（explicit > 缓存表 > extensions segments > 0.10）/`get_category_commission`/`upsert_category_commission`——佣金解析唯一入口，**定价/选品/estimate 三处共用**。
+- **pricing_node 佣金三重 bug 修复（P0）**：原读 `price_resp.get("result",{}).get("commissions",{})` 拿 `sales_percent_rfbs`——① `/v5/product/info/prices` 顶层无 result（是 `items[0].commissions`）② 空 filter `{"offer_id":[]}` 查不到数据 ③ 字段名 `sales_percent_rfbs` 本身是对的（2026 新增）。修复用 **provisional-price band pass**（先 0.10 算临时价 → 选档 → resolve 真实佣金 → 重算）破解「档位依赖价格/价格依赖佣金」鸡生蛋。删除空 filter 调用（该 API 移到 learning_record 回填）。
+- **上架回填**：`learning_record_node` approved 路径新增非致命 `_backfill_category_commission`（真实 product_id 查 prices → upsert source=prices_api）。
+- **skill 佣金分段**：`_to_rate` → `_to_rate_segments` 保留完整三段（不再只取中段）；`ProductCandidate` 加 `commission_rfbs_segments`/`commission_fbp_segments`；信封 `extensions.commission_segments = {fbs:{...}, fbo:{...}}`（rfbs→fbs/fbp→fbo）透传 worker。
+- **佣金查询端点**：`GET /api/v1/commissions/lookup?category_id=`（+ legacy 路径），Bearer 鉴权 + 限流，返回 `{found, fbs, fbo, source}`。skill `_query_commission_from_worker` 接入 `_calculate_profit`（worker 真实分段 > 本地分段 > 12/14/18 默认）。
+- **发货模式对齐**：`sales_schema` 标注（FBO/FBS/rFBS 全抓不剔除，仅标注导出/webui 筛选）+ `_match_sales_schema` 子串过滤（`"FBS" in schema` 隐式覆盖 RFBS，对齐竞品 `.includes()`）+ `sales_mode` 配置（stores.json 默认 rFBS，后置过滤默认不过滤只标注）。
+- **测试**：worker **1252 passed**（此前 1212；含 6 个 pre-existing 修复：4 个类目树导入 + 2 个测试预期对齐现行实现）；skill **597 passed**（此前 566）；webui `tsc -b` 0 错误 + `npm run build` 通过。
+
 ## 最近更新（v0.58 — 重量估算同源统一 + batch_test 复用 discover 货源 + pounding-sidebar 插件骨架）
 
 > 2026-08-19。重量链路修复（费率表权威）+ 客户端插件骨架，均未发版（VERSION 仍 0.56.6，代码注释已标 v0.58）。
@@ -284,6 +298,8 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 
 > ⚠️ **测试环境前置（v0.34 实测）**：worker 测试的 pytest 全家桶（pytest-asyncio/psycopg2-binary）装在 `skill/.venv314`；CI（ci.yml）已声明这些依赖，本地需自己 `skill/.venv314/bin/pip install pytest-asyncio psycopg2-binary`。本地 Docker PG 端口 **5433**（非 5432），密码 `localdev123`（见 `deploy/.env` 的 `POSTGRES_PASSWORD`）。
 
+> ⚠️ **worker 全量测试失败先查类目树（v0.59 实测）**：本地 PG 若 `category_tree_nodes` 空（未跑 init_data），learning_record_gate / skill_category_direct / attr_4958 / index_backfill 等测试会失败（`_mapping_valid` 走真实 PG 查树）。先导入：`cd worker && PGDATABASE_URL="postgresql://postgres:localdev123@localhost:5433/ozon" PYTHONPATH=src ../skill/.venv314/bin/python -c "from sqlalchemy import create_engine; from scripts.init_data import import_category_tree; import os; import_category_tree(create_engine(os.environ['PGDATABASE_URL']), language='ZH_HANS', tree_file='category_tree.json')"`。
+
 | 子项目 | 命令 |
 |---|---|
 | skill | `pip install -r requirements.txt` |
@@ -312,6 +328,8 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python tests/test_category_match_v021.py`（v0.21 类目同义词/学习缓存一致性，5 用例） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python tests/test_language_routing.py`（v0.29 语言路由：1688 中文→ZH_HANS/Ozon 类目名→RU/无中文残留，4 用例） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_shop_usage_stats.py tests/test_analytics_endpoints.py tests/test_llm_suggest_rerank.py -q`（v0.34 C5/C6/类目 suggest 单测，纯 mock 无需 PG） |
+| worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_commission_resolver.py tests/test_category_commission_model.py tests/test_commissions_lookup_endpoint.py -q`（v0.59 佣金缓存/端点，纯 mock 无需 PG） |
+| worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_pricing_node_commission.py tests/test_commission_backfill.py tests/test_estimate_endpoint.py -q`（v0.59 定价佣金/回填/estimate，需 PG 或 mock 注入） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_discovery_runs_api.py tests/test_mappings_lookup_api.py tests/test_listing_template_store_overrides.py -q`（v0.56 W10/W11/W9 端点单测，mock 无需 PG） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_store_sync.py -q`（v0.56 店铺缓存 9 单测：租户隔离/upsert/archived/懒同步/调度器，需本地 PG） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_mxou_balance_precheck.py tests/test_learning_record_index_backfill.py -q`（v0.56 W12 余额复查 + W6 索引回填单测，mock 无需 PG） |
@@ -500,6 +518,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - **`docs/LOGGING.md`** — 日志系统架构 + 查看命令 + 故障排查流程
 - **`docs/CONVENTIONS.md`** — 分支命名 + commit 规范 + 发版流程
 - **`docs/OZON-ATTRIBUTE-API.md`** — ⭐ Ozon 属性/类目 API 参考（5 接口定义 + 属性填满策略 + 关键属性 ID 表，开发直接查）
+- **`docs/OZON-MULTI-SKU-QUOTA.md`** — ⭐ Ozon 多 SKU 上传与商品配额机制（9048/model_id 绑定合并 = 1 卡 1 配额；竞品 merge 开关/变体上限；我们已对齐但缺 merge 开关/上限校验）——改多 SKU 变体逻辑前必读
 - **`worker/AGENTS.md`** — Worker 完整文档：节点流程、Ozon API 坑
 - **`worker/src/api/errors.py`** — 统一错误码（改错误响应前必看）
 - **`worker/src/api/schemas.py`** — Pydantic schemas（改 API 前必看）
@@ -528,6 +547,15 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
 - **Docker 部署**: `deploy/docker-compose.yml` 含 PG + Worker，`HEALTHCHECK` 已配置。
 - **API 版本化**: 新端点走 `/api/v1/`，旧路径保持兼容。
+
+### v0.59 新增关键约定（改佣金/定价/发货模式前必看）
+
+- **佣金解析唯一入口** `utils/commission_resolver.py`：`resolve_commission_rate` 链（explicit > category_commission 缓存表(band 选段) > extensions.commission_segments > 0.10）。**定价/选品/estimate 三处共用**，新增佣金逻辑必须进 resolver，禁止各处内联（防漂移）。
+- **佣金是「类目 × 发货模式 × 价格段」矩阵**：`/v5/product/info/prices` 的 `sales_percent_rfbs` 需真实 offer_id（上架后才有），选品时只能用 what_to_sell 的 `rfbs_rate`/`fbp_rate` 分段对象。**不要在定价时调 `/v5/product/info/prices` 空 filter**（三重 bug 教训，见 v0.59 区块）。
+- **provisional-price band pass**（pricing_node）：佣金档位依赖售价、售价依赖佣金——先 0.10 算临时价选档，再 resolve 真实佣金重算。RUB 店铺直接用临时价；CNY 店铺用 `leq_5000` 中性档（无真实汇率换算）。
+- **信封佣金透传**：skill `extensions.commission_segments = {fbs:{leq_1500,leq_5000,gt_5000}, fbo:{...}}`（rfbs→fbs/fbp→fbo 映射），worker resolver 作 `segments` 源消费。无分段时**不加该键**（向后兼容）。
+- **发货模式**：`sales_schema` 标注所有模式（FBO/FBS/rFBS）不剔除，仅导出/webui 筛选；过滤用 `_match_sales_schema` 子串匹配（`"FBS" in "RFBS"` = True，对齐竞品），`sales_mode` 默认不过滤只标注。
+- **多 SKU 变体合并**：颜色/尺寸变体用属性 9048（=item_id）绑定 → 合并 1 卡 = 1 配额；数量变体（`variant_type="quantity"`）走独立产品（N 配额）。改 `prepare_ozon_upload_node.py` 变体分支勿破坏（详见 `docs/OZON-MULTI-SKU-QUOTA.md`）。
 
 ### v0.58 新增关键约定（改重量估算/费率表/batch_test 货源复用前必看）
 
