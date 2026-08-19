@@ -68,7 +68,7 @@ def run_skill_command(cmd: str, *positional, **flags) -> dict:
     argv = [SKILL_PYTHON, str(_CLI), cmd]
     argv += [str(p) for p in positional if p is not None and p != ""]
     for key, val in flags.items():
-        if val is None or val is False:
+        if val is None or val is False or val == "":
             continue
         flag = f"--{key.replace('_', '-')}"
         if val is True:
