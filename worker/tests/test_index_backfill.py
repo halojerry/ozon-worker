@@ -31,13 +31,14 @@ def _make_state(
     draft=None,
     envelope=None,
     final_attributes=None,
+    upload_status="success",
 ):
     return SimpleNamespace(
         description_category_id="17028959",
         type_id=96513,
         moderation_status=moderation_status,
         status=status or moderation_status,
-        upload_status="success",
+        upload_status=upload_status,
         final_attributes=final_attributes or [],
         attributes_schema=[],
         draft=draft or {"title": "测试", "item_id": "980815374096", "sku_id": "980815374096"},
@@ -100,12 +101,24 @@ def test_follow_sell_offer_id_uses_follow_prefix():
 
 
 def test_not_approved_no_backfill():
-    """pending / declined（非 approved）→ upsert_index 不被调。"""
+    """pending / declined / imported（非 approved 且非修复循环成功）→ upsert_index 不被调。"""
     for status in ("pending", "declined", "imported"):
-        state = _make_state(moderation_status=status, status=status)
+        # ⚠️ 真实非 approved 场景 upload_status 非 success；传 success 会误判为
+        # v0.57 修复循环成功（repair_success：pending + upload_status=success + 有 product_id）
+        state = _make_state(moderation_status=status, status=status, upload_status="")
         _, mock_upsert, _, mock_resolve = _run_node(state)
         mock_upsert.assert_not_called()
         mock_resolve.assert_not_called()  # 未进 approved 分支，连解析都不做
+
+
+def test_repair_success_pending_with_product_id_backfills():
+    """v0.57 修复循环成功：pending + upload_status=success + 有 product_id → 视为真实成功 → 回填索引。"""
+    state = _make_state(moderation_status="pending", status="pending", upload_status="success")
+    out, mock_upsert, _, _ = _run_node(state)
+
+    mock_upsert.assert_called_once()
+    assert mock_upsert.call_args.kwargs["product_id"] == "5476361418"
+    assert out.recorded_count == 0  # 学习路径正常返回
 
 
 def test_missing_product_id_skip():

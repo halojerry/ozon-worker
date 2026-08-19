@@ -82,12 +82,14 @@ def _run(draft, search_hits=None):
 
 
 def test_4958_filled_from_attr_value_cat():
-    """适用对象=猫狗通用 → 语义映射 "猫咪" 命中 → 4958 填入 33754。"""
+    """适用对象=猫狗通用 → 语义映射 "猫咪" 命中 → 4958 填入 33754（RU 值，Ozon 上传必须俄语）。"""
     attr_map = _run(_draft())
     assert 4958 in attr_map, f"4958 应被兜底填入，实际属性: {list(attr_map.keys())}"
     vals = attr_map[4958].get("values", [])
     assert vals and vals[0].get("dictionary_value_id") == 33754, vals
-    assert vals[0].get("value") == "猫咪用品"
+    # ⚠️ 字典属性 value 必须俄语（Ozon 拒中文）——4958 兜底经 AUDIENCE_ZH_TO_VALUES
+    # 匹配 RU 值 "Для кошек"（对 33754）。中文 "猫咪用品" 仅搜索用，不上传。
+    assert vals[0].get("value") == "Для кошек"
 
 
 def test_4958_search_terms_include_cat_double():
