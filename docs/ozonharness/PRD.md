@@ -1,214 +1,177 @@
-# PRD — 电商版 Harness 客户端（对话 + 手动双向驱动）
+# Pounding E-commerce Harness · PRD v2.0
 
-> 本文档是 ozonharness 方案的**产品需求文档**，整合此前所有分析结论，作为「逐一击破」的实施依据。
-> 关联：`ARCHITECTURE.md`（架构 v3.3）· `MCP-TOOLS.md`（19 工具设计）· `SKILL-INVENTORY.md`（skill 功能清单 + 落盘）· `ROADMAP.md`（分阶段计划）· `REFERENCES.md` / `EXAMPLES.md`（参考对象）。
-
----
-
-## 一、产品概述
-
-### 1.1 定位
-
-**Ozon 跨境电商的「对话 + 手动」双向操作客户端**：把 ozon-worker 的 skill 能力（1688 采集 / Ozon 选品 / 上架），用「对话」和「手动按钮」两种方式操作。
-
-### 1.2 目标用户与场景
-
-| 用户 | 场景 |
-|---|---|
-| Ozon 卖家（客户）| 日常选品、采集、上架、看订单 |
-
-### 1.3 核心价值
-
-1. **双向驱动**：复杂任务（选品，需综合判断）用对话省心；确定任务（上架指定 URL）用手动直接。两种方式操作同一套 skill 能力，结果一致、互为补充。
-2. **黑盒透明化**：skill 原本是「黑盒脚本」，agent 用起来不顺畅。本产品把过程透明化（进度/浏览器/组装/错误可见）。
-3. **对话即完成**：接 dsh，用户说话 agent 编排一切。
-
-### 1.4 参考对象（各取所长）
-
-| 参考 | 借鉴 |
-|---|---|
-| shopbang（上品帮）| 手动 GUI 调本地采集的成熟实现（Electron IPC + BrowserWindow）|
-| DAY1-Clean | dsh 套壳 + vault 知识库 + 本地网关统一暴露 |
-| PCDCK/pounding-mcp | FastMCP 封装 + 三级安全门控 |
+> 版本：v2.0（2026-08-19）— **底座改为 DAY1-Clean（Boujoy Harness）**，替代 v1 的「dsh web UI + better-sidebar」平行方案。
+> 关联文档：`DAY1-CLEAN-ANATOMY.md`（底座解剖真相源）、`../ozonharness/ARCHITECTURE.md`、`api-integration/`、`design-deliverables/`
 
 ---
 
-## 二、产品形态
+## 1. 背景与问题
 
-### 2.1 客户端 vs 官网
+我们已经拥有完整的 Ozon AI 自动化运营栈：
+- **worker**（FastAPI，109+ 端点）：上架编排、商品/订单/任务、图片生成、管理后台
+- **skill**（pounding-ozon-probe，19 个 CLI）：本地 CDP 采集 1688/Ozon、图搜、选品引擎、上架组装
+- **webui + 设计交付包**：15 页 ERP 原型、设计规范书、design-tokens
+- **API 对接包**：`api-integration/` + `integration-workplan/`
 
-| 形态 | 内容 | 定位 |
-|---|---|---|
-| **客户端（Electron）** | 侧边栏 **8 板块**（参考 DAY1-Clean 的侧边栏导航）| 客户日常用 |
-| **官网** | 完整 webui（15 页）| 完整管理 |
+缺失的是**产品壳**：让用户「跟 agent 对话就把事情做了」的客户端。
 
-### 2.2 侧边栏 8 板块（客户视角）
+**底座选定**：DAY1-Clean（Boujoy Harness）——已验证的 dsh 套壳产品（6 板块 UI + 本地网关 + vault 知识库 + 双 profile + 完整安全基线），源码级解剖完成（见 ANATOMY）。
 
-| # | 板块 | 页面内容 |
-|---|---|---|
-| 1 | **Agent** | 对话（dsh 原生）|
-| 2 | **采集箱** | 采集的商品卡片（图片+采购价+利润）|
-| 3 | **任务中心** | **采集任务 + 上架任务**（两类）|
-| 4 | **专家** | 能力工具入口 |
-| 5 | **知识库** | vault（店铺/规则/类目/踩坑）|
-| 6 | **爆品新闻** | 电商行业情报（热销/热搜/类目/汇率/政策）|
-| 7 | **计算器** | 跨境定价器（成本→售价/划线价/利润明细）|
-| 8 | **用量** | 成本/额度监控（DAY1-Clean 用量板块）|
+**MVP 决策（已锁定）**：
+1. **设计语言先复用 DAY1-Clean**（暗色霓虹朋克风），换肤推迟到 MVP 后
+2. 6 板块骨架全保留，只做「改造 + 新增」，不复刻 UI 层
+3. 壳最终 Electron（跨平台），网关/vault/web 不动
 
-### 2.3 能力归属矩阵（开发视角：哪些 worker / 哪些 skill / 哪些脚本 / 哪些 agent）
+---
 
-| 能力 | 实现层 | 触发方式 | agent 能调 |
+## 2. 产品定位
+
+**一句话**：电商卖家的一体化 AI 运营台——对话即完成（agent 调度 skill）+ 手动操作（侧边栏板块）。
+
+- **受众**：Ozon 跨境卖家（个人/小团队为主）
+- **双向驱动**：同一套 skill 能力，两个入口（对话 / 手动按钮）
+- **核心价值**：把「选品 → 采集 → 定价 → 上架 → 复盘」从多系统手工操作，收敛到一个 agent + 9 板块的客户端
+
+---
+
+## 3. 功能范围（MVP）
+
+### 3.1 侧边栏 9 板块
+
+| # | 板块 | 来源 | 内容 |
 |---|---|---|---|
-| 上架任务状态/列表 | **worker 接口**（`/task_status`、tasks）| 前端直调 REST | ✅（web_fetch/经 skill）|
-| 采集箱数据（drafts）| **worker 接口**（`/drafts`）| 前端直调 | ✅ |
-| 采集（1688 爬取/图搜）| **skill 能力**（CDP）| 手动按钮 / agent | ✅（MCP）|
-| 选品引擎（discover）| **skill 能力** | 手动 / agent | ✅ |
-| 上架组装（graph）| **skill 能力** | 手动 / agent | ✅ |
-| 类目查询 | **skill 能力** | 手动 / agent | ✅ |
-| 店铺/凭证配置 | **skill 能力**（config_store）| 手动 | ✅ |
-| 计算器（定价器）| **脚本**（`compute_price` 公式，前端算）| 填表直接算，**不需要 agent** | ✅（也能当工具）|
-| 汇率/尺寸换算 | **脚本**（前端算）| 直接算 | ✅ |
-| 知识库读写 | **vault 落盘**（skill 自动 + agent 落盘）| 自动 / agent | ✅ |
-| 爆品/热搜数据 | **skill 能力**（queries/bestsellers）+ 外部源 | 手动 / agent | ✅ |
-| 用量/余额 | **dsh 原生**（token-meter）+ 社区（balance）| 前端展示 | — |
-| 组合工作流 | **agent 驱动**（组合多能力）| 对话 | ✅ |
+| 01 | **AGENT** | 复用 DAY1-Clean | 对话 + 会话 + 审批/提问 + LIVE SIGNAL |
+| 02 | **知识库** | 复用 | vault 索引/搜索/捕获（对齐我们的 vault 落盘）|
+| 03 | **专家** | 复用 + 改造 | 专家卡 = skill 能力（采集/图搜/选品/上架/类目/配置），纯 prompt 注入 |
+| 04 | **风格** | 复用 | 输出风格卡（MVP 保留原样）|
+| 05 | **监控** | 复用 | token 用量/轨迹/推理强度（dsh 会话投影）|
+| 06 | **新闻** | **改造** | AI 通用新闻 → **电商爆品情报**（热销/热搜/汇率/政策）|
+| 07 | **采集箱** | **新增** | worker `/api/v1/drafts` 商品卡片（图片+采购价+运费+利润），筛选/批量导出/转上架 |
+| 08 | **任务中心** | **新增** | worker `/task_status` 采集+上架任务，状态/进度/审批 |
+| 09 | **计算器** | **新增** | OZON 跨境定价器（worker compute_price 公式前端直算，CNY/RUB/USD）|
 
-**四种实现层（开发思维核心区分）：**
+### 3.2 能力归属矩阵（开发视角）
 
-```
-1. worker 接口（云端 REST，前端直调，不需要 agent）
-   └─ 任务状态、采集箱、商品/订单数据
+| 能力 | 实现层 | 触发 | agent 能调 |
+|---|---|---|---|
+| 采集（1688 CDP）/ 图搜 / 选品 / 上架组装 | **skill**（本地）| 手动按钮 / 对话 | ✅ MCP |
+| 上架执行 / 商品 / 订单 / 任务 / 采集箱 / 图片生成 | **worker REST**（云端）| 前端直调 | ✅ 经 MCP/网关 |
+| 定价器 / 汇率换算 | **脚本**（前端直算）| 填表直算，无需 agent | ✅ |
+| vault 读写 / 知识卡捕获 | **网关 + dsh**（本地）| 自动 / 对话沉淀 | ✅ |
+| 爆品/热搜数据 | **skill**（queries/bestsellers）| 手动 / 对话 | ✅ |
+| 用量/轨迹 | **dsh 会话投影** | 前端展示 | — |
+| 组合工作流（"找蓝海+导出"）| **agent 驱动** | 对话 | ✅ |
 
-2. skill 能力（本地 CDP/采集/选品/组装，手动按钮或 agent 都能调）
-   └─ 采集、选品、上架组装、类目、配置
+### 3.3 核心用户故事
 
-3. 脚本（纯计算，前端直接算，不需要 agent）
-   └─ 定价器、汇率换算、尺寸重量换算
+1. **采集**：粘贴 1688 链接 → agent 调 skill 采集 → 商品卡片进采集箱 → 一键转上架
+2. **对话选品**：说"找蓝海家居品" → agent 调 discover → 结果落 vault + 生成 Excel
+3. **定价**：计算器板块填成本/重量/毛利 → 秒出售价/划线价/利润明细
+4. **任务监控**：任务中心看采集/上架进度；上架任务需老板审批（guard 门控）
+5. **复盘**：监控板块看 token/成功率；知识库沉淀踩坑
 
-4. agent 驱动（对话，组合多能力）
-   └─ 复杂工作流："找蓝海 + 导出 Excel + 选品上架"
-```
+### 3.4 黑盒透明化（沿用 v1 决策）
 
-### 2.4 双向驱动架构
-
-```
-┌─ 对话面（dsh）──→ MCP 工具 ──→ skill CLI ──┐
-│                                          ├─→ 本地能力（采集/选品/图搜）
-└─ 经营面（webui）──→ 本地网关/IPC ──→ skill CLI ──┘   ← 新增通道
-
-┌─ 对话面（dsh）──→ web_fetch/MCP ──→ worker REST ──┐
-└─ 经营面（webui）──→ worker REST ───────────────────┘
-                                    （上架/商品/订单，已通）
-```
-
-**关键新增**：webui 目前只调 worker REST，调不了 skill 本地能力。需新增「本地能力暴露」通道（Electron 主进程 IPC 或本地网关）。
+- 进度：skill 长任务写 `Active-Context.md`（agent/用户可见）
+- 浏览器：CDP 关键节点 + 验证码人工干预提示
+- 组装：graph 字段映射落盘成 Markdown 表
+- 错误：错误码 + 可操作建议落盘
 
 ---
 
-## 三、核心功能需求
+## 4. 技术架构（DAY1-Clean 底座）
 
-### F1 对话驱动（dsh agent 调 skill）
+### 4.1 三层（保留）
 
-- 19 个 skill 命令 → 19 个 MCP 工具（`mcp__pounding__*`），见 `MCP-TOOLS.md`
-- 审批：read 黑盒直跑 / write 老板眼皮底下 / destructive 双重确认（dsh 侧 `tools/pre-execute` 钩子）
+```
+浏览器 web/ ── 8766 网关（反代 + 读盘 + WS 桥）── dsh 3080 知识 / 3081 纯净
+```
 
-### F2 手动驱动（GUI 调 skill + worker）
+保留：网关 RPC 反代 + WS 双向字节桥、vault 捕获（capture 工具写盘 + 安全校验）、双 profile、CORS/访问码/Origin 安全基线。
 
-- webui 核心页提供手动操作按钮（采集/选品/上架），调本地 skill 能力 + worker REST
-- 实现：Electron 主进程 IPC（shopbang 模式）或本地网关（DAY1-Clean 模式）
+### 4.2 改造点
 
-### F3 vault 落盘（配置自动 + 结果卡片化）
+| # | 项 | 内容 | 依赖 |
+|---|---|---|---|
+| P1 | **dsh runtime** | rc.6 → rc.7（我们插件的硬前置）| 无 |
+| P1 | **profile 挂载** | knowledge profile 挂 pounding-guard + mcp-pounding（patch 层）| P1 |
+| P2 | **网关扩展** | 加 worker/skill 桥（复用 pounding_mcp http_server 8901 逻辑，注入 Bearer）| P1 |
+| P3 | **+3 板块** | 采集箱 / 任务中心 / 计算器（前端 app.js 加板块 + 网关加数据 API）| P2 |
+| P3 | **新闻改造** | 新闻源 → 电商爆品情报 | P1 |
+| P4 | **专家对接** | skill 能力卡 → 专家卡 | P1 |
+| P5 | **壳** | Swift → Electron（跨平台，含 Windows）| 全 |
+| 后 MVP | **换肤** | app.css → 我们的 design-tokens（暖白/黑/红）| 全 |
 
-- **目录**：`vault/`（平台无关命名），结构见 `SKILL-INVENTORY.md` §2.2
-- **分层**：配置类（店铺/凭证/类目）skill 命令自动落盘（状态必须同步）；结果类（采集/选品/上架）agent 工作流落盘
-- **结果卡片化**：采集结果落盘成「商品卡片 Markdown」（图片 URL + 采购价/运费/利润），对齐原型图
-- **脱敏**：凭证只存摘要，明文 key 绝不落盘
+### 4.3 关键技术决策（沿用 ANATOMY 结论）
 
-### F4 黑盒透明化
+- 专家/风格 = 纯 prompt 注入（不改 dsh 注册机制）
+- 凭证走 `$DSH_HOME/.credentials.yaml`（0600）+ `DEEPSEEK_BASE_URL` 环境变量
+- 会话即执行单元（dsh 会话绑定工作区）
+- 安全基线不降级（新增电商写接口走同一套 Origin/路径白名单防护）
 
-| 黑盒 | 透明化手段 |
+---
+
+## 5. 非功能需求
+
+- **安全**：沿用访问码/Origin/CORS 白名单/路径逃逸防护/凭证 0600；worker Bearer 不落盘明文
+- **性能**：vault 索引签名缓存；新闻 6h 缓存；商品卡片分页
+- **数据**：本地优先（vault/会话本地），云端 worker 只做业务执行
+- **模型**：可配置（DEEPSEEK_API_KEY + DEEPSEEK_BASE_URL，已实测通过）
+- **跨平台**：MVP 先 macOS（底座现状），Electron 壳引入后支持 Windows
+
+---
+
+## 6. 验收标准
+
+### 6.1 板块验收
+| 板块 | 验收 |
 |---|---|
-| 进度黑盒（长任务无反馈）| 落盘 `Active-Context.md` 实时进度 |
-| 浏览器黑盒（CDP 爬取不可见）| 落盘爬取日志（抓了哪些页、验证码提醒）|
-| 组装黑盒（字段映射不可见）| 落盘组装映射（1688字段→Ozon字段可视化）|
-| 错误黑盒（出错难纠正）| 落盘错误 + 可操作建议 |
+| 采集箱 | 显示 worker drafts 商品卡片（图/采购价/运费/利润）；筛选 + 导出 + 转上架可用 |
+| 任务中心 | 采集/上架任务列表 + 进度；上架触发审批显示 |
+| 计算器 | 填入参数出售价₽/划线价/利润，与 worker compute_price 一致 |
+| 新闻 | 显示电商爆品/热搜/汇率/政策，刷新可用 |
+| 专家 | skill 能力卡可见可派发，prompt 注入生效 |
+| 其余 4 板块 | DAY1-Clean 原样可用（agent 对话/知识库/风格/监控）|
 
-### F5 平台无关（未来扩展）
-
-- 命名不带 ozon 前缀（`stores/sourcing/selection/listing`），Ozon 专属集中 `05-ozon/`
-- 未来加 Amazon → `06-amazon/`，通用能力零改动
+### 6.2 端到端验收
+1. 对话："把 1688 <链接> 采集下来" → 采集箱出现商品卡片
+2. 计算器定价 → 转上架 → 任务中心出现上架任务（审批流）→ 完成
+3. 对话选品 → vault 落盘 → 知识库可检索
 
 ---
 
-## 四、技术架构（详见 ARCHITECTURE.md v3.3）
+## 7. 执行计划
 
-### 4.1 三个协议边界
+| 阶段 | 任务 | 产出 | 时长 |
+|---|---|---|---|
+| **P0** | 底座就绪：clone/fork boujoy-harness + 本地跑通（网关/dsh/UI）| 可运行 base | 0.5-1 天 |
+| **P1** | dsh rc.7 升级 + knowledge profile 挂 pounding-guard/mcp-pounding + vault 对齐 | 插件进底座 | 1-2 天 |
+| **P2** | 网关扩展：worker/skill 桥（Bearer 注入、drafts/task_status/定价 API）| 网关 API | 1-2 天 |
+| **P3** | +3 板块（采集箱/任务中心/计算器）+ 新闻改电商爆品 | 电商板块 | 2-3 天 |
+| **P4** | 专家对接 skill 能力卡 + 对话采集/选品端到端 | 端到端闭环 | 1-2 天 |
+| **P5** | Electron 壳（跨平台）+ 打包 | 安装包 | 2-3 天 |
+| 后 MVP | 换肤 design-tokens + webui 完整页接入 | 品牌统一 | 后续 |
 
-| 协议 | 用途 |
+**总工期估：8-13 天（1 人全职）**，skill/worker 零改动。
+
+---
+
+## 8. 风险与对策
+
+| 风险 | 对策 |
 |---|---|
-| MCP | agent 调 skill 进程内能力（19 命令）|
-| REST | worker 保持 FastAPI（100+ 端点）|
-| SDK | 给前端/开发者（`generated.d.ts` 已是成品）|
-
-### 4.2 仓库结构
-
-- `ozon-worker`（现有）：worker + skill + webui + **pounding-mcp**（skill 薄封装，同仓同步）
-- `ozon-harness-shell`（新建）：Electron 壳，pin dsh + 引用 pounding-mcp
-- `dsh`（上游）：pin 版本，不维护
-
-### 4.3 插件化壳化
-
-- dsh 更新零感知：只通过 MCP（稳定协议）+ `cordis.patch.yml` 补丁层接入
-- 唯一耦合红线：webui 走 iframe，不碰 dsh client-ui 插件
+| dsh rc.6→rc.7 兼容（唯一硬关卡）| P1 首个验证；失败则评估插件按 rc.6 构建 |
+| DAY1-Clean 纯 macOS | Windows 靠 Electron 壳（P5），MVP 先 macOS |
+| 网关反代 + WS 桥改动影响稳定性 | 改造不动 `_proxy`/`_ws_upgrade` 核心，只加路由 |
+| 新增板块破坏原 UI | 板块以独立 section 追加，不改 6 板块渲染 |
+| 换肤工作量大 | 明确后 MVP，CSS 变量化后再做 |
 
 ---
 
-## 五、分阶段实施（详见 ROADMAP.md）
+## 9. 范围外（MVP 不做）
 
-| Phase | 内容 | 产出 |
-|---|---|---|
-| **P1** | `pounding-mcp`（19 命令 → 工具）✅ 骨架已完成并验证 | 可被 dsh 调用的 MCP server |
-| **P2** | 审批策略层（dsh 侧 pre-execute 钩子）| 三级安全门控 |
-| **P0** | Electron 壳 + dsh 运行时 | 能启动 dsh 的桌面壳 |
-| **P3** | 本地网关 + webui iframe + 本地能力暴露 | 双向驱动（手动 GUI 调 skill）|
-| **P4** | vault 落盘（配置自动 + 结果卡片化）+ 黑盒透明化 | 电商知识库 + 过程可见 |
-| **P5** | 社区插件 + 跨平台打包 | Win/Mac 安装包 |
-
----
-
-## 六、验收标准
-
-### 6.1 对话驱动
-
-- [ ] 用户在 dsh 说「搜索 1688 的收纳盒」→ agent 调 `mcp__pounding__search` → 返回结果
-- [ ] 上架类操作（graph 提交）触发审批，用户确认后才执行
-- [ ] 只读操作（search/probe）无审批直接跑
-
-### 6.2 手动驱动
-
-- [ ] 客户端 webui 采集箱页有「采集」按钮，点击后调本地 skill 采集，结果显示为商品卡片
-- [ ] 手动操作和对话操作结果一致（都落盘同一 vault）
-
-### 6.3 落盘与卡片化
-
-- [ ] `set_store` 后 `vault/01-Stores/stores.md` 更新（脱敏）
-- [ ] 采集结果落盘成商品卡片（图片 URL + 采购价 + 运费 + 利润）
-- [ ] agent 能通过读 vault 自动获取店铺/采集/选品信息（无需重跑脚本）
-
-### 6.4 黑盒透明化
-
-- [ ] 长任务（discover）执行时，`Active-Context.md` 实时更新进度
-- [ ] 浏览器爬取日志可查（抓了哪些页、是否遇验证码）
-- [ ] 上架组装映射可查（1688字段→Ozon字段）
-
-### 6.5 平台无关
-
-- [ ] 命名无 ozon 前缀（除 `05-ozon/` 专属）
-- [ ] 未来加 Amazon 平台，通用能力（采集/选品/上架/落盘）零改动
-
----
-
-## 七、待确认（仅剩）
-
-1. **本地能力暴露方式**：Electron 主进程 IPC（shopbang 模式）还是本地网关（DAY1-Clean 模式）？——影响 P3 实现
-2. 其余决策已锁定（Electron 壳 / iframe 整合 / 云端 worker / 暂不装社区插件）
+- Windows 原生打包（P5 之后）
+- 完整 webui 15 页嵌入（官网承载）
+- 多平台（Amazon 等）
+- 手机端 PWA 完善
+- 换肤与品牌视觉统一
