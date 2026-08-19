@@ -13,6 +13,7 @@ from __future__ import annotations
 from fastmcp import FastMCP
 
 from .skill_runner import run_skill_command
+from .tasks import get_manager
 
 mcp = FastMCP("pounding")
 
@@ -55,7 +56,7 @@ def set_ak(ak: str) -> dict:
 @mcp.tool()
 def get_ak(timeout: int = 300) -> dict:
     """浏览器自动获取 1688 AK。写操作（需本地 Chrome）。"""
-    return run_skill_command("get_ak", timeout=timeout)
+    return get_manager().run_and_record("get_ak", {"timeout": timeout}, source="agent")
 
 
 # ── 采集 / 选品（只读为主，提交类 flag 触发 dsh 侧审批）───────────
@@ -64,21 +65,22 @@ def get_ak(timeout: int = 300) -> dict:
 def search(query: str, page_size: int = 5, sort: str = "",
            rules: str = "", store: str = "", auto_submit: bool = False) -> dict:
     """搜索 1688 商品。只读；auto_submit=True 时批量提交上架（dsh 侧审批）。"""
-    return run_skill_command("search", query, page_size=page_size, sort=sort,
-                             rules=rules, store=store, auto_submit=auto_submit)
+    return get_manager().run_and_record("search",
+        {"query": query, "page_size": page_size, "sort": sort, "rules": rules, "store": store, "auto_submit": auto_submit},
+        source="agent")
 
 
 @mcp.tool()
 def probe(url: str, timeout: int = 30) -> dict:
     """CDP 探针抓取 1688 商品详情页。只读。"""
-    return run_skill_command("probe", url=url, timeout=timeout)
+    return get_manager().run_and_record("probe", {"url": url, "timeout": timeout}, source="agent")
 
 
 @mcp.tool()
 def image_search(image: str, limit: int = 10, sort: str = "", source: str = "aibuy") -> dict:
     """以图搜款（上传图片找 1688 同款）。只读。source: aibuy/ak/cdp。"""
-    return run_skill_command("image_search", image=image, limit=limit,
-                             sort=sort, source=source)
+    return get_manager().run_and_record("image_search",
+        {"image": image, "limit": limit, "sort": sort, "source": source}, source="agent")
 
 
 @mcp.tool()
@@ -91,8 +93,9 @@ def category(query: str, lang: str = "ZH_HANS", max: int = 5, store: str = "") -
 def follow(ozon_url: str, auto_submit: bool = False, to_box: bool = False,
            store: str = "", review: bool = False, notify: bool = False) -> dict:
     """跟卖 Ozon 商品（竞品 → 找 1688 同款 → 上架）。auto_submit/to_box 触发 dsh 侧审批。"""
-    return run_skill_command("follow", ozon_url=ozon_url, auto_submit=auto_submit,
-                             to_box=to_box, store=store, review=review, notify=notify)
+    return get_manager().run_and_record("follow",
+        {"ozon_url": ozon_url, "auto_submit": auto_submit, "to_box": to_box,
+         "store": store, "review": review, "notify": notify}, source="agent")
 
 
 @mcp.tool()
@@ -103,12 +106,12 @@ def discover(url: str = "", keyword: str = "", local: bool = False,
              rules: str = "", review: bool = False, notify: bool = False) -> dict:
     """Ozon 选品 v2（采集 → 分析 → 挑货）。只读；auto_submit/to_box/fission 触发 dsh 侧审批。
     更多参数（fx_rate / min_price / max_price / brand_filter / export / blue-ocean 等）见 skill CLI discover --help。"""
-    return run_skill_command(
-        "discover", url=url, keyword=keyword, local=local,
-        max_products=max_products, min_margin=min_margin, store=store,
-        auto_submit=auto_submit, to_box=to_box, fission=fission,
-        max_depth=max_depth, rules=rules, review=review, notify=notify,
-    )
+    return get_manager().run_and_record("discover",
+        {"url": url, "keyword": keyword, "local": local,
+         "max_products": max_products, "min_margin": min_margin, "store": store,
+         "auto_submit": auto_submit, "to_box": to_box, "fission": fission,
+         "max_depth": max_depth, "rules": rules, "review": review, "notify": notify},
+        source="agent")
 
 
 @mcp.tool()
@@ -116,26 +119,26 @@ def discover_multi(keywords: str, max_each: int = 30, local: bool = False,
                    min_margin: float = 15.0, store: str = "",
                    auto_submit: bool = False, to_box: bool = False) -> dict:
     """多关键词批量选品。keywords 逗号分隔。auto_submit/to_box 触发 dsh 侧审批。"""
-    return run_skill_command(
-        "discover_multi", keywords=keywords, max_each=max_each, local=local,
-        min_margin=min_margin, store=store, auto_submit=auto_submit, to_box=to_box,
-    )
+    return get_manager().run_and_record("discover_multi",
+        {"keywords": keywords, "max_each": max_each, "local": local,
+         "min_margin": min_margin, "store": store, "auto_submit": auto_submit, "to_box": to_box},
+        source="agent")
 
 
 @mcp.tool()
 def seller(seller_id: str, max_products: int = 60, max_skus: int = 30) -> dict:
     """卖家店铺全产品运营分析（跟卖前 20 名卖家 → 店铺选品）。只读。"""
-    return run_skill_command("seller", seller_id=seller_id,
-                             max_products=max_products, max_skus=max_skus)
+    return get_manager().run_and_record("seller",
+        {"seller_id": seller_id, "max_products": max_products, "max_skus": max_skus}, source="agent")
 
 
 @mcp.tool()
 def queries(type: str, keyword: str = "", sku: str = "", category_id: str = "",
             price_min: float | None = None, price_max: float | None = None) -> dict:
     """what-to-sell 榜单查询。type: all-queries/ozon-bestsellers/market-bestsellers。只读。"""
-    return run_skill_command("queries", type=type, keyword=keyword, sku=sku,
-                             category_id=category_id, price_min=price_min,
-                             price_max=price_max)
+    return get_manager().run_and_record("queries",
+        {"type": type, "keyword": keyword, "sku": sku, "category_id": category_id,
+         "price_min": price_min, "price_max": price_max}, source="agent")
 
 
 # ── 上架组装 / 提交 ────────────────────────────────────────────
