@@ -31,6 +31,12 @@ CHINA_HIGHLIGHT_URL = "https://www.ozon.ru/highlight/tovary-iz-kitaya-935133/"
 DEFAULT_FX_RATE = 0.075          # RUB -> CNY
 DEFAULT_LOGISTICS_CNY = 15.0     # rough per-kg logistics cost
 DEFAULT_COMMISSION_PCT = 0.10    # Ozon commission ~10%
+# 佣金默认分段（百分数，按售价选带）——worker 费率表/候选分段均不可达时的末级兜底
+DEFAULT_COMMISSION_SEGMENTS: dict[str, float] = {
+    "leq_1500": 12.0,
+    "leq_5000": 14.0,
+    "gt_5000": 18.0,
+}
 DEFAULT_MIN_MARGIN_PCT = 15.0    # minimum profit margin %
 DEFAULT_MAX_COMPETITORS = 50     # skip products with too many sellers
 LOGISTICS_PER_KG_CNY = 40.0      # 跨境物流按重量估算 CNY/kg（保底 8 CNY）
@@ -151,6 +157,9 @@ class ProductCandidate:
     brand: str = ''
     commission_fbp: float = 0.0   # 百分数（10 = 10%）
     commission_rfbs: float = 0.0  # 百分数（10 = 10%）
+    # 佣金分段（v0.58 透传）：_to_rate_segments 产物 {"leq_1500","leq_5000","gt_5000"}
+    commission_rfbs_segments: dict = field(default_factory=dict)
+    commission_fbp_segments: dict = field(default_factory=dict)
     monthly_sales: int = 0
     monthly_revenue: float = 0.0
     weight_g: int = 0
@@ -711,6 +720,13 @@ def collect_and_analyze(
             else:
                 logger.info("无价格区间内的候选，跳过运营指标查询")
 
+    # ── 阶段②c 发货模式后置过滤（任务 4.1b）──
+    # sales_schema 在阶段②b 富化时才写入 → 不能进 _apply_filters；
+    # 店铺 sales_mode 非空时按子串匹配过滤，空 = 不过滤（只标注）。
+    from scripts.lib.config_store import get_store_profile
+    _apply_sales_mode_filter(
+        candidates, str(get_store_profile().get("sales_mode", "") or ""))
+
     # 全量落盘（含 error/uncertain/filtered，供表格与审计）+ 上报 worker 归档（D12）
     _save_discovery_log(
         candidates,
@@ -964,6 +980,37 @@ _BASE_FILTER_RULES: tuple[tuple[str, float | None, float | None], ...] = (
     ("return_cancel_rate", None, None),
     ("review_count", None, None),
 )
+
+
+def _match_sales_schema(sales_schema: str, mode: str) -> bool:
+    """发货模式子串匹配（任务 4.1）：mode 是否命中 sales_schema。
+
+    - mode 为空 → True（未配置 sales_mode = 不过滤）
+    - 否则子串匹配（竞品 .includes() 语义）：FBS 隐式覆盖 RFBS/REAL_FBS，
+      逗号拼接多模式（"FBO,FBS"）含 FBS 即命中
+    - sales_schema 为空但 mode 非空 → False（无数据不误放行）
+    """
+    if not mode:
+        return True
+    return bool(sales_schema) and mode in sales_schema
+
+
+def _apply_sales_mode_filter(candidates: list[ProductCandidate],
+                             sales_mode: str) -> None:
+    """任务 4.1b：发货模式后置过滤（阶段②b 富化完成后调用，就地修改）。
+
+    sales_schema 由 apply_analytics_to_candidate 在富化时才写入，故不能进
+    _apply_filters（其运行于富化之前）——本函数必须在富化后、落盘前跑。
+    mode 非空时：status in ("ok","uncertain") 且 sales_schema 不含 mode →
+    filtered；mode 空 → 不过滤（只标注，默认需求）。
+    """
+    if not sales_mode:
+        return
+    for c in candidates:
+        if c.status in ("ok", "uncertain") and not _match_sales_schema(
+                c.sales_schema, sales_mode):
+            c.status = "filtered"
+            c.error = f"发货模式不含 {sales_mode}"
 
 
 def _passes_base_filter(candidate: ProductCandidate) -> bool:
@@ -2423,6 +2470,11 @@ def _dims_mm_to_cm(dims_mm) -> dict[str, float] | None:
 _LOGISTICS_QUOTE_CACHE: dict[int, float | None] = {}
 
 
+# 佣金分段查询缓存（任务 2.2，镜像物流 last-good 模式）：
+# _COMMISSION_CACHE 进程内成功缓存（只缓存 found:true 结果）；
+# _LAST_GOOD_COMMISSION 按 category_id 存 last-good（24h TTL），API 失败时复用。
+_LAST_GOOD_COMMISSION: dict[int, tuple[dict, float]] = {}
+_COMMISSION_CACHE: dict[int, dict | None] = {}
 def fetch_seller_products(
     cdp_url: str = "http://127.0.0.1:9222",
     seller_id: str = "",
@@ -2596,6 +2648,112 @@ def _query_logistics_from_worker(weight_g: int, dims_mm=None) -> LogisticsQuote 
         return _last_good_quote(eff_weight)
 
 
+def _commission_band_rate(segments, price_rub: float) -> float | None:
+    """按售价（RUB）取佣金分段率（百分数，10 = 10%）。
+
+    分段 dict {"leq_1500","leq_5000","gt_5000"}（worker fbs/fbo 或候选
+    commission_rfbs_segments 同构）。售价 ≤1500₽ → leq_1500；≤5000₽ → leq_5000；
+    其余 → gt_5000。分段缺失/无效 → None。
+    """
+    if not segments or not isinstance(segments, dict):
+        return None
+    if price_rub <= 1500:
+        band = "leq_1500"
+    elif price_rub <= 5000:
+        band = "leq_5000"
+    else:
+        band = "gt_5000"
+    raw = segments.get(band)
+    try:
+        rate = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return rate if rate > 0 else None
+
+
+def _last_good_commission(category_id: int) -> dict | None:
+    """API 失败时复用同 category_id 的 last-good 佣金分段（24h TTL）。"""
+    entry = _LAST_GOOD_COMMISSION.get(category_id)
+    if not entry:
+        return None
+    segments, ts = entry
+    if time.time() - ts > _LAST_GOOD_TTL_SECONDS:
+        return None
+    return segments
+
+
+def _query_commission_from_worker(category_id) -> dict | None:
+    """调 Worker GET /api/v1/commissions/lookup 查类目真实佣金分段（任务 2.2）。
+
+    - category_id = Ozon description_category_id（int/数字字符串）；空/None → None。
+    - found:true → {"fbs": {...}, "fbo": {...}, "source": ...}（百分数分段）；
+      found:false → None（调用方走本地兜底）。
+    - 进程内成功缓存（_COMMISSION_CACHE，只缓存 found:true）。
+    - Worker 不可达/超时/无 token → 复用同 category_id 的 last-good（24h TTL）；
+      连 last-good 都没有 → None（调用方本地兜底）。
+    """
+    if not category_id:
+        return None
+    try:
+        cid = int(category_id)
+    except (TypeError, ValueError):
+        return None
+    cached = _COMMISSION_CACHE.get(cid)
+    if cached is not None:
+        return cached
+    try:
+        from scripts._const import CLOUD_API_BASE
+        from scripts.lib.config_store import get_mxou_token
+        import requests as _req
+
+        token = get_mxou_token()
+        if not token:
+            return _last_good_commission(cid)
+        resp = _req.get(
+            f"{CLOUD_API_BASE}/api/v1/commissions/lookup",
+            params={"category_id": cid},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=6,
+        )
+        if resp.status_code != 200:
+            return _last_good_commission(cid)
+        data = resp.json()
+        if not data.get("found"):
+            return None
+        fbs = data.get("fbs") or {}
+        fbo = data.get("fbo") or {}
+        if not fbs and not fbo:
+            return None
+        result = {
+            "fbs": fbs,
+            "fbo": fbo,
+            "source": str(data.get("source", "") or ""),
+        }
+        _COMMISSION_CACHE[cid] = result
+        _LAST_GOOD_COMMISSION[cid] = (result, time.time())
+        return result
+    except Exception:
+        return _last_good_commission(cid)
+
+
+def _worker_commission_rate_pct(candidate: ProductCandidate) -> float | None:
+    """worker /commissions/lookup 分段佣金（百分数）：fbs 优先，fbo 次之。
+
+    candidate.ozon_category 无 description_category_id → None（不请求）。
+    """
+    category_id = (candidate.ozon_category or {}).get("description_category_id")
+    if not category_id:
+        return None
+    segs = _query_commission_from_worker(category_id)
+    if not segs:
+        return None
+    for s in (segs.get("fbs"), segs.get("fbo")):
+        rate = _commission_band_rate(s, candidate.ozon_price)
+        if rate is not None:
+            return rate
+    return None
+
+
 def _calculate_profit(
     candidate: ProductCandidate,
     fx_rate: float = DEFAULT_FX_RATE,
@@ -2607,16 +2765,28 @@ def _calculate_profit(
       estimated_logistics_cny, estimated_commission,
       estimated_profit_cny, profit_margin
 
-    佣金优先级：commission_rate（小数）> 真实 commission_fbp/rfbs（百分数）
-    > DEFAULT_COMMISSION_PCT。物流：有真实重量按 kg 估算，否则用固定值。
+    佣金优先级：commission_rate（小数）> worker 真实分段佣金（fbs/fbo，按售价选带）
+    > 本地候选分段（commission_rfbs_segments）> 标量 commission_fbp/rfbs（百分数）
+    > 默认分段 12/14/18。物流：有真实重量按 kg 估算，否则用固定值。
     """
     if not candidate.match_1688_price or not candidate.ozon_price:
         return
 
     effective_commission = commission_rate
     if effective_commission <= 0:
-        real_comm = (candidate.commission_fbp or candidate.commission_rfbs or 0)
-        effective_commission = real_comm / 100 if real_comm > 0 else DEFAULT_COMMISSION_PCT
+        # 分段佣金（百分数）逐级兜底；最终必得 >0 的有效率
+        rate_pct = _worker_commission_rate_pct(candidate)
+        if rate_pct is None:
+            rate_pct = _commission_band_rate(
+                candidate.commission_rfbs_segments, candidate.ozon_price)
+        if rate_pct is None:
+            real_comm = (candidate.commission_fbp or candidate.commission_rfbs or 0)
+            if real_comm > 0:
+                rate_pct = float(real_comm)
+        if rate_pct is None:
+            rate_pct = _commission_band_rate(
+                DEFAULT_COMMISSION_SEGMENTS, candidate.ozon_price)
+        effective_commission = rate_pct / 100.0
 
     cost_cny = candidate.match_1688_price
     revenue_cny = candidate.ozon_price * fx_rate

@@ -259,19 +259,45 @@ def _to_float(v: Any) -> float:
         return 0.0
 
 
+def _to_rate_segments(v: Any) -> dict[str, float]:
+    """佣金率分段解析（v0.58 保留完整三段）。
+
+    毛子实测：what_to_sell 响应的 fbp_rate / rfbs_rate 是**分段对象**
+    {fbp_leq_1500, fbp_leq_5000, fbp_gt_5000}（或 rfbs 前缀），
+    旧 _to_rate 只取中段 leq_5000，丢失分段信息。本函数返回完整三段
+    {"leq_1500", "leq_5000", "gt_5000"}（float）：
+    - dict 输入：按 {prefix}_leq_1500 / {prefix}_leq_5000 / {prefix}_gt_5000
+      提取（prefix 为 fbp 或 rfbs），缺失段补 0.0
+    - 标量输入：三段都填该标量值
+    - 空/无法解析：三段全 0.0
+    """
+
+    def _pick(suffix: str) -> float:
+        if isinstance(v, dict):
+            for prefix in ("fbp", "rfbs"):
+                val = v.get(f"{prefix}_{suffix}")
+                if val not in (None, ""):
+                    return _to_float(val)
+        return 0.0
+
+    if isinstance(v, dict):
+        return {
+            "leq_1500": _pick("leq_1500"),
+            "leq_5000": _pick("leq_5000"),
+            "gt_5000": _pick("gt_5000"),
+        }
+    scalar = _to_float(v)
+    return {"leq_1500": scalar, "leq_5000": scalar, "gt_5000": scalar}
+
+
 def _to_rate(v: Any) -> float:
-    """佣金率解析（v0.26 修 maozi 实测根因）。
+    """佣金率解析（v0.26 修 maozi 实测根因；v0.58 改调 _to_rate_segments 取中段）。
 
     毛子实测：what_to_sell 响应的 fbp_rate / rfbs_rate 是**分段对象**
     {fbp_leq_1500, fbp_leq_5000, fbp_gt_5000}，旧代码 _to_float 对 dict
     直接 str() → 恒 0。取中间段（5000 内）代表佣金；标量直接转。
     """
-    if isinstance(v, dict):
-        for k in ("fbp_leq_5000", "rfbs_leq_5000", "fbp_leq_1500", "fbp_gt_5000"):
-            if v.get(k) not in (None, ""):
-                return _to_float(v.get(k))
-        return 0.0
-    return _to_float(v)
+    return _to_rate_segments(v)["leq_5000"]
 
 
 def _compute_return_rate(redemption: Any) -> float | None:
@@ -343,6 +369,9 @@ def _extract_metrics(item: dict) -> dict[str, Any]:
         "review_count": _to_int(_first(item, "reviewsCount", "review_count")),
         "commission_fbp": _to_rate(_first(item, "fbp_rate", "commissionFbp", "fbpRate")),
         "commission_rfbs": _to_rate(_first(item, "rfbs_rate", "commissionRfbs", "rfbsRate")),
+        # v0.58 佣金率完整三段（分段对象 {prefix}_leq_1500/_leq_5000/_gt_5000）
+        "commission_fbp_segments": _to_rate_segments(_first(item, "fbp_rate", "commissionFbp", "fbpRate")),
+        "commission_rfbs_segments": _to_rate_segments(_first(item, "rfbs_rate", "commissionRfbs", "rfbsRate")),
         # ✅ v0.26 权威类目（Seller 空间，wave2 眉笔类目错配根因修复）：
         # what_to_sell 返回 category1Id/category2Id/category3Id —— category2Id 即
         # Seller 树的 description_category_id(dc)、category3Id 即叶子 type_id。
@@ -978,6 +1007,10 @@ def apply_analytics_to_candidate(candidate, metrics: dict) -> bool:
             candidate.commission_fbp = float(metrics["commission_fbp"])
         if metrics.get("commission_rfbs"):
             candidate.commission_rfbs = float(metrics["commission_rfbs"])
+        if metrics.get("commission_rfbs_segments"):
+            candidate.commission_rfbs_segments = metrics["commission_rfbs_segments"]
+        if metrics.get("commission_fbp_segments"):
+            candidate.commission_fbp_segments = metrics["commission_fbp_segments"]
         cat2 = metrics.get("category2_id") or 0
         if cat2:
             candidate.category = str(cat2)
