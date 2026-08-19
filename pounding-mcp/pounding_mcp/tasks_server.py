@@ -76,7 +76,8 @@ class TaskHandler(BaseHTTPRequestHandler):
             return
         if path.startswith("/tasks/") and path.endswith("/cancel"):
             task_id = path.split("/")[-2]
-            self._json(200, {"ok": True, "note": "cancel 为 MVP 标记，未强制中断子进程"})
+            ok = mgr.cancel(task_id)
+            self._json(200, {"ok": ok, "task_id": task_id})
             return
         self._json(404, {"error": "not found"})
 
