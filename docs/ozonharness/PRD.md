@@ -93,14 +93,15 @@
 
 | # | 项 | 内容 | 依赖 |
 |---|---|---|---|
-| P1 | **dsh runtime** | rc.6 → rc.7（我们插件的硬前置）| 无 |
-| P1 | **profile 挂载** | knowledge profile 挂 pounding-guard + mcp-pounding（patch 层）| P1 |
+| P1 | **profile 挂载** | ✅ 已在底座 rc.6 上挂 pounding-guard + mcp-pounding（patch 层），端到端验证通过（agent→guard→skill→结果）| 无 |
 | P2 | **网关扩展** | 加 worker/skill 桥（复用 pounding_mcp http_server 8901 逻辑，注入 Bearer）| P1 |
 | P3 | **+3 板块** | 采集箱 / 任务中心 / 计算器（前端 app.js 加板块 + 网关加数据 API）| P2 |
 | P3 | **新闻改造** | 新闻源 → 电商爆品情报 | P1 |
 | P4 | **专家对接** | skill 能力卡 → 专家卡 | P1 |
 | P5 | **壳** | Swift → Electron（跨平台，含 Windows）| 全 |
 | 后 MVP | **换肤** | app.css → 我们的 design-tokens（暖白/黑/红）| 全 |
+
+> **P1 结论（2026-08-19 实测）**：dsh **rc.7 升级不需要**——guard + mcp-pounding 在底座 rc.6 上直接挂载并跑通（headless 事件流：agent→tool/call mcp__pounding__list_stores→guard 放行→skill 返回 5 店铺→中文总结）。PRD v2.0 里原「rc.7 硬关卡」已划除。剩余 P1 待办：vault 布局对齐。
 
 ### 4.3 关键技术决策（沿用 ANATOMY 结论）
 
@@ -160,8 +161,8 @@
 
 | 风险 | 对策 |
 |---|---|
-| dsh rc.6→rc.7 兼容（唯一硬关卡）| P1 首个验证；失败则评估插件按 rc.6 构建 |
-| DAY1-Clean 纯 macOS | Windows 靠 Electron 壳（P5），MVP 先 macOS |
+| ~~dsh rc.6→rc.7 兼容~~ | ✅ **已消除**：guard+mcp 在 rc.6 实测跑通（2026-08-19）|
+| DAY1-Clean 纯 macOS | 上游有 Windows Beta（ps1 启动器，未实机验证）；正式支持靠 Electron 壳（P5）|
 | 网关反代 + WS 桥改动影响稳定性 | 改造不动 `_proxy`/`_ws_upgrade` 核心，只加路由 |
 | 新增板块破坏原 UI | 板块以独立 section 追加，不改 6 板块渲染 |
 | 换肤工作量大 | 明确后 MVP，CSS 变量化后再做 |
