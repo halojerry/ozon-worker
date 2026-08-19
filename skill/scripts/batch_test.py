@@ -585,7 +585,11 @@ def main() -> int:
 
     # ── Pre-flight check ──
     # ⚠️ v0.58: 预扫描哪些 URL 实际需要 CDP——复用 discover 货源的 Ozon URL
-    # 直上免浏览器，纯复用批次不再 ensure_chrome_cdp（此前每次命令都白启 Chrome）。
+    # 直上免 Ozon 抓图 + 1688 图搜（复用分支不调 follow_sell_cloud）。
+    # 纯复用批次不预先 ensure_chrome_cdp（此前每次命令都白启 Chrome）；
+    # 注意：信封组装（build_envelope_from_discovery → build_graph_envelope
+    # → enrich_product_with_cdp）仍可能按需启动 Chrome 做 1688 详情富化
+    # （probe1688 缓存命中时则不需要）——这里只省 pre-flight 预启动。
     _need_cdp = any(
         u["type"] == "1688"
         or (u["type"] == "ozon" and _find_discover_source(u["id"]) is None)
@@ -619,7 +623,7 @@ def main() -> int:
                 issues.append("CDP Chrome 未启动 (端口 9222)")
                 issues.append("→ 启动: Chrome --remote-debugging-port=9222 --remote-allow-origins='*'")
     else:
-        print("♻️  本批全部走 discover 复用直上（免 Chrome）", flush=True)
+        print("♻️  本批全部走 discover 复用直上（免 Ozon 抓图/图搜；信封组装按需启 Chrome）", flush=True)
 
     # 1688 login check via CDP cookies (not session file)
     # ⚠️ v0.14 E4: 用 CdpTab 封装替代手写 websocket（只读检查，不关远程 tab）
