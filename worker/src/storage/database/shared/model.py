@@ -307,6 +307,26 @@ class CategoryMapping(Base):
     )
 
 
+class CategoryCommission(Base):
+    """类目佣金缓存表 — Ozon 类目佣金%（FBS/FBO 三段），全局共享无 tenant_id（对齐 category_mapping W11）"""
+    __tablename__ = "category_commission"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    description_category_id: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True)  # Ozon 类目 ID，全局共享
+    fbs_leq_1500: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # FBS ≤1500g 佣金%
+    fbs_leq_5000: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # FBS ≤5000g 佣金%
+    fbs_gt_5000: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # FBS >5000g 佣金%
+    fbo_leq_1500: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # FBO ≤1500g 佣金%
+    fbo_leq_5000: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # FBO ≤5000g 佣金%
+    fbo_gt_5000: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # FBO >5000g 佣金%
+    source: Mapped[str] = mapped_column(String(20), default="what_to_sell")  # 数据源：what_to_sell / prices_api
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_category_commission_updated_at", "updated_at"),
+    )
+
+
 class AttributeSynonym(Base):
     """v4: 1688→Ozon 属性名同义词表"""
     __tablename__ = "attribute_synonym"
