@@ -1388,7 +1388,7 @@ def _write_direct_submission_row(task_id: str, tenant_id: str, ozon_client_id: s
                     "INSERT INTO draft_submissions "
                     "(draft_id, credential_id, store_client_id, extensions, status, submitted_task_id) "
                     "VALUES (NULL, "
-                    "(SELECT id::text FROM credentials "
+                    "(SELECT id FROM credentials "
                     " WHERE tenant_id = :tenant_id AND ozon_client_id = :store_client_id "
                     "   AND status = 'active' ORDER BY created_at DESC LIMIT 1), "
                     ":store_client_id, NULL, 'pending', :task_id)"
