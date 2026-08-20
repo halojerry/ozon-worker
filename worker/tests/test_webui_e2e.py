@@ -41,8 +41,10 @@ DB_URL = os.environ.get(
 )
 MASTER_KEY = "0123456789abcdef0123456789abcdef"
 
-TOKEN_A = "sk-tokA"  # → tenant-a
-TOKEN_B = "sk-tokB"  # → tenant-b
+TOKEN_A = "sk-tokA"  # → TENANT_A（key 派生租户）
+TOKEN_B = "sk-tokB"  # → TENANT_B（key 派生租户）
+TENANT_A = main_mod._key_user_id("tokA")
+TENANT_B = main_mod._key_user_id("tokB")
 CLIENT_A = "4718259"
 CLIENT_B = "8822111"
 API_KEY_A = "sk-api-key-AAAA1111"
@@ -50,7 +52,7 @@ API_KEY_B = "sk-api-key-BBBB2222"
 ITEM_ID = "980815374096"
 PRODUCT_ID = "5476361418"
 
-_TENANTS = ("tenant-a", "tenant-b")
+_TENANTS = (TENANT_A, TENANT_B)
 
 
 class FakeSupabase:
@@ -232,7 +234,7 @@ def test_step1_skill_to_box_creates_draft(client):
     draft_id = _create_draft(client)
     body = client.get(f"/api/v1/drafts/{draft_id}", headers=_auth(TOKEN_A)).json()
     assert body["source"] == "skill"
-    assert body["tenant_id"] == "tenant-a"
+    assert body["tenant_id"] == TENANT_A
     assert body["version"] == 1
     assert body["payload"]["draft"]["title"] == "宠物自动饮水器 静音循环过滤"
 
@@ -245,8 +247,8 @@ def test_step1_skill_to_box_creates_draft(client):
 
     cred = _db(
         "SELECT ozon_api_key_enc, api_key_masked FROM credentials "
-        "WHERE tenant_id='tenant-a' AND ozon_client_id=:c",
-        {"c": CLIENT_A},
+        "WHERE tenant_id=:tid AND ozon_client_id=:c",
+        {"c": CLIENT_A, "tid": TENANT_A},
     )
     assert cred, "凭证应已加密入库（凭证剥离）"
     assert b"AAAA1111" not in bytes(cred[0][0]), "DB 不得存明文 api_key"
@@ -318,7 +320,7 @@ def test_step4_submit_enqueues_task(client, monkeypatch):
     assert sent["ozon_client_id"] == CLIENT_A
     assert sent["ozon_api_key"] == API_KEY_A
     assert sent["envelope"]["draft"]["item_id"] == ITEM_ID
-    assert sent["user_id"] == "tenant-a"
+    assert sent["user_id"] == TENANT_A
 
 
 # ══════════════════════════════════════════════════════════════
@@ -404,8 +406,9 @@ def test_step7_update_online_product(client, monkeypatch):
     with create_engine(DB_URL).begin() as conn:
         conn.execute(text(
             "INSERT INTO product_task_index (product_id, tenant_id, offer_id, task_id, credential_id) "
-            "VALUES (:pid, 'tenant-a', :offer, :task, :cred)"),
-            {"pid": PRODUCT_ID, "offer": ITEM_ID, "task": task_id, "cred": cred_id})
+            "VALUES (:pid, :t, :offer, :task, :cred)"),
+            {"pid": PRODUCT_ID, "t": TENANT_A, "offer": ITEM_ID,
+             "task": task_id, "cred": cred_id})
 
     captured: dict = {}
 

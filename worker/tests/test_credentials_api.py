@@ -33,8 +33,10 @@ DB_URL = os.environ.get(
 # 32 字节 AES-256 主密钥（测试用）
 MASTER_KEY = "0123456789abcdef0123456789abcdef"
 
-TENANTS = ("tenant-a", "tenant-b")
-TOKEN_MAP = {"tokA": "tenant-a", "tokB": "tenant-b"}
+TENANT_A = main_mod._key_user_id("tokA")
+TENANT_B = main_mod._key_user_id("tokB")
+TENANTS = (TENANT_A, TENANT_B)
+TOKEN_MAP = {"tokA": TENANT_A, "tokB": TENANT_B}
 
 
 class FakeSupabase:
@@ -100,13 +102,13 @@ def _cleanup():
     eng = create_engine(DB_URL)
     with eng.begin() as conn:
         conn.execute(text(
-            "DELETE FROM credentials WHERE tenant_id IN ('tenant-a','tenant-b')"
+            f"DELETE FROM credentials WHERE tenant_id IN ('{TENANT_A}','{TENANT_B}')"
         ))
     eng.dispose()
 
 
 def _auth_headers(tenant: str) -> dict:
-    token = "tokA" if tenant == "tenant-a" else "tokB"
+    token = "tokA" if tenant == TENANT_A else "tokB"
     return {"Authorization": f"Bearer sk-{token}"}
 
 
@@ -130,7 +132,7 @@ def _db_rows(sql: str, params: dict | None = None) -> list:
 # ============================================================
 
 def test_create_returns_masked_no_plaintext(client):
-    body = _create(client, "tenant-a", {
+    body = _create(client, TENANT_A, {
         "ozon_client_id": "111", "api_key": "secret-key-1234", "shop_name": "店铺A",
     })
     assert body["api_key_masked"] == "****1234"
@@ -141,15 +143,15 @@ def test_create_returns_masked_no_plaintext(client):
     # DB 存密文（BYTEA），非明文
     rows = _db_rows(
         "SELECT ozon_api_key_enc, api_key_masked FROM credentials "
-        "WHERE tenant_id='tenant-a' AND ozon_client_id='111'"
+        f"WHERE tenant_id='{TENANT_A}' AND ozon_client_id='111'"
     )
     assert b"secret-key-1234" not in bytes(rows[0][0])
     assert rows[0][1] == "****1234"
 
 
 def test_list_returns_masked_only(client):
-    _create(client, "tenant-a", {"ozon_client_id": "101", "api_key": "list-key-1010"})
-    resp = client.get("/api/v1/credentials", headers=_auth_headers("tenant-a"))
+    _create(client, TENANT_A, {"ozon_client_id": "101", "api_key": "list-key-1010"})
+    resp = client.get("/api/v1/credentials", headers=_auth_headers(TENANT_A))
     assert resp.status_code == 200
     for item in resp.json():
         assert "api_key" not in item
@@ -162,19 +164,19 @@ def test_list_returns_masked_only(client):
 # ============================================================
 
 def test_create_duplicate_client_id_409(client):
-    _create(client, "tenant-a", {"ozon_client_id": "222", "api_key": "key-one-2222"})
+    _create(client, TENANT_A, {"ozon_client_id": "222", "api_key": "key-one-2222"})
     resp = client.post("/api/v1/credentials",
                        json={"ozon_client_id": "222", "api_key": "key-two-2222"},
-                       headers=_auth_headers("tenant-a"))
+                       headers=_auth_headers(TENANT_A))
     assert resp.status_code == 409
 
 
 def test_set_default_clears_old_default(client):
-    _create(client, "tenant-a", {"ozon_client_id": "666", "api_key": "key-AAAA-6666", "is_default": True})
-    _create(client, "tenant-a", {"ozon_client_id": "777", "api_key": "key-BBBB-7777", "is_default": True})
+    _create(client, TENANT_A, {"ozon_client_id": "666", "api_key": "key-AAAA-6666", "is_default": True})
+    _create(client, TENANT_A, {"ozon_client_id": "777", "api_key": "key-BBBB-7777", "is_default": True})
     rows = _db_rows(
         "SELECT ozon_client_id, is_default FROM credentials "
-        "WHERE tenant_id='tenant-a' AND status='active'"
+        f"WHERE tenant_id='{TENANT_A}' AND status='active'"
     )
     assert dict(rows) == {"666": False, "777": True}
 
@@ -184,11 +186,11 @@ def test_set_default_clears_old_default(client):
 # ============================================================
 
 def test_list_tenant_isolation(client):
-    _create(client, "tenant-a", {"ozon_client_id": "333", "api_key": "aaa-key-3333"})
-    _create(client, "tenant-a", {"ozon_client_id": "444", "api_key": "bbb-key-4444"})
-    _create(client, "tenant-b", {"ozon_client_id": "555", "api_key": "ccc-key-5555"})
-    ra = client.get("/api/v1/credentials", headers=_auth_headers("tenant-a"))
-    rb = client.get("/api/v1/credentials", headers=_auth_headers("tenant-b"))
+    _create(client, TENANT_A, {"ozon_client_id": "333", "api_key": "aaa-key-3333"})
+    _create(client, TENANT_A, {"ozon_client_id": "444", "api_key": "bbb-key-4444"})
+    _create(client, TENANT_B, {"ozon_client_id": "555", "api_key": "ccc-key-5555"})
+    ra = client.get("/api/v1/credentials", headers=_auth_headers(TENANT_A))
+    rb = client.get("/api/v1/credentials", headers=_auth_headers(TENANT_B))
     ids_a = {c["ozon_client_id"] for c in ra.json()}
     ids_b = {c["ozon_client_id"] for c in rb.json()}
     assert ids_a == {"333", "444"}
@@ -197,16 +199,16 @@ def test_list_tenant_isolation(client):
 
 
 def test_cross_tenant_operations_404(client):
-    c = _create(client, "tenant-a", {"ozon_client_id": "1313", "api_key": "key-DDDD-1313"})
+    c = _create(client, TENANT_A, {"ozon_client_id": "1313", "api_key": "key-DDDD-1313"})
     rp = client.patch(f"/api/v1/credentials/{c['id']}", json={"api_key": "x"},
-                      headers=_auth_headers("tenant-b"))
-    rd = client.delete(f"/api/v1/credentials/{c['id']}", headers=_auth_headers("tenant-b"))
-    rv = client.post(f"/api/v1/credentials/{c['id']}/validate", headers=_auth_headers("tenant-b"))
+                      headers=_auth_headers(TENANT_B))
+    rd = client.delete(f"/api/v1/credentials/{c['id']}", headers=_auth_headers(TENANT_B))
+    rv = client.post(f"/api/v1/credentials/{c['id']}/validate", headers=_auth_headers(TENANT_B))
     assert rp.status_code == 404
     assert rd.status_code == 404
     assert rv.status_code == 404
     # A 的凭证未被 B 改动
-    listed = client.get("/api/v1/credentials", headers=_auth_headers("tenant-a")).json()
+    listed = client.get("/api/v1/credentials", headers=_auth_headers(TENANT_A)).json()
     assert any(x["ozon_client_id"] == "1313" for x in listed)
 
 
@@ -215,11 +217,11 @@ def test_cross_tenant_operations_404(client):
 # ============================================================
 
 def test_rotate_revokes_old_creates_new(client):
-    old = _create(client, "tenant-a", {
+    old = _create(client, TENANT_A, {
         "ozon_client_id": "888", "api_key": "old-key-8888", "is_default": True,
     })
     resp = client.patch(f"/api/v1/credentials/{old['id']}", json={"api_key": "new-key-9999"},
-                        headers=_auth_headers("tenant-a"))
+                        headers=_auth_headers(TENANT_A))
     assert resp.status_code == 200, resp.text
     new = resp.json()
     assert new["api_key_masked"] == "****9999"
@@ -228,7 +230,7 @@ def test_rotate_revokes_old_creates_new(client):
     assert new["last_rotated_at"] is not None
     rows = _db_rows(
         "SELECT status, api_key_masked, last_rotated_at FROM credentials "
-        "WHERE tenant_id='tenant-a' AND ozon_client_id LIKE '888%' ORDER BY created_at"
+        f"WHERE tenant_id='{TENANT_A}' AND ozon_client_id LIKE '888%' ORDER BY created_at"
     )
     assert len(rows) == 2, f"轮换应产生 2 行（旧 revoked + 新 active），实际 {rows}"
     assert rows[0][0] == "revoked" and rows[0][1] == "****8888"
@@ -237,10 +239,10 @@ def test_rotate_revokes_old_creates_new(client):
 
 
 def test_revoke_soft_delete(client):
-    c = _create(client, "tenant-a", {"ozon_client_id": "999", "api_key": "key-CCCC-9999"})
-    resp = client.delete(f"/api/v1/credentials/{c['id']}", headers=_auth_headers("tenant-a"))
+    c = _create(client, TENANT_A, {"ozon_client_id": "999", "api_key": "key-CCCC-9999"})
+    resp = client.delete(f"/api/v1/credentials/{c['id']}", headers=_auth_headers(TENANT_A))
     assert resp.status_code == 200
-    listed = client.get("/api/v1/credentials", headers=_auth_headers("tenant-a")).json()
+    listed = client.get("/api/v1/credentials", headers=_auth_headers(TENANT_A)).json()
     assert all(x["ozon_client_id"] != "999" for x in listed)
     rows = _db_rows("SELECT status FROM credentials WHERE id::text=:id", {"id": c["id"]})
     assert rows[0][0] == "revoked"
@@ -251,11 +253,11 @@ def test_revoke_soft_delete(client):
 # ============================================================
 
 def test_validate_ok(client):
-    c = _create(client, "tenant-a", {"ozon_client_id": "1010", "api_key": "valid-key-1010"})
+    c = _create(client, TENANT_A, {"ozon_client_id": "1010", "api_key": "valid-key-1010"})
     with patch("services.credential_service.ozon_post",
                return_value={"result": {"items": []}}) as m:
         resp = client.post(f"/api/v1/credentials/{c['id']}/validate",
-                           headers=_auth_headers("tenant-a"))
+                           headers=_auth_headers(TENANT_A))
     assert resp.status_code == 200
     body = resp.json()
     assert body["valid"] is True
@@ -267,13 +269,13 @@ def test_validate_ok(client):
 
 
 def test_validate_bad_key(client):
-    c = _create(client, "tenant-a", {"ozon_client_id": "1111", "api_key": "bad-key-1111"})
+    c = _create(client, TENANT_A, {"ozon_client_id": "1111", "api_key": "bad-key-1111"})
     resp_401 = requests.Response()
     resp_401.status_code = 401
     with patch("services.credential_service.ozon_post",
                side_effect=requests.HTTPError(response=resp_401)):
         resp = client.post(f"/api/v1/credentials/{c['id']}/validate",
-                           headers=_auth_headers("tenant-a"))
+                           headers=_auth_headers(TENANT_A))
     assert resp.status_code == 200
     body = resp.json()
     assert body["valid"] is False
@@ -281,11 +283,11 @@ def test_validate_bad_key(client):
 
 
 def test_validate_ozon_error(client):
-    c = _create(client, "tenant-a", {"ozon_client_id": "1212", "api_key": "any-key-1212"})
+    c = _create(client, TENANT_A, {"ozon_client_id": "1212", "api_key": "any-key-1212"})
     with patch("services.credential_service.ozon_post",
                side_effect=requests.ConnectionError("boom")):
         resp = client.post(f"/api/v1/credentials/{c['id']}/validate",
-                           headers=_auth_headers("tenant-a"))
+                           headers=_auth_headers(TENANT_A))
     assert resp.status_code == 200
     body = resp.json()
     assert body["valid"] is False

@@ -32,16 +32,19 @@ DB_URL = os.environ.get(
     "postgresql://postgres:localdev123@localhost:5433/ozon",
 )
 
+ADMIN_ID = main_mod._key_user_id("tok-admin")
+USER_ID = main_mod._key_user_id("tok-user")
+
 # token key → (user_id, role)：admin=100(root)/user=1(common)，New API 整数角色体系
 TOKENS = {
-    "tok-admin": {"user_id": "u1", "key": "tok-admin", "remain_quota": 999,
+    "tok-admin": {"user_id": ADMIN_ID, "key": "tok-admin", "remain_quota": 999,
                   "status": 1, "expired_time": -1, "unlimited_quota": True},
-    "tok-user": {"user_id": "u2", "key": "tok-user", "remain_quota": 999,
+    "tok-user": {"user_id": USER_ID, "key": "tok-user", "remain_quota": 999,
                  "status": 1, "expired_time": -1, "unlimited_quota": True},
 }
 USERS = {
-    "u1": {"id": "u1", "role": 100, "username": "boss"},
-    "u2": {"id": "u2", "role": 1, "username": "user"},
+    ADMIN_ID: {"id": ADMIN_ID, "role": 100, "username": "boss"},
+    USER_ID: {"id": USER_ID, "role": 1, "username": "user"},
 }
 
 
