@@ -37,10 +37,10 @@
 Authorization: Bearer <token>
 ```
 
-- token 即 MXOU API Key（`sk-` 前缀自动剥离后查 Supabase `tokens` 表）
-- 无 token / 无效 → `401 Invalid token`；速率超限 → `429`；Supabase 不可达 → `503`（fail-closed，**不** 500 白屏）
-- **本地开发**（未配置 Supabase 环境变量）→ 任意 token 通过，返回 `local_dev`；
-- **Docker 部署**（配置了 SUPABASE_URL/KEY）→ 生产鉴权，token 必须为 Supabase `tokens` 表中有效记录，否则 `401 Invalid token`
+- **token 即 MXOU API Key，且 key 即用户**：`sk-` 前缀自动剥离后，由 key 派生稳定租户身份
+  `user_<sha256(key)[:16]>`——**不依赖 Supabase**，数据按 key 天然隔离（每个用户独立租户）
+- 无 token → `401 Token is required`；速率超限 → `429`
+- **租户隔离**：订单/商品/草稿/凭证/任务严格按 key 隔离；仅 `bestsellers` / `discovery/runs` 读端点全局共享（见 §3 末尾说明）
 - WebUI 前端由 Axios 拦截器自动注入，token 存 `localStorage`
 
 ### 2.2 免鉴权端点（仅 5 个）
@@ -59,6 +59,8 @@ Authorization: Bearer <token>
 1. 用户输入 MXOU token（或账号密码 → POST /api/v1/mxou/login 换 key）
 2. POST /api/v1/auth/verify  验证 token → 返回会话
 3. 前端 localStorage 持久化 token，后续请求自动注入 Bearer
+4. worker 用 key 派生租户（user_<sha256(key)[:16]>）——同一 key 始终同一租户，
+   数据隔离稳定；换 key = 新租户（旧数据保留在原租户，可迁移）
 ```
 
 ## 3. 端点参考
@@ -468,7 +470,7 @@ const runs = await api.get('/discovery/runs', { params: { limit: 50 } })
 | `GET /api/v1/stores/{credential_id}/stats`（有效凭证） | `200 今日订单/销售额/利润` | v0.57 店铺卡统计（跨租户 404） |
 | `GET /api/v1/discovery/runs` | `200 全局归档列表` | v0.57 全局共享（跨用户可见） |
 
-> 关键结论：部署实例为**生产鉴权模式**（Supabase 已配置），token 必须真实有效；唯一免鉴权入口为 `mxou/login` 与 `site/*` 公开端点。
+> 关键结论：鉴权为 **MXOU key 即用户**（key 派生租户，不依赖 Supabase）；唯一免鉴权入口为 `mxou/login` 与 `site/*` 公开端点。
 
 ## 7. 错误码
 
