@@ -5,8 +5,10 @@
 业务逻辑在 services/estimate_service.py；定价公式在 utils/pricing_estimate.py
 （单处定义，与 pricing_node 同源）。纯读派生数据，不落库。
 
-body: {token, currency_code?, exchange_rate?, margin_rate?, commission_rate?, fx_buffer?}
+body: {token, currency_code?, exchange_rate?, margin_rate?, commission_rate?, fx_buffer?,
+       margin_anchor?, margin_floor?, variable_cost_rate?, promo_variable_cost_rate?}
 - exchange_rate 缺省 → 按 CNY 处理（端点不接汇率实时源，与 skill 估算一致）
+- v0.60：margin_floor（或请求 margin_rate）在场 → 三档（price/old_price/promo_price）
 
 错误映射：无/无效 token → 401（_authenticate_token）；草稿不存在/跨租户 → 404。
 """
@@ -25,7 +27,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/drafts", tags=["drafts"])
 
 # 允许请求体覆盖的配置参数（None → service 用 extensions 默认）
-_OVERRIDE_KEYS = ("currency_code", "exchange_rate", "margin_rate", "commission_rate", "fx_buffer")
+# v0.60：margin_anchor/margin_floor/variable_cost_rate/promo_variable_cost_rate 启用三档
+_OVERRIDE_KEYS = (
+    "currency_code",
+    "exchange_rate",
+    "margin_rate",
+    "commission_rate",
+    "fx_buffer",
+    "margin_anchor",
+    "margin_floor",
+    "variable_cost_rate",
+    "promo_variable_cost_rate",
+)
 
 
 def _load_draft_payload(draft_id: str, tenant_id: str) -> Optional[dict]:
@@ -100,7 +113,8 @@ async def estimate_envelope_standalone(request: Request):
     """P2a 独立定价器：直接传 envelope（无 draft_id）→ 同源公式预估。
 
     body: {envelope: {draft:{purchase_cost, weight, dimensions}, extensions:{}},
-           margin_rate?, commission_rate?, fx_buffer?}
+           margin_rate?, commission_rate?, fx_buffer?, margin_anchor?, margin_floor?,
+           variable_cost_rate?, promo_variable_cost_rate?}
     与 /api/v1/drafts/{id}/estimate 同公式（estimate_from_envelope）；
     前端/skill 不写公式铁律不变。
     """

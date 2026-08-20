@@ -2429,6 +2429,10 @@ v1.include_router(admin_logistics_router)
 from routes.admin_queries_routes import router as admin_queries_router
 v1.include_router(admin_queries_router)
 
+# ── SEO 流量关键词公开读端点（v0.59+）：what-to-sell 流量关键词只读消费（Bearer + RateLimiter）──
+from routes.seo_keywords_routes import router as seo_keywords_router
+v1.include_router(seo_keywords_router)
+
 
 # 注册 v1 路由（/api/v1/* 端点）
 # 旧路径（/health, /submit_task 等）仍然可用，向后兼容

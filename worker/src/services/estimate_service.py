@@ -35,6 +35,10 @@ def estimate_from_envelope(
     margin_rate: Optional[float] = None,
     commission_rate: Optional[float] = None,
     fx_buffer: Optional[float] = None,
+    margin_anchor: Optional[float] = None,
+    margin_floor: Optional[float] = None,
+    variable_cost_rate: Optional[float] = None,
+    promo_variable_cost_rate: Optional[float] = None,
 ) -> dict:
     """根据信封草稿计算预估售价/利润（与 pricing_node 同源公式）。
 
@@ -43,6 +47,11 @@ def estimate_from_envelope(
     - 物流费无 Ozon 凭证 → 默认 RETS/Standard（query_logistics_cost 默认参数）。
     - currency_code 解析顺序：请求覆盖 → extensions.currency_code → exchange_rate
       有值则 RUB → 否则 CNY。
+    - v0.60 三档：margin_anchor/margin_floor/variable_cost_rate/promo_variable_cost_rate
+      可选（请求覆盖优先，其次 extensions，最后默认 2.0/0.6/0.155/0.245）。
+      三档判定：显式给了 margin_floor（请求/扩展）或 extensions 无任何 margin 字段 →
+      三档（margin_rate 默认 1.5）；extensions 显式 margin_rate 且无 margin_floor →
+      单档旧行为（向后兼容，全部新参置 None 不透传）。
     """
     draft = (envelope.get("draft") or {}) if isinstance(envelope, dict) else {}
     extensions = (envelope.get("extensions") or {}) if isinstance(envelope, dict) else {}
@@ -78,9 +87,49 @@ def estimate_from_envelope(
     # Step 3: 物流费（同源 query_logistics_cost；无凭证 → RETS/Standard 默认）
     logistics_cost, _channel, _detail = query_logistics_cost(weight, depth, width, height)
 
-    # Step 4: 配置（请求覆盖优先，其次 extensions 默认值，与 pricing_node 一致）
-    eff_margin = float(margin_rate if margin_rate is not None else extensions.get("margin_rate", 0.25))
+    # Step 4: 配置（请求覆盖优先，其次 extensions，最后默认值，与 pricing_node 一致）
+    # v0.60 三档判定：显式给了 margin_floor（请求/扩展）或 extensions 无任何 margin 字段
+    # → 三档；extensions 显式 margin_rate 且无 margin_floor → 单档旧行为（向后兼容）。
+    ext_margin = extensions.get("margin_rate")
+    ext_floor = extensions.get("margin_floor")
+    three_tier = (
+        margin_floor is not None
+        or ext_floor is not None
+        or (margin_rate is None and ext_margin is None)
+    )
+
+    if margin_rate is not None:
+        eff_margin = float(margin_rate)
+    elif ext_margin is not None:
+        eff_margin = float(ext_margin)
+    elif three_tier:
+        eff_margin = 1.5  # v0.60 三档日常价默认
+    else:
+        eff_margin = 0.25
+
+    def _pick(request_val, ext_val, default):
+        if request_val is not None:
+            return float(request_val)
+        if ext_val is not None:
+            return float(ext_val)
+        return default
+
+    if three_tier:
+        eff_anchor = _pick(margin_anchor, extensions.get("margin_anchor"), 2.0)
+        eff_floor = _pick(margin_floor, ext_floor, 0.6)
+        eff_vcr = _pick(variable_cost_rate, extensions.get("variable_cost_rate"), 0.155)
+        eff_pvcr = _pick(promo_variable_cost_rate, extensions.get("promo_variable_cost_rate"), 0.245)
+    else:
+        # 单档旧行为：全部三档参数不透传（compute_price 缺省 → 旧公式逐字一致）
+        eff_anchor = eff_floor = eff_vcr = eff_pvcr = None
     eff_fx = float(fx_buffer if fx_buffer is not None else extensions.get("fx_buffer", 0.05))
+
+    tier_kwargs = {
+        "margin_anchor": eff_anchor,
+        "margin_floor": eff_floor,
+        "variable_cost_rate": eff_vcr,
+        "promo_variable_cost_rate": eff_pvcr,
+    }
 
     # Step 5: 货币判定（请求覆盖 → extensions → exchange_rate 有值则 RUB → CNY）
     eff_currency = (currency_code or str(extensions.get("currency_code", "") or "")).upper()
@@ -100,6 +149,7 @@ def estimate_from_envelope(
         fx_buffer=eff_fx,
         currency_code=eff_currency,
         exchange_rate=exchange_rate,
+        **tier_kwargs,
     )
     _provisional_price = float(_est_provisional["price"])
     if eff_currency == "RUB":
@@ -128,8 +178,9 @@ def estimate_from_envelope(
         fx_buffer=eff_fx,
         currency_code=eff_currency,
         exchange_rate=exchange_rate,
+        **tier_kwargs,
     )
-    return {
+    response = {
         "price": result["price"],
         "old_price": result["old_price"],
         "profit_cny": result["profit_cny"],
@@ -139,3 +190,13 @@ def estimate_from_envelope(
         "commission_rate": round(eff_commission, 4),
         "commission_source": commission_source,
     }
+    if three_tier:
+        response.update(
+            {
+                "promo_price": result["promo_price"],
+                "margin_anchor": eff_anchor,
+                "margin_floor": eff_floor,
+                "variable_cost_rate": eff_vcr,
+            }
+        )
+    return response
