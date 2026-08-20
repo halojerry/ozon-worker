@@ -1202,6 +1202,7 @@ def assemble_ozon_product_node(
         draft_title=draft.get("title", ""),
         supplier=draft.get("supplier", ""),
         ru_category_path=ru_category_path,
+        item_id=str(draft.get("item_id", "") or ""),
     )
 
     # =====================================================
@@ -1673,6 +1674,7 @@ def _rebuild_for_new_category(
             draft_title=draft.get("title", ""),
             supplier=draft.get("supplier", ""),
             ru_category_path=ru_category_path,
+            item_id=str(draft.get("item_id", "") or ""),
         )
         
         # Step 6': 提取 final_attributes
@@ -2009,6 +2011,7 @@ def _validate_and_enrich_items(
     draft_title: str = "",
     supplier: str = "",
     ru_category_path: str = "",
+    item_id: str = "",
 ) -> list[dict[str, Any]]:
     """校验并补充 items 字段（属性补全、品牌修正、hashtag 生成等）"""
 
@@ -2588,12 +2591,14 @@ def _validate_and_enrich_items(
             logger.info(f"   📊 跳过可选字典属性盲补: {skipped_optional}个（无匹配，避免错误值）")
 
         # 9048（变体绑定名）= item_id，与 prepare_ozon_upload_node 逻辑一致
+        # ⚠️ v0.60: 兜底值必须用 item_id（所有变体共享），不能用 offer_id
+        # （offer_id 每变体不同 → 9048 不同 → Ozon 无法合并变体，实测 double_without_merger_offer）
         if FORCE_ATTR_9048 not in present_ids and FORCE_ATTR_9048 not in {int(a["id"]) for a in validated_attrs}:
-            item_id_val = item.get("offer_id", "unknown")
+            _item_id_9048 = str(item_id or item.get("item_id") or item.get("offer_id", "unknown"))
             validated_attrs.append({
                 "complex_id": 0,
                 "id": FORCE_ATTR_9048,
-                "values": [{"dictionary_value_id": 0, "value": item_id_val}],
+                "values": [{"dictionary_value_id": 0, "value": _item_id_9048}],
             })
 
         item["attributes"] = validated_attrs

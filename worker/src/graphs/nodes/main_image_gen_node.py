@@ -98,24 +98,28 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
             max_retries=2
         )
         
-        # ⚠️ v0.40: 主模型(gpt-image-2)失败/卡轮询超时 → 模型降级到 nano-banana-fast
-        # 重新生成（不是用别的图顶替——主图必须真正生成）。API 内部对轮询超时不降级
+        # ⚠️ v0.40: 主模型(gpt-image-2)失败/卡轮询超时 → 模型降级重新生成
+        # （不是用别的图顶替——主图必须真正生成）。API 内部对轮询超时不降级
         # （防双倍计费），但主图是关键图，宁可承担双倍计费风险也要保证有主图。
+        # v0.60 三级降级：gpt-image-2 → nano-banana-fast → nano-banana-2-lite（120s/级）
         if not (image_url and isinstance(image_url, str) and image_url):
-            logger.warning("⚠️ main_image_gen: 主模型 gpt-image-2 失败/超时，降级 nano-banana-fast 重新生成")
-            try:
-                image_url = call_mxou_image_api(
-                    model="nano-banana-fast",
-                    token=token,
-                    prompt=prompt,
-                    ref_images=ref_images if ref_images else None,
-                    aspect_ratio="3:4",
-                    timeout=180,
-                    max_retries=2
-                )
-            except Exception as _fb_exc:
-                logger.error(f"主图降级生成失败(nano-banana): {_fb_exc}")
-                image_url = None
+            for _fb_model in ("nano-banana-fast", "nano-banana-2-lite"):
+                logger.warning("⚠️ main_image_gen: 主模型 gpt-image-2 失败/超时，降级 %s 重新生成", _fb_model)
+                try:
+                    image_url = call_mxou_image_api(
+                        model=_fb_model,
+                        token=token,
+                        prompt=prompt,
+                        ref_images=ref_images if ref_images else None,
+                        aspect_ratio="3:4",
+                        timeout=120,
+                        max_retries=2
+                    )
+                except Exception as _fb_exc:
+                    logger.error(f"主图降级生成失败({_fb_model}): {_fb_exc}")
+                    image_url = None
+                if image_url and isinstance(image_url, str) and image_url:
+                    break
 
         if image_url and isinstance(image_url, str) and image_url:
             if _tid:

@@ -92,22 +92,26 @@ def social_proof_gen_node(state: SocialProofInput, config: RunnableConfig, runti
                            params=state.model_dump())
             return SocialProofOutput(social_proof_image=image_url)
         
-        # ⚠️ v0.40: 主模型(gpt-image-2)失败/卡轮询超时 → 模型降级 nano-banana-fast
-        # 重新生成（social_proof 是画廊首张候选，缺失影响主图兜底链）。
-        logger.warning("⚠️ social_proof_gen: 主模型 gpt-image-2 失败/超时，降级 nano-banana-fast 重新生成")
-        try:
-            image_url = call_mxou_image_api(
-                model="nano-banana-fast",
-                token=token,
-                prompt=prompt,
-                ref_images=ref_images if ref_images else None,
-                aspect_ratio="3:4",
-                timeout=180,
-                max_retries=2
-            )
-        except Exception as _fb_exc:
-            logger.error(f"social_proof 降级生成失败(nano-banana): {_fb_exc}")
-            image_url = None
+        # ⚠️ v0.40: 主模型(gpt-image-2)失败/卡轮询超时 → 模型降级重新生成
+        # （social_proof 是画廊首张候选，缺失影响主图兜底链）。
+        # v0.60 三级降级：gpt-image-2 → nano-banana-fast → nano-banana-2-lite（120s/级）
+        logger.warning("⚠️ social_proof_gen: 主模型 gpt-image-2 失败/超时，降级重试")
+        for _fb_model in ("nano-banana-fast", "nano-banana-2-lite"):
+            try:
+                image_url = call_mxou_image_api(
+                    model=_fb_model,
+                    token=token,
+                    prompt=prompt,
+                    ref_images=ref_images if ref_images else None,
+                    aspect_ratio="3:4",
+                    timeout=120,
+                    max_retries=2
+                )
+            except Exception as _fb_exc:
+                logger.error(f"social_proof 降级生成失败({_fb_model}): {_fb_exc}")
+                image_url = None
+            if image_url and isinstance(image_url, str) and image_url:
+                break
         if image_url and isinstance(image_url, str) and image_url:
             if _tid:
                 save_image(_tid, "social_proof", image_url,

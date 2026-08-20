@@ -2256,9 +2256,6 @@ def prepare_ozon_upload_node(
                     continue
             logger.warning(f"⚠️ 必填属性{req_id}({req_attr_info})在转换时被跳过（可能缺少dictionary_value_id），将尝试用原始值上传")
     
-    # ✅ 唯一后缀：用于offer_id（变体区分），不用于9048
-    offer_id_suffix: str = str(int(time.time()) % 1000000)
-    
     # ✅ 跟卖产品：offer_id = 竞品 ozon_product_id（如 3852000144）
     # 同一竞品永远只有一个商品，重复上传 = UPDATE
     # 同时带 product_id 触发 Ozon UPDATE 模式（而非 CREATE）
@@ -2441,7 +2438,6 @@ def prepare_ozon_upload_node(
             seen_attr_ids.add(attr_id)
     
     logger.info(f"最终属性数量：{len(ozon_attributes)}")
-    logger.info(f"✅ offer_id唯一后缀: _{offer_id_suffix}")
 
     # ✅ 编辑更新模式（T7 注入）：extensions.update_product_id → Ozon UPDATE 模式（同 product_id 更新而非 CREATE）
     # 契约：draft_service.submit_draft(update_product_id=...) 在 graph_payload.envelope.extensions 注入
@@ -2557,10 +2553,14 @@ def prepare_ozon_upload_node(
     # ✅ 修复3：确保图片顺序符合用户要求（主图第一张，white_bg最后一张，multi_angle倒数第二张）
     logger.info("设置图片顺序（严格遵循IMG_ORDER）")
     
+    # ✅ main_img 提升到块外定义：has_variant_images=False 但 variants>1 时
+    # 多 SKU 分支（2804 行）仍会引用 main_img，未定义则 UnboundLocalError 崩溃
+    # （实测：variant_primary_loop 全失败 → has_variant_images=False → 多 SKU 分支崩溃）
+    main_img = getattr(state, "main_image", None)
+    
     if has_variant_images:
         # ✅ 修复：变体主图优先级 — variant_primary > main_image > white_bg
         # 原则：变体产品必须用变体专属图片做主图，不能用共享营销图
-        main_img = getattr(state, "main_image", None)
         white_bg_url = getattr(state, "white_bg_image", None)
         multi_angle_url = getattr(state, "multi_angle_image", None)
         scene_1_url = getattr(state, "scene_1_image", None)
@@ -2738,7 +2738,8 @@ def prepare_ozon_upload_node(
                 continue
             qty_item: Dict[str, Any] = dict(base_item_qty)  # 浅拷贝
             var_sku_id = str(variant.get("sku_id", f"{sku_id}_{i}"))
-            qty_item["offer_id"] = f"{var_sku_id}_{offer_id_suffix}"
+            # v0.60: 确定性 offer_id（去时间戳后缀，重试幂等 UPDATE 而非 CREATE）
+            qty_item["offer_id"] = var_sku_id
             
             # 价格 — ⚠️ v0.14 P1-1: 改用 pricing_info.variant_prices（含利润/佣金/物流加成）
             # 旧代码直接用 1688 采购价 variant.get("price") 当售价 → 无加成可能亏本上架
@@ -2889,6 +2890,38 @@ def prepare_ozon_upload_node(
                 dictionary_values, color_attr_id, used_color_dict_ids, var_color_cn
             )
             
+            # ⚠️ v0.60: 字典值可能是中文（dictionary_values 来自 ZH_HANS 查询，value 为中文名）
+            # → var_color_ru 含中文会进 payload → ozon_validate 拦截「属性含中文字符」→ 变体特性缺失无法合并
+            # 实测：小粉马→「白色」(中文) 而非 «белый»。强制转俄语：
+            # ① 中文色名命中静态映射 → 用俄语值 + 对应 dict_id；② 否则走 FALLBACK_COLORS 俄语
+            _color_is_cjk: bool = any('\u4e00' <= ch <= '\u9fff' for ch in str(var_color_ru or ""))
+            if _color_is_cjk:
+                _cn_for_ru: str = str(var_color_ru or "").strip()
+                _ru_candidate: str = COLOR_CN_TO_RU.get(_cn_for_ru, "")
+                if _ru_candidate:
+                    var_color_ru = _ru_candidate
+                    var_color_dict_id = COLOR_RU_TO_DICT_ID.get(_ru_candidate, 0)
+                    logger.info(f"  变体{i+1}颜色(中文→俄语映射): {_cn_for_ru}→{var_color_ru}(dict_id={var_color_dict_id})")
+                elif var_color_dict_id == 0:
+                    for fc in FALLBACK_COLORS:
+                        if fc[1] not in used_color_dict_ids:
+                            var_color_ru, var_color_dict_id = fc
+                            break
+                    if var_color_dict_id == 0:
+                        var_color_ru, var_color_dict_id = FALLBACK_COLORS[0]
+                    logger.info(f"  变体{i+1}颜色(中文→Fallback): {_cn_for_ru[:30]}→{var_color_ru}(dict_id={var_color_dict_id})")
+                else:
+                    # 中文 value 且有合法 dict_id（字典值本身是中文名）：
+                    # dict_id 是权威的（俄语渲染由 Ozon 按 ID 显示），但 value 中文会过不了
+                    # ozon_validate 的「含中文字符」检查 → 用 FALLBACK_COLORS 未用色替换（value+dict_id 都换）
+                    for fc in FALLBACK_COLORS:
+                        if fc[1] not in used_color_dict_ids:
+                            var_color_ru, var_color_dict_id = fc
+                            break
+                    if var_color_dict_id == 0:
+                        var_color_ru, var_color_dict_id = FALLBACK_COLORS[0]
+                    logger.warning(f"  变体{i+1}颜色: 字典中文值'{_cn_for_ru}'替换为俄语 {var_color_ru}(dict_id={var_color_dict_id})")
+            
             # 步骤2: 如果动态匹配失败（dict_id==0），fallback到静态映射
             if var_color_dict_id == 0:
                 if is_real_color and var_color_cn in COLOR_CN_TO_RU:
@@ -3014,10 +3047,13 @@ def prepare_ozon_upload_node(
                     logger.debug(f"  变体{i+1}尺寸映射失败: {e}")
 
             # ✅ 规格变体：规格信息加入 offer_id，不修改 9048（9048 相同才能合并）
-            var_offer_id: str = f"{var_sku_id}_{offer_id_suffix}"
+            # ⚠️ v0.60: offer_id 确定性（去时间戳后缀）——时间戳导致 retry 后 offer_id 变，
+            # Ozon 视为新商品 CREATE 而非 UPDATE → 变体无法合并 + 重复卡（实测 _198560/_199038 两批）。
+            # var_sku_id 来自 1688 且唯一 → 直接作 offer_id，重试幂等。
+            var_offer_id: str = var_sku_id
             if var_spec_cn and var_vt in ("spec", "color_spec"):
                 spec_slug = var_spec_cn.replace(" ", "_")[:20]
-                var_offer_id = f"{var_sku_id}_{spec_slug}_{offer_id_suffix}"
+                var_offer_id = f"{var_sku_id}_{spec_slug}"
             
             # 构建变体item（基于base_item，深拷贝避免嵌套列表共享引用）
             import copy
