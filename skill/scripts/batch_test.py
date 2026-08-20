@@ -187,7 +187,7 @@ def process_1688_url(
     notify: bool = False,
 ) -> dict[str, Any]:
     """Process a single 1688 URL: CDP probe → graph envelope → submit."""
-    from scripts.cloud_probe import build_graph_envelope_with_retry, submit_envelope
+    from scripts.cloud_probe import build_graph_envelope_with_retry, submit_envelope, DEFAULT_MULTI_SKU_MAX
 
     result: dict[str, Any] = {
         "type": "1688",
@@ -206,7 +206,7 @@ def process_1688_url(
             store_id=store_id,
             max_retries=3,
             retry_delay=15.0,
-            max_skus=1,
+            max_skus=DEFAULT_MULTI_SKU_MAX,
         )
 
         if not envelope or not envelope.get("envelope"):
