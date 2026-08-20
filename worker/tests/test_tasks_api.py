@@ -4,8 +4,9 @@ mock Supabase（鉴权）+ mock DB（services.task_service.get_engine），不�
 """
 import asyncio
 import sys
+from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
@@ -15,6 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import main as main_mod
 from routes.tasks_routes import router as tasks_router
 from services import task_service
+
+
+# 租户 = key 派生（v0.56 _authenticate_token → _key_user_id）：行键必须用派生租户。
+TID_A = main_mod._key_user_id("tok123")
+TID_B = main_mod._key_user_id("tok456")
 
 
 class FakeRequest:
@@ -27,21 +33,6 @@ class FakeRequest:
 
     async def json(self):
         return {}
-
-
-def _valid_supabase(user_id: str = "u1") -> MagicMock:
-    """返回 tokens 表命中一条有效记录的 Supabase mock（user_id 可指定租户）。"""
-    fake = MagicMock()
-    chain = fake.table.return_value.select.return_value.eq.return_value.is_.return_value.execute
-    chain.return_value.data = [{
-        "user_id": user_id,
-        "key": "tok123",
-        "remain_quota": 999,
-        "status": 1,
-        "expired_time": -1,
-        "unlimited_quota": False,
-    }]
-    return fake
 
 
 class FakeRow:
@@ -103,9 +94,9 @@ class FakeEngine:
 
 
 def _rows_for_tenant():
-    """u1 两条（created_at DESC 已排好），u2 一条。"""
+    """租户 A 两条（created_at DESC 已排好），租户 B 一条。"""
     return {
-        "u1": [
+        TID_A: [
             FakeRow(
                 "11111111-1111-1111-1111-111111111111", "completed",
                 {"product_summary": [{"title": "A"}]},
@@ -118,7 +109,7 @@ def _rows_for_tenant():
                 "2026-08-15T09:00:00", "2026-08-15T09:30:00",
             ),
         ],
-        "u2": [
+        TID_B: [
             FakeRow(
                 "33333333-3333-3333-3333-333333333333", "failed",
                 None, None, "2026-08-15T08:00:00", "2026-08-15T08:01:00",
@@ -131,8 +122,18 @@ def _handler():
     return tasks_router.routes[0].endpoint
 
 
-def _call(query_params: dict):
-    return asyncio.run(_handler()(FakeRequest(query_params)))
+def _call(query_params: dict, token: str | None = "sk-tok123"):
+    params = dict(query_params)
+    if token is not None:
+        params["token"] = token
+    return asyncio.run(_handler()(FakeRequest(params)))
+
+
+@contextmanager
+def _engine_ctx(engine):
+    with patch.object(main_mod.rate_limiter, "check", return_value=(True, 10)), \
+         patch.object(task_service, "get_engine", return_value=engine):
+        yield
 
 
 # ============================================================
@@ -141,18 +142,21 @@ def _call(query_params: dict):
 
 def test_tasks_tenant_isolation():
     engine = FakeEngine(_rows_for_tenant())
-    with patch.object(main_mod.rate_limiter, "check", return_value=(True, 10)), \
-         patch("main.get_supabase_client", return_value=_valid_supabase("u1")), \
-         patch.object(task_service, "get_engine", return_value=engine):
-        resp = _call({"token": "sk-tok123"})
+    with _engine_ctx(engine):
+        resp = _call({})
     ids = [item["id"] for item in resp["items"]]
     assert "11111111-1111-1111-1111-111111111111" in ids
     assert "22222222-2222-2222-2222-222222222222" in ids
-    assert "33333333-3333-3333-3333-333333333333" not in ids  # u2 的任务不可见
+    assert "33333333-3333-3333-3333-333333333333" not in ids  # 租户 B 的任务不可见
     assert resp["total"] == 2
     # SQL 确实按 tenant_id 过滤（两条查询都带 tenant_id 参数）
     assert len(engine.last_conn.calls) == 2
     assert all("tenant_id" in params for _, params in engine.last_conn.calls)
+    # 租户 B 只见自己的任务（不同 token → 不同派生租户）
+    with _engine_ctx(engine):
+        resp_u2 = _call({}, token="sk-tok456")
+    assert [i["id"] for i in resp_u2["items"]] == ["33333333-3333-3333-3333-333333333333"]
+    assert resp_u2["total"] == 1
 
 
 # ============================================================
@@ -161,11 +165,9 @@ def test_tasks_tenant_isolation():
 
 def test_tasks_pagination():
     engine = FakeEngine(_rows_for_tenant())
-    with patch.object(main_mod.rate_limiter, "check", return_value=(True, 10)), \
-         patch("main.get_supabase_client", return_value=_valid_supabase("u1")), \
-         patch.object(task_service, "get_engine", return_value=engine):
-        page1 = _call({"token": "sk-tok123", "limit": "1", "offset": "0"})
-        page2 = _call({"token": "sk-tok123", "limit": "1", "offset": "1"})
+    with _engine_ctx(engine):
+        page1 = _call({"limit": "1", "offset": "0"})
+        page2 = _call({"limit": "1", "offset": "1"})
     assert [i["id"] for i in page1["items"]] == ["11111111-1111-1111-1111-111111111111"]
     assert [i["id"] for i in page2["items"]] == ["22222222-2222-2222-2222-222222222222"]
     assert page1["total"] == 2
@@ -176,10 +178,8 @@ def test_tasks_pagination():
 def test_tasks_limit_capped_at_100():
     """limit 超过 100 被钳制到 100。"""
     engine = FakeEngine(_rows_for_tenant())
-    with patch.object(main_mod.rate_limiter, "check", return_value=(True, 10)), \
-         patch("main.get_supabase_client", return_value=_valid_supabase("u1")), \
-         patch.object(task_service, "get_engine", return_value=engine):
-        resp = _call({"token": "sk-tok123", "limit": "500"})
+    with _engine_ctx(engine):
+        resp = _call({"limit": "500"})
     assert resp["limit"] == 100
 
 
@@ -189,10 +189,8 @@ def test_tasks_limit_capped_at_100():
 
 def test_tasks_progress_and_product_summary():
     engine = FakeEngine(_rows_for_tenant())
-    with patch.object(main_mod.rate_limiter, "check", return_value=(True, 10)), \
-         patch("main.get_supabase_client", return_value=_valid_supabase("u1")), \
-         patch.object(task_service, "get_engine", return_value=engine):
-        resp = _call({"token": "sk-tok123"})
+    with _engine_ctx(engine):
+        resp = _call({})
     completed = next(i for i in resp["items"] if i["status"] == "completed")
     assert completed["progress"] == {"percent": 100, "stage": "done"}
     assert completed["product_summary"] == [{"title": "A"}]
@@ -207,5 +205,5 @@ def test_tasks_progress_and_product_summary():
 
 def test_tasks_no_token_401():
     with pytest.raises(HTTPException) as exc:
-        _call({})
+        _call({}, token=None)
     assert exc.value.status_code == 401

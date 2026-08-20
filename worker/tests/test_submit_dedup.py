@@ -13,6 +13,10 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+import main as main_mod
+
+UID = main_mod._key_user_id("tok123")
+
 
 class FakeRequest:
     def __init__(self, body):
@@ -145,7 +149,7 @@ def test_resubmit_allowed_when_no_active_task():
     assert resp["ok"] is True
     assert resp["task_id"] == "task-new"
     assert len(fake_proc.calls) == 1
-    assert fake_proc.calls[0]["sku_key"] == "u1:123456"
+    assert fake_proc.calls[0]["sku_key"] == f"{UID}:123456"
 
 
 def test_sku_key_includes_store_dimension():
@@ -166,8 +170,8 @@ def test_sku_key_includes_store_dimension():
 
     assert resp["ok"] is True
     _sql, params = fake_engine.conn.executed[0]
-    assert params["k"] == "u1:storeA:123456"
-    assert fake_proc.calls[0]["sku_key"] == "u1:storeA:123456"
+    assert params["k"] == f"{UID}:storeA:123456"
+    assert fake_proc.calls[0]["sku_key"] == f"{UID}:storeA:123456"
 
 
 def test_same_sku_different_stores_not_blocked():
@@ -187,7 +191,7 @@ def test_same_sku_different_stores_not_blocked():
         )
 
     assert resp["ok"] is True
-    assert fake_proc.calls[0]["sku_key"] == "u1:storeB:123456"
+    assert fake_proc.calls[0]["sku_key"] == f"{UID}:storeB:123456"
 
 
 def test_rejected_task_no_longer_blocks_resubmit():
@@ -227,9 +231,9 @@ def test_sku_key_uses_ozon_product_id_for_follow():
     assert resp["ok"] is True
     assert fake_engine.conn is not None, "有商品 ID 时必须执行去重查询"
     _sql, params = fake_engine.conn.executed[0]
-    assert params["t"] == "u1"
-    assert params["k"] == "u1:ozon123"
-    assert fake_proc.calls[0]["sku_key"] == "u1:ozon123"
+    assert params["t"] == UID
+    assert params["k"] == f"{UID}:ozon123"
+    assert fake_proc.calls[0]["sku_key"] == f"{UID}:ozon123"
 
 
 def test_sku_key_uses_item_id_for_1688():
@@ -248,8 +252,8 @@ def test_sku_key_uses_item_id_for_1688():
 
     assert resp["ok"] is True
     _sql, params = fake_engine.conn.executed[0]
-    assert params["k"] == "u1:1688abc"
-    assert fake_proc.calls[0]["sku_key"] == "u1:1688abc"
+    assert params["k"] == f"{UID}:1688abc"
+    assert fake_proc.calls[0]["sku_key"] == f"{UID}:1688abc"
 
 
 def test_empty_product_id_skips_dedup():
