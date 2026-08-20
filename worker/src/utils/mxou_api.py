@@ -425,6 +425,9 @@ def _call_image_with_model(
         "prompt": prompt,
         "images": safe_images,
         "aspectRatio": aspect_ratio,
+        # v0.60: MXOU 新渠道必需 imageSize（如 "1K"）——缺失时 fast/gpt-image-2
+        # 报 500 upstream error: do request failed（实测 2026-08-20）；2-lite 兼容省略
+        "imageSize": "1K",
         "replyType": "async"
     }
 
