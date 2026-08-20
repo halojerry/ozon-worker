@@ -73,13 +73,27 @@ class FakeRequest:
         return json.dumps(self._body).encode("utf-8")
 
 
-def _call_endpoint(draft_id, body, monkeypatch, payload=None, tenant="local_dev"):
+def _auth_mock(token: str, tenant: str) -> str:
+    """模拟 main._authenticate_token 语义：空 token → 401，否则返回测试租户。"""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    return tenant
+
+
+def _call_endpoint(draft_id, body, monkeypatch, payload=None, tenant="local_dev", auth_tenant=None):
     """直接调用端点函数：mock 鉴权（本地放行）/ 草稿读取 / 物流报价。"""
     from routes import estimate_routes
     from services import estimate_service
     import main
 
+    eff_auth_tenant = auth_tenant if auth_tenant is not None else tenant
     monkeypatch.setattr(main, "get_supabase_client", lambda: None)
+    # ⚠️ v0.56 余额改造后 main._authenticate_token 返回 user_{sha256[:16]} 派生租户，
+    # 不再返回 local_dev——mock 固定返回测试租户，否则 _load_draft_payload 恒 404
+    monkeypatch.setattr(
+        estimate_routes, "_authenticate_token",
+        lambda token: _auth_mock(token, eff_auth_tenant),
+    )
     monkeypatch.setattr(
         estimate_routes, "_load_draft_payload",
         lambda did, tid: (payload if tid == tenant else None),
@@ -139,6 +153,7 @@ def test_cross_tenant_404(monkeypatch):
             monkeypatch,
             payload=copy.deepcopy(VALID_ENVELOPE),
             tenant="other-tenant",
+            auth_tenant="local_dev",
         )
     assert ei.value.status_code == 404
 
@@ -236,3 +251,77 @@ def test_estimate_returns_commission_source(monkeypatch):
     )
     assert result["commission_source"] == "cache:leq_1500"
     assert result["commission_rate"] == 0.08
+
+
+# ══════════════════════════════════════════════════════════════════
+# v0.60 三档双价格体系（estimate 服务接入）：TDD RED→GREEN
+# ══════════════════════════════════════════════════════════════════
+# 三档手算（total_cost=5.5+10.0+2.0=17.5，佣金 0.10 显式）：
+#   日常 price = ceil(17.5×2.5/(1-0.10-0.155)) = ceil(43.75/0.745) = ceil(58.72) = 59
+#   划线 old   = ceil(17.5×3.0/0.745) = ceil(70.47) = 71
+#   促销 promo = ceil(17.5×1.6/(1-0.10-0.245)) = ceil(28.0/0.655) = ceil(42.75) = 43
+# 净利（销售净利率口径）= price×(1-0.10-0.155)-17.5 = 59×0.745-17.5 = 26.455
+#   → compute_price 实际返回 round(26.4549…,2)=26.45 / round(26.455/59,4)=0.4484
+EXPECTED_THREE_TIER = {
+    "price": 59,
+    "old_price": 71,
+    "promo_price": 43,
+    "profit_cny": 26.45,
+    "profit_rate": 0.4484,
+    "logistics_cost_cny": 10.0,
+    "currency": "CNY",
+    "commission_rate": 0.10,
+    "commission_source": "explicit",
+    "margin_anchor": 2.0,
+    "margin_floor": 0.6,
+    "variable_cost_rate": 0.155,
+}
+
+THREE_TIER_OVERRIDES = {"margin_rate": 1.5, "margin_floor": 0.6, "margin_anchor": 2.0}
+
+THREE_TIER_ENVELOPE = copy.deepcopy(VALID_ENVELOPE)
+THREE_TIER_ENVELOPE["extensions"].update(
+    {"margin_rate": 1.5, "margin_floor": 0.6, "margin_anchor": 2.0}
+)
+
+
+def _assert_three_tier(result):
+    for key, expected in EXPECTED_THREE_TIER.items():
+        assert result[key] == expected, f"{key}: 期望 {expected}，实际 {result[key]}"
+
+
+# ── 9. 请求体三档覆盖（margin_rate+margin_floor+margin_anchor）→ 日常/划线/促销 ──
+def test_three_tier_via_request_overrides(monkeypatch):
+    body = {"token": "sk-x", **THREE_TIER_OVERRIDES}
+    result = _call_endpoint(
+        "11111111-1111-1111-1111-111111111111",
+        body,
+        monkeypatch,
+        payload=copy.deepcopy(VALID_ENVELOPE),
+    )
+    _assert_three_tier(result)
+
+
+# ── 10. 无 margin_floor → 旧单档行为（无 promo_price 键，price=25 等既有断言）──
+def test_legacy_single_tier_when_no_margin_floor(monkeypatch):
+    result = _call_endpoint(
+        "11111111-1111-1111-1111-111111111111",
+        {"token": "sk-x"},
+        monkeypatch,
+        payload=copy.deepcopy(VALID_ENVELOPE),
+    )
+    assert "promo_price" not in result, "无 margin_floor 时不得出现 promo_price 键"
+    assert "margin_anchor" not in result, "旧行为不返回三档配置键"
+    assert result["price"] == EXPECTED_CNY["price"] == 25
+    assert result["old_price"] == EXPECTED_CNY["old_price"] == 30
+
+
+# ── 11. extensions 里带三档参数（不传请求覆盖）→ 同样生效 ──
+def test_three_tier_via_extensions(monkeypatch):
+    result = _call_endpoint(
+        "11111111-1111-1111-1111-111111111111",
+        {"token": "sk-x"},
+        monkeypatch,
+        payload=copy.deepcopy(THREE_TIER_ENVELOPE),
+    )
+    _assert_three_tier(result)
