@@ -332,21 +332,38 @@ function TasksPanel(props: { scope: { sessionId: string } }): ReactNode {
 /* 专家 —— skill 能力手动入口（点卡片触发本地 pounding-mcp HTTP 网关）     */
 /* ================================================================== */
 
-function ExpertsPanel(_props: { scope: { sessionId: string } }): ReactNode {
+function ExpertsPanel(props: { ctx: Context; scope: { sessionId: string } }): ReactNode {
   const tools = [
-    { n: '采集', d: 'CDP 爬取 1688 货源', hue: 'warm' as const, p: 'probe / search' },
-    { n: '图搜', d: '以图找款 · 同款推荐', hue: 'accent' as const, p: 'image_search' },
-    { n: '选品', d: '蓝海选品 discover', hue: 'warm' as const, p: 'discover / seller' },
-    { n: '上架', d: '组装 + 提交 worker', hue: 'neutral' as const, p: 'graph / follow' },
-    { n: '类目', d: '关键词 → Ozon 类目', hue: 'neutral' as const, p: 'category' },
-    { n: '店铺', d: '凭证 / AK 配置', hue: 'neutral' as const, p: 'set_store / check' },
+    { n: '采集', d: 'CDP 爬取 1688 货源', hue: 'warm' as const, p: 'probe / search', cmd: 'probe --url <1688链接>' },
+    { n: '图搜', d: '以图找款 · 同款推荐', hue: 'accent' as const, p: 'image_search', cmd: 'image_search --image <图片URL>' },
+    { n: '选品', d: '蓝海选品 discover', hue: 'warm' as const, p: 'discover / seller', cmd: 'discover --keyword "<品类>"' },
+    { n: '上架', d: '组装 + 提交 worker', hue: 'neutral' as const, p: 'graph / follow', cmd: 'graph --url <1688链接>' },
+    { n: '类目', d: '关键词 → Ozon 类目', hue: 'neutral' as const, p: 'category', cmd: 'category "<关键词>"' },
+    { n: '店铺', d: '凭证 / AK 配置', hue: 'neutral' as const, p: 'set_store / check', cmd: 'check' },
   ]
+  const [copied, setCopied] = useState('')
+  const gotoAgent = () => {
+    try {
+      props.ctx.betterSidebar.openTab({ type: 'agent' })
+    } catch {
+      // 内置 agent tab 不可用时静默降级（提示文案已引导）
+    }
+  }
+  const copyCmd = (cmd: string) => {
+    try {
+      void navigator.clipboard.writeText(`python3.12 scripts/cli.py ${cmd}`)
+      setCopied(cmd)
+      window.setTimeout(() => setCopied(''), 1600)
+    } catch {
+      /* 剪贴板不可用时静默 */
+    }
+  }
   return createElement('div', { style: SHELL },
     Head({ icon: Icon(14, 'M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z'), title: '专家', right: createElement(Pill, { text: 'skill 本地能力', tone: 'neutral' }) }),
     createElement('div', { style: BODY },
       createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 } },
         tools.map((x) =>
-          createElement('button', { key: x.n, style: { ...CARD, cursor: 'pointer', textAlign: 'left', gap: 6 } },
+          createElement('button', { key: x.n, style: { ...CARD, cursor: 'pointer', textAlign: 'left', gap: 6 }, onClick: () => copyCmd(x.cmd), title: `点击复制: python3.12 scripts/cli.py ${x.cmd}` },
             createElement('div', { style: ROW },
               ImgBlock({ text: x.n.slice(0, 2), hue: x.hue }),
               createElement('div', { style: { flex: 1 } },
@@ -354,15 +371,15 @@ function ExpertsPanel(_props: { scope: { sessionId: string } }): ReactNode {
                 createElement('div', { style: { ...MUTED, fontSize: 11 } }, x.d),
               ),
             ),
-            createElement('div', { style: { ...MUTED, fontSize: 10.5, fontFamily: MONO } }, x.p),
+            createElement('div', { style: { ...MUTED, fontSize: 10.5, fontFamily: MONO } }, copied === x.cmd ? '✓ 已复制' : x.p),
           ),
         ),
       ),
-      createElement('div', { style: { ...CARD, background: T.neutralBg, border: 'none' } },
-        createElement('span', { style: { fontSize: 12, color: T.ink600 } }, '也可以在对话里让 Agent 直接调用：'),
+      createElement('button', { style: { ...CARD, background: T.neutralBg, border: 'none', cursor: 'pointer', textAlign: 'left' }, onClick: gotoAgent },
+        createElement('span', { style: { fontSize: 12, color: T.ink600 } }, '对话驱动：去 Agent 标签页，直接说'),
         createElement('span', { style: { fontSize: 11, color: T.aux, fontFamily: MONO } }, '“帮我把这个 1688 链接采集下来”'),
       ),
-      createElement('div', { style: { fontSize: 11, color: T.ink300, textAlign: 'center', marginTop: 'auto' } }, '触发：本地 pounding-mcp HTTP 网关（8901）'),
+      createElement('div', { style: { fontSize: 11, color: T.ink300, textAlign: 'center', marginTop: 'auto' } }, '点卡片复制命令 · 本地 pounding-mcp HTTP 网关（8901）'),
     ),
   )
 }
