@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import contextvars
 import copy
+import hashlib
 import json
 import os
 import threading
@@ -1088,11 +1089,20 @@ def _extract_token_from_body(body_text: str) -> str:
     return str(data.get("token", "") or "")
 
 
+def _key_user_id(clean_token: str) -> str:
+    """MXOU key 即用户：由 key 派生稳定租户身份（不依赖 Supabase）。
+
+    每个用户的 MXOU key（settings.json / 客户端设置持久化）直接映射为独立
+    租户 id —— 数据按 key 天然隔离，无需 Supabase tokens 表。key 轮换即
+    新租户（旧数据保留在原租户，可迁移）。
+    """
+    return f"user_{hashlib.sha256(clean_token.encode()).hexdigest()[:16]}"
+
+
 def _authenticate_token(token: str) -> str:
-    """鉴权 token → user_id（Supabase tokens 表，剥离 sk- 前缀）。
+    """鉴权 token → user_id（MXOU key 即用户，不依赖 Supabase）。
 
     submit_task / resubmit_task 共用。失败抛 HTTPException(401/403)。
-    Supabase 未配置（本地开发）→ 返回 "local_dev"。
     """
     if not token:
         raise HTTPException(status_code=401, detail="Token is required")
@@ -1103,30 +1113,7 @@ def _authenticate_token(token: str) -> str:
             detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute",
         )
     clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    supabase = get_supabase_client()
-    if supabase is None:
-        logger.warning("Supabase未配置，跳过token鉴权（本地开发模式）")
-        return "local_dev"
-    try:
-        token_records = supabase.table("tokens").select(
-            "user_id, key, remain_quota, status, expired_time, unlimited_quota"
-        ).eq("key", clean_token).is_("deleted_at", "null").execute()
-    except Exception as exc:
-        # fail-closed：Supabase 瞬断（SSL/超时）绝不放行，也绝不 500 白屏——
-        # 503 让客户端可重试（401 会触发 webui 拦截器误清 token）
-        logger.warning("token 鉴权查询失败（Supabase 不可达）: %s", str(exc)[:200])
-        raise HTTPException(status_code=503, detail="鉴权服务暂不可用，请稍后重试")
-    if not token_records.data or len(token_records.data) == 0:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    token_record = token_records.data[0]
-    status = int(token_record.get("status", 0))
-    if status != 1:
-        status_desc = {2: "disabled", 3: "expired", 4: "quota exhausted"}
-        raise HTTPException(
-            status_code=403,
-            detail=f"Token is {status_desc.get(status, 'unknown')}: status={status}",
-        )
-    return str(token_record.get("user_id", ""))
+    return _key_user_id(clean_token)
 
 
 def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
@@ -1517,46 +1504,14 @@ async def http_submit_task(request: Request):
         if token.startswith("sk-"):
             token = token.replace("sk-", "", 1)  # ✅ 剥离第一个sk-前缀
 
-        # Step3: 查询tokens表（Supabase未配置时跳过鉴权，本地开发模式）
-        supabase = get_supabase_client()
-        balance = 0.0  # 本地开发模式无余额概念，设默认值
-        if supabase is None:
-            logger.warning("Supabase未配置，跳过token鉴权（本地开发模式）")
-            user_id = "local_dev"
-        else:
-            try:
-                token_records = supabase.table("tokens").select(
-                    "user_id, key, remain_quota, status, expired_time, unlimited_quota"
-                ).eq("key", token).is_("deleted_at", "null").execute()
-
-                if not token_records.data or len(token_records.data) == 0:
-                    raise HTTPException(status_code=401, detail=f"Invalid token: token '{token}' not found")
-
-                token_record = token_records.data[0]
-                user_id = str(token_record.get("user_id", ""))
-                status = int(token_record.get("status", 0))
-
-                # Step4: 检查token状态
-                if status != 1:
-                    status_desc = {2: "disabled", 3: "expired", 4: "quota exhausted"}
-                    raise HTTPException(
-                        status_code=403,
-                        detail=f"Token is {status_desc.get(status, 'unknown')}: status={status}"
-                    )
-
-                # Step5: 检查余额（查 users 表 quota-used_quota，无限额度放行；
-                #    原实现只查 remain_quota 会把无限额度 token 误判余额不足）
-                balance, has_quota = _check_mxou_balance(token_record)
-                if not has_quota:
-                    return error_response(
-                        WorkerErrorCode.INSUFFICIENT_BALANCE,
-                        f"MXOU 余额不足 (current: {balance}). 请充值",
-                    )
-
-            except Exception as e:
-                if isinstance(e, HTTPException):
-                    raise e
-                raise HTTPException(status_code=500, detail=f"Token validation failed: {str(e)}")
+        # Step3: MXOU key 即用户（不依赖 Supabase）——key 派生稳定租户 + MXOU 余额检查
+        user_id = _key_user_id(token)
+        balance, has_quota = _check_mxou_balance({"key": token, "user_id": user_id})
+        if not has_quota:
+            return error_response(
+                WorkerErrorCode.INSUFFICIENT_BALANCE,
+                f"MXOU 余额不足 (current: {balance}). 请充值",
+            )
         
         # ✅ Step3: 提交任务到队列（使用user_id作为tenant_id）
         priority = 0  # ✅ 固定为0（所有用户平等优先级，直到建立VIP体系）
