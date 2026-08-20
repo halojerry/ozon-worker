@@ -33,6 +33,10 @@ DB_URL = os.environ.get(
 
 MASTER_KEY = "0123456789abcdef0123456789abcdef"
 
+# 生产鉴权已改为 key 派生租户（main._key_user_id）：tokA → user_ddd824ea9d68a96a
+TENANT_A = main_mod._key_user_id("tokA")
+TENANT_B = main_mod._key_user_id("tokB")
+
 TOKEN_MAP = {"tokA": "tenant-a", "tokB": "tenant-b"}
 
 
@@ -126,8 +130,8 @@ def _create_cred(client, tenant: str, cid: str = "1010", key: str = "k1010") -> 
 def _cleanup():
     for t in ("ozon_orders_cache", "ozon_products_cache", "credential_sync_state"):
         _db_execute(f"DELETE FROM {t}")
-    # 清测试租户凭证（credentials 409 唯一约束——防上次运行残留）
-    _db_execute("DELETE FROM credentials WHERE tenant_id IN ('tenant-a', 'tenant-b')")
+    # 清测试租户凭证（credentials 409 唯一约束——防上次运行残留；按 key 派生租户删）
+    _db_execute("DELETE FROM credentials WHERE tenant_id IN :t", {"t": (TENANT_A, TENANT_B)})
 
 
 # 模拟 Ozon 响应（v4 posting/fbs/list 扁平结构 + 商品 info 含主图）
@@ -396,9 +400,9 @@ def test_tenant_isolation_data_not_leaked(client):
     rb = client.get(f"/api/v1/orders?credential_id={cb['id']}", headers=_auth_headers("tenant-b"))
     assert rb.json()["total"] == 1
     assert rb.json()["items"][0]["posting_number"] == "PN-B-1"
-    # 数据库层面：每行 tenant_id 正确
-    rows = _db("SELECT tenant_id, COUNT(*) FROM ozon_orders_cache GROUP BY tenant_id ORDER BY tenant_id")
-    assert [(r.tenant_id, r[1]) for r in rows] == [("tenant-a", 1), ("tenant-b", 1)]
+    # 数据库层面：每行 tenant_id 正确（sha256 hex 排序 ≠ 字母序——用 dict 比较，顺序无关）
+    rows = _db("SELECT tenant_id, COUNT(*) FROM ozon_orders_cache GROUP BY tenant_id")
+    assert {r.tenant_id: r[1] for r in rows} == {TENANT_A: 1, TENANT_B: 1}
 
 
 # ──────────────────────────────

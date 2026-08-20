@@ -30,6 +30,9 @@ DB_URL = os.environ.get(
 TENANTS = ("tenant-a", "tenant-b")
 TOKEN_MAP = {"tokA": "tenant-a", "tokB": "tenant-b"}
 
+TENANT_A = main_mod._key_user_id("tokA")
+TENANT_B = main_mod._key_user_id("tokB")
+
 
 class FakeSupabase:
     """tokens 表 fake：key → user_id 映射（租户隔离测试用）。"""
@@ -93,7 +96,7 @@ def _cleanup():
     eng = create_engine(DB_URL)
     with eng.begin() as conn:
         conn.execute(text(
-            "DELETE FROM listing_templates WHERE tenant_id IN ('tenant-a','tenant-b')"
+            f"DELETE FROM listing_templates WHERE tenant_id IN ('{TENANT_A}','{TENANT_B}')"
         ))
     eng.dispose()
 

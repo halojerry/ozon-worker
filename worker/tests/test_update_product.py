@@ -33,7 +33,9 @@ DB_URL = os.environ.get(
 # 32 字节 AES-256 主密钥（测试用，与 credential_cipher 单测一致）
 MASTER_KEY = "0123456789abcdef0123456789abcdef"
 
-TENANTS = ("tenant-a", "tenant-b")
+TENANT_A = main_mod._key_user_id("tokA")
+TENANT_B = main_mod._key_user_id("tokB")
+TENANTS = (TENANT_A, TENANT_B)
 TOKEN_MAP = {"tokA": "tenant-a", "tokB": "tenant-b"}
 
 PRODUCT_ID = "1234567890"
@@ -104,14 +106,14 @@ def _cleanup():
     with eng.begin() as conn:
         # 先删 product_task_index（FK 引用 task + credential），再删 task / credential
         conn.execute(text(
-            "DELETE FROM product_task_index WHERE tenant_id IN ('tenant-a','tenant-b')"
-        ))
+            "DELETE FROM product_task_index WHERE tenant_id IN :t"
+        ), {"t": TENANTS})
         conn.execute(text(
-            "DELETE FROM ozon_product_tasks WHERE tenant_id IN ('tenant-a','tenant-b')"
-        ))
+            "DELETE FROM ozon_product_tasks WHERE tenant_id IN :t"
+        ), {"t": TENANTS})
         conn.execute(text(
-            "DELETE FROM credentials WHERE tenant_id IN ('tenant-a','tenant-b')"
-        ))
+            "DELETE FROM credentials WHERE tenant_id IN :t"
+        ), {"t": TENANTS})
     eng.dispose()
 
 
@@ -134,6 +136,7 @@ def _setup_product(client, product_id: str = PRODUCT_ID, tenant: str = "tenant-a
 
     Returns: (credential dict, task_id str)
     """
+    tid = TENANT_A if tenant == "tenant-a" else TENANT_B
     cred = client.post(
         "/api/v1/credentials",
         json={"ozon_client_id": "4718259", "api_key": "update-key-4718259"},
@@ -144,11 +147,11 @@ def _setup_product(client, product_id: str = PRODUCT_ID, tenant: str = "tenant-a
         task_id = conn.execute(text(
             "INSERT INTO ozon_product_tasks (tenant_id, status, payload) "
             "VALUES (:t, 'completed', '{}'::jsonb) RETURNING id"
-        ), {"t": tenant}).scalar()
+        ), {"t": tid}).scalar()
         conn.execute(text(
             "INSERT INTO product_task_index (product_id, tenant_id, offer_id, task_id, credential_id) "
             "VALUES (:pid, :t, :offer, :task, :cred)"
-        ), {"pid": product_id, "t": tenant, "offer": OFFER_ID,
+        ), {"pid": product_id, "t": tid, "offer": OFFER_ID,
             "task": task_id, "cred": cred["id"]})
     eng.dispose()
     return cred, str(task_id)
@@ -276,8 +279,8 @@ def test_index_row_written_when_approved(client):
     assert resp.json()["status"] == "approved"
     rows = _db_rows(
         "SELECT product_id, offer_id, task_id, credential_id FROM product_task_index "
-        "WHERE product_id=:pid AND tenant_id='tenant-a'",
-        {"pid": PRODUCT_ID},
+        "WHERE product_id=:pid AND tenant_id=:tid",
+        {"pid": PRODUCT_ID, "tid": TENANT_A},
     )
     assert len(rows) == 1, "approved 后 product_task_index 应有行"
     assert rows[0][1] == OFFER_ID
