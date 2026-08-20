@@ -157,7 +157,12 @@ async def draft_ai_field(draft_id: str, field: str, request: Request):
         raise HTTPException(status_code=422, detail=f"草稿 {field} 为空，无可重新生成内容")
 
     mxou_token = token[3:] if token.startswith("sk-") else token
-    value = regenerate_field(field, current_value, mxou_token)
+    # v0.59: 标题公式流量词从 envelope extensions 读取（只做提示词增强，服务层 parse 过滤）
+    _extensions = payload.get("extensions") if isinstance(payload, dict) else None
+    _traffic_keywords = (
+        _extensions.get("traffic_keywords") if isinstance(_extensions, dict) else None
+    )
+    value = regenerate_field(field, current_value, mxou_token, traffic_keywords=_traffic_keywords)
     if value is None:
         raise HTTPException(
             status_code=422,
