@@ -151,6 +151,36 @@ def list_queries(limit: int = 50, offset: int = 0, search: str = "") -> dict[str
     return {"total": int(total or 0), "items": items}
 
 
+def search_public(q: str = "", limit: int = 20) -> list[dict[str, Any]]:
+    """公开流量关键词查询（token-agnostic，读全局共享表 blue_ocean_queries）。
+
+    q 为空 → top 流量（uniq_queries_wca DESC NULLS LAST, count DESC）；
+    q 非空 → query ILIKE '%q%' 过滤。limit 收敛到 [1, 50]。
+    仅返回标题/标签生成所需字段，只读不改。
+    """
+    limit = max(1, min(int(limit), 50))
+    params: dict[str, Any] = {"limit": limit}
+    where = ""
+    if q:
+        where = "WHERE query ILIKE :q"
+        params["q"] = f"%{q}%"
+
+    with get_engine().connect() as conn:
+        rows = conn.execute(text(
+            f"SELECT query, count, uniq_queries_wca, uniq_sellers, source "
+            f"FROM blue_ocean_queries {where} "
+            f"ORDER BY uniq_queries_wca DESC NULLS LAST, count DESC LIMIT :limit"
+        ), params).fetchall()
+
+    return [{
+        "query": str(r[0]),
+        "count": int(r[1] or 0),
+        "uniq_queries_wca": int(r[2]) if r[2] is not None else None,
+        "uniq_sellers": int(r[3]) if r[3] is not None else None,
+        "source": str(r[4]),
+    } for r in rows]
+
+
 def import_queries(items: list[dict]) -> dict[str, Any]:
     """批量导入（JSON items）：逐行校验，坏行跳过记 errors，有效行 upsert。
 
