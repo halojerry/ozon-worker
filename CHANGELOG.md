@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.60.0] - 2026-08-21
+
+> 三档双价格体系（日常价/划线价/促销底线）+ 变动成本率入定价公式 + 销售净利率口径 + SEO 流量词注入标题与标签 + 标题公式共享模块 + 流量词读端点。用户拍板：定价预留 50%+ 利润空间、促销后仍有利润、Ozon 自动调价不跌破成本线。
+
+### Feat(worker) — 定价（Q1）
+
+- **`compute_price` 三档双价格**（`utils/pricing_estimate.py`）：新增 keyword-only `margin_anchor`(划线原价 2.0)/`margin_floor`(促销底线 0.6)/`variable_cost_rate`(日常变动成本 0.155)/`promo_variable_cost_rate`(促销变动成本 0.245)。三档：`price`=日常价、`old_price`=划线原价（强制 ≥ 日常×1.2）、`promo_price`=促销底线（用促销变动成本率分母）。**全缺省 → 旧行为逐字保持**（向后兼容）。
+- **变动成本率入分母**：售价 = 总成本 × (1+margin) / (1 - commission - variable_cost_rate)——用户指出佣金与推广/退货/提现/汇损/附加同属性都从售价按比例扣，只扣佣金导致利润虚高 20-30%。
+- **利润口径改销售净利率**：`profit = price×(1-comm-vcr) - cost`、`profit_rate = profit/price`（不再用成本利润率「毛利当净利」）。演算：成本 ¥100/佣金 12% → 日常 ¥345 / 划线 ¥414 / 促销 ¥252（7.3 折），日常净利率 43.5%、促销 23.8%——促销后仍保利润且可接 Ozon 自动促销（promo_price 供 min_seller_price）。
+- **`pricing_node` 三档接线**：读 extensions 新参（向后兼容门：显式 margin_rate 且无 floor/anchor → 单档）；变体循环从内联公式改调 `compute_price`（消除 ×1.15 vs ×1.2 漂移），`variant_prices` 加 `promo_price`。
+- **estimate 端点三档**：`estimate_from_envelope` + `estimate_routes` 支持 margin_anchor/margin_floor/variable_cost_rate/promo_variable_cost_rate 覆盖键，响应带三档价。
+- 配置链路：`margin_floor/margin_anchor/variable_cost_rate/promo_variable_cost_rate/traffic_keywords` 穿透三端白名单（template_service CONFIG_KEYS + schemas ListingTemplateConfig + skill config_store/cloud_probe _merge_config_tiers）。
+- 测试：`test_pricing_dual_margin.py`(6) + `test_pricing_node_dual_margin.py`(3) + estimate 三档(3) + template 新键(6)；修复 test_estimate_endpoint 存量 auth mock（v0.56 派生租户 404）。
+
+### Feat(worker) — 标题 SEO + 标签（Q5）
+
+- **`utils/title_formula.py` 共享模块**（T1）：`build_title_formula_prompt(lang, traffic_keywords)`「核心词+属性+场景」公式 + 流量词建议行；`parse_title_formula_keywords`（纯西里尔过滤/去重/≤3）。**统一 4 份公式拷贝**（prepare 主路径/兜底/内部 fallback + ai_field_service 草稿 AI 重生成）——新增标题公式逻辑必须进本模块（v0.40 共享层纪律）。
+- **traffic_keywords 注入标题**：`extensions.traffic_keywords`（what-to-sell all-queries 流量词）→ prepare 标题生成 prompt 建议行（LLM 自主融入，不硬塞）；仍过 `sanitize_title` + 中文/拉丁零容忍。
+- **hashtag 23171 消费流量词**（T8）：`_generate_hashtags(name, traffic_keywords=None)` 优先级 = 流量词(parse 过滤→`#kw`) > `_HASHTAG_RU` 字典 > 西里尔提取 > `#товар`；品牌过滤复用 `filter_brand_from_hashtags`。修掉中文标题恒 `#товар` 的标签质量问题。
+- **`GET /api/v1/seo/keywords?q=&limit=`**（T5）：公开读端点（Bearer + 限流），读 `blue_ocean_queries` 按流量（uniq_queries_wca DESC）排，`queries_service.search_public`——标题/tag 流量词的数据源。
+- 测试：`test_title_formula.py`(6) + `test_title_formula_wiring.py`(10) + `test_hashtag_keywords.py`(6) + `test_seo_keywords_endpoint.py`(6)。
+
+### Docs
+
+- `docs/PLAN-conversation-entry-v1.md`（Q3 对话入口：推荐 dsh Agent tab 先行 + 专家 tab 对话 UI 二期，路由层把 SKILL.md 决策树固化为 LLM prompt）。
+- `docs/PLAN-card-merge-fix-v1.md`（Q4 并卡修复：9048 前缀 `{item_id}~{sha1[:8]}` + 标题 SEO + 生图回退告警 + 上架前检测）。
+- Q2 促销调研：seller-actions API 实测可用（`/v1/seller-actions/list` 返回空），促销价受 `min_seller_price`/`min_action_percent` 约束——三档定价已为其预留空间；实现待定价落地后规划。
+
+### ⚠️ 行为变化
+
+- 默认定价档位从 margin 0.25 单档提升为 1.5(日常)/2.0(划线)/0.6(促销) 三档 + 变动成本率——**新上架商品价格将显著高于旧版**（成本 ¥100 → 日常 ¥345）。已有商品卡不受影响（定价只在上架时计算）。skill 端 `price_estimate` 硬编码系数 1.44375 未改（展示层，已知漂移，后续对齐）。
+
+### Test
+
+- worker 核心套件 76+ passed（pricing/title/hashtag/seo/template 全绿）；skill 19 passed（envelope/template）。
+- 全量 48 存量失败（auth/credentials/shelf/site 等环境相关）经 git stash 基线对比确认非本改动引入。
+
 ## [0.56.5] - 2026-08-17
 
 > webui 自动创建 key 设 `unlimited_quota=true`——key 无限额度，实际消费仍走用户真实余额（MXOU 平台优先 / users.quota 兜底）。

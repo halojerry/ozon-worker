@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -337,6 +337,11 @@ class ListingTemplateConfig(BaseModel):
     margin_rate: Optional[float] = Field(None, ge=0.0, le=1.0, description="利润率（0-1），不设则 worker 默认 0.25")
     commission_rate: Optional[float] = Field(None, ge=0.0, le=0.5, description="佣金率；0=让 worker 自动查店铺真实佣金")
     fx_buffer: Optional[float] = Field(None, ge=0.0, le=0.5, description="汇率缓冲（0-0.5），不设则 worker 默认 0.05")
+    margin_floor: Optional[float] = Field(None, ge=0.0, le=2.0, description="三档定价促销利润率下限（0-2），不设则 worker 默认")
+    margin_anchor: Optional[float] = Field(None, ge=0.0, le=5.0, description="三档定价锚点倍数（0-5），old_price=anchor 档，不设则 worker 默认")
+    variable_cost_rate: Optional[float] = Field(None, ge=0.0, le=0.5, description="日常变动成本率（0-0.5），不设则 worker 默认 0.155")
+    promo_variable_cost_rate: Optional[float] = Field(None, ge=0.0, le=0.5, description="促销变动成本率（0-0.5），不设则 worker 默认 0.245")
+    traffic_keywords: Optional[List[str]] = Field(None, description="标题流量关键词列表（extensions.traffic_keywords 扁平键）")
     offer_id_prefix: Optional[str] = Field(None, description="货号前缀（仅新建上架生效；更新模式忽略）")
     follow_type: Optional[str] = Field(None, pattern="^(hand|api)$", description="跟卖方式：hand 防侵权 / api 强制")
     stock: Optional[int] = Field(None, ge=0, description="上架后库存（extensions.stock）")

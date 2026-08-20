@@ -1492,28 +1492,45 @@ def _flatten_ozon_characteristics(chars) -> dict[str, str]:
 
 
 # 可注入 extensions 的配置键（与 worker template_service.CONFIG_KEYS 一致）
+# v0.60: 三档定价 margin_floor/margin_anchor + 变动成本率 + 流量关键词
+# traffic_keywords 是 list 型扁平键（v0.56 S1），非数值型。
 _INJECTABLE_EXT_KEYS = ("margin_rate", "commission_rate", "fx_buffer",
+                        "margin_floor", "margin_anchor",
+                        "variable_cost_rate", "promo_variable_cost_rate",
+                        "traffic_keywords",
                         "offer_id_prefix", "follow_type", "stock", "warehouse_id")
+
+# 只注入非零值的数值键（Worker 默认兜底语义）
+_NONZERO_EXT_KEYS = ("margin_rate", "commission_rate", "fx_buffer",
+                     "margin_floor", "margin_anchor",
+                     "variable_cost_rate", "promo_variable_cost_rate")
 
 
 def _merge_config_tiers(ext: dict[str, Any], *, template_profile: dict[str, Any] | None,
                         store_profile: dict[str, Any] | None) -> dict[str, Any]:
     """D11: 三段降级合并——显式 extensions 恒优先 > worker 默认模板 > 本地 stores.json。
 
-    仅补缺省：ext 已有非空值不被覆盖（R5 已定稿）。margin/commission/fx 沿用旧行为
-    只注入非零值（Worker 默认兜底）。
+    仅补缺省：ext 已有非空值不被覆盖（R5 已定稿）。margin/commission/fx 与三档定价/
+    变动成本率沿用旧行为只注入非零值（Worker 默认兜底）；traffic_keywords 是 list
+    型，只在非空列表时注入。
     """
     template_profile = template_profile or {}
     store_profile = store_profile or {}
     for _key in _INJECTABLE_EXT_KEYS:
-        if ext.get(_key) not in (None, ""):
+        if _key == "traffic_keywords":
+            if ext.get(_key):
+                continue
+        elif ext.get(_key) not in (None, ""):
             continue
         _val = template_profile.get(_key)
         if _val in (None, ""):
             _val = store_profile.get(_key)
         if _val in (None, ""):
             continue
-        if _key in ("margin_rate", "commission_rate", "fx_buffer") and float(_val) == 0:
+        if _key == "traffic_keywords":
+            if not isinstance(_val, list) or not _val:
+                continue
+        elif _key in _NONZERO_EXT_KEYS and float(_val) == 0:
             continue
         ext[_key] = _val
     return ext
@@ -3579,10 +3596,12 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     # 跳过 import-by-sku 1:1 复制，走 CREATE 重建——我们管线重做
                     # 类目/属性/生图，天然防同款/侵权检测）；api=import-by-sku 强制
                     extensions["follow_type"] = extensions.get("follow_type") or "hand"
-                    # 注入定价参数
+                    # 注入定价参数（v0.60: 含三档定价/变动成本率，与 _merge_config_tiers 数值键一致）
                     from scripts.lib.config_store import get_store_profile as _gsp
                     _sp = _gsp(store_id)
-                    for _pk in ("margin_rate", "commission_rate", "fx_buffer"):
+                    for _pk in ("margin_rate", "commission_rate", "fx_buffer",
+                                "margin_floor", "margin_anchor",
+                                "variable_cost_rate", "promo_variable_cost_rate"):
                         _pv = float(_sp.get(_pk, 0) or 0)
                         if _pv > 0:
                             extensions[_pk] = _pv

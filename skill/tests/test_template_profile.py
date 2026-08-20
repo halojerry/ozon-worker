@@ -201,6 +201,65 @@ def test_merge_zero_pricing_not_injected():
     assert ext["margin_rate"] == 0.3
 
 
+# ── v0.60 三档定价/变动成本率/流量关键词白名单透传 ──────────────────────
+
+def test_merge_new_pricing_keys_injected_from_template():
+    """_merge_config_tiers：margin_floor/variable_cost_rate 非零从模板注入。"""
+    ext = {}
+    cloud_probe._merge_config_tiers(
+        ext,
+        template_profile={"margin_anchor": 2.0, "margin_floor": 0.6,
+                          "variable_cost_rate": 0.155, "promo_variable_cost_rate": 0.245},
+        store_profile={})
+    assert ext["margin_anchor"] == 2.0
+    assert ext["margin_floor"] == 0.6
+    assert ext["variable_cost_rate"] == 0.155
+    assert ext["promo_variable_cost_rate"] == 0.245
+
+
+def test_merge_new_pricing_keys_store_fallback():
+    """_merge_config_tiers：模板无值 → 本地 stores.json 兜底新数值键。"""
+    ext = {}
+    cloud_probe._merge_config_tiers(
+        ext, template_profile={}, store_profile={"margin_floor": 0.6, "variable_cost_rate": 0.155})
+    assert ext["margin_floor"] == 0.6
+    assert ext["variable_cost_rate"] == 0.155
+
+
+def test_merge_new_pricing_zero_not_injected():
+    """_merge_config_tiers：margin_floor=0 不注入（沿用 margin_rate 非零语义）。"""
+    ext = {}
+    cloud_probe._merge_config_tiers(
+        ext, template_profile={"margin_floor": 0, "margin_anchor": 0},
+        store_profile={})
+    assert "margin_floor" not in ext
+    assert "margin_anchor" not in ext
+
+
+def test_merge_explicit_new_key_not_overwritten():
+    """_merge_config_tiers：显式 extensions 的 margin_floor 不被模板覆盖。"""
+    ext = {"margin_floor": 0.5}
+    cloud_probe._merge_config_tiers(
+        ext, template_profile={"margin_floor": 0.6}, store_profile={"margin_floor": 0.2})
+    assert ext["margin_floor"] == 0.5
+
+
+def test_merge_traffic_keywords_nonempty_list_injected():
+    """_merge_config_tiers：traffic_keywords 非空 list 从模板注入。"""
+    ext = {}
+    cloud_probe._merge_config_tiers(
+        ext, template_profile={"traffic_keywords": ["自动喂食器", "宠物饮水"]}, store_profile={})
+    assert ext["traffic_keywords"] == ["自动喂食器", "宠物饮水"]
+
+
+def test_merge_traffic_keywords_empty_list_not_injected():
+    """_merge_config_tiers：traffic_keywords 空 list 不注入。"""
+    ext = {}
+    cloud_probe._merge_config_tiers(
+        ext, template_profile={"traffic_keywords": []}, store_profile={})
+    assert "traffic_keywords" not in ext
+
+
 def test_build_template_overrides_store():
     """cloud_probe 注入段：模板 margin 优先于本地 stores.json。"""
     graph = _build(template_profile={"margin_rate": 0.3, "warehouse_id": "wh-1"},
