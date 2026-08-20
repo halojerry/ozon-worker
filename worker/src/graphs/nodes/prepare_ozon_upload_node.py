@@ -1225,6 +1225,29 @@ def _append_spec_table(description: str, attrs, weight_g=0, dimensions=None, sch
     return f"{description}\n{''.join(lines)}"
 
 
+def _derive_model_name_9048(item_id: str, supplier: str, source_title: str) -> str:
+    """派生 9048（型号名称）——防跨卖家并卡（Q4 P1-1）。
+
+    9048 = f"{item_id}~{sha1(normalize(supplier)|normalize(source_title))[:8]}"。
+    - hash 只用信封确定性字段（supplier + 原始中文标题）：retry/repair 重跑不拆卡。
+    - normalize：strip + 内部空白归一 + 全角转半角（防同一供应商写法漂移）。
+    - supplier 空 → 只 hash 标题；两者都空 → 退化裸 item_id（与 v0.60 前等价）。
+    """
+    import hashlib
+
+    def _norm(s: str) -> str:
+        s = str(s or "").strip()
+        s = re.sub(r"\s+", "", s)
+        return s.translate(str.maketrans("０-９ａ-ｚＡ-Ｚ", "0-9a-zA-Z"))
+
+    sup = _norm(supplier)
+    title = _norm(source_title)
+    if not sup and not title:
+        return str(item_id).strip()
+    digest = hashlib.sha1(f"{sup}|{title}".encode("utf-8")).hexdigest()[:8]
+    return f"{str(item_id).strip()}~{digest}"
+
+
 def _IMG_ORDER() -> List[str]:
     """Ozon 图片上传顺序（main → social_proof → detail → scene×3 → comparison → multi_angle → white_bg）。"""
     return [
@@ -2230,19 +2253,29 @@ def prepare_ozon_upload_node(
     else:
         follow_offer_id = None
 
-    # ✅ 属性9048（型号名称）= 1688 item_id
-    # 同一item_id的多个SKU使用相同的9048 → 自动合并为一个商品卡片
-    # 用item_id而非时间戳：确定性生成，重试不变，可溯源到1688来源
+    # ✅ 属性9048（型号名称）
+    # ⚠️ v0.60.1 防并卡：非跟卖（CREATE 新卡）时用确定性前缀 f"{item_id}~{hash}"，
+    # hash 由 supplier+原始中文标题派生——同货源竞品 supplier/标题不同 → 9048 不同
+    # → 不并入竞品卡（Q4 修复）。自家多 SKU 同 item+同 supplier+同标题 → 同 hash
+    # → 变体仍并入自家卡。跟卖（UPDATE 到竞品卡）刻意不加前缀（本就要并卡）。
+    # hash 只用信封确定性字段（防 retry/repair 拆卡），绝不用 LLM 翻译后标题。
     if item_id and item_id.strip():
-        model_name_9048 = item_id.strip()
+        if is_follow_sell:
+            model_name_9048 = item_id.strip()
+        else:
+            model_name_9048 = _derive_model_name_9048(
+                item_id,
+                str((draft or {}).get("supplier") or ""),
+                str((draft or {}).get("title") or ""),
+            )
 
-        # ✅ 无论9048是否已存在，都强制覆盖为item_id
+        # ✅ 无论9048是否已存在，都强制覆盖
         found_9048: bool = False
         for attr in ozon_attributes:
             if isinstance(attr, dict) and attr.get("id") == 9048:
                 attr["values"] = [{"dictionary_value_id": 0, "value": model_name_9048}]
                 found_9048 = True
-                logger.info(f"✅ 覆盖属性9048（型号名称）= item_id: {model_name_9048}")
+                logger.info(f"✅ 覆盖属性9048（型号名称）= {model_name_9048}")
                 break
         if not found_9048:
             ozon_attributes.append({
@@ -2250,7 +2283,7 @@ def prepare_ozon_upload_node(
                 "id": 9048,
                 "values": [{"dictionary_value_id": 0, "value": model_name_9048}]
             })
-            logger.info(f"✅ 添加属性9048（型号名称）= item_id: {model_name_9048}")
+            logger.info(f"✅ 添加属性9048（型号名称）= {model_name_9048}")
 
     # ✅ 属性8962（件数/Единиц в одном товаре）：兜底默认值 "1"
     found_8962: bool = False
