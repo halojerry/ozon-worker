@@ -672,9 +672,30 @@ _SKU_SKIP_KEYWORDS: list[str] = [
     "加包装", "加盒子", "加彩盒",  # 加包装是服务不是商品
 ]
 
+# v0.60 G2: 配件/耗材类 SKU — 不是完整商品（独立配件/替换件/赠品/工具），剥离
+# 实测（1063405325167 敲豆豆）: 拆豆盒 1.88 / 拆豆棒 0.85 / 静音垫 1.5 / 三件套 3.58
+# 均为配件引流。⚠️ 剥离需价格条件（_ACCESSORY_PRICE_RATIO）：组合装主品（如
+# 「【12色+3模具】A款+工具包」33.65 元）含「工具」但价格高 → 保留；低价配件才剥离。
+# 「豆豆/豆子」是产品核心词（敲豆豆）非配件 → 不列入。
+_SKU_ACCESSORY_KEYWORDS: list[str] = [
+    # 工具类
+    "工具", "扳手", "螺丝刀", "锤子", "小锤", "锤", "镊子", "夹子",
+    # 盒/棒/垫等耗材
+    "拆豆盒", "拆豆棒", "静音垫", "减音垫", "防滑垫", "图纸", "参考图纸",
+    "赠品", "替换", "配件", "零件", "散件", "备用", "补充包",
+    # 件套（组合配件，非主品变体）
+    "件套",
+]
+# 配件剥离价格阈值：配件价格 < 中位数 × 0.5 才剥离（防误伤含工具词的组合装主品）
+_ACCESSORY_PRICE_RATIO: float = 0.5
+
 # 低价引流检测：最低价 SKU 价格低于平均价的这个比例时标记
 _BAIT_PRICE_RATIO_THRESHOLD: float = 0.3  # min_price < avg_price * 0.3
 _BAIT_PRICE_GAP_MIN: float = 3.0  # max_price / min_price >= 3
+
+# v0.60 G2: 多 SKU 默认上限（discover/follow/batch 三入口放开）
+# 8 变体合并 1 卡净 1 配额（G2 方案定稿）；剥离 + 优选采样后超限截断
+DEFAULT_MULTI_SKU_MAX: int = 8
 
 
 def _sample_values(values: list[dict], limit: int) -> list[dict]:
@@ -715,8 +736,40 @@ def _sample_values(values: list[dict], limit: int) -> list[dict]:
     return sorted(values, key=_sort_key, reverse=True)[:limit]
 
 
-def _is_skip_sku(sku_name: str) -> tuple[bool, str]:
+def _extract_core_words(title: str) -> tuple[str, ...]:
+    """v0.60 G2: 从产品标题提取主品核心词（用于配件剥离判定）。
+
+    策略：停用词（渠道/营销/材质/适用对象）→ 分隔符 → 取前几个非空段。
+    实测：标题「跨境儿童敲豆豆玩具宝宝手拉风琴…」→ 首段「敲豆豆」——
+    配件名（拆豆盒/静音垫）不含「敲豆豆」→ 剥离；角色款（12格A款盒装敲豆豆）含 → 保留。
+
+    Returns: 核心词元组（用于 _is_skip_sku 的 core_words 匹配）。
+    """
+    if not title or not isinstance(title, str):
+        return ()
+    # 停用/修饰词：渠道、营销、材质、适用对象、地区（用分隔符标记位置，避免粘连）
+    _STOP = (
+        "跨境", "外贸", "批发", "厂家", "直销", "热卖", "爆款", "新款",
+        "宝宝", "儿童", "婴儿", "幼儿", "男女", "通用", "益智", "音乐",
+        "玩具", "用品", "礼品", "定制", "现货", "促销", "特价", "包邮",
+        "中国大陆", "是否", "专供", "下游", "平台", "销售", "地区",
+    )
+    cleaned = title
+    for w in _STOP:
+        cleaned = cleaned.replace(w, "|")
+    segments = [s.strip() for s in cleaned.split("|") if s.strip() and len(s.strip()) >= 2]
+    if not segments:
+        return ()
+    return tuple(segments[:3])
+
+
+def _is_skip_sku(sku_name: str, core_words: tuple[str, ...] = (), price: float = 0.0, median_p: float = 0.0) -> tuple[bool, str]:
     """Check if a SKU should be skipped (bait, custom, or service SKU).
+
+    v0.60 G2: 配件词命中时判定规则——
+    - 名称含主品核心词（如「敲豆豆」）→ 是主品变体，保留（角色款「12格A款盒装敲豆豆」）
+    - 否则若 price < 中位数×0.5 → 低价配件，剥离（拆豆盒/静音垫/三件套）
+    - 否则（含工具词的组合装主品，价格高）→ 保留
 
     Returns (should_skip, reason).
     """
@@ -725,6 +778,19 @@ def _is_skip_sku(sku_name: str) -> tuple[bool, str]:
     for kw in _SKU_SKIP_KEYWORDS:
         if kw in sku_name:
             return True, kw
+    # v0.60 G2: 配件词判定——只在【】括号内（SKU 标识）生效。
+    # 括号外的配件词是商品描述共享前缀（「送模板+敲豆锤+取豆棒+取豆盒【蜡笔小新】」
+    # 的锤/棒/盒是套装内容描述，所有角色款共用 → 主品变体，保留）。
+    _bracket_m = _re_type.search(r'【([^】]*)】', sku_name)
+    _in_bracket = _bracket_m.group(1) if _bracket_m else ""
+    for kw in _SKU_ACCESSORY_KEYWORDS:
+        if kw in _in_bracket:
+            # 低价配件（< 中位数×0.5）→ 剥离（即使含主品核心词——「敲豆豆【静音垫】」1.5 元
+            # 是配件引流，非主品变体）
+            if median_p > 0 and price > 0 and price < median_p * _ACCESSORY_PRICE_RATIO:
+                return True, f"配件:{kw}(¥{price}<¥{median_p:.0f}×{_ACCESSORY_PRICE_RATIO})"
+            # 配件词在括号内但价格正常 → 保守保留
+            continue
     return False, ""
 
 
@@ -732,10 +798,12 @@ def _filter_bait_and_custom_skus(
     variants: list[dict],
     drop_reason: str,
     dropped_skus: int,
+    core_words: tuple[str, ...] = (),
 ) -> tuple[list[dict], str, int, list[dict]]:
     """Filter out bait, custom, and service SKUs from the variant list.
 
     Also detects low-price bait patterns (one SKU priced far below average).
+    v0.60 G2: core_words 主品核心词（来自标题）——配件词命中但含核心词 → 保留。
 
     Returns (filtered_variants, updated_drop_reason, updated_dropped_skus, removed_skus).
     """
@@ -747,12 +815,14 @@ def _filter_bait_and_custom_skus(
     reasons: list[str] = []
 
     # ── Price-based bait detection ──
+    # v0.60 G2: avg → 中位数（avg 被高价组合装拉高 → min<avg×0.3 漏判配件）
     prices = [v.get("price", 0) for v in variants if v.get("price", 0) > 0]
     if len(prices) >= 2:
         min_p = min(prices)
         max_p = max(prices)
-        avg_p = sum(prices) / len(prices)
-        if min_p > 0 and max_p / min_p >= _BAIT_PRICE_GAP_MIN and min_p < avg_p * _BAIT_PRICE_RATIO_THRESHOLD:
+        sp = sorted(prices)
+        median_p = sp[len(sp) // 2]
+        if min_p > 0 and max_p / min_p >= _BAIT_PRICE_GAP_MIN and min_p < median_p * _BAIT_PRICE_RATIO_THRESHOLD:
             # Found potential bait: lowest price SKU is suspicious
             min_idx = prices.index(min_p)
             min_name = str(variants[min_idx].get("name", variants[min_idx].get("color", "")))
@@ -761,14 +831,22 @@ def _filter_bait_and_custom_skus(
                 kw in min_name for kw in
                 ("片装", "个装", "只装", "件装", "PIC", "pic", "pack", "Pack")
             )
-            if not is_qty:
+            # v0.60 G2: 低价引流剥离需「含配件词」——仅价格低不剥（角色款如
+            # 「送模板+…【蜡笔小新】」4.6 元是独立商品，价格差异正常，非引流配件）
+            _min_bracket = _re_type.search(r'【([^】]*)】', min_name)
+            _min_in_bracket = _min_bracket.group(1) if _min_bracket else ""
+            _min_acc = any(kw in _min_in_bracket for kw in _SKU_ACCESSORY_KEYWORDS)
+            if not is_qty and _min_acc:
                 removed.append(variants[min_idx])
-                reasons.append(f"低价引流: min=¥{min_p} < avg¥{avg_p:.0f}×{_BAIT_PRICE_RATIO_THRESHOLD}, ratio={max_p/min_p:.1f}x")
+                reasons.append(f"低价引流: min=¥{min_p} < 中位¥{median_p:.0f}×{_BAIT_PRICE_RATIO_THRESHOLD}, ratio={max_p/min_p:.1f}x")
                 # Only filter the bait one, keep the rest
                 for i, v in enumerate(variants):
                     if i != min_idx:
                         # Keyword check BEFORE adding to filtered
-                        skip, kw = _is_skip_sku(str(v.get("name", v.get("color", ""))))
+                        skip, kw = _is_skip_sku(
+                            str(v.get("name", v.get("color", ""))), core_words,
+                            float(v.get("price", 0) or 0), median_p,
+                        )
                         if skip:
                             removed.append(v)
                             reasons.append(f"SKU关键词: {kw}")
@@ -784,7 +862,10 @@ def _filter_bait_and_custom_skus(
     # ── Keyword-based filtering ──
     for v in variants:
         name = str(v.get("name", v.get("color", "")))
-        skip, kw = _is_skip_sku(name)
+        skip, kw = _is_skip_sku(
+            name, core_words,
+            float(v.get("price", 0) or 0), median_p,
+        )
         if skip:
             removed.append(v)
             reasons.append(f"SKU关键词: {kw}")
@@ -908,8 +989,17 @@ def _detect_variant_type(name: str) -> str:
         return 'unknown'
 
     # 1. Check quantity (highest priority — "5只装" is fundamentally a quantity variant)
+    # v0.60 G2 细化：排除误判——
+    #   ① 括号内描述数量（「（每色约50粒）」是豆豆粒数非 SKU 数量）
+    #   ② 中文数字配件组合（「三件套」是配件/组合装非数量变体）
     if _QUANTITY_PATTERN.search(name):
-        return 'quantity'
+        _no_bracket = _re_type.sub(r'[（(][^）)]*[）)]', '', name)
+        _qty_real = bool(_QUANTITY_PATTERN.search(_no_bracket))
+        _acc_combo = any(kw in name for kw in
+                         ('三件套', '四件套', '五件套', '六件套', '七件套', '八件套',
+                          '九件套', '十件套', '工具包', '套装'))
+        if _qty_real and not _acc_combo:
+            return 'quantity'
 
     # 2. Check size
     if _SIZE_PATTERN.search(name):
@@ -1927,8 +2017,12 @@ def build_graph_envelope(
     # ── 5.4 SKU 过滤：去除引流/定制/客服类 SKU ──
     filtered_skus_info: list[dict] = []
     if len(variants) > 1:
+        # v0.60 G2: 从标题提取主品核心词（如「敲豆豆」）——配件词命中但含核心词 → 保留
+        _core_words: tuple[str, ...] = _extract_core_words(
+            title or str(data.get("title", "") or "") or item_title
+        )
         variants, drop_reason, dropped_skus, removed = _filter_bait_and_custom_skus(
-            variants, drop_reason, dropped_skus
+            variants, drop_reason, dropped_skus, _core_words
         )
         if removed:
             filtered_skus_info = [
@@ -2138,7 +2232,7 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
             item_id=best_id,
             detail_url=detail_url,
             store_id=store_id,
-            max_skus=1,
+            max_skus=DEFAULT_MULTI_SKU_MAX,
         )
     except Exception as e:
         logger.warning("build_graph_envelope_with_retry 失败，降级使用原始候选品数据: %s", e)
@@ -3471,7 +3565,7 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     item_id=best_id,
                     detail_url=detail_url,
                     store_id=store_id,
-                    max_skus=1,
+                    max_skus=DEFAULT_MULTI_SKU_MAX,
                     fallback_images=ozon_images[:1] if ozon_images else None,
                     cdp=shared_cdp,
                 )
