@@ -498,6 +498,26 @@ def _call_image_with_model(
             status: str = result.get("status", "")
             task_id: str = result.get("id", "")
 
+            # v0.60: MXOU 新渠道同步返回 data[0].b64_json（无 status 字段，{created, data:[...]}）
+            # 优先检测 b64（不受 status 约束）；旧 grs 渠道 status=succeeded + results[].url 兼容
+            _has_b64 = (
+                isinstance(result.get("data"), list)
+                and len(result.get("data")) > 0
+                and isinstance(result["data"][0], dict)
+                and bool(result["data"][0].get("b64_json"))
+            )
+            if _has_b64:
+                url = _extract_url_from_results(result)
+                if url:
+                    logger.info("mxou同步返回b64图片(model=%s)→COS: %s", model, url[:80])
+                    try:
+                        if _span is not None:
+                            _span.set_tag("result", "b64_succeeded")
+                            finish_span(_span, status="ok")
+                    except Exception:
+                        pass
+                    return url
+
             # 优先：status=succeeded 时直接从 results 提取 URL（同步返回）
             if status == "succeeded":
                 url = _extract_url_from_results(result)
@@ -581,7 +601,7 @@ def _call_image_with_model(
 
 
 def _extract_url_from_results(result: dict) -> Optional[str]:
-    """从API响应中提取图片URL"""
+    """从API响应中提取图片URL（兼容旧 grs 轮询 URL + 新渠道同步 b64_json）。"""
     results = result.get("results", [])
     if isinstance(results, list) and len(results) > 0:
         first_result = results[0]
@@ -589,7 +609,42 @@ def _extract_url_from_results(result: dict) -> Optional[str]:
             url = first_result.get("url", "")
             if isinstance(url, str) and url:
                 return url
+    # v0.60: MXOU 新渠道同步返回 data[0].b64_json（旧 grs 渠道已下线）
+    # → base64 解码 → 转存 COS → 返回公网 URL；未配 COS → None（上层降级）
+    data = result.get("data", [])
+    if isinstance(data, list) and len(data) > 0:
+        first = data[0]
+        if isinstance(first, dict):
+            b64 = first.get("b64_json", "")
+            if isinstance(b64, str) and b64:
+                return _b64_to_cos_url(b64, result)
     logger.error("mxou API返回succeeded但无有效results: %s", str(result)[:300])
+    return None
+
+
+def _b64_to_cos_url(b64: str, result: dict) -> Optional[str]:
+    """base64 图片 → COS 转存 → 公网 URL。未配 COS/解码失败 → None。"""
+    try:
+        import base64 as _b64
+        import hashlib as _hl
+        raw = _b64.b64decode(b64)
+        if not raw:
+            logger.error("b64 解码为空")
+            return None
+        try:
+            from utils.cos_uploader import cos_upload_bytes
+            # 稳定 key：任务 id + 内容 hash（同图幂等）
+            tid = str(result.get("id", "img"))
+            digest = _hl.md5(raw).hexdigest()[:12]
+            url = cos_upload_bytes(raw, f"mxou-b64/{tid}_{digest}.png", content_type="image/png")
+            if url:
+                logger.info("✅ b64 图片转存 COS: %s", url[:100])
+                return url
+            logger.warning("b64 转存 COS 失败（未配置或上传失败），b64 长度=%d", len(raw))
+        except Exception as e:
+            logger.warning("b64 转存 COS 异常: %s", e)
+    except Exception as e:
+        logger.error("b64 解码失败: %s", e)
     return None
 
 
