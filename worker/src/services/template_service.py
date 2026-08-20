@@ -23,6 +23,11 @@ CONFIG_KEYS = (
     "margin_rate",        # 利润率（0-1），None→worker 默认 0.25
     "commission_rate",    # 佣金率（0-0.5），0=让 worker 自动查店铺真实佣金
     "fx_buffer",          # 汇率缓冲（0-0.5），None→worker 默认 0.05
+    "margin_floor",       # 三档定价促销利润率下限（0-2）
+    "margin_anchor",      # 三档定价锚点倍数（0-5），old_price=anchor 档
+    "variable_cost_rate",     # 日常变动成本率（0-0.5）
+    "promo_variable_cost_rate",  # 促销变动成本率（0-0.5）
+    "traffic_keywords",   # 标题流量关键词（list[str]，v0.56 S1 扁平键 extensions.traffic_keywords）
     "offer_id_prefix",    # 货号前缀（仅新建；同店铺多批次防重）
     "follow_type",        # 跟卖方式（hand 防侵权 / api 强制）
     "stock",              # 上架后库存（extensions.stock）
@@ -34,6 +39,10 @@ _NUMERIC_LIMITS = {
     "margin_rate": (0.0, 1.0),
     "commission_rate": (0.0, 0.5),
     "fx_buffer": (0.0, 0.5),
+    "margin_floor": (0.0, 2.0),
+    "margin_anchor": (0.0, 5.0),
+    "variable_cost_rate": (0.0, 0.5),
+    "promo_variable_cost_rate": (0.0, 0.5),
 }
 
 
@@ -99,6 +108,10 @@ def _validate_config(config: dict) -> dict:
             if ft not in ("hand", "api"):
                 raise HTTPException(status_code=422, detail="config.follow_type 必须是 hand 或 api")
             cleaned[key] = ft
+        elif key == "traffic_keywords":
+            if not isinstance(val, list) or not all(isinstance(x, str) for x in val):
+                raise HTTPException(status_code=422, detail="config.traffic_keywords 必须是字符串列表")
+            cleaned[key] = [x.strip() for x in val if x.strip()]
         else:
             cleaned[key] = str(val).strip()
     return cleaned
@@ -307,8 +320,11 @@ def apply_template_to_envelope(
             if not ext.get("offer_id_prefix"):
                 ext["offer_id_prefix"] = val
             continue
-        # 草稿已显式设置 → 不覆盖（模板只补缺省）
-        if key in ext and ext[key] not in (None, ""):
+        # 草稿已显式设置 → 不覆盖（模板只补缺省）；traffic_keywords 非空列表视为已设置
+        if key == "traffic_keywords":
+            if ext.get(key):
+                continue
+        elif key in ext and ext[key] not in (None, ""):
             continue
         ext[key] = val
     return result

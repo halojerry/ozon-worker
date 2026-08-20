@@ -169,6 +169,48 @@ def test_config_stock_and_follow_type(_pg):
         _create("tenant-a", config={"stock": -5})
 
 
+# ============================================================
+# 3b. 三档定价/变动成本率/流量关键词白名单（v0.60）
+# ============================================================
+
+def test_config_new_pricing_keys_accepted(_pg):
+    """margin_anchor/margin_floor/variable_cost_rate/promo_variable_cost_rate 入白名单。"""
+    tpl = _create("tenant-a", config={
+        "margin_anchor": 2.0, "margin_floor": 0.6,
+        "variable_cost_rate": 0.155, "promo_variable_cost_rate": 0.245,
+    })
+    cfg = tpl["config"]
+    assert cfg["margin_anchor"] == 2.0
+    assert cfg["margin_floor"] == 0.6
+    assert cfg["variable_cost_rate"] == 0.155
+    assert cfg["promo_variable_cost_rate"] == 0.245
+
+
+def test_config_new_pricing_bounds_rejected(_pg):
+    """数值边界：margin_anchor 0-5 / margin_floor 0-2 / variable_cost_rate 0-0.5。"""
+    for key, bad in (("margin_anchor", 7.0), ("margin_floor", 3.0),
+                     ("variable_cost_rate", 0.9), ("promo_variable_cost_rate", 0.9)):
+        with pytest.raises(HTTPException) as ei:
+            _create("tenant-a", config={key: bad})
+        assert ei.value.status_code == 422
+
+
+def test_config_traffic_keywords_accepted(_pg):
+    """traffic_keywords 为 list[str] 白名单键，存储透传。"""
+    tpl = _create("tenant-a", config={"traffic_keywords": ["自动喂食器", "宠物饮水"]})
+    assert tpl["config"]["traffic_keywords"] == ["自动喂食器", "宠物饮水"]
+    with pytest.raises(HTTPException) as ei:
+        _create("tenant-a", config={"traffic_keywords": "不是列表"})
+    assert ei.value.status_code == 422
+
+
+def test_config_unknown_key_still_rejected(_pg):
+    """新增键不破坏原白名单——非法 key 依旧 422。"""
+    with pytest.raises(HTTPException) as ei:
+        _create("tenant-a", config={"hack_field": 1})
+    assert ei.value.status_code == 422
+
+
 def test_empty_name_rejected(_pg):
     with pytest.raises(HTTPException) as ei:
         _create("tenant-a", name="   ")
@@ -224,3 +266,28 @@ def test_apply_no_extensions_key():
     env = {"draft": {"title": "x"}}
     out = template_service.apply_template_to_envelope(env, tpl)
     assert out["extensions"]["stock"] == 10
+
+
+def test_apply_injects_new_pricing_keys():
+    """apply_template_to_envelope：三档定价/变动成本率/流量关键词注入 extensions。"""
+    tpl = {"config": {
+        "margin_anchor": 2.0, "margin_floor": 0.6,
+        "variable_cost_rate": 0.155, "promo_variable_cost_rate": 0.245,
+        "traffic_keywords": ["自动喂食器"],
+    }}
+    env = {"draft": {}, "extensions": {}}
+    out = template_service.apply_template_to_envelope(env, tpl)
+    assert out["extensions"]["margin_anchor"] == 2.0
+    assert out["extensions"]["margin_floor"] == 0.6
+    assert out["extensions"]["variable_cost_rate"] == 0.155
+    assert out["extensions"]["promo_variable_cost_rate"] == 0.245
+    assert out["extensions"]["traffic_keywords"] == ["自动喂食器"]
+
+
+def test_apply_new_pricing_draft_wins():
+    """apply_template_to_envelope：草稿显式 margin_anchor/traffic_keywords 不被模板覆盖。"""
+    tpl = {"config": {"margin_anchor": 2.0, "traffic_keywords": ["模板词"]}}
+    env = {"draft": {}, "extensions": {"margin_anchor": 1.2, "traffic_keywords": ["草稿词"]}}
+    out = template_service.apply_template_to_envelope(env, tpl)
+    assert out["extensions"]["margin_anchor"] == 1.2
+    assert out["extensions"]["traffic_keywords"] == ["草稿词"]

@@ -478,19 +478,68 @@ interface CalcParams {
   currency: 'CNY' | 'RUB'
   fxBuffer: number
   rate: number
+  // v0.60 三档双价格（可选，对齐 worker compute_price 关键字参数；全部缺省 → 单档旧行为）：
+  margin_anchor?: number // 划线原价利润率（pricing_node 传 2.0；缺省 = margin×1.2 保底）
+  margin_floor?: number // 促销底线利润率（pricing_node 传 0.6）；缺省 → 不产生 promo_price
+  variable_cost_rate?: number // 日常变动成本率（推广/退货/提现/汇损/附加），缺省 0.155（v0.60 默认）
+  promo_variable_cost_rate?: number // 促销变动成本率，缺省 0.245（v0.60 默认）
 }
 
-/** 与 worker/src/utils/pricing_estimate.py#compute_price 逐字一致（含 Ozon ≥20% 划线规则） */
-function computePrice(p: CalcParams): { price: number; oldPrice: number; profitCny: number; profitRate: number } {
+/** 与 worker/src/utils/pricing_estimate.py#compute_price 逐字一致（含 Ozon ≥20% 划线规则 + v0.60 三档） */
+function computePrice(p: CalcParams): {
+  price: number
+  oldPrice: number
+  promoPrice: number | null
+  profitCny: number
+  profitRate: number
+} {
   const totalCost = p.purchase + p.domestic + p.otherRate * p.purchase
-  const divisor = 1 - p.commission <= 0 ? 0.9 : 1 - p.commission
-  let base = (totalCost * (1 + p.margin)) / divisor
+  const legacy = p.margin_anchor === undefined && p.margin_floor === undefined
+  const vcr = p.variable_cost_rate ?? 0.155
+  const pvcr = p.promo_variable_cost_rate ?? 0.245
+
+  // pricing_node Step 5：防止除零（分母 = 1 - 佣金 - 变动成本率；单档不含变动成本率）
+  let commissionDivisor = 1 - p.commission - (legacy ? 0 : vcr)
+  if (commissionDivisor <= 0) commissionDivisor = 0.9
+
+  let base = (totalCost * (1 + p.margin)) / commissionDivisor
   if (p.currency === 'RUB') base *= (1 + p.fxBuffer) * p.rate
   const price = Math.ceil(base)
-  const oldPrice = price <= 25 ? Math.max(price + 5, Math.ceil(price * 1.2)) : Math.ceil(price * 1.2)
-  const profitCny = p.currency === 'CNY' ? price - totalCost : price / p.rate - totalCost
-  const profitRate = totalCost > 0 ? profitCny / totalCost : 0
-  return { price, oldPrice, profitCny, profitRate }
+
+  if (legacy) {
+    // ── 单档（旧行为，逐字保持）──
+    // Ozon 规则：折扣至少 20%（price≤25 时 old_price-price≥5；否则 20% 加价）
+    const oldPrice = price <= 25 ? Math.max(price + 5, Math.ceil(price * 1.2)) : Math.ceil(price * 1.2)
+    const profitCny = p.currency === 'CNY' ? price - totalCost : price / p.rate - totalCost
+    const profitRate = totalCost > 0 ? profitCny / totalCost : 0
+    return { price, oldPrice, promoPrice: null, profitCny, profitRate }
+  }
+
+  // ── 三档（v0.60 双价格体系）──
+  // 划线原价：用日常变动成本率（与日常价同分母），anchor 缺省 = margin×1.2 保底
+  const anchorEff = p.margin_anchor ?? p.margin * 1.2
+  let oldBase = (totalCost * (1 + anchorEff)) / commissionDivisor
+  if (p.currency === 'RUB') oldBase *= (1 + p.fxBuffer) * p.rate
+  // Ozon 规则：划线价 ≥ 日常价×1.2（anchor 偏低时强制）
+  const oldPrice = Math.max(Math.ceil(oldBase), price <= 25 ? price + 5 : Math.ceil(price * 1.2))
+
+  // 促销底线价：用促销变动成本率（大促推广/退货更高）
+  let promoDivisor = 1 - p.commission - pvcr
+  if (promoDivisor <= 0) promoDivisor = 0.9
+  let promoPrice: number | null = null
+  if (p.margin_floor !== undefined) {
+    let promoBase = (totalCost * (1 + p.margin_floor)) / promoDivisor
+    if (p.currency === 'RUB') promoBase *= (1 + p.fxBuffer) * p.rate
+    promoPrice = Math.ceil(promoBase)
+  }
+
+  // 销售净利率口径：净利 = 售价×(1-佣金-变动成本率) - 总成本（不再是成本利润率）
+  const profitCny = p.currency === 'CNY'
+    ? price * (1 - p.commission - vcr) - totalCost
+    : (price / p.rate) * (1 - p.commission - vcr) - totalCost
+  const profitRate = price > 0 ? profitCny / price : 0
+
+  return { price, oldPrice, promoPrice, profitCny, profitRate }
 }
 
 function Field(props: { label: string; value: string | number; onChange: (v: string) => void; unit?: string; type?: string }): ReactNode {

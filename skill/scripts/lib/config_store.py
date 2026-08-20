@@ -141,7 +141,10 @@ def _warn_default_ambiguity(default_pointer: Any, stores: dict[str, Any]) -> Non
 def set_store(store_id: str, client_id: str, api_key: str,
               currency: str = "", shipping_provider: str = "", shipping_service: str = "",
               margin_rate: float | None = None, commission_rate: float | None = None,
-              fx_buffer: float | None = None) -> dict[str, Any]:
+              fx_buffer: float | None = None,
+              margin_floor: float | None = None, margin_anchor: float | None = None,
+              variable_cost_rate: float | None = None, promo_variable_cost_rate: float | None = None,
+              traffic_keywords: list[str] | None = None) -> dict[str, Any]:
     """Upsert a store profile."""
     data = _load_stores_file()
     if "stores" not in data or not isinstance(data.get("stores"), dict):
@@ -165,6 +168,16 @@ def set_store(store_id: str, client_id: str, api_key: str,
         store["commission_rate"] = commission_rate
     if fx_buffer is not None:
         store["fx_buffer"] = fx_buffer
+    if margin_floor is not None:
+        store["margin_floor"] = margin_floor
+    if margin_anchor is not None:
+        store["margin_anchor"] = margin_anchor
+    if variable_cost_rate is not None:
+        store["variable_cost_rate"] = variable_cost_rate
+    if promo_variable_cost_rate is not None:
+        store["promo_variable_cost_rate"] = promo_variable_cost_rate
+    if traffic_keywords is not None:
+        store["traffic_keywords"] = traffic_keywords
 
     data["stores"][str(store_id)] = store
 
@@ -410,14 +423,19 @@ def get_store_profile(store_id: str = "") -> dict[str, Any]:
         return {}
     allowed = ('currency', 'shipping_provider', 'shipping_service',
                'margin_rate', 'commission_rate', 'fx_buffer', 'fx_rate',
-               'sales_mode')
+               'margin_floor', 'margin_anchor',
+               'variable_cost_rate', 'promo_variable_cost_rate',
+               'traffic_keywords', 'sales_mode')
     return {k: v for k, v in store.items() if k in allowed}
 
 
 # ── worker listing_templates 默认配置（D11）────────────────────────────
 
-# config 白名单 7 字段（与 worker template_service.CONFIG_KEYS 一致）
+# config 白名单 12 字段（与 worker template_service.CONFIG_KEYS 一致）
 TEMPLATE_CONFIG_KEYS = ("margin_rate", "commission_rate", "fx_buffer",
+                        "margin_floor", "margin_anchor",
+                        "variable_cost_rate", "promo_variable_cost_rate",
+                        "traffic_keywords",
                         "offer_id_prefix", "follow_type", "stock", "warehouse_id")
 
 # 进程内 TTL 缓存（防每次装信封都打 worker /templates；成功 1h / 失败 60s）
