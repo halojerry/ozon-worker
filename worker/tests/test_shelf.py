@@ -17,7 +17,7 @@ from contextlib import contextmanager
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
@@ -27,6 +27,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import main as main_mod
 from routes.shelf_routes import router as shelf_router
 from services import shelf_service
+
+
+# 租户 = key 派生（v0.56 _authenticate_token → _key_user_id）：行键必须用派生租户。
+TID_A = main_mod._key_user_id("tok123")
+TID_B = main_mod._key_user_id("tok456")
+TID_EMPTY = main_mod._key_user_id("tok-empty")
 
 
 class FakeRequest:
@@ -39,21 +45,6 @@ class FakeRequest:
 
     async def json(self):
         return {}
-
-
-def _valid_supabase(user_id: str = "u1") -> MagicMock:
-    """返回 tokens 表命中一条有效记录的 Supabase mock（user_id 可指定租户）。"""
-    fake = MagicMock()
-    chain = fake.table.return_value.select.return_value.eq.return_value.is_.return_value.execute
-    chain.return_value.data = [{
-        "user_id": user_id,
-        "key": "tok123",
-        "remain_quota": 999,
-        "status": 1,
-        "expired_time": -1,
-        "unlimited_quota": False,
-    }]
-    return fake
 
 
 class FakeRow:
@@ -125,19 +116,20 @@ class FakeEngine:
 
 
 def _rows_for_tenant():
-    """u1 三条 index 行（created_at DESC 已排好），u2 一条。
+    """租户 A 三条 index 行（created_at DESC 已排好），租户 B 一条，租户 empty 无行。
 
     index 行原始列：(product_id, offer_id, task_id, draft_id, credential_id, created_at)
     """
     return {
-        "u1": [
+        TID_A: [
             ("1111111111", "sku-111", "task-1", "draft-1", "cred-1", "2026-08-15T10:00:00"),
             ("2222222222", "sku-222", "task-2", None, "cred-2", "2026-08-15T09:00:00"),
             ("3333333333", "sku-333", "task-3", "draft-3", "cred-3", "2026-08-15T08:00:00"),
         ],
-        "u2": [
+        TID_B: [
             ("9999999999", "sku-999", "task-9", "draft-9", "cred-9", "2026-08-15T07:00:00"),
         ],
+        TID_EMPTY: [],
     }
 
 
@@ -155,14 +147,16 @@ def _handler():
     return shelf_router.routes[0].endpoint
 
 
-def _call(query_params: dict):
-    return asyncio.run(_handler()(FakeRequest(query_params)))
+def _call(query_params: dict, token: str | None = "sk-tok123"):
+    params = dict(query_params)
+    if token is not None:
+        params["token"] = token
+    return asyncio.run(_handler()(FakeRequest(params)))
 
 
 @contextmanager
-def _engine_ctx(engine, user_id="u1"):
+def _engine_ctx(engine):
     with patch.object(main_mod.rate_limiter, "check", return_value=(True, 10)), \
-         patch("main.get_supabase_client", return_value=_valid_supabase(user_id)), \
          patch.object(shelf_service, "get_engine", return_value=engine):
         yield
 
@@ -174,7 +168,7 @@ def _engine_ctx(engine, user_id="u1"):
 def test_shelf_approved_product_with_draft_id():
     engine = FakeEngine(_rows_for_tenant(), _tasks_result())
     with _engine_ctx(engine):
-        resp = _call({"token": "sk-tok123"})
+        resp = _call({})
     approved = next(i for i in resp["items"] if i["moderation_status"] == "approved")
     assert approved["product_id"] == "1111111111"
     assert approved["offer_id"] == "sku-111"
@@ -190,7 +184,7 @@ def test_shelf_approved_product_with_draft_id():
 def test_shelf_direct_task_draft_null():
     engine = FakeEngine(_rows_for_tenant(), _tasks_result())
     with _engine_ctx(engine):
-        resp = _call({"token": "sk-tok123"})
+        resp = _call({})
     direct = next(i for i in resp["items"] if i["product_id"] == "2222222222")
     assert direct["offer_id"] == "sku-222"
     assert direct["draft_id"] is None
@@ -202,23 +196,23 @@ def test_shelf_direct_task_draft_null():
 # ============================================================
 
 def test_shelf_tenant_isolation():
-    """u1 看不到 u2 的商品；无商品租户 → 空列表 + total 0。"""
+    """租户 A 看不到租户 B 的商品；无商品租户 → 空列表 + total 0。"""
     engine = FakeEngine(_rows_for_tenant(), _tasks_result())
-    with _engine_ctx(engine, user_id="u1"):
-        resp = _call({"token": "sk-tok123"})
+    with _engine_ctx(engine):
+        resp = _call({})
     ids = [i["product_id"] for i in resp["items"]]
-    assert "9999999999" not in ids  # u2 的商品不可见
+    assert "9999999999" not in ids  # 租户 B 的商品不可见
     assert resp["total"] == 3
     # SQL 确实按 tenant_id 过滤（两条查询都带 tenant_id 参数）
     assert len(engine.last_conn.calls) == 2
     assert all("tenant_id" in params for _, params in engine.last_conn.calls)
-    # u2 只见自己的商品
-    with _engine_ctx(engine, user_id="u2"):
-        resp_u2 = _call({"token": "sk-tok123"})
+    # 租户 B 只见自己的商品（不同 token → 不同派生租户）
+    with _engine_ctx(engine):
+        resp_u2 = _call({}, token="sk-tok456")
     assert [i["product_id"] for i in resp_u2["items"]] == ["9999999999"]
     # 无商品租户 → 空列表
-    with _engine_ctx(engine, user_id="u-empty"):
-        resp_empty = _call({"token": "sk-tok123"})
+    with _engine_ctx(engine):
+        resp_empty = _call({}, token="sk-tok-empty")
     assert resp_empty["items"] == []
     assert resp_empty["total"] == 0
 
@@ -230,8 +224,8 @@ def test_shelf_tenant_isolation():
 def test_shelf_pagination():
     engine = FakeEngine(_rows_for_tenant(), _tasks_result())
     with _engine_ctx(engine):
-        page1 = _call({"token": "sk-tok123", "limit": "2", "offset": "0"})
-        page2 = _call({"token": "sk-tok123", "limit": "2", "offset": "2"})
+        page1 = _call({"limit": "2", "offset": "0"})
+        page2 = _call({"limit": "2", "offset": "2"})
     assert [i["product_id"] for i in page1["items"]] == ["1111111111", "2222222222"]
     assert [i["product_id"] for i in page2["items"]] == ["3333333333"]
     assert page1["total"] == 3
@@ -243,7 +237,7 @@ def test_shelf_pagination():
 def test_shelf_limit_capped_at_100():
     engine = FakeEngine(_rows_for_tenant(), _tasks_result())
     with _engine_ctx(engine):
-        resp = _call({"token": "sk-tok123", "limit": "500"})
+        resp = _call({"limit": "500"})
     assert resp["limit"] == 100
 
 
@@ -254,7 +248,7 @@ def test_shelf_limit_capped_at_100():
 def test_shelf_moderation_status_from_result():
     engine = FakeEngine(_rows_for_tenant(), _tasks_result())
     with _engine_ctx(engine):
-        resp = _call({"token": "sk-tok123"})
+        resp = _call({})
     items = {i["product_id"]: i for i in resp["items"]}
     # 提取成功：result JSONB 有 moderation_status
     assert items["1111111111"]["moderation_status"] == "approved"
@@ -274,5 +268,5 @@ def test_shelf_moderation_status_from_result():
 
 def test_shelf_no_token_401():
     with pytest.raises(HTTPException) as exc:
-        _call({})
+        _call({}, token=None)
     assert exc.value.status_code == 401

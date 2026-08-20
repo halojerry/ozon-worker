@@ -26,6 +26,8 @@ import main as main_mod
 from services import mxou_login_service
 from utils import mxou_platform
 
+LOCAL_TENANT = main_mod._key_user_id("local")
+
 PASSWORD = "s3cr3t-密码-@!xYz"
 
 LOGIN_OK = {
@@ -379,7 +381,7 @@ def test_password_not_in_logs(client):
 # 用 Bearer 头触发 _authenticate → _authenticate_token 真实本地降级路径。
 
 
-def _put_session(tenant_id: str = "local_dev", access_token: str = "at-1"):
+def _put_session(tenant_id: str = LOCAL_TENANT, access_token: str = "at-1"):
     """向模块级 session_store 写入 tenant session（测试前隔离）。"""
     mxou_login_service.session_store.put(tenant_id, {"access_token": access_token, "expires_at": None})
 
@@ -408,7 +410,7 @@ def test_list_keys_ok(client):
 
 def test_list_keys_no_session(client):
     """MxouSessionStore 无记录 → 401「请重新登录」。"""
-    mxou_login_service.session_store.pop("local_dev")
+    mxou_login_service.session_store.pop(LOCAL_TENANT)
     resp = client.get("/api/v1/mxou/keys", headers={"Authorization": "Bearer sk-local"})
     assert resp.status_code == 401
     assert "重新登录" in resp.text
@@ -430,14 +432,14 @@ def test_create_key_ok(client):
     assert body["key"] == "sk-xyz789abc"  # 新建一次性返回完整 key（用户复制）
     # upsert 被调：key 已去 sk- 前缀 + status=1 + unlimited_quota=true + on_conflict=key
     rows, on_conflict = sb._tokens.calls[0]
-    assert rows == [{"key": "xyz789abc", "user_id": "local_dev", "status": 1,
+    assert rows == [{"key": "xyz789abc", "user_id": LOCAL_TENANT, "status": 1,
                      "unlimited_quota": True}]
     assert on_conflict == "key"
 
 
 def test_create_key_no_session(client):
     """无 session → 401「请重新登录」。"""
-    mxou_login_service.session_store.pop("local_dev")
+    mxou_login_service.session_store.pop(LOCAL_TENANT)
     resp = client.post("/api/v1/mxou/keys", json={"name": "x"},
                        headers={"Authorization": "Bearer sk-local"})
     assert resp.status_code == 401
@@ -463,7 +465,7 @@ def test_select_key_ok(client):
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"key": "sk-abc123def456"}
     rows, on_conflict = sb._tokens.calls[0]
-    assert rows == [{"key": "abc123def456", "user_id": "local_dev", "status": 1,
+    assert rows == [{"key": "abc123def456", "user_id": LOCAL_TENANT, "status": 1,
                      "unlimited_quota": True}]
     assert on_conflict == "key"
 

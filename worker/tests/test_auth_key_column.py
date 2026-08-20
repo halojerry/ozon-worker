@@ -91,22 +91,22 @@ def test_auth_verify_select_includes_key_and_passes_key_to_balance():
     assert resp["valid"] is True
 
 
-def test_submit_task_select_includes_key_and_passes_key_to_balance():
-    """submit_task: tokens SELECT 带 key 列，且 key 实际传给 _check_mxou_balance。"""
+def test_submit_task_derives_tenant_and_passes_key_to_balance():
+    """submit_task (v0.56 key 派生租户): 不再 SELECT tokens 表，_check_mxou_balance 收 key+user_id。"""
     import main as main_mod
 
-    fake = _fake_supabase(_valid_token_record())
     captured = {}
 
     def fake_balance(record):
         captured["record"] = record
         return 100.0, True
 
-    with patch("main.get_supabase_client", return_value=fake), patch(
-        "main._check_mxou_balance", side_effect=fake_balance
-    ), patch.object(main_mod, "task_processor", _FakeProcessor()):
+    with patch("main._check_mxou_balance", side_effect=fake_balance), patch.object(
+        main_mod, "task_processor", _FakeProcessor()
+    ):
         resp = asyncio.run(main_mod.http_submit_task(FakeRequest(_submit_body())))
 
-    assert _select_arg(fake) == EXPECTED_SELECT, "submit_task SELECT 必须包含 key 列"
     assert captured["record"].get("key") == "tok123", "MXOU 实查分支需要 key，否则是死代码"
+    assert captured["record"].get("user_id") == main_mod._key_user_id("tok123"), \
+        "submit_task 按 key 派生租户（不再查 tokens 表）"
     assert resp["ok"] is True

@@ -45,14 +45,6 @@ def _valid_supabase() -> MagicMock:
     return fake
 
 
-def _empty_supabase() -> MagicMock:
-    """返回 tokens 表零命中的 Supabase mock（无效 token）。"""
-    fake = MagicMock()
-    chain = fake.table.return_value.select.return_value.eq.return_value.is_.return_value.execute
-    chain.return_value.data = []
-    return fake
-
-
 def _fake_new_context(method: str = "", headers=None, **kwargs):
     """本地 runtime/context.py 是精简 stub（new_context 不收 headers），测试侧兼容。"""
     from runtime.context import Context
@@ -98,16 +90,8 @@ def test_authenticate_token_rate_limited_429():
 
 
 def test_authenticate_token_valid_returns_user_id():
-    with patch.object(main_mod.rate_limiter, "check", return_value=(True, 10)), \
-         patch("main.get_supabase_client", return_value=_valid_supabase()):
-        assert main_mod._authenticate_token("sk-tok123") == "u1"
-
-
-def test_authenticate_token_invalid_401():
-    with patch.object(main_mod.rate_limiter, "check", return_value=(True, 10)), \
-         patch("main.get_supabase_client", return_value=_empty_supabase()), pytest.raises(HTTPException) as exc:
-        main_mod._authenticate_token("sk-bad")
-    assert exc.value.status_code == 401
+    with patch.object(main_mod.rate_limiter, "check", return_value=(True, 10)):
+        assert main_mod._authenticate_token("sk-tok123") == main_mod._key_user_id("tok123")
 
 
 # ============================================================
@@ -202,28 +186,3 @@ def test_auth_gate_chat_valid_token_passes():
          patch.object(main_mod.openai_handler, "handle", side_effect=fake_handle, create=True):
         result = _call_chat({"token": "sk-tok123", "messages": [{"role": "user", "content": "hi"}]})
     assert result["choices"][0]["message"]["content"] == "hi"
-
-def test_authenticate_token_supabase_outage_503():
-    """Supabase 瞬断（网络异常）→ 503 fail-closed（不放行、不 500、不清 token）。"""
-    import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-    from fastapi import HTTPException
-    from unittest.mock import patch
-    import main
-
-    class _Boom:
-        def table(self, *a, **k):
-            return self
-        def select(self, *a, **k):
-            return self
-        def eq(self, *a, **k):
-            return self
-        def is_(self, *a, **k):
-            return self
-        def execute(self):
-            raise ConnectionError("SSL: UNEXPECTED_EOF_WHILE_READING")
-
-    with patch.object(main, "get_supabase_client", return_value=_Boom()):
-        with pytest.raises(HTTPException) as ei:
-            main._authenticate_token("sk-validkey123")
-    assert ei.value.status_code == 503
