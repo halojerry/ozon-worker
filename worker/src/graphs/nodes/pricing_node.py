@@ -2,7 +2,6 @@
 import os
 import json
 import logging
-import math
 import requests
 from utils.http_session import session
 from typing import Any, Dict, Optional, Tuple
@@ -153,9 +152,23 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             logger.warning("⚠️ cost_cny为0或空，使用默认值: 10 CNY")
         
         # 获取扩展配置
-        margin_rate: float = float(extensions.get("margin_rate", 0.25))  # 利润率 25%
+        margin_rate: float = float(extensions.get("margin_rate", 0.25))  # 利润率 25%（单档）/ 三档日常价
         
         fx_buffer: float = float(extensions.get("fx_buffer", 0.05))  # 汇率缓冲 5%
+
+        # ✅ v0.60 三档双价格体系：仅当信封显式传 margin_floor/margin_anchor 才启用三档。
+        # 向后兼容：只传 margin_rate（无 floor/anchor）→ 保持单档旧行为（不启用三档）。
+        dual_margin: bool = "margin_floor" in extensions or "margin_anchor" in extensions
+        if dual_margin:
+            margin_anchor: Optional[float] = float(extensions.get("margin_anchor", 2.0))  # 划线原价（用户拍板默认 2.0）
+            margin_floor: Optional[float] = float(extensions.get("margin_floor", 0.6))    # 促销底线（用户拍板默认 0.6）
+            variable_cost_rate: Optional[float] = float(extensions.get("variable_cost_rate", 0.155))  # 日常变动成本
+            promo_variable_cost_rate: Optional[float] = float(extensions.get("promo_variable_cost_rate", 0.245))  # 促销变动成本
+        else:
+            margin_anchor = None
+            margin_floor = None
+            variable_cost_rate = None
+            promo_variable_cost_rate = None
         
         # Step 2: 查询物流费率（PG logistics_rates + Ozon API获取3PL/服务等级）
         # ⚠️ v0.29.x: 改用公共模块 logistics_quote(与 /api/v1/logistics/quote 端点同源)
@@ -222,10 +235,17 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             f"档={band}, 佣金={commission_rate*100:.1f}%"
         )
         
-        # 除零守卫保留给下方变体定价循环使用（变体 old_price 规则与单 SKU 不同，独立计算）
-        commission_divisor: float = (1.0 - commission_rate)
-        if commission_divisor <= 0:
-            commission_divisor = 0.9  # 防止除零
+        # 三档时透传新参数给 compute_price（唯一定价公式入口）；单档时全不传 → compute_price 保持旧行为
+        _dual_kwargs: Dict[str, Any] = (
+            {
+                "margin_anchor": margin_anchor,
+                "margin_floor": margin_floor,
+                "variable_cost_rate": variable_cost_rate,
+                "promo_variable_cost_rate": promo_variable_cost_rate,
+            }
+            if dual_margin
+            else {}
+        )
 
         _est = compute_price(
             total_cost_cny=total_cost_cny,
@@ -234,9 +254,11 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             fx_buffer=fx_buffer,
             currency_code=currency_code,
             exchange_rate=exchange_rate,  # CNY 时 _get_exchange_rate 返回 1.0（CNY 路径不使用）
+            **_dual_kwargs,
         )
         price: int = _est["price"]
         old_price: int = _est["old_price"]
+        promo_price: Optional[int] = _est.get("promo_price")
         currency_unit = "CNY" if currency_code == "CNY" else "RUB"
         profit_cny: float = _est["profit_cny"]
         profit_rate_actual: float = _est["profit_rate"]
@@ -265,6 +287,10 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             "exchange_rate": exchange_rate if currency_code == "RUB" else 1.0,
             "price": price,
             "old_price": old_price,
+            **({"promo_price": promo_price,
+                "margin_anchor": margin_anchor,
+                "margin_floor": margin_floor,
+                "variable_cost_rate": variable_cost_rate} if dual_margin else {}),
             "currency_unit": currency_unit,
             "weight_suspect": weight_suspect_reason,
             # ✅ v0.37 A2/B2: 重量/尺寸归一化标疑明细（weight_source/reasons），
@@ -280,7 +306,11 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             "profit_estimation": {
                 "profit_cny": round(profit_cny, 2),
                 "profit_rate": round(profit_rate_actual, 4),
-                "profit_formula": "final_price - total_cost",
+                "profit_formula": (
+                    "净利=售价×(1-佣金-变动成本率)-总成本；profit_rate=净利/售价（销售净利率）"
+                    if dual_margin
+                    else "净利=售价-总成本；profit_rate=净利/总成本（成本利润率）"
+                ),
                 "cost_breakdown": {
                     "product_cost_cny": cost_cny,
                     "logistics_cost_cny": logistics_cost,
@@ -305,7 +335,13 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             "_debug_used_currency_code": currency_code
         }
         
-        logger.info(f"价格计算成功: price={price} {currency_unit}, old_price={old_price} {currency_unit}, currency_code={currency_code}")
+        _price_log = (
+            f"价格计算成功(三档): price(日常)={price} {currency_unit}, "
+            f"old_price(划线)={old_price} {currency_unit}, promo_price(促销)={promo_price} {currency_unit}"
+            if dual_margin
+            else f"价格计算成功: price={price} {currency_unit}, old_price={old_price} {currency_unit}"
+        )
+        logger.info(f"{_price_log}, currency_code={currency_code}")
         
         # ✅ 多SKU变体定价：为每个variant计算独立价格
         # ⚠️ v0.60: 优先用 state.variants（与 prepare 同源，ingest 提取），
@@ -322,26 +358,38 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 # 使用variant的price作为采购成本（1688售价即为我们的采购成本）
                 var_cost_cny: float = float(var.get("price", 0) or cost_cny)
                 var_total_cost: float = var_cost_cny + logistics_cost + packaging_cost
-                
-                if currency_code == "CNY":
-                    var_base_price: float = var_total_cost * (1 + margin_rate) / commission_divisor
-                    var_price: int = math.ceil(var_base_price)
-                    var_old_price: int = var_price + 3 if var_price <= 25 else math.ceil(var_price * 1.15)
-                else:
-                    var_base_rub: float = var_total_cost * (1 + margin_rate) * (1 + fx_buffer) / commission_divisor * exchange_rate
-                    var_price = math.ceil(var_base_rub)
-                    var_old_price = var_price + 3 if var_price <= 25 else math.ceil(var_price * 1.15)
+
+                # ⚠️ v0.60: 变体定价统一走 compute_price（与单 SKU 同源，
+                # 消除旧内联公式 ×1.15 vs 单 SKU ×1.2 的 old_price 漂移）
+                var_est = compute_price(
+                    total_cost_cny=var_total_cost,
+                    margin_rate=margin_rate,
+                    commission_rate=commission_rate,
+                    fx_buffer=fx_buffer,
+                    currency_code=currency_code,
+                    exchange_rate=exchange_rate,
+                    **_dual_kwargs,
+                )
+                var_price: int = var_est["price"]
+                var_old_price: int = var_est["old_price"]
+                var_promo_price: Optional[int] = var_est.get("promo_price")
                 
                 var_sku_id: str = str(var.get("sku_id", ""))
                 var_color: str = str(var.get("color", ""))
-                variant_prices.append({
+                var_entry: Dict[str, Any] = {
                     "sku_id": var_sku_id,
                     "color": var_color,
                     "price": var_price,
                     "old_price": var_old_price,
                     "currency_code": currency_code
-                })
-                logger.info(f"  变体 {var_sku_id}: color={var_color}, cost={var_cost_cny}CNY → price={var_price} {currency_unit}, old_price={var_old_price}")
+                }
+                if var_promo_price is not None:
+                    var_entry["promo_price"] = var_promo_price
+                variant_prices.append(var_entry)
+                _var_log = f"price={var_price} {currency_unit}, old_price={var_old_price}"
+                if var_promo_price is not None:
+                    _var_log += f", promo_price={var_promo_price} {currency_unit}"
+                logger.info(f"  变体 {var_sku_id}: color={var_color}, cost={var_cost_cny}CNY → {_var_log}")
             
             pricing_info["variant_prices"] = variant_prices
             logger.info(f"✅ 多SKU变体定价完成：{len(variant_prices)}个变体价格已计算")
