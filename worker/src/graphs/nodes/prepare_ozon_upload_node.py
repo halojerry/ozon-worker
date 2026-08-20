@@ -15,6 +15,7 @@ from utils.mxou_llm import call_mxou_chat_api
 from utils.mxou_api import MxouOutOfQuotaError
 from utils.title_sanitizer import sanitize_title
 from utils.attribute_utils import is_customs_attr, is_hazard_attr, get_safe_hazard_default, has_chinese  # ⚠️ v0.16 海关 / v0.21 危险品防御
+from utils.title_formula import build_title_formula_prompt, parse_title_formula_keywords  # v0.59 标题公式唯一入口
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +206,18 @@ def _get_color_from_dictionary(
     return ("", 0)
 
 
-def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", text_type: str = "description") -> str:
+def _extract_traffic_keywords(extensions: Optional[dict]) -> list:
+    """从信封 extensions 读取 traffic_keywords 并过滤（纯西里尔、≤3 个、≤20 字符）。
+
+    v0.59 约定：traffic_keywords 只做提示词增强（LLM 自主融入场景/属性段），
+    不做硬性注入。无值/非法 → []（向后兼容）。
+    """
+    if not isinstance(extensions, dict):
+        return []
+    return parse_title_formula_keywords(extensions.get("traffic_keywords") or [])
+
+
+def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", text_type: str = "description", traffic_keywords: Optional[List[str]] = None) -> str:
     """
     使用mxou LLM API将文本翻译为俄语。
     token: mxou API密钥（用户输入）
@@ -230,49 +242,11 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
         model_id: str = llm_config.get("model", "deepseek-v4-flash")
 
         if text_type == "title":
-            # 标题翻译：统一「核心词+属性+场景」三段式公式
-            _title_formula = (
-                "标题公式：[核心词], [属性], [场景]\n"
-                "- 核心词：产品是什么（如 Садовый секатор）\n"
-                "- 属性：1-2个关键特征（如 профессиональный, с латексным покрытием）\n"
-                "- 场景：使用场景（如 для обрезки веток）\n"
-            )
+            # 标题翻译：共享模块 utils/title_formula（核心词+属性+场景公式 + 流量词建议行）
             if source_lang == "zh" or _has_chinese(text):
-                sys_prompt: str = (
-                    "你是Ozon俄罗斯电商平台的产品标题专家。将中文标题翻译为俄语，严格遵循以下公式。\n\n"
-                    f"{_title_formula}\n"
-                    "严格规则（违反任何一条都会导致Ozon审核拒绝）：\n"
-                    "1. 标题长度不超过80个字符（含空格和标点）\n"
-                    "2. 标题中必须包含逗号或破折号分隔各部分\n"
-                    "3. 绝对禁止关键词堆砌：连续名词性关键词不超过3个\n"
-                    "4. 去除所有营销词汇：跨境爆款、现货、亚马逊、爆款、热销、新品、促销等\n"
-                    "5. 去除重复关键词\n"
-                    "6. 100%西里尔字母，禁止拉丁字母和中文\n"
-                    "7. 只返回俄语标题，不要解释\n\n"
-                    "示例：\n"
-                    "- 输入：\"跨境爆款 现货 Frog Plant Stand 绿色动物宠物青蛙装饰植物架\"\n"
-                    "- 输出：\"Подставка для растений, декоративная лягушка, для дома\"\n"
-                    "- 输入：\"亚马逊创意JungleSpoon绿叶子漏勺龟背叶勺子捞面勺\"\n"
-                    "- 输出：\"Кухонная ложка-шумовка, лист монстеры, для кухни\""
-                )
+                sys_prompt: str = build_title_formula_prompt("zh", traffic_keywords)
             else:
-                sys_prompt = (
-                    "You are an Ozon Russia product title expert. Translate the English title into Russian using this formula.\n\n"
-                    f"{_title_formula}\n"
-                    "Strict rules (violation causes Ozon rejection):\n"
-                    "1. Max 80 characters (including spaces and punctuation)\n"
-                    "2. Must contain comma or dash separating parts\n"
-                    "3. No keyword stuffing: max 3 consecutive noun keywords\n"
-                    "4. Remove all marketing words: Amazon, hot sale, new, bestseller, etc.\n"
-                    "5. No duplicate keywords\n"
-                    "6. 100% Cyrillic, no Latin, no Chinese\n"
-                    "7. Return only the Russian title\n\n"
-                    "Examples:\n"
-                    "- Input: \"Frog Plant Stand Green Animal Pet Frog Decoration Plant Rack\"\n"
-                    "- Output: \"Подставка для растений, декоративная лягушка, для дома\"\n"
-                    "- Input: \"JungleSpoon Green Leaf Colander Monstera Spoon Noodle Strainer\"\n"
-                    "- Output: \"Кухонная ложка-шумовка, лист монстеры, для кухни\""
-                )
+                sys_prompt = build_title_formula_prompt("en", traffic_keywords)
         else:
             # 普通翻译（描述等）— 加内容净化规则
             _desc_rules = (
@@ -321,19 +295,11 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
             if retry_translated and _has_cyrillic(retry_translated):
                 logger.info(f"✅ 简化重试翻译成功: '{text[:50]}' → '{retry_translated[:50]}'")
                 return retry_translated
-            # 最终 fallback：用「核心词+属性+场景」公式生成俄语名称（而非回退到中文）
+            # 最终 fallback：用共享公式生成俄语名称（而非回退到中文）
             logger.warning(f"⚠️ 翻译失败，用公式生成俄语名称: '{text[:50]}'")
-            gen_prompt = (
-                "你是Ozon俄罗斯电商平台产品命名专家。\n"
-                "根据以下产品信息，用「核心词+属性+场景」公式生成俄语标题：\n"
-                "- 核心词：产品是什么\n"
-                "- 属性：1-2个关键特征\n"
-                "- 场景：使用场景\n"
-                "要求：≤80字符，必须含逗号，100%西里尔字母，无拉丁/中文。只返回标题。"
-            )
             gen_result: str = call_mxou_chat_api(
                 token=token,
-                system_prompt=gen_prompt,
+                system_prompt=build_title_formula_prompt("zh", traffic_keywords or None),
                 user_prompt=f"Product keywords: {text[:200]}",
                 model=model_id,
                 temperature=0.3,
@@ -1720,14 +1686,18 @@ def prepare_ozon_upload_node(
     # Step 5: 标题翻译成俄语（如果标题是中文或拉丁字母）
     title_ru: str = title_cn  # 默认使用原始标题
     
+    # v0.59: 标题公式流量词（envelope extensions 携带，纯西里尔 ≤3 ≤20 字符，只做提示词增强）
+    _traffic_keywords: list = _extract_traffic_keywords(state.extensions or {})
+    _traffic_kwargs: dict = {"traffic_keywords": _traffic_keywords} if _traffic_keywords else {}
+    
     # ✅ 关键修复：如果标题包含中文字符或纯拉丁字母，调用LLM翻译为俄语
     if _has_chinese(title_cn):
         logger.warning(f"标题包含中文，调用LLM翻译为俄语：{title_cn[:80]}")
-        title_ru = _translate_to_russian_llm(title_cn, mxou_token, source_lang="zh", text_type="title")
+        title_ru = _translate_to_russian_llm(title_cn, mxou_token, source_lang="zh", text_type="title", **_traffic_kwargs)
         logger.info(f"✅ 标题翻译完成：{title_ru[:80]}")
     elif not _has_cyrillic(title_cn) and title_cn.strip():
         logger.warning(f"标题为纯拉丁字母，调用LLM翻译为俄语：{title_cn[:80]}")
-        title_ru = _translate_to_russian_llm(title_cn, mxou_token, source_lang="en", text_type="title")
+        title_ru = _translate_to_russian_llm(title_cn, mxou_token, source_lang="en", text_type="title", **_traffic_kwargs)
         logger.info(f"✅ 标题翻译完成：{title_ru[:80]}")
     
     # ✅ 标题后校验：确保标题符合Ozon规范（≤50字符、含标点、无关键词堆砌）
@@ -1744,14 +1714,7 @@ def prepare_ozon_upload_node(
             logger.info(f"   标题生成关键词：{keywords[:80]}")
             gen_title = call_mxou_chat_api(
                 token=mxou_token,
-                system_prompt=(
-                    "你是Ozon俄罗斯电商平台产品命名专家。\n"
-                    "根据以下产品信息，用「核心词+属性+场景」公式生成俄语标题：\n"
-                    "- 核心词：产品是什么\n"
-                    "- 属性：1-2个关键特征\n"
-                    "- 场景：使用场景\n"
-                    "要求：≤80字符，必须含逗号，100%西里尔字母，无拉丁/中文。只返回标题。"
-                ),
+                system_prompt=build_title_formula_prompt("zh", _traffic_keywords or None),
                 user_prompt=f"产品信息：{keywords}",
                 model="deepseek-v4-flash",
                 temperature=0.3,

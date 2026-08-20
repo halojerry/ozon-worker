@@ -38,6 +38,8 @@ from utils.ozon_category_query import get_category_query, OzonCategoryQuery
 from utils.http_session import session
 from utils.attribute_utils import HAZARD_DICT_ATTR_IDS, is_customs_attr, pick_dict_fallback_value  # ⚠️ v0.16 海关不填 / v0.21 兜底规则
 from utils.attr_synonyms import load_attr_synonyms  # v0.32 共享同义词加载器（单一事实源）
+from utils.title_formula import parse_title_formula_keywords  # T1: 流量词纯西里尔过滤（hashtag 23171 消费）
+from utils.size_mapper import filter_brand_from_hashtags  # hashtag 品牌过滤（与 prepare 侧同源）
 
 # ── v0.21: 外置同义词映射（1688 词 → Ozon ZH 类目词），解决字面匹配同义词不通 ──
 _SYNONYMS_CACHE: dict | None = None
@@ -510,6 +512,8 @@ def assemble_ozon_product_node(
 
     # 🆕 跟卖模式：类目已由前序节点设置（或 Skill 从 Ozon 页面提取），直接跳到属性组装
     extensions = state.envelope.get("extensions", {}) if state.envelope else {}
+    # 🆕 T6: 流量关键词（what-to-sell all-queries 来源，俄语）→ hashtag 23171 消费
+    traffic_kws: list[str] = extensions.get("traffic_keywords") or []
     # ✅ 优先用 draft.ozon_category（Skill 端从 Ozon 竞品页面提取的类目名/ID）
     draft_ozon_cat = draft.get("ozon_category", {}) if draft else {}
     if extensions.get("follow_sell"):
@@ -1203,6 +1207,7 @@ def assemble_ozon_product_node(
         supplier=draft.get("supplier", ""),
         ru_category_path=ru_category_path,
         item_id=str(draft.get("item_id", "") or ""),
+        traffic_keywords=traffic_kws,
     )
 
     # =====================================================
@@ -1298,6 +1303,7 @@ def assemble_ozon_product_node(
                                 price_rub=price_rub, old_price_rub=old_price_rub,
                                 currency_code=currency_code, token=token,
                                 ru_category_path=re_ru_path,
+                                traffic_keywords=traffic_kws,
                             )
                             if rebuild_result:
                                 description_category_id = re_cat_id
@@ -1386,6 +1392,7 @@ def assemble_ozon_product_node(
                         price_rub=price_rub, old_price_rub=old_price_rub,
                         currency_code=currency_code, token=token,
                         ru_category_path=ru_category_path,
+                        traffic_keywords=traffic_kws,
                     )
                     if rebuild_result:
                         description_category_id = llm_cid
@@ -1585,6 +1592,7 @@ def _rebuild_for_new_category(
     price_rub: str, old_price_rub: str, currency_code: str,
     token: str,
     ru_category_path: str = "",
+    traffic_keywords: list[str] | None = None,
 ) -> dict | None:
     """
     v0.9.0: 类目变更后重建属性 schema + items + final_attributes。
@@ -1675,6 +1683,7 @@ def _rebuild_for_new_category(
             supplier=draft.get("supplier", ""),
             ru_category_path=ru_category_path,
             item_id=str(draft.get("item_id", "") or ""),
+            traffic_keywords=traffic_keywords,
         )
         
         # Step 6': 提取 final_attributes
@@ -2012,6 +2021,7 @@ def _validate_and_enrich_items(
     supplier: str = "",
     ru_category_path: str = "",
     item_id: str = "",
+    traffic_keywords: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """校验并补充 items 字段（属性补全、品牌修正、hashtag 生成等）"""
 
@@ -2492,13 +2502,13 @@ def _validate_and_enrich_items(
                 val = str(v.get("value", ""))
                 # 如果是品牌值 "Нет бренда" 或无意义值，替换为生成的 hashtag
                 if val == NO_BRAND_VALUE or val == "" or not val.startswith("#"):
-                    new_tags = _generate_hashtags(item.get("name", ""))
+                    new_tags = _generate_hashtags(item.get("name", ""), traffic_keywords=traffic_keywords)
                     v["value"] = new_tags
                     v["dictionary_value_id"] = 0  # 23171 是自由文本
                     logger.info(f"   ✅ hashtag #23171 修正为: {new_tags}")
         elif FORCE_ATTR_23171 in {int(a.get("id", 0)) for a in attr_list}:
             # Schema 中有 23171 但 LLM 没有生成，补充
-            new_tags = _generate_hashtags(item.get("name", ""))
+            new_tags = _generate_hashtags(item.get("name", ""), traffic_keywords=traffic_keywords)
             validated_attrs.append({
                 "complex_id": 0,
                 "id": FORCE_ATTR_23171,
@@ -2741,23 +2751,35 @@ _HASHTAG_RU: dict[str, str] = {
 }
 
 
-def _generate_hashtags(name: str) -> str:
-    """根据俄语标题生成 3-5 个 hashtag（不含品牌名）"""
-    if not name:
+def _generate_hashtags(name: str, traffic_keywords: list[str] | None = None) -> str:
+    """生成 3-5 个 hashtag（不含品牌名）。
+
+    优先级：`traffic_keywords`（俄语流量词，Ozon 搜索流量载体，经
+    `parse_title_formula_keywords` 纯西里尔过滤）→ `_HASHTAG_RU` 字典 → 标题西里尔词
+    提取 → `#товар` 兜底。结果统一走 `filter_brand_from_hashtags` 品牌过滤
+    （与 prepare L2057 同源，保持现有行为）。
+    """
+    if not name and not traffic_keywords:
         return "#товар"
 
-    name_lower = name.lower()
+    name_lower = (name or "").lower()
     tags: list[str] = []
 
-    # 从预定义字典匹配
-    for keyword, tag_str in _HASHTAG_RU.items():
-        if keyword in name_lower:
-            tags = [f"#{t}" for t in tag_str.split()[:5]]
-            break
+    # 1. 流量关键词优先（中文/拉丁/超长词被 parse 丢弃）
+    if traffic_keywords:
+        kws = parse_title_formula_keywords(traffic_keywords)[:5]
+        if kws:
+            tags = [f"#{kw}" for kw in kws]
 
+    # 2. 从预定义字典匹配
     if not tags:
-        # 从标题中提取俄语单词（排除短词和停用词）
-        import re
+        for keyword, tag_str in _HASHTAG_RU.items():
+            if keyword in name_lower:
+                tags = [f"#{t}" for t in tag_str.split()[:5]]
+                break
+
+    # 3. 从标题中提取俄语单词（排除短词和停用词）— 中文标题时恒空 → #товар
+    if not tags:
         stopwords = {"для", "из", "и", "в", "на", "с", "по", "от", "не", "или", "а", "то", "как"}
         words = re.findall(r'[а-яё]{3,}', name_lower)
         meaningful = [w for w in words if w not in stopwords][:4]
@@ -2767,7 +2789,7 @@ def _generate_hashtags(name: str) -> str:
         else:
             tags = ["#товар"]
 
-    return " ".join(tags[:5])
+    return filter_brand_from_hashtags(" ".join(tags[:5]))
 
 
 def _llm_rank_categories(

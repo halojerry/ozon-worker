@@ -15,6 +15,7 @@ import re
 from typing import Optional
 
 from utils.mxou_api import call_mxou_chat_api
+from utils.title_formula import build_title_formula_prompt, parse_title_formula_keywords  # v0.59 标题公式唯一入口
 
 logger = logging.getLogger(__name__)
 
@@ -59,27 +60,13 @@ def extract_current_value(field: str, payload: dict) -> Optional[str]:
     return None
 
 
-def _build_prompt(field: str, current_value: str) -> tuple[str, str]:
+def _build_prompt(field: str, current_value: str, traffic_keywords: Optional[list] = None) -> tuple[str, str]:
     """按字段构建 (system_prompt, user_prompt)——复用现有翻译路径配方。"""
     if field == "title":
-        # 与 prepare_ozon_upload_node._translate_to_russian_llm 标题分支同配方
-        sys_prompt = (
-            "你是Ozon俄罗斯电商平台的产品标题专家。将中文标题翻译为俄语，严格遵循以下公式。\n"
-            "标题公式：[核心词], [属性], [场景]\n"
-            "- 核心词：产品是什么（如 Садовый секатор）\n"
-            "- 属性：1-2个关键特征（如 профессиональный, с латексным покрытием）\n"
-            "- 场景：使用场景（如 для обрезки веток）\n"
-            "严格规则（违反任何一条都会导致Ozon审核拒绝）：\n"
-            "1. 标题长度不超过80个字符（含空格和标点）\n"
-            "2. 标题中必须包含逗号或破折号分隔各部分\n"
-            "3. 绝对禁止关键词堆砌：连续名词性关键词不超过3个\n"
-            "4. 去除所有营销词汇：跨境爆款、现货、亚马逊、爆款、热销、新品、促销等\n"
-            "5. 去除重复关键词\n"
-            "6. 100%西里尔字母，禁止拉丁字母和中文\n"
-            "7. 只返回俄语标题，不要解释\n\n"
-            "示例：\n"
-            "- 输入：\"跨境爆款 现货 Frog Plant Stand 绿色动物宠物青蛙装饰植物架\"\n"
-            "- 输出：\"Подставка для растений, декоративная лягушка, для дома\""
+        # 与 prepare_ozon_upload_node 标题分支同配方：共享模块 utils/title_formula
+        # （核心词+属性+场景公式 + 流量词建议行；traffic_keywords 已 parse 过滤）
+        sys_prompt = build_title_formula_prompt(
+            "zh", parse_title_formula_keywords(traffic_keywords or []),
         )
     elif field == "description":
         # 与 prepare_ozon_upload_node 描述翻译同配方（净化规则）
@@ -144,10 +131,11 @@ def _validate_attributes_json(text: str) -> Optional[str]:
     return json.dumps(obj, ensure_ascii=False)
 
 
-def regenerate_field(field: str, current_value: str, token: str) -> Optional[str]:
+def regenerate_field(field: str, current_value: str, token: str, traffic_keywords: Optional[list] = None) -> Optional[str]:
     """单字段 AI 重新生成：LLM → 校验（非空 RU 无中文/拉丁残留）→ 返回；失败 None。
 
     token: mxou API 密钥（复用 call_mxou_chat_api，不新建客户端）。
+    traffic_keywords: 标题公式流量词（俄语，可选；title 分支注入 system_prompt）。
     """
     if field not in AI_FIELDS:
         raise ValueError(f"unknown field: {field}")
@@ -155,7 +143,7 @@ def regenerate_field(field: str, current_value: str, token: str) -> Optional[str
     if not text:
         return None
 
-    sys_prompt, user_prompt = _build_prompt(field, text)
+    sys_prompt, user_prompt = _build_prompt(field, text, traffic_keywords)
     result = call_mxou_chat_api(
         token=token,
         system_prompt=sys_prompt,
