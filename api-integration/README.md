@@ -69,8 +69,8 @@ const drafts = await api.get<components['schemas']['DraftOut'][]>('/drafts')
 | 速率超限 | `429` → 退避重试 |
 | 乐观锁冲突（draft PATCH） | `409` → 重新拉取后带新 version 重试 |
 
-> 本地起服（未配置 Supabase）→ 任意 token 放行返回 `local_dev`；
-> Docker 部署（配置了 Supabase）→ 生产鉴权，token 必须真实有效。
+> 鉴权：`Authorization: Bearer <MXOU key>`，**key 即用户**——`sk-` 剥离后由 key 派生
+> 稳定租户 `user_<sha256(key)[:16]>`，不依赖 Supabase，数据按 key 天然隔离（本地/生产统一）。
 
 ## 📚 详细文档
 
