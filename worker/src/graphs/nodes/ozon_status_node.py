@@ -448,23 +448,14 @@ def ozon_status_node(
                                         stages={"ozon_status": "failed"}
                                     )
                                 elif model_counts and all(c <= 1 for c in model_counts.values()):
-                                    # 所有变体count=1 → 未合并（正常合并后count应等于变体数）
-                                    error_msg = f"变体未合并：model_info.count={model_counts}（全部为1，预期≥{len(real_product_ids)}）"
-                                    logger.error(f"❌ {error_msg}")
-                                    return OzonStatusOutput(
-                                        product_id=real_product_ids[0],
-                                        product_ids=real_product_ids,
-                                        status="failed",
-                                        moderation_status="error",
-                                        upload_status="failed",
-                                        error_code="VARIANT_NOT_MERGED",
-                                        errors=[{"code": "VARIANT_NOT_MERGED", "message": error_msg, "model_counts": model_counts}],
-                                        purchase_url=purchase_url,
-                                        purchase_cost=purchase_cost,
-                                        sku_id=sku_id,
-                                        profit_estimation=profit_estimation,
-                                        error_message=error_msg,
-                                        stages={"ozon_status": "failed"}
+                                    # ⚠️ v0.60: 合并是异步的（官方 ~24h），上传后数分钟 model_info.count=1
+                                    # 是正常状态（合并尚未发生）。把「count 全为 1」从硬失败降为警告：
+                                    # 不阻塞任务成功，由后续异步合并验证（24-48h 回查 model_info.count）确认。
+                                    # 实测：上传后立即查 model_info 必 count=1，旧逻辑误报 VARIANT_NOT_MERGED
+                                    # + 触发 retry 重传（浪费 + 可能双卡）。
+                                    logger.warning(
+                                        f"⚠️ 变体合并待确认（异步 24h）：model_info.count={model_counts} "
+                                        f"（全部为1，合并尚未完成）。任务标记成功，由异步验证追踪。"
                                     )
                                 else:
                                     logger.info(f"✅ model_info验证通过: model_id={list(model_ids)}, counts={model_counts}（变体已合并）")

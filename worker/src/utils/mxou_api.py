@@ -22,6 +22,11 @@ GRSAI_API_KEY = os.getenv("GRSAI_API_KEY", "")
 # 默认生图模型和降级模型
 PRIMARY_IMAGE_MODEL = "gpt-image-2"
 FALLBACK_IMAGE_MODEL = "nano-banana-fast"
+# v0.60: 第三级降级 — fast 真失败后再降 nano-banana-2-lite（MXOU 2026-08 新增，
+# lite 适合做末级兜底；降级级统一 120s 超时控制总时长 180+120+120=420s）
+THIRD_IMAGE_MODEL = "nano-banana-2-lite"
+# 降级级模型统一超时（秒）— 降级模型速度优先，120s 足够（v0.60 三级降级引入）
+FALLBACK_TIMEOUT = 120
 
 
 class ImagePollTimeoutError(Exception):
@@ -352,34 +357,41 @@ def call_mxou_image_api(
         return result_url
 
     # Step 2: 主模型真失败（HTTP 重试耗尽 / failed / violation 重试耗尽），降级到 fallback 模型
-    if model != FALLBACK_IMAGE_MODEL:
-        logger.warning(
-            "主模型 %s 生图失败（已重试，总耗时=%.1fs），降级到 %s 重试...",
-            model, time.time() - t0, FALLBACK_IMAGE_MODEL
-        )
-        try:
-            fallback_url: Optional[str] = _call_image_with_model(
-                token=token,
-                prompt=prompt,
-                ref_images=ref_images,
-                aspect_ratio=aspect_ratio,
-                timeout=timeout,
-                max_retries=1,  # 降级只重试1次
-                model=FALLBACK_IMAGE_MODEL
-            )
-        except ImagePollTimeoutError:
+    # v0.60 三级降级：gpt-image-2 → nano-banana-fast → nano-banana-2-lite
+    # 降级级统一 FALLBACK_TIMEOUT(120s)；仅「真失败」触发降级（轮询超时 v0.26 纪律不降级防双倍计费）
+    # 链中任一模型失败 → 降级到链中更后的模型（fast 节点失败 → 2-lite）
+    _chain: List[str] = [FALLBACK_IMAGE_MODEL, THIRD_IMAGE_MODEL] if FALLBACK_IMAGE_MODEL != THIRD_IMAGE_MODEL else [FALLBACK_IMAGE_MODEL]
+    _start_idx: int = _chain.index(model) + 1 if model in _chain else 0
+    if _start_idx < len(_chain):
+        _last_url: Optional[str] = None
+        for _fb_model in _chain[_start_idx:]:
             logger.warning(
-                "降级模型 %s 轮询超时（任务可能仍在处理），不再重试（避免双倍计费）",
-                FALLBACK_IMAGE_MODEL
+                "模型 %s 生图失败（已重试，总耗时=%.1fs），降级到 %s 重试...",
+                model, time.time() - t0, _fb_model
             )
-            return None
-        if fallback_url:
-            logger.warning("降级模型 %s 生图成功（总耗时=%.1fs）",
-                           FALLBACK_IMAGE_MODEL, time.time() - t0)
-            return fallback_url
+            try:
+                _last_url = _call_image_with_model(
+                    token=token,
+                    prompt=prompt,
+                    ref_images=ref_images,
+                    aspect_ratio=aspect_ratio,
+                    timeout=FALLBACK_TIMEOUT,
+                    max_retries=1,  # 降级只重试1次
+                    model=_fb_model
+                )
+            except ImagePollTimeoutError:
+                logger.warning(
+                    "降级模型 %s 轮询超时（任务可能仍在处理），不再重试（避免双倍计费）",
+                    _fb_model
+                )
+                return None
+            if _last_url:
+                logger.warning("降级模型 %s 生图成功（总耗时=%.1fs）",
+                               _fb_model, time.time() - t0)
+                return _last_url
 
-        logger.error("主模型 %s 和降级模型 %s 均失败（总耗时=%.1fs）",
-                     model, FALLBACK_IMAGE_MODEL, time.time() - t0)
+        logger.error("模型 %s 和降级模型 %s 均失败（总耗时=%.1fs）",
+                     model, "/".join(_chain[_start_idx:]), time.time() - t0)
     else:
         logger.error("模型 %s 生图失败（无降级）", model)
 

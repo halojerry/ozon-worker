@@ -329,6 +329,7 @@ class FollowSellImportOutput(BaseModel):
 class PricingInput(BaseModel):
     """价格计算节点输入"""
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿数据")
+    variants: List[Dict[str, Any]] = Field(default_factory=list, description="变体SKU列表（ingest 从 draft 提取，与 prepare 同源）")
     extensions: Optional[Dict[str, Any]] = Field(default=None, description="扩展配置")
     supabase_url: str = Field(..., description="Supabase URL")
     supabase_key: str = Field(..., description="Supabase key")

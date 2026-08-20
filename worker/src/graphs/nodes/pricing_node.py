@@ -308,7 +308,11 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         logger.info(f"价格计算成功: price={price} {currency_unit}, old_price={old_price} {currency_unit}, currency_code={currency_code}")
         
         # ✅ 多SKU变体定价：为每个variant计算独立价格
-        variants_list: list = draft.get("variants", []) if isinstance(draft, dict) else []
+        # ⚠️ v0.60: 优先用 state.variants（与 prepare 同源，ingest 提取），
+        # 避免 draft.variants 与 state.variants 漂移导致错价（draft 兜底）
+        variants_list: list = state.variants if getattr(state, "variants", None) else (
+            draft.get("variants", []) if isinstance(draft, dict) else []
+        )
         variant_prices: list = []
         if variants_list and isinstance(variants_list, list) and len(variants_list) > 0:
             logger.info(f"🔄 多SKU变体定价：共{len(variants_list)}个变体")

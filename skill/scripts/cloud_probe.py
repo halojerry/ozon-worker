@@ -677,6 +677,44 @@ _BAIT_PRICE_RATIO_THRESHOLD: float = 0.3  # min_price < avg_price * 0.3
 _BAIT_PRICE_GAP_MIN: float = 3.0  # max_price / min_price >= 3
 
 
+def _sample_values(values: list[dict], limit: int) -> list[dict]:
+    """v0.60 G1: 维度内优选采样（替代 [:limit] 截断）。
+
+    排序键（降序）:
+    1. 有图优先 — 无图 SKU 的白底图会 fallback 到共享图，优先保留有独立图的
+    2. 价格距中位数近 — 保留主流规格，排除极端低价(引流已单过滤)/极端高价
+    3. 兜底: 原顺序（保持 1688 排序稳定性）
+    """
+    if len(values) <= limit:
+        return values
+    prices: list[float] = []
+    for v in values:
+        try:
+            p = float(v.get("price", 0) or 0)
+        except (TypeError, ValueError):
+            p = 0.0
+        if p > 0:
+            prices.append(p)
+    median_p: float = 0.0
+    if prices:
+        sp = sorted(prices)
+        median_p = sp[len(sp) // 2]
+
+    def _sort_key(v: dict):
+        has_img = 1 if (v.get("image") and str(v.get("image")).strip()) else 0
+        try:
+            p = float(v.get("price", 0) or 0)
+        except (TypeError, ValueError):
+            p = 0.0
+        if p > 0 and median_p > 0:
+            dist = abs(p - median_p)
+        else:
+            dist = 1e18
+        return (has_img, -dist)
+
+    return sorted(values, key=_sort_key, reverse=True)[:limit]
+
+
 def _is_skip_sku(sku_name: str) -> tuple[bool, str]:
     """Check if a SKU should be skipped (bait, custom, or service SKU).
 
@@ -1753,10 +1791,11 @@ def build_graph_envelope(
                     if sampled_count <= effective_max_skus:
                         break
                     per_dim = max(1, per_dim - 1)
-                # Apply sampling
+                # Apply sampling — v0.60 G1: 优选而非截断
+                # 排序键: ①有图优先(无图 SKU 白底图会 fallback) ②价格距中位数近(保留主流规格,排极端价)
                 for k in range(n_dims):
                     if len(value_lists[k]) > per_dim:
-                        value_lists[k] = value_lists[k][:per_dim]
+                        value_lists[k] = _sample_values(value_lists[k], per_dim)
                 new_total = 1
                 for vl in value_lists:
                     new_total *= len(vl)
@@ -1767,11 +1806,11 @@ def build_graph_envelope(
                     f"sampled to {new_total} ({per_dim} per dim)"
                 )
             else:
-                # Single dimension: truncate
+                # Single dimension: v0.60 G1 优选而非截断
                 dropped_skus = total_combos - effective_max_skus
-                value_lists[0] = value_lists[0][:effective_max_skus]
+                value_lists[0] = _sample_values(value_lists[0], effective_max_skus)
                 drop_reason = (
-                    f"single-dim truncation: total={total_combos} > max_skus={effective_max_skus}"
+                    f"single-dim sampling: total={total_combos} > max_skus={effective_max_skus}"
                 )
 
         # Generate cartesian product
