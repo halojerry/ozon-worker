@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ozon AI 自动化运营 ERP · 设计规格说明书 v1.3</title>
+<style>
+  :root {
+    --base: #F7F6F2; --surface: #FFFFFF; --header: #FAF9F6;
+    --ink: #111111; --ink-2: #2A2A2A; --ink-3: #4A4A4A; --ink-4: #8A8A8A; --ink-5: #B4B0A9;
+    --ink-aux: #6A6A6A;
+    --bg-sidebar-hover: #1D1D1D;
+    --bg-thumb: #EAE8E3;
+    --text-on-sidebar: #E8E8E8;
+    --text-sidebar-muted: #9A9A9A;
+    --white-border: #D9D6D0;
+    --line: #E6E4DF; --neutral-bg: #F1EFEA;
+    --accent: #E20E0E; --accent-dark: #B30C0C; --accent-soft: #FDEBEB;
+    --r-in: 6px; --r-card: 10px; --r-panel: 12px;
+    --sh-card: 0 1px 2px rgba(17,17,17,.04);
+    --sh-raised: 0 8px 24px rgba(17,17,17,.08);
+    --sh-glow: 0 0 24px rgba(226,14,14,.22);
+    --ease: cubic-bezier(.2,0,0,1);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { background:var(--base); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif; font-size:14px; line-height:1.6; }
+  .mono { font-family:SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; }
+  .layout { display:grid; grid-template-columns:236px 1fr; min-height:100vh; }
+
+  /* ═══ 黑色侧边栏 ═══ */
+  nav { background:var(--ink); color:#fff; padding:22px 0; position:sticky; top:0; height:100vh; overflow-y:auto; }
+  nav .brand { padding:0 20px 18px; border-bottom:1px solid var(--ink-2); }
+  nav .brand .logo { width:26px; height:26px; background:var(--accent); border-radius:6px; display:inline-block; vertical-align:middle; margin-right:8px; box-shadow:var(--sh-glow); }
+  nav .brand b { font-size:15px; letter-spacing:.5px; }
+  nav .brand p { color:var(--text-sidebar-muted); font-size:11px; margin-top:4px; }
+  nav .group { color:#8A8A8A; font-size:11px; letter-spacing:1px; padding:18px 20px 6px; }
+  nav a { display:flex; gap:10px; align-items:baseline; color:var(--text-on-sidebar); text-decoration:none; padding:7px 20px; font-size:13px; border-left:2px solid transparent; }
+  nav a i { color:var(--accent); font-style:normal; font-size:11px; letter-spacing:1px; }
+  nav a:hover { background:var(--bg-sidebar-hover); color:#fff; }
+  nav a:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; background:var(--bg-sidebar-hover); color:#fff; }
+  nav a.active { background:var(--bg-sidebar-hover); color:#fff; border-left-color:var(--accent); }
+
+  /* ═══ 主内容 ═══ */
+  main { padding:0 0 64px; max-width:1180px; }
+
+  .masthead { padding:64px 56px 40px; border-bottom:1px solid var(--line); }
+  .kicker { font-size:12px; letter-spacing:1px; color:var(--ink-3); margin-bottom:18px; display:flex; align-items:center; gap:12px; }
+  .kicker::after { content:""; flex:1; height:1px; background:var(--line); }
+  .kicker b { color:var(--accent); }
+  .masthead h1 { font-size:clamp(40px,6vw,66px); font-weight:800; letter-spacing:0; line-height:1.3; }
+  .masthead h1 em { font-style:normal; color:var(--accent); }
+  .masthead .sub { margin-top:16px; color:var(--ink-3); font-size:15px; max-width:620px; }
+  .meta-row { margin-top:28px; display:flex; flex-wrap:wrap; gap:10px; }
+  .pill { display:inline-block; background:var(--ink); color:#fff; border-radius:20px; padding:4px 14px; font-size:12px; }
+  .pill.red { background:var(--accent); }
+  .pill.line { background:transparent; border:1px solid var(--line); color:var(--ink-3); }
+
+  /* 封面样张 */
+  .cover-wrap { padding:40px 56px 0; }
+  .cover { border-radius:var(--r-panel); overflow:hidden; box-shadow:var(--sh-raised); border:1px solid var(--line); }
+  .cover img { width:100%; display:block; }
+  .cover-cap { display:flex; justify-content:space-between; padding:10px 14px; background:var(--surface); border:1px solid var(--line); border-top:0; border-radius:0 0 var(--r-panel) var(--r-panel); font-size:12px; color:var(--ink-aux); }
+
+  /* 章节 */
+  section { padding:52px 56px 0; }
+  .sec-head { display:flex; align-items:baseline; gap:16px; margin-bottom:26px; }
+  .sec-head .no { font-size:15px; color:var(--accent); font-weight:700; letter-spacing:1px; }
+  .sec-head h2 { font-size:30px; font-weight:800; letter-spacing:0; line-height:1.3; }
+  .sec-head .rule { flex:1; height:1px; background:var(--line); }
+  .sec-lead { color:var(--ink-3); font-size:14px; max-width:640px; margin:-14px 0 26px; }
+
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); padding:18px; box-shadow:var(--sh-card); }
+  .card h3 { font-size:15px; margin-bottom:8px; display:flex; gap:8px; align-items:center; }
+  .card h3 .dot { width:8px; height:8px; background:var(--accent); border-radius:50%; }
+  .card p { color:var(--ink-3); font-size:13px; }
+
+  /* 色彩 */
+  .swatch-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:14px; }
+  .swcard { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); overflow:hidden; }
+  .swcard .chip { height:64px; border-bottom:1px solid var(--line); }
+  .swcard .info { padding:10px 14px; }
+  .swcard .info code { font-size:12px; color:var(--ink-3); }
+  .swcard .info small { display:block; color:var(--ink-aux); font-size:11px; }
+  .swcard .tokens { padding:0 14px 12px; display:flex; flex-wrap:wrap; gap:6px; }
+  .tk { background:var(--neutral-bg); border-radius:4px; font-size:11px; padding:2px 8px; color:var(--ink-3); }
+
+  table { width:100%; border-collapse:collapse; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); overflow:hidden; font-size:13px; }
+  th,td { text-align:left; padding:10px 14px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { background:var(--header); font-weight:600; color:var(--ink-3); font-size:12px; }
+  td code { background:var(--neutral-bg); padding:2px 6px; border-radius:4px; font-size:12px; }
+  tr:last-child td { border-bottom:0; }
+
+  /* 字号阶梯标本 */
+  .typespec { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-panel); padding:28px 30px; }
+  .ts-row { display:flex; align-items:baseline; gap:20px; border-bottom:1px dashed var(--line); padding:10px 0; }
+  .ts-row:last-child { border-bottom:0; }
+  .ts-row .tag { flex:0 0 150px; font-size:11px; color:var(--ink-aux); }
+  .ts-row .tag b { color:var(--ink-3); }
+
+  /* 间距 / 圆角 / 阴影 */
+  .scale-row { display:flex; align-items:center; gap:14px; padding:6px 0; }
+  .scale-row .lbl { flex:0 0 64px; font-size:12px; color:var(--ink-aux); }
+  .bar { height:18px; background:var(--ink); border-radius:3px; }
+  .bar.red { background:var(--accent); }
+  .rchip { display:inline-flex; align-items:center; gap:10px; border:1px solid var(--line); background:var(--surface); border-radius:var(--r-panel); padding:10px 14px; }
+  .rchip i { background:var(--neutral-bg); border:1px solid var(--line); }
+  .shbox { height:64px; border-radius:var(--r-card); background:var(--surface); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--ink-aux); }
+  .shbox.raised { box-shadow:var(--sh-raised); }
+  .shbox.overlay { box-shadow:0 16px 48px rgba(17,17,17,.12); }
+  .shbox.glow { box-shadow:var(--sh-glow); border-color:transparent; }
+
+  /* 动效 */
+  .motion-demo { display:flex; gap:22px; align-items:center; flex-wrap:wrap; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-panel); padding:20px 24px; }
+  .mdot { width:22px; height:22px; background:var(--accent); border-radius:50%; }
+  .mdot.pulse { animation:pulse 1.6s var(--ease) infinite; }
+  @keyframes pulse { 0%,100% { box-shadow:0 0 0 0 rgba(226,14,14,.35);} 50% { box-shadow:0 0 0 10px rgba(226,14,14,0);} }
+  .mbar { width:120px; height:6px; background:var(--neutral-bg); border-radius:3px; overflow:hidden; }
+  .mbar i { display:block; height:100%; background:var(--ink); border-radius:3px; animation:grow 1.6s var(--ease) infinite; }
+  @keyframes grow { 0% { width:0%; } 50% { width:100%; } 100% { width:0%; } }
+
+  /* ═══ 组件实样 ═══ */
+  .comp { display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:16px; }
+  .comp-panel { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-panel); overflow:hidden; }
+  .comp-panel .head { padding:10px 16px; background:var(--header); border-bottom:1px solid var(--line); font-size:12px; color:var(--ink-3); display:flex; justify-content:space-between; }
+  .comp-panel .body { padding:20px; }
+
+  /* 侧栏实样 */
+  .sb { width:172px; background:var(--ink); border-radius:10px; color:#fff; padding:12px 0; font-size:12px; }
+  .sb .sb-brand { padding:0 14px 10px; border-bottom:1px solid var(--ink-2); display:flex; align-items:center; gap:8px; }
+  .sb .sb-brand i { width:12px; height:12px; background:var(--accent); border-radius:3px; display:inline-block; }
+  .sb .sb-item { padding:6px 14px; color:var(--text-on-sidebar); }
+  .sb .sb-item.on { background:var(--bg-sidebar-hover); color:#fff; border-left:2px solid var(--accent); }
+
+  /* 按钮 */
+  .btn { display:inline-block; padding:8px 18px; border-radius:var(--r-in); font-size:13px; cursor:default; border:1px solid transparent; }
+  .btn[tabindex]:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .btn.pri { background:var(--accent); color:#fff; }
+  .btn.pri:hover { background:var(--accent-dark); }
+  .btn.pri:active { background:var(--accent-dark); transform:translateY(1px); }
+  .btn.sec { background:var(--surface); border-color:var(--line); color:var(--ink); }
+  .btn.sec:active { background:var(--header); }
+  .btn.ghost { background:transparent; color:var(--ink-3); }
+  .btn.ghost:active { background:var(--neutral-bg); }
+  .btn.disable { background:var(--neutral-bg); color:var(--ink-5); }
+  .btn.loading { position:relative; color:transparent; background:var(--accent); cursor:progress; }
+  .btn.loading-active { pointer-events:none; }
+  .btn.loading::after { content:""; position:absolute; left:50%; top:50%; width:14px; height:14px; margin:-7px 0 0 -7px; border:2px solid rgba(255,255,255,.35); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .btn.danger { background:var(--surface); border-color:var(--accent); color:var(--accent-dark); }
+
+  /* 徽标 / 标签 */
+  .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:11px; background:var(--neutral-bg); color:var(--ink-3); }
+  .badge.red { background:var(--accent-soft); color:var(--accent-dark); }
+  .badge.dark { background:var(--ink); color:#fff; }
+  .tag { display:inline-block; padding:2px 10px; border:1px solid var(--line); border-radius:4px; font-size:11px; color:var(--ink-3); background:var(--surface); }
+  .tag.red { border-color:var(--accent); color:var(--accent-dark); background:var(--accent-soft); }
+
+  /* 输入 / Tab */
+  .input { display:flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:var(--r-in); padding:8px 12px; max-width:260px; background:var(--surface); }
+  .input span { color:var(--ink-5); font-size:12px; }
+  .input.focus { border-color:var(--accent); box-shadow:var(--sh-glow); }
+  .input.error { border-color:var(--accent); background:var(--accent-soft); }
+  .input.error span { color:var(--accent-dark); }
+  .input.disable { background:var(--neutral-bg); border-color:var(--neutral-bg); color:var(--ink-5); }
+  .input.disable span { color:var(--ink-5); }
+  .hint { font-size:11px; color:var(--ink-aux); margin-top:6px; max-width:260px; }
+  .hint.err { color:var(--accent-dark); }
+  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); }
+  .tabs div { padding:8px 16px; font-size:13px; color:var(--ink-aux); border-bottom:2px solid transparent; transition:color 100ms var(--ease); }
+  .tabs div:hover { color:var(--ink); }
+  .tabs div.on { color:var(--ink); border-bottom-color:var(--accent); font-weight:600; }
+
+  /* 指标卡 */
+  .metric { border:1px solid var(--line); border-radius:var(--r-card); padding:16px 18px; background:var(--surface); max-width:220px; box-shadow:var(--sh-card); }
+  .metric .lbl { font-size:12px; color:var(--ink-aux); }
+  .metric .val { font-size:28px; font-weight:700; font-family:SFMono-Regular,Menlo,monospace; margin:4px 0 2px; }
+  .metric .val.red { color:var(--accent); }
+  .metric .delta { font-size:11px; color:var(--ink-aux); }
+  .metric .delta b { color:var(--accent-dark); }
+  .metric .delta b.down { color:var(--ink-3); }
+
+  /* 迷你表格 */
+  .mtab { width:100%; font-size:12px; }
+  .mtab th { background:var(--header); color:var(--ink-3); font-weight:600; padding:7px 12px; text-align:left; border-bottom:1px solid var(--line); }
+  .mtab td { padding:7px 12px; border-bottom:1px solid var(--line); color:var(--ink-3); }
+  .mtab td.mono { color:var(--ink); }
+  .mtab tbody tr { transition:background 100ms var(--ease); }
+  .mtab tbody tr:hover td { background:var(--header); }
+  .mtab tr.sel td { background:var(--accent-soft); }
+  .mtab tr.sel:hover td { background:var(--accent-soft); }
+
+  /* 空态 */
+  .empty { border:1px dashed var(--ink-5); border-radius:var(--r-card); padding:28px 20px; text-align:center; color:var(--ink-aux); font-size:13px; }
+
+  /* ═══ Do / Don't ═══ */
+  .dd { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .dd .box { border-radius:var(--r-card); padding:16px 18px; font-size:13px; }
+  .dd .do { background:var(--surface); border:1px solid var(--line); }
+  .dd .dont { background:var(--accent-soft); border:1px solid var(--accent); }
+  .dd .box b { display:block; margin-bottom:6px; font-size:13px; }
+  .dd .do b { color:var(--ink); }
+  .dd .dont b { color:var(--accent-dark); }
+  .dd .box ul { list-style:none; color:var(--ink-3); }
+  .dd .box li { padding:3px 0; }
+  .dd .do li::before { content:"✓ "; color:var(--accent-dark); font-weight:700; }
+  .dd .dont li::before { content:"✕ "; color:var(--accent); font-weight:700; }
+
+  /* ═══ 页面速览 ═══ */
+  .gal-group { margin-bottom:26px; }
+  .gal-group .gt { font-size:13px; color:var(--ink-3); letter-spacing:1px; margin-bottom:10px; display:flex; align-items:center; gap:10px; }
+  .gal-group .gt::after { content:""; flex:1; height:1px; background:var(--line); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:18px; }
+  .screen { background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .screen a.thumb { display:block; background:var(--bg-thumb); }
+  .screen img { width:100%; height:180px; object-fit:cover; object-position:top; display:block; transition:transform .24s var(--ease); }
+  .screen a.thumb:hover img { transform:scale(1.03); }
+  .screen .meta { padding:12px 14px; border-top:1px solid var(--line); }
+  .screen .meta b { font-size:14px; }
+  .screen .meta p { color:var(--ink-3); font-size:12px; margin-top:4px; }
+  .screen .meta .badges { margin-top:8px; }
+  .num { display:inline-block; width:22px; height:22px; background:var(--ink); color:#fff; border-radius:50%; text-align:center; line-height:22px; font-size:12px; margin-right:8px; vertical-align:1px; }
+
+  footer { margin-top:52px; border-top:1px solid var(--line); padding:18px 56px; color:var(--ink-aux); font-size:12px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+
+  @media (max-width:900px) {
+    .layout { grid-template-columns:1fr; }
+    nav { position:static; height:auto; }
+    main { padding-bottom:40px; }
+    .masthead { padding:40px 22px 28px; }
+    .cover-wrap { padding:24px 22px 0; }
+    section { padding:40px 22px 0; }
+    footer { padding:16px 22px; }
+    .dd { grid-template-columns:1fr; }
+    .layout, main, section, .typespec, table, .comp, .grid, .cards { min-width:0; }
+    .masthead h1 { font-size:clamp(32px,9vw,46px); }
+    .sec-head h2 { font-size:24px; }
+    .ts-row { flex-direction:column; align-items:flex-start; gap:6px; }
+    .ts-row .tag { flex:0 0 auto; }
+    table { display:block; overflow-x:auto; }
+    .typespec { padding:20px 18px; }
+    nav { padding:14px 0 8px; }
+    nav .group { padding:12px 16px 4px; }
+    nav a { padding:6px 16px; }
+    .comp { grid-template-columns:1fr; }
+    .swatch-grid { grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); }
+  }
+  /* 兑现「支持系统减弱动效」承诺 */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior:auto; }
+    *, *::before, *::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
+  }
+  @media print {
+    nav { display:none; }
+    .layout { display:block; }
+    main { max-width:100%; padding:0; }
+    .masthead { padding:24px 0 20px; }
+    .cover-wrap { padding:0 0 8px; }
+    section { padding:28px 0 0; page-break-inside:avoid; }
+    .cover, .screen { box-shadow:none; }
+    .screen img { height:150px; }
+    footer { margin-top:32px; padding:12px 0; }
+    a { text-decoration:none; color:inherit; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- 黑色侧边栏 -->
+  <nav>
+    <div class="brand">
+      <span class="logo"></span><b>Ozon ERP</b>
+      <p>AI 自动化运营系统 · 设计规范</p>
+    </div>
+    <div class="group">设计规范</div>
+    <a href="#principles"><i>01</i>设计原则</a>
+    <a href="#color"><i>02</i>色彩系统</a>
+    <a href="#type"><i>03</i>字体与排版</a>
+    <a href="#layout"><i>04</i>间距 · 圆角 · 阴影</a>
+    <a href="#motion"><i>05</i>动效标准</a>
+    <a href="#components"><i>06</i>组件实样</a>
+    <a href="#dodont"><i>07</i>用法规范</a>
+    <a href="#adaptive"><i>07·5</i>多端适配</a>
+    <div class="group">页面速览</div>
+    <a href="#screens"><i>08</i>全部 15 个页面</a>
+  </nav>
+
+  <main>
+
+    <!-- 报头 -->
+    <div class="masthead">
+      <div class="kicker">OZON AI ERP · <b>DESIGN SPEC</b> · V1.3</div>
+      <h1>设计规格<em>说明书</em></h1>
+      <p class="sub">黑白灰单色基调 + 红色强调 · 编辑式排版 · 从原则到组件的一站式落地参考。本文档同时输出 <code>design-tokens.json</code> 供 Figma / CSS 变量对接。</p>
+      <div class="meta-row">
+        <span class="pill dark">浅色暖白底 #F7F6F2</span>
+        <span class="pill">黑白灰主色</span>
+        <span class="pill red">红色强调 #E20E0E</span>
+        <span class="pill">黑色侧边栏 · 白字导航</span>
+        <span class="pill line">页面总数 15 · 全部可点击预览</span>
+      </div>
+    </div>
+
+    <!-- 封面样张 -->
+    <div class="cover-wrap">
+      <div class="cover">
+        <img src="./ozon-cover-spec.png" alt="设计规范书封面主视觉：黑白灰编辑式排版配红色强调" />
+      </div>
+      <div class="cover-cap"><span>封面样张 · 品牌主视觉 v1（媒体生成）</span><span class="mono">16:9 · 2K</span></div>
+    </div>
+
+    <!-- 01 设计原则 -->
+    <section id="principles">
+      <div class="sec-head"><span class="no">01</span><h2>设计原则</h2><span class="rule"></span></div>
+      <div class="cards">
+        <div class="card"><h3><span class="dot"></span>单色克制</h3><p>黑白灰为绝对主体，红色仅用于关键数字、主要按钮与当前选中态，占比控制在 5% 以内，保证信息层次清晰。</p></div>
+        <div class="card"><h3><span class="dot"></span>高留白</h3><p>大面积留白与 1px 细分割线承载层级，营造专业、克制的商业 SaaS 气质，不靠色块堆叠表达。</p></div>
+        <div class="card"><h3><span class="dot"></span>AI 驱动叙事</h3><p>所有模块强调 AI 自动化：上架成功率、智能定价、AI 生成标题/图片，均以红色数字突出结果。</p></div>
+        <div class="card"><h3><span class="dot"></span>统一骨架</h3><p>全站共用黑色侧边栏导航 + 顶部工具栏 + 圆角卡片骨架，模块间切换保持一致。</p></div>
+      </div>
+    </section>
+
+    <!-- 02 色彩系统 -->
+    <section id="color">
+      <div class="sec-head"><span class="no">02</span><h2>色彩系统</h2><span class="rule"></span></div>
+      <p class="sec-lead">原色值用于设计；语义 token（<code class="mono">bg.surface</code>、<code class="mono">accent.hover</code>…）用于代码落地，全部收录于 design-tokens.json。</p>
+
+      <div class="swatch-grid">
+        <div class="swcard"><div class="chip" style="background:#F7F6F2;"></div><div class="info"><code>#F7F6F2</code><small>base · 页面底色（暖白）</small></div><div class="tokens"><span class="tk">bg.page</span></div></div>
+        <div class="swcard"><div class="chip" style="background:#FFFFFF;border-bottom:1px solid var(--white-border);"></div><div class="info"><code>#FFFFFF</code><small>white · 卡片/表格底</small></div><div class="tokens"><span class="tk">bg.surface</span></div></div>
+        <div class="swcard"><div class="chip" style="background:#111111;"></div><div class="info"><code>#111111</code><small>ink-900 · 侧栏/主文字</small></div><div class="tokens"><span class="tk">bg.sidebar</span><span class="tk">text.primary</span></div></div>
+        <div class="swcard"><div class="chip" style="background:#4A4A4A;"></div><div class="info"><code>#4A4A4A</code><small>ink-600 · 次要文字</small></div><div class="tokens"><span class="tk">text.secondary</span></div></div>
+        <div class="swcard"><div class="chip" style="background:#8A8A8A;"></div><div class="info"><code>#8A8A8A</code><small>ink-400 · 辅助文字</small></div><div class="tokens"><span class="tk">text.tertiary</span></div></div>
+        <div class="swcard"><div class="chip" style="background:#E6E4DF;"></div><div class="info"><code>#E6E4DF</code><small>line · 1px 分割线</small></div><div class="tokens"><span class="tk">border.default</span></div></div>
+        <div class="swcard"><div class="chip" style="background:#E20E0E;"></div><div class="info"><code>#E20E0E</code><small>accent · 品牌红</small></div><div class="tokens"><span class="tk">accent.default</span></div></div>
+        <div class="swcard"><div class="chip" style="background:#B30C0C;"></div><div class="info"><code>#B30C0C</code><small>accent-dark · 深红</small></div><div class="tokens"><span class="tk">accent.hover</span><span class="tk">text.accent-emphasis</span></div></div>
+        <div class="swcard"><div class="chip" style="background:#FDEBEB;"></div><div class="info"><code>#FDEBEB</code><small>accent-soft · 红浅底</small></div><div class="tokens"><span class="tk">bg.badge-accent</span></div></div>
+      </div>
+
+      <table style="margin-top:20px;">
+        <tr><th>用法</th><th>推荐色值</th><th>说明 / 实测对比度（WCAG）</th></tr>
+        <tr><td>主按钮 / 选中态</td><td><code>#E20E0E</code> 底 + 白字</td><td>白字于红底实测 <span class="mono">4.88:1</span>，满足 AA；用于 ≥14px 加粗或按钮（大文字豁免下限 3:1）</td></tr>
+        <tr><td>KPI 大数字 / 强调数字</td><td><code>#E20E0E</code></td><td>≥20px 加粗大文字（大文字下限 3:1），视觉冲击安全</td></tr>
+        <tr><td>正文级红色文案 / 小标签</td><td><code>#B30C0C</code></td><td>对暖白底实测 <span class="mono">6.53:1</span>，满足 AA；禁止小字用 #E20E0E 作正文</td></tr>
+        <tr><td>红浅底状态</td><td><code>#FDEBEB</code> 底 + <code>#B30C0C</code> 字</td><td>实测 <span class="mono">6.14:1</span>，满足 AA；用于告警/待处理徽标</td></tr>
+        <tr><td>次要文字</td><td><code>#4A4A4A</code> on <code>#F7F6F2</code></td><td>实测 <span class="mono">8.20:1</span>，满足 AAA</td></tr>
+        <tr><td>辅助文字（最小可用）</td><td><code>#6A6A6A</code> on <code>#F7F6F2</code></td><td>实测 <span class="mono">4.60:1</span>，满足 AA；<code>#8A8A8A</code>（3.19:1）仅限装饰/图标，不可作文字</td></tr>
+        <tr><td>侧栏分组标题</td><td><code>#8A8A8A</code> on <code>#111111</code></td><td>实测 <span class="mono">6.71:1</span>，满足 AA（勿用 #6F6F6F，仅 3.76:1）</td></tr>
+      </table>
+      <p class="sec-lead" style="margin-top:18px;">侧栏专属灰阶也已纳入 tokens：hover 底 <code class="mono">bg.sidebar-hover</code>、导航文字 <code class="mono">text.on-sidebar</code>、副标题 <code class="mono">text.sidebar-muted</code>、缩略图底 <code class="mono">bg.thumb</code>、白块描边 <code class="mono">white-border</code>——全站色值以 design-tokens.json 为唯一事实源。</p>
+    </section>
+
+    <!-- 03 字体与排版 -->
+    <section id="type">
+      <div class="sec-head"><span class="no">03</span><h2>字体与排版</h2><span class="rule"></span></div>
+      <p class="sec-lead">中文系统栈（PingFang SC / 微软雅黑）+ 等宽字体承载数据数字，形成「正文中文 + 数据等宽」的双字体系统。</p>
+      <div class="typespec">
+        <div class="ts-row"><span class="tag"><b>display</b> 48/800 · 封面大字（中文：字距 0 / 行高 1.3）</span><span style="font-size:48px;font-weight:800;letter-spacing:0;line-height:1.3;">上架即增长</span></div>
+        <div class="ts-row"><span class="tag"><b>h1</b> 28/700 · 页面标题</span><span style="font-size:28px;font-weight:700;">商品管理</span></div>
+        <div class="ts-row"><span class="tag"><b>h2</b> 20/700 · 区块标题</span><span style="font-size:20px;font-weight:700;">订单趋势</span></div>
+        <div class="ts-row"><span class="tag"><b>h3</b> 16/600 · 卡片标题</span><span style="font-size:16px;font-weight:600;">今日订单</span></div>
+        <div class="ts-row"><span class="tag"><b>body</b> 14/400 · 正文</span><span style="font-size:14px;">AI 根据竞品价格自动给出建议售价，点击一键应用。</span></div>
+        <div class="ts-row"><span class="tag"><b>data-lg</b> 28/700 等宽</span><span class="mono" style="font-size:28px;font-weight:700;color:var(--accent);">1,284</span></div>
+        <div class="ts-row"><span class="tag"><b>data-md</b> 20/700 等宽</span><span class="mono" style="font-size:20px;font-weight:700;">¥ 3,290.50</span></div>
+        <div class="ts-row"><span class="tag"><b>overline</b> 11/600 · 眉题（全大写 0.06–0.1em）</span><span style="font-size:11px;font-weight:600;letter-spacing:1px;color:var(--ink-aux);">KPI · 今日概览</span></div>
+      </div>
+
+      <table style="margin-top:20px;">
+        <tr><th>层级</th><th>字号 / 字重 / 行高</th><th>用途</th></tr>
+        <tr><td>display</td><td><code>48 / 800 / 1.05</code></td><td>封面、大字报头</td></tr>
+        <tr><td>h1</td><td><code>28 / 700 / 1.3</code></td><td>每个功能页标题</td></tr>
+        <tr><td>h2 / h3</td><td><code>20 / 700</code> · <code>16 / 600</code></td><td>区块与卡片标题</td></tr>
+        <tr><td>body / body-sm</td><td><code>14 / 400</code> · <code>13 / 400</code></td><td>正文、表格与描述</td></tr>
+        <tr><td>caption / overline</td><td><code>12 / 400</code> · <code>11 / 600</code></td><td>辅助信息、眉题标签</td></tr>
+        <tr><td>data-lg / data-md</td><td><code>28 / 700</code> · <code>20 / 700</code>（等宽）</td><td>KPI 数值、金额</td></tr>
+      </table>
+    </section>
+
+    <!-- 04 间距 圆角 阴影 -->
+    <section id="layout">
+      <div class="sec-head"><span class="no">04</span><h2>间距 · 圆角 · 阴影</h2><span class="rule"></span></div>
+      <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));">
+        <div class="card">
+          <h3><span class="dot"></span>间距（8pt 基准）</h3>
+          <div class="scale-row"><span class="lbl">4</span><span class="bar" style="width:4px;"></span></div>
+          <div class="scale-row"><span class="lbl">8</span><span class="bar" style="width:8px;"></span></div>
+          <div class="scale-row"><span class="lbl">12</span><span class="bar" style="width:12px;"></span></div>
+          <div class="scale-row"><span class="lbl">16</span><span class="bar" style="width:16px;"></span></div>
+          <div class="scale-row"><span class="lbl">24</span><span class="bar" style="width:24px;"></span></div>
+          <div class="scale-row"><span class="lbl">32</span><span class="bar" style="width:32px;"></span></div>
+          <div class="scale-row"><span class="lbl">48</span><span class="bar" style="width:48px;"></span></div>
+          <div class="scale-row"><span class="lbl">64</span><span class="bar red" style="width:64px;"></span></div>
+          <p style="margin-top:12px;color:var(--ink-aux);font-size:12px;">间距 4/8/12/16/20/24/32/40/48/64 · 卡片内边距 16、面板 20、区块间距 40。</p>
+        </div>
+        <div class="card">
+          <h3><span class="dot"></span>圆角</h3>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div class="rchip"><i style="width:36px;height:36px;border-radius:6px;"></i><span>6px · 输入框 / 按钮</span></div>
+            <div class="rchip"><i style="width:36px;height:36px;border-radius:10px;"></i><span>10px · 卡片</span></div>
+            <div class="rchip"><i style="width:36px;height:36px;border-radius:12px;"></i><span>12px · 面板 / 大容器</span></div>
+            <div class="rchip"><i style="width:36px;height:36px;border-radius:999px;"></i><span>999px · 徽标胶囊</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3><span class="dot"></span>阴影</h3>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div class="shbox">card · 0 1px 2px rgba(17,17,17,.04)</div>
+            <div class="shbox raised">raised · 面板 / 弹层</div>
+            <div class="shbox overlay">overlay · 浮层 / 抽屉</div>
+            <div class="shbox glow">glow · 数据大屏强调</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 动效标准 -->
+    <section id="motion">
+      <div class="sec-head"><span class="no">05</span><h2>动效标准</h2><span class="rule"></span></div>
+      <p class="sec-lead">克制的动效语言：快反馈、慢浮层、单次循环的数据光晕。拒绝弹性动画与花哨转场。</p>
+      <table>
+        <tr><th>场景</th><th>时长</th><th>缓动</th><th>说明</th></tr>
+        <tr><td>hover / focus 反馈</td><td><code>100ms</code> fast</td><td>standard</td><td>按钮悬停、行悬停、输入框聚焦（红光晕）</td></tr>
+        <tr><td>面板 / 弹层出现</td><td><code>240ms</code> slow</td><td>standard</td><td>右侧 AI 建议面板、筛选抽屉</td></tr>
+        <tr><td>页面转场</td><td><code>400ms</code> long</td><td>decelerate</td><td>路由切换淡入</td></tr>
+        <tr><td>数据大屏光晕</td><td><code>1600ms</code> pulse</td><td>ease-in-out</td><td>订单热力点呼吸，单点循环</td></tr>
+      </table>
+      <div class="motion-demo" style="margin-top:18px;">
+        <span class="mdot pulse"></span>
+        <div class="mbar"><i></i></div>
+        <span style="color:var(--ink-aux);font-size:12px;">大屏光晕脉冲 1600ms（实时预览）· 进度条 loading 1600ms</span>
+      </div>
+    </section>
+
+    <!-- 06 组件实样 -->
+    <section id="components">
+      <div class="sec-head"><span class="no">06</span><h2>组件实样</h2><span class="rule"></span></div>
+      <p class="sec-lead">组件以真实渲染呈现，而非文字描述——设计落地时以此为准。</p>
+
+      <div class="comp">
+        <div class="comp-panel">
+          <div class="head"><span>侧边栏导航</span><span>bg.sidebar / #111</span></div>
+          <div class="body">
+            <div class="sb">
+              <div class="sb-brand"><i></i>Ozon ERP</div>
+              <div style="padding:8px 0 0;color:#8A8A8A;font-size:10px;letter-spacing:1px;padding-left:14px;">运营</div>
+              <div class="sb-item">仪表盘</div>
+              <div class="sb-item on">商品管理</div>
+              <div class="sb-item">上架工作台</div>
+              <div class="sb-item">订单中心</div>
+            </div>
+            <p style="margin-top:14px;color:var(--ink-aux);font-size:12px;">当前页：深色底 + 左侧 2px 红色竖线 + 白色文字；hover 淡灰 <code class="mono">#1D1D1D</code>。</p>
+          </div>
+        </div>
+
+        <div class="comp-panel">
+          <div class="head"><span>按钮</span><span>radius 6px · 100ms</span></div>
+          <div class="body" style="display:flex;flex-direction:column;gap:12px;align-items:flex-start;">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <span class="btn pri" tabindex="0">新建商品</span>
+              <span class="btn sec" tabindex="0">批量导出</span>
+              <span class="btn ghost" tabindex="0">取消</span>
+              <span class="btn disable">已禁用</span>
+            </div>
+            <p style="color:var(--ink-aux);font-size:12px;">主按钮=红色实底（<code class="mono">#E20E0E</code>），hover 深红 <code class="mono">#B30C0C</code>；按压 <code class="mono">:active</code> 下移 1px + 深红，反馈即时（100ms）；次要/幽灵按钮按压变浅灰底；主要操作每屏不超过 1 个。</p>
+          </div>
+        </div>
+
+        <div class="comp-panel">
+          <div class="head"><span>按钮 · 状态枚举</span><span>loading / danger / disabled</span></div>
+          <div class="body" style="display:flex;flex-direction:column;gap:12px;align-items:flex-start;">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <span class="btn pri loading" tabindex="0" data-demo="loading">提交中</span>
+              <span class="btn danger" tabindex="0" data-demo="danger">删除商品</span>
+              <span class="btn sec">导出</span>
+              <span class="btn disable">不可用</span>
+            </div>
+            <p style="color:var(--ink-aux);font-size:12px;">loading=红色实底内嵌旋转指示器（文字隐藏）；danger=白底红框红字（二次确认类操作）；disabled=灰底灰字不可点，且不响应 hover。</p>
+          </div>
+        </div>
+
+        <div class="comp-panel">
+          <div class="head"><span>徽标与标签</span><span>状态体系</span></div>
+          <div class="body">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+              <span class="badge">已上架</span>
+              <span class="badge red">待上架</span>
+              <span class="badge dark">平台侧</span>
+              <span class="tag">在售</span>
+              <span class="tag red">缺货</span>
+              <span class="tag">AI 生成</span>
+            </div>
+            <p style="color:var(--ink-aux);font-size:12px;">中性态=灰底 <code class="mono">#F1EFEA</code>；告警/待处理=红浅底 <code class="mono">#FDEBEB</code> + 深红字 <code class="mono">#B30C0C</code>。</p>
+          </div>
+        </div>
+
+        <div class="comp-panel">
+          <div class="head"><span>输入框 · 状态枚举</span><span>default / focus / error / disabled</span></div>
+          <div class="body">
+            <div class="input"><span>⌕</span>搜索商品名称 / SKU…</div>
+            <div class="input focus" style="margin-top:10px;"><span>⌕</span>搜索关键词…</div>
+            <div class="input error" style="margin-top:10px;"><span>!</span>库存不能为负数</div>
+            <div class="hint err">输入非法时红框 + 红浅底，下方给一句纠错提示。</div>
+            <div class="input disable" style="margin-top:10px;"><span>⌕</span>已锁定的字段</div>
+            <div class="hint">disabled=灰底浅字，不响应交互。</div>
+            <div style="display:flex;gap:4px;margin-top:16px;border-bottom:1px solid var(--line);">
+              <div class="on" style="padding:8px 16px;font-size:13px;color:var(--ink);border-bottom:2px solid var(--accent);font-weight:600;">全部</div>
+              <div style="padding:8px 16px;font-size:13px;color:var(--ink-aux);">待上架</div>
+              <div style="padding:8px 16px;font-size:13px;color:var(--ink-aux);">缺货</div>
+            </div>
+            <p style="margin-top:12px;color:var(--ink-aux);font-size:12px;">Tab 选中态=红色下划线；hover 文字变深，focus 红色下划线。</p>
+          </div>
+        </div>
+
+        <div class="comp-panel">
+          <div class="head"><span>指标卡</span><span>data-lg 等宽数字</span></div>
+          <div class="body">
+            <div style="display:flex;gap:12px;flex-wrap:wrap;">
+              <div class="metric">
+                <div class="lbl">今日订单</div>
+                <div class="val red">1,284</div>
+                <div class="delta">较昨日 <b>+12.4%</b></div>
+              </div>
+              <div class="metric">
+                <div class="lbl">退款率</div>
+                <div class="val">2.1%</div>
+                <div class="delta">较昨日 <b class="down">-0.3%</b></div>
+              </div>
+            </div>
+            <p style="margin-top:14px;color:var(--ink-aux);font-size:12px;">核心指标红色大数字；上涨用红色正号，下跌用深灰负号，避免满屏红。</p>
+          </div>
+        </div>
+
+        <div class="comp-panel">
+          <div class="head"><span>表格（含选中态）</span><span>row hover / selected</span></div>
+          <div class="body" style="padding:0;">
+            <table class="mtab">
+              <tr><th>商品</th><th>价格</th><th>状态</th></tr>
+              <tr><td>无线蓝牙耳机 Pro</td><td class="mono">¥ 129.00</td><td><span class="badge">在售</span></td></tr>
+              <tr class="sel"><td>智能手表 S3</td><td class="mono">¥ 399.00</td><td><span class="badge red">待上架</span></td></tr>
+              <tr><td>保温杯 500ml</td><td class="mono">¥ 59.90</td><td><span class="badge">在售</span></td></tr>
+            </table>
+            <div class="empty" style="margin:14px;">暂无数据<br/><span style="font-size:11px;">空态用虚线框 + 一句话说明，不放插画</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 用法规范 Do / Don't -->
+    <section id="dodont">
+      <div class="sec-head"><span class="no">07</span><h2>用法规范</h2><span class="rule"></span></div>
+      <p class="sec-lead">明确「该做」与「禁止」，作为实现与评审的硬性检查清单。</p>
+      <div class="dd">
+        <div class="box do"><b>Do — 红色用法</b>
+          <ul>
+            <li>KPI 大数字 / 主要按钮 / 当前选中态</li>
+            <li>正文级红色文字改用深红 #B30C0C 保证对比度</li>
+            <li>红色占比控制在页面的 5% 以内</li>
+          </ul>
+        </div>
+        <div class="box dont"><b>Don't — 红色误用</b>
+          <ul>
+            <li>禁止小号正文用 #E20E0E（对比不足）</li>
+            <li>禁止大面积红色背景或红色分区色块</li>
+            <li>禁止用红色表达非告警信息</li>
+          </ul>
+        </div>
+        <div class="box do"><b>Do — 数据与密度</b>
+          <ul>
+            <li>真实数字 + 等宽字体，单位与周期标清</li>
+            <li>表格与卡片承载细节，留白承载层级</li>
+            <li>空态给出一句话说明 + 可行动入口</li>
+          </ul>
+        </div>
+        <div class="box dont"><b>Don't — 反模式</b>
+          <ul>
+            <li>禁止霓虹紫渐变 / 玻璃拟态泛滥 / 无意义插画</li>
+            <li>禁止「敬请期待」式空洞文案与假按钮</li>
+            <li>禁止模板化对称导致的乏味（用网格节奏破局）</li>
+          </ul>
+        </div>
+        <div class="box do"><b>Do — 动效</b>
+          <ul>
+            <li>hover/focus 100ms、弹层 240ms、转场 400ms</li>
+            <li>大屏光晕单点循环 1600ms 呼吸</li>
+            <li>所有动效支持 prefers-reduced-motion 关闭</li>
+          </ul>
+        </div>
+        <div class="box dont"><b>Don't — 动效误用</b>
+          <ul>
+            <li>禁止弹性 / 回弹 / 惯性动画</li>
+            <li>禁止整页循环滚动动效分散注意力</li>
+            <li>禁止与数据语义无关的装饰性动画</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07.5 多端适配 -->
+    <section id="adaptive">
+      <div class="sec-head"><span class="no">07·5</span><h2>多端适配</h2><span class="rule"></span></div>
+      <p class="sec-lead">同一视觉语言下，按终端密度收敛布局——大屏给信息密度，移动端给单手可达。</p>
+      <table>
+        <tr><th>终端</th><th>布局</th><th>要点</th></tr>
+        <tr><td>数据大屏（≥1600px）</td><td>全屏地图 + 左右栏</td><td>地图面板居中放大，指标卡横排 5 张；光晕动效开启；等宽大数字 32–40px</td></tr>
+        <tr><td>桌面（1200–1599px）</td><td>固定黑侧栏 236px + 内容流</td><td>侧栏常驻，表格与卡片双栏承载；hover 反馈完整</td></tr>
+        <tr><td>平板（768–1199px）</td><td>侧栏收起为图标栏</td><td>导航折叠，主操作仍用红色按钮；表格支持横向滚动</td></tr>
+        <tr><td>移动（<768px）</td><td>顶栏 + 底部 Tab</td><td>侧栏隐藏，关键操作下沉底部；数字用 data-md；地图降为简版热力</td></tr>
+      </table>
+      <p class="sec-lead" style="margin-top:18px;">断点：<code class="mono">≥1600</code> 大屏 · <code class="mono">1200–1599</code> 桌面 · <code class="mono">768–1199</code> 平板 · <code class="mono">&lt;768</code> 移动。红色强调比例与留白规则在全部断点保持一致。</p>
+    </section>
+
+    <!-- 08 全部 15 个页面 -->
+    <section id="screens">
+      <div class="sec-head"><span class="no">08</span><h2>全部 15 个页面速览</h2><span class="rule"></span></div>
+      <p class="sec-lead">点击缩略图在新标签页查看高清大图。</p>
+
+      <div class="gal-group">
+        <div class="gt">平台与入口 · 2</div>
+        <div class="grid">
+          <div class="screen">
+            <a class="thumb" href="./ozon-login-proto.png" target="_blank"><img src="./ozon-login-proto.png" alt="登录页" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">1</span>登录页</b>
+            <p>左侧黑色品牌面板；API Key / 账号密码双 Tab；余额与错误提示</p>
+            <div class="badges"><span class="badge dark">独立全屏</span><span class="badge">认证</span></div></div>
+          </div>
+          <div class="screen">
+            <a class="thumb" href="./ozon-admin-proto.png" target="_blank"><img src="./ozon-admin-proto.png" alt="管理员后台" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">15</span>管理员后台</b>
+            <p>概览统计卡 + 用户 / 店铺 / 任务三个管理 Tab</p>
+            <div class="badges"><span class="badge dark">平台侧</span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gal-group">
+        <div class="gt">运营核心 · 9</div>
+        <div class="grid">
+          <div class="screen">
+            <a class="thumb" href="./ozon-erp-dashboard-proto.png" target="_blank"><img src="./ozon-erp-dashboard-proto.png" alt="主仪表盘" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">2</span>主仪表盘</b>
+            <p>KPI 指标卡（今日订单 / AI 上品 / 上架成功率）+ 订单趋势 + 热销商品</p>
+            <div class="badges"><span class="badge red">首页</span></div></div>
+          </div>
+          <div class="screen">
+            <a class="thumb" href="./ozon-products-proto.png" target="_blank"><img src="./ozon-products-proto.png" alt="商品管理" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">3</span>商品管理</b>
+            <p>商品表格：缩略图 / 类目 / 价格 / 库存 / 状态标签（在售·缺货·待上架）</p>
+            <div class="badges"><span class="badge">列表</span></div></div>
+          </div>
+          <div class="screen">
+            <a class="thumb" href="./ozon-onsale-proto.png" target="_blank"><img src="./ozon-onsale-proto.png" alt="上架工作台" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">4</span>上架工作台</b>
+            <p>任务统计 + 任务卡片（AI 标题/卖点/关键词）+ 右侧 AI 建议面板</p>
+            <div class="badges"><span class="badge red">AI 核心</span></div></div>
+          </div>
+          <div class="screen">
+            <a class="thumb" href="./ozon-orders-proto.png" target="_blank"><img src="./ozon-orders-proto.png" alt="订单中心" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">5</span>订单中心</b>
+            <p>订单统计卡 + 订单表格（状态标签 / 金额 / 筛选 / 分页）</p>
+            <div class="badges"><span class="badge">表格</span></div></div>
+          </div>
+          <div class="screen">
+            <a class="thumb" href="./ozon-tasks-proto.png" target="_blank"><img src="./ozon-tasks-proto.png" alt="任务中心" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">6</span>任务中心</b>
+            <p>自动化任务概览 + 任务列表 + 最近运行日志（失败红色标记）</p>
+            <div class="badges"><span class="badge red">自动化</span></div></div>
+          </div>
+          <div class="screen">
+            <a class="thumb" href="./ozon-pricing-proto.png" target="_blank"><img src="./ozon-pricing-proto.png" alt="智能定价工具" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">7</span>智能定价工具</b>
+            <p>策略卡 + 调价列表（当前价 / AI 建议价 / 利润变化）+ 竞品对比曲线</p>
+            <div class="badges"><span class="badge red">AI 核心</span></div></div>
+          </div>
+          <div class="screen">
+            <a class="thumb" href="./ozon-image-studio-proto.png" target="_blank"><img src="./ozon-image-studio-proto.png" alt="图片工坊" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">8</span>图片工坊</b>
+            <p>背景替换 / 去背景 / 裁剪 / AI 生成场景图，前后对比缩略图</p>
+            <div class="badges"><span class="badge red">AI 核心</span></div></div>
+          </div>
+          <div class="screen">
+            <a class="thumb" href="./ozon-collect-box-proto.png" target="_blank"><img src="./ozon-collect-box-proto.png" alt="采集箱" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">9</span>采集箱</b>
+            <p>采集任务统计 + 商品卡片（来源平台 / 价格 / 状态标签）+ 批量导入</p>
+            <div class="badges"><span class="badge">采集</span></div></div>
+          </div>
+          <div class="screen">
+            <a class="thumb" href="./ozon-bestsellers-proto.png" target="_blank"><img src="./ozon-bestsellers-proto.png" alt="热销榜" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">11</span>热销榜</b>
+            <p>榜单筛选（今日 / 本周 / 本月）+ 排行列表（前三红高亮 + 销量趋势）</p>
+            <div class="badges"><span class="badge">排行</span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gal-group">
+        <div class="gt">数据与配置 · 4</div>
+        <div class="grid">
+          <div class="screen">
+            <a class="thumb" href="./ozon-data-screen-proto.png" target="_blank"><img src="./ozon-data-screen-proto.png" alt="数据大屏" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">12</span>数据大屏</b>
+            <p>独立全屏：中央全球订单热力图 + 下方增长曲线 + 左侧实时订单流 + 右侧店铺/商品排行</p>
+            <div class="badges"><span class="badge red">独立全屏</span><span class="badge">科技感</span></div></div>
+          </div>
+          <div class="screen">
+            <a class="thumb" href="./ozon-stores-proto.png" target="_blank"><img src="./ozon-stores-proto.png" alt="店铺管理" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">10</span>店铺管理</b>
+            <p>店铺卡片网格：账号状态 / 今日订单 / 销售额 / 评分 + 添加店铺</p>
+            <div class="badges"><span class="badge">多店铺</span></div></div>
+          </div>
+          <div class="screen">
+            <a class="thumb" href="./ozon-templates-proto.png" target="_blank"><img src="./ozon-templates-proto.png" alt="上架模板" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">13</span>上架模板管理</b>
+            <p>模板卡片（加价率 / 佣金率 / 汇率缓冲 / 库存）+ 店铺差异化覆盖明细</p>
+            <div class="badges"><span class="badge">配置</span></div></div>
+          </div>
+          <div class="screen">
+            <a class="thumb" href="./ozon-settings-proto.png" target="_blank"><img src="./ozon-settings-proto.png" alt="系统设置" loading="lazy"/></a>
+            <div class="meta"><b><span class="num">14</span>系统设置</b>
+            <p>站点公告 / 配置备份回滚 / 查询词管理 / 业务参数，四类 Tab</p>
+            <div class="badges"><span class="badge">配置</span></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <span>Ozon AI 自动化运营 ERP · 黑白灰单色 + 红色强调 · 设计规格说明书 v1.3</span>
+      <span class="mono">design-tokens.json 已同步 · 编辑式杂志感排版</span>
+    </footer>
+  </main>
+</div>
+<script>
+  (function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll('nav a[href^="#"]'));
+    var sections = links.map(function (a) { return document.querySelector(a.getAttribute("href")); }).filter(Boolean);
+    if (!sections.length) return;
+    var marker = document.createElement("style");
+    marker.textContent = "nav a.active { background:var(--bg-sidebar-hover); color:#fff; border-left-color:var(--accent); }";
+    document.head.appendChild(marker);
+    var inView = function (el) {
+      var r = el.getBoundingClientRect();
+      return r.top <= 140 && r.bottom >= 0;
+    };
+    var update = function () {
+      var current = sections.filter(inView).pop() || sections[0];
+      links.forEach(function (a) {
+        var on = a.getAttribute("href") === "#" + current.id;
+        a.classList.toggle("active", on);
+      });
+    };
+    update();
+    var ticking = false;
+    window.addEventListener("scroll", function () {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(function () { update(); ticking = false; });
+    }, { passive: true });
+  })();
+  // ── 组件实样交互演示（规范书自身即可体验状态变化）──
+  (function () {
+    var KEY = { ENTER: 13, SPACE: 32 };
+    // 演示 loading：点击/回车触发 1.2s loading，禁止重复触发
+    document.querySelectorAll('[data-demo="loading"]').forEach(function (btn) {
+      var fire = function (ev) {
+        if (ev) { ev.preventDefault(); if (ev.type === "keydown" && ev.keyCode !== KEY.ENTER && ev.keyCode !== KEY.SPACE) return; }
+        if (btn.classList.contains("loading-active")) return;
+        var orig = btn.textContent;
+        btn.classList.add("loading-active");
+        btn.classList.add("loading");
+        setTimeout(function () {
+          btn.classList.remove("loading-active", "loading");
+          btn.textContent = orig;
+        }, 1200);
+      };
+      btn.addEventListener("click", fire);
+      btn.addEventListener("keydown", fire);
+    });
+    // 演示 danger：首次点击进入「确认删除」态，二次点击还原
+    document.querySelectorAll('[data-demo="danger"]').forEach(function (btn) {
+      var fire = function (ev) {
+        if (ev) { ev.preventDefault(); if (ev.type === "keydown" && ev.keyCode !== KEY.ENTER && ev.keyCode !== KEY.SPACE) return; }
+        if (btn.dataset.confirm === "1") { btn.textContent = "删除商品"; btn.dataset.confirm = ""; return; }
+        btn.textContent = "确认删除？";
+        btn.dataset.confirm = "1";
+      };
+      btn.addEventListener("click", fire);
+      btn.addEventListener("keydown", fire);
+    });
+  })();
+</script>
+</body>
+</html>

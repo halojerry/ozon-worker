@@ -1,0 +1,128 @@
+{
+  "meta": {
+    "brand": "Ozon AI 自动化运营 ERP",
+    "doc": "设计令牌 · 供 Figma / CSS 变量落地",
+    "version": "1.0.0",
+    "updated": "2026-08-17"
+  },
+  "color": {
+    "primitive": {
+      "white": { "value": "#FFFFFF", "description": "纯白" },
+      "base": { "value": "#F7F6F2", "description": "页面底色 · 暖白" },
+      "header": { "value": "#FAF9F6", "description": "表头 / 浅灰底" },
+      "ink-900": { "value": "#111111", "description": "侧边栏 / 主文字" },
+      "ink-700": { "value": "#2A2A2A", "description": "侧栏分隔" },
+      "ink-600": { "value": "#4A4A4A", "description": "次要文字" },
+      "ink-500": { "value": "#6F6F6F", "description": "侧栏分组标题（弃用：对比不足）" },
+      "ink-450": { "value": "#8A8A8A", "description": "侧栏分组标题（对黑底 5.47:1，达标）" },
+      "ink-400": { "value": "#8A8A8A", "description": "辅助文字（装饰/图标级）" },
+      "ink-aux": { "value": "#6A6A6A", "description": "辅助文字（可达 AA，4.60:1 on base）" },
+      "ink-300": { "value": "#B4B0A9", "description": "占位 / 弱化" },
+      "sidebar-hover": { "value": "#1D1D1D", "description": "侧栏项 hover/active 底" },
+      "sidebar-muted": { "value": "#9A9A9A", "description": "侧栏副标题（对黑底 6.71:1）" },
+      "sidebar-text": { "value": "#E8E8E8", "description": "侧栏导航文字（对黑底高对比）" },
+      "sidebar-thumb-bg": { "value": "#EAE8E3", "description": "缩略图占位底" },
+      "white-border": { "value": "#D9D6D0", "description": "白色块描边" },
+      "line": { "value": "#E6E4DF", "description": "1px 分割线" },
+      "neutral-bg": { "value": "#F1EFEA", "description": "中性徽标底" },
+      "accent": { "value": "#E20E0E", "description": "品牌红" },
+      "accent-dark": { "value": "#B30C0C", "description": "深红 · 小字红强调（对比安全）" },
+      "accent-soft": { "value": "#FDEBEB", "description": "红浅底 · 状态徽标" }
+    },
+    "semantic": {
+      "bg.page": "color.primitive.base",
+      "bg.surface": "color.primitive.white",
+      "bg.header": "color.primitive.header",
+      "bg.sidebar": "color.primitive.ink-900",
+      "bg.sidebar-hover": "color.primitive.sidebar-hover",
+      "bg.thumb": "color.primitive.sidebar-thumb-bg",
+      "bg.badge-neutral": "color.primitive.neutral-bg",
+      "bg.badge-accent": "color.primitive.accent-soft",
+      "border.default": "color.primitive.line",
+      "border.sidebar": "color.primitive.ink-700",
+      "text.primary": "color.primitive.ink-900",
+      "text.secondary": "color.primitive.ink-600",
+      "text.tertiary": "color.primitive.ink-400",
+      "text.aux": "color.primitive.ink-aux",
+      "text.placeholder": "color.primitive.ink-300",
+      "text.onDark": "color.primitive.white",
+      "text.onSidebar": "color.primitive.sidebar-text",
+      "text.sidebar-muted": "color.primitive.sidebar-muted",
+      "text.sidebar-group": "color.primitive.ink-450",
+      "text.accent": "color.primitive.accent",
+      "text.accent-emphasis": "color.primitive.accent-dark",
+      "accent.default": "color.primitive.accent",
+      "accent.hover": "color.primitive.accent-dark",
+      "accent.active": "color.primitive.accent-dark"
+    }
+  },
+  "typography": {
+    "family": {
+      "sans": "-apple-system, BlinkMacSystemFont, \"PingFang SC\", \"Microsoft YaHei\", \"Helvetica Neue\", Arial, sans-serif",
+      "mono": "SFMono-Regular, Menlo, Consolas, \"Liberation Mono\", monospace"
+    },
+    "scale": [
+      { "name": "display", "size": 48, "weight": 800, "lineHeight": 1.15, "use": "封面 / 大字标题" },
+      { "name": "h1", "size": 28, "weight": 700, "lineHeight": 1.3, "use": "页面标题" },
+      { "name": "h2", "size": 20, "weight": 700, "lineHeight": 1.35, "use": "区块标题" },
+      { "name": "h3", "size": 16, "weight": 600, "lineHeight": 1.4, "use": "卡片标题" },
+      { "name": "body", "size": 14, "weight": 400, "lineHeight": 1.6, "use": "正文" },
+      { "name": "body-sm", "size": 13, "weight": 400, "lineHeight": 1.55, "use": "表格 / 描述" },
+      { "name": "caption", "size": 12, "weight": 400, "lineHeight": 1.5, "use": "辅助信息" },
+      { "name": "overline", "size": 11, "weight": 600, "lineHeight": 1.4, "letterSpacing": 1, "use": "标签 / 眉题" },
+      { "name": "data-lg", "size": 28, "weight": 700, "use": "KPI 大数字（等宽）", "family": "mono" },
+      { "name": "data-md", "size": 20, "weight": 700, "use": "数据强调（等宽）", "family": "mono" }
+    ]
+  },
+  "spacing": {
+    "scale": [4, 8, 12, 16, 20, 24, 32, 40, 48, 64],
+    "semantic": {
+      "inset-card": 16,
+      "inset-panel": 20,
+      "gap-grid": 14,
+      "gap-section": 40,
+      "gap-hero": 28,
+      "page-pad": 32
+    }
+  },
+  "radius": {
+    "scale": [4, 6, 8, 10, 12, 16],
+    "semantic": {
+      "input": 6,
+      "button": 6,
+      "card": 10,
+      "panel": 12,
+      "badge": 999
+    }
+  },
+  "border": {
+    "width": { "hairline": 1, "strong": 2 },
+    "color": { "default": "color.primitive.line", "sidebar": "color.primitive.ink-700" }
+  },
+  "shadow": {
+    "card": "0 1px 2px rgba(17,17,17,0.04)",
+    "raised": "0 8px 24px rgba(17,17,17,0.08)",
+    "overlay": "0 16px 48px rgba(17,17,17,0.12)",
+    "glow": "0 0 24px rgba(226,14,14,0.25)"
+  },
+  "motion": {
+    "duration": {
+      "fast": 100,
+      "base": 150,
+      "slow": 240,
+      "long": 400,
+      "pulse": 1600
+    },
+    "easing": {
+      "standard": "cubic-bezier(0.2, 0, 0, 1)",
+      "decelerate": "cubic-bezier(0.0, 0, 0.2, 1)",
+      "accelerate": "cubic-bezier(0.4, 0, 1, 1)"
+    },
+    "usage": [
+      { "scene": "hover / focus 反馈", "duration": "fast (100ms)", "easing": "standard" },
+      { "scene": "面板 / 弹层", "duration": "slow (240ms)", "easing": "standard" },
+      { "scene": "页面转场", "duration": "long (400ms)", "easing": "decelerate" },
+      { "scene": "数据大屏光晕脉冲", "duration": "pulse (1600ms)", "easing": "ease-in-out", "note": "循环呼吸" }
+    ]
+  }
+}
