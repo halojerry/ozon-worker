@@ -2,6 +2,19 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.60 — 三档双价格体系 + 标题 SEO 流量词 + 9048 防并卡前缀 + 对话入口）
+
+> 2026-08-21。已发版（VERSION 四源 0.60.0）。定价/标题/9048/对话入口 + 48 存量测试修复。执行记录见 `docs/PLAN-conversation-entry-v1.md`（Q3）+ `docs/PLAN-card-merge-fix-v1.md`（Q4）。
+
+- **三档双价格体系（Q1）**：`compute_price`（`utils/pricing_estimate.py`）新增 keyword-only `margin_anchor`(划线原价 2.0)/`margin_floor`(促销底线 0.6)/`variable_cost_rate`(日常变动成本 0.155)/`promo_variable_cost_rate`(促销 0.245)。售价 = 总成本×(1+margin) / (1-commission-variable_cost_rate)；**利润口径改销售净利率** `profit/price`（不再用成本利润率）。三档：price=日常价 / old_price=划线价（强制 ≥ 日常×1.2）/ promo_price=促销底线（供 Ozon `min_seller_price` 防自动调价跌破成本）。全缺省 → 旧单档行为逐字保持。
+- **定价公式唯一入口**：`pricing_node`/estimate 端点/前端计算器三处共用 `compute_price`（v0.40 共享层纪律延伸）——**禁止各处内联定价公式**。变体循环从内联 ×1.15/×1.2 改调 compute_price（消除漂移）。
+- **标题公式共享模块 `utils/title_formula.py`**（Q5）：`build_title_formula_prompt(lang, traffic_keywords)`「核心词+属性+场景」公式 + `parse_title_formula_keywords`（纯西里尔过滤/去重/≤3）。**统一 4 份公式拷贝**（prepare 主路径/兜底/内部 fallback + ai_field_service 草稿重生成）——新增标题公式逻辑必须进本模块。
+- **SEO 流量词链路**：`extensions.traffic_keywords`（what-to-sell all-queries 流量词）→ 标题生成 prompt 建议行（LLM 自主融入不硬塞）+ hashtag 23171 优先（`_generate_hashtags(name, traffic_keywords)`，流量词 > `_HASHTAG_RU` 字典 > 西里尔提取 > `#товар`）。数据源端点 `GET /api/v1/seo/keywords?q=&limit=`（Bearer + 限流，读 `blue_ocean_queries` 按 uniq_queries_wca DESC）。
+- **9048 防并卡前缀（Q4 P1-1）**：`_derive_model_name_9048`（prepare L1228）→ `f"{item_id}~{sha1(normalize(supplier)|normalize(中文标题))[:8]}"`——自家同 item+supplier+标题 → 同 hash → 变体仍合并；跨卖家同 item 不同 supplier/标题 → 不同 hash → **不并卡**。**跟卖（is_follow_sell UPDATE 模式）刻意不加前缀**（本就要并卡）。hash 只用确定性字段（item_id/supplier/中文标题），**绝不用 LLM 翻译后标题**（retry 重生成会拆卡）。
+- **对话入口（Q3）**：`pounding-mcp/pounding_mcp/router.py` 意图路由层（把 SKILL.md 决策树固化为 URL 正则 + 九类意图词表，输出 pipeline A/B/C/D1/E/F/unknown + needs_confirmation/needs_clarification/questions）；`tasks_server` 加 `POST /ask` + CORS 头 + OPTIONS 预检；专家 tab 卡片点击复制 CLI 命令 + 「去 Agent 对话」按钮（openTab type:'agent'）。
+- **COS env 透传**：`deploy/docker-compose.yml` 新增 `COS_SECRET_ID/KEY/BUCKET/REGION/PUBLIC_DOMAIN` 透传（b64 生图转存 + E1 原始图兜底）——`.env.example` 仍未收录，生产配不配都可（缺省静默降级）。
+- **测试**：worker **1306 passed**（此前 1252 + 54；含 48 个存量失败修复——测试侧适配 v0.56「MXOU key 即用户」派生租户 `_key_user_id` 动态派生，mock 层 6 文件 + PG 层 6 文件 + main.py `::text` cast 真 bug）；pounding-mcp **22 passed**（自身 .venv，见下方测试坑）。
+
 ## 最近更新（v0.59 — 类目佣金缓存 + 定价佣金修正 + 多 SKU 配额调研）
 
 > 2026-08-20。佣金链路修复（费率权威化）+ 选品发货模式对齐，均未发版（VERSION 仍 0.56.6）。执行记录见 `.omo/plans/category-commission-cache.md`（Momus 评审 OKAY），问题台账 `docs/TEST-ISSUES-2026-08.md`。
@@ -38,37 +51,12 @@
 - **I-9 结论**（实测）：`ir.ozone.ru` 竞品图 **可直接 aibuy 图搜**（1688 服务器阿里出口可达）；本机 curl 403/fake-IP 是本地代理特性，与 aibuy 无关——**无需 COS 转存**（relay 过度设计已撤销）。
 - **测试**：worker **1212 passed**（基线 1209 + 新增 store stats/全局共享/v4 迁移）；skill **556 passed**（基线 537 + 19 新增：毒 token/轮询/直调/特征校验）；webui `tsc -b` 0 错误 + `npm run build` 通过。
 
-## 最近更新（v0.40.1 — 生图合规 + 参考图泄漏 + 8229 类型值修复）
+## 历史更新（v0.40.1 / v0.40 — 完整记录见 CHANGELOG.md）
 
-> 2026-08-13。实测上架根因三连修（本轮排查还定位了 **COS 图片消失根因**——见下方「⚠️ COS 图片存储真相」）。
+> 2026-08-12~13。属性填满工程 + 图搜增强。**COS 图片消失根因**见下方「⚠️ COS 图片存储真相」。
 
-- **成人用品生图不注入标题**（`utils/prompt_assembler.py`）：`is_adult_product` 检测（成人/情趣/肛塞等中英俄关键词）命中后清空 title/category + 产品描述变量，保留场景/配色（靠参考图传达外观）——1688 成人标题含违禁词，gpt-image-2/nano-banana 内容审核直接 violation，实测 10 图节点大部分失败仅 4 图。
-- **跟卖参考图泄漏修复**：`_assemble_follow_sell` images 改 `[]`（竞品图不再进 payload）+ `cos_uploader._is_reference_image` 拦 `ozonstatic/ir-20./_460x460/.webp`（原只拦 ir.ozone.ru，漏竞品 CDN + 1688 缩略图）。实测跟卖 9 图全为 AI 图 0 泄漏。
-- **8229(类型) value 空修复**：`utils/ozon_dict_values.py` 新增 `fetch_ru_dict_value`（按 dict_id 用 /values(RU) 列表精确查俄语文本）+ prepare 两处中文置空后补 RU + assemble 薄封装——修掉「Фото товара не соответствует его типу」DESCRIPTION_DECLINE。实测 `value=Перчатки` 后错误推进到类目层（防护手套应匹配 72163739/888258667 而非服装配饰）。
-- **部分尺寸缺失兜底**（skill `cloud_probe.py`）：length/width 有值 height=0 时按 2:1.5:1 补齐（原只处理全 0 → draft_sanity 拦截）。
-- **测试**: worker 691 passed / skill 487 passed。
-
-## 最近更新（v0.40 — 属性填充共享匹配层 + LLM 消歧 + 缺口量化）
-
-> 2026-08-12。属性特征填满工程（hyperplan 对抗规划驱动）：三处属性匹配统一 + 中文直搜 + LLM 消歧安全三件套 + 缺口量化 + 审计遥测。完整历史见 `CHANGELOG.md`。
-
-- **共享匹配层 attr_value_matcher.py**: assemble/prepare/retry 三处属性匹配统一走纯函数层（精确→包含→jieba→同义词→唯一值→None），合同测试锁定三处 dict_id 一致（结构性防漂移）。
-- **retry 语言链修复**: `_search_dictionary_values_chain` 固定 ZH→RU→EN 改为 lang_route 语言路由（中文词 ZH 优先/俄语词 RU 优先）——修掉与共享层 RU→ZH 方向冲突的漂移根因。
-- **LLM 属性消歧**（默认关）: `disambiguate_candidates` 安全三件套——-1 出口/候选索引输出（dict_id 确定性重查证）/abstain 跳过，max_tokens=2048 防 reasoning 截断。
-- **缺口量化**: `attr_gap.py` should_fill 过滤五类本不该填属性 + `gap_report.py` CLI 离线输出缺口表——34 属性只填 15-16 的模糊感知变可量化。
-- **字典值搜索中文优先**: prepare 搜索路径原始中文值优先搜（实测命中率高），RU 映射词兜底。
-- **审计遥测**: `attr_match_log` 表（仿 category_match_log）+ attempted_fill_rate 即时回归 / verified_fill_rate 月度校准双轨。
-
-- **aibuy 图搜通道（免浏览器）**: `search_by_image_aibuy`（ozon_image_search.py）——Chrome 会话 cookie（`_m_h5_tk/_m_h5_tk_enc/tfstk/isg`）→ mtop 签名直调 `mtop.com.alibaba.cbu.crossBorder.lp.imageSearch`，秒级返回结构化结果（offerId/标题/价格/月销/回头率/类目/供应商/normalizationScore）。**免开 Chrome、免登录、免徽章 DOM**。token 缓存 settings.json（6h 过期自动刷新）；fail-fast 纪律（无 token/失败快速返回 [] 由调用方降级 CDP/AK）。
-- **trusted_source 分通道护栏**: `_pick_best_match` 加 `trusted_source` 参数——仅 aibuy 信任官方排序（放行 = 原始图搜位置 idx ≤ 1 前 2 位；normalizationScore 实测最高分≠最相似，仅作加分不作用放行信号）；AK/CDP 维持 conf≥0.3 + LLM rescue 护栏。
-- **AK similarity_score 上膛**: `_pick_best_match` 消费 AK 候选 `similarity_score`（ak_1688_client.py:397 解析但从未使用）——评分加分（上限 20 分）+ no-badge 分支高分放行（≥0.8 且 idx_rank≥0.5）。
-- **三调用点接入 aibuy**: follow_sell_cloud Step 3a-0（search_method=aibuy 传 trusted_source）+ `_search_1688_source` Strategy 1 + `cli.py image_search --source aibuy`（默认）。
-- **类目匹配修复（用户 Issue3）**: publish_product_new 同步 `source_category_path` 末级词优先（对齐 build_graph_envelope v0.34）+ 复合词顿号分拆净化（`_category_search_variants`，实证 "化妆刷、刷包"空/"化妆刷"命中）+ 匹配不到→可见告警（不再静默放行）+ **LLM 消歧**（`_llm_disambiguate_category`——护手霜/粉扑/收纳盒等深度歧义词多候选语义判定）。
-- **用户 Issue 修复**: ① Windows subprocess 编码 `errors=replace`（8 处，service.py/chrome_launcher）② 文档补 query 命令 ③ 类目（见上）④ `category` CLI 子命令（类目查询，替代临时脚本）⑤ check 命令 Sentry 状态诊断 ⑥ search 增强（利润估算/排序/CSV/--rules/--auto-submit）。
-- **定价复用 worker 公式**: cmd_search/cmd_graph 利润估算改用 worker pricing_node 同源公式（售价=总成本×(1+margin)/(1-commission)）+ 真实运费（`_query_logistics_from_worker`）+ 店铺参数——不再独立估算（避免两套公式漂移）。graph 提交前打印 `💰 预估: 采购¥X+运费¥Y → 售价≈¥Z (利润¥W, 率R%)`。
-- **query 展示采购明细**: `_print_query_result` 展示 product_summary 完整字段（采购链接/采购价/运费，此前只展示 OzonID/售价/利润率/审核）+ 💡 比价建议（引导去 1688/淘宝/拼多多/阿里国际站对比货源）。
-- **词典扩充 104→333 词对**: `_RU_ZH_PRODUCT_WORDS` 按 17 类目（宠物/家居/厨房/服饰/母婴/美妆/汽车/户外/数码/五金/清洁/照明/收纳/园艺/玩具/办公）扩充。
-- **测试**: skill 487 passed（含 aibuy 图搜 27 单测 + 类目消歧 3 单测）；worker 691 passed。
+- **v0.40.1**：成人用品生图不注入标题（`prompt_assembler.is_adult_product`）+ 跟卖参考图泄漏修复（`_assemble_follow_sell` images=`[]` + `cos_uploader._is_reference_image` 拦竞品 CDN）+ 8229 类型值空修复（`fetch_ru_dict_value`）+ 部分尺寸缺失兜底（2:1.5:1 补齐）。
+- **v0.40**：属性共享匹配层 `attr_value_matcher.py`（三处统一）+ LLM 消歧安全三件套（-1 出口/候选索引/abstain）+ 缺口量化（`attr_gap.should_fill`）+ aibuy 图搜主通道（mtop 直调免浏览器）+ 类目 LLM 消歧 + 定价复用 worker 公式 + 词典扩充 333 词对。详见 CHANGELOG + 下方「v0.40/v0.39 关键约定」。
 
 
 ## 工作区概述
@@ -130,10 +118,19 @@ ozon-worker/
 │   ├── deploy.sh               # 一键部署（含自动初始化数据）
 │   ├── update.sh               # 一键更新
 │   └── .env.example            # 环境变量模板
+├── pounding-mcp/               # dsh Agent 调用入口：把 skill CLI 包成 19 个 MCP 工具（FastMCP 薄封装）
+│   ├── pounding_mcp/router.py  # Q3 对话入口意图路由层（URL 正则 + 九类意图词表 → pipeline A-F）
+│   ├── pounding_mcp/server.py  # FastMCP 工厂 + 19 工具（参数映射 → subprocess 调 skill CLI）
+│   └── README.md               # 挂载/独立 venv 说明（测试坑见下方）
 ├── pounding-sidebar/           # 客户端侧边栏插件（dsh-better-sidebar 消费插件）
 │   ├── src/client/index.tsx    # 7 业务板块 tab（采集箱/任务中心/专家/知识库/爆品新闻/计算器/用量）+ CSV viewer
 │   ├── cordis.patch.yml        # 手动挂载补丁（~/.dsh/profiles/web/cordis.patch.yml）
 │   └── README.md               # ⭐ 插件开发指南（registerTab 契约/构建/挂载，见「深入阅读」）
+├── webui/                      # React 前端（bun 生态，非 npm）——与 worker 同一 docker-compose 部署
+│   ├── src/api/client.ts       # API client（42 接口迁移 generated.d.ts + 30 手写）
+│   ├── src/app.tsx             # 路由 + 布局（routeTree.gen.ts 由 TanStack Router 生成）
+│   ├── src/styles/theme.css    # 视觉 token（:root light / .dark），verify-design-tokens.mjs 防漂移
+│   └── scripts/                # build（bun run build）→ 产物 bind mount 进 worker 容器同进程伺服
 ├── docs/
 │   ├── CONTRACT-v4.md          # Skill↔Worker API 契约 v4.0（最新；v3.0 旧版已归档 archive/docs/legacy/）
 │   ├── DEPLOY.md               # Worker 云端部署完整指南
@@ -253,6 +250,54 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 - **编辑时不越界**: 别给 skill 加上架调用，别给 worker 加 1688 抓取
 - **错误码**: 统一在 `worker/src/api/errors.py`（12 个 `WorkerErrorCode`）
 
+## 组件关系与更新联动（改任何一块前必读）
+
+> 本节厘清 skill/worker/pounding-mcp/pounding-harness/webui/ozon-mcp 六者的职责边界、暴露范围、更新联动规则。pounding-harness 是独立仓库（`/Volumes/os/dev/pounding-harness`，Boujoy Harness 改造版），不并入本仓库——但发版/更新前必须做适配同步检查。
+
+### 六者职责与暴露范围
+
+| 组件 | 位置 | 给谁用 | 暴露范围 |
+|---|---|---|---|
+| **skill** | 本仓库 `skill/` | agent 对话（经 pounding-mcp）+ 客户端面板 | 1688/Ozon CDP 抓取、以图搜款、信封组装。**不上架** |
+| **worker** | 本仓库 `worker/`（云端 Docker） | webui + 客户端面板 + pounder-mcp | 类目→定价→属性→生图→上传→自学习全流程 + REST API |
+| **pounding-mcp** | 本仓库 `pounding-mcp/` | 用户（agent 对话） | skill 19 命令包成 MCP 工具（`mcp__pounding__*`）+ 意图路由 `/ask`。**用户可见** |
+| **pounding-harness** | 独立仓库 | 终端用户（桌面客户端） | Electron 客户端 + 本地网关 `:8766`（代理 skill-config / tasks→:8902 / worker REST）。界面含**部分** webui 功能 |
+| **webui** | 本仓库 `webui/`（云端） | 终端用户（浏览器直访 worker :8080） | 完整 ERP 后台。与 worker 同 docker-compose 部署 |
+| **ozon-mcp**（PCDCK/ozon-mcp） | 外部参考，不直接入库 | **仅我们内部开发** | 466 Ozon API 方法索引 + swagger + transport 层。**不暴露给用户** |
+
+### 关键边界
+
+- **pounding-harness ≠ webui**：客户端只含部分 webui 功能（采集箱/任务/Dashboard 等），请求本地 skill 脚本 + worker API + 数据库；webui 是完整 ERP，请求 worker REST。
+- **ozon-mcp 是开发武器不是用户功能**：它的 466 方法 swagger + 分页/限流/安全知识库用来：①补 worker 端点时查 API 契约 ②抽取 SellerClient transport 进 worker 替换 `ozon_client.py`。用户永远不直接调 ozon-mcp。
+- **不破坏 dsh**：pounding-mcp 是标准 MCP 桥接（`@deepseek-ai/dsh-mcp-client`），pounding-sidebar 是标准 cordis 插件（`dsh.client.inject`），pounding-harness 的 `boujoy_server.py` 是 Python stdlib-only——三层都不引入 dsh 之外的依赖耦合。
+
+### 更新联动规则（改 X 必须同步检查 Y）
+
+| 改了什么 | 必须同步检查 | 不用动 |
+|---|---|---|
+| skill CLI **命令签名/参数** | pounding-mcp `server.py` 参数映射 + `router.py` 意图词表 | worker / webui |
+| skill **信封字段结构**（GraphInput 增减字段） | worker `state.py` + AGENTS.md 契约节 + webui 草稿展示 | pounding-mcp（只传不解析） |
+| worker **新增 API 端点** | AGENTS.md API 表 + webui 接入 + 客户端按需接入 | skill / pounding-mcp |
+| worker **定价/标题公式** | `compute_price`/`title_formula` 唯一入口已锁定，面板展示三档价 | skill |
+| skill **内部抓取/图搜逻辑** | **什么都不用改**（工具签名/产出结构不变） | 全部 |
+| **版本发版**（VERSION 四源） | CHANGELOG + AGENTS.md 顶部更新块 + 测试基线 | — |
+| **契约变更**（CONTRACT-v4） | skill/worker/pounding-mcp 三处同步 + 客户端面板 | — |
+
+### 发版前适配同步检查清单
+
+每次发版前必须确认：
+1. skill 改了 → pounding-mcp 工具签名是否对齐？`router.py` 意图词表是否要加？
+2. worker API 改了 → webui/客户端面板是否要接？AGENTS.md API 表是否更新？
+3. 信封结构改了 → CONTRACT-v4 文档是否更新？
+4. pounding-harness 那边的 `boujoy_server.py` 代理路由是否要加新路径？（pounding-harness 独立仓库，靠代理路由连 worker）
+5. 版本四源是否一致（VERSION / skill/VERSION / deploy/skill/VERSION / SKILL.md frontmatter）？
+
+### 待执行：webui 替换 + ozon-mcp 引入（dev 阶段，零用户访问）
+
+- **ozonwebui 替换 webui**：`/Volumes/os/dev/ozonwebui`（Figma 导出 React 19 + Vite 8）替换现有 `webui/`（bun 生态）。迁移第一步切包管理器：删 `pnpm-lock.yaml` + `.mise.toml`，`bun install` 生成 `bun.lock`。CI `cd.yml` 已是 bun（v0.56.1），不用改。ozonwebui 的 `docs/` 两份对接文档（API-INTEGRATION-STATUS + BACKEND-API-REQUIREMENTS）是 worker 补 API 的依据。
+- **ozon-mcp 内部引入**（不暴露给用户）：`PCDCK/ozon-mcp`（MIT）索引 466 Ozon API 方法（420 Seller + 46 Performance）+ seller/performance swagger + 分页/限流/安全知识库。定位 = **开发武器**：①补 worker 端点查 API 契约 ②抽取 SellerClient transport 进 worker 替换 `ozon_client.py`。用户永远不直接调 ozon-mcp。
+- **数据落盘策略**：worker 发生的 Ozon API 请求，数据按 user_id + credential_id 落盘 PG 缓存（已有 `ozon_orders_cache`/`ozon_products_cache`，15min 同步）。列表读走缓存（快），实时写（发货/取消/改价）直接调 Ozon 成功后同步更新缓存。
+
 ## ⚠️ Agent 使用 Skill 时的硬约束
 
 **当用户请求涉及 Skill 子项目（1688 抓取、Ozon 跟卖、选品、上架）时，必须遵守：**
@@ -300,6 +345,8 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 
 > ⚠️ **worker 全量测试失败先查类目树（v0.59 实测）**：本地 PG 若 `category_tree_nodes` 空（未跑 init_data），learning_record_gate / skill_category_direct / attr_4958 / index_backfill 等测试会失败（`_mapping_valid` 走真实 PG 查树）。先导入：`cd worker && PGDATABASE_URL="postgresql://postgres:localdev123@localhost:5433/ozon" PYTHONPATH=src ../skill/.venv314/bin/python -c "from sqlalchemy import create_engine; from scripts.init_data import import_category_tree; import os; import_category_tree(create_engine(os.environ['PGDATABASE_URL']), language='ZH_HANS', tree_file='category_tree.json')"`。
 
+> ⚠️ **pounding-mcp 测试必须用自身 .venv（v0.60 实测）**：`server.py` import FastMCP（`pounding-mcp/pyproject.toml` 依赖），用 `../skill/.venv314` 跑 `pytest tests/` 会 collection error（`pounding_mcp` 未安装）。需 `cd pounding-mcp && python3 -m venv .venv && .venv/bin/pip install -e .` 后跑 `.venv/bin/python -m pytest tests/ -q`（22 passed：test_router 19 + test_smoke 3）。
+
 | 子项目 | 命令 |
 |---|---|
 | skill | `pip install -r requirements.txt` |
@@ -329,10 +376,12 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python tests/test_language_routing.py`（v0.29 语言路由：1688 中文→ZH_HANS/Ozon 类目名→RU/无中文残留，4 用例） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_shop_usage_stats.py tests/test_analytics_endpoints.py tests/test_llm_suggest_rerank.py -q`（v0.34 C5/C6/类目 suggest 单测，纯 mock 无需 PG） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_commission_resolver.py tests/test_category_commission_model.py tests/test_commissions_lookup_endpoint.py -q`（v0.59 佣金缓存/端点，纯 mock 无需 PG） |
+| worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_pricing_dual_margin.py tests/test_title_formula.py tests/test_hashtag_keywords.py tests/test_seo_keywords_endpoint.py tests/test_model_name_9048.py -q`（v0.60 三档定价/标题公式/流量词 tag/SEO 端点/9048 前缀，纯 mock 无需 PG） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_pricing_node_commission.py tests/test_commission_backfill.py tests/test_estimate_endpoint.py -q`（v0.59 定价佣金/回填/estimate，需 PG 或 mock 注入） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_discovery_runs_api.py tests/test_mappings_lookup_api.py tests/test_listing_template_store_overrides.py -q`（v0.56 W10/W11/W9 端点单测，mock 无需 PG） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_store_sync.py -q`（v0.56 店铺缓存 9 单测：租户隔离/upsert/archived/懒同步/调度器，需本地 PG） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_mxou_balance_precheck.py tests/test_learning_record_index_backfill.py -q`（v0.56 W12 余额复查 + W6 索引回填单测，mock 无需 PG） |
+| pounding-mcp | `cd pounding-mcp && .venv/bin/python -m pytest tests/ -q`（v0.60 对话入口：router 意图路由 19 + server 冒烟 3，须用自身 .venv——skill/.venv314 无 pounding_mcp 包） |
 | skill | `python3.12 -m pytest tests/test_selection_rules.py tests/test_ai_preset.py -q`（v0.56 粗筛字段 + --rules ai 单测） |
 | skill | `python3.12 -m pytest tests/test_graph_envelope_competitor.py tests/test_discovery_report_hook.py -q`（v0.56 S1 信封竞品 + D12 上报单测） |
 | skill | `python3.12 -m pytest tests/test_discover_multi.py tests/test_discover_to_box.py tests/test_template_profile.py -q`（v0.56 discover-multi/to-box/模板单测） |
@@ -494,6 +543,8 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## 深入阅读（改前先看）
 
+- **`docs/PLAN-conversation-entry-v1.md`** — ⭐ Q3 对话入口方案（dsh Agent tab 先行 + 专家 tab 对话 UI 二期；router.py 意图路由层设计——改对话入口前必读）
+- **`docs/PLAN-card-merge-fix-v1.md`** — ⭐ Q4 并卡修复方案（9048 前缀/标题 SEO/生图回退告警/上架前检测四阶段——改 9048/变体合并前必读）
 - **`docs/PRD-skill-learn-shangpinbang-v1.md`** — ⭐ skill 学习上品帮 v1 PRD（F1-F13 需求分解 + S1 混合键/D12 白名单/W11 全局共享 3 决策定稿——改 discover 漏斗/graph 信封前必读）
 - **`docs/competitor/shangpinbang-skill-learning-notes.md`** — 上品帮客户端源码调研底稿（scrollPage 缓动公式/parse.services/BASE 粗筛/AI 阶梯门槛事实，改漏斗逻辑前查依据）
 - **`docs/competitor/README.md`** — ⭐ 竞品 ERP 调研总索引（上品帮 × 毛子ERP 全量字段级分析 + 自有 WebUI 复刻路线 P0-P3——做 WebUI 功能前必读）
@@ -540,13 +591,23 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - **cm→mm 阈值 200**：`max_dim < 200` 判断为 cm 转 mm（原 50 太保守，推车等大物品被误判）。
 - **小重量自动乘 1000**：`weight_g < 10g` 但尺寸 > 50mm 时自动乘 1000（疑似 kg→g 单位错误）。
 - **物流费率表必须初始化**：`logistics_rates` 表为空时兜底费率 `weight * 0.15 CNY` 严重虚高。deploy.sh 须确保 `init_data.py` 在 worker 启动前执行完毕。
-- **定价公式已修正**：CNY 店铺不使用 fx_buffer（无汇率风险），佣金公式改为 `售价 = 总成本 * (1+利润率) / (1-佣金率)`。兜底物流费率从 0.15 降到 0.05 CNY/g。
+- **定价公式唯一入口**：CNY 店铺不使用 fx_buffer（无汇率风险）。v0.60 起售价 = 总成本×(1+margin)/(1-commission-variable_cost_rate)，三档语义见上方「v0.60 新增关键约定」——**禁止在各处内联定价公式**（三处共用 `compute_price`）。兜底物流费率从 0.15 降到 0.05 CNY/g。
 - **图片顺序规范**：`primary_image` = `main_image`（营销主图，单独指定），`images` 数组按 IMG_ORDER：social_proof → detail → scene_1 → scene_2 → scene_3 → comparison → multi_angle（倒数第二）→ white_bg（最后）。
 - **变体图片降级**：白底图生成失败 → 统一营销主图（非 1688 alicdn 原图）。
 - WARNING 级 Ozon 错误过滤不算失败；`ozon_status` 返回 `pending` 视为软成功（**仅限审核中状态路由**；v0.21 起成功判据收紧——learning_record 只认 `moderate_status=="approved"`，「pending+product_id 视为成功」已删除）。
 - `GlobalState` 自定义 reducer：`progress_counter`=max、`error_message`=覆盖、`failed_stage`/`stages`=合并。
 - **Docker 部署**: `deploy/docker-compose.yml` 含 PG + Worker，`HEALTHCHECK` 已配置。
 - **API 版本化**: 新端点走 `/api/v1/`，旧路径保持兼容。
+
+### v0.60 新增关键约定（改定价/标题/9048/对话入口前必看）
+
+- **定价公式唯一入口 `compute_price`**（`utils/pricing_estimate.py`）：pricing_node / estimate 端点 / skill 前端计算器三处共用，**禁止各处内联定价公式**（v0.40 共享层纪律延伸——变体循环曾内联 ×1.15/×1.2 与主路径漂移）。改定价必须进 compute_price + 三处接线。
+- **三档双价格语义**：`price`=日常价(margin_rate) / `old_price`=划线原价(margin_anchor=2.0，强制 ≥ 日常×1.2) / `promo_price`=促销底线(margin_floor=0.6)。**利润口径是销售净利率 `profit/price`**（profit = price×(1-commission-variable_cost_rate) - 总成本），不是成本利润率。全缺省 → 旧单档行为（0.25/0.10/0.05）逐字保持。
+- **变动成本率**：日常 `variable_cost_rate=0.155`（推广6+退货5+提现1.5+汇损2+附加1），促销 `promo_variable_cost_rate=0.245`（推广12+退货8+提现1.5+汇损2+附加1）——Ozon 佣金/推广/退货都按售价比例扣，只扣佣金会利润虚高 20-30%。promo_price 供 `min_seller_price` 防 Ozon 自动促销跌破成本。
+- **标题公式唯一入口 `utils/title_formula.py`**：`build_title_formula_prompt` / `parse_title_formula_keywords`（纯西里尔过滤/去重/≤3）——prepare 主路径/兜底/内部 fallback + ai_field_service 草稿重生成 **4 份拷贝已统一**，新增标题公式逻辑必须进本模块。
+- **SEO 流量词链路**：`extensions.traffic_keywords` → 标题生成 prompt 建议行（LLM 自主融入不硬塞）+ `_generate_hashtags` 流量词优先（> `_HASHTAG_RU` 字典 > 西里尔提取 > `#товар`）。数据源 `GET /api/v1/seo/keywords` 读 `blue_ocean_queries`——改流量词注入勿绕过这单一链路。
+- **9048 防并卡前缀**：`_derive_model_name_9048`（prepare L1228）只加在 CREATE 路径；**跟卖 UPDATE（is_follow_sell）刻意不加前缀**（本就要并卡）。hash 只用确定性字段（item_id/supplier/中文标题），**绝不用 LLM 翻译后标题**（retry 重生成会拆卡）。改 prepare 变体分支勿破坏（`test_model_name_9048.py` 9 单测锁定）。
+- **对话入口意图路由**：`pounding-mcp/pounding_mcp/router.py` 是 SKILL.md 决策树固化层（URL 正则 + 九类意图词表），`tasks_server` `/ask` 消费。新增意图/管线映射必须改 router.py，勿在 server.py 手写路由逻辑。
 
 ### v0.59 新增关键约定（改佣金/定价/发货模式前必看）
 
@@ -665,70 +726,18 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 - **进度已持久化**（v0.9）：`_task_progress` 同时写内存和 PG `progress` 列，重启后从 PG 恢复。`task_processor.py` 注入 `task_id` 到 payload 修复了 key="unknown" 的问题。
 - **deepseek-v4-flash reasoning tokens**：该模型默认启用推理，`reasoning_tokens` 消耗 `max_tokens` 配额。翻译/生图 prompt 的 `max_tokens` 至少设为 200，否则输出为空。
-- **DESCRIPTION_DECLINE 多重根因**：
-  1. 产品名含拉丁/中文字符 → `ozon_validate_node` 应阻断（已修复）
-  2. 属性值含中文 → 俄语类目树 ID 映射解决（`language=RU` 字典值直连）
-  3. 图片含文字/URL/物流信息 → AI 模型局限性，标记为 warning 不阻断（已修复）
-  4. 类目不匹配 → 已添加一致性检查 + 俄语标题重新匹配（已修复）
+- **DESCRIPTION_DECLINE 多重根因**：① 产品名含拉丁/中文 → validate 阻断 ② 属性值含中文 → 俄语类目树 ID 映射 ③ 图片含文字/URL → warning 不阻断 ④ 类目不匹配 → 一致性检查。均已在 v0.14+ 修复。
 - **LLM 类目匹配**：v0.5.0 起主路径不用 LLM 选类目（pg_trgm + jieba 末级词），但低置信度时 `_llm_rank_categories` 作为 fallback（v0.34 修复 max_tokens 后可用）——LLM 输出 candidate_index 或 suggest_keywords 二次搜索。类目一致性检查保留但不阻断上传（保留原 category ID 让 Ozon 验证）。
-- **物流费率表为空导致价格虚高**：兜底费率 `weight * 0.15 CNY` 是实际费率的 3-4 倍。部署时必须确保 `import_logistics.py` 先于 worker 执行（已修复，Dockerfile 加 openpyxl）。
+- **物流费率表为空导致价格虚高**：兜底费率 `weight * 0.15 CNY` 是实际费率的 3-4 倍。部署时必须确保 `import_logistics.py` 先于 worker 执行（Dockerfile 已加 openpyxl，deploy.sh 自动跑）。
 - **Chrome 重启后 probe 偶发失败**：Skill 的 `probe_1688_page` 在 Chrome 崩溃后自动重启时，内部的 `_resolve_browser_session` 二次调用可能导致 session 状态不一致。直接使用 `CdpTab` + `_single_pass_probe` 可绕过。受影响命令：`graph`/`follow`（偶发），不影响 Worker。
 - **属性ID细节**：
-  - 9782（危险品等级）：字典属性，某些类目必填，不能跳过
+  - 9782（危险品等级）：字典属性，某些类目必填，不能跳过（只挑非危险默认值）
   - 22508（品牌注册国）：自由文本属性，需硬编码为"Китай"
   - 23487（制造商）：自由文本属性，用 `draft.supplier` 填充
   - 23536（标记码）：Ozon 自动设置，必须跳过
-	- **`validation_retry_loop` 修复记录**（v0.5.0）：
-	  1. `state.draft` 为空 → 已修复
-	  2. `recheck_status_node` 额外轮询 `moderate_status` → 已实现
-	  3. `type_id=0` → 多层防御修复
-	  4. `recheck_status_node` UUID 解析崩溃 → 已加 UUID 格式检测
-		- **`init_data.py` `walk` 函数**：`description_category_id` 需从父节点继承，`disabled` 字段 NOT NULL 需填 `false`。中文树是 `{"result":[...]}` dict，俄语树是 `[...]` 直接 list，walk 调用需兼容两种格式。
+- **`init_data.py` `walk` 函数**：`description_category_id` 需从父节点继承，`disabled` 字段 NOT NULL 需填 `false`。中文树是 `{"result":[...]}` dict，俄语树是 `[...]` 直接 list，walk 调用需兼容两种格式。
 
-### v0.13/v0.14 修复记录（2026-08-03，commit ad1164c/8041b3d/b78fe64/8231639/93ddd1a）
-
-**v0.13（属性字典兜底 + 生图回退）**：
-- 字典属性未匹配不再手填文本（3 处：assemble/prepare/retry_loop）→ 报「请从列表中选择」消除
-- 自由文本翻译失败跳过（修复「请用俄文填写」）；可选字典不盲补；品牌 85/5076 保留 dict_id
-- 生图提示词回退中文版（v2 英文版出图质量差）
-
-**v0.14（审计四批 + CI + CDP）**：
-- P0-2 跟卖属性链路（`_assemble_follow_sell` 消费 follow 输出，删 126745801 假属性）
-- P0-4 单SKU 补运费（删 `len(variants)>1` 守卫）；P0-6 竞品价 `draft.competitor_price`
-- P1-1 quantity 定价用 variant_prices；P1-4 定价失败 `[PRICING_FAILED]` 阻断；P1-5 parse_error 读 validation_errors
-- B1 属性批量翻译 / B3 mxou_rate_limiter 接入（450 RPM 滑窗）/ B4 变体主图并发(4线程) / B5 空参考图跳过生图
-- E1 进度写 PG 节流(2s) / E9 num_workers 联动 MAX_CONCURRENT=30 / C1 类目树 TTL 缓存 / E3 cache 原子写
-- E4 裸 CDP 统一封装（cdp_client，勿再手写 websocket）/ E5 follow 连接共享
-- 图搜弹窗修复（`--disable-popup-blocking` + window.open 覆盖）+ 多重新搜（badge≤1 重搜 2 次）
-- 图搜标题相关性护栏（`_pick_best_match`，不同产品不再组装信封）
-- CI：skill-distribute 轮询等待 skill 包（tag 竞态）；COS 仅 release 触发（现状合规）
-
-### v0.9 深度审计 — 已知未修问题（低优先级）
-
-> ⚠️ 以下多项已在 **v0.14** 修复，标注「✅已修」；未标注的仍开放。
-
-#### Skill 侧 (11 个)
-- **`ozon_api.search_categories`**：每次调都重新拉整棵类目树（~2-5s），无 TTL 缓存 → ✅已修（v0.14 C1，24h 缓存）
-- **`ozon_discovery._calculate_profit`**：物流费固定 15 CNY，不管实际重量/尺寸
-- **`ozon_discovery.calculate_blue_ocean_score`**：commission_fbp/fbs 字段名可能不一致
-- **`reference_images.get_best_product_images`**：URL 带 query 参数时 `.jpg` 拼接到查询串后导致链接失效
-- **`chrome_launcher.ensure_chrome_cdp`**：杀死所有 Chrome 进程而非仅 debug 端口 → ✅已修（v0.14 D5，仅杀带 `--remote-debugging-port` 的实例）
-- **`cli.py` `check` 命令**：创建 Chrome tab 后不关闭，多次跑会累积空白 tab → ✅已修（v0.14 E4-2，`close(close_remote=False)` 只关 WS 不关远程）
-- **`config_store` / `cache.py`**：无文件锁，并发 CLI 进程可能写坏 JSON → ✅已修（v0.14 E3，临时文件 + os.replace 原子写）
-- **`EXTRACT_1688_JS`**：694 行 JS 字符串内嵌 Python 源码，无法 lint，改起来困难
-- **`service.py` 连接重复检查**：`connect_existing_chrome` step 2/3 几乎重复
-- **`stealth.py`**：`hardwareConcurrency`/`deviceMemory` 每次读取随机变值，是检测信号；`navigator.webdriver` 返回 `undefined` 而非 `false`
-- **`batch_test.py`**：每个 URL 都全量覆写结果文件，O(n²) 写入 → ✅已修（v0.14 E7，每 5 条增量写 + 循环后全量写）
-
-#### Worker 侧 (8 个)
-- **`mxou_rate_limiter.py`**：整个文件未被引用，无 MXOU API 限流 → ✅已修（v0.14 B3，接入 chat/image 两入口，450 RPM 滑窗）
-- **Phase2 生图节点**：Phase1 失败时用原始图但 prompt 仍针对 Phase1 输出设计，图质量差 → ✅已修（v0.14 B5，空参考图跳过生图）
-- **`ozon_upload_node.py`**：绕过 `ozon_post()` 直接调 `session.post()`，错误处理不一致
-- **`follow_sell_import_node.py`**：schema API 拉取失败时静默降级，缺失属性校验
-- **`pricing_node.py`**：物流配置查询无重试，失败默认为 `("RETS", "Standard")`
-- **`state.py` `_overwrite_str`**：空字符串会覆盖有效值
-- **`progress_logger.py`**：`NODE_ORDER` 静态字典需手动与图定义同步；`config_path` 参数被忽略 → ✅已修（v0.14 C4/D4，模块级缓存只读一次 + NODE_ORDER 同步真实节点集 + config_path 生效）
-- **`assemble_ozon_product_node.py`**：`ozon_payloads` 列表写入后从未被消费（被 prepare 覆盖）
+> 完整记录见 `CHANGELOG.md`（commit ad1164c/8041b3d/b78fe64/8231639/93ddd1a，2026-08-03）。v0.9 深度审计的多数问题已在 v0.14 修复（✅已修），下方「关键约定」节保留决策；未修项低优先级，详见 CHANGELOG v0.9 段。
 
 ## CDP 稳定性注意事项
 
