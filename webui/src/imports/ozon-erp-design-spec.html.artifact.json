@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "ozon-erp-design-spec.html",
+  "entry": "ozon-erp-design-spec.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-08-17T13:38:03.648Z",
+  "updatedAt": "2026-08-17T13:38:03.648Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}
