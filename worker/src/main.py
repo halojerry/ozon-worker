@@ -1099,6 +1099,9 @@ def _key_user_id(clean_token: str) -> str:
     return f"user_{hashlib.sha256(clean_token.encode()).hexdigest()[:16]}"
 
 
+_revoked_tokens: set[str] = set()
+
+
 def _authenticate_token(token: str) -> str:
     """鉴权 token → user_id（MXOU key 即用户，不依赖 Supabase）。
 
@@ -1106,6 +1109,11 @@ def _authenticate_token(token: str) -> str:
     """
     if not token:
         raise HTTPException(status_code=401, detail="Token is required")
+    if token in _revoked_tokens:
+        raise HTTPException(status_code=401, detail="Token is revoked")
+    clean_tmp = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    if clean_tmp in _revoked_tokens:
+        raise HTTPException(status_code=401, detail="Token is revoked")
     allowed, _remaining = rate_limiter.check(token)
     if not allowed:
         raise HTTPException(
@@ -2157,6 +2165,13 @@ async def _handle_discovery_run_report(request: Request):
             WorkerErrorCode.INTERNAL_ERROR,
             "discovery run insert failed",
         )
+
+    try:
+        from services.selection_insight_service import upsert_from_discovery_run
+        upsert_from_discovery_run(clean_token, item.keyword, item.candidates)
+    except Exception as e:
+        logger.warning("selection insight aggregation skipped (keyword=%s): %s", item.keyword, e)
+
     return {"status": "ok", "inserted": inserted, "upserted": 0}
 
 
@@ -2413,6 +2428,10 @@ v1.include_router(shelf_router)
 from routes.store_sync_routes import router as store_sync_router
 v1.include_router(store_sync_router)
 
+# ── 店铺执行端点（todo 7）：改价/库存/上下架 + 营销活动（接线 store_operation_log）──
+from routes.store_actions_routes import router as store_actions_router
+v1.include_router(store_actions_router)
+
 # ── 系统设置：站点运营（v0.55）：站点 Banner/通告 管理（仅管理员）──
 from routes.admin_site_routes import router as admin_site_router
 v1.include_router(admin_site_router)
@@ -2432,6 +2451,21 @@ v1.include_router(admin_queries_router)
 # ── SEO 流量关键词公开读端点（v0.59+）：what-to-sell 流量关键词只读消费（Bearer + RateLimiter）──
 from routes.seo_keywords_routes import router as seo_keywords_router
 v1.include_router(seo_keywords_router)
+
+from routes.admin_categories_routes import router as admin_categories_router
+app.include_router(admin_categories_router)
+from routes.admin_data_sources_routes import router as admin_data_sources_router
+app.include_router(admin_data_sources_router)
+from routes.admin_audit_routes import router as admin_audit_router
+app.include_router(admin_audit_router)
+
+# ── Batch 5: Analytics aggregation endpoints ──
+from routes.analytics_routes import router as analytics_agg_router
+v1.include_router(analytics_agg_router)
+
+# ── Batch 5: Image tasks CRUD ──
+from routes.image_tasks_routes import router as image_tasks_router
+v1.include_router(image_tasks_router)
 
 
 # 注册 v1 路由（/api/v1/* 端点）

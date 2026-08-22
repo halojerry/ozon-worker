@@ -37,6 +37,7 @@
   - [2.11 图片生成能力模块](#211-图片生成能力模块)
 - [Part 3: Skill 调度器合约](#part-3-skill-调度器合约)
 - [Part 4: PRD — 问题→方案→执行链路](#part-4-prd--问题方案执行链路)
+- [Part 6: 店铺分析/执行端点 + 数据沉淀表](#part-6-店铺分析执行端点--数据沉淀表2026-08-22)
 
 ---
 
@@ -56,6 +57,16 @@
 | `/api/v1/analytics/queries` | POST | token (Supabase) | 10s |
 | `/api/v1/analytics/ozon-bestsellers` | POST | token (Supabase) | 10s |
 | `/api/v1/analytics/market-bestsellers` | POST | token (Supabase) | 10s |
+
+**店铺分析/执行（v0.60+ 开发中 — harness-store-analysis）**:
+
+| 端点 | 方法 | 鉴权 | 超时 |
+|------|------|------|------|
+| `/api/v1/stores/{credential_id}/analysis` | GET | Bearer | 10s |
+| `/api/v1/stores/{credential_id}/actions` | POST | Bearer | 30s |
+
+> 这两个端点属于「数据沉淀 + 店铺精细化运营」阶段（**未发版**，VERSION 四源仍 0.60.0）。
+> 详细契约见文末「Part 6: 店铺分析/执行端点 + 数据沉淀表」（2026-08-22 新增）。
 
 **基础 URL**: `http://<worker-host>:8080`
 
@@ -2330,6 +2341,213 @@ Week 3-4: P2 优化 + CONTRACT-v4.md 完成
 | B12 status 拆分 | state + 4 节点 + graph | 🟡 中 — 全局状态字段重命名, 需全链路回归 |
 | B6 生图工厂 | 8 生图节点 → 1 工厂 + 8 配置 | 🟡 中 — 重构, 保留原 prompt 不变 |
 | B7 title sanitizer | prepare + retry_loop → 1 共享函数 | 🟢 低 — 纯提取, 逻辑不变 |
+
+---
+
+## Part 6: 店铺分析/执行端点 + 数据沉淀表（2026-08-22）
+
+> **状态：开发中（harness-store-analysis）** — 本批独立于 Skill↔Worker 上架契约，属于
+> 「数据沉淀 + 店铺精细化运营」：整店分析（读）/ 单店执行（写）/ 三类指标历史落 PG。
+> **未发版**（VERSION 四源仍 0.60.0）。实现来源：`store_sync_routes.py` +
+> `store_actions_routes.py` + `store_analysis_service.py` + `store_operation_log.py` +
+> `selection_insight_service.py` + `promo_client.py` + `credential_service.py`。
+
+### 6.1 GET /api/v1/stores/{credential_id}/analysis（店铺分析，读）
+
+#### 6.1.1 职责
+
+整店分析：`summary`（店铺整体指标）+ `profit_trend`（历史利润率/销售额趋势）+ 三组运营候选清单。**只读**，供前端 / MCP `analyze_store` 消费。
+
+#### 6.1.2 请求格式
+
+| 参数 | 类型 | 位置 | 必填 | 说明 |
+|------|------|------|------|------|
+| `credential_id` | string | path | ✅ | 店铺凭证 ID（UUID） |
+| `Authorization` | string | header | ✅ | `Bearer <token>`（`_authenticate_token` 校验 Supabase，租户 = user_id） |
+
+#### 6.1.3 执行逻辑
+
+```
+Step 1: Bearer 鉴权 → user_id（租户）
+Step 2: credential_service.get_decrypted(tenant_id, credential_id) 归属校验
+        - 跨租户 / 已吊销 → 404（不泄露存在性）
+Step 3: _list_products 读在售商品（ozon_products_cache）
+Step 4: _load_cost_payloads 读各商品成本信封（有 purchase_cost 才视为有成本）
+Step 5: 逐商品 estimate_service.estimate_from_envelope（复用 commission_resolver +
+        物流费率唯一入口，provisional band pass）→ profit_rate
+        - 无成本商品（has_cost=False）不填 profit_rate
+Step 6: _classify 归入 low_margin / out_of_stock / promo_ready（无成本不进 low_margin/promo_ready）
+Step 7: _load_profit_trend 读 store_metrics_history（snapshot_at 升序聚合）
+Step 8: 返回
+```
+
+#### 6.1.4 响应格式
+
+```json
+{
+  "summary": {
+    "product_count": 12,
+    "low_stock_count": 3,
+    "active_discount_count": 2,
+    "avg_profit_rate": 0.31
+  },
+  "profit_trend": [
+    {"snapshot_at": "2026-08-01T00:00:00Z", "profit_rate": 0.28, "sales_amount": 1000.0}
+  ],
+  "low_margin_products": [
+    {"product_id": "1", "name": "х", "price_rub": 999.0, "profit_rate": 0.05, "suggestion": "..."}
+  ],
+  "out_of_stock_products": [
+    {"product_id": "2", "name": "у", "stock": 0}
+  ],
+  "promo_ready_products": [
+    {"product_id": "3", "name": "z", "profit_rate": 0.42, "candidate_action": "可参与促销"}
+  ]
+}
+```
+
+- **无成本商品**：`low_margin_products` / `promo_ready_products` 不包含（`has_cost=False`）；
+  `profit_rate` 字段缺失，只给当前价 + 库存——**不编造利润**。
+- `avg_profit_rate` = 有成本商品利润率的均值（无成本商品不计入）。
+
+### 6.2 POST /api/v1/stores/{credential_id}/actions（单店执行，写）
+
+#### 6.2.1 职责
+
+单店执行改价 / 库存 / 归档 / 活动报名 / 自建促销。**只做包装 + 卖货 API 调用，不自动执行**
+（由 skill / 前端触发）。每个 operation 成功/失败都接 `_write_operation_log` 落审计。
+
+#### 6.2.2 请求格式
+
+| 参数 | 类型 | 位置 | 必填 | 说明 |
+|------|------|------|------|------|
+| `credential_id` | string | path | ✅ | 店铺凭证 ID（UUID） |
+| `Authorization` | string | header | ✅ | `Bearer <token>` |
+| `operation` | string | body | ✅ | ∈ `bulk_update_prices` / `bulk_update_stocks` / `bulk_archive` / `actions_register` / `seller_action_discount` |
+| `target` | object | body | — | operation 相关请求体字段（如 prices/stocks/product_ids/action_id） |
+
+#### 6.2.3 分发规则
+
+| operation | 分发 | 说明 |
+|-----------|------|------|
+| `bulk_update_prices` | `shelf_service.bulk_update_prices` | 批量改价 |
+| `bulk_update_stocks` | `shelf_service.bulk_update_stocks` | 批量库存 |
+| `bulk_archive` | `shelf_service.bulk_archive` | 批量归档（上下架） |
+| `actions_register` | `promo_client` | 活动报名 |
+| `seller_action_discount` | `promo_client` | 自建促销 |
+
+#### 6.2.4 执行逻辑
+
+```
+Step 1: Bearer 鉴权 → user_id（租户）
+Step 2: get_decrypted 归属校验（跨租户 → 404）
+Step 3: 校验 operation ∈ SUPPORTED_OPERATIONS（否则 400）
+Step 4: 分发 shelf_service / promo_client 执行卖货 API
+Step 5: 每个 operation 后接 store_operation_log._write_operation_log（result 不依赖成功率）
+Step 6: 返回执行结果
+```
+
+#### 6.2.5 契约边界
+
+- **只做包装**：不涉及 Pipeline 自动执行；不做自动决策（由 skill/前端触发）。
+- **不调用 Performance API（`/api/client/*`）**：需独立广告 OAuth，`promo_client` 白名单禁止
+  （在 roadmap），**广告投放不是已实现能力**。
+
+### 6.3 数据沉淀 3 张新表
+
+> 均为 `worker/src/storage/database/shared/model.py`。**append-only / 去重聚合**，改逻辑时保持语义。
+
+#### 6.3.1 `store_metrics_history`（店铺指标快照，append-only）
+
+```sql
+CREATE TABLE store_metrics_history (
+    id                      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tenant_id               VARCHAR(50) NOT NULL,
+    credential_id           UUID NOT NULL,
+    store_id                VARCHAR(64) NOT NULL,
+    snapshot_at             TIMESTAMPTZ NOT NULL,
+    order_count             INT DEFAULT 0,
+    sales_amount            FLOAT,
+    commission_amount       FLOAT,
+    profit_amount           FLOAT,           -- 无成本写 NULL（不填 0）
+    product_count           INT DEFAULT 0,
+    low_stock_count         INT DEFAULT 0,
+    active_discount_count   INT DEFAULT 0,
+    profit_rate             FLOAT,           -- 无成本写 NULL
+    raw                     JSONB DEFAULT '{}'::jsonb
+);
+CREATE INDEX idx_store_metrics_history_tenant_cred ON store_metrics_history (tenant_id, credential_id);
+CREATE INDEX idx_store_metrics_history_store_snapshot ON store_metrics_history (store_id, snapshot_at);
+```
+
+- **无业务唯一键**（同 store 多条 `snapshot_at` 靠自增 id）。
+- 写入：`store_sync_service._append_metrics_snapshot`（每次同步末尾追加一条，失败静默降级）。
+- **`profit_amount`/`profit_rate` 无成本时写 NULL，绝不编造利润**。
+
+#### 6.3.2 `store_operation_log`（店铺操作审计，append-only）
+
+```sql
+CREATE TABLE store_operation_log (
+    id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tenant_id       VARCHAR(50) NOT NULL,
+    credential_id   UUID NOT NULL,
+    store_id        VARCHAR(64) NOT NULL,
+    operation       VARCHAR(32) NOT NULL,
+    target_id       VARCHAR(128) NOT NULL,
+    before          JSONB,
+    after           JSONB,
+    result          VARCHAR(32) DEFAULT 'pending',  -- pending/success/failed
+    error           TEXT,
+    operator        VARCHAR(64),
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_store_operation_log_tenant_cred ON store_operation_log (tenant_id, credential_id);
+CREATE INDEX idx_store_operation_log_cred_created ON store_operation_log (credential_id, created_at);
+```
+
+- **唯一写入口**：`services/store_operation_log.py` 的 `_write_operation_log`
+  （`result` 不依赖成功率：pending/failed 同样落一行）。`store_actions_routes` 只业务 + 计算 after，**不重复插入逻辑**。
+
+#### 6.3.3 `selection_insights`（选品洞察，去重聚合）
+
+```sql
+CREATE TABLE selection_insights (
+    id                       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    keyword                  TEXT NOT NULL,
+    category_path            TEXT,
+    avg_price_rub            FLOAT,
+    avg_profit_margin        FLOAT,
+    match_1688_count         INT DEFAULT 0,
+    sold_count               INT DEFAULT 0,
+    source                   VARCHAR(20) DEFAULT 'fetched',
+    contributed_by_token_id  TEXT NOT NULL,   -- 上报用户 token（去 sk- 前缀后的 key）
+    created_at               TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_selection_insight_keyword_token UNIQUE (keyword, contributed_by_token_id)
+);
+CREATE INDEX idx_selection_insight_token ON selection_insights (contributed_by_token_id);
+```
+
+- **唯一键 `(keyword, contributed_by_token_id)`**（去重 upsert）。
+- 写入：`selection_insight_service.upsert_from_discovery_run`，从 `discovery_runs.candidates_json`
+  聚合（`/api/v1/discovery/runs` 上报后非致命回调，main.py:2170）。
+
+### 6.4 店铺跨租户绑定拦截
+
+`services/credential_service.py` 的 `_assert_client_not_bound_elsewhere`：同一 `ozon_client_id`
+已被**其他 tenant** 绑定 → **409 `该店铺已被其他用户绑定`**。`uq_credentials_tenant_client`
+唯一槽只能拦**同租户**重复绑定，跨租户需此显式断言（否则 `ON CONFLICT` 走空子会绕过）。
+
+### 6.5 新 MCP 工具（dsh Agent 调用）
+
+| 工具 | 端到端 | 说明 |
+|------|--------|------|
+| `mcp__pounding__analyze_store` | HTTP 调 `GET /api/v1/stores/{store_id}/analysis` | 整店分析（读），非 skill CLI |
+| `mcp__pounding__run_store_action` | HTTP 调 `POST /api/v1/stores/{store_id}/actions` | 单店执行（写，dsh 侧审批） |
+
+> 实现于 `pounding-mcp/pounding_mcp/server.py` + `worker_http.py`，**直接 `_request` 调 worker
+> REST**（非 skill CLI 子进程）。失败返回 error dict，不 raise。专家版图速查见
+> `pounding-mcp/references/`（expert-store-optimizer / expert-selection-master /
+> expert-marketing-master / expert-tool-map）。
 
 ---
 

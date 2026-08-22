@@ -3,6 +3,7 @@
     POST /api/v1/stores/{credential_id}/sync        手动同步单店（订单+商品）
     GET  /api/v1/stores/{credential_id}/sync-status 同步状态（最后时间/错误）
     GET  /api/v1/stores/{credential_id}/stats       店铺卡统计（今日订单/销售额/利润）
+    GET  /api/v1/stores/{credential_id}/analysis    店铺分析（利润率/库存/候选清单）
 
 鉴权：Bearer token → user_id；凭证归属 store_sync_service 内 get_decrypted 校验。
 """
@@ -10,7 +11,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from services import store_sync_service
+from services import store_analysis_service, store_sync_service
 
 router = APIRouter(prefix="/stores", tags=["stores"])
 
@@ -49,3 +50,15 @@ async def store_stats(credential_id: str, request: Request):
     """
     tenant_id = await _authenticate(request)
     return store_sync_service.get_store_stats(tenant_id, credential_id)
+
+
+@router.get("/{credential_id}/analysis")
+async def store_analysis(credential_id: str, request: Request):
+    """店铺分析（todo 6）：利润率/库存/候选清单（summary + profit_trend + 三组清单）。
+
+    有成本商品（product_task_index→payload.envelope）经唯一入口算精确利润；
+    无成本商品只给「当前价 + 库存」，不填 profit_rate（不给无成本商品编造利润）。
+    归属校验失败 → 404（跨租户不可见）。
+    """
+    tenant_id = await _authenticate(request)
+    return store_analysis_service.analyze_store(tenant_id, str(credential_id))
