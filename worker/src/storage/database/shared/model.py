@@ -939,3 +939,135 @@ class CredentialSyncState(Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "credential_id", name="uq_sync_state_tenant_store"),
     )
+
+
+class DataSource(Base):
+    """Batch 4 T4.2: 数据源配置（CSV / API）。"""
+    __tablename__ = "data_sources"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    config: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AuditLog(Base):
+    """Batch 4 T4.3: 审计日志。"""
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    resource: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    detail: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ==================== Batch 5: Image Tasks ====================
+
+class ImageTask(Base):
+    """Batch 5 T5.2: 图片处理任务（去背/放大/换背景）。"""
+    __tablename__ = "image_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, comment="UUID PK")
+    user_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="user_id from _authenticate_token")
+    type: Mapped[str] = mapped_column(String(30), nullable=False, comment="remove_bg / upscale / background_change")
+    input_image_url: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", server_default=text("'pending'"), comment="pending/processing/completed/failed/cancelled")
+    result_image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    params: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_image_tasks_user", "user_id", "created_at"),
+    )
+
+
+# ==================== 店铺历史沉淀表（harness-store-analysis 计划） ====================
+# 三张 append-only / 聚合表：店铺指标快照、操作日志、选品洞察。
+# 前两张无天然业务唯一键（H4 评审：历史表只 append，靠自增 id），
+# selection_insights 唯一键 = (keyword, contributed_by_token_id)。
+
+
+class StoreMetricsHistory(Base):
+    """店铺指标快照（append-only）— 每次同步把店铺经营指标落一条历史。
+
+    无业务唯一键：同一 store 可多条 snapshot_at 不同，靠自增 id 区分。
+    profit_amount 无成本时写 NULL（不填 0）。
+    """
+    __tablename__ = "store_metrics_history"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    credential_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    store_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    order_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    sales_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    commission_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    profit_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="无成本写 NULL")
+    product_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    low_stock_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    active_discount_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    profit_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    raw: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+
+    __table_args__ = (
+        Index("idx_store_metrics_history_tenant_cred", "tenant_id", "credential_id"),
+        Index("idx_store_metrics_history_store_snapshot", "store_id", "snapshot_at"),
+    )
+
+
+class StoreOperationLog(Base):
+    """店铺操作日志（append-only）— 记录对店铺实体的每次变更前/后快照。
+
+    无业务唯一键：只 append，靠自增 id 区分。
+    """
+    __tablename__ = "store_operation_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    credential_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    store_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    before: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    after: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    result: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default=text("'pending'"))
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    operator: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_store_operation_log_tenant_cred", "tenant_id", "credential_id"),
+        Index("idx_store_operation_log_cred_created", "credential_id", "created_at"),
+    )
+
+
+class SelectionInsight(Base):
+    """选品洞察 — 按 (keyword, contributed_by_token_id) 去重聚合。
+
+    contributed_by_token_id：上报用户 token（去 sk- 前缀后的 key），唯一键列名用此字段。
+    """
+    __tablename__ = "selection_insights"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    keyword: Mapped[str] = mapped_column(Text, nullable=False)
+    category_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    avg_price_rub: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    avg_profit_margin: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    match_1688_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    sold_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    source: Mapped[str] = mapped_column(String(20), default="fetched")
+    contributed_by_token_id: Mapped[str] = mapped_column(Text, nullable=False, comment="上报用户 token（去 sk- 前缀后的 key）")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("keyword", "contributed_by_token_id", name="uq_selection_insight_keyword_token"),
+        Index("idx_selection_insight_token", "contributed_by_token_id"),
+    )

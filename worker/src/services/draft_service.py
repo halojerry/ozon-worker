@@ -45,6 +45,59 @@ def _assert_no_api_key(payload: Any) -> None:
             stack.extend(node)
 
 
+def _validate_draft_fields(envelope: dict) -> None:
+    """create 阶段字段弱校验：只拦严重残缺，不替代 submit 真防线。
+
+    真防线在 submit 的 validate_draft_sanity（draft_sanity.py）——weight<=0 且无
+    competitor_weight_g → 拒；dimensions 三边全<=0 且无 competitor_dimensions_mm → 拒。
+    create 只做两件事：
+    - title 缺失（严重、无法修复）→ 400，把残缺尽早暴露给用户；
+    - weight/dimensions 全零且无竞品兜底 → logger.warning（不阻断，攒进采集箱再修）。
+    """
+    draft = envelope.get("draft") or {}
+    if not isinstance(draft, dict):
+        raise HTTPException(status_code=400, detail="envelope.draft 必须是对象")
+
+    title = str(draft.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="草稿缺少标题（draft.title）：无法上架，请先补全产品标题")
+
+    extensions = envelope.get("extensions") or {}
+    if not isinstance(extensions, dict):
+        extensions = {}
+    try:
+        weight = float(draft.get("weight") or 0)
+    except (TypeError, ValueError):
+        weight = 0.0
+    dims = draft.get("dimensions") or {}
+    if not isinstance(dims, dict):
+        dims = {}
+    dim_positive = any(
+        isinstance(dims.get(k), (int, float)) and dims.get(k) > 0
+        for k in ("length", "width", "height")
+    )
+    has_competitor_weight = bool(extensions.get("competitor_weight_g", 0) > 0)
+    comp_dims = extensions.get("competitor_dimensions_mm") or {}
+    if not isinstance(comp_dims, dict):
+        comp_dims = {}
+    has_competitor_dims = any(
+        isinstance(comp_dims.get(k), (int, float)) and comp_dims.get(k) > 0
+        for k in ("length", "width", "height")
+    )
+
+    problems = []
+    if weight <= 0 and not has_competitor_weight:
+        problems.append("weight")
+    if not dim_positive and not has_competitor_dims:
+        problems.append("dimensions")
+    if problems:
+        logger.warning(
+            "草稿字段缺失（不阻断 create，submit 时将被拦截）: 缺失=%s item=%s",
+            ",".join(problems),
+            str(draft.get("item_id") or draft.get("sku_id") or "")[:40],
+        )
+
+
 def _resolve_offer_id(envelope: dict) -> str:
     """确定性 offer_id：跟卖 follow_{竞品id}，否则 draft.item_id / sku_id。"""
     draft = envelope.get("draft") or {}
@@ -92,6 +145,7 @@ def create_draft(tenant_id: str, body: dict) -> dict:
     if not isinstance(envelope, dict) or not envelope.get("draft"):
         raise HTTPException(status_code=400, detail="envelope 不能为空，必须包含 draft 字段")
     _assert_no_api_key(envelope)
+    _validate_draft_fields(envelope)
 
     client_id = str(body.get("ozon_client_id", "") or "").strip()
     api_key = str(body.get("ozon_api_key", "") or "").strip()

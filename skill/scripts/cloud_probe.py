@@ -2336,7 +2336,8 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         "images": candidate.match_1688_images or candidate.ozon_images[:1],
         "attributes": {},
         "weight": getattr(candidate, 'weight_g', 0) or 300,
-        "dimensions": getattr(candidate, 'dimensions_mm', None) or {"length": 0, "width": 0, "height": 0},
+        "dimensions": getattr(candidate, 'dimensions_mm', None)
+            or {"length": 300, "width": 200, "height": 50},
         "purchase_cost": candidate.match_1688_price or 0,
         "purchase_url": candidate.match_1688_url or "",
         "supplier": getattr(candidate, 'match_1688_supplier', ''),
@@ -3282,7 +3283,14 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         from scripts.lib.chrome_launcher import ensure_chrome_cdp
         from scripts.cli import _chrome_profile_dir
         # PR-4: 显式传统一 profile（profiles/1688/default），杜绝双轨登录态错位
-        ensure_chrome_cdp(port=9222, profile_dir=_chrome_profile_dir())
+        _cdp_ok, _cdp_msg = ensure_chrome_cdp(port=9222, profile_dir=_chrome_profile_dir())
+        # v0.61: 自动备份 Ozon 登录态(profile 被清可恢复), 失败不阻断采集
+        if _cdp_ok:
+            try:
+                from scripts.lib import ozon_session
+                ozon_session.backup()
+            except Exception as _be:
+                logger.debug("Ozon 登录态自动备份跳过(%s)", _be)
     except Exception as e:
         logger.warning("ensure_chrome_cdp 失败(继续尝试抓取): %s", e)
 

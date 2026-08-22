@@ -50,6 +50,7 @@ dsh web --patch "$PWD/cordis.patch.yml"
 ## 安全分级（审批在 dsh 侧）
 
 本 server **不做审批**——它是独立进程，拿不到 dsh 的 `ctx.approval`。
+审批 answerer 由 **dsh-web-app 自带**（`@deepseek-ai/dsh-host-apiproxy`，`cordis.patch.yml:105-106` 以 `api-gateway` id 挂载），非本 server 职责。
 三级安全门控（read/write/destructive）由 dsh 侧的 `tools/pre-execute` 钩子实现，
 依据 `docs/ozonharness/MCP-TOOLS.md` §七 的 SAFETY_MAP。
 

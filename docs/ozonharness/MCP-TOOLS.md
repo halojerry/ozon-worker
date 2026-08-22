@@ -88,7 +88,8 @@ MCP 工具层不把提交 flag 当成普通布尔参数，而是与 skill CLI �
 - 工具管线：`pre-execute → guards → execute → dispatch → post-execute → result`
 - `tools/pre-execute` 是 waterfall gate，返回 **`PreToolDecision`（allow / deny / ask）**
 - **`ask` 决策由 harness 的 approval seam 解析**（不是钩子自己调 `ctx.approval.request`）：`ask` → `ctx.approval` 的 answerer waterfall → `allowed-once` / `rejected` / `cancelled` / `unavailable`
-- 审批需挂载 `@deepseek-ai/dsh-user-approval` + 一个 answerer（否则 `unavailable` → 自动拒绝，fail-closed）
+- **answerer 已存在**：由 dsh-web-app 自带（`cordis.patch.yml:105-106` 以 `api-gateway` id 挂 `@deepseek-ai/dsh-host-apiproxy`），**并非缺失**。guard（`pre-execute`）与 `serviceAsk` 共享同一 `exec.callId`（dsh-tools `lib/index.js:3105-3106`），**无相关性失配**；answerer 逆向扫描（dsh-host-apiproxy `lib/index.js:1911-1913`）实测可匹配（ApprovalService.request 的 debug9 日志）。注意：**answerer 非平台职责的一部分时**才回到 `unavailable` → 自动拒绝（fail-closed）。
+- **discover 默认是 read**：无 `--auto_submit`/`--to_box` 时不触发审批（不 ask）；只有 `--auto_submit`/`--to_box` 才升级 write 才 ask。若 discover 未落盘 `tasks.json`，更可能是「discover 无 auto_submit 根本没 ask」或「无 UI resolver」，**而非 answerer 缺失**。
 
 ```typescript
 // 伪代码：dsh 侧的 pre-execute 拦截点插件（普通 Cordis 插件，非 MCP server）

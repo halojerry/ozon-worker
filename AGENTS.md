@@ -2,6 +2,21 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（开发中 — harness-store-analysis 数据沉淀：3 张新表 + 店铺分析/执行端点 + 专家版图）
+
+> 2026-08-22。**未发版**（VERSION 四源仍 0.60.0），属「数据沉淀 + 店铺精细化运营」阶段。本批把 store/store 指标、操作审计、选品洞察落 PG，暴露整店分析（读）与单店执行（写）两大端点，并新增店铺优化/选品/营销三位专家参考。执行记录见 `docs/PLAN-store-analytics-v1.md`（harness-store-analysis）。
+
+- **3 张新表**（`worker/src/storage/database/shared/model.py`，均 append-only / 去重聚合）：
+  - `store_metrics_history`：店铺指标快照 `{tenant_id, credential_id, store_id, snapshot_at, order_count, sales_amount, commission_amount, profit_amount, product_count, low_stock_count, active_discount_count, profit_rate, raw(jsonb)}`。**无业务唯一键**（同 store 多条 snapshot_at 靠自增 id）。`store_sync_service._append_metrics_snapshot` 每次同步末尾追加一条（失败静默降级）。**profit_amount/profit_rate 无成本时写 NULL，绝不编造利润**。
+  - `store_operation_log`：店铺操作审计 `{tenant_id, credential_id, store_id, operation, target_id, before, after, result, error, operator, created_at}`。**唯一写入口是 `services/store_operation_log.py` 的 `_write_operation_log`**（result 不依赖成功率：pending/failed 同样落一行）。`store_actions_routes` 只业务 + 计算 after，不重复插入逻辑。
+  - `selection_insights`：选品洞察 `{keyword, category_path, avg_price_rub, avg_profit_margin, match_1688_count, sold_count, source, contributed_by_token_id, created_at}`，**唯一键 `(keyword, contributed_by_token_id)`**。`selection_insight_service.upsert_from_discovery_run` 从 `discovery_runs.candidates_json` 聚合（`/api/v1/discovery/runs` 上报后非致命回调，见 main.py:2170）。
+- **店铺分析端点**：`GET /api/v1/stores/{credential_id}/analysis`（`store_sync_routes` → `services/store_analysis_service.py`）——整店 `summary`（product_count/low_stock_count/active_discount_count/avg_profit_rate）+ `profit_trend`（读 `store_metrics_history` 的 profit_rate/sales_amount 聚合）+ 三组清单（low_margin/out_of_stock/promo_ready）。**无成本商品只给当前价 + 库存，不填 profit_rate**（`get_decrypted` 跨租户校验 404）。利润率经 `estimate_from_envelope`（commission_resolver + 物流唯一入口）provisional band pass 计算。
+- **店铺执行端点**：`POST /api/v1/stores/{credential_id}/actions`（`store_actions_routes`）——`operation ∈ {bulk_update_prices, bulk_update_stocks, bulk_archive, actions_register, seller_action_discount}`。改价/库存/归档分发 `shelf_service`，活动报名/自建促销分发 `promo_client`；每个 operation 成功/失败都接 `_write_operation_log`。**只做包装 + 卖货 API 调用，不自动执行**（skill/前端触发）。
+- **新 MCP 工具**（`pounding-mcp/pounding_mcp/server.py` → `worker_http.py`，**直接 HTTP 调 worker API，非 skill CLI**）：`mcp__pounding__analyze_store`（读）/ `mcp__pounding__run_store_action`（写，dsh 侧审批）。
+- **专家版图**（`pounding-mcp/references/`）：expert-store-optimizer.md / expert-selection-master.md / expert-marketing-master.md / expert-tool-map.md（给 agent「那位专家 → 该用哪些工具」速查，工具名已逐一对 server.py 21 工具 grep 核对，无幻影）。
+- **店铺跨租户绑定拦截**（`services/credential_service.py` `_assert_client_not_bound_elsewhere`）：同 `ozon_client_id` 已被**其他 tenant** 绑定 → 409 `该店铺已被其他用户绑定`（防跨租户绑定同一店）。
+- **测试**（可用对应 worker 测试文件核对，非本批全量断言）：test_store_analysis / test_store_actions / test_store_history_models / test_store_metrics_sync / test_store_operation_log / test_selection_insights；pounding-mcp test_store_tools（monkeypatch `_request`，断言 analyze/run 两个工具在 server 注册）。
+
 ## 最近更新（v0.60 — 三档双价格体系 + 标题 SEO 流量词 + 9048 防并卡前缀 + 对话入口）
 
 > 2026-08-21。已发版（VERSION 四源 0.60.0）。定价/标题/9048/对话入口 + 48 存量测试修复。执行记录见 `docs/PLAN-conversation-entry-v1.md`（Q3）+ `docs/PLAN-card-merge-fix-v1.md`（Q4）。
@@ -608,6 +623,17 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - **SEO 流量词链路**：`extensions.traffic_keywords` → 标题生成 prompt 建议行（LLM 自主融入不硬塞）+ `_generate_hashtags` 流量词优先（> `_HASHTAG_RU` 字典 > 西里尔提取 > `#товар`）。数据源 `GET /api/v1/seo/keywords` 读 `blue_ocean_queries`——改流量词注入勿绕过这单一链路。
 - **9048 防并卡前缀**：`_derive_model_name_9048`（prepare L1228）只加在 CREATE 路径；**跟卖 UPDATE（is_follow_sell）刻意不加前缀**（本就要并卡）。hash 只用确定性字段（item_id/supplier/中文标题），**绝不用 LLM 翻译后标题**（retry 重生成会拆卡）。改 prepare 变体分支勿破坏（`test_model_name_9048.py` 9 单测锁定）。
 - **对话入口意图路由**：`pounding-mcp/pounding_mcp/router.py` 是 SKILL.md 决策树固化层（URL 正则 + 九类意图词表），`tasks_server` `/ask` 消费。新增意图/管线映射必须改 router.py，勿在 server.py 手写路由逻辑。
+
+### harness-store-analysis 新增关键约定（改数据沉淀/店铺分析/执行端点/专家版图前必看）
+
+- **数据沉淀三表只 append**：`store_metrics_history`/`store_operation_log` 均无业务唯一键（append-only，靠自增 id）；`selection_insights` 唯一键 `(keyword, contributed_by_token_id)` 去重 upsert。**改这三表逻辑时保持 append/去重语义**，勿加改动覆盖历史记录。
+- **无成本不编造利润**：`store_metrics_history.profit_amount/profit_rate` 无成本时写 NULL；`store_analysis_service` 对无成本商品（`has_cost=False`）只填当前价 + 库存，**不填 profit_rate**——禁止给无成本商品造利润（`get_decrypted` 跨租户校验 404）。
+- **利润唯一入口**：`store_analysis_service` 的利润率经 `estimate_from_envelope`（复用 `commission_resolver` + 物流费率唯一入口）provisional band pass 计算，**禁止在分析服务另写估算公式**（与定价同源，防漂移）。
+- **审计唯一写入口**：`store_operation_log` 唯一写入口是 `services/store_operation_log.py` 的 `_write_operation_log`（result 不依赖成功率：pending/failed 同样落一行）。`store_actions_routes` 只做业务 + 计算 after，**不重复插入逻辑**。
+- **执行端点只包装 + 卖货 API 调用**：`POST /stores/{id}/actions` 的改价/库存/归档分发 `shelf_service`、活动报名/自建促销分发 `promo_client`；**只做包装，不自动执行**（由 skill/前端触发）。**不调用 Performance API（`/api/client/*`）**——需独立广告 OAuth，`promo_client` 白名单禁止（在 roadmap），广告投放**不是**已实现能力。
+- **promo_client 契约取自 ozon-mcp**：`promo_client` 的 Seller 端点白名单（`/v1/actions` 等）以 `PCDCK/ozon-mcp` 的 466 方法索引为权威，只碰卖货相关端点；改促销逻辑勿绕过白名单或触碰 `/api/client/*`。
+- **店铺跨租户绑定拦截**：`credential_service._assert_client_not_bound_elsewhere`——同 `ozon_client_id` 已被其他 tenant 绑定 → 409 `该店铺已被其他用户绑定`。改创建/轮换凭证逻辑勿移除（`uq_credentials_tenant_client` 唯一槽只能拦同租户，跨租户需此显式断言）。
+- **MCP 店铺工具直接走 worker HTTP**：`mcp__pounding__analyze_store`/`run_store_action` 在 `worker_http.py` 直接 `_request` 调 worker REST（**非 skill CLI**），失败返回 error dict 不 raise。新增 store 相关 MCP 工具勿回归 skill CLI 子进程模式。
 
 ### v0.59 新增关键约定（改佣金/定价/发货模式前必看）
 

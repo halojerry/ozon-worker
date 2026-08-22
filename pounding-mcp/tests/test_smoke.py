@@ -47,7 +47,7 @@ def test_run_skill_command_bool_flag(monkeypatch):
 
 
 def test_all_tools_registered():
-    """19 个工具都注册到 FastMCP。"""
+    """21 个工具都注册到 FastMCP。"""
     import asyncio
 
     names = {t.name for t in asyncio.run(mcp.list_tools())}
@@ -55,7 +55,8 @@ def test_all_tools_registered():
         "check", "list_stores", "set_store", "set_token", "set_ak", "get_ak",
         "search", "probe", "image_search", "category", "follow", "discover",
         "discover_multi", "seller", "queries", "graph", "query", "update", "cleanup",
+        "analyze_store", "run_store_action",
     }
     missing = expected - names
     assert not missing, f"未注册的工具: {missing}"
-    assert len(names) == 19, f"工具数应为 19，实际 {len(names)}"
+    assert len(names) == 21, f"工具数应为 21，实际 {len(names)}"

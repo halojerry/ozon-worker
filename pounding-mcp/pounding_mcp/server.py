@@ -14,6 +14,8 @@ from fastmcp import FastMCP
 
 from .skill_runner import run_skill_command
 from .tasks import get_manager
+from .worker_http import analyze_store as _analyze_store
+from .worker_http import run_store_action as _run_store_action
 
 mcp = FastMCP("pounding")
 
@@ -175,6 +177,29 @@ def update() -> dict:
 def cleanup() -> dict:
     """清理缓存/临时数据。默认预演（--all --dry-run）不真删；破坏性操作（dsh 侧双重确认）。"""
     return run_skill_command("cleanup", all=True, dry_run=True)
+
+
+# ── 店铺分析 / 执行（直接 HTTP 调 worker，非 skill CLI subprocess）──────────
+
+@mcp.tool()
+def analyze_store(store_id: str) -> dict:
+    """整店分析（读）：利润率/库存/候选清单（summary + profit_trend + 三组清单）。只读。
+
+    直接 HTTP 调 worker `GET /api/v1/stores/{store_id}/analysis`（非 skill CLI）。
+    返回结构化 JSON；工作不可达/失败返回 error dict（不 raise）。"""
+    return _analyze_store(store_id)
+
+
+@mcp.tool()
+def run_store_action(store_id: str, operation: str, payload: dict | None = None) -> dict:
+    """单店执行（写，dsh 侧审批）：改价/stocks/归档/活动报名/自建促销。
+
+    直接 HTTP 调 worker `POST /api/v1/stores/{store_id}/actions`（非 skill CLI）。
+    operation ∈ {bulk_update_prices, bulk_update_stocks, bulk_archive,
+                 actions_register, seller_action_discount}。
+    payload 为 operation 请求体字段（如 prices/stocks/product_ids/action_id）。
+    本工具只负责触发并返回执行结果（含 store_operation_log），不做自动执行决策。"""
+    return _run_store_action(store_id, operation, payload)
 
 
 def main() -> None:

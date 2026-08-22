@@ -47,6 +47,27 @@ def _now() -> datetime.datetime:
     return datetime.datetime.now(_UTC)
 
 
+def _assert_client_not_bound_elsewhere(tenant_id: str, ozon_client_id: str, conn) -> None:
+    """跨租户单店一次绑定拦截：同一 ozon_client_id 已被其他 tenant 绑定 → 409。
+
+    create_credential / store_credential 两入口共同的前置预检，堵住 store_credential
+    ``ON CONFLICT (tenant_id, ozon_client_id) DO UPDATE`` 的空子——不同 tenant 下无冲突
+    会 INSERT 成功，绕过同租户唯一索引 uq_credentials_tenant_client。
+
+    仅预检（无 DB 级锁），极端并发下可能双绑，记为已知残留，不强行加锁/改表结构。
+    """
+    row = conn.execute(text(
+        "SELECT 1 FROM credentials WHERE ozon_client_id = :client_id "
+        "AND tenant_id != :tenant_id LIMIT 1"
+    ), {"client_id": ozon_client_id, "tenant_id": tenant_id}).fetchone()
+    if row is not None:
+        logger.warning("店铺已被其他租户绑定 tenant=%s client=%s", tenant_id, ozon_client_id)
+        raise HTTPException(
+            status_code=409,
+            detail=f"该店铺已被其他用户绑定: {ozon_client_id}",
+        )
+
+
 def _row_to_dict(row) -> dict:
     return {
         "id": str(row.id),
@@ -91,6 +112,7 @@ def create_credential(tenant_id: str, data: CredentialCreate) -> dict:
     }
     try:
         with get_engine().begin() as conn:
+            _assert_client_not_bound_elsewhere(tenant_id, client_id, conn)
             if data.is_default:
                 conn.execute(text(
                     "UPDATE credentials SET is_default=false "
@@ -229,6 +251,7 @@ def store_credential(tenant_id: str, ozon_client_id: str, api_key: str) -> str:
     masked = mask(api_key)
     try:
         with get_engine().begin() as conn:
+            _assert_client_not_bound_elsewhere(tenant_id, client_id, conn)
             row = conn.execute(text(
                 "INSERT INTO credentials (tenant_id, ozon_client_id, ozon_api_key_enc, api_key_masked) "
                 "VALUES (:tenant_id, :ozon_client_id, :enc, :masked) "

@@ -13,6 +13,8 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import threading
+import uuid
 from typing import Any, Optional
 
 from fastapi import HTTPException
@@ -33,6 +35,15 @@ _PRODUCT_PAGE = 500
 # 单店同步最大订单拉取页数（防超大店一次同步打爆配额；v4 单页上限 100）
 _ORDER_PAGE = 100
 _MAX_ORDER_PAGES = 25
+# 低库存阈值：库存 < 此值判定为低库存（快照 low_stock_count）
+_LOW_STOCK_THRESHOLD = 10
+# 同步重入守卫（thread-local，防零订单店 get_store_stats 懒同步递归）
+# sync_store → _append_metrics_snapshot → get_store_stats → 懒同步 sync_store → ...
+_sync_in_progress = threading.local()
+
+
+def _sync_guard_active() -> bool:
+    return getattr(_sync_in_progress, "active", False)
 
 
 # ──────────────────────────────────────────────
@@ -44,12 +55,72 @@ def sync_store(tenant_id: str, credential_id: str) -> dict:
     """同步单个店铺（订单增量 + 商品全量），逐项容错（一项失败不阻断另一项）。
 
     credential 归属校验：get_decrypted 跨租户/已吊销 → 404。
+    末尾追加一条 store_metrics_history 快照（失败静默降级，不阻断同步）。
     """
-    client_id, api_key = credential_service.get_decrypted(tenant_id, credential_id)
-    result: dict[str, Any] = {"credential_id": credential_id, "ozon_client_id": client_id}
-    result["orders"] = _sync_orders(tenant_id, credential_id, client_id, api_key)
-    result["products"] = _sync_products(tenant_id, credential_id, client_id, api_key)
-    return result
+    _sync_in_progress.active = True
+    try:
+        client_id, api_key = credential_service.get_decrypted(tenant_id, credential_id)
+        result: dict[str, Any] = {"credential_id": credential_id, "ozon_client_id": client_id}
+        result["orders"] = _sync_orders(tenant_id, credential_id, client_id, api_key)
+        result["products"] = _sync_products(tenant_id, credential_id, client_id, api_key)
+        _append_metrics_snapshot(tenant_id, credential_id)
+        return result
+    finally:
+        _sync_in_progress.active = False
+
+
+def _append_metrics_snapshot(tenant_id: str, credential_id: str) -> None:
+    """同步末尾追加一条 store_metrics_history 快照（append-only，失败静默降级）。
+
+    profit_amount/profit_rate 写 NULL（OzonProductCache 无成本字段，不编造）。
+    get_store_stats 的懒同步经重构后尊重重入守卫，零订单店不会递归。
+    """
+    try:
+        stats = get_store_stats(tenant_id, credential_id)
+        products = _product_counts(tenant_id, credential_id)
+        snapshot_at = datetime.datetime.now(datetime.timezone.utc)
+        raw = json.dumps({"stats": stats, "products": products}, ensure_ascii=False)
+        with get_engine().begin() as conn:
+            conn.execute(text(
+                """
+                INSERT INTO store_metrics_history
+                    (tenant_id, credential_id, store_id, snapshot_at, order_count,
+                     sales_amount, commission_amount, profit_amount, product_count,
+                     low_stock_count, active_discount_count, profit_rate, raw)
+                VALUES
+                    (:tenant_id, :credential_id, :store_id, :snapshot_at, :order_count,
+                     :sales_amount, :commission_amount, NULL, :product_count,
+                     :low_stock_count, 0, NULL, CAST(:raw AS jsonb))
+                """
+            ), {
+                "tenant_id": tenant_id,
+                "credential_id": uuid.UUID(str(credential_id)),
+                "store_id": str(credential_id),
+                "snapshot_at": snapshot_at,
+                "order_count": stats.get("today_orders") or 0,
+                "sales_amount": stats.get("today_sales_amount"),
+                "commission_amount": stats.get("today_commission"),
+                "product_count": products["product_count"],
+                "low_stock_count": products["low_stock_count"],
+                "raw": raw,
+            })
+        logger.info("店铺指标快照落历史 store=%s orders=%s products=%s",
+                    credential_id, stats.get("today_orders"), products["product_count"])
+    except Exception as exc:
+        logger.warning("店铺指标快照失败（静默降级）store=%s: %s",
+                       credential_id, str(exc)[:200])
+
+
+def _product_counts(tenant_id: str, credential_id: str) -> dict:
+    """商品数/低库存数（未归档，stock < _LOW_STOCK_THRESHOLD 计低库存）。"""
+    with get_engine().connect() as conn:
+        row = conn.execute(text(
+            "SELECT COUNT(*), "
+            "COUNT(*) FILTER (WHERE stock IS NOT NULL AND stock < :low_stock) "
+            "FROM ozon_products_cache "
+            "WHERE tenant_id=:t AND credential_id=:c AND archived=FALSE"
+        ), {"t": tenant_id, "c": str(credential_id), "low_stock": _LOW_STOCK_THRESHOLD}).fetchone()
+    return {"product_count": int(row[0] or 0), "low_stock_count": int(row[1] or 0)}
 
 
 def _sync_orders(tenant_id: str, credential_id: str, client_id: str, api_key: str) -> dict:
@@ -545,7 +616,7 @@ def get_store_stats(tenant_id: str, credential_id: str) -> dict:
     ⚠️ 无评分字段——缓存无 rating 数据，店铺卡不显示评分。
     """
     client_id, _api_key = credential_service.get_decrypted(tenant_id, str(credential_id))
-    if _needs_orders_sync(tenant_id, str(credential_id)):
+    if _needs_orders_sync(tenant_id, str(credential_id)) and not _sync_guard_active():
         sync_store(tenant_id, str(credential_id))
     today_start = datetime.datetime.now(datetime.timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0)

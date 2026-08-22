@@ -73,8 +73,10 @@ def pg():
 @pytest.fixture(autouse=True)
 def clean_tables(pg):
     with pg.begin() as conn:
+        # 对齐 test_drafts_api：清 credentials，防跨文件残留 (tenant, ozon_client_id) 触发跨租户 409。
         conn.execute(text("DELETE FROM draft_submissions"))
         conn.execute(text("DELETE FROM product_drafts"))
+        conn.execute(text("DELETE FROM credentials"))
     yield
 
 
@@ -109,8 +111,10 @@ def make_app() -> FastAPI:
     return app
 
 
-def create_draft(client: TestClient, token: str, item_id: str = "980815374096") -> str:
-    resp = client.post("/api/v1/drafts", json=graph_input(CLIENT_A, make_envelope(item_id), token=token))
+def create_draft(client: TestClient, token: str, item_id: str = "980815374096",
+                 client_id: str = CLIENT_A) -> str:
+    resp = client.post("/api/v1/drafts",
+                       json=graph_input(client_id, make_envelope(item_id), token=token))
     assert resp.status_code == 200, resp.text
     return resp.json()["id"]
 
@@ -194,7 +198,8 @@ def test_timeline_404_for_missing_draft(pg):
 
 def test_timeline_404_for_cross_tenant(pg):
     client = TestClient(make_app())
-    draft_id = create_draft(client, TOKEN_B, item_id="item-b")  # 属于 tenant-B
+    # tenant-B 绑定独立 client_id（跨租户单店一次绑定拦截：同一 ozon_client_id 不得跨租户复用）
+    draft_id = create_draft(client, TOKEN_B, item_id="item-b", client_id="8899221")
     resp = client.get(f"/api/v1/drafts/{draft_id}/submissions",
                       headers={"Authorization": f"Bearer {TOKEN_A}"})
     assert resp.status_code == 404, "跨租户不得看到时间线"
