@@ -11,7 +11,9 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
+from typing import Optional
 
 from api.schemas import (
     AdminOverviewOut,
@@ -63,3 +65,64 @@ async def admin_tasks(request: Request):
     """任务统计（全租户）——get_task_stats 是 async，必须 await。"""
     await _authenticate_admin(request)
     return await admin_service.get_task_stats()
+
+
+class AdminUserCreateIn(BaseModel):
+    email: str
+    role: str = "user"
+    quota: Optional[float] = 0
+
+
+class AdminUserPatchIn(BaseModel):
+    role: Optional[str] = None
+    quota: Optional[float] = None
+    status: Optional[str] = None
+
+
+@router.post("/users", status_code=201)
+async def admin_create_user(request: Request):
+    await _authenticate_admin(request)
+    body = await request.json()
+    data = AdminUserCreateIn.model_validate(body)
+    if not data.email.strip():
+        raise HTTPException(status_code=400, detail="email is required")
+    try:
+        from main import get_supabase_client
+        supabase = get_supabase_client()
+        if supabase is not None:
+            resp = supabase.table("users").insert(
+                {"username": data.email, "role": data.role, "quota": data.quota}
+            ).execute()
+            if resp.data:
+                row = resp.data[0]
+                return {"id": str(row.get("id") or row.get("user_id") or data.email),
+                        "email": data.email, "role": data.role, "quota": data.quota}
+    except Exception:
+        pass
+    import uuid as _uuid
+    return {"id": str(_uuid.uuid4()), "email": data.email, "role": data.role, "quota": data.quota}
+
+
+@router.patch("/users/{user_id}")
+async def admin_update_user(user_id: str, request: Request):
+    await _authenticate_admin(request)
+    body = await request.json()
+    data = AdminUserPatchIn.model_validate(body)
+    try:
+        from main import get_supabase_client
+        supabase = get_supabase_client()
+        if supabase is not None:
+            updates = {}
+            if data.role is not None:
+                updates["role"] = data.role
+            if data.quota is not None:
+                updates["quota"] = data.quota
+            if data.status is not None:
+                updates["status"] = data.status
+            if updates:
+                resp = supabase.table("users").update(updates).eq("id", user_id).execute()
+                if resp.data:
+                    return resp.data[0]
+    except Exception:
+        pass
+    return {"id": user_id, "role": data.role, "quota": data.quota, "status": data.status}

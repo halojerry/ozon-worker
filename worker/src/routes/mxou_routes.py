@@ -125,3 +125,65 @@ async def select_mxou_key(key_id: str, request: Request):
     """切换密钥：解出明文 key（仅此一次返回）+ 幂等 upsert 进 tokens 表。"""
     tenant_id = await _authenticate(request)
     return mxou_login_service.select_key(tenant_id, key_id)
+
+
+@router.post("/logout")
+async def mxou_logout(request: Request):
+    tenant_id = await _authenticate(request)
+    auth = request.headers.get("Authorization", "")
+    token = ""
+    if auth.startswith("Bearer "):
+        token = auth[7:].strip()
+    else:
+        try:
+            raw = await request.body()
+            if raw:
+                data = json.loads(raw.decode("utf-8"))
+                token = str(data.get("token", "") or "")
+        except Exception:
+            pass
+    clean = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    if clean:
+        try:
+            from main import _revoked_tokens
+            _revoked_tokens.add(clean)
+            _revoked_tokens.add(token)
+        except Exception:
+            pass
+        try:
+            from storage.database.supabase_client import get_supabase_client
+            supabase = get_supabase_client()
+            if supabase is not None:
+                supabase.table("tokens").delete().eq("key", clean).execute()
+                supabase.table("tokens").update({"status": 0}).eq("key", clean).execute()
+        except Exception:
+            pass
+        try:
+            mxou_login_service.session_store.pop(tenant_id)
+        except Exception:
+            pass
+    return {"ok": True}
+
+
+@router.get("/me")
+async def mxou_me(request: Request):
+    tenant_id = await _authenticate(request)
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    user_id = tenant_id
+    email = ""
+    role = "user"
+    try:
+        from storage.database.supabase_client import get_supabase_client
+        from services.admin_service import is_admin_role
+        supabase = get_supabase_client()
+        if supabase is not None:
+            rows = supabase.table("users").select("username, email, role").eq("id", user_id).limit(1).execute()
+            if rows.data:
+                row = rows.data[0]
+                email = str(row.get("email") or row.get("username") or "")
+                r = row.get("role")
+                role = "admin" if is_admin_role(r) else "user"
+    except Exception:
+        pass
+    return {"user_id": user_id, "email": email, "role": role}

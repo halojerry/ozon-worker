@@ -82,6 +82,7 @@ def list_ozon_products(
     from fastapi import HTTPException
     from services.credential_service import get_decrypted, get_default_credential
     from utils.ozon_client import ozon_post
+    from utils.ozon_pagination import paginate
 
     if credential_id:
         client_id, api_key = get_decrypted(tenant_id, str(credential_id))
@@ -100,10 +101,10 @@ def list_ozon_products(
     offset = max(0, int(offset))
 
     try:
-        list_resp = ozon_post(
+        items_raw = paginate(
             client_id, api_key, "/v3/product/list",
             {"filter": {"visibility": "ALL"}, "limit": limit, "offset": offset, "sort_dir": "ASC"},
-            timeout=30, language="RU",
+            cursor_style="offset", post_fn=ozon_post, timeout=30, language="RU",
         )
     except HTTPException:
         raise
@@ -111,9 +112,7 @@ def list_ozon_products(
         logger.warning("Ozon 商品列表拉取失败 client=%s: %s", client_id, str(exc)[:200])
         raise HTTPException(status_code=502, detail=f"Ozon 商品列表接口请求失败：{str(exc)[:120]}")
 
-    result = list_resp.get("result") or {}
-    items_raw = result.get("items") or []
-    total = int(result.get("total") or len(items_raw))
+    total = len(items_raw)
 
     product_ids = [str(it.get("product_id")) for it in items_raw if isinstance(it, dict) and it.get("product_id")]
     info_map: dict[str, dict] = {}

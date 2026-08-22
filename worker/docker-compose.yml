@@ -27,7 +27,7 @@ services:
       - SUPABASE_URL=${SUPABASE_URL:-}
       - SUPABASE_KEY=${SUPABASE_KEY:-}
       - APP_WORKSPACE_PATH=/app
-      - PYTHONPATH=/app/src
+      - PYTHONPATH=/opt/venv/lib/python3.12/site-packages:/app/src
     depends_on:
       postgres:
         condition: service_healthy
