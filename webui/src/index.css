@@ -131,3 +131,35 @@ button { cursor: pointer; }
 .cfg-loading{text-align:center;padding:60px 20px}
 @media(max-width:1050px){.cfg-editor-layout{grid-template-columns:180px minmax(0,1fr)}}
 @media(max-width:700px){.cfg-editor-layout{grid-template-columns:1fr;grid-template-rows:auto 1fr}.cfg-sidebar{border-right:0;border-bottom:1px solid #eeeae5;max-height:180px;overflow-y:auto}.cfg-main{padding:14px}}
+
+/* Batch 2 — real-API panels: store cards + draft/task drawers */
+.store-card-actions{display:flex;gap:8px;margin:0 0 10px}.store-card-actions .button{flex:1}
+.store-card-meta{display:block;font-size:9px;color:#89847f;margin:0 0 4px}
+.drawer-form select{box-sizing:border-box;width:100%;margin-top:6px;border:1px solid #dedbd6;border-radius:5px;background:#fff;padding:10px;font-size:11px;font-weight:400;text-align:left}
+.draft-drawer-field{position:relative;border:1px solid #e6e4df;background:#faf9f6;border-radius:6px;margin-top:14px;padding:11px}
+.draft-drawer-field label{font-size:9px;font-weight:800;letter-spacing:.6px;color:#86817b;display:block}
+.draft-drawer-field p{font-size:11px;line-height:1.8;margin:6px 0 0;padding-right:50px;white-space:pre-wrap}
+.draft-drawer-field button{position:absolute;right:8px;top:8px;border:0;background:transparent;color:#bd0b0b;font-size:9px}
+.estimate-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
+.estimate-cell{background:#faf9f6;border:1px solid #efede9;border-radius:6px;padding:12px;text-align:center}
+.estimate-cell span{font-size:9px;color:#89847f;display:block}
+.estimate-cell b{display:block;font-size:18px;margin-top:5px}
+.estimate-cell .promo{color:#e20e0e}
+.task-image-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+.task-image-cell{border:1px solid #efede9;border-radius:6px;padding:8px;background:#faf9f6}
+.task-image-cell img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;background:#eee}
+.task-image-cell small{display:block;font-size:9px;color:#89847f;margin-top:5px}
+.task-image-cell .button{margin-top:6px;font-size:9px;padding:6px 8px}
+.tab-bar{display:flex;gap:20px;border-bottom:1px solid #eee;padding:0 44px}
+.tab-bar button{background:transparent;border:0;padding:12px 2px;font-size:13px;color:#777;border-bottom:2px solid transparent;cursor:pointer}
+.tab-bar button.selected{color:#e20e0e;border-color:#e20e0e}
+.panel-notice{margin:0 44px 14px}
+@media(max-width:1050px){.tab-bar{padding-left:24px;padding-right:24px}.panel-notice{margin-left:24px;margin-right:24px}.estimate-grid{grid-template-columns:1fr}}
+@media(max-width:700px){.tab-bar{padding-left:16px;padding-right:16px}.panel-notice{margin-left:16px;margin-right:16px}.task-image-grid{grid-template-columns:1fr 1fr}}
+
+/* Batch 2 — tasks panel rows */
+.task .task-row-status{color:inherit;font-size:10px}
+.no-progress{color:#b30c0c;font-size:9px;margin-top:4px}
+.task-row-actions{display:flex;gap:12px;margin-top:6px}
+.task-row-actions button{border:0;background:transparent;color:#b30c0c;font-size:9px;padding:0;cursor:pointer}
+.task-row-actions button:hover{text-decoration:underline}
