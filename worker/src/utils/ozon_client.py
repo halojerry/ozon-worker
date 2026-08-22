@@ -17,12 +17,39 @@ import time
 from typing import Any, Optional
 
 import requests
+from tenacity import (
+    Retrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from utils.logger import get_logger, log_ozon_api_call
+from utils.ozon_errors import (
+    OzonAuthError,
+    OzonError,
+    OzonRateLimitError,
+    OzonServerError,
+    _raise_for_status,
+)
+from utils.ozon_rate_limiter import _rate_limiter
 
 logger = get_logger("ozon.api")
 
 BASE_URL = "https://api-seller.ozon.ru"
+
+_MAX_RETRIES = 3
+
+_exp_wait = wait_exponential_jitter(initial=1, max=20)
+
+
+def _wait_strategy(retry_state):
+    """tenacity wait callable — honor Ozon's Retry-After on 429, else exponential jitter."""
+    outcome = getattr(retry_state, "outcome", None)
+    exc = outcome.exception() if outcome is not None else None
+    if isinstance(exc, OzonRateLimitError) and exc.retry_after is not None:
+        return float(exc.retry_after)
+    return _exp_wait(retry_state)
 
 
 def ozon_post(
@@ -47,7 +74,9 @@ def ozon_post(
         响应 JSON dict
 
     Raises:
-        requests.HTTPError: 非 2xx 响应
+        OzonError (及子类): 非 2xx 响应 — OzonAuthError(401)/OzonValidationError(400)/
+            OzonRateLimitError(429, 可重试)/OzonServerError(5xx, 可重试) 等；
+        requests.exceptions.Timeout / ConnectionError: 网络异常（不重试）。
     """
     url = f"{BASE_URL}{endpoint}"
     headers = {
@@ -58,29 +87,45 @@ def ozon_post(
     if language:
         headers["Accept-Language"] = language
 
+    # 速率限制：每次调用 acquire 一次（在重试循环之外，避免重复计 token）
+    _rate_limiter.acquire(endpoint)
+
     start = time.monotonic()
     try:
         # ⚠️ v0.14 D2: 用共享 session（连接池复用），旧代码裸 requests.post 每次新建 TCP 连接
         from utils.http_session import session as _shared_session
-        resp = _shared_session.post(url, json=body, headers=headers, timeout=timeout)
-        duration_ms = (time.monotonic() - start) * 1000
+        # tenacity 重试：仅对 OzonRateLimitError(429) 和 OzonServerError(5xx) 重试；
+        # OzonAuthError(401) / OzonValidationError(400) 等立即抛出（不重试）
+        for attempt in Retrying(
+            stop=stop_after_attempt(_MAX_RETRIES),
+            wait=_wait_strategy,
+            retry=retry_if_exception_type((OzonRateLimitError, OzonServerError)),
+            reraise=True,
+        ):
+            with attempt:
+                resp = _shared_session.post(url, json=body, headers=headers, timeout=timeout)
+                duration_ms = (time.monotonic() - start) * 1000
 
-        # 构建请求摘要（避免日志过大）
-        req_summary = _summarize_request(endpoint, body)
-        resp_summary = _summarize_response(endpoint, resp) if resp.ok else None
+                # 构建请求摘要（避免日志过大）
+                req_summary = _summarize_request(endpoint, body)
+                resp_summary = _summarize_response(endpoint, resp) if resp.ok else None
 
-        log_ozon_api_call(
-            method="POST",
-            endpoint=endpoint,
-            status_code=resp.status_code,
-            duration_ms=duration_ms,
-            request_summary=req_summary,
-            response_summary=resp_summary,
-            error=None if resp.ok else resp.text[:500],
-        )
+                log_ozon_api_call(
+                    method="POST",
+                    endpoint=endpoint,
+                    status_code=resp.status_code,
+                    duration_ms=duration_ms,
+                    request_summary=req_summary,
+                    response_summary=resp_summary,
+                    error=None if resp.ok else resp.text[:500],
+                )
 
-        resp.raise_for_status()
-        return resp.json()
+                # typed error mapping（2xx → None；429/5xx 被 tenacity 捕获重试）
+                _raise_for_status(resp, endpoint)
+                # Defense-in-depth fallback: _raise_for_status 应覆盖所有 >=400，
+                # 保留 requests.raise_for_status 兜底任何未映射的边缘状态码
+                resp.raise_for_status()
+                return resp.json()
 
     except requests.exceptions.Timeout:
         duration_ms = (time.monotonic() - start) * 1000

@@ -19,6 +19,7 @@ from fastapi import HTTPException
 
 from services.credential_service import get_decrypted, get_default_credential
 from utils.ozon_client import ozon_post
+from utils.ozon_pagination import paginate
 
 logger = logging.getLogger(__name__)
 
@@ -290,16 +291,16 @@ def list_orders(
         "with": {"analytics_data": True, "financial_data": True},
     }
     try:
-        resp = ozon_post(client_id, api_key, "/v4/posting/fbs/list", body, timeout=30, language="RU")
+        postings = paginate(
+            client_id, api_key, "/v4/posting/fbs/list", body,
+            cursor_style="last", post_fn=ozon_post, timeout=30, language="RU",
+        )
     except HTTPException:
         raise
     except Exception as exc:
         logger.warning("Ozon FBS 订单拉取失败 client=%s: %s", client_id, str(exc)[:200])
         raise HTTPException(status_code=502, detail=f"Ozon 订单接口请求失败：{str(exc)[:120]}")
 
-    # v4 响应扁平（cursor/has_next/postings）；v3 包 result——兼容两者
-    result = resp.get("result") or resp
-    postings = result.get("postings") or []
     items = [_normalize_posting(p) for p in postings if isinstance(p, dict)]
 
     # T4.3：按 product_id 批量拉订单商品主图（fail-open，不阻断列表）
@@ -307,7 +308,7 @@ def list_orders(
     for item in items:
         apply_product_images(item.get("products") or [], images)
 
-    total = int(result.get("total") or len(items))
+    total = len(items)
 
     return {
         "items": items,

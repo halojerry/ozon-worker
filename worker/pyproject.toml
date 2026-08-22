@@ -35,6 +35,8 @@ dependencies = [
     "chardet>=5.2,<6",                   # 编码检测
     # ── CDP 浏览器辅助 ──
     "websocket-client>=1.8,<2",          # CDP WebSocket（浏览器辅助采集）
+    # ── HTTP 重试 ──
+    "tenacity>=8.0,<10",                 # ozon_client tenacity 重试（429/5xx 指数退避 + Retry-After）
     # ── Sentry 错误监测 ──
     "sentry-sdk>=2.0,<3",                # 异常/性能上报（v0.23，SENTRY_DSN 为空则不启用）
 ]
