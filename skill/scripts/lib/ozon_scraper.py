@@ -526,6 +526,65 @@ def scrape_ozon_product_via_cdp(
         # Navigate and wait for load (event-driven)
         tab.navigate(ozon_url, wait_until="load", timeout=timeout)
 
+        # ── v0.61 加固: 滑块检测 + 无效商品id识别 + 自动重试 ──
+        def _page_state() -> dict[str, str]:
+            """读取页面关键状态: 是否滑块 / 是否被重定向到搜索页 / 当前URL."""
+            import json as _j
+            state = {"captcha": False, "redirect_search": False, "href": "", "error": ""}
+            try:
+                js = """(() => {
+                    const title = (document.title || '').toLowerCase();
+                    const body = (document.body && document.body.innerText || '').toLowerCase();
+                    const captcha = title.includes('captcha')
+                        || title.includes('antibot')
+                        || body.includes('novamente')   // DataDome PT 滑块帧
+                        || body.includes('проверка')    // RU 滑块
+                        || body.includes('вас не робот') // RU "不是机器人"
+                        || body.includes('drag the slider')
+                        || body.includes('拖动滑块')      // ZH 滑块
+                        || body.includes('拼图移入轮廓')   // ZH 滑块
+                        || body.includes('确认您不是机器人') // ZH 滑块
+                        || (document.querySelector('[data-widget="captcha"], .px-captcha, #px-captcha, iframe[src*="captcha"]') !== null);
+                    const href = location.href;
+                    const redirectSearch = href.includes('/search/') && !href.includes('/product/');
+                    return JSON.stringify({captcha, redirectSearch, href});
+                })()"""
+                raw = _tab_eval(tab, js)
+                if raw:
+                    data = _j.loads(raw)
+                    state["captcha"] = bool(data.get("captcha"))
+                    state["redirect_search"] = bool(data.get("redirectSearch"))
+                    state["href"] = data.get("href", "")
+            except Exception:
+                pass
+            return state
+
+        _page = _page_state()
+        if _page["captcha"]:
+            logger.warning("Ozon 滑块检测到 (DataDome), 尝试自动重开可见 tab 重试")
+            try:
+                _retry_tab = conn.new_tab(ozon_url, background=False)
+                _t_cleanup = tab
+                tab = _retry_tab
+                tab_is_new = True
+                if _t_cleanup and _t_cleanup is not tab:
+                    try:
+                        _t_cleanup.close(close_remote=True)
+                    except Exception:
+                        pass
+                import time as _tm
+                _tm.sleep(3)
+                _page = _page_state()
+            except Exception:
+                pass
+        if _page["redirect_search"]:
+            result["error"] = f"无效商品: Ozon 重定向到搜索页 ({_page['href'] or ozon_url})"
+            return result
+        if _page["captcha"]:
+            result["error"] = "Ozon 反爬拦截 (DataDome 滑块)，请人工过滑块或稍后重试"
+            return result
+        result["resolved_url"] = _page.get("href", "") or ozon_url
+
         # ✅ v0.19: 多段滚动触发懒加载（图片画廊/描述/评价区），尽可能获取更多信息
         for _scroll_pass in range(3):
             _tab_eval(tab, "window.scrollTo(0, document.body.scrollHeight);", wait_ms=600)
