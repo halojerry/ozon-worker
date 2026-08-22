@@ -37,6 +37,11 @@ def engine():
     eng = create_engine(PGDATABASE_URL)
     base_tables = set(Base.metadata.tables)
     Base.metadata.create_all(bind=eng)
+    # 全量跑时同库会被其他文件污染，start 清空三张历史表（本文件测试从干净状态开始）。
+    with eng.begin() as conn:
+        from sqlalchemy import text
+        for t in (StoreMetricsHistory, StoreOperationLog, SelectionInsight):
+            conn.execute(text(f"DELETE FROM {t.__tablename__}"))
     yield eng
     Base.metadata.drop_all(
         bind=eng,

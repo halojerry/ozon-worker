@@ -73,9 +73,10 @@ def pg():
 @pytest.fixture(autouse=True)
 def clean_tables(pg):
     with pg.begin() as conn:
-        # 对齐 test_drafts_api：清 credentials，防跨文件残留 (tenant, ozon_client_id) 触发跨租户 409。
+        # FK 顺序：product_task_index 先删（→credentials），防删 credentials 触发 FK violation。
         conn.execute(text("DELETE FROM draft_submissions"))
         conn.execute(text("DELETE FROM product_drafts"))
+        conn.execute(text("DELETE FROM product_task_index"))
         conn.execute(text("DELETE FROM credentials"))
     yield
 
