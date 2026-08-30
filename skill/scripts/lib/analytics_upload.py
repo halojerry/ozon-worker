@@ -129,7 +129,7 @@ def _normalize_rows(kind: str, rows: list[dict]) -> list[dict]:
                 ).strip()
                 if not name:
                     continue
-                item: dict[str, Any] = {
+                item = {
                     "product_name": name,
                     "ordering_amount": _to_float(row.get("gmv_sum", row.get("ordering_amount"))),
                 }
