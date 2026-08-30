@@ -149,6 +149,29 @@ def test_create_returns_masked_no_plaintext(client):
     assert rows[0][1] == "****1234"
 
 
+def test_create_without_master_key_500_explicit(monkeypatch):
+    """v0.62.1 P1-3: 无 CREDENTIAL_MASTER_KEY 创建凭证 → 500 明确语义（非静默）。"""
+    import main as main_mod
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv("CREDENTIAL_MASTER_KEY", raising=False)
+    with patch.object(main_mod.rate_limiter, "check", return_value=(True, 10)), \
+         patch("main.get_supabase_client", return_value=FakeSupabase(TOKEN_MAP)):
+        with TestClient(main_mod.app) as c:
+            resp = c.post("/api/v1/credentials", json={
+                "ozon_client_id": "no-key-1", "api_key": "secret-key-1234",
+                "shop_name": "无主密钥店",
+            }, headers=_auth_headers(TENANT_A))
+    assert resp.status_code == 500
+    assert "CREDENTIAL_MASTER_KEY" in resp.json()["detail"]
+    # 不得写入任何行（加密失败不落库）
+    rows = _db_rows(
+        "SELECT 1 FROM credentials WHERE tenant_id=:t AND ozon_client_id='no-key-1'",
+        {"t": TENANT_A},
+    )
+    assert rows == []
+
+
 def test_list_returns_masked_only(client):
     _create(client, TENANT_A, {"ozon_client_id": "101", "api_key": "list-key-1010"})
     resp = client.get("/api/v1/credentials", headers=_auth_headers(TENANT_A))
