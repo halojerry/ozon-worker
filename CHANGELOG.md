@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.61.0] - 2026-08-30
+
+> store-sync-ERP v1 全量落地(PRD-store-sync-erp-v1.md M0-M6)+ webui 演示数据清零,
+> 上生产前准备。工作树提交 `91c0cde7` + `b070a8a7` + `e53121b3`。
+
+### Feat(worker) — 店铺同步引擎(M0-M1)
+
+- `store_sync_jobs` 任务化调度:5s 扫描 + worker 池(3)+ SKIP LOCKED + advisory lock + 退避/stale/超时,
+  `STORE_SYNC_JOBS_ENABLED=0` 回退旧循环;绑定即初始化(validate → initial job → 5s 兜底)。
+- 只读缓存:orders/products/stats 去懒同步,`?refresh=1` 异步入队,空缓存返回 never。
+- 订单续传:窗口 + cursor + incomplete,大店首拉完整;商品域扩列(三价/is_archived/errors/status)。
+- M0 探针:真实店映射冻结于 `docs/ozon-field-map-v1.md`(info/list 顶层 items、warehouse v2、price 字符串)。
+
+### Feat(worker) — 身份/数据域/成本(M2-M3)
+
+- `tenant_service.resolve_tenant`(Supabase tokens→user_id,LRU,fail-closed;未配置回退 key 哈希)+
+  `migrate_key_tenant_to_user.py` 迁移工具(dry-run/apply/幂等/孤儿报告)。
+- 五域落盘:returns/analytics_daily/rating/warehouse/促销真值 + 对应读端点;
+  `product_costs`(manual>envelope>discovery 优先级)/`source_candidates`(skill/discover/envelope 三来源)/
+  `fx_rates`/`order_line_costs` + real_profit 计算与成本变更回填;日聚合 + 保留清理。
+- 主密钥版本前缀 v1: + 双版本解密 + `rotate_master_key.py`;admin sync-health + Sentry 告警。
+
+### Feat(worker/webui) — 采集箱/任务中心/商品编辑
+
+- 采集箱:提交幂等(唯一部分索引)/resubmit/batch-submit/定时上架(scheduled_listings)/CSV 导入导出/
+  图片镜像(COS 异步,version 守卫 R8,`image_mirror_state`)。
+- 任务中心真实进度:`task_progress_events` + percent 权重 + SSE 增量回放 + 时间线。
+- webui 演示清零:工作台(`GET /dashboard/overview`)、系统设置(`user_settings` + 物流费率管理)、
+  商品编辑真实保存+更新上架(update_product_id)、货源工作台(未匹配筛选 + 候选展示)、
+  选品广场真实筛选+加入采集、站点管理 CRUD、Admin 生图配置、登录余额卡;
+  删除未路由的 Listing/Templates()/Pricing()/Admin()/DataTable 演示组件。
+
+### Ops / CI
+
+- `deploy/docker-compose.test.yml` + `scripts/test-docker.sh`、`backup-pg.sh`、
+  deploy.sh dist 校验 + migrate 接线、硬删除入口(`ADMIN_HARD_DELETE_ENABLED`,默认关闭)、
+  `.env.example` 补齐 COS/STORE_SYNC_JOBS_ENABLED。
+- CI:ci.yml 新增 webui tsc+build 门禁;`test_webui_contract.py` 接线契约(webui→worker 路由全量比对);
+  `.gitleaks.toml` 放行测试夹具假主密钥(extend useDefault 保留默认规则)。
+
+### 回归
+
+- worker 1454 passed / skill 607 passed / webui `tsc -b` + `bun run build` 全绿。
+
 ## [0.60.0] - 2026-08-21
 
 > 三档双价格体系（日常价/划线价/促销底线）+ 变动成本率入定价公式 + 销售净利率口径 + SEO 流量词注入标题与标签 + 标题公式共享模块 + 流量词读端点。用户拍板：定价预留 50%+ 利润空间、促销后仍有利润、Ozon 自动调价不跌破成本线。
