@@ -54,6 +54,15 @@ if [ -z "$PGDATABASE_URL" ]; then
     exit 1
 fi
 
+# v0.62.1 P1-3: 凭证加密主密钥必配校验（缺失 → 凭证 CRUD 500 + store_sync 解密失败刷屏）
+if [ -z "$CREDENTIAL_MASTER_KEY" ]; then
+    echo "❌ CREDENTIAL_MASTER_KEY 未设置 — 凭证加密/解密必需（AES-256-GCM 列级加密）"
+    echo "   生成: openssl rand -base64 32"
+    echo "   ⚠️ 启用后不可随意更换，否则存量凭证全部无法解密（轮换走 rotate_master_key.py）"
+    exit 1
+fi
+echo "✅ CREDENTIAL_MASTER_KEY 已配置"
+
 echo "✅ 环境检查通过"
 
 # PRD M5: webui 静态产物校验(缺失时提示构建,避免静默空挂载)

@@ -2531,8 +2531,10 @@ app.include_router(newapi_proxy_router)
 # dist 默认 webui/dist（env WEBUI_DIST 覆盖）；未构建时跳过挂载不阻断 worker。
 # SPA fallback：非静态文件路径回 index.html（前端路由直连/刷新不 404），
 # 仅允许 dist 目录内的文件（防路径穿越）。
+# v0.62.1 P1-5: 用 APP_WORKSPACE_PATH 拼接（容器内外语义一致），
+# 不再依赖 __file__ 三次 dirname（宿主/容器路径差异会导致算出错误默认值）。
 _WEBUI_DIST_DEFAULT = os.path.normpath(os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    os.environ.get("APP_WORKSPACE_PATH") or os.getcwd(),
     "webui", "dist",
 ))
 WEBUI_DIST = os.environ.get("WEBUI_DIST", _WEBUI_DIST_DEFAULT)

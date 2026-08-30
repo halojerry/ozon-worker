@@ -39,6 +39,9 @@ services:
       - PGDATABASE_URL=${PGDATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ozon}}
       - SUPABASE_URL=${SUPABASE_URL:-}
       - SUPABASE_KEY=${SUPABASE_KEY:-}
+      # v0.62.1 P1-3: 凭证加密主密钥显式声明（生产必配；缺失时凭证 CRUD 显式 500，
+      # store_sync 解密失败会进入退避止损而非无限刷屏）
+      - CREDENTIAL_MASTER_KEY=${CREDENTIAL_MASTER_KEY:-}
       - APP_WORKSPACE_PATH=/app
       # v0.29.1: 修复② — 多阶段镜像依赖装在 /opt/venv, 原 /app/src 覆盖
       # PYTHONPATH 导致 uvicorn/依赖找不到(容器重启)。compose 需保留镜像 venv 路径。

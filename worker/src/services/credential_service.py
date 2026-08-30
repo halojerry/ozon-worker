@@ -99,17 +99,27 @@ def create_credential(tenant_id: str, data: CredentialCreate) -> dict:
     if not client_id or not api_key:
         raise HTTPException(status_code=400, detail="ozon_client_id 和 api_key 不能为空")
 
-    params = {
-        "tenant_id": tenant_id,
-        "ozon_client_id": client_id,
-        "enc": encrypt(api_key, f"{tenant_id}:{client_id}"),
-        "masked": mask(api_key),
-        "shop_name": data.shop_name,
-        "currency": data.currency or "CNY",
-        "is_default": data.is_default,
-        "credential_type": data.credential_type or "api_key",
-        "last_rotated_at": None,
-    }
+    # v0.62.1 P1-3: 无 CREDENTIAL_MASTER_KEY 时显式报错（此前 encrypt() 抛
+    # CredentialCipherError 被上层吞成语义不明的 500）。配置错误必须可见。
+    try:
+        params = {
+            "tenant_id": tenant_id,
+            "ozon_client_id": client_id,
+            "enc": encrypt(api_key, f"{tenant_id}:{client_id}"),
+            "masked": mask(api_key),
+            "shop_name": data.shop_name,
+            "currency": data.currency or "CNY",
+            "is_default": data.is_default,
+            "credential_type": data.credential_type or "api_key",
+            "last_rotated_at": None,
+        }
+    except CredentialCipherError as exc:
+        logger.error("凭证创建加密失败（CREDENTIAL_MASTER_KEY 未配置或过短）tenant=%s client=%s",
+                     tenant_id, client_id)
+        raise HTTPException(
+            status_code=500,
+            detail="凭证加密失败：CREDENTIAL_MASTER_KEY 未配置或过短，请联系管理员",
+        ) from exc
     try:
         with get_engine().begin() as conn:
             _assert_client_not_bound_elsewhere(tenant_id, client_id, conn)
@@ -281,8 +291,17 @@ def store_credential(tenant_id: str, ozon_client_id: str, api_key: str) -> str:
     client_id = str(ozon_client_id or "").strip()
     if not client_id or not api_key:
         raise HTTPException(status_code=400, detail="ozon_client_id 和 api_key 不能为空")
-    enc = encrypt(api_key, f"{tenant_id}:{client_id}")
-    masked = mask(api_key)
+    # v0.62.1 P1-3: 同 create_credential — 无主密钥显式报错，不静默 500。
+    try:
+        enc = encrypt(api_key, f"{tenant_id}:{client_id}")
+        masked = mask(api_key)
+    except CredentialCipherError as exc:
+        logger.error("凭证 upsert 加密失败（CREDENTIAL_MASTER_KEY 未配置或过短）tenant=%s client=%s",
+                     tenant_id, client_id)
+        raise HTTPException(
+            status_code=500,
+            detail="凭证加密失败：CREDENTIAL_MASTER_KEY 未配置或过短，请联系管理员",
+        ) from exc
     try:
         with get_engine().begin() as conn:
             _assert_client_not_bound_elsewhere(tenant_id, client_id, conn)
