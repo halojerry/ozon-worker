@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { api } from "../api/client"
-import type { OrderItem, OrderListResponse, CancelReason, OrderNote } from "../api/hooks"
+import type { CancelReason, Credential, OrderItem, OrderListResponse, OrderNote, ReturnsResponse } from "../api/hooks"
 import { apiErrorMessage, formatDateTime, formatPrice, useApi } from "../api/hooks"
 import { PageHeader, PanelEmpty, PanelError, PanelLoading } from "./ui"
 
@@ -156,6 +156,7 @@ export default function OrdersPanel() {
   const [detail, setDetail] = useState<OrderItem | null>(null)
   const [statusFilter, setStatusFilter] = useState("")
   const [page, setPage] = useState(0)
+  const [view, setView] = useState<"orders" | "returns">("orders")
   const limit = 20
 
   const fetcher = useCallback(() =>
@@ -163,6 +164,12 @@ export default function OrdersPanel() {
     [page, statusFilter]
   )
   const { data, loading, error, reload } = useApi(fetcher, [page, statusFilter])
+  const { data: creds } = useApi<Credential[]>(() => api.get("/credentials"), [])
+  const defaultCred = useMemo(() => creds?.find((c) => c.is_default)?.id ?? creds?.[0]?.id ?? "", [creds])
+  const { data: returns, loading: returnsLoading, reload: reloadReturns } = useApi<ReturnsResponse>(
+    () => (defaultCred ? api.get(`/stores/${defaultCred}/returns?limit=50`) : Promise.resolve({ items: [], total: 0, limit: 50, offset: 0 })),
+    [defaultCred],
+  )
 
   const items = data?.items ?? []
   const total = data?.total ?? 0
@@ -180,6 +187,12 @@ export default function OrdersPanel() {
     <>
       <PageHeader kicker="ORDER CENTER" title="订单中心" description={`共 ${total} 笔订单`} action="＋ 批量发货" onAction={batchShip} />
       <section className="filter-bar">
+        <button className={view === "orders" ? "selected" : ""} onClick={() => setView("orders")}>订单</button>
+        <button className={view === "returns" ? "selected" : ""} onClick={() => setView("returns")}>退货</button>
+      </section>
+      {view === "orders" ? (
+        <>
+      <section className="filter-bar">
         <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }}>
           <option value="">全部状态</option>
           <option value="pending">待发货</option>
@@ -196,7 +209,7 @@ export default function OrdersPanel() {
         <section className="wide-section">
           <article className="panel order-table">
             <div>
-              <span>货件编号</span><span>商品</span><span>数量</span><span>金额</span><span>下单时间</span><span>状态</span><span>操作</span>
+              <span>货件编号</span><span>商品</span><span>数量</span><span>金额</span><span>利润</span><span>下单时间</span><span>状态</span><span>操作</span>
             </div>
             {items.map((o) => {
               const st = statusDisplay(o.status)
@@ -206,6 +219,7 @@ export default function OrdersPanel() {
                   <span>{o.products[0]?.name ?? "—"}</span>
                   <span>{o.product_count}</span>
                   <span>{formatPrice(o.total_amount, "₽")}</span>
+                  <span>{o.real_profit != null ? `${formatPrice(o.real_profit, "₽")}（净利）` : o.profit != null ? `${formatPrice(o.profit, "₽")}（毛利）` : "—"}</span>
                   <time>{formatDateTime(o.created_at)}</time>
                   <span className={`status ${st.cls}`}>{st.label}</span>
                   <span className="row-links">
@@ -225,6 +239,32 @@ export default function OrdersPanel() {
         </section>
       )}
       {detail && <OrderDetail order={detail} onClose={() => setDetail(null)} onRefresh={reload} />}
+        </>
+      ) : (
+        <>
+          <section className="filter-bar">
+            <button className="button ghost" onClick={reloadReturns}>刷新退货</button>
+          </section>
+          {returnsLoading && <PanelLoading />}
+          {!returnsLoading && (returns?.items.length ?? 0) === 0 && <PanelEmpty text="暂无退货记录" />}
+          {!returnsLoading && (returns?.items.length ?? 0) > 0 && (
+            <section className="wide-section">
+              <article className="panel order-table">
+                <div><span>退货 ID</span><span>货件编号</span><span>原因</span><span>补偿状态</span><span>状态</span></div>
+                {returns!.items.map((r) => (
+                  <div key={r.return_id}>
+                    <b>{r.return_id}</b>
+                    <span>{r.posting_number || "—"}</span>
+                    <span>{r.reason || "—"}</span>
+                    <span>{r.compensation_status || "—"}</span>
+                    <span><span className="status line">{r.status || "—"}</span></span>
+                  </div>
+                ))}
+              </article>
+            </section>
+          )}
+        </>
+      )}
     </>
   )
 }

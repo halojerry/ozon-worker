@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 _NONCE_LEN = 12
 _MIN_PASSPHRASE_LEN = 8
 _ENV_KEY = "CREDENTIAL_MASTER_KEY"
+# PRD M3: 密文版本前缀(轮换兼容):新密文 b"v1:" + nonce+ct;旧密文无前缀(解密兼容)
+_VERSION_PREFIX = b"v1:"
 
 
 class CredentialCipherError(ValueError):
@@ -39,9 +41,14 @@ def _load_key() -> bytes:
         raise CredentialCipherError(
             f"{_ENV_KEY} 环境变量未设置: 无法加密/解密凭证"
         )
+    return derive_key(raw)
+
+
+def derive_key(raw: str) -> bytes:
+    """口令/32 字节 key → AES-256 key(供轮换脚本显式传 key)。"""
     raw_bytes = raw.encode("utf-8")
     if len(raw_bytes) == 32:
-        return raw_bytes  # 恰好 32 字节 → 直接作为 AES-256 key
+        return raw_bytes
     if len(raw) < _MIN_PASSPHRASE_LEN:
         raise CredentialCipherError(
             f"{_ENV_KEY} 过短(仅 {len(raw)} 字符): 需 32 字节 key 或 ≥{_MIN_PASSPHRASE_LEN} 字符口令"
@@ -50,19 +57,32 @@ def _load_key() -> bytes:
 
 
 def encrypt(value: str, aad: str) -> bytes:
-    """加密 value, 返回 nonce(12B) + 密文+tag。"""
-    key = _load_key()
+    """加密 value, 返回 b"v1:" + nonce(12B) + 密文+tag(PRD M3 版本前缀)。"""
+    return encrypt_with_key(value, aad, os.environ.get(_ENV_KEY, ""))
+
+
+def encrypt_with_key(value: str, aad: str, key_raw: str) -> bytes:
+    """显式 key 加密(轮换脚本用)。"""
+    key = derive_key(key_raw)
     nonce = os.urandom(_NONCE_LEN)
     ct = AESGCM(key).encrypt(nonce, value.encode("utf-8"), aad.encode("utf-8"))
-    return nonce + ct
+    return _VERSION_PREFIX + nonce + ct
 
 
 def decrypt(ciphertext: bytes, aad: str) -> str:
-    """解密; GCM 认证失败(错 key/篡改/错 AAD) → 抛异常, 绝不返回垃圾。"""
-    key = _load_key()
-    if not isinstance(ciphertext, bytes) or len(ciphertext) <= _NONCE_LEN:
+    """解密(兼容 v1: 前缀与旧无前缀); GCM 认证失败 → 抛异常, 绝不返回垃圾。"""
+    return decrypt_with_key(ciphertext, aad, os.environ.get(_ENV_KEY, ""))
+
+
+def decrypt_with_key(ciphertext: bytes, aad: str, key_raw: str) -> str:
+    """显式 key 解密(轮换脚本用;兼容 v1: 前缀与旧格式)。"""
+    key = derive_key(key_raw)
+    raw = ciphertext
+    if raw.startswith(_VERSION_PREFIX):
+        raw = raw[len(_VERSION_PREFIX):]
+    if not isinstance(raw, bytes) or len(raw) <= _NONCE_LEN:
         raise CredentialCipherError("密文格式非法: 缺少 nonce 或长度不足")
-    nonce, ct = ciphertext[:_NONCE_LEN], ciphertext[_NONCE_LEN:]
+    nonce, ct = raw[:_NONCE_LEN], raw[_NONCE_LEN:]
     try:
         plaintext = AESGCM(key).decrypt(nonce, ct, aad.encode("utf-8"))
     except InvalidTag as exc:

@@ -19,6 +19,11 @@ def list_bestsellers(
     order_by: str = "ordering_amount",
     limit: int = 50,
     offset: int = 0,
+    brand: str = "",
+    min_sales: Optional[float] = None,
+    max_sales: Optional[float] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
 ) -> dict[str, Any]:
     """全局浏览榜单（T4b.1：去掉 contributed_by_token_id 过滤，A 采集 B 可看）。
 
@@ -38,8 +43,24 @@ def list_bestsellers(
     if category:
         where.append("category_path ILIKE :cat")
         params["cat"] = f"%{category}%"
+    if brand:
+        where.append("brand ILIKE :brand")
+        params["brand"] = f"%{brand}%"
+    if min_sales is not None:
+        where.append("ordering_count >= :min_sales")
+        params["min_sales"] = min_sales
+    if max_sales is not None:
+        where.append("ordering_count <= :max_sales")
+        params["max_sales"] = max_sales
+    if min_price is not None:
+        where.append("avg_price_rub >= :min_price")
+        params["min_price"] = min_price
+    if max_price is not None:
+        where.append("avg_price_rub <= :max_price")
+        params["max_price"] = max_price
 
     where_sql = " AND ".join(where) if where else "TRUE"
+    filter_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
     with get_engine().connect() as conn:
         rows = conn.execute(text(
             f"SELECT sku_or_id, brand, category_path, ordering_amount, ordering_count, avg_price_rub, "
@@ -49,7 +70,7 @@ def list_bestsellers(
         ), params).fetchall()
         total = conn.execute(text(
             f"SELECT COUNT(*) FROM ozon_bestsellers WHERE {where_sql}"
-        ), {"cat": params.get("cat")}).scalar()
+        ), filter_params).scalar()
 
     items = [{
         "sku_or_id": str(r[0]),

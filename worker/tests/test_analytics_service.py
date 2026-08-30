@@ -110,3 +110,24 @@ def test_list_pagination():
     assert result["total"] == 4
     result2 = list_bestsellers(TOKEN_A, limit=2, offset=2)
     assert len(result2["items"]) == 2
+
+
+def test_list_brand_filter():
+    """品牌 ILIKE 筛选(全局共享内)。"""
+    result = list_bestsellers(TOKEN_A, brand="品牌B")
+    assert result["total"] == 1
+    assert result["items"][0]["sku_or_id"] == "sku-2"
+
+
+def test_list_sales_range_filter():
+    """订购数量区间筛选。"""
+    result = list_bestsellers(TOKEN_A, min_sales=30, max_sales=60)
+    assert result["total"] == 1  # sku-1(50)
+    assert result["items"][0]["sku_or_id"] == "sku-1"
+
+
+def test_list_price_range_filter():
+    """均价区间筛选。"""
+    result = list_bestsellers(TOKEN_A, min_price=150, max_price=600)
+    skus = {i["sku_or_id"] for i in result["items"]}
+    assert skus == {"sku-1", "sku-2"}  # 200 / 500,排除 100 与 999

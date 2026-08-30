@@ -56,6 +56,14 @@ fi
 
 echo "✅ 环境检查通过"
 
+# PRD M5: webui 静态产物校验(缺失时提示构建,避免静默空挂载)
+if [ ! -f "$PROJECT_DIR/webui/dist/index.html" ]; then
+    echo "❌ webui/dist/index.html 缺失 — 请先构建前端:"
+    echo "   cd webui && bun install && bun run build"
+    exit 1
+fi
+echo "✅ WebUI 产物就位: webui/dist/index.html"
+
 # 构建镜像(同时 tag latest, 避免 up 时无 VERSION 落到旧 latest)
 echo ""
 echo "📦 构建 Docker 镜像 (v${VERSION})..."

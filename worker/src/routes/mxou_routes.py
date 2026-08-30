@@ -82,6 +82,25 @@ async def list_mxou_keys(request: Request):
     return mxou_login_service.list_keys(tenant_id)
 
 
+@router.get("/balance")
+async def mxou_balance(request: Request):
+    """当前登录 token 的 MXOU 平台余额(登录页余额卡真实化)。
+
+    查询失败 → balance=None(fail-open,前端显示「—」不阻断)。单位:CNY。
+    """
+    from utils.mxou_api import get_mxou_balance
+
+    await _authenticate(request)
+    auth = request.headers.get("Authorization", "")
+    raw_token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    balance = get_mxou_balance(raw_token)
+    return {
+        "balance": balance,
+        "currency": "CNY",
+        "source": "mxou" if balance is not None else "unavailable",
+    }
+
+
 @router.get("/my-key")
 async def get_my_key(request: Request, uid: str = ""):
     """WebUI 登录后自动获取该用户已有的 enabled key（免手动建 key）。

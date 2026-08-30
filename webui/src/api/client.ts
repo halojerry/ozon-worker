@@ -50,3 +50,25 @@ export const api = {
   verify: (token: string) => request<{ valid: boolean; reason?: string }>("/auth/verify", { method: "POST", body: JSON.stringify({ token }) }, false),
   login: (username: string, password: string) => request<{ key?: string | null; role?: string; username?: string }>("/mxou/login", { method: "POST", body: JSON.stringify({ username, password }) }, false),
 }
+
+/** 下载 CSV 类附件(带 Bearer 鉴权,触发浏览器下载)。 */
+export async function downloadCsv(path: string, filename: string): Promise<void> {
+  const token = getSession()?.token
+  const headers = new Headers()
+  if (token) headers.set("Authorization", `Bearer ${token}`)
+  const response = await fetch(`${API_PREFIX}${path}`, { headers })
+  if (!response.ok) {
+    let message = `导出失败（${response.status}）`
+    try { message = (await response.json() as { detail?: string }).detail || message } catch { /* no JSON */ }
+    throw new ApiError(response.status, message)
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}

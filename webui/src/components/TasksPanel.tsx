@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router"
 import { api } from "../api/client"
-import type { ImageRegenResponse, TaskDraftResponse, TaskImageItem, TaskImagesResponse, TaskListItem, TaskListResponse, TaskStatusResponse } from "../api/hooks"
+import type { ImageRegenResponse, TaskDraftResponse, TaskImageItem, TaskImagesResponse, TaskListItem, TaskListResponse, TaskProgressEvent, TaskProgressResponse, TaskStatusResponse } from "../api/hooks"
+import { getSession } from "../api/client"
 import { apiErrorMessage, formatDateTime, taskStatusClass, taskStatusText, useApi, usePolling } from "../api/hooks"
 import { Metric, PageHeader, PanelEmpty, PanelError, PanelLoading } from "./ui"
 
@@ -67,6 +68,7 @@ function TaskDetailDrawer({ task, onClose, onOpenImages }: { task: TaskListItem;
     active,
   )
   const [draftState, setDraftState] = useState<{ queried: boolean; id: string | null; error: string }>({ queried: false, id: null, error: "" })
+  const [events, setEvents] = useState<TaskProgressEvent[]>([])
   const [draftBusy, setDraftBusy] = useState(false)
   const navigate = useNavigate()
 
@@ -86,6 +88,34 @@ function TaskDetailDrawer({ task, onClose, onOpenImages }: { task: TaskListItem;
 
   const summary = status?.result?.product_summary as Record<string, unknown>[] | undefined
 
+  useEffect(() => {
+    let cancelled = false
+    if (!active) {
+      api.get<TaskProgressResponse>(`/tasks/${task.id}/progress`)
+        .then((r) => { if (!cancelled) setEvents(r.events) })
+        .catch(() => { /* 事件表未迁移/无事件 → 静默 */ })
+      return
+    }
+    const token = getSession()?.token ?? ""
+    let es: EventSource | null = null
+    try {
+      es = new EventSource(`/api/v1/progress/${task.id}/stream?token=${encodeURIComponent(token)}`)
+      es.addEventListener("progress", (e) => {
+        if (cancelled) return
+        try {
+          const ev = JSON.parse((e as MessageEvent).data) as TaskProgressEvent
+          setEvents((prev) => [...prev.filter((x) => x.seq !== ev.seq), ev])
+        } catch { /* ignore */ }
+      })
+    } catch { es = null }
+    const iv = window.setInterval(() => {
+      api.get<TaskProgressResponse>(`/tasks/${task.id}/progress`)
+        .then((r) => { if (!cancelled) setEvents(r.events) })
+        .catch(() => { /* 静默 */ })
+    }, 5000)
+    return () => { cancelled = true; es?.close(); window.clearInterval(iv) }
+  }, [task.id, active])
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="product-drawer listing-editor" role="dialog" aria-modal="true" aria-label="任务详情" onMouseDown={e => e.stopPropagation()}>
@@ -103,6 +133,18 @@ function TaskDetailDrawer({ task, onClose, onOpenImages }: { task: TaskListItem;
           <div className="publish-row"><span>进度</span><b>{hasProgress ? `${Math.round(pct)}%` : "进度不可用"}</b></div>
           {hasProgress && <div className="task-progress" style={{ maxWidth: "none", margin: "8px 0 4px" }}><i style={{ width: `${pct}%` }}/></div>}
           {progress?.stage && <p style={{ fontSize: 10, color: "#89847f", margin: "4px 0 0" }}>阶段：{progress.stage}{progress.message ? ` · ${progress.message}` : ""}</p>}
+          {events.length > 0 && (
+            <div style={{ marginTop: 10, fontSize: 11, maxHeight: 160, overflowY: "auto" }}>
+              <b>执行时间线</b>
+              {events.slice(-20).map((ev) => (
+                <div key={ev.seq} style={{ display: "flex", gap: 8, padding: "2px 0", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
+                  <span style={{ opacity: 0.6, whiteSpace: "nowrap" }}>{ev.started_at ? ev.started_at.slice(11, 19) : ""}</span>
+                  <span style={{ opacity: 0.85 }}>{ev.node}{ev.step ? `/${ev.step}` : ""}</span>
+                  <span style={{ marginLeft: "auto", color: ev.status === "failed" ? "#e20e0e" : ev.status === "finished" ? "#1a7f37" : "inherit" }}>{ev.message || ev.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {(status?.error_message || task.status === "failed") && <div className="inline-notice error" style={{ marginTop: 12 }}>{status?.error_message || "任务执行失败"}</div>}
           {pollError && !status && <div className="inline-notice error" style={{ marginTop: 12 }}>进度读取失败：{pollError}</div>}
           {active && <div className="inline-notice" style={{ marginTop: 12 }}>任务运行中，进度每 3 秒自动刷新…</div>}

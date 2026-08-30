@@ -123,3 +123,28 @@ def test_logs_do_not_leak_plaintext_or_key(monkeypatch, caplog):
     assert VALUE not in joined  # 明文 value 不进日志
     assert "c" * 32 not in joined  # key 不进日志
     assert KEY not in joined
+
+
+# ── PRD M3: 版本前缀 + 显式 key 轮换 ──
+
+
+def test_encrypt_has_v1_prefix_and_legacy_decrypt(monkeypatch):
+    monkeypatch.setenv("CREDENTIAL_MASTER_KEY", KEY)
+    from utils.credential_cipher import decrypt, encrypt
+    ct = encrypt(VALUE, AAD)
+    assert ct.startswith(b"v1:"), "新密文必须带 v1: 前缀"
+    assert decrypt(ct, AAD) == VALUE
+    # 模拟旧格式(无前缀)仍可解密(向后兼容)
+    legacy = ct[len(b"v1:"):]
+    assert decrypt(legacy, AAD) == VALUE
+
+
+def test_rotate_roundtrip_with_new_key():
+    from utils.credential_cipher import decrypt_with_key, encrypt_with_key
+    new_key = "0123456789abcdef0123456789abcdef"
+    ct = encrypt_with_key(VALUE, AAD, KEY)
+    plain = decrypt_with_key(ct, AAD, KEY)
+    ct_new = encrypt_with_key(plain, AAD, new_key)
+    assert decrypt_with_key(ct_new, AAD, new_key) == VALUE
+    with pytest.raises(Exception):
+        decrypt_with_key(ct_new, AAD, KEY)  # 新 key 密文用旧 key 解 → 认证失败

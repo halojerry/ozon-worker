@@ -8,12 +8,17 @@ token 来源：Authorization: Bearer 优先，query param token 兜底（GET 无
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+import asyncio
+import json
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 from api.schemas import TaskDraftResponse, TaskListResponse
 from services import task_service
 
 router = APIRouter(prefix="/tasks", tags=["task"])
+sse_router = APIRouter(tags=["task"])
 
 
 async def _authenticate(request: Request) -> str:
@@ -24,6 +29,63 @@ async def _authenticate(request: Request) -> str:
         return _authenticate_token(auth[7:].strip())
     token = request.query_params.get("token", "")
     return _authenticate_token(token)
+
+
+def _require_task_owner(tenant_id: str, task_id: str) -> None:
+    """任务归属校验(跨租户 404)。"""
+    from storage.database.db import get_engine
+    from sqlalchemy import text
+    with get_engine().connect() as conn:
+        row = conn.execute(text(
+            "SELECT 1 FROM ozon_product_tasks WHERE id::text=:id AND tenant_id=:t"
+        ), {"id": task_id, "t": tenant_id}).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+
+@router.get("/{task_id}/progress")
+async def task_progress_detail(task_id: str, request: Request):
+    """任务进度事件列表 + 汇总(PRD M4 时间线数据源)。"""
+    from main import get_progress
+    from services import task_progress_service
+    tenant_id = await _authenticate(request)
+    _require_task_owner(tenant_id, task_id)
+    progress = get_progress(task_id) or {}
+    events = task_progress_service.list_events(task_id)
+    return {
+        "task_id": task_id,
+        "percent": progress.get("percent"),
+        "stage": progress.get("stage"),
+        "message": progress.get("message", ""),
+        "events": events,
+    }
+
+
+@sse_router.get("/progress/{task_id}/stream")
+async def task_progress_stream(task_id: str, request: Request):
+    """SSE 实时进度:Last-Event-ID 增量回放,断线重连不丢(PRD M4)。"""
+    tenant_id = await _authenticate(request)
+    _require_task_owner(tenant_id, task_id)
+    try:
+        last = int(request.headers.get("Last-Event-ID", "0") or 0)
+    except (TypeError, ValueError):
+        last = 0
+    from services import task_progress_service
+
+    async def _gen():
+        nonlocal last
+        while True:
+            events = await asyncio.to_thread(task_progress_service.list_events, task_id, last)
+            for ev in events:
+                last = ev["seq"]
+                yield f"id: {ev['seq']}\nevent: progress\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
+            if await asyncio.to_thread(task_progress_service.is_terminal, task_id):
+                yield "event: done\ndata: {}\n\n"
+                return
+            await asyncio.sleep(1)
+
+    return StreamingResponse(_gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @router.get("", response_model=TaskListResponse)

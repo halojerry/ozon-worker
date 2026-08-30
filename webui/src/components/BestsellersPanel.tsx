@@ -9,6 +9,12 @@ export default function BestsellersPanel() {
   const [editor, setEditor] = useState<string | null>(null)
   const [modeDrawer, setModeDrawer] = useState(false)
   const [apiNotice, setApiNotice] = useState("正在读取榜单数据…")
+  const [brand, setBrand] = useState("")
+  const [minSales, setMinSales] = useState("")
+  const [maxSales, setMaxSales] = useState("")
+  const [minPrice, setMinPrice] = useState("")
+  const [maxPrice, setMaxPrice] = useState("")
+  const [filterVersion, setFilterVersion] = useState(0)
   const fallbackCandidates = [
     ["Bobber Thermal Mug, 0.77 L", "Bobber", "家居生活 · 保温杯", "5,168", "12.3%", "55.9%", "https://images.unsplash.com/photo-1514228742587-6b1558fcca3d?w=160&h=160&fit=crop&auto=format"],
     ["SoundPro X1 Wireless Headphones", "SoundPro", "电子产品 · 耳机", "4,782", "18.6%", "42.8%", "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=160&h=160&fit=crop&auto=format"],
@@ -29,7 +35,14 @@ export default function BestsellersPanel() {
 
   useEffect(() => {
     let live = true
-    api.get<unknown>("/analytics/bestsellers").then(payload => {
+    const params = new URLSearchParams({ limit: "50" })
+    if (category && category !== "中国储热销") params.set("category", category)
+    if (brand.trim()) params.set("brand", brand.trim())
+    if (minSales) params.set("min_sales", minSales)
+    if (maxSales) params.set("max_sales", maxSales)
+    if (minPrice) params.set("min_price", minPrice)
+    if (maxPrice) params.set("max_price", maxPrice)
+    api.get<unknown>(`/analytics/bestsellers?${params.toString()}`).then(payload => {
       const data = payload as { items?: unknown[]; data?: unknown[] }
       const rows = Array.isArray(payload) ? payload : (data.items || data.data || [])
       const parsed = rows.map((row, index) => {
@@ -56,10 +69,27 @@ export default function BestsellersPanel() {
       )
     })
     return () => { live = false }
-  }, [])
+  }, [category, brand, minSales, maxSales, minPrice, maxPrice, filterVersion])
 
-  const addToCollection = (item: string[]) =>
-    setApiNotice(`"${item[0]}"待补充店铺凭证后即可创建采集草稿`)
+  const addToCollection = async (item: string[]) => {
+    try {
+      const res = await api.post<{ id: string }>("/drafts", {
+        source: "market",
+        envelope: {
+          draft: {
+            title: item[0],
+            item_id: `market_${Date.now()}`,
+            images: item[6] ? [item[6]] : [],
+          },
+          source: {},
+          extensions: {},
+        },
+      })
+      setApiNotice(`✓ 已加入采集箱(draft ${res.id.slice(0, 8)})`)
+    } catch (e) {
+      setApiNotice(e instanceof Error ? `加入采集失败: ${e.message}` : "加入采集失败")
+    }
+  }
 
   return (
     <>
@@ -110,13 +140,16 @@ export default function BestsellersPanel() {
           </div>
           <div className="selection-note">ⓘ　{apiNotice}。已登录时"热销产品"会优先读取 `/analytics/bestsellers`。</div>
           <div className="selection-filter">
-            <label>类目<input value={category} readOnly /></label>
-            <label>品牌<input placeholder="选择品牌" /></label>
-            <label>发货模式<input placeholder="选择发货模式" /></label>
-            <label>月销量<input placeholder="最小值　—　最大值" /></label>
-            <label>月销售动态<input placeholder="最小值 %　—　最大值 %" /></label>
-            <label>月平均价格<input placeholder="最小值 ₽　—　最大值 ₽" /></label>
-            <div><button>重置</button><button className="button primary">⌕ 查询</button></div>
+            <label>类目<input value={category} onChange={(e) => setCategory(e.target.value)} /></label>
+            <label>品牌<input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="如 品牌A" /></label>
+            <label>月销量下限<input type="number" value={minSales} onChange={(e) => setMinSales(e.target.value)} placeholder="最小值" /></label>
+            <label>月销量上限<input type="number" value={maxSales} onChange={(e) => setMaxSales(e.target.value)} placeholder="最大值" /></label>
+            <label>均价下限 ₽<input type="number" value={minPrice} onChange={(e) => setMinPrice(e.target.value)} placeholder="最小值" /></label>
+            <label>均价上限 ₽<input type="number" value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} placeholder="最大值" /></label>
+            <div>
+              <button onClick={() => { setBrand(""); setMinSales(""); setMaxSales(""); setMinPrice(""); setMaxPrice(""); setFilterVersion((v) => v + 1) }}>重置</button>
+              <button className="button primary" onClick={() => setFilterVersion((v) => v + 1)}>⌕ 查询</button>
+            </div>
           </div>
           <article className="panel plaza-table">
             <div className="plaza-head">

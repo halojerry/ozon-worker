@@ -122,6 +122,7 @@ def test_edit_ok(monkeypatch):
     assert result["offer_id"] == OFFER_ID
     assert result["credential_id"] == CRED_ID
     assert result["draft_id"] == DRAFT_ID
+    assert result["draft_version"] == 1  # 乐观锁版本(PATCH /drafts 提交用)
     assert result["payload"] == ENVELOPE
     assert result["moderation_status"] == "approved"
 

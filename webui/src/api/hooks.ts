@@ -16,6 +16,13 @@ export interface Credential {
   last_rotated_at?: string | null
   created_at?: string | null
   updated_at?: string | null
+  sync_enabled?: boolean
+  sync_interval_minutes?: number
+  sync_products_interval_minutes?: number
+  rating_total?: number | null
+  rating_localization_index?: number | null
+  rating_updated_at?: string | null
+  initial_sync_job_id?: number | null
 }
 
 export interface ValidateResponse {
@@ -33,6 +40,7 @@ export interface StoreStats {
   today_commission: number
   today_profit: number
   today_product_count: number
+  data_freshness?: { synced_at?: string | null; is_stale?: boolean }
 }
 
 export interface StoreSyncStatus {
@@ -41,6 +49,37 @@ export interface StoreSyncStatus {
   products_last_synced_at?: string | null
   orders_error?: string
   products_error?: string
+  last_success_at?: string | null
+  consecutive_failures?: number
+  current_job?: SyncJob | null
+  is_stale?: boolean
+  sync_enabled?: boolean
+  sync_interval_minutes?: number
+  sync_products_interval_minutes?: number
+}
+
+export interface SyncJob {
+  id: number
+  tenant_id: string
+  credential_id: string
+  kind: string
+  status: string
+  trigger: string
+  error_code?: string | null
+  orders_synced: number
+  products_synced: number
+  progress: number
+  error?: string
+  started_at?: string | null
+  finished_at?: string | null
+  created_at?: string | null
+}
+
+export interface SyncJobsResponse {
+  items: SyncJob[]
+  total: number
+  limit: number
+  offset: number
 }
 
 export interface StoreSyncResult {
@@ -55,6 +94,7 @@ export interface DraftEnvelopeDraft {
   description?: string
   images?: string[]
   item_id?: string
+  sku_id?: string
   purchase_cost?: number
   purchase_url?: string
   weight?: number
@@ -79,6 +119,7 @@ export interface Draft {
   created_at?: string | null
   updated_at?: string | null
   submission_status?: string | null
+  image_mirror_state?: string
 }
 
 export interface DraftAiResponse {
@@ -188,6 +229,11 @@ export interface OzonProduct {
   price?: number | null
   stock?: number | null
   currency?: string
+  old_price?: number | null
+  min_price?: number | null
+  status?: string
+  error?: unknown[] | null
+  archived?: boolean
 }
 
 export interface OzonProductListResponse {
@@ -222,6 +268,7 @@ export interface ProductEditResponse {
   offer_id: string
   credential_id?: string | null
   draft_id: string
+  draft_version?: number
   payload: DraftPayload
   moderation_status?: string | null
 }
@@ -376,6 +423,7 @@ export interface OrderItem {
   total_amount: number
   commission_amount: number
   profit?: number | null
+  real_profit?: number | null
   warehouse: string
   delivery_method: string
   cancel_reason: string
@@ -390,6 +438,46 @@ export interface OrderListResponse {
   store: Record<string, unknown>
   last_synced_at?: string | null
   sync_error?: string | null
+  sync_status?: string | null
+}
+
+export interface ReturnItem {
+  return_id: number
+  posting_number: string
+  order_id: string
+  return_type: string
+  schema: string
+  reason: string
+  compensation_status: string
+  status: string
+  product?: Record<string, unknown> | null
+  synced_at?: string | null
+}
+
+export interface ReturnsResponse {
+  items: ReturnItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface ProductCostHistoryItem {
+  old_cost?: number | null
+  new_cost?: number | null
+  changed_by?: string
+  changed_at?: string | null
+}
+
+export interface ProductCost {
+  product_id: string
+  offer_id: string
+  purchase_url: string
+  purchase_cost?: number | null
+  freight_cny?: number | null
+  supplier: string
+  cost_source?: string | null
+  updated_at?: string | null
+  history: ProductCostHistoryItem[]
 }
 
 export interface CancelReason {
@@ -534,23 +622,22 @@ export interface AdminUserDetail {
 
 export interface SiteBanner {
   id: string
-  title: string
-  content: string
+  title?: string
   image_url?: string | null
   link_url?: string | null
-  is_active: boolean
-  sort_order: number
+  enabled: boolean
+  sort_order?: number
   created_at?: string | null
+  updated_at?: string | null
 }
 
 export interface SiteAnnouncement {
   id: string
-  title: string
+  title?: string
   content: string
-  priority: string
-  is_active: boolean
+  announcement_type?: string
+  enabled: boolean
   created_at?: string | null
-  expires_at?: string | null
 }
 
 // ── Analytics types (Batch 5) ───────────────────────────────────
@@ -561,6 +648,7 @@ export interface MarketOverview {
   total_products: number
   total_discovery_runs: number
   bestseller_count: number
+  scope?: string
 }
 
 export interface SalesTrendItem {
@@ -571,6 +659,7 @@ export interface SalesTrendItem {
 
 export interface SalesTrendResponse {
   items: SalesTrendItem[]
+  scope?: string
 }
 
 export interface HotQueryItem {
@@ -586,6 +675,68 @@ export interface HotQueryItem {
 
 export interface HotQueriesResponse {
   items: HotQueryItem[]
+}
+
+export interface DashboardOverview {
+  today: {
+    orders_count: number
+    sales_amount: number | null
+    commission_amount: number
+    profit_amount: number | null
+  }
+  active_products: number
+  pending_tasks: number
+  store_count: number
+  trend: Array<{ date: string; orders: number; sales_amount: number | null; profit_amount: number | null }>
+  hot_products: Array<{ product_id: string; name: string; quantity: number }>
+  latest_orders: Array<{ posting_number: string; product_name: string; total_amount: number | null; status: string; created_at: string | null }>
+  last_synced_at: string | null
+  trend_days: number
+}
+
+export interface TaskProgressEvent {
+  seq: number
+  node: string
+  step: string
+  status: string
+  message: string
+  detail?: Record<string, unknown> | null
+  started_at?: string | null
+  finished_at?: string | null
+}
+
+export interface TaskProgressResponse {
+  task_id: string
+  percent?: number | null
+  stage?: string | null
+  message?: string
+  events: TaskProgressEvent[]
+}
+
+export interface AnalyticsDailyItem {
+  stat_date: string
+  metric: string
+  value: number
+}
+
+export interface AnalyticsDailyResponse {
+  items: AnalyticsDailyItem[]
+}
+
+export interface DailyMetricsItem {
+  stat_date: string
+  order_count: number
+  sales_amount?: number | null
+  commission_amount?: number | null
+  profit_amount?: number | null
+  product_count: number
+  low_stock_count: number
+  active_discount_count: number
+  profit_rate?: number | null
+}
+
+export interface DailyMetricsResponse {
+  items: DailyMetricsItem[]
 }
 
 // ── Image Tasks types (Batch 5) ────────────────────────────────

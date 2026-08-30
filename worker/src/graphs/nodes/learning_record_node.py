@@ -170,6 +170,36 @@ def _backfill_product_index(state, config) -> None:
             tenant_id=tenant_id, product_id=str(product_id), offer_id=offer_id,
             task_id=task_id, credential_id=credential_id, draft_id=draft_id,
         )
+        # PRD M3: 成本主数据回填(envelope 源,manual 优先,非致命)
+        try:
+            from services.product_cost_service import upsert_from_envelope
+            upsert_from_envelope(
+                tenant_id, str(credential_id), str(product_id), offer_id, envelope)
+        except Exception as _ce:
+            logger.warning("成本回填失败(不阻断) product_id=%s: %s",
+                           product_id, str(_ce)[:200])
+        # PRD M5b: 货源匹配回填(source_candidates,envelope 源,非致命)
+        try:
+            from services.source_candidate_service import upsert_source_candidates
+            draft_envelope = envelope.get("draft") or {}
+            source_envelope = envelope.get("source") or {}
+            purchase_url = str(
+                source_envelope.get("purchase_url")
+                or draft_envelope.get("purchase_url") or "").strip()
+            if purchase_url:
+                upsert_source_candidates(tenant_id, str(credential_id), [{
+                    "product_id": str(product_id),
+                    "source_url": purchase_url,
+                    "source_offer_id": offer_id,
+                    "price_cny": (
+                        draft_envelope.get("purchase_cost")
+                        or source_envelope.get("purchase_cost")),
+                    "match_method": "envelope",
+                    "status": "valid",
+                }])
+        except Exception as _se:
+            logger.warning("货源回填失败(不阻断) product_id=%s: %s",
+                           product_id, str(_se)[:200])
         logger.info(f"✅ T9 索引回填成功: product_id={product_id} task_id={task_id} "
                     f"offer_id={offer_id} draft_id={draft_id}")
     except Exception as e:

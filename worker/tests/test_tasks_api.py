@@ -119,7 +119,8 @@ def _rows_for_tenant():
 
 
 def _handler():
-    return tasks_router.routes[0].endpoint
+    # 按 path 选择列表端点(新进度路由注册在列表前,避免依赖注册顺序)
+    return next(r.endpoint for r in tasks_router.routes if getattr(r, "path", "") == "/tasks")
 
 
 def _call(query_params: dict, token: str | None = "sk-tok123"):

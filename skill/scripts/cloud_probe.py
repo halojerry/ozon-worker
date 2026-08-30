@@ -3572,6 +3572,22 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                 # 只对 cdp 通道且 badge 确实弱时提示。
                 if search_method == "cdp" and best.get("badge_score", 0) <= 1:
                     logger.warning("⚠️ 最佳匹配 badge 评分仅 %d，图搜可能不准确，建议人工核实", best.get("badge_score"))
+
+                # ── PRD M5b: 图搜匹配结果上报 source_candidates(非阻塞,fail-open)──
+                # 跟卖场景 product_id = Ozon 竞品 id,client_id 关联店铺凭证;
+                # 上报失败不影响本地信封/提交。
+                if mxou_token:
+                    try:
+                        from scripts.lib.source_candidates import spawn_source_report
+                        spawn_source_report(
+                            product_id,
+                            matches,
+                            search_method or "image",
+                            client_id=client_id,
+                            token=mxou_token,
+                        )
+                    except Exception as _sr_e:
+                        logger.debug("source_candidates 上报跳过(不阻断): %s", _sr_e)
             else:
                 result["no_relevant_match"] = True
                 logger.warning("⚠️ 图搜结果与竞品标题相关性过低，拒绝匹配（不组装信封）")
