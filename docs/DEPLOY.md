@@ -90,6 +90,12 @@ PGDATABASE_URL=postgresql://postgres:your_strong_password_here@postgres:5432/ozo
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your_supabase_service_role_key
 
+# 凭证加密主密钥（v0.41，凭证管理必需；v0.62.1 起部署脚本强制校验）
+# 生成: openssl rand -base64 32
+# ⚠️ 启用后不可随意更换：换 key = 存量加密凭证全部无法解密（不可逆）。
+#    轮换必须走 worker/scripts/rotate_master_key.py（双 key 平滑过渡）。
+CREDENTIAL_MASTER_KEY=your_base64_32_bytes_key
+
 # MXOU 生图 API Key
 GRSAI_API_KEY=your_grsai_api_key
 
@@ -240,6 +246,14 @@ curl -X POST https://your-domain.com/api/v1/submit_task \
 ## 日常运维
 
 ### 更新 Worker
+
+> v0.62.1 升级注意（部署问题修复）：
+> 1. **CREDENTIAL_MASTER_KEY 必配**（cos-update.sh 会提示缺失；缺失时凭证 CRUD 500、
+>    存量加密凭证同步解密失败）。升级后若 .env 无该 key 且库中有凭证 → 立即补 key 或删凭证重建。
+> 2. **init_data 必跑**：升级脚本会自动执行 `python scripts/init_data.py --force`，
+>    若日志显示失败请手动执行并检查（幂等 ALTER/SET DEFAULT 覆盖存量表缺默认值）。
+> 3. **WebUI 硬刷新**：升级后浏览器 Ctrl+Shift+R，旧版 New API 页面残留来自旧 dist 缓存，
+>    非代码残留；若仍显示旧页面请清站点数据后重进。
 
 ```bash
 cd /opt/ozon-worker/deploy

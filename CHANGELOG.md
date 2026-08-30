@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.62.1] - 2026-08-31
+
+> v0.62.0 生产部署问题全量修复（服务器侧核查 7 P1 + 7 S 项）：代理前缀缺失、
+> 凭证主密钥校验、进度配置路径错位、WEBUI_DIST 语义、测试环境隔离、类目回退噪音。
+
+### Fix(worker) — WebUI 代理 16 条路径 404（P1-1）
+
+- `_NEWAPI_PREFIXES` 补 7 前缀（verification/verify/oauth/home_page_content/
+  privacy-policy/user-agreement/reset_password），16 条契约实测 404 路径全部透传
+  api.mxou.cn（上游已存在）。
+- `test_webui_contract.py` 动态代理识别（命中前缀视为已接线，消除 OpenAPI 快照
+  看不到动态路由的 70 条误报）+ 16 条前缀锁定断言 + 反向删除验证。
+
+### Fix(worker) — CREDENTIAL_MASTER_KEY 必配校验（P1-3，P0 事故）
+
+- `create_credential`/`store_credential` 无主密钥时显式 500
+  「CREDENTIAL_MASTER_KEY 未配置或过短」（此前 encrypt 抛错被吞成语义不明 500）。
+- `docker-compose.yml` environment 显式声明 + `deploy.sh` 强制校验 +
+  `cos-update.sh` 升级提示；DEPLOY.md/AGENTS.md 补「生产必配 + 更换影响 +
+  轮换走 rotate_master_key.py」。
+
+### Fix(worker) — workflow_progress.json 路径错位（P1-4）
+
+- `_load_progress_config` 候选链（显式路径 → workspace 相对 → assets/）+ 失败缓存
+  默认值，消灭每节点实例化一次 warning（生产 6h 256 次）；默认 config_path 改
+  assets/。
+
+### Fix(worker) — WEBUI_DIST 默认值语义（P1-5）
+
+- `_WEBUI_DIST_DEFAULT` 改用 `APP_WORKSPACE_PATH` 拼接（容器内外一致），
+  不再依赖 `__file__` 三次 dirname。
+
+### Fix(worker) — 类目回退 400 噪音治理（P1-7）
+
+- 类目对无效（400）试探候选日志降级 warning + Sentry fingerprint 聚合
+  （category-fallback-400）；候选全失败也聚合（category_schema_all_failed），
+  不再每任务刷独立 error issue。
+
+### Test — 测试环境隔离（P1-6）
+
+- 新增 `conftest.py` autouse fixture 清空 SUPABASE_URL/KEY + 重置单例，测试永远走
+  本地降级路径（生产 Supabase 配置下误跑不再 401，112 条失败消除）。
+- 新增 `test_progress_logger_config.py`（5 用例）、凭证无主密钥 500 用例。
+
+### Chore
+
+- `webui/package.json` fork 命名清理：figma-make-app → ozon-erp-web（bun.lock 同步）。
+- 部署文档补升级注意（key 必配 / init_data --force / WebUI 硬刷新）。
+
+### 回归
+
+- worker 全量测试全绿（原 1502 + 新增）；webui `tsc -b` + `bun run build` 0 错误。
+
 ## [0.62.0] - 2026-08-31
 
 > Sentry 六类根因修复（R1–R6）：余额治理 / 字典分页真 bug / 属性缺失联动 / 生图内容违规 /
