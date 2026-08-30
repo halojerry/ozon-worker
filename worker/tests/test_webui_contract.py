@@ -28,6 +28,17 @@ WEBUI_SRC = Path(__file__).resolve().parent.parent.parent / "webui" / "src"
 # 非 api.<method> 但确实存在的端点(api.verify / api.login 走 request 封装)
 KNOWN_EXTRA = {("/api/v1/auth/verify", "POST"), ("/api/v1/mxou/login", "POST")}
 
+# v0.62.1 P1-1: newapi 代理动态路由（OpenAPI 快照只有 /api/{path}，看不到具体路径）。
+# webui 同源 /api/* 命中 _NEWAPI_PREFIXES → 视为已接线（代理透传 api.mxou.cn），
+# 不再误报缺失；未命中前缀的 /api/* 仍按缺失处理（真 404）。
+from routes.newapi_proxy_routes import _NEWAPI_PREFIXES  # noqa: E402
+
+# 契约实测 16 条真 404 路径的根前缀（加前缀后必须全部被代理覆盖，防未来新增认证页面再漏）
+REQUIRED_NEWAPI_PREFIXES = {
+    "verification", "verify", "oauth/", "home_page_content",
+    "privacy-policy", "user-agreement", "reset_password",
+}
+
 
 def _normalize_path(path: str) -> str:
     """去 query;去 /api/v1 前缀;${var} 与 {var} 段统一为 {}。"""
@@ -50,6 +61,22 @@ def _collect_route_set(app) -> set:
     for raw, m in KNOWN_EXTRA:
         routes.add((m, _normalize_path(raw)))
     return routes
+
+
+def _is_newapi_proxied(raw_path: str) -> bool:
+    """/api/* 非 v1 路径命中 newapi 代理前缀 → 视为已接线（动态路由 OpenAPI 不可见）。"""
+    p = raw_path.split("?")[0]
+    if not p.startswith("/api/") or p.startswith("/api/v1"):
+        return False
+    rel = p[len("/api/"):]
+    for prefix in _NEWAPI_PREFIXES:
+        if rel == prefix:
+            return True
+        if prefix.endswith("/") and rel.startswith(prefix):
+            return True
+        if not prefix.endswith("/") and rel.startswith(prefix + "/"):
+            return True
+    return False
 
 
 def _scan_webui_calls() -> list:
@@ -90,11 +117,30 @@ def test_all_webui_api_paths_exist_on_worker():
     missing = []
     for method, raw, rel, line in calls:
         norm = _normalize_path(raw)
-        if (method, norm) not in routes:
+        if (method, norm) not in routes and not _is_newapi_proxied(raw):
             missing.append(f"{method} {raw}  →  {norm}  ({rel}:{line})")
     assert not missing, (
         "webui 调用了 worker 未注册的路径(发版前必须接好):\n" + "\n".join(missing)
     )
+
+
+def test_newapi_prefixes_cover_contract_missing_paths():
+    """契约实测 16 条真 404 路径的根前缀必须全部在 _NEWAPI_PREFIXES（防回归）。"""
+    missing_prefixes = REQUIRED_NEWAPI_PREFIXES - set(_NEWAPI_PREFIXES)
+    assert not missing_prefixes, (
+        f"newapi 代理缺前缀(契约实测 404 路径): {sorted(missing_prefixes)}"
+    )
+
+
+def test_newapi_proxy_detection():
+    """动态代理识别：命中前缀 → 不算缺失；未命中 → 仍报缺失。"""
+    assert _is_newapi_proxied("/api/verification") is True
+    assert _is_newapi_proxied("/api/oauth/state") is True
+    assert _is_newapi_proxied("/api/home_page_content") is True
+    assert _is_newapi_proxied("/api/user/2fa/status") is True
+    assert _is_newapi_proxied("/api/user/self") is True
+    assert _is_newapi_proxied("/api/v1/drafts") is False
+    assert _is_newapi_proxied("/api/unknown-not-proxied") is False
 
 
 def test_webui_scan_covers_core_pages():
