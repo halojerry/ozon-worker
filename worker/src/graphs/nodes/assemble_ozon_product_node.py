@@ -1109,7 +1109,18 @@ def assemble_ozon_product_node(
                 break
         
         if not attr_list:
-            logger.error(f"❌ 属性 Schema 获取失败（已尝试 {len(tried_category_ids)} 个类目对）")
+            # v0.62.1 P1-7: 候选全失败 → Sentry 聚合（业务噪音，不刷独立 error issue）
+            logger.warning(f"⚠️ 属性 Schema 获取失败（已尝试 {len(tried_category_ids)} 个类目对）")
+            try:
+                from utils.sentry_setup import capture_task_event
+                capture_task_event(
+                    "category_schema_all_failed",
+                    f"属性 Schema 获取失败：尝试 {len(tried_category_ids)} 个类目对均无效",
+                    level="warning",
+                    tried_category_ids=[f"{a}/{b}" for a, b in tried_category_ids],
+                )
+            except Exception:
+                pass
             return {"error_message": f"属性 Schema 获取失败: 尝试了 {len(tried_category_ids)} 个类目对均无效",
                     "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1}
         logger.info(f"   ✅ Ozon API 返回: {len(attr_list)} 个属性")
@@ -1790,7 +1801,12 @@ def _fetch_attribute_schema_from_ozon(
     description_category_id: int,
     type_id: int,
 ) -> list[dict[str, Any]]:
-    """从 Ozon API 获取属性 Schema（回退路径）"""
+    """从 Ozon API 获取属性 Schema（回退路径）。
+
+    v0.62.1 P1-7: 400（类目对无效）是回退过程中的预期噪音（候选类目试探），
+    日志降级为 warning + Sentry fingerprint 聚合（category-fallback-400），
+    避免每个无效候选刷独立 error issue（生产 48 次/6h）。
+    """
     try:
         url = "https://api-seller.ozon.ru/v1/description-category/attribute"
         headers = {
@@ -1813,7 +1829,26 @@ def _fetch_attribute_schema_from_ozon(
         logger.info(f"   Ozon API 返回 {len(result)} 个属性")
         return result
     except Exception as e:
-        logger.error(f"Ozon 属性 API 调用失败: {e}")
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        if status == 400:
+            # 类目对无效（试探候选）→ warning + Sentry 聚合，不刷独立 error
+            logger.warning(
+                "Ozon 属性 API 400（类目对无效，回退试探）dc=%s type=%s: %s",
+                description_category_id, type_id, str(e)[:160],
+            )
+            try:
+                from utils.sentry_setup import capture_task_event
+                capture_task_event(
+                    "category_fallback_400",
+                    f"类目对无效(回退试探) dc={description_category_id} type={type_id}",
+                    level="warning",
+                    description_category_id=description_category_id,
+                    type_id=type_id,
+                )
+            except Exception:
+                pass
+        else:
+            logger.error(f"Ozon 属性 API 调用失败: {e}")
         return []
 
 

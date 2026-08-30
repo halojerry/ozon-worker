@@ -31,6 +31,9 @@ _NEWAPI_PREFIXES = (
     "user/", "subscription/", "option/", "log/", "group", "ratio_config",
     "ratio_sync/", "pricing", "performance/", "custom-oauth-provider/",
     "upload/", "redemption/", "status", "notice", "token/",
+    # v0.62.1 P1-1: 契约实测 16 条真 404 路径（上游 api.mxou.cn 已存在，透传即可）
+    "verification", "verify", "oauth/", "home_page_content",
+    "privacy-policy", "user-agreement", "reset_password",
 )
 
 # 透传白名单：转发给上游的请求头（排除 hop-by-hop + 代理自身 host）
