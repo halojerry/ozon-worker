@@ -567,6 +567,12 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 - 版本号: `VERSION` 文件（语义化版本 `MAJOR.MINOR.PATCH`）
 - 变更记录: `CHANGELOG.md`
+- ⚠️ **生产部署必配（v0.62.1 P1-3）**：`CREDENTIAL_MASTER_KEY`（凭证 AES-256-GCM 加密）。
+  - 生成 `openssl rand -base64 32`，写入云端 `deploy/.env`（cos-update.sh 不覆盖 .env）。
+  - **启用后不可随意更换**：换 key = 存量凭证全部不可解密（GCM 认证失败，不可逆）。
+    轮换必须走 `worker/scripts/rotate_master_key.py`（双 key 平滑过渡）。
+  - 缺失时：凭证 CRUD 显式 500（v0.62.1 起）、store_sync 解密失败进入退避止损
+    （不再 5s 刷屏）；升级脚本会提示缺失。
 - ⚠️ **版本四源统一（v0.36，v0.62.0 发版踩坑强化）**: 以下四个文件必须全部一致，缺一不可：
 
   | # | 文件 | 用途 / 谁读它 |
