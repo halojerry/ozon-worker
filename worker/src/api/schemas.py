@@ -248,6 +248,10 @@ class DraftOut(BaseModel):
         None,
         description="最新一次提交状态（draft_submissions.status）：pending/uploading/published/failed；NULL = 未上架（C1 状态机，T10 采集箱列）",
     )
+    image_mirror_state: str = Field(
+        "",
+        description="图片镜像状态（M5b）：''=未启用/未镜像；pending=镜像中；mirrored=已转存 COS；failed=失败保持外链",
+    )
 
 
 class DraftPatch(BaseModel):
@@ -302,6 +306,13 @@ class CredentialUpdate(BaseModel):
     api_key: str = Field(..., description="新 Api-Key")
     shop_name: Optional[str] = Field(None, description="可选更新店铺名称")
     currency: Optional[str] = Field(None, description="可选更新货币")
+
+
+class StoreSyncConfigUpdate(BaseModel):
+    """店铺同步配置更新(PATCH /stores/{id}/sync-config,免 api_key;间隔下限 5min)。"""
+    sync_enabled: Optional[bool] = Field(None, description="定时同步开关(手动同步仍可用)")
+    sync_interval_minutes: Optional[int] = Field(None, ge=5, le=1440, description="订单同步间隔(分钟)")
+    sync_products_interval_minutes: Optional[int] = Field(None, ge=5, le=1440, description="商品同步间隔(分钟)")
 
 
 class CredentialOut(BaseModel):
@@ -407,6 +418,7 @@ class OrderOut(BaseModel):
     total_amount: float = Field(0.0, description="订单金额")
     commission_amount: float = Field(0.0, description="平台费用")
     profit: Optional[float] = Field(None, description="估算利润（金额-费用）")
+    real_profit: Optional[float] = Field(None, description="真实利润(有成本才填,PRD M3)")
     warehouse: str = Field("", description="仓库")
     delivery_method: str = Field("", description="配送方式")
     cancel_reason: str = Field("", description="取消原因")
@@ -422,6 +434,7 @@ class OrderListResponse(BaseModel):
     store: dict = Field(default_factory=dict, description="查询店铺 {id, ozon_client_id}")
     last_synced_at: Optional[str] = Field(None, description="最近同步时间（v0.56 缓存）")
     sync_error: Optional[str] = Field(None, description="最近同步错误（v0.56）")
+    sync_status: Optional[str] = Field(None, description="数据新鲜度 never/syncing/ok/stale（PRD M1）")
 
 
 class OrderNoteOut(BaseModel):
@@ -481,8 +494,13 @@ class OzonProductOut(BaseModel):
     name: str = Field("", description="商品名称")
     image: Optional[str] = Field(None, description="主图 URL")
     price: Optional[float] = Field(None, description="售价")
+    old_price: Optional[float] = Field(None, description="划线价(PRD M3)")
+    min_price: Optional[float] = Field(None, description="最低价(PRD M3)")
     stock: Optional[int] = Field(None, description="可用库存")
     currency: str = Field("", description="货币代码")
+    status: str = Field("", description="visible/archived/error(PRD M3)")
+    error: Optional[list] = Field(None, description="Ozon 错误明细(PRD M3)")
+    archived: bool = Field(False, description="是否归档(PRD M3)")
 
 
 class OzonProductListResponse(BaseModel):
@@ -494,6 +512,7 @@ class OzonProductListResponse(BaseModel):
     store: dict = Field(default_factory=dict, description="查询店铺 {id, ozon_client_id}")
     last_synced_at: Optional[str] = Field(None, description="最近同步时间（v0.56 缓存）")
     sync_error: Optional[str] = Field(None, description="最近同步错误（v0.56）")
+    sync_status: Optional[str] = Field(None, description="数据新鲜度 never/syncing/ok/stale（PRD M1）")
 
 
 # ──────────────────────────────────────────────
@@ -718,6 +737,7 @@ class ProductEditResponse(BaseModel):
     offer_id: str = Field(..., description="信封 offer_id（sku_id / follow_{id}）")
     credential_id: str | None = Field(None, description="店铺凭证 id")
     draft_id: str = Field(..., description="关联草稿 id（product_task_index.draft_id）")
+    draft_version: int = Field(1, description="关联草稿乐观锁版本(PATCH /drafts 提交用)")
     payload: dict = Field(..., description="关联草稿 envelope（编辑表单初值）")
     moderation_status: str | None = Field(
         None,

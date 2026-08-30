@@ -86,6 +86,9 @@ class FakeTokensTable:
 
 @pytest.fixture(scope="module")
 def client():
+    # 本文件覆盖旧版同步语义(同步阻塞 + 懒同步);任务化新行为见 test_store_sync_jobs_api.py
+    _prev_sync_env = os.environ.get("STORE_SYNC_JOBS_ENABLED")
+    os.environ["STORE_SYNC_JOBS_ENABLED"] = "0"
     try:
         eng = create_engine(DB_URL)
         with eng.connect() as conn:
@@ -100,6 +103,10 @@ def client():
                return_value=FakeSupabase()):
         with TestClient(main_mod.app) as c:
             yield c
+    if _prev_sync_env is None:
+        os.environ.pop("STORE_SYNC_JOBS_ENABLED", None)
+    else:
+        os.environ["STORE_SYNC_JOBS_ENABLED"] = _prev_sync_env
 
 
 def _auth_headers(tenant: str) -> dict:
@@ -128,7 +135,7 @@ def _create_cred(client, tenant: str, cid: str = "1010", key: str = "k1010") -> 
 
 
 def _cleanup():
-    for t in ("ozon_orders_cache", "ozon_products_cache", "credential_sync_state"):
+    for t in ("ozon_orders_cache", "ozon_products_cache", "credential_sync_state", "store_sync_jobs"):
         _db_execute(f"DELETE FROM {t}")
     # 清测试租户凭证（credentials 409 唯一约束——防上次运行残留；按 key 派生租户删）
     _db_execute("DELETE FROM credentials WHERE tenant_id IN :t", {"t": (TENANT_A, TENANT_B)})

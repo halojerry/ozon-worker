@@ -240,15 +240,17 @@ def cmd_search(args: argparse.Namespace) -> int:
 
     # v0.39 Issue6: 批量提交上架（--auto-submit，走完整 worker 管线定价）
     if args.auto_submit:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         from scripts.cloud_probe import submit_envelope
         from scripts.cloud_probe import build_graph_envelope_with_retry
+        _threads = max(1, min(int(getattr(args, "threads", 3) or 3), 8))
         _submitted = 0
         _failed = 0
-        for p in estimated:
+
+        def _submit_one(p):
             _pid = p.get("product_id") or p.get("itemId") or p.get("id", "")
             if not _pid:
-                _failed += 1
-                continue
+                return None, "no product_id"
             try:
                 _graph = build_graph_envelope_with_retry(
                     item_id=str(_pid),
@@ -257,15 +259,23 @@ def cmd_search(args: argparse.Namespace) -> int:
                 )
                 _resp = submit_envelope(_graph)
                 if _resp.get("ok"):
+                    return p, f"task_id={_resp.get('task_id')}"
+                else:
+                    return None, _resp.get("error")
+            except Exception as _e:
+                return None, str(_e)
+
+        with ThreadPoolExecutor(max_workers=_threads) as _pool:
+            _futures = {_pool.submit(_submit_one, p): p for p in estimated}
+            for _f in as_completed(_futures):
+                _p, _msg = _f.result()
+                if _p is not None:
                     _submitted += 1
-                    print(f"  ✓ 已提交 {str(p.get('title'))[:30]} → task_id={_resp.get('task_id')}", flush=True)
+                    print(f"  ✓ 已提交 {str(_p.get('title'))[:30]} → {_msg}", flush=True)
                 else:
                     _failed += 1
-                    print(f"  ✗ 提交失败 {str(p.get('title'))[:30]}: {_resp.get('error')}", flush=True)
-            except Exception as _e:
-                _failed += 1
-                print(f"  ✗ 提交异常 {str(p.get('title'))[:30]}: {_e}", flush=True)
-        print(f"📦 批量提交完成: 成功 {_submitted} / 失败 {_failed}", flush=True)
+                    print(f"  ✗ 提交失败 {str(_futures[_f].get('title'))[:30]}: {_msg}", flush=True)
+        print(f"📦 批量提交完成(线程 {_threads}): 成功 {_submitted} / 失败 {_failed}", flush=True)
 
     _out({"count": len(estimated), "products": estimated})
     return 0
@@ -523,8 +533,12 @@ def cmd_image_search(args) -> int:
     --source aibuy → 1688 mtop API 直调图搜（v0.39 默认，免浏览器官方排序）
     --source ak    → 1688 AK API 图搜（无需浏览器）
     --source cdp   → 1688 网页版 CDP 图搜（需 Chrome 登录 1688）
+    --ozon-product-id → 绑定 Ozon 商品后自动上报匹配候选到 worker source_candidates
+                        （PRD M5b：未匹配货源工作台数据源）。
     """
+    import logging
     from scripts.lib.config_store import AuthError, preflight_check, print_setup_guide
+    _logger = logging.getLogger(__name__)
 
     missing = preflight_check(skip_store=True)
     if missing:
@@ -598,6 +612,18 @@ def cmd_image_search(args) -> int:
         "total_results": len(products),
         "products": products,
     })
+    # PRD M5b: 绑定 Ozon 商品后,把图搜匹配结果上报 source_candidates(非阻塞,fail-open)
+    ozon_product_id = str(getattr(args, "ozon_product_id", "") or "").strip()
+    if ozon_product_id and products:
+        try:
+            from scripts.lib.source_candidates import spawn_source_report
+            spawn_source_report(
+                ozon_product_id,
+                products,
+                args.source,
+            )
+        except Exception as _sr_e:
+            _logger.debug("source_candidates 上报跳过(不阻断): %s", _sr_e)
     return 0
 
 
@@ -1961,6 +1987,8 @@ def main() -> int:
     sp.add_argument("--store", default="", help="Ozon 店铺名（--auto-submit 提交凭证来源）")
     sp.add_argument("--auto-submit", action="store_true",
                     help="筛选后批量提交上架（v0.39 Issue6，逐个 graph 提交）")
+    sp.add_argument("--threads", type=int, default=3,
+                    help="auto-submit 并发线程数(默认 3,上限 8)")
     sp.set_defaults(func=cmd_search)
 
     # category（v0.39 Issue4: Ozon 类目查询，替代临时脚本）
@@ -2002,6 +2030,8 @@ def main() -> int:
     ip.add_argument("--sort", default="", help="排序: price_asc/price_desc/sold_desc/yx_desc")
     ip.add_argument("--source", choices=["aibuy", "ak", "cdp"], default="aibuy",
                     help="图搜引擎: ak=1688 AK API（默认），cdp=1688 网页 CDP（更准确）")
+    ip.add_argument("--ozon-product-id", default="",
+                    help="可选:绑定 Ozon 商品 ID,图搜结果自动上报 worker 货源匹配工作台")
     ip.set_defaults(func=cmd_image_search)
 
     # get_ak

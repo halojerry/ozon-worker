@@ -161,6 +161,12 @@ def update_progress(task_id: str, stage: str, message: str = ""):
         "stages_remaining": STAGE_ORDER[stage_idx+1:],
     }
     _task_progress[task_id] = data
+    # PRD M4: 进度事件落 task_progress_events(时间线/SSE 数据源,静默降级)
+    try:
+        from services.task_progress_service import emit
+        emit(task_id, stage, "", "progress", message)
+    except Exception:
+        pass
     # ✅ P1 修复：异步持久化到 PG（重启后仍可恢复进度）
     # ⚠️ v0.14 E1: 节流 — 同一任务 2s 窗口内跳过 PG 写（内存进度始终最新，PG 低频落盘）
     try:
@@ -522,14 +528,29 @@ async def lifespan(app: FastAPI):
     # 启动定时清理任务
     cleanup_task = asyncio.create_task(_periodic_task_cleanup(interval_seconds=60))
 
-    # v0.56 店铺数据自动同步（15min 遍历全部租户 active 凭证；SKIP_STORE_SYNC=1 关闭）
+    # 店铺数据自动同步（PRD M1 任务化:5s 扫描+worker 池+job 可见;SKIP_STORE_SYNC=1 关闭;
+    # STORE_SYNC_JOBS_ENABLED=0 回退旧版 15min 全局轮询）
     global store_sync_task
     if os.getenv("SKIP_STORE_SYNC", "0") == "1":
         logger.info("⏸️ 店铺自动同步已关闭（SKIP_STORE_SYNC=1）")
         store_sync_task = None
     else:
-        from services.store_sync_scheduler import store_sync_loop
-        store_sync_task = asyncio.create_task(store_sync_loop())
+        from services.store_sync_scheduler import (
+            jobs_enabled, store_sync_jobs_loop, store_sync_loop,
+        )
+        if jobs_enabled():
+            from services import store_sync_jobs as _sync_jobs_mod
+            try:
+                _sync_jobs_mod.zombie_reset()
+                logger.info("🧹 同步任务僵尸恢复完成")
+            except Exception as _zexc:
+                logger.warning("同步任务僵尸恢复异常(不阻断): %s", str(_zexc)[:200])
+        loop_fn = store_sync_jobs_loop if jobs_enabled() else store_sync_loop
+        store_sync_task = asyncio.create_task(loop_fn())
+
+    # PRD M3: 指标日聚合 + 保留清理(10min)
+    from services.metrics_aggregation import aggregation_loop
+    metrics_agg_task = asyncio.create_task(aggregation_loop())
 
     # 启动Worker后台任务（不阻塞主服务启动）
     # ⚠️ v0.14 E9: num_workers 联动 MAX_CONCURRENT（旧代码硬编码 10，调大 env 实际并发仍封顶 10）
@@ -1090,23 +1111,17 @@ def _extract_token_from_body(body_text: str) -> str:
 
 
 def _key_user_id(clean_token: str) -> str:
-    """MXOU key 即用户：由 key 派生稳定租户身份（不依赖 Supabase）。
-
-    每个用户的 MXOU key（settings.json / 客户端设置持久化）直接映射为独立
-    租户 id —— 数据按 key 天然隔离，无需 Supabase tokens 表。key 轮换即
-    新租户（旧数据保留在原租户，可迁移）。
-    """
-    return f"user_{hashlib.sha256(clean_token.encode()).hexdigest()[:16]}"
+    """回退租户:key 哈希派生(PRD M2 前行为;未配置 Supabase 时由 tenant_service 使用)。"""
+    from services.tenant_service import key_derived_tenant
+    return key_derived_tenant(clean_token)
 
 
 _revoked_tokens: set[str] = set()
 
 
 def _authenticate_token(token: str) -> str:
-    """鉴权 token → user_id（MXOU key 即用户，不依赖 Supabase）。
-
-    submit_task / resubmit_task 共用。失败抛 HTTPException(401/403)。
-    """
+    """鉴权 token → user_id(PRD M2:key 仅鉴权,租户 = Supabase tokens.user_id;
+    未配置 Supabase 回退 key 哈希)。失败抛 HTTPException(401/403/429/503)。"""
     if not token:
         raise HTTPException(status_code=401, detail="Token is required")
     if token in _revoked_tokens:
@@ -1120,8 +1135,8 @@ def _authenticate_token(token: str) -> str:
             status_code=429,
             detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute",
         )
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    return _key_user_id(clean_token)
+    from services.tenant_service import resolve_tenant
+    return resolve_tenant(token)
 
 
 def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
@@ -2172,6 +2187,12 @@ async def _handle_discovery_run_report(request: Request):
     except Exception as e:
         logger.warning("selection insight aggregation skipped (keyword=%s): %s", item.keyword, e)
 
+    try:
+        from services.source_candidate_service import derive_from_discovery_run
+        derive_from_discovery_run(clean_token, item.candidates)
+    except Exception as e:
+        logger.warning("source_candidates derivation skipped (keyword=%s): %s", item.keyword, e)
+
     return {"status": "ok", "inserted": inserted, "upserted": 0}
 
 
@@ -2223,11 +2244,21 @@ async def v1_analytics_list_bestsellers(request: Request):
         offset = int(q.get("offset", 0))
     except (TypeError, ValueError):
         offset = 0
+    def _opt_float(v):
+        try:
+            return float(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
     return list_bestsellers(
         clean_token,
         category=q.get("category"),
         order_by=q.get("order_by") or "ordering_amount",
         limit=limit, offset=offset,
+        brand=q.get("brand", "").strip(),
+        min_sales=_opt_float(q.get("min_sales")),
+        max_sales=_opt_float(q.get("max_sales")),
+        min_price=_opt_float(q.get("min_price")),
+        max_price=_opt_float(q.get("max_price")),
     )
 
 
@@ -2380,6 +2411,16 @@ async def http_commissions_lookup(request: Request):
 from routes.credentials_routes import router as credentials_router
 v1.include_router(credentials_router)
 
+# ── 货源匹配上报（M5b）：skill 图搜/跟卖结果 → source_candidates ──
+from routes.source_candidates_routes import router as source_candidates_router
+v1.include_router(source_candidates_router)
+
+# ── 用户设置 / 工作台聚合(上生产前演示清零)──
+from routes.settings_routes import router as settings_router
+v1.include_router(settings_router)
+from routes.dashboard_routes import router as dashboard_router
+v1.include_router(dashboard_router)
+
 # ── WebUI 上架配置模板端点（P0-1）：routes/services 分层，业务逻辑在 services/template_service.py ──
 from routes.templates_routes import router as templates_router
 v1.include_router(templates_router)
@@ -2425,8 +2466,12 @@ from routes.shelf_routes import router as shelf_router
 v1.include_router(shelf_router)
 
 # ── 店铺数据同步（v0.56）：手动同步 + 同步状态 ──
+from routes.store_sync_routes import detail_router as store_sync_detail_router
 from routes.store_sync_routes import router as store_sync_router
+from routes.tasks_routes import sse_router as task_sse_router
 v1.include_router(store_sync_router)
+v1.include_router(store_sync_detail_router)
+v1.include_router(task_sse_router)
 
 # ── 店铺执行端点（todo 7）：改价/库存/上下架 + 营销活动（接线 store_operation_log）──
 from routes.store_actions_routes import router as store_actions_router

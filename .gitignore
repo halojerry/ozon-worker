@@ -124,3 +124,9 @@ skill/data/review_log.jsonl
 
 # pounding-mcp 运行时任务数据
 pounding-mcp/data/
+
+# ─── 本地书签/探针原始数据(不入库, AGENTS 约定)───
+.bok/
+docs/.bok/
+skill/references/.bok/
+docs/ozon-probe/

@@ -97,6 +97,9 @@ def create_tables(engine):
     # ✅ v0.41 WebUI T1: task_generated_images ALTER + 新表索引（幂等，二次运行 no-op）
     from migrate_webui_v1 import run_migrations
     run_migrations(engine)
+    # ✅ PRD store-sync-ERP v1: 同步任务/日聚合/成本货源/退货/进度事件等新表与扩列（幂等）
+    from migrate_sync_erp_v1 import run_migrations as run_sync_migrations
+    run_sync_migrations(engine)
     logger.info("✅ 表结构已就绪")
 
 

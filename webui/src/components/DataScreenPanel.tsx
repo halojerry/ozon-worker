@@ -53,6 +53,13 @@ export default function DataScreenPanel() {
           </button>　● Admin⌄
         </span>
       </header>
+      {overview.data && (
+        <div style={{ padding: "8px 20px 0", fontSize: 12, opacity: 0.75 }}>
+          <span className={`status ${overview.data.scope === "global" ? "red" : "green"}`}>
+            {overview.data.scope === "global" ? "全平台数据（管理员）" : "我的店铺数据"}
+          </span>
+        </div>
+      )}
 
       <main>
         <section className="command-metrics">
@@ -118,7 +125,7 @@ export default function DataScreenPanel() {
 
           <article className="panel command-rank">
             <h2>热词榜 Top 20</h2>
-            {hotQueries.loading ? <PanelLoading /> : hotQueries.error ? <PanelError message={hotQueries.error} onRetry={hotQueries.reload} /> : (
+            {hotQueries.loading ? <PanelLoading /> : hotQueries.error ? <PanelEmpty text="蓝海热词仅管理员可见" /> : (
               (hotQueries.data?.items ?? []).length === 0 ? <PanelEmpty text="暂无热词数据" /> :
               (hotQueries.data?.items ?? []).map((q, i) => (
                 <p key={`${q.query}-${i}`}>

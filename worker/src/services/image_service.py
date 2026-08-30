@@ -291,6 +291,7 @@ def get_product_edit_data(tenant_id: str, product_id: str) -> dict:
         "offer_id": index["offer_id"],
         "credential_id": index["credential_id"],
         "draft_id": draft_id,
+        "draft_version": draft["version"],
         "payload": draft["payload"],
         "moderation_status": moderation_status,
     }

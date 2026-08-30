@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
-import { api, getSession, ApiError } from "../api/client"
+import { api, getSession, ApiError, downloadCsv } from "../api/client"
 import type { Credential, Draft, DraftAiResponse, DraftEnvelopeDraft, DraftPayload, EstimateResponse, SubmitResponse } from "../api/hooks"
 import { apiErrorMessage, draftFields, formatDateTime, formatPrice, submissionStatusClass, submissionStatusText, useApi } from "../api/hooks"
 import { Metric, PageHeader, PanelEmpty, PanelError, PanelLoading } from "./ui"
@@ -100,6 +100,7 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
   const [submitBusy, setSubmitBusy] = useState(false)
   const [submitResult, setSubmitResult] = useState<SubmitResponse | null>(null)
   const [submitError, setSubmitError] = useState("")
+  const [scheduledAt, setScheduledAt] = useState("")
   const [saving, setSaving] = useState(false)
   const [saveNotice, setSaveNotice] = useState("")
 
@@ -197,7 +198,17 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
       return
     }
     try {
-      const res = await api.post<SubmitResponse>(`/drafts/${draft.id}/submit`, { token: getSession()?.token ?? "", credential_id: credentialId || undefined })
+      const res = await api.post<SubmitResponse>(`/drafts/${draft.id}/submit`, {
+        token: getSession()?.token ?? "",
+        credential_id: credentialId || undefined,
+        scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
+      })
+      if ((res as unknown as { scheduled?: boolean }).scheduled) {
+        setSubmitResult({ ...res, task_id: `定时 ${(res as unknown as { scheduled_at?: string }).scheduled_at ?? ""}` })
+        setSubmitBusy(false)
+        onSaved()
+        return
+      }
       setSubmitResult(res)
       onSaved()
     } catch (e) {
@@ -267,6 +278,7 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
                 <p style={{ fontSize: 10, color: "#89847f" }}>请先在「店铺管理」添加 Ozon 店铺凭证后再提交上架。</p>
               )}
               {submitError && <div className="inline-notice error">{submitError}</div>}
+              <div className="publish-row"><span>定时上架（可选）</span><input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} style={{ fontSize: 12 }}/></div>
               {submitResult && (
                 <div className="inline-notice">
                   已提交上架，任务 ID：{submitResult.task_id || "—"}
@@ -291,22 +303,33 @@ export default function CollectionPanel() {
   const { data: drafts, loading, error, reload } = useApi<Draft[]>(() => api.get("/drafts"), [])
   const { data: credentials } = useApi<Credential[]>(() => api.get("/credentials"), [])
   const [q, setQ] = useState("")
+  const [platform, setPlatform] = useState("all")
+  const [status, setStatus] = useState("all")
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [addOpen, setAddOpen] = useState(false)
   const [editing, setEditing] = useState<Draft | null>(null)
   const [notice, setNotice] = useState("")
   const [noticeError, setNoticeError] = useState(false)
+  const [resubmitId, setResubmitId] = useState<string | null>(null)
+  const [batchBusy, setBatchBusy] = useState(false)
+  const [importBusy, setImportBusy] = useState(false)
+  const importRef = useRef<HTMLInputElement>(null)
 
   const flashNotice = (text: string, isError: boolean) => { setNotice(text); setNoticeError(isError) }
 
   const filtered = useMemo(() => {
     const list = drafts ?? []
-    if (!q.trim()) return list
-    const needle = q.toLowerCase()
     return list.filter((d) => {
       const f = draftFields(d)
+      const platformOk = platform === "all" || (d.source || "skill") === platform
+      const statusOk = status === "all"
+        || (status === "none" ? !d.submission_status : d.submission_status === status)
+      if (!platformOk || !statusOk) return false
+      if (!q.trim()) return true
+      const needle = q.toLowerCase()
       return `${d.id} ${f.title ?? ""} ${f.item_id ?? ""} ${f.purchase_url ?? ""}`.toLowerCase().includes(needle)
     })
-  }, [drafts, q])
+  }, [drafts, q, platform, status])
 
   const metrics = useMemo(() => {
     const list = drafts ?? []
@@ -328,6 +351,60 @@ export default function CollectionPanel() {
     } catch (e) { flashNotice(apiErrorMessage(e), true) }
   }
 
+  const resubmit = async (d: Draft) => {
+    const defaultCred = credentials?.find((c) => c.is_default)?.id ?? credentials?.[0]?.id ?? ""
+    if (!defaultCred) { flashNotice("请先在店铺管理添加店铺凭证", true); return }
+    setResubmitId(d.id)
+    try {
+      await api.post(`/drafts/${d.id}/resubmit`, { token: getSession()?.token ?? "", credential_id: defaultCred })
+      flashNotice("已重新提交上架", false)
+      reload()
+    } catch (e) { flashNotice(apiErrorMessage(e), true) }
+    finally { setResubmitId(null) }
+  }
+
+  const defaultCred = credentials?.find((c) => c.is_default)?.id ?? credentials?.[0]?.id ?? ""
+
+  const batchSubmit = async () => {
+    if (!defaultCred) { flashNotice("请先在店铺管理添加店铺凭证", true); return }
+    if (selected.size === 0) { flashNotice("请先勾选要提交的草稿", true); return }
+    setBatchBusy(true)
+    try {
+      const res = await api.post<{ submitted: string[]; skipped: { draft_id: string; reason: string }[]; failed: { draft_id: string; reason: string }[] }>(
+        "/drafts/batch-submit",
+        { ids: [...selected], token: getSession()?.token ?? "", credential_id: defaultCred },
+      )
+      flashNotice(`批量提交: ${res.submitted.length} 成功 / ${res.skipped.length} 跳过 / ${res.failed.length} 失败`, res.failed.length > 0)
+      setSelected(new Set())
+      reload()
+    } catch (e) { flashNotice(apiErrorMessage(e), true) }
+    finally { setBatchBusy(false) }
+  }
+
+  const importCsv = async (file: File) => {
+    setImportBusy(true)
+    try {
+      const text = await file.text()
+      const res = await fetch("/api/v1/drafts/import", {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Authorization": `Bearer ${getSession()?.token ?? ""}`,
+        },
+        body: text,
+      })
+      if (!res.ok) {
+        let msg = `导入失败（${res.status}）`
+        try { msg = (await res.json() as { detail?: string }).detail || msg } catch { /* noop */ }
+        throw new Error(msg)
+      }
+      const data = await res.json() as { created: number; failed: number }
+      flashNotice(`CSV 导入完成: 新增 ${data.created} / 失败 ${data.failed}`, data.failed > 0)
+      reload()
+    } catch (e) { flashNotice(e instanceof Error ? e.message : "导入失败", true) }
+    finally { setImportBusy(false) }
+  }
+
   return (
     <>
       <PageHeader kicker="PRODUCT SOURCING CENTER" title="采集箱" description="商品采集中心 · 编辑货源、AI 生成俄语内容、预估售价并提交上架。" action="＋ 添加商品" onAction={() => setAddOpen(true)}/>
@@ -340,8 +417,31 @@ export default function CollectionPanel() {
       </section>
       <section className="filter-bar">
         <label>⌕ <input value={q} onChange={e => setQ(e.target.value)} placeholder="搜索标题 / ID / 货源地址"/></label>
-        <button>全部平台⌄</button>
-        <button>全部状态⌄</button>
+        <select value={platform} onChange={(e) => setPlatform(e.target.value)}>
+          <option value="all">全部平台</option>
+          <option value="skill">Skill 采集</option>
+          <option value="webui">WebUI 手动</option>
+          <option value="csv">CSV 导入</option>
+        </select>
+        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="all">全部状态</option>
+          <option value="none">未提交</option>
+          <option value="pending">进行中</option>
+          <option value="published">已上架</option>
+          <option value="failed">失败</option>
+          <option value="rejected">被拒</option>
+        </select>
+        <button disabled={batchBusy} onClick={batchSubmit}>{batchBusy ? "提交中…" : `批量提交(${selected.size})`}</button>
+        <button disabled={importBusy} onClick={() => importRef.current?.click()}>{importBusy ? "导入中…" : "导入 CSV"}</button>
+        <input ref={importRef} type="file" accept=".csv,text/csv" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) importCsv(f); e.target.value = "" }} />
+        <button onClick={async () => {
+          try {
+            await downloadCsv("/drafts/export", `drafts-${new Date().toISOString().slice(0, 10)}.csv`)
+            flashNotice("已导出 CSV", false)
+          } catch (e) {
+            flashNotice(e instanceof Error ? e.message : "导出失败", true)
+          }
+        }}>导出 CSV</button>
         <button className="button primary" onClick={() => setAddOpen(true)}>＋ 添加商品</button>
       </section>
       <section className="wide-section">
@@ -354,9 +454,26 @@ export default function CollectionPanel() {
                 const f = draftFields(d)
                 const image = f.images?.[0]
                 const cost = f.purchase_cost
+                const checked = selected.has(d.id)
+                const mirrorState = d.image_mirror_state
+                const mirrorBadge =
+                  mirrorState === "mirrored" ? "COS 镜像"
+                  : mirrorState === "pending" ? "镜像中"
+                  : mirrorState === "failed" ? "图片外链"
+                  : ""
                 return (
                   <div className="source-row" key={d.id}>
-                    <div>{image ? <img className="source-image" src={image} alt={f.title || ""}/> : <span className="product-thumb thumb-0"/>}<b>{f.title || "未命名草稿"}<small>ID：{d.id.slice(0, 8)}</small></b></div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input type="checkbox" checked={checked} onChange={() => {
+                        setSelected((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(d.id)) next.delete(d.id); else next.add(d.id)
+                          return next
+                        })
+                      }} />
+                      {image ? <img className="source-image" src={image} alt={f.title || ""}/> : <span className="product-thumb thumb-0"/>}
+                      <b>{f.title || "未命名草稿"}<small>ID：{d.id.slice(0, 8)}{mirrorBadge ? ` · ${mirrorBadge}` : ""}</small></b>
+                    </div>
                     <div className="platform-cell"><em>{d.source === "webui" ? "WebUI" : d.source || "ERP"}</em>{f.purchase_url ? <a href={f.purchase_url} target="_blank" rel="noreferrer">货源地址 ↗</a> : <span>—</span>}</div>
                     <span>{cost ? `¥ ${formatPrice(cost)}` : "—"}</span>
                     <span className="status green">已采集</span>
@@ -364,6 +481,9 @@ export default function CollectionPanel() {
                     <time>{formatDateTime(d.created_at)}</time>
                     <span className="row-links">
                       <button onClick={() => setEditing(d)}>编辑</button>
+                      {(d.submission_status === "failed" || d.submission_status === "rejected") && (
+                        <button disabled={resubmitId === d.id} onClick={() => resubmit(d)}>{resubmitId === d.id ? "重试中…" : "重新提交"}</button>
+                      )}
                       <button onClick={() => remove(d)}>删除</button>
                     </span>
                   </div>

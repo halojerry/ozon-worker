@@ -349,7 +349,8 @@ def get_order_notes(tenant_id: str, posting_number: str) -> dict:
     with get_engine().connect() as conn:
         row = conn.execute(text(
             f"SELECT {NOTES_COLS} FROM order_notes "
-            "WHERE posting_number=:pn AND tenant_id=:tenant_id"
+            "WHERE posting_number=:pn AND tenant_id=:tenant_id "
+            "ORDER BY product_id LIMIT 1"
         ), {"pn": posting_number, "tenant_id": tenant_id}).fetchone()
     if row is None:
         return {
@@ -363,7 +364,7 @@ def get_order_notes(tenant_id: str, posting_number: str) -> dict:
 
 
 def upsert_order_notes(tenant_id: str, posting_number: str, data: dict) -> dict:
-    """写入/更新订单标注（upsert on posting_number + tenant_id 校验归属）。"""
+    """写入/更新订单标注（行级:upsert on (posting_number, product_id);product_id 缺省 ''=整单）。"""
     from storage.database.db import get_engine
     from sqlalchemy import text
 
@@ -375,11 +376,12 @@ def upsert_order_notes(tenant_id: str, posting_number: str, data: dict) -> dict:
             from fastapi import HTTPException
             raise HTTPException(status_code=422, detail="source_cost 必须是数字")
     with get_engine().begin() as conn:
+        product_id = str(data.get("product_id") or "")
         conn.execute(text(
-            "INSERT INTO order_notes (posting_number, tenant_id, source_url, source_cost, "
+            "INSERT INTO order_notes (posting_number, tenant_id, product_id, source_url, source_cost, "
             "source_remark, purchase_no, purchase_carrier, purchase_tracking) "
-            "VALUES (:pn, :tenant_id, :su, :sc, :sr, :pno, :pc, :pt) "
-            "ON CONFLICT (posting_number) DO UPDATE SET "
+            "VALUES (:pn, :tenant_id, :pid, :su, :sc, :sr, :pno, :pc, :pt) "
+            "ON CONFLICT (posting_number, product_id) DO UPDATE SET "
             "source_url=EXCLUDED.source_url, source_cost=EXCLUDED.source_cost, "
             "source_remark=EXCLUDED.source_remark, purchase_no=EXCLUDED.purchase_no, "
             "purchase_carrier=EXCLUDED.purchase_carrier, purchase_tracking=EXCLUDED.purchase_tracking, "
@@ -387,6 +389,7 @@ def upsert_order_notes(tenant_id: str, posting_number: str, data: dict) -> dict:
         ), {
             "pn": posting_number,
             "tenant_id": tenant_id,
+            "pid": product_id,
             "su": str(data.get("source_url") or ""),
             "sc": source_cost,
             "sr": str(data.get("source_remark") or ""),
@@ -395,8 +398,8 @@ def upsert_order_notes(tenant_id: str, posting_number: str, data: dict) -> dict:
             "pt": str(data.get("purchase_tracking") or ""),
         })
         row = conn.execute(text(
-            f"SELECT {NOTES_COLS} FROM order_notes WHERE posting_number=:pn"
-        ), {"pn": posting_number}).fetchone()
+            f"SELECT {NOTES_COLS} FROM order_notes WHERE posting_number=:pn AND product_id=:pid"
+        ), {"pn": posting_number, "pid": product_id}).fetchone()
     return _note_row_to_dict(row)
 
 

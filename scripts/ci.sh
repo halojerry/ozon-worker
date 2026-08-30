@@ -160,6 +160,23 @@ else
 fi
 
 # ═══════════════════════
+# Step 5c: WebUI — tsc + build（PR 门禁与 CI 对齐）
+# ═══════════════════════
+echo ""
+echo "🧪 Step 5c/6: WebUI 构建..."
+cd "$PROJECT_DIR/webui"
+if command -v bun &> /dev/null; then
+    if bun install >/dev/null 2>&1 && bunx tsc -b 2>/dev/null && bun run build >/dev/null 2>&1 && [ -f dist/index.html ]; then
+        green "   ✅ WebUI tsc + build 通过"
+    else
+        red "   ❌ WebUI tsc/build 失败"
+        FAILED=1
+    fi
+else
+    yellow "   ⚠️  bun 未安装，跳过 WebUI 构建（cd webui && bun install && bun run build）"
+fi
+
+# ═══════════════════════
 # Step 6: Docker build（--quick 跳过）
 # ═══════════════════════
 if [[ "$*" != *"--quick"* ]]; then

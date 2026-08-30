@@ -125,6 +125,15 @@ def create_credential(tenant_id: str, data: CredentialCreate) -> dict:
             status_code=409,
             detail=f"该店铺凭证已存在（或默认店铺并发冲突）: {client_id}",
         ) from exc
+    # PRD M1: 绑定即初始化 — 事务提交后异步入队 initial job(失败由调度器 due-scan 兜底)
+    try:
+        from services.store_sync_scheduler import jobs_enabled
+        if jobs_enabled():
+            from services import store_sync_jobs
+            store_sync_jobs.enqueue(tenant_id, str(row.id), kind="initial", trigger="bind")
+    except Exception as exc:
+        logger.warning("绑定后 initial job 入队失败(调度器兜底) tenant=%s: %s",
+                       tenant_id, str(exc)[:200])
     return _row_to_dict(row)
 
 
@@ -136,6 +145,31 @@ def list_credentials(tenant_id: str) -> list[dict]:
             "ORDER BY created_at DESC"
         ), {"tenant_id": tenant_id}).fetchall()
     return [_row_to_dict(r) for r in rows]
+
+
+def find_credential_id_by_client(tenant_id: str, ozon_client_id: str) -> Optional[str]:
+    """按 ozon_client_id 反查当前租户的 credential_id(skill 上报 source_candidates 用)。"""
+    if not tenant_id or not ozon_client_id:
+        return None
+    with get_engine().connect() as conn:
+        row = conn.execute(text(
+            "SELECT id::text FROM credentials "
+            "WHERE tenant_id=:tenant_id AND ozon_client_id=:client_id "
+            "AND status='active' ORDER BY created_at DESC LIMIT 1"
+        ), {"tenant_id": tenant_id, "client_id": ozon_client_id}).fetchone()
+    return str(row[0]) if row else None
+
+
+def credential_owned_by(tenant_id: str, credential_id: str) -> bool:
+    """只读归属校验(不解密,供货源候选等轻量读端点用)。"""
+    if not credential_id:
+        return False
+    with get_engine().connect() as conn:
+        row = conn.execute(text(
+            "SELECT 1 FROM credentials WHERE id::text=:id AND tenant_id=:tenant_id "
+            "AND status='active' LIMIT 1"
+        ), {"id": str(credential_id), "tenant_id": tenant_id}).fetchone()
+    return row is not None
 
 
 def rotate_credential(tenant_id: str, credential_id: str, data: CredentialUpdate) -> dict:

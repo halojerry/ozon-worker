@@ -69,8 +69,14 @@ function UserDetail({
 }
 
 export default function AdminPanel() {
-  const [tab, setTab] = useState<"overview" | "users" | "stores">("overview")
+  const [tab, setTab] = useState<"overview" | "users" | "stores" | "config">("overview")
   const [detailUser, setDetailUser] = useState<AdminUser | null>(null)
+  const [cfgList, setCfgList] = useState<string[]>([])
+  const [cfgSelected, setCfgSelected] = useState<string | null>(null)
+  const [cfgContent, setCfgContent] = useState("")
+  const [cfgBackups, setCfgBackups] = useState<Array<{ name: string; size: number; mtime: number }>>([])
+  const [cfgNotice, setCfgNotice] = useState("")
+  const [cfgSaving, setCfgSaving] = useState(false)
 
   const fetchOverview = useCallback(() => api.get<AdminOverview>("/admin/overview"), [])
   const fetchUsers = useCallback(() => api.get<AdminUser[]>("/admin/users"), [])
@@ -79,6 +85,55 @@ export default function AdminPanel() {
   const overview = useApi(fetchOverview, [tab === "overview"])
   const users = useApi(fetchUsers, [tab === "users"])
   const stores = useApi(fetchStores, [tab === "stores"])
+  const loadConfig = useCallback(async () => {
+    setCfgNotice("正在读取配置列表…")
+    try {
+      const list = await api.get<Array<{ name: string }>>("/admin/config")
+      const names = list.map((x) => x.name)
+      setCfgList(names)
+      setCfgNotice(`已加载 ${names.length} 个配置项`)
+      if (names.length && !cfgSelected) setCfgSelected(names[0])
+    } catch (e) { setCfgNotice(apiErrorMessage(e)) }
+  }, [cfgSelected])
+
+  useEffect(() => {
+    if (tab === "config") loadConfig()
+  }, [tab, loadConfig])
+
+  const loadCfgContent = useCallback(async (name: string) => {
+    setCfgNotice("")
+    try {
+      const [content, backups] = await Promise.all([
+        api.get<unknown>(`/admin/config/${name}`),
+        api.get<Array<{ name: string; size: number; mtime: number }>>(`/admin/config/${name}/backups`),
+      ])
+      setCfgContent(JSON.stringify(content, null, 2))
+      setCfgBackups(backups ?? [])
+    } catch (e) { setCfgNotice(apiErrorMessage(e)) }
+  }, [])
+
+  useEffect(() => {
+    if (tab === "config" && cfgSelected) loadCfgContent(cfgSelected)
+  }, [tab, cfgSelected, loadCfgContent])
+
+  const saveCfg = async () => {
+    if (!cfgSelected) return
+    setCfgSaving(true)
+    try {
+      await api.put(`/admin/config/${cfgSelected}`, JSON.parse(cfgContent))
+      setCfgNotice("✓ 已保存并备份")
+    } catch (e) { setCfgNotice(`保存失败: ${apiErrorMessage(e)}`) }
+    finally { setCfgSaving(false) }
+  }
+
+  const rollbackCfg = async (name: string) => {
+    if (!cfgSelected) return
+    try {
+      const res = await api.post<{ content?: unknown }>(`/admin/config/${cfgSelected}/rollback`, { backup: name })
+      setCfgContent(JSON.stringify(res.content ?? {}, null, 2))
+      setCfgNotice("✓ 已回滚")
+    } catch (e) { setCfgNotice(`回滚失败: ${apiErrorMessage(e)}`) }
+  }
 
   const active = tab === "overview" ? overview : tab === "users" ? users : stores
 
@@ -91,6 +146,7 @@ export default function AdminPanel() {
             {t === "overview" ? "概览" : t === "users" ? "用户" : "店铺"}
           </button>
         ))}
+        <button className={tab === "config" ? "button primary" : "button ghost"} onClick={() => setTab("config")}>生图配置</button>
       </section>
 
       {active.loading && <PanelLoading />}
@@ -129,6 +185,45 @@ export default function AdminPanel() {
                 </span>
               </div>
             ))}
+          </article>
+        </section>
+      )}
+
+      {tab === "config" && (
+        <section className="wide-section">
+          <article className="panel">
+            <span className="panel-kicker">ENGINE CONFIG</span>
+            <h2>生图/提示词配置</h2>
+            {cfgNotice && <div className={`inline-notice ${cfgNotice.startsWith("✓") || cfgNotice.startsWith("已加载") ? "" : "error"}`}>{cfgNotice}</div>}
+            <div style={{ display: "flex", gap: 12 }}>
+              <aside style={{ minWidth: 180 }}>
+                {cfgList.map((name) => (
+                  <button key={name} className={cfgSelected === name ? "selected" : ""} onClick={() => setCfgSelected(name)} style={{ display: "block", width: "100%", marginBottom: 4 }}>
+                    {name}
+                  </button>
+                ))}
+                {cfgList.length === 0 && <PanelEmpty text="加载中…" />}
+              </aside>
+              <div style={{ flex: 1 }}>
+                {cfgSelected ? (
+                  <>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+                      <b>{cfgSelected}</b>
+                      <span style={{ fontSize: 11, opacity: 0.7 }}>{cfgBackups.length} 个历史备份</span>
+                      <button className="button ghost" onClick={() => { const b = cfgBackups[0]; if (b) rollbackCfg(b.name) }}>回滚最新备份</button>
+                      <button className="button primary" disabled={cfgSaving} onClick={saveCfg}>{cfgSaving ? "保存中…" : "保存配置"}</button>
+                    </div>
+                    <textarea
+                      value={cfgContent}
+                      onChange={(e) => setCfgContent(e.target.value)}
+                      spellCheck={false}
+                      style={{ width: "100%", minHeight: 320, fontFamily: "var(--font-mono, monospace)", fontSize: 11 }}
+                    />
+                    <p style={{ fontSize: 11, opacity: 0.7 }}>⚠ 此处修改直接影响引擎提示词/变量;保存前请确保 JSON 合法。</p>
+                  </>
+                ) : <PanelEmpty text="← 从左侧选择配置文件" />}
+              </div>
+            </div>
           </article>
         </section>
       )}

@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import re
 import uuid
 from typing import Any, Optional
 
@@ -26,6 +27,94 @@ logger = logging.getLogger(__name__)
 
 DUP_MESSAGE = "重复商品：目标店铺已存在相同商品"
 _SECRET_KEYS = ("api_key", "apikey")
+
+
+def has_active_submission(tenant_id: str, draft_id: str,
+                          credential_id: Optional[str] = None) -> bool:
+    """草稿在该店是否存在进行中 submission(pending/uploading)→ 防重复提交/重试。"""
+    try:
+        uid = uuid.UUID(draft_id)
+    except (ValueError, TypeError, AttributeError):
+        return False
+    sql = "SELECT 1 FROM draft_submissions WHERE draft_id=:d AND status IN ('pending','uploading')"
+    params: dict = {"d": uid}
+    if credential_id:
+        sql += " AND credential_id::text=:c"
+        params["c"] = str(credential_id)
+    with get_engine().connect() as conn:
+        row = conn.execute(text(sql + " LIMIT 1"), params).fetchone()
+    return row is not None
+
+
+def schedule_listing(tenant_id: str, draft_id: str, credential_id: str,
+                     token: str, scheduled_at: str) -> dict:
+    """定时上架:落 scheduled_listings(token 加密存 token_enc,aad=tenant)。"""
+    import datetime as _dt
+    from utils.credential_cipher import encrypt
+    try:
+        scheduled_dt = _dt.datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="scheduled_at 格式非法(ISO8601)")
+    if scheduled_dt <= _dt.datetime.now(_dt.timezone.utc):
+        raise HTTPException(status_code=422, detail="scheduled_at 必须晚于当前时间")
+    token_enc = encrypt(token, f"{tenant_id}:scheduled")
+    with get_engine().begin() as conn:
+        row = conn.execute(text(
+            """
+            INSERT INTO scheduled_listings
+                (tenant_id, draft_id, credential_id, scheduled_at, status, token_enc)
+            VALUES (:t, :d, :c, :at, 'pending', :enc)
+            ON CONFLICT (draft_id, credential_id) DO UPDATE SET
+                scheduled_at = EXCLUDED.scheduled_at,
+                status = 'pending',
+                token_enc = EXCLUDED.token_enc,
+                created_at = NOW()
+            RETURNING id, scheduled_at, status
+            """
+        ), {"t": tenant_id, "d": uuid.UUID(draft_id), "c": str(credential_id),
+            "at": scheduled_dt, "enc": token_enc}).fetchone()
+    return {"scheduled_listing_id": int(row[0]),
+            "scheduled_at": row[1].isoformat(), "status": row[2]}
+
+
+def _update_scheduled(listing_id: int, status: str, task_id: Optional[str],
+                      error: str = "") -> None:
+    with get_engine().begin() as conn:
+        conn.execute(text(
+            "UPDATE scheduled_listings SET status=:s, task_id=:tid, error=:e, created_at=NOW() "
+            "WHERE id=:id"
+        ), {"s": status, "tid": task_id, "e": error[:500], "id": listing_id})
+
+
+async def process_scheduled_listings(limit: int = 20) -> dict:
+    """到点定时上架:提交成功 → submitted+task_id;重复 → skipped;失败 → failed+error。"""
+    import datetime as _dt
+    from utils.credential_cipher import decrypt
+    now = _dt.datetime.now(_dt.timezone.utc)
+    with get_engine().begin() as conn:
+        rows = conn.execute(text(
+            "SELECT id, tenant_id, draft_id::text, credential_id::text, token_enc "
+            "FROM scheduled_listings WHERE status='pending' AND scheduled_at <= :now "
+            "ORDER BY scheduled_at LIMIT :lim FOR UPDATE SKIP LOCKED"
+        ), {"now": now, "lim": limit}).fetchall()
+    results = {"submitted": 0, "skipped": 0, "failed": 0}
+    for rid, tenant, draft_id, cred, enc in rows:
+        try:
+            token = decrypt(bytes(enc), f"{tenant}:scheduled")
+            if has_active_submission(tenant, draft_id, cred):
+                _update_scheduled(rid, "skipped", None, "已在上架中")
+                results["skipped"] += 1
+                continue
+            result = await submit_draft(tenant, draft_id, token, credential_id=cred)
+            _update_scheduled(rid, "submitted", str(result.get("task_id") or ""))
+            results["submitted"] += 1
+        except HTTPException as exc:
+            _update_scheduled(rid, "failed", None, str(exc.detail)[:200])
+            results["failed"] += 1
+        except Exception as exc:
+            _update_scheduled(rid, "failed", None, str(exc)[:200])
+            results["failed"] += 1
+    return results
 
 
 def _assert_no_api_key(payload: Any) -> None:
@@ -118,6 +207,7 @@ def _draft_row_to_dict(row) -> dict:
         "payload": payload,
         "source": row.source,
         "version": row.version,
+        "image_mirror_state": getattr(row, "image_mirror_state", "") or "",
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -157,12 +247,15 @@ def create_draft(tenant_id: str, body: dict) -> dict:
         row = conn.execute(text(
             "INSERT INTO product_drafts (tenant_id, payload, source) "
             "VALUES (:tenant_id, CAST(:payload AS jsonb), :source) "
-            "RETURNING id, tenant_id, payload, source, version, created_at, updated_at"
+            "RETURNING id, tenant_id, payload, source, version, image_mirror_state, "
+            "created_at, updated_at"
         ), {
             "tenant_id": tenant_id,
             "payload": json.dumps(envelope, ensure_ascii=False),
             "source": source,
         }).fetchone()
+    from services.draft_image_mirror import spawn_image_mirror
+    spawn_image_mirror(tenant_id, str(row.id), row.version, envelope)
     return _draft_row_to_dict(row)
 
 
@@ -178,12 +271,49 @@ def list_drafts(tenant_id: str) -> list[dict]:
     """GET /drafts：租户隔离列表（updated_at 倒序），携带最新 submission 状态（T10 上架状态列）。"""
     with get_engine().connect() as conn:
         rows = conn.execute(text(
-            "SELECT d.id, d.tenant_id, d.payload, d.source, d.version, d.created_at, d.updated_at, "
+            "SELECT d.id, d.tenant_id, d.payload, d.source, d.version, "
+            "d.image_mirror_state, d.created_at, d.updated_at, "
             "s.submission_status "
             f"FROM product_drafts d {_LATEST_SUBMISSION_SQL} "
             "WHERE d.tenant_id=:tenant_id ORDER BY d.updated_at DESC"
         ), {"tenant_id": tenant_id}).fetchall()
     return [_draft_row_to_dict(r) for r in rows]
+
+
+def export_drafts_csv(tenant_id: str) -> str:
+    """PRD M5(P2): 采集箱导出 CSV(租户隔离,与列表同源)。"""
+    import csv
+    import io
+
+    drafts = list_drafts(tenant_id)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "id", "title", "item_id", "images", "purchase_cost", "purchase_url",
+        "price", "stock", "supplier", "weight", "source",
+        "submission_status", "created_at", "updated_at",
+    ])
+    for d in drafts:
+        payload = d.get("payload") or {}
+        draft = payload.get("draft") or {}
+        source = payload.get("source") or {}
+        writer.writerow([
+            d["id"],
+            str(draft.get("title") or ""),
+            str(draft.get("item_id") or ""),
+            "|".join(str(u) for u in (draft.get("images") or [])),
+            draft.get("purchase_cost") if draft.get("purchase_cost") is not None else "",
+            str(source.get("purchase_url") or draft.get("purchase_url") or ""),
+            draft.get("price") if draft.get("price") is not None else "",
+            draft.get("stock") if draft.get("stock") is not None else "",
+            str(draft.get("supplier") or ""),
+            draft.get("weight") if draft.get("weight") is not None else "",
+            d.get("source") or "",
+            d.get("submission_status") or "",
+            d.get("created_at") or "",
+            d.get("updated_at") or "",
+        ])
+    return buf.getvalue()
 
 
 def delete_draft(tenant_id: str, draft_id: str) -> None:
@@ -223,7 +353,8 @@ def get_draft(tenant_id: str, draft_id: str) -> dict:
     uid = _parse_draft_uuid(draft_id)
     with get_engine().connect() as conn:
         row = conn.execute(text(
-            "SELECT id, tenant_id, payload, source, version, created_at, updated_at "
+            "SELECT id, tenant_id, payload, source, version, image_mirror_state, "
+            "created_at, updated_at "
             "FROM product_drafts WHERE id=:id AND tenant_id=:tenant_id"
         ), {"id": uid, "tenant_id": tenant_id}).fetchone()
     if row is None:
@@ -262,6 +393,95 @@ def list_submissions(tenant_id: str, draft_id: str) -> list[dict]:
     return [_submission_row_to_dict(r) for r in rows]
 
 
+def import_drafts_csv(tenant_id: str, rows: list[dict]) -> dict:
+    """PRD M5b(P2): CSV 导入采集箱(竞品对标)。
+
+    每行最小字段 title;images 支持列表或 "|"/";" 分隔字符串;purchase_cost/
+    price/stock/weight/length/width/height 可空。逐行调 create_draft(同一套
+    凭证剥离/字段校验/图片镜像),失败行记 error 不阻断其余行。
+    返回 {created, failed, errors: [{row, error}]}。
+    """
+    import csv
+    import io as _io
+
+    created = 0
+    failed = 0
+    errors: list[dict] = []
+
+    def _row_to_envelope(row: dict) -> dict:
+        title = str(row.get("title") or "").strip()
+        item_id = str(row.get("item_id") or "").strip()
+        images_raw = row.get("images") or ""
+        if isinstance(images_raw, list):
+            images = [str(u).strip() for u in images_raw if str(u).strip()]
+        else:
+            images = [
+                u.strip() for u in re.split(r"[|\n;]", str(images_raw))
+                if u.strip()
+            ]
+
+        def _f(key: str):
+            try:
+                val = row.get(key)
+                if val in (None, ""):
+                    return None
+                return float(val)
+            except (TypeError, ValueError):
+                return None
+
+        def _i(key: str):
+            try:
+                val = row.get(key)
+                if val in (None, ""):
+                    return None
+                return int(float(val))
+            except (TypeError, ValueError):
+                return None
+
+        draft: dict[str, Any] = {
+            "title": title,
+            "item_id": item_id or f"csv_{uuid.uuid4().hex[:12]}",
+            "images": images,
+            "purchase_cost": _f("purchase_cost"),
+            "price": _f("price"),
+            "stock": _i("stock"),
+            "supplier": str(row.get("supplier") or "").strip(),
+            "weight": _i("weight"),
+        }
+        dims = {k: _i(k) for k in ("length", "width", "height")}
+        if any(v for v in dims.values()):
+            draft["dimensions"] = {k: v for k, v in dims.items() if v is not None}
+        source = {
+            "purchase_url": str(row.get("purchase_url") or "").strip(),
+            "purchase_cost": _f("purchase_cost"),
+        }
+        return {
+            "draft": draft,
+            "source": source,
+            "extensions": {},
+        }
+
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            failed += 1
+            errors.append({"row": idx, "error": "行不是对象"})
+            continue
+        try:
+            envelope = _row_to_envelope(row)
+            create_draft(tenant_id, {"envelope": envelope, "source": "csv"})
+            created += 1
+        except HTTPException as exc:
+            failed += 1
+            errors.append({
+                "row": idx,
+                "error": str(getattr(exc, "detail", "") or exc)[:200],
+            })
+        except Exception as exc:  # noqa: BLE001 单行失败不阻断
+            failed += 1
+            errors.append({"row": idx, "error": str(exc)[:200]})
+    return {"created": created, "failed": failed, "errors": errors}
+
+
 def patch_draft(tenant_id: str, draft_id: str, data: DraftPatch) -> dict:
     """PATCH /drafts/{id}：version 乐观锁（stale → 409），成功后 version++。"""
     uid = _parse_draft_uuid(draft_id)
@@ -283,13 +503,16 @@ def patch_draft(tenant_id: str, draft_id: str, data: DraftPatch) -> dict:
             "UPDATE product_drafts SET payload=CAST(:payload AS jsonb), source=:source, "
             "version=version+1, updated_at=NOW() "
             "WHERE id=:id AND tenant_id=:tenant_id "
-            "RETURNING id, tenant_id, payload, source, version, created_at, updated_at"
+            "RETURNING id, tenant_id, payload, source, version, image_mirror_state, "
+            "created_at, updated_at"
         ), {
             "payload": json.dumps(data.payload, ensure_ascii=False),
             "source": new_source,
             "id": uid,
             "tenant_id": tenant_id,
         }).fetchone()
+    from services.draft_image_mirror import spawn_image_mirror
+    spawn_image_mirror(tenant_id, str(uid), updated.version, data.payload)
     return _draft_row_to_dict(updated)
 
 

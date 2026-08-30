@@ -1,30 +1,122 @@
 import { useState } from "react"
+import { api, getSession } from "../api/client"
+import { apiErrorMessage, draftFieldsFromPayload } from "../api/hooks"
+import type { DraftEnvelopeDraft, DraftPayload } from "../api/hooks"
 
 export default function ProductEditor({
   product,
+  productId,
+  draftId,
+  draftVersion,
+  credentialId,
+  payload,
   onClose,
-  source,
-  onSaveSource,
-}: { product: string; onClose: () => void; source?: { image: string; sourceUrl: string }; onSaveSource?: (sourceUrl: string) => void }) {
+  onSaved,
+}: {
+  product: string
+  productId: string
+  draftId: string
+  draftVersion: number
+  credentialId: string
+  payload: DraftPayload
+  onClose: () => void
+  onSaved?: () => void
+}) {
+  const f = draftFieldsFromPayload(payload)
   const [tab, setTab] = useState("基础信息")
-  const [saved, setSaved] = useState(false)
-  const [published, setPublished] = useState(false)
-  const [sourceUrl, setSourceUrl] = useState(source?.sourceUrl ?? "")
+  const [title, setTitle] = useState(f.title || product)
+  const [sourceUrl, setSourceUrl] = useState(payload.source?.purchase_url ?? f.purchase_url ?? "")
+  const [imagesText, setImagesText] = useState((f.images ?? []).join("\n"))
+  const [sku, setSku] = useState(f.sku_id ?? f.item_id ?? "")
+  const [description, setDescription] = useState(f.description ?? "")
+  const [busy, setBusy] = useState("")
+  const [msg, setMsg] = useState("")
+
+  const buildPayload = (): DraftPayload => {
+    const next: DraftPayload = JSON.parse(JSON.stringify(payload))
+    const draft: DraftEnvelopeDraft = next.draft ?? (next.draft = {})
+    draft.title = title.trim() || draft.title
+    draft.images = imagesText.split("\n").map((s) => s.trim()).filter(Boolean)
+    if (sku.trim()) draft.sku_id = sku.trim()
+    if (description.trim()) draft.description = description.trim()
+    if (sourceUrl.trim()) {
+      next.source = { ...(next.source ?? {}), purchase_url: sourceUrl.trim() }
+    }
+    return next
+  }
+
+  const save = async () => {
+    setBusy("save"); setMsg("")
+    try {
+      await api.patch(`/drafts/${draftId}`, { version: draftVersion, payload: buildPayload() })
+      setMsg("✓ 草稿已保存")
+      onSaved?.()
+    } catch (e) { setMsg(apiErrorMessage(e)) }
+    finally { setBusy("") }
+  }
+
+  const publish = async () => {
+    setBusy("publish"); setMsg("")
+    try {
+      await save()
+      const res = await api.post<{ task_id?: string; status?: string; ok?: boolean }>(`/drafts/${draftId}/submit`, {
+        token: getSession()?.token ?? "",
+        credential_id: credentialId,
+        update_product_id: productId,
+      })
+      setMsg(`✓ 已提交更新上架(task: ${res.task_id ?? res.status ?? ""})`)
+      onSaved?.()
+    } catch (e) { setMsg(apiErrorMessage(e)) }
+    finally { setBusy("") }
+  }
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="product-drawer listing-editor" role="dialog" aria-modal="true" aria-label="编辑商品" onMouseDown={e => e.stopPropagation()}>
+      <section className="product-drawer listing-editor" role="dialog" aria-modal="true" aria-label="编辑商品" onMouseDown={(e) => e.stopPropagation()}>
         <header>
           <div><span className="panel-kicker">PRODUCT WORKSPACE</span><h2>编辑商品</h2></div>
           <button onClick={onClose} aria-label="关闭">×</button>
         </header>
-        <div className="drawer-product"><div className="product-thumb thumb-0"/><div><b>{product}</b><small>SKU: SPX1-WHT · 草稿已自动保存</small></div><span className="status red">待发布</span></div>
-        <nav className="drawer-tabs">{["基础信息", "商品属性", "图文素材", "变体与库存", "发布与定价"].map(x => <button onClick={() => setTab(x)} className={tab === x ? "selected" : ""} key={x}>{x}</button>)}</nav>
-        {tab === "基础信息" && <div className="drawer-form"><div className="editor-tip"><b>✦ AI 内容助手</b><span>已根据采集信息补全 82% 字段</span><button>查看建议</button></div><label>商品标题<input defaultValue={product}/><small>AI 生成 · 支持俄语标题优化</small></label>{source && <label>货源地址<input value={sourceUrl} onChange={e => setSourceUrl(e.target.value)} placeholder="https://..."/><small>采集来源字段 · 保存后同步更新采集箱中的货源链接。</small></label>}<label>商品分类<button className="field-button">电子产品 ＞ 耳机　⌄</button></label><div className="drawer-pair"><label>SKU<input defaultValue="SPX1-WHT"/></label><label>品牌<input defaultValue="SoundPro"/></label></div><label>商品卖点<textarea defaultValue="无线降噪耳机，支持 40 小时续航与多设备连接，适用于通勤、运动与居家办公。"/></label></div>}
-        {tab === "商品属性" && <div className="drawer-form"><label>型号名称<input defaultValue="SoundPro X1"/></label><label>简述<textarea defaultValue="轻盈舒适的主动降噪无线耳机，兼顾日常与运动场景。"/></label><div className="attribute-list"><b>必填属性 <button>✦ AI 补全属性</button></b><span>颜色 <strong>米白色　×</strong></span><span>蓝牙版本 <strong>5.3　×</strong></span><span>续航时间 <strong>40 小时　×</strong></span></div></div>}
-        {tab === "图文素材" && <div className="media-workspace"><div className="media-head"><b>商品素材</b><button>＋ 上传图片</button></div><div className="media-grid"><div className="media-item main">{source ? <img className="editor-source-image" src={source.image} alt="商品主图"/> : <span className="product-thumb thumb-0"/>}<b>主图</b></div><div className="media-item"><span>＋</span><b>场景图</b></div><div className="media-item"><span>＋</span><b>详情图</b></div><div className="media-item"><span>＋</span><b>视频</b></div></div><div className="ai-media-card"><span>◐</span><div><b>AI 图片工坊</b><p>去背景、白底图、尺寸裁剪和场景生成已收敛至商品素材。</p></div><button>打开工具</button></div></div>}
-        {tab === "变体与库存" && <div className="variant-workspace"><div className="variant-tools"><b>变体设置</b><button>✦ 批量翻译</button><button>＋ 添加变体</button></div><div className="variant-row header"><span>图片</span><span>货号</span><span>售价 ₽</span><span>库存</span></div><div className="variant-row"><span className="product-thumb thumb-0"/><input defaultValue="SPX1-WHT"/><input defaultValue="2,990"/><input defaultValue="120"/></div><div className="variant-row"><span className="product-thumb thumb-1"/><input defaultValue="SPX1-BLK"/><input defaultValue="2,990"/><input defaultValue="86"/></div></div>}
-        {tab === "发布与定价" && <div className="publish-workspace"><div className="pricing-preview"><span>预估毛利</span><b>₽ 1,143.20</b><small>毛利率 38.2% · 基于当前汇率与佣金</small></div><div className="publish-row"><span>上架店铺</span><b>Ozon Russia · 深圳跨境旗舰店</b><button>切换</button></div><div className="publish-row"><span>发布策略</span><b>定时发布 · 2026-08-20 10:00</b><button>编辑</button></div><div className="publish-row"><span>AI 上架检查</span><b className="check-ok">✓ 通过 18 / 20 项检查</b><button>查看</button></div></div>}
-        <footer className="editor-footer"><span className="save-state">{saved ? "✓ 草稿已保存" : "自动保存中…"}</span><button className="editor-ai" onClick={() => setTab("基础信息")}>✦ AI 填写商品信息</button><button className="editor-ai" onClick={() => setTab("图文素材")}>◐ AI 商品套图</button><button className="button ghost" onClick={onClose}>关闭</button><button className="button ghost" onClick={() => setSaved(true)}>保存草稿</button><button className="button primary" onClick={() => { setPublished(true); onSaveSource?.(sourceUrl) }}>{published ? "✓ 已提交发布" : "立即上架"}</button></footer>
+        <div className="drawer-product">
+          {f.images?.[0] ? <img className="product-thumb" src={f.images[0]} alt="" style={{ objectFit: "cover" }} /> : <div className="product-thumb thumb-0" />}
+          <div><b>{title}</b><small>Product ID: {productId} · 关联草稿: {draftId.slice(0, 8)}</small></div>
+          <span className="status red">待发布</span>
+        </div>
+        <nav className="drawer-tabs">
+          {["基础信息", "图文素材"].map((x) => (
+            <button key={x} onClick={() => setTab(x)} className={tab === x ? "selected" : ""}>{x}</button>
+          ))}
+        </nav>
+        {tab === "基础信息" && (
+          <div className="drawer-form">
+            <label>商品标题<input value={title} onChange={(e) => setTitle(e.target.value)} /></label>
+            <label>货源地址<input value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="https://detail.1688.com/offer/..." /></label>
+            <label>SKU<input value={sku} onChange={(e) => setSku(e.target.value)} /></label>
+            <label>图片地址(每行一个)<textarea value={imagesText} onChange={(e) => setImagesText(e.target.value)} rows={4} /></label>
+            <label>商品卖点<textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} /></label>
+          </div>
+        )}
+        {tab === "图文素材" && (
+          <div className="media-workspace">
+            <div className="media-head"><b>商品素材</b></div>
+            <div className="media-grid">
+              {(f.images ?? []).map((img, i) => (
+                <div className="media-item main" key={i}>
+                  <img className="editor-source-image" src={img} alt={`图${i + 1}`} style={{ objectFit: "cover", width: "100%", height: "100%" }} />
+                  <b>{i === 0 ? "主图" : `图 ${i + 1}`}</b>
+                </div>
+              ))}
+              {(f.images ?? []).length === 0 && <div className="media-item"><span>＋</span><b>无图片</b></div>}
+            </div>
+            <p style={{ fontSize: 11, opacity: 0.7 }}>图片列表在「基础信息」中编辑;在线改图重传请用商品列表的更新图片能力。</p>
+          </div>
+        )}
+        <footer className="editor-footer">
+          <span className="save-state">{msg || (busy ? "处理中…" : "修改后先保存草稿,再提交更新上架")}</span>
+          <button className="button ghost" onClick={onClose}>关闭</button>
+          <button className="button ghost" disabled={!!busy} onClick={save}>{busy === "save" ? "保存中…" : "保存草稿"}</button>
+          <button className="button primary" disabled={!!busy} onClick={publish}>{busy === "publish" ? "提交中…" : "保存并更新上架"}</button>
+        </footer>
       </section>
     </div>
   )

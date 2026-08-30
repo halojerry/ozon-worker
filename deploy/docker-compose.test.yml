@@ -1,0 +1,42 @@
+# 本地/CI 测试环境(PRD M5):PG + worker-test(init_data → pytest)
+# 用法: docker compose -f docker-compose.test.yml up -d postgres
+#       bash scripts/test-docker.sh
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ozon123
+      POSTGRES_DB: ozon
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata_test:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ozon"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  worker-test:
+    build:
+      context: ../worker
+      dockerfile: Dockerfile
+    environment:
+      PGDATABASE_URL: postgresql://postgres:ozon123@postgres:5432/ozon
+      APP_WORKSPACE_PATH: /app
+      PYTHONPATH: /opt/venv/lib/python3.12/site-packages:/app/src
+      CREDENTIAL_MASTER_KEY: 0123456789abcdef0123456789abcdef
+      SKIP_ZOMBIE_RECOVERY: "1"
+      SKIP_FAILED_REVIVE: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../worker/tests:/app/tests
+    command: >
+      sh -c "python scripts/init_data.py &&
+             python -m pytest tests/ -q -p no:cacheprovider"
+
+volumes:
+  pgdata_test:

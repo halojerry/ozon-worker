@@ -43,7 +43,7 @@ services:
       # v0.29.1: 修复② — 多阶段镜像依赖装在 /opt/venv, 原 /app/src 覆盖
       # PYTHONPATH 导致 uvicorn/依赖找不到(容器重启)。compose 需保留镜像 venv 路径。
       - PYTHONPATH=/opt/venv/lib/python3.12/site-packages:/app/src
-      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-10}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-300}
       - LOG_FILE=${LOG_FILE:-/app/logs/worker.log}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}

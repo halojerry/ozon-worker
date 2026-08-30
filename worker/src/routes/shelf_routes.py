@@ -60,6 +60,8 @@ async def list_ozon_products(request: Request):
         pass
     credential_id = request.query_params.get("credential_id")
     refresh = request.query_params.get("refresh") in ("1", "true")
+    status = request.query_params.get("status", "")
+    source = request.query_params.get("source", "")
     if not credential_id:
         from services.credential_service import get_default_credential
         default = get_default_credential(tenant_id)
@@ -68,7 +70,8 @@ async def list_ozon_products(request: Request):
                                 detail="未配置默认店铺：请传 credential_id 或先在店铺管理设置默认店铺")
         credential_id = str(default["id"])
     return store_sync_service.list_cached_products(
-        tenant_id, credential_id, limit=limit, offset=offset, lazy_sync=not refresh)
+        tenant_id, credential_id, limit=limit, offset=offset,
+        lazy_sync=not refresh, status=status, source=source)
 
 
 @router.post("/bulk-prices")
