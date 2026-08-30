@@ -2,6 +2,27 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.62.0 — Sentry 六类根因修复 R1–R6）
+
+> 2026-08-31。已发版（VERSION 四源 0.62.0）。针对生产 Sentry 100 issues / 3645 events
+> （集中在 2026-08-11 堆积）按根因分六类修复，执行记录见 `docs/PLAN-sentry-r1r6-v1.md`。
+
+- **R1 余额治理**：`_is_out_of_quota_response` 401 纳入永久错误分类（MXOU 余额耗尽/认证失效同返 401，
+  不再走普通 4xx 重试）；低余额用户通知 `BALANCE_ALERT_THRESHOLD`（默认 ¥50，可配）+ token 指纹
+  30min 去重 + `TASK_NOTIFY_URL`（与任务终态通知同通道）；`_check_balance_cached` 缓存升级为
+  **token 指纹绑定**（多用户不互相污染），main.py `_check_mxou_balance` 复用该缓存。
+- **R2 字典分页真 bug**：`fetch_ru_dict_value` 增加分页循环（最多 5 页，`has_next` 驱动）——
+  此前单次 POST limit=5000 无翻页，大字典（8229 类型等）目标 id 不在首页 → 空值 → 必填属性缺失。
+- **R3 属性缺失联动**：23487（Производитель/制造商）supplier 缺失 → `Нет бренда` 安全兜底，
+  prepare/assemble/retry 三处一致；5379 维持宁缺毋滥；一致性测试锁定三处接线。
+- **R4 生图内容违规分类**：新增 `MxouContentViolationError`，grsai violation/关键词命中 → 不重试
+  不降级（防重复烧额度）；普通 failed 保留有界重试；8 个生图节点异常透传 → 任务明确失败。
+- **R5 描述拉丁误报**：尺寸乘号归一化（`10x10x5` → `10×10×5`）+ 残留单字母拉丁清理（保护西里尔词边界）。
+- **R6 Sentry 噪音**：`task_rerun` 仅 STALE_RUNNING/ZOMBIE/超时恢复才上报；stale 全零不报守卫保留。
+- **测试**：worker Docker 全量 **1502 passed**（原 1454 + 47 新增 + 1 拆分）；CI 11 jobs 全绿；
+  CD 镜像/Release/COS 包就位。⚠️ 发版踩坑见下方「版本管理」——skill 二进制打包校验依赖
+  `skill/VERSION`（非 SKILL.md frontmatter 源码），bump 版本必须四源同步。
+
 ## 最近更新（开发中 — harness-store-analysis 数据沉淀：3 张新表 + 店铺分析/执行端点 + 专家版图）
 
 > 2026-08-22。**未发版**（VERSION 四源仍 0.60.0），属「数据沉淀 + 店铺精细化运营」阶段。本批把 store/store 指标、操作审计、选品洞察落 PG，暴露整店分析（读）与单店执行（写）两大端点，并新增店铺优化/选品/营销三位专家参考。执行记录见 `docs/PLAN-store-analytics-v1.md`（harness-store-analysis）。
@@ -546,8 +567,34 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 - 版本号: `VERSION` 文件（语义化版本 `MAJOR.MINOR.PATCH`）
 - 变更记录: `CHANGELOG.md`
-- ⚠️ **版本四源统一（v0.36）**: root `VERSION` / `skill/VERSION` / `deploy/skill/VERSION` / `skill/SKILL.md` frontmatter 必须一致。compile.py 打包时自动用 skill/VERSION 覆写 frontmatter；build-skill.yml 有 frontmatter 校验（不一致 fail）。改版本时四处同步。
-- 发版: 改 VERSION（四处）→ 更新 CHANGELOG → `git tag v{x.y.z} && git push origin v{x.y.z}`（触发 build-skill.yml 4 平台编译 + cd.yml 部署两条链路）→ 服务器 `bash deploy/cos-update.sh` 升级 worker；skill 用户端 updater 自动更新。
+- ⚠️ **版本四源统一（v0.36，v0.62.0 发版踩坑强化）**: 以下四个文件必须全部一致，缺一不可：
+
+  | # | 文件 | 用途 / 谁读它 |
+  |---|------|--------------|
+  | 1 | 根 `VERSION` | worker 镜像 `APP_VERSION`（cd.yml）、README/CHANGELOG 对照 |
+  | 2 | `skill/VERSION` | **compile.py 打包时用它覆写 dist/SKILL.md frontmatter**（Q10/Q11）；cache.py 缓存指纹也读它 |
+  | 3 | `deploy/skill/VERSION` | skill 部署包/update 校验（若滞后，发版包内版本与 tag 不一致） |
+  | 4 | `skill/SKILL.md` frontmatter `version` | Agent 侧读取的技能版本 |
+
+  **关键坑（2026-08-31 v0.62.0 实证）**：build-skill.yml 校验的是「打包产物 dist/SKILL.md 的
+  frontmatter == 发布 tag」，而 dist/SKILL.md 由 compile.py **用 `skill/VERSION` 覆写**——只改
+  `skill/SKILL.md` frontmatter 源码**不会**让校验通过，必须改 `skill/VERSION`；同时 `deploy/skill/VERSION`
+  滞后也会让发版包内版本与 tag 不符。三个 skill 相关文件（skill/VERSION / deploy/skill/VERSION /
+  SKILL.md frontmatter）任一滞后 → skill 二进制打包失败或产物版本错。
+
+- 发版流程（强制顺序）:
+  1. 改四源版本号（根 `VERSION` / `skill/VERSION` / `deploy/skill/VERSION` / `skill/SKILL.md` frontmatter）
+  2. 更新 `CHANGELOG.md` 顶部 + AGENTS.md 顶部「最近更新」块
+  3. 本地验收全绿（worker `tests/` + skill `tests/` + webui build）
+  4. `git tag v{x.y.z} && git push origin v{x.y.z}`（触发 build-skill.yml 4 平台编译 + cd.yml 部署两条链路）
+  5. 确认 CD 两个 workflow 均 success（Docker 镜像 + Release + COS 部署包 + skill 二进制包）
+  6. 服务器 `bash deploy/cos-update.sh` 升级 worker；skill 用户端 updater 自动更新
+- 发版前快速核对命令：
+  ```bash
+  grep -H "" VERSION skill/VERSION deploy/skill/VERSION | sed 's/:$/: /'
+  grep -m1 '^version:' skill/SKILL.md
+  # 四个输出必须都是同一版本号
+  ```
 
 ## 开发规范
 
@@ -825,4 +872,3 @@ GitHub Actions 自动检查每次 push/PR（`ci.yml`）：
 Pre-commit: `git config core.hooksPath .githooks`（语法 + 密钥拦截）
 
 ⚠️ **密钥轮换**: MXOU_TOKEN、1688 AK、Ozon API Key 曾暴露在 git 历史中，已移除追踪但历史仍存在，请尽快轮换。
-
