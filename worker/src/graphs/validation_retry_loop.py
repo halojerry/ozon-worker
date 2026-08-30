@@ -1121,7 +1121,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         8787: "сухое место",       # Условия хранения
         8050: "полимерные материалы",  # Материал
         9048: "",                  # Название модели — 不设默认值，由 revalidate 用 offer_id 补
-        23487: "",                 # Производитель — 不设默认值，用 supplier 填充
+        23487: "Нет бренда",        # Производитель — v0.62 R3: supplier 缺失时安全兜底（同品牌纪律）
     }
 
     # ========== Step 2.5: 字典属性未命中 → 直接跳过（绝不取第一个字典值） ==========
@@ -1139,6 +1139,12 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
 
     if attr_id > 0 and attr_id in _KNOWN_DEFAULTS_RETRY:
         default_val = _KNOWN_DEFAULTS_RETRY[attr_id]
+        if attr_id == 23487:
+            # v0.62 R3: 制造商优先用 supplier（与 prepare/assemble 三处一致），
+            # 缺失才用 Нет бренда 安全兜底（防 23487 必填缺失，Sentry 31× 实证）。
+            _draft = getattr(state, "draft", None) or {}
+            if isinstance(_draft, dict) and str(_draft.get("supplier") or "").strip():
+                default_val = str(_draft["supplier"])[:50]
         if default_val:  # 非空默认值
             logger.info(f"📋 使用已知默认值: attr={attr_id} name={attr_name} → '{default_val}'")
             updated_attrs = []

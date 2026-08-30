@@ -2325,7 +2325,11 @@ def _validate_and_enrich_items(
                     validated_attrs.append(new_attr)
                     logger.info(f"   ✅ 制造商 attr=23487 使用供应商: {supplier[:30]}")
                 else:
-                    logger.warning(f"   ⚠️ 制造商 attr=23487 无供应商数据，跳过")
+                    # v0.62 R3: supplier 缺失 → 安全兜底 Нет бренда（同品牌纪律），
+                    # 防 23487 必填缺失（Sentry 31× 实证）。
+                    new_attr["values"] = [{"dictionary_value_id": 0, "value": "Нет бренда"}]
+                    validated_attrs.append(new_attr)
+                    logger.info(f"   ✅ 制造商 attr=23487 无供应商，安全兜底: Нет бренда")
                 continue
 
             if dict_id and dict_id > 0:

@@ -108,26 +108,40 @@ def fetch_ru_dict_value(
     置空后上传 value="" → Ozon 报「照片与类型不符」DESCRIPTION_DECLINE。
     用 /values(RU) 列表模式按 dict_id 精确匹配拿俄语文本（search 按数字 id 搜不到）。
     失败 → 返回 fallback，再失败 → 空串（调用方容忍）。
+
+    v0.62 R2: 分页修复 — 此前单次 POST（limit=5000, last_value_id=0）无分页循环，
+    当字典值 >5000 条（8229 类型等大字典）目标 id 不在首页 → 返回 fallback → 空值
+    → 「无法获取字典值，跳过」→ 必填属性缺失。现与 list_dictionary_values 同款
+    分页（最多 5 页，has_next 驱动），命中即返回，翻完返回 fallback。
     """
     if not dict_id:
         return fallback
     try:
         headers = {"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"}
-        payload = {
-            "attribute_id": int(attribute_id),
-            "description_category_id": int(description_category_id),
-            "type_id": int(type_id),
-            "language": "RU",
-            "limit": 5000,
-            "last_value_id": 0,
-        }
-        resp = session.post(LIST_URL, headers=headers, json=payload, timeout=15)
-        if resp.status_code != 200:
-            logger.warning("RU 字典值补查 HTTP %s（attr=%s dict_id=%s）", resp.status_code, attribute_id, dict_id)
-            return fallback
-        for r in resp.json().get("result", []):
-            if int(r.get("id") or 0) == int(dict_id) and r.get("value"):
-                return str(r["value"])
+        last_id = 0
+        for _ in range(5):
+            payload = {
+                "attribute_id": int(attribute_id),
+                "description_category_id": int(description_category_id),
+                "type_id": int(type_id),
+                "language": "RU",
+                "limit": 5000,
+                "last_value_id": last_id,
+            }
+            resp = session.post(LIST_URL, headers=headers, json=payload, timeout=15)
+            if resp.status_code != 200:
+                logger.warning("RU 字典值补查 HTTP %s（attr=%s dict_id=%s）", resp.status_code, attribute_id, dict_id)
+                return fallback
+            data = resp.json()
+            result = data.get("result") or []
+            for r in result:
+                if int(r.get("id") or 0) == int(dict_id) and r.get("value"):
+                    return str(r["value"])
+            if not data.get("has_next", False) or not result:
+                break
+            last_id = result[-1].get("id", 0)
+            if not last_id:
+                break
         return fallback
     except Exception as e:
         logger.debug("RU 字典值补查异常: %s", e)
