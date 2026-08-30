@@ -1,0 +1,11 @@
+title = "ozon-worker gitleaks config"
+
+# 保留 gitleaks 默认全部规则,仅放行测试夹具里的假密钥
+[extend]
+useDefault = true
+
+[allowlist]
+description = "测试夹具假密钥(非真实凭证):CREDENTIAL_MASTER_KEY 测试值 0123456789abcdef0123456789abcdef"
+regexes = [
+    '''0123456789abcdef0123456789abcdef''',
+]
