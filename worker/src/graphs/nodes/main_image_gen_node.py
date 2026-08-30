@@ -12,6 +12,7 @@ from graphs.state_image_gen import MainImageInput, MainImageOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.mxou_api import clean_title_for_image_prompt
+from utils.mxou_api import MxouContentViolationError  # v0.62 R4: 内容违规 → 任务明确失败
 from utils.prompt_assembler import assemble_prompt, merge_visual_vars  # ✅ v0.31: 视觉变量注入（Wave 2: LLM + 确定性合并）
 from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色预设路由
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
@@ -115,6 +116,8 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
                         timeout=120,
                         max_retries=2
                     )
+                except MxouContentViolationError:
+                    raise  # v0.62 R4: 内容违规不降级（降级模型同 prompt 同样违规）
                 except Exception as _fb_exc:
                     logger.error(f"主图降级生成失败({_fb_model}): {_fb_exc}")
                     image_url = None
@@ -129,6 +132,8 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
             return MainImageOutput(main_image=image_url)
         
         return MainImageOutput(main_image=None)
+    except MxouContentViolationError:
+        raise  # v0.62 R4: 内容违规 → 任务失败，写入「图片内容违规，请调整商品图片/标题」
     except Exception as e:
         logger.error(f"Main image generation failed: {str(e)}")
         return MainImageOutput(main_image=None)

@@ -14,6 +14,7 @@ from graphs.state_image_gen import WhiteBgInput, WhiteBgOutput
 from utils.image_quality_evaluator import evaluate_image_quality  # ✅ 关键：导入图片质量评估函数
 from utils.progress_logger import ProgressLogger  # ✅ 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
+from utils.mxou_api import MxouContentViolationError  # v0.62 R4
 from utils.mxou_api import clean_title_for_image_prompt
 from utils.prompt_assembler import assemble_prompt, merge_visual_vars  # ✅ v0.31: 视觉变量注入（Wave 2: LLM + 确定性合并）
 from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色预设路由
@@ -128,6 +129,8 @@ def white_bg_gen_node(state: WhiteBgInput, config: RunnableConfig, runtime: Runt
         progress.log_node_error("API未返回有效图片URL", "检查API响应和参数")
         return WhiteBgOutput(white_bg_image=None)
         
+    except MxouContentViolationError:
+        raise  # v0.62 R4: 内容违规 → 任务明确失败
     except Exception as e:
         progress.log_node_error(f"白底图生成异常: {str(e)}", "检查异常详情和网络连接")
         return WhiteBgOutput(white_bg_image=None)

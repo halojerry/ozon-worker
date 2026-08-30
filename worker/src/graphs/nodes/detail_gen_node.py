@@ -11,6 +11,7 @@ from runtime.context import Context
 from graphs.state_image_gen import DetailImageInput, DetailImageOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
+from utils.mxou_api import MxouContentViolationError  # v0.62 R4
 from utils.mxou_api import clean_title_for_image_prompt
 from utils.prompt_assembler import assemble_prompt, merge_visual_vars  # ✅ v0.31: 视觉变量注入（Wave 2: LLM + 确定性合并）
 from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色预设路由
@@ -93,6 +94,8 @@ def detail_gen_node(state: DetailImageInput, config: RunnableConfig, runtime: Ru
             return DetailImageOutput(detail_image=image_url)
         
         return DetailImageOutput(detail_image=None)
+    except MxouContentViolationError:
+        raise  # v0.62 R4: 内容违规 → 任务明确失败
     except Exception as e:
         logger.error(f"Detail image generation failed: {str(e)}")
         return DetailImageOutput(detail_image=None)
