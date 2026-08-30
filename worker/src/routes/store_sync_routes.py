@@ -104,7 +104,7 @@ async def store_sync_jobs_history(credential_id: str, request: Request, limit: i
 async def store_returns(credential_id: str, request: Request, limit: int = 50, offset: int = 0):
     """该店退货列表(PG 缓存,ozon_returns_cache);归属校验失败 → 404。"""
     from services.credential_service import get_decrypted
-    from services import store_sync_jobs  # noqa: F401 — 保持模块加载
+    from services import store_sync_jobs  # 保持模块加载(函数级副作用导入)
     from storage.database.db import get_engine
     from sqlalchemy import text
     tenant_id = await _authenticate(request)

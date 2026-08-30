@@ -52,7 +52,9 @@ def schedule_listing(tenant_id: str, draft_id: str, credential_id: str,
     import datetime as _dt
     from utils.credential_cipher import encrypt
     try:
-        scheduled_dt = _dt.datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
+        scheduled_dt = _dt.datetime.fromisoformat(scheduled_at)
+        if scheduled_dt.tzinfo is None:
+            scheduled_dt = scheduled_dt.replace(tzinfo=_dt.timezone.utc)
     except (ValueError, TypeError):
         raise HTTPException(status_code=422, detail="scheduled_at 格式非法(ISO8601)")
     if scheduled_dt <= _dt.datetime.now(_dt.timezone.utc):
@@ -476,7 +478,7 @@ def import_drafts_csv(tenant_id: str, rows: list[dict]) -> dict:
                 "row": idx,
                 "error": str(getattr(exc, "detail", "") or exc)[:200],
             })
-        except Exception as exc:  # noqa: BLE001 单行失败不阻断
+        except Exception as exc:  # 单行失败不阻断
             failed += 1
             errors.append({"row": idx, "error": str(exc)[:200]})
     return {"created": created, "failed": failed, "errors": errors}

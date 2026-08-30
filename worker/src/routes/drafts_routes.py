@@ -69,7 +69,7 @@ async def export_drafts(request: Request):
 
     tenant_id = await _authenticate(request)
     csv_text = draft_service.export_drafts_csv(tenant_id)
-    filename = f"drafts-{_dt.date.today().isoformat()}.csv"
+    filename = f"drafts-{_dt.datetime.now(_dt.timezone.utc).date().isoformat()}.csv"
     return Response(
         content="\ufeff" + csv_text,  # BOM 让 Excel 正确识别 UTF-8 中文
         media_type="text/csv; charset=utf-8",

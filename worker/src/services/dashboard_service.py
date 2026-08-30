@@ -31,7 +31,7 @@ def _num(v):
 
 def get_dashboard(tenant_id: str, trend_days: int = 14) -> dict:
     days = max(3, min(int(trend_days), 90))
-    today = _dt.date.today().isoformat()
+    today = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
     with get_engine().connect() as conn:
         # 今日聚合(全店)
         row = conn.execute(text(

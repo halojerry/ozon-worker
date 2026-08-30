@@ -1244,7 +1244,7 @@ def _derive_model_name_9048(item_id: str, supplier: str, source_title: str) -> s
     title = _norm(source_title)
     if not sup and not title:
         return str(item_id).strip()
-    digest = hashlib.sha1(f"{sup}|{title}".encode("utf-8")).hexdigest()[:8]
+    digest = hashlib.sha1(f"{sup}|{title}".encode()).hexdigest()[:8]
     return f"{str(item_id).strip()}~{digest}"
 
 

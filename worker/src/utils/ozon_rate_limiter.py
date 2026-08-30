@@ -23,7 +23,7 @@ _SECTION_LIMITS = {"seller": 1000, "finance": 100, "premium": 60}
 
 
 class _Bucket:
-    __slots__ = ("capacity", "refill_rate", "tokens", "last_refill")
+    __slots__ = ("capacity", "last_refill", "refill_rate", "tokens")
 
     def __init__(self, per_minute: int):
         self.capacity = float(per_minute)
