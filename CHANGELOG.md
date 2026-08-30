@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.62.0] - 2026-08-31
+
+> Sentry 六类根因修复（R1–R6）：余额治理 / 字典分页真 bug / 属性缺失联动 / 生图内容违规 /
+> 拉丁字母误报 / Sentry 噪音。针对生产 Sentry 100 issues / 3645 events（集中在 2026-08-11 堆积）。
+
+### Fix(worker) — 余额治理（R1）
+
+- `_is_out_of_quota_response` 401 纳入永久错误分类（MXOU 余额耗尽/认证失效同返 401，
+  此前走普通 4xx 重试 → Sentry 259× mxou chat 401 噪音 + 级联翻译/属性失败）。
+- 低余额用户通知：`BALANCE_ALERT_THRESHOLD`（默认 ¥50，可配）触发后按 token 指纹 30min
+  去重，fire-and-forget POST 到 `TASK_NOTIFY_URL`（与任务终态通知同通道）+ Sentry/日志留痕。
+- `_check_balance_cached` 缓存升级为 token 指纹绑定（多用户不互相污染），
+  main.py `_check_mxou_balance` 复用该缓存，auth/verify 不再高频打余额接口。
+
+### Fix(worker) — 字典值补查分页（R2，真 bug）
+
+- `fetch_ru_dict_value` 增加分页循环（最多 5 页，`has_next` 驱动）：此前单次 POST
+  limit=5000 无翻页，大字典（8229 类型等）目标 id 不在首页 → 返回 fallback → 空值 →
+  「无法获取字典值，跳过」→ 必填属性缺失（Sentry 129× 品牌 / 90× 类型）。
+
+### Fix(worker) — 属性缺失联动（R3）
+
+- 23487（Производитель/制造商）supplier 缺失 → 安全兜底 `Нет бренда`（同品牌纪律），
+  prepare/assemble/retry 三处一致；此前 supplier 空则跳过 → 必填缺失（Sentry 31×）。
+- 5379（保质期）维持宁缺毋滥（无安全默认不盲填，交 retry 收敛）；一致性测试锁定三处接线。
+
+### Fix(worker) — 生图内容违规分类（R4）
+
+- 新增 `MxouContentViolationError`：grsai 返回 violation 或 error 含内容违规关键词
+  （content/violation/sensitive/adult/违规/敏感/成人等）→ 直接抛异常，不重试不降级
+  （防重复烧额度，Sentry 311× grsai failed）；普通 failed 保留有界重试，日志降为 warning。
+- 8 个生图节点（main/detail/social_proof/scene/comparison/multi_angle/white_bg/variant）
+  对违规异常 re-raise → 任务明确失败「图片内容违规，请调整商品图片/标题」。
+
+### Fix(worker) — 描述拉丁误报（R5）
+
+- `_sanitize_description` / `_sanitize_rich_description` 尺寸乘号归一化
+  （`10x10x5` → `10×10×5`，单拉丁 x 不再残留）+ 残留单字母拉丁清理（保护西里尔词边界），
+  消除「描述含拉丁字符」误报（Sentry 31×）。
+
+### Fix(worker) — Sentry 噪音治理（R6）
+
+- `task_rerun` 仅当 error_message 含 STALE_RUNNING/ZOMBIE/超时（僵尸/超时恢复）才上报
+  warning；正常业务失败重试不再刷屏。stale_running 全零不报守卫保留 + 测试锁定。
+
+### Ops
+
+- `deploy/docker-compose.test.yml` 挂载 webui 源码（`test_webui_contract` 容器内扫描
+  不再为空）。
+
+### 回归
+
+- worker Docker 全量 **1502 passed**（原 1454 + 47 新增 + 1 拆分）；新增 6 个测试文件：
+  test_balance_alert_401 / test_fetch_ru_dict_value_pagination / test_attr_defaults_23487 /
+  test_image_content_violation / test_sanitize_latin_normalize / test_sentry_noise。
+
 ## [0.61.0] - 2026-08-30
 
 > store-sync-ERP v1 全量落地(PRD-store-sync-erp-v1.md M0-M6)+ webui 演示数据清零,
