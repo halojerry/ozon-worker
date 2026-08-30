@@ -12,23 +12,38 @@ _cfg_cache: Dict[str, dict] = {}
 
 
 def _load_progress_config(config_path: str = "") -> dict:
-    """加载 workflow_progress.json（模块级缓存，避免每节点重复读磁盘）"""
-    if config_path and config_path in _cfg_cache:
-        return _cfg_cache[config_path]
-    if not config_path:
-        # 默认路径：workflow_progress.json 在 assets/ 下
-        if "assets/workflow_progress.json" in _cfg_cache:
-            return _cfg_cache["assets/workflow_progress.json"]
-        workspace = os.getenv("APP_WORKSPACE_PATH") or os.getcwd()
-        config_path = os.path.join(workspace, "assets/workflow_progress.json")
-    try:
-        with open(config_path, 'r', encoding='utf-8') as fd:
-            data = json.load(fd)
-        _cfg_cache[config_path] = data
-        return data
-    except Exception as e:
-        logger.warning("加载进度配置失败(%s): %s", config_path, e)
-        return {"total_nodes": 24, "stages": {}, "node_titles": {}}
+    """加载 workflow_progress.json（模块级缓存，避免每节点重复读磁盘）。
+
+    v0.62.1 P1-4: 修复路径错位 — 默认 config_path="config/workflow_progress.json"
+    相对路径在容器 cwd=/app 下解析到 /app/config/（不存在），文件实际在
+    assets/ 下 → 每节点实例化一次 warning（生产 6h 256 次）。
+    现在候选链：显式路径原样 → workspace 相对 → workspace/assets/；任一命中即
+    缓存返回；全部失败缓存默认值（第二次实例化不再 warning，消灭刷屏）。
+    """
+    cache_key = config_path or "assets/workflow_progress.json"
+    if cache_key in _cfg_cache:
+        return _cfg_cache[cache_key]
+    workspace = os.getenv("APP_WORKSPACE_PATH") or os.getcwd()
+    candidates: list[str] = []
+    if config_path:
+        candidates.append(config_path)                       # 显式相对路径原样（兼容旧调用方）
+        if not os.path.isabs(config_path):
+            candidates.append(os.path.join(workspace, config_path))  # workspace 相对
+    candidates.append(os.path.join(workspace, "assets/workflow_progress.json"))
+    for path in candidates:
+        try:
+            with open(path, 'r', encoding='utf-8') as fd:
+                data = json.load(fd)
+            _cfg_cache[cache_key] = data
+            return data
+        except FileNotFoundError:
+            continue
+        except Exception as e:
+            logger.warning("加载进度配置失败(%s): %s", path, e)
+            break
+    # 全部失败：缓存默认值（防每节点重复刷屏）
+    _cfg_cache[cache_key] = {"total_nodes": 24, "stages": {}, "node_titles": {}}
+    return _cfg_cache[cache_key]
 
 
 # ✅ 新增：节点顺序字典（根据workflow_progress.json定义）
@@ -64,7 +79,7 @@ NODE_ORDER = {
 class ProgressLogger:
     """流程化进度日志助手，提供可视化、可追溯的日志输出"""
     
-    def __init__(self, run_id: str = "unknown", current_counter: int = 0, config_path: str = "config/workflow_progress.json"):
+    def __init__(self, run_id: str = "unknown", current_counter: int = 0, config_path: str = "assets/workflow_progress.json"):
         """
         初始化进度日志助手
         

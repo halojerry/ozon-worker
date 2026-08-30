@@ -174,6 +174,15 @@ fi
 log "🎉 升级完成: v${LOCAL_VERSION:-无} → v${VERSION}, 健康检查通过"
 log "备份保留在: $BACKUP_PATH(如需回滚: bash deploy/cos-update.sh v${LOCAL_VERSION:-0.0.0})"
 
+# ── 7.4 v0.62.1 P1-3: CREDENTIAL_MASTER_KEY 必配校验 ──
+# 升级后 .env 由 cos-update 保留（绝不覆盖），此处显式提示缺失，防止
+# 「库中有加密凭证但容器无 key」→ store_sync 解密失败刷屏事故重演。
+if ! grep -qE '^CREDENTIAL_MASTER_KEY=.+' "$SCRIPT_DIR/.env" 2>/dev/null; then
+  warn "⚠️ .env 未配置 CREDENTIAL_MASTER_KEY — 凭证加密/解密必需(AES-256-GCM)。"
+  warn "   生成: openssl rand -base64 32；启用后不可随意更换(存量凭证不可逆)。"
+  warn "   当前仅提示不阻断；若库中存在加密凭证，凭证 CRUD 将 500、同步将解密失败。"
+fi
+
 # ── 7.5 数据库迁移(v0.56.7: 升级后必跑 init_data, 幂等) ──
 # init_data.py 内含全部幂等 ALTER(ADD COLUMN IF NOT EXISTS / SET DEFAULT)。
 # v0.56.3 教训: 列默认值只在 model.py 对新建表生效, 存量旧表缺默认值 →
