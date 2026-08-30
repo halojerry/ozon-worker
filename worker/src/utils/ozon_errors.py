@@ -122,7 +122,7 @@ def _raise_for_status(resp: Any, endpoint: Optional[str]) -> None:
     """
     status = resp.status_code
     if status < 400:
-        return None
+        return
     try:
         parsed: Any = resp.json()
     except (ValueError, TypeError):
