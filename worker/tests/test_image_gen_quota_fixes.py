@@ -77,15 +77,36 @@ def test_poll_timeout_no_retry_no_fallback():
     assert "images/generations" in post_urls[0]
 
 
-def test_violation_bounded_retry():
-    """grsai 返回 violation → 同一模型有界重试（共 2 次 POST），不是无降级不重试。"""
+def test_violation_raises_no_retry():
+    """v0.62 R4: grsai 返回 violation（内容违规）→ 抛 MxouContentViolationError，
+    不重试不降级（防重复烧额度；此前 violation 有界重试会重复计费）。"""
     import utils.mxou_api as mxou
 
     session = FakeSession([
         # POST1 → task，轮询 → violation
         _R(200, {"id": "t1", "status": "processing"}),
         _R(200, {"id": "t1", "status": "violation", "error": "content policy"}),
-        # POST2（重试）→ 成功返回 URL
+    ])
+    with _patch_session(session), mock.patch.object(time, "sleep", return_value=None):
+        try:
+            mxou.call_mxou_image_api(
+                token="t", prompt="测试", ref_images=["http://img/1.png"],
+                model="gpt-image-2", max_retries=1,
+            )
+            raise AssertionError("violation 应抛 MxouContentViolationError")
+        except mxou.MxouContentViolationError:
+            pass
+
+    assert len(session.post_calls) == 1, f"violation 不重试，实际 {len(session.post_calls)} 次 POST"
+
+
+def test_normal_failed_bounded_retry():
+    """普通 failed（非内容违规）→ 保留有界重试（随机误伤类 1 次重试，v0.62 R4 分类处理）。"""
+    import utils.mxou_api as mxou
+
+    session = FakeSession([
+        _R(200, {"id": "t1", "status": "processing"}),
+        _R(200, {"id": "t1", "status": "failed", "error": "upstream timeout"}),
         _R(200, {"id": "t2", "status": "succeeded", "results": [{"url": "http://img/ok.png"}]}),
     ])
     with _patch_session(session), mock.patch.object(time, "sleep", return_value=None):
@@ -95,7 +116,7 @@ def test_violation_bounded_retry():
         )
 
     assert result == "http://img/ok.png"
-    assert len(session.post_calls) == 2, f"violation 应有界重试 1 次，实际 {len(session.post_calls)}"
+    assert len(session.post_calls) == 2, f"普通 failed 应有界重试 1 次，实际 {len(session.post_calls)}"
 
 
 def test_http_500_retry_then_success():

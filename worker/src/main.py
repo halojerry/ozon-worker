@@ -1159,8 +1159,12 @@ def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
         raw_key = str(token_record.get("key", "") or "")
         mxou_balance = None
         if raw_key:
-            from utils.mxou_api import get_mxou_balance
-            mxou_balance = get_mxou_balance(raw_key)
+            # v0.62 R1: 复用 _check_balance_cached（30s TTL 缓存 + 低余额用户告警），
+            # 避免 auth/verify 高频打余额接口；查询失败返回 inf（fail-open），
+            # 与旧 get_mxou_balance 返回 None 的降级语义对齐。
+            from utils.mxou_api import _check_balance_cached
+            _cached = _check_balance_cached(raw_key)
+            mxou_balance = None if _cached == float("inf") else _cached
         if mxou_balance is not None:
             return mxou_balance, mxou_balance > 0
 

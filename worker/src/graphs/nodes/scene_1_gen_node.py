@@ -11,6 +11,7 @@ from runtime.context import Context
 from graphs.state_image_gen import Scene1Input, Scene1Output
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
+from utils.mxou_api import MxouContentViolationError  # v0.62 R4
 from utils.mxou_api import clean_title_for_image_prompt
 from utils.prompt_assembler import assemble_prompt, merge_visual_vars  # ✅ v0.31: 视觉变量注入（Wave 2: LLM + 确定性合并）
 from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色预设路由
@@ -102,6 +103,8 @@ def scene_1_gen_node(state: Scene1Input, config: RunnableConfig, runtime: Runtim
             return Scene1Output(scene_1_image=image_url)
         
         return Scene1Output(scene_1_image=None)
+    except MxouContentViolationError:
+        raise  # v0.62 R4: 内容违规 → 任务明确失败
     except Exception as e:
         logger.error(f"Scene 1 image generation failed: {str(e)}")
         return Scene1Output(scene_1_image=None)

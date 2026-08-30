@@ -40,11 +40,32 @@ class MxouOutOfQuotaError(Exception):
     pass
 
 
+class MxouContentViolationError(Exception):
+    """生图内容违规（成人/敏感等）— 不重试不降级，避免重复烧额度（R4, v0.62）。"""
+    pass
+
+
 # W12: 生图前余额事中复查 — 余额低于该阈值直接 fast-fail（够 1 张图的最低成本）
 MIN_BALANCE_THRESHOLD = 1.0
 
-# 模块级余额缓存（_check_balance_cached 30s TTL），避免每次生图都打余额接口
-_BALANCE_CACHE: Dict[str, Any] = {"value": None, "ts": 0.0}
+# 低余额用户告警阈值（R1, v0.62）：0 < balance < 阈值 → 30min 去重后通知用户充值。
+# 环境变量 BALANCE_ALERT_THRESHOLD 可覆盖；未配置 TASK_NOTIFY_URL 时仅日志/Sentry 留痕。
+BALANCE_ALERT_THRESHOLD = float(os.getenv("BALANCE_ALERT_THRESHOLD", "50"))
+
+# 模块级余额缓存（_check_balance_cached 30s TTL），避免每次生图都打余额接口。
+# v0.62 升级为 token 指纹绑定（fp 键）：同一 token 30s 内命中；不同 token 不命中，
+# 避免多用户复用 main.py 余额检查时互相污染缓存。fp=None 表示空缓存。
+_BALANCE_CACHE: Dict[str, Any] = {"value": None, "ts": 0.0, "fp": None}
+
+# 低余额告警去重表：token 指纹 → 上次告警时间（30 分钟窗口，防刷屏）
+_BALANCE_ALERT_TS: Dict[str, float] = {}
+
+# R4 (v0.62): 内容违规关键词 — 命中即视为不可重试（重复 POST 只会重复计费）。
+# 覆盖中英俄常见违规提示：content policy / sensitive / adult / nudity / 违规 / 敏感 / 成人。
+_CONTENT_VIOLATION_KEYWORDS = (
+    "content", "violation", "sensitive", "adult", "porn", "nudity",
+    "inappropriate", "违规", "敏感", "成人",
+)
 
 # 内存优化：复用requests.Session，避免每次请求创建新TCP连接
 _session: Optional[requests.Session] = None
@@ -272,22 +293,28 @@ def _check_balance_cached(token: str, ttl: float = 30.0) -> float:
     暂不可用时不能阻断生图，宁可打一单也不误伤正常调用）。
     """
     now = time.time()
+    fp = _token_fingerprint(token)
     cached = _BALANCE_CACHE["value"]
-    if cached is not None and now - _BALANCE_CACHE["ts"] < ttl:
+    if cached is not None and _BALANCE_CACHE.get("fp") == fp and now - _BALANCE_CACHE["ts"] < ttl:
         return cached
     balance = get_mxou_balance(token)
     value = balance if balance is not None else float("inf")
+    if value != float("inf") and 0 < value < BALANCE_ALERT_THRESHOLD:
+        _alert_low_balance(token, value)
     _BALANCE_CACHE["value"] = value
     _BALANCE_CACHE["ts"] = now
+    _BALANCE_CACHE["fp"] = fp
     return value
 
 
 def _is_out_of_quota_response(status_code: int, body: str) -> bool:
-    """识别 OUT_OF_QUOTA 响应（403 或响应体含额度/余额不足关键词）。
+    """识别 OUT_OF_QUOTA 响应（401/403 或响应体含额度/余额不足关键词）。
 
     W12: 此类错误是永久性的（余额/额度/权限），当普通失败重试只会继续烧钱。
+    v0.62 R1: 401 也纳入 —— MXOU 余额耗尽/认证失效同样返回 401，此前走普通 4xx
+    重试导致 Sentry 259× mxou chat API 401 噪音 + 级联翻译/属性失败。
     """
-    if status_code == 403:
+    if status_code in (401, 403):
         return True
     lower = body.lower()
     return any(
@@ -297,6 +324,48 @@ def _is_out_of_quota_response(status_code: int, body: str) -> bool:
             "insufficient_quota", "no quota", "余额不足",
         )
     )
+
+
+def _is_content_violation_error(status: str, error: str) -> bool:
+    """内容违规判定（R4, v0.62）— violation 状态或 error 含违规关键词。
+
+    命中 → 抛 MxouContentViolationError（不重试不降级）；未命中 → 普通 failed
+    （保留有界重试）。关键词覆盖中英俄常见内容策略提示。
+    """
+    if status == "violation":
+        return True
+    err = (error or "").lower()
+    return any(kw in err for kw in _CONTENT_VIOLATION_KEYWORDS)
+
+
+def _alert_low_balance(token: str, balance: float) -> None:
+    """低余额用户通知（R1, v0.62）— 按 token 指纹 30min 去重，fire-and-forget。
+
+    通道：TASK_NOTIFY_URL（Server酱等任意 POST JSON webhook，与任务终态通知同通道）；
+    未配置时仅 logger.warning 留痕（Sentry LoggingIntegration 会捕获）。
+    任何异常绝不抛出（不影响余额检查主流程）。
+    """
+    fp = _token_fingerprint(token)
+    now = time.time()
+    if now - _BALANCE_ALERT_TS.get(fp, 0.0) < 1800:
+        return
+    _BALANCE_ALERT_TS[fp] = now
+    url = os.environ.get("TASK_NOTIFY_URL") or ""
+    if url:
+        try:
+            _get_session().post(
+                url,
+                json={
+                    "type": "low_balance",
+                    "token_fp": fp,
+                    "balance": round(float(balance), 2),
+                    "message": f"MXOU 余额不足（¥{float(balance):.2f}），请充值以免任务失败",
+                },
+                timeout=5,
+            )
+        except Exception as e:
+            logger.warning("低余额告警发送失败: %s", e)
+    logger.warning("⚠️ 低余额告警 token=%s balance=%.2f", fp, balance)
 
 
 def call_mxou_image_api(
@@ -586,6 +655,8 @@ def _call_image_with_model(
             raise  # 轮询超时 → 传给 call_mxou_image_api（不重试不降级）
         except MxouOutOfQuotaError:
             raise  # W12: 余额不足/403 → 直接失败，不重试不降级
+        except MxouContentViolationError:
+            raise  # v0.62 R4: 内容违规 → 直接失败，不重试不降级（防重复烧额度）
         except Exception as e:
             try:
                 if _span is not None:
@@ -725,9 +796,17 @@ def _poll_grsai_task(task_id: str, max_wait: int = 90, token: str = "") -> Optio
 
             if status in ("failed", "violation"):
                 error_msg: str = result.get("error", "unknown error")
-                logger.error("grsai任务%s: %s", status, error_msg)
+                # v0.62 R4: 内容违规 → 直接抛（不重试不降级，防重复烧额度）；
+                # 普通 failed → 降级 warning（不再 error 上报 Sentry），由上层有界重试。
+                if _is_content_violation_error(status, error_msg):
+                    raise MxouContentViolationError(
+                        f"grsai 内容违规: status={status}, error={error_msg}"
+                    )
+                logger.warning("grsai任务%s: %s", status, error_msg)
                 return None
 
+        except MxouContentViolationError:
+            raise  # v0.62 R4: 内容违规穿透，不被轮询异常兜底吞掉
         except Exception as e:
             logger.warning("grsai轮询异常: %s", str(e))
 
@@ -774,9 +853,16 @@ def _poll_mxou_task_fallback(task_id: str, max_wait: int = 90, token: str = "") 
 
             if status in ("failed", "violation"):
                 error_msg: str = result.get("error", "unknown error")
-                logger.error("mxou fallback任务%s: %s", status, error_msg)
+                # v0.62 R4: 同 _poll_grsai_task — 内容违规抛异常，普通 failed 降级 warning。
+                if _is_content_violation_error(status, error_msg):
+                    raise MxouContentViolationError(
+                        f"mxou fallback 内容违规: status={status}, error={error_msg}"
+                    )
+                logger.warning("mxou fallback任务%s: %s", status, error_msg)
                 return None
 
+        except MxouContentViolationError:
+            raise  # v0.62 R4: 内容违规穿透
         except Exception as e:
             logger.warning("mxou fallback轮询异常: %s", str(e))
 

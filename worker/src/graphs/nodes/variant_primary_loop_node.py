@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from graphs.state import GlobalState, VariantLoopState, VariantLoopOutput, VariantPrimaryLoopOutput
 
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
+from utils.mxou_api import MxouContentViolationError  # v0.62 R4
 from utils.mxou_api import clean_title_for_image_prompt
 from utils.prompt_assembler import assemble_prompt, merge_visual_vars  # ✅ v0.31: 视觉变量注入（Wave 2: LLM + 确定性合并）
 from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色预设路由
@@ -143,6 +144,8 @@ def variant_primary_loop_node(
             logging.error(f"[variant_primary_loop_node] variant[{idx}]生成失败: API未返回有效URL且无原图")
             return ""  # 无原图 → 留空让上层处理
 
+        except MxouContentViolationError:
+            raise  # v0.62 R4: 内容违规 → 任务明确失败（不重试不降级不原图兜底）
         except Exception as e:
             logging.error(f"[variant_primary_loop_node] variant[{idx}]生成失败: {e}")
             # v0.60: 异常也尝试原图兜底（生图服务故障不应导致变体无图）
