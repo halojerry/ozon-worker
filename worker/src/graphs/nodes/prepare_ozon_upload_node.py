@@ -351,11 +351,18 @@ def _sanitize_description(description: str) -> str:
 
     sanitized: str = description.strip()
 
+    # 0. v0.62 R5: 尺寸乘号归一化 — "10x10x5" 的单个拉丁 x 会被 Ozon 判
+    # 「描述含拉丁字符」（31× Sentry 实证）。先归一化为乘号 ×（含半角/全角 x），
+    # 再走下方拉丁清理，避免单字母 x 残留。
+    sanitized = re.sub(r'(?<=\d)\s*[xXхХ]\s*(?=\d)', '×', sanitized)
+
     # 1. 移除中文字符（含扩展区：CJK统一汉字 + 扩展A + 兼容汉字）
     sanitized = re.sub(r'[\u2e80-\u2eff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+', ' ', sanitized)
 
     # 2. 移除拉丁单词（2+连续拉丁字母）
     sanitized = re.sub(r'[a-zA-Z]{2,}', ' ', sanitized)
+    # 2.5 v0.62 R5: 移除残留单拉丁字母（仅限非俄文字母边界，保护西里尔词）
+    sanitized = re.sub(r'(?<![а-яёА-ЯЁ0-9])[a-zA-Z](?![a-zA-Zа-яёА-ЯЁ])', ' ', sanitized)
 
     # 3. 移除 URL
     sanitized = re.sub(r'https?://\S+', '', sanitized)
@@ -410,6 +417,9 @@ def _sanitize_rich_description(description: str) -> str:
 
     sanitized = description.strip()
 
+    # 0. v0.62 R5: 尺寸乘号归一化（同 _sanitize_description，防单拉丁 x 残留）
+    sanitized = re.sub(r'(?<=\d)\s*[xXхХ]\s*(?=\d)', '×', sanitized)
+
     # 1. 移除中文字符（保留 HTML 标签内的西里尔俄语）
     # 先提取 HTML 标签，清理正文，再拼接
     tag_pattern = re.compile(r'(<[^>]+>)')
@@ -425,6 +435,8 @@ def _sanitize_rich_description(description: str) -> str:
             # LLM 生成的富文本残留英文(尺寸/材质/型号) → Ozon 拒"描述含有拉丁字符"
             part = re.sub(r'[\u2e80-\u2eff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+', ' ', part)
             part = re.sub(r'[a-zA-Z]{2,}', ' ', part)
+            # v0.62 R5: 残留单拉丁字母清理（保护西里尔）
+            part = re.sub(r'(?<![а-яёА-ЯЁ0-9])[a-zA-Z](?![a-zA-Zа-яёА-ЯЁ])', ' ', part)
             part = re.sub(r'https?://\S+', '', part)
             part = re.sub(r'\b[\w.-]+@[\w.-]+\.\w+\b', '', part)
             part = re.sub(r'\+?\d[\d\s\-()]{7,}\d', '', part)
@@ -698,8 +710,13 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
             # 制造商 23487 = 自由文本，填 1688 供应商名
             if aid == 23487 or "производител" in str(attr.get("name") or "").lower() or "制造商" in str(attr.get("name") or ""):
                 _sup = str((draft or {}).get("supplier") or "")
-                if _sup:
-                    _sup_ru = _sup[:100]
+                _sup_ru = _sup[:100] if _sup else ""
+                if not _sup_ru:
+                    # v0.62 R3: supplier 缺失 → 安全兜底 Нет бренда（同品牌纪律），
+                    # 防 23487 必填缺失（Sentry 31× 实证）。
+                    _sup_ru = "Нет бренда"
+                    logger.info("✅ 制造商 %s 无 supplier，安全兜底: Нет бренда", aid)
+                else:
                     # ✅ v0.25 FIX: 制造商必须俄语 — 中文供应商名整单被 Ozon 拒
                     # （BR_chinese_hieroglyphs_in_attribute，浴刷 5821877126 wave4 实证，
                     #   错误级导致整单更新失败 → 图片也落不上）
@@ -720,8 +737,8 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                             logger.warning(
                                 "⚠️ 制造商 supplier 翻译失败/仍含中文，用安全兜底: Китайская компания"
                             )
-                    attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": _sup_ru}]})
                     logger.info("✅ 必填自由文本属性 %s(制造商) 用 supplier 补齐: %s", aid, _sup_ru[:40])
+                attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": _sup_ru}]})
                 continue
             # ✅ v0.25 修复: 颜色(10096/10097) — 1688 颜色 → RU 映射 → 字典 id
             if aid in (10096, 10097) or "цвет" in str(attr.get("name") or "").lower() or "颜色" in str(attr.get("name") or ""):

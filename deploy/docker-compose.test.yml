@@ -34,6 +34,9 @@ services:
         condition: service_healthy
     volumes:
       - ../worker/tests:/app/tests
+      # v0.62: webui 源码挂载 — test_webui_contract 按 __file__ 相对路径解析
+      # WEBUI_SRC（容器内 /app/tests → /webui/src），缺挂载时扫描为空误报。
+      - ../webui:/webui:ro
     command: >
       sh -c "python scripts/init_data.py &&
              python -m pytest tests/ -q -p no:cacheprovider"

@@ -20,6 +20,18 @@ from utils.draft_status_writeback import writeback_submission_status, map_worker
 logger = get_logger(__name__)
 
 
+def _should_report_task_rerun(retry_count: int, error_message: str) -> bool:
+    """v0.62 R6: task_rerun 是否上报 Sentry。
+
+    仅当任务疑似「僵尸/超时恢复」重跑才上报 warning（error_message 含
+    STALE_RUNNING/ZOMBIE/超时）；正常业务失败重试不上报，避免噪音刷屏。
+    """
+    if retry_count <= 0:
+        return False
+    msg = str(error_message or "")
+    return any(kw in msg for kw in ("STALE_RUNNING", "ZOMBIE", "zombie", "超时"))
+
+
 def _writeback_status(task_id: str, status: str, error_message: str | None = None) -> None:
     """draft_submissions 终态写回（M0.3）。必须在任务终态 conn.commit() 之后调用——
     写回独立于终态事务（该事务已含 shop_usage upsert），写回失败绝不能回滚任务状态。
@@ -360,7 +372,7 @@ class SupabaseTaskProcessor:
                     # - 跳过已被锁定的行（自动选择下一个任务）
                     # - 避免同一任务被重复认领
                     select_sql = text("""
-                        SELECT id, tenant_id, priority, payload, timeout_seconds, retry_count
+                        SELECT id, tenant_id, priority, payload, timeout_seconds, retry_count, error_message
                         FROM ozon_product_tasks
                         WHERE status = 'pending'
                         -- P1d 定时上架：scheduled_at 未到时间不认领（payload extensions 里）
@@ -387,15 +399,18 @@ class SupabaseTaskProcessor:
                     payload = task_row[3] if isinstance(task_row[3], dict) else json.loads(task_row[3])
                     timeout_seconds = task_row[4]
                     retry_count = int(task_row[5] or 0)
+                    error_message = str(task_row[6] or "") if len(task_row) > 6 else ""
 
                     # v0.29.2 监控: 重跑任务(非首次)上报 Sentry — 判断是否有僵尸/超时
                     # 恢复导致的重跑(用户可见的"偷偷跑任务")
-                    if retry_count > 0:
+                    # v0.62 R6: 仅当 error_message 含 STALE_RUNNING/ZOMBIE/超时（疑似僵尸/
+                    # 超时恢复）才上报 warning；正常业务失败重试不上报（避免噪音刷屏）。
+                    if _should_report_task_rerun(retry_count, error_message):
                         try:
                             from utils.sentry_setup import capture_task_event
                             capture_task_event(
                                 "task_rerun",
-                                f"任务重跑(第 {retry_count+1} 次): 可能来自重启/超时恢复",
+                                f"任务重跑(第 {retry_count+1} 次): 僵尸/超时恢复 ({error_message[:80]})",
                                 task_id=task_id,
                                 tenant_id=tenant_id,
                                 level="warning",
