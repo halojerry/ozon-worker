@@ -1171,6 +1171,29 @@ def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
         # ⚠️ 2. MXOU 查询失败 → 降级 Supabase users.quota（原逻辑兜底）
         user_id = token_record.get("user_id", "")
         supabase = get_supabase_client()
+        # v0.62.4 修复：调用方（submit_task）可能只传 key 哈希租户(user_<hash>)而非真实
+        # Supabase users.id，导致真实用户查不到 → 误判「余额不足」。这里用 key 反查真实
+        # user_id 与 unlimited_quota（auth_verify 已传全量 record 则不重复查）。
+        raw_key = str(token_record.get("key", "") or "")
+        if supabase is not None and (
+            token_record.get("unlimited_quota") is None
+            or not user_id
+            or str(user_id).startswith("user_")
+        ):
+            try:
+                _trows = supabase.table("tokens").select(
+                    "user_id, unlimited_quota, status"
+                ).eq("key", raw_key).is_("deleted_at", "null").limit(1).execute()
+                if _trows.data:
+                    _row = _trows.data[0]
+                    user_id = str(_row.get("user_id") or user_id)
+                    if _row.get("unlimited_quota") is not None:
+                        token_record = {
+                            **token_record,
+                            "unlimited_quota": bool(_row.get("unlimited_quota")),
+                        }
+            except Exception as exc:
+                logger.warning("余额降级-反查 token 失败（user=%s）: %s", user_id, str(exc)[:200])
         if supabase is None or not user_id:
             # 本地开发模式：无 Supabase，不阻断
             return 0.0, True
@@ -1531,8 +1554,12 @@ async def http_submit_task(request: Request):
         if token.startswith("sk-"):
             token = token.replace("sk-", "", 1)  # ✅ 剥离第一个sk-前缀
 
-        # Step3: MXOU key 即用户（不依赖 Supabase）——key 派生稳定租户 + MXOU 余额检查
-        user_id = _key_user_id(token)
+        # Step3: MXOU key 即用户 —— 租户以真实 Supabase 为准（resolve_tenant 已做 Supabase→哈希回退）。
+        # v0.62.4 修复：改用 resolve_tenant 而非 _key_user_id（哈希租户），
+        # 否则余额降级查 users 表用哈希 id 查不到真实用户 → 误判余额不足，
+        # 且任务 tenant_id 与全系统(WebUI/采集箱)不一致造成租户漂移。
+        from services.tenant_service import resolve_tenant
+        user_id = resolve_tenant(token)
         balance, has_quota = _check_mxou_balance({"key": token, "user_id": user_id})
         if not has_quota:
             return error_response(

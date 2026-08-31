@@ -21,11 +21,13 @@ services:
 
   worker:
     build:
-      context: ../worker
-      dockerfile: Dockerfile
+      # v0.62.2: 构建上下文改为仓库根（webui 也要进镜像），dockerfile 用 worker/Dockerfile
+      context: ..
+      dockerfile: worker/Dockerfile
       args:
         VERSION: ${VERSION:-dev}
         BUILD_TIME: ${BUILD_TIME:-unknown}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
     image: ozon-worker:${VERSION:-latest}
     restart: unless-stopped
     # ✅ v0.29(PRD-cicd-stability): 优雅关闭 — 给运行中任务 5 分钟排空时间
@@ -60,9 +62,8 @@ services:
     volumes:
       - logs:/app/logs
       # ⚠️ v0.15: config 目录 bind mount → 宿主机改配置（如 image_prompts.json / LLM cfg）无需重建镜像/重启容器，下一次调用即生效
-      - ../worker/config:/app/config:ro
-      # ✅ v0.41: WebUI 静态产物挂载（WEBUI_DIST 指向容器内路径；未构建时跳过挂载不阻断）
-      - ../webui/dist:/app/webui/dist:ro
+      # v0.62.3 管理员可在系统设置编辑 worker 变量(/admin/config 写 /app/config + backup)，需可写
+      - ../worker/config:/app/config:rw
     depends_on:
       postgres:
         condition: service_healthy

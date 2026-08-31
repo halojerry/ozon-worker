@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import worldMap from "./assets/world-map.svg"
-import { ApiError, api, getSession, saveSession } from "./api/client"
+import { ApiError, api, getSession, saveSession, clearSession, type Session } from "./api/client"
+import { useApi, formatDateTime, type Credential } from "./api/hooks"
 import { PageHeader, Metric } from "./components/ui"
 import DashboardPanel from "./components/DashboardPanel"
 import SettingsPanel from "./components/SettingsPanel"
@@ -18,7 +19,7 @@ import SitePanel from "./components/SitePanel"
 import BestsellersPanel from "./components/BestsellersPanel"
 import DataScreenPanel from "./components/DataScreenPanel"
 import StudioPanel from "./components/StudioPanel"
-import { NavLink, Outlet, RouterProvider, createBrowserRouter, useLocation, useNavigate } from "react-router"
+import { Navigate, NavLink, Outlet, RouterProvider, createBrowserRouter, useLocation, useNavigate } from "react-router"
 
 const navGroups: { group: string; items: string[][] }[] = [
   { group: "概览", items: [["◉", "工作台", "/"], ["⌁", "数据大屏", "/data"]] },
@@ -36,11 +37,54 @@ function Sparkline({ compact = false }: { compact?: boolean }) { return <svg vie
 
 function Shell() {
   const [notice, setNotice] = useState(false)
+  const [session, setSession] = useState<Session | null>(() => getSession())
+  const [refreshed, setRefreshed] = useState(false)
   const location = useLocation()
-  const currentUserRole = getUserRole()
-  const isAdmin = currentUserRole === "管理员"
+  const currentUserRole = session?.role === "admin" ? "管理员" : "普通成员"
+  const isAdmin = session?.role === "admin"
   const activeLabel = navGroups.flatMap(g => g.items).find(item => item[2] === location.pathname)?.[1] ?? "工作台"
-  return <div className={`erp-shell ${location.pathname === "/data" ? "data-shell" : ""}`}><aside className="sidebar"><div className="brand"><div className="brand-mark">O</div><div><b>Ozon ERP</b><span>AI AUTOMATION</span></div></div><div className="workspace"><span className="store-dot"/> 深圳跨境旗舰店 <span className="chevron">⌄</span></div><nav aria-label="主导航">{navGroups.map(section => <div className="nav-group" key={section.group}><div className="nav-label">{section.group}</div>{section.items.filter(([, , path]) => path !== "/admin" || isAdmin).map(([icon,label,path,badge]) => <NavLink end={path === "/"} className="nav-item" to={path} key={path}><span className="nav-icon">{icon}</span><span>{label}</span>{badge && <small>{badge}</small>}</NavLink>)}</div>)}</nav><div className="sidebar-bottom"><div className="help-card"><span>✦</span><div><b>AI 运营助手</b><p>今日已生成 36 条建议</p></div></div><button className="account"><span className="avatar">K</span><span><b>Kate Lin</b><small>{currentUserRole}</small></span><span>···</span></button></div></aside><main className="main-content"><header className="topbar"><div className="crumb"><span>Ozon ERP</span><i>/</i><b>{activeLabel}</b></div><div className="top-actions"><button className="icon-button" aria-label="帮助">?</button><button onClick={() => setNotice(!notice)} className={`icon-button notification ${notice ? "has-notice" : ""}`} aria-label="通知">♢</button><button className="top-store"><span className="store-dot"/> Ozon Russia <span>⌄</span></button></div></header>{notice && <div className="notice-popover"><b>3 条待处理提醒</b><p>2 个商品待补充俄语属性</p><p>1 个自动化任务运行失败</p></div>}<Outlet/><footer>数据更新时间：2024-06-17 12:48:06 <span>OZON AI ERP · INTERNAL CONSOLE</span></footer></main></div>
+  const navigate = useNavigate()
+  const { data: creds } = useApi<Credential[]>(() => api.get("/credentials"), [])
+  const dataUpdatedAt = useMemo(() => {
+    const times = (creds ?? []).map((c) => c.updated_at).filter(Boolean) as string[]
+    if (!times.length) return "—"
+    times.sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
+    return formatDateTime(times[times.length - 1])
+  }, [creds])
+  useEffect(() => {
+    const onExpired = () => { clearSession(); setSession(null); navigate("/login", { replace: true }) }
+    window.addEventListener("auth:expired", onExpired)
+    return () => window.removeEventListener("auth:expired", onExpired)
+  }, [navigate])
+  // 鉴权权威化：以 /mxou/me 刷新角色/邮箱，覆盖 localStorage 推断；401 → 清会话跳登录
+  useEffect(() => {
+    let live = true
+    setRefreshed(false)
+    api.me()
+      .then((m) => {
+        if (!live) return
+        const cur = getSession()
+        if (cur) {
+          saveSession({ token: cur.token, role: m.role === "admin" ? "admin" : "user", username: m.email || cur.username })
+          setSession(getSession())
+        }
+      })
+      .catch((e) => {
+        if (!live) return
+        if (e instanceof ApiError && e.status === 401) {
+          clearSession(); setSession(null); navigate("/login", { replace: true })
+        } else {
+          setSession(getSession())  // me 失败降级，保留现有会话角色
+        }
+      })
+      .finally(() => { if (live) setRefreshed(true) })
+    return () => { live = false }
+  }, [navigate])
+  if (!session) return <Navigate to="/login" replace />
+  if (!refreshed) return null
+  // 非管理员整页隐藏 平台后台/站点管理（nav 也已隐藏）
+  if ((location.pathname === "/admin" || location.pathname === "/site") && !isAdmin) return <Navigate to="/" replace />
+  return <div className={`erp-shell ${location.pathname === "/data" ? "data-shell" : ""}`}><aside className="sidebar"><div className="brand"><div className="brand-mark">O</div><div><b>Ozon ERP</b><span>AI AUTOMATION</span></div></div><div className="workspace"><span className="store-dot"/> 深圳跨境旗舰店 <span className="chevron">⌄</span></div><nav aria-label="主导航">{navGroups.map(section => <div className="nav-group" key={section.group}><div className="nav-label">{section.group}</div>{section.items.filter(([, , path]) => (path !== "/admin" && path !== "/site") || isAdmin).map(([icon,label,path,badge]) => <NavLink end={path === "/"} className="nav-item" to={path} key={path}><span className="nav-icon">{icon}</span><span>{label}</span>{badge && <small>{badge}</small>}</NavLink>)}</div>)}</nav><div className="sidebar-bottom"><div className="help-card"><span>✦</span><div><b>AI 运营助手</b><p>今日已生成 36 条建议</p></div></div><button className="account"><span className="avatar">K</span><span><b>Kate Lin</b><small>{currentUserRole}</small></span><span>···</span></button></div></aside><main className="main-content"><header className="topbar"><div className="crumb"><span>Ozon ERP</span><i>/</i><b>{activeLabel}</b></div><div className="top-actions"><button className="icon-button" aria-label="帮助">?</button><button onClick={() => setNotice(!notice)} className={`icon-button notification ${notice ? "has-notice" : ""}`} aria-label="通知">♢</button><button className="top-store"><span className="store-dot"/> Ozon Russia <span>⌄</span></button></div></header>{notice && <div className="notice-popover"><b>3 条待处理提醒</b><p>2 个商品待补充俄语属性</p><p>1 个自动化任务运行失败</p></div>}<Outlet/><footer>数据更新时间：{dataUpdatedAt} <span>OZON AI ERP · INTERNAL CONSOLE</span></footer></main></div>
 }
 
 

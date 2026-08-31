@@ -19,8 +19,6 @@ docs
 api-integration
 design-deliverables
 integration-workplan
-webui
-worker
 deploy/skill
 deploy/*.tar.gz
 browser

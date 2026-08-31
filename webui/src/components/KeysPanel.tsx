@@ -52,7 +52,12 @@ export default function KeysPanel() {
     <>
       <PageHeader kicker="API KEY MANAGEMENT" title="API Key 管理" description="管理平台访问凭证，控制 API 调用权限。" action="＋ 创建 Key" onAction={() => setCreating(true)} />
       {loading && <PanelLoading />}
-      {error && <PanelError message={error} onRetry={reload} />}
+      {error && (
+        <div className="panel">
+          <PanelEmpty text="未登录 MXOU / 无法读取密钥；请确认已登录后重试" />
+          <div style={{ marginTop: 8, textAlign: "center" }}><button className="button ghost" onClick={reload}>重试</button></div>
+        </div>
+      )}
       {!loading && !error && keys.length === 0 && <PanelEmpty text="暂无 API Key" />}
       {!loading && !error && keys.length > 0 && (
         <section className="wide-section">

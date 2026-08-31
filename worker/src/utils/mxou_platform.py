@@ -26,7 +26,8 @@ MXOU_BASE = "https://api.mxou.cn"
 _REQUEST_TIMEOUT = 15
 
 # /api/user/self 白名单（输入字段；quota/balance 输出时合并为 balance）
-_SELF_WHITELIST = {"id", "username", "display_name", "role", "status"}
+# v0.62.4 增加 quota：真实剩余余额在 quota(额度单位)，由 get_mxou_balance 换算成元
+_SELF_WHITELIST = {"id", "username", "display_name", "role", "status", "quota", "used_quota"}
 # 防御剥离字段（即使 data 回传也绝不外泄）
 _SENSITIVE_KEYS = ("password", "access_token", "session")
 

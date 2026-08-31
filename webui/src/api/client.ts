@@ -35,6 +35,11 @@ async function request<T>(path: string, init: RequestInit = {}, includeToken = t
   if (!response.ok) {
     let message = `请求失败（${response.status}）`
     try { message = (await response.json() as { detail?: string }).detail || message } catch { /* no JSON body */ }
+    // 鉴权失效：清会话并通知应用跳转到登录页，避免各面板误显示"服务异常/加载中"
+    if (response.status === 401 && includeToken) {
+      clearSession()
+      window.dispatchEvent(new Event("auth:expired"))
+    }
     throw new ApiError(response.status, message)
   }
   if (response.status === 204) return undefined as T
@@ -49,6 +54,7 @@ export const api = {
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   verify: (token: string) => request<{ valid: boolean; reason?: string }>("/auth/verify", { method: "POST", body: JSON.stringify({ token }) }, false),
   login: (username: string, password: string) => request<{ key?: string | null; role?: string; username?: string }>("/mxou/login", { method: "POST", body: JSON.stringify({ username, password }) }, false),
+  me: () => request<{ user_id: string; email: string; role: string }>("/mxou/me"),
 }
 
 /** 下载 CSV 类附件(带 Bearer 鉴权,触发浏览器下载)。 */

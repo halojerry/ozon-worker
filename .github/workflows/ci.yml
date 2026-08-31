@@ -221,7 +221,7 @@ jobs:
       # v0.29.1: gha 缓存 — pip/基础镜像层跨发版复用(worker 构建 5-10min → 1-2min)
       - uses: docker/build-push-action@v6
         with:
-          context: worker/
+          context: .
           file: worker/Dockerfile
           load: true
           tags: ozon-worker:ci

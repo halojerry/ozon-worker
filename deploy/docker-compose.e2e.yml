@@ -1,0 +1,55 @@
+# WebUI 全页审计本地栈（v0.62.2）：PG + worker(内含 webui)，仅供 Playwright 审计。
+# 用法: bash scripts/test-docker-e2e.sh
+# 需要真实会话: E2E_TOKEN（真实 API Key）或 E2E_USERNAME/E2E_PASSWORD（MXOU 登录），
+#           且 worker 需可达 E2E_SUPABASE_URL/E2E_SUPABASE_KEY 做 token 鉴权。
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ozon123
+      POSTGRES_DB: ozon
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata_e2e:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ozon"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    build:
+      context: ..
+      dockerfile: worker/Dockerfile
+      args:
+        VERSION: e2e
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
+    image: ozon-worker:e2e
+    restart: "no"
+    ports:
+      - "8080:5000"
+    environment:
+      PGDATABASE_URL: postgresql://postgres:ozon123@postgres:5432/ozon
+      APP_WORKSPACE_PATH: /app
+      PYTHONPATH: /opt/venv/lib/python3.12/site-packages:/app/src
+      CREDENTIAL_MASTER_KEY: 0123456789abcdef0123456789abcdef
+      WEBUI_DIST: /app/webui/dist
+      SUPABASE_URL: ${E2E_SUPABASE_URL:-}
+      SUPABASE_KEY: ${E2E_SUPABASE_KEY:-}
+      SKIP_ZOMBIE_RECOVERY: "1"
+      SKIP_FAILED_REVIVE: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/v1/health"]
+      interval: 5s
+      timeout: 5s
+      start_period: 20s
+      retries: 20
+
+volumes:
+  pgdata_e2e:
