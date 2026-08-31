@@ -948,16 +948,61 @@ def clean_title_for_image_prompt(title: str) -> str:
     return cleaned if cleaned else title  # 如果全部清空了，保留原标题
 
 
+_QUOTA_PER_UNIT_CACHE: dict = {"ts": 0.0, "v": 500000.0}
+
+
+def _get_quota_per_unit() -> float:
+    """MXOU(/api/status) 的 quota_per_unit：quota 额度单位→元 的换算系数（缓存 1h）。"""
+    now = time.time()
+    if now - _QUOTA_PER_UNIT_CACHE["ts"] < 3600:
+        return float(_QUOTA_PER_UNIT_CACHE["v"])
+    try:
+        from utils.mxou_platform import _base_url
+        resp = _get_session().get(f"{_base_url()}/api/status", timeout=8)
+        if resp.status_code == 200:
+            d = (resp.json() or {}).get("data") or {}
+            q = float(d.get("quota_per_unit") or 500000)
+            _QUOTA_PER_UNIT_CACHE.update(ts=now, v=q)
+            return q
+    except Exception:
+        pass
+    return float(_QUOTA_PER_UNIT_CACHE["v"])
+
+
+def _get_session_balance(token: str) -> float | None:
+    """用户 MXOU 会话查 /api/user/self 的 quota（真实剩余余额），换算成元。
+
+    v0.62.4：billing/subscription 对无限 token 强制返回 100M 哨兵值、且无剩余余额，
+    只有 /api/user/self 的 quota 能反映真实剩余（如 ¥20）。需用户已登录（会话存在）。
+    """
+    try:
+        from services.tenant_service import resolve_tenant
+        from services import mxou_login_service
+        from utils import mxou_platform
+        tenant = resolve_tenant(token)
+        session_data, access_token = mxou_login_service._get_session_for_tenant(tenant)
+        if not access_token:
+            return None
+        user_id = session_data.get("user_id")
+        info = mxou_platform.mxou_get_self(session_data, access_token, user_id=user_id) or {}
+        quota = info.get("quota")
+        if quota is None:
+            return None
+        return float(quota) / _get_quota_per_unit()
+    except Exception as e:
+        logger.debug("mxou 会话余额读取失败(降级): %s", str(e)[:200])
+        return None
+
+
 def get_mxou_balance(token: str) -> float | None:
     """查询 MXOU 平台真实余额(v0.29.3 统一余额来源)。
 
-    - 调 OpenAI 兼容 /v1/dashboard/billing/subscription, 解析 balance
+    - 优先调 OpenAI 兼容 /v1/dashboard/billing/subscription 的 balance 字段
+    - 无 balance 字段(订阅/无限 token) → 用用户会话 /api/user/self 的 quota 换算真实余额
+    - 仍无 → 回退 soft_limit_usd/hard_limit_usd(有额度即视为 >0)；再失败 → None(降级)
     - token 无 sk- 前缀时自动补(supabase tokens 表 key 列不带前缀,
       但 MXOU API 需要 sk-)
     - 返回 float(balance, 负=欠费); 查询失败/网络异常 → None(调用方降级)
-
-    实测(2026-08-07): 余额充足 token 返回 balance=141629.24;
-    欠费 token 返回负值。判断正负即可, 不依赖具体单位。
     """
     if not token:
         return None
@@ -977,8 +1022,17 @@ def get_mxou_balance(token: str) -> float | None:
             return None
         balance = data.get("balance")
         if balance is None:
-            # new-api 也返回 hard_limit_usd 等; 取不到 balance 视为失败
-            logger.warning("mxou 余额响应无 balance 字段: %s", str(data)[:200])
+            # 真实剩余余额：优先走用户会话 /api/user/self 的 quota（dashboard 余额来源）
+            session_bal = _get_session_balance(tok)
+            if session_bal is not None:
+                return session_bal
+            # 订阅型账号只有 soft/hard_limit（无限 token 为 100M 哨兵值）→ 视为有额度
+            limit = data.get("soft_limit_usd")
+            if limit is None:
+                limit = data.get("hard_limit_usd")
+            if limit is not None and float(limit or 0) > 0:
+                return float(limit)
+            logger.warning("mxou 余额响应无 balance/quota/limit: %s", str(data)[:200])
             return None
         return float(balance)
     except Exception as e:

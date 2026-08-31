@@ -20,8 +20,8 @@ services:
 
   worker-test:
     build:
-      context: ../worker
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: worker/Dockerfile
     environment:
       PGDATABASE_URL: postgresql://postgres:ozon123@postgres:5432/ozon
       APP_WORKSPACE_PATH: /app

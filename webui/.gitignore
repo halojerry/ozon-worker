@@ -11,6 +11,8 @@ logs/
 *.log
 .claude-replay.*
 .tmp-*
+/e2e-results.json
+/e2e/artifacts/
 
 # Platform-managed agentplat state, not project source. In the
 # client-initiated single-repo workspace layout (make's `Path: "."` spec) the

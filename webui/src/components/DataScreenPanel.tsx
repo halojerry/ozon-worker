@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router"
 import { useState } from "react"
-import { api } from "../api/client"
+import { api, getSession } from "../api/client"
 import { useApi, usePolling, MarketOverview, SalesTrendResponse, HotQueriesResponse } from "../api/hooks"
 import { Metric, PanelLoading, PanelError, PanelEmpty } from "./ui"
 
@@ -23,10 +23,12 @@ export default function DataScreenPanel() {
   const navigate = useNavigate()
   const [full, setFull] = useState(false)
   const [trendDays, setTrendDays] = useState(7)
+  const isAdmin = getSession()?.role === "admin"
 
   const overview = useApi(() => api.get<MarketOverview>("/analytics/market-overview"), [])
   const trend = useApi(() => api.get<SalesTrendResponse>(`/analytics/sales-trend?days=${trendDays}`), [trendDays])
-  const hotQueries = useApi(() => api.get<HotQueriesResponse>("/analytics/hot-queries?limit=20"), [])
+  // 热词榜/蓝海仅管理员：非管理员不请求（避免 403 console error），也不渲染
+  const hotQueries = useApi<HotQueriesResponse>(() => isAdmin ? api.get<HotQueriesResponse>("/analytics/hot-queries?limit=20") : Promise.resolve({ items: [], scope: "tenant" }), [isAdmin])
 
   const toggleFull = async () => {
     if (!document.fullscreenElement) {
@@ -123,19 +125,21 @@ export default function DataScreenPanel() {
             </div>
           </article>
 
-          <article className="panel command-rank">
-            <h2>热词榜 Top 20</h2>
-            {hotQueries.loading ? <PanelLoading /> : hotQueries.error ? <PanelEmpty text="蓝海热词仅管理员可见" /> : (
-              (hotQueries.data?.items ?? []).length === 0 ? <PanelEmpty text="暂无热词数据" /> :
-              (hotQueries.data?.items ?? []).map((q, i) => (
-                <p key={`${q.query}-${i}`}>
-                  <b>{i + 1}</b>
-                  {q.query}
-                  <span>{q.uniq_queries_wca ?? q.count ?? 0}</span>
-                </p>
-              ))
-            )}
-          </article>
+          {isAdmin && (
+            <article className="panel command-rank">
+              <h2>热词榜 Top 20</h2>
+              {hotQueries.loading ? <PanelLoading /> : hotQueries.error ? <PanelEmpty text="蓝海热词仅管理员可见" /> : (
+                (hotQueries.data?.items ?? []).length === 0 ? <PanelEmpty text="暂无热词数据" /> :
+                (hotQueries.data?.items ?? []).map((q, i) => (
+                  <p key={`${q.query}-${i}`}>
+                    <b>{i + 1}</b>
+                    {q.query}
+                    <span>{q.uniq_queries_wca ?? q.count ?? 0}</span>
+                  </p>
+                ))
+              )}
+            </article>
+          )}
         </section>
       </main>
     </div>

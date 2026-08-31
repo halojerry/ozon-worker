@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.62.2] - 2026-09-01
+
+> WebUI 生产镜像自包含 + 客户/管理员边界/租户隔离 + 鉴权权威化 + MXOU 真实余额修复。
+
+### Build — WebUI 打进 worker 镜像（多阶段自包含）
+
+- `worker/Dockerfile` 新增 `webui-builder`（oven/bun:1-slim）阶段构建 webui，
+  runtime `COPY --from` 进 `/app/webui/dist`；构建上下文改仓库根，镜像不再依赖
+  宿主机 dist 只读挂载。GHCR 镜像与服务器本地构建都自带前端，根治旧 dist/空挂载。
+- 阿里云源补丁：`PIP_INDEX_URL` 默认 pylist→aliyun，webui-builder 设
+  `BUN/NPM_CONFIG_REGISTRY=npmmirror`；compose/cd.yml/ci.yml 传入。
+- compose 移除 `../webui/dist` 挂载、`config` 挂载 `:ro→:rw`（管理员改 worker 变量）；
+  deploy.sh/cos-update.sh 改为「webui 随镜像内建，无需宿主 dist」。
+
+### WebUI — 客户/管理员边界 + 租户隔离 + 鉴权权威化
+
+- 角色权威化：`client.ts` 加 `me()`（/mxou/me），Shell 挂载/登录后刷新角色/邮箱，
+  401 清会话跳登录；`isAdmin` 由后端 `users.role>=10` 决定。
+- 非管理员整页隐藏：`/admin`(平台后台)、`/site`(站点管理) 重定向工作台 + nav 隐藏；
+  数据大屏「热词榜/蓝海」仅管理员（非管理员不请求，消除 403 console error）。
+- 系统设置管理区（仅管理员）：工人变量 `/admin/config/*`（读写/备份/回滚）、
+  平台用户管理 `/admin/users`（创建+更新/禁用/配额/角色，无 delete）、物流费率。
+- `/keys` 无 MXOU session 优雅空态+重试，不整页报错。
+
+### Worker — MXOU 真实余额修复（有余额却报「余额不足」）
+
+- `submit_task` 改用 `resolve_tenant`（真实 Supabase 租户）替代 `_key_user_id`（哈希租户），
+  修复余额降级查不到真实用户 + 任务租户漂移。
+- `_check_mxou_balance` 降级时用 key 反查真实 `user_id` + `unlimited_quota`，
+  不再对「有余额/unlimited」key 误判「余额不足」。
+- `get_mxou_balance`：billing/subscription 无 `balance` 字段时，用用户 MXOU 会话
+  `/api/user/self` 的 `quota` 除以 `/api/status` 的 `quota_per_unit`(500000) 换算真实剩余
+  余额（如 10M→¥20）；无会话回退 `soft_limit_usd`（>0 视为有额度），杜绝误判。
+- 新增测试：`test_balance_fallback.py`（哈希租户反查/无限放行）、
+  `test_mxou_balance_parse.py`（软性上限兜底/会话 quota→元）；全量 1514 passed。
+
+### WebUI E2E（角色感知门禁）
+
+- 新增 `webui/e2e/audit.spec.ts` + `playwright.config.ts`（acceptDownloads）+
+  `deploy/docker-compose.e2e.yml` + `scripts/test-docker-e2e.sh`；本地非管理员
+  15 路由渲染断言全绿；`/admin,/site` 无权限、数据大屏无热词榜、`/keys` 空态。
+
 ## [0.62.1] - 2026-08-31
 
 > v0.62.0 生产部署问题全量修复（服务器侧核查 7 P1 + 7 S 项）：代理前缀缺失、

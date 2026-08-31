@@ -8,6 +8,7 @@ export default function SitePanel() {
   const [tab, setTab] = useState<"banners" | "announcements">("banners")
   const [msg, setMsg] = useState("")
   const [busy, setBusy] = useState(false)
+  const [bannerTitle, setBannerTitle] = useState("")
   const [bannerUrl, setBannerUrl] = useState("")
   const [bannerLink, setBannerLink] = useState("")
   const [annTitle, setAnnTitle] = useState("")
@@ -68,15 +69,16 @@ export default function SitePanel() {
       {!active.loading && !active.error && tab === "banners" && (
         <section className="wide-section">
           <article className="panel">
-            <span className="panel-kicker">CREATE BANNER</span>
+            <span className="panel-kicker">创建横幅</span>
             <div className="drawer-form" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input style={{ flex: 1, minWidth: 160 }} placeholder="横幅标题(可选)" value={bannerTitle} onChange={(e) => setBannerTitle(e.target.value)} />
               <input style={{ flex: 1, minWidth: 180 }} placeholder="图片 URL(必填)" value={bannerUrl} onChange={(e) => setBannerUrl(e.target.value)} />
               <input style={{ flex: 1, minWidth: 180 }} placeholder="跳转链接(可选)" value={bannerLink} onChange={(e) => setBannerLink(e.target.value)} />
               <button className="button primary" disabled={busy || !bannerUrl.trim()} onClick={async () => {
                 setBusy(true)
                 try {
-                  await api.post("/admin/site/banners", { image_url: bannerUrl.trim(), link_url: bannerLink.trim() || null, title: "", sort_order: 0, enabled: true })
-                  setBannerUrl(""); setBannerLink(""); setMsg("✓ 已创建"); reload()
+                  await api.post("/admin/site/banners", { image_url: bannerUrl.trim(), link_url: bannerLink.trim() || null, title: bannerTitle.trim(), sort_order: 0, enabled: true })
+                  setBannerTitle(""); setBannerUrl(""); setBannerLink(""); setMsg("✓ 已创建"); reload()
                 } catch (e) { setMsg(apiErrorMessage(e)) }
                 finally { setBusy(false) }
               }}>创建横幅</button>
@@ -111,7 +113,7 @@ export default function SitePanel() {
       {!active.loading && !active.error && tab === "announcements" && (
         <section className="wide-section">
           <article className="panel">
-            <span className="panel-kicker">CREATE ANNOUNCEMENT</span>
+            <span className="panel-kicker">创建公告</span>
             <div className="drawer-form" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <input style={{ flex: 1, minWidth: 160 }} placeholder="标题" value={annTitle} onChange={(e) => setAnnTitle(e.target.value)} />
               <input style={{ flex: 2, minWidth: 240 }} placeholder="公告内容(必填)" value={annContent} onChange={(e) => setAnnContent(e.target.value)} />

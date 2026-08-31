@@ -134,11 +134,12 @@ echo "$VERSION" > "$VERSION_FILE"
 log "✅ 新版本文件就位 v${VERSION}"
 
 # ── 5.5 WebUI 前端校验(v0.41: 部署包含 webui/dist, compose 挂载到容器 /app/webui/dist) ──
+# v0.62.2: webui 已随 worker 镜像内建(worker/Dockerfile webui-builder 阶段),
+# 部署包内 webui/dist 仅作旁路校验, 缺失不影响(镜像会从 webui 源码重建)。
 if [ -f "$ROOT_DIR/webui/dist/index.html" ]; then
-  log "✅ WebUI 前端产物就位: webui/dist/index.html"
+  log "✅ WebUI 部署包产物存在(镜像内建, 宿主 dist 不再挂载)"
 else
-  warn "⚠️ 部署包缺少 webui/dist/index.html —— WebUI 将不挂载(worker 正常启动, 访问 /app/ 返回 API 而非前端)"
-  warn "   修复: 确认 tag 构建时 cd.yml cos-deploy 执行了 npm run build(产出 webui/dist) 再发版"
+  log "ℹ️  部署包无 webui/dist —— 镜像将从 webui 源码内建, 无需宿主 dist"
 fi
 
 # ── 6. 优雅重建(compose 已配 stop_grace_period: 5m) ──
