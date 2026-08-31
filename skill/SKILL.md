@@ -1,6 +1,6 @@
 ---
 name: pounding-ozon-probe
-version: "0.62.2"
+version: "0.62.3"
 agent_created: true
 compatibility: Requires Python >=3.12, Google Chrome (auto-launched via CDP), network access to 1688/Ozon/Worker
 license: Proprietary

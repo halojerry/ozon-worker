@@ -93,12 +93,12 @@ def test_aggregate_and_prune(data, monkeypatch):
             "active_discount_count, profit_rate, profit_amount "
             "FROM store_daily_metrics WHERE tenant_id=:t AND credential_id=:c"
         ), {"t": tenant, "c": cred}).fetchone()
-    assert int(row[0]) == 5                 # 3+2
-    assert float(row[1]) == 500.0           # 300+200
-    assert int(row[2]) == 5 and int(row[3]) == 1
-    assert int(row[4]) == 2
-    assert float(row[5]) == 0.25            # AVG(0.25)
-    assert float(row[6]) == 50.0            # 订单 real_profit 聚合
+    assert int(row[0] or 0) == 5            # 3+2
+    assert float(row[1] or 0) == 500.0      # 300+200
+    assert int(row[2] or 0) == 5 and int(row[3] or 0) == 1
+    assert int(row[4] or 0) == 2
+    assert float(row[5] or 0) == 0.25       # AVG(0.25)
+    assert float(row[6] or 0) == 50.0       # 订单 real_profit 聚合
     # prune:40 天前快照/job 删除,200 天前订单删除
     monkeypatch.setattr(ma, "METRICS_RETENTION_DAYS", 30)
     monkeypatch.setattr(ma, "JOB_RETENTION_DAYS", 30)

@@ -20,6 +20,16 @@ PG 不可达时 skip（对齐 test_store_metrics_sync）。PG 可用时断言真
 from __future__ import annotations
 
 import datetime
+
+
+def _utc_isodate(s: str):
+    """归一化 ISO 时间戳到 UTC 精确到秒，兼容 +00:00 / +08:00 两种返回。"""
+    try:
+        return datetime.datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(
+            datetime.timezone.utc
+        )
+    except Exception:
+        return s
 import json
 import os
 import sys
@@ -196,7 +206,9 @@ def test_analysis_returns_structure(engine):
 
     # profit_trend 从历史读（2 条透传）
     assert len(result["profit_trend"]) == 2
-    assert result["profit_trend"][0]["snapshot_at"] == "2026-08-20T00:00:00+00:00"
+    assert _utc_isodate(result["profit_trend"][0]["snapshot_at"]) == datetime.datetime(
+        2026, 8, 20, tzinfo=datetime.timezone.utc
+    )
     assert result["profit_trend"][0]["sales_amount"] == 500.0
     assert result["profit_trend"][0]["profit_rate"] == 0.12
     assert result["profit_trend"][1]["profit_rate"] == 0.15
@@ -248,8 +260,9 @@ def test_profit_trend_from_history(engine):
     assert len(trend) == 2
     assert [t["sales_amount"] for t in trend] == [100.0, 150.0]
     assert [t["profit_rate"] for t in trend] == [0.10, 0.20]
-    assert [t["snapshot_at"] for t in trend] == [
-        "2026-08-18T00:00:00+00:00", "2026-08-19T00:00:00+00:00",
+    assert [_utc_isodate(t["snapshot_at"]) for t in trend] == [
+        datetime.datetime(2026, 8, 18, tzinfo=datetime.timezone.utc),
+        datetime.datetime(2026, 8, 19, tzinfo=datetime.timezone.utc),
     ]
 
 

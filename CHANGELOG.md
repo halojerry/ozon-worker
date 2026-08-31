@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.62.3] - 2026-09-01
+
+> 服务器侧核查清单（v0.62.2 审计）剩余「仍需上游处理」项：apt 源、测试数据冲突、
+> 构建上下文/残留页面核实。
+
+### Build — apt 源切换阿里云（P2-2）
+
+- `worker/Dockerfile` builder + runtime 两阶段 `apt-get` 前添加
+  `sed` 将 `deb.debian.org` / `security.debian.org` → `mirrors.aliyun.com`，
+  消除国内构建 apt 极慢问题（此前仅服务器侧打补丁）。
+
+### Build — 构建上下文确认（P2-1）
+
+- `deploy/docker-compose.yml` 的 `worker.build` 已为 `context: ..` + `dockerfile: worker/Dockerfile`，
+  CI（ci.yml docker-build / cd.yml deploy）均 `context: .`——多阶段镜像上下文无需再改。
+
+### Test — 非隔离库守卫 + 生产数据冲突（P2-3）
+
+- `worker/tests/conftest.py` 新增 `_HAS_GLOBAL_DATA`（collection 前探测 `ozon_bestsellers`/
+  `blue_ocean_queries` 是否有全局数据）+ `pytest_collection_modifyitems`：非隔离库（如直接对
+  生产库跑 pytest）时，全局表数据依赖用例（analytics/dashboard/queries）跳过并提示
+  「请用 scripts/test-docker.sh 的隔离库」，避免 11 个假失败。
+- `test_metrics_aggregation` 数值断言 None 容错（`int(row[k] or 0)`）；
+  `test_store_analysis` 时区断言改为 UTC 归一化（兼容 +08:00 服务器时区）。
+- 隔离测试库（scripts/test-docker.sh）全量 **1514 passed**（P2-3 的 11 条失败源于
+  误在生产库跑 pytest，隔离库本就全绿）。
+
+### WebUI — New API 残留核实（P2-4）
+
+- 核实 `webui/src/features` 不存在、src 无 New API 残留导航/组件（v0.57 已删除）。
+  v0.62.2 起 webui 在 Docker 内从干净 src 重建，旧 dist 残留随之消失；报告该条为旧 dist 观察。
+
+### 说明 — P2-5（业务级）
+
+- Ozon 属性 Schema 类目对全无效（`assemble_ozon_product_node` 属性 400）阻断上架：
+  v0.62.1 已做 400 噪音聚合 + 候选预校验，本批不改变类目匹配算法（业务级，后续单独处理）。
+
 ## [0.62.2] - 2026-09-01
 
 > WebUI 生产镜像自包含 + 客户/管理员边界/租户隔离 + 鉴权权威化 + MXOU 真实余额修复。

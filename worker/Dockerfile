@@ -14,7 +14,11 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 国内提速：apt 源切阿里云（deb.debian.org / security.debian.org → mirrors.aliyun.com）
+RUN sed -i -e 's|deb.debian.org|mirrors.aliyun.com|g' \
+      -e 's|security.debian.org|mirrors.aliyun.com|g' \
+      /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list 2>/dev/null || true \
+    && apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -31,7 +35,11 @@ FROM python:3.12-slim AS runtime
 WORKDIR /app
 
 # 运行期依赖(编译工具链全部留在 builder)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 国内提速：apt 源切阿里云
+RUN sed -i -e 's|deb.debian.org|mirrors.aliyun.com|g' \
+      -e 's|security.debian.org|mirrors.aliyun.com|g' \
+      /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list 2>/dev/null || true \
+    && apt-get update && apt-get install -y --no-install-recommends \
     libpq5 curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
