@@ -56,7 +56,10 @@ def _make_state(extensions=None, product_id=None, draft_extra=None):
 
 
 def _run(state):
-    with patch("graphs.nodes.prepare_ozon_upload_node._translate_to_russian_llm",
+    # v0.63.1: MXOU 401/403 已 fatal（全链路），这些用例不关心 LLM 结果，
+    # 必须 mock 掉 chat 调用（返回空 → 走正则/兜底路径），不能靠吞异常隐式通过。
+    with patch("utils.mxou_api.call_mxou_chat_api", return_value=""), \
+         patch("graphs.nodes.prepare_ozon_upload_node._translate_to_russian_llm",
                return_value="Тестовый товар для кошек"), \
          patch("graphs.nodes.prepare_ozon_upload_node._get_category_fallback_title",
                return_value="Товар для дома"):

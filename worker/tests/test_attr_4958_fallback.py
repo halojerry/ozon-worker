@@ -67,7 +67,10 @@ def _run(draft, search_hits=None):
             return [{"id": 33754, "value": "猫咪用品"}]
         return []
 
-    with mock.patch("graphs.nodes.prepare_ozon_upload_node._translate_to_russian_llm",
+    # v0.63.1: MXOU 401/403 已 fatal（全链路）——用例不关心 LLM 结果，
+    # 必须 mock 掉 chat 调用（返回空 → 走正则/兜底路径），不能靠吞异常隐式通过。
+    with mock.patch("utils.mxou_api.call_mxou_chat_api", return_value=""), \
+         mock.patch("graphs.nodes.prepare_ozon_upload_node._translate_to_russian_llm",
                     side_effect=lambda *a, **k: "Тест"), \
          mock.patch("graphs.nodes.prepare_ozon_upload_node._get_category_fallback_title",
                     return_value="Товар для животных"), \
@@ -109,12 +112,13 @@ def test_4958_search_terms_include_cat_double():
         final_attributes=[], attributes_schema=_SCHEMA,
         dictionary_values={}, token="sk", original_images=_draft()["images"],
     )
-    with mock.patch("graphs.nodes.prepare_ozon_upload_node._translate_to_russian_llm",
-                    side_effect=lambda *a, **k: "Тест"), \
-         mock.patch("graphs.nodes.prepare_ozon_upload_node._get_category_fallback_title",
-                    return_value="Товар"), \
-         mock.patch("utils.ozon_dict_values.search_dictionary_values",
-                    side_effect=fake_search):
+    with mock.patch("utils.mxou_api.call_mxou_chat_api", return_value=""), \
+            mock.patch("graphs.nodes.prepare_ozon_upload_node._translate_to_russian_llm",
+                       side_effect=lambda *a, **k: "Тест"), \
+            mock.patch("graphs.nodes.prepare_ozon_upload_node._get_category_fallback_title",
+                       return_value="Товар"), \
+            mock.patch("utils.ozon_dict_values.search_dictionary_values",
+                       side_effect=fake_search):
         prepare_ozon_upload_node(state, None, None)
     assert "猫咪" in calls, f"搜索词链应含'猫咪'，实际: {calls}"
     assert "猫狗通用" in calls  # 原值优先

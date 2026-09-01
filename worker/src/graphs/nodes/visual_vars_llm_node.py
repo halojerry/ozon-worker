@@ -24,7 +24,7 @@ from runtime.context import Context
 from graphs.state import VisualVarsInput, VisualVarsOutput
 from utils.color_preset import get_preset_colors, resolve_color_preset
 from utils.progress_logger import ProgressLogger
-from utils.mxou_llm import call_mxou_chat_api
+from utils.mxou_llm import call_mxou_chat_api, MxouOutOfQuotaError  # v0.63.1: mxou_llm re-export
 from utils.mxou_api import clean_title_for_image_prompt
 from utils.prompt_assembler import _resolve_category_for_prompt, extract_visual_vars_from_draft
 
@@ -324,6 +324,8 @@ def visual_vars_llm_node(state: VisualVarsInput, config: RunnableConfig, runtime
         )
         if content and content.strip():
             parsed = _parse_visual_vars(content)
+    except MxouOutOfQuotaError:
+        raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不回退确定性提取
     except Exception as e:
         progress.log_node_error(f"LLM 调用失败: {e}", "回退 extract_visual_vars_from_draft + 品类默认")
 

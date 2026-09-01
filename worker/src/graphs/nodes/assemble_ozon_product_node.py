@@ -32,7 +32,7 @@ from langgraph.runtime import Runtime
 from storage.database.db import get_session
 
 from graphs.state import GlobalState
-from utils.mxou_llm import call_mxou_chat_api
+from utils.mxou_llm import call_mxou_chat_api, MxouOutOfQuotaError  # v0.63.1: mxou_llm re-export
 from utils.progress_logger import ProgressLogger
 from utils.ozon_category_query import get_category_query, OzonCategoryQuery
 from utils.http_session import session
@@ -1902,6 +1902,8 @@ def _llm_match_category(
     except json.JSONDecodeError as e:
         logger.error(f"LLM 类目匹配 JSON 解析失败: {e}, raw={resp[:200]}")
         return None
+    except MxouOutOfQuotaError:
+        raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不降级到下一匹配层
     except Exception as e:
         logger.error(f"LLM 类目匹配异常: {e}")
         return None
@@ -3027,6 +3029,8 @@ def _llm_rank_categories(
         suggest = str(parsed.get("suggest_keywords", "") or "").strip()
         if suggest:
             return {"suggest_keywords": suggest, "_llm_suggest": True}
+    except MxouOutOfQuotaError:
+        raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不降级到下一匹配层
     except Exception as e:
         logger.warning("LLM category ranking failed: %s", e)
     return None

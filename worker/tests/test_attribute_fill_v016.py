@@ -226,7 +226,8 @@ def test_prepare_russian_required_translation_failure_skipped():
     def fake_translate_latin(text, token, source_lang="auto", text_type="description"):
         return "LatinOnlyText"
 
-    with patch("graphs.nodes.prepare_ozon_upload_node._translate_to_russian_llm",
+    with patch("utils.mxou_api.call_mxou_chat_api", return_value=""), \
+         patch("graphs.nodes.prepare_ozon_upload_node._translate_to_russian_llm",
                side_effect=fake_translate_latin), \
          patch("graphs.nodes.prepare_ozon_upload_node._get_category_fallback_title", return_value="Товар для дома"):
         output = prepare_ozon_upload_node(state, None, None)
@@ -265,7 +266,8 @@ def test_prepare_sku_chinese_translated():
     def fake_translate_ru(text, token, source_lang="auto", text_type="description"):
         return "SKU-Тест123"  # 俄语成功
 
-    with patch("graphs.nodes.prepare_ozon_upload_node._translate_to_russian_llm",
+    with patch("utils.mxou_api.call_mxou_chat_api", return_value=""), \
+         patch("graphs.nodes.prepare_ozon_upload_node._translate_to_russian_llm",
                side_effect=fake_translate_ru), \
          patch("graphs.nodes.prepare_ozon_upload_node._get_category_fallback_title", return_value="Товар для дома"):
         output = prepare_ozon_upload_node(state, None, None)

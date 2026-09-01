@@ -364,7 +364,7 @@ def _translate_to_russian(text: str, token: str = "") -> str:
     if not text or not token:
         return ""
     try:
-        from utils.mxou_api import call_mxou_chat_api
+        from utils.mxou_api import call_mxou_chat_api, MxouOutOfQuotaError  # v0.63.1
         prompt = f"Переведи название категории товара на русский язык. Верни ТОЛЬКО перевод, без пояснений: {text}"
         result = call_mxou_chat_api(
             token=token,
@@ -375,6 +375,8 @@ def _translate_to_russian(text: str, token: str = "") -> str:
         )
         if result and len(result.strip()) > 2:
             return result.strip()
+    except MxouOutOfQuotaError:
+        raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不回退原文类目
     except Exception as e:
         logger.warning("LLM 翻译类目失败: %s", e)
     return ""

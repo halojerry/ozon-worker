@@ -11,7 +11,7 @@ from runtime.context import Context
 from graphs.state_image_gen import SocialProofInput, SocialProofOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
-from utils.mxou_api import MxouContentViolationError  # v0.62 R4
+from utils.mxou_api import MxouContentViolationError, MxouOutOfQuotaError  # v0.62 R4 / v0.63.1
 from utils.mxou_api import clean_title_for_image_prompt
 from utils.prompt_assembler import assemble_prompt, merge_visual_vars  # ✅ v0.31: 视觉变量注入（Wave 2: LLM + 确定性合并）
 from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色预设路由
@@ -110,6 +110,8 @@ def social_proof_gen_node(state: SocialProofInput, config: RunnableConfig, runti
                 )
             except MxouContentViolationError:
                 raise  # v0.62 R4: 内容违规不降级
+            except MxouOutOfQuotaError:
+                raise  # v0.63.1: 余额/鉴权/额度永久错误 → 不尝试降级模型
             except Exception as _fb_exc:
                 logger.error(f"social_proof 降级生成失败({_fb_model}): {_fb_exc}")
                 image_url = None
@@ -124,6 +126,8 @@ def social_proof_gen_node(state: SocialProofInput, config: RunnableConfig, runti
         return SocialProofOutput(social_proof_image=None)
     except MxouContentViolationError:
         raise  # v0.62 R4: 内容违规 → 任务明确失败
+    except MxouOutOfQuotaError:
+        raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不降级不 E1 兜底
     except Exception as e:
         logger.error(f"Social proof image generation failed: {str(e)}")
         return SocialProofOutput(social_proof_image=None)
