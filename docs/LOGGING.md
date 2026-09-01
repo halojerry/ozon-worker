@@ -306,6 +306,37 @@ SENTRY_TRACES_SAMPLE_RATE=0.1
 - LangGraph 任务执行异常与超时（`task_processor.py` 异常分支 `capture_task_error`）
 - ERROR 级日志自动捕获（sentry-sdk logging 集成；测试进程自动跳过，避免测试噪音）
 
+### 噪音指纹登记表（已修复问题——勿重复报告）
+
+已修复/已聚合的 Sentry 噪音统一登记在 `utils/sentry_setup.py` 模块 docstring 与本表
+（双登记）。**新增噪音聚合必须：改 `_before_send` → 两处登记表同步更新 → 补
+`worker/tests/test_sentry_noise.py` 用例锁定**。
+
+| fingerprint | 版本 | 命中特征 | 聚合行为 |
+|---|---|---|---|
+| language-noise-validation | v0.32 | 语言检查 logger.error（中文/拉丁特征）| 单一 fingerprint + level warning + trace_id |
+| mxou-permanent-error | v0.63.1 | MxouOutOfQuotaError/MxouContentViolationError 或消息含 `OUT_OF_QUOTA:`/`内容违规` | 单一 fingerprint + level warning（保留 token 指纹 user tag）|
+
+### 已处理 issue 标记流程（发版后执行）
+
+发版修复 Sentry 问题后，按登记表把后台 unresolved issue 标记为已处理，防止后续排障
+把「已修/已知噪音」当新问题：
+
+```bash
+# 1. 列出待处理 issue（本机新版 CLI `sentry` 0.41.0）
+sentry issue list --query "is:unresolved" --limit 50 --json \
+  --fields shortId,title,count,status
+
+# 2. 分类处理：
+#    a) 代码已修、不再产生的事件 → resolve（新事件会自动重开，天然校验修复是否生效）
+sentry issue resolve <PROJECT-短ID>
+#    b) 已知噪音、已聚合仍会产生 → archive（ignore，新事件不重开，不刷告警）
+sentry issue archive <PROJECT-短ID>
+```
+
+⚠️ Sentry 是共享监控系统，resolve/archive 影响团队视角——批量操作前先 `sentry issue list`
+人工核对短 ID 与登记表修复点对应，确认后再执行。
+
 验证：
 ```bash
 docker compose exec worker python -c "from utils.sentry_setup import init_sentry; print(init_sentry())"
