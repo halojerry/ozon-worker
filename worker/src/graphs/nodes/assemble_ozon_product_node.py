@@ -152,6 +152,64 @@ def _l0_consistent(l0_hit: dict | None, candidates: list, top_n: int = 5) -> boo
     )
 
 
+# ── v0.62.4: 汽车/摩托 类目领域消歧 ─────────────────────────────
+# 根因（Sentry /prod 实证 POUDING_OZON-E4 等）: 中文类目树把「汽车轮毂」译成
+# 「轮辋/车轮总成」，只有「摩托车轮毂」字面含「轮毂」。按 1688 末级「轮毂」做 jieba
+# 搜索 + overlap 验证时，「汽车」上下文被 source_keywords 吸收丢弃 → 错配成摩托车轮毂，
+# 下游 7387/7389/12882 必填属性缺失 → 任务反复失败。此函数在候选进入选择前做
+# 领域判别：产品明确含「汽车/乘用车」信号且不含「摩托」→ 剔除「摩托车」子树；
+# 反之（明确摩托且无汽车信号）→ 剔除「乘用车/轿车/轮辋/车轮总成」only 子树。
+# 双信号或全无 → 不判别（避免误伤）；剔除后为空 → 维持原样兜底。
+# ────────────────────────────────────────────────────────────────
+_CAR_STRONG_KEYWORDS = ("汽车", "乘用车", "轿车", "小轿车", "автомоб", "легков")
+_MOTO_KEYWORDS = ("摩托", "机车", "电摩", "摩托车", "мотоцик", "скутер", "мопед")
+_MOTO_SUBTREE_MARKERS = ("摩托车", "мотоцикл", "мото")
+# 汽车专属（摩托子树不含）标记：用于「明确摩托」时剔除汽车-only 子树
+_CAR_ONLY_MARKERS = ("乘用", "轿车", "车轮总成", "轮辋", "汽车轮胎", "легков", "автомобиль", "шин")
+
+
+def _apply_vehicle_disambiguation(candidates: list, signal_text: str) -> list:
+    """汽车/摩托 候选领域消歧（纯函数，可单测）。
+
+    Args:
+        candidates: 已 merge/leaf-bonus 的候选类目列表。
+        signal_text: 判别信号文本（调用方拼 title + source_category + source_keywords + keywords）。
+
+    Returns:
+        过滤后的候选列表；信号不明确或剔除后为空则原样返回。
+    """
+    if not candidates or not signal_text:
+        return candidates
+    low = signal_text.lower()
+    has_car = any(k in low for k in _CAR_STRONG_KEYWORDS)
+    has_moto = any(k in low for k in _MOTO_KEYWORDS)
+    # 双信号或全无 → 不做领域判别，保持原逻辑
+    if has_car == has_moto:
+        return candidates
+
+    kept: list = []
+    dropped: list = []
+    for c in candidates:
+        path = f"{c.get('node_name', '')} {c.get('full_path', '')}".lower()
+        is_moto_subtree = any(m in path for m in _MOTO_SUBTREE_MARKERS)
+        if has_car:
+            # 明确是汽车 → 剔除摩托车子树（摩托车轮毂/摩托车轮辋/摩托车零件等）
+            (dropped if is_moto_subtree else kept).append(c)
+        else:
+            # 明确是摩托 → 剔除汽车专属子树；但保留含摩托标记的候选
+            is_car_only = any(m in path for m in _CAR_ONLY_MARKERS)
+            (dropped if (is_car_only and not is_moto_subtree) else kept).append(c)
+
+    if kept and dropped:
+        logger.info(
+            f"🔤 汽车/摩托消歧: 剔除 {len(dropped)} 个"
+            f"{'摩托' if has_car else '汽车'}-子树候选, 保留 {len(kept)} 个"
+        )
+        return kept
+    # 全部被剔除（缺乏可信候选）或未剔除 → 维持原候选，避免空候选硬阻断
+    return candidates
+
+
 # ── v0.31.x: 类目匹配最低接受门槛（三路搜索 similarity 语义不同，不能共用数值门槛）──
 # - jieba (ZH_HANS): similarity = 匹配token数 / 总token数 → 0.5
 # - pg_trgm (RU): similarity = func.similarity 0-1 实数 → 0.3
@@ -409,14 +467,16 @@ def _assemble_follow_sell(
 
 
 def _resolve_skill_category(draft_ozon_cat: dict) -> dict | None:
-    """v0.27 方案B: 校验 Skill 传入的直采类目(Seller 空间)是否在树中有效。
+    """v0.27 方案B (v0.63 升级): 校验 Skill 传入的直采类目是否在树中有效。
 
     直采信封若带 draft.ozon_category(search_categories / poll_category=True 解析),
-    dc+tp 组合在 category_tree_nodes 存在即返回 l0_hit 结构(供 assemble 跳过 pg_trgm);
+    - v0.63 确定性优先：有 category_path → get_node_by_full_path 精配（尤其 widget 命名空间）；
+    - 无路径 → dc+tp 在 category_tree_nodes 存在即返回 l0_hit 结构(供 assemble 跳过 pg_trgm)；
     品牌页 ID / 错配 / 文本值 → None(退回 pg_trgm 猜)。
 
     Returns:
-        {"description_category_id", "type_id", "full_path", ...} 或 None
+        {"description_category_id", "type_id", "full_path", "namespace", "source",
+         "_resolved_by_path", ...} 或 None
     """
     if not draft_ozon_cat or not draft_ozon_cat.get("description_category_id"):
         return None
@@ -424,7 +484,31 @@ def _resolve_skill_category(draft_ozon_cat: dict) -> dict | None:
     _tp_s = str(draft_ozon_cat.get("type_id", _dc_s))
     if not (_dc_s.isdigit() and _tp_s.isdigit()):
         return None
+    _namespace = str(draft_ozon_cat.get("namespace", "")).strip()
+    _source = str(draft_ozon_cat.get("source", "")).strip() or "search_kw"
+    _cat_path = str(draft_ozon_cat.get("category_path", "")).strip()
     try:
+        from utils.ozon_category_query import get_category_query
+        query = get_category_query()
+        # v0.63 ① 路径精配优先（widget 命名空间数字 ID 直查易错/易跨命名空间）
+        if _cat_path:
+            _node = query.get_node_by_full_path(_cat_path)
+            if _node:
+                logger.info(f"✅ 直采类目路径精配(确定性): '{_cat_path[:60]}' → "
+                            f"[{_node['description_category_id']}/{_node['type_id']}]")
+                return {
+                    "description_category_id": int(_node["description_category_id"]),
+                    "type_id": int(_node["type_id"]),
+                    "full_path": _node.get("full_path", ""),
+                    "node_name": _node.get("node_name", ""),
+                    "similarity": 1.0,
+                    "confidence": 0.95,
+                    "reason": f"skill_path_resolve:{_source}",
+                    "namespace": _namespace,
+                    "source": _source,
+                    "_resolved_by_path": True,
+                }
+        # v0.63 ② 数字 dc+type 树中有效 → 采用（标记 namespace，供 assemble 分级）
         from sqlalchemy import text as _sql_t0
         with get_session() as _s0:
             _row0 = _s0.execute(_sql_t0(
@@ -441,7 +525,10 @@ def _resolve_skill_category(draft_ozon_cat: dict) -> dict | None:
             "node_name": "",
             "similarity": 1.0,
             "confidence": 0.95,
-            "reason": "skill_search_categories",
+            "reason": f"skill_search_categories:{_source}",
+            "namespace": _namespace,
+            "source": _source,
+            "_resolved_by_path": False,
         }
     except Exception as _e0:
         logger.warning(f"直采 Skill 类目校验异常(退回 pg_trgm): {_e0}")
@@ -744,6 +831,15 @@ def assemble_ozon_product_node(
     # 否则指纹重排会把刚加的权重覆盖掉（折叠椅→户外折叠椅配件 被 多功能折叠工具 顶掉）
     candidates = _apply_leaf_bonus(candidates, leaf_name, _load_category_synonyms())
 
+    # ✅ v0.62.4: 汽车/摩托 领域消歧（在候选选择前，保证 L0 一致性检查与 best=candidates[0]
+    # 都在受控候选集上进行；亦让 L0 学习表中被污染的 '轮毂→摩托车轮毂' 因 top-5 无该候选
+    # 而被 _l0_consistent 拦截，避免静默固化错配）
+    _vehicle_signal = f"{title} {source_category} {source_keywords} {keywords}"
+    _before = len(candidates)
+    candidates = _apply_vehicle_disambiguation(candidates, _vehicle_signal)
+    if len(candidates) != _before:
+        logger.info(f"   🔤 汽车/摩托领域消歧: {_before} → {len(candidates)} 候选")
+
     # ✅ v5: 初始化匹配质量标记
     match_layer = "L1"       # pg_trgm / jieba LIKE
     match_confidence = 0.5   # 默认中等置信度
@@ -753,12 +849,28 @@ def assemble_ozon_product_node(
         query, source_category, source_keywords, keywords, candidates, leaf_name,
         source_category_id=draft.get("source_category_id"),
     ) if source_category else None
-    # ✅ v0.27: Skill 类目优先(直采) — 校验通过则直接采用, 不走学习表/一致性检查
-    if not l0_hit and _skill_l0_hit:
+    # ✅ v0.63: Skill 类目来源信任分级 —
+    #   仅 page/mapping/what_to_sell 为权威（免门槛、跳过一致性）；
+    #   search_kw（Skill search_categories 关键词模糊）降为普通候选，必须过门槛+一致性。
+    _skill_source = str((draft_ozon_cat or {}).get("source", "")).strip() or "search_kw"
+    _skill_namespace = str((draft_ozon_cat or {}).get("namespace", "")).strip()
+    _skill_authoritative = _skill_source in ("page", "mapping", "what_to_sell")
+    # v0.63 widget 命名空间：数字 ID 可能是顾客空间，仅当路径精配成功才视权威
+    if _skill_namespace == "widget" and not (_skill_l0_hit or {}).get("_resolved_by_path"):
+        _skill_authoritative = False
+    if not l0_hit and _skill_l0_hit and _skill_authoritative:
         l0_hit = _skill_l0_hit
         match_layer = "Skill"
         match_confidence = 0.95
-        logger.info(f"   ✅ Skill类目覆盖: [{l0_hit['description_category_id']}/{l0_hit['type_id']}]")
+        logger.info(
+            f"   ✅ Skill类目覆盖(权威 source={_skill_source} namespace={_skill_namespace}): "
+            f"[{l0_hit['description_category_id']}/{l0_hit['type_id']}]"
+        )
+    elif not l0_hit and _skill_l0_hit:
+        logger.info(
+            f"   ⚠️ Skill类目 source={_skill_source} namespace={_skill_namespace} 非权威，降为普通候选过门槛: "
+            f"[{_skill_l0_hit['description_category_id']}/{_skill_l0_hit['type_id']}]"
+        )
 
     # ✅ v0.21: L0 映射必须与 L1 高分候选一致，否则忽略（防旧脏数据固化错类目）
     # ⚠️ v0.57 修复: Skill 直采类目（match_layer=="Skill"）跳过一致性检查——

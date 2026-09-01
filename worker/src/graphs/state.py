@@ -156,6 +156,29 @@ class GraphInput(BaseModel):
     # 所有用户数据统一存储到平台的Supabase实例，通过环境变量配置（SUPABASE_URL和SUPABASE_KEY）
 
 
+# ── v0.63: 信封类目契约（类型化，供 skill↔worker 字段对齐/校验）──
+# envelope.draft 仍为自由 dict（向后兼容），这两个模型定义「draft.ozon_category」与
+# 「source_category_*」的契约字段。核心：source 提供方分级 + namespace 命名空间。
+class EnvelopeOzonCategory(BaseModel):
+    """draft.ozon_category 契约（Ozon 链接类目，来自页面/wohat_to_sell/search_categories）。"""
+    source: str = Field(default="search_kw", description="page|mapping|what_to_sell|search_kw")
+    namespace: str = Field(default="seller", description="seller|widget|1688")
+    lang: str = Field(default="", description="面包屑语言 ZH_HANS|RU")
+    category_path: str = Field(default="", description="完整类目路径（主判据）")
+    category1: str = Field(default="")
+    category2: str = Field(default="")
+    category3: str = Field(default="")
+    description_category_id: str = Field(default="", description="顾客/Seller 命名空间 ID，非主判据")
+    type_id: str = Field(default="")
+
+
+class EnvelopeSourceCategory(BaseModel):
+    """draft source_category_* 契约（1688 来源类目）。"""
+    id: str = Field(default="", description="1688 叶子类目数字 ID（AK cateId）")
+    path: str = Field(default="", description="1688 完整类目路径")
+    leaf: str = Field(default="", description="1688 末级类目词")
+
+
 class GraphOutput(BaseModel):
     """工作流输出 - 返回给用户的结果"""
     task_id: str = Field(..., description="任务ID")

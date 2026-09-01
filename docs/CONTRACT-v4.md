@@ -109,6 +109,28 @@
 | `timeout_seconds` | int | ❌ | 1800 | 300-7200 |
 | `max_retries` | int | ❌ | 3 | 0-10 |
 
+#### 1.1.2b 类目契约（v0.63）
+
+`envelope.draft` 仍是自由 dict（向后兼容），但以下 `ozon_category` / `source_category_*`
+字段为 **Skill↔Worker 类目契约**，两端都必须遵守（`test_envelope_contract.py` 门禁）。
+
+| 字段 | 生产者(Skill) | 消费者(Worker) | 必填 | 来源/说明 |
+|------|--------------|----------------|------|-----------|
+| `draft.ozon_category.category_path` | ozon_scraper 页面面包屑 / follow_sell_cloud | `follow_sell_import_node._resolve_category_by_id`、`get_node_by_full_path` | Ozon链接 | 完整路径，**主判据** |
+| `draft.ozon_category.source` | cloud_probe | `assemble_ozon_product_node`（_skill_source） | Ozon链接 | `page\|mapping\|what_to_sell\|search_kw`；仅前3者为权威，`search_kw` 降候选 |
+| `draft.ozon_category.namespace` | cloud_probe | assemble（source 分级消费） | Ozon链接 | `seller\|widget\|1688`，防跨命名空间比较 ID |
+| `draft.ozon_category.description_category_id` | ozon_scraper / search_categories | follow_sell_import_node / _resolve_skill_category | Ozon链接 | 数字 ID，**非主判据**（可能顾客命名空间） |
+| `draft.ozon_category.type_id` | 同上 | 同上 | ❌ | 类型 ID（历史占位，v0.63 起以路径解析为准） |
+| `draft.source_category_id` | AK1688 `cateId`（`_extract_source_category_id`） | `assemble_ozon_product_node._match_category_layered`（L0 直查） | 1688链接 | 1688 叶子类目数字 ID，**主键** |
+| `draft.source_category_path` | AK1688 `categories`（cloud_probe 拼路径） | assemble（source_category/source_keywords） | ❌ | 1688 完整路径，语义精配 |
+| `draft.source_category` | cloud_probe | assemble（旧兼容） | ❌ | 1688 路径文本（旧字段） |
+
+**Worker 确定性解析优先级**：
+- Ozon 链接：`ozon_category.category_path` → `get_node_by_full_path` 精配 →（失败）数字 ID + 唯一 type →（失败阻断/人工）。**不做单叶字模糊。**
+- 1688 链接：`source_category_id` → `category_mapping` 直查（curated+learned）→ `source_category_path` 语义精配 →（最后）标题+属性 LLM（候选预校验+一致性）。
+
+**来源信任**：仅 `source in {page, mapping, what_to_sell}` 视为权威（`match_layer="Skill"`，免门槛）；`search_kw` 一律降为候选，必须过 `_acceptable_match` + 一致性。
+
 #### 1.1.3 执行逻辑
 
 ```
