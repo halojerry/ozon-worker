@@ -99,13 +99,36 @@ rollback() {
   # 停止当前容器
   cd "$SCRIPT_DIR"
   docker compose down 2>/dev/null || true
-  # 恢复备份
+  # 恢复备份（v0.63.1 D2: 含 webui/ —— v0.62.2 起镜像内建前端, 只回 worker
+  # 会旧 worker + 新前端版本错配; 前端源码一并回滚）
   [ -d "$_bk/worker" ] && rm -rf "$ROOT_DIR/worker" && cp -a "$_bk/worker" "$ROOT_DIR/worker"
+  [ -d "$_bk/webui" ] && rm -rf "$ROOT_DIR/webui" && cp -a "$_bk/webui" "$ROOT_DIR/webui"
   [ -f "$_bk/deploy/deploy.tar.gz" ] && tar -xzf "$_bk/deploy/deploy.tar.gz" -C "$ROOT_DIR"
   [ -f "$_bk/VERSION" ] && cp -a "$_bk/VERSION" "$VERSION_FILE" || echo "" > "$VERSION_FILE"
-  # 重建启动
-  docker compose build --no-cache >/dev/null 2>&1 || true
-  docker compose up -d >/dev/null 2>&1 || warn "回滚后启动失败, 请手动 docker compose up -d"
+  # 重建启动（v0.63.1 D2: build 失败不再 || true 吞掉——保留现场供诊断,
+  # 避免回滚后半死状态）
+  if ! docker compose build --no-cache >/dev/null 2>&1; then
+    warn "回滚 build 失败, 请手动介入: cd $SCRIPT_DIR && docker compose build --no-cache"
+    return 1
+  fi
+  if ! docker compose up -d >/dev/null 2>&1; then
+    warn "回滚启动失败, 请手动 docker compose up -d"
+    return 1
+  fi
+  # v0.63.1 D2: 回滚后健康检查（复用升级流程的 curl 循环）
+  local _h_ok=0
+  for _i in $(seq 1 30); do
+    if curl -fsS --max-time 3 "http://localhost:8080/api/v1/health" >/dev/null 2>&1; then
+      _h_ok=1
+      break
+    fi
+    sleep 2
+  done
+  if [ "$_h_ok" -ne 1 ]; then
+    warn "回滚后健康检查失败(60s), 请手动检查容器状态"
+  else
+    warn "✅ 回滚后健康检查通过"
+  fi
   warn "已回滚到 v$(cat "$VERSION_FILE" 2>/dev/null || echo unknown)"
 }
 
@@ -116,6 +139,10 @@ mkdir -p "$BACKUP_PATH"
 log "备份当前版本 → $BACKUP_PATH"
 if [ -d "$ROOT_DIR/worker" ]; then
   cp -a "$ROOT_DIR/worker" "$BACKUP_PATH/worker"
+fi
+if [ -d "$ROOT_DIR/webui" ]; then
+  # v0.63.1 D2: 备份 webui 源码（v0.62.2 起镜像内建前端, 回滚需同版本源码）
+  cp -a "$ROOT_DIR/webui" "$BACKUP_PATH/webui"
 fi
 if [ -d "$SCRIPT_DIR" ]; then
   # 备份 deploy(排除 .env 凭证与 backups 自身)

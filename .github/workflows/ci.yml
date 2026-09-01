@@ -3,7 +3,9 @@ name: CI
 on:
   push:
     branches: [main, dev]
-    paths-ignore: ['**.md', 'docs/**', 'skill/data/**', 'deploy/**']
+    # v0.63.1 D6: deploy/** 移出 paths-ignore——部署脚本变更必须触发 CI（此前
+    # cos-update.sh/deploy.sh 语法错误只能在服务器上爆炸, CI 完全无感）
+    paths-ignore: ['**.md', 'docs/**', 'skill/data/**']
   pull_request:
     branches: [main, dev]
 
@@ -52,6 +54,27 @@ jobs:
             -not -path "*/dist/*" -not -path "*/build/*" -not -path "*/site-packages/*" \
             -exec sh -c 'python3 -c "import py_compile; py_compile.compile(\"$1\",doraise=True)" 2>/dev/null || echo $1' _ {} \;)
           [ -z "$errors" ] && echo "✅ 语法通过" || { echo "$errors"; exit 1; }
+
+  # ═══ Deploy Scripts: bash 语法 + compose 配置校验（v0.63.1 D6）═══
+  deploy-scripts-check:
+    name: Deploy Scripts (bash -n + compose config)
+    runs-on: ubuntu-latest
+    needs: syntax
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax check
+        run: |
+          set -e
+          for f in deploy/deploy.sh deploy/update.sh deploy/cos-update.sh deploy/backup-pg.sh scripts/ci.sh; do
+            if [ -f "$f" ]; then
+              bash -n "$f" && echo "✅ bash -n $f"
+            fi
+          done
+      - name: Compose config validation
+        run: |
+          set -e
+          docker compose -f deploy/docker-compose.yml config -q && echo "✅ docker-compose.yml config OK"
+          docker compose -f deploy/docker-compose.test.yml config -q && echo "✅ docker-compose.test.yml config OK"
 
   # ═══ Secret Scan: gitleaks（阻断; v3 内部按 push/pull_request 范围扫描）═══
   secret-scan:

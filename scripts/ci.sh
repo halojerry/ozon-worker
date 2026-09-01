@@ -184,7 +184,13 @@ if [[ "$*" != *"--quick"* ]]; then
     echo "🐳 Step 6/6: Docker build..."
     cd "$PROJECT_DIR"
     if command -v docker &> /dev/null; then
-        docker build -t ozon-worker:ci -f worker/Dockerfile worker/ --quiet 2>/dev/null && {
+        # v0.63.1 D1: worker/Dockerfile 自 v0.62.2 起为根上下文设计（webui-builder
+        # 阶段 COPY webui/、builder 阶段 COPY worker/pyproject.toml）——context 必须
+        # 是仓库根（此前 worker/ 必失败）；VERSION build-arg 与 ci.yml 对齐。
+        docker build -t ozon-worker:ci -f worker/Dockerfile . \
+            --build-arg VERSION="$(cat VERSION)" \
+            --build-arg PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}" \
+            --quiet 2>/dev/null && {
             green "   ✅ Docker build 成功"; docker rmi ozon-worker:ci 2>/dev/null || true
         } || { red "   ❌ Docker build 失败"; FAILED=1; }
     else
