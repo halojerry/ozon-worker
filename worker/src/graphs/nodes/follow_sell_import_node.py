@@ -403,23 +403,48 @@ def _verify_category_schema(client_id: str, api_key: str, dc: str, tp: str) -> b
 
 def _resolve_category_by_id(dc_id: int, type_name_hint: str = "", token: str = "") -> tuple[str, str]:
     """数字 description_category_id → 查 category_tree_nodes 获取 type_id
-    
-    Widget API 和 Seller API 使用不同的 ID 空间，数字直查经常失败。
-    失败时用面包屑文本做 pg_trgm 搜索 Seller 类目树作为降级。
+
+    v0.63 重构：**确定性优先**（路径精配 → dc+唯一 type），模糊 pg_trgm 仅最后兜底。
+    - Widget API 和 Seller API 使用不同的 ID 空间，数字直查经常失败；
+      此时用面包屑完整路径 `get_node_by_full_path` **确定性精配**。
+    - 修 v0.26 眉笔类 bug：`get_node_by_description_category_id` 取 dc 下**第一个** type
+      会覆写权威 type（dc=17028990 → 93409 覆写 93418）。改为：该 dc 下 type **唯一**才用，
+      多 type 且无路径可消歧 → 不盲取（返回空，交由调用方候选/阻断）。
     """
     try:
         from utils.ozon_category_query import get_category_query
         query = get_category_query()
+
+        # v0.63 ① 路径确定性精配优先（页面面包屑完整路径 → Seller 树）
+        if type_name_hint:
+            _node = query.get_node_by_full_path(type_name_hint)
+            if _node:
+                dc_str = str(_node["description_category_id"])
+                tp_str = str(_node["type_id"])
+                logger.info("✅ 路径精配(确定性): '%s' → dc=%s type=%s (%s)",
+                            str(type_name_hint)[:60], dc_str, tp_str, _node.get("full_path", "")[:60])
+                return dc_str, tp_str
+
+        # v0.63 ② 数字 dc 直查：仅在 dc 下 type 唯一时采用，**不取第一个**
         node = query.get_node_by_description_category_id(dc_id)
         if node:
-            dc_id_str = str(node["description_category_id"])
-            type_id_str = str(node["type_id"])
-            logger.info("✅ 数字 ID 直查: %d → dc=%s type=%s name=%s",
-                       dc_id, dc_id_str, type_id_str, node.get("node_name", ""))
-            return dc_id_str, type_id_str
+            _types = query.get_types_under(int(node["description_category_id"]))
+            if len(_types) == 1:
+                dc_id_str = str(_types[0]["description_category_id"])
+                type_id_str = str(_types[0]["type_id"])
+                logger.info("✅ 数字 ID 直查(唯一 type): %d → dc=%s type=%s", dc_id, dc_id_str, type_id_str)
+                return dc_id_str, type_id_str
+            elif len(_types) > 1:
+                logger.warning("⚠️ dc=%d 下存在 %d 个 type，无路径可消歧，不盲取第一个（防 v0.26 覆写）",
+                               dc_id, len(_types))
+                # 有 hint 已试过路径精配未命中；无 hint → 交由调用方候选/阻断，不返回错误 type
+                return "", ""
+            # 无 type（category 节点）
+            return "", ""
     except Exception as e:
         logger.warning("数字 ID 直查失败: %s", e)
-    
+
+    # ⚠️ v0.63 确定性失败后才走模糊 pg_trgm（最后兜底）
     # ✅ v0.25 FIX: Widget ID 不在 Seller 树中 → 用面包屑路径 pg_trgm 搜索。
     # 逐级尝试：完整路径 → 去掉顶级 → 末两级 → 末段（末段太泛会错配，wave6 实证）。
     if type_name_hint:

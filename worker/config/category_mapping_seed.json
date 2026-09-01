@@ -1,0 +1,8 @@
+{
+  "_comment": "v0.63 curated 1688→Ozon 类目映射种子。source_category_leaf 取自 1688 末级类目词；仅收录高置信、无歧义项（有歧义如裸『轮毂』不入库，交给 _apply_vehicle_disambiguation 按汽车/摩托信号判）。init_data.py --force 幂等写入 category_mapping（success_count=5, source=curated）。可继续补充真实 1688 cateId。",
+  "汽车轮毂": {"description_category_id": 17028758, "type_id": 970619447, "confidence": 0.92, "category_path_zh": "汽车用品 > 轮辋 > 车轮总成"},
+  "铝合金轮毂": {"description_category_id": 17028758, "type_id": 970619447, "confidence": 0.92, "category_path_zh": "汽车用品 > 轮辋 > 车轮总成"},
+  "汽车轮": {"description_category_id": 17028758, "type_id": 970619447, "confidence": 0.92, "category_path_zh": "汽车用品 > 轮辋 > 车轮总成"},
+  "摩托车轮毂": {"description_category_id": 200001531, "type_id": 971447047, "confidence": 0.92, "category_path_zh": "汽车用品 > 摩托车零件 > 摩托车轮毂"},
+  "摩托轮毂": {"description_category_id": 200001531, "type_id": 971447047, "confidence": 0.92, "category_path_zh": "汽车用品 > 摩托车零件 > 摩托车轮毂"}
+}

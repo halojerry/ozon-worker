@@ -1689,6 +1689,9 @@ def build_graph_envelope(
                     ozon_category = {
                         "description_category_id": str(best["description_category_id"]),
                         "type_id": str(best["type_id"]),
+                        # v0.63: search_categories 是关键词模糊结果，标注为候选（勿当权威）
+                        "source": "search_kw",
+                        "namespace": "seller",
                     }
                     category_name = best.get("type_name", "") or best.get("category_name", "")
             except Exception:
@@ -2267,7 +2270,11 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         # 注入 Ozon 类目（候选品数据）
         ozon_cat = getattr(candidate, 'ozon_category', None)
         if ozon_cat:
-            draft["ozon_category"] = ozon_cat
+            _ozc = dict(ozon_cat)
+            # v0.63: 无来源标记时默认按候选处理（Discovery 解析为模糊），勿当权威
+            _ozc.setdefault("source", "search_kw")
+            _ozc.setdefault("namespace", "seller")
+            draft["ozon_category"] = _ozc
 
         # ✅ v0.35.x: 竞品重量/尺寸注入 extensions（worker 兜底链 C2）
         # what_to_sell 的竞品重量(4497)/尺寸(9454/9455/9456)经
@@ -3331,6 +3338,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     "type_id": str(scraped_type),
                     "language": scraped_lang,
                     "category_path": scraped_path,
+                    # v0.63: 页面面包屑（顾客命名空间）→ 标 page，为主判据（category_path）
+                    "source": "page",
+                    "namespace": "widget",
                 }
                 logger.info("✅ Ozon 类目从页面提取: dc=%s type=%s lang=%s", scraped_dc, scraped_type, scraped_lang)
             logger.info("✅ CDP 抓取 Ozon 成功: %d 张图, title=%s", len(ozon_images), ozon_title[:60])
@@ -3375,6 +3385,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     "type_id": str(_m["category3_id"]),
                     "language": "RU",
                     "category_path": (result.get("ozon_category") or {}).get("category_path", ""),
+                    # v0.63: what_to_sell Seller 空间权威，最高优先
+                    "source": "what_to_sell",
+                    "namespace": "seller",
                 }
                 logger.info(
                     "✅ 竞品权威类目（Seller 空间）: dc=%s type=%s（覆盖 Widget 面包屑 %s）",

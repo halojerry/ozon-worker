@@ -33,6 +33,44 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+# ── v0.63: 完整类目路径候选生成（纯函数，零 DB，可单测）──
+# 规范化分隔符、去泛化词段、去品牌段（纯拉丁无西里尔），按「最长前缀」输出候选：
+# 完整 cleaned 路径 → 逐级去尾 → 末段。
+_PATH_GENERIC = {
+    "用品", "工具", "配件", "附件", "设备", "材料", "系列", "套装", "商品", "产品",
+    "运动", "休闲", "传统", "家用", "日用", "通用", "其他", "跨境", "新款", "爆款",
+    "для", "и", "в", "на", "с", "от", "к", "по", "из", "или", "аксессуар", "комплект",
+}
+
+
+def _build_full_path_candidates(path: str) -> list[str]:
+    """把面包屑/路径文本清洗为 Seller 树 full_path 候选（最长前缀优先）。"""
+    import re as _re
+    if not path or not str(path).strip():
+        return []
+    normalized = _re.sub(r"\s*[>／/→、，]\s*", " > ", str(path).strip())
+    segments = [s.strip() for s in normalized.split(">") if s.strip()]
+    if not segments:
+        return []
+    _brand_re = _re.compile(r"[a-zA-Z]")
+    _cyr_re = _re.compile(r"[А-Яа-яЁё]")
+    cleaned: list[str] = []
+    for s in segments:
+        if not s or s in _PATH_GENERIC:
+            continue
+        if _brand_re.search(s) and not _cyr_re.search(s):
+            continue  # 品牌段（Canevia/NEATIFY 等）
+        cleaned.append(s)
+    if not cleaned:
+        cleaned = [segments[-1]]
+    candidates = [" > ".join(cleaned)]
+    for i in range(len(cleaned) - 1, 0, -1):
+        candidates.append(" > ".join(cleaned[:i]))
+    if cleaned and " > ".join(cleaned) != cleaned[-1]:
+        candidates.append(cleaned[-1])
+    return candidates
+
+
 class OzonCategoryQuery:
     """Ozon 类目树查询助手（PG + pg_trgm）"""
 
@@ -727,6 +765,113 @@ class OzonCategoryQuery:
                 "top_level_category_name": row.top_level_category_name,
                 "depth": row.depth,
             }
+        finally:
+            session.close()
+
+    def get_node_by_full_path(self, path: str, language: str | None = None) -> dict | None:
+        """按完整类目路径**确定性**匹配 Seller 树（v0.63）。
+
+        Ozon 页面面包屑 `category_path` / 1688 `source_category_path` 的主判据解析器，
+        **替代「叶子词 pg_trgm 模糊」**。
+
+        步骤：
+        1. 规范化分隔符（> ／ / → 、等 → ' > '），清洗 token。
+        2. 去泛化词段（用品/工具/配件/для/и 等）与品牌段（纯拉丁无西里尔，如 Canevia/NEATIFY）。
+        3. 候选路径按「最长前缀」排序：完整 cleaned 路径 → 逐级去尾 → 末段。
+        4. 对每种语言（缺省 ZH_HANS + RU）精确匹配 `full_path`（type 节点，深者优先）；
+           若无，退化为「末段 node_name 精确匹配 + full_path 以末段结尾」（容忍顶层差异）。
+
+        Returns:
+            {description_category_id, type_id, node_name, full_path} 或 None。
+        """
+        if not path or not str(path).strip():
+            return None
+        candidates = _build_full_path_candidates(path)
+        if not candidates:
+            return None
+        cleaned = candidates[0].split(" > ")
+
+        langs = [language] if language else ["ZH_HANS", "RU"]
+        session = get_session()
+        try:
+            for lang in langs:
+                # ① 精确 full_path 匹配（最长前缀优先）
+                for cand in candidates:
+                    row = session.execute(
+                        select(CategoryTreeNode).where(
+                            CategoryTreeNode.language == lang,
+                            CategoryTreeNode.full_path == cand,
+                            CategoryTreeNode.type_id.isnot(None),
+                            CategoryTreeNode.type_id > 0,
+                        ).order_by(CategoryTreeNode.depth.desc()).limit(1)
+                    ).scalar_one_or_none()
+                    if row:
+                        logger.info(
+                            f"✅ 路径精配: '{cand}' → [{row.description_category_id}/{row.type_id}] "
+                            f"{row.full_path} (lang={lang})"
+                        )
+                        return {
+                            "description_category_id": row.description_category_id,
+                            "type_id": row.type_id,
+                            "node_name": row.node_name,
+                            "full_path": row.full_path,
+                        }
+                # ② 退化解：末段 node_name 精确匹配且 full_path 以末段结尾（容忍顶层差异）
+                leaf = cleaned[-1]
+                if leaf:
+                    row = session.execute(
+                        select(CategoryTreeNode).where(
+                            CategoryTreeNode.language == lang,
+                            CategoryTreeNode.node_name == leaf,
+                            CategoryTreeNode.type_id.isnot(None),
+                            CategoryTreeNode.type_id > 0,
+                            CategoryTreeNode.full_path.endswith(leaf),
+                        ).order_by(CategoryTreeNode.depth.desc()).limit(1)
+                    ).scalar_one_or_none()
+                    if row:
+                        logger.info(
+                            f"✅ 路径末段精配: leaf='{leaf}' → [{row.description_category_id}/{row.type_id}] "
+                            f"{row.full_path} (lang={lang})"
+                        )
+                        return {
+                            "description_category_id": row.description_category_id,
+                            "type_id": row.type_id,
+                            "node_name": row.node_name,
+                            "full_path": row.full_path,
+                        }
+            logger.info(f"⚠️ get_node_by_full_path 未命中: '{path}'")
+            return None
+        except Exception as e:
+            logger.warning(f"get_node_by_full_path 异常: {e}")
+            return None
+        finally:
+            session.close()
+
+    def get_types_under(self, description_category_id: int, language: str = "ZH_HANS") -> list[dict]:
+        """列出某 description_category_id 下的所有 type 节点（v0.63）。
+
+        用于判断「该 dc 下是否有唯一 type」——避免 `get_node_by_description_category_id`
+        返回 dc 下**第一个** type 造成错配（v0.26 眉笔 dc=17028990 → 93409 覆写权威 93418）。
+        """
+        session = get_session()
+        try:
+            rows = session.execute(
+                select(
+                    CategoryTreeNode.description_category_id,
+                    CategoryTreeNode.type_id,
+                    CategoryTreeNode.node_name,
+                    CategoryTreeNode.full_path,
+                ).where(
+                    CategoryTreeNode.description_category_id == description_category_id,
+                    CategoryTreeNode.language == language,
+                    CategoryTreeNode.type_id.isnot(None),
+                    CategoryTreeNode.type_id > 0,
+                ).order_by(CategoryTreeNode.depth, CategoryTreeNode.type_id)
+            ).mappings().all()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.warning(f"get_types_under({description_category_id}) 异常: {e}")
+            return []
         finally:
             session.close()
 

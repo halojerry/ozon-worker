@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.63.0] - 2026-09-01
+
+> 类目解析确定性重构 + Skill↔Worker 契约对齐。根治「有权威类目却复用不上」：
+> Skill 已从 1688 AK（category_id/categories）与 Ozon 页面（category_path）拿到类目，
+> 但 Worker 无确定性解析器、且把 `search_categories` 关键词模糊结果当「Skill 权威」，
+> 导致「汽车轮毂→摩托车轮毂」等长期错配。本次改为**确定性优先 + 来源信任分级**。
+
+### 新增
+- `OzonCategoryQuery.get_node_by_full_path()`：按完整类目路径对 `category_tree_nodes.full_path`
+  做**最长前缀**确定性精配（ZH_HANS+RU，去泛化词/品牌段）。替代「叶子词 pg_trgm 模糊」。
+- `get_types_under(dc)`：判 dc 下 type 唯一性，配合 `follow_sell_import_node._resolve_category_by_id`
+  **修 v0.26 眉笔「取 dc 下第一个 type」覆写 bug**；路径精配失败且多 type 不盲取。
+- `ozon_category.source`（page/mapping/what_to_sell/search_kw）+ `namespace`（seller/widget/1688）
+  来源信任分级：仅 page/mapping/what_to_sell 为权威（免门槛），`search_kw` 降为候选须过
+  `_acceptable_match` + 一致性；widget 命名空间须路径精配成功才授权。
+- `seed_curated_mapping()` + `category_mapping_seed.json`：高冲突品类（汽车/摩托轮毂等）
+  curated 映射种子，`init_data.py --force` 幂等写入（success_count≥5）。
+- `GraphInput` 侧 `EnvelopeOzonCategory`/`EnvelopeSourceCategory` 类型化契约 +
+  `CONTRACT-v4.md` 字段所有权表 + `test_envelope_contract.py` 双向覆盖门禁。
+
+### 变更
+- `build_graph_envelope`/`follow_sell_cloud`/discovery：给 `ozon_category` 标 `source`/`namespace`；
+  `search_categories` 结果标 `source="search_kw"`（不冒充权威）。
+- `_resolve_skill_category`：路径精配优先；返回含 `namespace/source/_resolved_by_path`。
+- `category_mapping_learn.py`：curated 种子 loader + 幂等写入。
+
+### 测试
+- 新增 `test_category_path_resolver.py`（路径候选/第一type守卫）、`test_envelope_contract.py`
+  （契约双向）、`test_car_vs_moto_wheel.py`（汽车/摩托消歧）。
+- worker Docker 全量 **1532 passed + 1 skip**；skill **607 passed**。
+
 ## [0.62.3] - 2026-09-01
 
 > 服务器侧核查清单（v0.62.2 审计）剩余「仍需上游处理」项：apt 源、测试数据冲突、

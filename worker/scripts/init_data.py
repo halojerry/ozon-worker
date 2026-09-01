@@ -430,6 +430,11 @@ def main():
     from import_size_tables import import_size_tables
     import_size_tables(engine, force=args.force)
 
+    # 6. v0.63: curated 1688→Ozon 类目映射种子（幂等）
+    from utils.category_mapping_learn import seed_curated_mapping
+    os.environ["PGDATABASE_URL"] = os.environ.get("PGDATABASE_URL") or args.db_url
+    seed_curated_mapping()
+
     logger.info("═══ 初始化完成 ═══")
 
 
