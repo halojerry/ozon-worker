@@ -197,7 +197,7 @@ def test_case_1_category_failure():
             all_pass = False
         print(f"  {status} {name}")
 
-    return all_pass
+    assert all_pass, "检查项失败（见上方 ❌ 输出）"
 
 
 def test_case_1b_import_ok_missing_category():
@@ -254,7 +254,7 @@ def test_case_1b_import_ok_missing_category():
             all_pass = False
         print(f"  {status} {name}")
 
-    return all_pass
+    assert all_pass, "检查项失败（见上方 ❌ 输出）"
 
 
 def test_case_4_hand_mode_skips_import_by_sku():
@@ -323,7 +323,7 @@ def test_case_4_hand_mode_skips_import_by_sku():
             all_pass = False
         print(f"  {status} {name}")
 
-    return all_pass
+    assert all_pass, "检查项失败（见上方 ❌ 输出）"
 
 
 def test_case_5_hand_without_source_falls_back_api():
@@ -399,7 +399,7 @@ def test_case_5_hand_without_source_falls_back_api():
             all_pass = False
         print(f"  {status} {name}")
 
-    return all_pass
+    assert all_pass, "检查项失败（见上方 ❌ 输出）"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -449,7 +449,7 @@ def test_case_2_normal_follow_sell():
             all_pass = False
         print(f"  {status} {name}")
 
-    return all_pass
+    assert all_pass, "检查项失败（见上方 ❌ 输出）"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -488,7 +488,7 @@ def test_case_3_empty_product_id():
             all_pass = False
         print(f"  {status} {name}")
 
-    return all_pass
+    assert all_pass, "检查项失败（见上方 ❌ 输出）"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -546,7 +546,6 @@ def test_case_6_import_timeout_no_fallback_create():
     assert result.get("import_submitted") is True
     assert result.get("upload_status") == "pending"
     assert result.get("import_task_id") == "12345"
-    return True
 
 
 # ═══════════════════════════════════════════════════════════
@@ -600,7 +599,7 @@ def test_case_7_brand_leaf_category_fallback():
         if not passed:
             all_pass = False
         print(f"  {status} {name}")
-    return all_pass
+    assert all_pass, "检查项失败（见上方 ❌ 输出）"
 
 
 def test_case_8_hand_category_fail_falls_back_api():
@@ -674,7 +673,7 @@ def test_case_8_hand_category_fail_falls_back_api():
         if not passed:
             all_pass = False
         print(f"  {status} {name}")
-    return all_pass
+    assert all_pass, "检查项失败（见上方 ❌ 输出）"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -754,7 +753,7 @@ def test_case_9_authoritative_category_trusted():
         if not passed:
             all_pass = False
         print(f"  {status} {name}")
-    return all_pass
+    assert all_pass, "检查项失败（见上方 ❌ 输出）"
 
 
 # ═══════════════════════════════════════════════════════════

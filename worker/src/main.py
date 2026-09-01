@@ -173,7 +173,11 @@ def update_progress(task_id: str, stage: str, message: str = ""):
         now_ts = time.time()
         if now_ts - _last_persist_ts.get(task_id, 0) >= _PERSIST_THROTTLE:
             _last_persist_ts[task_id] = now_ts
-            asyncio.create_task(_persist_progress(task_id, data))
+            # v0.63.1: 先确认有运行中事件循环再创建协程——直接 asyncio.create_task
+            # 在同步模式（pytest/CLI）会抛 RuntimeError，且协程对象已创建未 await，
+            # GC 时产生 RuntimeWarning: coroutine never awaited。
+            loop = asyncio.get_running_loop()
+            loop.create_task(_persist_progress(task_id, data))
     except RuntimeError:
         pass  # 无 event loop 时跳过（同步模式）
 

@@ -29,6 +29,8 @@ services:
       CREDENTIAL_MASTER_KEY: 0123456789abcdef0123456789abcdef
       SKIP_ZOMBIE_RECOVERY: "1"
       SKIP_FAILED_REVIVE: "1"
+      # v0.63.1: 会话结束后清空业务表，防测试残留污染同库 worker 运行态
+      TEST_DB_CLEANUP: "1"
     depends_on:
       postgres:
         condition: service_healthy

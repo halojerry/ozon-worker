@@ -117,13 +117,14 @@ def _terminal_update(engine):
     return conn.executed[0]
 
 
-def _run_handle_failure_permanent(error_message="boom"):
+def _run_handle_failure_permanent(error_message="boom", retry_count=3, max_retries=3,
+                                  permanent=False):
     """驱动 handle_task_failure 重试耗尽（永久失败）分支。"""
     import utils.task_processor as tp_mod
     from utils.task_processor import SupabaseTaskProcessor
 
     events = []
-    engine = _FakeEngine(_make_failure_row(), events)
+    engine = _FakeEngine(_make_failure_row(retry_count, max_retries), events)
     calls = []
 
     def _spy(task_id, status, err=None):
@@ -134,7 +135,7 @@ def _run_handle_failure_permanent(error_message="boom"):
          patch.object(tp_mod, "get_engine", return_value=engine), \
          patch.object(tp_mod, "writeback_submission_status", side_effect=_spy):
         proc = SupabaseTaskProcessor(max_concurrent=1)
-        asyncio.run(proc.handle_task_failure("task-1", error_message))
+        asyncio.run(proc.handle_task_failure("task-1", error_message, permanent=permanent))
     return engine, calls, events
 
 
@@ -203,6 +204,35 @@ def test_handle_failure_permanent_writeback_failed():
     assert calls == [("task-1", "failed", "permanent err")], \
         f"handle_task_failure 应写回 failed + error_message: {calls}"
     assert events[-1] == "writeback", "写回应在 commit 之后"
+
+
+# ============================================================
+# 4b. permanent=True 即使 retry 未耗尽也直接 failed，不再 pending 重试
+# ============================================================
+
+def test_handle_failure_permanent_flag_skips_retry():
+    engine, calls, _ = _run_handle_failure_permanent(
+        "OUT_OF_QUOTA: MXOU balance insufficient", retry_count=0, max_retries=3, permanent=True)
+    sql, params = engine.conns[1].executed[0]
+    assert "status = 'failed'" in sql, "永久性错误应直接终态 failed，而非 pending 重试"
+    assert params["error_message"].startswith("OUT_OF_QUOTA:")
+    assert calls == [("task-1", "failed", "OUT_OF_QUOTA: MXOU balance insufficient")]
+    executed_sqls = [s for conn in engine.conns for (s, _p) in conn.executed]
+    assert not any("status = 'pending'" in s for s in executed_sqls), \
+        "permanent=True 不应走 pending 重试分支"
+
+
+def test_is_permanent_error_classification():
+    """R1/R4 闭环：余额/鉴权/内容违规异常 → 永久错误；普通异常可重试。"""
+    import utils.task_processor as tp_mod
+    from utils.mxou_api import MxouContentViolationError, MxouOutOfQuotaError
+
+    assert tp_mod._is_permanent_task_error(MxouOutOfQuotaError("OUT_OF_QUOTA: x")) is True
+    assert tp_mod._is_permanent_task_error(MxouContentViolationError("grsai 内容违规: policy")) is True
+    # 消息信号兜底（防 LangGraph 包装丢类型）
+    assert tp_mod._is_permanent_task_error(RuntimeError("OUT_OF_QUOTA: 余额不足")) is True
+    assert tp_mod._is_permanent_task_error(RuntimeError("grsai 内容违规")) is True
+    assert tp_mod._is_permanent_task_error(RuntimeError("网络超时")) is False
 
 
 # ============================================================
