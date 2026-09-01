@@ -405,6 +405,12 @@ builder.add_conditional_edges(
 
 
 # ==================== 编译图 ====================
+# v0.63.1 架构优化 R4: langgraph 已升级 >=1.2（官方 RetryPolicy/TimeoutPolicy 可用），
+# 但刻意不挂节点级 retry_policy——节点架构是「网络/5xx 等可重试异常内部吞掉返回
+# 失败 Output，只 re-raise MxouOutOfQuotaError/MxouContentViolationError 永久错误」；
+# 而 langgraph default_retry_on 对未知异常返回 True，会重试永久错误，违背 v0.63.1
+# fail-fast 语义。接入官方 retry_policy 的前置条件是先重构节点错误模式（可重试异常
+# re-raise + retry_on 显式排除永久错误），留作后续项（auth_node 已有手写 3 次重试）。
 main_graph = builder.compile()
 
 

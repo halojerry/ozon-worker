@@ -68,7 +68,7 @@ Skill (客户本地)                    Worker (云端 Docker)
 | `level` | string | DEBUG / INFO / WARNING / ERROR |
 | `logger` | string | 日志来源模块 |
 | `msg` | string | 人类可读消息 |
-| `trace_id` | string | 请求链路 ID（12 位 hex，贯穿整个请求生命周期） |
+| `trace_id` | string | 链路 ID（12 位 hex）。提交请求自动生成；v0.63.1 起 worker 执行路径派生 `trace_id = task_id 前 12 位`，提交→执行全链路可串 |
 | `task_id` | string | 任务 UUID |
 | `user_id` | string | 用户 ID（从 token 解析） |
 | `node_name` | string | 当前执行的管线节点名 |
