@@ -9,6 +9,7 @@ from graphs.state import SceneGenerationInput, SceneGenerationOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_llm import call_mxou_chat_api
 from utils.mxou_api import clean_title_for_image_prompt
+from utils.mxou_api import MxouOutOfQuotaError  # v0.63.1: 余额/鉴权/额度永久错误
 
 
 def scene_generation_llm_node(state: SceneGenerationInput, config: RunnableConfig, runtime: Runtime[Context]) -> SceneGenerationOutput:
@@ -101,8 +102,10 @@ def scene_generation_llm_node(state: SceneGenerationInput, config: RunnableConfi
                 scene_context_3="家庭卧室场景"
             )
     
+    except MxouOutOfQuotaError:
+        raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不回退默认场景
     except Exception as e:
-        # 如果出现异常，返回默认场景
+        # 如果出现异常（瞬时故障），返回默认场景
         return SceneGenerationOutput(
             scene_context_1="户外运动场景",
             scene_context_2="办公室桌面场景",

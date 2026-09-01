@@ -321,7 +321,7 @@ def disambiguate_candidates(
         resolution.reason = "no_candidates"
         return resolution
     try:
-        from utils.mxou_api import call_mxou_chat_api  # type: ignore
+        from utils.mxou_api import call_mxou_chat_api, MxouOutOfQuotaError  # type: ignore  # v0.63.1
         cfg = llm_cfg or load_disambiguation_cfg()
         cc = cfg.get("config") or {}
         max_tokens = int(cc.get("max_completion_tokens") or cc.get("max_tokens") or 2048)
@@ -355,6 +355,8 @@ def disambiguate_candidates(
         resolution.confidence = 0.8
         resolution.reason = f"llm_picked_idx={idx}"
         return resolution
+    except MxouOutOfQuotaError:
+        raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不跳过属性
     except Exception as e:
         resolution.status = "skipped"
         resolution.reason = "llm_error"

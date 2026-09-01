@@ -75,7 +75,7 @@ def _remove_latin_llm(text: str, token: str) -> str:
     if not token:
         return _LATIN_RE.sub('', _CJK_RE.sub('', text))
     try:
-        from utils.mxou_api import call_mxou_chat_api
+        from utils.mxou_api import call_mxou_chat_api, MxouOutOfQuotaError  # v0.63.1
         prompt = (
             "Удали из названия товара все латинские буквы и английские слова. "
             "Оставь ТОЛЬКО русские (кириллические) слова. "
@@ -92,6 +92,8 @@ def _remove_latin_llm(text: str, token: str) -> str:
         )
         if result and _CYRILLIC_RE.search(result):
             return result.strip()
+    except MxouOutOfQuotaError:
+        raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不回退正则
     except Exception as e:
         logger.warning(f"LLM 去拉丁词失败: {e}")
     return _LATIN_RE.sub('', _CJK_RE.sub('', text))

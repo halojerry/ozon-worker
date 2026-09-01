@@ -520,6 +520,8 @@ def _generate_rich_description(product_name: str, attributes: dict, token: str, 
         if result:
             return _sanitize_rich_description(result)
 
+    except MxouOutOfQuotaError:
+        raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不回退兜底 HTML
     except Exception as e:
         logger.warning(f"LLM 生成富文本描述失败: {e}")
 
