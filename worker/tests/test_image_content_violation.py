@@ -166,3 +166,60 @@ def test_main_image_gen_node_re_raises_violation(monkeypatch):
     )
     with pytest.raises(mxou_api.MxouContentViolationError):
         mod.main_image_gen_node(state, {}, mock.Mock())
+
+
+class _ProgressStub:
+    """ProgressLogger 替代：只记录不落盘。"""
+
+    def __init__(self, *a, **k):
+        pass
+
+    def __getattr__(self, name):
+        return lambda *a, **k: None
+
+
+@pytest.mark.parametrize("mod_name,input_cls,node_fn,extra", [
+    ("scene_2_gen_node", "Scene2Input", "scene_2_gen_node",
+     {"white_bg_image": "http://img/wb.png", "scene_context_2": "办公室场景"}),
+    ("scene_3_gen_node", "Scene3Input", "scene_3_gen_node",
+     {"white_bg_image": "http://img/wb.png", "scene_context_3": "卧室场景"}),
+])
+def test_scene_gen_node_re_raises_violation(monkeypatch, mod_name, input_cls, node_fn, extra):
+    """scene_2/scene_3 内容违规 → 异常穿透（v0.63.1 补 R4 遗留：此前被 except Exception 吞掉）。"""
+    import importlib
+    mod = importlib.import_module(f"graphs.nodes.{mod_name}")
+    from graphs import state_image_gen as sig
+    import utils.mxou_api as mxou_api
+
+    def _boom(*a, **k):
+        raise mxou_api.MxouContentViolationError("grsai 内容违规: adult content")
+
+    for name in ("slot_enabled", "get_image", "_task_id_from_config",
+                 "_force_regen_from_config", "assemble_prompt",
+                 "merge_visual_vars", "resolve_color_preset",
+                 "get_image_model", "save_image", "evaluate_image_quality"):
+        if hasattr(mod, name):
+            if name == "slot_enabled":
+                monkeypatch.setattr(mod, name, lambda *a, **k: True)
+            elif name in ("get_image", "_task_id_from_config"):
+                monkeypatch.setattr(mod, name, lambda *a, **k: None)
+            elif name == "get_image_model":
+                monkeypatch.setattr(mod, name, lambda *a, **k: "gpt-image-2")
+            elif name == "assemble_prompt":
+                monkeypatch.setattr(mod, name, lambda *a, **k: "prompt")
+            elif name == "merge_visual_vars":
+                monkeypatch.setattr(mod, name, lambda *a, **k: {})
+            else:
+                monkeypatch.setattr(mod, name, lambda *a, **k: "")
+    monkeypatch.setattr(mod, "ProgressLogger", _ProgressStub)
+    monkeypatch.setattr(mod, "call_mxou_image_api", _boom)
+
+    base = {
+        "draft": {"title": "测试商品", "images": ["http://img/1.png"]},
+        "token": "tok",
+        "original_images": ["http://img/1.png"],
+    }
+    base.update(extra)
+    state = getattr(sig, input_cls)(**base)
+    with pytest.raises(mxou_api.MxouContentViolationError):
+        getattr(mod, node_fn)(state, {}, mock.Mock())

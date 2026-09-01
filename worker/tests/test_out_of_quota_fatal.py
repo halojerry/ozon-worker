@@ -458,3 +458,16 @@ def test_attr_disambiguation_generic_error_skips(monkeypatch):
     with _workspace():
         out = disambiguate_candidates(res, "tok", enabled=True)
     assert out.status == "skipped" and out.reason == "llm_error"
+
+
+def test_follow_sell_import_translate_to_russian_fatal(monkeypatch):
+    """follow_sell_import._translate_to_russian：MXOU 401 → re-raise，不回退原文类目。"""
+    import utils.mxou_api as mxou_api
+    from graphs.nodes.follow_sell_import_node import _translate_to_russian
+
+    def _boom(*a, **k):
+        raise mxou_api.MxouOutOfQuotaError("OUT_OF_QUOTA: MXOU chat API rejected (HTTP 401)")
+
+    monkeypatch.setattr(mxou_api, "call_mxou_chat_api", _boom)
+    with pytest.raises(mxou_api.MxouOutOfQuotaError):
+        _translate_to_russian("中文类目", "tok")

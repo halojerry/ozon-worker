@@ -21,6 +21,10 @@ DEFAULT_PRODUCTS_INTERVAL_MINUTES = int(os.getenv("STORE_SYNC_PRODUCTS_INTERVAL_
 MAX_CONSECUTIVE_FAILURES = int(os.getenv("STORE_SYNC_MAX_CONSECUTIVE_FAILURES", "5"))
 MAX_BACKOFF_MINUTES = int(os.getenv("STORE_SYNC_MAX_BACKOFF_MINUTES", "60"))
 
+# v0.63.1: 退避告警节流（cid → 已告警的 backoff_minutes）。每升一档告警一次，
+# 防无效 key 店铺退避期间静默停摆；成功恢复时在 mark_sync_success 清零。
+_BACKOFF_WARNED: dict[str, int] = {}
+
 _JOB_COLS = (
     "id, tenant_id, credential_id::text AS credential_id, kind, status, trigger, "
     "error_code, orders_synced, products_synced, progress, error, "
@@ -213,7 +217,10 @@ def due_credentials(now: Optional[datetime.datetime] = None) -> list[dict]:
             )
             last_attempt = r.last_attempt_at
             if last_attempt and (last_attempt + datetime.timedelta(minutes=backoff_minutes)) > now:
-                if consecutive_failures == MAX_CONSECUTIVE_FAILURES:
+                # v0.63.1: 每升一档告警一次（首次进入 + 每次退避窗口翻倍），
+                # 防无效 key 店铺退避期间静默停摆（此前只在恰好阈值时打一条）。
+                if backoff_minutes > _BACKOFF_WARNED.get(cid, 0):
+                    _BACKOFF_WARNED[cid] = backoff_minutes
                     logger.warning(
                         "店铺同步连续失败 %d 次进入退避（%d 分钟内不再调度）tenant=%s store=%s —— 请检查凭证是否有效",
                         consecutive_failures, backoff_minutes, str(r.tenant_id), cid,
@@ -263,6 +270,8 @@ def due_credentials(now: Optional[datetime.datetime] = None) -> list[dict]:
 
 def mark_sync_success(tenant_id: str, credential_id: str, job_id: int) -> None:
     """job ok 后推进 sync_state:last_success_at + 清连续失败 + 记 last_job_id。"""
+    # v0.63.1: 成功恢复 → 重置告警节流，下次再失败重新开始告警周期
+    _BACKOFF_WARNED.pop(str(credential_id), None)
     with get_engine().begin() as conn:
         conn.execute(text(
             """

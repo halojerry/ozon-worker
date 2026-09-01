@@ -212,3 +212,51 @@ def test_due_backoff_below_threshold_no_cooldown(cred):
         ), {"t": tenant, "c": cid, "f": max(0, jobs.MAX_CONSECUTIVE_FAILURES - 1)})
     due = jobs.due_credentials(now=now)
     assert any(d["credential_id"] == cid for d in due), "阈值以下应正常 due"
+
+
+def test_due_backoff_warning_tiered_and_throttled(cred, caplog):
+    """v0.63.1: 退避告警每升一档一次（首次进入 + 翻倍），同档不重复刷。"""
+    tenant, cid = cred
+    eng = create_engine(DB_URL)
+    jobs._BACKOFF_WARNED.clear()
+    try:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        with eng.begin() as conn:
+            conn.execute(text(
+                """
+                INSERT INTO credential_sync_state (tenant_id, credential_id, consecutive_failures,
+                                                   orders_error, products_error, updated_at)
+                VALUES (:t, :c, :f, '', '', NOW())
+                """
+            ), {"t": tenant, "c": cid, "f": jobs.MAX_CONSECUTIVE_FAILURES})
+
+        # 首次进入退避（2min 档）→ 告警一次
+        with caplog.at_level("WARNING", logger="services.store_sync_jobs"):
+            due = jobs.due_credentials(now=now)
+        assert all(d["credential_id"] != cid for d in due)
+        warns = [r.message for r in caplog.records
+                 if "进入退避" in r.message and f"store={cid}" in r.message]
+        assert len(warns) == 1, f"首次进入退避应告警一次: {warns}"
+        assert "2 分钟内" in warns[0]
+
+        # 同档再次扫描 → 不重复告警（节流）
+        with caplog.at_level("WARNING", logger="services.store_sync_jobs"):
+            jobs.due_credentials(now=now)
+        warns = [r.message for r in caplog.records
+                 if "进入退避" in r.message and f"store={cid}" in r.message]
+        assert len(warns) == 1, "同档重复扫描不应重复告警"
+
+        # 失败次数升高（f=MAX+1 → 4min 档）→ 新档位再告警一次
+        with eng.begin() as conn:
+            conn.execute(text(
+                "UPDATE credential_sync_state SET consecutive_failures = consecutive_failures + 1 "
+                "WHERE tenant_id=:t AND credential_id=:c"
+            ), {"t": tenant, "c": cid})
+        with caplog.at_level("WARNING", logger="services.store_sync_jobs"):
+            jobs.due_credentials(now=now)
+        warns = [r.message for r in caplog.records
+                 if "进入退避" in r.message and f"store={cid}" in r.message]
+        assert len(warns) == 2, f"升档应再告警一次: {warns}"
+        assert any("4 分钟内" in m for m in warns), f"4min 档应被记录: {warns}"
+    finally:
+        jobs._BACKOFF_WARNED.clear()
