@@ -259,7 +259,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | 任务统计 | `GET /api/v1/task_statistics` | GET |
 | LangGraph 进度 | `GET /progress/{run_id}` | GET |
 | 健康检查 | `GET /api/v1/health` | GET |
-| Swagger UI | `GET /api/v1/docs` | GET |
+| Swagger UI | `GET /docs` | GET |
 | 蓝海数据上报 | `POST /api/v1/analytics/queries` | POST |
 | 畅销榜数据上报 | `POST /api/v1/analytics/ozon-bestsellers` | POST |
 | 跨平台畅销榜上报 | `POST /api/v1/analytics/market-bestsellers` | POST |

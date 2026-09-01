@@ -10,6 +10,7 @@ from datetime import datetime
 from supabase import Client
 from sqlalchemy import text
 from utils.sentry_setup import capture_task_error  # v0.23 Sentry 任务异常上报
+from utils.mxou_api import MxouContentViolationError, MxouOutOfQuotaError  # v0.63.1 R1/R4 闭环
 
 from storage.database.supabase_client import get_supabase_client
 from storage.database.db import get_engine
@@ -30,6 +31,20 @@ def _should_report_task_rerun(retry_count: int, error_message: str) -> bool:
         return False
     msg = str(error_message or "")
     return any(kw in msg for kw in ("STALE_RUNNING", "ZOMBIE", "zombie", "超时"))
+
+
+def _is_permanent_task_error(exc: Exception) -> bool:
+    """永久性错误判定：余额/鉴权（OUT_OF_QUOTA）与内容违规不重试（R1/R4 闭环）。
+
+    MXOU 401/403 已由 mxou_api 归类为 MxouOutOfQuotaError（余额/鉴权耗尽），
+    内容违规为 MxouContentViolationError —— 二者重试无意义（token 无效不会因重试变有效，
+    违规 prompt 不会因重试变合规），应直接终态 failed，不消耗 retry_count 与 Sentry 事件。
+    除 isinstance 外按消息信号兜底（防未来异常被包装后丢失类型）。
+    """
+    if isinstance(exc, (MxouOutOfQuotaError, MxouContentViolationError)):
+        return True
+    msg = str(exc or "")
+    return msg.startswith("OUT_OF_QUOTA:") or "内容违规" in msg
 
 
 def _writeback_status(task_id: str, status: str, error_message: str | None = None) -> None:
@@ -595,7 +610,8 @@ class SupabaseTaskProcessor:
                                        token=(payload or {}).get("token", ""))
                     log_task_event("failed", task_id=task_id, user_id=tenant_id,
                                    error_message=str(e), error_type=type(e).__name__)
-                    await self.handle_task_failure(task_id, str(e))
+                    # v0.63.1: 余额/鉴权/内容违规为永久性错误 → 不重试直接终态
+                    await self.handle_task_failure(task_id, str(e), permanent=_is_permanent_task_error(e))
                     clear_trace_context()
                     return None
                     
@@ -603,13 +619,14 @@ class SupabaseTaskProcessor:
                 logger.error(f"任务处理失败: {e}")
                 return None
     
-    async def handle_task_failure(self, task_id: str, error_message: str):
+    async def handle_task_failure(self, task_id: str, error_message: str, permanent: bool = False):
         """
         处理任务失败（自动重试机制）
         
         Args:
             task_id: 任务UUID
             error_message: 错误信息
+            permanent: 永久性错误（余额/鉴权/内容违规）→ 跳过重试直接终态 failed
         
         流程：
         1. 检查重试次数
@@ -641,7 +658,7 @@ class SupabaseTaskProcessor:
             )
             ozon_client_id = str(payload.get("ozon_client_id", "")) if payload else ""
             
-            if retry_count < max_retries:
+            if not permanent and retry_count < max_retries:
                 # 临时错误自动重试，使用SQL UPDATE
                 update_retry_sql = text("""
                     UPDATE ozon_product_tasks

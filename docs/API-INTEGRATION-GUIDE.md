@@ -488,4 +488,4 @@ const runs = await api.get('/discovery/runs', { params: { limit: 50 } })
 
 ---
 
-*端点自动提取自 worker 代码（117 个），与 `/api/v1/docs` Swagger 一致。*
+*端点自动提取自 worker 代码（117 个），与 `/docs` Swagger 一致。*

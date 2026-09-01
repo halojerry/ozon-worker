@@ -168,3 +168,47 @@ def test_failure_counter(cred):
         ), {"t": tenant, "c": cid}).fetchone()
     assert int(row[0]) == 0
     assert int(row[1]) == job["id"]
+
+
+def test_due_backoff_after_consecutive_failures(cred):
+    """v0.63.1: 连续失败达到阈值后进入指数退避，不再每 5s 被重新调度。"""
+    tenant, cid = cred
+    eng = create_engine(DB_URL)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    with eng.begin() as conn:
+        # 从未同步（水位 NULL → 本来 due）+ 连续失败达到阈值
+        conn.execute(text(
+            """
+            INSERT INTO credential_sync_state (tenant_id, credential_id, consecutive_failures,
+                                               orders_error, products_error, updated_at)
+            VALUES (:t, :c, :f, '', '', NOW())
+            """
+        ), {"t": tenant, "c": cid, "f": jobs.MAX_CONSECUTIVE_FAILURES})
+    due = jobs.due_credentials(now=now)
+    assert all(d["credential_id"] != cid for d in due), "退避期内不应被调度"
+
+    # 退避窗口结束后应恢复调度
+    backoff_minutes = min(
+        jobs.MAX_BACKOFF_MINUTES,
+        2 ** (jobs.MAX_CONSECUTIVE_FAILURES - jobs.MAX_CONSECUTIVE_FAILURES + 1),
+    )
+    later = now + datetime.timedelta(minutes=backoff_minutes + 1)
+    due = jobs.due_credentials(now=later)
+    assert any(d["credential_id"] == cid for d in due), "退避窗口结束后应恢复调度"
+
+
+def test_due_backoff_below_threshold_no_cooldown(cred):
+    """阈值以下不触发退避（正常调度不受影响）。"""
+    tenant, cid = cred
+    eng = create_engine(DB_URL)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    with eng.begin() as conn:
+        conn.execute(text(
+            """
+            INSERT INTO credential_sync_state (tenant_id, credential_id, consecutive_failures,
+                                               orders_error, products_error, updated_at)
+            VALUES (:t, :c, :f, '', '', NOW())
+            """
+        ), {"t": tenant, "c": cid, "f": max(0, jobs.MAX_CONSECUTIVE_FAILURES - 1)})
+    due = jobs.due_credentials(now=now)
+    assert any(d["credential_id"] == cid for d in due), "阈值以下应正常 due"

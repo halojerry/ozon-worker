@@ -74,3 +74,48 @@ def pytest_collection_modifyitems(items):
                     reason="运行库非隔离测试库（全局表已有数据）——请用 scripts/test-docker.sh 的隔离库",
                 )
             )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_test_db_after_session():
+    """v0.63.1: 会话结束后清空测试库业务表，消除测试残留污染运行态。
+
+    背景：pytest 直连同一 PG（scripts/test-docker.sh），部分用例写入 credentials/
+    ozon_product_tasks/store_sync_jobs 等但不清理 → 测试后在同库启动 worker 时，
+    残留 active 凭证被 store_sync 每 5s 拉起来用无效 key 刷屏失败，残留任务被自动
+    执行并重试（无效 token 401）。本 fixture 在会话结束后 TRUNCATE 全部业务表
+    （保留 _mig_backup_* 备份表），下次 init_data 重新播种。
+
+    安全开关：仅当 TEST_DB_CLEANUP=1（docker-compose.test.yml 已设置）才执行，
+    防止误把 pytest 跑在真实库/生产库时被清空。
+    """
+    yield
+    if os.environ.get("TEST_DB_CLEANUP", "0") != "1":
+        return
+    url = os.environ.get(
+        "PGDATABASE_URL",
+        "postgresql://postgres:ozon123@localhost:5433/ozon",
+    )
+    try:
+        eng = create_engine(url)
+        with eng.connect() as conn:
+            conn.execute(text(
+                r"""
+                DO $$
+                DECLARE r RECORD;
+                BEGIN
+                    FOR r IN SELECT tablename FROM pg_tables
+                             WHERE schemaname = 'public'
+                               AND tablename NOT LIKE '\_mig\_backup\_%'
+                    LOOP
+                        EXECUTE 'TRUNCATE TABLE public.' || quote_ident(r.tablename)
+                                || ' RESTART IDENTITY CASCADE';
+                    END LOOP;
+                END $$;
+                """
+            ))
+            conn.commit()
+        eng.dispose()
+    except Exception:
+        # 清理失败不掩盖测试结果（下一轮 init_data 会重建）
+        pass

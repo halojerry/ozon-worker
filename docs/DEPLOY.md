@@ -425,4 +425,4 @@ services:
 | 取消任务 | POST | `/api/v1/cancel_task/{id}` |
 | 健康检查 | GET | `/api/v1/health` |
 | 任务统计 | GET | `/api/v1/task_statistics` |
-| Swagger | GET | `/api/v1/docs` |
+| Swagger | GET | `/docs` |

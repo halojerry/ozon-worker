@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 JOB_TIMEOUT_MINUTES = int(os.getenv("STORE_SYNC_JOB_TIMEOUT_MINUTES", "30"))
 DEFAULT_ORDERS_INTERVAL_MINUTES = int(os.getenv("STORE_SYNC_INTERVAL_MINUTES", "15"))
 DEFAULT_PRODUCTS_INTERVAL_MINUTES = int(os.getenv("STORE_SYNC_PRODUCTS_INTERVAL_MINUTES", "30"))
+# v0.63.1: 连续失败退避（此前 consecutive_failures 只增不读，无效 key 凭证每 5s 被重新
+# 入队 → sync_jobs failed 无限堆积 + 日志刷屏；生产曾靠人工 revoke 止损）。
+# 达到阈值后指数退避：第 N 次失败起 2^(N-4) 分钟，上限 60 分钟；成功一次即清零恢复。
+MAX_CONSECUTIVE_FAILURES = int(os.getenv("STORE_SYNC_MAX_CONSECUTIVE_FAILURES", "5"))
+MAX_BACKOFF_MINUTES = int(os.getenv("STORE_SYNC_MAX_BACKOFF_MINUTES", "60"))
 
 _JOB_COLS = (
     "id, tenant_id, credential_id::text AS credential_id, kind, status, trigger, "
@@ -187,7 +192,8 @@ def due_credentials(now: Optional[datetime.datetime] = None) -> list[dict]:
             SELECT c.id::text AS credential_id, c.tenant_id,
                    c.sync_interval_minutes, c.sync_products_interval_minutes,
                    s.orders_last_synced_at, s.products_last_synced_at,
-                   s.orders_sync_incomplete
+                   s.orders_sync_incomplete,
+                   s.consecutive_failures, s.updated_at AS last_attempt_at
             FROM credentials c
             LEFT JOIN credential_sync_state s
                 ON s.credential_id = c.id AND s.tenant_id = c.tenant_id
@@ -198,6 +204,21 @@ def due_credentials(now: Optional[datetime.datetime] = None) -> list[dict]:
     out: list[dict] = []
     for r in rows:
         cid = str(r.credential_id)
+        # v0.63.1: 连续失败指数退避（consecutive_failures 只增不读 bug 修复）
+        consecutive_failures = int(r.consecutive_failures or 0)
+        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+            backoff_minutes = min(
+                MAX_BACKOFF_MINUTES,
+                2 ** (consecutive_failures - MAX_CONSECUTIVE_FAILURES + 1),
+            )
+            last_attempt = r.last_attempt_at
+            if last_attempt and (last_attempt + datetime.timedelta(minutes=backoff_minutes)) > now:
+                if consecutive_failures == MAX_CONSECUTIVE_FAILURES:
+                    logger.warning(
+                        "店铺同步连续失败 %d 次进入退避（%d 分钟内不再调度）tenant=%s store=%s —— 请检查凭证是否有效",
+                        consecutive_failures, backoff_minutes, str(r.tenant_id), cid,
+                    )
+                continue
         orders_interval = max(5, int(r.sync_interval_minutes or DEFAULT_ORDERS_INTERVAL_MINUTES))
         products_interval = max(5, int(r.sync_products_interval_minutes or DEFAULT_PRODUCTS_INTERVAL_MINUTES))
         orders_due = r.orders_last_synced_at is None or (
