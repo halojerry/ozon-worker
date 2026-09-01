@@ -107,10 +107,13 @@ def _sentry_set_user_context(token: str, endpoint: str = "") -> None:
     """
     try:
         import sentry_sdk  # type: ignore
-        with sentry_sdk.configure_scope() as scope:
-            scope.set_tag("mxou_token_fp", _token_fingerprint(token))
-            if endpoint:
-                scope.set_tag("mxou_endpoint", endpoint)
+        # v0.63.1 架构优化: configure_scope 在 2.x 操作共享 isolation scope 且不还原
+        # → token 指纹残留、跨任务串号。get_current_scope 为 contextvar 隔离的
+        # current scope，任务边界由 process_next_task 的 new_scope fork 保证干净。
+        scope = sentry_sdk.get_current_scope()
+        scope.set_tag("mxou_token_fp", _token_fingerprint(token))
+        if endpoint:
+            scope.set_tag("mxou_endpoint", endpoint)
     except Exception:
         pass
 

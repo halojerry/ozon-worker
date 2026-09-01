@@ -66,8 +66,8 @@ def test_capture_task_error_noop_when_disabled():
         fake_sdk.capture_exception.assert_not_called()
 
 
-def test_capture_task_error_sets_context_and_flushes():
-    """启用后上报异常并带 task_id/tenant_id 上下文，同步 flush。"""
+def test_capture_task_error_sets_context_no_flush():
+    """启用后上报异常并带 task_id/tenant_id 上下文；v0.63.1 起不再同步 flush（防阻塞事件循环）。"""
     _reset()
     fake_sdk = mock.MagicMock()
     with mock.patch.object(mod, "_is_test_process", return_value=False), mock.patch.dict(
@@ -76,10 +76,42 @@ def test_capture_task_error_sets_context_and_flushes():
         assert mod.init_sentry() is True
         mod.capture_task_error(ValueError("boom"), task_id="t1", tenant_id="u1")
         fake_sdk.capture_exception.assert_called_once()
-        fake_sdk.flush.assert_called_once_with(timeout=2)
-        scope = fake_sdk.configure_scope.return_value.__enter__.return_value
+        fake_sdk.flush.assert_not_called()
+        # v0.63.1 S1: 事件级 scope（new_scope），不再是共享 configure_scope
+        scope = fake_sdk.new_scope.return_value.__enter__.return_value
         scope.set_tag.assert_any_call("task_id", "t1")
         scope.set_tag.assert_any_call("tenant_id", "u1")
+        kwargs = fake_sdk.capture_exception.call_args
+        assert kwargs.kwargs.get("scope") is scope
+
+
+def test_capture_task_error_scope_isolated_between_tasks():
+    """S1: 两次不同任务的 capture_task_error 各自 fork new_scope，tag 不跨任务残留。
+
+    sentry-sdk 2.x 的 configure_scope 操作共享 isolation scope 且不还原（并发
+    50 worker 下 task tag 会串号）；new_scope 为事件级 scope，退出自动还原——
+    第二次调用的 scope 不应带第一次的 task_id 标签。
+    """
+    _reset()
+    fake_sdk = mock.MagicMock()
+    scopes = [mock.MagicMock(), mock.MagicMock()]
+    for _s in scopes:
+        _s.__enter__.return_value = _s
+    fake_sdk.new_scope.side_effect = scopes
+    with mock.patch.object(mod, "_is_test_process", return_value=False), mock.patch.dict(
+        sys.modules, {"sentry_sdk": fake_sdk}
+    ), mock.patch.dict(os.environ, {"SENTRY_DSN": "https://x@o1.ingest.us.sentry.io/2"}, clear=True):
+        assert mod.init_sentry() is True
+        mod.capture_task_error(ValueError("a"), task_id="task-a", tenant_id="tenant-a", token="sk-abc12345")
+        mod.capture_task_error(ValueError("b"), task_id="task-b", tenant_id="tenant-b", token="sk-xyz67890")
+        assert fake_sdk.new_scope.call_count == 2
+        # 每次调用各 fork 独立 scope；第一个 scope 只被第一个事件使用
+        assert scopes[0].set_tag.call_args_list[0][0][1] == "task-a"
+        assert scopes[1].set_tag.call_args_list[0][0][1] == "task-b"
+        # 第二个 scope 上不应出现第一个任务的标签
+        tags_b = {c[0][0] for c in scopes[1].set_tag.call_args_list}
+        assert "task_id" in tags_b
+        assert all(c[0][1] != "task-a" for c in scopes[1].set_tag.call_args_list)
 
 
 def test_init_wires_before_send():
