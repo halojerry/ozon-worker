@@ -236,6 +236,51 @@ def test_is_permanent_error_classification():
 
 
 # ============================================================
+# 4c. process_next_task 异常分支：permanent → 跳过 capture_task_error
+# （防 LoggingIntegration logger.error + capture_exception 双重上报）
+# ============================================================
+
+def _run_process_next_exception(exc):
+    """驱动 process_next_task，图执行抛 exc → 捕获 capture_task_error 调用。"""
+    import utils.task_processor as tp_mod
+    from utils.task_processor import SupabaseTaskProcessor
+
+    engine = _FakeEngine(_make_task_row({}), [])
+    captured = []
+
+    def _spy(*a, **k):
+        captured.append((a, k))
+
+    async def _boom(payload, timeout):
+        raise exc
+
+    with patch.object(tp_mod, "get_supabase_client", return_value=None), \
+         patch.object(tp_mod, "get_engine", return_value=engine), \
+         patch.object(tp_mod, "capture_task_error", side_effect=_spy):
+        proc = SupabaseTaskProcessor(max_concurrent=1)
+        with patch.object(proc, "execute_graph_with_timeout", _boom):
+            asyncio.run(proc.process_next_task())
+    return captured
+
+
+def test_permanent_error_skips_capture_task_error():
+    """OutOfQuota 永久错误 → 不调用 capture_task_error（防双重上报/聚合前刷屏）。"""
+    from utils.mxou_api import MxouOutOfQuotaError
+
+    captured = _run_process_next_exception(
+        MxouOutOfQuotaError("OUT_OF_QUOTA: MXOU balance insufficient"))
+    assert captured == [], f"permanent 错误不应调用 capture_task_error: {captured}"
+
+
+def test_generic_error_still_captures_task_error():
+    """普通异常 → 仍调用 capture_task_error（带 task/tenant/token 上下文，唯一 Sentry 通道）。"""
+    captured = _run_process_next_exception(RuntimeError("网络超时"))
+    assert len(captured) == 1, f"普通异常应调用 capture_task_error: {captured}"
+    call = captured[0]
+    assert isinstance(call[0][0], RuntimeError), "应传入原始异常对象"
+
+
+# ============================================================
 # 5. 写回在 commit 之后（顺序：commit → writeback）
 # ============================================================
 
@@ -281,6 +326,62 @@ def test_writeback_exception_does_not_break_task():
         "写回异常不应吞掉任务结果 / 不应 raise"
     assert events.count("commit") == 2 and events.count("writeback") == 1, \
         f"commit 仍应先于 writeback 且流程完整: {events}"
+
+
+# ============================================================
+# S2（v0.63.1 架构优化）：on_chain_error 回调不再上报 Sentry
+# LangGraph 对同一异常触发 node 级 + graph 级两级回调，且 capture_task_error
+# (exc+message) 每次双发 → 一次失败放大 4~6 事件。上报收敛到顶层捕获。
+# ============================================================
+
+def test_on_chain_error_does_not_capture():
+    from utils.task_processor import ProgressCallback
+
+    captured = []
+
+    def _spy(*a, **k):
+        captured.append((a, k))
+
+    cb = ProgressCallback("task-1", lambda *a: None)
+    with patch("utils.task_processor.capture_task_error", side_effect=_spy):
+        cb.on_chain_error(ValueError("node boom"), run_id="r1")
+    assert captured == [], f"on_chain_error 不应再调用 capture_task_error: {captured}"
+
+
+# ============================================================
+# S3（v0.63.1 架构优化）：worker 执行路径补 trace_id
+# process_next_task 认领任务后派生 trace_id（task_id 前 12 位），
+# 使 LOGGING.md 宣称的「按 trace_id 追踪全链路」真正可用。
+# ============================================================
+
+def test_process_next_task_sets_trace_id():
+    import utils.task_processor as tp_mod
+    from utils.task_processor import SupabaseTaskProcessor
+
+    events = []
+    engine = _FakeEngine(_make_task_row(), events)
+    trace_calls = []
+
+    def _trace_spy(*a, **k):
+        trace_calls.append((a, k))
+
+    async def _fake_execute(payload, timeout):
+        return {"upload_status": "success", "moderation_status": "approved"}
+
+    with patch.object(tp_mod, "get_supabase_client", return_value=None), \
+         patch.object(tp_mod, "get_engine", return_value=engine), \
+         patch.object(tp_mod, "writeback_submission_status", lambda *a, **k: None), \
+         patch.object(tp_mod, "set_trace_context", side_effect=_trace_spy):
+        proc = SupabaseTaskProcessor(max_concurrent=1)
+        with patch.object(proc, "execute_graph_with_timeout", _fake_execute):
+            asyncio.run(proc.process_next_task())
+
+    assert trace_calls, "process_next_task 应调用 set_trace_context"
+    kwargs = trace_calls[0][1]
+    assert kwargs.get("trace_id") == "task-1", \
+        f"trace_id 应为 task_id 前 12 位: {kwargs}"
+    assert kwargs.get("task_id") == "task-1"
+    assert kwargs.get("user_id") == "u1"
 
 
 if __name__ == "__main__":

@@ -472,6 +472,25 @@ async def lifespan(app: FastAPI):
     global task_processor
     max_concurrent = int(os.getenv("MAX_CONCURRENT", "30"))
     task_processor = SupabaseTaskProcessor(max_concurrent=max_concurrent)
+
+    # v0.63.1 架构优化 R1: 扩容 asyncio 默认线程池——LangGraph 全部节点是 sync 函数,
+    # ainvoke 下经 run_in_executor(None, ...) 跑在 asyncio 默认 ThreadPoolExecutor
+    # (min(32, cpu_count+4), 4 核 = 8 线程) → 「MAX_CONCURRENT 并发」实际并行度被卡死,
+    # Phase2 的 8 个并行生图节点退化为排队。按 并发×节点扇出 扩容, 上限 128 防 4GB OOM;
+    # 上游 MXOU/Ozon 由全局限流器兜底, 不会被打爆。
+    try:
+        import concurrent.futures
+        _graph_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(128, max(64, max_concurrent * 8)),
+            thread_name_prefix="graph-node",
+        )
+        _loop = asyncio.get_running_loop()
+        _loop.set_default_executor(_graph_executor)
+        logger.info("🔄 asyncio 默认线程池扩容: %d workers（sync 图节点并行度）",
+                    _graph_executor._max_workers)
+    except Exception as _exec_e:
+        logger.warning("默认线程池扩容失败（不影响启动）: %s", _exec_e)
+
     # ✅ 启动时僵尸任务恢复：重置重启前的 running 任务和可重试的 failed 任务
     # ⚠️ v0.30.0:
     #   SKIP_ZOMBIE_RECOVERY=1 — 跳过全部恢复（本地/测试环境必开，防止旧 failed 任务复活真实上架）
@@ -1055,19 +1074,25 @@ async def health_check():
             "queue": queue_stats,
         }
     except Exception as e:
+        # v0.63.1 D8: /health 公开无鉴权且被 compose healthcheck 使用——异常
+        # 只回错误类型不回 str(e)（DB 错误详情对公网扫描者不可见）
         return JSONResponse(
             status_code=503,
-            content={"status": "degraded", "message": str(e), "db": "disconnected"},
+            content={"status": "degraded", "message": f"db_error: {type(e).__name__}", "db": "disconnected"},
         )
 
 
 @app.get("/api/v1/store/health")
-async def store_health(client_id: str = None, api_key: str = None):
+def store_health(client_id: str = None, api_key: str = None):
     """查询 Ozon 店铺配额健康状态。
     
     Query params (可选):
     - client_id: Ozon Client-Id
     - api_key: Ozon Api-Key
+
+    v0.63.1 架构优化 R2: sync def — 内部阻塞 requests.post(timeout=10)，
+    FastAPI 自动丢线程池，不冻结事件循环（async def 下单个慢调用会
+    停摆全部 worker 心跳）。
     """
     if not client_id or not api_key:
         return {"status": "unknown", "message": "需要提供 client_id 和 api_key"}
@@ -1241,6 +1266,9 @@ async def auth_verify(request: Request):
     4. Ozon API 有效性（可选）
 
     不返回余额数字，只返回 valid + reason。
+
+    v0.63.1 架构优化 R2: 阻塞逻辑在 _auth_verify_sync（to_thread）——
+    Supabase/Ozon HTTP 最长 10s，async 内直接执行会冻结事件循环。
     """
     try:
         body = await request.json()
@@ -1250,7 +1278,11 @@ async def auth_verify(request: Request):
     token = body.get("token", "")
     client_id = body.get("client_id", "")
     api_key = body.get("api_key", "")
+    return await asyncio.to_thread(_auth_verify_sync, token, client_id, api_key)
 
+
+def _auth_verify_sync(token: str, client_id: str = "", api_key: str = "") -> dict:
+    """auth_verify 同步实现（纯阻塞 IO，供 asyncio.to_thread 调用）。"""
     if not token:
         return {"valid": False, "reason": "token_invalid", "expires_in": 0}
 
@@ -1890,12 +1922,18 @@ async def logistics_quote(request: Request):
 
     返回: {logistics_cost_cny, channel, tpl_provider_used, service_level_used,
            base_cost, per_gram_rate, billable_weight, weight, dims_cm, fallback_chain}
+
+    v0.63.1 架构优化 R2: 阻塞 Supabase/Ozon 逻辑在 _logistics_quote_sync（to_thread）。
     """
     try:
         body = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="invalid_request: body must be JSON")
+    return await asyncio.to_thread(_logistics_quote_sync, body)
 
+
+def _logistics_quote_sync(body: dict) -> dict:
+    """logistics_quote 同步实现（纯阻塞 IO，供 asyncio.to_thread 调用）。"""
     token = str(body.get("token", "") or "")
     client_id = str(body.get("ozon_client_id", "") or "")
     api_key = str(body.get("ozon_api_key", "") or "")
