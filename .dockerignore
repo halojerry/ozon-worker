@@ -1,4 +1,5 @@
-# dsh 沙箱镜像构建上下文（ozon-worker 根）的忽略清单 —— 只影响 dsh 构建
+# 根上下文构建（ci.yml/cd.yml/docker-compose context=. 或 ..）的忽略清单。
+# ⚠️ 作用于所有构建——含凭证的 .env 必须排除（v0.63.1 D4）
 .git
 .gitignore
 .codegraph
@@ -22,3 +23,9 @@ integration-workplan
 deploy/skill
 deploy/*.tar.gz
 browser
+# v0.63.1 D4: .env 含 COS 密钥/CREDENTIAL_MASTER_KEY 等凭证, 严禁进 build context
+.env
+.env.*
+deploy/.env
+deploy/.env.bak*
+worker/.env

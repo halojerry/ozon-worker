@@ -101,11 +101,11 @@ GRSAI_API_KEY=your_grsai_api_key
 
 # ========== 可选 ==========
 
-# 并发数（默认10，根据服务器配置调整）
-MAX_CONCURRENT=10
+# 并发数（默认30，4核4G 安全值；按服务器配置调整）
+MAX_CONCURRENT=30
 
-# 每分钟限流（默认10）
-RATE_LIMIT_PER_MINUTE=10
+# 每分钟限流（默认300）
+RATE_LIMIT_PER_MINUTE=300
 
 # 日志级别
 LOG_LEVEL=INFO
@@ -314,13 +314,38 @@ docker compose down && docker compose up -d
 
 ### 数据库备份
 
-```bash
-# 备份
-docker compose exec postgres pg_dump -U postgres ozon > backup_$(date +%Y%m%d).sql
+推荐使用仓库内的 `deploy/backup-pg.sh`（自动 pg_dump + 可选 gpg 加密 + N 天保留），
+并配置 crontab 每天自动执行：
 
-# 恢复
-cat backup_20260724.sql | docker compose exec -T postgres psql -U postgres ozon
+```bash
+# 首次：设置加密口令（可选但强烈建议）
+export PG_BACKUP_PASSPHRASE='<强口令>'
+
+# 手动备份（含加密）
+bash deploy/backup-pg.sh
+
+# 定时备份：每天 03:00
+crontab -e
+# 添加一行：
+# 0 3 * * * cd /root/ozon-worker && PG_BACKUP_PASSPHRASE='<强口令>' bash deploy/backup-pg.sh >> /var/log/backup-pg.log 2>&1
 ```
+
+恢复：
+
+```bash
+# 明文备份
+bash deploy/backup-pg.sh --restore backup_20260724.sql
+# 加密备份（需 PG_BACKUP_PASSPHRASE）
+bash deploy/backup-pg.sh --restore backup_20260724.sql.gpg
+```
+
+> ⚠️ **异地副本（建议项）**：备份默认落在本机 `deploy/backups`，与生产库同命运
+> （磁盘故障/误删即全丢）。建议加密后同步到 COS（与 skill/worker 部署包同 bucket
+> 或独立 bucket，注意生命周期规则避开图片路径 `file/images/*`）：
+> ```bash
+> coscli cp deploy/backups/backup_*.sql.gpg cos://<bucket>/backups/
+> ```
+> 并定期演练 restore。
 
 ### 查看任务状态
 
@@ -362,8 +387,8 @@ docker compose restart postgres
 # 查看资源使用
 docker stats
 
-# 减少并发数
-# 编辑 .env: MAX_CONCURRENT=5
+# 减少并发数（4GB 服务器建议 10~15；默认 30 是 4核4G 安全值上限）
+# 编辑 .env: MAX_CONCURRENT=10
 docker compose restart worker
 ```
 
