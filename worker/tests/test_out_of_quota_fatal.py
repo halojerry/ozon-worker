@@ -310,6 +310,53 @@ def test_rich_description_out_of_quota_fatal(monkeypatch):
         _raises_out_of_quota(mod._generate_rich_description, "Товар", {}, "tok")
 
 
+def test_prepare_llm_chain_out_of_quota_propagates(monkeypatch):
+    """prepare 节点：LLM 链（去拉丁→富文本）中途 401 → 调用方不吞，异常穿透。
+
+    覆盖：sanitize_title 的 _remove_latin_llm 与 _generate_rich_description 的
+    调用方 wrapper（此前 except Exception 会把 re-raise 二次吞掉）。
+    """
+    import graphs.nodes.prepare_ozon_upload_node as mod
+    from graphs.state import PrepareOzonUploadInput
+    import utils.mxou_api as mxou_api
+
+    calls = []
+
+    def _chat(*a, **k):
+        calls.append(k.get("user_prompt", "")[:20])
+        if len(calls) == 1:
+            return "Тестовый товар для кошек"  # 去拉丁：正常返回
+        raise MxouOutOfQuotaError("OUT_OF_QUOTA: MXOU chat API rejected (HTTP 401)")
+
+    monkeypatch.setattr(mxou_api, "call_mxou_chat_api", _chat)
+    monkeypatch.setattr(mod, "_translate_to_russian_llm",
+                        lambda *a, **k: "Тестовый товар для кошек")
+    monkeypatch.setattr(mod, "_get_category_fallback_title",
+                        lambda *a, **k: "Товар для дома")
+
+    state = PrepareOzonUploadInput(
+        draft={
+            "item_id": "test001", "title": "宠物玩具", "images": ["http://img.test/1.jpg"],
+            "weight": 300, "dimensions": {"length": 100, "width": 100, "height": 50},
+            "attributes": {"商品颜色": "蓝色"}, "sku_id": "test001",
+            "price": "1990", "original_price": "2390",
+        },
+        source={"purchase_url": "http://1688.test/item", "purchase_cost": "10.5"},
+        extensions={},
+        pricing_info={"final_price": "1290", "selling_price": "1290", "variant_prices": []},
+        description_category_id="17028830",
+        type_id="971206780",
+        final_attributes=[],
+        attributes_schema=[],
+        dictionary_values={},
+        token="sk-test",
+        original_images=["http://img.test/1.jpg"],
+    )
+    with _workspace():
+        _raises_out_of_quota(mod.prepare_ozon_upload_node, state, None, None)
+    assert len(calls) >= 2, f"应在 LLM 链中途触发 401: {calls}"
+
+
 def test_follow_sell_translate_out_of_quota_fatal(monkeypatch):
     """follow_sell_import._translate_to_russian：401 → 不回退原文，异常穿透。"""
     import graphs.nodes.follow_sell_import_node as mod

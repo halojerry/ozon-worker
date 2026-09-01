@@ -1279,7 +1279,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                         logger.warning(f"⚠️ LLM生成的标题仍含拉丁/无西里尔: '{repaired_title[:60]}'，强制翻译为俄语")
                         # 用 call_mxou_chat_api 强制生成俄语标题
                         try:
-                            from utils.mxou_api import call_mxou_chat_api
+                            from utils.mxou_api import call_mxou_chat_api, MxouOutOfQuotaError  # v0.63.1
                             _orig_name = (items[0].get("name", "") if (items := state.ozon_payload.get("items", [])) and len(items) > 0 else "") or state.product_name or ""
                             _rus_title = call_mxou_chat_api(
                                 token=token,
@@ -1296,6 +1296,8 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                             else:
                                 logger.warning(f"⚠️ 强制俄语翻译仍不合格: '{_rus_title[:60]}'")
                                 repaired_title = ""
+                        except MxouOutOfQuotaError:
+                            raise  # v0.63.1: 强制翻译 401/403 → 任务明确失败，不降级重试
                         except Exception as _trans_e:
                             logger.warning(f"⚠️ 强制俄语翻译失败: {_trans_e}")
                             repaired_title = ""
@@ -1346,7 +1348,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 ):
                     logger.warning(f"⚠️ LLM未生成标题但错误涉及名称缺失，强制生成俄语标题")
                     try:
-                        from utils.mxou_api import call_mxou_chat_api
+                        from utils.mxou_api import call_mxou_chat_api, MxouOutOfQuotaError  # v0.63.1
                         _items_force = state.ozon_payload.get("items", [])
                         _orig_title = (_items_force[0].get("name", "") if _items_force and len(_items_force) > 0 else "") or state.product_name or ""
                         _rus_title_force = call_mxou_chat_api(
@@ -1370,6 +1372,8 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                             logger.info(f"✅ 强制俄语标题生成成功: {repaired_title[:80]}")
                         else:
                             logger.warning(f"⚠️ 强制俄语标题不合格: '{_rus_title_force[:60]}'")
+                    except MxouOutOfQuotaError:
+                        raise  # v0.63.1: 强制标题 401/403 → 任务明确失败，不降级重试
                     except Exception as _force_e:
                         logger.warning(f"⚠️ 强制俄语标题生成失败: {_force_e}")
                 
