@@ -1049,6 +1049,8 @@ def assemble_ozon_product_node(
                                 # 否则 best_by_llm 仍是 suggest 标记 dict(full_path 为空) →
                                 # 下方重叠检查恒失败 → 硬阻断, 二次搜索白做 (与 L1237 路径对齐)
                                 best_by_llm = _llm_rank_categories(candidates[:10], source_keywords or keywords, draft, state)
+                        except MxouOutOfQuotaError:
+                            raise  # v0.63.1: 二次搜索 LLM 401/403 → 任务明确失败，不降级
                         except Exception as _se:
                             logger.warning(f"   ⚠️ 建议词二次搜索失败: {_se}")
                 if best_by_llm:
@@ -1499,6 +1501,8 @@ def assemble_ozon_product_node(
                                     _seen_keys.add(_key)
                             best_by_llm = _llm_rank_categories(all_candidates[:10], product_keywords, draft, state)
                             logger.info(f"   ✅ 建议词二次搜索后重试 LLM: 候选 {len(all_candidates)}")
+                    except MxouOutOfQuotaError:
+                        raise  # v0.63.1: 二次搜索 LLM 401/403 → 任务明确失败，不降级
                     except Exception as _se2:
                         logger.warning(f"   ⚠️ 建议词二次搜索失败: {_se2}")
             if best_by_llm:

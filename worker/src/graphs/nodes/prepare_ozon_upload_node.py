@@ -1839,6 +1839,8 @@ def prepare_ozon_upload_node(
         final_attributes, rich_desc = _ensure_rich_description_attr(
             final_attributes, rich_desc, title_ru, draft_attrs, description or "", state
         )
+    except MxouOutOfQuotaError:
+        raise  # v0.63.1: 富文本 LLM 余额/鉴权/额度失败 → 任务明确失败（调用方不吞）
     except Exception as e:
         logger.warning(f"⚠️ 富文本描述生成失败: {e}")
         # 最终兜底
