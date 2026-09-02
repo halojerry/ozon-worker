@@ -28,7 +28,7 @@ jobs:
               echo "❌ $f = $(cat "$f") != $VERSION"; exit 1
             fi
           done
-          if ! grep -q "^version: $VERSION" skill/SKILL.md; then
+          if ! grep -qE "^version: \"?$VERSION\"?" skill/SKILL.md; then
             echo "❌ skill/SKILL.md frontmatter != $VERSION"; exit 1
           fi
           echo "✅ 版本四源一致: $VERSION"
