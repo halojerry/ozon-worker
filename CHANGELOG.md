@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.63.1] - 2026-09-02
+
+> v0.63.0 上线后的第一批补漏/加固（Sentry OutOfQuota 吞错、生图违规透传、运行时并发、
+> 部署 CI）+ 凭证端点校验 422 化（链路测试实证：字段名错不再裸 500）。VERSION 四源 0.63.1。
+
+### 修复（v0.63.1 补漏系列，git v0.63.0..HEAD）
+- **MXOU 永久错误（OutOfQuota/内容违规）全链路 Fatal 化**：review 补漏修复 5 处上层
+  `except` 二次吞掉 OutOfQuota；scene_2/3 内容违规 re-raise；退避告警分级 + 退避变量登记。
+- **Sentry 可观测性**：事件级 scope 串号修复 + `on_chain_error` 去重 + 业务噪音聚合。
+- **运行时并发优化**：线程池扩容 + 阻塞端点线程化 + 超时终态 + langgraph 1.2。
+- **部署/CI 流程加固**：版本四源校验 + `.env` 排除 + 回滚含 webui + shellcheck 门禁。
+- 本地 Docker 全量测试问题修复（v0.63.1 预检）。
+
+### 修复（2026-09-02 链路测试实证）
+- **凭证创建/轮换校验失败 500 → 422**：`credentials_routes` 手拆 body 的
+  `model_validate` 无 try/except，`pydantic.ValidationError` 冒泡成裸 500
+  （无 detail）。已包 `ValidationError` → `HTTPException(422, detail)`。
+  回归：`test_credentials_validation_422.py`（纯 mock，无 PG，2 passed）。
+- **契约文档补齐 `POST /api/v1/credentials` 请求体示例**：字段名是 `api_key`
+  （非信封词汇 `ozon_api_key`）；`CONTRACT-v4.md` 1b.1.1 + webui BACKEND-API-REQUIREMENTS.md。
+
+### 测试
+- worker 全量 Docker **1514+**（v0.63.0 基线 1532；v0.63.1 补漏经 7477b626 本地 Docker 全量预检，
+  未逐版本计数）。422 回归 2 passed（无 PG mock）；`test_credential_cross_tenant.py` 4 passed。
+
 ## [0.63.0] - 2026-09-01
 
 > 类目解析确定性重构 + Skill↔Worker 契约对齐。根治「有权威类目却复用不上」：
