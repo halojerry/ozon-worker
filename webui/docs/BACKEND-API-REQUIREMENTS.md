@@ -93,6 +93,21 @@
   "last_rotated_at": null
 }
 
+// POST /api/v1/credentials 请求体（创建/绑定店铺）
+// ⚠️ 字段名是 api_key，不是信封词汇 ozon_api_key（后者是 submit_task/建草稿的字段）
+{
+  "ozon_client_id": "4718259",
+  "api_key": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",  // 明文仅存于请求体
+  "shop_name": "深圳跨境旗舰店",
+  "currency": "RUB",            // 可选，默认 CNY
+  "is_default": true,           // 可选；true 时同租户旧默认自动清
+  "credential_type": "api_key"  // api_key | oauth（预留）
+}
+// → 201；响应 body.id 即 credential_id（submit 上架 / 店铺统计接口用）
+//   响应只回 api_key_masked，永不回显明文 api_key
+//   校验失败（缺 api_key / 字段名错）→ 422 detail；重复/已被他人绑定 → 409
+//   CREDENTIAL_MASTER_KEY 未配置 → 500（detail）
+
 // GET /api/v1/stores/{id}/stats
 {
   "credential_id": "uuid",
