@@ -729,6 +729,31 @@ curl -s -X POST http://localhost:8080/api/v1/auth/verify \
 
 **端点/服务分层规则**（写入评审门）：`routes/*` 只做参数解析 → 鉴权 → 调 `services/*` → 返回；`services/*` 是唯一业务实现（DB / utils / graphs 能力 / Ozon API），未来抽独立 BFF = 搬走 `services/` + 加 HTTP 门面，零手术。
 
+#### 1b.1.1 POST /api/v1/credentials 请求体（创建/默认店铺）
+
+> ⚠️ **字段名纠错（2026-09-02 链路测试实证）**：本端点 body 字段是 **`api_key`**（Ozon 卖家 Api-Key），**不是**信封/GraphInput 词汇 `ozon_api_key`——后者是 `POST /api/v1/submit_task` 与 `POST /api/v1/drafts`（创建）的字段。`ozon_api_key` 发到本端点会被 pydantic 静默忽略 → 必填 `api_key` 缺失 → 校验失败：请求体校验失败返回 **422**（带 detail），不会写入任何行。
+
+```bash
+# 注册「测试店铺」并设为本租户默认店（is_default=true 时同租户旧默认自动清）
+curl -X POST http://<worker>/api/v1/credentials \
+  -H "Authorization: Bearer <mxou-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ozon_client_id": "5381204",
+    "api_key": "0b4d15cf-…",           # ← 字段名是 api_key，不是 ozon_api_key
+    "shop_name": "测试店铺5381204",
+    "currency": "CNY",                  # CNY/RUB，可选
+    "is_default": true,                 # 「默认上传产品的店铺」
+    "credential_type": "api_key"        # api_key | oauth（预留）
+  }'
+# → 201；响应 body.id 即 credential_id（下文 /drafts/{id}/submit 用）
+#   响应只回 api_key_masked（"****abcd"），永不回显明文 api_key
+```
+
+错误响应：`401` 鉴权失败 / `409` 同租户重复 client_id 或已被其他 tenant 绑定 / `500`（带 detail）CREDENTIAL_MASTER_KEY 未配置或过短。
+
+**credential_id 来源**（`POST /api/v1/drafts/{id}/submit` 用）：`GET /api/v1/credentials` 列表项的 `id`，或本端点 201 响应的 `id`。submit 请求体 `credential_id` 缺省时 → worker 用该租户 `is_default=true AND status='active'` 的店铺；两者都没有 → 400「未配置默认店铺凭证」。
+
 ### 1b.2 新数据表（C1/C1b/C2）
 
 > 全部走 `init_data.py` 幂等建表（`worker/src/storage/database/shared/model.py`），`migrate_webui_v1.py` 处理 `task_generated_images` 存量 ALTER。

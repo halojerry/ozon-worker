@@ -15,11 +15,21 @@ import json
 import os
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import ValidationError
 
 from api.schemas import CredentialCreate, CredentialOut, CredentialUpdate, ValidateResponse
 from services import credential_service
 
 router = APIRouter(prefix="/credentials", tags=["credentials"])
+
+
+def _validation_detail(exc: ValidationError) -> str:
+    """pydantic.ValidationError → 可读 detail（字段缺失/类型错不再裸 500）。"""
+    parts = []
+    for err in exc.errors():
+        loc = ".".join(str(x) for x in err.get("loc", ()))
+        parts.append(f"{loc}: {err.get('msg', err.get('type', 'invalid'))}")
+    return "请求体校验失败: " + "; ".join(parts)
 
 
 async def _authenticate(request: Request) -> str:
@@ -50,7 +60,10 @@ async def list_credentials(request: Request):
 async def create_credential(request: Request):
     tenant_id = await _authenticate(request)
     body = await request.json()
-    data = CredentialCreate.model_validate(body)
+    try:
+        data = CredentialCreate.model_validate(body)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=_validation_detail(exc)) from exc
     return credential_service.create_credential(tenant_id, data)
 
 
@@ -58,7 +71,10 @@ async def create_credential(request: Request):
 async def rotate_credential(credential_id: str, request: Request):
     tenant_id = await _authenticate(request)
     body = await request.json()
-    data = CredentialUpdate.model_validate(body)
+    try:
+        data = CredentialUpdate.model_validate(body)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=_validation_detail(exc)) from exc
     return credential_service.rotate_credential(tenant_id, credential_id, data)
 
 

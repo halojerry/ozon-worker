@@ -2,6 +2,14 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.63.1 — v0.63.0 补漏加固 + 凭证端点 422 化）
+
+> 2026-09-02。已发版（VERSION 四源 0.63.1）。v0.63.0 上线后第一批补漏 + 链路测试实证的凭证端点修复。
+
+- **MXOU 永久错误全链路 Fatal 化（v0.63.1 补漏）**：5 处上层 `except` 二次吞掉 OutOfQuota 修复 + scene_2/3 内容违规 re-raise + 退避告警分级 + 退避变量登记（git `v0.63.0..HEAD` 7 commits，7477b626 起）。
+- **凭证创建/轮换校验失败 500 → 422**（链路测试实证）：`credentials_routes` 手拆 body 的 `model_validate` 包 `ValidationError` → `HTTPException(422, detail)`——此前字段缺失/类型错（如把 `api_key` 写成信封词汇 `ozon_api_key`）冒泡成裸 500。回归 `test_credentials_validation_422.py`（纯 mock 2 passed）。
+- **契约文档补齐 `POST /api/v1/credentials` 请求体**：`api_key` 字段名纠错 + credential_id 来源（`docs/CONTRACT-v4.md` 1b.1.1 + `webui/docs/BACKEND-API-REQUIREMENTS.md` + AGENTS.md 端点表补 /credentials、/drafts）。
+
 ## 最近更新（v0.62.0 — Sentry 六类根因修复 R1–R6）
 
 > 2026-08-31。已发版（VERSION 四源 0.62.0）。针对生产 Sentry 100 issues / 3645 events
@@ -267,6 +275,8 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | 类目映射查询（v0.56） | `GET /api/v1/mappings/lookup?keyword=` | GET |
 | 店铺手动同步（v0.56） | `POST /api/v1/stores/{id}/sync` + `GET /stores/{id}/sync-status` | POST/GET |
 | 上架配置模板（v0.56） | `GET/POST/PATCH/DELETE /api/v1/templates` + `POST /templates/{id}/default` | 全 |
+| 店铺凭证管理（v0.41+） | `GET/POST /api/v1/credentials` + `PATCH/DELETE /credentials/{id}` + `POST /credentials/{id}/validate` | 全 |
+| 采集箱草稿（v0.41+） | `GET/POST /api/v1/drafts` + `GET/PATCH/DELETE /drafts/{id}` + `POST /drafts/{id}/submit`（+ `/resubmit`、`/batch-submit`、`/drafts/{id}/ai/{field}`） | 全 |
 
 **`task_status` 返回 `progress` 字段**：`{stage, percent, stages_completed[], stages_remaining[], message}`。
 进度基于内存中 12 阶段 `STAGE_ORDER` 计算，节点执行时 `ProgressCallback` 自动更新。
