@@ -224,6 +224,62 @@ def ozon_check_quota(
     return result
 
 
+def update_min_price_floor(
+    client_id: str,
+    api_key: str,
+    offer_id: str,
+    product_id: int,
+    price: float | int | str,
+    old_price: float | int | str | None = None,
+    min_price: float | int | str | None = None,
+    timeout: int = 60,
+) -> dict[str, Any]:
+    """v0.65: 上架成功后设置促销底线 min_price（防 Ozon 自动调价跌破成本）。
+
+    POST /v1/product/import/prices（商品必须已存在——/v3/product/import 返回的是
+    task_id，真实 product_id 需等 /v1/product/import/info 轮询确认 imported 后才有）。
+    min_price 受 Ozon 规则约束：`min_auto_price_too_small` = 最低价不得低于售价 50%，
+    此处防御性抬到 max(请求值, ceil(price×0.5))。
+
+    Args:
+        offer_id: 卖家商品编号（卖家系统）；与 product_id 二选一（同时传 Ozon 优先 offer_id）。
+        product_id: Ozon 系统商品 ID（真实 product_id，非 import 任务 ID）。
+        price: 当前售价。
+        old_price: 划线原价；None → 用 price（Ozon 要求 old_price ≥ price）。
+        min_price: 促销底线；None → 用 max(price×0.5, ...) 下限。≤0 视同 None。
+
+    Returns:
+        ozon_post 响应 JSON dict。
+
+    Raises:
+        OzonError 子类 / requests 网络异常：由 ozon_post 抛出，调用方决定是否吞掉。
+    """
+    import math
+
+    _price = int(price) if price not in (None, "") else 0
+    if _price <= 0:
+        raise ValueError(f"update_min_price_floor: price 无效: {price!r}")
+    _old = int(old_price) if old_price not in (None, "") else _price
+    _old = max(_old, _price)  # Ozon: old_price_less_than_price — 划线价须 ≥ 售价
+    _floor_raw = int(min_price) if min_price not in (None, "") else 0
+    # min_auto_price_too_small：最低价不得低于售价 50%（防御性抬升）；
+    # 上限收在售价内（price_less_than_min_auto_price：min_price > 售价会拒）——
+    # 极端 margin 配置下 promo ≥ price 时，宁可 min=price（禁止自动降价）也不发非法请求。
+    _floor = min(max(_floor_raw, math.ceil(_price * 0.5)), _price)
+    body = {
+        "prices": [
+            {
+                "offer_id": str(offer_id),
+                "product_id": int(product_id),
+                "price": str(_price),
+                "old_price": str(_old),
+                "min_price": str(_floor),
+            }
+        ]
+    }
+    return ozon_post(client_id, api_key, "/v1/product/import/prices", body, timeout=timeout)
+
+
 def _summarize_request(endpoint: str, body: dict) -> dict:
     """提取请求关键字段（避免日志过大）。"""
     summary: dict[str, Any] = {}

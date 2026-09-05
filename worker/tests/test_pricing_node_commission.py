@@ -134,7 +134,9 @@ def test_pricing_node_cache_flows_to_price(monkeypatch):
         "fbs_gt_5000": 30.0,
         "source": "what_to_sell",
     }
-    out = _call_pricing(monkeypatch, _make_state(), cat_commission=cat_commission)
+    # ✅ v0.65: 显式 margin_rate → 旧单档路径（bare 信封现默认三档，price 不再是 337）。
+    # 本测试锁「佣金缓存流入最终价」，单档路径用显式 margin_rate=0.25 保持原 337 期望。
+    out = _call_pricing(monkeypatch, _make_state(extensions={"margin_rate": 0.25}), cat_commission=cat_commission)
     assert out.error_message == "", f"不应失败: {out.error_message}"
     assert out.pricing_info["commission_rate"] == pytest.approx(0.18)
     assert out.pricing_info["commission_rate"] != 0.10, "不再恒 fallback 0.10"

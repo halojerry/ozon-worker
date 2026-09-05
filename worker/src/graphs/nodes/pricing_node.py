@@ -152,19 +152,25 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             logger.warning("⚠️ cost_cny为0或空，使用默认值: 10 CNY")
         
         # 获取扩展配置
-        margin_rate: float = float(extensions.get("margin_rate", 0.25))  # 利润率 25%（单档）/ 三档日常价
-        
         fx_buffer: float = float(extensions.get("fx_buffer", 0.05))  # 汇率缓冲 5%
 
-        # ✅ v0.60 三档双价格体系：仅当信封显式传 margin_floor/margin_anchor 才启用三档。
-        # 向后兼容：只传 margin_rate（无 floor/anchor）→ 保持单档旧行为（不启用三档）。
-        dual_margin: bool = "margin_floor" in extensions or "margin_anchor" in extensions
+        # ✅ v0.65 三档默认激活：与 estimate_service 同规则——floor/anchor 在场，或 margin 键全缺 → 三档。
+        # 用户决策（2026-08-21 + v0.65 拍板）：未配置店铺自动三档（margin 默认 1.5 / anchor 2.0 /
+        # floor 0.6 / vcr 0.155 / pvcr 0.245）；显式配了 margin_rate 且无 floor/anchor 的店保持旧单档
+        # （存量显式配置向后兼容——单档缺省 margin 0.25，不透传三档参数，compute_price 旧公式逐字一致）。
+        ext_margin_raw = extensions.get("margin_rate")
+        dual_margin: bool = (
+            "margin_floor" in extensions or "margin_anchor" in extensions
+            or ext_margin_raw is None
+        )
         if dual_margin:
+            margin_rate: float = float(ext_margin_raw) if ext_margin_raw is not None else 1.5  # 三档日常价（默认 1.5）
             margin_anchor: Optional[float] = float(extensions.get("margin_anchor", 2.0))  # 划线原价（用户拍板默认 2.0）
             margin_floor: Optional[float] = float(extensions.get("margin_floor", 0.6))    # 促销底线（用户拍板默认 0.6）
             variable_cost_rate: Optional[float] = float(extensions.get("variable_cost_rate", 0.155))  # 日常变动成本
             promo_variable_cost_rate: Optional[float] = float(extensions.get("promo_variable_cost_rate", 0.245))  # 促销变动成本
         else:
+            margin_rate = float(ext_margin_raw or 0.25)  # 旧单档利润率（显式 margin_rate 向后兼容）
             margin_anchor = None
             margin_floor = None
             variable_cost_rate = None

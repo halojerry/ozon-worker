@@ -44,6 +44,10 @@ def ozon_status_node(
     # 触发无谓重试（本地测试实证：审核通过后被 404 误判为失败）。
     task_id_to_poll = getattr(state, 'ozon_task_id', '') or ""
     product_id = state.product_id or task_id_to_poll
+    # ✅ v0.65: 记录进入节点前是否已有真实 product_id（跟卖/编辑 UPDATE 模式由上游预设）。
+    # 全新 1688 CREATE 进来时为空 → 本次 import/info 解析出的 product_id 才是新建卡，
+    # 此时才补送 min_price；UPDATE/follow/编辑重上（已有 product_id）跳过。
+    pre_product_id = str(getattr(state, 'product_id', None) or "").strip()
     purchase_url = state.purchase_url
     purchase_cost = state.purchase_cost
     sku_id = state.sku_id
@@ -51,6 +55,8 @@ def ozon_status_node(
 
     ozon_client_id = state.ozon_client_id
     ozon_api_key = state.ozon_api_key
+    # ✅ v0.65: pricing_info 透传（含 promo_price 促销底线，promo_price 即 min_price）
+    state_pricing_info: Dict[str, Any] = getattr(state, "pricing_info", None) or {}
 
     logger.info(f"开始轮询Ozon商品状态: product_id(task_id)={product_id}")
 
@@ -239,6 +245,34 @@ def ozon_status_node(
             # ✅ 所有变体都已imported
             if real_product_ids:
                 logger.info(f"✅ 所有{len(real_product_ids)}个变体导入成功: product_ids={real_product_ids}")
+                # ✅ v0.65: 三档默认激活 → 本次新建商品 import 成功（真实 product_id/offer_id 到手）后
+                # 补送促销底线 min_price（防 Ozon 自动调价跌破成本）。仅限「全新 CREATE + 单 SKU +
+                # 非 import/info 404 回退 + 三档有 promo_price」；UPDATE/follow/编辑重上（进入节点前已
+                # 有 product_id）/多 SKU（变体各自独立 product_id 无法按 variant_prices 可靠映射）跳过。
+                # import/prices 对不存在的商品返回 NOT_FOUND_ERROR，故不能在上传节点 CREATE 时同步调。
+                if (
+                    not _fallback_from_404
+                    and not pre_product_id
+                    and isinstance(result_items, list)
+                    and len(result_items) == 1
+                ):
+                    try:
+                        from graphs.nodes.ozon_upload_node import try_set_min_price_floor
+
+                        _promo_price = state_pricing_info.get("promo_price")
+                        if _promo_price is not None:
+                            _it0 = result_items[0]
+                            try_set_min_price_floor(
+                                ozon_client_id=str(ozon_client_id),
+                                ozon_api_key=str(ozon_api_key),
+                                offer_id=_it0.get("offer_id", ""),
+                                product_id=_it0.get("product_id"),
+                                price=state_pricing_info.get("price"),
+                                old_price=state_pricing_info.get("old_price"),
+                                promo_price=_promo_price,
+                            )
+                    except Exception as _mp_exc:
+                        logger.warning("min_price 底线设置异常(不影响上架): %s", str(_mp_exc)[:300])
                 break
         else:
             # 轮询超时

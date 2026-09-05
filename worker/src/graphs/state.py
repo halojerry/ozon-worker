@@ -629,6 +629,10 @@ class OzonStatusInput(BaseModel):
     # → graph.should_handle_error 读 moderation_retry_count 恒 0 → "审核中" 自环永不退出
     # → 击穿 recursion_limit（Sentry GraphRecursionError 实证）。与 OzonStatusOutput 对齐。
     moderation_retry_count: int = Field(default=0, description="审核 pending 重试次数（最多3次）")
+    # ✅ v0.65: 三档默认激活 → 商品 import 成功后补送促销底线 min_price（/v1/product/import/prices）。
+    # pricing_info（promo_price/price/old_price）由 pricing_node 产出、GlobalState 累积，需在此声明
+    # 才会进入 ozon_status 的 input channel（否则被 schema 过滤剥掉，同 v0.27 moderation_status 教训）。
+    pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格计算结果（含 promo_price 促销底线）")
 
 
 class OzonStatusOutput(BaseModel):
@@ -784,7 +788,7 @@ class ValidationRetryWrapperOutput(BaseModel):
     upload_status: str = Field(default="", description="上传状态：success/failed/pending")
     # 修复后 Ozon 审核状态（子图 recheck_status 轮询结果透出）
     moderation_status: str = Field(default="", description="Ozon审核状态 (approved/pending/error)")
-    # v0.65 C1(N4): 子图修复后的类目/属性回传主图（learning_record 需用新类目落库，
+    # v0.64.0 C1(N4): 子图修复后的类目/属性回传主图（learning_record 需用新类目落库，
     # 否则按主图旧 dc/tp 学习 → Goodhart 输入固化错映射）
     description_category_id: str = Field(default="", description="修复后类目ID(子图可能重配)")
     type_id: str = Field(default="", description="修复后类型ID")
