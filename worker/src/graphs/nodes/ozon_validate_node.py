@@ -104,8 +104,18 @@ def ozon_validate_node(
             # 验证description_category_id和type_id
             description_category_id = item.get("description_category_id", "")
             type_id = item.get("type_id", "")
+            # v0.65 C3(N6): 带 product_id 的 item 是 UPDATE 模式（跟卖 import-by-sku /
+            # 编辑更新，Ozon 按 product_id 更新已有卡，无需类目）——类目缺失不报错。
+            # 此前无条件报「类目缺失」→ 进 retry 对一张本不需类目的卡盲修烧 3 轮。
             if not description_category_id or not type_id:
-                item_errors.append(f"item[{i}].description_category_id或type_id缺失（类目信息不完整）")
+                _has_pid = bool(item.get("product_id"))
+                if _has_pid:
+                    logger.warning(
+                        f"item[{i}] 类目缺失但带 product_id（UPDATE 模式，走更新已有卡）"
+                        f"— 豁免类目必填校验"
+                    )
+                else:
+                    item_errors.append(f"item[{i}].description_category_id或type_id缺失（类目信息不完整）")
             
             # 验证price和old_price
             price = item.get("price", "")
