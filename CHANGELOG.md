@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.64.1] - 2026-09-05
+
+> v0.64.0 上线后紧急修复：MXOU「有余额却误报 402 余额不足」(current: 0.0)。VERSION 四源 0.64.1。
+
+### 修复（2026-09-05 紧急止血）
+- **MXOU 订阅账号 balance=0 哨兵误判欠费**：api.mxou.cn(newapi) 给订阅/无限账号的
+  subscription 响应带字面 `balance` 字段（常为 0 哨兵，非欠费），`get_mxou_balance`
+  此前未 consult 同响应 `soft_limit_usd/hard_limit_usd` 就把 0.0 当欠费 → 30s 缓存
+  放大 → submit_task 批量 402。修复 B1：`balance≤0` 且任一 `limit>0`（订阅/无限哨兵
+  形态）→ 返回 None 降级（调用方兜底放行）；仅 `balance<0` 且无 limit 哨兵（真欠费）
+  维持原样拒绝。B2：`_check_balance_cached` 首查 0.0 时绕过 30s 缓存二次直查确认，
+  防单次误读污染缓存大面积误报。B3：402 文案带 `(source: mxou_real/mxou_session/
+  supabase)` 便于定位；真欠费（实查负数）保持原文案不放行。
+- 回归：`test_balance_zero_confidence_v0641.py` 6 passed + 余额/鉴权专项 59 passed。
+
 ## [0.64.0] - 2026-09-05
 
 > v0.64 视觉模型切换（类目/属性/生图接入 deepseek-v4-flash-vision-exp）+ 生图精简 10→5 +
