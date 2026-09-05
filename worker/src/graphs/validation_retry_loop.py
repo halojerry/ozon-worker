@@ -710,6 +710,177 @@ def repair_node_selector(state: ValidationRetryLoopState) -> str:
     return "error_repair_llm"
 
 
+# ── v0.65.1 R4: retry 类目重配（declined 类目错 → 整卡换 dc/type + schema 重建）──
+# 店铺 4718259 实证：错误类目（成人糖果 18+ dc=200001462 等）已过审在售，靠
+# 旧「同 dc 换 type」修不了（错的是 dc）。Ozon declined 的类目错（attr 22507
+#「Группа товаров」/ 8229「Тип」或错误文本）→ 用 1688 源词走 R1/R2 过滤后
+# 的搜索链整卡重配；无解 → needs_recategorization 硬收敛（不旧 dc 空烧剩余轮）。
+_CATEGORY_ERROR_MSG_KW = (
+    "категор", "тип не соответствует", "неправильн", "группа товаров",
+    "категории не соответствует", "类目", "分类不正确",
+)
+_BR_CHINESE_CODES = ("BR_chinese_hieroglyphs", "BR_chinese_hieroglyphs_in_attribute")
+
+
+def _looks_like_category_mismatch(state) -> bool:
+    """判定 Ozon 错误是否属「类目错」（需尝试整卡重配）。"""
+    code = str(state.error_code or "")
+    try:
+        attr = int(state.attribute_id or 0)
+    except (TypeError, ValueError):
+        attr = 0
+    if code in _BR_CHINESE_CODES:
+        return False
+    if code == "DESCRIPTION_DECLINE" and attr in (8229, 22507):
+        return True
+    if attr == 8229 and code in (
+        "INVALID_ATTRIBUTE_VALUE", "MISSING_REQUIRED_ATTRIBUTE",
+        "MISSING_ATTRIBUTE", "error_attribute_values_empty",
+        "warning_attribute_values_out_of_range", "INVALID_CATEGORY",
+    ):
+        return True
+    if attr == 22507:
+        return True
+    texts: list[str] = []
+    if state.error_message:
+        texts.append(str(state.error_message))
+    for e in (state.errors or []):
+        if isinstance(e, dict):
+            _t = e.get("texts")
+            if isinstance(_t, dict):
+                texts.append(str(_t.get("message", "")))
+            else:
+                texts.append(str(_t or e.get("message") or ""))
+    low = " ".join(texts).lower()
+    return any(kw in low for kw in _CATEGORY_ERROR_MSG_KW)
+
+
+def _try_recategorize_card(state: ValidationRetryLoopState) -> bool:
+    """R4 整卡类目重配：1688 源词搜索(R1/R2 后) → 采纳 → _rebuild_for_new_category。
+
+    成功返回 True 并更新 state（dc/type/payload/final_attributes/schema）；
+    无解/无变化返回 False（交既有修复链，DESCRIPTION_DECLINE 由调用方 hard-block）。
+    """
+    try:
+        draft = state.draft or {}
+        if not isinstance(draft, dict):
+            draft = {}
+        title_cn = str(draft.get("title") or "").strip()
+        source_cat = str(
+            draft.get("source_category") or draft.get("source_category_path") or ""
+        ).strip()
+        attr_text = ""
+        _attrs = draft.get("attributes")
+        if isinstance(_attrs, dict):
+            attr_text = " ".join(str(v) for v in _attrs.values() if v)
+        ru_name = str(state.product_name or "").strip()
+        if not ru_name:
+            _items = state.ozon_payload.get("items") or []
+            if _items and isinstance(_items[0], dict):
+                ru_name = str(_items[0].get("name") or "").strip()
+        if not (title_cn or source_cat or ru_name):
+            logger.warning("R4 重配: 无 1688 源词（title/source_category 均缺），无解")
+            return False
+
+        from utils.ozon_category_query import (
+            get_category_query, sensitive_candidate_filter,
+            sensitive_adoption_blocked,
+        )
+        from graphs.nodes.assemble_ozon_product_node import _rebuild_for_new_category
+
+        query = get_category_query()
+        candidates: list = []
+        if title_cn:
+            candidates = query.search_nodes(title_cn[:60], top_k=10, node_type="type")
+        if not candidates and source_cat:
+            candidates = query.search_nodes(source_cat[:60], top_k=10, node_type="type")
+        if not candidates and ru_name:
+            candidates = query.search_nodes(ru_name[:100], top_k=8, node_type="type",
+                                            language="RU")
+        if not candidates:
+            logger.warning("R4 重配: 搜索无候选（源词无类目命中），无解")
+            return False
+
+        signal = f"{title_cn} {source_cat} {attr_text}"
+        candidates = sensitive_candidate_filter(candidates, signal)
+        try:
+            old_dc = int(state.description_category_id or 0) or 0
+            old_type = int(state.type_id or 0) or 0
+        except (TypeError, ValueError):
+            old_dc, old_type = 0, 0
+        # 依次找第一个「非敏感拦截 + (dc,type) 变化」的候选——允许同 dc 换正确 type
+        chosen: dict | None = None
+        for c in candidates:
+            _dc = int(c.get("description_category_id") or 0)
+            _tp = int(c.get("type_id") or 0)
+            if not _dc or not _tp:
+                continue
+            _path = str(c.get("full_path") or c.get("node_name") or "")
+            if sensitive_adoption_blocked(_path or _dc, signal):
+                continue
+            if (_dc, _tp) == (old_dc, old_type):
+                continue
+            chosen = c
+            break
+        if chosen is None:
+            logger.info("R4 重配: 无可用且变化的候选（敏感拦截/同当前类目），无解")
+            return False
+        best = chosen
+        new_dc = int(best.get("description_category_id") or 0)
+        new_type = int(best.get("type_id") or 0)
+        new_path = str(best.get("full_path") or best.get("node_name") or "")
+
+        # 从 payload/draft 提取重建所需上下文（对齐 assemble _rebuild_for_new_category 入参）
+        item0: Dict[str, Any] = {}
+        _items = state.ozon_payload.get("items") or []
+        if _items and isinstance(_items[0], dict):
+            item0 = _items[0]
+        price_rub = str(item0.get("price") or draft.get("price") or "")
+        old_price_rub = str(item0.get("old_price") or draft.get("original_price") or "")
+        currency = str(item0.get("currency_code") or "") or "RUB"
+        images = draft.get("images") or item0.get("images") or []
+        if not isinstance(images, list):
+            images = []
+        try:
+            weight_grams = int(draft.get("weight") or item0.get("weight") or 100)
+        except (TypeError, ValueError):
+            weight_grams = 100
+        dims = draft.get("dimensions")
+        if not isinstance(dims, dict) or not dims:
+            dims = {"length": 100, "width": 100, "height": 100}
+
+        rebuild = _rebuild_for_new_category(
+            new_dc=new_dc, new_type=new_type, draft=draft, images=images,
+            ozon_client_id=state.ozon_client_id, ozon_api_key=state.ozon_api_key,
+            weight_grams=weight_grams, dimensions=dims,
+            price_rub=price_rub, old_price_rub=old_price_rub,
+            currency_code=currency, token=state.token,
+            ru_category_path="", traffic_keywords=None,
+        )
+        if not rebuild:
+            logger.error("R4 重配: schema/items 重建失败，无解")
+            return False
+
+        state.description_category_id = str(new_dc)
+        state.type_id = str(new_type)
+        state.ozon_payload["items"] = rebuild.get("items") or state.ozon_payload.get("items") or []
+        state.final_attributes = rebuild.get("final_attributes") or []
+        state.attributes_schema = rebuild.get("attr_list") or []
+        _dl = rebuild.get("dict_lookup") or {}
+        state.dictionary_values = {str(k): v for k, v in _dl.items()}
+        if rebuild.get("llm_name"):
+            state.product_name = str(rebuild["llm_name"])
+        state.needs_recategorization = False
+        logger.info(
+            f"✅ R4 整卡重配: [{old_dc}/{old_type}] → [{new_dc}/{new_type}] "
+            f"{str(new_path)[:60]}"
+        )
+        return True
+    except Exception as _e:
+        logger.warning(f"R4 整卡重配异常（无解，交既有修复链）: {_e}")
+        return False
+
+
 def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     """
     错误修复LLM节点：先查Ozon API搜索字典值，搜不到再调mxou LLM
@@ -769,6 +940,30 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
     category_id: str = state.description_category_id
     type_id: str = state.type_id
 
+    # ========== v0.65.1 R4: 类目错整卡重配（非经典 8229 场景优先拦截） ==========
+    # 触发：declined/error 含 22507(Группа товаров)/8229(Тип)/类目文本特征。
+    # 先按 1688 源词整卡重配（R1/R2 过滤后的搜索链 → _rebuild_for_new_category）；
+    # 无解时 declined → needs_recategorization 硬收敛；非 declined → 交既有通用修复。
+    if _looks_like_category_mismatch(state) and not (
+        error_code == "DESCRIPTION_DECLINE" and attr_id == 8229
+    ):
+        logger.warning(
+            "⚠️ 检测到类目不匹配特征（code=%s attr=%s），尝试整卡重配。"
+            "当前: category_id=%s, type_id=%s。",
+            error_code, attr_id, category_id, type_id,
+        )
+        if _try_recategorize_card(state):
+            return state
+        if error_code == "DESCRIPTION_DECLINE":
+            state.needs_recategorization = True
+            state.error_message = (
+                "类目需人工确认：Ozon 审核拒绝的类目无法自动重配"
+                "（可能错配到敏感/成人 18+ 类目或来源信息不足），请人工确认类目后重新提交"
+            )
+            logger.error("🛑 %s", state.error_message)
+            return state
+        logger.info("ℹ️ R4 类目错重配无解（非 declined 类目错），继续既有通用修复链")
+
     # ========== 特殊处理：DESCRIPTION_DECLINE + attr 8229（类型不匹配） ==========
     # 使用 pg_trgm 搜索 category_tree_nodes 找到最匹配的 type_id，
     # 而非盲选同一 category 下的替代 type（原 _find_alternative_type_id 太粗糙）
@@ -777,6 +972,9 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
             "⚠️ 检测到 DESCRIPTION_DECLINE + attr 8229（类型不匹配）。"
             f"当前类目: category_id={category_id}, type_id={type_id}。"
         )
+        # v0.65.1 R4: 整卡重配优先（可能整卡 dc/type 都不对，如 错配 成人糖果 18+）
+        if _try_recategorize_card(state):
+            return state
 
         # 从 payload 中提取产品名（俄语）用于 pg_trgm 搜索
         product_name = ""
@@ -2447,6 +2645,18 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
 
 def should_continue(state: ValidationRetryLoopState) -> str:
     """条件分支：判断验证结果，决定继续修复还是退出"""
+    # ✅ v0.65.1 R4: needs_recategorization（类目需人工确认）→ 硬收敛终态失败，
+    # 不再旧 dc 空烧剩余轮（此前该字段零读取：无解也 revalidate→reupload 继续烧）。
+    if getattr(state, "needs_recategorization", False):
+        state.is_valid = False
+        state.upload_status = "failed"
+        if not state.error_message:
+            state.error_message = "类目需人工确认：自动重配类目无解，已停止重传"
+        logger.warning(
+            f"🛑 needs_recategorization 无解 → 终态失败（类目需人工确认），不再重传: "
+            f"{state.error_message[:120]}"
+        )
+        return "exit"
     # ✅ 修复：先检查is_valid，再检查retry_count（与should_reupload保持一致）
     if state.is_valid:
         logger.info("✅ 验证通过，准备重新上传")
@@ -2700,6 +2910,10 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                                 state.upload_status = "failed"
                                 state.is_valid = False
                                 state.error_message = f"审核被拒: {mod_errors}"
+                                # v0.65.1 R4: mod_errors 回灌 state.errors（不只是 error_message）
+                                # → should_reupload 走 parse_error 再循环（类目错会触发整卡重配）
+                                if mod_errors:
+                                    state.errors = list(mod_errors)
                                 break
                     except Exception as e:
                         logger.warning(f"⚠️ 审核轮询异常: {e}")
