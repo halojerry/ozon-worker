@@ -2221,6 +2221,47 @@ def build_graph_envelope(
     }
 
 
+def _assemble_match_evidence(
+    *,
+    method: str = "",
+    confidence=None,
+    badge_eff=None,
+) -> dict[str, Any]:
+    """组装图搜匹配证据 dict（透传为 extensions.match_evidence，worker L0 学习置信门槛用）。
+
+    语义对齐 ozon_discovery._pick_best_match 的放行判据（:1999-2015）：
+      - badge_eff >= 1.0（1688 官方 matchBadgeFull「全部符合」）→ trusted=True 直通；
+      - method == "aibuy" → trusted=True 近似（aibuy 是 1688 官方引擎，已按图相似度
+        排好序；_pick_best_match 内 trusted_source 放行还需原图搜位置 idx<=1，但
+        best dict/ProductCandidate 均未下传 idx —— 拿不到 idx 时按 method=="aibuy"
+        近似，略偏宽容，见 AGENTS.md v0.39 trusted_source 分通道护栏）；
+      - 其余（cdp/image/text 无全符合徽标，或仅 conf 放行）→ trusted=False。
+
+    字段缺失即省略对应键（不做 None/空壳）；confidence/badge_eff 非正数视为缺失。
+    无任何正数数值信号（confidence/badge_eff 均 ≤0）时返回 {}（method 无承载——
+    调用方不注入 match_evidence 键，防空壳）。
+    """
+    mev: dict[str, Any] = {}
+    try:
+        conf = float(confidence or 0)
+    except (TypeError, ValueError):
+        conf = 0.0
+    try:
+        badge = float(badge_eff or 0)
+    except (TypeError, ValueError):
+        badge = 0.0
+    if conf > 0:
+        mev["confidence"] = conf
+    if badge > 0:
+        mev["badge_eff"] = badge
+    if not mev:
+        return {}
+    if method:
+        mev["method"] = str(method)
+    mev["trusted"] = bool(method == "aibuy" or badge >= 1.0)
+    return mev
+
+
 def build_envelope_from_discovery(candidate, store_config: dict, store_id: str = "") -> dict:
     """Build Worker GraphInput envelope from a discovery candidate.
 
@@ -2310,6 +2351,23 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
                 "fbs": dict(_rfbs_seg),
                 "fbo": dict(_fbp_seg),
             }
+
+        # ✅ v0.66.1: 图搜匹配证据透传 extensions.match_evidence（worker L0 学习置信门槛）。
+        # discover 候选实际透传字段仅 match_confidence/match_badge_eff（ozon_discovery
+        # _process_match:783-786 落盘）——search_method/trusted/idx 未下传到候选，故 method
+        # 键省略（字段缺失省略）；trusted 取 badge_eff>=1.0（matchBadgeFull 直通放行语义，
+        # 见 _pick_best_match:1999）。无任何正数元数据 → 不注入（裸信封/弱匹配不做空壳）。
+        _mev = _assemble_match_evidence(
+            confidence=getattr(candidate, "match_confidence", 0.0),
+            badge_eff=getattr(candidate, "match_badge_eff", 0.0),
+        )
+        if _mev:
+            extensions["match_evidence"] = _mev
+            logger.info(
+                "🔬 discover 匹配证据透传: %s",
+                {k: (_mev[k] if k != "confidence" else round(_mev[k], 3))
+                 for k in _mev},
+            )
 
         # ✅ P0-5 修复：优先透传 build_graph_envelope_with_retry 已解析的凭证
         # （store_config 仅作兜底，避免提交空 Ozon 凭证）
@@ -3644,6 +3702,23 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                         _pv = float(_sp.get(_pk, 0) or 0)
                         if _pv > 0:
                             extensions[_pk] = _pv
+                    # ✅ v0.66.1: 图搜匹配证据透传 extensions.match_evidence（worker L0
+                    # 学习置信门槛）。best 带 _pick_best_match/_attach_match_meta 的
+                    # confidence/badge_eff；method 取本函数 search_method（aibuy/cdp/
+                    # image/text）；trusted 语义对齐 _pick_best_match 放行——best 未下传
+                    # 原图搜位置 idx，按 method=="aibuy" 近似（见 _assemble_match_evidence）。
+                    _mev = _assemble_match_evidence(
+                        method=search_method,
+                        confidence=best.get("confidence"),
+                        badge_eff=best.get("badge_eff"),
+                    )
+                    if _mev:
+                        extensions["match_evidence"] = _mev
+                        logger.info(
+                            "🔬 follow 匹配证据透传: method=%s conf=%.3f badge_eff=%.3f trusted=%s",
+                            _mev.get("method", "?"), _mev.get("confidence", 0),
+                            _mev.get("badge_eff", 0), _mev.get("trusted"),
+                        )
                     envelope["envelope"]["extensions"] = extensions
                     # 竞品图片 — 跟卖始终用 Ozon 竞品原图，绝不漏 1688 alicdn
                     # ✅ v0.33.1: 只拿第一张主图（对齐 1688 get_best_product_images 主图优先逻辑）
