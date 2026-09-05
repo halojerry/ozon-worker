@@ -2262,6 +2262,23 @@ def _assemble_match_evidence(
     return mev
 
 
+def _inject_discovery_match_category(source: dict, candidate) -> dict:
+    """把 discover 图搜候选的 1688 类目注入信封 source（v0.66.2）。
+
+    用途：类目对齐分析（L0 学习映射）与错配预检的 1688 侧数据基础；与
+    source_category_path（重抓货源详情页面包屑）互补——match_category_* 来自
+    图搜匹配候选（aibuy/AK），source_category_path 来自货源页重抓，两者数据源不同。
+    candidate.match_1688_category_id/name 非空才加对应键（无值不加键，不写空壳）。
+    """
+    _cid = str(getattr(candidate, "match_1688_category_id", "") or "").strip()
+    _cname = str(getattr(candidate, "match_1688_category_name", "") or "").strip()
+    if _cid:
+        source["match_category_id"] = _cid
+    if _cname:
+        source["match_category_name"] = _cname
+    return source
+
+
 def build_envelope_from_discovery(candidate, store_config: dict, store_id: str = "") -> dict:
     """Build Worker GraphInput envelope from a discovery candidate.
 
@@ -2371,6 +2388,8 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
 
         # ✅ P0-5 修复：优先透传 build_graph_envelope_with_retry 已解析的凭证
         # （store_config 仅作兜底，避免提交空 Ozon 凭证）
+        source = dict(result["envelope"].get("source") or {})
+        _inject_discovery_match_category(source, candidate)  # v0.66.2 1688 类目透出
         return {
             "token": token,
             "ozon_client_id": result.get("ozon_client_id")
@@ -2379,7 +2398,7 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
                 or store_config.get("api_key", ""),
             "envelope": {
                 "draft": draft,
-                "source": result["envelope"].get("source", {}),
+                "source": source,
                 "extensions": extensions,
             }
         }
@@ -2412,6 +2431,7 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         "purchase_url": candidate.match_1688_url or "",
         "purchase_cost": candidate.match_1688_price or 0,
     }
+    _inject_discovery_match_category(source, candidate)  # v0.66.2 1688 类目透出
 
     extensions: dict[str, Any] = {"follow_sell": candidate.competing_sellers > 0}
     # v0.65: 不再兜底注入 margin_rate 0.25 / commission_rate 0.10——未配置时留空让 worker

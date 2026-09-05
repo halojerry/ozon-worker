@@ -135,6 +135,12 @@ class ProductCandidate:
     match_1688_price: float = 0.0  # CNY
     match_1688_images: list[str] = field(default_factory=list)
 
+    # v0.66.2: 1688 类目信息（图搜候选透传——L0 类目对齐映射与错配预检的 1688 侧数据基础）。
+    # aibuy 候选原键 cate_level1_id/cate_level2_id/category_name；AK 候选单层 category_id(cateId)；
+    # CDP 候选无类目字段。无值保持空串。
+    match_1688_category_id: str = ""     # 1688 类目 ID（aibuy level2 优先，无则 level1；AK cateId）
+    match_1688_category_name: str = ""   # 1688 类目名
+
     # D3 L1: 1688 匹配决策元数据（judgments 不静默消失）
     match_confidence: float = 0.0   # 标题相关性置信度（_pick_best_match 透传）
     match_badge_eff: float = 0.0    # badge 匹配有效性 0-1
@@ -780,6 +786,14 @@ def match_selected(
             candidate.match_1688_title = match.get("title", "")
             candidate.match_1688_price = float(match.get("price", 0))
             candidate.match_1688_images = match.get("images", [])
+            # v0.66.2: 1688 类目透传（图搜候选 → match dict → 候选）。match dict 经
+            # _attach_match_meta/_search_1688_source 已带规范键 category_id/category_name；
+            # 此处保留 aibuy 原键（cate_level2_id 优先/无则 cate_level1_id）兜底，CDP/AK
+            # 无值给空串——不因任一通道缺类目字段报错或污染候选。
+            candidate.match_1688_category_id = str(
+                match.get("category_id") or match.get("cate_level2_id")
+                or match.get("cate_level1_id") or "")
+            candidate.match_1688_category_name = str(match.get("category_name") or "")
             # D3 L1: 决策元数据透传（_pick_best_match → _search_1688_source → 候选）
             candidate.match_confidence = float(match.get("confidence", 0) or 0)
             candidate.match_badge_eff = float(match.get("badge_eff", 0) or 0)
@@ -1830,6 +1844,9 @@ def _attach_match_meta(
     """返回携带决策元数据的匹配 dict 副本（D3 L1）。
 
     keys: confidence / badge_eff / score / badge_str / reject_reason。
+    额外补规范类目键 category_id/category_name（v0.66.2，从输入候选透传）：
+    aibuy 原键 cate_level1_id/cate_level2_id/category_name（level2 优先、无则 level1）；
+    AK 原键 category_id（单层 cateId）；CDP 无 → ""。原 dict 键随副本保留。
     _pick_best_match 所有 PASS 出口统一调用——_search_1688_source 与
     _process_match 据此透传，关键判定不再静默消失。
     """
@@ -1839,6 +1856,9 @@ def _attach_match_meta(
     meta["score"] = round(float(score), 3)
     meta["badge_str"] = str(m.get("badge", "") or "")
     meta["reject_reason"] = str(reason or "")
+    meta["category_id"] = str(
+        m.get("cate_level2_id") or m.get("cate_level1_id") or m.get("category_id") or "")
+    meta["category_name"] = str(m.get("category_name") or "")
     return meta
 
 
@@ -1918,6 +1938,10 @@ def _pick_best_match(
             "reject_reason": reason,
             "decision": "block",
             "image_urls": [_img] if _img else [],
+            # v0.66.2: 候选 1688 类目随 block 记录留痕（错配审计可追溯被拒候选的类目线索）
+            "category_id": str(_c.get("cate_level2_id") or _c.get("cate_level1_id")
+                               or _c.get("category_id") or ""),
+            "category_name": str(_c.get("category_name") or ""),
         }
 
     scored: list[tuple[float, int, dict[str, Any]]] = []  # (score, 原图搜位置, result)
@@ -2244,6 +2268,18 @@ def _search_1688_source(
 
     Returns dict with: url, title, price, images  (or None if no match).
     """
+    def _attach_candidate_category(rec: dict, cand: dict) -> dict:
+        """把图搜候选的 1688 类目透传进返回 match dict（v0.66.2）。
+
+        aibuy 候选原键 cate_level1_id/cate_level2_id/category_name（level2 优先、
+        无则 level1）；AK 候选单层 category_id(cateId)；CDP 无类目字段 → 空串。
+        """
+        rec["category_id"] = str(
+            cand.get("category_id") or cand.get("cate_level2_id")
+            or cand.get("cate_level1_id") or "")
+        rec["category_name"] = str(cand.get("category_name") or "")
+        return rec
+
     # --- Strategy 1: aibuy mtop API 图搜（v0.39 优先，免浏览器）---
     # fail-fast：无 token/失败快速返回 [] → 降级 CDP，不阻塞
     if images:
@@ -2255,7 +2291,7 @@ def _search_1688_source(
             if results:
                 best = _pick_best_match(results, title, token=mxou_token, trusted_source=True)
                 if best:
-                    return {
+                    return _attach_candidate_category({
                         "url": f"https://detail.1688.com/offer/{best.get('id', '')}.html"
                             if best.get("id") else "",
                         "title": best.get("title", ""),
@@ -2265,7 +2301,7 @@ def _search_1688_source(
                         "badge_eff": float(best.get("badge_eff", 0) or 0),
                         "score": best.get("score", 0),
                         "reject_reason": str(best.get("reject_reason", "") or ""),
-                    }
+                    }, best)
         except Exception as exc:
             # ✅ W5.4 (I-8): 降级出声——debug 静默 → warning 带原因（为什么走 CDP）
             logger.warning("aibuy 图搜失败，降级 CDP 图搜: %s", exc)
@@ -2284,7 +2320,7 @@ def _search_1688_source(
                     price = best.get("price", 0)
                     if isinstance(price, str):
                         price = _parse_price(price)
-                    return {
+                    return _attach_candidate_category({
                         "url": best.get("detail_url", "")
                             or f"https://detail.1688.com/offer/{best.get('id', '')}.html"
                             if best.get("id") else "",
@@ -2295,7 +2331,7 @@ def _search_1688_source(
                         "badge_eff": float(best.get("badge_eff", 0) or 0),
                         "score": best.get("score", 0),
                         "reject_reason": str(best.get("reject_reason", "") or ""),
-                    }
+                    }, best)
                 if not results and attempt < max_retries:
                     logger.info("CDP 图搜空结果（偶发），重试 %d/%d",
                                 attempt + 1, max_retries)
@@ -2324,7 +2360,7 @@ def _search_1688_source(
                 # ¥2000"，第三条才是相关商品），与 CDP 路径共用 _pick_best_match
                 best = _pick_best_match(results, title, token=mxou_token) if results else None
                 if best:
-                    return {
+                    return _attach_candidate_category({
                         "url": best.get("detail_url", ""),
                         "title": best.get("title", ""),
                         "price": float(best.get("price", 0) or 0),
@@ -2333,7 +2369,7 @@ def _search_1688_source(
                         "badge_eff": float(best.get("badge_eff", 0) or 0),
                         "score": best.get("score", 0),
                         "reject_reason": str(best.get("reject_reason", "") or ""),
-                    }
+                    }, best)
                 if not results and attempt < 1:
                     logger.info("AK 图搜空结果，重试 %d/2", attempt + 1)
                     time.sleep(1)
@@ -2360,7 +2396,7 @@ def _search_1688_source(
                     results = search_products(keywords, page_size=5)
                     if results:
                         best = results[0]
-                        return {
+                        return _attach_candidate_category({
                             "url": best.get("detail_url", ""),
                             "title": best.get("title", ""),
                             "price": float(best.get("price", 0) or 0),
@@ -2370,7 +2406,7 @@ def _search_1688_source(
                             "badge_eff": 0.0,
                             "score": None,
                             "reject_reason": "",
-                        }
+                        }, best)
                 if attempt < 1:
                     time.sleep(1)
                     continue
