@@ -34,7 +34,11 @@ from storage.database.db import get_session
 from graphs.state import GlobalState
 from utils.mxou_llm import call_mxou_chat_api, MxouOutOfQuotaError  # v0.63.1: mxou_llm re-export
 from utils.progress_logger import ProgressLogger
-from utils.ozon_category_query import get_category_query, OzonCategoryQuery
+from utils.ozon_category_query import (
+    get_category_query, OzonCategoryQuery,
+    _MODIFIER_WORDS,  # v0.65.1 R2: overlap 验证排除修饰词
+    sensitive_candidate_filter, sensitive_adoption_blocked,  # v0.65.1 R1
+)
 from utils.http_session import session
 from utils.attribute_utils import HAZARD_DICT_ATTR_IDS, is_customs_attr, pick_dict_fallback_value  # ⚠️ v0.16 海关不填 / v0.21 兜底规则
 from utils.attr_synonyms import load_attr_synonyms  # v0.32 共享同义词加载器（单一事实源）
@@ -259,6 +263,107 @@ def _confidence_from_sim(sim) -> float:
         return max(0.0, min(1.0, float(sim)))
     except (TypeError, ValueError):
         return 0.5
+
+
+# ── v0.65.1 R1/R2/R3: 敏感子树闸 + 修饰词 overlap 排除 + search_kw 兜底采纳 ──
+# 关键词重叠验证用的泛化词黑名单（原函数内局部，提升为模块级供各闸复用）。
+_GENERIC_OVERLAP = {
+    "用品", "工具", "配件", "附件", "设备", "材料", "系列", "套装", "商品", "产品",
+    "运动", "休闲", "传统", "家用", "日用", "通用", "其他", "跨境", "新款", "爆款",
+}
+# v0.65.1 R2b: overlap 必须排除 成人/儿童 等修饰词——否则「儿童滑梯」靠 full_path
+# 里唯一的非泛词「儿童」overlap 蒙混过关（0.346 儿童滑梯上架实证）。
+_MODIFIER_OVERLAP = set(_MODIFIER_WORDS)
+_OVERLAP_EXCLUDE = _GENERIC_OVERLAP | _MODIFIER_OVERLAP
+
+
+def _non_generic_overlap_words(path: str, texts) -> set:
+    """源词（≥2 字）与路径的字面重叠，剔除泛化词 + 修饰词。
+
+    儿童滑梯路径 vs 「儿童 帽」源词 → 空集（儿童是修饰词）；摩托车后视镜 vs
+    「后视镜」→ {'后视镜'}。
+    """
+    if not path:
+        return set()
+    low = str(path).lower()
+    words: set = set()
+    for t in texts or []:
+        if not t:
+            continue
+        for w in str(t).split():
+            w = w.strip().lower()
+            if len(w) >= 2:
+                words.add(w)
+    return {w for w in words if w in low and w not in _OVERLAP_EXCLUDE}
+
+
+def _is_skill_authoritative(_source: str, _namespace: str, skill_l0_hit: dict | None) -> bool:
+    """v0.65.1 P1-1: Skill 层豁免（match_layer=Skill 免 sim/overlap/R2b/R1 候选闸）
+    只给权威 source —— page/mapping/what_to_sell；widget 命名空间数字 ID 可能是
+    顾客空间，仅 category_path 精配成功（_resolved_by_path=True）才视权威。
+    search_kw（关键词模糊）恒为 False → 只能当普通 L1 候选过闸。
+    """
+    _authoritative = _source in ("page", "mapping", "what_to_sell")
+    if _namespace == "widget" and not (skill_l0_hit or {}).get("_resolved_by_path"):
+        _authoritative = False
+    return _authoritative
+
+
+def _r1_veto(category_result: dict | None, signal_text: str) -> bool:
+    """v0.65.1 P1-2: R1 定稿否决（不按 match_layer 豁免）。
+
+    最终结果落敏感大类子树 + 源无敏感信号词 → True（否决）。
+    唯一豁免：命中来自竞品模式的 category_path 精确解析（_resolved_by_path=True，
+    那是竞品卡真实类目，信任）。纯数字权威 dc（what_to_sell 数字 id）与 L0 学习
+    映射同样过敏感闸——防「权威 Skill 直采成人糖果 18+」后门。
+    """
+    if not category_result:
+        return False
+    if category_result.get("_resolved_by_path"):
+        return False
+    _res_cat = str(category_result.get("category_path")
+                   or category_result.get("full_path")
+                   or category_result.get("description_category_id") or "")
+    if not _res_cat:
+        return False
+    return sensitive_adoption_blocked(_res_cat, signal_text)
+
+
+def _top_level_segment(c: dict) -> str:
+    """候选的顶层大类名（full_path 首段；缺省用 top_level_category_name）。"""
+    for key in ("full_path", "category_path", "node_name"):
+        _fp = str(c.get(key) or "")
+        if ">" in _fp:
+            return _fp.split(">")[0].strip()
+    return str(c.get("top_level_category_name") or "").strip()
+
+
+def _find_close_top_category_rival(adopted: dict | None, candidates: list,
+                                   sim_gap: float = 0.1) -> dict | None:
+    """v0.65.1 P1-3: 同分不同顶层大类歧义检测（护膝 在多个大类 node_name 命中）。
+
+    采纳点：top1（adopted）与任一后续候选 sim 差 < sim_gap 且顶层大类不同 →
+    返回该 runner-up（调用方强制 LLM 消歧，不静默取 top1）；否则 None。
+    """
+    if not adopted:
+        return None
+    top_sim = float(adopted.get("similarity", 0) or 0)
+    if top_sim <= 0:
+        return None
+    top_dc = int(adopted.get("description_category_id") or 0)
+    top_tl = _top_level_segment(adopted)
+    for c in (candidates or []):
+        if int(c.get("description_category_id") or 0) == top_dc:
+            continue
+        _sim = float(c.get("similarity", 0) or 0)
+        if _sim <= 0:
+            continue
+        if abs(top_sim - _sim) > sim_gap:
+            continue
+        _tl = _top_level_segment(c)
+        if _tl and top_tl and _tl != top_tl:
+            return c
+    return None
 
 
 logger = logging.getLogger(__name__)
@@ -850,24 +955,34 @@ def assemble_ozon_product_node(
     if len(candidates) != _before:
         logger.info(f"   🔤 汽车/摩托领域消歧: {_before} → {len(candidates)} 候选")
 
+    # ✅ v0.65.1 R1 闸点(a): 源无敏感信号词时，剔除落敏感大类子树（成人用品 18+/
+    # 情趣/烟草/酒精/药品/武器）的候选——多义词「成人」不能把普通帽带进成人糖果。
+    _signal_text = f"{title} {source_category} {source_keywords} {keywords}"
+    _before = len(candidates)
+    candidates = sensitive_candidate_filter(candidates, _signal_text)
+    if len(candidates) != _before:
+        logger.info(f"   🛡️ R1 敏感类目候选剔除: {_before} → {len(candidates)} 候选")
+
     # ✅ v5: 初始化匹配质量标记
     match_layer = "L1"       # pg_trgm / jieba LIKE
     match_confidence = 0.5   # 默认中等置信度
+    _llm_adopted = False     # v0.65.1 R2b: 已走 LLM 确认（不再重复强制确认）
+    _r2b_confirmed = False   # R2b 低置信强制 LLM 确认命中（豁免最终 sim 门槛）
 
     # ✅ v4: L0 学习缓存查找（在候选选择前，命中则跳过 overlap 验证）
     l0_hit = _match_category_layered(
         query, source_category, source_keywords, keywords, candidates, leaf_name,
         source_category_id=draft.get("source_category_id"),
     ) if source_category else None
-    # ✅ v0.63: Skill 类目来源信任分级 —
-    #   仅 page/mapping/what_to_sell 为权威（免门槛、跳过一致性）；
-    #   search_kw（Skill search_categories 关键词模糊）降为普通候选，必须过门槛+一致性。
+    # ✅ v0.63/v0.65.1-P1-1: Skill 类目来源信任分级 —
+    #   仅 page/mapping/what_to_sell（+widget 路径精配）为权威：match_layer=Skill，
+    #   免 sim/overlap/R2b/R1 候选闸。search_kw 永不升级 Skill，只能当普通 L1
+    #   候选过 sim/R2b/R1 闸（R2 已修文本链，正确 skill dc 会在 L1 自然胜出）。
     _skill_source = str((draft_ozon_cat or {}).get("source", "")).strip() or "search_kw"
     _skill_namespace = str((draft_ozon_cat or {}).get("namespace", "")).strip()
-    _skill_authoritative = _skill_source in ("page", "mapping", "what_to_sell")
-    # v0.63 widget 命名空间：数字 ID 可能是顾客空间，仅当路径精配成功才视权威
-    if _skill_namespace == "widget" and not (_skill_l0_hit or {}).get("_resolved_by_path"):
-        _skill_authoritative = False
+    _skill_authoritative = _is_skill_authoritative(
+        _skill_source, _skill_namespace, _skill_l0_hit,
+    )
     if not l0_hit and _skill_l0_hit and _skill_authoritative:
         l0_hit = _skill_l0_hit
         match_layer = "Skill"
@@ -878,7 +993,8 @@ def assemble_ozon_product_node(
         )
     elif not l0_hit and _skill_l0_hit:
         logger.info(
-            f"   ⚠️ Skill类目 source={_skill_source} namespace={_skill_namespace} 非权威，降为普通候选过门槛: "
+            f"   ⚠️ Skill类目 source={_skill_source} namespace={_skill_namespace} 非权威，"
+            f"降为普通 L1 候选过闸: "
             f"[{_skill_l0_hit['description_category_id']}/{_skill_l0_hit['type_id']}]"
         )
 
@@ -906,6 +1022,24 @@ def assemble_ozon_product_node(
     # 1c. 直接使用 pg_trgm 最高相似度候选（不用 LLM）
     # pg_trgm 搜索已按 sim DESC 排序，candidates[0] 即最佳匹配
     # LLM 匹配不可靠（如玩具→鞋类），关键词匹配更准确
+    # v0.65.1 P1-1(a): search_kw skill 候选不升级 Skill（无豁免）——放回 L1 候选
+    # 首位参与 sim/overlap/R2b/R1 竞争。若已被 R1 候选闸剔除（敏感且源无信号）则不回插。
+    if (not l0_hit and _skill_l0_hit and not _skill_authoritative
+            and any(
+                int(c.get("description_category_id") or 0)
+                == int(_skill_l0_hit.get("description_category_id") or 0)
+                and int(c.get("type_id") or 0) == int(_skill_l0_hit.get("type_id") or 0)
+                for c in candidates
+            )):
+        try:
+            candidates.remove(_skill_l0_hit)
+        except ValueError:
+            pass
+        candidates.insert(0, _skill_l0_hit)
+        logger.info(
+            f"   🔧 search_kw skill 候选放回 L1 候选首位过闸: "
+            f"[{_skill_l0_hit['description_category_id']}/{_skill_l0_hit['type_id']}]"
+        )
     best = candidates[0]
     # ✅ v0.31.x: 低分候选（sim 低于接受门槛）不直接采用——记日志后走既有
     # overlap 验证 → LLM fallback 链（最终采纳点在 L779 前再判定阻断）
@@ -984,16 +1118,18 @@ def assemble_ozon_product_node(
     # ✅ v4: L0命中 → 跳过 overlap 验证，直接使用学习缓存结果
     if l0_hit:
         category_result = l0_hit
-        match_layer = "L0"
-        match_confidence = 0.95
-        logger.info(f"   ✅ L0覆盖: [{category_result['description_category_id']}/{category_result['type_id']}]")
+        # v0.65.1: 保留 Skill 层（v0.63 Skill 直采/兜底采纳），不降级成 L0——
+        # L0 会误导一致性豁免语义且审计层分不清来源。
+        if match_layer != "Skill":
+            match_layer = "L0"
+            match_confidence = 0.95
+        logger.info(f"   ✅ L0/Skill 命中覆盖: [{category_result['description_category_id']}/{category_result['type_id']}] (layer={match_layer})")
 
     # ✅ 关键词重叠验证（L0未命中时执行）
     # 例如 "烟灰缸" 被 pg_trgm 误匹配到 "珠宝秤" → 无重叠词 → 丢弃该候选
     # ✅ v0.8.0 修复: 改用子串匹配代替 set intersection，解决中文分词问题
     # ✅ v5 修复: 过滤泛化词（"用品"、"工具"等），避免父类目名称造成假匹配
-    _GENERIC_OVERLAP = {"用品", "工具", "配件", "附件", "设备", "材料", "系列", "套装", "商品", "产品",
-                       "运动", "休闲", "传统", "家用", "日用", "通用", "其他", "跨境", "新款", "爆款"}
+    # ✅ v0.65.1 R2b: 一并过滤修饰词（成人/儿童 等），防儿童滑梯靠「儿童」overlap
     if not l0_hit:
         # v0.40: 上级类目词重搜已命中（sim 过门槛）→ 跳过 overlap 验证
         # （父级词如"电工电气"与 Ozon 路径"爬杆脚扣"无字面重叠是预期的，
@@ -1020,8 +1156,8 @@ def assemble_ozon_product_node(
                 for sw in _source_words:
                     if sw in _cand_path:
                         _overlap.add(sw)
-                # v5: 过滤泛化词，只有非泛化词重叠才算真正匹配
-                _specific_overlap = _overlap - _GENERIC_OVERLAP
+                # v5/v0.65.1: 过滤泛化词 + 修饰词，只有非泛词重叠才算真正匹配
+                _specific_overlap = _overlap - _OVERLAP_EXCLUDE
                 if _specific_overlap:
                     category_result = {
                         "description_category_id": _c["description_category_id"],
@@ -1066,13 +1202,13 @@ def assemble_ozon_product_node(
                 if best_by_llm:
                     # ✅ v0.21: LLM 结果也必须与源词有具体重叠，否则不硬猜（阻断，需人工确认类目）
                     _llm_path = str(best_by_llm.get("full_path", "")).lower()
-                    _llm_overlap = {sw for sw in _source_words if sw in _llm_path} - _GENERIC_OVERLAP
+                    _llm_overlap = {sw for sw in _source_words if sw in _llm_path} - _OVERLAP_EXCLUDE
                     # ⚠️ v0.34 review fix: 重跑后若 LLM 仍返回 suggest 标记(候选并入但全不满意)——
                     # 从合并后 candidates 取 top1(已含二次搜索高分候选)回退, 不再硬阻断白做二次搜索
                     if not _llm_overlap and best_by_llm.get("_llm_suggest") and candidates:
                         _fb = candidates[0]
                         _fb_path = str(_fb.get("full_path", "")).lower()
-                        _fb_overlap = {sw for sw in _source_words if sw in _fb_path} - _GENERIC_OVERLAP
+                        _fb_overlap = {sw for sw in _source_words if sw in _fb_path} - _OVERLAP_EXCLUDE
                         if _fb_overlap:
                             best_by_llm = _fb
                             _llm_overlap = _fb_overlap
@@ -1089,6 +1225,7 @@ def assemble_ozon_product_node(
                             "matcher": best_by_llm.get("matcher", "pg_trgm"),
                         }
                         match_confidence = _confidence_from_sim(best_by_llm.get("similarity"))
+                        _llm_adopted = True  # v0.65.1 R2b: LLM 已确认，不重复强制确认
                         logger.info(f"   ✅ LLM fallback 选中（有重叠）: {best_by_llm['full_path'][:80]} {_llm_overlap}")
                     else:
                         logger.error(
@@ -1107,10 +1244,91 @@ def assemble_ozon_product_node(
                             "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
                             "match_confidence": 0.0}
 
+    # ✅ v0.65.1 R1 闸点(b)/P1-2: 定稿采纳点——最终结果落敏感大类子树且源无敏感
+    # 信号词 → 否决。所有层（含权威 Skill / L0）都过此闸；唯一豁免 = 竞品模式的
+    # category_path 精确解析（_resolved_by_path=True，真实竞品卡类目，信任）。
+    # 纯数字权威 dc（what_to_sell 数字 id / page 数字 id）落敏感子树且源无信号 →
+    # 同样 veto（防 18+ 后门）。真实成人商品源词必含白名单品类词（情趣/飞机杯/
+    # 震动棒/成人用品 等）经 has_sensitive_source_signal 放行。
+    if _r1_veto(category_result, _signal_text):
+        _veto_cat = str(category_result.get("category_path")
+                        or category_result.get("full_path") or "")
+        logger.error(
+            f"   🛑 R1 敏感类目无敏感源词：{str(_veto_cat)[:80]} 属敏感大类"
+            f"（成人用品/18+/情趣/烟草/酒精/药品/武器等），但商品来源无对应敏感信号词，"
+            f"阻断上架避免错放"
+        )
+        match_confidence = 0.0
+        return {"error_message": "类目匹配失败：候选类目为敏感类目(成人用品/18+/烟草/药品等)"
+                                 "但商品来源无对应敏感信号词，需人工确认类目",
+                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
+                "match_confidence": 0.0}
+
+    # ✅ v0.65.1 R2b/P1-3: L1 采纳点质量闸——两类情况强制 LLM 确认（复用
+    # _llm_rank_categories），确认结果无非泛词（非泛化非修饰）overlap → 阻断：
+    #   (i)  低置信：sim<0.5（不再像 0.346 儿童滑梯直接上架）；
+    #   (ii) 同分跨大类歧义：top1 与 runner-up sim 接近（差<0.1）且顶层大类不同
+    #        （护膝 类同名单 token 在 运动护膝/园艺护膝/宠物 等多类 node_name 全命中，
+    #          sim 都高，靠 (i) 抓不到）——强制 LLM 消歧，不静默取 top1。
+    if (match_layer not in ("L0", "Skill") and not _llm_adopted and not _r2b_confirmed
+            and category_result):
+        _sim_now = float(category_result.get("similarity", 0) or 0)
+        _rival = None
+        _reason = ""
+        if _sim_now < 0.5:
+            _reason = "低置信"
+        else:
+            _rival = _find_close_top_category_rival(category_result, candidates)
+            if _rival is not None:
+                _reason = "同分跨大类歧义"
+        if _reason:
+            logger.warning(
+                f"   ⚠️ R2b ({_reason}): 强制 LLM 确认 — top1 sim={_sim_now:.3f}, "
+                f"rival={(_rival or {}).get('full_path', '')[:60]}"
+            )
+            _confirm = _llm_rank_categories(
+                candidates[:5], source_keywords or keywords, draft, state,
+            )
+            _confirm_path = ""
+            _confirm_overlap: set = set()
+            if _confirm and not _confirm.get("_llm_suggest") and _confirm.get("description_category_id"):
+                _confirm_path = str(_confirm.get("full_path")
+                                    or _confirm.get("category_path") or "").lower()
+                _confirm_overlap = _non_generic_overlap_words(
+                    _confirm_path, [source_keywords or keywords]
+                )
+            if _confirm_overlap:
+                category_result = {
+                    "description_category_id": _confirm["description_category_id"],
+                    "type_id": _confirm["type_id"],
+                    "category_path": _confirm.get("full_path", _confirm.get("category_path", "")),
+                    "confidence": "medium",
+                    "reason": f"R2b_LLM_confirm({_reason}, sim={_sim_now:.3f}, words={_confirm_overlap})",
+                    "similarity": _confirm.get("similarity", 0),
+                    "matcher": _confirm.get("matcher", "jieba"),
+                }
+                match_confidence = _confidence_from_sim(_confirm.get("similarity"))
+                _r2b_confirmed = True
+                logger.info(
+                    f"   ✅ R2b LLM 确认通过（非泛词 overlap）: "
+                    f"{category_result['category_path'][:80]} {_confirm_overlap}"
+                )
+            else:
+                logger.error(
+                    f"   🛑 R2b ({_reason}): LLM 确认无可靠结果/无非泛词 overlap"
+                    f"（sim={_sim_now:.3f}），阻断上架避免错类目"
+                )
+                match_confidence = 0.0
+                return {"error_message": "类目匹配失败：低置信/歧义类目经 LLM 确认后仍无可靠匹配"
+                                         "（需人工确认类目），阻断上架",
+                        "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
+                        "match_confidence": 0.0}
+
     # ✅ v0.31.x: 最终采纳点门槛 — 非 L0/Skill 且 sim 低于接受门槛 → 走既有阻断分支。
     # 防低分错配（如 sim=0.200 的『儿童多功能学习挂图』）经 direct/overlap/LLM 任一
     # 路径被采用；L0/Skill 直采不设门槛（来源可信）。
-    if match_layer not in ("L0", "Skill") and not _acceptable_match(category_result):
+    # v0.65.1 R2b: LLM 已确认且有非泛词 overlap 的结果（_r2b_confirmed）豁免该门槛。
+    if match_layer not in ("L0", "Skill") and not _r2b_confirmed and not _acceptable_match(category_result):
         logger.error(
             f"   🛑 类目匹配最终结果 sim={category_result.get('similarity', 0):.3f} "
             f"低于接受门槛，阻断上架避免错误类目: "

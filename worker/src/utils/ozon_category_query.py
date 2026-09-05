@@ -71,6 +71,254 @@ def _build_full_path_candidates(path: str) -> list[str]:
     return candidates
 
 
+# ── v0.65.1 R1: 18+/敏感大类子树识别（纯函数，零 DB）──────────────────
+# 根因（店铺 4718259 实证 7 单 L1 错放，5/7 离谱）：成人帽的「成人」=给大人戴，
+# 却命中 Ozon「成人用品 18+」整棵子树（ILIKE %成人% 命中 full_path）。R1 在
+# 匹配全链（候选过滤/定稿/retry 重配）加敏感子树闸：源侧无敏感信号词的普通
+# 商品一律不允许落进敏感大类子树。
+# 路径检测锚定在 full_path「前两段」（顶层大类 + 一级子类）——Ozon 把成人用品/
+# 情趣/药店/吸烟全放在专属顶层。裸「烟」不列入（会误伤烟囱/油烟机深层节点）。
+_SENSITIVE_PATH_KW_ZH = (
+    "成人用品", "情趣", "烟草", "吸烟", "药店", "药品", "酒精", "武器", "18+",
+)
+_SENSITIVE_PATH_KW_RU = (
+    "для взрослых", "аптек", "курения", "табак", "алкоголь", "лекарств", "оруж", "18+",
+)
+# dc 双识别第二通道：成人糖果 18+ 锚（ZH: 成人用品>成人的糖果点心；
+# RU: Товары для взрослых>Кондитерские изделия 18+，dc=200001462）。
+_SENSITIVE_DC_IDS = frozenset({200001462})
+
+# 源侧敏感信号词（白名单品类词，不列裸单字/宽泛词）：标题/1688 类目/关键词含
+# 这些词才允许落敏感子树。
+# ⚠️ v0.65.1 P1-4 修平衡：
+#   - 删去过宽项：单字「刀/药」与「震动/仿真/润滑/延时」会命中正常商品
+#     （美工刀/山药/震动闹钟/仿真花/润滑油/延时继电器）→ 从可放行信号里收紧，
+#     只保留「白名单品类词」（含真实成人用品叶子词：飞机杯/阳具/按摩棒/自慰/倒模…）。
+#   - 真实成人商品（worker 有 is_adult_product 支持）标题通常无「情趣/震动」，
+#     靠 成人用品 类目词 + 飞机杯/阳具/按摩棒/自慰/硅胶娃娃/倒模 等叶子词放行。
+_SENSITIVE_SOURCE_SIGNALS = (
+    # 成人用品真实品类词
+    "成人用品", "情趣", "避孕", "安全套", "震动棒", "按摩棒", "飞机杯", "阳具",
+    "假阳具", "自慰", "自慰器", "硅胶娃娃", "充气娃娃", "倒模", "跳蛋", "肉棒",
+    "延时喷剂", "润滑液", "催情", "缩阴",
+    # 烟草 / 酒精 / 武器 / 药品
+    "电子烟", "烟具", "烟草", "烟弹", "酒精", "酒类", "武器", "弹药",
+    # 俄语
+    "взросл", "эрот", "вибратор", "секс", "лубрикант", "презерват",
+    "фалло", "мастурбатор", "вагин", "дилдо", "табак", "алкоголь", "оружие",
+    "лекарств",
+)
+
+
+def is_sensitive_top_category(path_or_dc) -> bool:
+    """判断节点是否落在 18+/敏感大类子树（成人用品/情趣/烟草/酒精/药品/武器）。
+
+    Args:
+        path_or_dc: 类目 full_path（ZH 或 RU 文本）或 description_category_id
+            （数字/数字字符串走 dc 集合双识别）。
+
+    路径检测只看前两段，避免深层正常类目误伤（如「烟囱/油烟机」虽含『烟』但不敏感）。
+    """
+    if path_or_dc is None:
+        return False
+    s = str(path_or_dc).strip()
+    if not s:
+        return False
+    if s.isdigit():
+        return int(s) in _SENSITIVE_DC_IDS
+    import re as _re
+    segs = [x.strip() for x in _re.split(r"[>＞/／、,，]", s) if x.strip()]
+    if not segs:
+        return False
+    probe = (" ".join(segs[:2])).lower()
+    return any(kw.lower() in probe for kw in (*_SENSITIVE_PATH_KW_ZH, *_SENSITIVE_PATH_KW_RU))
+
+
+def has_sensitive_source_signal(text) -> bool:
+    """源侧文本（标题/1688 类目/关键词）是否含敏感信号词。
+
+    含信号才允许商品落敏感子树；普通帽/护膝/手套等源词（含「成人」修饰词）无信号。
+    """
+    if not text:
+        return False
+    low = str(text).lower()
+    return any(sig.lower() in low for sig in _SENSITIVE_SOURCE_SIGNALS)
+
+
+def sensitive_candidate_filter(candidates: list, signal_text: str) -> list:
+    """R1 闸点 (a)：从候选剔除落敏感子树且源无敏感信号的候选（打 warning）。
+
+    全被剔除 → 维持原候选列表返回（避免空候选硬阻断），由定稿闸点 (b)
+    在采纳点对最终结果做 veto。
+    """
+    if not candidates or has_sensitive_source_signal(signal_text):
+        return candidates
+    kept: list = []
+    dropped: list = []
+    for c in candidates:
+        _probe = " ".join([
+            str(c.get("full_path") or ""), str(c.get("node_name") or ""),
+            str(c.get("category_path") or ""),
+        ])
+        if is_sensitive_top_category(_probe):
+            dropped.append(c)
+        else:
+            kept.append(c)
+    if dropped and kept:
+        logger.warning(
+            f"🛡️ R1 敏感类目候选剔除: 剔除 {len(dropped)} 个敏感子树候选"
+            f"（源无敏感信号词）: "
+            + ", ".join(str(d.get("node_name") or d.get("full_path") or "")[:40]
+                        for d in dropped[:3])
+        )
+        return kept
+    return candidates
+
+
+def sensitive_adoption_blocked(path_or_dc, signal_text: str) -> bool:
+    """R1 闸点 (b)：最终采纳结果落敏感子树且源无敏感信号 → True（应否决）。
+
+    True = 阻断；False = 放行（非敏感子树 或 源词含敏感信号）。
+    """
+    if not is_sensitive_top_category(path_or_dc):
+        return False
+    return not has_sensitive_source_signal(signal_text)
+
+
+# ── v0.65.1 R2: 中文搜索修饰词剥离 + 单字品类词兜底 ────────────────
+# 多义词 bug 机制：jieba 把「成人帽」切成 ['成人','帽']（帽 1 字 <2 被滤）→
+# 只剩「成人」token → ILIKE %成人% 把 Ozon「成人用品 18+」整棵子树（full_path
+# 含 成人）拖进候选。修复：成人/儿童/宝宝/男款 等「不区分 Ozon 类目的修饰词」
+# 从搜索 token 剥离；全剥离 → 用去掉修饰词后的原始 query 整串（如「帽」）
+# 做 node_name 优先的单字兜底。同时候选必须至少一个品类核心 token 命中
+# node_name（不只 full_path 深层命中）——防整棵子树因 full_path 含修饰词被拖入。
+_MODIFIER_WORDS = frozenset({
+    # 受众/性别修饰（不区分 Ozon 类目）
+    "成人", "儿童", "宝宝", "婴幼儿", "男款", "女款", "男式", "女式", "女士", "男士",
+    "男性", "女性", "学生", "情侣", "亲子", "大人", "小孩",
+    # 季节/厚度/新旧/风格修饰
+    "加厚", "保暖", "冬季", "夏季", "春季", "秋季", "春秋", "新款", "韩版", "网红",
+    "热门", "热卖", "促销", "ins",
+})
+# 与既有 v0.21 泛化词黑名单逐字一致（仅 token 过滤用，评分用词表在原方法内）
+_GENERIC_SEARCH_WORDS = frozenset({
+    "运动", "休闲", "传统", "家用", "日用", "通用", "其他", "配件", "附件",
+    "用品", "工具", "系列", "套装", "组合", "跨境", "新款", "爆款",
+    "设备", "材料", "商品", "产品", "机械", "电器", "平板", "监测", "清洁",
+})
+
+
+def _strip_modifier_substrings(token: str):
+    """从单个 token 剥离全部修饰词子串。
+
+    - 剥离后仍有 ≥2 字剩余 → 返回剩余（"儿童安全座椅" → "安全座椅"）
+    - 无剩余（token 本身就是修饰词或只剩单字）→ None
+    - 无修饰词 → 原 token
+    """
+    out = token
+    for m in sorted(_MODIFIER_WORDS, key=len, reverse=True):
+        out = out.replace(m, "")
+    out = out.strip()
+    if out == token:
+        return token
+    if not out:
+        return None
+    return out if len(out) >= 2 else None
+
+
+def _strip_modifiers_from_text(text: str) -> str:
+    """从整串 query 中删除所有修饰词（供单字品类词兜底）。"""
+    out = str(text)
+    for m in sorted(_MODIFIER_WORDS, key=len, reverse=True):
+        out = out.replace(m, "")
+    return out.strip()
+
+
+def build_jieba_search_plan(query_text: str) -> dict:
+    """R2: jieba 搜索计划（纯函数，零 DB）——分词 → 剥离修饰词/泛词 → 单字兜底。
+
+    Returns:
+        {"search_tokens": list,        # 实际用于逐 token ILIKE 的搜索词
+         "core_tokens": list,          # 非修饰非泛品类词（node_name 命中约束用）
+         "residual": str,              # 全剥离后原始 query 去修饰词的整串（单字兜底）
+         "stripped_modifiers": list}   # 被剥离的修饰词（日志用）
+    """
+    empty = {"search_tokens": [], "core_tokens": [], "residual": "", "stripped_modifiers": []}
+    if not query_text or not str(query_text).strip():
+        return empty
+    import jieba as _jieba
+    raw = [w.strip() for w in _jieba.cut(str(query_text)) if len(w.strip()) >= 2]
+
+    stripped_mods: list[str] = []
+    core: list[str] = []
+    for t in raw:
+        if t in _MODIFIER_WORDS:
+            stripped_mods.append(t)
+            continue
+        _rest = _strip_modifier_substrings(t)
+        if _rest is None:
+            stripped_mods.append(t)  # 组合 token 整个被修饰词吃掉（如 儿童帽→帽）
+            continue
+        if _rest != t:
+            stripped_mods.append(t)
+        if len(_rest) >= 2 and _rest not in core:
+            core.append(_rest)
+
+    if not core:
+        # 全被剥离 → 用去掉修饰词后的原始整串做单字品类词兜底
+        residual = _strip_modifiers_from_text(query_text)
+        return {"search_tokens": [], "core_tokens": [], "residual": residual,
+                "stripped_modifiers": stripped_mods}
+
+    # 泛词剥离（同 v0.21：有具体词时只搜具体词；否则保留泛词）
+    specific = [t for t in core
+                if t not in _GENERIC_SEARCH_WORDS
+                and not any(gw in t for gw in _GENERIC_SEARCH_WORDS if len(gw) >= 2)]
+    search_tokens = specific if specific else core
+    return {"search_tokens": search_tokens, "core_tokens": core,
+            "residual": "", "stripped_modifiers": stripped_mods}
+
+
+def score_residual_rows(rows: list[dict], residual: str, top_k: int = 15) -> list[dict]:
+    """R2 单字品类词兜底的确定性评分排序（纯函数）。
+
+    v0.65.1 P1-3：residual 通道此前 sim 全钉 1.0 且无 ORDER BY → 任意 top1。
+    现按匹配质量给真实 similarity（走既有 sim 门槛）并确定性排序：
+      - node_name == residual（精确命中）        → sim 1.0
+      - node_name 以 residual 开头（前缀命中）    → sim 0.7
+      - node_name 含 residual（含命中）          → sim 0.6
+      - 仅 full_path 命中（node_name 兜底通道）   → sim 0.5
+    排序：sim DESC → depth ASC → node_name ASC（同分确定，不依赖 DB 顺序）。
+    """
+    scored: list[dict] = []
+    for row in rows or []:
+        name = str(row.get("node_name") or "")
+        if name == residual:
+            sim = 1.0
+        elif name.startswith(residual):
+            sim = 0.7
+        elif residual in name:
+            sim = 0.6
+        else:
+            sim = 0.5  # 仅 full_path 命中
+        item = {
+            "description_category_id": row.get("description_category_id"),
+            "type_id": row.get("type_id"),
+            "node_name": name,
+            "full_path": row.get("full_path", ""),
+            "top_level_category_name": row.get("top_level_category_name", ""),
+            "depth": row.get("depth", 0),
+            "similarity": sim,
+            "matched_tokens": [residual],
+            "matcher": "jieba",
+        }
+        scored.append(item)
+    scored.sort(key=lambda x: (-float(x["similarity"]),
+                               int(x.get("depth") or 0),
+                               str(x.get("node_name") or "")))
+    return scored[:top_k]
+
+
 class OzonCategoryQuery:
     """Ozon 类目树查询助手（PG + pg_trgm）"""
 
@@ -183,41 +431,112 @@ class OzonCategoryQuery:
         finally:
             session.close()
 
+    def _fetch_rows_like(
+        self,
+        pattern: str,
+        node_type: str | None,
+        top_k: int,
+        name_only: bool = False,
+    ) -> list[dict]:
+        """按单个 pattern 查 category_tree_nodes（ZH_HANS type 节点）。
+
+        Args:
+            pattern: ILIKE 子串。
+            name_only: True → 只匹配 node_name（单字品类词兜底，防 full_path 深层误拖）；
+                       False → node_name OR full_path（逐 token 主通道）。
+        """
+        session = get_session()
+        try:
+            _cols = (
+                CategoryTreeNode.description_category_id,
+                CategoryTreeNode.type_id,
+                CategoryTreeNode.node_name,
+                CategoryTreeNode.full_path,
+                CategoryTreeNode.top_level_category_name,
+                CategoryTreeNode.depth,
+            )
+            conds = [
+                CategoryTreeNode.language == "ZH_HANS",
+                CategoryTreeNode.type_id.isnot(None),
+                CategoryTreeNode.type_id > 0,
+            ]
+            if node_type:
+                conds.append(CategoryTreeNode.node_type == node_type)
+            if name_only:
+                conds.append(CategoryTreeNode.node_name.ilike(f"%{pattern}%"))
+            else:
+                conds.append(or_(
+                    CategoryTreeNode.node_name.ilike(f"%{pattern}%"),
+                    CategoryTreeNode.full_path.ilike(f"%{pattern}%"),
+                ))
+            # v0.65.1 P1-3: 确定性排序（同分不再依赖 DB 返回顺序）
+            stmt = (
+                select(*_cols)
+                .where(and_(*conds))
+                .order_by(CategoryTreeNode.depth.asc(), CategoryTreeNode.node_name.asc())
+                .limit(top_k)
+            )
+            return [dict(r) for r in session.execute(stmt).mappings().all()]
+        finally:
+            session.close()
+
     def _search_jieba_like(
         self,
         query_text: str,
         top_k: int,
         node_type: str | None,
     ) -> list[dict]:
-        """v5: jieba 分词 + LIKE 精确匹配（中文类目搜索）
+        """v5/v0.65.1: jieba 分词 + LIKE 精确匹配（中文类目搜索）
 
         原理：pg_trgm 对中文做字符三元组匹配会产生大量噪声（如"鱼桶"→"鱼钩"）。
         jieba 分词后用 LIKE 做词级匹配，准确度高得多。
 
+        v0.65.1 R2：修饰词（成人/儿童/保暖 等）从搜索与计分中剥离，防「成人帽」
+        的「成人」命中 成人用品 18+ 整棵子树；全剥离后做单字品类词兜底（node_name
+        优先）；候选必须至少一个品类核心 token 命中 node_name（防 full_path 深层
+        节点把护膝/手套拖进宠物水族等）。
+
         计分：匹配 token 数 × 1.0 + depth × 0.1
         """
-        session = get_session()
         try:
-            # 1. jieba 分词
-            tokens = [w.strip() for w in jieba.cut(query_text) if len(w.strip()) >= 2]
-            if not tokens:
-                # 无双字词，回退到 ILIKE
-                return self._search_fallback(query_text, top_k, node_type, "ZH_HANS")
+            # 1. R2 搜索计划：jieba 分词 → 剥离修饰词/泛词 → 单字品类词兜底
+            plan = build_jieba_search_plan(query_text)
+            tokens = plan["search_tokens"]
+            core_tokens = plan["core_tokens"]
+            residual = plan["residual"]
+            if plan["stripped_modifiers"]:
+                logger.info(
+                    f"🔤 剥离修饰词 {plan['stripped_modifiers']} → "
+                    f"tokens={tokens or residual!r}"
+                )
 
-            # ✅ v0.21: 泛化词（配件/用品/工具/通用等）从搜索与评分中剥离——
-            # 否则 OR 条件被泛化词洪泛，LIMIT 内的候选全是泛化命中，
-            # 具体词命中（如"后视镜"→"摩托车后视镜"）被挤出结果集。
-            _GENERIC = {
-                "运动", "休闲", "传统", "家用", "日用", "通用", "其他", "配件", "附件",
-                "用品", "工具", "系列", "套装", "组合", "跨境", "新款", "爆款",
-                "设备", "材料", "商品", "产品", "机械", "电器", "平板", "监测", "清洁",
-            }
-            _specific = [t for t in tokens if t not in _GENERIC
-                         and not any(gw in t for gw in _GENERIC if len(gw) >= 2)]
-            search_tokens = _specific if _specific else tokens
-            if len(search_tokens) < len(tokens):
-                logger.info(f"🔤 剥离泛化词后搜索 tokens: {search_tokens}")
-            tokens = search_tokens
+            # 2. R2 单字品类词兜底：修饰词全剥离后只剩品类单字（如「帽」）时，
+            #    用原始 query 去修饰词的整串做 node_name 优先搜索。
+            if not tokens:
+                if not residual:
+                    logger.info(
+                        f"🔤 jieba LIKE: 无有效品类词（纯修饰词/纯泛词 '{query_text[:30]}'），"
+                        f"返回空触发 L3 LLM"
+                    )
+                    return []
+                _rows = self._fetch_rows_like(residual, node_type, top_k, name_only=True)
+                if not _rows:
+                    # node_name 未命中 → 回退 full_path（保守：仍要过敏感闸/overlap）
+                    _rows = self._fetch_rows_like(residual, node_type, top_k, name_only=False)
+                if not _rows:
+                    logger.info(f"🔤 单字品类词兜底无命中: '{residual}'，返回空触发 L3 LLM")
+                    return []
+                # v0.65.1 P1-3: 确定性评分排序 + 真实 sim（精确 1.0 / node_name
+                # 前缀 0.7 / 含 0.6 / 仅 full_path 0.5），不再全钉 1.0
+                results = score_residual_rows(_rows, residual, top_k)
+                logger.info(
+                    f"🔤 单字品类词兜底命中: '{residual}' → {len(results)} 条"
+                    f"（node_name 优先, 确定性排序）"
+                )
+                return results
+
+            if len(tokens) < len(core_tokens):
+                logger.info(f"🔤 剥离泛化词后搜索 tokens: {tokens}")
 
             # 去重但保持顺序
             seen = set()
@@ -227,44 +546,38 @@ class OzonCategoryQuery:
                     seen.add(t)
                     unique_tokens.append(t)
             tokens = unique_tokens
+            core_tokens = [t for t in dict.fromkeys(core_tokens)]
 
             logger.info(f"🔤 jieba 分词: '{query_text[:60]}' → {tokens}")
 
-            # 2/3. ✅ v0.21: 逐 token 查询后按 (dc, tp) 合并——
+            # 3. ✅ v0.21: 逐 token 查询后按 (dc, tp) 合并——
             # 单一 OR + 无排序 LIMIT 会被常见词（电动车/摩托车/踏板）灌满，
             # 稀有词命中（如"后视镜"→"摩托车后视镜"）被挤出候选集。
             # 逐 token 各取 top_k，保证每个词的命中都能进入候选。
-            _cols = (
-                CategoryTreeNode.description_category_id,
-                CategoryTreeNode.type_id,
-                CategoryTreeNode.node_name,
-                CategoryTreeNode.full_path,
-                CategoryTreeNode.top_level_category_name,
-                CategoryTreeNode.depth,
-            )
             collected: dict[tuple, dict] = {}
             for token in tokens:
-                tok_cond = [
-                    CategoryTreeNode.language == "ZH_HANS",
-                    CategoryTreeNode.type_id.isnot(None),
-                    CategoryTreeNode.type_id > 0,
-                ]
-                if node_type:
-                    tok_cond.append(CategoryTreeNode.node_type == node_type)
-                tok_cond.append(or_(
-                    CategoryTreeNode.node_name.ilike(f"%{token}%"),
-                    CategoryTreeNode.full_path.ilike(f"%{token}%"),
-                ))
-                stmt = (
-                    select(*_cols)
-                    .where(and_(*tok_cond))
-                    .limit(top_k)
-                )
-                for row in session.execute(stmt).mappings().all():
+                for row in self._fetch_rows_like(token, node_type, top_k):
                     key = (row["description_category_id"], row["type_id"])
                     if key not in collected:
                         collected[key] = dict(row)
             rows = list(collected.values())
+
+            # 3.5 ✅ v0.65.1 R2: node_name 命中约束——候选至少一个品类核心 token
+            # （非修饰非泛）命中 node_name。只 full_path 深层命中的候选（如整棵
+            # 成人用品 18+ 子树因 full_path 含「成人」、宠物水族深层「鱼缸护膝垫」）
+            # 一律不进候选。纯泛词查询（无 core token）跳过本约束（走既有泛词闸）。
+            if core_tokens:
+                _before_cnt = len(rows)
+                rows = [
+                    r for r in rows
+                    if any(t in (r["node_name"] or "") for t in core_tokens)
+                ]
+                if len(rows) < _before_cnt:
+                    logger.info(
+                        f"🔤 node_name 命中约束: {_before_cnt} → {len(rows)} 候选"
+                        f"（剔除仅 full_path 深层命中的节点）"
+                    )
+
             logger.info(f"🔤 逐token合并候选: {len(rows)} 条（tokens={len(tokens)}）")
 
             # 4. 计分：匹配 token 数 + depth bonus
@@ -362,8 +675,6 @@ class OzonCategoryQuery:
         except Exception as e:
             logger.warning(f"jieba LIKE 搜索失败 ({e})，回退到 ILIKE")
             return self._search_fallback(query_text, top_k, node_type, "ZH_HANS")
-        finally:
-            session.close()
 
     def _search_fallback(
         self,
