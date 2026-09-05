@@ -37,9 +37,13 @@ def test_apply_analytics_sets_ozon_category():
     }
     ok = apply_analytics_to_candidate(candidate, metrics)
     assert ok is True
+    # v0.65 B1: 标注权威来源（source/namespace）——worker 侧无 source 默认 search_kw
+    # 会把 discover 复用路径的权威类目降为普通候选后按标题重猜
     assert candidate.ozon_category == {
         "description_category_id": "17028929",
         "type_id": "504866264",
+        "source": "what_to_sell",
+        "namespace": "seller",
     }
 
 
