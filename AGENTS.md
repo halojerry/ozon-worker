@@ -27,6 +27,15 @@
 - **测试**：`tests/test_mcp_server.py` 19 passed（工具整形/Bearer 中间件/挂载面）+ 端到端
   实测（fastmcp 客户端握手 + 14 工具注册 + 真实 REST 回调）。
 
+> **0.67.0 追加（2026-09-06 wave 真实测试 + 两 P1 修复，同版未拆）**：留存批次
+> （`e30dd0ed` listing_result_log/P1-6/清理 30 天、`24396f86` 图搜类目保留）随本版一起发。
+> wave 9 单实测（docs/TEST-v067-wave-plan.md）：**零 18+/P1-6 join/留存行/L0 学习闭环
+> （approve→learned 行→同链接二单 match_layer=L0）全部实证**。实测揪出两 P1 已修：
+> ①佣金缓存 0% 污染（回填把 prices 缺 commissions 块的 0 照样 upsert + resolver 不拒 0，
+> 双侧加守卫）；②skill search_kw 候选 sim=1.0 插队（`_place_skill_candidate` 非权威队尾，
+> 权威插首不变——A1 辣椒帽曾被 skill 错猜化妆刷带偏整卡）。**改类目入池/佣金链前先读
+> CHANGELOG 0.67.0「修复/已知问题」两节**。worker 全量 1774 passed。
+
 ## 最近更新（v0.66.1 — discover 类目学习闭环：approve 为唯一学习成功信号）
 
 > 2026-09-05。已发版（VERSION 四源 0.66.1）。v0.66.0 L0 复活后的数据流补全：discover 对齐

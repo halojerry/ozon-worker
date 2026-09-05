@@ -31,6 +31,51 @@
 - 明确不做（出界）：skill 采集远程化（依赖本机 Chrome 登录态）；pounding-harness 改动
   （批次 3 按文档执行）；pounding-mcp uvx 发包（批次 2）；OAuth/per-service 多端点/计费。
 
+### 留存与学习闭环（wave 实测批次，e30dd0ed / 24396f86）
+- **上架结果留存表 `listing_result_log`**：任务终态一行（final_status/moderation_status +
+  1688 侧 source_url/leaf/item_id/supplier + Ozon 侧 dc/tp/价格/重量尺寸 + errors jsonb），
+  任务表定期清理不再连带物理消失信封与溯源；任务清理保留期 7→30 天。
+- **P1-6 审计关联修复**：category_match_log.task_id 此前为随机 uuid4（与任务表 join 不上，
+  生产取证只能按时间戳人工对齐），改写任务 DB id。
+- **图搜 1688 类目保留**：skill 图搜候选的 1688 类目透传进信封 source.match_category_*，
+  worker 端学习/对齐可用真实 1688 类目（此前图搜结果只留 URL+价）。
+
+### 修复（wave 真实测试发现，2026-09-06，测试计划 docs/TEST-v067-wave-plan.md）
+- **佣金缓存 0% 污染双守卫（P1）**：A6 approved 后佣金回填把 prices 响应缺 commissions 块
+  解析出的 0 照样 upsert（本地实证 dc=17028746 fbs_leq_5000=0 落库），而
+  `resolve_commission_rate` 只判 `is not None` → 后续该类目定价按 0% 佣金算、利润虚高。
+  修：`parse_prices_commissions` 非正值→None（无数据语义）+ resolver 缓存段 <=0 视同未命中
+  走 segments/fallback；容器内实测污染行读侧已中和（0.1 fallback），健康行 13% 照常采信。
+- **skill search_kw 候选 sim=1.0 插队抢跑（P1）**：`_resolve_skill_category` 对树校验通过的
+  候选恒置 similarity=1.0/confidence=0.95，v0.65.1 R3「降为普通 L1 候选」后仍 insert(0)+
+  放回首位 → L1 竞争必胜。wave A1 实证：辣椒帽被 skill 错猜的化妆刷(78032222)带偏整卡 →
+  帽类必填属性(10096/9163/8229/4295)全缺 → Ozon declined。修：新增纯函数
+  `_place_skill_candidate`——权威（page/mapping/what_to_sell/widget 路径精配）插首不变，
+  非权威（search_kw）**追加队尾**（保留搜索 0 命中兜底与 LLM fallback 可见性，不插队）；
+  权威判定提前到 Step 0.5 入池前，删除「放回首位」矛盾块。回归：同链接重提 9 秒内安全阻断
+  （诚实池 top1 sim 0.22 低于门槛 → LLM 确认不可靠 → 宁缺毋滥），不再错域上传烧生图额度。
+
+### 测试
+- worker 全量 **1774 passed**（基线 1744 + `tests/test_v067_wave_fixes.py` 11 用例：
+  parse 非正值/resolver 缓存 0 与负值/回填 0 不 upsert/入池位置四态）。
+- wave 真实回归（本地 Docker + 测试店 5381204/5371047，9 单 A1-A8+WaveC 二单）：
+  **零 18+**（8 条 match_log 无一落成人糖果，R1 逐单剔除敏感候选）/ P1-6 join 全过 /
+  listing_result_log 9/9 留存 / **L0 学习闭环实证**（A2 approve→learned 行 成人帽→遮阳帽
+  succ=1；同链接二单 `match_layer=L0` 直跳正确类目，succ 恒 1 属 L0 自证 skip 设计）/
+  Step 6.5+LLM fallback 实证救场（A2 三角头巾→遮阳帽→approved）。全程零 5xx 零 402，
+  40 张生图无异常消耗。
+
+### ⚠️ 已知问题（wave 实测在案，未修）
+- listing_result_log 的 Ozon 侧 dc/tp/weight 读 envelope.draft（graph 单即 skill 猜测，
+  approved 行可能记着未采用的猜测类目）；match_layer/confidence 恒空——writer 注释已注明
+  待 GraphOutput 透出 category_match_meta。
+- moderation 类 declined 无结构化原因：errors jsonb 只有属性类拒绝（MISSING_REQUIRED_
+  ATTRIBUTE），审核拒绝具体文案丢失。
+- source 路径中间 token 可精确命中 type（「帽子/头巾」的「头巾」→三角头巾 sim=1.0）压制
+  真匹配——A2 靠 Step 6.5 LLM 纠回，A3/A7/A8 未纠回 declined。
+- R2b LLM 仲裁质量：A4 护膝正确候选（园艺地垫，0.33）在池内但仲裁不可用 → 阻断（安全但
+  丢单）；被阻断任务不写 category_match_log（可观测缺口）。
+
 ## [0.66.1] - 2026-09-05
 
 > v0.66.0 后补全：discover 类目对齐数据流闭环——「discover 对齐候选 → 上架用对齐 → approve
