@@ -549,7 +549,7 @@ class OzonCategoryQuery:
             if row and row.tree_data:
                 logger.info("从 category_cache JSONB 同步 category_tree_nodes...")
                 # 需要在新的 session 中调用 sync（避免嵌套事务）
-                # v0.63.2: skip_if_nonempty —— 拿到 advisory lock 后双检，等锁期间
+                # v0.64.0: skip_if_nonempty —— 拿到 advisory lock 后双检，等锁期间
                 # 被其他并发同步填满则直接放弃（消除判空→同步的 check-then-act 竞态）
                 self.sync_category_tree_nodes(row.tree_data, language, skip_if_nonempty=True)
                 logger.info("✅ 同步完成")
@@ -1096,7 +1096,7 @@ class OzonCategoryQuery:
 
     # ==================== 扁平表同步 ====================
 
-    # ── v0.63.2: 全树同步互斥锁 ──
+    # ── v0.64.0: 全树同步互斥锁 ──
     # 死锁根因（2026-09-01 生产实证 POUDING_OZON-E6/E7/E8）：两个并发全量同步
     # 各自在单事务里对同一批唯一键按不同进度逐行 upsert，行锁互相等待成环；
     # v0.63.0 线程池 8→128（53a4bda8）后图节点真并发，竞态首次爆发。

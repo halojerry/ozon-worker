@@ -181,7 +181,7 @@ def _apply_vehicle_disambiguation(candidates: list, signal_text: str) -> list:
     if not candidates or not signal_text:
         return candidates
     low = signal_text.lower()
-    # v0.63.2: 1688 行业大类前缀「汽车摩托/汽摩」字面同时含双域信号，会让
+    # v0.64.0: 1688 行业大类前缀「汽车摩托/汽摩」字面同时含双域信号，会让
     # 「汽摩配件>汽车轮胎」这类以末级词定域的商品被判为双信号而放弃判别 →
     # 汽车轮毂/轮胎继续错配摩托车子树（v0.62.4 注释记录的原始症状）。先剥除
     # 组合词再判单信号——末级类目词才是权威信号；真双域商品剥除后仍双信号/全无。
@@ -1393,7 +1393,7 @@ def assemble_ozon_product_node(
         llm_name, ru_check_path or category_path, description_category_id, type_id
     )
 
-    # v0.65 B3: Skill 权威直通豁免——类目来自 Skill 端 Ozon 权威解析
+    # v0.64.0 B3: Skill 权威直通豁免——类目来自 Skill 端 Ozon 权威解析
     # (source=page/what_to_sell/mapping)，俄语标题与类目路径词面不重叠是正常
     # (标题是 LLM 另译营销文案)，不应反噬权威类目。对齐 L886 前置一致性
     # 已对 Skill 豁免的决策，避免「前置豁免、后置误杀」。

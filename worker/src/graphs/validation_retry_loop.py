@@ -134,7 +134,7 @@ class ValidationRetryLoopOutput(BaseModel):
     # 审核状态透出（recheck_status_node 轮询结果，供 wrapper/主图消费）
     moderation_status: str = Field(default="", description="Ozon审核状态 (approved/pending/error)")
     notice: str = Field(default="", description="用户可读失败说明(v0.28.5 C2, 中文)")
-    # v0.65 C1(N4): 子图修复后的类目/属性回传主图——此前子图内改 type_id/dc/final_attributes
+    # v0.64.0 C1(N4): 子图修复后的类目/属性回传主图——此前子图内改 type_id/dc/final_attributes
     # 只写 payload 与子图 state，主图 learning_record 读旧值 → 学习表按旧类目固化(Goodhart)
     description_category_id: str = Field(default="", description="修复后类目ID(子图可能重配 type)")
     type_id: str = Field(default="", description="修复后类型ID")
@@ -445,7 +445,7 @@ def _resolve_payload_dict_attr(
             size_cn="",
             dict_vals=_vals or [],
             type_id=int(state.type_id or 0),
-            # v0.63.2: 数值规格字典属性（轮胎 截面宽度/直径英寸）按 1688 值数字匹配
+            # v0.64.0: 数值规格字典属性（轮胎 截面宽度/直径英寸）按 1688 值数字匹配
             draft_attrs=_draft.get("attributes") if isinstance(_draft, dict) else None,
         )
         if _res:
@@ -949,7 +949,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         for item in items:
             if not isinstance(item, dict):
                 continue
-            # v0.65 C2(N5): final_attributes 是 flat 格式({attribute_id,value,dictionary_value_id})，
+            # v0.64.0 C2(N5): final_attributes 是 flat 格式({attribute_id,value,dictionary_value_id})，
             # payload 的 attributes 期望 Ozon 格式({id, values:[{dictionary_value_id,value}]})。
             # 直接塞 flat → revalidate 按 Ozon 格式解析读不到 id → 折叠伪属性 + 快照保真失效。
             # 这里转回 Ozon 格式再回灌（按 attribute_id 分组，合并同属性多值）。
@@ -990,7 +990,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         if schema_attr.get("id") == attr_id:
             current_attr_def = schema_attr
             break
-    # v0.63.2: PG/Ozon schema 均未命中时回退 state.attributes_schema（子图入参自带）——
+    # v0.64.0: PG/Ozon schema 均未命中时回退 state.attributes_schema（子图入参自带）——
     # 此前 schema 拉取失败 → attr_name=attr_{id}/dictionary_id=0 → 字典修复链路整体跳过
     if not current_attr_def:
         for schema_attr in (getattr(state, "attributes_schema", None) or []):
@@ -1011,7 +1011,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
             current_value = str(attr.get("value", ""))
             break
 
-    # ========== Step 1.8: 证书编号类必填属性提前终态（v0.63.2）==========
+    # ========== Step 1.8: 证书编号类必填属性提前终态（v0.64.0）==========
     # Sentry POUDING_OZON-42/E1-E4 实证：12882(Номер сертификата) 等证书类必填
     # 属性在 1688 采购数据里没有真实来源，语义解析/API 搜索/LLM 修复必然失败，
     # 此前仍烧满 3 轮 retry（每轮真实调 Ozon import）。现提前终态并给出可行动
@@ -1112,7 +1112,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                     _vals = []
             _env = getattr(state, "envelope", None) or {}
             _title_cn = str((_env.get("draft") or {}).get("title") or "") if isinstance(_env, dict) else ""
-            # ⚠️ v0.63.2: retry 子图 state 的 draft 是直接字段（无 envelope）——
+            # ⚠️ v0.64.0: retry 子图 state 的 draft 是直接字段（无 envelope）——
             # 此前 _title_cn 在 retry 子图恒为空串；数值规格解析同样从这里取 1688 属性
             _d_src = getattr(state, "draft", None) or {}
             if not _d_src and isinstance(_env, dict):
@@ -1127,7 +1127,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 dict_vals=_vals or [],
                 # ⚠️ v0.29.x: 8229(类型)优先按 type_id 匹配(值 id == type_id)
                 type_id=int(type_id or 0),
-                # v0.63.2: 数值规格字典属性（轮胎 截面宽度/直径英寸）按 1688 值数字匹配
+                # v0.64.0: 数值规格字典属性（轮胎 截面宽度/直径英寸）按 1688 值数字匹配
                 draft_attrs=_d_src.get("attributes") if isinstance(_d_src, dict) else None,
             )
             if not _resolved:
@@ -1159,7 +1159,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         if error_code == "warning_attribute_values_out_of_range":
             logger.info(f"🔄 warning_attribute_values_out_of_range: 强制刷新属性{attr_id}的字典值缓存")
             try:
-                # v0.63.2: has_next 分页循环（对齐 v0.62 R2 fetch_ru_dict_value 修法）——
+                # v0.64.0: has_next 分页循环（对齐 v0.62 R2 fetch_ru_dict_value 修法）——
                 # 此前单页 limit=2000，大字典（轮胎规格/8229 类型等数千值）目标值不在
                 # 首页 → 刷新后仍缺 → 属性继续缺失烧 retry
                 _fresh_values: list = []
@@ -2780,7 +2780,7 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
         upload_status=state.upload_status,
         moderation_status=state.moderation_status,
         notice=_build_notice(state.error_type, final_error_message, state.upload_status),
-        # v0.65 C1(N4): 回传修复后的类目/属性给主图
+        # v0.64.0 C1(N4): 回传修复后的类目/属性给主图
         description_category_id=state.description_category_id,
         type_id=state.type_id,
         final_attributes=state.final_attributes,
