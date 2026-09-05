@@ -63,7 +63,7 @@ MERGE_CARD_ATTR_IDS = (8292,)
 MODEL_ATTR_IDS = (22390,)
 NO_MERGE_KEYWORDS = ("не объедин", "не обьедин", "нет", "不合并", "否")
 
-# ── v0.63.2: 证书编号类属性（提前终态，不烧 retry）─────────────────────
+# ── v0.64.0: 证书编号类属性（提前终态，不烧 retry）─────────────────────
 # Sentry POUDING_OZON-42/E1-E4 实证：轮胎类目 12882(Номер сертификата) 必填，
 # 1688 采购数据永远没有真实证书编号 → 语义解析/搜索/LLM 全部失败，仍烧满 3 轮
 # retry（每轮真实调 Ozon import）。判定命中的属性在 retry 层提前终态并给出
@@ -71,7 +71,7 @@ NO_MERGE_KEYWORDS = ("не объедин", "не обьедин", "нет", "�
 CERT_NUMBER_ATTR_IDS = (12882,)
 CERT_NUMBER_NAME_KEYWORDS = ("сертификат", "свидетельств", "证书编号", "证书号", "认证编号")
 
-# ── v0.63.2: 数值规格字典属性（轮胎 截面宽度/直径英寸 等）──────────────
+# ── v0.64.0: 数值规格字典属性（轮胎 截面宽度/直径英寸 等）──────────────
 # 7387(Ширина профиля, мм)/7389(Диаметр, дюймы) 的字典值主体是纯数字档位，
 # 1688 值带单位（"225mm"/"17英寸"/"225/45R17"）→ 既有语义/搜索链路必然无命中；
 # retry 拿产品标题当搜索词更搜不到。本分支不按属性 id 硬编码：字典值主体为
@@ -547,7 +547,7 @@ def resolve_missing_mandatory_dict_attr(
 ) -> Optional[tuple[int, str]]:
     """按属性语义解析必填字典属性的安全默认值；查不到返回 None。
 
-    draft_attrs（v0.63.2）: 1688 中文属性 dict（draft.attributes），供数值规格
+    draft_attrs（v0.64.0）: 1688 中文属性 dict（draft.attributes），供数值规格
     字典属性（轮胎 截面宽度/直径英寸）按数字精确匹配，不影响既有语义分支。
     """
     attr_id = int(attr_id or 0)
@@ -625,7 +625,7 @@ def resolve_missing_mandatory_dict_attr(
         # 复用 get_safe_hazard_default(RU+ZH 关键词), 取不到返回 None(跳过, 交 Ozon 报可修复错)。
         from utils.attribute_utils import get_safe_hazard_default
         return get_safe_hazard_default(dict_vals)
-    # v0.63.2: 数值规格字典属性（字典主体为纯数字档位）—— 语义分支全不命中时，
+    # v0.64.0: 数值规格字典属性（字典主体为纯数字档位）—— 语义分支全不命中时，
     # 从 1688 属性值/标题提取数字精确匹配（轮胎 7387/7389 等链路盲区的通用补口）
     _num_res = resolve_numeric_dict_default(
         attr_name, draft_attrs=draft_attrs, title_cn=title_cn, dict_vals=dict_vals,

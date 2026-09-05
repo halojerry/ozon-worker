@@ -1229,7 +1229,7 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                         except Exception:
                             pass
                     break
-            # ✅ v0.65 A2: 同义词门未命中（无同义词组的可选字典属性：形状/图案/产地/
+            # ✅ v0.64.0 A2: 同义词门未命中（无同义词组的可选字典属性：形状/图案/产地/
             # 功率等）→ 用 1688 原始值做「中文直搜 + 唯一命中才填」旁路，覆盖无组属性。
             # 保留多候选宁缺毋滥（unique_or_none），不破坏既有纪律。
             # 安全策略：仅当「zh 属性名与 schema 名共享 ≥1 中文字符」才触发（如 aname=

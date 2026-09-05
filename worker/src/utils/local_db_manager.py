@@ -383,7 +383,7 @@ class LocalDBManager:
     def add_attribute_mapping(self, category_id: int, attribute_id: int, attribute_name: str, source_value: str, target_value: str, dictionary_value_id: Optional[int] = None, source: str = "learned_approved"):
         """添加属性映射学习记录（PR-6: source 标记 provenance — learned_approved/default_fallback/retry_recovered/fetch_back_corrected）
 
-        v0.65 C4(N5b): 改原子 upsert（INSERT ... ON CONFLICT）替代 SELECT→INSERT
+        v0.64.0 C4(N5b): 改原子 upsert（INSERT ... ON CONFLICT）替代 SELECT→INSERT
         check-then-act——并发同键（同类目两商品同 source_value）不再抛 IntegrityError
         炸掉上传成功后任务。default_fallback 冲突时 success_count 不增长（PR-6 语义）。
         """
