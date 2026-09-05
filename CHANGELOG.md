@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.66.1] - 2026-09-05
+
+> v0.66.0 后补全：discover 类目对齐数据流闭环——「discover 对齐候选 → 上架用对齐 → approve
+> 才写学习表 → 再上架 L0 复用 → declined 负反馈」全链打通。VERSION 四源 0.66.1。
+
+### 修复（三断点，调研驱动）
+- **discover 主流场景不学习**：有竞品候选被 skill 打 follow_sell（无 follow_type）→ learning
+  误判真跟卖跳过 mapping 写入。修复：豁免判定细化——follow_type 存在=真跟卖（写但 conf 压
+  0.6 恒弱档）；仅 follow_sell=discover 变体（正常分档写）。prepare UPDATE 并卡模式不动。
+- **L0 自证回环**：dc 来自学习表命中 → approved 又给同行 succ+1（无新证据也增长）。修复：
+  assemble 输出 category_match_meta（match_layer/confidence/dc/tp）→ wrapper 双向透传 →
+  写侧分级 Skill 0.9 / L1·R2b 0.7 / **L0 且 dc 未变 skip upsert（无新证据）** / L0 但 dc 已换
+  0.7 / 缺省 0.85。
+- **写侧语义预检（错配第 4 道防线）**：写 mapping 前自检 1688 leaf 与 ZH 类目路径 jieba 非泛词
+  overlap，零重叠拒写——「手套」类目配到「成人糖果」dc 这类错配进不了学习表。
+- **match_evidence 置信门槛**：skill discover/follow 信封透传 extensions.match_evidence=
+  {method?, confidence?, badge_eff?, trusted?}；worker 消费——不可信（method 非 aibuy 且
+  confidence<0.3）→ conf 压 0.6 弱档。
+
+### 测试
+- worker 全量 **1725 passed**（基线 1710 + 新增 15）；skill 全量 **625 passed**（+6）；
+  回归 76 + sweep 80 全绿；ruff 双侧 clean。
+- 上线观察：discover 变体任务的 mapping 开始写入（此前 0）、L0 自证单不再涨 succ、
+  语义预检拒写日志（leaf↔路径零重叠）。
+
 ## [0.66.0] - 2026-09-05
 
 > 架构重构：L0 学习表复活——让「1688 AK 已补类目信息」真正进权威层。取证（服务器 PG）驱动：

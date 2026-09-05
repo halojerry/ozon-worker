@@ -2,6 +2,28 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.66.1 — discover 类目学习闭环：approve 为唯一学习成功信号）
+
+> 2026-09-05。已发版（VERSION 四源 0.66.1）。v0.66.0 L0 复活后的数据流补全：discover 对齐
+> 候选 → 上架用对齐 → approve 才写学习表 → 再上架 L0 复用 → declined 负反馈，全链打通。
+
+- **跟卖豁免判定细化（改 learning_record 前必读）**：`follow_type` 存在=真跟卖（写 mapping
+  但 confidence 压 0.6 恒弱档——图搜噪音不盲信）；仅 `follow_sell` 无 follow_type=discover
+  变体（正常分档写——此前被误判真跟卖整段跳过，discover 主流场景不学习的根因）。prepare
+  UPDATE 并卡模式不受影响（仍由 follow_sell 驱动）。
+- **L0 自证防护**：assemble 输出 `category_match_meta`（match_layer/confidence/dc/tp）→
+  wrapper 双向透传（主图→子图 Input、子图 R4 重配置 R2b→主图 Output）→ 写侧分级 Skill 0.9 /
+  L1·R2b 0.7 / **L0 且 dc 未变 skip upsert**（学习表不给自己的结论加证据）/ L0 但 dc 已换
+  0.7 / 缺省 0.85。改 assemble 类目定稿或 R4 重配勿漏更新 meta。
+- **写侧语义预检**：approve 写 mapping 前自检 1688 leaf ↔ ZH 类目路径 jieba 非泛词 overlap，
+  零重叠拒写（`_leaf_path_overlap`）——错配货源的对齐进不了学习表。同义词跨词面（震动棒 vs
+  振动器）会误拦属宁缺毋滥设计。
+- **match_evidence 透传**：skill discover/follow 信封带 extensions.match_evidence=
+  {method?, confidence?, badge_eff?, trusted?}（缺失省略键；discover 侧无 method 属数据现实）；
+  worker 消费：不可信（method 非 aibuy 且 confidence<0.3）→ conf 压 0.6。
+- 数据流全景：discover(对齐候选随信封) → 上架(Skill 权威直通/L0 分档/L1 兜底) → approve(写
+  succ=1 弱档) → 再上架(L0 弱档 LLM 仲裁) → approve(succ=2 权威) / declined(负反馈降权)。
+
 ## 最近更新（v0.66.0 — L0 学习表复活：1688 类目信息真正进权威层）
 
 > 2026-09-05。已发版（VERSION 四源 0.66.0）。架构重构：取证（服务器 PG）实锤 category_mapping
