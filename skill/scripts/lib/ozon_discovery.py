@@ -691,9 +691,18 @@ def collect_and_analyze(
             if to_enrich:
                 from scripts.lib.ozon_seller_analytics import (
                     apply_analytics_to_candidate,
+                    check_seller_login,
                     fetch_bestseller_metrics_map,
                     fetch_sales_analytics,
+                    wait_for_seller_login,
                 )
+                # v0.63.3: 未登录先给登录窗口（自动开 seller 页+轮询，超时保留登录页），
+                # 仍未登录才继续（下游自然降级并打缺失警告）——此前直接静默空数据
+                try:
+                    if not check_seller_login(cdp):
+                        wait_for_seller_login(cdp)
+                except Exception:
+                    pass
                 enriched: dict[str, dict] = {}
                 metrics_map = fetch_bestseller_metrics_map(cdp, company_id=None)
                 remaining = [c for c in to_enrich

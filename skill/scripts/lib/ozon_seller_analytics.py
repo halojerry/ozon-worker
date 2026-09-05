@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import time
 from typing import Any
 
@@ -506,6 +507,69 @@ def check_seller_login(cdp) -> bool:
         return False
     finally:
         _close_seller_tab(cdp, tab, reused)
+
+
+def wait_for_seller_login(cdp, *, timeout_seconds: int = 300, poll_interval: float = 5.0) -> bool:
+    """seller.ozon.ru 登录等待：未登录时自动打开卖家后台并轮询，给用户登录窗口。
+
+    v0.63.3 修复用户反馈「还没等登录就把页面关掉/直接退出」：此前 discover 未登录
+    直接 return、queries 静默降级本地 CSV——用户没有任何窗口时间登录卖家后台。
+
+    行为：
+    - 已登录 → 立即 True（不打扰）。
+    - 未登录 → 复用/新建 seller tab 并**保留不关**（登录面归用户），轮询登录态。
+    - 有终端（TTY，人工在跑）：等待下限 300s；超时后按 Enter 继续等（不限时），
+      Ctrl+C 放弃。
+    - 无终端（agent/管道）：等待下限 90s 后返回 False；tab 保留，用户登录后重跑即可。
+    - 登录成功 → True（tab 保留——那是用户刚登录的卖家后台）。
+
+    注意：打开的 tab 会 ``cdp.release`` 移出连接管理，调用方连接关闭不会连带关掉它。
+    """
+    try:
+        _interactive = bool(sys.stdin and sys.stdin.isatty())
+    except Exception:
+        _interactive = False
+    timeout_sec = max(int(timeout_seconds or 0), 300 if _interactive else 90)
+    start = time.time()
+
+    if check_seller_login(cdp):
+        return True
+
+    # 未登录 → 确保卖家后台页面开着给用户登录（复用已有 tab；没有才新建）。
+    # release 移出连接管理：调用方 with 块退出 conn.close() 时不会连带关掉它。
+    try:
+        _tab, _reused = _tab_for_seller(cdp)
+        if _tab is not None:
+            try:
+                cdp.release(_tab)
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.warning("wait_for_seller_login: 打开 seller 页面失败（继续轮询检测）: %s", exc)
+
+    _unlimited = False
+    while True:
+        if not _unlimited and time.time() - start >= timeout_sec:
+            if _interactive:
+                print(f'\n⏳ 等待 seller.ozon.ru 登录超时（{timeout_sec}s）。'
+                      '登录页已保留在浏览器——完成登录后按 Enter 继续等待（Ctrl+C 放弃）...',
+                      flush=True)
+                try:
+                    input()
+                except (EOFError, KeyboardInterrupt, OSError):
+                    return False
+                _unlimited = True  # 用户确认还在登录 → 不限时继续轮询
+            else:
+                logger.warning(
+                    "等待 seller.ozon.ru 登录超时（%ss，无人值守）。"
+                    "登录页已保留在浏览器，完成登录后重跑本命令即可。", timeout_sec)
+                return False
+        try:
+            if check_seller_login(cdp):
+                return True
+        except Exception:
+            pass
+        time.sleep(poll_interval)
 
 
 def fetch_sales_analytics(

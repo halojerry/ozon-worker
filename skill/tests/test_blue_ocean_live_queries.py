@@ -150,6 +150,9 @@ def test_live_queries_falls_back_to_csv_when_not_logged_in():
         live_patches=[
             mock.patch("scripts.lib.ozon_seller_analytics.check_seller_login",
                        return_value=False),
+            # v0.63.3: 登录等待在本用例显式短路（其行为由 test_login_wait_ux 锁定）
+            mock.patch("scripts.lib.ozon_seller_analytics.wait_for_seller_login",
+                       return_value=False),
             mock.patch("scripts.lib.ozon_seller_analytics.fetch_all_queries",
                        return_value=[]),
         ],
