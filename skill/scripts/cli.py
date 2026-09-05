@@ -1225,11 +1225,15 @@ def _fetch_live_blue_ocean_queries(cdp_url: str, keyword: str) -> list[dict]:
         from scripts.lib.ozon_seller_analytics import (
             check_seller_login,
             fetch_all_queries,
+            wait_for_seller_login,
         )
         with CdpConnection(cdp_url) as cdp:
             if not check_seller_login(cdp):
-                _logger.warning("seller.ozon.ru 未登录，蓝海实时查询降级本地 CSV")
-                return []
+                # v0.63.3: 未登录先给登录窗口（自动开 seller 页+轮询，超时保留登录页），
+                # 仍失败才降级本地 CSV——此前静默降级，用户不知道少了实时数据
+                if not wait_for_seller_login(cdp):
+                    _logger.warning("seller.ozon.ru 未登录（登录页已保留在浏览器），蓝海实时查询降级本地 CSV")
+                    return []
             rows = fetch_all_queries(cdp, keyword=keyword or None)
             if rows:
                 return rows
@@ -2352,8 +2356,11 @@ def cmd_queries(args: argparse.Namespace) -> int:
             from scripts.lib.cdp_client import CdpConnection
             with CdpConnection() as cdp:
                 if not osa.check_seller_login(cdp):
-                    print("未登录 seller.ozon.ru", flush=True)
-                    return 0
+                    # v0.63.3: 未登录先给登录窗口（自动开 seller 页+轮询，超时保留登录页），
+                    # 仍失败才退出——此前直接 return，用户没有任何时间登录
+                    if not osa.wait_for_seller_login(cdp):
+                        print("未登录 seller.ozon.ru（登录页已保留在浏览器，完成登录后重跑本命令）", flush=True)
+                        return 0
                 if args.type == "all-queries":
                     rows = osa.fetch_all_queries(cdp, keyword=args.keyword or None)
                 elif args.type == "ozon-bestsellers":

@@ -1841,10 +1841,18 @@ def _wait_for_login_session(
 
     session = _resolve_browser_session(profile_name)
     login_url = 'https://login.1688.com/member/signin.htm'
-    timeout_sec = max(timeout_seconds, 30)
+    # v0.63.3: 登录等待下限分级——用户反馈「还没登录就把页面关掉」：旧下限 30s，
+    # 而扫码+App 确认+跳转实测常超 120s。有终端（TTY，人工在跑）≥300s；
+    # agent/管道（非 TTY）≥90s（浏览器在本机可见，给现场用户留窗口）。
+    try:
+        _interactive_stdin = bool(sys.stdin and sys.stdin.isatty())
+    except Exception:
+        _interactive_stdin = False
+    timeout_sec = max(int(timeout_seconds or 0), 300 if _interactive_stdin else 90)
     start = time.time()
 
     tab = None
+    _keep_login_tab = False  # v0.63.3: 超时/放弃路径 True → finally 不关登录页
     try:
         # Find existing Chrome CDP session
         session = _resolve_browser_session(profile_name)
@@ -1903,7 +1911,34 @@ def _wait_for_login_session(
                   f'   {login_url}\n', file=sys.stderr)
 
         # Poll for login completion
-        while time.time() - start < timeout_sec:
+        # v0.63.3: 超时不再直接放弃——登录页保留在浏览器，人工终端询问续等
+        # （对齐 _poll_probe 验证码的交互模式）；无人值守保留登录页快速返回，
+        # 用户登录后重跑即可复用登录态。
+        _unlimited_wait = False
+        _timeout_notified = False
+        while True:
+            if not _unlimited_wait and not _timeout_notified \
+                    and time.time() - start >= timeout_sec:
+                _timeout_notified = True
+                _keep_login_tab = True  # 超时绝不关登录页（用户可能正在输入）
+                _logger.warning("_wait_for_login_session: login timeout after %ds", timeout_sec)
+                if _interactive_stdin:
+                    try:
+                        print('\n⏳ 等待 1688 登录超时。登录页已保留在浏览器——'
+                              '完成扫码登录后按 Enter 继续等待（Ctrl+C 放弃）...',
+                              file=sys.stderr)
+                        input()
+                    except (EOFError, KeyboardInterrupt, OSError):
+                        _login_result = {'ok': False, 'session': None, 'reason': 'timeout'}
+                        return _login_result
+                    # 用户确认还在登录 → 切换为不限时继续轮询
+                    _unlimited_wait = True
+                else:
+                    print('\n⏳ 等待 1688 登录超时（无人值守模式）。'
+                          '登录页已保留在浏览器，完成登录后重跑本命令即可。',
+                          file=sys.stderr)
+                    _login_result = {'ok': False, 'session': None, 'reason': 'timeout'}
+                    return _login_result
             try:
                 snapshot = _probe_login_snapshot(tab)
                 login_required = _snapshot_login_required(snapshot.get('url'), snapshot.get('bodyText'))
@@ -1917,23 +1952,23 @@ def _wait_for_login_session(
             except Exception:
                 pass
             time.sleep(3)
-
-        _logger.warning("_wait_for_login_session: login timeout after %ds", timeout_sec)
-        _login_result = {'ok': False, 'session': None, 'reason': 'timeout'}
-        return _login_result
     except Exception as exc:
         _logger.error("_wait_for_login_session: CDP error: %s", exc)
         _login_result = {'ok': False, 'session': None, 'reason': 'cdp_error'}
         return _login_result
     finally:
-        if tab:
+        # v0.63.3: 超时/放弃路径保留登录页（close_remote=False 也绝不远程关）；
+        # 成功/异常路径维持原行为（登录成功后收掉登录页）。
+        if tab and not _keep_login_tab:
             try:
                 tab.close()
             except Exception:
                 pass
         # Close CDP connection to prevent WebSocket leak
+        # v0.63.3: 只关 WS——此前 cdp.close() 默认远程关掉本连接所有 tab，
+        # 登录页被关 → 工具 Chrome 窗口仅剩它时窗口/浏览器整个消失。
         try:
-            cdp.close()
+            cdp.close(close_remote=False)
         except Exception:
             pass
         _login_in_progress = False
@@ -2521,7 +2556,8 @@ def probe_1688_page(
             cdp_url = str(session.get('cdp_url') or '').strip()
             launch_meta['session_bootstrapped'] = bool(cdp_url)
         if not cdp_url or not _cdp_available(cdp_url):
-            raise ConfigError('未发现可复用的 1688 浏览器会话，请先执行 browser_login 完成登录，或保持同一 profile 的 Chrome 会话可连接')
+            # v0.63.3: 登录等待超时时登录页已保留在浏览器（不再被关掉），文案同步提示
+            raise ConfigError('未发现可复用的 1688 浏览器会话，请先执行 browser_login 完成登录，或保持同一 profile 的 Chrome 会话可连接（若刚才是等待登录超时：登录页已保留在浏览器，完成登录后重跑本命令即可）')
 
         # Live cookie check: verify 1688 login before navigating to product page
         # ⚠️ v0.14 P1-6: 仅当本次调用未检测到登录态时才执行 live 检查，避免重复 CDP 页面跳转
@@ -2551,10 +2587,16 @@ def probe_1688_page(
                 browser_path=resolved_browser,
                 timeout_seconds=timeout_seconds,
             ) or {}
+            # v0.63.3: 登录等待超时 → 明确终止（登录页已保留）；不得带着未登录
+            # 状态继续探测（session 回退旧值 + CDP 仍存活会静默跳过下面的 raise，
+            # 白白烧一轮必失败的抓取）。
+            if not login_wait.get('ok') and login_wait.get('reason') == 'timeout':
+                raise ConfigError('1688 登录未完成，无法继续探测（登录页已保留在浏览器，完成登录后重跑本命令即可）')
             session = login_wait.get('session') or session
             cdp_url = str(session.get('cdp_url') or cdp_url).strip()
             if not cdp_url or not _cdp_available(cdp_url):
-                raise ConfigError('1688 登录未完成，无法继续探测')
+                # v0.63.3: 登录页保留在浏览器，超时不再销毁登录面
+                raise ConfigError('1688 登录未完成，无法继续探测（登录页已保留在浏览器，完成登录后重跑本命令即可）')
 
         cdp, connected_to_existing = _connect_existing_chrome(cdp_url)
 

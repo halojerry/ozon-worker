@@ -189,7 +189,8 @@ def test_cmd_queries_not_logged_in_prints_and_returns_0():
     from scripts.cli import cmd_queries
     import argparse
 
-    with mock.patch.object(osa, "check_seller_login", return_value=False):
+    with mock.patch.object(osa, "check_seller_login", return_value=False), \
+            mock.patch.object(osa, "wait_for_seller_login", return_value=False):
         with mock.patch("scripts.lib.cdp_client.CdpConnection") as conn_cls:
             conn_cls.return_value = mock.MagicMock()
             with mock.patch.object(osa, "_fetch_seller_session_cookies", return_value={}):
