@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.65.1] - 2026-09-05
+
+> v0.65.0 后紧急修复：1688→worker 类目系统性跨域错配（含 18+ 过审合规红线）+ 自修复
+> 换类目闭环 + 属性同义词扩充。VERSION 四源 0.65.1。执行记录见 docs/PLAN（类目取证）。
+
+### 修复（类目跨域错配根治，取证驱动）
+- **实证**：店铺 4718259 单日 7 单全 L1、5/7 错类目——手套/面罩→「成人用品>成人糖果 18+」
+  (dc 200001462，2 张已过审在售=合规红线)、护膝→宠物水族、童帽→儿童滑梯。根因=ZH 类目搜索
+  `_search_jieba_like` jieba 分词后 `ILIKE %token%` 子串匹配 full_path，多义词 token（成人/
+  儿童）命中语义无关子树（18+/滑梯）且零防护；护膝类同名单歧义无序取 top1。
+- **R1 18+/敏感子树防护**：候选过滤 + 采纳 veto（覆盖 L0/Skill/权威，唯一豁免竞品 category_path
+  精确解析）；敏感信号词表白名单化——成人真实叶子词（飞机杯/震动棒/假阳具…）放行，美工刀/
+  山药/震动闹钟等普通词不放行。普通服饰不再可能贴 18+ 糖果。
+- **R2 中文匹配质量**：修饰词剥离（成人/儿童/宝宝…不入搜，防「成人帽」灌 18+ 子树）+ 品类核心
+  token 须命中 node_name（防整棵子树被 full_path 拖入）+ 单字品类词兜底（确定性排序 + 真实 sim）。
+- **R2b 低置信/歧义确认闸**：L1 sim<0.5 或 top1/top2 同分跨大类歧义 → 强制 LLM 消歧，无非泛词
+  overlap 阻断——0.346 儿童滑梯静默上架不再可能。
+- **R3 skill 候选采纳收口**：search_kw 恒非权威（放回 L1 竞争走全部闸），仅权威 source
+  （page/mapping/what_to_sell/widget 路径精配）直通。
+- **R4 retry 换类目闭环**：declined 类目错（22507/8229）→ 整卡重配（R1/R2 规则 + `_rebuild_for_
+  new_category` 重建 schema/attrs）→ 重传；declined 回灌 state.errors 可再验证；needs_recategorization
+  消费（无解 hard-block 不再旧 dc 空烧 3 轮）。此前 INVALID_CATEGORY 无实现、自修复对类目错
+  系统性失效。
+- 附带：`category_match_log.task_id` 与任务表 uuid 体系不一致（服务器 P1-6，本版未动，待上游定字段语义）。
+
+### 功能（属性完整性含非必填）
+- **attr_synonyms.json 9→14 组**：新增 产地/形状/图案花纹/成分/功率 + packaging 补词
+  （value_map 留空走 /values/search 唯一化防档位不符）。
+- **审计打点**：prepare 补 skipped_no_value/skipped_multi_candidate/no_infer 写入 attr_match_log
+  （此前仅 2 个成功打点）——下轮起有真实缺口榜，不再盲扩。
+
+### 测试
+- worker 全量 **1682 passed**（基线 1638 + 新增 44：类目 26 + 属性 18）；指定回归 115 + 扩展 171；
+  属性相关 234 全绿；ruff clean。code-review 通过（P1-1 search_kw 不 Skill 豁免 / P1-2 veto 覆盖
+  权威 / P1-3 单字排序 + 歧义消歧 / P1-4 信号词表平衡 已修）。
+- ⚠️ **上线后注意**：新敏感闸对 18+ 商品要求源词含白名单品类词（飞机杯/阳具等），若真实成人品
+  来源词不含会硬阻断——按真实叶子补词即可（`_SENSITIVE_SOURCE_SIGNALS`）；低置信/歧义商品多一次
+  LLM 确认调用。
+
 ## [0.65.0] - 2026-09-05
 
 > v0.64.1 止血后的行为变更版：三档双价格默认激活（未配置店铺自动三档）+ 定价/佣金/部署
