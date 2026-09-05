@@ -50,11 +50,14 @@ def run_aggregation() -> int:
             """
         ), {"d": METRICS_RETENTION_DAYS})
         # profit_amount 来自订单真实利润(有成本才填)
+        # ⚠️ 两步日期口径必须一致（都 ::date 会话时区）——曾混用 AT TIME ZONE 'UTC'
+        # 致 +08 服务器跨界订单（本地午夜后 0-8 点, UTC 已落前一天）与 INSERT 侧
+        # snapshot_at::date 永不匹配, store_daily_metrics.profit_amount 恒 NULL。
         conn.execute(text(
             """
             UPDATE store_daily_metrics m SET profit_amount = sub.p
             FROM (
-                SELECT tenant_id, credential_id, (order_created_at AT TIME ZONE 'UTC')::date AS d,
+                SELECT tenant_id, credential_id, order_created_at::date AS d,
                        SUM(real_profit) AS p
                 FROM ozon_orders_cache
                 WHERE order_created_at IS NOT NULL AND real_profit IS NOT NULL
