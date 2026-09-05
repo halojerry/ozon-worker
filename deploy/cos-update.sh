@@ -99,6 +99,8 @@ rollback() {
   # 停止当前容器
   cd "$SCRIPT_DIR"
   docker compose down 2>/dev/null || true
+  # v0.64.x P1-1: 恢复定制 compose(宝塔 PG/host 网络定制版; 若无独立备份则跳过)
+  [ -f "$_bk/docker-compose.yml" ] && cp "$_bk/docker-compose.yml" "$SCRIPT_DIR/docker-compose.yml"
   # 恢复备份（v0.63.1 D2: 含 webui/ —— v0.62.2 起镜像内建前端, 只回 worker
   # 会旧 worker + 新前端版本错配; 前端源码一并回滚）
   [ -d "$_bk/worker" ] && rm -rf "$ROOT_DIR/worker" && cp -a "$_bk/worker" "$ROOT_DIR/worker"
@@ -150,14 +152,35 @@ if [ -d "$SCRIPT_DIR" ]; then
   (cd "$ROOT_DIR" && tar -czf "$BACKUP_PATH/deploy/deploy.tar.gz" \
       --exclude='.env' --exclude='backups' --exclude='*.tar.gz' \
       deploy 2>/dev/null || true)
+  # v0.64.x P1-1: 单独留一份 compose —— 升级整包会覆盖 docker-compose.yml,
+  # 回滚需恢复此定制版(host 网络/外部 PG); .env 已被上面排除。
+  [ -f "$SCRIPT_DIR/docker-compose.yml" ] && cp "$SCRIPT_DIR/docker-compose.yml" "$BACKUP_PATH/docker-compose.yml"
 fi
 [ -f "$VERSION_FILE" ] && cp -a "$VERSION_FILE" "$BACKUP_PATH/VERSION" || true
 echo "$LOCAL_VERSION" > "$BACKUP_PATH/local_version.txt"
 
 # ── 5. 解压覆盖(保留 .env) ──
 log "解压覆盖(生产 .env 保留)..."
+# v0.64.x P1-1: 定制 compose 保护 —— 服务器可能用宝塔 PG + host 网络定制 compose
+# (network_mode: host / mem_limit / config+assets bind mount), 官方 compose(容器 PG +
+# bridge + ports 8080:5000)整包覆盖会让升级必失败。先留一份当前 compose 供解包后恢复。
+[ -f "$SCRIPT_DIR/docker-compose.yml" ] && cp "$SCRIPT_DIR/docker-compose.yml" "$TMP_DIR/compose.custom.yml"
 tar -xzf "$TMP_DIR/$PKG" -C "$ROOT_DIR"
 echo "$VERSION" > "$VERSION_FILE"
+# 恢复定制 compose: 显式开关 COS_UPDATE_PRESERVE_COMPOSE=1, 或 .env 的 PGDATABASE_URL
+# 主机不是 postgres(= 非 compose 内建容器 PG, 而是外部/宝塔 PG 定制环境)。
+_preserve_compose=0
+if [ "${COS_UPDATE_PRESERVE_COMPOSE:-0}" = "1" ]; then
+  _preserve_compose=1
+elif [ -f "$SCRIPT_DIR/.env" ]; then
+  # 提取 PGDATABASE_URL 里 @host(:port/path) 的主机部分; 无 .env/无该行 → 空 → 非定制
+  _pg_host=$(sed -nE 's#^PGDATABASE_URL=.*@([^:/]+).*#\1#p' "$SCRIPT_DIR/.env" | head -1 || true)
+  [ -n "$_pg_host" ] && [ "$_pg_host" != "postgres" ] && _preserve_compose=1
+fi
+if [ "$_preserve_compose" = "1" ] && [ -f "$TMP_DIR/compose.custom.yml" ]; then
+  cp "$TMP_DIR/compose.custom.yml" "$SCRIPT_DIR/docker-compose.yml"
+  log "已恢复定制 compose(host 网络/外部 PG)"
+fi
 log "✅ 新版本文件就位 v${VERSION}"
 
 # ── 5.5 WebUI 前端校验(v0.41: 部署包含 webui/dist, compose 挂载到容器 /app/webui/dist) ──
