@@ -2,6 +2,30 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.65.0 — 三档双价格默认激活 + promo 落地 min_price + 部署/时区修复）
+
+> 2026-09-05。已发版（VERSION 四源 0.65.0）。v0.60 三档双价格体系（用户拍板口径）真正默认
+> 生效 + v0.64.1 后一批行为变更与部署问题修复（P1-1/P1-2/P1-3 收口）。
+
+- **三档默认激活（行为变更）**：`pricing_node` dual_margin 判定对齐 `estimate_service`——信封
+  floor/anchor 在场**或 margin 键全缺** → 三档（缺省日常 margin 1.5/anchor 2.0/floor 0.6/vcr
+  0.155/pvcr 0.245）；显式 margin_rate 无 floor/anchor → 旧单档逐字保持。⚠️ **未配置 margin 的
+  店上架价会变**（旧成本利润率 0.25 → 三档净利率口径），这是 v0.60 拍板本意；显式配置店零变化。
+- **skill 去兜底注入**：`build_envelope_from_discovery` 不再强注 0.25/0.10（曾压住三档 + 短路
+  佣金解析链），「配置了才注入」对齐 follow 路径。
+- **webui**：模板编辑器补 4 三档字段 + 定价器默认留空（走 worker 三档）。
+- **promo_price → min_price**：`/v3/product/import` 异步只给 task_id，真实 product_id 须
+  `ozon_status_node` 轮询 import/info imported 后才到手 → 确认新建 CREATE 单 SKU 后经
+  `/v1/product/import/prices` 补送（防御 ≥售价50% 且 ≤售价）；UPDATE/follow/多 SKU 跳过；
+  失败仅 warning。改 min_price 链路见 `update_min_price_floor`（ozon_client）+ `try_set_min_price_floor`（ozon_upload）。
+- **部署 P1-1**：cos-update.sh 解包自动恢复定制 compose（`.env` host≠postgres 或
+  `COS_UPDATE_PRESERVE_COMPOSE=1`）+ 回滚含 compose——服务器升级可直接跑脚本不再白费构建。
+- **时区 P1-2**：metrics_aggregation 两步日期口径统一 `::date`（会话时区）——+08 服务器
+  profit_amount 恒 NULL 修复。
+- **vision-exp P1-3 已实测可用**（本地真实 token：纯文本 200 + 真实 alicdn 图文 200），回滚预案
+  = 服务器 `sed -i 's/deepseek-v4-flash-vision-exp/deepseek-v4-flash/g' worker/config/*.json`
+  热加载即回退（bind mount，无需重建镜像）。
+
 ## 最近更新（v0.64.1 — MXOU 有余额却误报 402 余额不足 紧急修复）
 
 > 2026-09-05。已发版（VERSION 四源 0.64.1）。v0.64.0 上线后紧急止血：多用户「平台有余额

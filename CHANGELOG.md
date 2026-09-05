@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.65.0] - 2026-09-05
+
+> v0.64.1 止血后的行为变更版：三档双价格默认激活（未配置店铺自动三档）+ 定价/佣金/部署
+> 问题修复。VERSION 四源 0.65.0。
+
+### 功能（三档双价格默认激活）
+- **三档默认生效**（v0.60 设计成显式开但全链路无人注入 → 从未生效）：`pricing_node` dual_margin
+  判定对齐 `estimate_service`——信封 floor/anchor 在场**或 margin 键全缺** → 三档（缺省日常
+  margin 1.5 / 划线 anchor 2.0 / 促销底线 floor 0.6 / 变动成本率 0.155+0.245，净利率口径）；
+  显式配了 `margin_rate` 且无 floor/anchor 的店 → 旧单档逐字保持（存量向后兼容）。
+- **skill 不再兜底注入**：`build_envelope_from_discovery` 去掉 `margin_rate 0.25 / commission_rate
+  0.10` 强制兜底，改「配置了才注入」——未配置店铺走 worker 三档默认 + 佣金解析链
+  （显式 0.10 曾短路 commission_resolver 缓存表真实佣金）。
+- **webui**：上架模板编辑器补 margin_anchor/margin_floor/variable_cost_rate/promo_variable_cost_rate
+  4 字段（此前白名单有键但 UI 无入口）；定价器默认留空走 worker 三档。
+- **promo_price 落地 min_price 防跌破**：`/v1/product/import` 异步只返回 task_id，真实 product_id
+  须等 import/info 轮询 imported 后才到手 → `ozon_status_node` 确认新建 CREATE 单 SKU 后经
+  `POST /v1/product/import/prices` 补送促销底线（防御抬到 ≥售价50% 且 ≤售价）；UPDATE/follow/
+  多 SKU 跳过；失败仅 warning 不影响上架。
+
+### 修复
+- **cos-update.sh 不再覆盖定制 compose**（P1-1）：解包前备份 → 解包后检测 .env PGDATABASE_URL
+  host ≠ postgres 或 `COS_UPDATE_PRESERVE_COMPOSE=1` → 自动恢复定制 compose（host 网络/外部
+  PG/mem_limit）；回滚函数同步恢复 compose。
+- **metrics_aggregation 时区口径统一**（P1-2）：UPDATE 侧 `AT TIME ZONE 'UTC'` 改 `::date` 与
+  INSERT 同口径——+08 服务器跨界订单 `store_daily_metrics.profit_amount` 恒 NULL 根因。
+- 注释版本号残留归位 v0.64.0（10×v0.65 + 12×v0.63.2，纯注释）。
+
+### 测试
+- worker 全量 **1638 passed**（基线 1618 + 新增 20：余额 6 / 三档定价 5 / min_price 8 / 时区 1
+  口径）+ 定价/佣金/状态 200+ 回归；skill **619 passed**（+3）；webui build + tsc 0 错误；
+  `bash -n cos-update.sh` 通过。
+- ⚠️ **行为变更提示**：未显式配置 margin 的店铺上架价将从旧单档(成本利润率 0.25)切到三档
+  (日常 margin 1.5 净利率口径)——即 v0.60 用户拍板的口径，属预期；显式配置店零变化。
+
 ## [0.64.1] - 2026-09-05
 
 > v0.64.0 上线后紧急修复：MXOU「有余额却误报 402 余额不足」(current: 0.0)。VERSION 四源 0.64.1。
