@@ -278,8 +278,11 @@ def ozon_validate_node(
                     if not av_val or not isinstance(av_val, str):
                         continue
 
-                    # 拉丁字母检测：关键属性（4191描述, 9048产品名, 4180标题）
-                    if attr_id_int_check in (4191, 9048, 4180):
+                    # 拉丁字母检测：关键属性（4191描述, 4180标题）
+                    # v0.63.2: 9048(Название модели) 移出本检测 —— 型号是标识符，
+                    # 纯拉丁合法（iPhone 15 / v0.60 防并卡前缀 `item_id~sha1` 均纯拉丁），
+                    # 本地误报触发无意义 retry（Sentry POUDING_OZON-C2 23× 实证）
+                    if attr_id_int_check in (4191, 4180):
                         if _latin_re.search(av_val) and not _cyrillic_re.search(av_val):
                             item_errors.append(
                                 f"item[{i}].attributes: 属性{attr_id_int_check}值为纯拉丁字母: {str(av_val)[:60]}"
