@@ -16,7 +16,9 @@ function TemplateCard({
   onDelete: (id: string) => void
 }) {
   const cfg = tmpl.config ?? {}
+  const threeTier = cfg.margin_anchor != null || cfg.margin_floor != null ? "三档定价" : null
   const meta = [
+    threeTier,
     cfg.margin_rate != null ? `利润率 ${(cfg.margin_rate * 100).toFixed(0)}%` : null,
     cfg.commission_rate != null ? `佣金 ${(cfg.commission_rate * 100).toFixed(0)}%` : null,
     cfg.fx_buffer != null ? `汇率缓冲 ${(cfg.fx_buffer * 100).toFixed(1)}%` : null,
@@ -52,6 +54,10 @@ function TemplateEditor({
   const [marginRate, setMarginRate] = useState(String(tmpl?.config?.margin_rate ?? ""))
   const [commissionRate, setCommissionRate] = useState(String(tmpl?.config?.commission_rate ?? ""))
   const [fxBuffer, setFxBuffer] = useState(String(tmpl?.config?.fx_buffer ?? ""))
+  const [marginAnchor, setMarginAnchor] = useState(String(tmpl?.config?.margin_anchor ?? ""))
+  const [marginFloor, setMarginFloor] = useState(String(tmpl?.config?.margin_floor ?? ""))
+  const [variableCostRate, setVariableCostRate] = useState(String(tmpl?.config?.variable_cost_rate ?? ""))
+  const [promoVariableCostRate, setPromoVariableCostRate] = useState(String(tmpl?.config?.promo_variable_cost_rate ?? ""))
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState("")
 
@@ -65,6 +71,10 @@ function TemplateEditor({
     if (marginRate) (body.config as Record<string, unknown>).margin_rate = Number(marginRate)
     if (commissionRate) (body.config as Record<string, unknown>).commission_rate = Number(commissionRate)
     if (fxBuffer) (body.config as Record<string, unknown>).fx_buffer = Number(fxBuffer)
+    if (marginAnchor) (body.config as Record<string, unknown>).margin_anchor = Number(marginAnchor)
+    if (marginFloor) (body.config as Record<string, unknown>).margin_floor = Number(marginFloor)
+    if (variableCostRate) (body.config as Record<string, unknown>).variable_cost_rate = Number(variableCostRate)
+    if (promoVariableCostRate) (body.config as Record<string, unknown>).promo_variable_cost_rate = Number(promoVariableCostRate)
     try {
       if (tmpl) {
         await api.patch(`/templates/${tmpl.id}`, body)
@@ -93,6 +103,10 @@ function TemplateEditor({
           <label>利润率 (0-1)<input type="number" step="0.01" value={marginRate} onChange={(e) => setMarginRate(e.target.value)} placeholder="如 0.25" /></label>
           <label>佣金率 (0-0.5)<input type="number" step="0.01" value={commissionRate} onChange={(e) => setCommissionRate(e.target.value)} placeholder="如 0.15" /></label>
           <label>汇率缓冲 (0-0.5)<input type="number" step="0.01" value={fxBuffer} onChange={(e) => setFxBuffer(e.target.value)} placeholder="如 0.05" /></label>
+          <label>划线锚点 margin_anchor (0-5)<input type="number" min="0" max="5" step="0.1" value={marginAnchor} onChange={(e) => setMarginAnchor(e.target.value)} placeholder="如 2.0（留空走 worker 默认）" /></label>
+          <label>促销底线 margin_floor (0-2)<input type="number" min="0" max="2" step="0.05" value={marginFloor} onChange={(e) => setMarginFloor(e.target.value)} placeholder="如 0.6（留空走 worker 默认）" /></label>
+          <label>日常变动成本率 variable_cost_rate (0-0.5)<input type="number" min="0" max="0.5" step="0.005" value={variableCostRate} onChange={(e) => setVariableCostRate(e.target.value)} placeholder="如 0.155（留空走 worker 默认）" /></label>
+          <label>促销变动成本率 promo_variable_cost_rate (0-0.5)<input type="number" min="0" max="0.5" step="0.005" value={promoVariableCostRate} onChange={(e) => setPromoVariableCostRate(e.target.value)} placeholder="如 0.245（留空走 worker 默认）" /></label>
         </div>
         {msg && <div className="inline-notice error">{msg}</div>}
         <footer className="editor-footer">

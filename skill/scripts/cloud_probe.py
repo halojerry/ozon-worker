@@ -2355,11 +2355,13 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         "purchase_cost": candidate.match_1688_price or 0,
     }
 
-    extensions = {
-        "follow_sell": candidate.competing_sellers > 0,
-        "margin_rate": float(store_profile.get("margin_rate", 0) or 0.25),
-        "commission_rate": float(store_profile.get("commission_rate", 0) or 0.10),
-    }
+    extensions: dict[str, Any] = {"follow_sell": candidate.competing_sellers > 0}
+    # v0.65: 不再兜底注入 margin_rate 0.25 / commission_rate 0.10——未配置时留空让 worker
+    # 走三档默认(1.5/2.0/0.6) + 佣金解析链(explicit>缓存表>segments>0.10)；显式 0.10 曾短路真实佣金
+    for _pk in ("margin_rate", "commission_rate", "fx_buffer"):
+        _pv = float(store_profile.get(_pk, 0) or 0)
+        if _pv > 0:
+            extensions[_pk] = _pv
 
     return {
         "token": token,
