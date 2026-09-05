@@ -295,9 +295,13 @@ def learning_record_node(
     attributes_schema: List[Dict[str, Any]] = state.attributes_schema or []
     draft: Dict[str, Any] = state.draft or {}
     # ✅ v0.25 T1: 1688 类目数字 ID（Skill 侧提取，供类目学习回写）
+    # ⚠️ v0.66 L0: state.source 已补进 LearningRecordInput（Task0 实证 langgraph 按节点
+    # Input schema 过滤 channel，此前 getattr(state,'source') 恒 None → 此处只有 draft 单源）。
     _src_cat_id: Any = draft.get("source_category_id")
     if not _src_cat_id:
-        _src_cat_id = (getattr(state, "source", None) or {}).get("category_id")
+        _src_state_src = getattr(state, "source", None) or {}
+        if isinstance(_src_state_src, dict):
+            _src_cat_id = _src_state_src.get("category_id")
     
     # ✅ 构建attribute_id → attribute_name映射
     attr_name_map: Dict[int, str] = {}
@@ -438,13 +442,47 @@ def learning_record_node(
     # v4: 写入 category_mapping（类目学习缓存）
     # ⚠️ 跟卖跳过 — 类目来自Ozon面包屑，source_category是1688图搜噪音
     # ═══════════════════════════════════════════════════════
+    # v0.66 L0 复活（写侧）: 跟卖守卫读 envelope（已补进 LearningRecordInput），
+    # envelope 不可见时从 draft.ozon_product_id 存在性推导 follow（跟卖信封带
+    # ozon_product_id）；source_category 三源兜底（draft.source_category /
+    # draft.source_category_path / state.source.source_category_path，对齐
+    # validation_retry_loop:770 双 key + assemble:792 同款三源）。
     is_follow = False
     try:
-        is_follow = bool(getattr(state, 'envelope', {}).get("extensions", {}).get("follow_sell", False))
+        _env = getattr(state, 'envelope', None) or {}
+        _ext = _env.get("extensions", {}) or {}
+        is_follow = bool(_ext.get("follow_sell")) or bool(_ext.get("follow_type"))
     except Exception:
         pass
-    source_category = draft.get("source_category", "") if draft else ""
+    if not is_follow:
+        try:
+            is_follow = bool((draft or {}).get("ozon_product_id"))
+        except Exception:
+            pass
+    try:
+        _src_state = getattr(state, "source", None) or {}
+    except Exception:
+        _src_state = {}
+    if not isinstance(_src_state, dict):
+        _src_state = {}
+    source_category = (
+        (draft.get("source_category") or draft.get("source_category_path")
+         or _src_state.get("source_category_path", "") or "")
+        if draft else ""
+    )
+    # W2 诊断日志：跳过原因（无 source / 跟卖）
+    if not source_category:
+        logger.info("⏭️ category_mapping 跳过写入: 无 source_category（draft/source 均无 1688 类目信息）")
+    if is_follow:
+        logger.info("⏭️ category_mapping 跳过写入: 跟卖模式（source_category 是 1688 图搜噪音，不入学习表）")
     if source_category and not is_follow:
+        # W2 诊断日志：source_category_id 解析来源（draft.source_category_id vs state.source.category_id）
+        _src_cat_origin = "draft.source_category_id" if draft.get("source_category_id") else (
+            "state.source.category_id" if _src_cat_id else "None")
+        logger.info(
+            f"📚 category_mapping 候选写入: leaf_src='{source_category[:60]}' "
+            f"source_category_id={_src_cat_id} (origin={_src_cat_origin})"
+        )
         try:
             import re as _re
             cleaned = _re.sub(r'[>、/→]', ' ', source_category)

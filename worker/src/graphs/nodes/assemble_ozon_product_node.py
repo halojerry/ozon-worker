@@ -156,6 +156,72 @@ def _l0_consistent(l0_hit: dict | None, candidates: list, top_n: int = 5) -> boo
     )
 
 
+def _l0_authoritative(l0_hit: dict | None) -> bool:
+    """v0.66 L0 信任分档：判定 L0 命中是否属「权威档」，可直接信任跳过一致性丢弃。
+
+    权威档 = curated（人工种子，跨店信任；success_count 抬到 ≥5）或
+    learned_approved 累计 success_count>=2（至少两次不同 approved 任务收敛到同一
+    dc/type，已过审核真实验证）。弱档 = learned_approved success==1（仅一次 approved，
+    或经来源污染可能）——需文本一致性或 LLM 仲裁佐证才采纳。
+
+    语义关系（另一消费者 category_mapping_learn.lookup_mapping 用 MIN_SUCCESS_COUNT=3
+    供 follow/main 端点做「精确命中才映射」——它更严，避免破坏 follow 链；assemble 走
+    本分档 + 一致性/LLM 仲裁，两处阈值刻意不同，勿强行统一）。
+    """
+    if not l0_hit:
+        return False
+    _src = str(l0_hit.get("source") or "")
+    if _src == "curated":
+        return True
+    return _src == "learned_approved" and int(l0_hit.get("success_count") or 0) >= 2
+
+
+def _l0_node_candidate(query, l0_hit: dict | None) -> dict | None:
+    """把 L0 映射行转成树节点候选结构（供弱档 LLM 仲裁并入候选池）。"""
+    if not l0_hit:
+        return None
+    try:
+        _dc = int(l0_hit.get("description_category_id") or 0)
+        _tp = int(l0_hit.get("type_id") or 0)
+        if not _dc or not _tp:
+            return None
+        node = query.get_node(_dc, _tp)
+    except Exception:
+        node = None
+    if not node:
+        return None
+    _c = dict(node)
+    _c.setdefault("similarity", 1.0)
+    _c.setdefault("matcher", "L0")
+    _c["_l0_dc"] = _dc
+    _c["_l0_tp"] = _tp
+    return _c
+
+
+def _l0_guard_action(l0_hit: dict | None, match_layer: str, candidates: list) -> str:
+    """v0.66 L0 一致性守卫决策（纯函数，可单测）——分档结果决定采纳处行为：
+
+    Returns:
+        "no_l0"              — 无 L0 命中，不处理；
+        "skill"              — Skill 直采（match_layer=Skill），一贯豁免一致性丢弃；
+        "authoritative_keep" — 权威档（curated / learned_approved success>=2）：
+                               直接保留，跳过与文本 top5 的一致性丢弃（v0.66 复活核心）；
+        "consistent_keep"    — 命中且与文本 top5 一致，保留（弱档走此路径也无额外仲裁）；
+        "arbitrate"          — 弱档（learned success==1）且与文本 top5 不一致：
+                               调用方须走 R2b LLM 仲裁（_l0_weak_arbitrate），确认才保留，
+                               否则丢弃走文本（不再静默 drop）。
+    """
+    if not l0_hit:
+        return "no_l0"
+    if match_layer == "Skill":
+        return "skill"
+    if _l0_authoritative(l0_hit):
+        return "authoritative_keep"
+    if _l0_consistent(l0_hit, candidates):
+        return "consistent_keep"
+    return "arbitrate"
+
+
 # ── v0.62.4: 汽车/摩托 类目领域消歧 ─────────────────────────────
 # 根因（Sentry /prod 实证 POUDING_OZON-E4 等）: 中文类目树把「汽车轮毂」译成
 # 「轮辋/车轮总成」，只有「摩托车轮毂」字面含「轮毂」。按 1688 末级「轮毂」做 jieba
@@ -297,6 +363,46 @@ def _non_generic_overlap_words(path: str, texts) -> set:
     return {w for w in words if w in low and w not in _OVERLAP_EXCLUDE}
 
 
+def _l0_weak_arbitrate(l0_hit: dict | None, candidates: list, source_keywords: str,
+                       draft: dict, state, query) -> str:
+    """v0.66 L0 弱档仲裁：弱档 L0（learned success==1）与文本 top5 不一致时，
+    不静默丢弃——把 L0 映射对应树节点并入候选池做一次 R2b LLM 仲裁。
+
+    Returns:
+        "keep_l0" — LLM 在并入 L0 的候选池中仍选该映射（确认保留，调用方提为权威豁免）；
+        "drop"    — LLM 无返回/无解/选了文本候选（未确认 → 丢弃 L0 走文本保守路径）。
+    """
+    _ln_cand = _l0_node_candidate(query, l0_hit)
+    _arb_pool = [c for c in (candidates or [])[:5]]
+    if _ln_cand and not any(
+        int(c.get("description_category_id") or 0) == int(l0_hit.get("description_category_id") or 0)
+        and int(c.get("type_id") or 0) == int(l0_hit.get("type_id") or 0)
+        for c in _arb_pool
+    ):
+        _arb_pool.append(_ln_cand)
+    try:
+        _arb = _llm_rank_categories(_arb_pool, source_keywords or "", draft, state)
+    except MxouOutOfQuotaError:
+        raise  # v0.63.1: 仲裁 LLM 401/403 → 任务明确失败，不降级吞错
+    except Exception as _arb_e:
+        logger.warning(f"⚠️ L0 弱档仲裁 LLM 异常（走保守丢弃）: {_arb_e}")
+        return "drop"
+    if (_arb and not _arb.get("_llm_suggest")
+            and int(_arb.get("description_category_id") or 0)
+            == int(l0_hit.get("description_category_id") or 0)
+            and int(_arb.get("type_id") or 0) == int(l0_hit.get("type_id") or 0)):
+        logger.info(
+            f"   ✅ L0弱档经 LLM 仲裁确认保留: "
+            f"[{l0_hit.get('description_category_id')}/{l0_hit.get('type_id')}]"
+        )
+        return "keep_l0"
+    _arb_desc = "LLM 无解"
+    if _arb and not _arb.get("_llm_suggest"):
+        _arb_desc = f"LLM 选 {_arb.get('description_category_id')}/{_arb.get('type_id')}"
+    logger.warning(f"⚠️ L0弱档 LLM 仲裁未确认({_arb_desc})，丢弃L0走文本")
+    return "drop"
+
+
 def _is_skill_authoritative(_source: str, _namespace: str, skill_l0_hit: dict | None) -> bool:
     """v0.65.1 P1-1: Skill 层豁免（match_layer=Skill 免 sim/overlap/R2b/R1 候选闸）
     只给权威 source —— page/mapping/what_to_sell；widget 命名空间数字 ID 可能是
@@ -307,6 +413,48 @@ def _is_skill_authoritative(_source: str, _namespace: str, skill_l0_hit: dict | 
     if _namespace == "widget" and not (skill_l0_hit or {}).get("_resolved_by_path"):
         _authoritative = False
     return _authoritative
+
+
+def _skill_precedence_over_l0(l0_hit: dict | None, skill_l0_hit: dict | None,
+                              skill_source: str, skill_namespace: str) -> bool:
+    """v0.66 P2-3: 权威 Skill 是否应接管 l0_hit（纯判定 + 日志，无副作用）。
+
+    Skill 权威（source=page/what_to_sell/mapping，本次商品直接关联的真实 Ozon 卡/
+    榜单类目，v0.65.1 P1-1 权威最高）优先级高于跨商品聚合的 leaf L0 学习映射：
+      - 无 l0_hit（skill 兜底直采）→ True（调用方采用 skill）；
+      - 有 l0_hit 且 dc/tp 冲突 → True（Skill 覆盖聚合 L0，warning）；
+      - 有 l0_hit 且 dc/tp 一致 → False（保留 L0，无行为差异）；
+      - skill_l0_hit 为空 → False（无 skill 可接管）。
+
+    Returns:
+        True → 调用方应以 skill_l0_hit 替换 l0_hit 并置 match_layer="Skill"。
+    """
+    if not skill_l0_hit:
+        return False
+    if not l0_hit:
+        logger.info(
+            f"   ✅ Skill类目覆盖(权威 source={skill_source} namespace={skill_namespace}): "
+            f"[{skill_l0_hit['description_category_id']}/{skill_l0_hit['type_id']}]"
+        )
+        return True
+    _conflict = (
+        int(l0_hit.get("description_category_id") or 0)
+        != int(skill_l0_hit.get("description_category_id") or 0)
+        or int(l0_hit.get("type_id") or 0) != int(skill_l0_hit.get("type_id") or 0)
+    )
+    if _conflict:
+        logger.warning(
+            f"   ⚠️ Skill权威类目覆盖聚合L0(dc/tp 冲突): L0="
+            f"[{l0_hit.get('description_category_id')}/{l0_hit.get('type_id')}] "
+            f"vs Skill=[{skill_l0_hit['description_category_id']}/{skill_l0_hit['type_id']}]"
+            f" (source={skill_source} ns={skill_namespace})"
+        )
+        return True
+    logger.info(
+        f"   ℹ️ Skill权威类目与聚合L0一致(dc/tp 相同)，保留 L0: "
+        f"[{skill_l0_hit['description_category_id']}/{skill_l0_hit['type_id']}]"
+    )
+    return False
 
 
 def _r1_veto(category_result: dict | None, signal_text: str) -> bool:
@@ -983,15 +1131,18 @@ def assemble_ozon_product_node(
     _skill_authoritative = _is_skill_authoritative(
         _skill_source, _skill_namespace, _skill_l0_hit,
     )
-    if not l0_hit and _skill_l0_hit and _skill_authoritative:
-        l0_hit = _skill_l0_hit
-        match_layer = "Skill"
-        match_confidence = 0.95
-        logger.info(
-            f"   ✅ Skill类目覆盖(权威 source={_skill_source} namespace={_skill_namespace}): "
-            f"[{l0_hit['description_category_id']}/{l0_hit['type_id']}]"
-        )
-    elif not l0_hit and _skill_l0_hit:
+    # ✅ v0.66 P2-3: Skill 权威 > 聚合 L0 —— 信封同时带权威 skill 类目
+    # （source=page/what_to_sell/mapping，v0.65.1 P1-1 注释明言 Skill 权威最高：
+    # 它是本次商品直接关联的真实 Ozon 卡/榜单类目）又命中 leaf 聚合 L0，且两者
+    # dc/tp 冲突时 → 优先 Skill（更具体）；warning 说明 L0 被 Skill 覆盖。
+    if _skill_l0_hit and _skill_authoritative:
+        if _skill_precedence_over_l0(
+            l0_hit, _skill_l0_hit, _skill_source, _skill_namespace,
+        ):
+            l0_hit = _skill_l0_hit
+            match_layer = "Skill"
+            match_confidence = 0.95
+    elif _skill_l0_hit and not l0_hit:
         logger.info(
             f"   ⚠️ Skill类目 source={_skill_source} namespace={_skill_namespace} 非权威，"
             f"降为普通 L1 候选过闸: "
@@ -1003,21 +1154,50 @@ def assemble_ozon_product_node(
     # 它是 Skill 端从 Ozon 类目 API 精确解析的结果（pg_trgm 候选只是模糊猜测，
     # 如「宠物饮水器」sim=0.375 低于门槛），一致性检查会把精确答案误杀，
     # 随后 LLM fallback 用错误关键词（"美容"→脱毛剂）覆盖正确类目。
-    if l0_hit and match_layer != "Skill" and not _l0_consistent(l0_hit, candidates):
+    # ✅ v0.66 L0 复活: 一致性丢弃按信任分档（_l0_guard_action）——
+    #   权威档（curated / learned_approved success>=2）直接信任，跳过一致性检查
+    #   （旧 v0.21 一视同仁 guard 让文本 top5 猜测顶掉权威 L0 → 学习表永远用不起来，
+    #   取证：learned_approved 30 天 0 条）；弱档（learned success==1）不一致时不
+    #   静默丢弃，走一次 R2b LLM 仲裁（L0 行并入候选池），确认 L0 则保留（按权威豁免
+    #   后续含 Step6.5），否则丢弃走文本（保守路径）。
+    _l0_authoritative_flag = False
+    _l0_guard = _l0_guard_action(l0_hit, match_layer, candidates)
+    if _l0_guard == "authoritative_keep":
+        _l0_authoritative_flag = True
+        logger.info(
+            f"   ✅ L0权威档(直接信任, source={l0_hit.get('source')} "
+            f"succ={l0_hit.get('success_count')}): "
+            f"[{l0_hit['description_category_id']}/{l0_hit['type_id']}] 跳过一致性丢弃"
+        )
+    elif _l0_guard == "arbitrate":
         _cand_desc = ", ".join(
             f"{c.get('description_category_id')}/{c.get('type_id')}" for c in candidates[:5]
         )
+        # ── 弱档 L0 + 文本不一致：R2b LLM 仲裁（复用 _llm_rank_categories，参考
+        # R2b 闸 L1273-1325 的确认写法），候选池 = 文本 top5 + L0 映射对应树节点 ──
         logger.warning(
-            f"⚠️ L0映射与L1 top5候选不一致，忽略L0（防固化）: "
-            f"[{l0_hit.get('description_category_id')}/{l0_hit.get('type_id')}] vs "
-            f"[{_cand_desc}]"
+            f"⚠️ L0弱档(succ={l0_hit.get('success_count')})与L1 top5候选不一致，"
+            f"走 LLM 仲裁: [{l0_hit.get('description_category_id')}/{l0_hit.get('type_id')}] "
+            f"vs [{_cand_desc}]"
         )
-        l0_hit = None
-        # v0.34: 丢弃 Skill/L0 后必须重置 match_layer——否则 stale "Skill" 会跳过
-        # L848 的接受门槛（sim=0.2 低分候选被采用但 confidence 低 → route 阻断，
-        # 行为矛盾：正确类目被采用却被 0.2 置信度卡死）
-        if match_layer in ("L0", "Skill"):
-            match_layer = "L1"
+        _arb_verdict = _l0_weak_arbitrate(
+            l0_hit, candidates, source_keywords or keywords, draft, state, query,
+        )
+        if _arb_verdict == "keep_l0":
+            # LLM 仲裁确认 L0（在并入 L0 候选的池中仍选它）→ 保留并提为权威豁免
+            _l0_authoritative_flag = True
+        else:
+            logger.warning(
+                f"⚠️ L0弱档 LLM 仲裁未确认，丢弃L0走文本: "
+                f"[{l0_hit.get('description_category_id')}/{l0_hit.get('type_id')}] "
+                f"vs [{_cand_desc}]"
+            )
+            l0_hit = None
+            # v0.34: 丢弃 Skill/L0 后必须重置 match_layer——否则 stale "Skill" 会跳过
+            # L848 的接受门槛（sim=0.2 低分候选被采用但 confidence 低 → route 阻断，
+            # 行为矛盾：正确类目被采用却被 0.2 置信度卡死）
+            if match_layer in ("L0", "Skill"):
+                match_layer = "L1"
 
     # 1c. 直接使用 pg_trgm 最高相似度候选（不用 LLM）
     # pg_trgm 搜索已按 sim DESC 排序，candidates[0] 即最佳匹配
@@ -1615,7 +1795,16 @@ def assemble_ozon_product_node(
     # (source=page/what_to_sell/mapping)，俄语标题与类目路径词面不重叠是正常
     # (标题是 LLM 另译营销文案)，不应反噬权威类目。对齐 L886 前置一致性
     # 已对 Skill 豁免的决策，避免「前置豁免、后置误杀」。
-    if not category_consistent and match_layer != "Skill":
+    # ✅ v0.66 L0 复活 c3: 权威档 L0（curated / learned success>=2，或弱档经 LLM
+    # 仲裁确认提升）同样豁免——俄语营销标题与类目路径词面不重叠是正常（标题 LLM
+    # 另译），不应被 RU 标题重新匹配反噬。条件同时核对当前 dc/tp 仍是该 L0 映射
+    #（防 Step1d 无效类目回退已换走 L0 dc/tp 时误豁免）；弱档未提升的 L0 不豁免。
+    _l0_exempt_consistency = bool(
+        _l0_authoritative_flag and l0_hit
+        and int(description_category_id or 0) == int(l0_hit.get("description_category_id") or 0)
+        and int(type_id or 0) == int(l0_hit.get("type_id") or 0)
+    )
+    if not category_consistent and match_layer != "Skill" and not _l0_exempt_consistency:
         # 类目不匹配 → 尝试用俄语标题重新匹配类目
         logger.warning(f"⚠️ 类目不一致，尝试用俄语标题重新匹配...")
         recategorize_failed = True
@@ -3319,6 +3508,12 @@ def _match_category_layered(
             "category_path": best.get("category_path_zh", "") or verified.get("full_path", ""),
             "confidence": "high",
             "reason": f"L0 learned (leaf='{leaf_name}', success={best['success_count']})",
+            # ✅ v0.66 L0 复活: 透出 source/success_count/fail_count —— 采纳处按
+            # 「curated / learned_approved≥2 权威档 vs success==1 弱档」分级信任
+            #（_l0_authoritative 判定 + 弱档不一致时 R2b LLM 仲裁）。
+            "source": best.get("source", ""),
+            "success_count": best.get("success_count", 0),
+            "fail_count": best.get("fail_count", 0),
         }
     except Exception as e:
         logger.debug(f"L0 skip: {e}")
