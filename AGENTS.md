@@ -2,6 +2,36 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.65.1 — 类目系统性跨域错配根治 + 自修复换类目闭环 + 属性同义词扩充）
+
+> 2026-09-05。已发版（VERSION 四源 0.65.1）。取证驱动修复（店铺 4718259 单日 7 单全 L1、
+> 5/7 错类目含 2 张 18+ 糖果过审在售合规红线）。执行/取证记录在会话与 category_match_log。
+
+- **类目根因（取证实证）**：ZH 类目搜索 `_search_jieba_like`（ozon_category_query.py）jieba
+  分词后 `ILIKE %token%` 子串匹配 full_path——多义词 token（成人/儿童）命中语义无关子树
+  （成人帽的「成人」→「成人用品>成人糖果18+」、儿童帽→儿童滑梯），零 18+/敏感防护；
+  护膝类同名单歧义（多个大类都有 node_name 命中）无序取 top1。
+- **R1 敏感子树防护**（改类目匹配前必读）：`is_sensitive_top_category`/`_r1_veto` 覆盖
+  L0/Skill/权威所有层（唯一豁免竞品 `category_path` 精确解析 `_resolved_by_path=True`）；
+  敏感信号词 `_SENSITIVE_SOURCE_SIGNALS`（ozon_category_query.py:99）白名单化——成人真实
+  叶子词（飞机杯/震动棒/假阳具…）命中才放行 18+ 子树，美工刀/山药/震动闹钟等普通词不放行。
+  **新增成人 18+ 商品来源词不含白名单词会硬阻断——按真实叶子补词**。
+- **R2 中文匹配质量**：修饰词名单 `_MODIFIER_WORDS`（成人/儿童/宝宝…不入搜）剥离；品类核心
+  token 须命中 node_name；单字品类词兜底 `score_residual_rows`（确定性排序 + 真实 sim）。
+  改中文类目搜索勿破坏这三段。
+- **R2b 确认闸**：L1 sim<0.5 或 top1/top2 同分跨大类歧义（`_find_close_top_category_rival`）
+  → 强制 LLM 消歧，无非泛词 overlap 阻断——低分错配不再静默 completed。
+- **R3 skill 候选**：`_is_skill_authoritative` 仅 page/mapping/what_to_sell/widget 路径精配
+  权威直通；search_kw 恒非权威放回 L1 竞争走全部闸。勿恢复「search_kw 升 Skill」旧行为。
+- **R4 retry 换类目闭环**：declined 类目错（attr 22507/8229 或 категор/тип 文本）→
+  `_try_recategorize_card` 整卡重配（R1/R2 规则 + `_rebuild_for_new_category` 重建 schema）→
+  重传；declined 回灌 state.errors；`needs_recategorization` 已消费（无解 hard-block 待人工，
+  不再旧 dc 空烧）。改 validation_retry_loop 类目分支勿移除。
+- **属性**：attr_synonyms.json 9→14 组（产地/形状/图案/成分/功率）；prepare 审计打点扩
+  skipped_no_value/skipped_multi_candidate/no_infer（attr_match_log 现可出缺口榜）。
+- ⚠️ 已知：`category_match_log.task_id` 与任务表 uuid 体系不一致（服务器 P1-6），生产取证需按
+  时间戳人工对齐或修写入。
+
 ## 最近更新（v0.65.0 — 三档双价格默认激活 + promo 落地 min_price + 部署/时区修复）
 
 > 2026-09-05。已发版（VERSION 四源 0.65.0）。v0.60 三档双价格体系（用户拍板口径）真正默认
