@@ -627,6 +627,15 @@ async def lifespan(app: FastAPI):
         except AttributeError:
             pass  # shutdown method not available in this version
 
+    # v0.64 P2: 关闭 asyncio 默认线程池（扩容的 ThreadPoolExecutor）
+    # 防止进程退出时线程池中的 sync 节点泄漏（内存/句柄）
+    try:
+        if _graph_executor is not None:
+            _graph_executor.shutdown(wait=True, timeout=30)
+            logger.info("🔄 asyncio 线程池已关闭")
+    except Exception as _exec_shutdown_e:
+        logger.warning("线程池关闭异常(不影响退出): %s", _exec_shutdown_e)
+
 app = FastAPI(
     lifespan=lifespan,
     title="Ozon Worker API",

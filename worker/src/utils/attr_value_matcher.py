@@ -307,12 +307,15 @@ def disambiguate_candidates(
     *,
     enabled: bool = False,
     llm_cfg: Optional[dict] = None,
+    image_urls: Optional[list[str]] = None,
 ) -> AttrResolution:
     """多候选 LLM 消歧（Phase 4，默认关 enabled=False 时原样返回）。
 
     enabled=True 时对 llm_eligible 状态的 resolution 调 LLM 选索引；
     命中 → dict_id 从确定性候选列表重查证（绝不信任 LLM 数字本身）；
     失败/abstain → skipped（不降级为取第一个）。
+
+    v0.64: 传入 image_urls 时，vision 模型可看产品图片判断颜色/风格等多候选属性。
     """
     if not enabled or resolution.status != "llm_eligible" or not token:
         return resolution
@@ -332,10 +335,11 @@ def disambiguate_candidates(
             token=token,
             system_prompt=sp,
             user_prompt=up,
-            model=str(cc.get("model") or "deepseek-v4-flash"),
+            model=str(cc.get("model") or "deepseek-v4-flash-vision-exp"),
             temperature=float(cc.get("temperature") or 0.0),
             max_tokens=max_tokens,
             timeout=30,
+            image_urls=image_urls,
         )
         idx = parse_disambiguation_index(out, len(resolution.candidates))
         if idx is None:

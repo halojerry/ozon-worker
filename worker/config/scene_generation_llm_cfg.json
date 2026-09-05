@@ -1,6 +1,6 @@
 {
     "config": {
-        "model": "deepseek-v4-flash",
+        "model": "deepseek-v4-flash-vision-exp",
         "temperature": 0,
         "max_tokens": 2048,
         "thinking": "disabled"

@@ -27,7 +27,7 @@ def config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     cfg = tmp_path / "config"
     cfg.mkdir()
     (cfg / "image_prompts.json").write_text(json.dumps({"version": 1, "theme": "warm"}), encoding="utf-8")
-    (cfg / "translate_russian_cfg.json").write_text(json.dumps({"model": "deepseek-v4-flash"}), encoding="utf-8")
+    (cfg / "translate_russian_cfg.json").write_text(json.dumps({"model": "deepseek-v4-flash-vision-exp"}), encoding="utf-8")
     (cfg / "README.txt").write_text("not json", encoding="utf-8")
     monkeypatch.setattr(config_service, "CONFIG_DIR", cfg)
     return cfg

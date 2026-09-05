@@ -548,7 +548,7 @@ def _call_mxou_llm(token: str, config_path: str, context_vars: Dict[str, Any]) -
     up_tpl: Template = Template(up)
     user_prompt: str = up_tpl.render(context_vars)
 
-    model = llm_config.get("model", "deepseek-v4-flash")
+    model = llm_config.get("model", "deepseek-v4-flash-vision-exp")
     temperature = llm_config.get("temperature", 0.3)
     max_tokens = llm_config.get("max_completion_tokens", 4096)
 
@@ -878,10 +878,10 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
             with open(cfg_path, "r", encoding="utf-8") as _f:
                 _t_cfg = json.load(_f)
             _t_sp = _t_cfg.get("sp", "将给定文本翻译为俄语，只返回俄语翻译。")
-            _t_model = _t_cfg.get("config", {}).get("model", "deepseek-v4-flash")
+            _t_model = _t_cfg.get("config", {}).get("model", "deepseek-v4-flash-vision-exp")
         except Exception:
             _t_sp = "将给定文本翻译为俄语，只返回俄语翻译。"
-            _t_model = "deepseek-v4-flash"
+            _t_model = "deepseek-v4-flash-vision-exp"
 
         from utils.mxou_api import call_mxou_chat_api
 
@@ -1423,7 +1423,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                                 token=token,
                                 system_prompt="你是Ozon俄罗斯电商平台产品命名专家。将以下产品标题翻译为俄语（西里尔字母）。要求：≤80字符，必须含西里尔字母，无拉丁/中文。只返回俄语标题。",
                                 user_prompt=f"产品标题：{_orig_name or repaired_title}",
-                                model="deepseek-v4-flash",
+                                model="deepseek-v4-flash-vision-exp",
                                 temperature=0.0,
                                 max_tokens=200
                             ) or ""
@@ -1497,7 +1497,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                                 "要求：≤80字符，必须含西里尔字母，无拉丁/中文。只返回标题。"
                             ),
                             user_prompt=f"产品信息：{_orig_title or product_name}",
-                            model="deepseek-v4-flash",
+                            model="deepseek-v4-flash-vision-exp",
                             temperature=0.0,
                             max_tokens=200
                         ) or ""

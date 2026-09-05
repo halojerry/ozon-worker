@@ -370,7 +370,7 @@ def _translate_to_russian(text: str, token: str = "") -> str:
             token=token,
             system_prompt="Ты переводчик. Переводи точно, без лишних слов.",
             user_prompt=prompt,
-            model="deepseek-v4-flash",
+            model="deepseek-v4-flash-vision-exp",
             max_tokens=80,
         )
         if result and len(result.strip()) > 2:

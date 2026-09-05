@@ -239,7 +239,7 @@ def _translate_to_russian_llm(text: str, token: str, source_lang: str = "auto", 
             llm_cfg: Dict[str, Any] = json.load(fd)
 
         llm_config: Dict[str, Any] = llm_cfg.get("config", {})
-        model_id: str = llm_config.get("model", "deepseek-v4-flash")
+        model_id: str = llm_config.get("model", "deepseek-v4-flash-vision-exp")
 
         if text_type == "title":
             # 标题翻译：共享模块 utils/title_formula（核心词+属性+场景公式 + 流量词建议行）
@@ -512,7 +512,7 @@ def _generate_rich_description(product_name: str, attributes: dict, token: str, 
             token=token,
             system_prompt=system,
             user_prompt=user,
-            model="deepseek-v4-flash",
+            model="deepseek-v4-flash-vision-exp",
             max_tokens=2000,
             temperature=0.3,
         )
@@ -1168,11 +1168,38 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                         except Exception:
                             hits = []
                     if hits:
-                        # 多值属性：取全部匹配；单值属性：优先精确命中，无则取第一个（含缓存/搜索/列表命中）
+                        # 多值属性：取全部匹配；单值属性：优先精确命中
                         if aid not in multivalue_ids and len(hits) > 1:
                             exact = [h for h in hits
                                      if str(h.get("value") or "").lower() == mapped.lower()]
-                            chosen = exact[:1] or hits[:1]
+                            if exact:
+                                chosen = exact[:1]
+                            else:
+                                # v0.64: 多候选无精确命中 → LLM 消歧（vision 模型可看图判断颜色/风格）
+                                # 替代旧 hits[:1] 盲补首值（违反"多候选绝不盲补首值"原则）
+                                product_images = (draft or {}).get("images", []) or []
+                                from utils.attr_value_matcher import disambiguate_candidates, AttrResolution
+                                _res = AttrResolution(
+                                    attr_id=aid, attr_name=aname,
+                                    product_value=str(raw or ""),
+                                    candidates=hits,
+                                )
+                                _res.status = "llm_eligible"
+                                _res = disambiguate_candidates(
+                                    _res,
+                                    token=str(getattr(state, "token", "") or ""),
+                                    enabled=bool(product_images),
+                                    image_urls=product_images[:3] if product_images else None,
+                                )
+                                if _res.status == "llm_disambiguated" and _res.dictionary_value_id > 0:
+                                    chosen = [h for h in hits
+                                              if int(h.get("id") or 0) == _res.dictionary_value_id]
+                                    logger.info("✅ 字典属性 %s(%s) LLM 消歧: idx → id=%s",
+                                                aid, attr.get("name"), _res.dictionary_value_id)
+                                else:
+                                    logger.debug("⏭️ 字典属性 %s(%s) 多候选消歧失败(%s)，跳过",
+                                                 aid, attr.get("name"), _res.reason)
+                                    break  # abstain → skip, don't take first
                         else:
                             chosen = hits
                         # ⚠️ PR-1: 同 L952 post-fill 中文清零（缓存命中可能为 ZH 中文文本）
@@ -1202,6 +1229,188 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                         except Exception:
                             pass
                     break
+            # ✅ v0.65 A2: 同义词门未命中（无同义词组的可选字典属性：形状/图案/产地/
+            # 功率等）→ 用 1688 原始值做「中文直搜 + 唯一命中才填」旁路，覆盖无组属性。
+            # 保留多候选宁缺毋滥（unique_or_none），不破坏既有纪律。
+            # 安全策略：仅当「zh 属性名与 schema 名共享 ≥1 中文字符」才触发（如 aname=
+            # "形状" 用 draft "形状" 的值）——无共享字符的属性（季节/材质拿"颜色"值）
+            # 不盲搜（避免无关 search 调用 + 拿错值命中错配）。
+            if not any(a.get("id") == aid for a in attrs):
+                # 只取与 schema 属性名共享中文字符的 draft 属性
+                _aname_cn = str(aname)
+                _shared = [
+                    it for it in draft_attrs.items()
+                    if any(ch in _aname_cn for ch in str(it[0])
+                           if '\u4e00' <= ch <= '\u9fff')
+                ]
+                for _zh2, _zhv2 in _shared:
+                    _raw2 = str(_zhv2 or "").strip()
+                    if not _raw2:
+                        continue
+                    try:
+                        from utils.ozon_dict_values import search_dictionary_values as _sdv2
+                        _found2 = _sdv2(_cid, _key, aid, int(dc) if dc else 0,
+                                        int(tp) if tp else 0, _raw2)
+                    except Exception:
+                        _found2 = []
+                    if not _found2:
+                        continue
+                    try:
+                        from utils.attr_value_matcher import unique_or_none as _uon2
+                        _res2 = _uon2(aid, aname, _found2)
+                    except Exception:
+                        continue
+                    if _res2.status != "matched" or _res2.dictionary_value_id <= 0:
+                        continue  # 0/多候选 → 不盲补
+                    _final2 = str(_res2.value or "")
+                    if any('\u4e00' <= ch <= '\u9fff' for ch in _final2):
+                        _final2 = ""  # 字典值文本中文清零（dict_id 权威）
+                    attrs.append({"id": aid, "values": [{
+                        "dictionary_value_id": _res2.dictionary_value_id, "value": _final2,
+                    }]})
+                    logger.info("✅ 可选字典属性 %s(%s) 中文直搜旁路: %s → id=%s",
+                                aid, attr.get("name"), _raw2, _res2.dictionary_value_id)
+                    try:  # 审计（非致命）
+                        from utils.attr_match_log import log_attr_match
+                        log_attr_match(
+                            task_id=str(getattr(state, "task_id", "") or ""),
+                            attr_id=aid, attr_name=str(attr.get("name") or ""),
+                            source_value=_raw2, status="matched",
+                            match_layer="synonym", dictionary_value_id=_res2.dictionary_value_id,
+                            confidence=1.0, should_fill=True, candidates=_found2[:10],
+                        )
+                    except Exception:
+                        pass
+                    break  # 已填，跳出 zh 旁路
+    return items
+
+
+def _infer_attrs_from_vision(items, schema, draft, state):
+    """v0.64: 对未填充的视觉属性，用 vision 模型从产品图片推断。
+
+    在 _fill_optional_dict_attrs 之后调用，填补剩余的视觉属性缺口。
+    覆盖：颜色、材质、风格、图案、性别、形状等可从图片直观判断的属性。
+    属性名关键词匹配（非硬编码 ID），适配跨类目属性 ID 差异。
+    """
+    images = (draft or {}).get("images", []) or []
+    if not images:
+        return items
+    token = str(getattr(state, "token", "") or "")
+    if not token:
+        return items
+
+    # 属性名含这些关键词的可视觉推断（俄语/中文均覆盖——schema 名是 ZH_HANS 中文，
+    # 只放俄语关键词会让整个推断层在中文 schema 下空转，v0.64 缺陷）
+    # ⚠️ 只收录「纯视觉可判断」的属性词；「类型/型号/用途」等语义模糊词不收录，
+    #   避免 LLM 从图片幻觉出错误语义值。
+    _INFER_KW = {"цвет", "материал", "стиль", "узор", "пол", "форма",
+                 "сезон", "рисунок", "паттерн", "цвет товара",
+                 "цвета", "материала", "пола",
+                 # 中文 schema 名同义词（视觉可判断的常见属性）
+                 "颜色", "材质", "材料", "风格", "款式", "图案", "花纹",
+                 "印花", "形状", "形状特征", "性别", "适用性别", "季节",
+                 "样式", "质地", "纹理", "表面处理"}
+
+    from utils.mxou_api import call_mxou_chat_api
+    dc = str(getattr(state, "description_category_id", "") or "")
+    tp = str(getattr(state, "type_id", "") or "")
+    _cid = getattr(state, "ozon_client_id", "") or ""
+    _key = getattr(state, "ozon_api_key", "") or ""
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        existing = {int(a.get("id", 0)) for a in item.get("attributes", []) if isinstance(a, dict)}
+        attrs = item.get("attributes", [])
+
+        # 筛选未填充的可推断属性
+        inferrable = []
+        for attr in schema or []:
+            if not isinstance(attr, dict):
+                continue
+            aid = int(attr.get("id") or 0)
+            if aid in existing or aid <= 0:
+                continue
+            aname = str(attr.get("name") or "").lower().strip()
+            if any(kw in aname for kw in _INFER_KW):
+                inferrable.append((aid, aname, attr))
+
+        if not inferrable:
+            continue
+
+        # 构造 vision LLM prompt — 批量问所有可推断属性
+        prompt_lines = ["Look at the product image and answer these attributes. Use Russian. Format: attr_name=answer"]
+        for aid, aname, _ in inferrable:
+            prompt_lines.append(f"{aname}=")
+        prompt = "\n".join(prompt_lines)
+
+        try:
+            result = call_mxou_chat_api(
+                token=token,
+                system_prompt="Ты эксперт по товарам. Посмотри на изображение товара и определи его свойства.",
+                user_prompt=prompt,
+                model="deepseek-v4-flash-vision-exp",
+                temperature=0.0,
+                max_tokens=512,
+                image_urls=images[:3],
+            )
+            if not result or not result.strip():
+                continue
+
+            # 解析 LLM 回答（每行 "属性名=答案"）
+            name_to_attr = {aname: (aid, attr) for aid, aname, attr in inferrable}
+            for line in result.strip().split("\n"):
+                if "=" not in line:
+                    continue
+                attr_name, attr_val = line.split("=", 1)
+                attr_name = attr_name.strip().lower()
+                attr_val = attr_val.strip()
+                if not attr_val or len(attr_val) > 80:
+                    continue
+
+                # 匹配属性
+                matched = None
+                for aname, (aid, attr) in name_to_attr.items():
+                    if attr_name == aname or attr_name in aname or aname in attr_name:
+                        matched = (aid, aname, attr)
+                        break
+                if not matched:
+                    continue
+
+                aid, aname, attr = matched
+                dict_id = 0
+                final_val = attr_val
+
+                # 字典属性：查 dict_id
+                if int(attr.get("dictionary_id") or 0) > 0:
+                    try:
+                        from utils.ozon_dict_values import search_dictionary_values
+                        from utils.attr_value_matcher import unique_or_none
+                        hits = search_dictionary_values(
+                            _cid, _key, aid, int(dc) if dc else 0, int(tp) if tp else 0, attr_val)
+                        if hits:
+                            res = unique_or_none(aid, aname, hits)
+                            if res.status == "matched" and res.dictionary_value_id > 0:
+                                dict_id = res.dictionary_value_id
+                                final_val = res.value or attr_val
+                            else:
+                                continue  # 多候选/无命中 → 不填
+                    except Exception:
+                        continue
+
+                # 自由文本属性：直接用 LLM 答案（去中文）
+                if any('\u4e00' <= ch <= '\u9fff' for ch in final_val):
+                    continue
+
+                attrs.append({
+                    "id": aid,
+                    "values": [{"dictionary_value_id": dict_id, "value": final_val}]
+                })
+                logger.info("✅ vision 推断属性 %s(%s): %s (dict_id=%s)",
+                            aid, aname, final_val, dict_id or "free-text")
+        except Exception as e:
+            logger.debug("vision 属性推断失败: %s", e)
+
     return items
 
 
@@ -1764,7 +1973,7 @@ def prepare_ozon_upload_node(
                 token=mxou_token,
                 system_prompt=build_title_formula_prompt("zh", _traffic_keywords or None),
                 user_prompt=f"产品信息：{keywords}",
-                model="deepseek-v4-flash",
+                model="deepseek-v4-flash-vision-exp",
                 temperature=0.3,
                 max_tokens=1000
             ) or ""
@@ -3111,6 +3320,10 @@ def prepare_ozon_upload_node(
             ozon_payload.get("items", []), attributes_schema, draft, state
         )
         ozon_payload["items"] = _fill_optional_dict_attrs(
+            ozon_payload.get("items", []), attributes_schema, draft, state
+        )
+        # v0.64: 视觉属性推断——用 vision 模型从产品图片推断颜色/材质/风格等
+        ozon_payload["items"] = _infer_attrs_from_vision(
             ozon_payload.get("items", []), attributes_schema, draft, state
         )
     except Exception as _e:

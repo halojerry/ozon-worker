@@ -300,7 +300,7 @@ def visual_vars_llm_node(state: VisualVarsInput, config: RunnableConfig, runtime
         category = state.category.strip()
     attributes = draft.get("attributes") or state.attributes or {}
 
-    # 纯文本输入（F8 实证：deepseek-v4-flash 无视觉，不传 images）
+    # v0.64: vision 模型传入产品图片，推断更准确的视觉变量（颜色/材质/形状）
     extracted = extract_visual_vars_from_draft(draft)
     user_prompt = Template(up).render({
         "title": title,
@@ -314,13 +314,15 @@ def visual_vars_llm_node(state: VisualVarsInput, config: RunnableConfig, runtime
 
     parsed: Dict[str, str] = {}
     try:
+        product_images = draft.get("images", []) or []
         content = call_mxou_chat_api(
             token=state.token,
             system_prompt=sp,
             user_prompt=user_prompt,
-            model=llm_config.get("model", "deepseek-v4-flash"),
+            model=llm_config.get("model", "deepseek-v4-flash-vision-exp"),
             temperature=llm_config.get("temperature", 0.7),
             max_tokens=llm_config.get("max_tokens", 4096),
+            image_urls=product_images[:3] if product_images else None,
         )
         if content and content.strip():
             parsed = _parse_visual_vars(content)

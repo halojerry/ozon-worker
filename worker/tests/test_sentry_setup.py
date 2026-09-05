@@ -222,6 +222,38 @@ def test_before_send_short_circuit_when_disabled():
     assert out["level"] == "error"
 
 
+def test_before_send_traceback_passthrough():
+    """v0.64: 含 Python 异常栈帧的事件跳过噪音聚合（可能是真实代码 bug）。"""
+    _reset()
+    mod._SENTRY_ENABLED = True
+    # 模拟一个含 traceback 的事件——即使消息含噪音关键词，也不聚合
+    event = _noise_event()
+    event["exception"] = {
+        "values": [{
+            "stacktrace": {"frames": [{"filename": "foo.py", "lineno": 1}]},
+            "value": "some real bug",
+        }]
+    }
+    out = mod._before_send(event)
+    assert out is event
+    assert "fingerprint" not in out, "有 traceback 的事件不应被聚合"
+    assert out["level"] == "error", "有 traceback 的事件不应降级"
+
+
+def test_has_python_traceback_detection():
+    """v0.64: _has_python_traceback 正确检测异常栈帧。"""
+    _reset()
+    assert mod._has_python_traceback({}) is False
+    assert mod._has_python_traceback({"exception": {}}) is False
+    assert mod._has_python_traceback({"exception": {"values": []}}) is False
+    assert mod._has_python_traceback({
+        "exception": {"values": [{"stacktrace": {"frames": [{"lineno": 1}]}}]}
+    }) is True
+    assert mod._has_python_traceback({
+        "exception": {"values": [{"stacktrace": {}}]}
+    }) is False
+
+
 if __name__ == "__main__":
     import traceback
 
