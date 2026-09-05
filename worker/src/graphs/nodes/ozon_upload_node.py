@@ -17,6 +17,66 @@ from utils.ozon_client import ozon_check_quota
 logger = get_logger(__name__)
 
 
+def try_set_min_price_floor(
+    ozon_client_id: str,
+    ozon_api_key: str,
+    offer_id,
+    product_id,
+    price,
+    old_price=None,
+    promo_price=None,
+    logger_obj=None,
+):
+    """v0.65: 上架成功后给单个商品补送促销底线 min_price（promo_price 即 min_price 底线）。
+
+    - 只处理「真实 product_id + 有 promo_price（三档）」的 CREATE 单；UPDATE/follow 模式 / 无
+      promo_price 的调用方在调用前跳过（本函数只做防御性再检查）。
+    - 幂等：每卡只调一次；失败仅 logger.warning，绝不抛错影响主流程。
+    - 真实调用点在 ozon_status_node：/v3/product/import 只返回 task_id，真实 product_id/
+      offer_id 要等 /v1/product/import/info 轮询确认 imported 后才有，而 import/prices 对
+      不存在的商品返回 NOT_FOUND_ERROR，故不能在 ozon_upload CREATE 时同步调。
+
+    Returns:
+        bool — 是否成功设置（True）或无需设置（跳过返回 False，不视为失败）。
+    """
+    log = logger_obj if logger_obj is not None else logger
+    _pid = str(product_id or "").strip()
+    _oid = str(offer_id or "").strip()
+    if not _pid or not _pid.isdigit() or not _oid:
+        log.warning(
+            "min_price 底线设置跳过：缺真实 product_id/offer_id（pid=%r, offer_id=%r）",
+            product_id, offer_id,
+        )
+        return False
+    if promo_price is None or str(promo_price) in ("", "0", "None"):
+        log.warning("min_price 底线设置跳过：无 promo_price（非三档）")
+        return False
+    try:
+        _pp = int(promo_price)
+    except (TypeError, ValueError):
+        log.warning("min_price 底线设置跳过：promo_price 非法 %r", promo_price)
+        return False
+    if _pp <= 0:
+        return False
+    try:
+        from utils.ozon_client import update_min_price_floor
+
+        update_min_price_floor(
+            client_id=str(ozon_client_id),
+            api_key=str(ozon_api_key),
+            offer_id=_oid,
+            product_id=int(_pid),
+            price=price,
+            old_price=old_price,
+            min_price=_pp,
+        )
+        log.info("✅ min_price 底线设置成功: product_id=%s offer_id=%s min_price=%s", _pid, _oid, _pp)
+        return True
+    except Exception as exc:  # noqa: BLE001 — 底线设置失败不阻断主流程
+        log.warning("min_price 底线设置失败(不影响上架): product_id=%s: %s", _pid, str(exc)[:300])
+        return False
+
+
 def ozon_upload_node(
     state: OzonUploadInput, 
     config: RunnableConfig, 
