@@ -1243,6 +1243,11 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                     if any(ch in _aname_cn for ch in str(it[0])
                            if '\u4e00' <= ch <= '\u9fff')
                 ]
+                # P2 v0.65.1: 旁路审计——记录落空原因（0 候选/多候选放弃），
+                # 供 attr_match_log 产出「真实缺口榜」；should_fill 才打点防系统属性噪音。
+                _bypass_skip_status = ""
+                _bypass_skip_src = ""
+                _bypass_skip_cands: list = []
                 for _zh2, _zhv2 in _shared:
                     _raw2 = str(_zhv2 or "").strip()
                     if not _raw2:
@@ -1254,13 +1259,22 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                     except Exception:
                         _found2 = []
                     if not _found2:
+                        # P2: 有共享字符源但字典 0 候选 → 无值可填
+                        if not _bypass_skip_status:
+                            _bypass_skip_status = "skipped_no_value"
+                            _bypass_skip_src = _raw2
                         continue
+                    _bypass_skip_cands = _found2
                     try:
                         from utils.attr_value_matcher import unique_or_none as _uon2
                         _res2 = _uon2(aid, aname, _found2)
                     except Exception:
                         continue
                     if _res2.status != "matched" or _res2.dictionary_value_id <= 0:
+                        # P2: 多候选无唯一 → 宁缺毋滥放弃
+                        if not _bypass_skip_status:
+                            _bypass_skip_status = "skipped_multi_candidate"
+                            _bypass_skip_src = _raw2
                         continue  # 0/多候选 → 不盲补
                     _final2 = str(_res2.value or "")
                     if any('\u4e00' <= ch <= '\u9fff' for ch in _final2):
@@ -1282,6 +1296,22 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                     except Exception:
                         pass
                     break  # 已填，跳出 zh 旁路
+                else:
+                    # zh 候选全部落空且属性仍未填 → 打旁路落空审计（0 候选/多候选放弃）
+                    if _bypass_skip_status and not any(a.get("id") == aid for a in attrs):
+                        try:
+                            from utils.attr_gap import should_fill as _should_fill
+                            from utils.attr_match_log import log_attr_match as _lam2
+                            if _should_fill(attr):
+                                _lam2(
+                                    task_id=str(getattr(state, "task_id", "") or ""),
+                                    attr_id=aid, attr_name=str(attr.get("name") or ""),
+                                    source_value=_bypass_skip_src, status=_bypass_skip_status,
+                                    match_layer="zh_direct_search", should_fill=True,
+                                    candidates=_bypass_skip_cands[:10],
+                                )
+                        except Exception:
+                            pass
     return items
 
 
@@ -1334,6 +1364,25 @@ def _infer_attrs_from_vision(items, schema, draft, state):
             aname = str(attr.get("name") or "").lower().strip()
             if any(kw in aname for kw in _INFER_KW):
                 inferrable.append((aid, aname, attr))
+            else:
+                # P2 v0.65.1: 未填且不在视觉推断白名单（_INFER_KW）的可选字典属性
+                # → no_infer 审计打点（只打 should_fill，防海关/9782/品牌/4389 系统噪音；
+                #   只在 schema 遍历循环内补，不打循环外整表）
+                try:
+                    if int(attr.get("dictionary_id") or 0) <= 0:
+                        continue
+                    from utils.attr_gap import should_fill
+                    if not should_fill(attr):
+                        continue
+                    from utils.attr_match_log import log_attr_match
+                    log_attr_match(
+                        task_id=str(getattr(state, "task_id", "") or ""),
+                        attr_id=aid, attr_name=str(attr.get("name") or ""),
+                        source_value="", status="no_infer", match_layer="vision",
+                        dictionary_value_id=0, confidence=0.0, should_fill=True,
+                    )
+                except Exception:
+                    pass
 
         if not inferrable:
             continue
