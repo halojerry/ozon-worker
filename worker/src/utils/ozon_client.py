@@ -229,9 +229,9 @@ def update_min_price_floor(
     api_key: str,
     offer_id: str,
     product_id: int,
-    price: float | int | str,
-    old_price: float | int | str | None = None,
-    min_price: float | int | str | None = None,
+    price: float | str,
+    old_price: float | str | None = None,
+    min_price: float | str | None = None,
     timeout: int = 60,
 ) -> dict[str, Any]:
     """v0.65: 上架成功后设置促销底线 min_price（防 Ozon 自动调价跌破成本）。

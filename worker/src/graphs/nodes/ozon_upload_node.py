@@ -72,7 +72,7 @@ def try_set_min_price_floor(
         )
         log.info("✅ min_price 底线设置成功: product_id=%s offer_id=%s min_price=%s", _pid, _oid, _pp)
         return True
-    except Exception as exc:  # noqa: BLE001 — 底线设置失败不阻断主流程
+    except Exception as exc:  # 底线设置失败不阻断主流程
         log.warning("min_price 底线设置失败(不影响上架): product_id=%s: %s", _pid, str(exc)[:300])
         return False
 
