@@ -9,7 +9,7 @@ import time
 import logging
 from typing import Optional, Dict, Any, List
 
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func, update, case
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from storage.database.db import get_session
@@ -434,10 +434,16 @@ class LocalDBManager:
     def get_category_mapping_by_leaf(self, source_category_leaf: str) -> List[Dict[str, Any]]:
         session = get_session()
         try:
+            # ✅ v0.66 L0: 读排序改 is_active DESC, (success_count - fail_count) DESC ——
+            # 负反馈后失败多的 learned 行排名靠后（declined 降权可被新成功超过）。
             rows = session.execute(
                 select(CategoryMapping)
                 .where(and_(CategoryMapping.source_category_leaf == source_category_leaf, CategoryMapping.is_active == True))
-                .order_by(CategoryMapping.success_count.desc(), CategoryMapping.last_used_at.desc())
+                .order_by(
+                    CategoryMapping.is_active.desc(),
+                    (CategoryMapping.success_count - CategoryMapping.fail_count).desc(),
+                    CategoryMapping.last_used_at.desc(),
+                )
             ).scalars().all()
             return [{
                 "id": r.id, "source_category_leaf": r.source_category_leaf,
@@ -458,11 +464,16 @@ class LocalDBManager:
         """按 1688 类目数字 ID 查学习映射（v0.25 T1，跨店铺稳定）。"""
         session = get_session()
         try:
+            # ✅ v0.66 L0: 读排序同 get_category_mapping_by_leaf（is_active + 净成功分）。
             rows = session.execute(
                 select(CategoryMapping)
                 .where(and_(CategoryMapping.source_category_id == int(source_category_id),
                             CategoryMapping.is_active == True))
-                .order_by(CategoryMapping.success_count.desc(), CategoryMapping.last_used_at.desc())
+                .order_by(
+                    CategoryMapping.is_active.desc(),
+                    (CategoryMapping.success_count - CategoryMapping.fail_count).desc(),
+                    CategoryMapping.last_used_at.desc(),
+                )
             ).scalars().all()
             return [{
                 "id": r.id, "source_category_id": r.source_category_id,
@@ -487,40 +498,147 @@ class LocalDBManager:
                              category_path_ru: Optional[str] = None,
                              confidence: float = 0.7, source: str = "llm",
                              source_category_id: Optional[int] = None) -> None:
+        """添加/累计类目映射学习记录（v0.66 L0 复活 W3 + c9/c10）。
+
+        改原子 upsert（INSERT ... ON CONFLICT）替代 SELECT→INSERT check-then-act——
+        对齐 add_attribute_mapping（v0.64 C4 N5b 成功先例）的 pg_insert/on_conflict 写法，
+        并发同键（同 leaf+dc+tp 的并发 approved 任务）不再抛 IntegrityError 炸上传任务。
+        conflict → set_：success_count+1 / is_active=True / source_category_id=coalesce(传入,
+        存量) / path·keywords·zh·ru 传入非空才覆盖 / confidence=greatest(传入, 存量) /
+        last_used_at=now。
+        ✅ v0.66 P1-1（code-review）: 冲突侧 source 不得覆写存量 curated——learned 写命中
+        同 key 的 curated 行时保留 curated（否则「curated 永不自动下线」保护失效 + init_data
+        seed 与 approved 写互相翻转 source）；仅存量非 curated 才写传入 source。
+        ✅ v0.66 P2-1（code-review）: on_conflict 用 index_elements 列推断（PG 按 (leaf,
+        dc, tp) 唯一索引仲裁）替代 constraint= PG 自动截断名——消除环境差异依赖，风格对齐
+        其它显式约束名 upsert 前先实测过自动名（category_mapping_source_category_leaf_
+        description_category__key）可作对照。
+        """
         import datetime as _dt
         session = get_session()
         try:
-            existing = session.execute(
-                select(CategoryMapping).where(and_(
-                    CategoryMapping.source_category_leaf == source_category_leaf,
-                    CategoryMapping.description_category_id == description_category_id,
-                    CategoryMapping.type_id == type_id,
-                ))
-            ).scalar_one_or_none()
-            if existing:
-                existing.success_count = (existing.success_count or 0) + 1
-                existing.last_used_at = _dt.datetime.now(_dt.timezone.utc)
-                if source_category_id:
-                    existing.source_category_id = int(source_category_id)
-                if source_category_path: existing.source_category_path = source_category_path
-                if source_keywords: existing.source_keywords = source_keywords
-                if category_path_zh: existing.category_path_zh = category_path_zh
-                if category_path_ru: existing.category_path_ru = category_path_ru
-                existing.confidence = max(existing.confidence or 0, confidence)
-                session.commit()
-            else:
-                session.add(CategoryMapping(
-                    source_category_leaf=source_category_leaf,
-                    source_category_id=int(source_category_id) if source_category_id else None,
-                    source_category_path=source_category_path,
-                    source_keywords=source_keywords or [],
-                    description_category_id=description_category_id,
-                    type_id=type_id, category_path_zh=category_path_zh,
-                    category_path_ru=category_path_ru, confidence=confidence,
-                    source=source, success_count=1, fail_count=0, is_active=True,
-                    last_used_at=_dt.datetime.now(_dt.timezone.utc),
-                ))
-                session.commit()
+            _now = _dt.datetime.now(_dt.timezone.utc)
+            _src_id = int(source_category_id) if source_category_id else None
+            # 冲突侧更新表达式（SQLAlchemy 列表达式 → success_count=success_count+1 等）
+            _do_update: dict = {
+                "success_count": CategoryMapping.success_count + 1,
+                # P1-1: 存量 curated 不被 learned/llm 等非 curated 写降级
+                "source": case(
+                    (CategoryMapping.source == "curated", CategoryMapping.source),
+                    else_=source,
+                ),
+                "is_active": True,
+                "last_used_at": _now,
+                "source_category_id": func.coalesce(_src_id, CategoryMapping.source_category_id),
+                "confidence": func.greatest(confidence, CategoryMapping.confidence),
+            }
+            if source_category_path:
+                _do_update["source_category_path"] = source_category_path
+            if source_keywords:
+                _do_update["source_keywords"] = source_keywords
+            if category_path_zh:
+                _do_update["category_path_zh"] = category_path_zh
+            if category_path_ru:
+                _do_update["category_path_ru"] = category_path_ru
+            stmt = pg_insert(CategoryMapping).values(
+                source_category_leaf=source_category_leaf,
+                source_category_id=_src_id,
+                source_category_path=source_category_path,
+                source_keywords=source_keywords or [],
+                description_category_id=description_category_id,
+                type_id=type_id,
+                category_path_zh=category_path_zh,
+                category_path_ru=category_path_ru,
+                confidence=confidence,
+                source=source,
+                success_count=1,
+                fail_count=0,
+                is_active=True,
+                created_at=_now,
+                last_used_at=_now,
+            ).on_conflict_do_update(
+                index_elements=["source_category_leaf", "description_category_id", "type_id"],
+                set_=_do_update,
+            )
+            session.execute(stmt)
+            session.commit()
+            logger.info(
+                f"✅ PG upsert 成功：category_mapping "
+                f"(leaf={source_category_leaf}, dc={description_category_id}, tp={type_id}, "
+                f"source={source}, src_id={_src_id}, conflict→update)"
+            )
+        except Exception as _e:
+            session.rollback()
+            logger.warning(f"⚠️ add_category_mapping upsert 失败(非致命): {_e}")
+        finally:
+            session.close()
+
+    def mark_category_mapping_failed(self, source_category_id: Optional[int] = None,
+                                     source_category_leaf: Optional[str] = None,
+                                     description_category_id: Optional[int] = None,
+                                     type_id: Optional[int] = None) -> int:
+        """v0.66 L0 负反馈：declined/类目错任务对该 L0 学习行降权。
+
+        匹配行 = (source_category_id+dc+tp) 或 (source_category_leaf+dc+tp) 且
+        source IN ('learned_approved','curated') 且 is_active → fail_count+1 +
+        last_failed_at=now。learned 行累计 fail_count>=3 → is_active=False（自动下线）；
+        curated 行只 +1 不自动 inactive（人工种子信任，Ozon 类目错不该吊销人工映射）。
+
+        Returns:
+            受影响行数（0 = 无匹配行 / 非学习来源，不降权）。
+        """
+        import datetime as _dt
+        try:
+            _dc = int(description_category_id or 0) or None
+            _tp = int(type_id or 0) or None
+        except (TypeError, ValueError):
+            return 0
+        if not _dc or not _tp:
+            return 0
+        if not source_category_id and not source_category_leaf:
+            return 0
+        session = get_session()
+        try:
+            _match = [
+                CategoryMapping.description_category_id == _dc,
+                CategoryMapping.type_id == _tp,
+                CategoryMapping.is_active == True,
+                CategoryMapping.source.in_(("learned_approved", "curated")),
+            ]
+            if source_category_id:
+                _match.append(CategoryMapping.source_category_id == int(source_category_id))
+            if source_category_leaf:
+                _match.append(CategoryMapping.source_category_leaf == source_category_leaf)
+            # 单语句：fail_count+1；learned 且（旧）fail_count+1>=3 → is_active=False；
+            # curated（或未达阈值 learned）→ 保持 active。
+            _now = _dt.datetime.now(_dt.timezone.utc)
+            _stmt = (
+                update(CategoryMapping)
+                .where(and_(*_match))
+                .values(
+                    fail_count=CategoryMapping.fail_count + 1,
+                    last_failed_at=_now,
+                    is_active=case(
+                        (and_(CategoryMapping.source == "learned_approved",
+                              CategoryMapping.fail_count + 1 >= 3), False),
+                        else_=True,
+                    ),
+                )
+            )
+            _res = session.execute(_stmt)
+            session.commit()
+            _affected = int(_res.rowcount or 0)
+            if _affected:
+                logger.warning(
+                    f"⚠️ category_mapping 负反馈: {_affected} 行 fail+1"
+                    f"(src_id={source_category_id}, leaf={source_category_leaf}, "
+                    f"dc={_dc}, tp={_tp})"
+                )
+            return _affected
+        except Exception as _e:
+            session.rollback()
+            logger.warning(f"⚠️ mark_category_mapping_failed 失败(非致命): {_e}")
+            return 0
         finally:
             session.close()
 

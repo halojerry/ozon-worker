@@ -755,6 +755,57 @@ def _looks_like_category_mismatch(state) -> bool:
     return any(kw in low for kw in _CATEGORY_ERROR_MSG_KW)
 
 
+def _category_leaf_from_draft(draft) -> str:
+    """从 draft 的 1688 类目信息解析末级词（draft.source_category /
+    draft.source_category_path 双 key，对齐 :770 读法）。返回 '' 表示无。
+    与 learning_record_node / assemble 的 leaf 解析同款分隔符 [>、/→]。
+    """
+    if not isinstance(draft, dict):
+        return ""
+    src = str(draft.get("source_category") or draft.get("source_category_path") or "").strip()
+    if not src:
+        return ""
+    cleaned = re.sub(r'[>、/→]', ' ', src)
+    terms = [t.strip() for t in cleaned.split() if len(t.strip()) >= 2]
+    return terms[-1] if terms else ""
+
+
+def _mark_category_negative_feedback(state) -> None:
+    """v0.66 L0 declined 负反馈（每任务一次的终态挂点）。
+
+    任务终态 failed 且 _looks_like_category_mismatch → 用 draft 的 source_category_id/
+    leaf + description_category_id/type_id 调 mark_category_mapping_failed 对
+    learned/curated 行 fail+1（learned 累计 3 次自动 inactive，curated 只 +1）。
+    非阻断：任何异常/缺参 → warning 返回，绝不拖慢修复收尾。
+    """
+    try:
+        _up = str(getattr(state, "upload_status", "") or "")
+        if _up in ("success", "pending", "pending_moderation", "imported"):
+            return
+        if not _looks_like_category_mismatch(state):
+            return
+        draft = getattr(state, "draft", None) or {}
+        if not isinstance(draft, dict):
+            return
+        _dc_s = str(getattr(state, "description_category_id", "") or "")
+        _tp_s = str(getattr(state, "type_id", "") or "")
+        if not (_dc_s.isdigit() and _tp_s.isdigit()):
+            return
+        _src_id = draft.get("source_category_id")
+        _leaf = _category_leaf_from_draft(draft)
+        if not _src_id and not _leaf:
+            return
+        from utils.local_db_manager import LocalDBManager
+        LocalDBManager().mark_category_mapping_failed(
+            source_category_id=int(_src_id) if _src_id else None,
+            source_category_leaf=_leaf or None,
+            description_category_id=int(_dc_s),
+            type_id=int(_tp_s),
+        )
+    except Exception as _e:
+        logger.warning(f"category_mapping 负反馈失败(非致命): {_e}")
+
+
 def _try_recategorize_card(state: ValidationRetryLoopState) -> bool:
     """R4 整卡类目重配：1688 源词搜索(R1/R2 后) → 采纳 → _rebuild_for_new_category。
 
@@ -875,6 +926,23 @@ def _try_recategorize_card(state: ValidationRetryLoopState) -> bool:
             f"✅ R4 整卡重配: [{old_dc}/{old_type}] → [{new_dc}/{new_type}] "
             f"{str(new_path)[:60]}"
         )
+        # ✅ v0.66 L0 c6: 重配成功 = declined 已证伪旧映射 → 旧 (leaf, old_dc, old_tp)
+        # 行补一次负反馈（降权/learned 累计 3 次下线），防 L0 权威档下次再采纳毒行。
+        # 非阻断：异常仅 warning。source_category_id 有则一并传（按 id 兜底匹配）。
+        try:
+            if old_dc and old_type:
+                from utils.local_db_manager import LocalDBManager
+                _old_leaf = _category_leaf_from_draft(draft)
+                if _old_leaf or draft.get("source_category_id"):
+                    LocalDBManager().mark_category_mapping_failed(
+                        source_category_id=int(draft["source_category_id"])
+                        if draft.get("source_category_id") else None,
+                        source_category_leaf=_old_leaf or None,
+                        description_category_id=int(old_dc),
+                        type_id=int(old_type),
+                    )
+        except Exception as _mf_e:
+            logger.warning(f"R4 跳离旧行降权失败(非致命): {_mf_e}")
         return True
     except Exception as _e:
         logger.warning(f"R4 整卡重配异常（无解，交既有修复链）: {_e}")
@@ -2983,6 +3051,11 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
     if state.upload_status == "success":
         final_error_message = ""
         logger.info("✅ 重新上传成功，清除之前的错误消息")
+    # ✅ v0.66 L0 declined 负反馈挂点：final_result 每任务仅执行一次（子图收尾，
+    # 不随 parse_error 循环重复计数）——终态 failed + 类目错特征 → L0 学习行 fail+1。
+    # 放 return 前而非 should_reupload，避免 "exit"（达 max_retries 走 final_result）
+    # 与 "success" 路径外的所有终态都覆盖到。
+    _mark_category_negative_feedback(state)
     return ValidationRetryLoopOutput(
         ozon_payload=state.ozon_payload,
         validation_errors=state.validation_errors,

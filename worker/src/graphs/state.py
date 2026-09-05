@@ -813,6 +813,25 @@ class LearningRecordInput(BaseModel):
     # ✅ PR-0: fetch_back 回读结果（learning 门据此排除被擦除/Ozon 自动填默认的属性）
     fetch_back_result: Optional[Dict[str, Any]] = Field(default_factory=dict,
                                                         description="fetch-back diff 结果")
+    # ✅ v0.66 L0 学习表复活: source/envelope/product_id 补进 input schema —— langgraph 按
+    # 节点 Input 模型过滤 state channel（v0.27 moderation_status / v0.65 pricing_info 教训，
+    # Task0 实证：未声明字段对节点 AttributeError/getattr 恒空），不声明则学习节点看不到
+    # envelope.extensions.follow_sell（跟卖守卫失效，图搜噪音入学习表）、state.source 的
+    # source_category_id（W1 三源兜底断腿）、product_id。类型对齐 GlobalState 同名字段。
+    source: Optional[Dict[str, Any]] = Field(default=None,
+                                             description="产品来源数据（envelope.source，含 source_category_path/category_id）")
+    envelope: Dict[str, Any] = Field(default_factory=dict,
+                                     description="产品数据envelope（含 extensions.follow_sell/follow_type 跟卖标记）")
+    product_id: Optional[str] = Field(default=None, description="Ozon商品ID（approved 商品回填用）")
+    # ✅ v0.66 P2-2b（code-review）: learning_record_node 实际读但此前未声明的字段一并补进
+    # input schema——否则 langgraph 过滤后 _backfill_product_index（读 user_id/tenant）与
+    # _backfill_category_commission（读 ozon_client_id/ozon_api_key/pricing_info 选佣金段）
+    # 一直静默死（approved 成功路径的 T9 索引/佣金回填从未生效）。类型对齐 GlobalState 同名 channel。
+    user_id: str = Field(default="", description="用户 ID（tenant_id，product_task_index 回填用）")
+    ozon_client_id: str = Field(default="", description="Ozon Client-Id（佣金回填凭证）")
+    ozon_api_key: str = Field(default="", description="Ozon Api-Key（佣金回填凭证）")
+    pricing_info: Dict[str, Any] = Field(default_factory=dict,
+                                         description="价格计算结果（佣金回填 pick_price_band 选段用）")
 
 
 class LearningRecordOutput(BaseModel):
