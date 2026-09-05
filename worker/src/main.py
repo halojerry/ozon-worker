@@ -1261,6 +1261,40 @@ def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
         return 0.0, True
 
 
+def _balance_source_label(token_record: dict, balance: float) -> str:
+    """402 文案定位（B3, v0.64.1）：推断本次余额拒绝的数字来自哪条数据源。
+
+    source ∈ {mxou_real, mxou_session, supabase, unknown}
+    - mxou_real:  数字由 MXOU billing/subscription 实查给出（字面 balance；
+                  B1 后仅剩真欠费负数/无 limit 哨兵的 0.0 会走到拒绝）
+    - mxou_session: 无字面 balance 字段、经用户会话 /api/user/self quota 换算
+                  （旧响应形态；现 newapi 均带 balance 字段，罕见）
+    - supabase:   MXOU 实查降级(None→fail-open inf)后，数字来自 Supabase
+                  users.quota 兜底判定
+    - unknown:    缓存未被本次判定填充（如 _check_mxou_balance 被 mock）或异常
+
+    轻量实现：只读 _check_mxou_balance 刚写入的 30s 余额缓存判定 MXOU 实查是否
+    降级（fp 必须匹配本 token，避免读到别的用户）——**不**调 _check_balance_cached/
+    get_mxou_balance，绝不因此多发 HTTP。任何异常/信息不足 → unknown（不影响拒绝）。
+    """
+    try:
+        from utils.mxou_api import _BALANCE_CACHE, _token_fingerprint
+        token = str(token_record.get("key") or "")
+        if not token:
+            return "unknown"
+        cached = _BALANCE_CACHE.get("value")
+        if cached is None or _BALANCE_CACHE.get("fp") != _token_fingerprint(token):
+            return "unknown"
+        if cached == float("inf"):
+            # MXOU 实查返回 None → fail-open inf → 拒绝数字来自 Supabase users.quota 兜底
+            return "supabase"
+        if float(cached) == float(balance):
+            return "mxou_real"
+    except Exception:
+        pass
+    return "unknown"
+
+
 @app.post("/auth/verify", response_model=AuthVerifyResponse)
 @app.post("/api/v1/auth/verify", response_model=AuthVerifyResponse)
 async def auth_verify(request: Request):
@@ -1607,9 +1641,19 @@ async def http_submit_task(request: Request):
         user_id = resolve_tenant(token)
         balance, has_quota = _check_mxou_balance({"key": token, "user_id": user_id})
         if not has_quota:
+            # v0.64.1 B3: 402 文案带来源标识便于定位误报（订阅 0 哨兵 vs 真欠费 vs
+            # Supabase 兜底）。真欠费（MXOU 实查负数）保持原文案与拒绝行为完全不变。
+            if isinstance(balance, (int, float)) and balance < 0:
+                _msg = f"MXOU 余额不足 (current: {balance}). 请充值"
+            else:
+                _src = _balance_source_label({"key": token, "user_id": user_id}, balance)
+                _msg = (
+                    f"MXOU 余额不足 (current: {balance}). 请充值 "
+                    f"(source: {_src}, raw_balance: {balance})"
+                )
             return error_response(
                 WorkerErrorCode.INSUFFICIENT_BALANCE,
-                f"MXOU 余额不足 (current: {balance}). 请充值",
+                _msg,
             )
         
         # ✅ Step3: 提交任务到队列（使用user_id作为tenant_id）
