@@ -305,6 +305,11 @@ def _check_balance_cached(token: str, ttl: float = 30.0) -> float:
 
     返回 float 余额；余额查询失败返回 float("inf")（fail-open：余额 API
     暂不可用时不能阻断生图，宁可打一单也不误伤正常调用）。
+
+    v0.64.1 B2：首查得 0.0 时（订阅账号 balance=0 哨兵/单次误读）不直接写缓存，
+    绕过 30s 缓存二次直查一次确认——防单次误读的 0.0 固化进缓存被后续 30s 全量
+    复用，放大大面积误报 402。直查结果非 0.0 用直查值（None=查询不稳 → fail-open
+    的 inf，由 Supabase 兜底语义兜住真欠费）；仍为 0.0 则以 0.0 为准（真欠费）。
     """
     now = time.time()
     fp = _token_fingerprint(token)
@@ -312,6 +317,13 @@ def _check_balance_cached(token: str, ttl: float = 30.0) -> float:
     if cached is not None and _BALANCE_CACHE.get("fp") == fp and now - _BALANCE_CACHE["ts"] < ttl:
         return cached
     balance = get_mxou_balance(token)
+    if balance is not None and balance != float("inf") and balance == 0.0:
+        # B2: 0.0 特判直查（放在缓存写入前）——直查只确认一次，不递归。
+        rechecked = get_mxou_balance(token)
+        if rechecked is None:
+            balance = None  # 二次查询不稳 → fail-open（inf），由 Supabase 兜底语义接管
+        elif rechecked != 0.0:
+            balance = rechecked
     value = balance if balance is not None else float("inf")
     if value != float("inf") and 0 < value < BALANCE_ALERT_THRESHOLD:
         _alert_low_balance(token, value)
@@ -1017,6 +1029,13 @@ def get_mxou_balance(token: str) -> float | None:
     - token 无 sk- 前缀时自动补(supabase tokens 表 key 列不带前缀,
       但 MXOU API 需要 sk-)
     - 返回 float(balance, 负=欠费); 查询失败/网络异常 → None(调用方降级)
+
+    v0.64.1 B1：api.mxou.cn(newapi) 给订阅/无限账号也返回字面 balance 字段
+    （常为 0 哨兵，非欠费）。故字面 balance<=0 时先 consult 同响应
+    soft_limit_usd/hard_limit_usd —— 任一 >0（订阅/无限=100M 哨兵形态）→ 视为
+    额度账号，返回 None 降级（调用方走兜底放行），绝不把哨兵 0 当欠费；
+    仅当 balance<0 且两个 limit 都不存在/≤0（pay-as-you-go 真透支）→ 维持负数
+    原样返回拒绝；balance=0 且无 limit 哨兵 → 维持 0.0 原语义。
     """
     if not token:
         return None
@@ -1048,7 +1067,25 @@ def get_mxou_balance(token: str) -> float | None:
                 return float(limit)
             logger.warning("mxou 余额响应无 balance/quota/limit: %s", str(data)[:200])
             return None
-        return float(balance)
+        bal = float(balance)
+        if bal <= 0:
+            # B1 (v0.64.1): newapi 订阅/无限账号带字面 balance(常为 0 哨兵)且保留
+            # soft/hard_limit=100M 哨兵——balance<=0 必须先 consult limit，防误报欠费。
+            # 有 >0 limit → 订阅/无限额度账号，降级返回 None（调用方走兜底放行语义）；
+            # 仅负数且两个 limit 都不存在/≤0 才是真欠费，维持原样拒绝。
+            limit = data.get("soft_limit_usd")
+            if limit is None:
+                limit = data.get("hard_limit_usd")
+            if limit is not None and float(limit or 0) > 0:
+                logger.info(
+                    "订阅账号 balance=%s 但 limit=%s 存在，视为额度账号降级(返回 None)",
+                    bal, limit,
+                )
+                return None
+            if bal < 0:
+                # 真欠费：负数且无额度 limit → 原样拒绝（不降级）
+                return bal
+        return bal
     except Exception as e:
         logger.warning("mxou 余额查询异常(降级): %s", e)
         return None
