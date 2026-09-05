@@ -2,6 +2,23 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.64.1 — MXOU 有余额却误报 402 余额不足 紧急修复）
+
+> 2026-09-05。已发版（VERSION 四源 0.64.1）。v0.64.0 上线后紧急止血：多用户「平台有余额
+> 却 submit_task 402 current: 0.0」——根因在 v0.62.4 起余额源读法 + api.mxou.cn 响应形态。
+
+- **根因**：api.mxou.cn(newapi) 给订阅/无限账号的 `subscription` 响应带字面 `balance` 字段
+  （常为 0 哨兵，非欠费）。`get_mxou_balance`（`utils/mxou_api.py`）拿到 `balance:0` 时未
+  consult 同响应 `soft_limit_usd/hard_limit_usd`（订阅=100M 哨兵）→ 0.0 当欠费 →
+  `_check_balance_cached` 30s 缓存放大 → 批量 402「余额不足 (current: 0.0)」。
+- **修复三件套（f7fbcaed）**：B1 `get_mxou_balance` 字面 `balance≤0` + 任一 limit>0 → 返回
+  None 降级（兜底放行），仅 `balance<0` 无 limit 哨兵（真欠费）原样拒；B2 `_check_balance_cached`
+  首查 0.0 二次直查防缓存污染；B3 402 文案带 source 标识（真欠费原文案不变）。回归
+  `test_balance_zero_confidence_v0641.py` 6 + 余额专项 59 passed。
+- ⚠️ **余额判定红绿灯**（改余额链前必读）：真欠费 = MXOU 实查返回**负数**（无 limit 哨兵）；
+  订阅/无限账号字面 `balance:0` 是**哨兵不是欠费**；Supabase `users.quota` 是从不同步的
+  stale 镜像，只在 MXOU 实查失败时兜底且 unlimited 恒放行。**不要**把任一 0.0 简单当欠费拒绝。
+
 ## 最近更新（v0.64.0 — 视觉模型切换 + 生图精简 10→5 + 属性/类目/状态流三类修复）
 
 > 2026-09-05。已发版（VERSION 四源 0.64.0）。v0.64 vision 切换（类目/属性/生图接
