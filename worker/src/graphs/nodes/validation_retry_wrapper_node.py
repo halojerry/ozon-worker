@@ -70,6 +70,13 @@ def validation_retry_wrapper_node(
     product_id: Any = result.get("product_id", None)
     upload_status: str = result.get("upload_status", "")
     moderation_status: str = result.get("moderation_status", "")
+    # v0.65 C1(N4): 子图可能重配 type/dc + 改属性 → 透传回主图 state
+    #（learning_record 需用修复后类目落库，否则按主图旧 dc/tp 学习固化错映射）
+    # 空值回退主图原值（子图未重配类目时保持主图 state 不变，避免空串清空主图 dc/tp）
+    _repaired_dc: str = str(result.get("description_category_id", "") or "") or str(state.description_category_id or "")
+    _repaired_tp: str = str(result.get("type_id", "") or "") or str(state.type_id or "")
+    _repaired_attrs: list = result.get("final_attributes") or []
+    _repaired_schema: list = result.get("attributes_schema") or []
 
     logger.info(f"✅ 子图执行完成：is_valid={is_valid}, retry_count={retry_count}, upload_status={upload_status}")
 
@@ -83,5 +90,10 @@ def validation_retry_wrapper_node(
         product_id=product_id if product_id else None,
         upload_status=upload_status,
         moderation_status=moderation_status,
-        progress_counter=21
+        progress_counter=21,
+        # v0.65 C1(N4): 透传修复后的类目/属性（空则不覆盖主图——子图未重配时保持原值）
+        description_category_id=_repaired_dc,
+        type_id=_repaired_tp,
+        final_attributes=_repaired_attrs,
+        attributes_schema=_repaired_schema,
     )
