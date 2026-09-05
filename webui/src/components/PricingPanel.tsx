@@ -10,8 +10,8 @@ export default function PricingPanel() {
   const [depthCm, setDepthCm] = useState("")
   const [widthCm, setWidthCm] = useState("")
   const [heightCm, setHeightCm] = useState("")
-  const [marginRate, setMarginRate] = useState("0.25")
-  const [commissionRate, setCommissionRate] = useState("0.10")
+  const [marginRate, setMarginRate] = useState("")
+  const [commissionRate, setCommissionRate] = useState("")
   const [estResult, setEstResult] = useState<EstimateResponse | null>(null)
   const [logResult, setLogResult] = useState<LogisticsQuoteResponse | null>(null)
   const [busy, setBusy] = useState("")
@@ -73,8 +73,8 @@ export default function PricingPanel() {
               <input type="number" value={widthCm} onChange={(e) => setWidthCm(e.target.value)} placeholder="宽" />
               <input type="number" value={heightCm} onChange={(e) => setHeightCm(e.target.value)} placeholder="高" />
             </div>
-            <label>利润率 (0-1)<input type="number" step="0.01" value={marginRate} onChange={(e) => setMarginRate(e.target.value)} /></label>
-            <label>佣金率 (0-0.5)<input type="number" step="0.01" value={commissionRate} onChange={(e) => setCommissionRate(e.target.value)} /></label>
+            <label>利润率 (0-1)<input type="number" step="0.01" value={marginRate} onChange={(e) => setMarginRate(e.target.value)} placeholder="留空=worker 三档默认" /></label>
+            <label>佣金率 (0-0.5)<input type="number" step="0.01" value={commissionRate} onChange={(e) => setCommissionRate(e.target.value)} placeholder="留空=自动查佣金" /></label>
             <div className="editor-actions">
               <button className="button ghost" onClick={runLogistics} disabled={busy === "log"}>{busy === "log" ? "查询中…" : "查物流报价"}</button>
               <button className="button primary" onClick={runEstimate} disabled={busy === "est"}>{busy === "est" ? "计算中…" : "计算定价"}</button>
