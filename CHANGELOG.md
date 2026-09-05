@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.67.0] - 2026-09-05
+
+> worker 内置远程 MCP 服务（批次 1）：对标竞品 linkfox 的远程 MCP 网关模式，任何支持远程
+> MCP 的平台（dsh / Claude Code / Cursor / Cherry Studio…）填 URL + mxou key 即可调用 worker
+> 云端能力。调研：linkfox 27 服务/209 工具全为第三方选品数据，无 Ozon 官方 API 上架/店铺
+> 运营 MCP——全链路 MCP 化是差异化。harness 对接（批次 3）只出施工文档，一行代码未动。
+
+### 新增
+- **`/mcp` 远程 MCP 端点**（`src/mcp_server.py` + main.py 挂载）：FastMCP streamable-http
+  ASGI 挂进现有 FastAPI 进程（单容器单端口不变）；纯 ASGI Bearer 中间件复用
+  `_authenticate_token`（限流/租户解析/吊销全同源），MCP 协议层先挡 401/429；
+  `_root_lifespan` 合并 FastMCP session manager lifespan；`_McpNoSlash` 内部转交裸路径
+  `/mcp`（Mount 裸路径会在鉴权前 307）。`MCP_ENABLED=0` 整体关闭；fastmcp 缺失自动降级。
+- **14 个 MCP 工具**：任务（submit_task/get_task_status/cancel_task/get_task_statistics）+
+  采集箱（list_drafts/submit_draft/batch_submit_drafts）+ 店铺（list_stores/analyze_store/
+  run_store_action）+ 查询（lookup_commission/quote_logistics/lookup_mapping/get_seo_keywords）。
+  **零业务逻辑**：工具经进程内 httpx ASGITransport 回调现有 REST（鉴权/租户/错误码与 REST
+  完全同源）；list_drafts 裁剪 envelope 大字段；错误返回结构化 error dict 不 raise。
+- **文档**：`docs/MCP-SERVER.md`（工具清单 + dsh/Claude Code/Cursor/Cherry Studio 复制即用
+  配置 + 双 MCP 分工）；`docs/PLAN-harness-mcp-adoption-v1.md`（harness 对接施工文档：
+  dsh 挂载配置/凭证流转/采集箱保留策略/网关瘦身清单/审批分级/回滚/验收清单）。
+- 依赖：worker `pyproject.toml` + `fastmcp>=3.0,<4`。
+
+### 测试
+- `tests/test_mcp_server.py` 19 用例全绿：工具整形/token 注入/大字段裁剪/结构化错误、
+  Bearer 中间件 401/放行、main.app 挂载面（裸 /mcp 与 /mcp/ 均 401 不允许 307 绕过）。
+- 端到端实测：本地 uvicorn 起 worker → fastmcp 客户端 streamable-http + Bearer 握手成功，
+  list_tools 14 个、get_task_statistics/get_seo_keywords/lookup_commission 真实回调 REST 返回。
+- 明确不做（出界）：skill 采集远程化（依赖本机 Chrome 登录态）；pounding-harness 改动
+  （批次 3 按文档执行）；pounding-mcp uvx 发包（批次 2）；OAuth/per-service 多端点/计费。
+
 ## [0.66.1] - 2026-09-05
 
 > v0.66.0 后补全：discover 类目对齐数据流闭环——「discover 对齐候选 → 上架用对齐 → approve
