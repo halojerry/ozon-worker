@@ -381,47 +381,49 @@ class LocalDBManager:
             session.close()
 
     def add_attribute_mapping(self, category_id: int, attribute_id: int, attribute_name: str, source_value: str, target_value: str, dictionary_value_id: Optional[int] = None, source: str = "learned_approved"):
-        """添加属性映射学习记录（PR-6: source 标记 provenance — learned_approved/default_fallback/retry_recovered/fetch_back_corrected）"""
+        """添加属性映射学习记录（PR-6: source 标记 provenance — learned_approved/default_fallback/retry_recovered/fetch_back_corrected）
+
+        v0.65 C4(N5b): 改原子 upsert（INSERT ... ON CONFLICT）替代 SELECT→INSERT
+        check-then-act——并发同键（同类目两商品同 source_value）不再抛 IntegrityError
+        炸掉上传成功后任务。default_fallback 冲突时 success_count 不增长（PR-6 语义）。
+        """
         current_time = int(time.time())
         session = get_session()
         try:
-            # 检查是否已存在
-            existing = session.execute(
-                select(OzonAttributeMapping).where(
-                    and_(
-                        OzonAttributeMapping.category_id == category_id,
-                        OzonAttributeMapping.attribute_id == attribute_id,
-                        OzonAttributeMapping.source_value == source_value,
-                    )
-                )
-            ).scalar_one_or_none()
-
-            if existing:
-                # ⚠️ PR-6: default_fallback 复用不增长 success_count（切断 Goodhart 棘轮）—
-                # 「Ozon 没查这个字段」不应被累积成「这个值被验证过」。
-                if source == "default_fallback":
-                    logger.info(f"⏭️ PG 映射已存在（source=default_fallback，success_count 不增长）")
-                else:
-                    existing.success_count = (existing.success_count or 0) + 1
-                existing.last_used_at = current_time
-                session.commit()
-                logger.info(f"✅ PG 更新成功：ozon_attribute_mappings（映射已存在，success_count+1）")
-            else:
-                new_mapping = OzonAttributeMapping(
-                    category_id=category_id,
-                    attribute_id=attribute_id,
-                    attribute_name=attribute_name,
-                    source_value=source_value,
-                    target_value=target_value,
-                    dictionary_value_id=dictionary_value_id,
-                    source=source,
-                    success_count=1,
-                    last_used_at=current_time,
-                    created_at=current_time,
-                )
-                session.add(new_mapping)
-                session.commit()
-                logger.info(f"✅ PG 写入成功：ozon_attribute_mappings（新映射, source={source}）")
+            # default_fallback 复用不增长 success_count（切断 Goodhart 棘轮）
+            _do_update: dict = {
+                "target_value": target_value,
+                "dictionary_value_id": dictionary_value_id,
+                "attribute_name": attribute_name,
+                "source": source,
+                "last_used_at": current_time,
+            }
+            if source != "default_fallback":
+                _do_update["success_count"] = OzonAttributeMapping.success_count + 1
+            stmt = pg_insert(OzonAttributeMapping).values(
+                category_id=category_id,
+                attribute_id=attribute_id,
+                attribute_name=attribute_name,
+                source_value=source_value,
+                target_value=target_value,
+                dictionary_value_id=dictionary_value_id,
+                source=source,
+                success_count=1,
+                last_used_at=current_time,
+                created_at=current_time,
+            ).on_conflict_do_update(
+                constraint="uq_ozon_attr_mappings",
+                set_=_do_update,
+            )
+            session.execute(stmt)
+            session.commit()
+            logger.info(
+                f"✅ PG upsert 成功：ozon_attribute_mappings "
+                f"(cat={category_id}, attr={attribute_id}, source={source}, conflict→update)"
+            )
+        except Exception as _e:
+            session.rollback()
+            logger.warning(f"⚠️ add_attribute_mapping upsert 失败(非致命): {_e}")
         finally:
             session.close()
 
