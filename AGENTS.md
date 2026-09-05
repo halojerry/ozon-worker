@@ -2,6 +2,30 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.66.0 — L0 学习表复活：1688 类目信息真正进权威层）
+
+> 2026-09-05。已发版（VERSION 四源 0.66.0）。架构重构：取证（服务器 PG）实锤 category_mapping
+> 生产零数据（learned_approved 30 天 0 条、active 仅 curated 轮毂 5 行）——写侧从未有效工作
+> + 读侧被文本一致性守卫架空。v0.65.1 修好 L1 评分后，L0 复活的安全前提已具备。
+
+- **类目信任序（改 assemble/learning 前必读）**：确定性来源优先——①权威 Skill（真实 Ozon
+  卡 source=page/what_to_sell，`_skill_precedence_over_l0` 优先于聚合 L0）→ ②L0 学习映射
+  （`_l0_authoritative`：curated / learned succ≥2 权威跳过文本一致性丢弃；succ==1 弱档不一致
+  走 LLM 仲裁）→ ③文本猜测（v0.65.1 修好的 jieba 链，仅兜底）。R1 敏感 veto 对权威 L0/Skill
+  仍生效（18+ 防线）。
+- **input schema 纪律强化**：langgraph 按节点 Input model 过滤 channel（实证）——**节点要读
+  state 的字段必须声明进该节点 Input model**（v0.66 给 LearningRecordInput 补
+  source/envelope/product_id/user_id/ozon_client_id/ozon_api_key/pricing_info 后才复活写侧）。
+  改 learning_record/backfill 勿漏声明。
+- **写侧**：`add_category_mapping` 原子 upsert（index_elements 列推断）；is_follow 守卫
+  envelope→draft.ozon_product_id 双源（跟卖不写图搜噪音）；curated 行不被 learned 写降级
+  （set_ 用 case 保留 source）。
+- **负反馈**：`mark_category_mapping_failed` 挂子图 final_result + R4 重配跳离旧行——类目
+  declined → learned 行 fail+1、3 次 is_active=False 下线；curated 恒 active（W11 全局共享
+  防一店误伤全局）；读排序 (success-fail) 净分。
+- **冷启动**：轮毂外新 1688 叶子前 1-2 单 succ==1 不独立权威（走文本+LLM），第 2-3 次成功起
+  L0 接管——mapping 新增行开始积累是 v0.66 上线核心观察点。
+
 ## 最近更新（v0.65.1 — 类目系统性跨域错配根治 + 自修复换类目闭环 + 属性同义词扩充）
 
 > 2026-09-05。已发版（VERSION 四源 0.65.1）。取证驱动修复（店铺 4718259 单日 7 单全 L1、

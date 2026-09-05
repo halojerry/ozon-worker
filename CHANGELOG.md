@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.66.0] - 2026-09-05
+
+> 架构重构：L0 学习表复活——让「1688 AK 已补类目信息」真正进权威层。取证（服务器 PG）驱动：
+> category_mapping 生产零数据（learned_approved 30 天 0 条、active 仅 curated 轮毂 5 行）。
+> VERSION 四源 0.66.0。计划经独立验证修订（W1/W2 事实修正 + input schema 新根因）。
+
+### 根因（取证 + 实证）
+- **写侧死**：LearningRecordInput 缺 source/envelope/product_id/user_id/凭证/pricing_info——
+  langgraph 按节点 Input model 过滤 channel（实证确认）→ learning_record 的 is_follow 守卫
+  读 envelope 恒空（跟卖图搜噪音可写入学习表）+ _backfill_product_index/_backfill_category_
+  commission 静默死；add_category_mapping check-then-act 非原子（并发丢行）。
+- **读侧空**：L0 学习表零数据 + assemble「L0 与文本 top5 一致否则丢弃」守卫把学习映射架空。
+
+### 改动
+- **input schema 补字段**（state.py LearningRecordInput）：source/envelope/product_id/user_id/
+  ozon_client_id/ozon_api_key/pricing_info——学习节点读得到 follow 标记与凭证。
+- **写侧复活**：is_follow 守卫 envelope→draft.ozon_product_id 双源（防跟卖写图搜噪音）；
+  source_category 三源兜底（draft.source_category→draft.source_category_path→state.source）；
+  `add_category_mapping` 改原子 upsert（index_elements 列推断，success+1 / source 用 case 保留
+  curated / is_active=True 复活 / coalesce id）；写/跳过诊断日志。
+- **declined 负反馈接线**：`mark_category_mapping_failed` 挂子图 final_result（类目错终态 →
+  对应 learned/curated 行 fail+1，learned 累计 3 次 is_active=False 下线、curated 恒 active——
+  W11 全局共享防一店审核口径打沉全局轮毂映射）；R4 重配跳离旧行也降权（先错后对收口）；
+  读排序纳入 (success-fail) 净分。
+- **读侧信任序**：`_l0_authoritative` source 分档——curated / learned succ≥2 权威跳过文本
+  一致性丢弃（不再被单次文本猜测否决）；succ==1 弱档不一致走 LLM 仲裁不静默丢（v0.27 教训
+  保留安全垫）；Step6.5 权威 L0 豁免；`_skill_precedence_over_l0` 权威 Skill（真实 Ozon 卡）
+  优先于聚合 L0；R1 敏感 veto 对权威 L0/Skill 仍生效（18+ 防线不破）。
+- 冷启动预期：轮毂外新 1688 叶子前 1-2 单 succ==1 不独立权威（走文本+LLM 佐证），从第 2-3
+  次成功起 L0 接管——符合预期保守。
+
+### 测试
+- worker 全量 **1710 passed**（基线 1682 + 新增 28）；test_l0_revive_v066 含真实 PG 端到端
+  （原子 upsert 累加 / curated 不被 learned 覆写 / learned 3 次下线 / curated 恒 active /
+  读排序净分）；回归 66 零断言更新；ruff clean。code-review 通过（P1 curated source 保护 +
+  P2 index_elements/input 补全/Skill 优先级已修）。
+
 ## [0.65.1] - 2026-09-05
 
 > v0.65.0 后紧急修复：1688→worker 类目系统性跨域错配（含 18+ 过审合规红线）+ 自修复
