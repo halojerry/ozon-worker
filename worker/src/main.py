@@ -9,7 +9,7 @@ import threading
 import traceback
 import logging
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AsyncExitStack
 from typing import Any, Dict, Iterable, AsyncIterable, AsyncGenerator, Optional
 import uvicorn
 import time
@@ -636,12 +636,68 @@ async def lifespan(app: FastAPI):
     except Exception as _exec_shutdown_e:
         logger.warning("线程池关闭异常(不影响退出): %s", _exec_shutdown_e)
 
+# ── MCP 远程服务（v0.67.0 批次 1）──
+# mcp_server.py 模块级构建 mcp_app（FastMCP streamable-http ASGI + Bearer 鉴权中间件），
+# 不反向 import main（工具内延迟导入，routes 同款防循环模式）。
+# MCP_ENABLED=0 或 fastmcp 缺失 → 跳过挂载（HTTP 面完全不受影响）。
+_MCP_ENABLED = os.getenv("MCP_ENABLED", "1") == "1"
+_mcp_asgi_app = None
+if _MCP_ENABLED:
+    try:
+        from mcp_server import mcp_app as _mcp_asgi_app
+    except Exception as _mcp_err:  # fastmcp 未安装等：降级为无 MCP，不阻断主服务
+        logger.warning(f"⚠️ MCP 服务加载失败，已跳过（HTTP API 不受影响）: {_mcp_err}")
+        _mcp_asgi_app = None
+
+_mcp_lifespan = getattr(_mcp_asgi_app, "lifespan", None) if _mcp_asgi_app is not None else None
+
+
+@asynccontextmanager
+async def _root_lifespan(app: FastAPI):
+    """合并 worker 主 lifespan 与 FastMCP session manager lifespan（挂载必需）。"""
+    if _mcp_lifespan is not None:
+        async with AsyncExitStack() as _stack:
+            await _stack.enter_async_context(_mcp_lifespan(app))
+            async with lifespan(app):
+                yield
+    else:
+        async with lifespan(app):
+            yield
+
+
 app = FastAPI(
-    lifespan=lifespan,
+    lifespan=_root_lifespan,
     title="Ozon Worker API",
     description="Ozon 产品上架 Worker — 接收信封、执行 LangGraph 管线、上传 Ozon",
     version="1.0.0",
 )
+
+# MCP 端点挂载（/mcp；webui 在 /app、newapi 代理在 /api 白名单，路径零冲突）
+if _mcp_asgi_app is not None:
+    app.mount("/mcp", _mcp_asgi_app)
+
+    class _McpNoSlash:
+        """精确 /mcp（无尾斜杠）内部转交：Mount 对裸路径会在鉴权前 307 外部重定向，
+        这里复刻 Mount 的 scope 语义（root_path+=/mcp, path=/）直接进鉴权中间件。
+        可调用类实例 → Starlette 按 raw ASGI app 消费（函数会被包成 request handler）。"""
+
+        def __init__(self, app_):
+            self.app = app_
+
+        async def __call__(self, scope, receive, send):
+            scope = dict(scope)
+            scope["root_path"] = scope.get("root_path", "") + "/mcp"
+            scope["path"] = "/"
+            await self.app(scope, receive, send)
+
+    from starlette.routing import Route as _Route
+    # 插在 Mount 之前，精确路径优先命中
+    app.router.routes.insert(
+        len(app.router.routes) - 1,
+        _Route("/mcp", _McpNoSlash(_mcp_asgi_app),
+               methods=["GET", "POST", "DELETE"], include_in_schema=False),
+    )
+    logger.info("🔌 MCP 远程服务已挂载: POST/GET /mcp（streamable-http，Bearer=mxou key）")
 
 # ── API v1 路由 ──
 v1 = APIRouter(prefix="/api/v1", tags=["v1"])
