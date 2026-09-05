@@ -19,6 +19,41 @@ from utils.local_db_manager import LocalDBManager
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# v0.66.1 断点3: 写侧语义预检 — 1688 leaf ↔ Ozon 类目 ZH 路径零重叠 → 拒写
+# 第 4 道错配防线：approve 写 mapping 前先验证 1688 叶子词与 Ozon 类目中文路径有
+# 语义关联，防「同类错配两次收敛成 succ=2 权威行」（前 3 道 = R1/R2 候选闸 +
+# L0 一致性 + R4 declined 负反馈）。字面重叠是廉价近似：无重叠 ≠ 必错配
+#（同义词如 震动棒→振动器 会被误拦，宁缺毋滥方向安全）；有重叠一定不是跨域错配。
+_GENERIC_LEAF_WORDS = frozenset({
+    "成人", "儿童", "宝宝", "运动", "休闲", "家用", "日用", "通用", "其他",
+    "配件", "附件", "用品", "工具", "系列", "套装", "跨境", "新款", "爆款",
+    "设备", "材料", "商品", "产品", "男款", "女款", "女士", "男士", "加厚",
+    "保暖", "冬季", "夏季",
+})
+
+
+def _leaf_path_overlap(leaf: str, path_zh: str) -> bool:
+    """1688 叶子词是否与 Ozon 类目 ZH full_path 有字面语义重叠（jieba 分词）。
+
+    - jieba 分词过滤长度<2 / 泛化修饰词（成人/儿童/用品/系列…）→ 有效 token 集合；
+    - 无有效 token → 放行（走既有分级信任，不拦）；
+    - 任一有效 token 出现在类目路径 → True（有重叠，放行）；
+    - jieba 不可用 → 放行（跳过预检）。
+    """
+    try:
+        import jieba as _jieba
+        leaf_tokens = {
+            w for w in _jieba.cut(leaf)
+            if len(w) >= 2 and w not in _GENERIC_LEAF_WORDS
+        }
+    except Exception:
+        return True
+    if not leaf_tokens:
+        return True
+    return any(t in (path_zh or "") for t in leaf_tokens)
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # T9: 上传成功回填 product_task_index（普通上传也建索引，OnSale/编辑/更新依赖）
 # product_task_index 目前只有 update_images 写（T6 共享 product_index_service），
 # 普通上传不写 → OnSale 货架/GET /edit 对普通上传商品查不到索引。本段在 approved
@@ -440,25 +475,44 @@ def learning_record_node(
     
     # ═══════════════════════════════════════════════════════
     # v4: 写入 category_mapping（类目学习缓存）
-    # ⚠️ 跟卖跳过 — 类目来自Ozon面包屑，source_category是1688图搜噪音
     # ═══════════════════════════════════════════════════════
-    # v0.66 L0 复活（写侧）: 跟卖守卫读 envelope（已补进 LearningRecordInput），
-    # envelope 不可见时从 draft.ozon_product_id 存在性推导 follow（跟卖信封带
-    # ozon_product_id）；source_category 三源兜底（draft.source_category /
-    # draft.source_category_path / state.source.source_category_path，对齐
-    # validation_retry_loop:770 双 key + assemble:792 同款三源）。
-    is_follow = False
+    # v0.66.1 discover 类目学习闭环（断点1）: 不再按 is_follow 整体跳过——全部 approved
+    # 任务都可写 mapping，靠分级 confidence 控信任：
+    #   * 真跟卖（follow_type 恒设 "hand"/"api"；兼容旧信封 draft.ozon_product_id 单独
+    #     出现而无任何 follow 标记）→ 写但 confidence 压 0.6（读侧 conf>=0.6 门槛线 +
+    #     succ==1 必走 LLM 仲裁，不盲信图搜）；
+    #   * discover 变体（follow_sell=True 但无 follow_type——skill discover 信封不设
+    #     follow_type）→ 不算真跟卖，走 match_layer 分级（discover 主流场景开始学习）。
+    # v0.66.1 断点2: match_layer 透传（assemble 写 category_match_meta 进 state）——
+    #   本次 dc 若来自学习表自身命中（match_layer=L0 且 dc/tp 未变）→ 跳过 upsert
+    #   （L0 自证回环：无新证据也 succ+1）；Skill→0.9 / L1·R2b→0.7 / 缺省 0.85。
+    # v0.66.1 断点3 + 增强5: 写前语义预检（leaf↔ZH 路径零重叠拒写）+ match_evidence
+    #   不可信（method!=aibuy 且 conf<0.3）压 0.6——决策序取最低。
+    # source_category 三源兜底（draft.source_category / draft.source_category_path /
+    # state.source.source_category_path，对齐 validation_retry_loop:770 双 key +
+    # assemble:792 同款三源）。
+    is_true_follow = False
+    _env: Dict[str, Any] = {}
     try:
         _env = getattr(state, 'envelope', None) or {}
+        if not isinstance(_env, dict):
+            _env = {}
         _ext = _env.get("extensions", {}) or {}
-        is_follow = bool(_ext.get("follow_sell")) or bool(_ext.get("follow_type"))
+        if not isinstance(_ext, dict):
+            _ext = {}
     except Exception:
-        pass
-    if not is_follow:
-        try:
-            is_follow = bool((draft or {}).get("ozon_product_id"))
-        except Exception:
-            pass
+        _ext = {}
+    try:
+        if bool(_ext.get("follow_type")):   # 真跟卖恒设 "hand"/"api"
+            is_true_follow = True
+        elif _ext.get("follow_sell"):
+            # discover 变体：follow_sell=True 但无 follow_type → 不算真跟卖
+            is_true_follow = False
+        else:
+            # 兼容旧信封：draft.ozon_product_id 单独出现仍视为真跟卖
+            is_true_follow = bool((draft or {}).get("ozon_product_id"))
+    except Exception:
+        is_true_follow = bool((draft or {}).get("ozon_product_id"))
     try:
         _src_state = getattr(state, "source", None) or {}
     except Exception:
@@ -470,12 +524,10 @@ def learning_record_node(
          or _src_state.get("source_category_path", "") or "")
         if draft else ""
     )
-    # W2 诊断日志：跳过原因（无 source / 跟卖）
+    # W2 诊断日志：跳过原因（无 source）
     if not source_category:
         logger.info("⏭️ category_mapping 跳过写入: 无 source_category（draft/source 均无 1688 类目信息）")
-    if is_follow:
-        logger.info("⏭️ category_mapping 跳过写入: 跟卖模式（source_category 是 1688 图搜噪音，不入学习表）")
-    if source_category and not is_follow:
+    if source_category:
         # W2 诊断日志：source_category_id 解析来源（draft.source_category_id vs state.source.category_id）
         _src_cat_origin = "draft.source_category_id" if draft.get("source_category_id") else (
             "state.source.category_id" if _src_cat_id else "None")
@@ -525,17 +577,68 @@ def learning_record_node(
                 except Exception as _mapping_err:
                     logger.warning(f"category_mapping 存在性校验异常(跳过写入): {_mapping_err}")
                 if _mapping_valid:
-                    local_db.add_category_mapping(
-                        source_category_leaf=leaf,
-                        source_category_id=int(_src_cat_id) if _src_cat_id else None,
-                        description_category_id=int(description_category_id),
-                        type_id=tp_val,
-                        source_category_path=source_category,
-                        source_keywords=jieba_kws,
-                        category_path_zh=cat_zh, category_path_ru=cat_ru,
-                        confidence=0.85, source="learned_approved",
-                    )
-                    logger.info(f"📚 category_mapping: '{leaf}' → [{description_category_id}/{tp_val}]")
+                    # ── v0.66.1: 写侧信任分档（断点2c 决策序，取最低）──
+                    _meta = getattr(state, "category_match_meta", None) or {}
+                    if not isinstance(_meta, dict):
+                        _meta = {}
+                    _layer = str(_meta.get("match_layer", "") or "")
+                    _meta_dc = str(_meta.get("description_category_id") or "")
+                    _meta_tp = str(_meta.get("type_id") or "")
+                    # 断点3: 语义预检 — leaf 与 ZH 路径零重叠 → 拒写（疑似货源错配）。
+                    # cat_zh 空（查询失败/无 ZH 行）不拦——无路径可判不误伤。
+                    if cat_zh and not _leaf_path_overlap(leaf, cat_zh):
+                        logger.warning(
+                            f"📚 category_mapping 拒写：leaf '{leaf}' 与类目路径 "
+                            f"'{cat_zh}' 无语义重叠，疑似货源错配"
+                        )
+                    elif (
+                        # 断点2c: L0 自证防护——本次 dc 来自学习表命中且类目未变
+                        #（meta 无 dc/tp 时按自证处理，防旧信封）→ 跳过，不给自己加证据
+                        _layer == "L0"
+                        and (not _meta_dc or _meta_dc == str(description_category_id))
+                        and (not _meta_tp or _meta_tp == str(tp_val))
+                    ):
+                        logger.info("📚 category_mapping 跳过（L0 自证：本次 dc 来自学习表，无新证据）")
+                    else:
+                        conf = 0.85  # 缺省兼容（旧行为置信度）
+                        if _layer == "L0":
+                            # L0 但 dc 已被上游更换（R4 重配/修复换类目）→ 新 dc 非学习表
+                            # 直采，等同 R2b LLM 确认档（重配结果可信但不设权威直通）
+                            conf = 0.7
+                        elif _layer == "Skill":
+                            conf = 0.9
+                        elif _layer in ("L1", "R2b"):
+                            conf = 0.7
+                        if is_true_follow:
+                            conf = min(conf, 0.6)   # 断点1: 真跟卖图搜来源压弱档
+                        # 增强5: extensions.match_evidence 不可信（非 aibuy 低置信）→ 压 0.6
+                        try:
+                            _me_ext = _env.get("extensions", {}) or {}
+                            _match_evidence = _me_ext.get("match_evidence")
+                            if _match_evidence and isinstance(_match_evidence, dict):
+                                _me_method = str(_match_evidence.get("method") or "")
+                                try:
+                                    _me_conf = float(_match_evidence.get("confidence") or 0)
+                                except (TypeError, ValueError):
+                                    _me_conf = 0.0
+                                if _me_method not in ("aibuy",) and _me_conf < 0.3:
+                                    conf = min(conf, 0.6)
+                        except Exception:
+                            pass
+                        local_db.add_category_mapping(
+                            source_category_leaf=leaf,
+                            source_category_id=int(_src_cat_id) if _src_cat_id else None,
+                            description_category_id=int(description_category_id),
+                            type_id=tp_val,
+                            source_category_path=source_category,
+                            source_keywords=jieba_kws,
+                            category_path_zh=cat_zh, category_path_ru=cat_ru,
+                            confidence=conf, source="learned_approved",
+                        )
+                        logger.info(
+                            f"📚 category_mapping: '{leaf}' → [{description_category_id}/{tp_val}] "
+                            f"layer={_layer or 'default'} conf={conf}"
+                        )
                 else:
                     logger.warning(f"category_mapping 跳过写入: dc/tp 树中不存在 ({leaf} → [{description_category_id}/{tp_val}]),疑似品牌页 ID/错配")
         except Exception as e:

@@ -52,6 +52,9 @@ def validation_retry_wrapper_node(
         dictionary_values=state.dictionary_values,
         learned_attributes=state.learned_attributes,
         pricing_info=state.pricing_info,
+        # ✅ v0.66.1 discover 类目学习闭环: 主图 match_layer 元数据透传进子图
+        # （R4 重配成功会在子图内更新为 R2b 档， learning_record 写侧按此分档）
+        category_match_meta=state.category_match_meta,
         # ⚠️ PR-1 (D3): 跨入口累积 — 从 GlobalState 传入已累计次数，子图在此基础上继续
         retry_count=state.retry_count,
     )
@@ -77,6 +80,9 @@ def validation_retry_wrapper_node(
     _repaired_tp: str = str(result.get("type_id", "") or "") or str(state.type_id or "")
     _repaired_attrs: list = result.get("final_attributes") or []
     _repaired_schema: list = result.get("attributes_schema") or []
+    # ✅ v0.66.1: 子图 R4 重配后的 match_layer 元数据回传（R2b 档）——learning_record
+    # 写侧按此分档 conf / L0 自证防护。子图未更新（空 dict）时保留主图原值。
+    _match_meta: Dict[str, Any] = result.get("category_match_meta") or state.category_match_meta or {}
 
     logger.info(f"✅ 子图执行完成：is_valid={is_valid}, retry_count={retry_count}, upload_status={upload_status}")
 
@@ -96,4 +102,5 @@ def validation_retry_wrapper_node(
         type_id=_repaired_tp,
         final_attributes=_repaired_attrs,
         attributes_schema=_repaired_schema,
+        category_match_meta=_match_meta,
     )
