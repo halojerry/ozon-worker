@@ -151,6 +151,8 @@ class ValidationRetryLoopOutput(BaseModel):
     # 可回灌主图 GlobalState → learning_record 分档写 mapping；当前 wrapper 未转发，
     # 留边界字段供后续接线）
     category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="修复后类目匹配元数据(R4 重配成功= R2b 档)")
+    # ✅ v0.67: 结构化 declined 原因透出（mod_errors 已回灌 state.errors → wrapper→主图→留存表归因）
+    errors: list = Field(default_factory=list, description="Ozon官方错误数组（终态透出，wrapper→主图）")
 
 
 # v0.28.5 C2: 错误码 → 用户可读中文说明(供 task_status/最终结果展示)
@@ -3088,6 +3090,8 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
         attributes_schema=state.attributes_schema,
         # ✅ v0.66.1: 子图内 R4 重配后的 match_layer 透出（SimpleNamespace 兼容 getattr）
         category_match_meta=getattr(state, "category_match_meta", None) or {},
+        # ✅ v0.67: 结构化 declined 原因透出（mod_errors 回灌的 state.errors；wrapper 消费）
+        errors=getattr(state, "errors", None) or [],
     )
 
 

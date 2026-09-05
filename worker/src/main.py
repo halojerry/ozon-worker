@@ -1080,14 +1080,15 @@ async def _periodic_task_cleanup(interval_seconds: int = 60):
                     "WHERE status='running' AND updated_at < NOW() - INTERVAL '30 minutes' "
                     "AND retry_count >= max_retries"
                 )).rowcount
-                # 归档 7 天前的 completed 任务（如果有 archive 表的话，先删除）
+                # 归档 30 天前的 completed 任务（结果已留存 listing_result_log，见
+                # utils/listing_result_log.py——v0.67 起每任务一行事实留存，物理删不再丢数据）
                 r2 = conn.execute(text(
                     "DELETE FROM ozon_product_tasks "
-                    "WHERE status='completed' AND updated_at < NOW() - INTERVAL '7 days'"
+                    "WHERE status='completed' AND updated_at < NOW() - INTERVAL '30 days'"
                 )).rowcount
                 conn.commit()
                 if r1 or r1f or r2:
-                    logger.info(f"🧹 定期清理: {r1} stale running → pending(重试+1), {r1f} stale running → failed(耗尽), {r2} old completed deleted")
+                    logger.info(f"🧹 定期清理: {r1} stale running → pending(重试+1), {r1f} stale running → failed(耗尽), {r2} old completed deleted (结果已留存 listing_result_log)")
                     # v0.29.2 监控: 超时任务重跑/终止上报 Sentry
                     try:
                         from utils.sentry_setup import capture_task_event

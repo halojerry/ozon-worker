@@ -1520,7 +1520,8 @@ def assemble_ozon_product_node(
                 "match_confidence": 0.0}
 
     # ✅ v4: 审计日志 — 记录本次匹配详情到 category_match_log
-    _log_match_attempt(state, title, source_category, keywords, category_result, match_layer, match_confidence, candidates)
+    # v0.67 P1-6: 传 config（task_id 取 thread_id = 任务 DB 行 uuid，可关联留存表）
+    _log_match_attempt(state, title, source_category, keywords, category_result, match_layer, match_confidence, candidates, config=config)
 
     description_category_id: int = int(category_result["description_category_id"])
     type_id: int = int(category_result["type_id"])
@@ -3546,24 +3547,44 @@ def _apply_fingerprint_rerank(query, candidates: list, source_keywords: str, key
 
 def _log_match_attempt(state, title: str, source_category: str, keywords: str,
                        category_result: dict, match_layer: str, confidence: float,
-                       candidates: list) -> None:
-    """v4: 写入 category_match_log 审计表"""
+                       candidates: list, config=None) -> None:
+    """v4: 写入 category_match_log 审计表
+
+    v0.67 P1-6: task_id 优先取 config.configurable.thread_id（= ozon_product_tasks.id /
+    PG 任务行 uuid），回退 state.task_id（ingest 随机 uuid，历史不一致根源——
+    修复后 category_match_log 可与任务表/留存表按 uuid 关联取证）。
+    """
     try:
         import json as _json, psycopg2 as _pg
         from storage.database.db import get_db_url as _gdu
-        task_id = getattr(state, 'task_id', '') or ''
+        # ✅ v0.67 P1-6: thread_id = 任务 DB 行 uuid（config 由 assemble node 传入）
+        _cfg_thread = ""
+        try:
+            _cfg_thread = str(((config or {}).get("configurable") or {}).get("thread_id") or "")
+        except Exception:
+            _cfg_thread = ""
+        task_id = _cfg_thread or (getattr(state, 'task_id', '') or '')
         if not task_id:
             logger.warning(f"match_log skip: task_id is empty (state type={type(state).__name__})")
             return
+        # ✅ v0.67 P1-6: source_url = 1688 货源链接（draft.purchase_url，溯源到货源卡）
+        _source_url = ""
+        try:
+            _d = getattr(state, "draft", None) or {}
+            _source_url = str((_d if isinstance(_d, dict) else {}).get("purchase_url") or "")[:500]
+        except Exception:
+            _source_url = ""
         conn = _pg.connect(_gdu())
         try:
             cur = conn.cursor()
             cur.execute("""
-                INSERT INTO category_match_log (task_id, source_title, source_category, source_keywords,
+                INSERT INTO category_match_log (task_id, source_title, source_category, source_url,
+                    source_keywords,
                     matched_description_category_id, matched_type_id, match_layer, confidence, candidates_json)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
             """, (
                 task_id, (title or "")[:500], (source_category or "")[:500],
+                _source_url or None,
                 [w.strip() for w in keywords.split() if len(w.strip()) >= 2][:20],
                 int(category_result.get("description_category_id", 0)),
                 int(category_result.get("type_id", 0)),

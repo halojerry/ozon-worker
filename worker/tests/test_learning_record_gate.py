@@ -24,7 +24,10 @@ def _make_state(moderation_status="", status="", upload_status="", ozon_upload_s
             {"attribute_id": 85, "value": "Нет бренда", "dictionary_value_id": 126745801, "source": "hardcoded"}
         ],
         attributes_schema=[],
-        draft={"title": "测试", "source_category": "成人用品 > 女用器具 > 震动棒"},
+        # ⚠️ v0.66.1 写侧语义预检（leaf↔Ozon ZH 路径零重叠拒写）: 真实树 dc=17028959 的
+        # ZH 路径是「成人用品 > 情趣玩具 > 振动器」，stub leaf 必须与之有字面重叠才能写
+        #（旧 stub 用 1688「震动棒」会被预检拒写——同义词跨词面，正是新预检的预期拦截）。
+        draft={"title": "测试", "source_category": "成人用品 > 情趣玩具 > 振动器"},
         envelope={"extensions": {}},
     )
 

@@ -83,6 +83,10 @@ def validation_retry_wrapper_node(
     # ✅ v0.66.1: 子图 R4 重配后的 match_layer 元数据回传（R2b 档）——learning_record
     # 写侧按此分档 conf / L0 自证防护。子图未更新（空 dict）时保留主图原值。
     _match_meta: Dict[str, Any] = result.get("category_match_meta") or state.category_match_meta or {}
+    # ✅ v0.67: 子图终态 errors/notice 透传主图（修复失败 → 主图 GlobalState →
+    # GraphOutput → task_processor 留存表归因；notice 中文可读优先作失败信息）
+    _final_errors: list = result.get("errors") or []
+    _final_notice: str = str(result.get("notice") or "")
 
     logger.info(f"✅ 子图执行完成：is_valid={is_valid}, retry_count={retry_count}, upload_status={upload_status}")
 
@@ -103,4 +107,7 @@ def validation_retry_wrapper_node(
         final_attributes=_repaired_attrs,
         attributes_schema=_repaired_schema,
         category_match_meta=_match_meta,
+        # v0.67: errors/notice 透传（子图终态错误数组 + 中文可读失败说明）
+        errors=_final_errors,
+        notice=_final_notice,
     )

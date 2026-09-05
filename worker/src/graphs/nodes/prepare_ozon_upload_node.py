@@ -1047,7 +1047,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
     return items
 
 
-def _fill_optional_dict_attrs(items, schema, draft, state):
+def _fill_optional_dict_attrs(items, schema, draft, state, audit_task_id: str = ""):
     """v0.26 P1-3: 字典属性全量填满（不限必填）— 同义词 + RU 搜索 + 列表包含匹配。
 
     对 schema 中 dictionary_id>0 且当前未填的属性：
@@ -1218,7 +1218,7 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                         try:  # v0.40 Phase 5: 属性匹配审计（非致命）
                             from utils.attr_match_log import log_attr_match
                             log_attr_match(
-                                task_id=str(getattr(state, "task_id", "") or ""),
+                                task_id=str(audit_task_id or getattr(state, "task_id", "") or ""),
                                 attr_id=aid, attr_name=str(attr.get("name") or ""),
                                 source_value=str(raw or ""),
                                 status="matched", match_layer="synonym",
@@ -1287,7 +1287,7 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                     try:  # 审计（非致命）
                         from utils.attr_match_log import log_attr_match
                         log_attr_match(
-                            task_id=str(getattr(state, "task_id", "") or ""),
+                            task_id=str(audit_task_id or getattr(state, "task_id", "") or ""),
                             attr_id=aid, attr_name=str(attr.get("name") or ""),
                             source_value=_raw2, status="matched",
                             match_layer="synonym", dictionary_value_id=_res2.dictionary_value_id,
@@ -1304,7 +1304,7 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
                             from utils.attr_match_log import log_attr_match as _lam2
                             if _should_fill(attr):
                                 _lam2(
-                                    task_id=str(getattr(state, "task_id", "") or ""),
+                                    task_id=str(audit_task_id or getattr(state, "task_id", "") or ""),
                                     attr_id=aid, attr_name=str(attr.get("name") or ""),
                                     source_value=_bypass_skip_src, status=_bypass_skip_status,
                                     match_layer="zh_direct_search", should_fill=True,
@@ -1315,7 +1315,7 @@ def _fill_optional_dict_attrs(items, schema, draft, state):
     return items
 
 
-def _infer_attrs_from_vision(items, schema, draft, state):
+def _infer_attrs_from_vision(items, schema, draft, state, audit_task_id: str = ""):
     """v0.64: 对未填充的视觉属性，用 vision 模型从产品图片推断。
 
     在 _fill_optional_dict_attrs 之后调用，填补剩余的视觉属性缺口。
@@ -1376,7 +1376,7 @@ def _infer_attrs_from_vision(items, schema, draft, state):
                         continue
                     from utils.attr_match_log import log_attr_match
                     log_attr_match(
-                        task_id=str(getattr(state, "task_id", "") or ""),
+                        task_id=str(audit_task_id or getattr(state, "task_id", "") or ""),
                         attr_id=aid, attr_name=str(attr.get("name") or ""),
                         source_value="", status="no_infer", match_layer="vision",
                         dictionary_value_id=0, confidence=0.0, should_fill=True,
@@ -1717,6 +1717,15 @@ def prepare_ozon_upload_node(
     
     # 获取 mxou API token（用户输入）
     mxou_token: str = state.token
+
+    # ✅ v0.67 P1-6: 审计 task_id = config.configurable.thread_id（= ozon_product_tasks.id）——
+    # attr_match_log 写点此前用 state.task_id（prepare 输入模型无该字段 → 恒空 → 审计全跳过）。
+    # thread_id 透传进 _fill_optional_dict_attrs/_infer_attrs_from_vision 的 audit_task_id。
+    _audit_task_id = ""
+    try:
+        _audit_task_id = str(((config or {}).get("configurable") or {}).get("thread_id") or "")
+    except Exception:
+        _audit_task_id = ""
     
     # 添加进度日志
     progress = ProgressLogger()
@@ -3368,12 +3377,15 @@ def prepare_ozon_upload_node(
         ozon_payload["items"] = _fill_missing_required_dict_attrs(
             ozon_payload.get("items", []), attributes_schema, draft, state
         )
+        # v0.67 P1-6: audit_task_id=thread_id 透传（attr_match_log 写点用真实任务 uuid）
         ozon_payload["items"] = _fill_optional_dict_attrs(
-            ozon_payload.get("items", []), attributes_schema, draft, state
+            ozon_payload.get("items", []), attributes_schema, draft, state,
+            audit_task_id=_audit_task_id,
         )
         # v0.64: 视觉属性推断——用 vision 模型从产品图片推断颜色/材质/风格等
         ozon_payload["items"] = _infer_attrs_from_vision(
-            ozon_payload.get("items", []), attributes_schema, draft, state
+            ozon_payload.get("items", []), attributes_schema, draft, state,
+            audit_task_id=_audit_task_id,
         )
     except Exception as _e:
         logger.warning("必填字典属性补齐异常（不影响主流程）: %s", _e)

@@ -63,6 +63,28 @@ def _writeback_status(task_id: str, status: str, error_message: str | None = Non
                        task_id, status, exc_info=True)
 
 
+def _write_listing_result_log(payload: dict, graph_result: dict, task_id: str,
+                              tenant_id: str, retry_count: int) -> None:
+    """v0.67: 上架结果留存分析表写入（三终态挂点统一入口）。
+
+    listing_result_log = 每任务一行事实留存（1688/Ozon 双侧 + 结果归因），替代
+    「completed 7 天物理删」的数据丢失。writer 本身非致命（内部 try/except），
+    此处再兜一层，任何异常都不影响任务终态落库。DB 调用为同步小查询（单行
+    upsert + 类目路径查双语），频率 = 任务终态一次，对齐既有终态同步 SQL 模式。
+    """
+    try:
+        from utils.listing_result_log import write_listing_result_log
+        write_listing_result_log(
+            payload=payload,
+            graph_result=graph_result,
+            task_db_id=str(task_id or ""),
+            tenant_id=tenant_id or "",
+            retry_count=retry_count or 0,
+        )
+    except Exception:
+        logger.warning("listing_result_log 写入失败（非致命）task=%s", task_id, exc_info=True)
+
+
 # v0.34 C6: 店铺使用埋点 upsert SQL，按 (ozon_client_id, stat_date) 按天聚合。
 #   task_count/approved_count/validation_failed_count 用 EXCLUDED 增量累加；
 #   common_errors 拼接当日最近 5 条失败 error_message（成功路径传 NULL → 保持不增）；
@@ -559,6 +581,8 @@ class SupabaseTaskProcessor:
                         # M0.3: draft_submissions 状态写回（在 commit 之后，不扩事务）
                         _writeback_status(task_id, "failed", graph_result.get("_harness_error"))
                         await _send_task_notify_async(task_id, "failed", graph_result, payload)
+                        # v0.67: 上架结果留存分析表（failed 终态归因，非致命）
+                        _write_listing_result_log(payload, graph_result, task_id, tenant_id, retry_count)
                         clear_trace_context()
                         return graph_result
 
@@ -593,6 +617,8 @@ class SupabaseTaskProcessor:
                         # M0.3: draft_submissions 状态写回（在 commit 之后，不扩事务）
                         _writeback_status(task_id, "rejected", graph_result.get("_harness_error"))
                         await _send_task_notify_async(task_id, "rejected", graph_result, payload)
+                        # v0.67: 上架结果留存分析表（rejected 终态归因，非致命）
+                        _write_listing_result_log(payload, graph_result, task_id, tenant_id, retry_count)
                         clear_trace_context()
                         return graph_result
 
@@ -624,6 +650,8 @@ class SupabaseTaskProcessor:
                     _writeback_status(task_id, "completed", None)
                     await _send_task_notify_async(task_id, "completed", graph_result, payload)
                     log_task_event("completed", task_id=task_id, user_id=tenant_id)
+                    # v0.67: 上架结果留存分析表（completed 终态，approved/pending 归因，非致命）
+                    _write_listing_result_log(payload, graph_result, task_id, tenant_id, retry_count)
                     clear_trace_context()
                     return graph_result
 
