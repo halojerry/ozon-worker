@@ -14,7 +14,11 @@
 | 多角度 | multi_angle | 现有节点 |
 | 材质图/尺寸图 | 无现成节点 | v1 置灰，不提供（plan 中出现 → 忽略） |
 
-- **默认 plan** = 全 10 张（向后兼容，管线行为不变）。
+- **默认 plan** = 精简 5 张（2026-09-05 成本决策）：white_bg / multi_angle / main_image /
+  detail / scene×1 + variant_primary_loop（多 SKU 变体主图，上传必需）。
+  关闭槽位（social_proof / comparison / scene_2 / scene_3）只是默认不生成，
+  slot 本身仍在 ALL_SLOTS 冻结集合中——**未来重开只需经 config.configurable.image_gen_plan
+  或 state.image_gen_plan 覆盖 plan，无需改代码/拓扑**。
 - **plan 校验（Momus W1）**：plan 必须含 Phase1（white_bg 或 multi_angle）——
   Phase2 节点依赖 Phase1 输出作参考图（graph.py:235-245），仅 Phase2 类型 → 拒绝。
 - **注入通道**：config.configurable.image_gen_plan（与 force_regen/regen_version 同源，
@@ -45,15 +49,18 @@ _ALL_SLOTS_SET = frozenset(ALL_SLOTS)
 # 场景图计数 0-3（C3b）
 SCENE_SLOTS = ("scene_1", "scene_2", "scene_3")
 
-# 默认 plan = 全 10 张（"scene": 3 展开为 scene_1/2/3；variant 为多 SKU 路径）
+# 默认 plan = 精简 5 张（2026-09-05 成本优化决策；"scene": 1 展开为 scene_1；
+# variant 为多 SKU 路径，保留——变体主图缺失会 image_absent）。
+# 保留槽位功能各不重叠：white_bg（合规净图 + Phase1 参考 + 主图兜底）、
+#   multi_angle（多视角）、main_image（卡片首图）、detail（细节信任）、scene_1（使用场景）。
+# 关闭槽位 = 暂时不用，可经 config.configurable.image_gen_plan / state.image_gen_plan
+#   覆盖重开（全 10 张 = 旧 DEFAULT_PLAN 集合 + scene:3 + social_proof/comparison）。
 DEFAULT_PLAN: Dict[str, int] = {
     "white_bg": 1,
     "multi_angle": 1,
     "main_image": 1,
     "detail": 1,
-    "social_proof": 1,
-    "comparison": 1,
-    "scene": 3,
+    "scene": 1,
     "variant_primary_loop": 1,
 }
 

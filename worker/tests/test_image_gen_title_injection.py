@@ -61,7 +61,19 @@ REF_IMAGE = "https://example.com/ref.jpg"
 
 # LangGraph 节点签名: node(state, config, runtime)。config 供 _task_id_from_config
 # 读 thread_id（空 → 跳过任务生图缓存，不碰 PG）；runtime.context 节点内未实际使用。
-_CONFIG = {"metadata": {"execute_id": "test-run"}}
+# ⚠️ image_gen_plan: 全 10 张 —— 本文件是「节点 prompt 质量护栏」，默认精简 plan(5 张)
+# 会让 social_proof/comparison/scene_2/scene_3 节点短路跳过。这里显式注入全 10 张 plan，
+# 保证被关节点（未来经 plan 重开时）的标题注入/场景差异化护栏仍持续生效。
+_CONFIG = {
+    "metadata": {"execute_id": "test-run"},
+    "configurable": {
+        "image_gen_plan": {
+            "white_bg": 1, "multi_angle": 1, "main_image": 1, "detail": 1,
+            "social_proof": 1, "comparison": 1, "scene": 3,
+            "variant_primary_loop": 1,
+        }
+    },
+}
 _RUNTIME = type("FakeRuntime", (), {"context": None})()
 
 
