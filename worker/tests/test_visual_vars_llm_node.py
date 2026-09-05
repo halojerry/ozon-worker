@@ -7,7 +7,7 @@ v0.32 Wave 2 — visual_vars_llm_node 视觉变量生成 LLM 节点。
 (b) LLM 返回坏 JSON / markdown 包裹 → 容错解析（镜像 scene_generation_llm 2 层范式）
 (c) LLM 返回部分字段 → 缺失字段回退 extract/默认（不报错，9 必填仍非空）
 (d) LLM 调用失败（异常/返回 None）→ 回退 extract_visual_vars_from_draft + 品类默认，不阻断
-(e) 纯文本输入（F8 实证 deepseek-v4-flash 无视觉）：mock 调用无 images 参数/无图 URL
+(e) 视觉模型输入（v0.64 deepseek-v4-flash-vision-exp）：mock 调用含 image_urls 参数
 (f) v6 单阶段俄文生图模板: REQUIRED +headline_style、OPTIONAL +5 俄文变量（product_ru/
     cta_ru/selling_points_ru/effect_data_ru/target_ru）→ ALL_KEYS=25；brand_primary/accent
     为确定性产出（来自 color_preset 的 get_preset_colors，不进 ALL_KEYS，LLM 不可覆盖）；
@@ -230,12 +230,12 @@ def test_empty_draft_still_non_empty_required():
 
 
 # ── (e) 纯文本输入：不传 images 给 LLM（F8 实证）──
-def test_no_images_passed_to_llm():
+def test_images_passed_to_llm():
     out, calls = _run_node(draft=DRAFT, llm_content=json.dumps(VALID_JSON))
-    # mock 调用无 images/image/ref_images 参数
-    for kw in ("images", "image", "ref_images"):
-        assert kw not in calls, f"LLM 调用不应包含 {kw} 参数"
-    # user_prompt 纯文本，不含图片 URL（F8: deepseek-v4-flash 无视觉）
+    # v0.64: vision 模型传入 image_urls 参数（前 3 张产品图）
+    assert "image_urls" in calls, "LLM 调用应包含 image_urls 参数"
+    assert isinstance(calls["image_urls"], list) and len(calls["image_urls"]) <= 3
+    # 图片 URL 不应出现在文本 prompt 中（走 image_urls 而非拼入 user_prompt）
     assert calls["user_prompt"] and isinstance(calls["user_prompt"], str)
     assert "https://example.com/product_1.jpg" not in calls["user_prompt"], \
         "图片 URL 不应出现在 LLM 文本 prompt 中"

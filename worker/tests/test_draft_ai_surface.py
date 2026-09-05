@@ -24,7 +24,7 @@ PAYLOAD = {
 
 
 def _fake_llm(value):
-    def fake(token, system_prompt, user_prompt, model="deepseek-v4-flash",
+    def fake(token, system_prompt, user_prompt, model="deepseek-v4-flash-vision-exp", image_urls=None,
              temperature=0.0, max_tokens=4096, timeout=90):
         fake.calls.append((system_prompt, user_prompt))
         return value

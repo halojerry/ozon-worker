@@ -122,10 +122,11 @@ def call_mxou_chat_api(
     token: str,
     system_prompt: str,
     user_prompt: str,
-    model: str = "deepseek-v4-flash",
+    model: str = "deepseek-v4-flash-vision-exp",
     temperature: float = 0.0,
     max_tokens: int = 4096,
-    timeout: int = 90
+    timeout: int = 90,
+    image_urls: Optional[list[str]] = None,
 ) -> Optional[str]:
     """
     调用 mxou LLM Chat API，返回响应文本。
@@ -134,10 +135,12 @@ def call_mxou_chat_api(
         token: mxou API 密钥（用户输入）
         system_prompt: 系统提示词
         user_prompt: 用户提示词
-        model: 模型ID，默认 deepseek-v4-flash
+        model: 模型ID，默认 deepseek-v4-flash-vision-exp（多模态视觉模型）
         temperature: 温度，默认 0.0
         max_tokens: 最大输出 token 数
         timeout: 请求超时秒数
+        image_urls: 产品图片 URL 列表（≤4 张），传入时 content 按 OpenAI Vision
+                    array 格式组装，LLM 可看到产品图片做类目/属性判断。
 
     返回:
         LLM 响应文本字符串；失败返回 None
@@ -159,11 +162,19 @@ def call_mxou_chat_api(
         "Content-Type": "application/json"
     }
 
+    # v0.64: vision 模型支持——有图片时 content 按 OpenAI Vision array 格式组装
+    if image_urls:
+        user_content: Any = [{"type": "text", "text": user_prompt}]
+        for url in image_urls[:4]:
+            user_content.append({"type": "image_url", "image_url": {"url": url}})
+    else:
+        user_content = user_prompt
+
     payload: Dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "user", "content": user_content}
         ],
         "temperature": temperature,
         "max_tokens": max_tokens,

@@ -135,7 +135,7 @@ def test_403_out_of_quota_no_retry(monkeypatch):
 def test_chat_balance_below_threshold_raises_out_of_quota(monkeypatch):
     """chat 通道（LLM 调用）余额 < 1.0 → 同样 pre-check fast-fail，零 POST。
 
-    W12 修复：591 次 insufficient_user_quota 全是 chat 调用（deepseek-v4-flash），
+    W12 修复：591 次 insufficient_user_quota 全是 chat 调用（deepseek-v4-flash-vision-exp），
     原只修了 image 通道漏了 chat——余额不足必须 task 明确 fail「请充值」，
     不能静默返回 None 级联成属性空/翻译失败。
     """

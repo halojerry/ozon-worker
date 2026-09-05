@@ -1870,7 +1870,7 @@ def _llm_match_category(
             cfg = json.load(f)
 
         llm_cfg = cfg.get("config", {})
-        model_id = llm_cfg.get("model", "deepseek-v4-flash")
+        model_id = llm_cfg.get("model", "deepseek-v4-flash-vision-exp")
         sp_template = cfg.get("sp", "")
         up_template = cfg.get("up", "")
 
@@ -2038,21 +2038,24 @@ def _build_items_deterministically(
     def _find_dict_value(attr_id: int, product_value: str) -> tuple[int, str]:
         """在字典值中查找匹配，返回 (dictionary_value_id, value)（v0.40 迁移 matcher）。
 
-        语义：matcher.match_dict_value 返回全部存活候选；assemble 原逻辑
-        （精确→包含取首个）由 match_dict_value 的第一个候选等价覆盖；
-        无命中返回 (0, product_value) 由调用方 dict_val_id>0 守卫拦截。
+        v0.64: 用 unique_or_none 替代 hits[0]——多候选时不盲补首值，
+        留给 prepare gap-fill + LLM 消歧（vision 模型可看图判断）。
+        单候选 → matched；多候选 → (0, "") 留空给 prepare；零候选 → (0, product_value)。
         """
-        from utils.attr_value_matcher import match_dict_value  # type: ignore
+        from utils.attr_value_matcher import match_dict_value, unique_or_none  # type: ignore
         if not product_value:
             return (0, "")
         values = dict_lookup.get(attr_id, [])
         if not values:
             return (0, product_value)
         hits = match_dict_value(attr_id, product_value, values)
-        if hits:
-            first = hits[0]
-            return (int(first.get("id") or 0), str(first.get("value") or ""))
-        return (0, product_value)
+        if not hits:
+            return (0, product_value)
+        res = unique_or_none(attr_id, "", hits)
+        if res.status == "matched" and res.dictionary_value_id > 0:
+            return (res.dictionary_value_id, res.value)
+        # llm_eligible / skipped → 不填，留给 prepare gap-fill 消歧
+        return (0, "")
 
     # ⚠️ v0.29.x: _find_dict_value 命中时返回的 value 可能是 ZH_HANS 中文
     # (dict_lookup 缓存是中文)。上传前 value 字段必须去中文(字典属性以
@@ -3007,9 +3010,11 @@ def _llm_rank_categories(
         )
 
         # v0.34: 结构化输出 JSON —— LLM 选候选编号；若候选都不合适, 输出 suggest_keywords
-        # 供上层用建议词二次搜索正确类目（deepseek-v4-flash 推理模型 max_tokens 需足够大,
+        # 供上层用建议词二次搜索正确类目（deepseek-v4-flash-vision-exp 推理模型 max_tokens 需足够大,
         # 10/200 都会被 reasoning_tokens 吃光输出为空 → fallback 恒失败）
+        # v0.64: 传入产品图片，vision 模型可看图判断类目（"圆盘状饮水器" vs "饮水器"）
         prompt = f"""Choose the best Ozon category for this product. Output JSON only.
+请同时参考上方产品图片判断最匹配的类目。
 
 产品: {product_title[:150]}
 1688类目: {source_cat[:150]}
@@ -3023,11 +3028,13 @@ def _llm_rank_categories(
 {{"candidate_index": <1-{len(candidates)} 的整数, 候选中最匹配的; 若都不合适填 0>,
  "suggest_keywords": "<候选都不合适时, 给出 1-3 个俄语或中文搜索词用于重新搜索正确类目; 合适则空字符串>"}}"""
 
+        product_images = (draft or {}).get("images", []) or []
         result = call_mxou_chat_api(
             token=getattr(state, "token", ""),
             system_prompt="You are a product categorization expert. Follow domain rules if provided. Output valid JSON.",
             user_prompt=prompt,
-            model="deepseek-v4-flash", temperature=0.0, max_tokens=4096,
+            model="deepseek-v4-flash-vision-exp", temperature=0.0, max_tokens=4096,
+            image_urls=product_images[:3] if product_images else None,
         )
         if not result:
             return None

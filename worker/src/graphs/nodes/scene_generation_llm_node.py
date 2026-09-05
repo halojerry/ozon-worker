@@ -54,13 +54,16 @@ def scene_generation_llm_node(state: SceneGenerationInput, config: RunnableConfi
     token: str = state.token
     
     try:
+        # v0.64: vision 模型传入产品图片，生成更贴合产品的使用场景
+        product_images = draft.get("images", []) or []
         content = call_mxou_chat_api(
             token=token,
             system_prompt=sp,
             user_prompt=user_prompt,
-            model=llm_config.get("model", "deepseek-v4-flash"),
+            model=llm_config.get("model", "deepseek-v4-flash-vision-exp"),
             temperature=llm_config.get("temperature", 0.7),
-            max_tokens=llm_config.get("max_tokens", 2048)
+            max_tokens=llm_config.get("max_tokens", 2048),
+            image_urls=product_images[:3] if product_images else None,
         )
         
         if content and content.strip():

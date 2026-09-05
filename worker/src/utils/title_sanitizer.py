@@ -86,7 +86,7 @@ def _remove_latin_llm(text: str, token: str) -> str:
             token=token,
             system_prompt="Ты редактор названий товаров. Удаляешь всё, кроме кириллицы.",
             user_prompt=prompt,
-            model="deepseek-v4-flash",
+            model="deepseek-v4-flash-vision-exp",
             max_tokens=200,
             timeout=30,
         )

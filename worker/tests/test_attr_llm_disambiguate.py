@@ -5,7 +5,7 @@
 2. LLM 只输出候选索引，绝不输出 dict_id（dict_id 从确定性候选重查证）
 3. 解析失败/越界/-1/异常 → None（abstain，绝不降级取第一个）
 4. 默认关：enabled=False 原样返回 llm_eligible
-5. max_tokens ≥ 200（deepseek-v4-flash reasoning 配额教训）
+5. max_tokens ≥ 200（deepseek-v4-flash-vision-exp reasoning 配额教训）
 纯函数 + mock LLM，无需 PG/网络。
 """
 import json
@@ -147,7 +147,7 @@ def test_config_load_max_tokens_ge_200():
     tmp = tempfile.mkdtemp()
     os.makedirs(os.path.join(tmp, "config"), exist_ok=True)
     cfg = {
-        "config": {"model": "deepseek-v4-flash", "max_completion_tokens": 2048},
+        "config": {"model": "deepseek-v4-flash-vision-exp-vision-exp", "max_completion_tokens": 2048},
         "sp": "sp", "up": "up",
     }
     with open(os.path.join(tmp, "config", "attr_disambiguation_cfg.json"), "w") as f:

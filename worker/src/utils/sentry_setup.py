@@ -148,9 +148,26 @@ def _token_fingerprint(token: str) -> str:
     return f"{prefix}-{suffix}"
 
 
+def _has_python_traceback(event: dict) -> bool:
+    """v0.64 P2: 事件含 Python 异常栈帧 → 跳过噪音聚合（可能是真实代码 bug）。"""
+    exc = event.get("exception") or {}
+    values = exc.get("values") or []
+    for v in values:
+        if isinstance(v, dict) and (v.get("stacktrace") or {}).get("frames"):
+            return True
+    return False
+
+
 def _before_send(event: dict, hint: Optional[dict] = None) -> dict:
-    """噪音指纹聚合：语言检查（v0.32）+ MXOU 永久错误（v0.63.1）+ 高频业务噪音（v0.63.1）。未启用短路零开销。"""
+    """噪音指纹聚合：语言检查（v0.32）+ MXOU 永久错误（v0.63.1）+ 高频业务噪音（v0.63.1）。未启用短路零开销。
+
+    v0.64 P2: 含 Python 异常栈帧的事件跳过全部噪音聚合——可能是真实代码 bug，
+    不应被降级为 warning 或折叠进单一 fingerprint。
+    """
     if not _SENTRY_ENABLED or not isinstance(event, dict):
+        return event
+    # 有 Python traceback 的事件不走噪音聚合（保留原始 level + 独立 fingerprint）
+    if _has_python_traceback(event):
         return event
     if _is_lang_noise_event(event):
         msg = _event_message(event)
