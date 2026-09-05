@@ -90,6 +90,11 @@ class ValidationRetryLoopState(BaseModel):
     
     # 修复元数据（classify_error_node 传递给 repair 节点的指令）
     repair_metadata: Dict[str, Any] = Field(default_factory=dict, description="修复元数据（如 remove_attrs）")
+    # ✅ v0.66.1 discover 类目学习闭环（断点2b）: 类目匹配元数据——主图 assemble 写入、
+    # wrapper 从 GlobalState 透传进子图；R4 整卡重配成功换新 dc/type 时更新为
+    # {"match_layer": "R2b", "confidence": 0.7}（重配结果等同 LLM 确认档，防 L0 自证
+    # 误判 + 分档写 category_mapping）。对齐 v0.66 pricing_info 声明先例。
+    category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="类目匹配元数据（R4 重配成功置 R2b 档）")
 
 
 class ValidationRetryLoopInput(BaseModel):
@@ -117,6 +122,8 @@ class ValidationRetryLoopInput(BaseModel):
     dictionary_values: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict, description="字典值数据")
     learned_attributes: Dict[str, Any] = Field(default_factory=dict, description="已学习的属性映射")
     pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格信息")
+    # ✅ v0.66.1 discover 类目学习闭环: 主图 category_match_meta 透传进子图（R4 重配后更新）
+    category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="类目匹配元数据（主图透传，R4 重配后置 R2b）")
     # ⚠️ PR-1 (D3): 跨入口累积重试次数 — wrapper 从 GlobalState 传入，子图在此基础上继续
     retry_count: int = Field(default=0, description="已累计重试次数（跨入口不重置）")
 
@@ -140,6 +147,10 @@ class ValidationRetryLoopOutput(BaseModel):
     type_id: str = Field(default="", description="修复后类型ID")
     final_attributes: list = Field(default_factory=list, description="修复后最终属性列表")
     attributes_schema: list = Field(default_factory=list, description="修复后属性Schema(重配类目后变化)")
+    # ✅ v0.66.1 discover 类目学习闭环: 子图 R4 重配后的 match_layer 透出（wrapper 若消费
+    # 可回灌主图 GlobalState → learning_record 分档写 mapping；当前 wrapper 未转发，
+    # 留边界字段供后续接线）
+    category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="修复后类目匹配元数据(R4 重配成功= R2b 档)")
 
 
 # v0.28.5 C2: 错误码 → 用户可读中文说明(供 task_status/最终结果展示)
@@ -914,6 +925,9 @@ def _try_recategorize_card(state: ValidationRetryLoopState) -> bool:
 
         state.description_category_id = str(new_dc)
         state.type_id = str(new_type)
+        # ✅ v0.66.1 断点2b: R4 整卡重配成功换新 dc/type → match_layer 置 R2b（重配结果
+        # 等同 LLM 确认档，写 mapping 分 0.7 档；L0 自证防护不误伤新证据）。
+        state.category_match_meta = {"match_layer": "R2b", "confidence": 0.7}
         state.ozon_payload["items"] = rebuild.get("items") or state.ozon_payload.get("items") or []
         state.final_attributes = rebuild.get("final_attributes") or []
         state.attributes_schema = rebuild.get("attr_list") or []
@@ -3072,6 +3086,8 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
         type_id=state.type_id,
         final_attributes=state.final_attributes,
         attributes_schema=state.attributes_schema,
+        # ✅ v0.66.1: 子图内 R4 重配后的 match_layer 透出（SimpleNamespace 兼容 getattr）
+        category_match_meta=getattr(state, "category_match_meta", None) or {},
     )
 
 

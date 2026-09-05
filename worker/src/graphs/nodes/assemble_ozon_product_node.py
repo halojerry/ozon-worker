@@ -2009,6 +2009,17 @@ def assemble_ozon_product_node(
         "type_id": str(type_id),
         # ⚠️ v0.32 修复: 匹配类目中文末级名回填 state（生图提示词 {{category}} 兜底，draft.category 恒空时）
         "category_name": category_path.split(">")[-1].strip() if category_path else "",
+        # ✅ v0.66.1 discover 类目学习闭环（断点2a）: match_layer/confidence 透传 state。
+        # learning_record 写 category_mapping 前据此分档——match_layer=L0（本次 dc 来自
+        # 学习表命中）且 dc/tp 未变 → 跳过 upsert（L0 自证回环防护）；Skill→0.9 /
+        # L1→0.7（L0 已被修复重配换走时等同 R2b 档）。与 category_match_log 写入同源的
+        # 最终 match_layer/match_confidence 值（category_result 定稿后不再改写）。
+        "category_match_meta": {
+            "match_layer": match_layer,
+            "confidence": match_confidence,
+            "description_category_id": str(description_category_id),
+            "type_id": str(type_id),
+        },
         "attributes_schema": attr_list,
         "dictionary_values": {str(k): v for k, v in dict_lookup.items()},  # ← 键必须是 str（PrepareOzonUploadInput 要求）
         "final_attributes": final_attributes,

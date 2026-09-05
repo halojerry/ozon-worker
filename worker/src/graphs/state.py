@@ -83,6 +83,11 @@ class GlobalState(BaseModel):
         default_factory=dict, description="Ozon属性字典值缓存（key=attribute_id字符串, value=[{id,value,...}]）"
     )
     match_confidence: float = Field(default=1.0, description="类目匹配置信度（低置信度阻断上架）")
+    # ✅ v0.66.1 discover 类目学习闭环: 类目匹配元数据（match_layer/confidence + 定稿
+    # dc/type）——assemble 类目定稿后写入，learning_record 写 category_mapping 前据此
+    # 分档（match_layer=L0 且 dc/tp 未变 → L0 自证跳过；Skill→0.9；L1/R2b→0.7）。
+    # last-write-wins（无自定义 reducer 需求，对齐 pricing_info dict 字段风格）。
+    category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="类目匹配元数据（match_layer/confidence/dc/tp，L0 自证防护 + 写侧信任分档）")
     
     # 图片结果
     phase1_images: Dict[str, str] = Field(default_factory=dict, description="Phase1图片URLs")
@@ -765,6 +770,10 @@ class ValidationRetryWrapperInput(BaseModel):
     dictionary_values: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict, description="字典值数据")
     learned_attributes: Dict[str, Any] = Field(default_factory=dict, description="已学习的属性映射")
     pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格信息（用于价格修复）")
+    # ✅ v0.66.1 discover 类目学习闭环: 主图 assemble 写入的 category_match_meta 透传进
+    # 修复子图（对齐 v0.66 pricing_info 先例——wrapper 节点显式构造子图 Input，需在此声明
+    # 才不被过滤）。R4 整卡重配成功会在子图 state 更新为 {"match_layer":"R2b",...}。
+    category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="类目匹配元数据（透传子图，R4 重配后更新为 R2b 档）")
 
     # 条件分支路径函数需要访问的字段
     upload_status: str = Field(default="", description="上传状态（success/failed）")
@@ -794,6 +803,9 @@ class ValidationRetryWrapperOutput(BaseModel):
     type_id: str = Field(default="", description="修复后类型ID")
     final_attributes: list = Field(default_factory=list, description="修复后最终属性列表")
     attributes_schema: list = Field(default_factory=list, description="修复后属性Schema(重配类目后变化)")
+    # ✅ v0.66.1 discover 类目学习闭环: 子图 R4 重配后的 match_layer 元数据回传主图
+    # （learning_record 写侧按此分档 conf / L0 自证防护——不透传则 R2b 档到不了学习侧）
+    category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="类目匹配元数据（R4 重配成功=R2b 档）")
 
 
 # ==================== 学习记录节点 ====================
@@ -832,6 +844,12 @@ class LearningRecordInput(BaseModel):
     ozon_api_key: str = Field(default="", description="Ozon Api-Key（佣金回填凭证）")
     pricing_info: Dict[str, Any] = Field(default_factory=dict,
                                          description="价格计算结果（佣金回填 pick_price_band 选段用）")
+    # ✅ v0.66.1 discover 类目学习闭环: category_match_meta 补进 input schema——
+    # langgraph 按节点 Input model 过滤 channel（v0.27 moderation_status / v0.65
+    # pricing_info 教训），不声明则学习节点读不到 assemble 写入的 match_layer →
+    # L0 自证防护失效（会继续给学习表自己加证据）。
+    category_match_meta: Dict[str, Any] = Field(default_factory=dict,
+                                                description="类目匹配元数据（match_layer/confidence，写侧 L0 自证跳过/信任分档）")
 
 
 class LearningRecordOutput(BaseModel):
