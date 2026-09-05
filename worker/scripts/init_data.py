@@ -93,6 +93,17 @@ def create_tables(engine):
             conn.execute(text(
                 f"ALTER TABLE ozon_product_tasks ALTER COLUMN {_col} SET DEFAULT {_default}"
             ))
+        # ✅ v0.67: 上架结果留存分析表 + P1-6 审计关联修复（幂等，二次运行 no-op）
+        # listing_result_log 由 Base.metadata.create_all 建表（新表）；此处兜底：
+        # 存量半迁移库缺索引 → CREATE INDEX IF NOT EXISTS 补齐（对齐 __table_args__）。
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_listing_result_tenant ON listing_result_log (tenant_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_listing_result_client ON listing_result_log (ozon_client_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_listing_result_status ON listing_result_log (final_status)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_listing_result_created ON listing_result_log (created_at)"))
+        # ✅ v0.67 P1-6: category_match_log 追加 1688 货源链接列（审计行可溯源到货源卡）
+        conn.execute(text(
+            "ALTER TABLE category_match_log ADD COLUMN IF NOT EXISTS source_url TEXT"
+        ))
         conn.commit()
     # ✅ v0.41 WebUI T1: task_generated_images ALTER + 新表索引（幂等，二次运行 no-op）
     from migrate_webui_v1 import run_migrations

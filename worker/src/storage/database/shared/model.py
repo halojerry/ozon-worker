@@ -351,6 +351,8 @@ class CategoryMatchLog(Base):
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     task_id: Mapped[str] = mapped_column(Text, nullable=False)
     source_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # ✅ v0.67 P1-6: 1688 货源链接（draft.purchase_url）——审计行可溯源到具体货源卡
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_category: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_keywords: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)
     matched_description_category_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
@@ -1070,4 +1072,72 @@ class SelectionInsight(Base):
     __table_args__ = (
         UniqueConstraint("keyword", "contributed_by_token_id", name="uq_selection_insight_keyword_token"),
         Index("idx_selection_insight_token", "contributed_by_token_id"),
+    )
+
+
+class ListingResultLog(Base):
+    """v0.67: 上架结果留存分析表——每任务一行，1688/Ozon 双侧事实 + 结果归因。
+
+    append-only（upsert by task_db_id 幂等）；替代「completed 7 天物理删」的数据丢失
+    （main.py cleanup 注释自认该有 archive 表）。供问题追溯/类目学习修复/数据分析。
+    task_db_id = ozon_product_tasks.id（= config.configurable.thread_id，修 P1-6 对齐：
+    category_match_log 曾因 ingest 随机 uuid 无法与任务行关联）。
+
+    ⚠️ title_ru/offer_id 为预留列（fetch_back 回读扩展再填）；match_layer/match_confidence
+    需 GraphOutput 透出 category_match_meta 后接入（当前 writer 留空）。
+    """
+    __tablename__ = "listing_result_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    task_db_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, comment="ozon_product_tasks.id（= config thread_id）")
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False, comment="用户 ID（从 token 派生）")
+    ozon_client_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, comment="Ozon 店铺")
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # ── 1688 侧事实 ──
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_item_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_sku_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_title_cn: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    supplier: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_category_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_category_leaf: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_category_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    purchase_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # ── Ozon 侧事实 ──
+    ozon_product_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    offer_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    title_ru: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description_category_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    type_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    category_path_zh: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    category_path_ru: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    old_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    promo_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    currency_code: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    weight_g: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    dims_mm: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True, comment="{length,width,height}（mm）")
+    variants: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+
+    # ── 结果与归因 ──
+    final_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, comment="approved/declined/failed/pending")
+    moderation_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="截 2000")
+    errors: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, comment="结构化 declined 原因 [{code,attribute_id,...}]")
+    retry_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    match_layer: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, comment="Skill/L0/L1/R2b（GraphOutput 透出后接入）")
+    match_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    pipeline_source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, comment="graph/discover/follow")
+    pricing_info: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    fetch_back_summary: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
+    __table_args__ = (
+        Index("idx_listing_result_tenant", "tenant_id"),
+        Index("idx_listing_result_client", "ozon_client_id"),
+        Index("idx_listing_result_status", "final_status"),
+        Index("idx_listing_result_created", "created_at"),
     )

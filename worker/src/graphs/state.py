@@ -123,6 +123,10 @@ class GlobalState(BaseModel):
     # 错误信息（last-write-wins：后写入的覆盖先写入的）
     error_message: Annotated[str, _overwrite_str] = Field(default="", description="错误信息")
     error_code: str = Field(default="", description="错误代码")
+    # ✅ v0.67: 中文可读失败说明（retry 子图 final_result _build_notice 生成 →
+    # wrapper 透传 → GlobalState 通道 → GraphOutput）。task_processor 失败信息优先取
+    # notice（否则 error_message 原始错误码摘要）。
+    notice: str = Field(default="", description="v0.67: 中文可读失败说明")
     failed_stage: Annotated[str, operator.add] = Field(default="", description="失败的节点名称（允许多个节点并发更新）")
     stages: Annotated[Dict[str, str], lambda a, b: {**a, **b}] = Field(default_factory=dict, description="处理阶段状态（允许多个节点并发更新，字典合并）")
     
@@ -222,6 +226,11 @@ class GraphOutput(BaseModel):
     # 缺失导致 agent 看不到审核状态(ozon_status 出参恒空)。OzonStatusInput 已补
     # 该字段(路由能读 approved), GraphOutput 补上终态才可见。
     moderation_status: str = Field(default="", description="Ozon审核状态 (approved/pending/error)")
+    # ✅ v0.67: errors/notice 透出 — output_schema 过滤纪律同 upload_status/moderation_status。
+    # task_processor 三终态挂点据此写 listing_result_log 留存分析表（结构化 declined 原因）；
+    # notice 为中文可读失败说明（retry 子图 _build_notice 生成，经 wrapper 回传主图）。
+    errors: List[Dict[str, Any]] = Field(default_factory=list, description="Ozon API返回的结构化错误数组")
+    notice: str = Field(default="", description="中文可读失败说明")
 
 
 # ==================== 认证节点 ====================
@@ -806,6 +815,10 @@ class ValidationRetryWrapperOutput(BaseModel):
     # ✅ v0.66.1 discover 类目学习闭环: 子图 R4 重配后的 match_layer 元数据回传主图
     # （learning_record 写侧按此分档 conf / L0 自证防护——不透传则 R2b 档到不了学习侧）
     category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="类目匹配元数据（R4 重配成功=R2b 档）")
+    # ✅ v0.67: 子图 errors/notice 透传主图（修复失败终态 → GlobalState → GraphOutput
+    # → task_processor 留存表归因）。errors 为结构化 declined 原因、notice 中文可读说明。
+    errors: list = Field(default_factory=list, description="Ozon官方错误数组（子图终态透出）")
+    notice: str = Field(default="", description="中文可读失败说明（子图 _build_notice 透出）")
 
 
 # ==================== 学习记录节点 ====================

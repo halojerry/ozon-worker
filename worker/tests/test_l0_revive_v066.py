@@ -2,8 +2,9 @@
 
 覆盖：
 - c1 写侧: LearningRecordInput 补 source/envelope/product_id（Task0 实证 langgraph 按节点
-  Input schema 过滤 channel，未声明字段节点不可见）；is_follow 守卫（envelope extensions +
-  draft.ozon_product_id 兜底）；W1 source_category 三源兜底。
+  Input schema 过滤 channel，未声明字段节点不可见）。⚠️ v0.66.1 断点1 语义演进：跟卖不再
+  整体跳过 mapping——真跟卖（follow_type 或旧信封 ozon_product_id 单独出现）写 conf 压 0.6，
+  discover 变体（follow_sell 无 follow_type）正常写（本批把「跳过」断言改为「写」）。
 - W3/c9/c10: add_category_mapping 原子 upsert（冲突累加而非 SELECT→INSERT 竞态炸库）+
   mark_category_mapping_failed 负反馈语义（learned 3 次下线 / curated 只 +1）。
 - Task2: validation_retry_loop final_result 每任务一次 declined 负反馈挂点；R4 重配成功
@@ -39,17 +40,26 @@ _TEST_TP = 96513
 
 
 class _FakeRow:
-    """fetchone 恒返回 truthy 行（cat_zh/cat_ru/exists 校验全放行）。"""
+    """fetchone 恒返回传入行（cat_zh/cat_ru/exists 校验全放行）。"""
+
+    def __init__(self, value=("成人用品 > 女用器具 > 震动棒",)):
+        self._value = value
 
     def fetchone(self):
-        return ("成人用品 > 女用器具 > 震动棒",)
+        return self._value
 
 
 class _FakeSession:
-    """storage.database.db.get_session 的替身（with get_session() as s 用法）。"""
+    """storage.database.db.get_session 的替身（with get_session() as s 用法）。
+
+    v0.66.1: 支持按测试指定 ZH 路径（语义预检需 leaf↔cat_zh 有重叠才放行写）。
+    """
+
+    def __init__(self, zh_path="成人用品 > 女用器具 > 震动棒"):
+        self._zh = zh_path
 
     def execute(self, *a, **k):
-        return _FakeRow()
+        return _FakeRow((self._zh,))
 
     def __enter__(self):
         return self
@@ -78,11 +88,12 @@ def _make_state(draft=None, envelope=None, source=None, product_id="",
     )
 
 
-def _run_learning_record_node(state):
+def _run_learning_record_node(state, zh_path="成人用品 > 女用器具 > 震动棒"):
     from graphs.nodes.learning_record_node import learning_record_node
 
     runtime = SimpleNamespace(context=SimpleNamespace())
-    with mock.patch("storage.database.db.get_session", return_value=_FakeSession()), \
+    with mock.patch("storage.database.db.get_session",
+                    return_value=_FakeSession(zh_path)), \
          mock.patch("graphs.nodes.learning_record_node.LocalDBManager") as mock_db:
         mock_db.return_value = mock_db
         learning_record_node(state, SimpleNamespace(), runtime)
@@ -110,30 +121,38 @@ def test_learning_record_input_declares_l0_fields():
 
 
 # ═══════════════════════════════════════════════════════════════
-# 写侧: is_follow 守卫（跟卖不入学习表）
+# 写侧: 跟卖豁免判定细化（v0.66.1 断点1 —— 不再按 is_follow 整体跳过 mapping）
 # ═══════════════════════════════════════════════════════════════
 
-def test_follow_via_envelope_skips_category_mapping():
-    """envelope.extensions.follow_sell=True → 跟卖跳过 category_mapping（图搜噪音）。"""
+def test_discover_variant_writes_category_mapping():
+    """v0.66.1: discover 变体（extensions.follow_sell=True 无 follow_type）→ 不算真跟卖
+    → approved **写** category_mapping（旧 v0.66「is_follow 整体跳过」把 discover 主流
+    场景挡在学习表外，本测试原为 assert_not_called，语义已改）。"""
     state = _make_state(draft=_leaf_draft(),
                         envelope={"extensions": {"follow_sell": True}})
     mock_db = _run_learning_record_node(state)
-    mock_db.add_category_mapping.assert_not_called()
+    mock_db.add_category_mapping.assert_called_once()
+    assert mock_db.add_category_mapping.call_args.kwargs["confidence"] == 0.85
 
 
-def test_follow_via_follow_type_skips_category_mapping():
-    """envelope.extensions.follow_type（hand/api）也算跟卖。"""
+def test_true_follow_writes_category_mapping_conf_060():
+    """v0.66.1: 真跟卖（follow_type=hand）→ 写但 confidence 压 0.6（弱档，读侧不盲信图搜）。
+    （旧 v0.66 为「跟卖跳过 mapping」assert_not_called，语义已改。）"""
     state = _make_state(draft=_leaf_draft(),
-                        envelope={"extensions": {"follow_type": "hand"}})
+                        envelope={"extensions": {"follow_sell": True, "follow_type": "hand"}})
     mock_db = _run_learning_record_node(state)
-    mock_db.add_category_mapping.assert_not_called()
+    mock_db.add_category_mapping.assert_called_once()
+    assert mock_db.add_category_mapping.call_args.kwargs["confidence"] == 0.6
 
 
-def test_follow_fallback_from_draft_ozon_product_id():
-    """envelope 不可见（空）时，draft.ozon_product_id 存在 → 推导跟卖 → 不写。"""
-    state = _make_state(draft={**_leaf_draft(), "ozon_product_id": "1234567"})
+def test_true_follow_ozon_product_id_writes_conf_060():
+    """v0.66.1: envelope 不可见/无标记时 draft.ozon_product_id 单独出现 → 真跟卖 → 写 conf 0.6。
+    （旧 v0.66 为「跟卖跳过 mapping」assert_not_called，语义已改。）"""
+    state = _make_state(draft={**_leaf_draft(), "ozon_product_id": "1234567"},
+                        envelope={"extensions": {}})
     mock_db = _run_learning_record_node(state)
-    mock_db.add_category_mapping.assert_not_called()
+    mock_db.add_category_mapping.assert_called_once()
+    assert mock_db.add_category_mapping.call_args.kwargs["confidence"] == 0.6
 
 
 def test_non_follow_source_category_written_learned_approved():
@@ -151,21 +170,24 @@ def test_non_follow_source_category_written_learned_approved():
 
 def test_w1_source_fallback_from_state_source():
     """draft 无 source_category → 兜底 state.source.source_category_path。"""
+    # v0.66.1: 语义预检需 leaf↔fake cat_zh 有字面重叠 → 传与 leaf 一致的 ZH 路径
+    _path = "母婴用品 > 玩具 > 儿童滑梯"
     state = _make_state(
         draft={"title": "测试"},
-        source={"source_category_path": "母婴用品 > 玩具 > 儿童滑梯"},
+        source={"source_category_path": _path},
     )
-    mock_db = _run_learning_record_node(state)
+    mock_db = _run_learning_record_node(state, zh_path=_path)
     mock_db.add_category_mapping.assert_called_once()
     assert mock_db.add_category_mapping.call_args.kwargs["source_category_leaf"] == "儿童滑梯"
 
 
 def test_w1_source_fallback_from_draft_source_category_path():
     """draft.source_category 缺失但 source_category_path 在 → 兜底第二个 key。"""
+    _path = "母婴用品 > 玩具 > 儿童滑梯"
     state = _make_state(
-        draft={"title": "测试", "source_category_path": "母婴用品 > 玩具 > 儿童滑梯"},
+        draft={"title": "测试", "source_category_path": _path},
     )
-    mock_db = _run_learning_record_node(state)
+    mock_db = _run_learning_record_node(state, zh_path=_path)
     mock_db.add_category_mapping.assert_called_once()
     assert mock_db.add_category_mapping.call_args.kwargs["source_category_leaf"] == "儿童滑梯"
 
