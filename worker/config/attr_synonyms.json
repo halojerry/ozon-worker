@@ -64,7 +64,7 @@
     "value_map": {}
   },
   "packaging": {
-    "zh_keywords": ["包装", "包装方式", "包装规格"],
+    "zh_keywords": ["包装", "包装方式", "包装规格", "装箱"],
     "ozon_name_keywords": ["упаковк", "包装", "вид упаковки"],
     "value_map": {
       "普通包装": "Обычная упаковка",
@@ -85,5 +85,30 @@
       "中性": "Унисекс",
       "通用": "Унисекс"
     }
+  },
+  "origin": {
+    "zh_keywords": ["产地", "生产地", "原产地", "生产国"],
+    "ozon_name_keywords": ["产地", "生产国", "原产国", "原产地", "страна"],
+    "value_map": {}
+  },
+  "shape": {
+    "zh_keywords": ["形状", "外形", "形态"],
+    "ozon_name_keywords": ["形状", "外形", "形状特征", "форма"],
+    "value_map": {}
+  },
+  "pattern": {
+    "zh_keywords": ["图案", "花纹", "印花", "花色", "纹样"],
+    "ozon_name_keywords": ["图案", "花纹", "印花", "花色", "узор", "рисунок", "принт"],
+    "value_map": {}
+  },
+  "composition": {
+    "zh_keywords": ["成分", "材质成分", "面料成分"],
+    "ozon_name_keywords": ["成分", "состав"],
+    "value_map": {}
+  },
+  "power": {
+    "zh_keywords": ["功率", "瓦数", "额定功率"],
+    "ozon_name_keywords": ["功率", "瓦数", "мощность"],
+    "value_map": {}
   }
 }
