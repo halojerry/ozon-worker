@@ -299,6 +299,58 @@ def test_repair_pricing_sets_failed_stage():
     assert "PRICING_FAILED" in out.error_message
 
 
+# ── v0.65 C2(N5): BR_chinese 回灌 Ozon 格式（防 flat 折叠伪属性）──
+
+def _br_chinese_state():
+    """error_repair 中文字符批量翻译后的 state：final_attributes 是 flat 格式，
+    payload item 原有 attributes 为空（待回灌）。"""
+    return ValidationRetryLoopState(
+        error_code="BR_chinese_hieroglyphs_in_attribute",
+        token="t", ozon_client_id="c", ozon_api_key="k",
+        description_category_id="17028743", type_id="92780",
+        product_name="USB 迷你风扇",
+        ozon_payload={"items": [{"name": "USB 迷你风扇", "attributes": []}]},
+        # flat 格式（attribute_id/value/dictionary_value_id）
+        final_attributes=[
+            {"attribute_id": 10096, "value": "Белый", "dictionary_value_id": 61571, "source": "llm"},
+            {"attribute_id": 8229, "value": "手持风扇", "dictionary_value_id": 148495146, "source": "llm"},
+        ],
+        attributes_schema=[],
+        dictionary_values={},
+    )
+
+
+def test_br_chinese_reflush_is_ozon_format():
+    """error_repair 中文批量翻译后回灌 payload → attributes 必须是 Ozon 格式
+    ({id, values:[{dictionary_value_id, value}]})，不得是 flat（否则 revalidate
+    按 id 解析折叠伪属性 + 快照保真失效）。"""
+    with mock.patch("utils.mxou_api.call_mxou_chat_api", return_value="Ручной вентилятор"):
+        out = error_repair_llm_node(_br_chinese_state())
+    attrs = out.ozon_payload["items"][0]["attributes"]
+    assert attrs, "回灌后 payload attributes 不应为空"
+    for a in attrs:
+        assert "id" in a, f"payload 属性应为 Ozon 格式(含 id)，实际 {a}"
+        assert "values" in a, f"payload 属性应为 Ozon 格式(含 values)，实际 {a}"
+        assert "attribute_id" not in a, f"不应残留 flat 的 attribute_id 键，实际 {a}"
+        for v in a["values"]:
+            assert "dictionary_value_id" in v and "value" in v
+    # 两个属性都应在
+    ids = {a["id"] for a in attrs}
+    assert ids == {10096, 8229}, f"应含翻译后的两个属性，实际 {ids}"
+
+
+def test_br_chinese_empty_value_dropped():
+    """翻译失败清空的值（value=""）→ 不回灌（避免空值属性上传被 Ozon 拒）。"""
+    state = _br_chinese_state()
+    # 10096 翻译失败清空 → 应被丢弃，只回灌 8229
+    state.final_attributes[0]["value"] = ""
+    with mock.patch("utils.mxou_api.call_mxou_chat_api", return_value="Ручной вентилятор"):
+        out = error_repair_llm_node(state)
+    attrs = out.ozon_payload["items"][0]["attributes"]
+    ids = {a["id"] for a in attrs}
+    assert ids == {8229}, f"空值属性应被丢弃，实际 {ids}"
+
+
 if __name__ == "__main__":
     import traceback
 

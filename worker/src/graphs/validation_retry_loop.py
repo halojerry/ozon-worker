@@ -949,7 +949,30 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         for item in items:
             if not isinstance(item, dict):
                 continue
-            item["attributes"] = state.final_attributes
+            # v0.65 C2(N5): final_attributes 是 flat 格式({attribute_id,value,dictionary_value_id})，
+            # payload 的 attributes 期望 Ozon 格式({id, values:[{dictionary_value_id,value}]})。
+            # 直接塞 flat → revalidate 按 Ozon 格式解析读不到 id → 折叠伪属性 + 快照保真失效。
+            # 这里转回 Ozon 格式再回灌（按 attribute_id 分组，合并同属性多值）。
+            _ozon_attrs: list = []
+            _seen_ids: dict = {}
+            for _fa in state.final_attributes or []:
+                _faid = int(_fa.get("attribute_id") or _fa.get("id") or 0)
+                if not _faid:
+                    continue
+                _fv = str(_fa.get("value") or "")
+                if not _fv:
+                    continue  # 空值属性不上传（翻译失败已清空）
+                _fdvid = int(_fa.get("dictionary_value_id") or 0)
+                if _faid in _seen_ids:
+                    _seen_ids[_faid]["values"].append({
+                        "dictionary_value_id": _fdvid, "value": _fv,
+                    })
+                else:
+                    _seen_ids[_faid] = {"id": _faid, "values": [{
+                        "dictionary_value_id": _fdvid, "value": _fv,
+                    }]}
+                    _ozon_attrs.append(_seen_ids[_faid])
+            item["attributes"] = _ozon_attrs
 
         logger.info(f"✅ 中文字符批量翻译完成: {translated_count}个属性已翻译")
         return state
