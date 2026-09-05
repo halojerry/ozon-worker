@@ -4,7 +4,8 @@
 验收门（计划 §5 T7b / §2 C3b）：
 (a) plan {white_bg:1, scene_1:1} → 仅执行这 2 节点，其余跳过（断言其余节点未调生图 API）
 (b) 仅 Phase2 类型 plan（如 {scene_1:1}）→ validate_plan 拒绝（Momus W1：Phase2 依赖 Phase1 参考图）
-(c) 默认 plan → 全 10 张回归（节点默认启用，管线行为不变）
+(c) 默认 plan → 精简 5 张（white_bg/multi_angle/main_image/detail/scene_1 +
+    variant 变体主图；social_proof/comparison/scene_2/scene_3 默认关，可覆盖重开）
 (d) plan_to_slots：scene 计数 0-3 展开 + 未知类型（材质/尺寸 v1 置灰）忽略
 (e) 不新增节点（断言 10 个既有节点函数 + slot 集合不变）
 
@@ -39,6 +40,12 @@ from utils.image_gen_plan import (  # noqa: E402
 TITLE = "保温杯"
 REF_IMAGE = "https://example.com/ref.jpg"
 _MOCK_URL = "https://example.com/mock_image.jpg"
+
+# 默认 plan 实际启用的 slot（= 精简 5 张 + 变体主图，见 image_gen_plan.DEFAULT_PLAN）
+DEFAULT_ON_SLOTS = {
+    "white_bg", "multi_angle", "main_image", "detail", "scene_1",
+    "variant_primary_loop",
+}
 
 # LangGraph 节点签名: node(state, config, runtime)。config 供 slot_enabled/
 # _task_id_from_config 读 configurable；runtime.context 节点内未实际使用。
@@ -115,16 +122,22 @@ def test_plan_to_slots_ignores_unknown_and_zero():
     assert plan_to_slots(plan) == {"white_bg"}
 
 
-def test_default_plan_covers_all_10_slots():
-    """默认 plan = 全 10 张：展开后等于 10 个既有 slot（向后兼容）。"""
+def test_default_plan_is_lean_five():
+    """默认 plan = 精简 5 张（2026-09-05 成本决策）：social_proof/comparison/
+    scene_2/scene_3 默认关，但仍在 ALL_SLOTS（可经 image_gen_plan 覆盖重开）。"""
     assert len(ALL_SLOTS) == 10
-    assert plan_to_slots(DEFAULT_PLAN) == set(ALL_SLOTS)
+    assert plan_to_slots(DEFAULT_PLAN) == DEFAULT_ON_SLOTS
+    assert set(ALL_SLOTS) - DEFAULT_ON_SLOTS == {
+        "social_proof", "comparison", "scene_2", "scene_3",
+    }
 
 
-def test_slot_enabled_default_all_on():
-    """config 无 image_gen_plan → 默认全开（管线行为不变）。"""
-    for slot in ALL_SLOTS:
+def test_slot_enabled_default_lean_five():
+    """config 无 image_gen_plan → 默认精简（6 slot 含变体主图），其余关。"""
+    for slot in DEFAULT_ON_SLOTS:
         assert slot_enabled(_plan_config(), slot) is True
+    for slot in ("social_proof", "comparison", "scene_2", "scene_3"):
+        assert slot_enabled(_plan_config(), slot) is False
 
 
 def test_slot_enabled_config_plan_injection():
@@ -138,11 +151,12 @@ def test_slot_enabled_config_plan_injection():
 
 
 def test_slot_enabled_malformed_plan_falls_back_default():
-    """非法 plan（非 dict）→ 回退默认全开（fail-safe，不静默全禁）。"""
+    """非法 plan（非 dict）→ 回退默认精简 plan（fail-safe：含 Phase1，不静默全禁）。"""
     for bad in ([1, 2], "white_bg", 3):
         cfg = _cfg_with_plan(bad)
         assert slot_enabled(cfg, "white_bg") is True
-        assert slot_enabled(cfg, "scene_3") is True
+        assert slot_enabled(cfg, "detail") is True
+        assert slot_enabled(cfg, "scene_3") is False
 
 
 def test_slot_enabled_state_fallback():
@@ -244,11 +258,16 @@ def test_plan_white_bg_scene1_executes_both_nodes():
         _assert_api_called(module, node_fn, state, cfg, expect_calls=True)
 
 
-def test_default_plan_all_10_nodes_call_api():
-    """验收 (c)：默认 plan（无注入）→ 全 10 张回归，10 节点全部调用生图 API。"""
+def test_default_plan_only_enabled_slots_call_api():
+    """默认 plan（无注入）→ 精简 5 张 + 变体主图共 6 slot 调用生图 API；
+    social_proof/comparison/scene_2/scene_3 不调用（默认关，不烧钱）。"""
     cfg = _plan_config()
     for node_fn, module, state, _ in _node_cases():
-        _assert_api_called(module, node_fn, state, cfg, expect_calls=True)
+        expect = node_fn.__name__ in {
+            "white_bg_gen_node", "multi_angle_gen_node", "main_image_gen_node",
+            "detail_gen_node", "scene_1_gen_node", "variant_primary_loop_node",
+        }
+        _assert_api_called(module, node_fn, state, cfg, expect_calls=expect)
 
 
 def test_no_new_nodes_slots_stable():

@@ -1292,8 +1292,9 @@ def _build_shared_marketing_images(state: Any, is_follow_sell: bool) -> tuple[Li
 
     ✅ v0.25 FIX: 跟卖绝不用竞品 Ozon 原图（ir.ozone.ru）补位 — Ozon 抓取竞品
     CDN 图失败，实测混入竞品图导致整卡 0 图被下架（wave4 浴刷 5821877126）。
-    AI 图不足 10 张就传现有 AI 图，宁缺毋滥（Ozon 允许 1~15 张）。
-    竞品图仅保留在 state.original_images 供生图节点做参考，不进上传数组。
+    AI 图按默认精简 plan 5 张生成，传现有 AI 图宁缺毋滥（Ozon 允许 1~15 张）；
+    仅当少到 < 3 张（生图大面积失败）才告警。竞品图仅保留在 state.original_images
+    供生图节点做参考，不进上传数组。
     """
     shared_marketing_images: List[str] = []
 
@@ -1309,10 +1310,10 @@ def _build_shared_marketing_images(state: Any, is_follow_sell: bool) -> tuple[Li
             shared_marketing_images.append(img_url)
             logger.info(f"图片 {img_key}: {img_url}")
 
-    # 3. 跟卖 AI 图不足 10 张 → 只告警，不补竞品图
-    if is_follow_sell and len(shared_marketing_images) < 10:
+    # 3. 跟卖 AI 图过少（默认 plan 5 张，< 3 说明生图大面积失败）→ 只告警，不补竞品图
+    if is_follow_sell and len(shared_marketing_images) < 3:
         logger.warning(
-            f"跟卖 AI 图仅 {len(shared_marketing_images)} 张（不足 10 张）— "
+            f"跟卖 AI 图仅 {len(shared_marketing_images)} 张（默认精简 plan 5 张，异常偏少）— "
             "不再用竞品 ir.ozone.ru 图补位（Ozon 抓取竞品图失败会整卡 0 图）"
         )
 

@@ -1604,9 +1604,11 @@ Step 6: 描述净化: _sanitize_description()
         - 限制 2000 字符
 Step 7: 富文本描述: LLM 生成俄语 HTML → _sanitize_rich_description()
 Step 8: 更新进度: update_progress(task_id, "description", "组装上传数据...")
-Step 9: 图片排序: IMG_ORDER = [main, detail, scene_1, scene_2, scene_3, comparison, social_proof, multi_angle, white_bg]
-        - 缺失图片用 original_images 补位
-        - 确保 ≤ 10 张
+Step 9: 图片排序: IMG_ORDER = [main, social_proof, detail, scene_1, scene_2, scene_3, comparison, multi_angle, white_bg]
+        - 图片来自 AI 生图（默认精简 plan 5 张：main/white_bg/multi_angle/detail/scene_1；
+          全 10 张可经 image_gen_plan 覆盖开启）
+        - AI 图缺失即少传（宁缺毋滥），绝不用竞品/1688 原图补位（防整卡 0 图下架）
+        - 上限 15 张
 Step 10: 单位处理: dimensions mm (原值), weight g (原值)
 Step 11: 密度检查: density < 0.25 → 体积×0.5 推算
 Step 12: 组装 ozon_payload = {
@@ -2000,7 +2002,10 @@ FIX_TYPE_UNFIXABLE   → 标记 success，不浪费重试次数           # 图�
 
 #### 2.11.1 职责
 
-使用 MXOU 图片生成 API 生成 Ozon 产品卡所需的 8-10 张 AI 图片。分为 Phase 1 (白底图 + 多角度图) 和 Phase 2 (营销图 + 场景图 + 详情图等)。
+使用 MXOU 图片生成 API 生成 Ozon 产品卡 AI 图片。**默认精简 plan 5 张**（2026-09-05 成本决策）：
+main_image / white_bg / multi_angle / detail / scene_1（多 SKU 另加每变体主图）。social_proof /
+comparison / scene_2 / scene_3 槽位仍存在，默认关——可经 `config.configurable.image_gen_plan`
+逐任务/全局覆盖重开（全 10 张）。分为 Phase 1 (白底图 + 多角度图) 和 Phase 2 (营销图 + 场景图 + 详情图等)。
 
 #### 2.11.2 包含节点
 
