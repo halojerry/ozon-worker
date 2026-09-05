@@ -784,6 +784,12 @@ class ValidationRetryWrapperOutput(BaseModel):
     upload_status: str = Field(default="", description="上传状态：success/failed/pending")
     # 修复后 Ozon 审核状态（子图 recheck_status 轮询结果透出）
     moderation_status: str = Field(default="", description="Ozon审核状态 (approved/pending/error)")
+    # v0.65 C1(N4): 子图修复后的类目/属性回传主图（learning_record 需用新类目落库，
+    # 否则按主图旧 dc/tp 学习 → Goodhart 输入固化错映射）
+    description_category_id: str = Field(default="", description="修复后类目ID(子图可能重配)")
+    type_id: str = Field(default="", description="修复后类型ID")
+    final_attributes: list = Field(default_factory=list, description="修复后最终属性列表")
+    attributes_schema: list = Field(default_factory=list, description="修复后属性Schema(重配类目后变化)")
 
 
 # ==================== 学习记录节点 ====================

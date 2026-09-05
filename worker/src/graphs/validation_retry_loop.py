@@ -134,6 +134,12 @@ class ValidationRetryLoopOutput(BaseModel):
     # 审核状态透出（recheck_status_node 轮询结果，供 wrapper/主图消费）
     moderation_status: str = Field(default="", description="Ozon审核状态 (approved/pending/error)")
     notice: str = Field(default="", description="用户可读失败说明(v0.28.5 C2, 中文)")
+    # v0.65 C1(N4): 子图修复后的类目/属性回传主图——此前子图内改 type_id/dc/final_attributes
+    # 只写 payload 与子图 state，主图 learning_record 读旧值 → 学习表按旧类目固化(Goodhart)
+    description_category_id: str = Field(default="", description="修复后类目ID(子图可能重配 type)")
+    type_id: str = Field(default="", description="修复后类型ID")
+    final_attributes: list = Field(default_factory=list, description="修复后最终属性列表")
+    attributes_schema: list = Field(default_factory=list, description="修复后属性Schema(重配类目后变化)")
 
 
 # v0.28.5 C2: 错误码 → 用户可读中文说明(供 task_status/最终结果展示)
@@ -2751,6 +2757,11 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
         upload_status=state.upload_status,
         moderation_status=state.moderation_status,
         notice=_build_notice(state.error_type, final_error_message, state.upload_status),
+        # v0.65 C1(N4): 回传修复后的类目/属性给主图
+        description_category_id=state.description_category_id,
+        type_id=state.type_id,
+        final_attributes=state.final_attributes,
+        attributes_schema=state.attributes_schema,
     )
 
 
