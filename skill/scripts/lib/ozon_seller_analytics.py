@@ -1084,6 +1084,11 @@ def apply_analytics_to_candidate(candidate, metrics: dict) -> bool:
             candidate.ozon_category = {
                 "description_category_id": str(cat2),
                 "type_id": str(cat3),
+                # v0.65 B1: 标注权威来源——worker _resolve_skill_category 无 source
+                # 默认 search_kw（非权威），会被降为普通候选后按标题重猜。what_to_sell
+                # 是 Seller 后台权威类目，须显式标 source/namespace 才能直通。
+                "source": "what_to_sell",
+                "namespace": "seller",
             }
         candidate.has_analytics = bool(
             metrics.get("has_sales_data")

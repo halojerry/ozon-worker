@@ -522,6 +522,10 @@ def _resolve_skill_category(draft_ozon_cat: dict) -> dict | None:
                 "WHERE description_category_id=:dc AND type_id=:tp AND language='ZH_HANS' LIMIT 1"
             ), {"dc": int(_dc_s), "tp": int(_tp_s)}).fetchone()
         if not _row0:
+            # ⚠️ 保持严格：dc+tp 组合必须在树中才采用。widget 假 type / 品牌页 ID /
+            # 未预热 type 一律退回 pg_trgm——B 类目错放的核心修复是 B1（skill 权威
+            # source 标记），不在放宽此校验（曾考虑 dc 兜底 type，但 dc 下多 type 取首
+            # 有错配风险，且 widget 空间 dc 本就不在 seller 树，兜底无效）。
             logger.warning(f"⚠️ 直采 Skill 类目 {_dc_s}/{_tp_s} 树中不存在, 不走用, 退回 pg_trgm")
             return None
         return {
@@ -1389,7 +1393,11 @@ def assemble_ozon_product_node(
         llm_name, ru_check_path or category_path, description_category_id, type_id
     )
 
-    if not category_consistent:
+    # v0.65 B3: Skill 权威直通豁免——类目来自 Skill 端 Ozon 权威解析
+    # (source=page/what_to_sell/mapping)，俄语标题与类目路径词面不重叠是正常
+    # (标题是 LLM 另译营销文案)，不应反噬权威类目。对齐 L886 前置一致性
+    # 已对 Skill 豁免的决策，避免「前置豁免、后置误杀」。
+    if not category_consistent and match_layer != "Skill":
         # 类目不匹配 → 尝试用俄语标题重新匹配类目
         logger.warning(f"⚠️ 类目不一致，尝试用俄语标题重新匹配...")
         recategorize_failed = True
