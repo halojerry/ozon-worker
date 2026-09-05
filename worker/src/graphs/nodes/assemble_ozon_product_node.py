@@ -181,6 +181,12 @@ def _apply_vehicle_disambiguation(candidates: list, signal_text: str) -> list:
     if not candidates or not signal_text:
         return candidates
     low = signal_text.lower()
+    # v0.63.2: 1688 行业大类前缀「汽车摩托/汽摩」字面同时含双域信号，会让
+    # 「汽摩配件>汽车轮胎」这类以末级词定域的商品被判为双信号而放弃判别 →
+    # 汽车轮毂/轮胎继续错配摩托车子树（v0.62.4 注释记录的原始症状）。先剥除
+    # 组合词再判单信号——末级类目词才是权威信号；真双域商品剥除后仍双信号/全无。
+    for _combo in ("汽车摩托", "汽摩"):
+        low = low.replace(_combo, "")
     has_car = any(k in low for k in _CAR_STRONG_KEYWORDS)
     has_moto = any(k in low for k in _MOTO_KEYWORDS)
     # 双信号或全无 → 不做领域判别，保持原逻辑

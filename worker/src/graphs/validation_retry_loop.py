@@ -439,6 +439,8 @@ def _resolve_payload_dict_attr(
             size_cn="",
             dict_vals=_vals or [],
             type_id=int(state.type_id or 0),
+            # v0.63.2: 数值规格字典属性（轮胎 截面宽度/直径英寸）按 1688 值数字匹配
+            draft_attrs=_draft.get("attributes") if isinstance(_draft, dict) else None,
         )
         if _res:
             return _res
@@ -959,6 +961,13 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         if schema_attr.get("id") == attr_id:
             current_attr_def = schema_attr
             break
+    # v0.63.2: PG/Ozon schema 均未命中时回退 state.attributes_schema（子图入参自带）——
+    # 此前 schema 拉取失败 → attr_name=attr_{id}/dictionary_id=0 → 字典修复链路整体跳过
+    if not current_attr_def:
+        for schema_attr in (getattr(state, "attributes_schema", None) or []):
+            if isinstance(schema_attr, dict) and schema_attr.get("id") == attr_id:
+                current_attr_def = schema_attr
+                break
 
     attr_name: str = current_attr_def.get("name", f"attr_{attr_id}")
     dictionary_id: int = current_attr_def.get("dictionary_id", 0)
@@ -972,6 +981,85 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         if attr.get("id") == attr_id or attr.get("attribute_id") == attr_id:
             current_value = str(attr.get("value", ""))
             break
+
+    # ========== Step 1.8: 证书编号类必填属性提前终态（v0.63.2）==========
+    # Sentry POUDING_OZON-42/E1-E4 实证：12882(Номер сертификата) 等证书类必填
+    # 属性在 1688 采购数据里没有真实来源，语义解析/API 搜索/LLM 修复必然失败，
+    # 此前仍烧满 3 轮 retry（每轮真实调 Ozon import）。现提前终态并给出可行动
+    # 原因；唯一豁免：信封真的带了证书编号且能在字典精确命中（不伪造、宁缺毋滥）。
+    if not current_value and attr_id > 0:
+        try:
+            from utils.attr_defaults import is_cert_number_attr
+            if is_cert_number_attr(attr_id, attr_name):
+                # ⚠️ retry 子图 state 的 draft 是直接字段（无 envelope），envelope 兜底兼容主图态
+                _d_attrs = getattr(state, "draft", None) or {}
+                if not _d_attrs:
+                    _env_cert = getattr(state, "envelope", None) or {}
+                    _d_attrs = (_env_cert.get("draft") or {}) if isinstance(_env_cert, dict) else {}
+                _d_attrs = (_d_attrs or {}).get("attributes")
+                _cert_val = ""
+                if isinstance(_d_attrs, dict):
+                    for _k, _v in _d_attrs.items():
+                        if any(kw in str(_k) for kw in ("证书", "认证", "сертификат", "свидетельств")) and str(_v or "").strip():
+                            _cert_val = str(_v).strip()
+                            break
+                _filled_cert = False
+                if _cert_val:
+                    _vals_c: list = (getattr(state, "dictionary_values", None) or {}).get(str(attr_id)) or []
+                    if not _vals_c and int(dictionary_id or 0) > 0:
+                        try:
+                            from utils.ozon_category_query import get_category_query
+                            _vals_c = get_category_query().get_dictionary_values(
+                                attr_id, int(category_id) if category_id else 0,
+                                int(type_id) if type_id else 0,
+                            ) or []
+                        except Exception:
+                            _vals_c = []
+                    if int(dictionary_id or 0) > 0:
+                        from utils.attr_defaults import find_dict_value_id as _fdv_cert
+                        _hit_c = _fdv_cert(_vals_c, _cert_val)
+                        if _hit_c:
+                            _updated_c = []
+                            _found_c = False
+                            for _a in state.final_attributes:
+                                if isinstance(_a, dict) and (_a.get("id") == attr_id or _a.get("attribute_id") == attr_id):
+                                    _a["value"] = _hit_c[1]
+                                    _a["dictionary_value_id"] = _hit_c[0]
+                                    _found_c = True
+                                _updated_c.append(_a)
+                            if not _found_c:
+                                _updated_c.append({"attribute_id": attr_id, "id": attr_id,
+                                                   "value": _hit_c[1], "dictionary_value_id": _hit_c[0],
+                                                   "source": "retry_cert_from_draft"})
+                            state.final_attributes = _updated_c
+                            logger.info("✅ 证书类属性 %s(%s) 信封证书编号字典精确命中: %s", attr_id, attr_name, _hit_c[1])
+                            _filled_cert = True
+                    else:
+                        # 自由文本证书属性：信封带了编号就直填（Ozon 自行校验真伪）
+                        _updated_c = []
+                        _found_c = False
+                        for _a in state.final_attributes:
+                            if isinstance(_a, dict) and (_a.get("id") == attr_id or _a.get("attribute_id") == attr_id):
+                                _a["value"] = _cert_val
+                                _found_c = True
+                            _updated_c.append(_a)
+                        if not _found_c:
+                            _updated_c.append({"attribute_id": attr_id, "id": attr_id,
+                                               "value": _cert_val, "source": "retry_cert_from_draft"})
+                        state.final_attributes = _updated_c
+                        logger.info("✅ 证书类自由文本属性 %s(%s) 信封编号直填", attr_id, attr_name)
+                        _filled_cert = True
+                if _filled_cert:
+                    return state
+                state.retry_count = int(state.max_retries or 1)  # 强制收敛 → should_continue 走 exit
+                state.error_message = (
+                    f"必填属性{attr_id}({attr_name})为证书编号类，1688 采购数据无真实证书编号，"
+                    "无法自动填充（宁缺毋滥不伪造）；请更换类目或人工补齐后重新提交"
+                )
+                logger.error("🛑 %s", state.error_message)
+                return state
+        except Exception as _cert_e:
+            logger.debug("证书类属性前置判定跳过: %s", _cert_e)
 
     # ========== Step 2: 如果是字典属性，用values/search搜索 ==========
     if attr_id > 0 and dictionary_id > 0:
@@ -995,6 +1083,13 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                     _vals = []
             _env = getattr(state, "envelope", None) or {}
             _title_cn = str((_env.get("draft") or {}).get("title") or "") if isinstance(_env, dict) else ""
+            # ⚠️ v0.63.2: retry 子图 state 的 draft 是直接字段（无 envelope）——
+            # 此前 _title_cn 在 retry 子图恒为空串；数值规格解析同样从这里取 1688 属性
+            _d_src = getattr(state, "draft", None) or {}
+            if not _d_src and isinstance(_env, dict):
+                _d_src = (_env.get("draft") or {})
+            if not _title_cn and isinstance(_d_src, dict):
+                _title_cn = str(_d_src.get("title") or "")
             _resolved = resolve_missing_mandatory_dict_attr(
                 attr_id, attr_name,
                 title_cn=_title_cn,
@@ -1003,6 +1098,8 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 dict_vals=_vals or [],
                 # ⚠️ v0.29.x: 8229(类型)优先按 type_id 匹配(值 id == type_id)
                 type_id=int(type_id or 0),
+                # v0.63.2: 数值规格字典属性（轮胎 截面宽度/直径英寸）按 1688 值数字匹配
+                draft_attrs=_d_src.get("attributes") if isinstance(_d_src, dict) else None,
             )
             if not _resolved:
                 logger.warning(
@@ -1033,19 +1130,31 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         if error_code == "warning_attribute_values_out_of_range":
             logger.info(f"🔄 warning_attribute_values_out_of_range: 强制刷新属性{attr_id}的字典值缓存")
             try:
-                _fresh_result = _call_ozon_api(
-                    ozon_client_id, ozon_api_key,
-                    "/v1/description-category/attribute/values",
-                    {
-                        "attribute_id": attr_id,
-                        "description_category_id": int(category_id) if category_id else 0,
-                        "type_id": int(type_id) if type_id else 0,
-                        "language": "RU",
-                        "limit": 2000,  # ⚠️ PR-1: Ozon官方 /values 单次 max=2000，5000 会被静默截断
-                        "last_value_id": 0,
-                    }
-                )
-                _fresh_values = _fresh_result.get("result", [])
+                # v0.63.2: has_next 分页循环（对齐 v0.62 R2 fetch_ru_dict_value 修法）——
+                # 此前单页 limit=2000，大字典（轮胎规格/8229 类型等数千值）目标值不在
+                # 首页 → 刷新后仍缺 → 属性继续缺失烧 retry
+                _fresh_values: list = []
+                _last_id = 0
+                for _page in range(5):
+                    _fresh_result = _call_ozon_api(
+                        ozon_client_id, ozon_api_key,
+                        "/v1/description-category/attribute/values",
+                        {
+                            "attribute_id": attr_id,
+                            "description_category_id": int(category_id) if category_id else 0,
+                            "type_id": int(type_id) if type_id else 0,
+                            "language": "RU",
+                            "limit": 2000,  # ⚠️ PR-1: Ozon官方 /values 单次 max=2000，5000 会被静默截断
+                            "last_value_id": _last_id,
+                        }
+                    )
+                    _page_values = _fresh_result.get("result", [])
+                    _fresh_values.extend(_page_values)
+                    if not _fresh_result.get("has_next", False) or not _page_values:
+                        break
+                    _last_id = _page_values[-1].get("id", 0)
+                    if not _last_id:
+                        break
                 if _fresh_values:
                     # 写入 PG 缓存
                     try:

@@ -549,7 +549,9 @@ class OzonCategoryQuery:
             if row and row.tree_data:
                 logger.info("从 category_cache JSONB 同步 category_tree_nodes...")
                 # 需要在新的 session 中调用 sync（避免嵌套事务）
-                self.sync_category_tree_nodes(row.tree_data, language)
+                # v0.63.2: skip_if_nonempty —— 拿到 advisory lock 后双检，等锁期间
+                # 被其他并发同步填满则直接放弃（消除判空→同步的 check-then-act 竞态）
+                self.sync_category_tree_nodes(row.tree_data, language, skip_if_nonempty=True)
                 logger.info("✅ 同步完成")
             else:
                 logger.warning("category_cache 中无有效数据，需通过 Ozon API 获取类目树")
@@ -1094,10 +1096,20 @@ class OzonCategoryQuery:
 
     # ==================== 扁平表同步 ====================
 
+    # ── v0.63.2: 全树同步互斥锁 ──
+    # 死锁根因（2026-09-01 生产实证 POUDING_OZON-E6/E7/E8）：两个并发全量同步
+    # 各自在单事务里对同一批唯一键按不同进度逐行 upsert，行锁互相等待成环；
+    # v0.63.0 线程池 8→128（53a4bda8）后图节点真并发，竞态首次爆发。
+    # pg_advisory_xact_lock 把「判空→同步」串行化（事务结束自动释放，进程崩溃
+    # 不留死锁），配合去重 + 分块 bulk upsert 把数万次往返压到 ~35 条语句。
+    _CATEGORY_TREE_SYNC_LOCK_KEY = 730921
+    _UPSERT_CHUNK_SIZE = 2000
+
     def sync_category_tree_nodes(
         self,
         tree_data: dict,
         language: str = "ZH_HANS",
+        skip_if_nonempty: bool = False,
     ) -> int:
         """
         从类目树 JSON 同步 category_tree_nodes 扁平表。
@@ -1105,8 +1117,13 @@ class OzonCategoryQuery:
         遍历 tree_data["result"] 数组，递归提取所有节点，
         按 (description_category_id, type_id, language) 去重 upsert。
 
+        Args:
+            skip_if_nonempty: True 时拿到 advisory lock 后若表已有该语言数据
+                则跳过（用于「判空才同步」路径，消除 check-then-act 竞态窗口）；
+                拉取了新树要强制落库的路径（assemble）保持 False 全量 upsert。
+
         Returns:
-            写入的节点总数
+            写入的节点总数（skip 时返回 0）
         """
         from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -1189,18 +1206,47 @@ class OzonCategoryQuery:
                 logger.warning("⚠️ 类目树为空，未同步任何节点")
                 return 0
 
-            # 批量 upsert
+            # 去重：旧逐行 upsert 对重复键是「后写覆盖」；bulk insert 单语句内
+            # 出现重复键会报「cannot affect row a second time」，先按唯一键收敛。
+            dedup: dict[tuple[int, Any], dict[str, Any]] = {}
             for node in nodes_to_insert:
-                type_id_val = node["type_id"]
-                stmt = pg_insert(CategoryTreeNode).values(**node).on_conflict_do_update(
+                dedup[(node["description_category_id"], node["type_id"], language)] = node
+            nodes_to_insert = list(dedup.values())
+
+            # 事务级 advisory lock：并发同步在此串行化（自动随事务提交/回滚释放）
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": self._CATEGORY_TREE_SYNC_LOCK_KEY},
+            )
+
+            # 锁内双检：等锁期间可能已被前一个同步者填满（判空同步路径直接放弃）
+            if skip_if_nonempty:
+                _cnt = session.execute(
+                    select(func.count(CategoryTreeNode.id)).where(
+                        CategoryTreeNode.language == language
+                    )
+                ).scalar() or 0
+                if _cnt > 0:
+                    logger.info(
+                        f"category_tree_nodes 已有 {_cnt} 条({language})，跳过同步"
+                        f"（并发同步已被 advisory lock 串行化）"
+                    )
+                    session.rollback()
+                    return 0
+
+            # 分块 bulk upsert：excluded 引用新值；单事务保持全有或全无
+            for i in range(0, len(nodes_to_insert), self._UPSERT_CHUNK_SIZE):
+                chunk = nodes_to_insert[i:i + self._UPSERT_CHUNK_SIZE]
+                insert_stmt = pg_insert(CategoryTreeNode).values(chunk)
+                stmt = insert_stmt.on_conflict_do_update(
                     constraint="uq_category_tree_nodes",
                     set_={
-                        "node_name": node["node_name"],
-                        "full_path": node["full_path"],
-                        "top_level_category_name": node["top_level_category_name"],
-                        "depth": node["depth"],
-                        "disabled": node["disabled"],
-                        "created_at": current_time,
+                        "node_name": insert_stmt.excluded.node_name,
+                        "full_path": insert_stmt.excluded.full_path,
+                        "top_level_category_name": insert_stmt.excluded.top_level_category_name,
+                        "depth": insert_stmt.excluded.depth,
+                        "disabled": insert_stmt.excluded.disabled,
+                        "created_at": insert_stmt.excluded.created_at,
                     },
                 )
                 session.execute(stmt)

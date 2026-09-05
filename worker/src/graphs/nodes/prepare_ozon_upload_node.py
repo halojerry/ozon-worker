@@ -850,6 +850,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                                 aid, str(attr.get("name") or ""),
                                 title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
                                 dict_vals=_hits_o, type_id=_tp_i,
+                                draft_attrs=(draft or {}).get("attributes"),
                             )
                     if not resolved:
                         from utils.ozon_dict_values import list_dictionary_values as _ldv
@@ -862,6 +863,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                             aid, str(attr.get("name") or ""),
                             title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
                             dict_vals=_all_o, type_id=_tp_i,
+                            draft_attrs=(draft or {}).get("attributes"),
                         )
             except Exception:
                 resolved = None
@@ -871,6 +873,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                 aid, str(attr.get("name") or ""),
                 title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn, dict_vals=vals,
                 type_id=_tp_i,
+                draft_attrs=(draft or {}).get("attributes"),
                 )
             if not resolved:
                 try:
@@ -892,6 +895,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                                 aid, str(attr.get("name") or ""),
                                 title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
                                 dict_vals=_hits, type_id=_tp_i,
+                                draft_attrs=(draft or {}).get("attributes"),
                             )
                             if resolved:
                                 break
@@ -915,6 +919,7 @@ def _fill_missing_required_dict_attrs(items, schema, draft, state):
                             aid, str(attr.get("name") or ""),
                             title_cn=title_cn, product_name_ru=sku_name, size_cn=size_cn,
                             dict_vals=_all_gen, type_id=_tp_i,
+                            draft_attrs=(draft or {}).get("attributes"),
                         )
                 except Exception:
                     resolved = None

@@ -63,6 +63,124 @@ MERGE_CARD_ATTR_IDS = (8292,)
 MODEL_ATTR_IDS = (22390,)
 NO_MERGE_KEYWORDS = ("не объедин", "не обьедин", "нет", "不合并", "否")
 
+# ── v0.63.2: 证书编号类属性（提前终态，不烧 retry）─────────────────────
+# Sentry POUDING_OZON-42/E1-E4 实证：轮胎类目 12882(Номер сертификата) 必填，
+# 1688 采购数据永远没有真实证书编号 → 语义解析/搜索/LLM 全部失败，仍烧满 3 轮
+# retry（每轮真实调 Ozon import）。判定命中的属性在 retry 层提前终态并给出
+# 可行动原因；唯一豁免是信封真的带了证书编号且字典精确命中（不伪造）。
+CERT_NUMBER_ATTR_IDS = (12882,)
+CERT_NUMBER_NAME_KEYWORDS = ("сертификат", "свидетельств", "证书编号", "证书号", "认证编号")
+
+# ── v0.63.2: 数值规格字典属性（轮胎 截面宽度/直径英寸 等）──────────────
+# 7387(Ширина профиля, мм)/7389(Диаметр, дюймы) 的字典值主体是纯数字档位，
+# 1688 值带单位（"225mm"/"17英寸"/"225/45R17"）→ 既有语义/搜索链路必然无命中；
+# retry 拿产品标题当搜索词更搜不到。本分支不按属性 id 硬编码：字典值主体为
+# 纯数字（≥50%）时，从 1688 属性值/标题提取数字，与【本属性自己的字典】精确
+# 匹配——数值自校正（宽度字典不含直径档位），唯一命中才填，多命中宁缺毋滥。
+_NUMSPEC_RU_ZH_BRIDGE: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # (俄语属性名关键词, 1688 中文属性名关键词——用于优先定向取数)
+    ("ширина профиля", ("截面宽度", "断面宽度", "胎面宽度", "轮胎宽度", "宽度")),
+    ("высота профиля", ("扁平比", "截面高度", "高宽比", "胎壁高度", "高度")),
+    ("диаметр", ("直径", "轮毂直径", "轮辋直径", "适配轮毂", "胎圈直径")),
+    ("ширина", ("宽度",)),
+    ("высота", ("高度",)),
+)
+_NUM_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _canon_num(text_val: Any) -> str:
+    """数字规范化：'225.0'→'225'、'017'→'17'；非纯数字文本返回 ''。"""
+    t = str(text_val or "").strip()
+    if not _NUM_TOKEN_RE.fullmatch(t):
+        return ""
+    f = float(t)
+    return str(int(f)) if f == int(f) else str(f)
+
+
+def is_cert_number_attr(attr_id: int, attr_name: str) -> bool:
+    """证书编号类属性判定（id 精确 + 名称关键词，双语覆盖）。"""
+    try:
+        if int(attr_id or 0) in CERT_NUMBER_ATTR_IDS:
+            return True
+    except (ValueError, TypeError):
+        pass
+    n = str(attr_name or "").lower()
+    return any(kw in n for kw in CERT_NUMBER_NAME_KEYWORDS)
+
+
+def resolve_numeric_dict_default(
+    attr_name: str,
+    *,
+    draft_attrs: Any = None,
+    title_cn: str = "",
+    dict_vals: Any = None,
+) -> Optional[tuple[int, str]]:
+    """数值规格字典属性解析：提取数字 → 本属性字典精确唯一命中才填。
+
+    启用门槛：字典值主体（≥50%）为纯数字（防误入文本字典）。取数优先级：
+    桥接表定向命中的中文属性值 > 标题 > 其余 1688 属性值。多个不同档位命中
+    时只有「定向中文属性」单命中才可信，否则 None（宁缺毋滥纪律不变）。
+    """
+    values = _as_list(dict_vals)
+    if not values:
+        return None
+    num_index: dict[str, tuple[int, str]] = {}
+    for v in values:
+        if not isinstance(v, dict):
+            continue
+        canon = _canon_num(v.get("value") or "")
+        if not canon:
+            continue
+        vid = v.get("id") or v.get("dictionary_value_id") or 0
+        if vid and canon not in num_index:
+            num_index[canon] = (int(vid), str(v.get("value") or ""))
+    # 门槛：字典主体是数字档位（纯数字值占比 ≥50%，且至少 3 个数字档位）
+    if not num_index or len(num_index) < 3 or len(num_index) / len(values) < 0.5:
+        return None
+
+    name = str(attr_name or "").lower()
+    zh_keys: tuple[str, ...] = ()
+    for ru_kw, zh_kws in _NUMSPEC_RU_ZH_BRIDGE:
+        if ru_kw in name:
+            zh_keys = zh_kws
+            break
+
+    targeted: list[str] = []
+    generic: list[str] = []
+    if isinstance(draft_attrs, dict):
+        for k, v in draft_attrs.items():
+            nums = _NUM_TOKEN_RE.findall(str(v or ""))
+            if not nums:
+                continue
+            generic.extend(nums)
+            if zh_keys and any(zk in str(k or "") for zk in zh_keys):
+                targeted.extend(nums)
+
+    candidates: list[str] = []
+    for src in (targeted, _NUM_TOKEN_RE.findall(str(title_cn or "")), generic):
+        for n in src:
+            c = _canon_num(n)
+            if c and c not in candidates:
+                candidates.append(c)
+
+    hits: list[tuple[int, str]] = []
+    for c in candidates:
+        hit = num_index.get(c)
+        if hit and hit not in hits:
+            hits.append(hit)
+    if len(hits) == 1:
+        return hits[0]
+    if hits and targeted:
+        # 多命中（如 "225/45R17" 同时命中宽度+直径两档）：只信定向中文属性
+        # 命中的那一个档位（宽度/直径按属性分流后各自应唯一）
+        targeted_canon = {_canon_num(n) for n in targeted}
+        targeted_hits = [h for h in hits if any(
+            num_index.get(c) == h for c in targeted_canon if c in num_index
+        )]
+        if len(targeted_hits) == 1:
+            return targeted_hits[0]
+    return None
+
 # 1688 关键词 → 俄语性别值（再查 dictionary_value_id）
 GENDER_MAP = (
     ("男女通用", "Унисекс"), ("男女", "Унисекс"), ("中性", "Унисекс"),
@@ -425,8 +543,13 @@ def resolve_missing_mandatory_dict_attr(
     size_cn: str = "",
     dict_vals: Any = None,
     type_id: int = 0,
+    draft_attrs: Any = None,
 ) -> Optional[tuple[int, str]]:
-    """按属性语义解析必填字典属性的安全默认值；查不到返回 None。"""
+    """按属性语义解析必填字典属性的安全默认值；查不到返回 None。
+
+    draft_attrs（v0.63.2）: 1688 中文属性 dict（draft.attributes），供数值规格
+    字典属性（轮胎 截面宽度/直径英寸）按数字精确匹配，不影响既有语义分支。
+    """
     attr_id = int(attr_id or 0)
     name = str(attr_name or "").lower()
     if attr_id in MERGE_CARD_ATTR_IDS:
@@ -502,6 +625,13 @@ def resolve_missing_mandatory_dict_attr(
         # 复用 get_safe_hazard_default(RU+ZH 关键词), 取不到返回 None(跳过, 交 Ozon 报可修复错)。
         from utils.attribute_utils import get_safe_hazard_default
         return get_safe_hazard_default(dict_vals)
+    # v0.63.2: 数值规格字典属性（字典主体为纯数字档位）—— 语义分支全不命中时，
+    # 从 1688 属性值/标题提取数字精确匹配（轮胎 7387/7389 等链路盲区的通用补口）
+    _num_res = resolve_numeric_dict_default(
+        attr_name, draft_attrs=draft_attrs, title_cn=title_cn, dict_vals=dict_vals,
+    )
+    if _num_res:
+        return _num_res
     return None
 
 
