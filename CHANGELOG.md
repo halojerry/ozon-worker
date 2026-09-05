@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.64.0] - 2026-09-05
+
+> v0.64 视觉模型切换（类目/属性/生图接入 deepseek-v4-flash-vision-exp）+ 生图精简 10→5 +
+> 属性/类目/状态流三类根因修复第一批。VERSION 四源 0.64.0。
+
+### 视觉模型切换（v0.64 主体）
+- `call_mxou_chat_api` 新增 `image_urls`（OpenAI Vision array，≤4 张；无图纯字符串向后兼容）。
+- 类目 LLM 匹配传产品图（`assemble._llm_rank_categories`）→ 缓解 pg_trgm 字符级错配（"圆盘状饮水器"不再配错）。
+- 属性消歧接线：prepare 多候选 LLM 消歧（带图）+ assemble `_find_dict_value` 改 `unique_or_none` 不再盲补首值。
+- 新增 `_infer_attrs_from_vision` 视觉属性推断（颜色/材质/形状/图案等，非硬编码 ID）。
+- scene_gen/visual_vars 传产品图提升生图质量；9 config + 8 py 全量换模型名。
+
+### 属性填充增强（A1/A2）
+- **A1 vision 关键词中英双语**：`_infer_attrs_from_vision` 的 `_INFER_KW` 原全俄语 → 中文 schema（ZH_HANS）下推断层空转（v0.64 缺陷）→ 补中文同义词（颜色/材质/形状/图案/性别/季节等纯视觉词，排除类型/型号防幻觉）。
+- **A2 可选字典属性中文直搜旁路**：无同义词组的可选字典属性（形状/图案/产地/功率等）此前从 assemble 起静默消失 → 同义词门后加「中文直搜 + 唯一命中才填」旁路，仅 schema 名与 draft 属性名共享中文字符才触发（防无关 search），多候选宁缺毋滥保持。
+
+### 生图精简 10→5（perf cf0fc5f7）
+- 默认 plan 从全 10 张改为 5 张：main/white_bg/multi_angle/detail/scene_1 + variant 变体主图；social_proof/comparison/scene_2/scene_3 默认关（**非删除**，槽位仍在 ALL_SLOTS，可经 `image_gen_plan` 覆盖重开）。
+- 单 SKU 每单省 4 次生图调用（social_proof 是高价 gpt-image-2 档）。
+
+### 类目错放修复（B1/B3，6b6acfd6）
+- **B1**：skill `ozon_seller_analytics` 写候选 `ozon_category` 带 `source=what_to_sell/namespace=seller`——此前无 source 默认 search_kw（非权威），discover/batch_test 复用路径权威类目被降为普通候选后按标题重猜错放。
+- **B3**：assemble Step6.5 一致性重配对 `match_layer==Skill`（权威直通 page/what_to_sell/mapping）豁免——俄语标题与类目路径词面不重叠是正常，不应反噬权威类目。
+
+### 状态流/竞态修复（C1-C4）
+- **N4 retry 子图修复回传主图**（42f3d61d）：`ValidationRetryLoopOutput`/`WrapperOutput` 加 dc/tp/final_attributes/attributes_schema——此前子图重配 type 只写 payload，learning_record 按主图旧类目落库（Goodhart 输入）。
+- **N5 BR_chinese flat→Ozon 格式回灌**（beab721d）：error_repair 中文翻译后回灌 payload 转 Ozon 属性格式，消除 revalidate 折叠伪属性 + 空值丢弃。
+- **N6 跟卖 UPDATE 豁免类目必填**（a6d60932）：ozon_validate 对带 product_id 的 item（UPDATE 模式）豁免类目缺失校验，CREATE 仍报。
+- **N5b 学习表原子 upsert**（0f59d067）：`add_attribute_mapping` 改 INSERT...ON_CONFLICT，防并发 IntegrityError 炸上传成功后任务。
+
+### 测试
+- worker 全量 **1618 passed**（本地 Docker/PG）；新增 test_attr_fill_bypass_v065（5）、test_retry_repair_backprop_v065（4）、test_validate_update_category_exempt_v065（3）、test_mxou_vision_format（6）。
+
 ## [0.63.1] - 2026-09-02
 
 > v0.63.0 上线后的第一批补漏/加固（Sentry OutOfQuota 吞错、生图违规透传、运行时并发、

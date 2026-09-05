@@ -2,6 +2,18 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.64.0 — 视觉模型切换 + 生图精简 10→5 + 属性/类目/状态流三类修复）
+
+> 2026-09-05。已发版（VERSION 四源 0.64.0）。v0.64 vision 切换（类目/属性/生图接
+> deepseek-v4-flash-vision-exp）+ 本批修复（Sentry 五簇 aca6d61f / 登录等待 3633425d /
+> 砍图 cf0fc5f7 / 类目 B1B3 6b6acfd6 / 状态流 C1-C4 42f3d61d+beab721d+a6d60932+0f59d067）。
+
+- **视觉模型切换（v0.64 主体）**：`call_mxou_chat_api` 加 `image_urls`（Vision array ≤4 张）；类目 LLM 匹配传图；属性消歧接线（多候选 LLM 消歧带图，不再盲补首值）；新增 `_infer_attrs_from_vision`（非硬编码 ID）。9 config + 8 py 全量换 `deepseek-v4-flash-vision-exp`。
+- **生图默认精简 10→5**：`image_gen_plan.DEFAULT_PLAN` = main/white_bg/multi_angle/detail/scene_1 + variant 变体主图；social_proof/comparison/scene_2/scene_3 默认关（槽位仍在 ALL_SLOTS，可经 `config.configurable.image_gen_plan` 覆盖重开，非删除）。prepare 跟卖告警阈值 10→3。
+- **属性填充 A1/A2**：`_infer_attrs_from_vision` `_INFER_KW` 补中文同义词（原全俄语 → 中文 schema 空转）；`_fill_optional_dict_attrs` 加中文直搜旁路（schema/draft 名共享中文字符才触发，覆盖形状/图案/产地等无同义词组属性）。
+- **类目错放 B1/B3**：skill 权威类目标 `source=what_to_sell`（discover 复用不再降标 search_kw 被 L2 挤掉）；Step6.5 一致性重配对 `match_layer==Skill` 豁免（guard 式）。
+- **状态流 C1-C4**：N4 retry 子图 dc/tp/属性回传主图（learning 不再按旧类目落库）；N5 BR_chinese 回灌转 Ozon 格式；N6 validate 对带 product_id 的 UPDATE 豁免类目必填；N5b 学习表原子 upsert。
+
 ## 最近更新（v0.63.1 — v0.63.0 补漏加固 + 凭证端点 422 化）
 
 > 2026-09-02。已发版（VERSION 四源 0.63.1）。v0.63.0 上线后第一批补漏 + 链路测试实证的凭证端点修复。
