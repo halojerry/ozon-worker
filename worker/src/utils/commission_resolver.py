@@ -68,6 +68,8 @@ def parse_prices_commissions(prices_resp: Optional[dict]) -> Optional[float]:
 
     读 `items[0].commissions.sales_percent_rfbs`（缺失回退 `sales_percent_fbp`），/100 返回。
     items 空 / commissions 缺失 / 字段缺失或非数字 / 响应非 dict → None。
+    ✅ v0.67 wave 修复：值 <=0 同样 → None（Ozon 响应缺 commissions 块时常给 0，
+    0% 不是真实佣金——回填侧会据此 upsert 0 污染缓存表，A6 实证）。
     """
     if not prices_resp or not isinstance(prices_resp, dict):
         return None
@@ -84,9 +86,12 @@ def parse_prices_commissions(prices_resp: Optional[dict]) -> Optional[float]:
     if pct is None:
         return None
     try:
-        return float(pct) / 100.0
+        pct_f = float(pct)
     except (TypeError, ValueError):
         return None
+    if pct_f <= 0:
+        return None
+    return pct_f / 100.0
 
 
 def resolve_commission_rate(
@@ -116,7 +121,9 @@ def resolve_commission_rate(
         row = get_category_commission_fn(description_category_id)
         if row:
             pct = select_segment(row, DEFAULT_PREFIX, band)
-            if pct is not None:
+            # ✅ v0.67 wave 修复：段值 <=0（历史污染行/响应缺块写出的 0）视同未命中，
+            # 继续走 segments/fallback——0% 佣金采信会让定价利润虚高（A6 实证）。
+            if pct is not None and pct > 0:
                 return pct / 100.0, f"cache:{band}"
     if extensions_commission_segments:
         fbs_segments = extensions_commission_segments.get(DEFAULT_PREFIX)

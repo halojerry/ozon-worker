@@ -415,6 +415,27 @@ def _is_skill_authoritative(_source: str, _namespace: str, skill_l0_hit: dict | 
     return _authoritative
 
 
+def _place_skill_candidate(candidates: list[dict], skill_hit: dict | None,
+                           authoritative: bool) -> list[dict]:
+    """skill 直采候选入池位置（纯函数，可单测）。
+
+    权威（page/mapping/what_to_sell/widget 路径精配）→ 插首（v0.27 直采语义不变）。
+    非权威（search_kw）→ **追加队尾**：_resolve_skill_category 对树校验通过的候选
+    恒置 similarity=1.0，插首会让 L1 竞争必胜（wave A1 实证：辣椒帽被 skill 错猜的
+    化妆刷 78032222 带偏整卡 → 帽类必填属性全缺 → Ozon declined）。队尾保留
+    「搜索 0 命中时唯一兜底」与 LLM fallback 可见性，但不插队抢跑。
+    返回新列表，不原地修改入参。
+    """
+    if not skill_hit:
+        return list(candidates)
+    out = list(candidates)
+    if authoritative:
+        out.insert(0, skill_hit)
+    else:
+        out.append(skill_hit)
+    return out
+
+
 def _skill_precedence_over_l0(l0_hit: dict | None, skill_l0_hit: dict | None,
                               skill_source: str, skill_namespace: str) -> bool:
     """v0.66 P2-3: 权威 Skill 是否应接管 l0_hit（纯判定 + 日志，无副作用）。
@@ -915,10 +936,20 @@ def assemble_ozon_product_node(
     # 存在即采用, 跳过 pg_trgm 猜。与跟卖分支共用同一校验逻辑。
     # =====================================================
     _skill_l0_hit = None
+    _skill_source = ""
+    _skill_namespace = ""
+    _skill_authoritative = False
     if (not extensions.get("follow_sell")
             and draft_ozon_cat.get("description_category_id")
             and not getattr(state, "description_category_id", None)):
         _skill_l0_hit = _resolve_skill_category(draft_ozon_cat)
+        # ✅ v0.67 wave 修复：权威判定提前到入池前——非权威候选必须以队尾方式
+        # 入池（_place_skill_candidate），不能再走「先插首后降级」的矛盾路径。
+        _skill_source = str((draft_ozon_cat or {}).get("source", "")).strip() or "search_kw"
+        _skill_namespace = str((draft_ozon_cat or {}).get("namespace", "")).strip()
+        _skill_authoritative = _is_skill_authoritative(
+            _skill_source, _skill_namespace, _skill_l0_hit,
+        )
         if _skill_l0_hit:
             logger.info(f"✅ 直采类目(来自 Skill search_categories, 已校验): "
                         f"dc={_skill_l0_hit['description_category_id']} "
@@ -1036,9 +1067,9 @@ def assemble_ozon_product_node(
     candidates = _merge_candidates(src_candidates, kw_candidates)
     if candidates:
         logger.info(f"   ✅ 双路搜索合并：{len(candidates)} 个候选（src={len(src_candidates)} + kw={len(kw_candidates)}）")
-    # ✅ v0.27: Skill 类目优先 — 校验通过的 Skill 类目置于候选首位, 后续 best=candidates[0] 命中
-    if _skill_l0_hit:
-        candidates.insert(0, _skill_l0_hit)
+    # ✅ v0.27: Skill 类目优先 — 权威 skill 候选插首（直采语义）；非权威（search_kw）
+    # 追加队尾——树校验候选恒带 sim=1.0，插首即 L1 必胜（wave A1 错域实证）。
+    candidates = _place_skill_candidate(candidates, _skill_l0_hit, _skill_authoritative)
     
     if not candidates:
         # 回退：不过滤 node_type
@@ -1124,13 +1155,8 @@ def assemble_ozon_product_node(
     ) if source_category else None
     # ✅ v0.63/v0.65.1-P1-1: Skill 类目来源信任分级 —
     #   仅 page/mapping/what_to_sell（+widget 路径精配）为权威：match_layer=Skill，
-    #   免 sim/overlap/R2b/R1 候选闸。search_kw 永不升级 Skill，只能当普通 L1
-    #   候选过 sim/R2b/R1 闸（R2 已修文本链，正确 skill dc 会在 L1 自然胜出）。
-    _skill_source = str((draft_ozon_cat or {}).get("source", "")).strip() or "search_kw"
-    _skill_namespace = str((draft_ozon_cat or {}).get("namespace", "")).strip()
-    _skill_authoritative = _is_skill_authoritative(
-        _skill_source, _skill_namespace, _skill_l0_hit,
-    )
+    #   免 sim/overlap/R2b/R1 候选闸。search_kw 永不升级 Skill（信任序已在 Step 0.5
+    #   早算 _skill_authoritative，非权威候选已按队尾入池）。
     # ✅ v0.66 P2-3: Skill 权威 > 聚合 L0 —— 信封同时带权威 skill 类目
     # （source=page/what_to_sell/mapping，v0.65.1 P1-1 注释明言 Skill 权威最高：
     # 它是本次商品直接关联的真实 Ozon 卡/榜单类目）又命中 leaf 聚合 L0，且两者
@@ -1202,24 +1228,9 @@ def assemble_ozon_product_node(
     # 1c. 直接使用 pg_trgm 最高相似度候选（不用 LLM）
     # pg_trgm 搜索已按 sim DESC 排序，candidates[0] 即最佳匹配
     # LLM 匹配不可靠（如玩具→鞋类），关键词匹配更准确
-    # v0.65.1 P1-1(a): search_kw skill 候选不升级 Skill（无豁免）——放回 L1 候选
-    # 首位参与 sim/overlap/R2b/R1 竞争。若已被 R1 候选闸剔除（敏感且源无信号）则不回插。
-    if (not l0_hit and _skill_l0_hit and not _skill_authoritative
-            and any(
-                int(c.get("description_category_id") or 0)
-                == int(_skill_l0_hit.get("description_category_id") or 0)
-                and int(c.get("type_id") or 0) == int(_skill_l0_hit.get("type_id") or 0)
-                for c in candidates
-            )):
-        try:
-            candidates.remove(_skill_l0_hit)
-        except ValueError:
-            pass
-        candidates.insert(0, _skill_l0_hit)
-        logger.info(
-            f"   🔧 search_kw skill 候选放回 L1 候选首位过闸: "
-            f"[{_skill_l0_hit['description_category_id']}/{_skill_l0_hit['type_id']}]"
-        )
+    # v0.65.1 P1-1(a) + v0.67 wave 修复: search_kw skill 候选不升级 Skill（无豁免），
+    # 也不再「放回候选首位」——树校验候选恒带 sim=1.0，插首即 L1 必胜（A1 错域实证）。
+    # 现按队尾入池（_place_skill_candidate）：仍在池中则自然参与竞争，被 R1 剔除则保持剔除。
     best = candidates[0]
     # ✅ v0.31.x: 低分候选（sim 低于接受门槛）不直接采用——记日志后走既有
     # overlap 验证 → LLM fallback 链（最终采纳点在 L779 前再判定阻断）
