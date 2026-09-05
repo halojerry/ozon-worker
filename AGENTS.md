@@ -2,6 +2,31 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.67.0 — worker 内置远程 MCP 服务：任何平台可调云端能力）
+
+> 2026-09-05。已发版（VERSION 四源 0.67.0）。对标竞品 linkfox 远程 MCP 网关（调研：27 服务/
+> 209 工具全为第三方选品数据，**无 Ozon 官方 API 上架/店铺运营 MCP**——我们全链路 MCP 化是
+> 差异化）。架构三拍板：worker 进程内挂 /mcp（不建独立网关）、第一批仅 worker 云端能力
+> （skill 采集依赖本机 Chrome 登录态，继续走本地 pounding-mcp stdio）、鉴权复用 mxou key Bearer。
+
+- **远程 MCP 端点**：`https://worker.mxou.cn/mcp`（streamable-http，`Authorization: Bearer
+  <mxou key>`）。实现 `src/mcp_server.py`：14 工具**零业务逻辑**——进程内 httpx ASGITransport
+  回调现有 REST（鉴权/租户/错误码与 REST 同源，REST 加字段 MCP 自动生效；**改路由路径必须
+  同步 mcp_server.py 的 _call 调用**）。纯 ASGI Bearer 中间件在 MCP 协议层先挡 401/429；
+  `_root_lifespan` 合并 FastMCP session manager lifespan；`_McpNoSlash` 内部转交裸路径 /mcp
+  （Mount 裸路径会在鉴权前 307，勿删）。`MCP_ENABLED=0` 整体关闭；fastmcp 缺失自动降级。
+- **双 MCP 分工**（改 agent 编排前必读）：云端本服务管上架/草稿/店铺/查询（submit_task/
+  submit_draft/analyze_store/run_store_action/lookup_* 等 14 个，见 `docs/MCP-SERVER.md`）；
+  本地 pounding-mcp 管采集（graph/follow/discover/image_search/check，依赖本机 Chrome 登录态）。
+  `run_store_action`/`submit_*` 是真实写操作，agent 侧需用户确认。
+- **限流计数**：一次 MCP 工具调用记 2 次（中间件+内层路由各一次），比 REST 更保守。
+- **harness 路线图**（批次 3 未执行，harness 一行未动）：对接施工文档
+  `docs/PLAN-harness-mcp-adoption-v1.md`——dsh 挂双 MCP 配置、凭证流转、采集箱/任务中心
+  保留策略、网关瘦身清单、审批分级、回滚与验收清单。批次 2（未执行）：pounding-mcp uvx 发包
+  + skill 包自带 mcp/ 接入指南。
+- **测试**：`tests/test_mcp_server.py` 19 passed（工具整形/Bearer 中间件/挂载面）+ 端到端
+  实测（fastmcp 客户端握手 + 14 工具注册 + 真实 REST 回调）。
+
 ## 最近更新（v0.66.1 — discover 类目学习闭环：approve 为唯一学习成功信号）
 
 > 2026-09-05。已发版（VERSION 四源 0.66.1）。v0.66.0 L0 复活后的数据流补全：discover 对齐
@@ -397,6 +422,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | LangGraph 进度 | `GET /progress/{run_id}` | GET |
 | 健康检查 | `GET /api/v1/health` | GET |
 | Swagger UI | `GET /docs` | GET |
+| 远程 MCP 服务（v0.67） | `POST/GET /mcp`（streamable-http，Bearer=mxou key，见 docs/MCP-SERVER.md） | ANY |
 | 蓝海数据上报 | `POST /api/v1/analytics/queries` | POST |
 | 畅销榜数据上报 | `POST /api/v1/analytics/ozon-bestsellers` | POST |
 | 跨平台畅销榜上报 | `POST /api/v1/analytics/market-bestsellers` | POST |
