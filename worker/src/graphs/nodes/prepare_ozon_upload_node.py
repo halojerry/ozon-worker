@@ -3457,7 +3457,10 @@ def prepare_ozon_upload_node(
             profit_estimation=profit_estimation,
             validation_errors=validation_errors,
             error_message="数据准备失败：" + "; ".join(validation_errors),
-            failed_stage="prepare_ozon_upload"
+            failed_stage="prepare_ozon_upload",
+            # ✅ v0.67.1 wave②: 失败出口也带归一真值（:1841 已算出，留档取证）
+            final_weight_g=int(weight_g or 0),
+            final_dims_mm={"length": int(depth_mm or 0), "width": int(width_mm or 0), "height": int(height_mm or 0)},
         )
     
     # Step 8: 返回准备好的数据
@@ -3482,6 +3485,9 @@ def prepare_ozon_upload_node(
         purchase_cost=purchase_cost,  # ✅ 新增：采购成本（CNY）
         sku_id=sku_id,  # ✅ 新增：1688 SKU_ID
         profit_estimation=profit_estimation,  # ✅ 新增：利润预估明细
+        # ✅ v0.67.1 wave②: 归一后真值透出（GlobalState→GraphOutput→留存表）
+        final_weight_g=int(weight_g or 0),
+        final_dims_mm={"length": int(depth_mm or 0), "width": int(width_mm or 0), "height": int(height_mm or 0)},
         validation_errors=[],
         error_message="",
         failed_stage=""

@@ -88,7 +88,11 @@ class GlobalState(BaseModel):
     # 分档（match_layer=L0 且 dc/tp 未变 → L0 自证跳过；Skill→0.9；L1/R2b→0.7）。
     # last-write-wins（无自定义 reducer 需求，对齐 pricing_info dict 字段风格）。
     category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="类目匹配元数据（match_layer/confidence/dc/tp，L0 自证防护 + 写侧信任分档）")
-    
+    # ✅ v0.67.1 wave②: prepare 归一后真值通道（last-write-wins，GraphOutput 透传
+    # 供留存表记实际上传重量/尺寸——信封 draft 可能是 1688 原始垃圾值）
+    final_weight_g: int = Field(default=0, description="prepare 归一后重量(g)，0=未走到 prepare")
+    final_dims_mm: Dict[str, int] = Field(default_factory=dict, description="prepare 归一后尺寸 {length,width,height} mm")
+
     # 图片结果
     phase1_images: Dict[str, str] = Field(default_factory=dict, description="Phase1图片URLs")
     phase2_images: Dict[str, str] = Field(default_factory=dict, description="Phase2图片URLs")
@@ -235,6 +239,15 @@ class GraphOutput(BaseModel):
     errors: List[Dict[str, Any]] = Field(default_factory=list, description="Ozon API返回的结构化错误数组")
     # ✅ v0.67.1 wave①: 各轮拒绝原文累积透出（留存表 moderation_texts 列数据源）
     decline_errors: List[Dict[str, Any]] = Field(default_factory=list, description="每轮审核/校验拒绝原文累积（append-only，含俄语 texts）")
+    # ✅ v0.67.1 wave②: 管线真值透出 — GlobalState 同名通道图终态已是 N4/R4 同步后
+    # 终值，output_schema 按名透传，listing_result_log 据此记实际采用的类目/权重
+    # （此前只能回落信封 draft，graph 单记的是 skill 猜测——wave 实证 approved 行
+    # 记着未采用的 200001462）。
+    description_category_id: str = Field(default="", description="管线最终采用的 Ozon 类目 dc")
+    type_id: str = Field(default="", description="管线最终采用的 type")
+    category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="match_layer/confidence/dc/tp")
+    final_weight_g: int = Field(default=0, description="prepare 归一后实际上传重量(g)，0=早退无值")
+    final_dims_mm: Dict[str, int] = Field(default_factory=dict, description="prepare 归一后实际上传尺寸(mm)")
     notice: str = Field(default="", description="中文可读失败说明")
 
 
@@ -530,6 +543,10 @@ class PrepareOzonUploadOutput(BaseModel):
     validation_errors: List[str] = Field(default_factory=list, description="验证错误列表")
     error_message: str = Field(default="", description="错误信息")
     failed_stage: str = Field(default="prepare_ozon_upload", description="失败的节点名称")
+    # ✅ v0.67.1 wave②: 归一后真值（_resolve_weight_dimensions 裁决点）——留存表
+    # weight_g/dims_mm 的数据源（信封 draft 可能是 1688 原始垃圾值如 1g）
+    final_weight_g: int = Field(default=0, description="归一后重量(g)，0=未走到 prepare")
+    final_dims_mm: Dict[str, int] = Field(default_factory=dict, description="归一后尺寸 {length,width,height} mm")
 
 
 # ==================== Ozon上传节点 ====================
