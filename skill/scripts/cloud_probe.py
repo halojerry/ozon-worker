@@ -1536,6 +1536,18 @@ def _merge_config_tiers(ext: dict[str, Any], *, template_profile: dict[str, Any]
     return ext
 
 
+def _sanitize_weight_g(weight_g) -> int:
+    """v0.68.1: Ozon API 硬下限 10g——(0,10) 区间按契约必拒（INCORRECT_DIMENSION
+    "weight is out of range (min: 10, max: 5000)"，A3 实证）。根因是 1688 包装表
+    无单位裸数字（kg 语义）被 parseWeightGrams 按克产出 1g。归零=缺失语义，
+    下游 50g 缺省兜底接管；≥10g 真实轻量绝不改写。"""
+    try:
+        w = int(weight_g or 0)
+    except (TypeError, ValueError):
+        return 0
+    return 0 if 0 < w < 10 else w
+
+
 def build_graph_envelope(
     *,
     item_id: str,
@@ -1704,7 +1716,9 @@ def build_graph_envelope(
     # 重量：取 packaging_rows 第一个 SKU 的重量
     pkg_rows = data.get("packaging_rows") or []
     pkg_first = pkg_rows[0] if pkg_rows else {}
-    weight_g = int(pkg_first.get("weightGrams", 0) or data.get("weight_grams") or 0)
+    # ✅ v0.68.1: (0,10)g 低于 Ozon 硬下限 → 归零（缺失语义，下游 50g 兜底）
+    weight_g = _sanitize_weight_g(
+        int(pkg_first.get("weightGrams", 0) or data.get("weight_grams") or 0))
     if not weight_g:
         weight_g = 0  # 管线定价需要真实重量，0 会让运费计算降到最低
 

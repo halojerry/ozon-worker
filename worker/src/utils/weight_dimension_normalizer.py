@@ -30,6 +30,10 @@ DEFAULT_DIMS_MM = (300, 200, 50)
 LIGHT_WEIGHT_G = 10
 LIGHT_DIM_MM = 50
 
+# ✅ v0.68.1: Ozon API 硬下限 10g（INCORRECT_DIMENSION "weight is out of range
+# (min: 10, max: 5000)" 实证）——(0,10) 区间按契约必拒，视同缺失走兜底
+OZON_MIN_WEIGHT_G = 10
+
 
 def normalize_weight_dimensions(
     weight_raw: Any,
@@ -56,10 +60,19 @@ def normalize_weight_dimensions(
     # ── 重量：单位判定 + 缺失兜底 ──
     weight_g = _parse_weight_g(weight_raw, marks)
 
+    # ✅ v0.68.1: 低于 Ozon 硬下限（(0,10)g）视同缺失——skill 抓取层无单位裸数字
+    # （kg 语义按克产出 1g，A3 拒单实证）原样上传必被 INCORRECT_DIMENSION 拒。
+    # 只兜底不改写成 ×1000（v0.37 轻物保护不变）。
+    if 0 < weight_g < OZON_MIN_WEIGHT_G:
+        marks["reasons"].append(
+            f"weight_below_ozon_min({weight_g}g < {OZON_MIN_WEIGHT_G}g)_treated_as_missing"
+        )
+        weight_g = 0
+
     # 缺失 → 竞品兜底 → 默认值
     if weight_g <= 0:
         comp_w = _safe_float(competitor.get("competitor_weight_g"))
-        if comp_w > 0:
+        if comp_w >= OZON_MIN_WEIGHT_G:
             weight_g = int(comp_w)
             marks["weight_source"] = "competitor"
             marks["weight_estimated"] = True
