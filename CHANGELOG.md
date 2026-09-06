@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.68.1] - 2026-09-06
+
+> v0.68.0 回归新发现两缺陷的紧急修复（重量硬下限 + Step 6.5 R2b 豁免），双侧 TDD +
+> 本地真实回归。
+
+### 修复
+- **Ozon 重量硬下限守卫**：A3 拒单真因 `INCORRECT_DIMENSION: weight is out of range
+  (min: 10, max: 5000)`——skill 信封 1g 原样上传。修：worker
+  `weight_dimension_normalizer` 将 (0,10)g 视同缺失走竞品(≥10g)/默认 100g 兜底
+  （**不 ×1000**，v0.37 轻物保护不变；100g 与真实 3g 同 ≤500g 物流段，不跳档不拒单）；
+  skill `cloud_probe._sanitize_weight_g` 抓取层出口守卫（根因=1688 包装表无单位裸数字
+  kg 语义按克产出，归零走 50g 缺省）。legacy 3g/5g 用例对齐新语义（保持原值=必拒单）。
+  回归实证：A3 重提信封 weight 1g→50g。
+- **Step 6.5 一致性重配 R2b 豁免**：A4 被从 R2b 确认的园艺地垫改配除草剂（v0.68.0
+  已知问题）。修：`_step65_consistency_exempt` 纯函数（Skill/权威 L0/R2b 已确认三类
+  豁免；普通 L1 不豁免——A2 型救回语义保持）。回归实证：A4 重提一致性警告照打但
+  采纳保持，园艺地垫正常上传（v0.68.0 同场景直接被改走）。
+
+### ⚠️ 已知问题（本批回归再发现，未修）
+- **A3 残余拒单=估算尺寸过小**：1688 页面无尺寸 → 估算 60×45×30mm → Ozon 重量×体积
+  交叉校验拒单（报错误导性只报 weight range，50g 实际在范围内）。修复方向：skill 尺寸
+  估算质量（软商品最小体积先验）或 worker 密度预检主动放大。
+- **R4 换类目目标选择无域守卫**：A4 首单园艺地垫被 Ozon 拒（图片/8229 类型）后，R4 按
+  DESCRIPTION_DECLINE 整卡重配选中**除草剂**（标题「除草」关键词牵引）→ 再拒。修复
+  方向：R4 重配候选排除化学品/敏感域，或要求与 1688 leaf 语义 overlap。
+- 杂散任务（title=测试商品）失败于 MXOU 401 Invalid token（b76f5dbb/cbde6fca），与本
+  批无关。
+
+### 测试
+- worker 全量 **1800 passed**（+8：test_v0681_weight_floor_and_step65 7 + normalizer
+  边界用例；legacy 3g/5g 两用例对齐新语义）；skill 全量 **638 passed**（+3
+  test_weight_floor_guard）。
+
 ## [0.68.0] - 2026-09-06
 
 > wave P2/P3 修复批次：v0.67 wave 真实测试在案四个缺陷的深度取证与修复（方案
