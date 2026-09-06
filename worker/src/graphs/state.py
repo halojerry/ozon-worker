@@ -118,6 +118,9 @@ class GlobalState(BaseModel):
     validation_errors: List[str] = Field(default_factory=list, description="验证错误列表（仅当前节点产生）")
     is_valid: bool = Field(default=True, description="是否验证通过")
     errors: List[Dict[str, Any]] = Field(default_factory=list, description="Ozon API返回的结构化错误数组")
+    # ✅ v0.67.1 wave①: 每轮审核/校验拒绝原文累积（retry 子图 _accumulate_decline_errors
+    # 追加 → wrapper 回传主图 → GraphOutput → task_processor 留存表 moderation_texts 列）
+    decline_errors: List[Dict[str, Any]] = Field(default_factory=list, description="每轮审核/校验拒绝原文累积（append-only，含俄语 texts）")
     auto_fixed: bool = Field(default=False, description="是否已自动修复")
     
     # 错误信息（last-write-wins：后写入的覆盖先写入的）
@@ -230,6 +233,8 @@ class GraphOutput(BaseModel):
     # task_processor 三终态挂点据此写 listing_result_log 留存分析表（结构化 declined 原因）；
     # notice 为中文可读失败说明（retry 子图 _build_notice 生成，经 wrapper 回传主图）。
     errors: List[Dict[str, Any]] = Field(default_factory=list, description="Ozon API返回的结构化错误数组")
+    # ✅ v0.67.1 wave①: 各轮拒绝原文累积透出（留存表 moderation_texts 列数据源）
+    decline_errors: List[Dict[str, Any]] = Field(default_factory=list, description="每轮审核/校验拒绝原文累积（append-only，含俄语 texts）")
     notice: str = Field(default="", description="中文可读失败说明")
 
 
@@ -818,6 +823,8 @@ class ValidationRetryWrapperOutput(BaseModel):
     # ✅ v0.67: 子图 errors/notice 透传主图（修复失败终态 → GlobalState → GraphOutput
     # → task_processor 留存表归因）。errors 为结构化 declined 原因、notice 中文可读说明。
     errors: list = Field(default_factory=list, description="Ozon官方错误数组（子图终态透出）")
+    # ✅ v0.67.1 wave①: 子图各轮拒绝原文累积回传主图（GlobalState → GraphOutput → 留存表）
+    decline_errors: list = Field(default_factory=list, description="每轮审核/校验拒绝原文累积（append-only，含俄语 texts）")
     notice: str = Field(default="", description="中文可读失败说明（子图 _build_notice 透出）")
 
 

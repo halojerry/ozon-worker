@@ -1128,6 +1128,7 @@ class ListingResultLog(Base):
     error_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="截 2000")
     errors: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, comment="结构化 declined 原因 [{code,attribute_id,...}]")
+    moderation_texts: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, comment="每轮审核拒绝原文累积 [{code,level,attribute_id,texts}]")
     retry_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     match_layer: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, comment="Skill/L0/L1/R2b（GraphOutput 透出后接入）")
     match_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

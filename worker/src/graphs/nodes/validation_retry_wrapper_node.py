@@ -87,6 +87,8 @@ def validation_retry_wrapper_node(
     # GraphOutput → task_processor 留存表归因；notice 中文可读优先作失败信息）
     _final_errors: list = result.get("errors") or []
     _final_notice: str = str(result.get("notice") or "")
+    # ✅ v0.67.1 wave①: 子图各轮拒绝原文累积回传（留存表 moderation_texts 列数据源）
+    _decline_errors: list = result.get("decline_errors") or []
 
     logger.info(f"✅ 子图执行完成：is_valid={is_valid}, retry_count={retry_count}, upload_status={upload_status}")
 
@@ -110,4 +112,6 @@ def validation_retry_wrapper_node(
         # v0.67: errors/notice 透传（子图终态错误数组 + 中文可读失败说明）
         errors=_final_errors,
         notice=_final_notice,
+        # v0.67.1 wave①: 拒绝原文累积回传主图
+        decline_errors=_decline_errors,
     )
