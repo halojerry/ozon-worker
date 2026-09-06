@@ -535,6 +535,48 @@ def _find_close_top_category_rival(adopted: dict | None, candidates: list,
     return None
 
 
+def _build_r2b_confirm_pool(candidates: list, adopted: dict | None,
+                            source_words: str) -> list[dict]:
+    """v0.67.1 wave③: R2b 仲裁池 = sim top10 + 跨大类且与源词有非泛词 overlap 的
+    高潜候选（每 dc 最多 3 个，cap 12）。此前固定 [:5] 按 sim 截断——A4 园艺地垫
+    （sim=0.33, kw Top-1）进不了 LLM 清单，LLM 只能 abstain → 安全阻断变必阻断。
+    去重保序：top 段保持原相对顺序（LLM 编号稳定）。"""
+    pool: list = []
+    seen: set = set()
+
+    def _push(c: dict) -> None:
+        try:
+            key = (int(c.get("description_category_id") or 0), int(c.get("type_id") or 0))
+        except (TypeError, ValueError):
+            return
+        if key in seen:
+            return
+        seen.add(key)
+        pool.append(c)
+
+    for c in (candidates or [])[:10]:
+        _push(c)
+    try:
+        _adopted_dc = int((adopted or {}).get("description_category_id") or 0)
+    except (TypeError, ValueError):
+        _adopted_dc = 0
+    per_dc: dict = {}
+    for c in (candidates or [])[10:]:
+        try:
+            dc = int(c.get("description_category_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if dc == _adopted_dc:
+            continue
+        if not _non_generic_overlap_words(str(c.get("full_path") or ""), [source_words]):
+            continue
+        if per_dc.get(dc, 0) >= 3:
+            continue
+        per_dc[dc] = per_dc.get(dc, 0) + 1
+        _push(c)
+    return pool[:12]
+
+
 logger = logging.getLogger(__name__)
 
 # ==================== 常量 ====================
@@ -1424,6 +1466,7 @@ def assemble_ozon_product_node(
                             f"{best_by_llm.get('full_path', '')[:80]}"
                         )
                         match_confidence = 0.0
+                        _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
                         return {"error_message": "类目匹配失败：LLM fallback 无可靠结果（需人工确认类目），阻断上架",
                                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
                                 "match_confidence": 0.0}
@@ -1431,6 +1474,7 @@ def assemble_ozon_product_node(
                     # ✅ v5: LLM 也失败 → 阻断上架，不硬用低质量候选
                     match_confidence = 0.0
                     logger.error(f"   🛑 LLM fallback 也失败，无可靠类目匹配，阻断上架")
+                    _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
                     return {"error_message": "类目匹配失败：jieba搜索+LLM均无可靠结果，阻断上架避免错误类目",
                             "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
                             "match_confidence": 0.0}
@@ -1450,6 +1494,7 @@ def assemble_ozon_product_node(
             f"阻断上架避免错放"
         )
         match_confidence = 0.0
+        _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
         return {"error_message": "类目匹配失败：候选类目为敏感类目(成人用品/18+/烟草/药品等)"
                                  "但商品来源无对应敏感信号词，需人工确认类目",
                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
@@ -1478,7 +1523,11 @@ def assemble_ozon_product_node(
                 f"rival={(_rival or {}).get('full_path', '')[:60]}"
             )
             _confirm = _llm_rank_categories(
-                candidates[:5], source_keywords or keywords, draft, state,
+                _build_r2b_confirm_pool(candidates, category_result,
+                                        source_keywords or keywords),
+                source_keywords or keywords, draft, state,
+                context=f"当前拟采纳: {str((category_result or {}).get('category_path', ''))[:80]}"
+                        f"；1688源类目: {str(source_category or '')[:60]}",
             )
             _confirm_path = ""
             _confirm_overlap: set = set()
@@ -1510,6 +1559,7 @@ def assemble_ozon_product_node(
                     f"（sim={_sim_now:.3f}），阻断上架避免错类目"
                 )
                 match_confidence = 0.0
+                _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
                 return {"error_message": "类目匹配失败：低置信/歧义类目经 LLM 确认后仍无可靠匹配"
                                          "（需人工确认类目），阻断上架",
                         "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
@@ -1526,6 +1576,7 @@ def assemble_ozon_product_node(
             f"{str(category_result.get('category_path', ''))[:80]}"
         )
         match_confidence = 0.0
+        _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
         return {"error_message": "类目匹配失败：类目相似度低于接受门槛（需人工确认类目），阻断上架",
                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
                 "match_confidence": 0.0}
@@ -3397,10 +3448,13 @@ def _generate_hashtags(name: str, traffic_keywords: list[str] | None = None) -> 
 
 
 def _llm_rank_categories(
-    candidates: list[dict], keywords: str, draft: dict, state
+    candidates: list[dict], keywords: str, draft: dict, state,
+    context: str = "",
 ) -> dict | None:
     """v4 LLM fallback：低置信度时让 LLM 从候选类目中选最佳匹配。
     增强：domain_hint 引导 + 1688类目面包屑 + 建议搜索词（候选都不合适时二次搜索）
+    v0.67.1 wave③: context 参数（R2b 确认场景带拟采纳项/1688 leaf 上下文）；
+    解析失败/abstain 分支不再静默——原始响应落 warning（取证 116 字符之谜）。
     """
     try:
         from utils.mxou_api import call_mxou_chat_api
@@ -3453,6 +3507,7 @@ def _llm_rank_categories(
 {domain_guidance}
 候选类目:
 {cand_text}
+{f'消歧上下文：{context}' if context else ''}
 
 返回 JSON:
 {{"candidate_index": <1-{len(candidates)} 的整数, 候选中最匹配的; 若都不合适填 0>,
@@ -3467,15 +3522,18 @@ def _llm_rank_categories(
             image_urls=product_images[:3] if product_images else None,
         )
         if not result:
+            logger.warning("🔍 R2b/LLM rank: 模型返回空 (raw=<empty>)")
             return None
         # 解析 JSON（容忍首尾非 JSON 字符）
         import json as _json, re as _re2
         _m = _re2.search(r'\{.*\}', result, _re2.DOTALL)
         if not _m:
+            logger.warning("🔍 R2b/LLM rank: 响应无 JSON 体 (raw=%.200s)", result)
             return None
         try:
             parsed = _json.loads(_m.group(0))
         except Exception:
+            logger.warning("🔍 R2b/LLM rank: JSON 解析失败 (raw=%.200s)", result)
             return None
         idx = int(parsed.get("candidate_index", 0) or 0)
         if 1 <= idx <= len(candidates):
@@ -3484,6 +3542,7 @@ def _llm_rank_categories(
         suggest = str(parsed.get("suggest_keywords", "") or "").strip()
         if suggest:
             return {"suggest_keywords": suggest, "_llm_suggest": True}
+        logger.warning("🔍 R2b/LLM rank: abstain 无建议词 (raw=%.200s)", result)
     except MxouOutOfQuotaError:
         raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不降级到下一匹配层
     except Exception as e:
@@ -3568,6 +3627,8 @@ def _log_match_attempt(state, title: str, source_category: str, keywords: str,
     try:
         import json as _json, psycopg2 as _pg
         from storage.database.db import get_db_url as _gdu
+        # ✅ v0.67.1 wave③: 阻断路径也写审计行（category_result 可能为 None/空定稿）
+        category_result = category_result or {}
         # ✅ v0.67 P1-6: thread_id = 任务 DB 行 uuid（config 由 assemble node 传入）
         _cfg_thread = ""
         try:
