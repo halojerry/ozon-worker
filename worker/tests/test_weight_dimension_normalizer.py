@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """P2a/A2 回归：weight_dimension_normalizer 公共模块行为锁定。
 
-核心断言（v0.37）：
-1. 真实轻物 3g+200×200×10 → 保持 3g（旧启发式 ×1000 已废除）
+核心断言（v0.37 → v0.68.1 修订）：
+1. 真实轻物 3g+200×200×10 → ❌ v0.68.1 改：Ozon 硬下限 10g（INCORRECT_DIMENSION
+   实证，A3 拒单），(0,10)g 必拒 → 视同缺失走默认 100g（同 ≤500g 物流段，不跳档
+   不拒单；×1000 旧病与保持原值新拒两个失败模式都不踩）
 2. 真实正常值 → 原样 + 无 marks
-3. 缺失重量 → 竞品兜底 → 默认 100g（weight_source 标记）
+3. 缺失重量 → 竞品兜底（≥10g）→ 默认 100g（weight_source 标记）
 4. 缺失尺寸 → 竞品/默认（300×200×50）
 5. 密度异常 → 标记 suspected 但不改写
 6. 字符串带小数点（'3.0'）→ kg→g 转换 3000（唯一允许的单位级改写）
@@ -27,24 +29,35 @@ from utils.weight_dimension_normalizer import (
 
 
 def test_real_light_item_not_magnified():
-    """v0.37 A2 核心：真实 3g 轻物（200×200×10mm）→ 保持 3g，绝不 ×1000。"""
+    """v0.68.1 语义：真实 3g（200×200×10mm）低于 Ozon 硬下限 10g → 视同缺失走
+    默认 100g（保持 3g 必被 INCORRECT_DIMENSION 拒；×1000 旧病会跳运费档，均劣）。
+    绝不 ×1000 的 v0.37 保护不变。"""
     w, d, marks = normalize_weight_dimensions(
         3, {"length": 200, "width": 200, "height": 10}, None
     )
-    assert w == 3, f"真实 3g 必须保持，实际 {w}g"
+    assert w == 100, f"(0,10)g 必须兜底 100g，实际 {w}g"
     assert d == {"length": 200, "width": 200, "height": 10}
-    assert marks["weight_estimated"] is False
-    assert any("light_weight_suspected" in r for r in marks["reasons"])
+    assert marks["weight_estimated"] is True and marks["weight_source"] == "default"
+    assert any("weight_below_ozon_min" in r for r in marks["reasons"])
+    assert not any(r.startswith("light_weight") and "×" in r for r in marks["reasons"])
 
 
 def test_real_light_item_5g():
-    """真实 5g（80×50×30mm）→ 保持 5g + 标记轻物疑点。"""
+    """v0.68.1 语义：真实 5g（80×50×30mm）同样低于下限 → 100g 兜底 + 归因 marks。"""
     w, d, marks = normalize_weight_dimensions(
         5, {"length": 80, "width": 50, "height": 30}, None
     )
-    assert w == 5
-    assert marks["weight_estimated"] is False
-    assert any("light_weight_suspected" in r for r in marks["reasons"])
+    assert w == 100
+    assert marks["weight_estimated"] is True
+    assert any("weight_below_ozon_min" in r for r in marks["reasons"])
+
+
+def test_weight_at_floor_boundary_kept():
+    """边界：恰好 10g（Ozon 下限含边界）→ 保持原值不兜底。"""
+    w, _, marks = normalize_weight_dimensions(
+        10, {"length": 60, "width": 40, "height": 10}, None
+    )
+    assert w == 10 and marks["weight_source"] == "draft"
 
 
 def test_normal_values_untouched():
