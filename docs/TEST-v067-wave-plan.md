@@ -142,3 +142,10 @@ FROM category_mapping ORDER BY updated_at DESC LIMIT 10;
 | moderation_texts | 恒缺失 | 5/5 declined 行有俄语原文 | Task1 |
 
 新发现（CHANGELOG 0.68.0 已知问题）：Step 6.5 缺 R2b 豁免（A4→除草剂/A8→太阳能充电器）；skill 信封垃圾重量（A3 1g）。
+
+## v0.68.1 回归记录（2026-09-06）
+
+| 素材 | v0.68.0 结果 | v0.68.1 结果 | 实证 |
+|---|---|---|---|
+| A3 渔夫帽 | declined（1g 重量） | 信封 weight 1g→**50g**（skill 守卫✓）；仍 declined，真因变为估算尺寸 60×45×30mm 过小触发 Ozon 重量×体积交叉校验（已知问题） | 重量硬下限 |
+| A4 护膝 | R2b 确认园艺地垫被 Step6.5 改配除草剂 | 一致性警告照打但**采纳保持**，园艺地垫正常上传；首单被 Ozon 拒（图片/8229）后 R4 重配除草剂再拒（R4 域守卫=新已知问题） | Step6.5 R2b 豁免 |
