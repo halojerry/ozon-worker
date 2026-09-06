@@ -279,6 +279,28 @@ def build_jieba_search_plan(query_text: str) -> dict:
             "residual": "", "stripped_modifiers": stripped_mods}
 
 
+def _score_token_hit(node_name: str, token: str) -> float:
+    """v0.67.1 wave④: 单 token 查询的分档命中分（与 score_residual_rows 同档）。
+
+    单 token 子串命中给满分 1.0 会让姊妹词（1688 路径「帽子/头巾」拆出的「头巾」→
+    三角头巾）碾压多 token 诚实查询（遮阳帽 0.29）——A2/A3/A7/A8 四帽全中。
+      - node_name == token（精确命中）   → 1.0
+      - node_name 以 token 开头（前缀）  → 0.7
+      - node_name 含 token（包含命中）   → 0.6
+      - 不命中                          → 0.0
+    """
+    name, tk = str(node_name or ""), str(token or "")
+    if not name or not tk:
+        return 0.0
+    if name == tk:
+        return 1.0
+    if name.startswith(tk):
+        return 0.7
+    if tk in name:
+        return 0.6
+    return 0.0
+
+
 def score_residual_rows(rows: list[dict], residual: str, top_k: int = 15) -> list[dict]:
     """R2 单字品类词兜底的确定性评分排序（纯函数）。
 
@@ -597,7 +619,15 @@ class OzonCategoryQuery:
                 matched_tokens: list[str] = []
                 for token in tokens:
                     if token.lower() in combined_lower:
-                        weight = 0.3 if token in _GENERIC_WORDS else 1.0
+                        if len(tokens) == 1:
+                            # ✅ v0.67.1 wave④: 单 token 查询分档打分（相等1.0/前缀0.7/
+                            # 包含0.6）——姊妹词「头巾」对「三角头巾」不再得假满分 1.0；
+                            # 仅 full_path 深层命中（node_name 不含）不计为命中
+                            weight = _score_token_hit(row["node_name"] or "", token)
+                            if weight <= 0:
+                                continue
+                        else:
+                            weight = 0.3 if token in _GENERIC_WORDS else 1.0
                         matched += weight
                         matched_tokens.append(token)
 
