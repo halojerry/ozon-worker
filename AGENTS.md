@@ -2,6 +2,35 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.68.0 — wave P2/P3 修复：审核原文留存 + 留存真值 + R2b 扩池 + 姊妹词治理）
+
+> 2026-09-06。已发版（VERSION 四源 0.68.0）。v0.67 wave 真实测试在案四缺陷的深度取证
+> 修复（方案 `docs/PLAN-wave-p2p3-fixes-v1.md`，四 task 全 TDD + 本地 Docker 真实回归）。
+
+- **审核拒绝原文留存**：`decline_errors` 累积器（parse_error/recheck_status 消费前原样
+  累积，append-only 去重 cap50）全链透传 → 留存表新列 `moderation_texts`；
+  `_build_notice` 修签名（传 error_code 而非 error_type）+ 兜底携带俄语原文。
+  **改 retry 子图错误消费逻辑前必读**——任何从 state.errors 删除/过滤的节点都应先
+  `_accumulate_decline_errors`。
+- **留存表真值**：GraphOutput 透传 `description_category_id/type_id/category_match_meta/
+  final_weight_g/final_dims_mm`（output_schema 按名过滤——**GlobalState 已有的通道加进
+  GraphOutput 即可透传，无需改节点**；prepare 归一真值经 PrepareOzonUploadOutput 同名
+  字段入 GlobalState）。writer 优先 graph_result、空值回落信封。**改留存表取值前必读**
+  `listing_result_log.py` 的优先级注释。
+- **R2b 仲裁池**：`_build_r2b_confirm_pool`（top10 + 跨大类 overlap 候选必进 cap12）
+  替代 `candidates[:5]`；阻断路径 5 处 return 全部先写 `match_layer='blocked'` 审计行
+  （category_match_log 从此有阻断记录）；`_llm_rank_categories` 加 `context` 参数 +
+  失败分支落原始响应日志。**改 R2b/仲裁前必读 assemble 的 pool 构造注释**。
+- **姊妹词治理**：单 token jieba 查询分档打分 `_score_token_hit`（1.0/0.7/0.6，多
+  token 不变）；**低置信 parent 换池通道已删除**（0 候选通道保留）——勿恢复；parent
+  采纳置信封顶 0.5；同义词表补帽类词条；matcher 日志标签动态化。**行为变化**：低置信
+  场景从「换池重搜」变为「LLM fallback/阻断」，错类目上架变安全阻断是有意方向。
+- **回归实证**：A2/A7 approved（L0 直跳遮阳帽）、A4 阻断变采纳、零 18+ 零三角头巾、
+  declined 原文完整留存、truth 字段全对。worker 全量 1792 passed。
+- **新发现待修（CHANGELOG 0.68.0 已知问题）**：Step 6.5 缺 R2b 豁免（A4 被改配除草剂/
+  A8 太阳能充电器均被 Ozon 拒）；skill 信封 1g 垃圾重量（A3 被拒 INCORRECT_DIMENSION，
+  真值透传后首次可见）。
+
 ## 最近更新（v0.67.0 — worker 内置远程 MCP 服务：任何平台可调云端能力）
 
 > 2026-09-05。已发版（VERSION 四源 0.67.0）。对标竞品 linkfox 远程 MCP 网关（调研：27 服务/

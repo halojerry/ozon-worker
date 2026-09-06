@@ -1,5 +1,62 @@
 # Changelog
 
+## [0.68.0] - 2026-09-06
+
+> wave P2/P3 修复批次：v0.67 wave 真实测试在案四个缺陷的深度取证与修复（方案
+> `docs/PLAN-wave-p2p3-fixes-v1.md`，四 task 全部 TDD + 本地 Docker 真实回归实证）。
+> 核心主题：**审核拒绝原文留存 + 留存表记管线真值 + R2b 仲裁池不再截断正确答案 + 类目
+> 文本链姊妹词假满分治理**。
+
+### 修复（四缺陷，均有 wave 实证 + 回归实证）
+- **审核拒绝原文留存（wave①）**：DESCRIPTION_DECLINE 的俄语原文此前被三连丢——
+  parse_error_node 消费即删 + revalidate 清 error_message + `_build_notice` 被传
+  error_type（ERROR_NOTICE_MAP 18 条 code 级中文说明成死代码）。修：`decline_errors`
+  累积器（append-only 去重 cap50）随 retry 子图→wrapper→GlobalState→GraphOutput 全链
+  透传；`_build_notice` 扩参修签名 + 兜底携带俄语原文；留存表新列
+  `listing_result_log.moderation_texts`（幂等 ALTER）。回归实证：A8/A4 declined 行
+  完整留存「Фото товара не соответствует его типу…」；A3 行暴露真因
+  `INCORRECT_DIMENSION: weight is out of range (min: 10, max: 5000)`（skill 侧 1g
+  垃圾重量首次可见——上游待修）。
+- **留存表记管线真值（wave②）**：GraphOutput 此前无 dc/tp/match_meta/weight 通道，
+  task_processor 只能回落信封 draft（approved 行记着未采用的 skill 猜测 200001462）。
+  修：GraphOutput 透传 `description_category_id/type_id/category_match_meta`（N4/R4
+  同步后终值，零节点改动）+ prepare 输出 `final_weight_g/final_dims_mm`（归一裁决点
+  真值）；writer 优先 graph_result、空值回落信封（follow/discover 语义保持）。
+  回归实证：approved 行 dc=41777465/93167 遮阳帽 + match_layer=L0 conf=0.95 + 真实
+  重量 80/120g。
+- **R2b 仲裁池扩容（wave③）**：确认池固定 `candidates[:5]` 按 sim 截断——A4 正确答案
+  园艺地垫（sim=0.33, kw Top-1）进不了 LLM 清单只能 abstain→必阻断。修：
+  `_build_r2b_confirm_pool`（top10 + 跨大类且与源词非泛词 overlap 的候选必进，每 dc
+  ≤3，cap12）+ 仲裁 prompt 带 `context`（拟采纳项/1688 leaf）+ LLM 空响应/解析失败/
+  abstain 全部落 warning 日志（116 字符之谜可取证）+ **阻断路径写审计行**
+  （`match_layer='blocked'` conf=0.0，5 处阻断 return 全覆盖；`_log_match_attempt`
+  空定稿容错）。回归实证：A4 同链接从「必阻断」变为 LLM 确认采纳园艺地垫，护膝。
+- **类目姊妹词假满分治理（wave④，四帽全中）**：jieba sim=token 命中占比——单 token
+  查询「头巾」子串命中「三角头巾」=1.0，碾压多 token 诚实查询（遮阳帽 0.29）；低置信
+  换池通道再把诚实池整池丢弃。修：`_score_token_hit` 分档打分（相等 1.0/前缀 0.7/
+  包含 0.6，仅单 token 查询生效；仅 full_path 深层命中不计为命中）+ **删除低置信
+  parent 换池通道**（0 候选通道保留，工业品救回语义不变）+ parent 通道置信封顶 0.5
+  （防 sim=1.0 假满分白嫖 overlap 豁免）+ 同义词表补 成人帽/儿童帽/女帽/男帽 +
+  matcher 日志标签动态化（原硬编码 pg_trgm 误导取证）。回归实证：A3/A7 全部
+  L0 直跳遮阳帽（此前三角头巾 declined），三角头巾零出现。
+
+### 测试
+- worker 全量 **1792 passed**（基线 1774 + 18 新增：test_v0671_decline_errors 5 /
+  test_v0671_listing_truth 4 / test_v0671_r2b_pool 4 / test_v0671_sibling_token 5）。
+- 真实回归（本地 Docker + 测试店 5381204/5371047，6 单）：A2（三提）/A7 approved
+  （L0 直跳遮阳帽）、A4 从阻断变采纳、零 18+ 零三角头巾、5/5 declined 单有
+  moderation_texts、truth 字段 5/5 正确。
+
+### ⚠️ 已知问题（本批回归新发现，未修）
+- **Step 6.5 一致性重配缺 R2b 豁免**：A4 被从 R2b 确认的园艺地垫改配到**除草剂**
+  （17028748）、A8 被改配到太阳能充电器（17028627）——重配的 LLM fallback 按关键词
+  （护膝+除草→除草剂、风扇+太阳能→充电器）选了更差类目，均被 Ozon 拒（photo/type
+  mismatch）未造成错类目上架。改 Step 6.5 豁免表（加 _r2b_confirmed）前先取证其误杀面。
+- **skill 信封垃圾重量**：A3 的 1688 抓取 weight=1g 原样进 prepare（v0.37 设计=已有值
+  只标记不改写）→ Ozon 拒 `weight is out of range (min: 10)`。留存表真值透传后该问题
+  首次可归因，待 skill 侧修复（抓取层重量兜底）。
+- b76f5dbb（title=测试商品）失败于 MXOU 401 Invalid token——与本批无关的杂散任务。
+
 ## [0.67.0] - 2026-09-05
 
 > worker 内置远程 MCP 服务（批次 1）：对标竞品 linkfox 的远程 MCP 网关模式，任何支持远程

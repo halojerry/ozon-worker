@@ -127,3 +127,18 @@ FROM category_mapping ORDER BY updated_at DESC LIMIT 10;
 - 版本四源已是 **0.67.0**（另一会话 MCP 批次的 release commit `ce85c5fe`，未打 tag 未推送）；
   本批次两个 commit 叠加其上，wave 全过后一起 tag v0.67.0 发版即可。
 - 素材链接若失效：skill `search` 命令可现搜同类目替代（`cli.py search "园艺手套" --export csv`）。
+
+## P2/P3 修复回归记录（v0.68.0，2026-09-06）
+
+方案 `docs/PLAN-wave-p2p3-fixes-v1.md` 四 task 全部落地（8698d74d / 02570550 / 86e4e6c3 / c85e583d），本地 Docker 真实回归（测试店 5381204/5371047，6 单）：
+
+| 素材 | wave 原结果 | 回归结果 | 实证修复 |
+|---|---|---|---|
+| A2 防晒帽（三提） | approved（Step6.5 救回） | approved，match_layer=L0 直跳遮阳帽 | Task2 真值（dc/tp/meta/weight 全对） |
+| A3 渔夫帽 | declined（三角头巾） | declined @遮阳帽，INCORRECT_DIMENSION weight=1g | Task4（L0 救类目）+ Task1（原文暴露真因=skill 垃圾重量） |
+| A4 护膝 | 阻断（正确答案在池外） | LLM 确认采纳园艺地垫（后被 Step6.5 改配除草剂被 Ozon 拒，见已知问题） | Task3（仲裁池扩容） |
+| A7 草帽 | declined（三角头巾） | **approved**，L0 直跳遮阳帽 | Task4 |
+| A8 风扇帽 | declined（三角头巾） | declined @头巾→Step6.5 改配太阳能充电器（已知问题） | Task4（域已对） |
+| moderation_texts | 恒缺失 | 5/5 declined 行有俄语原文 | Task1 |
+
+新发现（CHANGELOG 0.68.0 已知问题）：Step 6.5 缺 R2b 豁免（A4→除草剂/A8→太阳能充电器）；skill 信封垃圾重量（A3 1g）。
