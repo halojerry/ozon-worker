@@ -170,6 +170,16 @@ def write_listing_result_log(
         # ── 1688 侧 ──
         src_cat_path = source_category_path_of(payload)
         dc, tp = _ozon_category_ids(payload)
+        # ✅ v0.67.1 wave②: graph 管线真值优先（GlobalState 图终态= N4/R4 同步后终值，
+        # 经 GraphOutput 透传）；空值回落信封（follow/discover 信封仍是权威——跟卖
+        # UPDATE 由 Ozon 保留原卡类目）。wave 实证：graph 单信封是 skill 猜测。
+        _g_dc = str(gr.get("description_category_id") or "").strip()
+        _g_tp = str(gr.get("type_id") or "").strip()
+        if _g_dc.isdigit() and _g_tp.isdigit() and int(_g_dc) > 0 and int(_g_tp) > 0:
+            dc, tp = int(_g_dc), int(_g_tp)
+        _meta = gr.get("category_match_meta") if isinstance(gr.get("category_match_meta"), dict) else {}
+        _g_weight = gr.get("final_weight_g")
+        _g_dims = gr.get("final_dims_mm") if isinstance(gr.get("final_dims_mm"), dict) else {}
 
         # ── Ozon 侧 ──
         pi = gr.get("pricing_info") or {}
@@ -255,8 +265,8 @@ def write_listing_result_log(
             "old_price": _f(pi.get("old_price")),
             "promo_price": _f(pi.get("promo_price")),
             "currency_code": str(pi.get("currency_code") or "")[:10] or None,
-            "weight_g": _i(draft.get("weight")),
-            "dims_mm": draft.get("dimensions") or None,
+            "weight_g": (_i(_g_weight) if _g_weight else None) or _i(draft.get("weight")),
+            "dims_mm": _g_dims or (draft.get("dimensions") or None),
             "variants": draft.get("variants") or [],
             # 结果与归因
             "final_status": derive_final_status(gr),
@@ -268,9 +278,11 @@ def write_listing_result_log(
             # 含俄语 texts 原文，errors 列只有 code 级结构、二者互补）
             "moderation_texts": (gr.get("decline_errors") or None),
             "retry_count": _i(retry_count, 0),
-            # ⚠️ match_layer/match_confidence：GraphOutput 未透出 category_match_meta，留空
-            "match_layer": None,
-            "match_confidence": None,
+            # ✅ v0.67.1 wave②: GraphOutput 透出 category_match_meta 后接入
+            # （match_layer ∈ Skill/L0/L1/R2b；无 meta 不编造）
+            "match_layer": str(_meta.get("match_layer") or "")[:10] or None,
+            "match_confidence": (float(_meta["confidence"])
+                                 if isinstance(_meta.get("confidence"), (int, float)) else None),
             "pipeline_source": pipeline_source(payload),
             "pricing_info": pi or None,
             "fetch_back_summary": gr.get("fetch_back_summary") or gr.get("fetch_back_result") or None,
