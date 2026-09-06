@@ -264,6 +264,9 @@ def write_listing_result_log(
             "error_code": error_code or None,
             "error_message": error_message or None,
             "errors": errors_raw,
+            # ✅ v0.67.1 wave①: 各轮审核拒绝原文累积（decline_errors 全链透传落点；
+            # 含俄语 texts 原文，errors 列只有 code 级结构、二者互补）
+            "moderation_texts": (gr.get("decline_errors") or None),
             "retry_count": _i(retry_count, 0),
             # ⚠️ match_layer/match_confidence：GraphOutput 未透出 category_match_meta，留空
             "match_layer": None,

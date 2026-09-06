@@ -95,6 +95,10 @@ class ValidationRetryLoopState(BaseModel):
     # {"match_layer": "R2b", "confidence": 0.7}（重配结果等同 LLM 确认档，防 L0 自证
     # 误判 + 分档写 category_mapping）。对齐 v0.66 pricing_info 声明先例。
     category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="类目匹配元数据（R4 重配成功置 R2b 档）")
+    # ✅ v0.67.1 wave①: 每轮审核/校验拒绝原文累积（parse_error/recheck_status 消费前
+    # _accumulate_decline_errors 追加；子图 State/Input 共用本类，字段声明即满足
+    # input-schema 纪律——读取 state.decline_errors 的节点均以本类为入参标注）
+    decline_errors: list = Field(default_factory=list, description="每轮审核/校验拒绝原文累积（append-only，含俄语 texts）")
 
 
 class ValidationRetryLoopInput(BaseModel):
@@ -153,6 +157,8 @@ class ValidationRetryLoopOutput(BaseModel):
     category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="修复后类目匹配元数据(R4 重配成功= R2b 档)")
     # ✅ v0.67: 结构化 declined 原因透出（mod_errors 已回灌 state.errors → wrapper→主图→留存表归因）
     errors: list = Field(default_factory=list, description="Ozon官方错误数组（终态透出，wrapper→主图）")
+    # ✅ v0.67.1 wave①: 各轮拒绝原文累积透出（留存表 moderation_texts 列 + notice 兜底素材）
+    decline_errors: list = Field(default_factory=list, description="每轮审核/校验拒绝原文累积（append-only，含俄语 texts）")
 
 
 # v0.28.5 C2: 错误码 → 用户可读中文说明(供 task_status/最终结果展示)
@@ -178,13 +184,45 @@ ERROR_NOTICE_MAP: Dict[str, str] = {
 }
 
 
-def _build_notice(error_type: str, error_message: str, upload_status: str) -> str:
-    """生成用户可读失败说明: 上传成功→空; 有映射→中文说明; 否则原始错误码摘要。"""
+def _accumulate_decline_errors(state, errors) -> None:
+    """v0.67.1 wave①: 每轮审核/校验错误消费前原样累积（append-only，cap 50）。
+
+    parse_error_node 会把已消费错误从 state.errors 删除、revalidate 会清
+    error_message——没有本累积器，DESCRIPTION_DECLINE 的俄语原文就物理消失。
+    """
+    seen = {(d.get("code"), (d.get("texts") or {}).get("message"))
+            for d in (getattr(state, "decline_errors", None) or []) if isinstance(d, dict)}
+    add: list = []
+    for e in (errors or []):
+        if not isinstance(e, dict):
+            continue
+        key = (e.get("code"), (e.get("texts") or {}).get("message"))
+        if key in seen:
+            continue
+        seen.add(key)  # 同轮批量内也去重（Ozon 单轮常返回重复 code+text）
+        add.append(e)
+    if add:
+        state.decline_errors = (list(getattr(state, "decline_errors", None) or []) + add)[-50:]
+
+
+def _build_notice(error_type: str, error_message: str, upload_status: str,
+                  decline_errors: list | None = None) -> str:
+    """生成用户可读失败说明: 上传成功→空; 有映射→中文说明; 否则原始错误码摘要。
+
+    v0.67.1 wave①: 调用点改传 error_code（ERROR_NOTICE_MAP 的 18 条 code 级
+    说明此前因传 error_type 恒为 fixable/unfixable 而成死代码）；
+    error_message 被 revalidate 清空时，兜底携带 decline_errors 里的俄语原文。
+    """
     if upload_status == "success":
         return ""
     if error_type in ERROR_NOTICE_MAP:
         return ERROR_NOTICE_MAP[error_type]
     msg = (error_message or "").strip()
+    if not msg:
+        for _e in (decline_errors or []):
+            msg = str(((_e or {}).get("texts") or {}).get("message") or "").strip()
+            if msg:
+                break
     if msg:
         return f"Ozon 审核拒绝({error_type or '未知'}): {msg[:200]}"
     return f"Ozon 审核拒绝({error_type or '未知错误'}),重试后仍未通过"
@@ -643,6 +681,9 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
 
     # 移除已处理的同类型错误，保留其他类型的
     batch_codes = {e.get("code") for e in batch if isinstance(e, dict)}
+    # ✅ v0.67.1 wave①: 消费前原样累积（本轮 batch + 剩余其他类型全量），否则
+    # 下一行删除后 DESCRIPTION_DECLINE 的俄语 texts 物理消失，留存表只剩 code
+    _accumulate_decline_errors(state, errors)
     state.errors = [e for e in errors if isinstance(e, dict) and e.get("code") not in batch_codes]
     logger.info(f"📋 批量处理: {len(batch)}个 '{fix_type}' 错误，剩余{len(state.errors)}个其他类型")
 
@@ -2997,6 +3038,9 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                                 # v0.65.1 R4: mod_errors 回灌 state.errors（不只是 error_message）
                                 # → should_reupload 走 parse_error 再循环（类目错会触发整卡重配）
                                 if mod_errors:
+                                    # ✅ v0.67.1 wave①: 第二轮被拒原文留存（此前只日志记 code，
+                                    # texts 直接丢——parse_error 下一轮也只消费 batch 类型）
+                                    _accumulate_decline_errors(state, mod_errors)
                                     state.errors = list(mod_errors)
                                 break
                     except Exception as e:
@@ -3082,7 +3126,15 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
         product_id=state.product_id if state.product_id else None,
         upload_status=state.upload_status,
         moderation_status=state.moderation_status,
-        notice=_build_notice(state.error_type, final_error_message, state.upload_status),
+        # ✅ v0.67.1 wave①: 传 error_code（state.error_type 恒为 fixable/unfixable，
+        # ERROR_NOTICE_MAP 的 code 级说明此前永不命中）；error_message 被 revalidate
+        # 清空时 _build_notice 兜底携带 decline_errors 里的俄语原文
+        notice=_build_notice(
+            (getattr(state, "error_code", "") or "") or state.error_type,
+            final_error_message,
+            state.upload_status,
+            decline_errors=list(getattr(state, "decline_errors", None) or []),
+        ),
         # v0.64.0 C1(N4): 回传修复后的类目/属性给主图
         description_category_id=state.description_category_id,
         type_id=state.type_id,
@@ -3092,6 +3144,8 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
         category_match_meta=getattr(state, "category_match_meta", None) or {},
         # ✅ v0.67: 结构化 declined 原因透出（mod_errors 回灌的 state.errors；wrapper 消费）
         errors=getattr(state, "errors", None) or [],
+        # ✅ v0.67.1 wave①: 各轮拒绝原文累积透出（wrapper→主图→GraphOutput→留存表 moderation_texts）
+        decline_errors=list(getattr(state, "decline_errors", None) or []),
     )
 
 

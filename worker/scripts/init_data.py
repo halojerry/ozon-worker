@@ -104,6 +104,10 @@ def create_tables(engine):
         conn.execute(text(
             "ALTER TABLE category_match_log ADD COLUMN IF NOT EXISTS source_url TEXT"
         ))
+        # ✅ v0.67.1 wave①: listing_result_log 追加审核拒绝原文累积列（decline_errors 全链透传落点）
+        conn.execute(text(
+            "ALTER TABLE listing_result_log ADD COLUMN IF NOT EXISTS moderation_texts JSONB"
+        ))
         conn.commit()
     # ✅ v0.41 WebUI T1: task_generated_images ALTER + 新表索引（幂等，二次运行 no-op）
     from migrate_webui_v1 import run_migrations
