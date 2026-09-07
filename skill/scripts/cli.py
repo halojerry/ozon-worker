@@ -1908,6 +1908,218 @@ def cmd_discover_multi(args: argparse.Namespace) -> int:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# discover-task · 任务式全自动选品（漏斗 v2 Task 8b，对标上品帮无人值守）
+# 采集（粗筛档位缺省 ai）→ 自动 1688 匹配（限额+no_match 早停+节奏）→ 利润精筛
+# → 逐条入采集箱（--to-box）或干跑统计（缺省）。任务状态落盘支持 --resume。
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _tasks_dir() -> Path:
+    from scripts.lib.ozon_discovery import DISCOVERY_CACHE_DIR
+    return DISCOVERY_CACHE_DIR / "tasks"
+
+
+def _task_state_path(task_id: str) -> Path:
+    return _tasks_dir() / f"task_{task_id}.json"
+
+
+def _load_task_state(task_id: str) -> dict:
+    try:
+        with open(_task_state_path(task_id), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_task_state(state: dict) -> None:
+    """任务状态落盘（每条处理后调用；fail-open——状态丢失不阻断采集）。"""
+    import logging
+    try:
+        _tasks_dir().mkdir(parents=True, exist_ok=True)
+        with open(_task_state_path(state["task_id"]), "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=1)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("任务状态落盘失败（不影响主流程）: %s", exc)
+
+
+def _latest_resumable_task(entry_url: str, keyword: str) -> dict:
+    """--resume：找同入口（url 或 keyword 匹配）的最新任务状态；无 → {}。"""
+    try:
+        files = sorted(_tasks_dir().glob("task_*.json"), reverse=True)
+    except Exception:
+        return {}
+    for fp in files:
+        st = _load_task_state(fp.stem.replace("task_", "", 1))
+        entry = st.get("entry") or {}
+        if (entry_url and entry.get("url") == entry_url) or \
+           (keyword and entry.get("keyword") == keyword):
+            return st
+    return {}
+
+
+def cmd_discover_task(args: argparse.Namespace) -> int:
+    """Ozon 选品 · 任务式全自动（无人值守）。"""
+    import time as _time
+
+    from scripts.lib.chrome_launcher import ensure_chrome_cdp
+    from scripts.lib.config_store import get_setting, get_store_profile
+    from scripts.lib.ozon_discovery import (
+        DEFAULT_FX_RATE,
+        DISCOVERY_CACHE_DIR,
+        collect_and_analyze,
+        match_selected,
+        resolve_filter_profile,
+    )
+
+    url = args.url or ""
+    keyword = args.keyword or ""
+    if not url and not keyword:
+        print("❌ 需要 --url 或 --keyword 之一（入口：highlight/搜索/类目/店铺页均可）")
+        return 2
+
+    ok_cdp, msg_cdp = ensure_chrome_cdp()
+    if not ok_cdp:
+        print(f"❌ Chrome CDP 启动失败: {msg_cdp}")
+        return 1
+    cdp_url = "http://127.0.0.1:9222"
+
+    # fx_rate 三级解析（与 cmd_discover P2-6 同口径）
+    fx_rate = args.fx_rate if args.fx_rate is not None else float(
+        (get_store_profile(args.store) or {}).get("fx_rate")
+        or get_setting("fx_rate") or DEFAULT_FX_RATE)
+
+    # 任务状态：--resume 接续同入口最近任务（跳过已处理 pid）
+    task_id = _time.strftime("%Y%m%d_%H%M%S")
+    processed: dict[str, dict] = {}
+    if args.resume and not args.dry_run:
+        prev = _latest_resumable_task(url, keyword)
+        if prev:
+            processed = prev.get("processed") or {}
+            print(f"🔁 续跑任务 {prev.get('task_id')}（已处理 {len(processed)} 条，跳过同 pid）")
+
+    # 档位：任务式缺省 ai（resolve_filter_profile(auto_submit=True) 语义）
+    profile = resolve_filter_profile(args.filter_profile, True)
+    print(f"\n🤖 discover-task {task_id}｜入口: {url or keyword}｜目标 {args.target_count}"
+          f"｜粗筛 {profile}｜匹配上限 {args.match_limit}", flush=True)
+
+    # ── 阶段①+②+②b：采集 + 全量数据 + 指标富化 + 粗筛 ──
+    print("\n⏳ 阶段 1/3：采集 + 全量数据 + 粗筛...", flush=True)
+    try:
+        candidates = collect_and_analyze(
+            cdp_url=cdp_url,
+            url=url,
+            keyword=keyword,
+            max_products=args.target_count,
+            use_analytics=not getattr(args, "no_analytics", False),
+            filter_profile=profile,
+            base_filter=args.base_filter or "",
+        )
+    except ValueError as exc:
+        print(f"❌ 粗筛参数错误: {exc}", flush=True)
+        return 2
+    counts: dict[str, int] = {}
+    for c in candidates:
+        counts[c.status] = counts.get(c.status, 0) + 1
+    print(f"   采集 {len(candidates)} 条：{counts}", flush=True)
+
+    # ── 阶段④：自动 1688 匹配（限额 + 早停 + 节奏）──
+    print("\n⏳ 阶段 2/3：自动 1688 匹配 + 利润精筛...", flush=True)
+    todo = [c for c in candidates
+            if c.status in ("ok", "uncertain")
+            and c.ozon_product_id not in processed]
+    print(f"   待匹配 {len(todo)} 条（已处理跳过 {len(candidates) - len(todo) - counts.get('filtered', 0) - counts.get('error', 0)}）",
+          flush=True)
+
+    def _match_progress(done: int, total: int, c) -> None:
+        mark = {"profitable": "✅", "matched": "🟢", "rejected": "⛔",
+                "no_match": "⚪", "error": "❌"}.get(c.status, "·")
+        print(f"   [{done}/{total}] {mark} {c.ozon_title[:36]}"
+              + (f" margin={c.profit_margin:.1f}%" if c.status == "profitable" else ""),
+              flush=True)
+
+    match_selected(
+        candidates, cdp_url,
+        fx_rate=fx_rate,
+        min_margin_pct=args.min_margin,
+        max_matches=args.match_limit,
+        stop_on_no_match_streak=args.no_match_streak_stop,
+        pace_seconds=2.0,
+        max_workers=args.match_concurrency,
+        progress_callback=_match_progress,
+    )
+
+    # ── 出口：profitable → 入采集箱 / 干跑 ──
+    to_submit = [c for c in candidates
+                 if c.status == "profitable" and c.match_1688_url
+                 and c.review_decision != "agent_reject"
+                 and c.ozon_product_id not in processed]
+    print(f"\n⏳ 阶段 3/3：profitable {len(to_submit)} 条"
+          f"（{'--to-box 入采集箱' if args.to_box and not args.dry_run else '干跑，不入箱'}）",
+          flush=True)
+
+    state = {
+        "task_id": task_id,
+        "created_at": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "entry": {"url": url, "keyword": keyword},
+        "params": {"target_count": args.target_count, "filter_profile": profile,
+                   "min_margin": args.min_margin, "match_limit": args.match_limit,
+                   "match_concurrency": args.match_concurrency},
+        "processed": processed,
+        "summary": {},
+    }
+    if args.dry_run or not args.to_box:
+        for c in to_submit:
+            print(f"   [干跑] ✅ {c.ozon_title[:40]} margin={c.profit_margin:.1f}%"
+                  f" 货源={c.match_1688_url[:60]}")
+        print("\n💡 加 --to-box 真实入采集箱（POST /api/v1/drafts）")
+    else:
+        try:
+            from scripts.cloud_probe import build_envelope_from_discovery, submit_draft
+        except ModuleNotFoundError as _e:
+            print(f"❌ 缺少依赖模块 '{getattr(_e, 'name', '') or _e}'。"
+                  "请运行: pip install -r requirements.txt", flush=True)
+            return 1
+        from scripts.lib.config_store import get_store
+
+        store = get_store(args.store or "") or {}
+        store_config = {"client_id": store.get("client_id", ""),
+                        "api_key": store.get("api_key", "")}
+        store_id = args.store or ""
+        ok_n = skip_n = err_n = 0
+        for c in to_submit:
+            try:
+                envelope = build_envelope_from_discovery(c, store_config, store_id=store_id)
+                if not envelope:
+                    print(f"   ✗ 跳过（无 1688 item_id）: {c.ozon_title[:40]}")
+                    skip_n += 1
+                    continue
+                result = submit_draft(envelope)
+                draft_id = result.get("draft_id", "")
+                print(f"   📥 已入采集箱: {c.ozon_title[:40]} → draft_id={draft_id}")
+                processed[c.ozon_product_id] = {"status": "ok", "draft_id": draft_id}
+                ok_n += 1
+            except Exception as exc:
+                print(f"   ✗ 入箱失败: {c.ozon_title[:40]} — {exc}")
+                processed[c.ozon_product_id] = {"status": "error", "error": str(exc)[:200]}
+                err_n += 1
+        state["summary"] = {"submitted": ok_n, "skipped": skip_n, "failed": err_n}
+        print(f"\n📦 入箱完成: 成功 {ok_n} / 跳过 {skip_n} / 失败 {err_n}")
+
+    final_counts: dict[str, int] = {}
+    for c in candidates:
+        final_counts[c.status] = final_counts.get(c.status, 0) + 1
+    state["summary"]["candidates"] = final_counts
+    _save_task_state(state)
+    if args.export:
+        from scripts.lib.ozon_discovery import export_to_csv
+        export_to_csv(candidates, args.export)
+        print(f"📄 候选 CSV: {args.export}")
+    print(f"📁 任务状态: {_task_state_path(task_id)}（--resume 可续跑）")
+    print(f"📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
+    return 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Sentry 错误上报（v0.35）— 参考 worker/src/utils/sentry_setup.py 模式，内联实现。
 # DSN 未设置 / sentry-sdk 未安装 / 测试进程 → 全部静默 no-op，绝不影响任何命令行为。
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2196,6 +2408,38 @@ def build_arg_parser() -> argparse.ArgumentParser:
     dpm.add_argument("--notify", action="store_true",
                      help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
     dpm.set_defaults(func=cmd_discover_multi)
+
+    # discover-task（漏斗 v2 Task 8b: 任务式全自动选品，无人值守）
+    dtp = sub.add_parser("discover-task",
+                         help="Ozon 选品 · 任务式全自动（采集→粗筛→自动匹配→入采集箱）")
+    dtp.add_argument("--url", default="",
+                     help="入口 URL（highlight/搜索/类目/店铺页均可；与 --keyword 二选一）")
+    dtp.add_argument("--keyword", default="", help="关键词（中国站 highlight 页内搜索）")
+    dtp.add_argument("--target-count", type=int, default=50, help="目标采集数量（默认 50）")
+    dtp.add_argument("--filter-profile", default=None, choices=["off", "ai"],
+                     help="粗筛档位（任务式缺省 ai；off=不粗筛）")
+    dtp.add_argument("--base-filter", default="",
+                     help="自定义区间粗筛 \"monthly_sales>=50,drr<=15\"（与 --filter-profile 叠加）")
+    dtp.add_argument("--min-margin", type=float, default=15.0,
+                     help="利润率门槛 %%（默认 15；低于 → rejected）")
+    dtp.add_argument("--fx-rate", type=float, default=None,
+                     help="RUB→CNY 汇率（缺省走店铺/全局配置/默认）")
+    dtp.add_argument("--match-limit", type=int, default=30,
+                     help="自动匹配数上限（默认 30，护 aibuy 配额）")
+    dtp.add_argument("--match-concurrency", type=int, default=1, choices=[1, 2],
+                     help="1688 图搜并发（默认 1 串行；2=分块并行，反爬纪律 ≤2 对齐上品帮）")
+    dtp.add_argument("--no-match-streak-stop", type=int, default=5,
+                     help="连续 N 次 no_match 早停（默认 5，货源池耗尽信号；0=不停）")
+    dtp.add_argument("--store", default="", help="Ozon 店铺名（--to-box 信封凭证来源）")
+    dtp.add_argument("--to-box", action="store_true",
+                     help="profitable 候选逐条入采集箱（POST /api/v1/drafts）；不传=干跑统计")
+    dtp.add_argument("--dry-run", action="store_true",
+                     help="强制干跑（不出信封不入箱，只打印将提交清单）")
+    dtp.add_argument("--resume", action="store_true",
+                     help="续跑同入口最近任务（跳过已入箱 pid）")
+    dtp.add_argument("--no-analytics", action="store_true", help="跳过 seller 运营指标富化")
+    dtp.add_argument("--export", default="", help="全量候选 CSV 导出路径")
+    dtp.set_defaults(func=cmd_discover_task)
 
 
     # ── 自动更新 ──
