@@ -49,6 +49,27 @@ def _is_permanent_task_error(exc: Exception) -> bool:
     return msg.startswith("OUT_OF_QUOTA:") or "内容违规" in msg
 
 
+def _graph_result_is_failed(graph_result: dict) -> bool:
+    """任务终态失败判定（v0.26 假成功修复，自 process_next_task 收口为可单测函数）。
+
+    upload_status=failed / error_message(notice 优先) 带 "[" 前缀 / (error_message
+    且 failed_stage) → failed。⚠️ v0.69 T2.2: assemble 类目阻断出口统一带
+    failed_stage="category_match"（此前阻断形状三项全不命中 → 假 completed，
+    任务表/采集箱显示成功但实际被拦）。判定逻辑本身不变——勿把 error_message
+    非空一律 failed（pending 软成功路径会误伤）。
+    """
+    _gr = graph_result or {}
+    _up = str(_gr.get("upload_status") or "")
+    _notice = str(_gr.get("notice") or "")
+    _err = str(_notice or _gr.get("error_message") or "")
+    _stg = str(_gr.get("failed_stage") or "")
+    return (
+        _up in ("failed",)
+        or _err.startswith("[")
+        or bool(_err and _stg)
+    )
+
+
 def _writeback_status(task_id: str, status: str, error_message: str | None = None) -> None:
     """draft_submissions 终态写回（M0.3）。必须在任务终态 conn.commit() 之后调用——
     写回独立于终态事务（该事务已含 shop_usage upsert），写回失败绝不能回滚任务状态。
@@ -533,16 +554,14 @@ class SupabaseTaskProcessor:
                     # 无条件 completed，final_error 全空——用户无法感知失败。
                     # 现在按 graph_result 失败标记如实落库：
                     #   upload_status=failed / error_message 非空 → status=failed
+                    # v0.69 T2.2: 判定收口 _graph_result_is_failed（逻辑不变可单测）；
+                    # assemble 类目阻断出口带 failed_stage="category_match" 后自然命中。
                     _up = str(graph_result.get("upload_status") or "")
                     # v0.28.5 C2: notice(中文可读)优先作为失败信息, 否则原始错误
-                    _notice = str(graph_result.get("notice") or "")
-                    _err = str(_notice or graph_result.get("error_message") or "")
+                    _err = str(str(graph_result.get("notice") or "")
+                               or graph_result.get("error_message") or "")
                     _stg = str(graph_result.get("failed_stage") or "")
-                    _is_failed = (
-                        _up in ("failed",)
-                        or _err.startswith("[")
-                        or bool(_err and _stg)
-                    )
+                    _is_failed = _graph_result_is_failed(graph_result)
                     # ✅ P0-2 审核被拒自动修复链：Ozon 审核 rejected/declined → 不可修复
                     # 时如实标记 rejected（此前 rejected_unfixable 落 completed，拒绝原因
                     # 被埋没在 result 里 → 任务"消失"，用户无法触发重新提交）
