@@ -188,6 +188,19 @@ class ProductCandidate:
     has_analytics: bool = False   # 是否拿到后台运营数据
     sales_schema: str = ""        # 发货模式（FBO=官方仓/FBS=自发货/rFBS=跨境直发，可逗号拼接如 FBO,FBS）
 
+    # v2 漏斗扩容（附录 A 实测畅销榜池字段；命名对齐 _BASE_FILTER_RULES /
+    # _SELECTION_FIELDS 键，供粗筛区间规则直接消费）。默认 None = 未知（没拿到
+    # analytics）= 规则「不限」；拿到真实 0 才参与判定（区别于「无数据」）。
+    session_count: int | None = None               # 卡片浏览量（what_to_sell qtyViewPdp）
+    conv_to_cart_pdp: float | None = None          # 卡片加购率 %
+    conv_to_cart_search: float | None = None       # 搜索/目录加购率 %
+    days_in_promo: int | None = None               # 促销参与天数
+    discount: float | None = None                  # 促销折扣 %
+    promo_revenue_share: float | None = None       # 促销转化率 %
+    days_with_trafarets: int | None = None         # 付费推广天数
+    nullable_redemption_rate: float | None = None  # 成交率 %
+    return_cancel_rate: float | None = None        # 退货取消率 %（100 - 成交率）
+
     # Ozon 类目（面包屑/候选品数据，供提交）
     ozon_category: dict = field(default_factory=dict)
 
