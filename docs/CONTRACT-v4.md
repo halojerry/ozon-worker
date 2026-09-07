@@ -101,6 +101,7 @@
 | `envelope.draft.dimensions_estimated` | bool | ❌ | v0.21 | 尺寸为估算值，worker 决策用 |
 | `envelope.extensions.competitor_weight_g` | int | ❌ | v0.22 | what_to_sell 竞品重量（克），draft.weight 缺失时兜底 |
 | `envelope.extensions.competitor_dimensions_mm` | object | ❌ | v0.22 | what_to_sell 竞品尺寸（mm），draft.dimensions 缺失时兜底 |
+| `envelope.extensions.competitor_ref_images` | string[] | ❌ | fix/image-ref-pollution | 跟卖竞品主图（CDP 抓取原尺寸）≤1 张。**绝不进 draft.images**（其语义=货源图/上传候选）。worker 生图节点在 `follow_sell=true` 时将其作为优先参考（重绘同款防侵权检测）；参考图两条线：跟卖=竞品图优先>1688 货源图，1688 直上=仅货源图，搜索缩略图（`_310x310` 等）全场景恒拒 |
 | `envelope.draft.purchase_cost` | float | ✅ | — | ≥ 0 |
 | `envelope.draft.purchase_url` | string | ✅ | — | 非空，http/https URL |
 | `envelope.draft.currency` | string | ✅ | — | 固定 `"CNY"` |
