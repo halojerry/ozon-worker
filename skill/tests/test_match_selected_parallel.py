@@ -28,8 +28,11 @@ def _mk(pid, status="ok"):
 
 
 def _fake_search_return(pid):
+    # confidence 需 ≥ 货源有效性门槛（_MIN_SOURCE_CONFIDENCE）——本文件只测并发/
+    # 回调映射，低置信拒绝语义由 test_source_confidence_guard.py 专门锁定
     return {"url": f"https://detail.1688.com/offer/{pid}.html",
-            "title": f"Товар {pid}", "price": 50.0, "images": []}
+            "title": f"Товар {pid}", "price": 50.0, "images": [],
+            "confidence": 0.8, "badge_eff": 0.0, "score": 50.0}
 
 
 def test_match_selected_parallel_concurrency_and_main_thread_callbacks():
