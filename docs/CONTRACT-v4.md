@@ -64,6 +64,21 @@
 |------|------|------|------|
 | `/api/v1/stores/{credential_id}/analysis` | GET | Bearer | 10s |
 | `/api/v1/stores/{credential_id}/actions` | POST | Bearer | 30s |
+| `/api/v1/error_reports` | POST | Bearer | 10s |
+| `/api/v1/error_reports` | GET | Bearer | 10s |
+
+**错误报告（v0.69 — 用户问题反馈模板化通道）**:
+
+- `POST /api/v1/error_reports`：agent 按模板填写（title 必填 + severity/category/
+  description/reproduction{steps,command,expect,actual}/evidence{task_ids,item_id,
+  error_codes,…}），evidence.task_ids 扁平放顶层亦可。worker 按 task_ids 自动附加
+  本租户任务快照（auto_context.tasks：status/error/product_id/时间线，跨租户/不存在
+  静默跳过）。响应 `{status, report_id, created_at, tasks_attached}`。鉴权/限流与
+  analytics 同源（Bearer=mxou key）。**完整模板与实例：`docs/ERROR-REPORT-TEMPLATE.md`**。
+- `GET /api/v1/error_reports`：`?limit=&offset=&status=`（new/triaging/fixed/wontfix）
+  列表；`?report_id=` 单条详情。只读本租户（跨租户 404）。
+- MCP 通道：pounding-mcp `report_issue` / `list_error_reports` 工具（dsh agent 直接调用）。
+- 表：`error_reports`（append-only + status 人工流转，启动 create_all 自建）。
 
 > 这两个端点属于「数据沉淀 + 店铺精细化运营」阶段（**未发版**，VERSION 四源仍 0.60.0）。
 > 详细契约见文末「Part 6: 店铺分析/执行端点 + 数据沉淀表」（2026-08-22 新增）。

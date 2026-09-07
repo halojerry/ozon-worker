@@ -16,6 +16,8 @@ from .skill_runner import run_skill_command
 from .tasks import get_manager
 from .worker_http import analyze_store as _analyze_store
 from .worker_http import run_store_action as _run_store_action
+from .worker_http import report_issue as _report_issue
+from .worker_http import list_error_reports as _list_error_reports
 
 mcp = FastMCP("pounding")
 
@@ -217,6 +219,61 @@ def run_store_action(store_id: str, operation: str, payload: dict | None = None)
     payload 为 operation 请求体字段（如 prices/stocks/product_ids/action_id）。
     本工具只负责触发并返回执行结果（含 store_operation_log），不做自动执行决策。"""
     return _run_store_action(store_id, operation, payload)
+
+
+# ── 问题反馈（错误报告模板化通道，v0.69）─────────────────────────────
+
+@mcp.tool()
+def report_issue(
+    title: str,
+    severity: str = "medium",
+    category: str = "other",
+    description: str = "",
+    steps: list[str] | None = None,
+    command: str = "",
+    expect: str = "",
+    actual: str = "",
+    task_ids: list[str] | None = None,
+    item_id: str = "",
+    error_codes: list[str] | None = None,
+    extra_evidence: dict | None = None,
+) -> dict:
+    """用户问题反馈 → 错误报告入 worker 跟踪队列（模板化，v0.69）。
+
+    用户报问题时调用：先用 check_task_status 等工具收集证据，再填本模板提交。
+    worker 会按 task_ids 自动附加任务快照（状态/错误/时间线/product_id），报告自足可复现。
+    - title 必填一句话概括；severity ∈ {high,medium,low}；
+      category ∈ {upload_failed,category_wrong,attribute_error,image_error,pricing,cli_bug,other}
+    - 复现方式：steps（逐步）/ command（实际命令）/ expect vs actual（期望 vs 实际）
+    - 证据：task_ids（必给，触发自动快照）/ item_id（1688 offer）/ error_codes（Ozon 拒单码原样）
+    模板契约：worker 仓库 docs/ERROR-REPORT-TEMPLATE.md。提交成功返回 report_id。"""
+    reproduction: dict = {}
+    if steps:
+        reproduction["steps"] = steps
+    if command:
+        reproduction["command"] = command
+    if expect:
+        reproduction["expect"] = expect
+    if actual:
+        reproduction["actual"] = actual
+    evidence: dict = dict(extra_evidence or {})
+    if task_ids:
+        evidence["task_ids"] = task_ids
+    if item_id:
+        evidence["item_id"] = item_id
+    if error_codes:
+        evidence["error_codes"] = error_codes
+    return _report_issue(title, severity, category, description,
+                         reproduction or None, evidence or None)
+
+
+@mcp.tool()
+def list_error_reports(status: str = "", limit: int = 50, report_id: str = "") -> dict:
+    """查看本租户已提交的错误报告（列表或单条详情，只读）。
+
+    status ∈ {new,triaging,fixed,wontfix} 可筛；report_id 非空返回单条详情
+    （含 worker 自动附加的任务快照 auto_context）。"""
+    return _list_error_reports(status, limit, report_id)
 
 
 def main() -> None:

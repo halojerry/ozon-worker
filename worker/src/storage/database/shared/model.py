@@ -1142,3 +1142,52 @@ class ListingResultLog(Base):
         Index("idx_listing_result_status", "final_status"),
         Index("idx_listing_result_created", "created_at"),
     )
+
+
+class ErrorReport(Base):
+    """v0.69: 用户问题反馈错误报告——agent 按模板填写后上报，worker 自动补任务上下文。
+
+    append-only + 状态字段人工流转（new/triaging/fixed/wontfix），无业务唯一键。
+    动机：用户反馈此前散落在对话里（如 2026-09-07 泡脚包三连失败 17 条清单），
+    结构化落库后问题发现/复现/修复闭环可追溯。
+
+    reproduction/evidence 形状见 docs/ERROR-REPORT-TEMPLATE.md；auto_context 由
+    worker 侧按 evidence.task_ids 自动附加任务快照（跨租户 404 语义：查不到就不附）。
+    """
+    __tablename__ = "error_reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True,
+                                          server_default=text("gen_random_uuid()"))
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(String(10), nullable=False, default="medium",
+                                          server_default=text("'medium'"),
+                                          comment="high/medium/low")
+    category: Mapped[str] = mapped_column(String(30), nullable=False, default="other",
+                                          server_default=text("'other'"),
+                                          comment="upload_failed/category_wrong/attribute_error/"
+                                                  "image_error/pricing/cli_bug/other")
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reproduction: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True,
+                                                         comment="{steps[],command,expect,actual}")
+    evidence: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True,
+                                                     comment="{task_ids[],item_id,offer_id,"
+                                                             "ozon_product_id,error_codes[],...}")
+    auto_context: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True,
+                                                         comment="worker 自动附加的任务快照等")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="new",
+                                        server_default=text("'new'"),
+                                        comment="new/triaging/fixed/wontfix")
+    worker_version: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    skill_version: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    platform: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True),
+                                                          server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True),
+                                                          server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_error_reports_tenant", "tenant_id"),
+        Index("idx_error_reports_status", "status"),
+        Index("idx_error_reports_created", "created_at"),
+    )

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -104,3 +105,36 @@ def run_store_action(store_id: str, operation: str, payload: dict[str, Any] | No
     body = dict(payload or {})
     body.setdefault("operation", operation)
     return _request("POST", url, get_worker_token(), body)
+
+
+def report_issue(
+    title: str,
+    severity: str = "medium",
+    category: str = "other",
+    description: str = "",
+    reproduction: dict[str, Any] | None = None,
+    evidence: dict[str, Any] | None = None,
+) -> dict:
+    """POST /api/v1/error_reports → 用户问题反馈错误报告（v0.69 模板化通道）。
+
+    worker 按 evidence.task_ids 自动附加本租户任务快照（auto_context）。
+    模板契约见 docs/ERROR-REPORT-TEMPLATE.md。失败返回 error dict（不 raise）。
+    """
+    body: dict[str, Any] = {"title": title, "severity": severity, "category": category}
+    if description:
+        body["description"] = description
+    if reproduction:
+        body["reproduction"] = reproduction
+    if evidence:
+        body["evidence"] = evidence
+    base = get_worker_url()
+    return _request("POST", f"{base}/api/v1/error_reports", get_worker_token(), body)
+
+
+def list_error_reports(status: str = "", limit: int = 50, report_id: str = "") -> dict:
+    """GET /api/v1/error_reports → 本租户报告列表（report_id 非空时返回单条详情）。"""
+    base = get_worker_url()
+    qs = f"limit={int(limit)}" if not report_id else f"report_id={urllib.parse.quote(report_id)}"
+    if status and not report_id:
+        qs += f"&status={urllib.parse.quote(status)}"
+    return _request("GET", f"{base}/api/v1/error_reports?{qs}", get_worker_token())

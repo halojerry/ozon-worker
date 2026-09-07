@@ -8,6 +8,23 @@
 > discover ≥3 单）待跑，通过才 tag。生产实证底稿：`data/official_feedback_20260907.md`
 > （用户实机 17 条：假成功/属性越界 42 例/尺寸 17 例/类目失败 4 单）。
 
+- **错误报告通道（v0.69 新增）**：用户问题反馈模板化——agent 按模板填写（复现方式/
+  证据）→ MCP `mcp__pounding__report_issue` 或 `POST /api/v1/error_reports` → 落
+  `error_reports` 表 + **worker 按 task_ids 自动附任务快照**（status/error/product_id/
+  时间线，报告自足可复现）；`GET /api/v1/error_reports` 查询，status 流转
+  new/triaging/fixed/wontfix。改报告链前必读 `docs/ERROR-REPORT-TEMPLATE.md`。
+- **E2E 实证（本地 Docker 全链路，测试店 5381204，2026-09-08）**：manual 直传+clamp
+  430→400 → completed 出真卡 **Ozon 过审 approved**（留存 final_dims_mm width=400、
+  layer=Skill、三档价 254/305、俄语标题）；同 offer 重提 → **同 product_id 覆盖更新**
+  （UPSERT_BY_OFFER，无 _0 尸体卡）；**search_kw 汽油桶双命中 → 受限闸拦截入箱且
+  8 秒终止**（E2E 揪出 route_after_assemble 双缺陷——`or 1.0` 吞 0.0 置信度 +
+  不消费 failed_stage 通道，修复后全链路终止）；**page 来源汽油桶类豁免过闸并
+  approved**（对照单）；空 token → auth 短路 failed「Token is required」；自动匹配
+  躲开受限类目跑完全程 → **T0.4 闸把「完成但无商品」如实判 failed**；T3.3 schema
+  回写落表；全单零 INCORRECT_DIMENSION/VALUE_MAX_LIMIT。**注意：本地 Supabase
+  未配置=auth/MXOU fail-open，非空假 token 过 auth——auth 短路验证须用空 token**；
+  ⚠️ 已知：生图后 404 参考图守卫失效（validate 探测的是生图产物非原始参考图）。
+
 - **改类目链前必读**：manual（人工 `--category-id/--type-id` 直传）已进
   `_is_skill_authoritative` 权威白名单（R1 成人闸对 manual 仍硬，豁免的只是
   受限品类闸）；R2b 采纳改置信度分层（同大类≥0.5/跨大类≥0.75），LLM 弃权与
@@ -401,7 +418,7 @@ ozon-worker/
 │   ├── deploy.sh               # 一键部署（含自动初始化数据）
 │   ├── update.sh               # 一键更新
 │   └── .env.example            # 环境变量模板
-├── pounding-mcp/               # dsh Agent 调用入口：把 skill CLI 包成 19 个 MCP 工具（FastMCP 薄封装）
+├── pounding-mcp/               # dsh Agent 调用入口：24 个 MCP 工具（19 CLI 封装 + 5 worker HTTP 直调；FastMCP 薄封装）
 │   ├── pounding_mcp/router.py  # Q3 对话入口意图路由层（URL 正则 + 九类意图词表 → pipeline A-F）
 │   ├── pounding_mcp/server.py  # FastMCP 工厂 + 19 工具（参数映射 → subprocess 调 skill CLI）
 │   └── README.md               # 挂载/独立 venv 说明（测试坑见下方）
@@ -519,6 +536,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | 上架配置模板（v0.56） | `GET/POST/PATCH/DELETE /api/v1/templates` + `POST /templates/{id}/default` | 全 |
 | 店铺凭证管理（v0.41+） | `GET/POST /api/v1/credentials` + `PATCH/DELETE /credentials/{id}` + `POST /credentials/{id}/validate` | 全 |
 | 采集箱草稿（v0.41+） | `GET/POST /api/v1/drafts` + `GET/PATCH/DELETE /drafts/{id}` + `POST /drafts/{id}/submit`（+ `/resubmit`、`/batch-submit`、`/drafts/{id}/ai/{field}`） | 全 |
+| 错误报告（v0.69） | `POST/GET /api/v1/error_reports`（Bearer=mxou key；`?report_id=` 详情、`?status=` 筛选；MCP 工具 `report_issue`/`list_error_reports`；模板 `docs/ERROR-REPORT-TEMPLATE.md`） | POST/GET |
 
 **`task_status` 返回 `progress` 字段**：`{stage, percent, stages_completed[], stages_remaining[], message}`。
 进度基于内存中 12 阶段 `STAGE_ORDER` 计算，节点执行时 `ProgressCallback` 自动更新。
