@@ -1374,14 +1374,18 @@ def assemble_ozon_product_node(
     # ⚠️ v0.69 构造单实证修正：source=manual（人工 --category-id 直传）豁免本闸——
     # 人的类目决定已完成（用户拍板「受限方向走 --to-box 人工指定类目」指的就是
     # 手动指定后要能上）；受限风险降级为 warning 留痕。R1 成人闸对 manual 仍硬。
-    _manual_category_source = str(
-        ((draft or {}).get("ozon_category") or {}).get("source") or "") == "manual"
+    # ⚠️ v0.69 合并批（用户拍板）：source=page（Ozon 在售竞品页真实面包屑类目）同样
+    # 豁免——Ozon 已在该类目在售即平台合规事实，双命中属对真实在售 listing 的误报；
+    # R1 成人闸对 page 仍硬（_r1_veto 完全独立，不因本豁免松动）。
+    _trusted_category_source = str(
+        ((draft or {}).get("ozon_category") or {}).get("source") or "") in ("manual", "page")
     _restricted_src_hits = match_restricted_keywords(f"{title} {source_category}")
     if _restricted_src_hits and _skill_l0_hit:
         _early_cat_hits = match_restricted_keywords(str(_skill_l0_hit.get("full_path") or ""))
-        if _early_cat_hits and _manual_category_source:
-            logger.warning("   ⚠️ 受限品类闸: 人工指定类目（manual）命中受限词 "
-                           f"{_early_cat_hits}——放行（人的决定优先），资质风险自担")
+        if _early_cat_hits and _trusted_category_source:
+            logger.warning("   ⚠️ 受限品类闸: 可信来源类目（source=%s）命中受限词 "
+                           f"{_early_cat_hits}——放行（人工指定/Ozon 在售事实优先），资质风险自担",
+                           ((draft or {}).get("ozon_category") or {}).get("source"))
         elif _early_cat_hits:
             return _restricted_category_exit(state, draft, [],
                                              _restricted_src_hits, _early_cat_hits,
@@ -1907,8 +1911,8 @@ def assemble_ozon_product_node(
     # full_path（ZH+RU）命中 → 双命中拦截，走 T0.3 入箱转人工确认；在属性 schema/
     # 字典值/确定性组装/Step6.5 重配之前止损（省 LLM/采集成本）。单侧命中放行
     # （BR_hazard_class1 教训：易燃品类曾打转 8 分钟才被 Ozon 拒）。
-    # manual 豁免见第一道闸注释（人工指定放行，warning 留痕）。
-    if _restricted_src_hits and not _manual_category_source:
+    # manual/page 豁免见第一道闸注释（人工指定与 Ozon 在售竞品类目放行，warning 留痕）。
+    if _restricted_src_hits and not _trusted_category_source:
         _restricted_cat_hits = match_restricted_keywords(
             f"{category_path} {ru_category_path}")
         if _restricted_cat_hits:

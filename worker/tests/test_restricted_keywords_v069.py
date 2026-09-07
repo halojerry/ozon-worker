@@ -286,6 +286,49 @@ def test_13_default_keywords_constant_guard():
         assert anchor in _DEFAULT_KEYWORDS
 
 
+def test_14_trusted_source_manual_page_exempt_from_restricted_gate():
+    """⑧ source=page/manual 豁免受限双命中闸（用户拍板：Ozon 在售竞品页真实面包屑
+    类目即平台合规事实；manual=人的类目决定）。skill 直采类目双命中 → warning 放行
+    不入箱、主流程继续；R1 成人闸独立不松动（test_11 已锁）。"""
+    for src in ("page", "manual"):
+        state = _FakeState("汽油桶 20升 加油桶")
+        state.draft["ozon_category"] = {
+            "description_category_id": _CAN_CAND["description_category_id"],
+            "type_id": _CAN_CAND["type_id"],
+            "source": src,
+        }
+        query = _FakeQuery([_CAN_CAND])
+        with mock.patch.object(asm, "get_category_query", return_value=query), \
+             mock.patch.object(asm, "_resolve_skill_category",
+                               return_value=dict(_CAN_CAND)), \
+             mock.patch.object(asm, "_fetch_attribute_schema_from_ozon",
+                               return_value=[]) as fa, \
+             mock.patch.object(asm, "_llm_rank_categories", return_value=None), \
+             mock.patch("utils.blocked_draft_box.create_blocked_draft") as cb:
+            out = asm.assemble_ozon_product_node(state, {}, None)
+        assert "需资质" not in str(out.get("error_message")), \
+            f"source={src} 应豁免受限闸: {out}"
+        assert cb.assert_not_called() is None, f"source={src} 豁免不得入箱"
+        assert query.schema_calls == 1, f"source={src} 豁免后应继续主流程取 schema"
+        fa.assert_called_once(), "PG 未命中后应回调 Ozon API（流程走到 Step 2）"
+
+
+def test_15_untrusted_source_still_blocks():
+    """⑨ 对照：非可信来源（无 source / search_kw）双命中仍拦收入箱（豁免不扩大化）。"""
+    for src in ("", "search_kw"):
+        state = _FakeState("汽油桶 20升 加油桶")
+        if src:
+            state.draft["ozon_category"] = {
+                "description_category_id": _CAN_CAND["description_category_id"],
+                "type_id": _CAN_CAND["type_id"],
+                "source": src,
+            }
+        out, probe = _run_assemble("汽油桶 20升 加油桶", [_CAN_CAND], state)
+        assert "需资质" in str(out.get("error_message")), \
+            f"source={src!r} 双命中必须拦: {out}"
+        assert probe["box"].called, f"source={src!r} 必须入箱"
+
+
 if __name__ == "__main__":
     import traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

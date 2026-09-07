@@ -13,7 +13,8 @@
   受限品类闸）；R2b 采纳改置信度分层（同大类≥0.5/跨大类≥0.75），LLM 弃权与
   低置信**不再直接 failed 而是自动入采集箱**（`utils/blocked_draft_box`，
   tenant+item_id 幂等，R1 veto 出口不入箱）；受限品类闸词表
-  `config/restricted_keywords.json` 热加载，双命中拦、manual 豁免。
+  `config/restricted_keywords.json` 热加载，双命中拦、manual/**page** 豁免
+  （page=Ozon 在售竞品页真实面包屑类目，用户拍板视为平台合规事实；R1 对 page 仍硬）。
 - **skill 类目三口**：search_kw 猜测过 `_category_guess_consistent` 自校验
   （毒类目不进信封）；manual 直传短路自动匹配；`--category-query` 是搜索文本
   提示**不是类目覆盖**（help 已纠正）。
