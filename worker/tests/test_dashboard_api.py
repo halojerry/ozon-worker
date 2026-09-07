@@ -49,6 +49,9 @@ def _seed(eng):
         conn.execute(text("DELETE FROM ozon_orders_cache WHERE tenant_id=:t"), {"t": TENANT})
         conn.execute(text("DELETE FROM ozon_products_cache WHERE tenant_id=:t"), {"t": TENANT})
         conn.execute(text("DELETE FROM store_daily_metrics WHERE tenant_id=:t"), {"t": TENANT})
+        # ✅ v0.69: overview 读 append-only store_metrics_history——同日重复跑全量
+        # 会累积（orders_count 3→5 假失败），测试租户范围内清理。
+        conn.execute(text("DELETE FROM store_metrics_history WHERE tenant_id=:t"), {"t": TENANT})
         conn.execute(text("DELETE FROM credential_sync_state WHERE tenant_id=:t"), {"t": TENANT})
         conn.execute(text(
             "DELETE FROM credentials WHERE tenant_id=:t AND ozon_client_id='dash-1'"
@@ -60,8 +63,8 @@ def _seed(eng):
         conn.execute(text(
             "INSERT INTO store_daily_metrics (tenant_id, credential_id, store_id, stat_date, "
             "order_count, sales_amount, commission_amount, profit_amount, product_count) "
-            "VALUES (:t, :c, 's1', CURRENT_DATE, 3, 1500, 150, 300, 2), "
-            "(:t, :c, 's1', CURRENT_DATE - 1, 5, 2500, 250, 500, 2)"
+            "VALUES (:t, :c, 's1', (now() at time zone 'utc')::date, 3, 1500, 150, 300, 2), "
+            "(:t, :c, 's1', (now() at time zone 'utc')::date - 1, 5, 2500, 250, 500, 2)"
         ), {"t": TENANT, "c": CRED})
         conn.execute(text(
             "INSERT INTO ozon_products_cache (tenant_id, credential_id, product_id, offer_id, "
