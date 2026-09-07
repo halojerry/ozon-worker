@@ -87,3 +87,12 @@ data」一致。**单 SKU 直查不是指标来源**。
 ## 附录 B · 变更记录
 
 - 2026-09-07 v1：创建文档，四项全选两期交付。
+- 2026-09-07 实施完成（分支 `feat/discover-funnel-v2`，Task 0-9 共 10 commit）：
+  - Task 1-3 采集箱元数据（信封注入 + webui 列 + CSV 补列 + 透传单测 + 契约登记）
+  - Task 4-6 探针实测（附录 A）+ 指标扩容 9 字段 + seller 直调优先
+  - Task 7 粗筛实装（ai 档 + `--base-filter` + auto-submit 默认 ai + 降级语义）
+  - Task 8 discover-task（match_selected 限额 + 无人值守命令 + pounding-mcp C2）
+  - 测试基线：skill 715 / worker 1917 / pounding-mcp 33 / webui tsc+build 绿
+- **发版 gate（v0.69 纪律，未跑不发版）**：本地 Docker worker 真实 ≥3 单全链路
+  （`discover-task --to-box` 真实入箱 → drafts → 提交 → category_match_log /
+  listing_result_log / 任务终态核对）；VERSION 四源 bump 另行统一。
