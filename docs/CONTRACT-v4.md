@@ -106,6 +106,7 @@
 | `envelope.draft.currency` | string | ✅ | — | 固定 `"CNY"` |
 | `envelope.source` | object | ❌ | — | `{purchase_url, purchase_cost}` |
 | `envelope.extensions` | object | ❌ | — | `{margin_rate, commission_rate, fx_buffer, follow_sell, max_skus}` |
+| `envelope.extensions.discovery_meta` | object | ❌ | v0.69+ | discover 选品元数据快照（`{ozon_product_id, ozon_url, ozon_price, blue_ocean_score, monthly_sales, monthly_revenue, sales_growth, drr, create_days, competing_sellers, rating, review_count, weight_g, dimensions_mm, profit_margin, estimated_profit_cny, match_confidence, discovered_at}`，缺失键省略）。**worker 零消费整包透传**（payload JSONB 随任务/草稿留存），webui 采集箱/CSV 导出展示选品依据用 |
 | `timeout_seconds` | int | ❌ | 1800 | 300-7200 |
 | `max_retries` | int | ❌ | 3 | 0-10 |
 
