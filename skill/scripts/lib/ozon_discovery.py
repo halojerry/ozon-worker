@@ -828,6 +828,7 @@ def match_selected(
     max_matches: int = 0,
     stop_on_no_match_streak: int = 0,
     pace_seconds: float = 0.5,
+    max_workers: int = 0,
 ) -> list[ProductCandidate]:
     """Discover v2 阶段④：对选中候选批量 1688 识图 + 利润 + 蓝海评分。
 
@@ -842,6 +843,8 @@ def match_selected(
       不再发起新图搜；串行逐个判，并行分块提交块间判（已提交块跑完不加码）；
     - pace_seconds：单候选处理后的节奏间隔（默认 0.5；任务模式传 2.0，实际
       sleep 带 ±20% 抖动仿人节奏）。
+    - max_workers>0：并行度覆盖（0=auto _discover_workers()；任务模式
+      --match-concurrency 1/2——1688 图搜并发 ≤2 对齐上品帮反爬纪律）。
     """
     from scripts.lib.config_store import get_store_profile
 
@@ -951,7 +954,7 @@ def match_selected(
             return -1
         return streak
 
-    workers = _discover_workers()
+    workers = max_workers if max_workers > 0 else _discover_workers()
     if workers <= 1:
         # 串行（零回归）：批量识图复用同一 CDP 连接（v0.14 E6）
         import contextlib
