@@ -40,6 +40,7 @@ _RE_IMAGE_URL = re.compile(
 _IMAGE_WORDS = ("以图搜款", "图搜", "以图", "找款", "找同款", "同款", "图片", "照片")  # D1
 _TREND_WORDS = ("有什么好卖的", "热卖", "爆款", "新品风向", "趋势", "卖得动")  # E
 _LIST_WORDS = ("上架", "上货", "上点", "整一批", "发布", "上传")  # D
+_AUTO_TASK_WORDS = ("自动采集", "自动选品", "全自动选品", "无人值守", "任务式", "自动跑一批")  # C2（漏斗 v2 discover-task）
 _FOLLOW_WORDS = ("跟卖", "蓝海")  # C
 _SELECT_WORDS = ("选品",)  # C
 _COLLECT_WORDS = ("采集",)  # C
@@ -51,6 +52,7 @@ _ALL_INTENT_WORDS = (
     _IMAGE_WORDS
     + _TREND_WORDS
     + _LIST_WORDS
+    + _AUTO_TASK_WORDS
     + _FOLLOW_WORDS
     + _SELECT_WORDS
     + _COLLECT_WORDS
@@ -169,6 +171,15 @@ def route_intent(text: str) -> dict:
         args = ["--keyword", kw, "--auto-submit"] if kw else ["--auto-submit"]
         return _route("D", "discover", args, needs_confirmation=True,
                       questions=[] if kw else [_QUESTION_CATEGORY])
+
+    # 任务式全自动选品（漏斗 v2 discover-task）：缺省 dry_run 零副作用，
+    # 无需确认；真实入箱由 agent 二次调用 to_box=True（触发 dsh 审批）
+    if any(w in raw for w in _AUTO_TASK_WORDS):
+        kw = _extract_keyword(raw)
+        if kw:
+            return _route("C2", "discover_task", ["--keyword", kw])
+        return _route("C2", "discover_task", [], needs_clarification=True,
+                      questions=[_QUESTION_CATEGORY])
 
     # 跟卖/蓝海/选品/采集 → C（discover 跟卖选品，仅采集不提交，无需确认）
     if any(w in raw for w in _FOLLOW_WORDS + _SELECT_WORDS + _COLLECT_WORDS):
