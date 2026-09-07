@@ -93,6 +93,15 @@ def test_parse_filter_expr_rejects_unknown_field():
         pass
 
 
+def test_parse_filter_expr_rejects_match_only_field():
+    """margin 属匹配期字段（此前恒 0.0）→ --base-filter 显式拒绝（评审 E）。"""
+    try:
+        _parse_filter_expr("margin>=15")
+        raise AssertionError("应抛 ValueError")
+    except ValueError as exc:
+        assert "--rules" in str(exc)
+
+
 def test_extra_rules_interval_enforced():
     """自定义区间在所有档位生效：monthly_sales>=50 砍掉月销 10。"""
     c = _cand(monthly_sales=10, has_analytics=True)

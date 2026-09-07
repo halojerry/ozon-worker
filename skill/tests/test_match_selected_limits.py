@@ -98,6 +98,22 @@ def test_parallel_chunked_streak_stop():
     assert sum(1 for c in result if c.status == "ok") == 4
 
 
+def test_parallel_mid_chunk_sentinel():
+    """并行：阈值落在 chunk 中间（j=0 触顶）→ 哨兵不被同块后续候选洗掉（评审 B）。"""
+    cands = _cands(6)
+
+    def match(i):
+        return None if i == 0 else {"url": "https://detail.1688.com/offer/1.html",
+                                    "title": "货源", "price": "5.0", "images": [],
+                                    "confidence": 0.9, "badge_eff": 0.9}
+
+    result, calls, _ = _run(cands, workers=2, match=match, stop_on_no_match_streak=1)
+    # 块1(idx0,1)：idx0 no_match 触顶(-1)，idx1 matched 不得洗掉哨兵 → 早停
+    assert calls["n"] == 2
+    assert sum(1 for c in result if c.status in ("matched", "profitable")) == 1
+    assert sum(1 for c in result if c.status == "ok") == 4
+
+
 def test_streak_resets_on_match():
     """间隔 no_match 不触发早停（matched 重置计数）。"""
     cands = _cands(6)

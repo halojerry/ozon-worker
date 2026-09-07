@@ -682,9 +682,10 @@ def collect_and_analyze(
         pids = list(rows_by_pid.keys())
         base_rejected = set()
         for pid, r in rows_by_pid.items():
+            # extra_rules 不在行级判（评审 E：monthly_sales 等字段此刻是默认 0
+            # 而非真实值，下限规则会把全部 pid 砍光）——统一在 ②b 后置判定
             if not _passes_base_filter(_row_candidate(pid, r),
-                                       profile=filter_profile,
-                                       extra_rules=extra_rules):
+                                       profile=filter_profile):
                 base_rejected.add(pid)
         if base_rejected:
             logger.info("BASE 粗筛砍 %d 条（%d → %d）",
@@ -699,9 +700,10 @@ def collect_and_analyze(
             """品牌/关键词/价格/BASE 粗筛（主线程执行，含候选顺序与回调次序）。"""
             # S5/B3: 18 项 BASE 粗筛（区间判定；列表阶段①b 已粗筛，这里 widget
             # 数据到位后重验——规则区间全 None=不限时零副作用）。ai 档此处同
-            # 行级语义（富化未发生，只判 seller_count + 区间），完整预设看 ②b 后置。
+            # 行级语义（富化未发生，只判 seller_count）；extra_rules 与完整预设
+            # 统一在 ②b 后置判定（评审 E：等字段真实，防默认 0 触发下限全灭）。
             if candidate.status == "ok" and not _passes_base_filter(
-                    candidate, profile=filter_profile, extra_rules=extra_rules):
+                    candidate, profile=filter_profile):
                 candidate.status = "filtered"
                 candidate.error = "未通过 BASE 粗筛"
                 return
@@ -946,7 +948,12 @@ def match_selected(
         time.sleep(pace_seconds * random.uniform(0.8, 1.2))
 
     def _streak_bumped(streak: int, candidate: ProductCandidate) -> int:
-        """no_match 连击计数（matched/其他清零）；触顶打日志返回 -1 哨兵。"""
+        """no_match 连击计数（matched/其他清零）；触顶打日志返回 -1 哨兵。
+
+        已触发哨兵（-1）后恒保持 -1——并行分块内同块后续候选不得洗掉早停信号
+        （评审 B：否则阈值落在 chunk 中间时块尾 `streak < 0` 永不成立）。"""
+        if streak < 0:
+            return -1
         streak = streak + 1 if candidate.status == "no_match" else 0
         if stop_on_no_match_streak and streak >= stop_on_no_match_streak:
             logger.warning("连续 %d 次 no_match（货源池耗尽信号）→ 匹配早停"
@@ -1171,6 +1178,12 @@ def _parse_filter_expr(expr: str) -> list[tuple[str, str, float]]:
         if field_name not in _SELECTION_FIELDS:
             raise ValueError(
                 f"未知粗筛字段: {field_name}（支持: {', '.join(_SELECTION_FIELDS)}）")
+        if field_name in ("margin",):
+            # 评审 E: margin 只在 1688 匹配后才有真值（此前恒 0.0 参与判定），
+            # --base-filter 判不了 → 显式报错指向 --rules，防静默清零
+            raise ValueError(
+                "粗筛字段 margin 属匹配期字段，--base-filter 不支持；"
+                "请改用 --rules \"margin>=0.15\"（匹配阶段判定）")
         rules.append((field_name, op, val))
     return rules
 
