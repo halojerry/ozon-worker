@@ -1,5 +1,36 @@
 # Changelog
 
+## [Unreleased] — fix/image-ref-pollution-clean（生图串图根治 + 参考图两条线）
+
+> 线上事故「产品A的 Ozon 卡片出现产品B的图」根治（多单、两种形态：别家原图直上 +
+> AI 重绘别家）。根因四层污染链，与 v0.64 砍图无关（兜底自 initial commit 存在，
+> 砍图后图少显性化）。
+
+### 修复
+- **skill**：删除 `ak_1688_client.get_product_details` 详情无图时「标题搜索取
+  search_results[0] 别家图」兜底（串图毒源——多商品标题解析失败同 query 命中
+  ak_search 缓存 → 跨任务逐字节相同别家 310x310 缩略图进信封）；废除
+  `build_graph_envelope` 的 `fallback_images` 参数（竞品主图不再进 draft.images，
+  1688 图空由「产品图片为空」校验门阻断）；跟卖组装删除 `draft["images"]` 竞品图
+  无条件覆盖，竞品主图唯一通道 `extensions.competitor_ref_images`。
+- **worker**：新增 `utils/image_url_guard` 白名单（参考图两条线：跟卖=竞品原图
+  优先 > 1688 货源图；1688 直上=仅货源图；缩略图 `[._]WxH`/`.webp` 全场景恒拒），
+  接线 E1 转存 / white_bg / multi_angle / main 参考 / 变体原图兜底；无合格参考图
+  跳过生图（不再无参考随机生成）；`is_follow_sell` 判定读 `extensions.follow_sell`
+  （跟卖线经 FollowSellImportOutput.extensions 全链透传）；竞品图任何场景不上卡。
+- 新增测试：skill `test_no_foreign_image_fallback` 等、worker `test_image_url_guard`/
+  `test_ref_image_pollution_guard`（含线上事故真实 URL 形态回归 + variant 缺图
+  fallback 回归锁定）。
+
+### ⚠️ 行为变更（发版必读）
+- **跟卖线定价首次接通 store 配置**：extensions 全链透传后，pricing_node 在跟卖线
+  首次读到 margin 三档/佣金 segments/竞品重量兜底（历史上跟卖线该通道恒空、配置被
+  静默忽略）——**同店铺跟卖单价格相对历史会变化**（方向为修正）。发版后观察首批
+  跟卖单价格。
+- **1688 货源无图的单从「带兜底图出单」变「安全阻断」**：宁不出单不上错图。
+- **部署后旧任务重跑**：污染参考生成的存量生图缓存 7 天 TTL 自愈；需立即重跑用
+  force_regen（webui 重生成按钮）。
+
 ## [0.68.1] - 2026-09-06
 
 > v0.68.0 回归新发现两缺陷的紧急修复（重量硬下限 + Step 6.5 R2b 豁免），双侧 TDD +
