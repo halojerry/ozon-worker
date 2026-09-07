@@ -40,6 +40,21 @@ def _fake_stdin(tty: bool):
     return SimpleNamespace(isatty=lambda: tty)
 
 
+import pytest  # noqa: E402
+
+
+# 漏斗 v2 收尾：wait_for_seller_login 带进程内登录 memo（确认 30min 免复查/
+# 刚等过只复查）。本文件锁定的是"全新等待"语义——每测前重置 memo，
+# 防同进程内前面用例的成功确认短路后续超时用例。
+@pytest.fixture(autouse=True)
+def _reset_login_memo():
+    osa._LOGIN_CONFIRMED_MONO = 0.0
+    osa._WAIT_ATTEMPTED_MONO = 0.0
+    yield
+    osa._LOGIN_CONFIRMED_MONO = 0.0
+    osa._WAIT_ATTEMPTED_MONO = 0.0
+
+
 def _fake_clock():
     """确定性假时钟：每次调用 +1（秒）。返回 (now函数, 计数dict)。"""
     state = {"now": 0}

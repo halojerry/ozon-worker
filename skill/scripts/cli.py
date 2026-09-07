@@ -375,11 +375,12 @@ def cmd_graph(args: argparse.Namespace) -> int:
     detail_url = args.url or f"https://detail.1688.com/offer/{item_id}.html"
 
     # ⚠️ PR-3: CDP 前置 — 进 enrich 前确保 Chrome 就绪（不再等到链路深处 60s 才报）
+    # readiness 统一预检：Chrome CDP 硬门 + 1688 登录早知道（结果缓存 10 分钟）
     try:
-        from scripts.lib.chrome_launcher import ensure_chrome_cdp
-        _ok_cdp, _msg_cdp = ensure_chrome_cdp(profile_dir=_chrome_profile_dir())
-        if not _ok_cdp:
-            print(f"❌ Chrome CDP 不可用: {_msg_cdp}", flush=True)
+        from scripts.lib.readiness import ensure_pipeline_ready, print_readiness_report
+        report = ensure_pipeline_ready("graph", profile_dir=_chrome_profile_dir())
+        print_readiness_report(report)
+        if not report["ok"]:
             print("  → 请运行 `python3 scripts/cli.py check` 查看环境诊断", flush=True)
             return 1
     except Exception as _cdp_e:
@@ -826,17 +827,19 @@ def cmd_check(args) -> int:
                 alibaba_cdp_ok = bool(tab.evaluate(
                     "!!location.href && location.href.indexOf('1688.com')>=0 && location.href.indexOf('login.1688.com')<0"
                 ))
-                if alibaba_cdp_ok:
-                    val = tab.evaluate(
-                        "document.cookie.match(/cookie2=|__cn_logon__=/) ? 'LOGGED_IN' : 'NOT_LOGGED_IN'"
-                    )
-                    login_ok = val == "LOGGED_IN"
                 tab.close(close_remote=False)  # 只关 WS，保留用户 1688 标签页
             else:
                 print("  ⚠️ 未找到已打开的 1688 标签页")
         except Exception as _dbg_e:
             print(f"  ⚠️ 1688 CDP 异常: {_dbg_e}")
         print(f"  {_ok(alibaba_cdp_ok)} 1688 页面可访问 (仅影响 1688 URL)")
+        # 登录检测复用 readiness 探针（cookie 判定，不要求已开 1688 标签页——
+        # 此前无 tab 时即使已登录也误报未登录）
+        try:
+            from scripts.lib.readiness import probe_alibaba_login
+            login_ok = probe_alibaba_login()
+        except Exception:
+            login_ok = False
     else:
         print("\n  🔗 1688 CDP: ⏭️ 跳过（CDP 未启动）")
 
@@ -881,47 +884,14 @@ def cmd_check(args) -> int:
             print("  → 非交互环境: 请登录后重跑 `check` 确认")
 
     # ═══════════════════════════════════════════
-    # 4. Ozon CDP 连通检查
+    # 4. Ozon CDP 连通检查（复用 readiness 探针：复用 product tab / 临时 tab）
     # ═══════════════════════════════════════════
     ozon_cdp_ok = False
     if session_ok:
         print("\n  🔗 Ozon CDP 连通检查 (DataDome)...")
         try:
-            from scripts.lib.cdp_client import CdpConnection, CdpTab
-
-            tab = None
-            tab_is_new = False
-
-            # ✅ v0.10: 优先复用已有 ozon.ru/product tab（保留 cookie/session，避免 DataDome）
-            # ⚠️ v0.14 E4: 用封装替代手写 websocket + Runtime.evaluate
-            try:
-                tabs_resp = req.get("http://127.0.0.1:9222/json", timeout=5)
-                if tabs_resp.status_code == 200:
-                    for t in tabs_resp.json():
-                        if t.get("type") == "page" and "ozon.ru" in t.get("url", "") and "ozon.ru/product/" in t.get("url", ""):
-                            tab = CdpTab("http://127.0.0.1:9222", t.get("id", ""), t.get("webSocketDebuggerUrl", ""))
-                            break
-            except Exception:
-                pass
-
-            # 没有已有 tab → 创建新 tab（仅检查后关闭，不残留）
-            if tab is None:
-                try:
-                    conn = CdpConnection("http://127.0.0.1:9222")
-                    tab = conn.new_tab("https://www.ozon.ru/")
-                    tab.wait_for_load(timeout=10)
-                    tab_is_new = True
-                except Exception:
-                    pass
-
-            if tab:
-                # 检查实际页面内容（不只是 URL），含 DataDome 拦截检测
-                ozon_cdp_ok = bool(tab.evaluate(
-                    "!!(document.body && document.body.innerText.length > 200 && document.title.length > 5 "
-                    "&& !document.querySelector('#datadome-captcha, iframe[src*=\"datadome\"]'))"
-                ))
-                # 新建 tab → 全关；复用的用户 tab → 只关 WS 不关远程
-                tab.close(close_remote=tab_is_new)
+            from scripts.lib.readiness import probe_ozon_datadome
+            ozon_cdp_ok = probe_ozon_datadome()
         except Exception:
             pass
         print(f"  {_ok(ozon_cdp_ok)} Ozon 可通过 DataDome")
@@ -1112,11 +1082,12 @@ def cmd_follow(args) -> int:
         return 1
 
     # ⚠️ PR-3: CDP 前置 — follow 全链路依赖 Chrome，启动失败立即报（不再 warning+continue 空跑）
+    # readiness 统一预检：Chrome 硬门 + DataDome/1688 登录早知道 + aibuy 冷启动预热
     try:
-        from scripts.lib.chrome_launcher import ensure_chrome_cdp
-        _ok_cdp, _msg_cdp = ensure_chrome_cdp(profile_dir=_chrome_profile_dir())
-        if not _ok_cdp:
-            print(f"❌ Chrome CDP 不可用: {_msg_cdp}", flush=True)
+        from scripts.lib.readiness import ensure_pipeline_ready, print_readiness_report
+        report = ensure_pipeline_ready("follow", profile_dir=_chrome_profile_dir())
+        print_readiness_report(report)
+        if not report["ok"]:
             print("  → 请运行 `python3 scripts/cli.py check` 查看环境诊断", flush=True)
             return 1
     except Exception as _cdp_e:
@@ -1258,7 +1229,6 @@ def _fetch_live_blue_ocean_queries(cdp_url: str, keyword: str) -> list[dict]:
 
 def cmd_discover(args: argparse.Namespace) -> int:
     """Ozon 选品 v2 — 先全量采集 → 表格分析 → 挑完再找货源。"""
-    from scripts.lib.chrome_launcher import ensure_chrome_cdp
     from scripts.lib.ozon_discovery import (
         DEFAULT_FX_RATE,
         collect_and_analyze,
@@ -1285,9 +1255,13 @@ def cmd_discover(args: argparse.Namespace) -> int:
     # CSV 缺失/解析失败 → 打印降级提示，走原流程（绝不崩）。
     # --blue-ocean-source queries + --keyword：优先实时 what_to_sell 查询
     # （复用 cmd_queries 的 seller tab 机制）；未登录/异常/空 → 静默降级本地 CSV。
-    ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
-    if not ok:
-        print(f"❌ Chrome 启动失败: {msg}")
+    # readiness 统一预检（漏斗 v2 收尾）：Chrome 硬门 + seller 登录（交互给登录
+    # 窗口，成功记 memo 免流程深处重复等待）+ aibuy 冷启动预热；结果缓存 10 分钟。
+    from scripts.lib.readiness import ensure_pipeline_ready, print_readiness_report
+    report = ensure_pipeline_ready("discover", profile_dir=_chrome_profile_dir())
+    print_readiness_report(report)
+    if not report["ok"]:
+        print("  → 请运行 `python3 scripts/cli.py check` 查看环境诊断", flush=True)
         return 1
     cdp_url = "http://127.0.0.1:9222"
 
@@ -1709,7 +1683,6 @@ def _analyze_pids(cdp_url: str, pids: list[str], *,
     from scripts.lib.ozon_discovery import (
         ProductCandidate,
         _analyze_product,
-        _apply_profile_filter,
         _discover_workers,
         _is_branded,
         _is_known_brand,
@@ -1816,7 +1789,6 @@ def cmd_discover_multi(args: argparse.Namespace) -> int:
     N 关键词滚动总时长 ≈ N × 单关键词滚动；分析复用 ThreadPoolExecutor
     4-8 线程并行吃合并 pid 列表 → 分析时长 ≈ 1 × 单关键词分析。
     """
-    from scripts.lib.chrome_launcher import ensure_chrome_cdp
     from scripts.lib.config_store import get_setting, get_store_profile
     from scripts.lib.ozon_discovery import DEFAULT_FX_RATE, resolve_filter_profile
 
@@ -1836,9 +1808,12 @@ def cmd_discover_multi(args: argparse.Namespace) -> int:
     if args.rules:
         print(f"   自动筛选规则: {args.rules}", flush=True)
 
-    ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
-    if not ok:
-        print(f"❌ Chrome 启动失败: {msg}")
+    # readiness 统一预检（同 cmd_discover 口径）
+    from scripts.lib.readiness import ensure_pipeline_ready, print_readiness_report
+    report = ensure_pipeline_ready("discover-multi", profile_dir=_chrome_profile_dir())
+    print_readiness_report(report)
+    if not report["ok"]:
+        print("  → 请运行 `python3 scripts/cli.py check` 查看环境诊断", flush=True)
         return 1
     cdp_url = "http://127.0.0.1:9222"
 
@@ -1893,6 +1868,19 @@ def cmd_discover_multi(args: argparse.Namespace) -> int:
             base_filter=getattr(args, "base_filter", "") or "",
             progress_callback=_collect_progress,
         )
+        # 漏斗 v2 对齐单关键词（collect_and_analyze 阶段尾同款两段）：ai 档/
+        # 自定义区间完整判定挂 ②b 富化后（此时月销/DRR 等字段已到位，评审 E
+        # 约定调用方收口）；sales_mode 标注过滤同样补齐——此前多关键词路径
+        # 两者皆缺（--base-filter 静默失效 / 发货模式不过滤）。
+        from scripts.lib.ozon_discovery import (_apply_profile_filter,
+                                                _apply_sales_mode_filter,
+                                                _parse_filter_expr)
+        _apply_profile_filter(
+            candidates, profile=_profile,
+            extra_rules=_parse_filter_expr(args.base_filter)
+            if getattr(args, "base_filter", "") else None)
+        _apply_sales_mode_filter(
+            candidates, str(get_store_profile().get("sales_mode", "") or ""))
     except ValueError as exc:
         print(f"❌ 粗筛参数错误: {exc}", flush=True)
         return 2
@@ -1963,7 +1951,6 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     """Ozon 选品 · 任务式全自动（无人值守）。"""
     import time as _time
 
-    from scripts.lib.chrome_launcher import ensure_chrome_cdp
     from scripts.lib.config_store import get_setting, get_store_profile
     from scripts.lib.ozon_discovery import (
         DEFAULT_FX_RATE,
@@ -1979,9 +1966,13 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
         print("❌ 需要 --url 或 --keyword 之一（入口：highlight/搜索/类目/店铺页均可）")
         return 2
 
-    ok_cdp, msg_cdp = ensure_chrome_cdp()
-    if not ok_cdp:
-        print(f"❌ Chrome CDP 启动失败: {msg_cdp}")
+    # 无人值守预检（readiness）：seller 未登录 fail-fast 秒退（替代流程深处 90s
+    # 黑等）；aibuy 冷启动预热一次；10 分钟内 --resume 重跑缓存免检测。
+    from scripts.lib.readiness import ensure_pipeline_ready, print_readiness_report
+    report = ensure_pipeline_ready("discover-task", interactive=False)
+    print_readiness_report(report)
+    if not report["ok"]:
+        print("  → 处理完上述 ❌ 项后重跑本命令（--resume 可续跑已有任务）", flush=True)
         return 1
     cdp_url = "http://127.0.0.1:9222"
 

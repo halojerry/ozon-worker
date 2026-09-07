@@ -80,6 +80,7 @@ AUX_FILES = [
     "scripts/lib/updater.py",        # 自动更新（COS manifest 检测 + 下载/回滚）
     "scripts/lib/review_log.py",     # 决策审计落盘（D3 L2，data/review_log.jsonl）
     "scripts/lib/source_candidates.py",  # PRD M5b 货源匹配上报（skill→worker，fail-open）
+    "scripts/lib/readiness.py",      # 管线就绪统一预检（漏斗 v2 收尾：缓存+预热+fail-fast）
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
     # ⚠️ service.py 明文（不编译）：探针是改动最频繁的模块，需本地快速迭代
