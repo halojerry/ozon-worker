@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
 import threading
 import time
@@ -824,6 +825,9 @@ def match_selected(
     progress_callback=None,
     mxou_token: str = "",
     blue_ocean_rows: list[dict] | None = None,
+    max_matches: int = 0,
+    stop_on_no_match_streak: int = 0,
+    pace_seconds: float = 0.5,
 ) -> list[ProductCandidate]:
     """Discover v2 阶段④：对选中候选批量 1688 识图 + 利润 + 蓝海评分。
 
@@ -831,6 +835,13 @@ def match_selected(
     仅处理 status in (ok, uncertain) 的候选（error 跳过）。
     blue_ocean_rows: all_queries 蓝海关键词行（C4 step2），非空时按候选标题
     计算 competitor_keyword_density 注入蓝海评分；None/空 → 原流程不加因子。
+
+    任务式限额（漏斗 v2 Task 8a，discover-task 无人值守用；交互流程缺省零变化）：
+    - max_matches>0：匹配数上限（护 aibuy 配额），未匹配候选保持 ok/uncertain；
+    - stop_on_no_match_streak>0：连续 N 次 no_match（货源池耗尽信号）→ 早停，
+      不再发起新图搜；串行逐个判，并行分块提交块间判（已提交块跑完不加码）；
+    - pace_seconds：单候选处理后的节奏间隔（默认 0.5；任务模式传 2.0，实际
+      sleep 带 ±20% 抖动仿人节奏）。
     """
     from scripts.lib.config_store import get_store_profile
 
@@ -839,6 +850,10 @@ def match_selected(
         commission_rate = float(store_profile.get("commission_rate", 0) or 0)
 
     selected = [c for c in candidates if c.status in ("ok", "uncertain")]
+    if max_matches > 0 and len(selected) > max_matches:
+        logger.info("匹配限额: %d → %d（max_matches=%d，护 aibuy 配额）",
+                    len(selected), max_matches, max_matches)
+        selected = selected[:max_matches]
     stats = {"matched": 0, "rejected": 0, "no_match": 0, "error": 0}
 
     def _process_match(candidate: ProductCandidate, match) -> None:
@@ -925,7 +940,16 @@ def match_selected(
         stats[candidate.status if candidate.status in stats else "error"] += 1
         if progress_callback:
             progress_callback(i + 1, len(selected), candidate)
-        time.sleep(0.5)
+        time.sleep(pace_seconds * random.uniform(0.8, 1.2))
+
+    def _streak_bumped(streak: int, candidate: ProductCandidate) -> int:
+        """no_match 连击计数（matched/其他清零）；触顶打日志返回 -1 哨兵。"""
+        streak = streak + 1 if candidate.status == "no_match" else 0
+        if stop_on_no_match_streak and streak >= stop_on_no_match_streak:
+            logger.warning("连续 %d 次 no_match（货源池耗尽信号）→ 匹配早停"
+                           "（剩余候选保持未匹配）", streak)
+            return -1
+        return streak
 
     workers = _discover_workers()
     if workers <= 1:
@@ -934,6 +958,7 @@ def match_selected(
 
         from scripts.lib.cdp_client import CdpConnection
         with contextlib.closing(CdpConnection(cdp_url)) as shared_cdp:
+            streak = 0
             for i, candidate in enumerate(selected):
                 try:
                     match = _search_1688_source(
@@ -946,26 +971,39 @@ def match_selected(
                     logger.warning("1688 match failed for %s: %s",
                                    candidate.ozon_product_id, exc)
                 _finalize(i, candidate)
+                streak = _streak_bumped(streak, candidate)
+                if streak < 0:
+                    break
     else:
         # P2: 并行识图——conn=None 让每线程自建独立连接（_search_1688_source
         # 内部对 conn=None 新建并自持），结果按候选顺序写回主线程。
+        # Task 8a: 分块提交（块大小=workers）——块间检查 no_match 连击早停，
+        # 未提交候选不再加码（已提交块内的 futures 不可撤，跑完即止）。
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(_search_1688_source, cdp_url=cdp_url,
-                                   images=c.ozon_images, title=c.ozon_title,
-                                   conn=None, mxou_token=mxou_token)
-                       for c in selected]
-            for i, candidate in enumerate(selected):
-                try:
-                    match = futures[i].result()
-                    _process_match(candidate, match)
-                except Exception as exc:
-                    candidate.status = "error"
-                    candidate.error = str(exc)
-                    logger.warning("1688 match failed for %s: %s",
-                                   candidate.ozon_product_id, exc)
-                _finalize(i, candidate)
+            i = 0
+            streak = 0
+            while i < len(selected):
+                chunk = selected[i:i + workers]
+                futures = [pool.submit(_search_1688_source, cdp_url=cdp_url,
+                                       images=c.ozon_images, title=c.ozon_title,
+                                       conn=None, mxou_token=mxou_token)
+                           for c in chunk]
+                for j, candidate in enumerate(chunk):
+                    try:
+                        match = futures[j].result()
+                        _process_match(candidate, match)
+                    except Exception as exc:
+                        candidate.status = "error"
+                        candidate.error = str(exc)
+                        logger.warning("1688 match failed for %s: %s",
+                                       candidate.ozon_product_id, exc)
+                    _finalize(i + j, candidate)
+                    streak = _streak_bumped(streak, candidate)
+                i += len(chunk)
+                if streak < 0:
+                    break
 
     logger.info("1688 匹配统计: %s", stats)
     # 匹配结果落盘（collect_and_analyze 保存的是匹配前的全量数据，
