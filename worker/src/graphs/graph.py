@@ -208,13 +208,25 @@ def route_after_assemble(state):
     """
     title: 类目匹配质量检查
     desc: 类目匹配置信度过低或无有效候选时，阻止继续上架
+
+    ✅ v0.69 E2E 实证修复（汽油桶双命中用例暴露）：
+    1. `_blocked_exit` 统一返回 failed_stage="category_match"——路由按 failed_stage
+       判定（v0.69 T0.3 后所有阻断出口统一走此通道），不再依赖错误文案魔法字；
+    2. 旧写法 `getattr(...) or 1.0` 把合法的 0.0 当 falsy 吞成 1.0——受限闸出口
+       match_confidence=0.0 被吞 → 阻断不生效 → 流程空跑到上传才被终态闸收口
+       （终态对、算力白烧 + Ozon 拒审覆盖阻断文案）。改显式 None 判断。
     """
+    failed_stage = str(getattr(state, 'failed_stage', '') or '')
     error_msg = getattr(state, 'error_message', '') or ''
-    if error_msg and ("类目匹配失败" in str(error_msg) or "无有效候选" in str(error_msg)):
+    if "category_match" in failed_stage:
+        logger.warning(f"🛑 组装阻断(failed_stage={failed_stage}): {error_msg}")
+        return "失败"
+    if error_msg and ("类目匹配失败" in str(error_msg) or "无有效候选" in str(error_msg)
+                      or "需资质/受限品类" in str(error_msg)):
         logger.warning(f"🛑 类目匹配阻断: {error_msg}")
         return "失败"
-    match_conf = getattr(state, 'match_confidence', 1.0) or 1.0
-    if match_conf < 0.3:
+    match_conf = getattr(state, 'match_confidence', None)
+    if match_conf is not None and match_conf < 0.3:
         logger.warning(f"🛑 类目匹配置信度过低({match_conf})，阻断上架")
         return "失败"
     return "成功"
