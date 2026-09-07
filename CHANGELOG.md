@@ -36,6 +36,24 @@
   意图词表（自动采集/无人值守/任务式），22 工具。
 - **what_to_sell 字段探针**：`skill/scripts/probe_what_to_sell_fields.py`（一次性实测工具，
   结论见 PLAN 附录 A：单 SKU 直查恒空，指标来自畅销榜池）。
+- **命令级统一预检 readiness**（漏斗 v2 收尾·首次使用体验）：新 `scripts/lib/readiness.py`——
+  `ensure_pipeline_ready(pipeline)` 按管线裁剪探针（graph=Chrome+1688 登录；follow=+DataDome
+  +aibuy 预热；discover*=+seller 登录+aibuy 预热），**成功结果缓存 10 分钟**（重复跑免重复
+  检测）；aibuy 反爬 cookie 未预热自动导航一次 1688 首页预热（冷启动不再静默降级 CDP 图搜）；
+  seller 未登录交互给登录窗口、**discover-task 无人值守 fail-fast 秒退给指引**（替代流程深处
+  90s 黑等）；五命令接线替换裸 `ensure_chrome_cdp`；`cmd_check` 1688 登录/DataDome 两段重构
+  复用同一批探针（且登录检测不再要求已开 1688 标签页）。seller 登录进程内 memo（确认 30min
+  免复查、刚等过 3min 内只复查）——同一条 discover 蓝海路径+富化路径不再重复黑等 300s。
+- **follow 竞品指标直调**：`fetch_sales_analytics_direct`（与 CDP 版同端点 data/v3 同解析同
+  缓存 key）——follow Step 2.5 cookie 直调优先、失败降级 CDP，成功零导航（对齐 discover ②b
+  双通道）。
+- **discover-multi 漏斗 v2 对齐修复**：多关键词路径补 `_apply_profile_filter`（ai 档完整预设
+  + `--base-filter` 自定义区间，此前静默失效）+ `_apply_sales_mode_filter`（发货模式过滤），
+  对齐单关键词 collect_and_analyze 收口语义（评审 E 约定调用方收口）。
+- **agent 引导补全**：SKILL.md frontmatter/意图路由/速查表/决策边界补 discover-task 与
+  `--filter-profile`（此前 agent 只读 SKILL.md 不知道新功能，"自动采集一批"落旧追问路径）；
+  command-reference 决策树加 C2 分支 + to-box vs auto-submit 出货路径对比；output-schema 补
+  discovery_meta 字段表；env-setup 补 readiness 预检说明。
 
 ### 实测结论（附录 A 摘要）
 - 竞品 63 列的运营指标来自其服务端商品库（护城河无法复制）；我们的对等物是 what_to_sell
@@ -47,6 +65,9 @@
 - skill 全量 **715 passed**（新增 discovery_meta 6 + 指标扩容 4 + 直调富化 5 + 粗筛档位
   12 + 匹配限额 5 + discover-task 3）；pounding-mcp **33 passed**（自身 venv，22 工具）；
   worker/webui 见对应提交（CSV 列 3 + 透传 1 + build/tsc 绿）。
+- 漏斗 v2 收尾批（readiness/直调/multi 对齐）：新增 test_readiness 11 + test_discover_multi_profile 4 +
+  test_sales_analytics_direct 5；readiness 带 pytest 密闭守卫（命令层既有测试零改动，
+  CI 无 Chrome 环境安全）。
 
 ## [0.68.1] - 2026-09-06
 
