@@ -401,11 +401,11 @@ def cmd_graph(args: argparse.Namespace) -> int:
             max_retries=args.retries,
             store_id=args.store or "",
             template_id=getattr(args, 'template_id', '') or "",
+            # ✅ v0.69 T0.1b manual 类目直传：签名已提交（feat(worker/skill) 批次），
+            # 恢复评审 A（620eb14d）当时拆掉的传参。
+            category_id=getattr(args, 'category_id', '') or "",
+            type_id=getattr(args, 'type_id', '') or "",
         )
-        # ⚠️ v0.69 T0.1b manual 类目直传暂不接线：committed
-        # build_graph_envelope_with_retry 签名尚无 category_id/type_id（在另一
-        # 会话未提交 WIP 中），传入必 TypeError（评审 A，620eb14d 夹带的半截改动）。
-        # --category-id/--type-id 参数保留解析，等签名提交后再恢复传参。
 
         # ⚠️ v0.29.x 竞品属性复用: --ozon-ref-url 抓 Ozon 竞品属性表 → draft.ozon_attributes
         # (同类目竞品属性值大多一致, worker 对 1688 缺的属性用竞品值兜底)
