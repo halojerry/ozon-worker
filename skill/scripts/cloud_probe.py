@@ -2293,6 +2293,133 @@ def _inject_discovery_match_category(source: dict, candidate) -> dict:
     return source
 
 
+def _discover_page_truth(ozon_url: str) -> dict[str, Any]:
+    """discover 提交前页面真值抓取（复用 follow 的 _cached_ozon_scrape，6h 磁盘缓存）。
+
+    从 Ozon 商品页提取 worker 免闸直通所需地面真值：
+    - ozon_category: 面包屑 dc/tp（source="page"/namespace="widget"，与 follow 同形状）
+    - ozon_attributes: 特征属性表（attributes + characteristics 合并，follow 同形状）
+    - weight_g/dimensions_mm: 属性表解析出的物理真值（what_to_sell 缺口时补 extensions）
+    - ozon_title: 页面标题（候选缺标题时兜底）
+
+    任何失败（无 Chrome/超时/反爬/未登录）一律返回 {}——调用方走 what_to_sell/
+    文本猜兜底，行为与不富化完全一致。批量流程常跑在无浏览器环境，富化绝不
+    抛异常阻断提交。
+    """
+    if not str(ozon_url or "").strip():
+        return {}
+    try:
+        cdp_data = _cached_ozon_scrape(ozon_url)
+    except Exception as e:
+        logger.warning("discover 页面真值抓取失败（跳过富化走兜底）: %s", e)
+        return {}
+    if not isinstance(cdp_data, dict) or not cdp_data.get("success"):
+        _err = cdp_data.get("error", "unknown") if isinstance(cdp_data, dict) else "unknown"
+        logger.warning("discover 页面真值抓取未成功（跳过富化走兜底）: %s", _err)
+        return {}
+
+    truth: dict[str, Any] = {}
+    scraped_dc = str(cdp_data.get("description_category_id", "") or "").strip()
+    if scraped_dc:
+        truth["ozon_category"] = {
+            "description_category_id": scraped_dc,
+            "type_id": str(cdp_data.get("type_id", "") or scraped_dc).strip(),
+            "language": cdp_data.get("breadcrumb_language", "") or "",
+            "category_path": cdp_data.get("category_path", "") or "",
+            # page=Widget 面包屑（worker 免闸直通集 source∈{page,what_to_sell}）
+            "source": "page",
+            "namespace": "widget",
+        }
+    _attrs = dict(cdp_data.get("attributes") or {})
+    for _fc in cdp_data.get("characteristics") or []:
+        if isinstance(_fc, dict) and _fc.get("title") and _fc.get("value"):
+            _attrs.setdefault(str(_fc["title"]), str(_fc["value"]))
+    if _attrs:
+        truth["ozon_attributes"] = _attrs
+    if _attrs:
+        try:
+            from scripts.lib.ozon_scraper import extract_weight_dims_from_attrs
+            _wd_w, _wd_d = extract_weight_dims_from_attrs(_attrs)
+            if _wd_w:
+                truth["weight_g"] = int(_wd_w)
+            if _wd_d:
+                truth["dimensions_mm"] = _wd_d
+        except Exception:
+            pass
+    if cdp_data.get("title"):
+        truth["ozon_title"] = str(cdp_data["title"])
+    return truth
+
+
+def _apply_discover_page_truth(draft: dict, extensions: dict, candidate, page_truth: dict) -> None:
+    """页面真值 + Ozon 上下文注入 draft/extensions（discover 成功/降级两路径共用）。
+
+    类目三源优先级 page > what_to_sell > search_kw：page 与 what_to_sell 的 dc
+    不一致时告警记录两者并取 page（页面面包屑是当前真实在售类目）；page 缺失时
+    保持既有注入语义（what_to_sell / 缺省标 search_kw）。重量/尺寸 what_to_sell
+    （候选字段）优先，页面值只补缺口。无真值不造空壳键。
+    """
+    page_cat = page_truth.get("ozon_category") or {}
+    page_attrs = page_truth.get("ozon_attributes") or {}
+
+    # Ozon 上下文永不丢弃（worker 竞品属性一致性校验/对账依赖）
+    _ozon_url = str(getattr(candidate, "ozon_url", "") or "").strip()
+    if _ozon_url:
+        draft["ozon_url"] = _ozon_url
+    _ozon_title = str(getattr(candidate, "ozon_title", "") or "").strip() \
+        or str(page_truth.get("ozon_title") or "")
+    if _ozon_title:
+        draft["ozon_title"] = _ozon_title
+
+    if page_cat:
+        _wts_dc = str((getattr(candidate, "ozon_category", None) or {}).get(
+            "description_category_id") or "")
+        if _wts_dc and _wts_dc != str(page_cat.get("description_category_id")):
+            logger.warning(
+                "⚠️ discover 类目分歧: page dc=%s 与 what_to_sell dc=%s 不一致，取 page",
+                page_cat.get("description_category_id"), _wts_dc,
+            )
+        draft["ozon_category"] = page_cat
+    else:
+        _ozc = getattr(candidate, 'ozon_category', None)
+        if _ozc:
+            _ozc = dict(_ozc)
+            # 无来源标记时默认按候选处理（Discovery 解析为模糊），勿当权威
+            _ozc.setdefault("source", "search_kw")
+            _ozc.setdefault("namespace", "seller")
+            draft["ozon_category"] = _ozc
+
+    # 特征属性（来自页面，归属页面 dc——worker ozon_attrs_allowed 按 dc 校验一致性）
+    if page_attrs:
+        draft["ozon_attributes"] = page_attrs
+        _page_dc = str(page_cat.get("description_category_id") or "")
+        if _page_dc.isdigit():
+            draft["ozon_attributes_category"] = int(_page_dc)
+
+    # 竞品重量/尺寸注入 extensions（worker _resolve_weight_dimensions 兜底链）：
+    # what_to_sell 经 apply_analytics_to_candidate 写入候选，优先；页面真值只补缺口。
+    _cand_w = getattr(candidate, "weight_g", 0) or 0
+    _cand_dims = getattr(candidate, "dimensions_mm", None) or {}
+    if _cand_w:
+        extensions["competitor_weight_g"] = int(_cand_w)
+    if _cand_dims.get("length") and _cand_dims.get("width") and _cand_dims.get("height"):
+        extensions["competitor_dimensions_mm"] = {
+            "length": int(_cand_dims["length"]),
+            "width": int(_cand_dims["width"]),
+            "height": int(_cand_dims["height"]),
+        }
+    if not extensions.get("competitor_weight_g") and page_truth.get("weight_g"):
+        extensions["competitor_weight_g"] = int(page_truth["weight_g"])
+    if not extensions.get("competitor_dimensions_mm") and page_truth.get("dimensions_mm"):
+        extensions["competitor_dimensions_mm"] = dict(page_truth["dimensions_mm"])
+    if extensions.get("competitor_weight_g") or extensions.get("competitor_dimensions_mm"):
+        logger.info(
+            "✅ 竞品数据注入（discover）: weight=%s dims=%s",
+            extensions.get("competitor_weight_g"),
+            extensions.get("competitor_dimensions_mm"),
+        )
+
+
 def build_envelope_from_discovery(candidate, store_config: dict, store_id: str = "") -> dict:
     """Build Worker GraphInput envelope from a discovery candidate.
 
@@ -2318,6 +2445,12 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
 
     detail_url = f"https://detail.1688.com/offer/{best_id}.html"
 
+    # 提交前页面真值富化（单 choke point，graph/batch_test/采集箱路径共用本函数）。
+    # 对有 ozon_url 的候选抓 Ozon 商品页 dc/tp + 特征属性 + 重量尺寸——discover
+    # 信封此前缺 Ozon 地面真值，类目只靠 1688 中文词文本猜，现成商品批量拒单。
+    # 失败优雅跳过走兜底（what_to_sell/文本猜），行为与不富化完全一致。
+    page_truth = _discover_page_truth(getattr(candidate, "ozon_url", "") or "")
+
     # ✅ 调用完整 AK+CDP 链路（包含 get_product_details + CDP 浏览器富集）
     try:
         result = build_graph_envelope_with_retry(
@@ -2339,37 +2472,8 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
             draft["ozon_product_id"] = candidate.ozon_product_id
             extensions["follow_sell"] = True
 
-        # 注入 Ozon 类目（候选品数据）
-        ozon_cat = getattr(candidate, 'ozon_category', None)
-        if ozon_cat:
-            _ozc = dict(ozon_cat)
-            # v0.63: 无来源标记时默认按候选处理（Discovery 解析为模糊），勿当权威
-            _ozc.setdefault("source", "search_kw")
-            _ozc.setdefault("namespace", "seller")
-            draft["ozon_category"] = _ozc
-
-        # ✅ v0.35.x: 竞品重量/尺寸注入 extensions（worker 兜底链 C2）
-        # what_to_sell 的竞品重量(4497)/尺寸(9454/9455/9456)经
-        # apply_analytics_to_candidate 写入候选——1688 数据缺失时 worker
-        # _resolve_weight_dimensions（prepare_ozon_upload_node.py:1373）用
-        # extensions.competitor_weight_g / competitor_dimensions_mm 兜底，
-        # 否则退到 100g/300×200×50mm 硬编码（上品尺寸不准）。
-        _cand_w = getattr(candidate, "weight_g", 0) or 0
-        _cand_dims = getattr(candidate, "dimensions_mm", None) or {}
-        if _cand_w:
-            extensions["competitor_weight_g"] = int(_cand_w)
-        if _cand_dims.get("length") and _cand_dims.get("width") and _cand_dims.get("height"):
-            extensions["competitor_dimensions_mm"] = {
-                "length": int(_cand_dims["length"]),
-                "width": int(_cand_dims["width"]),
-                "height": int(_cand_dims["height"]),
-            }
-        if extensions.get("competitor_weight_g") or extensions.get("competitor_dimensions_mm"):
-            logger.info(
-                "✅ 竞品数据注入（discover）: weight=%s dims=%s",
-                extensions.get("competitor_weight_g"),
-                extensions.get("competitor_dimensions_mm"),
-            )
+        # 页面真值 + 类目三源(page>what_to_sell>search_kw) + 特征属性 + 竞品重量尺寸
+        _apply_discover_page_truth(draft, extensions, candidate, page_truth)
 
         # ✅ v0.58: 佣金分段透传 extensions（worker 定价用 fbs/fbo 分段费率）
         # what_to_sell 三段佣金（_to_rate_segments: leq_1500/leq_5000/gt_5000）
@@ -2454,6 +2558,9 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         _pv = float(store_profile.get(_pk, 0) or 0)
         if _pv > 0:
             extensions[_pk] = _pv
+
+    # 降级信封同样带页面真值 + ozon_url/ozon_title（成功/降级两路径注入语义一致）
+    _apply_discover_page_truth(draft, extensions, candidate, page_truth)
 
     return {
         "token": token,
