@@ -915,6 +915,28 @@ def fetch_ozon_bestsellers_direct(cookies: dict[str, str],
     return _parse_bestseller_items(data) if ok else []
 
 
+def fetch_bestseller_metrics_map_direct(cookies: dict[str, str],
+                                        lang: str = "zh-Hans") -> dict[str, dict]:
+    """批量畅销榜指标 map —— 静默 cookie 直调变体（漏斗 v2 Task 6）。
+
+    与 fetch_bestseller_metrics_map 同端点同解析（fetch_ozon_bestsellers_direct
+    → sku 索引），但不导航 seller 页、不做登录检查（discover ②b 免导航免登录
+    等待；queries 同通道先例）。失败/未登录 → {}（调用方降级 CDP 路径）。
+    缓存与 CDP 变体共用 key（同数据语义，一边命中另一边免请求）。
+    """
+    from scripts.lib.cache import cache_get, cache_set
+    company_id = str(cookies.get("sc_company_id") or "")
+    cache_key = f"bestseller_map|{lang}|{company_id}"
+    cached = cache_get("seller_analytics", cache_key)
+    if cached is not None:
+        return cached
+    rows = fetch_ozon_bestsellers_direct(cookies)
+    result = {row["sku"]: row for row in rows if row.get("sku")}
+    if result:
+        cache_set("seller_analytics", cache_key, result, ttl=21600)
+    return result
+
+
 def fetch_all_queries(cdp, keyword: str | None = None, company_id: str | None = None) -> list[dict]:
     """all-queries 关键词蓝海查询（what-to-sell SPA）。
 
