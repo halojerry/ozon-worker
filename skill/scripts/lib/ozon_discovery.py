@@ -111,12 +111,21 @@ def _is_branded(brand: str) -> bool:
 
 
 def _discover_workers() -> int:
-    """Discover 并行 worker 数：min(max(2, os.cpu_count() or 4), 4)。
+    """Discover 分析并行 worker 数。
 
-    纯 stdlib（无 psutil），上限 4 —— CDP 单浏览器多 tab 并发收益有限且 Chrome
-    负载随 tab 数上升，4 为实测安全值（ozon_fission._parallel_workers 同源公式）。
+    漏斗 v2 收尾改缺省 **1（静默优先，shopbang 同款）**：滚动 tab 页内
+    fetch 零导航后单商品 ≈1-2s，串行总时长可接受，换来「只开一个 tab、
+    不再弹多 tab 导航」。显式并行加速走 discover-task `--match-concurrency`
+    （1688 匹配阶段，aibuy 纯 HTTP）或多线程路径（workers>1 旧行为保留）。
+    纯 stdlib（无 psutil）；环境变量 DISCOVER_WORKERS 可覆盖。
     """
-    return min(max(2, os.cpu_count() or 4), 4)
+    try:
+        env_v = int(os.environ.get("DISCOVER_WORKERS", "1"))
+        if env_v > 0:
+            return env_v
+    except (TypeError, ValueError):
+        pass
+    return 1
 
 
 # ---------------------------------------------------------------------------
@@ -495,11 +504,14 @@ def _lazy_collect_urls(tab: Any, max_products: int,
 
 
 def _analyze_product(cdp_url: str, cdp: Any, pid: str,
-                     force_new_tab: bool = False) -> ProductCandidate:
+                     force_new_tab: bool = False, shared_tab=None) -> ProductCandidate:
     """单产品全量数据（widget API）：标题/价格/图/品牌/评分/评论数 + 跟卖。
 
     force_new_tab=True（P2）: 透传给 fetch_product_info / fetch_competing_sellers
     —— 多线程并发时每线程开自己的 tab（跳过 find_tab，防并发 worker 抢用户 tab）。
+
+    shared_tab（静默优先）: 传入滚动采集保留的页面上下文 → 页内 fetch widget
+    零导航零新 tab（shopbang 同款）；优先级高于 force_new_tab。
     """
     from scripts.lib.ozon_widget import (
         fetch_competing_sellers,
@@ -517,7 +529,9 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str,
     )
 
     try:
-        info = fetch_product_info(cdp_url, pid, cdp=cdp, force_new_tab=force_new_tab)
+        info = fetch_product_info(cdp_url, pid, cdp=cdp,
+                                  force_new_tab=force_new_tab,
+                                  shared_tab=shared_tab)
         candidate.ozon_title = info.get("title", "")
         # webPrice 结构 price 可能为空，fallback cardPrice（实测部分商品 price 字段为空）
         candidate.ozon_price = _parse_price(
@@ -534,7 +548,8 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str,
 
         # 跟卖数/最低跟卖价
         sellers = fetch_competing_sellers(cdp_url, pid, cdp=cdp,
-                                          force_new_tab=force_new_tab)
+                                          force_new_tab=force_new_tab,
+                                          shared_tab=shared_tab)
         candidate.competing_sellers = sellers.get("count", 0)
         candidate.min_competing_price = sellers.get("min_price", 0)
         candidate.competing_seller_list = sellers.get("sellers", [])
@@ -660,7 +675,11 @@ def collect_and_analyze(
 
     with CdpConnection(cdp_url) as cdp:
         # ── 阶段① 采集（S5 列表内联解析：全字段行 + webSellerList 跟卖）──
+        # 漏斗 v2 收尾·静默优先：滚动 tab 采集完不关，保留给阶段②当页内
+        # fetch 的上下文（shopbang 同款——highlight 页上下文 fetch 其他商品
+        # widget 可行，逐商品导航不必要），② 结束统一关闭。
         tab = cdp.new_tab(target_url)
+        scroll_tab = None
         try:
             time.sleep(5)  # 初始加载
             rows = _lazy_collect_rows(tab, max_products)
@@ -668,11 +687,13 @@ def collect_and_analyze(
                 # 兼容兜底：JS 解析失败/旧页面 → 退回 pid-only 采集
                 rows = [{"id": p} for p in _lazy_collect_urls(tab, max_products)]
             logger.info("Collected %d product IDs", len(rows))
-        finally:
+            scroll_tab = tab
+        except Exception:
             try:
                 tab.close()
             except Exception:
                 pass
+            raise
 
         # ── 阶段①b BASE 粗筛（S5/B3：18 项区间判定，_analyze_product 前）──
         # 仅通过项才上 widget + aibuy 配额（上品帮六阶段漏斗阶段③）。
@@ -740,8 +761,25 @@ def collect_and_analyze(
                     candidate.error = f"价格高于上限 {max_price:.0f}₽"
 
         workers = _discover_workers()
-        if workers <= 1:
-            # 串行（零回归）：复用主连接，force_new_tab 保持默认 False
+        if workers <= 1 and scroll_tab is not None:
+            # 静默串行（漏斗 v2 收尾，shopbang 同款）：复用滚动 tab 页内 fetch
+            # widget——零导航零新 tab；无导航 3s sleep，单商品 ≈1-2s 反而更快。
+            try:
+                for i, pid in enumerate(pids):
+                    candidate = _analyze_product(cdp_url, cdp, pid,
+                                                 shared_tab=scroll_tab)
+                    _apply_filters(candidate)
+                    candidates.append(candidate)
+                    if progress_callback:
+                        progress_callback(i + 1, len(pids), candidate)
+                    time.sleep(0.5)
+            finally:
+                try:
+                    scroll_tab.close()
+                except Exception:
+                    pass
+        elif workers <= 1:
+            # 串行兜底（滚动 tab 已丢）：旧行为 find_tab 复用+导航
             for i, pid in enumerate(pids):
                 candidate = _analyze_product(cdp_url, cdp, pid)
                 _apply_filters(candidate)

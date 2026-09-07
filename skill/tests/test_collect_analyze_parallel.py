@@ -34,7 +34,7 @@ def test_parallel_collect_true_concurrency_and_order():
     force_flags: list[bool] = []
     callbacks: list[str] = []
 
-    def analyze(cdp_url, cdp, pid, force_new_tab=False):
+    def analyze(cdp_url, cdp, pid, force_new_tab=False, **kwargs):
         search_threads.append(threading.get_ident())
         force_flags.append(force_new_tab)
         barrier.wait(timeout=10)  # 两个 worker 同时进入 → 证明并发（串行会在此超时）
@@ -72,7 +72,7 @@ def test_single_worker_reuses_shared_connection():
     pids = ["p1", "p2", "p3"]
     flags: list[bool] = []
 
-    def analyze(cdp_url, cdp, pid, force_new_tab=False):
+    def analyze(cdp_url, cdp, pid, force_new_tab=False, **kwargs):
         flags.append(force_new_tab)
         return _mk(pid)
 
