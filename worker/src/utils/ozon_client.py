@@ -224,6 +224,56 @@ def ozon_check_quota(
     return result
 
 
+def find_product_by_offer(
+    client_id: str,
+    api_key: str,
+    offer_id: str,
+    visibility: str = "ALL",
+    timeout: int = 15,
+) -> Optional[dict[str, Any]]:
+    """v0.69 T2.2: 按 offer_id 查 Ozon 侧产品（含 declined/archived 死卡）。
+
+    POST /v3/product/list，filter {offer_id: [x], visibility: "ALL"}——skill 侧
+    （audit_products.py / ozon_api.list_products）已实证 visibility=ALL 能查到
+    declined/归档死卡，response 匹配项在 result.items（顶层 items 形状做容错）。
+
+    非致命封装：任何 API/网络异常 → logger.warning + 返回 None（调用方按
+    「不存在」继续 CREATE——查询失败绝不能阻塞正常上架）。
+
+    Returns:
+        首个 offer_id 精确匹配的 item dict（{product_id, offer_id, state/archived, ...}），
+        未找到或查询失败返回 None。
+    """
+    want = str(offer_id or "").strip()
+    if not want:
+        return None
+    try:
+        resp = ozon_post(
+            client_id,
+            api_key,
+            "/v3/product/list",
+            {
+                "filter": {"offer_id": [want], "visibility": visibility},
+                "last_id": "",
+                "limit": 10,
+            },
+            timeout=timeout,
+        )
+    except Exception as e:
+        logger.warning(
+            "offer 存在性查询失败（按不存在处理，继续 CREATE）: offer_id=%s: %s",
+            want, str(e)[:200],
+        )
+        return None
+    data = resp if isinstance(resp, dict) else {}
+    # 主形状 result.items（audit_products 实证）；顶层 items 容错
+    items = ((data.get("result") or {}).get("items")) or data.get("items") or []
+    for it in items:
+        if isinstance(it, dict) and str(it.get("offer_id", "")).strip() == want:
+            return it
+    return None
+
+
 def update_min_price_floor(
     client_id: str,
     api_key: str,
@@ -308,6 +358,12 @@ def _summarize_request(endpoint: str, body: dict) -> dict:
     # /product/info/list — 记录 product_id 列表
     elif "/info/list" in endpoint:
         summary["product_ids"] = body.get("product_id", [])[:5]
+
+    # /v3/product/list — 记录 offer_id 过滤（v0.69 T2.2 offer 存在性查询）
+    elif endpoint == "/v3/product/list":
+        flt = body.get("filter", {}) or {}
+        summary["offer_ids"] = list(flt.get("offer_id", []) or [])[:5]
+        summary["visibility"] = flt.get("visibility", "")
 
     return summary
 

@@ -25,6 +25,12 @@ from jinja2 import Template
 from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
 
+# ✅ v0.69 T1.1: 数值属性清洗唯一入口（repair_prepare_node 与 prepare 主循环共用，
+# 禁止此处内联正则——同 compute_price/commission_resolver 共享层纪律）
+from utils.attr_numeric_sanitize import is_numeric_attr_type, sanitize_numeric_attr_value
+# ✅ v0.69 Wave3: Ozon 重量硬下限（体积重反推夹取下限，与 normalizer 同源）
+from utils.weight_dimension_normalizer import OZON_MIN_WEIGHT_G
+
 
 # ============================================================
 # 日志配置
@@ -99,6 +105,10 @@ class ValidationRetryLoopState(BaseModel):
     # _accumulate_decline_errors 追加；子图 State/Input 共用本类，字段声明即满足
     # input-schema 纪律——读取 state.decline_errors 的节点均以本类为入参标注）
     decline_errors: list = Field(default_factory=list, description="每轮审核/校验拒绝原文累积（append-only，含俄语 texts）")
+    # ✅ v0.69 Wave3: repair 节点动作留痕（如 repair_dimensions 体积重反推
+    # weight_inferred: [{item_index, density_kg_m3, from_g, to_g}]）——日志之外的
+    # 结构化审计，子图内节点/测试可断言（不进 Output schema，不出子图）
+    repair_marks: Dict[str, Any] = Field(default_factory=dict, description="修复动作留痕（体积重反推等）")
 
 
 class ValidationRetryLoopInput(BaseModel):
@@ -279,6 +289,11 @@ REPAIR_STRATEGY: Dict[str, str] = {
     # 数值类型错误 → 强制类型转换(LLM 改不了数据类型)
     "VALUE_MUST_BE_INTEGER": "repair_prepare",
     "VALUE_MUST_BE_DECIMAL": "repair_prepare",
+    # ✅ v0.69 T1.1: 数值越界 → repair_prepare 数值清洗步夹取边界
+    # (三店健康扫描 42 例实证：VALUE_MAX_LIMIT 6 / VALUE_MIN_LIMIT 3，
+    #  典型 8962 «Единиц в одном товаре»=20000 被拒；LLM 修不了数值边界)
+    "VALUE_MAX_LIMIT": "repair_prepare",
+    "VALUE_MIN_LIMIT": "repair_prepare",
     # 多值超限 → 删多值保留首个
     "ATTRIBUTE_VALUE_COUNT_EXCEEDED": "repair_prepare",
     # 需要补值 → LLM 搜索字典值
@@ -309,6 +324,8 @@ FIX_TYPE_ATTRIBUTES: set = {
     "marking_auto_corrected",
     # ✅ v0.28.5 A1: 补审计发现属性类错误码
     "VALUE_MUST_BE_INTEGER", "VALUE_MUST_BE_DECIMAL",
+    # ✅ v0.69 T1.1: 数值越界 → 靶向 attributes update（清洗后原卡增量更新）
+    "VALUE_MAX_LIMIT", "VALUE_MIN_LIMIT",
     "ATTRIBUTE_VALUE_COUNT_EXCEEDED",
     "EMPTY_REQUIRED_AFTER_WARNING_DELETING",
     "warning_attribute_values_empty", "erased_attribute_value",
@@ -579,7 +596,27 @@ def _get_attribute_schema(ozon_client_id: str, ozon_api_key: str,
             "language": language
         }
     )
-    return result.get("result", [])
+    schema_list: List[Dict[str, Any]] = result.get("result", []) or []
+    if isinstance(schema_list, list) and schema_list:
+        # ✅ v0.69 T3.3: 懒加载回写闭环（与 assemble 主路径同款）—— 此前 RU 未命中
+        # 直调 Ozon 不写 PG，同类目每次 retry 都重调。language 用实际查询语言；
+        # 回写失败仅 warning，不影响修复主流程。
+        try:
+            from utils.local_db_manager import LocalDBManager
+            LocalDBManager().set_attribute_cache(
+                int(category_id) if category_id else 0,
+                int(type_id) if type_id else 0,
+                schema_list,
+                language=language,
+                expires_in=86400,
+            )
+            logger.info(
+                f"✅ 属性schema 回写 PG 缓存 (dc={category_id}, tp={type_id}, "
+                f"lang={language}, {len(schema_list)} 个属性)"
+            )
+        except Exception as _wb_e:
+            logger.warning("属性schema 回写失败(非致命): %s", _wb_e)
+    return schema_list
 
 
 def _call_mxou_llm(token: str, config_path: str, context_vars: Dict[str, Any]) -> str:
@@ -1995,6 +2032,76 @@ def repair_prepare_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         first_item["height"] = height
         logger.info(f"✅ 尺寸重量已修正（{weight}g, {depth}x{width}x{height}mm）")
 
+    # ✅ v0.69 T1.1: 数值型属性清洗（VALUE_MAX_LIMIT/VALUE_MIN_LIMIT 新路由到本节点）。
+    # ⚠️ repair_prepare 是**就地改 payload**（不重跑 prepare 主转换循环）→ 数值清洗必须
+    # 内嵌此处：按 state.attributes_schema 数值型 type 逐属性过唯一入口
+    # sanitize_numeric_attr_value（剥单位/逗号小数/越界夹取，8962 区间 (1,10000)）。
+    # 清洗失败 → 8962 回落 "1"，其余属性删空值防 error_attribute_values_empty。
+    _rp_numeric_types: Dict[int, str] = {}
+    for _sa in state.attributes_schema or []:
+        if not isinstance(_sa, dict):
+            continue
+        try:
+            _rp_aid = int(_sa.get("id") or 0)
+        except (ValueError, TypeError):
+            continue
+        _rp_tp = str(_sa.get("type") or "")
+        if _rp_aid > 0 and _rp_tp and is_numeric_attr_type(_rp_tp):
+            _rp_numeric_types[_rp_aid] = _rp_tp
+    if _rp_numeric_types:
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            _rp_kept_attrs: list = []
+            for attr in item.get("attributes", []) or []:
+                if not isinstance(attr, dict):
+                    _rp_kept_attrs.append(attr)
+                    continue
+                try:
+                    _rp_pid = int(attr.get("id") or attr.get("attribute_id") or 0)
+                except (ValueError, TypeError):
+                    _rp_pid = 0
+                _rp_tp2 = _rp_numeric_types.get(_rp_pid)
+                if not _rp_tp2:
+                    _rp_kept_attrs.append(attr)
+                    continue
+                _rp_kept_vals: list = []
+                for _v in attr.get("values") or []:
+                    _rp_raw = (
+                        str(_v.get("value") or "").strip()
+                        if isinstance(_v, dict) else str(_v).strip()
+                    )
+                    if not _rp_raw:
+                        continue
+                    _rp_san, _rp_r = sanitize_numeric_attr_value(_rp_pid, _rp_raw, _rp_tp2)
+                    if _rp_san is None:
+                        if _rp_pid == 8962:
+                            _rp_kept_vals.append({"dictionary_value_id": 0, "value": "1"})
+                            logger.warning(f"⚠️ repair_prepare 数值属性 8962 无法清洗（{_rp_r}），回落 1")
+                        else:
+                            logger.warning(
+                                f"⚠️ repair_prepare 数值属性 {_rp_pid} 值无法清洗（{_rp_r}），剔除该值"
+                            )
+                        continue
+                    if _rp_san != _rp_raw:
+                        _rp_kept_vals.append({"dictionary_value_id": 0, "value": _rp_san})
+                        logger.info(
+                            f"✅ repair_prepare 数值属性 {_rp_pid} 清洗: "
+                            f"'{_rp_raw}' → '{_rp_san}'（{_rp_r}）"
+                        )
+                    else:
+                        _rp_kept_vals.append(_v)
+                if _rp_kept_vals:
+                    attr["values"] = _rp_kept_vals
+                    _rp_kept_attrs.append(attr)
+                else:
+                    logger.warning(
+                        f"⚠️ repair_prepare 数值属性 {_rp_pid} 值全被剔除，删除该属性"
+                        f"（防 error_attribute_values_empty）"
+                    )
+            if item.get("attributes") is not None:
+                item["attributes"] = _rp_kept_attrs
+
     # ⚠️ v0.31 T3: 字典属性错误 → 重跑字典 post-fill（revalidate 抹掉的字典值在这里回填）。
     # 主图 prepare 只在主管线执行，retry 子图不重跑 → 字典值缺失/空时由语义解析器
     # 重新解析（9782 只放行非危险安全默认）写入 payload。
@@ -2063,6 +2170,15 @@ def repair_pricing_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
     return state
 
 
+# ✅ v0.69 Wave3: 体积重反推常量（仅 repair_dimensions 使用，主链路不引用）。
+# 重量/体积密度低于 MIN_PHYSICAL_DENSITY_KG_M3 视为物理不可信（羽毛/充填物/
+# 抓取单位错），按 VOLUME_WEIGHT_DENSITY_KG_M3 反推重量，夹到
+# [OZON_MIN_WEIGHT_G(10), MAX_VOLUMETRIC_WEIGHT_G]。
+MIN_PHYSICAL_DENSITY_KG_M3 = 50
+VOLUME_WEIGHT_DENSITY_KG_M3 = 300
+MAX_VOLUMETRIC_WEIGHT_G = 50000
+
+
 def repair_dimensions_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     """修复体积/重量节点：基于密度重新计算合理的长宽高。
 
@@ -2072,6 +2188,10 @@ def repair_dimensions_node(state: ValidationRetryLoopState) -> ValidationRetryLo
     - 小物品（<500g）：0.8 g/cm³（塑料/金属）
     - 中等物品（500-5000g）：0.3 g/cm³（家居用品）
     - 大物品（>5000g）：0.1 g/cm³（大件轻质物品）
+
+    ✅ v0.69 Wave3: 新增体积重反推（仅本 repair 路径，主链路首传前维持
+    只标疑不改写——见 normalizer 密度分支）。真实尺寸保留策略（v0.37 D3d）
+    不变，反推的对象是**重量**而非尺寸。
     """
     logger.info("🔧 开始修复体积/重量（dimensions修复）")
 
@@ -2161,6 +2281,38 @@ def repair_dimensions_node(state: ValidationRetryLoopState) -> ValidationRetryLo
                     f"但保留真实尺寸 {new_depth}×{new_width}×{new_height}mm "
                     f"（v0.37 D3d: 真实数据不猜改；若 Ozon 持续拒绝请核对 1688 原始数据）"
                 )
+
+            # ✅ v0.69 Wave3: 体积重反推（仅 repair 路径）——重量/体积密度低于物理
+            # 下限（<50 kg/m³）说明重量与尺寸严重失配（羽毛/充填物/抓取单位错），
+            # Ozon 以 ML_INCORRECT_VOLUME_WEIGHT 拒单且保持原值无法自愈 → 按常量
+            # 密度 300 kg/m³ 反推重量，夹到 [OZON_MIN_WEIGHT_G, 50000]g，repair_marks
+            # 留痕。密度在物理下限之上仍保持真实重量（如 950g/330×430×100mm=67
+            # kg/m³ 不反推）；主链路（首传前）密度异常依旧只标疑不改写（v0.37）。
+            _volume_m3 = (depth * width * height) / 1e9
+            if _volume_m3 > 0:
+                _density = (weight_g / 1000.0) / _volume_m3
+                if 0 < _density < MIN_PHYSICAL_DENSITY_KG_M3:
+                    _inferred_g = int(_volume_m3 * VOLUME_WEIGHT_DENSITY_KG_M3 * 1000)
+                    _inferred_g = max(
+                        OZON_MIN_WEIGHT_G, min(_inferred_g, MAX_VOLUMETRIC_WEIGHT_G)
+                    )
+                    _old_g = int(weight_g)
+                    weight_g = float(_inferred_g)
+                    item["weight"] = str(_inferred_g)
+                    _marks = state.repair_marks if state.repair_marks else {}
+                    _marks.setdefault("weight_inferred", []).append({
+                        "item_index": i,
+                        "density_kg_m3": round(_density, 2),
+                        "from_g": _old_g,
+                        "to_g": _inferred_g,
+                    })
+                    state.repair_marks = _marks
+                    logger.warning(
+                        f"  item[{i}] 密度 {_density:.1f} kg/m³ < 物理下限 "
+                        f"{MIN_PHYSICAL_DENSITY_KG_M3} → 体积重反推: {_old_g}g → "
+                        f"{_inferred_g}g（{_volume_m3:.6f}m³ × "
+                        f"{VOLUME_WEIGHT_DENSITY_KG_M3} kg/m³，repair 路径）"
+                    )
 
         logger.info(
             f"  item[{i}] 尺寸已处理: weight={int(weight_g)}g, "
