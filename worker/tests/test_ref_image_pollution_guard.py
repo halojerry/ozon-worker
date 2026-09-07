@@ -138,3 +138,20 @@ def test_variant_fallback_keeps_good_original():
     with patch.object(_variant_mod, "call_mxou_image_api", side_effect=_fail):
         out = variant_primary_loop_node(state, _CONFIG, _RUNTIME)
     assert list(out.variant_primary_images) == [GOOD_ORIGINAL], out.variant_primary_images
+
+
+# ═══ fix/image-ref-pollution R2: 跟卖标记 extensions 全链透传 ═══
+
+def test_follow_import_output_declares_extensions():
+    """跟卖导入 Output 必须声明 extensions（否则 GlobalState.extensions
+    断链 → prepare 跟卖判定与生图参考分线读不到 follow_sell）。"""
+    import inspect
+
+    from graphs.state import FollowSellImportOutput
+    assert "extensions" in FollowSellImportOutput.model_fields, \
+        "FollowSellImportOutput 缺 extensions 字段（跟卖标记断链）"
+    # 主 return（L346 成功路径）与错误路径（L63）都必须透传 extensions
+    import graphs.nodes.follow_sell_import_node as fi_mod
+    src = inspect.getsource(fi_mod)
+    assert src.count('"extensions": extensions') >= 2, \
+        "follow_sell_import_node 返回点未透传 extensions（成功+错误路径均需）"
