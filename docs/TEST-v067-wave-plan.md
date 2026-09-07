@@ -149,3 +149,37 @@ FROM category_mapping ORDER BY updated_at DESC LIMIT 10;
 |---|---|---|---|
 | A3 渔夫帽 | declined（1g 重量） | 信封 weight 1g→**50g**（skill 守卫✓）；仍 declined，真因变为估算尺寸 60×45×30mm 过小触发 Ozon 重量×体积交叉校验（已知问题） | 重量硬下限 |
 | A4 护膝 | R2b 确认园艺地垫被 Step6.5 改配除草剂 | 一致性警告照打但**采纳保持**，园艺地垫正常上传；首单被 Ozon 拒（图片/8229）后 R4 重配除草剂再拒（R4 域守卫=新已知问题） | Step6.5 R2b 豁免 |
+
+## Wave D — discover 三源真值复用回归（v0.69 待执行，暖风机 8 连拒重放）
+
+> 背景：生产店 5147639 十二单 discover 商品（暖风机×8/电热毯×2/腰包×1）因信封缺 Ozon 地面
+> 真值全部失败（10 阻断 + 2 审核拒）。v0.69 修复：discover 提交前复用页面抓取
+> （三源 page>what_to_sell>search_kw，commit 98d2cdb4）+ R2b 判据四段化 + 阻断假
+> completed 修复（commit b5179cc5）。
+
+```bash
+# 本地 Docker worker（最新代码）+ skill discover 真实选品（Chrome 登录态）
+cd /Volumes/os/dev/ozon-worker/deploy && docker compose up -d --build
+cd ../skill && WORKER_URL=http://localhost:8080 .venv314/bin/python scripts/cli.py discover --keyword "暖风机 取暖器" --max-products 10
+# 挑 3-5 候选提交（对齐现有 discover 提交流程）
+```
+
+```sql
+-- ① 信封真值到位率（核心断言：source 必须 page 或 what_to_sell，不许 search_kw）
+SELECT payload->'envelope'->'draft'->'ozon_category'->>'source' AS cat_source,
+       (payload->'envelope'->'draft'->'ozon_attributes' IS NOT NULL) AS has_attrs,
+       (payload->'envelope'->'draft'->>'ozon_url' IS NOT NULL) AS has_ozon_url,
+       count(*) FROM ozon_product_tasks
+WHERE created_at > NOW() - INTERVAL '1 day' GROUP BY 1,2,3;
+
+-- ② match_layer 分布 + R2b 放行情况（期待 Skill 直通或 R2b vision/子串放行）
+SELECT match_layer, match_confidence, count(*) FROM category_match_log
+WHERE created_at > NOW() - INTERVAL '1 day' GROUP BY 1,2 ORDER BY 3 DESC;
+
+-- ③ 终态真实性（阻断必须 failed，不许再出现 completed 假成功）
+SELECT status, count(*) FROM ozon_product_tasks
+WHERE created_at > NOW() - INTERVAL '1 day' GROUP BY 1;
+```
+
+通过标准：候选 100% 带权威 dc/tp（page/what_to_sell）；暖风机落 17039635 域内叶子放行
+（R2b vision/子串）或有据阻断；零 completed 假成功；属性透传到位（has_attrs）。
