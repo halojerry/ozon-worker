@@ -180,11 +180,11 @@ def test_follow_import_output_declares_extensions():
     from graphs.state import FollowSellImportOutput
     assert "extensions" in FollowSellImportOutput.model_fields, \
         "FollowSellImportOutput 缺 extensions 字段（跟卖标记断链）"
-    # 主 return（L346 成功路径）与错误路径（L63）都必须透传 extensions
+    # 三个 return 点（ozon_product_id 为空 / 类目解析失败 / 主成功路径）都必须透传
     import graphs.nodes.follow_sell_import_node as fi_mod
     src = inspect.getsource(fi_mod)
-    assert src.count('"extensions": extensions') >= 2, \
-        "follow_sell_import_node 返回点未透传 extensions（成功+错误路径均需）"
+    assert src.count('"extensions": extensions') >= 3, \
+        "follow_sell_import_node 返回点未透传 extensions（全部路径均需）"
 
 
 # ═══ fix/image-ref-pollution R2: 生图参考两条线 ═══

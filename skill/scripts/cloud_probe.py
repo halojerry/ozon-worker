@@ -3881,11 +3881,13 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                             _mev.get("badge_eff", 0), _mev.get("trusted"),
                         )
                     envelope["envelope"]["extensions"] = extensions
-                    # 竞品图片 — 跟卖始终用 Ozon 竞品原图，绝不漏 1688 alicdn
-                    # ✅ v0.33.1: 只拿第一张主图（对齐 1688 get_best_product_images 主图优先逻辑）
-                    # ——竞品 104 张全塞会混入带品牌 logo/促销文字的细节图，Phase1 当参考图
-                    # 被 AI 复刻（GardLuna 水印实测）。第一张 = 产品主图，相对干净。
-                    draft["images"] = ozon_images[:1] if ozon_images else []
+                    # fix/image-ref-pollution R2: 不再把竞品主图覆盖进 draft.images
+                    # （v0.33.1 旧行为「跟卖始终用竞品原图」废除——draft.images 语义
+                    # =货源图/上传候选，保持 build_graph_envelope 产出的 1688 详情图。
+                    # 竞品主图走 extensions.competitor_ref_images 供跟卖参考线；
+                    # 旧覆盖会让跟卖线 E1 兜底源全是竞品图，白名单全拒 → 生图全失败
+                    # 时无图可补。竞品 104 张细节图带水印会被 AI 复刻的教训
+                    # （GardLuna，v0.33.1）由「只取主图 1 张 + 参考线」继续覆盖。）
                     # ✅ 竞品俄语标题（覆盖 1688 中文标题，保留 SEO 优化后的竞品原标题）
                     if ozon_title:
                         draft["title"] = ozon_title
