@@ -20,8 +20,9 @@
   （top-3 推荐类目+置信度随箱，notice 带 draft_id；tenant+item_id 幂等；R1 veto/
   空标题出口不入箱）。「有据阻断」升级「有据入箱」，WebUI 人工一键认领。
 - **受限品类闸**：`config/restricted_keywords.json` 热加载词表，货源侧×定稿类目侧
-  双命中（汽油桶/打火机等）→ 拦截入箱提示需资质，不走 8 分钟流程；manual 豁免
-  （人的决定优先，warning 留痕）。
+  双命中（汽油桶/打火机等）→ 拦截入箱提示需资质，不走 8 分钟流程；manual/page 豁免
+  （人工指定与 Ozon 在售竞品页真实面包屑类目均视为合规——用户拍板「Ozon 抓来的类目
+  已符合要求」；warning 留痕，R1 成人闸对两者仍硬）。
 
 ### 终态与上传
 - **假 completed 收口**：completed 兜底分支加 `_has_real_product_evidence`（product_id
