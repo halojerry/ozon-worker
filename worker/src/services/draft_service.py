@@ -294,11 +294,14 @@ def export_drafts_csv(tenant_id: str) -> str:
         "id", "title", "item_id", "images", "purchase_cost", "purchase_url",
         "price", "stock", "supplier", "weight", "source",
         "submission_status", "created_at", "updated_at",
+        "blue_ocean_score", "monthly_sales", "profit_margin", "match_confidence",
     ])
     for d in drafts:
         payload = d.get("payload") or {}
         draft = payload.get("draft") or {}
         source = payload.get("source") or {}
+        # discover 选品元数据（skill 注入 extensions.discovery_meta，缺失键省略）
+        meta = (payload.get("extensions") or {}).get("discovery_meta") or {}
         writer.writerow([
             d["id"],
             str(draft.get("title") or ""),
@@ -314,6 +317,10 @@ def export_drafts_csv(tenant_id: str) -> str:
             d.get("submission_status") or "",
             d.get("created_at") or "",
             d.get("updated_at") or "",
+            meta.get("blue_ocean_score") if meta.get("blue_ocean_score") is not None else "",
+            meta.get("monthly_sales") if meta.get("monthly_sales") is not None else "",
+            meta.get("profit_margin") if meta.get("profit_margin") is not None else "",
+            meta.get("match_confidence") if meta.get("match_confidence") is not None else "",
         ])
     return buf.getvalue()
 

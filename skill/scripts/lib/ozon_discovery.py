@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
 import threading
 import time
@@ -187,6 +188,19 @@ class ProductCandidate:
     create_days: int = 0          # 上架天数
     has_analytics: bool = False   # 是否拿到后台运营数据
     sales_schema: str = ""        # 发货模式（FBO=官方仓/FBS=自发货/rFBS=跨境直发，可逗号拼接如 FBO,FBS）
+
+    # v2 漏斗扩容（附录 A 实测畅销榜池字段；命名对齐 _BASE_FILTER_RULES /
+    # _SELECTION_FIELDS 键，供粗筛区间规则直接消费）。默认 None = 未知（没拿到
+    # analytics）= 规则「不限」；拿到真实 0 才参与判定（区别于「无数据」）。
+    session_count: int | None = None               # 卡片浏览量（what_to_sell qtyViewPdp）
+    conv_to_cart_pdp: float | None = None          # 卡片加购率 %
+    conv_to_cart_search: float | None = None       # 搜索/目录加购率 %
+    days_in_promo: int | None = None               # 促销参与天数
+    discount: float | None = None                  # 促销折扣 %
+    promo_revenue_share: float | None = None       # 促销转化率 %
+    days_with_trafarets: int | None = None         # 付费推广天数
+    nullable_redemption_rate: float | None = None  # 成交率 %
+    return_cancel_rate: float | None = None        # 退货取消率 %（100 - 成交率）
 
     # Ozon 类目（面包屑/候选品数据，供提交）
     ozon_category: dict = field(default_factory=dict)
@@ -533,6 +547,63 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str,
     return candidate
 
 
+def _enrich_with_seller_metrics(candidates: list[ProductCandidate],
+                                cdp, cdp_url: str) -> dict[str, dict]:
+    """阶段②b seller 运营指标富化（就地 apply 进候选），返回成功富化的 {pid: metrics}。
+
+    v2 漏斗 Task 6：畅销榜 map 走 cookie 直调优先（_fetch_seller_session_cookies
+    只读不导航 + fetch_bestseller_metrics_map_direct 免 seller 页导航/免登录等
+    待阻塞；queries 同通道先例）；直调未登录/失败出声回落原 CDP 路径
+    （check_seller_login → wait_for_seller_login → fetch_bestseller_metrics_map），
+    可用性不回退。map 未命中的 pids 再降级逐 SKU fetch_sales_analytics（P1c）。
+    """
+    from scripts.lib.ozon_seller_analytics import (
+        apply_analytics_to_candidate,
+        check_seller_login,
+        fetch_bestseller_metrics_map,
+        fetch_sales_analytics,
+        wait_for_seller_login,
+    )
+    metrics_map: dict[str, dict] = {}
+    try:
+        from scripts.lib.ozon_seller_analytics import (
+            _fetch_seller_session_cookies,
+            fetch_bestseller_metrics_map_direct,
+        )
+        cookies = _fetch_seller_session_cookies(cdp_url)
+        if cookies:
+            metrics_map = fetch_bestseller_metrics_map_direct(cookies)
+            if metrics_map:
+                logger.info("seller 指标: cookie 直调命中畅销榜池 %d 条（跳过 seller 页导航）",
+                            len(metrics_map))
+    except Exception as exc:
+        logger.warning("seller cookie 直调异常，回落 CDP: %s", exc)
+
+    if not metrics_map:
+        # v0.63.3: 未登录先给登录窗口（自动开 seller 页+轮询，超时保留登录页），
+        # 仍未登录才继续（下游自然降级并打缺失警告）——此前直接静默空数据
+        try:
+            if not check_seller_login(cdp):
+                wait_for_seller_login(cdp)
+        except Exception:
+            pass
+        metrics_map = fetch_bestseller_metrics_map(cdp, company_id=None)
+
+    enriched: dict[str, dict] = {}
+    for c in candidates:
+        if c.ozon_product_id in metrics_map:
+            apply_analytics_to_candidate(c, metrics_map[c.ozon_product_id])
+            enriched[c.ozon_product_id] = metrics_map[c.ozon_product_id]
+    remaining = [c for c in candidates if c.ozon_product_id not in metrics_map]
+    if remaining:
+        per_sku = fetch_sales_analytics(cdp, [c.ozon_product_id for c in remaining])
+        for c in remaining:
+            apply_analytics_to_candidate(c, per_sku.get(c.ozon_product_id, {}))
+            if c.ozon_product_id in per_sku:
+                enriched[c.ozon_product_id] = per_sku[c.ozon_product_id]
+    return enriched
+
+
 def collect_and_analyze(
     cdp_url: str,
     url: str = "",
@@ -544,6 +615,8 @@ def collect_and_analyze(
     brand_filter: str = "nobrand",
     progress_callback=None,
     china: bool = True,
+    filter_profile: str = "off",
+    base_filter: str = "",
 ) -> list[ProductCandidate]:
     """Discover v2 阶段①+②：采集 + 全量数据 + seller.ozon.ru 运营指标。
 
@@ -556,12 +629,18 @@ def collect_and_analyze(
       跳过运营指标查询（省调用），不参与挑选
     - brand_filter（参考 maozi 插件 brand_option）：nobrand=只要无品牌/白牌（默认，
       规避品牌侵权）；known=只过滤知名品牌黑名单；all=不过滤
+    - filter_profile（漏斗 v2 Task 7）：off=不粗筛（缺省，行为同旧）；ai=上品帮
+      AI 预设档（完整预设需 ②b 富化后的 has_analytics，无数据降级放行）
+    - base_filter：自定义区间表达式 "monthly_sales>=50,drr<=15"（_parse_filter_expr
+      语法，非法抛 ValueError）；与 filter_profile 叠加判定
     - 返回全部候选（status: ok/uncertain/filtered/error），**不做 1688 匹配**（阶段④）
     - 关键词校验：标题含中文但无关键词 → uncertain（表格标黄，仍可选）
     - P2: 多 pid 分析并行（每线程独立 CdpConnection + 独立 tab），过滤/回调/
       落盘留在主线程，候选按 pid 原始顺序返回。
     """
     from scripts.lib.cdp_client import CdpConnection
+
+    extra_rules = _parse_filter_expr(base_filter) if base_filter else None
 
     if url:
         target_url = url
@@ -598,11 +677,15 @@ def collect_and_analyze(
         # ── 阶段①b BASE 粗筛（S5/B3：18 项区间判定，_analyze_product 前）──
         # 仅通过项才上 widget + aibuy 配额（上品帮六阶段漏斗阶段③）。
         # 用列表行构造轻量候选跑 _passes_base_filter；规则区间全 None = 不限。
+        # ai 档在行级只判 seller_count（has_analytics 尚为 False 的降级语义）。
         rows_by_pid = {str(r["id"]): r for r in rows}
         pids = list(rows_by_pid.keys())
         base_rejected = set()
         for pid, r in rows_by_pid.items():
-            if not _passes_base_filter(_row_candidate(pid, r)):
+            # extra_rules 不在行级判（评审 E：monthly_sales 等字段此刻是默认 0
+            # 而非真实值，下限规则会把全部 pid 砍光）——统一在 ②b 后置判定
+            if not _passes_base_filter(_row_candidate(pid, r),
+                                       profile=filter_profile):
                 base_rejected.add(pid)
         if base_rejected:
             logger.info("BASE 粗筛砍 %d 条（%d → %d）",
@@ -616,8 +699,11 @@ def collect_and_analyze(
         def _apply_filters(candidate: ProductCandidate) -> None:
             """品牌/关键词/价格/BASE 粗筛（主线程执行，含候选顺序与回调次序）。"""
             # S5/B3: 18 项 BASE 粗筛（区间判定；列表阶段①b 已粗筛，这里 widget
-            # 数据到位后重验——规则区间全 None=不限时零副作用）
-            if candidate.status == "ok" and not _passes_base_filter(candidate):
+            # 数据到位后重验——规则区间全 None=不限时零副作用）。ai 档此处同
+            # 行级语义（富化未发生，只判 seller_count）；extra_rules 与完整预设
+            # 统一在 ②b 后置判定（评审 E：等字段真实，防默认 0 触发下限全灭）。
+            if candidate.status == "ok" and not _passes_base_filter(
+                    candidate, profile=filter_profile):
                 candidate.status = "filtered"
                 candidate.error = "未通过 BASE 粗筛"
                 return
@@ -701,37 +787,7 @@ def collect_and_analyze(
         if use_analytics:
             to_enrich = [c for c in candidates if c.status in ("ok", "uncertain")]
             if to_enrich:
-                from scripts.lib.ozon_seller_analytics import (
-                    apply_analytics_to_candidate,
-                    check_seller_login,
-                    fetch_bestseller_metrics_map,
-                    fetch_sales_analytics,
-                    wait_for_seller_login,
-                )
-                # v0.63.3: 未登录先给登录窗口（自动开 seller 页+轮询，超时保留登录页），
-                # 仍未登录才继续（下游自然降级并打缺失警告）——此前直接静默空数据
-                try:
-                    if not check_seller_login(cdp):
-                        wait_for_seller_login(cdp)
-                except Exception:
-                    pass
-                enriched: dict[str, dict] = {}
-                metrics_map = fetch_bestseller_metrics_map(cdp, company_id=None)
-                remaining = [c for c in to_enrich
-                             if c.ozon_product_id not in metrics_map]
-                for c in to_enrich:
-                    if c.ozon_product_id in metrics_map:
-                        apply_analytics_to_candidate(
-                            c, metrics_map[c.ozon_product_id])
-                        enriched[c.ozon_product_id] = metrics_map[c.ozon_product_id]
-                if remaining:
-                    per_sku = fetch_sales_analytics(
-                        cdp, [c.ozon_product_id for c in remaining])
-                    for c in remaining:
-                        apply_analytics_to_candidate(
-                            c, per_sku.get(c.ozon_product_id, {}))
-                        if c.ozon_product_id in per_sku:
-                            enriched[c.ozon_product_id] = per_sku[c.ozon_product_id]
+                enriched = _enrich_with_seller_metrics(to_enrich, cdp, cdp_url)
                 if not enriched:
                     logger.warning(
                         "⚠️ 运营数据全部缺失（seller.ozon.ru 未登录或无权限）："
@@ -745,6 +801,9 @@ def collect_and_analyze(
     # sales_schema 在阶段②b 富化时才写入 → 不能进 _apply_filters；
     # 店铺 sales_mode 非空时按子串匹配过滤，空 = 不过滤（只标注）。
     from scripts.lib.config_store import get_store_profile
+    # 漏斗 v2 Task 7: ai 档/自定义区间完整判定挂 ②b 富化后（has_analytics/
+    # 转化促销字段已到位）；off 且无区间 → no-op（交互流程零变化）。
+    _apply_profile_filter(candidates, profile=filter_profile, extra_rules=extra_rules)
     _apply_sales_mode_filter(
         candidates, str(get_store_profile().get("sales_mode", "") or ""))
 
@@ -768,6 +827,10 @@ def match_selected(
     progress_callback=None,
     mxou_token: str = "",
     blue_ocean_rows: list[dict] | None = None,
+    max_matches: int = 0,
+    stop_on_no_match_streak: int = 0,
+    pace_seconds: float = 0.5,
+    max_workers: int = 0,
 ) -> list[ProductCandidate]:
     """Discover v2 阶段④：对选中候选批量 1688 识图 + 利润 + 蓝海评分。
 
@@ -775,6 +838,15 @@ def match_selected(
     仅处理 status in (ok, uncertain) 的候选（error 跳过）。
     blue_ocean_rows: all_queries 蓝海关键词行（C4 step2），非空时按候选标题
     计算 competitor_keyword_density 注入蓝海评分；None/空 → 原流程不加因子。
+
+    任务式限额（漏斗 v2 Task 8a，discover-task 无人值守用；交互流程缺省零变化）：
+    - max_matches>0：匹配数上限（护 aibuy 配额），未匹配候选保持 ok/uncertain；
+    - stop_on_no_match_streak>0：连续 N 次 no_match（货源池耗尽信号）→ 早停，
+      不再发起新图搜；串行逐个判，并行分块提交块间判（已提交块跑完不加码）；
+    - pace_seconds：单候选处理后的节奏间隔（默认 0.5；任务模式传 2.0，实际
+      sleep 带 ±20% 抖动仿人节奏）。
+    - max_workers>0：并行度覆盖（0=auto _discover_workers()；任务模式
+      --match-concurrency 1/2——1688 图搜并发 ≤2 对齐上品帮反爬纪律）。
     """
     from scripts.lib.config_store import get_store_profile
 
@@ -783,6 +855,10 @@ def match_selected(
         commission_rate = float(store_profile.get("commission_rate", 0) or 0)
 
     selected = [c for c in candidates if c.status in ("ok", "uncertain")]
+    if max_matches > 0 and len(selected) > max_matches:
+        logger.info("匹配限额: %d → %d（max_matches=%d，护 aibuy 配额）",
+                    len(selected), max_matches, max_matches)
+        selected = selected[:max_matches]
     stats = {"matched": 0, "rejected": 0, "no_match": 0, "error": 0}
 
     def _process_match(candidate: ProductCandidate, match) -> None:
@@ -869,15 +945,30 @@ def match_selected(
         stats[candidate.status if candidate.status in stats else "error"] += 1
         if progress_callback:
             progress_callback(i + 1, len(selected), candidate)
-        time.sleep(0.5)
+        time.sleep(pace_seconds * random.uniform(0.8, 1.2))
 
-    workers = _discover_workers()
+    def _streak_bumped(streak: int, candidate: ProductCandidate) -> int:
+        """no_match 连击计数（matched/其他清零）；触顶打日志返回 -1 哨兵。
+
+        已触发哨兵（-1）后恒保持 -1——并行分块内同块后续候选不得洗掉早停信号
+        （评审 B：否则阈值落在 chunk 中间时块尾 `streak < 0` 永不成立）。"""
+        if streak < 0:
+            return -1
+        streak = streak + 1 if candidate.status == "no_match" else 0
+        if stop_on_no_match_streak and streak >= stop_on_no_match_streak:
+            logger.warning("连续 %d 次 no_match（货源池耗尽信号）→ 匹配早停"
+                           "（剩余候选保持未匹配）", streak)
+            return -1
+        return streak
+
+    workers = max_workers if max_workers > 0 else _discover_workers()
     if workers <= 1:
         # 串行（零回归）：批量识图复用同一 CDP 连接（v0.14 E6）
         import contextlib
 
         from scripts.lib.cdp_client import CdpConnection
         with contextlib.closing(CdpConnection(cdp_url)) as shared_cdp:
+            streak = 0
             for i, candidate in enumerate(selected):
                 try:
                     match = _search_1688_source(
@@ -890,26 +981,39 @@ def match_selected(
                     logger.warning("1688 match failed for %s: %s",
                                    candidate.ozon_product_id, exc)
                 _finalize(i, candidate)
+                streak = _streak_bumped(streak, candidate)
+                if streak < 0:
+                    break
     else:
         # P2: 并行识图——conn=None 让每线程自建独立连接（_search_1688_source
         # 内部对 conn=None 新建并自持），结果按候选顺序写回主线程。
+        # Task 8a: 分块提交（块大小=workers）——块间检查 no_match 连击早停，
+        # 未提交候选不再加码（已提交块内的 futures 不可撤，跑完即止）。
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(_search_1688_source, cdp_url=cdp_url,
-                                   images=c.ozon_images, title=c.ozon_title,
-                                   conn=None, mxou_token=mxou_token)
-                       for c in selected]
-            for i, candidate in enumerate(selected):
-                try:
-                    match = futures[i].result()
-                    _process_match(candidate, match)
-                except Exception as exc:
-                    candidate.status = "error"
-                    candidate.error = str(exc)
-                    logger.warning("1688 match failed for %s: %s",
-                                   candidate.ozon_product_id, exc)
-                _finalize(i, candidate)
+            i = 0
+            streak = 0
+            while i < len(selected):
+                chunk = selected[i:i + workers]
+                futures = [pool.submit(_search_1688_source, cdp_url=cdp_url,
+                                       images=c.ozon_images, title=c.ozon_title,
+                                       conn=None, mxou_token=mxou_token)
+                           for c in chunk]
+                for j, candidate in enumerate(chunk):
+                    try:
+                        match = futures[j].result()
+                        _process_match(candidate, match)
+                    except Exception as exc:
+                        candidate.status = "error"
+                        candidate.error = str(exc)
+                        logger.warning("1688 match failed for %s: %s",
+                                       candidate.ozon_product_id, exc)
+                    _finalize(i + j, candidate)
+                    streak = _streak_bumped(streak, candidate)
+                i += len(chunk)
+                if streak < 0:
+                    break
 
     logger.info("1688 匹配统计: %s", stats)
     # 匹配结果落盘（collect_and_analyze 保存的是匹配前的全量数据，
@@ -1056,8 +1160,65 @@ def _apply_sales_mode_filter(candidates: list[ProductCandidate],
             c.error = f"发货模式不含 {sales_mode}"
 
 
-def _passes_base_filter(candidate: ProductCandidate) -> bool:
-    """18 项 BASE 粗筛：全过返回 True（区间判定，None 值/无数据 = 不限）。"""
+def _parse_filter_expr(expr: str) -> list[tuple[str, str, float]]:
+    """解析 --base-filter 自定义区间表达式 "monthly_sales>=50,drr<=15"。
+
+    语法对齐 apply_selection_rules（>=/<=/>/</=，逗号分隔）；未知字段/格式错
+    → ValueError（调用方打印后退出，不静默吞）。
+    """
+    rules: list[tuple[str, str, float]] = []
+    for part in (expr or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        m = re.match(r"^([a-z_]+)\s*(>=|<=|>|<|=)\s*([\d.]+)$", part, re.IGNORECASE)
+        if not m:
+            raise ValueError(f"无法解析粗筛规则: {part!r}（格式: field>=100,field2<=50）")
+        field_name, op, val = m.group(1).lower(), m.group(2), float(m.group(3))
+        if field_name not in _SELECTION_FIELDS:
+            raise ValueError(
+                f"未知粗筛字段: {field_name}（支持: {', '.join(_SELECTION_FIELDS)}）")
+        if field_name in ("margin",):
+            # 评审 E: margin 只在 1688 匹配后才有真值（此前恒 0.0 参与判定），
+            # --base-filter 判不了 → 显式报错指向 --rules，防静默清零
+            raise ValueError(
+                "粗筛字段 margin 属匹配期字段，--base-filter 不支持；"
+                "请改用 --rules \"margin>=0.15\"（匹配阶段判定）")
+        rules.append((field_name, op, val))
+    return rules
+
+
+def resolve_filter_profile(explicit: str | None, auto_submit: bool) -> str:
+    """CLI --filter-profile 档位解析（漏斗 v2 Task 7）。
+
+    显式指定优先；未指定时 auto-submit 路径默认 ai 档（上品帮两段式纪律：
+    高成本 1688 匹配前先粗筛砍量，保护 aibuy 配额），交互流程保持 off
+    （行为零变化）。
+    """
+    if explicit:
+        return explicit
+    return "ai" if auto_submit else "off"
+
+
+def _passes_base_filter(candidate: ProductCandidate, profile: str = "off",
+                        extra_rules: list[tuple[str, str, float]] | None = None) -> bool:
+    """BASE 粗筛：区间规则 + profile 判定，全过返回 True。
+
+    - profile="off"（缺省）：只跑区间规则（内置 18 项全 None = 不限 +
+      extra_rules 自定义区间）——与空架时代行为逐字一致。
+    - profile="ai"：上品帮 aiFilterData 同款预设（AI_PRESET 4 硬规则 +
+      AI_SALES_LADDER 销量阶梯）。**has_analytics 才跑完整预设**；无 analytics
+      只判 seller_count（行级字段，0/未知天然放行），月销阶梯/月动态/广告份额
+      降级放行——未知 0 不得当真实值把无数据候选全砍（Task 7 降级语义）。
+    - extra_rules：_parse_filter_expr 产物 [(field, op, val)]，追加判定。
+    """
+    if profile == "ai":
+        if candidate.has_analytics:
+            if not _check_ai_preset(candidate):
+                return False
+        elif not _check_rule(candidate.competing_sellers, "<=",
+                             AI_PRESET["seller_count"][1]):
+            return False
     for fkey, lo, hi in _BASE_FILTER_RULES:
         accessor = _SELECTION_FIELDS.get(fkey)
         if accessor is None:
@@ -1069,7 +1230,41 @@ def _passes_base_filter(candidate: ProductCandidate) -> bool:
             return False
         if hi is not None and not _check_rule(actual, "<=", hi):
             return False
+    for fkey, op, val in (extra_rules or []):
+        accessor = _SELECTION_FIELDS.get(fkey)
+        if accessor is None:
+            continue
+        if not _check_rule(accessor(candidate), op, val):
+            return False
     return True
+
+
+def _apply_profile_filter(candidates: list[ProductCandidate], profile: str = "off",
+                          extra_rules: list[tuple[str, str, float]] | None = None) -> int:
+    """漏斗 v2 Task 7：粗筛后置批量判定（②b 富化后字段到位，就地改状态）。
+
+    off 且无自定义区间 → no-op（交互流程零变化）。命中 ok/uncertain →
+    status=filtered + reason（error 等其他状态不动）。返回过滤数（可观测性：
+    调用方/日志输出过滤前后计数）。
+    """
+    if profile != "ai" and not extra_rules:
+        return 0
+    if profile == "ai":
+        degraded = sum(1 for c in candidates
+                       if c.status in ("ok", "uncertain") and not c.has_analytics)
+        if degraded:
+            logger.warning("ai 粗筛: %d 个候选无运营指标，销量阶梯/月动态降级放行"
+                           "（仅 seller_count 判定）", degraded)
+    n = 0
+    for c in candidates:
+        if c.status in ("ok", "uncertain") and not _passes_base_filter(
+                c, profile=profile, extra_rules=extra_rules):
+            c.status = "filtered"
+            c.error = f"粗筛(profile={profile})不过"
+            n += 1
+    if n:
+        logger.info("粗筛(profile=%s): 过滤 %d 个候选", profile, n)
+    return n
 
 
 def _row_candidate(pid: str, row: dict) -> ProductCandidate:

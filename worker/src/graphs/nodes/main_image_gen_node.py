@@ -62,18 +62,11 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
     # 仅白底图缺失时兜底
     elif multi_angle and isinstance(multi_angle, str) and multi_angle.strip():
         ref_images.append(multi_angle.strip())
-    # 如果都没有，回退到原始产品图（两条线分场景，语义同 white_bg_gen_node）
+    # 如果都没有，回退到原始产品图
     if not ref_images:
-        _ext = getattr(state, "extensions", None) or {}
-        _is_follow = bool(_ext.get("follow_sell"))
-        original_images = filter_product_images(
-            getattr(state, "original_images", []) or [], allow_competitor=_is_follow)
-        if _is_follow:
-            _comp_refs = filter_product_images(
-                (_ext.get("competitor_ref_images") or []), allow_competitor=True)
-            if _comp_refs:
-                original_images = _comp_refs + [u for u in original_images
-                                                if u not in _comp_refs]
+        original_images = getattr(state, "original_images", [])
+        # fix/image-ref-pollution: 兜底参考同样白名单过滤（拒竞品图/搜索缩略图）
+        original_images = filter_product_images(original_images or [])
         if isinstance(original_images, list) and len(original_images) > 0:
             ref_images = [str(img) for img in original_images[:2] if isinstance(img, str) and img.strip()]
             logger.info(f"Phase1图片均失败，使用原始产品图作为参考: {len(ref_images)}张 "

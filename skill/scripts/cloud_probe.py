@@ -2273,6 +2273,38 @@ def _assemble_match_evidence(
     return mev
 
 
+def _assemble_discovery_meta(candidate) -> dict[str, Any]:
+    """组装 discover 选品元数据快照（透传为 extensions.discovery_meta，采集箱展示用）。
+
+    drafts 表只存信封 JSONB，discover 阶段的选品分析元数据（蓝海分/月销/drr/
+    利润率/匹配置信度）此前终止在 skill 本地（仅 discovery_runs 归档，与 drafts
+    零关联）→ 采集箱条目看不到任何选品依据。本快照随信封 payload 落盘（worker
+    零迁移），webui 采集箱/CSV 导出直接消费。
+
+    字段缺失（None/空串/空 dict）省略键（对齐 match_evidence 风格）；0 是真实
+    数据（月销 0/跟卖 0/蓝海 0）保留；discovered_at 为组装时刻本地 ISO 时间戳。
+    扁平键恒 <2KB（信封增量纪律）。
+    """
+    meta: dict[str, Any] = {}
+    for key in (
+        "ozon_product_id", "ozon_url", "ozon_price",
+        "blue_ocean_score", "monthly_sales", "monthly_revenue",
+        "sales_growth", "drr", "create_days",
+        "competing_sellers", "rating", "review_count",
+        "weight_g", "profit_margin", "estimated_profit_cny",
+        "match_confidence",
+    ):
+        val = getattr(candidate, key, None)
+        if val is None or val == "":
+            continue
+        meta[key] = val
+    dims = getattr(candidate, "dimensions_mm", None)
+    if dims:
+        meta["dimensions_mm"] = dims
+    meta["discovered_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return meta
+
+
 def _inject_discovery_match_category(source: dict, candidate) -> dict:
     """把 discover 图搜候选的 1688 类目注入信封 source（v0.66.2）。
 
@@ -2518,6 +2550,13 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
                  for k in _mev},
             )
 
+        # ✅ discover 漏斗 v2: 选品元数据快照透传 extensions.discovery_meta（采集箱展示）。
+        # drafts payload 整存信封 → worker 零迁移，webui/CSV 直接消费；
+        # 上游/模板已带该键不覆盖（对齐 follow_type setdefault 语义）。
+        _dmeta = _assemble_discovery_meta(candidate)
+        if _dmeta:
+            extensions.setdefault("discovery_meta", _dmeta)
+
         # ✅ P0-5 修复：优先透传 build_graph_envelope_with_retry 已解析的凭证
         # （store_config 仅作兜底，避免提交空 Ozon 凭证）
         source = dict(result["envelope"].get("source") or {})
@@ -2578,6 +2617,11 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
 
     # 降级信封同样带页面真值 + ozon_url/ozon_title（成功/降级两路径注入语义一致）
     _apply_discover_page_truth(draft, extensions, candidate, page_truth)
+
+    # 选品元数据快照与主路径同语义注入（选品元数据 ≠ 匹配证据，降级时同样有价值）
+    _dmeta = _assemble_discovery_meta(candidate)
+    if _dmeta:
+        extensions.setdefault("discovery_meta", _dmeta)
 
     return {
         "token": token,
@@ -3845,9 +3889,8 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     # 跟卖标记: Worker 走跟卖管线
                     draft["ozon_product_id"] = product_id
                     extensions["follow_sell"] = True
-                    # fix/image-ref-pollution: 竞品主图改放 extensions（绝不进
-                    # draft.images 上传位；worker 生图节点仅在 follow_sell=true
-                    # 时把它作优先生图参考——参考图两条线，见 CONTRACT-v4）
+                    # fix/image-ref-pollution: 竞品主图改放 extensions（仅供 worker
+                    # 识别跟卖参考语义，绝不进 draft.images/生图参考）
                     if ozon_images:
                         extensions["competitor_ref_images"] = list(ozon_images[:1])
                     # ✅ v0.22（参考 maozi follow_type）: hand=防侵权跟卖（默认，
@@ -3881,13 +3924,11 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                             _mev.get("badge_eff", 0), _mev.get("trusted"),
                         )
                     envelope["envelope"]["extensions"] = extensions
-                    # fix/image-ref-pollution R2: 不再把竞品主图覆盖进 draft.images
-                    # （v0.33.1 旧行为「跟卖始终用竞品原图」废除——draft.images 语义
-                    # =货源图/上传候选，保持 build_graph_envelope 产出的 1688 详情图。
-                    # 竞品主图走 extensions.competitor_ref_images 供跟卖参考线；
-                    # 旧覆盖会让跟卖线 E1 兜底源全是竞品图，白名单全拒 → 生图全失败
-                    # 时无图可补。竞品 104 张细节图带水印会被 AI 复刻的教训
-                    # （GardLuna，v0.33.1）由「只取主图 1 张 + 参考线」继续覆盖。）
+                    # 竞品图片 — 跟卖始终用 Ozon 竞品原图，绝不漏 1688 alicdn
+                    # ✅ v0.33.1: 只拿第一张主图（对齐 1688 get_best_product_images 主图优先逻辑）
+                    # ——竞品 104 张全塞会混入带品牌 logo/促销文字的细节图，Phase1 当参考图
+                    # 被 AI 复刻（GardLuna 水印实测）。第一张 = 产品主图，相对干净。
+                    draft["images"] = ozon_images[:1] if ozon_images else []
                     # ✅ 竞品俄语标题（覆盖 1688 中文标题，保留 SEO 优化后的竞品原标题）
                     if ozon_title:
                         draft["title"] = ozon_title

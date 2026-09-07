@@ -220,6 +220,8 @@ python3 scripts/cli.py discover --keyword "宠物用品" --local
   - `--blue-ocean-source csv|queries` + `--blue-ocean-csv <path>`：蓝海增强数据源（v0.33 C4）——`csv` 用本地 all-queries CSV 反哺蓝海评分（默认找 `/tmp/queries_all.csv`，无数据降级原流程）；`queries` 实时 what_to_sell 查询（需 `--keyword` + seller 登录，未登录/异常静默降级 CSV）
   - `--review`：人工评审暂停（v0.38）——弱匹配候选逐个确认（`y`/`N`/`a`=全部/`s`=跳过），决策写入 review_log；settings.json `visual_review: true` 可全局开启
   - `--notify`：提交时 GraphInput 顶层 `notify=True`，Worker 完成推 webhook
+  - `--filter-profile off|ai`（漏斗 v2）：粗筛档位——`off`（缺省，行为同旧）；`ai` = 上品帮 AI 预设档（上架≤365d/跟卖≤30/月动态>0/DRR≤15 + 价格分档月销下限）。**完整判定需 seller 运营指标**（`--auto-submit` 未显式指定时默认 `ai`，交互流程缺省不变）；无指标候选降级只判跟卖数
+  - `--base-filter "monthly_sales>=50,drr<=15"`（漏斗 v2）：自定义区间粗筛（字段同 `--rules` 全集，含加购率/促销/退货等 22 个），与 `--filter-profile` 叠加；非法表达式报错退出
 - **表格符号**：`✅可挑` 待分析 · `⚠️夹带?` 标题不含关键词 · `⏭️价区间外` 超价格区间 · `💰有利` 符合条件 · `⚠️利润低` 利润不足 · `❌无货源` 1688 没匹配到 · `—` 运营列无数据（卖家后台未登录）
 - **执行后验证**：① 采集完成 → 检查 `data/discovery/` 落盘 + 候选数量非零；② 货源分析后 → 读 `data/discovery/analysis_*.md` 核对候选状态分布（profitable/rejected/no_match）；③ 表格挑选/`--rules` 筛选后 → 向用户展示候选清单等确认，确认后才提交
 
@@ -230,6 +232,30 @@ python3 scripts/cli.py discover --keyword "宠物用品" --local
 > 完整细则（流程/预算限制/参数/数据字段/注意事项）见 `references/discover-fission.md`。
 
 **展示候选列表后，等用户确认再提交。不替用户选择。**
+
+### 管线 C 增强：任务式全自动选品（discover-task，漏斗 v2）
+
+**触发**：用户说"自动采集/自动选品一批/无人值守跑"。对标上品帮无人值守任务制——全程免人工挑选，缺省干跑零副作用。
+
+```bash
+# ① 干跑（缺省）：采集 → ai 粗筛 → 自动匹配（限额 30）→ 打印将入箱清单，不入箱
+python3 scripts/cli.py discover-task --keyword "宠物饮水机" --target-count 50
+
+# ② 真实入采集箱（POST /api/v1/drafts，WebUI 认领后上架）
+python3 scripts/cli.py discover-task --keyword "宠物饮水机" --to-box
+
+# ③ 自定义入口页（highlight/搜索/类目/店铺页均可）+ 限额/并发
+python3 scripts/cli.py discover-task --url "https://www.ozon.ru/highlight/xxx/" \
+    --match-limit 20 --match-concurrency 2 --min-margin 20
+
+# ④ 中断后续跑（跳过已入箱 pid）
+python3 scripts/cli.py discover-task --keyword "宠物饮水机" --to-box --resume
+```
+
+- **流程**：`collect_and_analyze`（粗筛档位**缺省 `ai`**，与交互 discover 相反）→ `match_selected`（`--match-limit` 限额护 aibuy 配额、连续 `--no-match-streak-stop`（默认 5）次 no_match 早停、请求间 2s 节奏抖动、并发 ≤2）→ profitable 逐条 `build_envelope_from_discovery` → `--to-box` 入采集箱（单条失败不中断批次）
+- **任务状态**：`data/discovery/tasks/task_{ts}.json`（已处理 pid / 摘要），`--resume` 找同入口最近任务续跑
+- **安全边界**：不带 `--to-box` 即干跑（不出信封不入箱）；`--dry-run` 强制干跑；MCP 侧 `discover_task` 工具 dry_run 缺省 True，to_box=True 触发 dsh 审批
+- **执行后验证**：任务状态 JSON 的 `summary.candidates` 状态分布 + `summary.submitted/skipped/failed`；CSV（`--export`）供人工复核
 
 ## 管线 D：选品上架
 
