@@ -3618,8 +3618,20 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     # 未登录 seller 后台 → 降级跳过，不阻断跟卖。
     if shared_cdp is not None:
         try:
-            from scripts.lib.ozon_seller_analytics import fetch_sales_analytics
-            _metrics_map = fetch_sales_analytics(shared_cdp, [str(product_id)])
+            from scripts.lib.ozon_seller_analytics import (
+                _fetch_seller_session_cookies,
+                fetch_sales_analytics,
+                fetch_sales_analytics_direct,
+            )
+            # 静默 cookie 直调优先（免导航 seller 页，对齐 discover ②b 同款
+            # 双通道）；失败/未登录降级 CDP 路径（保留既有可用性）。
+            _cookies = _fetch_seller_session_cookies()
+            _metrics_map = {}
+            if _cookies.get("sc_company_id"):
+                _metrics_map = fetch_sales_analytics_direct(
+                    _cookies, [str(product_id)])
+            if not _metrics_map:
+                _metrics_map = fetch_sales_analytics(shared_cdp, [str(product_id)])
             _m = _metrics_map.get(str(product_id)) or {}
             if _m.get("weight_g"):
                 result["competitor_weight_g"] = int(_m["weight_g"])

@@ -509,6 +509,32 @@ def check_seller_login(cdp) -> bool:
         _close_seller_tab(cdp, tab, reused)
 
 
+# ── 进程内登录 memo（readiness 预检接线）──
+# 一次命令内 seller 登录可能被多条路径各查/各等一次（蓝海路径+富化路径）：
+# 未登录时每处最多黑等 300s。memo 三键：确认成功（30min 内免复查）、
+# 等待已尝试（3min 内只复查不再等——readiness 已给过登录窗口）。
+_LOGIN_CONFIRMED_MONO = 0.0
+_WAIT_ATTEMPTED_MONO = 0.0
+
+
+def mark_seller_login_confirmed() -> None:
+    global _LOGIN_CONFIRMED_MONO
+    _LOGIN_CONFIRMED_MONO = time.monotonic()
+
+
+def seller_login_confirmed_recently(ttl: float = 1800.0) -> bool:
+    return _LOGIN_CONFIRMED_MONO > 0 and (time.monotonic() - _LOGIN_CONFIRMED_MONO) < ttl
+
+
+def mark_seller_login_wait_attempted() -> None:
+    global _WAIT_ATTEMPTED_MONO
+    _WAIT_ATTEMPTED_MONO = time.monotonic()
+
+
+def seller_login_wait_recently_attempted(ttl: float = 180.0) -> bool:
+    return _WAIT_ATTEMPTED_MONO > 0 and (time.monotonic() - _WAIT_ATTEMPTED_MONO) < ttl
+
+
 def wait_for_seller_login(cdp, *, timeout_seconds: int = 300, poll_interval: float = 5.0) -> bool:
     """seller.ozon.ru 登录等待：未登录时自动打开卖家后台并轮询，给用户登录窗口。
 
@@ -522,9 +548,15 @@ def wait_for_seller_login(cdp, *, timeout_seconds: int = 300, poll_interval: flo
       Ctrl+C 放弃。
     - 无终端（agent/管道）：等待下限 90s 后返回 False；tab 保留，用户登录后重跑即可。
     - 登录成功 → True（tab 保留——那是用户刚登录的卖家后台）。
+    - 进程内 memo：本进程已确认登录（30min 内）→ 秒回 True；刚等过一轮（3min
+      内，如 readiness 预检已给过登录窗口）→ 只复查一次不再重复等待。
 
     注意：打开的 tab 会 ``cdp.release`` 移出连接管理，调用方连接关闭不会连带关掉它。
     """
+    if seller_login_confirmed_recently():
+        return True
+    recent_attempt = seller_login_wait_recently_attempted()
+
     try:
         _interactive = bool(sys.stdin and sys.stdin.isatty())
     except Exception:
@@ -533,7 +565,12 @@ def wait_for_seller_login(cdp, *, timeout_seconds: int = 300, poll_interval: flo
     start = time.time()
 
     if check_seller_login(cdp):
+        mark_seller_login_confirmed()
         return True
+
+    if recent_attempt:
+        # 刚给过完整登录窗口（如 readiness 预检）：只复查，不再重复等待。
+        return check_seller_login(cdp)
 
     # 未登录 → 确保卖家后台页面开着给用户登录（复用已有 tab；没有才新建）。
     # release 移出连接管理：调用方 with 块退出 conn.close() 时不会连带关掉它。
@@ -566,6 +603,7 @@ def wait_for_seller_login(cdp, *, timeout_seconds: int = 300, poll_interval: flo
                 return False
         try:
             if check_seller_login(cdp):
+                mark_seller_login_confirmed()
                 return True
         except Exception:
             pass
@@ -673,6 +711,50 @@ def fetch_sales_analytics(
         return {}
     finally:
         _close_seller_tab(cdp, tab, reused)
+
+
+def fetch_sales_analytics_direct(cookies: dict[str, str], skus: list[str],
+                                 lang: str = "zh-Hans",
+                                 max_skus: int = 200) -> dict[str, dict]:
+    """逐 SKU 运营指标 —— 静默 cookie 直调变体（漏斗 v2 收尾：follow Step 2.5）。
+
+    与 fetch_sales_analytics 同端点同 body 同解析（data/v3，period=monthly，
+    sort=sum_gmv_desc），但不导航 seller 页、不做登录检查（对齐 discover ②b /
+    queries 直调先例）。缓存与 CDP 变体共用 key（同数据语义，一边命中另一边
+    免请求）。失败/未登录 → {}（调用方降级 CDP 路径）。
+    """
+    if not skus:
+        return {}
+    skus = [str(s) for s in skus[:max_skus]]
+    from scripts.lib.cache import cache_get, cache_set
+    cache_key = f"{','.join(sorted(skus))}|{lang}"
+    cached = cache_get("seller_analytics", cache_key)
+    if cached is not None:
+        return cached
+
+    results: dict[str, dict] = {}
+    for sku in skus:
+        body = {
+            "limit": "50",
+            "offset": "0",
+            "filter": {"stock": "any_stock", "period": "monthly",
+                       "categories": [], "sku": sku},
+            "sort": {"key": "sum_gmv_desc"},
+        }
+        data, ok = _seller_direct_post(
+            "/api/site/seller-analytics/what_to_sell/data/v3", body, cookies)
+        if not ok:
+            continue
+        metrics = _parse_response(data)
+        if metrics:
+            results[sku] = metrics
+        else:
+            logger.warning("sku %s analytics 直调响应无可用 item（可能结构变化）", sku)
+
+    logger.info("seller analytics 直调: %d/%d SKUs have data", len(results), len(skus))
+    if results:
+        cache_set("seller_analytics", cache_key, results, ttl=21600)
+    return results
 
 
 # ═══════════════════════════════════════════════════════════════════════════
