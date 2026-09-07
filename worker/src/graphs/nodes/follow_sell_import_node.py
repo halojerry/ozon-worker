@@ -60,7 +60,9 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     ozon_product_id = str(draft.get("ozon_product_id", ""))
     if not ozon_product_id:
         logger.error("❌ 跟卖: ozon_product_id 为空")
-        return {"error_message": "跟卖需要竞品 ozon_product_id", "failed_stage": "follow_sell_import"}
+        # fix/image-ref-pollution R2: 错误路径同样透传 extensions（下游一致语义）
+        return {"error_message": "跟卖需要竞品 ozon_product_id", "failed_stage": "follow_sell_import",
+                "extensions": extensions}
 
     # ⚠️ v0.25 FIX: offer_id 统一用竞品 ID（无 follow_ 前缀），与 prepare/upload 一致。
     # 旧 v0.22 曾改 import-by-sku 用 follow_{id}，但 prepare 层 upload 一直用裸 {id}，
@@ -355,6 +357,9 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         "item_id": item_id,
         "final_attributes": final_attrs,
         "attributes_schema": attrs_schema,
+        # fix/image-ref-pollution R2: 信封 extensions 透传（follow_sell/
+        # follow_type/competitor_ref_images），供 prepare 跟卖判定与生图参考分线
+        "extensions": extensions,
         "upload_status": up_status,
         "category_missing": category_missing,
         "import_submitted": import_submitted,
