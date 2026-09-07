@@ -1402,6 +1402,80 @@ def _validate_and_fix_product_data(
     return weight_g, dimensions, errors, estimated, weight_estimated
 
 
+def _source_preflight(data_or_draft: Any) -> tuple[bool, str]:
+    """v0.69 T2.5: 提交前反爬/源失效前置拦截（纯函数，(ok, reason) 结构不抛异常）。
+
+    生产实证：反爬页抓到 46 图 0 属性仍走完整提交流程；源失效（1688 采购价 0）
+    仍提交。用户判定口径：
+      - ``attributes`` 空/缺（1688 抓取属性数为 0）且 ``images`` 非空 → 反爬嫌疑；
+      - ``purchase_cost`` 缺失/<=0 → 源失效嫌疑。
+
+    接线点：cmd_graph 提交段（build_graph_envelope 之后、submit_envelope /
+    submit_draft 之前）。直接提交被拦 → 不提交走失败语义（exit 3）；
+    ``--to-box`` 人工兜底通道由调用方只 warning 不拦截。
+
+    接受信封 draft 或原始抓取 data（字段名一致：images/attributes/purchase_cost）。
+    """
+    if not isinstance(data_or_draft, dict):
+        return (True, "")
+    images = data_or_draft.get("images") or []
+    attrs = data_or_draft.get("attributes") or {}
+    try:
+        n_img, n_attr = len(images), len(attrs)
+    except TypeError:
+        return (True, "")
+    if n_img > 0 and n_attr == 0:
+        return (False, f"1688 反爬嫌疑：抓到 {n_img} 张图但 0 属性，请换时段重试或人工核对")
+    cost = data_or_draft.get("purchase_cost")
+    try:
+        cost_f = float(cost) if cost is not None else 0.0
+    except (TypeError, ValueError):
+        cost_f = 0.0
+    if cost_f <= 0:
+        return (False, "1688 源失效嫌疑：采购价缺失或为 0，请换货源")
+    return (True, "")
+
+
+def _check_min_density(data_or_draft: Any, min_density: Any) -> tuple[bool, str]:
+    """v0.69 T3.1: --min-density 密度阈值检查（纯函数，(ok, msg) 由调用方判定）。
+
+    锚点：泡脚包 950g/14190cm³ 密度 0.07 g/cm³ 只 WARNING 照单提交。
+    密度计算在信封组装深处（_validate_and_fix_product_data）不便返回错误，
+    本函数在组装后的 draft 上复算 density=weight/(l*w*h/1000)（mm³→cm³）。
+
+    - min_density 缺省/<=0 → 恒通过（默认行为完全不变，仅保留原 warning）；
+    - 缺 weight/dimensions 不判（与原密度检查前提一致）；
+    - density < 阈值（严格小于）→ (False, 拦截原因)。
+    """
+    try:
+        thr = float(min_density) if min_density is not None else 0.0
+    except (TypeError, ValueError):
+        return (True, "")
+    if thr <= 0 or not isinstance(data_or_draft, dict):
+        return (True, "")
+    try:
+        weight_g = float(data_or_draft.get("weight") or 0)
+        dims = data_or_draft.get("dimensions") or {}
+        dim_l = float(dims.get("length") or 0)
+        dim_w = float(dims.get("width") or 0)
+        dim_h = float(dims.get("height") or 0)
+    except (TypeError, ValueError, AttributeError):
+        return (True, "")
+    if weight_g <= 0 or dim_l <= 0 or dim_w <= 0 or dim_h <= 0:
+        return (True, "")
+    volume_cm3 = (dim_l * dim_w * dim_h) / 1000.0
+    if volume_cm3 <= 0:
+        return (True, "")
+    density = weight_g / volume_cm3
+    if density < thr:
+        return (False, (
+            f"密度过低 {density:.2f} g/cm³ < 阈值 {thr:g} g/cm³"
+            f"（{int(weight_g)}g / {volume_cm3:.0f}cm³），"
+            "疑似重量/尺寸单位错误，已拦截不提交（可人工核对后重试或 --to-box 入箱）"
+        ))
+    return (True, "")
+
+
 def _last_seg(path) -> str:
     """取面包屑路径「 > 」分割的最后一段（最具体类目名），去空白；空 → ""。"""
     if not path:
@@ -1430,6 +1504,101 @@ def _category_search_variants(source_category_path: str) -> list[str]:
         return []
     _last = _parts[-1]
     return [s.strip() for s in _last.split("、") if s.strip()] or [_last]
+
+
+# v0.69 T0.1a: search_kw 类目自校验 gram 工具（纯函数，无外部依赖——不引入
+# jieba 等新依赖，CJK 按字符 bigram、西里尔/拉丁按词自实现）。
+_CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]+")
+_WORD_RE = re.compile(r"[0-9a-zа-яё]+")
+
+
+def _text_grams(text) -> set[str]:
+    """文本 gram 集：CJK 连续段按字符 bigram（单字成段取单字），其余按词（小写）。
+
+    纯函数（v0.69 T0.1a）。「金属管」→ {金属, 属管}；"Канистра для ГСМ" →
+    {канистра, для, гсм}。bigram 而非单字集：单字中文交集太宽（金/属 一字
+    重叠即命中），bigram 提高区分度（属管 vs 属桶）。
+    """
+    s = str(text or "").strip().lower()
+    if not s:
+        return set()
+    grams: set[str] = set()
+    for run in _CJK_RUN_RE.findall(s):
+        if len(run) == 1:
+            grams.add(run)
+        else:
+            grams.update(run[i:i + 2] for i in range(len(run) - 1))
+    for word in _WORD_RE.findall(s):
+        if len(word) >= 2:
+            grams.add(word)
+    return grams
+
+
+def _category_guess_consistent(
+    category_name_or_path,
+    product_title,
+    source_category_path,
+    *,
+    min_overlap: float = 0.15,
+) -> bool:
+    """search_kw 本地猜类目自校验：猜中类目是否与商品证据一致（纯函数，可单测）。
+
+    生产实证（v0.69 Wave1 T0.1a）：1688 汽油桶商品被本地文本猜成
+    Труба металлическая（金属管，dc=200001728/tp=970693823），与
+    source_category="包装 > 金属包装容器 > 金属桶" 完全矛盾——毒类目进信封
+    干扰 worker 仲裁。三条判据任一命中即判不一致（返回 False → 调用方拒写
+    draft.ozon_category，留空让 worker 全链匹配）：
+
+    R1 gram 覆盖率：猜中类目的 gram（CJK bigram/西里尔拉丁词）被
+       「商品标题 ∪ source_category 末段」覆盖的比例 < min_overlap。
+    R2 尾字（语义中心）核对：金属管 vs 金属桶一字之差共享 bigram「金属」
+       会过 R1——中文类目名的尾字是语义中心（管/桶/刷），尾字不在
+       标题 ∪ source_category 任何位置出现 → 不一致。
+    R3 零交集：猜中类目对 source_category 每一段、对标题均零字符交集
+       （跨语言毒猜，如俄语类目名对纯中文证据）→ 不一致。
+
+    无法判定时不拦（返回 True）：猜中类目名缺失、标题与 source_category
+    全空、gram 集为空。宁可放行给 worker 仲裁，不因证据不足误杀正常猜测。
+    """
+    guess = str(category_name_or_path or "").strip()
+    title = str(product_title or "").strip()
+    src = str(source_category_path or "").strip()
+    if not guess:
+        return True  # 类目名缺失无法判定
+    if not title and not src:
+        return True  # 无证据
+    guess_grams = _text_grams(guess)
+    if not guess_grams:
+        return True
+
+    segs = [p.strip() for p in src.split(">") if p.strip()] if src else []
+    leaf = segs[-1] if segs else ""
+
+    # R1: gram 覆盖率（guess 被 标题 ∪ 末段 覆盖比例）
+    target_grams = _text_grams(title) | _text_grams(leaf)
+    if target_grams and len(guess_grams & target_grams) / len(guess_grams) < min_overlap:
+        return False
+
+    # R2: CJK 尾字（语义中心）必须在证据里出现
+    cjk_runs = _CJK_RUN_RE.findall(guess.lower())
+    if cjk_runs:
+        head_char = cjk_runs[-1][-1]
+        evidence_chars = {c for c in (title + src) if c.isalnum()}
+        if evidence_chars and head_char not in evidence_chars:
+            return False
+
+    # R3: 零交集（跨语言毒猜）
+    if segs or title:
+        guess_chars = {c for c in guess.lower() if c.isalnum()}
+        if guess_chars:
+            title_chars = {c for c in title.lower() if c.isalnum()}
+            hits_title = bool(guess_chars & title_chars)
+            hits_any_seg = any(
+                guess_chars & {c for c in seg.lower() if c.isalnum()} for seg in segs)
+            if not hits_title and not hits_any_seg:
+                return False
+
+    return True
 
 
 def _extract_source_category_id(source_categories) -> int | None:
@@ -1559,6 +1728,8 @@ def build_graph_envelope(
     max_skus: int | None = None,
     cdp: Any = None,
     template_id: str = "",
+    category_id: str = "",
+    type_id: str = "",
 ) -> dict[str, Any]:
     """1688 API + CDP → GraphInput 格式 envelope。
 
@@ -1571,6 +1742,9 @@ def build_graph_envelope(
         max_skus: SKU 数量上限（None=使用默认值15，0=不限制）
         cdp: 可选外部 CdpConnection 复用（P5/T3）——传入时 enrich 跳过浏览器查找/
             登录等待，直接用调用方连接探测。连接归调用方所有，本函数不关闭。
+        category_id/type_id: v0.69 T0.1b 人工指定 Ozon 类目（source="manual"）。
+            两者同时非空才生效——直传信封覆盖任何 search_kw 猜测并跳过自校验；
+            缺一回落自动匹配。
     """
     from scripts.lib.config_store import _require_auth
     _require_auth()
@@ -1660,7 +1834,25 @@ def build_graph_envelope(
     ozon_creds = _get_ozon_credentials(store_id)
     category_name = ""
     ozon_category = {}
-    if poll_category:
+    # ✅ v0.69 T0.1b: manual 类目直传通道——CLI --category-id/--type-id 人工指定
+    # Ozon 类目（source="manual"，天然可信）直传信封，覆盖任何本地猜测，且跳过
+    # T0.1a 自校验。worker 侧并行批次将 manual 加进权威白名单，skill 侧只管产出。
+    # 两者须同时提供，缺一回落自动匹配（不猜半个）。
+    _manual_dc = str(category_id or "").strip()
+    _manual_tp = str(type_id or "").strip()
+    if _manual_dc and _manual_tp:
+        ozon_category = {
+            "description_category_id": _manual_dc,
+            "type_id": _manual_tp,
+            "source": "manual",
+            "namespace": "seller",
+        }
+        logger.info(
+            "build_graph_envelope: %s — manual 类目直传 dc=%s type=%s"
+            "（跳过 search_kw 猜测与自校验）",
+            item_id, _manual_dc, _manual_tp,
+        )
+    elif poll_category:
         # ⚠️ v0.34: 优先用 1688 类目末级词（source_category_short 最后一级）搜索——
         # 长标题中文分词查 ZH_HANS 树 token 过多、泛化词(玩具/用品)稀释, 错配率高
         # (实证: 洗碗海绵→厨房秤, 竹知了益智玩具→甜品套装)。末级词整体辨识度最高。
@@ -1695,14 +1887,35 @@ def build_graph_envelope(
                         break
                 if cats:
                     best = cats[0]
-                    ozon_category = {
-                        "description_category_id": str(best["description_category_id"]),
-                        "type_id": str(best["type_id"]),
-                        # v0.63: search_categories 是关键词模糊结果，标注为候选（勿当权威）
-                        "source": "search_kw",
-                        "namespace": "seller",
-                    }
-                    category_name = best.get("type_name", "") or best.get("category_name", "")
+                    _guess_name = best.get("type_name", "") or best.get("category_name", "")
+                    # ✅ v0.69 T0.1a: search_kw 本地猜类目自校验——猜中类目与
+                    # 「商品标题 ∪ 1688 source_category 末段」gram 覆盖率不足 /
+                    # 尾字矛盾 / 零交集 → 丢弃猜测（不写 draft.ozon_category，
+                    # 留空让 worker 全链匹配）。生产实证：汽油桶被猜成
+                    # Труба металлическая（金属管）毒类目进信封干扰 worker 仲裁。
+                    if _category_guess_consistent(
+                        _guess_name,
+                        title or (data.get("title") or ""),
+                        source_category_path,
+                    ):
+                        ozon_category = {
+                            "description_category_id": str(best["description_category_id"]),
+                            "type_id": str(best["type_id"]),
+                            # v0.63: search_categories 是关键词模糊结果，标注为候选（勿当权威）
+                            "source": "search_kw",
+                            "namespace": "seller",
+                        }
+                        category_name = _guess_name
+                    else:
+                        logger.warning(
+                            "build_graph_envelope: %s — 类目自校验不一致，丢弃本地猜测 "
+                            "dc=%s type=%s name='%s'（title='%s' source_category='%s'）"
+                            "——信封不带 ozon_category，交由 worker 全链匹配",
+                            item_id, best.get("description_category_id"),
+                            best.get("type_id"), _guess_name,
+                            (title or data.get("title") or "")[:40],
+                            source_category_path[:60],
+                        )
             except Exception:
                 pass
 
@@ -2646,6 +2859,8 @@ def build_graph_envelope_with_retry(
     max_skus: int | None = None,
     cdp: Any = None,
     template_id: str = "",
+    category_id: str = "",
+    type_id: str = "",
 ) -> dict[str, Any]:
     """build_graph_envelope() with CDP retry on degradation.
 
@@ -2669,6 +2884,9 @@ def build_graph_envelope_with_retry(
                 max_skus=max_skus,
                 cdp=cdp,
                 template_id=template_id,
+                # ✅ v0.69 T0.1b: manual 类目直传透传（默认 ""，不传=自动匹配）
+                category_id=category_id,
+                type_id=type_id,
             )
         except RuntimeError as exc:
             last_error = exc
