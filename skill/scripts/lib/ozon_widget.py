@@ -347,7 +347,7 @@ _FETCH_VARIANTS_JS = r'''(() => {
 
 
 def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None, lang: str = "ru",
-                       force_new_tab: bool = False) -> dict[str, Any]:
+                       force_new_tab: bool = False, shared_tab=None) -> dict[str, Any]:
     """Fetch product info via CDP using Ozon widget API.
 
     If *cdp* is provided, reuse the existing CdpConnection (caller owns it).
@@ -355,6 +355,11 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None, lang: str = "
 
     force_new_tab=True: 跳过 find_tab（多线程并发场景每线程开自己的 tab，
     避免并发 worker 抢用户第一个 ozon.ru tab）。
+
+    shared_tab（漏斗 v2 收尾·静默优先）: 调用方（collect_and_analyze）传入
+    滚动采集保留的页面上下文，直接页内 fetch widget API——零导航零新 tab
+    （shopbang 同款；实测 highlight 页上下文 fetch 其他商品的 widget 返回
+    200 + 全量 widgetStates，逐商品导航不必要）。
 
     Returns dict with keys: title, price, cardPrice, originalPrice,
     images, primaryImage, description, characteristics, aspects, brand.
@@ -386,7 +391,15 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None, lang: str = "
     }
 
     try:
-        if cdp is not None:
+        if shared_tab is not None:
+            raw = shared_tab.evaluate(js, await_promise=True, timeout=20)
+            parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
+            if parsed.get("error"):
+                logger.warning("Widget API error for product %s: %s",
+                               product_id, parsed["error"])
+            result.update(parsed)
+            _normalize_price_to_rub(result)
+        elif cdp is not None:
             tab = _ensure_ozon_tab(cdp, f"{OZON_BASE}/product/{product_id}/",
                                    force_new_tab=force_new_tab)
             raw = tab.evaluate(js, await_promise=True, timeout=20)
@@ -477,7 +490,8 @@ def _fetch_product_info_http(
 
 
 def fetch_competing_sellers(cdp_url: str, product_id: str, *, cdp=None,
-                            lang: str = "ru", force_new_tab: bool = False) -> dict[str, Any]:
+                            lang: str = "ru", force_new_tab: bool = False,
+                            shared_tab=None) -> dict[str, Any]:
     """Fetch competing sellers data for a product.
 
     If *cdp* is provided, reuse the existing CdpConnection (caller owns it).
@@ -485,6 +499,8 @@ def fetch_competing_sellers(cdp_url: str, product_id: str, *, cdp=None,
 
     force_new_tab=True: 跳过 find_tab（多线程并发场景每线程开自己的 tab，
     避免并发 worker 抢用户第一个 ozon.ru tab）。
+
+    shared_tab: 静默快路径（同 fetch_product_info——零导航零新 tab）。
 
     Returns::
 
@@ -513,7 +529,18 @@ def fetch_competing_sellers(cdp_url: str, product_id: str, *, cdp=None,
     result: dict[str, Any] = {"count": 0, "min_price": 0, "sellers": []}
 
     try:
-        if cdp is not None:
+        if shared_tab is not None:
+            raw = shared_tab.evaluate(js, await_promise=True, timeout=20)
+            parsed = _safe_json_parse(raw) if isinstance(raw, str) else (raw or {})
+            if parsed.get("error"):
+                logger.warning("Seller API error for product %s: %s",
+                               product_id, parsed["error"])
+            result.update({
+                "count": parsed.get("count", 0),
+                "min_price": parsed.get("min_price", 0),
+                "sellers": parsed.get("sellers", []),
+            })
+        elif cdp is not None:
             tab = _ensure_ozon_tab(cdp, f"{OZON_BASE}/product/{product_id}/",
                                    force_new_tab=force_new_tab)
             raw = tab.evaluate(js, await_promise=True, timeout=20)

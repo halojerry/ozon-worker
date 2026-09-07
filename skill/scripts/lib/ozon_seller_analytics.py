@@ -466,15 +466,17 @@ def _install_premium_unlock(tab, reused: bool = False) -> None:
 
 
 def _close_seller_tab(cdp, tab, reused: bool) -> None:
-    """关闭/归还 seller Tab。reused=True 时只关 WS 不关远程（防误关用户标签页）。"""
+    """归还 seller Tab（漏斗 v2 收尾：tab 常驻保留，治「seller 页反复打开」）。
+
+    reused 与新建都只 release 出连接管理（conn.close 不连带关远程），
+    远程标签页保留——后续阶段/命令 find_tab 复用同一 tab，页面内 fetch
+    零导航。用户可手动关闭；关闭后下次调用会重新打开（一次性成本）。
+    """
     if tab is None:
         return
     try:
-        if reused:
-            cdp.release(tab)
-            tab.close(close_remote=False)
-        else:
-            tab.close()
+        cdp.release(tab)
+        tab.close(close_remote=False)
     except Exception:
         pass
 
@@ -925,13 +927,30 @@ def _fetch_seller_session_cookies(cdp_url: str = "http://127.0.0.1:9222") -> dic
                 pass
 
 
+# DataDome 挑战短路窗口（秒）：seller.ozon.ru 对纯 HTTP 客户端风控收紧时
+# 全部直调 403（fab_chlg 挑战），窗口内 direct 系函数直接降级 CDP 不再试。
+_DIRECT_BLOCK_SECONDS = 600
+_DIRECT_BLOCKED_UNTIL = 0.0
+
+
+def _direct_blocked() -> bool:
+    """短路窗口内 → True（direct 系函数应直接降级 CDP 路径）。"""
+    return time.time() < _DIRECT_BLOCKED_UNTIL
+
+
 def _seller_direct_post(path: str, body: dict, cookies: dict[str, str],
                         timeout: int = 20) -> tuple[dict, bool]:
     """requests 直调 seller.ozon.ru 内部端点（携带 Chrome 会话 cookie + 公司头）。
 
-    Returns:
-        (data, ok)。缺 sc_company_id / HTTP 非 200 / 非 JSON / 异常 → ({}, False)。
+    ⚠️ 漏斗 v2 收尾实测：seller.ozon.ru 对纯 HTTP 客户端有 DataDome 挑战
+    （403 + body 含 fab_chlg/challengeURL）——信任态好的会话能过，风控收紧时
+    全挂。命中挑战即置 10 分钟短路标记，避免「直调失败→CDP 导航」循环制造
+    seller 页反复打开。Returns (data, ok)。
     """
+    global _DIRECT_BLOCKED_UNTIL
+    if time.time() < _DIRECT_BLOCKED_UNTIL:
+        # 挑战短路窗口内：直接失败，调用方走 CDP 路径
+        return {}, False
     company_id = str(cookies.get("sc_company_id") or "")
     if not company_id:
         logger.warning("静默直调缺 sc_company_id，不可用")
@@ -951,6 +970,14 @@ def _seller_direct_post(path: str, body: dict, cookies: dict[str, str],
     except Exception as exc:
         logger.warning("seller 静默直调 %s 请求异常: %s", path, exc)
         return {}, False
+    if resp.status_code == 403:
+        body_head = str(getattr(resp, "text", "") or "")[:150]
+        if "challenge" in body_head or "fab_chlg" in body_head:
+            _DIRECT_BLOCKED_UNTIL = time.time() + _DIRECT_BLOCK_SECONDS
+            logger.warning(
+                "seller 直调命中 DataDome 挑战（%s），%ds 内 direct 系短路走 CDP。body: %s",
+                path, _DIRECT_BLOCK_SECONDS, body_head)
+            return {}, False
     if resp.status_code != 200:
         logger.warning("seller 静默直调 %s HTTP %d", path, resp.status_code)
         return {}, False
