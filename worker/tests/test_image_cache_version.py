@@ -31,6 +31,10 @@ logging.basicConfig(level=logging.WARNING)
 
 from utils import task_image_cache as tic  # noqa: E402
 
+# fix/image-ref-pollution: 节点参考图白名单过滤后仍放行的合格原图（alicdn 原尺寸）
+GOOD_REF = "https://cbu01.alicdn.com/img/ibank/O1CNtest_!!123456789-0-cib.jpg"  # 合格alicdn原尺寸（fix/image-ref-pollution 白名单内）
+
+
 
 # ══════════════════════════════════════════════════════════════
 # Fake PG 存储（模拟 task_generated_images + ozon_product_tasks）
@@ -270,7 +274,7 @@ def test_node_normal_retry_hits_cache(store):
     api = _fake_api()
     with patch.object(white_mod, "call_mxou_image_api", api):
         out = white_bg_gen_node(
-            WhiteBgInput(draft={"title": "x"}, token="t", original_images=[]),
+            WhiteBgInput(draft={"title": "x"}, token="t", original_images=[GOOD_REF]),
             _node_config("N1"),
             _RUNTIME,
         )
@@ -288,7 +292,7 @@ def test_node_force_regen_bypasses_cache_and_increments(store):
     api = _fake_api("https://img/v2.jpg")
     with patch.object(white_mod, "call_mxou_image_api", api):
         out = white_bg_gen_node(
-            WhiteBgInput(draft={"title": "x"}, token="t", original_images=[]),
+            WhiteBgInput(draft={"title": "x"}, token="t", original_images=[GOOD_REF]),
             _node_config("N2", force_regen=True, regen_version=2),
             _RUNTIME,
         )
@@ -310,7 +314,7 @@ def test_node_resubmit_backtrace_no_api_call(store):
     api = _fake_api()
     with patch.object(white_mod, "call_mxou_image_api", api):
         out = white_bg_gen_node(
-            WhiteBgInput(draft={"title": "x"}, token="t", original_images=[]),
+            WhiteBgInput(draft={"title": "x"}, token="t", original_images=[GOOD_REF]),
             _node_config("B"),
             _RUNTIME,
         )
@@ -325,14 +329,14 @@ def test_node_params_snapshot_is_input_schema(store):
     import graphs.nodes.white_bg_gen_node as white_mod
     from graphs.state_image_gen import WhiteBgInput
 
-    state = WhiteBgInput(draft={"title": "保温杯"}, token="t", original_images=["https://img/ref.jpg"])
+    state = WhiteBgInput(draft={"title": "保温杯"}, token="t", original_images=[GOOD_REF])
     api = _fake_api()
     with patch.object(white_mod, "call_mxou_image_api", api):
         white_bg_gen_node(state, _node_config("N3"), _RUNTIME)
     info = tic.get_image_info("N3", "white_bg")
     assert info["params"]["draft"] == {"title": "保温杯"}
     assert info["params"]["token"] == "t"
-    assert info["params"]["original_images"] == ["https://img/ref.jpg"]
+    assert info["params"]["original_images"] == [GOOD_REF]
     # params 覆盖节点 Input 全部字段（JSON 断言完整）
     assert set(info["params"].keys()) >= {"draft", "token", "original_images"}
 
@@ -345,7 +349,7 @@ def test_variant_loop_versioned_save(store):
     tic.save_image("NV", "variant_0", "https://img/v0_v1.jpg")
     api = _fake_api("https://img/v0_v2.jpg")
     state = VariantPrimaryLoopInput(
-        variants=[{"name": "v0", "image": "https://img/v0.jpg"}],
+        variants=[{"name": "v0", "image": GOOD_REF}],
         draft={"title": "x"}, token="t",
     )
     with patch.object(var_mod, "call_mxou_image_api", api):
@@ -353,5 +357,5 @@ def test_variant_loop_versioned_save(store):
     api.assert_called_once()  # force_regen → 无静默缓存命中
     assert out.variant_primary_images == ["https://img/v0_v2.jpg"]
     assert store.images[("NV", "variant_0", 2)]["url"] == "https://img/v0_v2.jpg"
-    assert store.images[("NV", "variant_0", 2)]["params"]["variants"] == [{"name": "v0", "image": "https://img/v0.jpg"}]
+    assert store.images[("NV", "variant_0", 2)]["params"]["variants"] == [{"name": "v0", "image": GOOD_REF}]
     assert tic.get_image("NV", "variant_0") == "https://img/v0_v2.jpg"

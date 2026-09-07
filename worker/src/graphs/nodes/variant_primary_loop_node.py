@@ -16,6 +16,7 @@ from utils.mxou_api import clean_title_for_image_prompt
 from utils.prompt_assembler import assemble_prompt, merge_visual_vars  # ✅ v0.31: 视觉变量注入（Wave 2: LLM + 确定性合并）
 from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色预设路由
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
+from utils.image_url_guard import is_product_image_candidate  # fix/image-ref-pollution: 原图兜底白名单
 from utils.task_image_cache import get_image, save_image, _task_id_from_config, _force_regen_from_config, _regen_version_from_config  # v0.26/v0.41: 重跑不重烧生图 + 版本化
 from utils.image_gen_plan import slot_enabled  # T7b: image_gen_plan 前置条件（plan 无该 slot → 跳过）
 
@@ -96,9 +97,19 @@ def variant_primary_loop_node(
                     logging.warning(f"[variant_primary_loop_node] variant[{idx}]缺少image且无fallback，跳过")
                     return ""
 
+            # fix/image-ref-pollution: 非合格商品图（竞品域/搜索缩略图）不生图不兜底
+            if not is_product_image_candidate(sku_image_url):
+                logging.warning(
+                    f"[variant_primary_loop_node] variant[{idx}] image非合格商品图"
+                    f"(缩略图/竞品图)，拒绝用作参考与兜底: {str(sku_image_url)[:100]}")
+                sku_image_url = ""
+
             logging.info(f"[variant_primary_loop_node] 正在生成variant[{idx}]: {sku_name}")
 
             # ✅ 直接用1688原始URL（mxou可直接访问）
+            if not sku_image_url:
+                logging.warning(f"[variant_primary_loop_node] variant[{idx}]无合格参考图，跳过生图")
+                return ""
             ref_images = [sku_image_url]
 
             # 产品标题（所有变体共用同一标题，注入到生图 prompt）
@@ -137,7 +148,11 @@ def variant_primary_loop_node(
             # ⚠️ v0.60: 生图失败（MXOU 故障/超时）→ 直接用变体原图兜底（1688 alicdn 公网可达，
             # Ozon 可抓取）。生产安全：variant.image 是 1688 详情图非竞品参考图。
             # 之前返回 "" 导致变体无图 → image_absent_with_shipment + 变体特性不完整。
+            # fix/image-ref-pollution: 兜底原图同样过白名单（拒搜索缩略图/竞品域）
             _raw_fallback = str(variant.get("image", "") or "").strip()
+            if _raw_fallback and not is_product_image_candidate(_raw_fallback):
+                logging.warning(f"[variant_primary_loop_node] variant[{idx}]生图失败且原图非合格商品图，不兜底: {_raw_fallback[:100]}")
+                _raw_fallback = ""
             if _raw_fallback:
                 logging.warning(f"[variant_primary_loop_node] variant[{idx}]生图失败，用原图兜底: {_raw_fallback[:100]}")
                 return _raw_fallback
@@ -153,7 +168,7 @@ def variant_primary_loop_node(
             # v0.60: 异常也尝试原图兜底（生图服务故障不应导致变体无图）
             try:
                 _raw_fb2 = str(variant.get("image", "") or "").strip()
-                if _raw_fb2:
+                if _raw_fb2 and is_product_image_candidate(_raw_fb2):
                     logging.warning(f"[variant_primary_loop_node] variant[{idx}]异常，用原图兜底: {_raw_fb2[:100]}")
                     return _raw_fb2
             except Exception:

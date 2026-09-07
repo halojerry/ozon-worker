@@ -40,6 +40,8 @@ from utils.image_gen_plan import (  # noqa: E402
 TITLE = "保温杯"
 REF_IMAGE = "https://example.com/ref.jpg"
 _MOCK_URL = "https://example.com/mock_image.jpg"
+# fix/image-ref-pollution: 节点参考图白名单过滤后仍放行的合格原图（alicdn 原尺寸）
+GOOD_REF = "https://cbu01.alicdn.com/img/ibank/O1CNtest_!!123456789-0-cib.jpg"
 
 # 默认 plan 实际启用的 slot（= 精简 5 张 + 变体主图，见 image_gen_plan.DEFAULT_PLAN）
 DEFAULT_ON_SLOTS = {
@@ -201,8 +203,8 @@ def _node_cases():
     import graphs.nodes.variant_primary_loop_node as vp
 
     return [
-        (wb.white_bg_gen_node, wb, WhiteBgInput(draft={"title": TITLE}, token="t"), "white_bg_image"),
-        (ma.multi_angle_gen_node, ma, MultiAngleInput(draft={"title": TITLE}, token="t"), "multi_angle_image"),
+        (wb.white_bg_gen_node, wb, WhiteBgInput(draft={"title": TITLE}, token="t", original_images=[GOOD_REF]), "white_bg_image"),
+        (ma.multi_angle_gen_node, ma, MultiAngleInput(draft={"title": TITLE}, token="t", original_images=[GOOD_REF]), "multi_angle_image"),
         (mi.main_image_gen_node, mi, MainImageInput(draft={"title": TITLE}, token="t", white_bg_image=REF_IMAGE), "main_image"),
         (dt.detail_gen_node, dt, DetailImageInput(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE), "detail_image"),
         (sp.social_proof_gen_node, sp, SocialProofInput(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE), "social_proof_image"),
@@ -211,7 +213,7 @@ def _node_cases():
         (s2.scene_2_gen_node, s2, Scene2Input(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE, scene_context_2="户外休闲场景"), "scene_2_image"),
         (s3.scene_3_gen_node, s3, Scene3Input(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE, scene_context_3="工作办公场景"), "scene_3_image"),
         (vp.variant_primary_loop_node, vp,
-         VariantPrimaryLoopInput(variants=[{"name": "v0", "image": REF_IMAGE}], draft={"title": TITLE}, token="t"),
+         VariantPrimaryLoopInput(variants=[{"name": "v0", "image": GOOD_REF}], draft={"title": TITLE}, token="t"),
          "variant_primary_images"),
     ]
 

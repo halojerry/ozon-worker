@@ -1741,8 +1741,14 @@ def prepare_ozon_upload_node(
 
     # ✅ 构建共享营销图列表（AI 生成图优先，绝不用竞品 Ozon 原图补位）
     original_images = getattr(state, "original_images", []) or []
-    competitor_images = [img for img in original_images if isinstance(img, str) and img.strip() and 'ir.ozone.ru' in img]
-    is_follow_sell = bool(competitor_images)
+    # fix/image-ref-pollution: 跟卖判定优先读信封显式标记 extensions.follow_sell。
+    # 旧「original_images 含 ir.ozone.ru → 判定跟卖」降为兼容后备——skill 侧已
+    # 不再把竞品图塞 draft.images（fallback_images 已废除），该推断对新信封恒假。
+    _ext = getattr(state, "extensions", None) or {}
+    is_follow_sell = bool(_ext.get("follow_sell")) or any(
+        isinstance(img, str) and img.strip() and 'ir.ozone.ru' in img
+        for img in original_images
+    )
     shared_marketing_images, main_image = _build_shared_marketing_images(state, is_follow_sell)
     
     # 4. 如果一张图都没有（AI 全失败 + 无竞品图），标记警告

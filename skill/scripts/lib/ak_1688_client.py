@@ -809,20 +809,13 @@ def get_product_details(item_ids: list[str]) -> dict[str, dict[str, Any]]:
         parsed = parse_offer_detail_info(all_info)
         
         # 从原始 API 响应中提取图片
+        # ⚠️ fix/image-ref-pollution: 详情无图就空——禁止标题搜索兜底别家图。
+        # 旧逻辑在此用 parsed["title"][:30] 搜 1688 并取 search_results[0] 的
+        # 别家商品图顶数；多商品标题解析失败 → 同 query 命中 ak_search 缓存 →
+        # 跨任务逐字节相同的别家 310x310 缩略图进信封（线上「产品A卡片出现
+        # 产品B图」根因，生图参考/E1 兜底双出口上卡）。宁缺毋滥：无图由上层
+        # 校验门拦截（「产品图片为空」不组装信封）。
         images = _extract_images_from_raw(item)
-        
-        # 如果 API 没有返回图片，尝试从搜索 API 获取
-        if not images:
-            try:
-                search_results = search_products(parsed["title"][:30], page=1, page_size=5)
-                for sp in search_results:
-                    if sp.get("image_url") and str(sp.get("product_id", "")) == nid:
-                        images = [sp["image_url"]]
-                        break
-                if not images and search_results:
-                    images = [search_results[0].get("image_url", "")]
-            except Exception as e:
-                logger.debug("Image fallback search failed: %s", e)
         
         # 从原始 API 响应中提取重量和尺寸
         packaging = _extract_weight_dimensions(item)

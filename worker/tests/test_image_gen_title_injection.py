@@ -54,6 +54,10 @@ import graphs.nodes.variant_primary_loop_node as _variant_mod  # noqa: E402
 # Wave 1-D: assemble_prompt 真实现（spy 委托它保证渲染语义与生产一致）
 from utils.prompt_assembler import assemble_prompt as _real_assemble_prompt  # noqa: E402
 
+# fix/image-ref-pollution: 节点参考图白名单过滤后仍放行的合格原图（alicdn 原尺寸）
+GOOD_REF = "https://cbu01.alicdn.com/img/ibank/O1CNtest_!!123456789-0-cib.jpg"  # 合格alicdn原尺寸（fix/image-ref-pollution 白名单内）
+
+
 # ⚠️ 标题不能含 clean_title_for_image_prompt 的 junk 词（如「产品」「爆款」——
 # 它会被清洗掉，导致已修好的节点也断言失败）。「保温杯」不在 junk 表，原样保留。
 TITLE = "保温杯"
@@ -102,7 +106,7 @@ def _assert_title_in_prompt(prompt, title=TITLE):
 def test_white_bg_prompt_contains_title():
     """white_bg_gen_node 的 prompt 必须含产品标题"""
     from graphs.state_image_gen import WhiteBgInput
-    state = WhiteBgInput(draft={"title": TITLE}, token="t")
+    state = WhiteBgInput(draft={"title": TITLE}, token="t", original_images=[GOOD_REF])
     for prompt in _run_node(white_bg_gen_node, state, _white_bg_mod):
         _assert_title_in_prompt(prompt)
 
@@ -110,7 +114,7 @@ def test_white_bg_prompt_contains_title():
 def test_multi_angle_prompt_contains_title():
     """multi_angle_gen_node 的 prompt 必须含产品标题"""
     from graphs.state_image_gen import MultiAngleInput
-    state = MultiAngleInput(draft={"title": TITLE}, token="t")
+    state = MultiAngleInput(draft={"title": TITLE}, token="t", original_images=[GOOD_REF])
     for prompt in _run_node(multi_angle_gen_node, state, _multi_angle_mod):
         _assert_title_in_prompt(prompt)
 
@@ -192,7 +196,7 @@ def test_variant_primary_loop_prompt_contains_title():
     """variant_primary_loop_node 的 prompt 必须含产品标题"""
     from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
     state = VariantPrimaryLoopInput(
-        variants=[{"name": "variant_0", "image": "https://example.com/v0.jpg"}],
+        variants=[{"name": "variant_0", "image": GOOD_REF}],
         draft={"title": TITLE},
         token="t",
     )
@@ -211,8 +215,8 @@ def _node_cases():
     )
     from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
     return [
-        (white_bg_gen_node, WhiteBgInput(draft={"title": TITLE}, token="t"), _white_bg_mod, "white_bg"),
-        (multi_angle_gen_node, MultiAngleInput(draft={"title": TITLE}, token="t"), _multi_angle_mod, "multi_angle"),
+        (white_bg_gen_node, WhiteBgInput(draft={"title": TITLE}, token="t", original_images=[GOOD_REF]), _white_bg_mod, "white_bg"),
+        (multi_angle_gen_node, MultiAngleInput(draft={"title": TITLE}, token="t", original_images=[GOOD_REF]), _multi_angle_mod, "multi_angle"),
         (main_image_gen_node, MainImageInput(draft={"title": TITLE}, token="t", white_bg_image=REF_IMAGE), _main_image_mod, "main"),
         (detail_gen_node, DetailImageInput(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE), _detail_mod, "detail"),
         (social_proof_gen_node, SocialProofInput(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE), _social_proof_mod, "social_proof"),
@@ -220,7 +224,7 @@ def _node_cases():
         (scene_1_gen_node, Scene1Input(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE, scene_context_1="家庭生活场景"), _scene_1_mod, "scene_1"),
         (scene_2_gen_node, Scene2Input(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE, scene_context_2="户外休闲场景"), _scene_2_mod, "scene_2"),
         (scene_3_gen_node, Scene3Input(draft={"title": TITLE}, token="t", multi_angle_image=REF_IMAGE, scene_context_3="工作办公场景"), _scene_3_mod, "scene_3"),
-        (variant_primary_loop_node, VariantPrimaryLoopInput(variants=[{"name": "variant_0", "image": "https://example.com/v0.jpg"}], draft={"title": TITLE}, token="t"), _variant_mod, "variant_white_bg"),
+        (variant_primary_loop_node, VariantPrimaryLoopInput(variants=[{"name": "variant_0", "image": GOOD_REF}], draft={"title": TITLE}, token="t"), _variant_mod, "variant_white_bg"),
     ]
 
 
@@ -277,7 +281,7 @@ def test_prompt_renders_material_from_draft():
     """draft.attributes 含材质 → white_bg 节点 prompt 渲染出材质（v6: main 用 product 描述，材质在 white_bg/detail 渲染）"""
     from graphs.state_image_gen import WhiteBgInput
     draft = {"title": TITLE, "attributes": {"材质": "ABS塑料", "颜色": "白色"}}
-    state = WhiteBgInput(draft=draft, token="t")
+    state = WhiteBgInput(draft=draft, token="t", original_images=[GOOD_REF])
     for prompt in _run_node(white_bg_gen_node, state, _white_bg_mod):
         assert "ABS塑料" in prompt, f"材质未渲染进 prompt: {prompt[:80]!r}"
         assert "白色" not in prompt, f"v0.32: color 不应渲染（参考图承担颜色）: {prompt[:80]!r}"
@@ -320,7 +324,7 @@ def test_llm_visual_vars_not_inject_color():
     from graphs.state_image_gen import WhiteBgInput
     draft = {"title": TITLE, "attributes": {"材质": "ABS塑料", "颜色": "白色"}}
     state = WhiteBgInput(
-        draft=draft, token="t",
+        draft=draft, token="t", original_images=[GOOD_REF],
         visual_vars={"color": "navy blue + rose gold"},
     )
     for prompt in _run_node(white_bg_gen_node, state, _white_bg_mod):
@@ -350,7 +354,7 @@ def test_variant_loop_consumes_llm_visual_vars():
     （v8 variant_white_bg 无 {{lighting}} 占位符，V6-T5 lighting 守卫改由 {{appearance}} 承担）"""
     from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
     state = VariantPrimaryLoopInput(
-        variants=[{"name": "variant_0", "image": "https://example.com/v0.jpg"}],
+        variants=[{"name": "variant_0", "image": GOOD_REF}],
         draft={"title": TITLE, "category": "宠物用品"},
         token="t",
         visual_vars={"appearance": "bright even studio light"},

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""P4: build_graph_envelope fallback_images 兜底。
+"""串图修复回归：1688 图空必须阻断，绝不用兜底图放行（fix/image-ref-pollution）。
 
-背景：1688 api_only 降级时图片可能为空 → _validate_and_fix_product_data 硬阻断
-「产品图片为空」→ follow 链路 envelope 构建失败。跟卖时 Ozon 竞品主图是安全兜底。
+背景（旧 P4 行为已废除）：1688 api_only 降级时图片为空 → fallback_images 用
+Ozon 竞品主图放行「产品图片为空」校验门 → 竞品图进 draft.images 做生图参考
+（AI 重绘出竞品样子）+ E1 兜底直上（竞品原图上卡）——线上「产品A卡片出现
+产品B图」根因之一。
 
-修复：build_graph_envelope 新增 fallback_images 参数，get_best_product_images 结果
-为空且提供 fallback_images 时用兜底图（放行 images 校验门）。
+新行为：1688 图空即 ProductValidationError 阻断，宁不出单不上错图；
+follow 竞品主图只进 extensions.competitor_ref_images（识别用，不进 draft.images）。
 
 运行：
     cd skill && .venv314/bin/python -m pytest tests/test_fallback_images.py -q
@@ -22,7 +24,6 @@ from scripts import cloud_probe  # noqa: E402
 
 ITEM_ID = "980815374096"
 DETAIL_URL = f"https://detail.1688.com/offer/{ITEM_ID}.html"
-FALLBACK = ["https://x/1.jpg"]
 
 
 def _api_enriched(**overrides) -> dict:
@@ -55,7 +56,7 @@ def _api_enriched(**overrides) -> dict:
     return base
 
 
-def _build(enriched: dict, fallback_images: list[str] | None) -> dict:
+def _build(enriched: dict) -> dict:
     with mock.patch("scripts.lib.config_store._require_auth"), \
          mock.patch("scripts.lib.ak_1688_client.get_product_details",
                     return_value={ITEM_ID: {}}), \
@@ -69,38 +70,39 @@ def _build(enriched: dict, fallback_images: list[str] | None) -> dict:
             item_id=ITEM_ID,
             detail_url=DETAIL_URL,
             poll_category=False,
-            fallback_images=fallback_images,
         )
 
 
-def test_fallback_images_used_when_1688_images_empty():
-    """1688 图片为空 + fallback_images → draft.images == fallback_images（放行校验门）。"""
-    graph = _build(_api_enriched(), fallback_images=FALLBACK)
-    draft = graph["envelope"]["draft"]
-    assert draft["images"] == FALLBACK, draft["images"]
-
-
-def test_no_fallback_still_raises_validation_error():
-    """1688 图片为空且无 fallback_images → 仍 ProductValidationError（行为不变）。"""
+def test_empty_images_blocked_not_fallback():
+    """1688 图片为空 → ProductValidationError 阻断（P4 竞品图兜底已废除）。"""
     try:
-        _build(_api_enriched(), fallback_images=None)
+        _build(_api_enriched())
     except cloud_probe.ProductValidationError as e:
         assert "图片为空" in str(e), str(e)
         return
-    raise AssertionError("无 fallback_images 时应 ProductValidationError，实际未抛")
+    raise AssertionError("1688 图空应 ProductValidationError 阻断，实际未抛")
 
 
-def test_fallback_ignored_when_1688_images_present():
-    """1688 有真实图片 → 不用 fallback（真实图片优先）。"""
+def test_real_images_pass_through():
+    """1688 有真实图片 → draft.images == 真实图片（正常路径不回归）。"""
     from tests.test_api_only_degraded import ALICDN_IMG
 
     enriched = _api_enriched(data={"images": [ALICDN_IMG]})
-    graph = _build(enriched, fallback_images=FALLBACK)
+    graph = _build(enriched)
     draft = graph["envelope"]["draft"]
     assert draft["images"] == [ALICDN_IMG], draft["images"]
 
 
-if __name__ == "__main__":
+def test_build_graph_envelope_has_no_fallback_param():
+    """build_graph_envelope/with_retry 不再接受 fallback_images（防止竞品图兜底回归）。"""
+    import inspect
+    for fn in (cloud_probe.build_graph_envelope,
+               cloud_probe.build_graph_envelope_with_retry):
+        assert "fallback_images" not in inspect.signature(fn).parameters, \
+            f"{fn.__name__} 不得恢复 fallback_images 参数（串图根因之一）"
+
+
+def _main() -> int:
     import traceback
 
     failed = total = 0
@@ -116,3 +118,7 @@ if __name__ == "__main__":
                 traceback.print_exc()
     print(f"\n{total - failed}/{total} passed")
     sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    _main()
