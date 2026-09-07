@@ -16,6 +16,7 @@ class WhiteBgInput(BaseModel):
     visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（参考图）")
     image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
+    extensions: Optional[Dict[str, Any]] = Field(default=None, description="信封 extensions（follow_sell/competitor_ref_images——生图参考两条线分场景）")
 
 class WhiteBgOutput(BaseModel):
     """白底图生成节点输出"""
@@ -35,6 +36,7 @@ class MultiAngleInput(BaseModel):
     visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（参考图）")
     image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
+    extensions: Optional[Dict[str, Any]] = Field(default=None, description="信封 extensions（follow_sell/competitor_ref_images——生图参考两条线分场景）")
 
 class MultiAngleOutput(BaseModel):
     """多角度图生成节点输出"""
@@ -58,6 +60,7 @@ class MainImageInput(BaseModel):
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（Phase1）")
     variants: list = Field(default_factory=list, description="变体SKU列表（非空时跳过主图生成，由variant_primary_loop处理）")
     image_gen_plan: Optional[Dict[str, int]] = Field(default=None, description="T7b: image_gen_plan（type→count；plan 无该 slot → 节点跳过，不调生图 API）")
+    extensions: Optional[Dict[str, Any]] = Field(default=None, description="信封 extensions（follow_sell/competitor_ref_images——生图参考两条线分场景）")
 
 class MainImageOutput(BaseModel):
     """主图生成节点输出"""

@@ -1552,8 +1552,12 @@ def _build_shared_marketing_images(state: Any, is_follow_sell: bool) -> tuple[Li
     ✅ v0.25 FIX: 跟卖绝不用竞品 Ozon 原图（ir.ozone.ru）补位 — Ozon 抓取竞品
     CDN 图失败，实测混入竞品图导致整卡 0 图被下架（wave4 浴刷 5821877126）。
     AI 图按默认精简 plan 5 张生成，传现有 AI 图宁缺毋滥（Ozon 允许 1~15 张）；
-    仅当少到 < 3 张（生图大面积失败）才告警。竞品图仅保留在 state.original_images
-    供生图节点做参考，不进上传数组。
+    仅当少到 < 3 张（生图大面积失败）才告警。
+    fix/image-ref-pollution R2: 生图参考两条线——跟卖(follow_sell)=竞品原图优先
+    参考（extensions.competitor_ref_images）> 1688 货源图；1688 直上=仅货源图；
+    竞品图任何场景不进上传数组。is_follow_sell 由调用点优先读
+    extensions.follow_sell（旧「original_images 含竞品图」推断仅作在途旧信封
+    兼容后备）。
     """
     shared_marketing_images: List[str] = []
 
