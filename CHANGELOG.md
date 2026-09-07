@@ -31,6 +31,54 @@
 - **部署后旧任务重跑**：污染参考生成的存量生图缓存 7 天 TTL 自愈；需立即重跑用
   force_regen（webui 重生成按钮）。
 
+## [Unreleased] — discover 选品漏斗 v2（对标上品帮 shopbang，未发版）
+
+> 竞品逆向（`shopbang/` 上品帮 v3.2.0）驱动的一批 discover/采集箱增强。方案与竞品对照
+> 见 `docs/PLAN-discover-funnel-v2-v1.md`。四项全选两期交付，全部 TDD + 真实探针实证。
+
+### 新增
+- **BASE 粗筛实装 + 档位**：`_BASE_FILTER_RULES` 18 项区间空架通电——`--filter-profile
+  ai` 档复用 `AI_PRESET`（上品帮 aiFilterData 同款：上架≤365d/跟卖≤30/月动态>0/DRR≤15 +
+  价格分档月销下限）；`--base-filter "monthly_sales>=50,drr<=15"` 自定义区间（22 字段全集）。
+  语义：off（缺省）交互流程逐字不变；`--auto-submit` 未显式指定时默认 ai 档护 aibuy 配额；
+  ai 档无 seller 指标的候选降级只判跟卖数（未知 0 不编造语义）。判定挂 ②b 富化后
+  （`_apply_profile_filter`），过滤计数日志可观测。
+- **采集箱选品元数据留存**：discover 信封注入 `extensions.discovery_meta`（蓝海分/月销/
+  利润率/匹配置信度等 ~18 键扁平快照，缺失键省略，≤2KB）——drafts payload 整存 worker
+  零迁移；webui 采集箱列表加「蓝海分/月销/利润率%」列；worker CSV 导出补 4 列
+  （blue_ocean_score/monthly_sales/profit_margin/match_confidence）。契约登记 CONTRACT-v4
+  §1.1.1 + AGENTS.md；worker 单测锁「带 discovery_meta 信封入队 payload 原样」。
+- **运营指标扩容**：畅销榜池实测带全量转化/促销/退货字段（探针
+  `scripts/probe_what_to_sell_fields.py`，附录 A）但 `apply_analytics_to_candidate` 只拷
+  子集——补 9 字段进 ProductCandidate（session_count/conv_to_cart_pdp/conv_to_cart_search/
+  days_in_promo/discount/promo_revenue_share/days_with_trafarets/nullable_redemption_rate/
+  return_cancel_rate，命名对齐粗筛规则键；默认 None=未知=规则不限）。
+- **seller 富化 cookie 直调优先**：畅销榜 map 富化接 `_fetch_seller_session_cookies` +
+  `fetch_bestseller_metrics_map_direct`（queries 同通道先例）——免 seller 页导航免登录
+  等待阻塞；直调未登录/失败出声回落原 CDP 路径（可用性不回退）。富化块抽
+  `_enrich_with_seller_metrics`。
+- **discover-task 任务式全自动选品**（对标上品帮无人值守）：`discover-task --keyword/--url
+  --target-count` → 采集（缺省 ai 粗筛）→ 自动 1688 匹配（`--match-limit` 限额 +
+  连续 no_match 早停 + 2s 节奏抖动 + `--match-concurrency ≤2`）→ 利润精筛 → profitable
+  逐条入采集箱（`--to-box`）或干跑统计（缺省）。任务状态 `data/discovery/tasks/` 落盘
+  支持 `--resume`。`match_selected` 扩 `max_matches/stop_on_no_match_streak/pace_seconds/
+  max_workers`（分块并行早停，交互流程缺省零变化）。
+- **pounding-mcp**：`discover_task` 工具（dry_run 缺省 True；to_box 触发审批）+ C2 任务式
+  意图词表（自动采集/无人值守/任务式），22 工具。
+- **what_to_sell 字段探针**：`skill/scripts/probe_what_to_sell_fields.py`（一次性实测工具，
+  结论见 PLAN 附录 A：单 SKU 直查恒空，指标来自畅销榜池）。
+
+### 实测结论（附录 A 摘要）
+- 竞品 63 列的运营指标来自其服务端商品库（护城河无法复制）；我们的对等物是 what_to_sell
+  畅销榜池——字段足够（浏览量/加购率/促销/退货全有），此前只是解析后被丢弃。
+- 竞品流程层（滚动节奏/页面内 fetch 静默补详情）我们本就同款；竞品 1688 匹配只取第一个
+  非广告结果零置信度，我们的护栏链更强，不学。
+
+### 测试
+- skill 全量 **715 passed**（新增 discovery_meta 6 + 指标扩容 4 + 直调富化 5 + 粗筛档位
+  12 + 匹配限额 5 + discover-task 3）；pounding-mcp **33 passed**（自身 venv，22 工具）；
+  worker/webui 见对应提交（CSV 列 3 + 透传 1 + build/tsc 绿）。
+
 ## [0.68.1] - 2026-09-06
 
 > v0.68.0 回归新发现两缺陷的紧急修复（重量硬下限 + Step 6.5 R2b 豁免），双侧 TDD +

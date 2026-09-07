@@ -396,6 +396,10 @@ def cmd_graph(args: argparse.Namespace) -> int:
             store_id=args.store or "",
             template_id=getattr(args, 'template_id', '') or "",
         )
+        # ⚠️ v0.69 T0.1b manual 类目直传暂不接线：committed
+        # build_graph_envelope_with_retry 签名尚无 category_id/type_id（在另一
+        # 会话未提交 WIP 中），传入必 TypeError（评审 A，620eb14d 夹带的半截改动）。
+        # --category-id/--type-id 参数保留解析，等签名提交后再恢复传参。
 
         # ⚠️ v0.29.x 竞品属性复用: --ozon-ref-url 抓 Ozon 竞品属性表 → draft.ozon_attributes
         # (同类目竞品属性值大多一致, worker 对 1688 缺的属性用竞品值兜底)
@@ -447,6 +451,15 @@ def cmd_graph(args: argparse.Namespace) -> int:
         "supplier": draft.get("supplier", "")[:30],
         "shipping": draft.get("shipping"),
     }
+    # ✅ v0.69 T0.1b: ozon_category 摘要（description_category_id/type_id/source
+    # 三键，无则省略）——输出一眼看出类目是 manual 直传还是 search_kw 猜测
+    _ozc = draft.get("ozon_category")
+    if isinstance(_ozc, dict) and (_ozc.get("description_category_id") or _ozc.get("type_id")):
+        summary["ozon_category"] = {
+            _k: _ozc[_k]
+            for _k in ("description_category_id", "type_id", "source")
+            if _ozc.get(_k)
+        }
     # ✅ v0.39 需求1: 提交前预估售价——复用 worker 定价公式（售价=总成本×(1+margin)/(1-commission)），
     # 参数与信封 extensions 同源（worker 实算用同一份 margin/commission）
     try:
@@ -1249,6 +1262,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
     from scripts.lib.ozon_discovery import (
         DEFAULT_FX_RATE,
         collect_and_analyze,
+        resolve_filter_profile,
     )
     from scripts.lib.config_store import get_setting, get_store_profile
 
@@ -1300,6 +1314,14 @@ def cmd_discover(args: argparse.Namespace) -> int:
 
     # ── 阶段①+② 采集 + 全量数据 + 运营指标 ──
     print("\n⏳ 阶段 1/3：采集产品列表 + 全量数据...", flush=True)
+    # 漏斗 v2 Task 7: 粗筛档位——显式 --filter-profile 优先；auto-submit 未显式
+    # 指定时默认 ai 档（上品帮两段式纪律：匹配前砍量护 aibuy 配额），交互 off。
+    _profile = resolve_filter_profile(
+        getattr(args, "filter_profile", None), bool(args.auto_submit))
+    if _profile != "off":
+        print(f"🪮 粗筛档位: {_profile}" +
+              (f" + 区间[{args.base_filter}]" if getattr(args, "base_filter", "") else ""),
+              flush=True)
     try:
         candidates = collect_and_analyze(
             cdp_url=cdp_url,
@@ -1312,7 +1334,12 @@ def cmd_discover(args: argparse.Namespace) -> int:
             brand_filter=args.brand_filter,
             progress_callback=_collect_progress,
             china=(not args.local) or args.china,
+            filter_profile=_profile,
+            base_filter=getattr(args, "base_filter", "") or "",
         )
+    except ValueError as exc:
+        print(f"❌ 粗筛参数错误: {exc}", flush=True)
+        return 2
     except KeyboardInterrupt:
         print("\n⚠️ 用户中断")
         return 0
@@ -1669,6 +1696,7 @@ def _collect_keyword_pids(cdp_url: str, keyword: str, max_each: int,
 def _analyze_pids(cdp_url: str, pids: list[str], *,
                   use_analytics: bool = True, min_price: float = 0,
                   max_price: float = 0, brand_filter: str = "nobrand",
+                  filter_profile: str = "off", base_filter: str = "",
                   progress_callback=None) -> list:
     """合并 pid 批量并行分析（D7'：N 关键词滚动合并后只分析一次）。
 
@@ -1681,16 +1709,22 @@ def _analyze_pids(cdp_url: str, pids: list[str], *,
     from scripts.lib.ozon_discovery import (
         ProductCandidate,
         _analyze_product,
+        _apply_profile_filter,
         _discover_workers,
         _is_branded,
         _is_known_brand,
+        _parse_filter_expr,
         _passes_base_filter,
     )
 
+    extra_rules = _parse_filter_expr(base_filter) if base_filter else None
     candidates: list[ProductCandidate] = []
 
     def _apply_filters(candidate: ProductCandidate) -> None:
-        if candidate.status == "ok" and not _passes_base_filter(candidate):
+        # ai 档此处同行级语义（富化未发生，只判 seller_count）；extra_rules 在
+        # 函数尾 _apply_profile_filter 统一判（评审 E：等字段真实）
+        if candidate.status == "ok" and not _passes_base_filter(
+                candidate, profile=filter_profile):
             candidate.status = "filtered"
             candidate.error = "未通过 BASE 粗筛"
             return
@@ -1784,7 +1818,7 @@ def cmd_discover_multi(args: argparse.Namespace) -> int:
     """
     from scripts.lib.chrome_launcher import ensure_chrome_cdp
     from scripts.lib.config_store import get_setting, get_store_profile
-    from scripts.lib.ozon_discovery import DEFAULT_FX_RATE
+    from scripts.lib.ozon_discovery import DEFAULT_FX_RATE, resolve_filter_profile
 
     keywords = _split_keywords(args.keywords)
     if not keywords:
@@ -1845,6 +1879,9 @@ def cmd_discover_multi(args: argparse.Namespace) -> int:
 
     # ── 阶段② 单次并行分析（ThreadPoolExecutor 吃合并 pid 列表）──
     print(f"\n⏳ 阶段 2/3：并行分析合并候选（{len(pids)} 个 pid）...", flush=True)
+    # 漏斗 v2 Task 7: 档位解析与单关键词 discover 同语义
+    _profile = resolve_filter_profile(
+        getattr(args, "filter_profile", None), bool(args.auto_submit))
     try:
         candidates = _analyze_pids(
             cdp_url, pids,
@@ -1852,8 +1889,13 @@ def cmd_discover_multi(args: argparse.Namespace) -> int:
             min_price=args.min_price,
             max_price=args.max_price,
             brand_filter=args.brand_filter,
+            filter_profile=_profile,
+            base_filter=getattr(args, "base_filter", "") or "",
             progress_callback=_collect_progress,
         )
+    except ValueError as exc:
+        print(f"❌ 粗筛参数错误: {exc}", flush=True)
+        return 2
     except KeyboardInterrupt:
         print("\n⚠️ 用户中断")
         return 0
@@ -1865,6 +1907,226 @@ def cmd_discover_multi(args: argparse.Namespace) -> int:
                  "brand_filter": args.brand_filter})
 
     return _finish_discover_flow(args, candidates, cdp_url, fx_rate, blue_ocean_rows)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# discover-task · 任务式全自动选品（漏斗 v2 Task 8b，对标上品帮无人值守）
+# 采集（粗筛档位缺省 ai）→ 自动 1688 匹配（限额+no_match 早停+节奏）→ 利润精筛
+# → 逐条入采集箱（--to-box）或干跑统计（缺省）。任务状态落盘支持 --resume。
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _tasks_dir() -> Path:
+    from scripts.lib.ozon_discovery import DISCOVERY_CACHE_DIR
+    return DISCOVERY_CACHE_DIR / "tasks"
+
+
+def _task_state_path(task_id: str) -> Path:
+    return _tasks_dir() / f"task_{task_id}.json"
+
+
+def _load_task_state(task_id: str) -> dict:
+    try:
+        with open(_task_state_path(task_id), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_task_state(state: dict) -> None:
+    """任务状态落盘（每条处理后调用；fail-open——状态丢失不阻断采集）。"""
+    import logging
+    try:
+        _tasks_dir().mkdir(parents=True, exist_ok=True)
+        with open(_task_state_path(state["task_id"]), "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=1)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("任务状态落盘失败（不影响主流程）: %s", exc)
+
+
+def _latest_resumable_task(entry_url: str, keyword: str) -> dict:
+    """--resume：找同入口（url 或 keyword 匹配）的最新任务状态；无 → {}。"""
+    try:
+        files = sorted(_tasks_dir().glob("task_*.json"), reverse=True)
+    except Exception:
+        return {}
+    for fp in files:
+        st = _load_task_state(fp.stem.replace("task_", "", 1))
+        entry = st.get("entry") or {}
+        if (entry_url and entry.get("url") == entry_url) or \
+           (keyword and entry.get("keyword") == keyword):
+            return st
+    return {}
+
+
+def cmd_discover_task(args: argparse.Namespace) -> int:
+    """Ozon 选品 · 任务式全自动（无人值守）。"""
+    import time as _time
+
+    from scripts.lib.chrome_launcher import ensure_chrome_cdp
+    from scripts.lib.config_store import get_setting, get_store_profile
+    from scripts.lib.ozon_discovery import (
+        DEFAULT_FX_RATE,
+        DISCOVERY_CACHE_DIR,
+        collect_and_analyze,
+        match_selected,
+        resolve_filter_profile,
+    )
+
+    url = args.url or ""
+    keyword = args.keyword or ""
+    if not url and not keyword:
+        print("❌ 需要 --url 或 --keyword 之一（入口：highlight/搜索/类目/店铺页均可）")
+        return 2
+
+    ok_cdp, msg_cdp = ensure_chrome_cdp()
+    if not ok_cdp:
+        print(f"❌ Chrome CDP 启动失败: {msg_cdp}")
+        return 1
+    cdp_url = "http://127.0.0.1:9222"
+
+    # fx_rate 三级解析（与 cmd_discover P2-6 同口径）
+    fx_rate = args.fx_rate if args.fx_rate is not None else float(
+        (get_store_profile(args.store) or {}).get("fx_rate")
+        or get_setting("fx_rate") or DEFAULT_FX_RATE)
+
+    # 任务状态：--resume 接续同入口最近任务（跳过已处理 pid）
+    task_id = _time.strftime("%Y%m%d_%H%M%S")
+    processed: dict[str, dict] = {}
+    if args.resume and not args.dry_run:
+        prev = _latest_resumable_task(url, keyword)
+        if prev:
+            processed = prev.get("processed") or {}
+            print(f"🔁 续跑任务 {prev.get('task_id')}（已处理 {len(processed)} 条，跳过同 pid）")
+
+    # 档位：任务式缺省 ai（resolve_filter_profile(auto_submit=True) 语义）
+    profile = resolve_filter_profile(args.filter_profile, True)
+    print(f"\n🤖 discover-task {task_id}｜入口: {url or keyword}｜目标 {args.target_count}"
+          f"｜粗筛 {profile}｜匹配上限 {args.match_limit}", flush=True)
+
+    # ── 阶段①+②+②b：采集 + 全量数据 + 指标富化 + 粗筛 ──
+    print("\n⏳ 阶段 1/3：采集 + 全量数据 + 粗筛...", flush=True)
+    try:
+        candidates = collect_and_analyze(
+            cdp_url=cdp_url,
+            url=url,
+            keyword=keyword,
+            max_products=args.target_count,
+            use_analytics=not getattr(args, "no_analytics", False),
+            filter_profile=profile,
+            base_filter=args.base_filter or "",
+        )
+    except ValueError as exc:
+        print(f"❌ 粗筛参数错误: {exc}", flush=True)
+        return 2
+    counts: dict[str, int] = {}
+    for c in candidates:
+        counts[c.status] = counts.get(c.status, 0) + 1
+    print(f"   采集 {len(candidates)} 条：{counts}", flush=True)
+
+    # ── 阶段④：自动 1688 匹配（限额 + 早停 + 节奏）──
+    print("\n⏳ 阶段 2/3：自动 1688 匹配 + 利润精筛...", flush=True)
+    match_pool = [c for c in candidates
+                  if c.status in ("ok", "uncertain")
+                  and c.ozon_product_id not in processed]
+    print(f"   待匹配 {len(match_pool)} 条（已处理跳过 {len(candidates) - len(match_pool) - counts.get('filtered', 0) - counts.get('error', 0)}）",
+          flush=True)
+
+    def _match_progress(done: int, total: int, c) -> None:
+        mark = {"profitable": "✅", "matched": "🟢", "rejected": "⛔",
+                "no_match": "⚪", "error": "❌"}.get(c.status, "·")
+        print(f"   [{done}/{total}] {mark} {c.ozon_title[:36]}"
+              + (f" margin={c.profit_margin:.1f}%" if c.status == "profitable" else ""),
+              flush=True)
+
+    # 评审 C: 只把未处理候选交给匹配（传全量会让已入箱 pid 重烧图搜并挤占限额）
+    # 评审 H: 佣金显式来自 --store 店铺 profile（与 cmd_discover P2-6 同口径）；
+    # 未配置传 0 → match_selected 内部回落默认店铺解析链
+    match_selected(
+        match_pool, cdp_url,
+        fx_rate=fx_rate,
+        commission_rate=float((get_store_profile(args.store) or {}).get("commission_rate", 0) or 0),
+        min_margin_pct=args.min_margin,
+        max_matches=args.match_limit,
+        stop_on_no_match_streak=args.no_match_streak_stop,
+        pace_seconds=2.0,
+        max_workers=args.match_concurrency,
+        progress_callback=_match_progress,
+    )
+
+    # ── 出口：profitable → 入采集箱 / 干跑 ──
+    to_submit = [c for c in candidates
+                 if c.status == "profitable" and c.match_1688_url
+                 and c.review_decision != "agent_reject"
+                 and c.ozon_product_id not in processed]
+    print(f"\n⏳ 阶段 3/3：profitable {len(to_submit)} 条"
+          f"（{'--to-box 入采集箱' if args.to_box and not args.dry_run else '干跑，不入箱'}）",
+          flush=True)
+
+    state = {
+        "task_id": task_id,
+        "created_at": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "entry": {"url": url, "keyword": keyword},
+        "params": {"target_count": args.target_count, "filter_profile": profile,
+                   "min_margin": args.min_margin, "match_limit": args.match_limit,
+                   "match_concurrency": args.match_concurrency},
+        "processed": processed,
+        "summary": {},
+    }
+    # 评审 D: 采集完成即落盘——匹配/入箱途中中断，--resume 至少有据可查
+    _save_task_state(state)
+    if args.dry_run or not args.to_box:
+        for c in to_submit:
+            print(f"   [干跑] ✅ {c.ozon_title[:40]} margin={c.profit_margin:.1f}%"
+                  f" 货源={c.match_1688_url[:60]}")
+        print("\n💡 加 --to-box 真实入采集箱（POST /api/v1/drafts）")
+    else:
+        try:
+            from scripts.cloud_probe import build_envelope_from_discovery, submit_draft
+        except ModuleNotFoundError as _e:
+            print(f"❌ 缺少依赖模块 '{getattr(_e, 'name', '') or _e}'。"
+                  "请运行: pip install -r requirements.txt", flush=True)
+            return 1
+        from scripts.lib.config_store import get_store
+
+        store = get_store(args.store or "") or {}
+        store_config = {"client_id": store.get("client_id", ""),
+                        "api_key": store.get("api_key", "")}
+        store_id = args.store or ""
+        ok_n = skip_n = err_n = 0
+        for c in to_submit:
+            try:
+                envelope = build_envelope_from_discovery(c, store_config, store_id=store_id)
+                if not envelope:
+                    print(f"   ✗ 跳过（无 1688 item_id）: {c.ozon_title[:40]}")
+                    skip_n += 1
+                    continue
+                result = submit_draft(envelope)
+                draft_id = result.get("draft_id", "")
+                print(f"   📥 已入采集箱: {c.ozon_title[:40]} → draft_id={draft_id}")
+                processed[c.ozon_product_id] = {"status": "ok", "draft_id": draft_id}
+                _save_task_state(state)   # 评审 D: 逐条落盘，中断可续
+                ok_n += 1
+            except Exception as exc:
+                print(f"   ✗ 入箱失败: {c.ozon_title[:40]} — {exc}")
+                processed[c.ozon_product_id] = {"status": "error", "error": str(exc)[:200]}
+                _save_task_state(state)   # 评审 D: 失败也记账，防 resume 重试风暴
+                err_n += 1
+        state["summary"] = {"submitted": ok_n, "skipped": skip_n, "failed": err_n}
+        print(f"\n📦 入箱完成: 成功 {ok_n} / 跳过 {skip_n} / 失败 {err_n}")
+
+    final_counts: dict[str, int] = {}
+    for c in candidates:
+        final_counts[c.status] = final_counts.get(c.status, 0) + 1
+    state["summary"]["candidates"] = final_counts
+    _save_task_state(state)
+    if args.export:
+        from scripts.lib.ozon_discovery import export_to_csv
+        export_to_csv(candidates, args.export)
+        print(f"📄 候选 CSV: {args.export}")
+    print(f"📁 任务状态: {_task_state_path(task_id)}（--resume 可续跑）")
+    print(f"📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
+    return 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1942,11 +2204,13 @@ def _capture_exception(exc: Exception, command: str) -> None:
         pass
 
 
-def main() -> int:
-    # ⚠️ v0.35: Sentry 错误上报（environment="skill"）。argparse 解析之前调用——
-    # DSN 未设置 / SDK 缺失 / 测试进程时静默 no-op，绝不影响 --help / argparse 报错。
-    _init_sentry()
+def build_arg_parser() -> argparse.ArgumentParser:
+    """构建 CLI argparse 解析器（v0.69 T0.5 从 main() 提取）。
 
+    提取动机：argv 切分取证单测可直接 parser.parse_args([...]) 复现命令行
+    解析（test_manual_category_v069.py）——锁定仓库内 argv 全程 list 传参、
+    带空格参数不被切分；行为与原 main() 内联构造逐字一致。
+    """
     parser = argparse.ArgumentParser(description="pounding-ozon-probe — 1688 数据采集 + GraphInput 组装")
     sub = parser.add_subparsers(dest="command", help="命令")
 
@@ -2014,7 +2278,14 @@ def main() -> int:
     gp = sub.add_parser("graph", help="组装 GraphInput envelope")
     gp.add_argument("--item-id", default="", help="1688 商品 ID")
     gp.add_argument("--url", default="", help="1688 商品详情页 URL（也可提供）")
-    gp.add_argument("--category-query", default="", help="Ozon 类目关键词（俄语）")
+    gp.add_argument("--category-query", default="",
+                    help="搜索文本提示（辅助类目/货源匹配）；直传类目请用 --category-id/--type-id")
+    gp.add_argument("--category-id", default="",
+                    help="人工指定 Ozon 类目 description_category_id（与 --type-id 同时提供，"
+                         "直传信封绕过自动匹配，v0.69 manual 通道）")
+    gp.add_argument("--type-id", default="",
+                    help="人工指定 Ozon 类目 type_id（与 --category-id 同时提供，"
+                         "直传信封绕过自动匹配，v0.69 manual 通道）")
     gp.add_argument("--retries", type=int, default=3, help="CDP 重试次数")
     gp.add_argument("--store", default="", help="Ozon 店铺名称（不指定则用默认店铺）")
     gp.add_argument("--no-submit", action="store_true", help="只组装信封不提交 Worker")
@@ -2075,6 +2346,13 @@ def main() -> int:
     dp.add_argument("--rules", default="",
                     help="自动筛选规则，如 \"monthly_sales>=200,drr<=30\"（跳过交互挑选）；"
                          "\"ai\" 一键应用销量阶梯门槛预设（上架≤365d/跟卖≤30/销售动态>0/DRR≤15 + 价格分档月销下限）")
+    dp.add_argument("--filter-profile", default=None, choices=["off", "ai"],
+                    help="漏斗 v2 粗筛档位（Task 7）：off=不粗筛（缺省）；ai=上品帮 AI 预设档"
+                         "（完整判定需 seller 运营指标，无数据降级只判跟卖数）。"
+                         "--auto-submit 未显式指定时默认 ai")
+    dp.add_argument("--base-filter", default="",
+                    help="自定义区间粗筛 \"monthly_sales>=50,drr<=15\"（字段同 --rules，"
+                         "与 --filter-profile 叠加；非法表达式报错退出）")
     dp.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式（全量+选中）")
     dp.add_argument("--output", default="", help="导出文件路径")
     dp.add_argument("--auto-submit", action="store_true", help="确认后提交 profitable 产品到 Worker")
@@ -2120,6 +2398,11 @@ def main() -> int:
     dpm.add_argument("--rules", default="",
                      help="自动筛选规则，如 \"monthly_sales>=200,drr<=30\"（跳过交互挑选）；"
                           "\"ai\" 一键应用销量阶梯门槛预设")
+    dpm.add_argument("--filter-profile", default=None, choices=["off", "ai"],
+                     help="漏斗 v2 粗筛档位：off=不粗筛（缺省）；ai=上品帮 AI 预设档。"
+                          "--auto-submit 未显式指定时默认 ai")
+    dpm.add_argument("--base-filter", default="",
+                     help="自定义区间粗筛 \"monthly_sales>=50,drr<=15\"（与 --filter-profile 叠加）")
     dpm.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式（全量+选中）")
     dpm.add_argument("--output", default="", help="导出文件路径")
     dpm.add_argument("--auto-submit", action="store_true", help="确认后提交 profitable 产品到 Worker")
@@ -2135,6 +2418,38 @@ def main() -> int:
     dpm.add_argument("--notify", action="store_true",
                      help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
     dpm.set_defaults(func=cmd_discover_multi)
+
+    # discover-task（漏斗 v2 Task 8b: 任务式全自动选品，无人值守）
+    dtp = sub.add_parser("discover-task",
+                         help="Ozon 选品 · 任务式全自动（采集→粗筛→自动匹配→入采集箱）")
+    dtp.add_argument("--url", default="",
+                     help="入口 URL（highlight/搜索/类目/店铺页均可；与 --keyword 二选一）")
+    dtp.add_argument("--keyword", default="", help="关键词（中国站 highlight 页内搜索）")
+    dtp.add_argument("--target-count", type=int, default=50, help="目标采集数量（默认 50）")
+    dtp.add_argument("--filter-profile", default=None, choices=["off", "ai"],
+                     help="粗筛档位（任务式缺省 ai；off=不粗筛）")
+    dtp.add_argument("--base-filter", default="",
+                     help="自定义区间粗筛 \"monthly_sales>=50,drr<=15\"（与 --filter-profile 叠加）")
+    dtp.add_argument("--min-margin", type=float, default=15.0,
+                     help="利润率门槛 %%（默认 15；低于 → rejected）")
+    dtp.add_argument("--fx-rate", type=float, default=None,
+                     help="RUB→CNY 汇率（缺省走店铺/全局配置/默认）")
+    dtp.add_argument("--match-limit", type=int, default=30,
+                     help="自动匹配数上限（默认 30，护 aibuy 配额）")
+    dtp.add_argument("--match-concurrency", type=int, default=1, choices=[1, 2],
+                     help="1688 图搜并发（默认 1 串行；2=分块并行，反爬纪律 ≤2 对齐上品帮）")
+    dtp.add_argument("--no-match-streak-stop", type=int, default=5,
+                     help="连续 N 次 no_match 早停（默认 5，货源池耗尽信号；0=不停）")
+    dtp.add_argument("--store", default="", help="Ozon 店铺名（--to-box 信封凭证来源）")
+    dtp.add_argument("--to-box", action="store_true",
+                     help="profitable 候选逐条入采集箱（POST /api/v1/drafts）；不传=干跑统计")
+    dtp.add_argument("--dry-run", action="store_true",
+                     help="强制干跑（不出信封不入箱，只打印将提交清单）")
+    dtp.add_argument("--resume", action="store_true",
+                     help="续跑同入口最近任务（跳过已入箱 pid）")
+    dtp.add_argument("--no-analytics", action="store_true", help="跳过 seller 运营指标富化")
+    dtp.add_argument("--export", default="", help="全量候选 CSV 导出路径")
+    dtp.set_defaults(func=cmd_discover_task)
 
 
     # ── 自动更新 ──
@@ -2182,6 +2497,25 @@ def main() -> int:
     clp.add_argument("--all", action="store_true", help="执行全部清理项")
     clp.set_defaults(func=cmd_cleanup)
 
+    return parser
+
+
+def main() -> int:
+    # ✅ v0.69 T0.5: win32 stdout/stderr 编码兜底——重定向流（`> out.json`）默认
+    # ANSI 代码页，输出含 emoji/非 ASCII 抛 UnicodeEncodeError → 文件 0 字节
+    # （生产实证）。统一 reconfigure 为 UTF-8 + replace；失败静默（流可能是
+    # 无 reconfigure 方法的替代对象）。非 win32 平台零变化。
+    if sys.platform == "win32":
+        for _s in (sys.stdout, sys.stderr):
+            try:
+                _s.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+    # ⚠️ v0.35: Sentry 错误上报（environment="skill"）。argparse 解析之前调用——
+    # DSN 未设置 / SDK 缺失 / 测试进程时静默 no-op，绝不影响 --help / argparse 报错。
+    _init_sentry()
+
+    parser = build_arg_parser()
     args = parser.parse_args()
     if not args.command:
         parser.print_help()

@@ -1,4 +1,4 @@
-"""FastMCP 工厂 —— 把 skill CLI 的 19 个命令注册为 MCP 工具。
+"""FastMCP 工厂 —— 把 skill CLI 命令注册为 22 个 MCP 工具（v0.69 discover-task 起）。
 
 设计原则（见 docs/ozonharness/MCP-TOOLS.md）：
 - 薄封装：每个工具 = 参数映射 CLI flag + run_skill_command，业务逻辑留在 skill
@@ -124,6 +124,23 @@ def discover_multi(keywords: str, max_each: int = 30, local: bool = False,
     return get_manager().run_and_record("discover_multi",
         {"keywords": keywords, "max_each": max_each, "local": local,
          "min_margin": min_margin, "store": store, "auto_submit": auto_submit, "to_box": to_box},
+        source="agent")
+
+
+@mcp.tool()
+def discover_task(url: str = "", keyword: str = "", target_count: int = 50,
+                  min_margin: float = 15.0, match_limit: int = 30,
+                  match_concurrency: int = 1, store: str = "",
+                  to_box: bool = False, dry_run: bool = True,
+                  resume: bool = False) -> dict:
+    """任务式全自动选品（漏斗 v2）：采集 → ai 粗筛 → 自动 1688 匹配（限额+早停）→ 利润精筛。
+    dry_run=True（默认）只统计不入箱零副作用；to_box=True 逐条入采集箱（POST /drafts），
+    真实写操作须 dsh 侧审批。resume 续跑同入口最近任务（跳过已入箱 pid）。"""
+    return get_manager().run_and_record("discover_task",
+        {"url": url, "keyword": keyword, "target_count": target_count,
+         "min_margin": min_margin, "match_limit": match_limit,
+         "match_concurrency": match_concurrency, "store": store,
+         "to_box": to_box, "dry_run": dry_run, "resume": resume},
         source="agent")
 
 

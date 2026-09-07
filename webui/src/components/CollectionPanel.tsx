@@ -449,9 +449,10 @@ export default function CollectionPanel() {
           : error ? <div className="panel"><PanelError message={error} onRetry={reload}/></div>
           : filtered.length === 0 ? <div className="panel"><PanelEmpty text={q ? "没有匹配的草稿" : "采集箱为空，点击「＋ 添加商品」创建草稿"}/></div>
           : <article className="panel source-table">
-              <div className="source-head"><span>商品信息</span><span>来源平台 / 货源地址</span><span>价格</span><span>采集状态</span><span>导入状态</span><span>采集时间</span><span>操作</span></div>
+              <div className="source-head"><span>商品信息</span><span>来源平台 / 货源地址</span><span>价格</span><span>蓝海分</span><span>月销</span><span>利润率%</span><span>采集状态</span><span>导入状态</span><span>采集时间</span><span>操作</span></div>
               {filtered.map((d) => {
                 const f = draftFields(d)
+                const meta = d.payload?.extensions?.discovery_meta
                 const image = f.images?.[0]
                 const cost = f.purchase_cost
                 const checked = selected.has(d.id)
@@ -476,6 +477,9 @@ export default function CollectionPanel() {
                     </div>
                     <div className="platform-cell"><em>{d.source === "webui" ? "WebUI" : d.source || "ERP"}</em>{f.purchase_url ? <a href={f.purchase_url} target="_blank" rel="noreferrer">货源地址 ↗</a> : <span>—</span>}</div>
                     <span>{cost ? `¥ ${formatPrice(cost)}` : "—"}</span>
+                    <span>{meta?.blue_ocean_score ?? "—"}</span>
+                    <span>{meta?.monthly_sales ?? "—"}</span>
+                    <span>{meta?.profit_margin ?? "—"}</span>
                     <span className="status green">已采集</span>
                     <span className={`status ${submissionStatusClass(d.submission_status)}`}>{submissionStatusText(d.submission_status)}</span>
                     <time>{formatDateTime(d.created_at)}</time>

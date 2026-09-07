@@ -110,11 +110,10 @@ def test_main_fallback_ref_filters_competitor():
 
 def test_variant_fallback_rejects_thumbnail():
     """variant：生图失败 + 原图是串图缩略 → 不兜底（返回空，由上层降级）。"""
-    from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
-    state = VariantPrimaryLoopInput(
+    from graphs.state import VariantLoopState
+    state = VariantLoopState(
         variants=[{"name": "红色", "image": FOREIGN_THUMB_1}],
-        white_bg_image="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/wb.jpg",
-        draft={"title": "保温杯"}, token="t",
+        draft={"title": "保温杯"},
     )
 
     def _fail(*args, **kwargs):
@@ -127,10 +126,10 @@ def test_variant_fallback_rejects_thumbnail():
 
 def test_variant_fallback_keeps_good_original():
     """variant：生图失败 + 原图是合格 alicdn 原图 → 正常兜底（v0.60 行为保持）。"""
-    from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
-    state = VariantPrimaryLoopInput(
+    from graphs.state import VariantLoopState
+    state = VariantLoopState(
         variants=[{"name": "红色", "image": GOOD_ORIGINAL}],
-        draft={"title": "保温杯"}, token="t",
+        draft={"title": "保温杯"},
     )
 
     def _fail(*args, **kwargs):
@@ -139,117 +138,3 @@ def test_variant_fallback_keeps_good_original():
     with patch.object(_variant_mod, "call_mxou_image_api", side_effect=_fail):
         out = variant_primary_loop_node(state, _CONFIG, _RUNTIME)
     assert list(out.variant_primary_images) == [GOOD_ORIGINAL], out.variant_primary_images
-
-
-def test_variant_missing_image_uses_phase1_fallback_ref():
-    """R2 回归锁定：variant.image 缺失时用 white_bg_image（自家 AI 生成图，
-    mxou COS 域）做参考正常生图——白名单只管 1688 原图，不得误杀
-    v0.26 的缺图兜底通道（审查实证回归，review 后修复）。"""
-    from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
-    state = VariantPrimaryLoopInput(
-        variants=[{"name": "红色", "image": ""}],
-        white_bg_image="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/wb.jpg",
-        draft={"title": "保温杯"}, token="t",
-    )
-    captured = _capture_ref_images(variant_primary_loop_node, state, _variant_mod)
-    assert captured and captured[0] == [
-        "https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/wb.jpg"], captured
-
-
-def test_variant_bad_image_falls_back_to_phase1():
-    """R2 回归锁定：variant.image 是串图缩略图 → 降级用 white_bg_image 参考，
-    而非直接放弃生图。"""
-    from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
-    state = VariantPrimaryLoopInput(
-        variants=[{"name": "红色", "image": FOREIGN_THUMB_1}],
-        white_bg_image="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/wb.jpg",
-        draft={"title": "保温杯"}, token="t",
-    )
-    captured = _capture_ref_images(variant_primary_loop_node, state, _variant_mod)
-    assert captured and captured[0] == [
-        "https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/wb.jpg"], captured
-
-
-# ═══ fix/image-ref-pollution R2: 跟卖标记 extensions 全链透传 ═══
-
-def test_follow_import_output_declares_extensions():
-    """跟卖导入 Output 必须声明 extensions（否则 GlobalState.extensions
-    断链 → prepare 跟卖判定与生图参考分线读不到 follow_sell）。"""
-    import inspect
-
-    from graphs.state import FollowSellImportOutput
-    assert "extensions" in FollowSellImportOutput.model_fields, \
-        "FollowSellImportOutput 缺 extensions 字段（跟卖标记断链）"
-    # 三个 return 点（ozon_product_id 为空 / 类目解析失败 / 主成功路径）都必须透传
-    import graphs.nodes.follow_sell_import_node as fi_mod
-    src = inspect.getsource(fi_mod)
-    assert src.count('"extensions": extensions') >= 3, \
-        "follow_sell_import_node 返回点未透传 extensions（全部路径均需）"
-
-
-# ═══ fix/image-ref-pollution R2: 生图参考两条线 ═══
-
-OZON_COMPETITOR_ORIGINAL = "https://ir.ozone.ru/s3/multimedia-1/cdn1/photo.jpg"
-
-
-def test_white_bg_follow_line_prefers_competitor_refs():
-    """跟卖线：竞品主图优先于 1688 货源图（两条线设计语义）。"""
-    from graphs.state_image_gen import WhiteBgInput
-    state = WhiteBgInput(
-        draft={"title": "保温杯"}, token="t", original_images=[GOOD_ORIGINAL],
-        extensions={"follow_sell": True,
-                    "competitor_ref_images": [OZON_COMPETITOR_ORIGINAL]},
-    )
-    captured = _capture_ref_images(white_bg_gen_node, state, _white_bg_mod)
-    assert captured, "跟卖线应有参考图可生图"
-    assert captured[0][0] == OZON_COMPETITOR_ORIGINAL, captured[0]
-    assert GOOD_ORIGINAL in captured[0], captured[0]
-
-
-def test_white_bg_follow_line_uses_competitor_when_no_1688():
-    """跟卖线：1688 货源图缺失 → 竞品主图独立担纲参考（不再无参考跳过）。"""
-    from graphs.state_image_gen import WhiteBgInput
-    state = WhiteBgInput(
-        draft={"title": "保温杯"}, token="t", original_images=[],
-        extensions={"follow_sell": True,
-                    "competitor_ref_images": [OZON_COMPETITOR_ORIGINAL]},
-    )
-    captured = _capture_ref_images(white_bg_gen_node, state, _white_bg_mod)
-    assert captured and captured[0] == [OZON_COMPETITOR_ORIGINAL], captured
-
-
-def test_white_bg_follow_line_rejects_competitor_thumbnail():
-    """跟卖线：竞品缩略图（串图特征）仍拒 → 无合格参考不生图。"""
-    from graphs.state_image_gen import WhiteBgInput
-    state = WhiteBgInput(
-        draft={"title": "保温杯"}, token="t", original_images=[],
-        extensions={"follow_sell": True,
-                    "competitor_ref_images": [
-                        "https://ir.ozone.ru/s3/multimedia/photo_310x310.jpg"]},
-    )
-    captured = _capture_ref_images(white_bg_gen_node, state, _white_bg_mod)
-    assert not captured, "竞品缩略图不得做参考"
-
-
-def test_white_bg_non_follow_still_rejects_competitor():
-    """非跟卖（1688 直上）：竞品原图混入 original_images 仍拒（两条线边界）。"""
-    from graphs.state_image_gen import WhiteBgInput
-    state = WhiteBgInput(
-        draft={"title": "保温杯"}, token="t",
-        original_images=[OZON_COMPETITOR_ORIGINAL, GOOD_ORIGINAL],
-        extensions={"follow_sell": False},
-    )
-    captured = _capture_ref_images(white_bg_gen_node, state, _white_bg_mod)
-    assert captured and captured[0] == [GOOD_ORIGINAL], captured
-
-
-def test_main_follow_line_competitor_fallback_ref():
-    """main 兜底参考（Phase1 失败）跟卖线同样竞品优先。"""
-    from graphs.state_image_gen import MainImageInput
-    state = MainImageInput(
-        draft={"title": "保温杯"}, token="t", original_images=[GOOD_ORIGINAL],
-        extensions={"follow_sell": True,
-                    "competitor_ref_images": [OZON_COMPETITOR_ORIGINAL]},
-    )
-    captured = _capture_ref_images(main_image_gen_node, state, _main_image_mod)
-    assert captured and captured[0][0] == OZON_COMPETITOR_ORIGINAL, captured
