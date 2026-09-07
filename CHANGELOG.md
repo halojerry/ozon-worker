@@ -4,7 +4,8 @@
 
 > 生产实机反馈 17 项问题（`data/official_feedback_20260907.md`）+ 类目链 Wave D 收尾。
 > 全部 TDD + 本地 Docker 构造单实证（S1 manual 直通/clamp/8962 清洗、S2 弃权入箱幂等、
-> S3 auth 失败短路、S4 阻断入箱）。worker 1985 / skill 766 全绿。
+> S3 auth 失败短路、S4 阻断入箱）。worker 1987 / skill 770 全绿（含合并
+> fix/image-ref-pollution-clean 串图两条线 + feat/discover-v2-references 静默模型后回归）。
 
 ### 类目链（今日 4 单类目失败直接根因）
 - **manual 类目直传**：skill `--category-id/--type-id` 直传信封（source=manual），
@@ -58,7 +59,7 @@
   小节对齐实现。
 
 ### 测试与修复附带
-- worker 1985 / skill 766；新增测试 9 文件 120+ 用例；
+- worker 1987 / skill 770；新增测试 9 文件 120+ 用例；
 - follow 门控 4 元组解包修复（潜在 ValueError）；import_submitted 死代码修复；
   dashboard 测试 UTC 日期对齐（service 用 UTC 日、测试用会话时区 CURRENT_DATE，
   北京 0 点后假失败）+ append-only history 租户级清理。
