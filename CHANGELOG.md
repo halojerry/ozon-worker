@@ -58,6 +58,28 @@
   重调 Ozon）；warm 脚本补 `--all` + `--coverage` 覆盖率审计命令；AGENTS.md 属性缓存
   小节对齐实现。
 
+### E2E 实证与新增通道（2026-09-08 端到端完整测试）
+- **route_after_assemble 修复（E2E 实证出的生产级 bug）**：受限闸出口
+  match_confidence=0.0 被 `or 1.0` falsy 吞成 1.0 + 路由不消费
+  failed_stage="category_match" 通道 → **阻断后流程空跑到上传**（算力白烧，
+  Ozon 拒审文案覆盖阻断文案，入箱 draft 已建但单照传）。改 failed_stage 判定 +
+  显式 None 判断；`test_route_after_assemble_v069.py` 6 用例锁定。
+- **错误报告通道**：`POST/GET /api/v1/error_reports` + `error_reports` 表 +
+  pounding-mcp `report_issue`/`list_error_reports` 工具（模板契约
+  `docs/ERROR-REPORT-TEMPLATE.md`）——用户问题反馈结构化落库，agent 按模板填写
+  （含复现方式），worker 按 evidence.task_ids **自动附任务快照**（status/error/
+  product_id/时间线），修复闭环 status 流转。
+- **E2E 矩阵（本地 Docker 全链路 + 测试店 5381204 真实上传，凭证零明文）**：
+  manual 直传 + clamp 430→400 → completed 出真卡 **Ozon 过审 approved**
+  （留存 final_dims_mm width=400、layer=Skill、三档价 254/305、俄语标题）；
+  同 offer 重提 → **同 product_id 覆盖更新**（UPSERT_BY_OFFER 消 _0 尸体卡）；
+  page 来源汽油桶类 → **受限闸拦截入箱生效**（配 route 修复后全链路终止）；
+  page 豁免对照单过闸过审；空 token → auth 短路 failed「Token is required」；
+  自动匹配躲开受限类目跑完全程 → **T0.4 闸把「完成但无商品」如实判 failed**；
+  T3.3 attribute_cache 回写落表；全单零 INCORRECT_DIMENSION/VALUE_MAX_LIMIT。
+  ⚠️ 已知：生图后 404 参考图守卫失效（validate 探测的是生图产物非原始参考图），
+  想在原始图层拦上传需另设断点，随下批。
+
 ### 测试与修复附带
 - worker 1987 / skill 770；新增测试 9 文件 120+ 用例；
 - follow 门控 4 元组解包修复（潜在 ValueError）；import_submitted 死代码修复；

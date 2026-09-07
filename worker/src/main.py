@@ -2493,6 +2493,74 @@ async def v1_discovery_list_runs(request: Request):
     return {"items": items, "total": int(total or 0), "limit": limit, "offset": offset}
 
 
+@v1.post("/error_reports", tags=["error-reports"])
+async def v1_create_error_report(request: Request):
+    """用户问题反馈错误报告（v0.69）：agent 按模板填写（含复现方式/证据）→ 落库。
+
+    worker 按 evidence.task_ids 自动附加本租户任务快照（假成功取证实证：
+    快照自带 status/error/product_id/时间线，报告自足可复现）。
+    模板契约：docs/ERROR-REPORT-TEMPLATE.md。鉴权/限流与 analytics 同源。
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean_token)
+    allowed, _remaining = rate_limiter.check(clean_token)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="body must be a JSON object")
+
+    tenant_id = _key_user_id(clean_token)
+    from services.error_report_service import create_error_report
+    try:
+        out = create_error_report(
+            tenant_id, body,
+            worker_version=(os.environ.get("APP_VERSION", "") or "").strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {"status": "ok", **out}
+
+
+@v1.get("/error_reports", tags=["error-reports"])
+async def v1_list_error_reports(request: Request):
+    """本租户错误报告列表（新→旧，status 可筛，limit≤200）。详情：?report_id=。"""
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean_token)
+    tenant_id = _key_user_id(clean_token)
+
+    q = request.query_params
+    rid = (q.get("report_id") or "").strip()
+    from services.error_report_service import get_error_report, list_error_reports
+    if rid:
+        detail = get_error_report(tenant_id, rid)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="report not found")
+        return detail
+    try:
+        limit = max(1, min(int(q.get("limit", 50)), 200))
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        offset = max(0, int(q.get("offset", 0)))
+    except (TypeError, ValueError):
+        offset = 0
+    return list_error_reports(tenant_id, limit=limit, offset=offset,
+                              status=(q.get("status") or "").strip() or None)
+
+
 @v1.get("/mappings/lookup", tags=["analytics"])
 async def v1_mappings_lookup(request: Request):
     """类目映射查询（W11）：skill 端按关键词查已学习 Ozon 类目映射。
