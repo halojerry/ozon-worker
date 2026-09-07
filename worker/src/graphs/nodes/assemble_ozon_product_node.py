@@ -37,6 +37,7 @@ from utils.progress_logger import ProgressLogger
 from utils.ozon_category_query import (
     get_category_query, OzonCategoryQuery,
     _MODIFIER_WORDS,  # v0.65.1 R2: overlap 验证排除修饰词
+    _strip_modifier_substrings,  # v0.69 R2b 判据 a: 源词核心 token（剥修饰词）
     sensitive_candidate_filter, sensitive_adoption_blocked,  # v0.65.1 R1
 )
 from utils.http_session import session
@@ -361,6 +362,121 @@ def _non_generic_overlap_words(path: str, texts) -> set:
             if len(w) >= 2:
                 words.add(w)
     return {w for w in words if w in low and w not in _OVERLAP_EXCLUDE}
+
+
+# ── v0.69 R2b 放行判据三点升级 ──
+# 生产取证（暖风机/取暖器 10 单全阻断）：dc 落 17039635（空调设备，域对），树内近叶
+# 加热器 91448/水暖风机 971109685/电加热器 96040——旧判据只认源词 vs full_path 字面
+# 命中，「暖风机」vs「加热器」零字面重叠 → LLM 看图选了也全阻断；西里尔源词 vs 中文
+# 树路径重叠结构性趋空。a=叶子名子串 / b=西里尔 RU 路径 / c=LLM vision 同大类确认。
+# 西里尔泛词黑名单（RU 路径 overlap 剔除，语义对齐 _GENERIC_OVERLAP）。
+_GENERIC_OVERLAP_RU = {
+    "для", "товары", "товаров", "дом", "дома", "дачи", "прочее", "прочие",
+    "другое", "разное", "аксессуары", "изделия", "продукты", "средства",
+    "общие", "иные",
+}
+
+
+def _has_cyrillic(text: str) -> bool:
+    """源词是否含西里尔字母（判据 b 前置）。"""
+    return bool(re.search(r"[а-яё]", str(text or "").lower()))
+
+
+def _leaf_substring_overlap(node_name: str, texts) -> set:
+    """判据 a：源词（≥2 字非泛词）作为候选叶子 node_name 子串的命中集。
+
+    水暖风机 ⊇ 暖风机——叶子真命中的漏判面；源词含修饰词时剥出核心 token
+    再试（儿童暖风机 → 暖风机）。
+    """
+    if not node_name:
+        return set()
+    low = str(node_name).lower()
+    hits: set = set()
+    for t in texts or []:
+        for w in str(t or "").split():
+            w = w.strip().lower()
+            if len(w) < 2 or w in _OVERLAP_EXCLUDE:
+                continue
+            if w in low:
+                hits.add(w)
+                continue
+            core = _strip_modifier_substrings(w)
+            if core and core != w and core not in _OVERLAP_EXCLUDE and core in low:
+                hits.add(core)
+    return hits
+
+
+def _ru_tree_full_path(query, cand: dict) -> str:
+    """候选 dc+tp 的 RU 树路径（category_tree_nodes language=RU 行；失败返回空串）。"""
+    try:
+        node = query.get_node(
+            int(cand.get("description_category_id") or 0),
+            int(cand.get("type_id") or 0),
+            language="RU",
+        )
+    except Exception as _e:
+        logger.debug(f"RU 树路径查询失败: {_e}")
+        return ""
+    return str((node or {}).get("full_path") or "")
+
+
+def _r2b_source_hit_candidates(pool: list, texts) -> list:
+    """判据 c 前置：仲裁池内与源词有非泛词命中（full_path 字面或叶子名子串）
+    的候选——文本侧认为可信的「域锚点」。"""
+    hits: list = []
+    for c in (pool or []):
+        if (_non_generic_overlap_words(str(c.get("full_path") or ""), texts)
+                or _leaf_substring_overlap(str(c.get("node_name") or ""), texts)):
+            hits.append(c)
+    return hits
+
+
+def _r2b_confirm_adoption(confirm: dict | None, pool: list, source_text: str,
+                          draft: dict, query=None):
+    """v0.69 R2b 放行判据（纯函数可单测；query 仅判据 b 的 RU 路径查询用）。
+
+    判定顺序：
+      ① full_path 字面 overlap（v0.65.1 原判据保持）；
+      ② 叶子名子串（判据 a）；
+      ③ 西里尔源词 → dc+tp 查 RU 树路径 overlap（判据 b）；
+      ④ LLM 带图明确选中（candidate_index 有效）且该候选与池内源词命中候选
+        同 top_level 大类（_top_level_segment 一致）→ 视为确认（判据 c）。
+    LLM 未选（abstain/解析失败/建议词标记）→ 一律不放行（仍阻断）。
+
+    Returns:
+        (overlap_words: set, vision_confirmed: bool, reason: str)
+        overlap_words 非空或 vision_confirmed=True → 放行；两者皆空 → 阻断。
+    """
+    texts = [str(source_text or "")]
+    if (not isinstance(confirm, dict) or confirm.get("_llm_suggest")
+            or not confirm.get("description_category_id")):
+        return set(), False, "LLM 未选中候选（abstain/解析失败/建议词）"
+    # ① full_path 字面 overlap（原判据）
+    _path = str(confirm.get("full_path") or confirm.get("category_path") or "")
+    ov = _non_generic_overlap_words(_path, texts)
+    if ov:
+        return ov, False, f"非泛词 overlap={sorted(ov)}"
+    # ② 叶子名子串（判据 a）
+    ov = _leaf_substring_overlap(str(confirm.get("node_name") or ""), texts)
+    if ov:
+        return ov, False, f"叶子名子串 overlap={sorted(ov)}"
+    # ③ 西里尔源词 → RU 树路径 overlap（判据 b）
+    if _has_cyrillic(source_text) and query is not None:
+        ru_path = _ru_tree_full_path(query, confirm)
+        if ru_path:
+            ov = {w for w in _non_generic_overlap_words(ru_path, texts)
+                  if w not in _GENERIC_OVERLAP_RU}
+            if ov:
+                return ov, False, f"RU 路径 overlap={sorted(ov)}"
+    # ④ LLM vision 选中 + 与池内源词命中候选同顶层大类（判据 c）
+    if (draft or {}).get("images"):
+        confirm_tl = _top_level_segment(confirm)
+        if confirm_tl:
+            for h in _r2b_source_hit_candidates(pool, texts):
+                h_tl = _top_level_segment(h)
+                if h_tl and h_tl == confirm_tl:
+                    return set(), True, f"LLM vision 选中与源词命中候选同大类({confirm_tl})"
+    return set(), False, "无非泛词 overlap 且无同大类 vision 确认"
 
 
 def _l0_weak_arbitrate(l0_hit: dict | None, candidates: list, source_keywords: str,
@@ -936,8 +1052,11 @@ def assemble_ozon_product_node(
 
     if not title:
         logger.error("产品标题为空，无法进行类目匹配")
+        # ✅ v0.69 T2.2: 阻断出口统一带 failed_stage——task_processor _is_failed
+        # 的 (error_message 且 failed_stage) 条件据此命中，阻断不再假 completed。
         return {"error_message": "产品标题为空，无法进行类目匹配",
-                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1}
+                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
+                "failed_stage": "category_match"}
 
     # 🆕 跟卖模式：类目已由前序节点设置（或 Skill 从 Ozon 页面提取），直接跳到属性组装
     extensions = state.envelope.get("extensions", {}) if state.envelope else {}
@@ -1171,8 +1290,10 @@ def assemble_ozon_product_node(
 
     if not candidates:
         logger.error("❌ 类目搜索无结果（Ozon API 也无数据）")
+        # ✅ v0.69 T2.2: 阻断出口统一带 failed_stage（防 task_processor 假 completed）
         return {"error_message": "类目匹配失败：无候选类目",
-                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1}
+                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
+                "failed_stage": "category_match"}
 
     logger.info(f"   pg_trgm 返回 {len(candidates)} 个候选")
 
@@ -1438,17 +1559,21 @@ def assemble_ozon_product_node(
                         )
                         match_confidence = 0.0
                         _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
+                        # ✅ v0.69 T2.2: 阻断即终态失败（防 task_processor 假 completed）
                         return {"error_message": "类目匹配失败：LLM fallback 无可靠结果（需人工确认类目），阻断上架",
                                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
-                                "match_confidence": 0.0}
+                                "match_confidence": 0.0,
+                                "failed_stage": "category_match"}
                 else:
                     # ✅ v5: LLM 也失败 → 阻断上架，不硬用低质量候选
                     match_confidence = 0.0
                     logger.error(f"   🛑 LLM fallback 也失败，无可靠类目匹配，阻断上架")
                     _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
+                    # ✅ v0.69 T2.2: 阻断即终态失败（防 task_processor 假 completed）
                     return {"error_message": "类目匹配失败：jieba搜索+LLM均无可靠结果，阻断上架避免错误类目",
                             "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
-                            "match_confidence": 0.0}
+                            "match_confidence": 0.0,
+                            "failed_stage": "category_match"}
 
     # ✅ v0.65.1 R1 闸点(b)/P1-2: 定稿采纳点——最终结果落敏感大类子树且源无敏感
     # 信号词 → 否决。所有层（含权威 Skill / L0）都过此闸；唯一豁免 = 竞品模式的
@@ -1466,10 +1591,12 @@ def assemble_ozon_product_node(
         )
         match_confidence = 0.0
         _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
+        # ✅ v0.69 T2.2: 阻断即终态失败（防 task_processor 假 completed）
         return {"error_message": "类目匹配失败：候选类目为敏感类目(成人用品/18+/烟草/药品等)"
                                  "但商品来源无对应敏感信号词，需人工确认类目",
                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
-                "match_confidence": 0.0}
+                "match_confidence": 0.0,
+                "failed_stage": "category_match"}
 
     # ✅ v0.65.1 R2b/P1-3: L1 采纳点质量闸——两类情况强制 LLM 确认（复用
     # _llm_rank_categories），确认结果无非泛词（非泛化非修饰）overlap → 阻断：
@@ -1493,48 +1620,49 @@ def assemble_ozon_product_node(
                 f"   ⚠️ R2b ({_reason}): 强制 LLM 确认 — top1 sim={_sim_now:.3f}, "
                 f"rival={(_rival or {}).get('full_path', '')[:60]}"
             )
+            _r2b_pool = _build_r2b_confirm_pool(candidates, category_result,
+                                                source_keywords or keywords)
             _confirm = _llm_rank_categories(
-                _build_r2b_confirm_pool(candidates, category_result,
-                                        source_keywords or keywords),
+                _r2b_pool,
                 source_keywords or keywords, draft, state,
                 context=f"当前拟采纳: {str((category_result or {}).get('category_path', ''))[:80]}"
                         f"；1688源类目: {str(source_category or '')[:60]}",
             )
-            _confirm_path = ""
-            _confirm_overlap: set = set()
-            if _confirm and not _confirm.get("_llm_suggest") and _confirm.get("description_category_id"):
-                _confirm_path = str(_confirm.get("full_path")
-                                    or _confirm.get("category_path") or "").lower()
-                _confirm_overlap = _non_generic_overlap_words(
-                    _confirm_path, [source_keywords or keywords]
-                )
-            if _confirm_overlap:
+            # ✅ v0.69: 放行判据三点升级（full_path 字面/叶子名子串/西里尔 RU 路径/
+            # LLM vision 选中且与源词命中候选同 top_level 大类），见 _r2b_confirm_adoption。
+            _confirm_overlap, _vision_confirmed, _confirm_why = _r2b_confirm_adoption(
+                _confirm, _r2b_pool, source_keywords or keywords, draft, query,
+            )
+            if _confirm_overlap or _vision_confirmed:
                 category_result = {
                     "description_category_id": _confirm["description_category_id"],
                     "type_id": _confirm["type_id"],
                     "category_path": _confirm.get("full_path", _confirm.get("category_path", "")),
                     "confidence": "medium",
-                    "reason": f"R2b_LLM_confirm({_reason}, sim={_sim_now:.3f}, words={_confirm_overlap})",
+                    "reason": f"R2b_LLM_confirm({_reason}, sim={_sim_now:.3f}, {_confirm_why})",
                     "similarity": _confirm.get("similarity", 0),
                     "matcher": _confirm.get("matcher", "jieba"),
                 }
                 match_confidence = _confidence_from_sim(_confirm.get("similarity"))
                 _r2b_confirmed = True
                 logger.info(
-                    f"   ✅ R2b LLM 确认通过（非泛词 overlap）: "
-                    f"{category_result['category_path'][:80]} {_confirm_overlap}"
+                    f"   ✅ R2b LLM 确认通过（{_confirm_why}）: "
+                    f"{category_result['category_path'][:80]}"
                 )
             else:
                 logger.error(
-                    f"   🛑 R2b ({_reason}): LLM 确认无可靠结果/无非泛词 overlap"
-                    f"（sim={_sim_now:.3f}），阻断上架避免错类目"
+                    f"   🛑 R2b ({_reason}): LLM 确认无可靠结果（{_confirm_why}"
+                    f"，sim={_sim_now:.3f}），阻断上架避免错类目"
                 )
                 match_confidence = 0.0
                 _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
+                # ✅ v0.69 T2.2: 阻断即终态失败——缺 failed_stage 时 task_processor
+                # _is_failed 判 False → 假 completed（任务表/采集箱显示成功但实际被拦）。
                 return {"error_message": "类目匹配失败：低置信/歧义类目经 LLM 确认后仍无可靠匹配"
                                          "（需人工确认类目），阻断上架",
                         "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
-                        "match_confidence": 0.0}
+                        "match_confidence": 0.0,
+                        "failed_stage": "category_match"}
 
     # ✅ v0.31.x: 最终采纳点门槛 — 非 L0/Skill 且 sim 低于接受门槛 → 走既有阻断分支。
     # 防低分错配（如 sim=0.200 的『儿童多功能学习挂图』）经 direct/overlap/LLM 任一
@@ -1548,9 +1676,11 @@ def assemble_ozon_product_node(
         )
         match_confidence = 0.0
         _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
+        # ✅ v0.69 T2.2: 阻断即终态失败（防 task_processor 假 completed）
         return {"error_message": "类目匹配失败：类目相似度低于接受门槛（需人工确认类目），阻断上架",
                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
-                "match_confidence": 0.0}
+                "match_confidence": 0.0,
+                "failed_stage": "category_match"}
 
     # ✅ v4: 审计日志 — 记录本次匹配详情到 category_match_log
     # v0.67 P1-6: 传 config（task_id 取 thread_id = 任务 DB 行 uuid，可关联留存表）
@@ -1572,8 +1702,10 @@ def assemble_ozon_product_node(
                 break
         if type_id <= 0:
             logger.error("   ❌ 类目匹配失败：所有候选的 type_id 都无效")
+            # ✅ v0.69 T2.2: 阻断即终态失败（防 task_processor 假 completed）
             return {"error_message": "类目匹配失败：type_id 无效",
-                    "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1}
+                    "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
+                    "failed_stage": "category_match"}
     
     # ✅ 修正 LLM 输出：LLM 有时把 type_id 填到 description_category_id
     # 从 candidates 中查找正确的 description_category_id
