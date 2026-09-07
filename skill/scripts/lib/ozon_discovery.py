@@ -2284,11 +2284,18 @@ def _pick_best_match(
     # "花插¥1/活体羊驼¥2000"正是无徽章场景）。
     if trusted_source:
         if best_idx <= 1:
-            logger.info("aibuy 官方排序放行（rank=%d, norm=%.3f）: %s",
+            # 漏斗 v2 收尾修复：放行 conf 取下限 0.5——aibuy 候选不带相似度
+            # （conf 恒 0.0），原样透传会被 _process_match 出口 _MIN_SOURCE_
+            # CONFIDENCE(0.3) 硬门误杀，trusted 放行形同虚设（实机 to-box
+            # 13 连杀取证）。0.5 = 官方排序 top2 的基准信任（非相似度编造，
+            # 低于 badge 满配 1.0）；LLM 不同品拒绝仍在前面生效。
+            logger.info("aibuy 官方排序放行（rank=%d, norm=%.3f, conf→%.2f）: %s",
                         best_idx + 1,
                         float(best.get("normalization_score") or 0),
+                        max(_conf_of_best, 0.5),
                         best.get("title", "")[:40])
-            return _attach_match_meta(best, _conf_of_best, badge_eff_of_best, _best_score)
+            return _attach_match_meta(best, max(_conf_of_best, 0.5),
+                                      badge_eff_of_best, _best_score)
         logger.debug("aibuy 前 2 位无匹配（best rank=%d），继续护栏", best_idx + 1)
 
     # ⚠️ v0.26 FIX: LLM 语义兜底——词对词典覆盖极窄（「палочки от комаров 驱蚊棒」无词对 → conf=0），

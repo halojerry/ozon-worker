@@ -703,7 +703,9 @@ def _mtop_request(
         parsed = _parse_mtop_jsonp(resp.text)
         ret = parsed.get("ret") or []
         if ret and "SUCCESS" not in str(ret[0]):
-            logger.debug("aibuy mtop %s ret: %s", api, ret[0])
+            # W5 降级出声（漏斗 v2 收尾从 debug 提 warning）：失败原因必须可见，
+            # 否则只看到「未返回 imageUrl: {}」无法区分 token 失效/限流/风控
+            logger.warning("aibuy mtop %s ret: %s", api, ret[0])
             return {}
         return parsed.get("data") or {}
     except Exception as e:
