@@ -17,6 +17,8 @@ import logging
 import os
 from typing import List, Optional
 
+from utils import image_url_guard
+
 logger = logging.getLogger(__name__)
 
 
@@ -92,21 +94,12 @@ def _stable_key(url: str, prefix: str) -> str:
 def _is_reference_image(url: str) -> bool:
     """判断是否为参考图（竞品图 / 1688 缩略图），E1 兜底必须跳过。
 
-    v0.40.1 修复: 跟卖流程 original_images 含 Ozon 竞品图（ir.ozone.ru /
-    ir-20.ozonstatic.cn）和 1688 图搜缩略图（_460x460q100.jpg_.webp）——
-    只过滤 ir.ozone.ru 时这些参考图被当成产品图转存上传，Ozon 商品卡混入
-    竞品图/缩略图（实测 907172129...webp + 7786491361.webp）。
+    fix/image-ref-pollution 白名单化：线上「产品A卡片出现产品B图」——旧黑名单
+    （ir.ozone.ru / ozonstatic / ir-20.）漏 Ozon CDN 域名形态，且 1688 搜索
+    兜底串来的别家 _310x310 缩略图（alicdn 域）畅通无阻被转存直上卡。
+    现统一走 utils/image_url_guard 白名单：仅放行 alicdn/1688 域原尺寸图。
     """
-    if not isinstance(url, str):
-        return True
-    lowered = url.strip().lower()
-    if not lowered:
-        return True
-    # 竞品图 CDN
-    if "ir.ozone.ru" in lowered or "ozonstatic" in lowered or "ir-20." in lowered:
-        return True
-    # 1688 图搜缩略图（含 _460x460q100 / .webp 转换后缀）
-    return bool("_460x460" in lowered or lowered.endswith(".webp") or ".jpg_.webp" in lowered)
+    return not image_url_guard.is_product_image_candidate(url)
 
 
 def salvage_original_images(original_images: List[str], max_n: int = 8,
@@ -125,6 +118,8 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
         if len(saved) >= max_n:
             break
         if _is_reference_image(url):
+            # fix/image-ref-pollution: 拒绝原因可观测（串图取证靠这条日志）
+            logger.warning("E1 跳过非合格商品图（非alicdn原图或缩略/竞品图）: %s", url)
             continue
         try:
             resp = requests.get(url.strip(), timeout=15,

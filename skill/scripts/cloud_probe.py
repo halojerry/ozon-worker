@@ -1557,7 +1557,6 @@ def build_graph_envelope(
     title: str = "",
     poll_category: bool = True,
     max_skus: int | None = None,
-    fallback_images: list[str] | None = None,
     cdp: Any = None,
     template_id: str = "",
 ) -> dict[str, Any]:
@@ -1567,11 +1566,9 @@ def build_graph_envelope(
     2. CDP enrich_product_with_cdp(detail_url, api_data)
     3. Ozon category search (if poll_category=True)
     4. 组装为 {token, ozon_client_id, ozon_api_key, envelope}
-    
+
     Args:
         max_skus: SKU 数量上限（None=使用默认值15，0=不限制）
-        fallback_images: 1688 图片为空时使用的兜底图（如 follow 的 Ozon 竞品主图）。
-            仅当 get_best_product_images 结果为空时生效，放行「产品图片为空」校验门。
         cdp: 可选外部 CdpConnection 复用（P5/T3）——传入时 enrich 跳过浏览器查找/
             登录等待，直接用调用方连接探测。连接归调用方所有，本函数不关闭。
     """
@@ -1785,10 +1782,10 @@ def build_graph_envelope(
 
     # 图片
     images = get_best_product_images(data.get("images", []), limit=10)
-    # ⚠️ P4: 1688 图片为空但调用方提供兜底图（follow 的 Ozon 竞品主图）→ 用兜底，
-    # 放行「产品图片为空」校验门（1688 api_only 降级时图片可能为空）
-    if not images and fallback_images:
-        images = list(fallback_images)
+    # ⚠️ fix/image-ref-pollution: 废除 P4 fallback_images 兜底（曾把 Ozon 竞品
+    # 主图塞进 draft.images 放行校验门——竞品图做生图参考把竞品样子画进所有
+    # AI 图，线上「产品A卡片出现产品B图」根因之一）。1688 图空即图空，
+    # 「产品图片为空」校验门拦截，宁阻断不上错图。
 
     # 属性（v0.40: AK CPV/SKU 属性优先 + contextPath featureAttributes 全量 + DOM 补充）
     # 上品帮采集方案借鉴——1688 页面 context(...) 内嵌 JSON 的 featureAttributes
@@ -2603,7 +2600,6 @@ def build_graph_envelope_with_retry(
     max_retries: int = 3,
     retry_delay: float = 15.0,
     max_skus: int | None = None,
-    fallback_images: list[str] | None = None,
     cdp: Any = None,
     template_id: str = "",
 ) -> dict[str, Any]:
@@ -2627,7 +2623,6 @@ def build_graph_envelope_with_retry(
                 # 直采信封从此携带正确的 description_category_id/type_id(旧: False → 类目全靠 worker 猜)
                 poll_category=True,
                 max_skus=max_skus,
-                fallback_images=fallback_images,
                 cdp=cdp,
                 template_id=template_id,
             )
@@ -3834,14 +3829,14 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         if best_id:
             try:
                 detail_url = f"https://detail.1688.com/offer/{best_id}.html"
-                # ⚠️ P4: 1688 api_only 图片可能为空 → 用 Ozon 竞品主图兜底放行图片
-                # 校验门（draft.images 下方仍会被 Ozon 主图覆盖）；cdp 复用 shared 连接
+                # fix/image-ref-pollution: 不再把 Ozon 竞品主图传 fallback_images
+                # （竞品图进 draft.images 会做生图参考+E1 兜底直上，串成竞品卡）；
+                # 1688 api_only 无图 → 信封组装失败/校验门拦截，宁阻断不上错图
                 envelope = build_graph_envelope_with_retry(
                     item_id=best_id,
                     detail_url=detail_url,
                     store_id=store_id,
                     max_skus=DEFAULT_MULTI_SKU_MAX,
-                    fallback_images=ozon_images[:1] if ozon_images else None,
                     cdp=shared_cdp,
                 )
                 if envelope and envelope.get("envelope"):
@@ -3850,6 +3845,10 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     # 跟卖标记: Worker 走跟卖管线
                     draft["ozon_product_id"] = product_id
                     extensions["follow_sell"] = True
+                    # fix/image-ref-pollution: 竞品主图改放 extensions（仅供 worker
+                    # 识别跟卖参考语义，绝不进 draft.images/生图参考）
+                    if ozon_images:
+                        extensions["competitor_ref_images"] = list(ozon_images[:1])
                     # ✅ v0.22（参考 maozi follow_type）: hand=防侵权跟卖（默认，
                     # 跳过 import-by-sku 1:1 复制，走 CREATE 重建——我们管线重做
                     # 类目/属性/生图，天然防同款/侵权检测）；api=import-by-sku 强制
