@@ -2276,6 +2276,38 @@ def _assemble_match_evidence(
     return mev
 
 
+def _assemble_discovery_meta(candidate) -> dict[str, Any]:
+    """组装 discover 选品元数据快照（透传为 extensions.discovery_meta，采集箱展示用）。
+
+    drafts 表只存信封 JSONB，discover 阶段的选品分析元数据（蓝海分/月销/drr/
+    利润率/匹配置信度）此前终止在 skill 本地（仅 discovery_runs 归档，与 drafts
+    零关联）→ 采集箱条目看不到任何选品依据。本快照随信封 payload 落盘（worker
+    零迁移），webui 采集箱/CSV 导出直接消费。
+
+    字段缺失（None/空串/空 dict）省略键（对齐 match_evidence 风格）；0 是真实
+    数据（月销 0/跟卖 0/蓝海 0）保留；discovered_at 为组装时刻本地 ISO 时间戳。
+    扁平键恒 <2KB（信封增量纪律）。
+    """
+    meta: dict[str, Any] = {}
+    for key in (
+        "ozon_product_id", "ozon_url", "ozon_price",
+        "blue_ocean_score", "monthly_sales", "monthly_revenue",
+        "sales_growth", "drr", "create_days",
+        "competing_sellers", "rating", "review_count",
+        "weight_g", "profit_margin", "estimated_profit_cny",
+        "match_confidence",
+    ):
+        val = getattr(candidate, key, None)
+        if val is None or val == "":
+            continue
+        meta[key] = val
+    dims = getattr(candidate, "dimensions_mm", None)
+    if dims:
+        meta["dimensions_mm"] = dims
+    meta["discovered_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return meta
+
+
 def _inject_discovery_match_category(source: dict, candidate) -> dict:
     """把 discover 图搜候选的 1688 类目注入信封 source（v0.66.2）。
 
@@ -2521,6 +2553,13 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
                  for k in _mev},
             )
 
+        # ✅ discover 漏斗 v2: 选品元数据快照透传 extensions.discovery_meta（采集箱展示）。
+        # drafts payload 整存信封 → worker 零迁移，webui/CSV 直接消费；
+        # 上游/模板已带该键不覆盖（对齐 follow_type setdefault 语义）。
+        _dmeta = _assemble_discovery_meta(candidate)
+        if _dmeta:
+            extensions.setdefault("discovery_meta", _dmeta)
+
         # ✅ P0-5 修复：优先透传 build_graph_envelope_with_retry 已解析的凭证
         # （store_config 仅作兜底，避免提交空 Ozon 凭证）
         source = dict(result["envelope"].get("source") or {})
@@ -2581,6 +2620,11 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
 
     # 降级信封同样带页面真值 + ozon_url/ozon_title（成功/降级两路径注入语义一致）
     _apply_discover_page_truth(draft, extensions, candidate, page_truth)
+
+    # 选品元数据快照与主路径同语义注入（选品元数据 ≠ 匹配证据，降级时同样有价值）
+    _dmeta = _assemble_discovery_meta(candidate)
+    if _dmeta:
+        extensions.setdefault("discovery_meta", _dmeta)
 
     return {
         "token": token,
