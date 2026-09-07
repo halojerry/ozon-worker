@@ -614,6 +614,8 @@ def collect_and_analyze(
     brand_filter: str = "nobrand",
     progress_callback=None,
     china: bool = True,
+    filter_profile: str = "off",
+    base_filter: str = "",
 ) -> list[ProductCandidate]:
     """Discover v2 阶段①+②：采集 + 全量数据 + seller.ozon.ru 运营指标。
 
@@ -626,12 +628,18 @@ def collect_and_analyze(
       跳过运营指标查询（省调用），不参与挑选
     - brand_filter（参考 maozi 插件 brand_option）：nobrand=只要无品牌/白牌（默认，
       规避品牌侵权）；known=只过滤知名品牌黑名单；all=不过滤
+    - filter_profile（漏斗 v2 Task 7）：off=不粗筛（缺省，行为同旧）；ai=上品帮
+      AI 预设档（完整预设需 ②b 富化后的 has_analytics，无数据降级放行）
+    - base_filter：自定义区间表达式 "monthly_sales>=50,drr<=15"（_parse_filter_expr
+      语法，非法抛 ValueError）；与 filter_profile 叠加判定
     - 返回全部候选（status: ok/uncertain/filtered/error），**不做 1688 匹配**（阶段④）
     - 关键词校验：标题含中文但无关键词 → uncertain（表格标黄，仍可选）
     - P2: 多 pid 分析并行（每线程独立 CdpConnection + 独立 tab），过滤/回调/
       落盘留在主线程，候选按 pid 原始顺序返回。
     """
     from scripts.lib.cdp_client import CdpConnection
+
+    extra_rules = _parse_filter_expr(base_filter) if base_filter else None
 
     if url:
         target_url = url
@@ -668,11 +676,14 @@ def collect_and_analyze(
         # ── 阶段①b BASE 粗筛（S5/B3：18 项区间判定，_analyze_product 前）──
         # 仅通过项才上 widget + aibuy 配额（上品帮六阶段漏斗阶段③）。
         # 用列表行构造轻量候选跑 _passes_base_filter；规则区间全 None = 不限。
+        # ai 档在行级只判 seller_count（has_analytics 尚为 False 的降级语义）。
         rows_by_pid = {str(r["id"]): r for r in rows}
         pids = list(rows_by_pid.keys())
         base_rejected = set()
         for pid, r in rows_by_pid.items():
-            if not _passes_base_filter(_row_candidate(pid, r)):
+            if not _passes_base_filter(_row_candidate(pid, r),
+                                       profile=filter_profile,
+                                       extra_rules=extra_rules):
                 base_rejected.add(pid)
         if base_rejected:
             logger.info("BASE 粗筛砍 %d 条（%d → %d）",
@@ -686,8 +697,10 @@ def collect_and_analyze(
         def _apply_filters(candidate: ProductCandidate) -> None:
             """品牌/关键词/价格/BASE 粗筛（主线程执行，含候选顺序与回调次序）。"""
             # S5/B3: 18 项 BASE 粗筛（区间判定；列表阶段①b 已粗筛，这里 widget
-            # 数据到位后重验——规则区间全 None=不限时零副作用）
-            if candidate.status == "ok" and not _passes_base_filter(candidate):
+            # 数据到位后重验——规则区间全 None=不限时零副作用）。ai 档此处同
+            # 行级语义（富化未发生，只判 seller_count + 区间），完整预设看 ②b 后置。
+            if candidate.status == "ok" and not _passes_base_filter(
+                    candidate, profile=filter_profile, extra_rules=extra_rules):
                 candidate.status = "filtered"
                 candidate.error = "未通过 BASE 粗筛"
                 return
@@ -785,6 +798,9 @@ def collect_and_analyze(
     # sales_schema 在阶段②b 富化时才写入 → 不能进 _apply_filters；
     # 店铺 sales_mode 非空时按子串匹配过滤，空 = 不过滤（只标注）。
     from scripts.lib.config_store import get_store_profile
+    # 漏斗 v2 Task 7: ai 档/自定义区间完整判定挂 ②b 富化后（has_analytics/
+    # 转化促销字段已到位）；off 且无区间 → no-op（交互流程零变化）。
+    _apply_profile_filter(candidates, profile=filter_profile, extra_rules=extra_rules)
     _apply_sales_mode_filter(
         candidates, str(get_store_profile().get("sales_mode", "") or ""))
 
@@ -1096,8 +1112,59 @@ def _apply_sales_mode_filter(candidates: list[ProductCandidate],
             c.error = f"发货模式不含 {sales_mode}"
 
 
-def _passes_base_filter(candidate: ProductCandidate) -> bool:
-    """18 项 BASE 粗筛：全过返回 True（区间判定，None 值/无数据 = 不限）。"""
+def _parse_filter_expr(expr: str) -> list[tuple[str, str, float]]:
+    """解析 --base-filter 自定义区间表达式 "monthly_sales>=50,drr<=15"。
+
+    语法对齐 apply_selection_rules（>=/<=/>/</=，逗号分隔）；未知字段/格式错
+    → ValueError（调用方打印后退出，不静默吞）。
+    """
+    rules: list[tuple[str, str, float]] = []
+    for part in (expr or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        m = re.match(r"^([a-z_]+)\s*(>=|<=|>|<|=)\s*([\d.]+)$", part, re.IGNORECASE)
+        if not m:
+            raise ValueError(f"无法解析粗筛规则: {part!r}（格式: field>=100,field2<=50）")
+        field_name, op, val = m.group(1).lower(), m.group(2), float(m.group(3))
+        if field_name not in _SELECTION_FIELDS:
+            raise ValueError(
+                f"未知粗筛字段: {field_name}（支持: {', '.join(_SELECTION_FIELDS)}）")
+        rules.append((field_name, op, val))
+    return rules
+
+
+def resolve_filter_profile(explicit: str | None, auto_submit: bool) -> str:
+    """CLI --filter-profile 档位解析（漏斗 v2 Task 7）。
+
+    显式指定优先；未指定时 auto-submit 路径默认 ai 档（上品帮两段式纪律：
+    高成本 1688 匹配前先粗筛砍量，保护 aibuy 配额），交互流程保持 off
+    （行为零变化）。
+    """
+    if explicit:
+        return explicit
+    return "ai" if auto_submit else "off"
+
+
+def _passes_base_filter(candidate: ProductCandidate, profile: str = "off",
+                        extra_rules: list[tuple[str, str, float]] | None = None) -> bool:
+    """BASE 粗筛：区间规则 + profile 判定，全过返回 True。
+
+    - profile="off"（缺省）：只跑区间规则（内置 18 项全 None = 不限 +
+      extra_rules 自定义区间）——与空架时代行为逐字一致。
+    - profile="ai"：上品帮 aiFilterData 同款预设（AI_PRESET 4 硬规则 +
+      AI_SALES_LADDER 销量阶梯）。**has_analytics 才跑完整预设**；无 analytics
+      只判 seller_count（行级字段，0/未知天然放行），月销阶梯/月动态/广告份额
+      降级放行——未知 0 不得当真实值把无数据候选全砍（Task 7 降级语义）。
+    - extra_rules：_parse_filter_expr 产物 [(field, op, val)]，追加判定。
+    """
+    if profile == "ai":
+        if candidate.has_analytics:
+            if not _check_ai_preset(candidate):
+                return False
+        elif not _check_rule(candidate.competing_sellers, "<=",
+                             AI_PRESET["seller_count"][1]):
+            return False
     for fkey, lo, hi in _BASE_FILTER_RULES:
         accessor = _SELECTION_FIELDS.get(fkey)
         if accessor is None:
@@ -1109,7 +1176,41 @@ def _passes_base_filter(candidate: ProductCandidate) -> bool:
             return False
         if hi is not None and not _check_rule(actual, "<=", hi):
             return False
+    for fkey, op, val in (extra_rules or []):
+        accessor = _SELECTION_FIELDS.get(fkey)
+        if accessor is None:
+            continue
+        if not _check_rule(accessor(candidate), op, val):
+            return False
     return True
+
+
+def _apply_profile_filter(candidates: list[ProductCandidate], profile: str = "off",
+                          extra_rules: list[tuple[str, str, float]] | None = None) -> int:
+    """漏斗 v2 Task 7：粗筛后置批量判定（②b 富化后字段到位，就地改状态）。
+
+    off 且无自定义区间 → no-op（交互流程零变化）。命中 ok/uncertain →
+    status=filtered + reason（error 等其他状态不动）。返回过滤数（可观测性：
+    调用方/日志输出过滤前后计数）。
+    """
+    if profile != "ai" and not extra_rules:
+        return 0
+    if profile == "ai":
+        degraded = sum(1 for c in candidates
+                       if c.status in ("ok", "uncertain") and not c.has_analytics)
+        if degraded:
+            logger.warning("ai 粗筛: %d 个候选无运营指标，销量阶梯/月动态降级放行"
+                           "（仅 seller_count 判定）", degraded)
+    n = 0
+    for c in candidates:
+        if c.status in ("ok", "uncertain") and not _passes_base_filter(
+                c, profile=profile, extra_rules=extra_rules):
+            c.status = "filtered"
+            c.error = f"粗筛(profile={profile})不过"
+            n += 1
+    if n:
+        logger.info("粗筛(profile=%s): 过滤 %d 个候选", profile, n)
+    return n
 
 
 def _row_candidate(pid: str, row: dict) -> ProductCandidate:
