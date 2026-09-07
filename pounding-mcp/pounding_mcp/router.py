@@ -6,7 +6,7 @@
 
 输出 schema（见 docs/PLAN-conversation-entry-v1.md L86-88）：
     {
-        "pipeline": "A"|"B"|"C"|"D"|"D1"|"E"|"F"|"category"|"check"|"search"|"unknown",
+        "pipeline": "A"|"B"|"C"|"C2"|"D"|"D1"|"E"|"F"|"category"|"check"|"search"|"unknown",
         "command": str,
         "args": list[str],
         "needs_confirmation": bool,     # 写类命令（graph 提交/discover --auto-submit/批量）必须二次确认

@@ -922,7 +922,8 @@ def fetch_bestseller_metrics_map_direct(cookies: dict[str, str],
     与 fetch_bestseller_metrics_map 同端点同解析（fetch_ozon_bestsellers_direct
     → sku 索引），但不导航 seller 页、不做登录检查（discover ②b 免导航免登录
     等待；queries 同通道先例）。失败/未登录 → {}（调用方降级 CDP 路径）。
-    缓存与 CDP 变体共用 key（同数据语义，一边命中另一边免请求）。
+    缓存 key 与 CDP 变体同构但 company_id 口径不同（直调取 cookie、CDP 侧调
+    用传 None）→ 实际互不命中、各存一份——宁可双缓存不做跨账号共享。
     """
     from scripts.lib.cache import cache_get, cache_set
     company_id = str(cookies.get("sc_company_id") or "")
@@ -1099,7 +1100,9 @@ def apply_analytics_to_candidate(candidate, metrics: dict) -> bool:
             candidate.commission_fbp_segments = metrics["commission_fbp_segments"]
         # 漏斗 v2 Task 5（附录 A 实测）：畅销榜池的转化/促销/退货字段补拷贝——
         # _extract_metrics 早已解析，此前终止在本层 → 粗筛 13 字段空转。
-        # 缺值保持 dataclass 默认 0 = 粗筛「不限」语义。
+        # 缺值保持 dataclass 默认 None = 粗筛「不限」语义。⚠️ 真实 0 与缺失在
+        # _extract_metrics 的 _first(default=0) 层尚不可区分，二者均按不限放行
+        # （语义收紧需先把 _extract_metrics 缺省改 None，评审 G-3）。
         if metrics.get("qty_view_pdp"):
             candidate.session_count = int(metrics["qty_view_pdp"])
         if metrics.get("conv_to_cart_pdp"):

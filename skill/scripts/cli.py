@@ -395,10 +395,11 @@ def cmd_graph(args: argparse.Namespace) -> int:
             max_retries=args.retries,
             store_id=args.store or "",
             template_id=getattr(args, 'template_id', '') or "",
-            # ✅ v0.69 T0.1b: manual 类目直传（两者同时非空才生效，缺一回落自动匹配）
-            category_id=getattr(args, 'category_id', '') or "",
-            type_id=getattr(args, 'type_id', '') or "",
         )
+        # ⚠️ v0.69 T0.1b manual 类目直传暂不接线：committed
+        # build_graph_envelope_with_retry 签名尚无 category_id/type_id（在另一
+        # 会话未提交 WIP 中），传入必 TypeError（评审 A，620eb14d 夹带的半截改动）。
+        # --category-id/--type-id 参数保留解析，等签名提交后再恢复传参。
 
         # ⚠️ v0.29.x 竞品属性复用: --ozon-ref-url 抓 Ozon 竞品属性表 → draft.ozon_attributes
         # (同类目竞品属性值大多一致, worker 对 1688 缺的属性用竞品值兜底)
@@ -1720,9 +1721,10 @@ def _analyze_pids(cdp_url: str, pids: list[str], *,
     candidates: list[ProductCandidate] = []
 
     def _apply_filters(candidate: ProductCandidate) -> None:
-        # ai 档此处同行级语义（富化未发生，只判 seller_count + 区间）
+        # ai 档此处同行级语义（富化未发生，只判 seller_count）；extra_rules 在
+        # 函数尾 _apply_profile_filter 统一判（评审 E：等字段真实）
         if candidate.status == "ok" and not _passes_base_filter(
-                candidate, profile=filter_profile, extra_rules=extra_rules):
+                candidate, profile=filter_profile):
             candidate.status = "filtered"
             candidate.error = "未通过 BASE 粗筛"
             return
@@ -2024,10 +2026,10 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
 
     # ── 阶段④：自动 1688 匹配（限额 + 早停 + 节奏）──
     print("\n⏳ 阶段 2/3：自动 1688 匹配 + 利润精筛...", flush=True)
-    todo = [c for c in candidates
-            if c.status in ("ok", "uncertain")
-            and c.ozon_product_id not in processed]
-    print(f"   待匹配 {len(todo)} 条（已处理跳过 {len(candidates) - len(todo) - counts.get('filtered', 0) - counts.get('error', 0)}）",
+    match_pool = [c for c in candidates
+                  if c.status in ("ok", "uncertain")
+                  and c.ozon_product_id not in processed]
+    print(f"   待匹配 {len(match_pool)} 条（已处理跳过 {len(candidates) - len(match_pool) - counts.get('filtered', 0) - counts.get('error', 0)}）",
           flush=True)
 
     def _match_progress(done: int, total: int, c) -> None:
@@ -2037,9 +2039,13 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
               + (f" margin={c.profit_margin:.1f}%" if c.status == "profitable" else ""),
               flush=True)
 
+    # 评审 C: 只把未处理候选交给匹配（传全量会让已入箱 pid 重烧图搜并挤占限额）
+    # 评审 H: 佣金显式来自 --store 店铺 profile（与 cmd_discover P2-6 同口径）；
+    # 未配置传 0 → match_selected 内部回落默认店铺解析链
     match_selected(
-        candidates, cdp_url,
+        match_pool, cdp_url,
         fx_rate=fx_rate,
+        commission_rate=float((get_store_profile(args.store) or {}).get("commission_rate", 0) or 0),
         min_margin_pct=args.min_margin,
         max_matches=args.match_limit,
         stop_on_no_match_streak=args.no_match_streak_stop,
@@ -2067,6 +2073,8 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
         "processed": processed,
         "summary": {},
     }
+    # 评审 D: 采集完成即落盘——匹配/入箱途中中断，--resume 至少有据可查
+    _save_task_state(state)
     if args.dry_run or not args.to_box:
         for c in to_submit:
             print(f"   [干跑] ✅ {c.ozon_title[:40]} margin={c.profit_margin:.1f}%"
@@ -2097,10 +2105,12 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
                 draft_id = result.get("draft_id", "")
                 print(f"   📥 已入采集箱: {c.ozon_title[:40]} → draft_id={draft_id}")
                 processed[c.ozon_product_id] = {"status": "ok", "draft_id": draft_id}
+                _save_task_state(state)   # 评审 D: 逐条落盘，中断可续
                 ok_n += 1
             except Exception as exc:
                 print(f"   ✗ 入箱失败: {c.ozon_title[:40]} — {exc}")
                 processed[c.ozon_product_id] = {"status": "error", "error": str(exc)[:200]}
+                _save_task_state(state)   # 评审 D: 失败也记账，防 resume 重试风暴
                 err_n += 1
         state["summary"] = {"submitted": ok_n, "skipped": skip_n, "failed": err_n}
         print(f"\n📦 入箱完成: 成功 {ok_n} / 跳过 {skip_n} / 失败 {err_n}")
