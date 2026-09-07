@@ -36,5 +36,6 @@ python3 scripts/cli.py discover --keyword "收纳" --fission --non-interactive
 
 - **慢操作**：卖家页串行导航（≥3s 间隔）+ what_to_sell 逐 SKU 限速（1s/SKU），跑一次约 10-60 分钟
 - **数据字段**：裂变候选带 `chain_depth`（0=种子/1/2）+ `source_chain`（来源链路 种子→卖家→产品，选中产品时可查看出处）+ `_seed_category_id`（种子类目，同类目 +10 / 跨类目 +3 / 无数据 +0 评分）
+- **粗筛档位覆盖边界**（漏斗 v2）：`--filter-profile`/`--base-filter` 只判主采集（种子）阶段；裂变扩池候选**不重过档位**，靠 `--rules`/`--min-margin` 利润精筛兜底
 - **依赖**：跟卖卖家来自 widget API（需 Ozon 页面正常加载 + 登录态）；部分产品反爬偶发失败 → 自动降级跳过，不影响整体
 - 展示候选列表后，等用户确认再提交，不替用户选择
