@@ -159,6 +159,27 @@
 2. 蓝海 Top-N 表：序号 | 标题 | 蓝海分 | 利润率% | 月销 | 价格₽
 3. 每产品详情块：价格、月销、月增长率、广告占比、跟卖数、上架天数、评分、蓝海分、利润率、1688 货源 URL、采购价、审核状态
 
+## 信封 extensions.discovery_meta（选品元数据）
+
+`discover`/`discover-task` 经 `build_envelope_from_discovery` 组装的信封，在
+`extensions.discovery_meta` 携带选品依据快照（采集箱列表三列/CSV 四列的数据源）。
+缺失键省略、真实 0 保留；worker 整包透传随任务/草稿留存（CONTRACT-v4 §1.1.1）。
+
+| 键 | 含义 |
+|---|---|
+| `ozon_product_id` / `ozon_url` / `ozon_price` | Ozon 竞品定位（ID/链接/售价 RUB） |
+| `blue_ocean_score` | 蓝海分 |
+| `monthly_sales` / `monthly_revenue` / `sales_growth` | 月销 / 月销售额 / 增长率% |
+| `drr` / `create_days` | 广告费占比% / 上架天数 |
+| `competing_sellers` / `rating` / `review_count` | 跟卖数 / 评分 / 评论数 |
+| `weight_g` / `dimensions_mm` | 竞品重量（克）/ 尺寸（毫米三元组） |
+| `profit_margin` / `estimated_profit_cny` | 利润率% / 预估单件利润（CNY） |
+| `match_confidence` | 1688 匹配置信度（0-1） |
+| `discovered_at` | 采集时间 ISO |
+
+Agent 汇报选品依据时直接引用这些键（如"月销 1200 / 蓝海分 87 / 利润率 32%"），
+不必回读 `discovery_*.json`。
+
 ### Agent 汇报模板
 
 读 `analysis_*.md`（或 JSON）后可直接向用户汇报，无需再读原始 `discovery_*.json` 缓存。示例：

@@ -10,6 +10,8 @@
 - [管线 A：1688 上架（graph）](#管线-a1688-上架graph)
 - [管线 B：Ozon 跟卖（follow）](#管线-bozon-跟卖follow)
 - [管线 C：跟卖选品（discover，Discover v2）](#管线-c跟卖选品discoverdiscover-v2)
+- [管线 C 增强：任务式全自动选品（discover-task，漏斗 v2）](#管线-c-增强任务式全自动选品discover-task漏斗-v2)
+- [管线 C 增强：to-box vs auto-submit 出货路径对比](#管线-c-增强to-box-vs-auto-submit-出货路径对比)
 - [管线 D：选品上架](#管线-d选品上架)
 - [管线 E：趋势选品](#管线-e趋势选品agent-自主分析--discover-执行v031-起)
 - [批量处理（batch_test.py）](#批量处理batch_testpy)
@@ -38,6 +40,9 @@
   │    "趋势/热卖/新品风向/爆款" + 品类 → 趋势选品：agent 先 web_search + LLM 提炼
   │      细分关键词 → discover --keyword <细分关键词>（见 references/trend-selection.md）
   │    "跟卖/找能跟卖的"              → 【管线 C】discover 跟卖选品
+  │    "自动采集/无人值守/任务式/自动跑一批选品" + 品类或入口页
+  │                                   → 【管线 C2】discover-task（缺省 ai 档粗筛+干跑；
+  │                                     `--to-box` 入采集箱，见下方专节）
   │    "找更多同类/挖同行货源/顺着卖家找" → 【管线 C】discover 裂变选品（`--fission`，
   │      见 references/discover-fission.md）
   │    "上架/上货/上点/上产品/整一批"  → 【管线 D】discover 选品上架
@@ -256,6 +261,16 @@ python3 scripts/cli.py discover-task --keyword "宠物饮水机" --to-box --resu
 - **任务状态**：`data/discovery/tasks/task_{ts}.json`（已处理 pid / 摘要），`--resume` 找同入口最近任务续跑
 - **安全边界**：不带 `--to-box` 即干跑（不出信封不入箱）；`--dry-run` 强制干跑；MCP 侧 `discover_task` 工具 dry_run 缺省 True，to_box=True 触发 dsh 审批
 - **执行后验证**：任务状态 JSON 的 `summary.candidates` 状态分布 + `summary.submitted/skipped/failed`；CSV（`--export`）供人工复核
+
+### 管线 C 增强：to-box vs auto-submit 出货路径对比
+
+| | `--to-box`（discover-task） | `--auto-submit`（discover） |
+|---|---|---|
+| 落点 | 采集箱草稿（`POST /api/v1/drafts`） | Worker 上架任务（`submit_task`） |
+| 后续 | WebUI 采集箱人工认领 → 点提交才上架 | 直接进 worker 管线真实上架 |
+| 可逆性 | 可逆（草稿可删/可改后再提交） | 不可逆（真实创建商品卡） |
+| 信封差异 | 带 `extensions.discovery_meta`（蓝海分/月销/利润率/匹配置信度，采集箱列表与 CSV 可见） | 同样带 discovery_meta |
+| agent 策略 | 可自动执行（安全默认） | **必须确认**（等用户说"提交"） |
 
 ## 管线 D：选品上架
 

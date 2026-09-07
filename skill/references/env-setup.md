@@ -37,6 +37,13 @@ python3 scripts/cli.py check
 更新时保留），一次性登录长期有效；**工具 Chrome 常驻**（命令结束不关闭，登录态跨命令复用）；
 用户手动关闭后下次命令自动用独立 profile 重启。
 
+**命令级统一预检（readiness，漏斗 v2 收尾）**：graph/follow/discover/discover-multi/discover-task
+启动时自动做「就绪预检」——Chrome CDP、seller 卖家后台登录、1688 反爬 cookie（aibuy 免浏览器
+图搜依赖）按管线裁剪检测，**成功结果缓存 10 分钟**（重复跑命令不再重复检测）；aibuy cookie
+未预热时**自动导航一次 1688 首页预热**（一次性，之后缓存期内免检测）；seller 未登录时交互
+环境给登录窗口（成功后同进程免重复等待），discover-task 无人值守**秒退并给指引**。
+check 仍是全量诊断入口（排错时跑）。
+
 **v0.30 环境前置（自动）**：所有命令入口自动探测 Python ≥3.12 + `requests`/`websocket-client`/`Pillow`，
 缺依赖立即提示 `pip install -r requirements.txt` 并退出；`check` 无浏览器也继续探测
 Worker/MXOU/凭证（全量诊断，不再 early return）。

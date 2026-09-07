@@ -9,9 +9,10 @@ description: >
   只要用户消息出现以下任一情况，就必须使用本技能：发送 1688 商品链接（detail.1688.com/offer/…）
   要上架到 Ozon；发送 Ozon 商品链接（ozon.ru/product/…）要跟卖或复制竞品；发送商品图片要找 1688
   同款货源；说"选品/蓝海/热卖/爆款/趋势/有什么好卖的/卖得动"要找 Ozon 货源并匹配 1688 供应商；
+  说"自动采集/无人值守/任务式/自动跑一批选品"要全自动采集入采集箱；
   说"上架/上货/上点/整一批/发布产品"要创建 Ozon 商品；发送多个链接要批量处理；问"任务进度/完成了吗"
   要查询上架任务状态。即使没明确说"上架"，只要提到 1688/Ozon 商品、选品、跟卖、图搜、蓝海、趋势，
-  就用本技能。关键词：1688、Ozon、ozon.ru、跟卖、选品、蓝海、以图搜款、上架、跨境电商。
+  就用本技能。关键词：1688、Ozon、ozon.ru、跟卖、选品、蓝海、以图搜款、上架、跨境电商、自动采集、无人值守。
 ---
 
 # pounding-ozon-probe — 工具手册
@@ -28,7 +29,8 @@ description: >
 > 完整意图路由决策树见 `references/command-reference.md`（各管线触发条件 + 输入输出）。
 > 要点速记：① 有 URL 先判类型（1688商品页→A / Ozon商品页→B / 搜索类目页→C / 批量→F）；
 > ② 无 URL 按意图词：趋势→E（先 web_search）、跟卖→C、裂变→C `--fission`、上架→D、蓝海→C；
-> ③ 指代不清 / 数量不符 / 重上 → 必须追问核对，禁止猜测。
+> ③ 说"自动采集/无人值守跑一批"→ C2 discover-task（干跑缺省，`--to-box` 入采集箱）；
+> ④ 指代不清 / 数量不符 / 重上 → 必须追问核对，禁止猜测。
 
 ### 关键规则
 
@@ -40,6 +42,8 @@ description: >
 > ⑧ 截图：先转 URL 供 image_search；截图即目标商品 → 索要 1688 链接走 A（省图搜配额）
 > ⑨ URL+弱化词（"看看/能不能上"）→ 先 `graph --no-submit` 展示等确认 ⑩ 指代不清/数量不符/重上 → 追问核对
 > ⑪ C（跟卖选品）与 D（上架）命令相同（discover），仅 `--auto-submit` 差别；discover 无 `follow_type`
+> ⑫ 无人值守/任务式采集 → discover-task（缺省 ai 档粗筛；不带 `--to-box` 即干跑，入箱才真实写采集箱）；
+>    交互式单轮选品仍用 discover（`--filter-profile ai` 可开同款粗筛，缺省 off 行为不变）
 
 ## 2. 命令速查表
 
@@ -61,7 +65,8 @@ description: >
 | `graph` | 1688 上架 | `--url/--item-id --store [--no-submit] [--ozon-ref-url]` | 提交 Worker（除非 `--no-submit`） | 用户发 1688 商品链接 |
 | `follow` | Ozon 跟卖 | `--ozon-url --store [--auto-submit] [--review]` | 提交 Worker（加 `--auto-submit`） | 用户发 Ozon 商品链接 |
 | `image_search` | 以图搜款 | `--image [--source cdp] [--sort] [--limit]` | 耗 1688 图搜配额 | 用户发图片 / 找同款 |
-| `discover` | Ozon 选品 | `--keyword/--url [--local] [--rules] [--auto-submit] [--fission] [--blue-ocean-source]` | `--auto-submit` 提交 Worker；货源分析后生成 `data/discovery/analysis_*.md` | 找蓝海 / 跟卖选品 / 趋势执行 / 裂变 |
+| `discover` | Ozon 选品 | `--keyword/--url [--local] [--rules] [--auto-submit] [--fission] [--blue-ocean-source] [--filter-profile off\|ai] [--base-filter]` | `--auto-submit` 提交 Worker；货源分析后生成 `data/discovery/analysis_*.md` | 找蓝海 / 跟卖选品 / 趋势执行 / 裂变 |
+| `discover-task` | 任务式全自动选品（无人值守） | `--keyword/--url [--target-count] [--filter-profile ai] [--match-limit 30] [--min-margin] [--to-box] [--dry-run] [--resume]` | 缺省干跑；`--to-box` 写采集箱（WebUI 认领后上架）；状态落 `data/discovery/tasks/` | "自动采集/无人值守/任务式跑一批" |
 | `search` | 1688 关键词搜索 | `query [--page-size]` | 耗 1688 搜索配额 | 按词找货 |
 | `probe` | CDP 探针抓取单个 1688 商品 | `--url [--timeout]` | 无 | 调试单个商品 |
 | `queries` | what-to-sell 蓝海/榜单查询 | `--type all-queries\|ozon-bestsellers\|market-bestsellers [--keyword] [--export]` | 成功后自动上报 worker PG；可 `--export` CSV/JSON | 选品前查蓝海/畅销榜 |
@@ -76,6 +81,8 @@ description: >
 | `check`、`pip install`、`set_store`、`set_token`、`set_ak` | 自动执行 | 环境准备类操作，无需确认 |
 | `graph`、`follow`（含 `--auto-submit`） | 自动执行 | 用户给了明确 URL，直接上架 |
 | `discover` 选品后的最终提交 | 必须确认 | 展示候选列表，等用户说"提交" |
+| `discover-task` 干跑 / `--to-box` 入采集箱 | 自动执行 | 干跑零副作用；入箱可逆（WebUI 人工认领后才上架） |
+| `discover-task --auto-submit` / 批量直接上架 | 必须确认 | 真实提交 Worker 上架任务，影响面大 |
 | 批量处理 | 必须确认 | 影响面大，需用户明确确认 |
 | 利润率高低、候选产品优劣 | 展示不表态 | 陈列数据，不替用户判断 |
 
