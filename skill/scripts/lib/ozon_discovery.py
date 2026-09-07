@@ -546,6 +546,63 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str,
     return candidate
 
 
+def _enrich_with_seller_metrics(candidates: list[ProductCandidate],
+                                cdp, cdp_url: str) -> dict[str, dict]:
+    """阶段②b seller 运营指标富化（就地 apply 进候选），返回成功富化的 {pid: metrics}。
+
+    v2 漏斗 Task 6：畅销榜 map 走 cookie 直调优先（_fetch_seller_session_cookies
+    只读不导航 + fetch_bestseller_metrics_map_direct 免 seller 页导航/免登录等
+    待阻塞；queries 同通道先例）；直调未登录/失败出声回落原 CDP 路径
+    （check_seller_login → wait_for_seller_login → fetch_bestseller_metrics_map），
+    可用性不回退。map 未命中的 pids 再降级逐 SKU fetch_sales_analytics（P1c）。
+    """
+    from scripts.lib.ozon_seller_analytics import (
+        apply_analytics_to_candidate,
+        check_seller_login,
+        fetch_bestseller_metrics_map,
+        fetch_sales_analytics,
+        wait_for_seller_login,
+    )
+    metrics_map: dict[str, dict] = {}
+    try:
+        from scripts.lib.ozon_seller_analytics import (
+            _fetch_seller_session_cookies,
+            fetch_bestseller_metrics_map_direct,
+        )
+        cookies = _fetch_seller_session_cookies(cdp_url)
+        if cookies:
+            metrics_map = fetch_bestseller_metrics_map_direct(cookies)
+            if metrics_map:
+                logger.info("seller 指标: cookie 直调命中畅销榜池 %d 条（跳过 seller 页导航）",
+                            len(metrics_map))
+    except Exception as exc:
+        logger.warning("seller cookie 直调异常，回落 CDP: %s", exc)
+
+    if not metrics_map:
+        # v0.63.3: 未登录先给登录窗口（自动开 seller 页+轮询，超时保留登录页），
+        # 仍未登录才继续（下游自然降级并打缺失警告）——此前直接静默空数据
+        try:
+            if not check_seller_login(cdp):
+                wait_for_seller_login(cdp)
+        except Exception:
+            pass
+        metrics_map = fetch_bestseller_metrics_map(cdp, company_id=None)
+
+    enriched: dict[str, dict] = {}
+    for c in candidates:
+        if c.ozon_product_id in metrics_map:
+            apply_analytics_to_candidate(c, metrics_map[c.ozon_product_id])
+            enriched[c.ozon_product_id] = metrics_map[c.ozon_product_id]
+    remaining = [c for c in candidates if c.ozon_product_id not in metrics_map]
+    if remaining:
+        per_sku = fetch_sales_analytics(cdp, [c.ozon_product_id for c in remaining])
+        for c in remaining:
+            apply_analytics_to_candidate(c, per_sku.get(c.ozon_product_id, {}))
+            if c.ozon_product_id in per_sku:
+                enriched[c.ozon_product_id] = per_sku[c.ozon_product_id]
+    return enriched
+
+
 def collect_and_analyze(
     cdp_url: str,
     url: str = "",
@@ -714,37 +771,7 @@ def collect_and_analyze(
         if use_analytics:
             to_enrich = [c for c in candidates if c.status in ("ok", "uncertain")]
             if to_enrich:
-                from scripts.lib.ozon_seller_analytics import (
-                    apply_analytics_to_candidate,
-                    check_seller_login,
-                    fetch_bestseller_metrics_map,
-                    fetch_sales_analytics,
-                    wait_for_seller_login,
-                )
-                # v0.63.3: 未登录先给登录窗口（自动开 seller 页+轮询，超时保留登录页），
-                # 仍未登录才继续（下游自然降级并打缺失警告）——此前直接静默空数据
-                try:
-                    if not check_seller_login(cdp):
-                        wait_for_seller_login(cdp)
-                except Exception:
-                    pass
-                enriched: dict[str, dict] = {}
-                metrics_map = fetch_bestseller_metrics_map(cdp, company_id=None)
-                remaining = [c for c in to_enrich
-                             if c.ozon_product_id not in metrics_map]
-                for c in to_enrich:
-                    if c.ozon_product_id in metrics_map:
-                        apply_analytics_to_candidate(
-                            c, metrics_map[c.ozon_product_id])
-                        enriched[c.ozon_product_id] = metrics_map[c.ozon_product_id]
-                if remaining:
-                    per_sku = fetch_sales_analytics(
-                        cdp, [c.ozon_product_id for c in remaining])
-                    for c in remaining:
-                        apply_analytics_to_candidate(
-                            c, per_sku.get(c.ozon_product_id, {}))
-                        if c.ozon_product_id in per_sku:
-                            enriched[c.ozon_product_id] = per_sku[c.ozon_product_id]
+                enriched = _enrich_with_seller_metrics(to_enrich, cdp, cdp_url)
                 if not enriched:
                     logger.warning(
                         "⚠️ 运营数据全部缺失（seller.ozon.ru 未登录或无权限）："
