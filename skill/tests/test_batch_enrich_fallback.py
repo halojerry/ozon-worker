@@ -35,7 +35,7 @@ def _run_collect(pids, metrics_map, per_sku):
     conn.new_tab.return_value = mock.MagicMock()
     with mock.patch.object(od, "_discover_workers", return_value=1), \
          mock.patch.object(od, "_analyze_product",
-                           side_effect=lambda cdp_url, cdp, pid: _mk(pid)), \
+                           side_effect=lambda cdp_url, cdp, pid, **kwargs: _mk(pid)), \
          mock.patch.object(od, "_lazy_collect_urls", return_value=pids), \
          mock.patch("scripts.lib.cdp_client.CdpConnection", return_value=conn), \
          mock.patch.object(od, "_save_discovery_log"), \
@@ -86,7 +86,7 @@ def test_no_metrics_triggers_missing_warning():
     pids = ["x"]
     with mock.patch.object(od, "_discover_workers", return_value=1), \
          mock.patch.object(od, "_analyze_product",
-                           side_effect=lambda cdp_url, cdp, pid: _mk(pid)), \
+                           side_effect=lambda cdp_url, cdp, pid, **kwargs: _mk(pid)), \
          mock.patch.object(od, "_lazy_collect_urls", return_value=pids), \
          mock.patch("scripts.lib.cdp_client.CdpConnection") as conn_cls, \
          mock.patch.object(od, "_save_discovery_log"), \
