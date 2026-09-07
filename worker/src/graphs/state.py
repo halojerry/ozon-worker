@@ -92,6 +92,11 @@ class GlobalState(BaseModel):
     # 供留存表记实际上传重量/尺寸——信封 draft 可能是 1688 原始垃圾值）
     final_weight_g: int = Field(default=0, description="prepare 归一后重量(g)，0=未走到 prepare")
     final_dims_mm: Dict[str, int] = Field(default_factory=dict, description="prepare 归一后尺寸 {length,width,height} mm")
+    # ✅ v0.69 T1.1: 数值属性清洗调整记录（prepare 写入；operator.add 累积合并，
+    # retry 子图经 wrapper 回传同名字段时不丢历史）
+    attributes_adjusted: Annotated[List[Dict[str, Any]], operator.add] = Field(
+        default_factory=list, description="数值属性清洗调整记录（attr_id/attr_name/before/after/reason）"
+    )
 
     # 图片结果
     phase1_images: Dict[str, str] = Field(default_factory=dict, description="Phase1图片URLs")
@@ -117,7 +122,10 @@ class GlobalState(BaseModel):
     # ✅ v0.22 P2a: import-by-sku 已提交但未完成标记（防超时 fallback CREATE 双卡）
     import_submitted: bool = Field(default=False, description="import-by-sku 已提交但未确认完成")
     import_task_id: str = Field(default="", description="import-by-sku 任务ID（用于后续轮询）")
-    
+    # ✅ v0.69 T2.2: 跟卖标记（follow_sell_import/draft.ozon_product_id 派生，prepare 写入
+    # → ozon_upload 读）——CREATE 前 offer 存在性检查的豁免信号（跟卖本就要并卡，不查不转）
+    is_follow_sell: bool = Field(default=False, description="跟卖标记（prepare 写入，ozon_upload 消费）")
+
     # ✅ 新增：验证相关字段（条件路径函数依赖）
     validation_errors: List[str] = Field(default_factory=list, description="验证错误列表（仅当前节点产生）")
     is_valid: bool = Field(default=True, description="是否验证通过")
@@ -177,7 +185,7 @@ class GraphInput(BaseModel):
 # 「source_category_*」的契约字段。核心：source 提供方分级 + namespace 命名空间。
 class EnvelopeOzonCategory(BaseModel):
     """draft.ozon_category 契约（Ozon 链接类目，来自页面/wohat_to_sell/search_categories）。"""
-    source: str = Field(default="search_kw", description="page|mapping|what_to_sell|search_kw")
+    source: str = Field(default="search_kw", description="page|mapping|what_to_sell|manual|search_kw（v0.69 T0.2: manual=人工指定 CLI --category-id 直传，权威级与 page 同）")
     namespace: str = Field(default="seller", description="seller|widget|1688")
     lang: str = Field(default="", description="面包屑语言 ZH_HANS|RU")
     category_path: str = Field(default="", description="完整类目路径（主判据）")
@@ -229,6 +237,11 @@ class GraphOutput(BaseModel):
     upload_status: str = Field(default="", description="上传状态（success/pending/failed）")
     failed_stage: str = Field(default="", description="失败节点名称")
     error_code: str = Field(default="", description="错误码（Ozon 错误码或内部错误码）")
+    # ✅ v0.69.2 T0.4: import 任务 ID 透传（GlobalState 既有 channel 加进 GraphOutput 即
+    # 透传，无需改节点）——task_processor completed 商品佐证闸据此识别「product_id 是
+    # import 任务 ID 假 pid」（upload 向后兼容 product_id=str(task_id) + phase1 超时残留）。
+    ozon_task_id: str = Field(default="", description="Ozon import 任务 ID（ozon_upload 写入，ozon_status 轮询用）")
+    import_task_id: str = Field(default="", description="import-by-sku 任务 ID（follow 导入）")
     # ✅ v0.27: moderation_status 透出 — 与 upload_status 同理会被 output_schema 过滤,
     # 缺失导致 agent 看不到审核状态(ozon_status 出参恒空)。OzonStatusInput 已补
     # 该字段(路由能读 approved), GraphOutput 补上终态才可见。
@@ -248,16 +261,27 @@ class GraphOutput(BaseModel):
     category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="match_layer/confidence/dc/tp")
     final_weight_g: int = Field(default=0, description="prepare 归一后实际上传重量(g)，0=早退无值")
     final_dims_mm: Dict[str, int] = Field(default_factory=dict, description="prepare 归一后实际上传尺寸(mm)")
+    # ✅ v0.69 T1.1: 数值属性清洗调整记录透出（output_schema 按名过滤——GlobalState
+    # 同名通道加进 GraphOutput 即透传；留存/取证可见 prepare 对数值属性的每次改写）
+    attributes_adjusted: List[Dict[str, Any]] = Field(
+        default_factory=list, description="数值属性清洗调整记录（attr_id/attr_name/before/after/reason）"
+    )
     notice: str = Field(default="", description="中文可读失败说明")
 
 
 # ==================== 认证节点 ====================
 class AuthInput(BaseModel):
-    """认证节点输入"""
+    """认证节点输入
+    ✅ v0.69 构造单实证（Batch 4a S3）：langgraph 把 auth 之后的条件路由也按
+    AuthInput 过滤——error_code/failed_stage 不在声明里，route_after_auth 永远
+    读不到 auth 失败标记 → 失败任务空跑 pricing/assemble 全管线（终态对、算力
+    白烧）。路由要读的字段必须声明进 Input（v0.66 input schema 纪律的路由版）。"""
     token: str = Field(..., description="api.mxou.cn的API Key")
     ozon_client_id: str = Field(..., description="Ozon Client-Id")
     ozon_api_key: str = Field(..., description="Ozon Api-Key")
     envelope: Optional[Dict[str, Any]] = Field(default=None, description="产品数据envelope")
+    error_code: str = Field(default="", description="auth 失败码（route_after_auth 读）")
+    failed_stage: Any = Field(default=None, description="失败阶段累积（route_after_auth 读；list/str 双形态）")
 
 
 class AuthOutput(BaseModel):
@@ -283,6 +307,12 @@ class AuthOutput(BaseModel):
     # 错误信息
     error_code: str = Field(default="", description="错误代码")
     error_message: str = Field(default="", description="错误信息")
+    # ✅ v0.69.2 T0.4b: auth 失败出口必须带 failed_stage="auth"（成功恒空）——
+    # 此前 auth 失败（error_message 无 "[" 前缀、无 failed_stage、无 upload_status）
+    # 三项失败判定全不命中 → 路由 END 后落假 completed。GlobalState.failed_stage
+    # 为 operator.add 累积（str 拼接），GraphOutput.failed_stage 透出 str 形态，
+    # 与 prepare 的 "prepare_ozon_upload" 字符串同形。
+    failed_stage: str = Field(default="", description="失败节点名称（auth 失败出口=auth，成功恒空）")
 
 
 # ==================== 数据摄入节点 ====================
@@ -382,7 +412,9 @@ class FollowSellImportOutput(BaseModel):
 
 # ==================== 价格计算节点 ====================
 class PricingInput(BaseModel):
-    """价格计算节点输入"""
+    """价格计算节点输入
+    ✅ v0.69: error_message/pricing_info 声明给 route_after_pricing 读
+    （[PRICING_FAILED] 短路与重量标疑告警，同 AuthInput 的路由可见性教训）。"""
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿数据")
     variants: List[Dict[str, Any]] = Field(default_factory=list, description="变体SKU列表（ingest 从 draft 提取，与 prepare 同源）")
     extensions: Optional[Dict[str, Any]] = Field(default=None, description="扩展配置")
@@ -391,6 +423,8 @@ class PricingInput(BaseModel):
     currency_code: str = Field(default="", description="店铺货币类型（CNY或RUB）")  # 关键：从auth_node传递
     ozon_client_id: str = Field(default="", description="Ozon Client-Id（用于fallback查询店铺货币）")  # 关键：fallback查询
     ozon_api_key: str = Field(default="", description="Ozon Api-Key（用于fallback查询店铺货币）")  # 关键：fallback查询
+    error_message: str = Field(default="", description="错误信息（route_after_pricing 读 [PRICING_FAILED]）")
+    pricing_info: Dict[str, Any] = Field(default_factory=dict, description="定价审计信息（route_after_pricing 读 wd_audit）")
 
 
 class PricingOutput(BaseModel):
@@ -547,6 +581,11 @@ class PrepareOzonUploadOutput(BaseModel):
     # weight_g/dims_mm 的数据源（信封 draft 可能是 1688 原始垃圾值如 1g）
     final_weight_g: int = Field(default=0, description="归一后重量(g)，0=未走到 prepare")
     final_dims_mm: Dict[str, int] = Field(default_factory=dict, description="归一后尺寸 {length,width,height} mm")
+    # ✅ v0.69 T1.1: 数值属性清洗调整记录（attr_id/attr_name/before/after/reason）
+    attributes_adjusted: List[Dict[str, Any]] = Field(default_factory=list, description="数值属性清洗调整记录（prepare 写入，GraphOutput 透传）")
+    # ✅ v0.69 T2.2: 跟卖标记（draft.ozon_product_id 派生）→ GlobalState → ozon_upload
+    # offer 存在性检查豁免（跟卖本就要并卡，不查不转）
+    is_follow_sell: bool = Field(default=False, description="跟卖标记（ozon_upload 消费）")
 
 
 # ==================== Ozon上传节点 ====================
@@ -557,16 +596,23 @@ class OzonUploadInput(BaseModel):
     ozon_client_id: str = Field(default="", description="Ozon Client-Id")
     ozon_api_key: str = Field(default="", description="Ozon Api-Key")
     currency_code: str = Field(default="", description="店铺货币类型（CNY/RUB）")
-    
+
     # ✅ 新增：采购信息（从prepare_ozon_upload_node传递）
     purchase_url: str = Field(default="", description="采购链接（1688）")
     purchase_cost: str = Field(default="", description="采购成本（CNY）")
     sku_id: str = Field(default="", description="1688 SKU_ID")
     profit_estimation: Dict[str, Any] = Field(default_factory=dict, description="利润预估明细")
-    
+
     # ✅ 新增：ozon_validate_node传递的错误信息（用于检查严重错误）
     error_message: str = Field(default="", description="ozon_validate_node返回的错误信息")
     validation_errors: List[str] = Field(default_factory=list, description="验证错误列表")
+
+    # ✅ v0.69 T2.2: 跟卖标记（CREATE 前 offer 存在性检查豁免——跟卖本就要并卡）
+    is_follow_sell: bool = Field(default=False, description="跟卖标记（prepare 透传）")
+    # ✅ v0.69 T2.2: 激活既有 P2a 守卫——import_submitted 此前未声明进本 Input model，
+    # langgraph 按节点 Input 过滤 channel（v0.66 实证），节点里 getattr 恒 False（死代码）。
+    # 声明后守卫生效：import-by-sku 已提交未确认 → 返回 pending，不再裸 CREATE 抢卡。
+    import_submitted: bool = Field(default=False, description="import-by-sku 已提交但未确认完成")
 
 
 class OzonUploadOutput(BaseModel):

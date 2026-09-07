@@ -205,7 +205,8 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
             extensions=extensions,
             original_images=original_images,  # 关键：传递原始图片
             error_code="AUTH_INVALID",
-            error_message="Token is required"
+            error_message="Token is required",
+            failed_stage="auth"  # v0.69.2 T0.4b: 失败出口带 stage，防假 completed
         )
     
     try:
@@ -293,9 +294,10 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
                 source=source,
                 extensions=extensions,
                 original_images=original_images,  # 关键：传递原始图片
-                error_code="AUTH_INVALID",
-                error_message=f"Token validation failed: {response.status_code}"
-            )
+            error_code="AUTH_INVALID",
+            error_message=f"Token validation failed: {response.status_code}",
+            failed_stage="auth"
+        )
         
         tokens_data: Any = response.json()
         
@@ -314,9 +316,10 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
                 source=source,
                 extensions=extensions,
                 original_images=original_images,  # 关键：传递原始图片
-                error_code="AUTH_INVALID",
-                error_message="Token not found"
-            )
+            error_code="AUTH_INVALID",
+            error_message="Token not found",
+            failed_stage="auth"
+        )
         
         token_record: Dict[str, Any] = tokens_data[0]
         user_id: str = str(token_record.get("user_id", ""))
@@ -336,9 +339,10 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
                 source=source,
                 extensions=extensions,
                 original_images=original_images,  # 关键：传递原始图片
-                error_code="AUTH_INVALID",
-                error_message="User ID not found in token record"
-            )
+            error_code="AUTH_INVALID",
+            error_message="User ID not found in token record",
+            failed_stage="auth"
+        )
         
         # Step 2: 查询用户余额（查询Supabase users表）
         user_query_url = f"{supabase_url}/rest/v1/users?id=eq.{user_id}&select=*"
@@ -372,9 +376,10 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
                 source=source,
                 extensions=extensions,
                 original_images=original_images,  # 关键：传递原始图片
-                error_code="AUTH_INVALID",
-                error_message=f"User query failed: {user_response.status_code}"
-            )
+            error_code="AUTH_INVALID",
+            error_message=f"User query failed: {response.status_code}",
+            failed_stage="auth"
+        )
         
         users_data: Any = user_response.json()
         
@@ -392,9 +397,10 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
                 source=source,
                 extensions=extensions,
                 original_images=original_images,  # 关键：传递原始图片
-                error_code="AUTH_INVALID",
-                error_message="User not found"
-            )
+            error_code="AUTH_INVALID",
+            error_message="User not found",
+            failed_stage="auth"
+        )
         
         user_record: Dict[str, Any] = users_data[0]
         # ⚠️ 与 main.py _check_mxou_balance 对齐：余额判定只看 users.quota
@@ -442,9 +448,10 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
                 source=source,
                 extensions=extensions,
                 original_images=original_images,  # 关键：传递原始图片
-                error_code="AUTH_EXHAUSTED",
-                error_message="Insufficient balance"
-            )
+            error_code="AUTH_EXHAUSTED",
+            error_message="Insufficient balance",
+            failed_stage="auth"
+        )
         
         # Step 4: 验证 MXOU API token 可用性
         # 这是 Pipeline 的关键鉴权：token 无效则后续 LLM+生图全部失败
@@ -465,9 +472,10 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
                 source=source,
                 extensions=extensions,
                 original_images=original_images,
-                error_code="MXOU_AUTH_FAILED",
-                error_message=f"MXOU token 无效: {mxou_err}"
-            )
+            error_code="MXOU_AUTH_FAILED",
+            error_message=f"MXOU token 无效: {mxou_err}",
+            failed_stage="auth"
+        )
         logger.info("✅ MXOU API 验证通过")
         
         logger.info(f"认证成功: user_id={user_id}, balance={balance}, currency_code={currency_code}")
@@ -506,7 +514,8 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
             extensions=extensions,
             original_images=original_images,  # 关键：传递原始图片
             error_code="AUTH_ERROR",
-            error_message=f"HTTP request failed: {str(e)}"
+            error_message=f"HTTP request failed: {str(e)}",
+            failed_stage="auth"
         )
     except Exception as e:
         logger.error(f"认证失败: {str(e)}")
@@ -524,5 +533,6 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
             extensions=extensions,
             original_images=original_images,  # 关键：传递原始图片
             error_code="AUTH_ERROR",
-            error_message=f"Authentication failed: {str(e)}"
+            error_message=f"Authentication failed: {str(e)}",
+            failed_stage="auth"
         )

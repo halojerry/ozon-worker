@@ -57,6 +57,73 @@ def test_empty_rejected():
     assert _resolve(None) is None
 
 
+# ============================================================
+# v0.69 T0.2: manual source（人工指定类目直传）权威接纳
+# ============================================================
+
+def test_manual_source_is_authoritative():
+    """manual（CLI --category-id 人工指定直传，namespace=seller）权威级与 page 同。"""
+    from graphs.nodes.assemble_ozon_product_node import _is_skill_authoritative
+    assert _is_skill_authoritative("manual", "seller", None) is True
+
+
+def test_search_kw_still_not_authoritative():
+    """回归：search_kw（关键词模糊）恒非权威语义不变。"""
+    from graphs.nodes.assemble_ozon_product_node import _is_skill_authoritative
+    assert _is_skill_authoritative("search_kw", "seller", None) is False
+
+
+def test_manual_widget_namespace_still_gated():
+    """widget 命名空间保护不变：manual+widget 无 category_path 精配 → 非权威。"""
+    from graphs.nodes.assemble_ozon_product_node import _is_skill_authoritative
+    assert _is_skill_authoritative("manual", "widget", None) is False
+
+
+def test_manual_sensitive_subtree_still_r1_vetoed():
+    """R1 敏感闸覆盖 manual：manual 权威直通后，dc/tp 直采形状（_resolved_by_path=False，
+    _resolve_skill_category 产出）落 18+ 敏感子树且源无敏感信号词 → 仍被 veto 阻断。
+    权威豁免只给竞品 category_path 精配，manual 不享受。"""
+    from graphs.nodes.assemble_ozon_product_node import _is_skill_authoritative, _r1_veto
+    hit = {
+        "description_category_id": 200001462, "type_id": 971363842,
+        "full_path": "成人用品 > 成人的糖果点心 > 成人糖果",
+        "node_name": "成人糖果",
+        "similarity": 1.0, "confidence": 0.95,
+        "namespace": "seller", "source": "manual",
+        "_resolved_by_path": False,  # dc/tp 直采形状（非路径精配）
+    }
+    assert _is_skill_authoritative("manual", "seller", hit) is True
+    assert _r1_veto(hit, "冬季保暖帽 太阳帽") is True, \
+        "manual 权威不得绕过 R1 敏感 veto（18+ 防线）"
+    # 对照：竞品路径精配（_resolved_by_path=True）才豁免
+    hit_path = dict(hit, _resolved_by_path=True)
+    assert _r1_veto(hit_path, "冬季保暖帽 太阳帽") is False
+
+
+def test_manual_direct_channel_adopts_skill_layer():
+    """manual dc/tp 直通后沿用 Skill 层记法：权威插首 + Skill 接管 L0 →
+    match_layer="Skill"（category_match_meta 非 blocked）。"""
+    from graphs.nodes.assemble_ozon_product_node import (
+        _is_skill_authoritative, _place_skill_candidate, _skill_precedence_over_l0,
+    )
+    hit = {"description_category_id": 17028976, "type_id": 95701,
+           "full_path": "服装 > 帽子 > 帽子", "source": "manual"}
+    other = {"description_category_id": 1, "type_id": 2, "full_path": "其他 > x"}
+    assert _is_skill_authoritative("manual", "seller", hit) is True
+    placed = _place_skill_candidate([other], hit, True)
+    assert placed[0] is hit, "manual 权威候选应插首（权威直采语义）"
+    # _skill_precedence_over_l0(True) → assemble 置 match_layer="Skill"（非 blocked）
+    assert _skill_precedence_over_l0(None, hit, "manual", "seller") is True
+
+
+def test_manual_whitelist_in_authoritative_source_list():
+    """源级锁定：_is_skill_authoritative 白名单含 manual（防回退）。"""
+    import inspect
+    from graphs.nodes import assemble_ozon_product_node as asm
+    src = inspect.getsource(asm._is_skill_authoritative)
+    assert '"manual"' in src, "权威 source 白名单必须含 manual"
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0

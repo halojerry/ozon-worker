@@ -74,7 +74,7 @@ def test_a_confirm_adoption_leaf_passes_end_to_end():
     """暖风机场景：LLM 选中叶子名含源词的候选（水暖风机）→ R2b 放行。"""
     from graphs.nodes.assemble_ozon_product_node import _r2b_confirm_adoption
     pool = [_ADOPED_AC, _HEATER, _WATER_FAN_HEATER]
-    ov, vision, why = _r2b_confirm_adoption(
+    ov, vision, why, _meta = _r2b_confirm_adoption(
         dict(_WATER_FAN_HEATER), pool, "暖风机 取暖器", _NO_IM_DRAFT, query=None,
     )
     assert ov, f"水暖风机应放行: ov={ov}, vision={vision}, why={why}"
@@ -103,7 +103,7 @@ def test_b_cyrillic_source_ru_path_passes():
     """西里尔源词 vs 中文候选零字面 → 用 dc+tp 查 RU 树路径做 overlap 放行。"""
     from graphs.nodes.assemble_ozon_product_node import _r2b_confirm_adoption
     q = _FakeQueryRU("Бытовая техника > Обогреватели > Тепловентилятор")
-    ov, vision, why = _r2b_confirm_adoption(
+    ov, vision, why, _meta = _r2b_confirm_adoption(
         dict(_HEATER), [_ADOPED_AC, _HEATER], "тепловентилятор обогреватель",
         _NO_IM_DRAFT, query=q,
     )
@@ -117,7 +117,7 @@ def test_b_cyrillic_ru_mismatch_blocks():
     """RU 路径也不匹配 → 不放行（无图时 vision 不兜）。"""
     from graphs.nodes.assemble_ozon_product_node import _r2b_confirm_adoption
     q = _FakeQueryRU("Бытовая техника > Холодильники > Морозильники")
-    ov, vision, _why = _r2b_confirm_adoption(
+    ov, vision, _why, _meta = _r2b_confirm_adoption(
         dict(_HEATER), [_ADOPED_AC, _HEATER], "тепловентилятор обогреватель",
         _NO_IM_DRAFT, query=q,
     )
@@ -128,7 +128,7 @@ def test_b_ru_generic_words_not_overlap():
     """RU 泛词（для/товары/дома 等）不算 overlap——同中文泛词语义。"""
     from graphs.nodes.assemble_ozon_product_node import _r2b_confirm_adoption
     q = _FakeQueryRU("Товары для дома > Прочие товары")
-    ov, vision, _why = _r2b_confirm_adoption(
+    ov, vision, _why, _meta = _r2b_confirm_adoption(
         dict(_HEATER), [_ADOPED_AC, _HEATER], "для дома прочие",
         _NO_IM_DRAFT, query=q,
     )
@@ -143,7 +143,7 @@ def test_c_vision_same_top_confirms_heater():
     与其同顶层大类（家用电器）→ 视为 _r2b_confirmed 放行。"""
     from graphs.nodes.assemble_ozon_product_node import _r2b_confirm_adoption
     pool = [_ADOPED_AC, _HEATER, _WATER_FAN_HEATER]
-    ov, vision, why = _r2b_confirm_adoption(
+    ov, vision, why, _meta = _r2b_confirm_adoption(
         dict(_HEATER), pool, "暖风机 取暖器", _IM_DRAFT, query=None,
     )
     assert ov == set()
@@ -154,7 +154,7 @@ def test_c_vision_requires_images():
     """无图（image_urls 空）时不得走 vision 确认——零字面重叠仍阻断。"""
     from graphs.nodes.assemble_ozon_product_node import _r2b_confirm_adoption
     pool = [_ADOPED_AC, _HEATER, _WATER_FAN_HEATER]
-    ov, vision, _why = _r2b_confirm_adoption(
+    ov, vision, _why, _meta = _r2b_confirm_adoption(
         dict(_HEATER), pool, "暖风机 取暖器", _NO_IM_DRAFT, query=None,
     )
     assert ov == set() and vision is False
@@ -164,7 +164,7 @@ def test_c_vision_cross_top_still_blocks():
     """池内源词命中候选与 LLM 选中候选顶层大类不同 → 不放行（域守卫）。"""
     from graphs.nodes.assemble_ozon_product_node import _r2b_confirm_adoption
     pool = [_ADOPED_AC, _HEATER, _OTHER_TOP_HIT]
-    ov, vision, _why = _r2b_confirm_adoption(
+    ov, vision, _why, _meta = _r2b_confirm_adoption(
         dict(_HEATER), pool, "暖风机 取暖器", _IM_DRAFT, query=None,
     )
     assert ov == set() and vision is False, "跨大类 vision 选中不得放行"
@@ -174,7 +174,7 @@ def test_c_vision_no_source_hit_in_pool_blocks():
     """池内无任何源词命中候选 → vision 确认无域锚点，不放行。"""
     from graphs.nodes.assemble_ozon_product_node import _r2b_confirm_adoption
     pool = [_ADOPED_AC, _HEATER]
-    ov, vision, _why = _r2b_confirm_adoption(
+    ov, vision, _why, _meta = _r2b_confirm_adoption(
         dict(_HEATER), pool, "暖风机 取暖器", _IM_DRAFT, query=None,
     )
     assert ov == set() and vision is False
@@ -187,7 +187,7 @@ def test_abstain_or_suggest_still_blocks():
     for bad in (None, {"_llm_suggest": True, "suggest_keywords": "обогреватель"},
                 {"description_category_id": 0, "type_id": 0,
                  "node_name": "x", "full_path": ""}):
-        ov, vision, _why = _r2b_confirm_adoption(
+        ov, vision, _why, _meta = _r2b_confirm_adoption(
             bad, pool, "暖风机 取暖器", _IM_DRAFT, query=None,
         )
         assert ov == set() and vision is False, f"未选中候选必须阻断: {bad}"
@@ -201,7 +201,7 @@ def test_legacy_full_path_overlap_still_works():
     from graphs.nodes.assemble_ozon_product_node import _r2b_confirm_adoption
     confirm = {"description_category_id": 1, "type_id": 2,
                "node_name": "摩托车后视镜", "full_path": "运动与休闲 > 摩托车后视镜"}
-    ov, vision, _why = _r2b_confirm_adoption(confirm, [confirm], "后视镜 汽车", _NO_IM_DRAFT)
+    ov, vision, _why, _meta = _r2b_confirm_adoption(confirm, [confirm], "后视镜 汽车", _NO_IM_DRAFT)
     assert "后视镜" in ov and vision is False
 
 

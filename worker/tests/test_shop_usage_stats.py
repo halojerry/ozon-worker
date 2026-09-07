@@ -182,7 +182,8 @@ def test_process_next_task_success_hook(monkeypatch):
     payload = {"ozon_client_id": "5371047", "envelope": {"draft": {}}}
     row = ("t1", "tenant1", 0, payload, 1800, 0)
     processor, engine = _make_processor(monkeypatch, [row],
-                                        graph_result={"moderation_status": "approved"})
+                                        graph_result={"moderation_status": "approved",
+                                                      "product_id": "123456"})
     calls = _spy_upsert(monkeypatch, tp)
     result = asyncio.run(processor.process_next_task())
     assert result.get("moderation_status") == "approved"

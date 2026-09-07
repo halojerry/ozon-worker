@@ -129,17 +129,20 @@ def test_assemble_block_shape_classified_failed():
     assert "类目匹配失败" in params["err"]
 
 
-def test_old_block_shape_without_stage_is_documented_completed():
-    """旧阻断形状（无 failed_stage）→ 判定不命中 → completed（修复前假成功的
-    根因形状；此用例锁定 _is_failed 语义未被放宽——勿把 error_message 非空
-    一律 failed）。"""
-    engine, _wb = _run_process_next({
+def test_old_block_shape_without_stage_now_failed_by_missing_product():
+    """旧阻断形状（无 failed_stage）→ v0.69.2 T0.4 起 completed 需真实 Ozon 商品佐证：
+    无 product_id → 走 failed（「宁可多判 failed 不可假 completed」）。_is_failed
+    函数语义本身未放宽（见 test_is_failed_helper_semantics：error_message 非空
+    一律 failed 仍被禁止，pending 软成功靠真实 product_id 区分）。"""
+    engine, wb = _run_process_next({
         "error_message": "类目匹配失败：低置信/歧义类目经 LLM 确认后仍无可靠匹配",
         "assembly_retry_count": 1,
         "match_confidence": 0.0,
     })
-    sql, _params = _terminal_sql_params(engine)
-    assert "status = 'completed'" in sql
+    sql, params = _terminal_sql_params(engine)
+    assert "status = 'failed'" in sql
+    assert "未创建 Ozon 商品" in params["err"]
+    assert wb and wb[0][1] == "failed"
 
 
 # ============================================================
@@ -177,15 +180,23 @@ _BLOCK_MARKERS = [
 
 
 def test_all_category_block_exits_carry_failed_stage():
-    """assemble 每个类目阻断 return 必须带 failed_stage="category_match"。"""
+    """assemble 每个类目阻断 return 必须带 failed_stage="category_match"。
+    v0.69 T0.3: 阻断出口收敛 _blocked_exit 统一构造（终态字段 + 尽力入采集箱）——
+    出口 region 命中内联字面或 _blocked_exit( 调用均达标；构造器本体必须内联
+    字面（T2.2 语义收口点，入箱 notice 不得丢 failed_stage）。"""
     import inspect
     from graphs.nodes import assemble_ozon_product_node as asm
     src = inspect.getsource(asm)
     for m in _BLOCK_MARKERS:
         i = src.index(m)
-        region = src[i:i + 600]
-        assert '"failed_stage": "category_match"' in region, \
+        # 回看 300 字符：_blocked_exit( 调用名在 error_message 实参之前
+        region = src[max(0, i - 300):i + 600]
+        assert ('"failed_stage": "category_match"' in region
+                or "_blocked_exit(" in region), \
             f"阻断出口缺 failed_stage: {m}"
+    i_def = src.index("def _blocked_exit(")
+    assert '"failed_stage": "category_match"' in src[i_def:i_def + 900], \
+        "_blocked_exit 构造器缺 failed_stage=category_match（T2.2 收口被破坏）"
 
 
 # ============================================================
@@ -206,9 +217,12 @@ def test_pending_soft_success_regression():
 
 
 def test_warning_error_without_stage_not_failed():
-    """无 failed_stage 的警告性 error_message（WARNING 级 Ozon 错误过滤）不算失败。"""
+    """无 failed_stage 的警告性 error_message（WARNING 级 Ozon 错误过滤）不算失败。
+    v0.69.2 T0.4: 上架真实成功必有 product_id——fixture 补 pid 锁定「警告不误伤」
+    本意（无 pid 的 completed 已被 T0.4 商品佐证闸收口为 failed）。"""
     engine, _wb = _run_process_next({
         "upload_status": "",
+        "product_id": "123456",
         "error_message": "WARNING 级错误已过滤，不影响上架",
     })
     sql, _params = _terminal_sql_params(engine)
@@ -247,6 +261,146 @@ def test_failed_stage_channel_reaches_graph_output():
     st = GlobalState.model_construct()
     merged = GlobalState.model_fields["failed_stage"].metadata
     assert merged, "GlobalState.failed_stage 必须带 merge reducer（operator.add）"
+
+
+# ============================================================
+# 6. v0.69.2 T0.4: completed 终态商品佐证闸（假 completed 第二窗口收口）
+#    生产实证 task 3170fd33：17s completed、product_id 空、Ozon 侧查无此品。
+# ============================================================
+
+def test_completed_without_product_id_is_failed():
+    """①无 product_id、无 upload_status、无 error → 任务判 failed（旧行为
+    completed 是假成功窗口——图执行完 ≠ 商品创建）。"""
+    engine, wb = _run_process_next({})
+    sql, params = _terminal_sql_params(engine)
+    assert "status = 'failed'" in sql, f"无商品佐证必须 failed: {sql[:120]}"
+    assert "未创建 Ozon 商品" in params["err"]
+    assert wb and wb[0][1] == "failed", "采集箱应写回 failed"
+
+
+def test_real_product_evidence_helper_semantics():
+    """商品佐证判定（纯函数）：pid 缺失/0/None → False；pid==import 任务 ID →
+    False（upload 向后兼容 product_id=str(task_id) + phase1 超时残留）；
+    uploaded_products 对上其他真实 pid → True（多 SKU 佐证通道）。"""
+    from utils.task_processor import _has_real_product_evidence as ev
+    assert ev({}) is False
+    assert ev({"product_id": ""}) is False
+    assert ev({"product_id": "0"}) is False
+    assert ev({"product_id": "None"}) is False
+    assert ev({"product_id": "123"}) is True
+    # import task_id 假 pid（moderation pending 不是佐证——phase1 超时路径也写 pending）
+    assert ev({"product_id": "735122001", "ozon_task_id": "735122001",
+               "moderation_status": "pending"}) is False
+    assert ev({"product_id": "735122001", "import_task_id": "735122001"}) is False
+    # uploaded_products 有其他真实 pid → 佐证成立
+    assert ev({"product_id": "735122001", "ozon_task_id": "735122001",
+               "uploaded_products": [{"product_id": "999888777"}]}) is True
+    # pid 与任务 ID 不同 → 真实
+    assert ev({"product_id": "999", "ozon_task_id": "735122001",
+               "moderation_status": ""}) is True
+
+
+def test_import_task_id_as_product_id_is_failed():
+    """③product_id == import task_id 且无佐证 → failed（Ozon 侧查无此品的
+    假 completed 根因形状：upload 节点 product_id=str(task_id) 向后兼容 +
+    ozon_status phase1 轮询超时残留）。"""
+    engine, _wb = _run_process_next({
+        "upload_status": "success",
+        "product_id": "735122001",
+        "ozon_task_id": "735122001",
+        "moderation_status": "pending",
+    })
+    sql, params = _terminal_sql_params(engine)
+    assert "status = 'failed'" in sql
+    assert "未创建 Ozon 商品" in params["err"]
+
+
+def test_import_task_id_with_real_uploaded_product_completed():
+    """product_id 是任务 ID 但 uploaded_products 对上真实商品 → 仍 completed。"""
+    engine, wb = _run_process_next({
+        "upload_status": "success",
+        "product_id": "735122001",
+        "ozon_task_id": "735122001",
+        "uploaded_products": [{"product_id": "999888777", "sku_id": "s1"}],
+    })
+    sql, _params = _terminal_sql_params(engine)
+    assert "status = 'completed'" in sql
+    assert wb and wb[0][1] == "completed"
+
+
+# ============================================================
+# 7. v0.69.2 T0.4b: auth 失败带 failed_stage（假 completed 第三窗口收口）
+# ============================================================
+
+def test_auth_failure_shape_classified_failed():
+    """④auth 失败形状（error_message 非空 + failed_stage=auth）→ failed。
+    修复前 AuthOutput 无 failed_stage，三项失败判定全不命中 → 假 completed。"""
+    from utils.task_processor import _graph_result_is_failed
+    assert _graph_result_is_failed({
+        "error_message": "Token not found",
+        "error_code": "AUTH_INVALID",
+        "failed_stage": "auth",
+    }) is True
+    engine, wb = _run_process_next({
+        "error_message": "Token not found",
+        "error_code": "AUTH_INVALID",
+        "failed_stage": "auth",
+    })
+    sql, params = _terminal_sql_params(engine)
+    assert "status = 'failed'" in sql
+    assert "Token not found" in params["err"]
+    assert wb and wb[0][1] == "failed"
+
+
+def test_auth_node_failure_exits_carry_failed_stage():
+    """源级锁定：AuthOutput 契约含 failed_stage 字段；auth_node 失败出口必须
+    带 failed_stage="auth"（成功出口恒空）。"""
+    import inspect
+    from graphs.state import AuthOutput
+    from graphs.nodes import auth_node as auth_mod
+    assert "failed_stage" in AuthOutput.model_fields
+    src = inspect.getsource(auth_mod)
+    # auth_node 失败出口共 10 处（token 缺失/supabase 非 200/token 不存在/
+    # 无 user_id/用户查询失败/用户不存在/余额不足/MXOU 失败/HTTP 异常/兜底异常）
+    assert src.count('failed_stage="auth"') == 10, \
+        f"auth_node 失败出口 failed_stage=\"auth\" 数量应为 10: {src.count('failed_stage=\"auth\"')}"
+
+
+def test_follow_update_with_product_id_completed():
+    """⑤follow/UPDATE（import-by-sku 复制）product_id 为已存在商品 ID →
+    天然过佐证闸 → completed（回归不误伤）。"""
+    engine, wb = _run_process_next({
+        "upload_status": "success",
+        "moderation_status": "pending",
+        "product_id": "3807171071",
+    })
+    sql, _params = _terminal_sql_params(engine)
+    assert "status = 'completed'" in sql
+    assert wb and wb[0][1] == "completed"
+
+
+def test_approved_success_without_pid_now_failed_fixture_contract():
+    """approved + upload success 但无 product_id → failed（旧 fixture 形状
+    {"moderation_status":"approved"} 已不代表可 completed——真实 approved 必有
+    商品 ID，无 ID 即假成功）。"""
+    engine, _wb = _run_process_next({
+        "upload_status": "success",
+        "moderation_status": "approved",
+    })
+    sql, _params = _terminal_sql_params(engine)
+    assert "status = 'failed'" in sql
+
+
+def test_import_task_id_channels_reach_graph_output():
+    """ozon_task_id/import_task_id 透传通道：GlobalState 既有 channel 加进
+    GraphOutput 即透传（无需改节点），task_processor 佐证闸的数据前提。"""
+    from graphs.state import GlobalState, GraphOutput
+    assert "ozon_task_id" in GlobalState.model_fields
+    assert "import_task_id" in GlobalState.model_fields
+    assert "ozon_task_id" in GraphOutput.model_fields, \
+        "GraphOutput 缺 ozon_task_id（佐证闸对照不到 import 任务 ID）"
+    assert "import_task_id" in GraphOutput.model_fields, \
+        "GraphOutput 缺 import_task_id（import-by-sku 任务 ID 对照缺失）"
 
 
 if __name__ == "__main__":

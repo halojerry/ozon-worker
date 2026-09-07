@@ -167,6 +167,7 @@ def test_success_still_completed():
     engine = _run_process_next({
         "upload_status": "success",
         "moderation_status": "approved",
+        "product_id": "123456",  # v0.69.2 T0.4: completed 需真实商品佐证
     })
     sql, _params = _terminal_update(engine)
     assert "status = 'completed'" in sql
