@@ -358,6 +358,47 @@ def test_submit_warehouse_stock_snapshot(pg, monkeypatch):
     assert ext["stock"] == 42
 
 
+def test_submit_preserves_discovery_meta(pg, monkeypatch):
+    """漏斗 v2 Task 3：信封 extensions.discovery_meta（选品元数据快照）整包透传。
+
+    skill discover 注入的 extensions 自定义键不在 worker 任何 schema 白名单里，
+    提交链路（drafts submit → graph_payload → ozon_product_tasks.payload）必须
+    原样保留——采集箱/webui/CSV 都从任务 payload 消费它，任何一层过滤即丢数据。
+    """
+    client = TestClient(make_app())
+    env = make_envelope()
+    env["extensions"]["discovery_meta"] = {
+        "ozon_product_id": "4767514314",
+        "blue_ocean_score": 78,
+        "monthly_sales": 120,
+        "profit_margin": 22.4,
+        "match_confidence": 0.87,
+    }
+    created = client.post("/api/v1/drafts", json=graph_input(CLIENT_A, API_KEY_A, env))
+    draft_id = created.json()["id"]
+    cred_id = create_store_credential("tenant-A", CLIENT_A, API_KEY_A)
+
+    patch_ozon(monkeypatch, result={"items": [], "total": 0})
+    fake_sub = patch_submitter(monkeypatch)
+    resp = _submit(client, draft_id, cred_id)
+    assert resp.status_code == 200, resp.text
+    task_id = resp.json()["task_id"]
+
+    sent = fake_sub.payloads[-1]["envelope"]["extensions"]["discovery_meta"]
+    assert sent["blue_ocean_score"] == 78
+    assert sent["match_confidence"] == 0.87
+
+    with pg.connect() as conn:
+        stored = conn.execute(
+            text("SELECT payload FROM ozon_product_tasks WHERE id = :id"),
+            {"id": task_id},
+        ).fetchone()[0]
+    row = stored if isinstance(stored, dict) else json.loads(stored)
+    got = row["envelope"]["extensions"]["discovery_meta"]
+    assert got["monthly_sales"] == 120
+    assert got["profit_margin"] == 22.4
+
+
 # ============================================================
 # 5. per-store 重复 → 409「重复商品」；Ozon 错误 → fail-open
 # ============================================================

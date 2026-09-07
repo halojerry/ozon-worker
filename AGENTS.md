@@ -453,6 +453,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 
 - **`extensions`** — 定价配置: `{margin_rate, commission_rate, fx_buffer}`(可选,默认 0.25/0.10/0.05)
 - **`extensions.follow_sell`** — 跟卖标记: Worker 走跟卖管线
+- **`extensions.discovery_meta`** — discover 选品元数据快照（蓝海分/月销/利润率/匹配置信度等 ~18 键，缺失键省略）：worker 零消费**整包透传**（payload JSONB 随任务/草稿留存），采集箱 webui/CSV 展示选品依据；改信封组装见 `cloud_probe._assemble_discovery_meta`（漏斗 v2，契约详见 CONTRACT-v4 §1.1.1 表）
 
 > ⚠️ **关键约定:**
 > - **单产品上传**: Skill 层自动将多变体折叠为单产品（`_collapse_variants_to_single`），一个 1688 item = 一个 Ozon 产品卡。
