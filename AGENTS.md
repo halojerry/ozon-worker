@@ -809,9 +809,13 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
   1. 改四源版本号（根 `VERSION` / `skill/VERSION` / `deploy/skill/VERSION` / `skill/SKILL.md` frontmatter）
   2. 更新 `CHANGELOG.md` 顶部 + AGENTS.md 顶部「最近更新」块
   3. 本地验收全绿（worker `tests/` + skill `tests/` + webui build）
-  4. `git tag v{x.y.z} && git push origin v{x.y.z}`（触发 build-skill.yml 4 平台编译 + cd.yml 部署两条链路）
-  5. 确认 CD 两个 workflow 均 success（Docker 镜像 + Release + COS 部署包 + skill 二进制包）
-  6. 服务器 `bash deploy/cos-update.sh` 升级 worker；skill 用户端 updater 自动更新
+  4. **实机验证 gate（v0.69 起，不可跳过）**：tag 前必须本地 Docker worker 真实跑通 ≥3 单
+     （discover 或 graph 管线，真实 1688/Ozon 链接），检查 category_match_log / listing_result_log /
+     任务终态符合预期——mock 全绿≠能发版（v0.64~v0.68 连续 5 版未实机即发的教训）。
+     wave 观察脚本见 `docs/TEST-v067-wave-plan.md` 模式。
+  5. `git tag v{x.y.z} && git push origin v{x.y.z}`（触发 build-skill.yml 4 平台编译 + cd.yml 部署两条链路）
+  6. 确认 CD 两个 workflow 均 success（Docker 镜像 + Release + COS 部署包 + skill 二进制包）
+  7. 服务器 `bash deploy/cos-update.sh` 升级 worker；skill 用户端 updater 自动更新
 - 发版前快速核对命令：
   ```bash
   grep -H "" VERSION skill/VERSION deploy/skill/VERSION | sed 's/:$/: /'
