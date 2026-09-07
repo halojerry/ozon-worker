@@ -110,10 +110,11 @@ def test_main_fallback_ref_filters_competitor():
 
 def test_variant_fallback_rejects_thumbnail():
     """variant：生图失败 + 原图是串图缩略 → 不兜底（返回空，由上层降级）。"""
-    from graphs.state import VariantLoopState
-    state = VariantLoopState(
+    from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
+    state = VariantPrimaryLoopInput(
         variants=[{"name": "红色", "image": FOREIGN_THUMB_1}],
-        draft={"title": "保温杯"},
+        white_bg_image="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/wb.jpg",
+        draft={"title": "保温杯"}, token="t",
     )
 
     def _fail(*args, **kwargs):
@@ -126,10 +127,10 @@ def test_variant_fallback_rejects_thumbnail():
 
 def test_variant_fallback_keeps_good_original():
     """variant：生图失败 + 原图是合格 alicdn 原图 → 正常兜底（v0.60 行为保持）。"""
-    from graphs.state import VariantLoopState
-    state = VariantLoopState(
+    from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
+    state = VariantPrimaryLoopInput(
         variants=[{"name": "红色", "image": GOOD_ORIGINAL}],
-        draft={"title": "保温杯"},
+        draft={"title": "保温杯"}, token="t",
     )
 
     def _fail(*args, **kwargs):
@@ -138,6 +139,35 @@ def test_variant_fallback_keeps_good_original():
     with patch.object(_variant_mod, "call_mxou_image_api", side_effect=_fail):
         out = variant_primary_loop_node(state, _CONFIG, _RUNTIME)
     assert list(out.variant_primary_images) == [GOOD_ORIGINAL], out.variant_primary_images
+
+
+def test_variant_missing_image_uses_phase1_fallback_ref():
+    """R2 回归锁定：variant.image 缺失时用 white_bg_image（自家 AI 生成图，
+    mxou COS 域）做参考正常生图——白名单只管 1688 原图，不得误杀
+    v0.26 的缺图兜底通道（审查实证回归，review 后修复）。"""
+    from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
+    state = VariantPrimaryLoopInput(
+        variants=[{"name": "红色", "image": ""}],
+        white_bg_image="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/wb.jpg",
+        draft={"title": "保温杯"}, token="t",
+    )
+    captured = _capture_ref_images(variant_primary_loop_node, state, _variant_mod)
+    assert captured and captured[0] == [
+        "https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/wb.jpg"], captured
+
+
+def test_variant_bad_image_falls_back_to_phase1():
+    """R2 回归锁定：variant.image 是串图缩略图 → 降级用 white_bg_image 参考，
+    而非直接放弃生图。"""
+    from graphs.nodes.variant_primary_loop_node import VariantPrimaryLoopInput
+    state = VariantPrimaryLoopInput(
+        variants=[{"name": "红色", "image": FOREIGN_THUMB_1}],
+        white_bg_image="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/wb.jpg",
+        draft={"title": "保温杯"}, token="t",
+    )
+    captured = _capture_ref_images(variant_primary_loop_node, state, _variant_mod)
+    assert captured and captured[0] == [
+        "https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/wb.jpg"], captured
 
 
 # ═══ fix/image-ref-pollution R2: 跟卖标记 extensions 全链透传 ═══

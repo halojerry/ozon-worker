@@ -3845,8 +3845,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     # 跟卖标记: Worker 走跟卖管线
                     draft["ozon_product_id"] = product_id
                     extensions["follow_sell"] = True
-                    # fix/image-ref-pollution: 竞品主图改放 extensions（仅供 worker
-                    # 识别跟卖参考语义，绝不进 draft.images/生图参考）
+                    # fix/image-ref-pollution: 竞品主图改放 extensions（绝不进
+                    # draft.images 上传位；worker 生图节点仅在 follow_sell=true
+                    # 时把它作优先生图参考——参考图两条线，见 CONTRACT-v4）
                     if ozon_images:
                         extensions["competitor_ref_images"] = list(ozon_images[:1])
                     # ✅ v0.22（参考 maozi follow_type）: hand=防侵权跟卖（默认，

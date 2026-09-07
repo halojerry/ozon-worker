@@ -78,7 +78,6 @@ def variant_primary_loop_node(
         """生成单个变体主图（线程内执行，失败隔离）"""
         try:
             sku_name = variant.get("name", f"variant_{idx}")
-            sku_image_url = variant.get("image", "")
 
             # ✅ v0.26/v0.41: 重跑不重烧生图 + force_regen 绕过缓存读（webui 重生成）
             _tid = _task_id_from_config(config)
@@ -88,28 +87,30 @@ def variant_primary_loop_node(
                     logging.info(f"[variant_primary_loop_node] variant[{idx}] 命中生图缓存，复用")
                     return cached
 
+            # fix/image-ref-pollution: variant.image（1688 原图）先过白名单——
+            # 非合格（搜索缩略图/竞品域）视同缺失，降级走 fallback 参考。
+            # ⚠️ 守卫只作用于 variant.image；fallback_ref（white_bg/multi_angle
+            # 产物，自家 mxou COS 域）不做此检查——白名单语义是「1688 货源图」，
+            # 自产 AI 图不是串图源，误杀会废掉 v0.26 的缺图兜底通道。
+            sku_image_url = str(variant.get("image", "") or "").strip()
+            if sku_image_url and not is_product_image_candidate(sku_image_url):
+                logging.warning(
+                    f"[variant_primary_loop_node] variant[{idx}] image非合格商品图"
+                    f"(缩略图/竞品图)，降级用fallback参考: {sku_image_url[:100]}")
+                sku_image_url = ""
+
             # ✅ 修复：variant.image为空时，使用fallback参考图（白底图/多角度图）
-            if not sku_image_url or not isinstance(sku_image_url, str) or not sku_image_url.strip():
+            if not sku_image_url:
                 if fallback_ref:
-                    logging.info(f"[variant_primary_loop_node] variant[{idx}]缺少image，使用fallback参考图: {fallback_ref[:80]}")
+                    logging.info(f"[variant_primary_loop_node] variant[{idx}]缺少合格image，使用fallback参考图: {fallback_ref[:80]}")
                     sku_image_url = fallback_ref
                 else:
                     logging.warning(f"[variant_primary_loop_node] variant[{idx}]缺少image且无fallback，跳过")
                     return ""
 
-            # fix/image-ref-pollution: 非合格商品图（竞品域/搜索缩略图）不生图不兜底
-            if not is_product_image_candidate(sku_image_url):
-                logging.warning(
-                    f"[variant_primary_loop_node] variant[{idx}] image非合格商品图"
-                    f"(缩略图/竞品图)，拒绝用作参考与兜底: {str(sku_image_url)[:100]}")
-                sku_image_url = ""
-
             logging.info(f"[variant_primary_loop_node] 正在生成variant[{idx}]: {sku_name}")
 
-            # ✅ 直接用1688原始URL（mxou可直接访问）
-            if not sku_image_url:
-                logging.warning(f"[variant_primary_loop_node] variant[{idx}]无合格参考图，跳过生图")
-                return ""
+            # ✅ 直接用参考图 URL（mxou 可直接访问；1688 原图或自家 AI 生成图）
             ref_images = [sku_image_url]
 
             # 产品标题（所有变体共用同一标题，注入到生图 prompt）
