@@ -8,8 +8,72 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from runtime.context import Context
 from graphs.state import OzonValidateInput, OzonValidateOutput
+# ✅ v0.69 Wave3: 数值属性清洗唯一入口 + 尺寸契约硬边界（唯一事实源，与 normalizer 同源）
+from utils.attr_numeric_sanitize import is_numeric_attr_type, sanitize_numeric_attr_value
+from utils.weight_dimension_normalizer import OZON_DIM_BOUNDS_MM
 
 logger = logging.getLogger(__name__)
+
+
+# ── ✅ v0.69 Wave4 T2.1: 标题-类目词面一致性（DESCRIPTION_DECLINE 本地预检）──
+# 店铺扫描 DESCRIPTION_DECLINE 37 例（最高频）：「标题与类目不符」类 decline 靠
+# 本地词面检查提前拦。阈值宁松勿严：标题与 RU 类目路径只要有 ≥4 字符公共西里尔词
+# 就放行，只拦零交集；UPDATE/跟卖（带 product_id）豁免——对齐本节点类目必填豁免
+# 逻辑（v0.64.0 C3/N6）。「命中重生成一次」不做在 validate（validate 不调 LLM）：
+# retry 子图 DESCRIPTION_DECLINE→error_repair_llm 已承担重生成，本地拦截的价值是
+# 快速失败 + 错误信息带类目名，上游一次性修。
+_CYR_TOKEN_RE = re.compile(r"[а-яё]+")
+_MIN_COMMON_WORD_LEN = 4  # ≥4 字符的西里尔词才计入公共词（短词多是 для/и 噪音）
+_MIN_COMMON_PREFIX = 4    # 共同前缀 ≥4 视为同词根（кружка↔кружки 词形变化）
+
+
+def _cyr_words(text: str) -> set:
+    """文本中的小写西里尔词集合（按非西里尔字符切分，≥2 字符）。"""
+    return {w for w in _CYR_TOKEN_RE.findall(str(text or "").lower()) if len(w) >= 2}
+
+
+def common_cyr_words(title: str, category_path: str) -> set:
+    """标题 × 类目路径的公共西里尔词（纯函数，可单测）。
+
+    公共词 = 双方各含一个 ≥4 字符西里尔词，二者相等或共同前缀 ≥
+    _MIN_COMMON_PREFIX（俄语名词单复数/格变化兜底）。返回公共词集合（空=零交集）。
+    """
+    title_words = _cyr_words(title)
+    path_words = _cyr_words(category_path)
+    if not title_words or not path_words:
+        return set()
+    common: set = set()
+    for tw in title_words:
+        if len(tw) < _MIN_COMMON_WORD_LEN:
+            continue
+        for pw in path_words:
+            if len(pw) < _MIN_COMMON_WORD_LEN:
+                continue
+            if tw == pw or tw[:_MIN_COMMON_PREFIX] == pw[:_MIN_COMMON_PREFIX]:
+                common.add(tw if len(tw) <= len(pw) else pw)
+                break
+    return common
+
+
+def _fetch_ru_category_path(description_category_id, type_id) -> str:
+    """dc+tp → RU 类目 full_path（PG 直查）。
+
+    任何异常/树缺行 → ""（调用方跳过一致性检查）：validate 是上传前在线阶段，
+    PG 短暂不可用不应把一致性预检变成硬故障（宁松勿严）。
+    """
+    try:
+        from storage.database.db import get_session
+        from sqlalchemy import text as _sql_text
+        with get_session() as _s:
+            _row = _s.execute(_sql_text(
+                "SELECT full_path FROM category_tree_nodes "
+                "WHERE description_category_id=:cid AND type_id=:tid AND language='RU' LIMIT 1"
+            ), {"cid": int(description_category_id), "tid": int(type_id)}).fetchone()
+        return str(_row[0] or "") if _row else ""
+    except Exception as _e:
+        logger.debug(f"RU 类目路径查询失败（跳过标题一致性检查）: {_e}")
+        return ""
+
 
 def ozon_validate_node(
     state: OzonValidateInput, 
@@ -57,11 +121,19 @@ def ozon_validate_node(
             atype = schema_attr.get("type", "")
             if aid and atype:
                 attr_type_map[int(aid)] = atype
+
+    # ✅ v0.69 Wave3: 必填属性清单（schema is_required）——预检时逐 item 对照
+    # payload attributes，缺失的列 attr_id+name（与尺寸/数值错误同批一次列全）
+    required_schema_attrs: List[Dict[str, Any]] = [
+        sa for sa in attributes_schema
+        if isinstance(sa, dict) and sa.get("is_required") and sa.get("id") is not None
+    ]
     
     logger.info(f"开始Ozon上传预检测: payload包含{len(ozon_payload.get('items', []))}个商品")
     
     validation_errors: List[str] = []
     auto_fixed: bool = False
+    _ru_path_cache: dict = {}  # (dc,tp) → RU full_path（T2.1 一致性检查，进程内缓存）
     
     try:
         # Step 1: 验证payload结构
@@ -181,6 +253,28 @@ def ozon_validate_node(
                         f"item[{i}]尺寸异常大(max={max_dim}mm): {depth}×{width}×{height}mm "
                         f"→ 可能是cm→mm单位错误"
                     )
+
+            # ✅ v0.69 Wave3: Ozon 契约尺寸硬边界（防御第二道，与 normalizer 同源
+            # OZON_DIM_BOUNDS_MM）——normalizer 已在源头 clamp，这里覆盖绕过
+            # normalizer 的路径（retry 重建 payload/手工数据等）。越界只报错不改写
+            # （修复走 repair/prepare clamp），错误与数值/必填同批一次列全不 fail-first。
+            for _dim_key, (_lo, _hi) in OZON_DIM_BOUNDS_MM.items():
+                _raw_dim = item.get(_dim_key if _dim_key != "length" else "depth", 0)
+                try:
+                    _actual_dim = int(float(str(_raw_dim))) if _raw_dim else 0
+                except (ValueError, TypeError):
+                    _actual_dim = 0
+                if _actual_dim > 0 and not (_lo <= _actual_dim <= _hi):
+                    _dim_label = "length(depth)" if _dim_key == "length" else _dim_key
+                    item_errors.append(
+                        f"item[{i}]尺寸超出Ozon契约边界: {_dim_label}={_actual_dim}mm "
+                        f"允许[{_lo}, {_hi}]mm"
+                    )
+                    logger.error(
+                        f"❌ item[{i}]尺寸越界: {_dim_key}={_actual_dim}mm "
+                        f"边界[{_lo},{_hi}]mm"
+                    )
+
             images = item.get("images", [])
             primary_image = item.get("primary_image", "")
             if not images and not primary_image:
@@ -192,49 +286,101 @@ def ozon_validate_node(
                 logger.warning(f"item[{i}].attributes为空（可能缺少属性映射）")
             
             # ✅ 关键修复：校验字典类型属性是否有有效的dictionary_value_id
-            if dict_attr_ids:
+            # ✅ v0.69 Wave3: 循环不再被 dict_attr_ids 非空门槛——数值型属性
+            # （dictionary_id=0）的坏值同样要在本批列出
+            for attr in attributes:
+                if not isinstance(attr, dict):
+                    continue
+                attr_id = attr.get("id")
+                if attr_id is None:
+                    continue
+                try:
+                    attr_id_int: int = int(attr_id)
+                except (ValueError, TypeError):
+                    continue
+
+                if attr_id_int in dict_attr_ids:
+                    attr_values = attr.get("values", [])
+                    for v in attr_values:
+                        if not isinstance(v, dict):
+                            continue
+                        dict_val_id = v.get("dictionary_value_id", 0)
+                        try:
+                            dict_val_id_int: int = int(dict_val_id) if dict_val_id else 0
+                        except (ValueError, TypeError):
+                            dict_val_id_int = 0
+                        if dict_val_id_int <= 0:
+                            item_errors.append(
+                                f"item[{i}].attributes: 字典属性(id={attr_id_int})缺少有效的dictionary_value_id"
+                            )
+                            logger.error(f"❌ 字典属性校验失败: attr_id={attr_id_int}, dictionary_value_id={dict_val_id}")
+
+                # ✅ v0.69 Wave3 值类型校验：数值型属性（Integer/Decimal/Number…，
+                # 大小写不敏感）必须可解析为数字——复用 attr_numeric_sanitize 唯一
+                # 入口（"1,5"/"30包" 可解析放行，清洗归 prepare；完全无数字才报错）
+                attr_type = attr_type_map.get(attr_id_int)
+                if is_numeric_attr_type(attr_type):
+                    for v in attr.get("values", []):
+                        if not isinstance(v, dict):
+                            continue
+                        raw_val = v.get("value")
+                        val = str(raw_val) if raw_val is not None else ""
+                        if not val:
+                            continue
+                        cleaned, _reason = sanitize_numeric_attr_value(attr_id_int, val, attr_type)
+                        if cleaned is None:
+                            item_errors.append(
+                                f"item[{i}].attributes: 数值属性(id={attr_id_int})值无法解析为数字: '{val}'"
+                            )
+                            logger.error(
+                                f"❌ 数值属性坏值: attr_id={attr_id_int}, value='{val}'"
+                            )
+            
+            # ✅ v0.69 Wave3: 必填属性对照（schema is_required vs payload attributes）
+            # ——缺失的列 attr_id+name（语义对齐 revalidate_node 同名检查）；
+            # 与尺寸/数值错误同批 extend 返回，一次列全不 fail-first
+            if required_schema_attrs:
+                _present_attr_ids: set = set()
                 for attr in attributes:
-                    if not isinstance(attr, dict):
-                        continue
-                    attr_id = attr.get("id")
-                    if attr_id is None:
-                        continue
+                    if isinstance(attr, dict) and attr.get("id") is not None:
+                        try:
+                            _present_attr_ids.add(int(attr.get("id")))
+                        except (ValueError, TypeError):
+                            pass
+                for _schema_attr in required_schema_attrs:
                     try:
-                        attr_id_int: int = int(attr_id)
+                        _req_id = int(_schema_attr.get("id"))
                     except (ValueError, TypeError):
                         continue
-                    
-                    if attr_id_int in dict_attr_ids:
-                        attr_values = attr.get("values", [])
-                        for v in attr_values:
-                            if not isinstance(v, dict):
-                                continue
-                            dict_val_id = v.get("dictionary_value_id", 0)
-                            try:
-                                dict_val_id_int: int = int(dict_val_id) if dict_val_id else 0
-                            except (ValueError, TypeError):
-                                dict_val_id_int = 0
-                            if dict_val_id_int <= 0:
-                                item_errors.append(
-                                    f"item[{i}].attributes: 字典属性(id={attr_id_int})缺少有效的dictionary_value_id"
-                                )
-                                logger.error(f"❌ 字典属性校验失败: attr_id={attr_id_int}, dictionary_value_id={dict_val_id}")
-                    
-                    # ✅ 值类型校验：Decimal属性不能是非数字字符串
-                    attr_type = attr_type_map.get(attr_id_int)
-                    if attr_type == "Decimal":
-                        for v in attr.get("values", []):
-                            val = str(v.get("value", ""))
-                            if val:
-                                try:
-                                    float(val.replace(",", "."))
-                                except ValueError:
-                                    item_errors.append(
-                                        f"item[{i}].attributes: Decimal属性(id={attr_id_int})值不是数字: '{val}'"
-                                    )
-            
-            validation_errors.extend(item_errors)
-            
+                    if _req_id not in _present_attr_ids:
+                        _req_name = _schema_attr.get("name", f"id={_req_id}")
+                        item_errors.append(
+                            f"item[{i}]必填属性缺失: {_req_name} (id={_req_id})"
+                        )
+                        logger.error(f"❌ item[{i}]必填属性缺失: {_req_name} (id={_req_id})")
+
+            # ✅ v0.69 Wave4 T2.1: 标题-类目词面一致性（DESCRIPTION_DECLINE 本地预检）
+            # 只对 CREATE 生效——UPDATE/跟卖（带 product_id）豁免，对齐上方类目必填
+            # 豁免逻辑；RU 路径缺失（树缺行/PG 异常）→ 跳过（宁松勿严）。
+            # RU 路径按 (dc,tp) 进程内缓存，多变体不重复查 PG。
+            if description_category_id and type_id and not item.get("product_id"):
+                _ru_cache_key = (str(description_category_id), str(type_id))
+                _ru_path = _ru_path_cache.get(_ru_cache_key)
+                if _ru_path is None:
+                    _ru_path = _fetch_ru_category_path(description_category_id, type_id)
+                    _ru_path_cache[_ru_cache_key] = _ru_path
+                if _ru_path:
+                    _consistency_name = item.get("name", "")
+                    if _consistency_name and not common_cyr_words(_consistency_name, _ru_path):
+                        item_errors.append(
+                            f"item[{i}]标题与类目不一致（Ozon DESCRIPTION_DECLINE 风险）: "
+                            f"标题「{str(_consistency_name)[:60]}」与类目「{_ru_path[:80]}」"
+                            f"无公共西里尔词（≥{_MIN_COMMON_WORD_LEN}字符）"
+                        )
+                        logger.error(
+                            f"❌ item[{i}]标题与类目零交集: {_consistency_name[:60]} × {_ru_path[:80]}"
+                        )
+
             # ✅ 关键修复：本地内容预检 — 检测拉丁字母/中文字符
             # 这些问题会被Ozon审核标记为DESCRIPTION_DECLINE等错误
             _cyrillic_re = re.compile(r'[а-яА-ЯёЁ]')
@@ -300,12 +446,30 @@ def ozon_validate_node(
                             logger.error(f"❌ 属性{attr_id_int_check}纯拉丁字母: {str(av_val)[:80]}")
 
                     # 中文字符检测：所有属性值（Ozon禁止中文/日文字符）
+                    # ✅ v0.69 Wave4: 数值型属性的可解析值豁免——Wave3 契约明文
+                    # 「'30包' 可解析放行，清洗归 prepare」。此前中文检查因 extend
+                    # 缺陷是死代码，两者冲突不可见；修复后按 Wave3 契约对齐：
+                    # 数值属性值可解析 → 不报中文（下游必清洗）；不可解析坏值
+                    # 仍报（中文+数值双错，进 retry 修）。
                     if _chinese_re.search(av_val):
-                        item_errors.append(
-                            f"item[{i}].attributes: 属性{attr_id_int_check}含中文字符: {str(av_val)[:60]}"
-                        )
-                        logger.error(f"❌ 属性{attr_id_int_check}含中文字符: {str(av_val)[:80]}")
-        
+                        _num_type = attr_type_map.get(attr_id_int_check)
+                        _flag_chinese = True
+                        if is_numeric_attr_type(_num_type):
+                            _cleaned, _ = sanitize_numeric_attr_value(
+                                attr_id_int_check, av_val, _num_type)
+                            _flag_chinese = _cleaned is None
+                        if _flag_chinese:
+                            item_errors.append(
+                                f"item[{i}].attributes: 属性{attr_id_int_check}含中文字符: {str(av_val)[:60]}"
+                            )
+                            logger.error(f"❌ 属性{attr_id_int_check}含中文字符: {str(av_val)[:80]}")
+
+            # ✅ v0.69 Wave4 T1 缺陷修复: extend 挪到该 item 全部检查之后。
+            # 此前 extend 在必填属性检查后即执行，其后的 拉丁/中文/危化品/图片检查
+            # append 到旧 item_errors 但不再 extend——错误实际进不了 validation_errors
+            # （critical_errors 关键词表却含对应词），「本地能拦的没拦住、全靠 Ozon 事后拒」。
+            validation_errors.extend(item_errors)
+
         # Step 3: 变体颜色差异检查（多变体场景下，颜色必须不同才能合并）
         COLOR_ATTR_IDS: set = {10096, 10097, 10098, 10099}
         if len(items) > 1:
@@ -374,16 +538,18 @@ def ozon_validate_node(
             
             if hazard_matches:
                 logger.warning(f"⚠️ item[{i}]检测到危化品关键词: {hazard_matches}，标记不可修复")
-                item_errors.append(
+                # ✅ v0.69 Wave4 T1: 直接挂 validation_errors——此前 append 到上个 item
+                # 循环遗留的 item_errors（stale 引用），从未 extend → 错误被丢弃。
+                validation_errors.append(
                     f"item[{i}]检测到危化品/火险品关键词: {hazard_matches}，"
                     f"此类商品需特殊认证才能上架Ozon"
                 )
-            
+
             # 图片URL可达性检查（抽样：主图+前3张）
             images = item.get("images", [])[:3]
             primary = item.get("primary_image", "")
             sample_urls = [primary] + images if primary else images
-            
+
             failed_urls = []
             for url in sample_urls:
                 if not url:
@@ -393,11 +559,19 @@ def ozon_validate_node(
                     head_resp = req.head(url, timeout=5, allow_redirects=True)
                     if head_resp.status_code >= 400:
                         failed_urls.append(url[:60])
-                except Exception:
-                    failed_urls.append(url[:60])
-            
+                except Exception as _probe_e:
+                    # ✅ v0.69 Wave4 T1 异常安全: 网络失败（超时/DNS/SSL/代理）≠ 图片失效。
+                    # 本检查进 errors 且判 critical——validate 是上传前在线阶段，
+                    # 把网络抖动当「全部图片不可达」会大面积误拦正常任务（修复 extend
+                    # 缺陷后该错误真实生效，必须同步兜底）。降级 warning 放行，由 Ozon
+                    # 抓图侧兜底；只有 HTTP ≥400 明确失效才计失败。
+                    logger.warning(
+                        f"⚠️ item[{i}]图片可达性探测异常（降级 warning 不拦截）: "
+                        f"{url[:60]}: {_probe_e}"
+                    )
+
             if len(failed_urls) == len(sample_urls) and sample_urls:
-                item_errors.append(
+                validation_errors.append(
                     f"item[{i}]所有图片URL不可访问（{len(failed_urls)}/{len(sample_urls)}），"
                     f"Ozon将无法下载图片"
                 )
@@ -408,7 +582,11 @@ def ozon_validate_node(
         # 注：Ozon /v1/product/validate API 不存在（返回404），所有检查均为本地执行。
         # 本地检查覆盖范围：属性完整性、文本合规、图片可达性、危化品识别。
         # 无法预检的项目：Ozon ML 模型（体积重量对比）、图片内容审核。
-        critical_errors = [err for err in validation_errors if any(kw in err for kw in ["缺失", "为空", "格式错误", "变体颜色", "拉丁字母", "非俄语", "中文字符", "危化品", "不可访问"])]
+        # ✅ v0.69 Wave3: 新增关键词「超出」（尺寸契约边界）/「无法解析」（数值坏值）
+        # ——两类错误与必填缺失（「缺失」）同样属 Ozon 必拒项，必须判 critical
+        # ✅ v0.69 Wave4: 新增关键词「标题与类目不一致」（T2.1 DESCRIPTION_DECLINE
+        # 本地预检）——零交集标题×类目是 Ozon 事后必拒项，必须判 critical 拦在上传前。
+        critical_errors = [err for err in validation_errors if any(kw in err for kw in ["缺失", "为空", "格式错误", "变体颜色", "拉丁字母", "非俄语", "中文字符", "危化品", "不可访问", "超出", "无法解析", "标题与类目不一致"])]
         if critical_errors:
             logger.error(f"Ozon预检测发现严重错误: {len(critical_errors)}个")
             return OzonValidateOutput(

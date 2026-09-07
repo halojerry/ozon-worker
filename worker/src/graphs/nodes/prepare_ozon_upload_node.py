@@ -16,6 +16,7 @@ from utils.mxou_api import MxouOutOfQuotaError
 from utils.title_sanitizer import sanitize_title
 from utils.attribute_utils import is_customs_attr, is_hazard_attr, get_safe_hazard_default, has_chinese  # ⚠️ v0.16 海关 / v0.21 危险品防御
 from utils.title_formula import build_title_formula_prompt, parse_title_formula_keywords  # v0.59 标题公式唯一入口
+from utils.attr_numeric_sanitize import is_numeric_attr_type, sanitize_numeric_attr_value  # v0.69 T1.1 数值属性清洗唯一入口
 
 logger = logging.getLogger(__name__)
 
@@ -2215,6 +2216,27 @@ def prepare_ozon_upload_node(
             except Exception as _be:
                 logger.warning(f"⚠️ B1 批量翻译异常，逐条兜底: {_be}")
 
+    # ✅ v0.69 T1.1: 数值属性清洗准备 — schema 数值型属性表（大小写不敏感，含 Number）
+    # + 调整追溯列表（attributes_adjusted 通道，GraphOutput 按名透传）。
+    # 背景：_convert_numeric_attrs 只认 "Integer"/"Decimal" 精确匹配，"Number"/小写
+    # 类型漏网；且主循环对非空值原样保留 → "30包"/20000 直上 Ozon 被拒
+    # （VALUE_MAX_LIMIT 42 例实证，典型 8962 «Единиц в одном товаре»）。
+    _numeric_type_by_id: Dict[int, str] = {}
+    _attr_name_by_id: Dict[int, str] = {}
+    for _sa in attributes_schema or []:
+        if not isinstance(_sa, dict):
+            continue
+        try:
+            _aid_t = int(_sa.get("id") or 0)
+        except (ValueError, TypeError):
+            continue
+        if _aid_t > 0 and _sa.get("name"):
+            _attr_name_by_id.setdefault(_aid_t, str(_sa.get("name") or ""))
+        _tp_t = str(_sa.get("type") or "")
+        if _tp_t and is_numeric_attr_type(_tp_t):
+            _numeric_type_by_id[_aid_t] = _tp_t
+    attributes_adjusted: List[Dict[str, Any]] = []
+
     for attr in final_attributes:
         # 验证attr是否为dict类型
         if not isinstance(attr, dict):
@@ -2273,6 +2295,33 @@ def prepare_ozon_upload_node(
         if attribute_id_int == 22508:
             value_str = "Китай"
             logger.info(f"✅ 属性22508(品牌注册国)硬编码为：Китай")
+
+        # ✅ v0.69 T1.1: 数值型属性清洗（剥单位/逗号小数/越界夹取）——放在翻译之前，
+        # 数值永不进 LLM 翻译（"30包"翻译会产出 "30 пакетов" 文本垃圾）。
+        # 清洗失败(None) → 剔除该属性（必填缺失由下方 :2520 段告警兜底；
+        # 8962 空缺由 :2588 兜底段补 "1"）；清洗成功 → 替换并记 attributes_adjusted。
+        if attribute_id_int in _numeric_type_by_id and value_str:
+            _san_val, _san_reason = sanitize_numeric_attr_value(
+                attribute_id_int, value_str, _numeric_type_by_id[attribute_id_int]
+            )
+            if _san_val is None:
+                logger.warning(
+                    f"⚠️ 数值属性 {attribute_id_int}({_attr_name_by_id.get(attribute_id_int, '')}) "
+                    f"值无法清洗: '{str(value_str)[:40]}'，剔除该属性（{_san_reason}）"
+                )
+                continue
+            if _san_val != value_str:
+                attributes_adjusted.append({
+                    "attr_id": attribute_id_int,
+                    "attr_name": _attr_name_by_id.get(attribute_id_int, ""),
+                    "before": value_str,
+                    "after": _san_val,
+                    "reason": _san_reason or "数值清洗",
+                })
+                logger.info(
+                    f"✅ 数值属性 {attribute_id_int} 清洗: '{value_str}' → '{_san_val}'（{_san_reason}）"
+                )
+                value_str = _san_val
 
         # ✅ C8 修复: 属性4191(Описание) 富文本 HTML 值禁止走每属性 LLM 翻译
         # —— LLM 会把 <b>/<ul>/<li> 标签当文本翻译成词 → HTML 结构破坏 → Ozon 拒
@@ -2586,15 +2635,48 @@ def prepare_ozon_upload_node(
             logger.info(f"✅ 添加属性9048（型号名称）= {model_name_9048}")
 
     # ✅ 属性8962（件数/Единиц в одном товаре）：兜底默认值 "1"
+    # ✅ v0.69 T1.1: 已有非空值也过数值清洗（不只空值补 "1"）——schema type 缺失/
+    # 非数值枚举时主循环清洗表不认，此处按 8962 语义默认 Integer + 区间 (1,10000)
+    # 二次防线（生产 VALUE_MAX_LIMIT 实证 20000 被拒）。清洗失败回落 "1"。
     found_8962: bool = False
     for attr in ozon_attributes:
         if isinstance(attr, dict) and attr.get("id") == 8962:
             found_8962 = True
             # 检查 value 是否为空
             vals = attr.get("values", [])
-            if not vals or not any(v.get("value", "") if isinstance(v, dict) else v for v in vals):
+            _cur_8962: str = ""
+            for v in vals or []:
+                _vt = str(v.get("value") or "").strip() if isinstance(v, dict) else str(v).strip()
+                if _vt:
+                    _cur_8962 = _vt
+                    break
+            if not _cur_8962:
                 attr["values"] = [{"dictionary_value_id": 0, "value": "1"}]
                 logger.info("✅ 属性8962 值为空，兜底填充: 1")
+            else:
+                _san_8962, _r_8962 = sanitize_numeric_attr_value(
+                    8962, _cur_8962, _numeric_type_by_id.get(8962, "Integer")
+                )
+                if _san_8962 is None:
+                    attr["values"] = [{"dictionary_value_id": 0, "value": "1"}]
+                    attributes_adjusted.append({
+                        "attr_id": 8962,
+                        "attr_name": _attr_name_by_id.get(8962, "Единиц в одном товаре"),
+                        "before": _cur_8962,
+                        "after": "1",
+                        "reason": f"{_r_8962}；回落兜底 1",
+                    })
+                    logger.warning(f"⚠️ 属性8962 值无法清洗（{_r_8962}），回落兜底: 1")
+                elif _san_8962 != _cur_8962:
+                    attr["values"] = [{"dictionary_value_id": 0, "value": _san_8962}]
+                    attributes_adjusted.append({
+                        "attr_id": 8962,
+                        "attr_name": _attr_name_by_id.get(8962, "Единиц в одном товаре"),
+                        "before": _cur_8962,
+                        "after": _san_8962,
+                        "reason": _r_8962 or "数值清洗",
+                    })
+                    logger.info(f"✅ 属性8962 值清洗: '{_cur_8962}' → '{_san_8962}'（{_r_8962}）")
             break
     if not found_8962:
         ozon_attributes.append({
@@ -3467,6 +3549,10 @@ def prepare_ozon_upload_node(
             # ✅ v0.67.1 wave②: 失败出口也带归一真值（:1841 已算出，留档取证）
             final_weight_g=int(weight_g or 0),
             final_dims_mm={"length": int(depth_mm or 0), "width": int(width_mm or 0), "height": int(height_mm or 0)},
+            # ✅ v0.69 T1.1: 数值属性清洗调整记录（失败出口同样透出，留档取证）
+            attributes_adjusted=attributes_adjusted,
+            # ✅ v0.69 T2.2: 跟卖标记透出（ozon_upload offer 存在性检查豁免）
+            is_follow_sell=bool(is_follow_sell),
         )
     
     # Step 8: 返回准备好的数据
@@ -3494,6 +3580,10 @@ def prepare_ozon_upload_node(
         # ✅ v0.67.1 wave②: 归一后真值透出（GlobalState→GraphOutput→留存表）
         final_weight_g=int(weight_g or 0),
         final_dims_mm={"length": int(depth_mm or 0), "width": int(width_mm or 0), "height": int(height_mm or 0)},
+        # ✅ v0.69 T1.1: 数值属性清洗调整记录（attr_id/attr_name/before/after/reason）
+        attributes_adjusted=attributes_adjusted,
+        # ✅ v0.69 T2.2: 跟卖标记透出（ozon_upload offer 存在性检查豁免）
+        is_follow_sell=bool(is_follow_sell),
         validation_errors=[],
         error_message="",
         failed_stage=""

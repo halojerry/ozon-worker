@@ -12,9 +12,69 @@ from runtime.context import Context
 from graphs.state import OzonUploadInput, OzonUploadOutput
 from utils.progress_logger import ProgressLogger
 from utils.logger import get_logger, log_ozon_api_call
-from utils.ozon_client import ozon_check_quota
+from utils.ozon_client import find_product_by_offer, ozon_check_quota
 
 logger = get_logger(__name__)
+
+# v0.69 T2.2: CREATE 前 offer 存在性检查开关（默认开）。
+# 生产实证：对已存在的 declined 死卡重跑 graph → 裸 CREATE → Ozon 对已存在 offer_id
+# 自动加 _0 后缀新建卡（549733785579 → 549733785579_0），旧卡残留 → 修一张死卡多一张
+# 尸体卡占 SKU 配额。置 False 回退现状（裸 CREATE）。
+UPSERT_BY_OFFER = True
+
+
+def _maybe_upsert_existing_offer(
+    ozon_payload: Dict[str, Any],
+    ozon_client_id: str,
+    ozon_api_key: str,
+    is_follow_sell: bool = False,
+) -> None:
+    """v0.69 T2.2: CREATE 前置闸——Ozon 侧同 offer 已存在 → 注入 product_id 转 UPDATE。
+
+    只处理「真 CREATE」：item 无 product_id（编辑更新/跟卖 UPDATE 的 item 已带
+    product_id，跳过）且非跟卖（is_follow_sell——跟卖本就要并卡/CREATE 重建，语义不动；
+    import-by-sku pending 路径在节点主流程提前返回，不会走到这里）。
+
+    - 存在（任何 state，含 declined/archived 死卡）→ item["product_id"] = int(pid)：
+      /v3/product/import 带 product_id 即同卡更新（对齐 prepare UPDATE 分支的 payload
+      形状），后续 ozon_status 轮询链天然复用（UPDATE 有真实 product_id）。
+    - 不存在/查询失败 → 原样 CREATE：find_product_by_offer 非致命封装吞 API 异常，
+      此处再兜一层防御纵深——预检失败绝不阻塞正常上架。
+    """
+    if not UPSERT_BY_OFFER or is_follow_sell:
+        return
+    for item in (ozon_payload.get("items") or []):
+        if not isinstance(item, dict) or item.get("product_id"):
+            continue  # 已是 UPDATE 语义（编辑更新/跟卖），不动
+        offer_id = str(item.get("offer_id") or "").strip()
+        if not offer_id:
+            continue
+        try:
+            existing = find_product_by_offer(
+                client_id=ozon_client_id, api_key=ozon_api_key, offer_id=offer_id,
+            )
+        except Exception as exc:  # 防御纵深：查询层兜底之外的任何异常也不阻塞 CREATE
+            logger.warning(
+                "offer 存在性预检异常（继续 CREATE）: offer_id=%s: %s", offer_id, str(exc)[:200],
+            )
+            continue
+        if not existing:
+            continue
+        pid = str(existing.get("product_id") or "").strip()
+        if not pid.isdigit():
+            logger.warning(
+                "offer 已存在但 product_id 非法（继续 CREATE 防错更新）: offer_id=%s product_id=%r",
+                offer_id, existing.get("product_id"),
+            )
+            continue
+        item["product_id"] = int(pid)
+        state_label = existing.get("state") or (
+            "archived" if existing.get("archived") else "unknown"
+        )
+        logger.info(
+            "🔄 offer 已存在（state=%s, product_id=%s）→ 覆盖更新不新建（防 _0 尸体卡）: offer_id=%s",
+            state_label, pid, offer_id,
+        )
 
 
 def try_set_min_price_floor(
@@ -174,6 +234,8 @@ def ozon_upload_node(
     
     # v0.22 P2a: api 模式 import-by-sku 已提交但 product_id 未回 → 跳过 v3 import
     # （避免与后台 import 竞争同 offer_id 创建双卡；由后续轮询 import/info 收尾）
+    # ✅ v0.69 T2.2: import_submitted 已声明进 OzonUploadInput（此前未声明被 langgraph
+    # 按 Input model 过滤，getattr 恒 False 属死代码）——守卫自此真实生效。
     if getattr(state, "import_submitted", False) and not getattr(state, "product_id", None):
         logger.warning("⚠️ import-by-sku 处理中（import_submitted），跳过 v3 import，返回 pending")
         return OzonUploadOutput(
@@ -204,7 +266,17 @@ def ozon_upload_node(
             )
         if quota["remaining_total"] <= 5:
             logger.warning("⚠️ 产品配额仅剩 %d 个！建议归档旧产品释放空间", quota["remaining_total"])
-        
+
+        # ✅ v0.69 T2.2: CREATE 前置闸——Ozon 侧同 offer 已存在（含 declined 死卡）
+        # → 注入 product_id 转 UPDATE（同 offer 覆盖不新建，消 _0 尸体卡）。
+        # 非致命：查询失败/异常均按「不存在」放行 CREATE，绝不阻塞上架。
+        _maybe_upsert_existing_offer(
+            ozon_payload,
+            ozon_client_id,
+            ozon_api_key,
+            is_follow_sell=bool(getattr(state, "is_follow_sell", False)),
+        )
+
         url = "https://api-seller.ozon.ru/v3/product/import"
         headers = {
             "Client-Id": ozon_client_id,

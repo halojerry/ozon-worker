@@ -721,7 +721,11 @@ bash update.sh
 - JSON 裸文件：全量 ~70GB（太大，不能 git）
 - PG JSONB（TOAST 压缩）：全量 ~600MB（完全可行）
 - 策略：属性 schema + 字典值直接写 PG，运行时懒加载补全
-- **v0.11.5 补充**：top-200 子集 JSON（~2MB）提交 git 随 Docker 镜像分发，`init_data.py` 启动时直接导入（详见 `CHANGELOG.md` 0.11.5 段）
+- **预热 JSON 资产当前未入库**（assets/ 下无 attribute_schemas_zh.json / dictionary_values_zh.json，
+  v0.11.5 的 top-200 子集 JSON 引用已失效）：数据来源 = deploy.sh 部署后 top-200 预热 +
+  运行时懒加载回写（v0.69 T3.3 起 schema 未命中也会回写 PG）。`init_data.py`/`--import-only`
+  对缺失 JSON 静默跳过（「属性缓存 JSON 文件不存在，跳过导入」）。覆盖率用
+  `--coverage` 审计（见下节）
 
 ### 属性缓存机制
 
@@ -742,6 +746,12 @@ dictionary_value_id **跨语言通用**：ZH_HANS 的 `id=61571` 在 RU 下展�
 > 服务卡死）。已改：**逐节点小事务写 PG**（--pg-only 内存 O(单节点)）、429 限流
 > 指数退避上限 3 次（原无限递归）、并发 3→2、API_DELAY 0.05→0.3、导出流式写。
 > 全量预热建议分片：`--offset N --pg-only` 每 1000 个跑一次。
+>
+> ✅ **v0.69 T3.3**：`--all` 参数补齐（此前 AGENTS.md 写了但 argparse 没有——不传
+> `--limit` 即全量，语义不变；`--all` 与 `--limit` 互斥，同时给报错退出 2）；新增
+> `--coverage` 只读审计模式 + schema 懒加载回写闭环（assemble/retry 实时拉到的
+> schema 现在会写回 PG `attribute_cache`，测试见
+> `worker/tests/test_attribute_cache_writeback_v069.py`）。
 
 ```bash
 # 预热 top-200 类目（部署后自动跑）
@@ -752,10 +762,14 @@ python scripts/warm_category_cache.py --all --pg-only
 python scripts/warm_category_cache.py --all --offset 1000 --pg-only
 python scripts/warm_category_cache.py --all --offset 2000 --pg-only
 
-# 导出 JSON 到 assets/（提交 git，部署时自动导入）
+# 覆盖率审计（纯只读，不碰 Ozon API 不写 PG；末行 COVERAGE schema=x/y(z%) dict=a/b(c%)）
+python scripts/warm_category_cache.py --coverage
+python scripts/warm_category_cache.py --coverage --coverage-sample 20   # 随机抽 20 个缺失 (dc,tp)
+
+# 导出 JSON 到 assets/（⚠️ 当前产物未提交 git，仅供人工备份/手工导入）
 python scripts/warm_category_cache.py --limit 500 --export-only
 
-# 从 JSON 导入到 PG（部署时 init_data.py 自动调用）
+# 从 JSON 导入到 PG（部署时 init_data.py 自动调用，JSON 缺失时静默跳过）
 python scripts/warm_category_cache.py --import-only
 
 # 断点续传

@@ -14,6 +14,8 @@
 import os
 import sys
 
+import pytest
+
 os.environ.setdefault("GRSAI_API_KEY", "test-key")
 os.environ.setdefault("LOG_FORMAT", "text")
 os.environ.setdefault("LOG_LEVEL", "WARNING")
@@ -22,6 +24,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from graphs.state import OzonValidateInput  # noqa: E402
 from graphs.nodes.ozon_validate_node import ozon_validate_node  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _img_probe_ok(monkeypatch):
+    """v0.69 Wave4 起 validate 图片可达性错误真实生效（extend 收集缺陷修复）——
+    测试必须确定性控制 HTTP 探测结果，不得依赖本机网络/代理行为。"""
+    class _R:
+        status_code = 200
+
+    monkeypatch.setattr("requests.head", lambda *a, **k: _R(), raising=False)
 
 
 def _run(items):
@@ -66,7 +78,10 @@ def test_create_item_missing_category_still_errors():
 
 def test_create_item_with_category_valid():
     """CREATE item 带类目 → 通过（不误报类目缺失）。"""
-    out = _run([_item(description_category_id=17028653, type_id=92147)])
+    # name 与该 dc/tp 的 RU 类目路径（…Трещотка）词面一致——v0.69 Wave4 T2.1
+    # 标题-类目一致性预检上线后，通用假名会被一致性检查（非类目缺失）拦下，
+    # 本用例验证的是「带类目不报类目缺失」，fixture 对齐类目保住原意。
+    out = _run([_item(name="Трещотка набор", description_category_id=17028653, type_id=92147)])
     assert not any("类目" in e for e in out.validation_errors), \
         f"带类目不应报类目缺失，实际: {out.validation_errors}"
 

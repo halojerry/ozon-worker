@@ -7,12 +7,19 @@
 核心原则（v0.21/v0.26/v0.34 已验证的保护法）：
 - 数据**缺失**（weight<=0 / dim<=0）→ 允许兜底/估算
 - 数据**已有**（非零真实值）→ 默认信任，密度/单位异常仅打标，绝不改写
-- 唯一例外：明确单位级证据（重量为字符串带小数点判 kg）才转换
+- 唯一例外①：明确单位级证据（重量为字符串带小数点判 kg）才转换
+- 唯一例外②（v0.69 契约硬边界）：Ozon 类目对长/宽/高的毫米级上下限
+  （OZON_DIM_BOUNDS_MM，唯一事实源，validate 预检第二道同源 import）是平台
+  物理事实——同 v0.68.1 OZON_MIN_WEIGHT_G 先例，越界值原样上传必被
+  INCORRECT_DIMENSION 拒（A 系列 330×430×100 宽 430>400 实证）→ 取边界值
+  clamp 并在 marks["dimensions_clamped"] 逐维留痕 from/to。密度/单位异常
+  依旧只标疑不改写（轻物保护不变）。
 
 marks 语义（供调用方写入 state/payload/审计）：
 - weight_source: draft(原始) / competitor(竞品) / estimated(兜底估算)
 - weight_estimated: bool 重量非原始抓取值
 - dimensions_suspected: bool 尺寸密度异常但保留原值
+- dimensions_clamped: dict 逐维 {dim: {from, to}}（无 clamp 时空 dict）
 """
 from __future__ import annotations
 
@@ -34,6 +41,11 @@ LIGHT_DIM_MM = 50
 # (min: 10, max: 5000)" 实证）——(0,10) 区间按契约必拒，视同缺失走兜底
 OZON_MIN_WEIGHT_G = 10
 
+# ✅ v0.69 Wave3: Ozon 契约尺寸硬边界（毫米，唯一事实源）——ozon_validate_node
+# 预检第二道 import 同源对照，禁止两处各自维护。店铺健康扫描尺寸重量类错误 17 例
+# 实证（330×430×100 宽 430>400 被 INCORRECT_DIMENSION 拒，retry 原样重跑耗尽）。
+OZON_DIM_BOUNDS_MM = {"length": (42, 400), "width": (25, 400), "height": (5, 200)}
+
 
 def normalize_weight_dimensions(
     weight_raw: Any,
@@ -42,13 +54,15 @@ def normalize_weight_dimensions(
 ) -> Tuple[int, Dict[str, int], Dict[str, Any]]:
     """归一化重量/尺寸，返回 (weight_g, dims_mm, marks)。
 
-    只对缺失兜底，对已有值仅标记。marks 含：
-      weight_source / weight_estimated / dimensions_suspected / reasons
+    缺失兜底 + Ozon 契约硬边界 clamp（v0.69，例外②）；密度/单位异常仅标记。
+    marks 含：weight_source / weight_estimated / dimensions_suspected /
+    dimensions_clamped / reasons
     """
     marks: Dict[str, Any] = {
         "weight_source": "draft",
         "weight_estimated": False,
         "dimensions_suspected": False,
+        "dimensions_clamped": {},
         "reasons": [],
     }
     dims = dimensions_obj if isinstance(dimensions_obj, dict) else {}
@@ -129,6 +143,23 @@ def normalize_weight_dimensions(
                 else:
                     dims_mm[k] = default
                     marks["reasons"].append(f"dim_{k}_missing_used_default")
+
+    # ✅ v0.69 Wave3: Ozon 契约硬边界 clamp（在缺失兜底/竞品回填之后，覆盖所有
+    # 来源：真实值/竞品回填/默认值——默认 300/200/50 本就在界内，走同一路径只为
+    # 防御未来阈值变动）。低于下限取下限、高于上限取上限，marks 逐维留痕 from/to。
+    # 只动非零维：零维语义是「缺失」，已由上方兜底分支补齐，不参与 clamp。
+    for _dim_key, (_lo, _hi) in OZON_DIM_BOUNDS_MM.items():
+        _v = dims_mm[_dim_key]
+        if _v <= 0:
+            continue
+        if _v < _lo:
+            marks["dimensions_clamped"][_dim_key] = {"from": _v, "to": _lo}
+            dims_mm[_dim_key] = _lo
+        elif _v > _hi:
+            marks["dimensions_clamped"][_dim_key] = {"from": _v, "to": _hi}
+            dims_mm[_dim_key] = _hi
+    for _dim_key, _ch in marks["dimensions_clamped"].items():
+        marks["reasons"].append(f"dim_{_dim_key}_clamped({_ch['from']}→{_ch['to']})")
 
     # 密度标疑（不改写）：Ozon 要求密度在 [1.293, 13546] kg/m³
     if weight_g > 0 and all(v > 0 for v in dims_mm.values()):

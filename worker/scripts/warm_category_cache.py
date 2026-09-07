@@ -4,14 +4,19 @@
 写入 PostgreSQL（运行时查询）和 JSON 文件（部署时自动导入）。
 
 用法:
-  python scripts/warm_category_cache.py [--limit N] [--offset N] [--export-only] [--pg-only]
+  python scripts/warm_category_cache.py [--limit N] [--all] [--offset N] [--export-only] [--pg-only]
+                                        [--import-only] [--force] [--coverage] [--coverage-sample N]
 
   --limit N      只处理 N 个 type（测试用，默认全部）
+  --all          显式全量预热（与不带 --limit 等价；与 --limit 互斥，同时给报错退出 2）。
+                 全量 ~7400 类目约 16h，建议配合 --offset 分片跑（每 1000 个一段）
   --offset N     从第 N 个开始（断点续传）
   --export-only  只导出 JSON 文件，不写 PG（流式写，内存 O(单节点)）
   --pg-only      只写 PG，不导出 JSON 文件（逐节点小事务写，内存 O(单节点)）
   --import-only  只从 JSON 文件导入 PG（分批事务）
   --force        强制刷新已有缓存
+  --coverage     只读审计：schema/字典值缓存对 ZH_HANS type 节点的覆盖率 + 缺失类目抽样
+  --coverage-sample N   coverage 模式下随机抽 N 个缺失 (dc,tp) 打印（默认 0 不抽样）
 
 ⚠️ v1.1 修复（2026-08-01 云端崩溃根因）：
 1. 不再全量攒内存 —— 原实现把全部类目的 schema/字典值堆积在内存
@@ -331,15 +336,133 @@ def import_from_files() -> tuple[dict, dict]:
     return schemas, dict_values
 
 
-def main():
+def build_arg_parser() -> argparse.ArgumentParser:
+    """✅ v0.69 T3.3: argparse 构造独立成函数（可单测），参数语义不变 + 新增 --all/--coverage。"""
     parser = argparse.ArgumentParser(description="预热 Ozon 类目属性缓存")
     parser.add_argument("--limit", type=int, default=None, help="只处理 N 个 type")
+    parser.add_argument("--all", action="store_true",
+                        help="显式全量预热（等价于不带 --limit；全量 ~16h，建议配合 --offset 分片）")
     parser.add_argument("--offset", type=int, default=None, help="从第 N 个开始")
     parser.add_argument("--export-only", action="store_true", help="只导出 JSON，不写 PG")
     parser.add_argument("--pg-only", action="store_true", help="只写 PG，不导出 JSON")
     parser.add_argument("--import-only", action="store_true", help="只从 JSON 文件导入 PG")
+    parser.add_argument("--coverage", action="store_true",
+                        help="只读审计：schema/字典值缓存覆盖率 + 缺失类目抽样，不发任何 Ozon API 请求")
+    parser.add_argument("--coverage-sample", type=int, default=0,
+                        help="coverage 模式下随机抽 N 个缺失 (dc,tp) 打印")
     parser.add_argument("--force", action="store_true", help="强制刷新已有缓存")
-    args = parser.parse_args()
+    return parser
+
+
+def parse_args(argv: Optional[list] = None):
+    """解析参数；--all 与 --limit 互斥（同时给 → argparse error，退出码 2）。"""
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+    if args.all and args.limit is not None:
+        parser.error("--all 与 --limit 互斥（--all 即全量，无需 limit；分片请用 --offset）")
+    return args
+
+
+def resolve_limit(all_flag: bool, limit: Optional[int]) -> Optional[int]:
+    """✅ v0.69 T3.3: --all → None（全量，对齐 AGENTS.md 文档语义）；否则保持原语义。"""
+    return None if all_flag else limit
+
+
+def collect_coverage(now: Optional[int] = None) -> dict:
+    """✅ v0.69 T3.3: 只读统计 schema/字典值缓存覆盖率（纯查询，零写入零 Ozon API）。
+
+    口径（与 get_type_nodes 的预热人口完全一致）：
+    - 总数 = category_tree_nodes 中 node_type='type' AND type_id>0 AND language='ZH_HANS'
+      的 DISTINCT (dc,tp)
+    - 覆盖 = 各缓存表中 language='ZH_HANS' 且未过期（expires_at > now）的 DISTINCT (dc,tp)
+      与总数的交集（过期行不计入覆盖——运行时读不到，计入会虚高）
+    """
+    from storage.database.db import get_session
+    from sqlalchemy import text
+    now = int(now or time.time())
+    session = get_session()
+    try:
+        total_rows = session.execute(text("""
+            SELECT description_category_id, type_id
+            FROM category_tree_nodes
+            WHERE node_type = 'type'
+              AND type_id IS NOT NULL AND type_id > 0
+              AND language = 'ZH_HANS'
+            GROUP BY description_category_id, type_id
+        """)).fetchall()
+        schema_rows = session.execute(text("""
+            SELECT DISTINCT description_category_id, type_id
+            FROM attribute_cache
+            WHERE language = 'ZH_HANS' AND expires_at > :now
+        """), {"now": now}).fetchall()
+        dict_rows = session.execute(text("""
+            SELECT DISTINCT description_category_id, type_id
+            FROM dictionary_value_cache
+            WHERE language = 'ZH_HANS' AND expires_at > :now
+        """), {"now": now}).fetchall()
+    finally:
+        session.close()
+
+    total_pairs = {(int(r[0]), int(r[1])) for r in total_rows}
+    schema_pairs = {(int(r[0]), int(r[1])) for r in schema_rows}
+    dict_pairs = {(int(r[0]), int(r[1])) for r in dict_rows}
+    covered_schema = total_pairs & schema_pairs
+    covered_dict = total_pairs & dict_pairs
+    total = len(total_pairs)
+    return {
+        "total": total,
+        "schema_covered": len(covered_schema),
+        "dict_covered": len(covered_dict),
+        "schema_pct": round(len(covered_schema) * 100.0 / total, 1) if total else 0.0,
+        "dict_pct": round(len(covered_dict) * 100.0 / total, 1) if total else 0.0,
+        "missing_pairs": sorted(total_pairs - covered_schema),
+        "schema_covered_pairs": covered_schema,
+        "dict_covered_pairs": covered_dict,
+    }
+
+
+def format_coverage_report(report: dict) -> str:
+    """人话输出；最后一行固定为机器可读摘要 `COVERAGE schema=x/y(z%) dict=a/b(c%)`。"""
+    summary = (
+        f"COVERAGE schema={report['schema_covered']}/{report['total']}({report['schema_pct']}%) "
+        f"dict={report['dict_covered']}/{report['total']}({report['dict_pct']}%)"
+    )
+    lines = [
+        f"📊 ZH_HANS type 类目总数: {report['total']}",
+        f"   attribute_cache schema 覆盖: {report['schema_covered']}/{report['total']} ({report['schema_pct']}%)",
+        f"   dictionary_value_cache 覆盖: {report['dict_covered']}/{report['total']} ({report['dict_pct']}%)",
+        f"   缺失 schema 的类目数: {len(report['missing_pairs'])}",
+        summary,
+    ]
+    return "\n".join(lines)
+
+
+def run_coverage_report(sample: int = 0) -> None:
+    """--coverage 模式入口：打印覆盖率 + 可选缺失抽样（摘要行恒为最后一行）。"""
+    report = collect_coverage()
+    lines = format_coverage_report(report).splitlines()
+    # 抽样块插在摘要行之前，保证 COVERAGE 摘要恒为最后一行
+    summary = lines[-1]
+    body = lines[:-1]
+    if sample > 0 and report["missing_pairs"]:
+        import random
+        picked = random.sample(report["missing_pairs"], min(sample, len(report["missing_pairs"])))
+        body.append(f"   🔍 缺失抽样 {len(picked)}/{len(report['missing_pairs'])} 个 (dc/tp):")
+        body.extend(f"      - {dc}/{tp}" for dc, tp in picked)
+    body.append(summary)
+    print("\n".join(body))
+
+
+def main():
+    args = parse_args()
+
+    # ✅ v0.69 T3.3: 覆盖率审计模式（纯只读，不碰 Ozon API 不写 PG）
+    if args.coverage:
+        run_coverage_report(sample=args.coverage_sample)
+        return
+
+    # ✅ v0.69 T3.3: --all → 全量（limit=None）；冲突已在 parse_args 拒绝
+    limit = resolve_limit(args.all, args.limit)
 
     # 仅导入模式：从 JSON 文件读取 → 写入 PG（分批事务）
     if args.import_only:
@@ -352,7 +475,7 @@ def main():
         return
 
     # 获取所有 type 节点
-    nodes = get_type_nodes(limit=args.limit, offset=args.offset)
+    nodes = get_type_nodes(limit=limit, offset=args.offset)
     total = len(nodes)
     logger.info(f"📊 共 {total} 个 type 节点需要处理")
 
