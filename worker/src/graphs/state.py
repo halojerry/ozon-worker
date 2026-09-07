@@ -393,14 +393,19 @@ class FollowSellImportOutput(BaseModel):
     type_id: str = Field(default="", description="解析后的 type_id")
     
     # 数据传递
-    original_images: List[str] = Field(default_factory=list, description="竞品图片（AI生图参考）")
+    original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（1688 货源图；跟卖参考线另见 extensions.competitor_ref_images）")
     variants: List[Dict[str, Any]] = Field(default_factory=list, description="变体列表（空=单产品）")
     item_id: str = Field(default="", description="1688 item_id")
     
     # 属性
     final_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="硬化属性（品牌/国家/制造商）")
     attributes_schema: List[Dict[str, Any]] = Field(default_factory=list, description="Ozon 属性 schema")
-    
+
+    # fix/image-ref-pollution R2: 信封 extensions 透传（follow_sell/follow_type/
+    # competitor_ref_images）——跟卖线不走 ingest，无此字段 GlobalState.extensions
+    # 断链，prepare 跟卖判定与生图参考分线读不到 follow_sell。
+    extensions: Optional[Dict[str, Any]] = Field(default=None, description="信封 extensions 透传（跟卖标记与竞品参考图）")
+
     # 状态
     upload_status: str = Field(default="pending", description="上传状态")
     # ✅ v0.22 P2a: import-by-sku 已提交但未完成标记（防超时 fallback CREATE 双卡）
