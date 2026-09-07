@@ -13,6 +13,10 @@ from unittest import mock
 
 import pytest
 
+# fix/image-ref-pollution: 节点参考图白名单过滤后仍放行的合格原图（alicdn 原尺寸）
+GOOD_REF = "https://cbu01.alicdn.com/img/ibank/O1CNtest_!!123456789-0-cib.jpg"  # 合格alicdn原尺寸（fix/image-ref-pollution 白名单内）
+
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 
@@ -158,7 +162,7 @@ def test_main_image_gen_node_re_raises_violation(monkeypatch):
     state = MainImageInput(
         draft={"title": "测试商品", "images": ["http://img/1.png"]},
         token="tok",
-        original_images=["http://img/1.png"],
+        original_images=[GOOD_REF],
         white_bg_image=None,
         multi_angle_image=None,
         visual_vars={},

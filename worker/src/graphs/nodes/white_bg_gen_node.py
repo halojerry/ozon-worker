@@ -21,6 +21,7 @@ from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色�
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
 from utils.task_image_cache import get_image, save_image, _task_id_from_config, _force_regen_from_config, _regen_version_from_config  # v0.26/v0.41: 重跑不重烧生图 + 版本化
 from utils.image_gen_plan import slot_enabled  # T7b: image_gen_plan 前置条件（plan 无该 slot → 跳过）
+from utils.image_url_guard import filter_product_images  # fix/image-ref-pollution: 参考图白名单过滤
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,9 @@ def white_bg_gen_node(state: WhiteBgInput, config: RunnableConfig, runtime: Runt
     draft = state.draft
     token = state.token
     original_images = state.original_images  # 原始产品图片（参考图）
+    # fix/image-ref-pollution: 参考图白名单过滤——拒竞品域名图/搜索缩略图
+    # （别家图做参考 → AI 重绘出别家产品，线上串图根因出口之一）
+    original_images = filter_product_images(original_images or [])
     
     if not draft or draft == {}:
         progress.log_node_error("Draft数据为空", "检查上游数据摄入节点")
@@ -105,6 +109,13 @@ def white_bg_gen_node(state: WhiteBgInput, config: RunnableConfig, runtime: Runt
             if len(ref_images) > 0:
                 progress.log_node_action(f"使用{len(ref_images)}张参考图（已预处理为S3 URL）")
         
+        # fix/image-ref-pollution: 无合格参考图不硬生成（无参考=模型自由发挥，
+        # 产出大概率不是用户产品；对齐 main_image v0.14 B5「无参考跳过」语义）
+        if not ref_images:
+            progress.log_node_error("无合格参考图（原图缺失或全为缩略/竞品图），跳过白底图生成",
+                                    "检查1688货源图是否为原尺寸商品图")
+            return WhiteBgOutput(white_bg_image=None)
+
         # ✅ 调用统一mxou API（正确参数: images/aspectRatio/replyType）
         progress.log_node_action("正在调用图片生成API...（timeout=180s）")
         image_url = call_mxou_image_api(

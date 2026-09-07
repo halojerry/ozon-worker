@@ -18,6 +18,7 @@ from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色�
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
 from utils.task_image_cache import get_image, save_image, _task_id_from_config, _force_regen_from_config, _regen_version_from_config  # v0.26/v0.41: 重跑不重烧生图 + 版本化
 from utils.image_gen_plan import slot_enabled  # T7b: image_gen_plan 前置条件（plan 无该 slot → 跳过）
+from utils.image_url_guard import filter_product_images  # fix/image-ref-pollution: 参考图白名单过滤
 
 logger = logging.getLogger(__name__)
 
@@ -64,9 +65,12 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
     # 如果都没有，回退到原始产品图
     if not ref_images:
         original_images = getattr(state, "original_images", [])
+        # fix/image-ref-pollution: 兜底参考同样白名单过滤（拒竞品图/搜索缩略图）
+        original_images = filter_product_images(original_images or [])
         if isinstance(original_images, list) and len(original_images) > 0:
             ref_images = [str(img) for img in original_images[:2] if isinstance(img, str) and img.strip()]
-            logger.info(f"Phase1图片均失败，使用原始产品图作为参考: {len(ref_images)}张")
+            logger.info(f"Phase1图片均失败，使用原始产品图作为参考: {len(ref_images)}张 "
+                        f"首图={ref_images[0][:120] if ref_images else '-'}")
 
     # ⚠️ v0.14 B5: 连原始图都没有 → 跳过生图（避免无参考随机主图）
     if not ref_images:

@@ -28,6 +28,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from utils.mxou_api import MxouOutOfQuotaError
 
+# fix/image-ref-pollution: 节点参考图白名单过滤后仍放行的合格原图（alicdn 原尺寸）
+GOOD_REF = "https://cbu01.alicdn.com/img/ibank/O1CNtest_!!123456789-0-cib.jpg"  # 合格alicdn原尺寸（fix/image-ref-pollution 白名单内）
+
+
 
 @contextmanager
 def _workspace():
@@ -82,7 +86,7 @@ def _img_state(input_cls, **extra):
     base = {
         "draft": {"title": "测试商品", "images": ["http://img/1.png"]},
         "token": "tok",
-        "original_images": ["http://img/1.png"],
+        "original_images": [GOOD_REF],
     }
     base.update(extra)
     return input_cls(**base)
@@ -141,7 +145,7 @@ def test_main_image_out_of_quota_primary_fatal(monkeypatch):
     state = MainImageInput(
         draft={"title": "测试商品", "images": ["http://img/1.png"]},
         token="tok",
-        original_images=["http://img/1.png"],
+        original_images=[GOOD_REF],
         white_bg_image=None,
         multi_angle_image=None,
         visual_vars={},
@@ -168,7 +172,7 @@ def test_main_image_fallback_model_out_of_quota_stops(monkeypatch):
     state = MainImageInput(
         draft={"title": "测试商品", "images": ["http://img/1.png"]},
         token="tok",
-        original_images=["http://img/1.png"],
+        original_images=[GOOD_REF],
         white_bg_image=None,
         multi_angle_image=None,
         visual_vars={},
@@ -208,7 +212,7 @@ def test_variant_primary_loop_out_of_quota_fatal(monkeypatch):
 
     _patch_image_node(monkeypatch, mod, _boom)
     state = VariantPrimaryLoopInput(
-        variants=[{"name": "v1", "image": "http://img/v1.png"}],
+        variants=[{"name": "v1", "image": GOOD_REF}],
         draft={"title": "测试商品"},
         token="tok",
         visual_vars={},
@@ -350,7 +354,7 @@ def test_prepare_llm_chain_out_of_quota_propagates(monkeypatch):
         attributes_schema=[],
         dictionary_values={},
         token="sk-test",
-        original_images=["http://img.test/1.jpg"],
+        original_images=[GOOD_REF],
     )
     with _workspace():
         _raises_out_of_quota(mod.prepare_ozon_upload_node, state, None, None)
