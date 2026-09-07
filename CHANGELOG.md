@@ -1,6 +1,68 @@
 # Changelog
 
-## [Unreleased] — discover 选品漏斗 v2（对标上品帮 shopbang，未发版）
+## [0.69.0] — 2026-09-08（版本已就位，tag 待实机 discover gate 通过后打）
+
+> 生产实机反馈 17 项问题（`data/official_feedback_20260907.md`）+ 类目链 Wave D 收尾。
+> 全部 TDD + 本地 Docker 构造单实证（S1 manual 直通/clamp/8962 清洗、S2 弃权入箱幂等、
+> S3 auth 失败短路、S4 阻断入箱）。worker 1985 / skill 766 全绿。
+
+### 类目链（今日 4 单类目失败直接根因）
+- **manual 类目直传**：skill `--category-id/--type-id` 直传信封（source=manual），
+  worker `_is_skill_authoritative` 白名单接纳（权威直通；R1 成人闸对 manual 仍硬）。
+  汽油桶类受限商品从此可人工指定 Канистра для ГСМ 直接过闸。
+- **search_kw 类目自校验**：`_category_guess_consistent` 三判据（bigram/尾字/跨语言
+  零交集）——汽油桶被猜成「金属管」的毒类目不再进信封；summary 打印
+  ozon_category.source。`--category-query` help 纠正（它是搜索文本提示，非类目覆盖）。
+- **R2b 置信度分层采纳**：LLM 仲裁返回 top_index+confidence（并列候选不再全弃权）；
+  同大类 ≥0.5 / 跨大类 ≥0.75（cross_top_high_confidence 旗标）采纳，其余自动入箱——
+  水暖风机类「俄语标题×中文候选树弃权转阻断」缺口就此收口。
+- **低置信自动入采集箱**：新 `utils/blocked_draft_box`——阻断出口自动建 draft
+  （top-3 推荐类目+置信度随箱，notice 带 draft_id；tenant+item_id 幂等；R1 veto/
+  空标题出口不入箱）。「有据阻断」升级「有据入箱」，WebUI 人工一键认领。
+- **受限品类闸**：`config/restricted_keywords.json` 热加载词表，货源侧×定稿类目侧
+  双命中（汽油桶/打火机等）→ 拦截入箱提示需资质，不走 8 分钟流程；manual 豁免
+  （人的决定优先，warning 留痕）。
+
+### 终态与上传
+- **假 completed 收口**：completed 兜底分支加 `_has_real_product_evidence`（product_id
+  空/等于 import task_id → failed；生产 task 3170fd33 17s 假成功即此形状）；
+  auth 失败带 failed_stage='auth'；**AuthInput/PricingInput 补声明路由可见字段**
+  （langgraph 按节点 Input 过滤条件路由的 state——auth 失败曾空跑全管线）。
+- **尸体卡覆盖更新**：CREATE 前 `find_product_by_offer`（/v3/product/list visibility=ALL）
+  查到已存在 offer（含 declined 尸体）→ 转 UPDATE 带 product_id，消 _0 后缀新卡；
+  `UPSERT_BY_OFFER` 可关。顺带修复 import_submitted 死代码（OzonUploadInput 未声明）。
+
+### 属性与尺寸写前校验
+- **数值属性校验层**：`utils/attr_numeric_sanitize`（Integer/Decimal 生产实证枚举；
+  剥单位/RU 逗号小数/8962 ∈[1,10000] 夹取）+ attributes_adjusted 全链追溯；
+  VALUE_MAX/MIN_LIMIT 进 REPAIR_STRATEGY 靶向修复——三店健康扫描 42 例数值错误的
+  通用防线。
+- **尺寸契约边界**：normalizer clamp 长42-400/宽25-400/高5-200（marks.dimensions_
+  clamped；泡脚包 430→400 构造单实证）；repair 路径密度 <50kg/m³ 按 300kg/m³ 反推
+  重量；主链路维持 v0.37 只标疑不改写。17 例尺寸重量错误的通用防线。
+- **预检一次列全**：ozon_validate 尺寸+数值+必填同批返回（秒级失败替代 8 分钟试错）；
+  修复 pre-existing 错误收集缺陷（extend 后的拉丁/中文/危化品/图片检查此前全丢）；
+  标题-类目零公共词一致性检查（CREATE only）；图片探测网络故障降 warning 不误拦。
+
+### skill CLI（实机反馈）
+- 409 重复提交打人话提示 + summary.submitted=false + exit 3（原静默 exit 0）；
+- win32 stdout reconfigure utf-8（重定向 0 字节 = ANSI 代码页遇非 ASCII 崩）；
+- 提交前 preflight：0 属性+有图=反爬、采购价≤0=源失效，拦截不空跑（--to-box 放行）；
+  `--min-density` 密度拦截选项（缺省行为不变）；
+- argparse 带空格参数单测锁定（仓库内无 join+split，切分点在打包层启动器）。
+
+### 属性预取补全
+- assemble/retry schema 懒加载回写 `set_attribute_cache`（此前零调用方，每次未命中
+  重调 Ozon）；warm 脚本补 `--all` + `--coverage` 覆盖率审计命令；AGENTS.md 属性缓存
+  小节对齐实现。
+
+### 测试与修复附带
+- worker 1985 / skill 766；新增测试 9 文件 120+ 用例；
+- follow 门控 4 元组解包修复（潜在 ValueError）；import_submitted 死代码修复；
+  dashboard 测试 UTC 日期对齐（service 用 UTC 日、测试用会话时区 CURRENT_DATE，
+  北京 0 点后假失败）+ append-only history 租户级清理。
+
+### discover 选品漏斗 v2（同版收录）
 
 > 竞品逆向（`shopbang/` 上品帮 v3.2.0）驱动的一批 discover/采集箱增强。方案与竞品对照
 > 见 `docs/PLAN-discover-funnel-v2-v1.md`。四项全选两期交付，全部 TDD + 真实探针实证。

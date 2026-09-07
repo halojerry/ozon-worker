@@ -2,6 +2,38 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.69.0 — 实机反馈 17 项：类目链收口 + 终态/尸体卡/写前校验）
+
+> 2026-09-08。**版本四源已 0.69.0，TAG 未打**——发版 gate（本地 Docker 真实
+> discover ≥3 单）待跑，通过才 tag。生产实证底稿：`data/official_feedback_20260907.md`
+> （用户实机 17 条：假成功/属性越界 42 例/尺寸 17 例/类目失败 4 单）。
+
+- **改类目链前必读**：manual（人工 `--category-id/--type-id` 直传）已进
+  `_is_skill_authoritative` 权威白名单（R1 成人闸对 manual 仍硬，豁免的只是
+  受限品类闸）；R2b 采纳改置信度分层（同大类≥0.5/跨大类≥0.75），LLM 弃权与
+  低置信**不再直接 failed 而是自动入采集箱**（`utils/blocked_draft_box`，
+  tenant+item_id 幂等，R1 veto 出口不入箱）；受限品类闸词表
+  `config/restricted_keywords.json` 热加载，双命中拦、manual 豁免。
+- **skill 类目三口**：search_kw 猜测过 `_category_guess_consistent` 自校验
+  （毒类目不进信封）；manual 直传短路自动匹配；`--category-query` 是搜索文本
+  提示**不是类目覆盖**（help 已纠正）。
+- **终态口径（改 task_processor 前必读）**：completed 必须过
+  `_has_real_product_evidence`（product_id 空/等于 import task_id → failed）；
+  **langgraph 按节点 Input model 过滤条件路由可见 state**——路由要读的字段必须
+  声明进该节点 Input（AuthInput.error_code/failed_stage、PricingInput.
+  error_message/pricing_info 即为此补，v0.66 纪律的路由版）。
+- **上传前防线**：数值属性 `utils/attr_numeric_sanitize`（8962∈[1,10000] 等
+  bounds 表）+ 尺寸 `OZON_DIM_BOUNDS_MM`（42-400/25-400/5-200，clamp 留痕
+  marks.dimensions_clamped）+ ozon_validate 一次列全（尺寸/数值/必填/标题-类目
+  一致性；图片探测网络故障降 warning）。CREATE 前 `find_product_by_offer` 查到
+  尸体 offer 转 UPDATE（消 _0 后缀卡，`UPSERT_BY_OFFER` 可关）。
+- **skill CLI**：提交失败 exit 3+人话提示（原静默 exit 0）；win32 stdout
+  reconfigure utf-8；提交前 preflight（反爬/源失效拦截，--to-box 放行）；
+  `--min-density` 可选密度拦截。
+- **属性预取**：assemble/retry schema 懒加载回写已闭环（`set_attribute_cache`
+  此前零调用方）；`warm_category_cache.py --coverage` 可查覆盖率（生产默认只有
+  top-200，长尾靠懒加载）。
+
 ## 最近更新（v0.68.1 — 重量硬下限 + Step6.5 R2b 豁免）
 
 > 2026-09-06。已发版（VERSION 四源 0.68.1）。v0.68.0 回归新发现两缺陷紧急修复。
