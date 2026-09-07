@@ -39,9 +39,19 @@ def multi_angle_gen_node(state: MultiAngleInput, config: RunnableConfig, runtime
     draft = state.draft
     token = state.token
     original_images = state.original_images  # 原始产品图片（参考图）
-    # fix/image-ref-pollution: 参考图白名单过滤——拒竞品域名图/搜索缩略图
-    # （别家图做参考 → AI 重绘出别家产品，线上串图根因出口之一）
-    original_images = filter_product_images(original_images or [])
+    # fix/image-ref-pollution R2 参考图两条线（语义同 white_bg_gen_node）：
+    #   跟卖=竞品原图优先 > 1688 货源图；1688 直上=仅货源图；缩略图恒拒。
+    _ext = getattr(state, "extensions", None) or {}
+    _is_follow = bool(_ext.get("follow_sell"))
+    original_images = filter_product_images(original_images or [], allow_competitor=_is_follow)
+    if _is_follow:
+        _comp_refs = filter_product_images(
+            (_ext.get("competitor_ref_images") or []), allow_competitor=True)
+        if _comp_refs:
+            original_images = _comp_refs + [u for u in original_images
+                                            if u not in _comp_refs]
+            logger.info("跟卖参考线：竞品主图优先 %d 张 + 货源图补位 %d 张",
+                        len(_comp_refs), len(original_images) - len(_comp_refs))
     
     # 初始化进度日志助手
     progress = ProgressLogger()

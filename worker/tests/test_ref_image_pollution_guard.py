@@ -155,3 +155,71 @@ def test_follow_import_output_declares_extensions():
     src = inspect.getsource(fi_mod)
     assert src.count('"extensions": extensions') >= 2, \
         "follow_sell_import_node 返回点未透传 extensions（成功+错误路径均需）"
+
+
+# ═══ fix/image-ref-pollution R2: 生图参考两条线 ═══
+
+OZON_COMPETITOR_ORIGINAL = "https://ir.ozone.ru/s3/multimedia-1/cdn1/photo.jpg"
+
+
+def test_white_bg_follow_line_prefers_competitor_refs():
+    """跟卖线：竞品主图优先于 1688 货源图（两条线设计语义）。"""
+    from graphs.state_image_gen import WhiteBgInput
+    state = WhiteBgInput(
+        draft={"title": "保温杯"}, token="t", original_images=[GOOD_ORIGINAL],
+        extensions={"follow_sell": True,
+                    "competitor_ref_images": [OZON_COMPETITOR_ORIGINAL]},
+    )
+    captured = _capture_ref_images(white_bg_gen_node, state, _white_bg_mod)
+    assert captured, "跟卖线应有参考图可生图"
+    assert captured[0][0] == OZON_COMPETITOR_ORIGINAL, captured[0]
+    assert GOOD_ORIGINAL in captured[0], captured[0]
+
+
+def test_white_bg_follow_line_uses_competitor_when_no_1688():
+    """跟卖线：1688 货源图缺失 → 竞品主图独立担纲参考（不再无参考跳过）。"""
+    from graphs.state_image_gen import WhiteBgInput
+    state = WhiteBgInput(
+        draft={"title": "保温杯"}, token="t", original_images=[],
+        extensions={"follow_sell": True,
+                    "competitor_ref_images": [OZON_COMPETITOR_ORIGINAL]},
+    )
+    captured = _capture_ref_images(white_bg_gen_node, state, _white_bg_mod)
+    assert captured and captured[0] == [OZON_COMPETITOR_ORIGINAL], captured
+
+
+def test_white_bg_follow_line_rejects_competitor_thumbnail():
+    """跟卖线：竞品缩略图（串图特征）仍拒 → 无合格参考不生图。"""
+    from graphs.state_image_gen import WhiteBgInput
+    state = WhiteBgInput(
+        draft={"title": "保温杯"}, token="t", original_images=[],
+        extensions={"follow_sell": True,
+                    "competitor_ref_images": [
+                        "https://ir.ozone.ru/s3/multimedia/photo_310x310.jpg"]},
+    )
+    captured = _capture_ref_images(white_bg_gen_node, state, _white_bg_mod)
+    assert not captured, "竞品缩略图不得做参考"
+
+
+def test_white_bg_non_follow_still_rejects_competitor():
+    """非跟卖（1688 直上）：竞品原图混入 original_images 仍拒（两条线边界）。"""
+    from graphs.state_image_gen import WhiteBgInput
+    state = WhiteBgInput(
+        draft={"title": "保温杯"}, token="t",
+        original_images=[OZON_COMPETITOR_ORIGINAL, GOOD_ORIGINAL],
+        extensions={"follow_sell": False},
+    )
+    captured = _capture_ref_images(white_bg_gen_node, state, _white_bg_mod)
+    assert captured and captured[0] == [GOOD_ORIGINAL], captured
+
+
+def test_main_follow_line_competitor_fallback_ref():
+    """main 兜底参考（Phase1 失败）跟卖线同样竞品优先。"""
+    from graphs.state_image_gen import MainImageInput
+    state = MainImageInput(
+        draft={"title": "保温杯"}, token="t", original_images=[GOOD_ORIGINAL],
+        extensions={"follow_sell": True,
+                    "competitor_ref_images": [OZON_COMPETITOR_ORIGINAL]},
+    )
+    captured = _capture_ref_images(main_image_gen_node, state, _main_image_mod)
+    assert captured and captured[0][0] == OZON_COMPETITOR_ORIGINAL, captured
