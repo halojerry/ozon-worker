@@ -15,6 +15,11 @@ list_stores              列出所有店铺
 set_token                设置 MXOU_TOKEN
 set_ak                   设置 1688 AK
 batch_test               批量处理 URL 列表
+
+Exit codes (graph): 0=成功（含 --no-submit/--to-box 入箱）；
+1=鉴权/环境/参数错误；2=产品数据校验失败（ProductValidationError）；
+3=提交失败（含 worker 409 DUPLICATE_SUBMIT 重复提交、反爬/源失效前置拦截、
+--min-density 密度拦截）。
 """
 
 from __future__ import annotations
@@ -504,7 +509,12 @@ def cmd_graph(args: argparse.Namespace) -> int:
     submit_result = None
     if not getattr(args, 'no_submit', False):
         try:
-            from scripts.cloud_probe import submit_draft, submit_envelope
+            from scripts.cloud_probe import (
+                _check_min_density,
+                _source_preflight,
+                submit_draft,
+                submit_envelope,
+            )
         except ModuleNotFoundError as _e:
             # PR-3: 精确归因 — 缺依赖 vs 缺模块
             _ename = getattr(_e, "name", "") or ""
@@ -514,6 +524,30 @@ def cmd_graph(args: argparse.Namespace) -> int:
                 print("❌ 未找到 scripts.cloud_probe（版本过旧，缺云上架模块）。"
                       "请升级：运行 `python3.12 bootstrap_update.py` 或重新下载最新包", flush=True)
             return 1
+
+        # ✅ v0.69 T2.5: 反爬/源失效前置统一闸（build 之后、提交之前）。
+        # 直接提交被拦 → 不调 submit_envelope 走失败语义（exit 3）；
+        # --to-box 人工兜底通道显式放行，只打一行 warning 让人工判断。
+        _ok_src, _why_src = _source_preflight(draft)
+        if not _ok_src:
+            if getattr(args, 'to_box', False):
+                print(f"⚠️ {_why_src}（--to-box 人工兜底通道放行，请入箱后人工核对）", flush=True)
+            else:
+                print(f"❌ {_why_src}", flush=True)
+                summary["submitted"] = False
+                summary["submit_error"] = "SOURCE_PREFLIGHT"
+                _out({"summary": summary, "envelope": graph, "submit_result": None})
+                return 3
+
+        # ✅ v0.69 T3.1: --min-density 密度拦截（默认 0=不拦截，行为与现状完全一致）
+        _ok_d, _why_d = _check_min_density(draft, getattr(args, 'min_density', 0))
+        if not _ok_d:
+            print(f"❌ {_why_d}", flush=True)
+            summary["submitted"] = False
+            summary["submit_error"] = "LOW_DENSITY"
+            _out({"summary": summary, "envelope": graph, "submit_result": None})
+            return 3
+
         # P1-4 --notify: 顶层透传，Worker 收到 payload.notify 后任务终态推 webhook
         if getattr(args, 'notify', False):
             graph["notify"] = True
@@ -525,6 +559,7 @@ def cmd_graph(args: argparse.Namespace) -> int:
         if submit_result.get("ok"):
             import logging
             _logger = logging.getLogger(__name__)
+            summary["submitted"] = True
             if getattr(args, 'to_box', False):
                 summary["draft_id"] = submit_result.get("draft_id", "")
                 print(f"📥 已入采集箱，请到 WebUI 认领: draft_id={submit_result.get('draft_id')}",
@@ -534,9 +569,19 @@ def cmd_graph(args: argparse.Namespace) -> int:
                 _logger.info("✅ 已提交 Worker: task_id=%s", submit_result.get("task_id"))
                 summary["task_id"] = submit_result.get("task_id")
         else:
+            # ✅ v0.69 T2.3: 提交失败不再静默——stdout 一行人话（error_code + 简要
+            # error）+ summary 失败语义 + exit 3。生产实证：409 DUPLICATE_SUBMIT
+            # 只 logger.error 到 stderr、return 0，用户以为成功。
             import logging
             _logger = logging.getLogger(__name__)
+            _err_code = str(submit_result.get("error_code") or "")
+            _err_msg = str(submit_result.get("error") or "未知错误").splitlines()[0][:120]
+            print(f"❌ 提交失败 [{_err_code or 'UNKNOWN'}]: {_err_msg}", flush=True)
             _logger.error("❌ 提交失败: %s", submit_result.get("error"))
+            summary["submitted"] = False
+            summary["submit_error"] = _err_code or "UNKNOWN"
+            _out({"summary": summary, "envelope": graph, "submit_result": submit_result})
+            return 3
     _out({"summary": summary, "envelope": graph, "submit_result": submit_result})
     return 0
 
@@ -2280,6 +2325,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     gp.add_argument("--retries", type=int, default=3, help="CDP 重试次数")
     gp.add_argument("--store", default="", help="Ozon 店铺名称（不指定则用默认店铺）")
     gp.add_argument("--no-submit", action="store_true", help="只组装信封不提交 Worker")
+    gp.add_argument("--min-density", type=float, default=0.0,
+                    help="T3.1: 密度下限拦截，单位 g/cm³（默认 0=不拦截仅告警；"
+                         "如 0.1 可拦下泡脚包 950g/14190cm³=0.07 这类疑似单位错误）")
     gp.add_argument("--to-box", action="store_true",
                     help="T9: 组装后入采集箱（POST /api/v1/drafts，WebUI 认领后再上架），替代直接提交")
     gp.add_argument("--ozon-ref-url", default="", help="Ozon 竞品参考链接(抓同类目属性复用, 可选, v0.29.x)")

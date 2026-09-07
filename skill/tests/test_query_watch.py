@@ -82,7 +82,12 @@ def test_cmd_graph_notify_sets_graph_key():
 
     graph = {
         "token": "sk", "ozon_client_id": "1", "ozon_api_key": "k",
-        "envelope": {"draft": {"item_id": "1001", "title": "宠物饮水器"}},
+        # ✅ v0.69 T2.5: fake draft 补成可提交形态（图/属性/采购价齐备），
+        # 否则被提交段反爬/源失效 preflight 拦下（本测试只验证 notify 透传）
+        "envelope": {"draft": {"item_id": "1001", "title": "宠物饮水器",
+                               "images": ["https://cbu01.alicdn.com/x.jpg"],
+                               "attributes": {"颜色": "白"},
+                               "purchase_cost": 9.9}},
     }
     submitted: list[dict] = []
 
