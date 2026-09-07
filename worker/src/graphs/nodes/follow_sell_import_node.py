@@ -307,6 +307,7 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                 "error_message": f"类目解析失败: Widget ID={dc_fallback}, "
                                  f"breadcrumb={cat_path or '(empty)'}, 门控仲裁也未通过",
                 "failed_stage": "follow_sell_import",
+                "extensions": extensions,
             }
 
     if not ozon_title:

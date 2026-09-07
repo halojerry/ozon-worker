@@ -147,9 +147,12 @@ def variant_primary_loop_node(
                                params=state.model_dump())
                 return image_url
             # ⚠️ v0.60: 生图失败（MXOU 故障/超时）→ 直接用变体原图兜底（1688 alicdn 公网可达，
-            # Ozon 可抓取）。生产安全：variant.image 是 1688 详情图非竞品参考图。
-            # 之前返回 "" 导致变体无图 → image_absent_with_shipment + 变体特性不完整。
-            # fix/image-ref-pollution: 兜底原图同样过白名单（拒搜索缩略图/竞品域）
+            # Ozon 可抓取）。之前返回 "" 导致变体无图 → image_absent_with_shipment +
+            # 变体特性不完整。
+            # fix/image-ref-pollution: 兜底原图过白名单（拒搜索缩略图/竞品域）——
+            # v0.60「variant.image 是 1688 详情图」的假设在串图事故中被证伪（同域
+            # 不同商品的缩略图），「故障不导致无图」自此有例外：非合格原图 → 返回
+            # 空串由上层降级，绝不上传串图。
             _raw_fallback = str(variant.get("image", "") or "").strip()
             if _raw_fallback and not is_product_image_candidate(_raw_fallback):
                 logging.warning(f"[variant_primary_loop_node] variant[{idx}]生图失败且原图非合格商品图，不兜底: {_raw_fallback[:100]}")
@@ -166,7 +169,8 @@ def variant_primary_loop_node(
             raise  # v0.63.1: 余额/鉴权/额度永久错误 → 不原图兜底，任务明确失败
         except Exception as e:
             logging.error(f"[variant_primary_loop_node] variant[{idx}]生成失败: {e}")
-            # v0.60: 异常也尝试原图兜底（生图服务故障不应导致变体无图）
+            # v0.60: 异常也尝试原图兜底（生图服务故障不应导致变体无图；
+            # fix/image-ref-pollution 起例外：非合格原图不兜底，宁缺不上串图）
             try:
                 _raw_fb2 = str(variant.get("image", "") or "").strip()
                 if _raw_fb2 and is_product_image_candidate(_raw_fb2):

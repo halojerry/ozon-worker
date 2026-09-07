@@ -363,7 +363,7 @@ class FollowSellImportOutput(BaseModel):
     type_id: str = Field(default="", description="解析后的 type_id")
     
     # 数据传递
-    original_images: List[str] = Field(default_factory=list, description="竞品图片（AI生图参考）")
+    original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（1688 货源图；跟卖参考线另见 extensions.competitor_ref_images）")
     variants: List[Dict[str, Any]] = Field(default_factory=list, description="变体列表（空=单产品）")
     item_id: str = Field(default="", description="1688 item_id")
     
