@@ -146,6 +146,7 @@ def test_case_1_category_failure():
     # 注入失败 mock
     mod._resolve_category_by_id = _mock_resolve_category_fail
     mod._resolve_category = lambda dc, tp, language="": (None, None)
+    mod._gated_category_arbitration = lambda *a, **k: ("", "")  # v0.69: 门控仲裁打桩（防真调 LLM）
 
     state = FakeState(envelope={
         "draft": {
@@ -210,6 +211,7 @@ def test_case_1b_import_ok_missing_category():
     from graphs.nodes.follow_sell_import_node import follow_sell_import_node
     mod._resolve_category_by_id = _mock_resolve_category_fail
     mod._resolve_category = lambda dc, tp, language="": (None, None)
+    mod._gated_category_arbitration = lambda *a, **k: ("", "")  # v0.69: 门控仲裁打桩（防真调 LLM）
 
     state = FakeState(envelope={
         "draft": {
@@ -552,46 +554,38 @@ def test_case_6_import_timeout_no_fallback_create():
 # 用例 7/8: v0.26 wave1 盘子类目修复
 # ═══════════════════════════════════════════════════════════
 def test_case_7_brand_leaf_category_fallback():
-    """v0.26: RU 面包屑末段是品牌名（Canevia，纯拉丁无西里尔）→
-    _resolve_category_by_id 应追加「去品牌」候选（品牌前一段 Тарелки），
-    而不是只试含品牌的完整路径导致全部失败（wave1 盘子 created=False 根因）。"""
+    """v0.69 P-B: _resolve_category_by_id 只保留确定性解析（路径精配/唯一 type），
+    品牌末段（Canevia）模糊 pg_trgm 兜底整体移除 → 确定性失败返回空；
+    品牌前一段（Тарелки）由 _gate_search_terms 末两段进门控仲裁搜索词。"""
     from unittest import mock
     import importlib
     import graphs.nodes.follow_sell_import_node as mod
-    # ⚠️ 前序用例（1/4/5/8）会污染 mod._resolve_category_by_id/_resolve_category
-    # mock 且不恢复 → reload 模块恢复真实函数（v0.26 测试隔离修复）
+    # 前序用例污染 mod mock → reload 恢复真实函数（v0.26 测试隔离修复）
     mod = importlib.reload(mod)
 
-    tried: list[str] = []
-    def _capture_resolve(dc, tp, language="RU"):
-        tried.append(str(dc))
-        if str(dc) == "Тарелки":  # 品牌前一段命中
-            return ("17027910", "92532")
-        return ("", "")
-
     class _FakeQuery:
-        def get_node_by_description_category_id(self, dc_id):
-            return None  # 数字 ID 直查失败（Widget ID 不在 Seller 树）
+        def get_node_by_full_path(self, hint):
+            return None  # 面包屑路径在 Seller 树无精配（品牌页路径）
 
-    orig_resolve = mod._resolve_category
-    mod._resolve_category = _capture_resolve
     import utils.ozon_category_query as _ocq
-    try:
-        with mock.patch.object(_ocq, "get_category_query", return_value=_FakeQuery()):
-            result = mod._resolve_category_by_id(
-                102080114,
-                type_name_hint="Дом и сад > Посуда и кухонные принадлежности > "
-                               "Одноразовая посуда и скатерти > Тарелки > Canevia",
-            )
-    finally:
-        mod._resolve_category = orig_resolve
+    with mock.patch.object(_ocq, "get_category_query", return_value=_FakeQuery()):
+        result = mod._resolve_category_by_id(
+            102080114,
+            type_name_hint="Дом и сад > Посуда и кухонные принадлежности > "
+                           "Одноразовая посуда и скатерти > Тарелки > Canevia",
+        )
 
-    print(f"  尝试候选: {tried}")
+    print(f"  确定性解析结果: {result}")
+    terms = mod._gate_search_terms(
+        {"category_path": "Дом и сад > Посуда и кухонные принадлежности > "
+                          "Одноразовая посуда и скатерти > Тарелки > Canevia"},
+        {},
+    )
+    print(f"  门控搜索词: {terms}")
     checks = [
-        ("候选含 'Тарелки'（品牌前一段，去品牌兜底）", "Тарелки" in tried),
-        ("解析结果非空（不再全候选失败）", bool(result[0])),
-        ("dc=17027910", result[0] == "17027910"),
-        ("type=92532", result[1] == "92532"),
+        ("确定性解析返回空（模糊直采已移除）", result == ("", "")),
+        ("门控搜索词含品牌前一段 'Тарелки'", "Тарелки" in terms),
+        ("门控搜索词不含整段路径", not any(">" in t for t in terms)),
     ]
     all_pass = True
     for name, passed in checks:
@@ -610,6 +604,7 @@ def test_case_8_hand_category_fail_falls_back_api():
 
     mod._resolve_category_by_id = _mock_resolve_category_fail
     mod._resolve_category = lambda dc, tp, language="": (None, None)
+    mod._gated_category_arbitration = lambda *a, **k: ("", "")  # v0.69: 门控仲裁打桩（防真调 LLM）
     # v0.26 权威类目自校验：Widget 无效 ID → 返回 False → 回退二次解析
     mod._verify_category_schema = lambda cid, akey, dc, tp: False
 

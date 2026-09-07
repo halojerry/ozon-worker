@@ -77,11 +77,14 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     price_val = placeholder_price
     old_price_val = int(placeholder_price * 1.3)
 
-    # 类目解析
+    # 类目解析（v0.69 P-B：确定性直采 → 门控仲裁，模糊直采通道全部移除）
     dc_raw = str(ozon_cat.get("description_category_id") or "")
     type_raw = str(ozon_cat.get("type_id") or "")
     dc_fallback, type_fallback = dc_raw, type_raw
     language = ozon_cat.get("language", "")
+    _src = (state.envelope or {}).get("source", {}) if state.envelope else {}
+    if not isinstance(_src, dict):
+        _src = {}
     # ✅ v0.26 权威类目信任：skill 已从 what_to_sell 拿到 Seller 空间权威组合
     # （category2=dc + category3=type，schema API 200 验证有效，wave2 眉笔实证）。
     # 此时 dc/type 都有效 → 直接信任，不二次解析——
@@ -108,28 +111,29 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                 "⚠️ 信封类目 schema 验证失败（dc=%s type=%s，疑似 Widget 无效 ID），回退二次解析",
                 dc_raw, type_raw,
             )
+    # 文本类目名（非数字）不作类目采纳，只作门控补充搜索词
+    _gate_extra: list = []
     if not _cat_trusted and dc_raw and dc_raw.isdigit():
         category_hint = ozon_cat.get("category_path", "") or ozon_cat.get("category", "")
-        # ✅ v0.25 FIX: 传完整 category_path（不是只有末段）——「Головные уборы」
-        # 「Прочие аксессуары」等泛化末段 pg_trgm 会匹配到医用头饰/钓鱼配件等错误类目
-        # （wave6 儿童风扇帽/太阳能帽 declined 实证）。函数内逐级尝试完整路径→父级→末段。
+        # ✅ v0.25 FIX: 传完整 category_path（不是只有末段）——路径精配在函数内确定性尝试。
         resolved_dc, resolved_type = _resolve_category_by_id(int(dc_raw), type_name_hint=category_hint, token=state.token)
         if resolved_dc and resolved_type:
             dc_raw, type_raw = resolved_dc, resolved_type
         else:
-            logger.warning("数字 ID 直查+pg_trgm 均失败: dc=%s type=%s", dc_fallback, type_fallback)
+            logger.warning("数字 ID 确定性解析失败: dc=%s type=%s，进入门控仲裁", dc_fallback, type_fallback)
             # ✅ v0.20 A: 解析失败绝不保留原始值（品牌页 ID 会被当有效类目上传 → Ozon 拒）
             dc_raw, type_raw = "", ""
     elif not _cat_trusted and dc_raw:
-        if not language:
-            language = _detect_language(dc_raw)
-        resolved_dc, resolved_type = _resolve_category(dc_raw, type_raw or dc_raw, language=language)
-        if resolved_dc and resolved_type:
-            dc_raw, type_raw = resolved_dc, resolved_type
-        else:
-            logger.warning("pg_trgm 类目搜索失败: dc=%s type=%s", dc_fallback, type_fallback)
-            # ✅ v0.20 A: 同上，不保留无效原始类目
-            dc_raw, type_raw = "", ""
+        _gate_extra.append(dc_raw)
+        dc_raw, type_raw = "", ""
+    # v0.69 P-B: 确定性失败/无 dc → 门控仲裁（搜索词=面包屑末两段+1688 来源类目末两段）
+    if not dc_raw or not type_raw:
+        _terms = _gate_search_terms(ozon_cat, _src, extra=_gate_extra)
+        if _terms:
+            _g_dc, _g_tp = _gated_category_arbitration(
+                _terms, " ".join(_terms), draft, state)
+            if _g_dc and _g_tp:
+                dc_raw, type_raw = _g_dc, _g_tp
 
     # 拉取属性 schema
     client_id = state.ozon_client_id
@@ -171,7 +175,12 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
             _reason,
         )
         follow_type = "api"
-    if follow_type == "api":
+    if follow_type == "discover":
+        # ✅ v0.69 P-D: discover 变体绝不 import-by-sku/api 复制——竞品 SKU 复制
+        # 会把竞品卡 1:1 建进店铺（wave D 测试店 5 卡实证）+ 每单 180s 轮询白等，
+        # discover 场景有百害无一利。类目未定稿 → 置空交由 assemble 全闸链。
+        logger.info("🧭 discover 变体：跳过 import-by-sku/api 复制，走 CREATE 重建")
+    elif follow_type == "api":
         try:
             import_body = {
                 "items": [{
@@ -251,16 +260,23 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     #    （复用 direct 管线现成引擎）
     import_by_sku_ok = bool(product_id)
     if not dc_id or not tp_id:
-        if not import_by_sku_ok:
+        if import_by_sku_ok:
+            logger.warning("⚠️ 跟卖无类目但 import-by-sku 已成功（%s），"
+                           "继续走 UPDATE（类目由官方复制带出）", product_id)
+            category_missing = True
+        elif follow_type == "discover":
+            # ✅ v0.69 P-D: discover 类目未定稿不报错不进 retry——类目置空继续走管，
+            # 由 assemble 跟卖分支（文本解析+全闸链）定稿。
+            logger.warning("⚠️ discover 变体类目未定稿，置空继续（assemble 全闸链定稿）")
+        else:
             src_path = ""
-            _src = (state.envelope or {}).get("source", {}) if state.envelope else {}
             if isinstance(_src, dict):
                 src_path = _src.get("source_category_path", "") or ""
             search_text = src_path.split(" > ")[-1].strip() if src_path else ""
             if not search_text:
                 search_text = draft.get("source_category", "") or draft.get("title", "") or ""
             if search_text:
-                # ✅ v0.25 T1: 先查 1688→Ozon 类目学习表（数字 ID 优先）
+                # ✅ v0.25 T1: 先查 1688→Ozon 类目学习表（数字 ID 优先，curated 确定性数据）
                 try:
                     from utils.category_mapping_learn import lookup_mapping
                     _sid = draft.get("source_category_id") or _src.get("category_id")
@@ -272,28 +288,24 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                         dc_id, tp_id = _mapped["dc"], _mapped["tp"]
                         logger.info("✅ 类目映射学习命中: '%s' → %s/%s", search_text, dc_id, tp_id)
                 except Exception as _me:
-                    logger.warning("类目映射查询失败（继续 pg_trgm）: %s", _me)
-                try:
-                    _r_dc, _r_tp = _resolve_category(search_text, search_text, language="ZH_HANS")
-                    if _r_dc and _r_tp:
-                        dc_id, tp_id = _r_dc, _r_tp
-                        logger.info("✅ 1688 来源类目兜底成功: '%s' → %s/%s", search_text, dc_id, tp_id)
-                except Exception as _e:
-                    logger.warning("1688 类目兜底异常: %s", _e)
-        if not dc_id or not tp_id:
+                    logger.warning("类目映射查询失败（继续门控仲裁）: %s", _me)
+                # v0.69 P-B: 原 pg_trgm 直采兜底移除——改走门控仲裁
+                if not dc_id or not tp_id:
+                    _f_terms = _gate_search_terms(ozon_cat, _src, extra=[search_text])
+                    if _f_terms:
+                        _g_dc, _g_tp = _gated_category_arbitration(
+                            _f_terms, " ".join(_f_terms), draft, state)
+                        if _g_dc and _g_tp:
+                            dc_id, tp_id = _g_dc, _g_tp
+        if (not dc_id or not tp_id) and not import_by_sku_ok and follow_type != "discover":
             cat_path = ozon_cat.get("category_path", "") or ozon_cat.get("category", "")
-            if import_by_sku_ok:
-                logger.warning("⚠️ 跟卖无类目但 import-by-sku 已成功（%s），"
-                               "继续走 UPDATE（类目由官方复制带出）", product_id)
-                category_missing = True
-            else:
-                logger.error("❌ 跟卖类目解析全部失败（Fallback CREATE 需要类目）: "
-                             "Widget ID=%s, breadcrumb=%s", dc_fallback, cat_path or "(empty)")
-                return {
-                    "error_message": f"类目解析失败: Widget ID={dc_fallback}, "
-                                     f"breadcrumb={cat_path or '(empty)'}, 1688 兜底也无结果",
-                    "failed_stage": "follow_sell_import",
-                }
+            logger.error("❌ 跟卖类目解析全部失败（Fallback CREATE 需要类目）: "
+                         "Widget ID=%s, breadcrumb=%s", dc_fallback, cat_path or "(empty)")
+            return {
+                "error_message": f"类目解析失败: Widget ID={dc_fallback}, "
+                                 f"breadcrumb={cat_path or '(empty)'}, 门控仲裁也未通过",
+                "failed_stage": "follow_sell_import",
+            }
 
     if not ozon_title:
         ozon_title = draft.get("ozon_title", "") or draft.get("title", "") or "Товар"
@@ -353,33 +365,119 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
 
 
 def _detect_language(text: str) -> str:
-    """检测文本语言 → pg_trgm 搜索语言"""
+    """检测文本语言 → 类目搜索语言"""
     if any('\u4e00' <= c <= '\u9fff' for c in text):
         return "ZH_HANS"
     return "RU"  # 默认俄语（Cyrillic）
 
 
-def _translate_to_russian(text: str, token: str = "") -> str:
-    """Translate Chinese category name to Russian via LLM (mxou)."""
-    if not text or not token:
-        return ""
-    try:
-        from utils.mxou_api import call_mxou_chat_api, MxouOutOfQuotaError  # v0.63.1
-        prompt = f"Переведи название категории товара на русский язык. Верни ТОЛЬКО перевод, без пояснений: {text}"
-        result = call_mxou_chat_api(
-            token=token,
-            system_prompt="Ты переводчик. Переводи точно, без лишних слов.",
-            user_prompt=prompt,
-            model="deepseek-v4-flash-vision-exp",
-            max_tokens=80,
-        )
-        if result and len(result.strip()) > 2:
-            return result.strip()
-    except MxouOutOfQuotaError:
-        raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不回退原文类目
-    except Exception as e:
-        logger.warning("LLM 翻译类目失败: %s", e)
-    return ""
+# ══ v0.69 P-B: 跟卖类目门控仲裁 ══
+# wave D 实证（docs/TEST-v067-wave-plan.md）：本节点内部 pg_trgm sim≥0.5 直采
+# （俄语源词 → 医用 Рециркулятор sim=0.500 恰好过线）+ 1688 类目 jieba 直采
+# （单字「取暖」sim=0.70 → 配件类）完全绕过 assemble 的 R2b 四段闸/R1——
+# 三单跨域错放全经此通道。模糊解析改为「候选池 → R1 剔除 → R2b 仲裁池 →
+# LLM vision 仲裁 → 四段判定 → R1 定稿 veto」，任一环不过 → 类目置空交由
+# assemble 全闸链，绝不保底直采。
+
+def _gate_search_terms(ozon_cat: dict, source: dict, extra=None) -> list[str]:
+    """门控搜索词：面包屑/1688 来源类目只取末段+倒数第二段。
+
+    整段路径已实证喂噪音（wave D：完整 RU 路径 pg_trgm 命中 0 或纯噪音），
+    末段词才是有效名称先验；品牌末段保留（树查自然落空，不致错配）。
+    """
+    terms: list[str] = []
+    for path in (str((ozon_cat or {}).get("category_path") or ""),
+                 str((source or {}).get("source_category") or "")):
+        segs = [s.strip() for s in path.split(">") if s.strip()]
+        for seg in segs[-2:]:
+            if seg and seg not in terms:
+                terms.append(seg)
+    for e in (extra or []):
+        e = str(e or "").strip()
+        if e and e not in terms:
+            terms.append(e)
+    return terms
+
+
+def _term_searchable(term: str) -> bool:
+    """单字核心 token 不搜（wave D「单字兜底直采」通道关闭）；修饰词全剥离（成人帽）也不搜。"""
+    from utils.ozon_category_query import _strip_modifier_substrings
+    t = str(term or "").strip()
+    if not t:
+        return False
+    for tok in t.split():
+        core = _strip_modifier_substrings(tok)
+        if core and len(core) >= 2:
+            return True
+    return False
+
+
+def _gated_category_arbitration(terms, source_words: str, draft: dict, state,
+                                query=None) -> tuple[str, str]:
+    """模糊类目候选的门控仲裁：返回采纳 (dc, tp)，不过则 ("", "") 置空（绝不保底直采）。"""
+    # 调用时点导入（非模块级）——测试 patch asm 属性后此处才能取到 mock
+    from graphs.nodes.assemble_ozon_product_node import (
+        _build_r2b_confirm_pool,
+        _llm_rank_categories,
+        _r1_veto,
+        _r2b_confirm_adoption,
+    )
+    from utils.ozon_category_query import sensitive_candidate_filter
+
+    if query is None:
+        try:
+            from utils.ozon_category_query import get_category_query
+            query = get_category_query()
+        except Exception as e:
+            logger.warning("类目门控: 查询器不可用: %s", e)
+            return "", ""
+    if query is None:
+        return "", ""
+
+    signal = str(source_words or "").strip()
+    pool: list = []
+    seen: set = set()
+    for term in (terms or []):
+        if not _term_searchable(term):
+            continue
+        lang = _detect_language(term)
+        try:
+            results = query.search_nodes(term, top_k=5, node_type="type", language=lang)
+        except Exception as e:
+            logger.warning("类目门控搜索失败(term=%s): %s", term, e)
+            results = []
+        for c in results or []:
+            key = (str(c.get("description_category_id")), str(c.get("type_id")))
+            if key in seen:
+                continue
+            seen.add(key)
+            pool.append(c)
+    if not pool:
+        logger.info("类目门控: 搜索词 %s 无候选，类目置空", list(terms or []))
+        return "", ""
+    pool = sensitive_candidate_filter(pool, signal)
+    r2b_pool = _build_r2b_confirm_pool(pool, pool[0], signal)
+    confirm = _llm_rank_categories(r2b_pool, signal, draft or {}, state,
+                                   context="follow_sell_import 类目门控仲裁")
+    overlap, vision_ok, reason = _r2b_confirm_adoption(
+        confirm, r2b_pool, signal, draft or {}, query)
+    if not overlap and not vision_ok:
+        logger.warning("🛑 类目门控: 仲裁未通过(%s)，类目置空交由 assemble 全闸链", reason)
+        return "", ""
+    dc = str((confirm or {}).get("description_category_id") or "")
+    tp = str((confirm or {}).get("type_id") or "")
+    if not dc.isdigit() or not tp.isdigit():
+        logger.warning("🛑 类目门控: 仲裁结果非数字 ID（dc=%s tp=%s），置空", dc, tp)
+        return "", ""
+    if _r1_veto({"category_path": (confirm or {}).get("full_path")
+                 or (confirm or {}).get("category_path") or "",
+                 "description_category_id": dc}, signal):
+        logger.warning("🛑 类目门控: R1 敏感否决（%s/%s %s）",
+                       dc, tp, (confirm or {}).get("node_name", ""))
+        return "", ""
+    logger.info("✅ 类目门控仲裁通过: %s/%s %s (%s)",
+                dc, tp, (confirm or {}).get("node_name", ""), reason)
+    return dc, tp
 
 
 def _verify_category_schema(client_id: str, api_key: str, dc: str, tp: str) -> bool:
@@ -406,7 +504,9 @@ def _verify_category_schema(client_id: str, api_key: str, dc: str, tp: str) -> b
 def _resolve_category_by_id(dc_id: int, type_name_hint: str = "", token: str = "") -> tuple[str, str]:
     """数字 description_category_id → 查 category_tree_nodes 获取 type_id
 
-    v0.63 重构：**确定性优先**（路径精配 → dc+唯一 type），模糊 pg_trgm 仅最后兜底。
+    v0.69 P-B: **只保留确定性解析**（路径精配 → dc+唯一 type），原模糊 pg_trgm
+    多候选/LLM 翻译兜底整体移除——wave D 实证该通道直采噪音（医用 Рециркулятор
+    sim=0.500 过线）完全绕过 R2b/R1 闸。模糊场景统一交 `_gated_category_arbitration`。
     - Widget API 和 Seller API 使用不同的 ID 空间，数字直查经常失败；
       此时用面包屑完整路径 `get_node_by_full_path` **确定性精配**。
     - 修 v0.26 眉笔类 bug：`get_node_by_description_category_id` 取 dc 下**第一个** type
@@ -445,71 +545,5 @@ def _resolve_category_by_id(dc_id: int, type_name_hint: str = "", token: str = "
             return "", ""
     except Exception as e:
         logger.warning("数字 ID 直查失败: %s", e)
-
-    # ⚠️ v0.63 确定性失败后才走模糊 pg_trgm（最后兜底）
-    # ✅ v0.25 FIX: Widget ID 不在 Seller 树中 → 用面包屑路径 pg_trgm 搜索。
-    # 逐级尝试：完整路径 → 去掉顶级 → 末两级 → 末段（末段太泛会错配，wave6 实证）。
-    if type_name_hint:
-        segments = [s.strip() for s in str(type_name_hint).split(">") if s.strip()]
-        lang = _detect_language(" ".join(segments)) if segments else "RU"
-        candidates: list[str] = []
-        if len(segments) > 1:
-            candidates.append(" > ".join(segments))          # 完整路径
-            candidates.append(" > ".join(segments[1:]))      # 去顶级
-            if len(segments) > 2:
-                candidates.append(" > ".join(segments[-2:])) # 末两级
-        if segments:
-            candidates.append(segments[-1])                   # 末段（最后尝试）
-        # ✅ v0.26: 末段是品牌名（纯拉丁无西里尔，如 Canevia/NEATIFY）时，
-        # 上述候选全含品牌 → pg_trgm 必然失败（wave1 盘子「Тарелки > Canevia」
-        # created=False 实证）。追加「去品牌」候选：品牌前一段 / 品牌前两级。
-        if len(segments) >= 2 and not re.search(r"[а-яёА-ЯЁ]", segments[-1]):
-            candidates.append(segments[-2])                   # 品牌前一段（Тарелки）
-            if len(segments) >= 3:
-                candidates.append(" > ".join(segments[-3:-1]))  # 品牌前两级
-        for _cand in candidates:
-            logger.info("🔍 数字 ID %d 直查失败，尝试 pg_trgm(lang=%s): '%s'", dc_id, lang, _cand)
-            dc_text, type_text = _resolve_category(_cand, _cand, language=lang)
-            if dc_text and type_text:
-                logger.info("✅ pg_trgm 兜底成功: '%s' → dc=%s type=%s", _cand, dc_text, type_text)
-                return dc_text, type_text
-        # 尝试 RU 作为第二语言备选（仅末段）
-        if lang != "RU" and segments:
-            dc_text, type_text = _resolve_category(segments[-1], segments[-1], language="RU")
-            if dc_text and type_text:
-                logger.info("✅ pg_trgm 兜底(RU): '%s' → dc=%s type=%s", segments[-1], dc_text, type_text)
-                return dc_text, type_text
-        
-        # ✅ v0.11: 中文面包屑 → LLM 翻译俄语 → pg_trgm RU 搜索
-        if lang != "RU":
-            ru_hint = _translate_to_russian(type_name_hint, token)
-            if ru_hint and ru_hint != type_name_hint:
-                logger.info("🔍 LLM 翻译: '%s' → '%s', 尝试 pg_trgm RU 搜索", type_name_hint, ru_hint)
-                dc_text, type_text = _resolve_category(ru_hint, ru_hint, language="RU")
-                if dc_text and type_text:
-                    logger.info("✅ LLM翻译+pg_trgm 成功: '%s' → dc=%s type=%s", ru_hint, dc_text, type_text)
-                    return dc_text, type_text
-    
-    return "", ""
-
-
-def _resolve_category(dc_name: str, type_name: str, language: str = "RU") -> tuple[str, str]:
-    """pg_trgm 类目名 → 数字 ID（语言感知：RU/ZH_HANS）"""
-    try:
-        from utils.ozon_category_query import get_category_query
-        query = get_category_query()
-        search_name = type_name or dc_name
-        language = language or _detect_language(search_name)
-        candidates = query.search_nodes(search_name, top_k=3, node_type="type", language=language)
-        if candidates:
-            best = candidates[0]
-            sim = best.get("similarity", 0)
-            if sim > 0.3:
-                dc_id = str(best.get("description_category_id", ""))
-                type_id = str(best.get("type_id", ""))
-                logger.info("pg_trgm: '%s' → '%s' (sim=%.3f, dc=%s, type=%s)", 
-                           search_name, best.get("node_name", ""), sim, dc_id, type_id)
-                return dc_id, type_id
-    except Exception as e:
-        logger.warning("pg_trgm 异常: %s", e)
+    # v0.69: 确定性失败一律返回空——模糊解析由门控仲裁接手
     return "", ""

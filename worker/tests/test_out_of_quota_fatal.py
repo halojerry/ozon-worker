@@ -26,7 +26,7 @@ os.environ.setdefault("LOG_LEVEL", "WARNING")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from utils.mxou_api import MxouOutOfQuotaError  # noqa: E402
+from utils.mxou_api import MxouOutOfQuotaError
 
 
 @contextmanager
@@ -161,7 +161,7 @@ def test_main_image_fallback_model_out_of_quota_stops(monkeypatch):
     def _boom(*a, **k):
         calls.append(k.get("model", "?"))
         if len(calls) == 1:
-            return None  # 主模型失败（瞬时，返回 None）→ 进入降级循环
+            return  # 主模型失败（瞬时，返回 None）→ 进入降级循环
         raise MxouOutOfQuotaError("OUT_OF_QUOTA: MXOU image API rejected (HTTP 401)")
 
     _patch_image_node(monkeypatch, mod, _boom)
@@ -279,7 +279,7 @@ def test_llm_match_category_out_of_quota_fatal(monkeypatch):
 def test_llm_rank_categories_out_of_quota_fatal(monkeypatch):
     """_llm_rank_categories：401 → 不返回 None，异常穿透。"""
     import graphs.nodes.assemble_ozon_product_node as mod
-    import utils.mxou_api as mxou_api
+    from utils import mxou_api
 
     def _boom(*a, **k):
         raise MxouOutOfQuotaError("OUT_OF_QUOTA: MXOU chat API rejected (HTTP 401)")
@@ -318,7 +318,7 @@ def test_prepare_llm_chain_out_of_quota_propagates(monkeypatch):
     """
     import graphs.nodes.prepare_ozon_upload_node as mod
     from graphs.state import PrepareOzonUploadInput
-    import utils.mxou_api as mxou_api
+    from utils import mxou_api
 
     calls = []
 
@@ -358,21 +358,31 @@ def test_prepare_llm_chain_out_of_quota_propagates(monkeypatch):
 
 
 def test_follow_sell_translate_out_of_quota_fatal(monkeypatch):
-    """follow_sell_import._translate_to_russian：401 → 不回退原文，异常穿透。"""
+    """follow 类目门控仲裁：LLM 401 → 异常穿透不吞（v0.63.1 永久错误语义；
+    原 _translate_to_russian 模糊直采通道已随 v0.69 P-B 移除）。"""
     import graphs.nodes.follow_sell_import_node as mod
-    import utils.mxou_api as mxou_api
 
     def _boom(*a, **k):
         raise MxouOutOfQuotaError("OUT_OF_QUOTA: MXOU chat API rejected (HTTP 401)")
 
-    monkeypatch.setattr(mxou_api, "call_mxou_chat_api", _boom)
-    _raises_out_of_quota(mod._translate_to_russian, "汽车轮毂", "tok")
+    monkeypatch.setattr(
+        "graphs.nodes.assemble_ozon_product_node._llm_rank_categories", _boom)
+
+    class _Q:
+        def search_nodes(self, *a, **k):
+            return [{"description_category_id": 975001, "type_id": 975002,
+                     "node_name": "Рециркулятор",
+                     "full_path": "Медицина > Рециркулятор", "similarity": 0.5}]
+
+    _raises_out_of_quota(mod._gated_category_arbitration,
+                         ["Тепловое оборудование"], "Тепловое оборудование",
+                         {"images": []}, SimpleNamespace(token="t"), _Q())
 
 
 def test_title_sanitizer_latin_llm_out_of_quota_fatal(monkeypatch):
     """title_sanitizer._remove_latin_llm：401 → 不回退正则，异常穿透。"""
     import utils.title_sanitizer as mod
-    import utils.mxou_api as mxou_api
+    from utils import mxou_api
 
     def _boom(*a, **k):
         raise MxouOutOfQuotaError("OUT_OF_QUOTA: MXOU chat API rejected (HTTP 401)")
@@ -384,7 +394,7 @@ def test_title_sanitizer_latin_llm_out_of_quota_fatal(monkeypatch):
 def test_attr_disambiguation_out_of_quota_fatal(monkeypatch):
     """attr_value_matcher 消歧：401 → 不 llm_error 跳过属性，异常穿透。"""
     from utils.attr_value_matcher import AttrResolution, disambiguate_candidates
-    import utils.mxou_api as mxou_api
+    from utils import mxou_api
 
     def _boom(*a, **k):
         raise MxouOutOfQuotaError("OUT_OF_QUOTA: MXOU chat API rejected (HTTP 401)")
@@ -443,7 +453,7 @@ def test_visual_vars_generic_error_still_falls_back(monkeypatch):
 def test_attr_disambiguation_generic_error_skips(monkeypatch):
     """attr_value_matcher：RuntimeError → 仍 llm_error 跳过（宁缺毋滥），不 raise。"""
     from utils.attr_value_matcher import AttrResolution, disambiguate_candidates
-    import utils.mxou_api as mxou_api
+    from utils import mxou_api
 
     def _boom(*a, **k):
         raise RuntimeError("api down")
@@ -461,13 +471,24 @@ def test_attr_disambiguation_generic_error_skips(monkeypatch):
 
 
 def test_follow_sell_import_translate_to_russian_fatal(monkeypatch):
-    """follow_sell_import._translate_to_russian：MXOU 401 → re-raise，不回退原文类目。"""
-    import utils.mxou_api as mxou_api
-    from graphs.nodes.follow_sell_import_node import _translate_to_russian
+    """follow 门控仲裁：MXOU 永久错误 → re-raise，绝不静默降级空类目继续
+    （v0.69 P-B 后 LLM 调用收敛到 _gated_category_arbitration 一处）。"""
+    from unittest import mock
+    import graphs.nodes.follow_sell_import_node as fsin
+    from graphs.nodes import assemble_ozon_product_node as asm
+    from utils import mxou_api
 
     def _boom(*a, **k):
         raise mxou_api.MxouOutOfQuotaError("OUT_OF_QUOTA: MXOU chat API rejected (HTTP 401)")
 
-    monkeypatch.setattr(mxou_api, "call_mxou_chat_api", _boom)
-    with pytest.raises(mxou_api.MxouOutOfQuotaError):
-        _translate_to_russian("中文类目", "tok")
+    class _Q:
+        def search_nodes(self, *a, **k):
+            return [{"description_category_id": 975001, "type_id": 975002,
+                     "node_name": "Рециркулятор",
+                     "full_path": "Медицина > Рециркулятор", "similarity": 0.5}]
+
+    with mock.patch.object(asm, "_llm_rank_categories", side_effect=_boom), \
+            pytest.raises(mxou_api.MxouOutOfQuotaError):
+        fsin._gated_category_arbitration(
+            ["Тепловое оборудование"], "Тепловое оборудование",
+            {"images": []}, SimpleNamespace(token="t"), query=_Q())
