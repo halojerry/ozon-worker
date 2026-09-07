@@ -2296,8 +2296,11 @@ def _inject_discovery_match_category(source: dict, candidate) -> dict:
 def _discover_page_truth(ozon_url: str) -> dict[str, Any]:
     """discover 提交前页面真值抓取（复用 follow 的 _cached_ozon_scrape，6h 磁盘缓存）。
 
-    从 Ozon 商品页提取 worker 免闸直通所需地面真值：
-    - ozon_category: 面包屑 dc/tp（source="page"/namespace="widget"，与 follow 同形状）
+    从 Ozon 商品页提取地面真值：
+    - ozon_category: 面包屑**路径先验**（source="page"/namespace="widget"）。⚠️ 面包屑
+      里的 ID 是 Ozon Web 前台类目 ID，不是 Seller 树的 description_category_id/
+      type_id（拿去做 schema 验证/树查询全不命中）——只放 web_category_id 作排查
+      线索，绝不伪造 dc/tp。dc/tp 仍由 what_to_sell / search_kw 文本猜提供。
     - ozon_attributes: 特征属性表（attributes + characteristics 合并，follow 同形状）
     - weight_g/dimensions_mm: 属性表解析出的物理真值（what_to_sell 缺口时补 extensions）
     - ozon_title: 页面标题（候选缺标题时兜底）
@@ -2321,12 +2324,11 @@ def _discover_page_truth(ozon_url: str) -> dict[str, Any]:
     truth: dict[str, Any] = {}
     scraped_dc = str(cdp_data.get("description_category_id", "") or "").strip()
     if scraped_dc:
+        # 面包屑真值=路径文本+语言；Web 前台 ID 与 Seller 树 dc 是两套体系，勿混用
         truth["ozon_category"] = {
-            "description_category_id": scraped_dc,
-            "type_id": str(cdp_data.get("type_id", "") or scraped_dc).strip(),
-            "language": cdp_data.get("breadcrumb_language", "") or "",
-            "category_path": cdp_data.get("category_path", "") or "",
-            # page=Widget 面包屑（worker 免闸直通集 source∈{page,what_to_sell}）
+            "category_path": str(cdp_data.get("category_path", "") or ""),
+            "breadcrumb_language": str(cdp_data.get("breadcrumb_language", "") or ""),
+            "web_category_id": scraped_dc,
             "source": "page",
             "namespace": "widget",
         }
@@ -2354,10 +2356,11 @@ def _discover_page_truth(ozon_url: str) -> dict[str, Any]:
 def _apply_discover_page_truth(draft: dict, extensions: dict, candidate, page_truth: dict) -> None:
     """页面真值 + Ozon 上下文注入 draft/extensions（discover 成功/降级两路径共用）。
 
-    类目三源优先级 page > what_to_sell > search_kw：page 与 what_to_sell 的 dc
-    不一致时告警记录两者并取 page（页面面包屑是当前真实在售类目）；page 缺失时
-    保持既有注入语义（what_to_sell / 缺省标 search_kw）。重量/尺寸 what_to_sell
-    （候选字段）优先，页面值只补缺口。无真值不造空壳键。
+    类目 dc/tp 语义：what_to_sell 权威保留，没有则候选类目按 search_kw 文本猜——
+    page 面包屑**不提供 dc/tp**（其 ID 是 Web 前台类目 ID，非 Seller 树体系），
+    只贡献 category_path/breadcrumb_language 路径先验，并入 draft.ozon_category
+    同 dict（worker 按 hint 做名称解析）。重量/尺寸 what_to_sell（候选字段）
+    优先，页面值只补缺口。无真值不造空壳键。
     """
     page_cat = page_truth.get("ozon_category") or {}
     page_attrs = page_truth.get("ozon_attributes") or {}
@@ -2371,30 +2374,38 @@ def _apply_discover_page_truth(draft: dict, extensions: dict, candidate, page_tr
     if _ozon_title:
         draft["ozon_title"] = _ozon_title
 
+    _ozc = getattr(candidate, 'ozon_category', None) or {}
+    _has_dc = bool(str(_ozc.get("description_category_id") or "").strip()
+                   or str(_ozc.get("type_id") or "").strip())
     if page_cat:
-        _wts_dc = str((getattr(candidate, "ozon_category", None) or {}).get(
-            "description_category_id") or "")
-        if _wts_dc and _wts_dc != str(page_cat.get("description_category_id")):
-            logger.warning(
-                "⚠️ discover 类目分歧: page dc=%s 与 what_to_sell dc=%s 不一致，取 page",
-                page_cat.get("description_category_id"), _wts_dc,
-            )
-        draft["ozon_category"] = page_cat
-    else:
-        _ozc = getattr(candidate, 'ozon_category', None)
-        if _ozc:
-            _ozc = dict(_ozc)
-            # 无来源标记时默认按候选处理（Discovery 解析为模糊），勿当权威
-            _ozc.setdefault("source", "search_kw")
-            _ozc.setdefault("namespace", "seller")
-            draft["ozon_category"] = _ozc
+        if _has_dc:
+            # what_to_sell 真 dc/tp 语义不动（自带权威 source/namespace），面包屑只补先验
+            cat = dict(_ozc)
+            cat.setdefault("source", "search_kw")
+            cat.setdefault("namespace", "seller")
+        else:
+            # 无 dc/tp → 只带路径先验（source=page 标注面包屑来源；无 dc/tp 时
+            # worker 按 hint 处理，不会当权威直通）
+            cat = {"source": "page", "namespace": "widget"}
+        for _hk in ("category_path", "breadcrumb_language"):
+            _hv = str(page_cat.get(_hk) or "").strip()
+            if _hv:
+                cat[_hk] = _hv
+        draft["ozon_category"] = cat
+    elif _ozc:
+        cat = dict(_ozc)
+        # 无来源标记时默认按候选处理（Discovery 解析为模糊），勿当权威
+        cat.setdefault("source", "search_kw")
+        cat.setdefault("namespace", "seller")
+        draft["ozon_category"] = cat
 
-    # 特征属性（来自页面，归属页面 dc——worker ozon_attrs_allowed 按 dc 校验一致性）
+    # 特征属性（来自页面，归属页面面包屑——web_category_id 仅排查线索，
+    # worker 属性校验以 dc/tp 为准）
     if page_attrs:
         draft["ozon_attributes"] = page_attrs
-        _page_dc = str(page_cat.get("description_category_id") or "")
-        if _page_dc.isdigit():
-            draft["ozon_attributes_category"] = int(_page_dc)
+        _page_web_dc = str(page_cat.get("web_category_id") or "")
+        if _page_web_dc.isdigit():
+            draft["ozon_attributes_category"] = int(_page_web_dc)
 
     # 竞品重量/尺寸注入 extensions（worker _resolve_weight_dimensions 兜底链）：
     # what_to_sell 经 apply_analytics_to_candidate 写入候选，优先；页面真值只补缺口。
@@ -2446,8 +2457,8 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
     detail_url = f"https://detail.1688.com/offer/{best_id}.html"
 
     # 提交前页面真值富化（单 choke point，graph/batch_test/采集箱路径共用本函数）。
-    # 对有 ozon_url 的候选抓 Ozon 商品页 dc/tp + 特征属性 + 重量尺寸——discover
-    # 信封此前缺 Ozon 地面真值，类目只靠 1688 中文词文本猜，现成商品批量拒单。
+    # 对有 ozon_url 的候选抓 Ozon 商品页面包屑路径先验 + 特征属性 + 重量尺寸——
+    # discover 信封此前缺 Ozon 地面真值，类目只靠 1688 中文词文本猜，现成商品批量拒单。
     # 失败优雅跳过走兜底（what_to_sell/文本猜），行为与不富化完全一致。
     page_truth = _discover_page_truth(getattr(candidate, "ozon_url", "") or "")
 
@@ -2472,7 +2483,13 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
             draft["ozon_product_id"] = candidate.ozon_product_id
             extensions["follow_sell"] = True
 
-        # 页面真值 + 类目三源(page>what_to_sell>search_kw) + 特征属性 + 竞品重量尺寸
+        # P-D: discover 变体标记（对齐 v0.66.1「follow_sell 无 follow_type=discover
+        # 变体」语义的显式化）——worker 据此跳过 import-by-sku；已有值（上游/模板）
+        # 不覆盖，真实跟卖由 follow 管线打 follow_type=hand 互不干扰
+        if extensions.get("follow_sell"):
+            extensions.setdefault("follow_type", "discover")
+
+        # 页面真值（路径先验不覆盖 dc/tp）+ 特征属性 + 竞品重量尺寸
         _apply_discover_page_truth(draft, extensions, candidate, page_truth)
 
         # ✅ v0.58: 佣金分段透传 extensions（worker 定价用 fbs/fbo 分段费率）
@@ -2552,6 +2569,9 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
     _inject_discovery_match_category(source, candidate)  # v0.66.2 1688 类目透出
 
     extensions: dict[str, Any] = {"follow_sell": candidate.competing_sellers > 0}
+    # P-D: discover 变体标记（与主路径同语义，已有值不覆盖）
+    if extensions.get("follow_sell"):
+        extensions.setdefault("follow_type", "discover")
     # v0.65: 不再兜底注入 margin_rate 0.25 / commission_rate 0.10——未配置时留空让 worker
     # 走三档默认(1.5/2.0/0.6) + 佣金解析链(explicit>缓存表>segments>0.10)；显式 0.10 曾短路真实佣金
     for _pk in ("margin_rate", "commission_rate", "fx_buffer"):

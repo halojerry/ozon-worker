@@ -46,6 +46,12 @@ LOGISTICS_PER_KG_CNY = 40.0      # 跨境物流按重量估算 CNY/kg（保底 8
 # 两条路径差 ¥9/单，轻小件被选品分析误判「利润不足」。此处统一分段估算。
 DEFAULT_WEIGHT_G = 500           # 重量缺失时的默认重量（克），与 cloud_probe 一致
 
+# ⚠️ discover 货源有效性门槛：标题相关性置信度低于该值的图搜/AK 结果不作为有效货源
+# （_process_match 统一守卫，aibuy 官方排序放行也不例外）——0 置信错配（如暖风机→
+# 黑丝袜）曾一路走完利润/信封全链。被拒候选保留匹配证据进无货源/review 流，
+# auto-submit 只取 profitable，绝不自动提交。对齐 _pick_best_match 的 conf 护栏档位。
+_MIN_SOURCE_CONFIDENCE = 0.3
+
 
 def estimate_shipping_cny(weight_g: int | None) -> float:
     """按重量估算跨境运费 CNY（与 cloud_probe price_estimate 分段同源，防漂移）。
@@ -799,6 +805,20 @@ def match_selected(
             candidate.match_badge_eff = float(match.get("badge_eff", 0) or 0)
             candidate.match_reject_reason = str(match.get("reject_reason", "") or "")
             candidate.status = "matched"
+
+            # ⚠️ 货源有效性门槛（统一出口，aibuy 官方排序放行也不例外）：标题相关性
+            # 低于 _MIN_SOURCE_CONFIDENCE 的匹配不作为有效货源——匹配证据（url/
+            # title/价格）保留供 review 流查看，但状态归无货源，auto-submit 只取
+            # profitable，低置信货源绝不进自动提交。
+            if candidate.match_confidence < _MIN_SOURCE_CONFIDENCE:
+                candidate.match_reject_reason = "low_confidence_source"
+                candidate.status = "no_match"
+                logger.warning(
+                    "货源置信度过低（conf=%.2f < %.2f），按无货源处理: %s → %s",
+                    candidate.match_confidence, _MIN_SOURCE_CONFIDENCE,
+                    candidate.ozon_title[:40], candidate.match_1688_title[:40])
+                _review_log_write(candidate, match, "no_match", "low_confidence_source")
+                return
 
             _calculate_profit(
                 candidate,

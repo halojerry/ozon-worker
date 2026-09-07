@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""discover 提交前页面真值富化（page > what_to_sell > search_kw）回归。
+"""discover 提交前页面真值富化（路径先验 + what_to_sell > search_kw）回归。
 
-背景：discover 管线（Ozon 现成商品）信封此前缺 Ozon 地面真值（类目 dc/tp、
-特征属性）——build_envelope_from_discovery 组装时不读 candidate.ozon_url，
-类目只靠 1688 中文词文本猜（source=search_kw），what_to_sell 类目又经常
-空 {}。本文件锁定：
+背景：discover 管线（Ozon 现成商品）信封此前缺 Ozon 地面真值（特征属性、
+重量尺寸）——build_envelope_from_discovery 组装时不读 candidate.ozon_url，
+what_to_sell 类目又经常空 {}。⚠️ 实测（Wave D）：页面面包屑里的 ID 是
+**Web 前台类目 ID**，不是 Seller 树的 description_category_id/type_id——
+拿它当 dc 传 worker 后 schema 验证 400、树查询全不命中。page 真值从此
+只承载「路径先验 + 特征属性 + 物理真值」，绝不伪造 dc/tp。本文件锁定：
 
-1. page 真值存在 → draft.ozon_category.source=="page"，压过 what_to_sell；
-   page 与 what_to_sell dc 分歧时告警并取 page
-2. page 失败 + what_to_sell 有值 → 保留 what_to_sell
-3. 两者都无 → 除 ozon_url/ozon_title（规定永不丢弃）外与现状逐字段一致
+1. page 面包屑 → category_path/breadcrumb_language 写入 draft.ozon_category
+   同 dict（worker 名称解析先验）；web 前台 ID 只放 web_category_id 作排查
+   线索，绝不出现 description_category_id/type_id 键
+2. what_to_sell 权威 dc/tp 在场 → 语义完全不动，page 只并路径先验
+3. 两者都无 dc/tp → 除 ozon_url/ozon_title 外与现状逐字段一致
 4. draft.ozon_attributes / ozon_attributes_category / ozon_url / ozon_title 到位；
    build_graph_envelope_with_retry 抛异常的降级信封同样带页面真值
 5. 无 Chrome（scrape 抛异常）→ 不崩、走兜底
+6. P-D：follow_sell=True 信封 extensions 带 follow_type=discover（discover
+   变体标记，worker 据此跳过 import-by-sku）；已有值不覆盖
 
 全部 mock _cached_ozon_scrape，禁止真实网络/浏览器。
 
@@ -121,36 +126,60 @@ def _build(cand, *, scrape_result=None, scrape_error=None,
             cand, {"client_id": "123", "api_key": "key"})
 
 
-def test_page_truth_overrides_what_to_sell():
-    """page 真值存在 → source=page 压过 what_to_sell。"""
+def test_what_to_sell_dc_kept_and_path_hint_merged():
+    """page 面包屑不再伪造 dc/tp：what_to_sell 权威 dc/tp 原样保留，
+    面包屑只贡献 category_path/breadcrumb_language 路径先验（并入同 dict）。"""
     cand = _mk_candidate(ozon_category=dict(WTS_CATEGORY))
+    res = _build(cand, scrape_result=PAGE_SCRAPE)
+    assert res is not None
+    cat = res["envelope"]["draft"]["ozon_category"]
+    # what_to_sell 语义完全不动
+    assert cat["description_category_id"] == "99999999"
+    assert cat["type_id"] == "88888888"
+    assert cat["source"] == "what_to_sell"
+    assert cat["namespace"] == "seller"
+    # 路径先验并入同 dict
+    assert cat["category_path"] == "Зоотовары > Кошки > Автопоилки"
+    assert cat["breadcrumb_language"] == "RU"
+    # web 前台 ID 绝不冒充 dc/tp
+    assert "17028929" not in (cat.get("description_category_id") or "")
+    assert "web_category_id" not in cat
+
+
+def test_page_category_is_hint_only_no_dc_fabrication():
+    """无 what_to_sell + page 面包屑在场 → draft.ozon_category 只含路径先验
+    （source=page/namespace=widget），绝不出现 dc/tp 键（P-A' 核心回归）。"""
+    cand = _mk_candidate(ozon_category={})
     res = _build(cand, scrape_result=PAGE_SCRAPE)
     assert res is not None
     cat = res["envelope"]["draft"]["ozon_category"]
     assert cat["source"] == "page"
     assert cat["namespace"] == "widget"
-    assert cat["description_category_id"] == "17028929"
-    assert cat["type_id"] == "504866264"
     assert cat["category_path"] == "Зоотовары > Кошки > Автопоилки"
+    assert cat["breadcrumb_language"] == "RU"
+    assert "description_category_id" not in cat
+    assert "type_id" not in cat
 
 
-def test_dc_mismatch_warns_and_takes_page():
-    """page 与 what_to_sell dc 不一致 → 告警记录两源，取 page。"""
-    cand = _mk_candidate(ozon_category=dict(WTS_CATEGORY))
-
-    def _scrape(url, **kwargs):
-        return dict(PAGE_SCRAPE)
-
-    with mock.patch.object(cloud_probe, "_cached_ozon_scrape", side_effect=_scrape), \
-         mock.patch.object(cloud_probe, "build_graph_envelope_with_retry",
-                           return_value=_mock_envelope()), \
-         mock.patch("scripts.lib.config_store.get_mxou_token", return_value="sk-test"), \
-         mock.patch.object(cloud_probe.logger, "warning") as warn:
-        res = cloud_probe.build_envelope_from_discovery(
-            cand, {"client_id": "123", "api_key": "key"})
-    assert res["envelope"]["draft"]["ozon_category"]["description_category_id"] == "17028929"
-    warn_text = str(warn.call_args_list)
-    assert "99999999" in warn_text and "17028929" in warn_text
+def test_discover_page_truth_shape_no_dc():
+    """_discover_page_truth 直测：面包屑输出路径+语言+web_category_id（排查线索），
+    不含 description_category_id/type_id；属性/物理真值/标题注入不变。"""
+    with mock.patch.object(cloud_probe, "_cached_ozon_scrape",
+                           return_value=dict(PAGE_SCRAPE)):
+        truth = cloud_probe._discover_page_truth(OZON_URL)
+    cat = truth["ozon_category"]
+    assert cat["web_category_id"] == "17028929"
+    assert cat["source"] == "page"
+    assert cat["namespace"] == "widget"
+    assert cat["category_path"] == "Зоотовары > Кошки > Автопоилки"
+    assert cat["breadcrumb_language"] == "RU"
+    assert "description_category_id" not in cat
+    assert "type_id" not in cat
+    # 属性/重量尺寸/标题注入保持不变
+    assert truth["ozon_attributes"]["Цвет"] == "Белый"
+    assert truth["weight_g"] == 270
+    assert truth["dimensions_mm"] == {"length": 190, "width": 64, "height": 230}
+    assert truth["ozon_title"] == "Автопоилка для кошек 2л"
 
 
 def test_page_failure_keeps_what_to_sell():
@@ -212,6 +241,7 @@ def test_degraded_envelope_carries_page_truth():
     assert draft["ozon_url"] == OZON_URL
     assert draft["ozon_title"] == "Автопоилка для кошек 2л"
     assert draft["ozon_category"]["source"] == "page"
+    assert "description_category_id" not in draft["ozon_category"]
     assert draft["ozon_attributes"]["Цвет"] == "Белый"
     assert draft["ozon_attributes_category"] == 17028929
     # 页面物理真值补 extensions（候选无 what_to_sell 数据）
@@ -253,12 +283,43 @@ def test_no_ozon_url_skips_scrape():
     assert "ozon_url" not in res["envelope"]["draft"]
 
 
+# ── P-D: discover 变体标记 extensions.follow_type ─────────────────────────
+
+def test_follow_type_discover_injected_when_follow_sell():
+    """follow_sell=True → extensions.follow_type=discover（discover 变体标记）。"""
+    cand = _mk_candidate()  # competing_sellers=4 → follow_sell=True
+    res = _build(cand, scrape_result={"success": False, "error": "no chrome"})
+    ext = res["envelope"]["extensions"]
+    assert ext["follow_sell"] is True
+    assert ext["follow_type"] == "discover"
+
+
+def test_follow_type_absent_without_follow_sell():
+    """follow_sell=False → 不注入 follow_type（真实跟卖才由 follow 管线打标）。"""
+    cand = _mk_candidate(competing_sellers=0)
+    res = _build(cand, scrape_result={"success": False, "error": "no chrome"})
+    ext = res["envelope"]["extensions"]
+    assert not ext.get("follow_sell")
+    assert "follow_type" not in ext
+
+
+def test_follow_type_existing_value_not_overwritten():
+    """extensions 已有 follow_type（上游/模板注入）→ 不覆盖。"""
+    cand = _mk_candidate()
+    env = _mock_envelope()
+    env["envelope"]["extensions"]["follow_type"] = "hand"
+    res = _build(cand, retry_envelope=env,
+                 scrape_result={"success": False, "error": "no chrome"})
+    assert res["envelope"]["extensions"]["follow_type"] == "hand"
+
+
 if __name__ == "__main__":
     import traceback
 
-    failed = 0
+    failed = total = 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
+            total += 1
             try:
                 fn()
                 print(f"PASS {name}")
@@ -266,5 +327,5 @@ if __name__ == "__main__":
                 failed += 1
                 print(f"FAIL {name}")
                 traceback.print_exc()
-    print(f"\n{9 - failed}/9 passed")
+    print(f"\n{total - failed}/{total} passed")
     sys.exit(1 if failed else 0)
