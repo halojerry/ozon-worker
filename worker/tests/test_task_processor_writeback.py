@@ -147,6 +147,7 @@ def test_completed_writeback_published():
     engine, calls, events = _run_process_next({
         "upload_status": "success",
         "moderation_status": "approved",
+        "product_id": "123456",  # v0.69.2 T0.4: completed 需真实商品佐证
     })
     sql, _params = _terminal_update(engine)
     assert "status = 'completed'" in sql, "终态仍应落 completed"
@@ -288,6 +289,7 @@ def test_writeback_after_commit_order():
     _, _, events = _run_process_next({
         "upload_status": "success",
         "moderation_status": "approved",
+        "product_id": "123456",  # v0.69.2 T0.4: completed 需真实商品佐证
     })
     # events 形如 [commit(认领), commit(终态), writeback]
     last_commit = max(i for i, e in enumerate(events) if e == "commit")
@@ -307,7 +309,8 @@ def test_writeback_exception_does_not_break_task():
     engine = _FakeEngine(_make_task_row(), events)
 
     async def _fake_execute(payload, timeout):
-        return {"upload_status": "success", "moderation_status": "approved"}
+        return {"upload_status": "success", "moderation_status": "approved",
+                "product_id": "123456"}  # v0.69.2 T0.4: completed 需真实商品佐证
 
     def _boom(task_id, status, error_message=None):
         events.append("writeback")
@@ -366,7 +369,8 @@ def test_process_next_task_sets_trace_id():
         trace_calls.append((a, k))
 
     async def _fake_execute(payload, timeout):
-        return {"upload_status": "success", "moderation_status": "approved"}
+        return {"upload_status": "success", "moderation_status": "approved",
+                "product_id": "123456"}  # v0.69.2 T0.4: completed 需真实商品佐证
 
     with patch.object(tp_mod, "get_supabase_client", return_value=None), \
          patch.object(tp_mod, "get_engine", return_value=engine), \

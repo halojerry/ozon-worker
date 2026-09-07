@@ -498,7 +498,8 @@ def test_task_processor_writer_exception_non_fatal():
             return _FakeConn()
 
     async def _fake_execute(payload, timeout):
-        return {"upload_status": "success", "moderation_status": "approved"}
+        return {"upload_status": "success", "moderation_status": "approved",
+                "product_id": "123456"}  # v0.69.2 T0.4: completed 需真实商品佐证
 
     def _boom(*a, **k):
         raise RuntimeError("PG down")

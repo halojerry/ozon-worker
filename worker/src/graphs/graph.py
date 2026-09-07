@@ -100,10 +100,18 @@ builder.set_entry_point("auth")
 
 # ✅ v0.11: auth 失败时阻断管线，避免浪费 GPU/LLM 配额
 def route_after_auth(state):
-    """Token 验证失败 → END；否则 → check_quota"""
+    """Token 验证失败 → END；否则 → check_quota。
+    ✅ v0.69 构造单实证补口：部分 auth 失败出口（如 token 缺失）只带
+    failed_stage="auth"/error_message、不带非成功 error_code——旧判定漏放行，
+    管线空跑 pricing/assemble 后才被终态闸判 failed（终态对、算力白烧）。
+    failed_stage 含 auth 一并阻断。"""
     error_code = getattr(state, 'error_code', '') or ''
-    if error_code and error_code != 'AUTH_SUCCESS':
-        logger.warning(f"⛔ Auth 失败({error_code})，阻断管线")
+    _failed_stage = getattr(state, 'failed_stage', '') or ''
+    if isinstance(_failed_stage, (list, tuple)):
+        _failed_stage = ",".join(str(x) for x in _failed_stage)
+    _failed_stage = str(_failed_stage)
+    if (error_code and error_code != 'AUTH_SUCCESS') or 'auth' in _failed_stage:
+        logger.warning(f"⛔ Auth 失败(code={error_code or 'N/A'}, stage={_failed_stage})，阻断管线")
         return "END"
     return "check_quota"
 

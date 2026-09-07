@@ -45,6 +45,14 @@ from utils.attribute_utils import HAZARD_DICT_ATTR_IDS, is_customs_attr, pick_di
 from utils.attr_synonyms import load_attr_synonyms  # v0.32 共享同义词加载器（单一事实源）
 from utils.title_formula import parse_title_formula_keywords  # T1: 流量词纯西里尔过滤（hashtag 23171 消费）
 from utils.size_mapper import filter_brand_from_hashtags  # hashtag 品牌过滤（与 prepare 侧同源）
+from utils.blocked_draft_box import (  # ✅ v0.69 T0.3: R2b 置信度分层阈值（阻断入箱函数延迟 import 防循环）
+    R2B_ADOPT_CONF_CROSS_TOP,
+    R2B_ADOPT_CONF_SAME_TOP,
+)
+from utils.restricted_keywords import (  # ✅ v0.69 Wave4 T2.4: 受限/需资质品类闸（与 R1 成人防护线独立，勿混）
+    match_restricted_keywords,
+    restricted_notice,
+)
 
 # ── v0.21: 外置同义词映射（1688 词 → Ozon ZH 类目词），解决字面匹配同义词不通 ──
 _SYNONYMS_CACHE: dict | None = None
@@ -435,48 +443,89 @@ def _r2b_confirm_adoption(confirm: dict | None, pool: list, source_text: str,
                           draft: dict, query=None):
     """v0.69 R2b 放行判据（纯函数可单测；query 仅判据 b 的 RU 路径查询用）。
 
+    格式分流（✅ v0.69 T0.3 Top1+置信度）：
+      - 新格式（confirm 带 _llm_confidence，LLM 已按 Top1+置信度契约自评）→
+        直接走 ④ 置信度分层采纳——文本判据 ①②③ 是无置信度时代的拐杖，
+        置信度不足时字面 overlap 也不再自动放行（宁可入箱人工，不错放）；
+      - 旧格式（candidate_index，_llm_confidence=None）→ ①②③ 照旧，再走 ④。
+
     判定顺序：
-      ① full_path 字面 overlap（v0.65.1 原判据保持）；
-      ② 叶子名子串（判据 a）；
-      ③ 西里尔源词 → dc+tp 查 RU 树路径 overlap（判据 b）；
-      ④ LLM 带图明确选中（candidate_index 有效）且该候选与池内源词命中候选
-        同 top_level 大类（_top_level_segment 一致）→ 视为确认（判据 c）。
-    LLM 未选（abstain/解析失败/建议词标记）→ 一律不放行（仍阻断）。
+      ① full_path 字面 overlap（v0.65.1 原判据保持，仅旧格式）；
+      ② 叶子名子串（判据 a，仅旧格式）；
+      ③ 西里尔源词 → dc+tp 查 RU 树路径 overlap（判据 b，仅旧格式）；
+      ④ LLM vision 分层采纳（返回第 4 位 adopt_meta）：
+        a) 选中候选与池内源词命中锚点（**不含选中自身**，自锚点无域佐证意义）
+          同 top_level 大类 → 旧格式（无 _llm_confidence）照旧放行；新格式需
+          confidence ≥ R2B_ADOPT_CONF_SAME_TOP(0.5)（现行第四段的 confidence
+          强化版）；
+        b) 跨大类（无同大类他锚）+ 池内有源词命中锚点（域证据，含选中自身命中
+          源词——俄语标题×中文候选树的双语缺口正是选中项自己扛证据）+ confidence
+          ≥ R2B_ADOPT_CONF_CROSS_TOP(0.75) → 采纳，adopt_meta 标注
+          cross_top_high_confidence（解锁双语正确选择如水暖风机；域守卫 = 池内
+          锚点在场 + R1 候选剔除不动，敏感闸零放松）。
+    LLM 未选（abstain/解析失败/建议词标记）→ 一律不放行（仍阻断，走 2c 入箱）。
 
     Returns:
-        (overlap_words: set, vision_confirmed: bool, reason: str)
+        (overlap_words: set, vision_confirmed: bool, reason: str, adopt_meta: dict)
         overlap_words 非空或 vision_confirmed=True → 放行；两者皆空 → 阻断。
     """
+    _no_meta: dict = {}
     texts = [str(source_text or "")]
     if (not isinstance(confirm, dict) or confirm.get("_llm_suggest")
             or not confirm.get("description_category_id")):
-        return set(), False, "LLM 未选中候选（abstain/解析失败/建议词）"
-    # ① full_path 字面 overlap（原判据）
-    _path = str(confirm.get("full_path") or confirm.get("category_path") or "")
-    ov = _non_generic_overlap_words(_path, texts)
-    if ov:
-        return ov, False, f"非泛词 overlap={sorted(ov)}"
-    # ② 叶子名子串（判据 a）
-    ov = _leaf_substring_overlap(str(confirm.get("node_name") or ""), texts)
-    if ov:
-        return ov, False, f"叶子名子串 overlap={sorted(ov)}"
-    # ③ 西里尔源词 → RU 树路径 overlap（判据 b）
-    if _has_cyrillic(source_text) and query is not None:
-        ru_path = _ru_tree_full_path(query, confirm)
-        if ru_path:
-            ov = {w for w in _non_generic_overlap_words(ru_path, texts)
-                  if w not in _GENERIC_OVERLAP_RU}
-            if ov:
-                return ov, False, f"RU 路径 overlap={sorted(ov)}"
-    # ④ LLM vision 选中 + 与池内源词命中候选同顶层大类（判据 c）
+        return set(), False, "LLM 未选中候选（abstain/解析失败/建议词）", _no_meta
+    _raw_conf = confirm.get("_llm_confidence")
+    conf_v = float(_raw_conf) if isinstance(_raw_conf, (int, float)) else None
+    if conf_v is None:
+        # ① full_path 字面 overlap（原判据，仅旧格式）
+        _path = str(confirm.get("full_path") or confirm.get("category_path") or "")
+        ov = _non_generic_overlap_words(_path, texts)
+        if ov:
+            return ov, False, f"非泛词 overlap={sorted(ov)}", _no_meta
+        # ② 叶子名子串（判据 a）
+        ov = _leaf_substring_overlap(str(confirm.get("node_name") or ""), texts)
+        if ov:
+            return ov, False, f"叶子名子串 overlap={sorted(ov)}", _no_meta
+        # ③ 西里尔源词 → RU 树路径 overlap（判据 b）
+        if _has_cyrillic(source_text) and query is not None:
+            ru_path = _ru_tree_full_path(query, confirm)
+            if ru_path:
+                ov = {w for w in _non_generic_overlap_words(ru_path, texts)
+                      if w not in _GENERIC_OVERLAP_RU}
+                if ov:
+                    return ov, False, f"RU 路径 overlap={sorted(ov)}", _no_meta
+    # ④ LLM vision 分层采纳（✅ v0.69 T0.3）
     if (draft or {}).get("images"):
         confirm_tl = _top_level_segment(confirm)
         if confirm_tl:
-            for h in _r2b_source_hit_candidates(pool, texts):
-                h_tl = _top_level_segment(h)
-                if h_tl and h_tl == confirm_tl:
-                    return set(), True, f"LLM vision 选中与源词命中候选同大类({confirm_tl})"
-    return set(), False, "无非泛词 overlap 且无同大类 vision 确认"
+            anchors = _r2b_source_hit_candidates(pool, texts)
+            # 自锚点排除：选中候选 dc/tp 与锚点相同 = 自己给自己佐证（池内 dc/tp
+            # 唯一，_build_r2b_confirm_pool 去重），同大类判定只认「他锚」
+            _c_key = (int(confirm.get("description_category_id") or 0),
+                      int(confirm.get("type_id") or 0))
+            other_anchors = [
+                h for h in anchors
+                if (int(h.get("description_category_id") or 0),
+                    int(h.get("type_id") or 0)) != _c_key
+            ]
+            same_top_anchor = any(
+                _top_level_segment(h) == confirm_tl for h in other_anchors)
+            if same_top_anchor:
+                # ④a 同大类：旧格式（conf None）照旧放行；新格式需 ≥ SAME_TOP
+                if conf_v is None or conf_v >= R2B_ADOPT_CONF_SAME_TOP:
+                    return (set(), True,
+                            f"LLM vision 选中与源词命中候选同大类({confirm_tl})", _no_meta)
+                return (set(), False,
+                        f"同大类选中置信度不足({conf_v:.2f}<{R2B_ADOPT_CONF_SAME_TOP})",
+                        _no_meta)
+            # ④b 跨大类高置信解锁（锚点在场 = 有域证据；阈值更严 0.75）
+            if anchors and conf_v is not None and conf_v >= R2B_ADOPT_CONF_CROSS_TOP:
+                return (set(), True,
+                        ("LLM 高置信跨大类选中"
+                         f"(cross_top_high_confidence, conf={conf_v:.2f}"
+                         f">={R2B_ADOPT_CONF_CROSS_TOP})"),
+                        {"cross_top_high_confidence": True})
+    return set(), False, "无非泛词 overlap 且无同大类 vision 确认", _no_meta
 
 
 def _l0_weak_arbitrate(l0_hit: dict | None, candidates: list, source_keywords: str,
@@ -521,11 +570,13 @@ def _l0_weak_arbitrate(l0_hit: dict | None, candidates: list, source_keywords: s
 
 def _is_skill_authoritative(_source: str, _namespace: str, skill_l0_hit: dict | None) -> bool:
     """v0.65.1 P1-1: Skill 层豁免（match_layer=Skill 免 sim/overlap/R2b/R1 候选闸）
-    只给权威 source —— page/mapping/what_to_sell；widget 命名空间数字 ID 可能是
+    只给权威 source —— page/mapping/what_to_sell/manual。widget 命名空间数字 ID 可能是
     顾客空间，仅 category_path 精配成功（_resolved_by_path=True）才视权威。
     search_kw（关键词模糊）恒为 False → 只能当普通 L1 候选过闸。
+    v0.69 T0.2: manual=人工指定（skill CLI --category-id 直传，用户明确指定 dc/tp），
+    权威级与 page 同；search_kw 恒非权威语义不变。
     """
-    _authoritative = _source in ("page", "mapping", "what_to_sell")
+    _authoritative = _source in ("page", "mapping", "what_to_sell", "manual")
     if _namespace == "widget" and not (skill_l0_hit or {}).get("_resolved_by_path"):
         _authoritative = False
     return _authoritative
@@ -709,6 +760,79 @@ def _build_r2b_confirm_pool(candidates: list, adopted: dict | None,
     return pool[:12]
 
 
+def _maybe_create_blocked_draft(state, draft: dict, candidates: list,
+                                blocked_reason: str) -> dict | None:
+    """✅ v0.69 T0.3: 阻断商品自动入采集箱（幂等、非致命）。
+
+    - tenant 取 state.user_id（product_drafts.tenant_id 同口径），缺失不入箱；
+    - 信封用 state.envelope（原始 {draft, source, extensions}，无凭证），缺失时
+      以 {"draft": draft} 兜底包装；
+    - 推荐类目 top-3 + blocked_reason 落 extensions（webui 采集箱人工可见）；
+    - 任何异常（PG 不可用/服务层 400）→ warning + None，绝不影响任务 failed 落库。
+    范围红线：R1 敏感 veto 出口与标题为空出口不调用本函数（前者需资质类不自动
+    推荐，后者 create_draft 缺 title 必 400）；follow 门控层不建箱（只在 assemble
+    层做一次，防重复建）。
+    """
+    try:
+        from utils.blocked_draft_box import create_blocked_draft  # 延迟 import：服务层连带 fastapi/credentials
+        tenant_id = str(getattr(state, "user_id", "") or "").strip()
+        if not tenant_id:
+            logger.info("   ℹ️ 阻断入箱跳过：state.user_id 为空（无租户归属）")
+            return None
+        envelope = getattr(state, "envelope", None)
+        if not isinstance(envelope, dict) or not envelope.get("draft"):
+            envelope = {"draft": draft or {}}
+        return create_blocked_draft(tenant_id, envelope, candidates or [], blocked_reason)
+    except Exception as _box_e:
+        logger.warning("   ⚠️ 阻断商品入采集箱失败（非致命）: %s", _box_e)
+        return None
+
+
+def _blocked_exit(state, draft: dict, candidates: list, error_message: str,
+                  match_confidence: float | None = None) -> dict:
+    """✅ v0.69 T0.3: 类目闸阻断出口统一构造——终态失败字段（v0.69 T2.2 语义不变）
+    + 尽力入采集箱（低置信/歧义/弃权场景代替无声 failed）。
+
+    - 入箱成功 → notice 追加「已入采集箱 draft_id=<id>，推荐类目 Top1=<名>(置信度
+      x.xx)」（task_processor 失败信息优先取 notice，用户按 Top1 推荐自行决定）；
+    - 入箱失败/跳过 → 无 notice 键，返回形状与 v0.69 T2.2 逐字一致。
+    """
+    out: dict[str, Any] = {
+        "error_message": error_message,
+        "assembly_retry_count": (getattr(state, "assembly_retry_count", 0) or 0) + 1,
+        "failed_stage": "category_match",
+    }
+    if match_confidence is not None:
+        out["match_confidence"] = match_confidence
+    _box = _maybe_create_blocked_draft(state, draft, candidates, error_message)
+    if _box:
+        from utils.blocked_draft_box import format_box_notice
+        out["notice"] = format_box_notice(_box)
+    return out
+
+
+def _restricted_category_exit(state, draft: dict, candidates: list,
+                              src_hits: list, cat_hits: list,
+                              match_confidence: float = 0.0) -> dict:
+    """✅ v0.69 Wave4 T2.4: 受限/需资质品类双命中出口——failed 终态 + 入采集箱。
+
+    - blocked_reason =「需资质/受限品类」+ 双侧命中词 + notice 提示（转人工确认）；
+    - notice 前置受限提示（format_box_notice 只含 draft_id/Top1，「资质」字样必须在
+      notice 里让用户第一眼看到），入箱失败时 notice 仍单独携带提示；
+    - 与 R1 veto 出口（不入箱）刻意不同：危险品/资质类给 Top1 推荐让人工改配，
+      成人类不自动推荐——两闸语义独立，勿合并。
+    """
+    _notice = restricted_notice()
+    _reason = (f"需资质/受限品类：商品标题/货源与定稿类目双命中受限关键词"
+               f"（货源侧 {sorted(set(src_hits))} × 类目侧 {sorted(set(cat_hits))}），"
+               f"{_notice}")
+    logger.error(f"   🛑 受限品类闸（双命中）: {_reason}")
+    out = _blocked_exit(state, draft, candidates, _reason,
+                        match_confidence=match_confidence)
+    out["notice"] = f"{_notice}；{out['notice']}" if out.get("notice") else _notice
+    return out
+
+
 logger = logging.getLogger(__name__)
 
 # ==================== 常量 ====================
@@ -800,8 +924,14 @@ def _assemble_follow_sell(
         # Step 2: 获取属性 Schema（仅用于验证，不实际填写）
         progress.log_node_action(f"跟卖 Step 2: 获取属性 Schema — cat={description_category_id}")
         attr_schema = query.get_attribute_schema(description_category_id, type_id)
+        # ✅ v0.69 T3.3: 兼容两种缓存格式（与主路径 Step 2 同款）——
+        # {"result": [...]} (dict，旧 set_attribute_cache 语义) 和 [...] (list，
+        # warm 脚本/T3.3 懒加载回写写入的 Ozon result 原始形状)。此前只认 dict，
+        # 跟卖路径缓存命中 list 也会静默穿透重调 Ozon API。
         if attr_schema and isinstance(attr_schema, dict) and attr_schema.get("result"):
             attr_list: list[dict[str, Any]] = attr_schema["result"]
+        elif isinstance(attr_schema, list) and attr_schema:
+            attr_list = attr_schema
         else:
             attr_list = _fetch_attribute_schema_from_ozon(
                 ozon_client_id, ozon_api_key, description_category_id, type_id
@@ -1234,6 +1364,29 @@ def assemble_ozon_product_node(
     else:
         logger.info(f"   关键词: {keywords}")
 
+    # ✅ v0.69 Wave4 T2.4: 受限/需资质品类闸（第一道·类目匹配开始前）——纯文本零成本。
+    # 货源侧（标题+source_category）命中词表且有 Skill 直采类目路径时，可在此提前
+    # 双命中拦截（省搜索/LLM 成本——汽柴油容器类曾在自动匹配里打转 8 分钟才失败）；
+    # 无类目路径时只记货源侧信号，待类目定稿后（第二道）做双命中终判。
+    # ⚠️ 只拦双命中，单侧命中绝不拦（防误伤）；与 R1（成人防护线）完全独立，
+    # 不触碰 _r1_veto/_SENSITIVE_SOURCE_SIGNALS。词表热加载
+    # （config/restricted_keywords.json，见 utils/restricted_keywords.py）。
+    # ⚠️ v0.69 构造单实证修正：source=manual（人工 --category-id 直传）豁免本闸——
+    # 人的类目决定已完成（用户拍板「受限方向走 --to-box 人工指定类目」指的就是
+    # 手动指定后要能上）；受限风险降级为 warning 留痕。R1 成人闸对 manual 仍硬。
+    _manual_category_source = str(
+        ((draft or {}).get("ozon_category") or {}).get("source") or "") == "manual"
+    _restricted_src_hits = match_restricted_keywords(f"{title} {source_category}")
+    if _restricted_src_hits and _skill_l0_hit:
+        _early_cat_hits = match_restricted_keywords(str(_skill_l0_hit.get("full_path") or ""))
+        if _early_cat_hits and _manual_category_source:
+            logger.warning("   ⚠️ 受限品类闸: 人工指定类目（manual）命中受限词 "
+                           f"{_early_cat_hits}——放行（人的决定优先），资质风险自担")
+        elif _early_cat_hits:
+            return _restricted_category_exit(state, draft, [],
+                                             _restricted_src_hits, _early_cat_hits,
+                                             match_confidence=0.0)
+
     # 1b. 搜索策略：source_keywords 优先（高精度），不够再扩大
     MIN_CANDIDATES = 1  # 有 source_category 时，1 个精确结果 > 30 个噪声结果
     
@@ -1291,9 +1444,9 @@ def assemble_ozon_product_node(
     if not candidates:
         logger.error("❌ 类目搜索无结果（Ozon API 也无数据）")
         # ✅ v0.69 T2.2: 阻断出口统一带 failed_stage（防 task_processor 假 completed）
-        return {"error_message": "类目匹配失败：无候选类目",
-                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
-                "failed_stage": "category_match"}
+        # ✅ v0.69 T0.3: 无候选也入箱（推荐为空，商品留给人工处理；幂等防重）
+        return _blocked_exit(state, draft, [],
+                             "类目匹配失败：无候选类目")
 
     logger.info(f"   pg_trgm 返回 {len(candidates)} 个候选")
 
@@ -1326,6 +1479,7 @@ def assemble_ozon_product_node(
     match_confidence = 0.5   # 默认中等置信度
     _llm_adopted = False     # v0.65.1 R2b: 已走 LLM 确认（不再重复强制确认）
     _r2b_confirmed = False   # R2b 低置信强制 LLM 确认命中（豁免最终 sim 门槛）
+    _r2b_cross_top = False   # ✅ v0.69 T0.3: 跨大类高置信采纳旗标（进 category_match_meta 审计）
 
     # ✅ v4: L0 学习缓存查找（在候选选择前，命中则跳过 overlap 验证）
     l0_hit = _match_category_layered(
@@ -1333,9 +1487,11 @@ def assemble_ozon_product_node(
         source_category_id=draft.get("source_category_id"),
     ) if source_category else None
     # ✅ v0.63/v0.65.1-P1-1: Skill 类目来源信任分级 —
-    #   仅 page/mapping/what_to_sell（+widget 路径精配）为权威：match_layer=Skill，
+    #   仅 page/mapping/what_to_sell/manual（+widget 路径精配）为权威：match_layer=Skill，
     #   免 sim/overlap/R2b/R1 候选闸。search_kw 永不升级 Skill（信任序已在 Step 0.5
     #   早算 _skill_authoritative，非权威候选已按队尾入池）。
+    #   ⚠️ v0.69 T0.2: manual（人工指定直传）权威级与 page 同，但 R1 敏感 veto 对
+    #   权威层仍生效（_r1_veto 不按 match_layer 豁免，dc/tp 直采 _resolved_by_path=False）。
     # ✅ v0.66 P2-3: Skill 权威 > 聚合 L0 —— 信封同时带权威 skill 类目
     # （source=page/what_to_sell/mapping，v0.65.1 P1-1 注释明言 Skill 权威最高：
     # 它是本次商品直接关联的真实 Ozon 卡/榜单类目）又命中 leaf 聚合 L0，且两者
@@ -1560,20 +1716,20 @@ def assemble_ozon_product_node(
                         match_confidence = 0.0
                         _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
                         # ✅ v0.69 T2.2: 阻断即终态失败（防 task_processor 假 completed）
-                        return {"error_message": "类目匹配失败：LLM fallback 无可靠结果（需人工确认类目），阻断上架",
-                                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
-                                "match_confidence": 0.0,
-                                "failed_stage": "category_match"}
+                        # ✅ v0.69 T0.3: 低置信/弃权出口入箱（Top1 推荐随箱，人工可决）
+                        return _blocked_exit(state, draft, candidates,
+                                             "类目匹配失败：LLM fallback 无可靠结果（需人工确认类目），阻断上架",
+                                             match_confidence=0.0)
                 else:
                     # ✅ v5: LLM 也失败 → 阻断上架，不硬用低质量候选
                     match_confidence = 0.0
                     logger.error(f"   🛑 LLM fallback 也失败，无可靠类目匹配，阻断上架")
                     _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
                     # ✅ v0.69 T2.2: 阻断即终态失败（防 task_processor 假 completed）
-                    return {"error_message": "类目匹配失败：jieba搜索+LLM均无可靠结果，阻断上架避免错误类目",
-                            "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
-                            "match_confidence": 0.0,
-                            "failed_stage": "category_match"}
+                    # ✅ v0.69 T0.3: 弃权/失败出口入箱
+                    return _blocked_exit(state, draft, candidates,
+                                         "类目匹配失败：jieba搜索+LLM均无可靠结果，阻断上架避免错误类目",
+                                         match_confidence=0.0)
 
     # ✅ v0.65.1 R1 闸点(b)/P1-2: 定稿采纳点——最终结果落敏感大类子树且源无敏感
     # 信号词 → 否决。所有层（含权威 Skill / L0）都过此闸；唯一豁免 = 竞品模式的
@@ -1592,6 +1748,8 @@ def assemble_ozon_product_node(
         match_confidence = 0.0
         _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
         # ✅ v0.69 T2.2: 阻断即终态失败（防 task_processor 假 completed）
+        # ⚠️ v0.69 T0.3: R1 veto 出口**不入箱**——敏感/需资质类目不自动推荐，
+        # 保持 failed + 人工处理（红线：R1 语义零放松）。
         return {"error_message": "类目匹配失败：候选类目为敏感类目(成人用品/18+/烟草/药品等)"
                                  "但商品来源无对应敏感信号词，需人工确认类目",
                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
@@ -1630,10 +1788,13 @@ def assemble_ozon_product_node(
             )
             # ✅ v0.69: 放行判据三点升级（full_path 字面/叶子名子串/西里尔 RU 路径/
             # LLM vision 选中且与源词命中候选同 top_level 大类），见 _r2b_confirm_adoption。
-            _confirm_overlap, _vision_confirmed, _confirm_why = _r2b_confirm_adoption(
+            # ✅ v0.69 T0.3: 第 4 位 adopt_meta——跨大类高置信采纳带
+            # cross_top_high_confidence 旗标（进 category_match_meta 审计/学习溯源）。
+            _confirm_overlap, _vision_confirmed, _confirm_why, _adopt_meta = _r2b_confirm_adoption(
                 _confirm, _r2b_pool, source_keywords or keywords, draft, query,
             )
             if _confirm_overlap or _vision_confirmed:
+                _cross_top = bool((_adopt_meta or {}).get("cross_top_high_confidence"))
                 category_result = {
                     "description_category_id": _confirm["description_category_id"],
                     "type_id": _confirm["type_id"],
@@ -1644,6 +1805,14 @@ def assemble_ozon_product_node(
                     "matcher": _confirm.get("matcher", "jieba"),
                 }
                 match_confidence = _confidence_from_sim(_confirm.get("similarity"))
+                if _cross_top:
+                    # ✅ v0.69 T0.3: 跨大类高置信采纳——文本 sim 低是预期（双语/跨域），
+                    # 置信度下限取 LLM 自报 confidence（≥0.75 才走到这），防 route_after_assemble
+                    # 的 match_confidence<0.3 闸把正确解锁误杀。
+                    _llm_c = (_confirm or {}).get("_llm_confidence")
+                    if isinstance(_llm_c, (int, float)):
+                        match_confidence = max(match_confidence, float(_llm_c))
+                    _r2b_cross_top = True
                 _r2b_confirmed = True
                 logger.info(
                     f"   ✅ R2b LLM 确认通过（{_confirm_why}）: "
@@ -1658,11 +1827,11 @@ def assemble_ozon_product_node(
                 _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
                 # ✅ v0.69 T2.2: 阻断即终态失败——缺 failed_stage 时 task_processor
                 # _is_failed 判 False → 假 completed（任务表/采集箱显示成功但实际被拦）。
-                return {"error_message": "类目匹配失败：低置信/歧义类目经 LLM 确认后仍无可靠匹配"
-                                         "（需人工确认类目），阻断上架",
-                        "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
-                        "match_confidence": 0.0,
-                        "failed_stage": "category_match"}
+                # ✅ v0.69 T0.3: 置信度不足/弃权出口入箱（Top1+top-3 推荐随箱，人工可决）。
+                return _blocked_exit(state, draft, candidates,
+                                     "类目匹配失败：低置信/歧义类目经 LLM 确认后仍无可靠匹配"
+                                     "（需人工确认类目），阻断上架",
+                                     match_confidence=0.0)
 
     # ✅ v0.31.x: 最终采纳点门槛 — 非 L0/Skill 且 sim 低于接受门槛 → 走既有阻断分支。
     # 防低分错配（如 sim=0.200 的『儿童多功能学习挂图』）经 direct/overlap/LLM 任一
@@ -1677,10 +1846,10 @@ def assemble_ozon_product_node(
         match_confidence = 0.0
         _log_match_attempt(state, title, source_category, keywords, category_result, match_layer="blocked", confidence=0.0, candidates=candidates, config=config)
         # ✅ v0.69 T2.2: 阻断即终态失败（防 task_processor 假 completed）
-        return {"error_message": "类目匹配失败：类目相似度低于接受门槛（需人工确认类目），阻断上架",
-                "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
-                "match_confidence": 0.0,
-                "failed_stage": "category_match"}
+        # ✅ v0.69 T0.3: 低置信出口入箱
+        return _blocked_exit(state, draft, candidates,
+                             "类目匹配失败：类目相似度低于接受门槛（需人工确认类目），阻断上架",
+                             match_confidence=0.0)
 
     # ✅ v4: 审计日志 — 记录本次匹配详情到 category_match_log
     # v0.67 P1-6: 传 config（task_id 取 thread_id = 任务 DB 行 uuid，可关联留存表）
@@ -1703,9 +1872,9 @@ def assemble_ozon_product_node(
         if type_id <= 0:
             logger.error("   ❌ 类目匹配失败：所有候选的 type_id 都无效")
             # ✅ v0.69 T2.2: 阻断即终态失败（防 task_processor 假 completed）
-            return {"error_message": "类目匹配失败：type_id 无效",
-                    "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
-                    "failed_stage": "category_match"}
+            # ✅ v0.69 T0.3: 数据质量出口也入箱（top-3 推荐随箱，人工可决）
+            return _blocked_exit(state, draft, candidates,
+                                 "类目匹配失败：type_id 无效", match_confidence=0.0)
     
     # ✅ 修正 LLM 输出：LLM 有时把 type_id 填到 description_category_id
     # 从 candidates 中查找正确的 description_category_id
@@ -1733,6 +1902,23 @@ def assemble_ozon_product_node(
                     logger.info(f"   🇷🇺 俄语类目: {ru_category_path}")
         except Exception:
             pass
+
+    # ✅ v0.69 Wave4 T2.4: 受限品类闸（第二道·类目定稿后）——货源侧命中 × 定稿类目
+    # full_path（ZH+RU）命中 → 双命中拦截，走 T0.3 入箱转人工确认；在属性 schema/
+    # 字典值/确定性组装/Step6.5 重配之前止损（省 LLM/采集成本）。单侧命中放行
+    # （BR_hazard_class1 教训：易燃品类曾打转 8 分钟才被 Ozon 拒）。
+    # manual 豁免见第一道闸注释（人工指定放行，warning 留痕）。
+    if _restricted_src_hits and not _manual_category_source:
+        _restricted_cat_hits = match_restricted_keywords(
+            f"{category_path} {ru_category_path}")
+        if _restricted_cat_hits:
+            _log_match_attempt(state, title, source_category, keywords, category_result,
+                               match_layer="blocked", confidence=match_confidence,
+                               candidates=candidates, config=config)
+            return _restricted_category_exit(state, draft, candidates,
+                                             _restricted_src_hits, _restricted_cat_hits,
+                                             match_confidence=match_confidence)
+        logger.info("   ℹ️ 受限品类闸: 货源侧命中但定稿类目未命中 → 放行（只拦双命中）")
 
     # =====================================================
     # Step 1d: 验证类目对（防止无效 category_id/type_id 导致后续 400）
@@ -2186,6 +2372,8 @@ def assemble_ozon_product_node(
             "confidence": match_confidence,
             "description_category_id": str(description_category_id),
             "type_id": str(type_id),
+            # ✅ v0.69 T0.3: R2b 跨大类高置信解锁旗标（审计/学习溯源；普通采纳恒 False）
+            "cross_top_high_confidence": bool(_r2b_cross_top),
         },
         "attributes_schema": attr_list,
         "dictionary_values": {str(k): v for k, v in dict_lookup.items()},  # ← 键必须是 str（PrepareOzonUploadInput 要求）
@@ -2544,6 +2732,13 @@ def _fetch_attribute_schema_from_ozon(
         if not isinstance(result, list):
             result = []
         logger.info(f"   Ozon API 返回 {len(result)} 个属性")
+        if result:
+            # ✅ v0.69 T3.3: 懒加载回写闭环 —— 此前实时拉到的 schema 不写 PG
+            # （set_attribute_cache 全仓库零调用方），每次未命中都重调 Ozon API。
+            # 形状=Ozon result 原始 list（与 warm 脚本写入一致），失败仅 warning。
+            _cache_attribute_schema(
+                description_category_id, type_id, result, language="ZH_HANS",
+            )
         return result
     except Exception as e:
         status = getattr(getattr(e, "response", None), "status_code", None)
@@ -3452,6 +3647,36 @@ def _fetch_dict_values_from_ozon(
         return None
 
 
+def _cache_attribute_schema(
+    description_category_id: int,
+    type_id: int,
+    schema: list[dict[str, Any]],
+    language: str = "ZH_HANS",
+):
+    """将属性 schema 写入 PG 缓存（✅ v0.69 T3.3 懒加载回写闭环）。
+
+    对齐 `_cache_dict_values` 的写法与异常安全：回写失败仅 warning 不影响主流程。
+    形状=Ozon /v1/description-category/attribute 的 result 原始 list —— 与 warm
+    脚本 `_write_node_to_pg` 一致；assemble（dict/list 双兼容读）与 retry
+    （list 读）均可直接消费，见 tests/test_attribute_cache_writeback_v069.py。
+    """
+    try:
+        from utils.local_db_manager import LocalDBManager
+        LocalDBManager().set_attribute_cache(
+            description_category_id=description_category_id,
+            type_id=type_id,
+            attributes_schema=schema,
+            language=language,  # fetch 什么语言就 cache 什么语言
+            expires_in=86400,
+        )
+        logger.info(
+            f"   ✅ 属性 schema 缓存回写成功: dc={description_category_id}, "
+            f"tp={type_id}, lang={language}, {len(schema)} 个属性"
+        )
+    except Exception as e:
+        logger.warning(f"   ⚠️ 属性 schema 缓存回写失败（不影响主流程）: {e}")
+
+
 def _cache_dict_values(
     attribute_id: int,
     description_category_id: int,
@@ -3601,6 +3826,9 @@ def _llm_rank_categories(
         # 供上层用建议词二次搜索正确类目（deepseek-v4-flash-vision-exp 推理模型 max_tokens 需足够大,
         # 10/200 都会被 reasoning_tokens 吃光输出为空 → fallback 恒失败）
         # v0.64: 传入产品图片，vision 模型可看图判断类目（"圆盘状饮水器" vs "饮水器"）
+        # ✅ v0.69 T0.3: Top1+置信度分层采纳——prompt 要求 top_index/confidence/reason；
+        # 仅当所有候选与商品明显无关（图片/标题与候选完全不符）才允许 top_index=-1 弃权
+        # （并列候选弃权全阻断的生产痛点，用户拍板「宁可给 Top1+置信度让用户决定」）。
         prompt = f"""Choose the best Ozon category for this product. Output JSON only.
 请同时参考上方产品图片判断最匹配的类目。
 
@@ -3614,8 +3842,10 @@ def _llm_rank_categories(
 {f'消歧上下文：{context}' if context else ''}
 
 返回 JSON:
-{{"candidate_index": <1-{len(candidates)} 的整数, 候选中最匹配的; 若都不合适填 0>,
- "suggest_keywords": "<候选都不合适时, 给出 1-3 个俄语或中文搜索词用于重新搜索正确类目; 合适则空字符串>"}}"""
+{{"top_index": <1-{len(candidates)} 的整数, 候选中最匹配的一个(Top1); 仅当所有候选与商品明显无关(图片/标题与候选完全不符)才填 -1 弃权, 不要因「不确定」而弃权>,
+ "confidence": <0.0-1.0, Top1 与商品实际匹配的置信度, 并列难分时也给相对更高的一项>,
+ "reason": "<不超过30字的简短理由>",
+ "suggest_keywords": "<弃权时给出 1-3 个俄语或中文搜索词用于重新搜索正确类目; 未弃权则空字符串>"}}"""
 
         product_images = (draft or {}).get("images", []) or []
         result = call_mxou_chat_api(
@@ -3639,10 +3869,33 @@ def _llm_rank_categories(
         except Exception:
             logger.warning("🔍 R2b/LLM rank: JSON 解析失败 (raw=%.200s)", result)
             return None
-        idx = int(parsed.get("candidate_index", 0) or 0)
+        # ✅ v0.69 T0.3: top_index(新格式) 与 candidate_index(旧格式) 双字段兼容。
+        # 是否带 top_index 键 = 新格式标记：缺 confidence → 保守 0.0（分层采纳按
+        # 置信度不足处理）；旧格式缺 confidence → None（照旧走现行四段，向后兼容）。
+        _raw_idx = parsed.get("top_index")
+        _new_format = "top_index" in parsed
+        try:
+            idx = int(_raw_idx) if _raw_idx is not None else int(parsed.get("candidate_index", 0) or 0)
+        except (TypeError, ValueError):
+            idx = 0
+        _llm_conf = parsed.get("confidence")
+        if _llm_conf is not None:
+            try:
+                _llm_conf = max(0.0, min(1.0, float(_llm_conf)))
+            except (TypeError, ValueError):
+                _llm_conf = 0.0 if _new_format else None
+        elif _new_format:
+            _llm_conf = 0.0
         if 1 <= idx <= len(candidates):
-            return candidates[idx - 1]
-        # 候选都不合适 → 返回带建议词的标记, 上层用 suggest_keywords 二次搜索
+            # 副本返回：挂 _llm_confidence/_llm_reason 不污染池内共享 dict
+            _cand = dict(candidates[idx - 1])
+            if _llm_conf is not None:
+                _cand["_llm_confidence"] = _llm_conf
+                _llm_reason = str(parsed.get("reason", "") or "").strip()
+                if _llm_reason:
+                    _cand["_llm_reason"] = _llm_reason[:200]
+            return _cand
+        # 候选都不合适（新格式 -1 弃权 / 旧格式 0）→ 返回带建议词的标记, 上层用 suggest_keywords 二次搜索
         suggest = str(parsed.get("suggest_keywords", "") or "").strip()
         if suggest:
             return {"suggest_keywords": suggest, "_llm_suggest": True}

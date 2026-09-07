@@ -459,7 +459,10 @@ def _gated_category_arbitration(terms, source_words: str, draft: dict, state,
     r2b_pool = _build_r2b_confirm_pool(pool, pool[0], signal)
     confirm = _llm_rank_categories(r2b_pool, signal, draft or {}, state,
                                    context="follow_sell_import 类目门控仲裁")
-    overlap, vision_ok, reason = _r2b_confirm_adoption(
+    # ✅ v0.69 T0.3: _r2b_confirm_adoption 返回 4 元组（末位 adopt_meta：跨大类
+    # 高置信旗标等）——follow 门控只关心放行与否，meta 留 assemble 层定稿透传；
+    # 门控不过置空汇入 assemble 全闸（入箱只在 assemble 层做一次，此处不建 draft）。
+    overlap, vision_ok, reason, _adopt_meta = _r2b_confirm_adoption(
         confirm, r2b_pool, signal, draft or {}, query)
     if not overlap and not vision_ok:
         logger.warning("🛑 类目门控: 仲裁未通过(%s)，类目置空交由 assemble 全闸链", reason)

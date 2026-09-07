@@ -138,7 +138,8 @@ def test_env_url_fires_notify_on_completed():
 
 
 def test_payload_notify_flag_fires_when_url_set():
-    """payload.notify=True + 配置 TASK_NOTIFY_URL → 同样触发（ozon_client_id/product_id 取自 payload/draft）。"""
+    """payload.notify=True + 配置 TASK_NOTIFY_URL → 同样触发
+    （ozon_client_id 取自 payload，product_id 优先 graph_result）。"""
     payload = {
         "token": "t1",
         "ozon_client_id": "c1",
@@ -148,7 +149,8 @@ def test_payload_notify_flag_fires_when_url_set():
     }
     with patch("requests.post", return_value=Mock()) as mock_post:
         engine = _run_process_next(
-            {"upload_status": "success", "moderation_status": "approved"},
+            {"upload_status": "success", "moderation_status": "approved",
+             "product_id": "123456"},  # v0.69.2 T0.4: completed 需真实商品佐证
             payload=payload,
             env={"TASK_NOTIFY_URL": "https://hook.example/send"},
         )
@@ -156,6 +158,31 @@ def test_payload_notify_flag_fires_when_url_set():
     body = mock_post.call_args.kwargs["json"]
     assert body["status"] == "completed"
     assert body["ozon_client_id"] == "c1"
+    assert body["product_id"] == "123456"  # graph_result.product_id 优先
+    sql, _params = _terminal_update(engine)
+    assert "status = 'completed'" in sql
+
+
+def test_notify_product_id_falls_back_to_draft_item_id():
+    """graph_result 无 product_id（v0.69.2 T0.4 后只能是 failed/rejected 终态）
+    → notify 的 product_id 兜底 draft.item_id（兜底链保留）。"""
+    payload = {
+        "token": "t1",
+        "ozon_client_id": "c1",
+        "ozon_api_key": "k1",
+        "envelope": {"draft": {"item_id": "1688-1"}},
+        "notify": True,
+    }
+    with patch("requests.post", return_value=Mock()) as mock_post:
+        _engine = _run_process_next(
+            {"upload_status": "failed", "error_message": "[OZON_VALIDATION_FAILED] x",
+             "failed_stage": "ozon_status"},
+            payload=payload,
+            env={"TASK_NOTIFY_URL": "https://hook.example/send"},
+        )
+    assert mock_post.call_count == 1
+    body = mock_post.call_args.kwargs["json"]
+    assert body["status"] == "failed"
     assert body["product_id"] == "1688-1"  # product_id 兜底到 draft.item_id
 
 
@@ -166,7 +193,8 @@ def test_notify_flag_without_url_skips():
     with patch("requests.post") as mock_post, \
          patch.object(tp_mod.logger, "warning") as mock_warn:
         engine = _run_process_next(
-            {"upload_status": "success", "moderation_status": "approved"},
+            {"upload_status": "success", "moderation_status": "approved",
+             "product_id": "123456"},  # v0.69.2 T0.4: completed 需真实商品佐证
             payload={"notify": True},
             env={},
         )
@@ -180,7 +208,8 @@ def test_no_url_no_notify_no_post():
     """无 URL 无 notify → 零额外行为（不 POST）。"""
     with patch("requests.post") as mock_post:
         engine = _run_process_next(
-            {"upload_status": "success", "moderation_status": "approved"},
+            {"upload_status": "success", "moderation_status": "approved",
+             "product_id": "123456"},  # v0.69.2 T0.4: completed 需真实商品佐证
             env={},
         )
     assert mock_post.call_count == 0
@@ -201,7 +230,8 @@ def test_notify_post_exception_never_propagates():
 
     with patch("requests.post", side_effect=_boom):
         engine = _run_process_next(
-            {"upload_status": "success", "moderation_status": "approved"},
+            {"upload_status": "success", "moderation_status": "approved",
+             "product_id": "123456"},  # v0.69.2 T0.4: completed 需真实商品佐证
             env={"TASK_NOTIFY_URL": "https://hook.example/send"},
         )
     sql, _params = _terminal_update(engine)

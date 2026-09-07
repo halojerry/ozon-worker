@@ -70,6 +70,41 @@ def _graph_result_is_failed(graph_result: dict) -> bool:
     )
 
 
+def _has_real_product_evidence(graph_result: dict) -> bool:
+    """completed 终态商品佐证判定（v0.69.2 T0.4 假 completed 第二窗口收口，可单测）。
+
+    生产实证 task 3170fd33：17s completed、product_id 空、Ozon 侧查无此品——图执行
+    完成 ≠ 商品创建，completed 必须能对上真实 Ozon 商品。口径对齐
+    learning_record._is_real_upload_success（pid not in ("","0","None")）。
+
+    - product_id 缺失（""/0/None）→ False；
+    - product_id == import 任务 ID → False。upload 节点向后兼容写法
+      product_id=str(task_id)（ozon_upload_node）+ ozon_status phase1 轮询超时残留
+      （product_id 回落输入值）都产此形状；moderation_status="pending" 不是佐证
+      （phase1 超时路径同样写 pending）。对照通道 = GlobalState.ozon_task_id /
+      import_task_id（GraphOutput 透传）。
+    - 佐证豁免：uploaded_products 能对上其他真实 pid（非任务 ID）→ True
+      （多 SKU 变体第一 ID 异常时不误伤）。跟卖/UPDATE 模式 product_id 为已存在
+      商品 ID（ozon_task_id 空），天然通过。
+    """
+    _gr = graph_result or {}
+    _pid = str(_gr.get("product_id") or "").strip()
+    if not _pid or _pid in ("0", "None"):
+        return False
+    _task_ids = {
+        str(_gr.get("ozon_task_id") or "").strip(),
+        str(_gr.get("import_task_id") or "").strip(),
+    } - {""}
+    if _pid not in _task_ids:
+        return True
+    # pid 即 import 任务 ID：除非 uploaded_products 能对上其他真实 ID，否则视为无商品
+    for _up in (_gr.get("uploaded_products") or []):
+        _up_pid = str((_up or {}).get("product_id") or "").strip()
+        if _up_pid and _up_pid not in ("0", "None") and _up_pid not in _task_ids:
+            return True
+    return False
+
+
 def _writeback_status(task_id: str, status: str, error_message: str | None = None) -> None:
     """draft_submissions 终态写回（M0.3）。必须在任务终态 conn.commit() 之后调用——
     写回独立于终态事务（该事务已含 shop_usage upsert），写回失败绝不能回滚任务状态。
@@ -569,9 +604,25 @@ class SupabaseTaskProcessor:
                         _up == "rejected_unfixable"
                         or str(graph_result.get("moderation_status") or "") in ("rejected", "declined")
                     )
-                    if _is_failed:
+                    # ✅ v0.69.2 T0.4: completed 前置商品佐证闸（假 completed 第二窗口收口，
+                    # 生产实证 task 3170fd33：17s completed、product_id 空、Ozon 查无此品）。
+                    # 无真实 Ozon 商品（product_id 缺失 / product_id==import 任务 ID 且无
+                    # uploaded_products 佐证）→ 复用下方 failed SQL 路径——宁可多判 failed
+                    # 不可再假 completed（pending 审核软成功有真实 product_id，不受影响）。
+                    # rejected 分类优先级保持：审核被拒 implying 商品存在过，不被本闸改判。
+                    _no_real_product = (
+                        not _is_failed
+                        and not _mod_rejected
+                        and not _has_real_product_evidence(graph_result)
+                    )
+                    if _is_failed or _no_real_product:
                         graph_result["_harness_status"] = "failed"
-                        graph_result["_harness_error"] = _err or f"上架失败（stage={_stg}, upload_status={_up}）"
+                        if _no_real_product and not _is_failed:
+                            graph_result["_harness_error"] = (
+                                "任务完成但未创建 Ozon 商品（product_id 缺失），已按失败处理"
+                            )
+                        else:
+                            graph_result["_harness_error"] = _err or f"上架失败（stage={_stg}, upload_status={_up}）"
                         log_task_event("failed", task_id=task_id, user_id=tenant_id,
                                        error_message=graph_result["_harness_error"])
                         # 使用SQL UPDATE更新任务状态为failed（如实反映，不再假成功）
