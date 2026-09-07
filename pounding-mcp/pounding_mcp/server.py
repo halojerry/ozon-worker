@@ -128,6 +128,23 @@ def discover_multi(keywords: str, max_each: int = 30, local: bool = False,
 
 
 @mcp.tool()
+def discover_task(url: str = "", keyword: str = "", target_count: int = 50,
+                  min_margin: float = 15.0, match_limit: int = 30,
+                  match_concurrency: int = 1, store: str = "",
+                  to_box: bool = False, dry_run: bool = True,
+                  resume: bool = False) -> dict:
+    """任务式全自动选品（漏斗 v2）：采集 → ai 粗筛 → 自动 1688 匹配（限额+早停）→ 利润精筛。
+    dry_run=True（默认）只统计不入箱零副作用；to_box=True 逐条入采集箱（POST /drafts），
+    真实写操作须 dsh 侧审批。resume 续跑同入口最近任务（跳过已入箱 pid）。"""
+    return get_manager().run_and_record("discover_task",
+        {"url": url, "keyword": keyword, "target_count": target_count,
+         "min_margin": min_margin, "match_limit": match_limit,
+         "match_concurrency": match_concurrency, "store": store,
+         "to_box": to_box, "dry_run": dry_run, "resume": resume},
+        source="agent")
+
+
+@mcp.tool()
 def seller(seller_id: str, max_products: int = 60, max_skus: int = 30) -> dict:
     """卖家店铺全产品运营分析（跟卖前 20 名卖家 → 店铺选品）。只读。"""
     return get_manager().run_and_record("seller",

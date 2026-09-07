@@ -79,6 +79,25 @@ def test_router_trend_requires_clarification():
     assert r["questions"]
 
 
+def test_router_auto_task_to_pipeline_c2():
+    """「自动采集/无人值守」→ C2 + discover_task（漏斗 v2 任务式；dry_run 缺省零副作用无确认）。"""
+    r = route_intent("帮我自动采集宠物饮水机")
+    assert r["pipeline"] == "C2"
+    assert r["command"] == "discover_task"
+    assert "--keyword" in r["args"]
+    assert "宠物饮水机" in r["args"]
+    assert r["needs_confirmation"] is False
+
+
+def test_router_auto_task_no_object_clarifies():
+    """「无人值守」无品类 → C2 + 追问（无可提取关键词）。"""
+    r = route_intent("无人值守")
+    assert r["pipeline"] == "C2"
+    assert r["command"] == "discover_task"
+    assert r["needs_clarification"] is True
+    assert r["questions"]
+
+
 def test_router_empty_unknown():
     """空输入 → unknown + needs_clarification + questions 非空。"""
     r = route_intent("")
