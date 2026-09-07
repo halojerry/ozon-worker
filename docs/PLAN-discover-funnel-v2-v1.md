@@ -64,9 +64,25 @@
 - 真实测试走本地 Docker（禁 worker.mxou.cn）。
 - 基于 dev@a5f614a7（v0.69 discover 真值复用已修内容为基线）。
 
-## 附录 A · what_to_sell 字段实测结果（Task 4 填写）
+## 附录 A · what_to_sell 字段实测结果（2026-09-07 实测，探针 `skill/scripts/probe_what_to_sell_fields.py`）
 
-> 待实测。脚本：`skill/scripts/probe_what_to_sell_fields.py`
+**结论一（负面但有价值）**：对任意竞品 SKU 逐个单查 what_to_sell data/v3，`items=[]` 恒空
+（实测 5 个真实候选 SKU 全空，响应只剩全 0 的 benchmark dict）——与历史「0/1 SKUs have
+data」一致。**单 SKU 直查不是指标来源**。
+
+**结论二（决定性）**：畅销榜通道（`fetch_ozon_bestsellers` → discover ②b 已消费的
+`fetch_bestseller_metrics_map`）的 item 带全 48 键，shopbang 63 列里的运营指标**我们
+已经抓到了，只是 `apply_analytics_to_candidate` 只拷贝了子集**。实测 item 键（解析层命名）：
+
+| 组 | 已有键（实测在） | 当前去向 |
+|---|---|---|
+| 已入候选 | sold_count/gmv_sum/sales_dynamics/drr/create_days/sales_schema/weight_g/custom_weight/尺寸/category1-3_id/brand/commission_*_segments/rating/review_count/follow_min_price | apply_analytics_to_candidate 已拷贝 |
+| **本批扩容** | **qty_view_pdp(→session_count)/conv_to_cart_pdp/conv_to_cart_search/days_in_promo/discount/promo_revenue_share/days_with_trafarets/nullable_redemption_rate/return_rate(→return_cancel_rate)** | **被丢弃 → Task 5 补拷贝** |
+| 顺带可见 | conv_view_to_order/custom_click_rate/views/session_count_search/avg_orders_on_acc_days/avg_gmv_on_acc_days/avg_price/sold_sum_cny/sum 不入候选（白名单纪律） | 不扩（避免字段落满） |
+| 拿不到 | avg_delivery_days（仅 benchmark 键可见，items 无）、shopbang 的 accessibility/sumMissedGmv | 粗筛规则恒放行 |
+
+**对 Task 7 的约束**：ai 档依赖的转化/促销字段仅当候选命中畅销榜 map（has_analytics）才
+有值；未命中的候选按「缺字段=放行」降级（月销阶梯同样），并出 warning。
 
 ## 附录 B · 变更记录
 
