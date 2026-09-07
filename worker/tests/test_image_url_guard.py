@@ -71,3 +71,34 @@ def test_filter_product_images_keeps_order():
         FOREIGN_THUMB_1, GOOD_ORIGINAL, "", OZON_COMPETITOR, None, FOREIGN_THUMB_2,
     ])
     assert out == [GOOD_ORIGINAL], out
+
+
+# ═══ 参考图两条线：跟卖场景放行竞品原图（fix/image-ref-pollution R2）═══
+
+def test_allow_competitor_accepts_ozone_original():
+    """allow_competitor=True → ozone 域原尺寸图放行（跟卖参考线）。"""
+    assert is_product_image_candidate(OZON_COMPETITOR, allow_competitor=True) is True
+
+
+def test_allow_competitor_still_rejects_thumbnail():
+    """allow_competitor=True → 竞品域缩略图仍拒（310x310 串图特征恒拒）。"""
+    assert is_product_image_candidate(
+        "https://ir.ozone.ru/s3/multimedia/photo_310x310.jpg",
+        allow_competitor=True) is False
+
+
+def test_allow_competitor_still_rejects_alicdn_thumb_and_webp():
+    """allow_competitor=True 不影响 alicdn 缩略/webp 判定。"""
+    assert is_product_image_candidate(FOREIGN_THUMB_1, allow_competitor=True) is False
+
+
+def test_default_rejects_ozone_original():
+    """默认（上传语义）→ ozone 图仍拒（向后兼容，E1/变体兜底零改动）。"""
+    assert is_product_image_candidate(OZON_COMPETITOR) is False
+
+
+def test_filter_allow_competitor_mixes_domains():
+    """filter allow_competitor=True：alicdn 原图 + ozone 原图都留，缩略仍拒。"""
+    out = filter_product_images(
+        [GOOD_ORIGINAL, OZON_COMPETITOR, FOREIGN_THUMB_1], allow_competitor=True)
+    assert out == [GOOD_ORIGINAL, OZON_COMPETITOR], out
