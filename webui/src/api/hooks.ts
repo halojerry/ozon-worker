@@ -103,10 +103,32 @@ export interface DraftEnvelopeDraft {
   [key: string]: unknown
 }
 
+// skill discover 注入的选品元数据快照（extensions.discovery_meta，缺失键省略）
+export interface DraftDiscoveryMeta {
+  ozon_product_id?: number
+  ozon_url?: string
+  ozon_price?: number
+  blue_ocean_score?: number
+  monthly_sales?: number
+  monthly_revenue?: number
+  sales_growth?: number
+  drr?: number
+  create_days?: number
+  competing_sellers?: number
+  rating?: number
+  review_count?: number
+  weight_g?: number
+  dimensions_mm?: { length?: number; width?: number; height?: number }
+  profit_margin?: number
+  estimated_profit_cny?: number
+  match_confidence?: number
+  discovered_at?: string
+}
+
 export interface DraftPayload {
   draft?: DraftEnvelopeDraft
   source?: { purchase_url?: string; purchase_cost?: number }
-  extensions?: Record<string, unknown>
+  extensions?: Record<string, unknown> & { discovery_meta?: DraftDiscoveryMeta }
   [key: string]: unknown
 }
 
