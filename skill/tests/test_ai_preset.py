@@ -125,3 +125,21 @@ if __name__ == "__main__":
                 traceback.print_exc()
     print(f"\n{total - failed}/{total} passed")
     sys.exit(1 if failed else 0)
+
+
+# ── v0.69: ai 可与字段规则逗号混写（此前混写直接 ValueError 打断选品）──
+
+def test_ai_mixes_with_field_rules():
+    """'ai,margin>=20'：ai 预设先淘汰，再叠加 margin 字段表达式。"""
+    good = _mk(pid="keep", price=1000.0, monthly_sales=500)
+    good.profit_margin = 30.0  # % 数值
+    low_margin = _mk(pid="margin_out", price=1000.0, monthly_sales=500)
+    low_margin.profit_margin = 5.0
+    ladder_out = _mk(pid="ladder_out", price=1000.0, monthly_sales=10)  # 月销<150 淘汰
+    kept = _kept([good, low_margin, ladder_out], preset="ai,margin>=20")
+    assert kept == {"keep"}, "ai 阶梯淘汰 ladder_out，margin 规则淘汰 margin_out"
+
+
+def test_ai_alone_still_works_and_empty_mix():
+    assert _kept([_mk(pid="a")], preset="ai") == {"a"}
+    assert _kept([_mk(pid="a")], preset="") == {"a"}, "空规则返回原列表"

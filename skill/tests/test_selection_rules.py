@@ -110,3 +110,31 @@ if __name__ == "__main__":
                 traceback.print_exc()
     print(f"\n{total - failed}/{total} passed")
     sys.exit(1 if failed else 0)
+
+
+# ── v0.69: 两段式规则（匹配期字段 margin 挑选期恒 0.0 → 全灭，实证 0/30）──
+
+def test_split_selection_rules_two_phase():
+    from scripts.lib.ozon_discovery import split_selection_rules
+    assert split_selection_rules("ai,margin>=20") == ("ai", "margin>=20")
+    assert split_selection_rules("margin>=20") == ("", "margin>=20")
+    assert split_selection_rules("ai,monthly_sales>=100") == ("ai,monthly_sales>=100", "")
+    assert split_selection_rules("ai") == ("ai", "")
+    assert split_selection_rules("") == ("", "")
+    assert split_selection_rules("drr<=15, margin>=20, ai") == ("drr<=15,ai", "margin>=20")
+
+
+def test_two_phase_flow_keeps_high_margin_after_match():
+    """挑选期 ai 通过 → 匹配期 margin>=20 只留达标者（模拟 match 后 profit_margin 真值）。"""
+    from scripts.lib.ozon_discovery import apply_selection_rules, split_selection_rules
+    from tests.test_ai_preset import _mk
+    cands = [_mk(pid="keep", price=1000.0, monthly_sales=500),
+             _mk(pid="low", price=1000.0, monthly_sales=500)]
+    pre, match = split_selection_rules("ai,margin>=20")
+    selected = apply_selection_rules(cands, pre)
+    assert {c.ozon_product_id for c in selected} == {"keep", "low"}, "挑选期 margin 不参与"
+    # 模拟 match_selected 写入真值
+    for c in selected:
+        c.profit_margin = 30.0 if c.ozon_product_id == "keep" else 5.0
+    final = apply_selection_rules(selected, match)
+    assert {c.ozon_product_id for c in final} == {"keep"}
