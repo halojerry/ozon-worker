@@ -44,6 +44,17 @@ SKILL_PYTHON = _discover_skill_python()
 
 _CLI = SKILL_DIR / "scripts" / "cli.py"
 
+# MCP 工具名（下划线）→ skill CLI 命令名的显式映射。CLI 子命令混合命名：
+# 多数用下划线（set_store/image_search/get_ak…），少数用连字符（discover-task/
+# discover-multi/import-cookies）——不能盲目 replace("_","-")，只映射例外。
+# v0.70 实测抓出：discover_task 直接传 CLI 会 invalid choice 秒退（v0.69 起
+# MCP 同步路径一直没真机跑通过，单测 mock subprocess 没暴露）。
+_CLI_COMMAND_ALIASES: dict[str, str] = {
+    "discover_task": "discover-task",
+    "discover_multi": "discover-multi",
+    "import_cookies": "import-cookies",
+}
+
 
 class SkillError(RuntimeError):
     """skill CLI 调用失败（非零退出码 / 非 JSON 输出 / 进程异常）。"""
@@ -74,7 +85,8 @@ def _done_browser() -> None:
 
 
 def _build_argv(cmd: str, positional: tuple = (), flags: dict | None = None) -> list[str]:
-    """构造 skill CLI argv（位置参数 + flags 映射）。"""
+    """构造 skill CLI argv（位置参数 + flags 映射；工具名→CLI 命令名走别名表）。"""
+    cmd = _CLI_COMMAND_ALIASES.get(cmd, cmd)
     argv = [SKILL_PYTHON, str(_CLI), cmd]
     argv += [str(p) for p in positional if p is not None and p != ""]
     for key, val in (flags or {}).items():

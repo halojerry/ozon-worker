@@ -261,6 +261,7 @@ python3 scripts/cli.py discover-task --keyword "宠物饮水机" --to-box --resu
 
 - **流程**：`collect_and_analyze`（粗筛档位**缺省 `ai`**，与交互 discover 相反；深滚动采满 `--max-scan` 或触底）→ `rank_match_pool` 排序 → `match_selected`（**`target_profitable` 达标即停** + `--match-limit` 限额 + 连续 `--no-match-streak-stop`（默认 5）次 no_match 早停、请求间 2s 节奏抖动、并发 ≤2）→ profitable 逐条 `build_envelope_from_discovery` → `--to-box` 入采集箱（单条失败不中断批次）
 - **进度输出**：`目标 N（达标）｜扫描上限 M` 开场、`[k/N] 达标进度` 行、结尾 `🎯 已达标` 或 `⚠️ 未达标: 目标 X｜累计达标 Y｜本次已采 Z（粗筛通过 P）` + 续采提示
+- **结构化出口（v0.70）**：结尾输出尾部 JSON（`task_id` / `summary`（状态分布+target 达标数）/ `state_path`）——MCP 后台任务收割与 agent 机读都靠它；`--export <路径.csv>` 落盘全量候选（含状态/利润率/货源列）供人工复核
 - **任务状态**：`data/discovery/tasks/task_{ts}.json`（已处理 pid 含 profitable/rejected/no_match 终态 / 摘要含 target），`--resume` 找同入口最近任务续跑
 - **安全边界**：不带 `--to-box` 即干跑（不出信封不入箱）；`--dry-run` 强制干跑；MCP 侧 `discover_task` 工具 dry_run 缺省 True，to_box=True 触发 dsh 审批
 - **执行后验证**：任务状态 JSON 的 `summary.candidates` 状态分布 + `summary.target`（goal/prior/total）+ `summary.submitted/skipped/failed`；CSV（`--export`）供人工复核

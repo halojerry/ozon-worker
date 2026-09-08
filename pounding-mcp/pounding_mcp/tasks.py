@@ -278,13 +278,12 @@ class CollectTaskManager:
         t = self._tasks.get(task_id) or {}
         started = t.get("started_at")
         if code == 0:
-            result, err = self._result_from_log(task_id)
-            if err is None:
-                self._finish(task_id, "completed",
-                             summary=self._summarize(t.get("kind", ""), result or {}),
-                             started=started)
-            else:
-                self._finish(task_id, "failed", error=err, started=started)
+            # 真实退出码 0 即完成——纯文本输出（queries 表格等无尾部 JSON）不算失败；
+            # 孤儿收割（_reap）拿不到退出码才需要严格以结构化 JSON 为完成判据
+            result, _ = self._result_from_log(task_id)
+            self._finish(task_id, "completed",
+                         summary=self._summarize(t.get("kind", ""), result or {}),
+                         started=started)
         else:
             tail = self.log_tail(task_id, 8)
             self._finish(task_id, "failed",
@@ -378,14 +377,20 @@ class CollectTaskManager:
         return self._result_from_log(task_id)
 
     def extract_worker_task_ids(self, task_id: str) -> list[str]:
-        """从任务结果提取 worker task_id（graph/discover 提交后 agent 可直接 query）。"""
+        """从任务结果提取 worker 云任务 id（graph/discover 提交后 agent 可直接 query）。
+
+        跳过 discovery 本地任务号（YYYYMMDD_HHMMSS 形态）——那是 --resume 用的
+        本地 id，state_path 里已有，别混进 worker 语义。"""
+        import re
+
         result, _ = self._result_from_log(task_id)
         found: list[str] = []
 
         def _walk(o) -> None:
             if isinstance(o, dict):
                 for k, v in o.items():
-                    if k in ("task_id", "taskId") and isinstance(v, str) and 6 <= len(v) <= 64:
+                    if k in ("task_id", "taskId") and isinstance(v, str) \
+                            and 6 <= len(v) <= 64 and not re.match(r"^\d{8}_\d{6}$", v):
                         found.append(v)
                     else:
                         _walk(v)
@@ -521,6 +526,15 @@ class CollectTaskManager:
 
     def _summarize(self, kind: str, result: dict) -> dict:
         """从 skill 结果提取展示摘要。"""
+        if kind == "discover_task":
+            # cmd_discover_task 尾部 _out JSON（v0.70）：summary 带 达标/状态分布
+            s = result.get("summary")
+            if isinstance(s, dict):
+                return {"candidates": s.get("candidates"), "target": s.get("target"),
+                        "submitted": s.get("submitted"),
+                        "skipped": s.get("skipped"), "failed": s.get("failed")}
+            cands = result.get("candidates") or []
+            return {"count": len(cands) if isinstance(cands, list) else 0}
         if kind == "search" or kind == "image_search":
             products = result.get("products") or []
             return {"count": len(products), "hits": result.get("total_results") or result.get("count")}

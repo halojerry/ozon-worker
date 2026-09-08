@@ -39,9 +39,9 @@
 | 9 | `image_search` | image_search | 以图搜款（上传图找 1688 同款）| `image, limit, sort, source` | read |
 | 10 | `category` | category | 查询 Ozon 类目（关键词→候选类目）| `query, lang, max` | read |
 | 11 | `follow` | follow | 跟卖 Ozon 商品（竞品→找同款→上架）| `ozon_url, store, to_box, auto_submit, review, background, force` | read → write* |
-| 12 | `discover` | discover | Ozon 选品 v2（采集→分析→挑货）| `url, keyword, max_products, min_margin, store, fission, rules, auto_submit, background, force...` | read → write* |
+| 12 | `discover` | discover | Ozon 选品 v2（采集→分析→挑货）| `url, keyword, max_products, min_margin, store, fission, rules, export(csv\|json\|both), output, auto_submit, background, force...` | read → write* |
 | 13 | `discover_multi` | discover-multi | 多关键词批量选品 | `keywords, max_each, min_margin, background, force...` | read → write* |
-| 14 | `discover_task` | discover-task | 任务式全自动**目标驱动**选品（漏斗 v2：target_count=达标数，达标即停护图搜配额）| `url, keyword, target_count, min_margin, match_limit(缺省=目标×3), match_concurrency, store, to_box, dry_run(默认true), resume, max_scan(默认300), background, force` | read → write* |
+| 14 | `discover_task` | discover-task | 任务式全自动**目标驱动**选品（漏斗 v2：target_count=达标数，达标即停护图搜配额）| `url, keyword, target_count, min_margin, match_limit(缺省=目标×3), match_concurrency, store, to_box, dry_run(默认true), resume, max_scan(默认300), export(CSV 路径), background, force` | read → write* |
 | 15 | `seller` | seller | 卖家店铺全产品运营分析 | `seller_id, max_products, max_skus, background, force` | read |
 | 16 | `queries` | queries | what-to-sell 榜单查询 | `type, keyword, sku, category_id, price_min, price_max, background, force` | read |
 | 17 | `graph` | graph | 组装并提交上架（1688→GraphInput→Worker）| `item_id, url, category_query, store, to_box, no_submit, template_id, background, force` | write* |
@@ -60,7 +60,9 @@
 
 > `*` 表示该命令的安全级别随 flag 动态变化：默认「采集/组装」为 `read`（黑盒直跑），提交类 flag（`auto_submit`/`to_box`）触发 `write`（需审批）。`graph` 例外：默认即为提交（`write`），`no_submit=True` 降为只读组装（见 §四）。
 
-> **v0.70 后台化**：discover / discover_multi / discover_task / follow / seller / queries / graph 增加 `background`（默认 false）与 `force` 参数。`background=true` → 工具 <1s 返回 task dict（`{id, status:"running", ...}`），CLI 进程**脱离会话独立运行**（输出落盘 `pounding-mcp/data/tasks/{id}.log`）——dsh 会话关闭任务照跑，重开会话 `job_list` 找回；`job_status` 轮询进度、`job_result` 取结果、`job_cancel` 取消。**单飞闸**：同一时刻只允许 1 个 heavy 任务（discover 族/follow/seller/graph）running，再提交返回 error dict，`force=true` 强制并行（防 Chrome tab 打架）。
+> **v0.70 后台化**：discover / discover_multi / discover_task / follow / seller / queries / graph 增加 `background`（默认 false）与 `force` 参数。
+
+> **工具名→CLI 命令名映射**：MCP 工具名下划线、CLI 子命令混合命名（discover-task/discover-multi/import-cookies 用连字符，其余下划线）——`skill_runner._CLI_COMMAND_ALIASES` 显式映射，勿盲目 replace（v0.70 实测抓出 discover_task 未映射直接 invalid choice 秒退，v0.69 起 MCP 同步路径一直没真机通过）。`background=true` → 工具 <1s 返回 task dict（`{id, status:"running", ...}`），CLI 进程**脱离会话独立运行**（输出落盘 `pounding-mcp/data/tasks/{id}.log`）——dsh 会话关闭任务照跑，重开会话 `job_list` 找回；`job_status` 轮询进度、`job_result` 取结果、`job_cancel` 取消。**单飞闸**：同一时刻只允许 1 个 heavy 任务（discover 族/follow/seller/graph）running，再提交返回 error dict，`force=true` 强制并行（防 Chrome tab 打架）。
 
 ---
 
