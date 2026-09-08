@@ -48,7 +48,7 @@ Worker 返回：
 | `TASK_SUBMIT_FAILED` | 告知用户任务入队失败 → 稍后重试 | 否 |
 | 网络错误（ConnectionError） | 检查网络 → 重试一次 → 仍失败则告知用户检查 Worker 状态 | 是，1 次 |
 | 网络错误（Timeout） | 告知用户超时 → 稍后重试一次 | 是，1 次 |
-| 未知错误码 | 取 `error` + `detail` 字段告知用户 → 不重试 → 建议联系维护者 | 否 |
+| 未知错误码 | 取 `error` + `detail` 字段告知用户 → 不重试 → 按 `references/error-report.md` 上报（`report` 命令 / MCP report_issue），把 report_id 回给用户 | 否 |
 
 **重试规则**：
 - 自动重试最多 1 次，重试前等待对应秒数（`RATE_LIMITED`: 60s，`SERVICE_UNAVAILABLE`: 300s，网络错误: 即时）
@@ -82,3 +82,10 @@ Worker 返回：
 | 🧭 环境预检 ❌（命令开头就退出，discover-task 无人值守秒退） | 按 ❌ 行指引处理："请先在工具 Chrome 登录 seller.ozon.ru（或打开 1688.com 预热），处理完重跑即可；10 分钟内重复运行免重复检测。" |
 
 **遇到任何错误，描述问题并引导用户修复。不自己修代码、不自己探索项目结构。**
+
+## 出错上报（v0.70）
+
+任务 failed 重试无解 / Ozon 拒审反复 / 未知错误码 / 假成功（completed 但 Ozon 查无此品）→
+按 `references/error-report.md` 上报到 worker（MCP `mcp__pounding__report_issue` 或
+`python3 scripts/cli.py report --title ... --task-ids ...`），worker 会按 task_ids 自动附任务
+快照；提交后把 `report_id` 回给用户。上报不代替按上文错误码表给用户的解释——先解释，再补报。

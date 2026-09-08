@@ -44,6 +44,8 @@ description: >
 > ⑪ C（跟卖选品）与 D（上架）命令相同（discover），仅 `--auto-submit` 差别；discover 无 `follow_type`
 > ⑫ 无人值守/任务式采集 → discover-task（缺省 ai 档粗筛；不带 `--to-box` 即干跑，入箱才真实写采集箱）；
 >    交互式单轮选品仍用 discover（`--filter-profile ai` 可开同款粗筛，缺省 off 行为不变）
+> ⑬ 任务 failed 重试无解 / Ozon 拒审反复 / 未知错误码 / 假成功 → 按 `references/error-report.md`
+>    上报（MCP report_issue 或 `report` 命令），把 report_id 回给用户
 
 ## 2. 命令速查表
 
@@ -71,6 +73,7 @@ description: >
 | `probe` | CDP 探针抓取单个 1688 商品 | `--url [--timeout]` | 无 | 调试单个商品 |
 | `queries` | what-to-sell 蓝海/榜单查询 | `--type all-queries\|ozon-bestsellers\|market-bestsellers [--keyword] [--export]` | 成功后自动上报 worker PG；可 `--export` CSV/JSON | 选品前查蓝海/畅销榜 |
 | `category` | 查询 Ozon 类目 | `<关键词> [--lang ZH_HANS\|EN\|RU] [--max N]` | 只读 | 类目确认 / 排查类目匹配 |
+| `report` | 上报问题到 worker | `--title [--severity] [--category] [--step]... [--task-ids] [--error-codes]` | 写 worker error_reports | 任务失败/未知错误/用户抱怨（模板见 `references/error-report.md`） |
 | `cleanup` | 磁盘清理 | `[--profile-cache] [--cache] [--temp] [--old-results --days N]` | 删缓存/孤儿文件（登录态保留） | 磁盘占用高 |
 | `batch_test.py` | 批量处理 URL 列表 | `--urls-file [--submit] [--wait] [--dry-run]` | 提交 Worker（加 `--submit`） | 批量上架 / 回归 |
 
@@ -96,6 +99,7 @@ description: >
 按需读取，不预先加载：
 - `command-reference.md` — 路由决策树 + 各管线完整参数/示例（选管线前、执行前查）
 - `error-codes.md` — 错误码表 + 回复模板 + 进度口径（出错/问进度时查）
+- `error-report.md` — 出错上报模板与纪律（任务 failed/未知错误/用户抱怨时查）
 - `output-schema.md` — 输出字段解析 + 汇报模板（成功汇报时查）
 - `env-setup.md` — 凭证/环境/check 排查（首次使用查）
 - `trend-selection.md` / `discover-fission.md` — 趋势/裂变细则（对应场景查）
