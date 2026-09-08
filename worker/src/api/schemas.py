@@ -10,7 +10,29 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+def _examples(*items: dict[str, Any]) -> ConfigDict:
+    """给 schema 挂 OpenAPI examples（docs/API-REFERENCE.md 生成器按 examples[0] 渲染示例）。"""
+    return ConfigDict(json_schema_extra={"examples": list(items)})
+
+
+_ENVELOPE_EXAMPLE: dict[str, Any] = {
+    "draft": {
+        "item_id": "812345678901",
+        "title": "便携折叠水杯 500ml 硅胶",
+        "images": ["https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"],
+        "weight": 120,
+        "dimensions": {"length": 150, "width": 90, "height": 60},
+        "purchase_cost": 8.5,
+        "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+        "currency": "CNY",
+        "attributes": {"颜色": "蓝色", "材质": "硅胶"},
+    },
+    "source": {"purchase_url": "https://detail.1688.com/offer/812345678901.html", "purchase_cost": 8.5},
+    "extensions": {},
+}
 
 
 # ──────────────────────────────────────────────
@@ -24,6 +46,7 @@ class ApiVersion(str, Enum):
 
 class ErrorBody(BaseModel):
     """统一错误响应体。"""
+    model_config = _examples({"ok": False, "error_code": "TOKEN_INVALID", "message": "token_invalid or account_inactive", "detail": None})
     ok: bool = False
     error_code: str = Field(..., description="错误码，如 TOKEN_INVALID、RATE_LIMITED")
     message: str = Field(..., description="人类可读的错误描述")
@@ -41,6 +64,14 @@ class SubmitTaskRequest(BaseModel):
     字段直接放在 body 顶层。Worker 同时兼容 body.payload 包装格式（向后兼容），
     但 schema 只描述标准格式。
     """
+    model_config = _examples({
+        "token": "sk-xxxxxxxxxxxxxxxxxxxx",
+        "ozon_client_id": "5381204",
+        "ozon_api_key": "00000000-0000-0000-0000-000000000000",
+        "envelope": _ENVELOPE_EXAMPLE,
+        "timeout_seconds": 1800,
+        "max_retries": 3,
+    })
     token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
     ozon_client_id: str = Field(..., description="Ozon 卖家 Client-Id")
     ozon_api_key: str = Field(..., description="Ozon 卖家 Api-Key")
@@ -51,6 +82,7 @@ class SubmitTaskRequest(BaseModel):
 
 class SubmitTaskResponse(BaseModel):
     """提交任务成功响应。"""
+    model_config = _examples({"ok": True, "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f", "message": "任务已提交"})
     ok: bool = True
     task_id: str = Field(..., description="任务 UUID，用于轮询状态")
     message: str = Field(..., description="提交成功消息")
@@ -73,6 +105,28 @@ class TaskStatus(str, Enum):
 
 class TaskStatusResponse(BaseModel):
     """任务状态响应。"""
+    model_config = _examples({
+        "id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+        "status": "running",
+        "tenant_id": "user_0123456789abcdef",
+        "priority": 0,
+        "result": None,
+        "error_message": None,
+        "retry_count": 0,
+        "max_retries": 3,
+        "created_at": "2026-09-08T10:00:00Z",
+        "updated_at": "2026-09-08T10:01:30Z",
+        "started_at": "2026-09-08T10:00:05Z",
+        "completed_at": None,
+        "timeout_seconds": 1800,
+        "progress": {
+            "stage": "image_generation",
+            "percent": 53,
+            "stages_completed": ["auth", "ingest", "category_match", "pricing", "attributes", "description"],
+            "stages_remaining": ["image_generation", "prepare_ozon_upload", "ozon_validate", "check_quota", "ozon_upload", "ozon_status", "learning_record"],
+            "message": "生成主图 2/5",
+        },
+    })
     id: str = Field(..., description="任务 UUID")
     status: TaskStatus = Field(..., description="任务状态")
     tenant_id: str = Field(..., description="用户 ID")
@@ -131,6 +185,7 @@ class TaskStatisticsResponse(BaseModel):
 
 class AuthVerifyRequest(BaseModel):
     """Skill 鉴权请求。"""
+    model_config = _examples({"token": "sk-xxxxxxxxxxxxxxxxxxxx", "client_id": "5381204", "api_key": "00000000-0000-0000-0000-000000000000"})
     token: str = Field(..., description="MXOU_TOKEN")
     client_id: str = Field("", description="Ozon Client ID（可选）")
     api_key: str = Field("", description="Ozon API Key（可选）")
@@ -138,6 +193,7 @@ class AuthVerifyRequest(BaseModel):
 
 class AuthVerifyResponse(BaseModel):
     """Skill 鉴权响应。"""
+    model_config = _examples({"valid": True, "reason": "ok", "expires_in": 86400, "ozon_valid": True})
     valid: bool = Field(..., description="是否有效")
     reason: str = Field("ok", description="原因: ok / token_invalid / balance_insufficient / account_inactive")
     expires_in: int = Field(86400, description="缓存有效期（秒）")
@@ -228,6 +284,7 @@ class DraftCreate(BaseModel):
 
     Worker 剥离凭证（AES-256-GCM 加密存 credentials 表），payload 只存 envelope。
     """
+    model_config = _examples({"token": "sk-xxxxxxxxxxxxxxxxxxxx", "ozon_client_id": "", "ozon_api_key": "", "envelope": _ENVELOPE_EXAMPLE, "source": "skill"})
     token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
     ozon_client_id: str = Field("", description="Ozon 卖家 Client-Id（剥离存储）")
     ozon_api_key: str = Field("", description="Ozon 卖家 Api-Key（剥离加密存储）")
@@ -263,6 +320,7 @@ class DraftPatch(BaseModel):
 
 class DraftSubmitRequest(BaseModel):
     """POST /drafts/{id}/submit：凭证注入 → 入队。"""
+    model_config = _examples({"token": "sk-xxxxxxxxxxxxxxxxxxxx", "credential_id": "3c9d2f4e-1111-4222-8333-444455556666", "update_product_id": None})
     token: str = Field(..., description="MXOU API Key（重建 GraphInput 用）")
     credential_id: Optional[UUID] = Field(
         None, description="目标店铺凭证 ID；NULL → 用 is_default=true 店铺"
@@ -274,6 +332,15 @@ class DraftSubmitRequest(BaseModel):
 
 class SubmitResponse(BaseModel):
     """提交成功响应（含 C5 跨店确认标记）。"""
+    model_config = _examples({
+        "ok": True,
+        "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+        "submission_id": "a1b2c3d4-0000-4000-8000-000000000002",
+        "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+        "status": "pending",
+        "confirm_required": False,
+        "existing_stores": [],
+    })
     ok: bool = True
     draft_id: UUID = Field(..., description="草稿 ID（多次提交永不变）")
     submission_id: Optional[UUID] = Field(None, description="本次提交记录 ID（draft_submissions.id）")
@@ -293,6 +360,7 @@ class CredentialCreate(BaseModel):
 
     明文 api_key 仅存在于请求体；响应只回 api_key_masked，永不回显明文。
     """
+    model_config = _examples({"ozon_client_id": "5381204", "api_key": "00000000-0000-0000-0000-000000000000", "shop_name": "测试店", "currency": "CNY", "is_default": True, "credential_type": "api_key"})
     ozon_client_id: str = Field(..., description="Ozon 卖家 Client-Id（半公开）")
     api_key: str = Field(..., description="Ozon 卖家 Api-Key（仅请求，永不回显）")
     shop_name: Optional[str] = Field(None, description="店铺名称（绑定弹窗）")
@@ -317,6 +385,20 @@ class StoreSyncConfigUpdate(BaseModel):
 
 class CredentialOut(BaseModel):
     """凭证响应 — 仅掩码，永不包含明文 api_key / ozon_api_key_enc。"""
+    model_config = _examples({
+        "id": "3c9d2f4e-1111-4222-8333-444455556666",
+        "ozon_client_id": "5381204",
+        "api_key_masked": "****0000",
+        "shop_name": "测试店",
+        "currency": "CNY",
+        "is_default": True,
+        "credential_type": "api_key",
+        "status": "active",
+        "last_validated_at": "2026-09-08T10:00:00Z",
+        "last_rotated_at": None,
+        "created_at": "2026-09-01T00:00:00Z",
+        "updated_at": "2026-09-08T10:00:00Z",
+    })
     id: str = Field(..., description="凭证 UUID")
     ozon_client_id: str = Field(..., description="Ozon 卖家 Client-Id")
     api_key_masked: str = Field(..., description="掩码 ****abcd（仅后 4 位）")

@@ -4,7 +4,79 @@
  */
 
 export interface paths {
-    "/async_run": {
+    "/api/v1/admin/audit-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Logs */
+        get: operations["list_logs_api_v1_admin_audit_logs_get"];
+        put?: never;
+        /** Create Log */
+        post: operations["create_log_api_v1_admin_audit_logs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/audit-logs/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Logs */
+        get: operations["list_logs_api_v1_admin_audit_logs__get"];
+        put?: never;
+        /** Create Log */
+        post: operations["create_log_api_v1_admin_audit_logs__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Categories */
+        get: operations["list_categories_api_v1_admin_categories_get"];
+        put?: never;
+        /** Create Category */
+        post: operations["create_category_api_v1_admin_categories_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/categories/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Categories */
+        get: operations["list_categories_api_v1_admin_categories__get"];
+        put?: never;
+        /** Create Category */
+        post: operations["create_category_api_v1_admin_categories__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/categories/{cat_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -13,29 +85,24 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Http Async Run
-         * @description [DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。
-         */
-        post: operations["http_async_run_async_run_post"];
-        delete?: never;
+        post?: never;
+        /** Delete Category */
+        delete: operations["delete_category_api_v1_admin_categories__cat_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Rename Category */
+        patch: operations["rename_category_api_v1_admin_categories__cat_id__patch"];
         trace?: never;
     };
-    "/task/{task_id}": {
+    "/api/v1/admin/config": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Http Get Task
-         * @description [DEPRECATED] 使用 GET /task_status/{task_id} 代替。此端点将在未来版本移除。
-         */
-        get: operations["http_get_task_task__task_id__get"];
+        /** List Configs */
+        get: operations["list_configs_api_v1_admin_config_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -44,109 +111,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/run": {
+    "/api/v1/admin/config/": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /** Http Run */
-        post: operations["http_run_run_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/stream_run": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Http Stream Run */
-        post: operations["http_stream_run_stream_run_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/cancel/{run_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Http Cancel
-         * @description 取消指定run_id的执行
-         *
-         *     使用asyncio.Task.cancel()实现取消,这是Python标准的异步任务取消机制。
-         *     LangGraph会在节点之间的await点检查CancelledError,实现优雅取消。
-         */
-        post: operations["http_cancel_cancel__run_id__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/node_run/{node_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Http Node Run */
-        post: operations["http_node_run_node_run__node_id__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/chat/completions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Openai Chat Completions
-         * @description OpenAI Chat Completions API 兼容接口
-         */
-        post: operations["openai_chat_completions_v1_chat_completions_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Health Check */
-        get: operations["health_check_health_get"];
+        /** List Configs */
+        get: operations["list_configs_api_v1_admin_config__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -155,7 +128,131 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/store/health": {
+    "/api/v1/admin/config/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Config */
+        get: operations["read_config_api_v1_admin_config__name__get"];
+        /** Write Config */
+        put: operations["write_config_api_v1_admin_config__name__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/config/{name}/backups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Backups */
+        get: operations["list_backups_api_v1_admin_config__name__backups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/config/{name}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rollback Config */
+        post: operations["rollback_config_api_v1_admin_config__name__rollback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/data-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sources */
+        get: operations["list_sources_api_v1_admin_data_sources_get"];
+        put?: never;
+        /** Create Source */
+        post: operations["create_source_api_v1_admin_data_sources_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/data-sources/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sources */
+        get: operations["list_sources_api_v1_admin_data_sources__get"];
+        put?: never;
+        /** Create Source */
+        post: operations["create_source_api_v1_admin_data_sources__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/data-sources/import/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Csv */
+        post: operations["import_csv_api_v1_admin_data_sources_import_csv_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/data-sources/{ds_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Source */
+        get: operations["get_source_api_v1_admin_data_sources__ds_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Source */
+        delete: operations["delete_source_api_v1_admin_data_sources__ds_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Source */
+        patch: operations["update_source_api_v1_admin_data_sources__ds_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/admin/logistics/rates": {
         parameters: {
             query?: never;
             header?: never;
@@ -163,14 +260,465 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Store Health
-         * @description 查询 Ozon 店铺配额健康状态。
-         *
-         *     Query params (可选):
-         *     - client_id: Ozon Client-Id
-         *     - api_key: Ozon Api-Key
+         * Admin Logistics List Rates
+         * @description 费率列表（limit ≤ 200，offset ≥ 0）。
          */
-        get: operations["store_health_api_v1_store_health_get"];
+        get: operations["admin_logistics_list_rates_api_v1_admin_logistics_rates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/logistics/rates/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admin Logistics Import Rates
+         * @description CSV 批量导入（键匹配 upsert；坏行跳过并记录）。
+         */
+        post: operations["admin_logistics_import_rates_api_v1_admin_logistics_rates_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/logistics/rates/{rate_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Admin Logistics Update Rate
+         * @description 更新单条费率：校验失败 → 400，id 不存在 → 404。
+         */
+        put: operations["admin_logistics_update_rate_api_v1_admin_logistics_rates__rate_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Overview */
+        get: operations["admin_overview_api_v1_admin_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Queries */
+        get: operations["list_queries_api_v1_admin_queries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/queries/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Queries */
+        get: operations["list_queries_api_v1_admin_queries__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/queries/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Queries */
+        post: operations["import_queries_api_v1_admin_queries_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/queries/{query_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Query */
+        delete: operations["delete_query_api_v1_admin_queries__query_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/site/announcements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Site Announcements */
+        get: operations["admin_site_announcements_api_v1_admin_site_announcements_get"];
+        put?: never;
+        /** Admin Site Create Announcement */
+        post: operations["admin_site_create_announcement_api_v1_admin_site_announcements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/site/announcements/{announcement_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Admin Site Update Announcement */
+        put: operations["admin_site_update_announcement_api_v1_admin_site_announcements__announcement_id__put"];
+        post?: never;
+        /** Admin Site Delete Announcement */
+        delete: operations["admin_site_delete_announcement_api_v1_admin_site_announcements__announcement_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/site/banners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Site Banners */
+        get: operations["admin_site_banners_api_v1_admin_site_banners_get"];
+        put?: never;
+        /** Admin Site Create Banner */
+        post: operations["admin_site_create_banner_api_v1_admin_site_banners_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/site/banners/{banner_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Admin Site Update Banner */
+        put: operations["admin_site_update_banner_api_v1_admin_site_banners__banner_id__put"];
+        post?: never;
+        /** Admin Site Delete Banner */
+        delete: operations["admin_site_delete_banner_api_v1_admin_site_banners__banner_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/stores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Stores */
+        get: operations["admin_stores_api_v1_admin_stores_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/sync-health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Admin Sync Health
+         * @description 全部 active 店同步健康总览(仅 admin)。
+         */
+        get: operations["admin_sync_health_api_v1_admin_sync_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Admin Tasks
+         * @description 任务统计（全租户）——get_task_stats 是 async，必须 await。
+         */
+        get: operations["admin_tasks_api_v1_admin_tasks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Users */
+        get: operations["admin_users_api_v1_admin_users_get"];
+        put?: never;
+        /** Admin Create User */
+        post: operations["admin_create_user_api_v1_admin_users_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin User Detail */
+        get: operations["admin_user_detail_api_v1_admin_users__user_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Admin Update User */
+        patch: operations["admin_update_user_api_v1_admin_users__user_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/analytics/bestsellers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * V1 Analytics List Bestsellers
+         * @description T4b.1 榜单浏览：读 skill 上报的 ozon-bestsellers（全局共享，含贡献者列）。
+         *
+         *     query: category?（类目筛选）/ order_by?（ordering_amount|ordering_count|avg_price_rub）/ limit/offset
+         *     鉴权与上报一致：token 即身份；token 不再作数据过滤（A 采集 B 可见）。
+         */
+        get: operations["v1_analytics_list_bestsellers_api_v1_analytics_bestsellers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analytics/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Http Categories
+         * @description 按类目聚合 discovery_runs 的选品次数和产品数(用户只看自己,admin 全局)。
+         *
+         *     从 candidates_json 中提取 product_count（若存在）聚合。
+         */
+        get: operations["http_categories_api_v1_analytics_categories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analytics/hot-queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Http Hot Queries
+         * @description 热门蓝海关键词:仅 admin(PRD:蓝海数据管理端独享)。
+         */
+        get: operations["http_hot_queries_api_v1_analytics_hot_queries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analytics/market-bestsellers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * V1 Analytics Market Bestsellers
+         * @description skill market-bestsellers 全平台榜单数据上报（去重键 product_name+token）。
+         */
+        post: operations["v1_analytics_market_bestsellers_api_v1_analytics_market_bestsellers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analytics/market-overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Http Market Overview
+         * @description 聚合市场概览:用户看自己店铺,admin 看全平台;热销品数保持全局共享目录。
+         */
+        get: operations["http_market_overview_api_v1_analytics_market_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analytics/ozon-bestsellers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * V1 Analytics Ozon Bestsellers
+         * @description skill ozon-bestsellers 榜单数据上报（去重键 sku_or_id+token）。
+         */
+        post: operations["v1_analytics_ozon_bestsellers_api_v1_analytics_ozon_bestsellers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analytics/queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * V1 Analytics Queries
+         * @description skill what-to-sell all-queries 关键词蓝海数据上报（去重键 query+token，重复上报 upsert 更新）。
+         */
+        post: operations["v1_analytics_queries_api_v1_analytics_queries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analytics/sales-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Http Sales Trend
+         * @description 销售趋势:用户看自己店铺,admin 看全平台。
+         */
+        get: operations["http_sales_trend_api_v1_analytics_sales_trend_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -200,6 +748,9 @@ export interface paths {
          *     4. Ozon API 有效性（可选）
          *
          *     不返回余额数字，只返回 valid + reason。
+         *
+         *     v0.63.1 架构优化 R2: 阻塞逻辑在 _auth_verify_sync（to_thread）——
+         *     Supabase/Ozon HTTP 最长 10s，async 内直接执行会冻结事件循环。
          */
         post: operations["auth_verify_api_v1_auth_verify_post"];
         delete?: never;
@@ -208,7 +759,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/verify": {
+    "/api/v1/cancel_task/{task_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -218,26 +769,17 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Auth Verify
-         * @description Skill 鉴权端点。
-         *
-         *     验证（与 submit_task 相同逻辑）:
-         *     1. token 有效性（Supabase tokens 表 key 列，剥离 sk- 前缀）
-         *     2. token 状态 = 1（active；status=4 欠费 → balance_insufficient）
-         *     3. 余额检查：users.quota - used_quota（unlimited_quota=true 放行；
-         *        不再用 remain_quota——它是僵尸字段且无限额度 key 会被误判）
-         *     4. Ozon API 有效性（可选）
-         *
-         *     不返回余额数字，只返回 valid + reason。
+         * V1 Cancel Task
+         * @description 取消待处理的任务。
          */
-        post: operations["auth_verify_auth_verify_post"];
+        post: operations["v1_cancel_task_api_v1_cancel_task__task_id__post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/progress/{run_id}": {
+    "/api/v1/categories/attributes": {
         parameters: {
             query?: never;
             header?: never;
@@ -245,13 +787,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Http Progress
-         * @description 查询工作流执行进度。
+         * V1 Categories Attributes
+         * @description 类目属性 schema + 字典值（缓存只读）：?dc=&tp= → {found, cached, attributes}。
          *
-         *     优先从 LangGraph checkpointer 读取实时 state，
-         *     降级到内存 _task_progress → PG progress 列（任务完成后/重启后可用）。
+         *     attribute_cache / dictionary_value_cache 未命中**不回源 Ozon**（返回
+         *     found=False，前端提示该类目未预热）。属性键形状与 assemble 消费一致
+         *     （id/dictionary_id/name/required/type）。
          */
-        get: operations["http_progress_progress__run_id__get"];
+        get: operations["v1_categories_attributes_api_v1_categories_attributes_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -260,38 +803,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/submit_task": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Http Submit Task
-         * @description 提交任务到Supabase云端队列（方案2：验证token + 提交到队列，不立即执行拓扑）
-         *
-         *     Args:
-         *         payload: 任务数据（必须包含token、ozon_client_id、ozon_api_key、envelope）
-         *         priority: 任务优先级（0-100，VIP用户使用更高优先级）
-         *         timeout_seconds: 任务超时时间（默认30分钟）
-         *         max_retries: 最大重试次数（默认3次）
-         *
-         *     Returns:
-         *         task_id: 任务UUID
-         *         user_id: 用户ID（从token中提取）
-         *         balance: 用户余额（可选）
-         */
-        post: operations["http_submit_task_submit_task_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/task_status/{task_id}": {
+    "/api/v1/categories/search": {
         parameters: {
             query?: never;
             header?: never;
@@ -299,13 +811,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Http Task Status
-         * @description 查询任务状态（含进度信息）
+         * V1 Categories Search
+         * @description 类目树搜索（ZH_HANS）：?q=关键词&limit=20 → 候选 {dc, tp, node_name, category_path}。
          *
-         *     Returns:
-         *         任务详情（包含status、result、error_message、progress等）
+         *     复用 OzonCategoryQuery.search_nodes（jieba 分词 + LIKE，node_type=type 保证
+         *     返回有效 dc/tp 组合）。供 webui 采集箱 manual 类目选择器 / agent 类目确认。
          */
-        get: operations["http_task_status_task_status__task_id__get"];
+        get: operations["v1_categories_search_api_v1_categories_search_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -314,56 +826,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/cancel_task/{task_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Http Cancel Task
-         * @description 取消任务（仅pending状态的任务可取消）
-         *
-         *     Returns:
-         *         取消结果
-         */
-        post: operations["http_cancel_task_cancel_task__task_id__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/resubmit_task/{task_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Http Resubmit Task
-         * @description 重新提交终态任务（审核被拒/失败自动修复链入口，P0-2）。
-         *
-         *     仅 rejected/failed 终态任务可重试：复制原载荷 → 注入 parent_task_id +
-         *     extensions.image_regen=True → 重新入队（pending）。返回新任务 task_id。
-         *
-         *     ⚠️ v0.38.1 安全修复：请求体必须携带调用者 token（与 submit_task 一致），
-         *     校验 token 归属租户 == 任务 tenant_id，防跨租户凭证重放（CRITICAL）。
-         */
-        post: operations["http_resubmit_task_resubmit_task__task_id__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/task_statistics": {
+    "/api/v1/commissions/lookup": {
         parameters: {
             query?: never;
             header?: never;
@@ -371,16 +834,15 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Http Task Statistics
-         * @description 获取任务统计信息
+         * Http Commissions Lookup
+         * @description 类目佣金查询：按 description_category_id 查 category_commission 缓存表。
          *
-         *     Args:
-         *         tenant_id: 租户ID（可选，不传则查询所有租户）
-         *
-         *     Returns:
-         *         任务统计信息（总数、成功率、平均耗时等）
+         *     query: category_id（Ozon 类目 ID，必填整数）
+         *     → 命中  {"found": true, "fbs": {"leq_1500","leq_5000","gt_5000"}, "fbo": {...}, "source"}
+         *     → 未命中 {"found": false}
+         *     鉴权: Authorization: Bearer <token>（剥离 sk- 前缀）；Supabase 未配置 → 本地放行。
          */
-        get: operations["http_task_statistics_task_statistics_get"];
+        get: operations["http_commissions_lookup_api_v1_commissions_lookup_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -389,24 +851,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/graph_parameter": {
+    "/api/v1/credentials": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Http Graph Inout Parameter */
-        get: operations["http_graph_inout_parameter_graph_parameter_get"];
+        /** List Credentials */
+        get: operations["list_credentials_api_v1_credentials_get"];
         put?: never;
-        post?: never;
+        /** Create Credential */
+        post: operations["create_credential_api_v1_credentials_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/logistics/quote": {
+    "/api/v1/credentials/{credential_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -415,20 +878,97 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        post?: never;
+        /** Revoke Credential */
+        delete: operations["revoke_credential_api_v1_credentials__credential_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rotate Credential */
+        patch: operations["rotate_credential_api_v1_credentials__credential_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/credentials/{credential_id}/data": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
         /**
-         * Logistics Quote
-         * @description 物流运费报价端点（v0.29.x, skill 选品利润估算用）。
+         * Hard Delete Credential Data
+         * @description PRD M5(P2): 硬删除该店缓存/历史数据(管理端授权 + confirm 二次确认,默认关闭)。
          *
-         *     入参: {token?, weight_g, depth_cm, width_cm, height_cm,
-         *            tpl_provider?, service_level?, ozon_client_id?, ozon_api_key?}
-         *     - 未传 tpl_provider/service_level 时, 若有 ozon 凭证自动探测 3PL;
-         *       否则默认 RETS/Standard。
-         *     - token 校验与 auth_verify 一致(Supabase 未配置时本地放行)。
-         *
-         *     返回: {logistics_cost_cny, channel, tpl_provider_used, service_level_used,
-         *            base_cost, per_gram_rate, billable_weight, weight, dims_cm, fallback_chain}
+         *     query: confirm=true 必传;环境开关 ADMIN_HARD_DELETE_ENABLED=1 才可用。
+         *     审计:store_operation_log 落 hard_delete 记录(operator=admin user_id)。
+         *     用户草稿/凭证吊销记录/手工 order_notes 不删(见 data_erasure_service 文档)。
          */
-        post: operations["logistics_quote_api_v1_logistics_quote_post"];
+        delete: operations["hard_delete_credential_data_api_v1_credentials__credential_id__data_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credentials/{credential_id}/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Validate Credential */
+        post: operations["validate_credential_api_v1_credentials__credential_id__validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dashboard/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dashboard Overview
+         * @description 工作台聚合:今日订单/销售额/在售/待办/趋势/热销/最近订单。
+         */
+        get: operations["dashboard_overview_api_v1_dashboard_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/discovery/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * V1 Discovery List Runs
+         * @description discover 选品结果历史读取（W4b.2）：全局共享（A 可见 B 的归档，含贡献者标注）。
+         *
+         *     query: limit/offset（分页，limit 上限 200）；鉴权与上报一致：token 即身份。
+         *     蓝海（/admin/queries admin-only）与榜单（market_bestsellers 无读端点）保持关闭。
+         */
+        get: operations["v1_discovery_list_runs_api_v1_discovery_runs_get"];
+        put?: never;
+        /**
+         * V1 Discovery Report Run
+         * @description discover 选品结果归档（W10 D12）：单次上报一条 run（keyword+filters+candidates），按 tenant 隔离。
+         */
+        post: operations["v1_discovery_report_run_api_v1_discovery_runs_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -447,6 +987,71 @@ export interface paths {
         put?: never;
         /** Create Draft */
         post: operations["create_draft_api_v1_drafts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drafts/batch-submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Batch Submit Drafts
+         * @description 批量提交草稿(≤50):逐条进行中守卫;返回 submitted/skipped/failed 明细。
+         */
+        post: operations["batch_submit_drafts_api_v1_drafts_batch_submit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drafts/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Drafts
+         * @description PRD M5(P2): 采集箱导出 CSV(租户隔离,UTF-8 BOM 兼容 Excel)。
+         */
+        get: operations["export_drafts_api_v1_drafts_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drafts/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Drafts Csv
+         * @description PRD M5b(P2): CSV/JSON 批量导入采集箱(竞品对标)。
+         *
+         *     Content-Type: text/csv → 原始 CSV(表头 title,item_id,images,purchase_cost,
+         *     purchase_url,price,stock,supplier,weight,length,width,height;images 用
+         *     | 或 ; 分隔);application/json → {"rows": [...]}。逐行复用 create_draft
+         *     (凭证剥离/字段校验/图片镜像),失败行返回 error 不阻断其余行。
+         */
+        post: operations["import_drafts_csv_api_v1_drafts_import_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -473,45 +1078,6 @@ export interface paths {
         head?: never;
         /** Patch Draft */
         patch: operations["patch_draft_api_v1_drafts__draft_id__patch"];
-        trace?: never;
-    };
-    "/api/v1/drafts/{draft_id}/submissions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Submissions
-         * @description M2.2 提交时间线：草稿被提交过几次、到过哪些店、结果如何（created_at 倒序）。
-         *
-         *     先校验草稿归属（不存在/跨租户 → 404），再返回全部 submission 行。
-         */
-        get: operations["list_submissions_api_v1_drafts__draft_id__submissions_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/drafts/{draft_id}/submit": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Submit Draft */
-        post: operations["submit_draft_api_v1_drafts__draft_id__submit_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/v1/drafts/{draft_id}/ai/{field}": {
@@ -560,6 +1126,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drafts/{draft_id}/resubmit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resubmit Draft
+         * @description 失败/被拒草稿重新提交(进行中 → 409)。
+         */
+        post: operations["resubmit_draft_api_v1_drafts__draft_id__resubmit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drafts/{draft_id}/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Submissions
+         * @description M2.2 提交时间线：草稿被提交过几次、到过哪些店、结果如何（created_at 倒序）。
+         *
+         *     先校验草稿归属（不存在/跨租户 → 404），再返回全部 submission 行。
+         */
+        get: operations["list_submissions_api_v1_drafts__draft_id__submissions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drafts/{draft_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Draft */
+        post: operations["submit_draft_api_v1_drafts__draft_id__submit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/error_reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * V1 List Error Reports
+         * @description 本租户错误报告列表（新→旧，status 可筛，limit≤200）。详情：?report_id=。
+         */
+        get: operations["v1_list_error_reports_api_v1_error_reports_get"];
+        put?: never;
+        /**
+         * V1 Create Error Report
+         * @description 用户问题反馈错误报告（v0.69）：agent 按模板填写（含复现方式/证据）→ 落库。
+         *
+         *     worker 按 evidence.task_ids 自动附加本租户任务快照（假成功取证实证：
+         *     快照自带 status/error/product_id/时间线，报告自足可复现）。
+         *     模板契约：docs/ERROR-REPORT-TEMPLATE.md。鉴权/限流与 analytics 同源。
+         */
+        post: operations["v1_create_error_report_api_v1_error_reports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/estimate": {
         parameters: {
             query?: never;
@@ -574,7 +1227,8 @@ export interface paths {
          * @description P2a 独立定价器：直接传 envelope（无 draft_id）→ 同源公式预估。
          *
          *     body: {envelope: {draft:{purchase_cost, weight, dimensions}, extensions:{}},
-         *            margin_rate?, commission_rate?, fx_buffer?}
+         *            margin_rate?, commission_rate?, fx_buffer?, margin_anchor?, margin_floor?,
+         *            variable_cost_rate?, promo_variable_cost_rate?}
          *     与 /api/v1/drafts/{id}/estimate 同公式（estimate_from_envelope）；
          *     前端/skill 不写公式铁律不变。
          */
@@ -585,7 +1239,129 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/mxou/login": {
+    "/api/v1/forensics/task/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * V1 Task Forensics
+         * @description 任务取证一站式只读聚合（v0.70）：任务快照 + listing_result_log +
+         *     category_match_log + attr_match_log 四路事实。
+         *
+         *     替代「换库 Supabase」的本地/云端配合取证通道——agent/MCP 凭 Bearer 直接查
+         *     生产任务的留存与审计（此前只能 SSH psql）。租户校验：任务行不属本租户 →
+         *     404（等价不存在）。v0.67 前的 category_match_log 历史行为 ingest 随机 uuid，
+         *     无法与任务行关联（已知数据断层）。
+         */
+        get: operations["v1_task_forensics_api_v1_forensics_task__task_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * V1 Health
+         * @description 健康检查（含 PG 连通性）。
+         */
+        get: operations["v1_health_api_v1_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/image-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Image Tasks */
+        get: operations["list_image_tasks_api_v1_image_tasks_get"];
+        put?: never;
+        /**
+         * Create Image Task
+         * @description 同步 stub：status=completed, result=input_image_url。真实处理留后续批次。
+         */
+        post: operations["create_image_task_api_v1_image_tasks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/image-tasks/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Image Tasks */
+        get: operations["list_image_tasks_api_v1_image_tasks__get"];
+        put?: never;
+        /**
+         * Create Image Task
+         * @description 同步 stub：status=completed, result=input_image_url。真实处理留后续批次。
+         */
+        post: operations["create_image_task_api_v1_image_tasks__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/image-tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Image Task */
+        get: operations["get_image_task_api_v1_image_tasks__task_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/image-tasks/{task_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Image Task */
+        post: operations["cancel_image_task_api_v1_image_tasks__task_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/logistics/quote": {
         parameters: {
             query?: never;
             header?: never;
@@ -595,10 +1371,68 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mxou Login
-         * @description MXOU 账号密码登录（无 token 鉴权——登录入口本身；限流防爆破）。
+         * Logistics Quote
+         * @description 物流运费报价端点（v0.29.x, skill 选品利润估算用）。
+         *
+         *     入参: {token?, weight_g, depth_cm, width_cm, height_cm,
+         *            tpl_provider?, service_level?, ozon_client_id?, ozon_api_key?}
+         *     - 未传 tpl_provider/service_level 时, 若有 ozon 凭证自动探测 3PL;
+         *       否则默认 RETS/Standard。
+         *     - token 校验与 auth_verify 一致(Supabase 未配置时本地放行)。
+         *
+         *     返回: {logistics_cost_cny, channel, tpl_provider_used, service_level_used,
+         *            base_cost, per_gram_rate, billable_weight, weight, dims_cm, fallback_chain}
+         *
+         *     v0.63.1 架构优化 R2: 阻塞 Supabase/Ozon 逻辑在 _logistics_quote_sync（to_thread）。
          */
-        post: operations["mxou_login_api_v1_mxou_login_post"];
+        post: operations["logistics_quote_api_v1_logistics_quote_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mappings/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * V1 Mappings Lookup
+         * @description 类目映射查询（W11）：skill 端按关键词查已学习 Ozon 类目映射。
+         *
+         *     query: keyword（1688 中文类目名）→ {found, mappings: [{dc, tp, confidence}]}
+         *     复用 category_mapping_learn.lookup_mapping（精确 leaf/ID，成功数+置信门槛）；
+         *     未命中时按 source_keywords 重叠兜底（ozon_category_query 同表同门槛）。
+         *     category_mapping 表全局共享（无 tenant 隔离——类目映射是平台级知识，PRD §3.3）。
+         */
+        get: operations["v1_mappings_lookup_api_v1_mappings_lookup_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mxou/balance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mxou Balance
+         * @description 当前登录 token 的 MXOU 平台余额(登录页余额卡真实化)。
+         *
+         *     查询失败 → balance=None(fail-open,前端显示「—」不阻断)。单位:CNY。
+         */
+        get: operations["mxou_balance_api_v1_mxou_balance_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -623,30 +1457,6 @@ export interface paths {
          * @description 新建密钥（响应含完整 key 仅一次；同时幂等 upsert 进 tokens 表）。
          */
         post: operations["create_mxou_key_api_v1_mxou_keys_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mxou/my-key": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get My Key
-         * @description WebUI 登录后自动获取该用户已有的 enabled key（免手动建 key）。
-         *
-         *     uid 来自 query/header（可伪造），必须经 verify_session_user 用请求自带的
-         *     New API cookie session 向平台校验 uid 归属（防 IDOR 枚举他人 key），
-         *     未通过 → 401。WebUI 同源 fetch 自动携带 cookie，正常登录链路无感。
-         */
-        get: operations["get_my_key_api_v1_mxou_my_key_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -693,18 +1503,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/health": {
+    "/api/v1/mxou/login": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
+        get?: never;
+        put?: never;
         /**
-         * V1 Health
-         * @description 健康检查（含 PG 连通性）。
+         * Mxou Login
+         * @description MXOU 账号密码登录（无 token 鉴权——登录入口本身；限流防爆破）。
          */
-        get: operations["v1_health_api_v1_health_get"];
+        post: operations["mxou_login_api_v1_mxou_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mxou/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mxou Logout */
+        post: operations["mxou_logout_api_v1_mxou_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mxou/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Mxou Me */
+        get: operations["mxou_me_api_v1_mxou_me_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -713,27 +1557,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/submit_task": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * V1 Submit Task
-         * @description 提交任务到队列。鉴权通过 Supabase tokens 表校验。
-         */
-        post: operations["v1_submit_task_api_v1_submit_task_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/task_status/{task_id}": {
+    "/api/v1/mxou/my-key": {
         parameters: {
             query?: never;
             header?: never;
@@ -741,317 +1565,16 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * V1 Task Status
-         * @description 查询任务状态。
-         */
-        get: operations["v1_task_status_api_v1_task_status__task_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/cancel_task/{task_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * V1 Cancel Task
-         * @description 取消待处理的任务。
-         */
-        post: operations["v1_cancel_task_api_v1_cancel_task__task_id__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/resubmit_task/{task_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * V1 Resubmit Task
-         * @description 重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口）。
-         */
-        post: operations["v1_resubmit_task_api_v1_resubmit_task__task_id__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/task_statistics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * V1 Task Statistics
-         * @description 获取任务统计信息。
+         * Get My Key
+         * @description WebUI 登录后自动获取该用户已有的 enabled key（免手动建 key）。
          *
-         *     ⚠️ v0.19.2: 旧路径返回 {"status","statistics"} 包裹结构（无 response_model），
-         *     v1 声明了 TaskStatisticsResponse 响应模型，必须解包 statistics 再返回，
-         *     否则字段对不上被 Pydantic 填默认值 → 统计恒 0。
+         *     uid 来自 query/header（可伪造），必须经 verify_session_user 用请求自带的
+         *     New API cookie session 向平台校验 uid 归属（防 IDOR 枚举他人 key），
+         *     未通过 → 401。WebUI 同源 fetch 自动携带 cookie，正常登录链路无感。
          */
-        get: operations["v1_task_statistics_api_v1_task_statistics_get"];
+        get: operations["get_my_key_api_v1_mxou_my_key_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/analytics/queries": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * V1 Analytics Queries
-         * @description skill what-to-sell all-queries 关键词蓝海数据上报（去重键 query+token，重复上报 upsert 更新）。
-         */
-        post: operations["v1_analytics_queries_api_v1_analytics_queries_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/analytics/ozon-bestsellers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * V1 Analytics Ozon Bestsellers
-         * @description skill ozon-bestsellers 榜单数据上报（去重键 sku_or_id+token）。
-         */
-        post: operations["v1_analytics_ozon_bestsellers_api_v1_analytics_ozon_bestsellers_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/analytics/market-bestsellers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * V1 Analytics Market Bestsellers
-         * @description skill market-bestsellers 全平台榜单数据上报（去重键 product_name+token）。
-         */
-        post: operations["v1_analytics_market_bestsellers_api_v1_analytics_market_bestsellers_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/discovery/runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * V1 Discovery List Runs
-         * @description discover 选品结果历史读取（W4b.2）：全局共享（A 可见 B 的归档，含贡献者标注）。
-         *
-         *     query: limit/offset（分页，limit 上限 200）；鉴权与上报一致：token 即身份。
-         *     蓝海（/admin/queries admin-only）与榜单（market_bestsellers 无读端点）保持关闭。
-         */
-        get: operations["v1_discovery_list_runs_api_v1_discovery_runs_get"];
-        put?: never;
-        /**
-         * V1 Discovery Report Run
-         * @description discover 选品结果归档（W10 D12）：单次上报一条 run（keyword+filters+candidates），按 tenant 隔离。
-         */
-        post: operations["v1_discovery_report_run_api_v1_discovery_runs_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/analytics/bestsellers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * V1 Analytics List Bestsellers
-         * @description T4b.1 榜单浏览：读 skill 上报的 ozon-bestsellers（全局共享，含贡献者列）。
-         *
-         *     query: category?（类目筛选）/ order_by?（ordering_amount|ordering_count|avg_price_rub）/ limit/offset
-         *     鉴权与上报一致：token 即身份；token 不再作数据过滤（A 采集 B 可见）。
-         */
-        get: operations["v1_analytics_list_bestsellers_api_v1_analytics_bestsellers_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/mappings/lookup": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * V1 Mappings Lookup
-         * @description 类目映射查询（W11）：skill 端按关键词查已学习 Ozon 类目映射。
-         *
-         *     query: keyword（1688 中文类目名）→ {found, mappings: [{dc, tp, confidence}]}
-         *     复用 category_mapping_learn.lookup_mapping（精确 leaf/ID，成功数+置信门槛）；
-         *     未命中时按 source_keywords 重叠兜底（ozon_category_query 同表同门槛）。
-         *     category_mapping 表全局共享（无 tenant 隔离——类目映射是平台级知识，PRD §3.3）。
-         */
-        get: operations["v1_mappings_lookup_api_v1_mappings_lookup_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/credentials": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Credentials */
-        get: operations["list_credentials_api_v1_credentials_get"];
-        put?: never;
-        /** Create Credential */
-        post: operations["create_credential_api_v1_credentials_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/credentials/{credential_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Revoke Credential */
-        delete: operations["revoke_credential_api_v1_credentials__credential_id__delete"];
-        options?: never;
-        head?: never;
-        /** Rotate Credential */
-        patch: operations["rotate_credential_api_v1_credentials__credential_id__patch"];
-        trace?: never;
-    };
-    "/api/v1/credentials/{credential_id}/validate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Validate Credential */
-        post: operations["validate_credential_api_v1_credentials__credential_id__validate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/templates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Templates */
-        get: operations["list_templates_api_v1_templates_get"];
-        put?: never;
-        /** Create Template */
-        post: operations["create_template_api_v1_templates_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/templates/{template_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete Template */
-        delete: operations["delete_template_api_v1_templates__template_id__delete"];
-        options?: never;
-        head?: never;
-        /** Update Template */
-        patch: operations["update_template_api_v1_templates__template_id__patch"];
-        trace?: never;
-    };
-    "/api/v1/templates/{template_id}/default": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Set Default */
-        post: operations["set_default_api_v1_templates__template_id__default_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1120,33 +1643,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/orders/{posting_number}/notes": {
+    "/api/v1/orders/message-templates": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Order Notes */
-        get: operations["get_order_notes_api_v1_orders__posting_number__notes_get"];
-        /** Upsert Order Notes */
-        put: operations["upsert_order_notes_api_v1_orders__posting_number__notes_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/orders/{posting_number}/label": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Order Label */
-        get: operations["get_order_label_api_v1_orders__posting_number__label_get"];
+        /** Message Templates */
+        get: operations["message_templates_api_v1_orders_message_templates_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1155,32 +1660,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/orders/{posting_number}/ship": {
+    "/api/v1/orders/messages": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /** Ship Order */
-        post: operations["ship_order_api_v1_orders__posting_number__ship_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/orders/{posting_number}/cancel-reasons": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Cancel Reasons */
-        get: operations["list_cancel_reasons_api_v1_orders__posting_number__cancel_reasons_get"];
+        /** List Messages */
+        get: operations["list_messages_api_v1_orders_messages_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1206,15 +1694,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/orders/message-templates": {
+    "/api/v1/orders/{posting_number}/cancel-reasons": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Message Templates */
-        get: operations["message_templates_api_v1_orders_message_templates_get"];
+        /** List Cancel Reasons */
+        get: operations["list_cancel_reasons_api_v1_orders__posting_number__cancel_reasons_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{posting_number}/label": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Order Label */
+        get: operations["get_order_label_api_v1_orders__posting_number__label_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1240,16 +1745,17 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/orders/messages": {
+    "/api/v1/orders/{posting_number}/notes": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Messages */
-        get: operations["list_messages_api_v1_orders_messages_get"];
-        put?: never;
+        /** Get Order Notes */
+        get: operations["get_order_notes_api_v1_orders__posting_number__notes_get"];
+        /** Upsert Order Notes */
+        put: operations["upsert_order_notes_api_v1_orders__posting_number__notes_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1257,112 +1763,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/overview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Admin Overview */
-        get: operations["admin_overview_api_v1_admin_overview_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/users": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Admin Users */
-        get: operations["admin_users_api_v1_admin_users_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/users/{user_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Admin User Detail */
-        get: operations["admin_user_detail_api_v1_admin_users__user_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/stores": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Admin Stores */
-        get: operations["admin_stores_api_v1_admin_stores_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/tasks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Admin Tasks
-         * @description 任务统计（全租户）——get_task_stats 是 async，必须 await。
-         */
-        get: operations["admin_tasks_api_v1_admin_tasks_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/tasks/{task_id}/images": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Task Images */
-        get: operations["list_task_images_api_v1_tasks__task_id__images_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/tasks/{task_id}/images/{slot}/regen": {
+    "/api/v1/orders/{posting_number}/ship": {
         parameters: {
             query?: never;
             header?: never;
@@ -1371,8 +1772,725 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Regen Task Image */
-        post: operations["regen_task_image_api_v1_tasks__task_id__images__slot__regen_post"];
+        /** Ship Order */
+        post: operations["ship_order_api_v1_orders__posting_number__ship_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Products */
+        get: operations["list_products_api_v1_products_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/bulk-archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk Archive */
+        post: operations["bulk_archive_api_v1_products_bulk_archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/bulk-prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk Prices */
+        post: operations["bulk_prices_api_v1_products_bulk_prices_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/bulk-stocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk Stocks */
+        post: operations["bulk_stocks_api_v1_products_bulk_stocks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/ozon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Ozon Products
+         * @description Ozon 店铺在线商品：PG 缓存读取（v0.56）——未同步懒同步，?refresh=1 强制。
+         *
+         *     租户隔离：store_sync_service 内 get_decrypted 校验凭证归属（跨租户 404）。
+         */
+        get: operations["list_ozon_products_api_v1_products_ozon_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/{product_id}/cost": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Product Cost
+         * @description 商品成本主数据 + 成本历史;归属校验失败 → 404。
+         */
+        get: operations["get_product_cost_api_v1_products__product_id__cost_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/{product_id}/edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Product Edit
+         * @description T6: 在线商品编辑初值（product_task_index 关联草稿 envelope + 审核状态）。
+         *
+         *     404 = 无索引/草稿缺失；409 = 无草稿来源（仅改图可用 update_images）。
+         */
+        get: operations["get_product_edit_api_v1_products__product_id__edit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/{product_id}/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Product Source
+         * @description 手动维护商品成本/货源(manual 优先,写历史 + 重算订单利润);归属校验失败 → 404。
+         */
+        patch: operations["update_product_source_api_v1_products__product_id__source_patch"];
+        trace?: never;
+    };
+    "/api/v1/products/{product_id}/source-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Source Candidates
+         * @description 货源匹配候选列表(skill 上报 / discover 派生 / 手动维护),归属校验失败 → 404。
+         */
+        get: operations["get_source_candidates_api_v1_products__product_id__source_candidates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/{product_id}/update_images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Update Product Images */
+        post: operations["update_product_images_api_v1_products__product_id__update_images_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/progress/{task_id}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Task Progress Stream
+         * @description SSE 实时进度:Last-Event-ID 增量回放,断线重连不丢(PRD M4)。
+         */
+        get: operations["task_progress_stream_api_v1_progress__task_id__stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/resubmit_task/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * V1 Resubmit Task
+         * @description 重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口）。
+         */
+        post: operations["v1_resubmit_task_api_v1_resubmit_task__task_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seo/keywords": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Http Seo Keywords
+         * @description 流量关键词公开查询。q 空 → top 流量；q 非空 → ILIKE 过滤。
+         */
+        get: operations["http_seo_keywords_api_v1_seo_keywords_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seo/keywords/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Http Seo Keywords
+         * @description 流量关键词公开查询。q 空 → top 流量；q 非空 → ILIKE 过滤。
+         */
+        get: operations["http_seo_keywords_api_v1_seo_keywords__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Settings
+         * @description 读当前用户设置(合并默认值,返回全量键)。
+         */
+        get: operations["get_settings_api_v1_settings_get"];
+        /**
+         * Put Settings
+         * @description 合并更新用户设置(仅已知键,数值范围校验)。
+         */
+        put: operations["put_settings_api_v1_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/site/announcements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Site Public Announcements */
+        get: operations["site_public_announcements_api_v1_site_announcements_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/site/banners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Site Public Banners */
+        get: operations["site_public_banners_api_v1_site_banners_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/source-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report Source Candidates
+         * @description skill 图搜/跟卖匹配结果上报(POST /api/v1/source-candidates)。
+         *
+         *     body: {
+         *       token?, credential_id?, client_id?,
+         *       candidates: [{product_id, source_offer_id?, source_url, price_cny?,
+         *                     match_score?, match_method?, status?}]
+         *     }
+         *     有 credential_id/client_id → 校验归属后落对应店;都没有 → 全零占位店
+         *     (工作台展示,绑定店铺后手动补)。
+         */
+        post: operations["report_source_candidates_api_v1_source_candidates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/store/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Store Health
+         * @description 查询 Ozon 店铺配额健康状态。
+         *
+         *     Query params (可选):
+         *     - client_id: Ozon Client-Id
+         *     - api_key: Ozon Api-Key
+         *
+         *     v0.63.1 架构优化 R2: sync def — 内部阻塞 requests.post(timeout=10)，
+         *     FastAPI 自动丢线程池，不冻结事件循环（async def 下单个慢调用会
+         *     停摆全部 worker 心跳）。
+         */
+        get: operations["store_health_api_v1_store_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/sync-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync All Stores
+         * @description 一键全店同步:入队所有 active 店 manual job(60s 冷却,去重)。
+         */
+        post: operations["sync_all_stores_api_v1_stores_sync_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/warehouses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Warehouses
+         * @description 默认店铺的仓库字典(上架选仓下拉);未配置默认店 → 空列表。
+         */
+        get: operations["list_warehouses_api_v1_stores_warehouses_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{credential_id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Store Actions
+         * @description 单店执行端点：operation 分发 + 接线 `_write_operation_log`。
+         *
+         *     body: {operation: str, ...按 operation 的具体字段}
+         */
+        post: operations["store_actions_api_v1_stores__credential_id__actions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{credential_id}/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Store Analysis
+         * @description 店铺分析（todo 6）：利润率/库存/候选清单（summary + profit_trend + 三组清单）。
+         *
+         *     有成本商品（product_task_index→payload.envelope）经唯一入口算精确利润；
+         *     无成本商品只给「当前价 + 库存」，不填 profit_rate（不给无成本商品编造利润）。
+         *     归属校验失败 → 404（跨租户不可见）。
+         */
+        get: operations["store_analysis_api_v1_stores__credential_id__analysis_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{credential_id}/analytics-daily": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Store Analytics Daily
+         * @description 该店店铺分析日表(访问/加购/转化/广告展示);归属校验失败 → 404。
+         */
+        get: operations["store_analytics_daily_api_v1_stores__credential_id__analytics_daily_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{credential_id}/daily-metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Store Daily Metrics
+         * @description 该店日聚合指标(趋势图数据源);归属校验失败 → 404。
+         */
+        get: operations["store_daily_metrics_api_v1_stores__credential_id__daily_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{credential_id}/returns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Store Returns
+         * @description 该店退货列表(PG 缓存,ozon_returns_cache);归属校验失败 → 404。
+         */
+        get: operations["store_returns_api_v1_stores__credential_id__returns_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{credential_id}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Store Stats
+         * @description 店铺卡统计（T4.6）：今日订单数/销售额/佣金/利润/件数（ozon_orders_cache 聚合）。
+         *
+         *     归属校验失败 → 404（跨租户不可见）；无评分字段——缓存无 rating 数据，卡片不显示评分。
+         */
+        get: operations["store_stats_api_v1_stores__credential_id__stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{credential_id}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Store
+         * @description 手动同步单店:任务化入队 → 202 {job_id}；归属校验失败 → 404。
+         *
+         *     旧版(特性开关=0)保留同步阻塞语义返回同步结果。
+         */
+        post: operations["sync_store_api_v1_stores__credential_id__sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{credential_id}/sync-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Store Sync Config
+         * @description 更新店铺同步配置(免 api_key;间隔下限 5min);归属校验失败 → 404。
+         */
+        patch: operations["update_store_sync_config_api_v1_stores__credential_id__sync_config_patch"];
+        trace?: never;
+    };
+    "/api/v1/stores/{credential_id}/sync-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Store Sync Jobs History
+         * @description 该店同步任务历史(分页);归属校验失败 → 404。
+         */
+        get: operations["store_sync_jobs_history_api_v1_stores__credential_id__sync_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stores/{credential_id}/sync-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sync Status
+         * @description 同步状态：最后同步时间 + 错误（webui 展示「上次同步 xx」）。
+         */
+        get: operations["sync_status_api_v1_stores__credential_id__sync_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submit_task": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * V1 Submit Task
+         * @description 提交任务到队列。鉴权通过 Supabase tokens 表校验。
+         */
+        post: operations["v1_submit_task_api_v1_submit_task_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sync-jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sync Job Detail
+         * @description 单个同步任务状态/进度(前端轮询目标);跨租户 → 404。
+         */
+        get: operations["sync_job_detail_api_v1_sync_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/task_statistics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * V1 Task Statistics
+         * @description 获取任务统计信息。
+         *
+         *     ⚠️ v0.19.2: 旧路径返回 {"status","statistics"} 包裹结构（无 response_model），
+         *     v1 声明了 TaskStatisticsResponse 响应模型，必须解包 statistics 再返回，
+         *     否则字段对不上被 Pydantic 填默认值 → 统计恒 0。
+         */
+        get: operations["v1_task_statistics_api_v1_task_statistics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/task_status/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * V1 Task Status
+         * @description 查询任务状态。
+         */
+        get: operations["v1_task_status_api_v1_task_status__task_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1419,7 +2537,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/products/{product_id}/update_images": {
+    "/api/v1/tasks/{task_id}/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Task Images */
+        get: operations["list_task_images_api_v1_tasks__task_id__images_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tasks/{task_id}/images/{slot}/regen": {
         parameters: {
             query?: never;
             header?: never;
@@ -1428,15 +2563,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Update Product Images */
-        post: operations["update_product_images_api_v1_products__product_id__update_images_post"];
+        /** Regen Task Image */
+        post: operations["regen_task_image_api_v1_tasks__task_id__images__slot__regen_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/products/{product_id}/edit": {
+    "/api/v1/tasks/{task_id}/progress": {
         parameters: {
             query?: never;
             header?: never;
@@ -1444,12 +2579,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Product Edit
-         * @description T6: 在线商品编辑初值（product_task_index 关联草稿 envelope + 审核状态）。
-         *
-         *     404 = 无索引/草稿缺失；409 = 无草稿来源（仅改图可用 update_images）。
+         * Task Progress Detail
+         * @description 任务进度事件列表 + 汇总(PRD M4 时间线数据源)。
          */
-        get: operations["get_product_edit_api_v1_products__product_id__edit_get"];
+        get: operations["task_progress_detail_api_v1_tasks__task_id__progress_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1458,462 +2591,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/products": {
+    "/api/v1/templates": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Products */
-        get: operations["list_products_api_v1_products_get"];
+        /** List Templates */
+        get: operations["list_templates_api_v1_templates_get"];
         put?: never;
-        post?: never;
+        /** Create Template */
+        post: operations["create_template_api_v1_templates_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/products/ozon": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Ozon Products
-         * @description Ozon 店铺在线商品：PG 缓存读取（v0.56）——未同步懒同步，?refresh=1 强制。
-         *
-         *     租户隔离：store_sync_service 内 get_decrypted 校验凭证归属（跨租户 404）。
-         */
-        get: operations["list_ozon_products_api_v1_products_ozon_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/products/bulk-prices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Bulk Prices */
-        post: operations["bulk_prices_api_v1_products_bulk_prices_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/products/bulk-stocks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Bulk Stocks */
-        post: operations["bulk_stocks_api_v1_products_bulk_stocks_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/products/bulk-archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Bulk Archive */
-        post: operations["bulk_archive_api_v1_products_bulk_archive_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/stores/{credential_id}/sync": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Sync Store
-         * @description 手动同步单店（订单增量 + 商品全量）；归属校验失败 → 404。
-         */
-        post: operations["sync_store_api_v1_stores__credential_id__sync_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/stores/{credential_id}/sync-status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Sync Status
-         * @description 同步状态：最后同步时间 + 错误（webui 展示「上次同步 xx」）。
-         */
-        get: operations["sync_status_api_v1_stores__credential_id__sync_status_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/stores/{credential_id}/stats": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Store Stats
-         * @description 店铺卡统计（T4.6）：今日订单数/销售额/佣金/利润/件数（ozon_orders_cache 聚合）。
-         *
-         *     归属校验失败 → 404（跨租户不可见）；无评分字段——缓存无 rating 数据，卡片不显示评分。
-         */
-        get: operations["store_stats_api_v1_stores__credential_id__stats_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/site/banners": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Admin Site Banners */
-        get: operations["admin_site_banners_api_v1_admin_site_banners_get"];
-        put?: never;
-        /** Admin Site Create Banner */
-        post: operations["admin_site_create_banner_api_v1_admin_site_banners_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/site/banners/{banner_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Admin Site Update Banner */
-        put: operations["admin_site_update_banner_api_v1_admin_site_banners__banner_id__put"];
-        post?: never;
-        /** Admin Site Delete Banner */
-        delete: operations["admin_site_delete_banner_api_v1_admin_site_banners__banner_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/site/announcements": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Admin Site Announcements */
-        get: operations["admin_site_announcements_api_v1_admin_site_announcements_get"];
-        put?: never;
-        /** Admin Site Create Announcement */
-        post: operations["admin_site_create_announcement_api_v1_admin_site_announcements_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/site/announcements/{announcement_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Admin Site Update Announcement */
-        put: operations["admin_site_update_announcement_api_v1_admin_site_announcements__announcement_id__put"];
-        post?: never;
-        /** Admin Site Delete Announcement */
-        delete: operations["admin_site_delete_announcement_api_v1_admin_site_announcements__announcement_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/site/banners": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Site Public Banners */
-        get: operations["site_public_banners_api_v1_site_banners_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/site/announcements": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Site Public Announcements */
-        get: operations["site_public_announcements_api_v1_site_announcements_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/config/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Configs */
-        get: operations["list_configs_api_v1_admin_config__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/config": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Configs */
-        get: operations["list_configs_api_v1_admin_config_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/config/{name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Read Config */
-        get: operations["read_config_api_v1_admin_config__name__get"];
-        /** Write Config */
-        put: operations["write_config_api_v1_admin_config__name__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/config/{name}/backups": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Backups */
-        get: operations["list_backups_api_v1_admin_config__name__backups_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/config/{name}/rollback": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Rollback Config */
-        post: operations["rollback_config_api_v1_admin_config__name__rollback_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/logistics/rates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Admin Logistics List Rates
-         * @description 费率列表（limit ≤ 200，offset ≥ 0）。
-         */
-        get: operations["admin_logistics_list_rates_api_v1_admin_logistics_rates_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/logistics/rates/{rate_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Admin Logistics Update Rate
-         * @description 更新单条费率：校验失败 → 400，id 不存在 → 404。
-         */
-        put: operations["admin_logistics_update_rate_api_v1_admin_logistics_rates__rate_id__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/logistics/rates/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Admin Logistics Import Rates
-         * @description CSV 批量导入（键匹配 upsert；坏行跳过并记录）。
-         */
-        post: operations["admin_logistics_import_rates_api_v1_admin_logistics_rates_import_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/queries/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Queries */
-        get: operations["list_queries_api_v1_admin_queries__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/queries": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Queries */
-        get: operations["list_queries_api_v1_admin_queries_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/queries/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Import Queries */
-        post: operations["import_queries_api_v1_admin_queries_import_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/queries/{query_id}": {
+    "/api/v1/templates/{template_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1923,8 +2619,26 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete Query */
-        delete: operations["delete_query_api_v1_admin_queries__query_id__delete"];
+        /** Delete Template */
+        delete: operations["delete_template_api_v1_templates__template_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Template */
+        patch: operations["update_template_api_v1_templates__template_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/templates/{template_id}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set Default */
+        post: operations["set_default_api_v1_templates__template_id__default_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1944,7 +2658,7 @@ export interface paths {
          *     阻塞转发丢线程池——requests 是同步库，直接在 async handler 里跑会卡死
          *     事件循环（上游慢时 submit_task/task_status/health 全部停摆，review MAJOR）。
          */
-        get: operations["newapi_proxy_api__path__patch"];
+        get: operations["newapi_proxy_api__path__get"];
         /**
          * Newapi Proxy
          * @description catch-all：命中 New API 前缀 → 转发 api.mxou.cn；否则 404。
@@ -1952,7 +2666,7 @@ export interface paths {
          *     阻塞转发丢线程池——requests 是同步库，直接在 async handler 里跑会卡死
          *     事件循环（上游慢时 submit_task/task_status/health 全部停摆，review MAJOR）。
          */
-        put: operations["newapi_proxy_api__path__patch"];
+        put: operations["newapi_proxy_api__path__put"];
         /**
          * Newapi Proxy
          * @description catch-all：命中 New API 前缀 → 转发 api.mxou.cn；否则 404。
@@ -1960,7 +2674,7 @@ export interface paths {
          *     阻塞转发丢线程池——requests 是同步库，直接在 async handler 里跑会卡死
          *     事件循环（上游慢时 submit_task/task_status/health 全部停摆，review MAJOR）。
          */
-        post: operations["newapi_proxy_api__path__patch"];
+        post: operations["newapi_proxy_api__path__post"];
         /**
          * Newapi Proxy
          * @description catch-all：命中 New API 前缀 → 转发 api.mxou.cn；否则 404。
@@ -1968,7 +2682,7 @@ export interface paths {
          *     阻塞转发丢线程池——requests 是同步库，直接在 async handler 里跑会卡死
          *     事件循环（上游慢时 submit_task/task_status/health 全部停摆，review MAJOR）。
          */
-        delete: operations["newapi_proxy_api__path__patch"];
+        delete: operations["newapi_proxy_api__path__delete"];
         options?: never;
         head?: never;
         /**
@@ -1981,6 +2695,456 @@ export interface paths {
         patch: operations["newapi_proxy_api__path__patch"];
         trace?: never;
     };
+    "/async_run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Http Async Run
+         * @description [DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。
+         */
+        post: operations["http_async_run_async_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Auth Verify
+         * @description Skill 鉴权端点。
+         *
+         *     验证（与 submit_task 相同逻辑）:
+         *     1. token 有效性（Supabase tokens 表 key 列，剥离 sk- 前缀）
+         *     2. token 状态 = 1（active；status=4 欠费 → balance_insufficient）
+         *     3. 余额检查：users.quota - used_quota（unlimited_quota=true 放行；
+         *        不再用 remain_quota——它是僵尸字段且无限额度 key 会被误判）
+         *     4. Ozon API 有效性（可选）
+         *
+         *     不返回余额数字，只返回 valid + reason。
+         *
+         *     v0.63.1 架构优化 R2: 阻塞逻辑在 _auth_verify_sync（to_thread）——
+         *     Supabase/Ozon HTTP 最长 10s，async 内直接执行会冻结事件循环。
+         */
+        post: operations["auth_verify_auth_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cancel/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Http Cancel
+         * @description 取消指定run_id的执行
+         *
+         *     使用asyncio.Task.cancel()实现取消,这是Python标准的异步任务取消机制。
+         *     LangGraph会在节点之间的await点检查CancelledError,实现优雅取消。
+         */
+        post: operations["http_cancel_cancel__run_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cancel_task/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Http Cancel Task
+         * @description 取消任务（仅pending状态的任务可取消）
+         *
+         *     Returns:
+         *         取消结果
+         */
+        post: operations["http_cancel_task_cancel_task__task_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/categories/attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * V1 Categories Attributes
+         * @description 类目属性 schema + 字典值（缓存只读）：?dc=&tp= → {found, cached, attributes}。
+         *
+         *     attribute_cache / dictionary_value_cache 未命中**不回源 Ozon**（返回
+         *     found=False，前端提示该类目未预热）。属性键形状与 assemble 消费一致
+         *     （id/dictionary_id/name/required/type）。
+         */
+        get: operations["v1_categories_attributes_categories_attributes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/categories/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * V1 Categories Search
+         * @description 类目树搜索（ZH_HANS）：?q=关键词&limit=20 → 候选 {dc, tp, node_name, category_path}。
+         *
+         *     复用 OzonCategoryQuery.search_nodes（jieba 分词 + LIKE，node_type=type 保证
+         *     返回有效 dc/tp 组合）。供 webui 采集箱 manual 类目选择器 / agent 类目确认。
+         */
+        get: operations["v1_categories_search_categories_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/commissions/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Http Commissions Lookup
+         * @description 类目佣金查询：按 description_category_id 查 category_commission 缓存表。
+         *
+         *     query: category_id（Ozon 类目 ID，必填整数）
+         *     → 命中  {"found": true, "fbs": {"leq_1500","leq_5000","gt_5000"}, "fbo": {...}, "source"}
+         *     → 未命中 {"found": false}
+         *     鉴权: Authorization: Bearer <token>（剥离 sk- 前缀）；Supabase 未配置 → 本地放行。
+         */
+        get: operations["http_commissions_lookup_commissions_lookup_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/forensics/task/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * V1 Task Forensics
+         * @description 任务取证一站式只读聚合（v0.70）：任务快照 + listing_result_log +
+         *     category_match_log + attr_match_log 四路事实。
+         *
+         *     替代「换库 Supabase」的本地/云端配合取证通道——agent/MCP 凭 Bearer 直接查
+         *     生产任务的留存与审计（此前只能 SSH psql）。租户校验：任务行不属本租户 →
+         *     404（等价不存在）。v0.67 前的 category_match_log 历史行为 ingest 随机 uuid，
+         *     无法与任务行关联（已知数据断层）。
+         */
+        get: operations["v1_task_forensics_forensics_task__task_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/graph_parameter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Http Graph Inout Parameter */
+        get: operations["http_graph_inout_parameter_graph_parameter_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Health Check */
+        get: operations["health_check_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/node_run/{node_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Http Node Run */
+        post: operations["http_node_run_node_run__node_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/progress/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Http Progress
+         * @description 查询工作流执行进度。
+         *
+         *     优先从 LangGraph checkpointer 读取实时 state，
+         *     降级到内存 _task_progress → PG progress 列（任务完成后/重启后可用）。
+         */
+        get: operations["http_progress_progress__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/resubmit_task/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Http Resubmit Task
+         * @description 重新提交终态任务（审核被拒/失败自动修复链入口，P0-2）。
+         *
+         *     仅 rejected/failed 终态任务可重试：复制原载荷 → 注入 parent_task_id +
+         *     extensions.image_regen=True → 重新入队（pending）。返回新任务 task_id。
+         *
+         *     ⚠️ v0.38.1 安全修复：请求体必须携带调用者 token（与 submit_task 一致），
+         *     校验 token 归属租户 == 任务 tenant_id，防跨租户凭证重放（CRITICAL）。
+         */
+        post: operations["http_resubmit_task_resubmit_task__task_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Http Run */
+        post: operations["http_run_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stream_run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Http Stream Run */
+        post: operations["http_stream_run_stream_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/submit_task": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Http Submit Task
+         * @description 提交任务到Supabase云端队列（方案2：验证token + 提交到队列，不立即执行拓扑）
+         *
+         *     Args:
+         *         payload: 任务数据（必须包含token、ozon_client_id、ozon_api_key、envelope）
+         *         priority: 任务优先级（0-100，VIP用户使用更高优先级）
+         *         timeout_seconds: 任务超时时间（默认30分钟）
+         *         max_retries: 最大重试次数（默认3次）
+         *
+         *     Returns:
+         *         task_id: 任务UUID
+         *         user_id: 用户ID（从token中提取）
+         *         balance: 用户余额（可选）
+         */
+        post: operations["http_submit_task_submit_task_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/task/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Http Get Task
+         * @description [DEPRECATED] 使用 GET /task_status/{task_id} 代替。此端点将在未来版本移除。
+         */
+        get: operations["http_get_task_task__task_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/task_statistics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Http Task Statistics
+         * @description 获取任务统计信息
+         *
+         *     Args:
+         *         tenant_id: 租户ID（可选，不传则查询所有租户）
+         *
+         *     Returns:
+         *         任务统计信息（总数、成功率、平均耗时等）
+         */
+        get: operations["http_task_statistics_task_statistics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/task_status/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Http Task Status
+         * @description 查询任务状态（含进度信息）
+         *
+         *     Returns:
+         *         任务详情（包含status、result、error_message、progress等）
+         */
+        get: operations["http_task_status_task_status__task_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/chat/completions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Openai Chat Completions
+         * @description OpenAI Chat Completions API 兼容接口
+         */
+        post: operations["openai_chat_completions_v1_chat_completions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1991,11 +3155,12 @@ export interface components {
          */
         AdminOverviewOut: {
             /**
-             * User Count
-             * @description 用户数
-             * @default 0
+             * Statistics
+             * @description 任务统计明细
              */
-            user_count: number;
+            statistics?: {
+                [key: string]: unknown;
+            };
             /**
              * Store Count
              * @description 活跃店铺数
@@ -2003,11 +3168,11 @@ export interface components {
              */
             store_count: number;
             /**
-             * Task Total
-             * @description 任务总数
+             * Success Rate
+             * @description 成功率（%）
              * @default 0
              */
-            task_total: number;
+            success_rate: number;
             /**
              * Task Today
              * @description 今日任务数
@@ -2015,18 +3180,17 @@ export interface components {
              */
             task_today: number;
             /**
-             * Success Rate
-             * @description 成功率（%）
+             * Task Total
+             * @description 任务总数
              * @default 0
              */
-            success_rate: number;
+            task_total: number;
             /**
-             * Statistics
-             * @description 任务统计明细
+             * User Count
+             * @description 用户数
+             * @default 0
              */
-            statistics?: {
-                [key: string]: unknown;
-            };
+            user_count: number;
         };
         /**
          * AdminStoreOut
@@ -2034,15 +3198,27 @@ export interface components {
          */
         AdminStoreOut: {
             /**
+             * Currency
+             * @description 货币
+             * @default CNY
+             */
+            currency: string;
+            /**
              * Id
              * @description 凭证 UUID
              */
             id: string;
             /**
-             * Tenant Id
-             * @description 归属用户 ID
+             * Is Default
+             * @description 默认店铺
+             * @default false
              */
-            tenant_id: string;
+            is_default: boolean;
+            /**
+             * Last Validated At
+             * @description 最近校验
+             */
+            last_validated_at?: string | null;
             /**
              * Ozon Client Id
              * @description Ozon Client-Id
@@ -2055,28 +3231,16 @@ export interface components {
              */
             shop_name: string;
             /**
-             * Currency
-             * @description 货币
-             * @default CNY
-             */
-            currency: string;
-            /**
-             * Is Default
-             * @description 默认店铺
-             * @default false
-             */
-            is_default: boolean;
-            /**
              * Status
              * @description active/revoked
              * @default active
              */
             status: string;
             /**
-             * Last Validated At
-             * @description 最近校验
+             * Tenant Id
+             * @description 归属用户 ID
              */
-            last_validated_at?: string | null;
+            tenant_id: string;
         };
         /**
          * AdminUserDetailOut
@@ -2094,12 +3258,6 @@ export interface components {
              */
             stores?: components["schemas"]["AdminStoreOut"][];
             /**
-             * Task Total
-             * @description 任务总数
-             * @default 0
-             */
-            task_total: number;
-            /**
              * Task Completed
              * @description 已完成
              * @default 0
@@ -2111,6 +3269,12 @@ export interface components {
              * @default 0
              */
             task_failed: number;
+            /**
+             * Task Total
+             * @description 任务总数
+             * @default 0
+             */
+            task_total: number;
         };
         /**
          * AdminUserOut
@@ -2118,16 +3282,15 @@ export interface components {
          */
         AdminUserOut: {
             /**
+             * Created At
+             * @description 注册时间
+             */
+            created_at?: string | null;
+            /**
              * Id
              * @description 用户 ID
              */
             id: string;
-            /**
-             * Username
-             * @description 用户名/显示名
-             * @default
-             */
-            username: string;
             /**
              * Quota
              * @description 余额
@@ -2140,11 +3303,6 @@ export interface components {
              */
             role: string;
             /**
-             * Created At
-             * @description 注册时间
-             */
-            created_at?: string | null;
-            /**
              * Store Count
              * @description 活跃店铺数
              * @default 0
@@ -2156,6 +3314,12 @@ export interface components {
              * @default 0
              */
             task_count: number;
+            /**
+             * Username
+             * @description 用户名/显示名
+             * @default
+             */
+            username: string;
         };
         /**
          * AnalyticsReportResponse
@@ -2163,17 +3327,17 @@ export interface components {
          */
         AnalyticsReportResponse: {
             /**
-             * Status
-             * @description 状态: ok / error
-             * @default ok
-             */
-            status: string;
-            /**
              * Inserted
              * @description 本次新增行数
              * @default 0
              */
             inserted: number;
+            /**
+             * Status
+             * @description 状态: ok / error
+             * @default ok
+             */
+            status: string;
             /**
              * Upserted
              * @description 本次覆盖更新行数
@@ -2184,19 +3348,14 @@ export interface components {
         /**
          * AuthVerifyResponse
          * @description Skill 鉴权响应。
+         * @example {
+         *       "expires_in": 86400,
+         *       "ozon_valid": true,
+         *       "reason": "ok",
+         *       "valid": true
+         *     }
          */
         AuthVerifyResponse: {
-            /**
-             * Valid
-             * @description 是否有效
-             */
-            valid: boolean;
-            /**
-             * Reason
-             * @description 原因: ok / token_invalid / balance_insufficient / account_inactive
-             * @default ok
-             */
-            reason: string;
             /**
              * Expires In
              * @description 缓存有效期（秒）
@@ -2208,15 +3367,26 @@ export interface components {
              * @description Ozon API 是否有效（仅当传了 client_id/api_key 时返回）
              */
             ozon_valid?: boolean | null;
+            /**
+             * Reason
+             * @description 原因: ok / token_invalid / balance_insufficient / account_inactive
+             * @default ok
+             */
+            reason: string;
+            /**
+             * Valid
+             * @description 是否有效
+             */
+            valid: boolean;
         };
         /** BackupItem */
         BackupItem: {
+            /** Mtime */
+            mtime: number;
             /** Name */
             name: string;
             /** Size */
             size: number;
-            /** Mtime */
-            mtime: number;
         };
         /**
          * CancelReasonOut
@@ -2241,6 +3411,11 @@ export interface components {
          */
         CancelTaskResponse: {
             /**
+             * Message
+             * @description 取消结果消息
+             */
+            message: string;
+            /**
              * Ok
              * @default true
              */
@@ -2250,11 +3425,6 @@ export interface components {
              * @description 任务 UUID
              */
             task_id: string;
-            /**
-             * Message
-             * @description 取消结果消息
-             */
-            message: string;
         };
         /** ConfigListItem */
         ConfigListItem: {
@@ -2264,40 +3434,31 @@ export interface components {
         /**
          * CredentialOut
          * @description 凭证响应 — 仅掩码，永不包含明文 api_key / ozon_api_key_enc。
+         * @example {
+         *       "api_key_masked": "****0000",
+         *       "created_at": "2026-09-01T00:00:00Z",
+         *       "credential_type": "api_key",
+         *       "currency": "CNY",
+         *       "id": "3c9d2f4e-1111-4222-8333-444455556666",
+         *       "is_default": true,
+         *       "last_validated_at": "2026-09-08T10:00:00Z",
+         *       "ozon_client_id": "5381204",
+         *       "shop_name": "测试店",
+         *       "status": "active",
+         *       "updated_at": "2026-09-08T10:00:00Z"
+         *     }
          */
         CredentialOut: {
-            /**
-             * Id
-             * @description 凭证 UUID
-             */
-            id: string;
-            /**
-             * Ozon Client Id
-             * @description Ozon 卖家 Client-Id
-             */
-            ozon_client_id: string;
             /**
              * Api Key Masked
              * @description 掩码 ****abcd（仅后 4 位）
              */
             api_key_masked: string;
             /**
-             * Shop Name
-             * @description 店铺名称
+             * Created At
+             * @description 创建时间
              */
-            shop_name?: string | null;
-            /**
-             * Currency
-             * @description CNY/RUB
-             * @default CNY
-             */
-            currency: string;
-            /**
-             * Is Default
-             * @description 默认店铺标记
-             * @default false
-             */
-            is_default: boolean;
+            created_at?: string | null;
             /**
              * Credential Type
              * @description api_key | oauth（预留）
@@ -2305,26 +3466,48 @@ export interface components {
              */
             credential_type: string;
             /**
-             * Status
-             * @description active/revoked
-             * @default active
+             * Currency
+             * @description CNY/RUB
+             * @default CNY
              */
-            status: string;
+            currency: string;
             /**
-             * Last Validated At
-             * @description 最近一次校验时间
+             * Id
+             * @description 凭证 UUID
              */
-            last_validated_at?: string | null;
+            id: string;
+            /**
+             * Is Default
+             * @description 默认店铺标记
+             * @default false
+             */
+            is_default: boolean;
             /**
              * Last Rotated At
              * @description 最近一次轮换时间
              */
             last_rotated_at?: string | null;
             /**
-             * Created At
-             * @description 创建时间
+             * Last Validated At
+             * @description 最近一次校验时间
              */
-            created_at?: string | null;
+            last_validated_at?: string | null;
+            /**
+             * Ozon Client Id
+             * @description Ozon 卖家 Client-Id
+             */
+            ozon_client_id: string;
+            /**
+             * Shop Name
+             * @description 店铺名称
+             */
+            shop_name?: string | null;
+            /**
+             * Status
+             * @description active/revoked
+             * @default active
+             */
+            status: string;
             /**
              * Updated At
              * @description 更新时间
@@ -2353,16 +3536,22 @@ export interface components {
          */
         DraftOut: {
             /**
+             * Created At
+             * @description 创建时间
+             */
+            created_at?: string | null;
+            /**
              * Id
              * Format: uuid
              * @description 草稿 ID
              */
             id: string;
             /**
-             * Tenant Id
-             * @description 归属用户（_authenticate_token 的 user_id）
+             * Image Mirror State
+             * @description 图片镜像状态（M5b）：''=未启用/未镜像；pending=镜像中；mirrored=已转存 COS；failed=失败保持外链
+             * @default
              */
-            tenant_id: string;
+            image_mirror_state: string;
             /**
              * Payload
              * @description envelope {draft, source, extensions}；无 api_key 明文
@@ -2377,37 +3566,42 @@ export interface components {
              */
             source: string;
             /**
-             * Version
-             * @description 乐观并发版本（PATCH 带旧 version，不匹配 → 409）
-             * @default 1
+             * Submission Status
+             * @description 最新一次提交状态（draft_submissions.status）：pending/uploading/published/failed；NULL = 未上架（C1 状态机，T10 采集箱列）
              */
-            version: number;
+            submission_status?: string | null;
             /**
-             * Created At
-             * @description 创建时间
+             * Tenant Id
+             * @description 归属用户（_authenticate_token 的 user_id）
              */
-            created_at?: string | null;
+            tenant_id: string;
             /**
              * Updated At
              * @description 更新时间
              */
             updated_at?: string | null;
             /**
-             * Submission Status
-             * @description 最新一次提交状态（draft_submissions.status）：pending/uploading/published/failed；NULL = 未上架（C1 状态机，T10 采集箱列）
+             * Version
+             * @description 乐观并发版本（PATCH 带旧 version，不匹配 → 409）
+             * @default 1
              */
-            submission_status?: string | null;
+            version: number;
         };
         /**
          * ErrorBody
          * @description 统一错误响应体。
+         * @example {
+         *       "error_code": "TOKEN_INVALID",
+         *       "message": "token_invalid or account_inactive",
+         *       "ok": false
+         *     }
          */
         ErrorBody: {
             /**
-             * Ok
-             * @default false
+             * Detail
+             * @description 附加详情（调试用）
              */
-            ok: boolean;
+            detail?: unknown | null;
             /**
              * Error Code
              * @description 错误码，如 TOKEN_INVALID、RATE_LIMITED
@@ -2419,10 +3613,10 @@ export interface components {
              */
             message: string;
             /**
-             * Detail
-             * @description 附加详情（调试用）
+             * Ok
+             * @default false
              */
-            detail?: unknown | null;
+            ok: boolean;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2435,20 +3629,20 @@ export interface components {
          */
         HealthResponse: {
             /**
-             * Status
-             * @description 服务状态: ok / degraded
+             * Db
+             * @description 数据库连接状态: connected / disconnected
              */
-            status: string;
+            db: string;
             /**
              * Message
              * @description 状态描述
              */
             message: string;
             /**
-             * Db
-             * @description 数据库连接状态: connected / disconnected
+             * Status
+             * @description 服务状态: ok / degraded
              */
-            db: string;
+            status: string;
         };
         /**
          * ImageRegenResponse
@@ -2456,30 +3650,15 @@ export interface components {
          */
         ImageRegenResponse: {
             /**
+             * Image Parent Task Id
+             * @description resubmit 图片血缘
+             */
+            image_parent_task_id?: string | null;
+            /**
              * Ok
              * @default true
              */
             ok: boolean;
-            /**
-             * Task Id
-             * @description 任务 UUID
-             */
-            task_id: string;
-            /**
-             * Slot
-             * @description 槽位
-             */
-            slot: string;
-            /**
-             * Version
-             * @description 新版本号（prev+1）
-             */
-            version: number;
-            /**
-             * Url
-             * @description 新图片 URL
-             */
-            url: string;
             /**
              * Params
              * @description 节点 Input schema 快照
@@ -2488,10 +3667,70 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
-             * Image Parent Task Id
-             * @description resubmit 图片血缘
+             * Slot
+             * @description 槽位
              */
-            image_parent_task_id?: string | null;
+            slot: string;
+            /**
+             * Task Id
+             * @description 任务 UUID
+             */
+            task_id: string;
+            /**
+             * Url
+             * @description 新图片 URL
+             */
+            url: string;
+            /**
+             * Version
+             * @description 新版本号（prev+1）
+             */
+            version: number;
+        };
+        /** ImageTaskCreateRequest */
+        ImageTaskCreateRequest: {
+            /** Input Image Url */
+            input_image_url: string;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            } | null;
+            /** Type */
+            type: string;
+        };
+        /** ImageTaskListResponse */
+        ImageTaskListResponse: {
+            /** Items */
+            items: components["schemas"]["ImageTaskResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** ImageTaskResponse */
+        ImageTaskResponse: {
+            /** Created At */
+            created_at?: string | null;
+            /** Error Message */
+            error_message?: string | null;
+            /** Id */
+            id: string;
+            /** Input Image Url */
+            input_image_url: string;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            } | null;
+            /** Result Image Url */
+            result_image_url?: string | null;
+            /** Status */
+            status: string;
+            /** Type */
+            type: string;
+            /** Updated At */
+            updated_at?: string | null;
         };
         /**
          * ListingTemplateConfig
@@ -2499,35 +3738,60 @@ export interface components {
          */
         ListingTemplateConfig: {
             /**
-             * Margin Rate
-             * @description 利润率（0-1），不设则 worker 默认 0.25
-             */
-            margin_rate?: number | null;
-            /**
              * Commission Rate
              * @description 佣金率；0=让 worker 自动查店铺真实佣金
              */
             commission_rate?: number | null;
-            /**
-             * Fx Buffer
-             * @description 汇率缓冲（0-0.5），不设则 worker 默认 0.05
-             */
-            fx_buffer?: number | null;
-            /**
-             * Offer Id Prefix
-             * @description 货号前缀（仅新建上架生效；更新模式忽略）
-             */
-            offer_id_prefix?: string | null;
             /**
              * Follow Type
              * @description 跟卖方式：hand 防侵权 / api 强制
              */
             follow_type?: string | null;
             /**
+             * Fx Buffer
+             * @description 汇率缓冲（0-0.5），不设则 worker 默认 0.05
+             */
+            fx_buffer?: number | null;
+            /**
+             * Margin Anchor
+             * @description 三档定价锚点倍数（0-5），old_price=anchor 档，不设则 worker 默认
+             */
+            margin_anchor?: number | null;
+            /**
+             * Margin Floor
+             * @description 三档定价促销利润率下限（0-2），不设则 worker 默认
+             */
+            margin_floor?: number | null;
+            /**
+             * Margin Rate
+             * @description 利润率（0-1），不设则 worker 默认 0.25
+             */
+            margin_rate?: number | null;
+            /**
+             * Offer Id Prefix
+             * @description 货号前缀（仅新建上架生效；更新模式忽略）
+             */
+            offer_id_prefix?: string | null;
+            /**
+             * Promo Variable Cost Rate
+             * @description 促销变动成本率（0-0.5），不设则 worker 默认 0.245
+             */
+            promo_variable_cost_rate?: number | null;
+            /**
              * Stock
              * @description 上架后库存（extensions.stock）
              */
             stock?: number | null;
+            /**
+             * Traffic Keywords
+             * @description 标题流量关键词列表（extensions.traffic_keywords 扁平键）
+             */
+            traffic_keywords?: string[] | null;
+            /**
+             * Variable Cost Rate
+             * @description 日常变动成本率（0-0.5），不设则 worker 默认 0.155
+             */
+            variable_cost_rate?: number | null;
             /**
              * Warehouse Id
              * @description 仓库（extensions.warehouse_id）
@@ -2539,21 +3803,13 @@ export interface components {
          * @description 上架配置模板响应。
          */
         ListingTemplateOut: {
+            /** @description 扩展参数 */
+            config?: components["schemas"]["ListingTemplateConfig"];
             /**
-             * Id
-             * @description 模板 UUID
+             * Created At
+             * @description 创建时间
              */
-            id: string;
-            /**
-             * Tenant Id
-             * @description 所属租户
-             */
-            tenant_id: string;
-            /**
-             * Name
-             * @description 配置名称
-             */
-            name: string;
+            created_at?: string | null;
             /**
              * Description
              * @description 备注
@@ -2561,19 +3817,27 @@ export interface components {
              */
             description: string;
             /**
-             * Platform
-             * @description 平台
-             * @default OZON
+             * Id
+             * @description 模板 UUID
              */
-            platform: string;
+            id: string;
             /**
              * Is Default
              * @description 默认模板标记
              * @default false
              */
             is_default: boolean;
-            /** @description 扩展参数 */
-            config?: components["schemas"]["ListingTemplateConfig"];
+            /**
+             * Name
+             * @description 配置名称
+             */
+            name: string;
+            /**
+             * Platform
+             * @description 平台
+             * @default OZON
+             */
+            platform: string;
             /**
              * Store Overrides
              * @description 按店铺（credential_id）差异化覆盖配置
@@ -2582,10 +3846,10 @@ export interface components {
                 [key: string]: components["schemas"]["ListingTemplateConfig"];
             } | null;
             /**
-             * Created At
-             * @description 创建时间
+             * Tenant Id
+             * @description 所属租户
              */
-            created_at?: string | null;
+            tenant_id: string;
             /**
              * Updated At
              * @description 更新时间
@@ -2597,51 +3861,51 @@ export interface components {
          * @description 导入结果：inserted/updated 计数 + 逐行错误。
          */
         LogisticsImportResult: {
-            /** Imported */
-            imported: number;
-            /** Updated */
-            updated: number;
             /** Errors */
             errors?: {
                 [key: string]: unknown;
             }[];
+            /** Imported */
+            imported: number;
+            /** Updated */
+            updated: number;
         };
         /**
          * LogisticsRateRow
          * @description 单条费率行（服务返回结构，供文档/校验用）。
          */
         LogisticsRateRow: {
+            /** Base Cost */
+            base_cost: number;
+            /** Charge Type */
+            charge_type: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Delivery Method */
+            delivery_method?: string | null;
             /** Id */
             id: number;
+            /** Longest Limit Cm */
+            longest_limit_cm: number;
+            /** Per Gram Rate */
+            per_gram_rate: number;
             /** Scoring Group */
             scoring_group: string;
             /** Service Level */
             service_level: string;
-            /** Tpl Provider */
-            tpl_provider: string;
-            /** Delivery Method */
-            delivery_method?: string | null;
-            /** Base Cost */
-            base_cost: number;
-            /** Per Gram Rate */
-            per_gram_rate: number;
-            /** Weight Min */
-            weight_min: number;
-            /** Weight Max */
-            weight_max: number;
             /** Sum Limit Cm */
             sum_limit_cm: number;
-            /** Longest Limit Cm */
-            longest_limit_cm: number;
-            /** Charge Type */
-            charge_type: string;
+            /** Tpl Provider */
+            tpl_provider: string;
             /**
              * Vol Weight Divisor
              * @default 0
              */
             vol_weight_divisor: number;
-            /** Created At */
-            created_at?: string | null;
+            /** Weight Max */
+            weight_max: number;
+            /** Weight Min */
+            weight_min: number;
         };
         /**
          * MxouKeyCreateResponse
@@ -2654,15 +3918,15 @@ export interface components {
              */
             id: string;
             /**
-             * Name
-             * @description token 名称
-             */
-            name: string;
-            /**
              * Key
              * @description 新建密钥完整值（仅此一次返回）
              */
             key: string;
+            /**
+             * Name
+             * @description token 名称
+             */
+            name: string;
         };
         /**
          * MxouKeyItem
@@ -2675,17 +3939,17 @@ export interface components {
              */
             id: string;
             /**
-             * Name
-             * @description token 名称
-             * @default
-             */
-            name: string;
-            /**
              * Masked
              * @description key 是否为脱敏形态（masked=true 时不含明文）
              * @default true
              */
             masked: boolean;
+            /**
+             * Name
+             * @description token 名称
+             * @default
+             */
+            name: string;
             /**
              * Status
              * @description token 状态（1=enabled）
@@ -2710,41 +3974,41 @@ export interface components {
          */
         MxouLoginResponse: {
             /**
-             * Username
-             * @description MXOU 用户名
-             */
-            username: string;
-            /**
              * Balance
              * @description 平台真实余额（美元，/v1/dashboard/billing/subscription 同源；查询失败 None）
              */
             balance?: number | null;
-            /**
-             * Keys
-             * @description API Key 列表（已脱敏，无 full_key）
-             */
-            keys?: components["schemas"]["MxouKeyItem"][];
-            /**
-             * Selected Key Id
-             * @description 选中的 enabled key id（未选到 None）
-             */
-            selected_key_id?: string | null;
             /**
              * Key
              * @description 选中 key 完整值（sk- 前缀；仅登录成功返回一次，WebUI 用它建立登录态）
              */
             key?: string | null;
             /**
-             * Session Expires At
-             * @description MXOU 登录 session 过期时间
+             * Keys
+             * @description API Key 列表（已脱敏，无 full_key）
              */
-            session_expires_at?: string | null;
+            keys?: components["schemas"]["MxouKeyItem"][];
             /**
              * Role
              * @description 用户角色（admin/user，WebUI 管理员路由守卫用）
              * @default user
              */
             role: string;
+            /**
+             * Selected Key Id
+             * @description 选中的 enabled key id（未选到 None）
+             */
+            selected_key_id?: string | null;
+            /**
+             * Session Expires At
+             * @description MXOU 登录 session 过期时间
+             */
+            session_expires_at?: string | null;
+            /**
+             * Username
+             * @description MXOU 用户名
+             */
+            username: string;
         };
         /**
          * OrderActionResponse
@@ -2776,11 +4040,6 @@ export interface components {
          */
         OrderLabelResponse: {
             /**
-             * Posting Number
-             * @description 货件编号
-             */
-            posting_number: string;
-            /**
              * Content Type
              * @description MIME
              * @default application/pdf
@@ -2791,6 +4050,11 @@ export interface components {
              * @description PDF base64
              */
             label_base64: string;
+            /**
+             * Posting Number
+             * @description 货件编号
+             */
+            posting_number: string;
         };
         /**
          * OrderListResponse
@@ -2800,11 +4064,10 @@ export interface components {
             /** Items */
             items?: components["schemas"]["OrderOut"][];
             /**
-             * Total
-             * @description 订单总数
-             * @default 0
+             * Last Synced At
+             * @description 最近同步时间（v0.56 缓存）
              */
-            total: number;
+            last_synced_at?: string | null;
             /**
              * Limit
              * @description 本次页大小
@@ -2825,15 +4088,21 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
-             * Last Synced At
-             * @description 最近同步时间（v0.56 缓存）
-             */
-            last_synced_at?: string | null;
-            /**
              * Sync Error
              * @description 最近同步错误（v0.56）
              */
             sync_error?: string | null;
+            /**
+             * Sync Status
+             * @description 数据新鲜度 never/syncing/ok/stale（PRD M1）
+             */
+            sync_status?: string | null;
+            /**
+             * Total
+             * @description 订单总数
+             * @default 0
+             */
+            total: number;
         };
         /**
          * OrderNoteOut
@@ -2841,21 +4110,33 @@ export interface components {
          */
         OrderNoteOut: {
             /**
+             * Created At
+             * @description 创建时间
+             */
+            created_at?: string | null;
+            /**
              * Posting Number
              * @description Ozon FBS 货件编号
              */
             posting_number: string;
             /**
-             * Tenant Id
-             * @description 所属租户
-             */
-            tenant_id: string;
-            /**
-             * Source Url
-             * @description 货源地址
+             * Purchase Carrier
+             * @description 采购快递
              * @default
              */
-            source_url: string;
+            purchase_carrier: string;
+            /**
+             * Purchase No
+             * @description 采购单号
+             * @default
+             */
+            purchase_no: string;
+            /**
+             * Purchase Tracking
+             * @description 采购快递单号
+             * @default
+             */
+            purchase_tracking: string;
             /**
              * Source Cost
              * @description 货源价格（CNY）
@@ -2868,28 +4149,16 @@ export interface components {
              */
             source_remark: string;
             /**
-             * Purchase No
-             * @description 采购单号
+             * Source Url
+             * @description 货源地址
              * @default
              */
-            purchase_no: string;
+            source_url: string;
             /**
-             * Purchase Carrier
-             * @description 采购快递
-             * @default
+             * Tenant Id
+             * @description 所属租户
              */
-            purchase_carrier: string;
-            /**
-             * Purchase Tracking
-             * @description 采购快递单号
-             * @default
-             */
-            purchase_tracking: string;
-            /**
-             * Created At
-             * @description 创建时间
-             */
-            created_at?: string | null;
+            tenant_id: string;
             /**
              * Updated At
              * @description 更新时间
@@ -2902,67 +4171,6 @@ export interface components {
          */
         OrderOut: {
             /**
-             * Posting Number
-             * @description 货件编号
-             */
-            posting_number: string;
-            /**
-             * Status
-             * @description 统一态：pending/awaiting/waiting/delivering/delivered/cancelled/other
-             */
-            status: string;
-            /**
-             * Raw Status
-             * @description Ozon 原始状态
-             * @default
-             */
-            raw_status: string;
-            /**
-             * Created At
-             * @description 下单时间（ISO）
-             */
-            created_at?: string | null;
-            /**
-             * Products
-             * @description 商品行
-             */
-            products?: components["schemas"]["OrderProductOut"][];
-            /**
-             * Product Count
-             * @description 商品总件数
-             * @default 0
-             */
-            product_count: number;
-            /**
-             * Total Amount
-             * @description 订单金额
-             * @default 0
-             */
-            total_amount: number;
-            /**
-             * Commission Amount
-             * @description 平台费用
-             * @default 0
-             */
-            commission_amount: number;
-            /**
-             * Profit
-             * @description 估算利润（金额-费用）
-             */
-            profit?: number | null;
-            /**
-             * Warehouse
-             * @description 仓库
-             * @default
-             */
-            warehouse: string;
-            /**
-             * Delivery Method
-             * @description 配送方式
-             * @default
-             */
-            delivery_method: string;
-            /**
              * Cancel Reason
              * @description 取消原因
              * @default
@@ -2974,6 +4182,72 @@ export interface components {
              * @default
              */
             cancellation: string;
+            /**
+             * Commission Amount
+             * @description 平台费用
+             * @default 0
+             */
+            commission_amount: number;
+            /**
+             * Created At
+             * @description 下单时间（ISO）
+             */
+            created_at?: string | null;
+            /**
+             * Delivery Method
+             * @description 配送方式
+             * @default
+             */
+            delivery_method: string;
+            /**
+             * Posting Number
+             * @description 货件编号
+             */
+            posting_number: string;
+            /**
+             * Product Count
+             * @description 商品总件数
+             * @default 0
+             */
+            product_count: number;
+            /**
+             * Products
+             * @description 商品行
+             */
+            products?: components["schemas"]["OrderProductOut"][];
+            /**
+             * Profit
+             * @description 估算利润（金额-费用）
+             */
+            profit?: number | null;
+            /**
+             * Raw Status
+             * @description Ozon 原始状态
+             * @default
+             */
+            raw_status: string;
+            /**
+             * Real Profit
+             * @description 真实利润(有成本才填,PRD M3)
+             */
+            real_profit?: number | null;
+            /**
+             * Status
+             * @description 统一态：pending/awaiting/waiting/delivering/delivered/cancelled/other
+             */
+            status: string;
+            /**
+             * Total Amount
+             * @description 订单金额
+             * @default 0
+             */
+            total_amount: number;
+            /**
+             * Warehouse
+             * @description 仓库
+             * @default
+             */
+            warehouse: string;
         };
         /**
          * OrderProductOut
@@ -2981,27 +4255,16 @@ export interface components {
          */
         OrderProductOut: {
             /**
+             * Image
+             * @description 主图 URL（T4.3：/v3/product/info/list images[0]）
+             */
+            image?: string | null;
+            /**
              * Name
              * @description 商品名称
              * @default
              */
             name: string;
-            /**
-             * Sku
-             * @description Ozon SKU
-             */
-            sku?: number | null;
-            /**
-             * Quantity
-             * @description 数量
-             * @default 0
-             */
-            quantity: number;
-            /**
-             * Price
-             * @description 单价
-             */
-            price?: number | null;
             /**
              * Offer Id
              * @description 货号
@@ -3009,15 +4272,26 @@ export interface components {
              */
             offer_id: string;
             /**
+             * Price
+             * @description 单价
+             */
+            price?: number | null;
+            /**
              * Product Id
              * @description Ozon product_id（与 sku 同值，供图查）
              */
             product_id?: number | null;
             /**
-             * Image
-             * @description 主图 URL（T4.3：/v3/product/info/list images[0]）
+             * Quantity
+             * @description 数量
+             * @default 0
              */
-            image?: string | null;
+            quantity: number;
+            /**
+             * Sku
+             * @description Ozon SKU
+             */
+            sku?: number | null;
         };
         /**
          * OzonProductListResponse
@@ -3027,11 +4301,10 @@ export interface components {
             /** Items */
             items?: components["schemas"]["OzonProductOut"][];
             /**
-             * Total
-             * @description 商品总数
-             * @default 0
+             * Last Synced At
+             * @description 最近同步时间（v0.56 缓存）
              */
-            total: number;
+            last_synced_at?: string | null;
             /**
              * Limit
              * @description 本次页大小
@@ -3052,15 +4325,21 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
-             * Last Synced At
-             * @description 最近同步时间（v0.56 缓存）
-             */
-            last_synced_at?: string | null;
-            /**
              * Sync Error
              * @description 最近同步错误（v0.56）
              */
             sync_error?: string | null;
+            /**
+             * Sync Status
+             * @description 数据新鲜度 never/syncing/ok/stale（PRD M1）
+             */
+            sync_status?: string | null;
+            /**
+             * Total
+             * @description 商品总数
+             * @default 0
+             */
+            total: number;
         };
         /**
          * OzonProductOut
@@ -3068,16 +4347,32 @@ export interface components {
          */
         OzonProductOut: {
             /**
-             * Product Id
-             * @description Ozon product_id
+             * Archived
+             * @description 是否归档(PRD M3)
+             * @default false
              */
-            product_id: string;
+            archived: boolean;
             /**
-             * Offer Id
-             * @description 货号
+             * Currency
+             * @description 货币代码
              * @default
              */
-            offer_id: string;
+            currency: string;
+            /**
+             * Error
+             * @description Ozon 错误明细(PRD M3)
+             */
+            error?: unknown[] | null;
+            /**
+             * Image
+             * @description 主图 URL
+             */
+            image?: string | null;
+            /**
+             * Min Price
+             * @description 最低价(PRD M3)
+             */
+            min_price?: number | null;
             /**
              * Name
              * @description 商品名称
@@ -3085,26 +4380,37 @@ export interface components {
              */
             name: string;
             /**
-             * Image
-             * @description 主图 URL
+             * Offer Id
+             * @description 货号
+             * @default
              */
-            image?: string | null;
+            offer_id: string;
+            /**
+             * Old Price
+             * @description 划线价(PRD M3)
+             */
+            old_price?: number | null;
             /**
              * Price
              * @description 售价
              */
             price?: number | null;
             /**
+             * Product Id
+             * @description Ozon product_id
+             */
+            product_id: string;
+            /**
+             * Status
+             * @description visible/archived/error(PRD M3)
+             * @default
+             */
+            status: string;
+            /**
              * Stock
              * @description 可用库存
              */
             stock?: number | null;
-            /**
-             * Currency
-             * @description 货币代码
-             * @default
-             */
-            currency: string;
         };
         /**
          * ProductEditResponse
@@ -3113,16 +4419,6 @@ export interface components {
          *     数据来源：product_task_index 关联草稿（直连任务无草稿 → 409，仅改图走 update_images）。
          */
         ProductEditResponse: {
-            /**
-             * Product Id
-             * @description Ozon product_id
-             */
-            product_id: string;
-            /**
-             * Offer Id
-             * @description 信封 offer_id（sku_id / follow_{id}）
-             */
-            offer_id: string;
             /**
              * Credential Id
              * @description 店铺凭证 id
@@ -3134,6 +4430,22 @@ export interface components {
              */
             draft_id: string;
             /**
+             * Draft Version
+             * @description 关联草稿乐观锁版本(PATCH /drafts 提交用)
+             * @default 1
+             */
+            draft_version: number;
+            /**
+             * Moderation Status
+             * @description 审核状态（从任务 result JSONB 尽力提取；无 → null，不实时调 Ozon）
+             */
+            moderation_status?: string | null;
+            /**
+             * Offer Id
+             * @description 信封 offer_id（sku_id / follow_{id}）
+             */
+            offer_id: string;
+            /**
              * Payload
              * @description 关联草稿 envelope（编辑表单初值）
              */
@@ -3141,10 +4453,10 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
-             * Moderation Status
-             * @description 审核状态（从任务 result JSONB 尽力提取；无 → null，不实时调 Ozon）
+             * Product Id
+             * @description Ozon product_id
              */
-            moderation_status?: string | null;
+            product_id: string;
         };
         /**
          * ProductListItem
@@ -3152,40 +4464,40 @@ export interface components {
          */
         ProductListItem: {
             /**
-             * Product Id
-             * @description Ozon product_id（上传成功后回填）
+             * Created At
+             * @description 索引创建时间
              */
-            product_id: string;
-            /**
-             * Offer Id
-             * @description 信封 offer_id（sku_id / follow_{id}）
-             */
-            offer_id: string;
-            /**
-             * Task Id
-             * @description 上架任务 UUID
-             */
-            task_id: string;
-            /**
-             * Draft Id
-             * @description 采集箱草稿 id；直连任务为 null
-             */
-            draft_id?: string | null;
+            created_at?: string | null;
             /**
              * Credential Id
              * @description 店铺凭证 id
              */
             credential_id?: string | null;
             /**
-             * Created At
-             * @description 索引创建时间
+             * Draft Id
+             * @description 采集箱草稿 id；直连任务为 null
              */
-            created_at?: string | null;
+            draft_id?: string | null;
             /**
              * Moderation Status
              * @description 审核状态（从任务 result JSONB 尽力提取，无 → null；不实时调 Ozon，任务终态即最新）
              */
             moderation_status?: string | null;
+            /**
+             * Offer Id
+             * @description 信封 offer_id（sku_id / follow_{id}）
+             */
+            offer_id: string;
+            /**
+             * Product Id
+             * @description Ozon product_id（上传成功后回填）
+             */
+            product_id: string;
+            /**
+             * Task Id
+             * @description 上架任务 UUID
+             */
+            task_id: string;
         };
         /**
          * ProductListResponse
@@ -3198,12 +4510,6 @@ export interface components {
              */
             items?: components["schemas"]["ProductListItem"][];
             /**
-             * Total
-             * @description 该租户商品总数（分页前）
-             * @default 0
-             */
-            total: number;
-            /**
              * Limit
              * @description 本次分页大小（1-100）
              * @default 20
@@ -3215,6 +4521,45 @@ export interface components {
              * @default 0
              */
             offset: number;
+            /**
+             * Total
+             * @description 该租户商品总数（分页前）
+             * @default 0
+             */
+            total: number;
+        };
+        /**
+         * ProductSourceUpdate
+         * @description 成本/货源手动维护(PATCH /products/{id}/source,manual 最高优先级)。
+         */
+        ProductSourceUpdate: {
+            /**
+             * Credential Id
+             * @description 店铺凭证 id(归属校验)
+             */
+            credential_id: string;
+            /**
+             * Freight Cny
+             * @description 1688 国内运费(可选)
+             */
+            freight_cny?: number | null;
+            /**
+             * Purchase Cost
+             * @description 到仓成本(CNY,含国内运费)
+             */
+            purchase_cost: number;
+            /**
+             * Purchase Url
+             * @description 1688 货源链接
+             * @default
+             */
+            purchase_url: string;
+            /**
+             * Supplier
+             * @description 1688 店铺名
+             * @default
+             */
+            supplier: string;
         };
         /**
          * QueryDeleteOut
@@ -3222,33 +4567,37 @@ export interface components {
          */
         QueryDeleteOut: {
             /**
-             * Ok
-             * @default true
-             */
-            ok: boolean;
-            /**
              * Deleted
              * @default true
              */
             deleted: boolean;
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
         };
         /**
          * QueryImportIn
          * @description 导入请求体：csv 文本与 items 数组二选一。
          */
         QueryImportIn: {
+            /** Csv */
+            csv?: string | null;
             /** Items */
             items?: {
                 [key: string]: unknown;
             }[] | null;
-            /** Csv */
-            csv?: string | null;
         };
         /**
          * QueryImportResult
          * @description 导入结果：新增/更新计数 + 逐行错误。
          */
         QueryImportResult: {
+            /** Errors */
+            errors?: {
+                [key: string]: unknown;
+            }[];
             /**
              * Imported
              * @default 0
@@ -3259,72 +4608,65 @@ export interface components {
              * @default 0
              */
             updated: number;
-            /** Errors */
-            errors?: {
-                [key: string]: unknown;
-            }[];
         };
         /**
          * QueryListOut
          * @description 库浏览响应。
          */
         QueryListOut: {
+            /** Items */
+            items?: components["schemas"]["QueryRow"][];
             /**
              * Total
              * @default 0
              */
             total: number;
-            /** Items */
-            items?: components["schemas"]["QueryRow"][];
         };
         /**
          * QueryRow
          * @description 关键词行（库浏览返回项）。
          */
         QueryRow: {
-            /** Id */
-            id: number;
-            /** Query */
-            query: string;
+            /** Avg Ca Rub */
+            avg_ca_rub?: number | null;
+            /** Avg Count Items */
+            avg_count_items?: number | null;
+            /** Ca */
+            ca?: number | null;
             /**
              * Count
              * @default 0
              */
             count: number;
-            /** Ca */
-            ca?: number | null;
-            /** Avg Ca Rub */
-            avg_ca_rub?: number | null;
-            /** Avg Count Items */
-            avg_count_items?: number | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Id */
+            id: number;
             /** Items Views */
             items_views?: number | null;
-            /** Uniq Queries Wca */
-            uniq_queries_wca?: number | null;
-            /** Uniq Sellers */
-            uniq_sellers?: number | null;
+            /** Query */
+            query: string;
             /**
              * Source
              * @default fetched
              */
             source: string;
-            /** Created At */
-            created_at?: string | null;
+            /** Uniq Queries Wca */
+            uniq_queries_wca?: number | null;
+            /** Uniq Sellers */
+            uniq_sellers?: number | null;
         };
         /** SiteAnnouncementOut */
         SiteAnnouncementOut: {
-            /**
-             * Title
-             * @default
-             */
-            title: string;
-            /** Content */
-            content: string;
             /**
              * Announcement Type
              * @default banner
              */
             announcement_type: string;
+            /** Content */
+            content: string;
+            /** Created At */
+            created_at?: string | null;
             /**
              * Enabled
              * @default true
@@ -3332,36 +4674,60 @@ export interface components {
             enabled: boolean;
             /** Id */
             id: number;
-            /** Created At */
-            created_at?: string | null;
-        };
-        /** SiteBannerOut */
-        SiteBannerOut: {
-            /** Image Url */
-            image_url: string;
-            /** Link Url */
-            link_url?: string | null;
             /**
              * Title
              * @default
              */
             title: string;
+        };
+        /** SiteBannerOut */
+        SiteBannerOut: {
+            /** Created At */
+            created_at?: string | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Id */
+            id: number;
+            /** Image Url */
+            image_url: string;
+            /** Link Url */
+            link_url?: string | null;
             /**
              * Sort Order
              * @default 0
              */
             sort_order: number;
             /**
-             * Enabled
-             * @default true
+             * Title
+             * @default
              */
-            enabled: boolean;
-            /** Id */
-            id: number;
-            /** Created At */
-            created_at?: string | null;
+            title: string;
             /** Updated At */
             updated_at?: string | null;
+        };
+        /**
+         * StoreSyncConfigUpdate
+         * @description 店铺同步配置更新(PATCH /stores/{id}/sync-config,免 api_key;间隔下限 5min)。
+         */
+        StoreSyncConfigUpdate: {
+            /**
+             * Sync Enabled
+             * @description 定时同步开关(手动同步仍可用)
+             */
+            sync_enabled?: boolean | null;
+            /**
+             * Sync Interval Minutes
+             * @description 订单同步间隔(分钟)
+             */
+            sync_interval_minutes?: number | null;
+            /**
+             * Sync Products Interval Minutes
+             * @description 商品同步间隔(分钟)
+             */
+            sync_products_interval_minutes?: number | null;
         };
         /**
          * SubmissionTimelineItem
@@ -3371,21 +4737,10 @@ export interface components {
          */
         SubmissionTimelineItem: {
             /**
-             * Id
-             * Format: uuid
-             * @description submission 记录 ID（draft_submissions.id）
+             * Created At
+             * @description 提交时间
              */
-            id: string;
-            /**
-             * Store Client Id
-             * @description 目标店铺 Ozon Client-Id
-             */
-            store_client_id?: string | null;
-            /**
-             * Status
-             * @description 提交状态：pending/uploading/published/failed/rejected（M0.3 写回）
-             */
-            status: string;
+            created_at?: string | null;
             /**
              * Error Message
              * @description 失败/被拒原因
@@ -3399,32 +4754,69 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
+             * Id
+             * Format: uuid
+             * @description submission 记录 ID（draft_submissions.id）
+             */
+            id: string;
+            /**
+             * Status
+             * @description 提交状态：pending/uploading/published/failed/rejected（M0.3 写回）
+             */
+            status: string;
+            /**
+             * Store Client Id
+             * @description 目标店铺 Ozon Client-Id
+             */
+            store_client_id?: string | null;
+            /**
              * Submitted Task Id
              * @description 关联任务 ID（ozon_product_tasks.id）
              */
             submitted_task_id?: string | null;
-            /**
-             * Created At
-             * @description 提交时间
-             */
-            created_at?: string | null;
         };
         /**
          * SubmitResponse
          * @description 提交成功响应（含 C5 跨店确认标记）。
+         * @example {
+         *       "confirm_required": false,
+         *       "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+         *       "existing_stores": [],
+         *       "ok": true,
+         *       "status": "pending",
+         *       "submission_id": "a1b2c3d4-0000-4000-8000-000000000002",
+         *       "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+         *     }
          */
         SubmitResponse: {
             /**
-             * Ok
-             * @default true
+             * Confirm Required
+             * @description 跨店提醒：该草稿已提交到其他店铺（不硬拦）
+             * @default false
              */
-            ok: boolean;
+            confirm_required: boolean;
             /**
              * Draft Id
              * Format: uuid
              * @description 草稿 ID（多次提交永不变）
              */
             draft_id: string;
+            /**
+             * Existing Stores
+             * @description 已有提交的店铺 client_id 列表
+             */
+            existing_stores?: string[];
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /**
+             * Status
+             * @description 提交记录状态：pending/uploading/published/failed
+             * @default pending
+             */
+            status: string;
             /**
              * Submission Id
              * @description 本次提交记录 ID（draft_submissions.id）
@@ -3436,29 +4828,22 @@ export interface components {
              * @default
              */
             task_id: string;
-            /**
-             * Status
-             * @description 提交记录状态：pending/uploading/published/failed
-             * @default pending
-             */
-            status: string;
-            /**
-             * Confirm Required
-             * @description 跨店提醒：该草稿已提交到其他店铺（不硬拦）
-             * @default false
-             */
-            confirm_required: boolean;
-            /**
-             * Existing Stores
-             * @description 已有提交的店铺 client_id 列表
-             */
-            existing_stores?: string[];
         };
         /**
          * SubmitTaskResponse
          * @description 提交任务成功响应。
+         * @example {
+         *       "message": "任务已提交",
+         *       "ok": true,
+         *       "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+         *     }
          */
         SubmitTaskResponse: {
+            /**
+             * Message
+             * @description 提交成功消息
+             */
+            message: string;
             /**
              * Ok
              * @default true
@@ -3469,11 +4854,6 @@ export interface components {
              * @description 任务 UUID，用于轮询状态
              */
             task_id: string;
-            /**
-             * Message
-             * @description 提交成功消息
-             */
-            message: string;
         };
         /**
          * TaskDraftResponse
@@ -3495,20 +4875,15 @@ export interface components {
          */
         TaskImageItem: {
             /**
-             * Slot
-             * @description 槽位: main/white_bg/multi_angle/detail/social_proof/comparison/scene_1..3/variant_{idx}
+             * Created At
+             * @description 生成时间
              */
-            slot: string;
+            created_at?: string | null;
             /**
-             * Version
-             * @description 生成版本（1 起；regen 递增）
+             * Image Parent Task Id
+             * @description resubmit 图片血缘（原 task_id；区别于任务级 payload.parent_task_id）
              */
-            version: number;
-            /**
-             * Url
-             * @description 图片 URL（COS/1688 alicdn/Ozon，前端自行处理失效）
-             */
-            url: string;
+            image_parent_task_id?: string | null;
             /**
              * Params
              * @description 节点 Input schema 原样快照
@@ -3517,21 +4892,31 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
-             * Image Parent Task Id
-             * @description resubmit 图片血缘（原 task_id；区别于任务级 payload.parent_task_id）
+             * Slot
+             * @description 槽位: main/white_bg/multi_angle/detail/social_proof/comparison/scene_1..3/variant_{idx}
              */
-            image_parent_task_id?: string | null;
+            slot: string;
             /**
-             * Created At
-             * @description 生成时间
+             * Url
+             * @description 图片 URL（COS/1688 alicdn/Ozon，前端自行处理失效）
              */
-            created_at?: string | null;
+            url: string;
+            /**
+             * Version
+             * @description 生成版本（1 起；regen 递增）
+             */
+            version: number;
         };
         /**
          * TaskImagesResponse
          * @description GET /tasks/{id}/images 响应。
          */
         TaskImagesResponse: {
+            /**
+             * Images
+             * @description 全部槽位 × 版本
+             */
+            images?: components["schemas"]["TaskImageItem"][];
             /**
              * Ok
              * @default true
@@ -3542,11 +4927,6 @@ export interface components {
              * @description 任务 UUID
              */
             task_id: string;
-            /**
-             * Images
-             * @description 全部槽位 × 版本
-             */
-            images?: components["schemas"]["TaskImageItem"][];
         };
         /**
          * TaskListItem
@@ -3554,41 +4934,21 @@ export interface components {
          */
         TaskListItem: {
             /**
-             * Id
-             * @description 任务 UUID
-             */
-            id: string;
-            /** @description 任务状态 */
-            status: components["schemas"]["TaskStatus"];
-            /**
-             * Progress
-             * @description 实时进度 {stage, percent, stages_completed[], stages_remaining[], message}
-             */
-            progress?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Product Summary
-             * @description 产品摘要（result.product_summary，completed 时有值）
-             */
-            product_summary?: {
-                [key: string]: unknown;
-            }[];
-            /**
              * Created At
              * @description 创建时间
              */
             created_at?: string | null;
             /**
-             * Updated At
-             * @description 更新时间
+             * Follow Sell
+             * @description 跟卖标记（envelope.extensions.follow_sell）
+             * @default false
              */
-            updated_at?: string | null;
+            follow_sell: boolean;
             /**
-             * Title
-             * @description 产品标题（payload envelope.draft.title）
+             * Id
+             * @description 任务 UUID
              */
-            title?: string | null;
+            id: string;
             /**
              * Image
              * @description 产品主图 URL（draft.images[0]）
@@ -3605,16 +4965,36 @@ export interface components {
              */
             ozon_client_id?: string | null;
             /**
+             * Parent Task Id
+             * @description 重上来源任务 ID（resubmit 注入，有值=重上任务）
+             */
+            parent_task_id?: string | null;
+            /**
+             * Product Summary
+             * @description 产品摘要（result.product_summary，completed 时有值）
+             */
+            product_summary?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Progress
+             * @description 实时进度 {stage, percent, stages_completed[], stages_remaining[], message}
+             */
+            progress?: {
+                [key: string]: unknown;
+            } | null;
+            /**
              * Shop Name
              * @description 店铺名（payload.shop_name，可为空）
              */
             shop_name?: string | null;
+            /** @description 任务状态 */
+            status: components["schemas"]["TaskStatus"];
             /**
-             * Follow Sell
-             * @description 跟卖标记（envelope.extensions.follow_sell）
-             * @default false
+             * Title
+             * @description 产品标题（payload envelope.draft.title）
              */
-            follow_sell: boolean;
+            title?: string | null;
             /**
              * Update Mode
              * @description 编辑更新标记（extensions.update_product_id，在线商品改后重传）
@@ -3622,10 +5002,10 @@ export interface components {
              */
             update_mode: boolean;
             /**
-             * Parent Task Id
-             * @description 重上来源任务 ID（resubmit 注入，有值=重上任务）
+             * Updated At
+             * @description 更新时间
              */
-            parent_task_id?: string | null;
+            updated_at?: string | null;
         };
         /**
          * TaskListResponse
@@ -3638,12 +5018,6 @@ export interface components {
              */
             items?: components["schemas"]["TaskListItem"][];
             /**
-             * Total
-             * @description 该租户任务总数（分页前）
-             * @default 0
-             */
-            total: number;
-            /**
              * Limit
              * @description 本次分页大小（1-100）
              * @default 20
@@ -3655,6 +5029,12 @@ export interface components {
              * @default 0
              */
             offset: number;
+            /**
+             * Total
+             * @description 该租户任务总数（分页前）
+             * @default 0
+             */
+            total: number;
         };
         /**
          * TaskStatisticsResponse
@@ -3662,23 +5042,16 @@ export interface components {
          */
         TaskStatisticsResponse: {
             /**
-             * Total
-             * @description 总任务数
-             * @default 0
+             * Avg Duration Seconds
+             * @description 平均执行时长（秒）
              */
-            total: number;
+            avg_duration_seconds?: number | null;
             /**
-             * Pending
-             * @description 待处理
+             * Cancelled
+             * @description 已取消
              * @default 0
              */
-            pending: number;
-            /**
-             * Running
-             * @description 执行中
-             * @default 0
-             */
-            running: number;
+            cancelled: number;
             /**
              * Completed
              * @description 已完成
@@ -3692,16 +5065,23 @@ export interface components {
              */
             failed: number;
             /**
-             * Cancelled
-             * @description 已取消
+             * Pending
+             * @description 待处理
              * @default 0
              */
-            cancelled: number;
+            pending: number;
             /**
-             * Avg Duration Seconds
-             * @description 平均执行时长（秒）
+             * Running
+             * @description 执行中
+             * @default 0
              */
-            avg_duration_seconds?: number | null;
+            running: number;
+            /**
+             * Total
+             * @description 总任务数
+             * @default 0
+             */
+            total: number;
         };
         /**
          * TaskStatus
@@ -3711,26 +5091,81 @@ export interface components {
         /**
          * TaskStatusResponse
          * @description 任务状态响应。
+         * @example {
+         *       "created_at": "2026-09-08T10:00:00Z",
+         *       "id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+         *       "max_retries": 3,
+         *       "priority": 0,
+         *       "progress": {
+         *         "message": "生成主图 2/5",
+         *         "percent": 53,
+         *         "stage": "image_generation",
+         *         "stages_completed": [
+         *           "auth",
+         *           "ingest",
+         *           "category_match",
+         *           "pricing",
+         *           "attributes",
+         *           "description"
+         *         ],
+         *         "stages_remaining": [
+         *           "image_generation",
+         *           "prepare_ozon_upload",
+         *           "ozon_validate",
+         *           "check_quota",
+         *           "ozon_upload",
+         *           "ozon_status",
+         *           "learning_record"
+         *         ]
+         *       },
+         *       "retry_count": 0,
+         *       "started_at": "2026-09-08T10:00:05Z",
+         *       "status": "running",
+         *       "tenant_id": "user_0123456789abcdef",
+         *       "timeout_seconds": 1800,
+         *       "updated_at": "2026-09-08T10:01:30Z"
+         *     }
          */
         TaskStatusResponse: {
+            /**
+             * Completed At
+             * @description 完成时间
+             */
+            completed_at?: string | null;
+            /**
+             * Created At
+             * @description 创建时间
+             */
+            created_at?: string | null;
+            /**
+             * Error Message
+             * @description 错误信息（failed 时有值）
+             */
+            error_message?: string | null;
             /**
              * Id
              * @description 任务 UUID
              */
             id: string;
-            /** @description 任务状态 */
-            status: components["schemas"]["TaskStatus"];
             /**
-             * Tenant Id
-             * @description 用户 ID
+             * Max Retries
+             * @description 最大重试次数
+             * @default 3
              */
-            tenant_id: string;
+            max_retries: number;
             /**
              * Priority
              * @description 任务优先级
              * @default 0
              */
             priority: number;
+            /**
+             * Progress
+             * @description 实时进度 {stage, percent, stages_completed[], stages_remaining[], message}
+             */
+            progress?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Result
              * @description 任务执行结果（completed 时有值）
@@ -3739,42 +5174,23 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
-             * Error Message
-             * @description 错误信息（failed 时有值）
-             */
-            error_message?: string | null;
-            /**
              * Retry Count
              * @description 已重试次数
              * @default 0
              */
             retry_count: number;
             /**
-             * Max Retries
-             * @description 最大重试次数
-             * @default 3
-             */
-            max_retries: number;
-            /**
-             * Created At
-             * @description 创建时间
-             */
-            created_at?: string | null;
-            /**
-             * Updated At
-             * @description 更新时间
-             */
-            updated_at?: string | null;
-            /**
              * Started At
              * @description 开始执行时间
              */
             started_at?: string | null;
+            /** @description 任务状态 */
+            status: components["schemas"]["TaskStatus"];
             /**
-             * Completed At
-             * @description 完成时间
+             * Tenant Id
+             * @description 用户 ID
              */
-            completed_at?: string | null;
+            tenant_id: string;
             /**
              * Timeout Seconds
              * @description 超时时间（秒）
@@ -3782,18 +5198,42 @@ export interface components {
              */
             timeout_seconds: number;
             /**
-             * Progress
-             * @description 实时进度 {stage, percent, stages_completed[], stages_remaining[], message}
+             * Updated At
+             * @description 更新时间
              */
-            progress?: {
-                [key: string]: unknown;
-            } | null;
+            updated_at?: string | null;
         };
         /**
          * UpdateProductImagesResponse
          * @description T14 在线商品改图重传响应。
          */
         UpdateProductImagesResponse: {
+            /**
+             * Images
+             * @description 实际提交的存活图片 URL
+             */
+            images?: string[];
+            /**
+             * Images Filtered
+             * @description 被过滤的死 URL
+             */
+            images_filtered?: string[];
+            /**
+             * Import Task Id
+             * @description Ozon /v3/product/import 返回的 task_id
+             * @default
+             */
+            import_task_id: string;
+            /**
+             * Message
+             * @description 人类可读消息
+             */
+            message: string;
+            /**
+             * Offer Id
+             * @description 信封 offer_id（sku_id / follow_{id}）
+             */
+            offer_id: string;
             /**
              * Ok
              * @default true
@@ -3805,41 +5245,15 @@ export interface components {
              */
             product_id: string;
             /**
-             * Offer Id
-             * @description 信封 offer_id（sku_id / follow_{id}）
-             */
-            offer_id: string;
-            /**
-             * Import Task Id
-             * @description Ozon /v3/product/import 返回的 task_id
-             * @default
-             */
-            import_task_id: string;
-            /**
-             * Status
-             * @description 'pending_moderation' 商品重新审核中 | 'approved' 已通过
-             */
-            status: string;
-            /**
              * Re Under Review
              * @description 「重新审核中」标记（改图触发重新审核）
              */
             re_under_review: boolean;
             /**
-             * Message
-             * @description 人类可读消息
+             * Status
+             * @description 'pending_moderation' 商品重新审核中 | 'approved' 已通过
              */
-            message: string;
-            /**
-             * Images
-             * @description 实际提交的存活图片 URL
-             */
-            images?: string[];
-            /**
-             * Images Filtered
-             * @description 被过滤的死 URL
-             */
-            images_filtered?: string[];
+            status: string;
         };
         /**
          * ValidateResponse
@@ -3847,33 +5261,33 @@ export interface components {
          */
         ValidateResponse: {
             /**
-             * Valid
-             * @description key 是否有效
+             * Last Validated At
+             * @description 本次校验时间
              */
-            valid: boolean;
+            last_validated_at?: string | null;
             /**
              * Reason
              * @description ok / invalid_key / ozon_api_error / decrypt_failed
              */
             reason: string;
             /**
-             * Last Validated At
-             * @description 本次校验时间
+             * Valid
+             * @description key 是否有效
              */
-            last_validated_at?: string | null;
+            valid: boolean;
         };
         /** ValidationError */
         ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */
             msg: string;
             /** Error Type */
             type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -3884,1862 +5298,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    http_async_run_async_run_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
-    http_get_task_task__task_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    http_run_run_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
-    http_stream_run_stream_run_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    http_cancel_cancel__run_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    http_node_run_node_run__node_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                node_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    openai_chat_completions_v1_chat_completions_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    health_check_health_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    store_health_api_v1_store_health_get: {
-        parameters: {
-            query?: {
-                client_id?: string;
-                api_key?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    auth_verify_api_v1_auth_verify_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthVerifyResponse"];
-                };
-            };
-        };
-    };
-    auth_verify_auth_verify_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthVerifyResponse"];
-                };
-            };
-        };
-    };
-    http_progress_progress__run_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    http_submit_task_submit_task_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    http_task_status_task_status__task_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    http_cancel_task_cancel_task__task_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    http_resubmit_task_resubmit_task__task_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    http_task_statistics_task_statistics_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    http_graph_inout_parameter_graph_parameter_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    logistics_quote_api_v1_logistics_quote_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    list_drafts_api_v1_drafts_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DraftOut"][];
-                };
-            };
-        };
-    };
-    create_draft_api_v1_drafts_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DraftOut"];
-                };
-            };
-        };
-    };
-    get_draft_api_v1_drafts__draft_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                draft_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DraftOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_draft_api_v1_drafts__draft_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                draft_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    patch_draft_api_v1_drafts__draft_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                draft_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DraftOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_submissions_api_v1_drafts__draft_id__submissions_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                draft_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmissionTimelineItem"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    submit_draft_api_v1_drafts__draft_id__submit_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                draft_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmitResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    draft_ai_field_api_v1_drafts__draft_id__ai__field__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                draft_id: string;
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DraftAiResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    estimate_draft_api_v1_drafts__draft_id__estimate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                draft_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    estimate_envelope_standalone_api_v1_estimate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    mxou_login_api_v1_mxou_login_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MxouLoginResponse"];
-                };
-            };
-        };
-    };
-    list_mxou_keys_api_v1_mxou_keys_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MxouKeyItem"][];
-                };
-            };
-        };
-    };
-    create_mxou_key_api_v1_mxou_keys_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MxouKeyCreateResponse"];
-                };
-            };
-        };
-    };
-    get_my_key_api_v1_mxou_my_key_get: {
-        parameters: {
-            query?: {
-                uid?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    revoke_mxou_key_api_v1_mxou_keys__key_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                key_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    select_mxou_key_api_v1_mxou_keys__key_id__select_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                key_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MxouKeySelectResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    v1_health_api_v1_health_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthResponse"];
-                };
-            };
-        };
-    };
-    v1_submit_task_api_v1_submit_task_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmitTaskResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Payment Required */
-            402: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    v1_task_status_api_v1_task_status__task_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskStatusResponse"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    v1_cancel_task_api_v1_cancel_task__task_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CancelTaskResponse"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    v1_resubmit_task_api_v1_resubmit_task__task_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmitTaskResponse"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    v1_task_statistics_api_v1_task_statistics_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskStatisticsResponse"];
-                };
-            };
-        };
-    };
-    v1_analytics_queries_api_v1_analytics_queries_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AnalyticsReportResponse"];
-                };
-            };
-        };
-    };
-    v1_analytics_ozon_bestsellers_api_v1_analytics_ozon_bestsellers_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AnalyticsReportResponse"];
-                };
-            };
-        };
-    };
-    v1_analytics_market_bestsellers_api_v1_analytics_market_bestsellers_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AnalyticsReportResponse"];
-                };
-            };
-        };
-    };
-    v1_discovery_list_runs_api_v1_discovery_runs_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    v1_discovery_report_run_api_v1_discovery_runs_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AnalyticsReportResponse"];
-                };
-            };
-        };
-    };
-    v1_analytics_list_bestsellers_api_v1_analytics_bestsellers_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    v1_mappings_lookup_api_v1_mappings_lookup_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    list_credentials_api_v1_credentials_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CredentialOut"][];
-                };
-            };
-        };
-    };
-    create_credential_api_v1_credentials_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CredentialOut"];
-                };
-            };
-        };
-    };
-    revoke_credential_api_v1_credentials__credential_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                credential_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    rotate_credential_api_v1_credentials__credential_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                credential_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CredentialOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    validate_credential_api_v1_credentials__credential_id__validate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                credential_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ValidateResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_templates_api_v1_templates_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ListingTemplateOut"][];
-                };
-            };
-        };
-    };
-    create_template_api_v1_templates_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ListingTemplateOut"];
-                };
-            };
-        };
-    };
-    delete_template_api_v1_templates__template_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                template_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_template_api_v1_templates__template_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                template_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ListingTemplateOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_default_api_v1_templates__template_id__default_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                template_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ListingTemplateOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_orders_api_v1_orders_get: {
-        parameters: {
-            query?: {
-                credential_id?: string | null;
-                status?: string | null;
-                limit?: number;
-                offset?: number;
-                since_days?: number;
-                refresh?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OrderListResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    batch_labels_api_v1_orders_batch_labels_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    batch_ship_api_v1_orders_batch_ship_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    get_order_notes_api_v1_orders__posting_number__notes_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                posting_number: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OrderNoteOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    upsert_order_notes_api_v1_orders__posting_number__notes_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                posting_number: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OrderNoteOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_order_label_api_v1_orders__posting_number__label_get: {
-        parameters: {
-            query?: {
-                credential_id?: string | null;
-            };
-            header?: never;
-            path: {
-                posting_number: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OrderLabelResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ship_order_api_v1_orders__posting_number__ship_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                posting_number: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OrderActionResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_cancel_reasons_api_v1_orders__posting_number__cancel_reasons_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                posting_number: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CancelReasonOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    cancel_order_api_v1_orders__posting_number__cancel_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                posting_number: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OrderActionResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    message_templates_api_v1_orders_message_templates_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    send_message_api_v1_orders__posting_number__message_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                posting_number: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_messages_api_v1_orders_messages_get: {
+    list_logs_api_v1_admin_audit_logs_get: {
         parameters: {
             query?: {
                 limit?: number;
@@ -5771,507 +5330,7 @@ export interface operations {
             };
         };
     };
-    admin_overview_api_v1_admin_overview_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminOverviewOut"];
-                };
-            };
-        };
-    };
-    admin_users_api_v1_admin_users_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminUserOut"][];
-                };
-            };
-        };
-    };
-    admin_user_detail_api_v1_admin_users__user_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                user_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminUserDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    admin_stores_api_v1_admin_stores_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminStoreOut"][];
-                };
-            };
-        };
-    };
-    admin_tasks_api_v1_admin_tasks_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    list_task_images_api_v1_tasks__task_id__images_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskImagesResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    regen_task_image_api_v1_tasks__task_id__images__slot__regen_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-                slot: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImageRegenResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_tasks_api_v1_tasks_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskListResponse"];
-                };
-            };
-        };
-    };
-    get_task_draft_api_v1_tasks__task_id__draft_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskDraftResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_product_images_api_v1_products__product_id__update_images_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                product_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UpdateProductImagesResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_product_edit_api_v1_products__product_id__edit_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                product_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductEditResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_products_api_v1_products_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductListResponse"];
-                };
-            };
-        };
-    };
-    list_ozon_products_api_v1_products_ozon_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OzonProductListResponse"];
-                };
-            };
-        };
-    };
-    bulk_prices_api_v1_products_bulk_prices_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    bulk_stocks_api_v1_products_bulk_stocks_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    bulk_archive_api_v1_products_bulk_archive_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    sync_store_api_v1_stores__credential_id__sync_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                credential_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    sync_status_api_v1_stores__credential_id__sync_status_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                credential_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    store_stats_api_v1_stores__credential_id__stats_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                credential_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    admin_site_banners_api_v1_admin_site_banners_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SiteBannerOut"][];
-                };
-            };
-        };
-    };
-    admin_site_create_banner_api_v1_admin_site_banners_post: {
+    create_log_api_v1_admin_audit_logs_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -6286,18 +5345,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SiteBannerOut"];
+                    "application/json": unknown;
                 };
             };
         };
     };
-    admin_site_update_banner_api_v1_admin_site_banners__banner_id__put: {
+    list_logs_api_v1_admin_audit_logs__get: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                banner_id: number;
+            query?: {
+                limit?: number;
+                offset?: number;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -6308,7 +5368,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SiteBannerOut"];
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -6322,12 +5382,112 @@ export interface operations {
             };
         };
     };
-    admin_site_delete_banner_api_v1_admin_site_banners__banner_id__delete: {
+    create_log_api_v1_admin_audit_logs__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_categories_api_v1_admin_categories_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    create_category_api_v1_admin_categories_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_categories_api_v1_admin_categories__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    create_category_api_v1_admin_categories__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    delete_category_api_v1_admin_categories__cat_id__delete: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                banner_id: number;
+                cat_id: number;
             };
             cookie?: never;
         };
@@ -6351,111 +5511,13 @@ export interface operations {
             };
         };
     };
-    admin_site_announcements_api_v1_admin_site_announcements_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SiteAnnouncementOut"][];
-                };
-            };
-        };
-    };
-    admin_site_create_announcement_api_v1_admin_site_announcements_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SiteAnnouncementOut"];
-                };
-            };
-        };
-    };
-    admin_site_update_announcement_api_v1_admin_site_announcements__announcement_id__put: {
+    rename_category_api_v1_admin_categories__cat_id__patch: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                announcement_id: number;
+                cat_id: number;
             };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SiteAnnouncementOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    admin_site_delete_announcement_api_v1_admin_site_announcements__announcement_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                announcement_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    site_public_banners_api_v1_site_banners_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -6469,29 +5531,18 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-        };
-    };
-    site_public_announcements_api_v1_site_announcements_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
+            /** @description Validation Error */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
     };
-    list_configs_api_v1_admin_config__get: {
+    list_configs_api_v1_admin_config_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -6511,7 +5562,7 @@ export interface operations {
             };
         };
     };
-    list_configs_api_v1_admin_config_get: {
+    list_configs_api_v1_admin_config__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -6661,6 +5712,221 @@ export interface operations {
             };
         };
     };
+    list_sources_api_v1_admin_data_sources_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_source_api_v1_admin_data_sources_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_sources_api_v1_admin_data_sources__get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_source_api_v1_admin_data_sources__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    import_csv_api_v1_admin_data_sources_import_csv_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_source_api_v1_admin_data_sources__ds_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ds_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_source_api_v1_admin_data_sources__ds_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ds_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_source_api_v1_admin_data_sources__ds_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ds_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     admin_logistics_list_rates_api_v1_admin_logistics_rates_get: {
         parameters: {
             query?: {
@@ -6691,6 +5957,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_logistics_import_rates_api_v1_admin_logistics_rates_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogisticsImportResult"];
                 };
             };
         };
@@ -6726,7 +6012,7 @@ export interface operations {
             };
         };
     };
-    admin_logistics_import_rates_api_v1_admin_logistics_rates_import_post: {
+    admin_overview_api_v1_admin_overview_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -6741,12 +6027,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LogisticsImportResult"];
+                    "application/json": components["schemas"]["AdminOverviewOut"];
                 };
             };
         };
     };
-    list_queries_api_v1_admin_queries__get: {
+    list_queries_api_v1_admin_queries_get: {
         parameters: {
             query?: {
                 limit?: number;
@@ -6779,7 +6065,7 @@ export interface operations {
             };
         };
     };
-    list_queries_api_v1_admin_queries_get: {
+    list_queries_api_v1_admin_queries__get: {
         parameters: {
             query?: {
                 limit?: number;
@@ -6876,7 +6162,3564 @@ export interface operations {
             };
         };
     };
-    newapi_proxy_api__path__patch: {
+    admin_site_announcements_api_v1_admin_site_announcements_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteAnnouncementOut"][];
+                };
+            };
+        };
+    };
+    admin_site_create_announcement_api_v1_admin_site_announcements_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteAnnouncementOut"];
+                };
+            };
+        };
+    };
+    admin_site_update_announcement_api_v1_admin_site_announcements__announcement_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                announcement_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteAnnouncementOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_site_delete_announcement_api_v1_admin_site_announcements__announcement_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                announcement_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_site_banners_api_v1_admin_site_banners_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteBannerOut"][];
+                };
+            };
+        };
+    };
+    admin_site_create_banner_api_v1_admin_site_banners_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteBannerOut"];
+                };
+            };
+        };
+    };
+    admin_site_update_banner_api_v1_admin_site_banners__banner_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                banner_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteBannerOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_site_delete_banner_api_v1_admin_site_banners__banner_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                banner_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_stores_api_v1_admin_stores_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminStoreOut"][];
+                };
+            };
+        };
+    };
+    admin_sync_health_api_v1_admin_sync_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    admin_tasks_api_v1_admin_tasks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    admin_users_api_v1_admin_users_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserOut"][];
+                };
+            };
+        };
+    };
+    admin_create_user_api_v1_admin_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    admin_user_detail_api_v1_admin_users__user_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_update_user_api_v1_admin_users__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    v1_analytics_list_bestsellers_api_v1_analytics_bestsellers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    http_categories_api_v1_analytics_categories_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    http_hot_queries_api_v1_analytics_hot_queries_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    v1_analytics_market_bestsellers_api_v1_analytics_market_bestsellers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsReportResponse"];
+                };
+            };
+        };
+    };
+    http_market_overview_api_v1_analytics_market_overview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    v1_analytics_ozon_bestsellers_api_v1_analytics_ozon_bestsellers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsReportResponse"];
+                };
+            };
+        };
+    };
+    v1_analytics_queries_api_v1_analytics_queries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsReportResponse"];
+                };
+            };
+        };
+    };
+    http_sales_trend_api_v1_analytics_sales_trend_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    auth_verify_api_v1_auth_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthVerifyResponse"];
+                };
+            };
+        };
+    };
+    v1_cancel_task_api_v1_cancel_task__task_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelTaskResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    v1_categories_attributes_api_v1_categories_attributes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    v1_categories_search_api_v1_categories_search_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    http_commissions_lookup_api_v1_commissions_lookup_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_credentials_api_v1_credentials_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialOut"][];
+                };
+            };
+        };
+    };
+    create_credential_api_v1_credentials_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialOut"];
+                };
+            };
+        };
+    };
+    revoke_credential_api_v1_credentials__credential_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rotate_credential_api_v1_credentials__credential_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    hard_delete_credential_data_api_v1_credentials__credential_id__data_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validate_credential_api_v1_credentials__credential_id__validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dashboard_overview_api_v1_dashboard_overview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    v1_discovery_list_runs_api_v1_discovery_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    v1_discovery_report_run_api_v1_discovery_runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsReportResponse"];
+                };
+            };
+        };
+    };
+    list_drafts_api_v1_drafts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftOut"][];
+                };
+            };
+        };
+    };
+    create_draft_api_v1_drafts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftOut"];
+                };
+            };
+        };
+    };
+    batch_submit_drafts_api_v1_drafts_batch_submit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    export_drafts_api_v1_drafts_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    import_drafts_csv_api_v1_drafts_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_draft_api_v1_drafts__draft_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_draft_api_v1_drafts__draft_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_draft_api_v1_drafts__draft_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    draft_ai_field_api_v1_drafts__draft_id__ai__field__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftAiResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    estimate_draft_api_v1_drafts__draft_id__estimate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resubmit_draft_api_v1_drafts__draft_id__resubmit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmitResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_submissions_api_v1_drafts__draft_id__submissions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionTimelineItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_draft_api_v1_drafts__draft_id__submit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmitResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    v1_list_error_reports_api_v1_error_reports_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    v1_create_error_report_api_v1_error_reports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    estimate_envelope_standalone_api_v1_estimate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    v1_task_forensics_api_v1_forensics_task__task_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    v1_health_api_v1_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    list_image_tasks_api_v1_image_tasks_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageTaskListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_image_task_api_v1_image_tasks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageTaskCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageTaskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_image_tasks_api_v1_image_tasks__get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageTaskListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_image_task_api_v1_image_tasks__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageTaskCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageTaskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_image_task_api_v1_image_tasks__task_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageTaskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_image_task_api_v1_image_tasks__task_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logistics_quote_api_v1_logistics_quote_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    v1_mappings_lookup_api_v1_mappings_lookup_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    mxou_balance_api_v1_mxou_balance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_mxou_keys_api_v1_mxou_keys_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MxouKeyItem"][];
+                };
+            };
+        };
+    };
+    create_mxou_key_api_v1_mxou_keys_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MxouKeyCreateResponse"];
+                };
+            };
+        };
+    };
+    revoke_mxou_key_api_v1_mxou_keys__key_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    select_mxou_key_api_v1_mxou_keys__key_id__select_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MxouKeySelectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mxou_login_api_v1_mxou_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MxouLoginResponse"];
+                };
+            };
+        };
+    };
+    mxou_logout_api_v1_mxou_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    mxou_me_api_v1_mxou_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_my_key_api_v1_mxou_my_key_get: {
+        parameters: {
+            query?: {
+                uid?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_orders_api_v1_orders_get: {
+        parameters: {
+            query?: {
+                credential_id?: string | null;
+                status?: string | null;
+                limit?: number;
+                offset?: number;
+                since_days?: number;
+                refresh?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_labels_api_v1_orders_batch_labels_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    batch_ship_api_v1_orders_batch_ship_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    message_templates_api_v1_orders_message_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_messages_api_v1_orders_messages_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_order_api_v1_orders__posting_number__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                posting_number: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderActionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_cancel_reasons_api_v1_orders__posting_number__cancel_reasons_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                posting_number: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelReasonOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_order_label_api_v1_orders__posting_number__label_get: {
+        parameters: {
+            query?: {
+                credential_id?: string | null;
+            };
+            header?: never;
+            path: {
+                posting_number: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderLabelResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_message_api_v1_orders__posting_number__message_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                posting_number: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_order_notes_api_v1_orders__posting_number__notes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                posting_number: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderNoteOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_order_notes_api_v1_orders__posting_number__notes_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                posting_number: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderNoteOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ship_order_api_v1_orders__posting_number__ship_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                posting_number: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderActionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_products_api_v1_products_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductListResponse"];
+                };
+            };
+        };
+    };
+    bulk_archive_api_v1_products_bulk_archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    bulk_prices_api_v1_products_bulk_prices_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    bulk_stocks_api_v1_products_bulk_stocks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_ozon_products_api_v1_products_ozon_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OzonProductListResponse"];
+                };
+            };
+        };
+    };
+    get_product_cost_api_v1_products__product_id__cost_get: {
+        parameters: {
+            query: {
+                credential_id: string;
+            };
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_product_edit_api_v1_products__product_id__edit_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductEditResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_product_source_api_v1_products__product_id__source_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSourceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_source_candidates_api_v1_products__product_id__source_candidates_get: {
+        parameters: {
+            query: {
+                credential_id: string;
+            };
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_product_images_api_v1_products__product_id__update_images_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateProductImagesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    task_progress_stream_api_v1_progress__task_id__stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    v1_resubmit_task_api_v1_resubmit_task__task_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmitTaskResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    http_seo_keywords_api_v1_seo_keywords_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    http_seo_keywords_api_v1_seo_keywords__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_settings_api_v1_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    put_settings_api_v1_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    site_public_announcements_api_v1_site_announcements_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    site_public_banners_api_v1_site_banners_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    report_source_candidates_api_v1_source_candidates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    store_health_api_v1_store_health_get: {
+        parameters: {
+            query?: {
+                client_id?: string;
+                api_key?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_all_stores_api_v1_stores_sync_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_warehouses_api_v1_stores_warehouses_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    store_actions_api_v1_stores__credential_id__actions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    store_analysis_api_v1_stores__credential_id__analysis_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    store_analytics_daily_api_v1_stores__credential_id__analytics_daily_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    store_daily_metrics_api_v1_stores__credential_id__daily_metrics_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    store_returns_api_v1_stores__credential_id__returns_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    store_stats_api_v1_stores__credential_id__stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_store_api_v1_stores__credential_id__sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_store_sync_config_api_v1_stores__credential_id__sync_config_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreSyncConfigUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    store_sync_jobs_history_api_v1_stores__credential_id__sync_jobs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_status_api_v1_stores__credential_id__sync_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    v1_submit_task_api_v1_submit_task_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Envelope
+                     * @description 产品数据信封 {draft, source, extensions}
+                     */
+                    envelope: {
+                        [key: string]: unknown;
+                    };
+                    /**
+                     * Max Retries
+                     * @description 最大重试次数，默认 3
+                     * @default 3
+                     */
+                    max_retries?: number;
+                    /**
+                     * Ozon Api Key
+                     * @description Ozon 卖家 Api-Key
+                     */
+                    ozon_api_key: string;
+                    /**
+                     * Ozon Client Id
+                     * @description Ozon 卖家 Client-Id
+                     */
+                    ozon_client_id: string;
+                    /**
+                     * Timeout Seconds
+                     * @description 任务超时时间（秒），默认 30 分钟
+                     * @default 1800
+                     */
+                    timeout_seconds?: number;
+                    /**
+                     * Token
+                     * @description MXOU API Key（带或不带 sk- 前缀）
+                     */
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmitTaskResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Payment Required */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    sync_job_detail_api_v1_sync_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    v1_task_statistics_api_v1_task_statistics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskStatisticsResponse"];
+                };
+            };
+        };
+    };
+    v1_task_status_api_v1_task_status__task_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskStatusResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tasks_api_v1_tasks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskListResponse"];
+                };
+            };
+        };
+    };
+    get_task_draft_api_v1_tasks__task_id__draft_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskDraftResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_task_images_api_v1_tasks__task_id__images_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskImagesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    regen_task_image_api_v1_tasks__task_id__images__slot__regen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                slot: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageRegenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    task_progress_detail_api_v1_tasks__task_id__progress_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_templates_api_v1_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListingTemplateOut"][];
+                };
+            };
+        };
+    };
+    create_template_api_v1_templates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListingTemplateOut"];
+                };
+            };
+        };
+    };
+    delete_template_api_v1_templates__template_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_template_api_v1_templates__template_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListingTemplateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_default_api_v1_templates__template_id__default_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListingTemplateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    newapi_proxy_api__path__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    newapi_proxy_api__path__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    newapi_proxy_api__path__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    newapi_proxy_api__path__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -6938,12 +9781,54 @@ export interface operations {
             };
         };
     };
-    newapi_proxy_api__path__patch: {
+    http_async_run_async_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    auth_verify_auth_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthVerifyResponse"];
+                };
+            };
+        };
+    };
+    http_cancel_cancel__run_id__post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                path: string;
+                run_id: string;
             };
             cookie?: never;
         };
@@ -6969,12 +9854,12 @@ export interface operations {
             };
         };
     };
-    newapi_proxy_api__path__patch: {
+    http_cancel_task_cancel_task__task_id__post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                path: string;
+                task_id: string;
             };
             cookie?: never;
         };
@@ -7000,12 +9885,72 @@ export interface operations {
             };
         };
     };
-    newapi_proxy_api__path__patch: {
+    v1_categories_attributes_categories_attributes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    v1_categories_search_categories_search_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    http_commissions_lookup_commissions_lookup_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    v1_task_forensics_forensics_task__task_id__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                path: string;
+                task_id: string;
             };
             cookie?: never;
         };
@@ -7027,6 +9972,305 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    http_graph_inout_parameter_graph_parameter_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    health_check_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    http_node_run_node_run__node_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    http_progress_progress__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    http_resubmit_task_resubmit_task__task_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    http_run_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    http_stream_run_stream_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    http_submit_task_submit_task_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    http_get_task_task__task_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    http_task_statistics_task_statistics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    http_task_status_task_status__task_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    openai_chat_completions_v1_chat_completions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
