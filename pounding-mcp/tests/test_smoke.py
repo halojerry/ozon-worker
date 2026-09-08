@@ -60,7 +60,9 @@ def test_all_tools_registered():
         # worker REST 直调（5）
         "analyze_store", "run_store_action", "report_issue",
         "list_error_reports", "get_task_forensics",
+        # 后台任务监控（4，v0.70 配 background=true 使用）
+        "job_list", "job_status", "job_result", "job_cancel",
     }
     missing = expected - names
     assert not missing, f"未注册的工具: {missing}"
-    assert len(names) == 25, f"工具数应为 25，实际 {len(names)}"
+    assert len(names) == 29, f"工具数应为 29，实际 {len(names)}"

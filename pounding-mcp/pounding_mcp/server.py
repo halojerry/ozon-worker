@@ -1,9 +1,14 @@
-"""FastMCP 工厂 —— 注册 25 个 MCP 工具（v0.70：20 个 skill CLI 封装 + 5 个 worker REST 直调）。
+"""FastMCP 工厂 —— 注册 MCP 工具（v0.70：25 个既有 + 4 个后台 job_* 监控）。
 
 设计原则（见 docs/ozonharness/MCP-TOOLS.md）：
 - 薄封装：每个工具 = 参数映射 CLI flag + run_skill_command，业务逻辑留在 skill
 - 不做审批：审批/安全门控在 dsh 侧 `tools/pre-execute` 钩子（本 server 是独立进程，无 ctx.approval）
 - 参数 1:1 映射 CLI：下划线转连字符（page_size → --page-size）
+
+v0.70 后台化：慢命令（discover/discover_multi/discover_task/follow/seller/queries/
+graph）加 `background=true` → CLI 进程脱离会话独立运行（输出落盘），工具 <1s 返回
+task dict，agent 用 job_status/job_result 轮询；dsh 会话关闭任务照跑，重开会话
+job_list 找回。缺省 background=False 行为与旧版逐字一致。
 
 工具在 dsh 中可见为 `mcp__pounding__<toolName>`（由 dsh-mcp-client 加前缀）。
 """
@@ -21,6 +26,14 @@ from .worker_http import list_error_reports as _list_error_reports
 from .worker_http import get_task_forensics as _get_task_forensics
 
 mcp = FastMCP("pounding")
+
+
+def _run_or_background(kind: str, params: dict, background: bool,
+                       force: bool = False) -> dict:
+    """同步执行（缺省，兼容旧流程）或后台启动（background=true 立即返回）。"""
+    if not background:
+        return get_manager().run_and_record(kind, params, source="agent")
+    return get_manager().start_background(kind, params, source="agent", force=force)
 
 
 # ── 只读 / 诊断 ────────────────────────────────────────────────
@@ -96,11 +109,14 @@ def category(query: str, lang: str = "ZH_HANS", max: int = 5, store: str = "") -
 
 @mcp.tool()
 def follow(ozon_url: str, auto_submit: bool = False, to_box: bool = False,
-           store: str = "", review: bool = False, notify: bool = False) -> dict:
-    """跟卖 Ozon 商品（竞品 → 找 1688 同款 → 上架）。auto_submit/to_box 触发 dsh 侧审批。"""
-    return get_manager().run_and_record("follow",
+           store: str = "", review: bool = False, notify: bool = False,
+           background: bool = False, force: bool = False) -> dict:
+    """跟卖 Ozon 商品（竞品 → 找 1688 同款 → 上架）。auto_submit/to_box 触发 dsh 侧审批。
+    background=true 后台跑立即返回 task_id（job_status 轮询）；force 强制越过单飞闸。"""
+    return _run_or_background("follow",
         {"ozon_url": ozon_url, "auto_submit": auto_submit, "to_box": to_box,
-         "store": store, "review": review, "notify": notify}, source="agent")
+         "store": store, "review": review, "notify": notify},
+        background, force)
 
 
 @mcp.tool()
@@ -108,59 +124,76 @@ def discover(url: str = "", keyword: str = "", local: bool = False,
              max_products: int = 50, min_margin: float = 15.0,
              store: str = "", auto_submit: bool = False, to_box: bool = False,
              fission: bool = False, max_depth: int = 2,
-             rules: str = "", review: bool = False, notify: bool = False) -> dict:
+             rules: str = "", review: bool = False, notify: bool = False,
+             background: bool = False, force: bool = False) -> dict:
     """Ozon 选品 v2（采集 → 分析 → 挑货）。只读；auto_submit/to_box/fission 触发 dsh 侧审批。
-    更多参数（fx_rate / min_price / max_price / brand_filter / export / blue-ocean 等）见 skill CLI discover --help。"""
-    return get_manager().run_and_record("discover",
+    更多参数（fx_rate / min_price / max_price / brand_filter / export / blue-ocean 等）见 skill CLI discover --help。
+    background=true 后台跑立即返回 task_id（分钟级任务必用，别阻塞对话）。"""
+    return _run_or_background("discover",
         {"url": url, "keyword": keyword, "local": local,
          "max_products": max_products, "min_margin": min_margin, "store": store,
          "auto_submit": auto_submit, "to_box": to_box, "fission": fission,
          "max_depth": max_depth, "rules": rules, "review": review, "notify": notify},
-        source="agent")
+        background, force)
 
 
 @mcp.tool()
 def discover_multi(keywords: str, max_each: int = 30, local: bool = False,
                    min_margin: float = 15.0, store: str = "",
-                   auto_submit: bool = False, to_box: bool = False) -> dict:
-    """多关键词批量选品。keywords 逗号分隔。auto_submit/to_box 触发 dsh 侧审批。"""
-    return get_manager().run_and_record("discover_multi",
+                   auto_submit: bool = False, to_box: bool = False,
+                   background: bool = False, force: bool = False) -> dict:
+    """多关键词批量选品。keywords 逗号分隔。auto_submit/to_box 触发 dsh 侧审批。
+    background=true 后台跑立即返回 task_id。"""
+    return _run_or_background("discover_multi",
         {"keywords": keywords, "max_each": max_each, "local": local,
-         "min_margin": min_margin, "store": store, "auto_submit": auto_submit, "to_box": to_box},
-        source="agent")
+         "min_margin": min_margin, "store": store, "auto_submit": auto_submit,
+         "to_box": to_box},
+        background, force)
 
 
 @mcp.tool()
 def discover_task(url: str = "", keyword: str = "", target_count: int = 50,
-                  min_margin: float = 15.0, match_limit: int = 30,
+                  min_margin: float = 15.0, match_limit: int | None = None,
                   match_concurrency: int = 1, store: str = "",
                   to_box: bool = False, dry_run: bool = True,
-                  resume: bool = False) -> dict:
-    """任务式全自动选品（漏斗 v2）：采集 → ai 粗筛 → 自动 1688 匹配（限额+早停）→ 利润精筛。
+                  resume: bool = False, max_scan: int = 300,
+                  background: bool = False, force: bool = False) -> dict:
+    """任务式全自动目标驱动选品（漏斗 v2，v0.70 语义翻转）：--max-scan 上限采集
+    （默认 300，深滚动）→ ai 粗筛 → 自动 1688 匹配 → profitable 达到 target_count
+    即停（达标数，护图搜配额；匹配池按达标可能性降序）。match_limit 缺省=目标×3。
     dry_run=True（默认）只统计不入箱零副作用；to_box=True 逐条入采集箱（POST /drafts），
-    真实写操作须 dsh 侧审批。resume 续跑同入口最近任务（跳过已入箱 pid）。"""
-    return get_manager().run_and_record("discover_task",
+    真实写操作须 dsh 侧审批。resume 续跑同入口最近任务（跳过已处理 pid 不重烧图搜）；
+    粗筛池耗尽仍未达标会如实报告缺口（加大 max-scan / 换词续采）。
+    background=true 后台跑立即返回 task_id——本命令分钟级，长任务必用。"""
+    return _run_or_background("discover_task",
         {"url": url, "keyword": keyword, "target_count": target_count,
          "min_margin": min_margin, "match_limit": match_limit,
          "match_concurrency": match_concurrency, "store": store,
-         "to_box": to_box, "dry_run": dry_run, "resume": resume},
-        source="agent")
+         "to_box": to_box, "dry_run": dry_run, "resume": resume,
+         "max_scan": max_scan},
+        background, force)
 
 
 @mcp.tool()
-def seller(seller_id: str, max_products: int = 60, max_skus: int = 30) -> dict:
-    """卖家店铺全产品运营分析（跟卖前 20 名卖家 → 店铺选品）。只读。"""
-    return get_manager().run_and_record("seller",
-        {"seller_id": seller_id, "max_products": max_products, "max_skus": max_skus}, source="agent")
+def seller(seller_id: str, max_products: int = 60, max_skus: int = 30,
+           background: bool = False, force: bool = False) -> dict:
+    """卖家店铺全产品运营分析（跟卖前 20 名卖家 → 店铺选品）。只读。
+    background=true 后台跑立即返回 task_id。"""
+    return _run_or_background("seller",
+        {"seller_id": seller_id, "max_products": max_products, "max_skus": max_skus},
+        background, force)
 
 
 @mcp.tool()
 def queries(type: str, keyword: str = "", sku: str = "", category_id: str = "",
-            price_min: float | None = None, price_max: float | None = None) -> dict:
-    """what-to-sell 榜单查询。type: all-queries/ozon-bestsellers/market-bestsellers。只读。"""
-    return get_manager().run_and_record("queries",
+            price_min: float | None = None, price_max: float | None = None,
+            background: bool = False, force: bool = False) -> dict:
+    """what-to-sell 榜单查询。type: all-queries/ozon-bestsellers/market-bestsellers。只读。
+    background=true 后台跑立即返回 task_id。"""
+    return _run_or_background("queries",
         {"type": type, "keyword": keyword, "sku": sku, "category_id": category_id,
-         "price_min": price_min, "price_max": price_max}, source="agent")
+         "price_min": price_min, "price_max": price_max},
+        background, force)
 
 
 # ── 上架组装 / 提交 ────────────────────────────────────────────
@@ -169,20 +202,68 @@ def queries(type: str, keyword: str = "", sku: str = "", category_id: str = "",
 def graph(item_id: str = "", url: str = "", category_query: str = "",
           retries: int = 3, store: str = "", no_submit: bool = False,
           to_box: bool = False, ozon_ref_url: str = "",
-          template_id: str = "", notify: bool = False) -> dict:
+          template_id: str = "", notify: bool = False,
+          background: bool = False, force: bool = False) -> dict:
     """组装 GraphInput 信封并提交上架。默认直接提交（dsh 侧 pre-execute 审批）；
-    no_submit=True 只组装；to_box=True 入采集箱。"""
-    return run_skill_command(
-        "graph", item_id=item_id, url=url, category_query=category_query,
-        retries=retries, store=store, no_submit=no_submit, to_box=to_box,
-        ozon_ref_url=ozon_ref_url, template_id=template_id, notify=notify,
-    )
+    no_submit=True 只组装；to_box=True 入采集箱。
+    background=true 后台跑立即返回 task_id——CDP+图搜分钟级，长任务必用；
+    完成后 job_status 的 worker_task_ids 可直接喂给 query 查云任务。"""
+    return _run_or_background("graph",
+        {"item_id": item_id, "url": url, "category_query": category_query,
+         "retries": retries, "store": store, "no_submit": no_submit,
+         "to_box": to_box, "ozon_ref_url": ozon_ref_url,
+         "template_id": template_id, "notify": notify},
+        background, force)
 
 
 @mcp.tool()
 def query(task_id: str, watch: bool = False, timeout: int = 900) -> dict:
     """查询 Worker 任务状态。只读。watch=True 轮询直到终态。"""
     return run_skill_command("query", task_id, watch=watch, timeout=timeout)
+
+
+# ── 后台任务监控（v0.70：配 background=true 使用）──────────────────
+
+@mcp.tool()
+def job_list(limit: int = 20) -> dict:
+    """列出本机采集/选品/上架任务（含后台任务与实时进度）。只读。
+
+    会话关闭后任务仍在跑（后台进程独立于会话）；重开会话先 job_list 找回。
+    返回 items[]：id/kind/label/status(running|completed|failed|cancelled|
+    interrupted)/progress{current,total}/stage/summary/error。"""
+    return {"items": get_manager().list(limit)}
+
+
+@mcp.tool()
+def job_status(task_id: str, log_tail: int = 40) -> dict:
+    """查单个任务详情：状态/阶段/进度/摘要/错误 + 日志尾 + 关联 worker task_id。只读。
+
+    后台任务（background=true 提交）的进度看 progress/stage 字段；卡住时看
+    log_tail 最后几行。完成后 worker_task_ids 给 query 工具查云端任务；
+    job_result 取完整结果。"""
+    t = get_manager().get(task_id)
+    if not t:
+        return {"error": f"任务不存在: {task_id}（job_list 可列出全部）"}
+    t["log_tail"] = get_manager().log_tail(task_id, log_tail)
+    t["worker_task_ids"] = get_manager().extract_worker_task_ids(task_id)
+    return t
+
+
+@mcp.tool()
+def job_result(task_id: str) -> dict:
+    """取任务完整结果 JSON（任务完成后调用；大结果单独取，不塞进 job_status）。只读。"""
+    result, err = get_manager().read_result(task_id)
+    if result is None:
+        return {"error": err or f"任务 {task_id} 尚无结果（job_status 查状态）"}
+    return result
+
+
+@mcp.tool()
+def job_cancel(task_id: str) -> dict:
+    """取消运行中的任务（终止子进程/进程组；后台任务同样可取消）。写操作。"""
+    ok = get_manager().cancel(task_id)
+    return {"ok": ok, "task_id": task_id,
+            "hint": "" if ok else "任务不存在或已非 running（job_list 核对）"}
 
 
 # ── 维护 ──────────────────────────────────────────────────────
