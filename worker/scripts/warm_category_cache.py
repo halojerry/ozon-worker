@@ -41,14 +41,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("warm_cache")
 
 # Ozon API credentials (from env, same as worker)
+# ✅ v0.70: 移除硬编码测试店铺 fallback——凭证只能从环境变量来（代码不落 key）。
+# 预热/导出模式在 main() 启动时校验；--coverage / --import-only 无需凭证。
 OZON_CLIENT_ID = os.getenv("OZON_CLIENT_ID_WARM", "") or os.getenv("OZON_CLIENT_ID", "")
 OZON_API_KEY = os.getenv("OZON_API_KEY_WARM", "") or os.getenv("OZON_API_KEY", "")
-
-# Fallback: hardcoded test store for development
-if not OZON_CLIENT_ID or not OZON_API_KEY:
-    OZON_CLIENT_ID = "5381204"
-    OZON_API_KEY = "***REMOVED***"
-    logger.warning("⚠️ 使用默认测试店铺凭证，生产环境请设置 OZON_CLIENT_ID / OZON_API_KEY")
 
 API_DELAY = 0.3   # 每个 API 调用后的延迟（秒）—— 0.05 太激进，3 并发时每秒 60 请求必触发 429
 DICT_FETCH_WORKERS = 2  # 并发拉字典值线程数（3 → 2，配合延迟控制限流）
@@ -168,8 +164,11 @@ def _write_node_to_pg(dc: int, tid: int, schema: list[dict], dict_values: dict, 
     from storage.database.db import get_session
     from sqlalchemy import text
 
-    expires_7d = now + 7 * 86400  # schema 7天过期
-    expires_1d = now + 86400      # 字典值 1天过期
+    # ✅ v0.70: 30 天 TTL——schema/字典值低频变化（Ozon 类目结构月级稳定），
+    # 1 天字典 TTL 使「全量预热」一周内自动衰减回懒加载（全量化策略见
+    # docs/CACHE-WARM-RUNBOOK.md），warm/init_data/local_db_manager 三处一致。
+    expires_schema = now + 30 * 86400  # schema 30 天过期
+    expires_dict = now + 30 * 86400    # 字典值 30 天过期
 
     session = get_session()
     try:
@@ -181,7 +180,7 @@ def _write_node_to_pg(dc: int, tid: int, schema: list[dict], dict_values: dict, 
                           expires_at = EXCLUDED.expires_at,
                           created_at = EXCLUDED.created_at
         """), {"dc": dc, "tid": tid, "schema": json.dumps(schema, ensure_ascii=False),
-               "expires": expires_7d, "now": now})
+               "expires": expires_schema, "now": now})
 
         for key, val in dict_values.items():
             parts = key.split(":", 2)
@@ -194,7 +193,7 @@ def _write_node_to_pg(dc: int, tid: int, schema: list[dict], dict_values: dict, 
                               expires_at = EXCLUDED.expires_at,
                               created_at = EXCLUDED.created_at
             """), {"aid": attr_id, "dc": dc, "tid": tid, "vals": json.dumps(val, ensure_ascii=False),
-                   "expires": expires_1d, "now": now})
+                   "expires": expires_dict, "now": now})
 
         session.commit()
     except Exception as e:
@@ -215,8 +214,8 @@ def write_to_pg(schemas: dict, dict_values: dict, batch: int = 200):
     import time as _time
 
     now = int(_time.time())
-    expires_7d = now + 7 * 86400
-    expires_1d = now + 86400
+    expires_schema = now + 30 * 86400  # v0.70: 30 天（与 _write_node_to_pg 一致）
+    expires_dict = now + 30 * 86400
 
     session = get_session()
     try:
@@ -233,7 +232,7 @@ def write_to_pg(schemas: dict, dict_values: dict, batch: int = 200):
                               expires_at = EXCLUDED.expires_at,
                               created_at = EXCLUDED.created_at
             """), {"dc": dc, "tid": tid, "schema": json.dumps(val, ensure_ascii=False),
-                   "expires": expires_7d, "now": now})
+                   "expires": expires_schema, "now": now})
             count_schema += 1
             if count_schema % batch == 0:
                 session.commit()
@@ -255,7 +254,7 @@ def write_to_pg(schemas: dict, dict_values: dict, batch: int = 200):
                               expires_at = EXCLUDED.expires_at,
                               created_at = EXCLUDED.created_at
             """), {"aid": attr_id, "dc": dc, "tid": tid, "vals": json.dumps(val, ensure_ascii=False),
-                   "expires": expires_1d, "now": now})
+                   "expires": expires_dict, "now": now})
             count_dict += 1
             if count_dict % batch == 0:
                 session.commit()
@@ -463,6 +462,13 @@ def main():
 
     # ✅ v0.69 T3.3: --all → 全量（limit=None）；冲突已在 parse_args 拒绝
     limit = resolve_limit(args.all, args.limit)
+
+    # ✅ v0.70: 预热/导出模式需要 Ozon 凭证（缺失显式退出，不再静默落硬编码店）
+    if not OZON_CLIENT_ID or not OZON_API_KEY:
+        logger.error(
+            "❌ 预热/导出需要 Ozon 凭证：export OZON_CLIENT_ID=<id> OZON_API_KEY=<key> "
+            "（--coverage / --import-only 模式无需凭证）")
+        sys.exit(1)
 
     # 仅导入模式：从 JSON 文件读取 → 写入 PG（分批事务）
     if args.import_only:

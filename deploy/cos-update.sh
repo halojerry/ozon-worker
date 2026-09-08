@@ -245,6 +245,29 @@ else
   warn "⚠️ init_data.py 执行失败——检查日志; 建议手动: docker compose exec worker python scripts/init_data.py"
 fi
 
+# ── 7.6 v0.70: 属性缓存全量 JSON——COS 下载 → 拷入容器 → 后台 --import-only ──
+# 「部署即全量」：一次性分片预热(~16h) → --export-only → 上传 COS 后，此后每次
+# 升级自动灌入全量缓存（30 天 TTL）。COS 缺失时跳过（懒加载兜底，不阻断升级）。
+# 运维手册: docs/CACHE-WARM-RUNBOOK.md
+CACHE_BASE_URL="https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/ozon-worker/cache"
+CACHE_OK=0
+for _f in attribute_schemas_zh.json dictionary_values_zh.json; do
+  _tmp=$(mktemp)
+  if curl -fsSL --retry 2 --retry-delay 2 --max-time 600 -o "$_tmp" "$CACHE_BASE_URL/$_f"; then
+    if docker compose cp "$_tmp" "worker:/app/assets/$_f" 2>/dev/null; then
+      log "  ✓ 属性缓存 JSON 就位: $_f"
+      CACHE_OK=1
+    fi
+  else
+    warn "  COS 无属性缓存 $_f（跳过，运行时懒加载兜底）"
+  fi
+  rm -f "$_tmp"
+done
+if [ "$CACHE_OK" = "1" ]; then
+  log "🔥 后台灌入全量属性缓存(--import-only, 日志 /app/logs/warm_import.log)..."
+  docker compose exec -T worker sh -c "python scripts/warm_category_cache.py --import-only >> /app/logs/warm_import.log 2>&1" &
+fi
+
 # ── 8. Docker 清理(--no-cache 构建累积历史镜像层/缓存, 防磁盘膨胀) ──
 # v0.34.0: 只清理本项目的未使用镜像层 + 全部构建缓存。
 # ⚠️ 不用 docker image prune -a(会删服务器上所有未引用镜像, 可能误伤其他项目):

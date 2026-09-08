@@ -254,8 +254,8 @@ class LocalDBManager:
     # 写入方法
     # ============================================================
 
-    def set_attribute_cache(self, description_category_id: int, type_id: Optional[int], attributes_schema: Dict[str, Any], language: str = "ZH_HANS", expires_in: int = 86400):
-        """写入属性缓存"""
+    def set_attribute_cache(self, description_category_id: int, type_id: Optional[int], attributes_schema: Dict[str, Any], language: str = "ZH_HANS", expires_in: int = 30 * 86400):
+        """写入属性缓存（v0.70: 默认 30 天——schema 低频变化，与预热/导入脚本一致）"""
         current_time = int(time.time())
         expires_at = current_time + expires_in
         session = get_session()
@@ -277,8 +277,8 @@ class LocalDBManager:
         finally:
             session.close()
 
-    def set_dictionary_value_cache(self, attribute_id: int, description_category_id: int, type_id: Optional[int], values_data: List[Dict[str, Any]], language: str = "ZH_HANS", expires_in: int = 86400):
-        """写入字典值缓存"""
+    def set_dictionary_value_cache(self, attribute_id: int, description_category_id: int, type_id: Optional[int], values_data: List[Dict[str, Any]], language: str = "ZH_HANS", expires_in: int = 30 * 86400):
+        """写入字典值缓存（v0.70: 默认 30 天——原 1 天使全量预热一周内衰减回懒加载）"""
         current_time = int(time.time())
         expires_at = current_time + expires_in
         session = get_session()

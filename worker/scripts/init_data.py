@@ -108,6 +108,19 @@ def create_tables(engine):
         conn.execute(text(
             "ALTER TABLE listing_result_log ADD COLUMN IF NOT EXISTS moderation_texts JSONB"
         ))
+        # ✅ v0.70: 表达式索引——uuid 主键与文本 ID 全链路混用的提速补丁（DB-SCHEMA-AUDIT #3）。
+        # error_report_service._task_snapshots / task_service / forensics 均按
+        # `id::text = :x` 查询，裸 PK btree 索引走不上；表达式索引让取证/状态查询
+        # 在任务表变大后不至于全表扫。draft_submissions.submitted_task_id 同理加普通索引
+        # （Text 无 FK，审计文档记为待观察，不加 FK 防存量脏引用阻塞建索引）。
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_ozon_product_tasks_id_text"
+            " ON ozon_product_tasks ((id::text))"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_draft_submissions_submitted_task"
+            " ON draft_submissions (submitted_task_id)"
+        ))
         conn.commit()
     # ✅ v0.41 WebUI T1: task_generated_images ALTER + 新表索引（幂等，二次运行 no-op）
     from migrate_webui_v1 import run_migrations
@@ -349,7 +362,12 @@ def import_attribute_cache(engine, force=False):
     dict_values_file = os.path.join(assets_dir, "dictionary_values_zh.json")
 
     if not os.path.exists(schemas_file) and not os.path.exists(dict_values_file):
-        logger.info("⏭️  属性缓存 JSON 文件不存在，跳过导入（运行时将从 Ozon API 懒加载）")
+        # ⚠️ v0.70: warning 级提示——部署即全量依赖 COS 下载的缓存 JSON
+        # （docs/CACHE-WARM-RUNBOOK.md）；缺失意味着该部署走懒加载（首次上架偏慢）
+        logger.warning(
+            "⚠️ 属性缓存 JSON 未就绪（worker/assets/attribute_schemas_zh.json / "
+            "dictionary_values_zh.json 均缺失）。本次部署运行时将从 Ozon API 懒加载"
+            "（首次上架偏慢）。全量缓存获取方式见 docs/CACHE-WARM-RUNBOOK.md")
         return
 
     with engine.begin() as conn:
@@ -368,8 +386,10 @@ def import_attribute_cache(engine, force=False):
             logger.info(f"🗑️  已清空旧属性缓存数据 ({count} 条 schema)")
 
         now = int(_time.time())
-        expires_schema = now + 7 * 86400
-        expires_dict = now + 86400
+        # ✅ v0.70: 30 天 TTL（与 warm_category_cache / local_db_manager 三处一致）——
+        # schema/字典值低频变化，1 天字典 TTL 曾使全量预热一周内衰减回懒加载
+        expires_schema = now + 30 * 86400
+        expires_dict = now + 30 * 86400
 
         # 导入 attribute schemas
         if os.path.exists(schemas_file):
