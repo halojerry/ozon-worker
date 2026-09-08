@@ -78,3 +78,22 @@ export async function downloadCsv(path: string, filename: string): Promise<void>
   a.remove()
   URL.revokeObjectURL(url)
 }
+
+// 手写类型，等 openapi 快照刷新后可迁移 generated.d.ts（POST /api/v1/drafts/{draft_id}/assemble）
+export interface AssembleDraftResponse {
+  /** 实际生成并写回草稿的字段：title / description / attributes / tags */
+  assembled: string[]
+  /** 幂等跳过的字段（如已是俄语） */
+  skipped: string[]
+  /** 建议类目（仅展示，实际以 worker 管线仲裁为准） */
+  suggested_category: { description_category_id: string; type_id: string; category_name: string } | null
+  /** 三档估价 RUB（仅展示）：price 日常价 / old_price 划线价 / promo_price 促销底线 */
+  estimated_pricing: { price: number; old_price: number; promo_price: number | null } | null
+  /** 写回后的草稿版本 */
+  version: number
+}
+
+/** 一键 AI 预组装：worker 生成俄语标题/描述/属性并写回草稿（鉴权同其他 drafts POST：Bearer 头 + body token）。 */
+export function assembleDraft(draftId: string) {
+  return api.post<AssembleDraftResponse>(`/drafts/${draftId}/assemble`, { token: getSession()?.token ?? "" })
+}

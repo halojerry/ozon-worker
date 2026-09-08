@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
-import { api, getSession, ApiError, downloadCsv } from "../api/client"
+import { api, assembleDraft, getSession, ApiError, downloadCsv } from "../api/client"
+import type { AssembleDraftResponse } from "../api/client"
 import type { CategoryAttr, CategoryAttrResponse, CategorySearchItem, Credential, Draft, DraftAiResponse, DraftEnvelopeDraft, DraftPayload, EstimateResponse, SubmitResponse } from "../api/hooks"
 import { apiErrorMessage, draftFields, formatDateTime, formatPrice, submissionStatusClass, submissionStatusText, useApi } from "../api/hooks"
 import { Metric, PageHeader, PanelEmpty, PanelError, PanelLoading } from "./ui"
+
+// AI 预组装字段中文名（assembled/skipped → 人话提示，未知键回退原名）
+const ASSEMBLE_FIELD_LABELS: Record<string, string> = { title: "标题", description: "描述", attributes: "属性", tags: "标签" }
+const assembleFieldText = (fields: string[]) => fields.map((x) => ASSEMBLE_FIELD_LABELS[x] ?? x).join("/") || "无"
 
 function AddDraftModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [title, setTitle] = useState("")
@@ -93,6 +98,12 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
   const [aiBusy, setAiBusy] = useState("")
   const [aiNotice, setAiNotice] = useState("")
   const [aiError, setAiError] = useState("")
+  // v0.70 AI 预组装：一键生成俄语标题/描述/属性写回草稿；suggested/estimated 为仅展示字段
+  const [assembling, setAssembling] = useState(false)
+  const [assembleNotice, setAssembleNotice] = useState("")
+  const [assembleError, setAssembleError] = useState("")
+  const [suggested, setSuggested] = useState<AssembleDraftResponse["suggested_category"]>(null)
+  const [assembledPricing, setAssembledPricing] = useState<AssembleDraftResponse["estimated_pricing"]>(null)
   const [estimate, setEstimate] = useState<EstimateResponse | null>(null)
   const [estimateBusy, setEstimateBusy] = useState(false)
   const [estimateError, setEstimateError] = useState("")
@@ -256,6 +267,46 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
     } finally { setAiBusy("") }
   }
 
+  // 一键 AI 预组装：worker 生成俄语标题/描述/属性并已写回草稿（服务端），成功后重拉详情刷新本地字段与版本
+  const runAssemble = async () => {
+    setAssembling(true); setAssembleError(""); setAssembleNotice("")
+    try {
+      const res = await assembleDraft(draft.id)
+      setSuggested(res.suggested_category)
+      setAssembledPricing(res.estimated_pricing)
+      let text = `✓ AI 预组装完成：已生成：${assembleFieldText(res.assembled)}`
+      if (res.skipped.length) text += `；已跳过（已是俄语）：${assembleFieldText(res.skipped)}`
+      if (res.suggested_category) text += "；建议类目见下方，可点「采用」"
+      setAssembleNotice(text)
+      loadDetail()
+      onSaved()
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        setAssembleError("版本冲突：草稿已被其他会话修改，已重新加载最新版本")
+        loadDetail()
+      } else if (e instanceof ApiError && e.status === 503) {
+        setAssembleError("AI 服务暂不可用（LLM 不可用），请稍后重试")
+      } else if (e instanceof ApiError && e.status === 404) {
+        setAssembleError("草稿不存在或已被删除")
+      } else {
+        setAssembleError(apiErrorMessage(e))
+      }
+    } finally { setAssembling(false) }
+  }
+
+  // 采纳建议类目：照抄类目选择器语义（picked → source=manual，worker 权威直通），经「保存草稿」PATCH 落库
+  const adoptSuggested = () => {
+    if (!suggested) return
+    void pickCategory({
+      description_category_id: suggested.description_category_id,
+      type_id: suggested.type_id,
+      node_name: "",
+      category_path: suggested.category_name ?? "",
+      similarity: 1,
+    })
+    setAssembleNotice("已采纳建议类目（manual），请点击「保存草稿」写入")
+  }
+
   const runEstimate = async () => {
     setEstimateBusy(true); setEstimateError(""); setEstimate(null)
     try {
@@ -312,6 +363,12 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
           <>
             <div className="drawer-form">
               <div className="editor-tip"><b>✦ AI 内容助手</b><span>可为空字段生成俄语标题 / 描述，生成结果需手动保存。</span></div>
+              <div className="draft-drawer-field">
+                <label>AI 预组装（一键生成俄语标题 / 描述 / 属性并写回草稿）</label>
+                <button disabled={assembling} onClick={runAssemble}>{assembling ? "预组装中…" : "✦ 一键预组装"}</button>
+              </div>
+              {assembleNotice && <div className="inline-notice">{assembleNotice}</div>}
+              {assembleError && <div className="inline-notice error">{assembleError}</div>}
               <label>商品标题<input value={title} onChange={e => setTitle(e.target.value)}/><small>保存时同步 PATCH 草稿信封</small></label>
               <div className="draft-drawer-field"><label>AI 生成标题</label><button disabled={aiBusy === "title"} onClick={() => runAi("title")}>{aiBusy === "title" ? "生成中…" : "✦ 生成"}</button></div>
               <label>商品描述<textarea value={description} onChange={e => setDescription(e.target.value)}/></label>
@@ -335,6 +392,12 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
                 </div>
               ) : (
                 <p style={{ fontSize: 10, color: "#89847f", margin: "4px 0" }}>未指定类目——提交后由 worker 自动匹配。</p>
+              )}
+              {suggested && !catPicked && (
+                <div className="draft-drawer-field">
+                  <label>建议类目：{suggested.category_name}（实际以管线仲裁为准）</label>
+                  <button className="button ghost" style={{ position: "static" }} disabled={assembling} onClick={adoptSuggested}>采用</button>
+                </div>
               )}
               <div className="draft-drawer-field">
                 <label>搜索 Ozon 类目</label>
@@ -380,6 +443,16 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
             <div className="drawer-form">
               <div className="draft-drawer-field">
                 <label>预估售价（与 worker 定价公式同源）</label>
+                {assembledPricing && (
+                  <>
+                    <div className="estimate-grid">
+                      <div className="estimate-cell"><span>日常价</span><b>{formatPrice(assembledPricing.price, "RUB")}</b></div>
+                      <div className="estimate-cell"><span>划线价</span><b>{formatPrice(assembledPricing.old_price, "RUB")}</b></div>
+                      <div className="estimate-cell"><span>促销底线</span><b className={assembledPricing.promo_price ? "promo" : ""}>{assembledPricing.promo_price != null ? formatPrice(assembledPricing.promo_price, "RUB") : "—"}</b></div>
+                    </div>
+                    <p style={{ fontSize: 10, color: "#89847f", margin: "0 0 6px" }}>AI 预组装估价 · 仅展示，可点「预估售价」复核利润明细。</p>
+                  </>
+                )}
                 {estimate ? (
                   <div className="estimate-grid">
                     <div className="estimate-cell"><span>日常价</span><b>{formatPrice(estimate.price, estimate.currency)}</b></div>
@@ -391,6 +464,7 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
                 )}
                 {estimate && <p>预计净利 {formatPrice(estimate.profit_cny)} CNY（{Math.round(estimate.profit_rate * 100)}%）· 佣金 {Math.round(estimate.commission_rate * 100)}% · 物流 {formatPrice(estimate.logistics_cost_cny)} CNY</p>}
                 {estimateError && <div className="inline-notice error">{estimateError}</div>}
+                <p style={{ fontSize: 10, color: "#89847f", margin: "4px 0 0" }}>口径：日常价 / 划线价＝上架时设置在商品卡上的价格；促销底线（min_price）＝参加 Ozon 促销活动时的最低价防线，不是商品卡上的价格（促销价在 Ozon 促销·Акции 模块设置）。</p>
               </div>
             </div>
             <div className="drawer-form">

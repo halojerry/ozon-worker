@@ -411,9 +411,6 @@ def import_drafts_csv(tenant_id: str, rows: list[dict]) -> dict:
     凭证剥离/字段校验/图片镜像),失败行记 error 不阻断其余行。
     返回 {created, failed, errors: [{row, error}]}。
     """
-    import csv
-    import io as _io
-
     created = 0
     failed = 0
     errors: list[dict] = []
@@ -524,6 +521,40 @@ def patch_draft(tenant_id: str, draft_id: str, data: DraftPatch) -> dict:
     from services.draft_image_mirror import spawn_image_mirror
     spawn_image_mirror(tenant_id, str(uid), updated.version, data.payload)
     return _draft_row_to_dict(updated)
+
+
+def assemble_draft(tenant_id: str, draft_id: str, token: str) -> dict:
+    """POST /drafts/{id}/assemble（v0.70 一键预组装）：读草稿 → LLM 整卡生成 → 写回 payload。
+
+    - 读行走 get_draft（404 语义一致：不存在/跨租户 → 404）；
+    - token 即 mxou key（LLM 调用必需），路由从 body/Bearer 提取（与 /ai/{field}
+      端点同源），sk- 前缀在此剥离；
+    - 写回 version++（服务端操作 last-write-wins，无客户端乐观锁——区别于 PATCH
+      的 stale 409 场景）；
+    - 只写透传字段+展示字段，绝不写 draft.ozon_category / draft.price（见
+      ai_field_service.assemble_draft docstring 的透传语义说明）。
+    返回 assemble 结果 dict + 新 version。
+    """
+    from services.ai_field_service import assemble_draft as _assemble_payload
+
+    draft = get_draft(tenant_id, draft_id)
+    payload = draft["payload"]
+    mxou_token = token[3:] if token.startswith("sk-") else token
+    result = _assemble_payload(payload, mxou_token)
+
+    uid = _parse_draft_uuid(draft_id)
+    with get_engine().begin() as conn:
+        row = conn.execute(text(
+            "UPDATE product_drafts SET payload=CAST(:payload AS jsonb), "
+            "version=version+1, updated_at=NOW() "
+            "WHERE id=:id AND tenant_id=:tenant_id "
+            "RETURNING version"
+        ), {
+            "payload": json.dumps(payload, ensure_ascii=False),
+            "id": uid,
+            "tenant_id": tenant_id,
+        }).fetchone()
+    return {**result, "version": int(row[0])}
 
 
 # ──────────────────────────────────────────────

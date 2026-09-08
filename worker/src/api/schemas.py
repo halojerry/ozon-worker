@@ -664,6 +664,38 @@ class DraftAiResponse(BaseModel):
     value: str = Field(..., description="俄语 RU 值（非空，无中文/拉丁残留）")
 
 
+class DraftAssembleResponse(BaseModel):
+    """POST /drafts/{id}/assemble 响应（v0.70 一键预组装：整卡生成并写回 payload）。"""
+    model_config = _examples({
+        "assembled": ["title", "description", "attributes", "tags"],
+        "skipped": [],
+        "suggested_category": {
+            "description_category_id": "17029651",
+            "type_id": "91633",
+            "category_name": "Автопоилка для животных",
+        },
+        "estimated_pricing": {"price": 729.0, "old_price": 910.0, "promo_price": 547.0},
+        "version": 2,
+    })
+    assembled: list[str] = Field(
+        default_factory=list,
+        description="实际生成成功并写回 payload 的字段（title/description/attributes/tags 子集）",
+    )
+    skipped: list[str] = Field(
+        default_factory=list,
+        description="跳过的字段（已含西里尔幂等跳过 / 源为空 / ozon_attributes 已有内容不混源 / 生成失败）",
+    )
+    suggested_category: Optional[dict[str, Any]] = Field(
+        None,
+        description="类目建议 {description_category_id, type_id, category_name}（展示字段；只写 draft.suggested_category，绝不写 draft.ozon_category 劫持管线仲裁链）",
+    )
+    estimated_pricing: Optional[dict[str, Any]] = Field(
+        None,
+        description="三档预估价 RUB {price, old_price, promo_price?}（展示字段；pricing_node 永远按成本+margin 重算，管线不消费）",
+    )
+    version: int = Field(..., description="写回后的草稿版本（version++）")
+
+
 class SubmissionTimelineItem(BaseModel):
     """M2.2: 草稿提交时间线条目（draft_submissions 行，created_at 倒序）。
 

@@ -1,6 +1,6 @@
 # Ozon Worker API 参考（自动生成）
 
-> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.70.0 · 153 个 path / 62 个 schema · **勿手改**（CI Step 5d 校验漂移）。
+> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.70.0 · 154 个 path / 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
 > 对外约定（Base URL / 鉴权 / 限流 / 错误信封 / 分页 / 版本策略）见 `docs/API-OVERVIEW.md`；MCP 面见 `docs/MCP-SERVER.md`；交互式 Swagger `GET /docs`。
 
 规范路径为 `/api/v1/...`；带「兼容别名」的端点同时挂在旧裸路径，语义一致。示例 JSON 只填 required 字段（schema 声明了 `examples` 的按声明渲染）。
@@ -19,7 +19,7 @@
 - [credentials](#credentials) （6）
 - [dashboard](#dashboard) （1）
 - [discovery](#discovery) （2）
-- [drafts](#drafts) （13）
+- [drafts](#drafts) （14）
 - [error_reports](#error-reports) （2）
 - [estimate](#estimate) （1）
 - [forensics](#forensics) （1）
@@ -1190,6 +1190,55 @@ Draft Ai Field — 单字段 AI 重新生成（T14b）：只读，返回 RU 值�
 |---|---|---|
 | 200 | Successful Response | [DraftAiResponse](#schema-draftairesponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+### `POST /api/v1/drafts/{draft_id}/assemble`
+Draft Assemble — 一键预组装（v0.70）：LLM 生成整卡上架信息并写回 payload（version++）。
+
+**参数**
+
+| 名称 | 位置 | 类型 | 必填 | 说明 |
+|---|---|---|---|---|
+| `draft_id` | path | string | ✓ |  |
+
+**请求体**（application/json，必填）：DraftAiRequest（内联）
+
+```json
+{
+  "token": "string"
+}
+```
+
+**响应**
+
+| 状态码 | 说明 | Schema |
+|---|---|---|
+| 200 | Successful Response | [DraftAssembleResponse](#schema-draftassembleresponse) |
+| 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "assembled": [
+    "title",
+    "description",
+    "attributes",
+    "tags"
+  ],
+  "estimated_pricing": {
+    "old_price": 910.0,
+    "price": 729.0,
+    "promo_price": 547.0
+  },
+  "skipped": [],
+  "suggested_category": {
+    "category_name": "Автопоилка для животных",
+    "description_category_id": "17029651",
+    "type_id": "91633"
+  },
+  "version": 2
+}
+```
 
 ### `POST /api/v1/drafts/{draft_id}/estimate`
 Estimate Draft — 预估售价/利润/物流费（纯读：不落库、不调 Ozon 上架）。
@@ -2781,6 +2830,42 @@ T14b: 单字段 AI 重新生成响应（只读结果，前端决定 PATCH 保存
 |---|---|---|---|
 | `field` | string | ✓ | title/description/attributes/tags |
 | `value` | string | ✓ | 俄语 RU 值（非空，无中文/拉丁残留） |
+
+### DraftAssembleResponse <a id="schema-draftassembleresponse"></a>
+POST /drafts/{id}/assemble 响应（v0.70 一键预组装：整卡生成并写回 payload）。
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `assembled` | list[string] |  | 实际生成成功并写回 payload 的字段（title/description/attributes/tags 子集） |
+| `skipped` | list[string] |  | 跳过的字段（已含西里尔幂等跳过 / 源为空 / ozon_attributes 已有内容不混源 / 生成失败） |
+| `suggested_category` | dict[str, any] \| null |  | 类目建议 {description_category_id, type_id, category_name}（展示字段；只写 draft.suggested_category，绝不写 draft.ozon_category 劫持管线仲裁链） |
+| `estimated_pricing` | dict[str, any] \| null |  | 三档预估价 RUB {price, old_price, promo_price?}（展示字段；pricing_node 永远按成本+margin 重算，管线不消费） |
+| `version` | integer | ✓ | 写回后的草稿版本（version++） |
+
+示例：
+
+```json
+{
+  "assembled": [
+    "title",
+    "description",
+    "attributes",
+    "tags"
+  ],
+  "estimated_pricing": {
+    "old_price": 910.0,
+    "price": 729.0,
+    "promo_price": 547.0
+  },
+  "skipped": [],
+  "suggested_category": {
+    "category_name": "Автопоилка для животных",
+    "description_category_id": "17029651",
+    "type_id": "91633"
+  },
+  "version": 2
+}
+```
 
 ### DraftOut <a id="schema-draftout"></a>
 草稿详情（payload = envelope，不含任何凭证）。
