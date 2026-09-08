@@ -274,6 +274,35 @@ def find_product_by_offer(
     return None
 
 
+def ozon_import_product_pictures(
+    client_id: str,
+    api_key: str,
+    product_id: int | str,
+    images: list,
+    color_image: str | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    """v0.69: POST /v1/product/pictures/import —— 按 product_id 整体替换商品图片。
+
+    官方契约（docs.ozon.ru/api/seller）：images 为 URL 数组（≤30，首张=主图），
+    调用后**整体覆盖**该卡片原图片列表；响应 result.pictures 逐张带 state。
+
+    用途：卡片已创建但图片下载失败（IMAGE_ERROR / all_image_failed 等拒单）时
+    的靶向修复通道——无需整卡 re-import（官方注明更新时图片链接未变会被
+    skipped，死链原图重发同链修不好，必须换成可访问的新 URL）。
+
+    Raises:
+        OzonError 及子类 / 网络异常（不吞错，调用方决定回退策略）。
+    """
+    body: dict[str, Any] = {
+        "product_id": int(product_id),
+        "images": [str(u) for u in (images or []) if u][:30],
+    }
+    if color_image:
+        body["color_image"] = str(color_image)
+    return ozon_post(client_id, api_key, "/v1/product/pictures/import", body, timeout=timeout)
+
+
 def update_min_price_floor(
     client_id: str,
     api_key: str,

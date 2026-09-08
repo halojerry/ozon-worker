@@ -270,12 +270,17 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "BR_warning_wrong_country": "error_repair_llm",
     # ✅ 必填属性值为空 → 走 error_repair_llm 补全字典值
     "error_attribute_values_empty": "error_repair_llm",
-    # ✅ 图片相关 → WARNING级别，不触发retry（标记unfixable）
-    "pics_http_error": "unfixable",
-    "pics_cant_decode": "unfixable",
-    "primary_image_load_failed": "unfixable",
-    "some_image_failed": "unfixable",
-    "warning_all_image_failed": "unfixable",
+    # ✅ 图片相关 → v0.69 镜像闸修复：不再无脑 unfixable，改走 reupload_direct
+    # （reupload_node 靶向 pictures/import：有 product_id 且有 COS 图才修，
+    # 否则落 rejected_unfixable 保持旧行为——官方 /v1/product/pictures/import
+    # 整体替换图片；同链 re-import 对「链接未变」会被 Ozon skipped，死链必须
+    # 换 COS URL 才修得好）
+    "pics_http_error": "reupload_direct",
+    "pics_cant_decode": "reupload_direct",
+    "primary_image_load_failed": "reupload_direct",
+    "some_image_failed": "reupload_direct",
+    "warning_all_image_failed": "reupload_direct",
+    "IMAGE_ERROR": "reupload_direct",
     # ✅ 火险品/管制品 → 不可修复（需要认证文件）
     "BR_hazard_class1": "unfixable",
     "FB_fire_hazardous_goods": "unfixable",
@@ -303,8 +308,8 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "CONDITIONAL_ATTRIBUTE_ERROR": "error_repair_llm",
     # 商品已在其他账号 → 不可修复, 不浪费重试
     "SPU_ALREADY_EXISTS_IN_ANOTHER_ACCOUNT": "unfixable",
-    # 所有图片失败 → 需重新生图非 LLM 修
-    "all_image_failed": "unfixable",
+    # 所有图片失败 → v0.69 改走 reupload_direct（见上方图片组注释）
+    "all_image_failed": "reupload_direct",
     # 标记码自动纠正 → 走 attributes 修复(明确化, 原走默认 error_repair_llm)
     "marking_auto_corrected": "error_repair_llm",
 }
@@ -346,23 +351,34 @@ FIX_TYPE_PRODUCT_IMPORT: set = {
     "VARIANT_NOT_MERGED", "double_without_merger_offer",
 }
 
+# 图片类错误 → POST /v1/product/pictures/import（整体替换图片，需 product_id + COS 图）
+# ✅ v0.69 镜像闸修复通道：这些错误原属 unfixable（declined 即死）。官方端点
+# 整体替换卡片图片后重新审核——死链原图换成 COS URL 才是真正修复。
+FIX_TYPE_PICTURES: set = {
+    "pics_http_error", "pics_cant_decode", "primary_image_load_failed",
+    "some_image_failed", "warning_all_image_failed", "all_image_failed",
+    # 本地校验/parse 归类的图片错误（图片/image/картинк 关键词粗分类）
+    "IMAGE_ERROR",
+}
+
 # 不可修复错误 → 标记 warning，直接 success（不浪费重试次数）
 FIX_TYPE_UNFIXABLE: set = {
-    "pics_http_error", "pics_cant_decode", "primary_image_load_failed",
-    "some_image_failed", "warning_all_image_failed",
     "BR_hazard_class1", "FB_fire_hazardous_goods", "FB_LIGHTER", "FB_INSTA",
     "PRODUCT_ALREADY_EXISTS",
-    # ✅ v0.28.5 A1: 商品已在其他账号 / 所有图片失败 → 不可修复
-    "SPU_ALREADY_EXISTS_IN_ANOTHER_ACCOUNT", "all_image_failed",
+    # ✅ v0.28.5 A1: 商品已在其他账号 → 不可修复
+    # ✅ v0.69: 图片族错误移出（→ FIX_TYPE_PICTURES 靶向修复）
+    "SPU_ALREADY_EXISTS_IN_ANOTHER_ACCOUNT",
 }
 
 
 def classify_fix_type(error_code: str) -> str:
-    """根据 error_code 返回靶向修复类型：attributes / prices / product_import / unfixable"""
+    """根据 error_code 返回靶向修复类型：attributes / prices / pictures / product_import / unfixable"""
     if error_code in FIX_TYPE_ATTRIBUTES:
         return "attributes"
     if error_code in FIX_TYPE_PRICES:
         return "prices"
+    if error_code in FIX_TYPE_PICTURES:
+        return "pictures"
     if error_code in FIX_TYPE_PRODUCT_IMPORT:
         return "product_import"
     if error_code in FIX_TYPE_UNFIXABLE:
@@ -794,6 +810,9 @@ def repair_node_selector(state: ValidationRetryLoopState) -> str:
         return "final_result"
 
     repair_node: str = state.repair_node
+    if repair_node == "reupload_direct":
+        # ✅ v0.69 图片族：跳过属性/价格修复，直接靶向 reupload（pictures/import）
+        return "reupload_direct"
     if repair_node in ("error_repair_llm", "repair_pricing", "repair_prepare", "repair_dimensions"):
         return repair_node
 
@@ -2324,9 +2343,100 @@ def repair_dimensions_node(state: ValidationRetryLoopState) -> ValidationRetryLo
     return state
 
 
-# ============================================================
-# 靶向修复函数（reupload_node 路由器调用）
-# ============================================================
+TYPE_ATTR_ID = 8229  # «Тип товара»：官方不变式 dictionary_value_id == type_id（必填）
+
+
+def _ensure_type_attr_8229(ozon_attrs: list, first_item: dict) -> list:
+    """属性增量补发链强制携带 8229（v0.69 declined 根因②修复，纯函数可单测）。
+
+    官方契约：8229 的 dictionary_value_id == type_id、任何商品必填；
+    attributes/update 是合并语义（只更新提供的属性，已有属性不可删除）——
+    多带 8229 恒安全，缺 8229 则 MISSING_REQUIRED_ATTRIBUTE 永远补不上。
+    取值链：① 发送列表已有 → 原样返回；② payload 快照的 8229（dict_id 合法）
+    → 复用；③ item.type_id 兜底构造（dict_id=type_id）。
+    """
+    for attr in ozon_attrs:
+        if isinstance(attr, dict) and attr.get("id") == TYPE_ATTR_ID:
+            return ozon_attrs
+
+    for attr in (first_item.get("attributes") or []):
+        if not isinstance(attr, dict):
+            continue
+        try:
+            if int(attr.get("id", 0)) != TYPE_ATTR_ID:
+                continue
+        except (ValueError, TypeError):
+            continue
+        vals = attr.get("values") or []
+        if vals and isinstance(vals[0], dict) and int(vals[0].get("dictionary_value_id", 0) or 0):
+            ozon_attrs.append({"id": TYPE_ATTR_ID, "values": vals})
+            logger.info("✅ 补发链强制携带 8229（快照 dict_id=%s）",
+                        vals[0].get("dictionary_value_id"))
+            return ozon_attrs
+
+    type_id = first_item.get("type_id")
+    if type_id:
+        try:
+            ozon_attrs.append({
+                "id": TYPE_ATTR_ID,
+                "values": [{"dictionary_value_id": int(type_id), "value": ""}],
+            })
+            logger.info("✅ 补发链强制携带 8229（item.type_id=%s 兜底）", type_id)
+        except (ValueError, TypeError):
+            logger.warning("⚠️ type_id 非法，8229 兜底失败: %r", type_id)
+    else:
+        logger.warning("⚠️ 补发链无法解析 8229（发送列表/快照/type_id 均缺）")
+    return ozon_attrs
+
+
+def _fix_via_pictures_import(state: ValidationRetryLoopState) -> bool:
+    """调用 POST /v1/product/pictures/import 整体替换已建卡片图片（v0.69）。
+
+    图片族拒单（all_image_failed / IMAGE_ERROR 等）的靶向修复：卡片已存在，
+    用 payload 里的 COS 托管图整体重推（官方契约：全量覆盖、≤30 张、首张=
+    主图，响应逐张带 state）。死链原图重发同链会被 Ozon「链接未变 skipped」，
+    换成 COS URL 才是真正修复。
+
+    只在能凑出 ≥1 张 COS 图时行动——payload 全外链返回 False（reupload 落
+    rejected_unfixable，诚实不硬修）。
+
+    Returns:
+        True 表示 API 调用成功（200），False 表示不可修/失败需回退。
+    """
+    from utils.cos_uploader import is_cos_url
+    from utils.ozon_client import ozon_import_product_pictures
+
+    items = state.ozon_payload.get("items", [])
+    first_item = items[0] if items else {}
+    primary = str(first_item.get("primary_image") or "")
+    ordered = ([primary] if primary else []) + [
+        str(u) for u in (first_item.get("images") or []) if u
+    ]
+    cos_images: list[str] = []
+    for u in ordered:
+        if is_cos_url(u) and u not in cos_images:
+            cos_images.append(u)
+    if not cos_images:
+        logger.warning("⚠️ pictures/import 前置不满足：payload 中无 COS 托管图（全外链不硬修）")
+        return False
+
+    logger.info(
+        "🖼️ pictures/import: 推送 %d 张 COS 图（product_id=%s，首张=%s）",
+        len(cos_images), state.product_id, cos_images[0][:80],
+    )
+    try:
+        resp = ozon_import_product_pictures(
+            state.ozon_client_id, state.ozon_api_key,
+            state.product_id, cos_images,
+        )
+    except Exception as e:
+        logger.warning("⚠️ pictures/import 失败: %s", str(e)[:200])
+        return False
+    pics = ((resp.get("result") or {}).get("pictures")) or []
+    logger.info("✅ pictures/import 已受理（%d 张，states=%s）",
+                len(pics), [p.get("state") for p in pics][:5] or "n/a")
+    return True
+
 
 def _fix_via_attributes_update(state: ValidationRetryLoopState) -> bool:
     """调用 POST /v1/product/attributes/update 增量更新属性。
@@ -2361,6 +2471,11 @@ def _fix_via_attributes_update(state: ValidationRetryLoopState) -> bool:
     if not ozon_attrs:
         logger.warning("⚠️ attributes/update: 无有效属性")
         return False
+
+    # ✅ v0.69 根因②修复：8229 必填不变式——final_attributes 缺 8229 时增量修复
+    # 永远补不上 MISSING_REQUIRED_ATTRIBUTE。合并语义下多带 8229 恒安全（官方：
+    # 只更新提供的属性），从快照/type_id 强制补齐。
+    ozon_attrs = _ensure_type_attr_8229(ozon_attrs, first_item)
 
     update_body = {
         "items": [{
@@ -2647,6 +2762,29 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                 # ⚠️ v0.13.1: 字典属性重传防御 — schema 中 dictionary_id>0 但 dict_value_id=0
                 # = 手填文本兜底值（Ozon 只接受列表中的 dict_id）→ 跳过，避免"请从列表中选择"死循环重传
                 if attr_id_int in _schema_dict_attr_ids and not int(dict_value_id or 0):
+                    if attr_id_int == TYPE_ATTR_ID:
+                        # ✅ v0.69: 8229 特例——dict_value 必须 == type_id（官方不变式）。
+                        # 普通跳过会维持快照值；快照也没有时必填 8229 在重传 payload
+                        # 里物理消失 = MISSING_REQUIRED_ATTRIBUTE 死循环（declined
+                        # 实证根因②），按 item.type_id 补造。
+                        if TYPE_ATTR_ID not in merged_attrs:
+                            _tid8229: Any = first_item.get("type_id")
+                            if _tid8229:
+                                try:
+                                    merged_attrs[TYPE_ATTR_ID] = {
+                                        "complex_id": 0,
+                                        "id": TYPE_ATTR_ID,
+                                        "values": [{
+                                            "dictionary_value_id": int(_tid8229),
+                                            "value": str(attr_value or ""),
+                                        }],
+                                    }
+                                    logger.info(f"✅ 8229 final 缺 dict_id → 按 type_id={_tid8229} 补造重传")
+                                except (ValueError, TypeError):
+                                    logger.warning(f"⚠️ 8229 补造失败（type_id 非法）: {_tid8229!r}")
+                        else:
+                            logger.info("✅ 8229 final 缺 dict_id → 保留快照合法值")
+                        continue
                     logger.warning(
                         f"⚠️ 跳过字典属性{attr_id_int}重传（dictionary_value_id=0 文本值，"
                         f"Ozon 只接受列表中的 dict_id，避免重复报错）"
@@ -2776,6 +2914,28 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                         "values": [{"dictionary_value_id": 0, "value": model_name_val}]
                     })
                     logger.info(f"✅ revalidate补充属性9048（型号名称），值: {model_name_val[:80]}")
+
+            # ✅ v0.69 根因②收口：合并/修复链后仍无 8229（如重建丢属性）→ 按
+            # item.type_id 补造（官方不变式 dictionary_value_id == type_id）。
+            # 必填 8229 缺失 = Ozon 必拒（MISSING_REQUIRED_ATTRIBUTE 重传死循环）。
+            has_8229: bool = any(
+                isinstance(a, dict) and int(a.get("id", 0)) == TYPE_ATTR_ID
+                for a in ozon_attrs
+            )
+            if not has_8229:
+                _tid8229b: Any = first_item.get("type_id")
+                if _tid8229b:
+                    try:
+                        ozon_attrs.append({
+                            "complex_id": 0,
+                            "id": TYPE_ATTR_ID,
+                            "values": [{"dictionary_value_id": int(_tid8229b), "value": ""}],
+                        })
+                        logger.info(f"✅ revalidate 按 type_id={_tid8229b} 补造必填属性 8229")
+                    except (ValueError, TypeError):
+                        logger.warning(f"⚠️ revalidate 8229 补造失败（type_id 非法）: {_tid8229b!r}")
+                else:
+                    logger.warning("⚠️ revalidate 后 payload 仍缺 8229 且无 type_id 可兜底")
 
             first_item["attributes"] = ozon_attrs
             logger.info(f"✅ 已合并{len(ozon_attrs)}个属性到items[0]（快照基线+final定向修复，跳过{len(skipped_attrs)}个）")
@@ -2967,12 +3127,33 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
 
     # ── 无 product_id：全量 CREATE（首次上传失败场景）──
     if not has_product_id:
+        if classify_fix_type(error_code) == "pictures":
+            # ✅ v0.69: 图片错误且卡片不存在（首传即败）——pictures/import 需要
+            # product_id，重发同链 CREATE 对死链无意义（Ozon skipped/再拒）→
+            # 诚实 unfixable，不烧重试轮次
+            logger.warning("⚠️ 图片错误且无 product_id（无卡可修），标记 rejected_unfixable")
+            state.upload_status = "rejected_unfixable"
+            state.is_valid = True
+            return state
         logger.info("📦 无 product_id，使用全量 product/import (CREATE 模式)")
         return _full_import_create(state)
 
     # ── 有 product_id：靶向路由 ──
     fix_type = classify_fix_type(error_code)
     logger.info(f"🎯 靶向修复类型: {fix_type} (error_code={error_code})")
+
+    # 类型 0: 图片错误 → pictures/import 整体替换（v0.69 修复通道）
+    if fix_type == "pictures":
+        if _fix_via_pictures_import(state):
+            state.upload_status = "success"
+            state.is_valid = True
+            logger.info("✅ 图片整体替换成功（pictures/import），跳过审核轮询")
+            return state
+        # 无 COS 图可推 / API 失败 → 保持旧 unfixable 语义（诚实不硬修）
+        logger.warning("⚠️ pictures/import 不可行（无 COS 图或失败），标记 rejected_unfixable")
+        state.upload_status = "rejected_unfixable"
+        state.is_valid = True
+        return state
 
     # 类型 1: 属性错误 → attributes/update（增量，无需审核轮询）
     if fix_type == "attributes":
@@ -3354,6 +3535,7 @@ def create_validation_retry_loop():
             "repair_prepare": "repair_prepare",
             "repair_pricing": "repair_pricing",
             "repair_dimensions": "repair_dimensions",
+            "reupload_direct": "reupload",
             "final_result": "final_result",
         }
     )

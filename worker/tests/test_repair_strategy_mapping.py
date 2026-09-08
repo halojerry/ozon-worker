@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from graphs.validation_retry_loop import (
     REPAIR_STRATEGY,
     FIX_TYPE_ATTRIBUTES,
+    FIX_TYPE_PICTURES,
     FIX_TYPE_UNFIXABLE,
     classify_fix_type,
 )
@@ -31,9 +32,9 @@ def test_all_new_codes_mapped():
 
 
 def test_all_new_codes_classified():
-    """9 个错误码全部有修复类型分类(attributes 或 unfixable)。"""
+    """9 个错误码全部有修复类型分类(attributes / pictures / unfixable)。"""
     for c in NEW_CODES:
-        assert (c in FIX_TYPE_ATTRIBUTES) or (c in FIX_TYPE_UNFIXABLE), f"{c} 未分类"
+        assert (c in FIX_TYPE_ATTRIBUTES) or (c in FIX_TYPE_PICTURES) or (c in FIX_TYPE_UNFIXABLE), f"{c} 未分类"
 
 
 def test_integer_decimal_repair_prepare():
@@ -45,12 +46,17 @@ def test_integer_decimal_repair_prepare():
 def test_unfixable_codes():
     """不可修复错误 → unfixable, 不浪费 3 轮重试。"""
     assert REPAIR_STRATEGY["SPU_ALREADY_EXISTS_IN_ANOTHER_ACCOUNT"] == "unfixable"
-    assert REPAIR_STRATEGY["all_image_failed"] == "unfixable"
+    # ✅ v0.69 镜像闸: all_image_failed 不再 unfixable（declined 即死）→ 改走
+    # pictures/import 靶向修复（有 product_id + COS 图才修，否则 reupload 落
+    # rejected_unfixable 保持旧收敛）
+    assert REPAIR_STRATEGY["all_image_failed"] == "reupload_direct"
 
 
 def test_classify_fix_type_correct():
     """classify_fix_type 对新码分类正确。"""
-    assert classify_fix_type("all_image_failed") == "unfixable"
+    # ✅ v0.69: 图片族 → pictures（pictures/import 整体替换修复通道）
+    assert classify_fix_type("all_image_failed") == "pictures"
+    assert classify_fix_type("IMAGE_ERROR") == "pictures"
     assert classify_fix_type("VALUE_MUST_BE_DECIMAL") == "attributes"
     assert classify_fix_type("SPU_ALREADY_EXISTS_IN_ANOTHER_ACCOUNT") == "unfixable"
     assert classify_fix_type("ATTRIBUTE_VALUE_COUNT_EXCEEDED") == "attributes"
