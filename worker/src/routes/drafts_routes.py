@@ -8,6 +8,7 @@
     DELETE /{draft_id}               删除（draft_submissions 级联删，T10 采集箱）
     POST   /{draft_id}/submit        提交（per-store 重复 409 + 跨店确认）
     POST   /{draft_id}/ai/{field}    单字段 AI 重新生成（T14b，只读）
+    POST   /{draft_id}/assemble      一键预组装（v0.70，LLM 整卡生成并写回 payload）
 
 业务逻辑在 services/draft_service.py + services/ai_field_service.py。
 """
@@ -21,7 +22,15 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 
-from api.schemas import DraftAiResponse, DraftOut, DraftPatch, SubmissionTimelineItem, SubmitResponse
+from api.schemas import (
+    DraftAiRequest,
+    DraftAiResponse,
+    DraftAssembleResponse,
+    DraftOut,
+    DraftPatch,
+    SubmissionTimelineItem,
+    SubmitResponse,
+)
 from services import draft_service
 from services.ai_field_service import AI_FIELDS, extract_current_value, regenerate_field
 
@@ -271,3 +280,27 @@ async def draft_ai_field(draft_id: str, field: str, request: Request):
 
     logger.info("draft_ai 重新生成成功: draft_id=%s field=%s 长度=%d", draft_id, field, len(value))
     return {"field": field, "value": value}
+
+
+@router.post("/{draft_id}/assemble", response_model=DraftAssembleResponse,
+             # 处理函数手读 raw Request（token 在 body），FastAPI 推不出请求体；
+             # 这里补 OpenAPI 元数据，让 /docs 与 API-REFERENCE 能展示 DraftAiRequest（v1_submit_task 先例）。
+             openapi_extra={"requestBody": {"required": True, "content": {
+                 "application/json": {"schema": DraftAiRequest.model_json_schema()}}}})
+async def draft_assemble(draft_id: str, request: Request):
+    """一键预组装（v0.70）：LLM 生成整卡上架信息并写回 payload（version++）。
+
+    幂等：已含西里尔的字段跳过不重烧 LLM；ozon_attributes 已有内容（跟卖竞品
+    属性）不混源。类目建议只写展示键 draft.suggested_category（**绝不写
+    draft.ozon_category**，不劫持管线仲裁链）；三档预估价只写展示键
+    draft.estimated_pricing（RUB；pricing_node 永远按成本+margin 重算）。
+
+    错误映射：无/无效 token → 401（_authenticate_token）；草稿不存在/跨租户 → 404。
+    """
+    from main import _authenticate_token, _extract_token_from_body  # 局部 import 防循环
+
+    raw_body = (await request.body()).decode("utf-8", errors="replace")
+    token = _extract_token_from_body(raw_body)
+    tenant_id = _authenticate_token(token)  # 401/403/429（在 DB 读取之前）
+
+    return draft_service.assemble_draft(tenant_id, draft_id, token)

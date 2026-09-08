@@ -517,6 +517,85 @@
         "title": "DraftAiResponse",
         "type": "object"
       },
+      "DraftAssembleResponse": {
+        "description": "POST /drafts/{id}/assemble 响应（v0.70 一键预组装：整卡生成并写回 payload）。",
+        "examples": [
+          {
+            "assembled": [
+              "title",
+              "description",
+              "attributes",
+              "tags"
+            ],
+            "estimated_pricing": {
+              "old_price": 910.0,
+              "price": 729.0,
+              "promo_price": 547.0
+            },
+            "skipped": [],
+            "suggested_category": {
+              "category_name": "Автопоилка для животных",
+              "description_category_id": "17029651",
+              "type_id": "91633"
+            },
+            "version": 2
+          }
+        ],
+        "properties": {
+          "assembled": {
+            "description": "实际生成成功并写回 payload 的字段（title/description/attributes/tags 子集）",
+            "items": {
+              "type": "string"
+            },
+            "title": "Assembled",
+            "type": "array"
+          },
+          "estimated_pricing": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "三档预估价 RUB {price, old_price, promo_price?}（展示字段；pricing_node 永远按成本+margin 重算，管线不消费）",
+            "title": "Estimated Pricing"
+          },
+          "skipped": {
+            "description": "跳过的字段（已含西里尔幂等跳过 / 源为空 / ozon_attributes 已有内容不混源 / 生成失败）",
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "suggested_category": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "类目建议 {description_category_id, type_id, category_name}（展示字段；只写 draft.suggested_category，绝不写 draft.ozon_category 劫持管线仲裁链）",
+            "title": "Suggested Category"
+          },
+          "version": {
+            "description": "写回后的草稿版本（version++）",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "DraftAssembleResponse",
+        "type": "object"
+      },
       "DraftOut": {
         "description": "草稿详情（payload = envelope，不含任何凭证）。",
         "properties": {
@@ -5905,6 +5984,71 @@
           }
         },
         "summary": "Draft Ai Field",
+        "tags": [
+          "drafts"
+        ]
+      }
+    },
+    "/api/v1/drafts/{draft_id}/assemble": {
+      "post": {
+        "description": "一键预组装（v0.70）：LLM 生成整卡上架信息并写回 payload（version++）。\n\n幂等：已含西里尔的字段跳过不重烧 LLM；ozon_attributes 已有内容（跟卖竞品\n属性）不混源。类目建议只写展示键 draft.suggested_category（**绝不写\ndraft.ozon_category**，不劫持管线仲裁链）；三档预估价只写展示键\ndraft.estimated_pricing（RUB；pricing_node 永远按成本+margin 重算）。\n\n错误映射：无/无效 token → 401（_authenticate_token）；草稿不存在/跨租户 → 404。",
+        "operationId": "draft_assemble_api_v1_drafts__draft_id__assemble_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "T14b: 单字段 AI 重新生成请求。\n\n请求体仅携带 token（与全站一致：token 在 body 而非 header）；\n草稿读取由 {draft_id} + token 鉴权得到的 tenant_id 共同限定。",
+                "properties": {
+                  "token": {
+                    "description": "mxou API Key（用于 LLM 调用与鉴权）",
+                    "title": "Token",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token"
+                ],
+                "title": "DraftAiRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftAssembleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Draft Assemble",
         "tags": [
           "drafts"
         ]
