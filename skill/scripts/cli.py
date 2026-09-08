@@ -2227,6 +2227,15 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
         print(f"📄 候选 CSV: {args.export}")
     print(f"📁 任务状态: {_task_state_path(task_id)}（--resume 可续跑）")
     print(f"📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
+    # v0.70 结构化出口：后台任务（MCP background=true）靠尾部 JSON 定案收割，
+    # agent/任务中心也直接机读 summary（_out 自带凭证脱敏）
+    _out({
+        "task_id": task_id,
+        "entry": state["entry"],
+        "summary": state["summary"],
+        "state_path": str(_task_state_path(task_id)),
+        "export_csv": args.export or None,
+    })
     return 0
 
 

@@ -125,15 +125,18 @@ def discover(url: str = "", keyword: str = "", local: bool = False,
              store: str = "", auto_submit: bool = False, to_box: bool = False,
              fission: bool = False, max_depth: int = 2,
              rules: str = "", review: bool = False, notify: bool = False,
+             export: str = "", output: str = "",
              background: bool = False, force: bool = False) -> dict:
     """Ozon 选品 v2（采集 → 分析 → 挑货）。只读；auto_submit/to_box/fission 触发 dsh 侧审批。
-    更多参数（fx_rate / min_price / max_price / brand_filter / export / blue-ocean 等）见 skill CLI discover --help。
+    export="csv|json|both" + output=路径 落盘全量+选中结果（后台跑完 CSV 可复核）。
+    更多参数（fx_rate / min_price / max_price / brand_filter / blue-ocean 等）见 skill CLI discover --help。
     background=true 后台跑立即返回 task_id（分钟级任务必用，别阻塞对话）。"""
     return _run_or_background("discover",
         {"url": url, "keyword": keyword, "local": local,
          "max_products": max_products, "min_margin": min_margin, "store": store,
          "auto_submit": auto_submit, "to_box": to_box, "fission": fission,
-         "max_depth": max_depth, "rules": rules, "review": review, "notify": notify},
+         "max_depth": max_depth, "rules": rules, "review": review, "notify": notify,
+         "export": export, "output": output},
         background, force)
 
 
@@ -157,20 +160,22 @@ def discover_task(url: str = "", keyword: str = "", target_count: int = 50,
                   match_concurrency: int = 1, store: str = "",
                   to_box: bool = False, dry_run: bool = True,
                   resume: bool = False, max_scan: int = 300,
+                  export: str = "",
                   background: bool = False, force: bool = False) -> dict:
     """任务式全自动目标驱动选品（漏斗 v2，v0.70 语义翻转）：--max-scan 上限采集
     （默认 300，深滚动）→ ai 粗筛 → 自动 1688 匹配 → profitable 达到 target_count
     即停（达标数，护图搜配额；匹配池按达标可能性降序）。match_limit 缺省=目标×3。
-    dry_run=True（默认）只统计不入箱零副作用；to_box=True 逐条入采集箱（POST /drafts），
-    真实写操作须 dsh 侧审批。resume 续跑同入口最近任务（跳过已处理 pid 不重烧图搜）；
-    粗筛池耗尽仍未达标会如实报告缺口（加大 max-scan / 换词续采）。
+    to_box=True 逐条入采集箱（POST /drafts，写操作须 dsh 侧审批）；dry_run=True
+    （默认）零副作用；export=CSV 路径落盘全量候选（含状态/利润率列，可复核）。
+    resume 续跑同入口最近任务（跳过已处理 pid 不重烧图搜）；粗筛池耗尽仍未达标
+    会如实报告缺口（加大 max-scan / 换词续采）。结果尾部输出结构化 summary。
     background=true 后台跑立即返回 task_id——本命令分钟级，长任务必用。"""
     return _run_or_background("discover_task",
         {"url": url, "keyword": keyword, "target_count": target_count,
          "min_margin": min_margin, "match_limit": match_limit,
          "match_concurrency": match_concurrency, "store": store,
          "to_box": to_box, "dry_run": dry_run, "resume": resume,
-         "max_scan": max_scan},
+         "max_scan": max_scan, "export": export},
         background, force)
 
 

@@ -27,7 +27,7 @@ PORT = 8902
 # 直接可执行短命令（同步 subprocess）；其余长时命令走后台任务
 _DIRECT_COMMANDS = ("check", "category", "search")
 # 长时命令（分钟级）→ 后台 get_manager().create() 执行，前端轮询任务
-_LONG_COMMANDS = ("graph", "follow", "discover")
+_LONG_COMMANDS = ("graph", "follow", "discover", "discover_multi", "discover_task")
 
 _CORS_HEADERS = [
     ("Access-Control-Allow-Origin", "*"),
@@ -141,8 +141,11 @@ class TaskHandler(BaseHTTPRequestHandler):
             self._json(200, {"items": mgr.list(), "kinds": COLLECT_KINDS})
             return
         if path.startswith("/tasks/"):
-            task = mgr.get(path.split("/")[-1])
+            task_id = path.split("/")[-1]
+            task = mgr.get(task_id)
             if task:
+                task = dict(task)
+                task["log_tail"] = mgr.log_tail(task_id, 40)  # v0.70 日志可视化
                 self._json(200, task)
             else:
                 self._json(404, {"error": "task not found"})

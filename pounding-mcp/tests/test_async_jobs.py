@@ -194,3 +194,67 @@ def test_store_merge_keeps_foreign_tasks(mgr, tmp_path):
     merged = json.loads(store.read_text(encoding="utf-8"))
     assert "foreign" in merged and any(v.get("kind") == "search"
                                        for v in merged.values())
+
+
+def test_watch_exit0_raw_output_completes(mgr):
+    """退出码 0 但输出纯文本（queries 表格式）→ completed 不误判 failed。"""
+    mgr._set_script("print('词1  100\\n词2  200\\n')\n")
+    task = mgr.start_background("queries", {"type": "all-queries", "keyword": "x"})
+    done = _wait_status(mgr, task["id"], {"completed", "failed"})
+    assert done["status"] == "completed", done.get("error")
+
+
+def test_watch_discover_task_structured_summary(mgr):
+    """discover_task 尾部 _out JSON → summary 带达标/状态分布（job_status 机读）。"""
+    script = (
+        "import json\n"
+        "print('⏳ 阶段...', flush=True)\n"
+        "print(json.dumps({'task_id': 't1', 'summary': {'candidates': "
+        "{'profitable': 3, 'rejected': 5}, 'target': {'goal': 3, 'total': 3}, "
+        "'submitted': 0}}, indent=2), flush=True)\n"
+    )
+    mgr._set_script(script)
+    task = mgr.start_background("discover_task", {"keyword": "x"})
+    done = _wait_status(mgr, task["id"], {"completed", "failed"})
+    assert done["status"] == "completed", done.get("error")
+    assert done["summary"]["candidates"] == {"profitable": 3, "rejected": 5}
+    assert done["summary"]["target"] == {"goal": 3, "total": 3}
+
+
+def test_export_param_passthrough(mgr, tmp_path, monkeypatch):
+    """discover_task 的 export / discover 的 export+output 落参数映射（--export）。"""
+    captured: dict = {}
+    monkeypatch.setattr(tasks_mod, "run_skill_command",
+                        lambda cmd, *a, **flags: captured.update(cmd=cmd, flags=flags)
+                        or {"ok": True})
+    monkeypatch.setattr("pounding_mcp.server.get_manager",
+                        lambda: CollectTaskManager(store_path=tmp_path / "t.json"))
+    _run_or_background("discover_task",
+                       {"keyword": "x", "export": "/tmp/out.csv"}, background=False)
+    assert captured["flags"]["export"] == "/tmp/out.csv"
+    _run_or_background("discover",
+                       {"keyword": "x", "export": "csv", "output": "/tmp/o"},
+                       background=False)
+    assert captured["flags"]["export"] == "csv" and captured["flags"]["output"] == "/tmp/o"
+
+
+def test_cli_command_alias_translation():
+    """工具名（下划线）→ CLI 命令名（discover-task 连字符）显式映射。"""
+    from pounding_mcp.skill_runner import _build_argv
+
+    argv = _build_argv("discover_task", (), {"keyword": "手套"})
+    assert argv[2] == "discover-task" and "--keyword" in argv
+    assert _build_argv("discover_multi", ())[2] == "discover-multi"
+    assert _build_argv("search", ("词",))[2] == "search"   # 下划线命名 CLI 不受影响
+
+
+def test_cli_accepts_translated_commands():
+    """真 CLI 校验：翻译后的命令名必须被 argparse 接受（防 mock 盲区回归）。"""
+    import subprocess
+
+    from pounding_mcp.skill_runner import _CLI, SKILL_PYTHON, _CLI_COMMAND_ALIASES
+
+    for tool, cmd in _CLI_COMMAND_ALIASES.items():
+        r = subprocess.run([SKILL_PYTHON, str(_CLI), cmd, "--help"],
+                           capture_output=True, text=True, timeout=60)
+        assert r.returncode == 0, f"CLI 不接受 {cmd}（来自工具 {tool}）: {r.stderr[:200]}"
