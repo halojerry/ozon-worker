@@ -173,7 +173,9 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
   累积，append-only 去重 cap50）全链透传 → 留存表新列 `moderation_texts`；
   `_build_notice` 修签名（传 error_code 而非 error_type）+ 兜底携带俄语原文。
   **改 retry 子图错误消费逻辑前必读**——任何从 state.errors 删除/过滤的节点都应先
-  `_accumulate_decline_errors`。
+  `_accumulate_decline_errors`；且 v0.70 起 `extensions.box_reviewed`（采集箱草稿）
+  禁用自主重配（R4 换类目/标题描述重写/强制标题生成）——新增改写用户可见内容的
+  修复分支必须先过 `_box_reviewed(state)` gate（采集箱即权威，所见即所得）。
 - **留存表真值**：GraphOutput 透传 `description_category_id/type_id/category_match_meta/
   final_weight_g/final_dims_mm`（output_schema 按名过滤——**GlobalState 已有的通道加进
   GraphOutput 即可透传，无需改节点**；prepare 归一真值经 PrepareOzonUploadOutput 同名

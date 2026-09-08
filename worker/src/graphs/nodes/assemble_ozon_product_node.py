@@ -657,19 +657,22 @@ def _skill_precedence_over_l0(l0_hit: dict | None, skill_l0_hit: dict | None,
 
 
 def _step65_consistency_exempt(match_layer: str, r2b_confirmed: bool,
-                               l0_exempt: bool) -> bool:
+                               l0_exempt: bool, box_reviewed: bool = False) -> bool:
     """Step 6.5 一致性重配豁免判定（纯函数，可单测）。
 
-    豁免三类：
+    豁免四类：
     - Skill 权威直通（v0.64 B3）：类目来自 Skill 端 Ozon 权威解析，俄语标题是
       LLM 另译营销文案，与类目路径词面不重叠是正常；
     - 权威档 L0（v0.66 c3）：curated/learned≥2 或弱档仲裁提升，同上；
     - ✅ v0.68.1 R2b 已确认：采纳已经过「LLM 确认 + 非泛词源词 overlap」双重
       校验——比 Step 6.5 的 RU 词面检查更强的信号（wave A4 实证：R2b 确认的
       园艺地垫被重配成除草剂，仅因 LLM 营销标题与 RU 路径零词面重叠）。
+    - ✅ v0.70 采集箱即权威（box_reviewed）：用户在采集箱编辑/采纳过类目，
+      提交内容=人工审核结果，管线不重决策（extensions.box_reviewed，由
+      submit_draft 注入）。
     普通 L1 不豁免——A2 型（三角头巾→遮阳帽）Step 6.5 救回语义保持。
     """
-    return match_layer == "Skill" or r2b_confirmed or l0_exempt
+    return match_layer == "Skill" or r2b_confirmed or l0_exempt or box_reviewed
 
 
 def _r1_veto(category_result: dict | None, signal_text: str) -> bool:
@@ -2183,7 +2186,8 @@ def assemble_ozon_product_node(
         and int(type_id or 0) == int(l0_hit.get("type_id") or 0)
     )
     if not category_consistent and not _step65_consistency_exempt(
-            match_layer, _r2b_confirmed, _l0_exempt_consistency):
+            match_layer, _r2b_confirmed, _l0_exempt_consistency,
+            box_reviewed=bool((extensions or {}).get("box_reviewed"))):
         # 类目不匹配 → 尝试用俄语标题重新匹配类目
         logger.warning(f"⚠️ 类目不一致，尝试用俄语标题重新匹配...")
         recategorize_failed = True

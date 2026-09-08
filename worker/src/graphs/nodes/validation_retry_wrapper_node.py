@@ -55,6 +55,9 @@ def validation_retry_wrapper_node(
         # ✅ v0.66.1 discover 类目学习闭环: 主图 match_layer 元数据透传进子图
         # （R4 重配成功会在子图内更新为 R2b 档， learning_record 写侧按此分档）
         category_match_meta=state.category_match_meta,
+        # ✅ v0.70 采集箱即权威: 信封 extensions（box_reviewed）透传进子图——
+        # R4 换类目/标题描述重写对采集箱草稿禁用
+        extensions=state.extensions or {},
         # ⚠️ PR-1 (D3): 跨入口累积 — 从 GlobalState 传入已累计次数，子图在此基础上继续
         retry_count=state.retry_count,
     )

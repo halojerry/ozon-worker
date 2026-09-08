@@ -856,6 +856,9 @@ class ValidationRetryWrapperInput(BaseModel):
     # 修复子图（对齐 v0.66 pricing_info 先例——wrapper 节点显式构造子图 Input，需在此声明
     # 才不被过滤）。R4 整卡重配成功会在子图 state 更新为 {"match_layer":"R2b",...}。
     category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="类目匹配元数据（透传子图，R4 重配后更新为 R2b 档）")
+    # ✅ v0.70 采集箱即权威：信封 extensions（box_reviewed）透传进修复子图——
+    # R4 换类目/标题描述重写对采集箱草稿禁用（用户审核过的内容管线不重决策）
+    extensions: Dict[str, Any] = Field(default_factory=dict, description="信封 extensions（box_reviewed 等）")
 
     # 条件分支路径函数需要访问的字段
     upload_status: str = Field(default="", description="上传状态（success/failed）")
