@@ -27,7 +27,7 @@
 典型编排：本地 `discover` 选品 → 结果入采集箱 → 本服务 `submit_draft` 上架；
 或本地组装信封 → 本服务 `submit_task` 直提。
 
-## 工具清单（14 个）
+## 工具清单（17 个）
 
 | 工具 | 类型 | 说明 |
 |---|---|---|
@@ -44,7 +44,10 @@
 | `lookup_commission(category_id)` | 读 | 类目佣金分段（FBS/FBO × 价格段） |
 | `quote_logistics(weight_g, depth_cm, width_cm, height_cm, creds?)` | 读 | 物流运费报价（CNY） |
 | `lookup_mapping(keyword)` | 读 | 1688 中文类目 → 已学习 Ozon 类目映射 |
-| `get_seo_keywords(q, limit)` | 读 | Ozon 蓝海流量关键词 |
+| `get_seo_keywords(q, limit)` | 读 | Ozon 蓝海 SEO 流量关键词（标题/hashtag 用）。只读。limit ≤50 |
+| `report_issue(title, severity?, category?, description?, reproduction?, evidence?)` | 写 | 用户问题反馈 → 错误报告入 worker 跟踪队列（v0.70）。按 `evidence.task_ids` 自动附加本租户任务快照（状态/错误/时间线/product_id）；提交成功返回 `report_id`。模板契约见 `docs/ERROR-REPORT-TEMPLATE.md` |
+| `list_error_reports(status?, limit?, report_id?)` | 读 | 查本租户错误报告（只读）。status ∈ {new,triaging,fixed,wontfix} 可筛；`report_id` 非空返回单条详情（含自动附加的任务快照 auto_context） |
+| `get_task_forensics(task_id)` | 读 | 任务取证一站式只读聚合（v0.70）：任务快照 + 上架留存(listing_result_log) + 类目/属性匹配审计。排查「为什么失败/为什么这么上架」首选——先取证再报 issue |
 
 安全分级：`run_store_action` / `submit_task` / `submit_*` 为真实写操作。dsh 侧已有
 `tools/pre-execute` 审批钩子（read/write/destructive 分级）；其它平台建议开启工具调用确认。

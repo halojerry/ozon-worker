@@ -1,5 +1,56 @@
 # Changelog
 
+## [未发版] — 2026-09-08（文档体系收口：过期归档 + API 两层文档 + CI 防漂移 + MCP/harness 对齐）
+
+> 维护面收敛为 worker + skill + MCP + 一套自洽文档；pounding-harness 只做消费方。
+> 不改业务逻辑、不发版（VERSION 四源仍 0.70.0）。
+
+### 过期文档清理
+- 58 个文档 `git mv` → `archive/docs/legacy/`（13 个 v0.43–v0.55 里程碑 PRD、已完结专项
+  PRD/PLAN、一次性报告/评估/草案、2 份 2MB 类目树 md、`api-integration/API-INTEGRATION-GUIDE.md`
+  ——后者仍在教 M2 前「key 派生租户」旧鉴权模型，与 `_authenticate_token` 冲突）。
+  残留路径引用（CONTRACT-v4 / PLAN-card-merge / ozonharness / worker 测试 docstring 20 处）
+  统一改 archive 路径；CHANGELOG 历史不动。
+- AGENTS.md 修链：`PLAN-sentry-r1r6-v1`/`PLAN-store-analytics-v1` 幻影引用（git 全历史不存在）
+  改指 CHANGELOG/STORE-ANALYSIS；事实漂移修正——错误码 12→**14**、pounding-mcp 24→**25**
+  （20 CLI + 5 REST 直调）、STAGE_ORDER 12→**13**、progress「重启即丢」→ **PG 回退**
+  （`_persist_progress` 2s 节流）、「批次 3 未执行 harness 一行未动」→ 已施工大半（见下）。
+  深入阅读补 API-OVERVIEW/API-REFERENCE/ARCHITECTURE-TOPOLOGY/ozon-field-map/WEBUI-CONVENTIONS/ozonharness 入口。
+- B 类更新：WORKER-TOPOLOGY 头 v0.27→v0.70 + 「v0.28–v0.70 拓扑变更摘要」；MCP-SERVER 工具表
+  14→17；PLAN-harness §7 14→17 + 「施工现状」节；API-INTEGRATION-GUIDE 收敛为薄指路文档；
+  IMAGE-PROMPT-GUIDE v0.64 提示；STORE-ANALYSIS PRD 引用修正；skill error-codes.md 补
+  `TASK_NOT_CANCELLABLE`（⚠️ 该码为预留：errors.py 有定义，`cancel_task` 实际用 SQL
+  `status='pending'` 过滤、失败回 200+`status:failed`，无 raise 点——码表与行为存在代码侧缺口）。
+
+### API 文档两层体系 + CI 防漂移
+- 新 `docs/API-OVERVIEW.md`（手写叙述层 254 行）：Base URL 双环境、**双鉴权矩阵**（请求体
+  `token` vs `Authorization: Bearer`；两套租户体系——业务面 Supabase user_id / analytics 面
+  key 哈希 `_key_user_id`）、限流（300/min，MCP 一次调用计 2）、错误信封三形态并存、14 错误码
+  镜像表、分页、任务生命周期（13 阶段）、版本策略（**并非所有端点双挂**：discovery/runs、
+  error_reports、mappings/lookup 只挂 `/api/v1`）、v0.56+ API 变更记录表。
+- 新 `worker/scripts/gen_api_docs.py`：进程内 `app.openapi()` → `docs/API-REFERENCE.md`
+  （**153 path / 62 schema**，按路径首段分组，每端点方法/别名/参数表/请求体最小示例/响应码表）
+  + 两份 `openapi.json` 快照（`api-integration/` + `webui/src/imports/`，此前停在 08-19 的 98
+  path）；`--check` 供 CI。确定性坑：多方法 `api_route`（newapi 代理 `/api/{path}`）的
+  operationId 随 hash 种子漂移，脚本按方法名归一后逐字节可复现。
+- `api/schemas.py` 11 个集成高频 schema 加 `json_schema_extra` examples（ErrorBody/
+  SubmitTask*/TaskStatus/AuthVerify*/DraftCreate/DraftSubmit/SubmitResponse/Credential*）；
+  `v1_submit_task` 路由加 `openapi_extra` 声明 `SubmitTaskRequest` 请求体（处理函数手读
+  raw Request，此前 OpenAPI 无请求体、schema 不在 components）——纯元数据，行为零变化。
+- `generated.d.ts` 两份重生成（7034→10278 行），webui `tsc -b` + build 绿。
+- 门禁：`scripts/ci.sh` Step 5d + GitHub `test-worker` job 末步 `gen_api_docs.py --check`
+  漂移即红；AGENTS.md 联动规则表加行「改 API 必须重生成」。`api-integration/README.md`
+  重写为指路页（去旧鉴权说法）。
+
+### MCP / harness 对齐（PLAN-harness-mcp-adoption-v1）
+- 现状核对：批次 3 已在 harness 仓库落地大半（dsh 双 MCP 一键配置 `/api/mcp/config|test`、
+  审批分级插件、网关白名单瘦身、8902 退役）；剩余 `_read_mxou_token` 明文代管链退役 +
+  旧宿主 `macos/`、`windows/*.ps1` 清理，记为 harness 侧待办，本批 harness 零改动。
+- 批次 2 发包准备：pounding-mcp version 0.1.0→**0.70.0**、pyproject 补 `readme` 字段、
+  description/README/`__init__`/server docstring/test_smoke 统一 25 工具；`python -m build`
+  + `twine check` PASSED，wheel 冒烟注册 25 工具；PyPI 名 `pounding-mcp` 可用（404）。
+  **实际 publish 待 PyPI token**。pounding-mcp 41 passed。
+
 ## [0.70.0] — 2026-09-08
 
 > 四个用户问题落地：①错误报告模板进 skill 才能被 agent 用；②数据库不迁 Supabase

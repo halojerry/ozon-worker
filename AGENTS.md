@@ -2,7 +2,25 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
-## 最近更新（v0.70.0 — 错误报告进 skill + 门禁权威补洞 + 采集箱改配 + 缓存全量化 + 取证通道）
+## 最近更新（未发版 — 文档体系收口：过期归档 + API 两层文档 + CI 防漂移 + MCP/harness 对齐）
+
+> 2026-09-08。**未发版**（VERSION 四源仍 0.70.0），不改业务逻辑。维护面收敛为
+> worker + skill + MCP + 一套自洽文档，pounding-harness 只做消费方。详见 CHANGELOG「未发版」。
+
+- **API 文档两层**：`docs/API-OVERVIEW.md`（手写约定：双鉴权矩阵/限流/错误信封/13 阶段/
+  版本策略/变更记录）+ `docs/API-REFERENCE.md`（`worker/scripts/gen_api_docs.py` 从
+  `app.openapi()` 生成，153 path，**勿手改**）。**改 API 后必须跑生成脚本**——`scripts/ci.sh`
+  Step 5d 与 GitHub `test-worker` job 用 `--check` 校验漂移即红；两份 `openapi.json` 快照
+  与 `generated.d.ts` 由同一脚本/命令刷新（见 `api-integration/README.md`）。
+- **schema examples 纪律**：新增/改动集成面 schema 时给 `model_config = _examples({...})`
+  （`api/schemas.py`），REFERENCE 示例列自动真实化；手读 raw Request 的路由用 `openapi_extra`
+  声明请求体（`v1_submit_task` 先例）。
+- **文档归档 58 个**→ `archive/docs/legacy/`；AGENTS.md 若干事实漂移已修（错误码 14、
+  pounding-mcp 25 工具、STAGE_ORDER 13、progress 有 PG 回退、harness 批次 3 已施工大半）。
+- **pounding-mcp 发包准备完成**（0.70.0，build/twine 绿，PyPI 名可用），publish 待 token。
+- **开发期 Ozon API 契约查询**：`mcp__ozon__*`（PCDCK/ozon-mcp 零凭证安装，见
+  `docs/refs/ozon-mcp/README.md`）——写 Ozon API 调用前先 search/describe，禁手 grep swagger。
+
 
 > 2026-09-08。已发版（VERSION 四源 0.70.0）。四个
 > 用户问题的落地：①错误报告模板放 skill 才能被 agent 用；②数据库不迁 Supabase
@@ -109,7 +127,7 @@
 ## 最近更新（v0.68.0 — wave P2/P3 修复：审核原文留存 + 留存真值 + R2b 扩池 + 姊妹词治理）
 
 > 2026-09-06。已发版（VERSION 四源 0.68.0）。v0.67 wave 真实测试在案四缺陷的深度取证
-> 修复（方案 `docs/PLAN-wave-p2p3-fixes-v1.md`，四 task 全 TDD + 本地 Docker 真实回归）。
+> 修复（方案 `archive/docs/legacy/PLAN-wave-p2p3-fixes-v1.md`，四 task 全 TDD + 本地 Docker 真实回归）。
 
 - **审核拒绝原文留存**：`decline_errors` 累积器（parse_error/recheck_status 消费前原样
   累积，append-only 去重 cap50）全链透传 → 留存表新列 `moderation_texts`；
@@ -153,16 +171,17 @@
   本地 pounding-mcp 管采集（graph/follow/discover/image_search/check，依赖本机 Chrome 登录态）。
   `run_store_action`/`submit_*` 是真实写操作，agent 侧需用户确认。
 - **限流计数**：一次 MCP 工具调用记 2 次（中间件+内层路由各一次），比 REST 更保守。
-- **harness 路线图**（批次 3 未执行，harness 一行未动）：对接施工文档
-  `docs/PLAN-harness-mcp-adoption-v1.md`——dsh 挂双 MCP 配置、凭证流转、采集箱/任务中心
-  保留策略、网关瘦身清单、审批分级、回滚与验收清单。批次 2（未执行）：pounding-mcp uvx 发包
-  + skill 包自带 mcp/ 接入指南。
+- **harness 路线图**（2026-09-08 现状核对：批次 3 **已在 harness 仓库大部分施工**——dsh 双 MCP
+  一键配置 `/api/mcp/config`+`/api/mcp/test`、审批分级插件、网关白名单瘦身、8902 退役均落地）：
+  施工文档 `docs/PLAN-harness-mcp-adoption-v1.md`（含「施工现状」节：剩余 `_read_mxou_token`
+  明文代管链退役 + 旧宿主清理，属 harness 侧待办）。批次 2（pounding-mcp uvx 发包）：发包准备
+  已做（版本/描述/README 对齐 25 工具），**实际 publish 待 PyPI token**。
 - **测试**：`tests/test_mcp_server.py` 19 passed（工具整形/Bearer 中间件/挂载面）+ 端到端
   实测（fastmcp 客户端握手 + 14 工具注册 + 真实 REST 回调）。
 
 > **0.67.0 追加（2026-09-06 wave 真实测试 + 两 P1 修复，同版未拆）**：留存批次
 > （`e30dd0ed` listing_result_log/P1-6/清理 30 天、`24396f86` 图搜类目保留）随本版一起发。
-> wave 9 单实测（docs/TEST-v067-wave-plan.md）：**零 18+/P1-6 join/留存行/L0 学习闭环
+> wave 9 单实测（archive/docs/legacy/TEST-v067-wave-plan.md）：**零 18+/P1-6 join/留存行/L0 学习闭环
 > （approve→learned 行→同链接二单 match_layer=L0）全部实证**。实测揪出两 P1 已修：
 > ①佣金缓存 0% 污染（回填把 prices 缺 commissions 块的 0 照样 upsert + resolver 不拒 0，
 > 双侧加守卫）；②skill search_kw 候选 sim=1.0 插队（`_place_skill_candidate` 非权威队尾，
@@ -309,7 +328,7 @@
 ## 最近更新（v0.62.0 — Sentry 六类根因修复 R1–R6）
 
 > 2026-08-31。已发版（VERSION 四源 0.62.0）。针对生产 Sentry 100 issues / 3645 events
-> （集中在 2026-08-11 堆积）按根因分六类修复，执行记录见 `docs/PLAN-sentry-r1r6-v1.md`。
+> （集中在 2026-08-11 堆积）按根因分六类修复，执行记录见 CHANGELOG 0.62.0。
 
 - **R1 余额治理**：`_is_out_of_quota_response` 401 纳入永久错误分类（MXOU 余额耗尽/认证失效同返 401，
   不再走普通 4xx 重试）；低余额用户通知 `BALANCE_ALERT_THRESHOLD`（默认 ¥50，可配）+ token 指纹
@@ -329,7 +348,7 @@
 
 ## 最近更新（开发中 — harness-store-analysis 数据沉淀：3 张新表 + 店铺分析/执行端点 + 专家版图）
 
-> 2026-08-22。**未发版**（VERSION 四源仍 0.60.0），属「数据沉淀 + 店铺精细化运营」阶段。本批把 store/store 指标、操作审计、选品洞察落 PG，暴露整店分析（读）与单店执行（写）两大端点，并新增店铺优化/选品/营销三位专家参考。执行记录见 `docs/PLAN-store-analytics-v1.md`（harness-store-analysis）。
+> 2026-08-22。**未发版**（VERSION 四源仍 0.60.0），属「数据沉淀 + 店铺精细化运营」阶段。本批把 store/store 指标、操作审计、选品洞察落 PG，暴露整店分析（读）与单店执行（写）两大端点，并新增店铺优化/选品/营销三位专家参考。执行记录见 `docs/POUNDING-WORKER-STORE-ANALYSIS.md`（harness-store-analysis）。
 
 - **3 张新表**（`worker/src/storage/database/shared/model.py`，均 append-only / 去重聚合）：
   - `store_metrics_history`：店铺指标快照 `{tenant_id, credential_id, store_id, snapshot_at, order_count, sales_amount, commission_amount, profit_amount, product_count, low_stock_count, active_discount_count, profit_rate, raw(jsonb)}`。**无业务唯一键**（同 store 多条 snapshot_at 靠自增 id）。`store_sync_service._append_metrics_snapshot` 每次同步末尾追加一条（失败静默降级）。**profit_amount/profit_rate 无成本时写 NULL，绝不编造利润**。
@@ -357,7 +376,7 @@
 
 ## 最近更新（v0.59 — 类目佣金缓存 + 定价佣金修正 + 多 SKU 配额调研）
 
-> 2026-08-20。佣金链路修复（费率权威化）+ 选品发货模式对齐，均未发版（VERSION 仍 0.56.6）。执行记录见 `.omo/plans/category-commission-cache.md`（Momus 评审 OKAY），问题台账 `docs/TEST-ISSUES-2026-08.md`。
+> 2026-08-20。佣金链路修复（费率权威化）+ 选品发货模式对齐，均未发版（VERSION 仍 0.56.6）。执行记录见 `.omo/plans/category-commission-cache.md`（Momus 评审 OKAY），问题台账 `archive/docs/legacy/TEST-ISSUES-2026-08.md`。
 
 - **Ozon 佣金是「类目 × 发货模式 × 价格段」三维矩阵，无公开按类目查佣金的 API**（`/v5/product/info/prices` 需真实 offer_id、销售报告需已售记录、类目树无佣金字段）。唯一选品时可用的是 what_to_sell 的 `rfbs_rate`/`fbp_rate` 分段对象（`{leq_1500, leq_5000, gt_5000}`）。详见 `docs/OZON-MULTI-SKU-QUOTA.md` 同批调研。
 - **佣金缓存表 `category_commission`**（`worker/src/storage/database/shared/model.py`）：`description_category_id` 唯一，FBS/FBO 三段佣金%，全局共享无 tenant_id（对齐 category_mapping W11）。两条数据源渐进积累：上架成功回填（prices_api 源）+ what_to_sell 分段。
@@ -458,9 +477,9 @@ ozon-worker/
 │   ├── deploy.sh               # 一键部署（含自动初始化数据）
 │   ├── update.sh               # 一键更新
 │   └── .env.example            # 环境变量模板
-├── pounding-mcp/               # dsh Agent 调用入口：24 个 MCP 工具（19 CLI 封装 + 5 worker HTTP 直调；FastMCP 薄封装）
+├── pounding-mcp/               # dsh Agent 调用入口：25 个 MCP 工具（20 CLI 封装 + 5 worker HTTP 直调；FastMCP 薄封装）
 │   ├── pounding_mcp/router.py  # Q3 对话入口意图路由层（URL 正则 + 九类意图词表 → pipeline A-F）
-│   ├── pounding_mcp/server.py  # FastMCP 工厂 + 19 工具（参数映射 → subprocess 调 skill CLI）
+│   ├── pounding_mcp/server.py  # FastMCP 工厂 + 25 工具（20 个参数映射 → subprocess 调 skill CLI，5 个直调 worker REST）
 │   └── README.md               # 挂载/独立 venv 说明（测试坑见下方）
 ├── pounding-sidebar/           # 客户端侧边栏插件（dsh-better-sidebar 消费插件）
 │   ├── src/client/index.tsx    # 7 业务板块 tab（采集箱/任务中心/专家/知识库/爆品新闻/计算器/用量）+ CSV viewer
@@ -582,8 +601,9 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | 类目属性缓存（v0.70） | `GET /api/v1/categories/attributes?dc=&tp=`（**缓存只读不回源 Ozon**；未预热返回 found=false） | GET |
 
 **`task_status` 返回 `progress` 字段**：`{stage, percent, stages_completed[], stages_remaining[], message}`。
-进度基于内存中 12 阶段 `STAGE_ORDER` 计算，节点执行时 `ProgressCallback` 自动更新。
-⚠️ 进度存储在内存中，Worker 重启后丢失（task_status 降级为无进度模式）。
+进度基于 13 阶段 `STAGE_ORDER`（main.py:82-85）计算，节点执行时 `ProgressCallback` 自动更新。
+存储：内存优先，`_persist_progress` 2s 节流回写 PG `ozon_product_tasks.progress` 列——Worker 重启后
+`task_status` 回退读 PG，仍能拿到最近一次进度（不再是「重启即丢」）。
 
 鉴权: `token` 字段在请求体中（非 header），通过 Supabase `tokens` 表校验。
 限流: 每 token 每分钟 ≤ 300 次（`RATE_LIMIT_PER_MINUTE` 可配置）。
@@ -597,7 +617,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 - **Worker 三层**: FastAPI `/submit_task`(鉴权+入队) → PG 队列 `ozon_product_tasks`(`FOR UPDATE SKIP LOCKED`) → 50 并发 LangGraph worker(`SupabaseTaskProcessor`)
 - **Skill 是无状态本地抓取**，不调用任何 Ozon 上架 API
 - **编辑时不越界**: 别给 skill 加上架调用，别给 worker 加 1688 抓取
-- **错误码**: 统一在 `worker/src/api/errors.py`（12 个 `WorkerErrorCode`）
+- **错误码**: 统一在 `worker/src/api/errors.py`（14 个 `WorkerErrorCode`；对外约定见 `docs/API-OVERVIEW.md`）
 
 ## 组件关系与更新联动（改任何一块前必读）
 
@@ -626,7 +646,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 |---|---|---|
 | skill CLI **命令签名/参数** | pounding-mcp `server.py` 参数映射 + `router.py` 意图词表 | worker / webui |
 | skill **信封字段结构**（GraphInput 增减字段） | worker `state.py` + AGENTS.md 契约节 + webui 草稿展示 | pounding-mcp（只传不解析） |
-| worker **新增 API 端点** | AGENTS.md API 表 + webui 接入 + 客户端按需接入 | skill / pounding-mcp |
+| worker **新增/修改 API 端点或 schema** | **跑 `worker/scripts/gen_api_docs.py`**（重生成 `docs/API-REFERENCE.md` + openapi 快照，CI Step 5d 漂移即红）+ `docs/API-OVERVIEW.md` 变更记录 + AGENTS.md API 表 + webui 接入 + 客户端按需接入 | skill / pounding-mcp |
 | worker **定价/标题公式** | `compute_price`/`title_formula` 唯一入口已锁定，面板展示三档价 | skill |
 | skill **内部抓取/图搜逻辑** | **什么都不用改**（工具签名/产出结构不变） | 全部 |
 | **版本发版**（VERSION 四源） | CHANGELOG + AGENTS.md 顶部更新块 + 测试基线 | — |
@@ -638,7 +658,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 1. skill 改了 → pounding-mcp 工具签名是否对齐？`router.py` 意图词表是否要加？
 2. worker API 改了 → webui/客户端面板是否要接？AGENTS.md API 表是否更新？
 3. 信封结构改了 → CONTRACT-v4 文档是否更新？
-4. pounding-harness 那边的 `boujoy_server.py` 代理路由是否要加新路径？（pounding-harness 独立仓库，靠代理路由连 worker）
+4. pounding-harness 经 **MCP** 对接（dsh 挂 worker 远程 MCP + pounding-mcp，网关只剩 drafts/tasks 只读白名单 + `drafts/{id}/submit`）：worker MCP 工具增删 → `docs/MCP-SERVER.md` 工具表 + `PLAN-harness-mcp-adoption-v1.md` §7 验收数；新 REST 端点通常**不需要**改 harness 网关。
 5. 版本四源是否一致（VERSION / skill/VERSION / deploy/skill/VERSION / SKILL.md frontmatter）？
 
 ### 待执行：webui 替换 + ozon-mcp 引入（dev 阶段，零用户访问）
@@ -924,7 +944,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
   4. **实机验证 gate（v0.69 起，不可跳过）**：tag 前必须本地 Docker worker 真实跑通 ≥3 单
      （discover 或 graph 管线，真实 1688/Ozon 链接），检查 category_match_log / listing_result_log /
      任务终态符合预期——mock 全绿≠能发版（v0.64~v0.68 连续 5 版未实机即发的教训）。
-     wave 观察脚本见 `docs/TEST-v067-wave-plan.md` 模式。
+     wave 观察脚本见 `archive/docs/legacy/TEST-v067-wave-plan.md` 模式。
   5. `git tag v{x.y.z} && git push origin v{x.y.z}`（触发 build-skill.yml 4 平台编译 + cd.yml 部署两条链路）
   6. 确认 CD 两个 workflow 均 success（Docker 镜像 + Release + COS 部署包 + skill 二进制包）
   7. 服务器 `bash deploy/cos-update.sh` 升级 worker；skill 用户端 updater 自动更新
@@ -944,6 +964,12 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 
 ## 深入阅读（改前先看）
 
+- **`docs/API-OVERVIEW.md`** — ⭐ Worker REST/MCP 对外约定（Base URL 双环境、双鉴权矩阵、限流、错误信封与 14 错误码、分页、版本策略、API 变更记录——任何集成方先读）
+- **`docs/API-REFERENCE.md`** — 全端点参考（`worker/scripts/gen_api_docs.py` 从 OpenAPI 生成，**勿手改**；CI Step 5d 校验漂移）
+- **`docs/ARCHITECTURE-TOPOLOGY.md`** — 六组件拓扑与协议边界（skill/worker/pounding-mcp/harness/webui/ozon-mcp）
+- **`docs/ozon-field-map-v1.md`** — Ozon 字段映射冻结表（store-sync ERP M0）
+- **`docs/WEBUI-CONVENTIONS.md`** — WebUI 双体系开发规范
+- **`docs/ozonharness/README.md`** — 电商版 dsh Harness 产品方案底稿（PRD/架构/路线图；**施工以 `docs/PLAN-harness-mcp-adoption-v1.md` 为准**）
 - **`docs/PLAN-conversation-entry-v1.md`** — ⭐ Q3 对话入口方案（dsh Agent tab 先行 + 专家 tab 对话 UI 二期；router.py 意图路由层设计——改对话入口前必读）
 - **`docs/PLAN-card-merge-fix-v1.md`** — ⭐ Q4 并卡修复方案（9048 前缀/标题 SEO/生图回退告警/上架前检测四阶段——改 9048/变体合并前必读）
 - **`docs/PRD-skill-learn-shangpinbang-v1.md`** — ⭐ skill 学习上品帮 v1 PRD（F1-F13 需求分解 + S1 混合键/D12 白名单/W11 全局共享 3 决策定稿——改 discover 漏斗/graph 信封前必读）
