@@ -91,6 +91,37 @@ VERSION="$VERSION" docker compose up -d
 	echo "📦 初始化数据库..."
 	docker compose exec -T worker python scripts/init_data.py
 
+	# ── v0.70: 属性缓存全量 JSON——COS 下载 → 拷入容器 → 后台 --import-only ──
+	# 「部署即全量」：一次性分片预热(~16h) → --export-only → 上传 COS 后，此后每次
+	# 部署自动灌入全量缓存（30 天 TTL）。COS 缺失时跳过（懒加载兜底，不阻断部署）。
+	# 运维手册: docs/CACHE-WARM-RUNBOOK.md
+	COS_BUCKET="${COS_BUCKET:-yss-1256275613}"
+	COS_REGION="${COS_REGION:-ap-guangzhou}"
+	if [ -f "$SCRIPT_DIR/.env" ]; then
+		_b=$(grep -E '^COS_BUCKET=' "$SCRIPT_DIR/.env" | head -1 | cut -d= -f2- | tr -d '"')
+		_r=$(grep -E '^COS_REGION=' "$SCRIPT_DIR/.env" | head -1 | cut -d= -f2- | tr -d '"')
+		[ -n "$_b" ] && COS_BUCKET="$_b"
+		[ -n "$_r" ] && COS_REGION="$_r"
+	fi
+	CACHE_BASE_URL="https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/ozon-worker/cache"
+	CACHE_OK=0
+	for _f in attribute_schemas_zh.json dictionary_values_zh.json; do
+		_tmp=$(mktemp)
+		if curl -fsSL --retry 2 --retry-delay 2 --max-time 600 -o "$_tmp" "$CACHE_BASE_URL/$_f"; then
+			if docker compose cp "$_tmp" "worker:/app/assets/$_f" 2>/dev/null; then
+				echo "   ✓ 属性缓存 JSON 就位: $_f"
+				CACHE_OK=1
+			fi
+		else
+			echo "   ⚠️ COS 无属性缓存 $_f（跳过，运行时懒加载兜底）"
+		fi
+		rm -f "$_tmp"
+	done
+	if [ "$CACHE_OK" = "1" ]; then
+		echo "🔥 后台灌入全量属性缓存（--import-only，日志 /app/logs/warm_import.log）..."
+		docker compose exec -T worker sh -c "python scripts/warm_category_cache.py --import-only >> /app/logs/warm_import.log 2>&1" &
+	fi
+
 	# 预热属性缓存（后台运行，top-200 高频类目 ~5分钟）
 	# 未缓存的类目运行时将从 Ozon API 懒加载
 	echo ""
