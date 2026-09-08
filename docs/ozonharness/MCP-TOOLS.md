@@ -34,14 +34,14 @@
 | 4 | `set_token` | set_token | 设置 MXOU 平台 token | `token` | write |
 | 5 | `set_ak` | set_ak | 手动设置 1688 Access Key | `ak` | write |
 | 6 | `get_ak` | get_ak | 浏览器自动获取 1688 AK | `timeout` | write |
-| 7 | `search` | search | 搜索 1688 商品 | `query, page_size, sort, rules, store, auto_submit` | read → write* |
+| 7 | `search` | search | 搜索 1688 商品（双出口）| `query, page_size, sort, rules, store, auto_submit, to_box` | read → write* |
 | 8 | `probe` | probe | CDP 抓取 1688 商品详情页 | `url, timeout` | read |
 | 9 | `image_search` | image_search | 以图搜款（上传图找 1688 同款）| `image, limit, sort, source` | read |
 | 10 | `category` | category | 查询 Ozon 类目（关键词→候选类目）| `query, lang, max` | read |
 | 11 | `follow` | follow | 跟卖 Ozon 商品（竞品→找同款→上架）| `ozon_url, store, to_box, auto_submit, review, background, force` | read → write* |
 | 12 | `discover` | discover | Ozon 选品 v2（采集→分析→挑货）| `url, keyword, max_products, min_margin, store, fission, rules, export(csv\|json\|both), output, auto_submit, background, force...` | read → write* |
 | 13 | `discover_multi` | discover-multi | 多关键词批量选品 | `keywords, max_each, min_margin, background, force...` | read → write* |
-| 14 | `discover_task` | discover-task | 任务式全自动**目标驱动**选品（漏斗 v2：target_count=达标数，达标即停护图搜配额）| `url, keyword, target_count, min_margin, match_limit(缺省=目标×3), match_concurrency, store, to_box, dry_run(默认true), resume, max_scan(默认300), export(CSV 路径), background, force` | read → write* |
+| 14 | `discover_task` | discover-task | 任务式全自动**目标驱动**选品（漏斗 v2：target_count=达标数，达标即停护图搜配额）| `url, keyword, target_count, min_margin, match_limit(缺省=目标×3), match_concurrency, store, to_box\|auto_submit(双出口互斥), dry_run(默认true), resume, max_scan(默认300), export(CSV 路径), background, force` | read → write* |
 | 15 | `seller` | seller | 卖家店铺全产品运营分析 | `seller_id, max_products, max_skus, background, force` | read |
 | 16 | `queries` | queries | what-to-sell 榜单查询 | `type, keyword, sku, category_id, price_min, price_max, background, force` | read |
 | 17 | `graph` | graph | 组装并提交上架（1688→GraphInput→Worker）| `item_id, url, category_query, store, to_box, no_submit, template_id, background, force` | write* |

@@ -28,7 +28,8 @@ def _args(**kw) -> argparse.Namespace:
                 base_filter="",
                 min_margin=15.0, fx_rate=0.075, match_limit=None,
                 match_concurrency=1, no_match_streak_stop=5, store="",
-                to_box=False, dry_run=True, resume=False, no_analytics=False,
+                to_box=False, auto_submit=False,
+                dry_run=True, resume=False, no_analytics=False,
                 export="")
     base.update(kw)
     return argparse.Namespace(**base)

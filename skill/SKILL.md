@@ -54,6 +54,9 @@ description: >
 >    **会话关闭任务照跑**，重开会话 `job_list` 找回
 > ⑮ 免登录：1688/Ozon seller 未登录时 readiness 自动从本机其他浏览器导入 cookie
 >    （每小时最多一次）；也可手动 `import-cookies` 导入，失败再走人工登录
+> ⑯ **双出口纪律**：所有选品管线（1688 词搜/图搜、Ozon 选品/跟卖/任务式）都有两个出口——
+>    `--to-box` 入采集箱（可逆，WebUI 认领后再上架）与 `--auto-submit` 直接上架
+>    （真实创建商品）。**用户没说走哪条就先问**；入箱可自动执行，直接上架必须确认
 
 ## 2. 命令速查表
 
@@ -76,9 +79,9 @@ description: >
 | `follow` | Ozon 跟卖 | `--ozon-url --store [--auto-submit] [--review]` | 提交 Worker（加 `--auto-submit`） | 用户发 Ozon 商品链接 |
 | `image_search` | 以图搜款 | `--image [--source cdp] [--sort] [--limit]` | 耗 1688 图搜配额 | 用户发图片 / 找同款 |
 | `discover` | Ozon 选品 | `--keyword/--url [--local] [--rules 挑选期,匹配期两段] [--auto-submit] [--fission] [--blue-ocean-source] [--filter-profile off\|ai] [--base-filter]` | `--auto-submit` 提交 Worker；货源分析后生成 `data/discovery/analysis_*.md` | 找蓝海 / 跟卖选品 / 趋势执行 / 裂变 |
-| `discover-task` | 任务式全自动目标驱动选品（无人值守） | `--keyword/--url [--target-count 达标数] [--max-scan 300] [--filter-profile ai] [--match-limit =目标×3] [--min-margin] [--to-box] [--dry-run] [--resume]` | 缺省干跑；`--to-box` 写采集箱（WebUI 认领后上架）；状态落 `data/discovery/tasks/`；粗筛池耗尽未达标会如实报缺口 | "自动采集/无人值守/任务式跑 N 个" |
+| `discover-task` | 任务式全自动目标驱动选品（无人值守） | `--keyword/--url [--target-count 达标数] [--max-scan 300] [--filter-profile ai] [--match-limit =目标×3] [--to-box\|--auto-submit 二选一] [--dry-run] [--resume]` | 缺省干跑；`--to-box` 写采集箱（WebUI 认领后上架）；`--auto-submit` 直上管线（必须确认）；状态落 `data/discovery/tasks/`；粗筛池耗尽未达标会如实报缺口 | "自动采集/无人值守/任务式跑 N 个" |
 | `discover-multi` | 多关键词批量选品 | `--keywords a,b,c [--max-each] [--min-margin]` | 同 discover（逐词跑） | 多词横向对比选品 |
-| `search` | 1688 关键词搜索 | `query [--page-size] [--rules 挑选期,匹配期两段]` | 耗 1688 搜索配额 | 按词找货（`--rules "ai"` 一键预设） |
+| `search` | 1688 关键词搜索 | `query [--page-size] [--rules 挑选期,匹配期两段] [--to-box\|--auto-submit 二选一]` | 耗 1688 搜索配额；出口 flag 触发逐个信封+提交 | 按词找货（`--rules "ai"` 一键预设） |
 | `import-cookies` | 从本机其他浏览器导入 1688/Ozon 登录态 | 无 | 注入 cookie 进工具 Chrome | 未登录免手动登录（readiness 也会自动兜底） |
 | `probe` | CDP 探针抓取单个 1688 商品 | `--url [--timeout]` | 无 | 调试单个商品 |
 | `queries` | what-to-sell 蓝海/榜单查询 | `--type all-queries\|ozon-bestsellers\|market-bestsellers [--keyword] [--export]` | 成功后自动上报 worker PG；可 `--export` CSV/JSON | 选品前查蓝海/畅销榜 |
@@ -95,7 +98,7 @@ description: >
 | `graph`、`follow`（含 `--auto-submit`） | 自动执行 | 用户给了明确 URL，直接上架 |
 | `discover` 选品后的最终提交 | 必须确认 | 展示候选列表，等用户说"提交" |
 | `discover-task` 干跑 / `--to-box` 入采集箱 | 自动执行 | 干跑零副作用；入箱可逆（WebUI 人工认领后才上架） |
-| `discover-task --auto-submit` / 批量直接上架 | 必须确认 | 真实提交 Worker 上架任务，影响面大 |
+| `--auto-submit` 直上管线（任何选品命令）/ 批量直接上架 | 必须确认 | 真实提交 Worker 上架任务，影响面大 |
 | 批量处理 | 必须确认 | 影响面大，需用户明确确认 |
 | 利润率高低、候选产品优劣 | 展示不表态 | 陈列数据，不替用户判断 |
 
