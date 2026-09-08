@@ -100,7 +100,39 @@ export interface DraftEnvelopeDraft {
   weight?: number
   dimensions?: { length?: number; width?: number; height?: number; depth?: number }
   attributes?: Record<string, unknown>
+  ozon_category?: {
+    description_category_id?: string | number
+    type_id?: string | number
+    category_path?: string
+    source?: string
+  }
   [key: string]: unknown
+}
+
+// v0.70 采集箱手工改配：类目搜索 / 属性缓存只读端点（GET /api/v1/categories/*）
+export interface CategorySearchItem {
+  description_category_id: string
+  type_id: string
+  node_name: string
+  category_path: string
+  similarity: number
+}
+
+export interface CategoryAttrValue { id: number; value: string }
+
+export interface CategoryAttr {
+  id: number
+  name: string
+  required: boolean
+  type: string
+  dictionary_id: number
+  values?: CategoryAttrValue[]
+}
+
+export interface CategoryAttrResponse {
+  found: boolean
+  cached: boolean
+  attributes: CategoryAttr[]
 }
 
 // skill discover 注入的选品元数据快照（extensions.discovery_meta，缺失键省略）

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import { api, getSession, ApiError, downloadCsv } from "../api/client"
-import type { Credential, Draft, DraftAiResponse, DraftEnvelopeDraft, DraftPayload, EstimateResponse, SubmitResponse } from "../api/hooks"
+import type { CategoryAttr, CategoryAttrResponse, CategorySearchItem, Credential, Draft, DraftAiResponse, DraftEnvelopeDraft, DraftPayload, EstimateResponse, SubmitResponse } from "../api/hooks"
 import { apiErrorMessage, draftFields, formatDateTime, formatPrice, submissionStatusClass, submissionStatusText, useApi } from "../api/hooks"
 import { Metric, PageHeader, PanelEmpty, PanelError, PanelLoading } from "./ui"
 
@@ -103,6 +103,53 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
   const [scheduledAt, setScheduledAt] = useState("")
   const [saving, setSaving] = useState(false)
   const [saveNotice, setSaveNotice] = useState("")
+  // v0.70 类目/属性改配（manual）：用户指定 dc/tp + 属性值，worker 按用户配置权威直通
+  const [catQuery, setCatQuery] = useState("")
+  const [catResults, setCatResults] = useState<CategorySearchItem[]>([])
+  const [catSearchBusy, setCatSearchBusy] = useState(false)
+  const [catError, setCatError] = useState("")
+  const [catPicked, setCatPicked] = useState<CategorySearchItem | null>(null)
+  const [catCleared, setCatCleared] = useState(false) // 清除草稿原有的类目改配
+  const [attrSchema, setAttrSchema] = useState<CategoryAttr[]>([])
+  const [attrNote, setAttrNote] = useState("")
+  const [attrValues, setAttrValues] = useState<Record<string, string>>({})
+
+  const pickCategory = async (item: CategorySearchItem) => {
+    setCatPicked(item)
+    setCatCleared(false)
+    setAttrSchema([])
+    setAttrNote("")
+    setAttrValues({})
+    try {
+      const res = await api.get<CategoryAttrResponse>(
+        `/categories/attributes?dc=${encodeURIComponent(item.description_category_id)}&tp=${encodeURIComponent(item.type_id)}`)
+      if (res.found) {
+        setAttrSchema(res.attributes)
+        const seeded: Record<string, string> = {}
+        for (const a of res.attributes) {
+          const existing = (detail?.payload?.draft?.attributes ?? {})[a.name]
+          if (existing != null) seeded[a.name] = String(existing)
+        }
+        setAttrValues(seeded)
+      } else {
+        setAttrNote("该类目属性尚未预热（worker 未缓存），可先指定类目，属性由 worker 自动填充。")
+      }
+    } catch (e) {
+      setAttrNote(`属性 schema 读取失败：${apiErrorMessage(e)}`)
+    }
+  }
+
+  const searchCategories = async () => {
+    if (!catQuery.trim()) return
+    setCatSearchBusy(true); setCatError(""); setCatResults([])
+    try {
+      const res = await api.get<{ items: CategorySearchItem[] }>(
+        `/categories/search?q=${encodeURIComponent(catQuery.trim())}&limit=20`)
+      setCatResults(res.items)
+      if (!res.items.length) setCatError("没有匹配的类目，换个关键词试试")
+    } catch (e) { setCatError(apiErrorMessage(e)) }
+    finally { setCatSearchBusy(false) }
+  }
 
   const loadDetail = () => {
     setLoadError("")
@@ -116,6 +163,17 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
         setPurchaseUrl(f.purchase_url ?? "")
         setWeight(f.weight != null ? String(f.weight) : "")
         setImages((f.images ?? []).join("\n"))
+        // 已有类目改配（manual/skill 直采）回显
+        const oc = d.payload?.draft?.ozon_category
+        if (oc?.description_category_id && oc?.type_id) {
+          setCatPicked({
+            description_category_id: String(oc.description_category_id),
+            type_id: String(oc.type_id),
+            node_name: "",
+            category_path: oc.category_path ?? "",
+            similarity: 1,
+          })
+        }
         const defaultCred = credentials.find(c => c.is_default)?.id ?? credentials[0]?.id ?? ""
         setCredentialId((cur) => cur || defaultCred)
       })
@@ -136,18 +194,35 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
     const parsedCost = purchaseCost.trim() === "" ? current.purchase_cost : Number(purchaseCost)
     const parsedWeight = weight.trim() === "" ? current.weight : Number(weight)
     const imagesList = images.split("\n").map((s) => s.trim()).filter(Boolean)
-    return {
-      ...base,
-      draft: {
-        ...current,
-        title: title.trim() || current.title,
-        description: description.trim() || current.description,
-        purchase_cost: Number.isFinite(parsedCost) ? parsedCost : current.purchase_cost,
-        purchase_url: purchaseUrl.trim() || current.purchase_url,
-        weight: Number.isFinite(parsedWeight) ? parsedWeight : current.weight,
-        images: imagesList.length ? imagesList : current.images ?? [],
-      },
+    const nextDraft: DraftEnvelopeDraft = {
+      ...current,
+      title: title.trim() || current.title,
+      description: description.trim() || current.description,
+      purchase_cost: Number.isFinite(parsedCost) ? parsedCost : current.purchase_cost,
+      purchase_url: purchaseUrl.trim() || current.purchase_url,
+      weight: Number.isFinite(parsedWeight) ? parsedWeight : current.weight,
+      images: imagesList.length ? imagesList : current.images ?? [],
     }
+    // 类目改配：picked → source=manual（worker 权威直通）；清除 → 删键回落自动匹配
+    if (catPicked && !catCleared) {
+      nextDraft.ozon_category = {
+        description_category_id: catPicked.description_category_id,
+        type_id: catPicked.type_id,
+        category_path: catPicked.category_path || undefined,
+        source: "manual",
+      }
+    } else if (catCleared) {
+      delete nextDraft.ozon_category
+    }
+    // 属性改配：非空值并入（同名键覆盖原值，其余 skill 原值保留）
+    const cleaned: Record<string, string> = {}
+    for (const [k, v] of Object.entries(attrValues)) {
+      if (typeof v === "string" && v.trim()) cleaned[k] = v.trim()
+    }
+    if (Object.keys(cleaned).length) {
+      nextDraft.attributes = { ...(current.attributes ?? {}), ...cleaned }
+    }
+    return { ...base, draft: nextDraft }
   }
 
   const save = async () => {
@@ -250,6 +325,57 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
               <label>货源地址<input value={purchaseUrl} onChange={e => setPurchaseUrl(e.target.value)} placeholder="https://..."/></label>
               <label>图片地址（每行一个）<textarea value={images} onChange={e => setImages(e.target.value)}/></label>
               {saveNotice && <div className={`inline-notice ${saveNotice.startsWith("保存失败") || saveNotice.startsWith("版本冲突") ? "error" : ""}`}>{saveNotice}</div>}
+            </div>
+            <div className="drawer-form">
+              <div className="editor-tip"><b>✦ 类目与属性改配（可选）</b><span>指定后 worker 按此配置上传，不再自动匹配；类目不在 Ozon 类目树会被拒单。</span></div>
+              {catPicked ? (
+                <div className="draft-drawer-field">
+                  <label>已指定类目{catPicked.category_path ? `：${catPicked.category_path}` : `（dc=${catPicked.description_category_id} / tp=${catPicked.type_id}）`}</label>
+                  <button className="button ghost" style={{ position: "static" }} onClick={() => { setCatPicked(null); setCatCleared(true); setAttrSchema([]); setAttrNote(""); setAttrValues({}) }}>清除改配（回落自动匹配）</button>
+                </div>
+              ) : (
+                <p style={{ fontSize: 10, color: "#89847f", margin: "4px 0" }}>未指定类目——提交后由 worker 自动匹配。</p>
+              )}
+              <div className="draft-drawer-field">
+                <label>搜索 Ozon 类目</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input value={catQuery} onChange={e => setCatQuery(e.target.value)}
+                         placeholder="中文关键词，如：收纳盒 / 遮阳帽"
+                         onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); searchCategories() } }}/>
+                  <button className="button ghost" style={{ position: "static" }} disabled={catSearchBusy} onClick={searchCategories}>{catSearchBusy ? "搜索中…" : "搜索"}</button>
+                </div>
+              </div>
+              {catResults.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, margin: "4px 0" }}>
+                  {catResults.map(r => (
+                    <button key={`${r.description_category_id}-${r.type_id}`} className="button ghost"
+                            style={{ position: "static", textAlign: "left", fontSize: 11, justifyContent: "flex-start" }}
+                            onClick={() => pickCategory(r)}>
+                      {r.category_path || r.node_name}（{r.description_category_id}/{r.type_id}）
+                    </button>
+                  ))}
+                </div>
+              )}
+              {catError && <div className="inline-notice error">{catError}</div>}
+              {catPicked && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, margin: "4px 0" }}>
+                  <div className="editor-tip"><b>属性值（可留空）</b><span>字典属性下拉选择；留空项由 worker 自动填充。</span></div>
+                  {attrSchema.map(a => (
+                    <label key={a.id}>{a.name}{a.required ? " *" : ""}
+                      {a.values && a.values.length > 0 ? (
+                        <select value={attrValues[a.name] ?? ""} onChange={e => setAttrValues(prev => ({ ...prev, [a.name]: e.target.value }))}>
+                          <option value="">（留空，自动填充）</option>
+                          {a.values.map(v => <option key={v.id} value={v.value}>{v.value}</option>)}
+                        </select>
+                      ) : (
+                        <input value={attrValues[a.name] ?? ""} onChange={e => setAttrValues(prev => ({ ...prev, [a.name]: e.target.value }))}
+                               placeholder={a.dictionary_id > 0 ? "字典未缓存，填中文值" : "自由文本"}/>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              )}
+              {attrNote && <div className="inline-notice">{attrNote}</div>}
             </div>
             <div className="drawer-form">
               <div className="draft-drawer-field">
