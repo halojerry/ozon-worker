@@ -95,7 +95,8 @@ def test_cmd_report_success(monkeypatch, capsys):
         class _R:
             status_code = 200
             def json(self):
-                return {"ok": True, "report_id": "rid-123", "tasks_attached": 2}
+                # 服务端真实形态：status:"ok"（main.py v1_create_error_report），无 "ok" 键
+                return {"status": "ok", "report_id": "rid-123", "tasks_attached": 2}
         return _R()
 
     monkeypatch.setattr(cs, "_require_auth", lambda: None)
