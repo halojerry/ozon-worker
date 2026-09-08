@@ -97,6 +97,7 @@ DOC_FILES = [
     "references/trend-selection.md",
     "references/command-reference.md",
     "references/error-codes.md",
+    "references/error-report.md",
     "references/output-schema.md",
     "references/env-setup.md",
     "envelope_example.json",

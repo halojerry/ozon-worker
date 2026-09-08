@@ -2504,6 +2504,31 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="--watch 轮询超时秒数（默认 900）")
     q.set_defaults(func=cmd_query)
 
+    # ── 错误上报(v0.70: 模板纪律见 references/error-report.md)──
+    rp = sub.add_parser("report", help="上报问题到 Worker（错误报告模板，自动附任务快照）")
+    rp.add_argument("--title", required=True, help="一句话问题概括（必填，≤500 字）")
+    rp.add_argument("--severity", choices=["high", "medium", "low"], default="medium",
+                    help="严重度（默认 medium）")
+    rp.add_argument("--category", default="other",
+                    choices=["upload_failed", "category_wrong", "attribute_error",
+                             "image_error", "pricing", "cli_bug", "other"],
+                    help="问题分类（默认 other）")
+    rp.add_argument("--description", default="", help="现象描述：期望 vs 实际、影响面")
+    rp.add_argument("--step", action="append", default=[],
+                    help="复现步骤（可多次传，按顺序）")
+    # ⚠️ dest 不能叫 command——与 add_subparsers(dest="command") 撞名时，子 parser
+    # 的默认值会在 parse 后把子命令名清空（argparse 默认覆盖语义），main() 会误判无命令。
+    rp.add_argument("--command", dest="repro_command", default="", help="复现命令")
+    rp.add_argument("--expect", default="", help="期望结果")
+    rp.add_argument("--actual", default="", help="实际结果")
+    rp.add_argument("--task-ids", default="", help="关联任务 ID（逗号分隔；worker 按此自动附快照）")
+    rp.add_argument("--draft-ids", default="", help="关联采集箱草稿 ID（逗号分隔）")
+    rp.add_argument("--item-id", default="", help="1688 商品 ID")
+    rp.add_argument("--offer-id", default="", help="Ozon offer_id")
+    rp.add_argument("--ozon-product-id", default="", help="Ozon 商品 ID")
+    rp.add_argument("--error-codes", default="", help="Ozon 拒单码（逗号分隔，原样不意译）")
+    rp.set_defaults(func=cmd_report)
+
     # ── 卖家店铺分析(v0.29.x ②)──
     sel = sub.add_parser("seller", help="卖家店铺全产品运营分析(跟卖前20名卖家 → 店铺选品)")
     sel.add_argument("--seller-id", required=True, help="Ozon 卖家 ID(跟卖列表透传的 seller_id)")
@@ -2875,6 +2900,116 @@ def cmd_query(args: argparse.Namespace) -> int:
     r = check_task_status(args.task_id)
     _print_query_result(args.task_id, r)
     return 0
+
+
+def _build_error_report_body(args: argparse.Namespace) -> dict:
+    """把 report 子命令参数组装成 POST /api/v1/error_reports 请求体。
+
+    字段语义与 docs/ERROR-REPORT-TEMPLATE.md 一致；空值键省略（worker 侧
+    对缺失键全部有缺省）。task_ids/error_codes 等列表字段逗号切分。
+    """
+    body: dict = {
+        "title": args.title,
+        "severity": args.severity,
+        "category": args.category,
+    }
+    if args.description:
+        body["description"] = args.description
+
+    reproduction = {
+        k: v for k, v in {
+            "steps": [s for s in (args.step or []) if s],
+            "command": args.repro_command,
+            "expect": args.expect,
+            "actual": args.actual,
+        }.items() if v
+    }
+    if reproduction:
+        body["reproduction"] = reproduction
+
+    def _split(raw: str) -> list[str]:
+        return [x.strip() for x in raw.split(",") if x.strip()]
+
+    evidence: dict = {}
+    for key, raw in (
+        ("task_ids", args.task_ids),
+        ("draft_ids", args.draft_ids),
+        ("error_codes", args.error_codes),
+    ):
+        if raw:
+            evidence[key] = _split(raw)
+    for key, raw in (
+        ("item_id", args.item_id),
+        ("offer_id", args.offer_id),
+        ("ozon_product_id", args.ozon_product_id),
+    ):
+        if raw:
+            evidence[key] = raw.strip()
+    try:
+        version_file = Path(__file__).resolve().parent.parent / "VERSION"
+        if version_file.exists():
+            evidence["skill_version"] = version_file.read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+    evidence.setdefault("platform", sys.platform)
+    if evidence:
+        body["evidence"] = evidence
+    return body
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    """上报问题到 Worker POST /api/v1/error_reports（v0.70 错误报告通道）。
+
+    纪律（references/error-report.md）：先 query 收证据再报；task_ids 有就必给
+    （worker 按此自动附任务快照）；凭证零明文；成功后打印 report_id 回给用户。
+    失败返回退出码 1（不 raise——上报失败不应打断主流程汇报）。
+    """
+    from scripts.lib.config_store import AuthError, _require_auth, get_mxou_token
+
+    body = _build_error_report_body(args)
+    try:
+        _require_auth()
+        token = get_mxou_token()
+    except AuthError as exc:
+        print(f"❌ 上报失败：{exc}")
+        return 1
+
+    from scripts._const import CLOUD_API_BASE
+
+    url = f"{CLOUD_API_BASE}/api/v1/error_reports"
+    try:
+        import requests
+
+        resp = requests.post(
+            url,
+            json=body,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
+        try:
+            payload = resp.json()
+        except Exception:
+            payload = None
+        if resp.status_code >= 400 or not isinstance(payload, dict) or not payload.get("ok"):
+            reason = (
+                (payload or {}).get("message")
+                if isinstance(payload, dict) else None
+            ) or f"HTTP {resp.status_code}"
+            print(f"❌ 上报失败：{reason}")
+            return 1
+        print("✅ 问题已上报，已入跟踪队列")
+        print(f"   report_id: {payload.get('report_id')}")
+        print(f"   任务快照: {payload.get('tasks_attached', 0)} 条（auto_context）")
+        return 0
+    except requests.exceptions.ConnectionError:
+        print(f"❌ 上报失败：Worker 不可达 {url}")
+        return 1
+    except requests.exceptions.Timeout:
+        print(f"❌ 上报失败：Worker 响应超时 {url}")
+        return 1
+    except Exception as exc:  # noqa: BLE001 — 上报失败不打断主流程
+        print(f"❌ 上报失败：{exc}")
+        return 1
 
 
 # ═══════════════════════════════════════════════════════════════════════════
