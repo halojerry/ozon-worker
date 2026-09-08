@@ -56,12 +56,15 @@ def _source(payload: Optional[dict]) -> dict:
 def pipeline_source(payload: Optional[dict]) -> str:
     """graph/discover/follow 三态判定。
 
-    extensions.follow_sell=True → follow_type 存在（真跟卖 hand/api）→ follow；
-    follow_sell=True 但无 follow_type（skill discover 信封）→ discover；否则 graph。
+    extensions.follow_sell=True → follow_type 为真跟卖标记（hand/api，非字面
+    "discover"——v0.69 P-D 起 discover 信封带 follow_type="discover"）→ follow；
+    follow_sell=True 其余形态（无 follow_type / 字面 "discover"）→ discover；
+    否则 graph。
     """
     ext = _extensions(payload)
     if ext.get("follow_sell"):
-        return "follow" if ext.get("follow_type") else "discover"
+        _ft = str(ext.get("follow_type") or "").strip().lower()
+        return "follow" if _ft and _ft != "discover" else "discover"
     return "graph"
 
 

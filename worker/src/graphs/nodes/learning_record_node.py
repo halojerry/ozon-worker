@@ -54,6 +54,39 @@ def _leaf_path_overlap(leaf: str, path_zh: str) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# 真跟卖判定（改 discover/follow 学习行为前必读）
+# ═══════════════════════════════════════════════════════════════════════
+
+def _is_true_follow_envelope(envelope: Dict[str, Any], draft: Dict[str, Any]) -> bool:
+    """信封级真跟卖判定：follow_type 为真跟卖标记（hand/api）才恒弱档。
+
+    v0.69 P-D 起 skill discover 信封带字面 extensions.follow_type="discover"
+    （真值字符串）——按字面归 discover 变体走 match_layer 分级，不判真跟卖。
+    实机 gate 实证（2026-09-08）：truthy 判定曾把 discover 单压进 0.6 恒弱档，
+    v0.67 实证的 discover L0 学习闭环失效；与 follow_sell_import_node 的
+    discover 分支、listing_result_log.pipeline_source 三处必须同语义。
+    """
+    ext: Dict[str, Any] = {}
+    try:
+        _raw = envelope if isinstance(envelope, dict) else {}
+        _e = _raw.get("extensions", {}) or {}
+        if isinstance(_e, dict):
+            ext = _e
+    except Exception:
+        ext = {}
+    try:
+        _ft = str(ext.get("follow_type") or "").strip().lower()
+        if _ft and _ft != "discover":
+            return True  # 真跟卖恒设 "hand"/"api"
+        if ext.get("follow_sell"):
+            return False  # discover 变体：follow_type 缺失或字面 "discover"
+        # 兼容旧信封：draft.ozon_product_id 单独出现仍视为真跟卖
+        return bool((draft or {}).get("ozon_product_id"))
+    except Exception:
+        return bool((draft or {}).get("ozon_product_id"))
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # T9: 上传成功回填 product_task_index（普通上传也建索引，OnSale/编辑/更新依赖）
 # product_task_index 目前只有 update_images 写（T6 共享 product_index_service），
 # 普通上传不写 → OnSale 货架/GET /edit 对普通上传商品查不到索引。本段在 approved
@@ -481,8 +514,9 @@ def learning_record_node(
     #   * 真跟卖（follow_type 恒设 "hand"/"api"；兼容旧信封 draft.ozon_product_id 单独
     #     出现而无任何 follow 标记）→ 写但 confidence 压 0.6（读侧 conf>=0.6 门槛线 +
     #     succ==1 必走 LLM 仲裁，不盲信图搜）；
-    #   * discover 变体（follow_sell=True 但无 follow_type——skill discover 信封不设
-    #     follow_type）→ 不算真跟卖，走 match_layer 分级（discover 主流场景开始学习）。
+    #   * discover 变体（follow_sell=True 且 follow_type 缺失或字面 "discover"——
+    #     v0.69 P-D 起 skill discover 信封带 follow_type="discover" 标记）→
+    #     不算真跟卖，走 match_layer 分级（discover 主流场景开始学习）。
     # v0.66.1 断点2: match_layer 透传（assemble 写 category_match_meta 进 state）——
     #   本次 dc 若来自学习表自身命中（match_layer=L0 且 dc/tp 未变）→ 跳过 upsert
     #   （L0 自证回环：无新证据也 succ+1）；Skill→0.9 / L1·R2b→0.7 / 缺省 0.85。
@@ -491,28 +525,10 @@ def learning_record_node(
     # source_category 三源兜底（draft.source_category / draft.source_category_path /
     # state.source.source_category_path，对齐 validation_retry_loop:770 双 key +
     # assemble:792 同款三源）。
-    is_true_follow = False
-    _env: Dict[str, Any] = {}
-    try:
-        _env = getattr(state, 'envelope', None) or {}
-        if not isinstance(_env, dict):
-            _env = {}
-        _ext = _env.get("extensions", {}) or {}
-        if not isinstance(_ext, dict):
-            _ext = {}
-    except Exception:
-        _ext = {}
-    try:
-        if bool(_ext.get("follow_type")):   # 真跟卖恒设 "hand"/"api"
-            is_true_follow = True
-        elif _ext.get("follow_sell"):
-            # discover 变体：follow_sell=True 但无 follow_type → 不算真跟卖
-            is_true_follow = False
-        else:
-            # 兼容旧信封：draft.ozon_product_id 单独出现仍视为真跟卖
-            is_true_follow = bool((draft or {}).get("ozon_product_id"))
-    except Exception:
-        is_true_follow = bool((draft or {}).get("ozon_product_id"))
+    _env: Dict[str, Any] = getattr(state, 'envelope', None) or {}
+    if not isinstance(_env, dict):
+        _env = {}  # match_evidence 压档（下方）复用；判定逻辑见 _is_true_follow_envelope
+    is_true_follow = _is_true_follow_envelope(_env, draft)
     try:
         _src_state = getattr(state, "source", None) or {}
     except Exception:

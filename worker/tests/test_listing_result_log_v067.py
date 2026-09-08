@@ -157,6 +157,17 @@ def test_pipeline_source_follow():
     assert pipeline_source(p) == "follow"
 
 
+def test_pipeline_source_follow_type_discover_literal():
+    """v0.69 P-D：discover 信封带字面 follow_type="discover"（真值）→ 仍归 discover。
+
+    实机 gate 实证（2026-09-08）：truthy 判定曾把 discover 单记成 follow，
+    留存表 pipeline 归因错、discover 专项分析失真。
+    """
+    from utils.listing_result_log import pipeline_source
+    p = _payload(extensions={"follow_sell": True, "follow_type": "discover"})
+    assert pipeline_source(p) == "discover"
+
+
 def test_final_status_approved():
     from utils.listing_result_log import derive_final_status
     assert derive_final_status(_graph_result(upload_status="success",
