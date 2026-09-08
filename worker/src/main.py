@@ -2115,7 +2115,11 @@ async def v1_health():
 
 @v1.post("/submit_task", response_model=SubmitTaskResponse, tags=["task"],
          responses={401: {"model": ErrorBody}, 402: {"model": ErrorBody},
-                    403: {"model": ErrorBody}, 429: {"model": ErrorBody}})
+                    403: {"model": ErrorBody}, 429: {"model": ErrorBody}},
+         # 处理函数手读 raw Request（兼容 body.payload 包装），FastAPI 推不出请求体；
+         # 这里只补 OpenAPI 元数据，让 /docs 与 API-REFERENCE 能展示 SubmitTaskRequest。
+         openapi_extra={"requestBody": {"required": True, "content": {
+             "application/json": {"schema": SubmitTaskRequest.model_json_schema()}}}})
 async def v1_submit_task(request: Request):
     """提交任务到队列。鉴权通过 Supabase tokens 表校验。"""
     # 委托给现有实现
@@ -2904,7 +2908,7 @@ from routes.newapi_proxy_routes import router as newapi_proxy_router
 app.include_router(newapi_proxy_router)
 
 
-# ── WebUI SPA 静态托管（/app，docs/PLAN-webui-v1.md §1.4 T4） ──
+# ── WebUI SPA 静态托管（/app，archive/docs/legacy/PLAN-webui-v1.md §1.4 T4） ──
 # dist 默认 webui/dist（env WEBUI_DIST 覆盖）；未构建时跳过挂载不阻断 worker。
 # SPA fallback：非静态文件路径回 index.html（前端路由直连/刷新不 404），
 # 仅允许 dist 目录内的文件（防路径穿越）。

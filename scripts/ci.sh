@@ -177,6 +177,29 @@ else
 fi
 
 # ═══════════════════════
+# Step 5d: API 文档漂移（docs/API-REFERENCE.md + openapi.json 快照必须与代码一致）
+# ═══════════════════════
+echo ""
+echo "📚 Step 5d/6: API 文档漂移检查..."
+cd "$PROJECT_DIR"
+DOCS_PY=""
+for cand in "$PYTHON_BIN" "$SKILL_DIR/.venv314/bin/python"; do
+    if [ -x "$cand" ] || command -v "$cand" &> /dev/null; then
+        if "$cand" -c "import fastapi, pydantic" 2>/dev/null; then DOCS_PY="$cand"; break; fi
+    fi
+done
+if [ -n "$DOCS_PY" ]; then
+    if "$DOCS_PY" worker/scripts/gen_api_docs.py --check 2>/dev/null; then
+        green "   ✅ API-REFERENCE.md / openapi.json 与代码一致"
+    else
+        red "   ❌ API 文档漂移：运行 python worker/scripts/gen_api_docs.py 并提交产物"
+        FAILED=1
+    fi
+else
+    yellow "   ⚠️  无带 fastapi 的 Python，跳过（CI 的 test-worker job 会强制检查）"
+fi
+
+# ═══════════════════════
 # Step 6: Docker build（--quick 跳过）
 # ═══════════════════════
 if [[ "$*" != *"--quick"* ]]; then
