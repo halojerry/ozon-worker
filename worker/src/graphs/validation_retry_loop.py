@@ -3107,6 +3107,44 @@ def should_continue(state: ValidationRetryLoopState) -> str:
     return "parse_error"
 
 
+def _restore_draft_images_to_payload(state: ValidationRetryLoopState) -> bool:
+    """生图全失败导致首传空载荷时，从信封 draft 图（COS 转存，Ozon 可访问）恢复图片。
+
+    实机 gate 实证（2026-09-08）：采集箱路径 draft 图非 alicdn → 生图参考链全跳过 →
+    prepare 产出空图载荷首传即拒（IMAGE_ERROR images缺失）。R4 整卡重配路径已证明
+    draft 图可过 Ozon import + 审核approved（同批任务实证）——本恢复让 pictures-only
+    死端复用同一来源。恢复成功返回 True（payload 已就地更新）。
+    """
+    _draft = getattr(state, "draft", None) or {}
+    _env = getattr(state, "envelope", None) or {}
+    if not isinstance(_draft, dict):
+        _draft = {}
+    if not isinstance(_env, dict):
+        _env = {}
+    _env_draft = _env.get("draft") if isinstance(_env.get("draft"), dict) else {}
+    images = (_draft.get("images") or _env_draft.get("images") or [])
+    if not isinstance(images, list):
+        images = []
+    images = [str(u) for u in images if str(u).strip()]
+    if not images:
+        return False
+    items = state.ozon_payload.get("items") or []
+    if not items or not isinstance(items[0], dict):
+        return False
+    items[0]["images"] = images
+    items[0]["primary_image"] = images[0]
+    state.ozon_payload["items"] = items
+    # 与标准 prepare 路径同源：COS 区域域名 → 全球加速域名（审核抓图实测依赖，
+    # 2026-09-08 gate 实证：恢复区域域名原始 URL 后审核仍报 images缺失）
+    try:
+        from graphs.nodes.prepare_ozon_upload_node import _rewrite_payload_images_to_accelerate
+        _rewrite_payload_images_to_accelerate(state.ozon_payload)
+    except Exception as _im_err:
+        logger.warning("⚠️ 加速域名改写失败（继续用原始 URL）: %s", _im_err)
+    logger.info("🖼️ 已从 draft 恢复 %d 张图片到上传载荷（primary_image=首图）", len(images))
+    return True
+
+
 def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     """重新上传节点：靶向路由器。
 
@@ -3128,10 +3166,15 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     # ── 无 product_id：全量 CREATE（首次上传失败场景）──
     if not has_product_id:
         if classify_fix_type(error_code) == "pictures":
-            # ✅ v0.69: 图片错误且卡片不存在（首传即败）——pictures/import 需要
-            # product_id，重发同链 CREATE 对死链无意义（Ozon skipped/再拒）→
-            # 诚实 unfixable，不烧重试轮次
-            logger.warning("⚠️ 图片错误且无 product_id（无卡可修），标记 rejected_unfixable")
+            # ⚠️ v0.69 原「死链重发无意义」只对空载荷成立。实机 gate 实证
+            # （2026-09-08，task 0e4014cd vs 26fa8072）：采集箱路径生图全失败 →
+            # 首传空载荷被拒；此时信封 draft 图（COS 转存）是 Ozon 可访问的合法图，
+            # 恢复后全量 CREATE 可过审（26fa8072 经 R4 重建恢复 draft 图后 approved）。
+            # 恢复失败（draft 也无图）才诚实 unfixable，不烧重试轮次。
+            if _restore_draft_images_to_payload(state):
+                logger.info("📦 图片错误且无 product_id：draft 图已恢复，全量 CREATE 重导")
+                return _full_import_create(state)
+            logger.warning("⚠️ 图片错误且无 product_id 且无可用 draft 图，标记 rejected_unfixable")
             state.upload_status = "rejected_unfixable"
             state.is_valid = True
             return state
