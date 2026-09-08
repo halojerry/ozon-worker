@@ -92,7 +92,7 @@ def make_envelope(margin=None):
         "draft": {
             "item_id": "16880001",
             "title": "测试商品",
-            "images": ["https://example.com/a.jpg"],
+            "images": ["https://test-bucket.cos.ap-guangzhou.myqcloud.com/draft-images/x.jpg"],
             "weight": 350,
             "dimensions": {"length": 10, "width": 10, "height": 10},
             "purchase_cost": 12.5,

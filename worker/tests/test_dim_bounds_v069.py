@@ -153,8 +153,8 @@ def _item(**over):
         "name": "Трещотка набор", "offer_id": "sku1", "price": "1990",
         "old_price": "2390", "vat": "0", "weight": 950, "weight_unit": "g",
         "depth": 330, "width": 400, "height": 100, "dimension_unit": "mm",
-        "images": ["https://example.com/img.jpg"],
-        "primary_image": "https://example.com/img.jpg",
+        "images": ["https://test-bucket.cos.ap-guangzhou.myqcloud.com/draft-images/x.jpg"],
+        "primary_image": "https://test-bucket.cos.ap-guangzhou.myqcloud.com/draft-images/x.jpg",
         "description_category_id": 17028653, "type_id": 92147,
         "attributes": [],
     }

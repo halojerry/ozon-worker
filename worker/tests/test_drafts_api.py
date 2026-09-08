@@ -47,7 +47,7 @@ def make_envelope(item_id: str = ITEM_ID, *, follow: bool = False,
     draft = {
         "item_id": item_id,
         "title": "宠物自动饮水器",
-        "images": ["https://cbu01.alicdn.com/x.jpg"],
+        "images": ["https://test-bucket.cos.ap-guangzhou.myqcloud.com/draft-images/x.jpg"],
         "weight": 227,
         "dimensions": {"length": 120, "width": 80, "height": 60},
         "purchase_cost": 5.5,

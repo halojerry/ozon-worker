@@ -37,6 +37,22 @@ def cos_enabled() -> bool:
     return bool(sid and skey and bucket)
 
 
+def is_cos_url(url: object) -> bool:
+    """判断 URL 是否已托管在本方 COS（幂等判定的唯一共享实现）。
+
+    v0.69 declined IMAGE_ERROR 根因修复的共享件：submit 镜像闸（draft_service）、
+    validate 全外链硬拦（ozon_validate_node）、retry pictures/import 取图
+    （validation_retry_loop）三处同源判定，禁止各自内联（防漂移）。
+    覆盖 区域域名 cos.{region}.myqcloud.com 与全球加速 cos.accelerate.myqcloud.com。
+    """
+    if not isinstance(url, str):
+        return True
+    lowered = url.strip().lower()
+    if not lowered:
+        return True
+    return ".myqcloud.com" in lowered or "cos." in lowered
+
+
 def _get_client():
     """懒加载 boto3 S3 客户端(COS 兼容)。未配置/失败 → None。"""
     sid, skey, bucket, region = _cos_env()

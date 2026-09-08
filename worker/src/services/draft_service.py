@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
@@ -585,6 +586,57 @@ async def _submit_task(tenant_id: str, graph_payload: dict, sku_key: str) -> str
     )
 
 
+async def _ensure_images_mirrored_for_submit(
+    tenant_id: str, draft_id: str, draft: dict, envelope: dict,
+) -> dict:
+    """提交前外链镜像闸（v0.69 declined IMAGE_ERROR 根因①修复）。
+
+    实证链路：镜像失败保持外链（draft_image_mirror）+ submit 原样透传 + 本地
+    可达性探测防不住「现在可达、Ozon 异步抓图时已失效/防盗链」时间窗 →
+    卡片 images=0 必拒单。此处同步兜底镜像一次；仍有外链 → 422 拒绝提交
+    （外链直传=已知必拒，不放行不烧 Ozon 配额与审核）。
+    COS 未配置的部署无镜像能力，降级为 warning 按旧行为放行（诚实告警）。
+    """
+    from services.draft_image_mirror import _update_payload_guarded, mirror_draft_images
+    from utils.cos_uploader import cos_enabled, is_cos_url
+
+    images = ((envelope.get("draft") or {}).get("images")) or []
+    if not isinstance(images, list) or not images:
+        return envelope
+    if all(is_cos_url(u) for u in images):
+        return envelope
+    if not cos_enabled():
+        logger.warning(
+            "提交镜像闸降级：COS 未配置，%d 张外链按旧行为直传（Ozon 拒单风险）draft=%s",
+            sum(1 for u in images if not is_cos_url(u)), draft_id,
+        )
+        return envelope
+
+    # 入箱异步镜像可能已失败/未跑完 → 提交时同步兜底一次（不限 5 张上限）
+    new_images, _changed = await asyncio.to_thread(
+        mirror_draft_images, envelope, max(5, len(images)),
+    )
+    still_external = [u for u in new_images if not is_cos_url(u)]
+    if still_external:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"源图镜像失败：{len(still_external)}/{len(new_images)} 张仍为外链，"
+                "Ozon 下载外链失败是已知必拒项（IMAGE_ERROR，卡片将 0 图被拒）。"
+                "请更换货源图片或稍后重试。"
+            ),
+        )
+    envelope.setdefault("draft", {})["images"] = new_images
+    try:
+        _update_payload_guarded(
+            tenant_id, draft_id, int(draft.get("version") or 0), envelope, "mirrored",
+        )
+    except Exception as exc:
+        logger.warning("提交镜像闸回写草稿失败（不阻断提交）draft=%s: %s", draft_id, exc)
+    logger.info("✅ 提交镜像闸：同步镜像 %d 张外链成功 draft=%s", len(new_images), draft_id)
+    return envelope
+
+
 async def submit_draft(
     tenant_id: str,
     draft_id: str,
@@ -606,6 +658,8 @@ async def submit_draft(
     """
     draft = get_draft(tenant_id, draft_id)
     envelope = draft["payload"]
+    # v0.69 镜像闸：外链必须镜像成功才能提交（详见 helper 注释）
+    envelope = await _ensure_images_mirrored_for_submit(tenant_id, draft_id, draft, envelope)
 
     if credential_id:
         client_id, api_key = credential_service.get_decrypted(tenant_id, str(credential_id))
