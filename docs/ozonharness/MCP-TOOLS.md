@@ -7,7 +7,7 @@
 
 ## 一、设计原则
 
-1. **黑盒命令即资产**：skill 的 19 个命令已是「参数 → JSON 结果」的黑盒，MCP 只做薄封装，业务逻辑留在 skill 单点维护
+1. **黑盒命令即资产**：skill 的 20+ 个命令已是「参数 → JSON 结果」的黑盒，MCP 只做薄封装，业务逻辑留在 skill 单点维护
 2. **参数 1:1 映射 CLI flag**：不发明新参数，Agent 看到的参数 = CLI 的 argparse 参数
 3. **三级安全门控**：把 skill 的「决策边界」翻译成 read/write/destructive 三级
 4. **透明 vs 黑盒**：危险操作「老板眼皮底下」（需审批），低风险只读「默默干」
@@ -22,7 +22,7 @@
 
 ---
 
-## 三、19 命令 → 19 工具映射表
+## 三、skill 命令 → 工具映射表（v0.70：29 工具）
 
 > 安全分级：`read`（黑盒直跑）/ `write`（需确认）/ `destructive`（双重确认）
 
@@ -38,17 +38,29 @@
 | 8 | `probe` | probe | CDP 抓取 1688 商品详情页 | `url, timeout` | read |
 | 9 | `image_search` | image_search | 以图搜款（上传图找 1688 同款）| `image, limit, sort, source` | read |
 | 10 | `category` | category | 查询 Ozon 类目（关键词→候选类目）| `query, lang, max` | read |
-| 11 | `follow` | follow | 跟卖 Ozon 商品（竞品→找同款→上架）| `ozon_url, store, to_box, auto_submit, review` | read → write* |
-| 12 | `discover` | discover | Ozon 选品 v2（采集→分析→挑货）| `url, keyword, max_products, min_margin, store, fission, auto_submit...` | read → write* |
-| 13 | `discover_multi` | discover-multi | 多关键词批量选品 | `keywords, max_each, min_margin...` | read → write* |
-| 14 | `seller` | seller | 卖家店铺全产品运营分析 | `seller_id, max_products, max_skus` | read |
-| 15 | `queries` | queries | what-to-sell 榜单查询 | `type, keyword, sku, category_id, price_min, price_max` | read |
-| 16 | `graph` | graph | 组装并提交上架（1688→GraphInput→Worker）| `item_id, url, category_query, store, to_box, no_submit, template_id` | write* |
-| 17 | `query` | query | 查询 Worker 任务状态 | `task_id, watch, timeout` | read |
-| 18 | `update` | update | 检查并应用 skill 自动更新 | — | write |
-| 19 | `cleanup` | cleanup | 清理缓存/临时数据 | — | destructive |
+| 11 | `follow` | follow | 跟卖 Ozon 商品（竞品→找同款→上架）| `ozon_url, store, to_box, auto_submit, review, background, force` | read → write* |
+| 12 | `discover` | discover | Ozon 选品 v2（采集→分析→挑货）| `url, keyword, max_products, min_margin, store, fission, rules, auto_submit, background, force...` | read → write* |
+| 13 | `discover_multi` | discover-multi | 多关键词批量选品 | `keywords, max_each, min_margin, background, force...` | read → write* |
+| 14 | `discover_task` | discover-task | 任务式全自动**目标驱动**选品（漏斗 v2：target_count=达标数，达标即停护图搜配额）| `url, keyword, target_count, min_margin, match_limit(缺省=目标×3), match_concurrency, store, to_box, dry_run(默认true), resume, max_scan(默认300), background, force` | read → write* |
+| 15 | `seller` | seller | 卖家店铺全产品运营分析 | `seller_id, max_products, max_skus, background, force` | read |
+| 16 | `queries` | queries | what-to-sell 榜单查询 | `type, keyword, sku, category_id, price_min, price_max, background, force` | read |
+| 17 | `graph` | graph | 组装并提交上架（1688→GraphInput→Worker）| `item_id, url, category_query, store, to_box, no_submit, template_id, background, force` | write* |
+| 18 | `query` | query | 查询 Worker 任务状态 | `task_id, watch, timeout` | read |
+| 19 | `update` | update | 检查并应用 skill 自动更新 | — | write |
+| 20 | `cleanup` | cleanup | 清理缓存/临时数据 | — | destructive |
+| 21 | `analyze_store` | —（worker REST 直调）| 整店分析：利润率/库存/候选清单 | `store_id` | read |
+| 22 | `run_store_action` | —（worker REST 直调）| 单店执行：改价/库存/归档/活动报名 | `store_id, operation, payload` | write |
+| 23 | `report_issue` | —（worker REST 直调）| 用户问题反馈 → 错误报告入 worker（task_ids 自动附快照）| `title, severity, category, task_ids...` | write |
+| 24 | `list_error_reports` | —（worker REST 直调）| 查看已提交错误报告（列表/单条详情）| `status, limit, report_id` | read |
+| 25 | `get_task_forensics` | —（worker REST 直调）| 任务取证四路聚合（快照+留存+类目/属性审计）| `task_id` | read |
+| 26 | `job_list` | —（本地任务注册表）| 列出采集/上架任务（含后台任务与实时进度；重开会话找回用）| `limit` | read |
+| 27 | `job_status` | — | 查单个任务详情：状态/进度/日志尾/关联 worker task_id | `task_id, log_tail` | read |
+| 28 | `job_result` | — | 取后台任务完整结果 JSON（大结果单独取）| `task_id` | read |
+| 29 | `job_cancel` | — | 取消运行中的任务（终止子进程/进程组）| `task_id` | write |
 
 > `*` 表示该命令的安全级别随 flag 动态变化：默认「采集/组装」为 `read`（黑盒直跑），提交类 flag（`auto_submit`/`to_box`）触发 `write`（需审批）。`graph` 例外：默认即为提交（`write`），`no_submit=True` 降为只读组装（见 §四）。
+
+> **v0.70 后台化**：discover / discover_multi / discover_task / follow / seller / queries / graph 增加 `background`（默认 false）与 `force` 参数。`background=true` → 工具 <1s 返回 task dict（`{id, status:"running", ...}`），CLI 进程**脱离会话独立运行**（输出落盘 `pounding-mcp/data/tasks/{id}.log`）——dsh 会话关闭任务照跑，重开会话 `job_list` 找回；`job_status` 轮询进度、`job_result` 取结果、`job_cancel` 取消。**单飞闸**：同一时刻只允许 1 个 heavy 任务（discover 族/follow/seller/graph）running，再提交返回 error dict，`force=true` 强制并行（防 Chrome tab 打架）。
 
 ---
 
@@ -203,9 +215,20 @@ export const SAFETY_MAP: Record<string, 'read' | 'write' | 'destructive'> = {
     "follow": "read",            // --auto-submit / --to-box 时 → write
     "discover": "read",          // --auto-submit / --to-box 时 → write
     "discover_multi": "read",    // --auto-submit / --to-box 时 → write
+    "discover_task": "read",     // dry_run 默认 true 零副作用；--to-box 时 → write
     "seller": "read",
     "queries": "read",
     "query": "read",
+    // worker REST 直调
+    "analyze_store": "read",
+    "report_issue": "write",     // 写 worker 错误报告（低风险，可按需降 read）
+    "list_error_reports": "read",
+    "get_task_forensics": "read",
+    // 后台任务监控（v0.70）
+    "job_list": "read",
+    "job_status": "read",
+    "job_result": "read",
+    "job_cancel": "write",       // 终止任务
     // write —— 老板眼皮底下（需审批）
     "set_store": "write",
     "set_token": "write",

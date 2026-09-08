@@ -215,9 +215,9 @@ python3 scripts/cli.py discover --keyword "宠物用品" --local
   3. **表格分析挑选**：全量表格展示（含拒绝原因/状态）→ 人工按序号挑选 或 `--rules` 自动筛选 —— **此时不花 1688 配额**
   4. **批量货源**：只对选中的产品 1688 识图（CDP 图搜 → AK 图搜 → AK 关键词三级，含重试）→ 利润计算（真实重量/佣金）→ 蓝海评分 → 确认 → 提交
 - **输出**：候选产品列表（全量落盘 `data/discovery/`，CSV 可导出）
-- **规则字段**：`monthly_sales / gmv / drr / seller_count / margin / price / create_days / sales_growth / rating`
+- **规则字段**（两段式，v0.69 起）：`monthly_sales / gmv / drr / seller_count / price / create_days / sales_growth / rating` 为**挑选期**字段（1688 匹配前判定）；`margin` 为**匹配期**字段（匹配后二次筛选——匹配前恒 0.0 无从判定）
 - **其他参数**：
-  - `--rules`：自动筛选规则（跳过交互），逗号分隔，如 `"monthly_sales>=200,drr<=30,seller_count<=20"`
+  - `--rules`：自动筛选规则（跳过交互），逗号分隔，如 `"monthly_sales>=200,drr<=30,seller_count<=20"`；**两段式**：挑选期规则在前、匹配期规则在后（如 `"ai,margin>=20"`）；**`"ai"` = 上品帮 AI 预设**（上架≤365d/跟卖≤30/月动态>0/DRR≤15 + 价格分档月销下限），可作逗号项与其他规则混写
   - `--export csv|json|both` + `--output <路径>`：导出全量+选中结果
   - `--brand-filter`：`nobrand`（默认，只要无品牌/白牌）/ `known`（只过滤知名品牌黑名单）/ `all`（不过滤）
   - `--fx-rate`：RUB→CNY 汇率，显式指定时优先；缺省按 店铺 `stores.json` 的 `fx_rate` → `settings.json` 的 `fx_rate` → 0.075 解析（P2-6：卢布波动时在店铺/全局配置中调整，避免利润估算失真）
@@ -226,7 +226,7 @@ python3 scripts/cli.py discover --keyword "宠物用品" --local
   - `--review`：人工评审暂停（v0.38）——弱匹配候选逐个确认（`y`/`N`/`a`=全部/`s`=跳过），决策写入 review_log；settings.json `visual_review: true` 可全局开启
   - `--notify`：提交时 GraphInput 顶层 `notify=True`，Worker 完成推 webhook
   - `--filter-profile off|ai`（漏斗 v2）：粗筛档位——`off`（缺省，行为同旧）；`ai` = 上品帮 AI 预设档（上架≤365d/跟卖≤30/月动态>0/DRR≤15 + 价格分档月销下限）。**完整判定需 seller 运营指标**（`--auto-submit` 未显式指定时默认 `ai`，交互流程缺省不变）；无指标候选降级只判跟卖数
-  - `--base-filter "monthly_sales>=50,drr<=15"`（漏斗 v2）：自定义区间粗筛（字段同 `--rules` 全集，含加购率/促销/退货等 22 个），与 `--filter-profile` 叠加；非法表达式报错退出
+  - `--base-filter "monthly_sales>=50,drr<=15"`（漏斗 v2）：自定义区间粗筛（仅挑选期字段——**`margin` 不支持，会显式报错**指向 `--rules`；含加购率/促销/退货等 22 个），与 `--filter-profile` 叠加；非法表达式报错退出
 - **表格符号**：`✅可挑` 待分析 · `⚠️夹带?` 标题不含关键词 · `⏭️价区间外` 超价格区间 · `💰有利` 符合条件 · `⚠️利润低` 利润不足 · `❌无货源` 1688 没匹配到 · `—` 运营列无数据（卖家后台未登录）
 - **执行后验证**：① 采集完成 → 检查 `data/discovery/` 落盘 + 候选数量非零；② 货源分析后 → 读 `data/discovery/analysis_*.md` 核对候选状态分布（profitable/rejected/no_match）；③ 表格挑选/`--rules` 筛选后 → 向用户展示候选清单等确认，确认后才提交
 
@@ -242,25 +242,55 @@ python3 scripts/cli.py discover --keyword "宠物用品" --local
 
 **触发**：用户说"自动采集/自动选品一批/无人值守跑"。对标上品帮无人值守任务制——全程免人工挑选，缺省干跑零副作用。
 
+> **v0.70 目标驱动**：`--target-count` = **达标数**（最终 profitable 出口数），不再是页面采集数；采集上限独立由 `--max-scan`（默认 300）控制。匹配池按达标可能性降序（月销高→跟卖少），**profitable 达到目标即停止发起新图搜**（护配额）。`--match-limit` 缺省 = 目标×3（显式传参尊重）。粗筛池耗尽仍未达标 → 如实报告缺口（加大 `--max-scan` / 换关键词 `--resume` 续采，已匹配 pid 不重烧图搜）。**用户没说数量先问「要多少个符合要求的产品」**。
+
 ```bash
-# ① 干跑（缺省）：采集 → ai 粗筛 → 自动匹配（限额 30）→ 打印将入箱清单，不入箱
+# ① 干跑（缺省）：采集(--max-scan 上限) → ai 粗筛 → 自动匹配 → 达标 50 即停，不入箱
 python3 scripts/cli.py discover-task --keyword "宠物饮水机" --target-count 50
 
 # ② 真实入采集箱（POST /api/v1/drafts，WebUI 认领后上架）
 python3 scripts/cli.py discover-task --keyword "宠物饮水机" --to-box
 
-# ③ 自定义入口页（highlight/搜索/类目/店铺页均可）+ 限额/并发
+# ③ 自定义入口页（highlight/搜索/类目/店铺页均可）+ 采集上限/并发
 python3 scripts/cli.py discover-task --url "https://www.ozon.ru/highlight/xxx/" \
-    --match-limit 20 --match-concurrency 2 --min-margin 20
+    --max-scan 200 --match-concurrency 2 --min-margin 20
 
-# ④ 中断后续跑（跳过已入箱 pid）
+# ④ 中断/未达标续跑（跳过已匹配 pid，不重烧图搜——可加大 --max-scan 补采）
 python3 scripts/cli.py discover-task --keyword "宠物饮水机" --to-box --resume
 ```
 
-- **流程**：`collect_and_analyze`（粗筛档位**缺省 `ai`**，与交互 discover 相反）→ `match_selected`（`--match-limit` 限额护 aibuy 配额、连续 `--no-match-streak-stop`（默认 5）次 no_match 早停、请求间 2s 节奏抖动、并发 ≤2）→ profitable 逐条 `build_envelope_from_discovery` → `--to-box` 入采集箱（单条失败不中断批次）
-- **任务状态**：`data/discovery/tasks/task_{ts}.json`（已处理 pid / 摘要），`--resume` 找同入口最近任务续跑
+- **流程**：`collect_and_analyze`（粗筛档位**缺省 `ai`**，与交互 discover 相反；深滚动采满 `--max-scan` 或触底）→ `rank_match_pool` 排序 → `match_selected`（**`target_profitable` 达标即停** + `--match-limit` 限额 + 连续 `--no-match-streak-stop`（默认 5）次 no_match 早停、请求间 2s 节奏抖动、并发 ≤2）→ profitable 逐条 `build_envelope_from_discovery` → `--to-box` 入采集箱（单条失败不中断批次）
+- **进度输出**：`目标 N（达标）｜扫描上限 M` 开场、`[k/N] 达标进度` 行、结尾 `🎯 已达标` 或 `⚠️ 未达标: 目标 X｜累计达标 Y｜本次已采 Z（粗筛通过 P）` + 续采提示
+- **任务状态**：`data/discovery/tasks/task_{ts}.json`（已处理 pid 含 profitable/rejected/no_match 终态 / 摘要含 target），`--resume` 找同入口最近任务续跑
 - **安全边界**：不带 `--to-box` 即干跑（不出信封不入箱）；`--dry-run` 强制干跑；MCP 侧 `discover_task` 工具 dry_run 缺省 True，to_box=True 触发 dsh 审批
-- **执行后验证**：任务状态 JSON 的 `summary.candidates` 状态分布 + `summary.submitted/skipped/failed`；CSV（`--export`）供人工复核
+- **执行后验证**：任务状态 JSON 的 `summary.candidates` 状态分布 + `summary.target`（goal/prior/total）+ `summary.submitted/skipped/failed`；CSV（`--export`）供人工复核
+
+### 管线 C 增强：多关键词批量选品（discover-multi）
+
+**触发**：用户给多个关键词要横向对比选品。
+
+```bash
+python3 scripts/cli.py discover-multi --keywords "宠物饮水机,猫爬架,逗猫棒" --max-each 30
+```
+
+- 逐词跑 discover 漏斗（`--max-each` 每词采集上限），结果合并展示；`--auto-submit`/`--to-box` 语义与 discover 一致
+- MCP 侧 `discover_multi` 工具同参；minutes 级任务建议 `background=true`
+
+### 长任务后台化（MCP background + job_*，v0.70）
+
+MCP 工具 `discover`/`discover_multi`/`discover_task`/`follow`/`seller`/`queries`/`graph` 均有 `background`（默认 false）与 `force` 参数：
+
+```json
+discover_task({"keyword": "手套", "target_count": 30, "background": true})
+→ {"id": "a1b2c3", "status": "running", ...}          // <1s 返回
+job_status({"task_id": "a1b2c3"})                      // 进度/阶段/日志尾/worker_task_ids
+job_result({"task_id": "a1b2c3"})                      // 完成后取完整结果
+job_cancel({"task_id": "a1b2c3"})                      // 需要时取消
+```
+
+- **会话关闭任务照跑**（CLI 进程脱离会话、输出落盘）；重开会话 `job_list` 找回
+- **单飞闸**：同一时刻 1 个 heavy 任务（discover 族/follow/seller/graph），再提交返回 error dict，`force=true` 强制并行
+- 纪律：agent 跑分钟级任务**必用** background=true，别阻塞对话；期间可答复用户/干别的，定期 job_status
 
 ### 管线 C 增强：to-box vs auto-submit 出货路径对比
 
@@ -438,8 +468,9 @@ python3 scripts/cli.py cleanup --old-results --days 7
 ## 其他命令（辅助）
 
 ```bash
-# 1688 关键词搜索（按词找货，耗 1688 配额）
+# 1688 关键词搜索（按词找货，耗 1688 配额；--rules 两段式同 discover，"ai" 一键预设）
 python3 scripts/cli.py search "宠物饮水机" --page-size 5
+python3 scripts/cli.py search "宠物饮水机" --rules "ai,margin>=20" --export out.csv
 
 # 查看已配置店铺
 python3 scripts/cli.py list_stores
