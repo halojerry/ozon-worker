@@ -42,10 +42,18 @@ description: >
 > ⑧ 截图：先转 URL 供 image_search；截图即目标商品 → 索要 1688 链接走 A（省图搜配额）
 > ⑨ URL+弱化词（"看看/能不能上"）→ 先 `graph --no-submit` 展示等确认 ⑩ 指代不清/数量不符/重上 → 追问核对
 > ⑪ C（跟卖选品）与 D（上架）命令相同（discover），仅 `--auto-submit` 差别；discover 无 `follow_type`
-> ⑫ 无人值守/任务式采集 → discover-task（缺省 ai 档粗筛；不带 `--to-box` 即干跑，入箱才真实写采集箱）；
->    交互式单轮选品仍用 discover（`--filter-profile ai` 可开同款粗筛，缺省 off 行为不变）
+> ⑫ 无人值守/任务式采集 → discover-task（缺省 ai 档粗筛；`--target-count` = **达标数**
+>    （profitable 出口数，达标即停护图搜配额），采集上限独立由 `--max-scan`（默认 300）控制；
+>    不带 `--to-box` 即干跑，入箱才真实写采集箱）。**用户没说数量先问「要多少个符合要求的产品」**
+>    （router 也会追问）；交互式单轮选品仍用 discover（`--filter-profile ai` 可开同款粗筛，缺省 off 行为不变）
 > ⑬ 任务 failed 重试无解 / Ozon 拒审反复 / 未知错误码 / 假成功 → 按 `references/error-report.md`
 >    上报（MCP report_issue 或 `report` 命令），把 report_id 回给用户
+> ⑭ **长任务后台纪律**：MCP 调 discover/discover-task/follow/seller/graph 等分钟级任务
+>    一律 `background=true`（立即返回 task_id，不阻塞对话）→ 干别的事 → 定期 `job_status`
+>    看进度 → 完成后 `job_result` 取结果（graph 的 worker_task_ids 可直接喂 `query` 查云任务）；
+>    **会话关闭任务照跑**，重开会话 `job_list` 找回
+> ⑮ 免登录：1688/Ozon seller 未登录时 readiness 自动从本机其他浏览器导入 cookie
+>    （每小时最多一次）；也可手动 `import-cookies` 导入，失败再走人工登录
 
 ## 2. 命令速查表
 
@@ -67,9 +75,11 @@ description: >
 | `graph` | 1688 上架 | `--url/--item-id --store [--no-submit] [--ozon-ref-url]` | 提交 Worker（除非 `--no-submit`） | 用户发 1688 商品链接 |
 | `follow` | Ozon 跟卖 | `--ozon-url --store [--auto-submit] [--review]` | 提交 Worker（加 `--auto-submit`） | 用户发 Ozon 商品链接 |
 | `image_search` | 以图搜款 | `--image [--source cdp] [--sort] [--limit]` | 耗 1688 图搜配额 | 用户发图片 / 找同款 |
-| `discover` | Ozon 选品 | `--keyword/--url [--local] [--rules] [--auto-submit] [--fission] [--blue-ocean-source] [--filter-profile off\|ai] [--base-filter]` | `--auto-submit` 提交 Worker；货源分析后生成 `data/discovery/analysis_*.md` | 找蓝海 / 跟卖选品 / 趋势执行 / 裂变 |
-| `discover-task` | 任务式全自动选品（无人值守） | `--keyword/--url [--target-count] [--filter-profile ai] [--match-limit 30] [--min-margin] [--to-box] [--dry-run] [--resume]` | 缺省干跑；`--to-box` 写采集箱（WebUI 认领后上架）；状态落 `data/discovery/tasks/` | "自动采集/无人值守/任务式跑一批" |
-| `search` | 1688 关键词搜索 | `query [--page-size]` | 耗 1688 搜索配额 | 按词找货 |
+| `discover` | Ozon 选品 | `--keyword/--url [--local] [--rules 挑选期,匹配期两段] [--auto-submit] [--fission] [--blue-ocean-source] [--filter-profile off\|ai] [--base-filter]` | `--auto-submit` 提交 Worker；货源分析后生成 `data/discovery/analysis_*.md` | 找蓝海 / 跟卖选品 / 趋势执行 / 裂变 |
+| `discover-task` | 任务式全自动目标驱动选品（无人值守） | `--keyword/--url [--target-count 达标数] [--max-scan 300] [--filter-profile ai] [--match-limit =目标×3] [--min-margin] [--to-box] [--dry-run] [--resume]` | 缺省干跑；`--to-box` 写采集箱（WebUI 认领后上架）；状态落 `data/discovery/tasks/`；粗筛池耗尽未达标会如实报缺口 | "自动采集/无人值守/任务式跑 N 个" |
+| `discover-multi` | 多关键词批量选品 | `--keywords a,b,c [--max-each] [--min-margin]` | 同 discover（逐词跑） | 多词横向对比选品 |
+| `search` | 1688 关键词搜索 | `query [--page-size] [--rules 挑选期,匹配期两段]` | 耗 1688 搜索配额 | 按词找货（`--rules "ai"` 一键预设） |
+| `import-cookies` | 从本机其他浏览器导入 1688/Ozon 登录态 | 无 | 注入 cookie 进工具 Chrome | 未登录免手动登录（readiness 也会自动兜底） |
 | `probe` | CDP 探针抓取单个 1688 商品 | `--url [--timeout]` | 无 | 调试单个商品 |
 | `queries` | what-to-sell 蓝海/榜单查询 | `--type all-queries\|ozon-bestsellers\|market-bestsellers [--keyword] [--export]` | 成功后自动上报 worker PG；可 `--export` CSV/JSON | 选品前查蓝海/畅销榜 |
 | `category` | 查询 Ozon 类目 | `<关键词> [--lang ZH_HANS\|EN\|RU] [--max N]` | 只读 | 类目确认 / 排查类目匹配 |

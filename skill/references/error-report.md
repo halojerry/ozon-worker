@@ -37,6 +37,14 @@
 3. **HTTP（兜底）**：`POST /api/v1/error_reports`，`Authorization: Bearer <mxou_token>`，
    body 见 `docs/ERROR-REPORT-TEMPLATE.md`。
 
+## 配套查询（MCP，v0.69/v0.70）
+
+- **`mcp__pounding__list_error_reports(status, limit, report_id)`**：查本租户已提交报告的
+  处理状态（`new/triaging/fixed/wontfix`）；`report_id` 非空返回单条详情（含 worker 自动
+  附加的任务快照 `auto_context`）。用户问「我报的问题怎么样了」时用。
+- **`mcp__pounding__get_task_forensics(task_id)`**：任务取证四路聚合（任务快照 + 上架留存
+  listing_result_log + 类目/属性匹配审计）。排查「为什么失败 / 为什么这么上架」**先取证再上报**。
+
 ## 字段速查
 
 | 字段 | 必填 | 取值 |
@@ -55,7 +63,7 @@
 
 ## 纪律（红线）
 
-1. **先收证据再报**：先 `query <task_id>`（或 `check_task_status`）拿终态/错误/进度，不要凭用户口述直接报。
+1. **先收证据再报**：先 `query <task_id>`（或 `check_task_status` / MCP `get_task_forensics`）拿终态/错误/进度/留存事实，不要凭用户口述直接报。
 2. `error_codes` 取任务终态里的 Ozon 原码，不意译。
 3. `task_ids` 有就必给；纯 CLI 崩溃（无任务号）可只给 `--command`+`--actual`，category 用 `cli_bug`。
 4. **任何字段都不写 api_key / token**（凭证零明文）。

@@ -1,6 +1,6 @@
 # pounding-mcp
 
-把 ozon-worker 的能力包装成 MCP 工具（25 个：20 个 skill CLI 封装 + 5 个 worker REST 直调），供 DeepSeek Harness（dsh）等 Agent 调用。
+把 ozon-worker 的能力包装成 MCP 工具（29 个：20 个 skill CLI 封装 + 5 个 worker REST 直调 + 4 个后台 job_* 监控），供 DeepSeek Harness（dsh）等 Agent 调用。
 
 > 薄封装：业务逻辑（CDP 采集 / 选品引擎 / 上架组装）全在 `../skill/` 与 `../worker/`，这里只做「参数映射 CLI + 调 subprocess」和「HTTP 直调 worker REST」。
 
@@ -11,9 +11,9 @@ pounding-mcp/
 ├── pyproject.toml            FastMCP 依赖 + 入口（pounding-mcp = pounding_mcp.server:main）
 ├── cordis.patch.yml          挂载到 dsh 的 patch 配置示例
 ├── pounding_mcp/
-│   ├── server.py             FastMCP 工厂 + 25 个工具（20 CLI 封装 + 5 worker REST 直调）
+│   ├── server.py             FastMCP 工厂 + 29 个工具（20 CLI 封装 + 5 REST 直调 + 4 job_* 监控）
 │   ├── skill_runner.py       run_skill_command 薄封装
-│   ├── tasks.py              命令运行记录（run_and_record）
+│   ├── tasks.py              任务注册表（同步 run_and_record + 后台 start_background/惰性收割）
 │   ├── tasks_server.py       运行记录查询服务（POST /ask 对话入口）
 │   ├── router.py             意图路由层（URL 正则 + 意图词表 → pipeline）
 │   ├── worker_http.py        worker REST 直调（analyze_store/run_store_action/report_issue/...）
@@ -76,7 +76,7 @@ python -m pounding_mcp.server
 三级安全门控（read/write/destructive）由 dsh 侧的 `tools/pre-execute` 钩子实现，
 依据 `docs/ozonharness/MCP-TOOLS.md` §七 的 SAFETY_MAP。
 
-## 工具清单（25 个）
+## 工具清单（29 个）
 
 ### skill CLI 封装（20 个）
 
@@ -97,7 +97,7 @@ python -m pounding_mcp.server
 | `follow` | 跟卖 Ozon 商品（竞品 → 找 1688 同款 → 上架）。auto_submit/to_box 触发 dsh 侧审批。 |
 | `discover` | Ozon 选品 v2（采集 → 分析 → 挑货）。只读；auto_submit/to_box/fission 触发 dsh 侧审批。 |
 | `discover_multi` | 多关键词批量选品。keywords 逗号分隔。auto_submit/to_box 触发 dsh 侧审批。 |
-| `discover_task` | 任务式全自动选品（漏斗 v2）：采集 → ai 粗筛 → 自动 1688 匹配（限额+早停）→ 利润精筛。 |
+| `discover_task` | 任务式全自动**目标驱动**选品（漏斗 v2，v0.70）：target_count=达标数，达标即停护图搜配额；max_scan 控制采集上限。 |
 | `seller` | 卖家店铺全产品运营分析（跟卖前 20 名卖家 → 店铺选品）。只读。 |
 | `queries` | what-to-sell 榜单查询。type: all-queries/ozon-bestsellers/market-bestsellers。只读。 |
 | `graph` | 组装 GraphInput 信封并提交上架。默认直接提交（dsh 侧 pre-execute 审批）。 |
@@ -116,5 +116,22 @@ python -m pounding_mcp.server
 | `report_issue` | 用户问题反馈 → 错误报告入 worker 跟踪队列（模板化，v0.69）。 |
 | `list_error_reports` | 查看本租户已提交的错误报告（列表或单条详情，只读）。 |
 | `get_task_forensics` | 任务取证一站式只读聚合（v0.70）：任务快照 + 上架留存 + 类目/属性匹配审计。 |
+
+### 后台任务监控（4 个，v0.70）
+
+`discover` / `discover_multi` / `discover_task` / `follow` / `seller` / `queries` / `graph` 均有
+`background`（默认 false）与 `force` 参数：`background=true` → CLI 进程**脱离会话独立运行**
+（输出落盘 `data/tasks/{id}.log`），工具 <1s 返回 task dict——**dsh 会话关闭任务照跑**。
+
+| 工具 | 说明 |
+|---|---|
+| `job_list` | 列出本机采集/上架任务（含后台任务与实时进度；重开会话找回用）。 |
+| `job_status` | 查单个任务：状态/阶段/进度/摘要/日志尾/关联 worker task_id。 |
+| `job_result` | 取后台任务完整结果 JSON（完成后调用）。 |
+| `job_cancel` | 取消运行中的任务（终止子进程/进程组）。写操作。 |
+
+**单飞闸**：同一时刻只允许 1 个 heavy 任务（discover 族/follow/seller/graph）running，
+再提交返回 error dict（`force=true` 强制并行）。日志/任务注册表在 `data/tasks.json` +
+`data/tasks/*.log`（跨进程共享，任务中心 UI 与 agent 看到同一份）。
 
 详见 `../docs/ozonharness/MCP-TOOLS.md`。
