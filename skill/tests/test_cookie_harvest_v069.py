@@ -284,6 +284,7 @@ def test_try_auto_import_kill_switch(monkeypatch):
 def test_try_auto_import_success_marks_cooldown(monkeypatch):
     calls = {}
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)  # 摘守卫（扫描已 mock）
+    monkeypatch.setattr(sys, "platform", "darwin")  # try_auto_import 仅 macOS（CI Linux 实证）
     monkeypatch.setattr(ch, "auto_fallback_allowed", lambda probe: True)
     monkeypatch.setattr(ch, "mark_auto_fallback_attempted",
                         lambda probe: calls.setdefault("marked", probe))
@@ -295,6 +296,7 @@ def test_try_auto_import_success_marks_cooldown(monkeypatch):
 
 def test_try_auto_import_failure_returns_false(monkeypatch):
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setattr(sys, "platform", "darwin")  # 走到 verified=False 分支而非平台守卫
     monkeypatch.setattr(ch, "auto_fallback_allowed", lambda probe: True)
     monkeypatch.setattr(ch, "mark_auto_fallback_attempted", lambda probe: None)
     monkeypatch.setattr(ch, "harvest_and_import",
