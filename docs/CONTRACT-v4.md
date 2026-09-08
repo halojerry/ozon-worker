@@ -742,7 +742,7 @@ curl -s -X POST http://localhost:8080/api/v1/auth/verify \
 
 ## Part 1b: WebUI v1 API 契约
 
-> v0.41.0 新增（2026-08-15）。WebUI 是 worker 域内的浏览器管理面：React SPA 静态托管在 worker 域名 `/app`（零 CORS），与 skill 双向互通。架构纪律：**单向权威 + 双向可见**——skill=采集权威（CDP）、webui=审阅/编辑权威、worker=执行权威（状态机仲裁），三者永不直接通信，只读写 worker 状态。全部新端点走 `routes/`（薄层）+ `services/`（厚层）分层，`api/schemas.py` 是 Pydantic 契约（OpenAPI 自动生成，前端 openapi-typescript 消费），**main.py 不内联业务逻辑**。设计依据：`docs/PLAN-webui-v1.md` §2（C1-C7 冻结契约）。
+> v0.41.0 新增（2026-08-15）。WebUI 是 worker 域内的浏览器管理面：React SPA 静态托管在 worker 域名 `/app`（零 CORS），与 skill 双向互通。架构纪律：**单向权威 + 双向可见**——skill=采集权威（CDP）、webui=审阅/编辑权威、worker=执行权威（状态机仲裁），三者永不直接通信，只读写 worker 状态。全部新端点走 `routes/`（薄层）+ `services/`（厚层）分层，`api/schemas.py` 是 Pydantic 契约（OpenAPI 自动生成，前端 openapi-typescript 消费），**main.py 不内联业务逻辑**。设计依据：`archive/docs/legacy/PLAN-webui-v1.md` §2（C1-C7 冻结契约）。
 
 ### 1b.1 WebUI v1 新端点清单
 

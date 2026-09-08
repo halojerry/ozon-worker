@@ -1,5 +1,7 @@
 # 生图模板占位符说明（v0.32）
 
+> ⚠️ 本文占位符与流程按 v0.32 口径撰写；v0.64 起生图链路视觉模型切换为 `deepseek-v4-flash-vision-exp`、默认生图精简 10→5（`image_gen_plan.DEFAULT_PLAN`：main/white_bg/multi_angle/detail/scene_1）。占位符以 `worker/config/image_prompts.json` 当前内容为准。
+
 > 维护者参考文档。当前模板：`worker/config/image_prompts.json`（热加载，改文件即生效）。
 > 视觉变量来源：`worker/src/utils/prompt_assembler.py`（确定性 extract）+ `visual_vars_llm_node`（LLM 19 变量）。
 

@@ -1,7 +1,21 @@
 # Worker 拓扑与错误处理手册
 
 > **用途**：快速定位错误根因、知道改哪个文件、理解数据流向
-> **更新日期**：2026-07-20
+> **更新日期**：2026-09-08 / 对应版本 v0.70.0
+
+---
+
+## v0.28–v0.70 拓扑变更摘要（增量，勿重写正文）
+
+> 下方正文按 v0.27 口径撰写，仍可用；本节列 v0.28 以来影响拓扑/错误面的关键增量（符号均已在代码中核对）。
+
+- **v0.64 视觉模型切换**：`call_mxou_chat_api` 加 `image_urls` 参数（`worker/src/utils/mxou_api.py:129`，Vision ≤4 张）；类目 LLM 匹配 / 属性多候选消歧 / `_infer_attrs_from_vision`（`prepare_ozon_upload_node.py:1319`）带图，assemble/prepare 等节点已接入。
+- **v0.65 promo_price → min_price**：CREATE 单确认新建后经 `ozon_status_node` 轮询 import/info 到手真实 product_id，`try_set_min_price_floor`（`ozon_upload_node.py:80`，`ozon_status_node.py:260` 调用）补送 `/v1/product/import/prices`（防御 ≥售价50% 且 ≤售价）。
+- **v0.66 L0 学习表复活**：assemble 输出 `category_match_meta`（match_layer/confidence/dc/tp）主图↔子图双向透传（`state.py:90/858/890`）；`LearningRecordInput` 补 source/envelope/product_id/user_id/ozon_client_id/ozon_api_key/pricing_info（`state.py:900`）——**langgraph 按节点 Input model 过滤 channel，节点/路由要读的字段必须声明进 Input**。
+- **v0.68 `decline_errors` 累积器**：retry 子图任何消费 `state.errors` 的节点先 `_accumulate_decline_errors`（`validation_retry_loop.py:197`，append-only cap50）；R2b 仲裁池 `_build_r2b_confirm_pool`（`assemble_ozon_product_node.py:732`，top10+跨大类 overlap 必进 cap12）；GraphOutput 透传 `description_category_id/type_id/category_match_meta/final_weight_g/final_dims_mm`（`state.py:259-263`，output_schema 按名过滤）。
+- **v0.69 终态口径与上传前防线**：completed 必须过 `_has_real_product_evidence`（`utils/task_processor.py:73`，product_id 空/等于 import task_id → failed）；`route_after_assemble` 改消费 `failed_stage` 通道（`graph.py:207`，修复 `or 1.0` 吞 0.0 置信度缺陷）；数值属性清洗 `utils/attr_numeric_sanitize`（prepare/validate/retry 三处唯一入口）+ 尺寸 `OZON_DIM_BOUNDS_MM` clamp（`utils/weight_dimension_normalizer.py:47`，42-400/25-400/5-200）；CREATE 前 `find_product_by_offer`（`utils/ozon_client.py:227`，`ozon_upload_node.py:53`）查到尸体 offer 转 UPDATE（UPSERT_BY_OFFER）。
+- **v0.63.1 凭证端点校验失败 500→422**（REST HTTP 层，不在下方错误映射表内）：`routes/credentials_routes.py:65-77` 捕获 pydantic.ValidationError → 可读 detail。
+- **v0.70 门禁与取证**：manual 树校验失败显式阻断 `_blocked_exit`（`assemble_ozon_product_node.py:802`，统一 failed_stage=category_match，`route_after_assemble` 据此终止）；任务取证只读端点 `GET /api/v1/forensics/task/{task_id}`（`main.py:2564` + `services/forensics_service.py`，任务快照+listing_result_log+双审计一站式）。
 
 ---
 

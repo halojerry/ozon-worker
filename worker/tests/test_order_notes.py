@@ -1,6 +1,6 @@
 """P1-1: 订单标注（notes）读写 + 面单代理测试。
 
-验收门（docs/PRD-order-notes-v0.48.md §四）：
+验收门（archive/docs/legacy/PRD-order-notes-v0.48.md §四）：
 1. notes upsert/get 租户隔离（A 看不到 B）
 2. 无记录返回空模板（不 404）
 3. label 代理：成功返回 base64 / 无默认店铺 400 / Ozon 失败 502

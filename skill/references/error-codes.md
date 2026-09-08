@@ -27,6 +27,7 @@ Worker 返回：
 | `TASK_SUBMIT_FAILED` | 队列写入失败 | "任务入队失败，Worker 内部错误。请稍后重试。" |
 | `DUPLICATE_SUBMIT` | 同商品已有活跃任务（pending/running） | "该商品已在提交队列（task_id={detail.task_id}），请勿重复提交。若上次任务被拒/失败，可用 `query <task_id>` 确认后走重提交。" |
 | `TASK_NOT_FOUND` | 任务不存在（或跨租户访问被拒） | "任务不存在或无权访问。" |
+| `TASK_NOT_CANCELLABLE` | 任务当前状态不可取消（仅 pending 可取消） | "任务当前状态不可取消（仅排队中的任务可取消）。可先用 `query <task_id>` 确认状态。" |
 | `TASK_NOT_RESUBMITTABLE` | 任务状态不可重提（仅 rejected/failed 可） | "任务状态 {detail.status} 不可重新提交，仅审核被拒/失败的任务可重试。" |
 | `SERVICE_UNAVAILABLE` | 服务不可用 | "云端服务暂时不可用，请稍后重试。" |
 | `INTERNAL_ERROR` | 未知内部错误 | "Worker 内部错误：{message}。请稍后重试，如持续出现请联系技术支持。" |

@@ -378,7 +378,7 @@ def _detect_language(text: str) -> str:
 
 
 # ══ v0.69 P-B: 跟卖类目门控仲裁 ══
-# wave D 实证（docs/TEST-v067-wave-plan.md）：本节点内部 pg_trgm sim≥0.5 直采
+# wave D 实证（archive/docs/legacy/TEST-v067-wave-plan.md）：本节点内部 pg_trgm sim≥0.5 直采
 # （俄语源词 → 医用 Рециркулятор sim=0.500 恰好过线）+ 1688 类目 jieba 直采
 # （单字「取暖」sim=0.70 → 配件类）完全绕过 assemble 的 R2b 四段闸/R1——
 # 三单跨域错放全经此通道。模糊解析改为「候选池 → R1 剔除 → R2b 仲裁池 →

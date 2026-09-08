@@ -1,7 +1,7 @@
 """T7b: image_gen_plan 类型选择（受限映射，C3b 冻结）。
 
 `image_gen_plan` = 现有 slot 子集选择 + 计数（type→count），只控制「执行/跳过」，
-**不新增 slot、不做 graph 层重构**（BLOCKER 1 修复方案，见 docs/PLAN-webui-v1.md §2 C3b）。
+**不新增 slot、不做 graph 层重构**（BLOCKER 1 修复方案，见 archive/docs/legacy/PLAN-webui-v1.md §2 C3b）。
 
 | UI 类型 | slot 映射 | 说明 |
 |---|---|---|

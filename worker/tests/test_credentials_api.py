@@ -1,6 +1,6 @@
 """T5: 凭证 CRUD + validate 端点测试（真实 PG + mock Ozon API probe）。
 
-验收门（docs/PLAN-webui-v1.md §5 T5）：
+验收门（archive/docs/legacy/PLAN-webui-v1.md §5 T5）：
 1. 响应 JSON 永不出现明文 api_key / ozon_api_key_enc（键名 + 明文值双重断言）
 2. 租户隔离：A 看不到 B 的凭证（list/rotate/revoke/validate 均按 tenant_id 过滤）
 3. validate 坏 key → valid:false + reason；Ozon API 异常 → valid:false

@@ -1,6 +1,6 @@
 """P0-1: 上架配置模板 API 端点测试（真实 PG + TestClient + FakeSupabase）。
 
-验收门（docs/PRD-listing-template-v0.44.md §五）：
+验收门（archive/docs/legacy/PRD-listing-template-v0.44.md §五）：
 1. 鉴权：无 token / 坏 token → 401
 2. CRUD 端点 + 租户隔离
 3. 设默认端点（清旧默认）

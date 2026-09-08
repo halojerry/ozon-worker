@@ -1,6 +1,6 @@
 """P0-1: submit_draft 集成上架配置模板测试。
 
-验收门（docs/PRD-listing-template-v0.44.md §五）：
+验收门（archive/docs/legacy/PRD-listing-template-v0.44.md §五）：
 1. 带 template_id → 模板注入 graph payload extensions（草稿已有值优先）
 2. 无 template_id → 租户默认模板兜底
 3. 更新模式（update_product_id）→ 忽略 offer_id_prefix（重上不变式）

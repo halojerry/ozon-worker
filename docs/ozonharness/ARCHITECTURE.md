@@ -1,6 +1,6 @@
 # ARCHITECTURE — 电商版 DeepSeek Harness 完整架构（v3.3）
 
-> 本文档是 ozonharness 方案的核心。取代旧版 `../ECOM-HARNESS-PLAN.md`（v2）。
+> 本文档是 ozonharness 方案的核心。取代旧版 `../../archive/docs/legacy/ECOM-HARNESS-PLAN.md`（v2）。
 > v3 新增：三种协议边界（§二）、插件化壳化（§六）、仓库结构（§七）。
 > v3.1 修正：web_fetch 带不了 Bearer header。
 > v3.2 修正：bash+curl 可带 header（沙箱不限网络）；审批须在 dsh 侧 pre-execute，非 MCP server 内。
@@ -282,4 +282,4 @@ ozon-worker/                  # 现有仓库（含 pounding-mcp，同仓同步�
 | worker 端点 | `../../api-integration/API-INTEGRATION-GUIDE.md` |
 | webui 设计 | `../../design-deliverables/ozon-erp-design-spec.html` |
 
-> 旧版 `../ECOM-HARNESS-PLAN.md`（v2）保留作历史，本目录为 v3 权威版本。
+> 旧版 `../../archive/docs/legacy/ECOM-HARNESS-PLAN.md`（v2）保留作历史，本目录为 v3 权威版本。

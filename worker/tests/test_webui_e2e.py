@@ -1,6 +1,6 @@
 """T15: WebUI 全链路 E2E 测试（本地 Docker PG + mock Ozon/MXOU，无云访问）。
 
-验收门（docs/PLAN-webui-v1.md §5 T15 / §9 成功判据 2、7）：
+验收门（archive/docs/legacy/PLAN-webui-v1.md §5 T15 / §9 成功判据 2、7）：
     本地 Docker 全路径：skill --to-box 创建草稿 → webui 认领（credential 创建+校验）
     → 提交 → 任务进度查询 → 单 slot 重新生成 → 更新在线商品。
 

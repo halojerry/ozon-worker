@@ -1,6 +1,6 @@
 """P0-4: 订单服务测试（mock ozon_post + 状态映射 + 提取 + 错误路径）。
 
-验收门（docs/PRD-orders-v0.47.md §五）：
+验收门（archive/docs/legacy/PRD-orders-v0.47.md §五）：
 1. 状态映射全枚举（Ozon raw status → 统一 7 态）
 2. products/financial/warehouse 标准化提取
 3. 无默认店铺 → 400；Ozon API 失败 → 502

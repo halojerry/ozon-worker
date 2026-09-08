@@ -1,6 +1,6 @@
 """v0.50: Ozon 在线商品实时拉取测试（mock ozon_post 两步拼接）。
 
-验收门（docs/PRD-ozon-shelf-v0.50.md §三）：
+验收门（archive/docs/legacy/PRD-ozon-shelf-v0.50.md §三）：
 1. /v3/product/list + /v1/product/info/list 两步拼接正确
 2. 字段提取（name/image/price/stock/currency）
 3. 无默认店铺 400；Ozon 失败 502；info 失败降级

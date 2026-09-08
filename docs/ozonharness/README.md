@@ -1,5 +1,7 @@
 # Ozon Harness — 电商版 DeepSeek Harness 架构方案
 
+> 本目录是产品方案底稿（PRD/架构/路线图）；**施工以 `docs/PLAN-harness-mcp-adoption-v1.md` 为准**。
+
 > 把 ozon-worker 的 AI 自动化运营能力，做成一个「对话即完成」的电商版 Harness 桌面产品。
 > 文档集最后更新：2026-08-18 · 基于 dsh `0.1.0-rc.6` 本地运行时**实证**分析（非文档猜测）。
 
@@ -109,7 +111,7 @@ ozon-worker/
 └── integration-workplan/     工作清单（PRD/PLAN/TASKS/TEST/ISSUES/TODO）
 ```
 
-> 旧版 `docs/ECOM-HARNESS-PLAN.md`（v2）已由本目录的 `ARCHITECTURE.md`（v3.3）取代；v3 新增了「三种协议边界」「插件化壳化」「仓库结构」三个 v2 缺失的关键结论。
+> 旧版 `archive/docs/legacy/ECOM-HARNESS-PLAN.md`（v2）已由本目录的 `ARCHITECTURE.md`（v3.3）取代；v3 新增了「三种协议边界」「插件化壳化」「仓库结构」三个 v2 缺失的关键结论。
 
 ---
 
