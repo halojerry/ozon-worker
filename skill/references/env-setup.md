@@ -37,11 +37,23 @@ python3 scripts/cli.py check
 更新时保留），一次性登录长期有效；**工具 Chrome 常驻**（命令结束不关闭，登录态跨命令复用）；
 用户手动关闭后下次命令自动用独立 profile 重启。
 
+**v0.69 免登录（跨浏览器 cookie 导入）**：工具 profile 未登录时自动扫描本机其他浏览器
+（Chrome/Edge/Brave/Firefox，Safari 需「完全磁盘访问权限」）已有的 1688/Ozon 登录 cookie，
+注入工具 Chrome 免手动登录（冷却 1 小时防循环弹 Keychain 授权框）。也可手动触发：
+```bash
+python3 scripts/cli.py import-cookies            # 扫描全部源 → 注入 → 验证
+python3 scripts/cli.py import-cookies --list-sources
+```
+Keychain 首次授权弹窗请点「始终允许」（每浏览器一次）。Windows 暂不支持
+（Chrome 127+ app-bound 加密）；`SKILL_DISABLE_COOKIE_HARVEST=1` 关闭自动兜底。
+ seller 登录检测 v0.69 起为**纯 cookie 罐静默读取（零导航）**——未登录不再反复弹
+seller.ozon.ru 页面；登录页仅在明确等待登录时打开一次，中途关页不会被弹回。
+
 **命令级统一预检（readiness，漏斗 v2 收尾）**：graph/follow/discover/discover-multi/discover-task
 启动时自动做「就绪预检」——Chrome CDP、seller 卖家后台登录、1688 反爬 cookie（aibuy 免浏览器
 图搜依赖）按管线裁剪检测，**成功结果缓存 10 分钟**（重复跑命令不再重复检测）；aibuy cookie
-未预热时**自动导航一次 1688 首页预热**（一次性，之后缓存期内免检测）；seller 未登录时交互
-环境给登录窗口（成功后同进程免重复等待），discover-task 无人值守**秒退并给指引**。
+未预热时**自动导航一次 1688 首页预热**（一次性，之后缓存期内免检测）；seller 未登录时先试
+跨浏览器 cookie 导入（v0.69），仍失败才交互给登录窗口，discover-task 无人值守**秒退并给指引**。
 check 仍是全量诊断入口（排错时跑）。
 
 **v0.30 环境前置（自动）**：所有命令入口自动探测 Python ≥3.12 + `requests`/`websocket-client`/`Pillow`，
@@ -69,7 +81,7 @@ python3 scripts/migrate_profile.py --apply   # 实际迁移
 | Chrome 未安装 | 系统无 Google Chrome | 安装 Google Chrome（工具自动启动，无需手动配置） |
 | Chrome 版本过旧 | Chrome < 100 | 升级 Chrome 到最新版 |
 | 1688 AK 无效 | AK 过期或未配置 | `python3 scripts/cli.py get_ak`（自动获取）或 `set_ak` 手动设置 |
-| 1688 未登录 | Chrome 中未登录 1688 | 在 Chrome 打开 1688.com 登录（工具会提示） |
+| 1688 未登录 | 工具 Chrome 中未登录 1688 | `python3 scripts/cli.py import-cookies`（自动从日常浏览器导入）；或按提示在工具 Chrome 打开 1688.com 登录 |
 | Ozon 店铺未配置 | `data/config/stores.json` 无店铺 | `python3 scripts/cli.py set_store --name 主店铺 --client-id xxx --api-key xxx` |
 | MXOU_TOKEN 无效 | token 过期或未配置 | 向用户索取新 token：`python3 scripts/cli.py set_token --token <token>` |
 | Worker 不可达 | 网络问题或 Worker 宕机 | 检查网络；`curl -s https://worker.mxou.cn/health` 确认服务状态 |

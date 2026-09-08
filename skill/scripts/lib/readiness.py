@@ -263,6 +263,18 @@ def ensure_pipeline_ready(pipeline: str, *, profile_dir: str | None = None,
             except Exception as exc:
                 logger.warning("aibuy cookie 预热失败（不影响主流程）: %s", exc)
 
+        if not ok and probe in ("seller_login", "alibaba_login"):
+            # ✅ v0.69 自动兜底：扫描本机其他浏览器的登录 cookie 导入工具 Chrome
+            # （冷却落盘：每探针 1h 最多一次，防 Keychain 授权框循环弹；用户拒绝
+            # 授权/无 cookie 可搬 → 静默跳过，走下方原有人工流程，降级语义不变）。
+            try:
+                from scripts.lib import cookie_harvest
+                if cookie_harvest.try_auto_import(probe, CDP_URL):
+                    ok = True
+                    repaired.append("已从本机其他浏览器导入登录 cookie（免手动登录）")
+            except Exception as exc:
+                logger.warning("cookie 自动导入失败（忽略，走原流程）: %s", exc)
+
         if not ok and probe == "seller_login":
             from scripts.lib import ozon_seller_analytics as _osa
             if pipeline == "discover-task":

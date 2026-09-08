@@ -452,6 +452,11 @@ python3 scripts/cli.py probe --url "https://detail.1688.com/offer/xxx.html" --ti
 
 # 环境检查 + 自动启动 Chrome + 凭证验证（首次使用/排错，env-setup.md）
 python3 scripts/cli.py check
+
+# 跨浏览器 cookie 导入（v0.69）：扫描本机 Chrome/Edge/Brave/Firefox 的 1688/Ozon
+# 登录 cookie → 注入工具 Chrome → 验证。readiness 未登录时也会自动兜底（冷却 1h）
+python3 scripts/cli.py import-cookies
+python3 scripts/cli.py import-cookies --sources chrome,firefox   # 指定源
 ```
 
 ## settings.json 可调参数
