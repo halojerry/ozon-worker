@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.70.0] — 2026-09-09（未发版：v0.69.0 tag 待 discover gate，本批在其上继续开发）
+
+> 四个用户问题落地：①错误报告模板进 skill 才能被 agent 用；②数据库不迁 Supabase
+> （取证读通道替代——worker PG 热库跨境延迟不可接受）；③采集箱用户配置类目/属性
+> 按用户配置上传（两个权威缺口修复 + webui 编辑 UI 补齐）；④属性缓存全量化 +
+> schema 歧义审计。测试基线：worker 2036 / skill 776 / pounding-mcp 41（25 工具）。
+
+### 错误报告通道进 skill
+- 新 `skill/references/error-report.md`（agent 纪律：何时报/三条通道/字段速查/红线）
+  + SKILL.md 关键规则⑬/命令表/参考索引接线 + error-codes.md「未知错误码→上报」。
+- 新 skill CLI `report` 子命令（无 MCP 环境通道）：`_require_auth` + POST
+  `/api/v1/error_reports`，失败不 raise 返回 1；⚠️ `--command` 参数 dest 与
+  subparsers dest 撞名会清空子命令名（argparse 默认覆盖语义），dest=repro_command。
+- compile.py DOC_FILES + `references/error-report.md`（dist 包随身分发）；
+  pounding-mcp report_issue docstring 补 skill 文档指路。
+
+### 门禁权威补洞（assemble，行为变更）
+- **manual 树校验失败显式阻断**：`_resolve_skill_category` 返回 None 且 source=manual
+  → `_blocked_exit`（failed_stage=category_match，文案含 dc/tp）——此前静默回落
+  自动匹配=用户指定类目被无感知丢弃；非 manual source 回落语义不变（v0.63 契约）。
+- **manual 恒接管**：`_skill_precedence_over_l0` 对 manual 恒 True——含与弱档 L0
+  （learned succ==1）dc/tp 一致场景（此前保留 L0 → 仲裁失败丢成 L1 文本匹配）。
+- `test_manual_category_authority_v070.py` 6 用例；`test_category_gate_draft_v069`
+  阻断出口不变式 7→8。
+
+### 采集箱改配（webui + worker 只读端点）
+- `GET /api/v1/categories/search?q=`（树搜索 ZH_HANS，node_type=type）与
+  `GET /api/v1/categories/attributes?dc=&tp=`（attribute_cache/dictionary_value_cache
+  **缓存只读不回源 Ozon**，未预热 found=false）。7 用例（mock query 层）。
+- webui EditDraftDrawer：类目选择器（搜索→选中写 `draft.ozon_category.source=manual`，
+  可清除回落自动匹配）+ 按 schema 动态属性表单（字典下拉/必填标记，非空值并入
+  `draft.attributes` 同名覆盖）。tsc 0 错 + build 通过。
+
+### 属性缓存全量化
+- TTL 7d/1d → **30d**（warm_category_cache / init_data / local_db_manager 三处一致
+  ——字典值低频变化，1 天 TTL 使「全量」一周内自动衰减回懒加载）。
+- `deploy.sh`/`cos-update.sh`：部署自动从 COS（`ozon-worker/cache/` 前缀）下载缓存
+  JSON → `docker compose cp` 进容器 → 后台 `--import-only` 灌入；缺失跳过不阻断。
+- 新运维手册 `docs/CACHE-WARM-RUNBOOK.md`（一次性预热 16h→导出→COS；re-warm cron；
+  `--coverage` 审计）。
+- warm 脚本**硬编码测试店凭证移除**（无凭证退出）；init_data 缺 JSON 静默跳过 →
+  warning；AGENTS 缓存口径修正（「top-200 JSON 已提交 git」不实；70GB 为错误估算）。
+
+### 取证只读通道（替代换库）
+- `GET /api/v1/forensics/task/{task_id}`（新 `services/forensics_service.py`）：
+  任务快照 + listing_result_log + category_match_log + attr_match_log 一站式只读
+  聚合；租户校验 404。4 用例（真实 PG 种子行）。
+- 远程 MCP `src/mcp_server.py` 14→17 工具（+report_issue / list_error_reports /
+  get_task_forensics，零业务逻辑薄封装）；pounding-mcp 24→25 工具（+
+  `mcp__pounding__get_task_forensics`）。
+- 决策记录：**不迁 Supabase**（双库分工保持：业务/队列/缓存=自建 PG，鉴权/配额=
+  Supabase）；本地/云端配合修根因靠取证读通道而非同库直查。
+
+### schema 审计与低风险修复
+- 新 `docs/DB-SCHEMA-AUDIT.md`（34 表三类 + 14 歧义点清单 + ID 词汇表 + status
+  取值域矩阵 + 新表设计纪律）。
+- `ozon_product_tasks ((id::text))` 表达式索引（error_report/forensics/task_service
+  的 `id::text = :x` 查询走索引）+ `draft_submissions.submitted_task_id` 普通索引；
+  `docs/ARCHITECTURE-TOPOLOGY.md` progress「表」漂移修正为 JSONB 列。
+
 ## [0.69.0] — 2026-09-08（版本已就位，tag 待实机 discover gate 通过后打）
 
 > 生产实机反馈 17 项问题（`data/official_feedback_20260907.md`）+ 类目链 Wave D 收尾。

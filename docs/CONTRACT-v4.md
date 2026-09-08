@@ -77,8 +77,30 @@
   analytics 同源（Bearer=mxou key）。**完整模板与实例：`docs/ERROR-REPORT-TEMPLATE.md`**。
 - `GET /api/v1/error_reports`：`?limit=&offset=&status=`（new/triaging/fixed/wontfix）
   列表；`?report_id=` 单条详情。只读本租户（跨租户 404）。
-- MCP 通道：pounding-mcp `report_issue` / `list_error_reports` 工具（dsh agent 直接调用）。
+- MCP 通道：pounding-mcp `report_issue` / `list_error_reports` 工具（dsh agent 直接调用）；
+  远程 MCP（`worker.mxou.cn/mcp`，v0.70）同前两者 + `get_task_forensics`。
+- skill 侧 agent 使用纪律（何时报/怎么报/红线）：`skill/references/error-report.md`
+  （v0.70 起随 dist 包分发，SKILL.md 关键规则⑬ 接线）；无 MCP 环境用
+  `python3 scripts/cli.py report --title ... --task-ids ...`。
 - 表：`error_reports`（append-only + status 人工流转，启动 create_all 自建）。
+
+**任务取证（v0.70 — 一站式只读聚合）**:
+
+- `GET /api/v1/forensics/task/{task_id}`：任务快照（status/error/product_id/时间线）
+  + `listing_result_log`（1688/Ozon 双侧事实与结果归因）+ `category_match_log` +
+  `attr_match_log` 四路聚合。租户校验：任务行不属本租户 → 404（等价不存在）。
+  替代「换库」的本地/云端配合取证通道（此前只能 SSH psql）。
+- MCP 通道：pounding-mcp `get_task_forensics`；远程 MCP `get_task_forensics`。
+
+**类目/属性只读（v0.70 — 采集箱 manual 改配数据源）**:
+
+- `GET /api/v1/categories/search?q=&limit=`：类目树搜索（ZH_HANS，node_type=type，
+  返回 `{items:[{description_category_id, type_id, node_name, category_path, similarity}]}`）。
+- `GET /api/v1/categories/attributes?dc=&tp=`：属性 schema + 字典值（**缓存只读不回源
+  Ozon**；未预热 `{found:false}`；字典属性带 `values:[{id,value}]`）。
+- 用途：webui 采集箱类目选择器/属性表单；选中写 `draft.ozon_category{dc,tp,
+  category_path,source:"manual"}` + `draft.attributes`（worker 权威直通，见
+  `test_manual_category_authority_v070.py`）。
 
 > 这两个端点属于「数据沉淀 + 店铺精细化运营」阶段（**未发版**，VERSION 四源仍 0.60.0）。
 > 详细契约见文末「Part 6: 店铺分析/执行端点 + 数据沉淀表」（2026-08-22 新增）。
