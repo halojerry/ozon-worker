@@ -2,6 +2,46 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## ⚡ 60 秒上手（新会话先读这节；下方「最近更新」是按版本倒序的历史，参考章节从「工作区概述」开始）
+
+**是什么**：两段式 Ozon 上架系统。`skill/`（客户本地，CDP 抓 1688/Ozon → 组装 GraphInput 信封，**不上架**）→
+`worker/`（云端 Docker，FastAPI + LangGraph：类目→定价→属性→生图→校验→上传→自学习）。周边：`pounding-mcp/`
+（dsh agent 的 25 个 MCP 工具，薄封装）、`webui/`（React，**bun** 生态，产物 bind mount 进 worker 同进程 `/app`）、
+`pounding-sidebar/`（dsh 插件）、`docs/refs/ozon-mcp/`（Ozon API 参考库，只读）。pounding-harness 是独立仓库，只做消费方。
+
+**命令（均已实测）**
+| 目的 | 命令 |
+|---|---|
+| worker 全量测试（需本地 PG 5433） | `cd worker && PGDATABASE_URL="postgresql://postgres:localdev123@localhost:5433/ozon" PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/ -q` |
+| worker 单文件（纯 mock） | `cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/<file>.py -q` |
+| skill 测试 | `cd skill && .venv314/bin/python -m pytest tests/ -q` |
+| pounding-mcp 测试（须自身 venv） | `cd pounding-mcp && .venv/bin/python -m pytest tests/ -q` |
+| webui 类型检查 + 构建 | `cd webui && bun install && bunx tsc -b && bun run build` |
+| lint | worker `ruff check src/ --select E,F,W --ignore E501`；skill `ruff check scripts/ --select E,F,W --ignore E501,E402` |
+| 本地 CI 全流程 | `bash scripts/ci.sh --quick`（跳 Docker；Step 5d 校验 API 文档漂移） |
+| **改 API 后必跑** | `python worker/scripts/gen_api_docs.py`（重生成 `docs/API-REFERENCE.md` + openapi 快照；`--check` 即 CI 门禁） |
+| 本地 worker | `cd deploy && docker compose up -d --build` → `http://localhost:8080`（Swagger `/docs`） |
+
+**边界（改代码前的硬规则）**
+- skill 不调任何 Ozon 上架 API；worker 不抓 1688。信封契约 `docs/CONTRACT-v4.md`，改字段三处同步（skill/worker `state.py`/契约文档）。
+- 唯一入口不得内联复制：定价 `utils/pricing_estimate.compute_price`、标题公式 `utils/title_formula`、佣金 `utils/commission_resolver`、错误码 `api/errors.py`（14 个）。
+- `worker/src/mcp_server.py` 零业务逻辑，工具只回调本进程 REST——**改路由路径必须同步其 `_call`**。
+- langgraph 按节点 Input model 过滤 state：**节点/路由要读的字段必须声明进该节点 Input**，否则静默拿不到。
+- 类目链、余额判定、重量/尺寸、图片 URL 链路各有「改前必读」注释块（见「需牢记的约定」与对应版本块），勿凭记忆改。
+
+**纪律**
+- 功能测试只打本地 Docker，**禁止用生产 `worker.mxou.cn`**；本地 Supabase 未配置 = auth fail-open，验证鉴权用空 token。
+- Commit `<type>(<scope>): 中文描述`；工作树常有其他会话的 WIP，**逐文件 `git add`，不用 `-a`/stash**。
+- 发版：VERSION 四源一致（根 `VERSION`/`skill/VERSION`/`deploy/skill/VERSION`/`SKILL.md` frontmatter）+ CHANGELOG + 本文顶部块 + 实机 ≥3 单 gate。
+- 写 Ozon API 调用前先用本机 MCP `mcp__ozon__search_methods`/`describe_method` 核对契约（零凭证只读），禁手 grep swagger。
+- `worker/config/*.json` bind mount 热加载，改 prompt 无需重建镜像。
+
+**先读什么**：集成/端点 → `docs/API-OVERVIEW.md` + `docs/API-REFERENCE.md`；节点流/错误映射 → `docs/WORKER-TOPOLOGY.md`；
+MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬约束见下方「Agent 使用 Skill 时的硬约束」）；
+建表/改列 → `docs/DB-SCHEMA-AUDIT.md`；部署 → `docs/DEPLOY.md`。
+
+**高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）。
+
 ## 最近更新（未发版 — 文档体系收口：过期归档 + API 两层文档 + CI 防漂移 + MCP/harness 对齐）
 
 > 2026-09-08。**未发版**（VERSION 四源仍 0.70.0），不改业务逻辑。维护面收敛为
