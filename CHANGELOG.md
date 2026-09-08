@@ -34,9 +34,10 @@
 - CONTRACT-v4 登记：source=page 的 dc 是 Web 前台面包屑 ID 非 Seller 树（不改字段）。
 
 ### 类目链消费补全 + 盲填归一（worker）
-- `resolve_1688_source_category_id` 纯函数：draft.source_category_id →
-  source.category_id 双源解析——assemble 的 L0 cid 直查此前只读 draft（读侧断点，
-  learning_record/follow_import 早有双源先例）。
+- `resolve_1688_source_category_id` 纯函数（utils/category_mapping_learn 共享单一
+  事实源）：draft.source_category_id → source.category_id → **source.match_category_id**
+  三源解析——assemble 的 L0 cid 直查此前只读 draft（读侧断点）；wave 实证图搜
+  cid 在第三源（approved 学习行 cid 空的根因），learning_record/follow_import 一并接线。
 - `add_category_mapping` cid 规范化：同 (cid,dc,tp) 不同措辞活跃行归并到原行
   （succ+1 + leaf 刷最新写法），不再按唯一键 (leaf,dc,tp) 裂行稀释 success_count
   （L0 学习转不起来的写侧结构性断点；无 DDL）。
@@ -44,8 +45,17 @@
   assemble `/values/search` 通用字典搜索改 exact-only；assemble 8229 API 搜索改
   精确优先+唯一结果兜底（套娃错值残留通道）；prepare 缓存包含匹配改精确压倒+
   唯一命中。错填→不填是有意方向（attr_match_log 可量化缺口）。
-- 新测试：`test_attr_value_sanitize_v071.py` 10 + `test_category_key_v071.py` 7 +
+- 新测试：`test_attr_value_sanitize_v071.py` 10 + `test_category_key_v071.py` 8 +
   skill `test_category_truth_v071.py` 7。
+
+### wave 实证（本地 Docker，测试店 5381204，2026-09-09）
+- discover-task 置物架 2/2 入箱（信封带真实面包屑
+  `Дом и сад > … > Держатели` + web_category_id + 图搜 cid）→ 提交测试店。
+- **completed + approved**（product 6269326493，零错误零多值拒单）；另一单与
+  graph 单（1688 锅盖架，树无该叶子）低置信 0.25 **弃权入箱**（安全方向，
+  推荐类目可见不强制上架）；全程零 ATTRIBUTE_VALUE_COUNT_EXCEEDED。
+- 观察点：垃圾源（图搜 conf 0.5 错配仿真花）正确归类为 Искусственные цветы
+  并过审——分类自洽但货源错，再次实证「不可信匹配自动入箱」上游缺口（漏斗 v2 决策）。
 
 ## [未发版] — 2026-09-08（文档体系收口：过期归档 + API 两层文档 + CI 防漂移 + MCP/harness 对齐）
 
