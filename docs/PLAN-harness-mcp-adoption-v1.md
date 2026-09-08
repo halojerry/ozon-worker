@@ -113,10 +113,29 @@ worker MCP 工具已在描述中标注读写性；dsh 侧 `tools/pre-execute` �
 
 ## 7. 验收清单（批次 3 完成定义）
 
-- [ ] dsh 会话内 `mcp__pounding-worker__list_tools` 可见 14 工具；`get_seo_keywords` 实调返回数据
+- [ ] dsh 会话内 `mcp__pounding-worker__list_tools` 可见 17 工具；`get_seo_keywords` 实调返回数据
 - [ ] 设置页「一键配置 MCP」生成 cordis.patch.yml 并重启 dsh 生效；「测试连接」通过
 - [ ] 对话链路：本地 `discover` → 草稿入箱 → `submit_draft` 真实上架 → `get_task_status` 到 approved
 - [ ] 审批钩子：`run_store_action` 触发 dsh 确认框；read 类直行
 - [ ] 采集箱/任务中心回归：drafts 列表、submit、任务单源展示正常（8902 退役后）
 - [ ] 网关瘦身回归：smoke_test 契约断言同步更新（AGENTS.md 契约门）
 - [ ] 匿名 `POST /mcp` 401、无效 key 401、超限 429（worker 侧已由 test_mcp_server.py 锁定）
+
+## 施工现状（2026-09-08 核对）
+
+> 以下以 harness 仓库 `/Volumes/os/dev/pounding-harness/web/boujoy_server.py` 实际代码为准（已逐项 grep 核对）。
+
+**已落地（批次 3 主体）**：
+
+- dsh MCP 一键配置：`/api/mcp/config` GET/POST（boujoy_server.py:1769/:1922）+ `/api/mcp/test` 握手测试（:1925）。
+- managed block 三段：`mcp-pounding` / `mcp-pounding-worker` / `mcp-approval-guard`（`_MCP_PATCH_ROW_IDS` :155）。
+- §5 审批分级插件 `_MCP_APPROVAL_PLUGIN_JS`（:157），仅作用于 `mcp__pounding-worker__*` 前缀（read 直行，write/destructive 用户确认）。
+- 网关白名单：GET 仅 `(drafts|tasks|drafts/{id})`（:1773）、POST 仅 `drafts/{id}/submit`（:1929）——§4 的「通用透传缩白名单」已执行。
+- 8902 镜像与 `/api/pounding/tasks*` 代理已删（任务中心单源 worker）。
+
+**剩余（harness 侧待办）**：
+
+- §2 `_read_mxou_token` 明文代管链退役（:1009 定义，仍有约 5 处调用：:1036/:1057/:1098/:1134/:1194）。
+- §4 旧宿主清理：`macos/`、`windows/*.ps1` 仍在仓库；`app/`（Electron）与 `electron-browser/` 已删除。
+
+**批次 2**：pounding-mcp 发包准备已做（`pyproject.toml` version=0.70.0、description 对齐 25 工具；README.md 仍写「19 个命令」待对齐），实际 publish 待 PyPI token。
