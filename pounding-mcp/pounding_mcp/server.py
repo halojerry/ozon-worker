@@ -1,4 +1,4 @@
-"""FastMCP 工厂 —— 把 skill CLI 命令注册为 22 个 MCP 工具（v0.69 discover-task 起）。
+"""FastMCP 工厂 —— 注册 25 个 MCP 工具（v0.70：20 个 skill CLI 封装 + 5 个 worker REST 直调）。
 
 设计原则（见 docs/ozonharness/MCP-TOOLS.md）：
 - 薄封装：每个工具 = 参数映射 CLI flag + run_skill_command，业务逻辑留在 skill
