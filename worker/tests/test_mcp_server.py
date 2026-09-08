@@ -60,7 +60,7 @@ async def test_all_14_tools_registered():
         tools = await client.list_tools()
     names = {t.name for t in tools}
     assert set(mcp_server.TOOLS) <= names, f"缺工具: {set(mcp_server.TOOLS) - names}"
-    assert len(names) == 14
+    assert len(names) == 17
 
 
 async def test_submit_task_injects_token_into_body(monkeypatch):

@@ -18,6 +18,7 @@ from .worker_http import analyze_store as _analyze_store
 from .worker_http import run_store_action as _run_store_action
 from .worker_http import report_issue as _report_issue
 from .worker_http import list_error_reports as _list_error_reports
+from .worker_http import get_task_forensics as _get_task_forensics
 
 mcp = FastMCP("pounding")
 
@@ -246,7 +247,8 @@ def report_issue(
       category ∈ {upload_failed,category_wrong,attribute_error,image_error,pricing,cli_bug,other}
     - 复现方式：steps（逐步）/ command（实际命令）/ expect vs actual（期望 vs 实际）
     - 证据：task_ids（必给，触发自动快照）/ item_id（1688 offer）/ error_codes（Ozon 拒单码原样）
-    模板契约：worker 仓库 docs/ERROR-REPORT-TEMPLATE.md。提交成功返回 report_id。"""
+    模板契约：worker 仓库 docs/ERROR-REPORT-TEMPLATE.md；agent 侧使用纪律
+    （何时报/怎么报/红线）见 skill/references/error-report.md。提交成功返回 report_id。"""
     reproduction: dict = {}
     if steps:
         reproduction["steps"] = steps
@@ -274,6 +276,17 @@ def list_error_reports(status: str = "", limit: int = 50, report_id: str = "") -
     status ∈ {new,triaging,fixed,wontfix} 可筛；report_id 非空返回单条详情
     （含 worker 自动附加的任务快照 auto_context）。"""
     return _list_error_reports(status, limit, report_id)
+
+
+@mcp.tool()
+def get_task_forensics(task_id: str) -> dict:
+    """任务取证一站式只读聚合（v0.70）：任务快照 + 上架留存(listing_result_log)
+    + 类目/属性匹配审计四路事实。
+
+    排查「为什么失败 / 为什么这么上架」首选——先 get_task_forensics 取证，
+    仍无结论再按模板 report_issue（task_ids 自动附快照）。
+    跨租户/不存在的任务返回 404。"""
+    return _get_task_forensics(task_id)
 
 
 def main() -> None:

@@ -2561,6 +2561,33 @@ async def v1_list_error_reports(request: Request):
                               status=(q.get("status") or "").strip() or None)
 
 
+@app.get("/forensics/task/{task_id}", tags=["error-reports"])
+@app.get("/api/v1/forensics/task/{task_id}", tags=["error-reports"])
+async def v1_task_forensics(task_id: str, request: Request):
+    """任务取证一站式只读聚合（v0.70）：任务快照 + listing_result_log +
+    category_match_log + attr_match_log 四路事实。
+
+    替代「换库 Supabase」的本地/云端配合取证通道——agent/MCP 凭 Bearer 直接查
+    生产任务的留存与审计（此前只能 SSH psql）。租户校验：任务行不属本租户 →
+    404（等价不存在）。v0.67 前的 category_match_log 历史行为 ingest 随机 uuid，
+    无法与任务行关联（已知数据断层）。
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean_token)
+    if not rate_limiter.check(clean_token)[0]:
+        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
+    tenant_id = _key_user_id(clean_token)
+    from services.forensics_service import get_task_forensics
+    out = get_task_forensics(tenant_id, task_id)
+    if out is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    return out
+
+
 @v1.get("/mappings/lookup", tags=["analytics"])
 async def v1_mappings_lookup(request: Request):
     """类目映射查询（W11）：skill 端按关键词查已学习 Ozon 类目映射。
@@ -2598,6 +2625,109 @@ async def v1_mappings_lookup(request: Request):
             "confidence": float(r.get("confidence") or 0.7),
         })
     return {"found": bool(mappings), "mappings": mappings}
+
+
+# ==================== 类目/属性只读端点（v0.70 采集箱手工改配） ====================
+# GET /api/v1/categories/search?q=  与  GET /api/v1/categories/attributes?dc=&tp=
+# webui 采集箱「类目选择器 + 属性表单」的数据源：用户在草稿上指定 dc/tp（写
+# draft.ozon_category.source=manual）+ 属性值（draft.attributes），worker 侧按
+# 权威直通上传（assemble `_is_skill_authoritative` manual 权威，test_manual_category_
+# authority_v070 锁定）。两个端点全局只读（类目树/缓存表无租户数据），鉴权与
+# analytics 读端点同源；attributes **只读缓存不回源 Ozon**（交互场景不能被 API
+# 拉取拖慢；未预热类目返回 cached=False 由前端提示）。
+
+@app.get("/categories/search", tags=["analytics"])
+@app.get("/api/v1/categories/search", tags=["analytics"])
+async def v1_categories_search(request: Request):
+    """类目树搜索（ZH_HANS）：?q=关键词&limit=20 → 候选 {dc, tp, node_name, category_path}。
+
+    复用 OzonCategoryQuery.search_nodes（jieba 分词 + LIKE，node_type=type 保证
+    返回有效 dc/tp 组合）。供 webui 采集箱 manual 类目选择器 / agent 类目确认。
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean_token)
+    if not rate_limiter.check(clean_token)[0]:
+        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
+
+    q_text = (request.query_params.get("q") or "").strip()
+    if not q_text:
+        return {"items": []}
+    try:
+        top_k = max(1, min(int(request.query_params.get("limit", 20)), 50))
+    except (TypeError, ValueError):
+        top_k = 20
+    from utils.ozon_category_query import get_category_query
+    try:
+        rows = get_category_query().search_nodes(
+            q_text, top_k=top_k, node_type="type", language="ZH_HANS")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"category tree unavailable: {exc}")
+    return {"items": [{
+        "description_category_id": str(r.get("description_category_id", "") or ""),
+        "type_id": str(r.get("type_id", "") or ""),
+        "node_name": str(r.get("node_name", "") or ""),
+        "category_path": str(r.get("full_path", "") or ""),
+        "similarity": float(r.get("similarity", 0) or 0),
+    } for r in rows]}
+
+
+@app.get("/categories/attributes", tags=["analytics"])
+@app.get("/api/v1/categories/attributes", tags=["analytics"])
+async def v1_categories_attributes(request: Request):
+    """类目属性 schema + 字典值（缓存只读）：?dc=&tp= → {found, cached, attributes}。
+
+    attribute_cache / dictionary_value_cache 未命中**不回源 Ozon**（返回
+    found=False，前端提示该类目未预热）。属性键形状与 assemble 消费一致
+    （id/dictionary_id/name/required/type）。
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean_token)
+    if not rate_limiter.check(clean_token)[0]:
+        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
+
+    dc = (request.query_params.get("dc") or "").strip()
+    tp = (request.query_params.get("tp") or "").strip()
+    if not dc.isdigit() or not tp.isdigit():
+        raise HTTPException(status_code=422, detail="query params dc/tp must be numeric")
+    from utils.ozon_category_query import get_category_query
+    cq = get_category_query()
+    try:
+        schema = cq.get_attribute_schema(int(dc), int(tp))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"attribute cache unavailable: {exc}")
+    if not schema:
+        return {"found": False, "cached": False, "attributes": []}
+    attrs_raw = schema.get("result") if isinstance(schema, dict) else schema
+    out: list[dict] = []
+    for a in (attrs_raw or [])[:200]:
+        attr_id = int(a.get("id") or a.get("description_attribute_id") or 0)
+        item = {
+            "id": attr_id,
+            "name": str(a.get("name", "") or ""),
+            "required": bool(a.get("required", False)),
+            "type": str(a.get("type", "") or ""),
+            "dictionary_id": int(a.get("dictionary_id", 0) or 0),
+        }
+        if item["dictionary_id"] > 0 and attr_id > 0:
+            try:
+                vals = cq.get_dictionary_values(attr_id, int(dc), int(tp))
+            except Exception:
+                vals = None
+            if vals:
+                src_vals = vals.get("result") if isinstance(vals, dict) else vals
+                item["values"] = [{"id": v.get("id"), "value": v.get("value")}
+                                  for v in (src_vals or [])[:100]
+                                  if isinstance(v, dict) and v.get("id")]
+        out.append(item)
+    return {"found": True, "cached": True, "attributes": out}
 
 
 # ==================== 佣金查询端点（任务 2.1） ====================

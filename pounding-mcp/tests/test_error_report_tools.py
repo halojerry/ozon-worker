@@ -114,3 +114,32 @@ def test_tools_registered():
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert "report_issue" in names
     assert "list_error_reports" in names
+
+
+# ── v0.70 get_task_forensics（取证一站式只读） ──
+
+def test_forensics_http_path(monkeypatch):
+    """HTTP 层：task_id 进路径（quote），GET 方法。"""
+    from pounding_mcp.worker_http import get_task_forensics
+
+    captured = {}
+
+    def fake_request(method, url, token, body=None):
+        captured.update(method=method, url=url)
+        return {"task": {"task_id": "t-1"}}
+
+    monkeypatch.setattr(worker_http, "_request", fake_request)
+    out = get_task_forensics("abc-123")
+    assert captured["method"] == "GET"
+    assert captured["url"].endswith("/api/v1/forensics/task/abc-123")
+    assert out["task"]["task_id"] == "t-1"
+
+
+def test_forensics_registered_and_error_no_raise(monkeypatch):
+    from pounding_mcp.worker_http import get_task_forensics
+
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert "get_task_forensics" in names
+    monkeypatch.setattr(worker_http, "_request",
+                        lambda *a, **k: {"ok": False, "http_status": 404, "error": "task not found"})
+    assert get_task_forensics("nope")["ok"] is False

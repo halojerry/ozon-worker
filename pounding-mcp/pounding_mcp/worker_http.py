@@ -138,3 +138,13 @@ def list_error_reports(status: str = "", limit: int = 50, report_id: str = "") -
     if status and not report_id:
         qs += f"&status={urllib.parse.quote(status)}"
     return _request("GET", f"{base}/api/v1/error_reports?{qs}", get_worker_token())
+
+
+def get_task_forensics(task_id: str) -> dict:
+    """GET /api/v1/forensics/task/{id} → 任务取证一站式只读聚合（v0.70）。
+
+    任务快照 + 上架留存 + 类目/属性匹配审计。排查失败原因首选，失败返回 error dict。
+    """
+    base = get_worker_url()
+    path = f"/api/v1/forensics/task/{urllib.parse.quote(str(task_id))}"
+    return _request("GET", f"{base}{path}", get_worker_token())
