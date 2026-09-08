@@ -2,6 +2,44 @@
 
 本文件是工作区级导航。各子项目（skill/worker/pounding-sidebar）有更详细的文档，改动前请先读对应文档（见「深入阅读」）。
 
+## 最近更新（v0.70.0 — 错误报告进 skill + 门禁权威补洞 + 采集箱改配 + 缓存全量化 + 取证通道）
+
+> 2026-09-09。**未发版**（在 v0.69.0 待 tag 基础上继续开发，v0.70.0 收口）。四个
+> 用户问题的落地：①错误报告模板放 skill 才能被 agent 用；②数据库不迁 Supabase
+> （取证读通道替代）；③采集箱用户配置类目/属性按用户配置上传（补两缺口+UI）；
+> ④属性缓存全量化 + schema 歧义审计（`docs/DB-SCHEMA-AUDIT.md`）。
+
+- **错误报告通道进 skill**：`skill/references/error-report.md`（何时报/怎么报/红线）
+  + SKILL.md 关键规则⑬/命令表/参考索引 + error-codes.md「未知错误码→上报」接线
+  + **新 CLI `report` 子命令**（无 MCP 环境的 agent 通道；⚠️ `--command` 参数 dest
+  不能叫 command——与 subparsers dest 撞名会清空子命令名，argparse 默认覆盖语义）。
+  compile.py DOC_FILES 已加。远程 MCP 也补了 report_issue/list_error_reports/
+  get_task_forensics 三工具（14→17）。
+- **数据库决策：不迁 Supabase**。worker PG 是热库（30 并发×每任务数百次串行
+  往返+每节点 checkpoint 写），跨境 RTT 会显著拖慢上架；取证痛点的解法是**读
+  通道**：`GET /api/v1/forensics/task/{id}` 一站式聚合任务快照+listing_result_log
+  +category_match_log+attr_match_log（此前只能 SSH psql）。 pounding-mcp 24→25
+  工具（+get_task_forensics）。
+- **门禁权威补洞（改 assemble 类目链前必读）**：①manual 树校验失败**显式阻断**
+  （`_blocked_exit` failed_stage=category_match，文案含 dc/tp）——此前静默回落
+  自动匹配=用户类目被无感知丢弃；page/what_to_sell/mapping/search_kw 回落语义
+  不变。②`_skill_precedence_over_l0` 对 manual 恒接管（含与弱档 L0 dc/tp 一致
+  场景，此前会掉进 L0 仲裁链被丢成 L1）。有意覆盖项不动：品牌强制 Нет бренда /
+  R1 veto 对 manual 仍硬 / R4 拒审换类目。
+- **采集箱改配 UI**：webui EditDraftDrawer 新增类目选择器（搜索→选中写
+  `draft.ozon_category.source=manual`）+ 按 schema 动态属性表单（字典下拉，值并入
+  `draft.attributes` 同名覆盖）。数据源两个新只读端点 `GET /api/v1/categories/search`
+  与 `/categories/attributes`（**缓存只读不回源 Ozon**——交互场景红线）。
+- **属性缓存全量化**：TTL 7d/1d → **30d**（warm/init_data/local_db_manager 三处
+  一致）；`deploy.sh`/`cos-update.sh` 部署时自动 COS 下载缓存 JSON → `docker
+  compose cp` 进容器 → 后台 `--import-only` 灌入（缺失跳过不阻断）；一次性预热+
+  导出+COS 上传运维手册 `docs/CACHE-WARM-RUNBOOK.md`；⚠️ AGENTS 旧说法修正：
+  「top-200 ~2MB JSON 已提交 git」**不实**（资产不在 git，导入靠 COS/预热）。
+  warm 脚本**硬编码测试店凭证已移除**（v0.70 起无凭证直接退出）。
+- **schema 审计**：`docs/DB-SCHEMA-AUDIT.md`（34 表三类 + 14 歧义点 + ID 词汇表 +
+  status 取值域矩阵 + 新表纪律）；低风险修复：`ozon_product_tasks ((id::text))`
+  表达式索引（取证/状态查询走索引）+ `draft_submissions.submitted_task_id` 索引。
+
 ## 最近更新（v0.69.0 — 实机反馈 17 项：类目链收口 + 终态/尸体卡/写前校验）
 
 > 2026-09-08。**版本四源已 0.69.0，TAG 未打**——发版 gate（本地 Docker 真实
@@ -536,7 +574,10 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | 上架配置模板（v0.56） | `GET/POST/PATCH/DELETE /api/v1/templates` + `POST /templates/{id}/default` | 全 |
 | 店铺凭证管理（v0.41+） | `GET/POST /api/v1/credentials` + `PATCH/DELETE /credentials/{id}` + `POST /credentials/{id}/validate` | 全 |
 | 采集箱草稿（v0.41+） | `GET/POST /api/v1/drafts` + `GET/PATCH/DELETE /drafts/{id}` + `POST /drafts/{id}/submit`（+ `/resubmit`、`/batch-submit`、`/drafts/{id}/ai/{field}`） | 全 |
-| 错误报告（v0.69） | `POST/GET /api/v1/error_reports`（Bearer=mxou key；`?report_id=` 详情、`?status=` 筛选；MCP 工具 `report_issue`/`list_error_reports`；模板 `docs/ERROR-REPORT-TEMPLATE.md`） | POST/GET |
+| 错误报告（v0.69） | `POST/GET /api/v1/error_reports`（Bearer=mxou key；`?report_id=` 详情、`?status=` 筛选；MCP 工具 `report_issue`/`list_error_reports`；模板 `docs/ERROR-REPORT-TEMPLATE.md`，agent 纪律 `skill/references/error-report.md`） | POST/GET |
+| 任务取证（v0.70） | `GET /api/v1/forensics/task/{task_id}`（任务快照+留存+双审计一站式只读；跨租户 404；MCP 工具 `get_task_forensics`） | GET |
+| 类目树搜索（v0.70） | `GET /api/v1/categories/search?q=&limit=`（ZH_HANS，node_type=type；采集箱 manual 改配数据源） | GET |
+| 类目属性缓存（v0.70） | `GET /api/v1/categories/attributes?dc=&tp=`（**缓存只读不回源 Ozon**；未预热返回 found=false） | GET |
 
 **`task_status` 返回 `progress` 字段**：`{stage, percent, stages_completed[], stages_remaining[], message}`。
 进度基于内存中 12 阶段 `STAGE_ORDER` 计算，节点执行时 `ProgressCallback` 自动更新。
@@ -767,15 +808,17 @@ bash update.sh
   - 重复运行安全：已有数据跳过；`--force` 强制覆盖
 
 部署后 `deploy.sh` 后台运行 `warm_category_cache.py --limit 200 --pg-only`，预热 top-200 类目属性到 PG（~5 分钟）。
+v0.70 起部署/升级还会自动从 COS 下载全量缓存 JSON（`ozon-worker/cache/` 前缀）灌入 PG
+（缺失跳过），TTL 30 天——全量预热/导出/上 COS 的运维手册见 `docs/CACHE-WARM-RUNBOOK.md`。
 
 **为什么不用 JSON 文件存储属性缓存：**
-- JSON 裸文件：全量 ~70GB（太大，不能 git）
+- JSON 裸文件：全量数百 MB（太大，不能 git；早期「~70GB」为错误估算）
 - PG JSONB（TOAST 压缩）：全量 ~600MB（完全可行）
 - 策略：属性 schema + 字典值直接写 PG，运行时懒加载补全
-- **预热 JSON 资产当前未入库**（assets/ 下无 attribute_schemas_zh.json / dictionary_values_zh.json，
+- **预热 JSON 资产不进 git**（assets/ 下无 attribute_schemas_zh.json / dictionary_values_zh.json，
   v0.11.5 的 top-200 子集 JSON 引用已失效）：数据来源 = deploy.sh 部署后 top-200 预热 +
-  运行时懒加载回写（v0.69 T3.3 起 schema 未命中也会回写 PG）。`init_data.py`/`--import-only`
-  对缺失 JSON 静默跳过（「属性缓存 JSON 文件不存在，跳过导入」）。覆盖率用
+  COS 全量 JSON 自动灌入（v0.70）+ 运行时懒加载回写（v0.69 T3.3 起 schema 未命中也会回写 PG）。
+  `init_data.py` 对缺失 JSON 打 warning（v0.70 起不再是静默跳过）。覆盖率用
   `--coverage` 审计（见下节）
 
 ### 属性缓存机制
@@ -926,6 +969,9 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 - **`docs/CONVENTIONS.md`** — 分支命名 + commit 规范 + 发版流程
 - **`docs/OZON-ATTRIBUTE-API.md`** — ⭐ Ozon 属性/类目 API 参考（5 接口定义 + 属性填满策略 + 关键属性 ID 表，开发直接查）
 - **`docs/OZON-MULTI-SKU-QUOTA.md`** — ⭐ Ozon 多 SKU 上传与商品配额机制（9048/model_id 绑定合并 = 1 卡 1 配额；竞品 merge 开关/变体上限；我们已对齐但缺 merge 开关/上限校验）——改多 SKU 变体逻辑前必读
+- **`docs/CACHE-WARM-RUNBOOK.md`** — 属性缓存全量化运维手册（v0.70：一次性预热→导出→COS→部署自动灌入；TTL 30 天；re-warm cron）
+- **`docs/DB-SCHEMA-AUDIT.md`** — 数据库 schema 歧义审计（34 表清单、ID 词汇表、status 取值域矩阵、新表设计纪律——建新表/新列前必读）
+- **`skill/references/error-report.md`** — 错误上报模板与纪律（agent 出错时按此上报；打包随 dist 分发）
 - **`worker/AGENTS.md`** — Worker 完整文档：节点流程、Ozon API 坑
 - **`worker/src/api/errors.py`** — 统一错误码（改错误响应前必看）
 - **`worker/src/api/schemas.py`** — Pydantic schemas（改 API 前必看）

@@ -54,7 +54,7 @@
 │                    learning_record（自学习回写 category_mapping）                     │
 │                                                                                      │
 │   PG: category_tree_nodes / logistics_rates / dictionary_value_cache /               │
-│       category_mapping / size_mappings / ozon_product_tasks / progress               │
+│       category_mapping / size_mappings / ozon_product_tasks(progress 列)             │
 └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -275,8 +275,7 @@ flowchart LR
 | `dictionary_value_cache` | 属性字典值缓存（JSONB，ZH_HANS↔RU 同一 dict_id） | assemble / retry 读写 |
 | `category_mapping` | 类目学习表（跟卖/直采优先查，approved 后回写） | follow/assemble 读，learning_record 写 |
 | `size_mappings` | 尺码表（4 张 CSV 随镜像分发） | size_mapper 读 |
-| `ozon_product_tasks` | 任务队列（FOR UPDATE SKIP LOCKED） | submit 写 / worker 消费 |
-| `progress` | 任务进度持久化（重启恢复） | task_processor 写 |
+| `ozon_product_tasks` | 任务队列（FOR UPDATE SKIP LOCKED）；进度存其 `progress` JSONB **列**（v0.70 修正：此前误记为独立表） | submit 写 / worker 消费 |
 
 ### 成功判据（v0.21 收紧）
 

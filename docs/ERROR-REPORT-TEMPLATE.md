@@ -11,8 +11,15 @@
 | 层 | 入口 |
 |---|---|
 | agent（推荐） | MCP 工具 `mcp__pounding__report_issue`（pounding-mcp，参数即模板字段） |
+| skill CLI（无 MCP 环境，v0.70） | `python3 scripts/cli.py report --title ... --task-ids ...` |
 | HTTP | `POST /api/v1/error_reports`（Bearer = mxou key；鉴权/限流与 analytics 同源） |
 | 查询 | `GET /api/v1/error_reports`（列表，`?status=&limit=&offset=`）；`?report_id=` 单条详情 |
+| 远程 MCP（v0.70） | `worker.mxou.cn/mcp` 的 `report_issue` / `list_error_reports` / `get_task_forensics` |
+
+> agent 使用纪律（何时报/怎么报/红线）：`skill/references/error-report.md`（v0.70 起
+> 随 dist 包分发，SKILL.md 关键规则⑬ 与 `references/error-codes.md` 均已接线——
+> 改「何时报」语义时两边同步）。取证首选 `get_task_forensics`（v0.70 任务四路
+> 事实一站式只读聚合）。
 
 ## 模板字段
 
