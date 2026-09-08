@@ -81,10 +81,13 @@ def get_ak(timeout: int = 300) -> dict:
 
 @mcp.tool()
 def search(query: str, page_size: int = 5, sort: str = "",
-           rules: str = "", store: str = "", auto_submit: bool = False) -> dict:
-    """搜索 1688 商品。只读；auto_submit=True 时批量提交上架（dsh 侧审批）。"""
+           rules: str = "", store: str = "", auto_submit: bool = False,
+           to_box: bool = False) -> dict:
+    """搜索 1688 商品。双出口二选一：auto_submit=True 直接批量上架（dsh 审批）；
+    to_box=True 逐个入采集箱（WebUI 认领后再上架）。都不传=只搜索。"""
     return get_manager().run_and_record("search",
-        {"query": query, "page_size": page_size, "sort": sort, "rules": rules, "store": store, "auto_submit": auto_submit},
+        {"query": query, "page_size": page_size, "sort": sort, "rules": rules, "store": store,
+         "auto_submit": auto_submit, "to_box": to_box},
         source="agent")
 
 
@@ -160,22 +163,23 @@ def discover_task(url: str = "", keyword: str = "", target_count: int = 50,
                   match_concurrency: int = 1, store: str = "",
                   to_box: bool = False, dry_run: bool = True,
                   resume: bool = False, max_scan: int = 300,
-                  export: str = "",
+                  export: str = "", auto_submit: bool = False,
                   background: bool = False, force: bool = False) -> dict:
     """任务式全自动目标驱动选品（漏斗 v2，v0.70 语义翻转）：--max-scan 上限采集
     （默认 300，深滚动）→ ai 粗筛 → 自动 1688 匹配 → profitable 达到 target_count
     即停（达标数，护图搜配额；匹配池按达标可能性降序）。match_limit 缺省=目标×3。
-    to_box=True 逐条入采集箱（POST /drafts，写操作须 dsh 侧审批）；dry_run=True
-    （默认）零副作用；export=CSV 路径落盘全量候选（含状态/利润率列，可复核）。
+    双出口二选一（互斥）：to_box=True 入采集箱（POST /drafts，可逆，dsh 审批）；
+    auto_submit=True 直接提交 Worker 上架（submit_task，真实创建商品，必须确认）。
+    dry_run=True（默认）零副作用；export=CSV 路径落盘全量候选（含状态/利润率列）。
     resume 续跑同入口最近任务（跳过已处理 pid 不重烧图搜）；粗筛池耗尽仍未达标
-    会如实报告缺口（加大 max-scan / 换词续采）。结果尾部输出结构化 summary。
+    会如实报告缺口。结果尾部输出结构化 summary。
     background=true 后台跑立即返回 task_id——本命令分钟级，长任务必用。"""
     return _run_or_background("discover_task",
         {"url": url, "keyword": keyword, "target_count": target_count,
          "min_margin": min_margin, "match_limit": match_limit,
          "match_concurrency": match_concurrency, "store": store,
-         "to_box": to_box, "dry_run": dry_run, "resume": resume,
-         "max_scan": max_scan, "export": export},
+         "to_box": to_box, "auto_submit": auto_submit, "dry_run": dry_run,
+         "resume": resume, "max_scan": max_scan, "export": export},
         background, force)
 
 

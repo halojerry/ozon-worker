@@ -251,6 +251,9 @@ python3 scripts/cli.py discover-task --keyword "宠物饮水机" --target-count 
 # ② 真实入采集箱（POST /api/v1/drafts，WebUI 认领后上架）
 python3 scripts/cli.py discover-task --keyword "宠物饮水机" --to-box
 
+# ②b 直接走管线上架（submit_task，真实创建商品——agent 侧必须确认后才跑）
+python3 scripts/cli.py discover-task --keyword "宠物饮水机" --auto-submit
+
 # ③ 自定义入口页（highlight/搜索/类目/店铺页均可）+ 采集上限/并发
 python3 scripts/cli.py discover-task --url "https://www.ozon.ru/highlight/xxx/" \
     --max-scan 200 --match-concurrency 2 --min-margin 20
@@ -259,7 +262,7 @@ python3 scripts/cli.py discover-task --url "https://www.ozon.ru/highlight/xxx/" 
 python3 scripts/cli.py discover-task --keyword "宠物饮水机" --to-box --resume
 ```
 
-- **流程**：`collect_and_analyze`（粗筛档位**缺省 `ai`**，与交互 discover 相反；深滚动采满 `--max-scan` 或触底）→ `rank_match_pool` 排序 → `match_selected`（**`target_profitable` 达标即停** + `--match-limit` 限额 + 连续 `--no-match-streak-stop`（默认 5）次 no_match 早停、请求间 2s 节奏抖动、并发 ≤2）→ profitable 逐条 `build_envelope_from_discovery` → `--to-box` 入采集箱（单条失败不中断批次）
+- **流程**：`collect_and_analyze`（粗筛档位**缺省 `ai`**，与交互 discover 相反；深滚动采满 `--max-scan` 或触底）→ `rank_match_pool` 排序 → `match_selected`（**`target_profitable` 达标即停** + `--match-limit` 限额 + 连续 `--no-match-streak-stop`（默认 5）次 no_match 早停、请求间 2s 节奏抖动、并发 ≤2）→ profitable 逐条 `build_envelope_from_discovery` → 双出口：`--to-box` 入采集箱 / `--auto-submit` 直接 submit_task（单条失败不中断批次）
 - **进度输出**：`目标 N（达标）｜扫描上限 M` 开场、`[k/N] 达标进度` 行、结尾 `🎯 已达标` 或 `⚠️ 未达标: 目标 X｜累计达标 Y｜本次已采 Z（粗筛通过 P）` + 续采提示
 - **结构化出口（v0.70）**：结尾输出尾部 JSON（`task_id` / `summary`（状态分布+target 达标数）/ `state_path`）——MCP 后台任务收割与 agent 机读都靠它；`--export <路径.csv>` 落盘全量候选（含状态/利润率/货源列）供人工复核
 - **任务状态**：`data/discovery/tasks/task_{ts}.json`（已处理 pid 含 profitable/rejected/no_match 终态 / 摘要含 target），`--resume` 找同入口最近任务续跑
@@ -293,9 +296,13 @@ job_cancel({"task_id": "a1b2c3"})                      // 需要时取消
 - **单飞闸**：同一时刻 1 个 heavy 任务（discover 族/follow/seller/graph），再提交返回 error dict，`force=true` 强制并行
 - 纪律：agent 跑分钟级任务**必用** background=true，别阻塞对话；期间可答复用户/干别的，定期 job_status
 
-### 管线 C 增强：to-box vs auto-submit 出货路径对比
+### 管线 C 增强：to-box vs auto-submit 出货路径对比（所有选品管线通用）
 
-| | `--to-box`（discover-task） | `--auto-submit`（discover） |
+> v0.70 起双出口全量成立：`search`（1688 词搜）/ `discover` / `discover-multi` /
+> `discover-task` / `follow` / `graph` 都同时支持 `--to-box` 与 `--auto-submit`
+> （互斥，二选一）。**用户没说走哪条就先问**。
+
+| | `--to-box`（采集箱） | `--auto-submit`（直接上架） |
 |---|---|---|
 | 落点 | 采集箱草稿（`POST /api/v1/drafts`） | Worker 上架任务（`submit_task`） |
 | 后续 | WebUI 采集箱人工认领 → 点提交才上架 | 直接进 worker 管线真实上架 |
@@ -472,6 +479,10 @@ python3 scripts/cli.py cleanup --old-results --days 7
 # 1688 关键词搜索（按词找货，耗 1688 配额；--rules 两段式同 discover，"ai" 一键预设）
 python3 scripts/cli.py search "宠物饮水机" --page-size 5
 python3 scripts/cli.py search "宠物饮水机" --rules "ai,margin>=20" --export out.csv
+
+# 双出口（v0.70，互斥二选一）：--auto-submit 直上 worker 管线 / --to-box 入采集箱
+python3 scripts/cli.py search "宠物饮水机" --rules "ai" --to-box --store "3号店"
+python3 scripts/cli.py search "宠物饮水机" --rules "ai" --auto-submit   # 必须确认后才跑
 
 # 查看已配置店铺
 python3 scripts/cli.py list_stores

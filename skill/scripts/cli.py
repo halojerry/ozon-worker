@@ -243,10 +243,11 @@ def cmd_search(args: argparse.Namespace) -> int:
         estimated = _sel
         print(f"🎯 规则筛选 {args.rules}: 剩 {len(estimated)} 条", flush=True)
 
-    # v0.39 Issue6: 批量提交上架（--auto-submit，走完整 worker 管线定价）
-    if args.auto_submit:
+    # v0.39 Issue6 / v0.70 双出口：--auto-submit 直上 worker 管线；--to-box 入采集箱
+    # （同一信封构建链，仅提交端点不同：submit_task vs POST /drafts）
+    if args.auto_submit or args.to_box:
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        from scripts.cloud_probe import submit_envelope
+        from scripts.cloud_probe import submit_envelope, submit_draft
         from scripts.cloud_probe import build_graph_envelope_with_retry
         _threads = max(1, min(int(getattr(args, "threads", 3) or 3), 8))
         _submitted = 0
@@ -262,6 +263,11 @@ def cmd_search(args: argparse.Namespace) -> int:
                     detail_url=f"https://detail.1688.com/offer/{_pid}.html",
                     store_id=args.store or "",
                 )
+                if args.to_box:
+                    _resp = submit_draft(_graph)
+                    if _resp.get("draft_id"):
+                        return p, f"draft_id={_resp['draft_id']}"
+                    return None, _resp.get("error")
                 _resp = submit_envelope(_graph)
                 if _resp.get("ok"):
                     return p, f"task_id={_resp.get('task_id')}"
@@ -276,11 +282,13 @@ def cmd_search(args: argparse.Namespace) -> int:
                 _p, _msg = _f.result()
                 if _p is not None:
                     _submitted += 1
-                    print(f"  ✓ 已提交 {str(_p.get('title'))[:30]} → {_msg}", flush=True)
+                    _verb = "已入采集箱" if args.to_box else "已提交"
+                    print(f"  ✓ {_verb} {str(_p.get('title'))[:30]} → {_msg}", flush=True)
                 else:
                     _failed += 1
                     print(f"  ✗ 提交失败 {str(_futures[_f].get('title'))[:30]}: {_msg}", flush=True)
-        print(f"📦 批量提交完成(线程 {_threads}): 成功 {_submitted} / 失败 {_failed}", flush=True)
+        _verb = "入箱" if args.to_box else "提交"
+        print(f"📦 批量{_verb}完成(线程 {_threads}): 成功 {_submitted} / 失败 {_failed}", flush=True)
 
     _out({"count": len(estimated), "products": estimated})
     return 0
@@ -2166,14 +2174,15 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     }
     # 评审 D: 采集完成即落盘——匹配/入箱途中中断，--resume 至少有据可查
     _save_task_state(state)
-    if args.dry_run or not args.to_box:
+    if args.dry_run or not (args.to_box or args.auto_submit):
         for c in to_submit:
             print(f"   [干跑] ✅ {c.ozon_title[:40]} margin={c.profit_margin:.1f}%"
                   f" 货源={c.match_1688_url[:60]}")
-        print("\n💡 加 --to-box 真实入采集箱（POST /api/v1/drafts）")
+        print("\n💡 加 --to-box 真实入采集箱（POST /api/v1/drafts）"
+              "或 --auto-submit 直接上架（submit_task）")
     else:
         try:
-            from scripts.cloud_probe import build_envelope_from_discovery, submit_draft
+            from scripts.cloud_probe import build_envelope_from_discovery, submit_draft, submit_envelope
         except ModuleNotFoundError as _e:
             print(f"❌ 缺少依赖模块 '{getattr(_e, 'name', '') or _e}'。"
                   "请运行: pip install -r requirements.txt", flush=True)
@@ -2192,19 +2201,29 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
                     print(f"   ✗ 跳过（无 1688 item_id）: {c.ozon_title[:40]}")
                     skip_n += 1
                     continue
-                result = submit_draft(envelope)
-                draft_id = result.get("draft_id", "")
-                print(f"   📥 已入采集箱: {c.ozon_title[:40]} → draft_id={draft_id}")
-                processed[c.ozon_product_id] = {"status": "ok", "draft_id": draft_id}
+                if args.auto_submit:
+                    # v0.70 双出口：直接走 worker 管线（真实上架，agent 侧必须确认）
+                    resp = submit_envelope(envelope)
+                    if not resp.get("ok"):
+                        raise RuntimeError(str(resp.get("error") or "submit rejected"))
+                    task_id = resp.get("task_id", "")
+                    print(f"   🚀 已提交上架: {c.ozon_title[:40]} → task_id={task_id}")
+                    processed[c.ozon_product_id] = {"status": "ok", "task_id": task_id}
+                else:
+                    result = submit_draft(envelope)
+                    draft_id = result.get("draft_id", "")
+                    print(f"   📥 已入采集箱: {c.ozon_title[:40]} → draft_id={draft_id}")
+                    processed[c.ozon_product_id] = {"status": "ok", "draft_id": draft_id}
                 _save_task_state(state)   # 评审 D: 逐条落盘，中断可续
                 ok_n += 1
             except Exception as exc:
-                print(f"   ✗ 入箱失败: {c.ozon_title[:40]} — {exc}")
+                print(f"   ✗ 出口失败: {c.ozon_title[:40]} — {exc}")
                 processed[c.ozon_product_id] = {"status": "error", "error": str(exc)[:200]}
                 _save_task_state(state)   # 评审 D: 失败也记账，防 resume 重试风暴
                 err_n += 1
         state["summary"] = {"submitted": ok_n, "skipped": skip_n, "failed": err_n}
-        print(f"\n📦 入箱完成: 成功 {ok_n} / 跳过 {skip_n} / 失败 {err_n}")
+        _verb = "上架" if args.auto_submit else "入箱"
+        print(f"\n📦 {_verb}完成: 成功 {ok_n} / 跳过 {skip_n} / 失败 {err_n}")
 
     final_counts: dict[str, int] = {}
     for c in candidates:
@@ -2362,11 +2381,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     default="", help="排序（v0.39 Issue6）")
     sp.add_argument("--export", default="", help="CSV 导出路径（v0.39 Issue6）")
     sp.add_argument("--rules", default="", help="筛选规则（v0.39 Issue6）：如 \"profit_margin>=0.1,price<=20\"")
-    sp.add_argument("--store", default="", help="Ozon 店铺名（--auto-submit 提交凭证来源）")
-    sp.add_argument("--auto-submit", action="store_true",
-                    help="筛选后批量提交上架（v0.39 Issue6，逐个 graph 提交）")
+    sp.add_argument("--store", default="", help="Ozon 店铺名（--auto-submit/--to-box 提交凭证来源）")
+    # v0.70 双出口（互斥）：--auto-submit 直上 worker 管线（真实上架）/ --to-box 入采集箱
+    _sp_exit = sp.add_mutually_exclusive_group()
+    _sp_exit.add_argument("--auto-submit", action="store_true",
+                          help="筛选后批量提交上架（v0.39 Issue6，逐个 graph 提交）")
+    _sp_exit.add_argument("--to-box", action="store_true",
+                          help="筛选后逐个入采集箱（POST /api/v1/drafts，WebUI 认领后再上架）")
     sp.add_argument("--threads", type=int, default=3,
-                    help="auto-submit 并发线程数(默认 3,上限 8)")
+                    help="auto-submit/to-box 并发线程数(默认 3,上限 8)")
     sp.set_defaults(func=cmd_search)
 
     # category（v0.39 Issue4: Ozon 类目查询，替代临时脚本）
@@ -2557,8 +2580,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     dtp.add_argument("--no-match-streak-stop", type=int, default=5,
                      help="连续 N 次 no_match 早停（默认 5，货源池耗尽信号；0=不停）")
     dtp.add_argument("--store", default="", help="Ozon 店铺名（--to-box 信封凭证来源）")
-    dtp.add_argument("--to-box", action="store_true",
-                     help="profitable 候选逐条入采集箱（POST /api/v1/drafts）；不传=干跑统计")
+    # v0.70 双出口（互斥）：--to-box 入采集箱（可逆）/ --auto-submit 直上 worker 管线
+    # （真实上架，agent 侧必须确认）；都不传 = 干跑统计
+    _dtp_exit = dtp.add_mutually_exclusive_group()
+    _dtp_exit.add_argument("--to-box", action="store_true",
+                           help="profitable 候选逐条入采集箱（POST /api/v1/drafts）；不传=干跑统计")
+    _dtp_exit.add_argument("--auto-submit", action="store_true",
+                           help="profitable 候选逐条直接提交 Worker 上架（submit_task，真实创建商品）")
     dtp.add_argument("--dry-run", action="store_true",
                      help="强制干跑（不出信封不入箱，只打印将提交清单）")
     dtp.add_argument("--resume", action="store_true",
