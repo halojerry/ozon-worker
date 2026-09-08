@@ -17,6 +17,7 @@ from utils.title_sanitizer import sanitize_title
 from utils.attribute_utils import is_customs_attr, is_hazard_attr, get_safe_hazard_default, has_chinese  # ⚠️ v0.16 海关 / v0.21 危险品防御
 from utils.title_formula import build_title_formula_prompt, parse_title_formula_keywords  # v0.59 标题公式唯一入口
 from utils.attr_numeric_sanitize import is_numeric_attr_type, sanitize_numeric_attr_value  # v0.69 T1.1 数值属性清洗唯一入口
+from utils.attr_value_sanitize import cap_attribute_values, resolve_value_cap  # v0.71 值数出口闸唯一入口
 
 logger = logging.getLogger(__name__)
 
@@ -1203,6 +1204,16 @@ def _fill_optional_dict_attrs(items, schema, draft, state, audit_task_id: str = 
                                     break  # abstain → skip, don't take first
                         else:
                             chosen = hits
+                        # ✅ v0.71 值数出口闸：集合属性也按 max_value_count 截断
+                        # （8229 标集合但 Ozon 限单值——2026-09-08 gate 拒单实证）；
+                        # 单值属性上面 chosen 只会 ≤1，不受影响。
+                        _cap_n = resolve_value_cap(attr, aid)
+                        if _cap_n is not None and len(chosen) > _cap_n:
+                            logger.warning(
+                                "✂️ 可选字典属性 %s(%s) 值数 %d→%d (cap=%s)",
+                                aid, aname, len(chosen), _cap_n, _cap_n,
+                            )
+                            chosen = chosen[:_cap_n]
                         # ⚠️ PR-1: 同 L952 post-fill 中文清零（缓存命中可能为 ZH 中文文本）
                         _vals_clean = []
                         for _h in chosen:
@@ -3481,6 +3492,24 @@ def prepare_ozon_upload_node(
         )
     except Exception as _e:
         logger.warning("必填字典属性补齐异常（不影响主流程）: %s", _e)
+
+    # ✅ v0.71 值数出口闸（唯一出口）：所有 item 的 attributes 按 schema
+    # max_value_count/is_collection 截断+去重——8229 集合属性多值拒单根治，
+    # 下游变体/数量拆分浅拷贝本列表，统一生效。
+    try:
+        for _cap_item in ozon_payload.get("items", []):
+            if not isinstance(_cap_item, dict) or not isinstance(_cap_item.get("attributes"), list):
+                continue
+            _cap_item["attributes"], _cap_marks = cap_attribute_values(
+                _cap_item["attributes"], attributes_schema
+            )
+            for _cm in _cap_marks:
+                logger.warning(
+                    "✂️ 值数出口闸: 属性 %s %d→%d (cap=%s)",
+                    _cm["attr_id"], _cm["kept"] + _cm["removed"], _cm["kept"], _cm["cap"],
+                )
+    except Exception as _cap_e:
+        logger.warning("值数出口闸异常（不阻断上传）: %s", _cap_e)
 
     # ✅ v0.25 修复: 补齐后重算必填属性缺失（清除补齐前基于 final_attributes 的误报，
     # 否则 Step 7 会用旧的 validation_errors 提前阻断，补齐白跑）

@@ -37,6 +37,7 @@ from langgraph.graph import StateGraph, END
 # ✅ v0.69 T1.1: 数值属性清洗唯一入口（repair_prepare_node 与 prepare 主循环共用，
 # 禁止此处内联正则——同 compute_price/commission_resolver 共享层纪律）
 from utils.attr_numeric_sanitize import is_numeric_attr_type, sanitize_numeric_attr_value
+from utils.attr_value_sanitize import cap_attribute_values
 # ✅ v0.69 Wave3: Ozon 重量硬下限（体积重反推夹取下限，与 normalizer 同源）
 from utils.weight_dimension_normalizer import OZON_MIN_WEIGHT_G
 
@@ -856,6 +857,10 @@ def _looks_like_category_mismatch(state) -> bool:
         attr = 0
     if code in _BR_CHINESE_CODES:
         return False
+    # ✅ v0.71: 多值超限是值数问题（cap 闸裁剪重发），不是类目错——
+    # 此前 8229+out_of_range/附带文案会掉进 R4 整卡重配继续被拒
+    if code == "ATTRIBUTE_VALUE_COUNT_EXCEEDED":
+        return False
     if code == "DESCRIPTION_DECLINE" and attr in (8229, 22507):
         return True
     if attr == 8229 and code in (
@@ -1383,6 +1388,15 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                         "dictionary_value_id": _fdvid, "value": _fv,
                     }]}
                     _ozon_attrs.append(_seen_ids[_faid])
+            # ✅ v0.71 值数出口闸：flat 多行合并天然产多值，按 schema 裁剪
+            _ozon_attrs, _merge_marks = cap_attribute_values(
+                _ozon_attrs, getattr(state, "attributes_schema", None) or []
+            )
+            for _mm in _merge_marks:
+                logger.warning(
+                    "✂️ flat 合并值数闸: 属性 %s %d→%d (cap=%s)",
+                    _mm["attr_id"], _mm["kept"] + _mm["removed"], _mm["kept"], _mm["cap"],
+                )
             item["attributes"] = _ozon_attrs
 
         logger.info(f"✅ 中文字符批量翻译完成: {translated_count}个属性已翻译")
@@ -2521,6 +2535,26 @@ def _fix_via_attributes_update(state: ValidationRetryLoopState) -> bool:
     # 永远补不上 MISSING_REQUIRED_ATTRIBUTE。合并语义下多带 8229 恒安全（官方：
     # 只更新提供的属性），从快照/type_id 强制补齐。
     ozon_attrs = _ensure_type_attr_8229(ozon_attrs, first_item)
+
+    # ✅ v0.71 值数出口闸：重发前按 schema max_value_count 裁多值——此前原样重发
+    # 多值载荷，ATTRIBUTE_VALUE_COUNT_EXCEEDED 反复被拒烧轮次（8229 拒单实证）。
+    # state schema 缺失时按 payload dc/tp 查 PG 缓存（不直连 Ozon），仍缺则不设限。
+    _cap_schema = getattr(state, "attributes_schema", None) or []
+    if not _cap_schema:
+        try:
+            _cap_schema = _get_attribute_schema(
+                state.ozon_client_id, state.ozon_api_key,
+                first_item.get("description_category_id", ""),
+                first_item.get("type_id", ""), "ZH_HANS",
+            ) or []
+        except Exception as _cap_e:
+            logger.debug("attributes/update 值数闸取 schema 失败（不设限）: %s", _cap_e)
+    ozon_attrs, _cap_marks = cap_attribute_values(ozon_attrs, _cap_schema)
+    for _m in _cap_marks:
+        logger.warning(
+            "✂️ attributes/update 值数闸: 属性 %s %d→%d (cap=%s)",
+            _m["attr_id"], _m["kept"] + _m["removed"], _m["kept"], _m["cap"],
+        )
 
     update_body = {
         "items": [{
