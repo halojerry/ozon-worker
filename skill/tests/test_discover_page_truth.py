@@ -141,9 +141,10 @@ def test_what_to_sell_dc_kept_and_path_hint_merged():
     # 路径先验并入同 dict
     assert cat["category_path"] == "Зоотовары > Кошки > Автопоилки"
     assert cat["breadcrumb_language"] == "RU"
-    # web 前台 ID 绝不冒充 dc/tp
+    # web 前台 ID 绝不冒充 dc/tp（v0.71 起作为独立排查线索键并入 cat，语义不变）
     assert "17028929" not in (cat.get("description_category_id") or "")
-    assert "web_category_id" not in cat
+    assert cat.get("web_category_id") == "17028929"
+    assert cat["description_category_id"] != cat["web_category_id"]
 
 
 def test_page_category_is_hint_only_no_dc_fabrication():

@@ -214,6 +214,12 @@ class ProductCandidate:
     # Ozon 类目（面包屑/候选品数据，供提交）
     ozon_category: dict = field(default_factory=dict)
 
+    # ✅ v0.71 页面类目真值（采集阶段 widget breadCrumbs 派生，非 Seller 树
+    # dc/tp）：category_path 供 worker 路径精配/文本先验，web_category_id 是
+    # Ozon Web 前台类目 ID（≠ description_category_id，仅线索）。无值空串。
+    page_category_path: str = ""
+    page_web_category_id: str = ""
+
     # 裂变字段（v3 新增）
     competing_seller_list: list = field(default_factory=list)  # fetch_competing_sellers 完整 sellers[]
     source_chain: list = field(default_factory=list)           # 证据链 [{type,id,name,depth}]
@@ -540,6 +546,9 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str,
         candidate.brand = info.get("brand", "")
         candidate.rating = float(info.get("rating", 0) or 0)
         candidate.review_count = int(info.get("reviewCount", 0) or 0)
+        # ✅ v0.71 页面类目真值（widget breadCrumbs 派生；Web 前台 ID 非 dc/tp）
+        candidate.page_category_path = str(info.get("category_path") or "")
+        candidate.page_web_category_id = str(info.get("web_category_id") or "")
 
         if not candidate.ozon_title:
             candidate.status = "error"

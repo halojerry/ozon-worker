@@ -250,6 +250,20 @@ _FETCH_PRODUCT_JS = r'''(() => {
                 } catch(e) {}
             }
 
+            // ✅ v0.71 类目真值：breadCrumbs widget（与 ozon_scraper 同款解析）——
+            // discover 采集阶段即带竞品页面类目路径，不再单纯依赖 what_to_sell 登录态
+            const crumbKey = Object.keys(ws).find(k => k.includes('breadCrumbs'));
+            if (crumbKey) {
+                try {
+                    const parsedCrumbs = JSON.parse(ws[crumbKey]);
+                    result.breadcrumbs = (parsedCrumbs.breadcrumbs || []).map(b => ({
+                        text: b.text || '',
+                        link: b.link || '',
+                        crumbType: b.crumbType || ''
+                    }));
+                } catch(e) {}
+            }
+
             resolve(JSON.stringify(result));
         } catch(e) {
             resolve(JSON.stringify({error: e.message}));
@@ -427,9 +441,48 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None, lang: str = "
 
     # ⚠️ 只缓存有效数据（标题 + 价格都有），避免残缺数据（如限流时
     # price 为空）被缓存 1 小时污染后续运行（降级数据不缓存）
+    # ✅ v0.71 类目真值派生（helper 可单测）
+    _derive_category_from_breadcrumbs(result)
     if result.get("title") and (result.get("price") or result.get("cardPrice")):
         cache_set("ozon", cache_key, result, ttl=3600)
     return result
+
+
+def _derive_category_from_breadcrumbs(result: dict[str, Any]) -> None:
+    """面包屑 → category_path/web_category_id/breadcrumb_language（v0.71，原地写）。
+
+    category_id 从链接抠（/category/xxx-14500/ → 14500）、品牌段排除，与
+    ozon_scraper 同源 helper——discover 采集阶段即带竞品页面类目，不再单纯
+    依赖 what_to_sell 登录态（Web 前台 ID ≠ Seller 树 dc/tp，仅作 worker
+    路径精配/文本先验）。无 breadcrumbs 键时静默跳过。
+    """
+    crumbs = result.get("breadcrumbs")
+    if not isinstance(crumbs, list) or not crumbs:
+        return
+    try:
+        import re as _re_crumbs
+        for _c in crumbs:
+            if not isinstance(_c, dict):
+                continue
+            _link = str(_c.get("link") or "")
+            _m = _re_crumbs.search(r"-(\d+)/?$", _link) if _link else None
+            _c["category_id"] = _m.group(1) if _m else ""
+        from scripts.lib.ozon_scraper import (
+            _pick_category_from_crumbs,
+            _category_path_from_crumbs,
+        )
+        _best = _pick_category_from_crumbs(crumbs)
+        if _best is not None and _best.get("category_id"):
+            result["web_category_id"] = str(_best["category_id"])
+        _path = _category_path_from_crumbs(crumbs)
+        if _path:
+            result["category_path"] = _path
+            if any("\u4e00" <= ch <= "\u9fff" for ch in _path):
+                result["breadcrumb_language"] = "ZH_HANS"
+            elif any("\u0400" <= ch <= "\u04FF" for ch in _path):
+                result["breadcrumb_language"] = "RU"
+    except Exception:
+        pass
 
 
 def _fetch_product_info_http(

@@ -2607,6 +2607,25 @@ def _apply_discover_page_truth(draft: dict, extensions: dict, candidate, page_tr
     page_cat = page_truth.get("ozon_category") or {}
     page_attrs = page_truth.get("ozon_attributes") or {}
 
+    # ✅ v0.71 候选级面包屑兜底：widget breadCrumbs 采集阶段已派生（零额外调用），
+    # 页面真值二次抓取失败/未跑时仍有路径先验（Web 前台 ID ≠ dc/tp，语义同 page）。
+    if not page_cat:
+        _cand_path = str(getattr(candidate, "page_category_path", "") or "").strip()
+        _cand_web_id = str(getattr(candidate, "page_web_category_id", "") or "").strip()
+        if _cand_path or _cand_web_id:
+            _bl = ""
+            if any("\u4e00" <= ch <= "\u9fff" for ch in _cand_path):
+                _bl = "ZH_HANS"
+            elif any("\u0400" <= ch <= "\u04FF" for ch in _cand_path):
+                _bl = "RU"
+            page_cat = {
+                "category_path": _cand_path,
+                "breadcrumb_language": _bl,
+                "web_category_id": _cand_web_id,
+                "source": "page",
+                "namespace": "widget",
+            }
+
     # Ozon 上下文永不丢弃（worker 竞品属性一致性校验/对账依赖）
     _ozon_url = str(getattr(candidate, "ozon_url", "") or "").strip()
     if _ozon_url:
@@ -2617,25 +2636,34 @@ def _apply_discover_page_truth(draft: dict, extensions: dict, candidate, page_tr
         draft["ozon_title"] = _ozon_title
 
     _ozc = getattr(candidate, 'ozon_category', None) or {}
-    _has_dc = bool(str(_ozc.get("description_category_id") or "").strip()
-                   or str(_ozc.get("type_id") or "").strip())
+    _draft_cat = draft.get("ozon_category") if isinstance(draft.get("ozon_category"), dict) else {}
+    # ✅ v0.71 数字 dc/tp 优先级：candidate（what_to_sell）> draft 既有值（graph
+    # 阶段 search_kw 猜测）。此前只看 candidate——discover 候选类目恒空时，
+    # page Web-ID 空壳会整体覆盖 draft 里 search_kw 刚猜出的数字 dc/tp
+    # （数字丢失只剩路径文本，worker 只能走文本链）。
+    _num_src: dict = {}
+    if _ozc.get("description_category_id") or _ozc.get("type_id"):
+        _num_src = dict(_ozc)
+    elif _draft_cat.get("description_category_id") or _draft_cat.get("type_id"):
+        _num_src = dict(_draft_cat)
+    _has_dc = bool(_num_src)
     if page_cat:
         if _has_dc:
-            # what_to_sell 真 dc/tp 语义不动（自带权威 source/namespace），面包屑只补先验
-            cat = dict(_ozc)
+            # 数字 dc/tp 语义不动（search_kw=模糊候选，worker 全闸链复核），面包屑只补先验
+            cat = dict(_num_src)
             cat.setdefault("source", "search_kw")
             cat.setdefault("namespace", "seller")
         else:
             # 无 dc/tp → 只带路径先验（source=page 标注面包屑来源；无 dc/tp 时
             # worker 按 hint 处理，不会当权威直通）
             cat = {"source": "page", "namespace": "widget"}
-        for _hk in ("category_path", "breadcrumb_language"):
+        for _hk in ("category_path", "breadcrumb_language", "web_category_id"):
             _hv = str(page_cat.get(_hk) or "").strip()
             if _hv:
                 cat[_hk] = _hv
         draft["ozon_category"] = cat
-    elif _ozc:
-        cat = dict(_ozc)
+    elif _num_src or _ozc or _draft_cat:
+        cat = dict(_num_src) if _num_src else dict(_ozc or _draft_cat)
         # 无来源标记时默认按候选处理（Discovery 解析为模糊），勿当权威
         cat.setdefault("source", "search_kw")
         cat.setdefault("namespace", "seller")
@@ -4154,6 +4182,23 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                             _mev.get("badge_eff", 0), _mev.get("trusted"),
                         )
                     envelope["envelope"]["extensions"] = extensions
+                    # ✅ v0.71: follow 也透出 1688 图搜类目（source.match_category_*，
+                    # discover 已接 v0.66.2）——worker L0 学习/负反馈拿得到 1688 侧 cid
+                    from types import SimpleNamespace as _NS
+                    _src = envelope["envelope"].get("source")
+                    if not isinstance(_src, dict):
+                        _src = {}
+                    _inject_discovery_match_category(
+                        _src,
+                        _NS(
+                            match_1688_category_id=str(
+                                best.get("category_id") or best.get("cate_level2_id")
+                                or best.get("cate_level1_id") or ""),
+                            match_1688_category_name=str(
+                                best.get("category_name") or ""),
+                        ),
+                    )
+                    envelope["envelope"]["source"] = _src
                     # 竞品图片 — 跟卖始终用 Ozon 竞品原图，绝不漏 1688 alicdn
                     # ✅ v0.33.1: 只拿第一张主图（对齐 1688 get_best_product_images 主图优先逻辑）
                     # ——竞品 104 张全塞会混入带品牌 logo/促销文字的细节图，Phase1 当参考图
