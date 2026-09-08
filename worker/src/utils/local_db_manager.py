@@ -519,6 +519,60 @@ class LocalDBManager:
         try:
             _now = _dt.datetime.now(_dt.timezone.utc)
             _src_id = int(source_category_id) if source_category_id else None
+
+            # ✅ v0.71 cid 规范化：唯一键是 (leaf, dc, tp)，1688 面包屑措辞漂移会把
+            # 同 cid 裂成多行稀释 success_count（L0 学习转不起来的结构性断点）。
+            # 同 (cid, dc, tp) 已有不同措辞的活跃行、且本次 leaf 无既有行 → 原行
+            # success_count+1 并把 leaf 刷新为最新写法，不裂新行。
+            if _src_id is not None:
+                _same_leaf = session.execute(
+                    select(CategoryMapping).where(
+                        CategoryMapping.source_category_leaf == source_category_leaf,
+                        CategoryMapping.description_category_id == description_category_id,
+                        CategoryMapping.type_id == type_id,
+                    ).limit(1)
+                ).scalar_one_or_none()
+                if _same_leaf is None:
+                    _canon = session.execute(
+                        select(CategoryMapping).where(
+                            CategoryMapping.source_category_id == _src_id,
+                            CategoryMapping.description_category_id == description_category_id,
+                            CategoryMapping.type_id == type_id,
+                            CategoryMapping.source_category_leaf != source_category_leaf,
+                            CategoryMapping.is_active.is_(True),
+                        ).limit(1)
+                    ).scalar_one_or_none()
+                    if _canon is not None:
+                        try:
+                            _canon.success_count = (_canon.success_count or 0) + 1
+                            _canon.source_category_leaf = source_category_leaf
+                            _canon.is_active = True
+                            _canon.last_used_at = _now
+                            if _canon.source != "curated":
+                                _canon.source = source
+                            if confidence > (_canon.confidence or 0):
+                                _canon.confidence = confidence
+                            if source_category_path:
+                                _canon.source_category_path = source_category_path
+                            if source_keywords:
+                                _canon.source_keywords = source_keywords
+                            if category_path_zh:
+                                _canon.category_path_zh = category_path_zh
+                            if category_path_ru:
+                                _canon.category_path_ru = category_path_ru
+                            session.commit()
+                            logger.info(
+                                f"✅ cid 规范化归并：category_mapping (cid={_src_id}, "
+                                f"dc={description_category_id}, tp={type_id}) leaf→"
+                                f"'{source_category_leaf}'（同 cid 不同措辞不裂行）"
+                            )
+                            return
+                        except Exception as _merge_e:
+                            session.rollback()
+                            logger.debug(
+                                "cid 规范化归并冲突（回落正常 upsert）: %s", _merge_e
+                            )
+
             # 冲突侧更新表达式（SQLAlchemy 列表达式 → success_count=success_count+1 等）
             _do_update: dict = {
                 "success_count": CategoryMapping.success_count + 1,

@@ -2472,13 +2472,27 @@ def prepare_ozon_upload_node(
             _resolved_dict_id = 0
             _resolved_dict_val = ""
             # ① state.dictionary_values 缓存精确/包含匹配(兼容 RU/ZH 缓存)
+            # ✅ v0.71 盲填清理：精确命中压倒一切；多个包含命中不再取首个
+            # （attr_value_matcher「绝不盲补首值」纪律）——交后续学习表/
+            # values/search 消歧，全失败则跳过。
             try:
+                _cache_hits: list = []
                 for _cv in (getattr(state, "dictionary_values", None) or {}).get(str(attribute_id_int)) or []:
                     _cv_txt = str(_cv.get("value") or "")
-                    if _cv_txt and (_cv_txt == value_str or _cv_txt in value_str or value_str in _cv_txt):
-                        _resolved_dict_id = int(_cv.get("id") or 0)
-                        _resolved_dict_val = _cv_txt
+                    if not _cv_txt:
+                        continue
+                    if _cv_txt == value_str:
+                        _cache_hits = [_cv]  # 精确命中压倒包含命中
                         break
+                    if _cv_txt in value_str or value_str in _cv_txt:
+                        _cache_hits.append(_cv)
+                if len(_cache_hits) == 1:
+                    _resolved_dict_id = int(_cache_hits[0].get("id") or 0)
+                    _resolved_dict_val = str(_cache_hits[0].get("value") or "")
+                elif len(_cache_hits) > 1:
+                    logger.info(
+                        f"   ⏭️ 缓存包含匹配 {len(_cache_hits)} 个候选不盲采: attr={attribute_id_int}, value='{value_str[:40]}'，交学习表/values/search 消歧"
+                    )
             except Exception:
                 pass
             # ①b ⚠️ v0.29.x 学习表复用: 同类目历史成功属性映射(approved 后写入
