@@ -1606,6 +1606,12 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
         to_submit = [c for c in selected
                      if c.status == "profitable" and c.match_1688_url
                      and c.review_decision != "agent_reject"]
+        # v0.70 目标驱动提示：discover 是一次性采集+人工挑，达标数不可控——
+        # profitable 少时明示缺口与 discover-task 自动续采路径
+        if 0 < len(to_submit) < 10:
+            print(f"\n💡 profitable 仅 {len(to_submit)} 条（筛选损耗大）。"
+                  "要凑足目标数量请用 discover-task --target-count N（达标即停，"
+                  "自动续采不重烧图搜）")
         if not to_submit:
             print("\n⚠️ 没有符合条件的 profitable 产品可提交")
             return 0
@@ -2019,6 +2025,7 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
         DISCOVERY_CACHE_DIR,
         collect_and_analyze,
         match_selected,
+        rank_match_pool,
         resolve_filter_profile,
     )
 
@@ -2054,8 +2061,16 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
 
     # 档位：任务式缺省 ai（resolve_filter_profile(auto_submit=True) 语义）
     profile = resolve_filter_profile(args.filter_profile, True)
-    print(f"\n🤖 discover-task {task_id}｜入口: {url or keyword}｜目标 {args.target_count}"
-          f"｜粗筛 {profile}｜匹配上限 {args.match_limit}", flush=True)
+
+    # v0.70 语义翻转：--target-count = 达标数（profitable 出口数），采集上限独立由
+    # --max-scan 控制；匹配上限缺省 = 目标×3（图搜转化缓冲，显式传参则尊重）。
+    match_limit = (args.match_limit if args.match_limit is not None
+                   else args.target_count * 3)
+    prior_profitable = sum(1 for v in (processed or {}).values()
+                           if isinstance(v, dict) and v.get("status") == "profitable")
+    print(f"\n🤖 discover-task {task_id}｜入口: {url or keyword}"
+          f"｜目标 {args.target_count}（达标）｜扫描上限 {args.max_scan}"
+          f"｜粗筛 {profile}｜匹配上限 {match_limit}", flush=True)
 
     # ── 阶段①+②+②b：采集 + 全量数据 + 指标富化 + 粗筛 ──
     print("\n⏳ 阶段 1/3：采集 + 全量数据 + 粗筛...", flush=True)
@@ -2064,7 +2079,7 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
             cdp_url=cdp_url,
             url=url,
             keyword=keyword,
-            max_products=args.target_count,
+            max_products=args.max_scan,
             use_analytics=not getattr(args, "no_analytics", False),
             filter_profile=profile,
             base_filter=args.base_filter or "",
@@ -2082,6 +2097,13 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     match_pool = [c for c in candidates
                   if c.status in ("ok", "uncertain")
                   and c.ozon_product_id not in processed]
+    # v0.70 目标驱动：匹配池按达标可能性降序（rank_match_pool），图搜额度先花
+    # 在最可能 profitable 的品上，让目标尽早达成触发早停。
+    rank_match_pool(match_pool)
+    target_profitable = max(args.target_count - prior_profitable, 0)
+    if target_profitable <= 0:
+        print(f"   ✅ resume 已达标 {prior_profitable}/{args.target_count}，跳过匹配直接入箱",
+              flush=True)
     print(f"   待匹配 {len(match_pool)} 条（已处理跳过 {len(candidates) - len(match_pool) - counts.get('filtered', 0) - counts.get('error', 0)}）",
           flush=True)
 
@@ -2096,15 +2118,16 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     # 评审 H: 佣金显式来自 --store 店铺 profile（与 cmd_discover P2-6 同口径）；
     # 未配置传 0 → match_selected 内部回落默认店铺解析链
     match_selected(
-        match_pool, cdp_url,
+        match_pool if target_profitable > 0 else [], cdp_url,
         fx_rate=fx_rate,
         commission_rate=float((get_store_profile(args.store) or {}).get("commission_rate", 0) or 0),
         min_margin_pct=args.min_margin,
-        max_matches=args.match_limit,
+        max_matches=match_limit,
         stop_on_no_match_streak=args.no_match_streak_stop,
         pace_seconds=2.0,
         max_workers=args.match_concurrency,
         progress_callback=_match_progress,
+        target_profitable=target_profitable,
     )
 
     # ── 出口：profitable → 入采集箱 / 干跑 ──
@@ -2112,6 +2135,20 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
                  if c.status == "profitable" and c.match_1688_url
                  and c.review_decision != "agent_reject"
                  and c.ozon_product_id not in processed]
+
+    # v0.70 目标驱动记账：已匹配终态全部进 processed（--resume 跨次跳过防重烧图搜；
+    # matched/error 属瞬态不入账——宁可重烧一条不丢达标数）。to_submit 已在上方
+    # 物化，此处写 processed 不影响本次出口。
+    for c in candidates:
+        if c.status in ("profitable", "rejected", "no_match") \
+                and c.ozon_product_id not in processed:
+            processed[c.ozon_product_id] = {
+                "status": c.status,
+                "margin": round(getattr(c, "profit_margin", 0) or 0, 1),
+            }
+    profitable_total = prior_profitable + len(to_submit)
+    print(f"   [{min(profitable_total, args.target_count)}/{args.target_count}] 达标进度",
+          flush=True)
     print(f"\n⏳ 阶段 3/3：profitable {len(to_submit)} 条"
           f"（{'--to-box 入采集箱' if args.to_box and not args.dry_run else '干跑，不入箱'}）",
           flush=True)
@@ -2121,8 +2158,9 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
         "created_at": _time.strftime("%Y-%m-%dT%H:%M:%S"),
         "entry": {"url": url, "keyword": keyword},
         "params": {"target_count": args.target_count, "filter_profile": profile,
-                   "min_margin": args.min_margin, "match_limit": args.match_limit,
-                   "match_concurrency": args.match_concurrency},
+                   "min_margin": args.min_margin, "match_limit": match_limit,
+                   "match_concurrency": args.match_concurrency,
+                   "max_scan": args.max_scan},
         "processed": processed,
         "summary": {},
     }
@@ -2172,7 +2210,17 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     for c in candidates:
         final_counts[c.status] = final_counts.get(c.status, 0) + 1
     state["summary"]["candidates"] = final_counts
+    state["summary"]["target"] = {"goal": args.target_count, "prior": prior_profitable,
+                                  "total": profitable_total}
     _save_task_state(state)
+    # v0.70 缺口如实报告：粗筛池耗尽仍未达标时明示差距与续采路径
+    if profitable_total < args.target_count:
+        prefilter_pass = counts.get("ok", 0) + counts.get("uncertain", 0)
+        print(f"\n⚠️ 未达标: 目标 {args.target_count}｜累计达标 {profitable_total}"
+              f"｜本次已采 {len(candidates)}（粗筛通过 {prefilter_pass}）")
+        print("   → 加大 --max-scan / 换关键词重跑；--resume 跳过已处理 pid 不重烧图搜")
+    else:
+        print(f"\n🎯 已达标: {profitable_total}/{args.target_count}")
     if args.export:
         from scripts.lib.ozon_discovery import export_to_csv
         export_to_csv(candidates, args.export)
@@ -2481,7 +2529,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     dtp.add_argument("--url", default="",
                      help="入口 URL（highlight/搜索/类目/店铺页均可；与 --keyword 二选一）")
     dtp.add_argument("--keyword", default="", help="关键词（中国站 highlight 页内搜索）")
-    dtp.add_argument("--target-count", type=int, default=50, help="目标采集数量（默认 50）")
+    dtp.add_argument("--target-count", type=int, default=50,
+                     help="达标目标数量（profitable 出口数，默认 50；匹配达标即停）")
+    dtp.add_argument("--max-scan", type=int, default=300,
+                     help="页面采集硬上限（深滚动采满或触底，默认 300）")
     dtp.add_argument("--filter-profile", default=None, choices=["off", "ai"],
                      help="粗筛档位（任务式缺省 ai；off=不粗筛）")
     dtp.add_argument("--base-filter", default="",
@@ -2490,8 +2541,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                      help="利润率门槛 %%（默认 15；低于 → rejected）")
     dtp.add_argument("--fx-rate", type=float, default=None,
                      help="RUB→CNY 汇率（缺省走店铺/全局配置/默认）")
-    dtp.add_argument("--match-limit", type=int, default=30,
-                     help="自动匹配数上限（默认 30，护 aibuy 配额）")
+    dtp.add_argument("--match-limit", type=int, default=None,
+                     help="本次运行自动匹配数上限（缺省 = 目标×3 的图搜转化缓冲；显式传参则尊重）")
     dtp.add_argument("--match-concurrency", type=int, default=1, choices=[1, 2],
                      help="1688 图搜并发（默认 1 串行；2=分块并行，反爬纪律 ≤2 对齐上品帮）")
     dtp.add_argument("--no-match-streak-stop", type=int, default=5,

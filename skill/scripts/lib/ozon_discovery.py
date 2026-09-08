@@ -869,6 +869,7 @@ def match_selected(
     stop_on_no_match_streak: int = 0,
     pace_seconds: float = 0.5,
     max_workers: int = 0,
+    target_profitable: int = 0,
 ) -> list[ProductCandidate]:
     """Discover v2 阶段④：对选中候选批量 1688 识图 + 利润 + 蓝海评分。
 
@@ -885,6 +886,11 @@ def match_selected(
       sleep 带 ±20% 抖动仿人节奏）。
     - max_workers>0：并行度覆盖（0=auto _discover_workers()；任务模式
       --match-concurrency 1/2——1688 图搜并发 ≤2 对齐上品帮反爬纪律）。
+    - target_profitable>0（v0.70 目标驱动）：profitable 数达到目标即停止发起新图搜
+      （达标即停，护 aibuy 配额——图搜额度只花在凑目标上，不烧完整池子）；
+      串行逐个判，并行分块间判（已提交块跑完不加码，与 streak 早停同语义）。
+      匹配池应在调用前按达标可能性降序排序（如 monthly_sales desc），
+      让目标尽早达成。
     """
     from scripts.lib.config_store import get_store_profile
 
@@ -1000,6 +1006,16 @@ def match_selected(
         return streak
 
     workers = max_workers if max_workers > 0 else _discover_workers()
+    profitable_n = 0
+
+    def _target_reached() -> bool:
+        """达标即停（v0.70 目标驱动）：profitable 计数触顶 → True。"""
+        if target_profitable and profitable_n >= target_profitable:
+            logger.warning("已达标 %d/%d → 匹配早停（剩余候选保持未匹配，护图搜配额）",
+                           profitable_n, target_profitable)
+            return True
+        return False
+
     if workers <= 1:
         # 串行（零回归）：批量识图复用同一 CDP 连接（v0.14 E6）
         import contextlib
@@ -1019,8 +1035,10 @@ def match_selected(
                     logger.warning("1688 match failed for %s: %s",
                                    candidate.ozon_product_id, exc)
                 _finalize(i, candidate)
+                if candidate.status == "profitable":
+                    profitable_n += 1
                 streak = _streak_bumped(streak, candidate)
-                if streak < 0:
+                if streak < 0 or _target_reached():
                     break
     else:
         # P2: 并行识图——conn=None 让每线程自建独立连接（_search_1688_source
@@ -1048,9 +1066,11 @@ def match_selected(
                         logger.warning("1688 match failed for %s: %s",
                                        candidate.ozon_product_id, exc)
                     _finalize(i + j, candidate)
+                    if candidate.status == "profitable":
+                        profitable_n += 1
                     streak = _streak_bumped(streak, candidate)
                 i += len(chunk)
-                if streak < 0:
+                if streak < 0 or _target_reached():
                     break
 
     logger.info("1688 匹配统计: %s", stats)
@@ -1348,6 +1368,16 @@ def split_selection_rules(rules: str) -> tuple[str, str]:
         field_name = m.group(1).lower() if m else ""
         (match if field_name in MATCH_PHASE_FIELDS else pre).append(part)
     return ",".join(pre), ",".join(match)
+
+
+def rank_match_pool(pool: list[ProductCandidate]) -> list[ProductCandidate]:
+    """目标驱动匹配排序（v0.70）：池按达标可能性降序——月销高（需求旺）、
+    跟卖少（竞争小）的先匹配，图搜额度先花在最可能 profitable 的品上，
+    让 target_profitable 尽早达成触发达标即停。原地排序并返回。
+    蓝海分是匹配后才算的，这里只能用预匹配字段。"""
+    pool.sort(key=lambda c: (-(getattr(c, "monthly_sales", 0) or 0),
+                             (getattr(c, "competing_sellers", 0) or 0)))
+    return pool
 
 
 def apply_selection_rules(candidates: list[ProductCandidate], rules: str) -> list[ProductCandidate]:
