@@ -644,7 +644,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 ### 待执行：webui 替换 + ozon-mcp 引入（dev 阶段，零用户访问）
 
 - **ozonwebui 替换 webui**：`/Volumes/os/dev/ozonwebui`（Figma 导出 React 19 + Vite 8）替换现有 `webui/`（bun 生态）。迁移第一步切包管理器：删 `pnpm-lock.yaml` + `.mise.toml`，`bun install` 生成 `bun.lock`。CI `cd.yml` 已是 bun（v0.56.1），不用改。ozonwebui 的 `docs/` 两份对接文档（API-INTEGRATION-STATUS + BACKEND-API-REQUIREMENTS）是 worker 补 API 的依据。
-- **ozon-mcp 内部引入**（不暴露给用户）：`PCDCK/ozon-mcp`（MIT）索引 466 Ozon API 方法（420 Seller + 46 Performance）+ seller/performance swagger + 分页/限流/安全知识库。定位 = **开发武器**：①补 worker 端点查 API 契约 ②抽取 SellerClient transport 进 worker 替换 `ozon_client.py`。用户永远不直接调 ozon-mcp。
+- **ozon-mcp 内部引入**（不暴露给用户）：`PCDCK/ozon-mcp`（MIT）索引 466 Ozon API 方法（420 Seller + 46 Performance）+ seller/performance swagger + 分页/限流/安全知识库。定位 = **开发武器**：①补 worker 端点查 API 契约 ②抽取 SellerClient transport 进 worker 替换 `ozon_client.py`（按需，不排期——ozon_client.py 已有 tenacity+令牌桶+typed errors）。用户永远不直接调 ozon-mcp。**✅ 已活安装（2026-09-08）**：上游 clone 到 `/Volumes/os/dev/ozon-mcp` 并注册进 `~/.zcode/cli/config.json` → `mcp.servers.ozon`（stdio，**零凭证纯查询模式**——12 个查询工具可用，call 类工具无凭证不注册）。**查询纪律**：写任何 Ozon API 调用前先 `ozon_search_methods`/`ozon_describe_method` 核对响应顶层形状与分页字段，禁止手 grep swagger 或凭记忆；详见 `docs/refs/ozon-mcp/README.md`（含本地补丁与 PyPI 同名包陷阱）。
 - **数据落盘策略**：worker 发生的 Ozon API 请求，数据按 user_id + credential_id 落盘 PG 缓存（已有 `ozon_orders_cache`/`ozon_products_cache`，15min 同步）。列表读走缓存（快），实时写（发货/取消/改价）直接调 Ozon 成功后同步更新缓存。
 
 ## ⚠️ Agent 使用 Skill 时的硬约束
