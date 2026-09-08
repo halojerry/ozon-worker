@@ -59,4 +59,4 @@ def test_all_tools_registered():
     }
     missing = expected - names
     assert not missing, f"未注册的工具: {missing}"
-    assert len(names) == 24, f"工具数应为 24，实际 {len(names)}"
+    assert len(names) == 25, f"工具数应为 25，实际 {len(names)}"

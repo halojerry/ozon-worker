@@ -297,9 +297,52 @@ async def get_seo_keywords(q: str, limit: int = 20) -> dict:
     return await _call("GET", "/api/v1/seo/keywords", params={"q": q, "limit": str(limit)})
 
 
+@mcp.tool()
+async def report_issue(title: str, severity: str = "medium", category: str = "other",
+                       description: str = "", reproduction: dict | None = None,
+                       evidence: dict | None = None) -> dict:
+    """用户问题反馈 → 错误报告入 worker 跟踪队列（v0.70 远端通道）。
+
+    worker 按 evidence.task_ids 自动附加本租户任务快照（状态/错误/时间线/product_id）。
+    - title 必填；severity ∈ {high,medium,low}；
+      category ∈ {upload_failed,category_wrong,attribute_error,image_error,pricing,cli_bug,other}
+    - reproduction: {steps, command, expect, actual}；evidence: {task_ids, item_id, error_codes,...}
+    模板契约：docs/ERROR-REPORT-TEMPLATE.md。提交成功返回 report_id。"""
+    body: dict = {"title": title, "severity": severity, "category": category}
+    if description:
+        body["description"] = description
+    if reproduction:
+        body["reproduction"] = reproduction
+    if evidence:
+        body["evidence"] = evidence
+    return await _call("POST", "/api/v1/error_reports", body=body)
+
+
+@mcp.tool()
+async def list_error_reports(status: str = "", limit: int = 50,
+                             report_id: str = "") -> dict:
+    """查本租户错误报告（只读）。status ∈ {new,triaging,fixed,wontfix} 可筛；
+    report_id 非空返回单条详情（含自动附加的任务快照 auto_context）。"""
+    params: dict = {}
+    if status:
+        params["status"] = status
+    if report_id:
+        params["report_id"] = report_id
+    params["limit"] = str(limit)
+    return await _call("GET", "/api/v1/error_reports", params=params)
+
+
+@mcp.tool()
+async def get_task_forensics(task_id: str) -> dict:
+    """任务取证一站式只读聚合：任务快照 + 上架留存(listing_result_log) +
+    类目/属性匹配审计。排查「为什么失败/为什么这么上架」首选——先取证再报 issue。"""
+    return await _call("GET", f"/api/v1/forensics/task/{task_id}")
+
+
 TOOLS = [
     "submit_task", "get_task_status", "cancel_task", "get_task_statistics",
     "list_drafts", "submit_draft", "batch_submit_drafts",
     "list_stores", "analyze_store", "run_store_action",
     "lookup_commission", "quote_logistics", "lookup_mapping", "get_seo_keywords",
+    "report_issue", "list_error_reports", "get_task_forensics",
 ]
