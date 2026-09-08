@@ -29,9 +29,18 @@ def test_cid_prefers_draft_over_source():
 
 
 def test_cid_falls_back_to_source_category_id():
-    """draft 无数字时回 source.category_id（图搜透出通道）——此前恒空。"""
+    """draft 无数字时回 source.category_id（信封契约位）——此前恒空。"""
     assert asm.resolve_1688_source_category_id({}, {"category_id": " 222 "}) == "222"
     assert asm.resolve_1688_source_category_id({"source_category_id": ""}, {"category_id": 333}) == "333"
+
+
+def test_cid_falls_back_to_match_category_id():
+    """图搜通道 cid 在 source.match_category_id（wave 实证 approved 学习行
+    cid 空的根因）——第三源兜底。"""
+    assert asm.resolve_1688_source_category_id({}, {"match_category_id": "201162103"}) == "201162103"
+    from utils.category_mapping_learn import resolve_1688_source_category_id as impl
+    assert impl({"source_category_id": "1"}, {"category_id": "2", "match_category_id": "3"}) == "1"
+    assert impl({}, {"category_id": "2", "match_category_id": "3"}) == "2"
 
 
 def test_cid_both_missing_returns_empty():
