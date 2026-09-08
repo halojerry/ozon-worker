@@ -1221,7 +1221,7 @@ def _parse_filter_expr(expr: str) -> list[tuple[str, str, float]]:
             # --base-filter 判不了 → 显式报错指向 --rules，防静默清零
             raise ValueError(
                 "粗筛字段 margin 属匹配期字段，--base-filter 不支持；"
-                "请改用 --rules \"margin>=0.15\"（匹配阶段判定）")
+                "请改用 --rules \"margin>=20\"（百分数；v0.69 起在 1688 匹配后二次筛选）")
         rules.append((field_name, op, val))
     return rules
 
@@ -1327,29 +1327,61 @@ def _row_candidate(pid: str, row: dict) -> ProductCandidate:
     return c
 
 
+# 匹配期字段：只有 1688 匹配（match_selected）后才有真值；挑选期（--rules 第一段）
+# 恒为 dataclass 默认 0.0（v0.69 实证：拿它当挑选期硬条件 = 全灭，0/30）。
+MATCH_PHASE_FIELDS = frozenset({"margin"})
+
+
+def split_selection_rules(rules: str) -> tuple[str, str]:
+    """把 --rules 拆成（挑选期规则串, 匹配期规则串）。
+
+    "ai,margin>=20" → ("ai", "margin>=20")；"margin>=20" → ("", "margin>=20")；
+    "ai,monthly_sales>=100" → ("ai,monthly_sales>=100", "")。
+    两段都空的输入返回 ("", "")。
+    """
+    if not rules or not rules.strip():
+        return "", ""
+    pre: list[str] = []
+    match: list[str] = []
+    for part in (p.strip() for p in rules.split(",") if p.strip()):
+        m = re.match(r"^([a-z_]+)\s*(?:>=|<=|>|<|=)", part, re.IGNORECASE)
+        field_name = m.group(1).lower() if m else ""
+        (match if field_name in MATCH_PHASE_FIELDS else pre).append(part)
+    return ",".join(pre), ",".join(match)
+
+
 def apply_selection_rules(candidates: list[ProductCandidate], rules: str) -> list[ProductCandidate]:
     """按规则字符串筛选候选。
 
     格式: "monthly_sales>=200,drr<=30,seller_count<=20"
     支持字段: monthly_sales/gmv/drr/seller_count/margin/price/create_days/sales_growth/rating
     比较符: >= / <= / > / < / =
-    rules == "ai" 时走 AI_PRESET 四条硬淘汰 + AI_SALES_LADDER 销量阶梯预设。
+    ``ai`` 可作为逗号分隔项之一（如 "ai,margin>=20"）：先套 AI_PRESET 四条硬淘汰 +
+    AI_SALES_LADDER 销量阶梯，再叠加其余字段表达式（v0.69 前 ai 只能整串使用，
+    与字段规则混写直接 ValueError 打断选品）。
     返回满足全部规则的候选；rules 为空返回原列表。
     """
     if not rules or not rules.strip():
         return candidates
 
-    if rules.strip() == "ai":
-        return [c for c in candidates
-                if c.status != "error" and _check_ai_preset(c)]
+    parts_all = [p.strip() for p in rules.split(",") if p.strip()]
+    use_ai = "ai" in parts_all
+    expr_parts = [p for p in parts_all if p != "ai"]
+    if not parts_all:
+        return candidates
+    if use_ai:
+        candidates = [c for c in candidates
+                      if c.status != "error" and _check_ai_preset(c)]
+    if not expr_parts:
+        return candidates
 
     parsed = []
-    for part in rules.split(","):
-        part = part.strip()
+    for part in expr_parts:
         m = re.match(r"^([a-z_]+)\s*(>=|<=|>|<|=)\s*([\d.]+)$", part, re.IGNORECASE)
         if not m:
             raise ValueError(
-                f"无法解析规则: {part!r}（格式: field>=100,field2<=50）")
+                f"无法解析规则: {part!r}（格式: field>=100,field2<=50，"
+                f"ai 预设可与字段规则逗号混写）")
         field_name, op, val = m.group(1).lower(), m.group(2), float(m.group(3))
         if field_name not in _SELECTION_FIELDS:
             raise ValueError(
