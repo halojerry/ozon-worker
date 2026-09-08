@@ -1,7 +1,8 @@
 [project]
 name = "pounding-mcp"
-version = "0.1.0"
-description = "MCP server wrapping the ozon-worker skill CLI (19 commands) for DeepSeek Harness"
+version = "0.70.0"
+description = "MCP server for the ozon-worker stack: 25 tools (20 skill CLI wrappers + 5 worker REST direct calls) for 1688/Ozon sourcing and listing"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastmcp>=3.0.0",

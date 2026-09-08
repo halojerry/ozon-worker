@@ -2,7 +2,7 @@
 
 不依赖真实 Chrome/worker，只测：
 1. run_skill_command 的 argv 组装逻辑（用 check 命令，或 mock subprocess）
-2. server 里 19 个工具都能正确导入 + 调用
+2. server 里 25 个工具都能正确导入 + 调用（20 个 skill CLI 封装 + 5 个 worker REST 直调）
 """
 
 from __future__ import annotations
@@ -47,15 +47,19 @@ def test_run_skill_command_bool_flag(monkeypatch):
 
 
 def test_all_tools_registered():
-    """24 个工具都注册到 FastMCP（v0.69 +report_issue/list_error_reports）。"""
+    """25 个工具都注册到 FastMCP（v0.70：20 个 skill CLI 封装 + 5 个 worker REST 直调）。"""
     import asyncio
 
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     expected = {
+        # skill CLI 封装（20）
         "check", "list_stores", "set_store", "set_token", "set_ak", "get_ak",
         "search", "probe", "image_search", "category", "follow", "discover",
         "discover_multi", "discover_task", "seller", "queries", "graph", "query",
-        "update", "cleanup", "analyze_store", "run_store_action",
+        "update", "cleanup",
+        # worker REST 直调（5）
+        "analyze_store", "run_store_action", "report_issue",
+        "list_error_reports", "get_task_forensics",
     }
     missing = expected - names
     assert not missing, f"未注册的工具: {missing}"
