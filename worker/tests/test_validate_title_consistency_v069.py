@@ -73,7 +73,7 @@ def _item(**over):
         "name": "Трещотка набор 1/4", "offer_id": "sku1", "price": "1990",
         "old_price": "2390", "vat": "0", "weight": 300, "weight_unit": "g",
         "depth": 100, "width": 100, "height": 50, "dimension_unit": "mm",
-        "images": ["https://example.com/img.jpg"],
+        "images": ["https://test-bucket.cos.ap-guangzhou.myqcloud.com/draft-images/x.jpg"],
         "primary_image": "https://example.com/img.jpg",
         "description_category_id": _DC, "type_id": _TP,
         "attributes": [],

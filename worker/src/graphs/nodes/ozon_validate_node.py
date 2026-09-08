@@ -10,6 +10,7 @@ from runtime.context import Context
 from graphs.state import OzonValidateInput, OzonValidateOutput
 # ✅ v0.69 Wave3: 数值属性清洗唯一入口 + 尺寸契约硬边界（唯一事实源，与 normalizer 同源）
 from utils.attr_numeric_sanitize import is_numeric_attr_type, sanitize_numeric_attr_value
+from utils.cos_uploader import is_cos_url
 from utils.weight_dimension_normalizer import OZON_DIM_BOUNDS_MM
 
 logger = logging.getLogger(__name__)
@@ -577,6 +578,21 @@ def ozon_validate_node(
                 )
             elif failed_urls:
                 logger.warning(f"⚠️ item[{i}]部分图片不可访问: {len(failed_urls)}/{len(sample_urls)}")
+
+            # ✅ v0.69 镜像闸（第二道防线）：图片全外链（零 COS 托管）→ 硬错误。
+            # 上面的可达性探测在「提交时点」抽样，防不住「此刻可达、Ozon 异步抓图
+            # 时已失效/防盗链」的时间窗——declined IMAGE_ERROR 实证：外链卡
+            # images=0 被拒，同批 COS 卡 approved。静态判定不依赖时点，直传外链
+            # 一律拦在上传前（绕过 draft 通道的直连 submit_task 信封由此兜住）。
+            _all_imgs = (
+                ([str(item.get("primary_image"))] if item.get("primary_image") else [])
+                + [str(u) for u in (item.get("images") or []) if u]
+            )
+            if _all_imgs and not any(is_cos_url(u) for u in _all_imgs):
+                validation_errors.append(
+                    f"item[{i}]图片全外链（{len(_all_imgs)} 张均非 COS 托管）——"
+                    f"Ozon 下载外链失败为已知必拒项 IMAGE_ERROR，须先镜像至 COS 再上传"
+                )
         
         # ✅ 本地预检完成（属性/文本/图片/危化品）。
         # 注：Ozon /v1/product/validate API 不存在（返回404），所有检查均为本地执行。
@@ -586,7 +602,9 @@ def ozon_validate_node(
         # ——两类错误与必填缺失（「缺失」）同样属 Ozon 必拒项，必须判 critical
         # ✅ v0.69 Wave4: 新增关键词「标题与类目不一致」（T2.1 DESCRIPTION_DECLINE
         # 本地预检）——零交集标题×类目是 Ozon 事后必拒项，必须判 critical 拦在上传前。
-        critical_errors = [err for err in validation_errors if any(kw in err for kw in ["缺失", "为空", "格式错误", "变体颜色", "拉丁字母", "非俄语", "中文字符", "危化品", "不可访问", "超出", "无法解析", "标题与类目不一致"])]
+        # ✅ v0.69 镜像闸: 新增关键词「全外链」——Ozon 抓外链失败=必拒（IMAGE_ERROR
+        # declined 实证），与「不可访问」同级的上传前硬拦。
+        critical_errors = [err for err in validation_errors if any(kw in err for kw in ["缺失", "为空", "格式错误", "变体颜色", "拉丁字母", "非俄语", "中文字符", "危化品", "不可访问", "全外链", "超出", "无法解析", "标题与类目不一致"])]
         if critical_errors:
             logger.error(f"Ozon预检测发现严重错误: {len(critical_errors)}个")
             return OzonValidateOutput(

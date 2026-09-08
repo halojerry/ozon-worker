@@ -20,22 +20,12 @@ from typing import Optional
 from sqlalchemy import text
 
 from storage.database.db import get_engine
-from utils.cos_uploader import cos_enabled, cos_upload_bytes
+from utils.cos_uploader import cos_enabled, cos_upload_bytes, is_cos_url as _is_cos_url
 
 logger = logging.getLogger(__name__)
 
 MAX_IMAGES = 5
 DOWNLOAD_TIMEOUT = 10
-
-
-def _is_cos_url(url: str) -> bool:
-    """判断是否已是 COS 公网 URL(幂等,避免重复转存)。"""
-    if not isinstance(url, str):
-        return True
-    lowered = url.strip().lower()
-    if not lowered:
-        return True
-    return ".myqcloud.com" in lowered or "cos." in lowered
 
 
 def _mirror_one(url: str, prefix: str = "draft-images") -> Optional[str]:
