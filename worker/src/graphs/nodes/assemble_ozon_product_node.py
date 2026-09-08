@@ -582,6 +582,21 @@ def _is_skill_authoritative(_source: str, _namespace: str, skill_l0_hit: dict | 
     return _authoritative
 
 
+def resolve_1688_source_category_id(draft, source) -> str:
+    """1688 数字类目 cid 双源解析（纯函数，可单测；v0.71）。
+
+    读序：draft.source_category_id（契约主键位）→ source.category_id（图搜
+    match_category_id 透出，discover/follow 信封都有）。对齐 learning_record_node:368 /
+    follow_sell_import_node:284 的既有双源读法——此前 assemble 的 L0 cid 直查只读
+    draft，图搜通道的 cid 恒查不到（L0 学习表转不起来的读侧断点）。
+    返回去掉空白的字符串；两源皆无 → ''。
+    """
+    _d = draft if isinstance(draft, dict) else {}
+    _s = source if isinstance(source, dict) else {}
+    return str(_d.get("source_category_id") or "").strip() \
+        or str(_s.get("category_id") or "").strip()
+
+
 def _place_skill_candidate(candidates: list[dict], skill_hit: dict | None,
                            authoritative: bool) -> list[dict]:
     """skill 直采候选入池位置（纯函数，可单测）。
@@ -1511,9 +1526,13 @@ def assemble_ozon_product_node(
     _r2b_cross_top = False   # ✅ v0.69 T0.3: 跨大类高置信采纳旗标（进 category_match_meta 审计）
 
     # ✅ v4: L0 学习缓存查找（在候选选择前，命中则跳过 overlap 验证）
+    # ✅ v0.71: source_category_id 双源兜底（draft → state.source）——对齐
+    # learning_record_node:368 / follow_sell_import_node 的既有读法。1688 数字
+    # cid 跨店铺稳定可泛化；AK 详情通道无数字时图搜 cid 随 source.match_category_id
+    # 进来，此处不兜底则 L0 的 cid 直查恒空（学习表转不起来的断点之一）。
     l0_hit = _match_category_layered(
         query, source_category, source_keywords, keywords, candidates, leaf_name,
-        source_category_id=draft.get("source_category_id"),
+        source_category_id=resolve_1688_source_category_id(draft, getattr(state, "source", None)) or None,
     ) if source_category else None
     # ✅ v0.63/v0.65.1-P1-1: Skill 类目来源信任分级 —
     #   仅 page/mapping/what_to_sell/manual（+widget 路径精配）为权威：match_layer=Skill，
@@ -3123,10 +3142,22 @@ def _validate_and_enrich_items(
                             if resp.status_code == 200:
                                 search_data = resp.json()
                                 search_result = search_data.get("result", [])
-                                if search_result and len(search_result) > 0:
-                                    dict_val_id = search_result[0].get("id", 0)
-                                    matched_value = search_result[0].get("value", "")
-                                    logger.info(f"   ✅ /values/search 匹配: attr={attr_id}, '{value}' → id={dict_val_id}, value='{matched_value}'")
+                                # ✅ v0.71 盲填清理：只认精确命中（搜索词=商品自身值）。
+                                # 此前 search_result[0] 盲采——Ozon 模糊排序首位常是
+                                # 同大类其他小类值（attr_value_matcher「绝不盲补首值」
+                                # 纪律），错值直达 Ozon；未命中交由 prepare 消歧/填充链。
+                                _needle = str(value).strip().lower()
+                                _exact = next((
+                                    r for r in search_result
+                                    if isinstance(r, dict)
+                                    and str(r.get("value") or "").strip().lower() == _needle
+                                ), None)
+                                if _exact is not None:
+                                    dict_val_id = _exact.get("id", 0)
+                                    matched_value = _exact.get("value", "")
+                                    logger.info(f"   ✅ /values/search 精确匹配: attr={attr_id}, '{value}' → id={dict_val_id}, value='{matched_value}'")
+                                elif search_result:
+                                    logger.info(f"   ⏭️ /values/search 无精确命中（{len(search_result)} 个模糊候选不盲采）: attr={attr_id}, value='{value}'，交由 prepare 消歧")
                                 else:
                                     # 中文搜不到 → 翻译后俄语再搜
                                     logger.info(f"   ⚠️ /values/search 无结果: attr={attr_id}, value='{value}'，尝试翻译后搜索")
@@ -3239,13 +3270,26 @@ def _validate_and_enrich_items(
                             )
                             _results = _resp.get("result", [])
                             if _results:
-                                first = _results[0]
-                                validated_attrs.append({
-                                    "complex_id": 0, "id": TYPE_ATTR_ID,
-                                    "values": [{"dictionary_value_id": first.get("id", 0), "value": first.get("value", "")}],
-                                })
-                                found = True
-                                logger.info(f"   🎯 attr 8229 API搜索匹配: {type_name} → {first.get('value', '')} (dict_id={first.get('id')})")
+                                # ✅ v0.71 盲填清理：精确命中优先；无精确时仅唯一结果兜底
+                                # （type_name=俄语类目末级词，唯一返回=高置信；多个模糊
+                                # 候选盲采首位是 8229「套娃」错值的残留通道）
+                                _tn = str(type_name).strip().lower()
+                                _hit = next((
+                                    r for r in _results
+                                    if isinstance(r, dict)
+                                    and str(r.get("value") or "").strip().lower() == _tn
+                                ), None)
+                                if _hit is None and len(_results) == 1:
+                                    _hit = _results[0]
+                                if _hit is not None:
+                                    validated_attrs.append({
+                                        "complex_id": 0, "id": TYPE_ATTR_ID,
+                                        "values": [{"dictionary_value_id": _hit.get("id", 0), "value": _hit.get("value", "")}],
+                                    })
+                                    found = True
+                                    logger.info(f"   🎯 attr 8229 API搜索匹配: {type_name} → {_hit.get('value', '')} (dict_id={_hit.get('id')})")
+                                else:
+                                    logger.info(f"   ⏭️ attr 8229 API搜索 {len(_results)} 个候选无精确命中不盲采: '{type_name}'")
                         except Exception as _api_e:
                             logger.debug(f"   attr 8229 API搜索失败: {_api_e}")
                     if not found:
