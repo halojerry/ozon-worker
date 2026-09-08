@@ -1,6 +1,6 @@
 """v0.67 wave 实证缺陷修复回归（TDD）。
 
-两个 P1（2026-09-06 wave 测试 docs/TEST-v067-wave-plan.md 实测发现）：
+两个 P1（2026-09-06 wave 测试 archive/docs/legacy/TEST-v067-wave-plan.md 实测发现）：
 1. 佣金缓存 0% 污染——A6 approved 后 `_backfill_category_commission` 把
    prices 响应缺 commissions 块解析出的 0 照样 upsert（dc=17028746
    fbs_leq_5000=0），而 `resolve_commission_rate` 只判 `pct is not None`

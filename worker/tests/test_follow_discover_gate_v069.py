@@ -1,6 +1,6 @@
 """v0.69 P-B + P-D(worker 半) — follow_sell_import_node 类目门控仲裁 + discover 变体跳过 import-by-sku。
 
-生产取证（docs/TEST-v067-wave-plan.md Wave D，10 单实锤）：
+生产取证（archive/docs/legacy/TEST-v067-wave-plan.md Wave D，10 单实锤）：
   - discover 信封（follow_sell=True 无 follow_type）的类目解析发生在本节点内部，
     完全绕过 assemble 的 R2b 四段闸/vision/R1：pg_trgm sim≥0.5 直采（俄语源词
     「Тепловое оборудование」→ 医用 Рециркулятор sim=0.500 恰好过线）、1688 类目

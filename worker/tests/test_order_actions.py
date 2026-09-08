@@ -1,6 +1,6 @@
 """P1-2: 订单写入操作测试（备货发货 / 取消原因 / 取消订单，mock ozon_post）。
 
-验收门（docs/PRD-order-actions-v0.49.md §四）：
+验收门（archive/docs/legacy/PRD-order-actions-v0.49.md §四）：
 1. ship：请求体断言（packages/posting_number）+ 成功 + 无默认店铺 400 + Ozon 失败 502
 2. cancel-reasons：成功 [{id,title}] + 失败 502
 3. cancel：请求体断言（cancel_reason_id）+ 成功 + 失败 502

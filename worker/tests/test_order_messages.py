@@ -1,6 +1,6 @@
 """P2c: 订单消息发送测试（chat/start + send/message + 模板 + 记录）。
 
-验收门（docs/PRD-order-message-v0.53.md §四）：
+验收门（archive/docs/legacy/PRD-order-message-v0.53.md §四）：
 1. chat/start → send/message 两步请求体断言
 2. 模板列表（3 种内置）+ 占位符替换
 3. 消息长度校验（空 422 / 超长截断 1000）

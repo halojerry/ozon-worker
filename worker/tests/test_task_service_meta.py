@@ -1,6 +1,6 @@
 """P0-2: task_service._payload_meta 上架方式字段提取测试。
 
-验收门（docs/PRD-task-record-v0.46.md §五）：
+验收门（archive/docs/legacy/PRD-task-record-v0.46.md §五）：
 1. update_mode = extensions.update_product_id 存在
 2. parent_task_id = payload.parent_task_id（重上来源标记）
 3. 敏感字段（token/api_key）绝不出现在 meta

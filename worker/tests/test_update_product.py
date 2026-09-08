@@ -1,6 +1,6 @@
 """T14: 在线商品改图全量重传端点测试（真实 PG + mock Ozon API）。
 
-验收门（docs/PLAN-webui-v1.md §5 T14）：
+验收门（archive/docs/legacy/PLAN-webui-v1.md §5 T14）：
 1. 重传 payload 含 product_id / offer_id / 新 images（断言捕获的 import body）
 2. 死 URL 过滤（mock check_url_alive → 不可达 URL 不进 payload）
 3. status 迁移 pending_moderation（ozon_product_tasks 行 status 断言）

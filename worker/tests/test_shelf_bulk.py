@@ -1,6 +1,6 @@
 """P1a: 在线商品批量操作测试（mock ozon_post 请求体断言）。
 
-验收门（docs/PRD-product-bulk-v0.52.md §四）：
+验收门（archive/docs/legacy/PRD-product-bulk-v0.52.md §四）：
 1. bulk-prices：请求体 prices 数组透传 + 成功 + 无默认 400 + 502
 2. bulk-stocks：请求体 stocks 透传
 3. bulk-archive：archive=true → /archive；false → /unarchive；product_id 转 int

@@ -1,6 +1,6 @@
 """P1b: 多店铺差异化配置测试（模板 store_overrides 覆盖注入）。
 
-验收门（docs/PRD-listing-template-v0.44.md §二 + P1b 扩展）：
+验收门（archive/docs/legacy/PRD-listing-template-v0.44.md §二 + P1b 扩展）：
 1. create/update 支持 store_overrides 校验（非法 config 拒绝）
 2. apply_template_to_envelope：credential_id 有覆盖 → 覆盖值优先于全局 config
 3. 无覆盖的店铺 → 用全局 config

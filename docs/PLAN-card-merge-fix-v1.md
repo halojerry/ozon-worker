@@ -20,7 +20,7 @@ Ozon 把两张卡判定为同一商品并合并的依据有四类：
 | # | 依据 | 说明 |
 |---|---|---|
 | ① | **EAN / 厂商货号一致** | 上传时 barcodes/EAN 相同 → 同商品 |
-| ② | **属性 9048（型号名称）一致** | 同品牌 + 同类目 + 除颜色/尺寸外属性全一致 → 合并（官方帮助 + OpenAPI 规范，见 `docs/PLAN-multi-sku-optimization.md` §1.2） |
+| ② | **属性 9048（型号名称）一致** | 同品牌 + 同类目 + 除颜色/尺寸外属性全一致 → 合并（官方帮助 + OpenAPI 规范，见 `archive/docs/legacy/PLAN-multi-sku-optimization.md` §1.2） |
 | ③ | **「合并至一张卡片」属性** | 商家后台手动合并操作 |
 | ④ | **相似商品自动识别** | 标题/图片高相似触发；`SPU_ALREADY_EXISTS_IN_ANOTHER_ACCOUNT` / `DUPLICATES` 错误码在实测中踩过 |
 
@@ -155,7 +155,7 @@ hash = sha1(normalize(supplier) + "|" + normalize(source_title))[:8]
 ## 7. 验收标准
 
 1. **跨卖家不并卡**：同一 1688 item、不同供应商的信封 → 生成的 9048 值不同；真实店铺实测上传后不并入彼此卡。
-2. **自家多 SKU 不变**：自家多变体信封 → 9048 一致；24h 后 `model_info.count == N`（自家卡合并行为不变，对齐 `docs/PLAN-multi-sku-optimization.md` 实测基线）。
+2. **自家多 SKU 不变**：自家多变体信封 → 9048 一致；24h 后 `model_info.count == N`（自家卡合并行为不变，对齐 `archive/docs/legacy/PLAN-multi-sku-optimization.md` 实测基线）。
 3. **hash 确定性**：retry / repair_prepare 触发后 9048 值不变（同一信封重跑 N 次值一致）。
 4. **告警**：生图失败回退 1688 原图时日志出现并卡风险 warning。
 5. **上架前检测**：标题高相似命中时返回「差异化重上 / 确认跟卖」选择，不静默提交。

@@ -1,6 +1,6 @@
 """v0.51: 管理员面板测试（mock Supabase users + 真实 PG 聚合）。
 
-验收门（docs/PRD-admin-panel-v0.51.md §四）：
+验收门（archive/docs/legacy/PRD-admin-panel-v0.51.md §四）：
 1. 管理员判定：role=admin → True；role=user → False；本地 local_dev → True
 2. overview 聚合：用户数/店铺数/任务数/成功率
 3. 用户列表拼装：Supabase users + PG 店铺/任务数

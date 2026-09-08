@@ -1,6 +1,6 @@
 """P0-1: 上架配置模板 service 层测试（listing_templates 表 CRUD + 注入语义）。
 
-验收门（docs/PRD-listing-template-v0.44.md §五）：
+验收门（archive/docs/legacy/PRD-listing-template-v0.44.md §五）：
 1. CRUD + 租户隔离（A 看不到 B）
 2. 设默认清旧默认（每租户最多一个 is_default）
 3. config 白名单拒绝非法 key + 数值边界校验

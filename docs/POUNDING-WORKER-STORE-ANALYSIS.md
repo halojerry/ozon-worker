@@ -1,8 +1,11 @@
 # Pounding ⇆ Ozon Worker 店铺分析对接文档
 
-> 本仓库（pounding-harness）从 **ozon-worker 的 store-analysis 批次**（`harness-store-analysis-prd.md`）接入
+> 本仓库（pounding-harness）从 **ozon-worker 的 store-analysis 批次**接入
 > 「店铺分析（读）+ 店铺执行（写）」两条新端点。本文件是**对接手册**——harness 前端/网关侧怎么接、
 > 已有哪些代理、需要补什么。
+>
+> PRD 底稿未入库（.omo/plans/harness-store-analysis-prd.md，本地）；落地端点见
+> `GET /api/v1/stores/{credential_id}/analysis` 与 `POST /api/v1/stores/{credential_id}/actions`（v0.60 后已合入）。
 
 ---
 
