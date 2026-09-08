@@ -37,9 +37,7 @@ def is_product_image_candidate(url: object) -> bool:
     # 拒缩略/转换后缀
     if lowered.endswith(".webp") or ".jpg_.webp" in lowered:
         return False
-    if _THUMBNAIL_PATTERN.search(lowered):
-        return False
-    return True
+    return not _THUMBNAIL_PATTERN.search(lowered)
 
 
 def filter_product_images(urls: Iterable[object]) -> List[str]:

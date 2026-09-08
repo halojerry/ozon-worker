@@ -1750,11 +1750,9 @@ def _analyze_pids(cdp_url: str, pids: list[str], *,
         _discover_workers,
         _is_branded,
         _is_known_brand,
-        _parse_filter_expr,
         _passes_base_filter,
     )
 
-    extra_rules = _parse_filter_expr(base_filter) if base_filter else None
     candidates: list[ProductCandidate] = []
 
     def _apply_filters(candidate: ProductCandidate) -> None:
