@@ -24,8 +24,9 @@ from scripts.lib.ozon_discovery import ProductCandidate  # noqa: E402
 
 def _args(**kw) -> argparse.Namespace:
     base = dict(url="https://www.ozon.ru/highlight/tovary-iz-kitaya-935133/",
-                keyword="", target_count=10, filter_profile=None, base_filter="",
-                min_margin=15.0, fx_rate=0.075, match_limit=30,
+                keyword="", target_count=10, max_scan=300, filter_profile=None,
+                base_filter="",
+                min_margin=15.0, fx_rate=0.075, match_limit=None,
                 match_concurrency=1, no_match_streak_stop=5, store="",
                 to_box=False, dry_run=True, resume=False, no_analytics=False,
                 export="")

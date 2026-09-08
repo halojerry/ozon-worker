@@ -72,6 +72,7 @@ _QUESTION_NEED_OBJECT = "请提供 1688 链接 / Ozon 链接 / 商品图片 / �
 _QUESTION_TREND = "请提供品类，我先 web_search 分析趋势再 discover"
 _QUESTION_CATEGORY = "请提供品类关键词（如：宠物用品）"
 _QUESTION_IMAGE = "请提供商品图片（URL 或本地路径）"
+_QUESTION_TARGET_COUNT = "要多少个符合要求的产品？（控制采集/达标数量，缺省 50；也可直接说「选品 30个 宠物用品」）"
 
 
 def normalize_intent(text: str) -> str:
@@ -103,6 +104,17 @@ def _extract_keyword(text: str) -> str:
     for s in _STOPWORDS:
         kw = kw.replace(s, " ")
     return "".join(kw.split())
+
+
+def _extract_count(text: str) -> tuple[str, str]:
+    """提取「N个」数量词，返回 (剩余文本, 数量字符串或空)。
+
+    数量词不进关键词（否则「选品 30个 宠物用品」的关键词会带 30个）。
+    """
+    m = re.search(r"(\d+)\s*个", text)
+    if not m:
+        return text, ""
+    return text[:m.start()] + " " + text[m.end():], m.group(1)
 
 
 def _extract_urls(text: str) -> list[tuple[str, str]]:
@@ -173,21 +185,31 @@ def route_intent(text: str) -> dict:
                       questions=[] if kw else [_QUESTION_CATEGORY])
 
     # 任务式全自动选品（漏斗 v2 discover-task）：缺省 dry_run 零副作用，
-    # 无需确认；真实入箱由 agent 二次调用 to_box=True（触发 dsh 审批）
+    # 无需确认；真实入箱由 agent 二次调用 to_box=True（触发 dsh 审批）。
+    # v0.70 目标驱动：用户没说数量必须先问（--target-count=达标数），说了直接带参。
     if any(w in raw for w in _AUTO_TASK_WORDS):
-        kw = _extract_keyword(raw)
-        if kw:
-            return _route("C2", "discover_task", ["--keyword", kw])
-        return _route("C2", "discover_task", [], needs_clarification=True,
-                      questions=[_QUESTION_CATEGORY])
+        rest, cnt = _extract_count(raw)
+        kw = _extract_keyword(rest)
+        args = (["--keyword", kw] if kw else []) + \
+               (["--target-count", cnt] if cnt else [])
+        if cnt:
+            return _route("C2", "discover_task", args)
+        questions = [_QUESTION_TARGET_COUNT] + ([] if kw else [_QUESTION_CATEGORY])
+        return _route("C2", "discover_task", args, needs_clarification=True,
+                      questions=questions)
 
-    # 跟卖/蓝海/选品/采集 → C（discover 跟卖选品，仅采集不提交，无需确认）
+    # 跟卖/蓝海/选品/采集 → C（discover 跟卖选品，仅采集不提交，无需确认）。
+    # v0.70：「N个」数量词 → --max-products；未说数量先追问（目标不明确宁可问）。
     if any(w in raw for w in _FOLLOW_WORDS + _SELECT_WORDS + _COLLECT_WORDS):
-        kw = _extract_keyword(raw)
-        if kw:
-            return _route("C", "discover", ["--keyword", kw])
-        return _route("C", "discover", [], needs_clarification=True,
-                      questions=[_QUESTION_CATEGORY])
+        rest, cnt = _extract_count(raw)
+        kw = _extract_keyword(rest)
+        args = (["--keyword", kw] if kw else []) + \
+               (["--max-products", cnt] if cnt else [])
+        if cnt:
+            return _route("C", "discover", args)
+        questions = [_QUESTION_TARGET_COUNT] + ([] if kw else [_QUESTION_CATEGORY])
+        return _route("C", "discover", args, needs_clarification=True,
+                      questions=questions)
 
     if any(w in raw for w in _SEARCH_WORDS):
         kw = _extract_keyword(raw)

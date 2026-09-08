@@ -80,22 +80,50 @@ def test_router_trend_requires_clarification():
 
 
 def test_router_auto_task_to_pipeline_c2():
-    """「自动采集/无人值守」→ C2 + discover_task（漏斗 v2 任务式；dry_run 缺省零副作用无确认）。"""
+    """「自动采集/无人值守」→ C2 + discover_task（漏斗 v2 任务式；dry_run 缺省零副作用无确认）。
+
+    v0.70 目标驱动：未说数量 → 追问目标（不直接执行）。"""
     r = route_intent("帮我自动采集宠物饮水机")
     assert r["pipeline"] == "C2"
     assert r["command"] == "discover_task"
     assert "--keyword" in r["args"]
     assert "宠物饮水机" in r["args"]
     assert r["needs_confirmation"] is False
+    assert r["needs_clarification"] is True
+    assert any("多少个" in q for q in r["questions"])
+
+
+def test_router_auto_task_with_count_runs_direct():
+    """「自动选品 30个 宠物用品」→ 数量词转 --target-count 且不污染关键词，直接执行。"""
+    r = route_intent("自动选品 30个 宠物用品")
+    assert r["pipeline"] == "C2"
+    assert r["command"] == "discover_task"
+    assert r["needs_clarification"] is False
+    assert "--target-count" in r["args"]
+    assert r["args"][r["args"].index("--target-count") + 1] == "30"
+    kw = r["args"][r["args"].index("--keyword") + 1]
+    assert "宠物用品" in kw and "30" not in kw and "个" not in kw
 
 
 def test_router_auto_task_no_object_clarifies():
-    """「无人值守」无品类 → C2 + 追问（无可提取关键词）。"""
+    """「无人值守」无品类 → C2 + 追问（无可提取关键词；目标+品类都问）。"""
     r = route_intent("无人值守")
     assert r["pipeline"] == "C2"
     assert r["command"] == "discover_task"
     assert r["needs_clarification"] is True
     assert r["questions"]
+
+
+def test_router_discover_with_count_maps_max_products():
+    """「选品 50个 宠物用品」→ C + discover --max-products 50（关键词不带数量词）。"""
+    r = route_intent("选品 50个 宠物用品")
+    assert r["pipeline"] == "C"
+    assert r["command"] == "discover"
+    assert r["needs_clarification"] is False
+    assert "--max-products" in r["args"]
+    assert r["args"][r["args"].index("--max-products") + 1] == "50"
+    kw = r["args"][r["args"].index("--keyword") + 1]
+    assert "宠物用品" in kw and "50" not in kw
 
 
 def test_router_empty_unknown():
