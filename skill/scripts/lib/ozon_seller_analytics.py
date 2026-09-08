@@ -481,51 +481,100 @@ def _close_seller_tab(cdp, tab, reused: bool) -> None:
         pass
 
 
+def _read_seller_cookies_silent(cdp) -> dict[str, str]:
+    """零导航静默读 seller.ozon.ru cookie（about:blank + Network.getCookies）。
+
+    对齐 1688 probe_alibaba_login 模式（readiness.py）：登录态持久存在工具
+    profile 的 cookie 罐里，检测不需要 seller 页面在场。CDP 网络域可读
+    HttpOnly cookie（sc_company_id），比 document.cookie 更可靠。
+
+    任何异常 → {}（调用方按未登录处理，走既有降级）。
+    """
+    tab = None
+    try:
+        tab = cdp.new_tab("about:blank")
+        msg_id = tab._send("Network.getCookies", {"urls": [SELLER_URL]})
+        resp = tab._recv_until_id(msg_id, timeout=10) or {}
+        cookies: dict[str, str] = {}
+        for c in (resp.get("result", {}).get("cookies") or []):
+            name = c.get("name", "")
+            val = c.get("value")
+            if name and val not in (None, ""):
+                cookies[name] = str(val)
+        return cookies
+    except Exception as exc:
+        logger.debug("静默读取 seller cookie 失败（按未登录处理）: %s", exc)
+        return {}
+    finally:
+        if tab is not None:
+            try:
+                tab.close()
+            except Exception:
+                pass
+
+
 def check_seller_login(cdp) -> bool:
     """检测 seller.ozon.ru 卖家后台登录态（运营数据可用性）。
 
+    ✅ v0.69 silent-first 根治「seller 页反复打开」：纯 cookie 罐读取、零导航。
+    此前走 _tab_for_seller——找不到 seller Tab 就先开页再判，而
+    wait_for_seller_login 每 5s 轮询即每 5s 重开一次；用户关页又被弹回。
+    （原 Network.getCookies 兜底误把 tab._send 返回的 msg_id 当响应用，
+    恒 AttributeError 被吞——检测实际全靠 document.cookie，本重写顺带修正。）
+
     登录成功 → sc_company_id cookie 存在。返回 True/False。
-    优先复用用户已打开的 seller Tab；否则新建检测。
+    未登录时**不开任何页面**——开登录页是 wait_for_seller_login 的职责
+    （只开一次），检测永远静默。
     """
-    tab, reused = None, False
-    try:
-        tab, reused = _tab_for_seller(cdp)
-        company_id = ""
-        try:
-            company_id = str(tab.evaluate(_GET_COMPANY_ID_JS, timeout=10) or "")
-        except Exception:
-            pass
-        if not company_id:
-            try:
-                cookies = tab._send("Network.getCookies", {"urls": [SELLER_URL]})
-                for c in (cookies.get("cookies") or []):
-                    if c.get("name") == "sc_company_id":
-                        company_id = str(c.get("value") or "")
-                        break
-            except Exception:
-                pass
-        return bool(company_id)
-    except Exception:
-        return False
-    finally:
-        _close_seller_tab(cdp, tab, reused)
+    if seller_login_confirmed_recently():
+        return True
+    cookies = _read_seller_cookies_silent(cdp)
+    ok = bool(cookies.get("sc_company_id"))
+    if ok:
+        mark_seller_login_confirmed()
+    return ok
 
 
-# ── 进程内登录 memo（readiness 预检接线）──
+# ── 登录确认 memo（进程内 + 落盘双层）──
 # 一次命令内 seller 登录可能被多条路径各查/各等一次（蓝海路径+富化路径）：
-# 未登录时每处最多黑等 300s。memo 三键：确认成功（30min 内免复查）、
+# 未登录时每处最多黑等 300s。进程内 memo 两键：确认成功（30min 内免复查）、
 # 等待已尝试（3min 内只复查不再等——readiness 已给过登录窗口）。
+# ✅ v0.69 补落盘层：此前每条 CLI 命令都是新进程、memo 归零，跨命令零复用。
+# 落盘 TTL 600s 与 readiness 缓存对齐（登录态本身可能过期，不宜更长）。
 _LOGIN_CONFIRMED_MONO = 0.0
 _WAIT_ATTEMPTED_MONO = 0.0
+_LOGIN_CONFIRM_DISK_TTL = 600
+
+
+def _under_pytest() -> bool:
+    """pytest 下禁用落盘缓存（防测试结果跨进程/跨用例污染真实 data/cache）。"""
+    import os
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
 
 
 def mark_seller_login_confirmed() -> None:
     global _LOGIN_CONFIRMED_MONO
     _LOGIN_CONFIRMED_MONO = time.monotonic()
+    if _under_pytest():
+        return
+    try:
+        from scripts.lib.cache import cache_set
+        cache_set("seller_login", "confirmed", {"ok": True},
+                  ttl=_LOGIN_CONFIRM_DISK_TTL)
+    except Exception:
+        pass
 
 
 def seller_login_confirmed_recently(ttl: float = 1800.0) -> bool:
-    return _LOGIN_CONFIRMED_MONO > 0 and (time.monotonic() - _LOGIN_CONFIRMED_MONO) < ttl
+    if _LOGIN_CONFIRMED_MONO > 0 and (time.monotonic() - _LOGIN_CONFIRMED_MONO) < ttl:
+        return True
+    if _under_pytest():
+        return False
+    try:
+        from scripts.lib.cache import cache_get
+        return cache_get("seller_login", "confirmed") is not None
+    except Exception:
+        return False
 
 
 def mark_seller_login_wait_attempted() -> None:
@@ -542,9 +591,11 @@ def wait_for_seller_login(cdp, *, timeout_seconds: int = 300, poll_interval: flo
 
     v0.63.3 修复用户反馈「还没等登录就把页面关掉/直接退出」：此前 discover 未登录
     直接 return、queries 静默降级本地 CSV——用户没有任何窗口时间登录卖家后台。
+    ✅ v0.69：轮询体走 silent 检测（纯 cookie 罐，零导航）——登录页只在开头
+    打开一次，用户中途关页不再被每 5s 弹回（「seller 页反复打开」主根因）。
 
     行为：
-    - 已登录 → 立即 True（不打扰）。
+    - 已登录 → 立即 True（不打扰，零导航）。
     - 未登录 → 复用/新建 seller tab 并**保留不关**（登录面归用户），轮询登录态。
     - 有终端（TTY，人工在跑）：等待下限 300s；超时后按 Enter 继续等（不限时），
       Ctrl+C 放弃。
@@ -929,13 +980,46 @@ def _fetch_seller_session_cookies(cdp_url: str = "http://127.0.0.1:9222") -> dic
 
 # DataDome 挑战短路窗口（秒）：seller.ozon.ru 对纯 HTTP 客户端风控收紧时
 # 全部直调 403（fab_chlg 挑战），窗口内 direct 系函数直接降级 CDP 不再试。
+# ✅ v0.69 落盘：此前只存进程内全局，每条 CLI 命令新进程归零 → 下一条命令
+# 重新撞挑战再导航，参与制造「seller 页反复打开」。落盘后跨命令短路生效。
 _DIRECT_BLOCK_SECONDS = 600
 _DIRECT_BLOCKED_UNTIL = 0.0
+_DIRECT_BLOCK_CACHE_NS = "seller_direct"
+_DIRECT_BLOCK_CACHE_KEY = "blocked_until"
 
 
 def _direct_blocked() -> bool:
     """短路窗口内 → True（direct 系函数应直接降级 CDP 路径）。"""
-    return time.time() < _DIRECT_BLOCKED_UNTIL
+    global _DIRECT_BLOCKED_UNTIL
+    if time.time() < _DIRECT_BLOCKED_UNTIL:
+        return True
+    if _under_pytest():
+        return False
+    try:
+        from scripts.lib.cache import cache_get
+        cached = cache_get(_DIRECT_BLOCK_CACHE_NS, _DIRECT_BLOCK_CACHE_KEY)
+        if isinstance(cached, dict):
+            until = float(cached.get("until") or 0)
+            if time.time() < until:
+                _DIRECT_BLOCKED_UNTIL = until  # 回填进程内，免反复读盘
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _mark_direct_blocked() -> None:
+    """置短路窗口（进程内 + 落盘）。"""
+    global _DIRECT_BLOCKED_UNTIL
+    _DIRECT_BLOCKED_UNTIL = time.time() + _DIRECT_BLOCK_SECONDS
+    if _under_pytest():
+        return
+    try:
+        from scripts.lib.cache import cache_set
+        cache_set(_DIRECT_BLOCK_CACHE_NS, _DIRECT_BLOCK_CACHE_KEY,
+                  {"until": _DIRECT_BLOCKED_UNTIL}, ttl=_DIRECT_BLOCK_SECONDS)
+    except Exception:
+        pass
 
 
 def _seller_direct_post(path: str, body: dict, cookies: dict[str, str],
@@ -944,11 +1028,10 @@ def _seller_direct_post(path: str, body: dict, cookies: dict[str, str],
 
     ⚠️ 漏斗 v2 收尾实测：seller.ozon.ru 对纯 HTTP 客户端有 DataDome 挑战
     （403 + body 含 fab_chlg/challengeURL）——信任态好的会话能过，风控收紧时
-    全挂。命中挑战即置 10 分钟短路标记，避免「直调失败→CDP 导航」循环制造
-    seller 页反复打开。Returns (data, ok)。
+    全挂。命中挑战即置 10 分钟短路标记（v0.69 起落盘，跨命令生效），避免
+    「直调失败→CDP 导航」循环制造 seller 页反复打开。Returns (data, ok)。
     """
-    global _DIRECT_BLOCKED_UNTIL
-    if time.time() < _DIRECT_BLOCKED_UNTIL:
+    if _direct_blocked():
         # 挑战短路窗口内：直接失败，调用方走 CDP 路径
         return {}, False
     company_id = str(cookies.get("sc_company_id") or "")
@@ -973,7 +1056,7 @@ def _seller_direct_post(path: str, body: dict, cookies: dict[str, str],
     if resp.status_code == 403:
         body_head = str(getattr(resp, "text", "") or "")[:150]
         if "challenge" in body_head or "fab_chlg" in body_head:
-            _DIRECT_BLOCKED_UNTIL = time.time() + _DIRECT_BLOCK_SECONDS
+            _mark_direct_blocked()
             logger.warning(
                 "seller 直调命中 DataDome 挑战（%s），%ds 内 direct 系短路走 CDP。body: %s",
                 path, _DIRECT_BLOCK_SECONDS, body_head)

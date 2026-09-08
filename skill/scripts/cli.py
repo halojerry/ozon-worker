@@ -1408,6 +1408,7 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
         export_to_csv,
         export_to_json,
         match_selected,
+        split_selection_rules,
     )
 
     print(f"\n📊 采集完成: {len(candidates)} 个产品（全量已落盘 {DISCOVERY_CACHE_DIR}/）")
@@ -1433,11 +1434,17 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
 
     if args.rules:
         try:
-            selected = apply_selection_rules(candidates, args.rules)
+            # ✅ v0.69 两段式：挑选期只跑采集期字段（ai 预设/月销/跟卖…）；
+            # margin 等匹配期字段留到 1688 匹配后二次筛（此前 pre-match 恒 0.0
+            # → "ai,margin>=20" 全灭 0/30）。
+            _pre_rules, _match_rules = split_selection_rules(args.rules)
+            selected = (apply_selection_rules(candidates, _pre_rules)
+                        if _pre_rules else list(candidates))
         except ValueError as e:
             print(f"❌ 规则错误: {e}")
             return 1
-        print(f"\n🎯 规则筛选: {len(selected)}/{len(candidates)} 个命中", flush=True)
+        print(f"\n🎯 规则筛选(挑选期): {len(selected)}/{len(candidates)} 个命中",
+              flush=True)
     else:
         selected = _interactive_select(candidates)
         if selected is None:
@@ -1494,6 +1501,18 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
     except KeyboardInterrupt:
         print("\n⚠️ 用户中断")
         return 0
+
+    # ── 匹配期规则二次筛选（margin 等：匹配后才有真值）──
+    if args.rules:
+        try:
+            _match_rules = split_selection_rules(args.rules)[1]
+        except ValueError:
+            _match_rules = ""
+        if _match_rules:
+            _before = len(selected)
+            selected = apply_selection_rules(selected, _match_rules)
+            print(f"\n🎯 匹配期规则({_match_rules}): {_before} → {len(selected)} 个",
+                  flush=True)
 
     # ── 结果展示 ──
     print("\n📊 阶段 3/3：货源分析结果\n")
@@ -2561,6 +2580,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     clp.add_argument("--all", action="store_true", help="执行全部清理项")
     clp.set_defaults(func=cmd_cleanup)
 
+    # ── 跨浏览器 cookie 导入（v0.69，用户拍板：自动兜底 + 手动命令）──
+    icp = sub.add_parser("import-cookies",
+                         help="扫描本机浏览器 1688/Ozon 登录 cookie 导入工具 Chrome（免重复登录）")
+    icp.add_argument("--sources", default="",
+                     help="逗号分隔源（chrome,edge,brave,firefox,safari；默认全部）")
+    icp.add_argument("--list-sources", action="store_true",
+                     help="列出支持的浏览器源后退出")
+    icp.set_defaults(func=cmd_import_cookies)
+
     return parser
 
 
@@ -2990,7 +3018,9 @@ def cmd_report(args: argparse.Namespace) -> int:
             payload = resp.json()
         except Exception:
             payload = None
-        if resp.status_code >= 400 or not isinstance(payload, dict) or not payload.get("ok"):
+        # 服务端真实响应是 {"status": "ok", report_id, tasks_attached}，兼容 ok 形态
+        if (resp.status_code >= 400 or not isinstance(payload, dict)
+                or not (payload.get("ok") or payload.get("status") == "ok")):
             reason = (
                 (payload or {}).get("message")
                 if isinstance(payload, dict) else None
@@ -3183,6 +3213,72 @@ def _cleanup_cache(dry_run: bool = False) -> dict[str, int]:
         return {"removed": 0, "bytes_freed": 0, "errors": 0, "files": total}
     removed = cache_mod.cache_clear(None)
     return {"removed": removed, "bytes_freed": 0, "errors": 0}
+
+
+_STATUS_LABELS = {
+    "ok": "✅",
+    "not_installed": "⊘ 未安装",
+    "keychain_denied": "🔑 Keychain 未授权（重跑并在弹窗点「始终允许」）",
+    "no_disk_access": "🛡 需「完全磁盘访问权限」（系统设置 → 隐私与安全性）",
+    "parse_error": "⚠️ 解析失败（跳过）",
+    "error": "⚠️ 读取异常（跳过）",
+}
+
+
+def cmd_import_cookies(args: argparse.Namespace) -> int:
+    """跨浏览器 cookie 导入（v0.69）：扫描本机浏览器已有的 1688/Ozon 登录 cookie
+    → 注入工具 Chrome → 用现有登录检测验证。
+
+    解决「日常浏览器明明登录过，工具窗口还要再登录一次」——工具 Chrome 是独立
+    profile（Chrome 130+ 禁止默认目录开调试端口），本命令把登录态搬进来。
+    失败自动回落人工登录流程：在工具 Chrome 打开 seller.ozon.ru / 1688.com 登录即可。
+    """
+    from scripts.lib import cookie_harvest
+
+    if getattr(args, "list_sources", False):
+        print("可用源: " + ", ".join(cookie_harvest.ALL_SOURCES) + "（仅 macOS）",
+              flush=True)
+        return 0
+    sources = [s.strip() for s in (getattr(args, "sources", "") or "").split(",")
+               if s.strip()]
+    print("🔎 扫描本机浏览器 cookie（仅 1688.com / ozon.ru / ozone.ru 域）...",
+          flush=True)
+    report = cookie_harvest.harvest_and_import(sources=sources or None)
+    scan = report.get("scan") or {}
+    if scan.get("platform") == "unsupported":
+        print(f"❌ {scan.get('message')}", flush=True)
+        return 1
+
+    total = 0
+    for name, r in (scan.get("sources") or {}).items():
+        status = r.get("status", "error")
+        n = len(r.get("cookies") or [])
+        total += n
+        print(f"  {name:>8}: {_STATUS_LABELS.get(status, status)}"
+              f"{f'（{n} 条）' if n else ''}", flush=True)
+
+    if not total:
+        print("\n未发现可导入的登录 cookie。请在工具 Chrome 登录一次"
+              "（seller.ozon.ru / 1688.com），登录态会常驻。", flush=True)
+        return 1
+
+    injected = report.get("injected") or {}
+    if injected.get("ok"):
+        print(f"📥 已注入工具 Chrome: {injected.get('message')}", flush=True)
+    else:
+        print(f"❌ 注入失败: {injected.get('message')}", flush=True)
+        return 1
+
+    verified = report.get("verified") or {}
+    for domain, label in (("1688", "1688 登录"), ("seller", "seller 卖家后台")):
+        mark = "✅" if verified.get(domain) else "—"
+        print(f"  验证 {label}: {mark}", flush=True)
+    if any(verified.values()):
+        print("完成。后续命令免登录直接跑。", flush=True)
+        return 0
+    print("cookie 已注入但登录判据未命中（会话可能已过期/风控挑战）。"
+          "请按原流程在工具 Chrome 登录。", flush=True)
+    return 1
 
 
 def cmd_cleanup(args: argparse.Namespace) -> int:
