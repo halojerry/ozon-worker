@@ -183,6 +183,11 @@ def _has_cjk(text: str) -> bool:
     return bool(_CJK_RE.search(str(text or "")))
 
 
+# v0.70 品牌属性键（俄语名）：预组装不生成品牌（防侵权红线，管线会无条件
+# 强制 Нет бренда，AI 预填品牌只会造成「填了又被替换」的困惑）
+_BRAND_ATTR_KEYS = {"85", "5076", "Бренд", "Наименование бренда"}
+
+
 def _merge_ru_attributes(base: dict, generated: dict, protected_keys: set) -> dict:
     """RU 属性合并：generated 键并入 base 副本；protected_keys（既有 RU/中文键）不覆盖。
 
@@ -369,6 +374,12 @@ def assemble_draft(payload: dict, token: str) -> dict:
                 protected = set(base.keys())
                 if isinstance(src_attrs, dict):
                     protected |= set(src_attrs.keys())
+                # v0.70 防护：剥掉品牌键（85=Бренд/5076=Наименование бренда）——
+                # AI 生成的品牌值会被管线「无条件强制 Нет бренда」替换造成困惑，
+                # 且品牌是防侵权红线，预组装不碰（与管线强制语义一致）
+                ru_attrs = {k: v for k, v in ru_attrs.items()
+                            if str(k).strip() not in _BRAND_ATTR_KEYS
+                            and not any(b in str(k) for b in ("Бренд", "бренд"))}
                 draft["ozon_attributes"] = _merge_ru_attributes(base, ru_attrs, protected)
                 assembled.append("attributes")
     except Exception as exc:

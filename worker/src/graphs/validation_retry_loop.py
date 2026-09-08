@@ -11,6 +11,15 @@
 #   - WEIGHT_DIMENSION_ERROR → repair_prepare（规则修正）
 #   - INVALID_CATEGORY → error_repair_llm（查类目树 + LLM匹配）
 #   - 未知错误码 → error_repair_llm（LLM智能分析）
+#
+# ⚠️ 改前必读（v0.70 采集箱即权威）：extensions.box_reviewed=True 的草稿是
+# 采集箱人工审核过的成品卡——本子图对其只做合规修复（中文属性翻译/数值
+# sanitize/8229 专道/缺失属性补全），禁用自主重配：R4 换类目
+# （_try_recategorize_card 恒 False）、LLM 标题/描述重写与强制标题生成
+# （error_repair_llm 内三处 gate）。拒审原文走 moderation_texts 留存，
+# 改内容由用户在采集箱改后 resubmit。新增「改写用户可见内容」的修复分支前
+# 必须先过 _box_reviewed(state) gate，否则违背所见即所得契约
+# （tests/test_box_reviewed_authority_v070.py 锁定）。
 # ============================================================
 
 import os
@@ -66,6 +75,10 @@ class ValidationRetryLoopState(BaseModel):
     dictionary_values: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict, description="字典值数据")
     learned_attributes: Dict[str, Any] = Field(default_factory=dict, description="已学习的属性映射")
     pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格信息")
+    # ✅ v0.70 采集箱即权威：信封 extensions 透传进子图（box_reviewed 等）——
+    # ⚠️ langgraph 按节点 Input model 过滤 channel，Input/State 两处都必须声明
+    # 才能被子图节点读到（state.py ValidationRetryWrapperInput 同步声明）
+    extensions: Dict[str, Any] = Field(default_factory=dict, description="信封 extensions（box_reviewed 等）")
 
     # 循环状态
     retry_count: int = Field(default=0, description="当前重试次数")
@@ -138,6 +151,8 @@ class ValidationRetryLoopInput(BaseModel):
     pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格信息")
     # ✅ v0.66.1 discover 类目学习闭环: 主图 category_match_meta 透传进子图（R4 重配后更新）
     category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="类目匹配元数据（主图透传，R4 重配后置 R2b）")
+    # ✅ v0.70 采集箱即权威：信封 extensions（box_reviewed）透传进子图
+    extensions: Dict[str, Any] = Field(default_factory=dict, description="信封 extensions（box_reviewed 等）")
     # ⚠️ PR-1 (D3): 跨入口累积重试次数 — wrapper 从 GlobalState 传入，子图在此基础上继续
     retry_count: int = Field(default=0, description="已累计重试次数（跨入口不重置）")
 
@@ -916,12 +931,29 @@ def _mark_category_negative_feedback(state) -> None:
         logger.warning(f"category_mapping 负反馈失败(非致命): {_e}")
 
 
+def _box_reviewed(state) -> bool:
+    """v0.70 采集箱即权威：信封 extensions.box_reviewed=True 的草稿是人工审核过
+    的成品卡——管线对其只做合规修复（中文属性翻译/数值 sanitize/8229 专道），
+    禁用自主重配（R4 换类目/标题描述重写）。拒审原文走 moderation_texts 留存，
+    用户在采集箱改完 resubmit。"""
+    try:
+        return bool((state.extensions or {}).get("box_reviewed"))
+    except Exception:
+        return False
+
+
 def _try_recategorize_card(state: ValidationRetryLoopState) -> bool:
     """R4 整卡类目重配：1688 源词搜索(R1/R2 后) → 采纳 → _rebuild_for_new_category。
 
     成功返回 True 并更新 state（dc/type/payload/final_attributes/schema）；
     无解/无变化返回 False（交既有修复链，DESCRIPTION_DECLINE 由调用方 hard-block）。
+    ⚠️ v0.70 box_reviewed（采集箱草稿）恒返回 False——用户审核过的类目管线不重
+    决策，类目错配拒审如实 failed 留原文，改类目由用户在采集箱改后 resubmit。
     """
+    if _box_reviewed(state):
+        logger.warning("R4 重配: box_reviewed 草稿禁用自主换类目（采集箱即权威），"
+                       "拒审原文留存，请用户在采集箱修改类目后 resubmit")
+        return False
     try:
         draft = state.draft or {}
         if not isinstance(draft, dict):
@@ -1786,6 +1818,18 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 repaired_title: str = llm_result.get("corrected_title", "") or llm_result.get("repaired_title", "")
                 repair_explanation: str = llm_result.get("repair_explanation", "") or llm_result.get("explanation", "")
 
+                # ✅ v0.70 采集箱即权威：box_reviewed 草稿禁用 LLM 标题/描述重写——
+                # 用户在采集箱审核过的文案管线不改，拒审原文经 _accumulate_decline_errors
+                # 留存，改文案由用户在采集箱改后 resubmit。属性值修复（合规修复，
+                # repaired_value）照常写回。
+                if _box_reviewed(state):
+                    if repaired_title:
+                        logger.info("✂️ box_reviewed 草稿丢弃 LLM 标题重写（采集箱即权威）")
+                        repaired_title = ""
+                    if repaired_desc:
+                        logger.info("✂️ box_reviewed 草稿丢弃 LLM 描述重写（采集箱即权威）")
+                        repaired_desc = ""
+
                 # ✅ v0.8.0 标题修复增强：确保修复后的标题为俄语
                 if repaired_title:
                     repaired_title = sanitize_title(repaired_title)
@@ -1858,7 +1902,8 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                     repair_type = "attribute"
 
                 # ✅ v0.8.0: LLM未生成标题但错误涉及名称缺失 → 强制生成俄语标题
-                if not repaired_title and (
+                # ✅ v0.70: box_reviewed 草稿跳过强制标题生成（采集箱即权威，用户文案不改）
+                if not repaired_title and not _box_reviewed(state) and (
                     error_code == "UNKNOWN"
                     or (state.error_message and any(kw in str(state.error_message).lower() for kw in ["名称", "name", "название", "标题", "title"]))
                     or attr_id == 0

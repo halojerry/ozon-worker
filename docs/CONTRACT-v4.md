@@ -113,7 +113,7 @@
 - **透传字段（上架值=预填值，管线预填即用）**：`draft.title` ← 俄语（原值挪
   `draft.title_source` 留档；prepare 检测西里尔跳过翻译）、`draft.description` ← 俄语
   （同理跳过翻译）、`draft.ozon_attributes` ← 合并 RU 键值（已有同键不覆盖；已有内容
-  整体跳过——跟卖竞品属性不混源）。
+  整体跳过——跟卖竞品属性不混源；品牌键 85/5076/Бренд 剥离不生成——防侵权红线）。
 - **展示字段（管线不消费）**：`draft.suggested_category`（类目建议，仅供 UI 展示/
   采用；**绝不写 `draft.ozon_category`**，不劫持 manual/L0/LLM 仲裁链；用户点采用
   才按 source=manual 走权威直通）、`draft.estimated_pricing`（三档估价 RUB；定价
@@ -121,6 +121,19 @@
 - 价格口径：日常价 price / 划线价 old_price＝上架时设在商品卡；促销底价
   promo_price＝min_price 语义（促销活动防线，经 /v1/product/import/prices 补送）；
   促销价本身在 Ozon 卖家后台 Акции 模块设置。
+
+**采集箱即权威（v0.70 — `extensions.box_reviewed` 硬语义）**:
+
+- `submit_draft` 提交时在信封 `extensions` 注入 `box_reviewed=True`——采集箱提交
+  = 人工审核过的成品卡，管线语义：
+  - **用户给过的原样用**：类目（manual 权威直通 + Step 6.5 一致性重配豁免）、
+    标题/描述（prepare 西里尔透传）、已填属性（只补缺不重算）；
+  - **自主重配禁用**：R4 整卡换类目、error_repair_llm 标题/描述重写、强制标题
+    生成都跳过——拒审如实 failed + `moderation_texts` 留俄语原文，用户在采集箱
+    改完 resubmit（人工决策闭环）；
+  - **合规修复保留**：中文属性翻译、数值 sanitize、8229 类型专道、R1 敏感 veto、
+    树校验硬阻断、ozon_validate 写前校验——这些保护账号，不属于覆写。
+- 无 box_reviewed（skill 直连管线）行为逐字不变。
 
 **基础 URL**: `http://<worker-host>:8080`
 

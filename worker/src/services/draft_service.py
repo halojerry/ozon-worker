@@ -732,9 +732,15 @@ async def submit_draft(
     existing_stores, confirm_required = _cross_store_scan(tenant_id, draft_id, client_id)
 
     payload_envelope = envelope
+    # v0.70 采集箱即权威：采集箱提交 = 人工审核过的成品卡。管线对其只做合规
+    # 修复（中文属性翻译/数值 sanitize/R1·树校验闸）+ 补全缺失，禁用自主重配
+    # （R4 换类目/标题描述重写）——用户在采集箱看到什么，上架就是什么。
+    payload_ext = payload_envelope.setdefault("extensions", {})
+    payload_ext["box_reviewed"] = True
     if update_product_id:
         payload_envelope = copy.deepcopy(envelope)
         payload_ext = payload_envelope.setdefault("extensions", {})
+        payload_ext["box_reviewed"] = True
         payload_ext["update_product_id"] = update_product_id
         if update_offer_id:
             payload_ext["update_offer_id"] = update_offer_id

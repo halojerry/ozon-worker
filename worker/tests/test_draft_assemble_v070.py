@@ -30,6 +30,8 @@ CN_TITLE = "跨境爆款 宠物自动饮水器 静音循环过滤"
 RU_TITLE = "Автопоилка для животных, тихая, с фильтрацией"
 RU_DESC = "Тихая автопоилка для домашних животных с фильтрацией воды."
 RU_ATTRS = {"Цвет": "Белый", "Материал": "Пластик", "Бренд": "Нет бренда"}
+# v0.70 品牌剥离契约：LLM 返回的品牌键（85/5076/Бренд）被剥掉，不得进 ozon_attributes
+RU_ATTRS_NO_BRAND = {"Цвет": "Белый", "Материал": "Пластик"}
 RU_TAGS = "автопоилка, домашние животные, тихая"
 CN_TAGS = "宠物饮水,自动,循环"
 CAT_ROW = {
@@ -135,7 +137,8 @@ def test_assemble_chinese_title_empty_description(monkeypatch):
     assert draft["title"] == RU_TITLE
     assert draft["title_source"] == CN_TITLE, "原中文标题必须挪 title_source 留档"
     assert draft["description"] == RU_DESC, "空描述必须由标题+属性材料合成 RU"
-    assert draft["ozon_attributes"] == RU_ATTRS
+    assert draft["ozon_attributes"] == RU_ATTRS_NO_BRAND, \
+        "品牌键（Бренд）必须被剥离——防侵权红线，管线会无条件强制 Нет бренда"
     assert draft["tags"] == RU_TAGS
     assert result["assembled"] == ["title", "description", "attributes", "tags"]
     assert result["skipped"] == []
@@ -181,7 +184,8 @@ def test_attributes_merged_new_keys_written(monkeypatch):
     })
     result = afs.assemble_draft(payload, "mxou-key")
 
-    assert payload["draft"]["ozon_attributes"] == RU_ATTRS
+    assert payload["draft"]["ozon_attributes"] == RU_ATTRS_NO_BRAND, \
+        "品牌键剥离（v0.70 防侵权红线）"
     assert "attributes" in result["assembled"]
     # 中文源 attributes 保持原样（管线兜底源不动）
     assert payload["draft"]["attributes"] == {"颜色": "白色", "材质": "ABS"}
