@@ -42,6 +42,36 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）。
 
+## 最近更新（未发版 — 类目/属性匹配靶向修复：值数出口闸 + 类目真值进信封 + L0 cid 断点）
+
+> 2026-09-08。**未发版**（VERSION 四源仍 0.70.0）。三方调查（skill 数据源/worker
+> 匹配链/ozon MCP 契约）后靶向修复用户三抱怨：1688 选品没看类目匹配 / Ozon 选品
+> 不复用 Ozon 类目 / 属性瞎填与多值拒单。**不改架构，只接断点**——权威优先+闸门
+> +L0 的信任序（v0.65~0.70 资产）零改动。详见 CHANGELOG「未发版」。
+
+- **值数出口闸（8229 多值拒单根治）**：新 `worker/src/utils/attr_value_sanitize.py`
+  唯一入口 `cap_attribute_values`——cap 取 Ozon 属性 schema 的 **`max_value_count`
+  字段**（attribute_cache 原样存了整个响应但此前全库零消费）；非集合=1；
+  **8229 契约恒 1**；集合无上限声明不设限。接线四处：prepare `_fill_optional_dict_attrs`
+  根因行（`chosen=hits` 全量塞命中）、prepare 载荷出口、retry flat 合并、retry
+  `attributes/update` 重发前（此前原样重发烧轮次）。`ATTRIBUTE_VALUE_COUNT_EXCEEDED`
+  不再误判类目错走 R4；ozon_validate 本地拦截。**改任何往 Ozon 发属性 values 的
+  路径前必须过这个闸。**
+- **discover 类目真值进信封**：widget JS 补读 breadCrumbs（零额外调用）→ 候选带
+  `page_category_path/web_category_id`；`_apply_discover_page_truth` 覆盖 bug 修复
+  （数字 dc/tp 优先级 candidate(what_to_sell) > draft search_kw 猜测 > page 路径
+  先验——此前 page Web-ID 空壳会把 graph 猜对的数字覆盖掉）；follow 信封接
+  `_inject_discovery_match_category`（图搜 1688 cid 透出）。CONTRACT-v4 已登记
+  source=page 语义澄清。
+- **L0 cid 断点（读+写）**：assemble 补 `resolve_1688_source_category_id` 双源
+  （draft → state.source.category_id，对齐 learning_record 先例）；`add_category_mapping`
+  同 (cid,dc,tp) 异措辞行归并不再裂行（success_count 不再被稀释）。
+- **盲填归一**：assemble `/values/search` 两处 top-1 盲采改 exact-only/唯一兜底、
+  prepare 缓存包含匹配改精确压倒——错填→不填是有意方向，宁缺毋滥单一事实源
+  归到 attr_value_matcher。
+- 测试：worker 2086 / skill 810；新 `test_attr_value_sanitize_v071`（10）+
+  `test_category_key_v071`（7）+ skill `test_category_truth_v071`（7）。
+
 ## 最近更新（未发版 — 文档体系收口：过期归档 + API 两层文档 + CI 防漂移 + MCP/harness 对齐）
 
 > 2026-09-08。**未发版**（VERSION 四源仍 0.70.0），不改业务逻辑。维护面收敛为
