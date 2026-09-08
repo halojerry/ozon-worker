@@ -1,11 +1,21 @@
 # Changelog
 
-## [0.70.0] — 2026-09-09（未发版：v0.69.0 tag 待 discover gate，本批在其上继续开发）
+## [0.70.0] — 2026-09-08
 
 > 四个用户问题落地：①错误报告模板进 skill 才能被 agent 用；②数据库不迁 Supabase
 > （取证读通道替代——worker PG 热库跨境延迟不可接受）；③采集箱用户配置类目/属性
 > 按用户配置上传（两个权威缺口修复 + webui 编辑 UI 补齐）；④属性缓存全量化 +
-> schema 歧义审计。测试基线：worker 2036 / skill 776 / pounding-mcp 41（25 工具）。
+> schema 歧义审计。v0.69.0 未单独 tag（discover gate 已于 09-08 通过：3 单提交
+> 测试店、2 单真 approved、L1 面包屑仲裁命中竞品真实类目、零假 completed），随本版
+> 一起发。测试基线：worker 2047 / skill 810（套件 23min→1.5min）/ pounding-mcp 41（25 工具）。
+>
+> **gate 终态补记（2026-09-08 Ozon 侧异步审核回查）**：恢复路径重提的两卡
+> （6264521298/6264526616）终态 validation fail，错误均为既有已知问题类、非本批
+> 回归（恢复路径只动 images/primary_image 不动属性）：①8229（Тип 集合属性）多值
+> 超上限 `ATTRIBUTE_VALUE_COUNT_EXCEEDED`——「8229 字典值获取失败」的显形新形态；
+> ②垃圾源卡 `INCORRECT_DIMENSION (vwc)`——0.68.1 已知 A3 尺寸×重量交叉校验残余
+> （draft 1300g/18000cm³ 密度 0.07）。修复本身（图片恢复→加速域名→CREATE→
+> product_id）已实证工作。
 
 ### 错误报告通道进 skill
 - 新 `skill/references/error-report.md`（agent 纪律：何时报/三条通道/字段速查/红线）
@@ -60,7 +70,13 @@
   的 `id::text = :x` 查询走索引）+ `draft_submissions.submitted_task_id` 普通索引；
   `docs/ARCHITECTURE-TOPOLOGY.md` progress「表」漂移修正为 JSONB 列。
 
-## [0.69.0] — 2026-09-08（版本已就位，tag 待实机 discover gate 通过后打）
+### 测试基建
+- 新 `skill/tests/conftest.py` autouse 登录夹具：enrich 链路测试 mock 了抓取层
+  但没 mock 登录层，`wait_for_seller_login`（默认 300s）在 `time.sleep` 被 mock
+  空转时每用例纯 CPU 烧满超时（全量套件 23 分钟主因，曾误判死循环）；夹具默认
+  视为已登录，登录专项测试（7 文件排除清单）保持真实语义。套件 23min → ~5min。
+
+## [0.69.0] — 2026-09-08（未单独 tag，随 v0.70.0 一起发版；discover gate 已通过）
 
 > 生产实机反馈 17 项问题（`data/official_feedback_20260907.md`）+ 类目链 Wave D 收尾。
 > 全部 TDD + 本地 Docker 构造单实证（S1 manual 直通/clamp/8962 清洗、S2 弃权入箱幂等、
