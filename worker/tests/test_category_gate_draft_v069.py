@@ -331,11 +331,12 @@ def test_19_r1_veto_and_title_empty_exits_do_not_box():
     i_title = src.index("产品标题为空，无法进行类目匹配")
     title_block = src[i_title:i_title + 400]
     assert "_blocked_exit" not in title_block and "_maybe_create_blocked_draft" not in title_block
-    # 其余出口已接线入箱（共 7 处；v0.69 Wave4 T2.4 新增受限品类双命中出口，
-    # 经 _restricted_category_exit 统一走 _blocked_exit）
+    # 其余出口已接线入箱（共 8 处；v0.69 Wave4 T2.4 新增受限品类双命中出口，
+    # 经 _restricted_category_exit 统一走 _blocked_exit；v0.70 新增 manual 类目
+    # 树校验失败显式阻断出口——用户指定 dc/tp 无效时应阻断入箱转人工改配）
     assert src.count("asm._blocked_exit(") == 0  # 模块内不带前缀调用
-    assert src.count("_blocked_exit(") - src.count("def _blocked_exit(") == 7, \
-        "阻断出口入箱接线数应为 7"
+    assert src.count("_blocked_exit(") - src.count("def _blocked_exit(") == 8, \
+        "阻断出口入箱接线数应为 8（v0.70 manual 校验失败出口 +1）"
 
 
 def test_20_follow_layer_never_creates_draft():

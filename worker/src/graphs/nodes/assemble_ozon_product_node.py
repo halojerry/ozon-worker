@@ -619,6 +619,17 @@ def _skill_precedence_over_l0(l0_hit: dict | None, skill_l0_hit: dict | None,
     """
     if not skill_l0_hit:
         return False
+    # ✅ v0.70 P2: manual（用户明确指定 dc/tp）恒接管——含与 L0 dc/tp 一致场景。
+    # 一致场景此前返回 False 保留 L0，弱档 L0（learned succ==1）仲裁失败会把类目
+    # 丢成 L1 文本匹配，用户指定被无感知换掉；manual 采纳后 match_layer=Skill，
+    # Step 6.5/R2b/受限闸全线豁免。page/what_to_sell/mapping 维持原判定。
+    if skill_source == "manual":
+        if l0_hit:
+            logger.info(
+                f"   ✅ manual 用户指定类目恒接管(含 L0 一致场景): "
+                f"[{skill_l0_hit['description_category_id']}/{skill_l0_hit['type_id']}]"
+            )
+        return True
     if not l0_hit:
         logger.info(
             f"   ✅ Skill类目覆盖(权威 source={skill_source} namespace={skill_namespace}): "
@@ -1257,6 +1268,17 @@ def assemble_ozon_product_node(
         _skill_authoritative = _is_skill_authoritative(
             _skill_source, _skill_namespace, _skill_l0_hit,
         )
+        # ✅ v0.70 P1: manual 类目树校验失败 → 显式阻断，不再静默退回自动匹配。
+        # 用户明确指定的 dc/tp 校验不过就被无感知丢弃 = 按 worker 猜的类目上架，
+        # 违背「用户配置即上传」契约。page/what_to_sell/mapping/search_kw 维持
+        # 原回落行为（校验不过退 pg_trgm 是 v0.63 语义，非用户指定场景不阻断）。
+        if _skill_l0_hit is None and _skill_source == "manual":
+            _dc_raw = str(draft_ozon_cat.get("description_category_id", ""))
+            _tp_raw = str(draft_ozon_cat.get("type_id", ""))
+            _reason = (f"用户指定类目(dc={_dc_raw}, tp={_tp_raw})不在 Ozon 类目树中，"
+                       f"已阻断：请修正类目后重试（采集箱改配或 skill CLI --category-id/--type-id）")
+            logger.error(f"   🛑 manual 类目校验失败: {_reason}")
+            return _blocked_exit(state, draft, [], _reason, match_confidence=0.0)
         if _skill_l0_hit:
             logger.info(f"✅ 直采类目(来自 Skill search_categories, 已校验): "
                         f"dc={_skill_l0_hit['description_category_id']} "
