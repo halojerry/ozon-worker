@@ -129,6 +129,11 @@ def ozon_validate_node(
         sa for sa in attributes_schema
         if isinstance(sa, dict) and sa.get("is_required") and sa.get("id") is not None
     ]
+
+    # ✅ v0.71 值数闸索引：按 schema max_value_count/is_collection 校验每属性
+    # values 数量（prepare 出口闸已裁，这里防 retry 重建/旧载荷绕行）
+    from utils.attr_value_sanitize import build_schema_index, resolve_value_cap
+    _vcap_index = build_schema_index(attributes_schema)
     
     logger.info(f"开始Ozon上传预检测: payload包含{len(ozon_payload.get('items', []))}个商品")
     
@@ -286,8 +291,7 @@ def ozon_validate_node(
             if not attributes:
                 logger.warning(f"item[{i}].attributes为空（可能缺少属性映射）")
             
-            # ✅ 关键修复：校验字典类型属性是否有有效的dictionary_value_id
-            # ✅ v0.69 Wave3: 循环不再被 dict_attr_ids 非空门槛——数值型属性
+            # ✅ 关键修复：校验字典类型属性是否有有效的dictionary_value_id            # ✅ v0.69 Wave3: 循环不再被 dict_attr_ids 非空门槛——数值型属性
             # （dictionary_id=0）的坏值同样要在本批列出
             for attr in attributes:
                 if not isinstance(attr, dict):
@@ -315,6 +319,19 @@ def ozon_validate_node(
                                 f"item[{i}].attributes: 字典属性(id={attr_id_int})缺少有效的dictionary_value_id"
                             )
                             logger.error(f"❌ 字典属性校验失败: attr_id={attr_id_int}, dictionary_value_id={dict_val_id}")
+
+                # ✅ v0.71 值数闸：非集合属性多值 / 集合属性超 max_value_count
+                # → 本地拦截（ATTRIBUTE_VALUE_COUNT_EXCEEDED 出门前拦下，不再烧重试）
+                _vcap = resolve_value_cap(_vcap_index.get(attr_id_int), attr_id_int)
+                _item_vals = attr.get("values")
+                if _vcap is not None and isinstance(_item_vals, list) and len(_item_vals) > _vcap:
+                    item_errors.append(
+                        f"item[{i}].attributes: 属性(id={attr_id_int})值数 {len(_item_vals)} "
+                        f"超 Ozon 上限 {_vcap}（多值超限会被 ATTRIBUTE_VALUE_COUNT_EXCEEDED 拒单）"
+                    )
+                    logger.error(
+                        f"❌ 值数超限: attr_id={attr_id_int}, values={len(_item_vals)}, cap={_vcap}"
+                    )
 
                 # ✅ v0.69 Wave3 值类型校验：数值型属性（Integer/Decimal/Number…，
                 # 大小写不敏感）必须可解析为数字——复用 attr_numeric_sanitize 唯一
