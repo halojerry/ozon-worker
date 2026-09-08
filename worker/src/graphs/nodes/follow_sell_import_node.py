@@ -280,8 +280,9 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
             if search_text:
                 # ✅ v0.25 T1: 先查 1688→Ozon 类目学习表（数字 ID 优先，curated 确定性数据）
                 try:
-                    from utils.category_mapping_learn import lookup_mapping
-                    _sid = draft.get("source_category_id") or _src.get("category_id")
+                    from utils.category_mapping_learn import lookup_mapping, resolve_1688_source_category_id
+                    # ✅ v0.71: 三源解析（含 source.match_category_id 图搜兜底）
+                    _sid = resolve_1688_source_category_id(draft, _src)
                     _mapped = lookup_mapping(
                         source_category_id=int(_sid) if _sid else None,
                         leaf_name=search_text,

@@ -365,11 +365,10 @@ def learning_record_node(
     # ✅ v0.25 T1: 1688 类目数字 ID（Skill 侧提取，供类目学习回写）
     # ⚠️ v0.66 L0: state.source 已补进 LearningRecordInput（Task0 实证 langgraph 按节点
     # Input schema 过滤 channel，此前 getattr(state,'source') 恒 None → 此处只有 draft 单源）。
-    _src_cat_id: Any = draft.get("source_category_id")
-    if not _src_cat_id:
-        _src_state_src = getattr(state, "source", None) or {}
-        if isinstance(_src_state_src, dict):
-            _src_cat_id = _src_state_src.get("category_id")
+    # ✅ v0.71: 统一走 utils 三源解析（draft → source.category_id → source.match_category_id）
+    # ——wave 实证图搜 cid 在 match_category_id，只读前两源时 approved 学习行 cid 恒空。
+    from utils.category_mapping_learn import resolve_1688_source_category_id as _rk
+    _src_cat_id: Any = _rk(draft, getattr(state, "source", None) or {}) or None
     
     # ✅ 构建attribute_id → attribute_name映射
     attr_name_map: Dict[int, str] = {}

@@ -17,6 +17,30 @@ MIN_SUCCESS_COUNT = 3
 MIN_CONFIDENCE = 0.6
 
 
+def resolve_1688_source_category_id(draft: Any, source: Any) -> str:
+    """1688 数字类目 cid 三源解析（纯函数，可单测；v0.71）。
+
+    读序（都可能是 1688 叶子类目 cid）：
+    ① draft.source_category_id（契约主键位，AK cateId）
+    ② source.category_id（信封 source 契约位）
+    ③ source.match_category_id（图搜通道透出——discover/follow 信封的
+      aibuy/AK 候选 cid 在这里；wave 实证 approved 学习行 cid 空的根因就是
+      只读前两源而图搜 cid 在第三源）
+    返回去空白的字符串；皆无 → ''。
+    """
+    _d = draft if isinstance(draft, dict) else {}
+    _s = source if isinstance(source, dict) else {}
+    for key in ("source_category_id",):
+        v = str(_d.get(key) or "").strip()
+        if v:
+            return v
+    for key in ("category_id", "match_category_id"):
+        v = str(_s.get(key) or "").strip()
+        if v:
+            return v
+    return ""
+
+
 def lookup_mapping(
     source_category_id: Optional[int] = None,
     leaf_name: str = "",

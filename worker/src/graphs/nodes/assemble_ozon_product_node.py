@@ -583,18 +583,10 @@ def _is_skill_authoritative(_source: str, _namespace: str, skill_l0_hit: dict | 
 
 
 def resolve_1688_source_category_id(draft, source) -> str:
-    """1688 数字类目 cid 双源解析（纯函数，可单测；v0.71）。
-
-    读序：draft.source_category_id（契约主键位）→ source.category_id（图搜
-    match_category_id 透出，discover/follow 信封都有）。对齐 learning_record_node:368 /
-    follow_sell_import_node:284 的既有双源读法——此前 assemble 的 L0 cid 直查只读
-    draft，图搜通道的 cid 恒查不到（L0 学习表转不起来的读侧断点）。
-    返回去掉空白的字符串；两源皆无 → ''。
-    """
-    _d = draft if isinstance(draft, dict) else {}
-    _s = source if isinstance(source, dict) else {}
-    return str(_d.get("source_category_id") or "").strip() \
-        or str(_s.get("category_id") or "").strip()
+    """兼容导出：实现在 utils/category_mapping_learn（v0.71 三源版，含
+    source.match_category_id 图搜兜底）。保留模块级名字供既有单测引用。"""
+    from utils.category_mapping_learn import resolve_1688_source_category_id as _impl
+    return _impl(draft, source)
 
 
 def _place_skill_candidate(candidates: list[dict], skill_hit: dict | None,
