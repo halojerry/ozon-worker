@@ -1,5 +1,52 @@
 # Changelog
 
+## [未发版] — 2026-09-08（类目/属性匹配靶向修复：值数出口闸 + 类目真值进信封 + L0 cid 断点）
+
+> 三方调查（skill 数据源/worker 匹配链/ozon MCP 契约）后靶向修复，不整体重构。
+> 用户三抱怨对应：①1688 选品没看类目匹配——cid 读侧断点+L0 裂行；②Ozon 选品
+> 不复用 Ozon 类目——discover 采集期不读面包屑+真值合并覆盖 bug；③属性瞎填/
+> 填不满——8229 集合属性多值拒单 + 三处祖传盲填。测试基线：worker 2086 / skill 810。
+
+### 属性值数出口闸（8229 多值拒单根治，worker）
+- 新 `utils/attr_value_sanitize.py` 唯一入口 `cap_attribute_values`：cap =
+  schema.`max_value_count`（Ozon 属性 schema 自带字段，attribute_cache 原样存储
+  但**此前全库零消费**，mcp__ozon__describe_method 核对）；非集合=1；**8229 契约
+  恒 1**（dict_id==type_id，防旧缓存行缺字段）；集合无上限声明不设限（宁勿误伤
+  合法多值）。
+- 四道接线：prepare `_fill_optional_dict_attrs` 的 `chosen=hits` 截断（根因行
+  :1204）；prepare 载荷出口统一过闸（变体/数量拆分浅拷贝同源生效）；retry flat
+  合并 append 过闸；retry `_fix_via_attributes_update` 重发前过闸（此前原样重发
+  同一多值载荷烧轮次，retry:198「已删多值保留首个」空头描述变真话）。
+- retry 路由：`ATTRIBUTE_VALUE_COUNT_EXCEEDED` 不再被 `_looks_like_category_mismatch`
+  误判类目错走 R4 整卡重配；ozon_validate 本地拦截值数超限（防 retry 重建/旧载荷绕行）。
+
+### 类目真值进信封（skill）
+- `ozon_widget._FETCH_PRODUCT_JS` 补读 breadCrumbs widget（同一 entrypoint-api
+  响应，零额外调用）→ `_derive_category_from_breadcrumbs` 派生 category_path/
+  web_category_id/breadcrumb_language（/category/ 链接过滤 + 品牌段排除，与
+  ozon_scraper 同源 helper）；`ProductCandidate.page_category_path/page_web_category_id`。
+- `_apply_discover_page_truth` 覆盖 bug 修复：数字 dc/tp 优先级 candidate(what_to_sell)
+  > draft 既有 search_kw 猜测 > page 路径先验——此前只看 candidate，page Web-ID
+  空壳会把 graph 阶段 search_kw 猜对的数字 dc/tp 整体覆盖（数字丢失只剩路径文本）。
+  真值二次抓取失败时候选级面包屑兜底（不再单纯依赖 what_to_sell 登录态）。
+- follow 信封接 `_inject_discovery_match_category`（discover v0.66.2 已有）：图搜
+  1688 cid/类目名进 source.match_category_*，worker L0 学习/负反馈可消费。
+- CONTRACT-v4 登记：source=page 的 dc 是 Web 前台面包屑 ID 非 Seller 树（不改字段）。
+
+### 类目链消费补全 + 盲填归一（worker）
+- `resolve_1688_source_category_id` 纯函数：draft.source_category_id →
+  source.category_id 双源解析——assemble 的 L0 cid 直查此前只读 draft（读侧断点，
+  learning_record/follow_import 早有双源先例）。
+- `add_category_mapping` cid 规范化：同 (cid,dc,tp) 不同措辞活跃行归并到原行
+  （succ+1 + leaf 刷最新写法），不再按唯一键 (leaf,dc,tp) 裂行稀释 success_count
+  （L0 学习转不起来的写侧结构性断点；无 DDL）。
+- 盲填清理三处（attr_value_matcher「绝不盲补首值」纪律归一到单一事实源）：
+  assemble `/values/search` 通用字典搜索改 exact-only；assemble 8229 API 搜索改
+  精确优先+唯一结果兜底（套娃错值残留通道）；prepare 缓存包含匹配改精确压倒+
+  唯一命中。错填→不填是有意方向（attr_match_log 可量化缺口）。
+- 新测试：`test_attr_value_sanitize_v071.py` 10 + `test_category_key_v071.py` 7 +
+  skill `test_category_truth_v071.py` 7。
+
 ## [未发版] — 2026-09-08（文档体系收口：过期归档 + API 两层文档 + CI 防漂移 + MCP/harness 对齐）
 
 > 维护面收敛为 worker + skill + MCP + 一套自洽文档；pounding-harness 只做消费方。
