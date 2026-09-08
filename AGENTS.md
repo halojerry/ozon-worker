@@ -634,7 +634,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | 店铺手动同步（v0.56） | `POST /api/v1/stores/{id}/sync` + `GET /stores/{id}/sync-status` | POST/GET |
 | 上架配置模板（v0.56） | `GET/POST/PATCH/DELETE /api/v1/templates` + `POST /templates/{id}/default` | 全 |
 | 店铺凭证管理（v0.41+） | `GET/POST /api/v1/credentials` + `PATCH/DELETE /credentials/{id}` + `POST /credentials/{id}/validate` | 全 |
-| 采集箱草稿（v0.41+） | `GET/POST /api/v1/drafts` + `GET/PATCH/DELETE /drafts/{id}` + `POST /drafts/{id}/submit`（+ `/resubmit`、`/batch-submit`、`/drafts/{id}/ai/{field}`） | 全 |
+| 采集箱草稿（v0.41+） | `GET/POST /api/v1/drafts` + `GET/PATCH/DELETE /drafts/{id}` + `POST /drafts/{id}/submit`（+ `/resubmit`、`/batch-submit`、`/drafts/{id}/ai/{field}`、`/drafts/{id}/assemble`——v0.70 一键 AI 预组装：RU 标题/描述/属性写回 + suggested_category/estimated_pricing 仅展示字段） | 全 |
 | 错误报告（v0.69） | `POST/GET /api/v1/error_reports`（Bearer=mxou key；`?report_id=` 详情、`?status=` 筛选；MCP 工具 `report_issue`/`list_error_reports`；模板 `docs/ERROR-REPORT-TEMPLATE.md`，agent 纪律 `skill/references/error-report.md`） | POST/GET |
 | 任务取证（v0.70） | `GET /api/v1/forensics/task/{task_id}`（任务快照+留存+双审计一站式只读；跨租户 404；MCP 工具 `get_task_forensics`） | GET |
 | 类目树搜索（v0.70） | `GET /api/v1/categories/search?q=&limit=`（ZH_HANS，node_type=type；采集箱 manual 改配数据源） | GET |

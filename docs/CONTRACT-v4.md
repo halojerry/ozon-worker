@@ -105,6 +105,23 @@
 > 这两个端点属于「数据沉淀 + 店铺精细化运营」阶段（**未发版**，VERSION 四源仍 0.60.0）。
 > 详细契约见文末「Part 6: 店铺分析/执行端点 + 数据沉淀表」（2026-08-22 新增）。
 
+**采集箱 AI 预组装（v0.70 — 预填字段语义，与管线零冲突）**:
+
+- `POST /api/v1/drafts/{draft_id}/assemble`：一键生成整卡上架信息写回 payload
+  （`{assembled[], skipped[], suggested_category|, estimated_pricing|, version}`，
+  version++ 乐观锁）。
+- **透传字段（上架值=预填值，管线预填即用）**：`draft.title` ← 俄语（原值挪
+  `draft.title_source` 留档；prepare 检测西里尔跳过翻译）、`draft.description` ← 俄语
+  （同理跳过翻译）、`draft.ozon_attributes` ← 合并 RU 键值（已有同键不覆盖；已有内容
+  整体跳过——跟卖竞品属性不混源）。
+- **展示字段（管线不消费）**：`draft.suggested_category`（类目建议，仅供 UI 展示/
+  采用；**绝不写 `draft.ozon_category`**，不劫持 manual/L0/LLM 仲裁链；用户点采用
+  才按 source=manual 走权威直通）、`draft.estimated_pricing`（三档估价 RUB；定价
+  永远由 pricing_node 按成本+margin 精算）。
+- 价格口径：日常价 price / 划线价 old_price＝上架时设在商品卡；促销底价
+  promo_price＝min_price 语义（促销活动防线，经 /v1/product/import/prices 补送）；
+  促销价本身在 Ozon 卖家后台 Акции 模块设置。
+
 **基础 URL**: `http://<worker-host>:8080`
 
 **通用强制要求**（所有端点）:
