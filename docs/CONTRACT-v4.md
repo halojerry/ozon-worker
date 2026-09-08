@@ -201,6 +201,8 @@
 
 **来源信任**：仅 `source in {page, mapping, what_to_sell}` 视为权威（`match_layer="Skill"`，免门槛）；`search_kw` 一律降为候选，必须过 `_acceptable_match` + 一致性。
 
+⚠️ **v0.71 语义澄清（不改字段）**：`source=page` 时的 `description_category_id` 是 Ozon **Web 前台面包屑类目 ID**（`web_category_id`，面包屑链接 `-(\d+)/`），**不是 Seller 树的 dc**；`type_id` 同值占位、无独立语义。worker 消费 page 源时以 `category_path` 精配为准，不得把该数字当 Seller dc/tp 直查（`_resolve_skill_category` 树校验天然拦住）。discover 数字 dc/tp 优先级：candidate（what_to_sell）> draft 既有 search_kw 猜测 > page 路径先验（`_apply_discover_page_truth`）。
+
 #### 1.1.3 执行逻辑
 
 ```
