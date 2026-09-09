@@ -241,3 +241,65 @@ def test_pool_hit_wires_category_name_zh(monkeypatch):
     od._enrich_with_seller_metrics([cand], None, "http://127.0.0.1:9222")
 
     assert cand.category == "美容和卫生 > 洗发水"
+
+
+# ---------------------------------------------------------------------------
+# 终审修复（2026-09-10）：陈旧池行（needs_sales_sync=True）不得抑制 CDP 刷新。
+# 裁定：字段照填（聊胜于无），但不登记 enriched / 不计命中——候选留在
+# remaining，CDP 直采照跑。
+# ---------------------------------------------------------------------------
+
+
+def test_enrich_pool_stale_hit_fills_but_routes_cdp(monkeypatch):
+    """陈旧池行 + CDP map 有该 sku：池值先填、CDP 刷新值覆盖——enriched 登记
+    CDP 行（非池行），且 giveback 照常发生（CDP map 物化未被跳过）。"""
+    from scripts.lib import ozon_seller_analytics as osa
+
+    stale_payload = {"sku": "777", "sold_count": 3, "has_sales_data": True}
+    monkeypatch.setattr(mpc, "query_sku_metrics",
+                        lambda skus, **kw: {"777": _pool_metric(
+                            stale_payload, sku=777, needs_sales_sync=True)})
+    monkeypatch.setattr(osa, "get_seller_session_cookies", lambda url: {})
+    monkeypatch.setattr(osa, "check_seller_login", lambda cdp: True)
+    monkeypatch.setattr(osa, "wait_for_seller_login", lambda cdp, **kw: True)
+    cdp_map = {"777": {"sku": "777", "sold_count": 12, "has_sales_data": True}}
+    monkeypatch.setattr(osa, "fetch_bestseller_metrics_map",
+                        lambda cdp, **kw: dict(cdp_map))
+    monkeypatch.setattr(mpc, "report_seller_sync",
+                        lambda items, **kw: len(items))  # giveback 不触网
+
+    cand = od.ProductCandidate(ozon_product_id="777", ozon_title="t",
+                               ozon_price=500.0)
+    enriched = od._enrich_with_seller_metrics(
+        [cand], object(), "http://127.0.0.1:9222")
+
+    assert cand.monthly_sales == 12      # CDP 刷新值，不是池的陈旧 3
+    assert enriched == cdp_map           # enriched 登记的是 CDP 行
+
+
+def test_enrich_pool_stale_hit_keeps_fields_when_cdp_misses(monkeypatch):
+    """陈旧池行 + CDP 全程无该 sku：池值保留（聊胜于无），但 enriched 不登记
+    池行（返回值保持「池未命中」语义）。"""
+    from scripts.lib import ozon_seller_analytics as osa
+
+    stale_payload = {"sku": "888", "sold_count": 3, "has_sales_data": True}
+    monkeypatch.setattr(mpc, "query_sku_metrics",
+                        lambda skus, **kw: {"888": _pool_metric(
+                            stale_payload, sku=888, needs_sales_sync=True)})
+    monkeypatch.setattr(osa, "get_seller_session_cookies", lambda url: {})
+    monkeypatch.setattr(osa, "check_seller_login", lambda cdp: True)
+    monkeypatch.setattr(osa, "wait_for_seller_login", lambda cdp, **kw: True)
+    monkeypatch.setattr(osa, "fetch_bestseller_metrics_map",
+                        lambda cdp, **kw: {})            # CDP map 未命中
+    monkeypatch.setattr(osa, "fetch_sales_analytics",
+                        lambda cdp, pids, **kw: {})      # 逐 SKU 降级也未命中
+    monkeypatch.setattr(mpc, "report_seller_sync", lambda items, **kw: 0)
+
+    cand = od.ProductCandidate(ozon_product_id="888", ozon_title="t",
+                               ozon_price=500.0)
+    enriched = od._enrich_with_seller_metrics(
+        [cand], object(), "http://127.0.0.1:9222")
+
+    assert cand.monthly_sales == 3       # 陈旧池值仍在（数据聊胜于无）
+    assert cand.has_analytics is True
+    assert enriched == {}                # 但池侧不登记——不算命中

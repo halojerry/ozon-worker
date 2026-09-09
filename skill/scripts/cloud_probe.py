@@ -2790,6 +2790,11 @@ def _apply_pool_variant_weight(draft: dict, candidate) -> None:
     查池失败/无真值/weight 非正 → 零改动（byte-identical）。env
     ``METRICS_POOL_QUERY=0`` 一键关（与 discover 富化池同一开关）；查询超时
     收紧 3s——信封组装在提交关键路径上，池只许锦上添花不许拖提交。
+
+    终审裁定（2026-09-10）：UGC 重量 sanity 闸——接受域 [10, 200_000]g
+    （Ozon 契约 10g 下限，对齐 worker normalizer 的 10g floor；200kg 天花板）。
+    界外值视为无真值：不写 weight、不打标（byte-identical），UGC 垃圾数据
+    不得进信封。
     """
     if os.environ.get("METRICS_POOL_QUERY") == "0":
         return
@@ -2800,7 +2805,7 @@ def _apply_pool_variant_weight(draft: dict, candidate) -> None:
         from scripts.lib.metrics_pool_client import query_sku_metrics
         metric = (query_sku_metrics([sku], timeout=3.0) or {}).get(sku) or {}
         weight_g = int((metric.get("variant_payload") or {}).get("weight_g") or 0)
-        if weight_g <= 0:
+        if not (10 <= weight_g <= 200_000):
             return
     except Exception as exc:  # noqa: BLE001 — 池失败永不影响信封组装
         logger.debug("池 variant 重量跳过: %s", exc)
