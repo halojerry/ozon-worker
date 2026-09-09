@@ -671,7 +671,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 
 - **`extensions`** — 定价配置: `{margin_rate, commission_rate, fx_buffer}`(可选,默认 0.25/0.10/0.05)
 - **`extensions.follow_sell`** — 跟卖标记: Worker 走跟卖管线
-- **`extensions.discovery_meta`** — discover 选品元数据快照（蓝海分/月销/利润率/匹配置信度等 ~18 键，缺失键省略）：worker 零消费**整包透传**（payload JSONB 随任务/草稿留存），采集箱 webui/CSV 展示选品依据；改信封组装见 `cloud_probe._assemble_discovery_meta`（漏斗 v2，契约详见 CONTRACT-v4 §1.1.1 表）
+- **`extensions.discovery_meta`** — discover 选品元数据快照（蓝海分/月销/利润率/跟卖利润/划线价/国内运费等 ~37 键，缺失键省略；未发版批新增 follow_profit_cny/follow_margin/ozon_old_price/match_1688_freight_cny——对标上品帮选品记录）：worker 零消费**整包透传**（payload JSONB 随任务/草稿留存），采集箱 webui/CSV 展示选品依据；改信封组装见 `cloud_probe._assemble_discovery_meta`（漏斗 v2，契约详见 CONTRACT-v4 §1.1.1 表）
 - **`extensions.competitor_ref_images`** — 跟卖竞品主图快照（串图修复引入）：skill 写入、worker 暂零消费（预留语义位），**绝不进 `draft.images`/生图参考链**；登记于 CONTRACT-v4 §1.1.1
 
 > ⚠️ **关键约定:**
@@ -706,6 +706,8 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | 采集箱草稿（v0.41+） | `GET/POST /api/v1/drafts` + `GET/PATCH/DELETE /drafts/{id}` + `POST /drafts/{id}/submit`（+ `/resubmit`、`/batch-submit`、`/drafts/{id}/ai/{field}`、`/drafts/{id}/assemble`——v0.70 一键 AI 预组装：RU 标题/描述/属性写回 + suggested_category/estimated_pricing 仅展示字段） | 全 |
 | 错误报告（v0.69） | `POST/GET /api/v1/error_reports`（Bearer=mxou key；`?report_id=` 详情、`?status=` 筛选；MCP 工具 `report_issue`/`list_error_reports`；模板 `docs/ERROR-REPORT-TEMPLATE.md`，agent 纪律 `skill/references/error-report.md`） | POST/GET |
 | 任务取证（v0.70） | `GET /api/v1/forensics/task/{task_id}`（任务快照+留存+双审计一站式只读；跨租户 404；MCP 工具 `get_task_forensics`） | GET |
+| 店铺会话代管（未发版） | `POST/GET/DELETE /api/v1/credentials/{id}/session`（skill `session-sync` CDP 收割上传；AES-GCM 存储不回显 cookie 值；GET 只回名单+状态；DELETE 204） | 全 |
+| 会话直调分析（未发版） | `GET /api/v1/analytics/what-to-sell?credential_id=&sku=&limit=`（服务端持会话直调 seller what_to_sell v3；401/403/302→会话标 expired+409；无会话 404 提示先 session-sync） | GET |
 | 类目树搜索（v0.70） | `GET /api/v1/categories/search?q=&limit=`（ZH_HANS，node_type=type；采集箱 manual 改配数据源） | GET |
 | 类目属性缓存（v0.70） | `GET /api/v1/categories/attributes?dc=&tp=`（**缓存只读不回源 Ozon**；未预热返回 found=false） | GET |
 
