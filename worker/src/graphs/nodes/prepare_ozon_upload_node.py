@@ -1695,6 +1695,12 @@ def _resolve_weight_dimensions(draft: dict, extensions: dict | None = None) -> t
     marks 写入 self._wd_marks（供 prepare 主流程写 payload/审计）。
     """
     from utils.weight_dimension_normalizer import normalize_weight_dimensions
+    # ✅ v0.73 Issue4: 体积-重量密度兜底唯一入口（模块注释含生产校准与选型说明）
+    from utils.volume_weight_guard import (
+        MIN_DENSITY_G_CC,
+        compute_density_g_cc,
+        ensure_volume_weight_floor,
+    )
 
     dims_obj = draft.get("dimensions", {})
     if not (isinstance(dims_obj, dict) and dims_obj):
@@ -1706,6 +1712,31 @@ def _resolve_weight_dimensions(draft: dict, extensions: dict | None = None) -> t
     weight_g, dims_mm, marks = normalize_weight_dimensions(
         draft.get("weight", 0), dims_obj, extensions or {}
     )
+
+    # ✅ v0.73 Issue4（ML_INCORRECT_VOLUME_WEIGHT 防复发）：normalizer 对真实值
+    # 只标疑不改写（轻物保护不变），但低密度真实值（相机 56g/0.375 g/cm³）会被
+    # Ozon ML 拒且原值重发再拒。此处对**最终 payload 重量**做 0.40 g/cm³ 兜底
+    # 提升——只上调（cap 原值×3）、永不拒、永不下调（approved 有 0.015 轻抛货，
+    # 硬拒会误杀）。必须在 normalizer/尺寸 clamp 之后（guard 消费最终上传尺寸）。
+    _final_w, _w_adjusted = ensure_volume_weight_floor(weight_g, dims_mm)
+    if _w_adjusted:
+        _density_before = compute_density_g_cc(weight_g, dims_mm)
+        marks["weight_adjusted_for_volume"] = {
+            "from": int(weight_g),
+            "to": int(_final_w),
+            "density_before": _density_before,
+        }
+        marks["reasons"].append(
+            f"weight_raised_for_volume({weight_g}g→{_final_w}g, "
+            f"density {_density_before}<{MIN_DENSITY_G_CC} g/cm³)"
+        )
+        logger.warning(
+            "⚖️ 体积密度兜底: %dg→%dg（密度 %s < %s g/cm³，只上调防 "
+            "ML_INCORRECT_VOLUME_WEIGHT，cap 原值×3）",
+            weight_g, _final_w, _density_before, MIN_DENSITY_G_CC,
+        )
+        weight_g = _final_w
+
     _resolve_weight_dimensions._wd_marks = marks
     depth_mm, width_mm, height_mm = dims_mm["length"], dims_mm["width"], dims_mm["height"]
 
@@ -2934,6 +2965,12 @@ def prepare_ozon_upload_node(
             "weight_estimated": _resolve_weight_dimensions._wd_marks.get("weight_estimated", False),
             "dimensions_suspected": _resolve_weight_dimensions._wd_marks.get("dimensions_suspected", False),
             "reasons": _resolve_weight_dimensions._wd_marks.get("reasons", []),
+            # ✅ v0.73 Issue4: 体积密度兜底留痕（{"from","to","density_before"}，未调整时省略键）
+            **(
+                {"weight_adjusted_for_volume": _wav}
+                if (_wav := _resolve_weight_dimensions._wd_marks.get("weight_adjusted_for_volume"))
+                else {}
+            ),
         },
     }
     
