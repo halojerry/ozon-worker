@@ -211,6 +211,9 @@ class ProductCandidate:
     days_with_trafarets: int | None = None         # 付费推广天数
     nullable_redemption_rate: float | None = None  # 成交率 %
     return_cancel_rate: float | None = None        # 退货取消率 %（100 - 成交率）
+    # data-pool 批7（卡片缺口三键之一）：商品点击率 %（what_to_sell
+    # qtyViewPdp/views 派生，毛子同款计算字段；无直连键 None=未知省略）
+    custom_click_rate: float | None = None
 
     # Ozon 类目（面包屑/候选品数据，供提交）
     ozon_category: dict = field(default_factory=dict)
@@ -1703,6 +1706,9 @@ _EXPORT_FIELDS: list[str] = [
     # v0.70 B 批次扩列（上品帮对标）：跟卖利润空间 + 竞品划线价 + 货源国内运费
     'follow_profit_cny', 'follow_margin', 'ozon_old_price',
     'match_1688_freight_cny',
+    # data-pool 批7（卡片缺口三键之一）：商品点击率 %（qtyViewPdp/views 派生；
+    # 增长率 sales_growth/广告份额 drr 为既有列不另增键）
+    'custom_click_rate',
 ]
 
 # Excel 四大区（P2，吸收上品帮选品簿的分区方法论）：(区名, [(字段键, 中文列名)])。
@@ -1727,6 +1733,8 @@ _EXPORT_XLSX_ZONES: list[tuple[str, list[tuple[str, str]]]] = [
         ('discount', '折扣(%)'), ('days_with_trafarets', '付费推广天数'),
         ('promo_revenue_share', '促销转化率(%)'), ('nullable_redemption_rate', '成交率(%)'),
         ('return_cancel_rate', '退货取消率(%)'),
+        # data-pool 批7：商品点击率（卡片缺口三键之一，与月销售动态/ДРР 同区）
+        ('custom_click_rate', '点击率(%)'),
         ('follow_profit_cny', '跟卖利润(CNY)'), ('follow_margin', '跟卖利润率(%)'),
     ]),
     ("尺寸重量", [
@@ -1805,6 +1813,8 @@ def _candidate_row(c: ProductCandidate) -> dict:
         'follow_margin': c.follow_margin,
         'ozon_old_price': _opt(c.ozon_old_price),
         'match_1688_freight_cny': _opt(c.match_1688_freight_cny),
+        # data-pool 批7：点击率 None=未知 → 空串（漏斗组同款）
+        'custom_click_rate': _opt(getattr(c, 'custom_click_rate', None)),
     }
 
 
