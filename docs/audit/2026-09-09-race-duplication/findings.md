@@ -86,7 +86,7 @@
 - 修复方向：drain 超时先把 running 置 failed 或打 lease。
 
 ### F-C06  submit_task SKU 去重 SELECT-后-INSERT 非原子，并发重复第二个 IntegrityError→500
-- 类型：race；严重度：低；状态：待验证
+- 类型：race；严重度：低；状态：**已修复 14b7ea7b**（撞唯一索引 IntegrityError→409 DUPLICATE_SUBMIT）
 - 证据：main.py:1771-1785 去重 SELECT + INSERT；唯一索引兜底（model.py:69-76）但路由无冲突映射（:1811-813 回 500 而非 409）。
 - 修复方向：ON CONFLICT 或 FOR UPDATE，冲突映射 409。
 
@@ -146,13 +146,14 @@
 - 证据：local_db_manager.py:540-587 归并旁路在 Python 内存 `_canon.success_count += 1`（:560）后 commit，非原子；并发同键两次计一次；`_canon.source_category_leaf` 后写赢倒刷措辞（:562）。主 upsert（:626）原子。
 - 修复方向：归并并入 ON CONFLICT 原子路径（SQL 表达式 success_count+1）。
 
-### F-E02  其余四条低：进度事件 seq 读改写丢事件（task_progress_service.py:25-37）；余额缓存无锁并发击穿+告警重复（mxou_api.py:303-333/:374-378）；三大后台循环无单实例锁（main.py:552/572/576，多副本才触发）；attribute_cache TTL 双路径漂移（category_schema_service.py:42 30d vs assemble:3746 1d）。
+### F-E02  其余四条低：进度事件 seq 读改写丢事件（task_progress_service.py:25-37）；余额缓存无锁并发击穿+告警重复（mxou_api.py:303-333/:374-378）——**告警去重已加锁修复 14b7ea7b**；双查幂等读接受；三大后台循环无单实例锁（main.py:552/572/576，多副本才触发）；attribute_cache TTL 双路径漂移（category_schema_service.py:42 30d vs assemble:3746 1d）。
 - 状态更新（2026-09-09 P1 波）：部分修复 ad880ef9（E-5 TTL 对齐 30d；E-1/E-3/E-4 留 P2）
 - 类型：race；严重度：低；状态：待验证
 
 ## 域 F —— worker 能力重复
 
 ### F-F01  Ozon transport 直连十文件：主链路上传/修复无重试、无限流、无类型化错误
+- 状态更新（2026-09-09 P2 第一批 14b7ea7b）：**部分修复**——retry 通用 `_call_ozon_api` 与上传主链 `/v3/product/import`（ozon_upload_node）已收敛 `ozon_post`（429/5xx 重试+全局限流+typed errors）；剩 ozon_status_node 轮询、fetch_back/auth/pricing、logistics_quote/follow_sell 私有 session、assemble 内联字典 API（P2 尾批）
 - 类型：duplication；严重度：**高**；状态：待验证
 - 证据：唯一完整 transport 是 ozon_client.py（限流 :91+tenacity :99-104+typed errors :124）；ozon_upload_node.py:280-294、validation_retry_loop.py:414-430/:2566/:2632/:3331、ozon_status_node.py:136/:339、fetch_back_node.py:50、auth_node.py:78-89、pricing_node.py:49-55、main.py:1166/1392 全部绕过各自手工判状态。429 直接判失败再整图重试（浪费+慢）。
 - 修复方向：主链路收敛 ozon_post（薄委托保响应 shape）；配额查改 ozon_check_quota。
