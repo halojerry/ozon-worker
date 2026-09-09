@@ -2522,7 +2522,10 @@ async def v1_create_error_report(request: Request):
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail="body must be a JSON object")
 
-    tenant_id = _key_user_id(clean_token)
+    # v0.73 租户统一：与任务写入侧同源（Supabase tokens.user_id；传原始 token，
+    # 内部剥 sk-；未配置 Supabase 回退 key 哈希）。哈希租户 → 快照恒 0 条。
+    from services.tenant_service import resolve_tenant
+    tenant_id = resolve_tenant(token)
     from services.error_report_service import create_error_report
     try:
         out = create_error_report(
@@ -2543,7 +2546,9 @@ async def v1_list_error_reports(request: Request):
         raise HTTPException(status_code=401, detail="Token is required")
     clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
     _verify_analytics_token(clean_token)
-    tenant_id = _key_user_id(clean_token)
+    # v0.73 租户统一（同 create_error_report；哈希租户 → 列表/详情恒空）
+    from services.tenant_service import resolve_tenant
+    tenant_id = resolve_tenant(token)
 
     q = request.query_params
     rid = (q.get("report_id") or "").strip()
@@ -2584,7 +2589,9 @@ async def v1_task_forensics(task_id: str, request: Request):
     _verify_analytics_token(clean_token)
     if not rate_limiter.check(clean_token)[0]:
         raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
-    tenant_id = _key_user_id(clean_token)
+    # v0.73 租户统一（哈希租户 ≠ 写侧 user_id → 取证恒 404）
+    from services.tenant_service import resolve_tenant
+    tenant_id = resolve_tenant(token)
     from services.forensics_service import get_task_forensics
     out = get_task_forensics(tenant_id, task_id)
     if out is None:
@@ -2713,10 +2720,14 @@ async def v1_categories_attributes(request: Request):
 
     # 按需拉取凭证：租户默认店铺 → 任一 active 店铺回退（schema 与店铺无关，
     # 无默认店铺也应能拉）；两者皆无 → 纯缓存语义，降级提示
+    # v0.73 租户统一：凭证按真实 user_id 取（哈希租户 → 懒拉永远无凭证）。
+    # 在 try 外调用——resolve_tenant 的 fail-closed（401/503）是鉴权语义，
+    # 不得被下方「凭证解析失败降级纯缓存」吞掉。
+    from services.tenant_service import resolve_tenant
+    _tenant = resolve_tenant(token)
     _client_id = _api_key = ""
     try:
         from services.credential_service import get_default_credential, list_credentials
-        _tenant = _key_user_id(clean_token)
         _cred = get_default_credential(_tenant)
         if _cred:
             _client_id = str(_cred.get("ozon_client_id") or "")
