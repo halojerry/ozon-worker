@@ -194,32 +194,18 @@ class CollectTaskManager:
         try:
             result = _exec(kind, params)
             summary = self._summarize(kind, result)
-            with self._lock:
-                t = self._tasks.get(task_id)
-                if t:
-                    t["status"] = "completed"
-                    t["finished_at"] = time.time()
-                    t["summary"] = summary
-                    t["elapsed"] = round(time.time() - started, 1)
-                    self._save()
+            # F-D05（2026-09-09 审计）：收敛到 _finish 终态粘性——此前内联直写
+            # status，执行期间 job_cancel 置 cancelled 后仍被 completed 翻盘
+            # （4c42dcfb 只补了后台 _finish 面，同步路径漏了）。
+            self._finish(task_id, "completed", summary=summary, started=started)
             return result
         except SkillError as exc:
-            with self._lock:
-                t = self._tasks.get(task_id)
-                if t:
-                    t["status"] = "failed"
-                    t["finished_at"] = time.time()
-                    t["error"] = str(exc)[:300]
-                    self._save()
+            self._finish(task_id, "failed", error=str(exc)[:300], started=started)
             raise
         except Exception as exc:  # noqa: BLE001
-            with self._lock:
-                t = self._tasks.get(task_id)
-                if t:
-                    t["status"] = "failed"
-                    t["finished_at"] = time.time()
-                    t["error"] = f"{type(exc).__name__}: {exc}"[:300]
-                    self._save()
+            self._finish(
+                task_id, "failed",
+                error=f"{type(exc).__name__}: {exc}"[:300], started=started)
             raise
 
     # ── v0.70 后台路径：脱离会话独立运行 ─────────────────────────────
