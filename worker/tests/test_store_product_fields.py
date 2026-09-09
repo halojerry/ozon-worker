@@ -83,7 +83,8 @@ def test_product_tier_prices_and_archived(cred):
         "price": "55.00",            # 字符串
         "old_price": "62.00",
         "min_price": "",             # 空串
-        "stocks": {"present": 7},
+        "stocks": {"has_stock": True,
+                   "stocks": [{"present": 9, "reserved": 2, "sku": 3, "source": "fbo"}]},
         "is_archived": True,
         "is_autoarchived": False,
         "errors": [{"code": 123, "message": "test error", "state": "test"}],
@@ -94,7 +95,7 @@ def test_product_tier_prices_and_archived(cred):
     eng = create_engine(DB_URL)
     with eng.connect() as conn:
         row = conn.execute(text(
-            "SELECT price, old_price, min_price, archived, status, error, archived_at "
+            "SELECT price, old_price, min_price, archived, status, error, archived_at, stock "
             "FROM ozon_products_cache WHERE tenant_id=:t AND credential_id=:c"
         ), {"t": tenant, "c": cid}).fetchone()
     assert float(row[0]) == 55.0
@@ -104,6 +105,7 @@ def test_product_tier_prices_and_archived(cred):
     assert row[4] == "archived"    # archived 优先于 error
     assert row[5] is not None and row[5][0]["message"] == "test error"
     assert row[6] is not None      # archived_at 落库
+    assert row[7] == 7             # stocks.stocks[].present(9) − reserved(2) = 可用 7
 
 
 def test_product_error_status_when_not_archived(cred):

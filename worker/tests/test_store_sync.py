@@ -170,11 +170,17 @@ def _ozon_post_ok(method_calls, tenant):
                 {"product_id": 555, "offer_id": f"offer-{tenant}"},
             ]}}
         if path == "/v3/product/info/list":
+            # 真实嵌套形状（ozon MCP live-verified）：stocks.stocks[].present 含 reserved，
+            # 可用 = present − reserved（555: 9−2=7）
             return {"result": {"items": [
                 {"product_id": 555, "name": "Товар 555", "images": ["http://img/1.jpg"],
-                 "price": {"price": 999.0}, "stocks": {"present": 7}},
+                 "price": {"price": 999.0},
+                 "stocks": {"has_stock": True,
+                            "stocks": [{"present": 9, "reserved": 2, "sku": 1, "source": "fbo"}]}},
                 {"product_id": 1, "name": "Товар 1", "images": ["http://img/order-1.jpg"],
-                 "price": {"price": 18.0}, "stocks": {"present": 1}},
+                 "price": {"price": 18.0},
+                 "stocks": {"has_stock": True,
+                            "stocks": [{"present": 5, "reserved": 0, "sku": 2, "source": "fbs"}]}},
             ]}}
         return {"result": {}}
     return _handler
