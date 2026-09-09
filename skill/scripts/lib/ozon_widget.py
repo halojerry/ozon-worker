@@ -893,9 +893,11 @@ def _tab_for_variant_truth(cdp: CdpConnection) -> CdpTab:
     导航走——discover 流程中把用户/采集中的 www 页抢去开 seller 后台是破坏性的；
     而 bundle 端点在 seller.ozon.ru 源内才带得动 sc_company_id 会话 cookie
     （毛子 CROSS_TAB 同款：优先借已登录 seller tab，无则新建）。
+    复用命中立即 release（E4：防临时连接 close() 远程关用户 tab）。
     """
     tab = cdp.find_tab("seller.ozon.ru")
     if tab is not None:
+        cdp.release(tab)  # 用户已有 tab：只读复用，不随 conn.close() 远程关
         tab.set_bypass_csp()  # CSP 剥除（v4.2 铺路）：页内注入 fetch 不被 connect-src 拦
         return tab
     tab = cdp.new_tab(f"{OZON_SELLER_BASE}/")
