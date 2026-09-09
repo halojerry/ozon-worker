@@ -525,6 +525,7 @@ def submit_draft(
     worker_url: str | None = None,
     *,
     note: str | None = None,
+    source_batch: str | None = None,
 ) -> dict[str, Any]:
     """T9: 入采集箱 — POST GraphInput 到 Worker 的 /api/v1/drafts。
 
@@ -534,6 +535,11 @@ def submit_draft(
 
     note（A6）: 采集备注——只进请求体顶层 notes 键（Worker 落
     product_drafts.notes），绝不写入 envelope/extensions（运营态不进信封）。
+
+    source_batch（P3 批次契约）: 采集批次号（discover-task 的运行 task_id，
+    ≤64 字符）——只进请求体顶层 source_batch 键（Worker 落
+    product_drafts.source_batch，供 ?batch= 查询），绝不写入
+    envelope/extensions。None/空 = 不带该字段（向后兼容老 Worker）。
 
     ⚠️ fail-hard（v0.42 M0.5）: 采集箱不可用（404/连接失败/超时）一律如实
     失败返回，绝不静默降级 submit_envelope() 直接上架——用户以为已入箱、
@@ -553,10 +559,14 @@ def submit_draft(
 
     try:
         import requests
-        body: dict[str, Any] = dict(graph_input) if note else graph_input
+        need_body_copy = bool(note or source_batch)
+        body: dict[str, Any] = dict(graph_input) if need_body_copy else graph_input
         if note:
             # A6 红线：notes 只在请求体顶层，绝不进 envelope/extensions
             body["notes"] = note
+        if source_batch:
+            # P3 批次契约：source_batch 只在请求体顶层，绝不进 envelope/extensions
+            body["source_batch"] = str(source_batch)[:64]
         resp = requests.post(url, json=body, timeout=30)
         try:
             payload = resp.json()
