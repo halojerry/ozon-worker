@@ -897,7 +897,7 @@ V1 Cancel Task — 取消待处理的任务。
 ## categories
 
 ### `GET /api/v1/categories/attributes`
-V1 Categories Attributes — 类目属性 schema + 字典值（缓存只读）：?dc=&tp= → {found, cached, attributes}。
+V1 Categories Attributes — 类目属性 schema + 字典值（缓存优先，未命中按需拉取回写）。
 > 兼容别名：`GET /categories/attributes`（旧裸路径，语义相同）
 
 **响应**

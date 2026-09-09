@@ -69,6 +69,14 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **盲填归一**：assemble `/values/search` 两处 top-1 盲采改 exact-only/唯一兜底、
   prepare 缓存包含匹配改精确压倒——错填→不填是有意方向，宁缺毋滥单一事实源
   归到 attr_value_matcher。
+- **采集箱属性表单全量可用（v0.70 红线修订）**：「categories/attributes 只读
+  缓存不回源」→ **交互版懒加载**（7992 类目对 vs 缓存 12 行，只读让表单
+  99.8% 显示未预热）。缓存优先→未命中按租户凭证拉一次 Ozon→回写 30d→失败
+  降级（`services/category_schema_service.py`）；字典值 `?attr_id=` 按需（翻
+  页≤3）；webui 下拉懒加载；**顺手修必填星标**（读 is_required，此前恒
+  False）。远程 MCP 17→22 工具（+get_draft/patch_draft/search_categories/
+  get_category_attributes/assemble_draft）——agent 改配与 webui 同链，工作流
+  见 docs/MCP-SERVER.md。
 - 测试：worker 2086 / skill 810；新 `test_attr_value_sanitize_v071`（10）+
   `test_category_key_v071`（7）+ skill `test_category_truth_v071`（7）。
 

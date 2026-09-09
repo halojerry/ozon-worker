@@ -27,7 +27,7 @@
 典型编排：本地 `discover` 选品 → 结果入采集箱 → 本服务 `submit_draft` 上架；
 或本地组装信封 → 本服务 `submit_task` 直提。
 
-## 工具清单（17 个）
+## 工具清单（22 个）
 
 | 工具 | 类型 | 说明 |
 |---|---|---|
@@ -36,6 +36,11 @@
 | `cancel_task(task_id)` | 写 | 取消任务（仅 pending） |
 | `get_task_statistics()` | 读 | 本租户任务统计 |
 | `list_drafts()` | 读 | 采集箱草稿列表（精简字段，不含 envelope 大字段） |
+| `get_draft(draft_id)` | 读 | 草稿全文（payload 信封 + version；v0.71）。改配类目/填属性前先取 |
+| `patch_draft(draft_id, version, payload)` | 写 | 更新草稿（乐观锁，payload=完整 envelope；v0.71）。典型：ozon_category{dc,tp,source:"manual"} + attributes |
+| `assemble_draft(draft_id)` | 写 | 一键 AI 预组装（RU 标题/描述/属性写回，幂等；v0.71） |
+| `search_categories(q, limit?)` | 读 | 类目树搜索 ZH_HANS（dc/tp/路径；v0.71） |
+| `get_category_attributes(dc, tp, attr_id?)` | 读 | 类目特征属性 schema（缓存优先，未命中自动按需拉 Ozon 回写；attr_id=单属性字典值；v0.71） |
 | `submit_draft(draft_id, credential_id, template_id?)` | 写 | 提交草稿上架 |
 | `batch_submit_drafts(ids, credential_id)` | 写 | 批量提交（≤50） |
 | `list_stores()` | 读 | 店铺凭证列表（api_key 掩码） |
@@ -48,6 +53,11 @@
 | `report_issue(title, severity?, category?, description?, reproduction?, evidence?)` | 写 | 用户问题反馈 → 错误报告入 worker 跟踪队列（v0.70）。按 `evidence.task_ids` 自动附加本租户任务快照（状态/错误/时间线/product_id）；提交成功返回 `report_id`。模板契约见 `docs/ERROR-REPORT-TEMPLATE.md` |
 | `list_error_reports(status?, limit?, report_id?)` | 读 | 查本租户错误报告（只读）。status ∈ {new,triaging,fixed,wontfix} 可筛；`report_id` 非空返回单条详情（含自动附加的任务快照 auto_context） |
 | `get_task_forensics(task_id)` | 读 | 任务取证一站式只读聚合（v0.70）：任务快照 + 上架留存(listing_result_log) + 类目/属性匹配审计。排查「为什么失败/为什么这么上架」首选——先取证再报 issue |
+
+**agent 改配工作流（v0.71，与 webui 表单同链）**：`list_drafts` → `get_draft` →
+`search_categories` 选定 dc/tp → `get_category_attributes` 拉 schema → 按 schema
+填 `draft.attributes`（字典属性取 values 的 id/value；is_collection=false 恒单值）→
+`patch_draft` 回写（source=manual 即权威直通）→ `assemble_draft` 预检 → `submit_draft`。
 
 安全分级：`run_store_action` / `submit_task` / `submit_*` 为真实写操作。dsh 侧已有
 `tools/pre-execute` 审批钩子（read/write/destructive 分级）；其它平台建议开启工具调用确认。

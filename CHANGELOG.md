@@ -48,6 +48,29 @@
 - 新测试：`test_attr_value_sanitize_v071.py` 10 + `test_category_key_v071.py` 8 +
   skill `test_category_truth_v071.py` 7。
 
+### 采集箱属性表单全量可用（「选类目必出属性表单」，v0.70 红线修订）
+- **红线修订**：原「categories/attributes 缓存只读不回源 Ozon」——本地实证
+  7992 个 (dc,tp) 类目对 vs attribute_cache 12 行（0.15% 覆盖），只读缓存使
+  表单在 99.8% 类目上必然显示「未预热」。改为**交互版懒加载**（与管线
+  v0.69 T3.3 同语义）：缓存优先 → 未命中用租户凭证按需拉一次 Ozon → 回写
+  30d → 失败降级 found=False+reason（不破坏页面）。新服务
+  `services/category_schema_service.py`；首屏仍只 1 次 API。
+- **字典值按需**：`?attr_id=` 单属性拉取（下拉打开时调），limit=2000 +
+  has_next 翻页≤3 页（契约 mcp__ozon__describe_method 核对），回写
+  dictionary_value_cache——避免一个类目几十个字典属性打满首屏。
+- **webui**：字典属性无缓存值时渲染「点击加载字典值…」下拉（onFocus 懒
+  加载）；found=False 按 reason 分文案（无凭证/拉取失败/Ozon 空）；拉取
+  成功提示已缓存。
+- **顺手修**：必填标记读原始 `is_required`（此前读 `required` 恒 False，
+  webui 必填星标一直没生效）+ is_collection/max_value_count 透传 UI。
+- **worker 远程 MCP 17→22 工具**：+get_draft / patch_draft（乐观锁）/
+  search_categories / get_category_attributes / assemble_draft——agent
+  改配工作流与 webui 表单同链（搜类目→拉 schema→按 schema 填→patch→
+  assemble→submit），零新业务逻辑纯 _call 回调。工作流文档
+  docs/MCP-SERVER.md。
+- 测试：test_category_attributes_lazy_v071 5 用例（懒加载/无凭证降级/拉取
+  失败降级/翻页聚合/缓存命中零调用）+ 旧只读端点断言更新 + MCP 22。
+
 ### wave 实证（本地 Docker，测试店 5381204，2026-09-09）
 - discover-task 置物架 2/2 入箱（信封带真实面包屑
   `Дом и сад > … > Держатели` + web_category_id + 图搜 cid）→ 提交测试店。

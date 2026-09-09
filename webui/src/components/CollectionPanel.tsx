@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import { api, assembleDraft, getSession, ApiError, downloadCsv } from "../api/client"
 import type { AssembleDraftResponse } from "../api/client"
-import type { CategoryAttr, CategoryAttrResponse, CategorySearchItem, Credential, Draft, DraftAiResponse, DraftEnvelopeDraft, DraftPayload, EstimateResponse, SubmitResponse } from "../api/hooks"
+import type { CategoryAttr, CategoryAttrResponse, CategoryAttrValue, CategorySearchItem, Credential, Draft, DraftAiResponse, DraftEnvelopeDraft, DraftPayload, EstimateResponse, SubmitResponse } from "../api/hooks"
 import { apiErrorMessage, draftFields, formatDateTime, formatPrice, submissionStatusClass, submissionStatusText, useApi } from "../api/hooks"
 import { Metric, PageHeader, PanelEmpty, PanelError, PanelLoading } from "./ui"
 
@@ -131,6 +131,7 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
     setAttrSchema([])
     setAttrNote("")
     setAttrValues({})
+    setLazyVals({})
     try {
       const res = await api.get<CategoryAttrResponse>(
         `/categories/attributes?dc=${encodeURIComponent(item.description_category_id)}&tp=${encodeURIComponent(item.type_id)}`)
@@ -142,11 +143,37 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
           if (existing != null) seeded[a.name] = String(existing)
         }
         setAttrValues(seeded)
+        // v0.71 懒加载：本次回源 Ozon 拉取并已回写缓存（30 天内再选零开销）
+        setAttrNote(res.fetched ? "✦ 已在线拉取该类目属性（已缓存，下次秒开）。" : "")
       } else {
-        setAttrNote("该类目属性尚未预热（worker 未缓存），可先指定类目，属性由 worker 自动填充。")
+        const why = res.reason === "no_credential"
+          ? "未配置店铺凭证，无法在线拉取该类目属性"
+          : res.reason?.startsWith("fetch_failed")
+            ? "该类目属性在线拉取失败（Ozon 接口异常），可稍后重试"
+            : "该类目属性未能获取（Ozon 返回为空），可先指定类目，属性由 worker 自动填充。"
+        setAttrNote(`⚠️ ${why}`)
       }
     } catch (e) {
       setAttrNote(`属性 schema 读取失败：${apiErrorMessage(e)}`)
+    }
+  }
+
+  // v0.71 字典值按需加载：缓存未命中时下拉打开才拉（?attr_id= 单属性，回写缓存）
+  const [lazyVals, setLazyVals] = useState<Record<number, { loading: boolean; values?: CategoryAttrValue[]; error?: string }>>({})
+  const loadDictValues = async (attrId: number) => {
+    if (!catPicked || lazyVals[attrId]?.values || lazyVals[attrId]?.loading) return
+    setLazyVals(prev => ({ ...prev, [attrId]: { loading: true } }))
+    try {
+      const res = await api.get<{ found: boolean; cached: boolean; fetched?: boolean; values: CategoryAttrValue[]; reason?: string }>(
+        `/categories/attributes?dc=${encodeURIComponent(catPicked.description_category_id)}&tp=${encodeURIComponent(catPicked.type_id)}&attr_id=${attrId}`)
+      setLazyVals(prev => ({
+        ...prev,
+        [attrId]: res.found && res.values.length
+          ? { loading: false, values: res.values }
+          : { loading: false, error: res.reason || "无字典值" },
+      }))
+    } catch (e) {
+      setLazyVals(prev => ({ ...prev, [attrId]: { loading: false, error: apiErrorMessage(e) } }))
     }
   }
 
@@ -425,14 +452,32 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
                   <div className="editor-tip"><b>属性值（可留空）</b><span>字典属性下拉选择；留空项由 worker 自动填充。</span></div>
                   {attrSchema.map(a => (
                     <label key={a.id}>{a.name}{a.required ? " *" : ""}
-                      {a.values && a.values.length > 0 ? (
+                      {a.dictionary_id > 0 && !(a.values && a.values.length > 0) ? (
+                        // ✅ v0.71 字典值懒加载：下拉打开才按需拉取（回写缓存）
+                        lazyVals[a.id]?.values && lazyVals[a.id]!.values!.length > 0 ? (
+                          <select value={attrValues[a.name] ?? ""} onChange={e => setAttrValues(prev => ({ ...prev, [a.name]: e.target.value }))}>
+                            <option value="">（留空，自动填充）</option>
+                            {lazyVals[a.id]!.values!.map(v => <option key={v.id} value={v.value}>{v.value}</option>)}
+                          </select>
+                        ) : lazyVals[a.id]?.loading ? (
+                          <select disabled><option>加载字典值…</option></select>
+                        ) : lazyVals[a.id]?.error ? (
+                          <input value={attrValues[a.name] ?? ""} onChange={e => setAttrValues(prev => ({ ...prev, [a.name]: e.target.value }))}
+                                 placeholder={`字典值加载失败，填中文值（${lazyVals[a.id]!.error}）`}/>
+                        ) : (
+                          <select value="" onFocus={() => loadDictValues(a.id)}
+                                  onChange={() => loadDictValues(a.id)}>
+                            <option value="">点击加载字典值…</option>
+                          </select>
+                        )
+                      ) : a.values && a.values.length > 0 ? (
                         <select value={attrValues[a.name] ?? ""} onChange={e => setAttrValues(prev => ({ ...prev, [a.name]: e.target.value }))}>
                           <option value="">（留空，自动填充）</option>
                           {a.values.map(v => <option key={v.id} value={v.value}>{v.value}</option>)}
                         </select>
                       ) : (
                         <input value={attrValues[a.name] ?? ""} onChange={e => setAttrValues(prev => ({ ...prev, [a.name]: e.target.value }))}
-                               placeholder={a.dictionary_id > 0 ? "字典未缓存，填中文值" : "自由文本"}/>
+                               placeholder="自由文本"/>
                       )}
                     </label>
                   ))}

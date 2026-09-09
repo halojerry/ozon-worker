@@ -5383,7 +5383,7 @@
     },
     "/api/v1/categories/attributes": {
       "get": {
-        "description": "类目属性 schema + 字典值（缓存只读）：?dc=&tp= → {found, cached, attributes}。\n\nattribute_cache / dictionary_value_cache 未命中**不回源 Ozon**（返回\nfound=False，前端提示该类目未预热）。属性键形状与 assemble 消费一致\n（id/dictionary_id/name/required/type）。",
+        "description": "类目属性 schema + 字典值（缓存优先，未命中按需拉取回写）。\n\n- ?dc=&tp= → {found, cached, fetched, attributes}；属性键形状与 assemble\n  消费一致（id/dictionary_id/name/required/type）+ is_collection/\n  max_value_count（值数出口闸同源字段，UI 提示多值/上限）。\n- ?dc=&tp=&attr_id= → 单属性字典值按需拉取 {found, cached, fetched, values}\n  （表单下拉打开时调用，避免一个类目几十个字典属性打满首屏）。\n- 未命中且无店铺凭证/拉取失败 → found=False + reason（降级不抛错）。",
         "operationId": "v1_categories_attributes_api_v1_categories_attributes_get",
         "responses": {
           "200": {
@@ -9577,7 +9577,7 @@
     },
     "/categories/attributes": {
       "get": {
-        "description": "类目属性 schema + 字典值（缓存只读）：?dc=&tp= → {found, cached, attributes}。\n\nattribute_cache / dictionary_value_cache 未命中**不回源 Ozon**（返回\nfound=False，前端提示该类目未预热）。属性键形状与 assemble 消费一致\n（id/dictionary_id/name/required/type）。",
+        "description": "类目属性 schema + 字典值（缓存优先，未命中按需拉取回写）。\n\n- ?dc=&tp= → {found, cached, fetched, attributes}；属性键形状与 assemble\n  消费一致（id/dictionary_id/name/required/type）+ is_collection/\n  max_value_count（值数出口闸同源字段，UI 提示多值/上限）。\n- ?dc=&tp=&attr_id= → 单属性字典值按需拉取 {found, cached, fetched, values}\n  （表单下拉打开时调用，避免一个类目几十个字典属性打满首屏）。\n- 未命中且无店铺凭证/拉取失败 → found=False + reason（降级不抛错）。",
         "operationId": "v1_categories_attributes_categories_attributes_get",
         "responses": {
           "200": {

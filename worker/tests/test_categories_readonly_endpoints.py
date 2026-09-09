@@ -95,13 +95,17 @@ def test_attributes_requires_numeric_dc_tp(client):
     assert r.status_code == 422
 
 
-def test_attributes_cache_miss_no_ozon_fallback(client):
-    """缓存未命中 → found=False；绝不回源 Ozon（交互场景红线）。"""
+def test_attributes_cache_miss_no_credential_degrades(client):
+    """缓存未命中且租户无凭证 → found=False + reason（v0.71 语义：
+    有凭证才按需拉取，无凭证降级纯缓存，绝不让页面 5xx）。"""
     fq = _FakeQuery(schema=None)
     with mock.patch.object(ocq_mod, "get_category_query", return_value=fq):
         r = client.get("/api/v1/categories/attributes?dc=1&tp=2", headers=HDR)
     assert r.status_code == 200
-    assert r.json() == {"found": False, "cached": False, "attributes": []}
+    body = r.json()
+    assert body["found"] is False
+    assert body["attributes"] == []
+    assert body["reason"] == "no_credential"
 
 
 def test_attributes_found_with_dict_values(client):
