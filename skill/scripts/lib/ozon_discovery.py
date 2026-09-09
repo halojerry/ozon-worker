@@ -516,6 +516,50 @@ def _lazy_collect_urls(tab: Any, max_products: int,
     return [str(r["id"]) for r in rows if r.get("id")]
 
 
+# layout_tracking → page 先验（data-pool parity Task 6.2）：分隔符与面包屑派生
+# 同源（ozon_scraper._category_path_from_crumbs 的 " > "），worker 路径解析同口味。
+_LAYOUT_PRIOR_SEPARATOR = " > "
+
+
+def _layout_truth_to_page_prior(layout_tracking: Any) -> dict | None:
+    """layoutTrackingInfo 三键 → 候选级 page 先验；无可用真值 → None。
+
+    Task 6.1 的 ``layout_tracking`` 形态 ``{categoryId, category_path, breadcrumbs}``：
+    - category_path 列表拼路径串（空段/None 剔除）；列表空时 breadcrumbs 兜底
+      （dict 取 text、字符串原样）。
+    - categoryId 仅正 int 作 ``web_category_id`` 旁证（bool 剔除；数字串宽容转
+      int——widget 载荷两种形态都可能）；None/非法 → None 字段，绝不透传。
+    - 路径与旁证全无 → None（调用方零改动，信封省略纪律）。
+    """
+    if not isinstance(layout_tracking, dict):
+        return None
+    parts: list[str] = []
+    for _p in layout_tracking.get("category_path") or []:
+        _t = str(_p).strip() if _p is not None else ""
+        if _t:
+            parts.append(_t)
+    if not parts:
+        for _c in layout_tracking.get("breadcrumbs") or []:
+            _raw = _c.get("text") if isinstance(_c, dict) else _c
+            _t = str(_raw).strip() if _raw is not None else ""
+            if _t:
+                parts.append(_t)
+    cid = layout_tracking.get("categoryId")
+    cid_val: int | None = None
+    if isinstance(cid, bool):
+        pass  # bool 是 int 子类，True/False 不是类目 ID
+    elif isinstance(cid, int) and cid > 0:
+        cid_val = cid
+    elif isinstance(cid, str) and cid.strip().isdigit():
+        cid_val = int(cid.strip())
+    if not parts and cid_val is None:
+        return None
+    return {
+        "page_category_path": _LAYOUT_PRIOR_SEPARATOR.join(parts),
+        "web_category_id": cid_val,
+    }
+
+
 def _analyze_product(cdp_url: str, cdp: Any, pid: str,
                      force_new_tab: bool = False, shared_tab=None) -> ProductCandidate:
     """单产品全量数据（widget API）：标题/价格/图/品牌/评分/评论数 + 跟卖。
@@ -558,6 +602,17 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str,
         # ✅ v0.71 页面类目真值（widget breadCrumbs 派生；Web 前台 ID 非 dc/tp）
         candidate.page_category_path = str(info.get("category_path") or "")
         candidate.page_web_category_id = str(info.get("web_category_id") or "")
+        # ✅ data-pool parity（Task 6.2）：layoutTrackingInfo 结构化真值回填。
+        # 优先级阶梯不动（真值二次抓取 > 面包屑派生 > 本回填为最弱 page 派生 >
+        # search_kw 猜测）：只补面包屑缺位，绝不覆盖既有真值；categoryId 仅正
+        # int 作 web_category_id 旁证（None 绝不透传）；layout_tracking 缺席零改动。
+        _prior = _layout_truth_to_page_prior(info.get("layout_tracking"))
+        if _prior:
+            if not candidate.page_category_path and _prior["page_category_path"]:
+                candidate.page_category_path = _prior["page_category_path"]
+            if (not candidate.page_web_category_id
+                    and _prior["web_category_id"] is not None):
+                candidate.page_web_category_id = str(_prior["web_category_id"])
 
         if not candidate.ozon_title:
             candidate.status = "error"
