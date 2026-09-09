@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased] — shopbang-parity 三批（2026-09-09，未发版）
+
+> 上品帮（竞品）逆向对标落地：A 采集箱备注 / B 选品三字段 / C 店铺会话代管。
+> 计划 `docs/PLAN-shopbang-parity-v1.md`，SDD 全分支终审 merge-ready（I1/I2 已收口）。
+
+### A 采集箱备注（notes）
+- skill `discover --to-box --note`、worker `product_drafts.notes` 独立列（PATCH COALESCE / CSV 导入导出 / webui 编辑抽屉）；**备注不进信封**，worker 零业务消费。
+
+### B 选品三字段（对标上品帮 62 列）
+- 新 4 键三出口（discovery_meta / REPORT_FIELDS / 本地 CSV）+ 采集箱导出与 webui 选品档案同步：`follow_profit_cny`/`follow_margin`（跟卖最低价同成本链测算，默认 0.0 真实保留）、`ozon_old_price`（widget originalPrice 市场参考，**不写 draft.original_price**）、`match_1688_freight_cny`（货源国内运费单列）——两者 None=未知省略。
+- **语义补记**：`_analyze_product` min_price 由原样透传改 `float(... or 0)`——null 归 0.0 防下游 TypeError，**字符串数字顺带转 float**（此前字符串会在数值比较时炸）。
+
+### C 店铺会话代管（bindShopCookie 对标）
+- 新表 `ozon_sessions`（AES-256-GCM，aad=tenant:credential，永不回显 cookie 值）+ 3 端点 + skill `session-sync` + `GET /analytics/what-to-sell` 直调（401/403/302→标 expired+409）+ 失效重同步闭环文档。
+- 已知简化：DataDome 403 与真失效不可分一律判 expired（误判代价=一次重同步）；**发版实机 gate 须加 session-sync→what-to-sell 真实闭环一条**。
+
+
 ## [0.72.0] — 2026-09-09（字典值缓存三桶策略：撑爆 40G 盘事故根治）
 
 > 实施已定案的三桶方案（2026-09-09 取证+真实 API 实测，见记忆
