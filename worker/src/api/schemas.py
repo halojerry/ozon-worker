@@ -290,6 +290,11 @@ class DraftCreate(BaseModel):
     ozon_api_key: str = Field("", description="Ozon 卖家 Api-Key（剥离加密存储）")
     envelope: dict[str, Any] = Field(..., description="产品数据信封 {draft, source, extensions}；NO raw credentials")
     source: str = Field("skill", description="'skill' | 'webui'")
+    notes: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description="运营备注（采集/选品依据人工标注，如 skill --note）；不进信封 payload",
+    )
 
 
 class DraftOut(BaseModel):
@@ -308,6 +313,10 @@ class DraftOut(BaseModel):
     image_mirror_state: str = Field(
         "",
         description="图片镜像状态（M5b）：''=未启用/未镜像；pending=镜像中；mirrored=已转存 COS；failed=失败保持外链",
+    )
+    notes: Optional[str] = Field(
+        None,
+        description="运营备注（采集/选品依据人工标注）；不进信封 payload",
     )
 
 
