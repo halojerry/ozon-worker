@@ -56,7 +56,7 @@
 前提：队列为单容器单进程，认领 `FOR UPDATE SKIP LOCKED`（task_processor.py:459）保护良好。以下为「迟到写翻盘/检查-提交跨 await/乐观锁非原子」残余。
 
 ### F-C01  终态写点无条件更新，stale/zombie 重置可致同 task 双跑 + 迟到写翻盘
-- 类型：race；严重度：**高**；状态：待验证（静态窗口明显）
+- 类型：race；严重度：**高**；状态：**已修复 78d3ba5d**（终态守卫入口 `_write_terminal_status` AND status='running' + 认领刷 updated_at；5 单测）
 - 证据：task_processor.py:697-700（completed）/:631-635（failed）/:667-670（rejected）均为 `UPDATE ... WHERE id=:task_id` 无 `AND status='running'`；main.py:1069-1082 清理器与 :511-528 zombie_reset 可把仍被旧 run 持有的行翻成 pending 被新 run 认领 → 旧 run 迟到终态写翻盘第二 run，双跑重复烧额度。
 - 复现：双 run 同 task_id，断言旧 run 终态能覆盖新 run running（当前能→confirmed）。
 - 修复方向：终态 UPDATE 一律加 `AND status='running'`。
@@ -89,7 +89,7 @@
 ## 域 D —— MCP 后台任务 + 草稿状态机 + 提交链（核验 12 接口）
 
 ### F-D01  patch_draft 乐观锁非原子：SELECT version 无行锁、UPDATE 无 version 谓词 → 409 形同虚设
-- 类型：race；严重度：**高**；状态：待验证
+- 类型：race；严重度：**高**；状态：**已修复 78d3ba5d**（UPDATE 加 AND version=:expected，rowcount=0→409；并发测试锁定恰一胜）
 - 证据：draft_service.py:557-583——SELECT version（:558-561 无 FOR UPDATE）→409 校验→UPDATE `version=version+1` WHERE id（:570-583 无 version 条件）→ 并发双 PATCH 双双成功、后写覆盖先写，stale-409 永不触发。
 - 复现：asyncio 并发两个同 version PATCH，断言双 200（当前即如此→confirmed）。
 - 修复方向：UPDATE 加 `AND version=:client_version`，rowcount=0 判 409。
@@ -97,7 +97,7 @@
 ### F-D02  assemble_draft 服务端 LWW 整包回写，LLM await 长窗口覆盖并发 PATCH
 - 类型：race；严重度：中；状态：待验证
 - 证据：draft_service.py:603-620 get_draft→await LLM→UPDATE payload WHERE id 无 version 谓词；窗口内 PATCH 全丢。
-- 修复方向：写回沿用 version 谓词 + rowcount 判定。
+- 修复方向：写回沿用 version 谓词 + rowcount 判定。**已修复 78d3ba5d**（读时快照 base_version 守卫写回，窗口被改→409 请重试）。
 
 ### F-D03  submit/resubmit/batch「检查+入队」跨 await 非原子；offer_id 空时无唯一索引兜底真双跑
 - 类型：race；严重度：中；状态：待验证
@@ -149,7 +149,7 @@
 - 修复方向：主链路收敛 ozon_post（薄委托保响应 shape）；配额查改 ozon_check_quota。
 
 ### F-F02  retry 修复路径手写定价公式，绕 compute_price 唯一入口
-- 类型：duplication；严重度：**高**；状态：待验证
+- 类型：duplication；严重度：**高**；状态：**已修复 78d3ba5d**（新唯一入口 `pricing_estimate.derive_list_prices`：ceil 对齐主链 + min 50% 底线对齐 update_min_price_floor；retry 三处接线；源码绊线锁定无手写残余；5 单测）
 - 证据：validation_retry_loop.py:2238-2240/:2615/:2627 `old_price=int(s*1.2)`（int 截断 vs compute_price 的 ceil，pricing_estimate.py:104/144）、`min_price=int(s*0.9)`（vs update_min_price_floor 0.5×+钳制，ozon_client.py:306-347）——修复改价可能把 PK 顶到拒单线。
 - 修复方向：repair 统一走 compute_price / update_min_price_floor。
 
