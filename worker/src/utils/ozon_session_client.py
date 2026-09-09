@@ -60,14 +60,32 @@ def what_to_sell(cookie_header: str, sc_company_id: str, payload: dict,
         "Accept": "application/json, text/plain, */*",
     }
     try:
-        # allow_redirects=False：登录态失效时 seller 会 302 到登录页，直接判废
+        # allow_redirects=False：登录态失效时 seller 会 302 到登录页，判废见下；
+        # 3xx 分流处理（勿一刀切——实机实证 307 __rr=1 是机器人回环不是登录）
         resp = requests.post(WHAT_TO_SELL_URL, json=payload, headers=headers,
                              timeout=timeout, allow_redirects=False)
     except requests.RequestException as exc:
         logger.warning("what_to_sell 直调网络异常: %s", str(exc)[:150])
         return None, "network_error"
-    if resp.status_code in (401, 403) or 300 <= resp.status_code < 400:
-        # 401/403 = 会话/风控判废；3xx = 登录页重定向 → 同判废（C6 联动标 expired）
+    if 300 <= resp.status_code < 400:
+        loc = (getattr(resp, "headers", None) or {}).get("Location", "") \
+            if hasattr(resp, "headers") else ""
+        if resp.status_code in (307, 308) and "__rr=1" in loc:
+            # Ozon nginx 机器人校验回环：Location=同路径?__rr=1，原样重放即过
+            # （307 语义保持 POST+body；实测重放 200）
+            retry_url = loc if loc.startswith("http") else WHAT_TO_SELL_URL + "?" + loc.split("?", 1)[-1]
+            try:
+                resp = requests.post(retry_url, json=payload, headers=headers,
+                                     timeout=timeout, allow_redirects=False)
+            except requests.RequestException as exc:
+                logger.warning("what_to_sell __rr=1 重放网络异常: %s", str(exc)[:150])
+                return None, "network_error"
+        else:
+            # 登录页重定向等其余 3xx → 判废（C6 联动标 expired）
+            logger.info("what_to_sell 直调判废 HTTP %s", resp.status_code)
+            return None, _SESSION_EXPIRED
+    if resp.status_code in (401, 403):
+        # 401/403 = 会话/风控判废（C6 联动标 expired）
         logger.info("what_to_sell 直调判废 HTTP %s", resp.status_code)
         return None, _SESSION_EXPIRED
     if resp.status_code != 200:
