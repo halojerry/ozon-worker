@@ -2,6 +2,9 @@
 import logging
 from langgraph.graph import StateGraph, END
 
+# ✅ v0.73: 低置信入采集箱阈值唯一事实源（生产 Issue2 教训，原裸字面量 0.3）
+from utils.ozon_category_query import MIN_CONF_BOX
+
 logger = logging.getLogger(__name__)
 
 # 导入全局状态和图输入输出
@@ -226,7 +229,7 @@ def route_after_assemble(state):
         logger.warning(f"🛑 类目匹配阻断: {error_msg}")
         return "失败"
     match_conf = getattr(state, 'match_confidence', None)
-    if match_conf is not None and match_conf < 0.3:
+    if match_conf is not None and match_conf < MIN_CONF_BOX:  # ✅ v0.73: 常量唯一化（原裸 0.3）
         logger.warning(f"🛑 类目匹配置信度过低({match_conf})，阻断上架")
         return "失败"
     return "成功"
