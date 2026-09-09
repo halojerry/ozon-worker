@@ -210,3 +210,60 @@ def test_pick_best_match_category_boost_when_same_language():
 
 # 护栏「标题门控」语义由 test_aibuy_search.py::test_pick_best_match_trusted_rank3_still_guardrailed
 # 锁定（rank≥3 + 弱标题 → 复合分不放行）——该用例在本批语义切分后保持绿。
+
+
+# ── AK 详情回填 1688 类目（F-B02 延伸）──
+
+def test_backfill_1688_category_from_ak_detail():
+    """过闸匹配类目名缺失 → AK 详情「商品类目」表各级名拼接回填。"""
+    from unittest import mock
+    from scripts.lib import ozon_discovery as od
+
+    cand = od.ProductCandidate(
+        ozon_product_id="1", ozon_title="Термос", ozon_price=1000.0,
+        ozon_images=["x"],
+    )
+    cand.match_1688_url = "https://detail.1688.com/offer/123456.html"
+    cand.match_1688_category_name = ""
+    with mock.patch("scripts.lib.ak_1688_client.get_product_details",
+                    return_value={"123456": {"categories": [
+                        {"level": "一级类目", "name": "家居用品"},
+                        {"level": "二级类目", "name": "餐厨 Water Cups"},
+                        {"level": "三级类目", "name": "保温杯"},
+                    ]}}):
+        od._backfill_1688_category(cand)
+    assert cand.match_1688_category_name == "家居用品 > 餐厨 Water Cups > 保温杯"
+
+
+def test_backfill_skips_when_name_present_or_url_bad():
+    from unittest import mock
+    from scripts.lib import ozon_discovery as od
+    cand = od.ProductCandidate(
+        ozon_product_id="1", ozon_title="x", ozon_price=1.0, ozon_images=["x"],
+    )
+    cand.match_1688_url = "https://detail.1688.com/offer/1.html"
+    cand.match_1688_category_name = "已有类目"
+    with mock.patch("scripts.lib.ak_1688_client.get_product_details") as gp:
+        od._backfill_1688_category(cand)
+        gp.assert_not_called()
+    # URL 无 offer id → 不触发
+    cand2 = od.ProductCandidate(
+        ozon_product_id="2", ozon_title="x", ozon_price=1.0, ozon_images=["x"],
+    )
+    cand2.match_1688_url = "https://example.com/nothing"
+    with mock.patch("scripts.lib.ak_1688_client.get_product_details") as gp:
+        od._backfill_1688_category(cand2)
+        gp.assert_not_called()
+
+
+def test_backfill_failure_is_silent():
+    from unittest import mock
+    from scripts.lib import ozon_discovery as od
+    cand = od.ProductCandidate(
+        ozon_product_id="1", ozon_title="x", ozon_price=1.0, ozon_images=["x"],
+    )
+    cand.match_1688_url = "https://detail.1688.com/offer/9.html"
+    with mock.patch("scripts.lib.ak_1688_client.get_product_details",
+                    side_effect=RuntimeError("ak down")):
+        od._backfill_1688_category(cand)  # 不 raise
+    assert not cand.match_1688_category_name

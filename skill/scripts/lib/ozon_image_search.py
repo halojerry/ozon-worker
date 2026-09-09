@@ -47,6 +47,9 @@ AIBUY_TOKEN_KEY = "aibuy_mtop_token"
 # 每次 aibuy 图搜都导航 www.1688.com + 轮询 8s，discover 一批 N 个候选导航
 # N 次。失败落 claim（settings.json），冷却内后续调用零导航直接降级 CDP/AK。
 AIBUY_REFRESH_CLAIM_KEY = "aibuy_refresh_claim"
+# F-B02：mtop 运行时 token 错误（EXPIRED/ILLEGAL）标志——_mtop_request 置位，
+# search_by_image_aibuy 据此在结果为空时作废旧 token 走导航刷新（自动获取闭环）
+_MTOP_TOKEN_ERROR = {"hit": False}
 AIBUY_REFRESH_COOLDOWN_SECONDS = 600
 AIBUY_TOKEN_TTL_SECONDS = 6 * 3600  # 6h 后需重新从 Chrome 会话刷新
 _AIBUY_COOKIE_KEYS = ("_m_h5_tk", "_m_h5_tk_enc", "tfstk", "isg")
@@ -776,11 +779,16 @@ def _mtop_request(
                         ret2 = parsed2.get("ret") or []
                         if ret2 and "SUCCESS" not in str(ret2[0]):
                             logger.warning("aibuy mtop %s 重试仍失败: %s", api, ret2[0])
+                            _MTOP_TOKEN_ERROR["hit"] = True  # 通知上层走导航刷新
                             return {}
                         return parsed2.get("data") or {}
                     except Exception as e:
                         logger.warning("aibuy mtop %s token 重试异常: %s", api, e)
                         return {}
+            else:
+                # EXPIRED/ILLEGAL 但响应未下发新 cookie（第二波真单实证：ILLEGAL
+                # 不带 Set-Cookie）——同样置位，让上层走导航刷新闭环
+                _MTOP_TOKEN_ERROR["hit"] = True
             return {}
         return parsed.get("data") or {}
     except Exception as e:
@@ -935,6 +943,32 @@ def search_by_image_aibuy(
     if token_cookies and token_cookies.get("_m_h5_tk", "") != _tk_before:
         _save_aibuy_token(token_cookies)
         logger.info("aibuy token 已自愈更新并回写缓存")
+    if not results and _MTOP_TOKEN_ERROR["hit"]:
+        # F-B02 自动获取闭环：mtop 报 token 错误（EXPIRED/ILLEGAL）且原地重签
+        # 也没救回来（响应未下发新 cookie）→ 作废缓存坏 token，走 claim 门控
+        # 导航刷新一次（600s 冷却防风暴），拿到新 token 重试；冷却内/刷新失败
+        # 才降级 CDP。此前坏 token 卡在 settings 里每候选反复失败。
+        _MTOP_TOKEN_ERROR["hit"] = False
+        logger.warning("aibuy token 错误未自愈，作废缓存并尝试导航刷新")
+        from scripts.lib.config_store import set_setting
+        set_setting(AIBUY_TOKEN_KEY, None)
+        if _try_claim_aibuy_refresh():
+            fresh = _fetch_aibuy_cookies_from_chrome(cdp_url)
+            if _aibuy_token_valid(fresh):
+                _save_aibuy_token(fresh)
+                _clear_aibuy_refresh_claim()
+                token_cookies = fresh
+                _tk_before = token_cookies.get("_m_h5_tk", "")
+                uploaded_url = _aibuy_image_upload(image_url, token_cookies)
+                results = _aibuy_image_search(
+                    uploaded_url or image_url, token_cookies, page_size=page_size)
+                if token_cookies.get("_m_h5_tk", "") != _tk_before:
+                    _save_aibuy_token(token_cookies)
+            else:
+                logger.warning("导航刷新未取到有效 aibuy token，降级 CDP/AK 图搜")
+        else:
+            logger.warning("aibuy 导航刷新冷却中，本候选降级 CDP/AK 图搜")
+
     if not results:
         logger.warning("aibuy image search 返回空，降级 CDP/AK 图搜")
         return []

@@ -609,3 +609,56 @@ def test_llm_disambiguate_category_bounds():
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+@mock.patch("scripts.lib.ozon_image_search._fetch_aibuy_cookies_from_chrome")
+@mock.patch("scripts.lib.ozon_image_search._try_claim_aibuy_refresh", return_value=True)
+@mock.patch("scripts.lib.ozon_image_search._save_aibuy_token")
+@mock.patch("scripts.lib.config_store.set_setting")
+@mock.patch("scripts.lib.ozon_image_search._read_aibuy_token")
+@mock.patch("scripts.lib.ozon_image_search._aibuy_image_search")
+@mock.patch("scripts.lib.ozon_image_search._aibuy_image_upload", return_value="")
+@mock.patch("scripts.lib.ozon_image_search.cache_get", return_value=None)
+@mock.patch("scripts.lib.ozon_image_search.cache_set")
+def test_search_aibuy_navigates_refresh_when_token_error_sticks(
+        _m_cs, _m_cg, m_upload, m_search, m_read, m_set, m_save, m_claim, m_fetch):
+    """自动获取闭环：坏 token（ILLEGAL 无新 cookie）→ 置位 → 作废缓存 →
+    claim 门控导航刷新 → 新 token 重试成功。"""
+    bad = dict(MOCK_COOKIES)
+    good = dict(MOCK_COOKIES, _m_h5_tk="brand_new_999_ts")
+    m_read.return_value = bad            # 缓存里是坏 token（格式有效）
+    m_search.side_effect = [[], [{"id": "1", "title": "ok"}]]  # 首次空（触发闭环），刷新后成功
+    m_fetch.return_value = good
+    ois._MTOP_TOKEN_ERROR["hit"] = True  # _mtop_request 置位（模拟）
+    try:
+        out = ois.search_by_image_aibuy("https://img.example/1.jpg")
+    finally:
+        ois._MTOP_TOKEN_ERROR["hit"] = False
+    assert out and out[0]["id"] == "1"
+    m_set.assert_any_call(ois.AIBUY_TOKEN_KEY, None)   # 作废坏 token
+    m_claim.assert_called_once()                        # 门控导航
+    m_fetch.assert_called_once()                        # 导航刷新
+    m_save.assert_called()                              # 新 token 回写
+
+
+@mock.patch("scripts.lib.ozon_image_search._fetch_aibuy_cookies_from_chrome")
+@mock.patch("scripts.lib.ozon_image_search._try_claim_aibuy_refresh", return_value=False)
+@mock.patch("scripts.lib.config_store.set_setting")
+@mock.patch("scripts.lib.ozon_image_search._read_aibuy_token")
+@mock.patch("scripts.lib.ozon_image_search._aibuy_image_search", return_value=[])
+@mock.patch("scripts.lib.ozon_image_search._aibuy_image_upload", return_value="")
+@mock.patch("scripts.lib.ozon_image_search.cache_get", return_value=None)
+@mock.patch("scripts.lib.ozon_image_search.cache_set")
+def test_search_aibuy_cooldown_skips_navigation(_m_cs, _m_cg, m_upload, m_search,
+                                                m_read, m_set, m_claim, m_fetch):
+    """冷却内不导航（600s 防风暴），直接降级 CDP/AK。"""
+    m_read.return_value = dict(MOCK_COOKIES)
+    ois._MTOP_TOKEN_ERROR["hit"] = True
+    try:
+        out = ois.search_by_image_aibuy("https://img.example/2.jpg")
+    finally:
+        ois._MTOP_TOKEN_ERROR["hit"] = False
+    assert out == []
+    m_set.assert_called_once_with(ois.AIBUY_TOKEN_KEY, None)
+    m_claim.assert_called_once()
+    m_fetch.assert_not_called()
