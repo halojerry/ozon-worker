@@ -134,7 +134,9 @@ def test_store_and_cookie_header_roundtrip(fake_db, key32):
 
     stmt, params = fake_db.calls[-1]
     assert "INSERT INTO ozon_sessions" in stmt and "ON CONFLICT" in stmt and "DO UPDATE" in stmt
-    assert params["names"] == ["Abt", "sc_company_id"]  # 名单明文，值只在密文里
+    # names 走 JSONB 绑定（实机回归：裸 list 会被 psycopg2 适配成 text[]）
+    import json as _json
+    assert _json.loads(params["names"]) == ["Abt", "sc_company_id"]  # 名单明文，值只在密文里
     assert b"5371047" not in params["enc"] and b"5371047" not in params["sc_enc"]
 
     # 读路径：fetchone 返回写库时的密文 → 解出 cookie header
