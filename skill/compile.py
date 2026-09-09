@@ -100,6 +100,7 @@ DOC_FILES = [
     "references/command-reference.md",
     "references/error-codes.md",
     "references/error-report.md",
+    "references/session-sync.md",
     "references/output-schema.md",
     "references/env-setup.md",
     "envelope_example.json",
