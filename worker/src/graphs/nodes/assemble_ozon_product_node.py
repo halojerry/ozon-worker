@@ -545,8 +545,12 @@ def _l0_weak_arbitrate(l0_hit: dict | None, candidates: list, source_keywords: s
         for c in _arb_pool
     ):
         _arb_pool.append(_ln_cand)
+    # ✅ v0.73: 货源类目路径进仲裁上下文——本函数无主流程的 source_category 局部变量，
+    # 按主流程同款双源解析（state.source.source_category_path → draft.source_category）
+    _src = getattr(state, "source", None) or {}
+    _src_cat = str(_src.get("source_category_path") or "").strip() or (draft or {}).get("source_category", "")
     try:
-        _arb = _llm_rank_categories(_arb_pool, source_keywords or "", draft, state)
+        _arb = _llm_rank_categories(_arb_pool, source_keywords or "", draft, state, source_category=_src_cat)
     except MxouOutOfQuotaError:
         raise  # v0.63.1: 仲裁 LLM 401/403 → 任务明确失败，不降级吞错
     except Exception as _arb_e:
@@ -1695,7 +1699,7 @@ def assemble_ozon_product_node(
             else:
                 # 无候选有重叠 → LLM fallback：让 LLM 从 top-5 候选中选择最佳匹配
                 logger.warning(f"   ⚠️ 所有 {len(candidates)} 个候选与源词无子串重叠，触发 LLM fallback")
-                best_by_llm = _llm_rank_categories(candidates[:5], source_keywords or keywords, draft, state)
+                best_by_llm = _llm_rank_categories(candidates[:5], source_keywords or keywords, draft, state, source_category=source_category)
                 # v0.34: LLM 认为候选都不合适 → 用建议搜索词二次搜索
                 if best_by_llm and best_by_llm.get("_llm_suggest"):
                     _sugg = str(best_by_llm.get("suggest_keywords", "") or "").strip()
@@ -1715,7 +1719,7 @@ def assemble_ozon_product_node(
                                 # ⚠️ v0.34 review fix: 合并后必须重跑 LLM 排名——
                                 # 否则 best_by_llm 仍是 suggest 标记 dict(full_path 为空) →
                                 # 下方重叠检查恒失败 → 硬阻断, 二次搜索白做 (与 L1237 路径对齐)
-                                best_by_llm = _llm_rank_categories(candidates[:10], source_keywords or keywords, draft, state)
+                                best_by_llm = _llm_rank_categories(candidates[:10], source_keywords or keywords, draft, state, source_category=source_category)
                         except MxouOutOfQuotaError:
                             raise  # v0.63.1: 二次搜索 LLM 401/403 → 任务明确失败，不降级
                         except Exception as _se:
@@ -1825,6 +1829,7 @@ def assemble_ozon_product_node(
                 source_keywords or keywords, draft, state,
                 context=f"当前拟采纳: {str((category_result or {}).get('category_path', ''))[:80]}"
                         f"；1688源类目: {str(source_category or '')[:60]}",
+                source_category=source_category,
             )
             # ✅ v0.69: 放行判据三点升级（full_path 字面/叶子名子串/西里尔 RU 路径/
             # LLM vision 选中且与源词命中候选同 top_level 大类），见 _r2b_confirm_adoption。
@@ -2295,7 +2300,7 @@ def assemble_ozon_product_node(
                 (draft or {}).get("description", ""),
                 (draft or {}).get("attributes", {})
             )
-            best_by_llm = _llm_rank_categories(all_candidates[:5], product_keywords, draft, state)
+            best_by_llm = _llm_rank_categories(all_candidates[:5], product_keywords, draft, state, source_category=source_category)
             # v0.34: LLM 认为候选都不合适 → 用建议搜索词二次搜索并入候选
             if best_by_llm and best_by_llm.get("_llm_suggest"):
                 _sugg2 = str(best_by_llm.get("suggest_keywords", "") or "").strip()
@@ -2315,7 +2320,7 @@ def assemble_ozon_product_node(
                                 if _key not in _seen_keys:
                                     all_candidates.append(_rc)
                                     _seen_keys.add(_key)
-                            best_by_llm = _llm_rank_categories(all_candidates[:10], product_keywords, draft, state)
+                            best_by_llm = _llm_rank_categories(all_candidates[:10], product_keywords, draft, state, source_category=source_category)
                             logger.info(f"   ✅ 建议词二次搜索后重试 LLM: 候选 {len(all_candidates)}")
                     except MxouOutOfQuotaError:
                         raise  # v0.63.1: 二次搜索 LLM 401/403 → 任务明确失败，不降级
@@ -3861,18 +3866,23 @@ def _generate_hashtags(name: str, traffic_keywords: list[str] | None = None) -> 
 def _llm_rank_categories(
     candidates: list[dict], keywords: str, draft: dict, state,
     context: str = "",
+    source_category: str = "",
 ) -> dict | None:
     """v4 LLM fallback：低置信度时让 LLM 从候选类目中选最佳匹配。
     增强：domain_hint 引导 + 1688类目面包屑 + 建议搜索词（候选都不合适时二次搜索）
     v0.67.1 wave③: context 参数（R2b 确认场景带拟采纳项/1688 leaf 上下文）；
     解析失败/abstain 分支不再静默——原始响应落 warning（取证 116 字符之谜）。
+    ✅ v0.73: source_category 参数——skill 新信封把货源类目路径放
+    source.source_category_path，draft.source_category 是旧字段（新信封常为空），
+    prompt「1688类目:」行曾恒空 → LLM 仲裁缺货源上下文弃权（生产实证：
+    留香珠无叶子候选全垃圾 sim 0.125 洗衣机 → 低置信入箱）。调用方传主流程
+    已解析的局部变量；缺省回落 draft.source_category（旧信封行为不变）。
     """
     try:
         from utils.mxou_api import call_mxou_chat_api
 
         product_title = (draft or {}).get("title", "") or getattr(state, "competitor_name", "") or ""
         product_attrs = (draft or {}).get("attributes", {}) or {}
-        source_cat = (draft or {}).get("source_category", "") or ""
         attr_text = ", ".join(f"{k}={v}" for k, v in (product_attrs.items() if isinstance(product_attrs, dict) else []) if v)[:200]
 
         # v4: Load domain hints for LLM guidance
@@ -3915,7 +3925,7 @@ def _llm_rank_categories(
 请同时参考上方产品图片判断最匹配的类目。
 
 产品: {product_title[:150]}
-1688类目: {source_cat[:150]}
+1688类目: {(source_category or (draft or {}).get('source_category', '') or '')[:150]}
 关键词: {keywords[:150]}
 属性: {attr_text or 'N/A'}
 {domain_guidance}
