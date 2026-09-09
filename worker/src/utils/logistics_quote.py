@@ -14,11 +14,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-import requests
+# F-F01（2026-09-09 审计）：Ozon 直连收敛 ozon_post（全局限流 + 429/5xx 重试），
+# 移除私有 requests.Session（每进程独享连接池绕过全局配额）
+from utils.ozon_client import ozon_post
 
 logger = logging.getLogger(__name__)
-
-_session = requests.Session()
 
 KNOWN_TPLS = ["RETS", "ATC", "ZTO", "Ural", "GUOO", "CEL", "GBS", "OYX", "ABT", "Xingyuan", "Tanais"]
 
@@ -29,20 +29,10 @@ def get_store_logistics_config(ozon_client_id: str, ozon_api_key: str) -> tuple[
     失败/异常回退 ("RETS", "Standard")，绝不抛异常。
     """
     try:
-        headers = {
-            "Client-Id": ozon_client_id,
-            "Api-Key": ozon_api_key,
-            "Content-Type": "application/json",
-        }
-        resp = _session.post(
-            "https://api-seller.ozon.ru/v2/delivery-method/list",
-            headers=headers, json={"limit": 100}, timeout=30,
+        data: Any = ozon_post(
+            ozon_client_id, ozon_api_key,
+            "/v2/delivery-method/list", {"limit": 100}, timeout=30,
         )
-        if resp.status_code != 200:
-            logger.warning(f"Ozon配送方式查询失败: {resp.status_code}")
-            return ("RETS", "Standard")
-
-        data: Any = resp.json()
         methods = data.get("delivery_methods", [])
         if not methods:
             return ("RETS", "Standard")

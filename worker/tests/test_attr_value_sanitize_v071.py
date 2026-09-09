@@ -114,15 +114,9 @@ def test_fix_via_attributes_update_caps_values():
 
     captured = {}
 
-    class _R:
-        status_code = 200
-
-        def json(self):
-            return {"result": {"task_id": "t1"}}
-
-    def _post(url, **kwargs):
-        captured["body"] = kwargs.get("json")
-        return _R()
+    def _post(client_id, api_key, endpoint, body=None, timeout=30, **kw):
+        captured["body"] = body
+        return {"result": {"task_id": "t1"}}
 
     st = mock.Mock()
     st.ozon_payload = {"items": [{
@@ -142,8 +136,7 @@ def test_fix_via_attributes_update_caps_values():
         {"id": 8229, "is_collection": True, "max_value_count": 1},
         {"id": 4180, "is_collection": False},
     ]
-    with mock.patch.object(vrl, "session") as sess:
-        sess.post.side_effect = _post
+    with mock.patch.object(vrl, "ozon_post", side_effect=_post):
         ok = vrl._fix_via_attributes_update(st)
     assert ok is True
     sent = {a["id"]: a["values"] for a in captured["body"]["items"][0]["attributes"]}

@@ -31,7 +31,8 @@ class FakeState:
         self.failed_stage = ""
 
 # Mock Ozon API — 模拟 import-by-sku 返回
-_original_req_post = None
+# F-F01: transport 收敛 ozon_post 后，patch 点从 requests.post 切到节点模块属性
+_original_ozon_post = None
 _original_time_sleep = None
 
 def _setup_mock_ozon(import_ok=True):
@@ -40,39 +41,32 @@ def _setup_mock_ozon(import_ok=True):
     import_ok=True  → import-by-sku 成功（返回 product_id，走 UPDATE）
     import_ok=False → import/info 无 product_id（走 Fallback CREATE）
     """
-    import requests as req
+    from graphs.nodes import follow_sell_import_node as _mod
     import time as _t
-    global _original_req_post, _original_time_sleep
-    _original_req_post = req.post
+    global _original_ozon_post, _original_time_sleep
+    _original_ozon_post = _mod.ozon_post
     _original_time_sleep = _t.sleep
     _t.sleep = lambda s: None  # 测试加速：轮询 sleep 置空（v0.22 P2a 轮询 180s）
 
-    class MockResp:
-        def __init__(self, status_code=200, json_data=None):
-            self.status_code = status_code
-            self._json = json_data or {}
-        def json(self):
-            return self._json
-
-    def mock_post(url, headers=None, json=None, timeout=30):
-        if "import-by-sku" in url:
-            return MockResp(200, {"result": {"task_id": "12345"}})
-        elif "import/info" in url:
+    def _fake_post(client_id, api_key, endpoint, body=None, timeout=60, **kw):
+        if "import-by-sku" in endpoint:
+            return {"result": {"task_id": "12345"}}
+        elif "import/info" in endpoint:
             if import_ok:
-                return MockResp(200, {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}})
-            return MockResp(200, {"result": {"items": []}})
-        elif "description-category/attribute" in url:
-            return MockResp(200, {"result": [{"id": 8229, "name": "Тип", "is_collection": False}]})
-        return MockResp(500)
+                return {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}}
+            return {"result": {"items": []}}
+        elif "description-category/attribute" in endpoint:
+            return {"result": [{"id": 8229, "name": "Тип", "is_collection": False}]}
+        raise RuntimeError(f"unexpected endpoint: {endpoint}")
 
-    req.post = mock_post
-    return _original_req_post
+    _mod.ozon_post = _fake_post
+    return _fake_post
 
 def _teardown_mock_ozon():
-    import requests as req
     import time as _t
-    if _original_req_post:
-        req.post = _original_req_post
+    from graphs.nodes import follow_sell_import_node as _mod
+    if _original_ozon_post:
+        _mod.ozon_post = _original_ozon_post
     if _original_time_sleep:
         _t.sleep = _original_time_sleep
 
@@ -271,18 +265,14 @@ def test_case_4_hand_mode_skips_import_by_sku():
     mod._resolve_category_by_id = _mock_resolve_category_success
     mod._resolve_category = lambda dc, tp, language="": _mock_resolve_category_success(0)
 
-    import requests as req
+    from graphs.nodes import follow_sell_import_node as _fsm
     calls = []
-    _orig = req.post
-    class _Resp2:
-        status_code = 200
-        def json(self):
-            return {"result": {"task_id": "12345"}}
-    def _counting_post(url, *a, **k):
-        if "import-by-sku" in url:
-            calls.append(url)
-        return _Resp2()
-    req.post = _counting_post
+    _orig = _fsm.ozon_post
+    def _counting_post(client_id, api_key, endpoint, body=None, timeout=60, **kw):
+        if "import-by-sku" in endpoint:
+            calls.append(endpoint)
+        return {"result": {"task_id": "12345"}}
+    _fsm.ozon_post = _counting_post
     try:
         env = {
             "draft": {
@@ -305,7 +295,7 @@ def test_case_4_hand_mode_skips_import_by_sku():
         state = FakeState(envelope=env)
         result = follow_sell_import_node(state)
     finally:
-        req.post = _orig
+        _fsm.ozon_post = _orig
 
     print(f"  import-by-sku 调用次数: {len(calls)}")
     print(f"  product_id: {result.get('product_id')}")
@@ -340,28 +330,22 @@ def test_case_5_hand_without_source_falls_back_api():
     mod._resolve_category_by_id = _mock_resolve_category_success
     mod._resolve_category = lambda dc, tp, language="": _mock_resolve_category_success(0)
 
-    import requests as req
+    from graphs.nodes import follow_sell_import_node as _fsm
     calls = []
-    _orig = req.post
-    class _Resp2:
-        status_code = 200
-        def json(self):
-            return {"result": {"task_id": "12345"}}
-    def _counting_post(url, *a, **k):
-        if "import-by-sku" in url:
-            calls.append(url)
+    _orig = _fsm.ozon_post
+    def _counting_post(client_id, api_key, endpoint, body=None, timeout=60, **kw):
+        if "import-by-sku" in endpoint:
+            calls.append(endpoint)
             # ✅ v0.25: offer_id 统一裸竞品 ID（与 assemble/prepare 一致，防双卡）
-            body = k.get("json") or {}
-            items = body.get("items") or []
+            items = (body or {}).get("items") or []
             if items:
                 oid = items[0].get("offer_id", "")
                 assert oid == "3852000144", f"offer_id 不一致: {oid}"
-            return _Resp2()
-        if "import/info" in url:
-            return type("R", (), {"status_code": 200,
-                                  "json": lambda self: {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}}})()
-        return _Resp2()
-    req.post = _counting_post
+            return {"result": {"task_id": "12345"}}
+        if "import/info" in endpoint:
+            return {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}}
+        return {"result": {"task_id": "12345"}}
+    _fsm.ozon_post = _counting_post
     try:
         env = {
             "draft": {
@@ -384,7 +368,7 @@ def test_case_5_hand_without_source_falls_back_api():
         state = FakeState(envelope=env)
         result = follow_sell_import_node(state)
     finally:
-        req.post = _orig
+        _fsm.ozon_post = _orig
 
     print(f"  import-by-sku 调用次数: {len(calls)}")
     print(f"  product_id: {result.get('product_id')}")
@@ -504,30 +488,22 @@ def test_case_6_import_timeout_no_fallback_create():
     mod._resolve_category_by_id = _mock_resolve_category_success
     mod._resolve_category = lambda dc, tp, language="": _mock_resolve_category_success(0)
 
-    import requests as req
+    from graphs.nodes import follow_sell_import_node as _fsm
     import time as _t
     calls = []
-    _orig_post = req.post
+    _orig_post = _fsm.ozon_post
     _orig_sleep = _t.sleep
-    class _Resp3:
-        status_code = 200
-        def json(self):
-            return {"result": {"task_id": "12345", "unmatched_sku_list": []}}
-    class _RespInfo:
-        status_code = 200
-        def json(self):
-            return {"result": {"items": []}}  # 永不 imported
-    def _counting_post(url, *a, **k):
-        if "import-by-sku" in url:
+    def _counting_post(client_id, api_key, endpoint, body=None, timeout=60, **kw):
+        if "import-by-sku" in endpoint:
             calls.append("ibs")
-            return _Resp3()
-        if "import/info" in url:
+            return {"result": {"task_id": "12345", "unmatched_sku_list": []}}
+        if "import/info" in endpoint:
             calls.append("info")
-            return _RespInfo()
-        if "product/import" in url:
+            return {"result": {"items": []}}  # 永不 imported
+        if "product/import" in endpoint:
             calls.append("create")  # v3 import = CREATE/UPDATE，必须不被调用
-        return _Resp3()
-    req.post = _counting_post
+        return {"result": {"task_id": "12345", "unmatched_sku_list": []}}
+    _fsm.ozon_post = _counting_post
     _t.sleep = lambda s: None  # 加速轮询
     try:
         env = {
@@ -542,7 +518,7 @@ def test_case_6_import_timeout_no_fallback_create():
         state = FakeState(envelope=env)
         result = follow_sell_import_node(state)
     finally:
-        req.post = _orig_post
+        _fsm.ozon_post = _orig_post
         _t.sleep = _orig_sleep
     assert "create" not in calls, "超时不应 fallback CREATE"
     assert result.get("import_submitted") is True
@@ -608,25 +584,17 @@ def test_case_8_hand_category_fail_falls_back_api():
     # v0.26 权威类目自校验：Widget 无效 ID → 返回 False → 回退二次解析
     mod._verify_category_schema = lambda cid, akey, dc, tp: False
 
-    import requests as req
+    from graphs.nodes import follow_sell_import_node as _fsm
     calls = []
-    _orig = req.post
-    class _Resp8:
-        status_code = 200
-        def json(self):
-            return {"result": {"task_id": "12345"}}
-    class _RespInfo8:
-        status_code = 200
-        def json(self):
-            return {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}}
-    def _counting_post8(url, *a, **k):
-        if "import-by-sku" in url:
+    _orig = _fsm.ozon_post
+    def _counting_post8(client_id, api_key, endpoint, body=None, timeout=60, **kw):
+        if "import-by-sku" in endpoint:
             calls.append("ibs")
-            return _Resp8()
-        if "import/info" in url:
-            return _RespInfo8()
-        return _Resp8()
-    req.post = _counting_post8
+            return {"result": {"task_id": "12345"}}
+        if "import/info" in endpoint:
+            return {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}}
+        return {"result": {"task_id": "12345"}}
+    _fsm.ozon_post = _counting_post8
     try:
         env = {
             "draft": {
@@ -652,7 +620,7 @@ def test_case_8_hand_category_fail_falls_back_api():
         state = FakeState(envelope=env)
         result = follow_sell_import_node(state)
     finally:
-        req.post = _orig
+        _fsm.ozon_post = _orig
 
     print(f"  import-by-sku 调用: {len(calls)}")
     print(f"  product_id: {result.get('product_id')}")
@@ -690,20 +658,15 @@ def test_case_9_authoritative_category_trusted():
     )
     mod._resolve_category = lambda dc, tp, language="": (None, None)
 
-    import requests as req
-    _orig = req.post
-    class _Resp9:
-        status_code = 200
-        def json(self):
+    from graphs.nodes import follow_sell_import_node as _fsm
+    _orig = _fsm.ozon_post
+    def _counting_post9(client_id, api_key, endpoint, body=None, timeout=60, **kw):
+        if "import-by-sku" in endpoint:
             return {"result": {"task_id": "12345"}}
-    def _counting_post9(url, *a, **k):
-        if "import-by-sku" in url:
-            return _Resp9()
-        if "import/info" in url:
-            return type("R", (), {"status_code": 200,
-                                  "json": lambda self: {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}}})()
-        return _Resp9()
-    req.post = _counting_post9
+        if "import/info" in endpoint:
+            return {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}}
+        return {"result": {"task_id": "12345"}}
+    _fsm.ozon_post = _counting_post9
     try:
         env = {
             "draft": {
@@ -730,7 +693,7 @@ def test_case_9_authoritative_category_trusted():
         state = FakeState(envelope=env)
         result = follow_sell_import_node(state)
     finally:
-        req.post = _orig
+        _fsm.ozon_post = _orig
 
     print(f"  _resolve_category_by_id 调用: {called_by_id}")
     print(f"  dc_id: {result.get('description_category_id')}")

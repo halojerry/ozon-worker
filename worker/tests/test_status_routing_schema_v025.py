@@ -20,14 +20,15 @@ from langgraph.graph import StateGraph, END, START  # noqa: E402
 from graphs.state import GlobalState, GraphInput, GraphOutput  # noqa: E402
 
 
-def _fake_post(url, *a, **k):
-    if "import/info" in url:
-        return _R(200, {"result": {"items": [{"offer_id": "x", "product_id": 5821877126, "status": "imported"}]}})
-    return _R(200, {"items": [{
+def _fake_post(client_id, api_key, endpoint, body=None, *a, **k):
+    # F-F01: 轮询收敛 ozon_post 后以解析后 dict 应答
+    if "import/info" in endpoint:
+        return {"result": {"items": [{"offer_id": "x", "product_id": 5821877126, "status": "imported"}]}}
+    return {"items": [{
         "id": 5821877126, "offer_id": "x",
         "statuses": {"validation_status": "success", "is_created": True, "moderate_status": "approved"},
         "errors": [],
-    }]})
+    }]}
 
 
 class _R:
@@ -66,22 +67,22 @@ def test_approved_routing_terminates_no_infinite_loop():
         "token": "t", "ozon_client_id": "5381204", "ozon_api_key": "k",
         "envelope": {"draft": {}, "source": {}, "extensions": {}},
     }
-    with mock.patch.object(mod.session, "post", side_effect=_fake_post), \
+    with mock.patch.object(mod, "ozon_post", side_effect=_fake_post), \
          mock.patch.object(time, "sleep", return_value=None):
         out = g.invoke(payload)
     # 若路由误判审核中 → status 边自环，invoke 不会在 30s 内返回（测试会超时/断言失败）
     assert out is not None
 
 
-def _fake_post_pending(url, *a, **k):
+def _fake_post_pending(client_id, api_key, endpoint, body=None, *a, **k):
     """模拟审核一直 pending：import/info 已导入，但 info/list 的 moderate_status 永远 pending。"""
-    if "import/info" in url:
-        return _R(200, {"result": {"items": [{"offer_id": "x", "product_id": 5821877126, "status": "imported"}]}})
-    return _R(200, {"items": [{
+    if "import/info" in endpoint:
+        return {"result": {"items": [{"offer_id": "x", "product_id": 5821877126, "status": "imported"}]}}
+    return {"items": [{
         "id": 5821877126, "offer_id": "x",
         "statuses": {"validation_status": "success", "is_created": True, "moderate_status": "pending"},
         "errors": [],
-    }]})
+    }]}
 
 
 def test_pending_routing_terminates_after_3_retries():
@@ -113,7 +114,7 @@ def test_pending_routing_terminates_after_3_retries():
         "token": "t", "ozon_client_id": "5381204", "ozon_api_key": "k",
         "envelope": {"draft": {}, "source": {}, "extensions": {}},
     }
-    with mock.patch.object(mod.session, "post", side_effect=_fake_post_pending), \
+    with mock.patch.object(mod, "ozon_post", side_effect=_fake_post_pending), \
          mock.patch.object(time, "sleep", return_value=None):
         out = g.invoke(payload)
     # 修复前 moderation_retry_count 被剥 → "审核中" 自环 → GraphRecursionError 抛出；

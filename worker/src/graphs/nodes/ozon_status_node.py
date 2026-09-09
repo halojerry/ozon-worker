@@ -2,8 +2,6 @@ import os
 import json
 import time
 import logging
-import requests
-from utils.http_session import session
 from typing import Dict, Any, List, Optional
 from jinja2 import Template
 from langchain_core.runnables import RunnableConfig
@@ -11,6 +9,10 @@ from langgraph.runtime import Runtime
 from runtime.context import Context
 from graphs.state import OzonStatusInput, OzonStatusOutput
 from utils.progress_logger import ProgressLogger
+# F-F01（2026-09-09 审计）：轮询收敛 ozon_post——此前 session.post 直发无全局
+# 限流/429·5xx 重试/类型化错误；404 回退语义由 OzonNotFoundError 承接。
+from utils.ozon_client import ozon_post
+from utils.ozon_errors import OzonError, OzonNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +82,6 @@ def ozon_status_node(
                 stages={"ozon_status": "failed"}
             )
 
-        headers: Dict[str, str] = {
-            "Client-Id": ozon_client_id,
-            "Api-Key": ozon_api_key,
-            "Content-Type": "application/json"
-        }
-
         # 防御性类型转换：product_id可能是Ozon的数字task_id，也可能是系统UUID
         task_id_int = None
         try:
@@ -122,7 +118,6 @@ def ozon_status_node(
             real_product_ids = [str(product_id)] if product_id else []
             total_item_count = len(real_product_ids)
 
-        ozon_api_url: str = "https://api-seller.ozon.ru/v1/product/import/info"
         payload: Dict[str, Any] = {"task_id": task_id_int}
 
         # ✅ v0.25 FIX: 允许 404 后回退（避免「审核通过 → 重试 → 404 误判失败」）
@@ -133,12 +128,16 @@ def ozon_status_node(
             logger.info(f"轮询第{attempt + 1}/{MAX_POLL_ATTEMPTS}次...")
             progress.log_node_action(f"轮询Ozon状态第{attempt + 1}/{MAX_POLL_ATTEMPTS}次...")
 
-            response = session.post(ozon_api_url, headers=headers, json=payload, timeout=60)
-
-            if response.status_code != 200:
+            response_data: Optional[Dict[str, Any]] = None
+            try:
+                response_data = ozon_post(
+                    ozon_client_id, ozon_api_key,
+                    "/v1/product/import/info", payload, timeout=60,
+                )
+            except OzonNotFoundError:
                 # ✅ v0.25 FIX: import/info 任务不存在（404）→ 卡片已存在/任务已过期，
                 # 用已知 product_id 直接查 info/list，不判失败
-                if response.status_code == 404 and product_id and str(product_id).strip().isdigit():
+                if product_id and str(product_id).strip().isdigit():
                     logger.warning(
                         f"⚠️ import/info 任务不存在(task_id={payload.get('task_id')})，"
                         f"回退用 product_id={product_id} 直接查审核状态"
@@ -147,22 +146,37 @@ def ozon_status_node(
                     total_item_count = len(real_product_ids)
                     _fallback_from_404 = True
                     break
-                logger.error(f"Ozon API调用失败: {response.status_code}, {response.text[:200]}")
+                logger.error("Ozon API调用失败: 404")
                 return OzonStatusOutput(
                     product_id=product_id,
                     product_ids=[],
                     status="failed",
                     moderation_status="error",
-                    errors=[{"error": f"Ozon API错误: {response.status_code}"}],
+                    errors=[{"error": "Ozon API错误: 404"}],
                     purchase_url=purchase_url,
                     purchase_cost=purchase_cost,
                     sku_id=sku_id,
                     profit_estimation=profit_estimation,
-                    error_message=f"Ozon API错误: {response.status_code}",
+                    error_message="Ozon API错误: 404",
+                    stages={"ozon_status": "api_error"}
+                )
+            except OzonError as e:
+                logger.error(f"Ozon API调用失败: {e.status_code}, {str(e)[:200]}")
+                return OzonStatusOutput(
+                    product_id=product_id,
+                    product_ids=[],
+                    status="failed",
+                    moderation_status="error",
+                    errors=[{"error": f"Ozon API错误: {e.status_code}"}],
+                    purchase_url=purchase_url,
+                    purchase_cost=purchase_cost,
+                    sku_id=sku_id,
+                    profit_estimation=profit_estimation,
+                    error_message=f"Ozon API错误: {e.status_code}",
                     stages={"ozon_status": "api_error"}
                 )
 
-            result: Dict[str, Any] = response.json()
+            result: Dict[str, Any] = response_data
             result_items: list = result.get("result", {}).get("items", [])
 
             if not result_items or len(result_items) == 0:
@@ -323,7 +337,6 @@ def ozon_status_node(
                     stages={"ozon_status": "success"}
                 )
 
-            info_url: str = "https://api-seller.ozon.ru/v3/product/info/list"
             # 一次查询所有变体的product_id
             info_payload: Dict[str, Any] = {
                 "product_id": all_pids_int,
@@ -336,10 +349,19 @@ def ozon_status_node(
                 logger.info(f"查询moderate_status第{attempt2 + 1}/{MAX_MODERATE_POLL_ATTEMPTS}次...")
                 progress.log_node_action(f"查询审核状态第{attempt2 + 1}/{MAX_MODERATE_POLL_ATTEMPTS}次（{len(all_pids_int)}个变体）...")
 
-                info_response = session.post(info_url, headers=headers, json=info_payload, timeout=60)
+                _info_ok: bool = True
+                info_result: Dict[str, Any] = {}
+                try:
+                    info_result = ozon_post(
+                        ozon_client_id, ozon_api_key,
+                        "/v3/product/info/list", info_payload, timeout=60,
+                    )
+                except OzonError as _oe:
+                    _info_ok = False
+                    logger.warning(f"查询moderate_status API返回{_oe.status_code}")
+                    time.sleep(MODERATE_POLL_INTERVAL_SECONDS)
 
-                if info_response.status_code == 200:
-                    info_result: Dict[str, Any] = info_response.json()
+                if _info_ok:
                     info_items: list = info_result.get("items", [])
 
                     if info_items and len(info_items) > 0:
@@ -556,9 +578,6 @@ def ozon_status_node(
                             )
                         logger.warning(f"第{attempt2 + 1}次查询moderate_status无结果")
                         time.sleep(MODERATE_POLL_INTERVAL_SECONDS)
-                else:
-                    logger.warning(f"查询moderate_status API返回{info_response.status_code}")
-                    time.sleep(MODERATE_POLL_INTERVAL_SECONDS)
 
             # moderate_status 轮询超时 — 审核仍在进行中
             mod_retries = getattr(state, 'moderation_retry_count', 0) + 1

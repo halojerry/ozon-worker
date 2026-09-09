@@ -18,7 +18,9 @@ import re
 import time
 from typing import Any
 
-import requests as req
+# F-F01（2026-09-09 审计）：Ozon 直连收敛 ozon_post（全局限流 + 429/5xx 重试 +
+# 类型化错误），移除裸 requests 直发
+from utils.ozon_client import ozon_post
 
 from graphs.state import GlobalState, FollowSellImportOutput
 
@@ -142,23 +144,19 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     api_key = state.ozon_api_key
     if dc_raw and type_raw:
         try:
-            import requests as _req
-            _resp = _req.post(
-                "https://api-seller.ozon.ru/v1/description-category/attribute",
-                headers={"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"},
-                json={"description_category_id": int(dc_raw), "type_id": int(type_raw), "language": "ZH_HANS"},
+            # ⚠️ v0.22 防御: Ozon 异常/限流时 result 可能非 list，
+            # 直接赋值会让 GlobalState.attributes_schema 校验失败卡死管线
+            _schema_data = ozon_post(
+                client_id, api_key, "/v1/description-category/attribute",
+                {"description_category_id": int(dc_raw), "type_id": int(type_raw),
+                 "language": "ZH_HANS"},
                 timeout=15,
             )
-            if _resp.status_code == 200:
-                # ⚠️ v0.22 防御: Ozon 异常/限流时 result 可能非 list，
-                # 直接赋值会让 GlobalState.attributes_schema 校验失败卡死管线
-                _schema_raw = _resp.json().get("result", [])
-                attrs_schema = _schema_raw if isinstance(_schema_raw, list) else []
-                logger.info("✅ 跟卖 schema 已拉取: %d 个属性", len(attrs_schema))
+            _schema_raw = _schema_data.get("result", [])
+            attrs_schema = _schema_raw if isinstance(_schema_raw, list) else []
+            logger.info("✅ 跟卖 schema 已拉取: %d 个属性", len(attrs_schema))
         except Exception as e:
             logger.warning("⚠️ 跟卖 schema 拉取失败（降级继续）: %s", e)
-
-    headers = {"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"}
 
     # ── ① import-by-sku（仅 api 强制跟卖模式；hand 模式跳过 1:1 复制）──
     # v0.22（参考 maozi follow_type）：hand=防侵权跟卖（模拟人工，走 CREATE 重建，
@@ -196,29 +194,31 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                 }]
             }
             logger.info("🔄 import-by-sku: sku=%s, offer_id=%s", ozon_product_id, offer_id)
-            resp = req.post("https://api-seller.ozon.ru/v1/product/import-by-sku",
-                            headers=headers, json=import_body, timeout=30)
-            data = resp.json().get("result", {})
+            # F-F01: 收敛 ozon_post——非 2xx 抛 OzonError → except 走 Fallback CREATE
+            data = ozon_post(
+                state.ozon_client_id, state.ozon_api_key,
+                "/v1/product/import-by-sku", import_body, timeout=30,
+            ).get("result", {})
             unmatched = data.get("unmatched_sku_list", [])
             ibs_task_id = str(data.get("task_id", ""))
-            if resp.status_code == 200 and not unmatched:
+            if not unmatched:
                 logger.info("✅ import-by-sku 已提交: task_id=%s", ibs_task_id)
                 for _ibs_attempt in range(60):  # v0.22 P2a: 60s→180s，降低超时 fallback 双卡概率
                     time.sleep(3)
                     try:
-                        info_resp = req.post(
-                            "https://api-seller.ozon.ru/v1/product/import/info",
-                            headers=headers, json={"task_id": int(ibs_task_id)}, timeout=15,
+                        info_data = ozon_post(
+                            state.ozon_client_id, state.ozon_api_key,
+                            "/v1/product/import/info",
+                            {"task_id": int(ibs_task_id)}, timeout=15,
                         )
-                        if info_resp.status_code == 200:
-                            info_items = info_resp.json().get("result", {}).get("items", [])
-                            for _it in info_items:
-                                _pid = _it.get("product_id")
-                                _status = _it.get("status", "")
-                                if _pid and _status == "imported":
-                                    product_id = str(_pid)
-                                    logger.info("✅ import-by-sku 完成: product_id=%s，后续走 UPDATE", _pid)
-                                    break
+                        info_items = info_data.get("result", {}).get("items", [])
+                        for _it in info_items:
+                            _pid = _it.get("product_id")
+                            _status = _it.get("status", "")
+                            if _pid and _status == "imported":
+                                product_id = str(_pid)
+                                logger.info("✅ import-by-sku 完成: product_id=%s，后续走 UPDATE", _pid)
+                                break
                         if product_id:
                             break
                     except Exception:
@@ -497,16 +497,12 @@ def _verify_category_schema(client_id: str, api_key: str, dc: str, tp: str) -> b
     （数字但无效，如盘子 dc=102080114 报 'category ... is not found'）。
     """
     try:
-        _resp = req.post(
-            "https://api-seller.ozon.ru/v1/description-category/attribute",
-            headers={"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"},
-            json={"description_category_id": int(dc), "type_id": int(tp), "language": "RU"},
+        result = ozon_post(
+            client_id, api_key, "/v1/description-category/attribute",
+            {"description_category_id": int(dc), "type_id": int(tp), "language": "RU"},
             timeout=15,
-        )
-        if _resp.status_code == 200:
-            result = _resp.json().get("result", [])
-            return isinstance(result, list)  # 空列表也算有效（类目可能无属性）
-        return False
+        ).get("result", [])
+        return isinstance(result, list)  # 空列表也算有效（类目可能无属性）
     except Exception:
         return False
 

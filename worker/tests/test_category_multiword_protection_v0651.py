@@ -485,30 +485,29 @@ def test_r4_looks_like_category_mismatch():
 def test_r4_declined_backfeeds_mod_errors_for_reparse():
     """recheck 见 declined → mod_errors 回灌 state.errors → should_reupload 走 parse_error。"""
     import time as _time_module
+    import graphs.validation_retry_loop as vrl
     from graphs.validation_retry_loop import (
         ValidationRetryLoopState, recheck_status_node, should_reupload, time as _retry_time,
     )
-    from utils.http_session import session
 
-    import_resp = mock.Mock()
-    import_resp.status_code = 200
-    import_resp.json.return_value = {"result": {"items": [{"status": "imported", "product_id": "111", "errors": []}]}}
-    mod_resp = mock.Mock()
-    mod_resp.json.return_value = {"items": [{"statuses": {"moderate_status": "declined"},
-                                             "errors": [{"code": "DESCRIPTION_DECLINE",
-                                                         "attribute_id": 22507,
-                                                         "texts": {"message": "категория"}}]}]}
+    # F-F01: transport 收敛 ozon_post —— mock 直接返回解析后 dict
+    import_data = {"result": {"items": [{"status": "imported", "product_id": "111", "errors": []}]}}
+    mod_data = {"items": [{"statuses": {"moderate_status": "declined"},
+                           "errors": [{"code": "DESCRIPTION_DECLINE",
+                                       "attribute_id": 22507,
+                                       "texts": {"message": "категория"}}]}]}
 
-    def side_effect(url, **kwargs):
-        if "info/list" in url:
-            return mod_resp
-        return import_resp
+    # F-F01: transport 收敛 ozon_post 后 patch 点切到模块属性
+    def side_effect(client_id, api_key, endpoint, body=None, timeout=30, **kw):
+        if "info/list" in endpoint:
+            return mod_data
+        return import_data
 
     state = ValidationRetryLoopState(
         task_id="1234567890", token="t", ozon_client_id="c", ozon_api_key="k",
         ozon_payload={"items": []},
     )
-    with mock.patch.object(session, "post", side_effect=side_effect), \
+    with mock.patch.object(vrl, "ozon_post", side_effect=side_effect), \
          mock.patch.object(_retry_time, "sleep"), \
          mock.patch.object(_time_module, "sleep"):
         out = recheck_status_node(state)

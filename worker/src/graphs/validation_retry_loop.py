@@ -27,7 +27,10 @@ import re
 import json
 import time
 import logging
-from utils.http_session import session
+# F-F01（2026-09-09 审计）：Ozon 直连统一收敛 ozon_post（全局限流 + 429/5xx 重试
+# + 类型化错误）——retry 重传/价格修复/状态轮询此前裸 session.post，限流即整任务失败重跑
+from utils.ozon_client import ozon_post
+from utils.ozon_errors import OzonError
 from utils.title_sanitizer import sanitize_title
 from typing import Dict, List, Any, Optional
 from jinja2 import Template
@@ -2637,22 +2640,16 @@ def _fix_via_attributes_update(state: ValidationRetryLoopState) -> bool:
     }
 
     try:
-        resp = session.post(
-            "https://api-seller.ozon.ru/v1/product/attributes/update",
-            headers={
-                "Client-Id": state.ozon_client_id,
-                "Api-Key": state.ozon_api_key,
-                "Content-Type": "application/json",
-            },
-            json=update_body, timeout=30,
+        data = ozon_post(
+            state.ozon_client_id, state.ozon_api_key,
+            "/v1/product/attributes/update", update_body, timeout=30,
         )
-        if resp.status_code == 200:
-            task_id = resp.json().get("result", {}).get("task_id", "") or resp.json().get("task_id", "")
-            logger.info(f"✅ 属性增量更新成功 (task_id={task_id}, {len(ozon_attrs)} attrs)")
-            return True
-        else:
-            logger.warning(f"⚠️ attributes/update 返回 {resp.status_code}: {resp.text[:200]}")
-            return False
+        task_id = data.get("result", {}).get("task_id", "") or data.get("task_id", "")
+        logger.info(f"✅ 属性增量更新成功 (task_id={task_id}, {len(ozon_attrs)} attrs)")
+        return True
+    except OzonError as e:
+        logger.warning(f"⚠️ attributes/update 返回 {e.status_code}: {str(e)[:200]}")
+        return False
     except Exception as e:
         logger.warning(f"⚠️ attributes/update 异常: {e}")
         return False
@@ -2707,25 +2704,19 @@ def _fix_via_prices_update(state: ValidationRetryLoopState) -> bool:
     }
 
     try:
-        resp = session.post(
-            "https://api-seller.ozon.ru/v1/product/import/prices",
-            headers={
-                "Client-Id": state.ozon_client_id,
-                "Api-Key": state.ozon_api_key,
-                "Content-Type": "application/json",
-            },
-            json=update_body, timeout=30,
+        ozon_post(
+            state.ozon_client_id, state.ozon_api_key,
+            "/v1/product/import/prices", update_body, timeout=30,
         )
-        if resp.status_code == 200:
-            logger.info(f"✅ 价格增量更新成功: price={price}, old_price={update_body['prices'][0]['old_price']}")
-            # 同步更新 ozon_payload 中的价格
-            first_item["price"] = str(price)
-            first_item["old_price"] = str(update_body["prices"][0]["old_price"])
-            first_item["min_price"] = str(update_body["prices"][0]["min_price"])
-            return True
-        else:
-            logger.warning(f"⚠️ import/prices 返回 {resp.status_code}: {resp.text[:200]}")
-            return False
+        logger.info(f"✅ 价格增量更新成功: price={price}, old_price={update_body['prices'][0]['old_price']}")
+        # 同步更新 ozon_payload 中的价格
+        first_item["price"] = str(price)
+        first_item["old_price"] = str(update_body["prices"][0]["old_price"])
+        first_item["min_price"] = str(update_body["prices"][0]["min_price"])
+        return True
+    except OzonError as e:
+        logger.warning(f"⚠️ import/prices 返回 {e.status_code}: {str(e)[:200]}")
+        return False
     except Exception as e:
         logger.warning(f"⚠️ import/prices 异常: {e}")
         return False
@@ -2758,22 +2749,16 @@ def _fix_via_product_import_update(state: ValidationRetryLoopState) -> Optional[
             item["product_id"] = pid_int
 
     try:
-        resp = session.post(
-            "https://api-seller.ozon.ru/v3/product/import",
-            headers={
-                "Client-Id": state.ozon_client_id,
-                "Api-Key": state.ozon_api_key,
-                "Content-Type": "application/json",
-            },
-            json={"items": items}, timeout=60,
+        data = ozon_post(
+            state.ozon_client_id, state.ozon_api_key,
+            "/v3/product/import", {"items": items}, timeout=60,
         )
-        if resp.status_code == 200:
-            task_id = resp.json().get("result", {}).get("task_id", "")
-            logger.info(f"✅ product/import(UPDATE) 成功: task_id={task_id}, product_id={pid_int}")
-            return str(task_id) if task_id else None
-        else:
-            logger.warning(f"⚠️ product/import(UPDATE) 返回 {resp.status_code}: {resp.text[:200]}")
-            return None
+        task_id = data.get("result", {}).get("task_id", "")
+        logger.info(f"✅ product/import(UPDATE) 成功: task_id={task_id}, product_id={pid_int}")
+        return str(task_id) if task_id else None
+    except OzonError as e:
+        logger.warning(f"⚠️ product/import(UPDATE) 返回 {e.status_code}: {str(e)[:200]}")
+        return None
     except Exception as e:
         logger.warning(f"⚠️ product/import(UPDATE) 异常: {e}")
         return None
@@ -3406,27 +3391,19 @@ def _full_import_create(state: ValidationRetryLoopState) -> ValidationRetryLoopS
     payload: Dict[str, Any] = {"items": items}
 
     try:
-        response = session.post(
-            "https://api-seller.ozon.ru/v3/product/import",
-            headers={
-                "Client-Id": state.ozon_client_id,
-                "Api-Key": state.ozon_api_key,
-                "Content-Type": "application/json",
-            },
-            json=payload, timeout=30,
+        response_data: Dict[str, Any] = ozon_post(
+            state.ozon_client_id, state.ozon_api_key,
+            "/v3/product/import", payload, timeout=30,
         )
-        response_data: Dict[str, Any] = response.json()
-
-        if response.status_code == 200:
-            task_id: Any = response_data.get("result", {}).get("task_id", "")
-            logger.info(f"✅ 全量 import(CREATE) 成功，task_id={task_id}")
-            state.task_id = str(task_id) if task_id else ""
-            state.upload_status = "uploaded"
-        else:
-            error_msg: str = response_data.get("message", "Unknown error")
-            logger.error(f"❌ 全量 import(CREATE) 失败: {error_msg}")
-            state.upload_status = "failed"
-            state.error_message = f"重新上传失败: {error_msg}"
+        task_id: Any = response_data.get("result", {}).get("task_id", "")
+        logger.info(f"✅ 全量 import(CREATE) 成功，task_id={task_id}")
+        state.task_id = str(task_id) if task_id else ""
+        state.upload_status = "uploaded"
+    except OzonError as e:
+        error_msg: str = str(e) or "Unknown error"
+        logger.error(f"❌ 全量 import(CREATE) 失败: {error_msg}")
+        state.upload_status = "failed"
+        state.error_message = f"重新上传失败: {error_msg}"
     except Exception as e:
         logger.error(f"❌ 全量 import(CREATE) 异常: {e}")
         state.upload_status = "failed"
@@ -3449,11 +3426,10 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         _pid = getattr(state, "product_id", "") or ""
         if _pid and state.ozon_client_id and state.ozon_api_key:
             try:
-                _h = {"Client-Id": state.ozon_client_id, "Api-Key": state.ozon_api_key,
-                      "Content-Type": "application/json"}
-                _r = session.post("https://api-seller.ozon.ru/v3/product/info/list",
-                                  headers=_h, json={"product_id": [str(_pid)]}, timeout=20)
-                _items = (_r.json() or {}).get("items") or []
+                _data = ozon_post(state.ozon_client_id, state.ozon_api_key,
+                                  "/v3/product/info/list",
+                                  {"product_id": [str(_pid)]}, timeout=20)
+                _items = (_data or {}).get("items") or []
                 if _items:
                     _mod = _items[0].get("statuses", {}).get("moderate_status", "")
                     state.moderation_status = _mod
@@ -3485,13 +3461,6 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         state.error_message = f"task_id格式错误: {task_id}"
         return state
 
-    ozon_url: str = "https://api-seller.ozon.ru/v1/product/import/info"
-    headers: Dict[str, str] = {
-        "Client-Id": state.ozon_client_id,
-        "Api-Key": state.ozon_api_key,
-        "Content-Type": "application/json"
-    }
-
     payload: Dict[str, Any] = {"task_id": task_id_int}
 
     # ✅ 轮询查询（10次×3秒=30秒，平衡速度和可靠性）
@@ -3502,16 +3471,10 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         time.sleep(poll_interval)
 
         try:
-            response = session.post(ozon_url, headers=headers, json=payload, timeout=30)
-            response_data: Dict[str, Any] = response.json()
-
-            if response.status_code != 200:
-                error_msg: str = response_data.get("message", "Unknown error")
-                logger.error(f"❌ 查询状态失败(attempt {attempt}/{max_polls}): {error_msg}")
-                if attempt == max_polls:
-                    state.upload_status = "failed"
-                    state.error_message = f"查询状态失败: {error_msg}"
-                continue
+            response_data: Dict[str, Any] = ozon_post(
+                state.ozon_client_id, state.ozon_api_key,
+                "/v1/product/import/info", payload, timeout=30,
+            )
 
             result_items: list = response_data.get("result", {}).get("items", [])
 
@@ -3542,13 +3505,12 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                 # ✅ Bug 4 修复：等待 Ozon 审核通过（moderate_status），未通过不算成功
                 # 导入成功不代表审核通过，需要额外轮询 /v3/product/info/list
                 logger.info(f"⏳ 等待 Ozon 审核（最多300秒）...")
-                info_url: str = "https://api-seller.ozon.ru/v3/product/info/list"
                 for mod_attempt in range(1, 61):  # 60 × 5s = 300s
                     time.sleep(5)
                     try:
-                        mod_resp = session.post(info_url, headers=headers, 
-                            json={"product_id": [str(product_id)]}, timeout=20)
-                        mod_data = mod_resp.json()
+                        mod_data = ozon_post(state.ozon_client_id, state.ozon_api_key,
+                                             "/v3/product/info/list",
+                                             {"product_id": [str(product_id)]}, timeout=20)
                         mod_items = mod_data.get("items", [])
                         if mod_items:
                             mod_status = mod_items[0].get("statuses", {}).get("moderate_status", "")
@@ -3592,6 +3554,12 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                 # 最后一次仍为pending
                 state.upload_status = "pending"
                 logger.warning(f"⚠️ 轮询{max_polls}次后仍为pending，退出")
+        except OzonError as _oe:
+            # F-F01: 原 status_code != 200 分支——非 2xx 由 ozon_post 抛类型化错误
+            logger.error(f"❌ 查询状态失败(attempt {attempt}/{max_polls}): {_oe}")
+            if attempt == max_polls:
+                state.upload_status = "failed"
+                state.error_message = f"查询状态失败: {_oe}"
         except Exception as e:
             logger.error(f"❌ 查询状态异常(attempt {attempt}/{max_polls}): {e}")
             if attempt == max_polls:

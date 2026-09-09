@@ -2,14 +2,13 @@
 import os
 import json
 import logging
-import requests
-from utils.http_session import session
 from typing import Any, Dict, Optional, Tuple
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from runtime.context import Context
 from graphs.state import PricingInput, PricingOutput
 from utils.logger import get_logger, set_trace_context, log_ozon_api_call
+from utils.ozon_client import ozon_post  # F-F01: Ozon 直连统一入口
 from utils.draft_sanity import check_weight_suspect  # v0.21 P2 定价防线
 from utils.commission_resolver import (  # 任务 1.3: 佣金唯一解析入口（explicit>缓存表>segments>0.10）
     get_category_commission,
@@ -46,14 +45,8 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
     if not currency_code and ozon_client_id and ozon_api_key:
         try:
             logger.info("currency_code为空，fallback调用Ozon API查询店铺货币")
-            ozon_url = "https://api-seller.ozon.ru/v1/seller/info"
-            ozon_headers = {
-                'Client-Id': ozon_client_id,
-                'Api-Key': ozon_api_key,
-                'Content-Type': 'application/json'
-            }
-            ozon_response = session.post(ozon_url, headers=ozon_headers, json={}, timeout=60)
-            ozon_data = ozon_response.json()
+            # F-F01（2026-09-09 审计）：收敛 ozon_post（全局限流 + 429/5xx 重试）
+            ozon_data = ozon_post(ozon_client_id, ozon_api_key, "/v1/seller/info", {}, timeout=60)
             company = ozon_data.get('company', {})
             if isinstance(company, dict):
                 currency_code = company.get('currency', '')

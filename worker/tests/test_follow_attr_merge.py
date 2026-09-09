@@ -86,38 +86,31 @@ def _mock_schema_schema():
 def _run_follow_node(envelope, search_side_effect):
     """跑 follow_sell_import_node，mock schema 拉取 + 字典搜索。"""
     import graphs.nodes.follow_sell_import_node as mod
-    import requests as req
 
     # mock 类目解析
     mod._resolve_category_by_id = lambda dc_id, type_name_hint="", token="": ("17027918", "971311385")
     mod._resolve_category = lambda dc, tp, language="": ("17027918", "971311385")
     mod._verify_category_schema = lambda cid, akey, dc, tp: True
 
-    _orig_post = req.post
+    # F-F01: transport 收敛 ozon_post 后，patch 点切到节点模块属性（返回解析后 dict）
+    _orig_post = mod.ozon_post
 
-    class _Resp:
-        status_code = 200
-        def __init__(self, json_data=None):
-            self._json = json_data or {}
-        def json(self):
-            return self._json
+    def _mock_post(client_id, api_key, endpoint, body=None, timeout=30, **kw):
+        if "description-category/attribute" in endpoint:
+            return {"result": _mock_schema_schema()}
+        if "import-by-sku" in endpoint:
+            return {"result": {"task_id": "1", "unmatched_sku_list": []}}
+        if "import/info" in endpoint:
+            return {"result": {"items": []}}
+        return {}
 
-    def _mock_post(url, headers=None, json=None, timeout=30):
-        if "description-category/attribute" in url:
-            return _Resp({"result": _mock_schema_schema()})
-        if "import-by-sku" in url:
-            return _Resp({"result": {"task_id": "1", "unmatched_sku_list": []}})
-        if "import/info" in url:
-            return _Resp({"result": {"items": []}})
-        return _Resp()
-
-    req.post = _mock_post
+    mod.ozon_post = _mock_post
     try:
         with mock.patch("utils.ozon_dict_values.search_dictionary_values", side_effect=search_side_effect):
             state = FakeState(envelope=envelope)
             result = mod.follow_sell_import_node(state)
     finally:
-        req.post = _orig_post
+        mod.ozon_post = _orig_post
     return result
 
 

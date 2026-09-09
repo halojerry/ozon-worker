@@ -9,6 +9,8 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from graphs.state import AuthInput, AuthOutput
 from utils.progress_logger import ProgressLogger
+from utils.ozon_client import ozon_post  # F-F01: Ozon 直连统一入口
+from utils.ozon_errors import OzonError
 from utils.image_url_processor import clear_cache  # ✅ 内存优化：每个产品开始时清理URL缓存
 
 
@@ -75,28 +77,13 @@ def query_ozon_seller_info(ozon_client_id: str, ozon_api_key: str) -> Dict[str, 
         Dict包含currency_code和其他店铺信息
     """
     try:
-        url = "https://api-seller.ozon.ru/v1/seller/info"
-        headers = {
-            "Client-Id": ozon_client_id,
-            "Api-Key": ozon_api_key,
-            "Content-Type": "application/json"
-        }
-        
         # 🔍 调试：打印请求参数
         logger.info(f"调用Ozon API: Client-Id={ozon_client_id}, Api-Key={ozon_api_key[:10]}...")
-        
-        # Ozon API要求POST请求，但body为空对象
-        response = session.post(url, headers=headers, json={}, timeout=30)
-        
-        # 🔍 调试：打印响应状态和内容
-        logger.info(f"Ozon API响应: status={response.status_code}, body={response.text[:200]}...")
-        
-        if response.status_code != 200:
-            logger.error(f"Ozon店铺信息查询失败: {response.status_code} - {response.text}")
-            return {"currency_code": "", "error": f"API error: {response.status_code}"}
-        
-        data: Any = response.json()
-        
+
+        # F-F01（2026-09-09 审计）：收敛 ozon_post——非 2xx 抛类型化 OzonError
+        # （Ozon API 要求 POST 请求，body 为空对象）
+        data: Any = ozon_post(ozon_client_id, ozon_api_key, "/v1/seller/info", {}, timeout=30)
+
         # 🔍 调试：打印完整响应结构
         logger.info(f"Ozon API完整响应: {json.dumps(data, ensure_ascii=False)[:500]}...")
         
@@ -125,6 +112,9 @@ def query_ozon_seller_info(ozon_client_id: str, ozon_api_key: str) -> Dict[str, 
         logger.error("❌ 无法解析Ozon API响应结构：company不是dict")
         return {"currency_code": ""}
         
+    except OzonError as e:
+        logger.error(f"Ozon店铺信息查询失败: {e.status_code}")
+        return {"currency_code": "", "error": f"API error: {e.status_code}"}
     except Exception as e:
         logger.error(f"❌ 查询Ozon店铺信息异常: {str(e)}")
         return {"currency_code": "", "error": str(e)}

@@ -27,6 +27,7 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 os.environ["APP_WORKSPACE_PATH"] = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
+import graphs.validation_retry_loop as vrl
 from graphs.validation_retry_loop import (
     ValidationRetryLoopState,
     revalidate_node,
@@ -251,21 +252,22 @@ class _FakeResp:
 
 
 def _run_recheck(moderate_status):
-    """跑 recheck_status_node：mock session.post —— import/info 返回 imported+product_id，
-    info/list 返回指定 moderate_status。返回修复后的 state。"""
-    import_resp = _FakeResp({"result": {"items": [{"status": "imported", "product_id": "111", "errors": []}]}})
-    mod_resp = _FakeResp({"items": [{"statuses": {"moderate_status": moderate_status}, "errors": []}]})
+    """跑 recheck_status_node：mock ozon_post（F-F01 transport 收敛后 patch 点）——
+    import/info 返回 imported+product_id，info/list 返回指定 moderate_status。
+    返回修复后的 state。"""
+    import_data = {"result": {"items": [{"status": "imported", "product_id": "111", "errors": []}]}}
+    mod_data = {"items": [{"statuses": {"moderate_status": moderate_status}, "errors": []}]}
 
-    def side_effect(url, **kwargs):
-        if "info/list" in url:
-            return mod_resp
-        return import_resp
+    def side_effect(client_id, api_key, endpoint, body=None, timeout=30, **kw):
+        if "info/list" in endpoint:
+            return mod_data
+        return import_data
 
     state = ValidationRetryLoopState(
         task_id="1234567890", token="t", ozon_client_id="c", ozon_api_key="k",
         ozon_payload={"items": []},
     )
-    with mock.patch.object(session, "post", side_effect=side_effect), \
+    with mock.patch.object(vrl, "ozon_post", side_effect=side_effect), \
          mock.patch.object(_retry_time, "sleep"):
         out = recheck_status_node(state)
     return out

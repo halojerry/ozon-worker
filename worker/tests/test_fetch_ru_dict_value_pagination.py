@@ -16,13 +16,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 
-class _R:
-    def __init__(self, code=200, j=None):
-        self.status_code = code
-        self._j = j or {}
-
-    def json(self):
-        return self._j
+from utils.ozon_errors import OzonServerError  # noqa: E402
 
 
 def _make_pages(page_size=2):
@@ -43,30 +37,31 @@ def _make_pages(page_size=2):
     return pages
 
 
-def _fake_session(pages):
-    class FakeSession:
+# F-F01: 字典 HTTP 收敛 ozon_post 后，mock 直接以解析后 dict 应答
+def _fake_ozon_post(pages):
+    class FakeCaller:
         def __init__(self):
             self.posted_last_ids = []
 
-        def post(self, url, headers=None, json=None, timeout=None):
-            self.posted_last_ids.append(json.get("last_value_id", 0))
+        def __call__(self, client_id, api_key, endpoint, body=None, timeout=15, **kw):
+            self.posted_last_ids.append((body or {}).get("last_value_id", 0))
             idx = len(self.posted_last_ids) - 1
-            return _R(200, pages[min(idx, len(pages) - 1)])
+            return pages[min(idx, len(pages) - 1)]
 
-    return FakeSession()
+    return FakeCaller()
 
 
-def _patch_session(monkeypatch, session):
+def _patch_ozon_post(monkeypatch, caller):
     import utils.ozon_dict_values as odv
 
-    monkeypatch.setattr(odv, "session", session)
+    monkeypatch.setattr(odv, "ozon_post", caller)
     return odv
 
 
 def test_hit_on_first_page(monkeypatch):
     pages = [{"result": [{"id": 200, "value": "目标"}, {"id": 201, "value": "x"}], "has_next": False}]
-    s = _fake_session(pages)
-    odv = _patch_session(monkeypatch, s)
+    s = _fake_ozon_post(pages)
+    odv = _patch_ozon_post(monkeypatch, s)
 
     out = odv.fetch_ru_dict_value("c", "k", 1, 2, 8229, dict_id=200, fallback="fb")
     assert out == "目标"
@@ -75,8 +70,8 @@ def test_hit_on_first_page(monkeypatch):
 
 def test_hit_on_third_page(monkeypatch):
     pages = _make_pages(page_size=2)
-    s = _fake_session(pages)
-    odv = _patch_session(monkeypatch, s)
+    s = _fake_ozon_post(pages)
+    odv = _patch_ozon_post(monkeypatch, s)
 
     out = odv.fetch_ru_dict_value("c", "k", 1, 2, 8229, dict_id=105, fallback="fb")
     assert out == "v105"
@@ -85,8 +80,8 @@ def test_hit_on_third_page(monkeypatch):
 
 def test_not_found_returns_fallback(monkeypatch):
     pages = _make_pages(page_size=2)
-    s = _fake_session(pages)
-    odv = _patch_session(monkeypatch, s)
+    s = _fake_ozon_post(pages)
+    odv = _patch_ozon_post(monkeypatch, s)
 
     out = odv.fetch_ru_dict_value("c", "k", 1, 2, 8229, dict_id=999, fallback="fb")
     assert out == "fb"
@@ -94,11 +89,11 @@ def test_not_found_returns_fallback(monkeypatch):
 
 
 def test_http_error_returns_fallback(monkeypatch):
-    class FakeSession:
-        def post(self, url, headers=None, json=None, timeout=None):
-            return _R(500, {})
+    class FakeCaller:
+        def __call__(self, *a, **kw):
+            raise OzonServerError("HTTP 500", status_code=500)
 
-    odv = _patch_session(monkeypatch, FakeSession())
+    odv = _patch_ozon_post(monkeypatch, FakeCaller())
     out = odv.fetch_ru_dict_value("c", "k", 1, 2, 8229, dict_id=105, fallback="fb")
     assert out == "fb"
 
@@ -108,8 +103,8 @@ def test_has_next_false_early_exit(monkeypatch):
         {"result": [{"id": 101, "value": "v101"}], "has_next": False},
         {"result": [{"id": 105, "value": "v105"}], "has_next": False},
     ]
-    s = _fake_session(pages)
-    odv = _patch_session(monkeypatch, s)
+    s = _fake_ozon_post(pages)
+    odv = _patch_ozon_post(monkeypatch, s)
 
     out = odv.fetch_ru_dict_value("c", "k", 1, 2, 8229, dict_id=105, fallback="fb")
     assert out == "fb", "第一页 has_next=False 即停，不应请求第二页"
@@ -117,5 +112,5 @@ def test_has_next_false_early_exit(monkeypatch):
 
 
 def test_zero_dict_id_returns_fallback(monkeypatch):
-    odv = _patch_session(monkeypatch, object())
+    odv = _patch_ozon_post(monkeypatch, object())
     assert odv.fetch_ru_dict_value("c", "k", 1, 2, 8229, dict_id=0, fallback="fb") == "fb"

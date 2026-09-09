@@ -230,11 +230,17 @@ def test_attributes_update_body_carries_8229():
 
     class _R:
         status_code = 200
+        ok = True
         text = ""
 
         def json(self):
             return {"task_id": 7}
 
+        def raise_for_status(self):
+            pass
+
+    # F-F01: ozon_post 仍走共享 session（懒导入同对象），patch 点不变；
+    # 响应对象需满足 ozon_post 协议（ok/raise_for_status）
     with mock.patch.object(shared_session, "post", return_value=_R()) as m_post:
         assert _fix_via_attributes_update(state) is True
     body = m_post.call_args.kwargs["json"]

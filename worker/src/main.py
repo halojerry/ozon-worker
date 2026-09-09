@@ -33,6 +33,13 @@ from storage.database.shared.model import (
 )
 from utils.task_processor import SupabaseTaskProcessor
 from utils.ozon_client import ozon_check_quota  # 配额检查
+from utils.instance_lock import (  # E-4: 后台循环单实例锁（多副本防重复跑）
+    METRICS_AGGREGATION,
+    PERIODIC_CLEANUP,
+    STORE_SYNC_LEGACY,
+    try_acquire_instance_lock,
+)
+from utils.ozon_errors import OzonError  # F-F01: auth_verify Ozon 校验错误分类
 from utils.draft_sanity import validate_draft_sanity  # v0.21 P2 入队防线
 from utils.sentry_setup import init_sentry  # v0.23 Sentry 错误监测
 from sqlalchemy import event
@@ -550,8 +557,10 @@ async def lifespan(app: FastAPI):
         except Exception as _cleanup_e:
             logger.warning(f"⚠️ 启动清理失败（非致命）: {_cleanup_e}")
 
-    # 启动定时清理任务
-    cleanup_task = asyncio.create_task(_periodic_task_cleanup(interval_seconds=60))
+    # 启动定时清理任务（E-4: 多副本时仅持锁副本跑，单副本恒 True 零变化）
+    cleanup_task = None
+    if try_acquire_instance_lock("periodic_cleanup", PERIODIC_CLEANUP):
+        cleanup_task = asyncio.create_task(_periodic_task_cleanup(interval_seconds=60))
 
     # 店铺数据自动同步（PRD M1 任务化:5s 扫描+worker 池+job 可见;SKIP_STORE_SYNC=1 关闭;
     # STORE_SYNC_JOBS_ENABLED=0 回退旧版 15min 全局轮询）
@@ -570,12 +579,19 @@ async def lifespan(app: FastAPI):
                 logger.info("🧹 同步任务僵尸恢复完成")
             except Exception as _zexc:
                 logger.warning("同步任务僵尸恢复异常(不阻断): %s", str(_zexc)[:200])
-        loop_fn = store_sync_jobs_loop if jobs_enabled() else store_sync_loop
-        store_sync_task = asyncio.create_task(loop_fn())
+        if jobs_enabled():
+            # jobs 版：PG 队列 SKIP LOCKED 认领，天然多副本安全，不加实例锁
+            store_sync_task = asyncio.create_task(store_sync_jobs_loop())
+        elif try_acquire_instance_lock("store_sync_legacy", STORE_SYNC_LEGACY):
+            store_sync_task = asyncio.create_task(store_sync_loop())
+        else:
+            store_sync_task = None
 
     # PRD M3: 指标日聚合 + 保留清理(10min)
     from services.metrics_aggregation import aggregation_loop
-    metrics_agg_task = asyncio.create_task(aggregation_loop())
+    metrics_agg_task = None
+    if try_acquire_instance_lock("metrics_aggregation", METRICS_AGGREGATION):
+        metrics_agg_task = asyncio.create_task(aggregation_loop())
 
     # 启动Worker后台任务（不阻塞主服务启动）
     # ⚠️ v0.14 E9: num_workers 联动 MAX_CONCURRENT（旧代码硬编码 10，调大 env 实际并发仍封顶 10）
@@ -1185,40 +1201,33 @@ async def health_check():
 @app.get("/api/v1/store/health")
 def store_health(client_id: str = None, api_key: str = None):
     """查询 Ozon 店铺配额健康状态。
-    
+
     Query params (可选):
     - client_id: Ozon Client-Id
     - api_key: Ozon Api-Key
 
-    v0.63.1 架构优化 R2: sync def — 内部阻塞 requests.post(timeout=10)，
-    FastAPI 自动丢线程池，不冻结事件循环（async def 下单个慢调用会
-    停摆全部 worker 心跳）。
+    v0.63.1 架构优化 R2: sync def — 内部阻塞调用，FastAPI 自动丢线程池，
+    不冻结事件循环（async def 下单个慢调用会停摆全部 worker 心跳）。
+    F-F01（2026-09-09 审计）：收敛 ozon_check_quota——与 submit 配额闸同源
+    解析/限流/重试，移除裸 requests.post 直连。
     """
     if not client_id or not api_key:
         return {"status": "unknown", "message": "需要提供 client_id 和 api_key"}
     try:
-        import requests as req
-        resp = req.post(
-            "https://api-seller.ozon.ru/v4/product/info/limit",
-            headers={"Client-Id": client_id, "Api-Key": api_key},
-            json={}, timeout=10,
-        )
-        if resp.status_code != 200:
-            return {"status": "error", "message": f"Ozon API error: {resp.status_code}"}
-        data = resp.json()
-        total = data.get("total", {})
-        daily = data.get("daily_create", {})
-        total_used = total.get("usage", 0)
-        total_limit = total.get("limit", 1000)
-        daily_used = daily.get("usage", 0)
-        daily_limit = daily.get("limit", 100)
+        quota = ozon_check_quota(client_id=client_id, api_key=api_key, timeout=10)
+        if quota.get("error"):
+            return {"status": "error", "message": f"Ozon API error: {quota['error']}"}
+        total_used = int(quota.get("total_used", 0) or 0)
+        total_limit = int(quota.get("total_limit", 0) or 0)
+        daily_used = int(quota.get("daily_used", 0) or 0)
+        daily_limit = int(quota.get("daily_limit", 0) or 0)
         remaining = total_limit - total_used
         daily_remaining = daily_limit - daily_used
-        
+
         if remaining <= 0: status = "critical"
         elif remaining < 10: status = "warning"
         else: status = "ok"
-        
+
         return {
             "status": status,
             "total_usage": total_used, "total_limit": total_limit, "remaining": remaining,
@@ -1423,8 +1432,6 @@ def _auth_verify_sync(token: str, client_id: str = "", api_key: str = "") -> dic
     # 去掉 sk- 前缀（tokens 表 key 列存储的是不带前缀的值）
     clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
 
-    import requests as _req
-
     # 1. 验证 token（查 Supabase tokens 表，和 submit_task 相同逻辑）
     supabase = get_supabase_client()
     if supabase is None:
@@ -1462,13 +1469,12 @@ def _auth_verify_sync(token: str, client_id: str = "", api_key: str = "") -> dic
     ozon_valid = None
     if client_id and api_key:
         try:
-            resp = _req.post(
-                "https://api-seller.ozon.ru/v1/seller/info",
-                headers={"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"},
-                json={},
-                timeout=10
-            )
-            ozon_valid = resp.status_code == 200
+            # F-F01（2026-09-09 审计）：收敛 ozon_post——OzonError(4xx/5xx)=凭证/平台问题
+            # → False（保持原「非 200」语义），网络不可达 → None（未知，不冤枉凭证）
+            ozon_post(client_id, api_key, "/v1/seller/info", {}, timeout=10)
+            ozon_valid = True
+        except OzonError:
+            ozon_valid = False
         except Exception:
             ozon_valid = None
 
