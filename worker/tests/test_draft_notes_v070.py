@@ -55,3 +55,16 @@ def test_import_row_notes_stripped_and_capped():
     assert _norm_notes("  待确认  ") == "待确认"
     assert _norm_notes(None) == ""
     assert _norm_notes("x" * 5000) == "x" * 2000
+
+
+def test_export_contains_notes_column(monkeypatch):
+    from services import draft_service
+    import csv as _csv
+    import io as _io
+
+    drafts = [{"id": "d1", "tenant_id": "t1", "payload": {"draft": {}, "source": {},
+               "extensions": {}}, "source": "skill", "version": 1,
+               "submission_status": None, "notes": "高利润", "created_at": "t", "updated_at": "t"}]
+    monkeypatch.setattr(draft_service, "list_drafts", lambda t: drafts)
+    rows = list(_csv.DictReader(_io.StringIO(draft_service.export_drafts_csv("t1"))))
+    assert rows[0]["notes"] == "高利润"
