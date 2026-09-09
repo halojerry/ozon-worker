@@ -97,6 +97,17 @@ def test_fetch_variant_truth_shape():
     assert cdp.released == [tab]
 
 
+def test_fetch_variant_truth_sku_quote_json_escaped():
+    """含引号 sku 经 json.dumps 注入搜索体（裸占位符 + JSON 字面量），
+    原始引号不得破坏 JS 字符串（防注入加固，gate 接线前）。"""
+    quoted_sku = "12'3\"4"
+    tab = _FakeTab([JS_SEARCH_OUT, JS_BUNDLE_OUT])
+    ow.fetch_variant_truth("http://127.0.0.1:9222", quoted_sku, cdp=_FakeCdp(tab))
+    search_js = tab.calls[1]
+    # json.dumps 产物逐字在场（双引号已转义为 \"，值完整包裹在字面量内）
+    assert f'values: [{json.dumps(quoted_sku)}]' in search_js
+
+
 def test_fetch_variant_truth_none_on_garbage():
     cdp_url = "http://127.0.0.1:9222"
 
