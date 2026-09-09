@@ -18,6 +18,11 @@ from typing import TYPE_CHECKING, Any
 
 import requests
 
+# premium 解锁（Task 5.2 审计补挂）：variant 真值的 seller tab 与
+# ozon_seller_analytics 同纪律——取 tab 即挂解锁。osa 模块顶层仅
+# stdlib+requests，无循环导入/无 Chrome 硬依赖，可安全模块级导入。
+from scripts.lib.ozon_seller_analytics import _install_premium_unlock
+
 if TYPE_CHECKING:  # 仅注解用（运行时延迟导入，规避 Chrome 未装环境硬依赖）
     from scripts.lib.cdp_client import CdpConnection, CdpTab
 
@@ -894,14 +899,19 @@ def _tab_for_variant_truth(cdp: CdpConnection) -> CdpTab:
     而 bundle 端点在 seller.ozon.ru 源内才带得动 sc_company_id 会话 cookie
     （毛子 CROSS_TAB 同款：优先借已登录 seller tab，无则新建）。
     复用命中立即 release（E4：防临时连接 close() 远程关用户 tab）。
+    ✅ Task 5.2 审计补挂 premium 解锁（幂等、失败不阻断，与 CSP 剥除同点位）：
+    复用=运行时注入；新建因 new_tab 构造时已导航、无法 add_init_script 预注入，
+    退运行时注入（osa `reused=True` 即「运行时 evaluate」语义，非字面复用）。
     """
     tab = cdp.find_tab("seller.ozon.ru")
     if tab is not None:
         cdp.release(tab)  # 用户已有 tab：只读复用，不随 conn.close() 远程关
         tab.set_bypass_csp()  # CSP 剥除（v4.2 铺路）：页内注入 fetch 不被 connect-src 拦
+        _install_premium_unlock(tab, reused=True)
         return tab
     tab = cdp.new_tab(f"{OZON_SELLER_BASE}/")
     tab.set_bypass_csp()
+    _install_premium_unlock(tab, reused=True)
     return tab
 
 
