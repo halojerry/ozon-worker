@@ -433,6 +433,7 @@ def _tab_for_seller(cdp) -> tuple:
         reused = cdp.find_tab("seller.ozon.ru")
         if reused is not None:
             logger.info("seller.ozon.ru: 复用用户已登录 seller Tab（跨 Tab 借道）")
+            reused.set_bypass_csp()  # CSP 剥除（v4.2）：页面内注入 fetch 不被 connect-src 拦
             # ✅ v0.26 premium 解锁：已加载页面无法 add_init_script → 运行时注入
             _install_premium_unlock(reused, reused=True)
             return reused, True
@@ -440,6 +441,7 @@ def _tab_for_seller(cdp) -> tuple:
         logger.debug("find_tab seller.ozon.ru 失败（降级新建）: %s", exc)
     logger.info("seller.ozon.ru: 未找到已打开 seller Tab，新建（可能需重新登录）")
     tab = cdp.new_tab()
+    tab.set_bypass_csp()  # CSP 剥除（v4.2）：导航前设置，随 target 存活跨导航生效
     # ✅ v0.26 premium 解锁：新建场景导航前预注入（上品帮 addScriptToEvaluateOnNewDocument 时机）
     try:
         tab.add_init_script(_PREMIUM_UNLOCK_JS)

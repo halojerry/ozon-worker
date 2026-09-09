@@ -105,6 +105,7 @@ def _ensure_ozon_tab(cdp: CdpConnection, target_url: str = "",
             else:
                 # PR-4: 命中用户已有 tab → 立即 release，防止 conn.close() 远程关闭用户标签页
                 cdp.release(tab)
+                tab.set_bypass_csp()  # CSP 剥除（v4.2）：为页面上下文注入 fetch 铺路（批 6 variant 链）
                 if target_url:
                     try:
                         tab.navigate(target_url, timeout=25)
@@ -115,9 +116,12 @@ def _ensure_ozon_tab(cdp: CdpConnection, target_url: str = "",
                 return tab
     if target_url:
         tab = cdp.new_tab(target_url)
+        tab.set_bypass_csp()  # CSP 剥除（v4.2）：新建路径同样剥除
         _apply_geo_redirect_retry(tab, target_url)
         return tab
-    return cdp.new_tab(f"{OZON_BASE}/")
+    tab = cdp.new_tab(f"{OZON_BASE}/")
+    tab.set_bypass_csp()  # CSP 剥除（v4.2）：默认路径
+    return tab
 
 
 def _safe_json_parse(text: str) -> dict[str, Any]:
