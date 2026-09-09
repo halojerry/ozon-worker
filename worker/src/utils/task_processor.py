@@ -912,9 +912,7 @@ class SupabaseTaskProcessor:
             # → 同任务双跑。独立 2 线程池保证心跳永不排队在图节点之后。
             import concurrent.futures
             global _HEARTBEAT_EXECUTOR
-            try:
-                _HEARTBEAT_EXECUTOR
-            except NameError:
+            if globals().get("_HEARTBEAT_EXECUTOR") is None:
                 _HEARTBEAT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
                     max_workers=2, thread_name_prefix="task-heartbeat")
             loop = asyncio.get_running_loop()
