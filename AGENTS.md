@@ -42,9 +42,9 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）。
 
-## 最近更新（未发版 — 字典值缓存三桶策略：撑爆 40G 盘事故根治）
+## 最近更新（v0.72.0 — 字典值缓存三桶策略：撑爆 40G 盘事故根治）
 
-> 2026-09-09。**未发版**（VERSION 四源仍 0.70.0）。实施已定案方案（取证+真实
+> 2026-09-09。**已发版**（VERSION 四源 0.72.0，tag v0.72.0）。实施已定案方案（取证+真实
 > API 实测，语义必读记忆 ozon-dict-api-semantics）：`dictionary_value_cache` 按
 > (attr,dc,tp) 把全局字典按类目整份复制（品牌 85 5.18MB×每节点，17% 预热即
 > 3.83GB、全量外推 20GB+）。**改任何字典值缓存读写前先读
@@ -67,12 +67,12 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - 测试：`test_dict_cache_three_bucket.py` 10 用例 + lazy 端点 2 用例改 ephemeral
   语义；worker 全量 2113 绿。
 
-## 最近更新（未发版 — 类目/属性匹配靶向修复：值数出口闸 + 类目真值进信封 + L0 cid 断点）
+## 最近更新（v0.72.0 同批 — 类目/属性匹配靶向修复：值数出口闸 + 类目真值进信封 + L0 cid 断点）
 
-> 2026-09-08。**未发版**（VERSION 四源仍 0.70.0）。三方调查（skill 数据源/worker
+> 2026-09-08。**已发版**（未单独 tag，随 v0.72.0 一起发版，VERSION 四源 0.72.0）。三方调查（skill 数据源/worker
 > 匹配链/ozon MCP 契约）后靶向修复用户三抱怨：1688 选品没看类目匹配 / Ozon 选品
 > 不复用 Ozon 类目 / 属性瞎填与多值拒单。**不改架构，只接断点**——权威优先+闸门
-> +L0 的信任序（v0.65~0.70 资产）零改动。详见 CHANGELOG「未发版」。
+> +L0 的信任序（v0.65~0.70 资产）零改动。详见 CHANGELOG。
 
 - **值数出口闸（8229 多值拒单根治）**：新 `worker/src/utils/attr_value_sanitize.py`
   唯一入口 `cap_attribute_values`——cap 取 Ozon 属性 schema 的 **`max_value_count`
@@ -105,10 +105,10 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - 测试：worker 2086 / skill 810；新 `test_attr_value_sanitize_v071`（10）+
   `test_category_key_v071`（7）+ skill `test_category_truth_v071`（7）。
 
-## 最近更新（未发版 — 文档体系收口：过期归档 + API 两层文档 + CI 防漂移 + MCP/harness 对齐）
+## 最近更新（v0.72.0 同批 — 文档体系收口：过期归档 + API 两层文档 + CI 防漂移 + MCP/harness 对齐）
 
-> 2026-09-08。**未发版**（VERSION 四源仍 0.70.0），不改业务逻辑。维护面收敛为
-> worker + skill + MCP + 一套自洽文档，pounding-harness 只做消费方。详见 CHANGELOG「未发版」。
+> 2026-09-08。**已发版**（未单独 tag，随 v0.72.0 一起发版），不改业务逻辑。维护面收敛为
+> worker + skill + MCP + 一套自洽文档，pounding-harness 只做消费方。详见 CHANGELOG。
 
 - **API 文档两层**：`docs/API-OVERVIEW.md`（手写约定：双鉴权矩阵/限流/错误信封/13 阶段/
   版本策略/变更记录）+ `docs/API-REFERENCE.md`（`worker/scripts/gen_api_docs.py` 从
