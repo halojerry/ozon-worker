@@ -301,6 +301,47 @@ def _score_token_hit(node_name: str, token: str) -> float:
     return 0.0
 
 
+# ── v0.73: 低置信入采集箱阈值（唯一事实源，生产 Issue2 教训）──
+# 生产实证：装饰枕套树里有 exact type 节点（type_id 92607），但多 token 查询的
+# similarity=matched/len(tokens) 被 token 数稀释，exact 命中没有加成 → 0.25 <
+# 0.3 被拦入采集箱。graph.py route_after_assemble 的裸字面量 0.3 收敛到此常量。
+# ⚠️ 勿与「采纳阈值」混用：assemble_ozon_product_node.MIN_SIM_BY_MATCHER
+# （jieba 0.5 等）语义是候选直接采纳门槛，两者数值接近但职责不同。
+MIN_CONF_BOX = 0.3
+
+
+def _exact_query_similarity_boost(candidate_names, query: str) -> float:
+    """v0.73 Issue2: 多 token 查询的 exact 命中加分（纯函数，返回 boost 档位）。
+
+    多 token 打分 similarity=matched/len(tokens) 只看 token 覆盖数，「整查询 ==
+    候选名」的 exact 命中没有加成——「装饰枕套沙发抱枕…」6+ token 查询把 exact
+    节点装饰枕套稀释到 0.25~0.33（< MIN_CONF_BOX 被拦入采集箱）。分档：
+      - 任一候选名与整查询 strip 后完全相等                    → 0.95
+      - 任一候选名与整查询互为前后缀（startswith 任一方向
+        且两者长度差 ≥ 1，即 ±尾/头字）                        → 0.8
+      - 其他                                                   → 0.0
+    调用方 similarity = max(similarity, 本函数返回值)。仅多 token 分支调用；
+    单 token 分支走 _score_token_hit 分档（1.0/0.7/0.6），行为不变。
+
+    Args:
+        candidate_names: 候选可比名集合（node_name + full_path 末段 type 名）。
+        query: 整查询字符串（调用方负责原样传入，本函数内部 strip）。
+    """
+    q = str(query or "").strip()
+    if not q:
+        return 0.0
+    best = 0.0
+    for name in candidate_names or []:
+        n = str(name or "").strip()
+        if not n:
+            continue
+        if n == q:
+            return 0.95  # 最高档，可立即返回
+        if (n.startswith(q) or q.startswith(n)) and abs(len(n) - len(q)) >= 1:
+            best = max(best, 0.8)
+    return best
+
+
 def score_residual_rows(rows: list[dict], residual: str, top_k: int = 15) -> list[dict]:
     """R2 单字品类词兜底的确定性评分排序（纯函数）。
 
@@ -641,6 +682,17 @@ class OzonCategoryQuery:
 
                 depth_bonus = min((row["depth"] or 0) * 0.1, 1.0)
                 score = matched + depth_bonus + and_bonus
+                similarity = round(matched / max(len(tokens), 1), 4)
+                # ✅ v0.73 Issue2: 多 token 查询 exact 命中加分——候选名
+                # （node_name / full_path 末段 type 名）与整查询 strip 相等 → 0.95，
+                # 互为前后缀 → 0.8。exact 节点（装饰枕套 92607）不再被 token 数
+                # 稀释到 MIN_CONF_BOX 以下。单 token 分支走 _score_token_hit，
+                # 行为不变。
+                if len(tokens) >= 2:
+                    similarity = max(similarity, _exact_query_similarity_boost(
+                        [row["node_name"], str(row["full_path"] or "").split(">")[-1]],
+                        query_text,
+                    ))
 
                 scored.append((score, {
                     "description_category_id": row["description_category_id"],
@@ -649,7 +701,7 @@ class OzonCategoryQuery:
                     "full_path": row["full_path"],
                     "top_level_category_name": row["top_level_category_name"],
                     "depth": row["depth"],
-                    "similarity": round(matched / max(len(tokens), 1), 4),
+                    "similarity": similarity,
                     "matched_tokens": matched_tokens,
                     "matcher": "jieba",
                     "_score": score,
