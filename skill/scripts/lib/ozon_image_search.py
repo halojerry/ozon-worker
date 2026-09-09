@@ -735,6 +735,52 @@ def _mtop_request(
             # W5 降级出声（漏斗 v2 收尾从 debug 提 warning）：失败原因必须可见，
             # 否则只看到「未返回 imageUrl: {}」无法区分 token 失效/限流/风控
             logger.warning("aibuy mtop %s ret: %s", api, ret[0])
+            # F-B02（2026-09-09）：mtop 标准协议——token 过期响应会 Set-Cookie 下发
+            # 新 _m_h5_tk。原样返回 {} 会让每个候选都白跑一次 mtop 再降级 CDP
+            # （暖风机 15 单实证），复合评分的 category/visual 两分量随之全哑。
+            # 现就地用新 token 重签重试一次（零导航自愈），并原地更新调用方
+            # token_cookies，让同批后续 upload/search 直接用新 token。
+            # TOKEN_ILLEGAL（非法令牌，缓存 token 本身坏损）同路径自愈——
+            # 2026-09-09 第二波真单实证与 EXPIRED 同频出现。
+            if ("TOKEN_EXOIRED" in str(ret[0]) or "令牌过期" in str(ret[0])
+                    or "TOKEN_ILLEGAL" in str(ret[0]) or "非法令牌" in str(ret[0])):
+                try:
+                    new_tk = (resp.cookies or {}).get("_m_h5_tk", "")
+                except Exception:
+                    new_tk = ""
+                if new_tk and new_tk != mh5tk:
+                    logger.info("aibuy mtop token 过期，用响应下发的新 _m_h5_tk 重签重试")
+                    token_cookies["_m_h5_tk"] = new_tk
+                    token = new_tk.split("_")[0] if "_" in new_tk else new_tk
+                    sign = _mtop_sign(token, t, data_str)
+                    params["sign"] = sign
+                    try:
+                        if method == "POST":
+                            resp2 = requests.post(
+                                MTOP_BASE_URL.format(api=api),
+                                params=params,
+                                data={"data": data_str},
+                                timeout=timeout,
+                                headers=headers,
+                                cookies=token_cookies,
+                            )
+                        else:
+                            resp2 = requests.get(
+                                MTOP_BASE_URL.format(api=api),
+                                params=params,
+                                timeout=timeout,
+                                headers=headers,
+                                cookies=token_cookies,
+                            )
+                        parsed2 = _parse_mtop_jsonp(resp2.text)
+                        ret2 = parsed2.get("ret") or []
+                        if ret2 and "SUCCESS" not in str(ret2[0]):
+                            logger.warning("aibuy mtop %s 重试仍失败: %s", api, ret2[0])
+                            return {}
+                        return parsed2.get("data") or {}
+                    except Exception as e:
+                        logger.warning("aibuy mtop %s token 重试异常: %s", api, e)
+                        return {}
             return {}
         return parsed.get("data") or {}
     except Exception as e:
@@ -880,9 +926,15 @@ def search_by_image_aibuy(
 
     # 先上传拿 1688 托管 imageUrl（阿里服务器能直接抓，比原始境外 URL 更稳），
     # 失败不阻塞搜索（回退用原始 image_url 直接搜）
+    _tk_before = token_cookies.get("_m_h5_tk", "")
     uploaded_url = _aibuy_image_upload(image_url, token_cookies)
     search_img = uploaded_url or image_url
     results = _aibuy_image_search(search_img, token_cookies, page_size=page_size)
+    # F-B02: mtop EXPIRED 自愈会在 token_cookies 原地更新 _m_h5_tk——回写 settings，
+    # 同批后续候选（以及下一批）直接用新 token，不再每候选各付一次过期往返。
+    if token_cookies and token_cookies.get("_m_h5_tk", "") != _tk_before:
+        _save_aibuy_token(token_cookies)
+        logger.info("aibuy token 已自愈更新并回写缓存")
     if not results:
         logger.warning("aibuy image search 返回空，降级 CDP/AK 图搜")
         return []

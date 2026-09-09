@@ -2565,20 +2565,26 @@ def _pick_best_match(
     )
     # ⚠️ 只在候选真有视觉信号键时才注入归一值——无条件注入会让「零信号」的
     # CDP 候选被误判为信号在场，标题置信度被视觉零分稀释（护栏误拒回归）。
+    _cand_for_score = dict(best)
     if any(k in best for k in ("normalization_score", "similarity_score", "badge_eff")):
-        _cand_for_score = {**best, "normalization_score": _visual_norm}
-    else:
-        _cand_for_score = dict(best)
-    # P0-4 语义切分（2026-09-09）：`_title_only_conf` 供放行/拒绝阈值判定
-    # （护栏零放松，行为与旧口径逐字一致）；`_conf_of_best` 为复合置信度
-    # （类目一致性+官方视觉信号+标题），只作为附加元数据 → match_confidence
-    # → worker match_evidence——这才是 0.11~0.38 误低分的修复点。
+        _cand_for_score["normalization_score"] = _visual_norm
+    # F-B02 用户口径（2026-09-09 第三次重复后拍板）：CDP 徽章文本（符合N/3、全部
+    # 符合）经 _badge_effectiveness 归一后恒注入——1688 官方图搜判定是视觉证据
+    # 本身，必须进复合分；此前 score_match 只认 aibuy matchBadgeFull 字符串，
+    # CDP 官方「全部符合」进不了分，跨语言标题 0 分被 _MIN_SOURCE_CONFIDENCE 误杀。
+    if badge_eff_of_best > 0:
+        _cand_for_score["badge_eff"] = badge_eff_of_best
+    # 护栏判定基准（用户口径：类目/视觉权威信号在场时不再被纯标题分拦截）：
+    # 取 max(标题分, 复合分)——复合分带官方证据时直接放行（类目 0.45/视觉 0.35
+    # 是判定主信号），信号缺在场零分稀释时标题分保底（零回归）。标题分从此
+    # 只是「无任何权威信号时」的兜底口径，不再一票否决有官方证据的匹配。
     _title_only_conf = _title_conf(ozon_title, best, is_ru_title)
     _conf_of_best = _score_match(
         title_conf=_title_only_conf,
         candidate=_cand_for_score,
         ozon_category_path=ozon_category_path,
     )["confidence"]
+    _gate_conf = max(_title_only_conf, _conf_of_best)
     _bt = best.get("title", "") or ""
 
     # ✅ v0.19: 1688 官方"全部符合"（matchBadgeFull）直接放行——最强信号，
@@ -2642,9 +2648,9 @@ def _pick_best_match(
         _badge_effectiveness(r.get("badge", "") or "") > 0 for r in results
     )
     if not any_badge:
-        if _title_only_conf >= _min_conf:
-            logger.info("图搜无徽标（badge-less），标题相关性 conf=%.2f 放行: %s",
-                        _title_only_conf, best.get("title", "")[:40])
+        if _gate_conf >= _min_conf:
+            logger.info("图搜无徽标（badge-less），护栏分 conf=%.2f 放行: %s",
+                        _gate_conf, best.get("title", "")[:40])
             return _attach_match_meta(best, _conf_of_best, badge_eff_of_best, _best_score)
         # ✅ v0.39 Step3 (AK score 上膛): AK 候选官方相似度高且排名靠前 → 放行
         # （AK 结果 badge 恒空 → 恒走此 no-badge 分支，此前只看 conf/LLM；
@@ -2676,7 +2682,7 @@ def _pick_best_match(
     # ⚠️ v0.26 徽标降级: 原「badge 无分 + 总分<15」护栏已并入下面统一护栏（新分制下
     # badge=0 时该条件要求图搜排名≥4 且 conf<0.1，被「badge<0.5 + conf<0.3」完全覆盖；
     # 且旧护栏直接拒绝不救 LLM，会误杀排位靠后的同品候选）。
-    if badge_eff_of_best < _min_badge and _title_only_conf < _min_conf:
+    if badge_eff_of_best < _min_badge and _gate_conf < _min_conf:
         # ⚠️ v0.26 FIX: badge 弱匹配但词对相关性弱 → 先 LLM 语义判定（先 best 再 top-N）
         if _llm_semantic_match(ozon_title, _bt, token):
             logger.info("图搜 badge 弱匹配 + LLM 语义判定同品，放行: %s", _bt[:40])
@@ -2684,8 +2690,8 @@ def _pick_best_match(
         _rescued_pass_ret = _rescued_pass(_llm_rescue())
         if _rescued_pass_ret is not None:
             return _rescued_pass_ret
-        logger.warning("图搜候选 badge 弱匹配（badge=%s, rank=%d, conf=%.2f）且 LLM 判定不同品，拒绝: %s",
-                       best.get("badge", ""), best_idx, _title_only_conf, best.get("title", "")[:40])
+        logger.warning("图搜候选 badge 弱匹配（badge=%s, rank=%d, 护栏分=%.2f）且 LLM 判定不同品，拒绝: %s",
+                       best.get("badge", ""), best_idx, _gate_conf, best.get("title", "")[:40])
         _log_review_record(_block_record(
             "guardrail_blocked", best, _conf_of_best))
         return None

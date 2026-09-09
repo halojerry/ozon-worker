@@ -180,7 +180,8 @@
 ## 域 G —— webui 表面 + 引导漂移（内联补扫）
 
 ### F-B02  aibuy mtop token 运行时过期不触发刷新——每候选静默降级 CDP，复合评分 category/visual 两分量全哑
-- 类型：duplication/race；严重度：中；状态：待修（2026-09-09 评分分布 E2E 真单发现）
+- 状态更新（2026-09-09 用户拍板后修复，本批）：**主体已修复**——①`_mtop_request` 遇 TOKEN_EXOIRED/**TOKEN_ILLEGAL**（第二波真单又实证非法令牌）时用响应 Set-Cookie 下发的新 `_m_h5_tk` 原地重签重试一次并回写 settings（零导航自愈，mtop 标准协议）；②CDP 徽章文本（符合N/3、全部符合）经 `_badge_effectiveness` 归一后注入 score_match（此前只认 aibuy matchBadgeFull 字符串，CDP 官方全部符合进不了分）；③`visual_signal` badge_eff>0 恒优先；④**护栏判定基准改 max(标题分, 复合分)**——官方类目/视觉证据在场时直接放行，不再被纯标题分一票拦截（用户三次拍板：有权威类目信息为什么还拦）；信号缺在场零分稀释时标题分保底零回归。真单对照（同关键词暖风机 15 单）：保留 8→15、median 0.425→0.579、mean 0.304→0.557、官方全部符合候选 conf 0→0.636。category 分量仍待 aibuy 通道恢复（其候选才带 cate_level2 类目名）。
+- 类型：duplication/race；严重度：中；状态：**主体已修复（本批）**，category 分量待实机复核
 - 证据：暖风机 15 单真单（本地 Worker，analysis_20260909_212224.json）：aibuy mtop 全程 `FAIL_SYS_TOKEN_EXOIRED::令牌过期`，日志零刷新尝试 → 15/15 降级 CDP 网页图搜。根因 `_aibuy_token_valid`（ozon_image_search.py:516）是格式级校验（4 key 齐备+_m_h5_tk 非空），token「格式有效但服务端过期」被判有效 → `search_by_image_aibuy`:861 跳过静默读/刷新链直接打 mtop；`_mtop_request` 遇 EXPIRED 返回 {} 无刷新重试。后果：①每候选多付一次 mtop 失败往返；②CDP 候选无 `category_name`/`normalization_score`/badge → score_match 按 `category_present=False`+`visual_present=False` 回落纯标题分——复合评分 0.45 类目分量与 0.35 视觉分量在 CDP-only 批次结构性缺席。
 - 修复方向：`_mtop_request` 识别 EXPIRED → 触发一次 claim 门控的 token 刷新（复用 aibuy_refresh_claim 600s 冷却）→ 重试一次；仍败再降级 CDP。
 - 附带事实（本批数据）：保留候选 conf 0.425~0.598（median 0.425，即旧标题分口径），7 拒全部护栏+LLM 判不同品，语义切分（护栏用标题分）工作正常。
