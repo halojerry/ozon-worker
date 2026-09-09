@@ -766,6 +766,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | 任务取证（v0.70） | `GET /api/v1/forensics/task/{task_id}`（任务快照+留存+双审计一站式只读；跨租户 404；MCP 工具 `get_task_forensics`） | GET |
 | 店铺会话代管（未发版） | `POST/GET/DELETE /api/v1/credentials/{id}/session`（skill `session-sync` CDP 收割上传；AES-GCM 存储不回显 cookie 值；GET 只回名单+状态；DELETE 204） | 全 |
 | 会话直调分析（未发版） | `GET /api/v1/analytics/what-to-sell?credential_id=&sku=&limit=`（服务端持会话直调 seller what_to_sell v3；401/403/302→会话标 expired+409；无会话 404 提示先 session-sync） | GET |
+| 数据池读写（未发版） | `POST /api/v1/analytics/seller-sync` + `GET /api/v1/analytics/sku-metrics?skus=`（数据池贡献闭环：skill 采集 what_to_sell 顺手上报 + discover 富化读侧；上报 ≤12/批、查询 ≤50/sku；Bearer=mxou key） | POST/GET |
 | 类目树搜索（v0.70） | `GET /api/v1/categories/search?q=&limit=`（ZH_HANS，node_type=type；采集箱 manual 改配数据源） | GET |
 | 类目属性缓存（v0.70） | `GET /api/v1/categories/attributes?dc=&tp=`（**缓存只读不回源 Ozon**；未预热返回 found=false） | GET |
 
