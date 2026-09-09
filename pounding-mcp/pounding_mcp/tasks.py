@@ -49,6 +49,9 @@ _HEAVY_KINDS = frozenset({
     "discover", "discover_multi", "discover_task", "follow", "seller", "graph",
 })
 
+# 终态集合：_finish 粘性保护（落定后任何后续收割/回调不得翻盘）
+_TERMINAL_STATUSES = frozenset({"completed", "failed", "interrupted", "cancelled"})
+
 # skill CLI 中作为「位置参数」的命令参数（其余一律 --flag 传）
 _POSITIONAL: dict[str, list[str]] = {
     "search": ["query"],
@@ -471,8 +474,9 @@ class CollectTaskManager:
             t = self._tasks.get(task_id)
             if not t:
                 return
-            # 已被取消：保留 cancelled，不覆盖
-            if t.get("status") == "cancelled":
+            # 终态粘性：completed/failed/interrupted/cancelled 落定后不覆盖
+            # （竞品上品帮实证：清理阶段崩溃把已 completed 的任务翻成 failed，采满的数据状态全丢）
+            if t.get("status") in _TERMINAL_STATUSES:
                 if started is not None:
                     t["elapsed"] = round(time.time() - started, 1)
                     self._save()
@@ -545,7 +549,7 @@ class CollectTaskManager:
             return {"count": len(cands) if isinstance(cands, list) else cands}
         if kind == "queries":
             raw = result.get("raw") or ""
-            return {"lines": len([l for l in raw.splitlines() if l]) - 1 if raw else 0}
+            return {"lines": len([ln for ln in raw.splitlines() if ln]) - 1 if raw else 0}
         return {"ok": True}
 
     def list(self, limit: int = 50) -> list[dict]:
