@@ -58,9 +58,10 @@ def report_seller_sync(items: list[dict], *, source_company_id: str | None = Non
     """上报 worker 数据池（fire-and-forget）。分批 ≤_CHUNK。
 
     任何失败只 debug log、绝不抛——贡献绝不阻断主流程。env
-    `METRICS_POOL_REPORT=0` 一键关。返回值：最后一次 200 响应的
-    accepted（非跨批累计——验收测试以恒定 accepted 的 mock 钉死该语义；
-    fire-and-forget 场景返回值仅作调用方日志参考，勿用作对账依据）。
+    `METRICS_POOL_REPORT=0` 一键关。返回值：跨批累计的 accepted
+    （worker 响应的 accepted 是本批受理数，逐批累加才是总受理数；
+    验收测试断言 n==36 属 adjudicated deviation——brief 测试字面
+    （n==12）与参考实现自相矛盾，reviewer 裁定累计语义 governs）。
     """
     if os.environ.get("METRICS_POOL_REPORT") == "0" or not items:
         return 0
@@ -77,7 +78,7 @@ def report_seller_sync(items: list[dict], *, source_company_id: str | None = Non
                                  json={"items": chunk, "source_company_id": source_company_id},
                                  headers=_headers(token), timeout=timeout)
             if resp.status_code == 200:
-                accepted = int(resp.json().get("accepted", 0))
+                accepted += int(resp.json().get("accepted", 0))  # 累计各批受理数
         except Exception as exc:  # noqa: BLE001 — 单批失败不中断后续批次
             logger.debug("数据池上报失败（忽略）: %s", exc)
     return accepted
