@@ -635,6 +635,7 @@ class ProductDraft(Base):
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, comment="envelope {draft,source,extensions}; NO raw credentials")
     source: Mapped[str] = mapped_column(Text, nullable=False, default="skill", server_default=text("'skill'"), comment="'skill' | 'webui'")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"), comment="乐观并发；编辑页修改 → version++")
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="运营备注（采集/选品依据人工标注）；不进信封 payload")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
 
