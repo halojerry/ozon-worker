@@ -177,6 +177,11 @@
 - 类型：race；严重度：低；状态：观察
 - 缓存命名空间分布健康（seller_analytics 4 处为主，无同数据双缓存 TTL 分叉实证）；四条组装路径差异已由 v0.69-0.72 批次收敛（match_evidence/discovery_meta 语义有契约）。
 
+### F-B03  discover 面包屑真值复用断点 + 类目树数据过期（用户问「Ozon 有类目为什么不直接复用」的答案）
+- 状态更新（2026-09-09，a1d285ad）：**断点已修**——`_resolve_skill_category` 原实现「无数字 dc/tp 早退」把 discover 信封的 page hint（`{source:page, category_path:面包屑}`，Web 前台 ID 非 Seller 树体系只有路径文本）整个丢弃，路径精配代码写在早退之后永远不可达；现 path-only 也直达 `get_node_by_full_path`（ZH_HANS+RU 双语确定性精配），命中即 source=page 权威（assemble 权威白名单直通，仍受 R1 敏感闸），未命中退回文本链。3 单测（mock）+ worker 全量 2326 绿。
+- **连带发现：本地类目树数据过期**——2025 年导入的 7992 节点（ZH/RU 同数双语版）缺 Ozon 现役子树（真树验证 RU 面包屑 'Термосы, фляги и питьевые системы' 未命中，RU 树含 Терм 词仅 Термошорты/Термопара 等无关项；ZH 树亦无独立保温杯类目）。**面包屑精配要真生效需重导类目树**（init_data 拉最新树双语导入）；类目 ID 为 Ozon 稳定标识，L0 学习表以 dc/tp 为键受影响面=新增/改名不破坏存量映射。
+- 类型：drift/data；严重度：中；状态：断点已修，树重导待运维排期
+
 ## 域 G —— webui 表面 + 引导漂移（内联补扫）
 
 ### F-B02  aibuy mtop token 运行时过期不触发刷新——每候选静默降级 CDP，复合评分 category/visual 两分量全哑
