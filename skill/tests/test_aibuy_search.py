@@ -114,6 +114,63 @@ def test_mtop_request_failure_returns_empty(mock_get):
     assert ois._mtop_request("mtop.test", {}, MOCK_COOKIES) == {}
 
 
+def _mtop_resp(text, cookies=None):
+    resp = mock.Mock(status_code=200)
+    resp.text = text
+    resp.cookies = cookies or {}
+    return resp
+
+
+@mock.patch("scripts.lib.ozon_image_search.requests.get")
+def test_mtop_request_expired_self_heals_with_new_token(mock_get):
+    """F-B02：首次返回 FAIL_SYS_TOKEN_EXOIRED + Set-Cookie 新 _m_h5_tk →
+    用新 token 重签原地重试一次，成功即返回 data（不再静默降级 CDP）。"""
+    old_tk = MOCK_COOKIES["_m_h5_tk"]
+    new_tk = "fresh_token_abc_1757400000"
+    mock_get.side_effect = [
+        _mtop_resp('cb({"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"],"data":{}})',
+                   cookies={"_m_h5_tk": new_tk}),
+        _mtop_resp('cb({"ret":["SUCCESS::调用成功"],"data":{"items":[1,2]}})'),
+    ]
+    cookies = dict(MOCK_COOKIES)
+    out = ois._mtop_request("mtop.test.api", {"a": 1}, cookies, timeout=5)
+    assert out == {"items": [1, 2]}
+    assert mock_get.call_count == 2
+    # 原地更新调用方 cookie dict（同批后续 upload/search 直接用新 token）
+    assert cookies["_m_h5_tk"] == new_tk and old_tk != new_tk
+    # 重试请求的 sign 用新 token 重签（mtop 协议 token=_m_h5_tk 首个 _ 前段）
+    params2 = mock_get.call_args.kwargs["params"]
+    expect = hashlib_md5("fresh&" + params2["t"] + "&12574478&" + '{"a": 1}').hexdigest()
+    assert params2["sign"] == expect
+
+
+@mock.patch("scripts.lib.ozon_image_search.requests.get")
+def test_mtop_request_illegal_token_self_heals_too(mock_get):
+    """TOKEN_ILLEGAL（非法令牌）与 EXPIRED 同路径自愈——2026-09-09 第二波真单实证。"""
+    new_tk = "brand_new_tk_999"
+    mock_get.side_effect = [
+        _mtop_resp('cb({"ret":["FAIL_SYS_TOKEN_ILLEGAL::非法令牌"],"data":{}})',
+                   cookies={"_m_h5_tk": new_tk}),
+        _mtop_resp('cb({"ret":["SUCCESS::调用成功"],"data":{"ok":1}})'),
+    ]
+    cookies = dict(MOCK_COOKIES)
+    out = ois._mtop_request("mtop.test.api", {"a": 1}, cookies, timeout=5)
+    assert out == {"ok": 1}
+    assert mock_get.call_count == 2
+    assert cookies["_m_h5_tk"] == new_tk
+
+
+@mock.patch("scripts.lib.ozon_image_search.requests.get")
+def test_mtop_request_expired_without_new_cookie_no_retry(mock_get):
+    """响应未下发新 _m_h5_tk → 不重试（一次往返），仍返回 {} 走既有降级。"""
+    mock_get.return_value = _mtop_resp(
+        'cb({"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"],"data":{}})', cookies={})
+    cookies = dict(MOCK_COOKIES)
+    assert ois._mtop_request("mtop.test.api", {"a": 1}, cookies, timeout=5) == {}
+    assert mock_get.call_count == 1
+    assert cookies["_m_h5_tk"] == MOCK_COOKIES["_m_h5_tk"]
+
+
 # ── 结果归一化 ────────────────────────────────────────────────────────────
 
 @mock.patch("scripts.lib.ozon_image_search._mtop_request")
@@ -359,7 +416,12 @@ def test_pick_best_match_trusted_rank1_passes_without_badge():
 
 
 def test_pick_best_match_trusted_rank3_still_guardrailed():
-    """aibuy trusted_source 但 best 排第 3 位之后（idx_rank<0.33）→ 仍走 conf 护栏。"""
+    """aibuy trusted 排名放行只到前 2 位；第 3 位走信号护栏。
+
+    ⚠️ F-B02 用户口径翻转（2026-09-09 第三次拍板）：rank-3 候选带官方视觉证据
+    （normalizationScore 0.9）时放行——官方图搜相似度是权威信号，标题词对
+    跨语言零重叠不再一票否决（护栏基准=max(标题分, 复合分)，复合分 0.573 过线）。
+    零信号 rank-3（无徽章无相似度键）仍拒（conf==title==0）——排名信任不外溢。"""
     import scripts.lib.ozon_discovery as od
     od._LLM_SEMANTIC_CACHE.clear()
     results = [
@@ -370,11 +432,24 @@ def test_pick_best_match_trusted_rank3_still_guardrailed():
         {"id": "3", "title": "完全无关C", "price": 10.0, "badge": "",
          "normalization_score": 0.9},
     ]
-    # 前 2 位被过滤（0/N 徽章 + 无价格）→ best 是第 3 位，idx_rank=0.25 < 0.33
-    # 词对 conf 为 0 + LLM 判 False → 应拒绝（排名靠后不因 trusted 放行）
+    # 前 2 位被过滤（0/N 徽章 + 无价格）→ best 是第 3 位，idx_rank=0.25 < 0.33；
+    # 官方视觉 0.9 → 复合分 (0.35*0.9)/0.55≈0.573 ≥ 0.3 → 放行（视觉权威救回）
     with mock.patch.object(od, "_llm_semantic_match", return_value=False):
         best = od._pick_best_match(results, "Ошейник для кошки", token="t", trusted_source=True)
-    assert best is None, "第 3 位之后即使 normalizationScore 高也不应放行"
+    assert best is not None, "官方视觉 0.9 应救回 rank-3（护栏=max(标题,复合)）"
+    assert float(best.get("confidence", 0) or 0) >= 0.5
+
+    # 对照：零信号 rank-3（无 normalization_score 键）→ conf==title==0 → 仍拒
+    od._LLM_SEMANTIC_CACHE.clear()
+    results_nosig = [
+        {"id": "0", "title": "符合0条件", "price": 10.0, "badge": "符合 0/3 个条件"},
+        {"id": "1", "title": "无价格", "price": 0.0, "badge": ""},
+        {"id": "3", "title": "完全无关C", "price": 10.0, "badge": ""},
+    ]
+    with mock.patch.object(od, "_llm_semantic_match", return_value=False):
+        best2 = od._pick_best_match(results_nosig, "Ошейник для кошки", token="t",
+                                    trusted_source=True)
+    assert best2 is None, "零信号 rank-3 仍应拒绝（排名信任不外溢）"
 
 
 def test_pick_best_match_trusted_false_preserves_old_guardrail():

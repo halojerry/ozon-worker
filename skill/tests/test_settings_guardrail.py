@@ -66,18 +66,24 @@ def test_match_min_conf_blocks_previously_passing_candidate():
 # ── ② match_badge_eff_min 调高 → 原先放行的候选被拦截 ─────────────────────
 
 def test_match_badge_eff_min_blocks_previously_passing_candidate():
-    """match_badge_eff_min=0.9 → badge_eff(0.667) + conf=0.2 的候选（默认放行）改为拦截。
+    """护栏基准=max(标题分,复合分)（F-B02 用户口径，2026-09-09）：
 
-    默认阈值下 badge_eff(0.667)>=0.5 → 主护栏 AND 不触发 → 放行；
-    match_badge_eff_min=0.9 后 0.667<0.9 且 conf(0.2)<0.3 → 护栏触发 → 拦截。
-    """
+    - 官方徽章 2/3（badge_eff=0.667）+ 弱标题 0.2 → 复合分
+      (0.35*0.667+0.2*0.2)/0.55≈0.497 过线 → 放行（官方证据救回，不再被
+      纯标题分拦截——用户三次拍板：权威信号在场不拦）。
+    - 弱徽章 1/3（0.333）+ 弱标题 0.2 → 复合分≈0.285<0.3 且 badge<0.9 →
+      LLM 判不同品 → 仍拦截（宁缺毋滥保留）。"""
     with _settings(match_badge_eff_min=0.9), \
          mock.patch.object(od, "_title_conf", return_value=0.2), \
          mock.patch.object(od, "_llm_semantic_match", return_value=False), \
          mock.patch("scripts.lib.ozon_discovery._log_review_record") as m_log:
-        best = od._pick_best_match(
+        strong_badge = od._pick_best_match(
             [_result(badge="符合2/3个条件")], WRENCH_RU)
-    assert best is None
+        m_log.reset_mock()
+        weak_badge = od._pick_best_match(
+            [_result(badge="符合1/3个条件")], WRENCH_RU)
+    assert strong_badge is not None, "官方 2/3 徽章证据应救回弱标题候选"
+    assert weak_badge is None
     _assert_guardrail_blocked(m_log, "guardrail_blocked")
 
 
@@ -111,7 +117,8 @@ def test_defaults_preserved_when_get_setting_none():
         strong = od._pick_best_match(
             [_result(badge="符合2/3个条件")], WRENCH_RU)  # badge_eff=0.667, conf=0.5
     assert strong is not None
-    assert strong["confidence"] == 0.5
+    # F-B02: confidence 现为复合分 = (0.35*(2/3) + 0.2*0.5)/0.55 ≈ 0.606
+    assert abs(strong["confidence"] - ((0.35 * (2 / 3) + 0.2 * 0.5) / 0.55)) < 1e-2
 
 
 # ── ⑤ 非法/空数值 → 回退默认，不崩 ────────────────────────────────────────

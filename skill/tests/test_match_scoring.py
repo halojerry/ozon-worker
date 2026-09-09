@@ -72,9 +72,17 @@ def test_visual_badge_full_shortcut():
 
 def test_visual_normalization_only():
     assert visual_signal(0.0, 0.8) == pytest.approx(0.8)
-    assert visual_signal(0.3, 0.8) == pytest.approx(0.8)  # 非满徽章取归一相似度
     assert visual_signal(0.0, -1) == 0.0
     assert visual_signal(0.0, None) == 0.0
+
+
+def test_visual_partial_badge_is_evidence_itself():
+    """F-B02 用户口径：CDP 官方部分徽章（符合2/3 → badge_eff=0.667）是 1688
+    官方图搜判定本身，恒优先于归一相似度——此前只认 matchBadgeFull 字符串，
+    CDP 官方「全部符合」进不了分，跨语言标题 0 分被误杀（真单 15 单实证）。"""
+    assert visual_signal(0.667, 0.0) == pytest.approx(0.667)
+    assert visual_signal(0.667, 0.9) == pytest.approx(0.667)  # 徽章优先，不被相似度覆盖
+    assert visual_signal(0.5, 0.0) == pytest.approx(0.5)
 
 
 # ── 复合评分 ──
@@ -94,6 +102,19 @@ def test_score_without_category_context_falls_back():
     out = score_match(title_conf=0.2, candidate={"normalization_score": 0.0})
     assert out["confidence"] == pytest.approx(0.2 * (0.20 / 0.55))
     assert "category" not in out["components"]
+
+
+def test_cdp_badge_text_eff_rescues_cross_language_zero_title():
+    """端到端锁 F-B02 主诉：CDP 徽章「符合3/3」（badge_eff=1.0 注入）+ 类目缺席 +
+    跨语言标题 0 分 → 视觉分量独扛，conf = 0.35/0.55 ≈ 0.636 过 0.30 护栏，
+    不再被误杀。"""
+    cand = {"badge_eff": 1.0, "normalization_score": 0.0}
+    out = score_match(title_conf=0.0, candidate=cand, ozon_category_path="")
+    assert out["confidence"] == pytest.approx(0.35 / 0.55)
+    assert out["trusted"] is True
+    # 部分徽章 2/3：conf = 0.35*0.667/0.55 ≈ 0.424，同样过线
+    out2 = score_match(title_conf=0.0, candidate={"badge_eff": 2 / 3}, ozon_category_path="")
+    assert out2["confidence"] == pytest.approx((0.35 * (2 / 3)) / 0.55)
 
 
 def test_score_no_signals_at_all_preserves_title_only():

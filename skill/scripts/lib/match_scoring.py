@@ -51,13 +51,23 @@ def category_consistency(candidate_category: Any, ozon_category_path: Any) -> fl
 
 
 def visual_signal(badge_eff: Any, normalization_score: Any) -> float:
-    """图搜官方信号 ∈ [0,1]：matchBadgeFull（badge_eff>=1）官方「全部符合」
-    直通 1.0；否则取归一化相似度（aibuy normalizationScore，缺失/非法 → 0）。"""
+    """图搜官方信号 ∈ [0,1]。
+
+    ⚠️ F-B02 用户口径修正（2026-09-09）：badge_eff > 0 恒优先——CDP 网页徽章
+    「符合N/M个条件」（badge_eff=N/M）与 aibuy matchBadgeFull 一样是 1688 官方
+    图搜判定，是视觉证据本身，此前只认 matchBadgeFull 字符串导致 CDP 官方
+    「全部符合」证据进不了分、跨语言标题 0 分被误杀。badge_eff=1 直通 1.0；
+    部分 badge_eff 原样入分（0.667=官方判定 2/3 条件符合）；无徽章才回落
+    归一化相似度（aibuy normalizationScore，缺失/非法 → 0）。
+    """
     try:
-        if float(badge_eff or 0) >= 1.0:
-            return 1.0
+        be = float(badge_eff or 0)
     except (TypeError, ValueError):
-        pass
+        be = 0.0
+    if be >= 1.0:
+        return 1.0
+    if be > 0:
+        return max(0.0, min(1.0, be))
     try:
         return max(0.0, min(1.0, float(normalization_score or 0)))
     except (TypeError, ValueError):
