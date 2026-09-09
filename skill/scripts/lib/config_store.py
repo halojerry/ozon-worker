@@ -18,7 +18,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from scripts._const import CONFIG_DIR
+from scripts._const import CONFIG_DIR, SKILL_ROOT
 
 # Config file paths
 STORES_FILE = CONFIG_DIR / 'stores.json'
@@ -268,6 +268,74 @@ def set_ali_1688_ak(ak: str) -> None:
     set_setting("ali_1688_ak", ak)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 1688 AK 文件存储唯一入口（v0.72.1 P0-1，2026-09-09 审计靶点一）
+#
+# ⚠️ 改 AK 存取前必读。此前写侧（ak_callback._save_ak）与读侧
+# （ak_1688_client.get_ak_from_file）各持一份**互不相交**的路径清单：
+# 写 SKILL_ROOT/.1688-AK，读 CWD 相对/老 workspace 位——浏览器刷新结果落在
+# 读取方看不到的位置，任一旧文件又短路遮蔽新值 → 401 → 每个命令各弹一次
+# 浏览器重取。本块收敛读写为同一份候选清单，顺序即读优先级。
+# ═══════════════════════════════════════════════════════════════════════════
+
+AK_STORE_FILENAME = '.ak_store.json'
+
+
+def _ak_store_dirs() -> list[Path]:
+    """AK 文件候选目录：前 3 个为规范写位，其余为旧读位兼容（不新建）。"""
+    return [
+        SKILL_ROOT / '.1688-AK',
+        Path.home() / '.1688-AK',
+        Path.home() / 'workspace' / '.1688-AK',
+        Path.cwd() / '.1688-AK',
+        Path.cwd() / 'workspace' / '.1688-AK',
+        Path.home() / '.openclaw' / 'workspace' / '.1688-AK',
+        SKILL_ROOT.parent / '1688-sourcing-inquiry-0.1.0' / 'workspace' / '.1688-AK',
+    ]
+
+
+def resolve_ak_store_path() -> Path:
+    """AK 存储文件解析：优先已存在的规范写位，否则确保并返回 SKILL_ROOT 首选位。"""
+    for d in _ak_store_dirs()[:3]:
+        if (d / AK_STORE_FILENAME).exists():
+            return d / AK_STORE_FILENAME
+    primary = SKILL_ROOT / '.1688-AK'
+    primary.mkdir(parents=True, exist_ok=True)
+    return primary / AK_STORE_FILENAME
+
+
+def read_ak_store_file() -> str | None:
+    """读 AK 文件（写位 + 全部旧读位），短路返回第一个非空值；无 → None。"""
+    for d in _ak_store_dirs():
+        p = d / AK_STORE_FILENAME
+        if not p.exists():
+            continue
+        try:
+            data = json.loads(p.read_text(encoding='utf-8'))
+            ak = str(data.get('ak') or '').strip()
+            if ak:
+                return ak
+        except Exception:
+            continue
+    return None
+
+
+def write_ak_store_file(ak: str) -> Path:
+    """写 AK：首选位必写，并写穿「已存在」的旧读位（旧位不再遮蔽新值；
+    绝不新建旧位目录）。返回首选位路径。"""
+    primary = resolve_ak_store_path()
+    payload = json.dumps({'ak': ak}, ensure_ascii=False, indent=2)
+    primary.write_text(payload, encoding='utf-8')
+    for d in _ak_store_dirs()[3:]:
+        p = d / AK_STORE_FILENAME
+        if p.exists():
+            try:
+                p.write_text(payload, encoding='utf-8')
+            except Exception:
+                continue
+    return primary
+
+
 def get_mxou_token() -> str:
     """Get MXOU_TOKEN. Try ~/.pounding/config.json first, then settings.json."""
     # 1. Try ~/.pounding/config.json (auto-read, no user action needed)
@@ -324,8 +392,16 @@ def check_config() -> dict[str, Any]:
     else:
         missing.append("MXOU_TOKEN")
 
-    # Check 1688 AK
-    if get_ali_1688_ak():
+    # Check 1688 AK（有效性感知：settings 可能存有历史脱敏占位值
+    # （形如 eFhV****MDA=，自动刷新掩码毒化遗留）——非空 ≠ 可用）
+    ak_ok = False
+    try:
+        from scripts.lib.ak_1688_client import get_active_ak
+        get_active_ak()
+        ak_ok = True
+    except Exception:
+        ak_ok = False
+    if ak_ok:
         present.append("ALI_1688_AK")
     else:
         missing.append("ALI_1688_AK")
