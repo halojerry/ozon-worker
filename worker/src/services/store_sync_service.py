@@ -890,7 +890,7 @@ def _upsert_products(tenant_id: str, credential_id: str, items: list, info_map: 
             "price": price_el,
             "old_price": old_price_el,
             "min_price": min_price_el,
-            "stock": (info.get("stocks") or {}).get("present") if isinstance(info.get("stocks"), dict) else None,
+            "stock": extract_available_stock(info),
             "currency": "",
             "status": status,
             "error": json.dumps(errors, ensure_ascii=False) if errors else None,
@@ -926,6 +926,45 @@ def _upsert_products(tenant_id: str, credential_id: str, items: list, info_map: 
                 synced_at = NOW()
             """
         ), rows)
+
+
+def extract_available_stock(info: dict) -> Optional[int]:
+    """从 /v3/product/info/list 商品项提取可用库存。
+
+    ⚠️ 实测结构（ozon MCP live-verified + shelf_service 同源注释）——stocks 是双层嵌套：
+        stocks: {has_stock: bool, stocks: [{present, reserved, sku, source}]}
+    旧代码对外层取 present（`stocks.get("present")`）恒 None → 生产 197 件在售
+    商品 stock 全 null（2026-09-10 根因）。
+    ⚠️ present 是仓内总量、**含 reserved**——可用 = present − reserved
+    （逐来源钳非负后求和，reserved 缺省 0）。
+    兼容扁平旧形 {present: n}（无 reserved 可减，原样取值）。
+    结构不识别/无数据 → None（绝不编造 0）。
+    """
+    wrap = info.get("stocks")
+    if not isinstance(wrap, dict):
+        return None
+    entries = wrap.get("stocks")
+    if isinstance(entries, list):
+        total = 0
+        seen = False
+        for e in entries:
+            if not isinstance(e, dict) or e.get("present") is None:
+                continue
+            try:
+                present = int(e["present"])
+                reserved = int(e.get("reserved") or 0)
+            except (TypeError, ValueError):
+                continue
+            total += max(present - reserved, 0)
+            seen = True
+        return total if seen else None
+    flat = wrap.get("present")  # 防御：扁平旧形 {present: n}
+    if flat is None:
+        return None
+    try:
+        return int(flat)
+    except (TypeError, ValueError):
+        return None
 
 
 def _extract_tier_prices(info: dict) -> tuple[Optional[float], Optional[float], Optional[float]]:
