@@ -108,6 +108,10 @@ def create_tables(engine):
         conn.execute(text(
             "ALTER TABLE listing_result_log ADD COLUMN IF NOT EXISTS moderation_texts JSONB"
         ))
+        # ✅ v0.70 A 批次: 采集箱运营备注列（skill --note / webui 编辑抽屉写入；不进信封 payload）
+        conn.execute(text(
+            "ALTER TABLE product_drafts ADD COLUMN IF NOT EXISTS notes TEXT"
+        ))
         # ✅ v0.70: 表达式索引——uuid 主键与文本 ID 全链路混用的提速补丁（DB-SCHEMA-AUDIT #3）。
         # error_report_service._task_snapshots / task_service / forensics 均按
         # `id::text = :x` 查询，裸 PK btree 索引走不上；表达式索引让取证/状态查询
