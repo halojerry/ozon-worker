@@ -450,3 +450,35 @@ def test_wts_endpoint_missing_params_400():
     resp = TestClient(_main_mod.app).get(
         "/api/v1/analytics/what-to-sell?sku=123", headers=_hdr())
     assert resp.status_code == 400
+
+
+def test_store_session_pg_jsonb_roundtrip(monkeypatch):
+    """实机回归（2026-09-09 session-sync 真跑 500）：裸 SQL 绑 Python list →
+    psycopg2 适配成 text[]，与 JSONB 列 DatatypeMismatch。mock 测试只锁 SQL
+    文本没打真库所以漏网——本用例打真 PG 锁死 JSONB 回路。
+
+    需要 PGDATABASE_URL（与 test_store_sync 同模式），缺失跳过。
+    """
+    import base64
+    import os
+
+    import pytest
+    if not os.environ.get("PGDATABASE_URL"):
+        pytest.skip("需要真 PG（PGDATABASE_URL）")
+    from sqlalchemy import create_engine
+
+    import services.ozon_session_service as svc
+
+    monkeypatch.setenv("CREDENTIAL_MASTER_KEY", base64.b64encode(b"0123456789abcdef0123456789abcdef").decode())
+    eng = create_engine(os.environ["PGDATABASE_URL"])
+    monkeypatch.setattr(svc, "get_engine", lambda: eng)
+    tid, cid = "pgtest-session-tenant", "11111111-2222-3333-4444-555555555555"
+    try:
+        svc.store_session(tid, cid, {"sc_company_id": "5371047", "Abt": "x"})
+        st = svc.session_status(tid, cid)
+        assert st is not None and st["status"] == "active"
+        assert isinstance(st["cookie_names"], list) and "sc_company_id" in st["cookie_names"]
+        hdr = svc.get_cookie_header(tid, cid)
+        assert hdr and "sc_company_id=5371047" in hdr
+    finally:
+        svc.delete_session(tid, cid)

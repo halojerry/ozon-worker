@@ -92,7 +92,9 @@ def store_session(tenant_id: str, credential_id: str, cookies: dict[str, str],
         "tenant_id": tenant_id,
         "credential_id": _uuid_or_none(credential_id),
         "enc": enc,
-        "names": sorted(cookies.keys()),
+        # JSONB 列绑定：裸 SQL 下 list 会被 psycopg2 适配成 text[]（实机 500 根因），
+        # 必须 dumps 成 JSON 文本
+        "names": json.dumps(sorted(cookies.keys())),
         "sc_enc": sc_enc,
         "now": _now(),
     }
