@@ -2027,6 +2027,272 @@ def _latest_resumable_task(entry_url: str, keyword: str) -> dict:
     return {}
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# discover-task --filters（JSON 规则文件：粗筛区间 + ai 档默认覆盖 + 发货模式白名单）
+# 键名已固化（gateway 白名单同源），勿改名——未知键一律报错（纵深防御）。
+# ═══════════════════════════════════════════════════════════════════════════
+
+# rules 键 → (ProductCandidate 字段, 边界)。字段名与 ozon_discovery 库内
+# ProductCandidate/_SELECTION_FIELDS 对齐：monthly_sales/monthly_revenue/
+# sales_growth/drr/create_days/weight_g/sales_schema 来自 seller 运营指标
+# （②b 富化才写入），rating/review_count/competing_sellers 为 widget 行级字段。
+_FILTERS_RULE_FIELDS: dict[str, tuple[str, str]] = {
+    "monthly_sales_min": ("monthly_sales", "min"),
+    "monthly_sales_max": ("monthly_sales", "max"),
+    "monthly_revenue_min": ("monthly_revenue", "min"),
+    "monthly_revenue_max": ("monthly_revenue", "max"),
+    "sales_growth_min": ("sales_growth", "min"),
+    "drr_max": ("drr", "max"),
+    "create_days_min": ("create_days", "min"),
+    "create_days_max": ("create_days", "max"),
+    "rating_min": ("rating", "min"),
+    "review_count_min": ("review_count", "min"),
+    "competing_sellers_max": ("competing_sellers", "max"),
+    "weight_g_min": ("weight_g", "min"),
+    "weight_g_max": ("weight_g", "max"),
+}
+_FILTERS_TOP_KEYS = ("brand", "price_min", "price_max", "rules")
+_FILTERS_BRAND_VALUES = ("nobrand", "known", "all")
+_FILTERS_SCHEMA_VALUES = ("FBO", "FBS", "rFBS")
+# 运营指标类规则键（候选无 analytics 数据时降级放行——库内 ai 档 Task 7 同款
+# 纪律：没拿到数据 ≠ 真实 0，不得当真实值把无数据候选全砍）
+_FILTERS_ANALYTICS_KEYS = frozenset({
+    "monthly_sales_min", "monthly_sales_max", "monthly_revenue_min",
+    "monthly_revenue_max", "sales_growth_min", "drr_max",
+    "create_days_min", "create_days_max", "weight_g_min", "weight_g_max",
+})
+
+# ai 档默认规则（阈值与 ozon_discovery.AI_PRESET 同源——reconcile 不重复实现，
+# 只在 --filters 显式命中同键时以显式值替换；销量阶梯单独处理）。
+_AI_DEFAULT_RULES: dict[str, tuple[str, str, float]] = {
+    "create_days_max": ("create_days", "<=", 365),            # 上架 ≤365 天
+    "competing_sellers_max": ("competing_sellers", "<=", 30),  # 跟卖 ≤30 人
+    "sales_growth_min": ("sales_growth", ">", 0),             # 月销售动态 > 0
+    "drr_max": ("drr", "<=", 15),                             # 广告份额 ≤15%
+}
+# 销量阶梯（价格→月销下限，严格 >；上品帮 aiFilterData 同款）
+_AI_SALES_LADDER: tuple[tuple[float, int], ...] = (
+    (500, 500), (1000, 150), (5000, 30), (10000, 15), (float("inf"), 5))
+_LADDER_KEY = "__ai_sales_ladder__"  # 合成规则表中的阶梯占位键（非请求键）
+
+
+def _load_discover_filters(path: str) -> dict:
+    """加载并校验 --filters JSON 规则文件（discover-task 专用）。
+
+    schema（键名固化）：顶层 brand/price_min/price_max/rules；rules 键见
+    _FILTERS_RULE_FIELDS + sales_schema。null/缺省 = 不限（该键丢弃）。
+    sales_schema 白名单 = 子串匹配（FBS 含 rFBS，与库内 _match_sales_schema
+    同口径）；区间倒置 / 未知键 / 类型错 / 非法枚举 → ValueError（调用方打印
+    后退出，不静默吞——gateway 已白名单，此处纵深防御）。
+
+    返回规范化结果：{"brand": str|None, "price_min": float|None,
+    "price_max": float|None, "rules": {键: float}, "sales_schema": [str]|None}
+    """
+    p = Path(path).expanduser()
+    if not p.is_file():
+        raise ValueError(f"规则文件不存在: {path}")
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except OSError as exc:  # 权限/IO 错误同样走 ❌ --filters 加载失败 路径
+        raise ValueError(f"规则文件不可读 ({path}): {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"JSON 解析失败 ({path}): {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError("顶层必须是 JSON 对象 {brand, price_min, price_max, rules}")
+    unknown = [k for k in raw if k not in _FILTERS_TOP_KEYS]
+    if unknown:
+        raise ValueError(f"未知顶层键: {', '.join(sorted(unknown))}"
+                         f"（支持: {', '.join(_FILTERS_TOP_KEYS)}）")
+
+    def _num(key: str, val) -> float | None:
+        if val is None:
+            return None
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            raise ValueError(f"{key} 必须是数字（got {val!r}）")
+        if val < 0:
+            raise ValueError(f"{key} 不能为负（got {val}）")
+        return float(val)
+
+    brand = raw.get("brand")
+    if brand is not None and brand not in _FILTERS_BRAND_VALUES:
+        raise ValueError(f"brand 必须是 {'/'.join(_FILTERS_BRAND_VALUES)}"
+                         f"（got {brand!r}）")
+    price_min = _num("price_min", raw.get("price_min"))
+    price_max = _num("price_max", raw.get("price_max"))
+    if price_min is not None and price_max is not None and price_min > price_max:
+        raise ValueError(f"price_min({price_min:g}) > price_max({price_max:g})，区间倒置")
+
+    rules_raw = raw.get("rules")
+    if rules_raw is None:
+        rules_raw = {}  # null/缺省 = 不限（falsy 错误类型不得静默吞成 {}）
+    if not isinstance(rules_raw, dict):
+        raise ValueError('rules 必须是 JSON 对象（如 {"monthly_sales_min": 100}）')
+    known_rule_keys = set(_FILTERS_RULE_FIELDS) | {"sales_schema"}
+    unknown_rules = [k for k in rules_raw if k not in known_rule_keys]
+    if unknown_rules:
+        raise ValueError(f"未知 rules 键: {', '.join(sorted(unknown_rules))}"
+                         f"（支持: {', '.join(sorted(known_rule_keys))}）")
+    rules: dict[str, float] = {}
+    for key, val in rules_raw.items():
+        if val is None or key == "sales_schema":
+            continue  # null = 不限；sales_schema 单独校验（见下）
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            raise ValueError(f"rules.{key} 必须是数字（got {val!r}）")
+        rules[key] = float(val)
+    # 同键 min/max 区间倒置 → 加载期报错（与 price 对同款纪律）
+    for _base in ("monthly_sales", "monthly_revenue", "create_days", "weight_g"):
+        _lo, _hi = rules.get(f"{_base}_min"), rules.get(f"{_base}_max")
+        if _lo is not None and _hi is not None and _lo > _hi:
+            raise ValueError(f"{_base}_min({_lo:g}) > {_base}_max({_hi:g})，区间倒置")
+
+    schema_whitelist: list[str] | None = None
+    schema_raw = rules_raw.get("sales_schema")
+    if schema_raw is not None:
+        if not isinstance(schema_raw, list) or not schema_raw:
+            raise ValueError('rules.sales_schema 必须是非空数组（如 ["FBO","FBS"]）')
+        norm: list[str] = []
+        for m in schema_raw:
+            if not isinstance(m, str):
+                raise ValueError(f"rules.sales_schema 元素必须是字符串（got {m!r}）")
+            canon = next((v for v in _FILTERS_SCHEMA_VALUES
+                          if v.lower() == m.strip().lower()), "")
+            if not canon:
+                raise ValueError(f"rules.sales_schema 含不支持的模式 {m!r}"
+                                 f"（支持: {'/'.join(_FILTERS_SCHEMA_VALUES)}）")
+            if canon not in norm:
+                norm.append(canon)
+        schema_whitelist = norm
+
+    return {"brand": brand, "price_min": price_min, "price_max": price_max,
+            "rules": rules, "sales_schema": schema_whitelist}
+
+
+def _compose_discover_filter_rules(
+        rules: dict[str, float], profile_ai: bool) -> list[tuple[str, str, str, float]]:
+    """合成最终判定规则表 [(规则键, 字段, 操作符, 阈值)]。
+
+    - profile_ai=True：先铺 ai 档默认（_AI_DEFAULT_RULES + 销量阶梯）；显式
+      rules 键覆盖同名默认；monthly_sales_* 任一显式键覆盖整个销量阶梯。
+    - 显式区间为闭区间（*_min/*_max 含端点）；ai 默认保留上品帮原生严格比较
+      （阶梯 >、sales_growth > 0）。
+    """
+    composed: list[tuple[str, str, str, float]] = []
+    if profile_ai:
+        for key, (field, op, val) in _AI_DEFAULT_RULES.items():
+            if key not in rules:
+                composed.append((key, field, op, val))
+        if not any(k.startswith("monthly_sales_") for k in rules):
+            composed.append((_LADDER_KEY, "monthly_sales", ">", _AI_SALES_LADDER))
+    for key, val in rules.items():
+        field, bound = _FILTERS_RULE_FIELDS[key]
+        composed.append((key, field, ">=" if bound == "min" else "<=", val))
+    return composed
+
+
+def _passes_discover_filters(cand, rules_list, schema_whitelist=None,
+                             stats: dict | None = None) -> tuple[bool, str]:
+    """单候选 --filters 判定（合成规则全过才 True）。返回 (是否通过, 淘汰原因)。
+
+    cand 接受 ProductCandidate 或同名字段 dict（单元测试合成数据用）。
+    - 字段缺失/None = 不限放行（库内 _check_rule 同款语义）；
+    - 运营指标类规则仅 has_analytics 为真时判定（无数据降级放行，库内 ai 档
+      Task 7 降级语义同款）；
+    - stats（可选）就地累计 {规则键: [已判定数, 缺数据数]}，供 ignored_keys 汇总。
+    """
+    def _get(name: str):
+        if isinstance(cand, dict):
+            return cand.get(name)
+        return getattr(cand, name, None)
+
+    has_analytics = bool(cand.get("has_analytics") if isinstance(cand, dict)
+                         else getattr(cand, "has_analytics", False))
+
+    def _stat(key: str, evaluated: bool) -> None:
+        if stats is not None:
+            stats.setdefault(key, [0, 0])[0 if evaluated else 1] += 1
+
+    for key, field, op, val in rules_list:
+        if key == _LADDER_KEY:
+            if not has_analytics:
+                continue  # 阶梯依赖月销指标，无数据降级放行
+            price, monthly = _get("ozon_price"), _get("monthly_sales")
+            if price is None or monthly is None:
+                _stat(key, False)
+                continue
+            try:
+                price, monthly = float(price), float(monthly)
+            except (TypeError, ValueError):
+                _stat(key, False)
+                continue
+            for max_price, min_sales in _AI_SALES_LADDER:
+                if price <= max_price:
+                    _stat(key, True)
+                    if not monthly > min_sales:
+                        return False, (f"销量阶梯不过（价 {price:g}₽ 需月销>"
+                                       f"{min_sales:g}，实际 {monthly:g}）")
+                    break
+            continue
+        if key in _FILTERS_ANALYTICS_KEYS and not has_analytics:
+            _stat(key, False)
+            continue
+        actual = _get(field)
+        if actual is None:
+            _stat(key, False)
+            continue
+        try:
+            actual = float(actual)
+        except (TypeError, ValueError):
+            _stat(key, False)
+            continue
+        _stat(key, True)
+        ok = actual >= val if op == ">=" else (
+            actual <= val if op == "<=" else actual > val)
+        if not ok:
+            return False, f"{field}={actual:g} 不满足 {field} {op} {val:g}"
+
+    if schema_whitelist:
+        if not has_analytics:
+            _stat("sales_schema", False)  # 发货模式富化后才写入，无数据降级放行
+        else:
+            schema = str(_get("sales_schema") or "")
+            _stat("sales_schema", True)
+            # 白名单 = 子串命中（与库内 _match_sales_schema 同款 .includes() 语义，
+            # store sales_mode 同口径）：请求 FBS 隐式覆盖 rFBS/REAL_FBS；请求
+            # rFBS 只命中 rFBS；FBO 精确命中。任一请求模式命中即放行。
+            if not any(m.lower() in schema.lower() for m in schema_whitelist):
+                return False, (f"发货模式 {schema or '(空)'} 不含白名单任一模式 "
+                               f"{'/'.join(schema_whitelist)}")
+    return True, ""
+
+
+def _apply_discover_filters(candidates, filters: dict,
+                            profile_ai: bool) -> tuple[int, list[str]]:
+    """--filters 后置粗筛（collect_and_analyze 之后调用，就地改状态）。
+
+    只动 ok/uncertain → filtered（error 等其他状态不动，库内
+    _apply_profile_filter 同款纪律）。返回 (过滤数, ignored_keys)——
+    ignored_keys = 请求了但所有候选都缺底层数据、一次都没判定成的规则键
+    （如实上报不静默丢弃；--no-analytics 时月销类键会落到这里）。
+    """
+    rules_list = _compose_discover_filter_rules(filters["rules"], profile_ai)
+    stats: dict[str, list[int]] = {}
+    n = 0
+    for c in candidates:
+        if getattr(c, "status", "") not in ("ok", "uncertain"):
+            continue
+        ok, reason = _passes_discover_filters(
+            c, rules_list, filters["sales_schema"], stats=stats)
+        if not ok:
+            c.status = "filtered"
+            c.error = f"粗筛(--filters)不过: {reason}"
+            n += 1
+    requested = list(filters["rules"])
+    if filters["sales_schema"]:
+        requested.append("sales_schema")
+    ignored = sorted(k for k in requested if stats.get(k, [0, 0])[0] == 0)
+    return n, ignored
+
+
 def cmd_discover_task(args: argparse.Namespace) -> int:
     """Ozon 选品 · 任务式全自动（无人值守）。"""
     import time as _time
@@ -2046,6 +2312,16 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     if not url and not keyword:
         print("❌ 需要 --url 或 --keyword 之一（入口：highlight/搜索/类目/店铺页均可）")
         return 2
+
+    # --filters 预加载（非法文件/未知键 fail-fast，先于浏览器预检；schema 见
+    # _load_discover_filters / parser 帮助文本）
+    filters: dict | None = None
+    if getattr(args, "filters", ""):
+        try:
+            filters = _load_discover_filters(args.filters)
+        except ValueError as exc:
+            print(f"❌ --filters 加载失败: {exc}", flush=True)
+            return 2
 
     # 无人值守预检（readiness）：seller 未登录 fail-fast 秒退（替代流程深处 90s
     # 黑等）；aibuy 冷启动预热一次；10 分钟内 --resume 重跑缓存免检测。
@@ -2074,15 +2350,37 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     # 档位：任务式缺省 ai（resolve_filter_profile(auto_submit=True) 语义）
     profile = resolve_filter_profile(args.filter_profile, True)
 
+    # ai 档覆盖判定：--filters 显式键命中 ai 默认（含销量阶梯）时，库内 ai 预设
+    # 关闭（否则「显式放宽」会被库内更严默认先行拦截，覆盖失去意义）；未被覆盖
+    # 的 ai 默认由 _apply_discover_filters 以同阈值+同降级语义补齐。无 --filters
+    # 时 lib_profile == profile，行为零变化。
+    ai_overridden = bool(filters and profile == "ai" and (
+        set(filters["rules"])
+        & (set(_AI_DEFAULT_RULES) | {"monthly_sales_min", "monthly_sales_max"})))
+    lib_profile = "off" if ai_overridden else profile
+
     # v0.70 语义翻转：--target-count = 达标数（profitable 出口数），采集上限独立由
     # --max-scan 控制；匹配上限缺省 = 目标×3（图搜转化缓冲，显式传参则尊重）。
     match_limit = (args.match_limit if args.match_limit is not None
                    else args.target_count * 3)
     prior_profitable = sum(1 for v in (processed or {}).values()
                            if isinstance(v, dict) and v.get("status") == "profitable")
+    _profile_label = profile if lib_profile == profile else f"{profile}→off(--filters 覆盖)"
     print(f"\n🤖 discover-task {task_id}｜入口: {url or keyword}"
           f"｜目标 {args.target_count}（达标）｜扫描上限 {args.max_scan}"
-          f"｜粗筛 {profile}｜匹配上限 {match_limit}", flush=True)
+          f"｜粗筛 {_profile_label}｜匹配上限 {match_limit}", flush=True)
+    if filters:
+        _fparts = []
+        if filters["brand"]:
+            _fparts.append(f"brand={filters['brand']}")
+        if filters["price_min"] is not None or filters["price_max"] is not None:
+            _fparts.append(f"价格=[{filters['price_min'] if filters['price_min'] is not None else 0:g}"
+                           f",{filters['price_max'] if filters['price_max'] is not None else '∞'}]₽")
+        if filters["rules"]:
+            _fparts.append(f"规则 {len(filters['rules'])} 条")
+        if filters["sales_schema"]:
+            _fparts.append(f"发货模式 {'/'.join(filters['sales_schema'])}")
+        print(f"   🪮 --filters: {'｜'.join(_fparts) or '（空规则，仅加载）'}", flush=True)
 
     # ── 阶段①+②+②b：采集 + 全量数据 + 指标富化 + 粗筛 ──
     print("\n⏳ 阶段 1/3：采集 + 全量数据 + 粗筛...", flush=True)
@@ -2093,12 +2391,30 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
             keyword=keyword,
             max_products=args.max_scan,
             use_analytics=not getattr(args, "no_analytics", False),
-            filter_profile=profile,
+            filter_profile=lib_profile,
             base_filter=args.base_filter or "",
+            # --filters 的 brand/price_* 提供时覆盖同名 CLI flag（含缺省值）
+            min_price=(filters["price_min"] if filters and filters["price_min"] is not None
+                       else getattr(args, "min_price", 0)),
+            max_price=(filters["price_max"] if filters and filters["price_max"] is not None
+                       else getattr(args, "max_price", 0)),
+            brand_filter=(filters["brand"] if filters and filters["brand"]
+                          else getattr(args, "brand_filter", "nobrand")),
         )
     except ValueError as exc:
         print(f"❌ 粗筛参数错误: {exc}", flush=True)
         return 2
+
+    # ── 阶段②c+ --filters 规则判定（ai 默认补齐 + 显式区间 + 发货模式白名单）──
+    ignored_keys: list[str] = []
+    if filters:
+        _n_filtered, ignored_keys = _apply_discover_filters(
+            candidates, filters, profile_ai=(profile == "ai"))
+        if _n_filtered:
+            print(f"   🪮 --filters 规则过滤 {_n_filtered} 条", flush=True)
+        if ignored_keys:
+            print(f"   ⚠️ --filters 规则键缺底层数据未判定（不计入过滤）: "
+                  f"{', '.join(ignored_keys)}", flush=True)
     counts: dict[str, int] = {}
     for c in candidates:
         counts[c.status] = counts.get(c.status, 0) + 1
@@ -2172,7 +2488,8 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
         "params": {"target_count": args.target_count, "filter_profile": profile,
                    "min_margin": args.min_margin, "match_limit": match_limit,
                    "match_concurrency": args.match_concurrency,
-                   "max_scan": args.max_scan},
+                   "max_scan": args.max_scan,
+                   "filters": getattr(args, "filters", "") or ""},
         "processed": processed,
         "summary": {},
     }
@@ -2235,6 +2552,11 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     state["summary"]["candidates"] = final_counts
     state["summary"]["target"] = {"goal": args.target_count, "prior": prior_profitable,
                                   "total": profitable_total}
+    # --filters 可观测性：生效规则（规范化后）+ 缺数据未判定的键（机读出口）
+    if filters:
+        state["summary"]["filters_applied"] = filters
+        if ignored_keys:
+            state["summary"]["ignored_keys"] = ignored_keys
     _save_task_state(state)
     # v0.70 缺口如实报告：粗筛池耗尽仍未达标时明示差距与续采路径
     if profitable_total < args.target_count:
@@ -2575,6 +2897,29 @@ def build_arg_parser() -> argparse.ArgumentParser:
                      help="粗筛档位（任务式缺省 ai；off=不粗筛）")
     dtp.add_argument("--base-filter", default="",
                      help="自定义区间粗筛 \"monthly_sales>=50,drr<=15\"（与 --filter-profile 叠加）")
+    dtp.add_argument("--min-price", type=float, default=0,
+                     help="价格下限（RUB，0=不限；--filters 的 price_min 提供时覆盖本值）")
+    dtp.add_argument("--max-price", type=float, default=0,
+                     help="价格上限（RUB，0=不限；--filters 的 price_max 提供时覆盖本值）")
+    dtp.add_argument("--brand-filter", choices=["nobrand", "known", "all"], default="nobrand",
+                     help="品牌过滤: nobrand=只要无品牌/白牌（默认），known=只过滤知名品牌黑名单，"
+                          "all=不过滤；--filters 的 brand 提供时覆盖本值")
+    dtp.add_argument("--filters", default="",
+                     help="JSON 规则文件路径（粗筛，键名固化，未知键报错退出）："
+                          "{\"brand\": \"nobrand|known|all\", \"price_min\": 数值, \"price_max\": 数值, "
+                          "\"rules\": {monthly_sales_min/Max, monthly_revenue_min/Max, sales_growth_min, "
+                          "drr_max, create_days_min/Max, rating_min, review_count_min, "
+                          "competing_sellers_max, sales_schema: [\"FBO\",\"FBS\"], weight_g_min/Max}}。"
+                          "null/缺省=不限；区间含端点（*_min/*_max 闭区间）；sales_schema 为发货模式白名单"
+                          "（FBS 含 rFBS，子串匹配，与库内口径一致）。"
+                          "优先级：--filter-profile ai（任务式缺省）时以上品帮 AI 阈值为默认"
+                          "（价格≤500₽→月销>500；≤1000→>150；≤5000→>30；≤10000→>15；更高→>5；"
+                          "上架≤365天；跟卖≤30；销售动态>0；DRR≤15%%），"
+                          "--filters 的同名 rules 键覆盖对应默认（monthly_sales_* 覆盖整个销量阶梯）；"
+                          "brand/price_min/price_max 覆盖同名 CLI flag；与 --base-filter 同字段时两者叠加"
+                          "（更严者生效）；--min-margin 不受影响（匹配期利润门槛）。"
+                          "候选缺底层数据的规则键（如 --no-analytics 下的月销类）不静默丢弃，"
+                          "汇总到出口 summary.ignored_keys。")
     dtp.add_argument("--min-margin", type=float, default=15.0,
                      help="利润率门槛 %%（默认 15；低于 → rejected）")
     dtp.add_argument("--fx-rate", type=float, default=None,
