@@ -50,6 +50,10 @@ class _FakeTab:
 
     def evaluate(self, js, await_promise=False, timeout=15):
         self.calls.append(js)
+        if "__OZON_PREMIUM_UNLOCK__" in js:
+            # premium 解锁运行时注入（Task 5.2 补挂）不是端点调用：不消费
+            # 响应队列、恒返回 None——否则会挤占端点响应槽位。
+            return None
         if not self._responses:
             raise AssertionError("unexpected extra evaluate call")
         r = self._responses.pop(0)
@@ -80,13 +84,15 @@ def test_fetch_variant_truth_shape():
     cdp = _FakeCdp(tab)
     got = ow.fetch_variant_truth("http://127.0.0.1:9222", "3171397439", cdp=cdp)
     assert got == {"weight_g": 1840, "dims_mm": [260, 150, 100]}
-    # 恰两次页内 evaluate；端点/常量逐字来自 maozi 取证（禁改断言锁漂移）
-    assert len(tab.calls) == 2
-    assert "https://seller.ozon.ru/api/v1/search" in tab.calls[0]
-    assert "3171397439" in tab.calls[0]                      # sku 进搜索体
-    assert "seller-prototype/create-bundle-by-variant-id" in tab.calls[1]
-    assert "SOURCE_UI_COPY_MERGED" in tab.calls[1]
-    assert "987654321" in tab.calls[1]                       # variant_id 进 bundle 体
+    # 2 次端点 evaluate + 1 次解锁注入（Task 5.2，先于端点调用）；
+    # 端点/常量逐字来自 maozi 取证（禁改断言锁漂移）
+    assert len(tab.calls) == 3
+    assert "__OZON_PREMIUM_UNLOCK__" in tab.calls[0]         # 解锁运行时注入
+    assert "https://seller.ozon.ru/api/v1/search" in tab.calls[1]
+    assert "3171397439" in tab.calls[1]                      # sku 进搜索体
+    assert "seller-prototype/create-bundle-by-variant-id" in tab.calls[2]
+    assert "SOURCE_UI_COPY_MERGED" in tab.calls[2]
+    assert "987654321" in tab.calls[2]                       # variant_id 进 bundle 体
     # E4 纪律：复用命中 tab 立即 release（防连接 close 远程关用户 tab）
     assert cdp.released == [tab]
 
@@ -98,10 +104,11 @@ def test_fetch_variant_truth_none_on_garbage():
     assert ow.fetch_variant_truth(
         cdp_url, "1", cdp=_FakeCdp(_FakeTab(["not json at all"]))) is None
 
-    # search 端点报错（HTTP 401 等）→ 无 variant_id，仅 1 次 evaluate
+    # search 端点报错（HTTP 401 等）→ 无 variant_id，仅 1 次端点 evaluate
+    # （另有 1 次解锁注入，calls 含它共 2）
     tab = _FakeTab([json.dumps({"error": "HTTP 401 unauthorized"})])
     assert ow.fetch_variant_truth(cdp_url, "1", cdp=_FakeCdp(tab)) is None
-    assert len(tab.calls) == 1
+    assert len(tab.calls) == 2
 
     # search 成功但 bundle 响应缺 item（data 为空壳）
     tab = _FakeTab([JS_SEARCH_OUT, json.dumps({"data": {}})])
