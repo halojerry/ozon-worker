@@ -40,7 +40,18 @@
 MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬约束见下方「Agent 使用 Skill 时的硬约束」）；
 建表/改列 → `docs/DB-SCHEMA-AUDIT.md`；部署 → `docs/DEPLOY.md`。
 
-**高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）。
+**高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。
+
+## 最近更新（未发版 2026-09-09 — shopbang-parity 三批：采集箱备注/选品 4 键/店铺会话代管 + 实机测验）
+
+> 对标上品帮（竞品）的三批落地 + 本地 Docker 真链路实测。计划 `docs/PLAN-shopbang-parity-v1.md`，
+> 契约细节 `docs/CONTRACT-v4.md` 未发版三节。**均未发版**，与 v0.72.0 批同车。
+
+- **A 采集箱运营备注（notes）**：skill `discover --to-box --note`（客户端截 2000 字）→ POST /drafts 请求体顶层 `notes` → `product_drafts.notes` 独立列（`_norm_notes` 三口归一：None→空/strip/cap2000；PATCH 用 `notes=COALESCE(:notes, notes)`——None=不改、空串=清；CSV 导入导出均带列；webui EditDraftDrawer 编辑）。**红线：notes 是运营态，绝不进信封 payload/extensions，worker 零业务消费**。
+- **B 选品 4 键三出口**（skill meta / REPORT_FIELDS / 本地 CSV + 采集箱导出 + webui 五面同名同语义）：`follow_profit_cny`/`follow_margin`（按 `min_competing_price` 同成本链换收入端——跟卖利润空间；默认 0.0 真实保留）、`ozon_old_price`（widget originalPrice 市场参考价，**绝不写 draft.original_price**——上架划线价归 worker 三档定价）、`match_1688_freight_cny`（后两者默认 **None=未知**，与真实 0 严格区分，省略纪律同 discovery_meta）。改动别处选品字段时三出口+worker 导出+webui 六处同步。
+- **C 店铺会话代管（bindShopCookie 对标，安全口径更严）**：`ozon_sessions` 表（AES-256-GCM，aad=`tenant:credential`，复用 CREDENTIAL_MASTER_KEY；**cookie 明文绝不落日志/响应/报告**，GET 只回名单+状态）+ `POST/GET/DELETE /credentials/{id}/session` 三端点 + skill `session-sync`（CDP 收割 seller cookie，无 sc_company_id 拒传 exit 2）+ `GET /api/v1/analytics/what-to-sell` 直调。
+- **⚠️ 实机测验架构结论**：`__Secure-access_token` 为**分钟级寿命/用后轮换型**——被动收割的静态 cookie 快照活不过一次消费（新鲜收割立即调用也 401），**服务端常驻 cookie 直调不可持续**。三候选待拍板：①worker 存 refresh_token 续期；②「同步后秒级消费」按需模式（已实证可行）；③直调数据面留在 skill 浏览器上下文（jar 永活，上品帮同款）。**发版实机 gate 新增：session-sync→what-to-sell 真实闭环一条**。
+- **实机测验修出的两坑（改会话/直调代码前必读）**：①裸 SQL 绑 JSONB 列必须 `json.dumps`——Python list 被 psycopg2 适配成 `text[]`（mock 测试只锁 SQL 文本测不出，须真 PG 集成用例）；②seller nginx 机器人回环 307→同路径`?__rr=1` 且 **Set-Cookie 下发 nonce**，必须 Session cookie jar + 跟随重定向（手动重放无限 307），判废只看终态（401/403/落到 login URL）。
 
 ## 最近更新（v0.72.0 — 字典值缓存三桶策略：撑爆 40G 盘事故根治）
 
