@@ -742,6 +742,22 @@ Http Sales Trend — 销售趋势:用户看自己店铺,admin 看全平台。
 ### `POST /api/v1/analytics/seller-sync`
 Http Seller Sync — POST /api/v1/analytics/seller-sync —— 贡献收包（goldminer ≤12/批）。
 
+**请求体**（application/json，必填）：SellerSyncIn（内联）
+
+```json
+{
+  "items": [
+    {
+      "sales_payload": {
+        "monthsales": 140
+      },
+      "sku": 3171397439
+    }
+  ],
+  "source_company_id": "5381204"
+}
+```
+
 **响应**
 
 | 状态码 | 说明 | Schema |
@@ -751,11 +767,18 @@ Http Seller Sync — POST /api/v1/analytics/seller-sync —— 贡献收包（go
 ### `GET /api/v1/analytics/sku-metrics`
 Http Sku Metrics — GET /api/v1/analytics/sku-metrics?skus=1,2 → {metrics: [...]}（读侧指标+补采指令，≤50/查）。
 
+**参数**
+
+| 名称 | 位置 | 类型 | 必填 | 说明 |
+|---|---|---|---|---|
+| `skus` | query | string |  |  |
+
 **响应**
 
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
+| 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
 ### `GET /api/v1/analytics/what-to-sell`
 Http What To Sell — GET /api/v1/analytics/what-to-sell?credential_id=&sku=&limit= → {found, data}。
