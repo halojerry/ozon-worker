@@ -637,18 +637,31 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str,
     return candidate
 
 
-def _giveback_metrics(metrics_items) -> None:
+def _giveback_metrics(metrics_items, variant_payloads: dict | None = None) -> None:
     """读-回馈（goldminer 模式）：消费 what_to_sell 畅销榜数据时顺手上报数据池。
 
     metrics_items: (sku, item) 对的可迭代（item = what_to_sell 原始条目，
     整包作 sales_payload）。fire-and-forget——metrics_pool_client 内部已吞掉
     一切失败（未配置 token/网络错误/METRICS_POOL_REPORT=0 均静默），这里再套
     一层 try/except 双保险：贡献失败绝不影响富化/查询主流程，也不感知不重试。
+
+    Task 6.3（variant_v2 重量真值链）：variant_payloads 可选
+    {str(sku): variant_payload}（fetch_variant_truth 收获的跨卖家重量尺寸
+    真值）——命中 sku 的上报行加带 "variant_payload" 键（worker 侧
+    upsert_seller_sync_items 按 sku 合并落 SkuMetricsPool.variant_payload）；
+    不传/未命中行与 Task 2.2 逐字一致（零增键）。
     """
     try:
         from scripts.lib.metrics_pool_client import report_seller_sync
-        report_seller_sync(
-            [{"sku": sku, "sales_payload": item} for sku, item in metrics_items])
+        _vp = variant_payloads or {}
+        _rows = []
+        for sku, item in metrics_items:
+            row = {"sku": sku, "sales_payload": item}
+            payload = _vp.get(str(sku))
+            if payload:
+                row["variant_payload"] = payload
+            _rows.append(row)
+        report_seller_sync(_rows)
     except Exception as exc:  # 双保险：贡献失败永不影响富化
         logger.debug("giveback 失败（忽略）: %s", exc)
 

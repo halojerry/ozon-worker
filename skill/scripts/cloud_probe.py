@@ -2773,6 +2773,39 @@ def _apply_discover_page_truth(draft: dict, extensions: dict, candidate, page_tr
         )
 
 
+def _apply_pool_variant_weight(draft: dict, candidate) -> None:
+    """数据池跨卖家 variant 重量真值 → draft.weight（Task 6.3 消费端，毛子移植）。
+
+    池行 variant_payload.weight_g 为正 → 覆盖 draft.weight 并打
+    ``weight_from_pool_variant: true`` 标记（对齐 draft 上
+    weight_estimated/dimensions_estimated 布尔标记纪律）。语义：1688 包装表
+    重量常见垃圾（A3 1g 实证）/缺重走 300g 兜底——Ozon 在售同款的 variant
+    数据（毛子 create-bundle-by-variant-id，SOURCE_UI_COPY_MERGED）是该商品
+    能过平台体积重量校验的地面真值，ML_INCORRECT_VOLUME_WEIGHT 源头缓解。
+
+    查池失败/无真值/weight 非正 → 零改动（byte-identical）。env
+    ``METRICS_POOL_QUERY=0`` 一键关（与 discover 富化池同一开关）；查询超时
+    收紧 3s——信封组装在提交关键路径上，池只许锦上添花不许拖提交。
+    """
+    if os.environ.get("METRICS_POOL_QUERY") == "0":
+        return
+    sku = str(getattr(candidate, "ozon_product_id", "") or "").strip()
+    if not sku:
+        return
+    try:
+        from scripts.lib.metrics_pool_client import query_sku_metrics
+        metric = (query_sku_metrics([sku], timeout=3.0) or {}).get(sku) or {}
+        weight_g = int((metric.get("variant_payload") or {}).get("weight_g") or 0)
+        if weight_g <= 0:
+            return
+    except Exception as exc:  # noqa: BLE001 — 池失败永不影响信封组装
+        logger.debug("池 variant 重量跳过: %s", exc)
+        return
+    draft["weight"] = weight_g
+    draft["weight_from_pool_variant"] = True
+    logger.info("✅ 池 variant 真值覆盖信封重量: sku=%s weight=%dg", sku, weight_g)
+
+
 def build_envelope_from_discovery(candidate, store_config: dict, store_id: str = "") -> dict:
     """Build Worker GraphInput envelope from a discovery candidate.
 
@@ -2833,6 +2866,9 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
 
         # 页面真值（路径先验不覆盖 dc/tp）+ 特征属性 + 竞品重量尺寸
         _apply_discover_page_truth(draft, extensions, candidate, page_truth)
+
+        # ✅ Task 6.3: 数据池跨卖家 variant 重量真值 → draft.weight（无真值零改动）
+        _apply_pool_variant_weight(draft, candidate)
 
         # ✅ v0.58: 佣金分段透传 extensions（worker 定价用 fbs/fbo 分段费率）
         # what_to_sell 三段佣金（_to_rate_segments: leq_1500/leq_5000/gt_5000）
@@ -2963,6 +2999,9 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
 
     # 降级信封同样带页面真值 + ozon_url/ozon_title（成功/降级两路径注入语义一致）
     _apply_discover_page_truth(draft, extensions, candidate, page_truth)
+
+    # ✅ Task 6.3: 数据池跨卖家 variant 重量真值 → draft.weight（成功/降级同语义）
+    _apply_pool_variant_weight(draft, candidate)
 
     # 选品元数据快照与主路径同语义注入（选品元数据 ≠ 匹配证据，降级时同样有价值）
     _dmeta = _assemble_discovery_meta(candidate)

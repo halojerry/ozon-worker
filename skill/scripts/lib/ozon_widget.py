@@ -14,9 +14,12 @@ import json
 import logging
 import re
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import requests
+
+if TYPE_CHECKING:  # 仅注解用（运行时延迟导入，规避 Chrome 未装环境硬依赖）
+    from scripts.lib.cdp_client import CdpConnection, CdpTab
 
 logger = logging.getLogger(__name__)
 
@@ -800,3 +803,168 @@ def fetch_all_product_data(
     sellers = fetch_competing_sellers(cdp_url, product_id)
     info["competing_sellers"] = sellers
     return info
+
+
+# ---------------------------------------------------------------------------
+# variant_v2 重量真值链（毛子移植，PLAN-data-pool-parity-v1 Task 6.3）
+# ---------------------------------------------------------------------------
+# ⚠️ 下方端点/请求体/响应路径全部逐字取证自 maozi-plugin-3.2.6
+# content-scripts/content.js 的跨 Tab API 函数 AE（2026-09-10 grep 提取，
+# 禁凭记忆改——改前重跑 bundle 取证）：
+#   ① search-sku-base → POST https://seller.ozon.ru/api/v1/search
+#      body = {"company_id": cid, "need_total": true,
+#              "filter": {"children_nodes": {"children_nodes": [
+#                  {"input_leaf": {"sku": {"values": [<sku>]}}}],
+#                  "operator": "AND"}},
+#              "pagination": {"limit": "50"}, "is_copy_allowed": false}
+#      响应 → data.variants[0].variant_id
+#   ② variant_v2 → POST https://seller.ozon.ru/api/site/seller-prototype/
+#      create-bundle-by-variant-id
+#      body = {"company_id": cid, "variant_id": <vid>,
+#              "source": "SOURCE_UI_COPY_MERGED"}
+#      响应 → data.item.{weight(克) / depth / width / height(毫米)}
+#      （毛子 UI `${w}g`、`${depth} x ${width} x ${height}mm` 即读此处）
+#   两请求 headers 均 Content-Type + x-o3-company-id + x-o3-language:RU，
+#   credentials:"include"；cid = seller.ozon.ru 的 sc_company_id cookie
+#   （毛子 Yy()：cookie/localStorage 二源）。
+OZON_SELLER_BASE = "https://seller.ozon.ru"
+
+_VARIANT_SEARCH_JS = r'''(async () => {
+    try {
+        const m = document.cookie.match(/(?:^|;\s*)sc_company_id=([^;]+)/);
+        const cid = m ? m[1] : '';
+        if (!cid) { return JSON.stringify({error: "no sc_company_id cookie (seller not logged in)"}); }
+        const resp = await fetch('https://seller.ozon.ru/api/v1/search', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'x-o3-company-id': cid, 'x-o3-language': 'RU'},
+            credentials: 'include',
+            body: JSON.stringify({
+                company_id: cid,
+                need_total: true,
+                filter: {children_nodes: {children_nodes: [{input_leaf: {sku: {values: ['__SKU__']}}}], operator: 'AND'}},
+                pagination: {limit: '50'},
+                is_copy_allowed: false,
+            }),
+        });
+        const text = await resp.text();
+        let data;
+        try { data = JSON.parse(text); }
+        catch (e) { return JSON.stringify({error: 'non-JSON status=' + resp.status}); }
+        if (!resp.ok) { return JSON.stringify({error: 'HTTP ' + resp.status + ' ' + text.slice(0, 200)}); }
+        const v = (data && data.variants && data.variants[0]) || null;
+        const vid = v ? (v.variant_id != null ? v.variant_id : v.variantId) : null;
+        if (!vid) { return JSON.stringify({error: 'no variant_id', body: text.slice(0, 200)}); }
+        return JSON.stringify({company_id: cid, variant_id: vid});
+    } catch (e) { return JSON.stringify({error: String((e && e.message) || e)}); }
+})()'''
+
+_VARIANT_BUNDLE_JS = r'''(async () => {
+    try {
+        const resp = await fetch('https://seller.ozon.ru/api/site/seller-prototype/create-bundle-by-variant-id', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'x-o3-company-id': '__COMPANY_ID__', 'x-o3-language': 'RU'},
+            credentials: 'include',
+            body: JSON.stringify({company_id: '__COMPANY_ID__', variant_id: __VARIANT_ID__, source: 'SOURCE_UI_COPY_MERGED'}),
+        });
+        const text = await resp.text();
+        let data;
+        try { data = JSON.parse(text); }
+        catch (e) { return JSON.stringify({error: 'non-JSON status=' + resp.status}); }
+        if (!resp.ok) { return JSON.stringify({error: 'HTTP ' + resp.status + ' ' + text.slice(0, 200)}); }
+        const item = data && data.item;
+        if (!item) { return JSON.stringify({error: 'no item', body: text.slice(0, 200)}); }
+        return JSON.stringify({weight: item.weight, depth: item.depth, width: item.width, height: item.height});
+    } catch (e) { return JSON.stringify({error: String((e && e.message) || e)}); }
+})()'''
+
+
+def _as_int(value: Any) -> int:
+    """宽松转 int（"1840"/1840.0/1840 → 1840）；不可转 → 0。"""
+    try:
+        return int(float(str(value).strip()))
+    except (ValueError, TypeError, AttributeError):
+        return 0
+
+
+def _tab_for_variant_truth(cdp: CdpConnection) -> CdpTab:
+    """variant 真值采集用 seller tab（对齐 ozon_seller_analytics._tab_for_seller 纪律）。
+
+    不走 _ensure_ozon_tab：它会 find_tab("ozon.ru") 命中任意 www 商品 tab 并
+    导航走——discover 流程中把用户/采集中的 www 页抢去开 seller 后台是破坏性的；
+    而 bundle 端点在 seller.ozon.ru 源内才带得动 sc_company_id 会话 cookie
+    （毛子 CROSS_TAB 同款：优先借已登录 seller tab，无则新建）。
+    """
+    tab = cdp.find_tab("seller.ozon.ru")
+    if tab is not None:
+        tab.set_bypass_csp()  # CSP 剥除（v4.2 铺路）：页内注入 fetch 不被 connect-src 拦
+        return tab
+    tab = cdp.new_tab(f"{OZON_SELLER_BASE}/")
+    tab.set_bypass_csp()
+    return tab
+
+
+def fetch_variant_truth(cdp_url: str, sku: str, *,
+                        cdp: CdpConnection | None = None) -> dict[str, Any] | None:
+    """跨卖家 variant 重量/尺寸真值（seller 内部 composer API，毛子移植）。
+
+    流程（seller.ozon.ru 页内两次 fetch，见上方取证注释）：
+      search-sku-base（sku → variants[0].variant_id）
+      → create-bundle-by-variant-id（variant_id → item 重量/尺寸）。
+
+    Returns:
+        {"weight_g": int, "dims_mm": [length, width, height]}（length=depth，
+        毛子 UI 同序）——weight 须为正才算收获成功；seller 未登录（无
+        sc_company_id）/任何失败 → None（绝不 raise，调用方零兜底负担）。
+    传入 cdp 时复用调用方连接（tab 不关不远程收），否则临时建连自收。
+    """
+    from scripts.lib.cdp_client import CdpConnection
+
+    own_connection = cdp is None
+    if own_connection:
+        try:
+            cdp = CdpConnection(cdp_url)
+        except Exception as exc:
+            logger.info("variant 真值采集失败（忽略）: sku=%s %s", sku, str(exc)[:160])
+            return None
+    try:
+        return _fetch_variant_truth_via(cdp, sku)
+    except Exception as exc:
+        logger.info("variant 真值采集失败（忽略）: sku=%s %s", sku, str(exc)[:160])
+        return None
+    finally:
+        if own_connection:
+            try:
+                cdp.close()  # type: ignore[union-attr]
+            except Exception:
+                pass
+
+
+def _fetch_variant_truth_via(cdp: CdpConnection, sku: str) -> dict[str, Any] | None:
+    """fetch_variant_truth 主体（连接已就绪；异常上抛由调用方吞）。"""
+    tab = _tab_for_variant_truth(cdp)
+    js1 = _VARIANT_SEARCH_JS.replace("__SKU__", str(sku))
+    raw1 = tab.evaluate(js1, await_promise=True, timeout=20)
+    d1 = _safe_json_parse(raw1) if isinstance(raw1, str) else (raw1 or {})
+    if not isinstance(d1, dict) or d1.get("error") or not d1.get("variant_id"):
+        logger.info("variant 真值: sku %s 无 variant_id（%s）",
+                    sku, str((d1 or {}).get("error", "empty"))[:120])
+        return None
+    vid = str(d1["variant_id"])
+    vid_token = vid if vid.isdigit() else json.dumps(vid)
+    js2 = (_VARIANT_BUNDLE_JS
+           .replace("__COMPANY_ID__", json.dumps(str(d1["company_id"])))
+           .replace("__VARIANT_ID__", vid_token))
+    raw2 = tab.evaluate(js2, await_promise=True, timeout=20)
+    d2 = _safe_json_parse(raw2) if isinstance(raw2, str) else (raw2 or {})
+    if not isinstance(d2, dict) or d2.get("error"):
+        logger.info("variant 真值: sku %s bundle 无 item（%s）",
+                    sku, str((d2 or {}).get("error", "empty"))[:120])
+        return None
+    weight_g = _as_int(d2.get("weight"))
+    if weight_g <= 0:
+        return None
+    return {
+        "weight_g": weight_g,
+        "dims_mm": [_as_int(d2.get("depth")), _as_int(d2.get("width")),
+                    _as_int(d2.get("height"))],
+    }
