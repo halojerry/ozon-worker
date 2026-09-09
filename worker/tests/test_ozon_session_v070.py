@@ -491,17 +491,21 @@ def test_store_session_pg_jsonb_roundtrip(monkeypatch):
     需要 PGDATABASE_URL（与 test_store_sync 同模式），缺失跳过。
     """
     import base64
-    import os
 
     import pytest
-    if not os.environ.get("PGDATABASE_URL"):
-        pytest.skip("需要真 PG（PGDATABASE_URL）")
     from sqlalchemy import create_engine
 
     import services.ozon_session_service as svc
 
+    # ⚠️ 不读 PGDATABASE_URL：import main 会向 environ 注入容器风格 URL（host=postgres，
+    # 本机经代理 DNS 解析成 fake-IP 连不上）——直接探本地标准端口，不可达则跳过
+    eng = create_engine("postgresql://postgres:localdev123@localhost:5433/ozon")
+    try:
+        with eng.connect():
+            pass
+    except Exception:
+        pytest.skip("本地 PG（localhost:5433）不可达")
     monkeypatch.setenv("CREDENTIAL_MASTER_KEY", base64.b64encode(b"0123456789abcdef0123456789abcdef").decode())
-    eng = create_engine(os.environ["PGDATABASE_URL"])
     monkeypatch.setattr(svc, "get_engine", lambda: eng)
     tid, cid = "pgtest-session-tenant", "11111111-2222-3333-4444-555555555555"
     try:
