@@ -1631,6 +1631,9 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
         _logger.warning("分析文档生成失败（不影响选品主流程）: %s", exc)
 
     # ── auto-submit ──
+    if getattr(args, "to_box", False) and not args.auto_submit:
+        # 实机测验发现：--to-box 只切换提交通道，离开 --auto-submit 是静默 no-op
+        print("⚠️ --to-box 需与 --auto-submit 同用才会入采集箱（--to-box 单独使用不提交）")
     if args.auto_submit:
         # D3 L3: 人工评审拒绝的候选（review_decision=agent_reject）绝不提交
         to_submit = [c for c in selected
@@ -2110,10 +2113,20 @@ def _collect_expend_shop(cdp_url: str, pid: str, *, plan: dict,
     )
     from scripts.lib.ozon_fission import run_fission
 
-    with CdpConnection(cdp_url) as cdp:
-        seed = _analyze_product(cdp_url, cdp, pid)
+    # 种子分析重试 1 次：CDP websocket 偶发瞬断（Errno 32 Broken pipe，实测
+    # E2E 中 Chrome 健康时仍可出现）；两次全失败才判种子不可用。
+    seed = None
+    for attempt in (1, 2):
+        with CdpConnection(cdp_url) as cdp:
+            seed = _analyze_product(cdp_url, cdp, pid)
+        if seed.status == "ok":
+            break
+        print(f"⚠️ 种子分析第 {attempt} 次失败（{seed.error or seed.status}）"
+              f"{ '，重试...' if attempt == 1 else '' }", flush=True)
+        if attempt == 1:
+            time.sleep(3)
     if seed.status != "ok":
-        print(f"❌ 拓店种子商品分析失败（{seed.error or seed.status}）: {pid}"
+        print(f"❌ 拓店种子商品分析失败: {pid}"
               "（商品可能已下架/不可访问，换一个在售商品作种子）", flush=True)
         return []
     print(f"   🌱 种子: {seed.ozon_title[:40]}｜跟卖 "

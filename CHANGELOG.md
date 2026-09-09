@@ -15,6 +15,7 @@
 ### C 店铺会话代管（bindShopCookie 对标）
 - 新表 `ozon_sessions`（AES-256-GCM，aad=tenant:credential，永不回显 cookie 值）+ 3 端点 + skill `session-sync` + `GET /analytics/what-to-sell` 直调（401/403/302→标 expired+409）+ 失效重同步闭环文档。
 - 已知简化：DataDome 403 与真失效不可分一律判 expired（误判代价=一次重同步）；**发版实机 gate 须加 session-sync→what-to-sell 真实闭环一条**。
+- **实机测验结论（2026-09-09）**：session-sync 全链路真机通过（真实收割 15 cookie→JSONB 修复→脱敏上传→状态接口）。what-to-sell 直调机制通到 API 层（307 `__rr=1` 机器人回环已解——Session jar 携带 Set-Cookie 重试），但实测 **`__Secure-access_token` 为分钟级寿命/用后轮换型**：被动收割的静态快照活不过一次消费，服务端常驻直调不可持续。三候选待拍板：①worker 存 refresh_token 服务端续期；②「同步后 N 秒内消费」按需模式（已实证秒级窗口可行）；③直调类数据保留在 skill 浏览器上下文（jar 永活，竞品同款）。
 
 
 ## [0.72.0] — 2026-09-09（字典值缓存三桶策略：撑爆 40G 盘事故根治）
