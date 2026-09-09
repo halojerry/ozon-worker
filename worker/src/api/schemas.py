@@ -295,6 +295,11 @@ class DraftCreate(BaseModel):
         max_length=2000,
         description="运营备注（采集/选品依据人工标注，如 skill --note）；不进信封 payload",
     )
+    source_batch: Optional[str] = Field(
+        None,
+        max_length=64,
+        description="来源批次标识（T-P3.1 批次契约）：skill 采集批次（如 batch 时间戳/任务组 ID）；可选，≤64 字符，缺省 None",
+    )
 
 
 class DraftOut(BaseModel):
@@ -317,6 +322,10 @@ class DraftOut(BaseModel):
     notes: Optional[str] = Field(
         None,
         description="运营备注（采集/选品依据人工标注）；不进信封 payload",
+    )
+    source_batch: Optional[str] = Field(
+        None,
+        description="来源批次标识（T-P3.1 批次契约）：采集批次精确过滤用；NULL = 无批次（老 skill 创建的草稿）",
     )
 
 

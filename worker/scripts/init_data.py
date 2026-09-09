@@ -132,6 +132,9 @@ def create_tables(engine):
     # ✅ PRD store-sync-ERP v1: 同步任务/日聚合/成本货源/退货/进度事件等新表与扩列（幂等）
     from migrate_sync_erp_v1 import run_migrations as run_sync_migrations
     run_sync_migrations(engine)
+    # ✅ T-P3.1 批次契约: product_drafts.source_batch 加列（幂等；新建库 create_all 已带列，此处兜底存量/半迁移库）
+    from migrate_drafts_batch_v1 import run_migrations as run_drafts_batch_migrations
+    run_drafts_batch_migrations(engine)
     logger.info("✅ 表结构已就绪")
 
 

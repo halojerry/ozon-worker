@@ -1,8 +1,8 @@
 """T6/T14b: 草稿路由（薄层：鉴权 → 读取 → 调 service → 错误码映射）。
 
 端点：
-    POST   ""                         创建（凭证剥离，payload 只存 envelope）
-    GET    ""                         列表（租户隔离 + 最新 submission 状态）
+    POST   ""                         创建（凭证剥离，payload 只存 envelope；可选 source_batch 批次标识）
+    GET    ""                         列表（租户隔离 + 最新 submission 状态；可选 ?batch= 按 source_batch 精确过滤）
     GET    /{draft_id}                读取（租户隔离）
     PATCH  /{draft_id}               编辑（version 乐观锁，stale → 409）
     DELETE /{draft_id}               删除（draft_submissions 级联删，T10 采集箱）
@@ -66,9 +66,10 @@ async def create_draft(request: Request):
 
 
 @router.get("", response_model=list[DraftOut])
-async def list_drafts(request: Request):
+async def list_drafts(request: Request, batch: Optional[str] = None):
+    """列表（T-P3.1 批次契约）：可选 ?batch= 按 source_batch 精确过滤；缺席 = 不过滤（行为不变）。"""
     tenant_id = await _authenticate(request)
-    return draft_service.list_drafts(tenant_id)
+    return draft_service.list_drafts(tenant_id, batch=(batch or "").strip() or None)
 
 
 @router.get("/export")
