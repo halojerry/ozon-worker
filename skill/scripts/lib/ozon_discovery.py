@@ -961,6 +961,10 @@ def match_selected(
                 _review_log_write(candidate, match, "no_match", "low_confidence_source")
                 return
 
+            # F-B02 延伸：有效匹配才花 AK 详情调用补 1688 类目（用户口径：
+            # 1688 类目信息要进匹配链——喂 worker L0/信封，不再结构性缺席）
+            _backfill_1688_category(candidate)
+
             _calculate_profit(
                 candidate,
                 fx_rate=fx_rate,
@@ -2816,6 +2820,38 @@ def _llm_disambiguate_category(
     except Exception as e:
         logger.debug("LLM 类目消歧失败（维持首位）: %s", e)
         return 0
+
+
+def _backfill_1688_category(candidate: "ProductCandidate") -> None:
+    """过置信闸的匹配用 AK 详情回填完整 1688 类目路径（F-B02 延伸，2026-09-09）。
+
+    用户口径：「1688 本身有类目信息，匹配 Ozon 类目是顺其自然的事」。三通道里
+    只有 aibuy 候选带 category_name——CDP 无类目字段、AK 图搜只有数字 cateId，
+    类目分量因此长期缺席。这里对已过置信闸的匹配调 ainext offer_detail
+    （24h 磁盘缓存，普通 API 非图搜配额）取「商品类目」表各级中文名：
+    - candidate.match_1688_category_name ← 各级名称拼接（喂 worker L0/ZH 类目
+      链与信封 discovery_meta；skill 侧 category_consistency 中俄跨语言零重叠
+      时仍按不在场处理，不加分不稀释）；
+    - 失败静默保留原值（类目缺失降级为现状，绝不因回填失败丢匹配）。
+    """
+    if str(candidate.match_1688_category_name or "").strip():
+        return
+    url = str(candidate.match_1688_url or "")
+    m = re.search(r"/offer/(\d+)\.html", url)
+    if not m:
+        return
+    offer_id = m.group(1)
+    try:
+        from scripts.lib.ak_1688_client import get_product_details
+        details = get_product_details([offer_id])
+        cats = (details.get(offer_id) or {}).get("categories") or []
+        names = [str(c.get("name") or "").strip() for c in cats]
+        path = " > ".join([n for n in names if n])
+        if path:
+            candidate.match_1688_category_name = path
+            logger.info("1688 类目回填（AK 详情 offer=%s）: %s", offer_id, path[:80])
+    except Exception as exc:
+        logger.debug("AK 详情补类目失败 offer=%s（保留原值）: %s", offer_id, exc)
 
 
 def _search_1688_source(
