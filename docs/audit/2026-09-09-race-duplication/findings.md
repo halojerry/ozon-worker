@@ -179,6 +179,12 @@
 
 ## 域 G —— webui 表面 + 引导漂移（内联补扫）
 
+### F-B02  aibuy mtop token 运行时过期不触发刷新——每候选静默降级 CDP，复合评分 category/visual 两分量全哑
+- 类型：duplication/race；严重度：中；状态：待修（2026-09-09 评分分布 E2E 真单发现）
+- 证据：暖风机 15 单真单（本地 Worker，analysis_20260909_212224.json）：aibuy mtop 全程 `FAIL_SYS_TOKEN_EXOIRED::令牌过期`，日志零刷新尝试 → 15/15 降级 CDP 网页图搜。根因 `_aibuy_token_valid`（ozon_image_search.py:516）是格式级校验（4 key 齐备+_m_h5_tk 非空），token「格式有效但服务端过期」被判有效 → `search_by_image_aibuy`:861 跳过静默读/刷新链直接打 mtop；`_mtop_request` 遇 EXPIRED 返回 {} 无刷新重试。后果：①每候选多付一次 mtop 失败往返；②CDP 候选无 `category_name`/`normalization_score`/badge → score_match 按 `category_present=False`+`visual_present=False` 回落纯标题分——复合评分 0.45 类目分量与 0.35 视觉分量在 CDP-only 批次结构性缺席。
+- 修复方向：`_mtop_request` 识别 EXPIRED → 触发一次 claim 门控的 token 刷新（复用 aibuy_refresh_claim 600s 冷却）→ 重试一次；仍败再降级 CDP。
+- 附带事实（本批数据）：保留候选 conf 0.425~0.598（median 0.425，即旧标题分口径），7 拒全部护栏+LLM 判不同品，语义切分（护栏用标题分）工作正常。
+
 ### F-G01  cli 实际 22 子命令 vs AGENTS.md「60 秒表」约 10 个（SKILL.md 覆盖较全）；错误码 14 与文档一致 ✓；SKILL.md auto-submit/--to-box 语义已是 v0.70 后口径 ✓
 - 状态更新（2026-09-09 P1 波）：已修复 ad880ef9（AGENTS 技能表补 discover-task/report/import-cookies/seller）
 - 类型：drift；严重度：低；状态：待修（AGENTS 表补齐即可）
