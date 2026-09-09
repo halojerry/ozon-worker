@@ -245,6 +245,21 @@ def test_premium_unlock_installed_in_flow():
     assert "tab.add_init_script(_PREMIUM_UNLOCK_JS)" in src, "新建 Tab 应导航前预注入"
 
 
+def test_premium_payload_v326_fields():
+    """data-pool-parity 5.1: V3.2.6 新增权限字段（isAnalyst/grace_period_end_at/api full_access）。
+
+    上品帮 V3.2.6 ozon_min.js 地基响应体（base）被 STATUS 与 graphs 两类伪造体
+    共享（spread 语义）——STATUS 体 7657414 移植时已带全量，graphs 体此前缺
+    isAnalyst/subscription.grace_period_end_at/features.api=full_access。
+    """
+    from scripts.lib import ozon_seller_analytics as osa
+    js = osa._PREMIUM_UNLOCK_JS
+    for field in ("isAnalyst", "grace_period_end_at", "full_access"):
+        assert field in js  # V3.2.6 ozon_min.js 新增权限字段
+    # graphs 伪造体也必须共享地基响应（V3.2.6 spread 语义，防两体漂移）
+    assert "...makeBase()" in js, "makeGraph 应 spread 共享地基响应体 makeBase"
+
+
 # ── 修10: 竞品运营数据真机验证（登录 seller 后 what_to_sell 对任意 SKU 可查）──
 
 def test_extract_metrics_real_competitor_item():

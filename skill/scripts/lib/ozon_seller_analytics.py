@@ -180,6 +180,8 @@ _QUERIES_MARKET_BESTSELLERS_JS = r'''(async () => {
 # 精简重写：去掉弹窗/页面跳转/模糊单元格检测等 UI hack，只保留数据接口解锁）。
 # 背景：what_to_sell / analytics 图表数据对非 premium 卖家受限（上品帮实证），
 # 拦截 premium/status 与 graphs 相关请求，返回伪造的 PREMIUM_PLUS 全量权限响应。
+# V3.2.6 对齐（data-pool-parity 5.1）：地基响应体 makeBase（含 isAnalyst /
+# grace_period_end_at / features.api=full_access）由 STATUS 与 graphs 伪造体共享。
 # 幂等（__OZON_PREMIUM_UNLOCK__ 防重复安装）；不匹配的请求原样放行；
 # 仅本地自用（用户已登录的 seller.ozon.ru 页面内注入），不对外分发。
 _PREMIUM_UNLOCK_JS = r'''(() => {
@@ -187,16 +189,21 @@ _PREMIUM_UNLOCK_JS = r'''(() => {
     window.__OZON_PREMIUM_UNLOCK__ = true;
     const STATUS_RX = /\/premium\/status|\/get-seller-premium-status/i;
     const GRAPH_RX = /\/analytics\/graphs|\/graph\/data|\/statistics\/data/i;
-    const makeStatus = () => ({
+    const makeBase = () => ({
+        // V3.2.6 地基响应体（上品帮 base）：STATUS 与 graphs 两类伪造体共享
+        // （isAnalyst / grace_period_end_at / features.api=full_access 为
+        // V3.2.6 ozon_min.js 新增权限字段；grace 固定远期值，永不过期）
         status: "grace_good",
         is_premium: true,
         isPremiumPlus: true,
         isAnalyst: true,
         subscription: {current: "PREMIUM_PLUS", available: ["PREMIUM_PLUS"],
-                       grace_period_end_at: new Date(Date.now() + 48384e3).toISOString()},
+                       grace_period_end_at: "2030-01-01T00:00:00.000Z"},
         features: {analytics: "full", marketing: "full", api: "full_access",
                    graphs: "full", reports: "full", statistics: "full",
-                   recommendations: "full"},
+                   recommendations: "full"}
+    });
+    const makeStatus = () => ({...makeBase(),
         hasAccess: true,
         accessLevel: "FULL",
         dataPoints: Array.from({length: 15}, (_, i) => ({
@@ -204,7 +211,8 @@ _PREMIUM_UNLOCK_JS = r'''(() => {
             trend: Math.random() > .5 ? "up" : "down", change: Math.floor(36 * Math.random())
         }))
     });
-    const makeGraph = () => ({is_premium: true, isPremiumPlus: true, graphsAccess: true,
+    const makeGraph = () => ({...makeBase(),
+        graphsAccess: true,
         dataSets: ["sales", "traffic", "conversion"], timeRanges: ["day", "week", "month"]});
     const fake = (url) => STATUS_RX.test(url) ? makeStatus() : makeGraph();
     // XHR 深度拦截（上品帮机制）：伪造 responseText/status/readyState
