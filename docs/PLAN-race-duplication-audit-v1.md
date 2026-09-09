@@ -60,6 +60,51 @@
 回调面、草稿状态机（并发编辑/重复提交/resubmit）、共享表 upsert（字典三桶/属性回写/
 佣金回填/学习表/selection_insights）、余额缓存、store_sync 调度器重叠执行。
 
+### 2.4 用户实证靶点（2026-09-09 用户报告，P0 优先审计对象）
+
+**靶点一：重复获取 Ozon cookie / 1688 AK / 1688 登录态**（缓存了为什么还反复拿）。
+摸底已锁定三套获取机制各自的重复触发点，待动态证实哪个是用户实况：
+
+- **AK 双存储读写错位**（高嫌疑）：写侧 `ak_callback._save_ak`（ak_callback.py:37-78）
+  写 `SKILL_ROOT/.1688-AK/.ak_store.json` + config_store；读侧 `get_ak_from_file`
+  （ak_1688_client.py:171-184）读 **CWD 相对路径**（`Path(".1688-AK/...")`）与
+  `~/.openclaw/workspace/...` 等四个位置——**SKILL_ROOT 存放位不在读列表**，且任一
+  旧文件存在即短路返回（旧 AK 遮蔽新 AK）→ 401/403 → `_try_refresh_ak`
+  （ak_1688_client.py:79-90）开浏览器重取 → 仍读旧文件 → 循环。复现方法：
+  非 skill 目录 CWD 跑 `search`/AK 调用 + 故意放一个过期 `.ak_store.json` 在读路径。
+- **aibuy mtop token 6h TTL**（ozon_image_search.py:46）：过期/毒 token 即触发
+  Chrome 导航刷新（舞步等待 ≤8s）；1688 登录态失效时每次图搜都重导航 = 用户可见的
+  「重复获取 1688 登录态」。导入 cookie（import-cookies，cli.py:3314）注入的是工具
+  Chrome profile，浏览器 profile 重建/未启动即失效，无独立磁盘兜底。
+- **Ozon seller cookie 无磁盘缓存**：`_fetch_seller_session_cookies`
+  （ozon_seller_analytics.py:936）每次从活 Chrome 会话现读；直调失败即
+  `wait_for_seller_login` 自动开 seller 页（ozon_discovery.py `_enrich_with_seller_metrics`
+  回退段）——每次 discover 都可能重演开页。
+
+审计动作：域 A/B 内逐条核实三个机制的全部调用方与 TTL/失效语义；动态证实 AK 遮蔽
+循环；修复方向 = AK 单一存储 + 读侧同一解析函数 + 刷新后清旧文件；token/cookie
+统一磁盘缓存层（cache.py）+ 失效降级不导航。
+
+**靶点二：类目/货源匹配置信度 0.11~0.38 → worker 不自动上**。摸底结论：
+
+- 用户看到的置信度 = `_title_conf`（ozon_discovery.py:2181）——**Ozon 标题 vs 1688
+  候选标题的纯文本相关性**（RU→词对映射 `_ru_zh_title_overlap`，ZH→`verify_1688_match`
+  关键词重叠），与类目维度无关；aibuy 视觉信号 normalizationScore 只微调 `score`
+  不进 confidence（ozon_discovery.py:2322-2333）。守卫阈值 `_min_conf=0.3`
+  （:2277）、`badge_less_conf_weak`/`guardrail_blocked`（:2464-2481）产出弱档/阻断。
+- worker 类目判定层**已**建真值优先信任序（Skill page/what_to_sell 权威 >
+  L0 学习表（1688 叶子 cid）> jieba 文本兜底；信封带 Ozon 页面真值与 1688 cid，
+  v0.66~0.72 批次），但 L0 冷启动（新叶子前 1-2 单不权威）+ search_kw 信封非权威
+  + 上游 conf 本身低 → 终判落文本链 → 低置信**有意**入箱不自动上
+  （v0.67/0.68 拍板：宁入箱不上错）。即：**决策层改了真值优先，评分信号没改**——
+  conf 仍是标题文本，类目一致性（1688 cate_level2 ↔ Ozon 树）与图搜官方相似度
+  不参与评分。这是「改了判定方式但置信度还是低」的直接答案。
+- 审计动作：域 A 核实 `_title_conf` 全部调用方与低分分布；动态对照（同批候选：
+  纯文本 conf vs 加类目一致性/图搜信号的 conf 分布）；修复方向（P0 波）=
+  评分信号换轨——类目一致性与 aibuy 官方信号为主、标题文本为辅，弱档阈值同步
+  重校；配套核实 match_evidence→worker 压 0.6 链（learning_record_node.py:629-636）
+  在新信号下的语义。
+
 ## 3. 审计方法：三阶段
 
 ### Phase 1 —— 静态审计（只读，7 域并行）
@@ -95,7 +140,7 @@
 
 ### Phase 3 —— 分波修复（发现清单经用户拍板后启动）
 
-- **P0 波**：用户可见错误 / 资损 / 合规（假成功、错上架、多值拒单残余、终态翻盘残余）。
+- **P0 波**：用户可见错误 / 资损 / 合规（假成功、错上架、多值拒单残余、终态翻盘残余、**§2.4 两靶点：凭证反复获取 + 评分信号换轨**）。
 - **P1 波**：数据一致性 / 缓存裂行 / 学习表污染。
 - **P2 波**：统一入口重构（1688 匹配统一层、Ozon transport 收敛、重量清洗归一、
   引导内容对齐）——重构前先锁行为对照测试，保证行为保持。
