@@ -582,6 +582,22 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str,
     return candidate
 
 
+def _giveback_metrics(metrics_items) -> None:
+    """读-回馈（goldminer 模式）：消费 what_to_sell 畅销榜数据时顺手上报数据池。
+
+    metrics_items: (sku, item) 对的可迭代（item = what_to_sell 原始条目，
+    整包作 sales_payload）。fire-and-forget——metrics_pool_client 内部已吞掉
+    一切失败（未配置 token/网络错误/METRICS_POOL_REPORT=0 均静默），这里再套
+    一层 try/except 双保险：贡献失败绝不影响富化/查询主流程，也不感知不重试。
+    """
+    try:
+        from scripts.lib.metrics_pool_client import report_seller_sync
+        report_seller_sync(
+            [{"sku": sku, "sales_payload": item} for sku, item in metrics_items])
+    except Exception as exc:  # 双保险：贡献失败永不影响富化
+        logger.debug("giveback 失败（忽略）: %s", exc)
+
+
 def _enrich_with_seller_metrics(candidates: list[ProductCandidate],
                                 cdp, cdp_url: str) -> dict[str, dict]:
     """阶段②b seller 运营指标富化（就地 apply 进候选），返回成功富化的 {pid: metrics}。
@@ -623,6 +639,11 @@ def _enrich_with_seller_metrics(candidates: list[ProductCandidate],
         except Exception:
             pass
         metrics_map = fetch_bestseller_metrics_map(cdp, company_id=None)
+
+    if metrics_map:
+        # 读-回馈（goldminer）：map 在此已定稿（直调/CDP/缓存命中三路统一），
+        # 每收获恰一次顺手上报数据池——副作用，不影响下方富化（fire-and-forget）。
+        _giveback_metrics(metrics_map.items())
 
     enriched: dict[str, dict] = {}
     for c in candidates:

@@ -3534,6 +3534,17 @@ def cmd_queries(args: argparse.Namespace) -> int:
             import logging
             logging.getLogger(__name__).warning("queries 上报触发失败: %s", exc)
 
+    # 读-回馈（goldminer）：ozon-bestsellers 采集顺手上报数据池（what_to_sell
+    # 原始条目整包作 sales_payload，直调/CDP 兜底两路 rows 同构均含 sku 键）。
+    # fire-and-forget——与上行 analytics_upload 相互独立，双双失败不影响导出。
+    if args.type == "ozon-bestsellers" and rows:
+        try:
+            from scripts.lib.ozon_discovery import _giveback_metrics
+            _giveback_metrics((r["sku"], r) for r in rows if r.get("sku"))
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("queries 数据池回馈触发失败: %s", exc)
+
     if not rows:
         print("（无数据）", flush=True)
         return 0
