@@ -119,7 +119,8 @@ async def _persist_progress(task_id: str, data: dict):
         session = get_session()
         try:
             session.execute(
-                text("UPDATE ozon_product_tasks SET progress = :p, updated_at = NOW() WHERE id = :tid"),
+                text("UPDATE ozon_product_tasks SET progress = :p, updated_at = NOW() "
+                     "WHERE id = :tid AND status = 'running'"),
                 {"p": json.dumps(data, ensure_ascii=False), "tid": task_id}
             )
             session.commit()
@@ -604,6 +605,24 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(1)
         else:
             logger.warning("⚠️ 排空超时(5 分钟), 取消剩余任务(zombie cleanup 兜底)")
+            # F-C05（2026-09-09 审计）：被部署中断的 running 任务若只靠 zombie
+            # 复活，重启后会被静默重跑（同 SKU 双倍成本）。原地置 failed 并
+            # 推满 retry_count（防复活谓词命中），让用户显式重提。
+            _sess = get_session()
+            try:
+                _n = _sess.execute(
+                    _sa_text("""
+                        UPDATE ozon_product_tasks
+                        SET status='failed', retry_count=max_retries, completed_at=NOW(),
+                            error_message='[部署重启] 排空超时任务中断，请重新提交'
+                        WHERE status='running'
+                    """)
+                ).rowcount
+                _sess.commit()
+                if _n:
+                    logger.warning("🛑 已将 %d 个运行中任务标记为 failed（部署中断），不自动重跑", _n)
+            finally:
+                _sess.close()
     except Exception as _drain_e:
         logger.warning(f"⚠️ 排空检查异常(继续关闭): {_drain_e}")
 
@@ -1086,9 +1105,23 @@ async def _periodic_task_cleanup(interval_seconds: int = 60):
                     "DELETE FROM ozon_product_tasks "
                     "WHERE status='completed' AND updated_at < NOW() - INTERVAL '30 days'"
                 )).rowcount
+                # F-D04（2026-09-09 审计）对账归位：终态 commit 与 draft_submissions
+                # 写回不同事务，崩溃窗口会让 submission 卡 pending/uploading，
+                # has_active_submission 恒真 → 该草稿重提永久 409。每轮把
+                # 「任务已终态而 submission 仍活跃」的行按任务终态归位（幂等）。
+                r3 = conn.execute(text(
+                    "UPDATE draft_submissions ds SET status = CASE t.status "
+                    "WHEN 'completed' THEN 'published' "
+                    "WHEN 'rejected' THEN 'rejected' "
+                    "ELSE 'failed' END, updated_at = NOW() "
+                    "FROM ozon_product_tasks t "
+                    "WHERE ds.submitted_task_id = t.id::text "
+                    "AND ds.status IN ('pending','uploading') "
+                    "AND t.status IN ('completed','failed','rejected','cancelled')"
+                )).rowcount
                 conn.commit()
-                if r1 or r1f or r2:
-                    logger.info(f"🧹 定期清理: {r1} stale running → pending(重试+1), {r1f} stale running → failed(耗尽), {r2} old completed deleted (结果已留存 listing_result_log)")
+                if r1 or r1f or r2 or r3:
+                    logger.info(f"🧹 定期清理: {r1} stale running → pending(重试+1), {r1f} stale running → failed(耗尽), {r2} old completed deleted (结果已留存 listing_result_log), {r3} submission 对账归位")
                     # v0.29.2 监控: 超时任务重跑/终止上报 Sentry
                     try:
                         from utils.sentry_setup import capture_task_event

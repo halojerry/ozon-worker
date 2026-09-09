@@ -46,10 +46,10 @@ def test_stale_running_zero_counts_no_capture():
     import main as main_mod
 
     src = open(main_mod.__file__, encoding="utf-8").read()
-    # 守卫：`if r1 or r1f or r2:` 之后才 capture_task_event
-    assert "if r1 or r1f or r2:" in src
+    # 守卫：`if r1 or r1f or r2 or r3:` 之后才 capture_task_event
+    assert "if r1 or r1f or r2 or r3:" in src
     # 找到 capture 调用位置，确认在守卫块内
-    guard_idx = src.index("if r1 or r1f or r2:")
+    guard_idx = src.index("if r1 or r1f or r2 or r3:")
     capture_idx = src.index('"stale_running_reset"')
     assert capture_idx > guard_idx, "capture_task_event 必须在非零守卫块内"
 

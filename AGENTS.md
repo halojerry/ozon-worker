@@ -623,6 +623,10 @@ ozon-worker/
 | 获取 AK | `get_ak` | 浏览器自动获取 1688 AK |
 | 批量处理 | `batch_test` | 批量处理 URL 列表（v0.36 支持 `--resume` 断点续传——读上次 log_file 跳过已成功项，失败项重试） |
 | what-to-sell 查询 | `queries` | Ozon 蓝海/榜单数据查询（v0.34，all-queries/ozon-bestsellers/market-bestsellers，采集后自动上报 worker PG） |
+| 任务式选品 | `discover-task` | 全自动目标驱动选品（v0.70，`--target-count/--max-scan/--to-box\|--auto-submit`，状态落 data/discovery/tasks/） |
+| 错误报告 | `report` | 上报问题到 Worker（v0.69 错误报告模板，自动附任务快照；见 skill/references/error-report.md） |
+| cookie 导入 | `import-cookies` | 跨浏览器导入 1688/Ozon 登录态到工具 Chrome（v0.69，仅 macOS） |
+| 卖家分析 | `seller` | 卖家店铺全产品运营分析（跟卖前 20 名卖家 → 店铺选品） |
 
 **Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
 

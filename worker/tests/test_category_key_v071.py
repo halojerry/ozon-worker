@@ -53,6 +53,7 @@ def test_cid_both_missing_returns_empty():
 
 class _FakeRow:
     def __init__(self, leaf, cid, dc, tp, succ=1, source="learned_approved", conf=0.7):
+        self.id = "fake-row-id"  # F-E01 原子 UPDATE 以 id 定位行
         self.source_category_leaf = leaf
         self.source_category_id = cid
         self.description_category_id = dc
@@ -66,8 +67,9 @@ class _FakeRow:
 
 
 def _patch_session_two_selects(row_for_canon):
-    """第一次 execute（同 leaf 查询）→ None；第二次（同 cid 异措辞）→ row_for_canon。"""
-    calls = {"n": 0}
+    """第一次 execute（同 leaf 查询）→ None；第二次（同 cid 异措辞）→ row_for_canon；
+    第三次（F-E01 原子 UPDATE 归并）记录语句供断言。"""
+    calls = {"n": 0, "stmts": []}
 
     class _Res:
         def scalar_one_or_none(self):
@@ -76,6 +78,8 @@ def _patch_session_two_selects(row_for_canon):
 
     class _Sess:
         def execute(self, *a, **k):
+            if a:
+                calls["stmts"].append(str(a[0]))
             return _Res()
 
         def commit(self):
@@ -91,7 +95,8 @@ def _patch_session_two_selects(row_for_canon):
 
 
 def test_canonical_merge_same_cid_different_leaf():
-    """同 cid 不同措辞已有行 → 原行 succ+1 + leaf 刷新，不插新行。"""
+    """同 cid 不同措辞已有行 → 原子 UPDATE 归并（F-E01）：SQL 侧 success_count+1、
+    不插新行。行内累计数值行为由 test_category_mapping_merge_atomic.py（真 PG）锁定。"""
     row = _FakeRow("收纳盒旧措辞", 6001, 85282223, 970988646, succ=2)
     calls, sess = _patch_session_two_selects(row)
     lm = LocalDBManager()
@@ -101,9 +106,10 @@ def test_canonical_merge_same_cid_different_leaf():
             source="learned_approved", source_category_id=6001,
         )
     assert calls.get("committed") is True
-    assert row.success_count == 3          # 原行累计（不裂行稀释）
-    assert row.source_category_leaf == "收纳盒新措辞"  # 措辞刷新为最新
-    assert row.source == "learned_approved"
+    update_stmts = [s for s in calls["stmts"] if s.lstrip().upper().startswith("UPDATE")]
+    assert update_stmts, "归并应发原子 UPDATE（F-E01：SQL 侧 +1，非 ORM 读改写）"
+    assert "success_count" in update_stmts[0]
+    # 行内数值/措辞/source 的最终行为由 test_category_mapping_merge_atomic.py（真 PG）锁定
 
 
 def test_canonical_merge_skipped_when_same_leaf_row_exists():

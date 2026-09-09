@@ -841,15 +841,21 @@ class SupabaseTaskProcessor:
             return {"retried": True, "retry_count": retry_count + 1, "max_retries": max_retries}
 
         # F-C01: 守卫写——行非 running（重置/被新 run 认领）时跳过写回
+        # F-C04: retry_count 推满 max_retries——永久错误（OUT_OF_QUOTA/内容违规）
+        # 不消耗 retry 的旧语义让 zombie_reset 的复活谓词
+        # （failed AND retry_count < max_retries）把不可重试任务复活重跑；
+        # 终态落库即推满，与「永久=不再重试」语义对齐。
         with self.engine.connect() as conn:
             _res = conn.execute(text("""
                 UPDATE ozon_product_tasks
                 SET status = 'failed',
+                    retry_count = :max_retries,
                     error_message = :error_message,
                     completed_at = NOW()
                 WHERE id = :task_id AND status = 'running'
             """), {
                 "task_id": task_id,
+                "max_retries": max_retries,
                 "error_message": error_message,
             })
             _landed = (_res.rowcount or 0) > 0
@@ -900,11 +906,23 @@ class SupabaseTaskProcessor:
         if not task_id or task_id == "unknown":
             return
         try:
+            # F-C02（2026-09-09 审计）：心跳走专用执行器——此前 asyncio.to_thread
+            # 落默认线程池，与图节点共享（main 启动时扩到 128 workers）；外部 API
+            # 抖动占满池时心跳被饿死 → updated_at 过期 → 清理器误判 stale 重置
+            # → 同任务双跑。独立 2 线程池保证心跳永不排队在图节点之后。
+            import concurrent.futures
+            global _HEARTBEAT_EXECUTOR
+            try:
+                _HEARTBEAT_EXECUTOR
+            except NameError:
+                _HEARTBEAT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=2, thread_name_prefix="task-heartbeat")
+            loop = asyncio.get_running_loop()
             while True:
                 await asyncio.sleep(60)
                 try:
                     # v0.63.1 架构优化 R6: 心跳 DB 更新走线程池，不在事件循环上执行
-                    await asyncio.to_thread(self._heartbeat_tick, task_id)
+                    await loop.run_in_executor(_HEARTBEAT_EXECUTOR, self._heartbeat_tick, task_id)
                 except Exception:
                     pass  # 心跳失败不阻断主流程，下次周期再试
         except asyncio.CancelledError:

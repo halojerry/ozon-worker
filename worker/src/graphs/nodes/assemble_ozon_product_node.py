@@ -3748,7 +3748,7 @@ def _cache_attribute_schema(
             type_id=type_id,
             attributes_schema=schema,
             language=language,  # fetch 什么语言就 cache 什么语言
-            expires_in=86400,
+            expires_in=30 * 86400,  # F-E5（2026-09-09 审计）：对齐 set_attribute_cache 默认 30d——1d 会让同一 (dc,tp) 谁后写谁决定 TTL
         )
         logger.info(
             f"   ✅ 属性 schema 缓存回写成功: dc={description_category_id}, "
