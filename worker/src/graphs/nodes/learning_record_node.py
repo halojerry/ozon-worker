@@ -281,6 +281,41 @@ def _backfill_product_index(state, config) -> None:
 # 任何守卫缺失/API 异常 → 跳过 + warning，绝不阻断学习路径（mirror T9 风格）。
 # ═══════════════════════════════════════════════════════════════════════
 
+def _backfill_web_category_path(state) -> None:
+    """F-B04（2026-09-09）: approved 上架回填 Web 面包屑 → dc/tp 映射（非阻断）。
+
+    discover 信封的 draft.ozon_category（source=page, namespace=widget）只带
+    Web 面包屑路径——与 Seller 树双命名体系无法确定性互查。本钩子把「成功上架
+    的真实对应」积累进 web_category_path_map，discover 后续同面包屑商品经
+    assemble 读侧直通 dc/tp（「Ozon 有类目直接复用」闭环）。
+    守卫：approved 真实成功 + source=page + 面包屑/dc/tp 齐备；任何异常静默。
+    """
+    try:
+        if not _is_real_upload_success(state):
+            return
+        draft = getattr(state, "draft", None) or {}
+        ozon_cat = draft.get("ozon_category") if isinstance(draft, dict) else {}
+        if not isinstance(ozon_cat, dict) or str(ozon_cat.get("source", "")) != "page":
+            return  # 只积累页面真值面包屑（search_kw 猜测不可作为面包屑映射源）
+        breadcrumb = str(ozon_cat.get("category_path", "")).strip()
+        dc = getattr(state, "description_category_id", None)
+        tp = getattr(state, "type_id", None)
+        if not breadcrumb or not dc or not tp:
+            return
+        from utils.local_db_manager import LocalDBManager
+        task_id = str(getattr(state, "task_id", "") or "")[:64]
+        ok = LocalDBManager().upsert_web_category_path(
+            breadcrumb, int(dc), int(tp),
+            language=str(ozon_cat.get("breadcrumb_language", "") or "RU"),
+            task_id=task_id,
+        )
+        if ok:
+            logger.info("✅ Web 面包屑映射已回填: '%s' → [%s/%s]",
+                        breadcrumb[:60], dc, tp)
+    except Exception as e:
+        logger.warning("Web 面包屑映射回填跳过（非阻断）: %s", e)
+
+
 def _backfill_category_commission(state) -> None:
     """任务 1.4: 上传成功后回填 category_commission（approved 分支内，非阻断追加）。
 
@@ -663,6 +698,8 @@ def learning_record_node(
     _backfill_product_index(state, config)
     # ✅ 任务 1.4: 上传成功（approved）回填类目佣金 — 非阻断，任何缺失/异常仅 warning
     _backfill_category_commission(state)
+    # ✅ F-B04: approved 回填 Web 面包屑 → dc/tp 映射（discover 同面包屑直通闭环）
+    _backfill_web_category_path(state)
     
     return LearningRecordOutput(
         recorded_count=recorded_count,

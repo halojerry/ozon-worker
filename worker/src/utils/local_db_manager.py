@@ -24,6 +24,7 @@ from storage.database.shared.model import (
     GatewayTask,
     CategoryMapping,
     AttributeSynonym,
+    WebCategoryPathMap,
 )
 
 logger = logging.getLogger(__name__)
@@ -333,6 +334,78 @@ class LocalDBManager:
             session.execute(stmt)
             session.commit()
             logger.info(f"✅ PG 写入成功：category_cache（client_id={ozon_client_id}，有效期{expires_in}秒）")
+        finally:
+            session.close()
+
+    # ── F-B04: Web 面包屑 → Seller dc/tp 映射（成功上架积累，discover 同面包屑直通）──
+
+    @staticmethod
+    def normalize_breadcrumb_key(breadcrumb: str) -> str:
+        """面包屑规范化键：分隔符统一 ' > ' + lower + 压空白（同一导航不同写法归一键）。"""
+        import re as _re
+        b = _re.sub(r"\s*>\s*", " > ", str(breadcrumb or "").strip())
+        return " > ".join(seg for seg in b.split(" > ") if seg).lower()
+
+    def lookup_web_category_path(self, breadcrumb: str) -> Optional[Dict[str, Any]]:
+        """按面包屑查映射（原子 hit_count+1）。未命中/表缺失 → None（调用方回落）。"""
+        from sqlalchemy import text as _text
+
+        key = self.normalize_breadcrumb_key(breadcrumb)
+        if not key:
+            return None
+        session = get_session()
+        try:
+            row = session.execute(_text(
+                "UPDATE web_category_path_map SET hit_count = hit_count + 1, "
+                "updated_at = now() WHERE breadcrumb_key = :k AND is_active = true "
+                "RETURNING description_category_id, type_id, language"
+            ), {"k": key}).fetchone()
+            session.commit()
+            if not row:
+                return None
+            return {"description_category_id": str(row[0]),
+                    "type_id": str(row[1]), "language": row[2]}
+        except Exception as e:
+            session.rollback()
+            logger.warning("web_category_path_map 查询失败（降级）: %s", e)
+            return None
+        finally:
+            session.close()
+
+    def upsert_web_category_path(self, breadcrumb: str, description_category_id: int,
+                                 type_id: int, language: str = "RU",
+                                 task_id: str = "") -> bool:
+        """approved 上架回填映射（面包屑与 dc/tp 均有效才写）。失败静默（非阻断）。"""
+        from sqlalchemy.dialects.postgresql import insert as _pg_insert
+
+        key = self.normalize_breadcrumb_key(breadcrumb)
+        if not key or not description_category_id or not type_id:
+            return False
+        session = get_session()
+        try:
+            stmt = _pg_insert(WebCategoryPathMap).values(
+                breadcrumb_key=key, language=language,
+                description_category_id=int(description_category_id),
+                type_id=int(type_id), hit_count=0,
+                last_task_id=str(task_id or "")[:64] or None,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[WebCategoryPathMap.breadcrumb_key],
+                set_={
+                    "description_category_id": int(description_category_id),
+                    "type_id": int(type_id),
+                    "is_active": True,
+                    "last_task_id": str(task_id or "")[:64] or None,
+                    "updated_at": func.now(),
+                },
+            )
+            session.execute(stmt)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            logger.warning("web_category_path_map 回填失败（非阻断）: %s", e)
+            return False
         finally:
             session.close()
 
