@@ -92,9 +92,22 @@ def score_match(
     components: dict[str, float] = {}
     trusted = False
 
+    # 在场判定：CDP 通道候选往往没有任何官方视觉信号——此时必须整权重回落
+    # 标题文本（conf==title，与旧 _title_conf 口径逐字一致），否则纯文本匹配
+    # 被无信号压分（回归风险）。只有信号真实在场才参与分摊。
+    visual_present = any(
+        k in candidate for k in ("normalization_score", "similarity_score", "badge_eff")
+    ) or candidate.get("badge") == "matchBadgeFull"
+
     cand_category = str(candidate.get("category_name") or "").strip()
-    if cand_category and str(ozon_category_path or "").strip():
-        components["category"] = category_consistency(cand_category, ozon_category_path)
+    category_present = bool(cand_category) and bool(str(ozon_category_path or "").strip())
+    if category_present:
+        _cat = category_consistency(cand_category, ozon_category_path)
+        # 零重叠（典型：RU 面包屑 vs ZH 类目名跨语言）视为不在场——类目信息
+        # 只能加分不能稀释（在场但零分会把标题/视觉权重挤水，误伤真匹配）。
+        category_present = _cat > 0.0
+        if category_present:
+            components["category"] = _cat
 
     vis = visual_signal(_badge_eff(candidate), candidate.get("normalization_score"))
     components["visual"] = vis
@@ -107,17 +120,13 @@ def score_match(
     title = max(0.0, min(1.0, float(title_conf or 0)))
     components["title"] = title
 
-    if "category" in components:
-        active = {k: w[k] for k in ("category", "visual", "title")}
-    else:
-        # 比例回落：类目不可用时不凭空给分类分，visual/title 归一分摊其权重
-        rest = w["visual"] + w["title"]
-        active = {
-            "visual": (w["visual"] / rest) if rest else 0.0,
-            "title": (w["title"] / rest) if rest else 0.0,
-        }
-        components.pop("category", None)
-
-    total = sum(active.get(k, 0.0) * v for k, v in components.items())
-    confidence = max(0.0, min(1.0, total))
+    active: dict[str, float] = {}
+    if category_present:
+        active["category"] = w["category"]
+    if visual_present:
+        active["visual"] = w["visual"]
+    active["title"] = w["title"]
+    denom = sum(active.values())
+    total = sum(active.get(k, 0.0) * v for k, v in components.items() if k in active)
+    confidence = max(0.0, min(1.0, total / denom if denom else 0.0))
     return {"confidence": confidence, "components": components, "trusted": trusted}

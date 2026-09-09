@@ -86,4 +86,4 @@ def test_follow_step25_wires_direct_before_cdp():
     i_cdp = src.find("_metrics_map = fetch_sales_analytics(shared_cdp")
     assert i_direct > 0, "Step 2.5 应接线 fetch_sales_analytics_direct"
     assert 0 < i_direct < i_cdp, "直调必须先于 CDP 兜底"
-    assert "_fetch_seller_session_cookies" in src, "直调前应取会话 cookie"
+    assert "get_seller_session_cookies" in src, "直调前应取会话 cookie（P0-3 统一入口）"

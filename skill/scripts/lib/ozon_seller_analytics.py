@@ -978,6 +978,42 @@ def _fetch_seller_session_cookies(cdp_url: str = "http://127.0.0.1:9222") -> dic
                 pass
 
 
+# ── seller 会话 cookie 统一入口（P0-3，2026-09-09 审计靶点一③）──
+# 此前无磁盘兜底：_fetch_seller_session_cookies 每次活 Chrome 现读，读不到
+# 就 wait_for_seller_login 开 seller 页——每次 discover/queries/跟卖富化都可能
+# 重演开页（「重复获取 ozon cookie」）。缓存成功快照 30min，Chrome 已关也能直调。
+SELLER_COOKIE_CACHE_NS = "seller_session_cookies"
+SELLER_COOKIE_CACHE_KEY = "session"
+SELLER_COOKIE_CACHE_TTL = 1800
+
+
+def get_seller_session_cookies(cdp_url: str = "http://127.0.0.1:9222") -> dict[str, str]:
+    """seller 会话 cookie 统一入口：活 Chrome 现读（成功写穿磁盘缓存）
+    → 磁盘缓存快照（≤30min，含 sc_company_id 才有效）→ {}。
+
+    直调 401/DataDome 由调用方既有降级（_DIRECT_BLOCK 短路窗口/CDP 路径）兜底。
+    """
+    live = _fetch_seller_session_cookies(cdp_url)
+    if live:
+        try:
+            from scripts.lib.cache import cache_set
+            cache_set(SELLER_COOKIE_CACHE_NS, SELLER_COOKIE_CACHE_KEY, live,
+                      ttl=SELLER_COOKIE_CACHE_TTL)
+        except Exception:
+            pass
+        return live
+    try:
+        from scripts.lib.cache import cache_get
+        cached = cache_get(SELLER_COOKIE_CACHE_NS, SELLER_COOKIE_CACHE_KEY)
+        if isinstance(cached, dict) and cached.get("sc_company_id"):
+            logger.info("seller cookie 活读失败，使用磁盘缓存快照（≤%ds）",
+                        SELLER_COOKIE_CACHE_TTL)
+            return cached
+    except Exception:
+        pass
+    return {}
+
+
 # DataDome 挑战短路窗口（秒）：seller.ozon.ru 对纯 HTTP 客户端风控收紧时
 # 全部直调 403（fab_chlg 挑战），窗口内 direct 系函数直接降级 CDP 不再试。
 # ✅ v0.69 落盘：此前只存进程内全局，每条 CLI 命令新进程归零 → 下一条命令
