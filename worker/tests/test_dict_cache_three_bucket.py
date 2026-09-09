@@ -162,12 +162,14 @@ def test_assemble_fetch_caps_on_first_page_has_next():
             return {"result": [{"id": i, "value": f"b{i}"} for i in range(2000)],
                     "has_next": True}
 
-    def _post(url, json=None, headers=None, timeout=None):
-        payloads.append(json)
-        return _R()
+    # F-F01: _fetch_dict_values_from_ozon 已委托 utils.fetch_dictionary_values，
+    # mock 其底层 ozon_post（解析后 dict 应答）
+    def _post(client_id, api_key, endpoint, body=None, timeout=30, **kw):
+        payloads.append(body)
+        return {"result": [{"id": i, "value": f"b{i}"} for i in range(2000)],
+                "has_next": True}
 
-    with mock.patch.object(asm, "session") as sess:
-        sess.post.side_effect = _post
+    with mock.patch("utils.ozon_dict_values.ozon_post", side_effect=_post):
         vals = asm._fetch_dict_values_from_ozon("cid", "key", 1, 2, 85)
     assert len(payloads) == 1, "首页即 has_next 不再翻页"
     assert payloads[0]["limit"] == 2000  # 契约上限（旧 5000 违约）

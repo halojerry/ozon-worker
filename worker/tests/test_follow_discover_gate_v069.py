@@ -88,26 +88,24 @@ def _discover_envelope(follow_type="discover", draft_extra=None):
 
 
 class _PostRecorder:
-    """requests.post 打桩：计数 import-by-sku / api 写调用，其余 200 空结果。"""
+    """follow_sell_import_node.ozon_post 打桩：计数 import-by-sku / api 写调用，
+    其余 200 空结果。（F-F01: transport 收敛后 patch 点从 requests.post 切来）"""
 
     def __init__(self, import_unmatched=False, import_info_product=False):
         self.calls = []
         self.import_unmatched = import_unmatched
         self.import_info_product = import_info_product
 
-    def __call__(self, url, headers=None, json=None, timeout=30):
-        self.calls.append(url)
-        if "import-by-sku" in url:
+    def __call__(self, client_id, api_key, endpoint, body=None, timeout=30, **kw):
+        self.calls.append(endpoint)
+        if "import-by-sku" in endpoint:
             unmatched = [111] if self.import_unmatched else []
-            body = {"result": {"task_id": "555", "unmatched_sku_list": unmatched}}
-            return SimpleNamespace(status_code=200, json=lambda: body)
-        if "import/info" in url:
+            return {"result": {"task_id": "555", "unmatched_sku_list": unmatched}}
+        if "import/info" in endpoint:
             items = [{"product_id": 999888777, "status": "imported"}] \
                 if self.import_info_product else []
-            return SimpleNamespace(
-                status_code=200,
-                json=lambda: {"result": {"items": items}})
-        return SimpleNamespace(status_code=200, json=lambda: {"result": []})
+            return {"result": {"items": items}}
+        return {}
 
 
 def _run_node(envelope, post_recorder=None, gate_return=("", ""),
@@ -130,7 +128,7 @@ def _run_node(envelope, post_recorder=None, gate_return=("", ""),
          mock.patch.object(attr_defaults_mod, "build_follow_attr_merge",
                            return_value=[]), \
          mock.patch("time.sleep", lambda s: None), \
-         mock.patch("requests.post", recorder):
+         mock.patch.object(fsin, "ozon_post", recorder):
         result = fsin.follow_sell_import_node(FakeState(envelope=envelope))
     return result, recorder
 

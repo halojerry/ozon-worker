@@ -147,14 +147,16 @@
 - 修复方向：归并并入 ON CONFLICT 原子路径（SQL 表达式 success_count+1）。
 
 ### F-E02  其余四条低：进度事件 seq 读改写丢事件（task_progress_service.py:25-37）；余额缓存无锁并发击穿+告警重复（mxou_api.py:303-333/:374-378）——**告警去重已加锁修复 14b7ea7b**；双查幂等读接受；三大后台循环无单实例锁（main.py:552/572/576，多副本才触发）；attribute_cache TTL 双路径漂移（category_schema_service.py:42 30d vs assemble:3746 1d）。
-- 状态更新（2026-09-09 P1 波）：部分修复 ad880ef9（E-5 TTL 对齐 30d；E-1/E-3/E-4 留 P2）
-- 类型：race；严重度：低；状态：待验证
+- 状态更新（2026-09-09 P1 波）：部分修复 ad880ef9（E-5 TTL 对齐 30d）
+- 状态更新（2026-09-09 P2 尾批，本批）：**E-1 已修复**（emit 事务内先 `pg_advisory_xact_lock(hashtext(task_id))` 再 MAX(seq)+1，先例 _CATEGORY_TREE_SYNC_LOCK_KEY；2 单测）；**E-4 已修复**（新 `utils/instance_lock.py` 会话级 `pg_try_advisory_lock`+持连接不还池，fail-open 口径；main.py 清理/旧版店铺同步/指标聚合三循环接线，jobs 版 SKIP LOCKED 天然多副本安全不加锁；5 单测）；**E-3 已修复 14b7ea7b**
+- 类型：race；严重度：低；状态：**已修复（E-1/E-3/E-4/E-5；双查幂等读为有意接受）**
 
 ## 域 F —— worker 能力重复
 
 ### F-F01  Ozon transport 直连十文件：主链路上传/修复无重试、无限流、无类型化错误
-- 状态更新（2026-09-09 P2 第一批 14b7ea7b）：**部分修复**——retry 通用 `_call_ozon_api` 与上传主链 `/v3/product/import`（ozon_upload_node）已收敛 `ozon_post`（429/5xx 重试+全局限流+typed errors）；剩 ozon_status_node 轮询、fetch_back/auth/pricing、logistics_quote/follow_sell 私有 session、assemble 内联字典 API（P2 尾批）
-- 类型：duplication；严重度：**高**；状态：待验证
+- 状态更新（2026-09-09 P2 第一批 14b7ea7b）：retry 通用 `_call_ozon_api` 与上传主链 `/v3/product/import`（ozon_upload_node）收敛 `ozon_post`
+- 状态更新（2026-09-09 P2 尾批，本批）：**全量收敛完成**——ozon_status_node 两处轮询（404 回退语义由 OzonNotFoundError 承接）、fetch_back、auth `/v1/seller/info`、pricing currency 回退、logistics_quote（私有 Session 删除）、follow_sell_import 四处（schema/import-by-sku/import-info 轮询/_verify_category_schema）、retry 子图七处（attributes-update/import-prices/v3-UPDATE/全量 CREATE/import-info 轮询/两处 info-list 轮询）、main.py store_health（改 ozon_check_quota）与 auth_verify ozon_valid（OzonError=False/网络异常=None 保真分类）全部收敛；裸 `api-seller.ozon.ru` 直发仅剩 ozon_client.py 自身
+- 类型：duplication；严重度：**高**；状态：**已修复（14b7ea7b + 本批）**
 - 证据：唯一完整 transport 是 ozon_client.py（限流 :91+tenacity :99-104+typed errors :124）；ozon_upload_node.py:280-294、validation_retry_loop.py:414-430/:2566/:2632/:3331、ozon_status_node.py:136/:339、fetch_back_node.py:50、auth_node.py:78-89、pricing_node.py:49-55、main.py:1166/1392 全部绕过各自手工判状态。429 直接判失败再整图重试（浪费+慢）。
 - 修复方向：主链路收敛 ozon_post（薄委托保响应 shape）；配额查改 ozon_check_quota。
 
@@ -164,7 +166,8 @@
 - 修复方向：repair 统一走 compute_price / update_min_price_floor。
 
 ### F-F03  中：三处私有 requests 直发（logistics_quote.py:21/:38、follow_sell_import_node.py:147/:199/:210）+ assemble 内联第二套字典 API（assemble_ozon_product_node.py:3118-3145/:3679-3700 vs ozon_dict_values.py:18-93）；错误码裸构造三套分类口径（ozon_errors typed 仅 ozon_client 消费）。
-- 类型：duplication；严重度：中；状态：待验证
+- 状态更新（2026-09-09 P2 尾批，本批）：**已修复**——logistics_quote/follow_sell 私有直发随 F-F01 收敛 ozon_post；assemble 内联字典 API 委托 `utils.ozon_dict_values`（新增 `fetch_dictionary_values` 承载 v0.72 巨型字典首页即止语义，None=失败不写缓存契约保留；values/search 内联委托 `search_dictionary_values`）；错误码口径随 typed errors 全面采纳而统一（见 F-F01）
+- 类型：duplication；严重度：中；状态：**已修复（本批）**
 
 ### F-F04  唯一入口其余核查通过：compute_price/title_formula/cap_attribute_values 调用面统一，未发现未过闸的新 values 出口 ✓。
 

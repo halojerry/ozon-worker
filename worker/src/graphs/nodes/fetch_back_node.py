@@ -16,13 +16,14 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from runtime.context import Context
 
-from utils.http_session import session
+# F-F01（2026-09-09 审计）：收敛 ozon_post（全局限流 + 429/5xx 重试 + 类型化错误）
+from utils.ozon_client import ozon_post
 
 logger = logging.getLogger(__name__)
 
 from graphs.state import FetchBackInput, FetchBackOutput
 
-_API = "https://api-seller.ozon.ru/v4/product/info/attributes"
+_API = "/v4/product/info/attributes"
 
 # 遥测命名空间（结构化日志，Sentry/日志分析用）：attr.outcome
 _ATTR_OUTCOME = "attr.outcome"
@@ -35,11 +36,6 @@ def _call_fetch_back(
     limit: int = 1000,
 ) -> List[Dict[str, Any]]:
     """调 /v4/product/info/attributes 回读商品属性。失败返回 []。"""
-    headers = {
-        "Client-Id": ozon_client_id,
-        "Api-Key": ozon_api_key,
-        "Content-Type": "application/json",
-    }
     payload = {
         "filter": {"product_id": [str(product_id)]},
         "limit": limit,
@@ -47,11 +43,9 @@ def _call_fetch_back(
         "sort_dir": "asc",
     }
     try:
-        resp = session.post(_API, headers=headers, json=payload, timeout=20)
-        if resp.status_code == 200:
-            result = resp.json().get("result") or []
-            return result if isinstance(result, list) else []
-        logger.warning("fetch_back /v4 返回 %s: %s", resp.status_code, resp.text[:200])
+        data = ozon_post(ozon_client_id, ozon_api_key, _API, payload, timeout=20)
+        result = data.get("result") or []
+        return result if isinstance(result, list) else []
     except Exception as e:
         logger.warning("fetch_back /v4 异常: %s", e)
     return []

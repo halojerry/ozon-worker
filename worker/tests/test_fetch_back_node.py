@@ -45,9 +45,7 @@ def test_fetch_back_node_diff_dict_drift():
     from graphs.nodes.fetch_back_node import fetch_back_node
     from graphs.state import FetchBackInput
 
-    fake_resp = mock.MagicMock()
-    fake_resp.status_code = 200
-    fake_resp.json.return_value = {
+    fake_data = {
         "result": [{
             "id": "123456",
             "attributes": [
@@ -56,8 +54,8 @@ def test_fetch_back_node_diff_dict_drift():
             "attributes_with_defaults": [10096],
         }]
     }
-    with mock.patch("graphs.nodes.fetch_back_node.session") as _session:
-        _session.post.return_value = fake_resp
+    # F-F01: transport 收敛 ozon_post 后 patch 点随之切换
+    with mock.patch("graphs.nodes.fetch_back_node.ozon_post", return_value=fake_data):
         state = FetchBackInput(
             product_id="123456",
             ozon_client_id="cid",
@@ -82,11 +80,8 @@ def test_fetch_back_node_erased_detected():
     from graphs.nodes.fetch_back_node import fetch_back_node
     from graphs.state import FetchBackInput
 
-    fake_resp = mock.MagicMock()
-    fake_resp.status_code = 200
-    fake_resp.json.return_value = {"result": [{"id": "1", "attributes": [], "attributes_with_defaults": []}]}
-    with mock.patch("graphs.nodes.fetch_back_node.session") as _session:
-        _session.post.return_value = fake_resp
+    fake_data = {"result": [{"id": "1", "attributes": [], "attributes_with_defaults": []}]}
+    with mock.patch("graphs.nodes.fetch_back_node.ozon_post", return_value=fake_data):
         state = FetchBackInput(
             product_id="1", ozon_client_id="c", ozon_api_key="k",
             final_attributes=[{"id": 9782, "dictionary_value_id": 970593900, "value": "Не опасен"}],
@@ -99,9 +94,9 @@ def test_fetch_back_node_no_product_id_skips():
     """无 product_id → 跳过回读，不调 API。"""
     from graphs.nodes.fetch_back_node import fetch_back_node
     from graphs.state import FetchBackInput
-    with mock.patch("graphs.nodes.fetch_back_node.session") as _session:
+    with mock.patch("graphs.nodes.fetch_back_node.ozon_post") as _post:
         out = fetch_back_node(FetchBackInput(product_id="", ozon_client_id="c", ozon_api_key="k"), None, mock.MagicMock())
-        _session.post.assert_not_called()
+        _post.assert_not_called()
     assert out.fetch_back_result == {}
 
 
@@ -109,8 +104,7 @@ def test_fetch_back_api_failure_graceful():
     """API 失败 → 空结果，不抛异常。"""
     from graphs.nodes.fetch_back_node import fetch_back_node
     from graphs.state import FetchBackInput
-    with mock.patch("graphs.nodes.fetch_back_node.session") as _session:
-        _session.post.side_effect = Exception("network")
+    with mock.patch("graphs.nodes.fetch_back_node.ozon_post", side_effect=Exception("network")):
         out = fetch_back_node(
             FetchBackInput(product_id="9", ozon_client_id="c", ozon_api_key="k",
                            final_attributes=[{"id": 85, "dictionary_value_id": 1, "value": "x"}]),

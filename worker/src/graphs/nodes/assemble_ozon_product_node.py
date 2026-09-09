@@ -3120,46 +3120,35 @@ def _validate_and_enrich_items(
                     # ✅ v0.9.0: 精确匹配失败 → /values/search API 模糊搜索
                     if dict_val_id == 0 and value and len(str(value).strip()) >= 2:
                         try:
-                            url = "https://api-seller.ozon.ru/v1/description-category/attribute/values/search"
-                            headers = {
-                                "Client-Id": ozon_client_id,
-                                "Api-Key": ozon_api_key,
-                                "Content-Type": "application/json",
-                            }
-                            payload = {
-                                "attribute_id": attr_id,
-                                "description_category_id": int(description_category_id),
-                                "type_id": int(type_id),
-                                "value": str(value).strip(),
-                                "limit": 3,
-                                # ⚠️ v0.29.x: 1688 中文属性值 → ZH_HANS 直查
-                                # (旧代码无 language 参数=默认 RU → 中文搜不到 → 翻译再搜,
-                                #  绕一大圈。dictionary_value_id 跨语言通用, 中文直查即命中)
-                                "language": "ZH_HANS",
-                            }
-                            resp = session.post(url, json=payload, headers=headers, timeout=15)
-                            if resp.status_code == 200:
-                                search_data = resp.json()
-                                search_result = search_data.get("result", [])
-                                # ✅ v0.71 盲填清理：只认精确命中（搜索词=商品自身值）。
-                                # 此前 search_result[0] 盲采——Ozon 模糊排序首位常是
-                                # 同大类其他小类值（attr_value_matcher「绝不盲补首值」
-                                # 纪律），错值直达 Ozon；未命中交由 prepare 消歧/填充链。
-                                _needle = str(value).strip().lower()
-                                _exact = next((
-                                    r for r in search_result
-                                    if isinstance(r, dict)
-                                    and str(r.get("value") or "").strip().lower() == _needle
-                                ), None)
-                                if _exact is not None:
-                                    dict_val_id = _exact.get("id", 0)
-                                    matched_value = _exact.get("value", "")
-                                    logger.info(f"   ✅ /values/search 精确匹配: attr={attr_id}, '{value}' → id={dict_val_id}, value='{matched_value}'")
-                                elif search_result:
-                                    logger.info(f"   ⏭️ /values/search 无精确命中（{len(search_result)} 个模糊候选不盲采）: attr={attr_id}, value='{value}'，交由 prepare 消歧")
-                                else:
-                                    # 中文搜不到 → 翻译后俄语再搜
-                                    logger.info(f"   ⚠️ /values/search 无结果: attr={attr_id}, value='{value}'，尝试翻译后搜索")
+                            # F-F01: 内联 HTTP 收敛到 utils.ozon_dict_values（唯一入口）。
+                            # ⚠️ v0.29.x: 1688 中文属性值 → ZH_HANS 直查（不走 RU 回退——
+                            # dictionary_value_id 跨语言通用，中文直查即命中）；
+                            # PR-2：官方 search 无 language body 参数，由 helper 统一处理。
+                            from utils.ozon_dict_values import search_dictionary_values
+                            search_result = search_dictionary_values(
+                                ozon_client_id, ozon_api_key,
+                                attr_id, int(description_category_id), int(type_id),
+                                str(value).strip(), language="ZH_HANS",
+                            )
+                            # ✅ v0.71 盲填清理：只认精确命中（搜索词=商品自身值）。
+                            # 此前 search_result[0] 盲采——Ozon 模糊排序首位常是
+                            # 同大类其他小类值（attr_value_matcher「绝不盲补首值」
+                            # 纪律），错值直达 Ozon；未命中交由 prepare 消歧/填充链。
+                            _needle = str(value).strip().lower()
+                            _exact = next((
+                                r for r in search_result
+                                if isinstance(r, dict)
+                                and str(r.get("value") or "").strip().lower() == _needle
+                            ), None)
+                            if _exact is not None:
+                                dict_val_id = _exact.get("id", 0)
+                                matched_value = _exact.get("value", "")
+                                logger.info(f"   ✅ /values/search 精确匹配: attr={attr_id}, '{value}' → id={dict_val_id}, value='{matched_value}'")
+                            elif search_result:
+                                logger.info(f"   ⏭️ /values/search 无精确命中（{len(search_result)} 个模糊候选不盲采）: attr={attr_id}, value='{value}'，交由 prepare 消歧")
+                            else:
+                                # 中文搜不到 → 翻译后俄语再搜
+                                logger.info(f"   ⚠️ /values/search 无结果: attr={attr_id}, value='{value}'，尝试翻译后搜索")
                         except Exception as _search_e:
                             logger.warning(f"   ⚠️ /values/search 异常: attr={attr_id}, value='{value}': {_search_e}")
 
@@ -3679,53 +3668,23 @@ def _fetch_dict_values_from_ozon(
     attribute_id: int,
     language: str = "ZH_HANS",
 ) -> list[dict[str, Any]] | None:
-    """从 Ozon API 获取属性的字典值（按指定语言，分页拉全）"""
-    try:
-        url = "https://api-seller.ozon.ru/v1/description-category/attribute/values"
-        headers = {
-            "Client-Id": ozon_client_id,
-            "Api-Key": ozon_api_key,
-            "Content-Type": "application/json",
-        }
-        # ⚠️ v0.13: limit 100 → 分页拉全（大字典只取前 100 会导致目标值匹配不到）
-        # ✅ v0.72 三桶策略：limit 5000→2000（契约 max=2000，5000 被静默钳——
-        # 违约调用）；首页即 has_next（>2000 值的巨型字典如品牌 85）→ 取首页
-        # 即止不再翻页。物化拦截在 _cache_dict_values（ephemeral 不落库），
-        # 内存中的首页值仍可供本次匹配使用，value→id 精确查走 /values/search。
-        result: list[dict[str, Any]] = []
-        last_value_id: int = 0
-        while True:
-            payload = {
-                "attribute_id": attribute_id,
-                "description_category_id": description_category_id,
-                "type_id": type_id,
-                "language": language,  # 中文字典值用于匹配 1688 属性值（dictionary_value_id 跨语言一致）
-                "limit": 2000,
-                "last_value_id": last_value_id,
-            }
-            resp = session.post(url, json=payload, headers=headers, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-            page = data.get("result", [])
-            if not page:
-                break
-            result.extend(page)
-            if not data.get("has_next", False):
-                break
-            if not last_value_id:
-                # 首页即 has_next → 巨型字典，取首页即止（ephemeral）
-                logger.info(
-                    f"   ⏭️ attr={attribute_id} 字典 >2000 值（巨型），取首页即止")
-                break
-            # 分页游标：Ozon 用 last_value_id 返回下一页
-            last_value_id = int(page[-1].get("id", last_value_id))
-            if last_value_id == payload["last_value_id"]:  # 防死循环
-                break
-        logger.info(f"   ✅ Ozon API 返回 attr={attribute_id} 字典值: {len(result)} 条（分页拉全）")
-        return result
-    except Exception as e:
-        logger.warning(f"   ⚠️ Ozon API 字典值 attr={attribute_id} 失败: {e}")
+    """从 Ozon API 获取属性的字典值（按指定语言，分页拉全）。
+
+    F-F01（2026-09-09 审计）：分页/limit 2000/巨型字典首页即止语义收敛到
+    utils.ozon_dict_values.fetch_dictionary_values（字典 HTTP 唯一入口，
+    v0.72 三桶纪律见其 docstring）。本包装仅保留历史契约：
+    失败返回 None（调用方以 None 判断「不写缓存」，区别于空字典 []）。
+    """
+    from utils.ozon_dict_values import fetch_dictionary_values
+    result = fetch_dictionary_values(
+        ozon_client_id, ozon_api_key, attribute_id,
+        description_category_id, type_id, language=language,
+    )
+    if result is None:
+        logger.warning(f"   ⚠️ Ozon API 字典值 attr={attribute_id} 失败")
         return None
+    logger.info(f"   ✅ Ozon API 返回 attr={attribute_id} 字典值: {len(result)} 条（分页拉全）")
+    return result
 
 
 def _cache_attribute_schema(

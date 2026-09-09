@@ -22,6 +22,10 @@ def emit(task_id: str, node: str, step: str = "", status: str = "progress",
     """追加一条进度事件,返回 seq;表缺失/异常 → None(静默降级)。"""
     try:
         with get_engine().begin() as conn:
+            # E-1（2026-09-09 审计）：MAX(seq)+1 是读-改-写，并发 emit 同一 task 会
+            # 算出相同 seq。事务级 advisory lock 按 task_id 串行化（事务结束自动释放，
+            # 进程崩溃由 PG 兜底；先例：ozon_category_query._CATEGORY_TREE_SYNC_LOCK_KEY）
+            conn.execute(text("SELECT pg_advisory_xact_lock(hashtext(:t))"), {"t": task_id})
             seq = int(conn.execute(text(
                 "SELECT COALESCE(MAX(seq), 0) + 1 FROM task_progress_events WHERE task_id=:t"
             ), {"t": task_id}).scalar() or 1)
