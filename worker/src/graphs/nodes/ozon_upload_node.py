@@ -182,6 +182,7 @@ def ozon_upload_node(
             profit_estimation=profit_estimation,
             error_message=f"Ozon预检测失败: {error_message}",
             validation_errors=validation_errors,
+            failed_stage="ozon_upload",  # ✅ v0.73 Task8: 失败出口显式带（默认值已归零）
             stages={"ozon_upload": "blocked_by_validation"}
         )
 
@@ -198,7 +199,8 @@ def ozon_upload_node(
             purchase_cost=purchase_cost,
             sku_id=sku_id,
             profit_estimation=profit_estimation,
-            error_message="Prepared payload is required"
+            error_message="Prepared payload is required",
+            failed_stage="ozon_upload",  # ✅ v0.73 Task8: 失败出口显式带
         )
     
     if not ozon_client_id or not ozon_api_key:
@@ -206,7 +208,8 @@ def ozon_upload_node(
         return OzonUploadOutput(
             product_id=None,
             upload_status="failed",
-            error_message="Missing Ozon API credentials"
+            error_message="Missing Ozon API credentials",
+            failed_stage="ozon_upload",  # ✅ v0.73 Task8: 失败出口显式带
         )
     
     # 验证payload是否包含必需字段
@@ -216,7 +219,8 @@ def ozon_upload_node(
         return OzonUploadOutput(
             product_id=None,
             upload_status="failed",
-            error_message="Payload missing items array"
+            error_message="Payload missing items array",
+            failed_stage="ozon_upload",  # ✅ v0.73 Task8: 失败出口显式带
         )
     
     # 验证第一个item是否包含必需字段
@@ -264,7 +268,8 @@ def ozon_upload_node(
                 error_message=(
                     f"配额不足: 日创建 {quota['daily_used']}/{quota['daily_limit']}"
                     f", 总产品 {quota['total_used']}/{quota['total_limit']}"
-                )
+                ),
+                failed_stage="ozon_upload",  # ✅ v0.73 Task8: 失败出口显式带
             )
         if quota["remaining_total"] <= 5:
             logger.warning("⚠️ 产品配额仅剩 %d 个！建议归档旧产品释放空间", quota["remaining_total"])
@@ -310,7 +315,8 @@ def ozon_upload_node(
                 purchase_cost=purchase_cost,
                 sku_id=sku_id,
                 profit_estimation=profit_estimation,
-                error_message=f"Ozon API error: {exc}"
+                error_message=f"Ozon API error: {exc}",
+                failed_stage="ozon_upload",  # ✅ v0.73 Task8: 失败出口显式带
             )
         _dur = (_time.monotonic() - _t0) * 1000
 
@@ -357,7 +363,8 @@ def ozon_upload_node(
             purchase_cost=purchase_cost,
             sku_id=sku_id,
             profit_estimation=profit_estimation,
-            error_message=f"Ozon 未返回 import task_id（HTTP 200），响应摘要: {_resp_summary}"
+            error_message=f"Ozon 未返回 import task_id（HTTP 200），响应摘要: {_resp_summary}",
+            failed_stage="ozon_upload",  # ✅ v0.73 Task8: 失败出口显式带
         )
     
     except requests.exceptions.Timeout:
@@ -369,7 +376,8 @@ def ozon_upload_node(
             purchase_cost=purchase_cost,
             sku_id=sku_id,
             profit_estimation=profit_estimation,
-            error_message="Ozon API request timeout"
+            error_message="Ozon API request timeout",
+            failed_stage="ozon_upload",  # ✅ v0.73 Task8: 失败出口显式带
         )
 
     # （json.JSONDecodeError 分支已随 F-F01 收敛 ozon_post 移除——响应解析在
@@ -384,7 +392,8 @@ def ozon_upload_node(
             purchase_cost=purchase_cost,
             sku_id=sku_id,
             profit_estimation=profit_estimation,
-            error_message=f"Ozon API request exception: {str(e)}"
+            error_message=f"Ozon API request exception: {str(e)}",
+            failed_stage="ozon_upload",  # ✅ v0.73 Task8: 失败出口显式带
         )
     
     except Exception as e:
@@ -396,5 +405,6 @@ def ozon_upload_node(
             purchase_cost=purchase_cost,
             sku_id=sku_id,
             profit_estimation=profit_estimation,
-            error_message=f"Unknown exception: {str(e)}"
+            error_message=f"Unknown exception: {str(e)}",
+            failed_stage="ozon_upload",  # ✅ v0.73 Task8: 失败出口显式带
         )

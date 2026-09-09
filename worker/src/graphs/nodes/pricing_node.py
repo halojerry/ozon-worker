@@ -69,7 +69,11 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             pricing_info={},
             price="",
             old_price="",
-            error_message="Draft data is None"
+            error_message="Draft data is None",
+            # ✅ v0.73 Task8: Output 默认值已归零（operator.add 粘连根治），失败出口
+            # 必须显式带 failed_stage——否则 _graph_result_is_failed 的
+            # (error_message 且 failed_stage) 通道失守 → 假 completed。
+            failed_stage="pricing",
         )
     
     # 如果draft是空字典，使用默认值继续处理
@@ -412,7 +416,8 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 f"（{_gap['anchor_source']}）差距超 {_gap['ratio']} 倍，疑似货源错配"
             )
             # [PRICING_FAILED] 前缀复用 v0.14 P1-4 既有路由通道（route_after_pricing
-            # 按该标记阻断；failed_stage 对 PricingOutput 恒 "pricing" 无法区分成败）。
+            # 按该标记阻断）；✅ v0.73 Task8 起 failed_stage 默认值归零——失败出口显式
+            # 带 "pricing"、成功恒空，不再「恒 pricing 无法区分成败」。
             _error = f"[PRICING_FAILED] {_reason}"
             _box_notice = ""
             try:
@@ -455,7 +460,9 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             price="",
             old_price="",
             # ⚠️ v0.14 P1-4: [PRICING_FAILED] 标记，graph 检测后阻断管线，不再用 ¥1000 兜底上架
-            error_message=f"[PRICING_FAILED] Pricing calculation failed: {str(e)}"
+            error_message=f"[PRICING_FAILED] Pricing calculation failed: {str(e)}",
+            # ✅ v0.73 Task8: 失败出口显式带 failed_stage（默认值已归零，见上）
+            failed_stage="pricing",
         )
 
 
