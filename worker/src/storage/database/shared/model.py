@@ -1192,3 +1192,48 @@ class ErrorReport(Base):
         Index("idx_error_reports_status", "status"),
         Index("idx_error_reports_created", "created_at"),
     )
+
+
+class OzonSellerSession(Base):
+    """v0.70 批次 C: Ozon 卖家会话代管（对标竞品 bindShopCookie）。
+
+    skill CDP 收割 seller.ozon.ru 会话 cookie → worker AES-256-GCM 加密存储 →
+    服务端 cookie 直调 what_to_sell 等内部端点。安全红线:
+    - cookies 整包 JSON 序列化后加密（cookies_encrypted），cookie 名单明文入
+      cookie_names（JSONB）供状态展示——**任何接口永不回显 cookie 值**
+    - sc_company_id 单独加密存 sc_company_id_encrypted（what_to_sell 公司头快取；
+      值本身也在 cookies_encrypted 内，读路径优先从 cookie dict 取）
+    - aad 冻结 f"{tenant_id}:{credential_id}"（复用 credential_cipher，与凭证同源）
+    - 换 CREDENTIAL_MASTER_KEY 后旧密文 GCM 认证失败 → 服务层标 expired 返回 None
+      （不可解是预期行为，不视为数据损坏）
+    新表由 init_data 的 Base.metadata.create_all 自动建，无需 ALTER。
+    """
+    __tablename__ = "ozon_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True,
+                                          server_default=text("gen_random_uuid()"))
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    credential_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False,
+                                                     comment="credentials.id（同租户）")
+    cookies_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False,
+                                                     comment="AES-GCM({名:值} JSON)，aad=tenant:credential")
+    cookie_names: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True,
+                                                         comment="cookie 名单（不存值），状态展示用")
+    sc_company_id_encrypted: Mapped[Optional[bytes]] = mapped_column(
+        LargeBinary, nullable=True, comment="AES-GCM(sc_company_id 值)")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active",
+                                        server_default=text("'active'"),
+                                        comment="active/expired")
+    harvested_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="skill 最近一次收割上传时间")
+    last_checked_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="最近一次直调可用性检查时间")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True),
+                                                          server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True),
+                                                          server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "credential_id", name="uq_ozon_sessions_tenant_credential"),
+        Index("idx_ozon_sessions_tenant", "tenant_id"),
+    )
