@@ -2568,6 +2568,10 @@ def _assemble_discovery_meta(candidate) -> dict[str, Any]:
         "days_in_promo", "discount", "days_with_trafarets",
         "promo_revenue_share", "nullable_redemption_rate",
         "return_cancel_rate",
+        # data-pool 批7（卡片缺口三键之一）：商品点击率 %（qtyViewPdp/views
+        # 派生，毛子同款；候选默认 None=未知 → 键省略。另两键 增长率
+        # sales_growth/广告份额 drr 已在上基础组，不另增键）
+        "custom_click_rate",
         # B 批次（上品帮对标）：跟卖利润空间 + 竞品划线价 + 货源国内运费
         # （follow_* 默认 0.0 真实数据保留；old_price/freight 默认 None=未知省略）
         "follow_profit_cny", "follow_margin",

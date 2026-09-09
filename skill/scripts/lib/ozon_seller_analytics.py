@@ -357,6 +357,9 @@ def _extract_metrics(item: dict) -> dict[str, Any]:
         "conv_to_cart_search": _to_float(_first(item, "convToCartSearch", "conv_to_cart_search")),
         "conv_view_to_order": _to_float(_first(item, "convViewToOrder", "conv_view_to_order")),
         "custom_click_rate": _to_float(_first(item, "customClickRate", "custom_click_rate")),
+        # data-pool 批7：views=全页面展示次数（maozi 3.2.6 原始键，「商品点击率」
+        # 派生分母；见 metrics 构造后的派生块）
+        "views": _to_int(_first(item, "views")),
         # 发货模式 / 退货取消率（return_rate = 100 - nullableRedemptionRate）
         "sales_schema": str(_first(item, "salesSchema", "sales_schema", default="")),
         "nullable_redemption_rate": _to_float(item.get("nullableRedemptionRate")),
@@ -392,6 +395,19 @@ def _extract_metrics(item: dict) -> dict[str, Any]:
         "category2_id": _to_int(item.get("category2Id")),
         "category3_id": _to_int(item.get("category3Id")),
     }
+
+    # data-pool 批7 点击率派生（卡片缺口三键之一，maozi 3.2.6 取证）：what_to_sell
+    # item 无 direct customClickRate 键——毛子「商品点击率」是计算字段
+    # qtyViewPdp/views*100（views=全页面展示次数，其 content.js:
+    # `custom_click_rate:v=>{...const m=Number(v?.qtyViewPdp)||0;return p===0
+    # ?"--":(m/p*100).toFixed(2)+"%"}`）。直连键存在时原样优先（历史词汇防御式
+    # 保留）；无直连且有展示量 → 按毛子公式派生；两者皆无 → 保持 0.0 缺省
+    # （既有词汇契约，test_what_to_sell_27fields 锁定）。
+    if not metrics["custom_click_rate"]:
+        _views = metrics.get("views") or 0
+        if _views > 0:
+            metrics["custom_click_rate"] = round(
+                (metrics.get("qty_view_pdp") or 0) / _views * 100, 2)
 
     # 重量/尺寸在 attributes（毛子: 4497 重量, 9454/9455/9456 长/宽/高, 单位 mm）
     attrs = item.get("attributes") or item.get("characteristics") or []
@@ -1391,6 +1407,11 @@ def apply_analytics_to_candidate(candidate, metrics: dict) -> bool:
             candidate.nullable_redemption_rate = float(metrics["nullable_redemption_rate"])
         if metrics.get("return_rate"):
             candidate.return_cancel_rate = float(metrics["return_rate"])
+        # data-pool 批7：商品点击率（qtyViewPdp/views 派生，卡片缺口三键之一）。
+        # 按漏斗组既有约定用真值判断——metrics 缺省 0.0 与真实 0 在本层不可区分
+        # （评审 G-3 已知限制），真实 0 不落候选（候选 None=未知语义）。
+        if metrics.get("custom_click_rate"):
+            candidate.custom_click_rate = float(metrics["custom_click_rate"])
         cat2 = metrics.get("category2_id") or 0
         if cat2:
             candidate.category = str(cat2)
