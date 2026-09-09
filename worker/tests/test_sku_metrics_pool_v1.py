@@ -103,3 +103,29 @@ def test_stale_drives_needs_sales_sync():
         (r,) = query_sku_metrics(s, [444])
         assert r["needs_sales_sync"] is True
         s.delete(row); s.commit()
+
+
+def test_attribution_cap_keeps_newest_ten():
+    from storage.database.db import get_engine
+    from storage.database.shared.model import SkuMetricsPool
+    from services.sku_metrics_pool_service import upsert_seller_sync_items
+    from sqlalchemy.orm import Session
+
+    sku = 5550042
+    with Session(get_engine()) as s:
+        # 先删后建：防上次运行残留触发 uq_sku_metrics_pool_sku
+        s.query(SkuMetricsPool).filter_by(sku=sku).delete()
+        s.commit()
+        try:
+            for i in range(12):
+                r = upsert_seller_sync_items(
+                    s, [{"sku": sku, "sales_payload": {"i": i}}],
+                    source_company_id=f"comp-{i}", contributed_by=f"tok-{i}")
+                assert r == {"accepted": 1, "skipped": 0}
+            row = s.query(SkuMetricsPool).filter_by(sku=sku).one()
+            # cap 10：只留最新 10 个，最早 2 个被 [-cap:] 截断
+            assert row.contributed_by_token_ids == [f"tok-{i}" for i in range(2, 12)]
+            assert row.source_company_ids == [f"comp-{i}" for i in range(2, 12)]
+        finally:
+            s.query(SkuMetricsPool).filter_by(sku=sku).delete()
+            s.commit()
