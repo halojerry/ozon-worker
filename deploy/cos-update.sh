@@ -59,6 +59,8 @@ else
   MANIFEST_JSON=$(curl -fsSL --retry 3 --retry-delay 2 --max-time 30 "$MANIFEST_URL") \
     || fail "无法读取 manifest(检查网络/COs 配置): $MANIFEST_URL"
   VERSION=$(echo "$MANIFEST_JSON" | grep -oE '"version"\s*:\s*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+  # v0.73 W5: manifest version 是 tag 名(带 v 前缀), 剥 v 统一口径——否则日志/比较出现 vv0.72.0
+  VERSION="${VERSION#v}"
   PKG=$(echo "$MANIFEST_JSON" | grep -oE '"package"\s*:\s*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
   SHA256=$(echo "$MANIFEST_JSON" | grep -oE '"sha256"\s*:\s*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
   [ -n "$VERSION" ] || fail "manifest 无 version 字段"
@@ -70,6 +72,8 @@ fi
 # ── 2. 对比本地版本 ──
 LOCAL_VERSION=""
 [ -f "$VERSION_FILE" ] && LOCAL_VERSION=$(cat "$VERSION_FILE" | tr -d ' \n')
+# v0.73 W5: 服务器现存 VERSION 文件可能带 v 前缀(旧版 cd.yml 写入的是 tag 名), 比较前剥 v
+LOCAL_VERSION="${LOCAL_VERSION#v}"
 if [ "$LOCAL_VERSION" = "$VERSION" ] && [ -z "$REQUESTED_VERSION" ]; then
   log "已是最新版本 v${VERSION}, 无需更新"
   exit 0
@@ -90,6 +94,17 @@ if [ -n "$SHA256" ]; then
   log "✅ sha256 校验通过"
 else
   warn "指定版本无 manifest sha256, 跳过校验"
+fi
+
+# ── 3.5 v0.73 W4: 自举——包内脚本比当前新则 exec 新版重跑 ──
+# 此前: 解压覆盖运行中的脚本 → bash 后续读到新旧混合字节（v0.64 升级
+# 白费 1h 事故根因）。自举后所有变更性操作都在新版逻辑下执行。
+if [ "${COS_UPDATE_EXECED:-0}" != "1" ]; then
+  tar -xzf "$TMP_DIR/$PKG" -C "$TMP_DIR" deploy/cos-update.sh 2>/dev/null || true
+  if [ -f "$TMP_DIR/deploy/cos-update.sh" ] && ! cmp -s "$TMP_DIR/deploy/cos-update.sh" "${BASH_SOURCE[0]}"; then
+    log "检测到包内新版 cos-update.sh，自举重启以新版逻辑继续…"
+    exec env COS_UPDATE_EXECED=1 bash "$TMP_DIR/deploy/cos-update.sh" "$@"
+  fi
 fi
 
 # ── 回滚函数(须在使用前定义) ──
@@ -203,6 +218,9 @@ else
 fi
 
 # ── 6. 优雅重建(compose 已配 stop_grace_period: 5m) ──
+# v0.73 W5: compose 的 ${VERSION:-dev} build arg 与 ${VERSION:-latest} image tag 同源——
+# 不 export 则 build arg 落 dev、镜像 tag 只有 latest, 任务 APP_VERSION 无法追踪版本。
+export VERSION
 log "docker compose build + up(优雅关闭, 排空运行中任务)..."
 cd "$SCRIPT_DIR"
 if ! docker compose build --no-cache 2>&1 | tail -3; then

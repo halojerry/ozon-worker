@@ -146,7 +146,7 @@ jobs:
             --exclude='deploy/.env' --exclude='deploy/skill' \
             --exclude='deploy/*.tar.gz' \
             --exclude='webui/node_modules' --exclude='webui/dist/assets/*.map' \
-            deploy worker webui
+            deploy worker webui docs
           SHA=$(sha256sum "pkg/ozon-worker-deploy-${VERSION}.tar.gz" | awk '{print $1}')
           cat > pkg/manifest.json <<EOF
           {"version": "$VERSION", "package": "ozon-worker-deploy-${VERSION}.tar.gz", "sha256": "$SHA", "url": "https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/ozon-worker/ozon-worker-deploy-${VERSION}.tar.gz", "released_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
