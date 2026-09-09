@@ -5322,6 +5322,48 @@
         ]
       }
     },
+    "/api/v1/analytics/seller-sync": {
+      "post": {
+        "description": "POST /api/v1/analytics/seller-sync —— 贡献收包（goldminer ≤12/批）。",
+        "operationId": "http_seller_sync_api_v1_analytics_seller_sync_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Http Seller Sync",
+        "tags": [
+          "v1",
+          "analytics"
+        ]
+      }
+    },
+    "/api/v1/analytics/sku-metrics": {
+      "get": {
+        "description": "GET /api/v1/analytics/sku-metrics?skus=1,2 → {metrics: [...]}（读侧指标+补采指令，≤50/查）。",
+        "operationId": "http_sku_metrics_api_v1_analytics_sku_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Http Sku Metrics",
+        "tags": [
+          "v1",
+          "analytics"
+        ]
+      }
+    },
     "/api/v1/analytics/what-to-sell": {
       "get": {
         "description": "GET /api/v1/analytics/what-to-sell?credential_id=&sku=&limit= → {found, data}。",

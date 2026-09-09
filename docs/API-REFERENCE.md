@@ -1,6 +1,6 @@
 # Ozon Worker API 参考（自动生成）
 
-> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.73.0 · 156 个 path / 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
+> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.73.0 · 158 个 path / 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
 > 对外约定（Base URL / 鉴权 / 限流 / 错误信封 / 分页 / 版本策略）见 `docs/API-OVERVIEW.md`；MCP 面见 `docs/MCP-SERVER.md`；交互式 Swagger `GET /docs`。
 
 规范路径为 `/api/v1/...`；带「兼容别名」的端点同时挂在旧裸路径，语义一致。示例 JSON 只填 required 字段（schema 声明了 `examples` 的按声明渲染）。
@@ -8,7 +8,7 @@
 ## 目录
 
 - [admin](#admin) （47）
-- [analytics](#analytics) （9）
+- [analytics](#analytics) （11）
 - [api](#api) （5）
 - [async_run](#async-run) （1）
 - [auth](#auth) （1）
@@ -732,6 +732,24 @@ V1 Analytics Queries — skill what-to-sell all-queries 关键词蓝海数据上
 
 ### `GET /api/v1/analytics/sales-trend`
 Http Sales Trend — 销售趋势:用户看自己店铺,admin 看全平台。
+
+**响应**
+
+| 状态码 | 说明 | Schema |
+|---|---|---|
+| 200 | Successful Response | — |
+
+### `POST /api/v1/analytics/seller-sync`
+Http Seller Sync — POST /api/v1/analytics/seller-sync —— 贡献收包（goldminer ≤12/批）。
+
+**响应**
+
+| 状态码 | 说明 | Schema |
+|---|---|---|
+| 200 | Successful Response | — |
+
+### `GET /api/v1/analytics/sku-metrics`
+Http Sku Metrics — GET /api/v1/analytics/sku-metrics?skus=1,2 → {metrics: [...]}（读侧指标+补采指令，≤50/查）。
 
 **响应**
 

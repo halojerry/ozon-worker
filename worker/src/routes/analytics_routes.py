@@ -12,7 +12,18 @@
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
+
+from services.sku_metrics_pool_service import (
+    SKU_QUERY_MAX,
+    SKU_SYNC_MAX_ITEMS,
+    query_sku_metrics,
+    upsert_seller_sync_items,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -300,3 +311,51 @@ async def http_what_to_sell(request: Request):
 
     _ozon_session_service.mark_status(tenant_id, credential_id, "active")
     return {"found": True, "data": data}
+
+
+# ── 数据池 v1：跨店 SKU 指标贡献收包 + 读侧补采指令（对标 goldminer 读-回馈）──
+# 服务函数模块顶层导入（勿改函数内局部导入——endpoint 测试 mock.patch
+# "routes.analytics_routes.upsert_seller_sync_items" 打的是模块属性）。
+# 只存指标不回显内部异常（对齐 analytics 端点安全纪律）。
+
+from pydantic import ValidationError  # noqa: E402
+
+from api.schemas import SellerSyncIn  # noqa: E402
+from storage.database.db import get_session  # noqa: E402
+
+
+@router.post("/seller-sync")
+async def http_seller_sync(request: Request):
+    """POST /api/v1/analytics/seller-sync —— 贡献收包（goldminer ≤12/批）。"""
+    scope = _auth_rate_limit(request)
+    try:
+        body = SellerSyncIn.model_validate(await request.json())
+    except ValidationError as exc:
+        # 字段缺失/类型错 → 422 可读 detail（credentials_routes 同款，不裸 500）
+        raise HTTPException(status_code=422, detail=str(exc))
+    session = get_session()
+    try:
+        return upsert_seller_sync_items(
+            session, body.items[:SKU_SYNC_MAX_ITEMS],
+            source_company_id=(body.source_company_id or "").strip() or None,
+            contributed_by=scope.get("tenant_id"))
+    except Exception:
+        # 畸形 item（如非数字 category_dc）等非预期服务异常 → 422；
+        # 原始异常只进日志不回显（analytics 错误纪律）。
+        logger.exception("seller-sync 贡献收包处理失败（items=%s）", len(body.items))
+        raise HTTPException(status_code=422, detail="invalid seller-sync item")
+    finally:
+        session.close()
+
+
+@router.get("/sku-metrics")
+async def http_sku_metrics(request: Request):
+    """GET /api/v1/analytics/sku-metrics?skus=1,2 → {metrics: [...]}（读侧指标+补采指令，≤50/查）。"""
+    _auth_rate_limit(request)  # 鉴权+限流副作用；查询无租户维度（sku 池全局共享，同 category_mapping W11）
+    raw = (request.query_params.get("skus") or "").strip()
+    skus = [s for s in raw.split(",") if s.strip()]
+    session = get_session()
+    try:
+        return {"metrics": query_sku_metrics(session, skus[:SKU_QUERY_MAX])}
+    finally:
+        session.close()
