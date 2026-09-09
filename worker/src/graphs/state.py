@@ -942,6 +942,10 @@ class LearningRecordInput(BaseModel):
     ozon_upload_success: Optional[bool] = Field(default=False, description="是否上传成功")
     # ✅ 新增：status字段（从ozon_status_node输出）
     status: Optional[str] = Field(default="", description="Ozon状态（processed/failed/blocked）")
+    # ✅ v0.73 W8: 补声明——langgraph 按节点 Input 过滤 channel，此前 moderation_status
+    # 未声明 → learning 侧 getattr 恒空，_is_real_upload_success 的 approved 分支
+    # 恒不可达（全靠 upload_status=success+product_id 兜底）。与 GlobalState:61 同名同型。
+    moderation_status: str = Field(default="", description="Ozon审核状态 (approved/pending/error)")
     # ✅ 新增：upload_status字段（从validation_retry_wrapper传入，修复后成功状态）
     upload_status: Optional[str] = Field(default="", description="上传状态（success/failed/pending）")
     # ✅ PR-0: fetch_back 回读结果（learning 门据此排除被擦除/Ozon 自动填默认的属性）
