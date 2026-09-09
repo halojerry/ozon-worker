@@ -267,3 +267,84 @@ def test_backfill_failure_is_silent():
                     side_effect=RuntimeError("ak down")):
         od._backfill_1688_category(cand)  # 不 raise
     assert not cand.match_1688_category_name
+
+
+# ── 类目一致性二次复核（F-B02 收口）──
+
+def _mk_cand(od, conf, zh_cat, ru_cat):
+    c = od.ProductCandidate(
+        ozon_product_id="1", ozon_title="Термос", ozon_price=1000.0,
+        ozon_images=["x"],
+    )
+    c.match_confidence = conf
+    c.match_1688_category_name = zh_cat
+    c.page_category_path = ru_cat
+    return c
+
+
+def _llm_resp(content, code=200):
+    m = mock.Mock()
+    m.status_code = code
+    m.json.return_value = {"choices": [{"message": {"content": content}}]}
+    return m
+
+
+def test_category_review_downweights_on_divergence():
+    """类目语义不一致 → conf 封顶 0.5 + match_category_divergent 标记。"""
+    from unittest import mock as _mock
+    from scripts.lib import ozon_discovery as od
+    od._LLM_SEMANTIC_CACHE.clear()
+    cand = _mk_cand(od, 0.945, "日用餐厨饮具 > 咖啡具 > 咖啡杯",
+                    "Дом и сад > Посуда > Термосы")
+    with _mock.patch.object(od, "_llm_semantic_match", return_value=False) as mm, \
+         _mock.patch.dict(od._LLM_SEMANTIC_CACHE, {("Термосы", "咖啡杯"): False}):
+        # 直接预写缓存模拟「真判否」并让函数走缓存命中路径
+        od._category_semantic_review(cand, "token")
+        assert mm.called
+    assert cand.match_confidence == 0.5
+    assert cand.match_category_divergent is True
+
+
+def test_category_review_consistent_keeps_confidence():
+    from unittest import mock as _mock
+    from scripts.lib import ozon_discovery as od
+    od._LLM_SEMANTIC_CACHE.clear()
+    cand = _mk_cand(od, 0.885, "日用餐厨饮具 > 饮水用具 > 保温杯",
+                    "Дом и сад > Посуда > Термосы")
+    with _mock.patch.dict(od._LLM_SEMANTIC_CACHE, {("Термосы", "保温杯"): True}):
+        od._category_semantic_review(cand, "token")
+    assert cand.match_confidence == 0.885
+    assert cand.match_category_divergent is False
+
+
+def test_category_review_llm_failure_does_not_penalize():
+    """LLM 调用失败（返回 False 且缓存未写）→ 不降权（宁缺毋滥只在有真实判定时作用）。"""
+    from unittest import mock as _mock
+    from scripts.lib import ozon_discovery as od
+    od._LLM_SEMANTIC_CACHE.clear()
+    cand = _mk_cand(od, 0.9, "咖啡杯", "Термосы")
+    with _mock.patch.object(od, "_llm_semantic_match", return_value=False):
+        od._category_semantic_review(cand, "token")  # mock 返回 False 但缓存未写
+    assert cand.match_confidence == 0.9
+    assert cand.match_category_divergent is False
+
+
+def test_category_review_skips_missing_inputs_or_low_conf():
+    from unittest import mock as _mock
+    from scripts.lib import ozon_discovery as od
+    od._LLM_SEMANTIC_CACHE.clear()
+    # 缺 Ozon 面包屑
+    c1 = _mk_cand(od, 0.9, "咖啡杯", "")
+    with _mock.patch.object(od, "_llm_semantic_match") as mm:
+        od._category_semantic_review(c1, "token")
+        mm.assert_not_called()
+    # conf < 0.3 已在拒带
+    c2 = _mk_cand(od, 0.2, "咖啡杯", "Термосы")
+    with _mock.patch.object(od, "_llm_semantic_match") as mm:
+        od._category_semantic_review(c2, "token")
+        mm.assert_not_called()
+    # 无 token
+    c3 = _mk_cand(od, 0.9, "咖啡杯", "Термосы")
+    with _mock.patch.object(od, "_llm_semantic_match") as mm:
+        od._category_semantic_review(c3, "")
+        mm.assert_not_called()
