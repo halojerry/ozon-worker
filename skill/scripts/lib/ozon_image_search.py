@@ -43,6 +43,11 @@ MTOP_BASE_URL = "https://h5api.m.1688.com/h5/{api}/1.0/"
 MTOP_APP_KEY = "12574478"
 # token 缓存 key（存 settings.json；含时间戳用于过期判断）
 AIBUY_TOKEN_KEY = "aibuy_mtop_token"
+# ⚠️ P0-2（2026-09-09 审计靶点一）：导航刷新跨进程冷却——1688 登录态失效后
+# 每次 aibuy 图搜都导航 www.1688.com + 轮询 8s，discover 一批 N 个候选导航
+# N 次。失败落 claim（settings.json），冷却内后续调用零导航直接降级 CDP/AK。
+AIBUY_REFRESH_CLAIM_KEY = "aibuy_refresh_claim"
+AIBUY_REFRESH_COOLDOWN_SECONDS = 600
 AIBUY_TOKEN_TTL_SECONDS = 6 * 3600  # 6h 后需重新从 Chrome 会话刷新
 _AIBUY_COOKIE_KEYS = ("_m_h5_tk", "_m_h5_tk_enc", "tfstk", "isg")
 # ⚠️ W5.3 (I-8): mtop token 舞步等待——导航后轮询 document.cookie 上限（5-10s 内）。
@@ -95,7 +100,7 @@ def _get_badge_score(badge: str) -> int:
     m = re.search(r"符合(\d+)/(\d+)个条件", badge)
     if m:
         return int(m.group(1))
-    # 格式2: 百分比 "匹配度85%" / "相似度 92%" 
+    # 格式2: 百分比 "匹配度85%" / "相似度 92%"
     m = re.search(r"(匹配度|相似度|similarity)\s*[:：]?\s*(\d+)", badge, re.IGNORECASE)
     if m:
         score = int(m.group(2))
@@ -556,6 +561,30 @@ def _save_aibuy_token(cookies: dict[str, str]) -> None:
     set_setting(AIBUY_TOKEN_KEY, {**cookies, "saved_at": time.time()})
 
 
+def _try_claim_aibuy_refresh() -> bool:
+    """跨进程导航刷新冷却占位（settings.json 键）。
+
+    已有未过期占位（含其他 CLI 进程刚试过）→ False。此前无冷却 + 每命令独立
+    进程，1688 登录态一失效每个 aibuy 调用各导航一次（审计靶点一放大器②③）。
+    """
+    from scripts.lib.config_store import get_setting, set_setting
+
+    claim = get_setting(AIBUY_REFRESH_CLAIM_KEY) or {}
+    try:
+        if time.time() - float(claim.get("ts") or 0) < AIBUY_REFRESH_COOLDOWN_SECONDS:
+            return False
+    except Exception:
+        pass  # 损坏占位按过期处理
+    set_setting(AIBUY_REFRESH_CLAIM_KEY, {"ts": time.time()})
+    return True
+
+
+def _clear_aibuy_refresh_claim() -> None:
+    from scripts.lib.config_store import set_setting
+
+    set_setting(AIBUY_REFRESH_CLAIM_KEY, None)
+
+
 def _fetch_aibuy_cookies_from_chrome(cdp_url: str = "http://127.0.0.1:9222") -> dict[str, str]:
     """从 Chrome 会话读取 1688 cookie（复用常驻 Chrome，无需启动新浏览器）。
 
@@ -826,14 +855,28 @@ def search_by_image_aibuy(
 
     token_cookies = _read_aibuy_token()
     if token_cookies is None:
-        # 刷新：从 Chrome 会话读 cookie
-        token_cookies = _fetch_aibuy_cookies_from_chrome(cdp_url)
-        # ✅ W5.2 (I-8): 毒 token 不落盘——`if not token_cookies:` 只拦全空 dict，
-        # 空 value 的 4-key dict 会通过；改用 value 级校验（_aibuy_token_valid）。
-        if not _aibuy_token_valid(token_cookies):
-            logger.warning("无 1688 反爬 cookie，aibuy 不可用，降级 CDP/AK 图搜")
-            return []
-        _save_aibuy_token(token_cookies)
+        # ✅ P0-2: 静默读先行（只读 Chrome 会话 cookie，不导航）——settings token
+        # 过期但会话 cookie 仍有效时免导航直接恢复。
+        token_cookies = _read_1688_cookies_silent(cdp_url)
+        if _aibuy_token_valid(token_cookies):
+            _save_aibuy_token(token_cookies)
+        else:
+            # 导航刷新（www.1688.com + 轮询 ≤8s）受跨进程 600s 冷却约束——
+            # 冷却内零导航直接降级 CDP/AK，杀掉「每候选导航一次」的刷新风暴。
+            if not _try_claim_aibuy_refresh():
+                logger.warning(
+                    "aibuy cookie 刷新冷却中（%ds 内已试过导航预热），跳过导航直接降级 CDP/AK",
+                    AIBUY_REFRESH_COOLDOWN_SECONDS,
+                )
+                return []
+            token_cookies = _fetch_aibuy_cookies_from_chrome(cdp_url)
+            # ✅ W5.2 (I-8): 毒 token 不落盘——`if not token_cookies:` 只拦全空 dict，
+            # 空 value 的 4-key dict 会通过；改用 value 级校验（_aibuy_token_valid）。
+            if not _aibuy_token_valid(token_cookies):
+                logger.warning("无 1688 反爬 cookie，aibuy 不可用，降级 CDP/AK 图搜")
+                return []
+            _save_aibuy_token(token_cookies)
+            _clear_aibuy_refresh_claim()
 
     # 先上传拿 1688 托管 imageUrl（阿里服务器能直接抓，比原始境外 URL 更稳），
     # 失败不阻塞搜索（回退用原始 image_url 直接搜）

@@ -194,6 +194,10 @@ def test_aibuy_token_valid_accepts_real():
     assert ois._aibuy_token_valid({**MOCK_COOKIES, "saved_at": 123}) is True
 
 
+# P0-2 刷新链新增静默读/冷却占位——用 new= mock 避免触碰真实 settings.json
+@mock.patch("scripts.lib.ozon_image_search._clear_aibuy_refresh_claim", new=mock.Mock())
+@mock.patch("scripts.lib.ozon_image_search._try_claim_aibuy_refresh", new=mock.Mock(return_value=True))
+@mock.patch("scripts.lib.ozon_image_search._read_1688_cookies_silent", new=mock.Mock(return_value={}))
 @mock.patch("scripts.lib.ozon_image_search.cache_get")
 @mock.patch("scripts.lib.ozon_image_search._read_aibuy_token")
 @mock.patch("scripts.lib.ozon_image_search._fetch_aibuy_cookies_from_chrome")
@@ -209,6 +213,9 @@ def test_search_by_image_aibuy_does_not_save_poison_token(mock_save, mock_chrome
     mock_save.assert_not_called()
 
 
+@mock.patch("scripts.lib.ozon_image_search._clear_aibuy_refresh_claim", new=mock.Mock())
+@mock.patch("scripts.lib.ozon_image_search._try_claim_aibuy_refresh", new=mock.Mock(return_value=True))
+@mock.patch("scripts.lib.ozon_image_search._read_1688_cookies_silent", new=mock.Mock(return_value={}))
 @mock.patch("scripts.lib.ozon_image_search.cache_set")
 @mock.patch("scripts.lib.ozon_image_search._aibuy_image_search")
 @mock.patch("scripts.lib.ozon_image_search._aibuy_image_upload")
@@ -274,6 +281,8 @@ def test_fetch_aibuy_cookies_poll_timeout_returns_empty(mock_conn_cls, mock_slee
 
 # ── 主入口 fail-fast + 缓存 ───────────────────────────────────────────────
 
+@mock.patch("scripts.lib.ozon_image_search._try_claim_aibuy_refresh", new=mock.Mock(return_value=True))
+@mock.patch("scripts.lib.ozon_image_search._read_1688_cookies_silent", new=mock.Mock(return_value={}))
 @mock.patch("scripts.lib.ozon_image_search.cache_get")
 @mock.patch("scripts.lib.ozon_image_search._read_aibuy_token")
 @mock.patch("scripts.lib.ozon_image_search._fetch_aibuy_cookies_from_chrome")
