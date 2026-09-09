@@ -23,6 +23,19 @@ def test_bootstrap_exec_guard_present():
         assert src.index(marker) > boot, f"自举必须先于 {marker.strip()}"
 
 
+def test_reexec_anchors_real_install_dir():
+    src = _SCRIPT.read_text(encoding="utf-8")
+    # exec 行必须透传真实安装目录，否则新进程把 $TMP_DIR 当 ROOT_DIR
+    # （备份/VERSION/整包解压全落 tmp、.env 读不到致 compose 保护静默跳过——终审 must-fix 1）
+    assert 'COS_UPDATE_REAL_SCRIPT_DIR="$SCRIPT_DIR"' in src, "exec 未透传真实 SCRIPT_DIR"
+    # 头部回正块：execed 时以真实目录重算 SCRIPT_DIR/ROOT_DIR，且必须先于 BACKUP_DIR 派生
+    anchor = 'SCRIPT_DIR="$COS_UPDATE_REAL_SCRIPT_DIR"'
+    assert anchor in src, "缺头部路径回正块"
+    assert src.index(anchor) < src.index("BACKUP_DIR="), "路径回正块必须在 BACKUP_DIR 派生之前"
+    # 回滚重建按旧版本号打 tag（镜像元数据不谎报新版本）
+    assert 'export VERSION="$LOCAL_VERSION"' in src, "rollback 缺旧版本号 tag 导出"
+
+
 def test_version_stripped_and_exported():
     src = _SCRIPT.read_text(encoding="utf-8")
     assert 'VERSION="${VERSION#v}"' in src, "manifest 路径 VERSION 剥 v"

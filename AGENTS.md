@@ -91,10 +91,13 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
     `--export-only` 保留但只是「边拉边导」旧语义，预热后单独导出勿用）；Ozon 400 死节点进
     `warm_dead_nodes` 表永久跳过、coverage 分母剔除（`dead_excluded`）——看护阈值可回到全量分母。
     流程见 docs/CACHE-WARM-RUNBOOK.md。
-  - **cos-update.sh 已自举**（`COS_UPDATE_EXECED` 防环 env：包内脚本更新则 exec 新版重跑——旧脚本跑
-    新包安全，v0.64 白费 1h 事故根治）+ VERSION 剥 v/export 传导（镜像 tag 从 latest 变具体版本）+
-    cd.yml 部署包收编 docs/；另 `LearningRecordInput.moderation_status` 补声明（langgraph channel
-    过滤吞字段，learning approved 分支复活）。
+  - **cos-update.sh 自举**（`COS_UPDATE_EXECED` 防环 env：包内脚本更新则 exec 新版重跑，exec 透传
+    `COS_UPDATE_REAL_SCRIPT_DIR` 在头部回正 SCRIPT_DIR/ROOT_DIR——防把 tmp 当安装目录）。⚠️ 诚实口径：
+    **首次升级（0.72.0→0.73.0）仍由服务器磁盘上的旧脚本执行**（旧脚本无自举块）；自举自**新脚本落盘后
+    的下一次更新**起生效，v0.64「解压覆盖运行中脚本→新旧混合字节白费 1h」事故自那时起根治。
+    + VERSION 剥 v/export 传导（镜像 tag 从 latest 变具体版本；VERSION 文件非空即导出；回滚重建按
+    旧版本号打 tag）+ cd.yml 部署包收编 docs/；另 `LearningRecordInput.moderation_status` 补声明
+    （langgraph channel 过滤吞字段，learning approved 分支复活）。
 
 ## 最近更新（v0.72.0 — 字典值缓存三桶策略：撑爆 40G 盘事故根治）
 

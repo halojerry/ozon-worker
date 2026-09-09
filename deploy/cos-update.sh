@@ -20,6 +20,10 @@ set -euo pipefail
 # ── 路径/配置 ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+# v0.73 W4 终审修正: 自举 exec 的目标是包内临时脚本——不回正路径的话新进程会把
+# $TMP_DIR 当 ROOT_DIR(备份/VERSION/整包解压全落 tmp、.env 读不到致 compose 保护
+# 静默跳过)。exec 时透传真实安装目录, 此处在 BACKUP_DIR 等派生之前重算。
+if [ "${COS_UPDATE_EXECED:-0}" = "1" ] && [ -n "${COS_UPDATE_REAL_SCRIPT_DIR:-}" ]; then SCRIPT_DIR="$COS_UPDATE_REAL_SCRIPT_DIR"; ROOT_DIR="$(dirname "$SCRIPT_DIR")"; fi
 BACKUP_DIR="$ROOT_DIR/backups"
 VERSION_FILE="$ROOT_DIR/VERSION"
 MANIFEST_URL_BASE="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com"
@@ -74,6 +78,9 @@ LOCAL_VERSION=""
 [ -f "$VERSION_FILE" ] && LOCAL_VERSION=$(cat "$VERSION_FILE" | tr -d ' \n')
 # v0.73 W5: 服务器现存 VERSION 文件可能带 v 前缀(旧版 cd.yml 写入的是 tag 名), 比较前剥 v
 LOCAL_VERSION="${LOCAL_VERSION#v}"
+# v0.73 终审顺手修: VERSION 文件非空即导出(空文件=首装态不导出)——compose 的
+# ${VERSION:-latest} 与之同源, 后续任何 compose 调用不再解析不存在的 latest tag
+[ -n "$LOCAL_VERSION" ] && export VERSION
 if [ "$LOCAL_VERSION" = "$VERSION" ] && [ -z "$REQUESTED_VERSION" ]; then
   log "已是最新版本 v${VERSION}, 无需更新"
   exit 0
@@ -103,7 +110,7 @@ if [ "${COS_UPDATE_EXECED:-0}" != "1" ]; then
   tar -xzf "$TMP_DIR/$PKG" -C "$TMP_DIR" deploy/cos-update.sh 2>/dev/null || true
   if [ -f "$TMP_DIR/deploy/cos-update.sh" ] && ! cmp -s "$TMP_DIR/deploy/cos-update.sh" "${BASH_SOURCE[0]}"; then
     log "检测到包内新版 cos-update.sh，自举重启以新版逻辑继续…"
-    exec env COS_UPDATE_EXECED=1 bash "$TMP_DIR/deploy/cos-update.sh" "$@"
+    exec env COS_UPDATE_EXECED=1 COS_UPDATE_REAL_SCRIPT_DIR="$SCRIPT_DIR" bash "$TMP_DIR/deploy/cos-update.sh" "$@"
   fi
 fi
 
@@ -124,6 +131,9 @@ rollback() {
   [ -f "$_bk/VERSION" ] && cp -a "$_bk/VERSION" "$VERSION_FILE" || echo "" > "$VERSION_FILE"
   # 重建启动（v0.63.1 D2: build 失败不再 || true 吞掉——保留现场供诊断,
   # 避免回滚后半死状态）
+  # v0.73 终审顺手修: 回滚重建按备份版本号打 tag——镜像元数据不再谎报新版本
+  # （LOCAL_VERSION 为空时 VERSION 置空, compose ${VERSION:-latest} 的 :- 对空串同样兜底 latest）
+  export VERSION="$LOCAL_VERSION"
   if ! docker compose build --no-cache >/dev/null 2>&1; then
     warn "回滚 build 失败, 请手动介入: cd $SCRIPT_DIR && docker compose build --no-cache"
     return 1
