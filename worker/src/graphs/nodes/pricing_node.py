@@ -430,12 +430,21 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                     _box_notice = format_box_notice(create_blocked_draft(_tenant, _env, [], _reason))
             except Exception as _box_e:
                 logger.warning("价差守卫阻断入箱失败（非致命）: %s", _box_e)
-            logger.error("⛔ 价差守卫阻断（不上架错配货源）: %s %s", _reason, _box_notice)
+            # ✅ v0.73 终审 I2: notice 前缀带原因（task_processor error_message 优先取
+            # notice——此前纯入箱文案，任务行看不到「价差 N 倍」根因）。对齐 Task2
+            # _final_result_blocked_to_box 的「拦截：原因，入箱结果」拼接模式。
+            _notice = (
+                f"价差守卫拦截：终价 {price}{currency_unit} 与选品锚价 {_gap['anchor_price']}"
+                f"（{_gap['anchor_source']}）差距超 {_gap['ratio']} 倍（疑似货源错配）"
+            )
+            if _box_notice:
+                _notice = f"{_notice}，{_box_notice}"
+            logger.error("⛔ 价差守卫阻断（不上架错配货源）: %s %s", _reason, _notice)
             return PricingOutput(
                 pricing_info={"price_gap_block": _gap},
                 price="",
                 old_price="",
-                notice=_box_notice,
+                notice=_notice,
                 error_message=_error,
                 failed_stage="pricing",
             )

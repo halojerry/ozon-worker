@@ -3,15 +3,16 @@
 
 生产实证：所有任务 result.failed_stage 都是 "ozon_uploadpricingvideo_gen"（成功任务
 也一样）——根因：GlobalState.failed_stage 是 Annotated[str, operator.add]（LangGraph
-reducer 对 str 是拼接），而三个 Output 模型（PricingOutput/OzonUploadOutput/
-SceneGenerationOutput）的 failed_stage 默认值非空（"pricing"/"ozon_upload"/
-"video_gen"），对应节点成功路径 return 不传该字段 → LangGraph 用默认值填充 →
-reducer 每次运行都按拓扑序拼接。
+reducer 对 str 是拼接），而 Output 模型（PricingOutput/OzonUploadOutput/
+SceneGenerationOutput/OzonStatusOutput）的 failed_stage 默认值非空（"pricing"/
+"ozon_upload"/"video_gen"/"ozon_status"），对应节点成功路径 return 不传该字段 →
+LangGraph 用默认值填充 → reducer 每次运行都按拓扑序拼接。
+（OzonStatusOutput 为终审 I1 补齐：state.py:765 默认值归零 + 失败出口显式带。）
 
 修复契约：
-- 三 Output 默认值归零：成功路径归并后 failed_stage == ""；
+- 四 Output 默认值归零：成功路径归并后 failed_stage == ""；
 - 失败出口显式携带（pricing_node 失败 return / ozon_upload_node 全部 failed return /
-  scene_generation_llm_node 降级 return）；
+  scene_generation_llm_node 降级 return / ozon_status_node 全部 failed return）；
 - reducer operator.add 语义不变（"" 是拼接恒等元）；
 - _graph_result_is_failed 双形状判定不变（error_message+failed_stage 与
   upload_status=failed 独立通道，锁 Task2/v0.69 语义）。
@@ -34,6 +35,7 @@ os.environ.setdefault("LOG_LEVEL", "WARNING")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from graphs.state import (  # noqa: E402
+    OzonStatusOutput,
     OzonUploadInput,
     OzonUploadOutput,
     PricingOutput,
@@ -42,8 +44,9 @@ from graphs.state import (  # noqa: E402
 )
 from graphs.nodes import pricing_node as pn  # noqa: E402
 from graphs.nodes import scene_generation_llm_node as sg  # noqa: E402
+from graphs.nodes.ozon_status_node import ozon_status_node  # noqa: E402
 from graphs.nodes.ozon_upload_node import ozon_upload_node  # noqa: E402
-from utils.ozon_errors import OzonError  # noqa: E402
+from utils.ozon_errors import OzonError, OzonNotFoundError  # noqa: E402
 from utils.task_processor import _graph_result_is_failed  # noqa: E402
 
 TASK_ID = "7312849091234"
@@ -53,9 +56,9 @@ _OFFER = "offer-failed-stage-v073"
 # ══════════════ 1. Output 默认实例归零（RED：现状默认非空恒粘连） ══════════════
 
 def test_output_defaults_are_empty():
-    """三个 Output 默认实例 failed_stage 必须 == ""——默认值非空经 operator.add
+    """四个 Output 默认实例 failed_stage 必须 == ""——默认值非空经 operator.add
     每次运行拼接（生产 "ozon_uploadpricingvideo_gen" 粘连根因）。"""
-    for model in (PricingOutput, OzonUploadOutput, SceneGenerationOutput):
+    for model in (PricingOutput, OzonUploadOutput, SceneGenerationOutput, OzonStatusOutput):
         out = model()
         assert out.failed_stage == "", (
             f"{model.__name__}.failed_stage 默认值必须为空（reducer operator.add 会让"
@@ -64,10 +67,10 @@ def test_output_defaults_are_empty():
 
 
 def test_three_defaults_merge_clean_after_reduce():
-    """生产粘连形状的单元级模拟：三 Output 各贡献一段 → reducer 归并后必须为 ""。"""
+    """生产粘连形状的单元级模拟：四 Output 各贡献一段 → reducer 归并后必须为 ""。"""
     merged = functools.reduce(
         operator.add,
-        (m().failed_stage for m in (PricingOutput, OzonUploadOutput, SceneGenerationOutput)),
+        (m().failed_stage for m in (PricingOutput, OzonUploadOutput, SceneGenerationOutput, OzonStatusOutput)),
     )
     assert merged == ""
 
@@ -368,6 +371,139 @@ def test_gate_success_and_degraded_shapes_not_failed():
     }) is False
     # 降级：stage 有值但无 error → 不翻失败（bool(err and stage) 双条件）
     assert _graph_result_is_failed({"failed_stage": "video_gen"}) is False
+
+
+# ══════════════ 7. ozon_status_node（终审 I1）：失败显式带，成功/pending/timeout 恒空 ══════════════
+
+_EP_IMPORT_INFO = "/v1/product/import/info"
+_EP_INFO_LIST = "/v3/product/info/list"
+
+
+def _mute_sleep():
+    import time
+    _orig = time.sleep
+    time.sleep = lambda s: None
+    return _orig
+
+
+def _status_state(ozon_task_id="", product_id=""):
+    """ozon_status_node 可直接消费的 state（SimpleNamespace，对齐 test_ozon_status_validation）。"""
+    return SimpleNamespace(
+        ozon_task_id=ozon_task_id,
+        product_id=product_id,
+        ozon_client_id="1",
+        ozon_api_key="k",
+        purchase_url="",
+        purchase_cost="",
+        sku_id="",
+        profit_estimation={},
+        pricing_info={},
+    )
+
+
+def _run_status(state, import_info=None, info_list=None, import_info_exc=None):
+    """按 endpoint 分发 mock ozon_post 后跑节点（静音 sleep，纯内存）。"""
+    def _fake(client_id, api_key, endpoint, body, timeout=60, **kw):
+        if endpoint == _EP_IMPORT_INFO:
+            resp = import_info_exc if import_info_exc is not None else import_info
+        else:
+            resp = info_list
+        if isinstance(resp, Exception):
+            raise resp
+        return resp
+
+    orig_sleep = _mute_sleep()
+    try:
+        with patch("graphs.nodes.ozon_status_node.ozon_post", side_effect=_fake):
+            return ozon_status_node(state, None, SimpleNamespace(context=None))
+    finally:
+        import time
+        time.sleep = orig_sleep
+
+
+def test_status_output_default_empty():
+    """OzonStatusOutput 默认实例 failed_stage == ""（终审 I1：默认 "ozon_status" 恒粘连，
+    CREATE 成功路径也把 "ozon_status" 拼进 GlobalState.failed_stage）。"""
+    out = OzonStatusOutput()
+    assert out.failed_stage == "", (
+        f"OzonStatusOutput.failed_stage 默认值必须为空，实际 {out.failed_stage!r}"
+    )
+
+
+def test_status_success_approved_failed_stage_empty():
+    """CREATE 成功（imported → approved）→ failed_stage == ""（粘连根因场景）。"""
+    import_info = {"result": {"items": [{"offer_id": "x", "product_id": 5812496806, "status": "imported"}]}}
+    info_list = {"items": [{
+        "id": 5812496806, "offer_id": "x",
+        "statuses": {"validation_status": "success", "is_created": True, "moderate_status": "approved"},
+        "errors": [],
+    }]}
+    out = _run_status(_status_state(ozon_task_id="123"), import_info=import_info, info_list=info_list)
+    assert out.status == "imported"
+    assert out.moderation_status == "approved"
+    assert out.failed_stage == "", f"成功路径 failed_stage 必须为空，实际 {out.failed_stage!r}"
+
+
+def test_status_missing_product_id_failure_carries_stage():
+    """product_id 缺失失败出口显式带 failed_stage="ozon_status"。"""
+    out = _run_status(_status_state())
+    assert out.status == "failed"
+    assert out.error_message == "product_id缺失"
+    assert out.failed_stage == "ozon_status"
+    assert _graph_result_is_failed({
+        "upload_status": out.upload_status,
+        "error_message": out.error_message,
+        "failed_stage": out.failed_stage,
+    }) is True
+
+
+def test_status_404_without_fallback_failure_carries_stage():
+    """import/info 404 且 product_id 非纯数字（无法回退）失败出口显式带 stage。"""
+    out = _run_status(
+        _status_state(ozon_task_id="123", product_id="123.5"),
+        import_info_exc=OzonNotFoundError("task not found"),
+    )
+    assert out.status == "failed"
+    assert "404" in out.error_message
+    assert out.failed_stage == "ozon_status"
+
+
+def test_status_ozon_error_failure_carries_stage():
+    """OzonError（非 404）失败出口显式带 failed_stage="ozon_status"。"""
+    out = _run_status(
+        _status_state(ozon_task_id="123", product_id="123"),
+        import_info_exc=OzonError("BOOM", status_code=500),
+    )
+    assert out.status == "failed"
+    assert "500" in out.error_message
+    assert out.failed_stage == "ozon_status"
+
+
+def test_status_exception_failure_carries_stage():
+    """未预期异常失败出口显式带 failed_stage="ozon_status"。"""
+    out = _run_status(
+        _status_state(ozon_task_id="123", product_id="123"),
+        import_info_exc=RuntimeError("poll boom"),
+    )
+    assert out.status == "failed"
+    assert out.failed_stage == "ozon_status"
+
+
+def test_status_timeout_normal_flow_failed_stage_empty():
+    """import 轮询超时（零变体导入）→ moderation pending 正常流转（路由层重试），
+    不携带失败标记——timeout 不是终态失败。"""
+    out = _run_status(_status_state(ozon_task_id="123", product_id=""), import_info={"result": {"items": []}})
+    assert out.status == "timeout"
+    assert out.moderation_status == "pending"
+    assert out.error_message == ""
+    assert out.failed_stage == ""
+
+
+def test_status_non_numeric_pid_pending_failed_stage_empty():
+    """product_id 非数字 → 标记 pending 交 validation_retry_loop，正常流转不带失败标记。"""
+    out = _run_status(_status_state(ozon_task_id="", product_id="uuid-like"))
+    assert out.status == "pending"
+    assert out.failed_stage == ""
 
 
 if __name__ == "__main__":
