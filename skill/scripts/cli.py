@@ -2050,9 +2050,10 @@ def _latest_resumable_task(entry_url: str, keyword: str) -> dict:
     return {}
 
 
-# 拓店模式（--expend-shop）默认卖家评分下限：shopbang §6.5 蓝图「跟卖者评分>4
-# → 按价格排序」——价格排序 widget API 已内置（priceNum 升序），此处补评分门槛。
-EXPEND_SHOP_MIN_SELLER_RATING = 4.0
+# 拓店模式不启用卖家评分过滤：shopbang §6.5 蓝图「跟卖者评分>4」的数据在跟卖
+# widget 里不存在（实测 rating 恒为 0/缺失），引擎层 fail-closed 会全灭卖家。
+# 待卖家后台 API（路线图 A1b）提供真实卖家评分后再启用 run_fission 的
+# min_seller_rating；价格排序 widget API 已内置（priceNum 升序）。
 
 
 def expend_shop_fission_plan(
@@ -2112,8 +2113,8 @@ def _collect_expend_shop(cdp_url: str, pid: str, *, plan: dict,
     with CdpConnection(cdp_url) as cdp:
         seed = _analyze_product(cdp_url, cdp, pid)
     if seed.status != "ok":
-        print(f"❌ 拓店种子商品分析失败（{seed.error or seed.status}）: {pid}",
-              flush=True)
+        print(f"❌ 拓店种子商品分析失败（{seed.error or seed.status}）: {pid}"
+              "（商品可能已下架/不可访问，换一个在售商品作种子）", flush=True)
         return []
     print(f"   🌱 种子: {seed.ozon_title[:40]}｜跟卖 "
           f"{seed.competing_sellers} 人", flush=True)
@@ -2131,7 +2132,7 @@ def _collect_expend_shop(cdp_url: str, pid: str, *, plan: dict,
         session_id=session_id,
         checkpoint_dir=checkpoint_dir,
         stage_callback=_stage_done,
-        min_seller_rating=EXPEND_SHOP_MIN_SELLER_RATING,
+        # min_seller_rating 不传（默认 None）——评分过滤待真实数据源，见上方说明
     )
 
     # 裂变候选补跑粗筛（ai 档 + 品牌 + 价格区间）——语义同 collect_and_analyze
@@ -2564,7 +2565,7 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
               f" → 裂变 depth≤{expend_plan['max_depth']}"
               f"/候选上限 {expend_plan['max_total_products']}"
               f"/时间预算 {expend_plan['time_budget']:.0f}s"
-              f"｜卖家评分≥{EXPEND_SHOP_MIN_SELLER_RATING:g}（按价排序）"
+              f"｜卖家按价排序"
               f"｜--max-scan 不适用（裂变预算接管）", flush=True)
     if filters:
         _fparts = []
