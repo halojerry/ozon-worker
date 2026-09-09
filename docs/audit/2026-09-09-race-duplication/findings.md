@@ -62,21 +62,25 @@
 - 修复方向：终态 UPDATE 一律加 `AND status='running'`。
 
 ### F-C02  心跳与图节点共享线程池，心跳饿死→清理器误判 stale→双跑
+- 状态更新（2026-09-09 P1 波）：已修复 ad880ef9（认领刷 updated_at + 心跳独立 2 线程执行器；线程池全拆分留 P2）
 - 类型：race；严重度：中；状态：待验证
 - 证据：main.py:483-488 默认 executor 扩容后图节点与心跳（task_processor.py:878-885 asyncio.to_thread）共享 128 线程；认领时不刷 updated_at（:473-477）；外部 API 抖动占满线程池→心跳饿死→清理器误判 stale 重置→双跑（历史「超时×100/failed×120」实证）。
 - 修复方向：认领时同步刷 updated_at；心跳与图节点拆线程池；stale 重置前 FOR UPDATE 复核。
 
 ### F-C03  进度 PG 回写无 status 守卫，重跑窗口旧 run 迟到 persist 覆写新 run 进度
+- 状态更新（2026-09-09 P1 波）：已修复 ad880ef9（进度回写 AND status='running'）
 - 类型：race；严重度：低；状态：待验证
 - 证据：main.py:121-125 UPDATE progress WHERE id 无 status 谓词；仅展示层抖动。
 - 修复方向：进度写加 `AND status='running'`。
 
 ### F-C04  zombie_reset 复活「永久性错误」failed 任务（OUT_OF_QUOTA 等不改 retry_count）→ 重启后用失效凭证重跑
+- 状态更新（2026-09-09 P1 波）：已修复 ad880ef9（permanent 落库 retry_count=max_retries；2 单测）
 - 类型：race；严重度：中；状态：待验证
 - 证据：main.py:526-528 复活 `failed AND retry_count<max`；`_is_permanent_task_error`（task_processor.py:36-49）落 failed 时不动 retry_count（:840-850）→ 永久错误可被复活。云端靠 SKIP_FAILED_REVIVE=1 规避。
 - 修复方向：永久错误落库时 retry_count=max_retries。
 
 ### F-C05  优雅关闭 drain 超时 5min 直接退出，running 任务无差别 zombie 重跑
+- 状态更新（2026-09-09 P1 波）：已修复 ad880ef9（排空超时→running 置 failed+推满 retry，不自动重跑）
 - 类型：race；严重度：中；状态：待验证
 - 证据：main.py:605-622 drain 超时仅 log 即退出，未标记任务；部署窗口上传中断→重启重跑（同 SKU 双倍成本）。
 - 修复方向：drain 超时先把 running 置 failed 或打 lease。
@@ -100,16 +104,19 @@
 - 修复方向：写回沿用 version 谓词 + rowcount 判定。**已修复 78d3ba5d**（读时快照 base_version 守卫写回，窗口被改→409 请重试）。
 
 ### F-D03  submit/resubmit/batch「检查+入队」跨 await 非原子；offer_id 空时无唯一索引兜底真双跑
+- 状态更新（2026-09-09 P1 波）：已修复 ad880ef9（空 offer→draft_id 占位 sku_key 让唯一索引兜底 + IntegrityError→409）
 - 类型：race；严重度：中；状态：待验证
 - 证据：drafts_routes.py:119-136/:146-147/:166-168 检查后跨镜像/远程查店 await 再入队；uq 唯一索引仅覆盖 sku_key 非空（model.py:69-76），`_resolve_offer_id` 空→sku_key=""→NULL 无兜底（draft_service.py:200-209 + task_processor.py:405）；第二个撞索引抛 500 无映射。
 - 修复方向：(draft_id, credential_id) 原子占位（ON CONFLICT）或事务内 FOR UPDATE；空 sku_key 补占位键。
 
 ### F-D04  任务终态 commit 与 draft_submissions 写回不同事务，崩溃窗口 submission 卡 pending 永久 409 且无对账
+- 状态更新（2026-09-09 P1 波）：已修复 ad880ef9（60s 清理循环加幂等对账：任务终态而 submission 活跃→按任务终态归位）
 - 类型：race；严重度：中；状态：待验证
 - 证据：task_processor.py:650/:717 先 commit 终态再独立连接 `_writeback_status`（draft_status_writeback.py:39-46）；崩溃→submission 卡 pending→`has_active_submission` 恒真→重提永久 409；无对账扫描。
 - 修复方向：同事务或后台 reconcile 归位。
 
 ### F-D05  pounding-mcp 同步路径 run_and_record 绕过 _finish 终态粘性，cancel 可被翻盘
+- 状态更新（2026-09-09 P1 波）：已修复 7d4ece6c（run_and_record 收敛 _finish；2 单测）
 - 类型：race；严重度：中；状态：待验证
 - 证据：pounding-mcp/pounding_mcp/tasks.py:197-223 直接写 status，未走 _finish 的 _TERMINAL_STATUSES 粘性（:479-483）；cancel（:494-513）竞争→cancelled 被 completed 翻盘。4c42dcfb 只补了后台面。
 - 修复方向：run_and_record 收敛到 _finish。
@@ -134,11 +141,13 @@
 判定：dictionary_value_cache / attribute_cache / category_commission / category_mapping 主路径 / selection_insights 五处均真原子 upsert ✓；0727e7dc NULL type_id 已双保险无残余 ✓。
 
 ### F-E01  category_mapping「cid 规范化归并」check-then-act，并发丢学习累计
+- 状态更新（2026-09-09 P1 波）：已修复 ad880ef9（归并改原子 UPDATE 表达式，success_count SQL 侧自增；2 单测）
 - 类型：race；严重度：中；状态：待验证
 - 证据：local_db_manager.py:540-587 归并旁路在 Python 内存 `_canon.success_count += 1`（:560）后 commit，非原子；并发同键两次计一次；`_canon.source_category_leaf` 后写赢倒刷措辞（:562）。主 upsert（:626）原子。
 - 修复方向：归并并入 ON CONFLICT 原子路径（SQL 表达式 success_count+1）。
 
 ### F-E02  其余四条低：进度事件 seq 读改写丢事件（task_progress_service.py:25-37）；余额缓存无锁并发击穿+告警重复（mxou_api.py:303-333/:374-378）；三大后台循环无单实例锁（main.py:552/572/576，多副本才触发）；attribute_cache TTL 双路径漂移（category_schema_service.py:42 30d vs assemble:3746 1d）。
+- 状态更新（2026-09-09 P1 波）：部分修复 ad880ef9（E-5 TTL 对齐 30d；E-1/E-3/E-4 留 P2）
 - 类型：race；严重度：低；状态：待验证
 
 ## 域 F —— worker 能力重复
@@ -167,6 +176,7 @@
 ## 域 G —— webui 表面 + 引导漂移（内联补扫）
 
 ### F-G01  cli 实际 22 子命令 vs AGENTS.md「60 秒表」约 10 个（SKILL.md 覆盖较全）；错误码 14 与文档一致 ✓；SKILL.md auto-submit/--to-box 语义已是 v0.70 后口径 ✓
+- 状态更新（2026-09-09 P1 波）：已修复 ad880ef9（AGENTS 技能表补 discover-task/report/import-cookies/seller）
 - 类型：drift；严重度：低；状态：待修（AGENTS 表补齐即可）
 
 ## 第二波汇总
