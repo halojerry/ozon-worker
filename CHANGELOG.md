@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.73.0] — 用户反馈 6+1 问题修复批次（2026-09-09，SDD 13 任务全绿）
+
+> 生产取证驱动（2026-09-09 主店铺批量 10 单失败，6 份 error_report + ozon_ro 生产库只读取证）。
+> 计划 `docs/PLAN-user-feedback-fixes-v073.md`；同区间并发 shopbang-parity 批次（下方 [Unreleased]）随本 tag 一并发出。
+
+### 修复（对应用户上报）
+- **报告快照 0 条根治**：error_reports/forensics/categories/attributes 四端点租户解析 `_key_user_id`（key 哈希）→ `resolve_tenant`（Supabase user_id），与任务写入侧对齐（v0.62.4 同类租户漂移在 v0.69/70 新端点复发）。⚠️ 生产既有 error_reports 旧行 tenant_id 为哈希值，修复后原 token 查不到旧报告（如需可另行迁移）。
+- **「标题与类目不一致」本地预检独立错误码 `LOCAL_TITLE_CATEGORY_MISMATCH`**：此前被关键词错归 `BR_chinese_hieroglyphs_in_attribute`（用户看到「属性值含中文字符被拒绝:已净化处理」实为该错配）→ 修复支路不修它 → revalidate 不复查 → 子图重传照样 approved（错货假成功链）。现拦截后入采集箱不再重传（`upload_status="blocked"`，终态 failed）。
+- **类目 exact 命中加分**：多 token 查询下候选名与整查询相等 → sim≥0.95（此前装饰枕套 exact 只打 0.25 被拦）；前后缀 → 0.8。入箱阈值 0.3 常量唯一化（`MIN_CONF_BOX`）。
+- **LLM 类目仲裁注入货源类目路径**：新信封 `source.source_category_path` 此前没传进仲裁 prompt（旧字段断桥），「留香珠→衣物洗涤柔顺剂」类跨词面桥接恢复。
+- **重量×体积 0.40 g/cm³ 兜底提升**（生产 199 行留存校准：0.398-0.402 簇全通过、0.375 被拒；approved 可低至 0.015 故**只兜底不拒绝**，cap 原值×3）+ `ML_INCORRECT_VOLUME_WEIGHT` 拒后反推重发；marks 留痕 `weight_adjusted_for_volume`。已知边界：抬重后定价/物流带不重算（56→60g 同带，实际影响趋零）。
+- **上传静默收口**：import POST 200 无 task_id 显式 failed（不再静默 pending）；product_id 不再冒装 import task_id（语义纯化，轮询走 ozon_task_id；T0.4 终态闸不变）。**行为变化**：fresh CREATE 的 min_price 补送此前被 task_id 污染静默跳过，v0.65 意图恢复——新卡会真实补送 min_price（clamp 防线仍在）。
+- **ingest 空标题闸**：信封 draft.title 空 → 创建流 fail-fast（杜绝 9048 裸 item_id 与 LLM 盲生成标题）。
+- **条件价差守卫**：终价 vs `discovery_meta.ozon_price` 锚差 ≥10×（env `PRICE_GAP_BLOCK_RATIO`）→ 拦截入采集箱，≥3× 告警；**无锚任务零影响**（graph 直传流无 meta，本例转盘由 skill 侧 batch 闸拦截，见下）。
+- **skill batch 提交闸**：空标题/置信度 (0,0.3) 候选跳过不提交；discover 降级 fallback 信封过标题校验门（graph 主路径硬闸此前被旁路）。
+- **task_status 补 Bearer+租户校验**（默认开，`TASK_STATUS_AUTH=0` 应急关）：此前完全无鉴权可读任意租户任务全量数据。skill `check/poll_task_status` 已带 token；**pounding-harness 网关 tasks 白名单须透传 Bearer（drafts 已透传，风险低，待实机验证）**。
+
+### 加固（纵深防御）
+- 属性中文翻译验收补「无中文」负检 + revalidate 全属性中文终检（混合「中文+西里尔」值此前两条路径直通重传）；has_chinese 扩假名/CJK 扩展A（唯一事实源 attribute_utils）。
+- `failed_stage` 粘连根治：pricing/ozon_upload/video_gen/ozon_status 四个 Output 默认值归零 + 失败出口显式声明（此前每次运行必粘连成 "ozon_uploadpricingvideo_gen" 且成功任务也一样）。
+- ERROR_NOTICE_MAP 文案如实化（「已净化处理」→「已自动修复并重试仍未通过，需人工检查」）；error_reports 快照附带末次拒绝原文（last_decline）。
+- `gen_api_docs` 已重跑（task_status 401/404 进 OpenAPI）。
+
+### 已知问题（本批遗留）
+- 兜底抬重后定价/物流带不重算；价差拦截 notice 修复见 f5b42b8e（已带原因）；`create_blocked_draft.blocked_stage` 硬编码 category_match（价差落箱展示偏差）；其余 Output 非空默认值尾巴（attributes_llm/attributes_learning/category_lookup）待统一；检测源 attr_value_matcher.py:67 与 prepare:141 待 re-export 收口；harness Bearer 透传待实机验证。
+- 实机 gate（≥3 单）待跑；category_match_log.task_id P1-6 在 09-09 批次实证可关联（历史结论待重核触发条件）。
+
 ## [Unreleased] — shopbang-parity 三批（2026-09-09，未发版）
 
 > 上品帮（竞品）逆向对标落地：A 采集箱备注 / B 选品三字段 / C 店铺会话代管。

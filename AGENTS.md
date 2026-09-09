@@ -53,6 +53,35 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **⚠️ 实机测验架构结论**：`__Secure-access_token` 为**分钟级寿命/用后轮换型**——被动收割的静态 cookie 快照活不过一次消费（新鲜收割立即调用也 401），**服务端常驻 cookie 直调不可持续**。三候选待拍板：①worker 存 refresh_token 续期；②「同步后秒级消费」按需模式（已实证可行）；③直调数据面留在 skill 浏览器上下文（jar 永活，上品帮同款）。**发版实机 gate 新增：session-sync→what-to-sell 真实闭环一条**。
 - **实机测验修出的两坑（改会话/直调代码前必读）**：①裸 SQL 绑 JSONB 列必须 `json.dumps`——Python list 被 psycopg2 适配成 `text[]`（mock 测试只锁 SQL 文本测不出，须真 PG 集成用例）；②seller nginx 机器人回环 307→同路径`?__rr=1` 且 **Set-Cookie 下发 nonce**，必须 Session cookie jar + 跟随重定向（手动重放无限 307），判废只看终态（401/403/落到 login URL）。
 
+## 最近更新（v0.73.0 — 用户反馈 6+1 问题修复：租户漂移 + 错配拦截 + 类目桥接 + 体积重量兜底）
+
+> 2026-09-09。**已发版物料就绪（VERSION 四源 0.73.0），tag 待实机 gate**。生产取证驱动（批量 10 单失败 +
+> ozon_ro 库只读取证），计划 `docs/PLAN-user-feedback-fixes-v073.md`，SDD 13 任务全绿（worker 2323 / skill 999）。
+> **改这四条链前必读**：①错误报告/取证端点租户=`resolve_tenant`（main.py 四处，勿再回 `_key_user_id`——
+> 生产任务 tenant 是 Supabase user_id 整数如 "28"，哈希租户查不到）；②本地预检错误码
+> `LOCAL_TITLE_CATEGORY_MISMATCH`（validation_retry_loop parse_error 最前分支，拦截即入箱不重传——
+> 「标题与类目不一致」绝不是 BR_chinese，别按关键词并回中文分支）；③重量体积守卫
+> `utils/volume_weight_guard.py`（**只兜底不拒绝**，MIN_DENSITY_G_CC=0.40 生产 199 行校准，
+> approved 密度可低至 0.015——绝对密度硬闸会误杀 32% 历史）；④价差守卫只在 discovery_meta 有锚时生效
+> （graph 直传流无锚零影响）。
+
+- **租户漂移根治**：error_reports POST/GET、forensics、categories/attributes 四端点 `_key_user_id` →
+  `resolve_tenant`（报告快照 0 条/forensics 404 根治）。⚠️ 生产旧 error_reports 行是哈希租户，原 token 查不到旧报告。
+- **错货假成功三层防线**：①`LOCAL_TITLE_CATEGORY_MISMATCH` 独立码+拦截入箱（此前错归中文码→修复不修它→重传
+  approved，用户看到的「中文属性被拒」实为它）；②价差守卫（≥10× block 入箱，env `PRICE_GAP_BLOCK_RATIO`）；
+  ③skill batch 提交闸（空标题/弱匹配候选不进管线）+ ingest 空 title fail-fast（9048 裸 item_id 根源）。
+- **类目**：exact type_name 加分（0.95/0.8，`MIN_CONF_BOX=0.3` 唯一常量）+ LLM 仲裁 prompt 注入
+  `source.source_category_path`（旧字段断桥修复——树 16552 节点缺留香珠类叶子，靠 suggest_keywords 二搜桥接）。
+- **体积重量**：`ML_INCORRECT_VOLUME_WEIGHT` 拒后按 0.40×vol 反推重发 + prepare 首传兜底（marks
+  `weight_adjusted_for_volume`）；抬重后定价不重算（同带无实际影响，known issue）。
+- **上传链**：import 无 task_id 显式 failed；product_id 不再装 import task_id（**min_price 补送恢复 v0.65
+  意图——新卡会真实补送，发版说明必提**）；task_status 补 Bearer+租户校验（默认开，`TASK_STATUS_AUTH=0`
+  应急关；**harness 网关须透传 Bearer，待实机验证**）。
+- **纵深**：中文翻译验收负检+revalidate 全属性终检（混合值直通根治）；failed_stage 粘连根治（四 Output
+  默认值归零）；ERROR_NOTICE_MAP 如实化+快照带 last_decline。
+- 测试：worker **2323** / skill **999** 全绿；`gen_api_docs --check` 零漂移。服务器 ops（cos-update →
+  TRUNCATE dictionary_value_cache → ≤2 分片重预热 → 上 COS）见 docs/CACHE-WARM-RUNBOOK.md，待执行。
+
 ## 最近更新（v0.72.0 — 字典值缓存三桶策略：撑爆 40G 盘事故根治）
 
 > 2026-09-09。**已发版**（VERSION 四源 0.72.0，tag v0.72.0）。实施已定案方案（取证+真实
