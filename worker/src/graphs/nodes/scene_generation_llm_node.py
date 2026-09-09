@@ -99,18 +99,24 @@ def scene_generation_llm_node(state: SceneGenerationInput, config: RunnableConfi
         
         else:
             # 如果API调用失败，返回默认场景
+            # ✅ v0.73 Task8: 降级出口显式带 failed_stage（Output 默认值已归零）；
+            # 无 error_message 故 _graph_result_is_failed 不翻失败——仅留阶段归因。
             return SceneGenerationOutput(
                 scene_context_1="户外运动场景",
                 scene_context_2="办公室桌面场景",
-                scene_context_3="家庭卧室场景"
+                scene_context_3="家庭卧室场景",
+                failed_stage="video_gen",
             )
     
     except MxouOutOfQuotaError:
         raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不回退默认场景
     except Exception as e:
         # 如果出现异常（瞬时故障），返回默认场景
+        # ✅ v0.73 Task8: 降级出口显式带 failed_stage（Output 默认值已归零）；
+        # 无 error_message 故 _graph_result_is_failed 不翻失败——仅留阶段归因。
         return SceneGenerationOutput(
             scene_context_1="户外运动场景",
             scene_context_2="办公室桌面场景",
-            scene_context_3="家庭卧室场景"
+            scene_context_3="家庭卧室场景",
+            failed_stage="video_gen",
         )

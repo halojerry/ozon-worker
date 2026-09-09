@@ -453,7 +453,10 @@ class PricingOutput(BaseModel):
     price: str = Field(default="", description="最终价格")
     old_price: str = Field(default="", description="原价")
     error_message: str = Field(default="", description="错误信息")
-    failed_stage: str = Field(default="pricing", description="失败的节点名称")
+    # ✅ v0.73 Task8: 默认值归零——GlobalState.failed_stage 是 operator.add（str 拼接），
+    # Output 默认值非空会让成功路径也被 reducer 拼接（生产 "ozon_uploadpricingvideo_gen"
+    # 粘连根因）。失败出口由 pricing_node 显式带 "pricing"，成功恒空。
+    failed_stage: str = Field(default="", description="失败节点名称（失败出口显式带 pricing，成功恒空）")
     # ✅ v0.73: 价差守卫 block 出口入采集箱结果（format_box_notice 生成；task_processor
     # 失败信息 notice 优先）——GlobalState/GraphOutput 已有该通道，补声明即可透传
     notice: str = Field(default="", description="中文可读失败说明（价差守卫入箱结果）")
@@ -654,7 +657,9 @@ class OzonUploadOutput(BaseModel):
     # ✅ 新增：错误信息（传递到下游节点）
     error_message: str = Field(default="", description="错误信息")
     validation_errors: List[str] = Field(default_factory=list, description="验证错误列表")
-    failed_stage: str = Field(default="ozon_upload", description="失败的节点名称")
+    # ✅ v0.73 Task8: 默认值归零（operator.add 拼接粘连根治，见 PricingOutput 同注释）——
+    # 失败出口由 ozon_upload_node 显式带 "ozon_upload"，成功恒空。
+    failed_stage: str = Field(default="", description="失败节点名称（失败出口显式带 ozon_upload，成功恒空）")
     stages: Dict[str, str] = Field(default_factory=dict, description="节点状态标记")
 
 
@@ -815,7 +820,9 @@ class SceneGenerationOutput(BaseModel):
     scene_context_3: str = Field(default="", description="场景3的使用场景描述（LLM生成）")
     error_message: str = Field(default="", description="错误信息")
     stages: Dict[str, Any] = Field(default_factory=dict, description="阶段信息")
-    failed_stage: str = Field(default="video_gen", description="失败的节点名称")
+    # ✅ v0.73 Task8: 默认值归零（operator.add 拼接粘连根治，见 PricingOutput 同注释）——
+    # 降级/异常出口由 scene_generation_llm_node 显式带 "video_gen"，成功恒空。
+    failed_stage: str = Field(default="", description="失败节点名称（降级出口显式带 video_gen，成功恒空）")
 
 
 # ==================== 视觉变量生成LLM节点 ====================
