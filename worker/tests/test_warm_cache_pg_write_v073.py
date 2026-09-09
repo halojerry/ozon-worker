@@ -165,3 +165,36 @@ def test_schema_fetch_400_marks_dead(monkeypatch):
                         lambda *a, **k: _Resp(), raising=True)
     schema, status = warm._fetch_attribute_schema_with_status(1, 2)
     assert status == 400 and schema == []
+
+
+@pg
+def test_coverage_denominator_excludes_real_tree_dead_node():
+    """收口 minor：分母剔除量要用真实树节点验证——负数哨兵不在树中，测不出剔除。"""
+    os.environ.setdefault("PGDATABASE_URL", _PG_URL)
+    from storage.database.db import get_session
+    from sqlalchemy import text
+    s = get_session()
+    try:
+        warm.ensure_dead_nodes_table(s)
+        s.execute(text("DELETE FROM warm_dead_nodes WHERE reason='__probe_cov_v073__'"))
+        s.commit()
+        rows = s.execute(text(
+            "SELECT description_category_id, type_id FROM category_tree_nodes "
+            "WHERE node_type='type' AND type_id > 0 AND language='ZH_HANS' "
+            "GROUP BY description_category_id, type_id ORDER BY 1, 2 LIMIT 2"
+        )).fetchall()
+        assert rows, "本地 PG 类目树为空（先跑 init_data 导树再跑本用例）"
+        rep0 = warm.collect_coverage()
+        warm.mark_dead_node(s, int(rows[0][0]), int(rows[0][1]), "__probe_cov_v073__")
+        rep1 = warm.collect_coverage()
+        assert rep1["total"] == rep0["total"] - 1, "插入 1 个真实树死节点后分母应 -1"
+        assert rep1["dead_excluded"] >= 1
+        if len(rows) > 1:
+            warm.mark_dead_node(s, int(rows[1][0]), int(rows[1][1]), "__probe_cov_v073__")
+            rep2 = warm.collect_coverage()
+            assert rep2["total"] == rep1["total"] - 1, "再插 1 个应线性再 -1（证明是逐点剔除）"
+    finally:
+        s.rollback()
+        s.execute(text("DELETE FROM warm_dead_nodes WHERE reason='__probe_cov_v073__'"))
+        s.commit()
+        s.close()

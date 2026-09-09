@@ -553,10 +553,12 @@ def collect_coverage(now: Optional[int] = None) -> dict:
             FROM dictionary_value_cache
             WHERE language = 'ZH_HANS' AND expires_at > :now
         """), {"now": now}).fetchall()
-        # ✅ v0.73 W3: 死节点（Ozon 已删类目）从分母剔除；表不存在（未跑过 warm 的库）视为空
+        # ✅ v0.73 W3: 死节点（Ozon 已删类目）从分母剔除；仅「表不存在」（未跑过 warm 的库）
+        # 视为空——其余 DB 异常如实上抛（收窄 except：静默吞掉会拿假分母出报告）
+        from sqlalchemy.exc import ProgrammingError
         try:
             dead_pairs = load_dead_nodes(session)
-        except Exception:
+        except ProgrammingError:
             dead_pairs = set()
     finally:
         session.close()
@@ -689,6 +691,14 @@ def main():
         tid = node["type_id"]
         key = f"{dc}:{tid}"
 
+        # ✅ v0.73 收口: 死节点永久跳过（400 已删类目，重试无意义；打点日志每 100 个）
+        # —— 置于「已缓存」检查之前，死节点不必白付一次 PG 查询
+        if (dc, tid) in dead_set:
+            skipped_dead += 1
+            if skipped_dead % 100 == 0:
+                logger.info(f"   ⏭️ 已跳过死节点 {skipped_dead} 个")
+            continue
+
         # 跳过已缓存的（除非 --force）
         if not args.force:
             from storage.database.db import get_session
@@ -708,13 +718,6 @@ def main():
                     s.close()
                 except Exception:
                     pass
-
-        # ✅ v0.73 W3: 死节点永久跳过（400 已删类目，重试无意义；打点日志每 100 个）
-        if (dc, tid) in dead_set:
-            skipped_dead += 1
-            if skipped_dead % 100 == 0:
-                logger.info(f"   ⏭️ 已跳过死节点 {skipped_dead} 个")
-            continue
 
         logger.info(f"   [{i+1}/{total}] {dc}/{tid} ...")
 
