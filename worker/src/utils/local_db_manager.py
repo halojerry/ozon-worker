@@ -278,7 +278,20 @@ class LocalDBManager:
             session.close()
 
     def set_dictionary_value_cache(self, attribute_id: int, description_category_id: int, type_id: Optional[int], values_data: List[Dict[str, Any]], language: str = "ZH_HANS", expires_in: int = 30 * 86400):
-        """写入字典值缓存（v0.70: 默认 30 天——原 1 天使全量预热一周内衰减回懒加载）"""
+        """写入字典值缓存（v0.70: 默认 30 天——原 1 天使全量预热一周内衰减回懒加载）
+
+        ⚠️ v0.72: type_id 归一（None→0）——唯一键含 type_id，PG 里 NULL≠NULL
+        不触发 ON CONFLICT，upsert 会退化为纯 INSERT 无限裂行（routed_set 恒传
+        int 键，此处是写入边界最后一道防御）。(dc,tp)=(0,0) 是 dict_value_cache
+        的「跨类目全局行」哨兵位。
+        """
+        if type_id is None or type_id == "":
+            type_id = 0
+        else:
+            try:
+                type_id = int(type_id)
+            except (TypeError, ValueError):
+                type_id = 0
         current_time = int(time.time())
         expires_at = current_time + expires_in
         session = get_session()

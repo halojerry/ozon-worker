@@ -223,3 +223,44 @@ def test_warm_fetch_dict_values_probe_mode():
     with mock.patch.object(warm, "_call_ozon_api", _fake_small):
         vals, truncated = warm.fetch_dict_values(8229, 1, 2)
     assert truncated is False and len(vals) == 1
+
+
+# ═══════════ NULL type_id 写边界加固（v0.72 补漏） ═══════════
+# 唯一键含 nullable type_id：PG 里 NULL≠NULL 不触发 ON CONFLICT，upsert 会退化
+# 为纯 INSERT 无限裂行。routed_set 恒传 int 键绕开了雷，但写入边界必须设防。
+
+def test_set_dictionary_value_cache_none_type_id_upserts_single_row():
+    """type_id=None 两次写入必须命中同一行（历史行为：NULL 裂成两行）。"""
+    from sqlalchemy import text
+
+    from storage.database.db import get_session
+    from utils.local_db_manager import LocalDBManager
+
+    attr = -990003001
+    db = LocalDBManager()
+    try:
+        db.set_dictionary_value_cache(attr, 111, None,
+                                      [{"id": 1, "value": "a"}], language="ZH_HANS")
+        db.set_dictionary_value_cache(attr, 111, None,
+                                      [{"id": 1, "value": "a"}, {"id": 2, "value": "b"}],
+                                      language="ZH_HANS")
+        s = get_session()
+        try:
+            n = s.execute(text(
+                "SELECT count(*) FROM dictionary_value_cache WHERE attribute_id = :a"),
+                {"a": attr}).scalar()
+            row = s.execute(text(
+                "SELECT type_id, jsonb_array_length(values_data) FROM dictionary_value_cache "
+                "WHERE attribute_id = :a"), {"a": attr}).fetchone()
+        finally:
+            s.close()
+        assert n == 1, f"NULL type_id 裂行：{n} 行"
+        assert row[0] == 0 and row[1] == 2
+    finally:
+        s = get_session()
+        try:
+            s.execute(text("DELETE FROM dictionary_value_cache WHERE attribute_id = :a"),
+                      {"a": attr})
+            s.commit()
+        finally:
+            s.close()
