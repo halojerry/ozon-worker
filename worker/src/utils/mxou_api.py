@@ -2,6 +2,7 @@
 # 功能: 图片生成(异步+轮询) + LLM Chat(文本生成)
 # 响应格式: {"id":"...", "status":"succeeded", "results":[{"url":"..."}], "progress":100}
 import os
+import threading
 import time
 import logging
 import requests
@@ -59,6 +60,7 @@ _BALANCE_CACHE: Dict[str, Any] = {"value": None, "ts": 0.0, "fp": None}
 
 # 低余额告警去重表：token 指纹 → 上次告警时间（30 分钟窗口，防刷屏）
 _BALANCE_ALERT_TS: Dict[str, float] = {}
+_BALANCE_ALERT_LOCK = threading.Lock()  # F-E3: 告警去重标记读写锁
 
 # R4 (v0.62): 内容违规关键词 — 命中即视为不可重试（重复 POST 只会重复计费）。
 # 覆盖中英俄常见违规提示：content policy / sensitive / adult / nudity / 违规 / 敏感 / 成人。
@@ -370,12 +372,14 @@ def _alert_low_balance(token: str, balance: float) -> None:
     通道：TASK_NOTIFY_URL（Server酱等任意 POST JSON webhook，与任务终态通知同通道）；
     未配置时仅 logger.warning 留痕（Sentry LoggingIntegration 会捕获）。
     任何异常绝不抛出（不影响余额检查主流程）。
+    F-E3（2026-09-09 审计）：去重标记读写加锁——并发低余额此前可重复发 webhook。
     """
     fp = _token_fingerprint(token)
     now = time.time()
-    if now - _BALANCE_ALERT_TS.get(fp, 0.0) < 1800:
-        return
-    _BALANCE_ALERT_TS[fp] = now
+    with _BALANCE_ALERT_LOCK:
+        if now - _BALANCE_ALERT_TS.get(fp, 0.0) < 1800:
+            return
+        _BALANCE_ALERT_TS[fp] = now
     url = os.environ.get("TASK_NOTIFY_URL") or ""
     if url:
         try:

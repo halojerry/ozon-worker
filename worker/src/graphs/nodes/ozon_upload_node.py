@@ -2,6 +2,8 @@ import json
 import logging
 import requests
 from utils.http_session import session
+from utils.ozon_client import ozon_post
+from utils.ozon_errors import OzonError
 from typing import Dict, Any, List
 import time as _time
 
@@ -277,72 +279,30 @@ def ozon_upload_node(
             is_follow_sell=bool(getattr(state, "is_follow_sell", False)),
         )
 
-        url = "https://api-seller.ozon.ru/v3/product/import"
-        headers = {
-            "Client-Id": ozon_client_id,
-            "Api-Key": ozon_api_key,
-            "Content-Type": "application/json"
-        }
-        
-        logger.info(f"发送Ozon API请求: {url}")
+        # F-F01（2026-09-09 审计）：收敛 ozon_post——此前 session.post 直发无
+        # 429/5xx 重试、无全局限流，Ozon 一次限流即整任务失败再走整图重试。
+        # 调用日志由 ozon_post 内部记录；OzonError 带类型化 status_code/payload。
+        logger.info("发送Ozon API请求: /v3/product/import")
         logger.info(f"Payload items数量: {len(items)}")
         logger.info(f"第一个item的name: {first_item.get('name', 'N/A')}")
         logger.info(f"第一个item的currency_code: {first_item.get('currency_code', 'N/A')}")
         logger.info(f"第一个item的vat: {first_item.get('vat', 'N/A')}")
-        
-        _t0 = _time.monotonic()
-        response = session.post(
-            url,
-            headers=headers,
-            json=ozon_payload,
-            timeout=60
-        )
-        _dur = (_time.monotonic() - _t0) * 1000
 
-        log_ozon_api_call(
-            method="POST", endpoint="/v3/product/import",
-            status_code=response.status_code, duration_ms=_dur,
-            request_summary={"items_count": len(items)},
-            response_summary={"task_id": response.json().get("result", {}).get("task_id")} if response.ok else None,
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            logger.info(f"Ozon API响应: {json.dumps(data, indent=2, ensure_ascii=False)}")
-            
-            # 解析响应
-            result = data.get("result", {})
-            task_id = result.get("task_id", "")
-            
-            if task_id:
-                logger.info(f"Ozon上传任务创建成功，task_id: {task_id}（后续ozon_status_node用此task_id轮询状态）")
-                return OzonUploadOutput(
-                    product_id=str(task_id) if task_id else "",  # 向后兼容
-                    ozon_task_id=str(task_id) if task_id else "",  # ✅ P3 修复：隔离任务ID
-                    upload_status="success",
-                    purchase_url=purchase_url,
-                    purchase_cost=purchase_cost,
-                    sku_id=sku_id,
-                    profit_estimation=profit_estimation,
-                    error_message=""
-                )
-            else:
-                logger.warning("Ozon响应缺少task_id")
-                return OzonUploadOutput(
-                    product_id=None,
-                    upload_status="failed",
-                    purchase_url=purchase_url,
-                    purchase_cost=purchase_cost,
-                    sku_id=sku_id,
-                    profit_estimation=profit_estimation,
-                    error_message="Ozon response missing task_id"
-                )
-        else:
-            error_data = response.json() if response.text else {}
-            error_msg = error_data.get("message", f"HTTP {response.status_code}")
-            logger.error(f"Ozon API错误: {error_msg}")
-            logger.error(f"完整错误响应: {json.dumps(error_data, indent=2, ensure_ascii=False)}")
-            
+        _t0 = _time.monotonic()
+        try:
+            data = ozon_post(
+                ozon_client_id, ozon_api_key,
+                "/v3/product/import", ozon_payload, timeout=60,
+            )
+        except OzonError as exc:
+            _dur = (_time.monotonic() - _t0) * 1000
+            log_ozon_api_call(
+                method="POST", endpoint="/v3/product/import",
+                status_code=exc.status_code or 0, duration_ms=_dur,
+                request_summary={"items_count": len(items)},
+                response_summary=None,
+            )
+            logger.error(f"Ozon API错误（重试耗尽）: {exc}")
             return OzonUploadOutput(
                 product_id=None,
                 upload_status="failed",
@@ -350,8 +310,45 @@ def ozon_upload_node(
                 purchase_cost=purchase_cost,
                 sku_id=sku_id,
                 profit_estimation=profit_estimation,
-                error_message=f"Ozon API error: {error_msg}"
+                error_message=f"Ozon API error: {exc}"
             )
+        _dur = (_time.monotonic() - _t0) * 1000
+
+        log_ozon_api_call(
+            method="POST", endpoint="/v3/product/import",
+            status_code=200, duration_ms=_dur,
+            request_summary={"items_count": len(items)},
+            response_summary={"task_id": data.get("result", {}).get("task_id")},
+        )
+
+        logger.info(f"Ozon API响应: {json.dumps(data, indent=2, ensure_ascii=False)}")
+
+        # 解析响应
+        result = data.get("result", {})
+        task_id = result.get("task_id", "")
+
+        if task_id:
+            logger.info(f"Ozon上传任务创建成功，task_id: {task_id}（后续ozon_status_node用此task_id轮询状态）")
+            return OzonUploadOutput(
+                product_id=str(task_id) if task_id else "",  # 向后兼容
+                ozon_task_id=str(task_id) if task_id else "",  # ✅ P3 修复：隔离任务ID
+                upload_status="success",
+                purchase_url=purchase_url,
+                purchase_cost=purchase_cost,
+                sku_id=sku_id,
+                profit_estimation=profit_estimation,
+                error_message=""
+            )
+        logger.warning("Ozon响应缺少task_id")
+        return OzonUploadOutput(
+            product_id=None,
+            upload_status="failed",
+            purchase_url=purchase_url,
+            purchase_cost=purchase_cost,
+            sku_id=sku_id,
+            profit_estimation=profit_estimation,
+            error_message="Ozon response missing task_id"
+        )
     
     except requests.exceptions.Timeout:
         logger.error("Ozon API请求超时")
@@ -364,20 +361,10 @@ def ozon_upload_node(
             profit_estimation=profit_estimation,
             error_message="Ozon API request timeout"
         )
-    
-    except json.JSONDecodeError as e:
-        logger.error(f"Ozon API响应JSON解析失败: {str(e)}")
-        logger.error(f"响应内容: {response.text[:500]}")  # 记录前500字符
-        return OzonUploadOutput(
-            product_id=None,
-            upload_status="failed",
-            purchase_url=purchase_url,
-            purchase_cost=purchase_cost,
-            sku_id=sku_id,
-            profit_estimation=profit_estimation,
-            error_message=f"Ozon API JSON decode error: {str(e)}"
-        )
-    
+
+    # （json.JSONDecodeError 分支已随 F-F01 收敛 ozon_post 移除——响应解析在
+    #   ozon_post 内部，此处不再触碰 raw response）
+
     except requests.exceptions.RequestException as e:
         logger.error(f"Ozon API请求异常: {str(e)}")
         return OzonUploadOutput(

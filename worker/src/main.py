@@ -36,6 +36,7 @@ from utils.ozon_client import ozon_check_quota  # 配额检查
 from utils.draft_sanity import validate_draft_sanity  # v0.21 P2 入队防线
 from utils.sentry_setup import init_sentry  # v0.23 Sentry 错误监测
 from sqlalchemy import event
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 # ✅ v0.23: Sentry 错误监测（SENTRY_DSN 为空则 no-op；HTTP 与 CLI 入口共用）
@@ -1815,14 +1816,25 @@ async def http_submit_task(request: Request):
                     detail={"task_id": existing_id, "status": existing_status},
                 )
         
-        task_id = await task_processor.submit_task(
-            tenant_id=user_id,
-            payload=payload_with_user_id,
-            priority=priority,
-            timeout_seconds=timeout_seconds,
-            max_retries=max_retries,
-            sku_key=sku_key,
-        )
+        # F-C06（2026-09-09 审计）：去重 SELECT 与 INSERT 之间的并发窗口由
+        # 部分唯一索引 uq_ozon_product_tasks_tenant_sku 兜底——撞索引映射为
+        # 干净的 409（此前 IntegrityError 冒泡成 500，客户端重试放大窗口）。
+        try:
+            task_id = await task_processor.submit_task(
+                tenant_id=user_id,
+                payload=payload_with_user_id,
+                priority=priority,
+                timeout_seconds=timeout_seconds,
+                max_retries=max_retries,
+                sku_key=sku_key,
+            )
+        except IntegrityError:
+            log_task_event("duplicate_submit_blocked", user_id=user_id,
+                           trace_id=trace_id, sku_key=sku_key, status="unique_index")
+            return error_response(
+                WorkerErrorCode.DUPLICATE_SUBMIT,
+                "该商品已在提交队列（并发提交命中唯一约束），请勿重复提交",
+            )
 
         # ✅ 更新 trace context + 生命周期日志
         set_trace_context(task_id=task_id, user_id=user_id)

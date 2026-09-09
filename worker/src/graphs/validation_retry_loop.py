@@ -425,18 +425,19 @@ def classify_fix_type(error_code: str) -> str:
 
 
 def _call_ozon_api(ozon_client_id: str, ozon_api_key: str, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """调用Ozon API的通用方法"""
-    url: str = f"https://api-seller.ozon.ru{endpoint}"
-    headers: Dict[str, str] = {
-        "Client-Id": ozon_client_id,
-        "Api-Key": ozon_api_key,
-        "Content-Type": "application/json"
-    }
+    """调用Ozon API的通用方法。
+
+    F-F01（2026-09-09 审计）收敛到 ozon_post：此前 session.post 直发无 429/5xx
+    重试、无全局限流、无类型化错误（429 直接当失败走整图重试，浪费额度）。
+    契约保持：失败返回 {}（调用方按空响应走既有修复分支），因此 OzonError
+    在此吞掉降级——重试/退避已由 ozon_post 内部完成。
+    """
+    from utils.ozon_client import ozon_post
+    from utils.ozon_errors import OzonError
     try:
-        response = session.post(url, headers=headers, json=payload, timeout=30)
-        if response.status_code == 200:
-            return response.json()
-        logger.warning(f"Ozon API {endpoint} 返回 {response.status_code}: {response.text[:200]}")
+        return ozon_post(ozon_client_id, ozon_api_key, endpoint, payload, timeout=30)
+    except OzonError as e:
+        logger.warning(f"Ozon API {endpoint} 失败（已重试）: {e}")
         return {}
     except Exception as e:
         logger.warning(f"Ozon API {endpoint} 异常: {e}")

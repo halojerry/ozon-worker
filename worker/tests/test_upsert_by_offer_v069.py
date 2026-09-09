@@ -86,11 +86,13 @@ def _run(state, finder_return="MISSING", finder_exc=None):
                              "total_used": 1, "total_limit": 1000,
                              "remaining_daily": 99, "remaining_total": 999}), \
          patch("graphs.nodes.ozon_upload_node.find_product_by_offer", finder), \
-         patch("graphs.nodes.ozon_upload_node.session") as sess:
-        sess.post.return_value = _mock_import_response()
+         patch("graphs.nodes.ozon_upload_node.session"), \
+         patch("graphs.nodes.ozon_upload_node.ozon_post") as ozon_post_mock:
+        # F-F01 收敛：upload 走 ozon_post（返回 dict，非 2xx 抛 OzonError）
+        ozon_post_mock.return_value = {"result": {"task_id": "task-1"}}
         out = ozon_upload_node(state, None, SimpleNamespace(context=None))
         output_holder["out"] = out
-        output_holder["post"] = sess.post
+        output_holder["post"] = ozon_post_mock
         output_holder["finder"] = finder
     return output_holder["out"], output_holder["post"], output_holder["finder"]
 
@@ -106,7 +108,7 @@ def test_offer_exists_declined_converts_to_update():
     assert called_offer == OFFER
     # import 仍提交，但 payload 已带 product_id（UPDATE 语义，不再裸 CREATE）
     assert post.called, "转 UPDATE 后仍应提交 /v3/product/import"
-    sent = post.call_args.kwargs["json"]
+    sent = post.call_args.args[3]
     assert sent["items"][0].get("product_id") == FOUND_PID, \
         f"offer 已存在应注入 product_id 转 UPDATE: {sent['items'][0]}"
     assert out.upload_status == "success"
@@ -116,7 +118,7 @@ def test_offer_exists_declined_converts_to_update():
 def test_offer_absent_creates_normally():
     out, post, finder = _run(_state(), finder_return=None)
     assert finder.called
-    sent = post.call_args.kwargs["json"]
+    sent = post.call_args.args[3]
     assert "product_id" not in sent["items"][0], "offer 不存在应保持 CREATE（无 product_id）"
     assert out.upload_status == "success"
 
@@ -126,7 +128,7 @@ def test_lookup_error_creates_anyway():
     out, post, finder = _run(_state(), finder_exc=RuntimeError("network down"))
     assert finder.called
     assert post.called, "查询失败必须放行 CREATE，不阻塞上架"
-    sent = post.call_args.kwargs["json"]
+    sent = post.call_args.args[3]
     assert "product_id" not in sent["items"][0]
     assert out.upload_status == "success"
 
@@ -142,7 +144,7 @@ def test_find_product_by_offer_swallows_api_error():
 def test_follow_sell_skips_lookup():
     out, post, finder = _run(_state(is_follow_sell=True), finder_return={"product_id": 1})
     assert not finder.called, "跟卖路径绝不查 offer 存在性"
-    sent = post.call_args.kwargs["json"]
+    sent = post.call_args.args[3]
     assert "product_id" not in sent["items"][0], "跟卖 CREATE 重建保持原行为"
     assert out.upload_status == "success"
 
@@ -161,7 +163,7 @@ def test_switch_off_disables_gate(monkeypatch):
     assert UPSERT_BY_OFFER in (True, False)  # 模块常量存在
     out, post, finder = _run(_state(), finder_return={"product_id": FOUND_PID})
     assert not finder.called, "开关关闭不查询"
-    sent = post.call_args.kwargs["json"]
+    sent = post.call_args.args[3]
     assert "product_id" not in sent["items"][0], "开关关闭 = 现状 CREATE"
     assert out.upload_status == "success"
 
@@ -171,7 +173,7 @@ def test_item_with_product_id_skips_lookup():
     out, post, finder = _run(_state(payload=_payload(product_id=777777)),
                              finder_return={"product_id": FOUND_PID})
     assert not finder.called, "已是 UPDATE 语义的 payload 不再查询"
-    sent = post.call_args.kwargs["json"]
+    sent = post.call_args.args[3]
     assert sent["items"][0]["product_id"] == 777777, "原 product_id 不被覆盖"
 
 
