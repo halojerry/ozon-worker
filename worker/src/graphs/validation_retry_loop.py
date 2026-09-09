@@ -206,17 +206,23 @@ class ValidationRetryLoopOutput(BaseModel):
 
 
 # v0.28.5 C2: 错误码 → 用户可读中文说明(供 task_status/最终结果展示)
+# ⚠️ v0.73 Task9 文案如实化（生产实证：失败任务显示「属性值含中文字符被拒绝:已净化处理」，
+# 用户困惑「说净化了怎么还失败」）：本表被当**终态 error_message** 直接展示给用户，
+# 不是修复动作日志——自动修复过但重试仍未通过的码必须写明「已自动修复并重试
+# 仍未通过，需人工检查」，禁止「已净化处理/已修正」式已完成错觉。只有修复结果
+# 确定成功的码才可用「已…」口吻（如 ATTRIBUTE_VALUE_COUNT_EXCEEDED 的值数闸
+# 是确定性删多值，v0.72 已实现）。改文案前先读本注释。
 ERROR_NOTICE_MAP: Dict[str, str] = {
-    "DESCRIPTION_DECLINE": "描述被拒绝:标题/描述含违规内容(拉丁/中文/物流信息/营销词等),已净化重传",
-    "BR_chinese_hieroglyphs": "含中文字符被拒绝:已俄语化/净化处理",
-    "BR_chinese_hieroglyphs_in_attribute": "属性值含中文字符被拒绝:已净化处理",
-    "INVALID_ATTRIBUTE_VALUE": "属性值不正确:已尝试按字典值修正或跳过",
-    "MISSING_REQUIRED_ATTRIBUTE": "缺少必填属性:已尝试自动补全",
-    "VALUE_MUST_BE_INTEGER": "属性值应为整数(如数量/重量):已尝试类型转换",
-    "VALUE_MUST_BE_DECIMAL": "属性值应为小数(如尺寸):已尝试类型转换",
+    "DESCRIPTION_DECLINE": "描述被拒绝(Ozon 拒绝原因:标题/描述含违规内容,如拉丁/中文/物流信息/营销词等):已自动修复并重试仍未通过,需人工检查标题与描述",
+    "BR_chinese_hieroglyphs": "Ozon 拒绝原因:内容含中文字符:已自动修复并重试仍未通过,需人工检查标题/描述",
+    "BR_chinese_hieroglyphs_in_attribute": "Ozon 拒绝原因:属性值含中文字符:已自动修复并重试仍未通过,需人工检查属性值",
+    "INVALID_ATTRIBUTE_VALUE": "Ozon 拒绝原因:属性值不正确:已自动按字典值修正并重试仍未通过,需人工检查该属性",
+    "MISSING_REQUIRED_ATTRIBUTE": "Ozon 拒绝原因:缺少必填属性:已自动补全并重试仍未通过,需人工补填该属性",
+    "VALUE_MUST_BE_INTEGER": "Ozon 拒绝原因:属性值应为整数(如数量/重量):已自动转换并重试仍未通过,需人工检查",
+    "VALUE_MUST_BE_DECIMAL": "Ozon 拒绝原因:属性值应为小数(如尺寸):已自动转换并重试仍未通过,需人工检查",
     "ATTRIBUTE_VALUE_COUNT_EXCEEDED": "多值属性超出数量限制:已删多值保留首个",
-    "CONDITIONAL_ATTRIBUTE_ERROR": "条件属性不匹配:已尝试按类目规则修正",
-    "INCORRECT_DENSITY": "密度不合理(重量与尺寸不匹配):已修正尺寸",
+    "CONDITIONAL_ATTRIBUTE_ERROR": "Ozon 拒绝原因:条件属性不匹配:已自动按类目规则修正并重试仍未通过,需人工检查",
+    "INCORRECT_DENSITY": "Ozon 拒绝原因:密度不合理(重量与尺寸不匹配):已自动修正尺寸并重试仍未通过,需人工检查",
     "BR_hazard_class1": "危险品分类被拒:商品可能属管制/禁售类,无法自动修复",
     "SPU_ALREADY_EXISTS_IN_ANOTHER_ACCOUNT": "该商品已在其他 Ozon 账号上架,无法重复上架",
     "PRODUCT_ALREADY_EXISTS": "商品已存在(重复上架)",
