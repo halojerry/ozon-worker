@@ -1864,10 +1864,48 @@ async def http_submit_task(request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to submit task: {str(e)}")
 
 
-@app.get("/task_status/{task_id}")
-async def http_task_status(task_id: str):
+def _task_status_guard(request: Request, task_row: dict) -> None:
+    """GET /task_status 鉴权 + 租户校验（v0.73 安全收口）。
+
+    此前该端点（旧路径 + /api/v1 别名）完全无鉴权——任何拿到 task uuid 的人
+    可读全量任务数据（tenant_id / 采购链接 / 定价成本）。规则：
+    - env ``TASK_STATUS_AUTH=0`` → 直接放行（应急开关，默认开；仅生产事故
+      回滚用，勿长期关闭）。
+    - 无 Authorization Bearer → 401 "Token is required"（与 forensics 同文案）。
+    - Bearer 无效 → ``_verify_analytics_token`` 的 401/503 原样透传。
+    - 租户比对：``resolve_tenant(token)``（与任务写入侧同源）≠ task_row 的
+      tenant_id → 404 "task not found"（等价不存在，不泄漏存在性，与
+      forensics 同语义）。
+    - task_row 无 tenant_id 键（历史老数据）→ 跳过比对放行（宽容读：老数据
+      无租户归属可校验，硬拒会让存量任务轮询全挂）。
+
+    ⚠️ 有意不加 rate_limiter：task_status 是前端 / skill / harness 轮询的
+    高频端点，逐 token 限流会误伤正常轮询；鉴权 + 租户校验足矣（与
+    analytics 读端点的区别在此）。
+    """
+    if os.environ.get("TASK_STATUS_AUTH", "").strip() == "0":
+        return
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean_token)
+    task_tenant = str(task_row.get("tenant_id") or "")
+    if not task_tenant:
+        return  # 老数据无租户归属 → 宽容读（见 docstring）
+    from services.tenant_service import resolve_tenant
+    if resolve_tenant(token) != task_tenant:
+        raise HTTPException(status_code=404, detail="task not found")
+
+
+@app.get("/task_status/{task_id}", responses={
+    401: {"model": ErrorBody}, 404: {"model": ErrorBody}})
+async def http_task_status(task_id: str, request: Request):
     """
     查询任务状态（含进度信息）
+
+    v0.73: Bearer 鉴权 + 租户校验（``_task_status_guard``）。
 
     Returns:
         任务详情（包含status、result、error_message、progress等）
@@ -1880,6 +1918,10 @@ async def http_task_status(task_id: str):
 
         if task_status is None:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+        # ✅ v0.73: 鉴权 + 租户校验（取到 row 后；HTTPException 由下面的
+        # except HTTPException 直通，不再被兜底 except 吞成 500）
+        _task_status_guard(request, task_status)
 
         # ✅ v0.19: 终态优先——completed/failed 时 progress 直接归位，
         # 不再显示内存里残留的中间阶段（如 0%/social_proof_gen）
@@ -1906,6 +1948,8 @@ async def http_task_status(task_id: str):
 
         return task_status
 
+    except HTTPException:
+        raise  # v0.73: 404/401/租户 404 直通（此前被吞成 500，与 v1 docs 的 404 约定不符）
     except Exception as e:
         logger.error(f"Get task status error: {e}, traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get task status: {str(e)}")
@@ -2178,10 +2222,10 @@ async def v1_submit_task(request: Request):
 
 
 @v1.get("/task_status/{task_id}", response_model=TaskStatusResponse, tags=["task"],
-        responses={404: {"model": ErrorBody}})
-async def v1_task_status(task_id: str):
-    """查询任务状态。"""
-    return await http_task_status(task_id)
+        responses={401: {"model": ErrorBody}, 404: {"model": ErrorBody}})
+async def v1_task_status(task_id: str, request: Request):
+    """查询任务状态（v0.73: Bearer 鉴权 + 租户校验，TASK_STATUS_AUTH=0 应急关）。"""
+    return await http_task_status(task_id, request)
 
 
 @v1.post("/cancel_task/{task_id}", response_model=CancelTaskResponse, tags=["task"],

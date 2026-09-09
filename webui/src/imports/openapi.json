@@ -8261,7 +8261,7 @@
     },
     "/api/v1/store/health": {
       "get": {
-        "description": "查询 Ozon 店铺配额健康状态。\n\nQuery params (可选):\n- client_id: Ozon Client-Id\n- api_key: Ozon Api-Key\n\nv0.63.1 架构优化 R2: sync def — 内部阻塞 requests.post(timeout=10)，\nFastAPI 自动丢线程池，不冻结事件循环（async def 下单个慢调用会\n停摆全部 worker 心跳）。",
+        "description": "查询 Ozon 店铺配额健康状态。\n\nQuery params (可选):\n- client_id: Ozon Client-Id\n- api_key: Ozon Api-Key\n\nv0.63.1 架构优化 R2: sync def — 内部阻塞调用，FastAPI 自动丢线程池，\n不冻结事件循环（async def 下单个慢调用会停摆全部 worker 心跳）。\nF-F01（2026-09-09 审计）：收敛 ozon_check_quota——与 submit 配额闸同源\n解析/限流/重试，移除裸 requests.post 直连。",
         "operationId": "store_health_api_v1_store_health_get",
         "parameters": [
           {
@@ -9057,7 +9057,7 @@
     },
     "/api/v1/task_status/{task_id}": {
       "get": {
-        "description": "查询任务状态。",
+        "description": "查询任务状态（v0.73: Bearer 鉴权 + 租户校验，TASK_STATUS_AUTH=0 应急关）。",
         "operationId": "v1_task_status_api_v1_task_status__task_id__get",
         "parameters": [
           {
@@ -9080,6 +9080,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
           },
           "404": {
             "content": {
@@ -10151,7 +10161,7 @@
     },
     "/task_status/{task_id}": {
       "get": {
-        "description": "查询任务状态（含进度信息）\n\nReturns:\n    任务详情（包含status、result、error_message、progress等）",
+        "description": "查询任务状态（含进度信息）\n\nv0.73: Bearer 鉴权 + 租户校验（``_task_status_guard``）。\n\nReturns:\n    任务详情（包含status、result、error_message、progress等）",
         "operationId": "http_task_status_task_status__task_id__get",
         "parameters": [
           {
@@ -10172,6 +10182,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "422": {
             "content": {

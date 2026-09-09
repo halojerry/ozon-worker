@@ -395,12 +395,33 @@ def test_resubmit_error_does_not_leak_internal_detail():
 
 
 def test_task_status_endpoint_rejected_progress():
-    """task_status 端点对 rejected 终态返回归位进度 + 重提指引（不再显示内存残留阶段）。"""
-    import main as main_mod
+    """task_status 端点对 rejected 终态返回归位进度 + 重提指引（不再显示内存残留阶段）。
 
-    proc = _FakeTaskStatusProcessor(_task_status("rejected"))
-    with patch.object(main_mod, "task_processor", proc):
-        resp = asyncio.run(main_mod.http_task_status("task-old"))
+    v0.73 适配：端点补 Bearer 鉴权 + 租户校验（_task_status_guard）——本用例
+    只验证 progress 归位语义，走 TASK_STATUS_AUTH=0 应急开关绕过鉴权；
+    保持零参签名兼容文件底部 __main__ 直跑 runner。
+    """
+    import os
+
+    import main as main_mod
+    from starlette.requests import Request
+
+    _old_env = os.environ.get("TASK_STATUS_AUTH")
+    os.environ["TASK_STATUS_AUTH"] = "0"
+    try:
+        proc = _FakeTaskStatusProcessor(_task_status("rejected"))
+        with patch.object(main_mod, "task_processor", proc):
+            resp = asyncio.run(main_mod.http_task_status(
+                "task-old",
+                Request({"type": "http", "method": "GET",
+                         "path": "/task_status/task-old",
+                         "headers": [], "query_string": b""}),
+            ))
+    finally:
+        if _old_env is None:
+            os.environ.pop("TASK_STATUS_AUTH", None)
+        else:
+            os.environ["TASK_STATUS_AUTH"] = _old_env
 
     assert resp["status"] == "rejected"
     assert resp["progress"]["stage"] == "rejected"
