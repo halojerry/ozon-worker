@@ -62,11 +62,22 @@ docker compose exec -T worker python scripts/warm_category_cache.py --all --pg-o
 docker compose exec -T worker python scripts/warm_category_cache.py --coverage
 
 # ③ 导出 JSON —— v0.73 起用 --export-from-pg：从 PG 读已预热缓存流式导出，
-#    秒级、零 Ozon API、无需凭证（写 worker/assets/，注意磁盘余量；三桶后
-#    量级从数百 MB 降一个量级以上）
+#    秒级、零 Ozon API、无需凭证（⚠️ 写的是容器内 /app/assets/——官方 compose 只
+#    bind mount config 不挂载 assets，宿主拿不到，必须接着做 ③.5；三桶后量级从
+#    数百 MB 降一个量级以上）
+# ⚠️ 服务器 PG 仍是 pre-v0.72 旧数据时（未做过「TRUNCATE dictionary_value_cache →
+#    重预热」），跳过清理直接 export-from-pg 会把品牌等全局字典的 per-node 遗留
+#    大行原样导出 → 部署时原样回灌——40G 盘事故复发面。先清后预热再导出。
 docker compose exec -T worker python scripts/warm_category_cache.py --export-from-pg
 # ⚠️ 旧 --export-only 仍保留但语义是「边拉边导」——只导本次进程内 API 拉取的
 #    部分，仅限与预热同进程采集时使用；预热完成后单独导出必须用 --export-from-pg。
+
+# ③.5 导出产物从容器拷到宿主（来源 worker:/app/assets/ → 去向仓库 worker/assets/，
+#     即 ④ coscli 的上传源；不拷则 ④ 在宿主找不到新导出的文件）
+cd deploy   # compose 文件所在目录（①②③ 同款 CWD，已在则跳过）
+docker compose cp worker:/app/assets/attribute_schemas_zh.json ../worker/assets/attribute_schemas_zh.json
+docker compose cp worker:/app/assets/dictionary_values_zh.json ../worker/assets/dictionary_values_zh.json
+cd ..       # 回仓库根——④ 的 coscli 路径以 worker/assets/… 为基准
 
 # ④ 上传 COS（路径固定：ozon-worker/cache/，部署脚本从这里拉；勿放图片/部署包路径）
 coscli cp worker/assets/attribute_schemas_zh.json cos://yss-1256275613/ozon-worker/cache/attribute_schemas_zh.json
