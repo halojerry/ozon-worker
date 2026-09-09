@@ -269,6 +269,20 @@ def test_envelope_weight_zero_pool_weight_ignored(monkeypatch):
     assert "weight_from_pool_variant" not in draft
 
 
+def test_envelope_weight_out_of_bounds_ignored(monkeypatch):
+    """终审裁定：UGC 重量 sanity 闸 [10, 200_000]g——界外（5g / 500kg）视为
+    无真值：不写 weight、不打标（byte-identical），UGC 垃圾不得进信封。"""
+    monkeypatch.delenv("METRICS_POOL_QUERY", raising=False)
+    for bad in (5, 500_000):
+        monkeypatch.setattr(mpc, "query_sku_metrics", lambda skus, w=bad, **kw: {
+            "4767514314": {"sku": 4767514314,
+                           "variant_payload": {"weight_g": w}}})
+        result = _build_envelope(_mk_candidate())
+        draft = result["envelope"]["draft"]
+        assert draft["weight"] == 300, f"weight_g={bad} 不应覆盖"
+        assert "weight_from_pool_variant" not in draft, f"weight_g={bad} 不应打标"
+
+
 if __name__ == "__main__":
     import traceback
 

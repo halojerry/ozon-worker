@@ -643,8 +643,10 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str,
 def _giveback_metrics(metrics_items, variant_payloads: dict | None = None) -> None:
     """读-回馈（goldminer 模式）：消费 what_to_sell 畅销榜数据时顺手上报数据池。
 
-    metrics_items: (sku, item) 对的可迭代（item = what_to_sell 原始条目，
-    整包作 sales_payload）。fire-and-forget——metrics_pool_client 内部已吞掉
+    metrics_items: (sku, item) 对的可迭代（item = _parse_bestseller_items
+    产出的 snake_case 提取行，经 _extract_metrics 同词汇表——sold_count/gmv_sum
+    等，即 CDP 畅销榜 map 行，整包作 sales_payload；非 what_to_sell 原始条目）。
+    fire-and-forget——metrics_pool_client 内部已吞掉
     一切失败（未配置 token/网络错误/METRICS_POOL_REPORT=0 均静默），这里再套
     一层 try/except 双保险：贡献失败绝不影响富化/查询主流程，也不感知不重试。
 
@@ -688,6 +690,10 @@ def _apply_pool_metrics(candidates: list[ProductCandidate],
     调用方以此区分「池已命中」与「待 CDP 直采」）。查询失败/未配置/零命中
     → 0，调用方照旧走 CDP 直采——**池永不使 discover 变差**。查询异常绝不
     外逃（对齐 _giveback_metrics 双保险纪律）。
+
+    终审裁定（2026-09-10）：needs_sales_sync=True 的陈旧行（>14d 或缺
+    payload）**不算池命中**——字段照填（聊胜于无）但禁止进 enriched（留在
+    remaining），CDP 直采刷新照跑；陈旧行不得抑制数据保鲜。
     """
     if not candidates or os.environ.get("METRICS_POOL_QUERY") == "0":
         return 0
@@ -711,11 +717,15 @@ def _apply_pool_metrics(candidates: list[ProductCandidate],
         payload = metric.get("sales_payload") or {}
         if not apply_analytics_to_candidate(c, payload):
             continue
-        enriched[str(c.ozon_product_id)] = payload
-        hits += 1
         name_zh = metric.get("category_name_zh")
         if name_zh:
             c.category = str(name_zh)
+        if metric.get("needs_sales_sync"):
+            # 陈旧行：字段已填（聊胜于无），但不登记 enriched / 不计命中——
+            # 留在 remaining 让 CDP 直采刷新（终审裁定，见 docstring）。
+            continue
+        enriched[str(c.ozon_product_id)] = payload
+        hits += 1
     if hits:
         logger.info("数据池命中 %d/%d 条运营指标（免 CDP 直采）", hits, len(candidates))
     return hits

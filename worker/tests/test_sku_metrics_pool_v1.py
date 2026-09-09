@@ -33,16 +33,22 @@ def test_sku_metrics_pool_table_roundtrip():
 
     init_db()
     eng = get_engine()
+    sku = 3171397439
     with Session(eng) as s:
-        row = SkuMetricsPool(sku=3171397439, sales_payload={"monthsales": 140},
-                             source_company_ids=["5381204"],
-                             contributed_by_token_ids=["tok-a"])
-        s.add(row)
+        # 先删后建：防上次运行残留触发 uq_sku_metrics_pool_sku
+        s.query(SkuMetricsPool).filter_by(sku=sku).delete()
         s.commit()
-        got = s.query(SkuMetricsPool).filter_by(sku=3171397439).one()
-        assert got.sales_payload["monthsales"] == 140
-        s.delete(got)
-        s.commit()
+        try:
+            row = SkuMetricsPool(sku=sku, sales_payload={"monthsales": 140},
+                                 source_company_ids=["5381204"],
+                                 contributed_by_token_ids=["tok-a"])
+            s.add(row)
+            s.commit()
+            got = s.query(SkuMetricsPool).filter_by(sku=sku).one()
+            assert got.sales_payload["monthsales"] == 140
+        finally:
+            s.query(SkuMetricsPool).filter_by(sku=sku).delete()
+            s.commit()
 
 
 def test_upsert_merge_and_attribution_cap():
@@ -51,21 +57,28 @@ def test_upsert_merge_and_attribution_cap():
     from services.sku_metrics_pool_service import upsert_seller_sync_items
     from sqlalchemy.orm import Session
 
+    sku = 3171397439
     with Session(get_engine()) as s:
-        r1 = upsert_seller_sync_items(
-            s, [{"sku": "3171397439_0", "sales_payload": {"monthsales": 140}}],
-            source_company_id="5381204", contributed_by="tok-a")
-        assert r1 == {"accepted": 1, "skipped": 0}
-        # 二次上报：variant 补充 + 归因并集
-        r2 = upsert_seller_sync_items(
-            s, [{"sku": 3171397439, "variant_payload": {"weight": 1840}}],
-            source_company_id="5381204", contributed_by="tok-b")
-        assert r2["accepted"] == 1
-        row = s.query(SkuMetricsPool).filter_by(sku=3171397439).one()
-        assert row.sales_payload["monthsales"] == 140      # 覆盖语义：未提供的保留
-        assert row.variant_payload["weight"] == 1840
-        assert sorted(row.contributed_by_token_ids) == ["tok-a", "tok-b"]
-        s.delete(row); s.commit()
+        # 先删后建：防上次运行残留触发 uq_sku_metrics_pool_sku
+        s.query(SkuMetricsPool).filter_by(sku=sku).delete()
+        s.commit()
+        try:
+            r1 = upsert_seller_sync_items(
+                s, [{"sku": "3171397439_0", "sales_payload": {"monthsales": 140}}],
+                source_company_id="5381204", contributed_by="tok-a")
+            assert r1 == {"accepted": 1, "skipped": 0}
+            # 二次上报：variant 补充 + 归因并集
+            r2 = upsert_seller_sync_items(
+                s, [{"sku": 3171397439, "variant_payload": {"weight": 1840}}],
+                source_company_id="5381204", contributed_by="tok-b")
+            assert r2["accepted"] == 1
+            row = s.query(SkuMetricsPool).filter_by(sku=sku).one()
+            assert row.sales_payload["monthsales"] == 140      # 覆盖语义：未提供的保留
+            assert row.variant_payload["weight"] == 1840
+            assert sorted(row.contributed_by_token_ids) == ["tok-a", "tok-b"]
+        finally:
+            s.query(SkuMetricsPool).filter_by(sku=sku).delete()
+            s.commit()
 
 
 def test_query_needs_markers_and_zh_name():
