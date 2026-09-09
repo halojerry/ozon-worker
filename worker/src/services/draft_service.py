@@ -211,6 +211,7 @@ def _draft_row_to_dict(row) -> dict:
         "source": row.source,
         "version": row.version,
         "image_mirror_state": getattr(row, "image_mirror_state", "") or "",
+        "notes": getattr(row, "notes", None),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -275,7 +276,7 @@ def list_drafts(tenant_id: str) -> list[dict]:
     with get_engine().connect() as conn:
         rows = conn.execute(text(
             "SELECT d.id, d.tenant_id, d.payload, d.source, d.version, "
-            "d.image_mirror_state, d.created_at, d.updated_at, "
+            "d.image_mirror_state, d.notes, d.created_at, d.updated_at, "
             "s.submission_status "
             f"FROM product_drafts d {_LATEST_SUBMISSION_SQL} "
             "WHERE d.tenant_id=:tenant_id ORDER BY d.updated_at DESC"
@@ -406,7 +407,7 @@ def get_draft(tenant_id: str, draft_id: str) -> dict:
     with get_engine().connect() as conn:
         row = conn.execute(text(
             "SELECT id, tenant_id, payload, source, version, image_mirror_state, "
-            "created_at, updated_at "
+            "notes, created_at, updated_at "
             "FROM product_drafts WHERE id=:id AND tenant_id=:tenant_id"
         ), {"id": uid, "tenant_id": tenant_id}).fetchone()
     if row is None:
@@ -550,6 +551,7 @@ def patch_draft(tenant_id: str, draft_id: str, data: DraftPatch) -> dict:
         new_source = data.source if data.source is not None else current.source
         updated = conn.execute(text(
             "UPDATE product_drafts SET payload=CAST(:payload AS jsonb), source=:source, "
+            "notes=COALESCE(:notes, notes), "
             "version=version+1, updated_at=NOW() "
             "WHERE id=:id AND tenant_id=:tenant_id "
             "RETURNING id, tenant_id, payload, source, version, image_mirror_state, "
@@ -557,6 +559,7 @@ def patch_draft(tenant_id: str, draft_id: str, data: DraftPatch) -> dict:
         ), {
             "payload": json.dumps(data.payload, ensure_ascii=False),
             "source": new_source,
+            "notes": data.notes if data.notes is None else data.notes.strip()[:2000],
             "id": uid,
             "tenant_id": tenant_id,
         }).fetchone()
