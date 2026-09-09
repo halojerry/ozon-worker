@@ -161,6 +161,7 @@ class ProductCandidate:
     match_confidence: float = 0.0   # 标题相关性置信度（_pick_best_match 透传）
     match_badge_eff: float = 0.0    # badge 匹配有效性 0-1
     match_reject_reason: str = ""   # 拒绝原因（auto_reject / block 原因）
+    match_category_divergent: bool = False  # 类目复核：1688 类目与 Ozon 面包屑语义不一致（conf 已封顶 0.5）
     review_decision: str = ""       # 人工评审决策: ""=自动 / approved / agent_reject
 
     # Profit estimates
@@ -964,6 +965,8 @@ def match_selected(
             # F-B02 延伸：有效匹配才花 AK 详情调用补 1688 类目（用户口径：
             # 1688 类目信息要进匹配链——喂 worker L0/信封，不再结构性缺席）
             _backfill_1688_category(candidate)
+            # 类目一致性二次复核：官方图搜判图像相似，类目暴露品类漂移时降权
+            _category_semantic_review(candidate, mxou_token)
 
             _calculate_profit(
                 candidate,
@@ -2852,6 +2855,45 @@ def _backfill_1688_category(candidate: "ProductCandidate") -> None:
             logger.info("1688 类目回填（AK 详情 offer=%s）: %s", offer_id, path[:80])
     except Exception as exc:
         logger.debug("AK 详情补类目失败 offer=%s（保留原值）: %s", offer_id, exc)
+
+
+def _category_semantic_review(candidate: "ProductCandidate", token: str) -> None:
+    """类目一致性二次复核（F-B02 收口，2026-09-09）：1688 末级类目（中文）vs
+    Ozon 面包屑末级（俄语）语义不一致 → conf 封顶 0.5（降权不拦截）。
+
+    背景：保温杯批实证 conf=0.945（官方徽章全部符合）但 AK 回填类目是
+    「咖啡具 > 咖啡杯」——官方图搜判图像相似，类目信息暴露品类漂移。两侧
+    末级类目经 _llm_semantic_match（有进程内缓存）判定；缺一边/无 token/
+    LLM 失败 → 不判不罚（_llm_semantic_match False 语义=不同品，此处需区分
+    失败与判否——失败时 _LLM 判定缓存未写，直接以「缓存未命中且无 token」
+    短路：无 token 直接放行不降权）。
+
+    封顶 0.5：仍在 matched 带（≥0.3 不丢单），但跌出高置信带——auto-submit
+    与 worker 弱档语义自然接管，是「降权」不是「拦截」。
+    """
+    zh_path = str(candidate.match_1688_category_name or "").strip()
+    ru_path = str(candidate.page_category_path or "").strip()
+    if not zh_path or not ru_path or not token:
+        return
+    if candidate.match_confidence < 0.3:
+        return  # 已在拒带，无需复核
+    zh_leaf = zh_path.split(">")[-1].strip()
+    ru_leaf = ru_path.split(">")[-1].strip()
+    if not zh_leaf or not ru_leaf:
+        return
+    # LLM 失败（无缓存写入且返回 False）与真判否无法从返回值区分——
+    # 直接探缓存：判定后看缓存键是否存在来甄别「真 NO」与「调用失败」
+    key = (ru_leaf[:60], zh_leaf[:60])
+    consistent = _llm_semantic_match(ru_leaf, zh_leaf, token)
+    if not consistent and key not in _LLM_SEMANTIC_CACHE:
+        return  # LLM 调用失败 → 不罚（宁缺毋滥只作用于有真实判定时）
+    if not consistent:
+        candidate.match_confidence = min(candidate.match_confidence, 0.5)
+        candidate.match_category_divergent = True
+        logger.warning(
+            "类目一致性复核：1688 类目 '%s' 与 Ozon 面包屑 '%s' 语义不一致，"
+            "conf 封顶 0.5（降权不拦截）: %s",
+            zh_leaf, ru_leaf, candidate.ozon_title[:40])
 
 
 def _search_1688_source(
