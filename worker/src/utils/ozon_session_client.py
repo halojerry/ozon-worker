@@ -47,47 +47,44 @@ def what_to_sell(cookie_header: str, sc_company_id: str, payload: dict,
                  *, timeout: int = 20) -> tuple[dict | None, str | None]:
     """POST what_to_sell v3 → (data, None) | (None, error_code)。
 
-    error_code: session_expired（401/403/登录 302，调用方标 expired）、
+    error_code: session_expired（401/403/终态 3xx/落到登录页，调用方标 expired）、
     ozon_http_{status}（其余非 200）、network_error、non_json_response。
+
+    ⚠️ 实机契约（2026-09-09）：seller nginx 首请求会 307→同路径?__rr=1 并
+    Set-Cookie 下发 nonce（__Secure-ETC），重试必须携带该新 cookie 才放行——
+    因此必须走 Session cookie jar + allow_redirects=True（307 语义保持
+    POST+body），手动改 header 重放会无限 307。判废只看终态。
     """
     headers = {
         "Content-Type": "application/json",
-        "Cookie": cookie_header,
         "x-o3-company-id": str(sc_company_id),
         "x-o3-language": "zh-Hans",
         "User-Agent": _UA,
         "Referer": f"{SELLER_ORIGIN}/",
         "Accept": "application/json, text/plain, */*",
     }
+    session = requests.Session()
+    for part in cookie_header.split(";"):
+        if "=" in part:
+            name, _, value = part.partition("=")
+            session.cookies.set(name.strip(), value.strip())
     try:
-        # allow_redirects=False：登录态失效时 seller 会 302 到登录页，判废见下；
-        # 3xx 分流处理（勿一刀切——实机实证 307 __rr=1 是机器人回环不是登录）
-        resp = requests.post(WHAT_TO_SELL_URL, json=payload, headers=headers,
-                             timeout=timeout, allow_redirects=False)
+        resp = session.post(WHAT_TO_SELL_URL, json=payload, headers=headers,
+                            timeout=timeout, allow_redirects=True)
     except requests.RequestException as exc:
         logger.warning("what_to_sell 直调网络异常: %s", str(exc)[:150])
         return None, "network_error"
-    if 300 <= resp.status_code < 400:
-        loc = (getattr(resp, "headers", None) or {}).get("Location", "") \
-            if hasattr(resp, "headers") else ""
-        if resp.status_code in (307, 308) and "__rr=1" in loc:
-            # Ozon nginx 机器人校验回环：Location=同路径?__rr=1，原样重放即过
-            # （307 语义保持 POST+body；实测重放 200）
-            retry_url = loc if loc.startswith("http") else WHAT_TO_SELL_URL + "?" + loc.split("?", 1)[-1]
-            try:
-                resp = requests.post(retry_url, json=payload, headers=headers,
-                                     timeout=timeout, allow_redirects=False)
-            except requests.RequestException as exc:
-                logger.warning("what_to_sell __rr=1 重放网络异常: %s", str(exc)[:150])
-                return None, "network_error"
-        else:
-            # 登录页重定向等其余 3xx → 判废（C6 联动标 expired）
-            logger.info("what_to_sell 直调判废 HTTP %s", resp.status_code)
-            return None, _SESSION_EXPIRED
-    if resp.status_code in (401, 403):
-        # 401/403 = 会话/风控判废（C6 联动标 expired）
-        logger.info("what_to_sell 直调判废 HTTP %s", resp.status_code)
+    finally:
+        session.close()
+    final_url = str(getattr(resp, "url", "") or "")
+    if resp.status_code in (401, 403) or "login" in final_url.lower():
+        # 会话/风控判废；重定向跟到登录页同判（C6 联动标 expired）
+        logger.info("what_to_sell 直调判废 HTTP %s final=%s",
+                    resp.status_code, final_url[:80])
         return None, _SESSION_EXPIRED
+    if 300 <= resp.status_code < 400:
+        # 重定向链未到 200 终态（罕见）——不误标会话失效
+        return None, f"ozon_http_{resp.status_code}"
     if resp.status_code != 200:
         return None, f"ozon_http_{resp.status_code}"
     try:
