@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Optional
 
@@ -27,11 +28,40 @@ CATEGORIES = {
 STATUSES = {"new", "triaging", "fixed", "wontfix"}
 
 
+def _clip_decline_texts(texts: Any) -> list:
+    """moderation_texts（JSONB，[{code,level,attribute_id,texts:{message}}]）→ 截前 2 条、
+    每条 texts.message 截 300 字。JSONB 正常由 psycopg2 反序列化为 list；str 形态兜底。"""
+    if isinstance(texts, str):
+        try:
+            texts = json.loads(texts)
+        except Exception:
+            return []
+    if not isinstance(texts, list):
+        return []
+    out: list = []
+    for e in texts[:2]:
+        if isinstance(e, dict):
+            d = dict(e)
+            t = d.get("texts")
+            if isinstance(t, dict) and t.get("message"):
+                d["texts"] = {**t, "message": str(t["message"])[:300]}
+            out.append(d)
+        else:
+            out.append(e)
+    return out
+
+
 def _task_snapshots(tenant_id: str, task_ids: list) -> list[dict]:
     """按 evidence.task_ids 附加任务快照（租户隔离；查不到/不属于本租户 → 跳过）。
 
     取证实证（泡脚包 3170fd33 假成功）：单看用户描述难定位——快照带
     status/error_message/时间线/product_id，报告自带复现所需最小事实。
+
+    v0.73 Task9：附带留存表 listing_result_log 末次拒绝原文（task_db_id=任务 uuid
+    同源可 join，2026-09-09 批次实证；unique 索引下每任务至多一行，仍按
+    created_at DESC 取最新）——last_decline=moderation_texts 截前 2 条（message
+    截 300）；留存 error_code 非空带出，否则回落 error_hint=任务 error_message
+    前 100 字。留存查询失败非致命：warning 后快照仍返回基础字段。
     """
     ids = [str(t).strip() for t in (task_ids or []) if str(t).strip()][:10]
     if not ids:
@@ -44,20 +74,45 @@ def _task_snapshots(tenant_id: str, task_ids: list) -> list[dict]:
                 "FROM ozon_product_tasks WHERE id::text = ANY(:ids) AND tenant_id = :t "
                 "ORDER BY created_at DESC LIMIT 10"
             ), {"ids": ids, "t": tenant_id}).mappings().all()
-        return [
-            {
-                "task_id": r["id"],
-                "status": r["status"],
-                "error_message": (r["error_message"] or "")[:500],
-                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-                "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
-                "product_id": r["product_id"] or "",
-            }
-            for r in rows
-        ]
     except Exception as exc:
         logger.warning("error_report 任务快照获取失败(非致命): %s", exc)
         return []
+    snapshots = [
+        {
+            "task_id": r["id"],
+            "status": r["status"],
+            "error_message": (r["error_message"] or "")[:500],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
+            "product_id": r["product_id"] or "",
+        }
+        for r in rows
+    ]
+    try:
+        with get_engine().connect() as conn:
+            log_rows = conn.execute(text(
+                "SELECT task_db_id, error_code, moderation_texts FROM listing_result_log "
+                "WHERE task_db_id = ANY(:ids) ORDER BY created_at DESC"
+            ), {"ids": ids}).mappings().all()
+    except Exception as exc:
+        logger.warning("error_report 末次拒绝原文获取失败(非致命): %s", exc)
+        return snapshots
+    latest: dict = {}
+    for lr in log_rows:
+        latest.setdefault(lr["task_db_id"], lr)
+    for s in snapshots:
+        lr = latest.get(s["task_id"])
+        if not lr:
+            continue
+        clipped = _clip_decline_texts(lr.get("moderation_texts"))
+        if clipped:
+            s["last_decline"] = clipped
+        code = str(lr.get("error_code") or "").strip()
+        if code:
+            s["error_code"] = code
+        elif s["error_message"]:
+            s["error_hint"] = s["error_message"][:100]
+    return snapshots
 
 
 def create_error_report(
