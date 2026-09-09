@@ -49,8 +49,10 @@ def _run_cli(args, cands, tmp_cache, submit_mock=None):
     from scripts.lib import ozon_discovery as od
     calls = {"submit": []}
 
-    def _fake_submit(envelope):
+    def _fake_submit(envelope, source_batch=None):
+        # 镜像真实签名 submit_draft(graph_input, *, note=None, source_batch=None)
         calls["submit"].append(envelope)
+        calls.setdefault("source_batch", []).append(source_batch)
         return {"draft_id": f"draft-{len(calls['submit'])}"}
 
     with mock.patch.object(od, "DISCOVERY_CACHE_DIR", tmp_cache), \

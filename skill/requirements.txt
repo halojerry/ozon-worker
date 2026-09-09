@@ -12,3 +12,4 @@ requests>=2.28                 # HTTP 请求（Worker API / Ozon API）
 websocket-client>=1.6.0        # Chrome DevTools Protocol 通信
 Pillow>=10.0.0                 # 图片处理（1688 图搜 / 图片预处理）
 sentry-sdk>=2.0.0              # Sentry 错误上报（缺失时 cli.py lazy import 静默降级，不影响功能）
+openpyxl>=3.1                  # Excel 导出（--export *.xlsx 四大区选品簿；缺失时 lazy import 明确报错）

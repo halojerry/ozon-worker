@@ -73,8 +73,9 @@ def _run_dt(args, cands, tmp_cache, calls, envelope=None):
         mock.patch("scripts.cloud_probe.build_envelope_from_discovery",
                    side_effect=lambda c, sc, store_id="": (envelope or {"token": "t"})),
         mock.patch("scripts.cloud_probe.submit_draft",
-                   side_effect=lambda env: (calls.setdefault("draft", []).append(env)
-                                            or {"draft_id": f"d{len(calls['draft'])}"})),
+                   side_effect=lambda env, source_batch=None: (
+                       calls.setdefault("draft", []).append(env)
+                       or {"draft_id": f"d{len(calls['draft'])}"})),
         mock.patch("scripts.cloud_probe.submit_envelope",
                    side_effect=lambda env: (calls.setdefault("worker", []).append(env)
                                             or {"ok": True, "task_id": f"T{len(calls['worker'])}"})),
