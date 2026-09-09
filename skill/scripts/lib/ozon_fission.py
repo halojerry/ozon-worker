@@ -402,6 +402,7 @@ def run_fission(
     session_id: str = "fission",
     checkpoint_dir: Optional[str] = None,
     stage_callback=None,
+    min_seller_rating: float | None = None,
 ) -> list[ProductCandidate]:
     """BFS 裂变主循环。
 
@@ -409,6 +410,9 @@ def run_fission(
     - 商品 → 其竞品卖家（top N）→ 卖家店铺产品 → 再发现竞品卖家 → 下一层
     - 双 visited 截断环路；三重预算（max_depth/max_total_products/time_budget）终止
     - 每出队一个元素 checkpoint（原子写），断点续跑
+    - min_seller_rating（可选，None=不过滤）：竞品卖家评分下限（shopbang §6.5
+      拓店蓝图「评分>4 → 按价排序」；widget 已按价升序，此处只补评分门槛），
+      不达标卖家不进 frontier、不消费 visited/预算。默认 None 完全向后兼容。
     返回合并后的全部候选（种子 + 裂变发现）。
     """
     from scripts.lib.cdp_client import CdpConnection
@@ -434,7 +438,9 @@ def run_fission(
                 break
             if node_type == "product":
                 _expand_product(state, cdp, cdp_url, node_id, depth, chain,
-                                frontier, out, max_sellers_per_product, seed_category)
+                                frontier, out, max_sellers_per_product,
+                                seed_category,
+                                min_seller_rating=min_seller_rating)
             else:
                 _expand_seller(state, cdp, cdp_url, node_id, depth, chain,
                                frontier, out, max_products_per_seller, seed_category)
@@ -453,7 +459,8 @@ def run_fission(
 
 def _expand_product(state: FissionState, cdp: Any, cdp_url: str, pid: str,
                     depth: int, chain: list, frontier: list, out: list,
-                    max_sellers: int, seed_category: str = "") -> None:
+                    max_sellers: int, seed_category: str = "",
+                    min_seller_rating: float | None = None) -> None:
     if not state.depth_allowed(depth + 1):
         return
     # 种子节点（depth=0）直接用候选已保留的 competing_seller_list（P3 零成本）；
@@ -468,6 +475,15 @@ def _expand_product(state: FissionState, cdp: Any, cdp_url: str, pid: str,
         from scripts.lib.ozon_widget import fetch_competing_sellers
         sellers = fetch_competing_sellers(cdp_url, pid, cdp=cdp).get("sellers", []) or []
     for s in sellers[:max_sellers]:
+        # 评分门槛（拓店 shopbang §6.5）：不达标卖家不进 frontier（不消费
+        # visited_sellers/预算）；评分缺失按 0 处理（fail-closed，宁缺毋滥）。
+        if min_seller_rating is not None:
+            try:
+                rating = float(s.get("rating") or 0)
+            except (TypeError, ValueError):
+                rating = 0.0
+            if rating < min_seller_rating:
+                continue
         sid = normalize_seller_id(s.get("seller_id") or s.get("seller_url"))
         if not sid or not state.should_visit_seller(sid):
             continue

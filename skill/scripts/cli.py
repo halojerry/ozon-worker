@@ -2050,6 +2050,131 @@ def _latest_resumable_task(entry_url: str, keyword: str) -> dict:
     return {}
 
 
+# 拓店模式（--expend-shop）默认卖家评分下限：shopbang §6.5 蓝图「跟卖者评分>4
+# → 按价格排序」——价格排序 widget API 已内置（priceNum 升序），此处补评分门槛。
+EXPEND_SHOP_MIN_SELLER_RATING = 4.0
+
+
+def expend_shop_fission_plan(
+    expend_shop: int, *,
+    max_depth: int | None = None,
+    allow_depth_3: bool = False,
+    max_total_products: int | None = None,
+    time_budget: float | None = None,
+) -> dict:
+    """--expend-shop N → run_fission 预算映射（拓店「一跳店铺」语义，纯函数）。
+
+    - max_depth：显式 --max-depth 优先；缺省 1——拓店是「种子商品 → 竞品卖家
+      → 店铺产品」一跳，不是无限裂变；>3 需 --allow-depth-3（与 discover
+      --fission 同护栏），违反抛 ValueError（调用方退出码 1）。
+    - max_total_products：显式 --max-total-products 优先；缺省 max(N×4, 60)。
+      N = 期望拓店产出规模；×4 是「店铺产品 → 粗筛/利润匹配」漏斗的经验留量
+      （不是每个店铺产品都能跑通 1688 货源）；下限 60 保证小 N 也有足量池子
+      供「达标即停」筛选。
+    - time_budget：显式 --time-budget 优先；缺省 600s（与 discover --fission
+      同默认）。
+    """
+    depth = int(max_depth) if max_depth is not None else 1
+    if depth > 3 and not allow_depth_3:
+        raise ValueError(
+            f"裂变深度 {depth} > 3 需显式 --allow-depth-3（指数爆炸风险）")
+    total = (int(max_total_products) if max_total_products is not None
+             else max(int(expend_shop) * 4, 60))
+    budget = float(time_budget) if time_budget is not None else 600.0
+    return {"max_depth": depth, "max_total_products": total,
+            "time_budget": budget}
+
+
+def _collect_expend_shop(cdp_url: str, pid: str, *, plan: dict,
+                         expend_shop: int, brand_filter: str,
+                         min_price: float, max_price: float,
+                         filter_profile: str, session_id: str,
+                         checkpoint_dir: str) -> list:
+    """拓店模式采集：--url 商品为唯一种子（深度0）→ run_fission 一跳店铺展开。
+
+    shopbang §6.5 拓店方法论（蓝图吸收不抄代码）：种子商品 → 竞品卖家
+    （评分≥4 且按价排序，widget API 内置价格升序）→ 卖家店铺产品。
+    - 种子 = 用户显式指定的商品，不做品牌/粗筛过滤（与既有入口语义一致）
+    - 裂变候选（chain_depth>0）补跑与 collect_and_analyze 阶段② 同款过滤
+      （BASE 粗筛 ai 档 + 品牌 + 价格区间），护住 aibuy 配额后再进匹配管线
+    - checkpoint_dir + session_id=task_id：fission 逐节点断点落盘可查
+    返回 [种子 + 裂变候选]（接既有 --filters 判定/匹配/入箱管线）。
+    """
+    from scripts.lib.cdp_client import CdpConnection
+    from scripts.lib.ozon_discovery import (
+        _analyze_product,
+        _is_branded,
+        _is_known_brand,
+        _passes_base_filter,
+    )
+    from scripts.lib.ozon_fission import run_fission
+
+    with CdpConnection(cdp_url) as cdp:
+        seed = _analyze_product(cdp_url, cdp, pid)
+    if seed.status != "ok":
+        print(f"❌ 拓店种子商品分析失败（{seed.error or seed.status}）: {pid}",
+              flush=True)
+        return []
+    print(f"   🌱 种子: {seed.ozon_title[:40]}｜跟卖 "
+          f"{seed.competing_sellers} 人", flush=True)
+
+    def _stage_done(total, sellers, depth):
+        print(f"  [深度 {depth}] 候选 {total} 个 | 已展开卖家 {sellers} 个",
+              flush=True)
+
+    expanded = run_fission(
+        seed_products=[seed],
+        cdp_url=cdp_url,
+        max_depth=plan["max_depth"],
+        max_total_products=plan["max_total_products"],
+        time_budget=plan["time_budget"],
+        session_id=session_id,
+        checkpoint_dir=checkpoint_dir,
+        stage_callback=_stage_done,
+        min_seller_rating=EXPEND_SHOP_MIN_SELLER_RATING,
+    )
+
+    # 裂变候选补跑粗筛（ai 档 + 品牌 + 价格区间）——语义同 collect_and_analyze
+    # 阶段② _apply_filters / _analyze_pids._apply_filters（评审 E：extra_rules
+    # 等 ②b 富化后由 --filters 阶段统一判，此处不重复）
+    n_filtered = 0
+    for c in expanded:
+        if c.chain_depth <= 0 or c.status != "ok":
+            continue
+        if not _passes_base_filter(c, profile=filter_profile):
+            c.status = "filtered"
+            c.error = "未通过 BASE 粗筛"
+            n_filtered += 1
+            continue
+        if c.brand:
+            if brand_filter == "nobrand" and _is_branded(c.brand):
+                c.status = "filtered"
+                c.error = f"品牌产品（{c.brand}），自动跳过"
+                n_filtered += 1
+            elif brand_filter == "known" and _is_known_brand(c.brand):
+                c.status = "filtered"
+                c.error = f"知名品牌产品（{c.brand}），自动跳过"
+                n_filtered += 1
+        if c.status == "ok" and (min_price > 0 or max_price > 0):
+            if c.ozon_price <= 0:
+                c.status = "filtered"
+                c.error = "无有效价格"
+                n_filtered += 1
+            elif min_price > 0 and c.ozon_price < min_price:
+                c.status = "filtered"
+                c.error = f"价格低于下限 {min_price:.0f}₽"
+                n_filtered += 1
+            elif max_price > 0 and c.ozon_price > max_price:
+                c.status = "filtered"
+                c.error = f"价格高于上限 {max_price:.0f}₽"
+                n_filtered += 1
+    if n_filtered:
+        print(f"   🪮 拓店候选粗筛过滤 {n_filtered} 条", flush=True)
+    print(f"   🏪 拓店完成: {len(expanded)} 候选（目标产出规模 {expend_shop}）",
+          flush=True)
+    return expanded
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # discover-task --filters（JSON 规则文件：粗筛区间 + ai 档默认覆盖 + 发货模式白名单）
 # 键名已固化（gateway 白名单同源），勿改名——未知键一律报错（纵深防御）。
@@ -2348,6 +2473,36 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
         print("❌ 需要 --url 或 --keyword 之一（入口：highlight/搜索/类目/店铺页均可）")
         return 2
 
+    # 拓店模式（--expend-shop >0）：入口强制 Ozon 商品页，与 --keyword 互斥。
+    # 校验/预算映射先于浏览器预检（fail-fast，exit 2=参数错误）。
+    expend_shop = int(getattr(args, "expend_shop", 0) or 0)
+    expend_mode = expend_shop > 0
+    expend_plan: dict = {}
+    seed_pid = ""
+    if expend_mode:
+        if keyword:
+            print("❌ --expend-shop 与 --keyword 互斥（拓店入口只能 --url 商品页）")
+            return 2
+        if not url:
+            print("❌ --expend-shop 需要 --url（Ozon 商品页）作为拓店种子")
+            return 2
+        from scripts.lib.ozon_scraper import _parse_product_id_from_url
+        seed_pid = _parse_product_id_from_url(url) or ""
+        if not seed_pid:
+            print(f"❌ --expend-shop 的 --url 须为 Ozon 商品页（无法解析商品 ID）: {url}")
+            return 2
+        try:
+            expend_plan = expend_shop_fission_plan(
+                expend_shop,
+                max_depth=getattr(args, "max_depth", None),
+                allow_depth_3=getattr(args, "allow_depth_3", False),
+                max_total_products=getattr(args, "max_total_products", None),
+                time_budget=getattr(args, "time_budget", None),
+            )
+        except ValueError as exc:
+            print(f"❌ {exc}")
+            return 1
+
     # --filters 预加载（非法文件/未知键 fail-fast，先于浏览器预检；schema 见
     # _load_discover_filters / parser 帮助文本）
     filters: dict | None = None
@@ -2404,6 +2559,13 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     print(f"\n🤖 discover-task {task_id}｜入口: {url or keyword}"
           f"｜目标 {args.target_count}（达标）｜扫描上限 {args.max_scan}"
           f"｜粗筛 {_profile_label}｜匹配上限 {match_limit}", flush=True)
+    if expend_mode:
+        print(f"   🏪 拓店模式: 种子商品 {seed_pid}｜产出规模 N={expend_shop}"
+              f" → 裂变 depth≤{expend_plan['max_depth']}"
+              f"/候选上限 {expend_plan['max_total_products']}"
+              f"/时间预算 {expend_plan['time_budget']:.0f}s"
+              f"｜卖家评分≥{EXPEND_SHOP_MIN_SELLER_RATING:g}（按价排序）"
+              f"｜--max-scan 不适用（裂变预算接管）", flush=True)
     if filters:
         _fparts = []
         if filters["brand"]:
@@ -2419,26 +2581,47 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
 
     # ── 阶段①+②+②b：采集 + 全量数据 + 指标富化 + 粗筛 ──
     print("\n⏳ 阶段 1/3：采集 + 全量数据 + 粗筛...", flush=True)
-    try:
-        candidates = collect_and_analyze(
-            cdp_url=cdp_url,
-            url=url,
-            keyword=keyword,
-            max_products=args.max_scan,
-            use_analytics=not getattr(args, "no_analytics", False),
+    # --filters 的 brand/price_* 提供时覆盖同名 CLI flag（含缺省值）
+    _min_price = (filters["price_min"] if filters and filters["price_min"] is not None
+                  else getattr(args, "min_price", 0))
+    _max_price = (filters["price_max"] if filters and filters["price_max"] is not None
+                  else getattr(args, "max_price", 0))
+    _brand = (filters["brand"] if filters and filters["brand"]
+              else getattr(args, "brand_filter", "nobrand"))
+    if expend_mode:
+        # 拓店：--url 商品为唯一种子 → run_fission 一跳店铺展开（竞品卖家
+        # 评分≥4 按价排序 → 店铺产品），产出候选带全量 widget 数据回既有管线。
+        candidates = _collect_expend_shop(
+            cdp_url, seed_pid,
+            plan=expend_plan,
+            expend_shop=expend_shop,
+            brand_filter=_brand,
+            min_price=_min_price,
+            max_price=_max_price,
             filter_profile=lib_profile,
-            base_filter=args.base_filter or "",
-            # --filters 的 brand/price_* 提供时覆盖同名 CLI flag（含缺省值）
-            min_price=(filters["price_min"] if filters and filters["price_min"] is not None
-                       else getattr(args, "min_price", 0)),
-            max_price=(filters["price_max"] if filters and filters["price_max"] is not None
-                       else getattr(args, "max_price", 0)),
-            brand_filter=(filters["brand"] if filters and filters["brand"]
-                          else getattr(args, "brand_filter", "nobrand")),
+            session_id=task_id,
+            checkpoint_dir=str(_tasks_dir() / "fission"),
         )
-    except ValueError as exc:
-        print(f"❌ 粗筛参数错误: {exc}", flush=True)
-        return 2
+        if not candidates:
+            print("❌ 拓店未产出候选（种子分析失败或裂变为空），任务终止")
+            return 1
+    else:
+        try:
+            candidates = collect_and_analyze(
+                cdp_url=cdp_url,
+                url=url,
+                keyword=keyword,
+                max_products=args.max_scan,
+                use_analytics=not getattr(args, "no_analytics", False),
+                filter_profile=lib_profile,
+                base_filter=args.base_filter or "",
+                min_price=_min_price,
+                max_price=_max_price,
+                brand_filter=_brand,
+            )
+        except ValueError as exc:
+            print(f"❌ 粗筛参数错误: {exc}", flush=True)
+            return 2
 
     # ── 阶段②c+ --filters 规则判定（ai 默认补齐 + 显式区间 + 发货模式白名单）──
     ignored_keys: list[str] = []
@@ -2524,7 +2707,10 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
                    "min_margin": args.min_margin, "match_limit": match_limit,
                    "match_concurrency": args.match_concurrency,
                    "max_scan": args.max_scan,
-                   "filters": getattr(args, "filters", "") or ""},
+                   "filters": getattr(args, "filters", "") or "",
+                   "expend_shop": ({"n": expend_shop, **expend_plan,
+                                    "seed_pid": seed_pid}
+                                   if expend_mode else 0)},
         "processed": processed,
         "summary": {},
     }
@@ -2924,7 +3110,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     dtp = sub.add_parser("discover-task",
                          help="Ozon 选品 · 任务式全自动（采集→粗筛→自动匹配→入采集箱）")
     dtp.add_argument("--url", default="",
-                     help="入口 URL（highlight/搜索/类目/店铺页均可；与 --keyword 二选一）")
+                     help="入口 URL（highlight/搜索/类目/店铺页均可；与 --keyword 二选一；"
+                          "--expend-shop 拓店时须为商品页）")
     dtp.add_argument("--keyword", default="", help="关键词（中国站 highlight 页内搜索）")
     dtp.add_argument("--target-count", type=int, default=50,
                      help="达标目标数量（profitable 出口数，默认 50；匹配达标即停）")
@@ -2979,6 +3166,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
                      help="强制干跑（不出信封不入箱，只打印将提交清单）")
     dtp.add_argument("--resume", action="store_true",
                      help="续跑同入口最近任务（跳过已入箱 pid）")
+    dtp.add_argument("--expend-shop", type=int, default=0,
+                     help="拓店模式（shopbang §6.5 方法论）：--url 指定 Ozon 商品页为唯一种子，"
+                          "裂变展开竞品卖家（评分≥4，按价格排序）→ 卖家店铺产品，产出候选后"
+                          "走既有粗筛/匹配/达标即停/入箱管线。N=期望拓店产出规模：裂变候选"
+                          "预算 = max(N×4, 60)（--max-total-products 可覆盖）；深度默认 1"
+                          "（一跳店铺，非无限裂变；--max-depth 可加深，>3 需 --allow-depth-3）；"
+                          "时间预算默认 600s（--time-budget 可覆盖）。与 --keyword 互斥；"
+                          "0=关闭（默认，行为与现状完全一致）")
+    dtp.add_argument("--max-depth", type=int, default=None,
+                     help="拓店裂变深度（仅 --expend-shop 生效；缺省 1=一跳店铺；>3 需 --allow-depth-3）")
+    dtp.add_argument("--allow-depth-3", action="store_true",
+                     help="允许拓店裂变深度 >3（指数爆炸，需谨慎；仅 --expend-shop 生效）")
+    dtp.add_argument("--max-total-products", type=int, default=None,
+                     help="拓店裂变候选总量上限（仅 --expend-shop 生效；缺省 max(N×4, 60)）")
+    dtp.add_argument("--time-budget", type=float, default=None,
+                     help="拓店裂变时间预算秒（仅 --expend-shop 生效；缺省 600）")
     dtp.add_argument("--no-analytics", action="store_true", help="跳过 seller 运营指标富化")
     dtp.add_argument("--export", default="", help="全量候选导出路径（.xlsx=Excel 选品簿，其余=CSV）")
     dtp.set_defaults(func=cmd_discover_task)
