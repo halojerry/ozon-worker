@@ -180,6 +180,8 @@ export interface Draft {
   updated_at?: string | null
   submission_status?: string | null
   image_mirror_state?: string
+  // 采集箱运营备注（v0.70 A 批次；服务端 product_drafts.notes，不进信封 payload）
+  notes?: string | null
 }
 
 export interface DraftAiResponse {

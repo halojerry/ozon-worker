@@ -91,6 +91,8 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
   const [loadError, setLoadError] = useState("")
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
+  // 采集箱运营备注（v0.70 A 批次；PATCH notes，空串=清空、不传=不修改）
+  const [notes, setNotes] = useState("")
   const [purchaseCost, setPurchaseCost] = useState("")
   const [purchaseUrl, setPurchaseUrl] = useState("")
   const [weight, setWeight] = useState("")
@@ -201,6 +203,7 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
         setPurchaseUrl(f.purchase_url ?? "")
         setWeight(f.weight != null ? String(f.weight) : "")
         setImages((f.images ?? []).join("\n"))
+        setNotes(d.notes ?? "")
         // 已有类目改配（manual/skill 直采）回显
         const oc = d.payload?.draft?.ozon_category
         if (oc?.description_category_id && oc?.type_id) {
@@ -267,7 +270,12 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
     if (!detail) return
     setSaving(true); setSaveNotice("")
     try {
-      await api.patch<Draft>(`/drafts/${detail.id}`, { version: detail.version, payload: buildEnvelope() })
+      await api.patch<Draft>(`/drafts/${detail.id}`, {
+        version: detail.version,
+        payload: buildEnvelope(),
+        // 备注随保存并入 PATCH body（服务端 strip+cap 2000；空串=清空）
+        notes: notes.trim() ? notes.trim() : (detail.notes ? "" : undefined),
+      })
       setSaveNotice("✓ 草稿已保存")
       onSaved()
     } catch (e) {
@@ -408,6 +416,8 @@ function EditDraftDrawer({ draft, credentials, onClose, onSaved }: {
               </div>
               <label>货源地址<input value={purchaseUrl} onChange={e => setPurchaseUrl(e.target.value)} placeholder="https://..."/></label>
               <label>图片地址（每行一个）<textarea value={images} onChange={e => setImages(e.target.value)}/></label>
+              <label>备注<textarea value={notes} maxLength={2000} onChange={e => setNotes(e.target.value)}
+                                 placeholder="采集备注：利润依据/货源风险/待确认项…"/><small>仅采集箱内部记录，不随信封上传 Ozon</small></label>
               {saveNotice && <div className={`inline-notice ${saveNotice.startsWith("保存失败") || saveNotice.startsWith("版本冲突") ? "error" : ""}`}>{saveNotice}</div>}
             </div>
             <div className="drawer-form">
