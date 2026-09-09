@@ -98,6 +98,11 @@ export default function DiscoveryPanel() {
         source: String(pick(o, ["match_1688_url", "purchase_url", "source_url", "url"]) ?? ""),
         match_1688_price: String(pick(o, ["match_1688_price"]) ?? ""),
         score: String(pick(o, ["match_score", "score", "confidence"]) ?? ""),
+        // B 契约 4 列（尾追加，不动现有列序）：跟卖利润空间 + 竞品划线价 + 货源国内运费
+        follow_profit_cny: String(pick(o, ["follow_profit_cny"]) ?? ""),
+        follow_margin: String(pick(o, ["follow_margin"]) ?? ""),
+        ozon_old_price: String(pick(o, ["ozon_old_price"]) ?? ""),
+        match_1688_freight_cny: String(pick(o, ["match_1688_freight_cny"]) ?? ""),
       }
     })
     const header = Object.keys(rows[0]).join(",")
