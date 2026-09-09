@@ -158,8 +158,9 @@ def test_cmd_multi_full_chain_to_box_submits_merged():
     c1 = _profitable("p1", "Товар один")
     submitted: list[str] = []
 
-    def _submit_draft(envelope):
-        submitted.append(envelope["draft"]["item_id"])
+    def _submit_draft(envelope, note=None):
+        # 镜像真实签名 submit_draft(graph_input, *, note=None)（A6 --note kwarg）
+        submitted.append((envelope["draft"]["item_id"], note))
         return {"ok": True, "draft_id": f"D-{envelope['draft']['item_id']}"}
 
     args = _multi_args(keywords="猫玩具,宠物饮水机", rules="monthly_sales>=1",
@@ -194,6 +195,7 @@ def test_cmd_multi_full_chain_to_box_submits_merged():
             rc = cli.cmd_discover_multi(args)
 
     assert rc == 0
-    assert submitted == ["p1"], f"to_box 应提交合并候选, got {submitted}"
+    assert submitted == [("p1", None)], \
+        f"to_box 应提交合并候选（无 --note → note=None）, got {submitted}"
     m_env.assert_not_called()
     assert "📥 已入采集箱: Товар один → draft_id=D-p1" in out.getvalue()
