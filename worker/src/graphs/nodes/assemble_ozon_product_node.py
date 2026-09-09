@@ -1087,15 +1087,48 @@ def _resolve_skill_category(draft_ozon_cat: dict) -> dict | None:
         {"description_category_id", "type_id", "full_path", "namespace", "source",
          "_resolved_by_path", ...} 或 None
     """
-    if not draft_ozon_cat or not draft_ozon_cat.get("description_category_id"):
+    if not draft_ozon_cat:
+        return None
+    _namespace = str(draft_ozon_cat.get("namespace", "")).strip()
+    _source = str(draft_ozon_cat.get("source", "")).strip() or "search_kw"
+    _cat_path = str(draft_ozon_cat.get("category_path", "")).strip()
+
+    # F-B02 延续（2026-09-09 用户口径：Ozon 页面有类目就直接复用）：
+    # 路径精配不再要求先有数字 dc/tp——discover 信封形态就是
+    # {source: page, namespace: widget, category_path: 面包屑}（Web 前台 ID
+    # 非 Seller 树体系，只有路径文本）。原实现「无 dc 早退」把 hint 整个
+    # 丢弃 → discover 永远走全量文本链。现 path-only 也走 get_node_by_full_path
+    # （ZH_HANS+RU 双语确定性精配），命中即权威（source=page 在 assemble
+    # 权威白名单），未命中退回文本链。
+    if _cat_path:
+        try:
+            from utils.ozon_category_query import get_category_query
+            query = get_category_query()
+            _node = query.get_node_by_full_path(_cat_path)
+            if _node:
+                logger.info(f"✅ 直采类目路径精配(确定性, path-only): '{_cat_path[:60]}' → "
+                            f"[{_node['description_category_id']}/{_node['type_id']}]")
+                return {
+                    "description_category_id": int(_node["description_category_id"]),
+                    "type_id": int(_node["type_id"]),
+                    "full_path": _node.get("full_path", ""),
+                    "node_name": _node.get("node_name", ""),
+                    "similarity": 1.0,
+                    "confidence": 0.95,
+                    "reason": f"skill_path_resolve:{_source}",
+                    "namespace": _namespace,
+                    "source": _source,
+                    "_resolved_by_path": True,
+                }
+        except Exception as _path_exc:
+            logger.warning(f"路径精配异常（退回数字校验链）: {_path_exc}")
+
+    if not draft_ozon_cat.get("description_category_id"):
         return None
     _dc_s = str(draft_ozon_cat["description_category_id"])
     _tp_s = str(draft_ozon_cat.get("type_id", _dc_s))
     if not (_dc_s.isdigit() and _tp_s.isdigit()):
         return None
-    _namespace = str(draft_ozon_cat.get("namespace", "")).strip()
-    _source = str(draft_ozon_cat.get("source", "")).strip() or "search_kw"
-    _cat_path = str(draft_ozon_cat.get("category_path", "")).strip()
     try:
         from utils.ozon_category_query import get_category_query
         query = get_category_query()
