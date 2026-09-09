@@ -56,6 +56,9 @@ def test_enrich_path_triggers_giveback(monkeypatch):
         ozon_product_id="3171397439", ozon_title="测试商品", ozon_price=570.0,
         ozon_url="https://www.ozon.ru/product/3171397439")
 
+    # Task 2.3：enrich 入口先查数据池——本用例测 CDP 路径，池按不可用（None）
+    # 处理，让候选原样回落直采（否则 token 已配置的机器会真实打 worker）。
+    monkeypatch.setattr(mpc, "query_sku_metrics", lambda skus, **kw: None)
     # 直采缝：cookie 直调成功 → 走 map 快路径，永不触 CDP（cdp=None 也安全）
     monkeypatch.setattr(osa, "get_seller_session_cookies",
                         lambda cdp_url: {"sc_company_id": "1"})
@@ -80,3 +83,161 @@ def test_queries_command_triggers_giveback():
 
     src = inspect.getsource(cli.cmd_queries)
     assert "_giveback_metrics" in src
+
+
+# ---------------------------------------------------------------------------
+# Task 2.3: discover 富化池优先（池命中免 CDP 直采；未命中行为不变）
+#
+# 字段勘误（对照真实代码，brief 示例字段名不存在的以实现为准）：
+# - 候选 sku 字段是 `ozon_product_id`（ProductCandidate 无 ozon_sku/sku_id），
+#   与 CDP 畅销榜 map 的键同词汇（map 以 sku 为键、富化循环按
+#   c.ozon_product_id 查）——池查询键即它。
+# - 池行 sales_payload 与 CDP map 行同词汇表（_giveback_metrics 上报的正是
+#   metrics_map 行 = _extract_metrics 产物），月销量走 apply_analytics_to_candidate
+#   的 sold_count → monthly_sales 同一映射函数，非 brief 示例的 monthsales。
+# ---------------------------------------------------------------------------
+
+
+def _pool_metric(sales_payload, **extra):
+    """worker GET /analytics/sku-metrics 行 shape（Task 1.2 契约）的测试模具。"""
+    metric = {
+        "sku": "", "sales_payload": sales_payload, "variant_payload": None,
+        "category_dc": None, "category_tp": None, "category_name_zh": None,
+        "needs_sales_sync": False, "needs_variant_sync": False,
+        "updated_at": None,
+    }
+    metric.update(extra)
+    return metric
+
+
+def test_enrich_pool_hit_fills_candidate(monkeypatch):
+    """池命中：候选用池里 sales_payload 走与 CDP 富化同一映射函数填漏斗字段
+    （has_analytics 置位），且全命中整段跳过 CDP 直采（cookie 直调/CDP map
+    均不触——这就是本任务的赢面）。"""
+    from scripts.lib import ozon_seller_analytics as osa
+
+    payload = {"sku": "3171397439", "sold_count": 140, "gmv_sum": 570000.0,
+               "has_sales_data": True}
+    pool = {"3171397439": _pool_metric(payload, sku=3171397439)}
+    seen_skus: list[list[str]] = []
+
+    def fake_query(skus, **kw):
+        seen_skus.append(list(skus))
+        return pool
+
+    monkeypatch.setattr(mpc, "query_sku_metrics", fake_query)
+    # CDP 缝断言：全命中必须零触——任一被调即 AssertionError（真实映射函数
+    # apply_analytics_to_candidate 不 mock，映射正确性一并锁定）。
+    monkeypatch.setattr(osa, "get_seller_session_cookies",
+                        lambda url: (_ for _ in ()).throw(
+                            AssertionError("池全命中不应触 cookie 直调")))
+    monkeypatch.setattr(osa, "fetch_bestseller_metrics_map",
+                        lambda cdp, **kw: (_ for _ in ()).throw(
+                            AssertionError("池全命中不应触 CDP map")))
+
+    cand = od.ProductCandidate(ozon_product_id="3171397439",
+                               ozon_title="测试商品", ozon_price=570.0)
+    enriched = od._enrich_with_seller_metrics(
+        [cand], None, "http://127.0.0.1:9222")
+
+    assert seen_skus == [["3171397439"]]      # 用候选 sku 查池
+    assert cand.has_analytics is True
+    assert cand.monthly_sales == 140          # 漏斗字段 = 池 payload 值
+    assert cand.monthly_revenue == 570000.0
+    assert enriched == {"3171397439": payload}  # 返回值与 CDP 富化同构
+
+
+def test_enrich_pool_miss_falls_back_to_cdp(monkeypatch):
+    """池零命中（{}）→ 候选原样走既有 CDP 直采路径并照常富化（行为不变）。"""
+    from scripts.lib import ozon_seller_analytics as osa
+
+    monkeypatch.setattr(mpc, "query_sku_metrics", lambda skus, **kw: {})
+    cdp_map = {"555": {"sku": "555", "sold_count": 7, "gmv_sum": 21000.0,
+                       "has_sales_data": True}}
+    monkeypatch.setattr(osa, "get_seller_session_cookies", lambda url: {})
+    monkeypatch.setattr(osa, "check_seller_login", lambda cdp: True)
+    monkeypatch.setattr(osa, "wait_for_seller_login", lambda cdp, **kw: True)
+    monkeypatch.setattr(osa, "fetch_bestseller_metrics_map",
+                        lambda cdp, **kw: dict(cdp_map))
+
+    cand = od.ProductCandidate(ozon_product_id="555", ozon_title="t",
+                               ozon_price=700.0)
+    enriched = od._enrich_with_seller_metrics(
+        [cand], object(), "http://127.0.0.1:9222")
+
+    assert cand.has_analytics is True
+    assert cand.monthly_sales == 7
+    assert enriched == cdp_map
+
+
+def test_enrich_pool_none_behaves_as_today(monkeypatch):
+    """池不可用（None = worker 挂/未配置 token）→ 与今天逐字一致（CDP 直采）。"""
+    from scripts.lib import ozon_seller_analytics as osa
+
+    monkeypatch.setattr(mpc, "query_sku_metrics", lambda skus, **kw: None)
+    cdp_map = {"666": {"sku": "666", "sold_count": 9, "has_sales_data": True}}
+    monkeypatch.setattr(osa, "get_seller_session_cookies", lambda url: {})
+    monkeypatch.setattr(osa, "check_seller_login", lambda cdp: True)
+    monkeypatch.setattr(osa, "wait_for_seller_login", lambda cdp, **kw: True)
+    monkeypatch.setattr(osa, "fetch_bestseller_metrics_map",
+                        lambda cdp, **kw: dict(cdp_map))
+
+    cand = od.ProductCandidate(ozon_product_id="666", ozon_title="t",
+                               ozon_price=900.0)
+    enriched = od._enrich_with_seller_metrics(
+        [cand], object(), "http://127.0.0.1:9222")
+
+    assert cand.has_analytics is True
+    assert cand.monthly_sales == 9
+    assert enriched == cdp_map
+
+
+def test_enrich_pool_partial_hit_remaining_goes_cdp(monkeypatch):
+    """部分命中：命中者用池数据，未命中者照旧走 CDP map——池数据不被覆盖。"""
+    from scripts.lib import ozon_seller_analytics as osa
+
+    pool_payload = {"sku": "111", "sold_count": 50, "has_sales_data": True}
+    monkeypatch.setattr(mpc, "query_sku_metrics",
+                        lambda skus, **kw: {"111": _pool_metric(pool_payload,
+                                                                sku=111)})
+    monkeypatch.setattr(osa, "get_seller_session_cookies", lambda url: {})
+    monkeypatch.setattr(osa, "check_seller_login", lambda cdp: True)
+    monkeypatch.setattr(osa, "wait_for_seller_login", lambda cdp, **kw: True)
+    monkeypatch.setattr(osa, "fetch_bestseller_metrics_map",
+                        lambda cdp, **kw: {"222": {"sku": "222", "sold_count": 9,
+                                                   "has_sales_data": True}})
+
+    c_pool = od.ProductCandidate(ozon_product_id="111", ozon_title="a",
+                                 ozon_price=100.0)
+    c_cdp = od.ProductCandidate(ozon_product_id="222", ozon_title="b",
+                                ozon_price=200.0)
+    enriched = od._enrich_with_seller_metrics(
+        [c_pool, c_cdp], object(), "http://127.0.0.1:9222")
+
+    assert c_pool.monthly_sales == 50 and c_pool.has_analytics
+    assert c_cdp.monthly_sales == 9 and c_cdp.has_analytics
+    assert set(enriched) == {"111", "222"}
+
+
+def test_pool_hit_wires_category_name_zh(monkeypatch):
+    """池行带非 None category_name_zh → 写入候选 category（CSV/Excel「类目」
+    展示列；CDP 路径此列是数字 dc，池数据有人话名优先人话名）。"""
+    from scripts.lib import ozon_seller_analytics as osa
+
+    payload = {"sku": "333", "sold_count": 20, "has_sales_data": True}
+    monkeypatch.setattr(mpc, "query_sku_metrics",
+                        lambda skus, **kw: {"333": _pool_metric(
+                            payload, sku=333,
+                            category_name_zh="美容和卫生 > 洗发水")})
+    monkeypatch.setattr(osa, "get_seller_session_cookies",
+                        lambda url: (_ for _ in ()).throw(
+                            AssertionError("池全命中不应触 cookie 直调")))
+    monkeypatch.setattr(osa, "fetch_bestseller_metrics_map",
+                        lambda cdp, **kw: (_ for _ in ()).throw(
+                            AssertionError("池全命中不应触 CDP map")))
+
+    cand = od.ProductCandidate(ozon_product_id="333", ozon_title="t",
+                               ozon_price=300.0)
+    od._enrich_with_seller_metrics([cand], None, "http://127.0.0.1:9222")
+
+    assert cand.category == "美容和卫生 > 洗发水"

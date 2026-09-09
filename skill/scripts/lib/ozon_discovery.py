@@ -598,9 +598,67 @@ def _giveback_metrics(metrics_items) -> None:
         logger.debug("giveback 失败（忽略）: %s", exc)
 
 
+def _apply_pool_metrics(candidates: list[ProductCandidate],
+                        enriched: dict[str, dict]) -> int:
+    """数据池优先（Task 2.3）：查 metrics 数据池，命中候选免 CDP 直采。
+
+    query_sku_metrics（metrics_pool_client，读-回馈批 1 落地的读侧）返回
+    {str(sku): metric}，漏斗数据在 metric.sales_payload——与 CDP 畅销榜 map
+    行同词汇表（_giveback_metrics 上报的正是同一批行），故直接走
+    apply_analytics_to_candidate 同一映射函数填候选字段（与 CDP 富化逐字
+    一致），has_analytics 由该函数照常置位。附带两件小事：
+    - metric.category_name_zh（worker 侧归一的中文类目路径，非 None 时）→
+      candidate.category（CSV/Excel「类目」展示列；CDP 路径此列是数字 dc，
+      池数据有人话名优先人话名。纯展示字段不参与上架——上架走 ozon_category）。
+    - env `METRICS_POOL_QUERY=0` 一键关（与 client 侧 METRICS_POOL_REPORT=0
+      对称，风控/调试用）。
+
+    返回池命中数；enriched 就地登记 pid → sales_payload（与既有富化返回同构，
+    调用方以此区分「池已命中」与「待 CDP 直采」）。查询失败/未配置/零命中
+    → 0，调用方照旧走 CDP 直采——**池永不使 discover 变差**。查询异常绝不
+    外逃（对齐 _giveback_metrics 双保险纪律）。
+    """
+    if not candidates or os.environ.get("METRICS_POOL_QUERY") == "0":
+        return 0
+    try:
+        from scripts.lib.metrics_pool_client import query_sku_metrics
+        skus = [str(c.ozon_product_id) for c in candidates if c.ozon_product_id]
+        if not skus:
+            return 0
+        pool = query_sku_metrics(skus)
+    except Exception as exc:  # noqa: BLE001 — 查池失败一律静默回落 CDP 直采
+        logger.debug("数据池查询跳过（回退直采）: %s", exc)
+        return 0
+    if not pool:
+        return 0
+    from scripts.lib.ozon_seller_analytics import apply_analytics_to_candidate
+    hits = 0
+    for c in candidates:
+        metric = pool.get(str(c.ozon_product_id))
+        if not metric:
+            continue
+        payload = metric.get("sales_payload") or {}
+        if not apply_analytics_to_candidate(c, payload):
+            continue
+        enriched[str(c.ozon_product_id)] = payload
+        hits += 1
+        name_zh = metric.get("category_name_zh")
+        if name_zh:
+            c.category = str(name_zh)
+    if hits:
+        logger.info("数据池命中 %d/%d 条运营指标（免 CDP 直采）", hits, len(candidates))
+    return hits
+
+
 def _enrich_with_seller_metrics(candidates: list[ProductCandidate],
                                 cdp, cdp_url: str) -> dict[str, dict]:
     """阶段②b seller 运营指标富化（就地 apply 进候选），返回成功富化的 {pid: metrics}。
+
+    Task 2.3（数据池优先）：入口先查数据池——命中的候选直接用池里
+    sales_payload 填字段（与 CDP 富化同一映射函数，见 _apply_pool_metrics）；
+    全部命中则整段跳过下方 CDP 直采（免 cookie 直调/免登录等待/免 seller 页
+    导航，命中即零 seller 依赖）。未命中/未配置/查询失败的候选原样回落既有
+    CDP 路径，行为不变。
 
     v2 漏斗 Task 6：畅销榜 map 走 cookie 直调优先（_fetch_seller_session_cookies
     只读不导航 + fetch_bestseller_metrics_map_direct 免 seller 页导航/免登录等
@@ -608,6 +666,14 @@ def _enrich_with_seller_metrics(candidates: list[ProductCandidate],
     （check_seller_login → wait_for_seller_login → fetch_bestseller_metrics_map），
     可用性不回退。map 未命中的 pids 再降级逐 SKU fetch_sales_analytics（P1c）。
     """
+    enriched: dict[str, dict] = {}
+
+    # ── Task 2.3: 数据池优先（命中免 CDP 直采；失败/未命中行为不变）──
+    _apply_pool_metrics(candidates, enriched)
+    remaining = [c for c in candidates if str(c.ozon_product_id) not in enriched]
+    if not remaining:
+        return enriched
+
     from scripts.lib.ozon_seller_analytics import (
         apply_analytics_to_candidate,
         check_seller_login,
@@ -645,15 +711,16 @@ def _enrich_with_seller_metrics(candidates: list[ProductCandidate],
         # 每收获恰一次顺手上报数据池——副作用，不影响下方富化（fire-and-forget）。
         _giveback_metrics(metrics_map.items())
 
-    enriched: dict[str, dict] = {}
-    for c in candidates:
+    # 池已命中的候选（不在 remaining）不进下方循环——池数据不被 CDP map 覆盖。
+    for c in remaining:
         if c.ozon_product_id in metrics_map:
             apply_analytics_to_candidate(c, metrics_map[c.ozon_product_id])
             enriched[c.ozon_product_id] = metrics_map[c.ozon_product_id]
-    remaining = [c for c in candidates if c.ozon_product_id not in metrics_map]
-    if remaining:
-        per_sku = fetch_sales_analytics(cdp, [c.ozon_product_id for c in remaining])
-        for c in remaining:
+    still_missing = [c for c in remaining
+                     if c.ozon_product_id not in metrics_map]
+    if still_missing:
+        per_sku = fetch_sales_analytics(cdp, [c.ozon_product_id for c in still_missing])
+        for c in still_missing:
             apply_analytics_to_candidate(c, per_sku.get(c.ozon_product_id, {}))
             if c.ozon_product_id in per_sku:
                 enriched[c.ozon_product_id] = per_sku[c.ozon_product_id]
