@@ -1,6 +1,6 @@
 # Changelog
 
-## [未发版] — 2026-09-09（字典值缓存三桶策略：撑爆 40G 盘事故根治）
+## [0.72.0] — 2026-09-09（字典值缓存三桶策略：撑爆 40G 盘事故根治）
 
 > 实施已定案的三桶方案（2026-09-09 取证+真实 API 实测，见记忆
 > dict-cache-disk-explosion-incident / ozon-dict-api-semantics）。
@@ -41,11 +41,18 @@
 
 ### 测试
 - 新 `test_dict_cache_three_bucket.py` 10 用例（分类/落桶/读回退真实 PG/
-  assemble 首页即止与路由/warm 探测模式）；lazy 端点 2 用例改 ephemeral 语义。
+  assemble 首页即止与路由/warm 探测模式；含 stash 变异法验证测试敏感性）；
+  lazy 端点 2 用例改 ephemeral 语义。worker 全量 2103 passed。
+- 写边界加固（0727e7dc）：`set_dictionary_value_cache` type_id None/空/非法
+  → 0——唯一键含 nullable type_id，PG 里 NULL≠NULL 不触发 ON CONFLICT，
+  upsert 会退化为纯 INSERT 无限裂行；routed_set 恒传 int 键只是绕开，此处
+  设最后一道防御（RED→GREEN：stash 掉修复看测试真红）。
+- 随本版一起发的还有 4c42dcfb（mcp 后台任务终态粘性：completed/failed 落定
+  后不被迟到回调翻盘——竞品上品帮 completed→failed 翻盘 bug 防御）。
 - 服务器 ops（代码合并后另行执行）：TRUNCATE dictionary_value_cache（拿回 4G）
   → 部署 → ≤2 分片重预热 → export → 上 COS。
 
-## [未发版] — 2026-09-08（类目/属性匹配靶向修复：值数出口闸 + 类目真值进信封 + L0 cid 断点）
+## [未单独 tag，随 v0.72.0 一起发版] — 2026-09-08（类目/属性匹配靶向修复：值数出口闸 + 类目真值进信封 + L0 cid 断点）
 
 > 三方调查（skill 数据源/worker 匹配链/ozon MCP 契约）后靶向修复，不整体重构。
 > 用户三抱怨对应：①1688 选品没看类目匹配——cid 读侧断点+L0 裂行；②Ozon 选品
@@ -125,7 +132,7 @@
 - 观察点：垃圾源（图搜 conf 0.5 错配仿真花）正确归类为 Искусственные цветы
   并过审——分类自洽但货源错，再次实证「不可信匹配自动入箱」上游缺口（漏斗 v2 决策）。
 
-## [未发版] — 2026-09-08（文档体系收口：过期归档 + API 两层文档 + CI 防漂移 + MCP/harness 对齐）
+## [未单独 tag，随 v0.72.0 一起发版] — 2026-09-08（文档体系收口：过期归档 + API 两层文档 + CI 防漂移 + MCP/harness 对齐）
 
 > 维护面收敛为 worker + skill + MCP + 一套自洽文档；pounding-harness 只做消费方。
 > 不改业务逻辑、不发版（VERSION 四源仍 0.70.0）。
