@@ -1594,9 +1594,18 @@ def _category_guess_consistent(
     leaf = segs[-1] if segs else ""
 
     # R1: gram 覆盖率（guess 被 标题 ∪ 末段 覆盖比例）
+    # ✅ F-B04（2026-09-09）：bigram 覆盖不足时回退**单字集合**覆盖——官方译名与
+    # 卖家词一字之差（保温杯→保暖杯/热水瓶）bigram 全不同但单字高度重叠，
+    # 首版把 graph 猜对的 dc=17027928 错杀（信封名'保暖杯' vs 来源'保温杯'）。
+    # 毒猜防线不放松：金属管 vs 金属桶 依赖 R2 尾字（管/桶）拦截；跨语言依赖 R3。
     target_grams = _text_grams(title) | _text_grams(leaf)
     if target_grams and len(guess_grams & target_grams) / len(guess_grams) < min_overlap:
-        return False
+        guess_chars = {c for c in guess.lower() if "\u4e00" <= c <= "\u9fff"}
+        target_chars = {c for c in (title + leaf).lower() if "\u4e00" <= c <= "\u9fff"}
+        # 单字回退：CJK 单字覆盖率 ≥ 0.34（2 字中 1 / 3 字中 1+）→ 视为近义一致
+        if not (guess_chars and target_chars
+                and len(guess_chars & target_chars) / len(guess_chars) >= 0.34):
+            return False
 
     # R2: CJK 尾字（语义中心）必须在证据里出现
     cjk_runs = _CJK_RUN_RE.findall(guess.lower())
@@ -1899,20 +1908,36 @@ def build_graph_envelope(
                 for _word in _search_words:
                     cats = search_categories(
                         ozon_creds["client_id"], ozon_creds["api_key"],
-                        _word, language=_lang, max_results=1,
+                        _word, language=_lang, max_results=3,
                     )
                     if cats:
                         search_text = _word
                         break
                 if cats:
-                    best = cats[0]
-                    _guess_name = best.get("type_name", "") or best.get("category_name", "")
+                    # ✅ F-B04: max_results 1→3 + 逐个过闸取第一个一致候选——
+                    # 此前只验 top1（保温锅）被闸拦后整个放弃，而列表内
+                    # 保暖杯（真正类目）本可通过校验。
+                    best = None
+                    _guess_name = ""
+                    for _cand in cats:
+                        _cand_name = _cand.get("type_name", "") or _cand.get("category_name", "")
+                        if _category_guess_consistent(
+                            _cand_name,
+                            title or (data.get("title") or ""),
+                            source_category_path,
+                        ):
+                            best = _cand
+                            _guess_name = _cand_name
+                            break
+                    if best is None:
+                        best = cats[0]
+                        _guess_name = best.get("type_name", "") or best.get("category_name", "")
                     # ✅ v0.69 T0.1a: search_kw 本地猜类目自校验——猜中类目与
                     # 「商品标题 ∪ 1688 source_category 末段」gram 覆盖率不足 /
                     # 尾字矛盾 / 零交集 → 丢弃猜测（不写 draft.ozon_category，
                     # 留空让 worker 全链匹配）。生产实证：汽油桶被猜成
                     # Труба металлическая（金属管）毒类目进信封干扰 worker 仲裁。
-                    if _category_guess_consistent(
+                    if best is not None and _category_guess_consistent(
                         _guess_name,
                         title or (data.get("title") or ""),
                         source_category_path,

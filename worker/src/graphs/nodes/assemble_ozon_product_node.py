@@ -1301,17 +1301,50 @@ def assemble_ozon_product_node(
     # 存在即采用, 跳过 pg_trgm 猜。与跟卖分支共用同一校验逻辑。
     # =====================================================
     _skill_l0_hit = None
-    _skill_source = ""
-    _skill_namespace = ""
+    _skill_source = str((draft_ozon_cat or {}).get("source", "")).strip() or "search_kw"
+    _skill_namespace = str((draft_ozon_cat or {}).get("namespace", "")).strip()
     _skill_authoritative = False
+    # F-B04: path-only page hint（discover 信封：source=page 只有面包屑无 dc/tp）
+    # 也进入本消费链——先查 Web 面包屑映射表（成功上架积累，同面包屑直通），
+    # 再回落树路径精配（对 Seller 措辞路径有效），最后原条件维持数字 dc/tp 校验。
+    _skill_path_only = (
+        not draft_ozon_cat.get("description_category_id")
+        and _skill_source == "page"
+        and str((draft_ozon_cat or {}).get("category_path", "")).strip()
+    )
     if (not extensions.get("follow_sell")
-            and draft_ozon_cat.get("description_category_id")
+            and (draft_ozon_cat.get("description_category_id") or _skill_path_only)
             and not getattr(state, "description_category_id", None)):
-        _skill_l0_hit = _resolve_skill_category(draft_ozon_cat)
+        if _skill_path_only:
+            # Web 面包屑映射优先（hit_count 原子递增；未命中回落树精配→文本链）
+            try:
+                from utils.local_db_manager import LocalDBManager as _LDB
+                _mapped = _LDB().lookup_web_category_path(
+                    draft_ozon_cat.get("category_path", ""))
+            except Exception as _map_e:
+                logger.debug("Web 面包屑映射查询异常（降级）: %s", _map_e)
+                _mapped = None
+            if _mapped:
+                logger.info(f"✅ Web 面包屑映射直通: '{_skill_path_only and draft_ozon_cat.get('category_path','')[:50]}' "
+                            f"→ [{_mapped['description_category_id']}/{_mapped['type_id']}]")
+                _skill_l0_hit = {
+                    "description_category_id": int(_mapped["description_category_id"]),
+                    "type_id": int(_mapped["type_id"]),
+                    "full_path": "",
+                    "node_name": "",
+                    "similarity": 1.0,
+                    "confidence": 0.95,
+                    "reason": "web_path_map",
+                    "namespace": _skill_namespace,
+                    "source": _skill_source,
+                    "_resolved_by_path": True,
+                }
+            else:
+                _skill_l0_hit = _resolve_skill_category(draft_ozon_cat)
+        else:
+            _skill_l0_hit = _resolve_skill_category(draft_ozon_cat)
         # ✅ v0.67 wave 修复：权威判定提前到入池前——非权威候选必须以队尾方式
         # 入池（_place_skill_candidate），不能再走「先插首后降级」的矛盾路径。
-        _skill_source = str((draft_ozon_cat or {}).get("source", "")).strip() or "search_kw"
-        _skill_namespace = str((draft_ozon_cat or {}).get("namespace", "")).strip()
         _skill_authoritative = _is_skill_authoritative(
             _skill_source, _skill_namespace, _skill_l0_hit,
         )

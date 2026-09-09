@@ -122,3 +122,21 @@ def test_draft_numbers_kept_without_any_page_info():
     }}
     _apply_discover_page_truth(draft, {}, _cand(), {})
     assert draft["ozon_category"]["description_category_id"] == "88581504"
+
+
+# ── F-B04: R1 单字回退（官方译名一字之差不误杀）──
+
+def test_guess_consistent_near_synonym_rescued():
+    """'保暖杯'（官方译名）vs 来源'保温杯'：bigram 零重叠但单字重叠 2/3 → 一致（不再错杀）。"""
+    from scripts.cloud_probe import _category_guess_consistent
+    assert _category_guess_consistent(
+        "保暖杯", "Термос 0.5л для напитков", "日用餐厨饮具 > 饮水用具 > 保温杯") is True
+
+
+def test_guess_consistent_poison_still_blocked():
+    """毒类目防线不放松：金属管（尾字'管'）vs 金属桶 → R2 尾字拦；跨语言 → R3 拦。"""
+    from scripts.cloud_probe import _category_guess_consistent
+    assert _category_guess_consistent(
+        "金属管", "трубa стальная", "包装 > 金属包装容器 > 金属桶") is False
+    assert _category_guess_consistent(
+        "Труба металлическая", "汽油桶 加厚", "包装 > 金属包装容器 > 金属桶") is False

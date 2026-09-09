@@ -250,7 +250,20 @@ def search_categories(
                 if matched_grams:
                     score = 100 - int(matched_grams / len(cjk_grams) * 80)  # 全命中=20
                 else:
-                    score = 999
+                    # ✅ F-B04（2026-09-09）：2-gram 零重叠时的**单字集合**兜底——
+                    # 官方译名一字之差（保暖杯 vs 保温杯：bigram 保温/温杯 vs 保暖/暖杯
+                    # 全不同）导致 graph 猜对 dc=17027928 却漏召/被闸错杀。单字覆盖
+                    # ≥2/3 记为弱候选（分数劣于 gram 命中，精确匹配始终优先）。
+                    query_chars = {c for c in query_lower if "\u4e00" <= c <= "\u9fff"}
+                    name_chars = {c for c in name_to_search if "\u4e00" <= c <= "\u9fff"}
+                    if query_chars and name_chars:
+                        char_cov = len(query_chars & name_chars) / len(query_chars)
+                        if char_cov >= 0.66:
+                            score = 60 + int((1 - char_cov) * 30)  # 2/3≈69, 全命中=60
+                        else:
+                            score = 999
+                    else:
+                        score = 999
             elif word_score > 0:
                 score = 100 - int(word_score * 90)  # 1/1=10, 1/2=55, 1/3=70
             else:

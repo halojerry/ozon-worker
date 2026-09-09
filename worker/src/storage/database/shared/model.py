@@ -278,6 +278,28 @@ class CategoryTreeNode(Base):
     )
 
 
+class WebCategoryPathMap(Base):
+    """Web 前台面包屑 → Seller dc/tp 映射（F-B04，2026-09-09）。
+
+    Web 前台导航与 Seller 类目树是两套命名体系（面包屑路径无法在 Seller 树
+    确定性精配），本表把「成功上架的真实对应」积累成映射：discover 同面包屑
+    的后续商品直接复用 dc/tp（hit_count 递增），实现「Ozon 有类目直接复用」。
+    """
+    __tablename__ = "web_category_path_map"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    breadcrumb_key: Mapped[str] = mapped_column(String(600), nullable=False, unique=True,
+                                                 comment="规范化 Web 面包屑全文（lower+分隔符统一）")
+    language: Mapped[str] = mapped_column(String(20), nullable=False, default="RU")
+    description_category_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    type_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    hit_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class CategoryMapping(Base):
     """v4: 1688→Ozon 类目映射学习表"""
     __tablename__ = "category_mapping"
