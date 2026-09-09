@@ -933,6 +933,29 @@ def _read_company_id(tab) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _cdp_get_cookies_sequence(conn) -> list:
+    """薄委托：同一临时 tab 依次两读——
+
+    ① Network.getCookies {urls:[SELLER_URL]}：目标 URL 可见 cookie（不含 CHIPS 分区）；
+    ② Storage.getCookies {}：浏览器全部 cookie（含 CHIPS 分区，条目可带 partitionKey）。
+
+    返回 [network响应, storage响应] 两段原始响应。抽成函数只为让测试能
+    monkeypatch（免造 CDP 连接），零业务逻辑。
+    """
+    tab = conn.new_tab("about:blank")
+    try:
+        msg_id = tab._send("Network.getCookies", {"urls": [SELLER_URL]})
+        network_resp = tab._recv_until_id(msg_id, timeout=10) or {}
+        msg_id = tab._send("Storage.getCookies", {})
+        storage_resp = tab._recv_until_id(msg_id, timeout=10) or {}
+        return [network_resp, storage_resp]
+    finally:
+        try:
+            tab.close()
+        except Exception:
+            pass
+
+
 def _fetch_seller_session_cookies(cdp_url: str = "http://127.0.0.1:9222") -> dict[str, str]:
     """从工具 Chrome 会话静默读 seller.ozon.ru cookie（不导航任何页面）。
 
@@ -940,24 +963,38 @@ def _fetch_seller_session_cookies(cdp_url: str = "http://127.0.0.1:9222") -> dic
     Network.getCookies 只读 cookie → 立即关闭。核心 cookie 是 sc_company_id
     （HttpOnly，document.cookie 读不到，必须走 CDP 网络域）。
 
+    CHIPS 分区兜底（ozonAI cookieHandler 同款）：abt_data 等活在分区的 cookie
+    Network.getCookies 拿不到，由 Storage.getCookies（全浏览器含分区）兜回——
+    只取 domain 含 ozon.ru 的条目，同名取 value 更长者（分区值更长才覆盖）。
+
     Returns:
         {cookie名: 值}。无 sc_company_id / Chrome 未运行 → {}（fail-fast）。
     """
     conn = None
-    tab = None
     try:
         from scripts.lib.cdp_client import CdpConnection
 
         conn = CdpConnection(cdp_url)
-        tab = conn.new_tab("about:blank")
-        msg_id = tab._send("Network.getCookies", {"urls": [SELLER_URL]})
-        resp = tab._recv_until_id(msg_id, timeout=10) or {}
+        network_resp, storage_resp = _cdp_get_cookies_sequence(conn)
         cookies: dict[str, str] = {}
-        for c in (resp.get("result", {}).get("cookies") or []):
+        for c in (network_resp.get("result", {}).get("cookies") or []):
             name = c.get("name", "")
             val = c.get("value")
             if name and val not in (None, ""):
                 cookies[name] = str(val)
+        for c in (storage_resp.get("result", {}).get("cookies") or []):
+            name = c.get("name", "")
+            val = c.get("value")
+            if not name or val in (None, ""):
+                continue
+            domain = str(c.get("domain") or "")
+            # 真实 CDP cookie 恒带 domain；缺省（测试桩/异常源）不排除——
+            # 排除依据只能是「在场且不含 ozon.ru」。
+            if domain and "ozon.ru" not in domain:
+                continue
+            sval = str(val)
+            if name not in cookies or len(sval) > len(cookies[name]):
+                cookies[name] = sval
         if not cookies.get("sc_company_id"):
             logger.info("seller.ozon.ru 无 sc_company_id cookie（未登录或未加载过卖家后台）")
             return {}
@@ -966,11 +1003,6 @@ def _fetch_seller_session_cookies(cdp_url: str = "http://127.0.0.1:9222") -> dic
         logger.debug("读取 seller.ozon.ru 会话 cookie 失败（%s），降级 CDP", exc)
         return {}
     finally:
-        if tab:
-            try:
-                tab.close()
-            except Exception:
-                pass
         if conn:
             try:
                 conn.close()
