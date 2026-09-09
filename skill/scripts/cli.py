@@ -1669,7 +1669,11 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
                     envelope["notify"] = True
                 # T9 --to-box: 入采集箱（WebUI 认领后上架）；无该 flag 保持直接上架不变
                 if getattr(args, "to_box", False):
-                    result = submit_draft(envelope)
+                    # A6 --note: 采集备注随请求体（notes 不进信封，见 submit_draft）
+                    result = submit_draft(
+                        envelope,
+                        note=(getattr(args, "note", "") or "").strip() or None,
+                    )
                     return c, result.get("draft_id", ""), "ok"
                 result = submit_envelope(envelope)
                 return c, result.get("task_id", ""), "ok"
@@ -2494,6 +2498,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     dp.add_argument("--auto-submit", action="store_true", help="确认后提交 profitable 产品到 Worker")
     dp.add_argument("--to-box", action="store_true",
                     help="T9: 组装后入采集箱（POST /api/v1/drafts，WebUI 认领后再上架），替代直接提交")
+    dp.add_argument("--note", default="",
+                    help="A6: 采集备注（--to-box 入箱时随请求体存草稿备注，不进信封；≤2000 字）")
     dp.add_argument("--fission", action="store_true",
                     help="裂变选品（v3）：种子商品 → 竞品卖家 → 店铺产品 BFS 扩散")
     dp.add_argument("--max-depth", type=int, default=2, help="裂变深度（默认 2；>3 需 --allow-depth-3）")
