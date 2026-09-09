@@ -85,7 +85,8 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
   `docs/PLAN-w1w8-cos-deploy-fixes-v073.md`。三条硬规则：
   - **改 warm/init_data/ozon_category_query 写 SQL 前必读记忆 `sqlalchemy-jsonb-cast-trap`**：SQLAlchemy
     `text()` 不识别 `:bind::type` 裸 cast（bind 名连同 `::` 解析坏 → syntax error 且常被 except 吞成静默
-    空结果），一律 `CAST(:bind AS jsonb|text[])`——本批修 warm×4 + init_data×2，`/mappings/lookup` 端点
+    空结果），一律显式 `CAST(:bind AS 列实际类型)`（jsonb；数组按列型 varchar[]/text[]——source_keywords 列即
+    varchar[]，写 text[] 撞 `operator does not exist`）——本批修 warm×4 + init_data×2，`/mappings/lookup` 端点
     因它恒空已复活。
   - **缓存导出流程已换 `--export-from-pg`**（从 PG 读缓存导 JSON：秒级、零 API、无需凭证；
     `--export-only` 保留但只是「边拉边导」旧语义，预热后单独导出勿用）；Ozon 400 死节点进
