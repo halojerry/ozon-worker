@@ -175,7 +175,23 @@ builder.add_conditional_edges(
     {"pricing": "pricing", "retry": "validation_retry_wrapper", "END": END}
 )
 # 1688 管线：ingest → 定价
-builder.add_edge("ingest", "pricing")
+# ✅ v0.73: ingest 空标题闸——信封缺 draft.title（9048 属性退化裸 item_id 案例）
+# 在 ingest fail-fast 出清，不再流入 pricing 盲生成。ingest 仅接创建流
+# （follow_sell 在 route_by_sell_type 已分流 follow_sell_import），闸天然不影响跟卖。
+# ⚠️ failed_stage 是 operator.add 累积通道，判定用子串包含 + error_message 非空双条件。
+def route_after_ingest(state):
+    failed_stage = str(getattr(state, 'failed_stage', '') or '')
+    error_msg = getattr(state, 'error_message', '') or ''
+    if 'ingest' in failed_stage and error_msg:
+        logger.warning("⛔ ingest 阻断: %s", error_msg[:120])
+        return "END"
+    return "pricing"
+
+builder.add_conditional_edges(
+    "ingest",
+    route_after_ingest,
+    {"pricing": "pricing", "END": END}
+)
 
 # 定价 → 商品组装（串行：组装需要定价信息）
 # 跟卖产品：_assemble_follow_sell 轻量模式，复用竞品属性+类目

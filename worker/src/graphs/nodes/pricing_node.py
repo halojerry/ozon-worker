@@ -10,6 +10,7 @@ from graphs.state import PricingInput, PricingOutput
 from utils.logger import get_logger, set_trace_context, log_ozon_api_call
 from utils.ozon_client import ozon_post  # F-F01: Ozon 直连统一入口
 from utils.draft_sanity import check_weight_suspect  # v0.21 P2 定价防线
+from utils.price_sanity_guard import check_price_sanity  # ✅ v0.73: 价差守卫（Issue5b，锚价在场时校验终价倍数）
 from utils.commission_resolver import (  # 任务 1.3: 佣金唯一解析入口（explicit>缓存表>segments>0.10）
     get_category_commission,
     pick_price_band,
@@ -392,7 +393,54 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             
             pricing_info["variant_prices"] = variant_prices
             logger.info(f"✅ 多SKU变体定价完成：{len(variant_prices)}个变体价格已计算")
-        
+
+        # ✅ v0.73 价差守卫（Issue5b worker 侧防线，utils/price_sanity_guard 唯一入口）：
+        # 锚价（信封 extensions.discovery_meta.ozon_price，退 min_competing_price）在场时
+        # 校验终价倍数——block → failed 出清 + 入采集箱（非致命）；warn → 放行 +
+        # pricing_info.price_gap_warn 留痕；无锚（graph 流 discovery_meta 空，含生产转盘
+        # 本例）恒 ok 零误杀。final_price<=0 由 compute_price 除零兜底管，本守卫不越界。
+        envelope_raw = getattr(state, "envelope", None)
+        _meta = {}
+        if isinstance(envelope_raw, dict):
+            _ext = envelope_raw.get("extensions")
+            if isinstance(_ext, dict):
+                _meta = _ext.get("discovery_meta") or {}
+        _verdict, _gap = check_price_sanity(float(price), _meta if isinstance(_meta, dict) else None)
+        if _verdict == "block":
+            _reason = (
+                f"价差守卫：终价 {price}{currency_unit} 与选品锚价 {_gap['anchor_price']}"
+                f"（{_gap['anchor_source']}）差距超 {_gap['ratio']} 倍，疑似货源错配"
+            )
+            # [PRICING_FAILED] 前缀复用 v0.14 P1-4 既有路由通道（route_after_pricing
+            # 按该标记阻断；failed_stage 对 PricingOutput 恒 "pricing" 无法区分成败）。
+            _error = f"[PRICING_FAILED] {_reason}"
+            _box_notice = ""
+            try:
+                # 入采集箱（幂等、非致命）——模仿 assemble._maybe_create_blocked_draft 的
+                # try/except 模式；缺 title 时服务层 400 → None，同样静默。
+                from utils.blocked_draft_box import create_blocked_draft, format_box_notice
+                _tenant = str(getattr(state, "user_id", "") or "").strip()
+                if _tenant:
+                    _env = envelope_raw if (isinstance(envelope_raw, dict) and envelope_raw.get("draft")) else {"draft": draft or {}}
+                    _box_notice = format_box_notice(create_blocked_draft(_tenant, _env, [], _reason))
+            except Exception as _box_e:
+                logger.warning("价差守卫阻断入箱失败（非致命）: %s", _box_e)
+            logger.error("⛔ 价差守卫阻断（不上架错配货源）: %s %s", _reason, _box_notice)
+            return PricingOutput(
+                pricing_info={"price_gap_block": _gap},
+                price="",
+                old_price="",
+                notice=_box_notice,
+                error_message=_error,
+                failed_stage="pricing",
+            )
+        if _verdict == "warn":
+            pricing_info["price_gap_warn"] = _gap
+            logger.warning(
+                "⚠️ 价差守卫告警（放行）：终价 %s%s vs 选品锚价 %s（%s）差 %.1f 倍，供审计排查",
+                price, currency_unit, _gap["anchor_price"], _gap["anchor_source"], _gap["ratio"],
+            )
+
         return PricingOutput(
             pricing_info=pricing_info,
             price=str(price),
