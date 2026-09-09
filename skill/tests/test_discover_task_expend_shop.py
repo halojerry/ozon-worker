@@ -117,8 +117,8 @@ def _mk_ok_seed(pid: str) -> ProductCandidate:
 
 
 def test_collect_expend_shop_passes_plan_params(tmp_path):
-    """_collect_expend_shop → run_fission：plan 预算/session_id/checkpoint_dir/
-    min_seller_rating=4.0 逐一正确传递。"""
+    """_collect_expend_shop → run_fission：plan 预算/session_id/checkpoint_dir
+    逐一正确传递；min_seller_rating 不传（评分过滤待真实数据源）。"""
     seed = _mk_ok_seed("1654983021")
     with mock.patch("scripts.lib.cdp_client.CdpConnection") as conn_cls, \
          mock.patch.object(od, "_analyze_product", return_value=seed) as ap, \
@@ -140,7 +140,7 @@ def test_collect_expend_shop_passes_plan_params(tmp_path):
     assert kwargs["time_budget"] == 300.0
     assert kwargs["session_id"] == "20260909_120000"  # task_id 可续跑定位
     assert kwargs["checkpoint_dir"] == str(tmp_path / "fission")
-    assert kwargs["min_seller_rating"] == 4.0         # shopbang §6.5 评分门槛
+    assert "min_seller_rating" not in kwargs       # 跟卖 widget rating 恒 0，过滤不启用
     conn_cls.assert_called_once_with("http://127.0.0.1:9222")
 
 
