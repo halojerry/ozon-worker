@@ -34,7 +34,7 @@ def auth_ok(monkeypatch):
     monkeypatch.setattr(cs, "get_mxou_token", lambda: "tok-test")
 
 
-def test_sync_requires_sc_company_id(monkeypatch, capsys):
+def test_sync_requires_sc_company_id(monkeypatch, capsys, auth_ok):
     monkeypatch.setattr("scripts.lib.ozon_seller_analytics._fetch_seller_session_cookies",
                         lambda cdp_url="": {"Abt": "x"})  # 无 sc_company_id
     with pytest.raises(SystemExit) as e:

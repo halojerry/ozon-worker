@@ -1415,6 +1415,7 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
         apply_selection_rules,
         export_to_csv,
         export_to_json,
+        export_to_xlsx,
         match_selected,
         split_selection_rules,
     )
@@ -1468,6 +1469,14 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
         output = args.output or "data/discovery/discover_export.csv"
         csv_path = export_to_csv(candidates, output)
         print(f"📄 CSV 已导出（全量）: {csv_path}")
+
+    if args.export == "xlsx":
+        # P2：--export xlsx → Excel 四大区选品簿（--output 以 .csv 结尾时改后缀）
+        output = args.output or "data/discovery/discover_export.xlsx"
+        if output.lower().endswith(".csv"):
+            output = output[:-4] + ".xlsx"
+        xlsx_path = export_to_xlsx(candidates, output)
+        print(f"📄 Excel 已导出（全量）: {xlsx_path}")
 
     if args.export in ("json", "both"):
         output = args.output or "data/discovery/discover_export.json"
@@ -1589,12 +1598,25 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
                     break
 
     # 选中+货源结果导出（仅当请求导出时追加一份 _matched 文件）
-    if args.export in ("csv", "both"):
+    if args.export in ("csv", "both", "xlsx"):
         base = args.output or "data/discovery/discover_export.csv"
-        matched_csv = base.replace(".csv", "_matched.csv") if base.endswith(".csv") \
-            else "data/discovery/discover_matched.csv"
-        csv_path = export_to_csv(selected, matched_csv)
-        print(f"📄 CSV 已导出（选中+货源）: {csv_path}")
+        if args.export == "xlsx":
+            if base.lower().endswith(".csv"):
+                base = base[:-4] + ".xlsx"
+            elif not base.lower().endswith(".xlsx"):
+                base = base + ".xlsx"
+        if base.endswith(".csv"):
+            matched_export = base.replace(".csv", "_matched.csv")
+        elif base.endswith(".xlsx"):
+            matched_export = base.replace(".xlsx", "_matched.xlsx")
+        else:
+            matched_export = "data/discovery/discover_matched.csv"
+        if args.export == "xlsx":
+            xlsx_path = export_to_xlsx(selected, matched_export)
+            print(f"📄 Excel 已导出（选中+货源）: {xlsx_path}")
+        else:
+            csv_path = export_to_csv(selected, matched_export)
+            print(f"📄 CSV 已导出（选中+货源）: {csv_path}")
 
     # ── 自动生成结构性分析文档（MD+JSON，供 Agent/用户直接汇报）──
     try:
@@ -1669,10 +1691,11 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
                     envelope["notify"] = True
                 # T9 --to-box: 入采集箱（WebUI 认领后上架）；无该 flag 保持直接上架不变
                 if getattr(args, "to_box", False):
-                    # A6 --note: 采集备注随请求体（notes 不进信封，见 submit_draft）
+                    # A6 --note: 采集备注随请求体（notes 不进信封，见 submit_draft）；
+                    # 客户端截 2000 字与 help「≤2000 字」一致（服务端 _norm_notes 兜底不变）
                     result = submit_draft(
                         envelope,
-                        note=(getattr(args, "note", "") or "").strip() or None,
+                        note=((getattr(args, "note", "") or "").strip()[:2000]) or None,
                     )
                     return c, result.get("draft_id", ""), "ok"
                 result = submit_envelope(envelope)
@@ -2293,6 +2316,18 @@ def _apply_discover_filters(candidates, filters: dict,
     return n, ignored
 
 
+def _route_discovery_export(candidates: list, filepath: str) -> str:
+    """--export 后缀路由：.xlsx（大小写不敏感）→ Excel 四大区选品簿；其余 → CSV。
+
+    P2：discover-task 的导出点按用户给的文件后缀分流，值语义两侧同源
+    （ozon_discovery._candidate_row 单一样事实源）。
+    """
+    from scripts.lib.ozon_discovery import export_to_csv, export_to_xlsx
+    if str(filepath).lower().endswith(".xlsx"):
+        return export_to_xlsx(candidates, filepath)
+    return export_to_csv(candidates, filepath)
+
+
 def cmd_discover_task(args: argparse.Namespace) -> int:
     """Ozon 选品 · 任务式全自动（无人值守）。"""
     import time as _time
@@ -2531,7 +2566,9 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
                     print(f"   🚀 已提交上架: {c.ozon_title[:40]} → task_id={task_id}")
                     processed[c.ozon_product_id] = {"status": "ok", "task_id": task_id}
                 else:
-                    result = submit_draft(envelope)
+                    # P3 批次契约：drafts 请求体带 source_batch=本次运行 task_id
+                    # （≤64 字符；Worker 落 product_drafts 供 ?batch= 查询）
+                    result = submit_draft(envelope, source_batch=state["task_id"])
                     draft_id = result.get("draft_id", "")
                     print(f"   📥 已入采集箱: {c.ozon_title[:40]} → draft_id={draft_id}")
                     processed[c.ozon_product_id] = {"status": "ok", "draft_id": draft_id}
@@ -2567,9 +2604,9 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     else:
         print(f"\n🎯 已达标: {profitable_total}/{args.target_count}")
     if args.export:
-        from scripts.lib.ozon_discovery import export_to_csv
-        export_to_csv(candidates, args.export)
-        print(f"📄 候选 CSV: {args.export}")
+        _kind = "Excel" if str(args.export).lower().endswith(".xlsx") else "CSV"
+        _route_discovery_export(candidates, args.export)
+        print(f"📄 候选 {_kind}: {args.export}")
     print(f"📁 任务状态: {_task_state_path(task_id)}（--resume 可续跑）")
     print(f"📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
     # v0.70 结构化出口：后台任务（MCP background=true）靠尾部 JSON 定案收割，
@@ -2815,7 +2852,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     dp.add_argument("--base-filter", default="",
                     help="自定义区间粗筛 \"monthly_sales>=50,drr<=15\"（字段同 --rules，"
                          "与 --filter-profile 叠加；非法表达式报错退出）")
-    dp.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式（全量+选中）")
+    dp.add_argument("--export", choices=["csv", "json", "both", "xlsx"], default="", help="导出格式（全量+选中；xlsx=Excel 四大区选品簿）")
     dp.add_argument("--output", default="", help="导出文件路径")
     dp.add_argument("--auto-submit", action="store_true", help="确认后提交 profitable 产品到 Worker")
     dp.add_argument("--to-box", action="store_true",
@@ -2867,7 +2904,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                           "--auto-submit 未显式指定时默认 ai")
     dpm.add_argument("--base-filter", default="",
                      help="自定义区间粗筛 \"monthly_sales>=50,drr<=15\"（与 --filter-profile 叠加）")
-    dpm.add_argument("--export", choices=["csv", "json", "both"], default="", help="导出格式（全量+选中）")
+    dpm.add_argument("--export", choices=["csv", "json", "both", "xlsx"], default="", help="导出格式（全量+选中；xlsx=Excel 四大区选品簿）")
     dpm.add_argument("--output", default="", help="导出文件路径")
     dpm.add_argument("--auto-submit", action="store_true", help="确认后提交 profitable 产品到 Worker")
     dpm.add_argument("--to-box", action="store_true",
@@ -2943,7 +2980,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     dtp.add_argument("--resume", action="store_true",
                      help="续跑同入口最近任务（跳过已入箱 pid）")
     dtp.add_argument("--no-analytics", action="store_true", help="跳过 seller 运营指标富化")
-    dtp.add_argument("--export", default="", help="全量候选 CSV 导出路径")
+    dtp.add_argument("--export", default="", help="全量候选导出路径（.xlsx=Excel 选品簿，其余=CSV）")
     dtp.set_defaults(func=cmd_discover_task)
 
 
