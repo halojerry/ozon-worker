@@ -1,6 +1,6 @@
 # Ozon Worker API 参考（自动生成）
 
-> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.72.0 · 154 个 path / 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
+> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.72.0 · 155 个 path / 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
 > 对外约定（Base URL / 鉴权 / 限流 / 错误信封 / 分页 / 版本策略）见 `docs/API-OVERVIEW.md`；MCP 面见 `docs/MCP-SERVER.md`；交互式 Swagger `GET /docs`。
 
 规范路径为 `/api/v1/...`；带「兼容别名」的端点同时挂在旧裸路径，语义一致。示例 JSON 只填 required 字段（schema 声明了 `examples` 的按声明渲染）。
@@ -16,7 +16,7 @@
 - [cancel_task](#cancel-task) （1）
 - [categories](#categories) （2）
 - [commissions](#commissions) （1）
-- [credentials](#credentials) （6）
+- [credentials](#credentials) （9）
 - [dashboard](#dashboard) （1）
 - [discovery](#discovery) （2）
 - [drafts](#drafts) （14）
@@ -1030,6 +1030,64 @@ Hard Delete Credential Data — PRD M5(P2): 硬删除该店缓存/历史数据(�
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
+| 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+### `GET /api/v1/credentials/{credential_id}/session`
+Get Session — 会话状态快照 {status, harvested_at, cookie_names}（永不回 cookie 值）。
+
+**参数**
+
+| 名称 | 位置 | 类型 | 必填 | 说明 |
+|---|---|---|---|---|
+| `credential_id` | path | string | ✓ |  |
+
+**响应**
+
+| 状态码 | 说明 | Schema |
+|---|---|---|
+| 200 | Successful Response | — |
+| 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+### `POST /api/v1/credentials/{credential_id}/session`
+Upload Session — 上传会话（加密存储）。跨租户/不存在 credential → 404；未配主密钥 → 500（同凭证端点文案）。
+
+**参数**
+
+| 名称 | 位置 | 类型 | 必填 | 说明 |
+|---|---|---|---|---|
+| `credential_id` | path | string | ✓ |  |
+
+**请求体**（application/json，必填）：object
+
+```json
+{
+  "cookies": {
+    "sc_company_id": "5371047"
+  }
+}
+```
+
+**响应**
+
+| 状态码 | 说明 | Schema |
+|---|---|---|
+| 201 | Successful Response | — |
+| 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+### `DELETE /api/v1/credentials/{credential_id}/session`
+Revoke Session — 撤销会话（物理删行）。无会话 → 404。
+
+**参数**
+
+| 名称 | 位置 | 类型 | 必填 | 说明 |
+|---|---|---|---|---|
+| `credential_id` | path | string | ✓ |  |
+
+**响应**
+
+| 状态码 | 说明 | Schema |
+|---|---|---|
+| 204 | Successful Response | — |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
 ### `POST /api/v1/credentials/{credential_id}/validate`
@@ -2881,6 +2939,7 @@ POST /drafts/{id}/assemble 响应（v0.70 一键预组装：整卡生成并写�
 | `updated_at` | string(date-time) \| null |  | 更新时间 |
 | `submission_status` | string \| null |  | 最新一次提交状态（draft_submissions.status）：pending/uploading/published/failed；NULL = 未上架（C1 状态机，T10 采集箱列） |
 | `image_mirror_state` | string |  | 图片镜像状态（M5b）：''=未启用/未镜像；pending=镜像中；mirrored=已转存 COS；failed=失败保持外链（默认 `""`） |
+| `notes` | string \| null |  | 运营备注（采集/选品依据人工标注）；不进信封 payload |
 
 ### ErrorBody <a id="schema-errorbody"></a>
 统一错误响应体。

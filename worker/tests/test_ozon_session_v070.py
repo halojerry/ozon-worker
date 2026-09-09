@@ -177,3 +177,159 @@ def test_delete_session(fake_db):
     assert svc.delete_session("t1", _CRED1) is True
     fake_db.rowcounts = [0]
     assert svc.delete_session("t1", _CRED1) is False
+
+
+# ══════════════════ C3: /credentials/{id}/session 端点 ══════════════════
+
+from unittest.mock import patch as _mock_patch
+
+from fastapi.testclient import TestClient
+
+import main as _main_mod
+
+_TENANT_A = _main_mod._key_user_id("tokA")
+_TOKEN_MAP = {"tokA": _TENANT_A}
+
+
+class _FakeSupabase:
+    """tokens 表 fake：key → user_id 映射（仅够 _authenticate_token 通过）。"""
+
+    def __init__(self, mapping: dict[str, str]):
+        self._mapping = mapping
+
+    def table(self, name):
+        return _FakeTokensTable(self._mapping)
+
+
+class _FakeTokensTable:
+    def __init__(self, mapping: dict[str, str]):
+        self._mapping = mapping
+        self._key = None
+
+    def select(self, *args, **kwargs):
+        return self
+
+    def eq(self, col, val):
+        if col == "key":
+            self._key = val
+        return self
+
+    def is_(self, col, val):
+        return self
+
+    def execute(self):
+        uid = self._mapping.get(self._key)
+        if uid is None:
+            return SimpleNamespace(data=[])
+        return SimpleNamespace(data=[{
+            "user_id": uid, "key": self._key, "remain_quota": 999,
+            "status": 1, "expired_time": -1, "unlimited_quota": False,
+        }])
+
+
+@pytest.fixture(autouse=True)
+def _session_auth_env(monkeypatch):
+    """放行限流 + Supabase tokens 按 key 分租户（无需真实 PG）。"""
+    with _mock_patch.object(_main_mod.rate_limiter, "check", return_value=(True, 10)), \
+         _mock_patch("main.get_supabase_client", return_value=_FakeSupabase(_TOKEN_MAP)):
+        yield
+
+
+def _hdr() -> dict:
+    return {"Authorization": "Bearer sk-tokA"}
+
+
+_CRED = "00000000-0000-0000-0000-00000000beef"
+
+
+def test_session_post_requires_token_401():
+    resp = TestClient(_main_mod.app).post(
+        f"/api/v1/credentials/{_CRED}/session", json={"cookies": {"a": "b"}})
+    assert resp.status_code == 401
+
+
+def test_session_post_cross_tenant_credential_404():
+    from services import credential_service as cs
+    with _mock_patch.object(cs, "credential_owned_by", return_value=False):
+        resp = TestClient(_main_mod.app).post(
+            f"/api/v1/credentials/{_CRED}/session",
+            json={"cookies": {"a": "b"}}, headers=_hdr())
+    assert resp.status_code == 404
+
+
+def test_session_post_upstores_and_never_echoes_values(key32, monkeypatch):
+    from services import credential_service as cs
+    from services import ozon_session_service as svc
+
+    monkeypatch.setenv("CREDENTIAL_MASTER_KEY", key32)
+    captured = {}
+    with _mock_patch.object(cs, "credential_owned_by", return_value=True), \
+         _mock_patch.object(svc, "store_session",
+                            side_effect=lambda t, c, cookies, **kw: captured.update(cookies=cookies)):
+        resp = TestClient(_main_mod.app).post(
+            f"/api/v1/credentials/{_CRED}/session",
+            json={"cookies": {"Abt": "SECRET", "sc_company_id": "5371047"}},
+            headers=_hdr())
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["ok"] is True and body["status"] == "active"
+    assert body["cookie_names"] == ["Abt", "sc_company_id"]
+    assert "SECRET" not in resp.text and "5371047" not in resp.text  # 密文不回显
+    assert captured["cookies"] == {"Abt": "SECRET", "sc_company_id": "5371047"}
+
+
+def test_session_post_missing_key_500_same_text_as_credentials():
+    from services import credential_service as cs
+    from services import ozon_session_service as svc
+    from utils.credential_cipher import CredentialCipherError
+
+    with _mock_patch.object(cs, "credential_owned_by", return_value=True), \
+         _mock_patch.object(svc, "store_session",
+                            side_effect=CredentialCipherError("CREDENTIAL_MASTER_KEY 环境变量未设置")):
+        resp = TestClient(_main_mod.app).post(
+            f"/api/v1/credentials/{_CRED}/session",
+            json={"cookies": {"a": "b"}}, headers=_hdr())
+    assert resp.status_code == 500
+    assert "CREDENTIAL_MASTER_KEY" in resp.json()["detail"]
+
+
+def test_session_post_invalid_body_422():
+    from services import credential_service as cs
+    with _mock_patch.object(cs, "credential_owned_by", return_value=True):
+        resp = TestClient(_main_mod.app).post(
+            f"/api/v1/credentials/{_CRED}/session",
+            json={"ozon_api_key": "信封词汇"}, headers=_hdr())
+    assert resp.status_code == 422
+    assert "cookies" in resp.json()["detail"]
+
+
+def test_session_get_returns_names_not_values():
+    from services import ozon_session_service as svc
+    snap = {"status": "active", "harvested_at": "2026-09-08T00:00:00+00:00",
+            "cookie_names": ["sc_company_id"]}
+    with _mock_patch.object(svc, "session_status", return_value=snap):
+        resp = TestClient(_main_mod.app).get(
+            f"/api/v1/credentials/{_CRED}/session", headers=_hdr())
+    assert resp.status_code == 200
+    assert resp.json() == snap
+
+
+def test_session_get_no_session_404():
+    from services import ozon_session_service as svc
+    with _mock_patch.object(svc, "session_status", return_value=None):
+        resp = TestClient(_main_mod.app).get(
+            f"/api/v1/credentials/{_CRED}/session", headers=_hdr())
+    assert resp.status_code == 404
+    assert "session-sync" in resp.json()["detail"]
+
+
+def test_session_delete_204_and_404():
+    from services import ozon_session_service as svc
+    with _mock_patch.object(svc, "delete_session", return_value=True):
+        resp = TestClient(_main_mod.app).delete(
+            f"/api/v1/credentials/{_CRED}/session", headers=_hdr())
+    assert resp.status_code == 204
+    with _mock_patch.object(svc, "delete_session", return_value=False):
+        resp = TestClient(_main_mod.app).delete(
+            f"/api/v1/credentials/{_CRED}/session", headers=_hdr())
+    assert resp.status_code == 404
