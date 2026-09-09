@@ -339,6 +339,13 @@ class IngestOutput(BaseModel):
     variants: List[Dict[str, Any]] = Field(default_factory=list, description="变体SKU列表（多SKU商品）")
     item_id: str = Field(default="", description="1688商品ID（用于变体绑定）")
     original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（传递给Phase2节点作为参考图回退）")
+    # ✅ v0.73: 空标题闸出口（信封缺 draft.title fail-fast）——error_message/failed_stage
+    # 已在 GlobalState（error_message 覆盖写 / failed_stage operator.add 累积）与
+    # GraphOutput 透传通道上，此处补声明才能写进 state（langgraph 按 Output model 过滤）。
+    # route_after_ingest 读 failed_stage 含 "ingest" 判 END；task_processor
+    # _graph_result_is_failed 按 error_message+failed_stage 判 failed 终态。
+    error_message: str = Field(default="", description="错误信息（空标题闸等 ingest 级失败）")
+    failed_stage: str = Field(default="", description="失败节点名（空标题闸=ingest，成功恒空）")
 
 
 # ==================== 类目查找节点 ====================
@@ -430,18 +437,26 @@ class PricingInput(BaseModel):
     ozon_api_key: str = Field(default="", description="Ozon Api-Key（用于fallback查询店铺货币）")  # 关键：fallback查询
     error_message: str = Field(default="", description="错误信息（route_after_pricing 读 [PRICING_FAILED]）")
     pricing_info: Dict[str, Any] = Field(default_factory=dict, description="定价审计信息（route_after_pricing 读 wd_audit）")
+    # ✅ v0.73: 价差守卫（utils/price_sanity_guard）读信封 discovery_meta 锚价 + 阻断入箱
+    # 身份——langgraph 按 Input model 过滤 channel，缺声明会被静默过滤导致守卫空转/
+    # 入箱跳过（对齐 assemble/learning_record envelope 声明先例）
+    user_id: str = Field(default="", description="用户ID（tenant，价差守卫阻断入箱归属）")
+    envelope: Dict[str, Any] = Field(default_factory=dict, description="原始信封（discovery_meta 锚价来源 + 阻断入箱落 payload）")
 
 
 class PricingOutput(BaseModel):
     """价格计算节点输出"""
     # ✅ 新增：进度追踪
     progress_counter: int = Field(default=4, description="节点计数器（更新为4）")
-    
+
     pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格计算结果")
     price: str = Field(default="", description="最终价格")
     old_price: str = Field(default="", description="原价")
     error_message: str = Field(default="", description="错误信息")
     failed_stage: str = Field(default="pricing", description="失败的节点名称")
+    # ✅ v0.73: 价差守卫 block 出口入采集箱结果（format_box_notice 生成；task_processor
+    # 失败信息 notice 优先）——GlobalState/GraphOutput 已有该通道，补声明即可透传
+    notice: str = Field(default="", description="中文可读失败说明（价差守卫入箱结果）")
 
 
 # ==================== 属性获取节点 ====================

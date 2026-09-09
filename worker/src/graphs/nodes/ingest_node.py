@@ -70,7 +70,31 @@ def ingest_node(state: IngestInput, config: RunnableConfig, runtime: Runtime[Con
         
         # ✅ 提取item_id（1688商品ID，用于变体绑定）
         item_id: str = draft.get("item_id", "") if isinstance(draft, dict) else ""
-        
+
+        # ✅ v0.73 空标题闸（生产实证：9048 属性退化裸 item_id → draft.title 空 →
+        # 标题靠 LLM 盲生成上架）。选位理由：ingest 是创建流进图后的第一道校验位，
+        # 且 follow_sell 在 route_by_sell_type 已分流 follow_sell_import（跟卖 title
+        # 来源是竞品卡，语义不同）——本闸天然只对创建流 title 缺失生效，无需额外交互
+        # 条件。title 空/空白 → fail-fast 出清（failed_stage="ingest" +
+        # error_message，route_after_ingest 判 END，task_processor 判 failed 终态），
+        # 拒绝盲生成。此类缺 title 信封不入采集箱（create_draft 缺 title 必 400，
+        # 见 assemble._maybe_create_blocked_draft 范围红线注释）。
+        _title = str((draft or {}).get("title", "") or "").strip() if isinstance(draft, dict) else ""
+        if not _title:
+            logger.error("❌ 信封缺 draft.title，拒绝盲生成（fail-fast 出清）")
+            return IngestOutput(
+                task_id="",
+                status="error",
+                draft=draft if isinstance(draft, dict) else {},
+                source=source,
+                extensions=extensions,
+                currency_code=currency_code,
+                variants=variants if isinstance(variants, list) else [],
+                item_id=item_id,
+                error_message="信封缺 draft.title，拒绝盲生成",
+                failed_stage="ingest",
+            )
+
         # ✅ 提取原始产品图片列表（用于图片生成节点）
         original_images: list = []
         if isinstance(draft, dict):
