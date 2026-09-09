@@ -928,6 +928,8 @@ def match_selected(
             candidate.match_1688_url = match.get("url", "")
             candidate.match_1688_title = match.get("title", "")
             candidate.match_1688_price = float(match.get("price", 0))
+            candidate.match_1688_freight_cny = float(
+                match.get("freightCny", 0) or 0) or None  # 国内运费单列（None=未抓到，未知≠真实 0；aibuy 补键即自动生效）
             candidate.match_1688_images = match.get("images", [])
             # v0.66.2: 1688 类目透传（图搜候选 → match dict → 候选）。match dict 经
             # _attach_match_meta/_search_1688_source 已带规范键 category_id/category_name；

@@ -101,3 +101,54 @@ def test_old_price_missing_is_none_not_zero(monkeypatch):
         c = od._analyze_product("http://127.0.0.1:9222", None, "p1")
         assert c.status == "ok"
         assert c.ozon_old_price is None, f"originalPrice={raw!r}"
+
+
+# ---------------------------------------------------------------------------
+# Task B3: 货源国内运费透传（match 源 dict freightCny → candidate）
+# ---------------------------------------------------------------------------
+
+
+def test_freight_plumbed_from_match_dict():
+    # :922 赋值表达式的三态镜像断言：正 freight → 值；0/缺失 → None（未知≠真实 0）
+    for raw, want in (({"freightCny": 2.0}, 2.0), ({"freightCny": 0}, None), ({}, None)):
+        got = float(raw.get("freightCny", 0) or 0) or None
+        assert got == want, f"freightCny={raw!r}"
+
+
+def test_candidate_freight_defaults_none():
+    c = _cand()
+    assert c.match_1688_freight_cny is None
+    assert c.ozon_old_price is None
+
+
+def test_freight_wired_through_match_selected(monkeypatch):
+    """match_selected 主线程处理把 match.freightCny 写回 candidate（三态）。
+
+    仿 test_match_selected_parallel 既有模式：mock _search_1688_source 返回
+    带 confidence≥门槛 的匹配 dict，串行路径（workers=1）全程离线。
+    """
+    from scripts.lib import ozon_discovery as od
+
+    def _run(match_extra):
+        c = ProductCandidate(ozon_product_id="p1", ozon_title="Товар p1",
+                             ozon_price=1000.0)
+        c.status = "ok"
+        c.ozon_images = ["https://img.example/a.jpg"]
+
+        def fake_search(cdp_url, images, title, **kwargs):
+            return {"url": "https://detail.1688.com/offer/1.html",
+                    "title": "Товар p1", "price": 50.0, "images": [],
+                    "confidence": 0.8, "badge_eff": 0.0, "score": 50.0,
+                    **match_extra}
+
+        with mock.patch.object(od, "_discover_workers", return_value=1), \
+             mock.patch.object(od, "_search_1688_source", side_effect=fake_search), \
+             mock.patch.object(od, "_save_discovery_log"), \
+             mock.patch.object(od, "_log_review_record"), \
+             mock.patch("time.sleep"):
+            od.match_selected([c], "http://127.0.0.1:9222", min_margin_pct=1)
+        return c
+
+    assert _run({"freightCny": 2.0}).match_1688_freight_cny == 2.0
+    assert _run({"freightCny": 0}).match_1688_freight_cny is None
+    assert _run({}).match_1688_freight_cny is None
