@@ -27,6 +27,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 class _FakeResult:
     def __init__(self, row):
         self._row = row
+        # F-C01 终态守卫：rowcount 语义（默认 1 = 行在 running，写落成功）
+        self.rowcount = 1
 
     def fetchone(self):
         return self._row

@@ -28,6 +28,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 class _FakeResult:
     def __init__(self, row):
         self._row = row
+        # F-C01 终态守卫：rowcount 语义（默认 1 = 行在 running，写落成功）
+        self.rowcount = 1
 
     def fetchone(self):
         return self._row
@@ -327,7 +329,8 @@ def test_writeback_exception_does_not_break_task():
     assert "status = 'completed'" in sql, "写回异常不应影响终态落库"
     assert result is not None and result.get("upload_status") == "success", \
         "写回异常不应吞掉任务结果 / 不应 raise"
-    assert events.count("commit") == 2 and events.count("writeback") == 1, \
+    # F-C01 重构：守卫终态写与店铺埋点拆为两事务（commit 2→3），仍先于 writeback
+    assert events.count("commit") == 3 and events.count("writeback") == 1, \
         f"commit 仍应先于 writeback 且流程完整: {events}"
 
 

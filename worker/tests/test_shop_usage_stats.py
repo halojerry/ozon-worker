@@ -24,6 +24,8 @@ from utils.task_processor import SupabaseTaskProcessor, _moderation_status_delta
 class FakeRowResult:
     def __init__(self, row=None):
         self._row = row
+        # F-C01 终态守卫：UPDATE rowcount 语义（默认 1 = 行在 running，写落成功）
+        self.rowcount = 1
 
     def fetchone(self):
         return self._row
