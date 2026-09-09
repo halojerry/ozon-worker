@@ -23,8 +23,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from scripts.lib import ozon_discovery as od
 from scripts.lib.ozon_discovery import ProductCandidate
 
+# 大字段（列表/证据链）维持裁剪。v0.70 起 ozon_url / match_1688_title 为有意
+# 上报的小标量（对标上品帮选品记录扩容），不再属于大字段。
 _BIG_FIELDS = ("competing_seller_list", "match_1688_images", "ozon_images",
-               "source_chain", "ozon_url", "match_1688_title")
+               "source_chain")
 
 
 def _mk(product_id="p1", status="ok", big=True):
@@ -60,8 +62,10 @@ def test_report_payload_whitelist_only_and_single_post():
     rows = payload["candidates"]
     assert len(rows) == 1
     row = rows[0]
-    assert set(row.keys()) == set(od.REPORT_FIELDS), \
-        f"payload 应只含白名单字段, got {set(row.keys())}"
+    # 白名单 + 派生单键 ozon_image（首张主图）；漏斗 None 字段省略 → 不要求严格全集
+    extra = set(row.keys()) - set(od.REPORT_FIELDS) - {"ozon_image"}
+    assert not extra, f"payload 出现白名单外字段: {extra}"
+    assert row["ozon_image"]  # big=True 时 ozon_images[0] 派生
     for big in _BIG_FIELDS:
         assert big not in row, f"大字段不应上报: {big}"
     assert row["ozon_product_id"] == "p1"
@@ -78,6 +82,26 @@ def test_report_filters_by_status():
     _, payload = _report(cands)
     ids = [r["ozon_product_id"] for r in payload["candidates"]]
     assert ids == ["p1", "p2", "p3"], f"只应上报 ok/matched/profitable, got {ids}"
+
+
+def test_report_v070_scalar_expansion_and_derived_image():
+    """v0.70 扩容：小标量（ozon_url/match_1688_title/漏斗组）上报；
+    主图派生单键 ozon_image=首张，完整图列表仍不上报。"""
+    c = _mk(product_id="p9", status="ok", big=False)
+    c.ozon_url = "https://www.ozon.ru/product/p9"
+    c.match_1688_title = "宠物饮水机"
+    c.session_count = 0           # 真实 0 透传
+    c.conv_to_cart_search = None  # 无数据 → 键省略（对齐 discovery_meta 纪律）
+    c.ozon_images = ["https://img.ozon.ru/first.jpg", "https://img.ozon.ru/second.jpg"]
+    c.match_1688_images = [f"https://img.example.com/{i}.jpg" for i in range(20)]
+    _, payload = _report([c])
+    row = payload["candidates"][0]
+    assert row["ozon_url"] == "https://www.ozon.ru/product/p9"
+    assert row["match_1688_title"] == "宠物饮水机"
+    assert row["session_count"] == 0
+    assert row["ozon_image"] == "https://img.ozon.ru/first.jpg"
+    assert "conv_to_cart_search" not in row  # None → 键省略
+    assert "match_1688_images" not in row and "ozon_images" not in row
 
 
 def test_report_skips_without_token():
