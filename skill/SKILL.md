@@ -87,6 +87,7 @@ description: >
 | `queries` | what-to-sell 蓝海/榜单查询 | `--type all-queries\|ozon-bestsellers\|market-bestsellers [--keyword] [--export]` | 成功后自动上报 worker PG；可 `--export` CSV/JSON | 选品前查蓝海/畅销榜 |
 | `category` | 查询 Ozon 类目 | `<关键词> [--lang ZH_HANS\|EN\|RU] [--max N]` | 只读 | 类目确认 / 排查类目匹配 |
 | `report` | 上报问题到 worker | `--title [--severity] [--category] [--step]... [--task-ids] [--error-codes]` | 写 worker error_reports | 任务失败/未知错误/用户抱怨（模板见 `references/error-report.md`） |
+| `session-sync` | 收割 seller 会话上传 worker 代管（脱敏） | `--credential-id [--status] [--worker-url]` | 写 worker 加密会话（AES-GCM，不回显值） | worker 提示 `409 session_expired` / check 提示会话过期 / 首次启用会话代管（细则见 `references/session-sync.md`） |
 | `cleanup` | 磁盘清理 | `[--profile-cache] [--cache] [--temp] [--old-results --days N]` | 删缓存/孤儿文件（登录态保留） | 磁盘占用高 |
 | `batch_test.py` | 批量处理 URL 列表 | `--urls-file [--submit] [--wait] [--dry-run]` | 提交 Worker（加 `--submit`） | 批量上架 / 回归 |
 
@@ -113,6 +114,8 @@ description: >
 - `command-reference.md` — 路由决策树 + 各管线完整参数/示例（选管线前、执行前查）
 - `error-codes.md` — 错误码表 + 回复模板 + 进度口径（出错/问进度时查）
 - `error-report.md` — 出错上报模板与纪律（任务 failed/未知错误/用户抱怨时查）
+- `session-sync.md` — Ozon 卖家会话代管：worker 提示会话过期（409 session_expired）时
+  重同步的时机与闭环（对应场景查）
 - `output-schema.md` — 输出字段解析 + 汇报模板（成功汇报时查）
 - `env-setup.md` — 凭证/环境/check 排查（首次使用查）
 - `trend-selection.md` / `discover-fission.md` — 趋势/裂变细则（对应场景查）
