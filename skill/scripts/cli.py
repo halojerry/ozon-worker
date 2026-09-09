@@ -2053,10 +2053,12 @@ def _latest_resumable_task(entry_url: str, keyword: str) -> dict:
     return {}
 
 
-# 拓店模式不启用卖家评分过滤：shopbang §6.5 蓝图「跟卖者评分>4」的数据在跟卖
-# widget 里不存在（实测 rating 恒为 0/缺失），引擎层 fail-closed 会全灭卖家。
-# 待卖家后台 API（路线图 A1b）提供真实卖家评分后再启用 run_fission 的
-# min_seller_rating；价格排序 widget API 已内置（priceNum 升序）。
+# 拓店卖家评级门槛（shopbang §6.5「跟卖者评分>4」）：webSellerList 的评分
+# 真值字段是 rating.totalScore（旧 JS 误抽 value/rating 恒得 0）。评分稀疏
+# （实测数百跟卖难见 1 个有评级），故语义是「评级优先」：种子的跟卖里有达标
+# 卖家才启用门槛，否则降级为不限（见 _collect_expend_shop）。价格排序为
+# widget API 内置（priceNum 升序）。
+EXPEND_SHOP_MIN_SELLER_RATING = 4.0
 
 
 def expend_shop_fission_plan(
@@ -2132,6 +2134,22 @@ def _collect_expend_shop(cdp_url: str, pid: str, *, plan: dict,
     print(f"   🌱 种子: {seed.ozon_title[:40]}｜跟卖 "
           f"{seed.competing_sellers} 人", flush=True)
 
+    # 卖家评级门槛（shopbang §6.5「跟卖者评分>4」）：webSellerList 的
+    # rating.totalScore 实证存在但极稀疏（实测 449 跟卖 0 有评级，出现率
+    # 千分位）。策略：种子的跟卖里**有**评级卖家 → 按 4.0 门槛优先拓；
+    # 一个都没有 → 明确告警后降级为不过滤（shopbang 用遍历全部商品跟卖 +
+    # 猜你喜欢兜底来容忍稀疏，单种子架构等价做法是降级而不是空转）。
+    rated = [s for s in (seed.competing_seller_list or [])
+             if float(s.get("rating") or 0) >= EXPEND_SHOP_MIN_SELLER_RATING]
+    if rated:
+        min_seller_rating: float | None = EXPEND_SHOP_MIN_SELLER_RATING
+        print(f"   ⭐ 评级优先: 跟卖中 {len(rated)} 人评分≥{EXPEND_SHOP_MIN_SELLER_RATING:g}"
+              f"（拓店仅展开这批高评分卖家）", flush=True)
+    else:
+        min_seller_rating = None
+        print(f"   ⚠️ 跟卖中无评分≥{EXPEND_SHOP_MIN_SELLER_RATING:g} 的卖家"
+              f"（widget 评分数据稀疏）——降级为不限评分继续拓店", flush=True)
+
     def _stage_done(total, sellers, depth):
         print(f"  [深度 {depth}] 候选 {total} 个 | 已展开卖家 {sellers} 个",
               flush=True)
@@ -2145,7 +2163,7 @@ def _collect_expend_shop(cdp_url: str, pid: str, *, plan: dict,
         session_id=session_id,
         checkpoint_dir=checkpoint_dir,
         stage_callback=_stage_done,
-        # min_seller_rating 不传（默认 None）——评分过滤待真实数据源，见上方说明
+        min_seller_rating=min_seller_rating,
     )
 
     # 裂变候选补跑粗筛（ai 档 + 品牌 + 价格区间）——语义同 collect_and_analyze
@@ -2578,7 +2596,7 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
               f" → 裂变 depth≤{expend_plan['max_depth']}"
               f"/候选上限 {expend_plan['max_total_products']}"
               f"/时间预算 {expend_plan['time_budget']:.0f}s"
-              f"｜卖家按价排序"
+              f"｜卖家评级优先·按价排序"
               f"｜--max-scan 不适用（裂变预算接管）", flush=True)
     if filters:
         _fparts = []

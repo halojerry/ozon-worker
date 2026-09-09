@@ -474,16 +474,17 @@ def _expand_product(state: FissionState, cdp: Any, cdp_url: str, pid: str,
     else:
         from scripts.lib.ozon_widget import fetch_competing_sellers
         sellers = fetch_competing_sellers(cdp_url, pid, cdp=cdp).get("sellers", []) or []
-    for s in sellers[:max_sellers]:
-        # 评分门槛（拓店 shopbang §6.5）：不达标卖家不进 frontier（不消费
-        # visited_sellers/预算）；评分缺失按 0 处理（fail-closed，宁缺毋滥）。
-        if min_seller_rating is not None:
+    # 评分门槛（拓店 shopbang §6.5）必须放在 max_sellers 截断**之前**：跟卖
+    # widget 的 rating 稀疏（多数卖家无评级），若先截 20 再过滤，无评级卖家会
+    # 占满坑位、有评级卖家反被饿死。缺失按 0 处理（fail-closed，宁缺毋滥）。
+    if min_seller_rating is not None:
+        def _rating_ok(s: dict) -> bool:
             try:
-                rating = float(s.get("rating") or 0)
+                return float(s.get("rating") or 0) >= min_seller_rating
             except (TypeError, ValueError):
-                rating = 0.0
-            if rating < min_seller_rating:
-                continue
+                return False
+        sellers = [s for s in sellers if _rating_ok(s)]
+    for s in sellers[:max_sellers]:
         sid = normalize_seller_id(s.get("seller_id") or s.get("seller_url"))
         if not sid or not state.should_visit_seller(sid):
             continue

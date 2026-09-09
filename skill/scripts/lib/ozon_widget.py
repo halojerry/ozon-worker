@@ -299,20 +299,29 @@ _FETCH_SELLERS_JS = r'''(() => {
             });
             sellers.sort((a, b) => a.priceNum - b.priceNum);
 
+            const mapSeller = s => ({
+                sku: s.sku || '',
+                price: s.priceNum,
+                seller_name: s.name || s.sellerName || s.seller || '',
+                seller_id: s.id || s.sellerId || '',
+                seller_url: s.link || s.sellerUrl || (s.id ? '/seller/' + s.id : ''),
+                // 评分真值 = rating.totalScore（webSellerList 实证结构，shopbang
+                // 同源字段）；多数卖家 rating 为 null（稀疏），此处如实透出 0
+                rating: (s.rating && (s.rating.totalScore ?? s.rating.value ?? s.rating.rating)) || 0,
+                review_count: (s.rating && (s.rating.reviewsCount ?? s.rating.count)) || 0
+            });
+            const mapped = sellers.map(mapSeller);
+            // 头部 20（最便宜，原语义逐字节不变）+ 尾部全部有评级卖家：按价截断
+            // 会把稀疏的有评级卖家挤掉，拓店评分过滤就无米下锅——追加到尾部，
+            // 下游不做评级过滤时只取前 20，行为与旧版一致
+            const result = mapped.slice(0, 20).concat(mapped.slice(20).filter(s => s.rating > 0));
+
             resolve(JSON.stringify({
                 count: sellers.length,
                 min_price: sellers[0] ? sellers[0].priceNum : 0,
                 // ⚠️ v0.31: 字段名修正（maozi 插件实证 webSellerList 真实结构）
                 // 真实字段: id(卖家ID) / link(/seller/{id}/) / name，而非 sellerId/sellerUrl
-                sellers: sellers.slice(0, 20).map(s => ({
-                    sku: s.sku || '',
-                    price: s.priceNum,
-                    seller_name: s.name || s.sellerName || s.seller || '',
-                    seller_id: s.id || s.sellerId || '',
-                    seller_url: s.link || s.sellerUrl || (s.id ? '/seller/' + s.id : ''),
-                    rating: (s.rating && (s.rating.value || s.rating.rating)) || 0,
-                    review_count: (s.rating && s.rating.count) || 0
-                }))
+                sellers: result
             }));
         } catch(e) {
             resolve(JSON.stringify({count: 0, min_price: 0, sellers: [], error: e.message}));
