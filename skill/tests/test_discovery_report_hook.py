@@ -86,12 +86,16 @@ def test_report_filters_by_status():
 
 def test_report_v070_scalar_expansion_and_derived_image():
     """v0.70 扩容：小标量（ozon_url/match_1688_title/漏斗组）上报；
-    主图派生单键 ozon_image=首张，完整图列表仍不上报。"""
+    主图派生单键 ozon_image=首张，完整图列表仍不上报。
+    B 批次：follow_*（0.0 真实数据）+ ozon_old_price/match_1688_freight_cny
+    （有值才落键，None=未知省略）。"""
     c = _mk(product_id="p9", status="ok", big=False)
     c.ozon_url = "https://www.ozon.ru/product/p9"
     c.match_1688_title = "宠物饮水机"
     c.session_count = 0           # 真实 0 透传
     c.conv_to_cart_search = None  # 无数据 → 键省略（对齐 discovery_meta 纪律）
+    c.ozon_old_price = 7695.0
+    c.match_1688_freight_cny = 2.0
     c.ozon_images = ["https://img.ozon.ru/first.jpg", "https://img.ozon.ru/second.jpg"]
     c.match_1688_images = [f"https://img.example.com/{i}.jpg" for i in range(20)]
     _, payload = _report([c])
@@ -100,6 +104,9 @@ def test_report_v070_scalar_expansion_and_derived_image():
     assert row["match_1688_title"] == "宠物饮水机"
     assert row["session_count"] == 0
     assert row["ozon_image"] == "https://img.ozon.ru/first.jpg"
+    assert row["ozon_old_price"] == 7695.0
+    assert row["match_1688_freight_cny"] == 2.0
+    assert row["follow_profit_cny"] == 0.0 and row["follow_margin"] == 0.0
     assert "conv_to_cart_search" not in row  # None → 键省略
     assert "match_1688_images" not in row and "ozon_images" not in row
 
