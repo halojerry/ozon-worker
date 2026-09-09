@@ -2509,6 +2509,10 @@ def _assemble_discovery_meta(candidate) -> dict[str, Any]:
     命中时为 None → 键省略）。主图/货源图各取首张（ozon_image/match_image_url，
     完整图列表仍以 draft.images / 图搜链路为准）。
 
+    B 批次扩键：follow_profit_cny/follow_margin（跟卖利润空间，默认 0.0 真实
+    数据保留）+ ozon_old_price/match_1688_freight_cny（竞品划线价/货源国内
+    运费，默认 None=未知 → 键省略）。
+
     字段缺失（None/空串/空 dict）省略键（对齐 match_evidence 风格）；0 是真实
     数据（月销 0/跟卖 0/蓝海 0）保留；discovered_at 为组装时刻本地 ISO 时间戳。
     扁平键恒 <2KB（信封增量纪律）。
@@ -2529,6 +2533,10 @@ def _assemble_discovery_meta(candidate) -> dict[str, Any]:
         "days_in_promo", "discount", "days_with_trafarets",
         "promo_revenue_share", "nullable_redemption_rate",
         "return_cancel_rate",
+        # B 批次（上品帮对标）：跟卖利润空间 + 竞品划线价 + 货源国内运费
+        # （follow_* 默认 0.0 真实数据保留；old_price/freight 默认 None=未知省略）
+        "follow_profit_cny", "follow_margin",
+        "ozon_old_price", "match_1688_freight_cny",
     ):
         val = getattr(candidate, key, None)
         if val is None or val == "":

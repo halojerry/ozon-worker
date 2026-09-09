@@ -119,6 +119,28 @@ def test_export_no_images_blank_derived(tmp_path):
     assert row["match_1688_image"] == ""
 
 
+def test_export_b_batch_columns(tmp_path):
+    """B 契约 4 列尾追加（现有列序不动）：follow_* 有值落值；
+    ozon_old_price/match_1688_freight_cny 默认 None → 空串（未知≠真实 0）。"""
+    c = _mk_candidate()
+    c.follow_profit_cny = 12.3
+    c.ozon_old_price = 7695.0
+    out = tmp_path / "e.csv"
+    export_to_csv([c], str(out))
+    with open(out, encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fields = reader.fieldnames
+        row = list(reader)[0]
+    assert {"follow_profit_cny", "follow_margin", "ozon_old_price",
+            "match_1688_freight_cny"} <= set(fields)
+    assert fields[-4:] == ["follow_profit_cny", "follow_margin",
+                           "ozon_old_price", "match_1688_freight_cny"], "尾追加列序"
+    assert row["follow_profit_cny"] == "12.3"
+    assert row["follow_margin"] == "0.0"          # 真实 0 保留
+    assert row["ozon_old_price"] == "7695.0"
+    assert row["match_1688_freight_cny"] == ""    # None → 空串
+
+
 if __name__ == "__main__":
     import tempfile
     import traceback

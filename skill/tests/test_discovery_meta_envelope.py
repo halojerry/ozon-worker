@@ -153,6 +153,18 @@ def test_assemble_v070_expanded_keys():
     assert len(json.dumps(meta, ensure_ascii=False)) < 2048  # ≤2KB 纪律
 
 
+def test_assemble_b_batch_keys():
+    """B 批次 4 键进 meta（三出口之一）：follow_* 默认 0.0 真实数据保留；
+    ozon_old_price/match_1688_freight_cny 有值才落键（None=未知省略）。"""
+    cand = _mk_candidate(follow_profit_cny=12.3, follow_margin=10.5,
+                         ozon_old_price=7695.0, match_1688_freight_cny=2.0)
+    cand.ozon_images = ["https://ir-20.ozonstatic.cn/a.jpg"]
+    meta = cloud_probe._assemble_discovery_meta(cand)
+    assert meta["follow_profit_cny"] == 12.3 and meta["follow_margin"] == 10.5
+    assert meta["ozon_old_price"] == 7695.0 and meta["match_1688_freight_cny"] == 2.0
+    assert len(json.dumps(meta, ensure_ascii=False)) < 2048
+
+
 def test_assemble_v070_none_fields_and_images_omitted():
     """漏斗字段 None（畅销榜池未命中）→ 键省略；无图列表 → 派生图键不出现。
     （min_competing_price/estimated_* 默认 0.0 是真实数据 → 保留，不在省略清单）"""
@@ -162,9 +174,11 @@ def test_assemble_v070_none_fields_and_images_omitted():
                 "discount", "days_with_trafarets", "promo_revenue_share",
                 "nullable_redemption_rate", "return_cancel_rate",
                 "match_1688_title", "match_1688_category_name",
-                "ozon_image", "match_image_url"):
+                "ozon_image", "match_image_url",
+                "ozon_old_price", "match_1688_freight_cny"):  # B 批次：None=未知省略
         assert key not in meta, f"None/空 → 键省略失败: {key}"
     assert meta["min_competing_price"] == 0.0  # dataclass 默认 0.0 保留
+    assert meta["follow_profit_cny"] == 0.0 and meta["follow_margin"] == 0.0  # 同上
     assert meta["ozon_product_id"] == "4767514314"  # 基础字段仍在
 
 

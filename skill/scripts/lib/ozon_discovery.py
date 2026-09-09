@@ -1553,6 +1553,9 @@ def export_to_csv(candidates: list[ProductCandidate], filepath: str) -> str:
         'session_count', 'conv_to_cart_pdp', 'conv_to_cart_search',
         'days_in_promo', 'discount', 'days_with_trafarets',
         'promo_revenue_share', 'nullable_redemption_rate', 'return_cancel_rate',
+        # v0.70 B 批次扩列（上品帮对标）：跟卖利润空间 + 竞品划线价 + 货源国内运费
+        'follow_profit_cny', 'follow_margin', 'ozon_old_price',
+        'match_1688_freight_cny',
     ]
 
     with open(path, 'w', newline='', encoding='utf-8-sig') as f:
@@ -1607,6 +1610,12 @@ def export_to_csv(candidates: list[ProductCandidate], filepath: str) -> str:
                 'promo_revenue_share': _opt(c.promo_revenue_share),
                 'nullable_redemption_rate': _opt(c.nullable_redemption_rate),
                 'return_cancel_rate': _opt(c.return_cancel_rate),
+                # v0.70 B 批次扩列：follow_* 默认 0.0 是真实数据保留；
+                # ozon_old_price/match_1688_freight_cny 默认 None → 空串（未知≠真实 0）
+                'follow_profit_cny': c.follow_profit_cny,
+                'follow_margin': c.follow_margin,
+                'ozon_old_price': _opt(c.ozon_old_price),
+                'match_1688_freight_cny': _opt(c.match_1688_freight_cny),
             })
 
     return str(path)
@@ -3548,6 +3557,8 @@ def verify_1688_match(ozon_title: str, match_1688_title: str, match_1688_url: st
 # match_1688_images / ozon_images / source_chain 等大字段（PRD §3.2 已定稿）。
 # v0.70 扩容（对标上品帮选品记录）：+货源标题/链接/发货模式/漏斗扩容标量组，
 # 单条 +~300B → ~40KB/run 上限，仍为小载荷；图列表/证据链维持裁剪。
+# v0.70 B 批次：+follow_profit_cny/follow_margin/ozon_old_price/match_1688_freight_cny
+# 4 小标量（单条 +~80B；None=未知键省略）。
 REPORT_FIELDS: list[str] = [
     "ozon_product_id", "ozon_title", "ozon_price", "competing_sellers",
     "min_competing_price", "match_1688_url", "match_1688_price",
@@ -3559,6 +3570,10 @@ REPORT_FIELDS: list[str] = [
     "session_count", "conv_to_cart_pdp", "conv_to_cart_search",
     "days_in_promo", "discount", "days_with_trafarets",
     "promo_revenue_share", "nullable_redemption_rate", "return_cancel_rate",
+    # v0.70 B 批次（上品帮对标）：跟卖利润空间 + 竞品划线价 + 货源国内运费
+    # （ozon_old_price/match_1688_freight_cny 默认 None → 键省略）
+    "follow_profit_cny", "follow_margin", "ozon_old_price",
+    "match_1688_freight_cny",
 ]
 
 # 只上报这三种状态的候选（filtered/rejected/no_match/error/uncertain 不上报）
