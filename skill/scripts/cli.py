@@ -2985,6 +2985,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
     rp.add_argument("--error-codes", default="", help="Ozon 拒单码（逗号分隔，原样不意译）")
     rp.set_defaults(func=cmd_report)
 
+    # ── 会话同步(v0.70 批次 C：worker 端 Ozon 会话代管，check 提示会话过期时执行)──
+    ssp = sub.add_parser("session-sync",
+                         help="收割本机 Chrome 的 seller.ozon.ru 会话上传 worker 代管（脱敏）")
+    ssp.add_argument("--credential-id", required=True,
+                     help="worker 店铺凭证 ID（credentials 列表返回的 UUID）")
+    ssp.add_argument("--status", action="store_true",
+                     help="只查 worker 侧会话状态（脱敏），不收割不上传")
+    ssp.add_argument("--worker-url", default="",
+                     help="Worker 地址（默认取 WORKER_URL 环境变量 / 云端默认）")
+    ssp.add_argument("--cdp-url", default="",
+                     help="Chrome CDP 地址（默认 http://127.0.0.1:9222）")
+    ssp.set_defaults(func=cmd_session_sync)
+
     # ── 卖家店铺分析(v0.29.x ②)──
     sel = sub.add_parser("seller", help="卖家店铺全产品运营分析(跟卖前20名卖家 → 店铺选品)")
     sel.add_argument("--seller-id", required=True, help="Ozon 卖家 ID(跟卖列表透传的 seller_id)")
@@ -3477,6 +3490,118 @@ def cmd_report(args: argparse.Namespace) -> int:
     except Exception as exc:  # noqa: BLE001 — 上报失败不打断主流程
         print(f"❌ 上报失败：{exc}")
         return 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Session Sync（v0.70 批次 C：worker 端 Ozon 会话代管，对标 bindShopCookie）
+# ═══════════════════════════════════════════════════════════════════════════
+
+def cmd_session_sync(args: argparse.Namespace) -> int:
+    """CDP 收割 seller.ozon.ru 会话 → 上传 worker 代管（AES-GCM 加密存储）。
+
+    流程：本机 Chrome CDP 静默读 cookie（复用 ozon_seller_analytics 收割器，
+    核心 cookie=sc_company_id）→ POST /api/v1/credentials/{id}/session →
+    worker 加密落库，供服务端 cookie 直调（what-to-sell 运营数据）。
+
+    纪律：
+    - 无 sc_company_id → fail-fast exit 2（核心 cookie 缺失不上传半截会话）
+    - 成功输出脱敏摘要——只打 cookie 名单与 harvested_at，绝不打 cookie 值
+    - --status 只查 worker 侧会话状态，不收割不上传
+    - cookie 明文只在本地内存与上传请求体中出现，不落日志/文件
+    """
+    import requests
+
+    from scripts._const import CLOUD_API_BASE
+    from scripts.lib.config_store import AuthError, _require_auth, get_mxou_token
+
+    base = (getattr(args, "worker_url", "") or CLOUD_API_BASE).rstrip("/")
+    credential_id = str(args.credential_id or "").strip()
+    session_url = f"{base}/api/v1/credentials/{credential_id}/session"
+
+    try:
+        _require_auth()
+        token = get_mxou_token()
+    except AuthError as exc:
+        print(f"❌ 会话同步失败：{exc}")
+        return 1
+
+    auth_headers = {"Authorization": f"Bearer {token}"}
+
+    # ── --status：只查 worker 侧状态（脱敏），不收割 ──
+    if getattr(args, "status", False):
+        try:
+            resp = requests.get(session_url, headers=auth_headers, timeout=15)
+        except requests.exceptions.ConnectionError:
+            print(f"❌ 查询失败：Worker 不可达 {base}")
+            return 1
+        except requests.exceptions.Timeout:
+            print("❌ 查询失败：Worker 响应超时")
+            return 1
+        if resp.status_code != 200:
+            detail = _session_error_detail(resp)
+            print(f"❌ 查询失败：{detail}")
+            return 1
+        _print_session_snapshot("会话状态（脱敏，不含 cookie 值）", resp.json())
+        return 0
+
+    # ── 收割（复用 analytics 库静默收割器，勿在此重写 CDP 逻辑）──
+    from scripts.lib import ozon_seller_analytics as _osa
+
+    cdp_url = getattr(args, "cdp_url", "") or "http://127.0.0.1:9222"
+    cookies = _osa._fetch_seller_session_cookies(cdp_url)
+    if not cookies.get("sc_company_id"):
+        print("❌ 未收割到 sc_company_id：seller.ozon.ru 未登录或本机 Chrome 未加载过卖家后台。"
+              "请先在工具 Chrome 打开一次 seller.ozon.ru 卖家后台，再重试 session-sync")
+        raise SystemExit(2)  # fail-fast：核心 cookie 缺失不上传半截会话
+
+    try:
+        resp = requests.post(session_url, json={"cookies": cookies},
+                             headers=auth_headers, timeout=15)
+    except requests.exceptions.ConnectionError:
+        print(f"❌ 上传失败：Worker 不可达 {base}")
+        return 1
+    except requests.exceptions.Timeout:
+        print("❌ 上传失败：Worker 响应超时")
+        return 1
+    if resp.status_code >= 400:
+        print(f"❌ 上传失败：{_session_error_detail(resp)}")
+        return 1
+
+    # 上传成功 → 回查状态取 harvested_at（脱敏摘要只打名单与时间）
+    snapshot: dict = {}
+    try:
+        status_resp = requests.get(session_url, headers=auth_headers, timeout=15)
+        if status_resp.status_code == 200:
+            snapshot = status_resp.json()
+    except Exception:  # noqa: BLE001 — 回查失败不影响上传成功结论
+        snapshot = {}
+    if snapshot:
+        _print_session_snapshot("会话已同步到 worker（脱敏摘要）", snapshot)
+    else:
+        print("✅ 会话已同步到 worker（脱敏摘要）")
+        print(f"   cookie 名单: {', '.join(sorted(cookies.keys()))}（共 {len(cookies)} 条）")
+    return 0
+
+
+def _session_error_detail(resp) -> str:
+    """worker 错误响应 → 人话 detail（不回显请求体）。"""
+    try:
+        payload = resp.json()
+    except Exception:  # noqa: BLE001
+        payload = None
+    if isinstance(payload, dict) and payload.get("detail"):
+        return str(payload["detail"])
+    return f"HTTP {resp.status_code}"
+
+
+def _print_session_snapshot(title: str, snapshot: dict) -> None:
+    """打印会话快照——只含名单与状态，绝不打 cookie 值（脱敏红线）。"""
+    print(f"✅ {title}")
+    names = snapshot.get("cookie_names") or []
+    print(f"   cookie 名单: {', '.join(str(n) for n in names)}（共 {len(names)} 条）")
+    print(f"   状态: {snapshot.get('status', 'unknown')}")
+    if snapshot.get("harvested_at"):
+        print(f"   harvested_at: {snapshot['harvested_at']}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
