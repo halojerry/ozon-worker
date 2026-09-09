@@ -568,7 +568,9 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str,
                                           force_new_tab=force_new_tab,
                                           shared_tab=shared_tab)
         candidate.competing_sellers = sellers.get("count", 0)
-        candidate.min_competing_price = sellers.get("min_price", 0)
+        # 加固：widget 返回 min_price=null 时得 None → 下游 _calculate_profit
+        # 的 `min_competing_price > 0` 比较 TypeError（被外层吞成 error 状态）
+        candidate.min_competing_price = float(sellers.get("min_price", 0) or 0)
         candidate.competing_seller_list = sellers.get("sellers", [])
         candidate.status = "ok"
     except Exception as exc:

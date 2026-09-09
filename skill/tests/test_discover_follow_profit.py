@@ -121,6 +121,32 @@ def test_candidate_freight_defaults_none():
     assert c.ozon_old_price is None
 
 
+# ---------------------------------------------------------------------------
+# 加固：widget competing sellers 返回 min_price=null → 归一 0.0
+# （None 直落 candidate 时下游 _calculate_profit 的 min_competing_price > 0
+#   比较会 TypeError——现被外层 try/except 吞成 error 状态）
+# ---------------------------------------------------------------------------
+
+
+def test_min_price_null_coerced_to_zero(monkeypatch):
+    import scripts.lib.ozon_widget as widget
+    from scripts.lib import ozon_discovery as od
+
+    monkeypatch.setattr(
+        widget, "fetch_product_info",
+        lambda *a, **k: {"title": "Товар", "price": "953 ₽", "images": []})
+    monkeypatch.setattr(
+        widget, "fetch_competing_sellers",
+        lambda *a, **k: {"count": 2, "min_price": None, "sellers": []})
+
+    c = od._analyze_product("http://127.0.0.1:9222", None, "p1")
+    assert c.status == "ok"
+    assert c.min_competing_price == 0.0
+
+    _calculate_profit(c, fx_rate=12.0, commission_rate=0.10)  # 不抛 TypeError
+    assert c.follow_profit_cny == 0.0 and c.follow_margin == 0.0
+
+
 def test_freight_wired_through_match_selected(monkeypatch):
     """match_selected 主线程处理把 match.freightCny 写回 candidate（三态）。
 
