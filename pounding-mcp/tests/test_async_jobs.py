@@ -86,7 +86,7 @@ def test_start_background_returns_immediately_and_completes(mgr):
 def test_progress_parsed_from_log(mgr):
     """running 中 get() 尾读日志回填 [N/M] 进度（job_status 的数据源）。"""
     task = mgr.start_background("discover", {"keyword": "x"})
-    t = _wait_status(mgr, task["id"], {"running"})       # 拿到即查（脚本先打进度行）
+    _wait_status(mgr, task["id"], {"running"})          # 拿到即查（脚本先打进度行）
     got = mgr.get(task["id"])
     assert got["status"] == "running"
     if got.get("progress"):
@@ -258,3 +258,22 @@ def test_cli_accepts_translated_commands():
         r = subprocess.run([SKILL_PYTHON, str(_CLI), cmd, "--help"],
                            capture_output=True, text=True, timeout=60)
         assert r.returncode == 0, f"CLI 不接受 {cmd}（来自工具 {tool}）: {r.stderr[:200]}"
+
+
+def test_terminal_status_sticky(mgr):
+    """终态粘性：completed 落定后 _finish(failed) 不得翻盘。
+
+    竞品上品帮实证（2026-08-16 win32 日志）：清理阶段窗口崩溃把已 completed
+    的任务覆盖成 failed，采满 327 个商品的状态全丢——此处锁死该缺陷不可发生。
+    """
+    m = mgr
+    m._set_script(_SLEEP_THEN_JSON)
+    t = m.start_background("discover", {"keyword": "手套"})
+    done = _wait_status(m, t["id"], {"completed"})
+    assert done["status"] == "completed"
+
+    # 模拟迟到的失败回调（watch 竞态/重复收割）
+    m._finish(t["id"], "failed", error="迟到的窗口异常关闭")
+    after = m.get(t["id"])
+    assert after["status"] == "completed"
+    assert not after.get("error")
