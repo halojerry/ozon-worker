@@ -329,9 +329,15 @@ def ozon_upload_node(
 
         if task_id:
             logger.info(f"Ozon上传任务创建成功，task_id: {task_id}（后续ozon_status_node用此task_id轮询状态）")
+            # ✅ v0.73 上传静默收口（Issue6 上游）：import task_id 不是商品 ID——
+            # 旧「向后兼容」写法 product_id=str(task_id) 污染下游语义（T0.4 终态佐证闸、
+            # ozon_status 的 pre_product_id min_price 闸、webui/取证展示）。product_id 置
+            # None，真实商品 ID 由 ozon_status_node 轮询 import/info 确认 imported 后回填；
+            # task_id 走 ozon_task_id 专用通道（OzonStatusInput.product_id 可空，轮询用
+            # state.product_id or ozon_task_id 兜底，链路不断）。
             return OzonUploadOutput(
-                product_id=str(task_id) if task_id else "",  # 向后兼容
-                ozon_task_id=str(task_id) if task_id else "",  # ✅ P3 修复：隔离任务ID
+                product_id=None,
+                ozon_task_id=str(task_id),  # ✅ P3 修复：隔离任务ID
                 upload_status="success",
                 purchase_url=purchase_url,
                 purchase_cost=purchase_cost,
@@ -339,7 +345,11 @@ def ozon_upload_node(
                 profit_estimation=profit_estimation,
                 error_message=""
             )
-        logger.warning("Ozon响应缺少task_id")
+        # ✅ v0.73 上传静默收口（Issue6 上游）：200 但无 import task_id = 上传未真正
+        # 落地，显式 failed（此前英文 "Ozon response missing task_id" 无响应摘要，
+        # 现场难对账）；带截断响应摘要便于排查。
+        _resp_summary = json.dumps(data, ensure_ascii=False)[:300]
+        logger.warning("Ozon响应缺少task_id，响应摘要: %s", _resp_summary)
         return OzonUploadOutput(
             product_id=None,
             upload_status="failed",
@@ -347,7 +357,7 @@ def ozon_upload_node(
             purchase_cost=purchase_cost,
             sku_id=sku_id,
             profit_estimation=profit_estimation,
-            error_message="Ozon response missing task_id"
+            error_message=f"Ozon 未返回 import task_id（HTTP 200），响应摘要: {_resp_summary}"
         )
     
     except requests.exceptions.Timeout:
