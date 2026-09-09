@@ -32,7 +32,8 @@ def test_query_watch_polls_until_terminal():
 
     poll_count = {"n": 0}
 
-    def _status(task_id):
+    def _status(task_id, token=""):
+        # v0.73: poll_task_status 现透传 token=（task_status 端点补 Bearer 鉴权）
         poll_count["n"] += 1
         if poll_count["n"] == 1:
             return {

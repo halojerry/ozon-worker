@@ -3595,20 +3595,34 @@ def publish_product_new(
     return result
 
 
-def check_task_status(task_id: str) -> dict[str, Any]:
+def check_task_status(task_id: str, token: str = "") -> dict[str, Any]:
     """Query current task status from Worker — single call, no polling.
 
     Calls Worker's GET /task_status/{task_id} endpoint.
+    v0.73: 端点已补 Bearer 鉴权 + 租户校验（worker 侧 TASK_STATUS_AUTH=0 应急
+    关）——本函数默认经 config_store 解析 mxou token 带 Authorization 头（签名
+    向后兼容，token 可选参由调用方显式传）；空 token 不带头（本地无凭证场景，
+    由 worker 401 给出人话——此处直接短路返回 unauthorized，避免 poll 空转）。
     Returns: {task_id, status, ok, terminal, result_json, error_message}
     """
     import requests as _requests
 
     url = f"{_get_api_base()}/task_status/{task_id}"
+    headers: dict[str, str] = {}
+    _tok = (token or "").strip() or (_get_token() or "")
+    if _tok:
+        headers["Authorization"] = f"Bearer {_tok}"
 
     try:
-        resp = _requests.get(url, timeout=10)
+        resp = _requests.get(url, timeout=10, headers=headers)
         if resp.status_code == 404:
             return {"task_id": task_id, "status": "not_found", "ok": False, "terminal": True}
+        if resp.status_code == 401:
+            # v0.73: worker task_status 已开鉴权——无凭证/凭证失效立即终止（terminal
+            # 防 poll_task_status 按 10s 空转到超时），文案给出配置指引。
+            return {"task_id": task_id, "status": "unauthorized", "ok": False,
+                    "terminal": True,
+                    "error": "Worker task_status 需 Bearer 鉴权：请先配置 mxou token（cli.py get-config 或 config_store）"}
         data = resp.json() if resp.ok else {}
     except _requests.exceptions.ConnectionError:
         return {"task_id": task_id, "status": "worker_unreachable", "ok": False, "terminal": False}
@@ -3647,6 +3661,7 @@ def poll_task_status(
     task_id: str,
     timeout: int = 900,
     on_status=None,
+    token: str = "",
 ) -> dict[str, Any]:
     """轮询 Worker task_status 直到终态（P1-4 主动状态通知）。
 
@@ -3656,10 +3671,11 @@ def poll_task_status(
 
     on_status(result): 每次非终态轮询后回调（供 --watch 打印进度中间态，
     如 "⏳ running (35%)..."）；终态不回调（终态由返回值呈现）。
+    v0.73: token 可选参透传 check_task_status（端点已补 Bearer 鉴权）。
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        r = check_task_status(task_id)
+        r = check_task_status(task_id, token=token)
         if r.get("terminal"):
             return r
         if on_status is not None:

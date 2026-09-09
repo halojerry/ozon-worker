@@ -2537,7 +2537,7 @@ V1 Task Statistics — 获取任务统计信息。
 ## task_status
 
 ### `GET /api/v1/task_status/{task_id}`
-V1 Task Status — 查询任务状态。
+V1 Task Status — 查询任务状态（v0.73: Bearer 鉴权 + 租户校验，TASK_STATUS_AUTH=0 应急关）。
 > 兼容别名：`GET /task_status/{task_id}`（旧裸路径，语义相同）
 
 **参数**
@@ -2551,6 +2551,7 @@ V1 Task Status — 查询任务状态。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [TaskStatusResponse](#schema-taskstatusresponse) |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
 | 404 | Not Found | [ErrorBody](#schema-errorbody) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
