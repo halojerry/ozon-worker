@@ -164,7 +164,7 @@ def test_csv_export_format():
                 with mock.patch("scripts.lib.cdp_client.CdpConnection") as conn_cls:
                     conn_cls.return_value = mock.MagicMock()
                     # W5.6: 静默直调优先——无 Chrome 会话 cookie → 走 CDP 兜底
-                    with mock.patch.object(osa, "_fetch_seller_session_cookies", return_value={}):
+                    with mock.patch.object(osa, "get_seller_session_cookies", return_value={}):
                         # C5 todo8 接线后 cmd_queries 会上报采集数据——测试里打桩防真实网络请求
                         with mock.patch("scripts.lib.analytics_upload.upload_in_background"):
                             args = argparse.Namespace(
@@ -193,7 +193,7 @@ def test_cmd_queries_not_logged_in_prints_and_returns_0():
             mock.patch.object(osa, "wait_for_seller_login", return_value=False):
         with mock.patch("scripts.lib.cdp_client.CdpConnection") as conn_cls:
             conn_cls.return_value = mock.MagicMock()
-            with mock.patch.object(osa, "_fetch_seller_session_cookies", return_value={}):
+            with mock.patch.object(osa, "get_seller_session_cookies", return_value={}):
                 with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
                     args = argparse.Namespace(
                         type="all-queries", keyword="", sku="", category_id="",
@@ -316,7 +316,7 @@ def test_cmd_queries_direct_path_preferred_when_cookies_available():
 
     cookies = {"sc_company_id": "5371047"}
     rows = [{"query": "поилка", "count": 5}]
-    with mock.patch.object(osa, "_fetch_seller_session_cookies", return_value=cookies):
+    with mock.patch.object(osa, "get_seller_session_cookies", return_value=cookies):
         with mock.patch.object(osa, "fetch_all_queries_direct", return_value=rows) as direct:
             with mock.patch("scripts.lib.analytics_upload.upload_in_background"):
                 with mock.patch("sys.stdout", new_callable=io.StringIO) as out:

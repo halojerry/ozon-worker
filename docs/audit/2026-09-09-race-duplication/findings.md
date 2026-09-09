@@ -9,10 +9,10 @@
 
 | ID | 类型 | 严重度 | 一句话 | 状态 |
 |---|---|---|---|---|
-| F-A01 | duplication | 高 | AK 存储读写位不相交 + 掩码毒化 + 刷新无冷却 → 凭证反复弹浏览器 | confirmed→已修复 12b6c27f |
+| F-A01 | duplication | 高 | AK 存储读写位不相交 + 掩码毒化 + 刷新无冷却 + ak_exp 不预判 → 凭证反复弹浏览器 | confirmed→已修复 12b6c27f |
 | F-A02 | duplication | 高 | aibuy token 导航刷新无冷却无记忆 → 1688 登录态失效后每候选导航一次 | confirmed→已修复 093658b7 |
-| F-A03 | duplication | 高 | 货源匹配 confidence 纯标题文本，类目/视觉信号不参与 → 0.11~0.38 误低分 | confirmed→评分模块已落地，接线待 WIP 落地 |
-| F-A04 | duplication | 中 | Ozon seller cookie 无磁盘缓存，直调失败即开 seller 页等登录 | confirmed（helper 待建，接线点在 WIP 文件） |
+| F-A03 | duplication | 高 | 货源匹配 confidence 纯标题文本，类目/视觉信号不参与 → 0.11~0.38 误低分 | confirmed→已修复（模块+接线，待全量数） |
+| F-A04 | duplication | 中 | Ozon seller cookie 无磁盘缓存，直调失败即开 seller 页等登录 | confirmed→已修复（30min 快照兜底） |
 
 ## 域 A —— skill 能力矩阵与重复扫描
 
@@ -33,17 +33,17 @@
 - 测试：`skill/tests/test_aibuy_refresh_cooldown.py` 6 用例 + `test_aibuy_search.py` 3 存量用例隔离补丁（全绿）。
 
 ### F-A03  匹配置信度纯文本评分（靶点二）
-- 类型：duplication；严重度：高；状态：confirmed → **评分模块已落地，接线待 WIP**
+- 类型：duplication；严重度：高；状态：confirmed → **已修复**（模块 2831a564 + 接线本批）
 - 证据：`_title_conf`（ozon_discovery.py:2181）纯标题文本相关性独占 confidence；aibuy normalizationScore 只微调排序分（:2322-2333）不进 confidence；类目一致性零参与。低分（<0.3 守卫 :2277）→ 弱档/阻断 → worker 有意入箱不自动上（v0.67/0.68 拍板）。worker 类目判定层已真值优先（L0/页面真值），但评分信号未换轨——「决策层改了、打分没改」。
-- 修复：新模块 `skill/scripts/lib/match_scoring.py`——复合评分 = 类目一致性 0.45 + 图搜官方信号 0.35 + 标题文本 0.20；类目上下文缺失比例回落；badge 直通 trusted。已登记 compile.py AUX_FILES。
-- 测试：`skill/tests/test_match_scoring.py` 14 用例（全绿）。
-- **待办（P0-4 收尾）**：`ozon_discovery._conf_of_best` → `score_match(...)` 接线 + `_attach_match_meta` conf 消费方核对 + 同批候选新旧信号分布对照——目标文件有他会话 WIP（2026-09-09 15:44 仍活跃），WIP 落地后接线。
+- 修复：新模块 `skill/scripts/lib/match_scoring.py`——复合评分 = 类目一致性 0.45 + 图搜官方信号 0.35 + 标题文本 0.20；**按在场信号分量归一**（零信号 CDP 候选 conf==title 逐字保旧口径；类目零重叠——RU 面包屑 vs ZH 类目名跨语言——不加分也不稀释）；badge 直通 trusted。接线：`_pick_best_match`/`_search_1688_source` 增 `ozon_category_path` 参数（默认空=行为不变），discover 主循环传 `candidate.page_category_path`（v0.72 页面真值）；AK `similarity_score` 0-100 归一并入视觉分量。已登记 compile.py AUX_FILES。
+- 测试：`skill/tests/test_match_scoring.py` 18 用例（含 2 接线级：官方信号救回弱标题候选、同语种类目加分）。
+- 后续（非阻塞）：RU↔ZH 类目词典可再抬跨语言类目分量；同批候选新旧 conf 分布对照待真单 wave。
 
 ### F-A04  Ozon seller cookie 无磁盘缓存
-- 类型：duplication；严重度：中；状态：confirmed（待修）
+- 类型：duplication；严重度：中；状态：confirmed → **已修复**（本批）
 - 证据：`_fetch_seller_session_cookies`（ozon_seller_analytics.py:936）每次活 Chrome 现读；直调失败即 `wait_for_seller_login` 开 seller 页（ozon_discovery `_enrich_with_seller_metrics` 回退段）。
-- 修复方向：`get_seller_session_cookies` 包装（活读→写 cache.py 30min TTL→失败回落磁盘缓存→双缺才导航）。
-- **待办**：接线点 ozon_discovery.py / cloud_probe.py 均有他会话 WIP，等落地后接线；cli.py queries/seller 两调用点可先行。
+- 修复：新统一入口 `get_seller_session_cookies`——活读成功写穿 30min 磁盘缓存（cache.py ns=`seller_session_cookies`）→ 活读失败回落含 sc_company_id 的快照（Chrome 已关也能直调）→ 双缺 {}。接线三点：discover 富化（ozon_discovery）、follow 富化（cloud_probe）、queries 命令（cli.py）。
+- 测试：`skill/tests/test_seller_cookie_cache.py` 4 用例。
 
 ## 域 B/C/D/E/F/G —— 待扫描
 

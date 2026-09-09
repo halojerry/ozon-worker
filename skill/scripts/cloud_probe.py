@@ -3885,13 +3885,13 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     if shared_cdp is not None:
         try:
             from scripts.lib.ozon_seller_analytics import (
-                _fetch_seller_session_cookies,
+                get_seller_session_cookies,
                 fetch_sales_analytics,
                 fetch_sales_analytics_direct,
             )
             # 静默 cookie 直调优先（免导航 seller 页，对齐 discover ②b 同款
-            # 双通道）；失败/未登录降级 CDP 路径（保留既有可用性）。
-            _cookies = _fetch_seller_session_cookies()
+            # 双通道；P0-3 起带 30min 磁盘快照兜底）；失败/未登录降级 CDP 路径。
+            _cookies = get_seller_session_cookies()
             _metrics_map = {}
             if _cookies.get("sc_company_id"):
                 _metrics_map = fetch_sales_analytics_direct(

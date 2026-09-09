@@ -591,10 +591,10 @@ def _enrich_with_seller_metrics(candidates: list[ProductCandidate],
     metrics_map: dict[str, dict] = {}
     try:
         from scripts.lib.ozon_seller_analytics import (
-            _fetch_seller_session_cookies,
+            get_seller_session_cookies,
             fetch_bestseller_metrics_map_direct,
         )
-        cookies = _fetch_seller_session_cookies(cdp_url)
+        cookies = get_seller_session_cookies(cdp_url)
         if cookies:
             metrics_map = fetch_bestseller_metrics_map_direct(cookies)
             if metrics_map:
@@ -1036,7 +1036,8 @@ def match_selected(
                 try:
                     match = _search_1688_source(
                         cdp_url, candidate.ozon_images, candidate.ozon_title,
-                        conn=shared_cdp, mxou_token=mxou_token)
+                        conn=shared_cdp, mxou_token=mxou_token,
+                        ozon_category_path=candidate.page_category_path)
                     _process_match(candidate, match)
                 except Exception as exc:
                     candidate.status = "error"
@@ -2245,6 +2246,7 @@ def _pick_best_match(
     ozon_title: str,
     token: str = "",
     trusted_source: bool = False,
+    ozon_category_path: str = "",
 ) -> dict[str, Any] | None:
     """从图搜结果中挑选最相关的匹配。
 
@@ -2369,7 +2371,41 @@ def _pick_best_match(
     # ⚠️ v0.14 E5: 1688 图搜偶发把不同产品误标轻微匹配（实测"花插 ¥1"当遛狗带货源、
     # "水龙头"被标符合1/3），仅凭 badge 放行会组装错产品；标题重叠是更可靠的证据。
     badge_eff_of_best = _badge_effectiveness(best.get("badge", "") or "")
-    _conf_of_best = _title_conf(ozon_title, best, is_ru_title)
+    # P0-4 评分信号换轨（2026-09-09 审计靶点二）：复合置信度取代纯标题文本——
+    # 类目一致性 + 图搜官方信号为主，标题文本为辅。此前 confidence 独占自
+    # _title_conf（0.11~0.38 误低分根因），类目维度抓到了却不参与评分。
+    # 零官方信号且零类目路径时整权重回落标题（== 旧口径，CDP 通道行为不变）。
+    # AK similarity_score 0-100 → 归一后并入视觉分量；类目路径用 Ozon 候选
+    # page_category_path（v0.72 页面真值，中比赛道）。
+    from scripts.lib.match_scoring import score_match as _score_match
+
+    def _num_or_0(v):
+        try:
+            return float(v or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    _ak_sim = _num_or_0(best.get("similarity_score"))
+    _visual_norm = max(
+        _num_or_0(best.get("normalization_score")),
+        _ak_sim / 100.0 if _ak_sim > 1.0 else _ak_sim,
+    )
+    # ⚠️ 只在候选真有视觉信号键时才注入归一值——无条件注入会让「零信号」的
+    # CDP 候选被误判为信号在场，标题置信度被视觉零分稀释（护栏误拒回归）。
+    if any(k in best for k in ("normalization_score", "similarity_score", "badge_eff")):
+        _cand_for_score = {**best, "normalization_score": _visual_norm}
+    else:
+        _cand_for_score = dict(best)
+    # P0-4 语义切分（2026-09-09）：`_title_only_conf` 供放行/拒绝阈值判定
+    # （护栏零放松，行为与旧口径逐字一致）；`_conf_of_best` 为复合置信度
+    # （类目一致性+官方视觉信号+标题），只作为附加元数据 → match_confidence
+    # → worker match_evidence——这才是 0.11~0.38 误低分的修复点。
+    _title_only_conf = _title_conf(ozon_title, best, is_ru_title)
+    _conf_of_best = _score_match(
+        title_conf=_title_only_conf,
+        candidate=_cand_for_score,
+        ozon_category_path=ozon_category_path,
+    )["confidence"]
     _bt = best.get("title", "") or ""
 
     # ✅ v0.19: 1688 官方"全部符合"（matchBadgeFull）直接放行——最强信号，
@@ -2433,9 +2469,9 @@ def _pick_best_match(
         _badge_effectiveness(r.get("badge", "") or "") > 0 for r in results
     )
     if not any_badge:
-        if _conf_of_best >= _min_conf:
+        if _title_only_conf >= _min_conf:
             logger.info("图搜无徽标（badge-less），标题相关性 conf=%.2f 放行: %s",
-                        _conf_of_best, best.get("title", "")[:40])
+                        _title_only_conf, best.get("title", "")[:40])
             return _attach_match_meta(best, _conf_of_best, badge_eff_of_best, _best_score)
         # ✅ v0.39 Step3 (AK score 上膛): AK 候选官方相似度高且排名靠前 → 放行
         # （AK 结果 badge 恒空 → 恒走此 no-badge 分支，此前只看 conf/LLM；
@@ -2467,7 +2503,7 @@ def _pick_best_match(
     # ⚠️ v0.26 徽标降级: 原「badge 无分 + 总分<15」护栏已并入下面统一护栏（新分制下
     # badge=0 时该条件要求图搜排名≥4 且 conf<0.1，被「badge<0.5 + conf<0.3」完全覆盖；
     # 且旧护栏直接拒绝不救 LLM，会误杀排位靠后的同品候选）。
-    if badge_eff_of_best < _min_badge and _conf_of_best < _min_conf:
+    if badge_eff_of_best < _min_badge and _title_only_conf < _min_conf:
         # ⚠️ v0.26 FIX: badge 弱匹配但词对相关性弱 → 先 LLM 语义判定（先 best 再 top-N）
         if _llm_semantic_match(ozon_title, _bt, token):
             logger.info("图搜 badge 弱匹配 + LLM 语义判定同品，放行: %s", _bt[:40])
@@ -2476,7 +2512,7 @@ def _pick_best_match(
         if _rescued_pass_ret is not None:
             return _rescued_pass_ret
         logger.warning("图搜候选 badge 弱匹配（badge=%s, rank=%d, conf=%.2f）且 LLM 判定不同品，拒绝: %s",
-                       best.get("badge", ""), best_idx, _conf_of_best, best.get("title", "")[:40])
+                       best.get("badge", ""), best_idx, _title_only_conf, best.get("title", "")[:40])
         _log_review_record(_block_record(
             "guardrail_blocked", best, _conf_of_best))
         return None
@@ -2610,6 +2646,7 @@ def _search_1688_source(
     max_retries: int = 1,
     conn=None,
     mxou_token: str = "",
+    ozon_category_path: str = "",
 ) -> dict[str, Any] | None:
     """Search 1688 for a matching source product.
 
@@ -2650,7 +2687,8 @@ def _search_1688_source(
             logger.debug("1688 aibuy image search with: %s", images[0][:80])
             results = search_by_image_aibuy(images[0], page_size=20)
             if results:
-                best = _pick_best_match(results, title, token=mxou_token, trusted_source=True)
+                best = _pick_best_match(results, title, token=mxou_token, trusted_source=True,
+                                        ozon_category_path=ozon_category_path)
                 if best:
                     return _attach_candidate_category({
                         "url": f"https://detail.1688.com/offer/{best.get('id', '')}.html"
@@ -2676,7 +2714,8 @@ def _search_1688_source(
                 logger.debug("1688 CDP image search (attempt %d/%d) with: %s",
                              attempt + 1, max_retries + 1, images[0][:80])
                 results = search_by_image_cdp(images[0], cdp_url=cdp_url, conn=conn)
-                best = _pick_best_match(results, title) if results else None
+                best = _pick_best_match(results, title,
+                                        ozon_category_path=ozon_category_path) if results else None
                 if best:
                     price = best.get("price", 0)
                     if isinstance(price, str):
@@ -2719,7 +2758,8 @@ def _search_1688_source(
                 results = search_by_image(image_url=images[0], page_size=5, score_level="high")
                 # ⚠️ AK 结果同样不能无条件取 results[0]（实测第一条是"活体羊驼
                 # ¥2000"，第三条才是相关商品），与 CDP 路径共用 _pick_best_match
-                best = _pick_best_match(results, title, token=mxou_token) if results else None
+                best = _pick_best_match(results, title, token=mxou_token,
+                                        ozon_category_path=ozon_category_path) if results else None
                 if best:
                     return _attach_candidate_category({
                         "url": best.get("detail_url", ""),

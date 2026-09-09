@@ -2842,7 +2842,7 @@ def cmd_queries(args: argparse.Namespace) -> int:
     rows: list[dict] = []
     # ── 静默 cookie 直调优先（W5.6 / I-13）：免开可见 Chrome 页面 ──
     if args.type in ("all-queries", "ozon-bestsellers"):
-        cookies = osa._fetch_seller_session_cookies()
+        cookies = osa.get_seller_session_cookies()
         if cookies:
             try:
                 if args.type == "all-queries":
