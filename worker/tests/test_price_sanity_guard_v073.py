@@ -235,6 +235,11 @@ def test_pricing_block_fails_with_box(monkeypatch):
     assert str(anchor) in calls[0]["reason"]
     assert str(base_price) in calls[0]["reason"]
     assert "价差守卫" in calls[0]["reason"]
+    # ✅ v0.73 终审 I2: notice 前缀带原因（task_processor error_message 优先取 notice）
+    assert "价差守卫拦截" in out.notice
+    assert str(anchor) in out.notice
+    assert str(base_price) in out.notice
+    assert "疑似货源错配" in out.notice
     assert "box-1" in out.notice
     assert out.pricing_info.get("price_gap_block", {}).get("anchor_price") == anchor
 
@@ -264,7 +269,10 @@ def test_pricing_block_without_tenant_skips_box(monkeypatch):
     monkeypatch.setattr("utils.blocked_draft_box.create_blocked_draft", _fail_if_called)
     out = _call_pricing(monkeypatch, _make_state(user_id="", envelope=_envelope_with_anchor(anchor)))
     assert "[PRICING_FAILED]" in out.error_message
-    assert out.notice == ""
+    # ✅ v0.73 终审 I2: 入箱跳过但原因仍在 notice（任务行 error_message 优先取 notice）
+    assert "价差守卫拦截" in out.notice
+    assert str(anchor) in out.notice
+    assert "box-" not in out.notice
 
 
 # ══════════════ 3. ingest 空标题闸 ══════════════

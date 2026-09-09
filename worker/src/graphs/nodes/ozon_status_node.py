@@ -79,6 +79,7 @@ def ozon_status_node(
                 sku_id=sku_id,
                 profit_estimation=profit_estimation,
                 error_message="product_id缺失",
+                failed_stage="ozon_status",  # ✅ v0.73 终审 I1: 失败出口显式带（默认值已归零）
                 stages={"ozon_status": "failed"}
             )
 
@@ -158,6 +159,7 @@ def ozon_status_node(
                     sku_id=sku_id,
                     profit_estimation=profit_estimation,
                     error_message="Ozon API错误: 404",
+                    failed_stage="ozon_status",  # ✅ v0.73 终审 I1: 失败出口显式带（默认值已归零）
                     stages={"ozon_status": "api_error"}
                 )
             except OzonError as e:
@@ -173,6 +175,7 @@ def ozon_status_node(
                     sku_id=sku_id,
                     profit_estimation=profit_estimation,
                     error_message=f"Ozon API错误: {e.status_code}",
+                    failed_stage="ozon_status",  # ✅ v0.73 终审 I1: 失败出口显式带（默认值已归零）
                     stages={"ozon_status": "api_error"}
                 )
 
@@ -501,6 +504,7 @@ def ozon_status_node(
                                         sku_id=sku_id,
                                         profit_estimation=profit_estimation,
                                         error_message=error_msg,
+                                        failed_stage="ozon_status",  # ✅ v0.73 终审 I1: 失败出口显式带（默认值已归零）
                                         stages={"ozon_status": "failed"}
                                     )
                                 elif model_counts and all(c <= 1 for c in model_counts.values()):
@@ -629,5 +633,6 @@ def ozon_status_node(
             sku_id=sku_id,
             profit_estimation=profit_estimation,
             error_message=str(e),
+            failed_stage="ozon_status",  # ✅ v0.73 终审 I1: 失败出口显式带（默认值已归零）
             stages={"ozon_status": "failed"}
         )

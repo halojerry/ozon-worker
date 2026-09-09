@@ -762,7 +762,9 @@ class OzonStatusOutput(BaseModel):
     errors: List[Dict[str, Any]] = Field(default_factory=list, description="Ozon API返回的结构化错误数组")
     error_message: str = Field(default="", description="错误信息")
     error_code: str = Field(default="", description="错误代码（如VARIANT_NOT_MERGED、VARIANT_MODERATE_REJECTED、VARIANT_UPLOAD_FAILED）")
-    failed_stage: str = Field(default="ozon_status", description="失败的节点名称")
+    # ✅ v0.73 终审 I1: 默认值归零（operator.add 拼接粘连根治，见 PricingOutput 同注释）——
+    # 失败出口由 ozon_status_node 显式带 "ozon_status"，成功/pending/timeout 正常流转恒空。
+    failed_stage: str = Field(default="", description="失败节点名称（失败出口显式带 ozon_status，成功恒空）")
     moderation_retry_count: int = Field(default=0, description="审核 pending 重试次数（最多3次）")
 
 
