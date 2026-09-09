@@ -5310,6 +5310,27 @@
         ]
       }
     },
+    "/api/v1/analytics/what-to-sell": {
+      "get": {
+        "description": "GET /api/v1/analytics/what-to-sell?credential_id=&sku=&limit= → {found, data}。",
+        "operationId": "http_what_to_sell_api_v1_analytics_what_to_sell_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Http What To Sell",
+        "tags": [
+          "v1",
+          "analytics"
+        ]
+      }
+    },
     "/api/v1/auth/verify": {
       "post": {
         "description": "Skill 鉴权端点。\n\n验证（与 submit_task 相同逻辑）:\n1. token 有效性（Supabase tokens 表 key 列，剥离 sk- 前缀）\n2. token 状态 = 1（active；status=4 欠费 → balance_insufficient）\n3. 余额检查：users.quota - used_quota（unlimited_quota=true 放行；\n   不再用 remain_quota——它是僵尸字段且无限额度 key 会被误判）\n4. Ozon API 有效性（可选）\n\n不返回余额数字，只返回 valid + reason。\n\nv0.63.1 架构优化 R2: 阻塞逻辑在 _auth_verify_sync（to_thread）——\nSupabase/Ozon HTTP 最长 10s，async 内直接执行会冻结事件循环。",

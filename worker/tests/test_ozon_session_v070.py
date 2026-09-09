@@ -333,3 +333,120 @@ def test_session_delete_204_and_404():
         resp = TestClient(_main_mod.app).delete(
             f"/api/v1/credentials/{_CRED}/session", headers=_hdr())
     assert resp.status_code == 404
+
+
+# ══════════════════ C5/C6: 会话直调通道（what_to_sell）+ 失效联动 ══════════════════
+
+from services import ozon_session_service as _svc
+from utils import ozon_session_client as _client
+
+
+def test_what_to_sell_client_builds_proven_contract(monkeypatch):
+    """200 → (data, None)；请求契约与 skill 实证直调同源（v3 + 公司头 + zh-Hans）。"""
+    captured = {}
+
+    def _fake_post(url, json=None, headers=None, timeout=None, **kw):
+        captured.update(url=url, json=json, headers=headers)
+
+        class _Resp:
+            status_code = 200
+            text = "{}"
+
+            def json(self):
+                return {"result": {"items": [{"sku": 123}]}}
+        return _Resp()
+
+    monkeypatch.setattr(_client.requests, "post", _fake_post)
+    data, err = _client.what_to_sell(
+        "Abt=x; sc_company_id=5371047", "5371047",
+        _client.build_what_to_sell_payload("123456_0", 50, 0))
+    assert err is None and data == {"result": {"items": [{"sku": 123}]}}
+    assert captured["url"] == ("https://seller.ozon.ru/api/site/"
+                               "seller-analytics/what_to_sell/data/v3")
+    h = captured["headers"]
+    assert h["Cookie"] == "Abt=x; sc_company_id=5371047"
+    assert h["x-o3-company-id"] == "5371047"
+    assert h["x-o3-language"] == "zh-Hans"
+    body = captured["json"]
+    assert body["filter"]["sku"] == "123456"          # int64、无 _0 变体后缀
+    assert body["filter"]["period"] == "monthly"
+    assert body["filter"]["stock"] == "any_stock"
+    assert body["sort"] == {"key": "sum_gmv_desc"}
+
+
+def test_what_to_sell_client_expires_on_401_403_302(monkeypatch):
+    """401/403/登录 302 → (None, "session_expired")（C6 判废出口）。"""
+    for status in (401, 403, 302):
+        def _fake_post(url, json=None, headers=None, timeout=None, _s=status, **kw):
+            return SimpleNamespace(status_code=_s, text="")
+        monkeypatch.setattr(_client.requests, "post", _fake_post)
+        data, err = _client.what_to_sell("a=1", "1", {"limit": "1"})
+        assert data is None and err == "session_expired", f"status={status}"
+
+
+def test_what_to_sell_client_other_status_is_not_session(monkeypatch):
+    """429/5xx ≠ 会话失效（不误标 expired）。"""
+    def _fake_post(url, json=None, headers=None, timeout=None, **kw):
+        return SimpleNamespace(status_code=429, text="rate limited")
+    monkeypatch.setattr(_client.requests, "post", _fake_post)
+    data, err = _client.what_to_sell("a=1", "1", {})
+    assert data is None and err == "ozon_http_429"
+
+
+_WTS_URL = f"/api/v1/analytics/what-to-sell?credential_id={_CRED}&sku=123456"
+
+
+def test_wts_endpoint_success(monkeypatch):
+    with _mock_patch.object(_svc, "session_status", return_value={
+            "status": "active", "harvested_at": None, "cookie_names": ["sc_company_id"]}), \
+            _mock_patch.object(_svc, "load_cookies", return_value={
+                "Abt": "SECRETVAL", "sc_company_id": "5371047"}), \
+            _mock_patch.object(_svc, "mark_status", return_value=None) as _ms, \
+            _mock_patch.object(_client, "what_to_sell",
+                               return_value=({"result": {"items": []}}, None)) as _wts:
+        resp = TestClient(_main_mod.app).get(_WTS_URL, headers=_hdr())
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["found"] is True and body["data"] == {"result": {"items": []}}
+    assert "SECRETVAL" not in resp.text  # 响应绝不回显会话 cookie 值
+    assert _wts.call_args.args[0].startswith("Abt=SECRETVAL")  # cookie 头进上游请求
+    assert _ms.call_args_list[-1].args[2] == "active"  # 成功路径刷新 last_checked_at
+
+
+def test_wts_endpoint_401_marks_expired_409(monkeypatch):
+    """直调 401/403 → mark expired + 409 session_expired（C6 失效联动）。"""
+    with _mock_patch.object(_svc, "session_status", return_value={
+            "status": "active", "harvested_at": None, "cookie_names": []}), \
+            _mock_patch.object(_svc, "load_cookies", return_value={
+                "sc_company_id": "5371047"}), \
+            _mock_patch.object(_svc, "mark_status", return_value=None) as _ms, \
+            _mock_patch.object(_client, "what_to_sell",
+                               return_value=(None, "session_expired")):
+        resp = TestClient(_main_mod.app).get(_WTS_URL, headers=_hdr())
+    assert resp.status_code == 409
+    assert "session_expired" in str(resp.json()["detail"])
+    assert _ms.call_args.args[2] == "expired"  # 联动标记
+
+
+def test_wts_endpoint_no_session_404(monkeypatch):
+    with _mock_patch.object(_svc, "session_status", return_value=None):
+        resp = TestClient(_main_mod.app).get(_WTS_URL, headers=_hdr())
+    assert resp.status_code == 404
+    assert "尚未同步会话" in resp.json()["detail"]
+    assert "session-sync" in resp.json()["detail"]
+
+
+def test_wts_endpoint_stored_expired_409_fastfail(monkeypatch):
+    """存量 expired → 直接 409，不再烧直调（重同步闭环）。"""
+    with _mock_patch.object(_svc, "session_status", return_value={
+            "status": "expired", "harvested_at": None, "cookie_names": []}), \
+            _mock_patch.object(_client, "what_to_sell") as _wts:
+        resp = TestClient(_main_mod.app).get(_WTS_URL, headers=_hdr())
+    assert resp.status_code == 409
+    assert _wts.assert_not_called() is None
+
+
+def test_wts_endpoint_missing_params_400():
+    resp = TestClient(_main_mod.app).get(
+        "/api/v1/analytics/what-to-sell?sku=123", headers=_hdr())
+    assert resp.status_code == 400

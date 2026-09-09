@@ -227,3 +227,76 @@ async def http_sales_trend(request: Request):
         pass
 
     return {"items": items}
+
+
+# ── 会话直调通道（v0.70 批次 C5/C6，对标商品级运营数据入口）──
+# 复用 ozon_sessions 加密会话，服务端 cookie 直调 seller.ozon.ru what_to_sell v3。
+# 客户端只拼请求与判废（utils/ozon_session_client），业务判定在本端点：
+#   无会话/跨租户 → 404；存量 expired → 409 fast-fail；
+#   直调 401/403/登录 302 → mark expired + 409 session_expired（失效联动）。
+# ⚠️ cookie 明文只进上游请求头，本端点响应绝不回显会话 cookie 值。
+
+from services import ozon_session_service as _ozon_session_service  # noqa: E402
+from utils import ozon_session_client as _ozon_session_client  # noqa: E402
+
+
+@router.get("/what-to-sell")
+async def http_what_to_sell(request: Request):
+    """GET /api/v1/analytics/what-to-sell?credential_id=&sku=&limit= → {found, data}。"""
+    scope = _auth_rate_limit(request)
+    tenant_id = scope["tenant_id"]
+
+    q = request.query_params
+    credential_id = (q.get("credential_id") or "").strip()
+    sku = (q.get("sku") or "").strip()
+    if not credential_id or not sku:
+        raise HTTPException(status_code=400, detail="credential_id 和 sku 必填")
+    try:
+        limit = int(q.get("limit", 50))
+    except (TypeError, ValueError):
+        limit = 50
+    limit = max(1, min(limit, 200))
+    try:
+        offset = max(0, int(q.get("offset", 0)))
+    except (TypeError, ValueError):
+        offset = 0
+
+    # 会话归属与状态（租户隔离：跨租户/未同步同为查无 → 404）
+    snap = _ozon_session_service.session_status(tenant_id, credential_id)
+    if snap is None:
+        raise HTTPException(
+            status_code=404,
+            detail="尚未同步会话，先在 skill 执行 session-sync",
+        )
+    if snap.get("status") == "expired":
+        # 存量已判废 → fast-fail，不再烧直调（重同步闭环入口在 skill session-sync）
+        raise HTTPException(
+            status_code=409,
+            detail="session_expired: Ozon 会话已失效，请在 skill 重新执行 session-sync",
+        )
+
+    cookies = _ozon_session_service.load_cookies(tenant_id, credential_id)
+    sc_company_id = str((cookies or {}).get("sc_company_id") or "")
+    if cookies is None or not sc_company_id:
+        # load_cookies 解密失败已联动标 expired（换 key 后旧会话不可解是预期）
+        raise HTTPException(
+            status_code=409,
+            detail="session_expired: 会话不可用（解密失败或缺 sc_company_id），请重新 session-sync",
+        )
+
+    cookie_header = "; ".join(f"{k}={v}" for k, v in cookies.items())
+    payload = _ozon_session_client.build_what_to_sell_payload(sku, limit, offset)
+    data, err = _ozon_session_client.what_to_sell(cookie_header, sc_company_id, payload)
+
+    if err == "session_expired":
+        # C6 失效联动：401/403/登录 302 → 标 expired，下次 fast-fail
+        _ozon_session_service.mark_status(tenant_id, credential_id, "expired")
+        raise HTTPException(
+            status_code=409,
+            detail="session_expired: Ozon 会话已失效，请在 skill 重新执行 session-sync",
+        )
+    if err is not None:
+        raise HTTPException(status_code=502, detail=f"ozon_direct_error: {err}")
+
+    _ozon_session_service.mark_status(tenant_id, credential_id, "active")
+    return {"found": True, "data": data}
