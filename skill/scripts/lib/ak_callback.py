@@ -17,7 +17,6 @@ import secrets
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from pathlib import Path
 from socketserver import ThreadingMixIn
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -31,28 +30,9 @@ CALLBACK_BIND_ADDRESS = "127.0.0.1"
 CALLBACK_PORT_START = 10000
 CALLBACK_PORT_RETRIES = 10
 
-# AK 写入路径（与 ak_1688_client.py 的 get_ak_from_file 兼容）
-from scripts._const import SKILL_ROOT
-
-_AK_STORE_DIR = SKILL_ROOT / ".1688-AK"
-_AK_STORE_FILE = _AK_STORE_DIR / ".ak_store.json"
-
-
-def _resolve_ak_store_path() -> Path:
-    """确定 AK 存储文件路径，优先已有目录。"""
-    candidates = [
-        SKILL_ROOT / ".1688-AK",
-        Path.home() / ".1688-AK",
-        Path.home() / "workspace" / ".1688-AK",
-    ]
-    for d in candidates:
-        if (d / ".ak_store.json").exists():
-            return d / ".ak_store.json"
-    _AK_STORE_DIR.mkdir(parents=True, exist_ok=True)
-    return _AK_STORE_FILE
-
-
-AK_STORE_PATH = _resolve_ak_store_path()
+# AK 写入路径统一收敛到 config_store（v0.72.1 P0-1）——此前本模块自持一份与
+# ak_1688_client 读侧不相交的路径清单，且 AK_STORE_PATH 在 import 时解析并
+# mkdir（副作用）。现读写共用 config_store.resolve_ak_store_path/read/write。
 
 
 def _validate_ak(ak: str) -> tuple[bool, str]:
@@ -68,16 +48,12 @@ def _validate_ak(ak: str) -> tuple[bool, str]:
 
 
 def _save_ak(ak: str) -> tuple[bool, str]:
-    """保存 AK 到配置文件"""
+    """保存 AK：config_store 统一文件入口（首选位 + 写穿已存在旧读位）+ settings.json。"""
     try:
-        # 保留 .1688-AK/.ak_store.json（与 get_ak_from_file 兼容）
-        AK_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(AK_STORE_PATH, "w", encoding="utf-8") as f:
-            json.dump({"ak": ak}, f, ensure_ascii=False, indent=2)
-        # 写入 config_store (settings.json)
-        from scripts.lib.config_store import set_ali_1688_ak
+        from scripts.lib.config_store import set_ali_1688_ak, write_ak_store_file
+        path = write_ak_store_file(ak)
         set_ali_1688_ak(ak)
-        return True, str(AK_STORE_PATH)
+        return True, str(path)
     except Exception as e:
         return False, str(e)
 

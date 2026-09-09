@@ -7,16 +7,17 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import time
 import uuid
+from datetime import datetime
 from functools import wraps
 from typing import Any, Optional
 from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 
-from scripts._const import SKILL_ROOT
 from scripts.lib.utils import safe_unlink
 
 logger = logging.getLogger(__name__)
@@ -75,19 +76,31 @@ class _RetriableHTTPError(Exception):
 # 可重试的 HTTP 状态码
 RETRIABLE_STATUS_CODES = {500, 502, 503, 504}
 
+# ── AK 保鲜参数（v0.72.1 P0-1：ak_exp 存了不用 + 刷新无冷却 + 进程间无记忆的根治）──
+AK_REFRESH_WINDOW_SECONDS = 600    # 到期前 10 分钟内视为临期，签名前主动刷新
+AK_REFRESH_COOLDOWN_SECONDS = 600  # 跨进程刷新冷却（对齐 readiness.py 600s 先例）
+
 
 def _try_refresh_ak() -> bool:
-    """Try to refresh 1688 AK via browser. Returns True if successful."""
+    """经浏览器重取 AK。跨进程冷却：.refresh_claim.json 原子占位（O_EXCL），
+    冷却期内（含其他进程刚刷过）直接跳过——此前无冷却且每个 CLI 命令独立进程，
+    AK 一失效就每个命令各弹一次浏览器。返回 True 表示浏览器刷新流程已成功。"""
+    if not _try_acquire_refresh_claim():
+        logger.warning(
+            "AK 刷新冷却中（%ds 内已尝试过），跳过浏览器刷新", AK_REFRESH_COOLDOWN_SECONDS
+        )
+        return False
     try:
         from scripts.lib.ak_callback import get_ak_via_browser
-        from scripts.lib.config_store import set_ali_1688_ak
         result = get_ak_via_browser(timeout=30)
-        if result.get("success") and result.get("ak"):
-            set_ali_1688_ak(result["ak"])
+        if result.get("success"):
+            # ⚠️ result["ak"] 是 display 掩码（ak_callback 只回脱码值）；真实 AK 已由
+            # 回调处理器 _save_ak 落盘。这里绝不能把掩码写进任何存储——
+            # 历史 bug：set_ali_1688_ak(掩码) 把 settings.json 真值毒化成 eFhV****MDA=。
             return True
+        return False
     except Exception:
-        pass
-    return False
+        return False
 
 
 def _ak_expired_error() -> AkAuthError:
@@ -169,46 +182,125 @@ def _canonicalized_resource(uri: str) -> str:
 
 
 def get_ak_from_file() -> Optional[str]:
-    """从本地文件读取 AK（支持官方 SDK 格式）"""
-    from pathlib import Path
-    
-    # 尝试从多个位置读取 AK
-    ak_paths = [
-        # 当前目录下的 .1688-AK
-        Path(".1688-AK/.ak_store.json"),
-        # workspace 目录
-        Path("workspace/.1688-AK/.ak_store.json"),
-        # 用户主目录
-        Path.home() / ".openclaw" / "workspace" / ".1688-AK" / ".ak_store.json",
-        # 1688-sourcing-inquiry 目录
-        SKILL_ROOT.parent / "1688-sourcing-inquiry-0.1.0/workspace/.1688-AK/.ak_store.json",
-    ]
-    
-    for ak_path in ak_paths:
-        if ak_path.exists():
+    """从本地文件读取 AK（官方 SDK 格式）。
+
+    v0.72.1 起委托 config_store 统一入口（写位优先 + 旧读位兼容）——此前本函数
+    自持的 4 个 CWD 相对读位与写侧落盘位不相交，浏览器刷新结果读取方看不到。
+    """
+    from scripts.lib.config_store import read_ak_store_file
+    return read_ak_store_file()
+
+
+def parse_ak_expiry(ak: str) -> Optional[datetime]:
+    """解析 AK 内嵌到期时间（用户逆向实测格式：base64 解码后末 14 位为到期标识
+    YYYYMMDDHHMMSS）。明文 AK:Secret / 无法解析 → None，退回纯被动刷新。"""
+    raw = ak.strip()
+    if not raw or ":" in raw:
+        return None
+    padded = raw + "=" * (-len(raw) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(padded).decode("utf-8")
+    except Exception:
+        return None
+    if len(decoded) < 14:
+        return None
+    marker = decoded[-14:]
+    if not marker.isdigit():
+        return None
+    try:
+        return datetime.strptime(marker, "%Y%m%d%H%M%S")
+    except ValueError:
+        return None
+
+
+def get_active_ak() -> str:
+    """取当前可用于签名的 AK：文件位优先，settings.json 兜底。
+
+    两处都可能出现**脱敏占位值**（历史 bug：自动刷新曾把 display 掩码
+    eFhV****MDA= 写进 settings.json）——无法通过 _extract_ak_keys 解析的候选
+    直接跳过，绝不把垃圾喂给签名链。全部无效 → AkConfigError。
+    """
+    candidates: list[str] = []
+    from_file = get_ak_from_file()
+    if from_file:
+        candidates.append(from_file)
+    from scripts.lib.config_store import get_ali_1688_ak
+    from_settings = get_ali_1688_ak()
+    if from_settings:
+        candidates.append(from_settings)
+    for cand in candidates:
+        try:
+            _extract_ak_keys(cand)
+            return cand
+        except AkConfigError:
+            continue
+    raise AkConfigError("缺少可用的 1688 AK（文件与 settings.json 均无有效值）")
+
+
+def _refresh_claim_path():
+    from scripts.lib.config_store import resolve_ak_store_path
+    return resolve_ak_store_path().parent / ".refresh_claim.json"
+
+
+def _try_acquire_refresh_claim() -> bool:
+    """跨进程刷新冷却占位：O_EXCL 原子建文件。已有未过期占位（含其他进程）→
+    False；过期/损坏占位 → 清除重建。占位机制自身故障 → True（降级无冷却，
+    不阻塞刷新）。"""
+    p = _refresh_claim_path()
+    now = time.time()
+    try:
+        if p.exists():
             try:
-                with open(ak_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    ak = data.get("ak")
-                    if ak:
-                        return ak
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if now - float(data.get("ts", 0)) < AK_REFRESH_COOLDOWN_SECONDS:
+                    return False
             except Exception:
-                continue
-    
-    return None
+                pass  # 损坏占位按过期处理
+            try:
+                p.unlink()
+            except Exception:
+                pass
+        fd = os.open(str(p), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": now}))
+        return True
+    except FileExistsError:
+        return False
+    except Exception:
+        return True
+
+
+def _ensure_ak_fresh() -> str:
+    """签名前的 AK 保鲜：解析 ak_exp，临期（<600s）/已过期先主动刷新一次
+    （受跨进程冷却约束）。
+
+    此前 ak_exp 只存不用——服务端可提前吊销，AK 失效后每个调用都先挨一次
+    401 失败再被动弹浏览器。已过期且冷却中 → 直接 raise AkAuthError（人话
+    指引），宁快速失败不逐调用弹浏览器。"""
+    ak = get_active_ak()
+    exp = parse_ak_expiry(ak)
+    if exp is None:
+        return ak
+    remaining = (exp - datetime.now()).total_seconds()
+    if remaining > AK_REFRESH_WINDOW_SECONDS:
+        return ak
+    logger.info(
+        "AK %s（剩余 %.0fs），尝试主动刷新",
+        "已过期" if remaining <= 0 else "临期", remaining,
+    )
+    if _try_refresh_ak():
+        try:
+            return get_active_ak()
+        except AkConfigError:
+            pass  # 刷新后仍读不到有效值 → 回落旧 AK，让请求去撞真实结果
+    if remaining <= 0:
+        raise _ak_expired_error()
+    return ak
 
 
 def _signature_headers(method: str, path: str, body: str) -> dict[str, str]:
-    # 优先从本地文件读取 AK（官方 SDK 格式）
-    ak = get_ak_from_file()
-    
-    # 如果文件没有，尝试从 config_store 读取
-    if not ak:
-        from scripts.lib.config_store import get_ali_1688_ak
-        ak = get_ali_1688_ak()
-    
-    if not ak:
-        raise AkConfigError("缺少 1688 AK")
+    # v0.72.1: 签名前保鲜（到期预判 + 跨进程冷却刷新）+ 掩码免疫解析
+    ak = _ensure_ak_fresh()
     access_key_id, access_key_secret = _extract_ak_keys(ak)
     content_type = "application/json"
     timestamp = str(int(time.time()))
@@ -261,7 +353,7 @@ def _post_1688(path: str, body: dict[str, Any], *, base_url: str = BASE_URL) -> 
         **DEFAULT_HEADERS,
         **_signature_headers("POST", path, body_str),
     }
-    
+
     try:
         resp = requests.post(url, headers=headers, data=body_str.encode("utf-8"), timeout=DEFAULT_TIMEOUT_SECONDS)
         resp.raise_for_status()
@@ -287,14 +379,14 @@ def _post_1688(path: str, body: dict[str, Any], *, base_url: str = BASE_URL) -> 
         raise ServiceError(f"HTTP 错误 {status}") if status is not None else ServiceError("HTTP 错误 (unknown)")
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
         raise  # Let @_with_retry decorator handle these
-    
+
     result = resp.json()
-    
+
     # 检查业务错误
     if result.get("success") is False:
         msg_code = str(result.get("msgCode") or "")
         msg_info = result.get("msgInfo", "")
-        
+
         # 标准 HTTP 状态码映射
         if "401" in msg_code:
             if _try_refresh_ak():
@@ -311,10 +403,10 @@ def _post_1688(path: str, body: dict[str, Any], *, base_url: str = BASE_URL) -> 
             raise ParamError("请求参数不合法（400）")
         if "500" in msg_code:
             raise ServiceError("服务异常（500），请稍后重试")
-        
+
         detail = msg_info or msg_code or "未知业务错误"
         raise ApiError(f"1688 API 业务错误: {detail}")
-    
+
     return result
 
 
@@ -534,7 +626,7 @@ def search_products(
         # 尝试 model 字段
         model = result.get("model") or {}
         data = model.get("data", [])
-    
+
     if not isinstance(data, list):
         return []
     items = [_parse_product_item(item) for item in data]
@@ -704,7 +796,7 @@ def search_by_image(
 def _extract_images_from_raw(raw: dict[str, Any]) -> list[str]:
     """从 ainext API 原始响应中提取图片 URL"""
     images = []
-    
+
     # 尝试从 different 字段提取图片
     for key in ["images", "imageList", "mainImages", "imageUrl"]:
         val = raw.get(key)
@@ -716,7 +808,7 @@ def _extract_images_from_raw(raw: dict[str, Any]) -> list[str]:
                     images.append(img["url"])
         elif isinstance(val, str) and val.startswith("http"):
             images.append(val)
-    
+
     # 从 all_info 中提取图片 URL
     all_info = str(raw.get("all_info") or "")
     img_pattern = r'https?://[^\s\)\"\']+\.(?:jpg|jpeg|png|webp)'
@@ -724,14 +816,14 @@ def _extract_images_from_raw(raw: dict[str, Any]) -> list[str]:
     for img in found_imgs:
         if img not in images:
             images.append(img)
-    
+
     return images[:20]  # 最多返回 20 张图片
 
 
 def _extract_weight_dimensions(raw: dict[str, Any]) -> dict[str, Any]:
     """从 ainext API 原始响应中提取重量和尺寸"""
     result = {"weight_grams": None, "dimensions_mm": None}
-    
+
     # 尝试从 different 字段提取
     for key in ["weight", "weightGrams", "weight_grams"]:
         val = raw.get(key)
@@ -740,7 +832,7 @@ def _extract_weight_dimensions(raw: dict[str, Any]) -> dict[str, Any]:
                 result["weight_grams"] = int(float(str(val).replace("g", "").replace("克", "").strip()))
             except (ValueError, TypeError) as e:
                 logger.debug('weight parse failed for key=%s val=%s: %s', key, val, e)
-    
+
     for key in ["dimensions", "size", "dimensionsMm"]:
         val = raw.get(key)
         if isinstance(val, str) and "x" in val.lower():
@@ -754,7 +846,7 @@ def _extract_weight_dimensions(raw: dict[str, Any]) -> dict[str, Any]:
                     }
                 except (ValueError, TypeError) as e:
                     logger.debug('dimensions parse failed for val=%s: %s', val, e)
-    
+
     return result
 
 
@@ -807,7 +899,7 @@ def get_product_details(item_ids: list[str]) -> dict[str, dict[str, Any]]:
             continue
         all_info = str(item.get("all_info") or "")
         parsed = parse_offer_detail_info(all_info)
-        
+
         # 从原始 API 响应中提取图片
         # ⚠️ fix/image-ref-pollution: 详情无图就空——禁止标题搜索兜底别家图。
         # 旧逻辑在此用 parsed["title"][:30] 搜 1688 并取 search_results[0] 的
@@ -816,10 +908,10 @@ def get_product_details(item_ids: list[str]) -> dict[str, dict[str, Any]]:
         # 产品B图」根因，生图参考/E1 兜底双出口上卡）。宁缺毋滥：无图由上层
         # 校验门拦截（「产品图片为空」不组装信封）。
         images = _extract_images_from_raw(item)
-        
+
         # 从原始 API 响应中提取重量和尺寸
         packaging = _extract_weight_dimensions(item)
-        
+
         details[nid] = {
             "item_id": nid,
             "title": parsed["title"],
