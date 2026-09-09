@@ -42,7 +42,11 @@ HAZARD_SAFE_VALUE_KEYWORDS = (
     "非危险", "不危险", "无危险", "非易燃", "普通货物", "一般货物", "普通商品",
 )
 
-_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+# ✅ v0.73: CJK 判定扩展——假名 U+3040-30FF（Ozon 拒单语义是「中文/日文字符」，
+# 纯假名值此前漏检）+ CJK 扩展 A U+3400-4DBF（罕见汉字）。改中文检测前必读：
+# 本模块 has_chinese 是 retry/prepare 链唯一事实源（attr_value_matcher.py:67 的
+# 同名函数尚未统一，勿在其处复制本正则）。
+_CJK_RE = re.compile(r"[\u4e00-\u9fff\u3040-\u30ff\u3400-\u4dbf]")
 _CYRILLIC_RE = re.compile(r"[а-яА-ЯёЁ]")
 
 
@@ -158,7 +162,7 @@ def match_attr_name_synonym(ozon_name, product_attr_names, synonyms) -> str | No
 
 
 def has_chinese(text: str | None) -> bool:
-    """是否含中文字符"""
+    """是否含 CJK 字符（汉字 + 假名 + CJK 扩展 A——Ozon 禁中文/日文字符）"""
     return bool(text) and bool(_CJK_RE.search(str(text)))
 
 

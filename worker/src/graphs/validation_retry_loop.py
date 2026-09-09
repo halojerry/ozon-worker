@@ -40,6 +40,9 @@ from langgraph.graph import StateGraph, END
 # ✅ v0.69 T1.1: 数值属性清洗唯一入口（repair_prepare_node 与 prepare 主循环共用，
 # 禁止此处内联正则——同 compute_price/commission_resolver 共享层纪律）
 from utils.attr_numeric_sanitize import is_numeric_attr_type, sanitize_numeric_attr_value
+# ✅ v0.73: 中文检测唯一事实源（假名/CJK 扩展 A 已并入；本文件内联 [\u4e00-\u9fff]
+# 正则已废——改中文检测逻辑前先读 utils/attribute_utils.py 的 _CJK_RE 注释）
+from utils.attribute_utils import has_chinese
 from utils.pricing_estimate import derive_list_prices
 from utils.attr_value_sanitize import cap_attribute_values
 # ✅ v0.69 Wave3: Ozon 重量硬下限（体积重反推夹取下限，与 normalizer 同源）
@@ -1321,9 +1324,9 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
     # Ozon 拒绝产品因为属性值含中文/日文字符。需要批量扫描并翻译所有含中文的属性。
     if error_code == "BR_chinese_hieroglyphs_in_attribute":
         logger.warning("⚠️ 检测到 BR_chinese_hieroglyphs_in_attribute，批量翻译含中文的属性值")
-        _chinese_re = re.compile(r'[\u4e00-\u9fff]')
+        # ✅ v0.73: 中文检测统一 has_chinese（含假名/CJK 扩展 A），内联正则已废
         _cyrillic_re = re.compile(r'[а-яА-ЯёЁ]')
-        _english_allowed = {9024}  # SKU编码允许英文
+        _english_allowed = {9024}  # SKU编码允许英文/数字——✅ v0.73 含中文不豁免（对齐 prepare v0.16）
 
         # 使用 translate_russian_cfg.json 配置调用 LLM
         cfg_path = os.path.join(
@@ -1353,10 +1356,13 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 aid = int(attr_id_val)
             except (ValueError, TypeError):
                 continue
-            if aid in _english_allowed:
+            val = str(attr.get("value", ""))
+            # ✅ v0.73: 9024 只豁免「非中文值」（拉丁/数字 SKU 直传）；含中文仍走
+            # 下方翻译——与 prepare_ozon_upload_node v0.16 口径一致（「9024(SKU) 不再
+            # 豁免中文检查——只豁免非中文值，含中文一律翻译」）
+            if aid in _english_allowed and not has_chinese(val):
                 continue
 
-            val = str(attr.get("value", ""))
             dict_val_id = attr.get("dictionary_value_id", 0)
 
             # ✅ 处理空值字典属性：统一语义解析（v0.31 T3，绝不盲取 search_result[0]）
@@ -1380,7 +1386,7 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                 except Exception as _search_e:
                     logger.debug(f"  属性{aid}语义解析失败: {_search_e}")
 
-            if val and _chinese_re.search(val):
+            if val and has_chinese(val):
                 logger.info(f"  翻译属性{aid}: {val[:60]}...")
                 translated = call_mxou_chat_api(
                     token=token,
@@ -1391,7 +1397,9 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                     max_tokens=200,
                 ) or ""
                 translated = translated.strip()
-                if translated and _cyrillic_re.search(translated):
+                # ✅ v0.73 翻译验收负检：除「有西里尔」外还须「无中文」——LLM 返回
+                # 「中文+西里尔混合」（如 «Приёмник 中文»）此前被当成功写回重传必拒
+                if translated and _cyrillic_re.search(translated) and not has_chinese(translated):
                     attr["value"] = translated
                     translated_count += 1
                     logger.info(f"  ✅ 属性{aid}翻译成功: {translated[:60]}")
@@ -2975,40 +2983,44 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                                 "config/translate_russian_cfg.json",
                                 {"text": val_str}
                             ).strip()
-                            if translated_val and any('\u0400' <= ch <= '\u04FF' for ch in translated_val):
+                            if translated_val and any('\u0400' <= ch <= '\u04FF' for ch in translated_val) \
+                                    and not has_chinese(translated_val):
                                 attr_value = translated_val
                                 logger.info(f"✅ revalidate翻译属性{attr_id_int}: '{val_str[:40]}' → '{translated_val[:40]}'")
                             else:
                                 # ⚠️ v0.13.1: 翻译失败/非俄语 → 跳过该属性，避免回传拉丁/中文触发"请用俄文填写该字段"
-                                logger.warning(f"⚠️ 属性{attr_id_int}翻译失败（非俄语），跳过重传: '{val_str[:40]}'")
+                                # ✅ v0.73: 验收补「无中文」负检——混合结果（西里尔+中文）同样拒绝
+                                logger.warning(f"⚠️ 属性{attr_id_int}翻译失败（非俄语/仍含中文），跳过重传: '{val_str[:40]}'")
                                 continue
                         except Exception as trans_err:
                             logger.warning(f"属性{attr_id_int}翻译失败: {trans_err}")
                             continue
 
-                # ⚠️ v0.13.1: 兜底 — 不在 TRANSLATE_ATTR_IDS 的自由文本属性，值含中文 → 翻译，失败跳过
+                # ⚠️ v0.13.1: 兜底 — 不在 TRANSLATE_ATTR_IDS 的自由文本属性，值含中文 → 翻译
                 # （覆盖颜色名称等自由文本属性，防止中文/空值上传被 Ozon 拒绝）
+                # ✅ v0.73: 混合值（中文+西里尔）修复——旧条件 `_rv_has_cn and not _rv_has_cyr`
+                # 让 «Приёмник 中文» 这类混合值不翻不跳直通重传（Ozon 必拒）。
+                # 新语义：含中文即送翻译；翻后仍含中文/异常 → 置空（与 BR_chinese 主路径
+                # 置空通道一致）。不 continue——continue 会保留快照里的坏值绕过修复。
+                # dict_value_id 保留：字典属性以 dict_id 为权威（跨语言通用），置空只清文本。
                 _rv_val: str = str(attr_value) if attr_value else ""
-                if _rv_val and attr_id_int not in TRANSLATE_ATTR_IDS:
-                    _rv_has_cn: bool = any('\u4e00' <= ch <= '\u9fff' for ch in _rv_val)
-                    _rv_has_cyr: bool = any('\u0400' <= ch <= '\u04FF' for ch in _rv_val)
-                    if _rv_has_cn and not _rv_has_cyr:
-                        try:
-                            _rv_translated: str = _call_mxou_llm(
-                                state.token,
-                                "config/translate_russian_cfg.json",
-                                {"text": _rv_val}
-                            ).strip()
-                            if _rv_translated and any('\u0400' <= ch <= '\u04FF' for ch in _rv_translated) \
-                                    and not any('\u4e00' <= ch <= '\u9fff' for ch in _rv_translated):
-                                attr_value = _rv_translated
-                                logger.info(f"✅ 属性{attr_id_int}中文值翻译为俄语: '{_rv_val[:40]}' → '{_rv_translated[:40]}'")
-                            else:
-                                logger.warning(f"⚠️ 属性{attr_id_int}中文值翻译失败，跳过重传: '{_rv_val[:40]}'")
-                                continue
-                        except Exception as _rv_err:
-                            logger.warning(f"属性{attr_id_int}中文值翻译异常，跳过重传: {_rv_err}")
-                            continue
+                if _rv_val and attr_id_int not in TRANSLATE_ATTR_IDS and has_chinese(_rv_val):
+                    try:
+                        _rv_translated: str = _call_mxou_llm(
+                            state.token,
+                            "config/translate_russian_cfg.json",
+                            {"text": _rv_val}
+                        ).strip()
+                        if _rv_translated and any('\u0400' <= ch <= '\u04FF' for ch in _rv_translated) \
+                                and not has_chinese(_rv_translated):
+                            attr_value = _rv_translated
+                            logger.info(f"✅ 属性{attr_id_int}中文值翻译为俄语: '{_rv_val[:40]}' → '{_rv_translated[:40]}'")
+                        else:
+                            logger.warning(f"⚠️ 属性{attr_id_int}中文值翻译失败/仍含中文，置空: '{_rv_val[:40]}'")
+                            attr_value = ""
+                    except Exception as _rv_err:
+                        logger.warning(f"⚠️ 属性{attr_id_int}中文值翻译异常，置空: {_rv_err}")
+                        attr_value = ""
 
                 ozon_attr: Dict[str, Any] = {
                     "complex_id": 0,
@@ -3213,6 +3225,50 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
     else:
         validation_errors.append({"field": "payload", "message": "Payload结构无效"})
         is_valid = False
+
+    # ✅ v0.73 纵深防御：全属性中文终检（第二道本地闸，出重传口前最后防线）。
+    # 上游翻译/清空通道（BR_chinese 主路径、revalidate 两通道、error_repair_llm）
+    # 仍可能漏网（如 TRANSLATE_ATTR_IDS 混合值直通、快照基线自带坏值）——
+    # 逐 item 扫描所有属性 value：含 CJK（has_chinese，含假名/扩展A）且不能被
+    # sanitize_numeric_attr_value 解析为数值 → is_valid=False 回 parse_error
+    # 再修或耗尽重试终态失败，绝不带中文重传。
+    # 数值豁免对齐 ozon_validate_node 数值清洗契约：「'30包' 可解析放行，清洗归 prepare」。
+    if ozon_payload and isinstance(ozon_payload, dict):
+        _cn_type_map: Dict[int, Any] = {}
+        for _sa in (state.attributes_schema or []):
+            if isinstance(_sa, dict) and _sa.get("id"):
+                try:
+                    _cn_type_map[int(_sa["id"])] = _sa.get("type", "")
+                except (ValueError, TypeError):
+                    continue
+        for _cn_item in ozon_payload.get("items", []) or []:
+            if not isinstance(_cn_item, dict):
+                continue
+            for _cn_attr in _cn_item.get("attributes", []) or []:
+                if not isinstance(_cn_attr, dict):
+                    continue
+                try:
+                    _cn_aid: int = int(_cn_attr.get("id", 0))
+                except (ValueError, TypeError):
+                    _cn_aid = 0
+                for _cn_v in _cn_attr.get("values", []) or []:
+                    if not isinstance(_cn_v, dict):
+                        continue
+                    _cn_val: str = str(_cn_v.get("value", "") or "")
+                    if not _cn_val or not has_chinese(_cn_val):
+                        continue
+                    _cn_type: Any = _cn_type_map.get(_cn_aid)
+                    _cn_flag: bool = True
+                    if is_numeric_attr_type(_cn_type):
+                        _cn_cleaned, _ = sanitize_numeric_attr_value(_cn_aid, _cn_val, _cn_type)
+                        _cn_flag = _cn_cleaned is None
+                    if _cn_flag:
+                        validation_errors.append({
+                            "field": f"attribute[{_cn_aid}]",
+                            "message": f"属性{_cn_aid}值仍含中文（翻译/清洗未通过，禁止重传）: {_cn_val[:60]}",
+                        })
+                        is_valid = False
+                        logger.warning(f"⚠️ 中文终检: 属性{_cn_aid}含中文，拦截重传: {_cn_val[:80]}")
 
     state.validation_errors = validation_errors
     state.error_message = "; ".join([e.get("message", "") for e in validation_errors]) if validation_errors else ""
