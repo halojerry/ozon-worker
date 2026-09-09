@@ -28,7 +28,9 @@ def test_report_chunks_and_returns_accepted(monkeypatch):
 
     with mock.patch.object(mpc.requests, "post", side_effect=fake_post):
         n = mpc.report_seller_sync([{"sku": i} for i in range(25)])
-    assert n == 12
+    # adjudicated deviation：brief 测试字面 assert n == 12 与其参考实现（accepted +=）
+    # 自相矛盾（3 批 × 恒 accepted 12 = 36）；reviewer 裁定累计语义 governs → 36。
+    assert n == 36
     assert [len(c) for c in seen] == [12, 12, 1]
 
 
