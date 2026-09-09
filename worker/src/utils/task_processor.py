@@ -57,6 +57,9 @@ def _graph_result_is_failed(graph_result: dict) -> bool:
     failed_stage="category_match"（此前阻断形状三项全不命中 → 假 completed，
     任务表/采集箱显示成功但实际被拦）。判定逻辑本身不变——勿把 error_message
     非空一律 failed（pending 软成功路径会误伤）。
+    ✅ v0.73: upload_status=blocked 纳入 failed（retry 子图本地预检标题-类目
+    零交集拦截出口 validation_retry_loop._final_result_blocked_to_box——
+    此前 blocked 不在枚举内会假 completed，错货拦截被记成上架成功）。
     """
     _gr = graph_result or {}
     _up = str(_gr.get("upload_status") or "")
@@ -64,7 +67,7 @@ def _graph_result_is_failed(graph_result: dict) -> bool:
     _err = str(_notice or _gr.get("error_message") or "")
     _stg = str(_gr.get("failed_stage") or "")
     return (
-        _up in ("failed",)
+        _up in ("failed", "blocked")
         or _err.startswith("[")
         or bool(_err and _stg)
     )

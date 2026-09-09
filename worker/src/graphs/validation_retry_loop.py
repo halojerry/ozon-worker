@@ -80,6 +80,11 @@ class ValidationRetryLoopState(BaseModel):
     # ⚠️ langgraph 按节点 Input model 过滤 channel，Input/State 两处都必须声明
     # 才能被子图节点读到（state.py ValidationRetryWrapperInput 同步声明）
     extensions: Dict[str, Any] = Field(default_factory=dict, description="信封 extensions（box_reviewed 等）")
+    # ✅ v0.73: 拦截入箱身份透传（LOCAL_TITLE_CATEGORY_MISMATCH → final_result
+    # 入采集箱用）——_maybe_create_blocked_draft 读 state.user_id（租户）+
+    # state.envelope（原始信封，无凭证），Input/State 两处都须声明否则被过滤
+    user_id: str = Field(default="", description="用户ID（tenant，阻断入箱归属）")
+    envelope: Dict[str, Any] = Field(default_factory=dict, description="原始信封（阻断入箱落 payload）")
 
     # 循环状态
     retry_count: int = Field(default=0, description="当前重试次数")
@@ -154,6 +159,9 @@ class ValidationRetryLoopInput(BaseModel):
     category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="类目匹配元数据（主图透传，R4 重配后置 R2b）")
     # ✅ v0.70 采集箱即权威：信封 extensions（box_reviewed）透传进子图
     extensions: Dict[str, Any] = Field(default_factory=dict, description="信封 extensions（box_reviewed 等）")
+    # ✅ v0.73: 拦截入箱身份透传（wrapper 从 GlobalState 传入；见 State 同名字段注释）
+    user_id: str = Field(default="", description="用户ID（tenant，阻断入箱归属）")
+    envelope: Dict[str, Any] = Field(default_factory=dict, description="原始信封（阻断入箱落 payload）")
     # ⚠️ PR-1 (D3): 跨入口累积重试次数 — wrapper 从 GlobalState 传入，子图在此基础上继续
     retry_count: int = Field(default=0, description="已累计重试次数（跨入口不重置）")
 
@@ -328,6 +336,10 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "all_image_failed": "reupload_direct",
     # 标记码自动纠正 → 走 attributes 修复(明确化, 原走默认 error_repair_llm)
     "marking_auto_corrected": "error_repair_llm",
+    # ✅ v0.73: 本地预检标题-类目零交集 → 拦截入采集箱（final_result 直达，
+    # 不进任何 repair/reupload 节点——错配中文/重写支路修不了类目错，重传只会
+    # 再被拒或错货过审）。入箱文案见 final_result 的 block_to_box 出口。
+    "LOCAL_TITLE_CATEGORY_MISMATCH": "block_to_box",
 }
 
 
@@ -707,6 +719,13 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
                 _le_lower = _le_msg.lower()
                 if any(kw in _le_lower for kw in ("图片", "image", "картинк")):
                     _code = "IMAGE_ERROR"
+                elif any(kw in _le_msg for kw in ("标题与类目不一致", "DESCRIPTION_DECLINE 风险")):
+                    # ✅ v0.73: 本地预检标题-类目零交集 → 独立错误码。必须先于下方
+                    # 「标题」关键词分支——本消息含「标题」会被错归 BR_chinese 走
+                    # 属性批量翻译修复支路（对本错误无效）→ revalidate 放行 →
+                    # 错货重传。该错只能人工改配类目（入采集箱，见 final_result
+                    # 的 block_to_box 出口），任何自动修复都不该碰。
+                    _code = "LOCAL_TITLE_CATEGORY_MISMATCH"
                 elif any(kw in _le_lower for kw in ("名称", "标题", "name", "title", "латиниц")):
                     _code = "BR_chinese_hieroglyphs_in_attribute"
                 elif any(kw in _le_lower for kw in ("价格", "price", "цен")):
@@ -826,6 +845,10 @@ def repair_node_selector(state: ValidationRetryLoopState) -> str:
         return "final_result"
 
     repair_node: str = state.repair_node
+    if repair_node == "block_to_box":
+        # ✅ v0.73: 本地预检标题-类目零交集 → 拦截后直达 final_result 入采集箱，
+        # 不进任何 repair/reupload 节点（错货不再重传）
+        return "final_result"
     if repair_node == "reupload_direct":
         # ✅ v0.69 图片族：跳过属性/价格修复，直接靶向 reupload（pictures/import）
         return "reupload_direct"
@@ -3557,6 +3580,57 @@ def should_reupload(state: ValidationRetryLoopState) -> str:
     return "exit"
 
 
+# ✅ v0.73: 标题-类目零交集拦截入箱文案（blocked_reason 落 extensions +
+# notice 前缀，用户在采集箱人工改配类目后 resubmit）
+LOCAL_TITLE_MISMATCH_BLOCK_REASON = (
+    "标题与类目严重不符（DESCRIPTION_DECLINE 风险），已拦截入采集箱需人工改配类目"
+)
+
+
+def _final_result_blocked_to_box(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
+    """v0.73: LOCAL_TITLE_CATEGORY_MISMATCH 终态出口——入箱拦截，绝不重传。
+
+    生产实证：该错曾被错归 BR_chinese 走属性翻译支路 → revalidate 放行 →
+    子图内 CREATE 重传 → Ozon approved（错货上架）。本出口：
+    - upload_status=blocked（task_processor._graph_result_is_failed 判 failed 落库）；
+    - _maybe_create_blocked_draft 尽力入采集箱（candidates=[]：本地预检无类目
+      候选池，推荐靠 webui 人工搜索；失败非致命）；
+    - 刻意不调 _mark_category_negative_feedback：零交集是本地启发式，类目映射
+      未必错（可能是标题问题），人工改配前不给 L0 学习行记负反馈。
+    """
+    from graphs.nodes.assemble_ozon_product_node import _maybe_create_blocked_draft
+    from utils.blocked_draft_box import format_box_notice
+
+    state.upload_status = "blocked"
+    state.is_valid = False
+    _box = _maybe_create_blocked_draft(
+        state, state.draft or {}, [], LOCAL_TITLE_MISMATCH_BLOCK_REASON)
+    notice = f"本地预检拦截：{LOCAL_TITLE_MISMATCH_BLOCK_REASON}"
+    _box_notice = format_box_notice(_box)
+    if _box_notice:
+        notice = f"{notice}，{_box_notice}"
+    logger.warning("🛑 标题-类目零交集拦截（不再重传）: %s", notice)
+    return ValidationRetryLoopOutput(
+        ozon_payload=state.ozon_payload,
+        validation_errors=state.validation_errors,
+        is_valid=False,
+        retry_count=state.retry_count,
+        error_type=state.error_type,
+        error_message=LOCAL_TITLE_MISMATCH_BLOCK_REASON,
+        product_id=state.product_id if state.product_id else None,
+        upload_status="blocked",
+        moderation_status=state.moderation_status,
+        notice=notice,
+        description_category_id=state.description_category_id,
+        type_id=state.type_id,
+        final_attributes=state.final_attributes,
+        attributes_schema=state.attributes_schema,
+        category_match_meta=getattr(state, "category_match_meta", None) or {},
+        errors=getattr(state, "errors", None) or [],
+        decline_errors=list(getattr(state, "decline_errors", None) or []),
+    )
+
+
 def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
     """最终结果节点：返回修复结果"""
     # ✅ 如果重新上传成功，清除之前的错误消息
@@ -3564,6 +3638,10 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
     if state.upload_status == "success":
         final_error_message = ""
         logger.info("✅ 重新上传成功，清除之前的错误消息")
+    # ✅ v0.73: 本地预检标题-类目零交集 → 拦截入箱（REPAIR_STRATEGY block_to_box
+    # 路由直达本节点）。分支置于负反馈之前：该码刻意不记 L0 负反馈（见 helper 注释）
+    if str(getattr(state, "error_code", "") or "") == "LOCAL_TITLE_CATEGORY_MISMATCH":
+        return _final_result_blocked_to_box(state)
     # ✅ v0.66 L0 declined 负反馈挂点：final_result 每任务仅执行一次（子图收尾，
     # 不随 parse_error 循环重复计数）——终态 failed + 类目错特征 → L0 学习行 fail+1。
     # 放 return 前而非 should_reupload，避免 "exit"（达 max_retries 走 final_result）

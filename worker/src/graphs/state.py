@@ -859,6 +859,13 @@ class ValidationRetryWrapperInput(BaseModel):
     # ✅ v0.70 采集箱即权威：信封 extensions（box_reviewed）透传进修复子图——
     # R4 换类目/标题描述重写对采集箱草稿禁用（用户审核过的内容管线不重决策）
     extensions: Dict[str, Any] = Field(default_factory=dict, description="信封 extensions（box_reviewed 等）")
+    # ✅ v0.73: 拦截入箱身份透传——子图 LOCAL_TITLE_CATEGORY_MISMATCH 出口
+    # （validation_retry_loop._final_result_blocked_to_box）经
+    # _maybe_create_blocked_draft 读 user_id（租户归属）+ envelope（原始信封落
+    # product_drafts.payload）。langgraph 按 Input model 过滤 channel，缺声明
+    # 会被静默过滤导致入箱跳过（对齐 v0.66 learning_record envelope 声明先例）
+    user_id: str = Field(default="", description="用户ID（tenant，阻断入箱归属）")
+    envelope: Dict[str, Any] = Field(default_factory=dict, description="原始信封（阻断入箱落 payload）")
 
     # 条件分支路径函数需要访问的字段
     upload_status: str = Field(default="", description="上传状态（success/failed）")
