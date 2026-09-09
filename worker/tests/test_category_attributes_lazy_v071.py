@@ -113,29 +113,53 @@ def test_lazy_fetch_fetch_failure_degrades(client):
 
 
 def test_attr_id_values_lazy_fetch_with_pagination(client):
-    """?attr_id= 字典值按需：翻页（has_next→last_value_id）聚合后回写。"""
+    """?attr_id= 巨型字典（首页即 has_next）→ ephemeral 不回写，返回首页值。
+    ✅ v0.72 三桶策略（原行为=翻 3 页整份物化——正是磁盘事故根因）。"""
     fq = _FakeQuery(schema=None)
 
+    bodies = []
+
     def _ozon_post(client_id, api_key, endpoint, body, timeout=30):
-        assert endpoint == "/v1/description-category/attribute/values"
-        if "last_value_id" not in body:
-            return {"result": [{"id": 1, "value": "a"}, {"id": 2, "value": "b"}],
-                    "has_next": True}
-        assert body["last_value_id"] == 2
-        return {"result": [{"id": 3, "value": "c"}], "has_next": False}
+        bodies.append(body)
+        return {"result": [{"id": i, "value": f"b{i}"} for i in range(1, 2001)],
+                "has_next": True}
 
     with mock.patch.object(ocq_mod, "get_category_query", return_value=fq), \
          mock.patch("services.credential_service.get_default_credential",
                     return_value={"id": "c1", "ozon_client_id": "cid", "api_key": "k"}), \
          mock.patch("utils.ozon_client.ozon_post", side_effect=_ozon_post) as op, \
          mock.patch("utils.local_db_manager.LocalDBManager.set_dictionary_value_cache") as wb:
-        r = client.get("/api/v1/categories/attributes?dc=1&tp=2&attr_id=8229", headers=HDR)
+        r = client.get("/api/v1/categories/attributes?dc=1&tp=2&attr_id=85", headers=HDR)
     assert r.status_code == 200
     body = r.json()
     assert body["found"] is True and body["fetched"] is True
-    assert [v["id"] for v in body["values"]] == [1, 2, 3]
-    assert op.call_count == 2  # 两页
-    assert wb.call_count == 1
+    assert body["reason"] == "ephemeral_dict"
+    assert len(body["values"]) == 2000  # 下拉仍拿到首页值
+    assert len(bodies) == 1 and bodies[0]["limit"] == 2000  # 只拉一页（无底洞刹车）
+    assert wb.call_count == 0  # 不物化
+
+
+def test_attr_id_values_small_dict_writes_scoped(client):
+    """小字典（无 has_next）→ 正常回写 scoped 桶。"""
+    fq = _FakeQuery(schema=None)
+
+    def _ozon_post(client_id, api_key, endpoint, body, timeout=30):
+        return {"result": [{"id": 9, "value": "Ларь"}], "has_next": False}
+
+    with mock.patch.object(ocq_mod, "get_category_query", return_value=fq), \
+         mock.patch("services.credential_service.get_default_credential",
+                    return_value={"id": "c1", "ozon_client_id": "cid", "api_key": "k"}), \
+         mock.patch("utils.ozon_client.ozon_post", side_effect=_ozon_post), \
+         mock.patch("utils.local_db_manager.LocalDBManager") as ldb_cls, \
+         mock.patch("services.category_schema_service.get_attributes_with_lazy_fetch",
+                    return_value={"found": True, "schema": [
+                        {"id": 8229, "category_dependent": True}]}):
+        r = client.get("/api/v1/categories/attributes?dc=1&tp=2&attr_id=8229", headers=HDR)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["found"] is True and len(body["values"]) == 1
+    # scoped 桶落库（dc/tp 原样）
+    assert ldb_cls.return_value.set_dictionary_value_cache.call_args.args[1:3] == (1, 2)
 
 
 def test_attr_id_values_cache_hit_no_ozon(client):

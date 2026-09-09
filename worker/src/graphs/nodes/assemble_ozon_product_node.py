@@ -2062,9 +2062,10 @@ def assemble_ozon_product_node(
                     description_category_id, type_id, attr_id,
                     language="ZH_HANS",
                 )
-                # 写入 PG 缓存（供后续使用）
+                # 写入 PG 缓存（供后续使用；attr_row 供三桶分类）
                 if values:
-                    _cache_dict_values(attr_id, description_category_id, type_id, values, language="ZH_HANS")
+                    _cache_dict_values(attr_id, description_category_id, type_id, values,
+                                       language="ZH_HANS", attr_row=attr)
             if values and isinstance(values, list) and len(values) > 0:
                 dict_lookup[attr_id] = values
             elif isinstance(values, dict) and values.get("result"):
@@ -2593,7 +2594,8 @@ def _rebuild_for_new_category(
                         language="ZH_HANS",
                     )
                     if values:
-                        _cache_dict_values(attr_id, new_dc, new_type, values, language="ZH_HANS")
+                        _cache_dict_values(attr_id, new_dc, new_type, values,
+                                           language="ZH_HANS", attr_row=attr)
                 if values and isinstance(values, list) and len(values) > 0:
                     new_dict_lookup[attr_id] = values
                 elif isinstance(values, dict) and values.get("result"):
@@ -3680,8 +3682,11 @@ def _fetch_dict_values_from_ozon(
             "Api-Key": ozon_api_key,
             "Content-Type": "application/json",
         }
-        # ⚠️ v0.13: limit 100 → 5000 + last_value_id 分页拉全
-        # 大字典（如颜色 1494 条）只取前 100 会导致目标值匹配不到 → 文本兜底 → "请从列表中选择一个属性值"
+        # ⚠️ v0.13: limit 100 → 分页拉全（大字典只取前 100 会导致目标值匹配不到）
+        # ✅ v0.72 三桶策略：limit 5000→2000（契约 max=2000，5000 被静默钳——
+        # 违约调用）；首页即 has_next（>2000 值的巨型字典如品牌 85）→ 取首页
+        # 即止不再翻页。物化拦截在 _cache_dict_values（ephemeral 不落库），
+        # 内存中的首页值仍可供本次匹配使用，value→id 精确查走 /values/search。
         result: list[dict[str, Any]] = []
         last_value_id: int = 0
         while True:
@@ -3690,7 +3695,7 @@ def _fetch_dict_values_from_ozon(
                 "description_category_id": description_category_id,
                 "type_id": type_id,
                 "language": language,  # 中文字典值用于匹配 1688 属性值（dictionary_value_id 跨语言一致）
-                "limit": 5000,
+                "limit": 2000,
                 "last_value_id": last_value_id,
             }
             resp = session.post(url, json=payload, headers=headers, timeout=30)
@@ -3700,7 +3705,12 @@ def _fetch_dict_values_from_ozon(
             if not page:
                 break
             result.extend(page)
-            if len(page) < 5000:
+            if not data.get("has_next", False):
+                break
+            if not last_value_id:
+                # 首页即 has_next → 巨型字典，取首页即止（ephemeral）
+                logger.info(
+                    f"   ⏭️ attr={attribute_id} 字典 >2000 值（巨型），取首页即止")
                 break
             # 分页游标：Ozon 用 last_value_id 返回下一页
             last_value_id = int(page[-1].get("id", last_value_id))
@@ -3749,22 +3759,28 @@ def _cache_dict_values(
     type_id: int,
     values: list[dict[str, Any]],
     language: str = "ZH_HANS",
+    attr_row: dict[str, Any] | None = None,
 ):
-    """将字典值写入 PG 缓存（按语言分别缓存）"""
+    """将字典值写入 PG 缓存（按语言分别缓存）。
+
+    ✅ v0.72 三桶策略（utils/dict_value_cache.py）：cat_dep=false → 全局桶
+    (attr,0,0) 一份；cat_dep=true → scoped；>2000 值（首页即翻页的巨型字典）
+    → ephemeral 不落库。attr_row=该属性的 schema 行（dict_lookup 循环里现成
+    有）；缺省保守按 scoped（行为与旧版一致）。TTL 86400→30d 与
+    warm/init_data/local_db_manager 口径对齐。
+    """
     try:
-        from utils.local_db_manager import LocalDBManager
-        local_db = LocalDBManager()
-        local_db.set_dictionary_value_cache(
-            attribute_id=attribute_id,
-            description_category_id=description_category_id,
-            type_id=type_id,
-            values_data=values,
-            language=language,  # fetch 什么语言就 cache 什么语言
-            expires_in=86400,
+        from utils.dict_value_cache import routed_set
+        bucket = routed_set(
+            attribute_id, values, description_category_id, type_id,
+            attr_row=attr_row, language=language,
         )
-        logger.info(f"   ✅ 字典值缓存写入成功: attr={attribute_id}, {len(values)} 条")
+        if bucket != "skipped_ephemeral":
+            logger.info(f"   ✅ 字典值缓存写入成功: attr={attribute_id}, {len(values)} 条（{bucket} 桶）")
+        return bucket
     except Exception as e:
         logger.warning(f"   ⚠️ 字典值缓存写入失败: {e}")
+        return None
 
 
 def _fetch_ru_dict_value(

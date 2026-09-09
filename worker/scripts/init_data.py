@@ -370,33 +370,39 @@ def import_attribute_cache(engine, force=False):
             "（首次上架偏慢）。全量缓存获取方式见 docs/CACHE-WARM-RUNBOOK.md")
         return
 
+    # ✅ v0.72: 单大事务改分批——原实现整个导入包在一个 engine.begin() 里
+    # （--force 还先 DELETE 再同事务重灌），数千行 × 数百 KB JSONB 一次性提交
+    # 抬高 PG 内存/锁窗口（warm v1.1 同款事故形态）。改每 _BATCH 行一提交。
+    _BATCH = 200
+
+    # 检查已有数据（独立短事务）
     with engine.begin() as conn:
-        # 检查是否已有数据
         count = conn.execute(sql_text(
             "SELECT COUNT(*) FROM attribute_cache WHERE language = 'ZH_HANS'"
         )).scalar()
 
-        if count > 0 and not force:
-            logger.info(f"⏭️  属性缓存已有 {count} 条记录，跳过导入（用 --force 强制覆盖）")
-            return
+    if count > 0 and not force:
+        logger.info(f"⏭️  属性缓存已有 {count} 条记录，跳过导入（用 --force 强制覆盖）")
+        return
 
-        if force and count > 0:
-            conn.execute(sql_text("DELETE FROM attribute_cache WHERE language = 'ZH_HANS'"))
-            conn.execute(sql_text("DELETE FROM dictionary_value_cache WHERE language = 'ZH_HANS'"))
-            logger.info(f"🗑️  已清空旧属性缓存数据 ({count} 条 schema)")
+    now = int(_time.time())
+    # ✅ v0.70: 30 天 TTL（与 warm_category_cache / local_db_manager 三处一致）——
+    # schema/字典值低频变化，1 天字典 TTL 曾使全量预热一周内衰减回懒加载
+    expires_schema = now + 30 * 86400
+    expires_dict = now + 30 * 86400
 
-        now = int(_time.time())
-        # ✅ v0.70: 30 天 TTL（与 warm_category_cache / local_db_manager 三处一致）——
-        # schema/字典值低频变化，1 天字典 TTL 曾使全量预热一周内衰减回懒加载
-        expires_schema = now + 30 * 86400
-        expires_dict = now + 30 * 86400
+    # 导入 attribute schemas（分批事务）
+    if os.path.exists(schemas_file):
+        with open(schemas_file, "r", encoding="utf-8") as f:
+            schemas = _json.load(f)
 
-        # 导入 attribute schemas
-        if os.path.exists(schemas_file):
-            with open(schemas_file, "r", encoding="utf-8") as f:
-                schemas = _json.load(f)
-
-            schema_count = 0
+        conn = engine.connect()
+        trans = conn.begin()
+        schema_count = 0
+        try:
+            if force and count > 0:
+                conn.execute(sql_text("DELETE FROM attribute_cache WHERE language = 'ZH_HANS'"))
+                logger.info(f"🗑️  已清空旧属性 schema ({count} 条)")
             for key, val in schemas.items():
                 dc_str, type_str = key.split(":", 1)
                 dc, tid = int(dc_str), int(type_str)
@@ -409,17 +415,33 @@ def import_attribute_cache(engine, force=False):
                 """), {"dc": dc, "tid": tid, "schema": _json.dumps(val, ensure_ascii=False),
                        "expires": expires_schema, "now": now})
                 schema_count += 1
+                if schema_count % _BATCH == 0:
+                    trans.commit()
+                    trans = conn.begin()
+            trans.commit()
             logger.info(f"✅ 导入属性 schema: {schema_count} 个类目")
+        except Exception:
+            trans.rollback()
+            raise
+        finally:
+            conn.close()
 
-        # 导入 dictionary values
-        if os.path.exists(dict_values_file):
-            with open(dict_values_file, "r", encoding="utf-8") as f:
-                dict_values = _json.load(f)
+    # 导入 dictionary values（分批事务）
+    if os.path.exists(dict_values_file):
+        with open(dict_values_file, "r", encoding="utf-8") as f:
+            dict_values = _json.load(f)
 
-            dict_count = 0
+        conn = engine.connect()
+        trans = conn.begin()
+        dict_count = 0
+        try:
+            if force and count > 0:
+                conn.execute(sql_text("DELETE FROM dictionary_value_cache WHERE language = 'ZH_HANS'"))
+                logger.info("🗑️  已清空旧字典值缓存")
             for key, val in dict_values.items():
                 parts = key.split(":", 2)
                 attr_id, dc, tid = int(parts[0]), int(parts[1]), int(parts[2])
+                # ✅ v0.72 三桶：全局桶行以 "aid:0:0" 键形状原样过账（零 DDL）
                 conn.execute(sql_text("""
                     INSERT INTO dictionary_value_cache (attribute_id, description_category_id, type_id, language, values_data, expires_at, created_at)
                     VALUES (:aid, :dc, :tid, 'ZH_HANS', :vals::jsonb, :expires, :now)
@@ -429,7 +451,16 @@ def import_attribute_cache(engine, force=False):
                 """), {"aid": attr_id, "dc": dc, "tid": tid, "vals": _json.dumps(val, ensure_ascii=False),
                        "expires": expires_dict, "now": now})
                 dict_count += 1
+                if dict_count % _BATCH == 0:
+                    trans.commit()
+                    trans = conn.begin()
+            trans.commit()
             logger.info(f"✅ 导入字典值: {dict_count} 个条目")
+        except Exception:
+            trans.rollback()
+            raise
+        finally:
+            conn.close()
 
 
 def main():

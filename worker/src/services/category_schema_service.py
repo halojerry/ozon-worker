@@ -10,8 +10,10 @@ v0.70 的「categories/attributes 缓存只读不回源 Ozon」红线修订：�
 - 无凭证/拉取失败 → found=False + reason（前端提示降级，不破坏页面）
 
 字典值按单属性按需（表单下拉打开时拉）：POST
-/v1/description-category/attribute/values，limit=2000 + has_next 翻页
-（上限 3 页防长尾），回写 dictionary_value_cache。
+/v1/description-category/attribute/values，limit=2000（契约上限）。
+✅ v0.72 三桶策略（utils/dict_value_cache.py）：首页即 has_next 的巨型字典
+（如品牌 85）ephemeral 不回写（下拉返回首页值）；小字典按 schema 的
+category_dependent 路由全局/scoped 桶。
 
  Ozon 契约（mcp__ozon__describe_method 核对 2026-09）：
 - GetAttributes: {description_category_id, type_id, language} → result[]
@@ -26,7 +28,6 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _VALUES_PAGE_LIMIT = 2000
-_VALUES_MAX_PAGES = 3
 
 
 def _normalize_values(raw: Any) -> list[dict]:
@@ -97,7 +98,14 @@ def get_attribute_values_with_lazy_fetch(
     attr_id: int, dc: int, tp: int, client_id: str, api_key: str,
     language: str = "ZH_HANS",
 ) -> dict:
-    """单属性字典值：缓存优先 → 按需拉取（翻页≤3 页）回写。不抛异常。
+    """单属性字典值：缓存优先 → 按需拉取回写。不抛异常。
+
+    ✅ v0.72 三桶策略（utils/dict_value_cache.py）：
+    - 首页即 has_next（>2000 值巨型字典，如品牌 85）→ ephemeral：**不回写**，
+      返回首页值供下拉使用（运行时 value→id 精确查走 /values/search）；
+    - 小字典按 schema 的 category_dependent 路由：false → 全局桶 (attr,0,0)
+      一份；true → scoped (attr,dc,tp)。schema 本身走
+      get_attributes_with_lazy_fetch（PG 优先）现取。
 
     返回 {found, cached, fetched, values, reason?}。
     """
@@ -119,45 +127,53 @@ def get_attribute_values_with_lazy_fetch(
 
     try:
         from utils.ozon_client import ozon_post
-        all_vals: list[dict] = []
-        last_value_id = 0
-        for _page in range(_VALUES_MAX_PAGES):
-            body: dict[str, Any] = {
+        resp = ozon_post(
+            client_id, api_key,
+            "/v1/description-category/attribute/values",
+            {
                 "attribute_id": int(attr_id),
                 "description_category_id": int(dc),
                 "type_id": int(tp),
                 "limit": _VALUES_PAGE_LIMIT,
                 "language": language,
-            }
-            if last_value_id:
-                body["last_value_id"] = last_value_id
-            resp = ozon_post(
-                client_id, api_key,
-                "/v1/description-category/attribute/values", body, timeout=30,
-            )
-            page_vals = _normalize_values(resp)
-            all_vals.extend(page_vals)
-            if not resp.get("has_next") or not page_vals:
-                break
-            try:
-                last_value_id = int(page_vals[-1]["id"])
-            except (TypeError, ValueError, KeyError):
-                break
+            },
+            timeout=30,
+        )
     except Exception as exc:
         logger.warning("字典值按需拉取失败 attr=%s dc=%s tp=%s: %s", attr_id, dc, tp, exc)
         return {"found": False, "cached": False, "fetched": False,
                 "values": None, "reason": f"fetch_failed: {exc}"}
 
+    all_vals = _normalize_values(resp)
     if not all_vals:
         return {"found": False, "cached": False, "fetched": True,
                 "values": None, "reason": "empty_from_ozon"}
 
+    # ✅ v0.72 首页即 has_next → 巨型字典 ephemeral：不回写（下拉用首页值足够，
+    # 避免品牌类无底洞按类目复制进 PG——磁盘事故根因）
+    if resp.get("has_next"):
+        logger.info("⏭️ 字典 %s 值数超 %s（巨型），ephemeral 不回写（下拉返回首页 %s 值）",
+                    attr_id, _VALUES_PAGE_LIMIT, len(all_vals))
+        return {"found": True, "cached": False, "fetched": True,
+                "values": all_vals, "reason": "ephemeral_dict"}
+
+    # 小字典：按 schema 的 category_dependent 路由落桶
+    _attr_row = None
     try:
-        from utils.local_db_manager import LocalDBManager
-        LocalDBManager().set_dictionary_value_cache(
-            attr_id, dc, tp, all_vals, language=language)
-        logger.info("✅ 字典值按需拉取回写 (attr=%s dc=%s tp=%s, %d 值)",
-                    attr_id, dc, tp, len(all_vals))
+        _schema_res = get_attributes_with_lazy_fetch(dc, tp, client_id, api_key, language)
+        for _a in (_schema_res.get("schema") or []):
+            if isinstance(_a, dict) and int(_a.get("id") or 0) == int(attr_id):
+                _attr_row = _a
+                break
+    except Exception:
+        pass  # schema 拿不到 → routed_set 缺省保守按 scoped
+
+    try:
+        from utils.dict_value_cache import routed_set
+        bucket = routed_set(attr_id, all_vals, dc, tp,
+                            attr_row=_attr_row, language=language)
+        logger.info("✅ 字典值按需拉取回写 (attr=%s dc=%s tp=%s, %s 值, %s 桶)",
+                    attr_id, dc, tp, len(all_vals), bucket)
     except Exception as exc:
         logger.debug("字典值回写失败(非致命): %s", exc)
     return {"found": True, "cached": False, "fetched": True, "values": all_vals}

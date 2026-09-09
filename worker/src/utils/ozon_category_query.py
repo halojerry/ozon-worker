@@ -1392,7 +1392,12 @@ class OzonCategoryQuery:
         type_id: int,
         language: str = "ZH_HANS",
     ) -> list[dict] | None:
-        """获取指定属性的字典值（从 dictionary_value_cache 表）"""
+        """获取指定属性的字典值（从 dictionary_value_cache 表）
+
+        ✅ v0.72 三桶策略：scoped (attr,dc,tp) 未命中时回退全局桶
+        (attr,0,0,language)——cat_dep=false 字典由 warm/懒加载统一落全局桶
+        一份（策略见 utils/dict_value_cache.py），读侧无需查 schema 即可命中。
+        """
         current_time = int(time.time())
         session = get_session()
         try:
@@ -1407,6 +1412,20 @@ class OzonCategoryQuery:
                     )
                 )
             ).scalar_one_or_none()
+
+            if not (row and row.values_data):
+                # ✅ v0.72 全局桶回退
+                row = session.execute(
+                    select(DictionaryValueCache).where(
+                        and_(
+                            DictionaryValueCache.attribute_id == attribute_id,
+                            DictionaryValueCache.description_category_id == 0,
+                            DictionaryValueCache.type_id == 0,
+                            DictionaryValueCache.language == language,
+                            DictionaryValueCache.expires_at > current_time,
+                        )
+                    )
+                ).scalar_one_or_none()
 
             if row and row.values_data:
                 return row.values_data

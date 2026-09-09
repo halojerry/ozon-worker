@@ -74,6 +74,13 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 3
+    # ✅ v0.72 防复发（字典缓存撑爆 40G 盘事故清单）：json-file 默认无上限，
+    # 长跑容器 stdout 日志会无限增长——封顶 50MB×3
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
 
 volumes:
   pgdata:

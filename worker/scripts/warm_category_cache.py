@@ -51,6 +51,34 @@ DICT_FETCH_WORKERS = 2  # 并发拉字典值线程数（3 → 2，配合延迟�
 MAX_429_RETRIES = 3     # 429 最大重试次数（原实现无限递归）
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
 
+# ✅ v0.72 三桶策略 + 防复发守卫（字典缓存撑爆 40G 盘事故）：
+# - 全局桶 (cat_dep=false) 每次运行只拉一次/写一份（seen-set 跨节点复用）
+# - 巨型字典（首页即 has_next）ephemeral 不物化
+# - 磁盘余量守卫：起步 + 每 50 节点检查，<5G 自动中止
+_MIN_DISK_FREE_GB = 5.0
+_global_dict_seen: set = set()
+
+
+def _disk_free_gb() -> float:
+    """容器根文件系统剩余空间（GB）。docker 卷与容器同宿主盘，可作为代理指标。"""
+    import shutil
+    try:
+        return shutil.disk_usage("/").free / 2**30
+    except Exception:
+        return 999.0  # 检查失败不阻断（宁误跑勿误停）
+
+
+def _disk_guard(context: str) -> bool:
+    """磁盘余量守卫：<5G 返回 False（调用方中止预热）。"""
+    free = _disk_free_gb()
+    if free < _MIN_DISK_FREE_GB:
+        logger.error(
+            f"🛑 磁盘余量守卫触发（{context}）：仅剩 {free:.1f}G < {_MIN_DISK_FREE_GB}G，"
+            "自动中止预热——先清理磁盘（见 docs/CACHE-WARM-RUNBOOK.md）再续跑 --offset")
+        return False
+    return True
+
+
 # Files to export
 SCHEMAS_FILE = os.path.join(ASSETS_DIR, "attribute_schemas_zh.json")
 DICT_VALUES_FILE = os.path.join(ASSETS_DIR, "dictionary_values_zh.json")
@@ -102,17 +130,25 @@ def fetch_attribute_schema(dc: int, type_id: int) -> list[dict]:
     return []
 
 
-def fetch_dict_values(attr_id: int, dc: int, type_id: int) -> list[dict]:
-    """获取属性的字典值 (ZH_HANS)，支持分页"""
-    all_values = []
+def fetch_dict_values(attr_id: int, dc: int, type_id: int,
+                      max_pages: Optional[int] = None) -> tuple[list[dict], bool]:
+    """获取属性的字典值 (ZH_HANS)，支持分页。返回 (values, truncated)。
+
+    ✅ v0.72 三桶策略：limit 5000→2000（Ozon 契约 max=2000，5000 被静默钳）；
+    max_pages=1 为「首页探测」——返回 truncated=True 表示字典 >2000 值
+    （ephemeral，调用方跳过物化，不再翻页——品牌类无底洞的刹车）。
+    """
+    all_values: list[dict] = []
     last_id = 0
+    page = 0
     while True:
+        page += 1
         payload = {
             "attribute_id": attr_id,
             "description_category_id": dc,
             "type_id": type_id,
             "language": "ZH_HANS",
-            "limit": 5000,
+            "limit": 2000,
         }
         if last_id > 0:
             payload["last_value_id"] = last_id
@@ -125,10 +161,12 @@ def fetch_dict_values(attr_id: int, dc: int, type_id: int) -> list[dict]:
             break
         all_values.extend(result)
         if not data.get("has_next", False):
-            break
+            return all_values, False
+        if max_pages is not None and page >= max_pages:
+            return all_values, True  # 首页即翻页 → ephemeral
         last_id = result[-1].get("id", 0)
         time.sleep(API_DELAY)
-    return all_values
+    return all_values, False
 
 
 def get_type_nodes(limit: Optional[int] = None, offset: Optional[int] = None) -> list[dict]:
@@ -485,6 +523,10 @@ def main():
     total = len(nodes)
     logger.info(f"📊 共 {total} 个 type 节点需要处理")
 
+    # ✅ v0.72 防复发守卫：起步查磁盘，<5G 不开工
+    if not _disk_guard("预热起步"):
+        sys.exit(1)
+
     success = 0
     failed = 0
     now = int(time.time())
@@ -494,6 +536,9 @@ def main():
     dict_values = {} if args.export_only else None
 
     for i, node in enumerate(nodes):
+        # ✅ v0.72 防复发守卫：每 50 节点查一次磁盘余量
+        if i > 0 and i % 50 == 0 and not _disk_guard(f"进度 {i}/{total}"):
+            break
         dc = node["description_category_id"]
         tid = node["type_id"]
         key = f"{dc}:{tid}"
@@ -529,25 +574,52 @@ def main():
                 continue
 
             # 获取字典值（并发获取，延迟受控）
+            # ✅ v0.72 三桶分流（utils/dict_value_cache.py 策略）：
+            # - cat_dep=false → 全局桶 (attr,0,0)，每次运行只拉一次/写一份（seen-set）
+            # - cat_dep=true 小字典 → scoped (attr,dc,tp)（现状）
+            # - 首页即 has_next（>2000 值，如品牌 85）→ ephemeral，丢弃不再翻页
+            #   （品牌无底洞的刹车——warm 不再为每个节点整份复制 5.18MB）
+            from utils.dict_value_cache import is_category_dependent
             dict_attrs = [a for a in schema if a.get("dictionary_id", 0) > 0]
             node_dict_values: dict = {}
             if dict_attrs:
                 from concurrent.futures import ThreadPoolExecutor, as_completed
-                def _fetch_one_dict(attr):
-                    attr_id = int(attr["id"])
-                    dkey = f"{attr_id}:{dc}:{tid}"
-                    vals = fetch_dict_values(attr_id, dc, tid)
+                global _global_dict_seen
+                todo: list[tuple[dict, str]] = []
+                for a in dict_attrs:
+                    aid = int(a["id"])
+                    if not is_category_dependent(a):
+                        if aid in _global_dict_seen:
+                            continue  # 全局桶本轮已拉过/写过，跨节点复用
+                        _global_dict_seen.add(aid)
+                        todo.append((a, f"{aid}:0:0"))
+                    else:
+                        todo.append((a, f"{aid}:{dc}:{tid}"))
+
+                def _fetch_one_dict(attr, dkey: str):
+                    vals, truncated = fetch_dict_values(
+                        int(attr["id"]), dc, tid, max_pages=1)
+                    if truncated:
+                        return dkey, None, True
+                    return dkey, vals, False
+
+                if todo:
+                    with ThreadPoolExecutor(max_workers=DICT_FETCH_WORKERS) as pool:
+                        futures = {pool.submit(_fetch_one_dict, a, dk): (a, dk)
+                                   for a, dk in todo}
+                        for fut in as_completed(futures):
+                            try:
+                                dkey, vals, truncated = fut.result()
+                                if truncated:
+                                    _aid = dkey.split(":", 1)[0]
+                                    logger.info(
+                                        f"      ⏭️ 字典 {_aid} >2000 值，ephemeral 不物化")
+                                    continue
+                                if vals:
+                                    node_dict_values[dkey] = vals
+                            except Exception as _de:
+                                logger.debug(f"      ⚠️ 字典值获取失败: {_de}")
                     time.sleep(API_DELAY)
-                    return dkey, vals
-                with ThreadPoolExecutor(max_workers=DICT_FETCH_WORKERS) as pool:
-                    futures = {pool.submit(_fetch_one_dict, a): a for a in dict_attrs}
-                    for fut in as_completed(futures):
-                        try:
-                            dkey, vals = fut.result()
-                            if vals:
-                                node_dict_values[dkey] = vals
-                        except Exception as _de:
-                            logger.debug(f"      ⚠️ 字典值获取失败: {_de}")
 
             # ── 立即写 PG（小事务，不攒内存）──
             if not args.export_only:

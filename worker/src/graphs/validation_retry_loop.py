@@ -1610,19 +1610,17 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                     if not _last_id:
                         break
                 if _fresh_values:
-                    # 写入 PG 缓存
+                    # 写入 PG 缓存（✅ v0.72 三桶路由：RU 是独立 language 键天然
+                    # 隔离；桶按 schema 的 category_dependent 决定，巨型字典不落库）
                     try:
-                        from utils.local_db_manager import LocalDBManager
-                        local_db = LocalDBManager()
-                        local_db.set_dictionary_value_cache(
-                            attribute_id=attr_id,
-                            description_category_id=int(category_id) if category_id else 0,
-                            type_id=int(type_id) if type_id else 0,
-                            values_data=_fresh_values,
+                        from utils.dict_value_cache import routed_set
+                        _bucket = routed_set(
+                            attr_id, _fresh_values,
+                            int(category_id) if category_id else 0,
+                            int(type_id) if type_id else 0,
                             language="RU",  # fetch 用 RU → cache 用 RU
-                            expires_in=86400,
                         )
-                        logger.info(f"  ✅ 字典值缓存已刷新: attr={attr_id}, {len(_fresh_values)}条")
+                        logger.info(f"  ✅ 字典值缓存已刷新: attr={attr_id}, {len(_fresh_values)}条（{_bucket}）")
                     except Exception as _cache_e:
                         logger.debug(f"  字典缓存写入跳过: {_cache_e}")
             except Exception as _fresh_e:
