@@ -133,3 +133,40 @@ def test_claim_sql_refreshes_updated_at():
     from utils.task_processor import SupabaseTaskProcessor
     src = inspect.getsource(SupabaseTaskProcessor._claim_next_task)
     assert "updated_at = NOW()" in src, "认领应同步刷 updated_at"
+
+
+def test_permanent_failure_exhausts_retry_count(engine):
+    """F-C04 回归：永久性错误（OUT_OF_QUOTA 等）落 failed 时必须把
+    retry_count 推满到 max_retries——否则 zombie_reset/failed 复活谓词
+    （failed AND retry_count < max_retries）会把不可重试的任务复活重跑。"""
+    tid = _mk_task(engine, "running")
+    with engine.connect() as conn:
+        conn.execute(text("""
+            UPDATE ozon_product_tasks SET retry_count = 0, max_retries = 3
+            WHERE id = :tid
+        """), {"tid": tid})
+        conn.commit()
+
+    out = _processor()._handle_failure_sync(
+        tid, "OUT_OF_QUOTA: 余额耗尽", permanent=True)
+
+    assert out is not None and out["retried"] is False
+    with engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT status, retry_count, max_retries FROM ozon_product_tasks "
+            "WHERE id = :tid"), {"tid": tid}).fetchone()
+    assert row[0] == "failed"
+    assert row[1] >= row[2], (
+        f"永久错误必须把 retry_count 推满防复活: retry={row[1]}, max={row[2]}")
+
+
+def test_permanent_failure_row_not_revivable(engine):
+    """复活谓词视角：永久 failed 行不满足 'failed AND retry_count<max' 条件。"""
+    tid = _mk_task(engine, "running")
+    _processor()._handle_failure_sync(tid, "内容违规", permanent=True)
+    with engine.connect() as conn:
+        n = conn.execute(text(
+            "SELECT COUNT(*) FROM ozon_product_tasks "
+            "WHERE id = :tid AND status = 'failed' AND retry_count < max_retries"),
+            {"tid": tid}).scalar()
+    assert n == 0

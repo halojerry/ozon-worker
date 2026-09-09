@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from api.schemas import DraftPatch
 from services import credential_service, product_index_service
@@ -35,6 +36,21 @@ def _norm_notes(val) -> str:
     if val is None:
         return ""
     return str(val).strip()[:2000]
+
+
+def _norm_source_batch(val) -> Optional[str]:
+    """批次归一（T-P3.1 批次契约）：None/空白→None、strip；>64 字符 → 400。
+
+    超长选择拒绝而非截断：截断会让不同批次 ID 静默合并，?batch= 精确过滤失真。
+    """
+    if val is None:
+        return None
+    batch = str(val).strip()
+    if not batch:
+        return None
+    if len(batch) > 64:
+        raise HTTPException(status_code=400, detail="source_batch 超长（最多 64 字符）")
+    return batch
 
 
 def has_active_submission(tenant_id: str, draft_id: str,
@@ -219,6 +235,7 @@ def _draft_row_to_dict(row) -> dict:
         "version": row.version,
         "image_mirror_state": getattr(row, "image_mirror_state", "") or "",
         "notes": getattr(row, "notes", None),
+        "source_batch": getattr(row, "source_batch", None),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -255,17 +272,19 @@ def create_draft(tenant_id: str, body: dict) -> dict:
 
     source = str(body.get("source") or "skill")
     notes = _norm_notes(body.get("notes"))
+    source_batch = _norm_source_batch(body.get("source_batch"))
     with get_engine().begin() as conn:
         row = conn.execute(text(
-            "INSERT INTO product_drafts (tenant_id, payload, source, notes) "
-            "VALUES (:tenant_id, CAST(:payload AS jsonb), :source, :notes) "
+            "INSERT INTO product_drafts (tenant_id, payload, source, notes, source_batch) "
+            "VALUES (:tenant_id, CAST(:payload AS jsonb), :source, :notes, :source_batch) "
             "RETURNING id, tenant_id, payload, source, version, image_mirror_state, "
-            "notes, created_at, updated_at"
+            "notes, source_batch, created_at, updated_at"
         ), {
             "tenant_id": tenant_id,
             "payload": json.dumps(envelope, ensure_ascii=False),
             "source": source,
             "notes": notes,
+            "source_batch": source_batch,
         }).fetchone()
     from services.draft_image_mirror import spawn_image_mirror
     spawn_image_mirror(tenant_id, str(row.id), row.version, envelope)
@@ -280,16 +299,26 @@ _LATEST_SUBMISSION_SQL = (
 )
 
 
-def list_drafts(tenant_id: str) -> list[dict]:
-    """GET /drafts：租户隔离列表（updated_at 倒序），携带最新 submission 状态（T10 上架状态列）。"""
+def list_drafts(tenant_id: str, batch: Optional[str] = None) -> list[dict]:
+    """GET /drafts：租户隔离列表（updated_at 倒序），携带最新 submission 状态（T10 上架状态列）。
+
+    batch（T-P3.1 批次契约）：可选，按 source_batch 精确过滤（=）；缺席/空白 →
+    不过滤，行为与无参调用完全一致（老消费者零影响）。
+    """
+    sql = (
+        "SELECT d.id, d.tenant_id, d.payload, d.source, d.version, "
+        "d.image_mirror_state, d.notes, d.source_batch, d.created_at, d.updated_at, "
+        "s.submission_status "
+        f"FROM product_drafts d {_LATEST_SUBMISSION_SQL} "
+        "WHERE d.tenant_id=:tenant_id"
+    )
+    params: dict = {"tenant_id": tenant_id}
+    if batch:
+        sql += " AND d.source_batch = :batch"
+        params["batch"] = batch
+    sql += " ORDER BY d.updated_at DESC"
     with get_engine().connect() as conn:
-        rows = conn.execute(text(
-            "SELECT d.id, d.tenant_id, d.payload, d.source, d.version, "
-            "d.image_mirror_state, d.notes, d.created_at, d.updated_at, "
-            "s.submission_status "
-            f"FROM product_drafts d {_LATEST_SUBMISSION_SQL} "
-            "WHERE d.tenant_id=:tenant_id ORDER BY d.updated_at DESC"
-        ), {"tenant_id": tenant_id}).fetchall()
+        rows = conn.execute(text(sql), params).fetchall()
     return [_draft_row_to_dict(r) for r in rows]
 
 
@@ -420,7 +449,7 @@ def get_draft(tenant_id: str, draft_id: str) -> dict:
     with get_engine().connect() as conn:
         row = conn.execute(text(
             "SELECT id, tenant_id, payload, source, version, image_mirror_state, "
-            "notes, created_at, updated_at "
+            "notes, source_batch, created_at, updated_at "
             "FROM product_drafts WHERE id=:id AND tenant_id=:tenant_id"
         ), {"id": uid, "tenant_id": tenant_id}).fetchone()
     if row is None:
@@ -576,7 +605,7 @@ def patch_draft(tenant_id: str, draft_id: str, data: DraftPatch) -> dict:
             "version=version+1, updated_at=NOW() "
             "WHERE id=:id AND tenant_id=:tenant_id AND version=:expected_version "
             "RETURNING id, tenant_id, payload, source, version, image_mirror_state, "
-            "notes, created_at, updated_at"
+            "notes, source_batch, created_at, updated_at"
         ), {
             "payload": json.dumps(data.payload, ensure_ascii=False),
             "source": new_source,
@@ -839,8 +868,16 @@ async def submit_draft(
         "envelope": payload_envelope,
         "user_id": tenant_id,
     }
-    sku_key = f"{tenant_id}:{client_id}:{offer_id}" if offer_id else ""
-    task_id = await _submit_task(tenant_id, graph_payload, sku_key)
+    # F-D03（2026-09-09 审计）：offer_id 为空（新建无商品）时 sku_key 走 draft_id
+    # 确定性占位——部分唯一索引 uq_ozon_product_tasks_tenant_sku 只覆盖 sku_key
+    # 非空行，空值双提交连兜底都没有（真双跑）。占位键让唯一索引对同草稿并发
+    # 提交生效；第二个撞索引 → 409（下方 IntegrityError 映射）。
+    sku_key = (f"{tenant_id}:{client_id}:{offer_id}" if offer_id
+               else f"{tenant_id}:{client_id}:draft:{draft_id}")
+    try:
+        task_id = await _submit_task(tenant_id, graph_payload, sku_key)
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail=DUP_MESSAGE)
 
     if update_product_id and update_offer_id:
         try:

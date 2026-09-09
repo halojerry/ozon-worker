@@ -557,22 +557,41 @@ class LocalDBManager:
                     ).scalar_one_or_none()
                     if _canon is not None:
                         try:
-                            _canon.success_count = (_canon.success_count or 0) + 1
-                            _canon.source_category_leaf = source_category_leaf
-                            _canon.is_active = True
-                            _canon.last_used_at = _now
-                            if _canon.source != "curated":
-                                _canon.source = source
-                            if confidence > (_canon.confidence or 0):
-                                _canon.confidence = confidence
-                            if source_category_path:
-                                _canon.source_category_path = source_category_path
-                            if source_keywords:
-                                _canon.source_keywords = source_keywords
-                            if category_path_zh:
-                                _canon.category_path_zh = category_path_zh
-                            if category_path_ru:
-                                _canon.category_path_ru = category_path_ru
+                            # F-E01（2026-09-09 审计）：原子 UPDATE 表达式取代 ORM
+                            # 读改写——success_count 在 SQL 侧自增，SELECT 与写之间
+                            # 被并发归并推进时不再丢失累计；条件字段用 case/coalesce
+                            # 保住「curated 不可降级 / 传入非空才覆盖 / confidence 取大」。
+                            session.execute(
+                                update(CategoryMapping)
+                                .where(CategoryMapping.id == _canon.id)
+                                .values(
+                                    success_count=func.coalesce(
+                                        CategoryMapping.success_count, 0) + 1,
+                                    source_category_leaf=source_category_leaf,
+                                    is_active=True,
+                                    last_used_at=_now,
+                                    source=case(
+                                        (CategoryMapping.source != "curated", source),
+                                        else_=CategoryMapping.source,
+                                    ),
+                                    confidence=func.greatest(
+                                        func.coalesce(CategoryMapping.confidence, 0.0),
+                                        float(confidence or 0.0),
+                                    ),
+                                    source_category_path=func.coalesce(
+                                        source_category_path,
+                                        CategoryMapping.source_category_path),
+                                    source_keywords=func.coalesce(
+                                        source_keywords,
+                                        CategoryMapping.source_keywords),
+                                    category_path_zh=func.coalesce(
+                                        category_path_zh,
+                                        CategoryMapping.category_path_zh),
+                                    category_path_ru=func.coalesce(
+                                        category_path_ru,
+                                        CategoryMapping.category_path_ru),
+                                )
+                            )
                             session.commit()
                             logger.info(
                                 f"✅ cid 规范化归并：category_mapping (cid={_src_id}, "
