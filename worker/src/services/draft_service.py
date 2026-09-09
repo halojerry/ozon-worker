@@ -30,6 +30,13 @@ DUP_MESSAGE = "重复商品：目标店铺已存在相同商品"
 _SECRET_KEYS = ("api_key", "apikey")
 
 
+def _norm_notes(val) -> str:
+    """备注归一：None→空串、strip、cap 2000。create/import/PATCH 三口共用。"""
+    if val is None:
+        return ""
+    return str(val).strip()[:2000]
+
+
 def has_active_submission(tenant_id: str, draft_id: str,
                           credential_id: Optional[str] = None) -> bool:
     """草稿在该店是否存在进行中 submission(pending/uploading)→ 防重复提交/重试。"""
@@ -247,16 +254,18 @@ def create_draft(tenant_id: str, body: dict) -> dict:
         credential_service.store_credential(tenant_id, client_id, api_key)
 
     source = str(body.get("source") or "skill")
+    notes = _norm_notes(body.get("notes"))
     with get_engine().begin() as conn:
         row = conn.execute(text(
-            "INSERT INTO product_drafts (tenant_id, payload, source) "
-            "VALUES (:tenant_id, CAST(:payload AS jsonb), :source) "
+            "INSERT INTO product_drafts (tenant_id, payload, source, notes) "
+            "VALUES (:tenant_id, CAST(:payload AS jsonb), :source, :notes) "
             "RETURNING id, tenant_id, payload, source, version, image_mirror_state, "
-            "created_at, updated_at"
+            "notes, created_at, updated_at"
         ), {
             "tenant_id": tenant_id,
             "payload": json.dumps(envelope, ensure_ascii=False),
             "source": source,
+            "notes": notes,
         }).fetchone()
     from services.draft_image_mirror import spawn_image_mirror
     spawn_image_mirror(tenant_id, str(row.id), row.version, envelope)
@@ -518,7 +527,12 @@ def import_drafts_csv(tenant_id: str, rows: list[dict]) -> dict:
             continue
         try:
             envelope = _row_to_envelope(row)
-            create_draft(tenant_id, {"envelope": envelope, "source": "csv"})
+            # notes 列可选（CSV 竞品备注列），归一与 create 同口（_norm_notes）
+            create_draft(tenant_id, {
+                "envelope": envelope,
+                "source": "csv",
+                "notes": _norm_notes(row.get("notes")),
+            })
             created += 1
         except HTTPException as exc:
             failed += 1
@@ -555,7 +569,7 @@ def patch_draft(tenant_id: str, draft_id: str, data: DraftPatch) -> dict:
             "version=version+1, updated_at=NOW() "
             "WHERE id=:id AND tenant_id=:tenant_id "
             "RETURNING id, tenant_id, payload, source, version, image_mirror_state, "
-            "created_at, updated_at"
+            "notes, created_at, updated_at"
         ), {
             "payload": json.dumps(data.payload, ensure_ascii=False),
             "source": new_source,

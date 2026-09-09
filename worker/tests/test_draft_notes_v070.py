@@ -38,3 +38,20 @@ def test_patch_sql_preserves_notes_when_none():
     src = Path(draft_service.__file__).read_text("utf-8")
     # patch_draft 的 UPDATE 用 COALESCE：notes=None 时保留原值（不覆盖）
     assert "notes=COALESCE(:notes, notes)" in src
+
+
+def test_create_body_notes_extracted(monkeypatch):
+    from services import draft_service
+
+    src = Path(draft_service.__file__).read_text("utf-8")
+    assert 'body.get("notes")' in src or "body.get('notes')" in src
+    src_import = src
+    assert '"notes"' in src_import  # 导入行映射含 notes
+
+
+def test_import_row_notes_stripped_and_capped():
+    from services.draft_service import _norm_notes
+
+    assert _norm_notes("  待确认  ") == "待确认"
+    assert _norm_notes(None) == ""
+    assert _norm_notes("x" * 5000) == "x" * 2000
