@@ -648,6 +648,18 @@
             "title": "Source",
             "type": "string"
           },
+          "source_batch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "来源批次标识（T-P3.1 批次契约）：采集批次精确过滤用；NULL = 无批次（老 skill 创建的草稿）",
+            "title": "Source Batch"
+          },
           "submission_status": {
             "anyOf": [
               {
@@ -5894,7 +5906,26 @@
     },
     "/api/v1/drafts": {
       "get": {
+        "description": "列表（T-P3.1 批次契约）：可选 ?batch= 按 source_batch 精确过滤；缺席 = 不过滤（行为不变）。",
         "operationId": "list_drafts_api_v1_drafts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "batch",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Batch"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -5909,6 +5940,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Drafts",

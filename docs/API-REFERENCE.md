@@ -1149,13 +1149,20 @@ V1 Discovery Report Run — discover 选品结果归档（W10 D12）：单次上
 ## drafts
 
 ### `GET /api/v1/drafts`
-List Drafts
+List Drafts — 列表（T-P3.1 批次契约）：可选 ?batch= 按 source_batch 精确过滤；缺席 = 不过滤（行为不变）。
+
+**参数**
+
+| 名称 | 位置 | 类型 | 必填 | 说明 |
+|---|---|---|---|---|
+| `batch` | query | string \| null |  |  |
 
 **响应**
 
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | list[[DraftOut](#schema-draftout)] |
+| 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
 ### `POST /api/v1/drafts`
 Create Draft
@@ -2949,6 +2956,7 @@ POST /drafts/{id}/assemble 响应（v0.70 一键预组装：整卡生成并写�
 | `submission_status` | string \| null |  | 最新一次提交状态（draft_submissions.status）：pending/uploading/published/failed；NULL = 未上架（C1 状态机，T10 采集箱列） |
 | `image_mirror_state` | string |  | 图片镜像状态（M5b）：''=未启用/未镜像；pending=镜像中；mirrored=已转存 COS；failed=失败保持外链（默认 `""`） |
 | `notes` | string \| null |  | 运营备注（采集/选品依据人工标注）；不进信封 payload |
+| `source_batch` | string \| null |  | 来源批次标识（T-P3.1 批次契约）：采集批次精确过滤用；NULL = 无批次（老 skill 创建的草稿） |
 
 ### ErrorBody <a id="schema-errorbody"></a>
 统一错误响应体。

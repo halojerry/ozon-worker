@@ -23,6 +23,7 @@
   - [1b.3 envelope extensions 新字段（C4）](#1b3-envelope-extensions-新字段c4)
   - [1b.4 skill --to-box 约定（C7）](#1b4-skill---to-box-约定c7)
   - [1b.5 多店铺重复商品校验（C5 v1 两层规则）](#1b5-多店铺重复商品校验c5-v1-两层规则)
+  - [1b.6 采集箱批次契约（T-P3.1）](#1b6-采集箱批次契约t-p31)
 - [Part 2: Worker 内部节点合约](#part-2-worker-内部节点合约)
   - [2.1 auth](#21-auth)
   - [2.2 check_quota](#22-check_quota)
@@ -105,6 +106,17 @@
 > 这两个端点属于「数据沉淀 + 店铺精细化运营」阶段（**未发版**，VERSION 四源仍 0.60.0）。
 > 详细契约见文末「Part 6: 店铺分析/执行端点 + 数据沉淀表」（2026-08-22 新增）。
 
+**采集箱运营备注 notes（未发版——人工标注，不进信封）**:
+- skill：`discover --to-box --note "备注"` → POST /drafts 请求体顶层 `notes`（**绝不进 envelope/extensions**；客户端截 2000 字）
+- worker：`product_drafts.notes` 独立列（`_norm_notes` 三口归一：None→空、strip、cap2000）；PATCH `notes=COALESCE(:notes, notes)`（None=不改、空串=清）；CSV 导入/导出均带 `notes` 列；webui EditDraftDrawer 可编辑
+- 语义：与 submission_status 同类的运营态，worker 存储、webui 展示，**零业务消费**
+
+**店铺会话代管（未发版——bindShopCookie 对标，安全口径更严）**:
+- 链路：skill `session-sync --credential-id`（CDP 收割 seller.ozon.ru cookie，无 sc_company_id 拒传 exit 2）→ POST `/credentials/{id}/session` → AES-256-GCM 存储（aad=`tenant:credential`，复用 CREDENTIAL_MASTER_KEY）→ worker 服务端直调 seller 内部 API
+- 端点：POST 上传 / GET 状态（只回 cookie 名单+时间戳，**永不回值**）/ DELETE 撤销（204）；跨租户/不存在 404；未配主密钥 500
+- 直调消费：`GET /api/v1/analytics/what-to-sell`（what_to_sell v3，sku 剥 `_0`；401/403/302→会话标 expired+409 session_expired；存量 expired fast-fail 不烧直调；DataDome 403 与真失效不可分，一律判 expired，误判代价=一次重同步）
+- 失效闭环：skill `session-sync --status` 查询 → 重新收割上传
+
 **采集箱 AI 预组装（v0.70 — 预填字段语义，与管线零冲突）**:
 
 - `POST /api/v1/drafts/{draft_id}/assemble`：一键生成整卡上架信息写回 payload
@@ -175,7 +187,7 @@
 | `envelope.source` | object | ❌ | — | `{purchase_url, purchase_cost}` |
 | `envelope.extensions` | object | ❌ | — | `{margin_rate, commission_rate, fx_buffer, follow_sell, max_skus}` |
 | `envelope.extensions.competitor_ref_images` | string[] | ❌ | v0.69+ | 跟卖竞品主图快照（串图修复引入）：skill 写入、**worker 暂零消费**（预留语义位）——绝不进 `draft.images`/生图参考链，随 payload 落盘供后续接线
-| `envelope.extensions.discovery_meta` | object | ❌ | v0.69+ | discover 选品元数据快照。v0.70 扩键（对标上品帮选品记录，数据已在手纯透出）：基础组 `{ozon_product_id, ozon_url, ozon_price, blue_ocean_score, monthly_sales, monthly_revenue, sales_growth, drr, create_days, competing_sellers, rating, review_count, weight_g, dimensions_mm, profit_margin, estimated_profit_cny, match_confidence, discovered_at}` + 扩容组 `{min_competing_price, sales_schema, estimated_logistics_cny, estimated_commission, match_1688_title, match_1688_category_name, ozon_image*, match_image_url*, session_count, conv_to_cart_pdp, conv_to_cart_search, days_in_promo, discount, days_with_trafarets, promo_revenue_share, nullable_redemption_rate, return_cancel_rate}`（\*=图列表首张派生；漏斗组畅销榜池未命中为 None → 键省略；0 是真实数据保留）。**worker 零消费整包透传**（payload JSONB 随任务/草稿留存），webui 采集箱/CSV 导出展示选品依据用 |
+| `envelope.extensions.discovery_meta` | object | ❌ | v0.69+ | discover 选品元数据快照。v0.70 扩键（对标上品帮选品记录，数据已在手纯透出）：基础组 `{ozon_product_id, ozon_url, ozon_price, blue_ocean_score, monthly_sales, monthly_revenue, sales_growth, drr, create_days, competing_sellers, rating, review_count, weight_g, dimensions_mm, profit_margin, estimated_profit_cny, match_confidence, discovered_at}` + 扩容组 `{min_competing_price, sales_schema, estimated_logistics_cny, estimated_commission, match_1688_title, match_1688_category_name, ozon_image*, match_image_url*, session_count, conv_to_cart_pdp, conv_to_cart_search, days_in_promo, discount, days_with_trafarets, promo_revenue_share, nullable_redemption_rate, return_cancel_rate, follow_profit_cny, follow_margin, ozon_old_price, match_1688_freight_cny}`（\*=图列表首张派生；follow_\*=跟卖最低价同成本链测算，默认 0.0 真实保留；ozon_old_price=widget originalPrice 市场参考**不写 draft.original_price**、match_1688_freight_cny=货源国内运费单列，两者 None=未知省略；漏斗组畅销榜池未命中为 None → 键省略；0 是真实数据保留）。**worker 零消费整包透传**（payload JSONB 随任务/草稿留存），webui 采集箱/CSV 导出展示选品依据用 |
 | `timeout_seconds` | int | ❌ | 1800 | 300-7200 |
 | `max_retries` | int | ❌ | 3 | 0-10 |
 
@@ -787,8 +799,8 @@ curl -s -X POST http://localhost:8080/api/v1/auth/verify \
 | `/api/v1/credentials/{id}` | PATCH | 轮换（旧行 revoked + 新行 active；旧行 `ozon_client_id` 追加 `:revoked:` 后缀释放唯一槽） | 同上 |
 | `/api/v1/credentials/{id}` | DELETE | 吊销（软删 status=revoked） | 同上 |
 | `/api/v1/credentials/{id}/validate` | POST | 解密 → Ozon `/v1/product/info/list` probe → 返回 `{valid, reason}` | 同上 |
-| `/api/v1/drafts` | GET | 采集箱列表（租户隔离 + 上架状态列来自 draft_submissions） | drafts_routes → draft_service |
-| `/api/v1/drafts` | POST | 创建草稿（**skill `--to-box` 目标**；剥离凭证 → 只存 envelope-only payload） | 同上 |
+| `/api/v1/drafts` | GET | 采集箱列表（租户隔离 + 上架状态列来自 draft_submissions；可选 `?batch=` 按 source_batch 精确过滤，§1b.6） | drafts_routes → draft_service |
+| `/api/v1/drafts` | POST | 创建草稿（**skill `--to-box` 目标**；剥离凭证 → 只存 envelope-only payload；可选 `source_batch` 批次标识，§1b.6） | 同上 |
 | `/api/v1/drafts/{id}` | GET | 读取草稿（envelope 全文，无凭证） | 同上 |
 | `/api/v1/drafts/{id}` | PATCH | 编辑（**version 乐观锁**，stale → 409；成功后 `version++`） | 同上 |
 | `/api/v1/drafts/{id}` | DELETE | 删除草稿（级联删 draft_submissions） | 同上 |
@@ -929,6 +941,38 @@ extensions: {
 1. **per-store 校验（硬，409）**：`POST /drafts/{id}/submit` 前按确定性 `offer_id` 查**目标店铺** `/v1/product/info/list`，已存在 → `409 {"error_code": "DUPLICATE_PRODUCT", "message": "重复商品：目标店铺已存在相同商品"}`。Ozon API 错误 **fail-open**（log warning 不阻塞，对齐 auth/balance fail-open 先例）。
 2. **跨店铺提醒（软，不硬拦）**：submit 时 `_cross_store_scan` 检查该 draft 是否已提交到其他店铺 → 响应带 `confirm_required: true` + `existing_stores` 列表，前端弹确认「该商品已上架到店铺X，确认继续上架到店铺Y？注意 Ozon 个人中心可能拒绝重复商品」→ 用户确认后二次提交。**不硬拦截跨店**（约束未实测确认）。
 3. v2（待确认 Ozon 个人中心跨店重复真实语义后）：`credentials` 表加个人中心维度字段 + 跨店硬拦截。
+
+### 1b.6 采集箱批次契约（T-P3.1，2026-09-09）
+
+> 背景：采集批次与 draft 此前只靠 task_id+时间范围近似关联。本节给 drafts 钉死
+> 批次字段契约（skill 侧与 worker 侧同步实施）。**纯增量，不改既有字段语义**；
+> 老 skill 不带新字段照常工作。
+
+**写入端 — `POST /api/v1/drafts` 新增可选 body 字段**：
+
+| 字段 | 类型 | 必填 | 默认值 | 校验规则 |
+|------|------|------|--------|----------|
+| `source_batch` | string | ❌ | `null` | 可选；非空时 strip，≤ 64 字符；`>64` → 400 `source_batch 超长（最多 64 字符）`（拒绝而非截断——截断会让不同批次静默合并，过滤失真）；空串/空白 → `null` |
+
+- 存储位置：`product_drafts.source_batch` 列（`VARCHAR(64)` NULLable，与 `notes` 同层——
+  **列存储，不进 envelope payload**）。drafts 读取/编辑响应（DraftOut）原样透出。
+- `PATCH /drafts/{id}` 不修改该列（批次是采集期事实，编辑态不可变）。
+- 老 skill 兼容：不带该字段 → 落 `NULL`，行为与现状完全一致。
+- 迁移：`python scripts/migrate_drafts_batch_v1.py`（幂等，`ADD COLUMN IF NOT EXISTS`；
+  新装环境 `init_data.py` 建表即带列，`model.py` 已同步）。
+
+**读取端 — `GET /api/v1/drafts?batch=<value>`**：
+
+| 参数 | 类型 | 位置 | 必填 | 说明 |
+|------|------|------|------|------|
+| `batch` | string | query | ❌ | 缺席/空值 = **不过滤，行为与现状完全一致**（既有消费者零影响）；有值 = 按 `source_batch` **精确匹配**（`=`，非模糊/非前缀） |
+
+- 过滤叠加在租户隔离之内（先 tenant 再 batch），跨租户同批次不泄露。
+- 未知批次 → 空数组 `[]`（200，非 404）。
+- 消费方：webui 采集箱按批次认领、agent（MCP `list_drafts` 不传参 → 行为不变）。
+
+**测试**：`worker/tests/test_drafts_batch_v1.py`（纯函数归一 + PG API 契约：
+带/不带字段创建、命中/空结果/无参回归、租户隔离）。
 
 ---
 
