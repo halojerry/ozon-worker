@@ -47,3 +47,57 @@ def test_follow_profit_zero_without_competitors():
     c = _cand(min_competing_price=0.0)
     _calculate_profit(c, fx_rate=12.0, commission_rate=0.10)
     assert c.follow_profit_cny == 0.0 and c.follow_margin == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Task B2: 竞品划线价接线（widget originalPrice → candidate.ozon_old_price）
+# ---------------------------------------------------------------------------
+
+
+def test_old_price_plumbed_from_info():
+    from scripts.lib.utils import parse_price
+
+    # widget info 的 originalPrice → candidate；空/缺 → None（未知，不冒充 0）
+    for raw, want in (("7695", 7695.0), ("", None), (None, None)):
+        val = parse_price(raw or "") or None
+        assert val == want, f"originalPrice={raw!r}"
+
+
+def test_old_price_wired_into_candidate(monkeypatch):
+    """_analyze_product 消费 info.originalPrice → candidate.ozon_old_price。
+
+    widget 导入是函数内 lazy import，须 patch 源模块 scripts.lib.ozon_widget。
+    """
+    import scripts.lib.ozon_widget as widget
+    from scripts.lib import ozon_discovery as od
+
+    monkeypatch.setattr(
+        widget, "fetch_product_info",
+        lambda *a, **k: {"title": "Товар", "price": "953 ₽",
+                         "originalPrice": "7695 ₽", "images": []})
+    monkeypatch.setattr(
+        widget, "fetch_competing_sellers",
+        lambda *a, **k: {"count": 0, "min_price": 0, "sellers": []})
+
+    c = od._analyze_product("http://127.0.0.1:9222", None, "p1")
+    assert c.status == "ok"
+    assert c.ozon_old_price == 7695.0
+    assert c.ozon_price == 953.0
+
+
+def test_old_price_missing_is_none_not_zero(monkeypatch):
+    """originalPrice 缺失/空 → None（未知≠真实 0，语义红线）。"""
+    import scripts.lib.ozon_widget as widget
+    from scripts.lib import ozon_discovery as od
+
+    for raw in ("", None):
+        monkeypatch.setattr(
+            widget, "fetch_product_info",
+            lambda *a, _raw=raw, **k: {"title": "Товар", "price": "953 ₽",
+                                       "originalPrice": _raw, "images": []})
+        monkeypatch.setattr(
+            widget, "fetch_competing_sellers",
+            lambda *a, **k: {"count": 0, "min_price": 0, "sellers": []})
+        c = od._analyze_product("http://127.0.0.1:9222", None, "p1")
+        assert c.status == "ok"
+        assert c.ozon_old_price is None, f"originalPrice={raw!r}"

@@ -548,6 +548,8 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str,
         # webPrice 结构 price 可能为空，fallback cardPrice（实测部分商品 price 字段为空）
         candidate.ozon_price = _parse_price(
             info.get("price", "") or info.get("cardPrice", ""))
+        candidate.ozon_old_price = _parse_price(
+            info.get("originalPrice", "") or "") or None   # 竞品划线价（市场参考；不写 draft.original_price）
         candidate.ozon_images = info.get("images", [])
         candidate.brand = info.get("brand", "")
         candidate.rating = float(info.get("rating", 0) or 0)
