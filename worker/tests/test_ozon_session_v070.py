@@ -386,6 +386,35 @@ def test_what_to_sell_client_expires_on_401_403_302(monkeypatch):
         assert data is None and err == "session_expired", f"status={status}"
 
 
+def test_what_to_sell_follows_nginx_rr307_loop(monkeypatch):
+    """实机回归（2026-09-09）：Ozon nginx 机器人回环 307→同路径?__rr=1，
+    重放即过——不得判 session_expired（真会话被误标）。"""
+    calls = []
+
+    def _fake_post(url, json=None, headers=None, timeout=None, **kw):
+        calls.append(url)
+        if len(calls) == 1:
+            return SimpleNamespace(status_code=307, text="",
+                                   headers={"Location": url + "?__rr=1"})
+        return SimpleNamespace(status_code=200, text="{}",
+                               headers={},
+                               **{"json": lambda: {"result": {"items": [1]}}})
+
+    monkeypatch.setattr(_client.requests, "post", _fake_post)
+    data, err = _client.what_to_sell("a=1", "1", {"limit": 1})
+    assert err is None and data == {"result": {"items": [1]}}
+    assert len(calls) == 2 and calls[1].endswith("?__rr=1")  # 重放到 Location
+
+
+def test_what_to_sell_plain_302_without_location_expires(monkeypatch):
+    """无 Location 的裸 3xx（登录跳转形态）→ 仍判 session_expired。"""
+    def _fake_post(url, json=None, headers=None, timeout=None, **kw):
+        return SimpleNamespace(status_code=302, text="")
+    monkeypatch.setattr(_client.requests, "post", _fake_post)
+    data, err = _client.what_to_sell("a=1", "1", {"limit": 1})
+    assert data is None and err == "session_expired"
+
+
 def test_what_to_sell_client_other_status_is_not_session(monkeypatch):
     """429/5xx ≠ 会话失效（不误标 expired）。"""
     def _fake_post(url, json=None, headers=None, timeout=None, **kw):
