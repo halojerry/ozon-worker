@@ -283,8 +283,40 @@ def list_drafts(tenant_id: str) -> list[dict]:
     return [_draft_row_to_dict(r) for r in rows]
 
 
+# v0.70 扩列：discovery_meta 透传列（skill 侧生产端 _assemble_discovery_meta 的键，
+# 旧草稿无对应键 → 空串；列序 = skill export_to_csv 扩列段，双导出口径一致）。
+_DRAFT_META_CSV_KEYS = [
+    "ozon_url", "ozon_price", "ozon_image",
+    "match_1688_title", "match_1688_category_name",
+    "min_competing_price", "competing_sellers", "sales_schema",
+    "monthly_revenue", "sales_growth", "drr", "create_days",
+    "rating", "review_count",
+    "estimated_logistics_cny", "estimated_commission", "estimated_profit_cny",
+    "session_count", "conv_to_cart_pdp", "conv_to_cart_search",
+    "days_in_promo", "discount", "days_with_trafarets",
+    "promo_revenue_share", "nullable_redemption_rate", "return_cancel_rate",
+    "discovered_at",
+]
+
+
+def _fmt_commission_segments(band: dict) -> str:
+    """单通道佣金分段 {leq_1500,leq_5000,gt_5000} → '≤1500:8% 1501~5000:10% >5000:12%'
+    紧凑文本（Excel 可读，对标上品帮佣金三段列；列名已含通道，不再加前缀）。"""
+    if not isinstance(band, dict) or not band:
+        return ""
+    parts = []
+    for key, label in (("leq_1500", "≤1500"), ("leq_5000", "1501~5000"), ("gt_5000", ">5000")):
+        if band.get(key) is not None:
+            parts.append(f"{label}:{band[key]}%")
+    return " ".join(parts)
+
+
 def export_drafts_csv(tenant_id: str) -> str:
-    """PRD M5(P2): 采集箱导出 CSV(租户隔离,与列表同源)。"""
+    """PRD M5(P2): 采集箱导出 CSV(租户隔离,与列表同源)。
+
+    v0.70 扩列：discovery_meta 全集 + 佣金分段（extensions.commission_segments），
+    展示层只读 payload——生产端在 skill（skill 落盘 → 上传 → webui 展示链路）。
+    """
     import csv
     import io
 
@@ -296,14 +328,18 @@ def export_drafts_csv(tenant_id: str) -> str:
         "price", "stock", "supplier", "weight", "source",
         "submission_status", "created_at", "updated_at",
         "blue_ocean_score", "monthly_sales", "profit_margin", "match_confidence",
+        *_DRAFT_META_CSV_KEYS,
+        "commission_rfbs", "commission_fbo",
     ])
     for d in drafts:
         payload = d.get("payload") or {}
         draft = payload.get("draft") or {}
         source = payload.get("source") or {}
+        extensions = payload.get("extensions") or {}
         # discover 选品元数据（skill 注入 extensions.discovery_meta，缺失键省略）
-        meta = (payload.get("extensions") or {}).get("discovery_meta") or {}
-        writer.writerow([
+        meta = extensions.get("discovery_meta") or {}
+        segments = extensions.get("commission_segments") or {}
+        row = [
             d["id"],
             str(draft.get("title") or ""),
             str(draft.get("item_id") or ""),
@@ -322,7 +358,13 @@ def export_drafts_csv(tenant_id: str) -> str:
             meta.get("monthly_sales") if meta.get("monthly_sales") is not None else "",
             meta.get("profit_margin") if meta.get("profit_margin") is not None else "",
             meta.get("match_confidence") if meta.get("match_confidence") is not None else "",
-        ])
+        ]
+        for key in _DRAFT_META_CSV_KEYS:
+            val = meta.get(key)
+            row.append("" if val is None else val)
+        row.append(_fmt_commission_segments(segments.get("fbs")))
+        row.append(_fmt_commission_segments(segments.get("fbo")))
+        writer.writerow(row)
     return buf.getvalue()
 
 

@@ -80,3 +80,55 @@ def test_export_partial_meta_zero_kept_missing_blank(monkeypatch):
     assert row["monthly_sales"] == "0"
     assert row["blue_ocean_score"] == ""
     assert row["match_confidence"] == ""
+
+
+def test_export_v070_meta_columns_and_commission_segments(monkeypatch):
+    """v0.70 扩列：漏斗扩容/货源标题/主图/物流佣金透传 + 佣金分段紧凑文本。"""
+    rows = _export(monkeypatch, [_draft({
+        "draft": {"title": "扩列", "item_id": "a4"},
+        "source": {},
+        "extensions": {
+            "discovery_meta": {
+                "ozon_url": "https://www.ozon.ru/product/1",
+                "ozon_price": 953,
+                "ozon_image": "https://ir-20.ozonstatic.cn/s3/x.jpg",
+                "match_1688_title": "卡吞餐盘",
+                "match_1688_category_name": "餐具",
+                "min_competing_price": 953,
+                "competing_sellers": 1,
+                "sales_schema": "FBS",
+                "session_count": 0,       # 真实 0 保留
+                "conv_to_cart_pdp": 5.62,
+                "days_in_promo": 12,
+                "return_cancel_rate": 3.1,
+            },
+            "commission_segments": {
+                "fbs": {"leq_1500": 8, "leq_5000": 10, "gt_5000": 12},
+                "fbo": {"leq_1500": 6},
+            },
+        },
+    })])
+    row = rows[0]
+    assert row["ozon_url"] == "https://www.ozon.ru/product/1"
+    assert row["ozon_price"] == "953"
+    assert row["ozon_image"] == "https://ir-20.ozonstatic.cn/s3/x.jpg"
+    assert row["match_1688_title"] == "卡吞餐盘"
+    assert row["match_1688_category_name"] == "餐具"
+    assert row["session_count"] == "0"
+    assert row["conv_to_cart_pdp"] == "5.62"
+    assert row["days_in_promo"] == "12"
+    assert row["return_cancel_rate"] == "3.1"
+    assert "≤1500:8%" in row["commission_rfbs"] and ">5000:12%" in row["commission_rfbs"]
+    assert "≤1500:6%" in row["commission_fbo"]
+    # 未扩段的通道留空；无 meta 的旧键列不受影响
+    assert row["blue_ocean_score"] == ""
+
+
+def test_export_commission_segments_blank_without_extensions(monkeypatch):
+    rows = _export(monkeypatch, [_draft({
+        "draft": {"title": "无分段", "item_id": "a5"},
+        "source": {},
+        "extensions": {},
+    })])
+    assert rows[0]["commission_rfbs"] == ""
+    assert rows[0]["commission_fbo"] == ""

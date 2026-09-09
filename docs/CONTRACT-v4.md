@@ -175,7 +175,7 @@
 | `envelope.source` | object | ❌ | — | `{purchase_url, purchase_cost}` |
 | `envelope.extensions` | object | ❌ | — | `{margin_rate, commission_rate, fx_buffer, follow_sell, max_skus}` |
 | `envelope.extensions.competitor_ref_images` | string[] | ❌ | v0.69+ | 跟卖竞品主图快照（串图修复引入）：skill 写入、**worker 暂零消费**（预留语义位）——绝不进 `draft.images`/生图参考链，随 payload 落盘供后续接线
-| `envelope.extensions.discovery_meta` | object | ❌ | v0.69+ | discover 选品元数据快照（`{ozon_product_id, ozon_url, ozon_price, blue_ocean_score, monthly_sales, monthly_revenue, sales_growth, drr, create_days, competing_sellers, rating, review_count, weight_g, dimensions_mm, profit_margin, estimated_profit_cny, match_confidence, discovered_at}`，缺失键省略）。**worker 零消费整包透传**（payload JSONB 随任务/草稿留存），webui 采集箱/CSV 导出展示选品依据用 |
+| `envelope.extensions.discovery_meta` | object | ❌ | v0.69+ | discover 选品元数据快照。v0.70 扩键（对标上品帮选品记录，数据已在手纯透出）：基础组 `{ozon_product_id, ozon_url, ozon_price, blue_ocean_score, monthly_sales, monthly_revenue, sales_growth, drr, create_days, competing_sellers, rating, review_count, weight_g, dimensions_mm, profit_margin, estimated_profit_cny, match_confidence, discovered_at}` + 扩容组 `{min_competing_price, sales_schema, estimated_logistics_cny, estimated_commission, match_1688_title, match_1688_category_name, ozon_image*, match_image_url*, session_count, conv_to_cart_pdp, conv_to_cart_search, days_in_promo, discount, days_with_trafarets, promo_revenue_share, nullable_redemption_rate, return_cancel_rate}`（\*=图列表首张派生；漏斗组畅销榜池未命中为 None → 键省略；0 是真实数据保留）。**worker 零消费整包透传**（payload JSONB 随任务/草稿留存），webui 采集箱/CSV 导出展示选品依据用 |
 | `timeout_seconds` | int | ❌ | 1800 | 300-7200 |
 | `max_retries` | int | ❌ | 3 | 0-10 |
 

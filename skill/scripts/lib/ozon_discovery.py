@@ -1518,6 +1518,10 @@ def export_to_csv(candidates: list[ProductCandidate], filepath: str) -> str:
     import csv
     from pathlib import Path
 
+    def _opt(v):
+        """None=无数据→空串；0/0.0 是真实数据→原样。"""
+        return '' if v is None else v
+
     path = Path(filepath)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1528,7 +1532,14 @@ def export_to_csv(candidates: list[ProductCandidate], filepath: str) -> str:
         'sales_schema', 'has_analytics',
         'competing_sellers', 'min_competitor_price', 'weight_g', 'dimensions',
         'match_1688_url', 'match_1688_price', 'profit_margin', 'blue_ocean_score', 'verdict',
-        'logistics_estimated', 'logistics_fallback_chain'
+        'logistics_estimated', 'logistics_fallback_chain',
+        # v0.70 扩列（对标上品帮选品记录 62 列——数据已在手，纯透出；现有列序不动）
+        'ozon_url', 'ozon_image', 'match_1688_title', 'match_1688_image',
+        'match_1688_category_name', 'match_confidence',
+        'estimated_logistics_cny', 'estimated_commission',
+        'session_count', 'conv_to_cart_pdp', 'conv_to_cart_search',
+        'days_in_promo', 'discount', 'days_with_trafarets',
+        'promo_revenue_share', 'nullable_redemption_rate', 'return_cancel_rate',
     ]
 
     with open(path, 'w', newline='', encoding='utf-8-sig') as f:
@@ -1564,6 +1575,25 @@ def export_to_csv(candidates: list[ProductCandidate], filepath: str) -> str:
                 'verdict': c.status,
                 'logistics_estimated': getattr(c, 'logistics_estimated', False),
                 'logistics_fallback_chain': getattr(c, 'logistics_fallback_chain', ''),
+                # v0.70 扩列
+                'ozon_url': getattr(c, 'ozon_url', ''),
+                'ozon_image': (c.ozon_images[0] if getattr(c, 'ozon_images', None) else ''),
+                'match_1688_title': getattr(c, 'match_1688_title', ''),
+                'match_1688_image': (c.match_1688_images[0] if getattr(c, 'match_1688_images', None) else ''),
+                'match_1688_category_name': getattr(c, 'match_1688_category_name', ''),
+                'match_confidence': getattr(c, 'match_confidence', ''),
+                'estimated_logistics_cny': getattr(c, 'estimated_logistics_cny', ''),
+                'estimated_commission': getattr(c, 'estimated_commission', ''),
+                # v0.70 扩列。漏斗字段 None=无数据→空串；真实 0 保留（0 是数据不是缺失）
+                'session_count': _opt(c.session_count),
+                'conv_to_cart_pdp': _opt(c.conv_to_cart_pdp),
+                'conv_to_cart_search': _opt(c.conv_to_cart_search),
+                'days_in_promo': _opt(c.days_in_promo),
+                'discount': _opt(c.discount),
+                'days_with_trafarets': _opt(c.days_with_trafarets),
+                'promo_revenue_share': _opt(c.promo_revenue_share),
+                'nullable_redemption_rate': _opt(c.nullable_redemption_rate),
+                'return_cancel_rate': _opt(c.return_cancel_rate),
             })
 
     return str(path)
@@ -3454,12 +3484,19 @@ def verify_1688_match(ozon_title: str, match_1688_title: str, match_1688_url: st
 
 # 白名单裁剪 REPORT_FIELDS：单条 ~500B × 50 = 25KB/run。去掉 competing_seller_list /
 # match_1688_images / ozon_images / source_chain 等大字段（PRD §3.2 已定稿）。
+# v0.70 扩容（对标上品帮选品记录）：+货源标题/链接/发货模式/漏斗扩容标量组，
+# 单条 +~300B → ~40KB/run 上限，仍为小载荷；图列表/证据链维持裁剪。
 REPORT_FIELDS: list[str] = [
     "ozon_product_id", "ozon_title", "ozon_price", "competing_sellers",
     "min_competing_price", "match_1688_url", "match_1688_price",
     "profit_margin", "blue_ocean_score", "status", "category", "brand",
     "monthly_sales", "monthly_revenue", "drr", "create_days", "rating",
     "review_count", "weight_g", "dimensions_mm",
+    # v0.70 扩容
+    "ozon_url", "match_1688_title", "sales_schema", "match_confidence",
+    "session_count", "conv_to_cart_pdp", "conv_to_cart_search",
+    "days_in_promo", "discount", "days_with_trafarets",
+    "promo_revenue_share", "nullable_redemption_rate", "return_cancel_rate",
 ]
 
 # 只上报这三种状态的候选（filtered/rejected/no_match/error/uncertain 不上报）
@@ -3483,11 +3520,21 @@ def _report_discovery_run(keyword: str, filters: dict | None,
             logger.warning("discovery run 上报跳过：无 token（set_token 配置）")
             return
 
-        rows = [
-            {k: getattr(c, k) for k in REPORT_FIELDS if hasattr(c, k)}
-            for c in candidates
-            if getattr(c, "status", "") in REPORT_STATUSES
-        ]
+        rows = []
+        for c in candidates:
+            if getattr(c, "status", "") not in REPORT_STATUSES:
+                continue
+            row = {}
+            for k in REPORT_FIELDS:
+                if not hasattr(c, k):
+                    continue
+                val = getattr(c, k)
+                if val is None:  # 漏斗扩容字段 None=无数据 → 键省略（对齐 discovery_meta 纪律）
+                    continue
+                row[k] = val
+            if getattr(c, "ozon_images", None):
+                row["ozon_image"] = c.ozon_images[0]  # 派生单键：完整图列表维持裁剪
+            rows.append(row)
         payload = {
             "token": token,
             "keyword": keyword or "",

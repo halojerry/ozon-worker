@@ -111,6 +111,63 @@ def test_assemble_full_snapshot():
     assert len(json.dumps(meta, ensure_ascii=False)) < 2048  # ≤2KB 纪律
 
 
+def test_assemble_v070_expanded_keys():
+    """v0.70 扩键（对标上品帮选品记录）：跟卖最低价/发货模式/物流佣金测算/
+    货源标题与类目/漏斗扩容组；主图与货源图取首张派生。"""
+    cand = _mk_candidate(
+        min_competing_price=1180.0,
+        sales_schema="FBS",
+        estimated_logistics_cny=42.9,
+        estimated_commission=129.0,
+        match_1688_title="宠物自动饮水机",
+        match_1688_category_name="宠物用品",
+        session_count=0,               # 真实 0 保留
+        conv_to_cart_pdp=5.62,
+        conv_to_cart_search=3.1,
+        days_in_promo=12,
+        discount=15.0,
+        days_with_trafarets=0,         # 真实 0 保留
+        promo_revenue_share=2.4,
+        nullable_redemption_rate=88.0,
+        return_cancel_rate=12.0,
+    )
+    cand.ozon_images = ["https://ir-20.ozonstatic.cn/first.jpg",
+                        "https://ir-20.ozonstatic.cn/second.jpg"]
+    cand.match_1688_images = ["https://cbu01.alicdn.com/first.webp"]
+    meta = _meta(cand)
+    assert meta["min_competing_price"] == 1180.0
+    assert meta["sales_schema"] == "FBS"
+    assert meta["estimated_logistics_cny"] == 42.9
+    assert meta["estimated_commission"] == 129.0
+    assert meta["match_1688_title"] == "宠物自动饮水机"
+    assert meta["match_1688_category_name"] == "宠物用品"
+    assert meta["session_count"] == 0
+    assert meta["conv_to_cart_pdp"] == 5.62
+    assert meta["days_in_promo"] == 12
+    assert meta["discount"] == 15.0
+    assert meta["days_with_trafarets"] == 0
+    assert meta["nullable_redemption_rate"] == 88.0
+    assert meta["return_cancel_rate"] == 12.0
+    assert meta["ozon_image"] == "https://ir-20.ozonstatic.cn/first.jpg"   # 首张
+    assert meta["match_image_url"] == "https://cbu01.alicdn.com/first.webp"
+    assert len(json.dumps(meta, ensure_ascii=False)) < 2048  # ≤2KB 纪律
+
+
+def test_assemble_v070_none_fields_and_images_omitted():
+    """漏斗字段 None（畅销榜池未命中）→ 键省略；无图列表 → 派生图键不出现。
+    （min_competing_price/estimated_* 默认 0.0 是真实数据 → 保留，不在省略清单）"""
+    meta = _meta(_mk_candidate())
+    for key in ("sales_schema", "session_count",
+                "conv_to_cart_pdp", "conv_to_cart_search", "days_in_promo",
+                "discount", "days_with_trafarets", "promo_revenue_share",
+                "nullable_redemption_rate", "return_cancel_rate",
+                "match_1688_title", "match_1688_category_name",
+                "ozon_image", "match_image_url"):
+        assert key not in meta, f"None/空 → 键省略失败: {key}"
+    assert meta["min_competing_price"] == 0.0  # dataclass 默认 0.0 保留
+    assert meta["ozon_product_id"] == "4767514314"  # 基础字段仍在
+
+
 def test_assemble_zero_is_real_data():
     """0 是真实数据（月销 0/跟卖 0/蓝海 0）→ 保留，不按缺失省略。"""
     meta = _meta(_mk_candidate(monthly_sales=0, competing_sellers=0,

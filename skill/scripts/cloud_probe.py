@@ -2494,6 +2494,12 @@ def _assemble_discovery_meta(candidate) -> dict[str, Any]:
     零关联）→ 采集箱条目看不到任何选品依据。本快照随信封 payload 落盘（worker
     零迁移），webui 采集箱/CSV 导出直接消费。
 
+    v0.70 扩键（对标上品帮选品记录 62 列——数据已在手纯透出）：跟卖最低价/
+    发货模式/物流与佣金测算/货源标题与类目/漏斗扩容指标（浏览量、两处加购率、
+    促销天数与折扣、付费推广天数、促销转化、成交率、退货取消率；畅销榜池未
+    命中时为 None → 键省略）。主图/货源图各取首张（ozon_image/match_image_url，
+    完整图列表仍以 draft.images / 图搜链路为准）。
+
     字段缺失（None/空串/空 dict）省略键（对齐 match_evidence 风格）；0 是真实
     数据（月销 0/跟卖 0/蓝海 0）保留；discovered_at 为组装时刻本地 ISO 时间戳。
     扁平键恒 <2KB（信封增量纪律）。
@@ -2506,6 +2512,14 @@ def _assemble_discovery_meta(candidate) -> dict[str, Any]:
         "competing_sellers", "rating", "review_count",
         "weight_g", "profit_margin", "estimated_profit_cny",
         "match_confidence",
+        # v0.70 扩键：对标上品帮选品记录（数据已在手，纯透出）
+        "min_competing_price", "sales_schema",
+        "estimated_logistics_cny", "estimated_commission",
+        "match_1688_title", "match_1688_category_name",
+        "session_count", "conv_to_cart_pdp", "conv_to_cart_search",
+        "days_in_promo", "discount", "days_with_trafarets",
+        "promo_revenue_share", "nullable_redemption_rate",
+        "return_cancel_rate",
     ):
         val = getattr(candidate, key, None)
         if val is None or val == "":
@@ -2514,6 +2528,12 @@ def _assemble_discovery_meta(candidate) -> dict[str, Any]:
     dims = getattr(candidate, "dimensions_mm", None)
     if dims:
         meta["dimensions_mm"] = dims
+    ozon_imgs = getattr(candidate, "ozon_images", None) or []
+    if ozon_imgs:
+        meta["ozon_image"] = ozon_imgs[0]
+    match_imgs = getattr(candidate, "match_1688_images", None) or []
+    if match_imgs:
+        meta["match_image_url"] = match_imgs[0]
     meta["discovered_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return meta
 

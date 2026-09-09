@@ -66,18 +66,43 @@ export default function DiscoveryPanel() {
       for (const k of keys) if (o[k] != null) return o[k]
       return ""
     }
+    // v0.70 扩列：读 discovery_runs.candidates_json 新白名单字段（旧 run 缺键 → 空串）
     const rows = cands.map((c) => {
       const o = (c ?? {}) as Record<string, unknown>
       return {
-        title: String(pick(o, ["title", "name", "product_name"]) ?? ""),
-        price_rub: String(pick(o, ["price_rub", "price", "avg_price_rub"]) ?? ""),
-        source: String(pick(o, ["purchase_url", "source_url", "url"]) ?? ""),
+        product_id: String(pick(o, ["ozon_product_id", "product_id"]) ?? ""),
+        title: String(pick(o, ["ozon_title", "title", "name", "product_name"]) ?? ""),
+        price_rub: String(pick(o, ["ozon_price", "price_rub", "price", "avg_price_rub"]) ?? ""),
+        monthly_sales: String(pick(o, ["monthly_sales"]) ?? ""),
+        monthly_revenue: String(pick(o, ["monthly_revenue"]) ?? ""),
+        profit_margin: String(pick(o, ["profit_margin"]) ?? ""),
+        blue_ocean_score: String(pick(o, ["blue_ocean_score"]) ?? ""),
+        status: String(pick(o, ["status"]) ?? ""),
+        competing_sellers: String(pick(o, ["competing_sellers"]) ?? ""),
+        min_competing_price: String(pick(o, ["min_competing_price"]) ?? ""),
+        sales_schema: String(pick(o, ["sales_schema"]) ?? ""),
+        rating: String(pick(o, ["rating"]) ?? ""),
+        review_count: String(pick(o, ["review_count"]) ?? ""),
+        session_count: String(pick(o, ["session_count"]) ?? ""),
+        conv_to_cart_pdp: String(pick(o, ["conv_to_cart_pdp"]) ?? ""),
+        conv_to_cart_search: String(pick(o, ["conv_to_cart_search"]) ?? ""),
+        days_in_promo: String(pick(o, ["days_in_promo"]) ?? ""),
+        discount: String(pick(o, ["discount"]) ?? ""),
+        days_with_trafarets: String(pick(o, ["days_with_trafarets"]) ?? ""),
+        nullable_redemption_rate: String(pick(o, ["nullable_redemption_rate"]) ?? ""),
+        return_cancel_rate: String(pick(o, ["return_cancel_rate"]) ?? ""),
+        match_confidence: String(pick(o, ["match_confidence"]) ?? ""),
+        ozon_url: String(pick(o, ["ozon_url"]) ?? ""),
+        ozon_image: String(pick(o, ["ozon_image"]) ?? ""),
+        match_1688_title: String(pick(o, ["match_1688_title"]) ?? ""),
+        source: String(pick(o, ["match_1688_url", "purchase_url", "source_url", "url"]) ?? ""),
+        match_1688_price: String(pick(o, ["match_1688_price"]) ?? ""),
         score: String(pick(o, ["match_score", "score", "confidence"]) ?? ""),
       }
     })
     const header = Object.keys(rows[0]).join(",")
     const body = rows.map((r) => Object.values(r).map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n")
-    const blob = new Blob([`${header}\n${body}`], { type: "text/csv;charset=utf-8" })
+    const blob = new Blob([`\ufeff${header}\n${body}`], { type: "text/csv;charset=utf-8" })
     const a = document.createElement("a")
     a.href = URL.createObjectURL(blob)
     a.download = `discovery-${r.keyword}-${new Date().toISOString().slice(0, 10)}.csv`
