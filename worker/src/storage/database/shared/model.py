@@ -636,6 +636,10 @@ class ProductDraft(Base):
     source: Mapped[str] = mapped_column(Text, nullable=False, default="skill", server_default=text("'skill'"), comment="'skill' | 'webui'")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"), comment="乐观并发；编辑页修改 → version++")
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="运营备注（采集/选品依据人工标注）；不进信封 payload")
+    source_batch: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True,
+        comment="来源批次标识（T-P3.1 批次契约）：skill 采集批次写入，列表 ?batch= 精确过滤；NULL=无批次（老 skill 不带该字段）",
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
 
@@ -1217,7 +1221,7 @@ class OzonSellerSession(Base):
                                                      comment="credentials.id（同租户）")
     cookies_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False,
                                                      comment="AES-GCM({名:值} JSON)，aad=tenant:credential")
-    cookie_names: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True,
+    cookie_names: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True,
                                                          comment="cookie 名单（不存值），状态展示用")
     sc_company_id_encrypted: Mapped[Optional[bytes]] = mapped_column(
         LargeBinary, nullable=True, comment="AES-GCM(sc_company_id 值)")
