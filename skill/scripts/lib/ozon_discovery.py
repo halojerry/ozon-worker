@@ -226,6 +226,12 @@ class ProductCandidate:
     chain_depth: int = 0                                        # 裂变深度（0=种子）
     _seed_category_id: int = 0                                  # 种子类目（类目一致性检查用）
 
+    # v0.70 上品帮对标（B 批次）：跟卖利润空间 + 竞品划线价 + 货源国内运费单列
+    follow_profit_cny: float = 0.0       # 按 min_competing_price 卖出的利润 CNY（无跟卖=0，真实数据保留）
+    follow_margin: float = 0.0           # 同口径利润率 %
+    ozon_old_price: float | None = None  # 竞品划线价 RUB（widget originalPrice；None=未知，区别于真实 0）
+    match_1688_freight_cny: float | None = None  # 1688 国内运费单列 CNY（详情页 freightCny；None=未抓到）
+
     # Blue ocean
     blue_ocean_score: int = 0
 
@@ -3209,7 +3215,8 @@ def _calculate_profit(
     """Calculate profit margin for a candidate.
     Updates candidate fields in-place:
       estimated_logistics_cny, estimated_commission,
-      estimated_profit_cny, profit_margin
+      estimated_profit_cny, profit_margin,
+      follow_profit_cny, follow_margin（B 批次：min_competing_price 同成本链收入口径）
 
     佣金优先级：commission_rate（小数）> worker 真实分段佣金（fbs/fbo，按售价选带）
     > 本地候选分段（commission_rfbs_segments）> 标量 commission_fbp/rfbs（百分数）
@@ -3269,6 +3276,15 @@ def _calculate_profit(
     total_cost = cost_cny + candidate.estimated_logistics_cny + candidate.estimated_commission
     candidate.estimated_profit_cny = revenue_cny - total_cost
     candidate.profit_margin = (candidate.estimated_profit_cny / revenue_cny) * 100.0
+
+    # 跟卖利润空间：跟到跟卖最低价还能剩多少（同一成本链，仅换收入口径）
+    if candidate.min_competing_price > 0:
+        follow_revenue = candidate.min_competing_price * fx_rate
+        follow_cost = cost_cny + candidate.estimated_logistics_cny \
+            + follow_revenue * effective_commission
+        follow_profit = follow_revenue - follow_cost
+        candidate.follow_profit_cny = round(follow_profit, 2)
+        candidate.follow_margin = round(follow_profit / follow_revenue * 100.0, 1)
 
 
 def calculate_blue_ocean_score(
