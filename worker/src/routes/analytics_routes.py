@@ -324,15 +324,24 @@ from api.schemas import SellerSyncIn  # noqa: E402
 from storage.database.db import get_session  # noqa: E402
 
 
-@router.post("/seller-sync")
+@router.post("/seller-sync", openapi_extra={"requestBody": {"required": True, "content": {
+    "application/json": {"schema": SellerSyncIn.model_json_schema()}}}})
 async def http_seller_sync(request: Request):
-    """POST /api/v1/analytics/seller-sync —— 贡献收包（goldminer ≤12/批）。"""
+    """POST /api/v1/analytics/seller-sync —— 贡献收包（goldminer ≤12/批）。
+
+    手读 raw Request（同 main.v1_submit_task），openapi_extra 补 SellerSyncIn
+    契约元数据让 /docs 与 API-REFERENCE 能展示请求体及其 _examples。
+    """
     scope = _auth_rate_limit(request)
     try:
         body = SellerSyncIn.model_validate(await request.json())
     except ValidationError as exc:
         # 字段缺失/类型错 → 422 可读 detail（credentials_routes 同款，不裸 500）
         raise HTTPException(status_code=422, detail=str(exc))
+    except ValueError:
+        # 畸形 JSON（JSONDecodeError 是 ValueError 子类但非 ValidationError）→ 422；
+        # 原文不回显（analytics 错误纪律）。
+        raise HTTPException(status_code=422, detail="malformed JSON body")
     session = get_session()
     try:
         return upsert_seller_sync_items(
@@ -349,13 +358,16 @@ async def http_seller_sync(request: Request):
 
 
 @router.get("/sku-metrics")
-async def http_sku_metrics(request: Request):
-    """GET /api/v1/analytics/sku-metrics?skus=1,2 → {metrics: [...]}（读侧指标+补采指令，≤50/查）。"""
+async def http_sku_metrics(request: Request, skus: str = ""):
+    """GET /api/v1/analytics/sku-metrics?skus=1,2 → {metrics: [...]}（读侧指标+补采指令，≤50/查）。
+
+    skus 声明为 FastAPI query 参数（OpenAPI 自动可见）。
+    """
     _auth_rate_limit(request)  # 鉴权+限流副作用；查询无租户维度（sku 池全局共享，同 category_mapping W11）
-    raw = (request.query_params.get("skus") or "").strip()
-    skus = [s for s in raw.split(",") if s.strip()]
+    raw = (skus or "").strip()
+    parsed = [s for s in raw.split(",") if s.strip()]
     session = get_session()
     try:
-        return {"metrics": query_sku_metrics(session, skus[:SKU_QUERY_MAX])}
+        return {"metrics": query_sku_metrics(session, parsed[:SKU_QUERY_MAX])}
     finally:
         session.close()

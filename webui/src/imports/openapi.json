@@ -5324,8 +5324,57 @@
     },
     "/api/v1/analytics/seller-sync": {
       "post": {
-        "description": "POST /api/v1/analytics/seller-sync —— 贡献收包（goldminer ≤12/批）。",
+        "description": "POST /api/v1/analytics/seller-sync —— 贡献收包（goldminer ≤12/批）。\n\n手读 raw Request（同 main.v1_submit_task），openapi_extra 补 SellerSyncIn\n契约元数据让 /docs 与 API-REFERENCE 能展示请求体及其 _examples。",
         "operationId": "http_seller_sync_api_v1_analytics_seller_sync_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "POST /api/v1/analytics/seller-sync 请求体（数据池贡献收包）。",
+                "examples": [
+                  {
+                    "items": [
+                      {
+                        "sales_payload": {
+                          "monthsales": 140
+                        },
+                        "sku": 3171397439
+                      }
+                    ],
+                    "source_company_id": "5381204"
+                  }
+                ],
+                "properties": {
+                  "items": {
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "title": "Items",
+                    "type": "array"
+                  },
+                  "source_company_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Source Company Id"
+                  }
+                },
+                "required": [
+                  "items"
+                ],
+                "title": "SellerSyncIn",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -5345,8 +5394,20 @@
     },
     "/api/v1/analytics/sku-metrics": {
       "get": {
-        "description": "GET /api/v1/analytics/sku-metrics?skus=1,2 → {metrics: [...]}（读侧指标+补采指令，≤50/查）。",
+        "description": "GET /api/v1/analytics/sku-metrics?skus=1,2 → {metrics: [...]}（读侧指标+补采指令，≤50/查）。\n\nskus 声明为 FastAPI query 参数（OpenAPI 自动可见）。",
         "operationId": "http_sku_metrics_api_v1_analytics_sku_metrics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "skus",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Skus",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -5355,6 +5416,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Http Sku Metrics",
