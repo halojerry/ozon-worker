@@ -236,8 +236,8 @@ async def http_sales_trend(request: Request):
 #   直调 401/403/登录 302 → mark expired + 409 session_expired（失效联动）。
 # ⚠️ cookie 明文只进上游请求头，本端点响应绝不回显会话 cookie 值。
 
-from services import ozon_session_service as _ozon_session_service  # noqa: E402
-from utils import ozon_session_client as _ozon_session_client  # noqa: E402
+from services import ozon_session_service as _ozon_session_service
+from utils import ozon_session_client as _ozon_session_client
 
 
 @router.get("/what-to-sell")

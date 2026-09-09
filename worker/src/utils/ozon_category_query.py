@@ -563,7 +563,7 @@ class OzonCategoryQuery:
             table = _json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(table, dict):
                 table = {}
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning(f"category_synonyms.json 加载失败（空表兜底）: {e}")
         cls._QUERY_SYNONYMS_CACHE = table
         return table
