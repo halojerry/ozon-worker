@@ -60,12 +60,17 @@ def _run_process(product_id="4767514314", dry_run=False):
 
 def test_reuse_hit_uses_build_envelope_not_follow():
     """命中 discover 缓存 → 复用直上（不调 follow_sell_cloud）。"""
+    # v0.73: mock 信封升级为真实 GraphInput 形状（含非空 draft.title）——
+    # submit 模式现过提交闸，空标题信封会被拦截不提交（见 test_batch_submit_gate_v073）
     with mock.patch("batch_test._find_discover_source",
                     return_value=_discover_entry()), \
          mock.patch("batch_test._product_candidate_from_dict",
                     return_value=object()), \
          mock.patch("scripts.cloud_probe.build_envelope_from_discovery",
-                    return_value={"draft": {}, "source": {}, "extensions": {}}), \
+                    return_value={"token": "t", "ozon_client_id": "cid",
+                                  "ozon_api_key": "akey",
+                                  "envelope": {"draft": {"title": "Автопоилка для кошек 2л"},
+                                               "source": {}, "extensions": {}}}), \
          mock.patch("scripts.cloud_probe.submit_envelope",
                     return_value={"ok": True, "task_id": "T-reuse"}) as m_submit, \
          mock.patch("scripts.cloud_probe.follow_sell_cloud") as m_follow:
