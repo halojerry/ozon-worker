@@ -1,4 +1,4 @@
-# 属性缓存全量化运维手册（CACHE-WARM-RUNBOOK）— v0.70 / 三桶策略 v0.72
+# 属性缓存全量化运维手册（CACHE-WARM-RUNBOOK）— v0.70 / 三桶策略 v0.72 / 导出流程 v0.73
 
 > 目标：**部署即全量**——每次部署/升级后，全部 7424 类目的属性 schema + 字典值
 > 缓存直接灌入 PG，首次上架不再等 Ozon API 懒加载（schema 单次拉取 10s+ 且
@@ -31,23 +31,42 @@
 - `limit` 契约 max=2000（5000 被静默钳——v0.72 前 warm 的 5000 是违约调用）。
 - 防复发守卫：warm 起步 + 每 50 节点查磁盘余量，<5G 自动中止；cos-update.sh 备份轮转（保留 3 份）+ 排除缓存 JSON；compose logging 封顶 50MB×3；缓存 JSON 已进 .gitignore/.dockerignore。
 
+## v0.73 死节点表 `warm_dead_nodes`（Ozon 400 永久失效类目跳过，改 warm 前必读）
+
+树里存在已被 Ozon 删除的类目（schema 拉取返回 400 category not found）——此前
+每次预热恒计失败，coverage 分母含死节点 → 100% 数学不可达（服务器被迫把看护
+阈值降到 7350）。v0.73 起 warm **自动建表**（`CREATE TABLE IF NOT EXISTS`，幂等，
+零手工 DDL）：`warm_dead_nodes(description_category_id, type_id, reason, created_at)`。
+
+- 首次碰到 schema 拉取 400/404 → `mark_dead_node` 入表；后续每次 warm 运行起步
+  `load_dead_nodes` 整节点跳过（不计 failed，打点日志每 100 个）。
+- **覆盖率口径**：`--coverage` 分母已剔除死节点（报告新增「已剔除失效类目(400)」
+  行 / 返回键 `dead_excluded`）——**看护阈值可回到全量分母**。
+- 手工纠错（如 Ozon 恢复类目）：`DELETE FROM warm_dead_nodes WHERE
+  description_category_id=<dc> AND type_id=<tp>;` 后重跑预热即可，表会重新自证。
+
 ## 一次性动作：全量预热 + 导出上 COS（仅首次做）
 
 ```bash
 # 在有 Ozon 凭证的服务器上（worker 容器内执行；分段跑防中断，可 screen/tmux 挂后台）
 export OZON_CLIENT_ID=<id> OZON_API_KEY=<key>   # v0.70 起无凭证直接退出，不再有硬编码兜底
+# ⚠️ 凭证只有 ① 需要——② 是只读审计、③ 零 API（都无需凭证）
 
 # ① 全量预热（分片，每 1000 个一段，全量 ~16h，限流参数已内建）
 # ⚠️ v0.72 定案：服务器 3.6G RAM，warm 并行分片 ≤2 片（9 片并行曾顶爆容器内存上限）
 docker compose exec -T worker python scripts/warm_category_cache.py --all --pg-only
 # 中断续传：--offset 1000 / 2000 / ...（跳过已完成的类目也可直接重跑 --all，upsert 幂等）
-# （内置磁盘余量守卫：<5G 自动中止，清理后续跑即可）
+# （内置磁盘余量守卫：<5G 自动中止，清理后续跑即可；Ozon 400 死节点自动进表跳过，见上节）
 
-# ② 覆盖率审计（只读）——确认接近 100%
+# ② 覆盖率审计（只读）——确认接近 100%（v0.73 起分母已剔除死节点 dead_excluded）
 docker compose exec -T worker python scripts/warm_category_cache.py --coverage
 
-# ③ 导出 JSON（流式写 worker/assets/，注意磁盘余量；三桶后量级从数百 MB 降一个量级以上）
-docker compose exec -T worker python scripts/warm_category_cache.py --export-only
+# ③ 导出 JSON —— v0.73 起用 --export-from-pg：从 PG 读已预热缓存流式导出，
+#    秒级、零 Ozon API、无需凭证（写 worker/assets/，注意磁盘余量；三桶后
+#    量级从数百 MB 降一个量级以上）
+docker compose exec -T worker python scripts/warm_category_cache.py --export-from-pg
+# ⚠️ 旧 --export-only 仍保留但语义是「边拉边导」——只导本次进程内 API 拉取的
+#    部分，仅限与预热同进程采集时使用；预热完成后单独导出必须用 --export-from-pg。
 
 # ④ 上传 COS（路径固定：ozon-worker/cache/，部署脚本从这里拉；勿放图片/部署包路径）
 coscli cp worker/assets/attribute_schemas_zh.json cos://yss-1256275613/ozon-worker/cache/attribute_schemas_zh.json
@@ -56,6 +75,10 @@ coscli cp worker/assets/dictionary_values_zh.json cos://yss-1256275613/ozon-work
 
 > ⚠️ JSON 不进 git（数百 MB 超仓库承载）。COS 对象与 skill 部署包同 bucket、
 > **不同前缀**，不触碰 `file/images/*`（产品图）与生命周期规则覆盖面。
+>
+> ℹ️ 本流程**仅首次 / 三桶口径变化 / TTL 大面积过期时重跑**——此后每次
+> `deploy.sh` / `cos-update.sh` 升级都会自动从 COS 拉这两个 JSON 并后台
+> `--import-only` 灌入 PG（见下节），部署即全量，无需人工重走本流程。
 
 ## 日常：部署/升级自动灌入（已接线，无需操作）
 
@@ -84,5 +107,6 @@ TTL 到期自动衰减回懒加载（不报错，只是首单变慢）。建议�
 | `--coverage [--coverage-sample N]` | 只读覆盖率审计 + 缺失抽样（不碰 Ozon/不写 PG） |
 | `--limit N --pg-only` | 预热前 N 个（部署脚本默认 200） |
 | `--all --pg-only [--offset N]` | 全量/分片预热（需凭证） |
-| `--export-only` | 导出 JSON 到 `worker/assets/`（需凭证） |
+| `--export-from-pg` | **v0.73 起导出 JSON 用这个**：从 PG 读缓存流式导出到 `worker/assets/`（秒级、零 API、无需凭证；与其他模式互斥） |
+| `--export-only` | 旧「边拉边导」：仅导出本次进程内 API 拉取的部分（需凭证）——预热后单独导出请用 `--export-from-pg` |
 | `--import-only` | 从 JSON upsert 进 PG（无需凭证；部署脚本自动调用） |
