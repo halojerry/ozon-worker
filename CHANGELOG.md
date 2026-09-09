@@ -23,6 +23,13 @@
 - ERROR_NOTICE_MAP 文案如实化（「已净化处理」→「已自动修复并重试仍未通过，需人工检查」）；error_reports 快照附带末次拒绝原文（last_decline）。
 - `gen_api_docs` 已重跑（task_status 401/404 进 OpenAPI）。
 
+### 部署链修复（W1-W8，随本版同车：全量预热→导出→上 COS 闭环可跑）
+- **warm/init_data/mappings_lookup 裸 bind cast 根治**（记忆 `sqlalchemy-jsonb-cast-trap`）：SQLAlchemy `text()` 不识别 `:bind::type` 裸 cast（bind 名连同 `::` 解析坏 → syntax error，且常被 `except` 吞成静默空结果）——`warm_category_cache.py` 写库 4 处 `:schema::jsonb`/`:vals::jsonb`、`init_data.py` 2 处同款、`ozon_category_query.get_category_mapping_by_keywords` 的 `:kw::text[]` 一律改 `CAST(:bind AS jsonb|text[])`；**`GET /api/v1/mappings/lookup` 端点复活**（此前 SQL 异常被吞恒返 `[]`，形同虚设）。
+- **warm 导出换 `--export-from-pg`**：从 PG 双表流式读缓存导出 JSON（`attribute_schemas_zh.json`/`dictionary_values_zh.json`），秒级、零 Ozon API、无需凭证——补上 runbook「预热→导出→上 COS」缺导出实现的断点（旧 `--export-only` 是「边拉边导」语义：只导本次进程内 API 拉取的部分，预热后单独跑基本导空；保留并标注，勿再误用）。顺带修 `--import-only` 分支排在凭证检查之后导致无凭证误退出的顺序问题。
+- **Ozon 400 死节点永久跳过表 `warm_dead_nodes`**：warm 自动建表（幂等零 DDL），schema 拉取 400/404 的已删类目入表、后续运行整节点跳过不计 failed；`--coverage` 分母剔除死节点（新增 `dead_excluded` 键）——100% 覆盖率数学重新可达，服务器看护阈值可从 7350 回到全量分母。runbook 已更新口径。
+- **cos-update.sh 自举防自我覆盖 + VERSION 传导**：下载校验后、备份/解压/构建之前检测包内新版脚本，不一致则 `exec env COS_UPDATE_EXECED=1` 以新版重跑全流程（v0.64「解压覆盖运行中脚本 → 新旧混合字节白费 1h」事故根治，旧脚本跑新包安全）；manifest 与本地 VERSION 两处剥 `v` 前缀 + compose build 前 `export VERSION`（build arg 与镜像 tag 同源，tag 从 latest 变具体版本）；cd.yml 部署包 tar 清单收编 `docs/`（runbook 等文档服务器可见）。
+- **`LearningRecordInput.moderation_status` 补声明**：langgraph 按节点 Input model 过滤 channel，字段未声明 → learning 侧 getattr 恒空、`_is_real_upload_success` 的 approved 分支恒不可达（全靠 `upload_status=success`+product_id 兜底）——补声明后 approved 分支复活（与 GlobalState 同名同型；旧信封缺省走原回退，行为不变）。
+
 ### 已知问题（本批遗留）
 - 兜底抬重后定价/物流带不重算；价差拦截 notice 修复见 f5b42b8e（已带原因）；`create_blocked_draft.blocked_stage` 硬编码 category_match（价差落箱展示偏差）；其余 Output 非空默认值尾巴（attributes_llm/attributes_learning/category_lookup）待统一；检测源 attr_value_matcher.py:67 与 prepare:141 待 re-export 收口；harness Bearer 透传待实机验证。
 - 实机 gate（≥3 单）待跑；category_match_log.task_id P1-6 在 09-09 批次实证可关联（历史结论待重核触发条件）。

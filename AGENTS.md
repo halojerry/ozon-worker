@@ -81,6 +81,20 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
   默认值归零）；ERROR_NOTICE_MAP 如实化+快照带 last_decline。
 - 测试：worker **2323** / skill **999** 全绿；`gen_api_docs --check` 零漂移。服务器 ops（cos-update →
   TRUNCATE dictionary_value_cache → ≤2 分片重预热 → 上 COS）见 docs/CACHE-WARM-RUNBOOK.md，待执行。
+- **W1-W8 部署修复（随 0.73.0 同车，未发版）**：全量预热→导出→上 COS 闭环根治，计划
+  `docs/PLAN-w1w8-cos-deploy-fixes-v073.md`。三条硬规则：
+  - **改 warm/init_data/ozon_category_query 写 SQL 前必读记忆 `sqlalchemy-jsonb-cast-trap`**：SQLAlchemy
+    `text()` 不识别 `:bind::type` 裸 cast（bind 名连同 `::` 解析坏 → syntax error 且常被 except 吞成静默
+    空结果），一律 `CAST(:bind AS jsonb|text[])`——本批修 warm×4 + init_data×2，`/mappings/lookup` 端点
+    因它恒空已复活。
+  - **缓存导出流程已换 `--export-from-pg`**（从 PG 读缓存导 JSON：秒级、零 API、无需凭证；
+    `--export-only` 保留但只是「边拉边导」旧语义，预热后单独导出勿用）；Ozon 400 死节点进
+    `warm_dead_nodes` 表永久跳过、coverage 分母剔除（`dead_excluded`）——看护阈值可回到全量分母。
+    流程见 docs/CACHE-WARM-RUNBOOK.md。
+  - **cos-update.sh 已自举**（`COS_UPDATE_EXECED` 防环 env：包内脚本更新则 exec 新版重跑——旧脚本跑
+    新包安全，v0.64 白费 1h 事故根治）+ VERSION 剥 v/export 传导（镜像 tag 从 latest 变具体版本）+
+    cd.yml 部署包收编 docs/；另 `LearningRecordInput.moderation_status` 补声明（langgraph channel
+    过滤吞字段，learning approved 分支复活）。
 
 ## 最近更新（v0.72.0 — 字典值缓存三桶策略：撑爆 40G 盘事故根治）
 
