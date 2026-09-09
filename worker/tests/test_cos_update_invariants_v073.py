@@ -47,3 +47,15 @@ def test_cd_packages_docs():
     src = _CD.read_text(encoding="utf-8")
     assert re.search(r"deploy\s+worker\s+webui\s+docs\b", src), \
         "部署包必须含 docs/（runbook 服务器可见）"
+
+
+def test_export_version_precedes_main_build_and_cleanup_excludes_running():
+    src = _SCRIPT.read_text(encoding="utf-8")
+    # 主流程 build（带 tail 管道的那条）必须在主流程 export VERSION（独立行）之后；
+    # rollback 函数内的 export 不算数——用「独立行 export VERSION」精确定位主流程导出。
+    assert src.index("\nexport VERSION\n") < \
+        src.index("docker compose build --no-cache 2>&1 | tail -3"), \
+        "主流程 build 必须在 export VERSION 之后（镜像 tag 同源）"
+    # 清理段排除当前 VERSION 在用镜像（export 后无 latest tag，旧 grep -v latest 误伤在用镜像）
+    assert '_exclude="latest"' in src and "grep -Ev" in src, \
+        "镜像清理未排除当前版本 tag"
