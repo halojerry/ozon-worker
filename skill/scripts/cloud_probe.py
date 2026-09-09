@@ -2886,6 +2886,39 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         "supplier": getattr(candidate, 'match_1688_supplier', ''),
     }
 
+    # ✅ v0.73 提交闸（Issue5 上游防线）：fallback 组装此前旁路了 graph 主路径
+    # 的 _validate_and_fix_product_data 校验门——空 title 信封直进 worker，
+    # 9048 退化裸 item_id 卡（标题靠 LLM 从图盲生成；¥1.5 塑料转盘 35₽ 错货
+    # 实证）。此处把 fallback draft 送同一校验门，「产品标题为空」硬闸命中 →
+    # 返回 None 跳过（本函数返回约定本就含 None，见 best_id 解析失败先例；
+    # batch_test / cli discover --to-box / cli 批量出口三个调用方均已处理
+    # None）。
+    # 选型说明：_validate_and_fix_product_data 本身返回 errors 列表不抛错
+    # （raise ProductValidationError 的是 graph 主路径调用方），故此处直接
+    # 消费 errors 而非 catch。仅启用标题硬闸——图片/采购价硬闸对 fallback
+    # 不启用（降级语义=候选基础字段直组，discover 候选已经选品护栏筛选，
+    # 价格缺失由 worker 侧兜底；启用会整批拦停降级路径）；supplier 空同理
+    # 不拦（worker 9048 用 title hash 兜底）。
+    _, _, _fallback_errors, _, _ = _validate_and_fix_product_data(
+        item_id=best_id,
+        title=str(draft.get("title") or ""),
+        cost_cny=float(draft.get("purchase_cost") or 0),
+        images=list(draft.get("images") or []),
+        weight_g=int(draft.get("weight") or 0),
+        dimensions=dict(draft.get("dimensions") or {}),  # 拷贝：校验器缺边时原位回填
+        variants=[],
+        option_groups=[],
+    )
+    if any("标题" in str(_e) for _e in _fallback_errors):
+        logger.warning(
+            "⛔ v0.73 提交闸: discover fallback 信封标题为空，跳过 item %s "
+            "(match_1688_title=%r, ozon_title=%r)",
+            best_id,
+            getattr(candidate, "match_1688_title", ""),
+            getattr(candidate, "ozon_title", ""),
+        )
+        return None
+
     source = {
         "purchase_url": candidate.match_1688_url or "",
         "purchase_cost": candidate.match_1688_price or 0,

@@ -49,6 +49,44 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "data" / "batch_results"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+# ── v0.73 提交闸（Issue5 上游防线）─────────────────────────────────────────
+# 生产实证：¥1.5 塑料转盘（1688 item 707084355449）被批量上架为 approved 卡
+# （35₽）——其信封 draft.title 为空（worker 侧 9048 退化裸 item_id 铁证，标题
+# 靠 LLM 从图盲生成）。fallback 组装旁路了 graph 主路径的「产品标题为空」
+# 硬闸，此处是真正的上游防线。
+MIN_SUBMIT_TITLE_LEN = 4
+# 对齐 ozon_discovery 货源置信门槛（_MIN_SOURCE_CONFIDENCE / 护栏
+# match_min_conf 默认同值 0.3）。⚠️ 0.0 = 字段缺失/旧缓存/可信 CDP 通道
+# （「全部符合」进不了分），视为未知不追溯拦——只拦 0 < conf < 阈值的弱档。
+MIN_SUBMIT_MATCH_CONFIDENCE = 0.3
+
+
+def _submit_gate_rejection(candidate: Any, envelope: dict[str, Any] | None) -> str:
+    """v0.73 提交闸：检查信封是否应被拦截。返回拦截原因（空串=放行）。
+
+    两道检查（复用 GraphInput 结构，只读不改信封）：
+    1. draft.title 空/空白/短于 MIN_SUBMIT_TITLE_LEN → 空标题信封（worker
+       9048 会退化成裸 item_id 卡）——硬闸；
+    2. candidate.match_confidence ∈ (0, MIN_SUBMIT_MATCH_CONFIDENCE) →
+       弱匹配候选。0.0 豁免（=旧缓存无字段/可信通道 0 分，见常量注释）。
+
+    supplier 空不拦（合法——CDP 拿不到 seller 时为空，worker 9048 用
+    title hash 兜底）；只有 title 才是硬闸。
+    """
+    draft = ((envelope or {}).get("envelope") or {}).get("draft") or {}
+    title = str(draft.get("title") or "").strip()
+    if len(title) < MIN_SUBMIT_TITLE_LEN:
+        return (f"空标题信封（draft.title={title!r}，"
+                f"少于 {MIN_SUBMIT_TITLE_LEN} 字符，9048 将退化裸 item_id 卡）")
+    try:
+        conf = float(getattr(candidate, "match_confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        conf = 0.0
+    if 0.0 < conf < MIN_SUBMIT_MATCH_CONFIDENCE:
+        return (f"弱匹配候选（match_confidence={conf:.2f} < "
+                f"{MIN_SUBMIT_MATCH_CONFIDENCE}）")
+    return ""
+
 
 def _default_worker_url() -> str:
     """Worker 地址默认值: WORKER_URL 优先，其次 MXOU_API_BASE，最后生产默认。"""
@@ -363,6 +401,20 @@ def process_ozon_url(
                     result["title"] = (cached.get("match_1688_title")
                                        or cached.get("ozon_title", ""))[:80]
                     print(f"  ✅ [{product_id}] 信封组装完成（复用 discover）", flush=True)
+                    return result
+                # ── v0.73 提交闸（Issue5 上游防线）─────────────────────────
+                # 空标题/弱匹配候选不进管线：跳过该条（不提交、也不降级
+                # follow——数据已判坏，重跑图搜只再烧一次 CDP；dry-run 不拦，
+                # 试跑仍可预览全量信封）。命中 → 记 log（product_id+原因）
+                # + 主循环计入 gate_skipped 统计。
+                _gate_reason = _submit_gate_rejection(candidate, envelope)
+                if _gate_reason:
+                    result["skipped_by_gate"] = True
+                    result["error"] = _gate_reason
+                    result["title"] = str(
+                        (envelope.get("envelope", {}).get("draft", {}) or {})
+                        .get("title", ""))[:80]
+                    print(f"  ⛔ [{product_id}] 提交闸拦截: {_gate_reason}", flush=True)
                     return result
                 submit_result = submit_envelope(envelope)
                 result["submit_result"] = submit_result
@@ -693,7 +745,9 @@ def main() -> int:
 
     # 续传时把历史结果并入本次列表：增量落盘/最终写回都保留旧条目
     results: list[dict[str, Any]] = list(old_results) if resumed_file is not None else []
-    stats = {"total": len(urls), "success": 0, "failed": 0, "skipped": _skipped}
+    # v0.73: gate_skipped = 提交闸拦截（空标题/弱匹配）——有意跳过，不计失败
+    stats = {"total": len(urls), "success": 0, "failed": 0, "skipped": _skipped,
+             "gate_skipped": 0}
 
     print(f"\n{'='*60}")
     print(f"开始处理 {len(urls)} 个 URL...")
@@ -756,6 +810,8 @@ def main() -> int:
                       flush=True)
         if r.get("success"):
             stats["success"] += 1
+        elif r.get("skipped_by_gate"):
+            stats["gate_skipped"] += 1
         else:
             stats["failed"] += 1
 
@@ -807,6 +863,8 @@ def main() -> int:
     print("📊 结果:")
     print(f"   成功: {stats['success']}")
     print(f"   失败: {stats['failed']}")
+    if stats["gate_skipped"]:
+        print(f"   ⛔ 提交闸拦截（空标题/弱匹配，未提交）: {stats['gate_skipped']}")
     print(f"   详情: {log_file}")
     print(f"   汇总: {summary_file}")
     print(f"{'='*60}")
