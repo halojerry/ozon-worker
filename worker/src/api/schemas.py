@@ -316,6 +316,10 @@ class DraftPatch(BaseModel):
     version: int = Field(..., description="必须等于当前 version，否则 409（stale）")
     payload: dict[str, Any] = Field(..., description="新的 envelope；成功后 version++")
     source: Optional[str] = Field(None, description="可选更新 source 字段")
+    notes: Optional[str] = Field(
+        None,
+        description="运营备注（采集/选品依据人工标注）；None=不修改，有值时 strip+截断 2000；不进信封 payload",
+    )
 
 
 class DraftSubmitRequest(BaseModel):
