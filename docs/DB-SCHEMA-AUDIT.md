@@ -4,7 +4,7 @@
 > 修复记录**，schema 权威定义唯一在 `worker/src/storage/database/shared/model.py`。
 > 新表/新列设计前先读本文「约定」节，防歧义继续累积。
 
-## 1. 表清单概览（34 张）
+## 1. 表清单概览（35 张）
 
 schema 无 alembic——迁移 = `create_all + init_data.py 手写幂等 ALTER`（加列/加索引
 支持；改列类型/改名/数据回填无框架，需手写脚本）。每次部署/升级都跑 init_data。
@@ -13,7 +13,7 @@ schema 无 alembic——迁移 = `create_all + init_data.py 手写幂等 ALTER`�
 |---|---|
 | 租户隔离（tenant_id） | ozon_product_tasks, product_drafts, draft_submissions(经 draft FK), credentials, product_task_index, listing_templates, order_notes, order_messages, discovery_runs, ozon_orders_cache, ozon_products_cache, credential_sync_state, store_metrics_history, store_operation_log, error_reports |
 | 用户隔离（非 tenant_id 命名） | blue_ocean_queries / ozon_bestsellers / market_bestsellers / selection_insights（contributed_by_token_id）；image_tasks / audit_logs（user_id） |
-| 全局共享（无租户列，有意设计） | attribute_cache, dictionary_value_cache, category_cache(按 client+lang), logistics_rates, size_mappings, exchange_rates, ozon_attribute_mappings, category_tree_nodes, category_mapping(W11), category_commission, attribute_synonym, domain_hint, gateway_tasks, task_generated_images, site_banners, site_announcements, data_sources |
+| 全局共享（无租户列，有意设计） | attribute_cache, dictionary_value_cache, category_cache(按 client+lang), logistics_rates, size_mappings, exchange_rates, ozon_attribute_mappings, category_tree_nodes, category_mapping(W11), category_commission, attribute_synonym, domain_hint, gateway_tasks, task_generated_images, site_banners, site_announcements, data_sources, sku_metrics_pool（未发版：UGC 跨店 sku 指标池，唯一键 sku；归因数组 source_company_ids/contributed_by_token_ids 各 cap 10；**红线只存指标**，永不存 cookie/凭证；needs_*_sync 不落列按 updated_at/缺 payload 读时计算） |
 | 审计（无租户列，经任务行可溯源） | category_match_log, attr_match_log, listing_result_log(有 tenant_id) |
 
 主键三类混用：UUID(gen_random_uuid)×10 / 自然键复合键×4 / Identity 自增×其余。

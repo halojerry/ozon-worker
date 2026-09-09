@@ -241,6 +241,7 @@ submit_task → pending → running → completed / failed / cancelled
 | 未发版（shopbang-parity） | 店铺会话代管 `POST/GET/DELETE /api/v1/credentials/{id}/session`、会话直调 `GET /api/v1/analytics/what-to-sell`；drafts 请求体/PATCH 顶层 `notes` 运营备注（不进信封） | discovery_meta 扩 4 键（follow_profit_cny/follow_margin/ozon_old_price/match_1688_freight_cny） |
 | v0.69.0 | `POST/GET /api/v1/error_reports`（错误报告；`?report_id=` 详情、`?status=` 筛选） | skill CLI 提交失败 exit 3（原静默 exit 0） |
 | v0.70.0 | `GET /api/v1/forensics/task/{task_id}`（取证一站式只读）、`GET /api/v1/categories/search`、`GET /api/v1/categories/attributes`（缓存只读不回源 Ozon） | MCP 工具 14→17（+`report_issue`/`list_error_reports`/`get_task_forensics`） |
+| 未发版（2026-09-10，数据池 v1） | `POST /api/v1/analytics/seller-sync`（贡献收包，≤12/批）+ `GET /api/v1/analytics/sku-metrics?skus=`（读侧指标+补采指令，≤50/查）——数据池贡献闭环（skill 采集 what_to_sell 顺手上报 + discover 富化读侧） | — |
 
 ## 11. 文档地图
 
