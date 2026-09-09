@@ -61,12 +61,13 @@ class _FakeTab:
 class _FakeCdp:
     def __init__(self, tab):
         self._tab = tab
+        self.released: list = []
 
     def find_tab(self, pattern):
         return self._tab
 
     def release(self, tab):  # 复用用户 tab：只 release 不远程关
-        pass
+        self.released.append(tab)
 
 
 # ---------------------------------------------------------------------------
@@ -76,8 +77,8 @@ class _FakeCdp:
 
 def test_fetch_variant_truth_shape():
     tab = _FakeTab([JS_SEARCH_OUT, JS_BUNDLE_OUT])
-    got = ow.fetch_variant_truth("http://127.0.0.1:9222", "3171397439",
-                                 cdp=_FakeCdp(tab))
+    cdp = _FakeCdp(tab)
+    got = ow.fetch_variant_truth("http://127.0.0.1:9222", "3171397439", cdp=cdp)
     assert got == {"weight_g": 1840, "dims_mm": [260, 150, 100]}
     # 恰两次页内 evaluate；端点/常量逐字来自 maozi 取证（禁改断言锁漂移）
     assert len(tab.calls) == 2
@@ -86,6 +87,8 @@ def test_fetch_variant_truth_shape():
     assert "seller-prototype/create-bundle-by-variant-id" in tab.calls[1]
     assert "SOURCE_UI_COPY_MERGED" in tab.calls[1]
     assert "987654321" in tab.calls[1]                       # variant_id 进 bundle 体
+    # E4 纪律：复用命中 tab 立即 release（防连接 close 远程关用户 tab）
+    assert cdp.released == [tab]
 
 
 def test_fetch_variant_truth_none_on_garbage():
