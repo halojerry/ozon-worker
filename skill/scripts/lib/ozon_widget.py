@@ -159,6 +159,44 @@ def _find_widget(widget_states: dict[str, str], substring: str) -> dict[str, Any
     return {}
 
 
+def extract_layout_tracking_info(
+    widget_states: dict[str, str],
+) -> dict[str, Any] | None:
+    """递归扫描 widgetStates 找 ``layoutTrackingInfo``（goldminer 同款）。
+
+    页面结构化类目真值：不猜 widget key，逐 widget 值（JSON 字符串）parse 后
+    深度优先走 dict/list 找 key ``layoutTrackingInfo``，返回首个命中的白名单
+    三键 ``{categoryId, category_path, breadcrumbs}``（列表缺失容忍为空，
+    categoryId 按载荷原样透传）。任一处都找不到 → None（调用方省略键）。
+    """
+    def _walk(node: Any) -> dict[str, Any] | None:
+        if isinstance(node, dict):
+            info = node.get("layoutTrackingInfo")
+            if isinstance(info, dict):
+                return {
+                    "categoryId": info.get("categoryId"),
+                    "category_path": info.get("categoryPath") or [],
+                    "breadcrumbs": info.get("breadcrumbs") or [],
+                }
+            for value in node.values():
+                found = _walk(value)
+                if found is not None:
+                    return found
+        elif isinstance(node, list):
+            for item in node:
+                found = _walk(item)
+                if found is not None:
+                    return found
+        return None
+
+    for value in (widget_states or {}).values():
+        parsed = _safe_json_parse(value) if isinstance(value, str) else value
+        found = _walk(parsed)
+        if found is not None:
+            return found
+    return None
+
+
 # ---------------------------------------------------------------------------
 # JS snippets evaluated via CDP
 # ---------------------------------------------------------------------------
@@ -267,6 +305,11 @@ _FETCH_PRODUCT_JS = r'''(() => {
                     }));
                 } catch(e) {}
             }
+
+            // ✅ data-pool parity: 透传完整 widgetStates——Python 侧
+            // extract_layout_tracking_info 递归扫描结构化类目真值用；
+            // 扫描后即从 result 弹出，不进缓存不进信封
+            result.widgetStates = ws;
 
             resolve(JSON.stringify(result));
         } catch(e) {
@@ -456,6 +499,13 @@ def fetch_product_info(cdp_url: str, product_id: str, *, cdp=None, lang: str = "
     # price 为空）被缓存 1 小时污染后续运行（降级数据不缓存）
     # ✅ v0.71 类目真值派生（helper 可单测）
     _derive_category_from_breadcrumbs(result)
+    # ✅ data-pool parity: layoutTrackingInfo 结构化类目真值（goldminer 同款
+    # 递归扫描）；None 则省略键——信封省略纪律。widgetStates 由 JS 透传，
+    # 此处扫描后立即弹出，不进缓存不进下游。
+    widget_states = result.pop("widgetStates", {}) or {}
+    layout_tracking = extract_layout_tracking_info(widget_states) or None
+    if layout_tracking is not None:
+        result["layout_tracking"] = layout_tracking
     if result.get("title") and (result.get("price") or result.get("cardPrice")):
         cache_set("ozon", cache_key, result, ttl=3600)
     return result
@@ -548,6 +598,12 @@ def _fetch_product_info_http(
                 defaults["primaryImage"] = gallery_data.get("cover", imgs[0])
 
         _normalize_price_to_rub(defaults)
+
+        # ✅ data-pool parity: HTTP 回退路径同样扫 layoutTrackingInfo
+        # （此处 ws 是原生 dict；None 则省略键）
+        layout_tracking = extract_layout_tracking_info(ws) or None
+        if layout_tracking is not None:
+            defaults["layout_tracking"] = layout_tracking
 
     except Exception as exc:
         logger.debug("HTTP fallback for product %s also failed: %s", product_id, exc)
