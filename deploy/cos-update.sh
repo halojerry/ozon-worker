@@ -140,7 +140,10 @@ BACKUP_PATH="$BACKUP_DIR/v${LOCAL_VERSION:-unknown}_${TIMESTAMP}"
 mkdir -p "$BACKUP_PATH"
 log "备份当前版本 → $BACKUP_PATH"
 if [ -d "$ROOT_DIR/worker" ]; then
+  # v0.72 防复发：备份后剔除 assets 缓存 JSON（数百 MB 级，轮转下会成磁盘复发放大点）
   cp -a "$ROOT_DIR/worker" "$BACKUP_PATH/worker"
+  rm -f "$BACKUP_PATH/worker/assets/attribute_schemas_zh.json" \
+        "$BACKUP_PATH/worker/assets/dictionary_values_zh.json" 2>/dev/null || true
 fi
 if [ -d "$ROOT_DIR/webui" ]; then
   # v0.63.1 D2: 备份 webui 源码（v0.62.2 起镜像内建前端, 回滚需同版本源码）
@@ -158,6 +161,13 @@ if [ -d "$SCRIPT_DIR" ]; then
 fi
 [ -f "$VERSION_FILE" ] && cp -a "$VERSION_FILE" "$BACKUP_PATH/VERSION" || true
 echo "$LOCAL_VERSION" > "$BACKUP_PATH/local_version.txt"
+
+# ✅ v0.72 防复发：备份轮转（保留最近 3 份，此前零轮转——40G 盘复发放大点之一）
+BACKUP_KEEP=3
+ls -1dt "$BACKUP_DIR"/v*_* 2>/dev/null | tail -n +"$((BACKUP_KEEP + 1))" | while read -r _old; do
+  log "轮转旧备份: rm -rf $_old"
+  rm -rf "$_old"
+done
 
 # ── 5. 解压覆盖(保留 .env) ──
 log "解压覆盖(生产 .env 保留)..."

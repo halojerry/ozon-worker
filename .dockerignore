@@ -29,3 +29,6 @@ browser
 deploy/.env
 deploy/.env.bak*
 worker/.env
+# ✅ v0.72 防复发：预热/导出的全量缓存 JSON（数百 MB 级）严禁进 build context/镜像层
+worker/assets/attribute_schemas_zh.json
+worker/assets/dictionary_values_zh.json

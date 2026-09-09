@@ -42,6 +42,31 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）。
 
+## 最近更新（未发版 — 字典值缓存三桶策略：撑爆 40G 盘事故根治）
+
+> 2026-09-09。**未发版**（VERSION 四源仍 0.70.0）。实施已定案方案（取证+真实
+> API 实测，语义必读记忆 ozon-dict-api-semantics）：`dictionary_value_cache` 按
+> (attr,dc,tp) 把全局字典按类目整份复制（品牌 85 5.18MB×每节点，17% 预热即
+> 3.83GB、全量外推 20GB+）。**改任何字典值缓存读写前先读
+> `utils/dict_value_cache.py` 模块注释。**
+
+- **三桶（唯一入口 utils/dict_value_cache.py）**：global=cat_dep=false（哨兵键
+  **(attr,0,0,language)** 一份，零 DDL）/ scoped=cat_dep=true 小字典（现状键）/
+  ephemeral=首页（limit=2000 契约上限）即 has_next 的巨型字典（品牌 85 无底洞）
+  **不物化**、运行时走 /values/search。缺字段默认保守 scoped（旧行为不变）。
+- **读侧**：scoped 未命中自动回退全局桶（OzonCategoryQuery 内置）。
+- **触点**：warm（limit 5000→2000 违约修复 + 首页探测不翻页 + global seen-set
+  跨节点只拉一次 + df<5G 守卫中止）；assemble fetch/cache 同策略 + TTL 30d；
+  retry RU 刷新与 category_schema_service 回写按桶路由；init_data 导入单大事务
+  改每 200 行一提交。
+- **防复发**：cos-update 备份轮转 3 份+剔除缓存 JSON；compose logging 50MB×3；
+  缓存 JSON 进 .gitignore/.dockerignore（v0.11.5 例外作废）；runbook 三桶口径
+  +分片 ≤2 写死。
+- 服务器 ops 待做：TRUNCATE dictionary_value_cache（拿回 4G）→ 部署 → ≤2 分片
+  重预热 → export → 上 COS。
+- 测试：`test_dict_cache_three_bucket.py` 10 用例 + lazy 端点 2 用例改 ephemeral
+  语义；worker 全量 2113 绿。
+
 ## 最近更新（未发版 — 类目/属性匹配靶向修复：值数出口闸 + 类目真值进信封 + L0 cid 断点）
 
 > 2026-09-08。**未发版**（VERSION 四源仍 0.70.0）。三方调查（skill 数据源/worker

@@ -1,5 +1,50 @@
 # Changelog
 
+## [未发版] — 2026-09-09（字典值缓存三桶策略：撑爆 40G 盘事故根治）
+
+> 实施已定案的三桶方案（2026-09-09 取证+真实 API 实测，见记忆
+> dict-cache-disk-explosion-incident / ozon-dict-api-semantics）。
+> `dictionary_value_cache` 按 (attr,dc,tp) 把全局字典按类目整份复制——品牌 85
+> 5.18MB×每节点，17% 预热即 3.83GB、全量外推 20GB+。本批全部为代码+守卫；
+> 服务器 TRUNCATE→重预热是后续 ops。
+
+### 三桶策略（唯一入口 utils/dict_value_cache.py）
+- **global**：schema `category_dependent=false`（跨类目逐字节一致，md5 实证）
+  → 哨兵键 **(attr, 0, 0, language) 全局一份**，零 DDL、ON CONFLICT 正常命中。
+- **scoped**：`category_dependent=true` 小字典 → (attr,dc,tp) 现状；字段缺失
+  默认保守 scoped（老缓存行/旧夹具行为不变）。
+- **ephemeral**：首页（limit=2000，契约上限）即 has_next 的巨型字典（品牌 85
+  20k+ 值无底洞）→ **不物化**，运行时 value→id 走 /values/search。
+- 读侧 scoped 未命中自动回退全局桶（`OzonCategoryQuery.get_dictionary_values`
+  内置，所有纯缓存读者自动生效）。
+
+### 触点接线
+- warm：fetch limit 5000→2000（违约修复）+ max_pages=1 首页探测；三桶分流
+  （global 属性每次运行只拉一次/写一份，seen-set 跨节点复用；巨型字典丢弃不
+  翻页——品牌无底洞的刹车）；新增 df 余量守卫（起步+每 50 节点，<5G 中止）。
+- assemble：`_fetch_dict_values_from_ozon` limit 2000 + 首页 has_next 即止；
+  `_cache_dict_values` 按桶路由（attr_row 判 cat_dep，缺省保守 scoped）+
+  TTL 86400→30d 对齐。
+- retry：`warning_attribute_values_out_of_range` RU 强制刷新改按桶路由。
+- category_schema_service：`?attr_id=` 字典回写接三桶（首页 has_next →
+  ephemeral 不回写，下拉仍返回首页 2000 值）。
+- init_data：`import_attribute_cache` 单大事务改每 200 行一提交（--force 同
+  事务 DELETE+重灌的同款事故形态一并消除）；全局桶行以 "aid:0:0" 键形状过账。
+
+### 防复发守卫
+- cos-update.sh：备份轮转保留 3 份（此前零轮转）+ 备份剔除 assets 缓存 JSON。
+- deploy/docker-compose.yml：logging json-file 封顶 50MB×3（此前无上限）。
+- .gitignore/.dockerignore：`worker/assets/{attribute_schemas,dictionary_values}_zh.json`
+  显式排除（v0.11.5 的「top-200 子集进 git」例外作废）。
+- docs/CACHE-WARM-RUNBOOK.md：三桶口径 + 分片 ≤2 写死（3.6G RAM 服务器 9 片
+  并行曾顶爆容器内存）+ 体积预期 20GB→~500MB。
+
+### 测试
+- 新 `test_dict_cache_three_bucket.py` 10 用例（分类/落桶/读回退真实 PG/
+  assemble 首页即止与路由/warm 探测模式）；lazy 端点 2 用例改 ephemeral 语义。
+- 服务器 ops（代码合并后另行执行）：TRUNCATE dictionary_value_cache（拿回 4G）
+  → 部署 → ≤2 分片重预热 → export → 上 COS。
+
 ## [未发版] — 2026-09-08（类目/属性匹配靶向修复：值数出口闸 + 类目真值进信封 + L0 cid 断点）
 
 > 三方调查（skill 数据源/worker 匹配链/ozon MCP 契约）后靶向修复，不整体重构。
