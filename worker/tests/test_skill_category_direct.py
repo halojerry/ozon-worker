@@ -139,3 +139,62 @@ if __name__ == "__main__":
                 traceback.print_exc()
     print(f"\n{total - failed}/{total} passed")
     sys.exit(1 if failed else 0)
+
+
+# ── F-B02 延续：path-only page hint（discover 信封形态）路径精配 ──
+
+def test_path_only_page_hint_resolved_by_breadcrumb():
+    """discover 信封形态：source=page 无 dc/tp 只有面包屑路径 → 路径确定性精配
+    直出权威结构（修复前被「无 dc 早退」整个丢弃，用户口径：Ozon 有类目直接复用）。"""
+    from unittest import mock
+    from graphs.nodes.assemble_ozon_product_node import _resolve_skill_category
+
+    fake_node = {"description_category_id": 17028653, "type_id": 92147,
+                 "node_name": "Термосы",
+                 "full_path": "Дом и сад > Посуда > Термосы"}
+    with mock.patch("utils.ozon_category_query.get_category_query") as gq:
+        gq.return_value.get_node_by_full_path.return_value = fake_node
+        hit = _resolve_skill_category({
+            "source": "page", "namespace": "widget",
+            "category_path": "Дом и сад > Посуда > Термосы",
+            "breadcrumb_language": "RU",
+        })
+    assert hit is not None, "path-only page hint 应走路径精配，不再被早退丢弃"
+    assert hit["description_category_id"] == 17028653
+    assert hit["type_id"] == 92147
+    assert hit["_resolved_by_path"] is True
+    assert hit["source"] == "page"
+    assert hit["confidence"] >= 0.9
+    gq.return_value.get_node_by_full_path.assert_called_once_with(
+        "Дом и сад > Посуда > Термосы")
+
+
+def test_path_only_hint_miss_falls_back_to_none():
+    """面包屑未命中树 → None（退回 pg_trgm/jieba 文本链），不造数。"""
+    from unittest import mock
+    from graphs.nodes.assemble_ozon_product_node import _resolve_skill_category
+
+    with mock.patch("utils.ozon_category_query.get_category_query") as gq:
+        gq.return_value.get_node_by_full_path.return_value = None
+        hit = _resolve_skill_category({
+            "source": "page", "namespace": "widget",
+            "category_path": "Несуществующее > Дерево",
+        })
+    assert hit is None
+
+
+def test_numeric_dc_still_takes_tree_validation_path():
+    """有 dc/tp + 路径时仍优先路径精配（行为保持），且不破坏原有数字校验分支。"""
+    from unittest import mock
+    from graphs.nodes.assemble_ozon_product_node import _resolve_skill_category
+
+    fake_node = {"description_category_id": 17028653, "type_id": 92147,
+                 "node_name": "Термосы", "full_path": "Дом и сад > Посуда > Термосы"}
+    with mock.patch("utils.ozon_category_query.get_category_query") as gq:
+        gq.return_value.get_node_by_full_path.return_value = fake_node
+        hit = _resolve_skill_category({
+            "description_category_id": "17028653", "type_id": "92147",
+            "category_path": "Дом и сад > Посуда > Термосы",
+            "source": "page", "namespace": "widget",
+        })
+    assert hit is not None and hit["_resolved_by_path"] is True
