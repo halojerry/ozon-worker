@@ -55,12 +55,13 @@ def _auth(monkeypatch, token="sk-test-key-123", tenant="user_abc"):
     monkeypatch.setattr(mcp_server, "_current_tenant", lambda: tenant)
 
 
-async def test_all_14_tools_registered():
+async def test_all_tools_registered():
     async with Client(mcp_server.mcp) as client:
         tools = await client.list_tools()
     names = {t.name for t in tools}
     assert set(mcp_server.TOOLS) <= names, f"缺工具: {set(mcp_server.TOOLS) - names}"
-    assert len(names) == 17
+    # v0.71: 17 + get_draft/patch_draft/search_categories/get_category_attributes/assemble_draft
+    assert len(names) == 22
 
 
 async def test_submit_task_injects_token_into_body(monkeypatch):

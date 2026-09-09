@@ -126,12 +126,18 @@ export interface CategoryAttr {
   required: boolean
   type: string
   dictionary_id: number
+  // v0.71：值数出口闸同源字段（is_collection=false 恒单值；max_value_count>0 为集合上限）
+  is_collection?: boolean
+  max_value_count?: number
   values?: CategoryAttrValue[]
 }
 
 export interface CategoryAttrResponse {
   found: boolean
   cached: boolean
+  // v0.71 懒加载：本次是否回源 Ozon 拉取并回写缓存
+  fetched?: boolean
+  reason?: string
   attributes: CategoryAttr[]
 }
 

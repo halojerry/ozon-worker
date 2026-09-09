@@ -235,6 +235,69 @@ async def batch_submit_drafts(ids: list[str], credential_id: str) -> dict:
                        body={"ids": ids, "token": token, "credential_id": credential_id})
 
 
+@mcp.tool()
+async def get_draft(draft_id: str) -> dict:
+    """读取采集箱草稿全文（payload 信封 + version）。只读。
+
+    改配类目/填属性时先取本工具拿 version 和 payload，改完用 patch_draft 回写。
+    """
+    return await _call("GET", f"/api/v1/drafts/{draft_id}")
+
+
+@mcp.tool()
+async def patch_draft(draft_id: str, version: int, payload: dict) -> dict:
+    """更新采集箱草稿（乐观锁：version 必须等于 get_draft 返回值，否则 409）。
+
+    payload 为**完整 envelope**（基于 get_draft 的 payload 修改，不是增量）。
+    典型改配：draft.ozon_category={description_category_id,type_id,
+    category_path,source:"manual"} + draft.attributes={中文属性名: 值}。
+    提交后采集箱即权威（box_reviewed：管线只做合规修复，不重配类目/标题）。
+    写操作。
+    """
+    return await _call("PATCH", f"/api/v1/drafts/{draft_id}",
+                       body={"version": version, "payload": payload})
+
+
+@mcp.tool()
+async def search_categories(q: str, limit: int = 20) -> dict:
+    """类目树搜索（ZH_HANS，node_type=type）：?q=关键词 → 候选 dc/tp/路径。只读。
+
+    选中候选后把 dc/tp 写进 draft.ozon_category（source=manual）即权威直通。
+    """
+    return await _call("GET", "/api/v1/categories/search",
+                       params={"q": q, "limit": max(1, min(int(limit), 50))})
+
+
+@mcp.tool()
+async def get_category_attributes(dc: str, tp: str, attr_id: str | None = None) -> dict:
+    """读取类目特征属性 schema（缓存优先，未命中自动按需拉取 Ozon 并回写）。
+
+    - dc/tp：类目+类型 ID（search_categories 候选）
+    - attr_id 可选：只拉单属性字典值（下拉数据；首次约 1-3s，之后走缓存）
+    返回 attributes[]：{id,name,required,dictionary_id,is_collection,
+    max_value_count,values?}——按 schema 给 agent 逐项填写（字典属性值取
+    values 里的 id/value 对；is_collection=false 恒单值）。
+    """
+    params: dict = {"dc": dc, "tp": tp}
+    if attr_id:
+        params["attr_id"] = attr_id
+    return await _call("GET", "/api/v1/categories/attributes", params=params)
+
+
+@mcp.tool()
+async def assemble_draft(draft_id: str) -> dict:
+    """一键 AI 预组装草稿（整卡：RU 标题/描述/属性写回 + suggested_category 仅展示）。写操作。
+
+    幂等：已含西里尔的字段跳过不重烧 LLM。预组装后建议 get_draft 查看写回
+    结果，人工/agent 复核后再 submit_draft。
+    """
+    token = _current_token()
+    if not token:
+        return _err("未授权：缺少 Bearer token")
+    return await _call("POST", f"/api/v1/drafts/{draft_id}/assemble",
+                       body={"token": token})
+
+
 # ── 店铺（凭证/分析/执行）───────────────────────────────────────
 
 @mcp.tool()
@@ -342,6 +405,8 @@ async def get_task_forensics(task_id: str) -> dict:
 TOOLS = [
     "submit_task", "get_task_status", "cancel_task", "get_task_statistics",
     "list_drafts", "submit_draft", "batch_submit_drafts",
+    "get_draft", "patch_draft", "assemble_draft",
+    "search_categories", "get_category_attributes",
     "list_stores", "analyze_store", "run_store_action",
     "lookup_commission", "quote_logistics", "lookup_mapping", "get_seo_keywords",
     "report_issue", "list_error_reports", "get_task_forensics",

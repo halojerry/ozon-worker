@@ -2632,13 +2632,18 @@ async def v1_mappings_lookup(request: Request):
 
 
 # ==================== 类目/属性只读端点（v0.70 采集箱手工改配） ====================
-# GET /api/v1/categories/search?q=  与  GET /api/v1/categories/attributes?dc=&tp=
+# GET /api/v1/categories/search?q=  与  GET /api/v1/categories/attributes?dc=&tp=[&attr_id=]
 # webui 采集箱「类目选择器 + 属性表单」的数据源：用户在草稿上指定 dc/tp（写
 # draft.ozon_category.source=manual）+ 属性值（draft.attributes），worker 侧按
 # 权威直通上传（assemble `_is_skill_authoritative` manual 权威，test_manual_category_
 # authority_v070 锁定）。两个端点全局只读（类目树/缓存表无租户数据），鉴权与
-# analytics 读端点同源；attributes **只读缓存不回源 Ozon**（交互场景不能被 API
-# 拉取拖慢；未预热类目返回 cached=False 由前端提示）。
+# analytics 读端点同源。
+# ⚠️ v0.71 红线修订（原 v0.70「缓存只读不回源」）：本地实证 7992 类目对 vs
+# attribute_cache 12 行——只读缓存使「选类目必出属性表单」在 99.8% 类目上不成立。
+# 改为与管线懒加载同语义的交互版（services/category_schema_service.py）：缓存
+# 优先 → 未命中用租户默认店铺凭证按需拉一次 Ozon → 回写 30d → 失败降级
+# found=False+reason（前端提示，不破坏页面）。字典值按单属性按需（?attr_id=，
+# 下拉打开时拉，翻页≤3 页），首屏保持 1 次 API。
 
 @app.get("/categories/search", tags=["analytics"])
 @app.get("/api/v1/categories/search", tags=["analytics"])
@@ -2682,11 +2687,14 @@ async def v1_categories_search(request: Request):
 @app.get("/categories/attributes", tags=["analytics"])
 @app.get("/api/v1/categories/attributes", tags=["analytics"])
 async def v1_categories_attributes(request: Request):
-    """类目属性 schema + 字典值（缓存只读）：?dc=&tp= → {found, cached, attributes}。
+    """类目属性 schema + 字典值（缓存优先，未命中按需拉取回写）。
 
-    attribute_cache / dictionary_value_cache 未命中**不回源 Ozon**（返回
-    found=False，前端提示该类目未预热）。属性键形状与 assemble 消费一致
-    （id/dictionary_id/name/required/type）。
+    - ?dc=&tp= → {found, cached, fetched, attributes}；属性键形状与 assemble
+      消费一致（id/dictionary_id/name/required/type）+ is_collection/
+      max_value_count（值数出口闸同源字段，UI 提示多值/上限）。
+    - ?dc=&tp=&attr_id= → 单属性字典值按需拉取 {found, cached, fetched, values}
+      （表单下拉打开时调用，避免一个类目几十个字典属性打满首屏）。
+    - 未命中且无店铺凭证/拉取失败 → found=False + reason（降级不抛错）。
     """
     auth = request.headers.get("Authorization", "")
     token = auth[7:].strip() if auth.startswith("Bearer ") else ""
@@ -2701,28 +2709,89 @@ async def v1_categories_attributes(request: Request):
     tp = (request.query_params.get("tp") or "").strip()
     if not dc.isdigit() or not tp.isdigit():
         raise HTTPException(status_code=422, detail="query params dc/tp must be numeric")
-    from utils.ozon_category_query import get_category_query
-    cq = get_category_query()
+    attr_id = (request.query_params.get("attr_id") or "").strip()
+
+    # 按需拉取凭证：租户默认店铺 → 任一 active 店铺回退（schema 与店铺无关，
+    # 无默认店铺也应能拉）；两者皆无 → 纯缓存语义，降级提示
+    _client_id = _api_key = ""
     try:
-        schema = cq.get_attribute_schema(int(dc), int(tp))
+        from services.credential_service import get_default_credential, list_credentials
+        _tenant = _key_user_id(clean_token)
+        _cred = get_default_credential(_tenant)
+        if _cred:
+            _client_id = str(_cred.get("ozon_client_id") or "")
+            _api_key = str(_cred.get("api_key") or "")
+        else:
+            for _c in (list_credentials(_tenant) or []):
+                if str(_c.get("status") or "") != "active":
+                    continue
+                try:
+                    from services.credential_service import get_decrypted
+                    _client_id, _api_key = get_decrypted(_tenant, str(_c["id"]))
+                    break
+                except Exception:
+                    continue
+    except Exception as _cred_e:
+        logger.debug("categories/attributes 凭证解析失败（降级纯缓存）: %s", _cred_e)
+
+    from services.category_schema_service import (
+        get_attribute_values_with_lazy_fetch,
+        get_attributes_with_lazy_fetch,
+    )
+
+    # ── 单属性字典值按需（?attr_id=）──
+    if attr_id:
+        if not attr_id.isdigit():
+            raise HTTPException(status_code=422, detail="query param attr_id must be numeric")
+        try:
+            import asyncio as _asyncio
+            res = await _asyncio.to_thread(
+                get_attribute_values_with_lazy_fetch,
+                int(attr_id), int(dc), int(tp), _client_id, _api_key,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"attribute values unavailable: {exc}")
+        return {
+            "found": bool(res.get("found")),
+            "cached": bool(res.get("cached")),
+            "fetched": bool(res.get("fetched")),
+            "values": res.get("values") or [],
+            **({"reason": res["reason"]} if res.get("reason") else {}),
+        }
+
+    # ── schema（缓存优先 → 按需拉取回写）──
+    try:
+        import asyncio as _asyncio
+        res = await _asyncio.to_thread(
+            get_attributes_with_lazy_fetch, int(dc), int(tp), _client_id, _api_key,
+        )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"attribute cache unavailable: {exc}")
-    if not schema:
-        return {"found": False, "cached": False, "attributes": []}
-    attrs_raw = schema.get("result") if isinstance(schema, dict) else schema
+    if not res.get("found"):
+        out_fail = {"found": False, "cached": False, "attributes": []}
+        if res.get("reason"):
+            out_fail["reason"] = res["reason"]
+        return out_fail
     out: list[dict] = []
-    for a in (attrs_raw or [])[:200]:
-        attr_id = int(a.get("id") or a.get("description_attribute_id") or 0)
+    from utils.ozon_category_query import get_category_query
+    for a in (res.get("schema") or [])[:200]:
+        if not isinstance(a, dict):
+            continue
+        attr_id_int = int(a.get("id") or a.get("description_attribute_id") or 0)
         item = {
-            "id": attr_id,
+            "id": attr_id_int,
             "name": str(a.get("name", "") or ""),
-            "required": bool(a.get("required", False)),
+            # ⚠️ Ozon 原始字段是 is_required（warm/懒加载存原始响应）——
+            # 此前读 a.get("required") 恒 False（webui 必填标记一直没生效）
+            "required": bool(a.get("is_required", a.get("required", False))),
             "type": str(a.get("type", "") or ""),
             "dictionary_id": int(a.get("dictionary_id", 0) or 0),
+            "is_collection": bool(a.get("is_collection", False)),
+            "max_value_count": int(a.get("max_value_count", 0) or 0),
         }
-        if item["dictionary_id"] > 0 and attr_id > 0:
+        if item["dictionary_id"] > 0 and attr_id_int > 0:
             try:
-                vals = cq.get_dictionary_values(attr_id, int(dc), int(tp))
+                vals = get_category_query().get_dictionary_values(attr_id_int, int(dc), int(tp))
             except Exception:
                 vals = None
             if vals:
@@ -2731,7 +2800,8 @@ async def v1_categories_attributes(request: Request):
                                   for v in (src_vals or [])[:100]
                                   if isinstance(v, dict) and v.get("id")]
         out.append(item)
-    return {"found": True, "cached": True, "attributes": out}
+    return {"found": True, "cached": bool(res.get("cached")),
+            "fetched": bool(res.get("fetched")), "attributes": out}
 
 
 # ==================== 佣金查询端点（任务 2.1） ====================
