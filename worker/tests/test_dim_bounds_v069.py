@@ -259,8 +259,16 @@ def test_repair_volume_weight_inferred_below_physical_density():
     assert inferred and inferred[0]["from_g"] == 300 and inferred[0]["to_g"] == 4257
 
     item2, out2 = _repair(950, 330, 430, 100)
-    assert item2["weight"] == "950", "密度 67 kg/m³ > 50 不得反推（保持真实重量）"
-    assert not (out2.repair_marks or {}).get("weight_inferred")
+    # ✅ v0.73 语义更新：v0.69 闸（50 kg/m³）本身不动——无 weight_inferred 留痕；
+    # 但 67 kg/m³（0.067 g/cc）在 0.40 g/cm³ 兜底之下且本轮错误码是
+    # ML_INCORRECT_VOLUME_WEIGHT → 走 v0.73 guard（cap 原值×3）：950g → 2850g。
+    # 旧行为「原值重发」正是 Issue4 的再拒根因。
+    assert item2["weight"] == "2850", (
+        f"v0.73 ML 拒后应按 0.40 g/cm³ 兜底（cap ×3）2850g，实际 {item2['weight']}"
+    )
+    assert not (out2.repair_marks or {}).get("weight_inferred"), "v0.69 闸不得触发"
+    _applied = (out2.repair_marks or {}).get("weight_floor_applied", [])
+    assert _applied and _applied[0]["from_g"] == 950 and _applied[0]["to_g"] == 2850
 
 
 def test_repair_volume_weight_clamped_to_bounds():

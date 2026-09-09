@@ -41,6 +41,12 @@ from utils.pricing_estimate import derive_list_prices
 from utils.attr_value_sanitize import cap_attribute_values
 # ✅ v0.69 Wave3: Ozon 重量硬下限（体积重反推夹取下限，与 normalizer 同源）
 from utils.weight_dimension_normalizer import OZON_MIN_WEIGHT_G
+# ✅ v0.73 Issue4: 体积-重量密度兜底唯一入口（ML_INCORRECT_VOLUME_WEIGHT 拒后反推）
+from utils.volume_weight_guard import (
+    MIN_DENSITY_G_CC,
+    compute_density_g_cc,
+    ensure_volume_weight_floor,
+)
 
 
 # ============================================================
@@ -2392,10 +2398,14 @@ def repair_dimensions_node(state: ValidationRetryLoopState) -> ValidationRetryLo
             # 密度 300 kg/m³ 反推重量，夹到 [OZON_MIN_WEIGHT_G, 50000]g，repair_marks
             # 留痕。密度在物理下限之上仍保持真实重量（如 950g/330×430×100mm=67
             # kg/m³ 不反推）；主链路（首传前）密度异常依旧只标疑不改写（v0.37）。
+            # ⚠️ v0.73 注：50 kg/m³ 闸本身保留不动；50 kg/m³ 之上、0.40 g/cm³ 之下的
+            # 带宽改由下方 v0.73 兜底分支接管（仅 ML_INCORRECT_VOLUME_WEIGHT 拒后）。
             _volume_m3 = (depth * width * height) / 1e9
+            _v069_inferred = False
             if _volume_m3 > 0:
                 _density = (weight_g / 1000.0) / _volume_m3
                 if 0 < _density < MIN_PHYSICAL_DENSITY_KG_M3:
+                    _v069_inferred = True
                     _inferred_g = int(_volume_m3 * VOLUME_WEIGHT_DENSITY_KG_M3 * 1000)
                     _inferred_g = max(
                         OZON_MIN_WEIGHT_G, min(_inferred_g, MAX_VOLUMETRIC_WEIGHT_G)
@@ -2416,6 +2426,42 @@ def repair_dimensions_node(state: ValidationRetryLoopState) -> ValidationRetryLo
                         f"{MIN_PHYSICAL_DENSITY_KG_M3} → 体积重反推: {_old_g}g → "
                         f"{_inferred_g}g（{_volume_m3:.6f}m³ × "
                         f"{VOLUME_WEIGHT_DENSITY_KG_M3} kg/m³，repair 路径）"
+                    )
+
+            # ✅ v0.73 Issue4: ML_INCORRECT_VOLUME_WEIGHT 拒后反推（根治相机 56g/
+            # 0.375 g/cm³ 原值重发再拒）。本轮 errors 含该 code（error_code 为本轮
+            # 已分类 code；state.errors 为 parse_error 未消费的剩余队列，两处都查）
+            # 且 v0.69 反推未接管本轮时，按 payload 当前 weight/dims 调 0.40 g/cm³
+            # 兜底（只上调、cap 原值×3、永不拒——已在 MIN_DENSITY 之上仍被拒则
+            # 不盲改，保持现有行为）。改重量后由现有通道 return → revalidate →
+            # reupload 重发。
+            _ml_vw_error = state.error_code == "ML_INCORRECT_VOLUME_WEIGHT" or any(
+                isinstance(_e, dict) and _e.get("code") == "ML_INCORRECT_VOLUME_WEIGHT"
+                for _e in (state.errors or [])
+            )
+            if _ml_vw_error and not _v069_inferred:
+                _final_g, _raised = ensure_volume_weight_floor(
+                    int(weight_g), {"length": depth, "width": width, "height": height}
+                )
+                if _raised:
+                    _old_g = int(weight_g)
+                    weight_g = float(_final_g)
+                    item["weight"] = str(_final_g)
+                    _marks = state.repair_marks if state.repair_marks else {}
+                    _marks.setdefault("weight_floor_applied", []).append({
+                        "item_index": i,
+                        "from_g": _old_g,
+                        "to_g": _final_g,
+                        "density_before": compute_density_g_cc(
+                            _old_g, {"length": depth, "width": width, "height": height}
+                        ),
+                        "min_density_g_cc": MIN_DENSITY_G_CC,
+                    })
+                    state.repair_marks = _marks
+                    logger.warning(
+                        f"  item[{i}] ML_INCORRECT_VOLUME_WEIGHT 拒后密度兜底: "
+                        f"{_old_g}g → {_final_g}g（0.40 g/cm³ 兜底提升，cap 原值×3，"
+                        f"只上调不拒绝）"
                     )
 
         logger.info(
