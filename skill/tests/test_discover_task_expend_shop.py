@@ -118,7 +118,7 @@ def _mk_ok_seed(pid: str) -> ProductCandidate:
 
 def test_collect_expend_shop_passes_plan_params(tmp_path):
     """_collect_expend_shop → run_fission：plan 预算/session_id/checkpoint_dir
-    逐一正确传递；min_seller_rating 不传（评分过滤待真实数据源）。"""
+    逐一正确传递；种子无评级卖家 → 降级为 None（不限评分）。"""
     seed = _mk_ok_seed("1654983021")
     with mock.patch("scripts.lib.cdp_client.CdpConnection") as conn_cls, \
          mock.patch.object(od, "_analyze_product", return_value=seed) as ap, \
@@ -140,8 +140,28 @@ def test_collect_expend_shop_passes_plan_params(tmp_path):
     assert kwargs["time_budget"] == 300.0
     assert kwargs["session_id"] == "20260909_120000"  # task_id 可续跑定位
     assert kwargs["checkpoint_dir"] == str(tmp_path / "fission")
-    assert "min_seller_rating" not in kwargs       # 跟卖 widget rating 恒 0，过滤不启用
+    assert kwargs["min_seller_rating"] is None       # 无评级种子 → 降级不限评分
     conn_cls.assert_called_once_with("http://127.0.0.1:9222")
+
+
+def test_collect_expend_shop_rated_seed_enables_rating_filter(tmp_path):
+    """种子跟卖里有评分≥4.0 的卖家 → 评级优先：min_seller_rating=4.0 传引擎。"""
+    seed = _mk_ok_seed("1654983021")
+    seed.competing_seller_list = [
+        {"seller_id": "90001", "seller_name": "无分卖家"},
+        {"seller_id": "90002", "seller_name": "好卖家", "rating": 5},
+    ]
+    with mock.patch("scripts.lib.cdp_client.CdpConnection"), \
+         mock.patch.object(od, "_analyze_product", return_value=seed), \
+         mock.patch.object(ozon_fission, "run_fission",
+                           return_value=[seed]) as rf:
+        cli._collect_expend_shop(
+            "http://127.0.0.1:9222", "1654983021",
+            plan={"max_depth": 1, "max_total_products": 60, "time_budget": 600.0},
+            expend_shop=10, brand_filter="nobrand", min_price=0, max_price=0,
+            filter_profile="off", session_id="t1b",
+            checkpoint_dir=str(tmp_path))
+    assert rf.call_args.kwargs["min_seller_rating"] == 4.0   # 评级优先门槛生效
 
 
 def test_collect_expend_shop_seed_error_returns_empty(tmp_path):
@@ -257,6 +277,23 @@ def test_min_seller_rating_missing_rating_fails_closed():
         time_budget=30, min_seller_rating=4.0)
     pids = {c.ozon_product_id for c in result}
     assert "P1" in pids and "P2" not in pids, f"无评分应 fail-closed: {pids}"
+
+
+@_fission_mock_env({"10001": ["P1"]})
+def test_min_seller_rating_filter_before_slice():
+    """评级过滤先于 max_sellers 截断：22 个无评级卖家占位时，第 23 位的有评级
+    卖家仍能展开（若先截 20 再过滤，会被无评级占坑饿死——webSellerList 实证
+    评分稀疏，这是真实会发生的事）。"""
+    sellers = [{"seller_id": f"9{i:03d}", "seller_name": f"u{i}"}
+               for i in range(22)]
+    sellers.append({"seller_id": "10001", "seller_name": "好卖家", "rating": 4.8})
+    seed = _mk_rating_seed("SEED", sellers)
+    result = ozon_fission.run_fission(
+        seed_products=[seed], max_depth=1, max_total_products=20,
+        max_sellers_per_product=20, max_products_per_seller=5,
+        time_budget=30, min_seller_rating=4.0)
+    pids = {c.ozon_product_id for c in result}
+    assert "P1" in pids, "评级过滤应在截断前生效，尾部有评级卖家可展开"
 
 
 # ── ⑤=0 回归 + ⑥ 拓店×resume / checkpoint ───────────────────────────────
