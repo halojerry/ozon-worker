@@ -624,6 +624,18 @@
             "title": "Image Mirror State",
             "type": "string"
           },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "运营备注（采集/选品依据人工标注）；不进信封 payload",
+            "title": "Notes"
+          },
           "payload": {
             "additionalProperties": true,
             "description": "envelope {draft, source, extensions}；无 api_key 明文",
@@ -5605,6 +5617,148 @@
           }
         },
         "summary": "Hard Delete Credential Data",
+        "tags": [
+          "v1",
+          "credentials"
+        ]
+      }
+    },
+    "/api/v1/credentials/{credential_id}/session": {
+      "delete": {
+        "description": "撤销会话（物理删行）。无会话 → 404。",
+        "operationId": "revoke_session_api_v1_credentials__credential_id__session_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Session",
+        "tags": [
+          "v1",
+          "credentials"
+        ]
+      },
+      "get": {
+        "description": "会话状态快照 {status, harvested_at, cookie_names}（永不回 cookie 值）。",
+        "operationId": "get_session_api_v1_credentials__credential_id__session_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session",
+        "tags": [
+          "v1",
+          "credentials"
+        ]
+      },
+      "post": {
+        "description": "上传会话（加密存储）。跨租户/不存在 credential → 404；未配主密钥 → 500（同凭证端点文案）。",
+        "operationId": "upload_session_api_v1_credentials__credential_id__session_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "cookies": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "seller.ozon.ru 会话 cookie {名: 值}（核心 sc_company_id）",
+                    "example": {
+                      "sc_company_id": "5371047"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "cookies"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Session",
         "tags": [
           "v1",
           "credentials"
