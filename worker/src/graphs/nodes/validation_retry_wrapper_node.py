@@ -58,6 +58,10 @@ def validation_retry_wrapper_node(
         # ✅ v0.70 采集箱即权威: 信封 extensions（box_reviewed）透传进子图——
         # R4 换类目/标题描述重写对采集箱草稿禁用
         extensions=state.extensions or {},
+        # ✅ v0.73: 拦截入箱身份透传（LOCAL_TITLE_CATEGORY_MISMATCH → 子图
+        # final_result 入采集箱：user_id=租户归属，envelope=原始信封落 payload）
+        user_id=state.user_id,
+        envelope=state.envelope or {},
         # ⚠️ PR-1 (D3): 跨入口累积 — 从 GlobalState 传入已累计次数，子图在此基础上继续
         retry_count=state.retry_count,
     )
