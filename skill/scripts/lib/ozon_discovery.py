@@ -2708,19 +2708,22 @@ def _pick_best_match(
 _LLM_SEMANTIC_CACHE: dict = {}
 
 
-def _llm_semantic_match(ozon_title: str, cn_title: str, token: str = "") -> bool:
-    """LLM 语义判定：Ozon 俄语标题 vs 1688 中文标题是否同一产品（v0.26）。
+def _llm_semantic_match(ozon_title: str, cn_title: str, token: str = "",
+                        mode: str = "product") -> bool:
+    """LLM 语义判定：Ozon 俄语文本 vs 1688 中文文本语义一致性（v0.26）。
 
-    背景：_ru_zh_title_overlap 依赖手工词对词典（_RU_ZH_PRODUCT_WORDS），覆盖极窄，
-    「палочки от комаров 驱蚊棒」这类无词对 → conf=0 → 被相关性护栏误拒（"匹配了却不选"根因）。
-    LLM（deepseek-v4-flash，已有）直接判断 RU↔ZH 是否同品，护栏边界时救回。
+    mode="product"（默认）：判断是否同一货源/同款商品（标题对比语境）。
+    mode="category"（F-B02 类目复核）：判断两个类目词是否同一大品类——
+    近义/上下位（Термосы↔保温杯）算 YES；明显跨品类（Термосы↔咖啡杯）算 NO。
+    保温杯批实证：复用 product prompt 判类目词会误伤（类目名不是"商品"，
+    语境不合 → 恒 NO）。
 
     仅在护栏边界（conf 弱）时调用一次，每次 1 次 LLM chat 调用；结果进程内缓存。
     失败（无 token/网络/超时）→ 返回 False（维持原拒绝，不因 LLM 故障放行错误匹配）。
     """
     if not token or not ozon_title or not cn_title:
         return False
-    key = (ozon_title[:60], cn_title[:60])
+    key = (mode, ozon_title[:60], cn_title[:60])
     cached = _LLM_SEMANTIC_CACHE.get(key)
     if cached is not None:
         return cached
@@ -2734,10 +2737,13 @@ def _llm_semantic_match(ozon_title: str, cn_title: str, token: str = "") -> bool
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json={
                 "model": "deepseek-v4-flash",
-                "messages": [
+                "messages": ([
+                    {"role": "system", "content": "判断两个商品类目（俄语 vs 中文）是否属于同一大品类。判定标准：近义/同义（Термосы=保温杯）、上下位（保温杯∈饮水用具）都算 YES；用途/品类明显不同（Термосы=保温杯 vs 咖啡杯、宠物用品 vs 数码配件）算 NO。只回答 YES 或 NO。"},
+                    {"role": "user", "content": f"俄语类目: {oz_short}\n中文类目: {cn_short}\n是否同一大品类？"},
+                ] if mode == "category" else [
                     {"role": "system", "content": "判断两个产品标题是否指向同一货源/同款商品（俄语 vs 中文）。判定标准：核心功能与物理形态相同即 YES——同义/近义词（挂架=展示架=收纳架、挂钩=挂架）算同款；用途不同、品类不同（如宠物用品 vs 园艺工具）才算 NO。忽略规格差异（数量/尺寸/颜色/品牌）。只回答 YES 或 NO。"},
                     {"role": "user", "content": f"俄语标题: {oz_short}\n中文标题: {cn_short}\n是否为同一货源？"},
-                ],
+                ]),
                 "temperature": 0,
                 # ⚠️ deepseek-v4-flash 默认启用推理，reasoning_tokens 消耗 max_tokens 配额
                 # （AGENTS.md 已知坑）：max_tokens 至少 200，否则输出为空 → 判定恒 False
@@ -2881,10 +2887,10 @@ def _category_semantic_review(candidate: "ProductCandidate", token: str) -> None
     ru_leaf = ru_path.split(">")[-1].strip()
     if not zh_leaf or not ru_leaf:
         return
-    # LLM 失败（无缓存写入且返回 False）与真判否无法从返回值区分——
-    # 直接探缓存：判定后看缓存键是否存在来甄别「真 NO」与「调用失败」
-    key = (ru_leaf[:60], zh_leaf[:60])
-    consistent = _llm_semantic_match(ru_leaf, zh_leaf, token)
+    # F-B02 修正：用「全路径」对比（叶词孤立的类目名在 product 语境下易误判
+    # NO——保温杯批 Термосы↔保温杯 被误伤实证），mode=category 品类一致性 prompt
+    consistent = _llm_semantic_match(ru_path, zh_path, token, mode="category")
+    key = ("category", ru_path[:60], zh_path[:60])
     if not consistent and key not in _LLM_SEMANTIC_CACHE:
         return  # LLM 调用失败 → 不罚（宁缺毋滥只作用于有真实判定时）
     if not consistent:

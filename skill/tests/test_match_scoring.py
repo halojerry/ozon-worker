@@ -296,11 +296,14 @@ def test_category_review_downweights_on_divergence():
     od._LLM_SEMANTIC_CACHE.clear()
     cand = _mk_cand(od, 0.945, "日用餐厨饮具 > 咖啡具 > 咖啡杯",
                     "Дом и сад > Посуда > Термосы")
+    # 全路径对比 + category mode 缓存键（F-B02 修正后口径）
     with _mock.patch.object(od, "_llm_semantic_match", return_value=False) as mm, \
-         _mock.patch.dict(od._LLM_SEMANTIC_CACHE, {("Термосы", "咖啡杯"): False}):
-        # 直接预写缓存模拟「真判否」并让函数走缓存命中路径
+         _mock.patch.dict(od._LLM_SEMANTIC_CACHE,
+                          {("category", "Дом и сад > Посуда > Термосы"[:60],
+                            "日用餐厨饮具 > 咖啡具 > 咖啡杯"[:60]): False}):
         od._category_semantic_review(cand, "token")
         assert mm.called
+        assert mm.call_args.kwargs.get("mode") == "category"
     assert cand.match_confidence == 0.5
     assert cand.match_category_divergent is True
 
@@ -311,7 +314,9 @@ def test_category_review_consistent_keeps_confidence():
     od._LLM_SEMANTIC_CACHE.clear()
     cand = _mk_cand(od, 0.885, "日用餐厨饮具 > 饮水用具 > 保温杯",
                     "Дом и сад > Посуда > Термосы")
-    with _mock.patch.dict(od._LLM_SEMANTIC_CACHE, {("Термосы", "保温杯"): True}):
+    with _mock.patch.dict(od._LLM_SEMANTIC_CACHE,
+                          {("category", "Дом и сад > Посуда > Термосы"[:60],
+                            "日用餐厨饮具 > 饮水用具 > 保温杯"[:60]): True}):
         od._category_semantic_review(cand, "token")
     assert cand.match_confidence == 0.885
     assert cand.match_category_divergent is False
