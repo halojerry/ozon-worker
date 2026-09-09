@@ -846,7 +846,7 @@ _VARIANT_SEARCH_JS = r'''(async () => {
             body: JSON.stringify({
                 company_id: cid,
                 need_total: true,
-                filter: {children_nodes: {children_nodes: [{input_leaf: {sku: {values: ['__SKU__']}}}], operator: 'AND'}},
+                filter: {children_nodes: {children_nodes: [{input_leaf: {sku: {values: [__SKU__]}}}], operator: 'AND'}},
                 pagination: {limit: '50'},
                 is_copy_allowed: false,
             }),
@@ -954,7 +954,9 @@ def fetch_variant_truth(cdp_url: str, sku: str, *,
 def _fetch_variant_truth_via(cdp: CdpConnection, sku: str) -> dict[str, Any] | None:
     """fetch_variant_truth 主体（连接已就绪；异常上抛由调用方吞）。"""
     tab = _tab_for_variant_truth(cdp)
-    js1 = _VARIANT_SEARCH_JS.replace("__SKU__", str(sku))
+    # sku 经 json.dumps 注入裸占位符（对齐 ozon_seller_analytics __SKU__ 惯例：
+    # 含引号/反斜杠的 sku 不破坏 JS 字面量——防注入，gate 接线前加固）
+    js1 = _VARIANT_SEARCH_JS.replace("__SKU__", json.dumps(str(sku)))
     raw1 = tab.evaluate(js1, await_promise=True, timeout=20)
     d1 = _safe_json_parse(raw1) if isinstance(raw1, str) else (raw1 or {})
     if not isinstance(d1, dict) or d1.get("error") or not d1.get("variant_id"):
