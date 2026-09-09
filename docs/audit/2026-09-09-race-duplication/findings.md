@@ -48,3 +48,135 @@
 ## 域 B/C/D/E/F/G —— 待扫描
 
 域 B（skill 并发/组装一致性）、域 C（worker 任务生命周期竞态写点）、域 D（后台任务+草稿状态机）、域 E（缓存/共享表并发语义）、域 F（worker transport 收敛面：10 文件绕过 ozon_client 直连）、域 G（webui 表面+引导漂移：cli 22+ 子命令 vs 文档 10 个）按计划 Task 3-8 执行后回填。
+
+---
+
+## 域 C —— worker 任务生命周期竞态写点（2026-09-09 第二波扫描，核验 12 写点）
+
+前提：队列为单容器单进程，认领 `FOR UPDATE SKIP LOCKED`（task_processor.py:459）保护良好。以下为「迟到写翻盘/检查-提交跨 await/乐观锁非原子」残余。
+
+### F-C01  终态写点无条件更新，stale/zombie 重置可致同 task 双跑 + 迟到写翻盘
+- 类型：race；严重度：**高**；状态：待验证（静态窗口明显）
+- 证据：task_processor.py:697-700（completed）/:631-635（failed）/:667-670（rejected）均为 `UPDATE ... WHERE id=:task_id` 无 `AND status='running'`；main.py:1069-1082 清理器与 :511-528 zombie_reset 可把仍被旧 run 持有的行翻成 pending 被新 run 认领 → 旧 run 迟到终态写翻盘第二 run，双跑重复烧额度。
+- 复现：双 run 同 task_id，断言旧 run 终态能覆盖新 run running（当前能→confirmed）。
+- 修复方向：终态 UPDATE 一律加 `AND status='running'`。
+
+### F-C02  心跳与图节点共享线程池，心跳饿死→清理器误判 stale→双跑
+- 类型：race；严重度：中；状态：待验证
+- 证据：main.py:483-488 默认 executor 扩容后图节点与心跳（task_processor.py:878-885 asyncio.to_thread）共享 128 线程；认领时不刷 updated_at（:473-477）；外部 API 抖动占满线程池→心跳饿死→清理器误判 stale 重置→双跑（历史「超时×100/failed×120」实证）。
+- 修复方向：认领时同步刷 updated_at；心跳与图节点拆线程池；stale 重置前 FOR UPDATE 复核。
+
+### F-C03  进度 PG 回写无 status 守卫，重跑窗口旧 run 迟到 persist 覆写新 run 进度
+- 类型：race；严重度：低；状态：待验证
+- 证据：main.py:121-125 UPDATE progress WHERE id 无 status 谓词；仅展示层抖动。
+- 修复方向：进度写加 `AND status='running'`。
+
+### F-C04  zombie_reset 复活「永久性错误」failed 任务（OUT_OF_QUOTA 等不改 retry_count）→ 重启后用失效凭证重跑
+- 类型：race；严重度：中；状态：待验证
+- 证据：main.py:526-528 复活 `failed AND retry_count<max`；`_is_permanent_task_error`（task_processor.py:36-49）落 failed 时不动 retry_count（:840-850）→ 永久错误可被复活。云端靠 SKIP_FAILED_REVIVE=1 规避。
+- 修复方向：永久错误落库时 retry_count=max_retries。
+
+### F-C05  优雅关闭 drain 超时 5min 直接退出，running 任务无差别 zombie 重跑
+- 类型：race；严重度：中；状态：待验证
+- 证据：main.py:605-622 drain 超时仅 log 即退出，未标记任务；部署窗口上传中断→重启重跑（同 SKU 双倍成本）。
+- 修复方向：drain 超时先把 running 置 failed 或打 lease。
+
+### F-C06  submit_task SKU 去重 SELECT-后-INSERT 非原子，并发重复第二个 IntegrityError→500
+- 类型：race；严重度：低；状态：待验证
+- 证据：main.py:1771-1785 去重 SELECT + INSERT；唯一索引兜底（model.py:69-76）但路由无冲突映射（:1811-813 回 500 而非 409）。
+- 修复方向：ON CONFLICT 或 FOR UPDATE，冲突映射 409。
+
+## 域 D —— MCP 后台任务 + 草稿状态机 + 提交链（核验 12 接口）
+
+### F-D01  patch_draft 乐观锁非原子：SELECT version 无行锁、UPDATE 无 version 谓词 → 409 形同虚设
+- 类型：race；严重度：**高**；状态：待验证
+- 证据：draft_service.py:557-583——SELECT version（:558-561 无 FOR UPDATE）→409 校验→UPDATE `version=version+1` WHERE id（:570-583 无 version 条件）→ 并发双 PATCH 双双成功、后写覆盖先写，stale-409 永不触发。
+- 复现：asyncio 并发两个同 version PATCH，断言双 200（当前即如此→confirmed）。
+- 修复方向：UPDATE 加 `AND version=:client_version`，rowcount=0 判 409。
+
+### F-D02  assemble_draft 服务端 LWW 整包回写，LLM await 长窗口覆盖并发 PATCH
+- 类型：race；严重度：中；状态：待验证
+- 证据：draft_service.py:603-620 get_draft→await LLM→UPDATE payload WHERE id 无 version 谓词；窗口内 PATCH 全丢。
+- 修复方向：写回沿用 version 谓词 + rowcount 判定。
+
+### F-D03  submit/resubmit/batch「检查+入队」跨 await 非原子；offer_id 空时无唯一索引兜底真双跑
+- 类型：race；严重度：中；状态：待验证
+- 证据：drafts_routes.py:119-136/:146-147/:166-168 检查后跨镜像/远程查店 await 再入队；uq 唯一索引仅覆盖 sku_key 非空（model.py:69-76），`_resolve_offer_id` 空→sku_key=""→NULL 无兜底（draft_service.py:200-209 + task_processor.py:405）；第二个撞索引抛 500 无映射。
+- 修复方向：(draft_id, credential_id) 原子占位（ON CONFLICT）或事务内 FOR UPDATE；空 sku_key 补占位键。
+
+### F-D04  任务终态 commit 与 draft_submissions 写回不同事务，崩溃窗口 submission 卡 pending 永久 409 且无对账
+- 类型：race；严重度：中；状态：待验证
+- 证据：task_processor.py:650/:717 先 commit 终态再独立连接 `_writeback_status`（draft_status_writeback.py:39-46）；崩溃→submission 卡 pending→`has_active_submission` 恒真→重提永久 409；无对账扫描。
+- 修复方向：同事务或后台 reconcile 归位。
+
+### F-D05  pounding-mcp 同步路径 run_and_record 绕过 _finish 终态粘性，cancel 可被翻盘
+- 类型：race；严重度：中；状态：待验证
+- 证据：pounding-mcp/pounding_mcp/tasks.py:197-223 直接写 status，未走 _finish 的 _TERMINAL_STATUSES 粘性（:479-483）；cancel（:494-513）竞争→cancelled 被 completed 翻盘。4c42dcfb 只补了后台面。
+- 修复方向：run_and_record 收敛到 _finish。
+
+### F-D06  pounding 重任务单飞闸跨进程失效（list() 只读本进程内存）
+- 类型：race；严重度：低；状态：待验证
+- 证据：tasks.py:239-245 + :555-561；stdio 与 8902 两进程互不见。
+- 修复方向：单飞判定查共享落盘或 advisory lock。
+
+### F-D07  schedule_listing ON CONFLICT 重置已处理行为 pending（不清 task_id）→ 二次上架窗口
+- 类型：race；严重度：低；状态：待验证
+- 证据：draft_service.py:71-87 + :99-127。
+- 修复方向：ON CONFLICT 对已 submitted/published 行拒绝或仅改期。
+
+### F-D08  webui 提交/保存面并发窗口（前端单方证据弱）
+- 类型：race；严重度：低；状态：观察
+- 证据：CollectionPanel.tsx save :269-282（带 version）、runSubmit :354+、busy 禁用 :547-548；提交后无终态轮询对账；跨设备依赖 F-D01/F-D03 脆弱守卫。
+- 修复方向：提交后轮询终态刷新。
+
+## 域 E —— worker 缓存与共享表并发语义
+
+判定：dictionary_value_cache / attribute_cache / category_commission / category_mapping 主路径 / selection_insights 五处均真原子 upsert ✓；0727e7dc NULL type_id 已双保险无残余 ✓。
+
+### F-E01  category_mapping「cid 规范化归并」check-then-act，并发丢学习累计
+- 类型：race；严重度：中；状态：待验证
+- 证据：local_db_manager.py:540-587 归并旁路在 Python 内存 `_canon.success_count += 1`（:560）后 commit，非原子；并发同键两次计一次；`_canon.source_category_leaf` 后写赢倒刷措辞（:562）。主 upsert（:626）原子。
+- 修复方向：归并并入 ON CONFLICT 原子路径（SQL 表达式 success_count+1）。
+
+### F-E02  其余四条低：进度事件 seq 读改写丢事件（task_progress_service.py:25-37）；余额缓存无锁并发击穿+告警重复（mxou_api.py:303-333/:374-378）；三大后台循环无单实例锁（main.py:552/572/576，多副本才触发）；attribute_cache TTL 双路径漂移（category_schema_service.py:42 30d vs assemble:3746 1d）。
+- 类型：race；严重度：低；状态：待验证
+
+## 域 F —— worker 能力重复
+
+### F-F01  Ozon transport 直连十文件：主链路上传/修复无重试、无限流、无类型化错误
+- 类型：duplication；严重度：**高**；状态：待验证
+- 证据：唯一完整 transport 是 ozon_client.py（限流 :91+tenacity :99-104+typed errors :124）；ozon_upload_node.py:280-294、validation_retry_loop.py:414-430/:2566/:2632/:3331、ozon_status_node.py:136/:339、fetch_back_node.py:50、auth_node.py:78-89、pricing_node.py:49-55、main.py:1166/1392 全部绕过各自手工判状态。429 直接判失败再整图重试（浪费+慢）。
+- 修复方向：主链路收敛 ozon_post（薄委托保响应 shape）；配额查改 ozon_check_quota。
+
+### F-F02  retry 修复路径手写定价公式，绕 compute_price 唯一入口
+- 类型：duplication；严重度：**高**；状态：待验证
+- 证据：validation_retry_loop.py:2238-2240/:2615/:2627 `old_price=int(s*1.2)`（int 截断 vs compute_price 的 ceil，pricing_estimate.py:104/144）、`min_price=int(s*0.9)`（vs update_min_price_floor 0.5×+钳制，ozon_client.py:306-347）——修复改价可能把 PK 顶到拒单线。
+- 修复方向：repair 统一走 compute_price / update_min_price_floor。
+
+### F-F03  中：三处私有 requests 直发（logistics_quote.py:21/:38、follow_sell_import_node.py:147/:199/:210）+ assemble 内联第二套字典 API（assemble_ozon_product_node.py:3118-3145/:3679-3700 vs ozon_dict_values.py:18-93）；错误码裸构造三套分类口径（ozon_errors typed 仅 ozon_client 消费）。
+- 类型：duplication；严重度：中；状态：待验证
+
+### F-F04  唯一入口其余核查通过：compute_price/title_formula/cap_attribute_values 调用面统一，未发现未过闸的新 values 出口 ✓。
+
+## 域 B —— skill 并发/缓存/组装一致性（内联补扫）
+
+### F-B01  ThreadPoolExecutor 三处（cli.py:249/:1683/:1763）为批量/双线程/多关键词并行，共享状态均为局部候选列表，未见跨线程竞态实证
+- 类型：race；严重度：低；状态：观察
+- 缓存命名空间分布健康（seller_analytics 4 处为主，无同数据双缓存 TTL 分叉实证）；四条组装路径差异已由 v0.69-0.72 批次收敛（match_evidence/discovery_meta 语义有契约）。
+
+## 域 G —— webui 表面 + 引导漂移（内联补扫）
+
+### F-G01  cli 实际 22 子命令 vs AGENTS.md「60 秒表」约 10 个（SKILL.md 覆盖较全）；错误码 14 与文档一致 ✓；SKILL.md auto-submit/--to-box 语义已是 v0.70 后口径 ✓
+- 类型：drift；严重度：低；状态：待修（AGENTS 表补齐即可）
+
+## 第二波汇总
+
+| 域 | 高 | 中 | 低 |
+|---|---|---|---|
+| C 任务生命周期 | 1 | 3 | 2 |
+| D 后台任务/草稿 | 1 | 4 | 3 |
+| E 缓存并发 | 0 | 1 | 4 |
+| F 能力重复 | 2 | 2 | 1 |
+| B skill 并发 | 0 | 0 | 1 |
+| G 引导漂移 | 0 | 0 | 1 |
+| **合计** | **4** | **10** | **12** |
