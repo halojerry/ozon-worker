@@ -316,8 +316,11 @@ if command -v docker >/dev/null 2>&1; then
   docker builder prune -a -f >/dev/null 2>&1 && log "  ✅ 构建缓存已清理" || warn "  ⚠️ builder prune 失败(忽略)"
   # 2) dangling 镜像层(历史 --no-cache 构建留下的 <none> 层)
   docker image prune -f >/dev/null 2>&1 && log "  ✅ dangling 镜像已清理" || warn "  ⚠️ image prune 失败(忽略)"
-  # 3) 旧的 ozon-worker 历史版本镜像(保留 latest + 当前运行, 只删更旧的 untagged/历史 tag)
-  docker images ozon-worker --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null | grep -v 'latest' | while read -r _img _id; do
+  # 3) 旧的 ozon-worker 历史版本镜像(保留 latest + 当前运行版本, 只删更旧的 untagged/历史 tag)。
+  #    v0.73 收口: export VERSION 后镜像不再有 latest tag, 旧 grep -v latest 会把在用镜像
+  #    也列进来(rmi 被拒仅告警噪音)——改为排除 latest + 当前 VERSION(空则退回只排 latest)。
+  _exclude="latest"; [ -n "${VERSION:-}" ] && _exclude="latest|${VERSION}"
+  docker images ozon-worker --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null | grep -Ev ":(${_exclude}) " | while read -r _img _id; do
     if [ -n "$_id" ]; then
       docker rmi "$_id" >/dev/null 2>&1 && log "  ✅ 移除旧镜像层 $_id" || warn "  ⚠️ 移除 $_id 失败(可能被引用, 忽略)"
     fi
