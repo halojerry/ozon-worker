@@ -31,7 +31,7 @@
 
 **纪律**
 - 功能测试只打本地 Docker，**禁止用生产 `worker.mxou.cn`**；本地 Supabase 未配置 = auth fail-open，验证鉴权用空 token。
-- Commit `<type>(<scope>): 中文描述`；工作树常有其他会话的 WIP，**逐文件 `git add`，不用 `-a`/stash**。
+- Commit `<type>(<scope>): 中文描述`；工作树常有其他会话的 WIP，**逐文件 `git add`，不用 `-a`/stash**；动手改文件前先看 `git status` + 相关文件 mtime——多会话并行实施同一方案时会撞车（2026-09-09 实录：策略模块被两会话重复实现）。
 - 发版：VERSION 四源一致（根 `VERSION`/`skill/VERSION`/`deploy/skill/VERSION`/`SKILL.md` frontmatter）+ CHANGELOG + 本文顶部块 + 实机 ≥3 单 gate。
 - 写 Ozon API 调用前先用本机 MCP `mcp__ozon__search_methods`/`describe_method` 核对契约（零凭证只读），禁手 grep swagger。
 - `worker/config/*.json` bind mount 热加载，改 prompt 无需重建镜像。
@@ -952,13 +952,22 @@ v0.70 起部署/升级还会自动从 COS 下载全量缓存 JSON（`ozon-worker
 
 ```
 1688 中文属性 "白色"
-  → PG dictionary_value_cache (ZH_HANS) 查找
+  → PG dictionary_value_cache (ZH_HANS) 查找（scoped (attr,dc,tp) 优先
+    → 未命中自动回退全局哨兵行 (attr,0,0,language)，读侧内置）
   → 命中 → dict_id=61571 ✅（跨语言通用！）
-  → 未命中 → Ozon /values API (ZH_HANS) → 写入 PG → 匹配
+  → 未命中 → Ozon /values API（limit ≤2000）/values/search → 写入 PG → 匹配
   → 上传: { dictionary_value_id: 61571, value: "Белый" }
 ```
 
 dictionary_value_id **跨语言通用**：ZH_HANS 的 `id=61571` 在 RU 下展示为 `"Белый"`，是同一个 ID。
+
+> ⚠️ **v0.72 三桶存储（改任何字典值缓存读写前先读 `utils/dict_value_cache.py`
+> 模块注释）**：global=cat_dep=false（哨兵键 (attr,0,0) 全局一份）/ scoped=
+> cat_dep=true 小字典（现状键）/ ephemeral=首页 2000 即 has_next 的巨型字典
+> **不物化**（品牌 85 无底，运行时走 /values/search）。写入口 `routed_set`，
+> 直写 `set_dictionary_value_cache` 有 type_id None→0 边界防御（NULL 不触发
+> ON CONFLICT 会纯 INSERT 裂行）。历史事故：按 (attr,dc,tp) 整份复制全局字典
+> 曾撑爆 40G 盘（17% 预热 3.83GB）。
 
 ### 属性缓存脚本
 
