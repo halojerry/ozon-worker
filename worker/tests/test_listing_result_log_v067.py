@@ -429,6 +429,8 @@ def test_task_processor_terminal_calls_listing_writer():
     from utils.task_processor import SupabaseTaskProcessor
 
     class _FakeResult:
+        rowcount = 1  # F-C01 终态守卫：行在 running，写落成功
+
         def fetchone(self):
             return (
                 "task-1",        # id
@@ -484,6 +486,8 @@ def test_task_processor_writer_exception_non_fatal():
     from utils.task_processor import SupabaseTaskProcessor
 
     class _FakeResult:
+        rowcount = 1  # F-C01 终态守卫：行在 running，写落成功
+
         def fetchone(self):
             return (
                 "task-1", "u1", 0,

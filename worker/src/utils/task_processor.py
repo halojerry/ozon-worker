@@ -473,9 +473,11 @@ class SupabaseTaskProcessor:
             retry_count = int(task_row[5] or 0)
             error_message = str(task_row[6] or "") if len(task_row) > 6 else ""
             # 同一事务更新为 running（原子性：认领即占用）
+            # F-C02: 认领同步刷 updated_at——否则刚认领的旧 pending 行带着失败的
+            # 旧 updated_at，即刻满足 30min stale 条件被清理器误判重置（双跑触发源）
             conn.execute(text("""
                 UPDATE ozon_product_tasks
-                SET status = 'running', started_at = NOW()
+                SET status = 'running', started_at = NOW(), updated_at = NOW()
                 WHERE id = :task_id
             """), {"task_id": task_id})
             conn.commit()
@@ -628,34 +630,35 @@ class SupabaseTaskProcessor:
                             graph_result["_harness_error"] = _err or f"上架失败（stage={_stg}, upload_status={_up}）"
                         log_task_event("failed", task_id=task_id, user_id=tenant_id,
                                        error_message=graph_result["_harness_error"])
-                        # 使用SQL UPDATE更新任务状态为failed（如实反映，不再假成功）
-                        with self.engine.connect() as conn:
-                            conn.execute(text("""
-                                UPDATE ozon_product_tasks
-                                SET status = 'failed', result = :result_json,
-                                    error_message = :err, completed_at = NOW()
-                                WHERE id = :task_id
-                            """), {
-                                "task_id": task_id,
-                                "result_json": json.dumps(graph_result),
-                                "err": graph_result["_harness_error"],
-                            })
-                            # v0.34 C6: 店铺使用埋点（与终态 SQL 同事务，尽力而为）
-                            _app_delta, _vf_delta = _moderation_status_deltas(graph_result)
-                            _upsert_shop_usage(
-                                conn,
-                                (payload or {}).get("ozon_client_id", ""),
-                                task_delta=1,
-                                approved_delta=_app_delta,
-                                validation_failed_delta=_vf_delta,
-                                error_message=graph_result.get("_harness_error"),
-                            )
-                            conn.commit()
-                        # M0.3: draft_submissions 状态写回（在 commit 之后，不扩事务）
-                        _writeback_status(task_id, "failed", graph_result.get("_harness_error"))
-                        await _send_task_notify_async(task_id, "failed", graph_result, payload)
-                        # v0.67: 上架结果留存分析表（failed 终态归因，非致命）
-                        _write_listing_result_log(payload, graph_result, task_id, tenant_id, retry_count)
+                        # 使用终态守卫入口落 failed（如实反映，不再假成功）。
+                        # F-C01: 行非 running（取消/重置/被新 run 认领）= 本 run 是
+                        # 迟到的旧 run → 跳过 notify/写回/留存，防翻盘新 run。
+                        _landed = self._write_terminal_status(
+                            task_id, "failed", json.dumps(graph_result),
+                            error_message=graph_result["_harness_error"],
+                        )
+                        if _landed:
+                            # v0.34 C6: 店铺使用埋点（尽力而为，独立小事务）
+                            with self.engine.connect() as conn:
+                                _app_delta, _vf_delta = _moderation_status_deltas(graph_result)
+                                _upsert_shop_usage(
+                                    conn,
+                                    (payload or {}).get("ozon_client_id", ""),
+                                    task_delta=1,
+                                    approved_delta=_app_delta,
+                                    validation_failed_delta=_vf_delta,
+                                    error_message=graph_result.get("_harness_error"),
+                                )
+                                conn.commit()
+                            # M0.3: draft_submissions 状态写回（在 commit 之后，不扩事务）
+                            _writeback_status(task_id, "failed", graph_result.get("_harness_error"))
+                            await _send_task_notify_async(task_id, "failed", graph_result, payload)
+                            # v0.67: 上架结果留存分析表（failed 终态归因，非致命）
+                            _write_listing_result_log(payload, graph_result, task_id, tenant_id, retry_count)
+                        else:
+                            logger.warning(
+                                "任务 %s 迟到终态写被拒（行非 running：取消/重置/新 run 认领），跳过 notify/写回/留存",
+                                task_id)
                         clear_trace_context()
                         return graph_result
 
@@ -665,18 +668,42 @@ class SupabaseTaskProcessor:
                         graph_result["_harness_error"] = _err or f"审核被拒（stage={_stg}, upload_status={_up}）"
                         log_task_event("rejected", task_id=task_id, user_id=tenant_id,
                                        error_message="审核被拒，已标记 rejected")
-                        with self.engine.connect() as conn:
-                            conn.execute(text("""
-                                UPDATE ozon_product_tasks
-                                SET status = 'rejected', result = :result_json,
-                                    error_message = :err, completed_at = NOW()
-                                WHERE id = :task_id
-                            """), {
-                                "task_id": task_id,
-                                "result_json": json.dumps(graph_result),
-                                "err": graph_result["_harness_error"],
-                            })
+                        _landed = self._write_terminal_status(
+                            task_id, "rejected", json.dumps(graph_result),
+                            error_message=graph_result["_harness_error"],
+                        )
+                        if _landed:
                             # v0.34 C6: 店铺使用埋点（rejected 计入 task_count，不算 approved/validation_failed）
+                            with self.engine.connect() as conn:
+                                _app_delta, _vf_delta = _moderation_status_deltas(graph_result)
+                                _upsert_shop_usage(
+                                    conn,
+                                    (payload or {}).get("ozon_client_id", ""),
+                                    task_delta=1,
+                                    approved_delta=_app_delta,
+                                    validation_failed_delta=_vf_delta,
+                                    error_message=graph_result.get("_harness_error"),
+                                )
+                                conn.commit()
+                            # M0.3: draft_submissions 状态写回（在 commit 之后，不扩事务）
+                            _writeback_status(task_id, "rejected", graph_result.get("_harness_error"))
+                            await _send_task_notify_async(task_id, "rejected", graph_result, payload)
+                            # v0.67: 上架结果留存分析表（rejected 终态归因，非致命）
+                            _write_listing_result_log(payload, graph_result, task_id, tenant_id, retry_count)
+                        else:
+                            logger.warning(
+                                "任务 %s 迟到 rejected 写被拒（行非 running），跳过 notify/写回/留存",
+                                task_id)
+                        clear_trace_context()
+                        return graph_result
+
+                    # F-C01: 终态守卫入口——行非 running 时为迟到写，跳过全部下游
+                    _landed = self._write_terminal_status(
+                        task_id, "completed", json.dumps(graph_result))
+
+                    if _landed:
+                        # v0.34 C6: 店铺使用埋点（成功路径 common_errors/last_error 不增）
+                        with self.engine.connect() as conn:
                             _app_delta, _vf_delta = _moderation_status_deltas(graph_result)
                             _upsert_shop_usage(
                                 conn,
@@ -684,47 +711,20 @@ class SupabaseTaskProcessor:
                                 task_delta=1,
                                 approved_delta=_app_delta,
                                 validation_failed_delta=_vf_delta,
-                                error_message=graph_result.get("_harness_error"),
+                                error_message=None,
                             )
                             conn.commit()
+
                         # M0.3: draft_submissions 状态写回（在 commit 之后，不扩事务）
-                        _writeback_status(task_id, "rejected", graph_result.get("_harness_error"))
-                        await _send_task_notify_async(task_id, "rejected", graph_result, payload)
-                        # v0.67: 上架结果留存分析表（rejected 终态归因，非致命）
+                        _writeback_status(task_id, "completed", None)
+                        await _send_task_notify_async(task_id, "completed", graph_result, payload)
+                        log_task_event("completed", task_id=task_id, user_id=tenant_id)
+                        # v0.67: 上架结果留存分析表（completed 终态，approved/pending 归因，非致命）
                         _write_listing_result_log(payload, graph_result, task_id, tenant_id, retry_count)
-                        clear_trace_context()
-                        return graph_result
-
-                    # 使用SQL UPDATE更新任务状态为completed
-                    update_completed_sql = text("""
-                        UPDATE ozon_product_tasks
-                        SET status = 'completed', result = :result_json, completed_at = NOW()
-                        WHERE id = :task_id
-                    """)
-                    
-                    with self.engine.connect() as conn:
-                        conn.execute(update_completed_sql, {
-                            "task_id": task_id,
-                            "result_json": json.dumps(graph_result)
-                        })
-                        # v0.34 C6: 店铺使用埋点（成功路径 common_errors/last_error 不增）
-                        _app_delta, _vf_delta = _moderation_status_deltas(graph_result)
-                        _upsert_shop_usage(
-                            conn,
-                            (payload or {}).get("ozon_client_id", ""),
-                            task_delta=1,
-                            approved_delta=_app_delta,
-                            validation_failed_delta=_vf_delta,
-                            error_message=None,
-                        )
-                        conn.commit()
-
-                    # M0.3: draft_submissions 状态写回（在 commit 之后，不扩事务）
-                    _writeback_status(task_id, "completed", None)
-                    await _send_task_notify_async(task_id, "completed", graph_result, payload)
-                    log_task_event("completed", task_id=task_id, user_id=tenant_id)
-                    # v0.67: 上架结果留存分析表（completed 终态，approved/pending 归因，非致命）
-                    _write_listing_result_log(payload, graph_result, task_id, tenant_id, retry_count)
+                    else:
+                        logger.warning(
+                            "任务 %s 迟到 completed 写被拒（行非 running：取消/重置/新 run 认领），跳过 notify/写回/留存",
+                            task_id)
                     clear_trace_context()
                     return graph_result
 
@@ -831,7 +831,7 @@ class SupabaseTaskProcessor:
                         retry_count = :retry_count,
                         error_message = :error_message,
                         updated_at = NOW()
-                    WHERE id = :task_id
+                    WHERE id = :task_id AND status = 'running'
                 """), {
                     "task_id": task_id,
                     "retry_count": retry_count + 1,
@@ -840,27 +840,59 @@ class SupabaseTaskProcessor:
                 conn.commit()
             return {"retried": True, "retry_count": retry_count + 1, "max_retries": max_retries}
 
+        # F-C01: 守卫写——行非 running（重置/被新 run 认领）时跳过写回
         with self.engine.connect() as conn:
-            conn.execute(text("""
+            _res = conn.execute(text("""
                 UPDATE ozon_product_tasks
                 SET status = 'failed',
                     error_message = :error_message,
                     completed_at = NOW()
-                WHERE id = :task_id
+                WHERE id = :task_id AND status = 'running'
             """), {
                 "task_id": task_id,
                 "error_message": error_message,
             })
-            _upsert_shop_usage(
-                conn,
-                ozon_client_id,
-                task_delta=1,
-                error_message=error_message,
-            )
+            _landed = (_res.rowcount or 0) > 0
+            if _landed:
+                _upsert_shop_usage(
+                    conn,
+                    ozon_client_id,
+                    task_delta=1,
+                    error_message=error_message,
+                )
             conn.commit()
-        # M0.3: draft_submissions 状态写回（在 commit 之后，不扩事务）
-        _writeback_status(task_id, "failed", error_message)
+        if _landed:
+            # M0.3: draft_submissions 状态写回（在 commit 之后，不扩事务）
+            _writeback_status(task_id, "failed", error_message)
+        else:
+            logger.warning(
+                "任务 %s 迟到 failed 写被拒（行非 running），跳过 draft 写回", task_id)
         return {"retried": False, "retry_count": retry_count, "max_retries": max_retries}
+
+    def _write_terminal_status(self, task_id: str, status: str, result_json: str,
+                               error_message: str | None = None) -> bool:
+        """终态唯一写入口（F-C01 守卫，2026-09-09 审计）。
+
+        仅当行仍处于本 run 认领的 `running` 时才落终态。返回 False = 行已被
+        取消 / stale 重置 / 被新 run 认领——本 run 是迟到的旧 run，调用方必须
+        跳过后续 notify/draft 写回/留存，防止翻盘新 run 的状态与双跑双写。
+        """
+        # 白名单内联（内部仅三值；保持 SQL 字面量可被既有测试绊线断言）
+        if status not in ("completed", "failed", "rejected"):
+            raise ValueError(f"非法终态: {status!r}")
+        params: dict = {"task_id": task_id, "result_json": result_json}
+        _err_clause = ""
+        if error_message is not None:
+            _err_clause = ", error_message = :err"
+            params["err"] = error_message
+        with self.engine.connect() as conn:
+            res = conn.execute(text(f"""
+                UPDATE ozon_product_tasks
+                SET status = '{status}', result = :result_json, completed_at = NOW(){_err_clause}
+                WHERE id = :task_id AND status = 'running'
+            """), params)
+            conn.commit()
+            return (res.rowcount or 0) > 0
 
     async def _heartbeat(self, task_id: str) -> None:
         """每 60s 刷新任务 updated_at —— 健康但慢的任务（生图轮询 180s/LLM 长耗时）不再被

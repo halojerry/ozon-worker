@@ -567,11 +567,14 @@ def patch_draft(tenant_id: str, draft_id: str, data: DraftPatch) -> dict:
                 detail=f"版本冲突（stale）：当前 version={current.version}，请求 version={data.version}",
             )
         new_source = data.source if data.source is not None else current.source
+        # F-D01（2026-09-09 审计）：version 谓词进 UPDATE——SELECT 检查与 UPDATE
+        # 之间的窗口被并发写推进 version 时，本 UPDATE 匹配 0 行 → 409，
+        # 堵死「双双成功、后写覆盖先写」的丢失更新窗口。
         updated = conn.execute(text(
             "UPDATE product_drafts SET payload=CAST(:payload AS jsonb), source=:source, "
             "notes=COALESCE(:notes, notes), "
             "version=version+1, updated_at=NOW() "
-            "WHERE id=:id AND tenant_id=:tenant_id "
+            "WHERE id=:id AND tenant_id=:tenant_id AND version=:expected_version "
             "RETURNING id, tenant_id, payload, source, version, image_mirror_state, "
             "notes, created_at, updated_at"
         ), {
@@ -580,7 +583,13 @@ def patch_draft(tenant_id: str, draft_id: str, data: DraftPatch) -> dict:
             "notes": data.notes if data.notes is None else data.notes.strip()[:2000],
             "id": uid,
             "tenant_id": tenant_id,
+            "expected_version": current.version,
         }).fetchone()
+        if updated is None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"版本冲突（并发写入）：当前 version 已推进，请求 version={data.version}",
+            )
     from services.draft_image_mirror import spawn_image_mirror
     spawn_image_mirror(tenant_id, str(uid), updated.version, data.payload)
     return _draft_row_to_dict(updated)
@@ -602,21 +611,30 @@ def assemble_draft(tenant_id: str, draft_id: str, token: str) -> dict:
 
     draft = get_draft(tenant_id, draft_id)
     payload = draft["payload"]
+    base_version = int(draft["version"])  # F-D02：读时快照，写回守卫用
     mxou_token = token[3:] if token.startswith("sk-") else token
     result = _assemble_payload(payload, mxou_token)
 
     uid = _parse_draft_uuid(draft_id)
     with get_engine().begin() as conn:
+        # F-D02（2026-09-09 审计）：LLM 窗口可能长达秒级~分钟，期间用户 PATCH
+        # 推进 version → 本写回匹配 0 行 → 409，用户编辑不被旧 base 覆盖。
         row = conn.execute(text(
             "UPDATE product_drafts SET payload=CAST(:payload AS jsonb), "
             "version=version+1, updated_at=NOW() "
-            "WHERE id=:id AND tenant_id=:tenant_id "
+            "WHERE id=:id AND tenant_id=:tenant_id AND version=:base_version "
             "RETURNING version"
         ), {
             "payload": json.dumps(payload, ensure_ascii=False),
             "id": uid,
             "tenant_id": tenant_id,
+            "base_version": base_version,
         }).fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"草稿在预组装期间被修改（当前 version 已≠{base_version}），请重新预组装",
+            )
     return {**result, "version": int(row[0])}
 
 

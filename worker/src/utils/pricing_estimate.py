@@ -31,6 +31,28 @@ DEFAULT_VARIABLE_COST_RATE = 0.155
 DEFAULT_PROMO_VARIABLE_COST_RATE = 0.245
 
 
+def derive_list_prices(price: int) -> tuple[int, int]:
+    """给定最终日常价，派生 Ozon 划线价与促销底线 (old_price, min_price)。
+
+    F-F02（2026-09-09 审计）：retry 修复路径此前手写 int(price*1.2)（int 截断
+    与 compute_price 的 ceil 漂移：99→118 vs 主链 119）与 int(price*0.9)
+    （与 update_min_price_floor 的 50% 底线语义分叉——0.9 会把促销底线逼近
+    售价，修复改价可能触发 Ozon 拒单）——唯一入口收敛于此。调用方：
+    validation_retry_loop.repair_pricing_node / _fix_via_prices_update。
+
+    - old_price：Ozon 折扣 ≥20% 规则（price≤25 时差额至少 5），ceil 与主链一致；
+    - min_price：update_min_price_floor 同款 max(ceil(price*0.5), 1)
+      （Ozon min_auto_price_too_small：最低价不得低于售价 50%）。
+    """
+    price = max(int(price), 1)
+    if price <= 25:
+        old_price = max(price + 5, math.ceil(price * 1.2))
+    else:
+        old_price = math.ceil(price * 1.2)
+    min_price = max(math.ceil(price * 0.5), 1)
+    return old_price, min_price
+
+
 def compute_price(
     total_cost_cny: float,
     margin_rate: float,

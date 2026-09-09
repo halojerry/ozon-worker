@@ -37,6 +37,7 @@ from langgraph.graph import StateGraph, END
 # ✅ v0.69 T1.1: 数值属性清洗唯一入口（repair_prepare_node 与 prepare 主循环共用，
 # 禁止此处内联正则——同 compute_price/commission_resolver 共享层纪律）
 from utils.attr_numeric_sanitize import is_numeric_attr_type, sanitize_numeric_attr_value
+from utils.pricing_estimate import derive_list_prices
 from utils.attr_value_sanitize import cap_attribute_values
 # ✅ v0.69 Wave3: Ozon 重量硬下限（体积重反推夹取下限，与 normalizer 同源）
 from utils.weight_dimension_normalizer import OZON_MIN_WEIGHT_G
@@ -2258,9 +2259,12 @@ def repair_pricing_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                 state.failed_stage = "pricing"
                 return state
 
+            # F-F02（2026-09-09 审计）：划线价/促销底线派生收敛唯一入口
+            # derive_list_prices——旧手写 int(*1.2) 截断漂移 + min 0.9 语义分叉
+            _derive_old, _derive_min = derive_list_prices(int(suggested_price))
             first_item["price"] = str(int(suggested_price))
-            first_item["old_price"] = str(int(suggested_price * 1.2))
-            first_item["min_price"] = str(int(suggested_price * 0.9))
+            first_item["old_price"] = str(_derive_old)
+            first_item["min_price"] = str(_derive_min)
             logger.info(f"✅ 价格已修复（force={force_reprice}）：{price} → {suggested_price}")
         else:
             logger.info(f"✅ 价格正常：{price}")
@@ -2635,20 +2639,23 @@ def _fix_via_prices_update(state: ValidationRetryLoopState) -> bool:
         suggested_price = pricing_info.get("final_price", 0) or pricing_info.get("selling_price", 0)
         if suggested_price > 0:
             price = str(int(suggested_price))
-            old_price = str(int(suggested_price * 1.2))
-            min_price = str(int(suggested_price * 0.9))
+            _derive_old, _derive_min = derive_list_prices(int(suggested_price))
+            old_price = str(_derive_old)
+            min_price = str(_derive_min)
 
     if not price:
         logger.warning("⚠️ import/prices: 无法确定价格")
         return False
 
+    # F-F02: 缺省派生同样走唯一入口（旧 int(*1.2)/(*0.9) 已废）
+    _fb_old, _fb_min = derive_list_prices(int(float(price)))
     update_body = {
         "prices": [{
             "offer_id": str(offer_id),
             "product_id": int(product_id),
             "price": str(price),
-            "old_price": str(old_price) if old_price else str(int(float(price) * 1.2)),
-            "min_price": str(min_price) if min_price else str(int(float(price) * 0.9)),
+            "old_price": str(old_price) if old_price else str(_fb_old),
+            "min_price": str(min_price) if min_price else str(_fb_min),
         }]
     }
 
