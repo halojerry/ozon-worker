@@ -132,3 +132,10 @@ def test_export_commission_segments_blank_without_extensions(monkeypatch):
     })])
     assert rows[0]["commission_rfbs"] == ""
     assert rows[0]["commission_fbo"] == ""
+
+
+def test_export_b_batch_meta_keys_in_header():
+    from services.draft_service import _DRAFT_META_CSV_KEYS
+
+    for key in ("follow_profit_cny", "follow_margin", "ozon_old_price", "match_1688_freight_cny"):
+        assert key in _DRAFT_META_CSV_KEYS, f"缺 B 契约列: {key}"

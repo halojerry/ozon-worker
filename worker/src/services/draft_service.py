@@ -306,6 +306,9 @@ _DRAFT_META_CSV_KEYS = [
     "days_in_promo", "discount", "days_with_trafarets",
     "promo_revenue_share", "nullable_redemption_rate", "return_cancel_rate",
     "discovered_at",
+    # B 批次冻结契约 4 键（跟卖利润/划线价/1688 运费；生产端在 skill
+    # _assemble_discovery_meta，本表先行占位列——缺失键照常空串）
+    "follow_profit_cny", "follow_margin", "ozon_old_price", "match_1688_freight_cny",
 ]
 
 
@@ -335,7 +338,7 @@ def export_drafts_csv(tenant_id: str) -> str:
     writer = csv.writer(buf)
     writer.writerow([
         "id", "title", "item_id", "images", "purchase_cost", "purchase_url",
-        "price", "stock", "supplier", "weight", "source",
+        "price", "stock", "supplier", "weight", "source", "notes",
         "submission_status", "created_at", "updated_at",
         "blue_ocean_score", "monthly_sales", "profit_margin", "match_confidence",
         *_DRAFT_META_CSV_KEYS,
@@ -361,6 +364,7 @@ def export_drafts_csv(tenant_id: str) -> str:
             str(draft.get("supplier") or ""),
             draft.get("weight") if draft.get("weight") is not None else "",
             d.get("source") or "",
+            str(d.get("notes") or ""),
             d.get("submission_status") or "",
             d.get("created_at") or "",
             d.get("updated_at") or "",
