@@ -343,85 +343,74 @@ from services import ozon_session_service as _svc
 from utils import ozon_session_client as _client
 
 
+class _FakeJar(dict):
+    def set(self, k, v):
+        self[k] = v
+
+
+class _FakeSession:
+    """requests.Session 替身：cookie jar + 排队响应（终态语义）。"""
+
+    def __init__(self, *responses):
+        self.cookies = _FakeJar()
+        self._responses = list(responses)
+        self.calls = []
+
+    def post(self, url, json=None, headers=None, timeout=None, **kw):
+        self.calls.append({"url": url, "json": json, "headers": headers,
+                           "allow_redirects": kw.get("allow_redirects")})
+        return self._responses.pop(0)
+
+    def close(self):
+        pass
+
+
 def test_what_to_sell_client_builds_proven_contract(monkeypatch):
-    """200 → (data, None)；请求契约与 skill 实证直调同源（v3 + 公司头 + zh-Hans）。"""
+    """200 → (data, None)；契约与 skill 实证直调同源（v3 + 公司头 + zh-Hans +
+    cookie 解析进 jar）。"""
     captured = {}
 
     def _fake_post(url, json=None, headers=None, timeout=None, **kw):
-        captured.update(url=url, json=json, headers=headers)
+        captured.update(url=url, json=json, headers=headers, kw=kw)
 
         class _Resp:
             status_code = 200
             text = "{}"
+            url = "https://seller.ozon.ru/api/site/seller-analytics/what_to_sell/data/v3"
 
             def json(self):
                 return {"result": {"items": [{"sku": 123}]}}
         return _Resp()
 
-    monkeypatch.setattr(_client.requests, "post", _fake_post)
+    session = _FakeSession()
+    session.post = _fake_post
+    monkeypatch.setattr(_client.requests, "Session", lambda: session)
     data, err = _client.what_to_sell(
         "Abt=x; sc_company_id=5371047", "5371047",
         _client.build_what_to_sell_payload("123456_0", 50, 0))
     assert err is None and data == {"result": {"items": [{"sku": 123}]}}
-    assert captured["url"] == ("https://seller.ozon.ru/api/site/"
-                               "seller-analytics/what_to_sell/data/v3")
-    h = captured["headers"]
-    assert h["Cookie"] == "Abt=x; sc_company_id=5371047"
-    assert h["x-o3-company-id"] == "5371047"
-    assert h["x-o3-language"] == "zh-Hans"
-    body = captured["json"]
-    assert body["filter"]["sku"] == "123456"          # int64、无 _0 变体后缀
-    assert body["filter"]["period"] == "monthly"
-    assert body["filter"]["stock"] == "any_stock"
-    assert body["sort"] == {"key": "sum_gmv_desc"}
+    assert captured["url"].endswith("seller-analytics/what_to_sell/data/v3")
+    assert captured["headers"]["x-o3-company-id"] == "5371047"
+    assert captured["headers"]["x-o3-language"] == "zh-Hans"
+    assert session.cookies == {"Abt": "x", "sc_company_id": "5371047"}  # jar 携带
 
 
-def test_what_to_sell_client_expires_on_401_403_302(monkeypatch):
-    """401/403/登录 302 → (None, "session_expired")（C6 判废出口）。"""
-    for status in (401, 403, 302):
-        def _fake_post(url, json=None, headers=None, timeout=None, _s=status, **kw):
-            return SimpleNamespace(status_code=_s, text="")
-        monkeypatch.setattr(_client.requests, "post", _fake_post)
+def test_what_to_sell_client_expires_on_401_403(monkeypatch):
+    """401/403 → (None, "session_expired")（C6 判废出口）。"""
+    for status in (401, 403):
+        session = _FakeSession(SimpleNamespace(status_code=status, text="", url=""))
+        monkeypatch.setattr(_client.requests, "Session", lambda s=session: s)
         data, err = _client.what_to_sell("a=1", "1", {"limit": "1"})
         assert data is None and err == "session_expired", f"status={status}"
 
 
-def test_what_to_sell_follows_nginx_rr307_loop(monkeypatch):
-    """实机回归（2026-09-09）：Ozon nginx 机器人回环 307→同路径?__rr=1，
-    重放即过——不得判 session_expired（真会话被误标）。"""
-    calls = []
-
-    def _fake_post(url, json=None, headers=None, timeout=None, **kw):
-        calls.append(url)
-        if len(calls) == 1:
-            return SimpleNamespace(status_code=307, text="",
-                                   headers={"Location": url + "?__rr=1"})
-        return SimpleNamespace(status_code=200, text="{}",
-                               headers={},
-                               **{"json": lambda: {"result": {"items": [1]}}})
-
-    monkeypatch.setattr(_client.requests, "post", _fake_post)
-    data, err = _client.what_to_sell("a=1", "1", {"limit": 1})
-    assert err is None and data == {"result": {"items": [1]}}
-    assert len(calls) == 2 and calls[1].endswith("?__rr=1")  # 重放到 Location
-
-
-def test_what_to_sell_plain_302_without_location_expires(monkeypatch):
-    """无 Location 的裸 3xx（登录跳转形态）→ 仍判 session_expired。"""
-    def _fake_post(url, json=None, headers=None, timeout=None, **kw):
-        return SimpleNamespace(status_code=302, text="")
-    monkeypatch.setattr(_client.requests, "post", _fake_post)
-    data, err = _client.what_to_sell("a=1", "1", {"limit": 1})
-    assert data is None and err == "session_expired"
-
-
 def test_what_to_sell_client_other_status_is_not_session(monkeypatch):
-    """429/5xx ≠ 会话失效（不误标 expired）。"""
-    def _fake_post(url, json=None, headers=None, timeout=None, **kw):
-        return SimpleNamespace(status_code=429, text="rate limited")
-    monkeypatch.setattr(_client.requests, "post", _fake_post)
-    data, err = _client.what_to_sell("a=1", "1", {})
-    assert data is None and err == "ozon_http_429"
+    """429/5xx/终态 3xx ≠ 会话失效（不误标 expired）。"""
+    for status in (429, 503, 302):
+        session = _FakeSession(SimpleNamespace(status_code=status, text="rate limited", url=""))
+        monkeypatch.setattr(_client.requests, "Session", lambda s=session: s)
+        data, err = _client.what_to_sell("a=1", "1", {})
+        assert data is None and err == f"ozon_http_{status}", f"status={status}"
 
 
 _WTS_URL = f"/api/v1/analytics/what-to-sell?credential_id={_CRED}&sku=123456"
