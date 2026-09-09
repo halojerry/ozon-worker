@@ -523,12 +523,17 @@ def submit_envelope(
 def submit_draft(
     graph_input: dict[str, Any],
     worker_url: str | None = None,
+    *,
+    note: str | None = None,
 ) -> dict[str, Any]:
     """T9: 入采集箱 — POST GraphInput 到 Worker 的 /api/v1/drafts。
 
     Worker 端剥离凭证存 credential_id，只留 envelope 进 product_drafts
     （WebUI 认领 → 编辑 → 确认后上架）。请求体与 submit_task 相同
     （含顶层 token，Worker _authenticate 支持 body token 兜底）。
+
+    note（A6）: 采集备注——只进请求体顶层 notes 键（Worker 落
+    product_drafts.notes），绝不写入 envelope/extensions（运营态不进信封）。
 
     ⚠️ fail-hard（v0.42 M0.5）: 采集箱不可用（404/连接失败/超时）一律如实
     失败返回，绝不静默降级 submit_envelope() 直接上架——用户以为已入箱、
@@ -548,7 +553,11 @@ def submit_draft(
 
     try:
         import requests
-        resp = requests.post(url, json=graph_input, timeout=30)
+        body: dict[str, Any] = dict(graph_input) if note else graph_input
+        if note:
+            # A6 红线：notes 只在请求体顶层，绝不进 envelope/extensions
+            body["notes"] = note
+        resp = requests.post(url, json=body, timeout=30)
         try:
             payload = resp.json()
         except Exception:

@@ -79,7 +79,7 @@ def test_discover_to_box_uses_submit_draft_not_submit_envelope():
     c1 = _profitable("p1", "Товар один")
     submitted_draft_ids: list[str] = []
 
-    def _submit_draft(envelope):
+    def _submit_draft(envelope, note=None):
         submitted_draft_ids.append(envelope["draft"]["item_id"])
         return {"ok": True, "draft_id": f"D-{envelope['draft']['item_id']}"}
 
@@ -134,7 +134,7 @@ def test_discover_to_box_parallel_all_in_box():
     c2 = _profitable("p2", "Товар два")
     submitted: list[str] = []
 
-    def _submit_draft(envelope):
+    def _submit_draft(envelope, note=None):
         submitted.append(envelope["draft"]["item_id"])
         return {"ok": True, "draft_id": f"D-{envelope['draft']['item_id']}"}
 
@@ -153,3 +153,71 @@ def test_discover_to_box_parallel_all_in_box():
     assert sorted(submitted) == ["p1", "p2"]
     m_env.assert_not_called()
     assert "→ draft_id=D-p1" in out and "→ draft_id=D-p2" in out
+
+
+def test_submit_draft_note_in_body_not_envelope(monkeypatch):
+    """A6: submit_draft(note=...) → notes 只进请求体顶层，绝不进 envelope/extensions。"""
+    from scripts import cloud_probe
+
+    captured = {}
+
+    def fake_post(url, json=None, **kw):
+        captured.update(url=url, body=json)
+
+        class R:
+            status_code = 200
+            ok = True
+
+            def json(self):
+                return {"id": "d-note-1"}
+
+        return R()
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("scripts.lib.config_store.get_mxou_token", lambda: "sk-t")
+    # 最小适配：_require_auth 的缓存校验直接放行（否则 verify_with_worker 打真实网络）
+    monkeypatch.setattr("scripts.lib.config_store.is_auth_valid", lambda: True)
+    env = {"token": "sk-t", "ozon_client_id": "1", "ozon_api_key": "k",
+           "envelope": {"draft": {}, "source": {}, "extensions": {}}}
+    cloud_probe.submit_draft(env, note="竞品月销高")
+    assert captured["body"]["notes"] == "竞品月销高"
+    assert "notes" not in captured["body"]["envelope"]["extensions"]
+
+
+def test_discover_to_box_note_passthrough():
+    """--note 经 cmd_discover _submit_one 透传 submit_draft(note=...)；无 --note → None。"""
+    c1 = _profitable("p1", "Товар один")
+    received: list = []
+
+    def _submit_draft(envelope, note=None):
+        received.append(note)
+        return {"ok": True, "draft_id": "D-p1"}
+
+    args = _discover_args(auto_submit=True, to_box=True, note="竞品月销高")
+    rc, out = _run_discover(
+        args, [c1], [c1],
+        extra_patches=[
+            mock.patch("scripts.cloud_probe.build_envelope_from_discovery",
+                       side_effect=_build_envelope),
+            mock.patch("scripts.cloud_probe.submit_draft", side_effect=_submit_draft),
+            mock.patch("scripts.cloud_probe.submit_envelope",
+                       mock.Mock(return_value={"ok": True, "task_id": "T-x"})),
+        ],
+    )
+    assert rc == 0
+    assert received == ["竞品月销高"]
+
+    received.clear()
+    args2 = _discover_args(auto_submit=True, to_box=True)  # 无 --note
+    rc2, _ = _run_discover(
+        args2, [c1], [c1],
+        extra_patches=[
+            mock.patch("scripts.cloud_probe.build_envelope_from_discovery",
+                       side_effect=_build_envelope),
+            mock.patch("scripts.cloud_probe.submit_draft", side_effect=_submit_draft),
+            mock.patch("scripts.cloud_probe.submit_envelope",
+                       mock.Mock(return_value={"ok": True, "task_id": "T-x"})),
+        ],
+    )
+    assert rc2 == 0
+    assert received == [None], "无 --note 时 submit_draft(note=None)（不写 notes 键）"
