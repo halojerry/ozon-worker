@@ -246,6 +246,29 @@ def test_envelope_meta_does_not_overwrite_existing():
     assert result["envelope"]["extensions"]["discovery_meta"]["blue_ocean_score"] == 99
 
 
+# ── data-pool 批7：卡片缺口三键（对标竞品卡片 月销售动态增长率/点击率/ДРР）──
+# 取证结论（详见 task-7.1-report）：增长率=直连键 salesDynamics→sales_growth、
+# 广告份额=直连键 drr，两者 v0.70 起已在本表基础组透出；点击率无直连键
+# （maozi 3.2.6 亦为 qtyViewPdp/views 派生），新增 custom_click_rate 透出。
+
+def test_assemble_card_three_keys_present_when_set():
+    """三键各有真实数据 → 全部在场（两老键防回归 + 新键透出）。"""
+    cand = _mk_candidate(
+        sales_growth=12.5, drr=8.0, custom_click_rate=45.0)
+    meta = _meta(cand)
+    assert meta["sales_growth"] == 12.5        # 月销售动态增长率（既有键）
+    assert meta["drr"] == 8.0                  # 广告份额 ДРР（既有键）
+    assert meta["custom_click_rate"] == 45.0   # 商品点击率（本批新键）
+
+
+def test_assemble_click_rate_omitted_when_unknown():
+    """候选无点击率（dataclass 默认 None=未知）→ 键省略（缺失省略纪律）。"""
+    cand = _mk_candidate()
+    assert cand.custom_click_rate is None
+    meta = _meta(cand)
+    assert "custom_click_rate" not in meta
+
+
 if __name__ == "__main__":
     import traceback
 

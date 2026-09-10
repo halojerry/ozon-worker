@@ -40,3 +40,23 @@ def _assume_seller_logged_in(request, monkeypatch):
     monkeypatch.setattr(osa, "check_seller_login", lambda cdp: True)
     monkeypatch.setattr(osa, "wait_for_seller_login", lambda cdp, **kwargs: True)
     yield
+
+
+# Task 2.3 起 `_enrich_with_seller_metrics` 入口先查数据池（metrics_pool_client.
+# query_sku_metrics）：不 mock 的话，配置了 ~/.pounding token 的机器上任何未
+# 显式 patch 池缝的富化用例都会真实打 worker（工作区纪律红线：测试禁打生产）。
+# 默认按「池不可用（None）」处理——与登录夹具同款排除清单模式；数据池专项
+# 测试（test_metrics_pool_client.py 测真实函数）除外。各用例显式 monkeypatch
+# 可覆盖本夹具（同一 function-scoped monkeypatch 实例，内层 setattr 胜出）。
+_POOL_QUERY_REAL_MODULES = {"test_metrics_pool_client.py"}
+
+
+@pytest.fixture(autouse=True)
+def _pool_query_off_by_default(request, monkeypatch):
+    if os.path.basename(str(request.node.fspath)) in _POOL_QUERY_REAL_MODULES:
+        yield
+        return
+    import scripts.lib.metrics_pool_client as mpc
+
+    monkeypatch.setattr(mpc, "query_sku_metrics", lambda skus, **kwargs: None)
+    yield
