@@ -898,11 +898,14 @@ async def submit_draft(
     extensions_snapshot = copy.deepcopy(payload_envelope.get("extensions") or {})
     for _mk in ("update_product_id", "update_offer_id"):
         extensions_snapshot.pop(_mk, None)
+    # BL-16（repo-gov B2-β）：submission 行补 tenant_id（提交行租户归属）。
+    # 本函数是 submit/resubmit/batch-submit 三路由唯一的行创建点；tenant_id 即
+    # 鉴权派生租户，与 credential 校验同源。列可空——存量行 NULL 不回填。
     with get_engine().begin() as conn:
         sub = conn.execute(text(
             "INSERT INTO draft_submissions "
-            "(draft_id, credential_id, store_client_id, extensions, status, submitted_task_id) "
-            "VALUES (:draft_id, :credential_id, :store_client_id, CAST(:extensions AS jsonb), 'pending', :task_id) "
+            "(draft_id, credential_id, store_client_id, extensions, status, submitted_task_id, tenant_id) "
+            "VALUES (:draft_id, :credential_id, :store_client_id, CAST(:extensions AS jsonb), 'pending', :task_id, :tenant_id) "
             "RETURNING id, draft_id, credential_id, store_client_id, extensions, status, submitted_task_id, created_at"
         ), {
             "draft_id": draft_id,
@@ -910,6 +913,7 @@ async def submit_draft(
             "store_client_id": client_id,
             "extensions": json.dumps(extensions_snapshot, ensure_ascii=False),
             "task_id": task_id,
+            "tenant_id": tenant_id,
         }).fetchone()
 
     return {
