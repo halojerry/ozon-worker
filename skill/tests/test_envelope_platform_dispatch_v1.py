@@ -260,6 +260,8 @@ class TestCidKeyDiscipline:
         source = graph["envelope"]["source"]
         assert "source_category_id" not in draft
         assert "source_category_id" not in source
+        # belt-and-suspenders（fix round 1 Minor #4）：draft 侧数字 cid 键同样缺席
+        assert "category_id" not in draft
         assert "category_id" not in source
         # ozon_category 缺省（无 manual/无本地猜测）→ worker 文本+LLM 链
         assert "ozon_category" not in draft
@@ -463,6 +465,108 @@ class TestVariantCollapse:
         draft = graph["envelope"]["draft"]
         assert draft["sku_id"] == "679836775118"
         assert draft["purchase_cost"] == pytest.approx(12.90)
+
+
+# ── 尾部形状对齐机制闸（fix round 1 Minor #1）──
+# 双副本（平台路径 vs 1688 路径组装尾部）此前只有 docstring「对齐义务」——本闸
+# 断言平台路径 draft/source/extensions 键集合 ⊆ 1688 路径（modulo 文档化差量），
+# 未来任一侧漂移即红：
+# - 平台独有（CONTRACT-v4 §1.1.2）：source.platform（1688 缺省按域名推断故不填）
+# - 1688 独有：extensions.cdp_degraded（api_only 降级标记，平台链无 CDP 降级语义）
+# - shipping/dimensions_estimated/weight_estimated/ozon_category/source_category
+#   均为两侧同构条件键——夹具两侧等价触发（shipping 在场、weight 缺失、manual 直传、
+#   类目词在场），锁条件模式而不只锁基形
+_DOC_PLATFORM_ONLY_SOURCE_KEYS = {"platform"}
+_DOC_1688_ONLY_EXTENSION_KEYS = {"cdp_degraded"}
+
+
+class TestEnvelopeShapeSubsetOf1688:
+    def _build_both(self):
+        """等价触发两侧全部条件键：shipping 在场 + weight 缺失（est 标记）+
+        manual 类目直传 + 中文类目词在场 + cid（1688 侧唯一）。"""
+        categories = [{"name": "家居", "id": "61"}, {"name": "杯子", "id": "9901"}]
+        platform_product = _product_info(
+            "taobao",
+            shipping={"freightCny": 8.0},
+            source_category_path="家居 > 杯子 > 马克杯",
+        )
+        with ExitStack() as stack:
+            _patch_env(stack, _adapter_mod("taobao"), platform_product)
+            p = cloud_probe.build_graph_envelope(
+                item_id="679836775118", detail_url=_TB, poll_category=True,
+                category_id="123456", type_id="789101")
+        data_1688 = {
+            "title": "1688 测试马克杯", "price": "10.00",
+            "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+            "attributes": [], "option_groups": [],
+            "sku_details": [{"name": "默认", "price": 10.0, "image": ""}],
+            "shipping": {"freightCny": 8.0}, "seller": "测试店铺",
+            "description": "",
+        }
+        with ExitStack() as stack:
+            stack.enter_context(
+                mock.patch("scripts.lib.config_store._require_auth"))
+            stack.enter_context(mock.patch(
+                "scripts.lib.ak_1688_client.get_product_details",
+                return_value={"980815374096": {
+                    "title": "1688 测试马克杯", "price": "10.00",
+                    "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+                    "categories": categories,
+                }}))
+            stack.enter_context(mock.patch(
+                "scripts.lib.ak_1688_client.enrich_product_with_cdp",
+                return_value={"data": dict(data_1688), "source": "cdp"}))
+            stack.enter_context(mock.patch.object(
+                cloud_probe, "_get_ozon_credentials",
+                return_value={"client_id": "cid", "api_key": "akey"}))
+            stack.enter_context(mock.patch.object(
+                cloud_probe, "_get_mxou_token", return_value="tok"))
+            stack.enter_context(mock.patch.object(
+                cloud_probe, "_get_token", return_value="tok"))
+            stack.enter_context(
+                mock.patch("scripts.lib.config_store.get_store_profile",
+                           return_value={}))
+            stack.enter_context(
+                mock.patch("scripts.lib.config_store.get_template_profile",
+                           return_value={}))
+            w = cloud_probe.build_graph_envelope(
+                item_id="980815374096", detail_url=_1688, poll_category=False,
+                category_id="123456", type_id="789101")
+        return p["envelope"], w["envelope"]
+
+    def test_draft_source_extensions_key_subset(self):
+        p_env, w_env = self._build_both()
+        p_draft, w_draft = p_env["draft"], w_env["draft"]
+        p_source, w_source = p_env["source"], w_env["source"]
+        p_ext, w_ext = p_env["extensions"], w_env["extensions"]
+
+        drift_draft = set(p_draft) - set(w_draft)
+        drift_source = set(p_source) - set(w_source) - _DOC_PLATFORM_ONLY_SOURCE_KEYS
+        drift_ext = set(p_ext) - set(w_ext) - _DOC_1688_ONLY_EXTENSION_KEYS
+        assert not drift_draft, f"平台 draft 出现 1688 没有的键（尾部形状漂移）: {drift_draft}"
+        assert not drift_source, f"平台 source 漂移（超出文档化差量 {_DOC_PLATFORM_ONLY_SOURCE_KEYS}）: {drift_source}"
+        assert not drift_ext, f"平台 extensions 漂移（超出文档化差量 {_DOC_1688_ONLY_EXTENSION_KEYS}）: {drift_ext}"
+
+        # 条件键两侧确已触发（夹具自检——防止子集断言空转成基形比较）
+        for key in ("shipping", "dimensions_estimated", "weight_estimated",
+                    "ozon_category", "source_category", "sku_id", "price"):
+            assert key in p_draft and key in w_draft, key
+        assert "source_category_id" in w_draft  # 1688 独有 cid 键在场
+        assert "source_category_id" not in p_draft  # 平台侧 cid 纪律仍成立
+        assert "source_category_path" in p_source and "source_category_path" in w_source
+
+    def test_platform_pricing_audit_line_present(self):
+        """Minor #2：平台路径尾部与 1688 同构携带 pricing 审计行（观测面对齐）。"""
+        with ExitStack() as stack:
+            _patch_env(stack, _adapter_mod("taobao"),
+                       _product_info("taobao"))
+            audit_cls = stack.enter_context(mock.patch.object(
+                cloud_probe, "AuditLogger"))
+            cloud_probe.build_graph_envelope(
+                item_id="679836775118", detail_url=_TB, poll_category=True)
+        events = [call.args[1] for call in audit_cls.return_value.log.call_args_list]
+        assert "integrity" in events
+        assert "pricing" in events
 
 
 # ── 适配器直调：人话错误透传 ──
