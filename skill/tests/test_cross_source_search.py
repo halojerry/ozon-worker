@@ -58,19 +58,31 @@ _PDD_OFFER_A = {
 }
 
 
-def _tb_dom_payload(offers, *, status=None, url="https://s.taobao.com/search?q=cup"):
+def _tb_dom_payload(offers, *, status=None, url=None, keyword="马克杯"):
+    """DOM 载荷夹具——url 默认对到该关键词的完整搜索 URL（Python 侧上下文守卫
+    按 payload.url.startswith(search_url) 判 context，夹具必须如实携带）。"""
     return json.dumps({
         "status": status or ("ok" if offers else "empty"),
         "message": None,
-        "url": url,
+        "url": url or css._taobao_search_url(keyword),
         "offers": offers,
     })
 
 
-def _ids_payload(ids, *, url="https://s.taobao.com/search?q=cup"):
+def _pdd_dom_payload(offers, *, status=None, message=None, url=None,
+                     keyword="保温杯"):
+    return json.dumps({
+        "status": status or ("ok" if offers else "empty"),
+        "message": message,
+        "url": url or css._pdd_search_url(keyword),
+        "offers": offers,
+    })
+
+
+def _ids_payload(ids, *, url=None, keyword="马克杯"):
     return json.dumps({
         "status": "ok" if ids else "empty",
-        "url": url,
+        "url": url or css._taobao_search_url(keyword),
         "ids": ids,
     })
 
@@ -291,7 +303,8 @@ class TestSearchTaobao:
         assert conn.closed is False, "外部连接归调用方所有，不得关闭"
 
     def test_search_url_keyword_urlencoded(self):
-        conn = _FakeConnection(new_tab_results=[_tb_dom_payload([_TB_OFFER_A])])
+        conn = _FakeConnection(new_tab_results=[
+            _tb_dom_payload([_TB_OFFER_A], keyword="保温杯 大容量")])
         css.search_taobao("http://127.0.0.1:9222", "保温杯 大容量",
                           timeout=12.0, cdp=conn)
         url = conn.created_tabs[0].nav_calls[0][0]
@@ -375,7 +388,7 @@ class TestSearchTaobao:
         conn = _FakeConnection()
         conn.new_tab = lambda url="about:blank", background=False: _FakeTab(url, [
             json.dumps({"status": "error", "message": "页面被风控拦截",
-                        "url": "https://s.taobao.com/search?q=cup", "offers": []}),
+                        "url": css._taobao_search_url("马克杯"), "offers": []}),
         ])  # type: ignore[method-assign]
         with pytest.raises(css.CrossSourceSearchError) as ei:
             css.search_taobao("http://127.0.0.1:9222", "马克杯", timeout=12.0, cdp=conn)
@@ -425,11 +438,7 @@ class TestSearchTaobao:
 
 class TestSearchPdd:
     def test_success_dom_path(self):
-        conn = _FakeConnection(new_tab_results=[
-            json.dumps({"status": "ok", "message": None,
-                        "url": "https://mobile.yangkeduo.com/search_result.html?search_key=cup",
-                        "offers": [_PDD_OFFER_A]}),
-        ])
+        conn = _FakeConnection(new_tab_results=[_pdd_dom_payload([_PDD_OFFER_A])])
         offers = css.search_pdd("http://127.0.0.1:9222", "保温杯",
                                 timeout=12.0, cdp=conn)
         assert len(offers) == 1
@@ -446,9 +455,9 @@ class TestSearchPdd:
 
     def test_fallback_regex_path(self):
         conn = _FakeConnection(new_tab_results=[
-            json.dumps({"status": "empty", "url":
-                        "https://mobile.yangkeduo.com/search_result.html", "offers": []}),
-            _ids_payload(["538120412345", "777777777777"]),
+            _pdd_dom_payload([], status="empty"),
+            _ids_payload(["538120412345", "777777777777"],
+                         keyword="保温杯"),
         ])
         offers = css.search_pdd("http://127.0.0.1:9222", "保温杯",
                                 timeout=12.0, cdp=conn)
@@ -460,9 +469,8 @@ class TestSearchPdd:
     def test_pdd_dig_regex_embedded_in_phase2_js(self):
         """兜底 JS 必须内嵌实机验证过的 goods_id 正则（单一常量，勿两处漂移）。"""
         conn = _FakeConnection(new_tab_results=[
-            json.dumps({"status": "empty", "url": "https://mobile.yangkeduo.com/x",
-                        "offers": []}),
-            _ids_payload([]),
+            _pdd_dom_payload([], status="empty"),
+            _ids_payload([], keyword="保温杯"),
         ])
         css.search_pdd("http://127.0.0.1:9222", "保温杯", timeout=12.0, cdp=conn)
         js = conn.created_tabs[0].evaluate_calls[1][0]
@@ -470,36 +478,31 @@ class TestSearchPdd:
             "注入正则必须与 Python 侧 dig_pdd_ids 同一常量")
 
     def test_empty_results(self):
-        conn = _FakeConnection()
-        conn.new_tab = lambda url="about:blank", background=False: _FakeTab(url, [
-            json.dumps({"status": "empty", "url": "https://mobile.yangkeduo.com/x",
-                        "offers": []}),
-            _ids_payload([]),
-        ])  # type: ignore[method-assign]
+        conn = _FakeConnection(new_tab_results=[
+            _pdd_dom_payload([], status="empty"),
+            _ids_payload([], keyword="保温杯"),
+        ])
         assert css.search_pdd("http://127.0.0.1:9222", "保温杯",
                               timeout=12.0, cdp=conn) == []
 
     def test_login_html_redirect_raises_not_logged_in(self):
-        conn = _FakeConnection()
-        conn.new_tab = lambda url="about:blank", background=False: _FakeTab(url, [
-            json.dumps({"status": "login",
-                        "message": "登录页重定向（login.html）",
-                        "url": "https://mobile.yangkeduo.com/login.html?redirect=...",
-                        "offers": []}),
-        ])  # type: ignore[method-assign]
+        conn = _FakeConnection(new_tab_results=[
+            _pdd_dom_payload([], status="login",
+                             message="登录页重定向（login.html）",
+                             url="https://mobile.yangkeduo.com/login.html?redirect=..."),
+        ])
         with pytest.raises(css.NotLoggedIn) as ei:
             css.search_pdd("http://127.0.0.1:9222", "保温杯", timeout=12.0, cdp=conn)
         assert ei.value.platform == "pdd"
         assert css._LOGIN_STATE.get("pdd") is False
 
     def test_login_url_marker_even_with_ok_status(self):
-        """status 误报 ok 但 location 已在登录页 → 按 URL 标记判登录。"""
-        conn = _FakeConnection()
-        conn.new_tab = lambda url="about:blank", background=False: _FakeTab(url, [
-            json.dumps({"status": "empty",
-                        "url": "https://mobile.yangkeduo.com/login.html",
-                        "offers": []}),
-        ])  # type: ignore[method-assign]
+        """status 误报 ok 但 location 已在登录页 → 按 URL 标记判登录
+        （登录标记判序最先，先于上下文校验——真登录重定向必须写负缓存）。"""
+        conn = _FakeConnection(new_tab_results=[
+            _pdd_dom_payload([], status="empty",
+                             url="https://mobile.yangkeduo.com/login.html"),
+        ])
         with pytest.raises(css.NotLoggedIn):
             css.search_pdd("http://127.0.0.1:9222", "保温杯", timeout=12.0, cdp=conn)
 
@@ -518,7 +521,7 @@ class TestSearchPdd:
 
     def test_user_tab_released_never_closed(self):
         user_tab = _FakeTab("https://mobile.yangkeduo.com/search_result.html?search_key=旧", [
-            json.dumps({"status": "ok", "url": "", "offers": [_PDD_OFFER_A]}),
+            _pdd_dom_payload([_PDD_OFFER_A]),
         ])
         conn = _FakeConnection(user_tab)
         offers = css.search_pdd("http://127.0.0.1:9222", "保温杯",
@@ -531,6 +534,83 @@ class TestSearchPdd:
         with pytest.raises(css.CrossSourceSearchError):
             css.search_pdd("http://127.0.0.1:9222", "", timeout=12.0,
                            cdp=_BoomConnection())
+
+
+# ── 批1 fix round 1：上下文守卫（Important #1）+ 图片 data: URI 过滤（Minor #5）──
+
+_CTX_PAYLOAD = json.dumps({"status": "context", "url": "about:blank",
+                           "message": "页面不在目标搜索域", "offers": []})
+
+
+class TestContextGuard:
+    def test_taobao_about_blank_race_retried_then_success(self):
+        """about:blank 导航竞态（JS 报 context）→ 重试一次 → 成功；
+        竞态上下文错误绝不写登录负缓存（毒化防线）。"""
+        conn = _FakeConnection(new_tab_results=[
+            _CTX_PAYLOAD, _tb_dom_payload([_TB_OFFER_A]),
+        ])
+        offers = css.search_taobao("http://127.0.0.1:9222", "马克杯",
+                                   timeout=12.0, cdp=conn)
+        assert len(offers) == 1
+        assert len(conn.created_tabs[0].evaluate_calls) == 2, "context 必须重试一次"
+        assert css._LOGIN_STATE == {}, "竞态上下文错误绝不毒化登录负缓存"
+
+    def test_taobao_context_error_persists_raises_loud_no_cache(self):
+        conn = _FakeConnection(new_tab_results=[_CTX_PAYLOAD, _CTX_PAYLOAD])
+        with pytest.raises(css.CrossSourceSearchError) as ei:
+            css.search_taobao("http://127.0.0.1:9222", "马克杯", timeout=12.0, cdp=conn)
+        assert "上下文不符" in str(ei.value) or "搜索源" in str(ei.value)
+        assert css._LOGIN_STATE == {}, "上下文错误绝不写 NotLoggedIn 缓存"
+
+    def test_python_url_guard_rejects_stale_ok_payload(self):
+        """JS 误报 ok 但 payload.url 还在 about:blank → Python 侧按 url 判 context
+        → 拒绝 + 重试（不信任 JS 状态位，原始地址是权威）。"""
+        conn = _FakeConnection(new_tab_results=[
+            json.dumps({"status": "ok", "url": "about:blank",
+                        "offers": [_TB_OFFER_A]}),
+            _tb_dom_payload([_TB_OFFER_A]),
+        ])
+        offers = css.search_taobao("http://127.0.0.1:9222", "马克杯",
+                                   timeout=12.0, cdp=conn)
+        assert len(offers) == 1
+        assert css._LOGIN_STATE == {}
+
+    def test_stale_previous_keyword_page_rejected_and_retried(self):
+        """复用 tab 停在上一关键词搜索页（同域、marker 挡不住）→ payload.url 与
+        本次 search_url 前缀不符 → 丢弃过期结果 + 重试新页。"""
+        conn = _FakeConnection(new_tab_results=[
+            _tb_dom_payload([_TB_OFFER_A], keyword="旧关键词"),
+            _tb_dom_payload([_TB_OFFER_A], keyword="马克杯"),
+        ])
+        offers = css.search_taobao("http://127.0.0.1:9222", "马克杯",
+                                   timeout=12.0, cdp=conn)
+        assert len(conn.created_tabs[0].evaluate_calls) == 2
+        assert len(offers) == 1, "上一关键词的过期商品绝不吐出"
+        assert css._LOGIN_STATE == {}
+
+    def test_pdd_context_race_retried_then_success(self):
+        conn = _FakeConnection(new_tab_results=[
+            _CTX_PAYLOAD, _pdd_dom_payload([_PDD_OFFER_A]),
+        ])
+        offers = css.search_pdd("http://127.0.0.1:9222", "保温杯",
+                                timeout=12.0, cdp=conn)
+        assert len(offers) == 1
+        assert css._LOGIN_STATE == {}
+
+    def test_js_context_marker_injected_and_image_filter(self):
+        """注入 JS 必须带搜索域标记（占位符消失）；图片经 absImg 只收 http(s)。"""
+        conn = _FakeConnection(new_tab_results=[_tb_dom_payload([_TB_OFFER_A])])
+        css.search_taobao("http://127.0.0.1:9222", "马克杯", timeout=12.0, cdp=conn)
+        js = conn.created_tabs[0].evaluate_calls[0][0]
+        assert "__CTX_MARKER__" not in js, "上下文标记占位符必须注入"
+        assert "s.taobao.com/search" in js
+        assert "indexOf('http://')" in js and "indexOf('https://')" in js, (
+            "absImg 必须按 http(s) 前缀过滤懒加载占位图（Minor #5）")
+
+    def test_image_data_uri_filtered_in_normalize(self):
+        raw = dict(_TB_OFFER_A, image="data:image/gif;base64,R0lGODlhAQAB")
+        assert css.build_offers("taobao", [raw])[0].image is None, (
+            "data: URI 占位图 → None（绝不冒充主图）")
 
 
 if __name__ == "__main__":
