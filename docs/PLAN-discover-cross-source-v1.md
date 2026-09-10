@@ -1,4 +1,16 @@
+---
+title: PLAN—discover 跨平台静默货源匹配 v1
+purpose: discover 候选自动三源匹配选优（执行中，未发版）
+applies-version: ">=v0.74.0"
+last-updated: 2026-09-10
+owner: skill-cdp
+depends: [PLAN-cross-platform-sourcing-v1]
+status: active
+---
+
 # PLAN-discover-cross-source-v1 — discover 跨平台静默货源匹配 v1（对标 1688 静默匹配）
+
+> 状态: in-progress（批 3 接线提交在 v0.74.0 后，未发版）
 
 > 2026-09-10。用户拍板：「做成跟 1688 一样，静默匹配」——discover（Ozon 选品）产出候选时
 > **自动**完成三源（1688/淘宝/拼多多）货源匹配与选优，用户无感；采集箱保留三源对比可见可改。

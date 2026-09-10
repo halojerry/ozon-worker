@@ -1,3 +1,13 @@
+---
+title: 多 SKU 上传与商品配额机制调研
+purpose: 9048/model_id 并卡机制与配额消耗结论（机制性内容无时效）
+applies-version: ">=v0.59.0"
+last-updated: 2026-08-20
+owner: worker-pipeline
+depends: [OZON-ATTRIBUTE-API, CONTRACT-v4]
+status: active
+---
+
 # Ozon 多 SKU 上传与商品配额机制（调研结论）
 
 > 生成：2026-08-20 · 基于 Ozon 官方 API 文档 + 竞品源码（毛子插件 maozier-plugin-3.2.2 / 上品帮插件 V3.2.2 + shopbang 客户端）+ 我们 worker 实现
@@ -6,7 +16,7 @@
 
 ## 一、核心结论：为什么多规格上传不占配额
 
-**Ozon 官方机制**（`docs/ozon-api-docs-2026-07-05.json` 确认）：
+**Ozon 官方机制**（`docs/data/ozon-api-docs-2026-07-05.json` 确认）：
 
 > 9048 在 attributes 中。这些卡片除了大小或颜色外的所有属性都必须匹配。
 

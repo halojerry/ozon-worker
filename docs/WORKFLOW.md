@@ -1,3 +1,13 @@
+---
+title: 仓库协作规范 v1
+purpose: 分支拓扑、一会话一分支一 worktree、两级合并门槛与发版流
+applies-version: ">=v0.73.0"
+last-updated: 2026-09-10
+owner: docs-gov
+depends: [CONVENTIONS, GIT-STREAM-INDEX]
+status: active
+---
+
 # WORKFLOW — 仓库协作规范 v1
 
 > 生效 2026-09-09。规范多 AI 会话并行开发下的分支拓扑、会话隔离、合并门槛与发版流。

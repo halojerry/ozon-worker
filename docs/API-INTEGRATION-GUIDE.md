@@ -1,3 +1,13 @@
+---
+title: API 对接文档（已废弃为重定向）
+purpose: 已废弃——集成方按序读 API-OVERVIEW → API-REFERENCE → Swagger
+applies-version: ">=v0.72.0"
+last-updated: 2026-09-08
+owner: worker-api
+depends: [API-OVERVIEW, API-REFERENCE]
+status: archived
+---
+
 # Ozon AI 自动化运营 ERP · API 对接文档
 
 > 本文件不再维护端点清单。集成方阅读顺序：

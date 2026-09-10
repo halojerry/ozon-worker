@@ -1,3 +1,13 @@
+---
+title: Ozon 字段映射表 v1（M0 探针冻结）
+purpose: 店铺数据字段映射冻结快照（2026-08-30 探针通过）
+applies-version: "v0.61.0"
+last-updated: 2026-08-30
+owner: worker-store
+depends: []
+status: frozen
+---
+
 # Ozon 字段映射表 v1(M0 探针冻结)
 
 > 状态:**已冻结(2026-08-30 探针通过,店铺 5423887)**。returns 的 item 字段因该店窗口无退货,按 swagger 冻结,待有数据店复核。

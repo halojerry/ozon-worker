@@ -1,3 +1,13 @@
+---
+title: worker 远程 MCP 服务接入指南
+purpose: /mcp 端点接入、Bearer 鉴权、工具清单与客户端配置
+applies-version: ">=v0.73.0"
+last-updated: 2026-09-09
+owner: mcp
+depends: [API-OVERVIEW, CONTRACT-v4]
+status: active
+---
+
 # MCP-SERVER.md — worker 远程 MCP 服务接入指南（v0.67.0 批次 1）
 
 > 任何支持远程 MCP 的平台（dsh / Claude Code / Cursor / Cherry Studio / ChatGPT…）

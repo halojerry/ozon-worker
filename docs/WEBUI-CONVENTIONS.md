@@ -1,3 +1,13 @@
+---
+title: WebUI 开发规范
+purpose: 视觉 token、构建与目录约定（源自 new-api default 主题）
+applies-version: ">=v0.56.5"
+last-updated: 2026-08-17
+owner: webui
+depends: [CONVENTIONS]
+status: active
+---
+
 # WEBUI-CONVENTIONS — ozon-worker WebUI 开发规范
 
 > 2026-08-17。基于 mxou（new-api default）主题/组件/架构照搬后的维护规范。

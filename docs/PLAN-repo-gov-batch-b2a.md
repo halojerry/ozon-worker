@@ -1,6 +1,16 @@
+---
+title: PLAN—repo-gov 止血修复批 B2-α
+purpose: BL-01~23 九项止血修复（已合 dev PR #13，待发版）
+applies-version: ">=v0.74.0"
+last-updated: 2026-09-11
+owner: worker-pipeline
+depends: []
+status: active
+---
+
 # PLAN-repo-gov-batch-b2a — 止血修复批（BL-01/02/03/04/05/07/14/22/23）
 
-> 状态：执行中（2026-09-11 用户拍板：四批全跑，B2-α 先行；variant_v2=标记实验性）。
+> 状态: completed-dev（B2-α 九项已随 PR #13 合 dev，2026-09-11，在 v0.74.0 之后 → 发版后可升级 shipped；原状态行「执行中（2026-09-11 用户拍板：四批全跑，B2-α 先行；variant_v2=标记实验性）」）
 > 分支：fix/repo-gov-b2a（自 origin/dev 044b0c61）。执行：3 个并行 subagent（文件组不相交），主会话 review+测试+PR。
 > 探针记录：主会话已亲核六处改动点现状（见各任务「现状」），全部 P1 断言 grep 实锤。
 

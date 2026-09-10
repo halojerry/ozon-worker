@@ -1,4 +1,16 @@
+---
+title: PLAN—数据池贡献闭环+采集通道增强 v1
+purpose: 用户贡献式销量数据池与 session-sync/variant_v2 等采集增强（随 v0.74.0 发出）
+applies-version: "v0.74.0"
+last-updated: 2026-09-11
+owner: skill-cdp
+depends: [CONTRACT-v4]
+status: archived
+---
+
 # PLAN 数据池贡献闭环 + 采集通道增强 v1（四插件对标能力补全）
+
+> 状态: shipped-with-v0.74.0
 
 > ⚠️ 2026-09-11 审计：variant_v2 真值链三段断链（详见 docs/audit/2026-09-11-repo-gov/A5-pipeline-deadcode-conflicts.md），当前实验性未生效，接线归本计划批 8 P2
 

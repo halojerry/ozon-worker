@@ -1,3 +1,13 @@
+---
+title: 工作流历史索引
+purpose: 2026-09-08~09-09 交错历史按 12 工作流重索引（取证用）
+applies-version: ">=v0.73.0"
+last-updated: 2026-09-10
+owner: docs-gov
+depends: [WORKFLOW]
+status: active
+---
+
 # GIT-STREAM-INDEX — 工作流历史索引
 
 > 目的：2026-09-09 起仓库执行 `docs/WORKFLOW.md` 协作规范（一会话一分支一 worktree）。

@@ -1,3 +1,13 @@
+---
+title: PRD v1—店铺数据同步 ERP 化
+purpose: worker+skill+webui 三端店铺数据同步需求真相源（v6 定稿草案）
+applies-version: ">=v0.61.0"
+last-updated: 2026-08-30
+owner: worker-store
+depends: [DESIGN-PHASE2-PURCHASE-ADS-RECONCILIATION]
+status: active
+---
+
 # PRD v1:Ozon 店铺数据同步 ERP 化(worker + skill + webui 三端完善)
 
 > 版本:v6(2026-08-30,评审迭代后定稿草案)

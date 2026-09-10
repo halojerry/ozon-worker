@@ -1,3 +1,13 @@
+---
+title: 数据库 Schema 歧义审计
+purpose: 34 表分类、14 歧义点、ID 词汇表与 status 取值域（建表/改列必读）
+applies-version: ">=v0.70.0"
+last-updated: 2026-09-10
+owner: worker-db
+depends: [WORKER-TOPOLOGY]
+status: active
+---
+
 # 数据库 Schema 歧义审计（DB-SCHEMA-AUDIT）— v0.70
 
 > 起因：用户问「表名/参数/列是否有冲突、歧义」。本文档是**只读审计结论 + 低风险
