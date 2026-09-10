@@ -8,7 +8,7 @@
 - batch 分派：taobao/tmall/pdd 走 graph 直传链（process_1688_url），不落
   process_ozon_url 跟卖链
 - cli cmd_graph：taobao URL → parse_platform_url 提取 item_id 后进信封组装
-- browser_probe 硬门：taobao/tmall 放行 → 适配器分派；pdd 明确拒绝（批3）；
+- browser_probe 硬门：taobao/tmall/pdd 放行 → 各自适配器分派（pdd 为批3）；
   未知域名拒绝；1688 不进适配器（原链回归）
 
 运行:
@@ -304,12 +304,54 @@ class TestProbeHardGate:
         fp.assert_called_once()
         assert result["probe"]["site"] == "tmall"
 
-    def test_pdd_rejected_until_batch3(self):
-        with mock.patch("scripts.lib.taobao_client.fetch_product") as fp:
+    def test_pdd_dispatches_to_adapter(self):
+        """批3: pdd URL 进 pdd_client 适配器（不再拒绝）。"""
+        product = {
+            "platform": "pdd", "item_id": "734654654654",
+            "canonical_url": "https://mobile.yangkeduo.com/goods.html?goods_id=734654654654",
+            "title": "陶瓷马克杯", "price": "12.90", "price_ranges": [12.9, 15.8],
+            "images": ["https://img.pddpic.com/main.jpeg"],
+            "description": "",
+            "attributes": [{"name": "材质", "value": "陶瓷"}],
+            "option_groups": [], "sku_details": [], "shipping": {"freightCny": 0.0},
+            "weight_grams": None, "seller": "某某百货", "brand": "某杂货",
+        }
+        with mock.patch("scripts.lib.pdd_client.fetch_product",
+                        return_value=product) as fp:
+            result = probe_1688_page(_PDD, cdp=_CdpFake())
+        fp.assert_called_once()
+        assert result["ready"] is True
+        assert result["probe"]["site"] == "pdd"
+        assert result["probe"]["title"] == "陶瓷马克杯"
+        assert result["source_product"]["item_id"] == "734654654654"
+
+    def test_pdd_rejection_error_message_updated(self):
+        """未知域名仍拒绝，且不再出现「拼多多待后续版本/批3」旧口径。"""
+        with mock.patch("scripts.lib.pdd_client.fetch_product") as fp:
             with pytest.raises(ValidationError) as ei:
-                probe_1688_page(_PDD, cdp=_CdpFake())
+                probe_1688_page("https://www.amazon.com/dp/B0CX", cdp=_CdpFake())
         fp.assert_not_called()
-        assert "拼多多" in str(ei.value) and "批3" in str(ei.value)
+        msg = str(ei.value)
+        assert "后续版本" not in msg and "批3" not in msg and "暂不支持拼多多" not in msg
+
+    def test_safe_wrapper_shapes_pdd_data(self):
+        """probe_1688_page_safe 零改动消费 pdd 分派结果（批3 扩展）。"""
+        product = {
+            "platform": "pdd", "title": "陶瓷马克杯", "price": "12.90",
+            "images": ["https://img.pddpic.com/main.jpeg"],
+            "attributes": [{"name": "材质", "value": "陶瓷"}],
+            "option_groups": [], "sku_details": [],
+            "shipping": {"freightCny": 0.0}, "seller": "某某百货", "brand": "",
+            "weight_grams": None,
+        }
+        with mock.patch("scripts.lib.pdd_client.fetch_product",
+                        return_value=product):
+            result = probe_1688_page_safe(_PDD, cdp=_CdpFake())
+        assert result["ok"] is True
+        assert result["error"] is None
+        assert result["data"]["title"] == "陶瓷马克杯"
+        assert result["data"]["attributes"] == [{"name": "材质", "value": "陶瓷"}]
+        assert result["data"]["shipping"] == {"freightCny": 0.0}
 
     def test_unknown_domain_rejected(self):
         for url in ("https://www.amazon.com/dp/B0CX", "https://www.jd.com/1.html"):
@@ -320,6 +362,7 @@ class TestProbeHardGate:
         """1688 URL 不得进适配器（原 EXTRACT_1688_JS 链回归——外部连接下进入
         1688 专属 find_tab(offer_id) 匹配才被哨兵拦下）。"""
         with mock.patch("scripts.lib.taobao_client.fetch_product") as fp, \
+                mock.patch("scripts.lib.pdd_client.fetch_product") as fp_pdd, \
                 mock.patch("scripts.lib.cache.cache_get", return_value=None), \
                 mock.patch("scripts.lib.cache.cache_set"), \
                 mock.patch.object(_svc, "_find_cached_probe", return_value=None), \
@@ -329,6 +372,7 @@ class TestProbeHardGate:
                     "https://detail.1688.com/offer/980815374096.html",
                     cdp=_CdpFake())
         fp.assert_not_called()
+        fp_pdd.assert_not_called()
         assert "SENTINEL_1688_FLOW" in str(ei.value), \
             "应穿过硬门进入 1688 原链（在 1688 专属 find_tab 才被哨兵拦下）"
 

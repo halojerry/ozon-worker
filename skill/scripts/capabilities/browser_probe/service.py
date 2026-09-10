@@ -2559,6 +2559,102 @@ def _probe_taobao_page(
     }
 
 
+def _probe_pdd_page(
+    target_url: str,
+    target: Any,
+    *,
+    timeout_seconds: int = 120,
+    cdp: Any | None = None,
+) -> dict[str, Any]:
+    """拼多多商品页探测（跨平台货源 v1 批3）——薄分派层（_probe_taobao_page 同构）。
+
+    真正的抓取/归一在 ``scripts.lib.pdd_client.fetch_product``（页内 rawData
+    三形态 + render/sku 页内兜底，见其模块 docstring 风险标注）；本函数只做：
+      ①非外部连接时解析/校验浏览器会话（与 probe_1688_page 同源纪律）；
+      ②调适配器（login_wait=True → 未登录走 pdd_client.wait_for_login 分级 UX，
+        与 taobao_client 同款，不另造轮子）；
+      ③把统一 ProductInfo 包装成 probe 形返回（probe_1688_page_safe 无需改动
+        即可消费；批4 信封组装直接读 ``source_product``）。
+    抓取失败（未登录/风控/强制 App 引导/数据缺失）→ 异常原样上抛（人话消息，
+    点名已尝试形态），由 probe_1688_page_safe 转成 ok=False + error——失败出声，
+    绝不返回半猜数据。
+    """
+    from scripts.lib import pdd_client
+
+    external_connection = cdp is not None
+    if external_connection:
+        cdp_url = str(getattr(cdp, 'cdp_url', '') or '').strip() or 'http://127.0.0.1:9222'
+        fetch_kwargs: dict[str, Any] = {'cdp': cdp}
+        launch_meta: dict[str, Any] = {
+            'platform': target.platform,
+            'adapter': 'pdd_client',
+            'external_connection': True,
+        }
+    else:
+        resolved_browser = find_browser_executable(None)
+        if not resolved_browser:
+            raise ConfigError('未找到可用的 Chrome/Chromium 浏览器，请先安装 Google Chrome 或传入 --browser-path')
+        profile_name = str(get_config_profile() or 'default').strip() or 'default'
+        session = _resolve_browser_session(profile_name)
+        cdp_url = str(session.get('cdp_url') or '').strip()
+        if not cdp_url or not _cdp_available(cdp_url):
+            raise ConfigError(
+                '未发现可复用的拼多多浏览器会话——请在工具 Chrome 登录拼多多'
+                '（mobile.yangkeduo.com）后重试，或运行 python scripts/cli.py check 诊断环境')
+        fetch_kwargs = {}
+        launch_meta = {
+            'platform': target.platform,
+            'adapter': 'pdd_client',
+            'cdp_url': cdp_url,
+            'profile': profile_name,
+            'external_connection': False,
+        }
+
+    product = pdd_client.fetch_product(
+        cdp_url,
+        target_url,
+        target,
+        timeout_seconds=max(15, min(int(timeout_seconds), 60)),
+        login_wait=True,
+        **fetch_kwargs,
+    )
+    launch_meta['login_detected'] = True
+
+    probe: dict[str, Any] = {
+        'site': target.platform,
+        'platform': target.platform,
+        'url': target_url,
+        'loginRequired': False,
+        'captchaDetected': False,
+        'title': str(product.get('title') or ''),
+        'price': str(product.get('price') or ''),
+        'brand': str(product.get('brand') or ''),
+        'seller': str(product.get('seller') or ''),
+        'images': [str(u) for u in (product.get('images') or []) if u],
+        'packagingRows': [],
+        'dimTextCandidates': [],
+        'shipping': dict(product.get('shipping') or {}),
+        'description': str(product.get('description') or ''),
+        'skuDetails': list(product.get('sku_details') or []),
+        'attributes': list(product.get('attributes') or []),
+        'optionGroups': list(product.get('option_groups') or []),
+        'weightGrams': product.get('weight_grams'),
+    }
+    return {
+        'ready': True,
+        'timed_out': False,
+        'failure_page': False,
+        'captcha_intercepted': False,
+        'no_matching_open_page': False,
+        'launch': launch_meta,
+        'summary': _build_summary(probe),
+        'probe': probe,
+        # 批4 信封组装直接消费的统一 ProductInfo（enrich data 同形）
+        'source_product': product,
+        'raw': {},
+    }
+
+
 def probe_1688_page(
     url: str,
     *,
@@ -2582,9 +2678,9 @@ def probe_1688_page(
     target_url = str(url or '').strip()
     if not target_url:
         raise ValidationError('1688 页面 URL 不能为空')
-    # ⚠️ 跨平台货源 v1 批2: 平台白名单分派（唯一判定入口 parse_platform_url）。
+    # ⚠️ 跨平台货源 v1 批2/批3: 平台白名单分派（唯一判定入口 parse_platform_url）。
     # 1688 → 下方 EXTRACT_1688_JS 原链逐字节不动；taobao/tmall → taobao_client
-    # 适配器（_probe_taobao_page）；pdd 已可解析但适配器在批3 → 明确拒绝。
+    # 适配器（_probe_taobao_page）；pdd → pdd_client 适配器（_probe_pdd_page，批3）。
     from scripts.lib.source_platforms import (
         parse_platform_url,
         probe_platform_supported,
@@ -2592,12 +2688,15 @@ def probe_1688_page(
     _target = parse_platform_url(target_url)
     if _target is None:
         raise ValidationError(
-            'browser_probe 只支持 1688/淘宝/天猫 页面 URL（拼多多适配器将在后续版本提供）')
+            'browser_probe 只支持 1688/淘宝/天猫/拼多多 页面 URL')
     if not probe_platform_supported(_target.platform):
         raise ValidationError(
-            'browser_probe 暂不支持拼多多页面 URL——拼多多适配器在跨平台货源 批3 提供')
+            f'browser_probe 暂不支持 {_target.platform} 页面 URL——该平台抓取适配器未上线')
     if _target.platform in ('taobao', 'tmall'):
         return _probe_taobao_page(
+            target_url, _target, timeout_seconds=timeout_seconds, cdp=cdp)
+    if _target.platform == 'pdd':
+        return _probe_pdd_page(
             target_url, _target, timeout_seconds=timeout_seconds, cdp=cdp)
 
     # Cache-aside: 标准 cache.py 命名空间缓存优先（Q7），_find_cached_probe 工件扫描兜底

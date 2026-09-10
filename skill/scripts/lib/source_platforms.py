@@ -11,8 +11,10 @@ id=/offerId=/offer_id= query）与 canonical 口径从
 原值不重写**（同 ak 行为）。test_source_platforms_parse.py 用 ak 解析器
 做逐字段对照回归；改本模块前先跑它。
 
-**pdd 红线（批3 前）**：parse 可识别 pdd，但 `probe_platform_supported`
-恒 False——browser_probe 硬门据此拒绝（拼多多适配器在批3 提供）。
+**pdd（批3 已上线）**：抓取适配器 ``pdd_client.fetch_product``（rawData 双形态
++ render/sku 兜底，纪律「失败出声、绝不半猜」——pdd web 反爬迭代频繁、rawData
+结构随版本漂移，见其模块 docstring 风险标注）；``PROBE_SUPPORTED_PLATFORMS``
+四平台全量放行。
 
 canonical 口径（新平台统一规范化，供信封 purchase_url/offer_id 解析）:
 - taobao → ``https://item.taobao.com/item.htm?id={id}``
@@ -29,8 +31,8 @@ from urllib.parse import urlparse
 
 SUPPORTED_PLATFORMS = ("1688", "taobao", "tmall", "pdd")
 
-# 抓取白名单：1688 现状 + 批2 淘宝/天猫适配器；pdd 批3 才提供适配器
-PROBE_SUPPORTED_PLATFORMS = ("1688", "taobao", "tmall")
+# 抓取白名单：1688 现状 + 批2 淘宝/天猫 + 批3 拼多多（适配器全量就位）
+PROBE_SUPPORTED_PLATFORMS = ("1688", "taobao", "tmall", "pdd")
 
 
 @dataclass(frozen=True)
@@ -153,5 +155,5 @@ def _taobao_tmall_id(path: str, query: str) -> str | None:
 
 
 def probe_platform_supported(platform: str) -> bool:
-    """该平台的抓取适配器是否已上线（pdd 批2/批3 前为 False）。"""
+    """该平台的抓取适配器是否已上线（四平台批3 起全量 True）。"""
     return platform in PROBE_SUPPORTED_PLATFORMS
