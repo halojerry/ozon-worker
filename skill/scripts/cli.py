@@ -3104,10 +3104,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="蓝海关键词 CSV 路径（--blue-ocean-source 时；默认 /tmp/queries_all.csv）")
     dp.add_argument("--review", action="store_true",
                     help="人工评审暂停：弱匹配候选逐个确认（y/N/a=全部/s=跳过），决策写入 review_log")
-    dp.add_argument("--compare-sources", type=int, default=5,
+    dp.add_argument("--compare-sources", type=int, default=None,
                     help="跨平台静默比价候选数（cross_source v1：利润过闸 top-N 在淘宝/拼多多"
-                         "后台静默比价，同款确认且显著更便宜才自动换源；默认 5；0=关闭；"
-                         "env DISCOVER_COMPARE_SOURCES 同义即时生效）")
+                         "后台静默比价，同款确认且显著更便宜才自动换源；优先级 显式传入 > "
+                         "env DISCOVER_COMPARE_SOURCES > 默认 5；0=关闭。default=None 使 "
+                         "env 热关即时生效——default=5 会让 env 永远失效）")
     dp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
     dp.set_defaults(func=cmd_discover)

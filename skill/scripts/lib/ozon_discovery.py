@@ -1227,14 +1227,19 @@ def _cross_source_compare(candidates: list[ProductCandidate], cdp_url: str,
                         offers, decision, platform)
 
                 if decision.winner is not None and decision.switched:
+                    # 原子化（Fix Round 1 Minor #6）：全量算好再一次性赋值——
+                    # float(w.price) 若抛异常由候选级 except 接住，槽位保持全旧值
+                    # + 无快照，绝不留「新 url + 旧价格 + 无快照」的半更新。
                     w = decision.winner
-                    cand.match_1688_url = w.url
-                    if w.title:
-                        # 平台未暴露标题（pdd 正则兜底 None）→ 保留 1688 参照标题
-                        cand.match_1688_title = w.title
-                    cand.match_1688_price = float(w.price)
-                    # None=新源运费未知（未知≠真实 0，绝不冒充 1688 运费）
-                    cand.match_1688_freight_cny = w.freight
+                    _new_url = str(w.url or "")
+                    _new_title = (str(w.title) if w.title
+                                  else cand.match_1688_title)  # 平台未暴露标题（pdd 正则兜底 None）→ 保留 1688 参照标题（cli 结果表裸切片消费者）
+                    _new_price = float(w.price)
+                    _new_freight = w.freight  # None=新源运费未知（未知≠真实 0，绝不冒充 1688 运费）
+                    cand.match_1688_url = _new_url
+                    cand.match_1688_title = _new_title
+                    cand.match_1688_price = _new_price
+                    cand.match_1688_freight_cny = _new_freight
                     switched += 1
                 compared += 1
                 cand.discovery_meta["source_comparison"] = {
@@ -1497,7 +1502,9 @@ def match_selected(
     # 跨平台静默货源匹配（批3）：map 定稿钩子（_giveback_metrics 同位置纪律——
     # 1688 匹配/利润/状态全部定稿后挂副钩）。利润过闸 top-N 候选 → 淘宝/拼多多
     # 静默比价 → 胜者换槽位；任何失败静默跳过，绝不影响匹配主流程。置于落盘前，
-    # 使 discovery_*.json / discovery_runs 归档自带快照。
+    # 本地 discovery_*.json（asdict 全量）自带快照；采集箱可见性走信封
+    # extensions.discovery_meta（cloud_probe 整包并入）——discovery_runs 归档走
+    # REPORT_FIELDS 白名单，不含 discovery_meta（Fix Round 1 Minor #3 如实口径）。
     try:
         _cross_source_compare(candidates, cdp_url,
                               top_n=_resolve_compare_sources(compare_sources))
@@ -4312,6 +4319,10 @@ def _save_discovery_log(candidates: list[ProductCandidate], keyword: str = "",
         data = []
         for c in candidates:
             entry = asdict(c)
+            # 空 discovery_meta 不落 JSON（Fix Round 1 Minor #4）：off 路径产物
+            # 干净（无 "discovery_meta": {} 空壳）；快照只在比价发生时存在。
+            if not entry.get("discovery_meta"):
+                entry.pop("discovery_meta", None)
             data.append(entry)
 
         path.write_text(

@@ -77,10 +77,12 @@ class _Clock:
 
 
 def _run(cands, *, workers=1, match=None, taobao=None, pdd=None,
-         compare_sources=5, clock=None, **kw):
+         compare_sources=5, clock=None, pick=None, **kw):
     """跑 match_selected：1688 图搜/两平台搜索/CDP 全 mock。
 
     taobao/pdd: None=零命中([])；list=静态 offers；Exception=恒抛；callable=定制。
+    pick: 非 None 时替换 source_matcher.pick_best_source（Important #2 锁测试用——
+    pick_best_source 对 None 标题恒 0 分不给胜者资格，None 标题胜者只能从本 seam 注入）。
     返回 (result, calls)；calls={"taobao": [...], "pdd": [...]}（每项含 keyword/timeout）。
     """
     if match is None:
@@ -117,6 +119,8 @@ def _run(cands, *, workers=1, match=None, taobao=None, pdd=None,
     ]
     if clock is not None:
         patches.append(mock.patch("time.monotonic", clock))
+    if pick is not None:
+        patches.append(mock.patch("scripts.lib.source_matcher.pick_best_source", pick))
     with contextlib.ExitStack() as st:
         for p in patches:
             st.enter_context(p)
@@ -173,6 +177,41 @@ class TestSwitchWriteBack:
         assert c.match_1688_freight_cny is None
         snap = c.discovery_meta["source_comparison"]
         assert snap["platforms"]["taobao"]["freight_unknown"] is True
+
+    def test_winner_title_none_keeps_1688_reference_title(self):
+        """锁 Fix Round 1 Important #2：胜者标题 None（pdd 正则兜底路径）→
+        槽位保留 1688 参照标题（cli 结果表裸切片 `[:36]` 的真实崩溃消费者），
+        url/price 照常换源，快照带胜者证据。pick_best_source 对 None 标题恒
+        0 分不给胜者资格 → 该分支只能从 pick seam 注入锁定。"""
+        from scripts.lib.source_matcher import Decision, PlatformBest
+
+        winner = SourceOffer(
+            platform="pdd", title=None, price=9.9, freight=None, sold=5,
+            url="https://mobile.yangkeduo.com/goods.html?goods_id=42")
+        fake_decision = Decision(
+            winner=winner, switched=True, reason="pdd 换源：到手价 9.9 < 1688 27",
+            baseline_1688_cost=BASELINE_PRICE, same_min=0.45, switch_ratio=0.9,
+            platform_bests={"pdd": PlatformBest(
+                platform="pdd", offer=winner, confirm_score=0.8,
+                landed_cost=9.9, freight_unknown=True, sold=5)},
+            confirm_scores={winner.url: 0.8})
+
+        cands = _cands(1)
+        result, calls = _run(cands, taobao=[_offer("taobao", price=28.0)],
+                             pdd=[], pick=lambda offers, baseline,
+                             candidate_title="": fake_decision)
+        c = result[0]
+        assert calls["taobao"] and calls["pdd"]  # 两平台真搜索照常发生
+        # 换源发生：url/price 用胜者；title 保留 1688 参照（None 不写槽位）
+        assert c.match_1688_url == winner.url
+        assert c.match_1688_price == 9.9
+        assert c.match_1688_title == MATCH_1688["title"]
+        assert c.match_1688_freight_cny is None
+        # 快照在场且带胜者证据
+        snap = c.discovery_meta["source_comparison"]
+        assert snap["decision"]["winner"] == winner.url
+        assert snap["decision"]["switched"] is True
+        assert snap["platforms"]["pdd"]["url"] == winner.url
 
     def test_not_switched_slots_untouched_snapshot_present(self):
         """便宜但未达换源线 → 槽位原封不动，快照仍在场（switched=False）。"""
@@ -396,13 +435,54 @@ class TestEnvelopeAndCliWiring:
         assert meta["source_comparison"]["decision"]["switched"] is False
         assert meta["source_comparison"]["baseline"]["url"] == BASELINE_URL
 
+    def test_save_log_drops_empty_discovery_meta_key(self, tmp_path, monkeypatch):
+        """锁 Fix Round 1 Minor #4：off 路径本地 discovery_*.json 不再输出
+        `"discovery_meta": {}` 空壳；比价发生时快照照常在 JSON 里。"""
+        monkeypatch.setattr(od, "DISCOVERY_CACHE_DIR", tmp_path)
+        off = _cands(1)[0]                      # 从未比价 → discovery_meta 为空 dict
+        on = _cands(1)[0]
+        on.ozon_product_id = "on1"
+        on.discovery_meta = {"source_comparison": {
+            "baseline": {"url": BASELINE_URL, "price": BASELINE_PRICE},
+            "platforms": {}, "decision": {"winner": None, "reason": "r",
+                                          "switched": False},
+            "thresholds": {"same_min": 0.45, "switch_ratio": 0.9}}}
+        import json as _json
+        od._save_discovery_log([off, on])       # 无 keyword/filters → 不触发上报
+        data = _json.loads(
+            sorted(tmp_path.glob("discovery_*.json"))[0].read_text(encoding="utf-8"))
+        by_id = {row["ozon_product_id"]: row for row in data}
+        assert "discovery_meta" not in by_id["100"]      # off 路径零空壳键
+        assert "source_comparison" in by_id["on1"]["discovery_meta"]
+
     def test_cli_discover_argument_default_and_off(self):
+        """Fix Round 1 Important #1：argparse default=None（不再是写死的 5）——
+        未显式传时交给 env/默认解析链，DISCOVER_COMPARE_SOURCES 热关才真正生效。"""
         from scripts.cli import build_arg_parser
 
         args = build_arg_parser().parse_args(["discover"])
-        assert args.compare_sources == 5
+        assert args.compare_sources is None
         args0 = build_arg_parser().parse_args(["discover", "--compare-sources", "0"])
         assert args0.compare_sources == 0
+
+    def test_cli_env_hot_off_flows_through_resolution(self, monkeypatch):
+        """锁 Important #1 解析链（reviewer 实证 default=5 使 env 热关失效）：
+        CLI 缺省(None) 走 `_resolve_compare_sources(None)` → env 分支生效；
+        显式 `--compare-sources` 恒优先于 env。"""
+        from scripts.cli import build_arg_parser
+
+        monkeypatch.setenv("DISCOVER_COMPARE_SOURCES", "0")
+        args = build_arg_parser().parse_args(["discover"])
+        assert od._resolve_compare_sources(
+            getattr(args, "compare_sources", None)) == 0  # 热关生效（此前恒 5）
+
+        monkeypatch.setenv("DISCOVER_COMPARE_SOURCES", "3")
+        args2 = build_arg_parser().parse_args(["discover"])
+        assert od._resolve_compare_sources(
+            getattr(args2, "compare_sources", None)) == 3  # env 即时生效
+
+        argsx = build_arg_parser().parse_args(["discover", "--compare-sources", "0"])
+        assert od._resolve_compare_sources(argsx.compare_sources) == 0  # 显式覆盖 env
 
 
 if __name__ == "__main__":
