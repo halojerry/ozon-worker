@@ -138,3 +138,6 @@ docs/参考项目/
 
 # ─── worker 运行时快照（类目树刷新备份等）───
 worker/data/
+
+# ─── PG 备份产物（明文/密文 dump 绝不入库）───
+deploy/backups/

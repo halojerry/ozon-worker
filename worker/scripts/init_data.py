@@ -25,6 +25,55 @@ logger = logging.getLogger(__name__)
 ASSETS_DIR = os.path.join(os.getenv("APP_WORKSPACE_PATH", os.path.dirname(os.path.dirname(__file__))), "assets")
 
 
+def register_schema_migration(engine, version, note=""):
+    """BL-09（repo-gov B2-β）: 结构性迁移登记（幂等）——schema_migrations 一行。
+
+    每个迁移（migrate_webui_v1 / migrate_sync_erp_v1 / migrate_drafts_batch_v1 /
+    migrate_repo_gov_b2b）执行成功后调一次；ON CONFLICT (version) DO NOTHING →
+    重复初始化 no-op。登记失败仅 warning 不阻断初始化（登记是观测面不是闸门——
+    迁移本身全部幂等 DDL，漏登记只会让下次初始化重跑一遍 no-op）。
+    """
+    from sqlalchemy import text as sql_text
+
+    try:
+        with engine.begin() as conn:
+            conn.execute(sql_text(
+                "INSERT INTO schema_migrations (version, note) VALUES (:version, :note) "
+                "ON CONFLICT (version) DO NOTHING"
+            ), {"version": version, "note": (note or "")[:500]})
+        logger.info(f"✅ 迁移登记: {version}")
+    except Exception as exc:
+        logger.warning(
+            "⚠️ schema_migrations 登记失败 version=%s（不阻断初始化）: %s",
+            version, str(exc)[:200],
+        )
+
+
+def migrate_repo_gov_b2b(engine):
+    """BL-16（repo-gov B2-β）: draft_submissions 补 tenant_id 列（幂等，二次运行 no-op）。
+
+    新建库 create_all 已带列（model.py DraftSubmission.tenant_id），此处兜底存量库：
+    ADD COLUMN IF NOT EXISTS + 同名索引（SQLAlchemy index=True 生成的默认名
+    ix_draft_submissions_tenant_id）。可空列——存量行保持 NULL，不回填不阻塞。
+    纯 DDL 无绑定参数（text() 裸 cast 坑不适用，见 AGENTS 记忆 sqlalchemy-jsonb-cast-trap）。
+    """
+    from sqlalchemy import text as sql_text
+
+    with engine.connect() as conn:
+        conn.execute(sql_text(
+            "ALTER TABLE draft_submissions ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(50)"
+        ))
+        conn.execute(sql_text(
+            "CREATE INDEX IF NOT EXISTS ix_draft_submissions_tenant_id "
+            "ON draft_submissions (tenant_id)"
+        ))
+        conn.commit()
+    register_schema_migration(
+        engine, "2026-09-repo-gov-b2b",
+        "BL-16 draft_submissions.tenant_id 加列（提交行租户归属；存量行 NULL 不回填）",
+    )
+
+
 def create_tables(engine):
     """创建所有表（幂等）。"""
     from storage.database.shared.model import Base
@@ -127,14 +176,29 @@ def create_tables(engine):
         ))
         conn.commit()
     # ✅ v0.41 WebUI T1: task_generated_images ALTER + 新表索引（幂等，二次运行 no-op）
+    # ✅ BL-09（repo-gov B2-β）: 每个结构性迁移执行成功后登记版本（幂等；version 从函数名推）
     from migrate_webui_v1 import run_migrations
     run_migrations(engine)
+    register_schema_migration(
+        engine, "2026-09-webui-v1",
+        "WebUI v1 数据层迁移（product_drafts/draft_submissions/credentials/product_task_index/task_generated_images）",
+    )
     # ✅ PRD store-sync-ERP v1: 同步任务/日聚合/成本货源/退货/进度事件等新表与扩列（幂等）
     from migrate_sync_erp_v1 import run_migrations as run_sync_migrations
     run_sync_migrations(engine)
+    register_schema_migration(
+        engine, "2026-09-sync-erp-v1",
+        "store-sync-ERP v1 迁移（同步任务/日聚合/成本货源/退货/进度事件等新表与扩列）",
+    )
     # ✅ T-P3.1 批次契约: product_drafts.source_batch 加列（幂等；新建库 create_all 已带列，此处兜底存量/半迁移库）
     from migrate_drafts_batch_v1 import run_migrations as run_drafts_batch_migrations
     run_drafts_batch_migrations(engine)
+    register_schema_migration(
+        engine, "2026-09-drafts-batch-v1",
+        "T-P3.1 product_drafts.source_batch 加列（采集批次契约）",
+    )
+    # ✅ BL-16（repo-gov B2-β）: draft_submissions.tenant_id 加列 + 版本登记（幂等）
+    migrate_repo_gov_b2b(engine)
     logger.info("✅ 表结构已就绪")
 
 
