@@ -2006,6 +2006,18 @@ def _build_graph_envelope_cross_platform(
     except Exception:
         pass
 
+    # 6.7b pricing 审计（fix round 1 Minor #2：与 1688 尾部同构，观测面对齐；
+    # 值来自平台链真实产物——折叠后 purchase_cost 与 6.5 注入的 extensions）
+    try:
+        _audit.log("envelope", "pricing", "info", "Pricing params", {
+            "margin_rate": envelope["extensions"].get("margin_rate", 0),
+            "commission_rate": envelope["extensions"].get("commission_rate", 0),
+            "fx_buffer": envelope["extensions"].get("fx_buffer", 0),
+            "source": "ozon_api" if envelope["extensions"].get("commission_rate", 0) > 0 else "store_config",
+        })
+    except Exception:
+        pass
+
     # ── 7. 组装 GraphInput（1688 同构副本，见 docstring ⚠️）──
     mxou_token = _get_mxou_token() or _get_token()
     return {
