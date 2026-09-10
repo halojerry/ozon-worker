@@ -54,9 +54,17 @@ def _run(cands: list[ProductCandidate], match) -> list[ProductCandidate]:
          mock.patch.object(od, "_search_1688_source", return_value=match), \
          mock.patch.object(od, "_query_logistics_from_worker", return_value=None), \
          mock.patch.object(od, "_save_discovery_log"), \
+         mock.patch.object(od, "_cross_source_compare"), \
          mock.patch("scripts.lib.ozon_discovery._log_review_record"), \
          mock.patch("time.sleep"):
         return od.match_selected(cands, "http://127.0.0.1:9222", min_margin_pct=1)
+
+
+# ⚠️ 批4 gate 校准 round（2026-09-10）：跨源副钩 _cross_source_compare 在涉及
+# match_selected 的单测里必须 mock——钩子拿 match_1688_title 真实触达本机 Chrome
+# （恰有登录态即真搜索），胜者换源会改写 match_1688_* 槽位 → 断言非确定性失败
+# （无 Chrome 的 CI 静默跳过所以曾绿）。跨源行为由
+# test_discover_cross_source_wiring.py 专项锁定。
 
 
 # ── ① 阈值常量 ────────────────────────────────────────────────────────────
@@ -91,6 +99,7 @@ def test_low_confidence_writes_review_log():
          mock.patch.object(od, "_search_1688_source", return_value=_match(0.1)), \
          mock.patch.object(od, "_query_logistics_from_worker", return_value=None), \
          mock.patch.object(od, "_save_discovery_log"), \
+         mock.patch.object(od, "_cross_source_compare"), \
          mock.patch("scripts.lib.ozon_discovery._log_review_record") as m_log, \
          mock.patch("time.sleep"):
         od.match_selected([c], "http://127.0.0.1:9222", min_margin_pct=1)
