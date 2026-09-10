@@ -221,6 +221,9 @@ def build_offers(platform: str, raw_offers: Any) -> list[SourceOffer]:
             continue
         seen_urls.add(url)
         freight_text = str(raw.get("freight") or "").strip()
+        image = _https_url(raw.get("image"))
+        # 懒加载占位图过滤（Minor #5）：data: URI 等非 http(s) 一律 None
+        image = image if image.startswith(("http://", "https://")) else None
         out.append(SourceOffer(
             platform=platform,
             title=str(raw.get("title") or "").strip() or None,
@@ -228,7 +231,7 @@ def build_offers(platform: str, raw_offers: Any) -> list[SourceOffer]:
             freight=parse_freight_cny(freight_text) if freight_text else None,
             sold=parse_sold_text(raw.get("sold")),
             url=url,
-            image=_https_url(raw.get("image")) or None,
+            image=image,
         ))
         if len(out) >= MAX_OFFERS:
             break
@@ -263,13 +266,22 @@ def _pdd_search_url(keyword: str) -> str:
 # ────────────────────────── 页内 JS（单次 evaluate，await_promise）──────────
 # 渲染等待 + DOM/卡片解析全部在页内完成（body 不回传 Python——拼多多 ~344KB）。
 # 载荷契约（JSON 字符串）：
-#   {status: 'ok'|'empty'|'login'|'error', message, url, offers: [
+#   {status: 'ok'|'empty'|'login'|'context'|'error', message, url, offers: [
 #     {id, title, price, sold, url, image}]}   # 文本原样回传，数值解析在 Python
 
 
 _TAOBAO_SEARCH_JS = r"""(async () => {
     const BUDGET_MS = __BUDGET_MS__;
+    const CTX_MARKER = __CTX_MARKER__;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    // 上下文校验（批1 fix round 1，Important #1）：href 不在目标搜索域（导航竞态
+    // 落在 about:blank / 上一关键词残留页）→ status 'context'——绝不在此页面跑
+    // 登录探测（空 cookie jar 会把慢载误判成未登录，毒化平台级负缓存）。
+    function classifyContext() {
+        const href = String(location.href || '');
+        if (href.indexOf(CTX_MARKER) !== -1) return '';
+        return '页面不在目标搜索域（预期含 ' + CTX_MARKER + '，当前 ' + href.slice(0, 120) + '）';
+    }
     function classifyLogin() {
         const href = String(location.href || '');
         if (/login\.taobao\.com|login\.tmall\.com/i.test(href)) return '搜索页被重定向到登录页';
@@ -283,6 +295,12 @@ _TAOBAO_SEARCH_JS = r"""(async () => {
         u = String(u || '');
         if (!u) return '';
         if (u.indexOf('//') === 0) return 'https:' + u;
+        return u;
+    }
+    // 懒加载占位图过滤（批1 fix round 1，Minor #5）：data: URI 等 非 http(s) 一律弃
+    function absImg(u) {
+        u = abs(u);
+        if (u.indexOf('http://') !== 0 && u.indexOf('https://') !== 0) return '';
         return u;
     }
     function offersFromDom() {
@@ -313,12 +331,16 @@ _TAOBAO_SEARCH_JS = r"""(async () => {
                 price: pm ? pm[1] : null,
                 sold: sm ? sm[1].replace(/\s+/g, '') : null,
                 url: 'https://item.taobao.com/item.htm?id=' + id,
-                image: img ? abs(img.getAttribute('data-src') || img.getAttribute('src') || img.src || '') : '',
+                image: img ? absImg(img.getAttribute('data-src') || img.getAttribute('src') || img.src || '') : '',
             });
         });
         return out.slice(0, 40);
     }
     try {
+        const ctxReason = classifyContext();
+        if (ctxReason) {
+            return JSON.stringify({status: 'context', message: ctxReason, url: String(location.href || ''), offers: []});
+        }
         const loginReason = classifyLogin();
         if (loginReason) {
             return JSON.stringify({status: 'login', message: loginReason, url: String(location.href || ''), offers: []});
@@ -355,7 +377,15 @@ _TAOBAO_ID_DIG_JS = r"""(() => {
 
 _PDD_SEARCH_JS = r"""(async () => {
     const BUDGET_MS = __BUDGET_MS__;
+    const CTX_MARKER = __CTX_MARKER__;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    // 上下文校验（批1 fix round 1，Important #1）：同 taobao 侧——导航竞态落在
+    // about:blank/残留页时先报 context，绝不在空 cookie jar 上跑登录探测。
+    function classifyContext() {
+        const href = String(location.href || '');
+        if (href.indexOf(CTX_MARKER) !== -1) return '';
+        return '页面不在目标搜索域（预期含 ' + CTX_MARKER + '，当前 ' + href.slice(0, 120) + '）';
+    }
     function classifyLogin() {
         const href = String(location.href || '');
         if (/passport\.pinduoduo\.com|renzheng\.pinduoduo\.com/i.test(href)) return '登录/验证页重定向';
@@ -366,6 +396,12 @@ _PDD_SEARCH_JS = r"""(async () => {
         u = String(u || '');
         if (!u) return '';
         if (u.indexOf('//') === 0) return 'https:' + u;
+        return u;
+    }
+    // 懒加载占位图过滤（批1 fix round 1，Minor #5）：data: URI 等非 http(s) 一律弃
+    function absImg(u) {
+        u = abs(u);
+        if (u.indexOf('http://') !== 0 && u.indexOf('https://') !== 0) return '';
         return u;
     }
     function offersFromDom() {
@@ -397,12 +433,16 @@ _PDD_SEARCH_JS = r"""(async () => {
                 price: pm ? pm[1] : null,
                 sold: null,
                 url: 'https://mobile.yangkeduo.com/goods.html?goods_id=' + id,
-                image: img ? abs(img.getAttribute('data-src') || img.getAttribute('src') || img.src || '') : '',
+                image: img ? absImg(img.getAttribute('data-src') || img.getAttribute('src') || img.src || '') : '',
             });
         });
         return out.slice(0, 40);
     }
     try {
+        const ctxReason = classifyContext();
+        if (ctxReason) {
+            return JSON.stringify({status: 'context', message: ctxReason, url: String(location.href || ''), offers: []});
+        }
         const loginReason = classifyLogin();
         if (loginReason) {
             return JSON.stringify({status: 'login', message: loginReason, url: String(location.href || ''), offers: []});
@@ -495,14 +535,27 @@ def _evaluate_phase(tab: Any, js: str, deadline: float, label: str,
     return payload
 
 
-def _kind_of(payload: dict, platform: str) -> tuple[str, str]:
-    """evaluate 载荷 → (kind, detail)。kind ∈ ok/empty/login/error。"""
+def _kind_of(payload: dict, platform: str, expected_search_url: str) -> tuple[str, str]:
+    """evaluate 载荷 → (kind, detail)。kind ∈ ok/empty/login/context/error。
+
+    判序（批1 fix round 1，Important #1）：
+    ①登录标记最先——真登录重定向（payload.url 命中平台登录标记）要写负缓存；
+    ②上下文校验——payload.url 原始地址不以预期搜索 URL 开头（或 JS 直报 status
+    'context'）→ context：**不写 NotLoggedIn 缓存**，调用方重试一次消导航竞态。
+    两类竞态都拦：about:blank 空 cookie jar（JS 侧先报 context）+ 复用 tab 停在
+    上一关键词的搜索页（同域 marker 挡不住，须对到含关键词的完整 search_url）。
+    保守偏差已接受：平台若把搜索页 302 成别的形态（批4 实机验证）→ 恒 context
+    → 该平台静默跳过（宁可不比价，绝不在错误页面上解析/误判登录）。
+    """
     status = str(payload.get("status") or "").strip()
     url = str(payload.get("url") or "")
     markers = (_TAOBAO_LOGIN_URL_MARKERS if platform == "taobao"
                else PDD_LOGIN_URL_MARKERS)
     if status == "login" or any(m in url for m in markers):
         return "login", str(payload.get("message") or f"搜索页被重定向到登录页（{url or '未知 URL'}）")
+    if status == "context" or (url and not url.startswith(expected_search_url)):
+        return "context", str(payload.get("message")
+                              or f"页面不在预期搜索源（url={url or '空'}，预期 {expected_search_url}）")
     if status == "ok":
         return "ok", ""
     if status == "empty":
@@ -549,10 +602,27 @@ def _run_keyword_search(platform, cdp_url, keyword, timeout, cdp, *,
         deadline = time.monotonic() + float(timeout)
         tab, created = _tab_for_search(cdp, find_pattern, search_url, deadline)
 
-        payload = _evaluate_phase(
-            tab, phase1_js.replace("__BUDGET_MS__", str(_render_budget_ms(deadline))),
-            deadline, f"{label}搜索页解析", strict=True)
-        kind, detail = _kind_of(payload, platform)
+        # 阶段1（批1 fix round 1，Important #1）：上下文校验 + 竞态重试一次——
+        # 新建后台 tab 的 about:blank load 事件与 Page.enable 订阅竞速时，
+        # evaluate 可能落在 about:blank（空 cookie jar，JS 直报 context）或复用
+        # tab 上一关键词残留页（payload.url 不含搜索源标记，Python 侧拒绝）。
+        # context 重分类不写 NotLoggedIn 缓存；重试后仍 context → 大声报错。
+        phase1_js_ready = (phase1_js
+                           .replace("__BUDGET_MS__", str(_render_budget_ms(deadline)))
+                           .replace("__CTX_MARKER__", json.dumps(find_pattern)))
+        kind, detail = "context", "首轮未评估"
+        for attempt in range(2):
+            payload = _evaluate_phase(tab, phase1_js_ready, deadline,
+                                      f"{label}搜索页解析", strict=True)
+            kind, detail = _kind_of(payload, platform, search_url)
+            if kind == "context" and attempt == 0:
+                logger.debug("跨源搜索 %s：页面上下文不符，重试一次消导航竞态（%s）",
+                             platform, detail[:120])
+                continue
+            break
+        if kind == "context":
+            raise CrossSourceSearchError(
+                f"{label}搜索页上下文不符（{detail}）——重试一次后仍在错误页面，拒绝解析")
         if kind == "login":
             _LOGIN_STATE[platform] = False
             raise NotLoggedIn(platform, detail)
