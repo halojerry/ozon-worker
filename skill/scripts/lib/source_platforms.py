@@ -11,10 +11,10 @@ id=/offerId=/offer_id= query）与 canonical 口径从
 原值不重写**（同 ak 行为）。test_source_platforms_parse.py 用 ak 解析器
 做逐字段对照回归；改本模块前先跑它。
 
-**pdd（批3 已上线）**：抓取适配器 ``pdd_client.fetch_product``（rawData 双形态
-+ render/sku 兜底，纪律「失败出声、绝不半猜」——pdd web 反爬迭代频繁、rawData
-结构随版本漂移，见其模块 docstring 风险标注）；``PROBE_SUPPORTED_PLATFORMS``
-四平台全量放行。
+**pdd（批3 已上线）**：抓取适配器 ``pdd_client.fetch_product``（rawData 三形态
+``store.initDataObj.goods`` / ``store.goods`` / ``goods`` + render/sku 兜底，
+纪律「失败出声、绝不半猜」——pdd web 反爬迭代频繁、rawData 结构随版本漂移，
+见其模块 docstring 风险标注）；``PROBE_SUPPORTED_PLATFORMS`` 四平台全量放行。
 
 canonical 口径（新平台统一规范化，供信封 purchase_url/offer_id 解析）:
 - taobao → ``https://item.taobao.com/item.htm?id={id}``
