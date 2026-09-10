@@ -139,7 +139,7 @@ def test_main_resume_skips_done_retries_failed_same_file():
     processed: list[str] = []
 
     def fake_process_1688(url, offer_id, client_id, api_key, worker_url,
-                          dry_run, store_id=""):
+                          dry_run, store_id="", source_type="1688"):
         processed.append(offer_id)
         return _result(offer_id, True)
 
@@ -177,7 +177,7 @@ def test_main_resume_all_done_exits_zero():
     processed: list[str] = []
 
     def fake_process_1688(url, offer_id, client_id, api_key, worker_url,
-                          dry_run, store_id=""):
+                          dry_run, store_id="", source_type="1688"):
         processed.append(offer_id)
         return _result(offer_id, True)
 
