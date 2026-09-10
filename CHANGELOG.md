@@ -47,6 +47,7 @@
 - **CHIPS 分区 cookie 双读**：`_cdp_get_cookies_sequence` Network→Storage 二读合并（same-name longer-wins，ozonAI 规则）——`abt_data` 存 partitionKey topLevelSite 下单读必漏；域过滤口径「有 domain 且不含 ozon.ru 才排除」。
 - **premium 面**：`makeBase()` 共享底座（isAnalyst/grace_period_end_at/api:full_access）接入 makeStatus+makeGraph（此前 graph 面缺共享底座）；直调补 `x-o3-app-name: seller-ui`。
 - **毛子移植双件**：①CSP 剥除 `CdpTab.set_bypass_csp`（Page.setBypassCSP，warn 不 raise；仅浏览器上下文用户自己会话、拦响应不篡改请求）；②variant_v2 真值链（seller `/api/v/search` sku→variant_id → `create-bundle-by-variant-id` → item 尺寸重量 g/mm）消费端 clamp [10,200_000]g + marks `weight_from_pool_variant`；JS 模板裸槽位值一律 json.dumps 注入（不防单引号）。
+  - 【2026-09-11 勘误】variant_v2 真值链实验性未生效：fetch_variant_truth 无生产调用方 / `_giveback_metrics` 的 variant_payloads 无人传值恒 None / worker `needs_variant_sync` 零消费（三段断链）——SkuMetricsPool.variant_payload 无生产写者、`_apply_pool_variant_weight` 生产不可达；接线归数据池计划批 8 P2（docs/audit/2026-09-11-repo-gov/A5）。
 - **派生指标**：`custom_click_rate = qtyViewPdp/views*100`（maozi 公式）进 `_assemble_discovery_meta` + CONTRACT-v4 §1.1.1 登记。
 - **P2 Excel 导出**：`export_to_xlsx` 四大区两行合并表头（基础信息/销售数据/尺寸重量/我的定价）+ 原子写 + 占用重试（PermissionError 退避，彻底失败 RuntimeError 保旧文件）+ cli `--export` 后缀路由 .xlsx 大小写不敏感。
 - 测试：worker 2377 / skill 1059 全绿；`gen_api_docs` 158 paths 零漂移；池测试带残留防护（pre-delete + try/finally，真实 PG 验证）。

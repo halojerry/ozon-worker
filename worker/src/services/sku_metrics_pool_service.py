@@ -32,6 +32,44 @@ def _cap_append(existing: list, value: str | None, cap: int) -> list:
     return (list(existing or []) + [str(value)])[-cap:]
 
 
+def _upsert_one(session, model, sku: int, item: dict, sales, variant,
+                source_company_id, contributed_by) -> bool:
+    """单条 upsert：SAVEPOINT 包住 select+merge+add+flush（B2a-3 原子化）。
+
+    旧实现逐条 SELECT-then-INSERT + 末尾单 commit——并发同 sku 两请求，后
+    commit 方 IntegrityError 整批（≤12 条）丢失。现在唯一键冲突在 SAVEPOINT
+    内的 flush 处暴露：回滚该 savepoint 后 re-select 已存在行再合并一次
+    （有界重试 1 次），仍冲突计 skipped 不炸整批。
+    """
+    from sqlalchemy.exc import IntegrityError
+    for _attempt in (1, 2):
+        try:
+            with session.begin_nested():
+                row = session.query(model).filter_by(sku=sku).one_or_none()
+                if row is None:
+                    row = model(sku=sku)
+                    session.add(row)
+                if isinstance(sales, dict):
+                    row.sales_payload = sales
+                if isinstance(variant, dict):
+                    row.variant_payload = variant
+                if item.get("category_dc"):
+                    row.category_dc = int(item["category_dc"])
+                if item.get("category_tp"):
+                    row.category_tp = int(item["category_tp"])
+                row.source_company_ids = _cap_append(row.source_company_ids, source_company_id, _SOURCE_CAP)
+                row.contributed_by_token_ids = _cap_append(row.contributed_by_token_ids, contributed_by, _CONTRIB_CAP)
+                # 冲突必须在 SAVEPOINT 内显式暴露（flush），否则拖到末尾单 commit
+                # 才爆，整批报废——正是本函数要根治的旧行为
+                session.flush()
+            return True
+        except IntegrityError:
+            if _attempt == 2:
+                break
+    logger.warning("sku_metrics_pool upsert 写入冲突放弃 sku=%s（有界重试耗尽）", sku)
+    return False
+
+
 def upsert_seller_sync_items(session, items, *, source_company_id=None, contributed_by=None):
     from storage.database.shared.model import SkuMetricsPool
     accepted = skipped = 0
@@ -48,20 +86,10 @@ def upsert_seller_sync_items(session, items, *, source_company_id=None, contribu
         if sales is None and variant is None:
             skipped += 1
             continue
-        row = session.query(SkuMetricsPool).filter_by(sku=sku).one_or_none()
-        if row is None:
-            row = SkuMetricsPool(sku=sku)
-            session.add(row)
-        if isinstance(sales, dict):
-            row.sales_payload = sales
-        if isinstance(variant, dict):
-            row.variant_payload = variant
-        if item.get("category_dc"):
-            row.category_dc = int(item["category_dc"])
-        if item.get("category_tp"):
-            row.category_tp = int(item["category_tp"])
-        row.source_company_ids = _cap_append(row.source_company_ids, source_company_id, _SOURCE_CAP)
-        row.contributed_by_token_ids = _cap_append(row.contributed_by_token_ids, contributed_by, _CONTRIB_CAP)
+        if not _upsert_one(session, SkuMetricsPool, sku, item, sales, variant,
+                           source_company_id, contributed_by):
+            skipped += 1
+            continue
         accepted += 1
     session.commit()
     return {"accepted": accepted, "skipped": skipped}

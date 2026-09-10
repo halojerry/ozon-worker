@@ -2,6 +2,7 @@
 import os
 import json
 import logging
+import threading
 from typing import Any, Dict, Optional, Tuple
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
@@ -187,7 +188,16 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         packaging_cost: float = 2.0  # CNY
         
         # Step 4: 查询汇率（根据currency_code决定汇率方向）
+        # ✅ BL-01（2026-09-11）: 汇率值仍经 _get_exchange_rate（float 契约，既有测试族
+        # 按此 mock），来源（pg_cache/live_fetch/fallback_12）经线程键通道取走即清，
+        # fallback_12 时在 pricing_info 打双 marks 供审计「价格离谱是否源于兜底汇率」。
         exchange_rate: float = _get_exchange_rate(supabase_url, supabase_key, currency_code)
+        _fx_source: str = _consume_fx_source()
+        _fx_marks: Dict[str, Any] = (
+            {"exchange_rate_source": "fallback_12", "exchange_rate_fallback": True}
+            if _fx_source == "fallback_12"
+            else ({"exchange_rate_source": _fx_source} if _fx_source else {})
+        )
         
         # Step 5+6: 价格计算公式（M1.2 共享公式：utils/pricing_estimate.compute_price 唯一定义处，
         # 与 estimate 端点同源。公式 = 总成本 × (1+margin)/(1-commission) [× (1+fx_buffer)×汇率 if RUB]）
@@ -289,6 +299,8 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             "fx_buffer": fx_buffer,
             "currency_code": currency_code,
             "exchange_rate": exchange_rate if currency_code == "RUB" else 1.0,
+            # BL-01: 汇率源留痕（fallback_12 额外标 fallback=True；pg_cache/live_fetch 只带 source）
+            **_fx_marks,
             "price": price,
             "old_price": old_price,
             **({"promo_price": promo_price,
@@ -476,19 +488,45 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
 
 
 
+# ── BL-01: 汇率来源线程键通道 ──
+# _get_exchange_rate 的返回值契约是 float（5 个既有测试族按该契约 mock 此函数），
+# 汇率来源（pg_cache/live_fetch/fallback_12）经线程键 dict 传给调用点打 marks：
+# pricing_node 同步消费（写后即取即清），50 并发任务池线程间不串线。
+_FX_SOURCE_BY_THREAD: Dict[int, str] = {}
+
+
+def _record_fx_source(source: str) -> None:
+    """记录本次汇率来源（线程键隔离，供调用点消费）。"""
+    _FX_SOURCE_BY_THREAD[threading.get_ident()] = source
+
+
+def _consume_fx_source() -> str:
+    """取走并清空当前线程的汇率来源。
+
+    无记录返回空串——mock 掉 _get_exchange_rate 的既有测试/历史路径拿不到来源，
+    调用点不打 marks，行为与改动前一致（消费语义同时保证无残留串扰）。
+    """
+    return _FX_SOURCE_BY_THREAD.pop(threading.get_ident(), "")
+
+
 def _get_exchange_rate(supabase_url: str, supabase_key: str, currency_code: str = "RUB") -> float:
-    """查询汇率（根据currency_code决定汇率方向，优先 PG 缓存）"""
+    """查询汇率（根据currency_code决定汇率方向）
+
+    ✅ BL-01（2026-09-11）: CNY→RUB 路径改走 utils/fx_rate_service.resolve_cny_rub_rate
+    三级源链（PG 缓存 → er-api live 拉取并回写死缓存 → 12.0 兜底）——根治
+    set_exchange_rate 全仓零调用导致的「缓存过期后恒兜底 12.0 无告警」死缓存事故。
+    返回值契约保持 float（既有测试按此 mock 本函数）；来源经 _record_fx_source
+    传给调用点进 pricing_info.marks。
+    """
     if currency_code == "CNY":
+        _record_fx_source("")  # CNY 路径无汇率源，顺手清线程残留
         return 1.0
-    
-    # ✅ 从 PG 缓存查询（替代旧 Supabase REST API）
-    from utils.local_db_manager import LocalDBManager
-    local_db = LocalDBManager()
-    rate = local_db.get_exchange_rate("CNY", "RUB")
-    if rate:
-        logger.info(f"PG 汇率查询成功: CNY→RUB = {rate}")
-        return rate
-    
-    # 缓存未命中，使用默认值
-    logger.warning("PG 汇率缓存未命中，使用默认汇率 12.0")
-    return 12.0
+
+    from utils.fx_rate_service import resolve_cny_rub_rate
+    rate, source = resolve_cny_rub_rate()
+    _record_fx_source(source)
+    if source == "fallback_12":
+        logger.warning("PG 汇率缓存未命中，使用默认汇率 12.0")
+    else:
+        logger.info("汇率查询成功: CNY→RUB = %s (source=%s)", rate, source)
+    return rate

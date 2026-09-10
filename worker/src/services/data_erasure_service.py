@@ -41,6 +41,8 @@ STORE_SCOPED_TABLES = [
     "product_cost_history",
     "source_candidates",
     "product_task_index",
+    # B2a-4: seller 会话 cookie 密文（AES-GCM）随店硬删——吊销店铺后密文不残留
+    "ozon_sessions",
 ]
 
 
