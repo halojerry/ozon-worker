@@ -3,7 +3,7 @@
 ## [0.73.0] — 用户反馈 6+1 问题修复批次（2026-09-09，SDD 13 任务全绿）
 
 > 生产取证驱动（2026-09-09 主店铺批量 10 单失败，6 份 error_report + ozon_ro 生产库只读取证）。
-> 计划 `docs/PLAN-user-feedback-fixes-v073.md`；同区间并发 shopbang-parity 批次（下方 [Unreleased]）随本 tag 一并发出。
+> 计划 `docs/PLAN-user-feedback-fixes-v073.md`；同区间并发 shopbang-parity / 数据池 v1 / W1-W8 批次并入 [0.74.0] 随本 tag（v0.74.0）一并发出——0.73.0 未单独 tag。
 
 ### 修复（对应用户上报）
 - **报告快照 0 条根治**：error_reports/forensics/categories/attributes 四端点租户解析 `_key_user_id`（key 哈希）→ `resolve_tenant`（Supabase user_id），与任务写入侧对齐（v0.62.4 同类租户漂移在 v0.69/70 新端点复发）。⚠️ 生产既有 error_reports 旧行 tenant_id 为哈希值，修复后原 token 查不到旧报告（如需可另行迁移）。
@@ -34,9 +34,30 @@
 - 兜底抬重后定价/物流带不重算；价差拦截 notice 修复见 f5b42b8e（已带原因）；`create_blocked_draft.blocked_stage` 硬编码 category_match（价差落箱展示偏差）；其余 Output 非空默认值尾巴（attributes_llm/attributes_learning/category_lookup）待统一；检测源 attr_value_matcher.py:67 与 prepare:141 待 re-export 收口；harness Bearer 透传待实机验证。
 - 实机 gate（≥3 单）待跑；category_match_log.task_id P1-6 在 09-09 批次实证可关联（历史结论待重核触发条件）。
 
-## [Unreleased] — shopbang-parity 三批（2026-09-09，未发版）
+## [0.74.0] — 2026-09-10（数据池贡献闭环 v1 + shopbang-parity 三批；0.73.0 修复批次同车发出）
 
-> 上品帮（竞品）逆向对标落地：A 采集箱备注 / B 选品三字段 / C 店铺会话代管。
+> 本 tag 同时发出：①0.73.0 修复批次（上节，未单独 tag）含 W1-W8 部署链修复；②shopbang-parity 三批（下）；
+> ③数据池贡献闭环 v1（PR #9，feat/data-pool-parity-v1，计划 `docs/PLAN-data-pool-parity-v1.md` 含实机 Gate 结果记录节）。
+
+### 数据池贡献闭环 v1（对标 goldminer 读-回馈）
+- **新表 `sku_metrics_pool`**：跨店 SKU 指标池（sku BigInteger 唯一 / sales+variant payload JSONB / 类目 dc/tp / source_company_ids+contributed_by_token_ids 归因 cap10 服务层裁剪 / updated_at onupdate）。**只存指标数据，永不存 cookie**。
+- **`POST /api/v1/analytics/seller-sync`**：贡献收包 ≤12/批（`SKU_SYNC_MAX_ITEMS`）；ValidationError→422 可读 detail（credentials 同款）、畸形 JSON→422、内部异常只落日志不回显（analytics 安全纪律）；openapi_extra 声明 `SellerSyncIn`（含 _examples）。
+- **`GET /api/v1/analytics/sku-metrics`**：读侧指标+补采指令 ≤50/查——`needs_sales_sync`/`needs_variant_sync` 计算标记（`STALE_DAYS=14`）、ZH 类目名（category_tree_nodes），池全局共享无租户维度（同 category_mapping W11）。
+- **skill 回馈/读侧闭环**：discover map 定稿后 fire-and-forget `_giveback_metrics`（kill-switch `METRICS_POOL_REPORT=0`，分批 12，累计 accepted，绝不 raise）；读侧 `_apply_pool_metrics` 池优先富化——池命中可跳 CDP，**stale（needs_sales_sync=True）行只填值不计入命中**（不抑制真实补采）。
+- **CHIPS 分区 cookie 双读**：`_cdp_get_cookies_sequence` Network→Storage 二读合并（same-name longer-wins，ozonAI 规则）——`abt_data` 存 partitionKey topLevelSite 下单读必漏；域过滤口径「有 domain 且不含 ozon.ru 才排除」。
+- **premium 面**：`makeBase()` 共享底座（isAnalyst/grace_period_end_at/api:full_access）接入 makeStatus+makeGraph（此前 graph 面缺共享底座）；直调补 `x-o3-app-name: seller-ui`。
+- **毛子移植双件**：①CSP 剥除 `CdpTab.set_bypass_csp`（Page.setBypassCSP，warn 不 raise；仅浏览器上下文用户自己会话、拦响应不篡改请求）；②variant_v2 真值链（seller `/api/v/search` sku→variant_id → `create-bundle-by-variant-id` → item 尺寸重量 g/mm）消费端 clamp [10,200_000]g + marks `weight_from_pool_variant`；JS 模板裸槽位值一律 json.dumps 注入（不防单引号）。
+- **派生指标**：`custom_click_rate = qtyViewPdp/views*100`（maozi 公式）进 `_assemble_discovery_meta` + CONTRACT-v4 §1.1.1 登记。
+- **P2 Excel 导出**：`export_to_xlsx` 四大区两行合并表头（基础信息/销售数据/尺寸重量/我的定价）+ 原子写 + 占用重试（PermissionError 退避，彻底失败 RuntimeError 保旧文件）+ cli `--export` 后缀路由 .xlsx 大小写不敏感。
+- 测试：worker 2377 / skill 1059 全绿；`gen_api_docs` 158 paths 零漂移；池测试带残留防护（pre-delete + try/finally，真实 PG 验证）。
+
+### 发版 gate 口径（诚实记录）
+- discover 全链路实机 gate 已过（2026-09-09 充值后：3 completed / 2 approved，学习闭环实证）；数据池能力面实机已验证（CHIPS 892B abt_data 真值 / 池 E2E accepted / 池优先富化真值填充）。
+- **what-to-sell 数据面平台侧阻断**（shopbang C 的发版 gate 项改道）：requests 直调被 DataDome TLS 指纹级 403 终态、页内 fetch 被 SPA 轮换 Bearer 401——静态 cookie 快照不可持续已实证；roadmap = CDP 捕获 SPA Authorization（须内建 cdp_client 事件循环，旁路线程抢不到单消费者 socket 事件）+ bot-403 ≠ session_expired 区分改进。
+- 服务器 ops 待做：cos-update 部署 → TRUNCATE dictionary_value_cache → ≤2 分片重预热 → `--export-from-pg` 导出 → 上 COS（见 docs/CACHE-WARM-RUNBOOK.md）。
+
+### shopbang-parity 三批（2026-09-09 落地，对标上品帮）
+
 > 计划 `docs/PLAN-shopbang-parity-v1.md`，SDD 全分支终审 merge-ready（I1/I2 已收口）。
 
 ### A 采集箱备注（notes）

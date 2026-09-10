@@ -42,10 +42,34 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。
 
-## 最近更新（未发版 2026-09-09 — shopbang-parity 三批：采集箱备注/选品 4 键/店铺会话代管 + 实机测验）
+## 最近更新（v0.74.0 — 数据池贡献闭环 v1 + 采集通道增强 + shopbang/0.73.0 同车发版）
+
+> 2026-09-10 发版（tag v0.74.0）。**0.73.0 未单独 tag 随本版发出**；shopbang 三批（下节）同步转正。
+> 数据池完整计划 `docs/PLAN-data-pool-parity-v1.md`（含「实机 Gate 结果记录」节——what-to-sell 数据面
+> 平台侧阻断的取证与 roadmap 在其中）。
+
+- **数据池贡献闭环（对标 goldminer 读-回馈）**：新表 `sku_metrics_pool`（sku 唯一/指标 JSONB/归因 cap10；
+  **只存指标永不存 cookie**）+ `POST /api/v1/analytics/seller-sync`（≤12/批）+
+  `GET /api/v1/analytics/sku-metrics`（≤50/查，needs_*_sync 补采指令，STALE_DAYS=14，全局共享 W11）。
+  skill discover 读-回馈：`_giveback_metrics`（kill-switch `METRICS_POOL_REPORT=0`，绝不 raise）+
+  `_apply_pool_metrics` 池优先富化（池命中可跳 CDP；**stale 行只填值不计命中**，不抑制真实补采）。
+  改池表读写前必读 `services/sku_metrics_pool_service.py`（_norm_sku 剥 _0/_cap_append）。
+- **采集通道增强**：CHIPS 分区 cookie 双读（Network→Storage 二读 same-name-longer-wins，`abt_data` 在
+  partitionKey 下单读必漏）；CSP 剥除 `CdpTab.set_bypass_csp`（毛子对标，仅浏览器上下文用户自己会话、
+  拦响应不篡改请求）；variant_v2 真值链（毛子 create-bundle-by-variant-id 移植，消费端 clamp
+  [10,200_000]g + marks `weight_from_pool_variant`）；premium `makeBase()` 共享底座接入 Status+Graph；
+  `custom_click_rate=qtyViewPdp/views*100` 派生（CONTRACT-v4 §1.1.1 已登记）；P2 Excel 导出（四区两行
+  合并表头+原子写+占用重试，cli `--export` 后缀路由 .xlsx）。
+- **⚠️ what-to-sell 数据面平台侧阻断（改直调代码前必读）**：requests 直调被 DataDome TLS 指纹级 403
+  终态、页内 fetch 被 SPA 轮换 Bearer 401——静态 cookie 快照不可持续已实证；roadmap = CDP 捕获 SPA
+  Authorization（**必须内建 cdp_client 事件循环**，旁路线程抢不到单消费者 socket 事件）+
+  bot-403 ≠ session_expired 区分改进。
+- 测试基线：worker 2377 / skill 1059；gen_api_docs 158 paths 零漂移。
+
+## 最近更新（v0.74.0 同车 — shopbang-parity 三批：采集箱备注/选品 4 键/店铺会话代管 + 实机测验）
 
 > 对标上品帮（竞品）的三批落地 + 本地 Docker 真链路实测。计划 `docs/PLAN-shopbang-parity-v1.md`，
-> 契约细节 `docs/CONTRACT-v4.md` 未发版三节。**均未发版**，与 v0.72.0 批同车。
+> 契约细节 `docs/CONTRACT-v4.md` 三节。**已随 v0.74.0 发版**。
 
 - **A 采集箱运营备注（notes）**：skill `discover --to-box --note`（客户端截 2000 字）→ POST /drafts 请求体顶层 `notes` → `product_drafts.notes` 独立列（`_norm_notes` 三口归一：None→空/strip/cap2000；PATCH 用 `notes=COALESCE(:notes, notes)`——None=不改、空串=清；CSV 导入导出均带列；webui EditDraftDrawer 编辑）。**红线：notes 是运营态，绝不进信封 payload/extensions，worker 零业务消费**。
 - **B 选品 4 键三出口**（skill meta / REPORT_FIELDS / 本地 CSV + 采集箱导出 + webui 五面同名同语义）：`follow_profit_cny`/`follow_margin`（按 `min_competing_price` 同成本链换收入端——跟卖利润空间；默认 0.0 真实保留）、`ozon_old_price`（widget originalPrice 市场参考价，**绝不写 draft.original_price**——上架划线价归 worker 三档定价）、`match_1688_freight_cny`（后两者默认 **None=未知**，与真实 0 严格区分，省略纪律同 discovery_meta）。改动别处选品字段时三出口+worker 导出+webui 六处同步。
@@ -55,7 +79,7 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 ## 最近更新（v0.73.0 — 用户反馈 6+1 问题修复：租户漂移 + 错配拦截 + 类目桥接 + 体积重量兜底）
 
-> 2026-09-09。**已发版物料就绪（VERSION 四源 0.73.0），tag 待实机 gate**。生产取证驱动（批量 10 单失败 +
+> 2026-09-09。**已随 v0.74.0 发版（未单独 tag）**。生产取证驱动（批量 10 单失败 +
 > ozon_ro 库只读取证），计划 `docs/PLAN-user-feedback-fixes-v073.md`，SDD 13 任务全绿（worker 2323 / skill 999）。
 > **改这四条链前必读**：①错误报告/取证端点租户=`resolve_tenant`（main.py 四处，勿再回 `_key_user_id`——
 > 生产任务 tenant 是 Supabase user_id 整数如 "28"，哈希租户查不到）；②本地预检错误码
@@ -81,7 +105,7 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
   默认值归零）；ERROR_NOTICE_MAP 如实化+快照带 last_decline。
 - 测试：worker **2323** / skill **999** 全绿；`gen_api_docs --check` 零漂移。服务器 ops（cos-update →
   TRUNCATE dictionary_value_cache → ≤2 分片重预热 → 上 COS）见 docs/CACHE-WARM-RUNBOOK.md，待执行。
-- **W1-W8 部署修复（随 0.73.0 同车，未发版）**：全量预热→导出→上 COS 闭环根治，计划
+- **W1-W8 部署修复（随 0.74.0 发版）**：全量预热→导出→上 COS 闭环根治，计划
   `docs/PLAN-w1w8-cos-deploy-fixes-v073.md`。三条硬规则：
   - **改 warm/init_data/ozon_category_query 写 SQL 前必读记忆 `sqlalchemy-jsonb-cast-trap`**：SQLAlchemy
     `text()` 不识别 `:bind::type` 裸 cast（bind 名连同 `::` 解析坏 → syntax error 且常被 except 吞成静默
@@ -729,7 +753,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 
 - **`extensions`** — 定价配置: `{margin_rate, commission_rate, fx_buffer}`(可选,默认 0.25/0.10/0.05)
 - **`extensions.follow_sell`** — 跟卖标记: Worker 走跟卖管线
-- **`extensions.discovery_meta`** — discover 选品元数据快照（蓝海分/月销/利润率/跟卖利润/划线价/国内运费等 ~37 键，缺失键省略；未发版批新增 follow_profit_cny/follow_margin/ozon_old_price/match_1688_freight_cny——对标上品帮选品记录）：worker 零消费**整包透传**（payload JSONB 随任务/草稿留存），采集箱 webui/CSV 展示选品依据；改信封组装见 `cloud_probe._assemble_discovery_meta`（漏斗 v2，契约详见 CONTRACT-v4 §1.1.1 表）
+- **`extensions.discovery_meta`** — discover 选品元数据快照（蓝海分/月销/利润率/跟卖利润/划线价/国内运费等 ~37 键，缺失键省略；随 v0.74.0 发版新增 follow_profit_cny/follow_margin/ozon_old_price/match_1688_freight_cny——对标上品帮选品记录）：worker 零消费**整包透传**（payload JSONB 随任务/草稿留存），采集箱 webui/CSV 展示选品依据；改信封组装见 `cloud_probe._assemble_discovery_meta`（漏斗 v2，契约详见 CONTRACT-v4 §1.1.1 表）
 - **`extensions.competitor_ref_images`** — 跟卖竞品主图快照（串图修复引入）：skill 写入、worker 暂零消费（预留语义位），**绝不进 `draft.images`/生图参考链**；登记于 CONTRACT-v4 §1.1.1
 
 > ⚠️ **关键约定:**
@@ -764,9 +788,9 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 | 采集箱草稿（v0.41+） | `GET/POST /api/v1/drafts` + `GET/PATCH/DELETE /drafts/{id}` + `POST /drafts/{id}/submit`（+ `/resubmit`、`/batch-submit`、`/drafts/{id}/ai/{field}`、`/drafts/{id}/assemble`——v0.70 一键 AI 预组装：RU 标题/描述/属性写回 + suggested_category/estimated_pricing 仅展示字段） | 全 |
 | 错误报告（v0.69） | `POST/GET /api/v1/error_reports`（Bearer=mxou key；`?report_id=` 详情、`?status=` 筛选；MCP 工具 `report_issue`/`list_error_reports`；模板 `docs/ERROR-REPORT-TEMPLATE.md`，agent 纪律 `skill/references/error-report.md`） | POST/GET |
 | 任务取证（v0.70） | `GET /api/v1/forensics/task/{task_id}`（任务快照+留存+双审计一站式只读；跨租户 404；MCP 工具 `get_task_forensics`） | GET |
-| 店铺会话代管（未发版） | `POST/GET/DELETE /api/v1/credentials/{id}/session`（skill `session-sync` CDP 收割上传；AES-GCM 存储不回显 cookie 值；GET 只回名单+状态；DELETE 204） | 全 |
-| 会话直调分析（未发版） | `GET /api/v1/analytics/what-to-sell?credential_id=&sku=&limit=`（服务端持会话直调 seller what_to_sell v3；401/403/302→会话标 expired+409；无会话 404 提示先 session-sync） | GET |
-| 数据池读写（未发版） | `POST /api/v1/analytics/seller-sync` + `GET /api/v1/analytics/sku-metrics?skus=`（数据池贡献闭环：skill 采集 what_to_sell 顺手上报 + discover 富化读侧；上报 ≤12/批、查询 ≤50/sku；Bearer=mxou key） | POST/GET |
+| 店铺会话代管 | `POST/GET/DELETE /api/v1/credentials/{id}/session`（skill `session-sync` CDP 收割上传；AES-GCM 存储不回显 cookie 值；GET 只回名单+状态；DELETE 204） | 全 |
+| 会话直调分析 | `GET /api/v1/analytics/what-to-sell?credential_id=&sku=&limit=`（服务端持会话直调 seller what_to_sell v3；401/403/302→会话标 expired+409；无会话 404 提示先 session-sync） | GET |
+| 数据池读写 | `POST /api/v1/analytics/seller-sync` + `GET /api/v1/analytics/sku-metrics?skus=`（数据池贡献闭环：skill 采集 what_to_sell 顺手上报 + discover 富化读侧；上报 ≤12/批、查询 ≤50/sku；Bearer=mxou key） | POST/GET |
 | 类目树搜索（v0.70） | `GET /api/v1/categories/search?q=&limit=`（ZH_HANS，node_type=type；采集箱 manual 改配数据源） | GET |
 | 类目属性缓存（v0.70） | `GET /api/v1/categories/attributes?dc=&tp=`（**缓存只读不回源 Ozon**；未预热返回 found=false） | GET |
 
