@@ -122,6 +122,12 @@ R4 退化为无源词搜索兜底——可接受）。
 4. 测试：同批2 模式（录制夹具 mock）。
 
 ### 批4 信封组装接线
+0. **前置（批2 review 实查成立的硬警报）**：`reference_images.py:43` bad-token 表含
+   `img.alicdn.com/imgextra`（**淘宝主图全是此形态**），`get_best_product_images`
+   （reference_images.py:149-153）无兜底——接线时必须做 platform 感知（淘宝/天猫/pdd
+   图不进 bad-token 滤网，或白名单化该形态），否则淘宝信封图空、validate 全外链闸必拦。
+   另：适配器人话错误会被 `probe_1688_page_safe` 降级成「数据不完整」——批4 直调
+   adapter（不走 probe 包装）即根治。
 1. `cloud_probe.build_graph_envelope`：按 parse_platform_url 分派——1688 走原链逐字节不变；
    taobao/tmall/pdd → adapter.fetch_product → 复用 `_collapse_variants_to_single`（平台 SKU 结构
    归一到现有 variants 形状）→ `_validate_and_fix_product_data` → draft 组装
