@@ -132,3 +132,9 @@ pounding-mcp/data/
 docs/.bok/
 skill/references/.bok/
 docs/ozon-probe/
+
+# ─── 竞品解包产物（155MB 二进制，本地保留不入库；高价值调研 md 由 docs/competitor 收编）───
+docs/参考项目/
+
+# ─── worker 运行时快照（类目树刷新备份等）───
+worker/data/
