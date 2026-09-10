@@ -191,14 +191,13 @@ class TestNegativesAndWhitelist:
         ):
             assert parse_platform_url(url) is None, url
 
-    def test_probe_whitelist_pdd_rejected_until_batch3(self):
-        """pdd 解析可识别但抓取白名单批2 拒绝（批3 提供适配器）。"""
-        t = parse_platform_url("https://mobile.yangkeduo.com/goods.html?goods_id=1")
-        assert t is not None
-        assert probe_platform_supported(t.platform) is False
+    def test_probe_whitelist_all_platforms_supported(self):
+        """四平台抓取白名单全量放行（批3 起 pdd 适配器上线）。"""
+        assert probe_platform_supported("pdd") is True
         assert probe_platform_supported("1688") is True
         assert probe_platform_supported("taobao") is True
         assert probe_platform_supported("tmall") is True
+        assert probe_platform_supported("amazon") is False
 
     def test_target_is_immutable_dataclass(self):
         t = parse_platform_url("https://detail.1688.com/offer/123456.html")
