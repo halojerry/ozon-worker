@@ -120,6 +120,25 @@ def _sentry_set_user_context(token: str, endpoint: str = "") -> None:
         pass
 
 
+def _record_mxou_call(token: str, endpoint: str) -> None:
+    """BL-10 (repo-gov): mxou 调用埋点 —— 写本地调用台账 mxou_call_ledger，
+    供 worker/scripts/reconcile_mxou.py 对账（本地计数 vs 平台余额差分）。
+
+    - lazy import + 全吞错：台账服务未部署 / PG 异常绝不影响原 API 调用；
+    - tenant_id 本层拿不到（mxou token 即用户），恒传 None —— 对账脚本按
+      token_fp 关联租户；
+    - token_fp 复用 _token_fingerprint（与 Sentry tag 同一实现）；
+    - 对账口径：每次业务调用一行（chat 的 5xx 重试不重复计行；生图降级到
+      不同模型各计一行 —— 每次都是真实计费生成）。余额 pre-check 拦下的
+      调用（未发 HTTP、未计费）不记。
+    """
+    try:
+        from services.mxou_ledger_service import record_call
+        record_call(tenant_id=None, token_fp=_token_fingerprint(token), endpoint=endpoint)
+    except Exception:
+        pass
+
+
 def call_mxou_chat_api(
     token: str,
     system_prompt: str,
@@ -187,6 +206,9 @@ def call_mxou_chat_api(
 
     # ⚠️ v0.14 B3: 全局限流器 — 按 token 滑动窗口控制 MXOU RPM，防并发打爆
     mxou_acquire(token)
+
+    # BL-10 (repo-gov): 调用埋点 —— 即将发起 HTTP 调用处记一行台账（重试不重复计行）
+    _record_mxou_call(token, "chat")
 
     # ⚠️ v0.14 B2: 重试退避（旧代码 0 重试，API 故障时逐条调用级联浪费）
     # 规则: 4xx（除429）不重试；429 走指数退避；5xx/timeout/异常 退避重试 2 次
@@ -534,6 +556,10 @@ def _call_image_with_model(
 
     # ⚠️ v0.14 B3: 全局限流器 — 生图（慢操作+高成本）更需限流防并发打爆
     mxou_acquire(token)
+
+    # BL-10 (repo-gov): 调用埋点 —— 即将发起 HTTP 调用处记一行台账。
+    # endpoint 带模型名：主模型/降级模型各计一行（每次都是真实计费生成）。
+    _record_mxou_call(token, f"image_gen:{model}")
 
     for attempt in range(max_retries + 1):
         try:
