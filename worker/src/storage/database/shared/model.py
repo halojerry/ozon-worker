@@ -278,6 +278,28 @@ class CategoryTreeNode(Base):
     )
 
 
+class WebCategoryPathMap(Base):
+    """Web 前台面包屑 → Seller dc/tp 映射（F-B04，2026-09-09）。
+
+    Web 前台导航与 Seller 类目树是两套命名体系（面包屑路径无法在 Seller 树
+    确定性精配），本表把「成功上架的真实对应」积累成映射：discover 同面包屑
+    的后续商品直接复用 dc/tp（hit_count 递增），实现「Ozon 有类目直接复用」。
+    """
+    __tablename__ = "web_category_path_map"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    breadcrumb_key: Mapped[str] = mapped_column(String(600), nullable=False, unique=True,
+                                                 comment="规范化 Web 面包屑全文（lower+分隔符统一）")
+    language: Mapped[str] = mapped_column(String(20), nullable=False, default="RU")
+    description_category_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    type_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    hit_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class CategoryMapping(Base):
     """v4: 1688→Ozon 类目映射学习表"""
     __tablename__ = "category_mapping"
@@ -1240,4 +1262,35 @@ class OzonSellerSession(Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "credential_id", name="uq_ozon_sessions_tenant_credential"),
         Index("idx_ozon_sessions_tenant", "tenant_id"),
+    )
+
+
+class SkuMetricsPool(Base):
+    """数据池 v1（对标上品帮跨店数据湖）：用户 skill 采集 what_to_sell 顺手上报的
+    按 sku 销量指标。只存指标数据，永不存 cookie。sku = Ozon int64（无 _0 后缀）。
+    needs_*_sync 不落列——读取时按 updated_at/缺 payload 计算（批 1.2）。
+    """
+    __tablename__ = "sku_metrics_pool"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    sku: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sales_payload: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True, default=None, comment="what_to_sell item 原样")
+    variant_payload: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True, default=None, comment="variant_v2 真值（批 6.3）")
+    category_dc: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, default=None)
+    category_tp: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, default=None)
+    source_company_ids: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, comment="cap 10")
+    contributed_by_token_ids: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, comment="cap 10")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True),
+                                                          server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True),
+                                                          server_default=func.now(),
+                                                          onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("sku", name="uq_sku_metrics_pool_sku"),
+        Index("idx_sku_metrics_pool_updated", "updated_at"),
     )

@@ -73,7 +73,20 @@ def test_missing_metrics_keep_defaults():
     assert c.session_count is None
     assert c.conv_to_cart_pdp is None
     assert c.return_cancel_rate is None
+    assert c.custom_click_rate is None      # data-pool 批7：点击率同组 None=未知语义
     assert c.monthly_sales == 10
+
+
+def test_apply_maps_click_rate_to_candidate():
+    """data-pool 批7：点击率派生值落候选 custom_click_rate（漏斗组 None=未知）。
+
+    另两键（月销售动态增长率 sales_growth/广告份额 drr）为 maozi 直连键
+    salesDynamics/drr 既有映射，v0.70 起已三出口透出——此处防回归锚。"""
+    c = _candidate_with_metrics({"sku": "3", "views": 100000, "qtyViewPdp": 45000})
+    assert c.custom_click_rate == 45.0
+    c2 = _candidate_with_metrics(WHAT_TO_SELL_ITEM)
+    assert c2.sales_growth == 15.0
+    assert c2.drr == 9.5
 
 
 def test_selection_fields_accessors_see_values():

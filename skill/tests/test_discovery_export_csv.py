@@ -133,12 +133,38 @@ def test_export_b_batch_columns(tmp_path):
         row = list(reader)[0]
     assert {"follow_profit_cny", "follow_margin", "ozon_old_price",
             "match_1688_freight_cny"} <= set(fields)
-    assert fields[-4:] == ["follow_profit_cny", "follow_margin",
-                           "ozon_old_price", "match_1688_freight_cny"], "尾追加列序"
+    assert fields[-5:] == ["follow_profit_cny", "follow_margin",
+                           "ozon_old_price", "match_1688_freight_cny",
+                           "custom_click_rate"], "尾追加列序"
     assert row["follow_profit_cny"] == "12.3"
     assert row["follow_margin"] == "0.0"          # 真实 0 保留
     assert row["ozon_old_price"] == "7695.0"
     assert row["match_1688_freight_cny"] == ""    # None → 空串
+
+
+def test_export_click_rate_column(tmp_path):
+    """data-pool 批7：点击率列尾追加（卡片缺口三键之一；增长率 sales_growth/
+    广告份额 drr 为既有列不回归）。None=未知 → 空串，区别于真实 0。"""
+    c = _mk_candidate()
+    c.custom_click_rate = 45.0
+    out = tmp_path / "e.csv"
+    export_to_csv([c], str(out))
+    with open(out, encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fields = reader.fieldnames
+        row = list(reader)[0]
+    assert fields[-1] == "custom_click_rate"
+    assert row["sales_growth"] == "0.0"           # 既有列不回归（dataclass 默认 0.0）
+    assert row["drr"] == "0.0"
+    assert row["custom_click_rate"] == "45.0"
+
+    c2 = _mk_candidate()
+    c2.custom_click_rate = None
+    out2 = tmp_path / "e2.csv"
+    export_to_csv([c2], str(out2))
+    with open(out2, encoding="utf-8-sig") as f:
+        row2 = list(csv.DictReader(f))[0]
+    assert row2["custom_click_rate"] == ""        # None=未知 → 空串
 
 
 if __name__ == "__main__":

@@ -363,6 +363,7 @@ def import_attribute_cache(engine, force=False):
     """
     import json as _json
     import time as _time
+    from sqlalchemy import text as sql_text
 
     assets_dir = os.path.join(os.path.dirname(__file__), "..", "assets")
     schemas_file = os.path.join(assets_dir, "attribute_schemas_zh.json")
@@ -415,7 +416,7 @@ def import_attribute_cache(engine, force=False):
                 dc, tid = int(dc_str), int(type_str)
                 conn.execute(sql_text("""
                     INSERT INTO attribute_cache (description_category_id, type_id, language, attributes_schema, expires_at, created_at)
-                    VALUES (:dc, :tid, 'ZH_HANS', :schema::jsonb, :expires, :now)
+                    VALUES (:dc, :tid, 'ZH_HANS', CAST(:schema AS jsonb), :expires, :now)
                     ON CONFLICT (description_category_id, type_id, language)
                     DO UPDATE SET attributes_schema = EXCLUDED.attributes_schema,
                                   expires_at = EXCLUDED.expires_at
@@ -451,7 +452,7 @@ def import_attribute_cache(engine, force=False):
                 # ✅ v0.72 三桶：全局桶行以 "aid:0:0" 键形状原样过账（零 DDL）
                 conn.execute(sql_text("""
                     INSERT INTO dictionary_value_cache (attribute_id, description_category_id, type_id, language, values_data, expires_at, created_at)
-                    VALUES (:aid, :dc, :tid, 'ZH_HANS', :vals::jsonb, :expires, :now)
+                    VALUES (:aid, :dc, :tid, 'ZH_HANS', CAST(:vals AS jsonb), :expires, :now)
                     ON CONFLICT (attribute_id, description_category_id, type_id, language)
                     DO UPDATE SET values_data = EXCLUDED.values_data,
                                   expires_at = EXCLUDED.expires_at

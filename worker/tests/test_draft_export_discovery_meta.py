@@ -139,3 +139,38 @@ def test_export_b_batch_meta_keys_in_header():
 
     for key in ("follow_profit_cny", "follow_margin", "ozon_old_price", "match_1688_freight_cny"):
         assert key in _DRAFT_META_CSV_KEYS, f"缺 B 契约列: {key}"
+
+
+def test_export_card_click_rate_column(monkeypatch):
+    """data-pool 批7：卡片缺口三键之一「点击率」列透出（缺失键 → 空串）。
+
+    另两键（月销售动态增长率 sales_growth/广告份额 drr）v0.70 起已在
+    _DRAFT_META_CSV_KEYS——此处防回归锚。三出口同口径见 skill
+    _assemble_discovery_meta / export_to_csv；上游来源 maozi 3.2.6 派生式
+    qtyViewPdp/views*100（无 direct customClickRate 键）。"""
+    rows = _export(monkeypatch, [_draft({
+        "draft": {"title": "点击率", "item_id": "a6"},
+        "source": {},
+        "extensions": {"discovery_meta": {
+            "custom_click_rate": 45.0,
+            "sales_growth": 15.0,
+            "drr": 9.5,
+        }},
+    })])
+    row = rows[0]
+    assert row["custom_click_rate"] == "45.0"
+    assert row["sales_growth"] == "15.0"
+    assert row["drr"] == "9.5"
+
+    rows2 = _export(monkeypatch, [_draft({
+        "draft": {"title": "无点击率", "item_id": "a7"},
+        "source": {},
+        "extensions": {},
+    })])
+    assert rows2[0]["custom_click_rate"] == ""
+
+
+def test_export_card_click_rate_key_in_header():
+    from services.draft_service import _DRAFT_META_CSV_KEYS
+
+    assert "custom_click_rate" in _DRAFT_META_CSV_KEYS, "缺点击率列"

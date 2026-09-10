@@ -83,6 +83,7 @@ AUX_FILES = [
     "scripts/lib/readiness.py",      # 管线就绪统一预检（漏斗 v2 收尾：缓存+预热+fail-fast）
     "scripts/lib/cookie_harvest.py",  # v0.69 跨浏览器 cookie 导入（OS 对抗性易碎，明文）
     "scripts/lib/match_scoring.py",  # v0.72.1 P0-4 货源匹配复合评分（纯函数，ozon_discovery 引用）
+    "scripts/lib/metrics_pool_client.py",  # 数据池 skill 侧客户端（读-回馈闭环，fire-and-forget 明文）
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
     # ⚠️ service.py 明文（不编译）：探针是改动最频繁的模块，需本地快速迭代

@@ -95,9 +95,10 @@ def _read_before_from_ozon(
         price_el = price.get("price") or price.get("marketing_price")
     elif price is not None:
         price_el = price
-    stock = (it.get("stocks") or {}).get("present")
-    if isinstance(stock, dict):
-        stock = stock.get("present")
+    # 同款嵌套形状坑：/v3/product/info/list 的 stocks 是 {has_stock, stocks:[{present,reserved}]}，
+    # 外层无 present——复用 store_sync_service.extract_available_stock（含 present−reserved 口径）
+    from services.store_sync_service import extract_available_stock
+    stock = extract_available_stock(it)
     return {"price": price_el, "stock": stock}
 
 

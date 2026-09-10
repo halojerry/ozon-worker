@@ -6,6 +6,7 @@
 用法:
   python scripts/warm_category_cache.py [--limit N] [--all] [--offset N] [--export-only] [--pg-only]
                                         [--import-only] [--force] [--coverage] [--coverage-sample N]
+                                        [--export-from-pg]
 
   --limit N      只处理 N 个 type（测试用，默认全部）
   --all          显式全量预热（与不带 --limit 等价；与 --limit 互斥，同时给报错退出 2）。
@@ -14,6 +15,9 @@
   --export-only  只导出 JSON 文件，不写 PG（流式写，内存 O(单节点)）
   --pg-only      只写 PG，不导出 JSON 文件（逐节点小事务写，内存 O(单节点)）
   --import-only  只从 JSON 文件导入 PG（分批事务）
+  --export-from-pg 只从 PG 缓存导出 JSON（✅ v0.73 W2：不调 Ozon API、无需凭证；
+                 runbook「预热→导出→上 COS」的导出环节——此前 --export-only 是
+                 「边拉边导」语义，单独跑只导本次进程内拉取的部分）
   --force        强制刷新已有缓存
   --coverage     只读审计：schema/字典值缓存对 ZH_HANS type 节点的覆盖率 + 缺失类目抽样
   --coverage-sample N   coverage 模式下随机抽 N 个缺失 (dc,tp) 打印（默认 0 不抽样）
@@ -34,6 +38,8 @@ import argparse
 import logging
 from typing import Optional
 
+import requests as _requests
+
 # Ensure PYTHONPATH includes src
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -42,7 +48,7 @@ logger = logging.getLogger("warm_cache")
 
 # Ozon API credentials (from env, same as worker)
 # ✅ v0.70: 移除硬编码测试店铺 fallback——凭证只能从环境变量来（代码不落 key）。
-# 预热/导出模式在 main() 启动时校验；--coverage / --import-only 无需凭证。
+# 预热/导出模式在 main() 启动时校验；--coverage / --import-only / --export-from-pg 无需凭证。
 OZON_CLIENT_ID = os.getenv("OZON_CLIENT_ID_WARM", "") or os.getenv("OZON_CLIENT_ID", "")
 OZON_API_KEY = os.getenv("OZON_API_KEY_WARM", "") or os.getenv("OZON_API_KEY", "")
 
@@ -83,15 +89,12 @@ def _disk_guard(context: str) -> bool:
 SCHEMAS_FILE = os.path.join(ASSETS_DIR, "attribute_schemas_zh.json")
 DICT_VALUES_FILE = os.path.join(ASSETS_DIR, "dictionary_values_zh.json")
 
-import requests as _requests
 _session = _requests.Session()
 
 
-def _call_ozon_api(endpoint: str, payload: dict, timeout: int = 30, _retries: int = 0) -> Optional[dict]:
-    """调用 Ozon API，返回 JSON 响应。
-
-    429 限流：指数退避重试（最多 MAX_429_RETRIES 次），超限返回 None。
-    """
+def _call_ozon_api_status(endpoint: str, payload: dict, timeout: int = 30,
+                         _retries: int = 0) -> tuple[Optional[dict], int]:
+    """v0.73 W3: 带状态码版本——400/404=类目永久失效（供死节点表），与瞬态故障区分。"""
     headers = {
         "Client-Id": OZON_CLIENT_ID,
         "Api-Key": OZON_API_KEY,
@@ -101,33 +104,41 @@ def _call_ozon_api(endpoint: str, payload: dict, timeout: int = 30, _retries: in
     try:
         resp = _session.post(url, json=payload, headers=headers, timeout=timeout)
         if resp.status_code == 200:
-            return resp.json()
-        elif resp.status_code == 429:
-            if _retries >= MAX_429_RETRIES:
-                logger.warning(f"   ⚠️ 429 重试超过 {MAX_429_RETRIES} 次，放弃 {endpoint}")
-                return None
-            wait = 5 * (2 ** _retries)  # 5s → 10s → 20s
+            return resp.json(), 200
+        if resp.status_code == 429 and _retries < MAX_429_RETRIES:
+            wait = 5 * (2 ** _retries)
             logger.warning(f"   ⚠️ 限流 (429)，指数退避 {wait}s...")
             time.sleep(wait)
-            return _call_ozon_api(endpoint, payload, timeout, _retries + 1)
-        else:
-            logger.warning(f"   ⚠️ API {endpoint} 返回 {resp.status_code}: {resp.text[:200]}")
-            return None
+            return _call_ozon_api_status(endpoint, payload, timeout, _retries + 1)
+        logger.warning(f"   ⚠️ API {endpoint} 返回 {resp.status_code}: {resp.text[:200]}")
+        return None, resp.status_code
     except Exception as e:
         logger.warning(f"   ⚠️ API {endpoint} 异常: {e}")
-        return None
+        return None, 0
+
+
+def _call_ozon_api(endpoint, payload, timeout=30, _retries=0):
+    """调用 Ozon API，返回 JSON 响应（签名/语义不变；✅ v0.73 W3 委托状态化版本）。
+
+    429 限流：指数退避重试（最多 MAX_429_RETRIES 次），超限返回 None。
+    """
+    data, _status = _call_ozon_api_status(endpoint, payload, timeout, _retries)
+    return data
+
+
+def _fetch_attribute_schema_with_status(dc: int, type_id: int) -> tuple[list[dict], int]:
+    """获取类目属性 schema 并外露 HTTP 状态码（✅ v0.73 W3：400/404 → 主循环标死节点）。"""
+    data, status = _call_ozon_api_status("/v1/description-category/attribute", {
+        "description_category_id": dc, "type_id": type_id, "language": "ZH_HANS",
+    })
+    if data:
+        return data.get("result", []), status
+    return [], status
 
 
 def fetch_attribute_schema(dc: int, type_id: int) -> list[dict]:
-    """获取类目的属性 schema (ZH_HANS)"""
-    data = _call_ozon_api("/v1/description-category/attribute", {
-        "description_category_id": dc,
-        "type_id": type_id,
-        "language": "ZH_HANS",
-    })
-    if data:
-        return data.get("result", [])
-    return []
+    """获取类目的属性 schema (ZH_HANS)。✅ v0.73 W3: 委托状态化版本（签名/语义不变）。"""
+    return _fetch_attribute_schema_with_status(dc, type_id)[0]
 
 
 def fetch_dict_values(attr_id: int, dc: int, type_id: int,
@@ -212,7 +223,7 @@ def _write_node_to_pg(dc: int, tid: int, schema: list[dict], dict_values: dict, 
     try:
         session.execute(text("""
             INSERT INTO attribute_cache (description_category_id, type_id, language, attributes_schema, expires_at, created_at)
-            VALUES (:dc, :tid, 'ZH_HANS', :schema::jsonb, :expires, :now)
+            VALUES (:dc, :tid, 'ZH_HANS', CAST(:schema AS jsonb), :expires, :now)
             ON CONFLICT (description_category_id, type_id, language)
             DO UPDATE SET attributes_schema = EXCLUDED.attributes_schema,
                           expires_at = EXCLUDED.expires_at,
@@ -225,7 +236,7 @@ def _write_node_to_pg(dc: int, tid: int, schema: list[dict], dict_values: dict, 
             attr_id = int(parts[0])
             session.execute(text("""
                 INSERT INTO dictionary_value_cache (attribute_id, description_category_id, type_id, language, values_data, expires_at, created_at)
-                VALUES (:aid, :dc, :tid, 'ZH_HANS', :vals::jsonb, :expires, :now)
+                VALUES (:aid, :dc, :tid, 'ZH_HANS', CAST(:vals AS jsonb), :expires, :now)
                 ON CONFLICT (attribute_id, description_category_id, type_id, language)
                 DO UPDATE SET values_data = EXCLUDED.values_data,
                               expires_at = EXCLUDED.expires_at,
@@ -264,7 +275,7 @@ def write_to_pg(schemas: dict, dict_values: dict, batch: int = 200):
             tid = int(type_str)
             session.execute(text("""
                 INSERT INTO attribute_cache (description_category_id, type_id, language, attributes_schema, expires_at, created_at)
-                VALUES (:dc, :tid, 'ZH_HANS', :schema::jsonb, :expires, :now)
+                VALUES (:dc, :tid, 'ZH_HANS', CAST(:schema AS jsonb), :expires, :now)
                 ON CONFLICT (description_category_id, type_id, language)
                 DO UPDATE SET attributes_schema = EXCLUDED.attributes_schema,
                               expires_at = EXCLUDED.expires_at,
@@ -286,7 +297,7 @@ def write_to_pg(schemas: dict, dict_values: dict, batch: int = 200):
             tid = int(parts[2])
             session.execute(text("""
                 INSERT INTO dictionary_value_cache (attribute_id, description_category_id, type_id, language, values_data, expires_at, created_at)
-                VALUES (:aid, :dc, :tid, 'ZH_HANS', :vals::jsonb, :expires, :now)
+                VALUES (:aid, :dc, :tid, 'ZH_HANS', CAST(:vals AS jsonb), :expires, :now)
                 ON CONFLICT (attribute_id, description_category_id, type_id, language)
                 DO UPDATE SET values_data = EXCLUDED.values_data,
                               expires_at = EXCLUDED.expires_at,
@@ -373,6 +384,54 @@ def import_from_files() -> tuple[dict, dict]:
     return schemas, dict_values
 
 
+def export_from_pg() -> None:
+    """v0.73 W2: --export-from-pg——从 PG 缓存导出 JSON（不调 Ozon API、无需凭证）。
+
+    此前 --export-only 是「边拉边导」语义（v1.1 OOM 修复引入），预热完成后
+    单独跑只会导出本次进程内 API 拉取的部分；runbook「预热→导出→上 COS」
+    需要的是把 PG 里已预热的数据落 JSON，本函数补上这一环（流式，内存 O(单行)）。
+    """
+    from storage.database.db import get_session
+    from sqlalchemy import text
+    os.makedirs(ASSETS_DIR, exist_ok=True)
+    now = int(time.time())
+    session = get_session()
+    try:
+        w = _JsonStreamWriter(SCHEMAS_FILE)
+        # stream_results=True：psycopg2 服务端游标真流式——不加则 execute() 时整个
+        # 结果集已物化到客户端内存，fetchmany 只是切片（v1.1 OOM 事故同形态）
+        rows = session.execute(text(
+            "SELECT description_category_id, type_id, attributes_schema "
+            "FROM attribute_cache WHERE language='ZH_HANS' AND expires_at > :now "
+            "ORDER BY description_category_id, type_id"
+        ).execution_options(stream_results=True), {"now": now}).mappings()
+        n = 0
+        while chunk := rows.fetchmany(500):
+            for r in chunk:
+                w.write(f"{int(r['description_category_id'])}:{int(r['type_id'])}",
+                        r["attributes_schema"])
+                n += 1
+        w.close()
+        logger.info(f"✅ [export-from-pg] 属性 schema: {SCHEMAS_FILE} ({n} 个类目)")
+
+        w2 = _JsonStreamWriter(DICT_VALUES_FILE)
+        rows = session.execute(text(
+            "SELECT attribute_id, description_category_id, type_id, values_data "
+            "FROM dictionary_value_cache WHERE language='ZH_HANS' AND expires_at > :now "
+            "ORDER BY attribute_id, description_category_id, type_id"
+        ).execution_options(stream_results=True), {"now": now}).mappings()
+        n = 0
+        while chunk := rows.fetchmany(500):
+            for r in chunk:
+                w2.write(f"{int(r['attribute_id'])}:{int(r['description_category_id'])}:"
+                         f"{int(r['type_id'])}", r["values_data"])
+                n += 1
+        w2.close()
+        logger.info(f"✅ [export-from-pg] 字典值: {DICT_VALUES_FILE} ({n} 个条目)")
+    finally:
+        session.close()
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     """✅ v0.69 T3.3: argparse 构造独立成函数（可单测），参数语义不变 + 新增 --all/--coverage。"""
     parser = argparse.ArgumentParser(description="预热 Ozon 类目属性缓存")
@@ -387,22 +446,79 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="只读审计：schema/字典值缓存覆盖率 + 缺失类目抽样，不发任何 Ozon API 请求")
     parser.add_argument("--coverage-sample", type=int, default=0,
                         help="coverage 模式下随机抽 N 个缺失 (dc,tp) 打印")
+    parser.add_argument("--export-from-pg", action="store_true",
+                        help="只从 PG 缓存导出 JSON（不调 Ozon API、无需凭证；与其他模式互斥）")
     parser.add_argument("--force", action="store_true", help="强制刷新已有缓存")
     return parser
 
 
 def parse_args(argv: Optional[list] = None):
-    """解析参数；--all 与 --limit 互斥（同时给 → argparse error，退出码 2）。"""
+    """解析参数；互斥校验：--all×--limit、--export-from-pg×其他模式（违规 → 退出码 2）。"""
     parser = build_arg_parser()
     args = parser.parse_args(argv)
     if args.all and args.limit is not None:
         parser.error("--all 与 --limit 互斥（--all 即全量，无需 limit；分片请用 --offset）")
+    # ✅ v0.73 W2: --export-from-pg 是独立只读导出模式，与任何预热/导入/审计模式互斥
+    if args.export_from_pg:
+        conflicts = []
+        if args.export_only:
+            conflicts.append("--export-only")
+        if args.pg_only:
+            conflicts.append("--pg-only")
+        if args.import_only:
+            conflicts.append("--import-only")
+        if args.coverage:
+            conflicts.append("--coverage")
+        if args.all:
+            conflicts.append("--all")
+        if args.limit is not None:
+            conflicts.append("--limit")
+        if args.offset is not None:
+            conflicts.append("--offset")
+        if args.force:
+            conflicts.append("--force")
+        if conflicts:
+            parser.error(f"--export-from-pg 是独立只读模式，与 {', '.join(conflicts)} 互斥")
     return args
 
 
 def resolve_limit(all_flag: bool, limit: Optional[int]) -> Optional[int]:
     """✅ v0.69 T3.3: --all → None（全量，对齐 AGENTS.md 文档语义）；否则保持原语义。"""
     return None if all_flag else limit
+
+
+DEAD_NODES_DDL = """
+CREATE TABLE IF NOT EXISTS warm_dead_nodes (
+    description_category_id BIGINT NOT NULL,
+    type_id BIGINT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    created_at BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (description_category_id, type_id)
+)"""
+# v0.73 W3: Ozon 已删类目（400 category not found）永久跳过——此前每次预热恒计失败，
+# coverage 分母含死节点 → 100% 数学不可达（服务器被迫把看护阈值调 7350）。
+
+
+def ensure_dead_nodes_table(session):
+    from sqlalchemy import text
+    session.execute(text(DEAD_NODES_DDL))
+    session.commit()
+
+
+def load_dead_nodes(session) -> set:
+    from sqlalchemy import text
+    rows = session.execute(text(
+        "SELECT description_category_id, type_id FROM warm_dead_nodes")).fetchall()
+    return {(int(r[0]), int(r[1])) for r in rows}
+
+
+def mark_dead_node(session, dc: int, tid: int, reason: str):
+    from sqlalchemy import text
+    session.execute(text(
+        "INSERT INTO warm_dead_nodes (description_category_id, type_id, reason, created_at) "
+        "VALUES (:dc, :tid, :reason, :now) ON CONFLICT DO NOTHING"),
+        {"dc": dc, "tid": tid, "reason": reason[:200], "now": int(time.time())})
+    session.commit()
 
 
 def collect_coverage(now: Optional[int] = None) -> dict:
@@ -437,10 +553,18 @@ def collect_coverage(now: Optional[int] = None) -> dict:
             FROM dictionary_value_cache
             WHERE language = 'ZH_HANS' AND expires_at > :now
         """), {"now": now}).fetchall()
+        # ✅ v0.73 W3: 死节点（Ozon 已删类目）从分母剔除；仅「表不存在」（未跑过 warm 的库）
+        # 视为空——其余 DB 异常如实上抛（收窄 except：静默吞掉会拿假分母出报告）
+        from sqlalchemy.exc import ProgrammingError
+        try:
+            dead_pairs = load_dead_nodes(session)
+        except ProgrammingError:
+            dead_pairs = set()
     finally:
         session.close()
 
     total_pairs = {(int(r[0]), int(r[1])) for r in total_rows}
+    total_pairs -= dead_pairs
     schema_pairs = {(int(r[0]), int(r[1])) for r in schema_rows}
     dict_pairs = {(int(r[0]), int(r[1])) for r in dict_rows}
     covered_schema = total_pairs & schema_pairs
@@ -455,6 +579,9 @@ def collect_coverage(now: Optional[int] = None) -> dict:
         "missing_pairs": sorted(total_pairs - covered_schema),
         "schema_covered_pairs": covered_schema,
         "dict_covered_pairs": covered_dict,
+        # 死节点表整表规模（生产中死节点恒为真实树节点，等价于分母实际缩减量；
+        # 用整表计数使哨兵/负数测试行也可观测）
+        "dead_excluded": len(dead_pairs),
     }
 
 
@@ -469,6 +596,7 @@ def format_coverage_report(report: dict) -> str:
         f"   attribute_cache schema 覆盖: {report['schema_covered']}/{report['total']} ({report['schema_pct']}%)",
         f"   dictionary_value_cache 覆盖: {report['dict_covered']}/{report['total']} ({report['dict_pct']}%)",
         f"   缺失 schema 的类目数: {len(report['missing_pairs'])}",
+        f"   已剔除失效类目(400): {report.get('dead_excluded', 0)}",
         summary,
     ]
     return "\n".join(lines)
@@ -498,17 +626,17 @@ def main():
         run_coverage_report(sample=args.coverage_sample)
         return
 
+    # ✅ v0.73 W2: --export-from-pg 纯 PG 读导出（无需 Ozon 凭证，置于凭证检查前）
+    if args.export_from_pg:
+        export_from_pg()
+        return
+
     # ✅ v0.69 T3.3: --all → 全量（limit=None）；冲突已在 parse_args 拒绝
     limit = resolve_limit(args.all, args.limit)
 
-    # ✅ v0.70: 预热/导出模式需要 Ozon 凭证（缺失显式退出，不再静默落硬编码店）
-    if not OZON_CLIENT_ID or not OZON_API_KEY:
-        logger.error(
-            "❌ 预热/导出需要 Ozon 凭证：export OZON_CLIENT_ID=<id> OZON_API_KEY=<key> "
-            "（--coverage / --import-only 模式无需凭证）")
-        sys.exit(1)
-
     # 仅导入模式：从 JSON 文件读取 → 写入 PG（分批事务）
+    # ✅ v0.73: 上移到凭证检查之前——原顺序使 --import-only 无凭证会误退出，
+    # 与文件头凭证注释「--coverage / --import-only / --export-from-pg 无需凭证」矛盾。
     if args.import_only:
         schemas, dict_values = import_from_files()
         if schemas or dict_values:
@@ -517,6 +645,13 @@ def main():
             logger.error("❌ JSON 文件为空或不存在，无法导入")
             sys.exit(1)
         return
+
+    # ✅ v0.70: 预热/导出模式需要 Ozon 凭证（缺失显式退出，不再静默落硬编码店）
+    if not OZON_CLIENT_ID or not OZON_API_KEY:
+        logger.error(
+            "❌ 预热/导出需要 Ozon 凭证：export OZON_CLIENT_ID=<id> OZON_API_KEY=<key> "
+            "（--coverage / --import-only / --export-from-pg 模式无需凭证）")
+        sys.exit(1)
 
     # 获取所有 type 节点
     nodes = get_type_nodes(limit=limit, offset=args.offset)
@@ -527,8 +662,21 @@ def main():
     if not _disk_guard("预热起步"):
         sys.exit(1)
 
+    # ✅ v0.73 W3: 死节点表（Ozon 已删类目永久跳过）——幂等建表 + 载入既有名单
+    from storage.database.db import get_session as _get_session
+    _pg_s = _get_session()
+    try:
+        ensure_dead_nodes_table(_pg_s)
+        dead_set = load_dead_nodes(_pg_s)
+    finally:
+        _pg_s.close()
+    if dead_set:
+        logger.info(f"🪦 死节点表载入 {len(dead_set)} 个 (dc/tp)，本次预热将跳过")
+
     success = 0
     failed = 0
+    dead = 0          # 本次新增标记的死节点（不计入 failed）
+    skipped_dead = 0  # 因已在死节点表而跳过
     now = int(time.time())
 
     # 导出模式才需要攒全量内存（流式写文件降低峰值）；PG 模式逐节点小事务
@@ -542,6 +690,14 @@ def main():
         dc = node["description_category_id"]
         tid = node["type_id"]
         key = f"{dc}:{tid}"
+
+        # ✅ v0.73 收口: 死节点永久跳过（400 已删类目，重试无意义；打点日志每 100 个）
+        # —— 置于「已缓存」检查之前，死节点不必白付一次 PG 查询
+        if (dc, tid) in dead_set:
+            skipped_dead += 1
+            if skipped_dead % 100 == 0:
+                logger.info(f"   ⏭️ 已跳过死节点 {skipped_dead} 个")
+            continue
 
         # 跳过已缓存的（除非 --force）
         if not args.force:
@@ -558,19 +714,34 @@ def main():
             except Exception:
                 pass
             finally:
-                try: s.close()
-                except: pass
+                try:
+                    s.close()
+                except Exception:
+                    pass
 
         logger.info(f"   [{i+1}/{total}] {dc}/{tid} ...")
 
         try:
-            # 获取属性 schema
-            schema = fetch_attribute_schema(dc, tid)
+            # 获取属性 schema（✅ v0.73 W3: 状态化——400/404=类目永久失效，标死节点）
+            schema, schema_status = _fetch_attribute_schema_with_status(dc, tid)
             time.sleep(API_DELAY)
 
             if not schema:
-                logger.warning(f"   ⚠️ [{i+1}/{total}] {dc}/{tid} schema 为空，跳过")
-                failed += 1
+                if schema_status in (400, 404):
+                    _ms = _get_session()
+                    try:
+                        mark_dead_node(_ms, dc, tid,
+                                       f"HTTP {schema_status}: category not found")
+                    finally:
+                        _ms.close()
+                    dead_set.add((dc, tid))
+                    dead += 1
+                    logger.warning(
+                        f"   🪦 [{i+1}/{total}] {dc}/{tid} HTTP {schema_status} "
+                        "类目失效，已标记死节点永久跳过")
+                else:
+                    logger.warning(f"   ⚠️ [{i+1}/{total}] {dc}/{tid} schema 为空，跳过")
+                    failed += 1
                 continue
 
             # 获取字典值（并发获取，延迟受控）
@@ -643,8 +814,8 @@ def main():
     if args.export_only and schemas:
         export_to_files(schemas, dict_values)
 
-    logger.info(f"\n🎉 完成！成功: {success}, 失败: {failed}")
-    logger.info(f"   PG 模式: 已逐节点写入 | 导出模式: Schema {len(schemas or {})} 个类目, 字典值 {len(dict_values or {})} 个条目")
+    logger.info(f"\n🎉 完成！成功: {success}, 失败: {failed}, 新增死节点: {dead}")
+    logger.info(f"   跳过死节点 {skipped_dead} | PG 模式: 已逐节点写入 | 导出模式: Schema {len(schemas or {})} 个类目, 字典值 {len(dict_values or {})} 个条目")
 
 
 if __name__ == "__main__":

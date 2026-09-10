@@ -543,6 +543,31 @@ class OzonCategoryQuery:
         finally:
             session.close()
 
+    _QUERY_SYNONYMS_CACHE: dict | None = None
+
+    @classmethod
+    def _load_query_synonyms(cls) -> dict:
+        """F-B04（2026-09-09）：查询同义词表（config/category_synonyms.json 热加载）。
+
+        官方 ZH 译名与中文卖家词不对齐（现役保温杯类目译名「保暖杯/热水瓶」，
+        jieba 搜「保温杯」零召回实证）——查询词/词元命中同义词表时并入检索。
+        表缺失/坏 JSON → 空表（零行为变化）。
+        """
+        if cls._QUERY_SYNONYMS_CACHE is not None:
+            return cls._QUERY_SYNONYMS_CACHE
+        import json as _json
+        from pathlib import Path as _Path
+        path = _Path(__file__).resolve().parents[2] / "config" / "category_synonyms.json"
+        table: dict = {}
+        try:
+            table = _json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(table, dict):
+                table = {}
+        except Exception as e:
+            logger.warning(f"category_synonyms.json 加载失败（空表兜底）: {e}")
+        cls._QUERY_SYNONYMS_CACHE = table
+        return table
+
     def _search_jieba_like(
         self,
         query_text: str,
@@ -567,6 +592,20 @@ class OzonCategoryQuery:
             tokens = plan["search_tokens"]
             core_tokens = plan["core_tokens"]
             residual = plan["residual"]
+            # F-B04: 同义词扩展——查询词/词元命中同义词表 → 并入检索 tokens
+            # （官方译名「保暖杯」vs 卖家词「保温杯」一字之差 jieba 零召回的根治）
+            _syn_table = self._load_query_synonyms()
+            _q_normalized = (query_text or "").strip()
+            for _term in [v for v in [_q_normalized] + list(tokens or []) if v]:
+                for _syn in _syn_table.get(_term, []):
+                    if isinstance(_syn, str) and _syn and _syn not in tokens:
+                        tokens.append(_syn)
+                        # 同义词同时进 core_tokens——node_name 命中约束（v0.65.1 R2）
+                        # 否则同义词命中的行会因不含原始查询词被整体剔除
+                        # （首版实证：'保暖杯' 命中被 core '保温杯' 约束剔成 0）
+                        if _syn not in core_tokens:
+                            core_tokens.append(_syn)
+                        logger.info(f"🔤 同义词扩展: '{_term}' + '{_syn}'")
             if plan["stripped_modifiers"]:
                 logger.info(
                     f"🔤 剥离修饰词 {plan['stripped_modifiers']} → "
@@ -1186,6 +1225,8 @@ class OzonCategoryQuery:
             return None
         cleaned = candidates[0].split(" > ")
 
+        # F-B04（2026-09-09）：语言对齐——Web 面包屑语言与树语言优先同语言匹配
+        # （RU 面包屑先试 RU 树，ZH 先试 ZH），由调用方经 language 传入优先语言。
         langs = [language] if language else ["ZH_HANS", "RU"]
         session = get_session()
         try:
@@ -1212,17 +1253,29 @@ class OzonCategoryQuery:
                             "full_path": row.full_path,
                         }
                 # ② 退化解：末段 node_name 精确匹配且 full_path 以末段结尾（容忍顶层差异）
+                # ⚠️ F-B04 跨树守卫：查询路径有上下文（≥2 段）时，候选 full_path 必须
+                # 包含查询的倒数第二段（父类目名，去泛化词后）——否则同名叶跨树错配
+                # （实证：'Спорт и отдых > Туристическая посуда > Термос' 命中了
+                #  'Дом и сад > Термосы…> Термос'）。逐候选取出后校验，不合则跳过。
                 leaf = cleaned[-1]
+                parent_seg = cleaned[-2].strip().lower() if len(cleaned) >= 2 else ""
                 if leaf:
-                    row = session.execute(
+                    rows2 = session.execute(
                         select(CategoryTreeNode).where(
                             CategoryTreeNode.language == lang,
                             CategoryTreeNode.node_name == leaf,
                             CategoryTreeNode.type_id.isnot(None),
                             CategoryTreeNode.type_id > 0,
                             CategoryTreeNode.full_path.endswith(leaf),
-                        ).order_by(CategoryTreeNode.depth.desc()).limit(1)
-                    ).scalar_one_or_none()
+                        ).order_by(CategoryTreeNode.depth.desc()).limit(5)
+                    ).fetchall()
+                    row = None
+                    for cand_row in rows2:
+                        cand_path_l = (cand_row.full_path or "").lower()
+                        if parent_seg and parent_seg not in cand_path_l:
+                            continue  # 父类目名不在候选路径 → 跨树同名叶，跳过
+                        row = cand_row
+                        break
                     if row:
                         logger.info(
                             f"✅ 路径末段精配: leaf='{leaf}' → [{row.description_category_id}/{row.type_id}] "
@@ -1366,7 +1419,7 @@ class OzonCategoryQuery:
                 SELECT id, source_category_leaf, source_category_path, source_keywords,
                        description_category_id, type_id, category_path_zh, category_path_ru,
                        confidence, success_count
-                FROM category_mapping WHERE is_active = TRUE AND source_keywords && :kw::text[]
+                FROM category_mapping WHERE is_active = TRUE AND source_keywords && CAST(:kw AS varchar[])
                 ORDER BY success_count DESC, confidence DESC LIMIT :lim
             """), {"kw": kw_array, "lim": top_k}).mappings().all()
             results = []

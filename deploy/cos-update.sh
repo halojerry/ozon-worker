@@ -20,6 +20,10 @@ set -euo pipefail
 # ── 路径/配置 ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+# v0.73 W4 终审修正: 自举 exec 的目标是包内临时脚本——不回正路径的话新进程会把
+# $TMP_DIR 当 ROOT_DIR(备份/VERSION/整包解压全落 tmp、.env 读不到致 compose 保护
+# 静默跳过)。exec 时透传真实安装目录, 此处在 BACKUP_DIR 等派生之前重算。
+if [ "${COS_UPDATE_EXECED:-0}" = "1" ] && [ -n "${COS_UPDATE_REAL_SCRIPT_DIR:-}" ]; then SCRIPT_DIR="$COS_UPDATE_REAL_SCRIPT_DIR"; ROOT_DIR="$(dirname "$SCRIPT_DIR")"; fi
 BACKUP_DIR="$ROOT_DIR/backups"
 VERSION_FILE="$ROOT_DIR/VERSION"
 MANIFEST_URL_BASE="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com"
@@ -59,6 +63,8 @@ else
   MANIFEST_JSON=$(curl -fsSL --retry 3 --retry-delay 2 --max-time 30 "$MANIFEST_URL") \
     || fail "无法读取 manifest(检查网络/COs 配置): $MANIFEST_URL"
   VERSION=$(echo "$MANIFEST_JSON" | grep -oE '"version"\s*:\s*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+  # v0.73 W5: manifest version 是 tag 名(带 v 前缀), 剥 v 统一口径——否则日志/比较出现 vv0.72.0
+  VERSION="${VERSION#v}"
   PKG=$(echo "$MANIFEST_JSON" | grep -oE '"package"\s*:\s*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
   SHA256=$(echo "$MANIFEST_JSON" | grep -oE '"sha256"\s*:\s*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
   [ -n "$VERSION" ] || fail "manifest 无 version 字段"
@@ -70,6 +76,11 @@ fi
 # ── 2. 对比本地版本 ──
 LOCAL_VERSION=""
 [ -f "$VERSION_FILE" ] && LOCAL_VERSION=$(cat "$VERSION_FILE" | tr -d ' \n')
+# v0.73 W5: 服务器现存 VERSION 文件可能带 v 前缀(旧版 cd.yml 写入的是 tag 名), 比较前剥 v
+LOCAL_VERSION="${LOCAL_VERSION#v}"
+# v0.73 终审顺手修: VERSION 文件非空即导出(空文件=首装态不导出)——compose 的
+# ${VERSION:-latest} 与之同源, 后续任何 compose 调用不再解析不存在的 latest tag
+[ -n "$LOCAL_VERSION" ] && export VERSION
 if [ "$LOCAL_VERSION" = "$VERSION" ] && [ -z "$REQUESTED_VERSION" ]; then
   log "已是最新版本 v${VERSION}, 无需更新"
   exit 0
@@ -92,6 +103,17 @@ else
   warn "指定版本无 manifest sha256, 跳过校验"
 fi
 
+# ── 3.5 v0.73 W4: 自举——包内脚本比当前新则 exec 新版重跑 ──
+# 此前: 解压覆盖运行中的脚本 → bash 后续读到新旧混合字节（v0.64 升级
+# 白费 1h 事故根因）。自举后所有变更性操作都在新版逻辑下执行。
+if [ "${COS_UPDATE_EXECED:-0}" != "1" ]; then
+  tar -xzf "$TMP_DIR/$PKG" -C "$TMP_DIR" deploy/cos-update.sh 2>/dev/null || true
+  if [ -f "$TMP_DIR/deploy/cos-update.sh" ] && ! cmp -s "$TMP_DIR/deploy/cos-update.sh" "${BASH_SOURCE[0]}"; then
+    log "检测到包内新版 cos-update.sh，自举重启以新版逻辑继续…"
+    exec env COS_UPDATE_EXECED=1 COS_UPDATE_REAL_SCRIPT_DIR="$SCRIPT_DIR" bash "$TMP_DIR/deploy/cos-update.sh" "$@"
+  fi
+fi
+
 # ── 回滚函数(须在使用前定义) ──
 rollback() {
   local _bk="$1"
@@ -109,6 +131,9 @@ rollback() {
   [ -f "$_bk/VERSION" ] && cp -a "$_bk/VERSION" "$VERSION_FILE" || echo "" > "$VERSION_FILE"
   # 重建启动（v0.63.1 D2: build 失败不再 || true 吞掉——保留现场供诊断,
   # 避免回滚后半死状态）
+  # v0.73 终审顺手修: 回滚重建按备份版本号打 tag——镜像元数据不再谎报新版本
+  # （LOCAL_VERSION 为空时 VERSION 置空, compose ${VERSION:-latest} 的 :- 对空串同样兜底 latest）
+  export VERSION="$LOCAL_VERSION"
   if ! docker compose build --no-cache >/dev/null 2>&1; then
     warn "回滚 build 失败, 请手动介入: cd $SCRIPT_DIR && docker compose build --no-cache"
     return 1
@@ -203,6 +228,9 @@ else
 fi
 
 # ── 6. 优雅重建(compose 已配 stop_grace_period: 5m) ──
+# v0.73 W5: compose 的 ${VERSION:-dev} build arg 与 ${VERSION:-latest} image tag 同源——
+# 不 export 则 build arg 落 dev、镜像 tag 只有 latest, 任务 APP_VERSION 无法追踪版本。
+export VERSION
 log "docker compose build + up(优雅关闭, 排空运行中任务)..."
 cd "$SCRIPT_DIR"
 if ! docker compose build --no-cache 2>&1 | tail -3; then
@@ -288,8 +316,11 @@ if command -v docker >/dev/null 2>&1; then
   docker builder prune -a -f >/dev/null 2>&1 && log "  ✅ 构建缓存已清理" || warn "  ⚠️ builder prune 失败(忽略)"
   # 2) dangling 镜像层(历史 --no-cache 构建留下的 <none> 层)
   docker image prune -f >/dev/null 2>&1 && log "  ✅ dangling 镜像已清理" || warn "  ⚠️ image prune 失败(忽略)"
-  # 3) 旧的 ozon-worker 历史版本镜像(保留 latest + 当前运行, 只删更旧的 untagged/历史 tag)
-  docker images ozon-worker --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null | grep -v 'latest' | while read -r _img _id; do
+  # 3) 旧的 ozon-worker 历史版本镜像(保留 latest + 当前运行版本, 只删更旧的 untagged/历史 tag)。
+  #    v0.73 收口: export VERSION 后镜像不再有 latest tag, 旧 grep -v latest 会把在用镜像
+  #    也列进来(rmi 被拒仅告警噪音)——改为排除 latest + 当前 VERSION(空则退回只排 latest)。
+  _exclude="latest"; [ -n "${VERSION:-}" ] && _exclude="latest|${VERSION}"
+  docker images ozon-worker --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null | grep -Ev ":(${_exclude}) " | while read -r _img _id; do
     if [ -n "$_id" ]; then
       docker rmi "$_id" >/dev/null 2>&1 && log "  ✅ 移除旧镜像层 $_id" || warn "  ⚠️ 移除 $_id 失败(可能被引用, 忽略)"
     fi

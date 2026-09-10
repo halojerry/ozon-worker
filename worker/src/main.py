@@ -32,7 +32,7 @@ from storage.database.shared.model import (
     Base, BlueOceanQuery, OzonBestseller, MarketBestseller, DiscoveryRun,
 )
 from utils.task_processor import SupabaseTaskProcessor
-from utils.ozon_client import ozon_check_quota  # 配额检查
+from utils.ozon_client import ozon_check_quota, ozon_post  # 配额检查 + F-F01 auth_verify Ozon 校验
 from utils.instance_lock import (  # E-4: 后台循环单实例锁（多副本防重复跑）
     METRICS_AGGREGATION,
     PERIODIC_CLEANUP,
