@@ -16,6 +16,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 
 from api.schemas import SellerSyncIn
 from services.sku_metrics_pool_service import (
@@ -345,11 +346,16 @@ async def http_seller_sync(request: Request):
             session, body.items[:SKU_SYNC_MAX_ITEMS],
             source_company_id=(body.source_company_id or "").strip() or None,
             contributed_by=scope.get("tenant_id"))
-    except Exception:
-        # 畸形 item（如非数字 category_dc）等非预期服务异常 → 422；
+    except (ValueError, KeyError, TypeError):
+        # 畸形 item（如非数字 category_dc）→ 422 可读固定文案；
         # 原始异常只进日志不回显（analytics 错误纪律）。
-        logger.exception("seller-sync 贡献收包处理失败（items=%s）", len(body.items))
+        logger.exception("seller-sync 贡献收包含畸形 item（items=%s）", len(body.items))
         raise HTTPException(status_code=422, detail="invalid seller-sync item")
+    except IntegrityError:
+        # B2a-3: 写入冲突（并发同 sku 撞唯一键）是瞬态而非畸形 item——
+        # 误标 422 会误导调用方改数据；给诚实文案提示重试，原文只进日志。
+        logger.exception("seller-sync 写入冲突（items=%s）", len(body.items))
+        raise HTTPException(status_code=503, detail="写入冲突，请重试")
     finally:
         session.close()
 

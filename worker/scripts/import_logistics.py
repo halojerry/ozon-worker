@@ -149,18 +149,20 @@ def read_excel(filepath: str) -> list[dict]:
 
 
 def upsert_records(engine, records: list[dict]):
-    """Upsert 到 logistics_rates 表"""
+    """Upsert 到 logistics_rates 表
+
+    ⚠️ DELETE 与 INSERT 必须同事务、末尾单次 commit——拆两段提交会有空窗：
+    两次 commit 之间并发运费查询（logistics_service 按重量查费率）会读到空表。
+    """
     with Session(engine) as session:
-        # 清空旧数据
+        # 清空旧数据（同事务待提交，见上注释）
         session.execute(text("DELETE FROM logistics_rates"))
-        session.commit()
-        logger.info("已清空 logistics_rates 旧数据")
 
         # 批量插入
         for rec in records:
             session.add(LogisticsRate(**rec))
         session.commit()
-        logger.info(f"✅ 已导入 {len(records)} 条物流费率")
+        logger.info(f"✅ 已清空并导入 {len(records)} 条物流费率（单事务）")
 
 
 def main():

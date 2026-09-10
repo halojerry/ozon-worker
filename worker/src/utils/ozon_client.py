@@ -88,7 +88,10 @@ def ozon_post(
         headers["Accept-Language"] = language
 
     # 速率限制：每次调用 acquire 一次（在重试循环之外，避免重复计 token）
-    _rate_limiter.acquire(endpoint)
+    # ✅ BL-03（2026-09-11）: acquire 阻塞超时返 False 此前返回值被忽略（fail-open 静默）——
+    # 现告警留痕；不 raise、不改重试结构（per-credential 桶隔离留 B2-β 设计）
+    if not _rate_limiter.acquire(endpoint):
+        logger.warning("Ozon 限流器等待超时(%s)——fail-open 放行，注意 429 风险", endpoint)
 
     start = time.monotonic()
     try:

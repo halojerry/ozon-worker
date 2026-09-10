@@ -1090,6 +1090,71 @@ async def openai_chat_completions(request: Request):
 # 运维：定期清理 + 健康检查
 # ============================================================
 
+# B2a-5/6: 两个每日级维护钩子的节流时间戳（epoch 秒；0.0 = 启动后首轮即执行）
+_LAST_CACHE_SWEEP: float = 0.0
+_LAST_FX_REFRESH: float = 0.0
+
+# 过期缓存清扫覆盖面：只扫两缓存表——category_cache 是类目树快照，另有治理，勿加入
+_SWEEP_CACHE_TABLES = ("dictionary_value_cache", "attribute_cache")
+_SWEEP_BATCH_LIMIT = 5000  # 每批 ctid 删除上限（防长事务锁表）
+_SWEEP_MAX_BATCHES = 20    # 单表迭代批数封顶（防病态大量过期行拖死清理循环）
+
+
+def _sweep_expired_caches(conn) -> int:
+    """物理删除两缓存表的过期行（expires_at 为 int 秒），返回删除总数。
+
+    ctid 批删（LIMIT 5000/批，删空一批再看下一批）；表名来自固定元组非用户
+    输入，f-string 拼接安全；绑定参数纯 int 无需 CAST。
+    """
+    from sqlalchemy import text
+    total = 0
+    now = int(time.time())
+    for table in _SWEEP_CACHE_TABLES:
+        for _ in range(_SWEEP_MAX_BATCHES):
+            res = conn.execute(text(
+                f"DELETE FROM {table} WHERE ctid IN "
+                f"(SELECT ctid FROM {table} WHERE expires_at < :now LIMIT {_SWEEP_BATCH_LIMIT})"
+            ), {"now": now})
+            deleted = int(res.rowcount or 0)
+            total += deleted
+            if deleted < _SWEEP_BATCH_LIMIT:
+                break
+    return total
+
+
+def _maybe_sweep_caches(conn) -> None:
+    """每 24h 一轮的过期缓存清扫（B2a-5）。整体非致命：失败吞掉且不推进节流，
+    下一轮清理循环自然重试。"""
+    global _LAST_CACHE_SWEEP
+    if time.time() - _LAST_CACHE_SWEEP <= 86400:
+        return
+    try:
+        deleted = _sweep_expired_caches(conn)
+        conn.commit()
+        _LAST_CACHE_SWEEP = time.time()
+        if deleted:
+            logger.info(f"🧹 定期清理: 过期缓存清扫删除 {deleted} 行"
+                        f"（dictionary_value_cache/attribute_cache，expires_at 已过期）")
+    except Exception:
+        logger.warning("过期缓存清扫失败（非致命，下轮重试）", exc_info=True)
+
+
+def _maybe_refresh_fx() -> None:
+    """fx 汇率每日刷新钩子（B2a-6）。lazy import 与并行开发的
+    utils.fx_rate_service 解耦（缺失/失败都不影响清理主循环）；
+    失败也推进节流——防清理循环每分钟 warning 刷屏。"""
+    global _LAST_FX_REFRESH
+    if time.time() - _LAST_FX_REFRESH <= 86400:
+        return
+    try:
+        from utils.fx_rate_service import refresh_cny_rub_if_due
+        refresh_cny_rub_if_due()
+    except Exception:
+        logger.warning("fx refresh failed", exc_info=True)
+    finally:
+        _LAST_FX_REFRESH = time.time()
+
+
 async def _periodic_task_cleanup(interval_seconds: int = 60):
     """定期清理僵尸任务：重置卡死的 running 任务，清理过期 completed 任务"""
     await asyncio.sleep(30)  # 启动后等 30 秒再开始
@@ -1164,6 +1229,9 @@ async def _periodic_task_cleanup(interval_seconds: int = 60):
                 # ✅ v0.10: 清理 _task_progress 中已完成超过 1 小时的任务条目（防内存泄漏）
                 if r2:
                     _purge_stale_progress()
+                # ✅ B2a-5/6: 每日级维护钩子（各自 24h 节流，失败非致命）
+                _maybe_sweep_caches(conn)
+                _maybe_refresh_fx()
         except Exception as _e:
             logger.debug(f"定期清理跳过: {_e}")
         await asyncio.sleep(interval_seconds)
