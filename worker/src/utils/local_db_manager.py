@@ -256,7 +256,19 @@ class LocalDBManager:
     # ============================================================
 
     def set_attribute_cache(self, description_category_id: int, type_id: Optional[int], attributes_schema: Dict[str, Any], language: str = "ZH_HANS", expires_in: int = 30 * 86400):
-        """写入属性缓存（v0.70: 默认 30 天——schema 低频变化，与预热/导入脚本一致）"""
+        """写入属性缓存（v0.70: 默认 30 天——schema 低频变化，与预热/导入脚本一致）
+
+        ⚠️ type_id 归一（None→0）——唯一键含 type_id，PG 里 NULL≠NULL
+        不触发 ON CONFLICT，upsert 会退化为纯 INSERT 无限裂行
+        （v0.72 set_dictionary_value_cache 同款修法，写入边界最后一道防御）。
+        """
+        if type_id is None or type_id == "":
+            type_id = 0
+        else:
+            try:
+                type_id = int(type_id)
+            except (TypeError, ValueError):
+                type_id = 0
         current_time = int(time.time())
         expires_at = current_time + expires_in
         session = get_session()

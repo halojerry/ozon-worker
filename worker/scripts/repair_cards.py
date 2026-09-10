@@ -17,11 +17,16 @@
   python scripts/repair_cards.py --dry-run            # 只打印将执行的步骤与 payload
   python scripts/repair_cards.py --offer 831249914209_0   # 只修指定卡
   python scripts/repair_cards.py                       # 修全部 FIX_MAP 内卡片
+
+凭证：必须显式提供 --client-id/--api-key，或设置环境变量 OZON_CLIENT_ID/OZON_API_KEY。
+⚠️ 历史版本曾硬编码真实凭证入 git——该 key 必须轮换，历史清除方案见
+   docs/audit/2026-09-11-repo-gov/BACKLOG.md BL-04。
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -31,9 +36,11 @@ import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ── 凭证（测试店铺）──
-CLIENT_ID = "5371047"
-API_KEY = "***REMOVED***"
+# ⚠️ 历史版本曾硬编码真实凭证入 git——该 key 必须轮换，历史清除方案见
+# docs/audit/2026-09-11-repo-gov/BACKLOG.md BL-04。现改为 --client-id/--api-key
+# 或环境变量 OZON_CLIENT_ID/OZON_API_KEY（main() 里解析后回填这两个全局）。
+CLIENT_ID = ""
+API_KEY = ""
 BASE = "https://api-seller.ozon.ru"
 
 
@@ -241,10 +248,22 @@ def _import_and_poll(item: dict) -> dict:
 
 
 def main() -> int:
+    global CLIENT_ID, API_KEY
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="只打印 payload，不调用 Ozon")
     ap.add_argument("--offer", default="", help="只修指定 offer_id")
+    ap.add_argument("--client-id", default=os.environ.get("OZON_CLIENT_ID", ""),
+                    help="Ozon 卖家 Client-Id（必填，缺省回退 env OZON_CLIENT_ID）")
+    ap.add_argument("--api-key", default=os.environ.get("OZON_API_KEY", ""),
+                    help="Ozon 卖家 Api-Key（必填，缺省回退 env OZON_API_KEY）")
     args = ap.parse_args()
+
+    # 凭证解析：显式参数 > 环境变量；两者皆缺 → 提示后退出（绝不再硬编码）
+    CLIENT_ID = (args.client_id or "").strip()
+    API_KEY = (args.api_key or "").strip()
+    if not CLIENT_ID or not API_KEY:
+        print("缺少 Ozon 凭证：请传 --client-id/--api-key，或设置环境变量 OZON_CLIENT_ID / OZON_API_KEY")
+        sys.exit(2)
 
     targets = {k: v for k, v in FIX_MAP.items() if not args.offer or k == args.offer}
     if not targets:
