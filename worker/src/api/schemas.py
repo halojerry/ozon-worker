@@ -929,3 +929,11 @@ class MxouKeyCreateResponse(BaseModel):
 class MxouKeySelectResponse(BaseModel):
     """切换密钥响应（key 仅此一次返回——用户复制后不再可查）。"""
     key: str = Field(..., description="所选密钥完整值（仅此一次返回）")
+
+
+class SellerSyncIn(BaseModel):
+    """POST /api/v1/analytics/seller-sync 请求体（数据池贡献收包）。"""
+    items: list[dict[str, Any]]
+    source_company_id: str | None = None
+    model_config = _examples({"items": [{"sku": 3171397439, "sales_payload": {"monthsales": 140}}],
+                              "source_company_id": "5381204"})

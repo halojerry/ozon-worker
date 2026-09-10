@@ -217,6 +217,16 @@ class CdpTab:
         """
         self._send("Page.addScriptToEvaluateOnNewDocument", {"source": js})
 
+    def set_bypass_csp(self, enabled: bool = True) -> None:
+        """剥除本 tab 的 CSP 执行（毛子 declarativeNetRequest 的 CDP 等价物）。
+        页面上下文注入 fetch 不再被 connect-src 拦。失败只 warning（老 Chrome
+        无此命令），调用方不感知。"""
+        try:
+            msg_id = self._send("Page.setBypassCSP", {"enabled": enabled})
+            self._recv_until_id(msg_id, timeout=10)
+        except Exception as exc:
+            logger.warning("set_bypass_csp 失败（忽略）: %s", exc)
+
     def set_extra_headers(self, headers: dict[str, str]) -> None:
         """Set extra HTTP headers for all subsequent requests.
 

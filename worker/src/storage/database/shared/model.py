@@ -1263,3 +1263,34 @@ class OzonSellerSession(Base):
         UniqueConstraint("tenant_id", "credential_id", name="uq_ozon_sessions_tenant_credential"),
         Index("idx_ozon_sessions_tenant", "tenant_id"),
     )
+
+
+class SkuMetricsPool(Base):
+    """数据池 v1（对标上品帮跨店数据湖）：用户 skill 采集 what_to_sell 顺手上报的
+    按 sku 销量指标。只存指标数据，永不存 cookie。sku = Ozon int64（无 _0 后缀）。
+    needs_*_sync 不落列——读取时按 updated_at/缺 payload 计算（批 1.2）。
+    """
+    __tablename__ = "sku_metrics_pool"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    sku: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sales_payload: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True, default=None, comment="what_to_sell item 原样")
+    variant_payload: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True, default=None, comment="variant_v2 真值（批 6.3）")
+    category_dc: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, default=None)
+    category_tp: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, default=None)
+    source_company_ids: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, comment="cap 10")
+    contributed_by_token_ids: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, comment="cap 10")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True),
+                                                          server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True),
+                                                          server_default=func.now(),
+                                                          onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("sku", name="uq_sku_metrics_pool_sku"),
+        Index("idx_sku_metrics_pool_updated", "updated_at"),
+    )

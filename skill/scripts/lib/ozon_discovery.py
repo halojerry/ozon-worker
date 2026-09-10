@@ -211,6 +211,9 @@ class ProductCandidate:
     days_with_trafarets: int | None = None         # 付费推广天数
     nullable_redemption_rate: float | None = None  # 成交率 %
     return_cancel_rate: float | None = None        # 退货取消率 %（100 - 成交率）
+    # data-pool 批7（卡片缺口三键之一）：商品点击率 %（what_to_sell
+    # qtyViewPdp/views 派生，毛子同款计算字段；无直连键 None=未知省略）
+    custom_click_rate: float | None = None
 
     # Ozon 类目（面包屑/候选品数据，供提交）
     ozon_category: dict = field(default_factory=dict)
@@ -516,6 +519,50 @@ def _lazy_collect_urls(tab: Any, max_products: int,
     return [str(r["id"]) for r in rows if r.get("id")]
 
 
+# layout_tracking → page 先验（data-pool parity Task 6.2）：分隔符与面包屑派生
+# 同源（ozon_scraper._category_path_from_crumbs 的 " > "），worker 路径解析同口味。
+_LAYOUT_PRIOR_SEPARATOR = " > "
+
+
+def _layout_truth_to_page_prior(layout_tracking: Any) -> dict | None:
+    """layoutTrackingInfo 三键 → 候选级 page 先验；无可用真值 → None。
+
+    Task 6.1 的 ``layout_tracking`` 形态 ``{categoryId, category_path, breadcrumbs}``：
+    - category_path 列表拼路径串（空段/None 剔除）；列表空时 breadcrumbs 兜底
+      （dict 取 text、字符串原样）。
+    - categoryId 仅正 int 作 ``web_category_id`` 旁证（bool 剔除；数字串宽容转
+      int——widget 载荷两种形态都可能）；None/非法 → None 字段，绝不透传。
+    - 路径与旁证全无 → None（调用方零改动，信封省略纪律）。
+    """
+    if not isinstance(layout_tracking, dict):
+        return None
+    parts: list[str] = []
+    for _p in layout_tracking.get("category_path") or []:
+        _t = str(_p).strip() if _p is not None else ""
+        if _t:
+            parts.append(_t)
+    if not parts:
+        for _c in layout_tracking.get("breadcrumbs") or []:
+            _raw = _c.get("text") if isinstance(_c, dict) else _c
+            _t = str(_raw).strip() if _raw is not None else ""
+            if _t:
+                parts.append(_t)
+    cid = layout_tracking.get("categoryId")
+    cid_val: int | None = None
+    if isinstance(cid, bool):
+        pass  # bool 是 int 子类，True/False 不是类目 ID
+    elif isinstance(cid, int) and cid > 0:
+        cid_val = cid
+    elif isinstance(cid, str) and cid.strip().isdigit():
+        cid_val = int(cid.strip())
+    if not parts and cid_val is None:
+        return None
+    return {
+        "page_category_path": _LAYOUT_PRIOR_SEPARATOR.join(parts),
+        "web_category_id": cid_val,
+    }
+
+
 def _analyze_product(cdp_url: str, cdp: Any, pid: str,
                      force_new_tab: bool = False, shared_tab=None) -> ProductCandidate:
     """单产品全量数据（widget API）：标题/价格/图/品牌/评分/评论数 + 跟卖。
@@ -558,6 +605,17 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str,
         # ✅ v0.71 页面类目真值（widget breadCrumbs 派生；Web 前台 ID 非 dc/tp）
         candidate.page_category_path = str(info.get("category_path") or "")
         candidate.page_web_category_id = str(info.get("web_category_id") or "")
+        # ✅ data-pool parity（Task 6.2）：layoutTrackingInfo 结构化真值回填。
+        # 优先级阶梯不动（真值二次抓取 > 面包屑派生 > 本回填为最弱 page 派生 >
+        # search_kw 猜测）：只补面包屑缺位，绝不覆盖既有真值；categoryId 仅正
+        # int 作 web_category_id 旁证（None 绝不透传）；layout_tracking 缺席零改动。
+        _prior = _layout_truth_to_page_prior(info.get("layout_tracking"))
+        if _prior:
+            if not candidate.page_category_path and _prior["page_category_path"]:
+                candidate.page_category_path = _prior["page_category_path"]
+            if (not candidate.page_web_category_id
+                    and _prior["web_category_id"] is not None):
+                candidate.page_web_category_id = str(_prior["web_category_id"])
 
         if not candidate.ozon_title:
             candidate.status = "error"
@@ -582,9 +640,106 @@ def _analyze_product(cdp_url: str, cdp: Any, pid: str,
     return candidate
 
 
+def _giveback_metrics(metrics_items, variant_payloads: dict | None = None) -> None:
+    """读-回馈（goldminer 模式）：消费 what_to_sell 畅销榜数据时顺手上报数据池。
+
+    metrics_items: (sku, item) 对的可迭代（item = _parse_bestseller_items
+    产出的 snake_case 提取行，经 _extract_metrics 同词汇表——sold_count/gmv_sum
+    等，即 CDP 畅销榜 map 行，整包作 sales_payload；非 what_to_sell 原始条目）。
+    fire-and-forget——metrics_pool_client 内部已吞掉
+    一切失败（未配置 token/网络错误/METRICS_POOL_REPORT=0 均静默），这里再套
+    一层 try/except 双保险：贡献失败绝不影响富化/查询主流程，也不感知不重试。
+
+    Task 6.3（variant_v2 重量真值链）：variant_payloads 可选
+    {str(sku): variant_payload}（fetch_variant_truth 收获的跨卖家重量尺寸
+    真值）——命中 sku 的上报行加带 "variant_payload" 键（worker 侧
+    upsert_seller_sync_items 按 sku 合并落 SkuMetricsPool.variant_payload）；
+    不传/未命中行与 Task 2.2 逐字一致（零增键）。
+    """
+    try:
+        from scripts.lib.metrics_pool_client import report_seller_sync
+        _vp = variant_payloads or {}
+        _rows = []
+        for sku, item in metrics_items:
+            row = {"sku": sku, "sales_payload": item}
+            payload = _vp.get(str(sku))
+            if payload:
+                row["variant_payload"] = payload
+            _rows.append(row)
+        report_seller_sync(_rows)
+    except Exception as exc:  # 双保险：贡献失败永不影响富化
+        logger.debug("giveback 失败（忽略）: %s", exc)
+
+
+def _apply_pool_metrics(candidates: list[ProductCandidate],
+                        enriched: dict[str, dict]) -> int:
+    """数据池优先（Task 2.3）：查 metrics 数据池，命中候选免 CDP 直采。
+
+    query_sku_metrics（metrics_pool_client，读-回馈批 1 落地的读侧）返回
+    {str(sku): metric}，漏斗数据在 metric.sales_payload——与 CDP 畅销榜 map
+    行同词汇表（_giveback_metrics 上报的正是同一批行），故直接走
+    apply_analytics_to_candidate 同一映射函数填候选字段（与 CDP 富化逐字
+    一致），has_analytics 由该函数照常置位。附带两件小事：
+    - metric.category_name_zh（worker 侧归一的中文类目路径，非 None 时）→
+      candidate.category（CSV/Excel「类目」展示列；CDP 路径此列是数字 dc，
+      池数据有人话名优先人话名。纯展示字段不参与上架——上架走 ozon_category）。
+    - env `METRICS_POOL_QUERY=0` 一键关（与 client 侧 METRICS_POOL_REPORT=0
+      对称，风控/调试用）。
+
+    返回池命中数；enriched 就地登记 pid → sales_payload（与既有富化返回同构，
+    调用方以此区分「池已命中」与「待 CDP 直采」）。查询失败/未配置/零命中
+    → 0，调用方照旧走 CDP 直采——**池永不使 discover 变差**。查询异常绝不
+    外逃（对齐 _giveback_metrics 双保险纪律）。
+
+    终审裁定（2026-09-10）：needs_sales_sync=True 的陈旧行（>14d 或缺
+    payload）**不算池命中**——字段照填（聊胜于无）但禁止进 enriched（留在
+    remaining），CDP 直采刷新照跑；陈旧行不得抑制数据保鲜。
+    """
+    if not candidates or os.environ.get("METRICS_POOL_QUERY") == "0":
+        return 0
+    try:
+        from scripts.lib.metrics_pool_client import query_sku_metrics
+        skus = [str(c.ozon_product_id) for c in candidates if c.ozon_product_id]
+        if not skus:
+            return 0
+        pool = query_sku_metrics(skus)
+    except Exception as exc:  # noqa: BLE001 — 查池失败一律静默回落 CDP 直采
+        logger.debug("数据池查询跳过（回退直采）: %s", exc)
+        return 0
+    if not pool:
+        return 0
+    from scripts.lib.ozon_seller_analytics import apply_analytics_to_candidate
+    hits = 0
+    for c in candidates:
+        metric = pool.get(str(c.ozon_product_id))
+        if not metric:
+            continue
+        payload = metric.get("sales_payload") or {}
+        if not apply_analytics_to_candidate(c, payload):
+            continue
+        name_zh = metric.get("category_name_zh")
+        if name_zh:
+            c.category = str(name_zh)
+        if metric.get("needs_sales_sync"):
+            # 陈旧行：字段已填（聊胜于无），但不登记 enriched / 不计命中——
+            # 留在 remaining 让 CDP 直采刷新（终审裁定，见 docstring）。
+            continue
+        enriched[str(c.ozon_product_id)] = payload
+        hits += 1
+    if hits:
+        logger.info("数据池命中 %d/%d 条运营指标（免 CDP 直采）", hits, len(candidates))
+    return hits
+
+
 def _enrich_with_seller_metrics(candidates: list[ProductCandidate],
                                 cdp, cdp_url: str) -> dict[str, dict]:
     """阶段②b seller 运营指标富化（就地 apply 进候选），返回成功富化的 {pid: metrics}。
+
+    Task 2.3（数据池优先）：入口先查数据池——命中的候选直接用池里
+    sales_payload 填字段（与 CDP 富化同一映射函数，见 _apply_pool_metrics）；
+    全部命中则整段跳过下方 CDP 直采（免 cookie 直调/免登录等待/免 seller 页
+    导航，命中即零 seller 依赖）。未命中/未配置/查询失败的候选原样回落既有
+    CDP 路径，行为不变。
 
     v2 漏斗 Task 6：畅销榜 map 走 cookie 直调优先（_fetch_seller_session_cookies
     只读不导航 + fetch_bestseller_metrics_map_direct 免 seller 页导航/免登录等
@@ -592,6 +747,14 @@ def _enrich_with_seller_metrics(candidates: list[ProductCandidate],
     （check_seller_login → wait_for_seller_login → fetch_bestseller_metrics_map），
     可用性不回退。map 未命中的 pids 再降级逐 SKU fetch_sales_analytics（P1c）。
     """
+    enriched: dict[str, dict] = {}
+
+    # ── Task 2.3: 数据池优先（命中免 CDP 直采；失败/未命中行为不变）──
+    _apply_pool_metrics(candidates, enriched)
+    remaining = [c for c in candidates if str(c.ozon_product_id) not in enriched]
+    if not remaining:
+        return enriched
+
     from scripts.lib.ozon_seller_analytics import (
         apply_analytics_to_candidate,
         check_seller_login,
@@ -624,15 +787,21 @@ def _enrich_with_seller_metrics(candidates: list[ProductCandidate],
             pass
         metrics_map = fetch_bestseller_metrics_map(cdp, company_id=None)
 
-    enriched: dict[str, dict] = {}
-    for c in candidates:
+    if metrics_map:
+        # 读-回馈（goldminer）：map 在此已定稿（直调/CDP/缓存命中三路统一），
+        # 每收获恰一次顺手上报数据池——副作用，不影响下方富化（fire-and-forget）。
+        _giveback_metrics(metrics_map.items())
+
+    # 池已命中的候选（不在 remaining）不进下方循环——池数据不被 CDP map 覆盖。
+    for c in remaining:
         if c.ozon_product_id in metrics_map:
             apply_analytics_to_candidate(c, metrics_map[c.ozon_product_id])
             enriched[c.ozon_product_id] = metrics_map[c.ozon_product_id]
-    remaining = [c for c in candidates if c.ozon_product_id not in metrics_map]
-    if remaining:
-        per_sku = fetch_sales_analytics(cdp, [c.ozon_product_id for c in remaining])
-        for c in remaining:
+    still_missing = [c for c in remaining
+                     if c.ozon_product_id not in metrics_map]
+    if still_missing:
+        per_sku = fetch_sales_analytics(cdp, [c.ozon_product_id for c in still_missing])
+        for c in still_missing:
             apply_analytics_to_candidate(c, per_sku.get(c.ozon_product_id, {}))
             if c.ozon_product_id in per_sku:
                 enriched[c.ozon_product_id] = per_sku[c.ozon_product_id]
@@ -1547,6 +1716,9 @@ _EXPORT_FIELDS: list[str] = [
     # v0.70 B 批次扩列（上品帮对标）：跟卖利润空间 + 竞品划线价 + 货源国内运费
     'follow_profit_cny', 'follow_margin', 'ozon_old_price',
     'match_1688_freight_cny',
+    # data-pool 批7（卡片缺口三键之一）：商品点击率 %（qtyViewPdp/views 派生；
+    # 增长率 sales_growth/广告份额 drr 为既有列不另增键）
+    'custom_click_rate',
 ]
 
 # Excel 四大区（P2，吸收上品帮选品簿的分区方法论）：(区名, [(字段键, 中文列名)])。
@@ -1571,6 +1743,8 @@ _EXPORT_XLSX_ZONES: list[tuple[str, list[tuple[str, str]]]] = [
         ('discount', '折扣(%)'), ('days_with_trafarets', '付费推广天数'),
         ('promo_revenue_share', '促销转化率(%)'), ('nullable_redemption_rate', '成交率(%)'),
         ('return_cancel_rate', '退货取消率(%)'),
+        # data-pool 批7：商品点击率（卡片缺口三键之一，与月销售动态/ДРР 同区）
+        ('custom_click_rate', '点击率(%)'),
         ('follow_profit_cny', '跟卖利润(CNY)'), ('follow_margin', '跟卖利润率(%)'),
     ]),
     ("尺寸重量", [
@@ -1649,6 +1823,8 @@ def _candidate_row(c: ProductCandidate) -> dict:
         'follow_margin': c.follow_margin,
         'ozon_old_price': _opt(c.ozon_old_price),
         'match_1688_freight_cny': _opt(c.match_1688_freight_cny),
+        # data-pool 批7：点击率 None=未知 → 空串（漏斗组同款）
+        'custom_click_rate': _opt(getattr(c, 'custom_click_rate', None)),
     }
 
 

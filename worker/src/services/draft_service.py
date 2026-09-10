@@ -338,6 +338,9 @@ _DRAFT_META_CSV_KEYS = [
     # B 批次冻结契约 4 键（跟卖利润/划线价/1688 运费；生产端在 skill
     # _assemble_discovery_meta，本表先行占位列——缺失键照常空串）
     "follow_profit_cny", "follow_margin", "ozon_old_price", "match_1688_freight_cny",
+    # data-pool 批7（卡片缺口三键之一）：商品点击率 %（skill 侧
+    # qtyViewPdp/views 派生；增长率 sales_growth/广告份额 drr 已在上组）
+    "custom_click_rate",
 ]
 
 

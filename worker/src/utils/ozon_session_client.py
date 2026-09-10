@@ -3,7 +3,8 @@
 消费 ozon_session_service 解出的 Cookie 头 + sc_company_id，直调
 seller.ozon.ru 内部端点（what_to_sell v3，契约与 skill
 ozon_seller_analytics.fetch_sales_analytics_direct 实证直调同源：
-POST + Cookie + x-o3-company-id + x-o3-language: zh-Hans）。
+POST + Cookie + x-o3-company-id + x-o3-language: zh-Hans；
+头契约出处：x-o3-app-name: seller-ui 来自 ozonAI 插件头契约——缺它直调 403）。
 
 判废出口（C6 失效联动）：401/403/登录 302 → (None, "session_expired")，
 由调用方 mark_status("expired")。429/5xx/网络异常 ≠ 会话失效，不误标。
@@ -58,6 +59,7 @@ def what_to_sell(cookie_header: str, sc_company_id: str, payload: dict,
     headers = {
         "Content-Type": "application/json",
         "x-o3-company-id": str(sc_company_id),
+        "x-o3-app-name": "seller-ui",
         "x-o3-language": "zh-Hans",
         "User-Agent": _UA,
         "Referer": f"{SELLER_ORIGIN}/",

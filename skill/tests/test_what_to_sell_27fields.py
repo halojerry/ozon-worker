@@ -166,6 +166,39 @@ def test_extract_metrics_snake_case_input_also_works():
     assert m["follow_max_price"] == 200.0
 
 
+# ── data-pool 批7：点击率派生（卡片缺口三键之一；增长率 salesDynamics/
+#    ДРР drr 为直连键既有词汇，上方既有测试已锁） ──────────────────────────
+
+def test_extract_metrics_click_rate_derived_from_views():
+    """maozi 3.2.6 取证：what_to_sell item 无 direct customClickRate 键——
+    毛子「商品点击率」是计算字段 qtyViewPdp/views*100（views=全页面展示
+    次数 item 原始键；views=0 时毛子出「--」即无数据）。"""
+    m = osa._extract_metrics({"sku": "x", "views": 100000, "qtyViewPdp": 45000})
+    assert m["views"] == 100000
+    assert m["custom_click_rate"] == 45.0
+
+
+def test_extract_metrics_click_rate_real_zero_kept():
+    """有展示无点击（pdp=0, views>0）→ 真实 0.0 保留（区别于无数据）。"""
+    m = osa._extract_metrics({"sku": "x", "views": 1000, "qtyViewPdp": 0})
+    assert m["custom_click_rate"] == 0.0
+
+
+def test_extract_metrics_click_rate_direct_key_priority():
+    """直连键存在时原样优先（历史词汇防御式保留，不被派生公式覆盖）。"""
+    m = osa._extract_metrics({
+        "sku": "x", "customClickRate": 3.2, "views": 100, "qtyViewPdp": 50})
+    assert m["custom_click_rate"] == 3.2
+
+
+def test_extract_metrics_click_rate_no_views_keeps_default():
+    """无 views 原始键（旧缓存/池形态）→ 保持 0.0 缺省（既有词汇契约不回归，
+    test_extract_metrics_missing_fields_safely_default 锁定）。"""
+    m = osa._extract_metrics({"sku": "x", "qtyViewPdp": 500})
+    assert m["views"] == 0
+    assert m["custom_click_rate"] == 0.0
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. 昂贵抓取磁盘缓存（key 含语言维度）
 # ─────────────────────────────────────────────────────────────────────────────

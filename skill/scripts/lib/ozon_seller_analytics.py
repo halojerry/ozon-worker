@@ -180,6 +180,8 @@ _QUERIES_MARKET_BESTSELLERS_JS = r'''(async () => {
 # 精简重写：去掉弹窗/页面跳转/模糊单元格检测等 UI hack，只保留数据接口解锁）。
 # 背景：what_to_sell / analytics 图表数据对非 premium 卖家受限（上品帮实证），
 # 拦截 premium/status 与 graphs 相关请求，返回伪造的 PREMIUM_PLUS 全量权限响应。
+# V3.2.6 对齐（data-pool-parity 5.1）：地基响应体 makeBase（含 isAnalyst /
+# grace_period_end_at / features.api=full_access）由 STATUS 与 graphs 伪造体共享。
 # 幂等（__OZON_PREMIUM_UNLOCK__ 防重复安装）；不匹配的请求原样放行；
 # 仅本地自用（用户已登录的 seller.ozon.ru 页面内注入），不对外分发。
 _PREMIUM_UNLOCK_JS = r'''(() => {
@@ -187,16 +189,21 @@ _PREMIUM_UNLOCK_JS = r'''(() => {
     window.__OZON_PREMIUM_UNLOCK__ = true;
     const STATUS_RX = /\/premium\/status|\/get-seller-premium-status/i;
     const GRAPH_RX = /\/analytics\/graphs|\/graph\/data|\/statistics\/data/i;
-    const makeStatus = () => ({
+    const makeBase = () => ({
+        // V3.2.6 地基响应体（上品帮 base）：STATUS 与 graphs 两类伪造体共享
+        // （isAnalyst / grace_period_end_at / features.api=full_access 为
+        // V3.2.6 ozon_min.js 新增权限字段；grace 固定远期值，永不过期）
         status: "grace_good",
         is_premium: true,
         isPremiumPlus: true,
         isAnalyst: true,
         subscription: {current: "PREMIUM_PLUS", available: ["PREMIUM_PLUS"],
-                       grace_period_end_at: new Date(Date.now() + 48384e3).toISOString()},
+                       grace_period_end_at: "2030-01-01T00:00:00.000Z"},
         features: {analytics: "full", marketing: "full", api: "full_access",
                    graphs: "full", reports: "full", statistics: "full",
-                   recommendations: "full"},
+                   recommendations: "full"}
+    });
+    const makeStatus = () => ({...makeBase(),
         hasAccess: true,
         accessLevel: "FULL",
         dataPoints: Array.from({length: 15}, (_, i) => ({
@@ -204,7 +211,8 @@ _PREMIUM_UNLOCK_JS = r'''(() => {
             trend: Math.random() > .5 ? "up" : "down", change: Math.floor(36 * Math.random())
         }))
     });
-    const makeGraph = () => ({is_premium: true, isPremiumPlus: true, graphsAccess: true,
+    const makeGraph = () => ({...makeBase(),
+        graphsAccess: true,
         dataSets: ["sales", "traffic", "conversion"], timeRanges: ["day", "week", "month"]});
     const fake = (url) => STATUS_RX.test(url) ? makeStatus() : makeGraph();
     // XHR 深度拦截（上品帮机制）：伪造 responseText/status/readyState
@@ -349,6 +357,9 @@ def _extract_metrics(item: dict) -> dict[str, Any]:
         "conv_to_cart_search": _to_float(_first(item, "convToCartSearch", "conv_to_cart_search")),
         "conv_view_to_order": _to_float(_first(item, "convViewToOrder", "conv_view_to_order")),
         "custom_click_rate": _to_float(_first(item, "customClickRate", "custom_click_rate")),
+        # data-pool 批7：views=全页面展示次数（maozi 3.2.6 原始键，「商品点击率」
+        # 派生分母；见 metrics 构造后的派生块）
+        "views": _to_int(_first(item, "views")),
         # 发货模式 / 退货取消率（return_rate = 100 - nullableRedemptionRate）
         "sales_schema": str(_first(item, "salesSchema", "sales_schema", default="")),
         "nullable_redemption_rate": _to_float(item.get("nullableRedemptionRate")),
@@ -384,6 +395,19 @@ def _extract_metrics(item: dict) -> dict[str, Any]:
         "category2_id": _to_int(item.get("category2Id")),
         "category3_id": _to_int(item.get("category3Id")),
     }
+
+    # data-pool 批7 点击率派生（卡片缺口三键之一，maozi 3.2.6 取证）：what_to_sell
+    # item 无 direct customClickRate 键——毛子「商品点击率」是计算字段
+    # qtyViewPdp/views*100（views=全页面展示次数，其 content.js:
+    # `custom_click_rate:v=>{...const m=Number(v?.qtyViewPdp)||0;return p===0
+    # ?"--":(m/p*100).toFixed(2)+"%"}`）。直连键存在时原样优先（历史词汇防御式
+    # 保留）；无直连且有展示量 → 按毛子公式派生；两者皆无 → 保持 0.0 缺省
+    # （既有词汇契约，test_what_to_sell_27fields 锁定）。
+    if not metrics["custom_click_rate"]:
+        _views = metrics.get("views") or 0
+        if _views > 0:
+            metrics["custom_click_rate"] = round(
+                (metrics.get("qty_view_pdp") or 0) / _views * 100, 2)
 
     # 重量/尺寸在 attributes（毛子: 4497 重量, 9454/9455/9456 长/宽/高, 单位 mm）
     attrs = item.get("attributes") or item.get("characteristics") or []
@@ -433,6 +457,7 @@ def _tab_for_seller(cdp) -> tuple:
         reused = cdp.find_tab("seller.ozon.ru")
         if reused is not None:
             logger.info("seller.ozon.ru: 复用用户已登录 seller Tab（跨 Tab 借道）")
+            reused.set_bypass_csp()  # CSP 剥除（v4.2）：页面内注入 fetch 不被 connect-src 拦
             # ✅ v0.26 premium 解锁：已加载页面无法 add_init_script → 运行时注入
             _install_premium_unlock(reused, reused=True)
             return reused, True
@@ -440,6 +465,7 @@ def _tab_for_seller(cdp) -> tuple:
         logger.debug("find_tab seller.ozon.ru 失败（降级新建）: %s", exc)
     logger.info("seller.ozon.ru: 未找到已打开 seller Tab，新建（可能需重新登录）")
     tab = cdp.new_tab()
+    tab.set_bypass_csp()  # CSP 剥除（v4.2）：导航前设置，随 target 存活跨导航生效
     # ✅ v0.26 premium 解锁：新建场景导航前预注入（上品帮 addScriptToEvaluateOnNewDocument 时机）
     try:
         tab.add_init_script(_PREMIUM_UNLOCK_JS)
@@ -933,6 +959,29 @@ def _read_company_id(tab) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _cdp_get_cookies_sequence(conn) -> list:
+    """薄委托：同一临时 tab 依次两读——
+
+    ① Network.getCookies {urls:[SELLER_URL]}：目标 URL 可见 cookie（不含 CHIPS 分区）；
+    ② Storage.getCookies {}：浏览器全部 cookie（含 CHIPS 分区，条目可带 partitionKey）。
+
+    返回 [network响应, storage响应] 两段原始响应。抽成函数只为让测试能
+    monkeypatch（免造 CDP 连接），零业务逻辑。
+    """
+    tab = conn.new_tab("about:blank")
+    try:
+        msg_id = tab._send("Network.getCookies", {"urls": [SELLER_URL]})
+        network_resp = tab._recv_until_id(msg_id, timeout=10) or {}
+        msg_id = tab._send("Storage.getCookies", {})
+        storage_resp = tab._recv_until_id(msg_id, timeout=10) or {}
+        return [network_resp, storage_resp]
+    finally:
+        try:
+            tab.close()
+        except Exception:
+            pass
+
+
 def _fetch_seller_session_cookies(cdp_url: str = "http://127.0.0.1:9222") -> dict[str, str]:
     """从工具 Chrome 会话静默读 seller.ozon.ru cookie（不导航任何页面）。
 
@@ -940,24 +989,38 @@ def _fetch_seller_session_cookies(cdp_url: str = "http://127.0.0.1:9222") -> dic
     Network.getCookies 只读 cookie → 立即关闭。核心 cookie 是 sc_company_id
     （HttpOnly，document.cookie 读不到，必须走 CDP 网络域）。
 
+    CHIPS 分区兜底（ozonAI cookieHandler 同款）：abt_data 等活在分区的 cookie
+    Network.getCookies 拿不到，由 Storage.getCookies（全浏览器含分区）兜回——
+    只取 domain 含 ozon.ru 的条目，同名取 value 更长者（分区值更长才覆盖）。
+
     Returns:
         {cookie名: 值}。无 sc_company_id / Chrome 未运行 → {}（fail-fast）。
     """
     conn = None
-    tab = None
     try:
         from scripts.lib.cdp_client import CdpConnection
 
         conn = CdpConnection(cdp_url)
-        tab = conn.new_tab("about:blank")
-        msg_id = tab._send("Network.getCookies", {"urls": [SELLER_URL]})
-        resp = tab._recv_until_id(msg_id, timeout=10) or {}
+        network_resp, storage_resp = _cdp_get_cookies_sequence(conn)
         cookies: dict[str, str] = {}
-        for c in (resp.get("result", {}).get("cookies") or []):
+        for c in (network_resp.get("result", {}).get("cookies") or []):
             name = c.get("name", "")
             val = c.get("value")
             if name and val not in (None, ""):
                 cookies[name] = str(val)
+        for c in (storage_resp.get("result", {}).get("cookies") or []):
+            name = c.get("name", "")
+            val = c.get("value")
+            if not name or val in (None, ""):
+                continue
+            domain = str(c.get("domain") or "")
+            # 真实 CDP cookie 恒带 domain；缺省（测试桩/异常源）不排除——
+            # 排除依据只能是「在场且不含 ozon.ru」。
+            if domain and "ozon.ru" not in domain:
+                continue
+            sval = str(val)
+            if name not in cookies or len(sval) > len(cookies[name]):
+                cookies[name] = sval
         if not cookies.get("sc_company_id"):
             logger.info("seller.ozon.ru 无 sc_company_id cookie（未登录或未加载过卖家后台）")
             return {}
@@ -966,11 +1029,6 @@ def _fetch_seller_session_cookies(cdp_url: str = "http://127.0.0.1:9222") -> dic
         logger.debug("读取 seller.ozon.ru 会话 cookie 失败（%s），降级 CDP", exc)
         return {}
     finally:
-        if tab:
-            try:
-                tab.close()
-            except Exception:
-                pass
         if conn:
             try:
                 conn.close()
@@ -1349,6 +1407,11 @@ def apply_analytics_to_candidate(candidate, metrics: dict) -> bool:
             candidate.nullable_redemption_rate = float(metrics["nullable_redemption_rate"])
         if metrics.get("return_rate"):
             candidate.return_cancel_rate = float(metrics["return_rate"])
+        # data-pool 批7：商品点击率（qtyViewPdp/views 派生，卡片缺口三键之一）。
+        # 按漏斗组既有约定用真值判断——metrics 缺省 0.0 与真实 0 在本层不可区分
+        # （评审 G-3 已知限制），真实 0 不落候选（候选 None=未知语义）。
+        if metrics.get("custom_click_rate"):
+            candidate.custom_click_rate = float(metrics["custom_click_rate"])
         cat2 = metrics.get("category2_id") or 0
         if cat2:
             candidate.category = str(cat2)
