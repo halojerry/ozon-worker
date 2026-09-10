@@ -11,8 +11,11 @@ discover 接线用：1688 图搜定款照旧，本模块只做**关键词副通�
   重定向**：曾有 ``_m_h5_tk`` cookie 门，实机证明是错的——该 token 属 h5api
   mtop 流程（商品详情页），登录态完好的搜索页也不带它（搜索不调 mtop），
   cookie 门会把每次 run 毒化成 NotLoggedIn。淘宝会把 URL 规范化成
-  ``/search?page=1&q=..&tab=all``（参数乱序+附加参数）——上下文比对必须解析后
-  比（host+path+q），整串前缀恒 False（gate 实证每候选误杀）。
+  ``/search?page=1&q=..&tab=all``（参数乱序+附加参数），且会**自行截断 q**
+  （截在字中间、半个转义 ``%E6%`` 收尾——gate round3 实证）——上下文校验：
+  JS 只判 host/path，q 解码非空前缀比对全收 Python（截断结果页仍为我们
+  服务，召回由批2 confirm_same_product 把关）；整串前缀/精确比对都扛不住
+  平台行为（两轮 gate 实证）。
 - 拼多多搜索页商品**无锚点、无 data-* 属性**（客户端渲染 div，点击靠事件
   委托），商品数据只在页内**一处 script JSON** 的 ``"list":[{goodsID,
   goodsName, price(分·券前), priceInfo(元展示串·券后), salesTip, imgUrl}]``
@@ -55,7 +58,7 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import parse_qs, quote_plus, urlparse
+from urllib.parse import quote_plus, unquote_plus, urlparse
 
 from scripts.lib.cdp_client import CdpConnection
 from scripts.lib.pdd_client import PDD_LOGIN_URL_MARKERS  # 登录标记唯一实现
@@ -290,13 +293,12 @@ def _pdd_search_url(keyword: str) -> str:
 _TAOBAO_SEARCH_JS = r"""(async () => {
     const BUDGET_MS = __BUDGET_MS__;
     const CTX_URL = __CTX_URL__;
-    const CTX_QKEY = __CTX_QKEY__;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    // 上下文校验（批1 fix round 1 + 批4 gate 校准 修1）：**解析后比对**——
-    // 同 host + 同 path + 同检索词参数即通过（淘宝会把 URL 规范化成
-    // ?page=1&q=..&tab=all，参数乱序+附加参数；整串前缀比对恒 False 误杀）。
-    // 不在目标域 → status 'context'——绝不在 about:blank 空 cookie jar 上跑
-    // 登录探测（假 NotLoggedIn 会毒化平台级负缓存）。
+    // 上下文校验（批1 fix round 1 + 批4 gate 校准 round3）：**JS 只判
+    // origin/path**——q 检索词校验全收 Python（平台会自行截断/重编码 q，
+    // 页内精确比对扛不住不稳定平台行为）。不在目标域 → status 'context'——
+    // 绝不在 about:blank 空 cookie jar 上跑登录探测（假 NotLoggedIn 会毒化
+    // 平台级负缓存）。
     function classifyContext() {
         try {
             const here = new URL(String(location.href || 'about:blank'));
@@ -305,9 +307,6 @@ _TAOBAO_SEARCH_JS = r"""(async () => {
                 return '页面不在目标搜索域（' + here.host + here.pathname + ' ≠ '
                     + want.host + want.pathname + '）';
             }
-            const qHere = here.searchParams.get(CTX_QKEY) || '';
-            const qWant = want.searchParams.get(CTX_QKEY) || '';
-            if (qHere !== qWant) return '搜索词不符（当前 ' + qHere.slice(0, 40) + '）';
             return '';
         } catch (e) {
             return '当前 URL 无法解析（' + String(location.href || '').slice(0, 80) + '）';
@@ -415,10 +414,10 @@ _TAOBAO_ID_DIG_JS = r"""(() => {
 _PDD_SEARCH_JS = r"""(async () => {
     const BUDGET_MS = __BUDGET_MS__;
     const CTX_URL = __CTX_URL__;
-    const CTX_QKEY = __CTX_QKEY__;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    // 上下文校验（批1 fix round 1 + 批4 gate 校准 修1）：同 taobao 侧解析后比对；
-    // about:blank/残留页先报 context，绝不在空 cookie jar 上跑登录探测。
+    // 上下文校验（批1 fix round 1 + 批4 gate 校准 round3）：同 taobao 侧——
+    // JS 只判 origin/path（q 校验全收 Python），about:blank/残留页先报
+    // context，绝不在空 cookie jar 上跑登录探测。
     function classifyContext() {
         try {
             const here = new URL(String(location.href || 'about:blank'));
@@ -427,9 +426,6 @@ _PDD_SEARCH_JS = r"""(async () => {
                 return '页面不在目标搜索域（' + here.host + here.pathname + ' ≠ '
                     + want.host + want.pathname + '）';
             }
-            const qHere = here.searchParams.get(CTX_QKEY) || '';
-            const qWant = want.searchParams.get(CTX_QKEY) || '';
-            if (qHere !== qWant) return '搜索词不符（当前 ' + qHere.slice(0, 40) + '）';
             return '';
         } catch (e) {
             return '当前 URL 无法解析（' + String(location.href || '').slice(0, 80) + '）';
@@ -582,37 +578,88 @@ def _evaluate_phase(tab: Any, js: str, deadline: float, label: str,
     return payload
 
 
-def _context_matches(actual_url: str, expected_url: str, query_key: str) -> bool:
-    """上下文比对（批4 gate 校准 修1）：**解析后比对**——同 host + 同 path +
-    同检索词参数值即通过（page/tab/spm 等附加参数与参数顺序忽略）。
+def _query_param_raw(query: str, key: str) -> str:
+    """取 query 串中 key 的首个**原始（未解码）**值——保留残缺转义原貌，
+    交给 ``unquote_plus(errors="ignore")`` 宽容解码（parse_qs 会用替换符污染）。"""
+    for token in str(query or "").split("&"):
+        if not token:
+            continue
+        k, _, v = token.partition("=")
+        if k == key:
+            return v
+    return ""
 
-    实机取证（2026-09-10 gate）：淘宝把 `/search?q=X` 规范化成
-    `/search?page=1&q=X&tab=all`——整串前缀比对恒 False，每候选误杀
-    （计数器 1→2→3 递增实证）。异域/异 path/异 q（防旧关键词残留）仍拒。
+
+def _strip_dangling_escape(value: str) -> str:
+    """去掉尾部残缺转义（``%XX`` 截半或裸 ``%``）——编码形态前缀比对用。
+
+    循环剥到稳定：Python unquote 对无效转义**原样保留**（实机 ``%2%`` 形态），
+    裸 ``%`` 剥掉后可能再露出残缺 ``%X``。完整转义（``%AF`` 收尾）不受影响
+    （``%``+1 hex+``$`` 贪到 D 上必失败）。"""
+    v = str(value or "")
+    while True:
+        stripped = re.sub(r"%(?:[0-9A-Fa-f]{0,1})?$", "", v)
+        if stripped == v:
+            return v
+        v = stripped
+
+
+def _q_serves_keyword(actual_raw: str, expected_decoded: str) -> bool:
+    """q 语义校验（批4 gate 校准 round3）：**结果页为我们的关键词服务**。
+
+    当前 q 的任一形态（原始/逐级宽容解码 ≤3 层）满足以下任一即通过：
+    ①去悬挂残缺转义后（大小写不敏感）是预期 q **编码形态**的前缀；
+    ②解码后是预期 q **解码形态**的非空前缀。
+    平台不稳定行为全部容忍：规范化参数乱序/附加参数（上层已只取 q 比对）、
+    截断在字中间或半个转义（round3 gate 实证 ``%E6%`` 收尾）、甚至双重编码
+    （实机 ``%25E4..``——淘宝对已编码 q 再编码）。截断的搜索结果仍为我们服务，
+    召回质量由批2 ``confirm_same_product`` 把关；**不同关键词残留仍拒**，
+    空 q 拒（无检索词的结果页不是「为我们的关键词服务」）。
     """
+    if not expected_decoded:
+        return False
+    expected_enc = quote_plus(expected_decoded).lower()
+    value = str(actual_raw or "")
+    for _ in range(3):
+        v_enc = _strip_dangling_escape(value).lower()
+        if v_enc and expected_enc.startswith(v_enc):
+            return True
+        decoded = unquote_plus(value, errors="ignore")
+        v_dec = decoded.rstrip("%")
+        if v_dec and expected_decoded.startswith(v_dec):
+            return True
+        if decoded == value:
+            break
+        value = decoded
+    return False
+
+
+def _context_matches(actual_url: str, expected_url: str, query_key: str) -> bool:
+    """上下文比对（批4 gate 校准 round1-3）：同 host + 同 path + q 为我们的
+    关键词服务（``_q_serves_keyword``）。异域/异 path/异 q（不同关键词残留/
+    空 q）仍拒。"""
     actual = urlparse(str(actual_url or ""))
     expected = urlparse(str(expected_url or ""))
     if not actual.hostname or actual.hostname != expected.hostname:
         return False
     if (actual.path or "/") != (expected.path or "/"):
         return False
-    actual_q = parse_qs(actual.query or "", keep_blank_values=True)
-    expected_q = parse_qs(expected.query or "", keep_blank_values=True)
-    return (actual_q.get(query_key) or []) == (expected_q.get(query_key) or [])
+    return _q_serves_keyword(
+        _query_param_raw(actual.query, query_key),
+        unquote_plus(_query_param_raw(expected.query, query_key),
+                     errors="ignore"))
 
 
 def _kind_of(payload: dict, platform: str, expected_search_url: str,
              context_query_key: str) -> tuple[str, str]:
     """evaluate 载荷 → (kind, detail)。kind ∈ ok/empty/login/context/error。
 
-    判序（批1 fix round 1，Important #1；批4 gate 校准 修1）：
+    判序（批1 fix round 1；批4 gate 校准 round1-3）：
     ①登录标记最先——真登录重定向（payload.url 命中平台登录标记）要写负缓存；
-    ②上下文校验——payload.url 解析后与预期搜索 URL 不同源/异 path/异检索词
-    （或 JS 直报 status 'context'）→ context：**不写 NotLoggedIn 缓存**，调用方
-    重试一次消导航竞态。两类竞态都拦：about:blank 空 cookie jar（JS 侧先报
-    context）+ 复用 tab 停在上一关键词的搜索页（同域同 path、异 q）。
-    保守偏差已接受：平台若把搜索页 302 成别的形态（批4 实机验证项）→ 恒 context
-    → 该平台静默跳过（宁可不比价，绝不在错误页面上解析/误判登录）。
+    ②上下文校验（``_context_matches``：同 host/path + q 解码非空前缀，截断
+    容忍；或 JS 直报 status 'context'）不符 → context：**不写 NotLoggedIn
+    缓存**，调用方重试一次消导航竞态。两类竞态都拦：about:blank 空 cookie
+    jar（JS 侧先报 context）+ 复用 tab 停在上一关键词的搜索页（异 q 前缀）。
     """
     status = str(payload.get("status") or "").strip()
     url = str(payload.get("url") or "")
@@ -677,9 +724,7 @@ def _run_keyword_search(platform, cdp_url, keyword, timeout, cdp, *,
         # context 重分类不写 NotLoggedIn 缓存；重试后仍 context → 大声报错。
         phase1_js_ready = (phase1_js
                            .replace("__BUDGET_MS__", str(_render_budget_ms(deadline)))
-                           .replace("__CTX_URL__", json.dumps(search_url))
-                           .replace("__CTX_QKEY__",
-                                    json.dumps(CONTEXT_QUERY_KEYS.get(platform, "q"))))
+                           .replace("__CTX_URL__", json.dumps(search_url)))
         kind, detail = "context", "首轮未评估"
         for attempt in range(2):
             payload = _evaluate_phase(tab, phase1_js_ready, deadline,

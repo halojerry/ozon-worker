@@ -496,8 +496,8 @@ class TestSearchPdd:
         assert '"salesTip"' in js and '"imgUrl"' in js
         assert "data-goods-id" not in js and 'a[href*="goods"]' not in js, (
             "实机 0 命中的死扫描必须移除")
-        assert json.dumps("search_key") in js, "pdd 上下文比对键必须是 search_key"
-        assert "__CTX_URL__" not in js and "__CTX_QKEY__" not in js
+        assert "__CTX_QKEY__" not in js and "__CTX_URL__" not in js, (
+            "JS 占位符必须全部注入（q 比对已收 Python，round3）")
 
     def test_fallback_regex_path(self):
         conn = _FakeConnection(new_tab_results=[
@@ -689,6 +689,42 @@ class TestContextMatching:
                                     expected, "q") is False, "异 path 必须拒"
         assert css._context_matches("", expected, "q") is False
 
+    def test_truncated_mid_escape_q_passes(self):
+        """批4 gate 校准 round3：淘宝自己把 q 截在转义中间（%E6% 收尾）——
+        解码（errors=ignore 去残缺转义）后是预期 q 的非空前缀即通过：
+        截断关键词的结果页仍为我们服务（召回由 confirm_same_product 把关）。"""
+        expected = css._taobao_search_url("不锈钢保温杯")
+        actual = ("https://s.taobao.com/search?page=1&q="
+                  + "%E4%B8%8D%E9%94%88%E9%92%A2%E4%BF%9D%E6%&tab=all")
+        assert css._context_matches(actual, expected, "q") is True
+
+    def test_truncated_at_char_boundary_q_passes(self):
+        expected = css._taobao_search_url("不锈钢保温杯")
+        actual = ("https://s.taobao.com/search?page=1&q="
+                  + quote_plus("不锈钢保") + "&tab=all")
+        assert css._context_matches(actual, expected, "q") is True
+
+    def test_double_encoded_q_passes(self):
+        """实机 round3 验证追加：淘宝对已编码 q 再编码（%25E4..双重编码）——
+        任一解码层级是预期 q 前缀/相等即通过（平台行为不稳定，守卫必须容忍）。"""
+        expected = css._taobao_search_url("保温杯")
+        double_encoded = quote_plus(quote_plus("保温杯"))
+        assert css._context_matches(
+            f"https://s.taobao.com/search?q={double_encoded}&tab=all",
+            expected, "q") is True
+        # 双重编码 + 截断（截在第二层转义边界）
+        truncated_double = quote_plus(quote_plus("保温杯"))[:-3] + "%"
+        assert css._context_matches(
+            f"https://s.taobao.com/search?q={truncated_double}",
+            expected, "q") is True
+
+    def test_empty_q_rejected(self):
+        expected = css._taobao_search_url("马克杯")
+        assert css._context_matches("https://s.taobao.com/search?page=1&tab=all",
+                                    expected, "q") is False, "q 缺席必须拒"
+        assert css._context_matches("https://s.taobao.com/search?q=&tab=all",
+                                    expected, "q") is False, "空 q 必须拒"
+
     def test_kind_of_accepts_normalized_url_payload(self):
         """_kind_of 级回归：规范化 URL 的 ok 载荷不再误判 context。"""
         payload = json.dumps({
@@ -724,15 +760,30 @@ class TestContextMatching:
             "规范化 URL 必须一次放行（gate 误杀回归：此前恒重试后 error）")
         assert css._LOGIN_STATE == {}
 
-    def test_js_context_uses_parsed_url_comparison(self):
-        """注入 JS 必须用 URL 解析比对（new URL + searchParams）而非整串前缀。"""
+    def test_taobao_search_accepts_truncated_q_no_retry(self):
+        """端到端（round3）：平台截断 q（半个转义收尾）的载荷直接放行。"""
+        truncated = ("https://s.taobao.com/search?page=1&q="
+                     "%E4%B8%8D%E9%94%88%E9%92%A2%E4%BF%9D%E6%&tab=all")
+        conn = _FakeConnection(new_tab_results=[
+            json.dumps({"status": "ok", "url": truncated,
+                        "offers": [_TB_OFFER_A]}),
+        ])
+        offers = css.search_taobao("http://127.0.0.1:9222", self._KW,
+                                   timeout=12.0, cdp=conn)
+        assert len(offers) == 1
+        assert len(conn.created_tabs[0].evaluate_calls) == 1, (
+            "截断 q 是预期关键词前缀——必须一次放行")
+
+    def test_js_context_checks_origin_path_only(self):
+        """注入 JS 只判 origin/path（q 校验全收 Python——平台截断/重编码行为
+        不稳定，页内精确比对扛不住）；__CTX_QKEY__ 占位符应消失。"""
         conn = _FakeConnection(new_tab_results=[
             _tb_dom_payload([_TB_OFFER_A], keyword=self._KW)])
         css.search_taobao("http://127.0.0.1:9222", self._KW, timeout=12.0, cdp=conn)
         js = conn.created_tabs[0].evaluate_calls[0][0]
-        assert "new URL" in js and "searchParams" in js
-        assert json.dumps("q") in js, "taobao 上下文比对键必须是 q"
-        assert "__CTX_URL__" not in js and "__CTX_QKEY__" not in js
+        assert "new URL" in js, "JS 仍需解析 URL 判 origin/path"
+        assert "searchParams" not in js, "q 比对必须从 JS 移除（round3）"
+        assert "__CTX_QKEY__" not in js and "__CTX_URL__" not in js
 
 
 if __name__ == "__main__":
