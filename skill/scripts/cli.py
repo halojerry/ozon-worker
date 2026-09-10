@@ -375,12 +375,21 @@ def cmd_graph(args: argparse.Namespace) -> int:
         return 1
 
     # Extract item_id from URL if needed
+    # ⚠️ 跨平台货源 v1 批2: item_id 提取升级 parse_platform_url（1688/淘宝/天猫/拼多多）。
+    # 1688 byte-compat 红线：parse 失败回落旧 /(\d+)\.html 正则（原行为逐字节保留，
+    # 含非 1688 URL 的历史误提取行为）；信封按平台分派抓取在批4（build_graph_envelope）。
     item_id = args.item_id
+    _platform_target = None
     if not item_id and args.url:
-        import re
-        m = re.search(r"/(\d+)\.html", args.url)
-        if m:
-            item_id = m.group(1)
+        from scripts.lib.source_platforms import parse_platform_url
+        _platform_target = parse_platform_url(args.url)
+        if _platform_target is not None:
+            item_id = _platform_target.item_id
+        else:
+            import re
+            m = re.search(r"/(\d+)\.html", args.url)
+            if m:
+                item_id = m.group(1)
     if not item_id:
         _out({"error": "需要 --item-id 或 --url (含 offer ID)"})
         return 1
