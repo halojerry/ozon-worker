@@ -1,4 +1,16 @@
+---
+title: PLAN—用户反馈 6+1 问题修复方案 v2
+purpose: 租户漂移/错配拦截/类目桥接/体积重量兜底修复（随 v0.74.0 发出）
+applies-version: "v0.74.0"
+last-updated: 2026-09-09
+owner: worker-pipeline
+depends: [WORKER-TOPOLOGY]
+status: archived
+---
+
 # 用户反馈 6+1 问题修复方案 v2（v0.73.0 批次，已按生产库取证修正）
+
+> 状态: shipped-with-v0.74.0
 
 > 2026-09-09 取证定案。生产 = v0.70.0；本批全部修复需发版部署生效。
 > 取证底稿：会话记录 + `/tmp/issue_20260909/`（10 个任务 task_status 全量 JSON）+ ozon_ro 生产库只读查询（Q0-Q8）。

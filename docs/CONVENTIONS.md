@@ -1,3 +1,13 @@
+---
+title: 开发规范
+purpose: 分支命名、commit 规范、发版流程等工程纪律
+applies-version: ">=v0.2.0"
+last-updated: 2026-07-18
+owner: docs-gov
+depends: []
+status: active
+---
+
 # 开发规范
 
 ## 分支命名

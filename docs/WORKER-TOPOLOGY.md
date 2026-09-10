@@ -1,13 +1,24 @@
+---
+title: Worker 拓扑与错误处理手册
+purpose: 13 阶段节点拓扑、错误映射与数据流（改代码快速参考）
+applies-version: ">=v0.74.0"
+last-updated: 2026-09-11
+owner: worker-pipeline
+depends: [API-OVERVIEW, DB-SCHEMA-AUDIT]
+status: active
+---
+
 # Worker 拓扑与错误处理手册
 
 > **用途**：快速定位错误根因、知道改哪个文件、理解数据流向
-> **更新日期**：2026-09-08 / 对应版本 v0.70.0
+> **更新日期**：2026-09-11 / 增量摘要覆盖至 v0.74.0（正文按 v0.27 口径，增量为准）
 
 ---
 
-## v0.28–v0.70 拓扑变更摘要（增量，勿重写正文）
+## v0.28–v0.74 拓扑变更摘要（增量，勿重写正文）
 
 > 下方正文按 v0.27 口径撰写，仍可用；本节列 v0.28 以来影响拓扑/错误面的关键增量（符号均已在代码中核对）。
+> ⚠️ **规矩**：增量条目 ≥8 条（或跨 ≥3 个 minor）时必须重写正文并清空增量节（docs/audit/2026-09-11-repo-gov/A1-doc-governance.md §7）。
 
 - **v0.64 视觉模型切换**：`call_mxou_chat_api` 加 `image_urls` 参数（`worker/src/utils/mxou_api.py:129`，Vision ≤4 张）；类目 LLM 匹配 / 属性多候选消歧 / `_infer_attrs_from_vision`（`prepare_ozon_upload_node.py:1319`）带图，assemble/prepare 等节点已接入。
 - **v0.65 promo_price → min_price**：CREATE 单确认新建后经 `ozon_status_node` 轮询 import/info 到手真实 product_id，`try_set_min_price_floor`（`ozon_upload_node.py:80`，`ozon_status_node.py:260` 调用）补送 `/v1/product/import/prices`（防御 ≥售价50% 且 ≤售价）。
@@ -16,6 +27,10 @@
 - **v0.69 终态口径与上传前防线**：completed 必须过 `_has_real_product_evidence`（`utils/task_processor.py:73`，product_id 空/等于 import task_id → failed）；`route_after_assemble` 改消费 `failed_stage` 通道（`graph.py:207`，修复 `or 1.0` 吞 0.0 置信度缺陷）；数值属性清洗 `utils/attr_numeric_sanitize`（prepare/validate/retry 三处唯一入口）+ 尺寸 `OZON_DIM_BOUNDS_MM` clamp（`utils/weight_dimension_normalizer.py:47`，42-400/25-400/5-200）；CREATE 前 `find_product_by_offer`（`utils/ozon_client.py:227`，`ozon_upload_node.py:53`）查到尸体 offer 转 UPDATE（UPSERT_BY_OFFER）。
 - **v0.63.1 凭证端点校验失败 500→422**（REST HTTP 层，不在下方错误映射表内）：`routes/credentials_routes.py:65-77` 捕获 pydantic.ValidationError → 可读 detail。
 - **v0.70 门禁与取证**：manual 树校验失败显式阻断 `_blocked_exit`（`assemble_ozon_product_node.py:802`，统一 failed_stage=category_match，`route_after_assemble` 据此终止）；任务取证只读端点 `GET /api/v1/forensics/task/{task_id}`（`main.py:2564` + `services/forensics_service.py`，任务快照+listing_result_log+双审计一站式）。
+- **v0.71 值数出口闸 + 类目真值 + 采集箱懒加载**（随 v0.72.0 发版）：`utils/attr_value_sanitize.py` 唯一入口 `cap_attribute_values` 按 Ozon schema `max_value_count` 截断属性 values（8229 多值拒单根治；prepare 载荷出口/retry 合并与重发等四处接线，`ATTRIBUTE_VALUE_COUNT_EXCEEDED` 不再误判走 R4）；discover 类目真值（面包屑 web_category_id）进信封；采集箱类目/属性表单改交互版懒加载（`services/category_schema_service.py`：缓存优先→未命中回源一次→回写 30d→失败降级）。
+- **v0.72 字典值缓存三桶策略**：`utils/dict_value_cache.py` 唯一入口——global（哨兵键 (attr,0,0,language) 一份）/ scoped（类目绑定）/ ephemeral（首页巨型字典不物化，运行时 /values/search）；读侧 scoped 未命中自动回退全局桶；warm 首页探测不翻页 + df<5G 守卫中止（40G 盘撑爆事故根治）。
+- **v0.73 四链修复**（生产取证驱动）：错误报告/取证/类目四端点租户判定改 `resolve_tenant`（生产任务租户是 Supabase user_id，勿回哈希租户）；本地预检独立错误码 `LOCAL_TITLE_CATEGORY_MISMATCH`（拦截即入箱不重传，勿按关键词并回中文分支）；体积重量守卫 `utils/volume_weight_guard.py` **只兜底不拒绝**（MIN_DENSITY_G_CC=0.40）；价差守卫 ≥10× block（仅 discovery_meta 有锚时生效）。
+- **v0.74 数据池贡献闭环 + sku_metrics_pool**：用户贡献式销量数据池（选品卡片数据完整度对标上品帮）+ `sku_metrics_pool` 表（sku 池写入 SAVEPOINT 原子化）；同车 shopbang-parity 三批（采集箱 notes / 选品 4 键 discovery_meta / `ozon_sessions` 会话代管 AES-GCM）与 W1-W8 部署修复（缓存导出换 `--export-from-pg` + `warm_dead_nodes` 永久跳过）。
 
 ---
 

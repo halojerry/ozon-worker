@@ -1,3 +1,13 @@
+---
+title: 错误报告模板
+purpose: 错误报告结构化填写模板与 agent 上报纪律
+applies-version: ">=v0.69.0"
+last-updated: 2026-09-08
+owner: worker-api
+depends: [API-OVERVIEW]
+status: active
+---
+
 # 错误报告模板（Error Report Template）— v0.69
 
 > 目的：用户问题反馈结构化。出现错误时，**agent 按本模板填写**（含复现方式与证据）

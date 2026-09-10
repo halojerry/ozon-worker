@@ -1,4 +1,16 @@
+---
+title: PLAN—竞态+能力统一复用深度审计
+purpose: 竞态与重复实现审计设计与实施计划（待用户审批）
+applies-version: ">=v0.73.0"
+last-updated: 2026-09-09
+owner: worker-pipeline
+depends: []
+status: draft
+---
+
 # 竞态 + 能力统一复用深度审计——设计与实施计划（待用户审批）
+
+> 状态: drafted（待用户审批，Task 11 停在用户拍板关口）
 
 > 本文档 Part 1 为设计（spec），Part 2 为可执行实施计划（Task 1-11）。执行停在 Task 11 用户拍板关口，修复代码属后续波次 plan。
 

@@ -53,6 +53,7 @@ _CLI_COMMAND_ALIASES: dict[str, str] = {
     "discover_task": "discover-task",
     "discover_multi": "discover-multi",
     "import_cookies": "import-cookies",
+    "session_sync": "session-sync",
 }
 
 
@@ -100,19 +101,12 @@ def _build_argv(cmd: str, positional: tuple = (), flags: dict | None = None) -> 
     return argv
 
 
-def run_skill_command(cmd: str, *positional, **flags) -> dict:
-    """调用 skill CLI 的一个命令，返回解析后的 JSON dict。
+def run_skill_command_capture(cmd: str, *positional, **flags) -> tuple[dict, subprocess.CompletedProcess]:
+    """run_skill_command 的非 raise 版：返回 (解析后的输出, subprocess 结果)。
 
-    位置参数对应 CLI 的位置参数（如 search 的 query、query 的 task_id）。
-    关键字参数映射为 `--flag value`；布尔 True 映射为 `--flag`（store_true）；
-    None / False / "" 跳过。下划线自动转连字符（page_size → --page-size）。
-
-    例：
-        run_skill_command("search", "关键词", page_size=5, sort="sold_desc")
-        →  search 关键词 --page-size 5 --sort sold_desc
-
-        run_skill_command("graph", url="...", store="3号店", no_submit=True)
-        →  graph --url ... --store 3号店 --no-submit
+    退出码承载命令语义的命令（如 session-sync：2=核心 cookie sc_company_id
+    缺失拒传）用它按码分支，而不是被通用 SkillError 吞成一团报错文本。
+    CLI 不存在仍 raise SkillError（那是配置错误，与命令语义无关）。
     """
     if not _CLI.exists():
         raise SkillError(f"skill CLI 不存在：{_CLI}（请设置 OZON_SKILL_DIR）")
@@ -132,13 +126,33 @@ def run_skill_command(cmd: str, *positional, **flags) -> dict:
 
     stdout = (proc.stdout or "").strip()
     stderr = (proc.stderr or "").strip()
+    return _parse_output(stdout, stderr), proc
+
+
+def run_skill_command(cmd: str, *positional, **flags) -> dict:
+    """调用 skill CLI 的一个命令，返回解析后的 JSON dict。
+
+    位置参数对应 CLI 的位置参数（如 search 的 query、query 的 task_id）。
+    关键字参数映射为 `--flag value`；布尔 True 映射为 `--flag`（store_true）；
+    None / False / "" 跳过。下划线自动转连字符（page_size → --page-size）。
+
+    例：
+        run_skill_command("search", "关键词", page_size=5, sort="sold_desc")
+        →  search 关键词 --page-size 5 --sort sold_desc
+
+        run_skill_command("graph", url="...", store="3号店", no_submit=True)
+        →  graph --url ... --store 3号店 --no-submit
+    """
+    parsed, proc = run_skill_command_capture(cmd, *positional, **flags)
 
     if proc.returncode != 0:
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
         raise SkillError(
             f"skill `{cmd}` 退出码 {proc.returncode}\nstdout: {stdout[:500]}\nstderr: {stderr[:500]}"
         )
 
-    return _parse_output(stdout, stderr)
+    return parsed
 
 
 def _parse_output(stdout: str, stderr: str) -> dict:

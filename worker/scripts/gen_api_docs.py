@@ -180,6 +180,30 @@ def group_of(path: str) -> str:
     return seg
 
 
+def count_paths(spec: dict[str, Any]) -> tuple[int, int, int]:
+    """头部计数三口径：(canonical 去重 path 数, 渲染操作数, 原始 key 数)。
+
+    A6 审计（docs/audit/2026-09-11-repo-gov §1）口径对齐：渲染循环只认 `/api/v1`
+    规范路径、裸别名由 v1 条目代渲染，故头部不能直接用 len(paths)（raw key 数
+    含兼容别名对，读者数正文对不上）。三数含义：
+      N = canonical 去重 path 数（裸别名并入 v1 双挂对后）
+      M = 渲染的 (method × path) 操作数（只在 canonical path 上）
+      K = len(paths) 原始 key 数（含兼容别名）
+    """
+    paths: dict[str, Any] = spec.get("paths", {})
+    all_paths = set(paths)
+    canon_paths: set[str] = set()
+    ops = 0
+    for raw_path, item in paths.items():
+        canon, _alias = canonical(raw_path, all_paths)
+        if canon != raw_path:
+            continue  # 裸别名由对应 /api/v1 条目渲染
+        canon_paths.add(canon)
+        if isinstance(item, dict):
+            ops += sum(1 for m in item if m in METHOD_ORDER)
+    return len(canon_paths), ops, len(paths)
+
+
 # ── 渲染 ───────────────────────────────────────────────────────
 
 
@@ -297,9 +321,11 @@ def render_markdown(spec: dict[str, Any], version: str) -> str:
     lines: list[str] = []
     lines.append("# Ozon Worker API 参考（自动生成）")
     lines.append("")
+    n_canon, n_ops, n_raw = count_paths(spec)
     lines.append(
         f"> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v{version} · "
-        f"{len(paths)} 个 path / {len(components)} 个 schema · **勿手改**（CI Step 5d 校验漂移）。"
+        f"{n_canon} 个 path / {n_ops} 个操作（{n_raw} 含兼容别名）/ {len(components)} 个 schema · "
+        "**勿手改**（CI Step 5d 校验漂移）。"
     )
     lines.append("> 对外约定（Base URL / 鉴权 / 限流 / 错误信封 / 分页 / 版本策略）见 `docs/API-OVERVIEW.md`；"
                  "MCP 面见 `docs/MCP-SERVER.md`；交互式 Swagger `GET /docs`。")
@@ -363,7 +389,8 @@ def main(argv: list[str] | None = None) -> int:
             for p in drift:
                 print(f"  - {_rel(p)}")
             return 1
-        print(f"API 文档与快照一致（{len(spec.get('paths', {}))} paths）")
+        n_canon, n_ops, n_raw = count_paths(spec)
+        print(f"API 文档与快照一致（{n_canon} canonical path / {n_ops} 操作 / {n_raw} 含兼容别名）")
         return 0
 
     for p, content in targets:
