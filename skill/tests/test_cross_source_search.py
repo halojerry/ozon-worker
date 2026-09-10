@@ -23,6 +23,7 @@ import json
 import sys
 from pathlib import Path
 from unittest import mock
+from urllib.parse import quote_plus
 
 import pytest
 
@@ -48,13 +49,18 @@ _TB_OFFER_B = {
     "url": "https://item.taobao.com/item.htm?id=654654136372",
     "image": "https://img.alicdn.com/imgextra/tb-second.jpg",
 }
+# 批4 gate 校准 修2：pdd 搜索列表真实形态脱敏重建——数据源是页内 script JSON
+# 的 "list":[{goodsID, goodsName, price(分·券前), priceInfo(元展示串·券后),
+# salesTip, imgUrl}]；渲染卡片无锚点/无 data-* 属性（客户端渲染 div，
+# 2026-09-10 实机取证），混淆 hash class 随构建漂移、有意不采用。
 _PDD_OFFER_A = {
     "id": "538120412345",
-    "title": "保温杯女316不锈钢便携小巧",
-    "price": "9.90",
-    "sold": None,
+    "title": "星空迷你保温杯男女学生真空304不锈钢便携水杯",
+    "price": "27.5",        # priceInfo 展示串（券后到手价，元）
+    "price_fen": "2950",    # price 原始字段（分，券前）——priceInfo 缺席时兜底
+    "sold": "本店已拼41件",
     "url": "https://mobile.yangkeduo.com/goods.html?goods_id=538120412345",
-    "image": "//img.pddpic.com/mian.jpg",
+    "image": "https://img.pddpic.com/2026-09-01/main.jpeg",
 }
 
 
@@ -206,6 +212,7 @@ class TestParseTexts:
         assert css.parse_sold_text("2,300人付款") == 2300
         assert css.parse_sold_text("200+人收货") == 200
         assert css.parse_sold_text("月销 236") == 236
+        assert css.parse_sold_text("本店已拼41件") == 41, "pdd salesTip 形态（gate 校准）"
         assert css.parse_sold_text("包邮") is None
         assert css.parse_sold_text("") is None
         assert css.parse_sold_text(None) is None
@@ -312,11 +319,27 @@ class TestSearchTaobao:
         assert " " not in url, "关键词必须 url 编码"
 
     def test_js_targets_dom_then_login_probe(self):
+        """注入 JS：DOM 路径扫 item.htm 卡片（实机先例）；登录判据只认登录页
+        重定向——_m_h5_tk cookie 门已废（批4 gate 实机取证：登录态完好的搜索页
+        也不带该 token，cookie 门会把每次 run 毒化成 NotLoggedIn）。"""
         conn = _FakeConnection(new_tab_results=[_tb_dom_payload([_TB_OFFER_A])])
         css.search_taobao("http://127.0.0.1:9222", "马克杯", timeout=12.0, cdp=conn)
         js = conn.created_tabs[0].evaluate_calls[0][0]
-        assert "_m_h5_tk" in js, "登录探测必须在页内查 _m_h5_tk（实机先例）"
+        assert "document.cookie" not in js, "cookie 登录门必须移除（实机反证：登录态完好的搜索页无 _m_h5_tk）"
+        assert "login\\.taobao\\.com" in js, "登录判据 = 登录页重定向"
         assert 'a[href*="item.htm"]' in js, "DOM 路径必须扫 item.htm 卡片（实机先例）"
+
+    def test_js_sold_regex_tolerates_plus_separator(self):
+        """实机形态「7万+人付款」「200+人付款」——数字与关键词间的 + 必须吃掉。"""
+        conn = _FakeConnection(new_tab_results=[_tb_dom_payload([_TB_OFFER_A])])
+        css.search_taobao("http://127.0.0.1:9222", "马克杯", timeout=12.0, cdp=conn)
+        js = conn.created_tabs[0].evaluate_calls[0][0]
+        assert "[+\\s]*" in js, "销量正则必须容忍 + 分隔（gate 实机 sold 恒 null 根因）"
+
+    def test_parse_sold_wan_without_unit_word(self):
+        """JS 捕获组只含「7万」（+ 已被吃掉）→ Python 侧换算 70000。"""
+        assert css.parse_sold_text("7万") == 70000
+        assert css.parse_sold_text("1.5万") == 15000
 
     def test_evaluate_timeout_bounded_by_budget(self):
         conn = _FakeConnection(new_tab_results=[_tb_dom_payload([_TB_OFFER_A])])
@@ -437,21 +460,44 @@ class TestSearchTaobao:
 
 
 class TestSearchPdd:
-    def test_success_dom_path(self):
+    def test_success_json_path_full_fields(self):
+        """批4 gate 校准 修2：script-JSON 挖掘路径——id+标题+价+销量+图全拿到。"""
         conn = _FakeConnection(new_tab_results=[_pdd_dom_payload([_PDD_OFFER_A])])
         offers = css.search_pdd("http://127.0.0.1:9222", "保温杯",
                                 timeout=12.0, cdp=conn)
         assert len(offers) == 1
         o = offers[0]
         assert o.platform == "pdd"
-        assert o.title == "保温杯女316不锈钢便携小巧"
-        assert o.price == 9.9
-        assert o.sold is None, "pdd 卡片挖不到销量 → None（绝不 0）"
-        assert o.image == "https://img.pddpic.com/mian.jpg"
+        assert o.title == "星空迷你保温杯男女学生真空304不锈钢便携水杯"
+        assert o.price == 27.5, "priceInfo（券后展示价）为比对价权威"
+        assert o.sold == 41, "salesTip 本店已拼41件 → 41（gate 前恒 None）"
+        assert o.image == "https://img.pddpic.com/2026-09-01/main.jpeg"
         tab = conn.created_tabs[0]
         assert tab.closed is True
         assert tab.created_background is True
         assert "search_result.html?search_key=" in tab.nav_calls[0][0]
+
+    def test_price_fen_fallback_when_price_info_missing(self):
+        """priceInfo 缺席 → price 字段（分）换元；垃圾值 → None 绝不 0。"""
+        raw = dict(_PDD_OFFER_A, price=None, price_fen="2950")
+        assert css.build_offers("pdd", [raw])[0].price == 29.5
+        raw2 = dict(_PDD_OFFER_A, price=None, price_fen="abc")
+        assert css.build_offers("pdd", [raw2])[0].price is None
+        raw3 = dict(_PDD_OFFER_A, price=None, price_fen=None)
+        assert css.build_offers("pdd", [raw3])[0].price is None
+
+    def test_pdd_js_mines_script_json_not_dom_classes(self):
+        """注入 JS 必须挖页内 script JSON（goodsID/goodsName/priceInfo），
+        死代码 DOM 扫描（data-goods-id/锚点——实机 0 命中）必须移除。"""
+        conn = _FakeConnection(new_tab_results=[_pdd_dom_payload([_PDD_OFFER_A])])
+        css.search_pdd("http://127.0.0.1:9222", "保温杯", timeout=12.0, cdp=conn)
+        js = conn.created_tabs[0].evaluate_calls[0][0]
+        assert '"goodsID"' in js and '"goodsName"' in js and '"priceInfo"' in js
+        assert '"salesTip"' in js and '"imgUrl"' in js
+        assert "data-goods-id" not in js and 'a[href*="goods"]' not in js, (
+            "实机 0 命中的死扫描必须移除")
+        assert json.dumps("search_key") in js, "pdd 上下文比对键必须是 search_key"
+        assert "__CTX_URL__" not in js and "__CTX_QKEY__" not in js
 
     def test_fallback_regex_path(self):
         conn = _FakeConnection(new_tab_results=[
@@ -611,6 +657,82 @@ class TestContextGuard:
         raw = dict(_TB_OFFER_A, image="data:image/gif;base64,R0lGODlhAQAB")
         assert css.build_offers("taobao", [raw])[0].image is None, (
             "data: URI 占位图 → None（绝不冒充主图）")
+
+
+# ── 批4 gate 校准 修1：上下文解析后比对（origin+path+q，忽略附加参数）──
+
+
+class TestContextMatching:
+    _KW = "不锈钢保温杯"
+
+    def test_normalized_param_order_and_extra_params_pass(self):
+        """实机 gate 误杀回归：淘宝把 URL 规范化成 ?page=1&q=...&tab=all
+        （参数乱序 + 附加参数），整串前缀比对恒 False——解析后比对必须通过。"""
+        expected = css._taobao_search_url(self._KW)
+        actual = ("https://s.taobao.com/search?page=1&q="
+                  + quote_plus(self._KW) + "&tab=all")
+        assert css._context_matches(actual, expected, "q") is True
+
+    def test_same_url_and_appended_params_pass(self):
+        expected = css._taobao_search_url("马克杯")
+        assert css._context_matches(expected, expected, "q") is True
+        assert css._context_matches(expected + "&spm=xyz", expected, "q") is True
+
+    def test_blank_foreign_diff_q_diff_path_rejected(self):
+        expected = css._taobao_search_url("马克杯")
+        assert css._context_matches("about:blank", expected, "q") is False
+        assert css._context_matches("https://evil.com/search?q=%E9%A9%AC%E5%85%8B%E6%9D%AF",
+                                    expected, "q") is False, "异域必须拒"
+        assert css._context_matches(css._taobao_search_url("保温杯"),
+                                    expected, "q") is False, "异 q 必须拒（防旧关键词残留）"
+        assert css._context_matches("https://s.taobao.com/item.htm?q=%E9%A9%AC%E5%85%8B%E6%9D%AF",
+                                    expected, "q") is False, "异 path 必须拒"
+        assert css._context_matches("", expected, "q") is False
+
+    def test_kind_of_accepts_normalized_url_payload(self):
+        """_kind_of 级回归：规范化 URL 的 ok 载荷不再误判 context。"""
+        payload = json.dumps({
+            "status": "ok",
+            "url": ("https://s.taobao.com/search?page=1&q="
+                    + quote_plus(self._KW) + "&tab=all"),
+            "offers": [_TB_OFFER_A],
+        })
+        kind, _ = css._kind_of(json.loads(payload), "taobao",
+                               css._taobao_search_url(self._KW), "q")
+        assert kind == "ok"
+
+    def test_kind_of_rejects_diff_q_as_context(self):
+        payload = json.dumps({"status": "ok",
+                              "url": css._taobao_search_url("旧关键词"),
+                              "offers": [_TB_OFFER_A]})
+        kind, detail = css._kind_of(payload and json.loads(payload), "taobao",
+                                    css._taobao_search_url("马克杯"), "q")
+        assert kind == "context"
+
+    def test_taobao_search_accepts_normalized_url_no_retry(self):
+        """端到端：规范化 URL（page 在前 + tab=all）载荷直接放行，不触发重试。"""
+        normalized = ("https://s.taobao.com/search?page=1&q="
+                      + quote_plus(self._KW) + "&tab=all")
+        conn = _FakeConnection(new_tab_results=[
+            json.dumps({"status": "ok", "url": normalized,
+                        "offers": [_TB_OFFER_A]}),
+        ])
+        offers = css.search_taobao("http://127.0.0.1:9222", self._KW,
+                                   timeout=12.0, cdp=conn)
+        assert len(offers) == 1
+        assert len(conn.created_tabs[0].evaluate_calls) == 1, (
+            "规范化 URL 必须一次放行（gate 误杀回归：此前恒重试后 error）")
+        assert css._LOGIN_STATE == {}
+
+    def test_js_context_uses_parsed_url_comparison(self):
+        """注入 JS 必须用 URL 解析比对（new URL + searchParams）而非整串前缀。"""
+        conn = _FakeConnection(new_tab_results=[
+            _tb_dom_payload([_TB_OFFER_A], keyword=self._KW)])
+        css.search_taobao("http://127.0.0.1:9222", self._KW, timeout=12.0, cdp=conn)
+        js = conn.created_tabs[0].evaluate_calls[0][0]
+        assert "new URL" in js and "searchParams" in js
+        assert json.dumps("q") in js, "taobao 上下文比对键必须是 q"
+        assert "__CTX_URL__" not in js and "__CTX_QKEY__" not in js
 
 
 if __name__ == "__main__":
