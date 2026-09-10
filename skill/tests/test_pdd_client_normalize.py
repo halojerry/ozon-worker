@@ -6,14 +6,16 @@
 ``fetchPddGoodsFallback`` / ``readPddGoodsRuntimeInfo`` :13591/:13740/:13723 +
 ozonAI V2.3.3 ``pdd-main.js``：goodsName/topGallery/detailGallery/goodsProperty/
 skus[].specs[{spec_key,spec_value}]/groupPrice/thumbUrl/limitQuantity/
-minGroupPrice/maxGroupPrice），不含任何真实 cookie/凭证/截图
-（pdd_user_id 夹具一律合成值如 ``123456``）。
+minGroupPrice/maxGroupPrice），不含任何真实 cookie/凭证/截图。
+pdduid 红线：pdd_user_id 只存在于页内 JS（页内 document.cookie 读取），
+Python 侧载荷只见 ``pdduid_present`` 布尔——夹具**零 cookie 值**，
+无合成 cookie 值入库。
 
 覆盖:
-- rawData 双形态归一（store.initDataObj.goods / goods）→ 统一 ProductInfo
+- rawData 三形态归一（store.initDataObj.goods / store.goods / goods）→ 统一 ProductInfo
 - 兜底 render/sku 归一（groupPrice 分 → 元，price 单位换算在 Python 侧）
 - freight：包邮 → 0.0；未知 → 缺席（绝不编造）；weight 缺失 → None（不是 0）
-- 大声失败分支：双形态全缺（报错点名两形态）/ 标题缺 / 图缺 / 价格缺
+- 大声失败分支：三形态全缺（报错点名三形态）/ 标题缺 / 图缺 / 价格缺
 - 登录页 / pdd_user_id 缺失 / 验证码 / 强制 App 引导 → 人话错误
 - pdduid 只在页内使用（cookie 不出页，payload 只带 pdduid_present 布尔）
 - tab 复用纪律：find_tab 命中绝不 close；自建 tab 用后关闭
@@ -78,7 +80,10 @@ _PDD_GOODS_DIRECT = {
     ],
 }
 
-# ── 兜底：render/sku 映射产物（JS 只做键名归一，groupPrice 保持分，Python 换算）──
+# ── 兜底：render/sku 映射产物（JS 只做键名归一，groupPrice 保持分，Python 换算）。
+# ⚠️ 夹具形状 = 页内 JS fallback mapper 的真实输出（仅 specs/thumbUrl/groupPrice/
+# skuId/quantity/is_onsale）——**无 weight**（JS mapper 丢弃该字段，weight 只在
+# rawData 主路形态可达）。──
 
 _PDD_GOODS_FALLBACK = {
     "goodsID": "734654654654",
@@ -91,7 +96,7 @@ _PDD_GOODS_FALLBACK = {
     "detailGallery": [],
     "skus": [
         {"skuId": "3001", "specs": [{"spec_key": "规格", "spec_value": "大号"}],
-         "groupPrice": 1990, "thumbUrl": "//img.pddpic.com/big.jpg", "weight": 180},
+         "groupPrice": 1990, "thumbUrl": "//img.pddpic.com/big.jpg"},
         {"skuId": "3002", "specs": [{"spec_key": "规格", "spec_value": "小号"}],
          "groupPrice": 1390, "thumbUrl": "//img.pddpic.com/small.jpg"},
     ],
@@ -147,7 +152,7 @@ class TestPriceParsing:
         assert pdd_client._price_number({"groupPrice": 0}) is None
 
 
-# ── 归一：双形态 + 兜底 ──
+# ── 归一：三形态 + 兜底 ──
 
 
 class TestNormalizeStoreShape:
@@ -198,6 +203,18 @@ class TestNormalizeStoreShape:
             _PDD_GOODS_STORE, "rawData.goods", target, "月销2万+")
         assert product["shipping"] == {}
 
+    def test_weight_from_sku_field_on_raw_data_path(self):
+        """skus[].weight 兜底（ozonAI pieceWeight 先例，克）只在 rawData 主路
+        形态可达（JS fallback mapper 丢弃 weight）；属性重量优先于 sku 字段。"""
+        goods = json.loads(json.dumps(_PDD_GOODS_STORE))
+        goods["goodsProperty"] = [p for p in goods["goodsProperty"]
+                                  if p["key"] != "净重"]
+        goods["skus"][0]["weight"] = 180
+        target = parse_platform_url(_PDD_URL)
+        product = pdd_client._normalize_product(
+            goods, "rawData.store.initDataObj.goods", target, "包邮")
+        assert product["weight_grams"] == 180
+
 
 class TestNormalizeDirectShape:
     def test_minimal_goods(self):
@@ -226,8 +243,9 @@ class TestNormalizeFallbackShape:
         assert product["price"] == "13.90"
         assert product["price_ranges"] == [13.9, 19.9]
         assert [s["price"] for s in product["sku_details"]] == [19.9, 13.9]
-        # 重量兜底：skus[].weight（ozonAI pieceWeight 先例，克）best-effort
-        assert product["weight_grams"] == 180
+        # JS fallback mapper 丢弃 skus[].weight → 兜底产物 weight 恒 None
+        # （goodsProperty 亦无重量行——绝不编造成 0）
+        assert product["weight_grams"] is None
         assert product["shipping"]["freightCny"] == 0.0
 
 
@@ -421,6 +439,19 @@ class TestFetchProductMockedCDP:
             "http://127.0.0.1:9222", _PDD_URL, target, cdp=conn, login_wait=False)
         assert product["price"] == "13.90"
 
+    def test_middle_store_goods_shape_normalized(self):
+        """中间形态 rawData.store.goods（goldminer 三形态之二）专属夹具——
+        三条读取路径全锁（页内 JS 命中哪条，source 原样回传并归一成功）。"""
+        target = parse_platform_url(_PDD_URL)
+        user_tab = _FakeTab(_PDD_URL, [
+            _goods("rawData.store.goods", _PDD_GOODS_DIRECT)])
+        conn = _FakeConnection(user_tab)
+        product = pdd_client.fetch_product(
+            "http://127.0.0.1:9222", _PDD_URL, target, cdp=conn, login_wait=False)
+        assert product["title"] == "夏季冰丝凉感短袖T恤男女宽松上衣"
+        assert product["item_id"] == "734654654654"
+        assert product["price"] == "19.90"
+
     def test_login_payload_raises_with_login_hint(self):
         target = parse_platform_url(_PDD_URL)
         payload = _goods("", None)
@@ -462,7 +493,7 @@ class TestFetchProductMockedCDP:
         assert "验证" in str(ei.value) or "风控" in str(ei.value)
 
     def test_all_shapes_missing_error_names_both_and_fallback(self):
-        """双形态全缺 + 兜底失败 → 错误点名两形态 + 兜底错误原文（失败出声）。"""
+        """三形态全缺 + 兜底失败 → 错误点名三形态 + 兜底错误原文（失败出声）。"""
         target = parse_platform_url(_PDD_URL)
         payload = _goods("", None)
         payload["status"] = "no_data"
@@ -531,9 +562,13 @@ class TestFetchProductMockedCDP:
         pdd_client.fetch_product(
             "http://127.0.0.1:9222", _PDD_URL, target, cdp=conn, login_wait=False)
         js = user_tab.evaluate_calls[0]
-        # 双形态（+goldminer 的 store.goods 中间形态）都要读
-        assert "rawData" in js and "initDataObj" in js
-        assert js.count("window.rawData") >= 2, "至少读 store.initDataObj.goods 与 goods 两形态"
+        # 三形态（goldminer readPddGoodsRuntimeInfo 原序）都要读：路径名与取值
+        # 表达式逐一定位锁定
+        assert "rawData.store.initDataObj.goods" in js
+        assert "rawData.store.goods" in js
+        assert "rawData.goods" in js
+        assert js.count("window.rawData") >= 3, \
+            "store.initDataObj.goods / store.goods / goods 三形态取值缺一不可"
         # 兜底：页内 fetch + cookie 页内读（红线：cookie 明文不出页）
         assert "proxy/api/api/oak/integration/render/sku" in js
         assert "pdd_user_id" in js
