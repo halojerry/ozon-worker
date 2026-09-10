@@ -1,6 +1,7 @@
 from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Identity, Index, Integer, JSON, LargeBinary, PrimaryKeyConstraint, Text, text, String, Float, UniqueConstraint, ARRAY, func
 from typing import Optional
 import datetime
+import time
 import uuid
 
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -685,6 +686,9 @@ class DraftSubmission(Base):
         UUID(as_uuid=True), ForeignKey("product_drafts.id", ondelete="CASCADE"),
         nullable=True, comment="采集箱草稿 id；直连任务为 NULL（CASCADE 不作用于 NULL 行）"
     )
+    # BL-16（repo-gov B2-β）：提交行租户归属——可空（存量行不回填不阻塞）；
+    # 存量库加列走 init_data.migrate_repo_gov_b2b（ALTER ... IF NOT EXISTS 同名索引）
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(50), index=True, nullable=True)
     credential_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True, comment="NULL → 用 is_default=true 店铺"
     )
@@ -1293,4 +1297,66 @@ class SkuMetricsPool(Base):
     __table_args__ = (
         UniqueConstraint("sku", name="uq_sku_metrics_pool_sku"),
         Index("idx_sku_metrics_pool_updated", "updated_at"),
+    )
+
+
+# ==================== 治理面新表（repo-gov B2-β，2026-09-11） ====================
+
+class SchemaMigration(Base):
+    """BL-09 迁移登记表（最小版）：结构性迁移执行成功后登记一行（幂等）。
+
+    唯一写入口是 scripts/init_data.py 的 register_schema_migration
+    （INSERT ... ON CONFLICT (version) DO NOTHING）——重复初始化 no-op；
+    登记失败仅 warning 不阻断初始化（登记是观测面，不是执行闸门）。
+    """
+    __tablename__ = "schema_migrations"
+
+    version: Mapped[str] = mapped_column(
+        String(50), primary_key=True,
+        comment="迁移版本号（从迁移函数名推，如 2026-09-webui-v1 / 2026-09-repo-gov-b2b）")
+    applied_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+    note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="迁移说明（可空）")
+
+
+class BackupHeartbeat(Base):
+    """BL-08 备份心跳表：备份脚本每次收尾写一行，监控读最近一次备份时间。
+
+    唯一写入口 services/backup_heartbeat_service.mark_backup（整体吞错——
+    备份脚本绝不因心跳写失败而失败）；读入口 last_backup_at（失败返 None）。
+    append-only，无业务唯一键（靠自增 id 区分，同 store_operation_log 先例）。
+    """
+    __tablename__ = "backup_heartbeat"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    finished_at: Mapped[float] = mapped_column(Float, nullable=False, comment="备份收尾时间（epoch 秒）")
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False, comment="True=备份成功 / False=失败（detail 带原因）")
+    detail: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="失败原因/摘要（写入侧截 500）")
+
+    __table_args__ = (
+        Index("idx_backup_heartbeat_finished", "finished_at"),
+    )
+
+
+class MxouCallLedger(Base):
+    """BL-10 MXOU 调用台账：每次 LLM 网关调用记一行（fire-and-forget 审计面）。
+
+    唯一写入口 services/mxou_ledger_service.record_call——独立短 session +
+    整体吞错，**绝不影响业务调用路径**（写失败只损失一条观测数据）。
+    token_fp 是指纹（非明文 key）；endpoint 截 200；tenant_id 可空
+    （匿名/解析失败场景）。append-only，无唯一键。
+    """
+    __tablename__ = "mxou_call_ledger"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    called_at: Mapped[float] = mapped_column(Float, default=time.time, comment="调用时间（epoch 秒，缺省写入时刻）")
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    token_fp: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="token 指纹（sha256 hex 截 64，绝不明文 key）")
+    endpoint: Mapped[str] = mapped_column(String(200), nullable=False, comment="网关端点路径（写入侧截 200）")
+
+    __table_args__ = (
+        Index("idx_mxou_call_ledger_called_at", "called_at"),
+        Index("idx_mxou_call_ledger_tenant", "tenant_id"),
+        Index("idx_mxou_call_ledger_token_fp", "token_fp"),
     )

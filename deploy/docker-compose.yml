@@ -13,11 +13,42 @@ services:
       - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # BL-08 (repo-gov): 备份脚本 + 备份产物目录进 postgres 容器 —— ofelia 的
+      # job-exec 在本容器内执行 backup-pg.sh（container 模式：alpine 自带
+      # pg_dump/psql 直连本容器 socket，详见脚本头部「双模式」注释）。
+      # PG 连接变量不重复传：docker exec 继承容器 env（POSTGRES_USER/POSTGRES_DB）。
+      - ./backup-pg.sh:/deploy/backup-pg.sh:ro
+      - ./backups:/backups
+    labels:
+      # BL-08 (repo-gov): ofelia (backup-scheduler 服务) 经 docker socket 发现本
+      # 标签并在本容器内调度备份；schedule 兼容 robfig/cron 语法（@every 24h）。
+      ofelia.enabled: "true"
+      ofelia.job-exec.backup-pg.schedule: "@every 24h"
+      ofelia.job-exec.backup-pg.command: "sh /deploy/backup-pg.sh"
+      ofelia.job-exec.backup-pg.environment: '["BACKUP_PG_MODE=container","PG_BACKUP_DIR=/backups"]'
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d ozon"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # BL-08 (repo-gov): PG 备份调度 sidecar —— ofelia 挂 docker socket 只读，按
+  # postgres 容器上的 ofelia.* 标签做 job-exec（每日一次 backup-pg.sh）。
+  # 宿主机 crontab 仍是等效替代；两种方式择一即可，勿同时启用（会重复备份）。
+  backup-scheduler:
+    image: mcuadros/ofelia:latest
+    restart: unless-stopped
+    command: daemon --docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
 
   worker:
     build:

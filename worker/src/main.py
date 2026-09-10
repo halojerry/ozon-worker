@@ -1251,11 +1251,32 @@ async def health_check():
                 "SELECT status, COUNT(*) as cnt FROM ozon_product_tasks GROUP BY status"
             )).fetchall()
             queue_stats = {row[0]: row[1] for row in rows}
+
+        # BL-08 (repo-gov): 备份心跳透出 —— last_backup_at(epoch 秒 | None) 来自
+        # services/backup_heartbeat_service（lazy import + 全吞错：服务未部署 /
+        # PG 无该表时为 None）。backup_stale 只对「有过心跳但距今 >26h」置 True；
+        # 「表存在但从未备份」时 last_backup_at 恒为 None、不置 stale —— 交给运维
+        # 判断（埋点刚上线时天然为 None，误报 stale 只会训练人忽略告警）。
+        # 以下任何异常都不得破坏 /health 的 200 语义（compose healthcheck 依赖它）。
+        last_backup_at: Optional[float] = None
+        backup_stale = False
+        try:
+            from services.backup_heartbeat_service import last_backup_at as _lba
+            _hb = _lba()
+            if _hb is not None:
+                last_backup_at = float(_hb)
+                backup_stale = (time.time() - last_backup_at) > 26 * 3600
+        except Exception:
+            last_backup_at = None
+            backup_stale = False
+
         return {
             "status": "ok",
             "message": "Service is running",
             "db": "connected",
             "queue": queue_stats,
+            "last_backup_at": last_backup_at,
+            "backup_stale": backup_stale,
         }
     except Exception as e:
         # v0.63.1 D8: /health 公开无鉴权且被 compose healthcheck 使用——异常
@@ -1680,12 +1701,12 @@ def _write_direct_submission_row(task_id: str, tenant_id: str, ozon_client_id: s
             conn.execute(
                 text(
                     "INSERT INTO draft_submissions "
-                    "(draft_id, credential_id, store_client_id, extensions, status, submitted_task_id) "
+                    "(draft_id, credential_id, store_client_id, extensions, status, submitted_task_id, tenant_id) "
                     "VALUES (NULL, "
                     "(SELECT id FROM credentials "
                     " WHERE tenant_id = :tenant_id AND ozon_client_id = :store_client_id "
                     "   AND status = 'active' ORDER BY created_at DESC LIMIT 1), "
-                    ":store_client_id, NULL, 'pending', :task_id)"
+                    ":store_client_id, NULL, 'pending', :task_id, :tenant_id)"
                 ),
                 {
                     "tenant_id": tenant_id,
