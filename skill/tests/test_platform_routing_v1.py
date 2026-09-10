@@ -16,7 +16,6 @@
 """
 from __future__ import annotations
 
-import argparse
 import os
 import sys
 import tempfile
@@ -102,62 +101,84 @@ class TestTypeFilterChoices:
         assert set(batch_test.TYPE_FILTER_CHOICES) == {
             "1688", "ozon", "taobao", "tmall", "pdd", "all"}
 
-    def test_argparse_accepts_taobao(self):
-        """argparse --type-filter 接受新平台（choices 同步）。"""
-        import batch_test as bt
-        src = Path(bt.__file__).read_text(encoding="utf-8")
-        assert "choices=list(TYPE_FILTER_CHOICES)" in src
+    def test_argparse_accepts_new_platforms(self):
+        """--type-filter 行为验证：真 parse_args（build_arg_parser 直调，
+        对齐 cli.build_arg_parser 先例）——非源码 grep。"""
+        parser = batch_test.build_arg_parser()
+        for choice in ("taobao", "tmall", "pdd"):
+            args = parser.parse_args(
+                ["--urls-file", "x.txt", "--type-filter", choice])
+            assert args.type_filter == choice, choice
+
+    def test_argparse_rejects_unknown_type(self):
+        """未知类型被 argparse choices 真拒（SystemExit=2），不是静默放行。"""
+        parser = batch_test.build_arg_parser()
+        with pytest.raises(SystemExit) as ei:
+            parser.parse_args(
+                ["--urls-file", "x.txt", "--type-filter", "amazon"])
+        assert ei.value.code == 2
 
     def test_graph_url_types_semantics(self):
         assert batch_test.GRAPH_URL_TYPES == ("1688", "taobao", "tmall", "pdd")
 
 
-# ── batch 分派：新平台走 graph 直传链 ──
+# ── batch 分派：新平台走 graph 直传链（真实 main() 路径）──
 
 
 class TestBatchDispatch:
-    def _args(self, **over):
-        defaults = dict(
-            urls_file="x.txt", submit=False, dry_run=True, worker_url="http://x",
-            client_id="", api_key="", store_id="", start=0, limit=0, delay=0,
-            wait=False, wait_timeout=10, notify=False, type_filter="all",
-            resume=False, resume_from="",
-        )
-        defaults.update(over)
-        return argparse.Namespace(**defaults)
+    """批2 fix round 1: 不再复刻分派循环——直接跑生产 batch_test.main()，
+    让 ``if url_type in GRAPH_URL_TYPES:`` 这一行被非 1688 URL 真实执行并锁定
+    （分派行回归成 == "1688" 时本组测试必红：淘宝/天猫/拼多多会落到 ozon mock）。"""
+
+    def _run_main_routing(self, urls_lines: list[str]):
+        """跑真实 main()，mock 两条链入口，返回 (graph_calls, ozon_calls)。"""
+        out_dir = Path(tempfile.mkdtemp(prefix="batch_routing_"))
+        urls_file = out_dir / "urls.txt"
+        urls_file.write_text("\n".join(urls_lines) + "\n", encoding="utf-8")
+        graph_calls: list[tuple[str, str]] = []
+        ozon_calls: list[str] = []
+
+        def fake_process_1688(url, offer_id, client_id, api_key, worker_url,
+                              dry_run, store_id="", source_type="1688"):
+            graph_calls.append((source_type, offer_id))
+            return {"type": source_type, "offer_id": offer_id, "success": True}
+
+        def fake_process_ozon(url, product_id, **_kw):
+            ozon_calls.append(product_id)
+            return {"type": "ozon", "product_id": product_id, "success": True}
+
+        with mock.patch.object(batch_test, "OUTPUT_DIR", out_dir), \
+                mock.patch.object(sys, "argv", [
+                    "batch_test.py", "--urls-file", str(urls_file), "--dry-run"]), \
+                mock.patch.object(batch_test.time, "sleep"), \
+                mock.patch("requests.get", side_effect=ConnectionError("no cdp")), \
+                mock.patch("scripts.lib.config_store.check_config",
+                           return_value={"missing": [],
+                                         "cdp": {"browser_available": True}}), \
+                mock.patch("scripts.lib.chrome_launcher.ensure_chrome_cdp",
+                           return_value=(True, "ok")), \
+                mock.patch.object(batch_test, "process_1688_url",
+                                  side_effect=fake_process_1688), \
+                mock.patch.object(batch_test, "process_ozon_url",
+                                  side_effect=fake_process_ozon):
+            rc = batch_test.main()
+        return rc, graph_calls, ozon_calls
 
     def test_taobao_routes_to_graph_chain_not_ozon(self):
-        """taobao/tmall/pdd → process_1688_url（graph 直传），绝不进跟卖链。"""
-        calls: dict[str, str] = {}
-
-        def _fake_1688(**kw):
-            calls["graph"] = kw.get("offer_id", "")
-            return {"success": True, "type": kw.get("source_type", "")}
-
-        def _fake_ozon(**kw):
-            calls["ozon"] = kw.get("product_id", "")
-            return {"success": True}
-
-        urls = [
-            {"type": "taobao", "url": _TB, "id": "679836775118"},
-            {"type": "tmall", "url": _TM, "id": "654654136372"},
-            {"type": "pdd", "url": _PDD, "id": "734654654654"},
-            {"type": "ozon", "url": "https://www.ozon.ru/product/1", "id": "1"},
-        ]
-        with mock.patch.object(batch_test, "process_1688_url", _fake_1688), \
-                mock.patch.object(batch_test, "process_ozon_url", _fake_ozon):
-            # 直接复刻 main() 的分派判定（分派条件与生产代码同源常量）
-            for item in urls:
-                if item["type"] in batch_test.GRAPH_URL_TYPES:
-                    batch_test.process_1688_url(
-                        url=item["url"], offer_id=item["id"], client_id="",
-                        api_key="", worker_url="", dry_run=True,
-                        source_type=item["type"])
-                else:
-                    batch_test.process_ozon_url(
-                        url=item["url"], product_id=item["id"], client_id="",
-                        api_key="", worker_url="", dry_run=True)
-        assert set(calls) == {"graph", "ozon"}, "taobao/tmall/pdd 都应进 graph 链"
+        """taobao/tmall/pdd → 生产分派行走 graph 直传链，ozon URL → 跟卖链。"""
+        rc, graph_calls, ozon_calls = self._run_main_routing([
+            "https://item.taobao.com/item.htm?id=679836775118",
+            "https://detail.tmall.com/item.htm?id=654654136372",
+            "https://mobile.yangkeduo.com/goods.html?goods_id=734654654654",
+            "https://www.ozon.ru/product/123456789",
+        ])
+        assert rc == 0
+        assert sorted(graph_calls) == sorted([
+            ("taobao", "679836775118"),
+            ("tmall", "654654136372"),
+            ("pdd", "734654654654"),
+        ]), f"三个新平台都必须经生产分派行进 graph 链，实际 {graph_calls}"
+        assert ozon_calls == ["123456789"], ozon_calls
 
     def test_process_1688_url_source_type_labeling(self):
         """source_type 只影响结果行 type 标注（默认 1688 逐字节兼容）。"""
