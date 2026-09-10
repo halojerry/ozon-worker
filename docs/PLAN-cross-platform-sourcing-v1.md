@@ -161,4 +161,29 @@ R4 退化为无源词搜索兜底——可接受）。
 
 ## 实机 Gate 结果记录
 
-（待批5 执行后回填）
+> 2026-09-10，本地 Docker（deploy-worker-1 重建为分支镜像）+ 工具 Chrome 真实会话。分阶段口径：
+
+**A. 已通过（自主完成）**
+- **A4 活链接线**：`_referer_for_url` 接进 cos_uploader E1 转存 + draft_image_mirror 两条活下载链
+  （8e565b27）；1688 行为测试锁死，外域零请求断言。
+- **1688 回归单（真实 URL `offer/1000289845939`，--to-box）**：抓取→信封→入箱全链路通过
+  （draft_id b2a9b01a…，purchase_cost=10.0，source_category_path 在位）；入箱信封 grep 零
+  taobao/yangkeduo 痕迹（零串图/零串平台）。
+- **三新平台分发实机验证**：taobao（item.htm?id=…）→ `TaobaoLoginRequired`（页内无 `_m_h5_tk`）；
+  tmall（detail.tmall.com）→ 同上（同适配器换 host 实证）；pdd（mobile.yangkeduo goods.html）→
+  `PddLoginRequired` 且**捕获真实登录重定向 URL**（goods→login.html?from=…）——失败出声、绝不编造，
+  分发层三平台全部实证走对适配器。
+- **学习表零写入验收**：category_mapping 今日新增 0 行（本地 PG 5433 实查）。
+
+**B. 待人工补齐（非代码缺口）**
+- 淘宝/天猫数据面 gate：工具 Chrome 登录淘宝后，用**真实在售商品 URL** 重跑 `graph --url … --to-box`。
+- 拼多多数据面 gate：工具 Chrome 扫码登录拼多多 + 真实 goods_id。
+- 直提测试店全链路（completed 需真 approved）四平台轮转：待登录态补齐后执行。
+
+**C. 批5 台账（review 遗留，实机观察项）**
+- 引流/定制 SKU 过滤（`_filter_bait_and_custom_skus`）未接平台路径——中位选价对引流稳健，实机如遇一行接线；
+- 平台路径 `login_wait=False`（立即人话报错）——是否开分级等待 UX 待拍板；
+- `_probe_taobao_page` 自建会话路径零测试覆盖（外部连接路径已全覆盖）；
+- pdd `/login` 查询参数边缘误分类（错建议非错数据）、find_tab 前缀碰撞（继承 1688 先例）、
+  运费险 regex 边缘、taobao imgextra 豁免后噪音面变宽（第二道防线变薄，靠适配器提取纪律）；
+- NO_MTOP_TOKEN 慢页误触发登录等待（自愈）——视体感可加廉价重试。
