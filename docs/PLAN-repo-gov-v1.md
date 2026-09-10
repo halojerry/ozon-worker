@@ -1,6 +1,6 @@
 # PLAN-repo-gov-v1 — 仓库全量验证与 Debug 治理（阶段闸模式）
 
-> 状态：**执行中**（2026-09-11 批准；主会话=审计/规划/分配/验收，调研与执行 subagent=glm-5.3-flash）。
+> 状态：**Phase A 已完成（2026-09-11，9 份审计+SUMMARY+BACKLOG），Phase B 待用户拍板批次**（主会话=审计/规划/分配/验收，调研与执行 subagent=glm-5.3-flash）。
 > 探针先行：任何变更批次先探针（代码埋点/单测/数据校验/只读查询）→ 探针报告+影响评估 → 计划 → 实施 → review → 测试 → PR。
 > 硬边界：生产仅 SSH 只读（零写入）；功能测试只打本地 Docker；改 API 必跑 `gen_api_docs.py`；worker 全量测试先 `lsof -iTCP:5433`。
 
