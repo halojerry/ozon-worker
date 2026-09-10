@@ -2892,6 +2892,13 @@ def _assemble_discovery_meta(candidate) -> dict[str, Any]:
     if match_imgs:
         meta["match_image_url"] = match_imgs[0]
     meta["discovered_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    # discover 跨平台静默货源匹配（cross_source v1 批3）：候选级跨源快照整包并入
+    # （钩子只在比价发生时写 source_comparison 键；空 dict 并入零增键，缺键省略
+    # 纪律）。worker 零消费整包透传，采集箱可见可改（可见性兜底，非必经决策点
+    # ——计划 docs/PLAN-discover-cross-source-v1.md 拍板口径）。
+    _xmeta = getattr(candidate, "discovery_meta", None)
+    if isinstance(_xmeta, dict) and _xmeta:
+        meta.update(_xmeta)
     return meta
 
 

@@ -243,6 +243,12 @@ class ProductCandidate:
     status: str = "pending"
     error: str = ""
 
+    # discover 跨平台静默货源匹配（cross_source v1 批3）：source_comparison 快照
+    # 挂载点——_cross_source_compare 比价发生时才写（空 dict=零增键），
+    # cloud_probe._assemble_discovery_meta 整包并入 extensions.discovery_meta
+    # （worker 零消费透传，采集箱可见可改）。缺键省略纪律；绝不存 cookie/凭证。
+    discovery_meta: dict = field(default_factory=dict)
+
     def __post_init__(self):
         if self.dimensions_mm is None:
             self.dimensions_mm = {}
@@ -262,11 +268,13 @@ def discover_from_highlight(
     logistics_cny: float = DEFAULT_LOGISTICS_CNY,
     keyword: str = "",
     progress_callback=None,
+    compare_sources: int | None = None,
 ) -> list[ProductCandidate]:
     """兼容壳（v1 入口）：走 Discover v2 管线，返回 profitable 候选。
 
     Args 同 v1。注意：v2 中 max_competitors 仅作为 1688 匹配阶段的
     预过滤（跟卖过多的候选不浪费识图配额），不再硬丢弃。
+    compare_sources：跨平台静默比价候选数（None=env/默认解析，0=关）。
     """
     candidates = collect_and_analyze(
         cdp_url,
@@ -282,6 +290,7 @@ def discover_from_highlight(
         fx_rate=fx_rate,
         min_margin_pct=min_margin_pct,
         logistics_cny=logistics_cny,
+        compare_sources=compare_sources,
     )
 
     profitable = [c for c in candidates if c.status == "profitable"]
@@ -1044,6 +1053,213 @@ def collect_and_analyze(
     return candidates
 
 
+# ---------------------------------------------------------------------------
+# discover 跨平台静默货源匹配（cross_source v1 批3，2026-09-10）
+# ---------------------------------------------------------------------------
+# 计划 docs/PLAN-discover-cross-source-v1.md。跟 1688 一样静默匹配（用户拍板）：
+# 1688 图搜定款主通道照旧 → 副通道用命中标题关键词在淘宝/拼多多后台共享 tab 静默
+# 搜索比价（批1 cross_source_search）→ 同款确认与选优（批2 source_matcher）→
+# 显著更便宜才换源写回 match_1688_* 同槽位（字段名不动、语义升格「matched
+# source」，URL 平台前缀自证；REPORT_FIELDS/CSV/webui 零改动）→ 快照落
+# candidate.discovery_meta.source_comparison（采集箱可见可改，非必经决策点）。
+# 静默纪律（红线）：本钩子任何失败（未登录/风控/超时/解析空/无 CDP）→ 该平台
+# 静默跳过（debug 日志 + per-run 计数），候选照常产出；绝不抛出、绝不阻塞，
+# 每候选副通道预算 ≤25s（top-N × 25s 即 discover 总时长增幅上限）。
+
+_CROSS_SOURCE_TOP_N_DEFAULT = 5   # --compare-sources 默认：只对利润过闸 top-N 候选比价
+_CROSS_SOURCE_TIMEOUT_S = 12.0    # 单平台预算（两平台串行 ≤24s + 调用开销 ≤ 每候选 25s）
+_CROSS_SOURCE_BUDGET_S = 25.0     # 每候选副通道总预算（红线：绝不变慢到不可用）
+ENV_COMPARE_SOURCES = "DISCOVER_COMPARE_SOURCES"  # 配置热加载键同义（即时生效；CLI > env > 默认）
+
+
+def _resolve_compare_sources(explicit: int | None) -> int:
+    """--compare-sources 解析：显式参数 > env ``DISCOVER_COMPARE_SOURCES`` > 默认 5。
+
+    0=完全关闭（零行为差异）；负数/非数值回退默认（配置损坏不得改变护栏行为
+    ——source_matcher env 阈值同纪律）。None=未显式传（CLI 缺席/内部调用方）→
+    走 env/默认（配置热加载键同义，计划批3 item 2）。
+    """
+    if explicit is None:
+        try:
+            explicit = int(str(os.environ.get(ENV_COMPARE_SOURCES, "")).strip()
+                           or _CROSS_SOURCE_TOP_N_DEFAULT)
+        except (TypeError, ValueError):
+            return _CROSS_SOURCE_TOP_N_DEFAULT
+    try:
+        n = int(explicit)
+    except (TypeError, ValueError):
+        return _CROSS_SOURCE_TOP_N_DEFAULT
+    return n if n >= 0 else _CROSS_SOURCE_TOP_N_DEFAULT
+
+
+def _cross_source_platform_entry(offers: list, decision, platform: str) -> dict:
+    """已搜索平台的快照条目（消费批2 Decision；「为什么不换」要有证据）。
+
+    - 平台最优过闸报价在场 → matched=True 条目（switched 标记该平台是否胜出）；
+    - 搜到但无报价过同款确认 → 确认分最高者如实记录（matched=False）；
+    - 诚实零命中（「没找到」不是编造）→ 全 None/matched=False 条目。
+    """
+    pb = decision.platform_bests.get(platform)
+    if pb is not None:
+        return {
+            "url": pb.offer.url,
+            "price": pb.offer.price,
+            "freight": pb.offer.freight,
+            "sold": pb.sold,
+            "matched": True,
+            "confirm": pb.confirm_score,
+            "switched": bool(decision.winner is not None
+                             and decision.winner.url == pb.offer.url),
+            "freight_unknown": pb.freight_unknown,
+        }
+    if offers:
+        best = max(offers, key=lambda o: decision.confirm_scores.get(o.url, 0.0))
+        return {
+            "url": best.url,
+            "price": best.price,
+            "freight": best.freight,
+            "sold": best.sold,
+            "matched": False,
+            "confirm": decision.confirm_scores.get(best.url, 0.0),
+            "switched": False,
+            "freight_unknown": best.freight is None,
+        }
+    return {"url": "", "price": None, "freight": None, "sold": None,
+            "matched": False, "confirm": 0.0, "switched": False,
+            "freight_unknown": False}
+
+
+def _cross_source_compare(candidates: list[ProductCandidate], cdp_url: str,
+                          top_n: int = _CROSS_SOURCE_TOP_N_DEFAULT) -> None:
+    """map 定稿钩子（``_giveback_metrics`` 同位置纪律：主流程定稿后挂副钩）。
+
+    利润过闸 top-N 候选 → 淘宝/拼多多关键词副通道比价 → 胜者写回
+    ``match_1688_url/title/price(/freight)`` 同槽位 + 快照写
+    ``discovery_meta["source_comparison"]``。
+
+    - 利润闸复用 match_selected 刚定稿的判定（status=="profitable" 即
+      ``profit_margin >= min_margin_pct`` 的结果记录，不另造闸）；top-N 按
+      profit_margin 降序（与 discover 输出排序同口径）。
+    - 基线 = 1688 到手价（price + freight；freight None=未知按价 alone，
+      快照 baseline.freight=None 如实标记）。
+    - 登录态每 run 一次（入口 reset_login_cache 清批1 负缓存；候选级
+      NotLoggedIn 记入本 run 集合，本 run 不再探测）；平台错误 per-run 计数
+      （坏平台在 run 汇总行可见，绝不「永远静默从不更便宜」）。
+    - 绝不抛出（双保险纪律同 _giveback_metrics）；任何候选级失败只 debug + 跳过。
+    """
+    try:
+        from scripts.lib.cross_source_search import (
+            CrossSourceSearchError,
+            NotLoggedIn,
+            reset_login_cache,
+            search_pdd,
+            search_taobao,
+        )
+        from scripts.lib.source_matcher import extract_search_keyword, pick_best_source
+    except Exception as exc:
+        logger.debug("跨源比价模块导入失败，本 run 跳过: %s", exc)
+        return
+    if top_n <= 0:
+        return
+    if not str(cdp_url or "").strip():
+        logger.debug("跨源比价关闭：无可用 CDP（cdp_url 为空）")
+        return
+    try:
+        gated = [c for c in candidates if c.status == "profitable"]
+        if not gated:
+            return
+        gated.sort(key=lambda c: c.profit_margin, reverse=True)
+        gated = gated[:max(1, top_n)]
+
+        reset_login_cache()  # 登录态探测每 run 一次（批1 负缓存清零重探）
+        not_logged_in: set = set()
+        error_counts = {"taobao": 0, "pdd": 0}
+        searchers = {"taobao": search_taobao, "pdd": search_pdd}
+        compared = switched = 0
+
+        for cand in gated:
+            try:
+                baseline_price = float(cand.match_1688_price or 0)
+                if baseline_price <= 0:
+                    cand.discovery_meta["source_comparison"] = {
+                        "skipped": "1688 基线无效"}
+                    continue
+                keyword = extract_search_keyword(cand.match_1688_title)
+                if not keyword:
+                    cand.discovery_meta["source_comparison"] = {
+                        "skipped": "无参照标题"}
+                    continue
+                baseline_freight = getattr(cand, "match_1688_freight_cny", None)
+                baseline_cost = baseline_price + (
+                    float(baseline_freight) if baseline_freight is not None else 0.0)
+                baseline_url = str(cand.match_1688_url or "")
+
+                offers_by_platform: dict = {}
+                entries: dict = {}
+                started = time.monotonic()
+                for platform, search_fn in searchers.items():
+                    if platform in not_logged_in:
+                        entries[platform] = {"skipped": "not_logged_in"}
+                        continue
+                    timeout = min(_CROSS_SOURCE_TIMEOUT_S,
+                                  _CROSS_SOURCE_BUDGET_S - (time.monotonic() - started))
+                    if timeout < 1.0:
+                        break  # 候选预算耗尽：后续平台省略键（快照省略纪律）
+                    try:
+                        offers_by_platform[platform] = search_fn(
+                            cdp_url, keyword, timeout=timeout)
+                    except NotLoggedIn as exc:
+                        not_logged_in.add(platform)
+                        entries[platform] = {"skipped": "not_logged_in"}
+                        logger.debug("跨源比价 %s 未登录，本 run 跳过该平台: %s",
+                                     platform, exc)
+                    except CrossSourceSearchError as exc:
+                        error_counts[platform] += 1
+                        entries[platform] = {"skipped": "error",
+                                             "count": error_counts[platform]}
+                        logger.debug("跨源比价 %s 失败（本候选跳过该平台）: %s",
+                                     platform, exc)
+
+                decision = pick_best_source(offers_by_platform, baseline_cost,
+                                            candidate_title=cand.match_1688_title)
+                for platform, offers in offers_by_platform.items():
+                    entries[platform] = _cross_source_platform_entry(
+                        offers, decision, platform)
+
+                if decision.winner is not None and decision.switched:
+                    w = decision.winner
+                    cand.match_1688_url = w.url
+                    if w.title:
+                        # 平台未暴露标题（pdd 正则兜底 None）→ 保留 1688 参照标题
+                        cand.match_1688_title = w.title
+                    cand.match_1688_price = float(w.price)
+                    # None=新源运费未知（未知≠真实 0，绝不冒充 1688 运费）
+                    cand.match_1688_freight_cny = w.freight
+                    switched += 1
+                compared += 1
+                cand.discovery_meta["source_comparison"] = {
+                    "baseline": {"url": baseline_url,
+                                 "price": round(baseline_price, 2),
+                                 "freight": baseline_freight,
+                                 "landed_cost": round(baseline_cost, 2)},
+                    "platforms": entries,
+                    "decision": {
+                        "winner": decision.winner.url if decision.winner else None,
+                        "reason": decision.reason,
+                        "switched": bool(decision.switched)},
+                    "thresholds": {"same_min": decision.same_min,
+                                   "switch_ratio": decision.switch_ratio},
+                }
+            except Exception as exc:  # 候选级也不外逃（双保险）
+                logger.debug("跨源比价候选级失败（忽略）: %s", exc)
+
+        logger.info("跨源比价: 比价 %d/%d 候选, 换源 %d, 未登录 %s, 平台错误 %s",
+                    compared, len(gated), switched,
+                    sorted(not_logged_in) or "无", error_counts)
+    except Exception as exc:  # 钩子绝不外逃（双保险纪律同 _giveback_metrics）
+        logger.debug("跨源比价跳过: %s", exc)
+
+
 def match_selected(
     candidates: list[ProductCandidate],
     cdp_url: str,
@@ -1059,6 +1275,7 @@ def match_selected(
     pace_seconds: float = 0.5,
     max_workers: int = 0,
     target_profitable: int = 0,
+    compare_sources: int | None = None,
 ) -> list[ProductCandidate]:
     """Discover v2 阶段④：对选中候选批量 1688 识图 + 利润 + 蓝海评分。
 
@@ -1066,6 +1283,11 @@ def match_selected(
     仅处理 status in (ok, uncertain) 的候选（error 跳过）。
     blue_ocean_rows: all_queries 蓝海关键词行（C4 step2），非空时按候选标题
     计算 competitor_keyword_density 注入蓝海评分；None/空 → 原流程不加因子。
+
+    compare_sources（cross_source v1 批3）：匹配全部定稿后对利润过闸 top-N
+    候选做淘宝/拼多多静默比价，显著更便宜才换源写回 match_1688_* 同槽位；
+    None=env ``DISCOVER_COMPARE_SOURCES``/默认 5 解析，0=完全关闭（零行为差异）。
+    失败静默——见 ``_cross_source_compare``。
 
     任务式限额（漏斗 v2 Task 8a，discover-task 无人值守用；交互流程缺省零变化）：
     - max_matches>0：匹配数上限（护 aibuy 配额），未匹配候选保持 ok/uncertain；
@@ -1272,6 +1494,15 @@ def match_selected(
                     break
 
     logger.info("1688 匹配统计: %s", stats)
+    # 跨平台静默货源匹配（批3）：map 定稿钩子（_giveback_metrics 同位置纪律——
+    # 1688 匹配/利润/状态全部定稿后挂副钩）。利润过闸 top-N 候选 → 淘宝/拼多多
+    # 静默比价 → 胜者换槽位；任何失败静默跳过，绝不影响匹配主流程。置于落盘前，
+    # 使 discovery_*.json / discovery_runs 归档自带快照。
+    try:
+        _cross_source_compare(candidates, cdp_url,
+                              top_n=_resolve_compare_sources(compare_sources))
+    except Exception as exc:  # 双保险：钩子绝不影响匹配主流程
+        logger.debug("跨源比价跳过: %s", exc)
     # 匹配结果落盘（collect_and_analyze 保存的是匹配前的全量数据，
     # 这里覆盖保存最终版本，含 1688 匹配/利润/蓝海评分）
     try:
