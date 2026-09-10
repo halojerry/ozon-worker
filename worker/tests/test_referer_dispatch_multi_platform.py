@@ -96,3 +96,96 @@ def test_failure_degradation_unchanged(monkeypatch):
     """下载失败降级路径不变:非 200 → None。"""
     out, _ = _download_with(monkeypatch, "https://img.pddpic.com/x.jpeg", status=404)
     assert out is None
+
+
+# ── 批5 gate 前置（A4，fix round 1）: _referer_for_url 接进两条活下载链 ──
+# 批1 只交付了分派函数（_download_image 无生产调用方）——本节锁两条**活链**
+# 均按图床域分派：cos_uploader.salvage_original_images（E1 转存下载）与
+# draft_image_mirror._mirror_one（草稿图片镜像）。taobao/pdd 域带对应 Referer；
+# alicdn/1688 派 detail.1688.com（alicdn 不校验指向，行为兼容）；无规则命中
+# 不加 Referer 仅裸 UA（行为同今日）。降级路径（非 200/异常）不因接线改变。
+
+import utils.cos_uploader as cos_uploader  # noqa: E402
+from services import draft_image_mirror as mirror  # noqa: E402
+
+
+def _fake_get_capture(calls, status=200):
+    def fake_get(u, timeout=None, headers=None):
+        calls["headers"] = dict(headers or {})
+        if status != 200:
+            return SimpleNamespace(status_code=status, content=b"")
+        return SimpleNamespace(status_code=200, content=b"img-bytes")
+    return fake_get
+
+
+def _mirror_with(monkeypatch, url, status=200):
+    calls = {}
+    monkeypatch.setattr("requests.get", _fake_get_capture(calls, status))
+    monkeypatch.setattr(
+        mirror, "cos_upload_bytes",
+        lambda content, key, content_type=None: f"https://cos.test/{key}")
+    out = mirror._mirror_one(url)
+    return out, calls.get("headers", {})
+
+
+def _salvage_with(monkeypatch, urls, status=200):
+    calls = {}
+    monkeypatch.setattr("requests.get", _fake_get_capture(calls, status))
+    monkeypatch.setattr(cos_uploader, "cos_enabled", lambda: True)
+    monkeypatch.setattr(
+        cos_uploader, "cos_upload_bytes",
+        lambda content, key, content_type=None: f"https://cos.test/{key}")
+    out = cos_uploader.salvage_original_images(list(urls))
+    return out, calls.get("headers", {})
+
+
+class TestLiveChainMirrorReferer:
+    def test_pdd_url_gets_referer(self, monkeypatch):
+        out, h = _mirror_with(monkeypatch, "https://img.pddpic.com/mms/x.jpeg")
+        assert out and out.startswith("https://cos.test/")
+        assert h["Referer"] == "https://mobile.yangkeduo.com/"
+        assert "User-Agent" in h
+
+    def test_1688_url_dispatches_detail_referer(self, monkeypatch):
+        _, h = _mirror_with(monkeypatch, "https://cbu01.alicdn.com/img/ibank/a.jpg")
+        assert h["Referer"] == "https://detail.1688.com/"
+
+    def test_unknown_domain_bare_ua_only(self, monkeypatch):
+        _, h = _mirror_with(monkeypatch, "https://cdn.example.com/x.jpg")
+        assert "Referer" not in h
+        assert "User-Agent" in h  # 裸 UA 同今日
+
+    def test_failure_degradation_unchanged(self, monkeypatch):
+        out, _ = _mirror_with(
+            monkeypatch, "https://img.pddpic.com/x.jpeg", status=404)
+        assert out is None  # 非 200 → None（不因接线改变）
+
+
+class TestLiveChainSalvageReferer:
+    def test_pdd_url_gets_referer(self, monkeypatch):
+        out, h = _salvage_with(
+            monkeypatch, ["https://img.pddpic.com/mms-material/x.jpeg"])
+        assert len(out) == 1
+        assert h["Referer"] == "https://mobile.yangkeduo.com/"
+        assert "User-Agent" in h
+
+    def test_1688_url_dispatches_detail_referer(self, monkeypatch):
+        _, h = _salvage_with(
+            monkeypatch, ["https://cbu01.alicdn.com/img/ibank/a.jpg"])
+        assert h["Referer"] == "https://detail.1688.com/"
+
+    def test_no_referer_case_structurally_unreachable(self, monkeypatch):
+        """salvage 链「裸 UA 无 Referer」结构性不可达：可下载域=image_url_guard
+        白名单（alicdn/1688/taobaocdn/pddpic/yangkeduo/pinduoduo），恰为
+        _referer_for_url 规则域的子集——非白名单域在 _is_reference_image 即跳过、
+        根本不发起下载（外域 URL 不产生任何请求）。"""
+        calls = {}
+        monkeypatch.setattr("requests.get", _fake_get_capture(calls))
+        monkeypatch.setattr(cos_uploader, "cos_enabled", lambda: True)
+        monkeypatch.setattr(
+            cos_uploader, "cos_upload_bytes",
+            lambda content, key, content_type=None: f"https://cos.test/{key}")
+        out = cos_uploader.salvage_original_images(
+            ["https://cdn.example.com/x.jpg"])
+        assert out == []
+        assert "headers" not in calls  # 外域未发起下载（无裸 UA 请求）
