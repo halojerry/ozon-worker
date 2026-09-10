@@ -7,7 +7,6 @@
 运行(无需 PG/GPU):
     cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_offer_id_multi_platform.py -q
 """
-import os
 import sys
 from pathlib import Path
 

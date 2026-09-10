@@ -138,6 +138,10 @@ R4 退化为无源词搜索兜底——可接受）。
 7. compile.py：两个新 lib 进 COPY_FILES + `test_compile_lists.py` 绿。
 
 ### 批5 实机 gate（本批最后，≥4 单本地 Docker 全链路）
+- **gate 前置（批1 Minor #1 责任归属）**：把 `image_url_processor._referer_for_url` 接进两条活下载链
+  （`cos_uploader` E1 转存下载 + `draft_image_mirror`）——批1 只交付了分派函数（`_download_image`
+  无生产调用方）；首批 taobao/pdd 信封出现前不动 1688 生产链，批5 是唯一会出现新平台信封的批次，
+  接线在本批完成并有 gate 单实证。pdd 若仍 403 → 走下方降级口径并如实记录。
 - 真实淘宝 1 单 + 天猫 1 单 + 拼多多 1 单 + 1688 回归 1 单 → `--to-box` 或直提测试店；
   验收：信封组装字段全、四平台轮转零串图、本地 Docker 任务终态如实（completed 需真 approved）、
   学习表（category_mapping/category_match_log）零新平台行写入。

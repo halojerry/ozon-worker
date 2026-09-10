@@ -8,7 +8,6 @@ pdd 系三域 → mobile.yangkeduo.com。无规则命中不加头(行为同今�
 运行(无需 PG/GPU):
     cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_referer_dispatch_multi_platform.py -q
 """
-import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
