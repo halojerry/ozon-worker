@@ -71,6 +71,10 @@ COPY_FILES = [
     # ⚠️ 跨平台货源 v1 批3（taobao_client 同款先例）：拼多多适配器——反爬
     # 迭代频繁 + 页内 rawData/render-sku 长 JS 注入，明文跨平台一致。
     "scripts/lib/pdd_client.py",         # 拼多多 rawData 适配器（批3）
+    # ⚠️ discover 跨平台静默货源匹配 v1 批1（cloud_probe/pdd_client 同款先例，
+    # 2026-09-10）：关键词搜索通道含页内长 JS（渲染等待 + DOM/正则解析注入）
+    # 且反爬对抗面改动频繁，明文跨平台一致 + 可快速迭代。
+    "scripts/lib/cross_source_search.py",  # 淘宝/拼多多关键词搜索（SourceOffer）
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）
