@@ -15,13 +15,16 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import ValidationError
 
+from api.schemas import SellerSyncIn
 from services.sku_metrics_pool_service import (
     SKU_QUERY_MAX,
     SKU_SYNC_MAX_ITEMS,
     query_sku_metrics,
     upsert_seller_sync_items,
 )
+from storage.database.db import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -314,15 +317,9 @@ async def http_what_to_sell(request: Request):
 
 
 # ── 数据池 v1：跨店 SKU 指标贡献收包 + 读侧补采指令（对标 goldminer 读-回馈）──
-# 服务函数模块顶层导入（勿改函数内局部导入——endpoint 测试 mock.patch
+# 服务/依赖已模块顶层导入（勿改函数内局部导入——endpoint 测试 mock.patch
 # "routes.analytics_routes.upsert_seller_sync_items" 打的是模块属性）。
 # 只存指标不回显内部异常（对齐 analytics 端点安全纪律）。
-
-from pydantic import ValidationError  # noqa: E402
-
-from api.schemas import SellerSyncIn  # noqa: E402
-from storage.database.db import get_session  # noqa: E402
-
 
 @router.post("/seller-sync", openapi_extra={"requestBody": {"required": True, "content": {
     "application/json": {"schema": SellerSyncIn.model_json_schema()}}}})
