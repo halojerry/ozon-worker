@@ -297,6 +297,30 @@ class TestExtractSearchKeyword:
         assert kw is not None
         assert "500ml" in kw
 
+    # ── Gate Fix（批4 实机 gate 揪出）：无空格长 CJK 连写标题是 1688 常态 ──
+    # 修前：单 token 超 12 字上限 → 主路径空手 → None → 快照 {"skipped":
+    # "无参照标题"}、跨源比价整段跳过（3 个 profitable 候选全中）。修后回退
+    # 清洗标题前缀截断（精度由 confirm_same_product 把关，分层职责）。
+
+    def test_long_cjk_title_without_spaces(self):
+        # 批4 gate 真实复现（profitable 候选的 1688 标题形态）
+        kw = sm.extract_search_keyword(
+            "卡通可爱双饮保温杯高颜值萌趣儿童水杯吸管杯316不锈钢便携")
+        assert kw is not None
+        assert "保温杯" in kw
+        assert "儿童" not in kw
+        assert len(kw) <= 16
+
+    def test_grade_volume_title_without_spaces(self):
+        # 批4 gate 真实复现第二条：规格词占前缀且无空格
+        kw = sm.extract_search_keyword("316不锈钢保温杯500ml")
+        assert kw is not None
+        assert "保温杯" in kw
+
+    def test_fallback_still_strips_modifiers(self):
+        # 回退路径也必须剥修饰词——全修饰词标题仍 None（不因回退放垃圾进搜索框）
+        assert sm.extract_search_keyword("新款ins网红爆款") is None
+
 
 # ──────────────────── env 覆盖 ────────────────────
 

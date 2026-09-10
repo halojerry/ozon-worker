@@ -331,42 +331,73 @@ _MODIFIER_WORDS = frozenset({
 
 _KEYWORD_MAX_PIECES = 2    # 搜索框取前 2 个核心词——再多引入平台噪音
 _KEYWORD_MAX_CHARS = 12    # 拼接总长上限（淘宝/pdd 搜索框友好长度）
+# 回退路径截断上限（Gate Fix，批4 实机 gate 揪出）：1688 标题常态是**无空格
+# CJK 连写**（如「卡通可爱双饮保温杯高颜值萌趣儿童水杯吸管杯316不锈钢便携」），
+# 主路径单 token 超 12 字上限 → 空手 → 曾返回 None → 快照 {"skipped":"无参照
+# 标题"}、跨源比价整段跳过（3 个 profitable 候选全中）。回退=清洗后的标题前缀
+# 截断——淘宝/pdd 对长自然中文 query 召回良好，**精度由 confirm_same_product
+# 把关（分层职责，不在关键词层追求精准）**。
+_KEYWORD_FALLBACK_MAX_CHARS = 16
 
 
-def _strip_modifiers(token: str) -> str:
-    """单 token 剥修饰词：CJK 词剥子串（「儿童保温杯」→「保温杯」）；
-    拉丁修饰词仅整词命中才剥（防「printings」类误伤）。"""
-    core = str(token or "").strip()
-    for w in _MODIFIER_WORDS:
-        if w.isascii():
-            if core == w:
-                core = ""
-        elif w in core:
+def _strip_modifier_words(s: str) -> str:
+    """剥修饰词（两遍序，Gate Fix 顺带修）：先 CJK 修饰词按子串剥
+    （**长词优先**——「婴幼儿」必须先于「婴儿」，否则剥出「幼儿」垃圾词），
+    再拉丁修饰词整词等价（放最后——「新款ins网红爆款」剥完 CJK 后剩
+    「ins」，此时整词等价才命中；两遍序前会漏）。"""
+    core = str(s or "")
+    for w in sorted((w for w in _MODIFIER_WORDS if not w.isascii()),
+                    key=len, reverse=True):
+        if w in core:
             core = core.replace(w, "")
-    return core.strip()
+    core = core.strip()  # 回退路径剥完 CJK 可能剩「 ins 」——整词判定前先去边
+    for w in _MODIFIER_WORDS:
+        if w.isascii() and core == w:
+            return ""
+    return core
+
+
+def _fallback_keyword(text: str) -> str | None:
+    """主路径剥不出 ≤12 字核心块时的回退：清洗标题前缀截断（Gate Fix）。
+
+    清洗 = 剥修饰词（同主路径两遍序）+ 剥纯规格 token（牌号/容量/型号开头
+    召回差，品类词前置）+ 空白折叠。剥完全空 → None（全修饰词/纯规格标题
+    不回退出垃圾——「有标题」≠「可搜」）。
+    """
+    cleaned = _strip_modifier_words(str(text or "").lower())
+    cleaned = _SPEC_GRADE_RE.sub(" ", cleaned)
+    cleaned = _SPEC_VOLUME_RE.sub(" ", cleaned)
+    cleaned = _SPEC_MODEL_RE.sub(" ", cleaned)
+    cleaned = " ".join(cleaned.split()).strip()
+    if len(cleaned) < 2:
+        return None
+    return cleaned[:_KEYWORD_FALLBACK_MAX_CHARS]
 
 
 def extract_search_keyword(match_1688_title: str | None) -> str | None:
-    """1688 命中标题 → 跨平台搜索关键词（None = 标题空/剥完全是修饰词）。
+    """1688 命中标题 → 跨平台搜索关键词（None = 标题空/清洗后无可搜内容）。
 
     口径：标点/空白切块 → 逐块剥修饰词 → 剩 ≥2 字符的核心块保序去重 →
     取前 ``_KEYWORD_MAX_PIECES`` 块、总长 ≤``_KEYWORD_MAX_CHARS``。
     规格词（500ml/316）保留——跨平台搜「保温杯500ml」比光「保温杯」准得多。
+
+    Gate Fix（批4 实机 gate）：1688 标题常态是**无空格 CJK 连写**，主路径单
+    token 超 12 字上限时曾直接返回 None（3 个 profitable 候选跨源比价整段
+    跳过的根因）——现回退 ``_fallback_keyword``（清洗标题前缀截断 ≤16 字，
+    精度由 confirm_same_product 把关）。
     """
     text = str(match_1688_title or "").strip()
     if not text:
         return None
     pieces: list[str] = []
     for raw in _SPLIT_RE.split(text.lower()):
-        core = _strip_modifiers(raw)
+        core = _strip_modifier_words(raw)
         if len(core) >= 2 and core not in pieces:
             pieces.append(core)
-    if not pieces:
-        return None
     keyword = ""
     for piece in pieces[:_KEYWORD_MAX_PIECES]:
         candidate = f"{keyword} {piece}".strip() if keyword else piece
         if len(candidate) > _KEYWORD_MAX_CHARS:
             break
         keyword = candidate
-    return keyword or None
+    return keyword or _fallback_keyword(text)
