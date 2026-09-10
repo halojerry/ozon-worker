@@ -520,18 +520,9 @@ def process_ozon_url(
     return result
 
 
-def main() -> int:
-    # ⚠️ PR-A (v0.31): 前置 runtime 检测 — 当前解释器非 3.12 时扫描 PATH 自动切换
-    # （requests 等依赖 import 延迟到此处之后，错误解释器下不会在模块级崩）
-    import sys as _sys
-    from scripts.runtime_probe import re_exec_if_needed, resolve_python
-    if _sys.version_info < (3, 12):
-        _py_cmd, _is_cur = resolve_python()
-        if not _is_cur:
-            re_exec_if_needed(_py_cmd, str(Path(__file__).resolve()), list(_sys.argv[1:]))
-
-    import requests
-
+def build_arg_parser() -> argparse.ArgumentParser:
+    """构造 CLI parser（模块级导出——对齐 cli.build_arg_parser 先例，测试可
+    parse_args 直调验证 choices 行为，替代源码 grep 式断言）。"""
     parser = argparse.ArgumentParser(
         description="批量测试 1688/Ozon URL → Worker 上架"
     )
@@ -597,6 +588,22 @@ def main() -> int:
         "--resume-from", default="",
         help="显式指定续传来源结果文件（默认自动找最新 batch_*.json）",
     )
+    return parser
+
+
+def main() -> int:
+    # ⚠️ PR-A (v0.31): 前置 runtime 检测 — 当前解释器非 3.12 时扫描 PATH 自动切换
+    # （requests 等依赖 import 延迟到此处之后，错误解释器下不会在模块级崩）
+    import sys as _sys
+    from scripts.runtime_probe import re_exec_if_needed, resolve_python
+    if _sys.version_info < (3, 12):
+        _py_cmd, _is_cur = resolve_python()
+        if not _is_cur:
+            re_exec_if_needed(_py_cmd, str(Path(__file__).resolve()), list(_sys.argv[1:]))
+
+    import requests
+
+    parser = build_arg_parser()
 
     args = parser.parse_args()
 
