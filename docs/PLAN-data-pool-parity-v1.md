@@ -1,5 +1,7 @@
 # PLAN 数据池贡献闭环 + 采集通道增强 v1（四插件对标能力补全）
 
+> ⚠️ 2026-09-11 审计：variant_v2 真值链三段断链（详见 docs/audit/2026-09-11-repo-gov/A5-pipeline-deadcode-conflicts.md），当前实验性未生效，接线归本计划批 8 P2
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal**：把四竞品插件（ozonAI 上品助手 V2.3.3 / goldminer v2.43 / 毛子 3.2.6 / 上品帮 V3.2.6）深调出的可移植能力落进我们的 skill+worker：**用户贡献式销量数据池**（对标上品帮跨店数据湖）、**session-sync 直调修复**、**CSP 剥除**、**premium 解锁补全**、**layoutTrackingInfo 类目真值**、**variant_v2 重量真值链**——最终服务客户：选品卡片数据完整度对标上品帮、体积重量拒单从源头缓解、采集通道更稳。

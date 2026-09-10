@@ -58,7 +58,10 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **采集通道增强**：CHIPS 分区 cookie 双读（Network→Storage 二读 same-name-longer-wins，`abt_data` 在
   partitionKey 下单读必漏）；CSP 剥除 `CdpTab.set_bypass_csp`（毛子对标，仅浏览器上下文用户自己会话、
   拦响应不篡改请求）；variant_v2 真值链（毛子 create-bundle-by-variant-id 移植，消费端 clamp
-  [10,200_000]g + marks `weight_from_pool_variant`）；premium `makeBase()` 共享底座接入 Status+Graph；
+  [10,200_000]g + marks `weight_from_pool_variant`）——⚠️ **2026-09-11 审计修正：variant_v2 真值链
+  当前为实验性未生效**——fetch_variant_truth 无生产调用 / variant_payloads 无人传值 /
+  needs_variant_sync 零消费（三段断链实锤），接线工作在数据池计划批 8 P2，勿当作已生效能力引用
+  （docs/audit/2026-09-11-repo-gov/A5）；premium `makeBase()` 共享底座接入 Status+Graph；
   `custom_click_rate=qtyViewPdp/views*100` 派生（CONTRACT-v4 §1.1.1 已登记）；P2 Excel 导出（四区两行
   合并表头+原子写+占用重试，cli `--export` 后缀路由 .xlsx）。
 - **⚠️ what-to-sell 数据面平台侧阻断（改直调代码前必读）**：requests 直调被 DataDome TLS 指纹级 403

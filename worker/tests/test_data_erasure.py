@@ -167,6 +167,16 @@ def _count(eng, tenant: str, cred_id: str) -> int:
     return int(row or 0)
 
 
+def test_store_scoped_tables_include_ozon_sessions():
+    """B2a-4: cookie 密文随店硬删——ozon_sessions 必须在店级删除清单里。
+
+    （seller 会话密文 AES-GCM 存 ozon_sessions，吊销店铺后密文不应残留；
+    该表无业务读取价值且 GET 只回名单，硬删不影响审计。）
+    """
+    from services.data_erasure_service import STORE_SCOPED_TABLES
+    assert "ozon_sessions" in STORE_SCOPED_TABLES
+
+
 def test_hard_delete_gate_disabled(client):
     c, _, eng = client
     tenant, cred_id = _make_credential(eng)
