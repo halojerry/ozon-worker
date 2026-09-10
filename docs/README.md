@@ -16,7 +16,7 @@ status: active
 
 ## L1 入口与协作
 
-- [WORKFLOW.md](WORKFLOW.md) — 仓库协作规范 v1：分支拓扑、一会话一分支一 worktree、两级合并门槛、发版流。
+- [WORKFLOW.md](WORKFLOW.md) — 仓库协作规范 v1：分支拓扑、一会话一分支一 worktree、两级合并门槛、探针先行、发版流。
 - [CONVENTIONS.md](CONVENTIONS.md) — 开发规范：分支命名、commit 规范、发版流程。
 - [WEBUI-CONVENTIONS.md](WEBUI-CONVENTIONS.md) — webui 开发规范（视觉 token、构建、目录约定）。
 - [GIT-STREAM-INDEX.md](GIT-STREAM-INDEX.md) — 12 工作流历史索引（2026-09-08~09-09 交错历史取证用）。
@@ -35,7 +35,7 @@ status: active
 
 - [WORKER-TOPOLOGY.md](WORKER-TOPOLOGY.md) — Worker 节点拓扑 + 错误映射 + 数据流，改代码快速参考（正文 v0.27 口径 + 头部增量摘要，增量以 AGENTS「最近更新」块为准）。
 - [ARCHITECTURE-TOPOLOGY.md](ARCHITECTURE-TOPOLOGY.md) — 业务模型全景拓扑图（正文 v0.27 口径，增量以 AGENTS「最近更新」块为准）。
-- [DB-SCHEMA-AUDIT.md](DB-SCHEMA-AUDIT.md) — 34 表分类、14 歧义点、ID 词汇表、status 取值域（建表/改列必读）。
+- [DB-SCHEMA-AUDIT.md](DB-SCHEMA-AUDIT.md) — 49 表分类（含 PR#16 三张）、14 歧义点、ID 词汇表、status 取值域（建表/改列必读）。
 - [ozon-field-map-v1.md](ozon-field-map-v1.md) — Ozon 字段映射表（M0 探针冻结快照，status: frozen）。
 - [OZON-ATTRIBUTE-API.md](OZON-ATTRIBUTE-API.md) — Ozon 属性/类目 API 参考（长期维护，开发直接查这里）。
 - [OZON-MULTI-SKU-QUOTA.md](OZON-MULTI-SKU-QUOTA.md) — 多 SKU 上传与商品配额机制调研结论（9048/model_id 并卡）。
@@ -45,6 +45,8 @@ status: active
 - [DEPLOY.md](DEPLOY.md) — 云端部署完整指南（Docker/Nginx/HTTPS/cos-update 升级回滚）。
 - [LOGGING.md](LOGGING.md) — 日志系统架构 + 查看命令 + 故障排查。
 - [CACHE-WARM-RUNBOOK.md](CACHE-WARM-RUNBOOK.md) — 字典值缓存三桶预热/导出/COS 上传运维手册。
+- [RESTORE-RUNBOOK.md](RESTORE-RUNBOOK.md) — PG 备份恢复演练五步法 + RPO 24h/RTO ≤1h 运营化（backup_heartbeat 心跳/--restore 通道）。
+- [SUBAGENT-SPEC.md](SUBAGENT-SPEC.md) — 子 Agent 执行规范：模型统一 glm-5.3-flash、提示词五要素、并行文件组不相交、P0/P1 亲核质量闸。
 - [ERROR-REPORT-TEMPLATE.md](ERROR-REPORT-TEMPLATE.md) — 错误报告模板与 agent 上报纪律。
 
 ## L5 产品与方案
@@ -59,7 +61,7 @@ status: active
 - [refs/ozon-mcp/](refs/ozon-mcp/README.md) — Ozon API 参考库（只读，零凭证查询纪律；写 Ozon 调用前先 `mcp__ozon__search_methods`/`describe_method` 核对）。
 - [competitor/](competitor/README.md) — 竞品逆向（上品帮/毛子全量逆向 + [COMPETITOR-ERP-ANALYSIS.md](competitor/COMPETITOR-ERP-ANALYSIS.md) 精简对比）。
 - [ozonharness/](ozonharness/README.md) — harness 子产品文档集（架构/PRD/路线图）。
-- [audit/](audit/) — 治理与审计报告（按 `<日期-主题>/` 分目录，最新：[2026-09-11-repo-gov/](audit/2026-09-11-repo-gov/SUMMARY.md)）。
+- [audit/](audit/) — 治理与审计报告（按 `<日期-主题>/` 分目录，最新：[2026-09-11-repo-gov/](audit/2026-09-11-repo-gov/SUMMARY.md)；含 B2-β 设计三件套（PR#16 即将合入）：[design-b2b-tenant-guard](audit/2026-09-11-repo-gov/design-b2b-tenant-guard.md)（租户 guard）/ [design-b2b-cache-ttl-governance](audit/2026-09-11-repo-gov/design-b2b-cache-ttl-governance.md)（缓存 TTL 治理）/ [design-b2b-perf-hardening](audit/2026-09-11-repo-gov/design-b2b-perf-hardening.md)（性能加固））。
 - [data/](data/) — 数据源文件（`china_scoring_freight.xlsx` 物流费率源表、`ozon-api-docs-2026-07-05.json` Ozon 官方文档抓取；`worker/assets/` 有同名 xlsx 运行时副本，`import_logistics.py` 读 docs/data/ 侧、`init_data.py` 读 assets/ 侧）。
 
 ## PLAN 状态表（由各 PLAN 头部状态行生成，2026-09-11）
