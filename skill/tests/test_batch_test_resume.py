@@ -123,12 +123,19 @@ def test_filter_unprocessed_none_done():
 # ── 5. main() 集成：--resume 断点续传 ──
 
 def test_main_resume_skips_done_retries_failed_same_file():
-    """--resume-from: 跳过已成功项、只重试失败项，结果合并写回原文件。"""
+    """--resume-from: 跳过已成功项、只重试失败项，结果合并写回原文件。
+
+    批2 fix round 1: urls 加一行淘宝 URL——让 main() 的生产分派行
+    （``if url_type in GRAPH_URL_TYPES``）以非 1688 URL 真实执行并锁定：
+    淘宝必须走 graph 直传链（process_1688_url + source_type 标注），
+    绝不能落 process_ozon_url 跟卖链。
+    """
     out_dir = _tmp_dir()
     urls_file = out_dir / "urls.txt"
     urls_file.write_text(
         "https://detail.1688.com/offer/111.html\n"
-        "https://detail.1688.com/offer/222.html\n",
+        "https://detail.1688.com/offer/222.html\n"
+        "https://item.taobao.com/item.htm?id=679836775118\n",
         encoding="utf-8",
     )
     old_log = out_dir / "batch_20260811_090000.json"
@@ -136,12 +143,20 @@ def test_main_resume_skips_done_retries_failed_same_file():
         json.dumps([_result("111", True), _result("222", False)]), encoding="utf-8"
     )
 
-    processed: list[str] = []
+    processed: list[tuple[str, str]] = []  # (source_type, offer_id)
 
     def fake_process_1688(url, offer_id, client_id, api_key, worker_url,
                           dry_run, store_id="", source_type="1688"):
-        processed.append(offer_id)
-        return _result(offer_id, True)
+        processed.append((source_type, offer_id))
+        r = _result(offer_id, True)
+        r["type"] = source_type  # 对齐真 process_1688_url：结果行 type=source_type
+        return r
+
+    ozon_calls: list[str] = []
+
+    def fake_process_ozon(url, product_id, **_kw):
+        ozon_calls.append(product_id)
+        return {"type": "ozon", "product_id": product_id, "success": True}
 
     with mock.patch.object(batch_test, "OUTPUT_DIR", out_dir), \
          mock.patch.object(sys, "argv", [
@@ -152,18 +167,22 @@ def test_main_resume_skips_done_retries_failed_same_file():
          mock.patch("scripts.lib.config_store.check_config",
                     return_value={"missing": [], "cdp": {"browser_available": True}}), \
          mock.patch("scripts.lib.chrome_launcher.ensure_chrome_cdp", return_value=(True, "ok")), \
-         mock.patch.object(batch_test, "process_1688_url", side_effect=fake_process_1688):
+         mock.patch.object(batch_test, "process_1688_url", side_effect=fake_process_1688), \
+         mock.patch.object(batch_test, "process_ozon_url", side_effect=fake_process_ozon):
         rc = batch_test.main()
 
     assert rc == 0, f"main 返回 {rc}"
-    assert processed == ["222"], f"应只重试失败项 222，实际 {processed}"
+    assert processed == [("1688", "222"), ("taobao", "679836775118")], \
+        f"应只重试失败项 222 + 淘宝走 graph 链，实际 {processed}"
+    assert ozon_calls == [], "淘宝 URL 绝不能落 ozon 跟卖链"
     data = json.loads(old_log.read_text(encoding="utf-8"))
-    assert [r["offer_id"] for r in data] == ["111", "222", "222"], \
-        "旧 2 条 + 新 1 条应合并写回原文件"
+    assert [r["offer_id"] for r in data] == ["111", "222", "222", "679836775118"], \
+        "旧 2 条 + 新 2 条应合并写回原文件"
+    assert data[-1]["type"] == "taobao", "淘宝结果行 type 标注必须保留"
     summary = json.loads(
         (out_dir / "batch_20260811_090000_summary.json").read_text(encoding="utf-8")
     )
-    assert summary["stats"]["success"] == 1, summary["stats"]
+    assert summary["stats"]["success"] == 2, summary["stats"]
 
 
 def test_main_resume_all_done_exits_zero():
