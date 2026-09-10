@@ -64,6 +64,13 @@ COPY_FILES = [
     # 无需伪造），反检测是对抗性代码——1688/Ozon 升级检测必须能快速调，
     # 且编译态改 3 行就要重编译 4 平台。明文跨平台一致。
     "scripts/capabilities/browser_probe/stealth.py",
+    # ⚠️ 跨平台货源 v1 批2（cloud_probe 同款先例）：平台适配器改动频繁
+    # （反爬对抗面）且含长 JS（页内 mtop fetch 注入），明文跨平台一致。
+    "scripts/lib/source_platforms.py",   # 四平台 URL 解析（纯函数唯一入口）
+    "scripts/lib/taobao_client.py",      # 淘宝/天猫 mtop 适配器（批3 pdd 同款）
+    # ⚠️ 跨平台货源 v1 批3（taobao_client 同款先例）：拼多多适配器——反爬
+    # 迭代频繁 + 页内 rawData/render-sku 长 JS 注入，明文跨平台一致。
+    "scripts/lib/pdd_client.py",         # 拼多多 rawData 适配器（批3）
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）

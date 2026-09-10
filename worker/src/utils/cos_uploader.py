@@ -18,6 +18,7 @@ import os
 from typing import List, Optional
 
 from utils import image_url_guard
+from utils.image_url_processor import _referer_for_url
 
 logger = logging.getLogger(__name__)
 
@@ -138,8 +139,15 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
             logger.warning("E1 跳过非合格商品图（非alicdn原图或缩略/竞品图）: %s", url)
             continue
         try:
-            resp = requests.get(url.strip(), timeout=15,
-                                headers={"User-Agent": "Mozilla/5.0"})
+            # 批5 gate 前置（A4，跨平台货源 v1）：Referer 按图床域分派
+            # （同 draft_image_mirror._mirror_one）——pdd 系热链 403 防护；
+            # alicdn/1688 派 detail.1688.com（不校验指向，行为兼容）；
+            # 无规则命中仅裸 UA（行为同今日）。
+            headers = {"User-Agent": "Mozilla/5.0"}
+            referer = _referer_for_url(url.strip())
+            if referer:
+                headers["Referer"] = referer
+            resp = requests.get(url.strip(), timeout=15, headers=headers)
             if resp.status_code != 200 or not resp.content:
                 logger.warning("E1 原始图下载失败(HTTP %s): %s", resp.status_code, url)
                 continue

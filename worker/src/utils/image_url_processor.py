@@ -29,15 +29,37 @@ def _is_1688_url(url: str) -> bool:
     ])
 
 
+# 跨平台货源扩展 v1（feat/cross-platform-sourcing 批1）：Referer 按图床域分派。
+# pdd 图床有热链校验（无 Referer 可能 403），淘宝系 taobaocdn 同理；天猫/淘宝
+# 主图床实为 img.alicdn.com——保持现状派 detail.1688.com（alicdn 不校验 Referer
+# 指向，1688 行为逐字节不变、不重派）。无规则命中 → None（不加头，行为同今日）。
+_REFERER_TAOBAO = "https://item.taobao.com/"
+_REFERER_PDD = "https://mobile.yangkeduo.com/"
+
+
+def _referer_for_url(url) -> Optional[str]:
+    """按图床域分派防盗链 Referer；无规则命中 → None。"""
+    if not isinstance(url, str):
+        return None
+    if _is_1688_url(url):
+        return "https://detail.1688.com/"
+    if "taobaocdn.com" in url:
+        return _REFERER_TAOBAO
+    if any(domain in url for domain in ["pddpic.com", "yangkeduo.com", "pinduoduo.com"]):
+        return _REFERER_PDD
+    return None
+
+
 # S3 存储已移除 — 图片直接从 MXOU API 返回 URL，无需重新上传
 
 
 def _download_image(url: str, timeout: int = 30) -> Optional[bytes]:
-    """下载图片，对1688 CDN自动添加Referer头"""
+    """下载图片，按图床域自动补 Referer 防盗链头（1688/淘宝系/pdd 热链校验）"""
     try:
         headers = {}
-        if _is_1688_url(url):
-            headers["Referer"] = "https://detail.1688.com/"
+        referer = _referer_for_url(url)
+        if referer:
+            headers["Referer"] = referer
             headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
         resp = requests.get(url, headers=headers, timeout=timeout)

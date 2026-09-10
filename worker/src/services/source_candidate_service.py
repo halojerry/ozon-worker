@@ -42,9 +42,25 @@ def _num(v) -> Optional[float]:
 
 
 def _offer_id_from_url(url: str) -> str:
-    """从 1688 detail URL 提取 offer_id(detail.1688.com/offer/123.html)。"""
-    m = re.search(r"/offer/(\d+)", url or "")
-    return m.group(1) if m else ""
+    """从货源 URL 提取 offer_id;未知形态返回 "",调用方回退整条 URL 作唯一键(现状)。
+
+    跨平台货源扩展 v1(批1)三族模式:
+    - 1688:   detail.1688.com/offer/123.html
+    - 淘宝/天猫: item.taobao.com|detail.tmall.com/item.htm?id=123
+    - 拼多多:  mobile.yangkeduo.com/goods.html?goods_id=123
+    新族锚定 [?&] 边界防误吃 aid=/skuId= 等形近参数;只解析确定形态,宁缺毋滥。
+    """
+    u = url or ""
+    m = re.search(r"/offer/(\d+)", u)
+    if m:
+        return m.group(1)
+    m = re.search(r"[?&]id=(\d+)", u)
+    if m:
+        return m.group(1)
+    m = re.search(r"[?&]goods_id=(\d+)", u)
+    if m:
+        return m.group(1)
+    return ""
 
 
 def upsert_source_candidates(

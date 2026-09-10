@@ -21,6 +21,7 @@ from sqlalchemy import text
 
 from storage.database.db import get_engine
 from utils.cos_uploader import cos_enabled, cos_upload_bytes, is_cos_url as _is_cos_url
+from utils.image_url_processor import _referer_for_url
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,15 @@ def _mirror_one(url: str, prefix: str = "draft-images") -> Optional[str]:
     if not url.startswith(("http://", "https://")):
         return None
     try:
-        resp = requests.get(url.strip(), timeout=DOWNLOAD_TIMEOUT,
-                            headers={"User-Agent": "Mozilla/5.0"})
+        # 批5 gate 前置（A4，跨平台货源 v1）：Referer 按图床域分派——
+        # alicdn/1688 派 detail.1688.com（alicdn 不校验指向，行为兼容）、
+        # taobaocdn → item.taobao.com、pdd 系 → mobile.yangkeduo.com；
+        # 无规则命中仅裸 UA（行为同今日）。
+        headers = {"User-Agent": "Mozilla/5.0"}
+        referer = _referer_for_url(url.strip())
+        if referer:
+            headers["Referer"] = referer
+        resp = requests.get(url.strip(), timeout=DOWNLOAD_TIMEOUT, headers=headers)
         if resp.status_code != 200 or not resp.content:
             logger.warning("草稿图下载失败(HTTP %s): %s", resp.status_code, url[:120])
             return None
