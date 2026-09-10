@@ -42,8 +42,11 @@ ENV_SAME_MIN = "CROSS_SOURCE_SAME_MIN"
 ENV_SWITCH_RATIO = "CROSS_SOURCE_SWITCH_RATIO"
 
 
-def _env_positive_float(name: str, default: float) -> float:
-    """env 阈值读取：空/非数值/≤0 一律回退默认（配置损坏不得改变护栏行为）。"""
+def _env_positive_float(name: str, default: float, *, maximum: float = 1.0) -> float:
+    """env 阈值读取：空/非数值/≤0 回退默认；超上限 clamp 到 ``maximum``
+    （Fix Round 1 Minor #2——ratio >1.0 会「换更贵的也换源」、same_min >1.0
+    无意义：分数上限就是 1.0。可接受域 (0, maximum]，配置损坏不得放大风险）。
+    """
     raw = str(os.environ.get(name, "") or "").strip()
     if not raw:
         return default
@@ -51,7 +54,7 @@ def _env_positive_float(name: str, default: float) -> float:
         value = float(raw)
     except ValueError:
         return default
-    return value if value > 0 else default
+    return min(value, maximum) if value > 0 else default
 
 
 # ────────────────────────── 规格词归一（窄正则，剥出式）──────────────────────────
@@ -121,10 +124,35 @@ def _tokens_and_specs(text: str) -> tuple[set[str], set[str]]:
 # ────────────────────────── confirm_same_product ──────────────────────────
 
 # 规格权重：候选声明了规格时，final = base × (0.65 + 0.35 × 规格命中率)——
-# 规格全不符压到 0.65 倍（材质错 = 错款：316 vs 304 这类纯牌号差异会掉到阈值
-# 下方，宁保 1688）；候选未声明规格 → 中性 1.0（绝不因「没写」惩罚）。
+# 规格全不符压到 0.65 倍；候选未声明规格 → 中性 1.0（绝不因「没写」惩罚）。
+# ⚠️ 乘法惩罚只是一档——Fix Round 1（2026-09-10 review Important #1）实证：
+# 真实标题整段重叠（「不锈钢保温杯500ml」）会把 base 抬到 ≥0.69，0.65×base
+# 压不住，「316不锈钢保温杯500ml」vs「304…同文」曾 0.7071 过阈。所以**同类型
+# 规格矛盾一票否决**（见 SPEC_CONTRADICTION_CAP）——乘法只兜「缺声明」场景。
 _SPEC_FACTOR_BASE = 0.65
 _SPEC_FACTOR_SPAN = 0.35
+
+# 同类型规格矛盾封顶（fix round 1 Important #1）：牌号↔牌号 / 容量↔容量 /
+# 型号↔型号 **双方都显式声明**且无交集 → 一票否决封顶 0.30（深掉阈下，不是乘
+# 0.65——同款确认是换源安全底线，错换款的代价高于少换款）。矛盾判定复用上方
+# 三个规格提取器（归一已处理 316l/毫升↔ml——不归一的不算矛盾），绝不另造一套；
+# 不要用调 SAME_PRODUCT_MIN 修这类错配（治标且伤真同款）。
+SPEC_CONTRADICTION_CAP = 0.30
+
+_SPEC_TYPE_PREFIXES = ("vol:", "grade:", "model:")
+
+
+def _has_same_type_contradiction(a_specs: set[str], b_specs: set[str]) -> bool:
+    """双方对同一类型规格都显式声明且无交集 → 矛盾（316 vs 304、500ml vs 1500ml）。
+
+    候选声明多个值（「304/316」）时 offer 命中其一即不算矛盾（不误伤宽声明）。
+    """
+    for prefix in _SPEC_TYPE_PREFIXES:
+        a_t = {s for s in a_specs if s.startswith(prefix)}
+        b_t = {s for s in b_specs if s.startswith(prefix)}
+        if a_t and b_t and not (a_t & b_t):
+            return True
+    return False
 
 
 def confirm_same_product(candidate_title_zh: str, offer_title: str | None) -> float:
@@ -133,7 +161,10 @@ def confirm_same_product(candidate_title_zh: str, offer_title: str | None) -> fl
     - 任一标题空/None → 0.0（无证据 ≠ 同款）；
     - base = |词元交集| / min(|a|,|b|)（verify_1688_match 口径，cap 1.0）——词元含
       归一规格词，规格一致直接抬 base；
-    - 候选声明了规格时按规格命中率加权（材质/容量不符显著压分，见上方常量注释）。
+    - 候选声明了规格时按规格命中率加权（offer 缺声明 → ×0.65 保守压分）；
+    - **同类型规格矛盾一票否决**：双方都声明且无交集（316 vs 304 / 500ml vs
+      1500ml）→ 封顶 ``SPEC_CONTRADICTION_CAP``(0.30)——base 被整段重叠抬高时
+      乘法惩罚压不住（fix round 1 实证 0.7071 过阈），矛盾必须有否决力。
     """
     offer = str(offer_title or "").strip()
     if not offer or not str(candidate_title_zh or "").strip():
@@ -148,6 +179,8 @@ def confirm_same_product(candidate_title_zh: str, offer_title: str | None) -> fl
     if a_specs:
         spec_ratio = len(a_specs & b_specs) / len(a_specs)
         base *= _SPEC_FACTOR_BASE + _SPEC_FACTOR_SPAN * spec_ratio
+    if _has_same_type_contradiction(a_specs, b_specs):
+        base = min(base, SPEC_CONTRADICTION_CAP)
     return round(max(0.0, min(1.0, base)), 4)
 
 
@@ -248,6 +281,10 @@ def pick_best_source(offers_by_platform: dict[str, list[SourceOffer]],
                      "不执行换源比较")
     if not platform_bests:
         if confirm_scores:
+            if not str(candidate_title or "").strip():
+                # Fix Round 1（Minor #1）：与「没过同款确认」区分——批4 gate 调试
+                # 要分得清是没参照还是没过闸。
+                return _keep("1688 保持：无参照标题（candidate_title 为空），恒保 1688")
             return _keep(f"1688 保持：无候选过同款确认（阈值 {same_min:.2f}）")
         return _keep("1688 保持：无跨平台候选")
 

@@ -49,9 +49,9 @@ class TestConfirmSameProduct:
         assert sm.confirm_same_product("", "保温杯500ml") == 0.0
 
     def test_same_product_different_wording_above_threshold(self):
-        # 304 vs 316 材质不同会压分，但容量 500ml=500毫升 归一命中 + 「保温杯」
-        # 核心词重叠 → 高于 SAME_PRODUCT_MIN（同款确认过闸）。
-        score = sm.confirm_same_product("304不锈钢保温杯500ml", "500毫升316保温杯")
+        # 同规格（304+500ml）异措辞：「500毫升」归一 = 「500ml」，核心词重叠
+        # → 高于 SAME_PRODUCT_MIN（同款确认过闸）；带尾缀不至满分。
+        score = sm.confirm_same_product("304不锈钢保温杯500ml", "500毫升304保温杯带茶滤")
         assert score >= sm.SAME_PRODUCT_MIN
         assert score < 1.0
 
@@ -59,15 +59,40 @@ class TestConfirmSameProduct:
         score = sm.confirm_same_product("304不锈钢保温杯500ml", "苹果手机壳透明防摔")
         assert score < sm.SAME_PRODUCT_MIN
 
+    # ── Fix Round 1（Important #1）：同类型规格矛盾一票否决 ──
+    # 真实标题场景：base 被「不锈钢保温杯500ml」整段重叠抬高后，×0.65 乘法
+    # 惩罚压不住（fix 前实测 0.7071 过阈）——牌号/容量双方都显式声明且不同 →
+    # 直接封顶 ≤0.30（深掉阈下），不是调 SAME_PRODUCT_MIN 治标。
+
+    def test_real_title_grade_mismatch_vetoed(self):
+        score = sm.confirm_same_product("316不锈钢保温杯500ml", "304不锈钢保温杯500ml")
+        assert score <= 0.30
+
+    def test_real_title_grade_and_volume_double_mismatch_vetoed(self):
+        score = sm.confirm_same_product("304不锈钢保温杯1500ml", "316不锈钢保温杯500ml")
+        assert score <= 0.30
+
+    def test_real_title_volume_mismatch_vetoed(self):
+        score = sm.confirm_same_product("保温杯500ml大容量", "保温杯1500ml大容量")
+        assert score <= 0.30
+
+    def test_same_spec_no_false_veto(self):
+        # 归一等价（500ml=500毫升）与「offer 牌号命中候选多个声明之一」不得误伤。
+        assert sm.confirm_same_product(
+            "316保温杯500ml", "500毫升316不锈钢杯") >= sm.SAME_PRODUCT_MIN
+        assert sm.confirm_same_product(
+            "304/316不锈钢保温杯500ml", "316不锈钢保温杯500ml") >= sm.SAME_PRODUCT_MIN
+
     def test_volume_mismatch_lowers_score(self):
         same = sm.confirm_same_product("保温杯500ml", "保温杯500ml大容量")
         diff = sm.confirm_same_product("保温杯500ml", "保温杯1500ml大容量")
-        assert diff < same  # 容量不符压分（未必拦下，但必须降分）
+        assert diff < same  # 容量不符压分（Fix Round 1 起为矛盾一票否决）
 
     def test_material_grade_mismatch_lowers_below_threshold(self):
-        # 材质牌号是硬规格：316 vs 304 无其他强信号时应低于换源同款线
-        # （错换材质同款是静默模式最贵错误——宁保 1688）。
+        # 材质牌号是硬规格：316 vs 304 无其他强信号时深掉阈下（Fix Round 1 起
+        # 为矛盾封顶 0.30，不再依赖乘法惩罚在退化标题上的假安全感）。
         score = sm.confirm_same_product("316保温杯", "304保温杯")
+        assert score <= 0.30
         assert score < sm.SAME_PRODUCT_MIN
 
     def test_material_grade_match_helps(self):
@@ -79,6 +104,16 @@ class TestConfirmSameProduct:
         same = sm.confirm_same_product("保温杯型号A500", "保温杯型号A500官方")
         diff = sm.confirm_same_product("保温杯型号A500", "保温杯型号B700官方")
         assert diff < same
+
+    # ── Fix Round 1（Minor #3）：spec 加权方向不对称固化（防无意翻转）──
+
+    def test_spec_penalty_is_candidate_side_only(self):
+        # 候选声明规格、offer 缺失 → 压分（证据不足按保守口径 ×0.65）；反向
+        # （候选没写、offer 声明）→ 中性不罚。数值钉死防实现翻转。
+        cand_declares = sm.confirm_same_product("保温杯500ml", "保温杯带茶滤")
+        offer_declares = sm.confirm_same_product("保温杯", "保温杯500ml大容量")
+        assert cand_declares == pytest.approx(0.4333)
+        assert offer_declares == pytest.approx(1.0)
 
     def test_score_bounded(self):
         for offer in ("", "杯", "500ml", " completely unrelated text"):
@@ -102,8 +137,8 @@ def _offer(platform, title, price=None, freight=None, sold=None, url=""):
 class TestPickBestSource:
     def test_switch_when_significantly_cheaper(self):
         offers = {
-            "taobao": [_offer("taobao", "500毫升316保温杯", 15.0, 0.0, 2300)],
-            "pdd": [_offer("pdd", "500毫升316保温杯", 9.9, None, 500)],
+            "taobao": [_offer("taobao", "500毫升304保温杯", 15.0, 0.0, 2300)],
+            "pdd": [_offer("pdd", "500毫升304保温杯", 9.9, None, 500)],
         }
         d = sm.pick_best_source(offers, 18.5, BASE)
         assert d.switched is True
@@ -207,13 +242,22 @@ class TestPickBestSource:
         assert d.switch_ratio == pytest.approx(sm.SWITCH_MIN_RATIO)
 
     def test_platform_bests_carries_confirm_score(self):
-        offers = {"pdd": [_offer("pdd", "500毫升316保温杯", 9.9, None, 500)]}
+        offers = {"pdd": [_offer("pdd", "500毫升304保温杯", 9.9, None, 500)]}
         d = sm.pick_best_source(offers, 18.5, BASE)
         best = d.platform_bests["pdd"]
         assert 0.0 <= best.confirm_score <= 1.0
         assert best.confirm_score >= d.same_min
         # 全量确认分快照（按 url 键）覆盖该 offer
         assert best.offer.url in d.confirm_scores
+
+    def test_no_candidate_title_reason_distinguishable(self):
+        # Fix Round 1（Minor #1）：candidate_title 空 = 无从确认 → 专门文案
+        # （批4 gate 调试要分得清「没参照」vs「没过确认」）。
+        offers = {"taobao": [_offer("taobao", "任意标题", 9.9, 0.0, 10)]}
+        d = sm.pick_best_source(offers, 18.5)  # candidate_title 默认空
+        assert d.switched is False
+        assert d.winner is None
+        assert "无参照标题" in d.reason
 
 
 # ──────────────────── extract_search_keyword ────────────────────
@@ -259,7 +303,8 @@ class TestExtractSearchKeyword:
 
 class TestEnvOverrides:
     def test_same_min_env_raises_bar(self, monkeypatch):
-        offers = {"taobao": [_offer("taobao", "500毫升316保温杯", 9.9, 0.0, 100)]}
+        # offer 取「同规格带尾缀」变体（confirm≈0.57，落在默认阈上/0.99 阈下）
+        offers = {"taobao": [_offer("taobao", "500毫升304保温杯带茶滤", 9.9, 0.0, 100)]}
         d0 = sm.pick_best_source(offers, 18.5, BASE)
         assert "taobao" in d0.platform_bests  # 默认阈值下过确认
         monkeypatch.setenv("CROSS_SOURCE_SAME_MIN", "0.99")
@@ -269,7 +314,7 @@ class TestEnvOverrides:
 
     def test_switch_ratio_env_lowers_bar(self, monkeypatch):
         # 默认 0.90：便宜 ~5% 不换源
-        offers = {"taobao": [_offer("taobao", "500毫升316保温杯", 17.0, 0.0, 100)]}
+        offers = {"taobao": [_offer("taobao", "500毫升304保温杯", 17.0, 0.0, 100)]}
         d0 = sm.pick_best_source(offers, 18.5, BASE)
         assert d0.switched is False
         monkeypatch.setenv("CROSS_SOURCE_SWITCH_RATIO", "0.95")
@@ -283,3 +328,15 @@ class TestEnvOverrides:
         d = sm.pick_best_source({}, 18.5)
         assert d.same_min == pytest.approx(sm.SAME_PRODUCT_MIN)
         assert d.switch_ratio == pytest.approx(sm.SWITCH_MIN_RATIO)
+
+    def test_ratio_env_above_one_clamped(self, monkeypatch):
+        # Fix Round 1（Minor #2）：ratio > 1.0 会「换更贵的也换源」——clamp 到 1.0
+        monkeypatch.setenv("CROSS_SOURCE_SWITCH_RATIO", "1.5")
+        d = sm.pick_best_source({}, 18.5)
+        assert d.switch_ratio == pytest.approx(1.0)
+
+    def test_same_min_env_above_one_clamped(self, monkeypatch):
+        # same_min > 1.0 无意义（分数上限 1.0）——clamp 到 1.0
+        monkeypatch.setenv("CROSS_SOURCE_SAME_MIN", "2.5")
+        d = sm.pick_best_source({}, 18.5)
+        assert d.same_min == pytest.approx(1.0)
