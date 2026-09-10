@@ -9,8 +9,8 @@
    成功；彻底失败报 RuntimeError 且旧文件不破坏；
 ④ cli --export 后缀路由：.xlsx（大小写不敏感）→ export_to_xlsx，其余仍走 CSV。
 
-候选 fixture：data/discovery/discovery_20260909_180107.json（6 条真实候选，只读），
-是 asdict dict 列表——export 函数吃 ProductCandidate 对象，测试里构造对象。
+候选 fixture 用合成 6 条真实形状候选（asdict dict 同构，字段有值/零值/None 混排）——
+不读 data/discovery/ 本机工件（gitignore，Docker/CI 无此文件，2026-09-10 CI 修）。
 
 运行：
     cd skill && .venv314/bin/python -m pytest tests/test_discovery_export_xlsx.py -q
@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import csv
-import json
 import os
 import sys
 import zipfile
@@ -30,17 +29,43 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-# 真实形状候选 fixture（6 条真实候选的 dict list，只读）
-_FIXTURE = Path(__file__).resolve().parent.parent / "data" / "discovery" / "discovery_20260909_180107.json"
-
 _ZONE_TITLES = ["基础信息", "销售数据", "尺寸重量", "我的定价"]
 
 
 def _fixture_candidates():
-    """fixture dict → ProductCandidate 对象（过滤未知键，向前兼容）。"""
+    """合成 6 条真实形状候选（走真实 dict→ProductCandidate 过滤通道，向前兼容）。"""
     from scripts.lib.ozon_discovery import ProductCandidate
     valid = {f.name for f in dataclass_fields(ProductCandidate)}
-    raw = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+    raw = [
+        {"ozon_product_id": "1005570349", "ozon_title": "Катунь Serving Board",
+         "ozon_price": 953.0, "status": "profitable",
+         "ozon_url": "https://www.ozon.ru/product/1005570349",
+         "ozon_images": ["https://ir-20.ozonstatic.cn/main.jpg"],
+         "match_1688_url": "https://detail.1688.com/offer/1043458962058.html",
+         "match_1688_title": "卡吞餐盘", "match_1688_price": 18.5,
+         "match_1688_category_name": "餐具", "session_count": 0,
+         "days_in_promo": 12, "profit_margin": 22.5, "weight_g": 640},
+        {"ozon_product_id": "1622910561", "ozon_title": "Термос для воды 1л",
+         "ozon_price": 1580.0, "status": "profitable",
+         "match_1688_price": 32.0, "session_count": 3,
+         "profit_margin": 18.2, "weight_g": 480, "days_in_promo": 0},
+        {"ozon_product_id": "881234501", "ozon_title": "Коврик для мыши",
+         "ozon_price": 420.0, "status": "watch",
+         "match_1688_price": 6.8, "session_count": 55,
+         "profit_margin": 4.1, "weight_g": 120, "days_in_promo": 45},
+        {"ozon_product_id": "9017753210", "ozon_title": "Органайзер для косметики",
+         "ozon_price": 736.0, "status": "profitable",
+         "match_1688_price": 12.4, "session_count": 12,
+         "profit_margin": 31.7, "weight_g": 260, "days_in_promo": 7},
+        {"ozon_product_id": "7021133445", "ozon_title": "Набор чашек керамика",
+         "ozon_price": 1890.0, "status": "skip",
+         "match_1688_price": 58.0, "session_count": 210,
+         "profit_margin": -2.3, "weight_g": 1500, "days_in_promo": 30},
+        {"ozon_product_id": "5590123478", "ozon_title": "Подставка для телефона",
+         "ozon_price": 310.0, "status": "watch",
+         "match_1688_price": 4.2, "session_count": 8,
+         "profit_margin": 12.9, "weight_g": 90, "days_in_promo": 0},
+    ]
     return [ProductCandidate(**{k: v for k, v in d.items() if k in valid}) for d in raw]
 
 
