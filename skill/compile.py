@@ -75,6 +75,10 @@ COPY_FILES = [
     # 2026-09-10）：关键词搜索通道含页内长 JS（渲染等待 + DOM/正则解析注入）
     # 且反爬对抗面改动频繁，明文跨平台一致 + 可快速迭代。
     "scripts/lib/cross_source_search.py",  # 淘宝/拼多多关键词搜索（SourceOffer）
+    # ⚠️ discover 跨平台静默货源匹配 v1 批2（2026-09-10，cross_source_search
+    # 同链路）：同款确认/选优/关键词提取纯函数——阈值与评分口径会随批4 实机
+    # gate 快速调（env 常量+词表都在这），明文跨平台一致 + 可快速迭代。
+    "scripts/lib/source_matcher.py",     # 同款确认与跨平台选优（Decision）
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）
