@@ -68,6 +68,9 @@ COPY_FILES = [
     # （反爬对抗面）且含长 JS（页内 mtop fetch 注入），明文跨平台一致。
     "scripts/lib/source_platforms.py",   # 四平台 URL 解析（纯函数唯一入口）
     "scripts/lib/taobao_client.py",      # 淘宝/天猫 mtop 适配器（批3 pdd 同款）
+    # ⚠️ 跨平台货源 v1 批3（taobao_client 同款先例）：拼多多适配器——反爬
+    # 迭代频繁 + 页内 rawData/render-sku 长 JS 注入，明文跨平台一致。
+    "scripts/lib/pdd_client.py",         # 拼多多 rawData 适配器（批3）
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）
