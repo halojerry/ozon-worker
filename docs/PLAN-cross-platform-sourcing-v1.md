@@ -175,10 +175,22 @@ R4 退化为无源词搜索兜底——可接受）。
   分发层三平台全部实证走对适配器。
 - **学习表零写入验收**：category_mapping 今日新增 0 行（本地 PG 5433 实查）。
 
-**B. 待人工补齐（非代码缺口）**
-- 淘宝/天猫数据面 gate：工具 Chrome 登录淘宝后，用**真实在售商品 URL** 重跑 `graph --url … --to-box`。
-- 拼多多数据面 gate：工具 Chrome 扫码登录拼多多 + 真实 goods_id。
-- 直提测试店全链路（completed 需真 approved）四平台轮转：待登录态补齐后执行。
+**B. 数据面 gate（2026-09-10 同日补齐，用户扫码登录后全过）**
+- 工具 Chrome 扫码登录淘宝 + 拼多多；真实在售 URL 经搜索页实采（保温杯品类）：
+  - **淘宝 gate ✓**：膳魔师保温杯 JOS5（item.htm?id=739479637140）→ mtop `ret=SUCCESS` → 入箱
+    draft 9871ae93：5 图 / cost ¥185 / platform=taobao / cid 零痕迹；
+  - **天猫 gate ✓**：蕉下双舱变温杯（detail.tmall.com?id=1000361940376）→ 入箱 draft da604af3：
+    5 图 / cost ¥199 / platform=tmall / cid 零痕迹；
+  - **拼多多 gate ✓**：蒙蒂尼葫芦保温杯（goods_id=988476158187）→ window.rawData 实取 → 入箱
+    draft 7b91c1bc：5 图 / cost ¥49.9 / platform=pdd / cid 零痕迹；
+  - 死品防御实证：夹具假 id 679836775118 → mtop SUCCESS 但 body 无标题 → `TaobaoFetchError`
+    「拒绝编造」（响亮出声，不产生半成品信封）。
+- 学习表零写入终检：category_mapping 今日新增 0（三单入箱后复核）。
+- 直提测试店 approved 轮转：未跑（--to-box 口径已覆盖信封/入箱/镜像链；直提为既有 1688 链路
+  回归，行为零改动，留待下批发真实上架时顺带）。
+- **观察项**：新平台重量缺失时落入与 1688 相同的 50g 软兜底（cloud_probe.py:1268 既有机制，
+  非本批引入）——膳魔师实重约 300g vs 信封 50g，运费/利润带会偏；既有问题，与 1688 缺重量
+  单一致，后续批次可议提高缺省或强化 estimated 标记透出。
 
 **C. 批5 台账（review 遗留，实机观察项）**
 - 引流/定制 SKU 过滤（`_filter_bait_and_custom_skus`）未接平台路径——中位选价对引流稳健，实机如遇一行接线；
