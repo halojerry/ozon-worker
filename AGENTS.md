@@ -6,7 +6,7 @@
 
 **是什么**：两段式 Ozon 上架系统。`skill/`（客户本地，CDP 抓 1688/Ozon → 组装 GraphInput 信封，**不上架**）→
 `worker/`（云端 Docker，FastAPI + LangGraph：类目→定价→属性→生图→校验→上传→自学习）。周边：`pounding-mcp/`
-（dsh agent 的 25 个 MCP 工具，薄封装）、`webui/`（React，**bun** 生态，产物 bind mount 进 worker 同进程 `/app`）、
+（dsh agent 的 29 个 MCP 工具，薄封装）、`webui/`（React，**bun** 生态，产物 bind mount 进 worker 同进程 `/app`）、
 `pounding-sidebar/`（dsh 插件）、`docs/refs/ozon-mcp/`（Ozon API 参考库，只读）。pounding-harness 是独立仓库，只做消费方。
 
 **命令（均已实测）**
@@ -32,13 +32,14 @@
 **纪律**
 - 功能测试只打本地 Docker，**禁止用生产 `worker.mxou.cn`**；本地 Supabase 未配置 = auth fail-open，验证鉴权用空 token。
 - Commit `<type>(<scope>): 中文描述`；工作树常有其他会话的 WIP，**逐文件 `git add`，不用 `-a`/stash**；动手改文件前先看 `git status` + 相关文件 mtime——多会话并行实施同一方案时会撞车（2026-09-09 实录：策略模块被两会话重复实现）。
-- 发版：VERSION 四源一致（根 `VERSION`/`skill/VERSION`/`deploy/skill/VERSION`/`SKILL.md` frontmatter）+ CHANGELOG + 本文顶部块 + 实机 ≥3 单 gate。
+- **多会话协作（2026-09-09 起，规范 `docs/WORKFLOW.md`）**：非平凡任务**一会话一分支一 worktree**（开工即 `git worktree add ../ozon-worker-<topic> -b <type>/<topic> origin/dev`，主 worktree 只做 Tier B 小改/发版/review）；分支拓扑 main=发布线（**tag 只打 main**）/dev=集成线/`<type>/<topic>`=工作流分支（合后即删）；两级门槛——Tier A（跨子系统/新 API/新表/发版/>3 文件）必须分支+PR（CI 绿才合，self-merge 合法，merge commit 保留流边界），Tier B（≤3 文件 docs/单点 fix）直提 dev 但**当日 push**。
+- 发版：VERSION 四源一致（根 `VERSION`/`skill/VERSION`/`deploy/skill/VERSION`/`SKILL.md` frontmatter）+ CHANGELOG + 本文顶部块 + 实机 ≥3 单 gate；发版动作 = dev→main PR 合入后**在 main 上打 tag**（cd.yml 按 tag `v*` 触发不分分支，历史 tag ≤v0.72.0 留在 dev 历史不动）。
 - 写 Ozon API 调用前先用本机 MCP `mcp__ozon__search_methods`/`describe_method` 核对契约（零凭证只读），禁手 grep swagger。
 - `worker/config/*.json` bind mount 热加载，改 prompt 无需重建镜像。
 
 **先读什么**：集成/端点 → `docs/API-OVERVIEW.md` + `docs/API-REFERENCE.md`；节点流/错误映射 → `docs/WORKER-TOPOLOGY.md`；
 MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬约束见下方「Agent 使用 Skill 时的硬约束」）；
-建表/改列 → `docs/DB-SCHEMA-AUDIT.md`；部署 → `docs/DEPLOY.md`。
+建表/改列 → `docs/DB-SCHEMA-AUDIT.md`；部署 → `docs/DEPLOY.md`；多会话协作/分支拓扑/发版流 → `docs/WORKFLOW.md`。
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。
 
@@ -76,6 +77,12 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **C 店铺会话代管（bindShopCookie 对标，安全口径更严）**：`ozon_sessions` 表（AES-256-GCM，aad=`tenant:credential`，复用 CREDENTIAL_MASTER_KEY；**cookie 明文绝不落日志/响应/报告**，GET 只回名单+状态）+ `POST/GET/DELETE /credentials/{id}/session` 三端点 + skill `session-sync`（CDP 收割 seller cookie，无 sc_company_id 拒传 exit 2）+ `GET /api/v1/analytics/what-to-sell` 直调。
 - **⚠️ 实机测验架构结论**：`__Secure-access_token` 为**分钟级寿命/用后轮换型**——被动收割的静态 cookie 快照活不过一次消费（新鲜收割立即调用也 401），**服务端常驻 cookie 直调不可持续**。三候选待拍板：①worker 存 refresh_token 续期；②「同步后秒级消费」按需模式（已实证可行）；③直调数据面留在 skill 浏览器上下文（jar 永活，上品帮同款）。**发版实机 gate 新增：session-sync→what-to-sell 真实闭环一条**。
 - **实机测验修出的两坑（改会话/直调代码前必读）**：①裸 SQL 绑 JSONB 列必须 `json.dumps`——Python list 被 psycopg2 适配成 `text[]`（mock 测试只锁 SQL 文本测不出，须真 PG 集成用例）；②seller nginx 机器人回环 307→同路径`?__rr=1` 且 **Set-Cookie 下发 nonce**，必须 Session cookie jar + 跟随重定向（手动重放无限 307），判废只看终态（401/403/落到 login URL）。
+
+## 最近更新（2026-09-09 — 仓库协作规范 v1：main 重建为发布线 + 一会话一分支一 worktree + 两级合并门槛）
+
+> 规范正文 `docs/WORKFLOW.md`，取证动因与 12 流历史索引 `docs/GIT-STREAM-INDEX.md`。
+> **已执行**：dev 78 滞留提交 push 清零；main 自 dev FF 重建至 3d2836b0（发布线，此后 tag 只打 main）；
+> 19 僵尸分支全清（仓库收敛 dev+main 双分支）。两级门槛摘要见上方「纪律」节。
 
 ## 最近更新（v0.73.0 — 用户反馈 6+1 问题修复：租户漂移 + 错配拦截 + 类目桥接 + 体积重量兜底）
 
@@ -664,9 +671,9 @@ ozon-worker/
 │   ├── deploy.sh               # 一键部署（含自动初始化数据）
 │   ├── update.sh               # 一键更新
 │   └── .env.example            # 环境变量模板
-├── pounding-mcp/               # dsh Agent 调用入口：25 个 MCP 工具（20 CLI 封装 + 5 worker HTTP 直调；FastMCP 薄封装）
+├── pounding-mcp/               # dsh Agent 调用入口：29 个 MCP 工具（20 CLI 封装 + 5 worker HTTP 直调 + 4 job_* 后台监控；FastMCP 薄封装）
 │   ├── pounding_mcp/router.py  # Q3 对话入口意图路由层（URL 正则 + 九类意图词表 → pipeline A-F）
-│   ├── pounding_mcp/server.py  # FastMCP 工厂 + 25 工具（20 个参数映射 → subprocess 调 skill CLI，5 个直调 worker REST）
+│   ├── pounding_mcp/server.py  # FastMCP 工厂 + 29 工具（20 个参数映射 → subprocess 调 skill CLI，5 个直调 worker REST，4 个 job_* 后台监控）
 │   └── README.md               # 挂载/独立 venv 说明（测试坑见下方）
 ├── pounding-sidebar/           # 客户端侧边栏插件（dsh-better-sidebar 消费插件）
 │   ├── src/client/index.tsx    # 7 业务板块 tab（采集箱/任务中心/专家/知识库/爆品新闻/计算器/用量）+ CSV viewer
@@ -823,7 +830,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 |---|---|---|---|
 | **skill** | 本仓库 `skill/` | agent 对话（经 pounding-mcp）+ 客户端面板 | 1688/Ozon CDP 抓取、以图搜款、信封组装。**不上架** |
 | **worker** | 本仓库 `worker/`（云端 Docker） | webui + 客户端面板 + pounder-mcp | 类目→定价→属性→生图→上传→自学习全流程 + REST API |
-| **pounding-mcp** | 本仓库 `pounding-mcp/` | 用户（agent 对话） | skill 19 命令包成 MCP 工具（`mcp__pounding__*`）+ 意图路由 `/ask`。**用户可见** |
+| **pounding-mcp** | 本仓库 `pounding-mcp/` | 用户（agent 对话） | skill 20 命令包成 MCP 工具（`mcp__pounding__*`，共 29 工具含 job_*）+ 意图路由 `/ask`。**用户可见** |
 | **pounding-harness** | 独立仓库 | 终端用户（桌面客户端） | Electron 客户端 + 本地网关 `:8766`（代理 skill-config / tasks→:8902 / worker REST）。界面含**部分** webui 功能 |
 | **webui** | 本仓库 `webui/`（云端） | 终端用户（浏览器直访 worker :8080） | 完整 ERP 后台。与 worker 同 docker-compose 部署 |
 | **ozon-mcp**（PCDCK/ozon-mcp） | 外部参考，不直接入库 | **仅我们内部开发** | 466 Ozon API 方法索引 + swagger + transport 层。**不暴露给用户** |
@@ -908,7 +915,7 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 
 > ⚠️ **worker 全量测试失败先查类目树（v0.59 实测）**：本地 PG 若 `category_tree_nodes` 空（未跑 init_data），learning_record_gate / skill_category_direct / attr_4958 / index_backfill 等测试会失败（`_mapping_valid` 走真实 PG 查树）。先导入：`cd worker && PGDATABASE_URL="postgresql://postgres:localdev123@localhost:5433/ozon" PYTHONPATH=src ../skill/.venv314/bin/python -c "from sqlalchemy import create_engine; from scripts.init_data import import_category_tree; import os; import_category_tree(create_engine(os.environ['PGDATABASE_URL']), language='ZH_HANS', tree_file='category_tree.json')"`。
 
-> ⚠️ **pounding-mcp 测试必须用自身 .venv（v0.60 实测）**：`server.py` import FastMCP（`pounding-mcp/pyproject.toml` 依赖），用 `../skill/.venv314` 跑 `pytest tests/` 会 collection error（`pounding_mcp` 未安装）。需 `cd pounding-mcp && python3 -m venv .venv && .venv/bin/pip install -e .` 后跑 `.venv/bin/python -m pytest tests/ -q`（22 passed：test_router 19 + test_smoke 3）。
+> ⚠️ **pounding-mcp 测试必须用自身 .venv（v0.60 实测）**：`server.py` import FastMCP（`pounding-mcp/pyproject.toml` 依赖），用 `../skill/.venv314` 跑 `pytest tests/` 会 collection error（`pounding_mcp` 未安装）。需 `cd pounding-mcp && python3 -m venv .venv && .venv/bin/pip install -e .` 后跑 `.venv/bin/python -m pytest tests/ -q`（26 passed：test_router 23 + test_smoke 3；smoke 锁 29 工具注册）。
 
 | 子项目 | 命令 |
 |---|---|
@@ -944,7 +951,7 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_discovery_runs_api.py tests/test_mappings_lookup_api.py tests/test_listing_template_store_overrides.py -q`（v0.56 W10/W11/W9 端点单测，mock 无需 PG） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_store_sync.py -q`（v0.56 店铺缓存 9 单测：租户隔离/upsert/archived/懒同步/调度器，需本地 PG） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_mxou_balance_precheck.py tests/test_learning_record_index_backfill.py -q`（v0.56 W12 余额复查 + W6 索引回填单测，mock 无需 PG） |
-| pounding-mcp | `cd pounding-mcp && .venv/bin/python -m pytest tests/ -q`（v0.60 对话入口：router 意图路由 19 + server 冒烟 3，须用自身 .venv——skill/.venv314 无 pounding_mcp 包） |
+| pounding-mcp | `cd pounding-mcp && .venv/bin/python -m pytest tests/ -q`（v0.60 对话入口：router 意图路由 23 + server 冒烟 3（29 工具注册断言），须用自身 .venv——skill/.venv314 无 pounding_mcp 包） |
 | skill | `python3.12 -m pytest tests/test_selection_rules.py tests/test_ai_preset.py -q`（v0.56 粗筛字段 + --rules ai 单测） |
 | skill | `python3.12 -m pytest tests/test_graph_envelope_competitor.py tests/test_discovery_report_hook.py -q`（v0.56 S1 信封竞品 + D12 上报单测） |
 | skill | `python3.12 -m pytest tests/test_discover_multi.py tests/test_discover_to_box.py tests/test_template_profile.py -q`（v0.56 discover-multi/to-box/模板单测） |
@@ -955,8 +962,8 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | 本地Docker | `cd deploy && docker compose up -d --build`（启动 Worker + PG） |
 | 本地Docker | `docker compose exec worker python scripts/init_data.py --force`（初始化数据） |
 | 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --limit 100`（预热 top-100 类目属性缓存） |
-| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --all --pg-only`（预热全部 7424 类目，~16h，可screen后台） |
-| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --export-only`（导出 JSON 到 assets/ 供 git 提交） |
+| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --all --pg-only`（预热全部类目，量级 ~16h，可screen后台；建议分片 `--offset` 每 1000 一段） |
+| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --export-from-pg`（从 PG 读缓存导出 JSON——秒级零 API 无需凭证；⚠️ `--export-only` 是旧「边拉边导」语义，预热后单独导出勿用） |
 | 本地Docker | `curl http://localhost:8080/api/v1/health`（健康检查） |
 | 本地Skill | `WORKER_URL=http://localhost:8080 python3.12 scripts/cli.py check`（指向本地 Worker） |
 | CI | `bash scripts/ci.sh`（lint → test → docker build） |
@@ -1076,7 +1083,7 @@ dictionary_value_id **跨语言通用**：ZH_HANS 的 `id=61571` 在 RU 下展�
 # 预热 top-200 类目（部署后自动跑）
 python scripts/warm_category_cache.py --limit 200
 
-# 预热全部 7424 类目（~16 小时，建议分片跑，每 1000 个一段）
+# 预热全部类目（~16 小时量级，建议分片跑，每 1000 个一段）
 python scripts/warm_category_cache.py --all --pg-only
 python scripts/warm_category_cache.py --all --offset 1000 --pg-only
 python scripts/warm_category_cache.py --all --offset 2000 --pg-only
@@ -1085,7 +1092,9 @@ python scripts/warm_category_cache.py --all --offset 2000 --pg-only
 python scripts/warm_category_cache.py --coverage
 python scripts/warm_category_cache.py --coverage --coverage-sample 20   # 随机抽 20 个缺失 (dc,tp)
 
-# 导出 JSON 到 assets/（⚠️ 当前产物未提交 git，仅供人工备份/手工导入）
+# 导出 JSON 到 assets/（⚠️ 产物未提交 git；W1-W8 批起用 --export-from-pg 从 PG 导出——
+# 秒级、零 API、无需凭证；下方 --export-only 保留但只是「边拉边导」旧语义，勿用于预热后单独导出）
+python scripts/warm_category_cache.py --export-from-pg
 python scripts/warm_category_cache.py --limit 500 --export-only
 
 # 从 JSON 导入到 PG（部署时 init_data.py 自动调用，JSON 缺失时静默跳过）
@@ -1148,7 +1157,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
      （discover 或 graph 管线，真实 1688/Ozon 链接），检查 category_match_log / listing_result_log /
      任务终态符合预期——mock 全绿≠能发版（v0.64~v0.68 连续 5 版未实机即发的教训）。
      wave 观察脚本见 `archive/docs/legacy/TEST-v067-wave-plan.md` 模式。
-  5. `git tag v{x.y.z} && git push origin v{x.y.z}`（触发 build-skill.yml 4 平台编译 + cd.yml 部署两条链路）
+  5. dev→main PR 合入后**在 main 上打 tag**（WORKFLOW.md v1 起 tag 只打 main；历史 tag ≤v0.72.0 留 dev）：`git tag v{x.y.z} && git push origin v{x.y.z}`（触发 build-skill.yml 4 平台编译 + cd.yml 部署两条链路）
   6. 确认 CD 两个 workflow 均 success（Docker 镜像 + Release + COS 部署包 + skill 二进制包）
   7. 服务器 `bash deploy/cos-update.sh` 升级 worker；skill 用户端 updater 自动更新
 - 发版前快速核对命令：
@@ -1161,7 +1170,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 ## 开发规范
 
 - Commit: `<type>(<scope>): <中文描述>`（如 `feat(worker): 结构化日志`）
-- 分支: `feat/`、`fix/`、`refactor/`、`docs/`、`hotfix/`
+- 分支: `feat/`、`fix/`、`refactor/`、`docs/`、`hotfix/`（一会话一分支一 worktree + 两级门槛详规见 `docs/WORKFLOW.md`）
 - Pre-commit: `git config core.hooksPath .githooks`（自动检查 .env + 密钥 + 语法）
 - 详见 **`docs/CONVENTIONS.md`**
 
@@ -1433,7 +1442,7 @@ GitHub Actions 自动检查每次 push/PR（`ci.yml`）：
 - **test-skill**: **Docker python:3.12-slim 容器跑 pytest**（v0.36 起——ubuntu 预装 Chrome 测不出无浏览器场景；cp312 ABI 与发布二进制一致）
 - **docker-build**: worker/Dockerfile 构建（gha 缓存）
 - **CD**（cd.yml）: `git tag v*` → Docker build → push ghcr.io → GitHub Release → COS 部署包（服务器 `cos-update.sh` 用）
-- **Skill 构建**（build-skill.yml）: `git tag v*` → 4 平台编译（darwin-arm64/x86_64/linux/win32）→ 合并 32 二进制 → 完整性校验 → frontmatter 校验 → 上传 COS
+- **Skill 构建**（build-skill.yml）: `git tag v*` → 4 平台编译（darwin-arm64/x86_64/linux/win32）→ 合并 56 二进制（4 平台 × 14 模块）→ 完整性校验 → frontmatter 校验 → 上传 COS
   （`/skill/<包>.tar.gz` + `/manifest.json`）→ 用户每次命令静默检查，`skill update`
   应用（sha256 校验 + 备份 + 保留 data/）。需配置 GitHub Secrets：
   `COS_SECRET_ID/COS_SECRET_KEY/COS_BUCKET/COS_REGION/COS_MANIFEST_BASE_URL`。
