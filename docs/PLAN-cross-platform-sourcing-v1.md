@@ -1,4 +1,16 @@
+---
+title: PLAN—货源平台扩展（淘宝/天猫+拼多多）
+purpose: 货源适配器/信封/worker 兼容层扩展（已合 dev，下一版随车）
+applies-version: ">=v0.74.0"
+last-updated: 2026-09-10
+owner: skill-cdp
+depends: [CONTRACT-v4]
+status: active
+---
+
 # PLAN-cross-platform-sourcing-v1 — 货源平台扩展：淘宝/天猫 + 拼多多（v1）
+
+> 状态: completed-dev（已合 dev，批 3 提交在 v0.74.0 之后 → 下一版随车）
 
 > 2026-09-10。用户指令：「货源方面新增淘宝和pdd」。基于四插件参考（goldminer v2.43 /
 > maozi 3.2.6 / ozonAI V2.3.3 / 上品帮逆向）+ 全仓 1688 耦合面调研（file:line 证据见

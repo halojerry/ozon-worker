@@ -1,9 +1,20 @@
+---
+title: PLAN—专家 tab 对话入口方案 v1
+purpose: sidebar 专家 tab → skill 能力入口意图路由方案（已随 v0.60.0 落地）
+applies-version: "v0.60.0"
+last-updated: 2026-08-21
+owner: mcp
+depends: []
+status: archived
+---
+
 # 专家 tab 对话入口方案 v1
 
+> 状态: shipped-with-v0.60.0
+> 状态更新: 2026-09-11 shipped-with-v0.60.0——原状态行与发版史矛盾（AGENTS v0.60 块 Q3 + CHANGELOG [0.60.0] 实证已随版发布：router.py/POST /ask 已落地），原句保留：~~方案文档，只写不实现~~
 > 日期: 2026-08-21
 > 范围: pounding-sidebar 专家 tab → 本地 skill 能力入口（Q3 答复）
 > 依据: 探索结论（pounding-sidebar / pounding-mcp / pounding-harness / skill / worker 交叉核实）+ 本仓库代码审计
-> 状态: 方案文档，只写不实现
 
 ---
 

@@ -1,4 +1,5 @@
-"""FastMCP 工厂 —— 注册 MCP 工具（v0.70：25 个既有 + 4 个后台 job_* 监控）。
+"""FastMCP 工厂 —— 注册 MCP 工具（v0.74 批：21 个 skill CLI 封装 + 5 个 worker REST 直调
++ 4 个后台 job_* 监控 = 30 个）。
 
 设计原则（见 docs/ozonharness/MCP-TOOLS.md）：
 - 薄封装：每个工具 = 参数映射 CLI flag + run_skill_command，业务逻辑留在 skill
@@ -10,14 +11,20 @@ graph）加 `background=true` → CLI 进程脱离会话独立运行（输出落
 task dict，agent 用 job_status/job_result 轮询；dsh 会话关闭任务照跑，重开会话
 job_list 找回。缺省 background=False 行为与旧版逐字一致。
 
+v0.74 会话代管（A6 P2 #6 / BL-13）：session_sync 封装 skill CLI session-sync，
+worker 409 session_expired 后对话内自愈；输出经脱敏层才返回（绝不回显 cookie 值）。
+
 工具在 dsh 中可见为 `mcp__pounding__<toolName>`（由 dsh-mcp-client 加前缀）。
 """
 
 from __future__ import annotations
 
+import re
+
 from fastmcp import FastMCP
 
 from .skill_runner import run_skill_command
+from .skill_runner import run_skill_command_capture
 from .tasks import get_manager
 from .worker_http import analyze_store as _analyze_store
 from .worker_http import run_store_action as _run_store_action
@@ -126,19 +133,22 @@ def follow(ozon_url: str, auto_submit: bool = False, to_box: bool = False,
 def discover(url: str = "", keyword: str = "", local: bool = False,
              max_products: int = 50, min_margin: float = 15.0,
              store: str = "", auto_submit: bool = False, to_box: bool = False,
+             note: str | None = None,
              fission: bool = False, max_depth: int = 2,
              rules: str = "", review: bool = False, notify: bool = False,
              export: str = "", output: str = "",
              background: bool = False, force: bool = False) -> dict:
     """Ozon 选品 v2（采集 → 分析 → 挑货）。只读；auto_submit/to_box/fission 触发 dsh 侧审批。
     export="csv|json|both" + output=路径 落盘全量+选中结果（后台跑完 CSV 可复核）。
+    note=采集箱备注（to_box=True 入箱时随草稿存储，≤2000 字；运营态，不进上架信封）。
     更多参数（fx_rate / min_price / max_price / brand_filter / blue-ocean 等）见 skill CLI discover --help。
     background=true 后台跑立即返回 task_id（分钟级任务必用，别阻塞对话）。"""
     return _run_or_background("discover",
         {"url": url, "keyword": keyword, "local": local,
          "max_products": max_products, "min_margin": min_margin, "store": store,
-         "auto_submit": auto_submit, "to_box": to_box, "fission": fission,
-         "max_depth": max_depth, "rules": rules, "review": review, "notify": notify,
+         "auto_submit": auto_submit, "to_box": to_box, "note": note,
+         "fission": fission, "max_depth": max_depth, "rules": rules,
+         "review": review, "notify": notify,
          "export": export, "output": output},
         background, force)
 
@@ -163,23 +173,29 @@ def discover_task(url: str = "", keyword: str = "", target_count: int = 50,
                   match_concurrency: int = 1, store: str = "",
                   to_box: bool = False, dry_run: bool = True,
                   resume: bool = False, max_scan: int = 300,
+                  expend_shop: int | None = None,
                   export: str = "", auto_submit: bool = False,
                   background: bool = False, force: bool = False) -> dict:
     """任务式全自动目标驱动选品（漏斗 v2，v0.70 语义翻转）：--max-scan 上限采集
     （默认 300，深滚动）→ ai 粗筛 → 自动 1688 匹配 → profitable 达到 target_count
     即停（达标数，护图搜配额；匹配池按达标可能性降序）。match_limit 缺省=目标×3。
+    expend_shop=N=拓店模式（v0.74）：url 须为 Ozon 商品页唯一种子，裂变展开竞品
+    卖家→店铺产品（N=期望产出规模，与 keyword 互斥；0/缺省=关闭）。
     双出口二选一（互斥）：to_box=True 入采集箱（POST /drafts，可逆，dsh 审批）；
     auto_submit=True 直接提交 Worker 上架（submit_task，真实创建商品，必须确认）。
     dry_run=True（默认）零副作用；export=CSV 路径落盘全量候选（含状态/利润率列）。
     resume 续跑同入口最近任务（跳过已处理 pid 不重烧图搜）；粗筛池耗尽仍未达标
     会如实报告缺口。结果尾部输出结构化 summary。
+    其余筛选参数（filters/filter_profile/min_price/max_price/brand_filter 等）见
+    skill CLI discover-task --help。
     background=true 后台跑立即返回 task_id——本命令分钟级，长任务必用。"""
     return _run_or_background("discover_task",
         {"url": url, "keyword": keyword, "target_count": target_count,
          "min_margin": min_margin, "match_limit": match_limit,
          "match_concurrency": match_concurrency, "store": store,
          "to_box": to_box, "auto_submit": auto_submit, "dry_run": dry_run,
-         "resume": resume, "max_scan": max_scan, "export": export},
+         "resume": resume, "max_scan": max_scan, "expend_shop": expend_shop,
+         "export": export},
         background, force)
 
 
@@ -209,16 +225,23 @@ def queries(type: str, keyword: str = "", sku: str = "", category_id: str = "",
 
 @mcp.tool()
 def graph(item_id: str = "", url: str = "", category_query: str = "",
+          category_id: int | None = None, type_id: int | None = None,
+          min_density: float | None = None,
           retries: int = 3, store: str = "", no_submit: bool = False,
           to_box: bool = False, ozon_ref_url: str = "",
           template_id: str = "", notify: bool = False,
           background: bool = False, force: bool = False) -> dict:
     """组装 GraphInput 信封并提交上架。默认直接提交（dsh 侧 pre-execute 审批）；
     no_submit=True 只组装；to_box=True 入采集箱。
+    category_id+type_id 同时提供=manual 权威类目直传（绕过自动匹配，v0.69 白名单
+    通道；类目 ID 用 category 工具查询）；min_density=g/cm³ 密度下限拦截（如 0.1，
+    缺省不拦截仅告警）。
     background=true 后台跑立即返回 task_id——CDP+图搜分钟级，长任务必用；
     完成后 job_status 的 worker_task_ids 可直接喂给 query 查云任务。"""
     return _run_or_background("graph",
         {"item_id": item_id, "url": url, "category_query": category_query,
+         "category_id": category_id, "type_id": type_id,
+         "min_density": min_density,
          "retries": retries, "store": store, "no_submit": no_submit,
          "to_box": to_box, "ozon_ref_url": ozon_ref_url,
          "template_id": template_id, "notify": notify},
@@ -377,6 +400,70 @@ def get_task_forensics(task_id: str) -> dict:
     仍无结论再按模板 report_issue（task_ids 自动附快照）。
     跨租户/不存在的任务返回 404。"""
     return _get_task_forensics(task_id)
+
+
+# ── 会话代管（v0.74 批次 C / A6 P2 #6 / BL-13：worker 409 session_expired 自愈）──
+# 红线：cookie 明文绝不进本工具返回值。CLI 自身已脱敏（只打 cookie 名单+状态+
+# harvested_at），本层再兜一道保守打码：key 带 cookie/token/session/auth/bearer
+# 字样的 k[:=]v 对值一律打码；≥48 连续密钥形态字符兜底打码——宁可误杀不可漏杀。
+
+_SECRET_KV_RE = re.compile(
+    r"(?i)\b([a-z0-9_-]{0,20}(?:cookie|token|session|auth|bearer)[a-z0-9_.-]{0,24})"
+    r"(\s*[:=]\s*)([^\n]*)"
+)
+_LONG_SECRET_RE = re.compile(r"(?<![\w/.:-])[A-Za-z0-9+/_=.-]{48,}(?![\w/.=-])")
+_REDACTED = "[已打码]"
+
+
+def _redact_secrets(text: str) -> str:
+    """文本脱敏：secret 形态的 k[:=]v 值与超长密钥串打码（保守，宁可误杀）。
+
+    注意「cookie 名单: sc_company_id, ...」这类名单行不被打码——键后跟中文
+    （如「名单」）不满足 k[:=]v 形态，且名单本就是 CLI 有意暴露的脱敏信息。"""
+    text = _SECRET_KV_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}{_REDACTED}", text)
+    return _LONG_SECRET_RE.sub(_REDACTED, text)
+
+
+def _redact_deep(obj):
+    """递归脱敏 str/dict/list（_parse_output 产物可能是 JSON dict 或 {"raw": 文本}）。"""
+    if isinstance(obj, str):
+        return _redact_secrets(obj)
+    if isinstance(obj, dict):
+        return {k: _redact_deep(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_deep(v) for v in obj]
+    return obj
+
+
+@mcp.tool()
+def session_sync(credential_id: str, worker_url: str = "") -> dict:
+    """收割本机 Chrome 的 seller.ozon.ru 会话上传 worker 代管（AES-GCM 加密，脱敏）。
+
+    对话内自愈通道：worker 返回 409 session_expired / check 提示会话过期 /
+    首次启用店铺会话代管时调用。前置：让用户在工具 Chrome 打开一次
+    seller.ozon.ru 卖家后台（确保登录），成功后重试原请求即可。
+    credential_id = worker 店铺凭证 ID（与 analyze_store/run_store_action 的
+    store_id 同源；WebUI 店铺管理页可见）。worker_url 仅本地调试指定。
+    成功返回脱敏摘要（cookie 名单 + 状态 + harvested_at）；未登录或缺核心
+    cookie sc_company_id 时 CLI fail-fast 拒传（exit 2），返回补救提示。
+    红线：绝不回显 cookie 值——CLI 输出过脱敏层后才返回。"""
+    parsed, proc = run_skill_command_capture(
+        "session_sync", credential_id=credential_id, worker_url=worker_url)
+    redacted = _redact_deep(parsed)
+    out: dict = {"ok": proc.returncode == 0, "credential_id": credential_id,
+                 "exit_code": proc.returncode}
+    if proc.returncode == 2:
+        out["hint"] = ("本机 Chrome 未登录 seller.ozon.ru 或未加载过卖家后台"
+                       "（缺核心 cookie sc_company_id，CLI 拒传半截会话）——"
+                       "请在工具 Chrome 打开一次卖家后台后重试本工具")
+    elif proc.returncode != 0:
+        out["hint"] = ("worker 不可达 / 鉴权失败 / 凭证不存在——核对 worker_url 与 "
+                       "credential_id（WebUI 店铺管理页可见）")
+    if isinstance(redacted, dict):
+        out.update(redacted)
+    else:  # pragma: no cover — _parse_output 恒返回 dict
+        out["raw"] = redacted
+    return out
 
 
 def main() -> None:

@@ -1,3 +1,13 @@
+---
+title: Worker 云端部署指南
+purpose: deploy/ docker compose 首次部署、cos-update.sh 升级、Nginx/HTTPS、部署数据初始化
+applies-version: ">=v0.63.0"
+last-updated: 2026-09-01
+owner: deploy
+depends: [CACHE-WARM-RUNBOOK, API-OVERVIEW]
+status: active
+---
+
 # Worker 云端部署指南
 
 ## 架构总览

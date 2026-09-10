@@ -1,3 +1,13 @@
+---
+title: Pounding⇆Worker 店铺分析对接文档
+purpose: 店铺分析（读）+ 店铺执行（写）两端点的 harness 对接手册
+applies-version: ">=v0.61.0"
+last-updated: 2026-09-08
+owner: worker-store
+depends: [DB-SCHEMA-AUDIT, API-OVERVIEW]
+status: active
+---
+
 # Pounding ⇆ Ozon Worker 店铺分析对接文档
 
 > 本仓库（pounding-harness）从 **ozon-worker 的 store-analysis 批次**接入

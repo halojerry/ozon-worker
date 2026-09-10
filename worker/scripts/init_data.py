@@ -262,7 +262,7 @@ def import_logistics_rates(engine, force=False):
         logger.info(f"🗑️  已清空旧物流费率数据 ({count} 条)")
 
     # 读取 Excel
-    excel_path = os.path.join(ASSETS_DIR, "China_scoring_ENG_CN_21_04_26_1776754052 (1).xlsx")
+    excel_path = os.path.join(ASSETS_DIR, "china_scoring_freight.xlsx")
     if not os.path.exists(excel_path):
         logger.warning(f"⚠️  物流费率文件不存在: {excel_path}")
         return

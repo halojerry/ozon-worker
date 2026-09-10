@@ -1,9 +1,20 @@
+---
+title: PLAN—Ozon 并卡（误跟卖）修复方案 v1
+purpose: 9048 防并卡 model_name 前缀派生方案（已随 v0.60.0 落地）
+applies-version: "v0.60.0"
+last-updated: 2026-09-08
+owner: worker-pipeline
+depends: [CONTRACT-v4]
+status: archived
+---
+
 # Ozon 并卡（误跟卖）修复方案 v1
 
+> 状态: shipped-with-v0.60.0
+> 状态更新: 2026-09-11 shipped-with-v0.60.0——原状态行与发版史矛盾（AGENTS v0.60 块 Q4 + CHANGELOG [0.60.0] 实证已随版发布），原句保留：~~方案文档，只写不实现~~
 > 日期: 2026-08-21
 > 范围: worker 上传管线 + skill 提交链路（Q4 答复）
 > 依据: Ozon 并卡机制调研 + 本仓库代码审计（file:line 已核实）
-> 状态: 方案文档，只写不实现
 
 ---
 

@@ -1,4 +1,16 @@
+---
+title: PLAN—W1-W8 云端部署问题修复
+purpose: 全量预热→导出→上 COS 闭环根治（随 v0.74.0 发出）
+applies-version: "v0.74.0"
+last-updated: 2026-09-10
+owner: deploy
+depends: [CACHE-WARM-RUNBOOK, DEPLOY]
+status: archived
+---
+
 # W1-W8 云端部署问题修复实施计划 v1
+
+> 状态: shipped-with-v0.74.0
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

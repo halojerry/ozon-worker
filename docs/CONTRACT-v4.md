@@ -1,6 +1,17 @@
+---
+title: Skill↔Worker 接口契约 v4.0
+purpose: GraphInput 三层信封、端点合约与错误码权威（契约版本 v4.0）
+applies-version: ">=v0.74.0"
+last-updated: 2026-09-11
+owner: worker-api
+depends: [API-OVERVIEW]
+status: active
+---
+
 # Skill ↔ Worker 接口契约 v4.0
 
-> 版本: v4.0 | 日期: 2026-07-30 | 分支: dev
+> 版本: v4.0 | 分支: dev
+> 状态: active（契约版本 v4.0 不变；内容随 dev 演进，日期以 git log 为准）
 >
 > **v4 变更摘要**: 外部 API 合约规格化 + 内部节点合约模板化 + Skill 调度器规范化 + 架构审计问题 PRD
 

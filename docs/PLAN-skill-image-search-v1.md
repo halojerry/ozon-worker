@@ -1,5 +1,16 @@
+---
+title: PLAN—Skill 识图找货链路改造方案 v1
+purpose: aibuy 图搜主通道改造（已随 v0.40.0 落地，兼 Issue 落地记录）
+applies-version: "v0.40.0"
+last-updated: 2026-08-12
+owner: skill-cdp
+depends: []
+status: archived
+---
+
 # Skill 识图找货链路改造方案 v1
 
+> 状态: shipped-with-v0.40.0（兼 Issue 落地记录，保留原位供考古）
 > 日期: 2026-08-12
 > 范围: skill 子项目（1688 识图 → 富化 → 信封）
 > 依据: 竞品源码深挖（毛子ERP 3.2.2 / 上品帮 3.2.1）+ 双图实测 + 本仓库链路审计

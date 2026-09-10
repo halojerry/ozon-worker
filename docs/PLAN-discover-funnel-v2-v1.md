@@ -1,6 +1,18 @@
+---
+title: PLAN—discover 选品漏斗 v2
+purpose: 对标上品帮的选品漏斗优化（随 v0.72.0 发出）
+applies-version: "v0.72.0"
+last-updated: 2026-09-07
+owner: skill-cdp
+depends: []
+status: archived
+---
+
 # PLAN — discover 选品漏斗 v2：对标上品帮（shopbang）优化 v1
 
-> 日期：2026-09-07 · 分支：`feat/discover-funnel-v2` · 状态：已批准（用户四项全选，两期交付）
+> 状态: shipped-with-v0.72.0
+> 状态更新: 2026-09-11 shipped-with-v0.72.0（CHANGELOG「discover 选品漏斗 v2（同版收录）」）；下行行内旧状态作废
+> 日期：2026-09-07 · 分支：`feat/discover-funnel-v2` · ~~状态：已批准（用户四项全选，两期交付）~~
 > 竞品素材：`shopbang/`（上品帮 v3.2.0 Electron 编译产物 + 两份分析文档）
 > 本文是实施主文档；竞品逆向细节以 `shopbang/上品帮客户端逻辑与清单.md`、`shopbang/上品帮选品筛选SOP与源码对照.md` 为准，不重复。
 

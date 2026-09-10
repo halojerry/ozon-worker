@@ -1,4 +1,16 @@
+---
+title: PLAN—harness 对接 worker 远程 MCP
+purpose: harness 侧 dsh 双 MCP 一键配置施工说明书（批次 3 跨仓执行中）
+applies-version: ">=v0.67.0"
+last-updated: 2026-09-08
+owner: harness
+depends: [MCP-SERVER]
+status: active
+---
+
 # PLAN-harness-mcp-adoption-v1 — pounding-harness 对接 worker 远程 MCP 施工文档（批次 3 说明书）
+
+> 状态: in-progress（批次 1 已落 v0.67.0；批次 3 在 harness 独立仓库施工）
 
 > 2026-09-05 定稿。批次 1（worker `/mcp` 远程 MCP，v0.67.0）已落地，本文档是 harness 侧
 > 对接的**施工说明书**——本批次 harness 一行代码未动，采集箱/任务中心/网关全部保持现状；

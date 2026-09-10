@@ -1,3 +1,13 @@
+---
+title: 属性缓存全量化运维手册
+purpose: dictionary_value_cache 三桶预热、--export-from-pg 导出、COS 上传与分片重预热
+applies-version: ">=v0.73.0"
+last-updated: 2026-09-10
+owner: worker-cache
+depends: [DEPLOY, DB-SCHEMA-AUDIT]
+status: active
+---
+
 # 属性缓存全量化运维手册（CACHE-WARM-RUNBOOK）— v0.70 / 三桶策略 v0.72 / 导出流程 v0.73
 
 > 目标：**部署即全量**——每次部署/升级后，全部 7424 类目的属性 schema + 字典值
