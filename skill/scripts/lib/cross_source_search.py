@@ -5,13 +5,20 @@
 ?search_key=``）→ 等渲染 → 解析商品卡 → ``list[SourceOffer]``。给批3 的
 discover 接线用：1688 图搜定款照旧，本模块只做**关键词副通道比价**。
 
-实机先例（2026-09-10，feat/cross-platform-sourcing gate，改解析前必读）：
-- 淘宝搜索页登录态下 ``[...document.querySelectorAll('a[href*="item.htm"]')]``
-  可挖商品卡，卡片带价格/销量文案；登录探测 ``_m_h5_tk`` cookie 缺失（同
-  taobao_client 页内 fetch 流程的判定）。
-- 拼多多搜索页 ``[data-goods-id]`` 属性**缺席**（客户端渲染），但 innerHTML
-  正则 ``goods[_-]?id["'=\\s:]{1,4}(\\d{8,20})`` 能挖到真实 goods_id；渲染后
-  body ~344KB；登录态过期重定向 ``login.html``。
+实机取证（2026-09-10，批4 gate 校准 round，改解析前必读）：
+- 淘宝搜索页 ``a[href*="item.htm"]`` 可挖商品卡（实机 44 锚点），卡片带价格/
+  销量文案（「7万+人付款」——数字与关键词间有 ``+``）。**登录判据只认登录页
+  重定向**：曾有 ``_m_h5_tk`` cookie 门，实机证明是错的——该 token 属 h5api
+  mtop 流程（商品详情页），登录态完好的搜索页也不带它（搜索不调 mtop），
+  cookie 门会把每次 run 毒化成 NotLoggedIn。淘宝会把 URL 规范化成
+  ``/search?page=1&q=..&tab=all``（参数乱序+附加参数）——上下文比对必须解析后
+  比（host+path+q），整串前缀恒 False（gate 实证每候选误杀）。
+- 拼多多搜索页商品**无锚点、无 data-* 属性**（客户端渲染 div，点击靠事件
+  委托），商品数据只在页内**一处 script JSON** 的 ``"list":[{goodsID,
+  goodsName, price(分·券前), priceInfo(元展示串·券后), salesTip, imgUrl}]``
+  ——DOM 挖掘的权威源；混淆 hash class（如价格 ``_3gmVc4Lg``）随构建漂移，
+  有意不采用。innerHTML 正则 ``goods[_-]?id["'=\\s:]{1,4}(\\d{8,20})`` 兜底可
+  挖 goods_id（linkURL 形态，实机验证）；登录态过期重定向 ``login.html``。
 
 纪律（红线）：
 - **调用方（批3）决定静默**——本模块所有失败抛类型化异常、绝不返回编造数据：
@@ -48,7 +55,7 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import quote_plus
+from urllib.parse import parse_qs, quote_plus, urlparse
 
 from scripts.lib.cdp_client import CdpConnection
 from scripts.lib.pdd_client import PDD_LOGIN_URL_MARKERS  # 登录标记唯一实现
@@ -61,6 +68,9 @@ MAX_OFFERS = 20            # 比价快照不需要整页——够批2 确认同�
 _RENDER_WAIT_CAP_MS = 8000  # 页内渲染等待上限（占剩余预算 ≈60%，下限 1.5s）
 
 PLATFORM_LABELS = {"taobao": "淘宝", "pdd": "拼多多"}
+
+# 上下文比对键（批4 gate 校准）：taobao search q= / pdd search_key=
+CONTEXT_QUERY_KEYS = {"taobao": "q", "pdd": "search_key"}
 
 # 淘宝搜索页登录/验证重定向标记（payload url 兜底判定；页内 JS 同款正则）
 _TAOBAO_LOGIN_URL_MARKERS = ("login.taobao.com", "login.tmall.com")
@@ -224,10 +234,17 @@ def build_offers(platform: str, raw_offers: Any) -> list[SourceOffer]:
         image = _https_url(raw.get("image"))
         # 懒加载占位图过滤（Minor #5）：data: URI 等非 http(s) 一律 None
         image = image if image.startswith(("http://", "https://")) else None
+        price = parse_price_text(raw.get("price"))
+        if price is None:
+            # pdd 兜底（批4 gate 校准 修2）：priceInfo 展示串缺席时用 price 字段
+            # （**分**，pdd_client fromFen 同口径）换元——price_fen 由 pdd JS 提供
+            price_fen = str(raw.get("price_fen") or "").strip()
+            if price_fen.isdigit() and int(price_fen) > 0:
+                price = parse_price_text(f"{int(price_fen) / 100:.2f}")
         out.append(SourceOffer(
             platform=platform,
             title=str(raw.get("title") or "").strip() or None,
-            price=parse_price_text(raw.get("price")),
+            price=price,
             freight=parse_freight_cny(freight_text) if freight_text else None,
             sold=parse_sold_text(raw.get("sold")),
             url=url,
@@ -272,23 +289,37 @@ def _pdd_search_url(keyword: str) -> str:
 
 _TAOBAO_SEARCH_JS = r"""(async () => {
     const BUDGET_MS = __BUDGET_MS__;
-    const CTX_MARKER = __CTX_MARKER__;
+    const CTX_URL = __CTX_URL__;
+    const CTX_QKEY = __CTX_QKEY__;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    // 上下文校验（批1 fix round 1，Important #1）：href 不在目标搜索域（导航竞态
-    // 落在 about:blank / 上一关键词残留页）→ status 'context'——绝不在此页面跑
-    // 登录探测（空 cookie jar 会把慢载误判成未登录，毒化平台级负缓存）。
+    // 上下文校验（批1 fix round 1 + 批4 gate 校准 修1）：**解析后比对**——
+    // 同 host + 同 path + 同检索词参数即通过（淘宝会把 URL 规范化成
+    // ?page=1&q=..&tab=all，参数乱序+附加参数；整串前缀比对恒 False 误杀）。
+    // 不在目标域 → status 'context'——绝不在 about:blank 空 cookie jar 上跑
+    // 登录探测（假 NotLoggedIn 会毒化平台级负缓存）。
     function classifyContext() {
-        const href = String(location.href || '');
-        if (href.indexOf(CTX_MARKER) !== -1) return '';
-        return '页面不在目标搜索域（预期含 ' + CTX_MARKER + '，当前 ' + href.slice(0, 120) + '）';
+        try {
+            const here = new URL(String(location.href || 'about:blank'));
+            const want = new URL(CTX_URL);
+            if (here.hostname !== want.hostname || here.pathname !== want.pathname) {
+                return '页面不在目标搜索域（' + here.host + here.pathname + ' ≠ '
+                    + want.host + want.pathname + '）';
+            }
+            const qHere = here.searchParams.get(CTX_QKEY) || '';
+            const qWant = want.searchParams.get(CTX_QKEY) || '';
+            if (qHere !== qWant) return '搜索词不符（当前 ' + qHere.slice(0, 40) + '）';
+            return '';
+        } catch (e) {
+            return '当前 URL 无法解析（' + String(location.href || '').slice(0, 80) + '）';
+        }
     }
+    // 登录判据（批4 gate 校准 修1 追加，2026-09-10 实机取证）：**只认登录页
+    // 重定向**。曾有 _m_h5_tk cookie 门——实机证明是错的：该 token 属 h5api
+    // mtop 流程（商品详情页），登录态完好的搜索页也不带它（cookie 门会把每次
+    // run 都毒化成 NotLoggedIn）；搜索本身不调 mtop，页面能渲染商品即有效。
     function classifyLogin() {
         const href = String(location.href || '');
         if (/login\.taobao\.com|login\.tmall\.com/i.test(href)) return '搜索页被重定向到登录页';
-        const m = document.cookie.match(/(?:^|;\s*)_m_h5_tk=([^;]+)/);
-        const raw = m ? decodeURIComponent(m[1]) : '';
-        const token = raw.indexOf('_') >= 0 ? raw.split('_')[0] : raw;
-        if (!token) return '页内无 _m_h5_tk cookie（未登录或 cookie 未就绪）';
         return '';
     }
     function abs(u) {
@@ -321,14 +352,20 @@ _TAOBAO_SEARCH_JS = r"""(async () => {
                 if (/[¥￥]\s*\d/.test(txt) || /\d+\.\d{2}/.test(txt)) break;
             }
             const text = String(card.innerText || card.textContent || '');
-            const pm = text.match(/[¥￥]\s*(\d+(?:\.\d+)?)/);
-            const sm = text.match(/(\d+(?:\.\d+)?\s*万|\d[\d,]{0,9})\s*(?:人收货|人付款|月销|收货)/);
+            // 实机形态（批4 gate 校准）：innerText 里价格跨节点拆分（¥|129|.23）
+            const pm = text.match(/[¥￥]\s*(\d+)(?:\s*\.\s*(\d{2}))?/);
+            // 实机形态（批4 gate 校准）：「7万+人付款」「200+人付款」——数字与
+            // 关键词之间有「+」，[+\s]* 必须吃掉；sm[1] 只含数字/万（Python 侧换算）
+            const sm = text.match(/(\d+(?:\.\d+)?\s*万|\d[\d,]{0,9})[+\s]*(?:人收货|人付款|月销|收货)/);
             const img = card.querySelector('img');
-            const title = (a.getAttribute('title') || a.textContent || '').trim();
+            // 锚点 title 属性是整卡 tooltip（带促销/地区尾巴）——首个价格/促销
+            // 标记处截断，给批2 同款确认减噪（多余 token 会稀释 overlap 分）
+            const rawTitle = (a.getAttribute('title') || a.textContent || '').trim();
+            const cutTitle = rawTitle.split(/[¥￥]|优惠|包邮|退货|人收货|人付款/)[0].trim();
             out.push({
                 id: id,
-                title: title ? title.slice(0, 200) : null,
-                price: pm ? pm[1] : null,
+                title: cutTitle ? cutTitle.slice(0, 200) : null,
+                price: pm ? (pm[2] ? pm[1] + '.' + pm[2] : pm[1]) : null,
                 sold: sm ? sm[1].replace(/\s+/g, '') : null,
                 url: 'https://item.taobao.com/item.htm?id=' + id,
                 image: img ? absImg(img.getAttribute('data-src') || img.getAttribute('src') || img.src || '') : '',
@@ -377,14 +414,26 @@ _TAOBAO_ID_DIG_JS = r"""(() => {
 
 _PDD_SEARCH_JS = r"""(async () => {
     const BUDGET_MS = __BUDGET_MS__;
-    const CTX_MARKER = __CTX_MARKER__;
+    const CTX_URL = __CTX_URL__;
+    const CTX_QKEY = __CTX_QKEY__;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    // 上下文校验（批1 fix round 1，Important #1）：同 taobao 侧——导航竞态落在
-    // about:blank/残留页时先报 context，绝不在空 cookie jar 上跑登录探测。
+    // 上下文校验（批1 fix round 1 + 批4 gate 校准 修1）：同 taobao 侧解析后比对；
+    // about:blank/残留页先报 context，绝不在空 cookie jar 上跑登录探测。
     function classifyContext() {
-        const href = String(location.href || '');
-        if (href.indexOf(CTX_MARKER) !== -1) return '';
-        return '页面不在目标搜索域（预期含 ' + CTX_MARKER + '，当前 ' + href.slice(0, 120) + '）';
+        try {
+            const here = new URL(String(location.href || 'about:blank'));
+            const want = new URL(CTX_URL);
+            if (here.hostname !== want.hostname || here.pathname !== want.pathname) {
+                return '页面不在目标搜索域（' + here.host + here.pathname + ' ≠ '
+                    + want.host + want.pathname + '）';
+            }
+            const qHere = here.searchParams.get(CTX_QKEY) || '';
+            const qWant = want.searchParams.get(CTX_QKEY) || '';
+            if (qHere !== qWant) return '搜索词不符（当前 ' + qHere.slice(0, 40) + '）';
+            return '';
+        } catch (e) {
+            return '当前 URL 无法解析（' + String(location.href || '').slice(0, 80) + '）';
+        }
     }
     function classifyLogin() {
         const href = String(location.href || '');
@@ -392,51 +441,48 @@ _PDD_SEARCH_JS = r"""(async () => {
         if (/\/login/i.test(String(location.pathname || ''))) return '登录页重定向（login.html）';
         return '';
     }
-    function abs(u) {
-        u = String(u || '');
-        if (!u) return '';
-        if (u.indexOf('//') === 0) return 'https:' + u;
-        return u;
-    }
-    // 懒加载占位图过滤（批1 fix round 1，Minor #5）：data: URI 等非 http(s) 一律弃
     function absImg(u) {
-        u = abs(u);
+        u = String(u || '');
+        if (u.indexOf('//') === 0) u = 'https:' + u;
         if (u.indexOf('http://') !== 0 && u.indexOf('https://') !== 0) return '';
         return u;
     }
-    function offersFromDom() {
+    // 商品列表挖掘（批4 gate 校准 修2，2026-09-10 实机取证）：搜索结果**无锚点、
+    // 无 data-* 属性**（客户端渲染 div，点击靠事件委托），卡片标题/价格/销量只在
+    // 页内 script JSON 里（"list":[{goodsID, goodsName, price(分), priceInfo(元
+    // 展示串, 券后), salesTip, imgUrl}]，全页恰一处）。混淆 hash class（如价格
+    // _3gmVc4Lg）随构建漂移，有意不采用。price/priceInfo 双发（单位换算在 Python）。
+    function offersFromJson() {
+        const html = String((document.body && document.body.innerHTML) || '');
+        const re = /"goodsID"\s*:\s*(\d{8,20})/g;
+        const hits = [];
+        let m;
+        while ((m = re.exec(html)) !== null) hits.push({id: m[1], start: m.index});
         const out = [];
         const seen = {};
-        document.querySelectorAll('[data-goods-id], a[href*="goods"]').forEach((node) => {
-            let id = String((node.getAttribute && node.getAttribute('data-goods-id')) || '');
-            if (!id) {
-                const href = node.getAttribute('href') || '';
-                const m = href.match(/[?&]goods_id=(\d+)/);
-                if (m) id = m[1];
-            }
-            if (!id || seen[id]) return;
-            seen[id] = true;
-            let card = node;
-            for (let i = 0; i < 4; i += 1) {
-                if (!card.parentElement) break;
-                card = card.parentElement;
-                const txt = String(card.innerText || card.textContent || '');
-                if (/¥\s*\d/.test(txt) || /\d+\.\d{2}/.test(txt)) break;
-            }
-            const text = String(card.innerText || card.textContent || '');
-            const pm = text.match(/¥\s*(\d+(?:\.\d+)?)/);
-            const img = card.querySelector('img');
-            const title = (node.getAttribute('title') || node.textContent || '').trim();
+        for (let i = 0; i < hits.length; i += 1) {
+            if (seen[hits[i].id]) continue;
+            seen[hits[i].id] = true;
+            const end = i + 1 < hits.length ? hits[i + 1].start
+                : Math.min(html.length, hits[i].start + 4000);
+            const win = html.slice(hits[i].start, end);
+            const nameM = win.match(/"goodsName":"([^"]*)"/);
+            const infoM = win.match(/"priceInfo":"([^"]*)"/);
+            const fenM = win.match(/"price":(\d+)/);
+            const salesM = win.match(/"salesTip":"([^"]*)"/);
+            const imgM = win.match(/"imgUrl":"([^"]*)"/);
             out.push({
-                id: id,
-                title: title ? title.slice(0, 200) : null,
-                price: pm ? pm[1] : null,
-                sold: null,
-                url: 'https://mobile.yangkeduo.com/goods.html?goods_id=' + id,
-                image: img ? absImg(img.getAttribute('data-src') || img.getAttribute('src') || img.src || '') : '',
+                id: hits[i].id,
+                title: nameM ? nameM[1].trim().slice(0, 200) : null,
+                price: infoM ? infoM[1] : null,
+                price_fen: fenM ? fenM[1] : null,
+                sold: salesM ? salesM[1] : null,
+                url: 'https://mobile.yangkeduo.com/goods.html?goods_id=' + hits[i].id,
+                image: imgM ? absImg(imgM[1].split('\\u002F').join('/')) : '',
             });
-        });
-        return out.slice(0, 40);
+            if (out.length >= 40) break;
+        }
+        return out;
     }
     try {
         const ctxReason = classifyContext();
@@ -447,14 +493,15 @@ _PDD_SEARCH_JS = r"""(async () => {
         if (loginReason) {
             return JSON.stringify({status: 'login', message: loginReason, url: String(location.href || ''), offers: []});
         }
+        const bodyHtml = String((document.body && document.body.innerHTML) || '');
         const start = Date.now();
-        while (document.querySelectorAll('[data-goods-id], a[href*="goods"]').length === 0 && Date.now() - start < BUDGET_MS) {
+        while (bodyHtml.indexOf('"goodsID"') < 0 && Date.now() - start < BUDGET_MS) {
             await sleep(250);
             if (/\/login/i.test(String(location.pathname || ''))) {
                 return JSON.stringify({status: 'login', message: '渲染等待中被重定向到登录页', url: String(location.href || ''), offers: []});
             }
         }
-        const offers = offersFromDom();
+        const offers = offersFromJson();
         return JSON.stringify({status: offers.length ? 'ok' : 'empty', message: null, url: String(location.href || ''), offers: offers});
     } catch (e) {
         return JSON.stringify({status: 'error', message: String((e && e.message) || e), url: String(location.href || ''), offers: []});
@@ -535,16 +582,36 @@ def _evaluate_phase(tab: Any, js: str, deadline: float, label: str,
     return payload
 
 
-def _kind_of(payload: dict, platform: str, expected_search_url: str) -> tuple[str, str]:
+def _context_matches(actual_url: str, expected_url: str, query_key: str) -> bool:
+    """上下文比对（批4 gate 校准 修1）：**解析后比对**——同 host + 同 path +
+    同检索词参数值即通过（page/tab/spm 等附加参数与参数顺序忽略）。
+
+    实机取证（2026-09-10 gate）：淘宝把 `/search?q=X` 规范化成
+    `/search?page=1&q=X&tab=all`——整串前缀比对恒 False，每候选误杀
+    （计数器 1→2→3 递增实证）。异域/异 path/异 q（防旧关键词残留）仍拒。
+    """
+    actual = urlparse(str(actual_url or ""))
+    expected = urlparse(str(expected_url or ""))
+    if not actual.hostname or actual.hostname != expected.hostname:
+        return False
+    if (actual.path or "/") != (expected.path or "/"):
+        return False
+    actual_q = parse_qs(actual.query or "", keep_blank_values=True)
+    expected_q = parse_qs(expected.query or "", keep_blank_values=True)
+    return (actual_q.get(query_key) or []) == (expected_q.get(query_key) or [])
+
+
+def _kind_of(payload: dict, platform: str, expected_search_url: str,
+             context_query_key: str) -> tuple[str, str]:
     """evaluate 载荷 → (kind, detail)。kind ∈ ok/empty/login/context/error。
 
-    判序（批1 fix round 1，Important #1）：
+    判序（批1 fix round 1，Important #1；批4 gate 校准 修1）：
     ①登录标记最先——真登录重定向（payload.url 命中平台登录标记）要写负缓存；
-    ②上下文校验——payload.url 原始地址不以预期搜索 URL 开头（或 JS 直报 status
-    'context'）→ context：**不写 NotLoggedIn 缓存**，调用方重试一次消导航竞态。
-    两类竞态都拦：about:blank 空 cookie jar（JS 侧先报 context）+ 复用 tab 停在
-    上一关键词的搜索页（同域 marker 挡不住，须对到含关键词的完整 search_url）。
-    保守偏差已接受：平台若把搜索页 302 成别的形态（批4 实机验证）→ 恒 context
+    ②上下文校验——payload.url 解析后与预期搜索 URL 不同源/异 path/异检索词
+    （或 JS 直报 status 'context'）→ context：**不写 NotLoggedIn 缓存**，调用方
+    重试一次消导航竞态。两类竞态都拦：about:blank 空 cookie jar（JS 侧先报
+    context）+ 复用 tab 停在上一关键词的搜索页（同域同 path、异 q）。
+    保守偏差已接受：平台若把搜索页 302 成别的形态（批4 实机验证项）→ 恒 context
     → 该平台静默跳过（宁可不比价，绝不在错误页面上解析/误判登录）。
     """
     status = str(payload.get("status") or "").strip()
@@ -553,7 +620,8 @@ def _kind_of(payload: dict, platform: str, expected_search_url: str) -> tuple[st
                else PDD_LOGIN_URL_MARKERS)
     if status == "login" or any(m in url for m in markers):
         return "login", str(payload.get("message") or f"搜索页被重定向到登录页（{url or '未知 URL'}）")
-    if status == "context" or (url and not url.startswith(expected_search_url)):
+    if status == "context" or (url and not _context_matches(
+            url, expected_search_url, context_query_key)):
         return "context", str(payload.get("message")
                               or f"页面不在预期搜索源（url={url or '空'}，预期 {expected_search_url}）")
     if status == "ok":
@@ -609,12 +677,15 @@ def _run_keyword_search(platform, cdp_url, keyword, timeout, cdp, *,
         # context 重分类不写 NotLoggedIn 缓存；重试后仍 context → 大声报错。
         phase1_js_ready = (phase1_js
                            .replace("__BUDGET_MS__", str(_render_budget_ms(deadline)))
-                           .replace("__CTX_MARKER__", json.dumps(find_pattern)))
+                           .replace("__CTX_URL__", json.dumps(search_url))
+                           .replace("__CTX_QKEY__",
+                                    json.dumps(CONTEXT_QUERY_KEYS.get(platform, "q"))))
         kind, detail = "context", "首轮未评估"
         for attempt in range(2):
             payload = _evaluate_phase(tab, phase1_js_ready, deadline,
                                       f"{label}搜索页解析", strict=True)
-            kind, detail = _kind_of(payload, platform, search_url)
+            kind, detail = _kind_of(payload, platform, search_url,
+                                    CONTEXT_QUERY_KEYS.get(platform, "q"))
             if kind == "context" and attempt == 0:
                 logger.debug("跨源搜索 %s：页面上下文不符，重试一次消导航竞态（%s）",
                              platform, detail[:120])
@@ -670,7 +741,8 @@ def search_taobao(cdp_url: str, keyword: str, *, timeout: float = DEFAULT_TIMEOU
     """淘宝关键词搜索 → ``list[SourceOffer]``（后台共享 tab，见模块 docstring）。
 
     Raises:
-        NotLoggedIn: 未登录（页内 ``_m_h5_tk`` 缺失/登录页重定向；写负缓存）。
+        NotLoggedIn: 未登录（登录页重定向——搜索页无可靠的 cookie 判据，见
+            模块 docstring 实机取证；写负缓存）。
         SearchTimeoutError: 预算耗尽。
         CrossSourceSearchError: 连接/解析失败（绝不返回编造数据）。
     """
