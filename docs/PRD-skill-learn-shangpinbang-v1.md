@@ -1,3 +1,13 @@
+---
+title: PRD—Skill 学习上品帮 v1
+purpose: 上架成功率/货源速度/选品效率对标需求（已评审 OKAY）
+applies-version: ">=v0.58.0"
+last-updated: 2026-08-19
+owner: skill-cdp
+depends: []
+status: active
+---
+
 # PRD — Skill 学习上品帮 v1（上架成功率 + 货源速度 + 选品效率 + 数据归档）
 
 > **版本**：v1.0

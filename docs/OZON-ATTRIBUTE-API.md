@@ -1,6 +1,16 @@
+---
+title: Ozon 属性/类目 API 参考
+purpose: 属性/类目 API 契约与字典值规则，开发直接查这里
+applies-version: ">=v0.31.0"
+last-updated: 2026-08-08
+owner: worker-api
+depends: []
+status: active
+---
+
 # Ozon 属性/类目 API 参考（长期维护，开发直接查这里）
 
-> 来源: `docs/ozon-api-docs-2026-07-05 (3).json`(官方文档抓取) + 真实 API 实测(2026-08-07, 店铺 5371047)。
+> 来源: `docs/data/ozon-api-docs-2026-07-05.json`(官方文档抓取) + 真实 API 实测(2026-08-07, 店铺 5371047)。
 > 用途: 上架时「尽可能填满属性特征」的实现依据。海关编码(ТН ВЭД)属性**不填**——平台自动关联。
 
 ## 0. 通用约定

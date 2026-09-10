@@ -1,4 +1,16 @@
+---
+title: PLAN—类目树数据更新
+purpose: category_tree_nodes 对齐 Ozon 现役类目（RU+ZH 双语，gate 未闭环）
+applies-version: ">=v0.73.0"
+last-updated: 2026-09-09
+owner: worker-db
+depends: []
+status: active
+---
+
 # PLAN — 类目树数据更新（category_tree_refresh_v1）
+
+> 状态: in-progress（脚本已落地 --dry-run 验证过；真树重导 gate 未闭环）
 
 > 2026-09-09。F-B03 连带发现的执行计划。目标：`category_tree_nodes` 与 Ozon 现役类目结构一致
 > （RU + ZH_HANS 双语），让面包屑路径精配（F-B03 修复）、jieba 匹配、L0 学习表、采集箱类目选择器

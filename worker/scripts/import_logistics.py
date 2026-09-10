@@ -5,7 +5,7 @@
 用法:
     python scripts/import_logistics.py [--excel PATH]
 
-默认读取 assets/ 下的 Excel 文件。
+默认读取 docs/data/ 下的 Excel 文件。
 """
 
 import os
@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_EXCEL = os.path.join(
     os.getenv("APP_WORKSPACE_PATH", os.path.dirname(os.path.dirname(__file__))),
     "docs",
-    "China_scoring_ENG_CN_21_04_26_1776754052 (1).xlsx",
+    "data",
+    "china_scoring_freight.xlsx",
 )
 
 SHEET_NAME = "中国 rFBS"
