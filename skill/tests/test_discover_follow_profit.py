@@ -23,6 +23,17 @@ def _offline_logistics(monkeypatch):
         lambda *a, **k: None)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cross_source_hook(monkeypatch):
+    """批4 gate 校准 round3（2026-09-10）：跨源副钩 _cross_source_compare 在
+    match_selected 内会拿 match_1688_title 真实触网（本机 Chrome 有登录态即真
+    搜索，胜者换源改写 match_1688_* 槽位）→ 本文件单测一律 mock 掉；跨源行为
+    由 test_discover_cross_source_wiring.py 专项锁定。"""
+    monkeypatch.setattr(
+        "scripts.lib.ozon_discovery._cross_source_compare",
+        lambda *a, **k: None)
+
+
 def _cand(**kw):
     c = ProductCandidate(ozon_product_id="p1", ozon_title="t", ozon_price=953.0)
     c.match_1688_price = 60.0

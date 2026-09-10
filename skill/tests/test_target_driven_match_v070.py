@@ -18,6 +18,8 @@ import os
 import sys
 from unittest import mock
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scripts.lib import ozon_discovery as od  # noqa: E402
@@ -26,6 +28,15 @@ from scripts.lib.ozon_discovery import (  # noqa: E402
     match_selected,
     rank_match_pool,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cross_source_hook(monkeypatch):
+    """批4 gate 校准 round3（2026-09-10）：跨源副钩 _cross_source_compare 在
+    match_selected 内会拿 match_1688_title 真实触网（本机 Chrome 有登录态即真
+    搜索，胜者换源改写 match_1688_* 槽位）→ 本文件单测一律 mock 掉；跨源行为
+    由 test_discover_cross_source_wiring.py 专项锁定。"""
+    monkeypatch.setattr(od, "_cross_source_compare", lambda *a, **k: None)
 
 _GOOD_MATCH = {"url": "https://detail.1688.com/offer/1.html",
                "title": "货源", "price": "5.0", "images": [],
