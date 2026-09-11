@@ -1,6 +1,17 @@
+---
+title: Skill↔Worker 接口契约 v4.0
+purpose: GraphInput 三层信封、端点合约与错误码权威（契约版本 v4.0）
+applies-version: ">=v0.74.0"
+last-updated: 2026-09-11
+owner: worker-api
+depends: [API-OVERVIEW]
+status: active
+---
+
 # Skill ↔ Worker 接口契约 v4.0
 
-> 版本: v4.0 | 日期: 2026-07-30 | 分支: dev
+> 版本: v4.0 | 分支: dev
+> 状态: active（契约版本 v4.0 不变；内容随 dev 演进，日期以 git log 为准）
 >
 > **v4 变更摘要**: 外部 API 合约规格化 + 内部节点合约模板化 + Skill 调度器规范化 + 架构审计问题 PRD
 
@@ -186,9 +197,10 @@
 | `envelope.draft.purchase_url` | string | ✅ | — | 非空，http/https URL |
 | `envelope.draft.currency` | string | ✅ | — | 固定 `"CNY"` |
 | `envelope.source` | object | ❌ | — | `{purchase_url, purchase_cost}` |
+| `envelope.source.platform` | string | ❌ | 缺失按 `purchase_url` 域名推断 | 货源平台标识（跨平台货源扩展 v1）：`"1688"\|"taobao"\|"tmall"\|"pdd"`。**worker 零强制消费**（信封透传，不校验不分支）；缺失不报错。taobao/tmall/pdd 信封**省略** `source_category_id`/`source.category_id` 等 cid 类键（防 L0 学习表 cid 数字空间污染），`draft.ozon_category` 缺省走 worker 文本+LLM 链 |
 | `envelope.extensions` | object | ❌ | — | `{margin_rate, commission_rate, fx_buffer, follow_sell, max_skus}` |
 | `envelope.extensions.competitor_ref_images` | string[] | ❌ | v0.69+ | 跟卖竞品主图快照（串图修复引入）：skill 写入、**worker 暂零消费**（预留语义位）——绝不进 `draft.images`/生图参考链，随 payload 落盘供后续接线
-| `envelope.extensions.discovery_meta` | object | ❌ | v0.69+ | discover 选品元数据快照。v0.70 扩键（对标上品帮选品记录，数据已在手纯透出）：基础组 `{ozon_product_id, ozon_url, ozon_price, blue_ocean_score, monthly_sales, monthly_revenue, sales_growth, drr, create_days, competing_sellers, rating, review_count, weight_g, dimensions_mm, profit_margin, estimated_profit_cny, match_confidence, discovered_at}` + 扩容组 `{min_competing_price, sales_schema, estimated_logistics_cny, estimated_commission, match_1688_title, match_1688_category_name, ozon_image*, match_image_url*, session_count, conv_to_cart_pdp, conv_to_cart_search, days_in_promo, discount, days_with_trafarets, promo_revenue_share, nullable_redemption_rate, return_cancel_rate, follow_profit_cny, follow_margin, ozon_old_price, match_1688_freight_cny, custom_click_rate}`（\*=图列表首张派生；follow_\*=跟卖最低价同成本链测算，默认 0.0 真实保留；ozon_old_price=widget originalPrice 市场参考**不写 draft.original_price**、match_1688_freight_cny=货源国内运费单列，两者 None=未知省略；漏斗组畅销榜池未命中为 None → 键省略；0 是真实数据保留；data-pool批7：`custom_click_rate`=商品点击率%（what_to_sell `qtyViewPdp/views` 派生，maozi 3.2.6 同款计算字段，无 direct `customClickRate` 键；None=未知省略；卡片缺口三键的另两键 月销售动态增长率=`sales_growth`、广告份额 ДРР=`drr` 自 v0.70 已在基础组，不另增键））。**worker 零消费整包透传**（payload JSONB 随任务/草稿留存），webui 采集箱/CSV 导出展示选品依据用 |
+| `envelope.extensions.discovery_meta` | object | ❌ | v0.69+ | discover 选品元数据快照。v0.70 扩键（对标上品帮选品记录，数据已在手纯透出）：基础组 `{ozon_product_id, ozon_url, ozon_price, blue_ocean_score, monthly_sales, monthly_revenue, sales_growth, drr, create_days, competing_sellers, rating, review_count, weight_g, dimensions_mm, profit_margin, estimated_profit_cny, match_confidence, discovered_at}` + 扩容组 `{min_competing_price, sales_schema, estimated_logistics_cny, estimated_commission, match_1688_title, match_1688_category_name, ozon_image*, match_image_url*, session_count, conv_to_cart_pdp, conv_to_cart_search, days_in_promo, discount, days_with_trafarets, promo_revenue_share, nullable_redemption_rate, return_cancel_rate, follow_profit_cny, follow_margin, ozon_old_price, match_1688_freight_cny, custom_click_rate}`（\*=图列表首张派生；follow_\*=跟卖最低价同成本链测算，默认 0.0 真实保留；ozon_old_price=widget originalPrice 市场参考**不写 draft.original_price**、match_1688_freight_cny=货源国内运费单列，两者 None=未知省略；漏斗组畅销榜池未命中为 None → 键省略；0 是真实数据保留；data-pool批7：`custom_click_rate`=商品点击率%（what_to_sell `qtyViewPdp/views` 派生，maozi 3.2.6 同款计算字段，无 direct `customClickRate` 键；None=未知省略；卡片缺口三键的另两键 月销售动态增长率=`sales_growth`、广告份额 ДРР=`drr` 自 v0.70 已在基础组，不另增键）。跨平台静默比价快照 `source_comparison`（discover 跨源匹配 v1 批3，2026-09-10：`{baseline:{url,price,freight,landed_cost}, platforms:{taobao|pdd:{url,price,freight,sold,matched,confirm,switched,freight_unknown} | {skipped:not_logged_in} | {skipped:error,count}}, decision:{winner,reason,switched}, thresholds:{same_min,switch_ratio}}`；未探测/预算耗尽平台省略键，freight None=未知，无 cookie/凭证；候选级跳过形态 `source_comparison={"skipped":"1688 基线无效"|"无参照标题"}` 同样整包进信封；胜者已写回货源槽位 `draft.purchase_url/purchase_cost`（即 match_1688_* 同槽位换值，URL 平台前缀自证）——采集箱可见可改，非必经决策点）。**worker 零消费整包透传**（payload JSONB 随任务/草稿留存），webui 采集箱/CSV 导出展示选品依据用 |
 | `timeout_seconds` | int | ❌ | 1800 | 300-7200 |
 | `max_retries` | int | ❌ | 3 | 0-10 |
 

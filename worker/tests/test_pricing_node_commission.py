@@ -17,6 +17,7 @@ from __future__ import annotations
 import inspect
 import os
 import sys
+import time
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -115,7 +116,9 @@ def test_pricing_node_fallback_010(monkeypatch):
 # ── 4. extensions.commission_rate 显式配置最高优先 ──
 def test_pricing_node_explicit_commission_wins(monkeypatch):
     """extensions.commission_rate=0.15 → 即使缓存表有记录也用 0.15（explicit 最高优先）。"""
-    cat_commission = {"fbs_leq_1500": 8.0, "fbs_leq_5000": 12.0, "fbs_gt_5000": 18.0, "source": "what_to_sell"}
+    # BL-24: 夹具带新鲜 updated_at（180d 新鲜度闸——无 updated_at 视同超龄降级）
+    cat_commission = {"fbs_leq_1500": 8.0, "fbs_leq_5000": 12.0, "fbs_gt_5000": 18.0,
+                      "source": "what_to_sell", "updated_at": time.time()}
     out = _call_pricing(
         monkeypatch,
         _make_state(extensions={"commission_rate": 0.15}),
@@ -133,6 +136,8 @@ def test_pricing_node_cache_flows_to_price(monkeypatch):
         "fbs_leq_5000": 25.0,
         "fbs_gt_5000": 30.0,
         "source": "what_to_sell",
+        # BL-24 一期: 新鲜 updated_at——新鲜行照常采信（超龄降级见 test_commission_stale_v075.py）
+        "updated_at": time.time(),
     }
     # ✅ v0.65: 显式 margin_rate → 旧单档路径（bare 信封现默认三档，price 不再是 337）。
     # 本测试锁「佣金缓存流入最终价」，单档路径用显式 margin_rate=0.25 保持原 337 期望。

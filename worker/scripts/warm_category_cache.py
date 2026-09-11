@@ -6,7 +6,7 @@
 用法:
   python scripts/warm_category_cache.py [--limit N] [--all] [--offset N] [--export-only] [--pg-only]
                                         [--import-only] [--force] [--coverage] [--coverage-sample N]
-                                        [--export-from-pg]
+                                        [--export-from-pg] [--export-schema-manifest PATH]
 
   --limit N      只处理 N 个 type（测试用，默认全部）
   --all          显式全量预热（与不带 --limit 等价；与 --limit 互斥，同时给报错退出 2）。
@@ -432,6 +432,137 @@ def export_from_pg() -> None:
         session.close()
 
 
+# ── BL-19（A4 F-P0-1 资产化）：--export-schema-manifest ──
+# 从 PG attribute_cache 全表导出「类目 schema 清单」JSON 资产——每类目一行的
+# 必填/字典/集合/数值/值数上限聚合面，支撑类目维度规则地图与 A4 §5 抽样回填。
+# 与预热完全解耦：单独 flag 可用，不触发 warm 循环、不调 Ozon API、无需凭证。
+# ⚠️ schema 行字段口径以 docs/audit/2026-09-11-repo-gov/A4-category-attribute-mapping.md
+#    §2.1 消费矩阵为准：本清单只消费已消费字段（id/is_required/dictionary_id/
+#    is_collection/max_value_count/type）；description/group_*/complex_* 未消费不进清单。
+
+
+def build_schema_manifest_row(dc: int, tp: int, language: str, schema) -> Optional[dict]:
+    """单类目 schema（attribute_cache.attributes_schema）→ 清单行（纯函数）。
+
+    - schema 空（None/非 list/[]）或没有任何可归类属性行 → None（调用方跳过该类目）。
+    - 属性行缺 id / id 非整数 → 跳过该属性（id 是全链主键，缺失无法归类）。
+    - 数值判定复用唯一入口 utils.attr_numeric_sanitize.is_numeric_attr_type
+      （大小写不敏感 integer/int/decimal/number/float/double）——禁止内联第二套名单。
+    - max_value_count_max：各属性行 max_value_count 的最大值；全缺省 → 0。
+    """
+    if not isinstance(schema, list) or not schema:
+        return None
+    from utils.attr_numeric_sanitize import is_numeric_attr_type
+
+    required: list = []
+    dict_attrs: list = []
+    collection_attrs: list = []
+    numeric_attrs: list = []
+    max_vcm = 0
+    attr_total = 0
+    for row in schema:
+        if not isinstance(row, dict):
+            continue
+        try:
+            attr_id = int(row.get("id"))
+        except (TypeError, ValueError):
+            continue
+        attr_total += 1
+        if row.get("is_required"):
+            required.append(attr_id)
+        try:
+            if int(row.get("dictionary_id") or 0) > 0:
+                dict_attrs.append(attr_id)
+        except (TypeError, ValueError):
+            pass
+        if row.get("is_collection"):
+            collection_attrs.append(attr_id)
+        if is_numeric_attr_type(row.get("type")):
+            numeric_attrs.append(attr_id)
+        mvc = row.get("max_value_count")
+        if isinstance(mvc, (int, float)) and not isinstance(mvc, bool) and mvc > max_vcm:
+            max_vcm = int(mvc)
+    if attr_total == 0:
+        return None
+    return {
+        "dc": int(dc),
+        "tp": int(tp),
+        "language": language,
+        "attr_total": attr_total,
+        "required": sorted(required),
+        "dict_attrs": sorted(dict_attrs),
+        "collection_attrs": sorted(collection_attrs),
+        "numeric_attrs": sorted(numeric_attrs),
+        "max_value_count_max": max_vcm,
+    }
+
+
+def _atomic_write_json(path: str, payload) -> None:
+    """UTF-8 原子写（tmp + os.replace），防半截文件被部署链灌回。"""
+    parent = os.path.dirname(os.path.abspath(path))
+    os.makedirs(parent, exist_ok=True)
+    tmp = f"{path}.tmp.{os.getpid()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+MANIFEST_SQL = (
+    "SELECT description_category_id, type_id, language, attributes_schema "
+    "FROM attribute_cache "
+    "ORDER BY description_category_id, type_id, language"
+)
+# ✅ 纯 SELECT 零绑定参数（记忆 sqlalchemy-jsonb-cast-trap 红线自查通过）：
+# jsonb 列由 psycopg2 自动适配为 Python list，无需也不得做任何 bind cast。
+
+
+def export_schema_manifest(path: str, session=None) -> int:
+    """--export-schema-manifest 入口：全表读 attribute_cache → 清单 JSON。
+
+    流式读（stream_results，内存 O(单行)）；空 schema 行跳过并计数。
+    返回写入的类目行数。session 参数供测试注入 mock（缺省自建）。
+    """
+    owned = session is None
+    if owned:
+        from storage.database.db import get_session
+        session = get_session()
+    from sqlalchemy import text as _text
+    rows_out: list = []
+    skipped = 0
+    try:
+        cursor = session.execute(_text(MANIFEST_SQL)
+                                 .execution_options(stream_results=True)).mappings()
+        while chunk := cursor.fetchmany(500):
+            for r in chunk:
+                row = build_schema_manifest_row(
+                    r["description_category_id"], r["type_id"],
+                    r["language"], r["attributes_schema"])
+                if row is None:
+                    skipped += 1
+                    continue
+                rows_out.append(row)
+    finally:
+        if owned:
+            session.close()
+    manifest = {
+        "generated_at": int(time.time()),
+        "total_categories": len(rows_out),
+        "skipped_empty_schema": skipped,
+        "categories": rows_out,
+    }
+    _atomic_write_json(path, manifest)
+    logger.info(
+        f"✅ [export-schema-manifest] 类目 schema 清单: {path} "
+        f"({len(rows_out)} 个类目, 跳过空 schema {skipped} 行)")
+    return len(rows_out)
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     """✅ v0.69 T3.3: argparse 构造独立成函数（可单测），参数语义不变 + 新增 --all/--coverage。"""
     parser = argparse.ArgumentParser(description="预热 Ozon 类目属性缓存")
@@ -448,6 +579,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="coverage 模式下随机抽 N 个缺失 (dc,tp) 打印")
     parser.add_argument("--export-from-pg", action="store_true",
                         help="只从 PG 缓存导出 JSON（不调 Ozon API、无需凭证；与其他模式互斥）")
+    parser.add_argument("--export-schema-manifest", metavar="PATH", default=None,
+                        help="BL-19: 从 PG attribute_cache 全表导出类目 schema 清单 JSON "
+                             "（纯只读，不调 Ozon API、无需凭证；独立模式与其他模式互斥）")
     parser.add_argument("--force", action="store_true", help="强制刷新已有缓存")
     return parser
 
@@ -459,8 +593,18 @@ def parse_args(argv: Optional[list] = None):
     if args.all and args.limit is not None:
         parser.error("--all 与 --limit 互斥（--all 即全量，无需 limit；分片请用 --offset）")
     # ✅ v0.73 W2: --export-from-pg 是独立只读导出模式，与任何预热/导入/审计模式互斥
-    if args.export_from_pg:
+    # ✅ BL-19: --export-schema-manifest 同为独立只读模式，冲突面一致
+    for solo_flag, solo_set in (
+        ("--export-from-pg", args.export_from_pg),
+        ("--export-schema-manifest", args.export_schema_manifest is not None),
+    ):
+        if not solo_set:
+            continue
         conflicts = []
+        if solo_flag == "--export-schema-manifest" and args.export_from_pg:
+            conflicts.append("--export-from-pg")
+        if solo_flag == "--export-from-pg" and args.export_schema_manifest is not None:
+            conflicts.append("--export-schema-manifest")
         if args.export_only:
             conflicts.append("--export-only")
         if args.pg_only:
@@ -478,7 +622,7 @@ def parse_args(argv: Optional[list] = None):
         if args.force:
             conflicts.append("--force")
         if conflicts:
-            parser.error(f"--export-from-pg 是独立只读模式，与 {', '.join(conflicts)} 互斥")
+            parser.error(f"{solo_flag} 是独立只读模式，与 {', '.join(conflicts)} 互斥")
     return args
 
 
@@ -624,6 +768,11 @@ def main():
     # ✅ v0.69 T3.3: 覆盖率审计模式（纯只读，不碰 Ozon API 不写 PG）
     if args.coverage:
         run_coverage_report(sample=args.coverage_sample)
+        return
+
+    # ✅ BL-19: 类目 schema 清单导出（独立只读模式，与 --export-from-pg 同位、无需凭证）
+    if args.export_schema_manifest:
+        export_schema_manifest(args.export_schema_manifest)
         return
 
     # ✅ v0.73 W2: --export-from-pg 纯 PG 读导出（无需 Ozon 凭证，置于凭证检查前）

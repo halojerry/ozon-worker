@@ -63,8 +63,8 @@ jobs:
 
       # ⚠️ 编译产物 3.12 冒烟导入：静态 ls 完整性校验（package job）无法发现
       # 「.so/.pyd 存在但 import 即崩」的运行时问题（如 ABI 不匹配/缺符号）。
-      # 每平台编译后立即用 Python 3.12 实际 import 14 个编译模块，任一失败 → exit 1。
-      # 本地 Docker 预验证（python:3.12-slim + gcc，无 display/网络）：14 模块全部导入成功。
+      # 每平台编译后立即用 Python 3.12 实际 import 13 个编译模块，任一失败 → exit 1。
+      # 本地 Docker 预验证（python:3.12-slim + gcc，无 display/网络）：13 模块全部导入成功。
       # 注意 shell: bash —— win32 默认 pwsh 不支持 heredoc。
       # ⚠️ darwin-x86_64 跳过：macos-latest runner 已切 Apple Silicon（arm64 硬件），
       # x64 Python 是 Rosetta 翻译；x86_64 .so 在 dlopen 时 mach-o 架构校验失败
@@ -85,7 +85,7 @@ jobs:
                   "image_preprocessor", "ozon_scraper", "ozon_image_search",
                   "reference_images", "ozon_api",
                   "ozon_seller_analytics", "analytics_upload", "ozon_fission",
-                  "ozon_discovery", "ozon_seller", "cdp_client"]
+                  "ozon_discovery", "cdp_client"]
           failed = []
           for m in mods:
               try:
@@ -96,7 +96,7 @@ jobs:
           if failed:
               print("::error::编译产物导入失败:\n" + "\n".join(failed))
               sys.exit(1)
-          print(f"14 个编译模块全部导入成功 (Python {sys.version.split()[0]})")
+          print(f"13 个编译模块全部导入成功 (Python {sys.version.split()[0]})")
           EOF
 
       - name: Upload native binaries
@@ -172,7 +172,7 @@ jobs:
                      image_preprocessor ozon_scraper ozon_image_search \
                      reference_images ozon_api \
                      ozon_seller_analytics analytics_upload ozon_fission \
-                     ozon_discovery ozon_seller cdp_client; do
+                     ozon_discovery cdp_client; do
             for plat in darwin-arm64 darwin-x86_64 linux win32; do
               if ! ls "$plat"/"$mod".* 2>/dev/null | grep -qE "\.(so|pyd)$"; then
                 echo "❌ 缺失: $mod → $plat"
@@ -184,7 +184,7 @@ jobs:
             echo "::error::$MISSING 个二进制缺失，构建中止"
             exit 1
           fi
-          echo "✅ 4 平台 × 14 模块 = 56 个二进制全部就位"
+          echo "✅ 4 平台 × 13 模块 = 52 个二进制全部就位"
 
       - name: Clean and create package
         working-directory: skill/dist

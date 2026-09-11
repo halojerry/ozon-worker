@@ -1,6 +1,16 @@
+---
+title: Worker 对外 API 总览（叙述层）
+purpose: Base URL/双鉴权/限流/错误信封/13 阶段/版本策略等对外约定
+applies-version: ">=v0.74.0"
+last-updated: 2026-09-10
+owner: worker-api
+depends: [API-REFERENCE, CONTRACT-v4]
+status: active
+---
+
 # API-OVERVIEW.md — Worker 对外 API 总览（叙述层）
 
-> 生成日期 2026-09-08 · 对应 v0.70.0 · 端点清单见 docs/API-REFERENCE.md（自动生成）
+> 生成日期 2026-09-11 · 对应 v0.74.0 · 端点清单见 docs/API-REFERENCE.md（自动生成）
 
 本文只写「对外约定」：base URL、鉴权、限流、错误信封、任务生命周期、版本策略与变更记录。
 **不列端点清单**——完整清单以 `docs/API-REFERENCE.md`（从代码自动生成）为准；本文所有事实
@@ -13,10 +23,10 @@ Worker 是一个 FastAPI 应用：`FastAPI(title="Ozon Worker API", version="1.0
 LangGraph 管线、上传 Ozon」）。对外有两个面：
 
 - **REST**：规范路径挂 `/api/v1` 前缀（`APIRouter(prefix="/api/v1")`，`main.py:703`，
-  `app.include_router(v1)` 在 `main.py:2899`），部分端点同时以旧裸路径双挂（见 §9 版本策略）。
+  `app.include_router(v1)` 在 `main.py:2899`），部分端点同时以旧裸路径双挂（见 §11 版本策略）。
 - **远程 MCP**：`/mcp` 端点，Streamable HTTP transport（v0.67 起）。FastMCP ASGI app
   mount 进同一 FastAPI 进程（`main.py:675-676`），裸路径 `/mcp`（无尾斜杠）由 `_McpNoSlash`
-  内部转交避免鉴权前 307（`main.py:681-699`）。接入配置与 17 个工具清单见 `docs/MCP-SERVER.md`。
+  内部转交避免鉴权前 307（`main.py:681-699`）。接入配置与 22 个工具清单见 `docs/MCP-SERVER.md`。
 
 交互式文档走 FastAPI 默认：Swagger UI `/docs`、ReDoc `/redoc`、`/openapi.json`
 （`main.py:668-673` 未自定义 `docs_url/redoc_url`，即默认值）。webui 产物挂在 `/app`
@@ -173,7 +183,44 @@ MXOU 实查失败时兜底。**不要**把任一 0.0 简单当欠费拒绝。
 | `SERVICE_UNAVAILABLE` | 503 | 服务不可用（依赖故障） |
 | `INVALID_REQUEST` | 400 | 请求参数非法（信封结构/负值/物理合理性） |
 
-## 7. 分页约定
+## 7. 超时与重试（集成方建议值）
+
+以下均为**建议值**（worker 侧不强制）；限流/并发的硬口径见 §4。
+
+- **读超时 ≥ 30s**：`POST /submit_task` 是「快速入队」语义——同步段做鉴权 → MXOU 余额
+  实查（带 30s TTL 缓存，§3.5）→ SKU 判重 → PG 入队，成功即返回 `task_id`（`main.py:1595` 起），
+  **不等管线上架完成**。建议客户端读超时 ≥30s，勿按内网常规 5s 设置。
+- **任务轮询间隔 5-10s**：`GET /task_status/{task_id}` 为即时快照查询（非长轮询，立即返回
+  当前 `status`/`progress`，生命周期见 §10）。全管线 13 阶段典型为分钟级，建议 5-10s 间隔
+  轮询，拿到终态（completed/failed/cancelled）即停。
+- **429/5xx 指数退避**：收到 429（限流，§4）或 500/503（§3.6）建议按 **1s/2s/4s** 退避重试、
+  最多 **3 次**；仍失败即停，走错误报告通道（`POST /api/v1/error_reports`）。
+  401/402/422 等语义性 4xx **不重试**（重放结果不变，先修请求或账户）。
+- **submit_task 超时后重试是安全的**：超时不代表未入队——若原请求实际已入队，重试会得到
+  409 `DUPLICATE_SUBMIT`（`detail.task_id` 指向已有任务，见 §8），不会重复上架；
+  拿到 409 应转查该 task_id 的 `task_status`，而非继续重试。
+
+## 8. 幂等规则
+
+`POST /submit_task` 内建商品级判重，错误码 `DUPLICATE_SUBMIT`（409，§6）：
+
+- **判重键 sku_key**：`{tenant}:{ozon_client_id}:{商品ID}`——商品 ID 依次取
+  `draft.ozon_product_id`（跟卖）→ `draft.item_id`（1688）→ `draft.sku_id` 兜底；
+  三者皆空则**跳过判重**（`main.py:1866-1878`）。
+- **判重窗口 = 活跃状态**：同租户同 sku_key 已存在 **pending/running** 任务即拒绝二次入队——
+  提交层先查 `_find_existing_task`（`main.py:1635-1652`，去重查询失败 fail-open 放行）；
+  SELECT 与 INSERT 之间的并发窗口由部分唯一索引 `uq_ozon_product_tasks_tenant_sku`
+  （谓词 `sku_key IS NOT NULL AND status IN ('pending','running')`，
+  `storage/database/shared/model.py:69-76`）兜底，撞索引映射为干净的 409（`main.py:1894-1912`）。
+- **终态可重提**：rejected/failed/completed/cancelled 等非活跃行不参与唯一约束（索引谓词
+  只锁 pending/running）——同一商品在上次任务到终态后可正常再次提交，重试/补发不会被误伤。
+- **409 的正确消费姿势**：响应为统一错误码信封（§5），`detail.task_id`/`detail.status`
+  指向已有活跃任务——应轮询该任务至终态后再决定重提，而不是反复提交同一商品。
+- 修复链重提走 `POST /resubmit_task/{task_id}`（仅 rejected/failed 终态可重提，否则
+  `TASK_NOT_RESUBMITTABLE` 409，`main.py:2058-2063`）；采集箱草稿重提走
+  `/drafts/{id}/resubmit`（`routes/drafts_routes.py:140`）。
+
+## 9. 分页约定
 
 - **列表类端点**：`limit`/`offset` query 参数，`limit` 上限 **200** 封顶
   （discovery/runs：`limit = max(1, min(limit, 200))`，`main.py:2471`；error_reports 同款
@@ -184,7 +231,7 @@ MXOU 实查失败时兜底。**不要**把任一 0.0 简单当欠费拒绝。
   游标分页（无 offset/total），worker 原样透传（`services/order_service.py:295`、
   `services/store_sync_service.py:470`）。
 
-## 8. 任务生命周期
+## 10. 任务生命周期
 
 ```
 submit_task → pending → running → completed / failed / cancelled
@@ -207,7 +254,7 @@ submit_task → pending → running → completed / failed / cancelled
 - LangGraph 细粒度进度另有 `GET /progress/{run_id}`（内存态，`main.py:1449`）与
   任务中心 SSE（v0.61 `task_progress_events`）。
 
-## 9. 版本策略
+## 11. 版本策略
 
 - `/api/v1/` 前缀为规范路径（`main.py:703`）；旧裸路径**双挂兼容**但非全体适用——
   显式双挂的端点成对声明（如 `auth/verify` `main.py:1355-1356`、`forensics/task/{task_id}`
@@ -224,7 +271,7 @@ submit_task → pending → running → completed / failed / cancelled
 - Skill↔Worker 接口契约版本：`docs/CONTRACT-v4.md`（v4.0）。信封结构变更必须同步该文档
   （AGENTS.md「更新联动规则」）。
 
-## 10. API 变更记录（v0.56 起，对外端点/MCP 工具）
+## 12. API 变更记录（v0.56 起，对外端点/MCP 工具）
 
 > 后续按 AGENTS.md 联动规则：**改 API 必须追加本表**（新增 | 变更/弃用 一行）。
 > 注：CHANGELOG.md 缺 v0.57–v0.59 独立条目，该三行以 AGENTS.md + 代码为准。
@@ -242,15 +289,18 @@ submit_task → pending → running → completed / failed / cancelled
 | v0.69.0 | `POST/GET /api/v1/error_reports`（错误报告；`?report_id=` 详情、`?status=` 筛选） | skill CLI 提交失败 exit 3（原静默 exit 0） |
 | v0.70.0 | `GET /api/v1/forensics/task/{task_id}`（取证一站式只读）、`GET /api/v1/categories/search`、`GET /api/v1/categories/attributes`（缓存只读不回源 Ozon） | MCP 工具 14→17（+`report_issue`/`list_error_reports`/`get_task_forensics`） |
 | 未发版（2026-09-10，数据池 v1） | `POST /api/v1/analytics/seller-sync`（贡献收包，≤12/批）+ `GET /api/v1/analytics/sku-metrics?skus=`（读侧指标+补采指令，≤50/查）——数据池贡献闭环（skill 采集 what_to_sell 顺手上报 + discover 富化读侧） | — |
+| 未发版（2026-09-10，跨平台货源 v1 批1） | — | 信封新增可选 `envelope.source.platform`（`"1688"\|"taobao"\|"tmall"\|"pdd"`，worker 零强制消费，缺失按 purchase_url 域名推断，详见 CONTRACT-v4 §1.1.2）；worker 图片白名单/Referer 兼容 taobaocdn/pdd 图床，source_candidates offer_id 解析扩淘宝/拼多多 |
+| 行为变更（2026-09-11，repo-gov B4） | ①`POST /cancel_task/{id}` 对不可取消（终态）任务从 200+failed 改为 **409 + TASK_NOT_CANCELLABLE**；②删除 shelf 三个无消费 bulk 端点（POST /products/bulk-prices、/bulk-stocks、/bulk-archive——现行 webui 零引用，路径 147→144）；③error_reports/forensics 三端点迁至租户 guard 路由（路径不变，body 坏+鉴权失败并发时错误码优先 401/429/503）；④7 个高频 POST 补 requestBody 声明、schema 示例率 11%→71%（纯文档生成面） | cancel_task 客户端需处理 409（现行 skill/MCP/webui 零调用该端点的 failed 分支，零破坏面） |
+| 文档修订（2026-09-11，对应 v0.74.0） | 本文新增「§7 超时与重试」「§8 幂等规则」两节（集成方对接建议）；文档地图修正 MCP 工具数口径（worker 远程 22 + pounding-mcp 本地 30）与 API-INTEGRATION-GUIDE 墓碑状态 | —（纯文档修订，无端点/信封变更；API-REFERENCE 头部计数改三口径，由生成脚本同步） |
 
-## 11. 文档地图
+## 13. 文档地图
 
 | 文档 | 用途 | 维护方式 |
 |---|---|---|
 | `docs/API-REFERENCE.md` | 完整端点清单 | **自动生成，勿手改** |
-| `docs/API-OVERVIEW.md` | 本文：对外约定叙述层 | 手写，改 API 时人工维护 §10 |
+| `docs/API-OVERVIEW.md` | 本文：对外约定叙述层 | 手写，改 API 时人工维护 §12 |
 | `docs/CONTRACT-v4.md` | Skill↔Worker 信封/端点契约 v4.0 | 手写，契约变更三处同步 |
-| `docs/MCP-SERVER.md` | `/mcp` 接入指南 + 17 工具清单 + 客户端配置 | 手写，MCP 工具增删时同步 |
-| `docs/API-INTEGRATION-GUIDE.md` | webui/第三方 REST 对接参考 | 手写（快照式，标注提取版本） |
+| `docs/MCP-SERVER.md` | `/mcp` 接入指南 + 22 个 worker 远程 MCP 工具清单 + 客户端配置（本地 pounding-mcp 30 个采集工具的分工见其「双 MCP 分工」节） | 手写，MCP 工具增删时同步 |
+| `docs/API-INTEGRATION-GUIDE.md` | 9 行墓碑：重定向至本文与 API-REFERENCE | 墓碑，不再维护 |
 | `webui/src/imports/generated.d.ts` | webui 类型（OpenAPI 生成） | 自动生成 |
 | Swagger `/docs`、`/openapi.json` | 运行时交互文档 | FastAPI 自动 |

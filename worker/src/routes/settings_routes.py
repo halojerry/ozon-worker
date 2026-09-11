@@ -30,14 +30,23 @@ async def _authenticate(request: Request) -> str:
     return _authenticate_token("")
 
 
-@router.get("")
+# 响应示例（openapi_extra 路由级补；键值 = settings_service.DEFAULTS 合并后全量键）
+_SETTINGS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "fx_buffer_percent": 3.5, "low_stock_threshold": 10,
+    "auto_review_enabled": True, "auto_review_score": 85,
+    "order_status_notify": True, "task_fail_notify": True,
+    "daily_report_enabled": False,
+}}}}}}
+
+
+@router.get("", openapi_extra=_SETTINGS_OK_EXTRA)
 async def get_settings(request: Request):
     """读当前用户设置(合并默认值,返回全量键)。"""
     tenant_id = await _authenticate(request)
     return settings_service.get_settings(tenant_id)
 
 
-@router.put("")
+@router.put("", openapi_extra=_SETTINGS_OK_EXTRA)
 async def put_settings(request: Request):
     """合并更新用户设置(仅已知键,数值范围校验)。"""
     tenant_id = await _authenticate(request)

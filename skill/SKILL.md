@@ -1,6 +1,6 @@
 ---
 name: pounding-ozon-probe
-version: "0.74.0"
+version: "0.75.0"
 agent_created: true
 compatibility: Requires Python >=3.12, Google Chrome (auto-launched via CDP), network access to 1688/Ozon/Worker
 license: Proprietary
@@ -126,3 +126,6 @@ description: >
 
 - 缺依赖 → `pip install -r requirements.txt`；`graph`/`follow` 提示缺模块 → bootstrap 升级
   （`python3.12 bootstrap_update.py` 或重新下载最新包）
+- 升级后登录态丢失（老版本 profile 在 `data/browser/profile`）→ 老路径迁移先
+  `python3 scripts/migrate_profile.py --check` 预览，确认无误再 `--apply` 执行
+  （只复制不删除；细则见 references/env-setup.md）

@@ -1,20 +1,36 @@
-# 数据库 Schema 歧义审计（DB-SCHEMA-AUDIT）— v0.70
+---
+title: 数据库 Schema 歧义审计
+purpose: 49 表分类（含 PR#16 三张新表）、14 歧义点、ID 词汇表与 status 取值域（建表/改列必读）
+applies-version: ">=v0.74.0"
+last-updated: 2026-09-11
+owner: worker-db
+depends: [WORKER-TOPOLOGY]
+status: active
+---
+
+# 数据库 Schema 歧义审计（DB-SCHEMA-AUDIT）— v0.70 / 表清单 v0.74 补全
 
 > 起因：用户问「表名/参数/列是否有冲突、歧义」。本文档是**只读审计结论 + 低风险
 > 修复记录**，schema 权威定义唯一在 `worker/src/storage/database/shared/model.py`。
 > 新表/新列设计前先读本文「约定」节，防歧义继续累积。
 
-## 1. 表清单概览（35 张）
+## 1. 表清单概览（46 张 + PR#16 三张 = 49）
+
+> 计数口径 2026-09-11 对齐 `model.py`：45 个 `__tablename__` + `warm_dead_nodes`
+> （raw SQL 建于 `scripts/warm_category_cache.py`，不在 model）。PR#16（fix/repo-gov-b2b，
+> 已随 PR#16 合入）再增 schema_migrations / backup_heartbeat / mxou_call_ledger 三张。
+> A7 审计的「45 表」即本口径。
 
 schema 无 alembic——迁移 = `create_all + init_data.py 手写幂等 ALTER`（加列/加索引
-支持；改列类型/改名/数据回填无框架，需手写脚本）。每次部署/升级都跑 init_data。
+支持；改列类型/改名/数据回填无框架，需手写脚本）。每次部署/升级都跑 init_data；
+结构性迁移执行成功后向 `schema_migrations` 登记（幂等，观测面非执行闸门，PR#16）。
 
 | 分类 | 表 |
 |---|---|
-| 租户隔离（tenant_id） | ozon_product_tasks, product_drafts, draft_submissions(经 draft FK), credentials, product_task_index, listing_templates, order_notes, order_messages, discovery_runs, ozon_orders_cache, ozon_products_cache, credential_sync_state, store_metrics_history, store_operation_log, error_reports |
+| 租户隔离（tenant_id） | ozon_product_tasks, product_drafts, draft_submissions(经 draft FK；PR#16 起自带可空 tenant_id 列——存量行不回填不阻塞), credentials, ozon_sessions(AES-GCM aad=`tenant:credential`, active/expired), product_task_index, listing_templates, order_notes, order_messages, discovery_runs, ozon_orders_cache, ozon_products_cache, credential_sync_state, store_metrics_history, store_operation_log, error_reports |
 | 用户隔离（非 tenant_id 命名） | blue_ocean_queries / ozon_bestsellers / market_bestsellers / selection_insights（contributed_by_token_id）；image_tasks / audit_logs（user_id） |
-| 全局共享（无租户列，有意设计） | attribute_cache, dictionary_value_cache, category_cache(按 client+lang), logistics_rates, size_mappings, exchange_rates, ozon_attribute_mappings, category_tree_nodes, category_mapping(W11), category_commission, attribute_synonym, domain_hint, gateway_tasks, task_generated_images, site_banners, site_announcements, data_sources, sku_metrics_pool（未发版：UGC 跨店 sku 指标池，唯一键 sku；归因数组 source_company_ids/contributed_by_token_ids 各 cap 10；**红线只存指标**，永不存 cookie/凭证；needs_*_sync 不落列按 updated_at/缺 payload 读时计算） |
-| 审计（无租户列，经任务行可溯源） | category_match_log, attr_match_log, listing_result_log(有 tenant_id) |
+| 全局共享（无租户列，有意设计） | attribute_cache, dictionary_value_cache, category_cache(按 client+lang), logistics_rates, size_mappings, exchange_rates, ozon_attribute_mappings, category_tree_nodes, category_mapping(W11), category_commission, attribute_synonym, domain_hint, gateway_tasks, task_generated_images, site_banners, site_announcements, data_sources, sku_metrics_pool（未发版：UGC 跨店 sku 指标池，唯一键 sku；归因数组 source_company_ids/contributed_by_token_ids 各 cap 10；**红线只存指标**，永不存 cookie/凭证；needs_*_sync 不落列按 updated_at/缺 payload 读时计算）, web_category_path_map(Web 面包屑→dc/tp 学习映射，唯一键 breadcrumb_key，跨租户复用), shop_usage_stats(按 (client_id, stat_date) 聚合**无租户维度**——换绑串户已知项 A8 F8), warm_dead_nodes(Ozon 400 死节点永久跳过，PK (dc,tp)，v0.73 W3), schema_migrations(PR#16：迁移登记，PK version), backup_heartbeat(PR#16：备份心跳 append-only，detail=备份文件名，/health last_backup_at 数据源), mxou_call_ledger(PR#16：MXOU 调用台账 append-only，token_fp 指纹**绝不明文 key**), attr_bounds_learned(PR#21/v0.75：数值属性 bounds 拒单学习表，PK attr_id，sample 留拒单原文供人工复核；读写唯一入口 utils/attr_numeric_sanitize，读侧静态白名单恒赢) |
+| 审计（经任务行可溯源；v0.75 起自带租户列） | category_match_log, attr_match_log（二者 PR#21 起有可空 tenant_id 列+索引，写侧带租户空落 NULL，历史行 init_data 迁移按任务 join 回填、join 不上保持 NULL——P1-6 断裂如实）, listing_result_log(有 tenant_id) |
 
 主键三类混用：UUID(gen_random_uuid)×10 / 自然键复合键×4 / Identity 自增×其余。
 
@@ -63,6 +79,7 @@ schema 无 alembic——迁移 = `create_all + init_data.py 手写幂等 ALTER`�
 | image_tasks | pending / processing / completed / failed |
 | error_reports.status | new / triaging / fixed / wontfix |
 | listing_result_log.final_status | approved / declined / failed / pending |
+| ozon_sessions.status | active / expired |
 | ozon_orders_cache.status | 中文归一化值（⚠️ 唯一非英文域） |
 
 ## 5. 约定（新表/新列设计纪律）

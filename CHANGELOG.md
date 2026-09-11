@@ -1,5 +1,67 @@
 # Changelog
 
+## [0.75.0] — 仓库治理收口批：repo-gov v1 全量余量 + 密钥出库与历史重写（2026-09-11）
+
+> 战役：Phase 0 工作树卫生 → A1-A9 九份只读审计（`docs/audit/2026-09-11-repo-gov/`）→ 六批修复 PR（#13/#15/#16/#17/#18/#19）→ **git 历史重写**（21 组密钥全历史出库，仓库 241MB→89MB，59 tag 全部重写）→ v075 收口十项（PR #21，`docs/PLAN-v075-release-closeout.md`）。部署加固第一批（PR #20，I/O 雪崩防线）同车发出。测试基线 worker 2377→2649 / skill →1342。
+
+### ⚠️ 升级必读（运维公告）
+- **git 历史已重写**：全部历史真实密钥归零。**所有其他机器的 clone 必须删除重新 clone**（旧历史已不存在，pull 会分叉）；GitHub 侧 PR 页 diff 缓存清除工单随 `docs/audit/2026-09-11-repo-gov/SECRET-PURGE-RUNBOOK.md` 提交。
+- **19 组密钥待平台侧轮换**（用户操作，RUNBOOK 附指纹表）——历史已清但轮换前旧值仍对平台有效。
+- 升级后首次启动自动建 4 张新表（schema_migrations / backup_heartbeat / mxou_call_ledger / attr_bounds_learned），init_data 幂等迁移自动跑（token_fp 回填、审计表 tenant_id 加列+历史回填）——无需人工 SQL。
+- **ofelia 备份 sidecar 随 compose 上线**（24h 备份+心跳表+/health last_backup_at 超 26h 告警）：服务器宿主 crontab 若有旧备份任务须停，勿双跑；备份异地化（COS 上传）见 PR #20。
+- 部署后建议跑一次 `python scripts/cleanup_checkpoints.py --dry-run` 看 memory.checkpoints 存量孤儿量，确认后实删（运行期清理已自动挂 `_periodic_task_cleanup`）。
+
+### 行为变更（按影响面排序）
+- **汇率源三级链**（BL-01）：死缓存恒 12.0 → `resolve_cny_rub_rate`（PG 缓存→open.er-api.com 实时→12.0 兜底）+ 24h 刷新 + pricing marks `exchange_rate_source`/`exchange_rate_fallback`。**未配置 margin 的店上架价会随真实汇率变化**（此前恒按 12.0 折算）。
+- **佣金 >180 天降级**：超龄行视同未命中走 segments/0.10（source=`fallback:stale`，marks `commission_stale_fallback`）；what_to_sell 分段回填自动续期（updated_at 随 upsert 刷新，随用自愈）。
+- **cancel_task 不可取消 → 409**（原 200+failed；零现存客户端消费 failed 分支）。
+- **shelf 3 死端点删除**（canonical path 147→144）。
+- **字典缓存三防齐装**：负缓存 60s + TTL 抖动 ±10% + **单飞锁**（`get_or_fetch` 读穿；assemble 双站点/必填兜底 RU 首页/schema_service 四处接线；retry out_of_range 强刷保旁路语义）——同 key 并发 miss 只回源一次，确认空 60s 内不再打 Ozon；Ozon 拉取失败绝不落负缓存（异常经单飞共享等待者）。
+- **数值 bounds 拒单学习闭环**：新表 attr_bounds_learned，decline 原文置信抽取 (attr_id,界) 自动学习（收紧并集，sample 留原文人工复核）；读侧 静态白名单>学习表>不夹取。上线后首个真实 VALUE_MAX/MIN_LIMIT 原文建议回灌 parser 验证（仓库无原文存档）。
+- **submit_task 可选 `priority`**（0-100 越界 clamp、缺省/非数字 0，行为不变；认领 SQL ORDER BY priority DESC 既有）。
+- **审计表租户化**：category_match_log/attr_match_log 补 tenant_id（写侧带租户、空落 NULL；历史回填 join 不上的保持 NULL 如实）；prepare 链 PrepareOzonUploadInput 补 user_id 声明。
+- **任务归档联动清 checkpoint**：删 30 天 completed 任务前清 memory.checkpoints 三表（thread_id==task_id）。
+- **is_aspect 兜底收窄**：显式 is_aspect=False 绝对尊重；缺键行「字典形态+关键词」才判 aspect。两既有调用方现网路径零行为差（契约测试锁定）。
+- **绑店原子化**：`pg_advisory_xact_lock(hashtext(:cid))` 包预检+INSERT（create_credential/store_credential 两入口），并发双绑窗口关闭；历史双绑清查待 S3 探针。
+- **error_reports/forensics/categories/attributes 鉴权序统一**（B5 六端点收敛 + phase3 断言测试锁不回退；categories 维持 Request-helper 形态——直接调用型测试夹具与错误码序约束下的追认口径）。
+- category_cache TTL 10 年→90d（名义上限；真实失效=手动 refresh）。
+- **API 示例 100% + strict 门禁**：16 业务 schema `_examples` + routes 89 操作 + main.py 21 内联端点路由级示例（零 handler 逻辑改动）；example-lint 三级覆盖判定修正（mediatype 层/schema 层/数组 items 解引用——原实现只认 schema 层误判 124 操作）+ FastAPI 样板豁免（HTTPValidationError/ValidationError）；`--check --fail-on-missing-examples` 进 CI——**新增端点必须带示例否则 CI 红**。
+
+### 六批修复摘要（repo-gov 战役，详见各 PR 与 `docs/audit/2026-09-11-repo-gov/SUMMARY.md`）
+- **B2-α（PR #13）止血九项**：汇率死链/限流超时可见/variant_v2 实验性勘误/repair_cards 凭证参数化/sku 池 SAVEPOINT 原子化/ozon_sessions 擦除补漏/物流导入单事务/过期缓存每日清扫/attr cache type_id 归一。
+- **B1（PR #15）文档治理**：docs/README 五层索引+37 frontmatter+15 PLAN 状态行+五处失真修正+API 超时重试/幂等两节+pounding-mcp 30 工具对齐。
+- **B2-β（PR #16）基建**：ofelia 备份强制化/schema_migrations 版本表纳管/mxou_call_ledger 台账+reconcile_mxou 对账脚本/draft_submissions.tenant_id 三写侧/warm --export-schema-manifest；新表 3。
+- **B3（PR #17）规范固化**：docs/SUBAGENT-SPEC 子 Agent 规范/WORKFLOW §6.5 探针先行/RESTORE-RUNBOOK 恢复演练/probe_assets 七探针 CLI。
+- **B4（PR #18）清障**：死代码净删 244 行（error_classifier/8 死模型/shelf 3 端点/ozon_seller 出编译 13/52）+租户 guard 试点+佣金新鲜度闸+缓存负缓存与抖动+PG statement_timeout 30s+池 20+20+示例率 71%。
+- **B5（PR #19）密钥出库**：活泄露清零+CI 全树 gitleaks 闸+防回潮三闸（ratchet/指纹测试/CONVENTIONS 密钥纪律）+token_fp 五表指纹化+租户 guard 二期六端点。
+
+### v075 收口十项（PR #21）
+C1 单飞锁（含调用方接线）/ C4 bounds 学习 / C5 aspect 收窄 / C6 佣金续期锁定 / C8 绑店 advisory lock / C2 checkpoint 清理+存量脚本 / C3 审计租户化+phase3 断言闸 / C7 priority / C9 示例全覆盖+strict 门禁 / C10 pounding-mcp 30 工具参数差分核查（4 工具 7 参真漂移修复+44 参有意裁剪落档 `docs/MCP-SERVER.md`）。
+
+### 部署加固第一+二批（PR #20/#22，同车）
+2026-09-10/11 生产 I/O 雪崩 9h 事故防线：prod_db_guard 写前闸（生产库写操作 marker 确认）/compose 调参/备份 COS 异地化（backup-upload-cos.sh）/部署预检前移（第一批）；init_data 失败 warn→fail-fast（schema 半就绪不再静默；⚠️ 手动修复后勿重跑升级脚本——版本一致会早退，缓存懒加载兜底）/cd.yml tag CI 闸（tag commit 必须有绿 CI run，轮询 15min，逃生门 `CD_SKIP_CI_GATE=1`）/worker 绑定面 `WORKER_BIND_IP` 可收紧（默认 0.0.0.0 不变）（第二批）；**Sentry 断流实锤**（2026-09-11 重启后仍 7 天零 error 事件——生产 SENTRY_DSN 疑缺失，ops 清单第 7 条）；取证 `docs/audit/2026-09-11-io-avalanche.md`。
+
+### 测试与验证
+- worker 全量 **2649 passed**（PG 5433 compose，含 #20 守卫测试）/ skill **1342 passed** / pounding-mcp 80 / webui tsc+build 绿；ruff 双口径零新增；`gen_api_docs --check --fail-on-missing-examples` 零漂移+三名单 0/0/0（63/63 schema 100%）；gitleaks 全树零命中。
+- **发版 gate 口径（如实记录）**：用户指示以「发版前独立代码审查（两个并行 reviewer 覆盖 PR #20/#21/#22+物料批）+ 全量单测矩阵（worker 2639/skill 1342/mcp 80/webui/ruff/示例门禁）」替代既往的实机 ≥3 单 gate——**实机验证转入发版后首日观察**（重点：汇率源切换后的上架价、字典回源负缓存面、checkpoint 清理首夜）。
+- 行为回归注意：本版未跑实机 discover/follow 单，上架链行为变更（汇率/佣金/字典三防/aspect）以单测+本地链路为准，首日生产单如异常优先核对 pricing marks（exchange_rate_source/commission_stale_fallback）。
+
+### 发版前终审修复批（随车，独立双 reviewer 结论驱动）
+- cd.yml tag CI 闸逃生门接 repo variable `CD_SKIP_CI_GATE`（原 env 形态在 tag push 流不可操作）；超时指引改「重跑 CD run」。
+- v0.75 审计表迁移改**结构性 DDL 响失败/回填软失败**（对齐 b2b/token_fp 先例——原调用点自吞会让「半就绪 500」静默，与 H9 fail-fast 矛盾）；cos-update 的 init_data 输出落 `init_data_upgrade.log` 不再吞 /dev/null。
+- DEPLOY.md 五处 5433→15433 端口漂移修正；prod_db_guard 默认口令对齐 localdev123；backup-upload-cos.sh 空态 pipefail 假失败修正；.env.example 登记 WORKER_BIND_IP；AGENTS 补「直接 python 跑 tests 不经 conftest 闸」注记。
+
+### 已知问题与 defer（v0.76+）
+- task_status 老数据宽容读改 404：等 v0.62.4 前无租户任务行随 30d 清理滚出（约 2026-09-30 后）。
+- 明文 token 列退役（contributed_by_token_id→token_fp，dedup key 重建迁移，双写 grace 后）。
+- 认领 SQL 租户轮转（窗口函数，独立评审）；单飞锁跨副本版（多副本部署前不需）。
+- BL-26 SSH 半：历史双绑清查（S3 探针）/哈希租户迁移守卫（F2）。
+- legacy `GET /task/{task_id}`（deprecated 无鉴权）v0.76 退役或补 guard。
+- discover_task MCP 工具 dry_run 默认 True 压制 to_box（docstring 已警示）——默认翻转待产品拍板。
+- BL-18 三能力立项（财务对账/premium 店铺分析/订单全成本利润）产品线另行。
+- SSH 通道恢复后：probe_assets 七探针实跑 + RESTORE-RUNBOOK 首次演练填 RTO。
+
+
 ## [0.73.0] — 用户反馈 6+1 问题修复批次（2026-09-09，SDD 13 任务全绿）
 
 > 生产取证驱动（2026-09-09 主店铺批量 10 单失败，6 份 error_report + ozon_ro 生产库只读取证）。
@@ -47,6 +109,7 @@
 - **CHIPS 分区 cookie 双读**：`_cdp_get_cookies_sequence` Network→Storage 二读合并（same-name longer-wins，ozonAI 规则）——`abt_data` 存 partitionKey topLevelSite 下单读必漏；域过滤口径「有 domain 且不含 ozon.ru 才排除」。
 - **premium 面**：`makeBase()` 共享底座（isAnalyst/grace_period_end_at/api:full_access）接入 makeStatus+makeGraph（此前 graph 面缺共享底座）；直调补 `x-o3-app-name: seller-ui`。
 - **毛子移植双件**：①CSP 剥除 `CdpTab.set_bypass_csp`（Page.setBypassCSP，warn 不 raise；仅浏览器上下文用户自己会话、拦响应不篡改请求）；②variant_v2 真值链（seller `/api/v/search` sku→variant_id → `create-bundle-by-variant-id` → item 尺寸重量 g/mm）消费端 clamp [10,200_000]g + marks `weight_from_pool_variant`；JS 模板裸槽位值一律 json.dumps 注入（不防单引号）。
+  - 【2026-09-11 勘误】variant_v2 真值链实验性未生效：fetch_variant_truth 无生产调用方 / `_giveback_metrics` 的 variant_payloads 无人传值恒 None / worker `needs_variant_sync` 零消费（三段断链）——SkuMetricsPool.variant_payload 无生产写者、`_apply_pool_variant_weight` 生产不可达；接线归数据池计划批 8 P2（docs/audit/2026-09-11-repo-gov/A5）。
 - **派生指标**：`custom_click_rate = qtyViewPdp/views*100`（maozi 公式）进 `_assemble_discovery_meta` + CONTRACT-v4 §1.1.1 登记。
 - **P2 Excel 导出**：`export_to_xlsx` 四大区两行合并表头（基础信息/销售数据/尺寸重量/我的定价）+ 原子写 + 占用重试（PermissionError 退避，彻底失败 RuntimeError 保旧文件）+ cli `--export` 后缀路由 .xlsx 大小写不敏感。
 - 测试：worker 2377 / skill 1059 全绿；`gen_api_docs` 158 paths 零漂移；池测试带残留防护（pre-delete + try/finally，真实 PG 验证）。

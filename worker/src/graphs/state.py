@@ -348,44 +348,9 @@ class IngestOutput(BaseModel):
     failed_stage: str = Field(default="", description="失败节点名（空标题闸=ingest，成功恒空）")
 
 
-# ==================== 类目查找节点 ====================
-class CategoryLookupInput(BaseModel):
-    """类目查找节点输入"""
-    draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿数据")
-    source: Optional[Dict[str, Any]] = Field(default=None, description="产品来源数据")
-    extensions: Optional[Dict[str, Any]] = Field(default=None, description="扩展配置")
-    supabase_url: str = Field(..., description="Supabase URL")
-    supabase_key: str = Field(..., description="Supabase key")
-    ozon_client_id: str = Field(default="", description="Ozon Client-Id")
-    ozon_api_key: str = Field(default="", description="Ozon Api-Key")
-    task_id: str = Field(..., description="任务ID")
-    currency_code: str = Field(default="", description="店铺货币类型（从auth_node传递）")  # 关键：传递currency_code
-    token: str = Field(default="", description="api.mxou.cn的API Key（用于LLM调用）")  # 关键：LLM调用使用用户token
-
-
-class CategoryLookupOutput(BaseModel):
-    """类目查找节点输出"""
-    # ✅ 新增：进度追踪
-    progress_counter: int = Field(default=3, description="节点计数器（更新为3）")
-    
-    # 类目信息
-    category: Optional[Dict[str, Any]] = Field(default=None, description="类目信息")
-    description_category_id: str = Field(default="", description="描述类目ID")
-    type_id: str = Field(default="", description="类型ID")
-    
-    # 关键：传递draft/source/extensions给下游节点
-    draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿数据")
-    source: Optional[Dict[str, Any]] = Field(default=None, description="产品来源数据")
-    extensions: Optional[Dict[str, Any]] = Field(default=None, description="扩展配置")
-    currency_code: str = Field(default="", description="店铺货币类型（从auth_node传递）")  # 关键：传递currency_code
-    
-    # 错误信息
-    error_message: str = Field(default="", description="错误信息")
-    failed_stage: str = Field(default="category_lookup", description="失败的节点名称")
-    blocked: bool = Field(default=False, description="是否被阻断")
-
-
 # ==================== 跟卖导入节点 ====================
+# 注（2026-09-11 仓库治理 B4）：旧 4 节点管线遗骸 CategoryLookupInput/Output 已删
+# （assemble_ozon_product 替代后全仓零引用，见 docs/audit/2026-09-11-repo-gov/A5 §2 D-02）。
 class FollowSellImportOutput(BaseModel):
     """v4: 跟卖导入节点输出 — 替代直接修改 GlobalState"""
     progress_counter: int = Field(default=3, description="节点计数器")
@@ -463,81 +428,9 @@ class PricingOutput(BaseModel):
 
 
 # ==================== 属性获取节点 ====================
-class AttributesFetchInput(BaseModel):
-    """属性获取节点输入"""
-    description_category_id: str = Field(..., description="描述类目ID")
-    type_id: str = Field(default="", description="类型ID")
-    ozon_client_id: str = Field(default="", description="Ozon Client-Id")
-    ozon_api_key: str = Field(default="", description="Ozon Api-Key")
-    supabase_url: str = Field(..., description="Supabase URL")
-    supabase_key: str = Field(..., description="Supabase key")
-    task_id: str = Field(..., description="任务ID")
-    draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿数据（用于提取关键词）")  # 关键：新增字段
-
-
-class AttributesFetchOutput(BaseModel):
-    """属性获取节点输出"""
-    # ✅ 新增：进度追踪
-    progress_counter: int = Field(default=5, description="节点计数器（更新为5）")
-    
-    attributes_schema: List[Dict[str, Any]] = Field(default_factory=list, description="属性schema")
-    learned_attributes: Dict[str, Any] = Field(default_factory=dict, description="已学习的属性映射")
-    dictionary_values: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict, description="字典值列表（attribute_id -> [{id, value}]）")  # 关键：新增字段
-    ozon_source: str = Field(default="", description="数据来源")
-    error_message: str = Field(default="", description="错误信息")
-    failed_stage: str = Field(default="attributes_fetch", description="失败的节点名称")
-
-
-# ==================== 属性LLM映射节点 ====================
-class AttributesLLMInput(BaseModel):
-    """属性LLM映射节点输入"""
-    draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿数据")
-    attributes_schema: List[Dict[str, Any]] = Field(default_factory=list, description="属性schema")
-    learned_attributes: Dict[str, Any] = Field(default_factory=dict, description="已学习的属性映射")
-    dictionary_values: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict, description="字典值列表（attribute_id -> [{id, value}]）")  # 关键：新增字段
-    token: str = Field(default="", description="api.mxou.cn的API Key")
-    description_category_id: str = Field(default="", description="描述类目ID")
-    ozon_client_id: str = Field(default="", description="Ozon卖家客户端ID")
-    ozon_api_key: str = Field(default="", description="Ozon卖家API密钥")
-    type_id: str = Field(default="", description="Ozon类型ID")
-
-
-class AttributesLLMOutput(BaseModel):
-    """属性LLM映射节点输出"""
-    # ✅ 新增：进度追踪
-    progress_counter: int = Field(default=6, description="节点计数器（更新为6）")
-    
-    llm_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="LLM生成的属性")
-    llm_count: int = Field(default=0, description="LLM映射数量")
-    error_message: str = Field(default="", description="错误信息")
-    failed_stage: str = Field(default="attributes_llm", description="失败的节点名称")
-
-
-# ==================== 属性学习节点 ====================
-class AttributesLearningInput(BaseModel):
-    """属性学习节点输入"""
-    llm_attributes: List[Dict[str, Any]] = Field(..., description="LLM生成的属性")
-    attributes_schema: List[Dict[str, Any]] = Field(..., description="属性schema")
-    description_category_id: str = Field(..., description="描述类目ID")
-    type_id: str = Field(default="", description="类型ID")
-    ozon_client_id: str = Field(default="", description="Ozon Client-Id")
-    ozon_api_key: str = Field(default="", description="Ozon Api-Key")
-    supabase_url: str = Field(..., description="Supabase URL")
-    supabase_key: str = Field(..., description="Supabase key")
-    task_id: str = Field(..., description="任务ID")
-    draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿数据")  # ← 统一为Optional
-
-
-class AttributesLearningOutput(BaseModel):
-    """属性学习节点输出"""
-    # ✅ 新增：进度追踪
-    progress_counter: int = Field(default=7, description="节点计数器（更新为7）")
-    
-    final_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="最终属性列表")
-    enrich_count: int = Field(default=0, description="字典查询成功数量")
-    llm_count: int = Field(default=0, description="LLM映射数量")
-    error_message: str = Field(default="", description="错误信息")
-    failed_stage: str = Field(default="attributes_learning", description="失败的节点名称")
+# 注（2026-09-11 仓库治理 B4）：旧 4 节点管线遗骸 AttributesFetchInput/Output、
+# AttributesLLMInput/Output、AttributesLearningInput/Output 已删
+# （assemble_ozon_product 替代后全仓零引用，见 docs/audit/2026-09-11-repo-gov/A5 §2 D-02）。
 
 
 # ==================== 图片生成Phase1节点 ====================
@@ -576,6 +469,9 @@ class PrepareOzonUploadInput(BaseModel):
     )
     product_id: Optional[str] = Field(default=None, description="Ozon商品ID（跟卖更新模式需要）")
     token: str = Field(default="", description="api.mxou.cn的API Key（用于LLM翻译调用）")  # 关键：LLM翻译使用用户token
+    # ✅ v0.75 C3: 租户通道（attr_match_log 审计归属）——langgraph 按节点 Input model
+    # 过滤 channel，不声明则 getattr 恒拿空（静默 None，见 AGENTS「input schema 纪律」）。
+    user_id: str = Field(default="", description="用户ID（tenant，attr_match_log 审计归属）")
     dictionary_values: Dict[str, List[Dict[str, Any]]] = Field(
         default_factory=dict,
         description="Ozon属性字典值缓存（来自attributes_fetch_node，key=attribute_id字符串, value=字典值列表[{id,value,info}...]）"
@@ -769,16 +665,9 @@ class OzonStatusOutput(BaseModel):
 
 
 # ==================== 变体循环节点 ====================
-class VariantLoopInput(BaseModel):
-    """变体循环输入（用于variant_primary_loop子图）"""
-    variants: List[Dict[str, Any]] = Field(default_factory=list, description="变体SKU列表")
-    variant_primary_images: List[str] = Field(default_factory=list, description="已生成的变体主图列表")
-    current_variant_index: int = Field(default=0, description="当前循环到的variant索引")
-    
-    # Phase1生成的图片（作为辅助参考）
-    white_bg_image: str = Field(default="", description="白底图")
-    multi_angle_image: str = Field(default="", description="多角度展示图")
-    draft: Dict[str, Any] = Field(default_factory=dict, description="产品数据")
+# 注（2026-09-11 仓库治理 B4）：VariantLoopInput 死模型已删（variant_primary_loop 子图
+# 实际用 VariantLoopState 承载输入形态，VariantLoopInput 全仓零引用；
+# 见 docs/audit/2026-09-11-repo-gov/A5 §2 D-02）。VariantLoopState/VariantLoopOutput 活。
 
 
 class VariantLoopState(BaseModel):

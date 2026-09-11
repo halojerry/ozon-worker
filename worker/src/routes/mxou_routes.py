@@ -82,7 +82,12 @@ async def list_mxou_keys(request: Request):
     return mxou_login_service.list_keys(tenant_id)
 
 
-@router.get("/balance")
+_BALANCE_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "balance": 128.5, "currency": "CNY", "source": "mxou",
+}}}}}}
+
+
+@router.get("/balance", openapi_extra=_BALANCE_OK_EXTRA)
 async def mxou_balance(request: Request):
     """当前登录 token 的 MXOU 平台余额(登录页余额卡真实化)。
 
@@ -101,7 +106,12 @@ async def mxou_balance(request: Request):
     }
 
 
-@router.get("/my-key")
+_MYKEY_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "key": "sk-test-token-123",
+}}}}}}
+
+
+@router.get("/my-key", openapi_extra=_MYKEY_OK_EXTRA)
 async def get_my_key(request: Request, uid: str = ""):
     """WebUI 登录后自动获取该用户已有的 enabled key（免手动建 key）。
 
@@ -146,7 +156,11 @@ async def select_mxou_key(key_id: str, request: Request):
     return mxou_login_service.select_key(tenant_id, key_id)
 
 
-@router.post("/logout")
+_LOGOUT_OK_EXTRA = {"responses": {"200": {"content": {
+    "application/json": {"example": {"ok": True}}}}}}
+
+
+@router.post("/logout", openapi_extra=_LOGOUT_OK_EXTRA)
 async def mxou_logout(request: Request):
     tenant_id = await _authenticate(request)
     auth = request.headers.get("Authorization", "")
@@ -184,7 +198,12 @@ async def mxou_logout(request: Request):
     return {"ok": True}
 
 
-@router.get("/me")
+_ME_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "user_id": "28", "email": "seller@example.com", "role": "user",
+}}}}}}
+
+
+@router.get("/me", openapi_extra=_ME_OK_EXTRA)
 async def mxou_me(request: Request):
     tenant_id = await _authenticate(request)
     auth = request.headers.get("Authorization", "")

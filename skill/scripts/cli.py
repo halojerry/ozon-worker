@@ -375,12 +375,21 @@ def cmd_graph(args: argparse.Namespace) -> int:
         return 1
 
     # Extract item_id from URL if needed
+    # ⚠️ 跨平台货源 v1 批2: item_id 提取升级 parse_platform_url（1688/淘宝/天猫/拼多多）。
+    # 1688 byte-compat 红线：parse 失败回落旧 /(\d+)\.html 正则（原行为逐字节保留，
+    # 含非 1688 URL 的历史误提取行为）；信封按平台分派抓取在批4（build_graph_envelope）。
     item_id = args.item_id
+    _platform_target = None
     if not item_id and args.url:
-        import re
-        m = re.search(r"/(\d+)\.html", args.url)
-        if m:
-            item_id = m.group(1)
+        from scripts.lib.source_platforms import parse_platform_url
+        _platform_target = parse_platform_url(args.url)
+        if _platform_target is not None:
+            item_id = _platform_target.item_id
+        else:
+            import re
+            m = re.search(r"/(\d+)\.html", args.url)
+            if m:
+                item_id = m.group(1)
     if not item_id:
         _out({"error": "需要 --item-id 或 --url (含 offer ID)"})
         return 1
@@ -1514,6 +1523,8 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
             progress_callback=_match_progress,
             mxou_token=_get_tok() or "",
             blue_ocean_rows=blue_ocean_rows or None,
+            # cross_source v1 批3：利润过闸 top-N 淘宝/拼多多静默比价（0=关）
+            compare_sources=getattr(args, "compare_sources", None),
         )
     except KeyboardInterrupt:
         print("\n⚠️ 用户中断")
@@ -3093,6 +3104,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="蓝海关键词 CSV 路径（--blue-ocean-source 时；默认 /tmp/queries_all.csv）")
     dp.add_argument("--review", action="store_true",
                     help="人工评审暂停：弱匹配候选逐个确认（y/N/a=全部/s=跳过），决策写入 review_log")
+    dp.add_argument("--compare-sources", type=int, default=None,
+                    help="跨平台静默比价候选数（cross_source v1：利润过闸 top-N 在淘宝/拼多多"
+                         "后台静默比价，同款确认且显著更便宜才自动换源；优先级 显式传入 > "
+                         "env DISCOVER_COMPARE_SOURCES > 默认 5；0=关闭。default=None 使 "
+                         "env 热关即时生效——default=5 会让 env 永远失效）")
     dp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
     dp.set_defaults(func=cmd_discover)

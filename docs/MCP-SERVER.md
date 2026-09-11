@@ -1,3 +1,13 @@
+---
+title: worker 远程 MCP 服务接入指南
+purpose: /mcp 端点接入、Bearer 鉴权、工具清单与客户端配置
+applies-version: ">=v0.73.0"
+last-updated: 2026-09-11
+owner: mcp
+depends: [API-OVERVIEW, CONTRACT-v4]
+status: active
+---
+
 # MCP-SERVER.md — worker 远程 MCP 服务接入指南（v0.67.0 批次 1）
 
 > 任何支持远程 MCP 的平台（dsh / Claude Code / Cursor / Cherry Studio / ChatGPT…）
@@ -140,3 +150,76 @@ curl -i -X POST https://worker.mxou.cn/mcp \
 - 限流计数：一次工具调用记 2 次（MCP 中间件 + 内层路由各一次），比 REST 更保守。
 - 回归：`worker/tests/test_mcp_server.py`（19 用例：工具整形/鉴权中间件/挂载面）。
 - harness 侧对接（dsh 挂载、网关瘦身、8902 退役）见 `docs/PLAN-harness-mcp-adoption-v1.md`。
+
+## 附：参数差分核查表（v0.75）— 本地 pounding-mcp 30 工具
+
+> **范围注记**：本表核查的是**本地 pounding-mcp（stdio，`pounding_mcp/server.py`，30 工具）**
+> 与 `skill/scripts/cli.py` argparse 全集的参数差分（v0.75 收口批 C10），与上文 worker 远程
+> MCP（22 工具）是两套服务。事实源：argparse 定义（cli.py `build_parser`）；映射机制
+> `_build_argv`（下划线→连字符，None/False/"" 跳过，True→裸 flag）。方法论与 B1 先例一致
+> （graph 补 category/type/min-density，commit 6d0d4561）。回归
+> `pounding-mcp/tests/test_param_parity_c10.py`（8 用例）+ `test_smoke.py`（30 工具注册）。
+
+### 核查结论
+
+**①类（MCP 缺 CLI 参数）真漂移 4 工具 7 参，已修**（缺省不进 argv，旧行为逐字保持）：
+`search`+export/threads、`image_search`+ozon_product_id、`queries`+export/output、
+`session_sync`+status/cdp_url。**①类有意裁剪面 3 工具 44 参，登记不修**（discover 族
+docstring 委托 `--help`）。**②类（MCP 有 CLI 无）0 处**（background/force 是 MCP 层参数，
+`_run_or_background` 消费不进 argv；report_issue 字段是 worker REST 体，不走 argv）。
+**③类语义漂移 2 处，登记不修**（见下）。
+
+### 矩阵（21 个 skill CLI 封装）
+
+| 工具 | CLI 全参数（*必填） | MCP 覆盖 | 差异 |
+|---|---|---|---|
+| check | （无参） | 同 | ✅ |
+| list_stores | （无参） | 同 | ✅ |
+| set_store | name*/client_id*/api_key*/currency | 全覆盖 | ✅ |
+| set_token | token* | 同 | ✅ |
+| set_ak | ak* | 同 | ✅ |
+| get_ak | timeout(300) | 同 | ✅ |
+| search | query(位)*/page-size(5)/sort/export/rules/store/auto-submit/to-box/threads(3) | 全覆盖（export/threads **v0.75 补**） | ①修复 |
+| probe | url*/timeout(30) | 同 | ✅ |
+| image_search | image*/limit(10)/sort/source(aibuy)/ozon-product-id | 全覆盖（ozon_product_id **v0.75 补**） | ①修复 |
+| category | query(位)*/lang(ZH_HANS)/max(5)/store | 全覆盖 | ✅ |
+| follow | ozon_url*/auto-submit/to-box/store/review/notify | 全覆盖 | ✅ |
+| discover | 33 参 | 16 参 | ①裁剪 17（docstring 委托 --help） |
+| discover_multi | 21 参 | 7 参 | ①裁剪 14（v0.75 补 docstring 委托声明） |
+| discover_task | 27 参 | 14 参 | ①裁剪 13 + ③dry_run（见下） |
+| seller | seller_id*/max-products(60)/max-skus(30) | 全覆盖 | ✅ |
+| queries | type/keyword/sku/category_id/price_min/price_max/export(csv)/output | 全覆盖（export/output **v0.75 补**） | ①修复 |
+| graph | item_id/url/category_query/category_id/type_id/min_density/retries(3)/store/no_submit/to_box/ozon_ref_url/template_id/notify | 全覆盖 | ✅（B1 已收口） |
+| query | task_id(位)*/watch/timeout(900) | 全覆盖 | ✅ |
+| update | （无参） | 同 | ✅ |
+| cleanup | profile_cache/cache/temp/old_results/days(30)/dry_run/all | 硬编码 all=True+dry_run=True | ③登记 |
+| session_sync | credential_id*/status/worker_url/cdp_url | 全覆盖（status/cdp_url **v0.75 补**） | ①修复 |
+
+### 矩阵（5 个 worker REST 直调 + 4 个 job_*，无 CLI 对应不参与差分）
+
+analyze_store(store_id) / run_store_action(store_id,operation,payload) /
+report_issue(title,severity,category,description,steps,command,expect,actual,
+task_ids,item_id,error_codes,extra_evidence) / list_error_reports(status,limit,report_id) /
+get_task_forensics(task_id)；job_list(limit) / job_status(task_id,log_tail) /
+job_result(task_id) / job_cancel(task_id)。注记：report_issue 与 CLI `report` 子命令是
+同一 worker 端点的双通道（CLI 多 --step/--draft-ids/--offer-id/--ozon-product-id，
+MCP 以 extra_evidence dict 承载，语义等价非漂移）。
+
+### ③类语义漂移登记（只登记不修，均已在 docstring 声明）
+
+1. **cleanup 硬编码 `--all --dry-run`**（CLI 默认 False/False）——有意的「只预演不真删」
+   安全设计；真删走 skill CLI 人工执行。
+2. **discover_task `dry_run` 默认 True**（CLI store_true 默认 False），且 CLI 侧
+   `--dry-run` 压制双出口（cli.py `if args.dry_run or not (to_box or auto_submit)`）——
+   即 MCP `discover_task(to_box=True)` 缺省 dry_run=True 时**入箱被干跑压制成 no-op**，
+   必须显式 `dry_run=False`。docstring 已有「零副作用」声明 + v0.75 补压制警示句；
+   默认值是否翻转为 None（→不传 flag，双出口按 CLI 原生语义生效）属产品决策，待拍板。
+
+### 其他口径注记（非漂移）
+
+- discover/discover_multi 的 `--china` 是 argparse.SUPPRESS 隐藏兼容 flag，MCP 有意不露出。
+- search 的 --auto-submit/--to-box 是 CLI 互斥组，MCP schema 无法表达互斥，同传由 CLI
+  argparse 报错兜底（工具 docstring 已注明）。
+- image_search CLI help 首行「ak=1688 AK API（默认）」文案陈旧（default 实为 aibuy）——
+  MCP 默认 aibuy 与 CLI 实际默认一致，属 CLI 侧 help nit。
+- 修复未动 flag 名/默认语义：新参缺省值均等价于 CLI 默认（""/None/False 不进 argv）。

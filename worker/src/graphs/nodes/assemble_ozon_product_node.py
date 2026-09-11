@@ -2124,19 +2124,11 @@ def assemble_ozon_product_node(
         dict_id = attr.get("dictionary_id", 0)
         if dict_id and dict_id > 0:
             attr_id = int(attr.get("id", 0))
-            values = query.get_dictionary_values(attr_id, description_category_id, type_id)
-            if not values or (isinstance(values, list) and len(values) == 0):
-                # PG 缓存未命中 → Ozon API 回退
-                logger.info(f"   PG 缓存未命中 attr={attr_id}，调用 Ozon API...")
-                values = _fetch_dict_values_from_ozon(
-                    ozon_client_id, ozon_api_key,
-                    description_category_id, type_id, attr_id,
-                    language="ZH_HANS",
-                )
-                # 写入 PG 缓存（供后续使用；attr_row 供三桶分类）
-                if values:
-                    _cache_dict_values(attr_id, description_category_id, type_id, values,
-                                       language="ZH_HANS", attr_row=attr)
+            # ✅ v0.75 C1：读穿一站式（含负缓存/单飞防击穿/三桶落档），失败返回 None
+            values = _get_dict_values_sf(
+                attr_id, description_category_id, type_id,
+                attr_row=attr, fetch_args=(ozon_client_id, ozon_api_key),
+            )
             if values and isinstance(values, list) and len(values) > 0:
                 dict_lookup[attr_id] = values
             elif isinstance(values, dict) and values.get("result"):
@@ -2656,17 +2648,11 @@ def _rebuild_for_new_category(
             dict_id = attr.get("dictionary_id", 0)
             if dict_id and dict_id > 0:
                 attr_id = int(attr.get("id", 0))
-                values = query.get_dictionary_values(attr_id, new_dc, new_type)
-                if not values or (isinstance(values, list) and len(values) == 0):
-                    logger.info(f"   PG 缓存未命中 attr={attr_id}（新类目），调用 Ozon API...")
-                    values = _fetch_dict_values_from_ozon(
-                        ozon_client_id, ozon_api_key,
-                        new_dc, new_type, attr_id,
-                        language="ZH_HANS",
-                    )
-                    if values:
-                        _cache_dict_values(attr_id, new_dc, new_type, values,
-                                           language="ZH_HANS", attr_row=attr)
+                # ✅ v0.75 C1：读穿一站式（同 Step 3 初始链，new_dc/new_type 键）
+                values = _get_dict_values_sf(
+                    attr_id, new_dc, new_type,
+                    attr_row=attr, fetch_args=(ozon_client_id, ozon_api_key),
+                )
                 if values and isinstance(values, list) and len(values) > 0:
                     new_dict_lookup[attr_id] = values
                 elif isinstance(values, dict) and values.get("result"):
@@ -3419,30 +3405,36 @@ def _validate_and_enrich_items(
                 # ⚠️ v0.29.x: 9782(危险等级)强制 RU 拉取——ZH_HANS 值匹配"非危险"
                 # 不可靠(中文表述多样), 必填属性必须用 RU 官方值确认安全默认。
                 if missing_id in HAZARD_DICT_ATTR_IDS or not isinstance(dict_vals, list) or not dict_vals:
+                    # ✅ v0.75 C1：RU 首页(limit=100)读穿——负缓存→PG→单飞回源+落桶；
+                    # 危险等级(9782)与空字典场景同键去重，缓存命中内不再逐任务打 API
+                    # （out_of_range 的强刷通道在 retry 子图 run_exclusive，语义独立）。
                     try:
-                        from utils.ozon_client import ozon_post
-                        _fetch_resp = ozon_post(
-                            client_id=ozon_client_id,
-                            api_key=ozon_api_key,
-                            endpoint="/v1/description-category/attribute/values",
-                            body={
-                                "attribute_id": missing_id,
-                                "description_category_id": int(description_category_id),
-                                "type_id": int(type_id),
-                                "language": "RU",
-                                "limit": 100,
-                                "last_value_id": 0,
-                            },
+                        from utils.dict_value_cache import get_or_fetch
+
+                        def _fetch_ru_first_page(_mid: int = missing_id) -> list[dict[str, Any]]:
+                            from utils.ozon_client import ozon_post as _op
+                            _resp = _op(
+                                client_id=ozon_client_id,
+                                api_key=ozon_api_key,
+                                endpoint="/v1/description-category/attribute/values",
+                                body={
+                                    "attribute_id": _mid,
+                                    "description_category_id": int(description_category_id),
+                                    "type_id": int(type_id),
+                                    "language": "RU",
+                                    "limit": 100,
+                                    "last_value_id": 0,
+                                },
+                            )
+                            return _resp.get("result", []) or []
+
+                        _fetched = get_or_fetch(
+                            missing_id, int(description_category_id), int(type_id), "RU",
+                            fetch_fn=_fetch_ru_first_page, attr_row=schema_attr,
                         )
-                        _fetched = _fetch_resp.get("result", [])
                         if _fetched:
                             dict_vals = _fetched
                             logger.info(f"   📡 API 获取字典值: attr={missing_id}, {len(_fetched)}条")
-                            # 写入 PG 缓存（RU 语言），供后续相同类目的产品复用
-                            try:
-                                _cache_dict_values(missing_id, int(description_category_id), int(type_id), _fetched, language="RU")
-                            except Exception as _ce:
-                                logger.debug(f"   RU 字典缓存写入跳过 attr={missing_id}: {_ce}")
                     except Exception as _fe:
                         logger.debug(f"   API 获取字典值失败 attr={missing_id}: {_fe}")
 
@@ -3751,6 +3743,43 @@ def _fetch_dict_values_from_ozon(
         return None
     logger.info(f"   ✅ Ozon API 返回 attr={attribute_id} 字典值: {len(result)} 条（分页拉全）")
     return result
+
+
+class _DictFetchFailed(Exception):
+    """Ozon 字典拉取失败（区别于确认空 []）：单飞等待者共享失败，绝不落负缓存。"""
+
+
+def _get_dict_values_sf(
+    attribute_id: int, description_category_id: int, type_id: int,
+    *, attr_row: dict[str, Any] | None, fetch_args: tuple[str, str],
+) -> list[dict[str, Any]] | None:
+    """v0.75 C1 接线：字典值读穿一站式（负缓存→PG scoped/全局桶→miss 单飞回源
+    +锁内双检→落桶/负缓存），替代旧「query.get_dictionary_values → miss →
+    _fetch_dict_values_from_ozon → _cache_dict_values」三段手写链。
+
+    失败语义与旧链一致：Ozon API 失败返回 None（不写缓存、不落负缓存——
+    异常经单飞共享给同 key 等待者，由本函数统一转回 None）。防击穿基座与
+    三桶路由见 utils/dict_value_cache.get_or_fetch。
+    """
+    from utils.dict_value_cache import get_or_fetch
+
+    def _fetch() -> list[dict[str, Any]]:
+        got = _fetch_dict_values_from_ozon(
+            fetch_args[0], fetch_args[1],
+            description_category_id, type_id, attribute_id,
+            language="ZH_HANS",
+        )
+        if got is None:
+            raise _DictFetchFailed(attribute_id)
+        return got
+
+    try:
+        return get_or_fetch(
+            attribute_id, description_category_id, type_id, "ZH_HANS",
+            fetch_fn=_fetch, attr_row=attr_row,
+        )
+    except _DictFetchFailed:
+        return None
 
 
 def _cache_attribute_schema(
@@ -4120,14 +4149,17 @@ def _log_match_attempt(state, title: str, source_category: str, keywords: str,
             _source_url = str((_d if isinstance(_d, dict) else {}).get("purchase_url") or "")[:500]
         except Exception:
             _source_url = ""
+        # ✅ v0.75 C3: 租户归属（state.user_id）——assemble 节点吃 GlobalState（user_id
+        # 已声明，langgraph 不过滤）；空落 NULL（老任务/直跑兼容），不猜不派生。
+        _tenant_id = str(getattr(state, "user_id", "") or "").strip()[:50] or None
         conn = _pg.connect(_gdu())
         try:
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO category_match_log (task_id, source_title, source_category, source_url,
                     source_keywords,
-                    matched_description_category_id, matched_type_id, match_layer, confidence, candidates_json)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                    matched_description_category_id, matched_type_id, match_layer, confidence, candidates_json, tenant_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
             """, (
                 task_id, (title or "")[:500], (source_category or "")[:500],
                 _source_url or None,
@@ -4139,6 +4171,7 @@ def _log_match_attempt(state, title: str, source_category: str, keywords: str,
                     "name": c.get("node_name", ""), "sim": c.get("similarity", 0),
                     "fp": c.get("fingerprint_score", 0), "path": c.get("full_path", "")
                 } for c in (candidates or [])[:15]], ensure_ascii=False),
+                _tenant_id,
             ))
             conn.commit()
         finally:

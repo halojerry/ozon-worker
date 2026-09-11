@@ -21,6 +21,11 @@ import platform
 from pathlib import Path
 
 # 需要编译的核心文件（保护源码）
+# ⚠️ B4 (2026-09-11 仓库治理)：ozon_seller.py 出编译清单（14 → 13）——
+# 佣金/属性链已迁 worker（commission_resolver/ozon_client），生产零 import，
+# 每版本 4 平台编译纯浪费构建时间（docs/audit/2026-09-11-repo-gov/A5 §2 D-08）。
+# 源文件降级进 AUX_FILES 明文随包，保留 test_premium_coverage.py 实测的
+# premium spoof 能力（fetch_analytics_via_premium_spoof）可被按需 import。
 COMPILE_FILES = [
     "scripts/lib/ak_1688_client.py",
     "scripts/lib/ak_callback.py",
@@ -37,7 +42,6 @@ COMPILE_FILES = [
     "scripts/lib/analytics_upload.py",       # 采集数据上报 worker /analytics/*
     "scripts/lib/ozon_fission.py",           # 裂变选品引擎（discover v3 BFS）
     "scripts/lib/ozon_discovery.py",         # 选品发现引擎（P6 从 COPY 晋升，蓝海评分/1688匹配）
-    "scripts/lib/ozon_seller.py",            # Ozon Seller API 客户端（佣金/属性）
     "scripts/lib/cdp_client.py",             # 原生 CDP WebSocket 客户端（替代 Playwright）
 ]
 
@@ -64,6 +68,21 @@ COPY_FILES = [
     # 无需伪造），反检测是对抗性代码——1688/Ozon 升级检测必须能快速调，
     # 且编译态改 3 行就要重编译 4 平台。明文跨平台一致。
     "scripts/capabilities/browser_probe/stealth.py",
+    # ⚠️ 跨平台货源 v1 批2（cloud_probe 同款先例）：平台适配器改动频繁
+    # （反爬对抗面）且含长 JS（页内 mtop fetch 注入），明文跨平台一致。
+    "scripts/lib/source_platforms.py",   # 四平台 URL 解析（纯函数唯一入口）
+    "scripts/lib/taobao_client.py",      # 淘宝/天猫 mtop 适配器（批3 pdd 同款）
+    # ⚠️ 跨平台货源 v1 批3（taobao_client 同款先例）：拼多多适配器——反爬
+    # 迭代频繁 + 页内 rawData/render-sku 长 JS 注入，明文跨平台一致。
+    "scripts/lib/pdd_client.py",         # 拼多多 rawData 适配器（批3）
+    # ⚠️ discover 跨平台静默货源匹配 v1 批1（cloud_probe/pdd_client 同款先例，
+    # 2026-09-10）：关键词搜索通道含页内长 JS（渲染等待 + DOM/正则解析注入）
+    # 且反爬对抗面改动频繁，明文跨平台一致 + 可快速迭代。
+    "scripts/lib/cross_source_search.py",  # 淘宝/拼多多关键词搜索（SourceOffer）
+    # ⚠️ discover 跨平台静默货源匹配 v1 批2（2026-09-10，cross_source_search
+    # 同链路）：同款确认/选优/关键词提取纯函数——阈值与评分口径会随批4 实机
+    # gate 快速调（env 常量+词表都在这），明文跨平台一致 + 可快速迭代。
+    "scripts/lib/source_matcher.py",     # 同款确认与跨平台选优（Decision）
 ]
 
 # 辅助文件（必须复制，否则 import 会失败）
@@ -77,6 +96,10 @@ AUX_FILES = [
     "scripts/lib/utils.py",          # 共享工具函数（parse_price 等）
     "scripts/lib/cache.py",          # 通用磁盘缓存（JSON + TTL + SHA256 key）
     "scripts/lib/ozon_widget.py",    # Ozon Widget API 客户端（产品/跟卖）
+    # ⚠️ B4 (2026-09-11 仓库治理)：从 COMPILE_FILES 降级至此（不再 4 平台编译，
+    # 明文随包）。生产零 import，仅 test_premium_coverage.py 实测其 premium
+    # spoof 能力——能力保留、按需 import（A5 §2 D-08）。
+    "scripts/lib/ozon_seller.py",    # Ozon Seller API 客户端（premium spoof，生产零 import）
     "scripts/lib/updater.py",        # 自动更新（COS manifest 检测 + 下载/回滚）
     "scripts/lib/review_log.py",     # 决策审计落盘（D3 L2，data/review_log.jsonl）
     "scripts/lib/source_candidates.py",  # PRD M5b 货源匹配上报（skill→worker，fail-open）

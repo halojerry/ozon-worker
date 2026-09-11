@@ -30,7 +30,13 @@ async def _authenticate(request: Request) -> str:
     return _authenticate_token("")
 
 
-@router.post("")
+# 响应示例（openapi_extra 路由级补；结构 = source_candidate_service.upsert_source_candidates）
+_REPORT_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "inserted": 3, "updated": 1,
+}}}}}}
+
+
+@router.post("", openapi_extra=_REPORT_OK_EXTRA)
 async def report_source_candidates(request: Request):
     """skill 图搜/跟卖匹配结果上报(POST /api/v1/source-candidates)。
 

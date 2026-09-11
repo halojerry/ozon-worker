@@ -1,6 +1,6 @@
 # Ozon Worker API 参考（自动生成）
 
-> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.74.0 · 158 个 path / 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
+> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.75.0 · 144 个 path / 180 个操作（155 含兼容别名）/ 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
 > 对外约定（Base URL / 鉴权 / 限流 / 错误信封 / 分页 / 版本策略）见 `docs/API-OVERVIEW.md`；MCP 面见 `docs/MCP-SERVER.md`；交互式 Swagger `GET /docs`。
 
 规范路径为 `/api/v1/...`；带「兼容别名」的端点同时挂在旧裸路径，语义一致。示例 JSON 只填 required 字段（schema 声明了 `examples` 的按声明渲染）。
@@ -31,7 +31,7 @@
 - [mxou](#mxou) （9）
 - [node_run](#node-run) （1）
 - [orders](#orders) （12）
-- [products](#products) （10）
+- [products](#products) （7）
 - [progress](#progress) （2）
 - [resubmit_task](#resubmit-task) （1）
 - [run](#run) （1）
@@ -390,6 +390,21 @@ Admin Logistics Import Rates — CSV 批量导入（键匹配 upsert；坏行跳
 |---|---|---|
 | 200 | Successful Response | [LogisticsImportResult](#schema-logisticsimportresult) |
 
+响应示例：
+
+```json
+{
+  "errors": [
+    {
+      "error": "weight_min 不能大于 weight_max",
+      "row": 5
+    }
+  ],
+  "imported": 12,
+  "updated": 3
+}
+```
+
 ### `PUT /api/v1/admin/logistics/rates/{rate_id}`
 Admin Logistics Update Rate — 更新单条费率：校验失败 → 400，id 不存在 → 404。
 
@@ -406,6 +421,26 @@ Admin Logistics Update Rate — 更新单条费率：校验失败 → 400，id �
 | 200 | Successful Response | [LogisticsRateRow](#schema-logisticsraterow) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "base_cost": 3.12,
+  "charge_type": "actual",
+  "delivery_method": "RETS Express Extra Small",
+  "id": 1,
+  "longest_limit_cm": 60,
+  "per_gram_rate": 0.0468,
+  "scoring_group": "Extra Small",
+  "service_level": "Express",
+  "sum_limit_cm": 90,
+  "tpl_provider": "RETS",
+  "vol_weight_divisor": 0,
+  "weight_max": 500,
+  "weight_min": 1
+}
+```
+
 ### `GET /api/v1/admin/overview`
 Admin Overview
 
@@ -414,6 +449,23 @@ Admin Overview
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [AdminOverviewOut](#schema-adminoverviewout) |
+
+响应示例：
+
+```json
+{
+  "statistics": {
+    "cancelled": 23,
+    "completed": 1124,
+    "failed": 137
+  },
+  "store_count": 89,
+  "success_rate": 87.6,
+  "task_today": 23,
+  "task_total": 1284,
+  "user_count": 57
+}
+```
 
 ### `GET /api/v1/admin/queries`
 List Queries
@@ -433,6 +485,29 @@ List Queries
 | 200 | Successful Response | [QueryListOut](#schema-querylistout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "avg_ca_rub": 1250.5,
+      "avg_count_items": 310.2,
+      "ca": 0.8,
+      "count": 1520,
+      "created_at": "2026-09-10T12:00:00+00:00",
+      "id": 42,
+      "items_views": 45600.0,
+      "query": "органайзер для косметики",
+      "source": "fetched",
+      "uniq_queries_wca": 118,
+      "uniq_sellers": 128.0
+    }
+  ],
+  "total": 137
+}
+```
+
 ### `GET /api/v1/admin/queries/`
 List Queries
 
@@ -451,6 +526,29 @@ List Queries
 | 200 | Successful Response | [QueryListOut](#schema-querylistout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "avg_ca_rub": 1250.5,
+      "avg_count_items": 310.2,
+      "ca": 0.8,
+      "count": 1520,
+      "created_at": "2026-09-10T12:00:00+00:00",
+      "id": 42,
+      "items_views": 45600.0,
+      "query": "органайзер для косметики",
+      "source": "fetched",
+      "uniq_queries_wca": 118,
+      "uniq_sellers": 128.0
+    }
+  ],
+  "total": 137
+}
+```
+
 ### `POST /api/v1/admin/queries/import`
 Import Queries
 
@@ -458,10 +556,7 @@ Import Queries
 
 ```json
 {
-  "items": [
-    {}
-  ],
-  "csv": "string"
+  "csv": "query,count,ca,avg_ca_rub\nорганайзер для косметики,1520,0.8,1250.5\n"
 }
 ```
 
@@ -471,6 +566,21 @@ Import Queries
 |---|---|---|
 | 200 | Successful Response | [QueryImportResult](#schema-queryimportresult) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "errors": [
+    {
+      "error": "query 必填",
+      "row": 3
+    }
+  ],
+  "imported": 40,
+  "updated": 2
+}
+```
 
 ### `DELETE /api/v1/admin/queries/{query_id}`
 Delete Query
@@ -487,6 +597,15 @@ Delete Query
 |---|---|---|
 | 200 | Successful Response | [QueryDeleteOut](#schema-querydeleteout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "deleted": true,
+  "ok": true
+}
+```
 
 ### `GET /api/v1/admin/site/announcements`
 Admin Site Announcements
@@ -506,6 +625,19 @@ Admin Site Create Announcement
 |---|---|---|
 | 201 | Successful Response | [SiteAnnouncementOut](#schema-siteannouncementout) |
 
+响应示例：
+
+```json
+{
+  "announcement_type": "popup",
+  "content": "Worker 将于 2026-09-12 02:00-03:00（UTC+8）升级，期间任务提交可能短暂失败。",
+  "created_at": "2026-09-10T04:00:00+00:00",
+  "enabled": true,
+  "id": 1,
+  "title": "系统升级公告"
+}
+```
+
 ### `PUT /api/v1/admin/site/announcements/{announcement_id}`
 Admin Site Update Announcement
 
@@ -521,6 +653,19 @@ Admin Site Update Announcement
 |---|---|---|
 | 200 | Successful Response | [SiteAnnouncementOut](#schema-siteannouncementout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "announcement_type": "popup",
+  "content": "Worker 将于 2026-09-12 02:00-03:00（UTC+8）升级，期间任务提交可能短暂失败。",
+  "created_at": "2026-09-10T04:00:00+00:00",
+  "enabled": true,
+  "id": 1,
+  "title": "系统升级公告"
+}
+```
 
 ### `DELETE /api/v1/admin/site/announcements/{announcement_id}`
 Admin Site Delete Announcement
@@ -556,6 +701,21 @@ Admin Site Create Banner
 |---|---|---|
 | 201 | Successful Response | [SiteBannerOut](#schema-sitebannerout) |
 
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-01T02:00:00+00:00",
+  "enabled": true,
+  "id": 1,
+  "image_url": "https://worker.mxou.cn/static/banners/autumn-2026.png",
+  "link_url": "https://worker.mxou.cn/bestsellers",
+  "sort_order": 10,
+  "title": "秋季选品季",
+  "updated_at": "2026-09-10T04:30:00+00:00"
+}
+```
+
 ### `PUT /api/v1/admin/site/banners/{banner_id}`
 Admin Site Update Banner
 
@@ -571,6 +731,21 @@ Admin Site Update Banner
 |---|---|---|
 | 200 | Successful Response | [SiteBannerOut](#schema-sitebannerout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-01T02:00:00+00:00",
+  "enabled": true,
+  "id": 1,
+  "image_url": "https://worker.mxou.cn/static/banners/autumn-2026.png",
+  "link_url": "https://worker.mxou.cn/bestsellers",
+  "sort_order": 10,
+  "title": "秋季选品季",
+  "updated_at": "2026-09-10T04:30:00+00:00"
+}
+```
 
 ### `DELETE /api/v1/admin/site/banners/{banner_id}`
 Admin Site Delete Banner
@@ -649,6 +824,29 @@ Admin User Detail
 | 200 | Successful Response | [AdminUserDetailOut](#schema-adminuserdetailout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "id": "28",
+  "stores": [
+    {
+      "currency": "CNY",
+      "id": "3c9d2f4e-1111-4222-8333-444455556666",
+      "is_default": true,
+      "last_validated_at": "2026-09-11T00:00:00Z",
+      "ozon_client_id": "5381204",
+      "shop_name": "测试店",
+      "status": "active",
+      "tenant_id": "28"
+    }
+  ],
+  "task_completed": 187,
+  "task_failed": 21,
+  "task_total": 214
+}
+```
+
 ### `PATCH /api/v1/admin/users/{user_id}`
 Admin Update User
 
@@ -703,6 +901,16 @@ V1 Analytics Market Bestsellers — skill market-bestsellers 全平台榜单数�
 |---|---|---|
 | 200 | Successful Response | [AnalyticsReportResponse](#schema-analyticsreportresponse) |
 
+响应示例：
+
+```json
+{
+  "inserted": 42,
+  "status": "ok",
+  "upserted": 7
+}
+```
+
 ### `GET /api/v1/analytics/market-overview`
 Http Market Overview — 聚合市场概览:用户看自己店铺,admin 看全平台;热销品数保持全局共享目录。
 
@@ -721,6 +929,16 @@ V1 Analytics Ozon Bestsellers — skill ozon-bestsellers 榜单数据上报（�
 |---|---|---|
 | 200 | Successful Response | [AnalyticsReportResponse](#schema-analyticsreportresponse) |
 
+响应示例：
+
+```json
+{
+  "inserted": 42,
+  "status": "ok",
+  "upserted": 7
+}
+```
+
 ### `POST /api/v1/analytics/queries`
 V1 Analytics Queries — skill what-to-sell all-queries 关键词蓝海数据上报（去重键 query+token，重复上报 upsert 更新）。
 
@@ -729,6 +947,16 @@ V1 Analytics Queries — skill what-to-sell all-queries 关键词蓝海数据上
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [AnalyticsReportResponse](#schema-analyticsreportresponse) |
+
+响应示例：
+
+```json
+{
+  "inserted": 42,
+  "status": "ok",
+  "upserted": 7
+}
+```
 
 ### `GET /api/v1/analytics/sales-trend`
 Http Sales Trend — 销售趋势:用户看自己店铺,admin 看全平台。
@@ -944,6 +1172,16 @@ V1 Cancel Task — 取消待处理的任务。
 | 409 | Conflict | [ErrorBody](#schema-errorbody) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "message": "任务已取消",
+  "ok": true,
+  "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+}
+```
+
 ## categories
 
 ### `GET /api/v1/categories/attributes`
@@ -1156,6 +1394,16 @@ Validate Credential
 | 200 | Successful Response | [ValidateResponse](#schema-validateresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "last_validated_at": "2026-09-11T02:00:00Z",
+  "reason": "ok",
+  "valid": true
+}
+```
+
 ## dashboard
 
 ### `GET /api/v1/dashboard/overview`
@@ -1187,6 +1435,16 @@ V1 Discovery Report Run — discover 选品结果归档（W10 D12）：单次上
 |---|---|---|
 | 200 | Successful Response | [AnalyticsReportResponse](#schema-analyticsreportresponse) |
 
+响应示例：
+
+```json
+{
+  "inserted": 42,
+  "status": "ok",
+  "upserted": 7
+}
+```
+
 ## drafts
 
 ### `GET /api/v1/drafts`
@@ -1208,14 +1466,109 @@ List Drafts — 列表（T-P3.1 批次契约）：可选 ?batch= 按 source_batc
 ### `POST /api/v1/drafts`
 Create Draft
 
+**请求体**（application/json，必填）：DraftCreate（内联）
+
+```json
+{
+  "envelope": {
+    "draft": {
+      "attributes": {
+        "材质": "硅胶",
+        "颜色": "蓝色"
+      },
+      "currency": "CNY",
+      "dimensions": {
+        "height": 60,
+        "length": 150,
+        "width": 90
+      },
+      "images": [
+        "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+      ],
+      "item_id": "812345678901",
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+      "title": "便携折叠水杯 500ml 硅胶",
+      "weight": 120
+    },
+    "extensions": {},
+    "source": {
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html"
+    }
+  },
+  "ozon_api_key": "",
+  "ozon_client_id": "",
+  "source": "skill",
+  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+}
+```
+
 **响应**
 
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [DraftOut](#schema-draftout) |
 
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-08T10:00:00Z",
+  "id": "a1b2c3d4-0000-4000-8000-000000000001",
+  "image_mirror_state": "mirrored",
+  "notes": "竞品月销 140，跟卖利润空间 12%",
+  "payload": {
+    "draft": {
+      "attributes": {
+        "材质": "硅胶",
+        "颜色": "蓝色"
+      },
+      "currency": "CNY",
+      "dimensions": {
+        "height": 60,
+        "length": 150,
+        "width": 90
+      },
+      "images": [
+        "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+      ],
+      "item_id": "812345678901",
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+      "title": "便携折叠水杯 500ml 硅胶",
+      "weight": 120
+    },
+    "extensions": {},
+    "source": {
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html"
+    }
+  },
+  "source": "skill",
+  "source_batch": "batch-20260908-100000",
+  "submission_status": "pending",
+  "tenant_id": "28",
+  "updated_at": "2026-09-08T10:05:00Z",
+  "version": 1
+}
+```
+
 ### `POST /api/v1/drafts/batch-submit`
 Batch Submit Drafts — 批量提交草稿(≤50):逐条进行中守卫;返回 submitted/skipped/failed 明细。
+
+**请求体**（application/json，必填）：DraftBatchSubmitRequest（内联）
+
+```json
+{
+  "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+  "ids": [
+    "a1b2c3d4-0000-4000-8000-000000000001",
+    "a1b2c3d4-0000-4000-8000-000000000004"
+  ],
+  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+}
+```
 
 **响应**
 
@@ -1234,6 +1587,31 @@ Export Drafts — PRD M5(P2): 采集箱导出 CSV(租户隔离,UTF-8 BOM 兼容 
 
 ### `POST /api/v1/drafts/import`
 Import Drafts Csv — PRD M5b(P2): CSV/JSON 批量导入采集箱(竞品对标)。
+
+**请求体**（application/json，必填）：DraftBatchImportRequest（内联）
+
+```json
+{
+  "rows": [
+    {
+      "height": 60,
+      "images": [
+        "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+      ],
+      "item_id": "812345678901",
+      "length": 150,
+      "price": 729.0,
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+      "stock": 10,
+      "supplier": "义乌市某日用品厂",
+      "title": "便携折叠水杯 500ml 硅胶",
+      "weight": 120,
+      "width": 90
+    }
+  ]
+}
+```
 
 **响应**
 
@@ -1257,6 +1635,50 @@ Get Draft
 | 200 | Successful Response | [DraftOut](#schema-draftout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-08T10:00:00Z",
+  "id": "a1b2c3d4-0000-4000-8000-000000000001",
+  "image_mirror_state": "mirrored",
+  "notes": "竞品月销 140，跟卖利润空间 12%",
+  "payload": {
+    "draft": {
+      "attributes": {
+        "材质": "硅胶",
+        "颜色": "蓝色"
+      },
+      "currency": "CNY",
+      "dimensions": {
+        "height": 60,
+        "length": 150,
+        "width": 90
+      },
+      "images": [
+        "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+      ],
+      "item_id": "812345678901",
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+      "title": "便携折叠水杯 500ml 硅胶",
+      "weight": 120
+    },
+    "extensions": {},
+    "source": {
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html"
+    }
+  },
+  "source": "skill",
+  "source_batch": "batch-20260908-100000",
+  "submission_status": "pending",
+  "tenant_id": "28",
+  "updated_at": "2026-09-08T10:05:00Z",
+  "version": 1
+}
+```
+
 ### `PATCH /api/v1/drafts/{draft_id}`
 Patch Draft
 
@@ -1272,6 +1694,50 @@ Patch Draft
 |---|---|---|
 | 200 | Successful Response | [DraftOut](#schema-draftout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-08T10:00:00Z",
+  "id": "a1b2c3d4-0000-4000-8000-000000000001",
+  "image_mirror_state": "mirrored",
+  "notes": "竞品月销 140，跟卖利润空间 12%",
+  "payload": {
+    "draft": {
+      "attributes": {
+        "材质": "硅胶",
+        "颜色": "蓝色"
+      },
+      "currency": "CNY",
+      "dimensions": {
+        "height": 60,
+        "length": 150,
+        "width": 90
+      },
+      "images": [
+        "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+      ],
+      "item_id": "812345678901",
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+      "title": "便携折叠水杯 500ml 硅胶",
+      "weight": 120
+    },
+    "extensions": {},
+    "source": {
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html"
+    }
+  },
+  "source": "skill",
+  "source_batch": "batch-20260908-100000",
+  "submission_status": "pending",
+  "tenant_id": "28",
+  "updated_at": "2026-09-08T10:05:00Z",
+  "version": 1
+}
+```
 
 ### `DELETE /api/v1/drafts/{draft_id}`
 Delete Draft — T10 采集箱删除：租户隔离；draft_submissions 由 FK CASCADE 级联删（验收：清空/删除级联删 submissions）。
@@ -1299,12 +1765,29 @@ Draft Ai Field — 单字段 AI 重新生成（T14b）：只读，返回 RU 值�
 | `draft_id` | path | string | ✓ |  |
 | `field` | path | string | ✓ |  |
 
+**请求体**（application/json，必填）：DraftAiRequest（内联）
+
+```json
+{
+  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+}
+```
+
 **响应**
 
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [DraftAiResponse](#schema-draftairesponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "field": "title",
+  "value": "Автопоилка для животных 2 л, фонтан с фильтром"
+}
+```
 
 ### `POST /api/v1/drafts/{draft_id}/assemble`
 Draft Assemble — 一键预组装（v0.70）：LLM 生成整卡上架信息并写回 payload（version++）。
@@ -1319,7 +1802,7 @@ Draft Assemble — 一键预组装（v0.70）：LLM 生成整卡上架信息并�
 
 ```json
 {
-  "token": "string"
+  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
 }
 ```
 
@@ -1380,6 +1863,15 @@ Resubmit Draft — 失败/被拒草稿重新提交(进行中 → 409)。
 |---|---|---|---|---|
 | `draft_id` | path | string | ✓ |  |
 
+**请求体**（application/json，必填）：DraftSubmitRequest（内联）
+
+```json
+{
+  "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+}
+```
+
 **响应**
 
 | 状态码 | 说明 | Schema |
@@ -1425,6 +1917,15 @@ Submit Draft
 | 名称 | 位置 | 类型 | 必填 | 说明 |
 |---|---|---|---|---|
 | `draft_id` | path | string | ✓ |  |
+
+**请求体**（application/json，必填）：DraftSubmitRequest（内联）
+
+```json
+{
+  "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+}
+```
 
 **响应**
 
@@ -1521,6 +2022,16 @@ V1 Health — 健康检查（含 PG 连通性）。
 |---|---|---|
 | 200 | Successful Response | [HealthResponse](#schema-healthresponse) |
 
+响应示例：
+
+```json
+{
+  "db": "connected",
+  "message": "服务正常",
+  "status": "ok"
+}
+```
+
 ## image-tasks
 
 ### `GET /api/v1/image-tasks`
@@ -1540,6 +2051,30 @@ List Image Tasks
 | 200 | Successful Response | [ImageTaskListResponse](#schema-imagetasklistresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "created_at": "2026-09-11T08:30:00.123456+00:00",
+      "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+      "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "params": {
+        "tolerance": 30
+      },
+      "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "status": "completed",
+      "type": "remove_bg",
+      "updated_at": "2026-09-11T08:30:00.123456+00:00"
+    }
+  ],
+  "limit": 50,
+  "offset": 0,
+  "total": 3
+}
+```
+
 ### `POST /api/v1/image-tasks`
 Create Image Task — 同步 stub：status=completed, result=input_image_url。真实处理留后续批次。
 
@@ -1547,8 +2082,11 @@ Create Image Task — 同步 stub：status=completed, result=input_image_url。�
 
 ```json
 {
-  "type": "string",
-  "input_image_url": "string"
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "type": "remove_bg"
 }
 ```
 
@@ -1558,6 +2096,23 @@ Create Image Task — 同步 stub：status=completed, result=input_image_url。�
 |---|---|---|
 | 201 | Successful Response | [ImageTaskResponse](#schema-imagetaskresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-11T08:30:00.123456+00:00",
+  "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "status": "completed",
+  "type": "remove_bg",
+  "updated_at": "2026-09-11T08:30:00.123456+00:00"
+}
+```
 
 ### `GET /api/v1/image-tasks/`
 List Image Tasks
@@ -1576,6 +2131,30 @@ List Image Tasks
 | 200 | Successful Response | [ImageTaskListResponse](#schema-imagetasklistresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "created_at": "2026-09-11T08:30:00.123456+00:00",
+      "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+      "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "params": {
+        "tolerance": 30
+      },
+      "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "status": "completed",
+      "type": "remove_bg",
+      "updated_at": "2026-09-11T08:30:00.123456+00:00"
+    }
+  ],
+  "limit": 50,
+  "offset": 0,
+  "total": 3
+}
+```
+
 ### `POST /api/v1/image-tasks/`
 Create Image Task — 同步 stub：status=completed, result=input_image_url。真实处理留后续批次。
 
@@ -1583,8 +2162,11 @@ Create Image Task — 同步 stub：status=completed, result=input_image_url。�
 
 ```json
 {
-  "type": "string",
-  "input_image_url": "string"
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "type": "remove_bg"
 }
 ```
 
@@ -1594,6 +2176,23 @@ Create Image Task — 同步 stub：status=completed, result=input_image_url。�
 |---|---|---|
 | 201 | Successful Response | [ImageTaskResponse](#schema-imagetaskresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-11T08:30:00.123456+00:00",
+  "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "status": "completed",
+  "type": "remove_bg",
+  "updated_at": "2026-09-11T08:30:00.123456+00:00"
+}
+```
 
 ### `GET /api/v1/image-tasks/{task_id}`
 Get Image Task
@@ -1610,6 +2209,23 @@ Get Image Task
 |---|---|---|
 | 200 | Successful Response | [ImageTaskResponse](#schema-imagetaskresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-11T08:30:00.123456+00:00",
+  "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "status": "completed",
+  "type": "remove_bg",
+  "updated_at": "2026-09-11T08:30:00.123456+00:00"
+}
+```
 
 ### `POST /api/v1/image-tasks/{task_id}/cancel`
 Cancel Image Task
@@ -1678,6 +2294,16 @@ Create Mxou Key — 新建密钥（响应含完整 key 仅一次；同时幂等 
 |---|---|---|
 | 200 | Successful Response | [MxouKeyCreateResponse](#schema-mxoukeycreateresponse) |
 
+响应示例：
+
+```json
+{
+  "id": "tok_02",
+  "key": "sk-yyyyyyyyyyyyyyyyyyyy",
+  "name": "webui"
+}
+```
+
 ### `DELETE /api/v1/mxou/keys/{key_id}`
 Revoke Mxou Key — 吊销密钥（MXOU 删除成功 → 204）。
 
@@ -1710,6 +2336,14 @@ Select Mxou Key — 切换密钥：解出明文 key（仅此一次返回）+ 幂
 | 200 | Successful Response | [MxouKeySelectResponse](#schema-mxoukeyselectresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "key": "sk-yyyyyyyyyyyyyyyyyyyy"
+}
+```
+
 ### `POST /api/v1/mxou/login`
 Mxou Login — MXOU 账号密码登录（无 token 鉴权——登录入口本身；限流防爆破）。
 
@@ -1718,6 +2352,27 @@ Mxou Login — MXOU 账号密码登录（无 token 鉴权——登录入口本�
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [MxouLoginResponse](#schema-mxouloginresponse) |
+
+响应示例：
+
+```json
+{
+  "balance": 128.4,
+  "key": "sk-xxxxxxxxxxxxxxxxxxxx",
+  "keys": [
+    {
+      "id": "tok_01",
+      "masked": true,
+      "name": "default",
+      "status": 1
+    }
+  ],
+  "role": "user",
+  "selected_key_id": "tok_01",
+  "session_expires_at": "2026-09-11T23:59:59",
+  "username": "seller@example.com"
+}
+```
 
 ### `POST /api/v1/mxou/logout`
 Mxou Logout
@@ -1794,6 +2449,40 @@ List Orders — 订单列表：PG 缓存读取（v0.56）——未同步自动�
 | 200 | Successful Response | [OrderListResponse](#schema-orderlistresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "cancel_reason": "",
+      "cancellation": "",
+      "commission_amount": 109.35,
+      "created_at": "2026-09-08T09:30:00Z",
+      "delivery_method": "Courier",
+      "posting_number": "0031-726193-0001",
+      "product_count": 1,
+      "products": [],
+      "profit": 155.2,
+      "raw_status": "awaiting_packaging",
+      "real_profit": 132.8,
+      "status": "awaiting",
+      "total_amount": 729.0,
+      "warehouse": "Коледино"
+    }
+  ],
+  "last_synced_at": "2026-09-11T01:55:00Z",
+  "limit": 50,
+  "offset": 0,
+  "store": {
+    "id": "3c9d2f4e-1111-4222-8333-444455556666",
+    "ozon_client_id": "5381204"
+  },
+  "sync_status": "ok",
+  "total": 342
+}
+```
+
 ### `POST /api/v1/orders/batch/labels`
 Batch Labels — P1-3 批量面单：{posting_numbers: [...], credential_id?} → items + failed（失败隔离）。
 
@@ -1854,6 +2543,18 @@ Cancel Order
 | 200 | Successful Response | [OrderActionResponse](#schema-orderactionresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "ok": true,
+  "posting_number": "0031-726193-0001",
+  "result": {
+    "accepted": true
+  }
+}
+```
+
 ### `GET /api/v1/orders/{posting_number}/cancel-reasons`
 List Cancel Reasons
 
@@ -1887,6 +2588,16 @@ Get Order Label
 | 200 | Successful Response | [OrderLabelResponse](#schema-orderlabelresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "content_type": "application/pdf",
+  "label_base64": "JVBERi0xLjQKJ...",
+  "posting_number": "0031-726193-0001"
+}
+```
+
 ### `POST /api/v1/orders/{posting_number}/message`
 Send Message
 
@@ -1919,6 +2630,23 @@ Get Order Notes
 | 200 | Successful Response | [OrderNoteOut](#schema-ordernoteout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-08T09:40:00Z",
+  "posting_number": "0031-726193-0001",
+  "purchase_carrier": "中通",
+  "purchase_no": "PO-20260908-001",
+  "purchase_tracking": "78412345678901",
+  "source_cost": 8.5,
+  "source_remark": "蓝色 500ml",
+  "source_url": "https://detail.1688.com/offer/812345678901.html",
+  "tenant_id": "28",
+  "updated_at": "2026-09-08T09:40:00Z"
+}
+```
+
 ### `PUT /api/v1/orders/{posting_number}/notes`
 Upsert Order Notes
 
@@ -1934,6 +2662,23 @@ Upsert Order Notes
 |---|---|---|
 | 200 | Successful Response | [OrderNoteOut](#schema-ordernoteout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-08T09:40:00Z",
+  "posting_number": "0031-726193-0001",
+  "purchase_carrier": "中通",
+  "purchase_no": "PO-20260908-001",
+  "purchase_tracking": "78412345678901",
+  "source_cost": 8.5,
+  "source_remark": "蓝色 500ml",
+  "source_url": "https://detail.1688.com/offer/812345678901.html",
+  "tenant_id": "28",
+  "updated_at": "2026-09-08T09:40:00Z"
+}
+```
 
 ### `POST /api/v1/orders/{posting_number}/ship`
 Ship Order
@@ -1951,6 +2696,18 @@ Ship Order
 | 200 | Successful Response | [OrderActionResponse](#schema-orderactionresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "ok": true,
+  "posting_number": "0031-726193-0001",
+  "result": {
+    "accepted": true
+  }
+}
+```
+
 ## products
 
 ### `GET /api/v1/products`
@@ -1962,32 +2719,26 @@ List Products
 |---|---|---|
 | 200 | Successful Response | [ProductListResponse](#schema-productlistresponse) |
 
-### `POST /api/v1/products/bulk-archive`
-Bulk Archive
+响应示例：
 
-**响应**
-
-| 状态码 | 说明 | Schema |
-|---|---|---|
-| 200 | Successful Response | — |
-
-### `POST /api/v1/products/bulk-prices`
-Bulk Prices
-
-**响应**
-
-| 状态码 | 说明 | Schema |
-|---|---|---|
-| 200 | Successful Response | — |
-
-### `POST /api/v1/products/bulk-stocks`
-Bulk Stocks
-
-**响应**
-
-| 状态码 | 说明 | Schema |
-|---|---|---|
-| 200 | Successful Response | — |
+```json
+{
+  "items": [
+    {
+      "created_at": "2026-09-08T10:05:00Z",
+      "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+      "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+      "moderation_status": "approved",
+      "offer_id": "812345678901",
+      "product_id": "3171397439",
+      "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+    }
+  ],
+  "limit": 20,
+  "offset": 0,
+  "total": 86
+}
+```
 
 ### `GET /api/v1/products/ozon`
 List Ozon Products — Ozon 店铺在线商品：PG 缓存读取（v0.56）——未同步懒同步，?refresh=1 强制。
@@ -1997,6 +2748,37 @@ List Ozon Products — Ozon 店铺在线商品：PG 缓存读取（v0.56）—�
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [OzonProductListResponse](#schema-ozonproductlistresponse) |
+
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "archived": false,
+      "currency": "RUB",
+      "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "min_price": 547.0,
+      "name": "Автопоилка для животных 2 л",
+      "offer_id": "812345678901",
+      "old_price": 910.0,
+      "price": 729.0,
+      "product_id": "3171397439",
+      "status": "visible",
+      "stock": 12
+    }
+  ],
+  "last_synced_at": "2026-09-11T01:55:00Z",
+  "limit": 50,
+  "offset": 0,
+  "store": {
+    "id": "3c9d2f4e-1111-4222-8333-444455556666",
+    "ozon_client_id": "5381204"
+  },
+  "sync_status": "ok",
+  "total": 86
+}
+```
 
 ### `GET /api/v1/products/{product_id}/cost`
 Get Product Cost — 商品成本主数据 + 成本历史;归属校验失败 → 404。
@@ -2031,6 +2813,46 @@ Get Product Edit — T6: 在线商品编辑初值（product_task_index 关联草
 | 200 | Successful Response | [ProductEditResponse](#schema-producteditresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+  "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+  "draft_version": 3,
+  "moderation_status": "approved",
+  "offer_id": "812345678901",
+  "payload": {
+    "draft": {
+      "attributes": {
+        "材质": "硅胶",
+        "颜色": "蓝色"
+      },
+      "currency": "CNY",
+      "dimensions": {
+        "height": 60,
+        "length": 150,
+        "width": 90
+      },
+      "images": [
+        "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+      ],
+      "item_id": "812345678901",
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+      "title": "便携折叠水杯 500ml 硅胶",
+      "weight": 120
+    },
+    "extensions": {},
+    "source": {
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html"
+    }
+  },
+  "product_id": "3171397439"
+}
+```
+
 ### `PATCH /api/v1/products/{product_id}/source`
 Update Product Source — 手动维护商品成本/货源(manual 优先,写历史 + 重算订单利润);归属校验失败 → 404。
 
@@ -2044,8 +2866,11 @@ Update Product Source — 手动维护商品成本/货源(manual 优先,写历�
 
 ```json
 {
-  "credential_id": "string",
-  "purchase_cost": 0.0
+  "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+  "freight_cny": 3.5,
+  "purchase_cost": 12.8,
+  "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+  "supplier": "义乌市日用品贸易有限公司"
 }
 ```
 
@@ -2089,6 +2914,26 @@ Update Product Images
 | 200 | Successful Response | [UpdateProductImagesResponse](#schema-updateproductimagesresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "images": [
+    "https://cdn1.ozone.ru/s3/mxou/example.jpg"
+  ],
+  "images_filtered": [
+    "https://cbu01.alicdn.com/img/ibank/dead-link.jpg"
+  ],
+  "import_task_id": "77123456",
+  "message": "改图重传已提交，商品重新审核中",
+  "offer_id": "812345678901",
+  "ok": true,
+  "product_id": "3171397439",
+  "re_under_review": true,
+  "status": "pending_moderation"
+}
+```
+
 ## progress
 
 ### `GET /api/v1/progress/{task_id}/stream`
@@ -2121,6 +2966,7 @@ Http Progress — 查询工作流执行进度。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
+| 404 | Not Found | — |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
 ## resubmit_task
@@ -2404,9 +3250,9 @@ Update Store Sync Config — 更新店铺同步配置(免 api_key;间隔下限 5
 
 ```json
 {
-  "sync_enabled": false,
-  "sync_interval_minutes": 0,
-  "sync_products_interval_minutes": 0
+  "sync_enabled": true,
+  "sync_interval_minutes": 15,
+  "sync_products_interval_minutes": 30
 }
 ```
 
@@ -2502,6 +3348,7 @@ V1 Submit Task — 提交任务到队列。鉴权通过 Supabase tokens 表校�
   "max_retries": 3,
   "ozon_api_key": "00000000-0000-0000-0000-000000000000",
   "ozon_client_id": "5381204",
+  "priority": 0,
   "timeout_seconds": 1800,
   "token": "sk-xxxxxxxxxxxxxxxxxxxx"
 }
@@ -2575,6 +3422,20 @@ V1 Task Statistics — 获取任务统计信息。
 |---|---|---|
 | 200 | Successful Response | [TaskStatisticsResponse](#schema-taskstatisticsresponse) |
 
+响应示例：
+
+```json
+{
+  "avg_duration_seconds": 212.6,
+  "cancelled": 3,
+  "completed": 100,
+  "failed": 20,
+  "pending": 3,
+  "running": 2,
+  "total": 128
+}
+```
+
 ## task_status
 
 ### `GET /api/v1/task_status/{task_id}`
@@ -2646,6 +3507,32 @@ List Tasks
 |---|---|---|
 | 200 | Successful Response | [TaskListResponse](#schema-tasklistresponse) |
 
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "created_at": "2026-09-08T10:00:00Z",
+      "follow_sell": false,
+      "id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+      "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "item_id": "812345678901",
+      "ozon_client_id": "5381204",
+      "product_summary": [],
+      "shop_name": "测试店",
+      "status": "running",
+      "title": "Автопоилка для животных 2 л",
+      "update_mode": false,
+      "updated_at": "2026-09-08T10:01:30Z"
+    }
+  ],
+  "limit": 20,
+  "offset": 0,
+  "total": 214
+}
+```
+
 ### `GET /api/v1/tasks/{task_id}/draft`
 Get Task Draft — M1.1: task → 采集箱草稿（失败/被拒任务回采集箱改 → 重上）。
 
@@ -2661,6 +3548,14 @@ Get Task Draft — M1.1: task → 采集箱草稿（失败/被拒任务回采集
 |---|---|---|
 | 200 | Successful Response | [TaskDraftResponse](#schema-taskdraftresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "draft_id": "a1b2c3d4-0000-4000-8000-000000000001"
+}
+```
 
 ### `GET /api/v1/tasks/{task_id}/images`
 List Task Images
@@ -2678,6 +3573,27 @@ List Task Images
 | 200 | Successful Response | [TaskImagesResponse](#schema-taskimagesresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "images": [
+    {
+      "created_at": "2026-09-08T10:03:00Z",
+      "params": {
+        "prompt_style": "clean white background",
+        "slot": "main"
+      },
+      "slot": "main",
+      "url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "version": 1
+    }
+  ],
+  "ok": true,
+  "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+}
+```
+
 ### `POST /api/v1/tasks/{task_id}/images/{slot}/regen`
 Regen Task Image
 
@@ -2688,12 +3604,36 @@ Regen Task Image
 | `task_id` | path | string | ✓ |  |
 | `slot` | path | string | ✓ |  |
 
+**请求体**（application/json，可选）：TaskImageRegenRequest（内联）
+
+```json
+{
+  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+}
+```
+
 **响应**
 
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [ImageRegenResponse](#schema-imageregenresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "ok": true,
+  "params": {
+    "prompt_style": "clean white background",
+    "slot": "main"
+  },
+  "slot": "main",
+  "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+  "url": "https://cdn1.ozone.ru/s3/mxou/example_v2.jpg",
+  "version": 2
+}
+```
 
 ### `GET /api/v1/tasks/{task_id}/progress`
 Task Progress Detail — 任务进度事件列表 + 汇总(PRD M4 时间线数据源)。
@@ -2731,6 +3671,31 @@ Create Template
 |---|---|---|
 | 201 | Successful Response | [ListingTemplateOut](#schema-listingtemplateout) |
 
+响应示例：
+
+```json
+{
+  "config": {
+    "fx_buffer": 0.05,
+    "margin_anchor": 2.0,
+    "margin_floor": 0.6,
+    "margin_rate": 0.25,
+    "offer_id_prefix": "MX",
+    "promo_variable_cost_rate": 0.245,
+    "stock": 10,
+    "variable_cost_rate": 0.155
+  },
+  "created_at": "2026-09-01T00:00:00Z",
+  "description": "日常 25% / 锚点 2.0 / 促销底线 0.6",
+  "id": "f0e1d2c3-0000-4000-8000-000000000003",
+  "is_default": true,
+  "name": "默认三档定价",
+  "platform": "OZON",
+  "tenant_id": "28",
+  "updated_at": "2026-09-08T10:00:00Z"
+}
+```
+
 ### `PATCH /api/v1/templates/{template_id}`
 Update Template
 
@@ -2746,6 +3711,31 @@ Update Template
 |---|---|---|
 | 200 | Successful Response | [ListingTemplateOut](#schema-listingtemplateout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "config": {
+    "fx_buffer": 0.05,
+    "margin_anchor": 2.0,
+    "margin_floor": 0.6,
+    "margin_rate": 0.25,
+    "offer_id_prefix": "MX",
+    "promo_variable_cost_rate": 0.245,
+    "stock": 10,
+    "variable_cost_rate": 0.155
+  },
+  "created_at": "2026-09-01T00:00:00Z",
+  "description": "日常 25% / 锚点 2.0 / 促销底线 0.6",
+  "id": "f0e1d2c3-0000-4000-8000-000000000003",
+  "is_default": true,
+  "name": "默认三档定价",
+  "platform": "OZON",
+  "tenant_id": "28",
+  "updated_at": "2026-09-08T10:00:00Z"
+}
+```
 
 ### `DELETE /api/v1/templates/{template_id}`
 Delete Template
@@ -2779,6 +3769,31 @@ Set Default
 | 200 | Successful Response | [ListingTemplateOut](#schema-listingtemplateout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "config": {
+    "fx_buffer": 0.05,
+    "margin_anchor": 2.0,
+    "margin_floor": 0.6,
+    "margin_rate": 0.25,
+    "offer_id_prefix": "MX",
+    "promo_variable_cost_rate": 0.245,
+    "stock": 10,
+    "variable_cost_rate": 0.155
+  },
+  "created_at": "2026-09-01T00:00:00Z",
+  "description": "日常 25% / 锚点 2.0 / 促销底线 0.6",
+  "id": "f0e1d2c3-0000-4000-8000-000000000003",
+  "is_default": true,
+  "name": "默认三档定价",
+  "platform": "OZON",
+  "tenant_id": "28",
+  "updated_at": "2026-09-08T10:00:00Z"
+}
+```
+
 ## v1
 
 ### `POST /v1/chat/completions`
@@ -2804,6 +3819,23 @@ Openai Chat Completions — OpenAI Chat Completions API 兼容接口
 | `success_rate` | number |  | 成功率（%）（默认 `0.0`） |
 | `statistics` | dict[str, any] |  | 任务统计明细 |
 
+示例：
+
+```json
+{
+  "statistics": {
+    "cancelled": 23,
+    "completed": 1124,
+    "failed": 137
+  },
+  "store_count": 89,
+  "success_rate": 87.6,
+  "task_today": 23,
+  "task_total": 1284,
+  "user_count": 57
+}
+```
+
 ### AdminStoreOut <a id="schema-adminstoreout"></a>
 店铺行（跨用户平台视角）。
 
@@ -2818,6 +3850,21 @@ Openai Chat Completions — OpenAI Chat Completions API 兼容接口
 | `status` | string |  | active/revoked（默认 `"active"`） |
 | `last_validated_at` | string \| null |  | 最近校验 |
 
+示例：
+
+```json
+{
+  "currency": "CNY",
+  "id": "3c9d2f4e-1111-4222-8333-444455556666",
+  "is_default": true,
+  "last_validated_at": "2026-09-11T00:00:00Z",
+  "ozon_client_id": "5381204",
+  "shop_name": "测试店",
+  "status": "active",
+  "tenant_id": "28"
+}
+```
+
 ### AdminUserDetailOut <a id="schema-adminuserdetailout"></a>
 用户详情（店铺 + 任务统计）。
 
@@ -2828,6 +3875,29 @@ Openai Chat Completions — OpenAI Chat Completions API 兼容接口
 | `task_total` | integer |  | 任务总数（默认 `0`） |
 | `task_completed` | integer |  | 已完成（默认 `0`） |
 | `task_failed` | integer |  | 失败（默认 `0`） |
+
+示例：
+
+```json
+{
+  "id": "28",
+  "stores": [
+    {
+      "currency": "CNY",
+      "id": "3c9d2f4e-1111-4222-8333-444455556666",
+      "is_default": true,
+      "last_validated_at": "2026-09-11T00:00:00Z",
+      "ozon_client_id": "5381204",
+      "shop_name": "测试店",
+      "status": "active",
+      "tenant_id": "28"
+    }
+  ],
+  "task_completed": 187,
+  "task_failed": 21,
+  "task_total": 214
+}
+```
 
 ### AdminUserOut <a id="schema-adminuserout"></a>
 用户行（平台视角）。
@@ -2842,6 +3912,20 @@ Openai Chat Completions — OpenAI Chat Completions API 兼容接口
 | `store_count` | integer |  | 活跃店铺数（默认 `0`） |
 | `task_count` | integer |  | 任务总数（默认 `0`） |
 
+示例：
+
+```json
+{
+  "created_at": "2026-06-01T00:00:00Z",
+  "id": "28",
+  "quota": 42.5,
+  "role": "user",
+  "store_count": 3,
+  "task_count": 214,
+  "username": "seller_a"
+}
+```
+
 ### AnalyticsReportResponse <a id="schema-analyticsreportresponse"></a>
 上报成功响应。
 
@@ -2850,6 +3934,16 @@ Openai Chat Completions — OpenAI Chat Completions API 兼容接口
 | `status` | string |  | 状态: ok / error（默认 `"ok"`） |
 | `inserted` | integer |  | 本次新增行数（默认 `0`） |
 | `upserted` | integer |  | 本次覆盖更新行数（默认 `0`） |
+
+示例：
+
+```json
+{
+  "inserted": 42,
+  "status": "ok",
+  "upserted": 7
+}
+```
 
 ### AuthVerifyResponse <a id="schema-authverifyresponse"></a>
 Skill 鉴权响应。
@@ -2873,12 +3967,23 @@ Skill 鉴权响应。
 ```
 
 ### BackupItem <a id="schema-backupitem"></a>
+配置备份文件（命名 {name}.{YYYYMMDDHHMMSS}.json，mtime 为 epoch 秒）。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `name` | string | ✓ |  |
 | `size` | integer | ✓ |  |
 | `mtime` | number | ✓ |  |
+
+示例：
+
+```json
+{
+  "mtime": 1789113600.0,
+  "name": "image_prompts.json.20260911083000.json",
+  "size": 5120
+}
+```
 
 ### CancelReasonOut <a id="schema-cancelreasonout"></a>
 订单取消原因（/v1/posting/fbs/cancel-reason）。
@@ -2887,6 +3992,15 @@ Skill 鉴权响应。
 |---|---|---|---|
 | `id` | integer | ✓ | 原因 ID |
 | `title` | string |  | 原因标题（默认 `""`） |
+
+示例：
+
+```json
+{
+  "id": 6,
+  "title": "Товар закончился на складе"
+}
+```
 
 ### CancelTaskResponse <a id="schema-canceltaskresponse"></a>
 取消任务响应。
@@ -2897,11 +4011,30 @@ Skill 鉴权响应。
 | `task_id` | string | ✓ | 任务 UUID |
 | `message` | string | ✓ | 取消结果消息 |
 
+示例：
+
+```json
+{
+  "message": "任务已取消",
+  "ok": true,
+  "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+}
+```
+
 ### ConfigListItem <a id="schema-configlistitem"></a>
+config 目录下的配置文件名。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `name` | string | ✓ |  |
+
+示例：
+
+```json
+{
+  "name": "image_prompts.json"
+}
+```
 
 ### CredentialOut <a id="schema-credentialout"></a>
 凭证响应 — 仅掩码，永不包含明文 api_key / ozon_api_key_enc。
@@ -2946,6 +4079,15 @@ T14b: 单字段 AI 重新生成响应（只读结果，前端决定 PATCH 保存
 |---|---|---|---|
 | `field` | string | ✓ | title/description/attributes/tags |
 | `value` | string | ✓ | 俄语 RU 值（非空，无中文/拉丁残留） |
+
+示例：
+
+```json
+{
+  "field": "title",
+  "value": "Автопоилка для животных 2 л, фонтан с фильтром"
+}
+```
 
 ### DraftAssembleResponse <a id="schema-draftassembleresponse"></a>
 POST /drafts/{id}/assemble 响应（v0.70 一键预组装：整卡生成并写回 payload）。
@@ -3000,6 +4142,50 @@ POST /drafts/{id}/assemble 响应（v0.70 一键预组装：整卡生成并写�
 | `notes` | string \| null |  | 运营备注（采集/选品依据人工标注）；不进信封 payload |
 | `source_batch` | string \| null |  | 来源批次标识（T-P3.1 批次契约）：采集批次精确过滤用；NULL = 无批次（老 skill 创建的草稿） |
 
+示例：
+
+```json
+{
+  "created_at": "2026-09-08T10:00:00Z",
+  "id": "a1b2c3d4-0000-4000-8000-000000000001",
+  "image_mirror_state": "mirrored",
+  "notes": "竞品月销 140，跟卖利润空间 12%",
+  "payload": {
+    "draft": {
+      "attributes": {
+        "材质": "硅胶",
+        "颜色": "蓝色"
+      },
+      "currency": "CNY",
+      "dimensions": {
+        "height": 60,
+        "length": 150,
+        "width": 90
+      },
+      "images": [
+        "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+      ],
+      "item_id": "812345678901",
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+      "title": "便携折叠水杯 500ml 硅胶",
+      "weight": 120
+    },
+    "extensions": {},
+    "source": {
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html"
+    }
+  },
+  "source": "skill",
+  "source_batch": "batch-20260908-100000",
+  "submission_status": "pending",
+  "tenant_id": "28",
+  "updated_at": "2026-09-08T10:05:00Z",
+  "version": 1
+}
+```
+
 ### ErrorBody <a id="schema-errorbody"></a>
 统一错误响应体。
 
@@ -3035,6 +4221,16 @@ POST /drafts/{id}/assemble 响应（v0.70 一键预组装：整卡生成并写�
 | `message` | string | ✓ | 状态描述 |
 | `db` | string | ✓ | 数据库连接状态: connected / disconnected |
 
+示例：
+
+```json
+{
+  "db": "connected",
+  "message": "服务正常",
+  "status": "ok"
+}
+```
+
 ### ImageRegenResponse <a id="schema-imageregenresponse"></a>
 POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 
@@ -3048,6 +4244,22 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `params` | dict[str, any] \| null |  | 节点 Input schema 快照 |
 | `image_parent_task_id` | string \| null |  | resubmit 图片血缘 |
 
+示例：
+
+```json
+{
+  "ok": true,
+  "params": {
+    "prompt_style": "clean white background",
+    "slot": "main"
+  },
+  "slot": "main",
+  "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+  "url": "https://cdn1.ozone.ru/s3/mxou/example_v2.jpg",
+  "version": 2
+}
+```
+
 ### ImageTaskCreateRequest <a id="schema-imagetaskcreaterequest"></a>
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -3055,6 +4267,18 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `type` | string | ✓ |  |
 | `input_image_url` | string | ✓ |  |
 | `params` | dict[str, any] \| null |  |  |
+
+示例：
+
+```json
+{
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "type": "remove_bg"
+}
+```
 
 ### ImageTaskListResponse <a id="schema-imagetasklistresponse"></a>
 
@@ -3064,6 +4288,30 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `total` | integer | ✓ |  |
 | `limit` | integer | ✓ |  |
 | `offset` | integer | ✓ |  |
+
+示例：
+
+```json
+{
+  "items": [
+    {
+      "created_at": "2026-09-11T08:30:00.123456+00:00",
+      "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+      "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "params": {
+        "tolerance": 30
+      },
+      "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "status": "completed",
+      "type": "remove_bg",
+      "updated_at": "2026-09-11T08:30:00.123456+00:00"
+    }
+  ],
+  "limit": 50,
+  "offset": 0,
+  "total": 3
+}
+```
 
 ### ImageTaskResponse <a id="schema-imagetaskresponse"></a>
 
@@ -3078,6 +4326,23 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `error_message` | string \| null |  |  |
 | `created_at` | string \| null |  |  |
 | `updated_at` | string \| null |  |  |
+
+示例：
+
+```json
+{
+  "created_at": "2026-09-11T08:30:00.123456+00:00",
+  "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "status": "completed",
+  "type": "remove_bg",
+  "updated_at": "2026-09-11T08:30:00.123456+00:00"
+}
+```
 
 ### ListingTemplateConfig <a id="schema-listingtemplateconfig"></a>
 模板扩展参数（白名单；全部可选，None 表示不注入）。
@@ -3097,6 +4362,25 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `stock` | integer \| null |  | 上架后库存（extensions.stock） |
 | `warehouse_id` | string \| null |  | 仓库（extensions.warehouse_id） |
 
+示例：
+
+```json
+{
+  "fx_buffer": 0.05,
+  "margin_anchor": 2.0,
+  "margin_floor": 0.6,
+  "margin_rate": 0.25,
+  "offer_id_prefix": "MX",
+  "promo_variable_cost_rate": 0.245,
+  "stock": 10,
+  "traffic_keywords": [
+    "поилка для животных",
+    "фонтан для кошек"
+  ],
+  "variable_cost_rate": 0.155
+}
+```
+
 ### ListingTemplateOut <a id="schema-listingtemplateout"></a>
 上架配置模板响应。
 
@@ -3113,6 +4397,31 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `created_at` | string(date-time) \| null |  | 创建时间 |
 | `updated_at` | string(date-time) \| null |  | 更新时间 |
 
+示例：
+
+```json
+{
+  "config": {
+    "fx_buffer": 0.05,
+    "margin_anchor": 2.0,
+    "margin_floor": 0.6,
+    "margin_rate": 0.25,
+    "offer_id_prefix": "MX",
+    "promo_variable_cost_rate": 0.245,
+    "stock": 10,
+    "variable_cost_rate": 0.155
+  },
+  "created_at": "2026-09-01T00:00:00Z",
+  "description": "日常 25% / 锚点 2.0 / 促销底线 0.6",
+  "id": "f0e1d2c3-0000-4000-8000-000000000003",
+  "is_default": true,
+  "name": "默认三档定价",
+  "platform": "OZON",
+  "tenant_id": "28",
+  "updated_at": "2026-09-08T10:00:00Z"
+}
+```
+
 ### LogisticsImportResult <a id="schema-logisticsimportresult"></a>
 导入结果：inserted/updated 计数 + 逐行错误。
 
@@ -3121,6 +4430,21 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `imported` | integer | ✓ |  |
 | `updated` | integer | ✓ |  |
 | `errors` | list[dict[str, any]] |  |  |
+
+示例：
+
+```json
+{
+  "errors": [
+    {
+      "error": "weight_min 不能大于 weight_max",
+      "row": 5
+    }
+  ],
+  "imported": 12,
+  "updated": 3
+}
+```
 
 ### LogisticsRateRow <a id="schema-logisticsraterow"></a>
 单条费率行（服务返回结构，供文档/校验用）。
@@ -3142,6 +4466,26 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `vol_weight_divisor` | integer |  | （默认 `0`） |
 | `created_at` | string \| null |  |  |
 
+示例：
+
+```json
+{
+  "base_cost": 3.12,
+  "charge_type": "actual",
+  "delivery_method": "RETS Express Extra Small",
+  "id": 1,
+  "longest_limit_cm": 60,
+  "per_gram_rate": 0.0468,
+  "scoring_group": "Extra Small",
+  "service_level": "Express",
+  "sum_limit_cm": 90,
+  "tpl_provider": "RETS",
+  "vol_weight_divisor": 0,
+  "weight_max": 500,
+  "weight_min": 1
+}
+```
+
 ### MxouKeyCreateResponse <a id="schema-mxoukeycreateresponse"></a>
 新建 API Key 响应（key 仅此一次返回——用户复制后不再可查）。
 
@@ -3150,6 +4494,16 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `id` | string | ✓ | token id |
 | `name` | string | ✓ | token 名称 |
 | `key` | string | ✓ | 新建密钥完整值（仅此一次返回） |
+
+示例：
+
+```json
+{
+  "id": "tok_02",
+  "key": "sk-yyyyyyyyyyyyyyyyyyyy",
+  "name": "webui"
+}
+```
 
 ### MxouKeyItem <a id="schema-mxoukeyitem"></a>
 MXOU API Key 条目（脱敏展示，绝不含 full_key）。
@@ -3161,12 +4515,31 @@ MXOU API Key 条目（脱敏展示，绝不含 full_key）。
 | `masked` | boolean |  | key 是否为脱敏形态（masked=true 时不含明文）（默认 `true`） |
 | `status` | integer |  | token 状态（1=enabled）（默认 `1`） |
 
+示例：
+
+```json
+{
+  "id": "tok_01",
+  "masked": true,
+  "name": "default",
+  "status": 1
+}
+```
+
 ### MxouKeySelectResponse <a id="schema-mxoukeyselectresponse"></a>
 切换密钥响应（key 仅此一次返回——用户复制后不再可查）。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `key` | string | ✓ | 所选密钥完整值（仅此一次返回） |
+
+示例：
+
+```json
+{
+  "key": "sk-yyyyyyyyyyyyyyyyyyyy"
+}
+```
 
 ### MxouLoginResponse <a id="schema-mxouloginresponse"></a>
 MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返回用于建立登录态）。
@@ -3181,6 +4554,27 @@ MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返�
 | `session_expires_at` | string \| null |  | MXOU 登录 session 过期时间 |
 | `role` | string |  | 用户角色（admin/user，WebUI 管理员路由守卫用）（默认 `"user"`） |
 
+示例：
+
+```json
+{
+  "balance": 128.4,
+  "key": "sk-xxxxxxxxxxxxxxxxxxxx",
+  "keys": [
+    {
+      "id": "tok_01",
+      "masked": true,
+      "name": "default",
+      "status": 1
+    }
+  ],
+  "role": "user",
+  "selected_key_id": "tok_01",
+  "session_expires_at": "2026-09-11T23:59:59",
+  "username": "seller@example.com"
+}
+```
+
 ### OrderActionResponse <a id="schema-orderactionresponse"></a>
 订单写入操作响应（备货/取消）。
 
@@ -3190,6 +4584,18 @@ MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返�
 | `posting_number` | string | ✓ | 货件编号 |
 | `result` | dict[str, any] |  | Ozon 返回 result |
 
+示例：
+
+```json
+{
+  "ok": true,
+  "posting_number": "0031-726193-0001",
+  "result": {
+    "accepted": true
+  }
+}
+```
+
 ### OrderLabelResponse <a id="schema-orderlabelresponse"></a>
 面单 PDF 响应（base64，路由层编码）。
 
@@ -3198,6 +4604,16 @@ MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返�
 | `posting_number` | string | ✓ | 货件编号 |
 | `content_type` | string |  | MIME（默认 `"application/pdf"`） |
 | `label_base64` | string | ✓ | PDF base64 |
+
+示例：
+
+```json
+{
+  "content_type": "application/pdf",
+  "label_base64": "JVBERi0xLjQKJ...",
+  "posting_number": "0031-726193-0001"
+}
+```
 
 ### OrderListResponse <a id="schema-orderlistresponse"></a>
 订单列表响应。
@@ -3212,6 +4628,40 @@ MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返�
 | `last_synced_at` | string \| null |  | 最近同步时间（v0.56 缓存） |
 | `sync_error` | string \| null |  | 最近同步错误（v0.56） |
 | `sync_status` | string \| null |  | 数据新鲜度 never/syncing/ok/stale（PRD M1） |
+
+示例：
+
+```json
+{
+  "items": [
+    {
+      "cancel_reason": "",
+      "cancellation": "",
+      "commission_amount": 109.35,
+      "created_at": "2026-09-08T09:30:00Z",
+      "delivery_method": "Courier",
+      "posting_number": "0031-726193-0001",
+      "product_count": 1,
+      "products": [],
+      "profit": 155.2,
+      "raw_status": "awaiting_packaging",
+      "real_profit": 132.8,
+      "status": "awaiting",
+      "total_amount": 729.0,
+      "warehouse": "Коледино"
+    }
+  ],
+  "last_synced_at": "2026-09-11T01:55:00Z",
+  "limit": 50,
+  "offset": 0,
+  "store": {
+    "id": "3c9d2f4e-1111-4222-8333-444455556666",
+    "ozon_client_id": "5381204"
+  },
+  "sync_status": "ok",
+  "total": 342
+}
+```
 
 ### OrderNoteOut <a id="schema-ordernoteout"></a>
 订单货源/采购信息标注（P1-1 本地元数据）。
@@ -3228,6 +4678,23 @@ MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返�
 | `purchase_tracking` | string |  | 采购快递单号（默认 `""`） |
 | `created_at` | string \| null |  | 创建时间 |
 | `updated_at` | string \| null |  | 更新时间 |
+
+示例：
+
+```json
+{
+  "created_at": "2026-09-08T09:40:00Z",
+  "posting_number": "0031-726193-0001",
+  "purchase_carrier": "中通",
+  "purchase_no": "PO-20260908-001",
+  "purchase_tracking": "78412345678901",
+  "source_cost": 8.5,
+  "source_remark": "蓝色 500ml",
+  "source_url": "https://detail.1688.com/offer/812345678901.html",
+  "tenant_id": "28",
+  "updated_at": "2026-09-08T09:40:00Z"
+}
+```
 
 ### OrderOut <a id="schema-orderout"></a>
 订单行（Ozon FBS posting 标准化）。
@@ -3249,6 +4716,37 @@ MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返�
 | `cancel_reason` | string |  | 取消原因（默认 `""`） |
 | `cancellation` | string |  | 取消方/类型（默认 `""`） |
 
+示例：
+
+```json
+{
+  "cancel_reason": "",
+  "cancellation": "",
+  "commission_amount": 109.35,
+  "created_at": "2026-09-08T09:30:00Z",
+  "delivery_method": "Courier",
+  "posting_number": "0031-726193-0001",
+  "product_count": 1,
+  "products": [
+    {
+      "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "name": "Автопоилка для животных 2 л",
+      "offer_id": "812345678901",
+      "price": 729.0,
+      "product_id": 3171397439,
+      "quantity": 1,
+      "sku": 3171397439
+    }
+  ],
+  "profit": 155.2,
+  "raw_status": "awaiting_packaging",
+  "real_profit": 132.8,
+  "status": "awaiting",
+  "total_amount": 729.0,
+  "warehouse": "Коледино"
+}
+```
+
 ### OrderProductOut <a id="schema-orderproductout"></a>
 订单内商品行。
 
@@ -3261,6 +4759,20 @@ MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返�
 | `offer_id` | string |  | 货号（默认 `""`） |
 | `product_id` | integer \| null |  | Ozon product_id（与 sku 同值，供图查） |
 | `image` | string \| null |  | 主图 URL（T4.3：/v3/product/info/list images[0]） |
+
+示例：
+
+```json
+{
+  "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "name": "Автопоилка для животных 2 л",
+  "offer_id": "812345678901",
+  "price": 729.0,
+  "product_id": 3171397439,
+  "quantity": 1,
+  "sku": 3171397439
+}
+```
 
 ### OzonProductListResponse <a id="schema-ozonproductlistresponse"></a>
 Ozon 在线商品列表响应。
@@ -3275,6 +4787,37 @@ Ozon 在线商品列表响应。
 | `last_synced_at` | string \| null |  | 最近同步时间（v0.56 缓存） |
 | `sync_error` | string \| null |  | 最近同步错误（v0.56） |
 | `sync_status` | string \| null |  | 数据新鲜度 never/syncing/ok/stale（PRD M1） |
+
+示例：
+
+```json
+{
+  "items": [
+    {
+      "archived": false,
+      "currency": "RUB",
+      "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "min_price": 547.0,
+      "name": "Автопоилка для животных 2 л",
+      "offer_id": "812345678901",
+      "old_price": 910.0,
+      "price": 729.0,
+      "product_id": "3171397439",
+      "status": "visible",
+      "stock": 12
+    }
+  ],
+  "last_synced_at": "2026-09-11T01:55:00Z",
+  "limit": 50,
+  "offset": 0,
+  "store": {
+    "id": "3c9d2f4e-1111-4222-8333-444455556666",
+    "ozon_client_id": "5381204"
+  },
+  "sync_status": "ok",
+  "total": 86
+}
+```
 
 ### OzonProductOut <a id="schema-ozonproductout"></a>
 Ozon 店铺在线商品（v0.50 实时拉取，覆盖非本系统上架商品）。
@@ -3294,6 +4837,24 @@ Ozon 店铺在线商品（v0.50 实时拉取，覆盖非本系统上架商品）
 | `error` | list[any] \| null |  | Ozon 错误明细(PRD M3) |
 | `archived` | boolean |  | 是否归档(PRD M3)（默认 `false`） |
 
+示例：
+
+```json
+{
+  "archived": false,
+  "currency": "RUB",
+  "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "min_price": 547.0,
+  "name": "Автопоилка для животных 2 л",
+  "offer_id": "812345678901",
+  "old_price": 910.0,
+  "price": 729.0,
+  "product_id": "3171397439",
+  "status": "visible",
+  "stock": 12
+}
+```
+
 ### ProductEditResponse <a id="schema-producteditresponse"></a>
 T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来源：product_task_index 关联草稿（直连任务无草稿 → 409，仅改图走 update_images）。
 
@@ -3306,6 +4867,46 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `draft_version` | integer |  | 关联草稿乐观锁版本(PATCH /drafts 提交用)（默认 `1`） |
 | `payload` | dict[str, any] | ✓ | 关联草稿 envelope（编辑表单初值） |
 | `moderation_status` | string \| null |  | 审核状态（从任务 result JSONB 尽力提取；无 → null，不实时调 Ozon） |
+
+示例：
+
+```json
+{
+  "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+  "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+  "draft_version": 3,
+  "moderation_status": "approved",
+  "offer_id": "812345678901",
+  "payload": {
+    "draft": {
+      "attributes": {
+        "材质": "硅胶",
+        "颜色": "蓝色"
+      },
+      "currency": "CNY",
+      "dimensions": {
+        "height": 60,
+        "length": 150,
+        "width": 90
+      },
+      "images": [
+        "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+      ],
+      "item_id": "812345678901",
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+      "title": "便携折叠水杯 500ml 硅胶",
+      "weight": 120
+    },
+    "extensions": {},
+    "source": {
+      "purchase_cost": 8.5,
+      "purchase_url": "https://detail.1688.com/offer/812345678901.html"
+    }
+  },
+  "product_id": "3171397439"
+}
+```
 
 ### ProductListItem <a id="schema-productlistitem"></a>
 在售商品列表项 — 只读，product_task_index 行 + 任务 result 审核状态。
@@ -3320,6 +4921,20 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `created_at` | string(date-time) \| null |  | 索引创建时间 |
 | `moderation_status` | string \| null |  | 审核状态（从任务 result JSONB 尽力提取，无 → null；不实时调 Ozon，任务终态即最新） |
 
+示例：
+
+```json
+{
+  "created_at": "2026-09-08T10:05:00Z",
+  "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+  "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+  "moderation_status": "approved",
+  "offer_id": "812345678901",
+  "product_id": "3171397439",
+  "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+}
+```
+
 ### ProductListResponse <a id="schema-productlistresponse"></a>
 在售商品列表响应（M2.1）。
 
@@ -3329,6 +4944,27 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `total` | integer |  | 该租户商品总数（分页前）（默认 `0`） |
 | `limit` | integer |  | 本次分页大小（1-100）（默认 `20`） |
 | `offset` | integer |  | 本次偏移（默认 `0`） |
+
+示例：
+
+```json
+{
+  "items": [
+    {
+      "created_at": "2026-09-08T10:05:00Z",
+      "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+      "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+      "moderation_status": "approved",
+      "offer_id": "812345678901",
+      "product_id": "3171397439",
+      "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+    }
+  ],
+  "limit": 20,
+  "offset": 0,
+  "total": 86
+}
+```
 
 ### ProductSourceUpdate <a id="schema-productsourceupdate"></a>
 成本/货源手动维护(PATCH /products/{id}/source,manual 最高优先级)。
@@ -3341,6 +4977,18 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `freight_cny` | number \| null |  | 1688 国内运费(可选) |
 | `supplier` | string |  | 1688 店铺名（默认 `""`） |
 
+示例：
+
+```json
+{
+  "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+  "freight_cny": 3.5,
+  "purchase_cost": 12.8,
+  "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+  "supplier": "义乌市日用品贸易有限公司"
+}
+```
+
 ### QueryDeleteOut <a id="schema-querydeleteout"></a>
 删除结果。
 
@@ -3349,6 +4997,15 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `ok` | boolean |  | （默认 `true`） |
 | `deleted` | boolean |  | （默认 `true`） |
 
+示例：
+
+```json
+{
+  "deleted": true,
+  "ok": true
+}
+```
+
 ### QueryImportIn <a id="schema-queryimportin"></a>
 导入请求体：csv 文本与 items 数组二选一。
 
@@ -3356,6 +5013,14 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 |---|---|---|---|
 | `items` | list[dict[str, any]] \| null |  |  |
 | `csv` | string \| null |  |  |
+
+示例：
+
+```json
+{
+  "csv": "query,count,ca,avg_ca_rub\nорганайзер для косметики,1520,0.8,1250.5\n"
+}
+```
 
 ### QueryImportResult <a id="schema-queryimportresult"></a>
 导入结果：新增/更新计数 + 逐行错误。
@@ -3366,6 +5031,21 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `updated` | integer |  | （默认 `0`） |
 | `errors` | list[dict[str, any]] |  |  |
 
+示例：
+
+```json
+{
+  "errors": [
+    {
+      "error": "query 必填",
+      "row": 3
+    }
+  ],
+  "imported": 40,
+  "updated": 2
+}
+```
+
 ### QueryListOut <a id="schema-querylistout"></a>
 库浏览响应。
 
@@ -3374,8 +5054,31 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `total` | integer |  | （默认 `0`） |
 | `items` | list[[QueryRow](#schema-queryrow)] |  |  |
 
+示例：
+
+```json
+{
+  "items": [
+    {
+      "avg_ca_rub": 1250.5,
+      "avg_count_items": 310.2,
+      "ca": 0.8,
+      "count": 1520,
+      "created_at": "2026-09-10T12:00:00+00:00",
+      "id": 42,
+      "items_views": 45600.0,
+      "query": "органайзер для косметики",
+      "source": "fetched",
+      "uniq_queries_wca": 118,
+      "uniq_sellers": 128.0
+    }
+  ],
+  "total": 137
+}
+```
+
 ### QueryRow <a id="schema-queryrow"></a>
-关键词行（库浏览返回项）。
+关键词行（库浏览返回项；字段即 blue_ocean_queries 列，created_at 为 isoformat 串）。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
@@ -3391,6 +5094,24 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `source` | string |  | （默认 `"fetched"`） |
 | `created_at` | string \| null |  |  |
 
+示例：
+
+```json
+{
+  "avg_ca_rub": 1250.5,
+  "avg_count_items": 310.2,
+  "ca": 0.8,
+  "count": 1520,
+  "created_at": "2026-09-10T12:00:00+00:00",
+  "id": 42,
+  "items_views": 45600.0,
+  "query": "органайзер для косметики",
+  "source": "fetched",
+  "uniq_queries_wca": 118,
+  "uniq_sellers": 128.0
+}
+```
+
 ### SiteAnnouncementOut <a id="schema-siteannouncementout"></a>
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -3401,6 +5122,19 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `enabled` | boolean |  | （默认 `true`） |
 | `id` | integer | ✓ |  |
 | `created_at` | string(date-time) \| null |  |  |
+
+示例：
+
+```json
+{
+  "announcement_type": "popup",
+  "content": "Worker 将于 2026-09-12 02:00-03:00（UTC+8）升级，期间任务提交可能短暂失败。",
+  "created_at": "2026-09-10T04:00:00+00:00",
+  "enabled": true,
+  "id": 1,
+  "title": "系统升级公告"
+}
+```
 
 ### SiteBannerOut <a id="schema-sitebannerout"></a>
 
@@ -3415,6 +5149,21 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `created_at` | string(date-time) \| null |  |  |
 | `updated_at` | string(date-time) \| null |  |  |
 
+示例：
+
+```json
+{
+  "created_at": "2026-09-01T02:00:00+00:00",
+  "enabled": true,
+  "id": 1,
+  "image_url": "https://worker.mxou.cn/static/banners/autumn-2026.png",
+  "link_url": "https://worker.mxou.cn/bestsellers",
+  "sort_order": 10,
+  "title": "秋季选品季",
+  "updated_at": "2026-09-10T04:30:00+00:00"
+}
+```
+
 ### StoreSyncConfigUpdate <a id="schema-storesyncconfigupdate"></a>
 店铺同步配置更新(PATCH /stores/{id}/sync-config,免 api_key;间隔下限 5min)。
 
@@ -3423,6 +5172,16 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `sync_enabled` | boolean \| null |  | 定时同步开关(手动同步仍可用) |
 | `sync_interval_minutes` | integer \| null |  | 订单同步间隔(分钟) |
 | `sync_products_interval_minutes` | integer \| null |  | 商品同步间隔(分钟) |
+
+示例：
+
+```json
+{
+  "sync_enabled": true,
+  "sync_interval_minutes": 15,
+  "sync_products_interval_minutes": 30
+}
+```
 
 ### SubmissionTimelineItem <a id="schema-submissiontimelineitem"></a>
 M2.2: 草稿提交时间线条目（draft_submissions 行，created_at 倒序）。  供 WebUI 展示「这个草稿被提交过几次、到过哪些店、结果如何」。
@@ -3436,6 +5195,22 @@ M2.2: 草稿提交时间线条目（draft_submissions 行，created_at 倒序）
 | `extensions` | dict[str, any] |  | 提交时 extensions 快照（定价/仓库/库存） |
 | `submitted_task_id` | string \| null |  | 关联任务 ID（ozon_product_tasks.id） |
 | `created_at` | string(date-time) \| null |  | 提交时间 |
+
+示例：
+
+```json
+{
+  "created_at": "2026-09-08T10:10:00Z",
+  "extensions": {
+    "margin_rate": 0.25,
+    "stock": 10
+  },
+  "id": "a1b2c3d4-0000-4000-8000-000000000002",
+  "status": "published",
+  "store_client_id": "5381204",
+  "submitted_task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+}
+```
 
 ### SubmitResponse <a id="schema-submitresponse"></a>
 提交成功响应（含 C5 跨店确认标记）。
@@ -3490,6 +5265,14 @@ GET /tasks/{task_id}/draft 响应（M1.1 失败/被拒任务 → 找回采集箱
 |---|---|---|---|
 | `draft_id` | string \| null |  | 采集箱草稿 UUID；无关联草稿（直连任务）→ None |
 
+示例：
+
+```json
+{
+  "draft_id": "a1b2c3d4-0000-4000-8000-000000000001"
+}
+```
+
 ### TaskImageItem <a id="schema-taskimageitem"></a>
 单张生图缓存行（URL 元数据，不存二进制）。
 
@@ -3502,6 +5285,21 @@ GET /tasks/{task_id}/draft 响应（M1.1 失败/被拒任务 → 找回采集箱
 | `image_parent_task_id` | string \| null |  | resubmit 图片血缘（原 task_id；区别于任务级 payload.parent_task_id） |
 | `created_at` | string(date-time) \| null |  | 生成时间 |
 
+示例：
+
+```json
+{
+  "created_at": "2026-09-08T10:03:00Z",
+  "params": {
+    "prompt_style": "clean white background",
+    "slot": "main"
+  },
+  "slot": "main",
+  "url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "version": 1
+}
+```
+
 ### TaskImagesResponse <a id="schema-taskimagesresponse"></a>
 GET /tasks/{id}/images 响应。
 
@@ -3510,6 +5308,27 @@ GET /tasks/{id}/images 响应。
 | `ok` | boolean |  | （默认 `true`） |
 | `task_id` | string | ✓ | 任务 UUID |
 | `images` | list[[TaskImageItem](#schema-taskimageitem)] |  | 全部槽位 × 版本 |
+
+示例：
+
+```json
+{
+  "images": [
+    {
+      "created_at": "2026-09-08T10:03:00Z",
+      "params": {
+        "prompt_style": "clean white background",
+        "slot": "main"
+      },
+      "slot": "main",
+      "url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "version": 1
+    }
+  ],
+  "ok": true,
+  "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+}
+```
 
 ### TaskListItem <a id="schema-tasklistitem"></a>
 任务列表项 — 只读摘要，不含 payload（体积大且含敏感 token）。
@@ -3531,6 +5350,47 @@ GET /tasks/{id}/images 响应。
 | `update_mode` | boolean |  | 编辑更新标记（extensions.update_product_id，在线商品改后重传）（默认 `false`） |
 | `parent_task_id` | string \| null |  | 重上来源任务 ID（resubmit 注入，有值=重上任务） |
 
+示例：
+
+```json
+{
+  "created_at": "2026-09-08T10:00:00Z",
+  "follow_sell": false,
+  "id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+  "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "item_id": "812345678901",
+  "ozon_client_id": "5381204",
+  "product_summary": [],
+  "progress": {
+    "message": "生成主图 2/5",
+    "percent": 53,
+    "stage": "image_generation",
+    "stages_completed": [
+      "auth",
+      "ingest",
+      "category_match",
+      "pricing",
+      "attributes",
+      "description"
+    ],
+    "stages_remaining": [
+      "image_generation",
+      "prepare_ozon_upload",
+      "ozon_validate",
+      "check_quota",
+      "ozon_upload",
+      "ozon_status",
+      "learning_record"
+    ]
+  },
+  "shop_name": "测试店",
+  "status": "running",
+  "title": "Автопоилка для животных 2 л",
+  "update_mode": false,
+  "updated_at": "2026-09-08T10:01:30Z"
+}
+```
+
 ### TaskListResponse <a id="schema-tasklistresponse"></a>
 任务列表响应（T8）。
 
@@ -3540,6 +5400,32 @@ GET /tasks/{id}/images 响应。
 | `total` | integer |  | 该租户任务总数（分页前）（默认 `0`） |
 | `limit` | integer |  | 本次分页大小（1-100）（默认 `20`） |
 | `offset` | integer |  | 本次偏移（默认 `0`） |
+
+示例：
+
+```json
+{
+  "items": [
+    {
+      "created_at": "2026-09-08T10:00:00Z",
+      "follow_sell": false,
+      "id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+      "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "item_id": "812345678901",
+      "ozon_client_id": "5381204",
+      "product_summary": [],
+      "shop_name": "测试店",
+      "status": "running",
+      "title": "Автопоилка для животных 2 л",
+      "update_mode": false,
+      "updated_at": "2026-09-08T10:01:30Z"
+    }
+  ],
+  "limit": 20,
+  "offset": 0,
+  "total": 214
+}
+```
 
 ### TaskStatisticsResponse <a id="schema-taskstatisticsresponse"></a>
 任务统计响应。
@@ -3553,6 +5439,20 @@ GET /tasks/{id}/images 响应。
 | `failed` | integer |  | 已失败（默认 `0`） |
 | `cancelled` | integer |  | 已取消（默认 `0`） |
 | `avg_duration_seconds` | number \| null |  | 平均执行时长（秒） |
+
+示例：
+
+```json
+{
+  "avg_duration_seconds": 212.6,
+  "cancelled": 3,
+  "completed": 100,
+  "failed": 20,
+  "pending": 3,
+  "running": 2,
+  "total": 128
+}
+```
 
 ### TaskStatus <a id="schema-taskstatus"></a>
 枚举：`"pending"`, `"running"`, `"completed"`, `"failed"`, `"cancelled"`, `"rejected"`, `"pending_moderation"`
@@ -3631,6 +5531,26 @@ T14 在线商品改图重传响应。
 | `images` | list[string] |  | 实际提交的存活图片 URL |
 | `images_filtered` | list[string] |  | 被过滤的死 URL |
 
+示例：
+
+```json
+{
+  "images": [
+    "https://cdn1.ozone.ru/s3/mxou/example.jpg"
+  ],
+  "images_filtered": [
+    "https://cbu01.alicdn.com/img/ibank/dead-link.jpg"
+  ],
+  "import_task_id": "77123456",
+  "message": "改图重传已提交，商品重新审核中",
+  "offer_id": "812345678901",
+  "ok": true,
+  "product_id": "3171397439",
+  "re_under_review": true,
+  "status": "pending_moderation"
+}
+```
+
 ### ValidateResponse <a id="schema-validateresponse"></a>
 凭证校验响应。
 
@@ -3639,6 +5559,16 @@ T14 在线商品改图重传响应。
 | `valid` | boolean | ✓ | key 是否有效 |
 | `reason` | string | ✓ | ok / invalid_key / ozon_api_error / decrypt_failed |
 | `last_validated_at` | string(date-time) \| null |  | 本次校验时间 |
+
+示例：
+
+```json
+{
+  "last_validated_at": "2026-09-11T02:00:00Z",
+  "reason": "ok",
+  "valid": true
+}
+```
 
 ### ValidationError <a id="schema-validationerror"></a>
 

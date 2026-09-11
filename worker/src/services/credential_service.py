@@ -30,6 +30,10 @@ _SELECT_COLS = (
     "credential_type, status, last_validated_at, last_rotated_at, created_at, updated_at"
 )
 
+# v0.75 审计 A8 F3：事务级咨询锁，按 ozon_client_id 哈希互斥——两入口事务首条语句执行，
+# 把「预检 SELECT + INSERT」包进同一把锁内（提交/回滚自动释放，无需显式 unlock）。
+_ADVISORY_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtext(:cid))"
+
 _INSERT_SQL = f"""
     INSERT INTO credentials (
         tenant_id, ozon_client_id, ozon_api_key_enc, api_key_masked, shop_name,
@@ -54,8 +58,13 @@ def _assert_client_not_bound_elsewhere(tenant_id: str, ozon_client_id: str, conn
     ``ON CONFLICT (tenant_id, ozon_client_id) DO UPDATE`` 的空子——不同 tenant 下无冲突
     会 INSERT 成功，绕过同租户唯一索引 uq_credentials_tenant_client。
 
-    仅预检（无 DB 级锁），极端并发下可能双绑，记为已知残留，不强行加锁/改表结构。
+    v0.75 原子化（审计 A8 F3）：两入口均以本函数为 ``get_engine().begin()`` 事务内
+    首条语句，此处首行先取事务级咨询锁 ``pg_advisory_xact_lock(hashtext(:cid))``——
+    「预检 SELECT + INSERT」整段被同一把按 ozon_client_id 哈希的互斥锁包住，并发双绑
+    窗口关闭（后到者在锁上排队，前事务提交后再预检必命中 409）。xact 锁随事务
+    提交/回滚自动释放，无需显式 unlock。历史双绑数据清查待 S3 探针。
     """
+    conn.execute(text(_ADVISORY_LOCK_SQL), {"cid": ozon_client_id})
     row = conn.execute(text(
         "SELECT 1 FROM credentials WHERE ozon_client_id = :client_id "
         "AND tenant_id != :tenant_id LIMIT 1"

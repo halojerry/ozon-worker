@@ -727,6 +727,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/analytics/seller-sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Http Seller Sync
+         * @description POST /api/v1/analytics/seller-sync —— 贡献收包（goldminer ≤12/批）。
+         *
+         *     手读 raw Request（同 main.v1_submit_task），openapi_extra 补 SellerSyncIn
+         *     契约元数据让 /docs 与 API-REFERENCE 能展示请求体及其 _examples。
+         */
+        post: operations["http_seller_sync_api_v1_analytics_seller_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analytics/sku-metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Http Sku Metrics
+         * @description GET /api/v1/analytics/sku-metrics?skus=1,2 → {metrics: [...]}（读侧指标+补采指令，≤50/查）。
+         *
+         *     skus 声明为 FastAPI query 参数（OpenAPI 自动可见）。
+         */
+        get: operations["http_sku_metrics_api_v1_analytics_sku_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analytics/what-to-sell": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Http What To Sell
+         * @description GET /api/v1/analytics/what-to-sell?credential_id=&sku=&limit= → {found, data}。
+         */
+        get: operations["http_what_to_sell_api_v1_analytics_what_to_sell_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/verify": {
         parameters: {
             query?: never;
@@ -788,11 +853,14 @@ export interface paths {
         };
         /**
          * V1 Categories Attributes
-         * @description 类目属性 schema + 字典值（缓存只读）：?dc=&tp= → {found, cached, attributes}。
+         * @description 类目属性 schema + 字典值（缓存优先，未命中按需拉取回写）。
          *
-         *     attribute_cache / dictionary_value_cache 未命中**不回源 Ozon**（返回
-         *     found=False，前端提示该类目未预热）。属性键形状与 assemble 消费一致
-         *     （id/dictionary_id/name/required/type）。
+         *     - ?dc=&tp= → {found, cached, fetched, attributes}；属性键形状与 assemble
+         *       消费一致（id/dictionary_id/name/required/type）+ is_collection/
+         *       max_value_count（值数出口闸同源字段，UI 提示多值/上限）。
+         *     - ?dc=&tp=&attr_id= → 单属性字典值按需拉取 {found, cached, fetched, values}
+         *       （表单下拉打开时调用，避免一个类目几十个字典属性打满首屏）。
+         *     - 未命中且无店铺凭证/拉取失败 → found=False + reason（降级不抛错）。
          */
         get: operations["v1_categories_attributes_api_v1_categories_attributes_get"];
         put?: never;
@@ -911,6 +979,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/credentials/{credential_id}/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Session
+         * @description 会话状态快照 {status, harvested_at, cookie_names}（永不回 cookie 值）。
+         */
+        get: operations["get_session_api_v1_credentials__credential_id__session_get"];
+        put?: never;
+        /**
+         * Upload Session
+         * @description 上传会话（加密存储）。跨租户/不存在 credential → 404；未配主密钥 → 500（同凭证端点文案）。
+         */
+        post: operations["upload_session_api_v1_credentials__credential_id__session_post"];
+        /**
+         * Revoke Session
+         * @description 撤销会话（物理删行）。无会话 → 404。
+         */
+        delete: operations["revoke_session_api_v1_credentials__credential_id__session_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/credentials/{credential_id}/validate": {
         parameters: {
             query?: never;
@@ -982,7 +1078,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Drafts */
+        /**
+         * List Drafts
+         * @description 列表（T-P3.1 批次契约）：可选 ?batch= 按 source_batch 精确过滤；缺席 = 不过滤（行为不变）。
+         */
         get: operations["list_drafts_api_v1_drafts_get"];
         put?: never;
         /** Create Draft */
@@ -1103,6 +1202,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drafts/{draft_id}/assemble": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draft Assemble
+         * @description 一键预组装（v0.70）：LLM 生成整卡上架信息并写回 payload（version++）。
+         *
+         *     幂等：已含西里尔的字段跳过不重烧 LLM；ozon_attributes 已有内容（跟卖竞品
+         *     属性）不混源。类目建议只写展示键 draft.suggested_category（**绝不写
+         *     draft.ozon_category**，不劫持管线仲裁链）；三档预估价只写展示键
+         *     draft.estimated_pricing（RUB；pricing_node 永远按成本+margin 重算）。
+         *
+         *     错误映射：无/无效 token → 401（_authenticate_token）；草稿不存在/跨租户 → 404。
+         */
+        post: operations["draft_assemble_api_v1_drafts__draft_id__assemble_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drafts/{draft_id}/estimate": {
         parameters: {
             query?: never;
@@ -1195,6 +1321,8 @@ export interface paths {
         /**
          * V1 List Error Reports
          * @description 本租户错误报告列表（新→旧，status 可筛，limit≤200）。详情：?report_id=。
+         *
+         *     现状内联序列无限流检查 → 用 get_tenant_no_rate_limit 逐字对齐。
          */
         get: operations["v1_list_error_reports_api_v1_error_reports_get"];
         put?: never;
@@ -1204,7 +1332,8 @@ export interface paths {
          *
          *     worker 按 evidence.task_ids 自动附加本租户任务快照（假成功取证实证：
          *     快照自带 status/error/product_id/时间线，报告自足可复现）。
-         *     模板契约：docs/ERROR-REPORT-TEMPLATE.md。鉴权/限流与 analytics 同源。
+         *     模板契约：docs/ERROR-REPORT-TEMPLATE.md。鉴权/限流与 analytics 同源
+         *     （Bearer 提取 + _verify_analytics_token + 限流已由 get_tenant 承担）。
          */
         post: operations["v1_create_error_report_api_v1_error_reports_post"];
         delete?: never;
@@ -1797,57 +1926,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/products/bulk-archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Bulk Archive */
-        post: operations["bulk_archive_api_v1_products_bulk_archive_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/products/bulk-prices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Bulk Prices */
-        post: operations["bulk_prices_api_v1_products_bulk_prices_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/products/bulk-stocks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Bulk Stocks */
-        post: operations["bulk_stocks_api_v1_products_bulk_stocks_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/products/ozon": {
         parameters: {
             query?: never;
@@ -2150,9 +2228,10 @@ export interface paths {
          *     - client_id: Ozon Client-Id
          *     - api_key: Ozon Api-Key
          *
-         *     v0.63.1 架构优化 R2: sync def — 内部阻塞 requests.post(timeout=10)，
-         *     FastAPI 自动丢线程池，不冻结事件循环（async def 下单个慢调用会
-         *     停摆全部 worker 心跳）。
+         *     v0.63.1 架构优化 R2: sync def — 内部阻塞调用，FastAPI 自动丢线程池，
+         *     不冻结事件循环（async def 下单个慢调用会停摆全部 worker 心跳）。
+         *     F-F01（2026-09-09 审计）：收敛 ozon_check_quota——与 submit 配额闸同源
+         *     解析/限流/重试，移除裸 requests.post 直连。
          */
         get: operations["store_health_api_v1_store_health_get"];
         put?: never;
@@ -2486,7 +2565,7 @@ export interface paths {
         };
         /**
          * V1 Task Status
-         * @description 查询任务状态。
+         * @description 查询任务状态（v0.73: Bearer 鉴权 + 租户校验，TASK_STATUS_AUTH=0 应急关）。
          */
         get: operations["v1_task_status_api_v1_task_status__task_id__get"];
         put?: never;
@@ -2802,11 +2881,14 @@ export interface paths {
         };
         /**
          * V1 Categories Attributes
-         * @description 类目属性 schema + 字典值（缓存只读）：?dc=&tp= → {found, cached, attributes}。
+         * @description 类目属性 schema + 字典值（缓存优先，未命中按需拉取回写）。
          *
-         *     attribute_cache / dictionary_value_cache 未命中**不回源 Ozon**（返回
-         *     found=False，前端提示该类目未预热）。属性键形状与 assemble 消费一致
-         *     （id/dictionary_id/name/required/type）。
+         *     - ?dc=&tp= → {found, cached, fetched, attributes}；属性键形状与 assemble
+         *       消费一致（id/dictionary_id/name/required/type）+ is_collection/
+         *       max_value_count（值数出口闸同源字段，UI 提示多值/上限）。
+         *     - ?dc=&tp=&attr_id= → 单属性字典值按需拉取 {found, cached, fetched, values}
+         *       （表单下拉打开时调用，避免一个类目几十个字典属性打满首屏）。
+         *     - 未命中且无店铺凭证/拉取失败 → found=False + reason（降级不抛错）。
          */
         get: operations["v1_categories_attributes_categories_attributes_get"];
         put?: never;
@@ -2873,16 +2955,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * V1 Task Forensics
-         * @description 任务取证一站式只读聚合（v0.70）：任务快照 + listing_result_log +
-         *     category_match_log + attr_match_log 四路事实。
-         *
-         *     替代「换库 Supabase」的本地/云端配合取证通道——agent/MCP 凭 Bearer 直接查
-         *     生产任务的留存与审计（此前只能 SSH psql）。租户校验：任务行不属本租户 →
-         *     404（等价不存在）。v0.67 前的 category_match_log 历史行为 ingest 随机 uuid，
-         *     无法与任务行关联（已知数据断层）。
+         * Task Forensics Legacy Path
+         * @description 旧路径兼容（main.py 版 @app.get("/forensics/task/{task_id}") 双装饰器的一半）。
          */
-        get: operations["v1_task_forensics_forensics_task__task_id__get"];
+        get: operations["task_forensics_legacy_path_forensics_task__task_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3113,6 +3189,8 @@ export interface paths {
          * Http Task Status
          * @description 查询任务状态（含进度信息）
          *
+         *     v0.73: Bearer 鉴权 + 租户校验（``_task_status_guard``）。
+         *
          *     Returns:
          *         任务详情（包含status、result、error_message、progress等）
          */
@@ -3152,6 +3230,18 @@ export interface components {
         /**
          * AdminOverviewOut
          * @description 平台概览。
+         * @example {
+         *       "statistics": {
+         *         "cancelled": 23,
+         *         "completed": 1124,
+         *         "failed": 137
+         *       },
+         *       "store_count": 89,
+         *       "success_rate": 87.6,
+         *       "task_today": 23,
+         *       "task_total": 1284,
+         *       "user_count": 57
+         *     }
          */
         AdminOverviewOut: {
             /**
@@ -3195,6 +3285,16 @@ export interface components {
         /**
          * AdminStoreOut
          * @description 店铺行（跨用户平台视角）。
+         * @example {
+         *       "currency": "CNY",
+         *       "id": "3c9d2f4e-1111-4222-8333-444455556666",
+         *       "is_default": true,
+         *       "last_validated_at": "2026-09-11T00:00:00Z",
+         *       "ozon_client_id": "5381204",
+         *       "shop_name": "测试店",
+         *       "status": "active",
+         *       "tenant_id": "28"
+         *     }
          */
         AdminStoreOut: {
             /**
@@ -3245,6 +3345,24 @@ export interface components {
         /**
          * AdminUserDetailOut
          * @description 用户详情（店铺 + 任务统计）。
+         * @example {
+         *       "id": "28",
+         *       "stores": [
+         *         {
+         *           "currency": "CNY",
+         *           "id": "3c9d2f4e-1111-4222-8333-444455556666",
+         *           "is_default": true,
+         *           "last_validated_at": "2026-09-11T00:00:00Z",
+         *           "ozon_client_id": "5381204",
+         *           "shop_name": "测试店",
+         *           "status": "active",
+         *           "tenant_id": "28"
+         *         }
+         *       ],
+         *       "task_completed": 187,
+         *       "task_failed": 21,
+         *       "task_total": 214
+         *     }
          */
         AdminUserDetailOut: {
             /**
@@ -3279,6 +3397,15 @@ export interface components {
         /**
          * AdminUserOut
          * @description 用户行（平台视角）。
+         * @example {
+         *       "created_at": "2026-06-01T00:00:00Z",
+         *       "id": "28",
+         *       "quota": 42.5,
+         *       "role": "user",
+         *       "store_count": 3,
+         *       "task_count": 214,
+         *       "username": "seller_a"
+         *     }
          */
         AdminUserOut: {
             /**
@@ -3324,6 +3451,11 @@ export interface components {
         /**
          * AnalyticsReportResponse
          * @description 上报成功响应。
+         * @example {
+         *       "inserted": 42,
+         *       "status": "ok",
+         *       "upserted": 7
+         *     }
          */
         AnalyticsReportResponse: {
             /**
@@ -3379,7 +3511,15 @@ export interface components {
              */
             valid: boolean;
         };
-        /** BackupItem */
+        /**
+         * BackupItem
+         * @description 配置备份文件（命名 {name}.{YYYYMMDDHHMMSS}.json，mtime 为 epoch 秒）。
+         * @example {
+         *       "mtime": 1789113600,
+         *       "name": "image_prompts.json.20260911083000.json",
+         *       "size": 5120
+         *     }
+         */
         BackupItem: {
             /** Mtime */
             mtime: number;
@@ -3391,6 +3531,10 @@ export interface components {
         /**
          * CancelReasonOut
          * @description 订单取消原因（/v1/posting/fbs/cancel-reason）。
+         * @example {
+         *       "id": 6,
+         *       "title": "Товар закончился на складе"
+         *     }
          */
         CancelReasonOut: {
             /**
@@ -3408,6 +3552,11 @@ export interface components {
         /**
          * CancelTaskResponse
          * @description 取消任务响应。
+         * @example {
+         *       "message": "任务已取消",
+         *       "ok": true,
+         *       "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+         *     }
          */
         CancelTaskResponse: {
             /**
@@ -3426,7 +3575,13 @@ export interface components {
              */
             task_id: string;
         };
-        /** ConfigListItem */
+        /**
+         * ConfigListItem
+         * @description config 目录下的配置文件名。
+         * @example {
+         *       "name": "image_prompts.json"
+         *     }
+         */
         ConfigListItem: {
             /** Name */
             name: string;
@@ -3517,6 +3672,10 @@ export interface components {
         /**
          * DraftAiResponse
          * @description T14b: 单字段 AI 重新生成响应（只读结果，前端决定 PATCH 保存）。
+         * @example {
+         *       "field": "title",
+         *       "value": "Автопоилка для животных 2 л, фонтан с фильтром"
+         *     }
          */
         DraftAiResponse: {
             /**
@@ -3531,8 +3690,102 @@ export interface components {
             value: string;
         };
         /**
+         * DraftAssembleResponse
+         * @description POST /drafts/{id}/assemble 响应（v0.70 一键预组装：整卡生成并写回 payload）。
+         * @example {
+         *       "assembled": [
+         *         "title",
+         *         "description",
+         *         "attributes",
+         *         "tags"
+         *       ],
+         *       "estimated_pricing": {
+         *         "old_price": 910,
+         *         "price": 729,
+         *         "promo_price": 547
+         *       },
+         *       "skipped": [],
+         *       "suggested_category": {
+         *         "category_name": "Автопоилка для животных",
+         *         "description_category_id": "17029651",
+         *         "type_id": "91633"
+         *       },
+         *       "version": 2
+         *     }
+         */
+        DraftAssembleResponse: {
+            /**
+             * Assembled
+             * @description 实际生成成功并写回 payload 的字段（title/description/attributes/tags 子集）
+             */
+            assembled?: string[];
+            /**
+             * Estimated Pricing
+             * @description 三档预估价 RUB {price, old_price, promo_price?}（展示字段；pricing_node 永远按成本+margin 重算，管线不消费）
+             */
+            estimated_pricing?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Skipped
+             * @description 跳过的字段（已含西里尔幂等跳过 / 源为空 / ozon_attributes 已有内容不混源 / 生成失败）
+             */
+            skipped?: string[];
+            /**
+             * Suggested Category
+             * @description 类目建议 {description_category_id, type_id, category_name}（展示字段；只写 draft.suggested_category，绝不写 draft.ozon_category 劫持管线仲裁链）
+             */
+            suggested_category?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Version
+             * @description 写回后的草稿版本（version++）
+             */
+            version: number;
+        };
+        /**
          * DraftOut
          * @description 草稿详情（payload = envelope，不含任何凭证）。
+         * @example {
+         *       "created_at": "2026-09-08T10:00:00Z",
+         *       "id": "a1b2c3d4-0000-4000-8000-000000000001",
+         *       "image_mirror_state": "mirrored",
+         *       "notes": "竞品月销 140，跟卖利润空间 12%",
+         *       "payload": {
+         *         "draft": {
+         *           "attributes": {
+         *             "材质": "硅胶",
+         *             "颜色": "蓝色"
+         *           },
+         *           "currency": "CNY",
+         *           "dimensions": {
+         *             "height": 60,
+         *             "length": 150,
+         *             "width": 90
+         *           },
+         *           "images": [
+         *             "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+         *           ],
+         *           "item_id": "812345678901",
+         *           "purchase_cost": 8.5,
+         *           "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+         *           "title": "便携折叠水杯 500ml 硅胶",
+         *           "weight": 120
+         *         },
+         *         "extensions": {},
+         *         "source": {
+         *           "purchase_cost": 8.5,
+         *           "purchase_url": "https://detail.1688.com/offer/812345678901.html"
+         *         }
+         *       },
+         *       "source": "skill",
+         *       "source_batch": "batch-20260908-100000",
+         *       "submission_status": "pending",
+         *       "tenant_id": "28",
+         *       "updated_at": "2026-09-08T10:05:00Z",
+         *       "version": 1
+         *     }
          */
         DraftOut: {
             /**
@@ -3553,6 +3806,11 @@ export interface components {
              */
             image_mirror_state: string;
             /**
+             * Notes
+             * @description 运营备注（采集/选品依据人工标注）；不进信封 payload
+             */
+            notes?: string | null;
+            /**
              * Payload
              * @description envelope {draft, source, extensions}；无 api_key 明文
              */
@@ -3565,6 +3823,11 @@ export interface components {
              * @default skill
              */
             source: string;
+            /**
+             * Source Batch
+             * @description 来源批次标识（T-P3.1 批次契约）：采集批次精确过滤用；NULL = 无批次（老 skill 创建的草稿）
+             */
+            source_batch?: string | null;
             /**
              * Submission Status
              * @description 最新一次提交状态（draft_submissions.status）：pending/uploading/published/failed；NULL = 未上架（C1 状态机，T10 采集箱列）
@@ -3626,6 +3889,11 @@ export interface components {
         /**
          * HealthResponse
          * @description 健康检查响应。
+         * @example {
+         *       "db": "connected",
+         *       "message": "服务正常",
+         *       "status": "ok"
+         *     }
          */
         HealthResponse: {
             /**
@@ -3647,6 +3915,17 @@ export interface components {
         /**
          * ImageRegenResponse
          * @description POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
+         * @example {
+         *       "ok": true,
+         *       "params": {
+         *         "prompt_style": "clean white background",
+         *         "slot": "main"
+         *       },
+         *       "slot": "main",
+         *       "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+         *       "url": "https://cdn1.ozone.ru/s3/mxou/example_v2.jpg",
+         *       "version": 2
+         *     }
          */
         ImageRegenResponse: {
             /**
@@ -3687,7 +3966,16 @@ export interface components {
              */
             version: number;
         };
-        /** ImageTaskCreateRequest */
+        /**
+         * ImageTaskCreateRequest
+         * @example {
+         *       "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *       "params": {
+         *         "tolerance": 30
+         *       },
+         *       "type": "remove_bg"
+         *     }
+         */
         ImageTaskCreateRequest: {
             /** Input Image Url */
             input_image_url: string;
@@ -3698,7 +3986,28 @@ export interface components {
             /** Type */
             type: string;
         };
-        /** ImageTaskListResponse */
+        /**
+         * ImageTaskListResponse
+         * @example {
+         *       "items": [
+         *         {
+         *           "created_at": "2026-09-11T08:30:00.123456+00:00",
+         *           "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+         *           "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *           "params": {
+         *             "tolerance": 30
+         *           },
+         *           "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *           "status": "completed",
+         *           "type": "remove_bg",
+         *           "updated_at": "2026-09-11T08:30:00.123456+00:00"
+         *         }
+         *       ],
+         *       "limit": 50,
+         *       "offset": 0,
+         *       "total": 3
+         *     }
+         */
         ImageTaskListResponse: {
             /** Items */
             items: components["schemas"]["ImageTaskResponse"][];
@@ -3709,7 +4018,21 @@ export interface components {
             /** Total */
             total: number;
         };
-        /** ImageTaskResponse */
+        /**
+         * ImageTaskResponse
+         * @example {
+         *       "created_at": "2026-09-11T08:30:00.123456+00:00",
+         *       "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+         *       "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *       "params": {
+         *         "tolerance": 30
+         *       },
+         *       "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *       "status": "completed",
+         *       "type": "remove_bg",
+         *       "updated_at": "2026-09-11T08:30:00.123456+00:00"
+         *     }
+         */
         ImageTaskResponse: {
             /** Created At */
             created_at?: string | null;
@@ -3735,6 +4058,20 @@ export interface components {
         /**
          * ListingTemplateConfig
          * @description 模板扩展参数（白名单；全部可选，None 表示不注入）。
+         * @example {
+         *       "fx_buffer": 0.05,
+         *       "margin_anchor": 2,
+         *       "margin_floor": 0.6,
+         *       "margin_rate": 0.25,
+         *       "offer_id_prefix": "MX",
+         *       "promo_variable_cost_rate": 0.245,
+         *       "stock": 10,
+         *       "traffic_keywords": [
+         *         "поилка для животных",
+         *         "фонтан для кошек"
+         *       ],
+         *       "variable_cost_rate": 0.155
+         *     }
          */
         ListingTemplateConfig: {
             /**
@@ -3801,6 +4138,26 @@ export interface components {
         /**
          * ListingTemplateOut
          * @description 上架配置模板响应。
+         * @example {
+         *       "config": {
+         *         "fx_buffer": 0.05,
+         *         "margin_anchor": 2,
+         *         "margin_floor": 0.6,
+         *         "margin_rate": 0.25,
+         *         "offer_id_prefix": "MX",
+         *         "promo_variable_cost_rate": 0.245,
+         *         "stock": 10,
+         *         "variable_cost_rate": 0.155
+         *       },
+         *       "created_at": "2026-09-01T00:00:00Z",
+         *       "description": "日常 25% / 锚点 2.0 / 促销底线 0.6",
+         *       "id": "f0e1d2c3-0000-4000-8000-000000000003",
+         *       "is_default": true,
+         *       "name": "默认三档定价",
+         *       "platform": "OZON",
+         *       "tenant_id": "28",
+         *       "updated_at": "2026-09-08T10:00:00Z"
+         *     }
          */
         ListingTemplateOut: {
             /** @description 扩展参数 */
@@ -3859,6 +4216,16 @@ export interface components {
         /**
          * LogisticsImportResult
          * @description 导入结果：inserted/updated 计数 + 逐行错误。
+         * @example {
+         *       "errors": [
+         *         {
+         *           "error": "weight_min 不能大于 weight_max",
+         *           "row": 5
+         *         }
+         *       ],
+         *       "imported": 12,
+         *       "updated": 3
+         *     }
          */
         LogisticsImportResult: {
             /** Errors */
@@ -3873,6 +4240,21 @@ export interface components {
         /**
          * LogisticsRateRow
          * @description 单条费率行（服务返回结构，供文档/校验用）。
+         * @example {
+         *       "base_cost": 3.12,
+         *       "charge_type": "actual",
+         *       "delivery_method": "RETS Express Extra Small",
+         *       "id": 1,
+         *       "longest_limit_cm": 60,
+         *       "per_gram_rate": 0.0468,
+         *       "scoring_group": "Extra Small",
+         *       "service_level": "Express",
+         *       "sum_limit_cm": 90,
+         *       "tpl_provider": "RETS",
+         *       "vol_weight_divisor": 0,
+         *       "weight_max": 500,
+         *       "weight_min": 1
+         *     }
          */
         LogisticsRateRow: {
             /** Base Cost */
@@ -3910,6 +4292,11 @@ export interface components {
         /**
          * MxouKeyCreateResponse
          * @description 新建 API Key 响应（key 仅此一次返回——用户复制后不再可查）。
+         * @example {
+         *       "id": "tok_02",
+         *       "key": "sk-yyyyyyyyyyyyyyyyyyyy",
+         *       "name": "webui"
+         *     }
          */
         MxouKeyCreateResponse: {
             /**
@@ -3931,6 +4318,12 @@ export interface components {
         /**
          * MxouKeyItem
          * @description MXOU API Key 条目（脱敏展示，绝不含 full_key）。
+         * @example {
+         *       "id": "tok_01",
+         *       "masked": true,
+         *       "name": "default",
+         *       "status": 1
+         *     }
          */
         MxouKeyItem: {
             /**
@@ -3960,6 +4353,9 @@ export interface components {
         /**
          * MxouKeySelectResponse
          * @description 切换密钥响应（key 仅此一次返回——用户复制后不再可查）。
+         * @example {
+         *       "key": "sk-yyyyyyyyyyyyyyyyyyyy"
+         *     }
          */
         MxouKeySelectResponse: {
             /**
@@ -3971,6 +4367,22 @@ export interface components {
         /**
          * MxouLoginResponse
          * @description MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返回用于建立登录态）。
+         * @example {
+         *       "balance": 128.4,
+         *       "key": "sk-xxxxxxxxxxxxxxxxxxxx",
+         *       "keys": [
+         *         {
+         *           "id": "tok_01",
+         *           "masked": true,
+         *           "name": "default",
+         *           "status": 1
+         *         }
+         *       ],
+         *       "role": "user",
+         *       "selected_key_id": "tok_01",
+         *       "session_expires_at": "2026-09-11T23:59:59",
+         *       "username": "seller@example.com"
+         *     }
          */
         MxouLoginResponse: {
             /**
@@ -4013,6 +4425,13 @@ export interface components {
         /**
          * OrderActionResponse
          * @description 订单写入操作响应（备货/取消）。
+         * @example {
+         *       "ok": true,
+         *       "posting_number": "0031-726193-0001",
+         *       "result": {
+         *         "accepted": true
+         *       }
+         *     }
          */
         OrderActionResponse: {
             /**
@@ -4037,6 +4456,11 @@ export interface components {
         /**
          * OrderLabelResponse
          * @description 面单 PDF 响应（base64，路由层编码）。
+         * @example {
+         *       "content_type": "application/pdf",
+         *       "label_base64": "JVBERi0xLjQKJ...",
+         *       "posting_number": "0031-726193-0001"
+         *     }
          */
         OrderLabelResponse: {
             /**
@@ -4059,6 +4483,35 @@ export interface components {
         /**
          * OrderListResponse
          * @description 订单列表响应。
+         * @example {
+         *       "items": [
+         *         {
+         *           "cancel_reason": "",
+         *           "cancellation": "",
+         *           "commission_amount": 109.35,
+         *           "created_at": "2026-09-08T09:30:00Z",
+         *           "delivery_method": "Courier",
+         *           "posting_number": "0031-726193-0001",
+         *           "product_count": 1,
+         *           "products": [],
+         *           "profit": 155.2,
+         *           "raw_status": "awaiting_packaging",
+         *           "real_profit": 132.8,
+         *           "status": "awaiting",
+         *           "total_amount": 729,
+         *           "warehouse": "Коледино"
+         *         }
+         *       ],
+         *       "last_synced_at": "2026-09-11T01:55:00Z",
+         *       "limit": 50,
+         *       "offset": 0,
+         *       "store": {
+         *         "id": "3c9d2f4e-1111-4222-8333-444455556666",
+         *         "ozon_client_id": "5381204"
+         *       },
+         *       "sync_status": "ok",
+         *       "total": 342
+         *     }
          */
         OrderListResponse: {
             /** Items */
@@ -4107,6 +4560,18 @@ export interface components {
         /**
          * OrderNoteOut
          * @description 订单货源/采购信息标注（P1-1 本地元数据）。
+         * @example {
+         *       "created_at": "2026-09-08T09:40:00Z",
+         *       "posting_number": "0031-726193-0001",
+         *       "purchase_carrier": "中通",
+         *       "purchase_no": "PO-20260908-001",
+         *       "purchase_tracking": "78412345678901",
+         *       "source_cost": 8.5,
+         *       "source_remark": "蓝色 500ml",
+         *       "source_url": "https://detail.1688.com/offer/812345678901.html",
+         *       "tenant_id": "28",
+         *       "updated_at": "2026-09-08T09:40:00Z"
+         *     }
          */
         OrderNoteOut: {
             /**
@@ -4168,6 +4633,32 @@ export interface components {
         /**
          * OrderOut
          * @description 订单行（Ozon FBS posting 标准化）。
+         * @example {
+         *       "cancel_reason": "",
+         *       "cancellation": "",
+         *       "commission_amount": 109.35,
+         *       "created_at": "2026-09-08T09:30:00Z",
+         *       "delivery_method": "Courier",
+         *       "posting_number": "0031-726193-0001",
+         *       "product_count": 1,
+         *       "products": [
+         *         {
+         *           "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *           "name": "Автопоилка для животных 2 л",
+         *           "offer_id": "812345678901",
+         *           "price": 729,
+         *           "product_id": 3171397439,
+         *           "quantity": 1,
+         *           "sku": 3171397439
+         *         }
+         *       ],
+         *       "profit": 155.2,
+         *       "raw_status": "awaiting_packaging",
+         *       "real_profit": 132.8,
+         *       "status": "awaiting",
+         *       "total_amount": 729,
+         *       "warehouse": "Коледино"
+         *     }
          */
         OrderOut: {
             /**
@@ -4252,6 +4743,15 @@ export interface components {
         /**
          * OrderProductOut
          * @description 订单内商品行。
+         * @example {
+         *       "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *       "name": "Автопоилка для животных 2 л",
+         *       "offer_id": "812345678901",
+         *       "price": 729,
+         *       "product_id": 3171397439,
+         *       "quantity": 1,
+         *       "sku": 3171397439
+         *     }
          */
         OrderProductOut: {
             /**
@@ -4296,6 +4796,32 @@ export interface components {
         /**
          * OzonProductListResponse
          * @description Ozon 在线商品列表响应。
+         * @example {
+         *       "items": [
+         *         {
+         *           "archived": false,
+         *           "currency": "RUB",
+         *           "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *           "min_price": 547,
+         *           "name": "Автопоилка для животных 2 л",
+         *           "offer_id": "812345678901",
+         *           "old_price": 910,
+         *           "price": 729,
+         *           "product_id": "3171397439",
+         *           "status": "visible",
+         *           "stock": 12
+         *         }
+         *       ],
+         *       "last_synced_at": "2026-09-11T01:55:00Z",
+         *       "limit": 50,
+         *       "offset": 0,
+         *       "store": {
+         *         "id": "3c9d2f4e-1111-4222-8333-444455556666",
+         *         "ozon_client_id": "5381204"
+         *       },
+         *       "sync_status": "ok",
+         *       "total": 86
+         *     }
          */
         OzonProductListResponse: {
             /** Items */
@@ -4344,6 +4870,19 @@ export interface components {
         /**
          * OzonProductOut
          * @description Ozon 店铺在线商品（v0.50 实时拉取，覆盖非本系统上架商品）。
+         * @example {
+         *       "archived": false,
+         *       "currency": "RUB",
+         *       "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *       "min_price": 547,
+         *       "name": "Автопоилка для животных 2 л",
+         *       "offer_id": "812345678901",
+         *       "old_price": 910,
+         *       "price": 729,
+         *       "product_id": "3171397439",
+         *       "status": "visible",
+         *       "stock": 12
+         *     }
          */
         OzonProductOut: {
             /**
@@ -4417,6 +4956,41 @@ export interface components {
          * @description T6: GET /products/{product_id}/edit — 在线商品编辑初值。
          *
          *     数据来源：product_task_index 关联草稿（直连任务无草稿 → 409，仅改图走 update_images）。
+         * @example {
+         *       "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+         *       "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+         *       "draft_version": 3,
+         *       "moderation_status": "approved",
+         *       "offer_id": "812345678901",
+         *       "payload": {
+         *         "draft": {
+         *           "attributes": {
+         *             "材质": "硅胶",
+         *             "颜色": "蓝色"
+         *           },
+         *           "currency": "CNY",
+         *           "dimensions": {
+         *             "height": 60,
+         *             "length": 150,
+         *             "width": 90
+         *           },
+         *           "images": [
+         *             "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+         *           ],
+         *           "item_id": "812345678901",
+         *           "purchase_cost": 8.5,
+         *           "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+         *           "title": "便携折叠水杯 500ml 硅胶",
+         *           "weight": 120
+         *         },
+         *         "extensions": {},
+         *         "source": {
+         *           "purchase_cost": 8.5,
+         *           "purchase_url": "https://detail.1688.com/offer/812345678901.html"
+         *         }
+         *       },
+         *       "product_id": "3171397439"
+         *     }
          */
         ProductEditResponse: {
             /**
@@ -4461,6 +5035,15 @@ export interface components {
         /**
          * ProductListItem
          * @description 在售商品列表项 — 只读，product_task_index 行 + 任务 result 审核状态。
+         * @example {
+         *       "created_at": "2026-09-08T10:05:00Z",
+         *       "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+         *       "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+         *       "moderation_status": "approved",
+         *       "offer_id": "812345678901",
+         *       "product_id": "3171397439",
+         *       "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+         *     }
          */
         ProductListItem: {
             /**
@@ -4502,6 +5085,22 @@ export interface components {
         /**
          * ProductListResponse
          * @description 在售商品列表响应（M2.1）。
+         * @example {
+         *       "items": [
+         *         {
+         *           "created_at": "2026-09-08T10:05:00Z",
+         *           "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+         *           "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+         *           "moderation_status": "approved",
+         *           "offer_id": "812345678901",
+         *           "product_id": "3171397439",
+         *           "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+         *         }
+         *       ],
+         *       "limit": 20,
+         *       "offset": 0,
+         *       "total": 86
+         *     }
          */
         ProductListResponse: {
             /**
@@ -4531,6 +5130,13 @@ export interface components {
         /**
          * ProductSourceUpdate
          * @description 成本/货源手动维护(PATCH /products/{id}/source,manual 最高优先级)。
+         * @example {
+         *       "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+         *       "freight_cny": 3.5,
+         *       "purchase_cost": 12.8,
+         *       "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+         *       "supplier": "义乌市日用品贸易有限公司"
+         *     }
          */
         ProductSourceUpdate: {
             /**
@@ -4564,6 +5170,10 @@ export interface components {
         /**
          * QueryDeleteOut
          * @description 删除结果。
+         * @example {
+         *       "deleted": true,
+         *       "ok": true
+         *     }
          */
         QueryDeleteOut: {
             /**
@@ -4580,6 +5190,18 @@ export interface components {
         /**
          * QueryImportIn
          * @description 导入请求体：csv 文本与 items 数组二选一。
+         * @example {
+         *       "csv": "query,count,ca,avg_ca_rub\nорганайзер для косметики,1520,0.8,1250.5\n"
+         *     }
+         * @example {
+         *       "items": [
+         *         {
+         *           "ca": 0.8,
+         *           "count": 1520,
+         *           "query": "органайзер для косметики"
+         *         }
+         *       ]
+         *     }
          */
         QueryImportIn: {
             /** Csv */
@@ -4592,6 +5214,16 @@ export interface components {
         /**
          * QueryImportResult
          * @description 导入结果：新增/更新计数 + 逐行错误。
+         * @example {
+         *       "errors": [
+         *         {
+         *           "error": "query 必填",
+         *           "row": 3
+         *         }
+         *       ],
+         *       "imported": 40,
+         *       "updated": 2
+         *     }
          */
         QueryImportResult: {
             /** Errors */
@@ -4612,6 +5244,24 @@ export interface components {
         /**
          * QueryListOut
          * @description 库浏览响应。
+         * @example {
+         *       "items": [
+         *         {
+         *           "avg_ca_rub": 1250.5,
+         *           "avg_count_items": 310.2,
+         *           "ca": 0.8,
+         *           "count": 1520,
+         *           "created_at": "2026-09-10T12:00:00+00:00",
+         *           "id": 42,
+         *           "items_views": 45600,
+         *           "query": "органайзер для косметики",
+         *           "source": "fetched",
+         *           "uniq_queries_wca": 118,
+         *           "uniq_sellers": 128
+         *         }
+         *       ],
+         *       "total": 137
+         *     }
          */
         QueryListOut: {
             /** Items */
@@ -4624,7 +5274,20 @@ export interface components {
         };
         /**
          * QueryRow
-         * @description 关键词行（库浏览返回项）。
+         * @description 关键词行（库浏览返回项；字段即 blue_ocean_queries 列，created_at 为 isoformat 串）。
+         * @example {
+         *       "avg_ca_rub": 1250.5,
+         *       "avg_count_items": 310.2,
+         *       "ca": 0.8,
+         *       "count": 1520,
+         *       "created_at": "2026-09-10T12:00:00+00:00",
+         *       "id": 42,
+         *       "items_views": 45600,
+         *       "query": "органайзер для косметики",
+         *       "source": "fetched",
+         *       "uniq_queries_wca": 118,
+         *       "uniq_sellers": 128
+         *     }
          */
         QueryRow: {
             /** Avg Ca Rub */
@@ -4656,7 +5319,17 @@ export interface components {
             /** Uniq Sellers */
             uniq_sellers?: number | null;
         };
-        /** SiteAnnouncementOut */
+        /**
+         * SiteAnnouncementOut
+         * @example {
+         *       "announcement_type": "popup",
+         *       "content": "Worker 将于 2026-09-12 02:00-03:00（UTC+8）升级，期间任务提交可能短暂失败。",
+         *       "created_at": "2026-09-10T04:00:00+00:00",
+         *       "enabled": true,
+         *       "id": 1,
+         *       "title": "系统升级公告"
+         *     }
+         */
         SiteAnnouncementOut: {
             /**
              * Announcement Type
@@ -4680,7 +5353,19 @@ export interface components {
              */
             title: string;
         };
-        /** SiteBannerOut */
+        /**
+         * SiteBannerOut
+         * @example {
+         *       "created_at": "2026-09-01T02:00:00+00:00",
+         *       "enabled": true,
+         *       "id": 1,
+         *       "image_url": "https://worker.mxou.cn/static/banners/autumn-2026.png",
+         *       "link_url": "https://worker.mxou.cn/bestsellers",
+         *       "sort_order": 10,
+         *       "title": "秋季选品季",
+         *       "updated_at": "2026-09-10T04:30:00+00:00"
+         *     }
+         */
         SiteBannerOut: {
             /** Created At */
             created_at?: string | null;
@@ -4711,6 +5396,11 @@ export interface components {
         /**
          * StoreSyncConfigUpdate
          * @description 店铺同步配置更新(PATCH /stores/{id}/sync-config,免 api_key;间隔下限 5min)。
+         * @example {
+         *       "sync_enabled": true,
+         *       "sync_interval_minutes": 15,
+         *       "sync_products_interval_minutes": 30
+         *     }
          */
         StoreSyncConfigUpdate: {
             /**
@@ -4734,6 +5424,17 @@ export interface components {
          * @description M2.2: 草稿提交时间线条目（draft_submissions 行，created_at 倒序）。
          *
          *     供 WebUI 展示「这个草稿被提交过几次、到过哪些店、结果如何」。
+         * @example {
+         *       "created_at": "2026-09-08T10:10:00Z",
+         *       "extensions": {
+         *         "margin_rate": 0.25,
+         *         "stock": 10
+         *       },
+         *       "id": "a1b2c3d4-0000-4000-8000-000000000002",
+         *       "status": "published",
+         *       "store_client_id": "5381204",
+         *       "submitted_task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+         *     }
          */
         SubmissionTimelineItem: {
             /**
@@ -4861,6 +5562,9 @@ export interface components {
          *
          *     解析顺序：draft_submissions.submitted_task_id → product_task_index.task_id → None
          *     （直连任务无 submission 行时回落到 product_task_index；都无 → draft_id=None）。
+         * @example {
+         *       "draft_id": "a1b2c3d4-0000-4000-8000-000000000001"
+         *     }
          */
         TaskDraftResponse: {
             /**
@@ -4872,6 +5576,16 @@ export interface components {
         /**
          * TaskImageItem
          * @description 单张生图缓存行（URL 元数据，不存二进制）。
+         * @example {
+         *       "created_at": "2026-09-08T10:03:00Z",
+         *       "params": {
+         *         "prompt_style": "clean white background",
+         *         "slot": "main"
+         *       },
+         *       "slot": "main",
+         *       "url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *       "version": 1
+         *     }
          */
         TaskImageItem: {
             /**
@@ -4910,6 +5624,22 @@ export interface components {
         /**
          * TaskImagesResponse
          * @description GET /tasks/{id}/images 响应。
+         * @example {
+         *       "images": [
+         *         {
+         *           "created_at": "2026-09-08T10:03:00Z",
+         *           "params": {
+         *             "prompt_style": "clean white background",
+         *             "slot": "main"
+         *           },
+         *           "slot": "main",
+         *           "url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *           "version": 1
+         *         }
+         *       ],
+         *       "ok": true,
+         *       "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+         *     }
          */
         TaskImagesResponse: {
             /**
@@ -4931,6 +5661,42 @@ export interface components {
         /**
          * TaskListItem
          * @description 任务列表项 — 只读摘要，不含 payload（体积大且含敏感 token）。
+         * @example {
+         *       "created_at": "2026-09-08T10:00:00Z",
+         *       "follow_sell": false,
+         *       "id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+         *       "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *       "item_id": "812345678901",
+         *       "ozon_client_id": "5381204",
+         *       "product_summary": [],
+         *       "progress": {
+         *         "message": "生成主图 2/5",
+         *         "percent": 53,
+         *         "stage": "image_generation",
+         *         "stages_completed": [
+         *           "auth",
+         *           "ingest",
+         *           "category_match",
+         *           "pricing",
+         *           "attributes",
+         *           "description"
+         *         ],
+         *         "stages_remaining": [
+         *           "image_generation",
+         *           "prepare_ozon_upload",
+         *           "ozon_validate",
+         *           "check_quota",
+         *           "ozon_upload",
+         *           "ozon_status",
+         *           "learning_record"
+         *         ]
+         *       },
+         *       "shop_name": "测试店",
+         *       "status": "running",
+         *       "title": "Автопоилка для животных 2 л",
+         *       "update_mode": false,
+         *       "updated_at": "2026-09-08T10:01:30Z"
+         *     }
          */
         TaskListItem: {
             /**
@@ -5010,6 +5776,27 @@ export interface components {
         /**
          * TaskListResponse
          * @description 任务列表响应（T8）。
+         * @example {
+         *       "items": [
+         *         {
+         *           "created_at": "2026-09-08T10:00:00Z",
+         *           "follow_sell": false,
+         *           "id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+         *           "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *           "item_id": "812345678901",
+         *           "ozon_client_id": "5381204",
+         *           "product_summary": [],
+         *           "shop_name": "测试店",
+         *           "status": "running",
+         *           "title": "Автопоилка для животных 2 л",
+         *           "update_mode": false,
+         *           "updated_at": "2026-09-08T10:01:30Z"
+         *         }
+         *       ],
+         *       "limit": 20,
+         *       "offset": 0,
+         *       "total": 214
+         *     }
          */
         TaskListResponse: {
             /**
@@ -5039,6 +5826,15 @@ export interface components {
         /**
          * TaskStatisticsResponse
          * @description 任务统计响应。
+         * @example {
+         *       "avg_duration_seconds": 212.6,
+         *       "cancelled": 3,
+         *       "completed": 100,
+         *       "failed": 20,
+         *       "pending": 3,
+         *       "running": 2,
+         *       "total": 128
+         *     }
          */
         TaskStatisticsResponse: {
             /**
@@ -5085,6 +5881,7 @@ export interface components {
         };
         /**
          * TaskStatus
+         * @example running
          * @enum {string}
          */
         TaskStatus: "pending" | "running" | "completed" | "failed" | "cancelled" | "rejected" | "pending_moderation";
@@ -5206,6 +6003,21 @@ export interface components {
         /**
          * UpdateProductImagesResponse
          * @description T14 在线商品改图重传响应。
+         * @example {
+         *       "images": [
+         *         "https://cdn1.ozone.ru/s3/mxou/example.jpg"
+         *       ],
+         *       "images_filtered": [
+         *         "https://cbu01.alicdn.com/img/ibank/dead-link.jpg"
+         *       ],
+         *       "import_task_id": "77123456",
+         *       "message": "改图重传已提交，商品重新审核中",
+         *       "offer_id": "812345678901",
+         *       "ok": true,
+         *       "product_id": "3171397439",
+         *       "re_under_review": true,
+         *       "status": "pending_moderation"
+         *     }
          */
         UpdateProductImagesResponse: {
             /**
@@ -5258,6 +6070,11 @@ export interface components {
         /**
          * ValidateResponse
          * @description 凭证校验响应。
+         * @example {
+         *       "last_validated_at": "2026-09-11T02:00:00Z",
+         *       "reason": "ok",
+         *       "valid": true
+         *     }
          */
         ValidateResponse: {
             /**
@@ -5316,6 +6133,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "action": "credential.rotate",
+                     *           "created_at": "2026-09-11T08:30:00",
+                     *           "detail": {
+                     *             "offer_id": "SKU-1001"
+                     *           },
+                     *           "id": 42,
+                     *           "resource": "credentials/7f3a",
+                     *           "user_id": "28"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5345,6 +6181,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "action": "credential.rotate",
+                     *       "created_at": "2026-09-11T08:30:00",
+                     *       "detail": {
+                     *         "offer_id": "SKU-1001"
+                     *       },
+                     *       "id": 42,
+                     *       "resource": "credentials/7f3a",
+                     *       "user_id": "28"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5368,6 +6216,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "action": "credential.rotate",
+                     *           "created_at": "2026-09-11T08:30:00",
+                     *           "detail": {
+                     *             "offer_id": "SKU-1001"
+                     *           },
+                     *           "id": 42,
+                     *           "resource": "credentials/7f3a",
+                     *           "user_id": "28"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5397,6 +6264,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "action": "credential.rotate",
+                     *       "created_at": "2026-09-11T08:30:00",
+                     *       "detail": {
+                     *         "offer_id": "SKU-1001"
+                     *       },
+                     *       "id": 42,
+                     *       "resource": "credentials/7f3a",
+                     *       "user_id": "28"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5417,6 +6296,21 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "children": [],
+                     *         "depth": 2,
+                     *         "description_category_id": 17027532,
+                     *         "full_path": "汽车摩托车 > 车内用品 > 汽车香薰",
+                     *         "id": 9101,
+                     *         "name": "汽车香薰",
+                     *         "parent_id": 17027480,
+                     *         "top_level_category_name": "汽车摩托车",
+                     *         "type_id": 9165596
+                     *       }
+                     *     ]
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5437,6 +6331,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "description_category_id": 17027532,
+                     *       "id": 9101,
+                     *       "name": "汽车香薰",
+                     *       "parent_id": 17027480,
+                     *       "type_id": 9165596
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5457,6 +6360,21 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "children": [],
+                     *         "depth": 2,
+                     *         "description_category_id": 17027532,
+                     *         "full_path": "汽车摩托车 > 车内用品 > 汽车香薰",
+                     *         "id": 9101,
+                     *         "name": "汽车香薰",
+                     *         "parent_id": 17027480,
+                     *         "top_level_category_name": "汽车摩托车",
+                     *         "type_id": 9165596
+                     *       }
+                     *     ]
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5477,6 +6395,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "description_category_id": 17027532,
+                     *       "id": 9101,
+                     *       "name": "汽车香薰",
+                     *       "parent_id": 17027480,
+                     *       "type_id": 9165596
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5528,6 +6455,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "description_category_id": 17027532,
+                     *       "id": 9101,
+                     *       "name": "车载香薰",
+                     *       "parent_id": 17027480,
+                     *       "type_id": 9165596
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5599,6 +6535,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "model": "deepseek-v4-flash",
+                     *       "system_prompt": "你是 Ozon 上架类目匹配专家",
+                     *       "temperature": 0.2
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -5632,6 +6575,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "backup_path": "/app/config/backup/image_prompts.json.20260911083000",
+                     *       "updated": true
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -5696,6 +6645,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "name": "image_prompts.json",
+                     *       "restored": true
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -5730,6 +6685,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "config": {
+                     *             "encoding": "utf-8",
+                     *             "url": "https://example.com/list.csv"
+                     *           },
+                     *           "created_at": "2026-09-10T12:00:00",
+                     *           "enabled": true,
+                     *           "id": 3,
+                     *           "name": "1688-选品源A",
+                     *           "type": "csv",
+                     *           "updated_at": "2026-09-11T08:30:00"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5759,6 +6735,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "config": {
+                     *         "encoding": "utf-8",
+                     *         "url": "https://example.com/list.csv"
+                     *       },
+                     *       "created_at": "2026-09-10T12:00:00",
+                     *       "enabled": true,
+                     *       "id": 3,
+                     *       "name": "1688-选品源A",
+                     *       "type": "csv",
+                     *       "updated_at": "2026-09-11T08:30:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5782,6 +6772,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "config": {
+                     *             "encoding": "utf-8",
+                     *             "url": "https://example.com/list.csv"
+                     *           },
+                     *           "created_at": "2026-09-10T12:00:00",
+                     *           "enabled": true,
+                     *           "id": 3,
+                     *           "name": "1688-选品源A",
+                     *           "type": "csv",
+                     *           "updated_at": "2026-09-11T08:30:00"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5811,6 +6822,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "config": {
+                     *         "encoding": "utf-8",
+                     *         "url": "https://example.com/list.csv"
+                     *       },
+                     *       "created_at": "2026-09-10T12:00:00",
+                     *       "enabled": true,
+                     *       "id": 3,
+                     *       "name": "1688-选品源A",
+                     *       "type": "csv",
+                     *       "updated_at": "2026-09-11T08:30:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5831,6 +6856,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "imported": 12
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5853,6 +6883,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "config": {
+                     *         "encoding": "utf-8",
+                     *         "url": "https://example.com/list.csv"
+                     *       },
+                     *       "created_at": "2026-09-10T12:00:00",
+                     *       "enabled": true,
+                     *       "id": 3,
+                     *       "name": "1688-选品源A",
+                     *       "type": "csv",
+                     *       "updated_at": "2026-09-11T08:30:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5913,6 +6957,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "config": {
+                     *         "encoding": "utf-8",
+                     *         "url": "https://example.com/list.csv"
+                     *       },
+                     *       "created_at": "2026-09-10T12:00:00",
+                     *       "enabled": true,
+                     *       "id": 3,
+                     *       "name": "1688-选品源A",
+                     *       "type": "csv",
+                     *       "updated_at": "2026-09-11T08:30:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5945,6 +7003,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "base_cost": 3.12,
+                     *           "charge_type": "actual",
+                     *           "delivery_method": "RETS Express Extra Small",
+                     *           "id": 1,
+                     *           "longest_limit_cm": 60,
+                     *           "per_gram_rate": 0.0468,
+                     *           "scoring_group": "Extra Small",
+                     *           "service_level": "Express",
+                     *           "sum_limit_cm": 90,
+                     *           "tpl_provider": "RETS",
+                     *           "vol_weight_divisor": 0,
+                     *           "weight_max": 500,
+                     *           "weight_min": 1
+                     *         }
+                     *       ],
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -6397,6 +7477,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "consecutive_failures": 0,
+                     *           "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *           "is_stale": false,
+                     *           "last_success_at": "2026-09-11T08:30:00+00:00",
+                     *           "orders_error": "",
+                     *           "ozon_client_id": "5381204",
+                     *           "products_error": "",
+                     *           "shop_name": "测试店",
+                     *           "sync_enabled": true
+                     *         }
+                     *       ],
+                     *       "summary": {
+                     *         "stale": 0,
+                     *         "syncing": 1,
+                     *         "total": 2
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6417,6 +7519,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "avg_duration_seconds": 173.45,
+                     *       "cancelled": 0,
+                     *       "completed": 296,
+                     *       "failed": 18,
+                     *       "pending": 4,
+                     *       "running": 2,
+                     *       "total": 320
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6457,6 +7570,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "email": "seller@example.com",
+                     *       "id": "3f9c2a10-8f7e-4a6b-9c3d-1e2f3a4b5c6d",
+                     *       "quota": 0,
+                     *       "role": "user"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6510,6 +7631,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "3f9c2a10-8f7e-4a6b-9c3d-1e2f3a4b5c6d",
+                     *       "quota": 500,
+                     *       "role": "admin",
+                     *       "status": "active"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6539,6 +7668,24 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "avg_price_rub": 3117.7,
+                     *           "brand": "Thermos",
+                     *           "category_path": "Дом и сад / Термосы",
+                     *           "contributed_by_token_id": "test-token-123",
+                     *           "ordering_amount": 1284500,
+                     *           "ordering_count": 412,
+                     *           "sku_or_id": "1680357214"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6559,6 +7706,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "category": "宠物饮水机",
+                     *           "run_count": 6,
+                     *           "total_products": 240
+                     *         }
+                     *       ],
+                     *       "scope": "tenant"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6579,6 +7738,23 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "avg_ca_rub": 1250.5,
+                     *           "avg_count_items": 310.2,
+                     *           "ca": 0.8,
+                     *           "count": 1520,
+                     *           "items_views": 45600,
+                     *           "query": "органайзер для косметики",
+                     *           "uniq_queries_wca": 118,
+                     *           "uniq_sellers": 128
+                     *         }
+                     *       ],
+                     *       "scope": "global"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6619,6 +7795,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "bestseller_count": 5000,
+                     *       "scope": "tenant",
+                     *       "total_discovery_runs": 27,
+                     *       "total_gmv": 152340.5,
+                     *       "total_orders": 1206,
+                     *       "total_products": 348
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6679,6 +7865,131 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "date": "2026-09-10",
+                     *           "gmv": 21540,
+                     *           "orders": 168
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    http_seller_sync_api_v1_analytics_seller_sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Items */
+                    items: {
+                        [key: string]: unknown;
+                    }[];
+                    /** Source Company Id */
+                    source_company_id?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "accepted": 10,
+                     *       "skipped": 2
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    http_sku_metrics_api_v1_analytics_sku_metrics_get: {
+        parameters: {
+            query?: {
+                skus?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "metrics": [
+                     *         {
+                     *           "category_dc": 17027532,
+                     *           "category_name_zh": "汽车香薰",
+                     *           "category_tp": 9165596,
+                     *           "needs_sales_sync": false,
+                     *           "needs_variant_sync": true,
+                     *           "sales_payload": {
+                     *             "orders": 42
+                     *           },
+                     *           "sku": "123456789",
+                     *           "updated_at": "2026-09-11T06:00:00+00:00"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    http_what_to_sell_api_v1_analytics_what_to_sell_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": {
+                     *         "items": []
+                     *       },
+                     *       "found": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6768,6 +8079,24 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "attributes": [
+                     *         {
+                     *           "dictionary_id": 0,
+                     *           "id": 4180,
+                     *           "is_collection": false,
+                     *           "max_value_count": 1,
+                     *           "name": "Тип",
+                     *           "required": true,
+                     *           "type": "String"
+                     *         }
+                     *       ],
+                     *       "cached": true,
+                     *       "fetched": false,
+                     *       "found": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6788,6 +8117,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "category_path": "Авто и мото / Автоинструменты / Автомобильный компрессор",
+                     *           "description_category_id": "91936",
+                     *           "node_name": "Автомобильный компрессор",
+                     *           "similarity": 0.87,
+                     *           "type_id": "91938"
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6808,6 +8150,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "fbo": {
+                     *         "gt_5000": 0.09,
+                     *         "leq_1500": 0.14,
+                     *         "leq_5000": 0.11
+                     *       },
+                     *       "fbs": {
+                     *         "gt_5000": 0.1,
+                     *         "leq_1500": 0.16,
+                     *         "leq_5000": 0.12
+                     *       },
+                     *       "found": true,
+                     *       "source": "prices_api"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6870,6 +8228,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *       "ok": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6932,8 +8296,154 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *       "deleted_total": 214,
+                     *       "ok": true,
+                     *       "per_table": {
+                     *         "ozon_orders_cache": 180,
+                     *         "ozon_products_cache": 34
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_api_v1_credentials__credential_id__session_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "cookie_names": [
+                     *         "__Secure-access_token",
+                     *         "sc_company_id",
+                     *         "session_context"
+                     *       ],
+                     *       "harvested_at": "2026-09-11T08:30:00+00:00",
+                     *       "status": "active"
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_session_api_v1_credentials__credential_id__session_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "cookies": {
+                 *         "sc_company_id": "5371047"
+                 *       }
+                 *     }
+                 */
+                "application/json": {
+                    /**
+                     * @description seller.ozon.ru 会话 cookie {名: 值}（核心 sc_company_id）
+                     * @example {
+                     *       "sc_company_id": "5371047"
+                     *     }
+                     */
+                    cookies: {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "cookie_names": [
+                     *         "__Secure-access_token",
+                     *         "sc_company_id",
+                     *         "session_context"
+                     *       ],
+                     *       "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *       "ok": true,
+                     *       "status": "active"
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_session_api_v1_credentials__credential_id__session_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -6992,6 +8502,45 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "active_products": 132,
+                     *       "hot_products": [
+                     *         {
+                     *           "name": "汽车香薰",
+                     *           "product_id": "123456789",
+                     *           "quantity": 28
+                     *         }
+                     *       ],
+                     *       "last_synced_at": "2026-09-11T08:00:00+00:00",
+                     *       "latest_orders": [
+                     *         {
+                     *           "created_at": "2026-09-11T07:40:00+00:00",
+                     *           "posting_number": "23456789-0010-3",
+                     *           "product_name": "汽车香薰",
+                     *           "status": "awaiting_packaging",
+                     *           "total_amount": 2150
+                     *         }
+                     *       ],
+                     *       "pending_tasks": 3,
+                     *       "store_count": 2,
+                     *       "today": {
+                     *         "commission_amount": 8685.09,
+                     *         "orders_count": 12,
+                     *         "profit_amount": 6200.4,
+                     *         "sales_amount": 48250.5
+                     *       },
+                     *       "trend": [
+                     *         {
+                     *           "date": "2026-09-10",
+                     *           "orders": 9,
+                     *           "profit_amount": 4650,
+                     *           "sales_amount": 36120
+                     *         }
+                     *       ],
+                     *       "trend_days": 14
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7012,6 +8561,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "candidates": 23,
+                     *           "contributed_by_fp": "a1b2c3d4e5f60718",
+                     *           "contributed_by_token_id": "test-token-123",
+                     *           "created_at": "2026-09-11T10:24:31",
+                     *           "filters": {
+                     *             "min_margin": 0.25
+                     *           },
+                     *           "id": "0192b1f0-9c3f-7f2e-8b1a-3d4e5f6a7b8c",
+                     *           "keyword": "宠物饮水机"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7039,7 +8608,9 @@ export interface operations {
     };
     list_drafts_api_v1_drafts_get: {
         parameters: {
-            query?: never;
+            query?: {
+                batch?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -7055,6 +8626,15 @@ export interface operations {
                     "application/json": components["schemas"]["DraftOut"][];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     create_draft_api_v1_drafts_post: {
@@ -7064,7 +8644,52 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Envelope
+                     * @description 产品数据信封 {draft, source, extensions}；NO raw credentials
+                     */
+                    envelope: {
+                        [key: string]: unknown;
+                    };
+                    /**
+                     * Notes
+                     * @description 运营备注（采集/选品依据人工标注，如 skill --note）；不进信封 payload
+                     */
+                    notes?: string | null;
+                    /**
+                     * Ozon Api Key
+                     * @description Ozon 卖家 Api-Key（剥离加密存储）
+                     * @default
+                     */
+                    ozon_api_key?: string;
+                    /**
+                     * Ozon Client Id
+                     * @description Ozon 卖家 Client-Id（剥离存储）
+                     * @default
+                     */
+                    ozon_client_id?: string;
+                    /**
+                     * Source
+                     * @description 'skill' | 'webui'
+                     * @default skill
+                     */
+                    source?: string;
+                    /**
+                     * Source Batch
+                     * @description 来源批次标识（T-P3.1 批次契约）：skill 采集批次（如 batch 时间戳/任务组 ID）；可选，≤64 字符，缺省 None
+                     */
+                    source_batch?: string | null;
+                    /**
+                     * Token
+                     * @description MXOU API Key（带或不带 sk- 前缀）
+                     */
+                    token: string;
+                };
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -7084,7 +8709,27 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Credential Id
+                     * @description 目标店铺凭证 ID；NULL → 用 is_default=true 店铺
+                     */
+                    credential_id?: string | null;
+                    /**
+                     * Ids
+                     * @description 草稿 ID 列表（最多取前 50 条）
+                     */
+                    ids: string[];
+                    /**
+                     * Token
+                     * @description MXOU API Key（批量提交共用）
+                     */
+                    token: string;
+                };
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -7092,6 +8737,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "failed": [
+                     *         {
+                     *           "draft_id": "99999999-aaaa-bbbb-cccc-dddddddddddd",
+                     *           "reason": "该草稿缺少有效货源链接"
+                     *         }
+                     *       ],
+                     *       "skipped": [
+                     *         {
+                     *           "draft_id": "5a6b7c8d-1111-2222-3333-444455556666",
+                     *           "reason": "已在上架中"
+                     *         }
+                     *       ],
+                     *       "submitted": [
+                     *         "3f9c2a10-8f7e-4a6b-9c3d-1e2f3a4b5c6d"
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7113,6 +8777,11 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                    /**
+                     * @example title,item_id,images,purchase_cost,purchase_url,price,stock,supplier,weight,length,width,height
+                     *     便携折叠水杯 500ml,812345678901,https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg,8.5,https://detail.1688.com/offer/812345678901.html,,100,义乌市xx日用品有限公司,120,15,9,6
+                     */
+                    "text/csv": unknown;
                 };
             };
         };
@@ -7124,7 +8793,20 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Rows
+                     * @description 导入行列表（≤500 行）；字段同 CSV 表头，images 支持列表或 '|'/';' 分隔字符串
+                     */
+                    rows: {
+                        [key: string]: unknown;
+                    }[];
+                };
+                "text/csv": string;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -7132,6 +8814,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "created": 8,
+                     *       "errors": [
+                     *         {
+                     *           "error": "title 不能为空",
+                     *           "row": 4
+                     *         }
+                     *       ],
+                     *       "failed": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7238,7 +8932,17 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Token
+                     * @description mxou API Key（用于 LLM 调用与鉴权）
+                     */
+                    token: string;
+                };
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -7247,6 +8951,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DraftAiResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    draft_assemble_api_v1_drafts__draft_id__assemble_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Token
+                     * @description mxou API Key（用于 LLM 调用与鉴权）
+                     */
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftAssembleResponse"];
                 };
             };
             /** @description Validation Error */
@@ -7277,6 +9022,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "commission_rate": 0.15,
+                     *       "commission_source": "cache:leq_5000",
+                     *       "currency": "RUB",
+                     *       "logistics_cost_cny": 8,
+                     *       "margin_anchor": 2,
+                     *       "margin_floor": 0.6,
+                     *       "old_price": 258,
+                     *       "price": 215,
+                     *       "profit_cny": 32.6,
+                     *       "profit_rate": 0.152,
+                     *       "promo_price": 129,
+                     *       "variable_cost_rate": 0.155
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7300,7 +9061,37 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Credential Id
+                     * @description 目标店铺凭证 ID；NULL → 用 is_default=true 店铺
+                     */
+                    credential_id?: string | null;
+                    /**
+                     * Scheduled At
+                     * @description 定时上架时间（ISO 8601，如 2026-09-12T09:00:00+08:00）；有值 → 202 落 scheduled_listings 定时队列而非立即入队
+                     */
+                    scheduled_at?: string | null;
+                    /**
+                     * Template Id
+                     * @description 上架配置模板 ID（/api/v1/templates）；NULL → 用租户默认模板/不注入
+                     */
+                    template_id?: string | null;
+                    /**
+                     * Token
+                     * @description MXOU API Key（重建 GraphInput 用）
+                     */
+                    token: string;
+                    /**
+                     * Update Product Id
+                     * @description 更新模式：已存在商品的 Ozon product_id；设置后跳过 per-store 重复校验，注入 extensions.update_product_id
+                     */
+                    update_product_id?: string | null;
+                };
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -7362,7 +9153,37 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Credential Id
+                     * @description 目标店铺凭证 ID；NULL → 用 is_default=true 店铺
+                     */
+                    credential_id?: string | null;
+                    /**
+                     * Scheduled At
+                     * @description 定时上架时间（ISO 8601，如 2026-09-12T09:00:00+08:00）；有值 → 202 落 scheduled_listings 定时队列而非立即入队
+                     */
+                    scheduled_at?: string | null;
+                    /**
+                     * Template Id
+                     * @description 上架配置模板 ID（/api/v1/templates）；NULL → 用租户默认模板/不注入
+                     */
+                    template_id?: string | null;
+                    /**
+                     * Token
+                     * @description MXOU API Key（重建 GraphInput 用）
+                     */
+                    token: string;
+                    /**
+                     * Update Product Id
+                     * @description 更新模式：已存在商品的 Ozon product_id；设置后跳过 per-store 重复校验，注入 extensions.update_product_id
+                     */
+                    update_product_id?: string | null;
+                };
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -7399,6 +9220,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "reports": [
+                     *         {
+                     *           "category": "listing",
+                     *           "created_at": "2026-09-11T08:30:00+00:00",
+                     *           "enriched": true,
+                     *           "report_id": "9b6f1a2c-3d4e-4f50-8a71-bcdef0123456",
+                     *           "severity": "high",
+                     *           "status": "new",
+                     *           "title": "批量 10 单报「标题与类目不一致」"
+                     *         }
+                     *       ],
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7419,6 +9256,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "created_at": "2026-09-11T08:30:00+00:00",
+                     *       "report_id": "9b6f1a2c-3d4e-4f50-8a71-bcdef0123456",
+                     *       "status": "ok",
+                     *       "tasks_attached": 2
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7439,6 +9284,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "commission_rate": 0.15,
+                     *       "commission_source": "cache:leq_5000",
+                     *       "currency": "RUB",
+                     *       "logistics_cost_cny": 8,
+                     *       "margin_anchor": 2,
+                     *       "margin_floor": 0.6,
+                     *       "old_price": 258,
+                     *       "price": 215,
+                     *       "profit_cny": 32.6,
+                     *       "profit_rate": 0.152,
+                     *       "promo_price": 129,
+                     *       "variable_cost_rate": 0.155
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7461,6 +9322,21 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "attr_match_log": [],
+                     *       "category_match_log": [],
+                     *       "task": {
+                     *         "completed_at": "2026-09-11T06:04:31+00:00",
+                     *         "created_at": "2026-09-11T06:00:00+00:00",
+                     *         "error_message": "LOCAL_TITLE_CATEGORY_MISMATCH: 标题与类目不一致",
+                     *         "product_id": "",
+                     *         "status": "failed",
+                     *         "task_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b",
+                     *         "title": "便携折叠水杯 500ml"
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7673,6 +9549,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "message": "Task cancelled",
+                     *       "status": "ok",
+                     *       "task_id": "5a6b7c8d-1111-2222-3333-444455556666"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7702,6 +9585,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "base_cost": 6,
+                     *       "billable_weight": 500,
+                     *       "channel": "RETS_Standard_A",
+                     *       "dims_cm": [
+                     *         20,
+                     *         15,
+                     *         10
+                     *       ],
+                     *       "fallback_chain": [],
+                     *       "logistics_cost_cny": 8,
+                     *       "per_gram_rate": 0.004,
+                     *       "scoring_group": "A",
+                     *       "service_level": "Standard",
+                     *       "tpl_provider": "RETS",
+                     *       "weight": 480
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7722,6 +9624,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "found": true,
+                     *       "mappings": [
+                     *         {
+                     *           "confidence": 0.85,
+                     *           "dc": "91936",
+                     *           "tp": "91540"
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7742,6 +9656,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "balance": 128.5,
+                     *       "currency": "CNY",
+                     *       "source": "mxou"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7882,6 +9803,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7902,6 +9828,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "email": "seller@example.com",
+                     *       "role": "user",
+                     *       "user_id": "28"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7924,6 +9857,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "key": "sk-test-token-123"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7989,6 +9927,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "failed": [],
+                     *       "items": [
+                     *         {
+                     *           "content_type": "application/pdf",
+                     *           "label_base64": "JVBERi0xLjQKJ...",
+                     *           "posting_number": "23456789-0010-3"
+                     *         }
+                     *       ],
+                     *       "ok": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8009,6 +9960,21 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "failed": [
+                     *         {
+                     *           "error": "面单未生成",
+                     *           "posting_number": "23456789-0012-1"
+                     *         }
+                     *       ],
+                     *       "ok": true,
+                     *       "shipped": [
+                     *         "23456789-0010-3",
+                     *         "23456789-0011-2"
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8029,6 +9995,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "key": "passport",
+                     *         "name": "催护照",
+                     *         "text": "Здравствуйте! Товар, который вы покупаете: [货件编号] ([商品名称]), Вы еще не заполнили паспорт, поторопитесь заполнить паспортные данные и я организую доставку в кратчайшие сроки!"
+                     *       }
+                     *     ]
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8052,6 +10027,24 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "chat_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                     *           "created_at": "2026-09-11T07:40:00",
+                     *           "error": "",
+                     *           "message": "Здравствуйте! …",
+                     *           "posting_number": "23456789-0010-3",
+                     *           "status": "sent",
+                     *           "template_key": "passport"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8178,6 +10171,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "chat_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                     *       "message": "Здравствуйте! Ваш заказ отправлен.",
+                     *       "ok": true,
+                     *       "posting_number": "23456789-0010-3"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8305,66 +10306,6 @@ export interface operations {
             };
         };
     };
-    bulk_archive_api_v1_products_bulk_archive_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    bulk_prices_api_v1_products_bulk_prices_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    bulk_stocks_api_v1_products_bulk_stocks_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
     list_ozon_products_api_v1_products_ozon_get: {
         parameters: {
             query?: never;
@@ -8404,6 +10345,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "cost_source": "manual",
+                     *       "freight_cny": 3.5,
+                     *       "history": [
+                     *         {
+                     *           "changed_at": "2026-09-11T08:30:00+00:00",
+                     *           "changed_by": "user:manual",
+                     *           "new_cost": 12.8,
+                     *           "old_cost": 9.3
+                     *         }
+                     *       ],
+                     *       "offer_id": "SKU-1001",
+                     *       "product_id": "123456789",
+                     *       "purchase_cost": 12.8,
+                     *       "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+                     *       "supplier": "义乌市日用品贸易有限公司",
+                     *       "updated_at": "2026-09-11T08:30:00+00:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8470,6 +10431,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "cost_source": "manual",
+                     *       "freight_cny": 3.5,
+                     *       "history": [
+                     *         {
+                     *           "changed_at": "2026-09-11T08:30:00+00:00",
+                     *           "changed_by": "user:manual",
+                     *           "new_cost": 12.8,
+                     *           "old_cost": 9.3
+                     *         }
+                     *       ],
+                     *       "offer_id": "SKU-1001",
+                     *       "product_id": "123456789",
+                     *       "purchase_cost": 12.8,
+                     *       "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+                     *       "supplier": "义乌市日用品贸易有限公司",
+                     *       "updated_at": "2026-09-11T08:30:00+00:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8503,6 +10484,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "created_at": "2026-09-11T07:00:00+00:00",
+                     *         "match_method": "image_search",
+                     *         "match_score": 0.92,
+                     *         "price_cny": 9.3,
+                     *         "source_offer_id": "812345678901",
+                     *         "source_url": "https://detail.1688.com/offer/812345678901.html",
+                     *         "status": "valid"
+                     *       }
+                     *     ]
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8566,6 +10560,12 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                    /**
+                     * @example id: 6
+                     *     event: progress
+                     *     data: {"seq": 6, "node": "pricing_node", "step": "compute_price", "status": "success", "message": "定价完成", "detail": null, "started_at": "2026-09-11T08:30:10+00:00", "finished_at": "2026-09-11T08:30:11+00:00"}
+                     */
+                    "text/event-stream": unknown;
                 };
             };
             /** @description Validation Error */
@@ -8643,6 +10643,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "keywords": [
+                     *         {
+                     *           "count": 1520,
+                     *           "query": "органайзер для косметики",
+                     *           "source": "fetched",
+                     *           "uniq_queries_wca": 118,
+                     *           "uniq_sellers": 128
+                     *         }
+                     *       ],
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8663,6 +10677,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "keywords": [
+                     *         {
+                     *           "count": 1520,
+                     *           "query": "органайзер для косметики",
+                     *           "source": "fetched",
+                     *           "uniq_queries_wca": 118,
+                     *           "uniq_sellers": 128
+                     *         }
+                     *       ],
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8683,6 +10711,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "auto_review_enabled": true,
+                     *       "auto_review_score": 85,
+                     *       "daily_report_enabled": false,
+                     *       "fx_buffer_percent": 3.5,
+                     *       "low_stock_threshold": 10,
+                     *       "order_status_notify": true,
+                     *       "task_fail_notify": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8703,6 +10742,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "auto_review_enabled": true,
+                     *       "auto_review_score": 85,
+                     *       "daily_report_enabled": false,
+                     *       "fx_buffer_percent": 3.5,
+                     *       "low_stock_threshold": 10,
+                     *       "order_status_notify": true,
+                     *       "task_fail_notify": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8723,6 +10773,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "announcement_type": "banner",
+                     *         "content": "错配拦截与类目桥接上线，建议升级 skill 后重试失败草稿。",
+                     *         "created_at": "2026-09-01T00:00:00",
+                     *         "enabled": true,
+                     *         "id": 1,
+                     *         "title": "v0.75 上架成功率优化"
+                     *       }
+                     *     ]
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8743,6 +10805,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "created_at": "2026-09-01T00:00:00",
+                     *         "enabled": true,
+                     *         "id": 1,
+                     *         "image_url": "https://worker.mxou.cn/static/banner-autumn.png",
+                     *         "link_url": "https://worker.mxou.cn/app/discover",
+                     *         "sort_order": 1,
+                     *         "title": "秋季选品季",
+                     *         "updated_at": "2026-09-01T00:00:00"
+                     *       }
+                     *     ]
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8763,6 +10839,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "inserted": 3,
+                     *       "updated": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8786,6 +10868,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "daily_limit": 200,
+                     *       "daily_remaining": 160,
+                     *       "daily_usage": 40,
+                     *       "remaining": 100,
+                     *       "status": "ok",
+                     *       "total_limit": 10000,
+                     *       "total_usage": 9900
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8815,6 +10908,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "enqueued": 2,
+                     *       "job_ids": [
+                     *         88,
+                     *         89
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8835,6 +10937,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "is_rfbs": false,
+                     *           "name": "Коледино",
+                     *           "warehouse_id": 23642110530000
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8857,6 +10970,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "ok": true,
+                     *       "result": {
+                     *         "errors": [],
+                     *         "failed": [],
+                     *         "updated": 5
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8888,6 +11011,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "low_margin_products": [
+                     *         {
+                     *           "name": "汽车香薰",
+                     *           "price_rub": 690,
+                     *           "product_id": "123456789",
+                     *           "profit_rate": 0.04,
+                     *           "suggestion": "考虑提价或更换货源"
+                     *         }
+                     *       ],
+                     *       "out_of_stock_products": [
+                     *         {
+                     *           "name": "折叠水杯",
+                     *           "product_id": "987654321",
+                     *           "stock": 0
+                     *         }
+                     *       ],
+                     *       "profit_trend": [
+                     *         {
+                     *           "profit_rate": 0.18,
+                     *           "sales_amount": 36120,
+                     *           "snapshot_at": "2026-09-10T00:00:00+00:00"
+                     *         }
+                     *       ],
+                     *       "promo_ready_products": [],
+                     *       "summary": {
+                     *         "active_discount_count": 2,
+                     *         "avg_profit_rate": 0.18,
+                     *         "low_stock_count": 3,
+                     *         "product_count": 120
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8921,6 +11078,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "metric": "hits_view_search",
+                     *           "stat_date": "2026-09-10",
+                     *           "value": 1520
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8954,6 +11122,23 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "active_discount_count": 2,
+                     *           "commission_amount": 6514.4,
+                     *           "low_stock_count": 3,
+                     *           "order_count": 9,
+                     *           "product_count": 120,
+                     *           "profit_amount": 4650,
+                     *           "profit_rate": 0.129,
+                     *           "sales_amount": 36120,
+                     *           "stat_date": "2026-09-10"
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8988,6 +11173,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "compensation_status": "NOT_COMPENSATED",
+                     *           "order_id": 44818899,
+                     *           "posting_number": "23456789-0010-3",
+                     *           "product": "汽车香薰",
+                     *           "reason": "Товар не подошёл",
+                     *           "return_id": 1209931,
+                     *           "return_type": "customer",
+                     *           "schema": "FBS",
+                     *           "status": "arrived_at_return_place",
+                     *           "synced_at": "2026-09-11T08:00:00+00:00"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9019,6 +11225,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *       "data_freshness": {
+                     *         "is_stale": false,
+                     *         "synced_at": "2026-09-11T08:30:00+00:00"
+                     *       },
+                     *       "ozon_client_id": "5381204",
+                     *       "stats_date": "2026-09-11",
+                     *       "today_commission": 8685.09,
+                     *       "today_orders": 12,
+                     *       "today_product_count": 132,
+                     *       "today_profit": 6200.4,
+                     *       "today_sales_amount": 48250.5
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9050,6 +11272,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "job_id": 88,
+                     *       "kind": "manual",
+                     *       "status": "running"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9085,6 +11314,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "sync_enabled": true,
+                     *       "sync_interval_minutes": 15,
+                     *       "sync_products_interval_minutes": 30
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9119,6 +11355,30 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "created_at": "2026-09-11T08:30:00+00:00",
+                     *           "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *           "error": "",
+                     *           "error_code": "",
+                     *           "id": 88,
+                     *           "kind": "manual",
+                     *           "orders_synced": 42,
+                     *           "products_synced": 128,
+                     *           "progress": 60,
+                     *           "started_at": "2026-09-11T08:30:00+00:00",
+                     *           "status": "running",
+                     *           "tenant_id": "28",
+                     *           "trigger": "manual"
+                     *         }
+                     *       ],
+                     *       "limit": 20,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9150,6 +11410,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "consecutive_failures": 0,
+                     *       "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *       "last_success_at": "2026-09-11T08:30:00+00:00",
+                     *       "orders_error": "",
+                     *       "orders_last_synced_at": "2026-09-11T08:30:00+00:00",
+                     *       "products_error": "",
+                     *       "products_last_synced_at": "2026-09-11T08:00:00+00:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9197,6 +11468,12 @@ export interface operations {
                      * @description Ozon 卖家 Client-Id
                      */
                     ozon_client_id: string;
+                    /**
+                     * Priority
+                     * @description 任务优先级 0-100（缺省 0；越界由端点 clamp，非数字当 0）
+                     * @default 0
+                     */
+                    priority?: number;
                     /**
                      * Timeout Seconds
                      * @description 任务超时时间（秒），默认 30 分钟
@@ -9276,6 +11553,23 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "created_at": "2026-09-11T08:30:00+00:00",
+                     *       "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *       "error": "",
+                     *       "error_code": "",
+                     *       "id": 88,
+                     *       "kind": "manual",
+                     *       "orders_synced": 42,
+                     *       "products_synced": 128,
+                     *       "progress": 60,
+                     *       "started_at": "2026-09-11T08:30:00+00:00",
+                     *       "status": "running",
+                     *       "tenant_id": "28",
+                     *       "trigger": "manual"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9328,6 +11622,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskStatusResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
             /** @description Not Found */
@@ -9442,7 +11745,18 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * Token
+                     * @description MXOU API Key（Authorization: Bearer 缺席时的兜底；可省略）
+                     * @default
+                     */
+                    token?: string;
+                };
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -9481,6 +11795,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "events": [
+                     *         {
+                     *           "finished_at": "2026-09-11T08:30:11+00:00",
+                     *           "message": "定价完成",
+                     *           "node": "pricing_node",
+                     *           "seq": 6,
+                     *           "started_at": "2026-09-11T08:30:10+00:00",
+                     *           "status": "success",
+                     *           "step": "compute_price"
+                     *         }
+                     *       ],
+                     *       "message": "生图中 3/5",
+                     *       "percent": 60,
+                     *       "stage": "image_gen",
+                     *       "task_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9643,6 +11976,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "data": {
+                     *         "quota": 5000000,
+                     *         "username": "demo_user"
+                     *       },
+                     *       "message": "",
+                     *       "success": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9674,6 +12017,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "data": {
+                     *         "quota": 5000000,
+                     *         "username": "demo_user"
+                     *       },
+                     *       "message": "",
+                     *       "success": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9705,6 +12058,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "data": {
+                     *         "quota": 5000000,
+                     *         "username": "demo_user"
+                     *       },
+                     *       "message": "",
+                     *       "success": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9736,6 +12099,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "data": {
+                     *         "quota": 5000000,
+                     *         "username": "demo_user"
+                     *       },
+                     *       "message": "",
+                     *       "success": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9767,6 +12140,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "data": {
+                     *         "quota": 5000000,
+                     *         "username": "demo_user"
+                     *       },
+                     *       "message": "",
+                     *       "success": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9796,6 +12179,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "status": "queued",
+                     *       "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d"
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -9840,6 +12229,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "message": "Cancellation signal sent, task will be cancelled at next await point",
+                     *       "run_id": "e1f2a3b4c5d647e8",
+                     *       "status": "success"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9871,6 +12267,29 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "message": "Task cancelled successfully",
+                     *       "status": "success",
+                     *       "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error_code": "TASK_NOT_CANCELLABLE",
+                     *       "message": "Task 3fa85f64-5717-4562-b3fc-2c963f66afa6 cannot be cancelled (may not in pending status)",
+                     *       "ok": false
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9900,6 +12319,24 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "attributes": [
+                     *         {
+                     *           "dictionary_id": 0,
+                     *           "id": 4180,
+                     *           "is_collection": false,
+                     *           "max_value_count": 1,
+                     *           "name": "Тип",
+                     *           "required": true,
+                     *           "type": "String"
+                     *         }
+                     *       ],
+                     *       "cached": true,
+                     *       "fetched": false,
+                     *       "found": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9920,6 +12357,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "category_path": "Авто и мото / Автоинструменты / Автомобильный компрессор",
+                     *           "description_category_id": "91936",
+                     *           "node_name": "Автомобильный компрессор",
+                     *           "similarity": 0.87,
+                     *           "type_id": "91938"
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9940,12 +12390,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "fbo": {
+                     *         "gt_5000": 0.09,
+                     *         "leq_1500": 0.14,
+                     *         "leq_5000": 0.11
+                     *       },
+                     *       "fbs": {
+                     *         "gt_5000": 0.1,
+                     *         "leq_1500": 0.16,
+                     *         "leq_5000": 0.12
+                     *       },
+                     *       "found": true,
+                     *       "source": "prices_api"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
         };
     };
-    v1_task_forensics_forensics_task__task_id__get: {
+    task_forensics_legacy_path_forensics_task__task_id__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -9962,6 +12428,21 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "attr_match_log": [],
+                     *       "category_match_log": [],
+                     *       "task": {
+                     *         "completed_at": "2026-09-11T06:04:31+00:00",
+                     *         "created_at": "2026-09-11T06:00:00+00:00",
+                     *         "error_message": "LOCAL_TITLE_CATEGORY_MISMATCH: 标题与类目不一致",
+                     *         "product_id": "",
+                     *         "status": "failed",
+                     *         "task_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b",
+                     *         "title": "便携折叠水杯 500ml"
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9991,6 +12472,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "code": 0,
+                     *       "input_schema": {
+                     *         "properties": {},
+                     *         "title": "GraphInput",
+                     *         "type": "object"
+                     *       },
+                     *       "msg": "",
+                     *       "output_schema": {
+                     *         "properties": {},
+                     *         "title": "GraphOutput",
+                     *         "type": "object"
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10011,6 +12508,36 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "backup_stale": false,
+                     *       "db": "connected",
+                     *       "last_backup_at": 1725996400,
+                     *       "message": "Service is running",
+                     *       "queue": {
+                     *         "completed": 120,
+                     *         "pending": 2,
+                     *         "running": 5
+                     *       },
+                     *       "status": "ok"
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "db": "disconnected",
+                     *       "message": "db_error: OperationalError",
+                     *       "status": "degraded"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10033,6 +12560,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "balance": 12.5,
+                     *       "currency_code": "CNY",
+                     *       "ozon_client_id": "5381204",
+                     *       "progress_counter": 1,
+                     *       "user_id": "28"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10064,6 +12600,34 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "percentage": 38,
+                     *       "progress_counter": 5,
+                     *       "run_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                     *       "source": "checkpointer",
+                     *       "stages": {
+                     *         "auth": "done",
+                     *         "category_match": "done",
+                     *         "ingest": "done"
+                     *       },
+                     *       "total_nodes": 13
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": "No progress found for run_id=3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10095,6 +12659,33 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "message": "任务 3fa85f64-5717-4562-b3fc-2c963f66afa6 已重新提交（rejected → pending，parent_task_id=3fa85f64-5717-4562-b3fc-2c963f66afa6）",
+                     *       "ok": true,
+                     *       "task_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "status": "completed",
+                     *         "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                     *       },
+                     *       "error_code": "TASK_NOT_RESUBMITTABLE",
+                     *       "message": "任务状态 completed 不可重新提交，仅 rejected/failed 终态任务可重试",
+                     *       "ok": false
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10124,6 +12715,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error_code": "",
+                     *       "error_message": "",
+                     *       "pricing_info": {
+                     *         "old_price": 305,
+                     *         "price": 254,
+                     *         "promo_price": 254
+                     *       },
+                     *       "product_id": "987654321",
+                     *       "purchase_url": "https://detail.1688.com/offer/123456789.html",
+                     *       "run_id": "e1f2a3b4c5d647e8",
+                     *       "stages": {
+                     *         "auth": "done",
+                     *         "category_match": "done",
+                     *         "ozon_upload": "done"
+                     *       },
+                     *       "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                     *       "upload_status": "success"
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -10147,6 +12759,11 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                    /**
+                     * @example event: message
+                     *     data: {"progress_counter": 3, "stages": {"category_match": "done"}}
+                     */
+                    "text/event-stream": unknown;
                 };
             };
         };
@@ -10166,6 +12783,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "message": "Task submitted to queue (user: 28, balance: 12.5)",
+                     *       "ok": true,
+                     *       "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10188,6 +12812,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "created_at": 1726000000,
+                     *       "result": {
+                     *         "output": {}
+                     *       },
+                     *       "status": "succeeded",
+                     *       "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d"
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -10219,6 +12853,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "statistics": {
+                     *         "avg_duration_seconds": 210.55,
+                     *         "cancelled": 0,
+                     *         "completed": 120,
+                     *         "failed": 3,
+                     *         "pending": 2,
+                     *         "running": 5,
+                     *         "total": 130
+                     *       },
+                     *       "status": "success"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10241,7 +12889,60 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "created_at": "2026-09-11T08:00:00+00:00",
+                     *       "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                     *       "max_retries": 3,
+                     *       "priority": 0,
+                     *       "progress": {
+                     *         "percent": 61,
+                     *         "stage": "image_generation",
+                     *         "stages_completed": [
+                     *           "auth",
+                     *           "ingest",
+                     *           "category_match",
+                     *           "pricing",
+                     *           "attributes",
+                     *           "description",
+                     *           "image_generation"
+                     *         ],
+                     *         "stages_remaining": [
+                     *           "prepare_ozon_upload",
+                     *           "ozon_validate",
+                     *           "check_quota",
+                     *           "ozon_upload",
+                     *           "ozon_status",
+                     *           "learning_record"
+                     *         ]
+                     *       },
+                     *       "retry_count": 0,
+                     *       "started_at": "2026-09-11T08:01:00+00:00",
+                     *       "status": "running",
+                     *       "tenant_id": "28",
+                     *       "timeout_seconds": 1800,
+                     *       "updated_at": "2026-09-11T08:02:30+00:00"
+                     *     }
+                     */
                     "application/json": unknown;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
             /** @description Validation Error */
@@ -10270,6 +12971,29 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "choices": [
+                     *         {
+                     *           "finish_reason": "stop",
+                     *           "index": 0,
+                     *           "message": {
+                     *             "content": "Пример ответа ассистента.",
+                     *             "role": "assistant"
+                     *           }
+                     *         }
+                     *       ],
+                     *       "created": 1726000000,
+                     *       "id": "chatcmpl-e1f2a3b4c5d647e8",
+                     *       "model": "deepseek-v4-flash",
+                     *       "object": "chat.completion",
+                     *       "usage": {
+                     *         "completion_tokens": 64,
+                     *         "prompt_tokens": 128,
+                     *         "total_tokens": 192
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };

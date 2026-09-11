@@ -10,7 +10,7 @@
 | [`shangpinbang-full.md`](shangpinbang-full.md) | ~2000 | **上品帮** Web ERP 全站 24 章：18 个一级菜单 40+ 页面字段级结构、状态机、跨页跳转关系、帮豆/积分计费点、API 端点清单 + 实操验证 |
 | [`maozier-backend-full.md`](maozier-backend-full.md) | ~1500 | **毛子ERP 网页后台** 18 章：11 个一级菜单全路由、每页表单/筛选/表格列/按钮、18+ 弹窗组件、毛豆计费表、技术要点 + 实操验证 |
 | [`maozier-plugin-full.md`](maozier-plugin-full.md) | ~500 | **毛子ERP 浏览器插件** 9 章：注入位置、前台商品页 UI、一键上架弹窗 11 字段、选品规则 22 条件、AI 套图、23 个 API 端点 |
-| [`COMPETITOR-ERP-ANALYSIS.md`](../COMPETITOR-ERP-ANALYSIS.md) | ~200 | 精简版竞品对比 + 复刻方案 P0-P3 优先级（快速回顾用） |
+| [`COMPETITOR-ERP-ANALYSIS.md`](COMPETITOR-ERP-ANALYSIS.md) | ~200 | 精简版竞品对比 + 复刻方案 P0-P3 优先级（快速回顾用） |
 
 ## 🏗️ 两家竞品一句话定位
 

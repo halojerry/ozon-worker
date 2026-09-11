@@ -19,6 +19,7 @@ from api.schemas import (
     ProductEditResponse,
     UpdateProductImagesRequest,
     UpdateProductImagesResponse,
+    _examples,
 )
 from services import image_service
 
@@ -27,6 +28,14 @@ router = APIRouter(prefix="/products", tags=["products"])
 
 class ProductSourceUpdate(BaseModel):
     """成本/货源手动维护(PATCH /products/{id}/source,manual 最高优先级)。"""
+    # purchase_cost=到仓成本（含国内运费）：示例 9.3 货值 + 3.5 运费 = 12.8。
+    model_config = _examples({
+        "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+        "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+        "purchase_cost": 12.8,
+        "freight_cny": 3.5,
+        "supplier": "义乌市日用品贸易有限公司",
+    })
     credential_id: str = Field(..., description="店铺凭证 id(归属校验)")
     purchase_url: str = Field("", description="1688 货源链接")
     purchase_cost: float = Field(..., gt=0, description="到仓成本(CNY,含国内运费)")
@@ -52,7 +61,25 @@ async def _authenticate(request: Request) -> str:
     return _authenticate_token("")
 
 
-@router.patch("/{product_id}/source")
+# 响应示例（openapi_extra 路由级补；结构 = product_cost_service.get_cost 返回值）
+_COST_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "product_id": "123456789", "offer_id": "SKU-1001",
+    "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+    "purchase_cost": 12.8, "freight_cny": 3.5,
+    "supplier": "义乌市日用品贸易有限公司",
+    "cost_source": "manual", "updated_at": "2026-09-11T08:30:00+00:00",
+    "history": [{"old_cost": 9.3, "new_cost": 12.8,
+                 "changed_by": "user:manual", "changed_at": "2026-09-11T08:30:00+00:00"}],
+}}}}}}
+_CANDIDATES_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": [{
+    "source_offer_id": "812345678901",
+    "source_url": "https://detail.1688.com/offer/812345678901.html",
+    "price_cny": 9.3, "match_score": 0.92, "match_method": "image_search",
+    "status": "valid", "created_at": "2026-09-11T07:00:00+00:00",
+}]}}}}}
+
+
+@router.patch("/{product_id}/source", openapi_extra=_COST_OK_EXTRA)
 async def update_product_source(product_id: str, data: ProductSourceUpdate, request: Request):
     """手动维护商品成本/货源(manual 优先,写历史 + 重算订单利润);归属校验失败 → 404。"""
     from services.credential_service import get_decrypted
@@ -66,7 +93,7 @@ async def update_product_source(product_id: str, data: ProductSourceUpdate, requ
     )
 
 
-@router.get("/{product_id}/cost")
+@router.get("/{product_id}/cost", openapi_extra=_COST_OK_EXTRA)
 async def get_product_cost(product_id: str, request: Request, credential_id: str):
     """商品成本主数据 + 成本历史;归属校验失败 → 404。"""
     from services.credential_service import get_decrypted
@@ -76,7 +103,7 @@ async def get_product_cost(product_id: str, request: Request, credential_id: str
     return get_cost(tenant_id, credential_id, product_id)
 
 
-@router.get("/{product_id}/source-candidates")
+@router.get("/{product_id}/source-candidates", openapi_extra=_CANDIDATES_OK_EXTRA)
 async def get_source_candidates(product_id: str, request: Request, credential_id: str):
     """货源匹配候选列表(skill 上报 / discover 派生 / 手动维护),归属校验失败 → 404。"""
     from fastapi import HTTPException

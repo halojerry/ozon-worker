@@ -37,6 +37,11 @@ def _fake_search_return(pid):
 
 def test_match_selected_parallel_concurrency_and_main_thread_callbacks():
     """2 workers × 2 候选: Barrier 证明并发; 结果写回正确候选; 回调在主线程。"""
+    # ⚠️ 批4 gate 校准 round（2026-09-10）：跨源副钩 _cross_source_compare 必须
+    # mock——本测试不 mock 它时，钩子会拿 match_1688_title 真实触达本机 Chrome
+    # （9222 恰有登录态即真搜索），胜者换源改写 match_1688_url → 断言非确定性
+    # 失败（无 Chrome 的 CI 静默跳过所以曾绿）。跨源行为由
+    # test_discover_cross_source_wiring.py 专项锁定。
     cands = [_mk("p1"), _mk("p2")]
     barrier = threading.Barrier(2)
     search_threads: list[int] = []
@@ -62,6 +67,7 @@ def test_match_selected_parallel_concurrency_and_main_thread_callbacks():
          mock.patch.object(od, "_query_logistics_from_worker", return_value=None), \
          mock.patch.object(od, "_save_discovery_log"), \
          mock.patch.object(od, "_log_review_record"), \
+         mock.patch.object(od, "_cross_source_compare"), \
          mock.patch("time.sleep"):
         result = od.match_selected(cands, "http://127.0.0.1:9222",
                                    min_margin_pct=1, progress_callback=cb)
@@ -90,6 +96,7 @@ def test_match_selected_serial_no_match_preserves_semantics():
          mock.patch.object(od, "_search_1688_source", return_value=None), \
          mock.patch.object(od, "_save_discovery_log"), \
          mock.patch.object(od, "_log_review_record"), \
+         mock.patch.object(od, "_cross_source_compare"), \
          mock.patch("time.sleep"):
         result = od.match_selected(cands, "http://127.0.0.1:9222")
     # error 候选不被处理（保持 error）；ok 候选 → no_match

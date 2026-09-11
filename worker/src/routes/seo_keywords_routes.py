@@ -19,9 +19,18 @@ router = APIRouter(prefix="/seo/keywords", tags=["seo"])
 _DEFAULT_LIMIT = 20
 _MAX_LIMIT = 50
 
+# 响应示例（openapi_extra 路由级补；结构 = queries_service.search_public 行）
+_KEYWORDS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "keywords": [{
+        "query": "органайзер для косметики", "count": 1520,
+        "uniq_queries_wca": 118, "uniq_sellers": 128, "source": "fetched",
+    }],
+    "total": 1,
+}}}}}}
 
-@router.get("")
-@router.get("/")
+
+@router.get("", openapi_extra=_KEYWORDS_OK_EXTRA)
+@router.get("/", openapi_extra=_KEYWORDS_OK_EXTRA)
 async def http_seo_keywords(request: Request):
     """流量关键词公开查询。q 空 → top 流量；q 非空 → ILIKE 过滤。"""
     from main import (  # 延迟导入防循环（对齐 admin_queries_routes）

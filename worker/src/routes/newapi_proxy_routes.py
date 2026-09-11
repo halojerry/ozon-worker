@@ -1,5 +1,11 @@
 """v0.55.1: New API 通用代理路由 — 把 webui 同源 /api/* 请求转发到 api.mxou.cn。
 
+⚠️ 状态（2026-09-11 仓库治理 B4，A5 §2 D-06）：**实验性 / 现行零消费**——
+webui 登录/订阅/钱包全走 worker 原生 /mxou/*（client.ts、KeysPanel、
+mxou_login_service），`/api/user|subscription` 在 webui/webui-archive/
+pounding-mcp/skill 现行面均 0 命中。本路由保留作 skill/第三方代理通道候选，
+消费方出现前勿依赖、勿据此新增 webui 路由（泛前缀有误代理风险）。
+
 背景：webui 部署在 worker 域（worker.mxou.cn / 本地 8080），其 features（登录 /api/user/login、
 订阅 /api/subscription/*、钱包 /api/user/topup* 等）走同源 /api/* 请求。worker 无这些端点 →
 本地/生产全部 404（v0.54 webui 登录链路根因）。本路由把所有 /api/{path}（排除 /api/v1、/api 本身、
@@ -75,7 +81,15 @@ def _proxy_request(method: str, path: str, headers: dict, body: Optional[bytes],
         return JSONResponse(status_code=502, content={"error": "upstream unavailable"})
 
 
-@router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+# 响应示例（openapi_extra 路由级补）：纯透传通道，200 即上游 New API 响应原样
+# （成功形态 {"success": bool, "message": str, "data": ...}）；未命中前缀 → 404。
+_PROXY_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "success": True, "message": "", "data": {"username": "demo_user", "quota": 5000000}},
+}}}}}
+
+
+@router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+                  openapi_extra=_PROXY_OK_EXTRA)
 async def newapi_proxy(path: str, request: Request):
     """catch-all：命中 New API 前缀 → 转发 api.mxou.cn；否则 404。
 

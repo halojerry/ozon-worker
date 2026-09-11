@@ -1,6 +1,6 @@
 # pounding-mcp
 
-把 ozon-worker 的能力包装成 MCP 工具（29 个：20 个 skill CLI 封装 + 5 个 worker REST 直调 + 4 个后台 job_* 监控），供 DeepSeek Harness（dsh）等 Agent 调用。
+把 ozon-worker 的能力包装成 MCP 工具（30 个：21 个 skill CLI 封装 + 5 个 worker REST 直调 + 4 个后台 job_* 监控），供 DeepSeek Harness（dsh）等 Agent 调用。
 
 > 薄封装：业务逻辑（CDP 采集 / 选品引擎 / 上架组装）全在 `../skill/` 与 `../worker/`，这里只做「参数映射 CLI + 调 subprocess」和「HTTP 直调 worker REST」。
 
@@ -11,7 +11,7 @@ pounding-mcp/
 ├── pyproject.toml            FastMCP 依赖 + 入口（pounding-mcp = pounding_mcp.server:main）
 ├── cordis.patch.yml          挂载到 dsh 的 patch 配置示例
 ├── pounding_mcp/
-│   ├── server.py             FastMCP 工厂 + 29 个工具（20 CLI 封装 + 5 REST 直调 + 4 job_* 监控）
+│   ├── server.py             FastMCP 工厂 + 30 个工具（21 CLI 封装 + 5 REST 直调 + 4 job_* 监控）
 │   ├── skill_runner.py       run_skill_command 薄封装
 │   ├── tasks.py              任务注册表（同步 run_and_record + 后台 start_background/惰性收割）
 │   ├── tasks_server.py       运行记录查询服务（POST /ask 对话入口）
@@ -76,9 +76,9 @@ python -m pounding_mcp.server
 三级安全门控（read/write/destructive）由 dsh 侧的 `tools/pre-execute` 钩子实现，
 依据 `docs/ozonharness/MCP-TOOLS.md` §七 的 SAFETY_MAP。
 
-## 工具清单（29 个）
+## 工具清单（30 个）
 
-### skill CLI 封装（20 个）
+### skill CLI 封装（21 个）
 
 参数 1:1 映射 CLI flag，经 subprocess 调 `../skill/scripts/cli.py`。
 
@@ -104,6 +104,7 @@ python -m pounding_mcp.server
 | `query` | 查询 Worker 任务状态。只读。watch=True 轮询直到终态。 |
 | `update` | 检查并应用 skill 自动更新。写操作（维护）。 |
 | `cleanup` | 清理缓存/临时数据。默认预演（--all --dry-run）不真删；破坏性操作（dsh 侧双重确认）。 |
+| `session_sync` | 收割本机 Chrome 的 seller.ozon.ru 会话上传 worker 代管（AES-GCM 加密，脱敏）。worker 409 session_expired 后对话内自愈；绝不回显 cookie 值。 |
 
 ### worker REST 直调（5 个）
 

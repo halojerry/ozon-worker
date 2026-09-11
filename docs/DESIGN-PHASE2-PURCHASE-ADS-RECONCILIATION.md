@@ -1,3 +1,13 @@
+---
+title: 阶段二预留设计：采购域/广告 OAuth/财务对账
+purpose: 阶段二设计预留，新开里程碑时以此为准逐项拆 TODO
+applies-version: ">=v0.61.0"
+last-updated: 2026-08-30
+owner: worker-store
+depends: [PRD-store-sync-erp-v1]
+status: draft
+---
+
 # 阶段二预留设计:采购域 / 广告 OAuth / 财务对账
 
 > 对应 PRD-store-sync-erp-v1.md §4.5、§8(P2)、§21.3。本文件是设计预留,

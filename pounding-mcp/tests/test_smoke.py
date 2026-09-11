@@ -2,12 +2,10 @@
 
 不依赖真实 Chrome/worker，只测：
 1. run_skill_command 的 argv 组装逻辑（用 check 命令，或 mock subprocess）
-2. server 里 25 个工具都能正确导入 + 调用（20 个 skill CLI 封装 + 5 个 worker REST 直调）
+2. server 里 30 个工具都能正确导入 + 调用（21 个 skill CLI 封装 + 5 个 worker REST 直调 + 4 个 job_*）
 """
 
 from __future__ import annotations
-
-import pytest
 
 from pounding_mcp.server import mcp
 from pounding_mcp import skill_runner
@@ -47,16 +45,16 @@ def test_run_skill_command_bool_flag(monkeypatch):
 
 
 def test_all_tools_registered():
-    """25 个工具都注册到 FastMCP（v0.70：20 个 skill CLI 封装 + 5 个 worker REST 直调）。"""
+    """30 个工具都注册到 FastMCP（21 个 skill CLI 封装 + 5 个 worker REST 直调 + 4 个 job_*）。"""
     import asyncio
 
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     expected = {
-        # skill CLI 封装（20）
+        # skill CLI 封装（21）
         "check", "list_stores", "set_store", "set_token", "set_ak", "get_ak",
         "search", "probe", "image_search", "category", "follow", "discover",
         "discover_multi", "discover_task", "seller", "queries", "graph", "query",
-        "update", "cleanup",
+        "update", "cleanup", "session_sync",
         # worker REST 直调（5）
         "analyze_store", "run_store_action", "report_issue",
         "list_error_reports", "get_task_forensics",
@@ -65,4 +63,6 @@ def test_all_tools_registered():
     }
     missing = expected - names
     assert not missing, f"未注册的工具: {missing}"
-    assert len(names) == 29, f"工具数应为 29，实际 {len(names)}"
+    assert len(names) == 30, f"工具数应为 30，实际 {len(names)}"
+    # A6 P2 #6（BL-13）：session-sync 会话代管必须有 MCP 封装（对话内自愈通道）
+    assert "session_sync" in names

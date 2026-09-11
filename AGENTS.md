@@ -6,7 +6,7 @@
 
 **是什么**：两段式 Ozon 上架系统。`skill/`（客户本地，CDP 抓 1688/Ozon → 组装 GraphInput 信封，**不上架**）→
 `worker/`（云端 Docker，FastAPI + LangGraph：类目→定价→属性→生图→校验→上传→自学习）。周边：`pounding-mcp/`
-（dsh agent 的 25 个 MCP 工具，薄封装）、`webui/`（React，**bun** 生态，产物 bind mount 进 worker 同进程 `/app`）、
+（dsh agent 的 30 个 MCP 工具——21 CLI 封装（含 session-sync）+ 5 worker HTTP 直调 + 4 job_* 后台监控，薄封装）、`webui/`（React，**bun** 生态，产物 bind mount 进 worker 同进程 `/app`）、
 `pounding-sidebar/`（dsh 插件）、`docs/refs/ozon-mcp/`（Ozon API 参考库，只读）。pounding-harness 是独立仓库，只做消费方。
 
 **命令（均已实测）**
@@ -30,17 +30,73 @@
 - 类目链、余额判定、重量/尺寸、图片 URL 链路各有「改前必读」注释块（见「需牢记的约定」与对应版本块），勿凭记忆改。
 
 **纪律**
-- 功能测试只打本地 Docker，**禁止用生产 `worker.mxou.cn`**；本地 Supabase 未配置 = auth fail-open，验证鉴权用空 token。
+- 功能测试只打本地 Docker，**禁止用生产 `worker.mxou.cn`**；本地 Supabase 未配置 = auth fail-open，验证鉴权用空 token。**v0.75 起有技术闸**：生产库由 deploy/cos-update 写入 `prod_marker` 哨兵，worker 测试 conftest（`scripts/prod_db_guard.py`）探测到即拒跑 exit 2；生产 PG 宿主直连端口是 **15433**（不是 5433——5433 是本地开发惯例端口，撞车曾致测试套件连产 18h，见 `docs/audit/2026-09-11-io-avalanche.md`）。
 - Commit `<type>(<scope>): 中文描述`；工作树常有其他会话的 WIP，**逐文件 `git add`，不用 `-a`/stash**；动手改文件前先看 `git status` + 相关文件 mtime——多会话并行实施同一方案时会撞车（2026-09-09 实录：策略模块被两会话重复实现）。
-- 发版：VERSION 四源一致（根 `VERSION`/`skill/VERSION`/`deploy/skill/VERSION`/`SKILL.md` frontmatter）+ CHANGELOG + 本文顶部块 + 实机 ≥3 单 gate。
+- **多会话协作（2026-09-09 起，规范 `docs/WORKFLOW.md`）**：非平凡任务**一会话一分支一 worktree**（开工即 `git worktree add ../ozon-worker-<topic> -b <type>/<topic> origin/dev`，主 worktree 只做 Tier B 小改/发版/review）；分支拓扑 main=发布线（**tag 只打 main**）/dev=集成线/`<type>/<topic>`=工作流分支（合后即删）；两级门槛——Tier A（跨子系统/新 API/新表/发版/>3 文件）必须分支+PR（CI 绿才合，self-merge 合法，merge commit 保留流边界），Tier B（≤3 文件 docs/单点 fix）直提 dev 但**当日 push**。
+- 发版：VERSION 四源一致（根 `VERSION`/`skill/VERSION`/`deploy/skill/VERSION`/`SKILL.md` frontmatter）+ CHANGELOG + 本文顶部块 + 实机 ≥3 单 gate；发版动作 = dev→main PR 合入后**在 main 上打 tag**（cd.yml 按 tag `v*` 触发不分分支，历史 tag ≤v0.72.0 留在 dev 历史不动）。
 - 写 Ozon API 调用前先用本机 MCP `mcp__ozon__search_methods`/`describe_method` 核对契约（零凭证只读），禁手 grep swagger。
 - `worker/config/*.json` bind mount 热加载，改 prompt 无需重建镜像。
 
 **先读什么**：集成/端点 → `docs/API-OVERVIEW.md` + `docs/API-REFERENCE.md`；节点流/错误映射 → `docs/WORKER-TOPOLOGY.md`；
 MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬约束见下方「Agent 使用 Skill 时的硬约束」）；
-建表/改列 → `docs/DB-SCHEMA-AUDIT.md`；部署 → `docs/DEPLOY.md`。
+建表/改列 → `docs/DB-SCHEMA-AUDIT.md`；部署 → `docs/DEPLOY.md`；多会话协作/分支拓扑/发版流 → `docs/WORKFLOW.md`；
+子 Agent 规范 → `docs/SUBAGENT-SPEC.md`；恢复演练 → `docs/RESTORE-RUNBOOK.md`。
 
-**高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。
+**高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。
+
+## 最近更新（v0.75.0 — 仓库治理收口批：repo-gov v1 全量余量 + 密钥出库与历史重写）
+
+> 2026-09-11。**已发版物料就绪（VERSION 四源 0.75.0），tag 待实机 gate**。战役全景：Phase 0 工作树卫生 →
+> A1-A9 九份审计（`docs/audit/2026-09-11-repo-gov/`）→ 六批修复 PR（#13/#15/#16/#17/#18/#19）→ **git 历史重写**
+> （21 组密钥全历史出库，仓库 241MB→89MB，tag 全部重写）→ v075 收口十项（PR #21，`docs/PLAN-v075-release-closeout.md`）；
+> 部署加固第一批（PR #20）同车。测试基线 worker 2377→2639 / skill 1342 / mcp 80。**改下述链路前先读 CHANGELOG 0.75.0。**
+
+- **⚠️ 历史重写后协作纪律**：所有其他机器的 clone 必须删除重新 clone（旧历史已不存在）；19 组密钥平台侧轮换
+  待用户（指纹表 `docs/audit/2026-09-11-repo-gov/SECRET-PURGE-RUNBOOK.md`）；**密钥绝不进源码库**——CI 全树
+  gitleaks 闸 + .gitleaks.toml ratchet + leak_guard 指纹测试三闸防回潮（纪律正文 `docs/CONVENTIONS.md`）。
+- **部署加固第二批（H9/H11/H12 收尾，审计 `docs/audit/2026-09-11-io-avalanche.md`）**：cos-update init_data
+  失败 warn→fail（schema 半就绪不再静默；手动修复后勿重跑升级脚本——版本一致会早退，缓存懒加载兜底）/
+  cd.yml tag CI 闸（tag commit 必须有绿 CI run，轮询 15min，逃生门 `CD_SKIP_CI_GATE=1`）/ worker 绑定面
+  `WORKER_BIND_IP` 可收紧（默认 0.0.0.0 不变）；**Sentry 断流实锤**（2026-09-11 重启后仍 7 天零 error
+  事件——生产 SENTRY_DSN 疑缺失，ops 清单第 7 条）；root 容器缓期理由见审计 §三 H11 行（存量卷 root
+  属主，切 USER 断 /admin/config 写入）。
+- **租户口径（用户拍板）**：租户 = api.mxou.cn 同一用户库（`resolve_tenant`，Supabase tokens 表即 MXOU 用户库，
+  哈希租户只是回退）；五贡献表 token_fp 指纹列双写；**新写租户面读端点必须走 `api/deps_tenant`（Request-helper
+  或 Depends 二选一），phase3 断言测试（test_tenant_guard_phase3.py）锁不回退**。
+- **行为变更（发版说明必读）**：汇率源三级链（未配 margin 店上架价会变）/ 佣金 >180d 降级 fallback:stale /
+  cancel_task 409 / shelf 3 端点删除（147→144）/ category_cache 90d / **字典缓存三防**（负缓存 60s+TTL 抖动+单飞锁
+  `get_or_fetch` 读穿——**改任何字典回源路径必须过它，Ozon 拉取失败须 raise 专属异常绝不落负缓存**）/ is_aspect
+  兜底收窄 / submit_task 可选 priority / 审计表 tenant_id / checkpoint 归档联动清理。
+- **数值 bounds 学习闭环**：拒单原文（VALUE_MAX/MIN_LIMIT）自动学习 `attr_bounds_learned`（置信抽取+收紧并集，
+  sample 人工复核）；读侧唯一入口 `attr_numeric_sanitize`（静态白名单恒赢>学习表>不夹取）。上线后首个真实拒单
+  原文回灌 parser 验证一次。
+- **绑店原子化**：`_assert_client_not_bound_elsewhere` 首行 `pg_advisory_xact_lock(hashtext(:cid))`——并发双绑
+  窗口关闭；历史双绑清查待 S3 探针（defer）。
+- **API 文档示例 100% + strict 门禁**：`gen_api_docs --check --fail-on-missing-examples` 进 CI（三级覆盖判定：
+  mediatype 层/schema 层/数组 items 解引用；FastAPI 样板 HTTPValidationError/ValidationError 豁免）。**改 API
+  后照旧必跑生成脚本，新增端点必须带示例否则 CI 红**。
+- **部署注意**：首启自动建 4 新表+幂等迁移（token_fp 回填/审计表 tenant_id 回填）；ofelia 备份 sidecar 上线勿与
+  宿主 crontab 双跑；部署后建议 `cleanup_checkpoints.py --dry-run` 看存量孤儿。
+- pounding-mcp 30 工具参数差分核查表落 `docs/MCP-SERVER.md`（4 工具 7 参真漂移已修；discover_task dry_run 默认
+  翻转待产品拍板）。
+- defer 登记（v0.76+）：task_status 404 化（~09-30 老数据滚出后）/ 明文 token 列退役（dedup key 重建）/ 认领
+  SQL 租户轮转 / 单飞锁跨副本版 / BL-26 SSH 半 / legacy GET /task/{task_id} 退役 / BL-18 三能力立项。
+
+## 最近更新（开发中 — 部署加固第一批：I/O 雪崩事故防线）
+
+> 分支 `fix/deploy-hardening-v1`（2026-09-11）。动因：2026-09-10/11 生产 I/O 雪崩 9h 不可用
+> （测试套件直连生产库 18h 触发），取证与隐患清单 H1-H12 见 `docs/audit/2026-09-11-io-avalanche.md`。
+> **改 deploy/ 任何文件前必读该审计**；compose 卫生不变式被 `tests/test_deploy_compose_hygiene.py`
+> 锁定（全 service 日志封顶 / postgres 调参 command / mem_limit / 宿主端口禁 5433）。
+
+- **生产库 marker 闸**：`worker/scripts/prod_db_guard.py` + conftest 前置拦截（探测 `prod_marker`
+  哨兵即 SystemExit 2）；deploy.sh/cos-update.sh 升级路径幂等写入。**服务器 ops 清单 6 条在审计文档 §五**（含外部 dead-man 注册、备份上传 cron、恢复演练）。
+- **compose 运行时加固**：PG 调参 command（shared_buffers 512MB 等，按 4c/3.7G 校准，升配等比调）+
+  全服务 mem_limit（1400m/1800m/64m）+ postgres 日志封顶（v0.72 漏网）+ shm_size + 宿主端口
+  5433→15433 + pg_isready 去 hardcoded。
+- **备份异地化**：新 `deploy/backup-upload-cos.sh`（增量上传 COS + 远端 14 天保留，`.uploaded` sidecar 幂等），ofelia dump 不动；DEPLOY.md 给 cron 行。
+- **cos-update.sh 预检前移**：磁盘剩余 <6G（`DISK_MIN_FREE_GB`）与 CREDENTIAL_MASTER_KEY 缺失在
+  下载/构建前 fail-fast（逃生门 `COS_UPDATE_ALLOW_NO_MASTER_KEY=1`；首装引导无 .env 时跳过主密钥检查）。
 
 ## 最近更新（v0.74.0 — 数据池贡献闭环 v1 + 采集通道增强 + shopbang/0.73.0 同车发版）
 
@@ -57,14 +113,17 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **采集通道增强**：CHIPS 分区 cookie 双读（Network→Storage 二读 same-name-longer-wins，`abt_data` 在
   partitionKey 下单读必漏）；CSP 剥除 `CdpTab.set_bypass_csp`（毛子对标，仅浏览器上下文用户自己会话、
   拦响应不篡改请求）；variant_v2 真值链（毛子 create-bundle-by-variant-id 移植，消费端 clamp
-  [10,200_000]g + marks `weight_from_pool_variant`）；premium `makeBase()` 共享底座接入 Status+Graph；
+  [10,200_000]g + marks `weight_from_pool_variant`）——⚠️ **2026-09-11 审计修正：variant_v2 真值链
+  当前为实验性未生效**——fetch_variant_truth 无生产调用 / variant_payloads 无人传值 /
+  needs_variant_sync 零消费（三段断链实锤），接线工作在数据池计划批 8 P2，勿当作已生效能力引用
+  （docs/audit/2026-09-11-repo-gov/A5）；premium `makeBase()` 共享底座接入 Status+Graph；
   `custom_click_rate=qtyViewPdp/views*100` 派生（CONTRACT-v4 §1.1.1 已登记）；P2 Excel 导出（四区两行
   合并表头+原子写+占用重试，cli `--export` 后缀路由 .xlsx）。
 - **⚠️ what-to-sell 数据面平台侧阻断（改直调代码前必读）**：requests 直调被 DataDome TLS 指纹级 403
   终态、页内 fetch 被 SPA 轮换 Bearer 401——静态 cookie 快照不可持续已实证；roadmap = CDP 捕获 SPA
   Authorization（**必须内建 cdp_client 事件循环**，旁路线程抢不到单消费者 socket 事件）+
   bot-403 ≠ session_expired 区分改进。
-- 测试基线：worker 2377 / skill 1059；gen_api_docs 158 paths 零漂移。
+- 测试基线：worker 2377 / skill 1059；gen_api_docs 147 path / 183 操作（158 含兼容别名）零漂移。
 
 ## 最近更新（v0.74.0 同车 — shopbang-parity 三批：采集箱备注/选品 4 键/店铺会话代管 + 实机测验）
 
@@ -76,6 +135,12 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **C 店铺会话代管（bindShopCookie 对标，安全口径更严）**：`ozon_sessions` 表（AES-256-GCM，aad=`tenant:credential`，复用 CREDENTIAL_MASTER_KEY；**cookie 明文绝不落日志/响应/报告**，GET 只回名单+状态）+ `POST/GET/DELETE /credentials/{id}/session` 三端点 + skill `session-sync`（CDP 收割 seller cookie，无 sc_company_id 拒传 exit 2）+ `GET /api/v1/analytics/what-to-sell` 直调。
 - **⚠️ 实机测验架构结论**：`__Secure-access_token` 为**分钟级寿命/用后轮换型**——被动收割的静态 cookie 快照活不过一次消费（新鲜收割立即调用也 401），**服务端常驻 cookie 直调不可持续**。三候选待拍板：①worker 存 refresh_token 续期；②「同步后秒级消费」按需模式（已实证可行）；③直调数据面留在 skill 浏览器上下文（jar 永活，上品帮同款）。**发版实机 gate 新增：session-sync→what-to-sell 真实闭环一条**。
 - **实机测验修出的两坑（改会话/直调代码前必读）**：①裸 SQL 绑 JSONB 列必须 `json.dumps`——Python list 被 psycopg2 适配成 `text[]`（mock 测试只锁 SQL 文本测不出，须真 PG 集成用例）；②seller nginx 机器人回环 307→同路径`?__rr=1` 且 **Set-Cookie 下发 nonce**，必须 Session cookie jar + 跟随重定向（手动重放无限 307），判废只看终态（401/403/落到 login URL）。
+
+## 最近更新（2026-09-09 — 仓库协作规范 v1：main 重建为发布线 + 一会话一分支一 worktree + 两级合并门槛）
+
+> 规范正文 `docs/WORKFLOW.md`，取证动因与 12 流历史索引 `docs/GIT-STREAM-INDEX.md`。
+> **已执行**：dev 78 滞留提交 push 清零；main 自 dev FF 重建至 3d2836b0（发布线，此后 tag 只打 main）；
+> 19 僵尸分支全清（仓库收敛 dev+main 双分支）。两级门槛摘要见上方「纪律」节。
 
 ## 最近更新（v0.73.0 — 用户反馈 6+1 问题修复：租户漂移 + 错配拦截 + 类目桥接 + 体积重量兜底）
 
@@ -194,7 +259,7 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 - **API 文档两层**：`docs/API-OVERVIEW.md`（手写约定：双鉴权矩阵/限流/错误信封/13 阶段/
   版本策略/变更记录）+ `docs/API-REFERENCE.md`（`worker/scripts/gen_api_docs.py` 从
-  `app.openapi()` 生成，153 path，**勿手改**）。**改 API 后必须跑生成脚本**——`scripts/ci.sh`
+  `app.openapi()` 生成，147 path / 183 操作（158 含兼容别名），**勿手改**）。**改 API 后必须跑生成脚本**——`scripts/ci.sh`
   Step 5d 与 GitHub `test-worker` job 用 `--check` 校验漂移即红；两份 `openapi.json` 快照
   与 `generated.d.ts` 由同一脚本/命令刷新（见 `api-integration/README.md`）。
 - **schema examples 纪律**：新增/改动集成面 schema 时给 `model_config = _examples({...})`
@@ -312,7 +377,7 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 ## 最近更新（v0.68.0 — wave P2/P3 修复：审核原文留存 + 留存真值 + R2b 扩池 + 姊妹词治理）
 
 > 2026-09-06。已发版（VERSION 四源 0.68.0）。v0.67 wave 真实测试在案四缺陷的深度取证
-> 修复（方案 `archive/docs/legacy/PLAN-wave-p2p3-fixes-v1.md`，四 task 全 TDD + 本地 Docker 真实回归）。
+> 修复（方案已归档 `archive/docs/legacy/PLAN-wave-p2p3-fixes-v1.md`，现行口径以本文对应更新块为准；四 task 全 TDD + 本地 Docker 真实回归）。
 
 - **审核拒绝原文留存**：`decline_errors` 累积器（parse_error/recheck_status 消费前原样
   累积，append-only 去重 cap50）全链透传 → 留存表新列 `moderation_texts`；
@@ -368,7 +433,7 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 > **0.67.0 追加（2026-09-06 wave 真实测试 + 两 P1 修复，同版未拆）**：留存批次
 > （`e30dd0ed` listing_result_log/P1-6/清理 30 天、`24396f86` 图搜类目保留）随本版一起发。
-> wave 9 单实测（archive/docs/legacy/TEST-v067-wave-plan.md）：**零 18+/P1-6 join/留存行/L0 学习闭环
+> wave 9 单实测（测试方案已归档 `archive/docs/legacy/TEST-v067-wave-plan.md`，现行口径以本文对应更新块为准）：**零 18+/P1-6 join/留存行/L0 学习闭环
 > （approve→learned 行→同链接二单 match_layer=L0）全部实证**。实测揪出两 P1 已修：
 > ①佣金缓存 0% 污染（回填把 prices 缺 commissions 块的 0 照样 upsert + resolver 不拒 0，
 > 双侧加守卫）；②skill search_kw 候选 sim=1.0 插队（`_place_skill_candidate` 非权威队尾，
@@ -563,7 +628,7 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 ## 最近更新（v0.59 — 类目佣金缓存 + 定价佣金修正 + 多 SKU 配额调研）
 
-> 2026-08-20。佣金链路修复（费率权威化）+ 选品发货模式对齐，均未发版（VERSION 仍 0.56.6）。执行记录见 `.omo/plans/category-commission-cache.md`（Momus 评审 OKAY），问题台账 `archive/docs/legacy/TEST-ISSUES-2026-08.md`。
+> 2026-08-20。佣金链路修复（费率权威化）+ 选品发货模式对齐，均未发版（VERSION 仍 0.56.6）。执行记录见 `.omo/plans/category-commission-cache.md`（Momus 评审 OKAY），问题台账（已归档 `archive/docs/legacy/TEST-ISSUES-2026-08.md`，现行口径以本文对应更新块为准）。
 
 - **Ozon 佣金是「类目 × 发货模式 × 价格段」三维矩阵，无公开按类目查佣金的 API**（`/v5/product/info/prices` 需真实 offer_id、销售报告需已售记录、类目树无佣金字段）。唯一选品时可用的是 what_to_sell 的 `rfbs_rate`/`fbp_rate` 分段对象（`{leq_1500, leq_5000, gt_5000}`）。详见 `docs/OZON-MULTI-SKU-QUOTA.md` 同批调研。
 - **佣金缓存表 `category_commission`**（`worker/src/storage/database/shared/model.py`）：`description_category_id` 唯一，FBS/FBO 三段佣金%，全局共享无 tenant_id（对齐 category_mapping W11）。两条数据源渐进积累：上架成功回填（prices_api 源）+ what_to_sell 分段。
@@ -664,9 +729,9 @@ ozon-worker/
 │   ├── deploy.sh               # 一键部署（含自动初始化数据）
 │   ├── update.sh               # 一键更新
 │   └── .env.example            # 环境变量模板
-├── pounding-mcp/               # dsh Agent 调用入口：25 个 MCP 工具（20 CLI 封装 + 5 worker HTTP 直调；FastMCP 薄封装）
+├── pounding-mcp/               # dsh Agent 调用入口：30 个 MCP 工具（21 CLI 封装（含 session-sync）+ 5 worker HTTP 直调 + 4 job_* 后台监控；FastMCP 薄封装）
 │   ├── pounding_mcp/router.py  # Q3 对话入口意图路由层（URL 正则 + 九类意图词表 → pipeline A-F）
-│   ├── pounding_mcp/server.py  # FastMCP 工厂 + 25 工具（20 个参数映射 → subprocess 调 skill CLI，5 个直调 worker REST）
+│   ├── pounding_mcp/server.py  # FastMCP 工厂 + 30 工具（20 个参数映射含 session-sync → subprocess 调 skill CLI，5 个直调 worker REST，4 个 job_* 后台监控）
 │   └── README.md               # 挂载/独立 venv 说明（测试坑见下方）
 ├── pounding-sidebar/           # 客户端侧边栏插件（dsh-better-sidebar 消费插件）
 │   ├── src/client/index.tsx    # 7 业务板块 tab（采集箱/任务中心/专家/知识库/爆品新闻/计算器/用量）+ CSV viewer
@@ -712,17 +777,17 @@ ozon-worker/
 
 **Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
 
-**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 **14 个**（`COMPILE_FILES`，均在 `scripts/lib/`）：ak_1688_client、ak_callback、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_api、ozon_seller_analytics、analytics_upload、ozon_fission、ozon_discovery、ozon_seller、cdp_client。
+**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 **13 个**（`COMPILE_FILES`，均在 `scripts/lib/`）：ak_1688_client、ak_callback、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_api、ozon_seller_analytics、analytics_upload、ozon_fission、ozon_discovery、cdp_client（ozon_seller 已于 repo-gov B4 降级 AUX 明文随包——生产零 import，test_premium_coverage 仍消费）。
 
 明文复制分两批（`compile.py` 的 `COPY_FILES` 7 个 + `AUX_FILES` 中的明文模块 8 个，依赖复杂/改动频繁/跨平台编译失败）：
 - **COPY_FILES（入口/核心明文）**：cli.py、batch_test.py、runtime_probe.py、cloud_probe.py、bootstrap_update.py、lib/chrome_launcher.py、capabilities/browser_probe/stealth.py
 - **AUX_FILES 明文模块**：lib/（utils、cache、ozon_widget、updater、task_paths、logging_utils、review_log）、capabilities/browser_probe/service.py
-- **编译/明文判断**：改模块归属必须同步改 compile.py 三清单（COMPILE_FILES/COPY_FILES/AUX_FILES）+ 跑 `test_compile_lists.py`（锁定 14 模块不变式 + 三清单互斥）——模块两属会被 AUX 复制覆盖回明文。
+- **编译/明文判断**：改模块归属必须同步改 compile.py 三清单（COMPILE_FILES/COPY_FILES/AUX_FILES）+ 跑 `test_compile_lists.py`（锁定 13 模块不变式 + 三清单互斥）——模块两属会被 AUX 复制覆盖回明文。
 - **cloud_probe.py 明文**（2026-08-02 移回）：非语法问题（macOS 同 Cython 编译成功），是 Cython 生成 65k 行 C + 单个 ~9000 行函数击穿 **MSVC 编译器堆限制**（仅 win32 失败 → 缺 .pyd → graph/follow 报 `No native binary for cloud_probe on win32`）。信封组装核心、改动频繁，明文跨平台一致。
 - **service.py 明文**（2026-08-01 移回）：探针改动最频繁。
 - **stealth.py 明文**（2026-08-07 移回）：反检测是对抗性代码（真实指纹无需伪造），1688/Ozon 升级检测需快速调。已在 COPY_FILES（非编译清单）。
 - **ozon_discovery.py 已编译**（v0.37 P6）：从 COPY_FILES 晋升编译（同批还有 ozon_seller_analytics/analytics_upload/ozon_fission/ozon_seller/cdp_client），8 → 14。⚠️ 用户 Python 3.14 环境跑 discover 需用 py312 ABI 兼容解释器（Docker 3.12 或符号链接修复后的 python3.12），编译态 .so 无法在 3.14 加载。
-- **compile.py 编译失败"带响"**（v0.12.0）：失败打印完整 stderr（最后 30 行）+ `failed>0` 时 `sys.exit(1)`，CI 不再静默发布残缺包。CI 另有产物完整性校验（**4 平台 × 14 模块 = 56 个二进制必须就位**，build-skill.yml）。
+- **compile.py 编译失败"带响"**（v0.12.0）：失败打印完整 stderr（最后 30 行）+ `failed>0` 时 `sys.exit(1)`，CI 不再静默发布残缺包。CI 另有产物完整性校验（**4 平台 × 13 模块 = 52 个二进制必须就位**，build-skill.yml）。
 - 编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。⚠️ 曾因 Homebrew 从 /opt/homebrew 迁移到 /Volumes/os 导致 python3.12 前缀解析失败——已用符号链接 `/opt/homebrew -> /Volumes/os/opt/homebrew` 修复（2026-08-11），无 PYTHONHOME 可直接跑。Cython 用 `--user --break-system-packages` 装。
 
 **依赖**：仅 4 个 — `requests`、`websocket-client`、`Pillow`、`sentry-sdk`（Sentry 错误上报，v0.35 起；缺失时 cli.py lazy import 静默降级，不阻塞任何命令）。
@@ -823,7 +888,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 |---|---|---|---|
 | **skill** | 本仓库 `skill/` | agent 对话（经 pounding-mcp）+ 客户端面板 | 1688/Ozon CDP 抓取、以图搜款、信封组装。**不上架** |
 | **worker** | 本仓库 `worker/`（云端 Docker） | webui + 客户端面板 + pounder-mcp | 类目→定价→属性→生图→上传→自学习全流程 + REST API |
-| **pounding-mcp** | 本仓库 `pounding-mcp/` | 用户（agent 对话） | skill 19 命令包成 MCP 工具（`mcp__pounding__*`）+ 意图路由 `/ask`。**用户可见** |
+| **pounding-mcp** | 本仓库 `pounding-mcp/` | 用户（agent 对话） | skill 21 命令包成 MCP 工具（`mcp__pounding__*`，共 30 工具（21 CLI 封装含 session-sync + 5 worker HTTP 直调 + 4 job_*）+ 意图路由 `/ask`。**用户可见** |
 | **pounding-harness** | 独立仓库 | 终端用户（桌面客户端） | Electron 客户端 + 本地网关 `:8766`（代理 skill-config / tasks→:8902 / worker REST）。界面含**部分** webui 功能 |
 | **webui** | 本仓库 `webui/`（云端） | 终端用户（浏览器直访 worker :8080） | 完整 ERP 后台。与 worker 同 docker-compose 部署 |
 | **ozon-mcp**（PCDCK/ozon-mcp） | 外部参考，不直接入库 | **仅我们内部开发** | 466 Ozon API 方法索引 + swagger + transport 层。**不暴露给用户** |
@@ -908,7 +973,7 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 
 > ⚠️ **worker 全量测试失败先查类目树（v0.59 实测）**：本地 PG 若 `category_tree_nodes` 空（未跑 init_data），learning_record_gate / skill_category_direct / attr_4958 / index_backfill 等测试会失败（`_mapping_valid` 走真实 PG 查树）。先导入：`cd worker && PGDATABASE_URL="postgresql://postgres:localdev123@localhost:5433/ozon" PYTHONPATH=src ../skill/.venv314/bin/python -c "from sqlalchemy import create_engine; from scripts.init_data import import_category_tree; import os; import_category_tree(create_engine(os.environ['PGDATABASE_URL']), language='ZH_HANS', tree_file='category_tree.json')"`。
 
-> ⚠️ **pounding-mcp 测试必须用自身 .venv（v0.60 实测）**：`server.py` import FastMCP（`pounding-mcp/pyproject.toml` 依赖），用 `../skill/.venv314` 跑 `pytest tests/` 会 collection error（`pounding_mcp` 未安装）。需 `cd pounding-mcp && python3 -m venv .venv && .venv/bin/pip install -e .` 后跑 `.venv/bin/python -m pytest tests/ -q`（22 passed：test_router 19 + test_smoke 3）。
+> ⚠️ **pounding-mcp 测试必须用自身 .venv（v0.60 实测）**：`server.py` import FastMCP（`pounding-mcp/pyproject.toml` 依赖），用 `../skill/.venv314` 跑 `pytest tests/` 会 collection error（`pounding_mcp` 未安装）。需 `cd pounding-mcp && python3 -m venv .venv && .venv/bin/pip install -e .` 后跑 `.venv/bin/python -m pytest tests/ -q`（26 passed：test_router 23 + test_smoke 3；smoke 锁 30 工具注册）。
 
 | 子项目 | 命令 |
 |---|---|
@@ -944,7 +1009,7 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_discovery_runs_api.py tests/test_mappings_lookup_api.py tests/test_listing_template_store_overrides.py -q`（v0.56 W10/W11/W9 端点单测，mock 无需 PG） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_store_sync.py -q`（v0.56 店铺缓存 9 单测：租户隔离/upsert/archived/懒同步/调度器，需本地 PG） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_mxou_balance_precheck.py tests/test_learning_record_index_backfill.py -q`（v0.56 W12 余额复查 + W6 索引回填单测，mock 无需 PG） |
-| pounding-mcp | `cd pounding-mcp && .venv/bin/python -m pytest tests/ -q`（v0.60 对话入口：router 意图路由 19 + server 冒烟 3，须用自身 .venv——skill/.venv314 无 pounding_mcp 包） |
+| pounding-mcp | `cd pounding-mcp && .venv/bin/python -m pytest tests/ -q`（v0.60 对话入口：router 意图路由 23 + server 冒烟 3（30 工具注册断言），须用自身 .venv——skill/.venv314 无 pounding_mcp 包） |
 | skill | `python3.12 -m pytest tests/test_selection_rules.py tests/test_ai_preset.py -q`（v0.56 粗筛字段 + --rules ai 单测） |
 | skill | `python3.12 -m pytest tests/test_graph_envelope_competitor.py tests/test_discovery_report_hook.py -q`（v0.56 S1 信封竞品 + D12 上报单测） |
 | skill | `python3.12 -m pytest tests/test_discover_multi.py tests/test_discover_to_box.py tests/test_template_profile.py -q`（v0.56 discover-multi/to-box/模板单测） |
@@ -955,8 +1020,8 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | 本地Docker | `cd deploy && docker compose up -d --build`（启动 Worker + PG） |
 | 本地Docker | `docker compose exec worker python scripts/init_data.py --force`（初始化数据） |
 | 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --limit 100`（预热 top-100 类目属性缓存） |
-| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --all --pg-only`（预热全部 7424 类目，~16h，可screen后台） |
-| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --export-only`（导出 JSON 到 assets/ 供 git 提交） |
+| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --all --pg-only`（预热全部类目，量级 ~16h，可screen后台；建议分片 `--offset` 每 1000 一段） |
+| 本地Docker | `docker compose exec worker python scripts/warm_category_cache.py --export-from-pg`（从 PG 读缓存导出 JSON——秒级零 API 无需凭证；⚠️ `--export-only` 是旧「边拉边导」语义，预热后单独导出勿用） |
 | 本地Docker | `curl http://localhost:8080/api/v1/health`（健康检查） |
 | 本地Skill | `WORKER_URL=http://localhost:8080 python3.12 scripts/cli.py check`（指向本地 Worker） |
 | CI | `bash scripts/ci.sh`（lint → test → docker build） |
@@ -1076,7 +1141,7 @@ dictionary_value_id **跨语言通用**：ZH_HANS 的 `id=61571` 在 RU 下展�
 # 预热 top-200 类目（部署后自动跑）
 python scripts/warm_category_cache.py --limit 200
 
-# 预热全部 7424 类目（~16 小时，建议分片跑，每 1000 个一段）
+# 预热全部类目（~16 小时量级，建议分片跑，每 1000 个一段）
 python scripts/warm_category_cache.py --all --pg-only
 python scripts/warm_category_cache.py --all --offset 1000 --pg-only
 python scripts/warm_category_cache.py --all --offset 2000 --pg-only
@@ -1085,7 +1150,9 @@ python scripts/warm_category_cache.py --all --offset 2000 --pg-only
 python scripts/warm_category_cache.py --coverage
 python scripts/warm_category_cache.py --coverage --coverage-sample 20   # 随机抽 20 个缺失 (dc,tp)
 
-# 导出 JSON 到 assets/（⚠️ 当前产物未提交 git，仅供人工备份/手工导入）
+# 导出 JSON 到 assets/（⚠️ 产物未提交 git；W1-W8 批起用 --export-from-pg 从 PG 导出——
+# 秒级、零 API、无需凭证；下方 --export-only 保留但只是「边拉边导」旧语义，勿用于预热后单独导出）
+python scripts/warm_category_cache.py --export-from-pg
 python scripts/warm_category_cache.py --limit 500 --export-only
 
 # 从 JSON 导入到 PG（部署时 init_data.py 自动调用，JSON 缺失时静默跳过）
@@ -1147,8 +1214,8 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
   4. **实机验证 gate（v0.69 起，不可跳过）**：tag 前必须本地 Docker worker 真实跑通 ≥3 单
      （discover 或 graph 管线，真实 1688/Ozon 链接），检查 category_match_log / listing_result_log /
      任务终态符合预期——mock 全绿≠能发版（v0.64~v0.68 连续 5 版未实机即发的教训）。
-     wave 观察脚本见 `archive/docs/legacy/TEST-v067-wave-plan.md` 模式。
-  5. `git tag v{x.y.z} && git push origin v{x.y.z}`（触发 build-skill.yml 4 平台编译 + cd.yml 部署两条链路）
+     wave 观察脚本模式已归档 `archive/docs/legacy/TEST-v067-wave-plan.md`（考古用，现行口径以本文对应更新块为准）。
+  5. dev→main PR 合入后**在 main 上打 tag**（WORKFLOW.md v1 起 tag 只打 main；历史 tag ≤v0.72.0 留 dev）：`git tag v{x.y.z} && git push origin v{x.y.z}`（触发 build-skill.yml 4 平台编译 + cd.yml 部署两条链路）
   6. 确认 CD 两个 workflow 均 success（Docker 镜像 + Release + COS 部署包 + skill 二进制包）
   7. 服务器 `bash deploy/cos-update.sh` 升级 worker；skill 用户端 updater 自动更新
 - 发版前快速核对命令：
@@ -1161,7 +1228,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, log_ozon
 ## 开发规范
 
 - Commit: `<type>(<scope>): <中文描述>`（如 `feat(worker): 结构化日志`）
-- 分支: `feat/`、`fix/`、`refactor/`、`docs/`、`hotfix/`
+- 分支: `feat/`、`fix/`、`refactor/`、`docs/`、`hotfix/`（一会话一分支一 worktree + 两级门槛详规见 `docs/WORKFLOW.md`）
 - Pre-commit: `git config core.hooksPath .githooks`（自动检查 .env + 密钥 + 语法）
 - 详见 **`docs/CONVENTIONS.md`**
 
@@ -1433,7 +1500,7 @@ GitHub Actions 自动检查每次 push/PR（`ci.yml`）：
 - **test-skill**: **Docker python:3.12-slim 容器跑 pytest**（v0.36 起——ubuntu 预装 Chrome 测不出无浏览器场景；cp312 ABI 与发布二进制一致）
 - **docker-build**: worker/Dockerfile 构建（gha 缓存）
 - **CD**（cd.yml）: `git tag v*` → Docker build → push ghcr.io → GitHub Release → COS 部署包（服务器 `cos-update.sh` 用）
-- **Skill 构建**（build-skill.yml）: `git tag v*` → 4 平台编译（darwin-arm64/x86_64/linux/win32）→ 合并 32 二进制 → 完整性校验 → frontmatter 校验 → 上传 COS
+- **Skill 构建**（build-skill.yml）: `git tag v*` → 4 平台编译（darwin-arm64/x86_64/linux/win32）→ 合并 52 二进制（4 平台 × 13 模块）→ 完整性校验 → frontmatter 校验 → 上传 COS
   （`/skill/<包>.tar.gz` + `/manifest.json`）→ 用户每次命令静默检查，`skill update`
   应用（sha256 校验 + 备份 + 保留 data/）。需配置 GitHub Secrets：
   `COS_SECRET_ID/COS_SECRET_KEY/COS_BUCKET/COS_REGION/COS_MANIFEST_BASE_URL`。

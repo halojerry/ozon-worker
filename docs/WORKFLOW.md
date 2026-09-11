@@ -1,3 +1,13 @@
+---
+title: 仓库协作规范 v1
+purpose: 分支拓扑、一会话一分支一 worktree、两级合并门槛、探针先行与发版流
+applies-version: ">=v0.73.0"
+last-updated: 2026-09-11
+owner: docs-gov
+depends: [CONVENTIONS, GIT-STREAM-INDEX, SUBAGENT-SPEC]
+status: active
+---
+
 # WORKFLOW — 仓库协作规范 v1
 
 > 生效 2026-09-09。规范多 AI 会话并行开发下的分支拓扑、会话隔离、合并门槛与发版流。
@@ -93,6 +103,41 @@ dev 上完成实机 gate → 开 dev→main PR（标题 release: vX.Y.Z）→ CI
 - 不用 rebase 整理已推送的共享分支——重写历史只允许发生在自己独占的未推送分支上；
 - pounding-harness 是独立仓库，本规范不覆盖（未来可参考 adoption）。
 
+## 6.5 探针先行（模块 8：变更前置探针纪律）
+
+> **结论先行**：任何 Tier A 级变更（新表/新 API/跨子系统/发版）动手前先跑**探针**，
+> 探针产物落 `docs/audit/<date-topic>/` 作为报告与计划的事实底稿——先例：repo-gov
+> 九份审计（A1-A9）全部先探针后修复（B2-α/B2-β）。多 agent 派发遵循 `docs/SUBAGENT-SPEC.md`。
+
+### 四类探针 × 统一模板
+
+| 类型 | 手段 | 例 |
+|---|---|---|
+| 代码探针 | 埋点 + 单测先行（红绿） | 新接口先写失败单测 → 实现 → 转绿 |
+| 数据探针 | 只读 SQL 对账 / 孤儿扫描 | A8 七探针（`worker/scripts/probe_assets.py --probe all`） |
+| 性能探针 | 耗时基线对照 | 改前后各跑一次计时，差值即收益 |
+| 流量探针 | 灰度小批 | feature flag / 单店 / 小批任务先行 |
+
+统一模板（写进探针报告头）：
+
+```
+探针命令：<可复制的完整命令/SQL>
+预期：<正常态的量化判据（如 0 行 / 阈值内 / 绿）>
+红时处置：<异常时先看哪张表/哪个日志、升级给谁、阻断哪些后续步骤>
+```
+
+### 变更流程八步（探针 → 全量）
+
+```
+①探针 → ②报告+影响评估 → ③计划（PLAN） → ④开发 → ⑤review → ⑥合并 → ⑦测试 → ⑧灰度/全量
+```
+
+- ②的报告存 `docs/audit/<date-topic>/`（**探针报告规范存放处**），影响评估引用探针计数；
+- ③起走既有 **Tier A/B 门槛**（§3）：探针若实证 P0（如 S3 双绑 >0），只允许升格门槛不允许跳过；
+- ⑦测试须在**本 worktree 自建/隔离 venv** 跑（`-e` venv 会 import 原 worktree 源码，见 SUBAGENT-SPEC §6）；
+- 探针脚本本身入库（如 `worker/scripts/probe_assets.py`），带 `--probe` 子命令与只读纪律（仅 SELECT + LIMIT）。
+
 ## 7. 变更记录
 
+- **v1.1（2026-09-11）**：增补 §6.5 探针先行（四类探针×统一模板+八步变更流，repo-gov 治理实践固化）；depends 补 SUBAGENT-SPEC。
 - **v1（2026-09-09）**：首版。main 重建为发布线（FF 至 3d2836b0）+ 一会话一分支一 worktree + 两级合并门槛 + 清理 19 僵尸分支 + 历史索引 `docs/GIT-STREAM-INDEX.md`。触发事件：两天 142 提交 12 流交错直提 dev、78 提交滞留本机、共享工作树撞车实录、dev CI 红三轮。

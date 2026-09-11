@@ -82,6 +82,7 @@ class _FakeRequest:
         self.headers = {"Authorization": f"Bearer {token}"} if token else {}
         self.query_params = query or {}
         self._body = body if body is not None else {}
+        self.state = type("State", (), {})()  # get_tenant 同请求缓存挂点
 
     async def json(self):
         return self._body
@@ -108,8 +109,10 @@ def test_create_error_report_uses_real_tenant(monkeypatch):
         return {"report_id": "r1", "tasks_attached": 0}
 
     monkeypatch.setattr(ers, "create_error_report", fake_create)
-    resp = asyncio.run(main_mod.v1_create_error_report(
-        _FakeRequest(TOKEN, body={"title": "租户漂移测试"})))
+    import routes.error_reports_routes as err_routes
+    from api.deps_tenant import get_tenant
+    req = _FakeRequest(TOKEN, body={"title": "租户漂移测试"})
+    resp = asyncio.run(err_routes.v1_create_error_report(req, tenant_id=get_tenant(req)))
     assert resp.get("status") == "ok"
     assert cap["tenant"] == EXPECTED_USER_ID, (
         f"POST /error_reports 租户漂移：期望 Supabase user_id {EXPECTED_USER_ID!r}，"
@@ -126,7 +129,10 @@ def test_list_error_reports_uses_real_tenant(monkeypatch):
         return {"reports": [], "total": 0}
 
     monkeypatch.setattr(ers, "list_error_reports", fake_list)
-    resp = asyncio.run(main_mod.v1_list_error_reports(_FakeRequest(TOKEN)))
+    import routes.error_reports_routes as err_routes
+    from api.deps_tenant import get_tenant_no_rate_limit
+    req = _FakeRequest(TOKEN)
+    resp = asyncio.run(err_routes.v1_list_error_reports(req, tenant_id=get_tenant_no_rate_limit(req)))
     assert resp == {"reports": [], "total": 0}
     assert cap["tenant"] == EXPECTED_USER_ID, (
         f"GET /error_reports 租户漂移：期望 {EXPECTED_USER_ID!r}，实际 {cap['tenant']!r}")
@@ -142,8 +148,11 @@ def test_task_forensics_uses_real_tenant(monkeypatch):
         return {"task": {"task_id": task_id}}
 
     monkeypatch.setattr(fs, "get_task_forensics", fake_forensics)
-    resp = asyncio.run(main_mod.v1_task_forensics(
-        "00000000-0000-0000-0000-000000000000", _FakeRequest(TOKEN)))
+    import routes.error_reports_routes as err_routes
+    from api.deps_tenant import get_tenant
+    resp = asyncio.run(err_routes.v1_task_forensics(
+        "00000000-0000-0000-0000-000000000000",
+        tenant_id=get_tenant(_FakeRequest(TOKEN))))
     assert resp == {"task": {"task_id": "00000000-0000-0000-0000-000000000000"}}
     assert cap["tenant"] == EXPECTED_USER_ID, (
         f"GET /forensics/task 租户漂移：期望 {EXPECTED_USER_ID!r}，实际 {cap['tenant']!r}"
@@ -188,8 +197,11 @@ def test_sk_prefixed_token_resolves_same_tenant(monkeypatch):
         return {"task": {}}
 
     monkeypatch.setattr(fs, "get_task_forensics", fake_forensics)
-    asyncio.run(main_mod.v1_task_forensics(
-        "00000000-0000-0000-0000-000000000000", _FakeRequest(SK_TOKEN)))
+    import routes.error_reports_routes as err_routes
+    from api.deps_tenant import get_tenant
+    asyncio.run(err_routes.v1_task_forensics(
+        "00000000-0000-0000-0000-000000000000",
+        tenant_id=get_tenant(_FakeRequest(SK_TOKEN))))
     assert cap["tenant"] == EXPECTED_USER_ID, (
         f"sk- 前缀 token 租户漂移：期望 {EXPECTED_USER_ID!r}，实际 {cap['tenant']!r}")
 

@@ -5,19 +5,80 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    # ✅ v0.75 部署加固（2026-09-11 I/O 雪崩 9h 事故，docs/audit/2026-09-11-io-avalanche.md）：
+    # PG 全默认参数（shared_buffers=128MB / checkpoint 频繁）在小机上是 checkpoint
+    # fsync 积压的直接放大器（事故中单文件 fsync 40 分钟、checkpoint sync 累计 3.9h）。
+    # 按 4c/3.7G 保守调参；升配（如 8c/16G）后等比上调 shared_buffers/effective_cache_size
+    # 与下方各 mem_limit。
+    command: >
+      postgres -c shared_buffers=512MB
+               -c effective_cache_size=1536MB
+               -c max_wal_size=2GB
+               -c min_wal_size=256MB
+               -c checkpoint_timeout=15min
+               -c checkpoint_completion_target=0.9
+               -c effective_io_concurrency=200
+    shm_size: 256m
+    # 容器级内存上限：postgres 1400m + worker 1800m + backup-scheduler 64m ≈ 3.3G，
+    # 给系统/页缓存留 ~0.4G（3.7G 机器校准；无上限时单容器可吃满全机触发 OOM/雪崩）
+    mem_limit: 1400m
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-ozon}
     ports:
-      - "127.0.0.1:5433:5432"
+      # ✅ v0.75 部署加固：宿主端口 5433→15433。原 127.0.0.1:5433 与本地开发惯例
+      # （localhost:5433 = 本地 Docker PG）撞车——同一条 pytest 命令在开发机安全、
+      # 在服务器上等价直连生产库（2026-09-10 测试套件连产 18h 的事故通道）。
+      # 服务器直连改用: psql -h 127.0.0.1 -p 15433
+      - "127.0.0.1:15433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # BL-08 (repo-gov): 备份脚本 + 备份产物目录进 postgres 容器 —— ofelia 的
+      # job-exec 在本容器内执行 backup-pg.sh（container 模式：alpine 自带
+      # pg_dump/psql 直连本容器 socket，详见脚本头部「双模式」注释）。
+      # PG 连接变量不重复传：docker exec 继承容器 env（POSTGRES_USER/POSTGRES_DB）。
+      - ./backup-pg.sh:/deploy/backup-pg.sh:ro
+      - ./backups:/backups
+    labels:
+      # BL-08 (repo-gov): ofelia (backup-scheduler 服务) 经 docker socket 发现本
+      # 标签并在本容器内调度备份；schedule 兼容 robfig/cron 语法（@every 24h）。
+      ofelia.enabled: "true"
+      ofelia.job-exec.backup-pg.schedule: "@every 24h"
+      ofelia.job-exec.backup-pg.command: "sh /deploy/backup-pg.sh"
+      ofelia.job-exec.backup-pg.environment: '["BACKUP_PG_MODE=container","PG_BACKUP_DIR=/backups"]'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ozon"]
+      # ✅ v0.75: 用户/库名去硬编码（跟随 env；$$ 为 compose 转义，容器内展开）
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-ozon}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    # ✅ v0.72 防复发补漏：当时封了 worker/ofelia 的 json-file 日志，唯独漏了
+    # postgres——PG 告警刷屏（如 autovacuum took too long）同样会无限增长
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # BL-08 (repo-gov): PG 备份调度 sidecar —— ofelia 挂 docker socket 只读，按
+  # postgres 容器上的 ofelia.* 标签做 job-exec（每日一次 backup-pg.sh）。
+  # 宿主机 crontab 仍是等效替代；两种方式择一即可，勿同时启用（会重复备份）。
+  backup-scheduler:
+    image: mcuadros/ofelia:latest
+    restart: unless-stopped
+    command: daemon --docker
+    mem_limit: 64m
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
 
   worker:
     build:
@@ -33,8 +94,13 @@ services:
     # ✅ v0.29(PRD-cicd-stability): 优雅关闭 — 给运行中任务 5 分钟排空时间
     # (FastAPI lifespan drain + worker_loop 停拉新任务; 默认 10s 会强杀任务)
     stop_grace_period: 5m
+    # ✅ v0.75 部署加固：容器内存上限（与 postgres 1400m 合计按 3.7G 机器校准，
+    # 见 postgres 服务注释；升配后等比调整）
+    mem_limit: 1800m
     ports:
-      - "0.0.0.0:8080:5000"
+      # v0.75 加固第二批（H11）：绑定面可收紧——有 Nginx 反代/仅本机访问的部署
+      # 在 .env 设 WORKER_BIND_IP=127.0.0.1；默认 0.0.0.0 保持现状（直连部署不破坏）
+      - "${WORKER_BIND_IP:-0.0.0.0}:8080:5000"
     env_file:
       - .env
     environment:

@@ -48,8 +48,25 @@ def _row_to_dict(r):
             "detail": r[4], "created_at": r[5].isoformat() if r[5] else None}
 
 
-@router.get("")
-@router.get("/")
+# 响应示例（handler 返回裸 dict，无 response_model——openapi_extra 路由级补，
+# 深合并进 200 响应不改 schema；"" 与 "/" 双装饰器各挂一份）
+_LIST_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "items": [{
+        "id": 42, "user_id": "28", "action": "credential.rotate",
+        "resource": "credentials/7f3a", "detail": {"offer_id": "SKU-1001"},
+        "created_at": "2026-09-11T08:30:00",
+    }],
+    "total": 1, "limit": 50, "offset": 0,
+}}}}}}
+_CREATE_OK_EXTRA = {"responses": {"201": {"content": {"application/json": {"example": {
+    "id": 42, "user_id": "28", "action": "credential.rotate",
+    "resource": "credentials/7f3a", "detail": {"offer_id": "SKU-1001"},
+    "created_at": "2026-09-11T08:30:00",
+}}}}}}
+
+
+@router.get("", openapi_extra=_LIST_OK_EXTRA)
+@router.get("/", openapi_extra=_LIST_OK_EXTRA)
 async def list_logs(request: Request, limit: int = 50, offset: int = 0):
     user_id = await _authenticate_admin(request)
     limit = max(1, min(limit, 200))
@@ -65,8 +82,8 @@ async def list_logs(request: Request, limit: int = 50, offset: int = 0):
     return {"items": items, "total": int(total), "limit": limit, "offset": offset}
 
 
-@router.post("", status_code=201)
-@router.post("/", status_code=201)
+@router.post("", status_code=201, openapi_extra=_CREATE_OK_EXTRA)
+@router.post("/", status_code=201, openapi_extra=_CREATE_OK_EXTRA)
 async def create_log(request: Request):
     user_id = await _authenticate_admin(request)
     body = await request.json()

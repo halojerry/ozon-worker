@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from pounding_mcp import worker_http
 from pounding_mcp.server import mcp
 from pounding_mcp.worker_http import analyze_store, run_store_action
@@ -37,6 +35,10 @@ def test_analyze_store_calls_worker(monkeypatch):
         return dict(_ANALYSIS_SAMPLE)
 
     monkeypatch.setattr(worker_http, "_request", fake_request)
+    # 密封环境：token 源（env/settings.json）因机器而异——固定假 token 断言「有 token
+    # 流入 _request」本身（v0.75 C10：worktree 无未提交 settings.json 时曾假红）。
+    monkeypatch.setattr(worker_http, "get_worker_token",
+                        lambda: "LocalDummyTokenForWorktreeTests")
     result = analyze_store("store_cred_1")
 
     assert captured["url"].endswith("/api/v1/stores/store_cred_1/analysis")

@@ -453,8 +453,31 @@ async_runtime: Optional[AsyncTaskRuntime] = None
 async_graph: Optional[CompiledStateGraph] = None
 task_processor: Optional[SupabaseTaskProcessor] = None
 
+def _warn_if_multi_worker() -> None:
+    """B4 BL-31（2026-09-11 仓库治理）：多 worker 部署探测告警（只告警不改行为）。
+
+    本进程存在多处**内存态组件**：MXOU 余额缓存（_check_balance_cached，token
+    指纹绑定）、任务进度缓存（内存优先 + PG 2s 节流回写）、限流器计数、远程 MCP
+    session manager（FastMCP）——均进程局部，无任何开关能使其多副本安全，当前
+    部署假设 uvicorn workers=1（start_http_server 硬编码；横向并发靠
+    MAX_CONCURRENT 单进程内消化）。uvicorn/gunicorn 均会读 WEB_CONCURRENCY
+    （gunicorn 亦读 WORKERS）——env >1 即告警，提醒运维改回单 worker 部署。
+    """
+    for _var in ("WEB_CONCURRENCY", "WORKERS"):
+        _raw = os.getenv(_var, "").strip()
+        if _raw.isdigit() and int(_raw) > 1:
+            logger.warning(
+                "⚠️ 检测到 %s=%s：内存态组件（余额缓存/租户缓存/MCP session/限流计数）"
+                "非多副本安全，当前部署假设 workers=1——多 worker 会出现余额误判/进度"
+                "丢失/MCP 会话错乱，请改用单 worker + MAX_CONCURRENT 扩并发",
+                _var, _raw,
+            )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ✅ B4 BL-31: 启动即探测多 worker 误部署（内存态组件非多副本安全，见函数注释）
+    _warn_if_multi_worker()
     engine = get_engine()
     # 自动建表（幂等，CREATE TABLE IF NOT EXISTS）
     init_db()
@@ -743,7 +766,11 @@ v1 = APIRouter(prefix="/api/v1", tags=["v1"])
 openai_handler = OpenAIChatHandler(service)
 
 
-@app.post("/async_run")
+@app.post("/async_run", responses={
+    200: {"content": {"application/json": {"example": {
+        "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d",
+        "status": "queued",
+    }}}}})
 async def http_async_run(request: Request) -> dict:
     """[DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。"""
     logger.warning("⚠️ /async_run 已弃用，请使用 POST /submit_task")
@@ -807,7 +834,14 @@ async def http_async_run(request: Request) -> dict:
                             detail=f"async-task storage unavailable: {e}")
 
 
-@app.get("/task/{task_id}")
+@app.get("/task/{task_id}", responses={
+    200: {"content": {"application/json": {"example": {
+        "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d",
+        "status": "succeeded",
+        "result": {"output": {}},
+        "error": None,
+        "created_at": 1726000000.0,
+    }}}}})
 async def http_get_task(task_id: str) -> dict:
     """[DEPRECATED] 使用 GET /task_status/{task_id} 代替。此端点将在未来版本移除。"""
     logger.warning("⚠️ /task/{task_id} 已弃用，请使用 GET /task_status/{task_id}")
@@ -822,7 +856,21 @@ async def http_get_task(task_id: str) -> dict:
 
 
 HEADER_X_RUN_ID = "x-run-id"
-@app.post("/run")
+
+
+@app.post("/run", responses={
+    200: {"content": {"application/json": {"example": {
+        # GraphOutput 终态（成功路径，节选）+ run_id（handler 注入）
+        "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "product_id": "987654321",
+        "purchase_url": "https://detail.1688.com/offer/123456789.html",
+        "upload_status": "success",
+        "pricing_info": {"price": 254.0, "old_price": 305.0, "promo_price": 254.0},
+        "stages": {"auth": "done", "category_match": "done", "ozon_upload": "done"},
+        "error_message": "",
+        "error_code": "",
+        "run_id": "e1f2a3b4c5d647e8",
+    }}}}})
 async def http_run(request: Request) -> Dict[str, Any]:
     global result
     raw_body = await request.body()
@@ -934,7 +982,11 @@ def _register_task(run_id: str, task: asyncio.Task):
     service.running_tasks[run_id] = task
 
 
-@app.post("/stream_run")
+@app.post("/stream_run", responses={
+    200: {"content": {"text/event-stream": {"example":
+        # SSE 逐帧：event 固定 message，data 为节点/Agent 产物 JSON（节选一帧）
+        "event: message\ndata: {\"progress_counter\": 3, \"stages\": {\"category_match\": \"done\"}}\n\n",
+    }}}})
 async def http_stream_run(request: Request):
     raw_body = await request.body()
     try:
@@ -995,7 +1047,13 @@ async def http_stream_run(request: Request):
     response = StreamingResponse(stream_generator, media_type="text/event-stream")
     return response
 
-@app.post("/cancel/{run_id}")
+@app.post("/cancel/{run_id}", responses={
+    200: {"content": {"application/json": {"example": {
+        # service.cancel_run 三态：success / already_completed / not_found
+        "status": "success",
+        "run_id": "e1f2a3b4c5d647e8",
+        "message": "Cancellation signal sent, task will be cancelled at next await point",
+    }}}}})
 async def http_cancel(run_id: str, request: Request):
     """
     取消指定run_id的执行
@@ -1010,7 +1068,15 @@ async def http_cancel(run_id: str, request: Request):
     return result
 
 
-@app.post(path="/node_run/{node_id}")
+@app.post(path="/node_run/{node_id}", responses={
+    200: {"content": {"application/json": {"example": {
+        # 单节点直跑返回该节点 Output model 的 dict（此处以 auth 节点 AuthOutput 为例）
+        "progress_counter": 1,
+        "user_id": "28",
+        "balance": 12.5,
+        "currency_code": "CNY",
+        "ozon_client_id": "5381204",
+    }}}}})
 async def http_node_run(node_id: str, request: Request):
     raw_body = await request.body()
     try:
@@ -1059,7 +1125,20 @@ async def http_node_run(node_id: str, request: Request):
         pass
 
 
-@app.post("/v1/chat/completions")
+@app.post("/v1/chat/completions", responses={
+    200: {"content": {"application/json": {"example": {
+        # OpenAI Chat Completions 兼容透传（上游模型响应原样回传，此处为通用形态）
+        "id": "chatcmpl-e1f2a3b4c5d647e8",
+        "object": "chat.completion",
+        "created": 1726000000,
+        "model": "deepseek-v4-flash",
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": "Пример ответа ассистента."},
+            "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 128, "completion_tokens": 64, "total_tokens": 192},
+    }}}}})
 async def openai_chat_completions(request: Request):
     """OpenAI Chat Completions API 兼容接口"""
     raw_body = await request.body()
@@ -1090,6 +1169,110 @@ async def openai_chat_completions(request: Request):
 # 运维：定期清理 + 健康检查
 # ============================================================
 
+# B2a-5/6: 两个每日级维护钩子的节流时间戳（epoch 秒；0.0 = 启动后首轮即执行）
+_LAST_CACHE_SWEEP: float = 0.0
+_LAST_FX_REFRESH: float = 0.0
+
+# 过期缓存清扫覆盖面：只扫两缓存表——category_cache 是类目树快照，另有治理，勿加入
+_SWEEP_CACHE_TABLES = ("dictionary_value_cache", "attribute_cache")
+_SWEEP_BATCH_LIMIT = 5000  # 每批 ctid 删除上限（防长事务锁表）
+_SWEEP_MAX_BATCHES = 20    # 单表迭代批数封顶（防病态大量过期行拖死清理循环）
+
+
+def _sweep_expired_caches(conn) -> int:
+    """物理删除两缓存表的过期行（expires_at 为 int 秒），返回删除总数。
+
+    ctid 批删（LIMIT 5000/批，删空一批再看下一批）；表名来自固定元组非用户
+    输入，f-string 拼接安全；绑定参数纯 int 无需 CAST。
+    """
+    from sqlalchemy import text
+    total = 0
+    now = int(time.time())
+    for table in _SWEEP_CACHE_TABLES:
+        for _ in range(_SWEEP_MAX_BATCHES):
+            res = conn.execute(text(
+                f"DELETE FROM {table} WHERE ctid IN "
+                f"(SELECT ctid FROM {table} WHERE expires_at < :now LIMIT {_SWEEP_BATCH_LIMIT})"
+            ), {"now": now})
+            deleted = int(res.rowcount or 0)
+            total += deleted
+            if deleted < _SWEEP_BATCH_LIMIT:
+                break
+    return total
+
+
+def _maybe_sweep_caches(conn) -> None:
+    """每 24h 一轮的过期缓存清扫（B2a-5）。整体非致命：失败吞掉且不推进节流，
+    下一轮清理循环自然重试。"""
+    global _LAST_CACHE_SWEEP
+    if time.time() - _LAST_CACHE_SWEEP <= 86400:
+        return
+    try:
+        deleted = _sweep_expired_caches(conn)
+        conn.commit()
+        _LAST_CACHE_SWEEP = time.time()
+        if deleted:
+            logger.info(f"🧹 定期清理: 过期缓存清扫删除 {deleted} 行"
+                        f"（dictionary_value_cache/attribute_cache，expires_at 已过期）")
+    except Exception:
+        logger.warning("过期缓存清扫失败（非致命，下轮重试）", exc_info=True)
+
+
+def _maybe_refresh_fx() -> None:
+    """fx 汇率每日刷新钩子（B2a-6）。lazy import 与并行开发的
+    utils.fx_rate_service 解耦（缺失/失败都不影响清理主循环）；
+    失败也推进节流——防清理循环每分钟 warning 刷屏。"""
+    global _LAST_FX_REFRESH
+    if time.time() - _LAST_FX_REFRESH <= 86400:
+        return
+    try:
+        from utils.fx_rate_service import refresh_cny_rub_if_due
+        refresh_cny_rub_if_due()
+    except Exception:
+        logger.warning("fx refresh failed", exc_info=True)
+    finally:
+        _LAST_FX_REFRESH = time.time()
+
+
+# ✅ v0.75 C2（BL-25 Phase 1-2 漏项）: langgraph checkpoint 三表清理序——
+# thread_id == ozon_product_tasks.id（task_processor.py:970 configurable
+# {"thread_id": task_id}），任务行 30 天归档删除后三表行永久孤儿。
+# 本地 PG information_schema 探针实证三表无外键；顺序 checkpoints →
+# checkpoint_blobs → checkpoint_writes（语义父表先删）。
+# ⚠️ memory.checkpoint_migrations 是 langgraph 自有版本表，绝不清理。
+_CHECKPOINT_PURGE_TABLES = ("checkpoints", "checkpoint_blobs", "checkpoint_writes")
+
+
+def _purge_checkpoints(conn, task_ids) -> int:
+    """v0.75 C2: 按 thread_id 清 memory.checkpoints 三表（删任务行**前**调用）。
+
+    Args:
+        conn: SQLAlchemy Connection（调用方事务内，随外层 commit 提交）
+        task_ids: 将删任务 uuid 文本列表（与任务 DELETE 同 WHERE 收集）
+
+    Returns:
+        三表删除总行数；task_ids 空 → 0（零 execute）。
+
+    ANY(:ids) bind 传 Python list[str]——psycopg2 自动数组化（勿手拼 IN 字面量）。
+    一次性存量孤儿清理见 worker/scripts/cleanup_checkpoints.py。
+    """
+    if not task_ids:
+        return 0
+    from sqlalchemy import text
+    total = 0
+    for _table in _CHECKPOINT_PURGE_TABLES:
+        res = conn.execute(
+            text(f"DELETE FROM memory.{_table} WHERE thread_id = ANY(:ids)"),
+            {"ids": list(task_ids)},
+        )
+        total += int(res.rowcount or 0)
+    logger.debug(
+        f"checkpoint purge: {total} rows across {len(task_ids)} tasks "
+        f"({_CHECKPOINT_PURGE_TABLES})"
+    )
+    return total
+
+
 async def _periodic_task_cleanup(interval_seconds: int = 60):
     """定期清理僵尸任务：重置卡死的 running 任务，清理过期 completed 任务"""
     await asyncio.sleep(30)  # 启动后等 30 秒再开始
@@ -1118,6 +1301,15 @@ async def _periodic_task_cleanup(interval_seconds: int = 60):
                 )).rowcount
                 # 归档 30 天前的 completed 任务（结果已留存 listing_result_log，见
                 # utils/listing_result_log.py——v0.67 起每任务一行事实留存，物理删不再丢数据）
+                # ✅ v0.75 C2: 删任务行**前**先收集将删 id → 清 checkpoint 三表
+                # （thread_id==task_id，删除谓词与任务 DELETE 同 WHERE；空列表跳过）。
+                _due_task_ids = [
+                    str(row[0]) for row in conn.execute(text(
+                        "SELECT id::text FROM ozon_product_tasks "
+                        "WHERE status='completed' AND updated_at < NOW() - INTERVAL '30 days'"
+                    )).fetchall()
+                ]
+                _purge_checkpoints(conn, _due_task_ids)
                 r2 = conn.execute(text(
                     "DELETE FROM ozon_product_tasks "
                     "WHERE status='completed' AND updated_at < NOW() - INTERVAL '30 days'"
@@ -1164,12 +1356,25 @@ async def _periodic_task_cleanup(interval_seconds: int = 60):
                 # ✅ v0.10: 清理 _task_progress 中已完成超过 1 小时的任务条目（防内存泄漏）
                 if r2:
                     _purge_stale_progress()
+                # ✅ B2a-5/6: 每日级维护钩子（各自 24h 节流，失败非致命）
+                _maybe_sweep_caches(conn)
+                _maybe_refresh_fx()
         except Exception as _e:
             logger.debug(f"定期清理跳过: {_e}")
         await asyncio.sleep(interval_seconds)
 
 
-@app.get("/health")
+@app.get("/health", responses={
+    200: {"content": {"application/json": {"example": {
+        "status": "ok",
+        "message": "Service is running",
+        "db": "connected",
+        "queue": {"pending": 2, "running": 5, "completed": 120},
+        "last_backup_at": 1725996400.0,
+        "backup_stale": False,
+    }}}}, 503: {"content": {"application/json": {"example": {
+        "status": "degraded", "message": "db_error: OperationalError", "db": "disconnected",
+    }}}}})
 async def health_check():
     try:
         from sqlalchemy import text
@@ -1183,11 +1388,32 @@ async def health_check():
                 "SELECT status, COUNT(*) as cnt FROM ozon_product_tasks GROUP BY status"
             )).fetchall()
             queue_stats = {row[0]: row[1] for row in rows}
+
+        # BL-08 (repo-gov): 备份心跳透出 —— last_backup_at(epoch 秒 | None) 来自
+        # services/backup_heartbeat_service（lazy import + 全吞错：服务未部署 /
+        # PG 无该表时为 None）。backup_stale 只对「有过心跳但距今 >26h」置 True；
+        # 「表存在但从未备份」时 last_backup_at 恒为 None、不置 stale —— 交给运维
+        # 判断（埋点刚上线时天然为 None，误报 stale 只会训练人忽略告警）。
+        # 以下任何异常都不得破坏 /health 的 200 语义（compose healthcheck 依赖它）。
+        last_backup_at: Optional[float] = None
+        backup_stale = False
+        try:
+            from services.backup_heartbeat_service import last_backup_at as _lba
+            _hb = _lba()
+            if _hb is not None:
+                last_backup_at = float(_hb)
+                backup_stale = (time.time() - last_backup_at) > 26 * 3600
+        except Exception:
+            last_backup_at = None
+            backup_stale = False
+
         return {
             "status": "ok",
             "message": "Service is running",
             "db": "connected",
             "queue": queue_stats,
+            "last_backup_at": last_backup_at,
+            "backup_stale": backup_stale,
         }
     except Exception as e:
         # v0.63.1 D8: /health 公开无鉴权且被 compose healthcheck 使用——异常
@@ -1198,7 +1424,17 @@ async def health_check():
         )
 
 
-@app.get("/api/v1/store/health")
+@app.get("/api/v1/store/health", responses={
+    200: {"content": {"application/json": {"example": {
+        # status ∈ ok/warning/critical/error/unknown（缺凭证=unknown）
+        "status": "ok",
+        "total_usage": 9900,
+        "total_limit": 10000,
+        "remaining": 100,
+        "daily_usage": 40,
+        "daily_limit": 200,
+        "daily_remaining": 160,
+    }}}}})
 def store_health(client_id: str = None, api_key: str = None):
     """查询 Ozon 店铺配额健康状态。
 
@@ -1486,7 +1722,18 @@ def _auth_verify_sync(token: str, client_id: str = "", api_key: str = "") -> dic
     }
 
 
-@app.get("/progress/{run_id}")
+@app.get("/progress/{run_id}", responses={
+    200: {"content": {"application/json": {"example": {
+        # source=checkpointer（实时）或 memory_or_pg（任务完成后/重启后回退）
+        "run_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "source": "checkpointer",
+        "progress_counter": 5,
+        "total_nodes": 13,
+        "percentage": 38,
+        "stages": {"auth": "done", "ingest": "done", "category_match": "done"},
+    }}}}, 404: {"content": {"application/json": {"example": {
+        "detail": "No progress found for run_id=3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    }}}}})
 async def http_progress(run_id: str):
     """查询工作流执行进度。
 
@@ -1612,12 +1859,12 @@ def _write_direct_submission_row(task_id: str, tenant_id: str, ozon_client_id: s
             conn.execute(
                 text(
                     "INSERT INTO draft_submissions "
-                    "(draft_id, credential_id, store_client_id, extensions, status, submitted_task_id) "
+                    "(draft_id, credential_id, store_client_id, extensions, status, submitted_task_id, tenant_id) "
                     "VALUES (NULL, "
                     "(SELECT id FROM credentials "
                     " WHERE tenant_id = :tenant_id AND ozon_client_id = :store_client_id "
                     "   AND status = 'active' ORDER BY created_at DESC LIMIT 1), "
-                    ":store_client_id, NULL, 'pending', :task_id)"
+                    ":store_client_id, NULL, 'pending', :task_id, :tenant_id)"
                 ),
                 {
                     "tenant_id": tenant_id,
@@ -1632,7 +1879,12 @@ def _write_direct_submission_row(task_id: str, tenant_id: str, ozon_client_id: s
         )
 
 
-@app.post("/submit_task")
+@app.post("/submit_task", responses={
+    200: {"content": {"application/json": {"example": {
+        "ok": True,
+        "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "message": "Task submitted to queue (user: 28, balance: 12.5)",
+    }}}}})
 async def http_submit_task(request: Request):
     """
     提交任务到Supabase云端队列（方案2：验证token + 提交到队列，不立即执行拓扑）
@@ -1754,7 +2006,15 @@ async def http_submit_task(request: Request):
             )
         
         # ✅ Step3: 提交任务到队列（使用user_id作为tenant_id）
-        priority = 0  # ✅ 固定为0（所有用户平等优先级，直到建立VIP体系）
+        # ✅ v0.75 C7: priority 开放（BL-25 Phase 2-5）——读请求体可选 priority
+        # （顶层 body，与 timeout_seconds/max_retries 同位同读法）。缺省/非数字 → 0
+        # （容错与该端点其余数值字段一致，不 422 不 500）；越界 clamp [0,100]
+        # （对齐本端点 docstring 口径）。认领 SQL 零改动（task_processor
+        # ORDER BY priority DESC, created_at ASC 已就绪）。
+        try:
+            priority = min(100, max(0, int(body.get("priority", 0) or 0)))
+        except (TypeError, ValueError):
+            priority = 0
         timeout_seconds = body.get("timeout_seconds", 1800)
         max_retries = body.get("max_retries", 3)
 
@@ -1900,7 +2160,27 @@ def _task_status_guard(request: Request, task_row: dict) -> None:
 
 
 @app.get("/task_status/{task_id}", responses={
-    401: {"model": ErrorBody}, 404: {"model": ErrorBody}})
+    200: {"content": {"application/json": {"example": {
+        # ozon_product_tasks 行 + 终态归位后的 progress（v0.19）
+        "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "tenant_id": "28",
+        "status": "running",
+        "priority": 0,
+        "result": None,
+        "error_message": None,
+        "retry_count": 0,
+        "max_retries": 3,
+        "created_at": "2026-09-11T08:00:00+00:00",
+        "updated_at": "2026-09-11T08:02:30+00:00",
+        "started_at": "2026-09-11T08:01:00+00:00",
+        "completed_at": None,
+        "timeout_seconds": 1800,
+        "progress": {"stage": "image_generation", "percent": 61,
+                     "stages_completed": ["auth", "ingest", "category_match",
+                                          "pricing", "attributes", "description", "image_generation"],
+                     "stages_remaining": ["prepare_ozon_upload", "ozon_validate",
+                                          "check_quota", "ozon_upload", "ozon_status", "learning_record"]},
+    }}}}, 401: {"model": ErrorBody}, 404: {"model": ErrorBody}})
 async def http_task_status(task_id: str, request: Request):
     """
     查询任务状态（含进度信息）
@@ -1955,7 +2235,17 @@ async def http_task_status(task_id: str, request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to get task status: {str(e)}")
 
 
-@app.post("/cancel_task/{task_id}")
+@app.post("/cancel_task/{task_id}", responses={
+    200: {"content": {"application/json": {"example": {
+        "status": "success",
+        "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "message": "Task cancelled successfully",
+    }}}}, 409: {"content": {"application/json": {"example": {
+        # 不可取消（非 pending/处理异常）→ TASK_NOT_CANCELLABLE 统一错误信封
+        "ok": False,
+        "error_code": "TASK_NOT_CANCELLABLE",
+        "message": "Task 3fa85f64-5717-4562-b3fc-2c963f66afa6 cannot be cancelled (may not in pending status)",
+    }}}}})
 async def http_cancel_task(task_id: str):
     """
     取消任务（仅pending状态的任务可取消）
@@ -1976,18 +2266,30 @@ async def http_cancel_task(task_id: str):
                 "message": "Task cancelled successfully"
             }
         else:
-            return {
-                "status": "failed",
-                "task_id": task_id,
-                "message": "Task cannot be cancelled (may not in pending status)"
-            }
+            # B4 (2026-09-11 仓库治理, A5 §2 D-01)：不可取消（非 pending /
+            # 处理异常）由 200+{status:failed} 改返 409 + TASK_NOT_CANCELLABLE
+            # 统一错误信封——原 200 形态客户端无法编程区分成败（该错误码此前零接线）。
+            return error_response(
+                WorkerErrorCode.TASK_NOT_CANCELLABLE,
+                f"Task {task_id} cannot be cancelled (may not in pending status)",
+            )
             
     except Exception as e:
         logger.error(f"Cancel task error: {e}, traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to cancel task: {str(e)}")
 
 
-@app.post("/resubmit_task/{task_id}")
+@app.post("/resubmit_task/{task_id}", responses={
+    200: {"content": {"application/json": {"example": {
+        "ok": True,
+        "task_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+        "message": "任务 3fa85f64-5717-4562-b3fc-2c963f66afa6 已重新提交（rejected → pending，parent_task_id=3fa85f64-5717-4562-b3fc-2c963f66afa6）",
+    }}}}, 409: {"content": {"application/json": {"example": {
+        "ok": False,
+        "error_code": "TASK_NOT_RESUBMITTABLE",
+        "message": "任务状态 completed 不可重新提交，仅 rejected/failed 终态任务可重试",
+        "detail": {"task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "status": "completed"},
+    }}}}})
 async def http_resubmit_task(task_id: str, request: Request):
     """重新提交终态任务（审核被拒/失败自动修复链入口，P0-2）。
 
@@ -2081,7 +2383,14 @@ async def http_resubmit_task(task_id: str, request: Request):
         )
 
 
-@app.get("/task_statistics")
+@app.get("/task_statistics", responses={
+    200: {"content": {"application/json": {"example": {
+        "status": "success",
+        "statistics": {
+            "total": 130, "pending": 2, "running": 5, "completed": 120,
+            "failed": 3, "cancelled": 0, "avg_duration_seconds": 210.55,
+        },
+    }}}}})
 async def http_task_statistics(request: Request):
     """
     获取任务统计信息
@@ -2110,12 +2419,33 @@ async def http_task_statistics(request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to get task statistics: {str(e)}")
 
 
-@app.get(path="/graph_parameter")
+@app.get(path="/graph_parameter", responses={
+    200: {"content": {"application/json": {"example": {
+        # GraphInput/GraphOutput 的 JSON Schema（service.graph_inout_schema，此处节选）
+        "input_schema": {"title": "GraphInput", "type": "object", "properties": {}},
+        "output_schema": {"title": "GraphOutput", "type": "object", "properties": {}},
+        "code": 0,
+        "msg": "",
+    }}}}})
 async def http_graph_inout_parameter(request: Request):
     return service.graph_inout_schema()
 
 
-@app.post("/api/v1/logistics/quote")
+@app.post("/api/v1/logistics/quote", responses={
+    200: {"content": {"application/json": {"example": {
+        # quote_logistics 明细（utils/logistics_quote.py）：RETS/Standard 费率表命中
+        "tpl_provider": "RETS",
+        "service_level": "Standard",
+        "scoring_group": "A",
+        "base_cost": 6.0,
+        "per_gram_rate": 0.004,
+        "billable_weight": 500.0,
+        "weight": 480.0,
+        "dims_cm": [20.0, 15.0, 10.0],
+        "fallback_chain": [],
+        "logistics_cost_cny": 8.0,
+        "channel": "RETS_Standard_A",
+    }}}}})
 async def logistics_quote(request: Request):
     """物流运费报价端点（v0.29.x, skill 选品利润估算用）。
 
@@ -2262,8 +2592,10 @@ _ANALYTICS_KINDS = {
     "queries": (
         BlueOceanQuery,
         ("query", "contributed_by_token_id"),
+        # token_fp 进 data_cols：冲突行（重复上报）也刷新指纹——存量行未回填/算法
+        # 迁移场景下，用户重复采集一次即自愈（A8 F6）。
         ("query", "count", "ca", "avg_ca_rub", "avg_count_items",
-         "items_views", "uniq_queries_wca", "uniq_sellers"),
+         "items_views", "uniq_queries_wca", "uniq_sellers", "token_fp"),
         BlueOceanQueryItem,
         "queries",
     ),
@@ -2271,7 +2603,7 @@ _ANALYTICS_KINDS = {
         OzonBestseller,
         ("sku_or_id", "contributed_by_token_id"),
         ("sku_or_id", "brand", "category_id", "category_path",
-         "ordering_amount", "ordering_count", "avg_price_rub"),
+         "ordering_amount", "ordering_count", "avg_price_rub", "token_fp"),
         OzonBestsellerItem,
         "items",
     ),
@@ -2279,7 +2611,7 @@ _ANALYTICS_KINDS = {
         MarketBestseller,
         ("product_name", "contributed_by_token_id"),
         ("product_name", "brand", "category_id", "category_path",
-         "ordering_amount", "daily_avg", "other_platform_price"),
+         "ordering_amount", "daily_avg", "other_platform_price", "token_fp"),
         MarketBestsellerItem,
         "items",
     ),
@@ -2347,6 +2679,7 @@ async def _handle_analytics_report(request: Request, kind: str):
     """analytics 上报公共处理：token 鉴权 → Pydantic 校验 → upsert → 计数响应。"""
     if kind == "discovery_runs":
         return await _handle_discovery_run_report(request)
+    from services.tenant_service import token_fingerprint
     model, conflict_cols, data_cols, item_model, list_key = _ANALYTICS_KINDS[kind]
 
     try:
@@ -2399,6 +2732,9 @@ async def _handle_analytics_report(request: Request, kind: str):
     for p in parsed:
         row = p.model_dump(exclude_none=True)
         row["contributed_by_token_id"] = clean_token
+        # A8 F6/BL-06：MXOU key 明文落库脱敏双写——指纹唯一算法入口
+        # services.tenant_service.token_fingerprint（sha256 前 16）。
+        row["token_fp"] = token_fingerprint(clean_token)
         row["source"] = "fetched"
         rows.append(row)
 
@@ -2419,7 +2755,10 @@ async def _handle_discovery_run_report(request: Request):
 
     鉴权/限流复用 analytics 模式；candidates 白名单裁剪在 skill 端，worker 原样存 JSONB。
     tenant_id = clean token（POST 归属写入；GET 全局共享——见 v1_discovery_list_runs）。
+    A8 F6：tenant_id 是 MXOU key 明文（grep 判定见 model.py DiscoveryRun 注释），
+    同行双写 token_fp 指纹（唯一入口 tenant_service.token_fingerprint）。
     """
+    from services.tenant_service import token_fingerprint
     try:
         body = await request.json()
     except Exception:
@@ -2446,6 +2785,7 @@ async def _handle_discovery_run_report(request: Request):
 
     row = {
         "tenant_id": clean_token,
+        "token_fp": token_fingerprint(clean_token),
         "keyword": item.keyword,
         "filters_json": item.filters,
         "candidates_json": item.candidates,
@@ -2502,7 +2842,20 @@ async def v1_discovery_report_run(request: Request):
     return await _handle_analytics_report(request, "discovery_runs")
 
 
-@v1.get("/analytics/bestsellers", tags=["analytics"])
+@v1.get("/analytics/bestsellers", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        "items": [{
+            "sku_or_id": "1680357214",
+            "brand": "Thermos",
+            "category_path": "Дом и сад / Термосы",
+            "ordering_amount": 1284500.0,
+            "ordering_count": 412,
+            "avg_price_rub": 3117.7,
+            "contributed_by_token_id": "test-token-123",
+        }],
+        "total": 1, "limit": 50, "offset": 0,
+    }}}},
+})
 async def v1_analytics_list_bestsellers(request: Request):
     """T4b.1 榜单浏览：读 skill 上报的 ozon-bestsellers（全局共享，含贡献者列）。
 
@@ -2510,12 +2863,10 @@ async def v1_analytics_list_bestsellers(request: Request):
     鉴权与上报一致：token 即身份；token 不再作数据过滤（A 采集 B 可见）。
     """
     from services.analytics_service import list_bestsellers
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
+    # B 租户 guard 二期：Bearer 提取→verify（无限流，对齐原内联序列）收敛单行；
+    # 无租户消费 → verify_bearer（不加 resolve_tenant，行为逐字等价）。
+    from api.deps_tenant import verify_bearer_from_request
+    clean_token = verify_bearer_from_request(request, rate_limited=False)
 
     q = request.query_params
     try:
@@ -2544,19 +2895,30 @@ async def v1_analytics_list_bestsellers(request: Request):
     )
 
 
-@v1.get("/discovery/runs", tags=["analytics"])
+@v1.get("/discovery/runs", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        "items": [{
+            "id": "0192b1f0-9c3f-7f2e-8b1a-3d4e5f6a7b8c",
+            "keyword": "宠物饮水机",
+            "filters": {"min_margin": 0.25},
+            "candidates": 23,
+            "created_at": "2026-09-11T10:24:31",
+            "contributed_by_token_id": "test-token-123",
+            "contributed_by_fp": "a1b2c3d4e5f60718",
+        }],
+        "total": 1, "limit": 50, "offset": 0,
+    }}}},
+})
 async def v1_discovery_list_runs(request: Request):
     """discover 选品结果历史读取（W4b.2）：全局共享（A 可见 B 的归档，含贡献者标注）。
 
     query: limit/offset（分页，limit 上限 200）；鉴权与上报一致：token 即身份。
     蓝海（/admin/queries admin-only）与榜单（market_bestsellers 无读端点）保持关闭。
     """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
+    # B 租户 guard 二期：Bearer 提取→verify（无限流，对齐原内联序列）收敛单行；
+    # 全局共享无租户过滤 → verify_bearer（不加 resolve_tenant，行为逐字等价）。
+    from api.deps_tenant import verify_bearer_from_request
+    verify_bearer_from_request(request, rate_limited=False)
 
     q = request.query_params
     try:
@@ -2581,120 +2943,28 @@ async def v1_discovery_list_runs(request: Request):
             "SELECT COUNT(*) FROM discovery_runs"
         )).scalar()
 
+    from services.tenant_service import token_fingerprint
     items = [{
         "id": str(r[0]),
         "keyword": str(r[1]),
         "filters": r[2],
         "candidates": r[3],
         "created_at": r[4].isoformat() if r[4] is not None else None,
+        # A8 F6 展示脱敏：贡献者列新增 fp 前 8 位（明文 contributed_by_token_id
+        # 灰度期保留——webui/既有消费方逐步切换；读时从 tenant_id 现算与写侧
+        # token_fingerprint 同源等值，明文列删除后切换为读 token_fp 列）。
         "contributed_by_token_id": str(r[5] or ""),
+        "contributed_by_fp": token_fingerprint(str(r[5] or ""))[:8],
     } for r in rows]
     return {"items": items, "total": int(total or 0), "limit": limit, "offset": offset}
 
 
-@v1.post("/error_reports", tags=["error-reports"])
-async def v1_create_error_report(request: Request):
-    """用户问题反馈错误报告（v0.69）：agent 按模板填写（含复现方式/证据）→ 落库。
-
-    worker 按 evidence.task_ids 自动附加本租户任务快照（假成功取证实证：
-    快照自带 status/error/product_id/时间线，报告自足可复现）。
-    模板契约：docs/ERROR-REPORT-TEMPLATE.md。鉴权/限流与 analytics 同源。
-    """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
-    allowed, _remaining = rate_limiter.check(clean_token)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
-
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=422, detail="invalid JSON body")
-    if not isinstance(body, dict):
-        raise HTTPException(status_code=422, detail="body must be a JSON object")
-
-    # v0.73 租户统一：与任务写入侧同源（Supabase tokens.user_id；传原始 token，
-    # 内部剥 sk-；未配置 Supabase 回退 key 哈希）。哈希租户 → 快照恒 0 条。
-    from services.tenant_service import resolve_tenant
-    tenant_id = resolve_tenant(token)
-    from services.error_report_service import create_error_report
-    try:
-        out = create_error_report(
-            tenant_id, body,
-            worker_version=(os.environ.get("APP_VERSION", "") or "").strip(),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    return {"status": "ok", **out}
-
-
-@v1.get("/error_reports", tags=["error-reports"])
-async def v1_list_error_reports(request: Request):
-    """本租户错误报告列表（新→旧，status 可筛，limit≤200）。详情：?report_id=。"""
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
-    # v0.73 租户统一（同 create_error_report；哈希租户 → 列表/详情恒空）
-    from services.tenant_service import resolve_tenant
-    tenant_id = resolve_tenant(token)
-
-    q = request.query_params
-    rid = (q.get("report_id") or "").strip()
-    from services.error_report_service import get_error_report, list_error_reports
-    if rid:
-        detail = get_error_report(tenant_id, rid)
-        if detail is None:
-            raise HTTPException(status_code=404, detail="report not found")
-        return detail
-    try:
-        limit = max(1, min(int(q.get("limit", 50)), 200))
-    except (TypeError, ValueError):
-        limit = 50
-    try:
-        offset = max(0, int(q.get("offset", 0)))
-    except (TypeError, ValueError):
-        offset = 0
-    return list_error_reports(tenant_id, limit=limit, offset=offset,
-                              status=(q.get("status") or "").strip() or None)
-
-
-@app.get("/forensics/task/{task_id}", tags=["error-reports"])
-@app.get("/api/v1/forensics/task/{task_id}", tags=["error-reports"])
-async def v1_task_forensics(task_id: str, request: Request):
-    """任务取证一站式只读聚合（v0.70）：任务快照 + listing_result_log +
-    category_match_log + attr_match_log 四路事实。
-
-    替代「换库 Supabase」的本地/云端配合取证通道——agent/MCP 凭 Bearer 直接查
-    生产任务的留存与审计（此前只能 SSH psql）。租户校验：任务行不属本租户 →
-    404（等价不存在）。v0.67 前的 category_match_log 历史行为 ingest 随机 uuid，
-    无法与任务行关联（已知数据断层）。
-    """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
-    if not rate_limiter.check(clean_token)[0]:
-        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
-    # v0.73 租户统一（哈希租户 ≠ 写侧 user_id → 取证恒 404）
-    from services.tenant_service import resolve_tenant
-    tenant_id = resolve_tenant(token)
-    from services.forensics_service import get_task_forensics
-    out = get_task_forensics(tenant_id, task_id)
-    if out is None:
-        raise HTTPException(status_code=404, detail="task not found")
-    return out
-
-
-@v1.get("/mappings/lookup", tags=["analytics"])
+@v1.get("/mappings/lookup", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        "found": True,
+        "mappings": [{"dc": "91936", "tp": "91540", "confidence": 0.85}],
+    }}}},
+})
 async def v1_mappings_lookup(request: Request):
     """类目映射查询（W11）：skill 端按关键词查已学习 Ozon 类目映射。
 
@@ -2703,12 +2973,10 @@ async def v1_mappings_lookup(request: Request):
     未命中时按 source_keywords 重叠兜底（ozon_category_query 同表同门槛）。
     category_mapping 表全局共享（无 tenant 隔离——类目映射是平台级知识，PRD §3.3）。
     """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
+    # B 租户 guard 二期：Bearer 提取→verify（无限流，对齐原内联序列）收敛单行；
+    # 全局共享无租户过滤 → verify_bearer（不加 resolve_tenant，行为逐字等价）。
+    from api.deps_tenant import verify_bearer_from_request
+    verify_bearer_from_request(request, rate_limited=False)
 
     keyword = (request.query_params.get("keyword") or "").strip()
     if not keyword:
@@ -2747,22 +3015,36 @@ async def v1_mappings_lookup(request: Request):
 # found=False+reason（前端提示，不破坏页面）。字典值按单属性按需（?attr_id=，
 # 下拉打开时拉，翻页≤3 页），首屏保持 1 次 API。
 
-@app.get("/categories/search", tags=["analytics"])
-@app.get("/api/v1/categories/search", tags=["analytics"])
+@app.get("/categories/search", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        "items": [{
+            "description_category_id": "91936",
+            "type_id": "91938",
+            "node_name": "Автомобильный компрессор",
+            "category_path": "Авто и мото / Автоинструменты / Автомобильный компрессор",
+            "similarity": 0.87,
+        }],
+    }}}}})
+@app.get("/api/v1/categories/search", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        "items": [{
+            "description_category_id": "91936",
+            "type_id": "91938",
+            "node_name": "Автомобильный компрессор",
+            "category_path": "Авто и мото / Автоинструменты / Автомобильный компрессор",
+            "similarity": 0.87,
+        }],
+    }}}}})
 async def v1_categories_search(request: Request):
     """类目树搜索（ZH_HANS）：?q=关键词&limit=20 → 候选 {dc, tp, node_name, category_path}。
 
     复用 OzonCategoryQuery.search_nodes（jieba 分词 + LIKE，node_type=type 保证
     返回有效 dc/tp 组合）。供 webui 采集箱 manual 类目选择器 / agent 类目确认。
     """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
-    if not rate_limiter.check(clean_token)[0]:
-        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
+    # B 租户 guard 二期：Bearer 提取→verify→限流 三段内联收敛单行（含限流对齐
+    # 原序列）；无租户消费 → verify_bearer（不加 resolve_tenant，行为逐字等价）。
+    from api.deps_tenant import verify_bearer_from_request
+    verify_bearer_from_request(request, rate_limited=True)
 
     q_text = (request.query_params.get("q") or "").strip()
     if not q_text:
@@ -2786,8 +3068,37 @@ async def v1_categories_search(request: Request):
     } for r in rows]}
 
 
-@app.get("/categories/attributes", tags=["analytics"])
-@app.get("/api/v1/categories/attributes", tags=["analytics"])
+@app.get("/categories/attributes", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        # schema 模式（?dc=&tp=）；?attr_id= 时 values 为顶层键
+        "found": True,
+        "cached": True,
+        "fetched": False,
+        "attributes": [{
+            "id": 4180,
+            "name": "Тип",
+            "required": True,
+            "type": "String",
+            "dictionary_id": 0,
+            "is_collection": False,
+            "max_value_count": 1,
+        }],
+    }}}}})
+@app.get("/api/v1/categories/attributes", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        "found": True,
+        "cached": True,
+        "fetched": False,
+        "attributes": [{
+            "id": 4180,
+            "name": "Тип",
+            "required": True,
+            "type": "String",
+            "dictionary_id": 0,
+            "is_collection": False,
+            "max_value_count": 1,
+        }],
+    }}}}})
 async def v1_categories_attributes(request: Request):
     """类目属性 schema + 字典值（缓存优先，未命中按需拉取回写）。
 
@@ -2798,14 +3109,10 @@ async def v1_categories_attributes(request: Request):
       （表单下拉打开时调用，避免一个类目几十个字典属性打满首屏）。
     - 未命中且无店铺凭证/拉取失败 → found=False + reason（降级不抛错）。
     """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
-    if not rate_limiter.check(clean_token)[0]:
-        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
+    # B 租户 guard 二期：Bearer 提取→verify→限流 三段内联收敛单行（原序列位，
+    # 鉴权先于参数校验）；无租户列消费但需租户取凭证 → 三段 helper。
+    from api.deps_tenant import verify_bearer_from_request
+    clean_token = verify_bearer_from_request(request, rate_limited=True)
 
     dc = (request.query_params.get("dc") or "").strip()
     tp = (request.query_params.get("tp") or "").strip()
@@ -2818,8 +3125,10 @@ async def v1_categories_attributes(request: Request):
     # v0.73 租户统一：凭证按真实 user_id 取（哈希租户 → 懒拉永远无凭证）。
     # 在 try 外调用——resolve_tenant 的 fail-closed（401/503）是鉴权语义，
     # 不得被下方「凭证解析失败降级纯缓存」吞掉。
+    # resolve_tenant 保持原位（dc/tp 422 校验之后）；入参 clean token 与原 raw
+    # token 等价（resolve_tenant 内部自剥 sk-，缓存键同形）。
     from services.tenant_service import resolve_tenant
-    _tenant = resolve_tenant(token)
+    _tenant = resolve_tenant(clean_token)
     _client_id = _api_key = ""
     try:
         from services.credential_service import get_default_credential, list_credentials
@@ -2915,8 +3224,21 @@ async def v1_categories_attributes(request: Request):
 # 读 category_commission 缓存表（全局共享，无 tenant 隔离——类目佣金是平台级知识）。
 # 鉴权与 analytics 读端点一致（Bearer token → _verify_analytics_token + rate_limiter）。
 
-@app.get("/commissions/lookup", tags=["commissions"])
-@app.get("/api/v1/commissions/lookup", tags=["commissions"])
+@app.get("/commissions/lookup", tags=["commissions"], responses={
+    200: {"content": {"application/json": {"example": {
+        # 未命中 → {"found": false}
+        "found": True,
+        "fbs": {"leq_1500": 0.16, "leq_5000": 0.12, "gt_5000": 0.10},
+        "fbo": {"leq_1500": 0.14, "leq_5000": 0.11, "gt_5000": 0.09},
+        "source": "prices_api",
+    }}}}})
+@app.get("/api/v1/commissions/lookup", tags=["commissions"], responses={
+    200: {"content": {"application/json": {"example": {
+        "found": True,
+        "fbs": {"leq_1500": 0.16, "leq_5000": 0.12, "gt_5000": 0.10},
+        "fbo": {"leq_1500": 0.14, "leq_5000": 0.11, "gt_5000": 0.09},
+        "source": "prices_api",
+    }}}}})
 async def http_commissions_lookup(request: Request):
     """类目佣金查询：按 description_category_id 查 category_commission 缓存表。
 
@@ -2925,19 +3247,10 @@ async def http_commissions_lookup(request: Request):
     → 未命中 {"found": false}
     鉴权: Authorization: Bearer <token>（剥离 sk- 前缀）；Supabase 未配置 → 本地放行。
     """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
-
-    allowed, _remaining = rate_limiter.check(clean_token)
-    if not allowed:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute",
-        )
+    # B 租户 guard 二期：Bearer 提取→verify→限流 三段内联收敛单行（含限流对齐
+    # 原序列）；全局共享缓存表无租户消费 → verify_bearer（不加 resolve_tenant）。
+    from api.deps_tenant import verify_bearer_from_request
+    verify_bearer_from_request(request, rate_limited=True)
 
     raw = (request.query_params.get("category_id") or "").strip()
     if not raw:
@@ -2971,6 +3284,16 @@ async def http_commissions_lookup(request: Request):
 # ── WebUI 凭证端点（T5）：routes/services 分层，业务逻辑在 services/credential_service.py ──
 from routes.credentials_routes import router as credentials_router
 v1.include_router(credentials_router)
+
+# B4 租户 guard 一期试点（design-b2b-tenant-guard Phase 1）：
+# error_reports/forensics 三端点自本文件内联迁至 routes/error_reports_routes.py，
+# 鉴权四段内联替换为 Depends(get_tenant)（行为等价，见该文件头说明）。
+from routes.error_reports_routes import (
+    router as error_reports_router,
+    root_router as error_reports_root_router,
+)
+v1.include_router(error_reports_router)
+app.include_router(error_reports_root_router)
 
 # ── 货源匹配上报（M5b）：skill 图搜/跟卖结果 → source_candidates ──
 from routes.source_candidates_routes import router as source_candidates_router

@@ -127,18 +127,24 @@ def get_attribute_values_with_lazy_fetch(
 
     try:
         from utils.ozon_client import ozon_post
-        resp = ozon_post(
-            client_id, api_key,
-            "/v1/description-category/attribute/values",
-            {
-                "attribute_id": int(attr_id),
-                "description_category_id": int(dc),
-                "type_id": int(tp),
-                "limit": _VALUES_PAGE_LIMIT,
-                "language": language,
-            },
-            timeout=30,
-        )
+        from utils.dict_value_cache import run_exclusive
+
+        def _do_fetch():
+            return ozon_post(
+                client_id, api_key,
+                "/v1/description-category/attribute/values",
+                {
+                    "attribute_id": int(attr_id),
+                    "description_category_id": int(dc),
+                    "type_id": int(tp),
+                    "limit": _VALUES_PAGE_LIMIT,
+                    "language": language,
+                },
+                timeout=30,
+            )
+
+        # ✅ v0.75 C1：同 key 并发 miss 单飞（防击穿；key 与 assemble/retry 读穿同构）
+        resp = run_exclusive((int(attr_id), int(dc), int(tp), language), _do_fetch)
     except Exception as exc:
         logger.warning("字典值按需拉取失败 attr=%s dc=%s tp=%s: %s", attr_id, dc, tp, exc)
         return {"found": False, "cached": False, "fetched": False,
@@ -146,6 +152,12 @@ def get_attribute_values_with_lazy_fetch(
 
     all_vals = _normalize_values(resp)
     if not all_vals:
+        # ✅ v0.75 C1：确认空落 60s 负缓存——下拉重复 miss 不再逐次打 Ozon（防穿透）
+        try:
+            from utils.dict_value_cache import record_negative
+            record_negative(int(attr_id), int(dc), int(tp), language)
+        except Exception:
+            pass
         return {"found": False, "cached": False, "fetched": True,
                 "values": None, "reason": "empty_from_ozon"}
 

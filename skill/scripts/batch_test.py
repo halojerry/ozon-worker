@@ -60,6 +60,13 @@ MIN_SUBMIT_TITLE_LEN = 4
 # （「全部符合」进不了分），视为未知不追溯拦——只拦 0 < conf < 阈值的弱档。
 MIN_SUBMIT_MATCH_CONFIDENCE = 0.3
 
+# ── 跨平台货源 v1 批2 ────────────────────────────────────────────────────
+# 走 graph 直传信封的货源 URL 类型（process_1688_url 同一条链——build_graph_
+# envelope 按平台分派抓取，批4 完成）；ozon = 跟卖链；pdd 可解析但适配器在批3。
+ADAPTER_URL_TYPES = ("taobao", "tmall", "pdd")
+GRAPH_URL_TYPES = ("1688",) + ADAPTER_URL_TYPES
+TYPE_FILTER_CHOICES = ("1688", "ozon", "taobao", "tmall", "pdd", "all")
+
 
 def _submit_gate_rejection(candidate: Any, envelope: dict[str, Any] | None) -> str:
     """v0.73 提交闸：检查信封是否应被拦截。返回拦截原因（空串=放行）。
@@ -143,6 +150,8 @@ def _print_product_summary(entry: dict[str, Any]) -> None:
 
 def parse_urls_file(filepath: str) -> list[dict[str, str]]:
     """Parse URL list file. Returns list of {type, url, id}."""
+    from scripts.lib.source_platforms import parse_platform_url
+
     results: list[dict[str, str]] = []
     seen_ids: set[str] = set()
 
@@ -169,6 +178,16 @@ def parse_urls_file(filepath: str) -> list[dict[str, str]]:
                 if oid and oid not in seen_ids:
                     seen_ids.add(oid)
                     results.append({"type": "1688", "url": line, "id": oid})
+            else:
+                # ⚠️ 跨平台货源 v1 批2: taobao/tmall/pdd 识别（parse_platform_url）。
+                # 上面 1688 分支原样保留（m 站 offerId 口径更宽，逐字节不变）；
+                # pdd 批2 可解析入列，批3 适配器就绪前抓取会明确报错。
+                _t = parse_platform_url(line)
+                if _t is not None and _t.platform in ADAPTER_URL_TYPES:
+                    if _t.item_id not in seen_ids:
+                        seen_ids.add(_t.item_id)
+                        results.append(
+                            {"type": _t.platform, "url": line, "id": _t.item_id})
 
     return results
 
@@ -223,12 +242,17 @@ def process_1688_url(
     dry_run: bool,
     store_id: str = "",
     notify: bool = False,
+    source_type: str = "1688",
 ) -> dict[str, Any]:
-    """Process a single 1688 URL: CDP probe → graph envelope → submit."""
+    """Process a single graph URL: CDP probe → graph envelope → submit.
+
+    跨平台货源 v1 批2: 1688/淘宝/天猫（拼多多批3）同走本链（build_graph_
+    envelope 按平台分派，批4 完成）；``source_type`` 只影响结果行的 type 标注。
+    """
     from scripts.cloud_probe import build_graph_envelope_with_retry, submit_envelope, DEFAULT_MULTI_SKU_MAX
 
     result: dict[str, Any] = {
-        "type": "1688",
+        "type": source_type,
         "url": url,
         "offer_id": offer_id,
         "timestamp": _now_iso(),
@@ -496,18 +520,9 @@ def process_ozon_url(
     return result
 
 
-def main() -> int:
-    # ⚠️ PR-A (v0.31): 前置 runtime 检测 — 当前解释器非 3.12 时扫描 PATH 自动切换
-    # （requests 等依赖 import 延迟到此处之后，错误解释器下不会在模块级崩）
-    import sys as _sys
-    from scripts.runtime_probe import re_exec_if_needed, resolve_python
-    if _sys.version_info < (3, 12):
-        _py_cmd, _is_cur = resolve_python()
-        if not _is_cur:
-            re_exec_if_needed(_py_cmd, str(Path(__file__).resolve()), list(_sys.argv[1:]))
-
-    import requests
-
+def build_arg_parser() -> argparse.ArgumentParser:
+    """构造 CLI parser（模块级导出——对齐 cli.build_arg_parser 先例，测试可
+    parse_args 直调验证 choices 行为，替代源码 grep 式断言）。"""
     parser = argparse.ArgumentParser(
         description="批量测试 1688/Ozon URL → Worker 上架"
     )
@@ -561,9 +576,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--type-filter",
-        choices=["1688", "ozon", "all"],
+        choices=list(TYPE_FILTER_CHOICES),
         default="all",
-        help="只处理特定类型的 URL",
+        help="只处理特定类型的 URL（taobao/tmall=批2 适配器；pdd=批3）",
     )
     parser.add_argument(
         "--resume", action="store_true",
@@ -573,6 +588,22 @@ def main() -> int:
         "--resume-from", default="",
         help="显式指定续传来源结果文件（默认自动找最新 batch_*.json）",
     )
+    return parser
+
+
+def main() -> int:
+    # ⚠️ PR-A (v0.31): 前置 runtime 检测 — 当前解释器非 3.12 时扫描 PATH 自动切换
+    # （requests 等依赖 import 延迟到此处之后，错误解释器下不会在模块级崩）
+    import sys as _sys
+    from scripts.runtime_probe import re_exec_if_needed, resolve_python
+    if _sys.version_info < (3, 12):
+        _py_cmd, _is_cur = resolve_python()
+        if not _is_cur:
+            re_exec_if_needed(_py_cmd, str(Path(__file__).resolve()), list(_sys.argv[1:]))
+
+    import requests
+
+    parser = build_arg_parser()
 
     args = parser.parse_args()
 
@@ -642,8 +673,9 @@ def main() -> int:
     # 注意：信封组装（build_envelope_from_discovery → build_graph_envelope
     # → enrich_product_with_cdp）仍可能按需启动 Chrome 做 1688 详情富化
     # （probe1688 缓存命中时则不需要）——这里只省 pre-flight 预启动。
+    # 跨平台货源 v1 批2: taobao/tmall/pdd 直传链同样依赖工具 Chrome CDP。
     _need_cdp = any(
-        u["type"] == "1688"
+        u["type"] in GRAPH_URL_TYPES
         or (u["type"] == "ozon" and _find_discover_source(u["id"]) is None)
         for u in urls
     )
@@ -764,7 +796,10 @@ def main() -> int:
 
         print(f"[{idx}/{args.start + len(urls)}] {url_type.upper()} {uid}", flush=True)
 
-        if url_type == "1688":
+        # ⚠️ 跨平台货源 v1 批2: taobao/tmall/pdd 必须走 graph 直传链
+        # （process_1688_url → build_graph_envelope 按平台分派），绝不能落到
+        # process_ozon_url（跟卖链会把淘宝 URL 当 Ozon 竞品处理）。
+        if url_type in GRAPH_URL_TYPES:
             r = process_1688_url(
                 url=url,
                 offer_id=uid,
@@ -773,6 +808,7 @@ def main() -> int:
                 worker_url=args.worker_url,
                 dry_run=args.dry_run,
                 store_id=args.store_id,
+                source_type=url_type,
                 **_notify_kw,
             )
         else:

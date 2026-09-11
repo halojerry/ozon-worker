@@ -792,6 +792,27 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
     # ✅ v0.67.1 wave①: 消费前原样累积（本轮 batch + 剩余其他类型全量），否则
     # 下一行删除后 DESCRIPTION_DECLINE 的俄语 texts 物理消失，留存表只剩 code
     _accumulate_decline_errors(state, errors)
+
+    # ✅ v0.75 C4: 数值 bounds 拒单学习（audit A4 F-P1-1）——decline 原文进消费
+    # 队列时顺带回流 VALUE_MAX/MIN_LIMIT 界值到 attr_bounds_learned。学习内部
+    # 有置信门槛（attr_id+界同时命中才学）+ 整体静默（失败绝不影响重试主链）。
+    # 审核轮询 declined 的 mod_errors 经 should_reupload 回灌 state.errors 后
+    # 下一轮同样过本节点，无需在审核轮询处重复接。
+    try:
+        from utils.attr_numeric_sanitize import learn_bounds_from_decline
+
+        for _e in errors:
+            if not isinstance(_e, dict):
+                continue
+            _texts = _e.get("texts")
+            _msg = _texts.get("message") if isinstance(_texts, dict) else ""
+            if _msg:
+                # fallback 用同条 error 的结构化 attribute_id（Ozon /v1/product/
+                # import/info 契约携带；原文不内嵌 id 形态时的兜底——终审 Important#2）
+                learn_bounds_from_decline(str(_msg), fallback_attr_id=_e.get("attribute_id"))
+    except Exception as _exc:  # 双保险：学习链任何异常都不进重试主链
+        logger.info(f"ℹ️ attr bounds 学习跳过: {_exc}")
+
     state.errors = [e for e in errors if isinstance(e, dict) and e.get("code") not in batch_codes]
     logger.info(f"📋 批量处理: {len(batch)}个 '{fix_type}' 错误，剩余{len(state.errors)}个其他类型")
 
@@ -1632,45 +1653,58 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         if error_code == "warning_attribute_values_out_of_range":
             logger.info(f"🔄 warning_attribute_values_out_of_range: 强制刷新属性{attr_id}的字典值缓存")
             try:
-                # v0.64.0: has_next 分页循环（对齐 v0.62 R2 fetch_ru_dict_value 修法）——
-                # 此前单页 limit=2000，大字典（轮胎规格/8229 类型等数千值）目标值不在
-                # 首页 → 刷新后仍缺 → 属性继续缺失烧 retry
-                _fresh_values: list = []
-                _last_id = 0
-                for _page in range(5):
-                    _fresh_result = _call_ozon_api(
-                        ozon_client_id, ozon_api_key,
-                        "/v1/description-category/attribute/values",
-                        {
-                            "attribute_id": attr_id,
-                            "description_category_id": int(category_id) if category_id else 0,
-                            "type_id": int(type_id) if type_id else 0,
-                            "language": "RU",
-                            "limit": 2000,  # ⚠️ PR-1: Ozon官方 /values 单次 max=2000，5000 会被静默截断
-                            "last_value_id": _last_id,
-                        }
-                    )
-                    _page_values = _fresh_result.get("result", [])
-                    _fresh_values.extend(_page_values)
-                    if not _fresh_result.get("has_next", False) or not _page_values:
-                        break
-                    _last_id = _page_values[-1].get("id", 0)
-                    if not _last_id:
-                        break
-                if _fresh_values:
-                    # 写入 PG 缓存（✅ v0.72 三桶路由：RU 是独立 language 键天然
-                    # 隔离；桶按 schema 的 category_dependent 决定，巨型字典不落库）
-                    try:
-                        from utils.dict_value_cache import routed_set
-                        _bucket = routed_set(
-                            attr_id, _fresh_values,
-                            int(category_id) if category_id else 0,
-                            int(type_id) if type_id else 0,
-                            language="RU",  # fetch 用 RU → cache 用 RU
+                # ✅ v0.75 C1：强刷语义保持「绕过缓存读直连 API」，仅把分页拉取+落库
+                # 包进单飞（同 key 并发强刷只放一个回源，等待者共享新值）——与
+                # assemble 侧 get_or_fetch 读穿共用 (attr,dc,tp,"RU") 键空间互斥。
+                from utils.dict_value_cache import run_exclusive
+
+                def _force_refresh() -> list:
+                    # v0.64.0: has_next 分页循环（对齐 v0.62 R2 fetch_ru_dict_value 修法）——
+                    # 此前单页 limit=2000，大字典（轮胎规格/8229 类型等数千值）目标值不在
+                    # 首页 → 刷新后仍缺 → 属性继续缺失烧 retry
+                    _fresh: list = []
+                    _last = 0
+                    for _page in range(5):
+                        _fresh_result = _call_ozon_api(
+                            ozon_client_id, ozon_api_key,
+                            "/v1/description-category/attribute/values",
+                            {
+                                "attribute_id": attr_id,
+                                "description_category_id": int(category_id) if category_id else 0,
+                                "type_id": int(type_id) if type_id else 0,
+                                "language": "RU",
+                                "limit": 2000,  # ⚠️ PR-1: Ozon官方 /values 单次 max=2000，5000 会被静默截断
+                                "last_value_id": _last,
+                            }
                         )
-                        logger.info(f"  ✅ 字典值缓存已刷新: attr={attr_id}, {len(_fresh_values)}条（{_bucket}）")
-                    except Exception as _cache_e:
-                        logger.debug(f"  字典缓存写入跳过: {_cache_e}")
+                        _page_values = _fresh_result.get("result", [])
+                        _fresh.extend(_page_values)
+                        if not _fresh_result.get("has_next", False) or not _page_values:
+                            break
+                        _last = _page_values[-1].get("id", 0)
+                        if not _last:
+                            break
+                    if _fresh:
+                        # 写入 PG 缓存（✅ v0.72 三桶路由：RU 是独立 language 键天然
+                        # 隔离；桶按 schema 的 category_dependent 决定，巨型字典不落库）
+                        try:
+                            from utils.dict_value_cache import routed_set
+                            _bucket = routed_set(
+                                attr_id, _fresh,
+                                int(category_id) if category_id else 0,
+                                int(type_id) if type_id else 0,
+                                language="RU",  # fetch 用 RU → cache 用 RU
+                            )
+                            logger.info(f"  ✅ 字典值缓存已刷新: attr={attr_id}, {len(_fresh)}条（{_bucket}）")
+                        except Exception as _cache_e:
+                            logger.debug(f"  字典缓存写入跳过: {_cache_e}")
+                    return _fresh
+
+                run_exclusive(
+                    (int(attr_id), int(category_id) if category_id else 0,
+                     int(type_id) if type_id else 0, "RU"),
+                    _force_refresh,
+                )
             except Exception as _fresh_e:
                 logger.warning(f"  ⚠️ 字典值刷新失败: {_fresh_e}")
 

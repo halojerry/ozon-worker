@@ -1,4 +1,16 @@
+---
+title: PLAN—上品帮对标落地执行方案
+purpose: 采集箱备注/选品 4 键/店铺会话代管三批（随 v0.74.0 发出）
+applies-version: "v0.74.0"
+last-updated: 2026-09-09
+owner: skill-cdp
+depends: [CONTRACT-v4]
+status: archived
+---
+
 # 上品帮对标落地执行方案（shopbang-parity v1）
+
+> 状态: shipped-with-v0.74.0
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

@@ -1,6 +1,17 @@
+---
+title: Worker 日志系统文档
+purpose: 日志架构、查看命令与故障排查
+applies-version: ">=v0.63.0"
+last-updated: 2026-09-11
+owner: worker-api
+depends: [WORKER-TOPOLOGY]
+status: active
+---
+
 # Worker 日志系统文档
 
 > 版本: v1.0 | 日期: 2026-07-18
+> 2026-09-11 校对：13 阶段（`STAGE_ORDER`，main.py）与 progress PG 回退（`get_progress` 内存优先→PG 回退 + `_persist_progress` 2s 节流回写）均已对照现行代码核对；本文未描述上述两点，无过期段落。
 
 ## 架构概览
 

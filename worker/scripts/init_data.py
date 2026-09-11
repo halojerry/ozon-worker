@@ -25,6 +25,197 @@ logger = logging.getLogger(__name__)
 ASSETS_DIR = os.path.join(os.getenv("APP_WORKSPACE_PATH", os.path.dirname(os.path.dirname(__file__))), "assets")
 
 
+def register_schema_migration(engine, version, note=""):
+    """BL-09（repo-gov B2-β）: 结构性迁移登记（幂等）——schema_migrations 一行。
+
+    每个迁移（migrate_webui_v1 / migrate_sync_erp_v1 / migrate_drafts_batch_v1 /
+    migrate_repo_gov_b2b）执行成功后调一次；ON CONFLICT (version) DO NOTHING →
+    重复初始化 no-op。登记失败仅 warning 不阻断初始化（登记是观测面不是闸门——
+    迁移本身全部幂等 DDL，漏登记只会让下次初始化重跑一遍 no-op）。
+    """
+    from sqlalchemy import text as sql_text
+
+    try:
+        with engine.begin() as conn:
+            conn.execute(sql_text(
+                "INSERT INTO schema_migrations (version, note) VALUES (:version, :note) "
+                "ON CONFLICT (version) DO NOTHING"
+            ), {"version": version, "note": (note or "")[:500]})
+        logger.info(f"✅ 迁移登记: {version}")
+    except Exception as exc:
+        logger.warning(
+            "⚠️ schema_migrations 登记失败 version=%s（不阻断初始化）: %s",
+            version, str(exc)[:200],
+        )
+
+
+def migrate_repo_gov_b2b(engine):
+    """BL-16（repo-gov B2-β）: draft_submissions 补 tenant_id 列（幂等，二次运行 no-op）。
+
+    新建库 create_all 已带列（model.py DraftSubmission.tenant_id），此处兜底存量库：
+    ADD COLUMN IF NOT EXISTS + 同名索引（SQLAlchemy index=True 生成的默认名
+    ix_draft_submissions_tenant_id）。可空列——存量行保持 NULL，不回填不阻塞。
+    纯 DDL 无绑定参数（text() 裸 cast 坑不适用，见 AGENTS 记忆 sqlalchemy-jsonb-cast-trap）。
+    """
+    from sqlalchemy import text as sql_text
+
+    with engine.connect() as conn:
+        conn.execute(sql_text(
+            "ALTER TABLE draft_submissions ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(50)"
+        ))
+        conn.execute(sql_text(
+            "CREATE INDEX IF NOT EXISTS ix_draft_submissions_tenant_id "
+            "ON draft_submissions (tenant_id)"
+        ))
+        conn.commit()
+    register_schema_migration(
+        engine, "2026-09-repo-gov-b2b",
+        "BL-16 draft_submissions.tenant_id 加列（提交行租户归属；存量行 NULL 不回填）",
+    )
+
+
+def migrate_repo_gov_v075(engine):
+    """v0.75 C3（repo-gov audit tenant）: category_match_log / attr_match_log 补 tenant_id。
+
+    新建库 create_all 已带列（model.py tenant_id, index=True → 默认名
+    ix_<table>_tenant_id），此处兜底存量库 ADD COLUMN IF NOT EXISTS + 同名索引 +
+    历史回填（审计行 task_id == thread_id == 任务 uuid → 任务行 tenant_id）。
+    ⚠️ v0.67 前审计行 task_id 是 ingest 随机 uuid、任务行已被 30 天归档删除的
+    审计行——join 不上保持 NULL（SELECT count 如实输出，P1-6 断层不掩盖）。
+    纯 DDL/UPDATE 无绑定参数（text() 裸 cast 坑不适用——::text 是列 cast）。
+    """
+    from sqlalchemy import text as sql_text
+
+    _TABLES = ("category_match_log", "attr_match_log")
+    # 结构性 DDL（加列+索引）：**响失败**——列缺失会让写侧 ORM（带 tenant_id 的
+    # INSERT）运行时 500，正是 H9 fail-fast 要暴露的「schema 半就绪」；对齐
+    # migrate_repo_gov_b2b/migrate_token_fp 的既有模式（结构性迁移 raise）。
+    with engine.connect() as conn:
+        for _table in _TABLES:
+            conn.execute(sql_text(
+                f"ALTER TABLE {_table} ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(50)"
+            ))
+            conn.execute(sql_text(
+                f"CREATE INDEX IF NOT EXISTS ix_{_table}_tenant_id ON {_table} (tenant_id)"
+            ))
+        conn.commit()
+    # 历史回填（数据面）：软失败——join 不上/锁竞争只影响存量行补租户，
+    # 双写已保证新行带租户；失败留待下次 init_data 重跑，不阻断升级。
+    try:
+        _backfilled = 0
+        with engine.connect() as conn:
+            for _table in _TABLES:
+                res = conn.execute(sql_text(
+                    f"UPDATE {_table} m SET tenant_id = t.tenant_id "
+                    "FROM ozon_product_tasks t "
+                    "WHERE m.task_id::text = t.id::text "
+                    "AND t.tenant_id IS NOT NULL AND m.tenant_id IS NULL"
+                ))
+                _backfilled += int(res.rowcount or 0)
+            _still_null = 0
+            for _table in _TABLES:
+                _still_null += int(conn.execute(sql_text(
+                    f"SELECT count(*) FROM {_table} WHERE tenant_id IS NULL"
+                )).scalar_one() or 0)
+            conn.commit()
+        logger.info(
+            "✅ 审计表 tenant_id 历史回填: %d 行；join 不上保持 NULL %d 行"
+            "（v0.67 前 ingest 随机 uuid / 任务行已归档删除——已知断层如实保留）",
+            _backfilled, _still_null,
+        )
+    except Exception as exc:
+        logger.warning(
+            "⚠️ 审计表 tenant_id 历史回填失败（列/索引已就绪，不阻断初始化，下次 init_data 重跑）: %s",
+            str(exc)[:200],
+        )
+    register_schema_migration(
+        engine, "repo_gov_v075_audit_tenant",
+        "v0.75 C3 category_match_log/attr_match_log 补 tenant_id 列+索引+历史回填（join 任务表）",
+    )
+
+
+# A8 F6/BL-06（repo-gov B5）：MXOU key 明文落库的五张贡献表 → token_fp 指纹列。
+# (表名, 明文来源列)：discovery_runs 的明文在 tenant_id（_handle_discovery_run_report
+# 写 clean token，probe_assets S5 同结论），其余四表在 contributed_by_token_id。
+_TOKEN_FP_TABLES = (
+    ("blue_ocean_queries", "contributed_by_token_id"),
+    ("ozon_bestsellers", "contributed_by_token_id"),
+    ("market_bestsellers", "contributed_by_token_id"),
+    ("selection_insights", "contributed_by_token_id"),
+    ("discovery_runs", "tenant_id"),
+)
+
+TOKEN_FP_MIGRATION_VERSION = "2026-09-repo-gov-b5-tokenfp"
+
+
+def migrate_token_fp(engine):
+    """A8 F6（repo-gov B5）: 五贡献表加 token_fp 指纹列（幂等，二次运行 no-op）。
+
+    新建库 create_all 已带列（model.py token_fp, index=True → 默认名
+    ix_<table>_token_fp），此处兜底存量库 ADD COLUMN IF NOT EXISTS + 同名索引。
+    可空列——存量行 NULL 由 :func:`migrate_token_fp_backfill` 分页回填。
+    纯 DDL 无绑定参数（text() 裸 cast 坑不适用）。
+    """
+    from sqlalchemy import text as sql_text
+
+    with engine.connect() as conn:
+        for table, _src_col in _TOKEN_FP_TABLES:
+            conn.execute(sql_text(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS token_fp VARCHAR(16)"
+            ))
+            conn.execute(sql_text(
+                f"CREATE INDEX IF NOT EXISTS ix_{table}_token_fp ON {table} (token_fp)"
+            ))
+        conn.commit()
+    register_schema_migration(
+        engine, TOKEN_FP_MIGRATION_VERSION,
+        "A8 F6/BL-06 五贡献表 token_fp 指纹加列（MXOU key 明文落库脱敏双写；存量行回填）",
+    )
+
+
+def migrate_token_fp_backfill(engine, batch_size=500):
+    """A8 F6 第 4 步: 存量行 token_fp 分页回填（Python 侧算指纹，幂等可重跑）。
+
+    为什么不用纯 SQL：PG 内置 sha256 需 pgcrypto 扩展（生产未必可装），指纹算法
+    必须与 services.tenant_service.token_fingerprint 单一实现逐字一致——纯 SQL
+    双实现会漂移。故 SELECT id,明文（仅 token_fp IS NULL 行）→ Python 逐批算
+    sha256 前 16 → 批量 UPDATE，每批一提交（对齐 import_attribute_cache 分批纪律，
+    防大表单事务抬高锁/内存窗口）。
+    幂等：已回填行不再命中 WHERE token_fp IS NULL → 重跑 no-op；空明文行
+    （历史脏数据）跳过不回填（保持 NULL，指纹语义上无 key 可指）。
+    返回本轮回填行数（含跨表累计；重跑应得 0）。
+    """
+    from sqlalchemy import text as sql_text
+
+    from services.tenant_service import token_fingerprint
+
+    total = 0
+    for table, src_col in _TOKEN_FP_TABLES:
+        while True:
+            with engine.connect() as conn:
+                rows = conn.execute(sql_text(
+                    f"SELECT id, {src_col} FROM {table} "
+                    f"WHERE token_fp IS NULL AND {src_col} IS NOT NULL AND {src_col} != '' "
+                    f"ORDER BY id LIMIT :batch"
+                ), {"batch": int(batch_size)}).fetchall()
+            if not rows:
+                break
+            updates = [
+                {"id": r[0], "fp": token_fingerprint(str(r[1]))}
+                for r in rows
+            ]
+            with engine.begin() as conn:
+                conn.execute(
+                    sql_text(f"UPDATE {table} SET token_fp = :fp WHERE id = :id"),
+                    updates,
+                )
+            total += len(updates)
+            if len(rows) < int(batch_size):
+                break
+        logger.info("token_fp 回填 %s 完成（累计 %d 行）", table, total)
+    return total
+
+
 def create_tables(engine):
     """创建所有表（幂等）。"""
     from storage.database.shared.model import Base
@@ -127,14 +318,47 @@ def create_tables(engine):
         ))
         conn.commit()
     # ✅ v0.41 WebUI T1: task_generated_images ALTER + 新表索引（幂等，二次运行 no-op）
+    # ✅ BL-09（repo-gov B2-β）: 每个结构性迁移执行成功后登记版本（幂等；version 从函数名推）
     from migrate_webui_v1 import run_migrations
     run_migrations(engine)
+    register_schema_migration(
+        engine, "2026-09-webui-v1",
+        "WebUI v1 数据层迁移（product_drafts/draft_submissions/credentials/product_task_index/task_generated_images）",
+    )
     # ✅ PRD store-sync-ERP v1: 同步任务/日聚合/成本货源/退货/进度事件等新表与扩列（幂等）
     from migrate_sync_erp_v1 import run_migrations as run_sync_migrations
     run_sync_migrations(engine)
+    register_schema_migration(
+        engine, "2026-09-sync-erp-v1",
+        "store-sync-ERP v1 迁移（同步任务/日聚合/成本货源/退货/进度事件等新表与扩列）",
+    )
     # ✅ T-P3.1 批次契约: product_drafts.source_batch 加列（幂等；新建库 create_all 已带列，此处兜底存量/半迁移库）
     from migrate_drafts_batch_v1 import run_migrations as run_drafts_batch_migrations
     run_drafts_batch_migrations(engine)
+    register_schema_migration(
+        engine, "2026-09-drafts-batch-v1",
+        "T-P3.1 product_drafts.source_batch 加列（采集批次契约）",
+    )
+    # ✅ BL-16（repo-gov B2-β）: draft_submissions.tenant_id 加列 + 版本登记（幂等）
+    migrate_repo_gov_b2b(engine)
+    # ✅ A8 F6/BL-06（repo-gov B5）: 五贡献表 token_fp 指纹加列 + 存量回填（幂等）。
+    # 回填失败不阻断初始化（双写已保证新行有指纹；失败行留待下次 init_data 重跑）。
+    migrate_token_fp(engine)
+    try:
+        _backfilled = migrate_token_fp_backfill(engine)
+        logger.info("✅ token_fp 存量回填完成: %d 行", _backfilled)
+    except Exception as exc:
+        logger.warning("⚠️ token_fp 回填失败（不阻断初始化，下次 init_data 重跑）: %s", str(exc)[:200])
+    # ✅ v0.75 C3（repo-gov audit tenant）: 双审计表补 tenant_id 列+索引（结构性，
+    # **响失败**——H9 fail-fast 语义，对齐 b2b/token_fp 模式）+ 历史回填（函数内软失败）。
+    migrate_repo_gov_v075(engine)
+    # ✅ v0.75 C4（audit A4 F-P1-1）: 数值 bounds 拒单学习表 attr_bounds_learned——
+    # 新建库 create_all 已建表（model.AttrBoundLearned），无 ALTER 语句，仅登记
+    # 迁移版本供观测（幂等）
+    register_schema_migration(
+        engine, "repo_gov_v075_bounds",
+        "attr_bounds_learned 表（create_all 建表，无 ALTER）",
+    )
     logger.info("✅ 表结构已就绪")
 
 
@@ -262,7 +486,7 @@ def import_logistics_rates(engine, force=False):
         logger.info(f"🗑️  已清空旧物流费率数据 ({count} 条)")
 
     # 读取 Excel
-    excel_path = os.path.join(ASSETS_DIR, "China_scoring_ENG_CN_21_04_26_1776754052 (1).xlsx")
+    excel_path = os.path.join(ASSETS_DIR, "china_scoring_freight.xlsx")
     if not os.path.exists(excel_path):
         logger.warning(f"⚠️  物流费率文件不存在: {excel_path}")
         return

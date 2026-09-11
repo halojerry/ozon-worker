@@ -1745,6 +1745,289 @@ def _sanitize_weight_g(weight_g) -> int:
     return 0 if 0 < w < 10 else w
 
 
+def _build_graph_envelope_cross_platform(
+    *,
+    target: Any,
+    category_query: str = "",
+    store_id: str = "",
+    title: str = "",
+    max_skus: int | None = None,
+    cdp: Any = None,
+    template_id: str = "",
+    category_id: str = "",
+    type_id: str = "",
+) -> dict[str, Any]:
+    """taobao/tmall/pdd → GraphInput 信封（跨平台货源 v1 批4）。
+
+    直调适配器（taobao_client/pdd_client.fetch_product——**绝不经
+    enrich_product_with_cdp/probe_1688_page_safe 包装**：包装层会把适配器
+    人话错误降级成「数据不完整」，批2 concern #2 根治点）→ 统一 ProductInfo
+    → 平台 SKU 结构归一到 1688 variants 形状 → 复用 ``_collapse_variants_to_single``
+    → ``_validate_and_fix_product_data``（重量 50g 缺省 / 尺寸 2:1.5:1 密度估算
+    软兜底零重复造）→ draft 组装（purchase_cost=代表变体价+freightCny）。
+
+    ⚠️ 信封 cid 纪律（PLAN §4 批4 item 3，最高优先）：
+    - **绝不写** draft.source_category_id / source.category_id 等 1688-cid
+      数字键——学习写侧无 cid 即自然跳过，L0 学习表零污染（cid 数字空间=1688 专属）；
+    - 中文类目词（source_category_path / draft.source_category）适配器产出则
+      透传（当前适配器不产出 → 键省略），worker R4 重配可复用中文词；
+    - draft.ozon_category 缺省（除 manual 直传不猜测）→ worker 文本+LLM 链；
+    - source.platform 恒填（批1 契约 §1.1.2：worker 零强制消费，缺失按域名推断）。
+
+    ⚠️ 1688 组装尾部（6.5 定价注入/6.7 审计/7 GraphInput）在本函数有意内联
+    同构副本——批4 红线「1688 原链逐字节不动」优先于 DRY；改任一侧须对齐另一侧。
+    """
+    platform = target.platform
+
+    # ── 1. 直调适配器（登录/风控等人话错误原样上抛）──
+    if platform in ("taobao", "tmall"):
+        from scripts.lib.taobao_client import fetch_product as _fetch_platform
+    else:
+        from scripts.lib.pdd_client import fetch_product as _fetch_platform
+    product = _fetch_platform(
+        "http://127.0.0.1:9222", target.canonical_url or "", target, cdp=cdp)
+
+    data = {
+        "title": str(product.get("title") or ""),
+        "price": str(product.get("price") or ""),
+        "images": list(product.get("images") or []),
+        "attributes": list(product.get("attributes") or []),
+        "option_groups": list(product.get("option_groups") or []),
+        "sku_details": list(product.get("sku_details") or []),
+        "shipping": dict(product.get("shipping") or {}),
+        "weight_grams": product.get("weight_grams"),
+        "description": str(product.get("description") or ""),
+        "seller": str(product.get("seller") or ""),
+    }
+    # 中文类目词（适配器当前不产出 → 空串 → 键省略；产出则透传）
+    platform_category_path = str(product.get("source_category_path") or "").strip()
+
+    item_title = title or data["title"]
+    cost_cny = _parse_price(data["price"])
+    shipping = data["shipping"]
+
+    # ── 2. 变体：平台 SKU 结构 → 1688 variants 形状（适配器 sku_details 已是
+    #    平台解析好的完整 SKU 列表，直转即可；不再由 option_groups 做笛卡尔积
+    #    重排——那会造出平台不存在的组合）──
+    variants: list[dict] = []
+    sku_details = data["sku_details"]
+    effective_max_skus = max_skus if (max_skus and max_skus > 0) else 15
+    if len(sku_details) > effective_max_skus:
+        sku_details = sku_details[:effective_max_skus]
+    for i, sd in enumerate(sku_details):
+        sd_price = float(sd.get("price") or cost_cny or 0)
+        sd_name = str(sd.get("name", "default"))
+        parsed = _parse_variant_attributes(sd_name)
+        vt = _detect_variant_type(sd_name)
+        variants.append({
+            "sku_id": f"{target.item_id}_{i}",
+            "name": sd_name,
+            "color": parsed.get("颜色", sd_name),
+            "model": parsed.get("规格", ""),
+            "size": parsed.get("尺寸", "one size"),
+            "image": sd.get("image") or "",
+            "price": sd_price,
+            "original_price": sd_price,
+            "attributes": parsed,
+            "variant_type": vt,
+        })
+    if not variants:
+        variants.append({
+            "sku_id": str(target.item_id),
+            "name": "default",
+            "color": "default",
+            "model": "",
+            "size": "one size",
+            "image": "",
+            "price": cost_cny,
+            "original_price": cost_cny,
+            "attributes": {},
+            "variant_type": "single",
+        })
+
+    # ── 2.1 单产品折叠（1688 同一唯一入口；采购成本=代表变体价+freightCny）──
+    original_count = len(variants)
+    variants, cost_cny = _collapse_variants_to_single(variants, cost_cny, shipping)
+    logger.info(
+        "跨平台(%s) 单产品折叠: %d个变体 → 1个 (采购成本=%.2f CNY, 含运费)",
+        platform, original_count, cost_cny,
+    )
+
+    # ── 3. 重量/尺寸/图片 ──
+    # 重量缺失 → _sanitize_weight_g 归零（缺失语义）→ _validate_and_fix_product_data
+    # 现有软兜底（50g 缺省 + 2:1.5:1 密度估算尺寸 + weight/dimensions_estimated 标记）
+    weight_g = _sanitize_weight_g(data["weight_grams"])
+    dimensions = {"length": 0, "width": 0, "height": 0}
+    images = get_best_product_images(data["images"], limit=10, platform=platform)
+
+    weight_g, dimensions, validation_errors, dimensions_estimated, weight_estimated = _validate_and_fix_product_data(
+        item_id=str(target.item_id),
+        title=item_title,
+        cost_cny=cost_cny,
+        images=images,
+        weight_g=weight_g,
+        dimensions=dimensions,
+        variants=variants,
+        option_groups=data["option_groups"],
+    )
+    if validation_errors:
+        raise ProductValidationError(
+            f"产品 {target.item_id} 数据不完整，跳过: {'; '.join(validation_errors)}"
+        )
+
+    # ── 4. 属性 / 卖家 ──
+    attrs: dict[str, str] = {}
+    for a in data["attributes"]:
+        name = str(a.get("name", "")).strip()
+        val = str(a.get("value", "")).strip()
+        if name and val and name not in attrs and len(name) < 30 and len(val) < 80:
+            attrs[name] = val
+        if len(attrs) >= 40:  # 信封体积控制（1688 同上限）
+            break
+    supplier = data["seller"].split(" ")[0].split("关注")[0].strip()[:30] \
+        if data["seller"] else ""
+
+    # ── 5. Ozon 类目：仅 manual 直传（--category-id/--type-id，平台无关）；
+    # 不做本地 search_kw 猜测——无 1688 类目路径证据，标题裸猜错配率高
+    #（v0.69 T0.1a 同教训）→ draft.ozon_category 缺省走 worker 文本+LLM 链 ──
+    ozon_creds = _get_ozon_credentials(store_id)
+    ozon_category = {}
+    _manual_dc = str(category_id or "").strip()
+    _manual_tp = str(type_id or "").strip()
+    if _manual_dc and _manual_tp:
+        ozon_category = {
+            "description_category_id": _manual_dc,
+            "type_id": _manual_tp,
+            "source": "manual",
+            "namespace": "seller",
+        }
+        logger.info(
+            "build_graph_envelope: %s(%s) — manual 类目直传 dc=%s type=%s",
+            target.item_id, platform, _manual_dc, _manual_tp,
+        )
+
+    # ── 6. 组装 envelope（三层结构；cid 纪律见 docstring ⚠️）──
+    is_multi = len(variants) > 1
+    draft: dict[str, Any] = {
+        "item_id": str(target.item_id),
+        "title": item_title,
+        "description": data["description"][:5000],
+        "currency": "CNY",
+        "images": images,
+        "attributes": attrs,
+        "weight": weight_g,
+        "dimensions": dimensions,
+        "category": _resolve_envelope_category("", platform_category_path, category_query),
+        "purchase_url": target.canonical_url,
+        "purchase_cost": cost_cny,
+        "supplier": supplier,
+    }
+    if shipping:
+        draft["shipping"] = shipping
+    if dimensions_estimated:
+        draft["dimensions_estimated"] = True
+    if weight_estimated:
+        draft["weight_estimated"] = True
+    if ozon_category:
+        draft["ozon_category"] = ozon_category
+    if platform_category_path:
+        draft["source_category"] = platform_category_path
+    # ⚠️ cid 纪律：draft["source_category_id"] 有意不写（1688 专属数字空间）
+
+    if is_multi:
+        draft["variants"] = variants
+    else:
+        if not variants:
+            variants = [{
+                "sku_id": str(target.item_id),
+                "name": "default",
+                "color": "default",
+                "model": "",
+                "size": "one size",
+                "image": "",
+                "price": cost_cny,
+                "original_price": cost_cny,
+                "attributes": {},
+                "variant_type": "single",
+            }]
+        v0 = variants[0]
+        draft["sku_id"] = v0["sku_id"]
+        draft["price"] = v0["price"]
+        draft["original_price"] = v0["original_price"]
+
+    source: dict[str, Any] = {
+        "purchase_url": target.canonical_url,
+        "purchase_cost": cost_cny,
+        # 批1 契约 CONTRACT-v4 §1.1.2：货源平台标识（worker 零强制消费）
+        "platform": platform,
+    }
+    if platform_category_path:
+        source["source_category_path"] = platform_category_path
+    # ⚠️ cid 纪律：source["category_id"] 有意不写（1688 原链才有）
+
+    envelope: dict[str, Any] = {
+        "draft": draft,
+        "source": source,
+        "extensions": {},
+    }
+
+    # ── 6.5 注入定价参数（1688 同构副本，见 docstring ⚠️）──
+    from scripts.lib.config_store import get_store_profile, get_template_profile
+    store_profile = get_store_profile(store_id)
+    template_profile = {}
+    try:
+        template_profile = get_template_profile(
+            _get_mxou_token() or "", credential_id=ozon_creds.get("client_id"),
+            template_id=template_id) or {}
+    except Exception:
+        template_profile = {}
+    _merge_config_tiers(
+        envelope["extensions"],
+        template_profile=template_profile,
+        store_profile=store_profile,
+    )
+
+    # ── 6.7 完整性审计（1688 同构副本 + platform 字段）──
+    try:
+        _audit = AuditLogger(task_id=str(target.item_id))
+        _audit.log("envelope", "integrity", "info", "Envelope assembled", {
+            "item_id": str(target.item_id),
+            "platform": platform,
+            "has_title": bool(item_title),
+            "has_images": len(images) > 0,
+            "has_weight": weight_g > 0,
+            "has_dimensions": any(d > 0 for d in [dimensions.get("length"), dimensions.get("width"), dimensions.get("height")]),
+            "has_ozon_category": bool(ozon_category),
+            "has_description": bool(data["description"]),
+            "image_count": len(images),
+            "margin_rate": envelope["extensions"].get("margin_rate", 0),
+            "commission_rate": envelope["extensions"].get("commission_rate", 0),
+        })
+    except Exception:
+        pass
+
+    # 6.7b pricing 审计（fix round 1 Minor #2：与 1688 尾部同构，观测面对齐；
+    # 值来自平台链真实产物——折叠后 purchase_cost 与 6.5 注入的 extensions）
+    try:
+        _audit.log("envelope", "pricing", "info", "Pricing params", {
+            "margin_rate": envelope["extensions"].get("margin_rate", 0),
+            "commission_rate": envelope["extensions"].get("commission_rate", 0),
+            "fx_buffer": envelope["extensions"].get("fx_buffer", 0),
+            "source": "ozon_api" if envelope["extensions"].get("commission_rate", 0) > 0 else "store_config",
+        })
+    except Exception:
+        pass
+
+    # ── 7. 组装 GraphInput（1688 同构副本，见 docstring ⚠️）──
+    mxou_token = _get_mxou_token() or _get_token()
+    return {
+        "token": mxou_token,
+        "ozon_client_id": ozon_creds["client_id"],
+        "ozon_api_key": ozon_creds["api_key"],
+        "envelope": envelope,
+    }
+
+
 def build_graph_envelope(
     *,
     item_id: str,
@@ -1776,6 +2059,24 @@ def build_graph_envelope(
     """
     from scripts.lib.config_store import _require_auth
     _require_auth()
+
+    # ── 0. 平台分派（跨平台货源 v1 批4）：taobao/tmall/pdd → 适配器直调链；
+    # 1688/解析失败 → 原链逐字节不动（含历史非 1688 URL 的回落行为）──
+    from scripts.lib.source_platforms import parse_platform_url
+    _target = parse_platform_url(detail_url)
+    if _target is not None and _target.platform in ("taobao", "tmall", "pdd"):
+        return _build_graph_envelope_cross_platform(
+            target=_target,
+            category_query=category_query,
+            store_id=store_id,
+            title=title,
+            max_skus=max_skus,
+            cdp=cdp,
+            template_id=template_id,
+            category_id=category_id,
+            type_id=type_id,
+        )
+
     from scripts.lib.ak_1688_client import enrich_product_with_cdp, get_product_details
     from scripts.lib.reference_images import get_best_product_images
 
@@ -2591,6 +2892,13 @@ def _assemble_discovery_meta(candidate) -> dict[str, Any]:
     if match_imgs:
         meta["match_image_url"] = match_imgs[0]
     meta["discovered_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    # discover 跨平台静默货源匹配（cross_source v1 批3）：候选级跨源快照整包并入
+    # （钩子只在比价发生时写 source_comparison 键；空 dict 并入零增键，缺键省略
+    # 纪律）。worker 零消费整包透传，采集箱可见可改（可见性兜底，非必经决策点
+    # ——计划 docs/PLAN-discover-cross-source-v1.md 拍板口径）。
+    _xmeta = getattr(candidate, "discovery_meta", None)
+    if isinstance(_xmeta, dict) and _xmeta:
+        meta.update(_xmeta)
     return meta
 
 
@@ -3049,6 +3357,24 @@ def build_graph_envelope_with_retry(
     backoff before retrying.  Does NOT kill Chrome (preserves cookies).
     1688 rate-limiting resets after 30-60s of inactivity.
     """
+    # ⚠️ 批4（跨平台货源 v1）：taobao/tmall/pdd 单次尝试不重试——本循环的
+    # 重试语义是「1688 反爬/限流冷却」；适配器人话错误（登录/风控）重试无意义
+    # 且会包一层「CDP failed after N retries」丢上下文。1688/解析失败路径不变。
+    from scripts.lib.source_platforms import parse_platform_url
+    _target = parse_platform_url(detail_url)
+    if _target is not None and _target.platform in ("taobao", "tmall", "pdd"):
+        return build_graph_envelope(
+            item_id=item_id,
+            detail_url=detail_url,
+            category_query=category_query,
+            store_id=store_id,
+            poll_category=True,
+            max_skus=max_skus,
+            cdp=cdp,
+            template_id=template_id,
+            category_id=category_id,
+            type_id=type_id,
+        )
     import random as _random
 
     last_error: Exception | None = None
