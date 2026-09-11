@@ -349,13 +349,30 @@ bash deploy/backup-pg.sh --restore backup_20260724.sql
 bash deploy/backup-pg.sh --restore backup_20260724.sql.gpg
 ```
 
-> ⚠️ **异地副本（建议项）**：备份默认落在本机 `deploy/backups`，与生产库同命运
-> （磁盘故障/误删即全丢）。建议加密后同步到 COS（与 skill/worker 部署包同 bucket
-> 或独立 bucket，注意生命周期规则避开图片路径 `file/images/*`）：
+> ⚠️ **异地副本（强烈建议，v0.75 起有脚本）**：备份默认落在本机 `deploy/backups`，
+> 与生产库同一块盘同生共死（磁盘故障/误删即全丢）。仓库提供
+> `deploy/backup-upload-cos.sh` 做增量上传（`.uploaded` sidecar 幂等，远端按
+> 文件名日期保留 14 天），建议 crontab 跑在 ofelia dump 之后：
 > ```bash
-> coscli cp deploy/backups/backup_*.sql.gpg cos://<bucket>/backups/
+> # 每天 04:10 上传昨日备份到 COS（coscli 用 ~/.coscli.yaml 配置，
+> # 与 CACHE-WARM-RUNBOOK 上传缓存同配置）
+> 10 4 * * * cd /root/ozon-worker/deploy && bash backup-upload-cos.sh >> backups/upload.log 2>&1
 > ```
-> 并定期演练 restore。
+> 并按 `docs/RESTORE-RUNBOOK.md` 定期演练 restore（演练记录表回填）。
+
+### 外部存活监控（dead-man，2026-09-11 事故后必配）
+
+> 教训：2026-09-10/11 生产 I/O 僵死 9 小时无人知晓——sar/journald/Sentry 全部
+> 随机器陪葬（`docs/audit/2026-09-11-io-avalanche.md`）。**本机监控在机器级
+> 故障下必然失效，存活信号必须来自机器之外。**
+
+- 注册一个免费 dead-man 服务（healthchecks.io / UptimeRobot / cron 监控宝等），
+  每 1-5 分钟 ping 一次 `https://<你的域名>/api/v1/health`，连续 N 次失败即
+  电话/IM 告警；
+- 可选：给 crontab 任务（备份/上传）配 healthchecks.io 的 cron ping，任务
+  不跑也会告警；
+- 应用层告警已有通道 `TASK_NOTIFY_URL`（任务终态/低余额 webhook），与 dead-man
+  互补不互替。
 
 ### 查看任务状态
 

@@ -49,6 +49,27 @@ fail() { echo -e "\033[1;31m[cos-update]\033[0m ❌ $*" >&2; exit 1; }
 command -v curl >/dev/null || fail "需要 curl"
 command -v docker >/dev/null || fail "需要 docker"
 
+# ── 0. v0.75 部署加固：预检 fail-fast（磁盘/主密钥前移，docs/audit/2026-09-11-io-avalanche.md）──
+# 此前 CREDENTIAL_MASTER_KEY 缺失只在升级完成后 warn（事后诸葛——凭证功能已坏才提示）；
+# 磁盘空间从不检查（v0.72 40G 盘教训 + --no-cache 全量重建需要 GB 级空间）。
+# 逃生门：确认不用凭证功能可设 COS_UPDATE_ALLOW_NO_MASTER_KEY=1。
+# ⚠️ 首装引导路径（deploy.sh 本地无源码先跑本脚本）时 .env 可能尚不存在——
+# 此时跳过主密钥检查（空库无加密凭证），deploy.sh 在 .env 就位后有硬校验。
+FREE_KB=$(df -P "$SCRIPT_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
+MIN_FREE_KB=$(( ${DISK_MIN_FREE_GB:-6} * 1024 * 1024 ))
+if [ -n "$FREE_KB" ] && [ "$FREE_KB" -lt "$MIN_FREE_KB" ]; then
+  fail "磁盘剩余不足: ${FREE_KB}KB < ${DISK_MIN_FREE_GB:-6}GB（--no-cache 全量重建需要）——先清理: backups/ 轮转、docker builder prune -a"
+fi
+if [ -f "$SCRIPT_DIR/.env" ]; then
+  if ! grep -qE '^CREDENTIAL_MASTER_KEY=.+' "$SCRIPT_DIR/.env" 2>/dev/null; then
+    if [ "${COS_UPDATE_ALLOW_NO_MASTER_KEY:-0}" = "1" ]; then
+      warn "CREDENTIAL_MASTER_KEY 缺失但已显式放行（COS_UPDATE_ALLOW_NO_MASTER_KEY=1）"
+    else
+      fail ".env 未配置 CREDENTIAL_MASTER_KEY —— 凭证加密必需(AES-256-GCM)。生成: openssl rand -base64 32；确认不用凭证功能可设 COS_UPDATE_ALLOW_NO_MASTER_KEY=1 放行"
+    fi
+  fi
+fi
+
 # ── 1. 读取 manifest(或指定版本) ──
 REQUESTED_VERSION="${1:-}"
 if [ -n "$REQUESTED_VERSION" ]; then
@@ -263,13 +284,13 @@ fi
 log "🎉 升级完成: v${LOCAL_VERSION:-无} → v${VERSION}, 健康检查通过"
 log "备份保留在: $BACKUP_PATH(如需回滚: bash deploy/cos-update.sh v${LOCAL_VERSION:-0.0.0})"
 
-# ── 7.4 v0.62.1 P1-3: CREDENTIAL_MASTER_KEY 必配校验 ──
-# 升级后 .env 由 cos-update 保留（绝不覆盖），此处显式提示缺失，防止
-# 「库中有加密凭证但容器无 key」→ store_sync 解密失败刷屏事故重演。
-if ! grep -qE '^CREDENTIAL_MASTER_KEY=.+' "$SCRIPT_DIR/.env" 2>/dev/null; then
-  warn "⚠️ .env 未配置 CREDENTIAL_MASTER_KEY — 凭证加密/解密必需(AES-256-GCM)。"
-  warn "   生成: openssl rand -base64 32；启用后不可随意更换(存量凭证不可逆)。"
-  warn "   当前仅提示不阻断；若库中存在加密凭证，凭证 CRUD 将 500、同步将解密失败。"
+# ── 7.4 v0.75 部署加固：生产库 marker 幂等写入（worker 测试闸门，prod_db_guard 消费）──
+# 原 CREDENTIAL_MASTER_KEY 事后 warn 已前移到步骤 0 预检 fail-fast。
+# marker 随 pg_dump 备份走；恢复到全新集群后需重跑本节 SQL（RESTORE-RUNBOOK 有提醒）。
+if docker compose exec -T postgres sh -c 'psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-ozon}" -c "CREATE TABLE IF NOT EXISTS prod_marker (id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1), marked_at timestamptz NOT NULL DEFAULT now()); INSERT INTO prod_marker (id) VALUES (1) ON CONFLICT (id) DO NOTHING;"' >/dev/null 2>&1; then
+  log "✅ 生产库 marker 就位（worker 测试闸门激活）"
+else
+  warn "prod_marker 写入失败——测试闸门未激活，请手动检查 postgres 容器"
 fi
 
 # ── 7.5 数据库迁移(v0.56.7: 升级后必跑 init_data, 幂等) ──

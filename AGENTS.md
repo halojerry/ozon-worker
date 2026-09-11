@@ -30,7 +30,7 @@
 - 类目链、余额判定、重量/尺寸、图片 URL 链路各有「改前必读」注释块（见「需牢记的约定」与对应版本块），勿凭记忆改。
 
 **纪律**
-- 功能测试只打本地 Docker，**禁止用生产 `worker.mxou.cn`**；本地 Supabase 未配置 = auth fail-open，验证鉴权用空 token。
+- 功能测试只打本地 Docker，**禁止用生产 `worker.mxou.cn`**；本地 Supabase 未配置 = auth fail-open，验证鉴权用空 token。**v0.75 起有技术闸**：生产库由 deploy/cos-update 写入 `prod_marker` 哨兵，worker 测试 conftest（`scripts/prod_db_guard.py`）探测到即拒跑 exit 2；生产 PG 宿主直连端口是 **15433**（不是 5433——5433 是本地开发惯例端口，撞车曾致测试套件连产 18h，见 `docs/audit/2026-09-11-io-avalanche.md`）。
 - Commit `<type>(<scope>): 中文描述`；工作树常有其他会话的 WIP，**逐文件 `git add`，不用 `-a`/stash**；动手改文件前先看 `git status` + 相关文件 mtime——多会话并行实施同一方案时会撞车（2026-09-09 实录：策略模块被两会话重复实现）。
 - **多会话协作（2026-09-09 起，规范 `docs/WORKFLOW.md`）**：非平凡任务**一会话一分支一 worktree**（开工即 `git worktree add ../ozon-worker-<topic> -b <type>/<topic> origin/dev`，主 worktree 只做 Tier B 小改/发版/review）；分支拓扑 main=发布线（**tag 只打 main**）/dev=集成线/`<type>/<topic>`=工作流分支（合后即删）；两级门槛——Tier A（跨子系统/新 API/新表/发版/>3 文件）必须分支+PR（CI 绿才合，self-merge 合法，merge commit 保留流边界），Tier B（≤3 文件 docs/单点 fix）直提 dev 但**当日 push**。
 - 发版：VERSION 四源一致（根 `VERSION`/`skill/VERSION`/`deploy/skill/VERSION`/`SKILL.md` frontmatter）+ CHANGELOG + 本文顶部块 + 实机 ≥3 单 gate；发版动作 = dev→main PR 合入后**在 main 上打 tag**（cd.yml 按 tag `v*` 触发不分分支，历史 tag ≤v0.72.0 留在 dev 历史不动）。
@@ -43,6 +43,22 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 子 Agent 规范 → `docs/SUBAGENT-SPEC.md`；恢复演练 → `docs/RESTORE-RUNBOOK.md`。
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。
+
+## 最近更新（开发中 — 部署加固第一批：I/O 雪崩事故防线）
+
+> 分支 `fix/deploy-hardening-v1`（2026-09-11）。动因：2026-09-10/11 生产 I/O 雪崩 9h 不可用
+> （测试套件直连生产库 18h 触发），取证与隐患清单 H1-H12 见 `docs/audit/2026-09-11-io-avalanche.md`。
+> **改 deploy/ 任何文件前必读该审计**；compose 卫生不变式被 `tests/test_deploy_compose_hygiene.py`
+> 锁定（全 service 日志封顶 / postgres 调参 command / mem_limit / 宿主端口禁 5433）。
+
+- **生产库 marker 闸**：`worker/scripts/prod_db_guard.py` + conftest 前置拦截（探测 `prod_marker`
+  哨兵即 SystemExit 2）；deploy.sh/cos-update.sh 升级路径幂等写入。**服务器 ops 清单 6 条在审计文档 §五**（含外部 dead-man 注册、备份上传 cron、恢复演练）。
+- **compose 运行时加固**：PG 调参 command（shared_buffers 512MB 等，按 4c/3.7G 校准，升配等比调）+
+  全服务 mem_limit（1400m/1800m/64m）+ postgres 日志封顶（v0.72 漏网）+ shm_size + 宿主端口
+  5433→15433 + pg_isready 去 hardcoded。
+- **备份异地化**：新 `deploy/backup-upload-cos.sh`（增量上传 COS + 远端 14 天保留，`.uploaded` sidecar 幂等），ofelia dump 不动；DEPLOY.md 给 cron 行。
+- **cos-update.sh 预检前移**：磁盘剩余 <6G（`DISK_MIN_FREE_GB`）与 CREDENTIAL_MASTER_KEY 缺失在
+  下载/构建前 fail-fast（逃生门 `COS_UPDATE_ALLOW_NO_MASTER_KEY=1`；首装引导无 .env 时跳过主密钥检查）。
 
 ## 最近更新（v0.74.0 — 数据池贡献闭环 v1 + 采集通道增强 + shopbang/0.73.0 同车发版）
 
