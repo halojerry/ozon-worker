@@ -30,8 +30,11 @@ def _create_engine_with_retry():
     if url is None or url == "":
         logger.error("PGDATABASE_URL is not set")
         raise ValueError("PGDATABASE_URL is not set")
-    size = 5
-    overflow = 10
+    # BL-25/S9-03 一期（docs/audit/2026-09-11-repo-gov/design-b2b-perf-hardening.md §2.2A）：
+    # 池容量与并发联动——MAX_CONCURRENT 默认 30，旧池 5+10 会在高峰排队 30s（pool_timeout）
+    # 放大延迟，改 20+20（≥并发×1.3 口径）。
+    size = 20
+    overflow = 20
     recycle = 1800
     timeout = 30
     engine = create_engine(
@@ -41,6 +44,15 @@ def _create_engine_with_retry():
         pool_pre_ping=True,
         pool_recycle=recycle,
         pool_timeout=timeout,
+        # BL-25/S9-03 一期：会话级 statement_timeout=30s——慢查询闸，防一条失控 SQL
+        # 占死连接。30s 取「远大于正常查询、远小于 pool_timeout=30s 排队」的中间量级。
+        # psycopg2 方言经 options 传会话参数；仅对 postgresql URL 生效。
+        # warm 大事务脚本自建 engine（不走本构造）不受此限——见设计 §2.2A。
+        **(
+            {"connect_args": {"options": "-c statement_timeout=30000"}}
+            if url.startswith("postgresql")
+            else {}
+        ),
     )
     # 验证连接，带重试
     start_time = time.time()

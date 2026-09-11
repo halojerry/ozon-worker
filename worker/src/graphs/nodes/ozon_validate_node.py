@@ -577,6 +577,18 @@ def ozon_validate_node(
                     head_resp = req.head(url, timeout=5, allow_redirects=True)
                     if head_resp.status_code >= 400:
                         failed_urls.append(url[:60])
+                    else:
+                        # ✅ B4 BL-21（2026-09-11 仓库治理）：图片规格观测——
+                        # content-length <10KB 大概率低分辨率小图（Ozon 主图
+                        # 建议 ≥700px，10KB 以下通常 200px 级糊图）。先只 warning
+                        # 留痕不拦截、不动 marks，积累线上样本后再定阈值与处置；
+                        # chunked/缺 content-length 头时静默跳过。
+                        _cl = head_resp.headers.get("content-length", "")
+                        if _cl.isdigit() and int(_cl) < 10240:
+                            logger.warning(
+                                f"🔍 item[{i}]疑似低分辨率图（content-length="
+                                f"{_cl}B <10KB，先观测不拦截）: {url[:60]}"
+                            )
                 except Exception as _probe_e:
                     # ✅ v0.69 Wave4 T1 异常安全: 网络失败（超时/DNS/SSL/代理）≠ 图片失效。
                     # 本检查进 errors 且判 critical——validate 是上传前在线阶段，

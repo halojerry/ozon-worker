@@ -35,6 +35,14 @@ logger = get_logger("refresh_category_tree")
 DEFAULT_LANGUAGES = ["RU", "ZH_HANS"]
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
+# BL-24 一期（docs/audit/2026-09-11-repo-gov/design-b2b-cache-ttl-governance.md §2 选项 2）：
+# category_cache 名义 TTL 10 年 → 90 天。local_db_manager.set_category_cache 旧默认
+# 315360000（10 年）让 expires_at 给出虚假安全感（真实失效 = 人记得跑本脚本）。
+# 90d 语义安全：本表只作回滚审计快照与增量比对（get_category_tree 生产零调用方，
+# 读侧虽有 expires_at 过期判断但不拦热路径），且类目树月级变化 + 月级刷新节奏，
+# 90d 内必有刷新。
+CATEGORY_CACHE_TTL_SECONDS = 90 * 86400
+
 
 # ── 纯函数（单测覆盖）──
 
@@ -189,9 +197,10 @@ def refresh_language(engine, client_id: str, api_key: str, language: str,
         report["l0_refs_on_removed"] = count_mapping_refs(engine, removed)
         return report
 
-    # ① 原始树快照（审计/回滚）
+    # ① 原始树快照（审计/回滚）——TTL 90d（BL-24 一期，见 CATEGORY_CACHE_TTL_SECONDS 注释）
     local_db = LocalDBManager()
-    local_db.set_category_cache(client_id, {"result": tree}, language=language)
+    local_db.set_category_cache(client_id, {"result": tree}, language=language,
+                                expires_in=CATEGORY_CACHE_TTL_SECONDS)
     # ② 全量 upsert（新树行恢复 disabled 值，含复活此前被软失效的类目）
     written = get_category_query().sync_category_tree_nodes(
         {"result": tree}, language, skip_if_nonempty=False)
