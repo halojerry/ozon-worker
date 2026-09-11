@@ -4,8 +4,17 @@ title = "ozon-worker gitleaks config"
 [extend]
 useDefault = true
 
+# ⚠️ 放行清单 = 两段，均受 worker/tests/test_leak_guard_in_tree.py 锁定（只减不增）：
+#   1) 误报段：假夹具/占位符，非真实密钥；
+#   2) 已知残留段：真实密钥仍在库内的清欠登记（repo-gov 后续批次脱敏后逐条移除）。
+# 新增放行必须同步改该测试的 EXPECTED 常量，否则 CI 红。
 [allowlist]
-description = "测试夹具假密钥(非真实凭证):CREDENTIAL_MASTER_KEY 测试值 0123456789abcdef0123456789abcdef"
+description = "误报假夹具 + 仅误报假夹具放行（真实残留已全部清欠，见 test_leak_guard_in_tree.py）"
 regexes = [
     '''0123456789abcdef0123456789abcdef''',
+]
+paths = [
+    # ── 误报（假夹具/占位符，非真实密钥）──
+    '''^worker/tests/test_mxou_login_api\.py$''',
+    '''^worker/assets/supabase_tables_creation\.sql$''',
 ]

@@ -2376,8 +2376,10 @@ _ANALYTICS_KINDS = {
     "queries": (
         BlueOceanQuery,
         ("query", "contributed_by_token_id"),
+        # token_fp 进 data_cols：冲突行（重复上报）也刷新指纹——存量行未回填/算法
+        # 迁移场景下，用户重复采集一次即自愈（A8 F6）。
         ("query", "count", "ca", "avg_ca_rub", "avg_count_items",
-         "items_views", "uniq_queries_wca", "uniq_sellers"),
+         "items_views", "uniq_queries_wca", "uniq_sellers", "token_fp"),
         BlueOceanQueryItem,
         "queries",
     ),
@@ -2385,7 +2387,7 @@ _ANALYTICS_KINDS = {
         OzonBestseller,
         ("sku_or_id", "contributed_by_token_id"),
         ("sku_or_id", "brand", "category_id", "category_path",
-         "ordering_amount", "ordering_count", "avg_price_rub"),
+         "ordering_amount", "ordering_count", "avg_price_rub", "token_fp"),
         OzonBestsellerItem,
         "items",
     ),
@@ -2393,7 +2395,7 @@ _ANALYTICS_KINDS = {
         MarketBestseller,
         ("product_name", "contributed_by_token_id"),
         ("product_name", "brand", "category_id", "category_path",
-         "ordering_amount", "daily_avg", "other_platform_price"),
+         "ordering_amount", "daily_avg", "other_platform_price", "token_fp"),
         MarketBestsellerItem,
         "items",
     ),
@@ -2461,6 +2463,7 @@ async def _handle_analytics_report(request: Request, kind: str):
     """analytics 上报公共处理：token 鉴权 → Pydantic 校验 → upsert → 计数响应。"""
     if kind == "discovery_runs":
         return await _handle_discovery_run_report(request)
+    from services.tenant_service import token_fingerprint
     model, conflict_cols, data_cols, item_model, list_key = _ANALYTICS_KINDS[kind]
 
     try:
@@ -2513,6 +2516,9 @@ async def _handle_analytics_report(request: Request, kind: str):
     for p in parsed:
         row = p.model_dump(exclude_none=True)
         row["contributed_by_token_id"] = clean_token
+        # A8 F6/BL-06：MXOU key 明文落库脱敏双写——指纹唯一算法入口
+        # services.tenant_service.token_fingerprint（sha256 前 16）。
+        row["token_fp"] = token_fingerprint(clean_token)
         row["source"] = "fetched"
         rows.append(row)
 
@@ -2533,7 +2539,10 @@ async def _handle_discovery_run_report(request: Request):
 
     鉴权/限流复用 analytics 模式；candidates 白名单裁剪在 skill 端，worker 原样存 JSONB。
     tenant_id = clean token（POST 归属写入；GET 全局共享——见 v1_discovery_list_runs）。
+    A8 F6：tenant_id 是 MXOU key 明文（grep 判定见 model.py DiscoveryRun 注释），
+    同行双写 token_fp 指纹（唯一入口 tenant_service.token_fingerprint）。
     """
+    from services.tenant_service import token_fingerprint
     try:
         body = await request.json()
     except Exception:
@@ -2560,6 +2569,7 @@ async def _handle_discovery_run_report(request: Request):
 
     row = {
         "tenant_id": clean_token,
+        "token_fp": token_fingerprint(clean_token),
         "keyword": item.keyword,
         "filters_json": item.filters,
         "candidates_json": item.candidates,
@@ -2624,12 +2634,10 @@ async def v1_analytics_list_bestsellers(request: Request):
     鉴权与上报一致：token 即身份；token 不再作数据过滤（A 采集 B 可见）。
     """
     from services.analytics_service import list_bestsellers
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
+    # B 租户 guard 二期：Bearer 提取→verify（无限流，对齐原内联序列）收敛单行；
+    # 无租户消费 → verify_bearer（不加 resolve_tenant，行为逐字等价）。
+    from api.deps_tenant import verify_bearer_from_request
+    clean_token = verify_bearer_from_request(request, rate_limited=False)
 
     q = request.query_params
     try:
@@ -2665,12 +2673,10 @@ async def v1_discovery_list_runs(request: Request):
     query: limit/offset（分页，limit 上限 200）；鉴权与上报一致：token 即身份。
     蓝海（/admin/queries admin-only）与榜单（market_bestsellers 无读端点）保持关闭。
     """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
+    # B 租户 guard 二期：Bearer 提取→verify（无限流，对齐原内联序列）收敛单行；
+    # 全局共享无租户过滤 → verify_bearer（不加 resolve_tenant，行为逐字等价）。
+    from api.deps_tenant import verify_bearer_from_request
+    verify_bearer_from_request(request, rate_limited=False)
 
     q = request.query_params
     try:
@@ -2695,13 +2701,18 @@ async def v1_discovery_list_runs(request: Request):
             "SELECT COUNT(*) FROM discovery_runs"
         )).scalar()
 
+    from services.tenant_service import token_fingerprint
     items = [{
         "id": str(r[0]),
         "keyword": str(r[1]),
         "filters": r[2],
         "candidates": r[3],
         "created_at": r[4].isoformat() if r[4] is not None else None,
+        # A8 F6 展示脱敏：贡献者列新增 fp 前 8 位（明文 contributed_by_token_id
+        # 灰度期保留——webui/既有消费方逐步切换；读时从 tenant_id 现算与写侧
+        # token_fingerprint 同源等值，明文列删除后切换为读 token_fp 列）。
         "contributed_by_token_id": str(r[5] or ""),
+        "contributed_by_fp": token_fingerprint(str(r[5] or ""))[:8],
     } for r in rows]
     return {"items": items, "total": int(total or 0), "limit": limit, "offset": offset}
 
@@ -2715,12 +2726,10 @@ async def v1_mappings_lookup(request: Request):
     未命中时按 source_keywords 重叠兜底（ozon_category_query 同表同门槛）。
     category_mapping 表全局共享（无 tenant 隔离——类目映射是平台级知识，PRD §3.3）。
     """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
+    # B 租户 guard 二期：Bearer 提取→verify（无限流，对齐原内联序列）收敛单行；
+    # 全局共享无租户过滤 → verify_bearer（不加 resolve_tenant，行为逐字等价）。
+    from api.deps_tenant import verify_bearer_from_request
+    verify_bearer_from_request(request, rate_limited=False)
 
     keyword = (request.query_params.get("keyword") or "").strip()
     if not keyword:
@@ -2767,14 +2776,10 @@ async def v1_categories_search(request: Request):
     复用 OzonCategoryQuery.search_nodes（jieba 分词 + LIKE，node_type=type 保证
     返回有效 dc/tp 组合）。供 webui 采集箱 manual 类目选择器 / agent 类目确认。
     """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
-    if not rate_limiter.check(clean_token)[0]:
-        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
+    # B 租户 guard 二期：Bearer 提取→verify→限流 三段内联收敛单行（含限流对齐
+    # 原序列）；无租户消费 → verify_bearer（不加 resolve_tenant，行为逐字等价）。
+    from api.deps_tenant import verify_bearer_from_request
+    verify_bearer_from_request(request, rate_limited=True)
 
     q_text = (request.query_params.get("q") or "").strip()
     if not q_text:
@@ -2810,14 +2815,10 @@ async def v1_categories_attributes(request: Request):
       （表单下拉打开时调用，避免一个类目几十个字典属性打满首屏）。
     - 未命中且无店铺凭证/拉取失败 → found=False + reason（降级不抛错）。
     """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
-    if not rate_limiter.check(clean_token)[0]:
-        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
+    # B 租户 guard 二期：Bearer 提取→verify→限流 三段内联收敛单行（原序列位，
+    # 鉴权先于参数校验）；无租户列消费但需租户取凭证 → 三段 helper。
+    from api.deps_tenant import verify_bearer_from_request
+    clean_token = verify_bearer_from_request(request, rate_limited=True)
 
     dc = (request.query_params.get("dc") or "").strip()
     tp = (request.query_params.get("tp") or "").strip()
@@ -2830,8 +2831,10 @@ async def v1_categories_attributes(request: Request):
     # v0.73 租户统一：凭证按真实 user_id 取（哈希租户 → 懒拉永远无凭证）。
     # 在 try 外调用——resolve_tenant 的 fail-closed（401/503）是鉴权语义，
     # 不得被下方「凭证解析失败降级纯缓存」吞掉。
+    # resolve_tenant 保持原位（dc/tp 422 校验之后）；入参 clean token 与原 raw
+    # token 等价（resolve_tenant 内部自剥 sk-，缓存键同形）。
     from services.tenant_service import resolve_tenant
-    _tenant = resolve_tenant(token)
+    _tenant = resolve_tenant(clean_token)
     _client_id = _api_key = ""
     try:
         from services.credential_service import get_default_credential, list_credentials
@@ -2937,19 +2940,10 @@ async def http_commissions_lookup(request: Request):
     → 未命中 {"found": false}
     鉴权: Authorization: Bearer <token>（剥离 sk- 前缀）；Supabase 未配置 → 本地放行。
     """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
-
-    allowed, _remaining = rate_limiter.check(clean_token)
-    if not allowed:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute",
-        )
+    # B 租户 guard 二期：Bearer 提取→verify→限流 三段内联收敛单行（含限流对齐
+    # 原序列）；全局共享缓存表无租户消费 → verify_bearer（不加 resolve_tenant）。
+    from api.deps_tenant import verify_bearer_from_request
+    verify_bearer_from_request(request, rate_limited=True)
 
     raw = (request.query_params.get("category_id") or "").strip()
     if not raw:

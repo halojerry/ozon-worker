@@ -21,6 +21,7 @@ from typing import Any, Final
 
 from sqlalchemy import text
 
+from services.tenant_service import token_fingerprint
 from storage.database.db import get_engine
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,7 @@ def upsert_from_discovery_run(tenant_token: str, keyword: str, candidates: list[
 
     - candidates_json 为空 → 跳过不写（返回 False）。
     - 唯一键 (keyword, contributed_by_token_id) ON CONFLICT DO UPDATE。
+    - 双写 token_fp 指纹（A8 F6/BL-06，与明文列灰度并存）。
     - 非致命：任何异常 log warning 返回 False，绝不 reraise。
 
     :param tenant_token: 上报用户 clean token（去 sk- 前缀后的 key，即 contributed_by_token_id）。
@@ -142,23 +144,26 @@ def upsert_from_discovery_run(tenant_token: str, keyword: str, candidates: list[
         "match_1688_count": agg["match_1688_count"],
         "sold_count": agg["sold_count"],
         "contributed_by_token_id": tenant_token,
+        # A8 F6/BL-06：明文列灰度期双写指纹（唯一入口 tenant_service.token_fingerprint）
+        "token_fp": token_fingerprint(tenant_token),
         "source": "fetched",
     }
 
     _UPSERT_SQL = text("""
         INSERT INTO selection_insights
             (keyword, category_path, avg_price_rub, avg_profit_margin,
-             match_1688_count, sold_count, source, contributed_by_token_id)
+             match_1688_count, sold_count, source, contributed_by_token_id, token_fp)
         VALUES
             (:keyword, :category_path, :avg_price_rub, :avg_profit_margin,
-             :match_1688_count, :sold_count, :source, :contributed_by_token_id)
+             :match_1688_count, :sold_count, :source, :contributed_by_token_id, :token_fp)
         ON CONFLICT (keyword, contributed_by_token_id) DO UPDATE SET
             category_path = EXCLUDED.category_path,
             avg_price_rub = EXCLUDED.avg_price_rub,
             avg_profit_margin = EXCLUDED.avg_profit_margin,
             match_1688_count = EXCLUDED.match_1688_count,
             sold_count = EXCLUDED.sold_count,
-            source = EXCLUDED.source
+            source = EXCLUDED.source,
+            token_fp = EXCLUDED.token_fp
     """)
 
     try:

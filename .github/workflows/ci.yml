@@ -88,6 +88,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+      # 全树扫描门禁（repo-gov b5）：gitleaks-action 只扫 PR 增量，存量密钥漏网——
+      # 此步对 checkout 工作树全量扫（checkout 只有 git 跟踪文件，本地未跟踪的
+      # skill/data/ 等真凭证不会出现在 CI）。已知残留清单见 .gitleaks.toml 放行段
+      # （只减不增，由 worker/tests/test_leak_guard_in_tree.py 锁定收缩）。
+      - name: Full-tree secret scan (gitleaks --no-git)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/install.sh | bash -s -- -b /usr/local/bin
+          gitleaks detect --no-git --redact -v --exit-code=2
 
   # ═══ Lint: ruff（阻断, 不再 || true）═══
   lint-worker:

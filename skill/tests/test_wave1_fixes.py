@@ -20,14 +20,14 @@ def test_redact_keys_masks_credentials():
         "ok": True,
         "envelope": {
             "ozon_client_id": "4718259",
-            "ozon_api_key": "***REMOVED***",
-            "token": "***REMOVED***",
+            "ozon_api_key": "00000000-0000-0000-0000-000000000000",
+            "token": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
         },
         "summary": {"title": "Тест"},
     }
     _redact_keys(obj, {"api_key", "token", "ozon_api_key", "mxou_token", "ak", "ali_1688_ak"})
-    assert obj["envelope"]["ozon_api_key"] == "cd1d****", obj["envelope"]["ozon_api_key"]
-    assert obj["envelope"]["token"] == "Ccpo****"
+    assert obj["envelope"]["ozon_api_key"] == "0000****", obj["envelope"]["ozon_api_key"]
+    assert obj["envelope"]["token"] == "TTTT****"
     assert "cd1d0a10" not in str(obj), "完整 api_key 不应出现"
     assert obj["envelope"]["ozon_client_id"] == "4718259", "client_id 不脱敏（半公开）"
     assert obj["summary"]["title"] == "Тест", "非凭证字段不动"

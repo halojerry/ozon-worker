@@ -8,8 +8,8 @@
     "timeout": 0,
     "credentials": {
       "ozon_client_id": "4718259",
-      "ozon_api_key": "***REMOVED***",
-      "token": "***REMOVED***"
+      "ozon_api_key": "00000000-0000-0000-0000-000000000000",
+      "token": "sk-REDACTED-PLACEHOLDER"
     },
     "partial": 3
   },
