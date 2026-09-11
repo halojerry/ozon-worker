@@ -141,3 +141,6 @@ worker/data/
 
 # ─── PG 备份产物（明文/密文 dump 绝不入库）───
 deploy/backups/
+
+# ─── skill 部署副本的真实凭证配置（运行时文件，绝不入库）───
+deploy/skill/data/

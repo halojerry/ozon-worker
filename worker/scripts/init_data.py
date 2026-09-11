@@ -74,6 +74,88 @@ def migrate_repo_gov_b2b(engine):
     )
 
 
+# A8 F6/BL-06（repo-gov B5）：MXOU key 明文落库的五张贡献表 → token_fp 指纹列。
+# (表名, 明文来源列)：discovery_runs 的明文在 tenant_id（_handle_discovery_run_report
+# 写 clean token，probe_assets S5 同结论），其余四表在 contributed_by_token_id。
+_TOKEN_FP_TABLES = (
+    ("blue_ocean_queries", "contributed_by_token_id"),
+    ("ozon_bestsellers", "contributed_by_token_id"),
+    ("market_bestsellers", "contributed_by_token_id"),
+    ("selection_insights", "contributed_by_token_id"),
+    ("discovery_runs", "tenant_id"),
+)
+
+TOKEN_FP_MIGRATION_VERSION = "2026-09-repo-gov-b5-tokenfp"
+
+
+def migrate_token_fp(engine):
+    """A8 F6（repo-gov B5）: 五贡献表加 token_fp 指纹列（幂等，二次运行 no-op）。
+
+    新建库 create_all 已带列（model.py token_fp, index=True → 默认名
+    ix_<table>_token_fp），此处兜底存量库 ADD COLUMN IF NOT EXISTS + 同名索引。
+    可空列——存量行 NULL 由 :func:`migrate_token_fp_backfill` 分页回填。
+    纯 DDL 无绑定参数（text() 裸 cast 坑不适用）。
+    """
+    from sqlalchemy import text as sql_text
+
+    with engine.connect() as conn:
+        for table, _src_col in _TOKEN_FP_TABLES:
+            conn.execute(sql_text(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS token_fp VARCHAR(16)"
+            ))
+            conn.execute(sql_text(
+                f"CREATE INDEX IF NOT EXISTS ix_{table}_token_fp ON {table} (token_fp)"
+            ))
+        conn.commit()
+    register_schema_migration(
+        engine, TOKEN_FP_MIGRATION_VERSION,
+        "A8 F6/BL-06 五贡献表 token_fp 指纹加列（MXOU key 明文落库脱敏双写；存量行回填）",
+    )
+
+
+def migrate_token_fp_backfill(engine, batch_size=500):
+    """A8 F6 第 4 步: 存量行 token_fp 分页回填（Python 侧算指纹，幂等可重跑）。
+
+    为什么不用纯 SQL：PG 内置 sha256 需 pgcrypto 扩展（生产未必可装），指纹算法
+    必须与 services.tenant_service.token_fingerprint 单一实现逐字一致——纯 SQL
+    双实现会漂移。故 SELECT id,明文（仅 token_fp IS NULL 行）→ Python 逐批算
+    sha256 前 16 → 批量 UPDATE，每批一提交（对齐 import_attribute_cache 分批纪律，
+    防大表单事务抬高锁/内存窗口）。
+    幂等：已回填行不再命中 WHERE token_fp IS NULL → 重跑 no-op；空明文行
+    （历史脏数据）跳过不回填（保持 NULL，指纹语义上无 key 可指）。
+    返回本轮回填行数（含跨表累计；重跑应得 0）。
+    """
+    from sqlalchemy import text as sql_text
+
+    from services.tenant_service import token_fingerprint
+
+    total = 0
+    for table, src_col in _TOKEN_FP_TABLES:
+        while True:
+            with engine.connect() as conn:
+                rows = conn.execute(sql_text(
+                    f"SELECT id, {src_col} FROM {table} "
+                    f"WHERE token_fp IS NULL AND {src_col} IS NOT NULL AND {src_col} != '' "
+                    f"ORDER BY id LIMIT :batch"
+                ), {"batch": int(batch_size)}).fetchall()
+            if not rows:
+                break
+            updates = [
+                {"id": r[0], "fp": token_fingerprint(str(r[1]))}
+                for r in rows
+            ]
+            with engine.begin() as conn:
+                conn.execute(
+                    sql_text(f"UPDATE {table} SET token_fp = :fp WHERE id = :id"),
+                    updates,
+                )
+            total += len(updates)
+            if len(rows) < int(batch_size):
+                break
+        logger.info("token_fp 回填 %s 完成（累计 %d 行）", table, total)
+    return total
+
+
 def create_tables(engine):
     """创建所有表（幂等）。"""
     from storage.database.shared.model import Base
@@ -199,6 +281,14 @@ def create_tables(engine):
     )
     # ✅ BL-16（repo-gov B2-β）: draft_submissions.tenant_id 加列 + 版本登记（幂等）
     migrate_repo_gov_b2b(engine)
+    # ✅ A8 F6/BL-06（repo-gov B5）: 五贡献表 token_fp 指纹加列 + 存量回填（幂等）。
+    # 回填失败不阻断初始化（双写已保证新行有指纹；失败行留待下次 init_data 重跑）。
+    migrate_token_fp(engine)
+    try:
+        _backfilled = migrate_token_fp_backfill(engine)
+        logger.info("✅ token_fp 存量回填完成: %d 行", _backfilled)
+    except Exception as exc:
+        logger.warning("⚠️ token_fp 回填失败（不阻断初始化，下次 init_data 重跑）: %s", str(exc)[:200])
     logger.info("✅ 表结构已就绪")
 
 

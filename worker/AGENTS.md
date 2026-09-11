@@ -1318,7 +1318,7 @@ src/graphs/
 
 ### 测试环境
 - **Supabase URL**：https://kekmppsuiiokdckdeolv.supabase.co
-- **测试Ozon店铺**：Client-Id=4718259, Api-Key=***REMOVED***
+- **测试Ozon店铺**：Client-Id=4718259, Api-Key=00000000-0000-0000-0000-000000000000
 - **测试产品**：涡轮手持风扇（1006906626070）、无叶涡轮风扇（1048595027884）
 
 ### 核心改动（5项）
@@ -1327,8 +1327,8 @@ src/graphs/
 ```sql
 INSERT INTO public.tokens (user_id, name, status, remain_quota, key, expired_time, created_time)
 VALUES 
-  (1, '测试token1', 1, 1000.0, '***REMOVED***', -1, NOW()),
-  (1, '测试token2', 1, 1000.0, '***REMOVED***', -1, NOW());
+  (1, '测试token1', 1, 1000.0, 'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT', -1, NOW()),
+  (1, '测试token2', 1, 1000.0, 'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT', -1, NOW());
 ```
 
 **关键字段说明**：
@@ -1431,9 +1431,9 @@ FOR UPDATE SKIP LOCKED  # ✅ 锁定选中的行，跳过已被锁定的行
 **test_run执行**：
 ```python
 test_run(params={
-    "token": "***REMOVED***",
+    "token": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
     "ozon_client_id": "4718259",
-    "ozon_api_key": "***REMOVED***",
+    "ozon_api_key": "00000000-0000-0000-0000-000000000000",
     "envelope": {...}
 })
 ```
@@ -1480,8 +1480,8 @@ test_run(params={
 ## 🧪 完整产品测试执行（2026-07-06）
 
 ### 测试配置
-- **测试token**: `***REMOVED***`（余额：999994739，status=1）
-- **Ozon店铺**: Client-Id=4718259, Api-Key=***REMOVED***
+- **测试token**: `TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT`（余额：999994739，status=1）
+- **Ozon店铺**: Client-Id=4718259, Api-Key=00000000-0000-0000-0000-000000000000
 - **VIP体系**: 暂不存在（priority固定为0）
 - **测试数据**: `测试产品.jason`（包含2个产品）
 
@@ -1631,8 +1631,8 @@ test_run(params={
 ### **测试数据**
 - 产品1：涡轮手持风扇（item_id=1006906626070，40个variants，10张图片）
 - ozon_category字段：{type_id=91443, description_category_id=17039635}
-- 测试token：***REMOVED***
-- Ozon店铺：Client-Id=4718259, Api-Key=***REMOVED***
+- 测试token：TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+- Ozon店铺：Client-Id=4718259, Api-Key=00000000-0000-0000-0000-000000000000
 
 ### **关键发现**
 1. ✅ **Ozon API支持中文查询**（language=ZH_HANS）
