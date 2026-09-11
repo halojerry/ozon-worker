@@ -87,6 +87,9 @@ def migrate_repo_gov_v075(engine):
     from sqlalchemy import text as sql_text
 
     _TABLES = ("category_match_log", "attr_match_log")
+    # 结构性 DDL（加列+索引）：**响失败**——列缺失会让写侧 ORM（带 tenant_id 的
+    # INSERT）运行时 500，正是 H9 fail-fast 要暴露的「schema 半就绪」；对齐
+    # migrate_repo_gov_b2b/migrate_token_fp 的既有模式（结构性迁移 raise）。
     with engine.connect() as conn:
         for _table in _TABLES:
             conn.execute(sql_text(
@@ -95,26 +98,36 @@ def migrate_repo_gov_v075(engine):
             conn.execute(sql_text(
                 f"CREATE INDEX IF NOT EXISTS ix_{_table}_tenant_id ON {_table} (tenant_id)"
             ))
-        _backfilled = 0
-        for _table in _TABLES:
-            res = conn.execute(sql_text(
-                f"UPDATE {_table} m SET tenant_id = t.tenant_id "
-                "FROM ozon_product_tasks t "
-                "WHERE m.task_id::text = t.id::text "
-                "AND t.tenant_id IS NOT NULL AND m.tenant_id IS NULL"
-            ))
-            _backfilled += int(res.rowcount or 0)
-        _still_null = 0
-        for _table in _TABLES:
-            _still_null += int(conn.execute(sql_text(
-                f"SELECT count(*) FROM {_table} WHERE tenant_id IS NULL"
-            )).scalar_one() or 0)
         conn.commit()
-    logger.info(
-        "✅ 审计表 tenant_id 历史回填: %d 行；join 不上保持 NULL %d 行"
-        "（v0.67 前 ingest 随机 uuid / 任务行已归档删除——已知断层如实保留）",
-        _backfilled, _still_null,
-    )
+    # 历史回填（数据面）：软失败——join 不上/锁竞争只影响存量行补租户，
+    # 双写已保证新行带租户；失败留待下次 init_data 重跑，不阻断升级。
+    try:
+        _backfilled = 0
+        with engine.connect() as conn:
+            for _table in _TABLES:
+                res = conn.execute(sql_text(
+                    f"UPDATE {_table} m SET tenant_id = t.tenant_id "
+                    "FROM ozon_product_tasks t "
+                    "WHERE m.task_id::text = t.id::text "
+                    "AND t.tenant_id IS NOT NULL AND m.tenant_id IS NULL"
+                ))
+                _backfilled += int(res.rowcount or 0)
+            _still_null = 0
+            for _table in _TABLES:
+                _still_null += int(conn.execute(sql_text(
+                    f"SELECT count(*) FROM {_table} WHERE tenant_id IS NULL"
+                )).scalar_one() or 0)
+            conn.commit()
+        logger.info(
+            "✅ 审计表 tenant_id 历史回填: %d 行；join 不上保持 NULL %d 行"
+            "（v0.67 前 ingest 随机 uuid / 任务行已归档删除——已知断层如实保留）",
+            _backfilled, _still_null,
+        )
+    except Exception as exc:
+        logger.warning(
+            "⚠️ 审计表 tenant_id 历史回填失败（列/索引已就绪，不阻断初始化，下次 init_data 重跑）: %s",
+            str(exc)[:200],
+        )
     register_schema_migration(
         engine, "repo_gov_v075_audit_tenant",
         "v0.75 C3 category_match_log/attr_match_log 补 tenant_id 列+索引+历史回填（join 任务表）",
@@ -336,12 +349,9 @@ def create_tables(engine):
         logger.info("✅ token_fp 存量回填完成: %d 行", _backfilled)
     except Exception as exc:
         logger.warning("⚠️ token_fp 回填失败（不阻断初始化，下次 init_data 重跑）: %s", str(exc)[:200])
-    # ✅ v0.75 C3（repo-gov audit tenant）: 双审计表补 tenant_id 列+索引+历史回填（幂等）。
-    # 回填/加列失败不阻断初始化（写侧已带租户，失败行留待下次 init_data 重跑）。
-    try:
-        migrate_repo_gov_v075(engine)
-    except Exception as exc:
-        logger.warning("⚠️ migrate_repo_gov_v075 失败（不阻断初始化，下次重跑）: %s", str(exc)[:200])
+    # ✅ v0.75 C3（repo-gov audit tenant）: 双审计表补 tenant_id 列+索引（结构性，
+    # **响失败**——H9 fail-fast 语义，对齐 b2b/token_fp 模式）+ 历史回填（函数内软失败）。
+    migrate_repo_gov_v075(engine)
     # ✅ v0.75 C4（audit A4 F-P1-1）: 数值 bounds 拒单学习表 attr_bounds_learned——
     # 新建库 create_all 已建表（model.AttrBoundLearned），无 ALTER 语句，仅登记
     # 迁移版本供观测（幂等）

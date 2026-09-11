@@ -24,7 +24,7 @@ import sys
 
 MARKER_TABLE = "prod_marker"
 
-_DEFAULT_URL = "postgresql://postgres:ozon123@localhost:5433/ozon"
+_DEFAULT_URL = "postgresql://postgres:localdev123@localhost:5433/ozon"
 
 MARKER_DDL = (
     f"CREATE TABLE IF NOT EXISTS {MARKER_TABLE} ("

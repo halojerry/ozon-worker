@@ -135,11 +135,14 @@ _SF_LOCK = threading.Lock()
 _SF_INFLIGHT: set = set()
 _SF_COND = threading.Condition(_SF_LOCK)
 _SF_STATS = {"inflight_hits": 0, "acquired": 0}
-# 结果槽：leader 把 fn 的（结果, 异常）发布于此，同飞行 follower 取用不重跑。
-# 带上限防长驻内存（溢出整体清空，缺槽的 follower 退化为自执行 fn——少一次
-# 去重，正确性不受影响）。
+# 结果槽（终审 review Important#1 修正后语义）：leader **仅在本飞行存在并发等待者**
+# （_SF_WAITERS[key]>0）时才发布（结果, 异常, 剩余读者数）——零等待的 miss 不留槽
+# （旧实现每次 miss 无条件留全量结果，1024 槽可驻留数十~数百 MB）。follower 取用
+# 后递减剩余读者数，归零即删槽；槽上限仅作兜底（溢出整体清空，缺槽 follower 退化
+# 自执行 fn——少一次去重，正确性不受影响）。
 _SF_SLOT: dict = {}
-_SF_SLOT_CAP = 1024
+_SF_SLOT_CAP = 64
+_SF_WAITERS: dict = {}  # key -> 当前阻塞等待该 key 的线程数（发布判定/读者计数源）
 _SF_WAIT_TIMEOUT = 30.0
 
 
@@ -174,12 +177,23 @@ def acquire_singleflight(key: tuple):
     """
     lease = _SingleflightLease()
     with _SF_COND:
-        while key in _SF_INFLIGHT:
-            lease.waited = True
-            _SF_STATS["inflight_hits"] += 1
-            _SF_COND.wait(_SF_WAIT_TIMEOUT)
+        if key in _SF_INFLIGHT:
+            _SF_WAITERS[key] = _SF_WAITERS.get(key, 0) + 1
+            try:
+                while key in _SF_INFLIGHT:
+                    lease.waited = True
+                    _SF_COND.wait(_SF_WAIT_TIMEOUT)
+            finally:
+                _n = _SF_WAITERS.get(key, 0) - 1
+                if _n > 0:
+                    _SF_WAITERS[key] = _n
+                else:
+                    _SF_WAITERS.pop(key, None)
         _SF_INFLIGHT.add(key)
         _SF_STATS["acquired"] += 1
+        if lease.waited:
+            # 每次获取计一次（终审 Minor#1：不再按等待轮次膨胀探针口径）
+            _SF_STATS["inflight_hits"] += 1
     try:
         yield lease
     finally:
@@ -191,11 +205,13 @@ def acquire_singleflight(key: tuple):
 def run_exclusive(key: tuple, fn: Callable[[], Any]) -> Any:
     """同 key 并发去重执行：与本次并发的调用方共享首个结果，fn 只跑 1 次。
 
-    leader（进锁无需等待 = 本飞行第一个到达）执行 fn 并把（结果, 异常）发布
-    进结果槽；follower（进锁前等过 = 与 leader 并发）直接取槽中结果不重跑
-    fn（Go singleflight 语义，follower 同收 leader 的异常）。飞行结束后才
-    到达的新调用（没等过）正常开启新飞行，不吃陈旧槽。fn 抛异常时锁照常
-    释放（acquire_singleflight finally 兜底），后续调用可重进。
+    leader（进锁无需等待 = 本飞行第一个到达）执行 fn；**仅当本飞行存在并发等待者**
+    （_SF_WAITERS[key]>0）才把（结果, 异常, 剩余读者数）发布进结果槽——零等待的
+    miss 不留槽（防内存驻留，终审 Important#1）。follower（进锁前等过 = 与 leader
+    并发）取槽共享结果不重跑 fn（Go singleflight 语义，follower 同收 leader 的
+    异常），取用后递减读者数、归零删槽。飞行结束后才到达的新调用（没等过）正常
+    开启新飞行，不吃陈旧槽。fn 抛异常时锁照常释放（acquire_singleflight finally
+    兜底），后续调用可重进。
     """
     with acquire_singleflight(key) as lease:
         if not lease.waited:
@@ -203,21 +219,31 @@ def run_exclusive(key: tuple, fn: Callable[[], Any]) -> Any:
                 result = fn()
             except BaseException as exc:
                 with _SF_COND:
-                    _SF_SLOT[key] = (None, exc)
+                    if _SF_WAITERS.get(key, 0) > 0:
+                        _SF_SLOT[key] = (None, exc, _SF_WAITERS[key])
                 raise
             with _SF_COND:
-                if len(_SF_SLOT) >= _SF_SLOT_CAP:
-                    _SF_SLOT.clear()
-                _SF_SLOT[key] = (result, None)
+                _n = _SF_WAITERS.get(key, 0)
+                if _n > 0:
+                    if len(_SF_SLOT) >= _SF_SLOT_CAP:
+                        _SF_SLOT.clear()
+                    _SF_SLOT[key] = (result, None, _n)
             return result
+        entry = None
         with _SF_COND:
             entry = _SF_SLOT.get(key)
+            if entry is not None:
+                result, err, remain = entry
+                remain -= 1
+                if remain <= 0:
+                    _SF_SLOT.pop(key, None)
+                else:
+                    _SF_SLOT[key] = (result, err, remain)
         if entry is not None:
-            result, err = entry
             if err is not None:
                 raise err
             return result
-        # 槽缺失（槽被上限清空时可能）→ 退化为自执行 fn
+        # 槽缺失（被上限清空等）→ 退化为自执行 fn
         return fn()
 
 

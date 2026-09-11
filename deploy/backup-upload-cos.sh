@@ -68,6 +68,8 @@ echo "ℹ️  上传完成: 新传 $UPLOADED / 失败 $FAILED → cos://${COS_BU
 
 # ---- 远端保留清理（按文件名内嵌日期；失败不阻断）----
 # GNU date 优先，macOS BSD date 兜底
+# ⚠️ 管道尾 || true：set -o pipefail 下空 bucket/无备份时 grep 无匹配 rc=1
+# 会把整条管道判失败（空态天天假报错）——清理段本就声明「失败不阻断」（终审 review Minor#3）。
 CUTOFF=$(date -d "-${RETENTION_DAYS} days" +%Y%m%d 2>/dev/null || date -v-"${RETENTION_DAYS}"d +%Y%m%d)
 $COSCLI ls "cos://${COS_BUCKET}/${REMOTE_PREFIX}/" 2>/dev/null \
   | grep -oE 'backup_[0-9]{8}_[0-9]{6}\.sql(\.gpg)?' | sort -u \
@@ -78,6 +80,6 @@ $COSCLI ls "cos://${COS_BUCKET}/${REMOTE_PREFIX}/" 2>/dev/null \
         echo "  🧹 远端过期清理: $name"
       fi
     fi
-  done
+  done || true
 
 [ "$FAILED" -eq 0 ] || exit 1

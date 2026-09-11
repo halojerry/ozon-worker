@@ -2,7 +2,7 @@
 
 ## [0.75.0] — 仓库治理收口批：repo-gov v1 全量余量 + 密钥出库与历史重写（2026-09-11）
 
-> 战役：Phase 0 工作树卫生 → A1-A9 九份只读审计（`docs/audit/2026-09-11-repo-gov/`）→ 六批修复 PR（#13/#15/#16/#17/#18/#19）→ **git 历史重写**（21 组密钥全历史出库，仓库 241MB→89MB，59 tag 全部重写）→ v075 收口十项（PR #21，`docs/PLAN-v075-release-closeout.md`）。部署加固第一批（PR #20，I/O 雪崩防线）同车发出。测试基线 worker 2377→2639 / skill →1342。
+> 战役：Phase 0 工作树卫生 → A1-A9 九份只读审计（`docs/audit/2026-09-11-repo-gov/`）→ 六批修复 PR（#13/#15/#16/#17/#18/#19）→ **git 历史重写**（21 组密钥全历史出库，仓库 241MB→89MB，59 tag 全部重写）→ v075 收口十项（PR #21，`docs/PLAN-v075-release-closeout.md`）。部署加固第一批（PR #20，I/O 雪崩防线）同车发出。测试基线 worker 2377→2649 / skill →1342。
 
 ### ⚠️ 升级必读（运维公告）
 - **git 历史已重写**：全部历史真实密钥归零。**所有其他机器的 clone 必须删除重新 clone**（旧历史已不存在，pull 会分叉）；GitHub 侧 PR 页 diff 缓存清除工单随 `docs/audit/2026-09-11-repo-gov/SECRET-PURGE-RUNBOOK.md` 提交。
@@ -38,12 +38,18 @@
 ### v075 收口十项（PR #21）
 C1 单飞锁（含调用方接线）/ C4 bounds 学习 / C5 aspect 收窄 / C6 佣金续期锁定 / C8 绑店 advisory lock / C2 checkpoint 清理+存量脚本 / C3 审计租户化+phase3 断言闸 / C7 priority / C9 示例全覆盖+strict 门禁 / C10 pounding-mcp 30 工具参数差分核查（4 工具 7 参真漂移修复+44 参有意裁剪落档 `docs/MCP-SERVER.md`）。
 
-### 部署加固第一批（PR #20，同车）
-2026-09-10/11 生产 I/O 雪崩 9h 事故防线：prod_db_guard 写前闸（生产库写操作 marker 确认）/compose 调参/备份 COS 异地化（backup-upload-cos.sh）/部署预检前移；取证 `docs/audit/2026-09-11-io-avalanche.md`。
+### 部署加固第一+二批（PR #20/#22，同车）
+2026-09-10/11 生产 I/O 雪崩 9h 事故防线：prod_db_guard 写前闸（生产库写操作 marker 确认）/compose 调参/备份 COS 异地化（backup-upload-cos.sh）/部署预检前移（第一批）；init_data 失败 warn→fail-fast（schema 半就绪不再静默；⚠️ 手动修复后勿重跑升级脚本——版本一致会早退，缓存懒加载兜底）/cd.yml tag CI 闸（tag commit 必须有绿 CI run，轮询 15min，逃生门 `CD_SKIP_CI_GATE=1`）/worker 绑定面 `WORKER_BIND_IP` 可收紧（默认 0.0.0.0 不变）（第二批）；**Sentry 断流实锤**（2026-09-11 重启后仍 7 天零 error 事件——生产 SENTRY_DSN 疑缺失，ops 清单第 7 条）；取证 `docs/audit/2026-09-11-io-avalanche.md`。
 
 ### 测试与验证
-- worker 全量 **2639 passed**（PG 5433 compose）/ skill **1342 passed** / pounding-mcp 80 / webui tsc+build 绿；ruff 双口径零新增；`gen_api_docs --check --fail-on-missing-examples` 零漂移+三名单 0/0/0（63/63 schema 100%）；gitleaks 全树零命中。
-- 实机 gate（≥3 单）待跑；tag 待 gate 后打 main。
+- worker 全量 **2649 passed**（PG 5433 compose，含 #20 守卫测试）/ skill **1342 passed** / pounding-mcp 80 / webui tsc+build 绿；ruff 双口径零新增；`gen_api_docs --check --fail-on-missing-examples` 零漂移+三名单 0/0/0（63/63 schema 100%）；gitleaks 全树零命中。
+- **发版 gate 口径（如实记录）**：用户指示以「发版前独立代码审查（两个并行 reviewer 覆盖 PR #20/#21/#22+物料批）+ 全量单测矩阵（worker 2639/skill 1342/mcp 80/webui/ruff/示例门禁）」替代既往的实机 ≥3 单 gate——**实机验证转入发版后首日观察**（重点：汇率源切换后的上架价、字典回源负缓存面、checkpoint 清理首夜）。
+- 行为回归注意：本版未跑实机 discover/follow 单，上架链行为变更（汇率/佣金/字典三防/aspect）以单测+本地链路为准，首日生产单如异常优先核对 pricing marks（exchange_rate_source/commission_stale_fallback）。
+
+### 发版前终审修复批（随车，独立双 reviewer 结论驱动）
+- cd.yml tag CI 闸逃生门接 repo variable `CD_SKIP_CI_GATE`（原 env 形态在 tag push 流不可操作）；超时指引改「重跑 CD run」。
+- v0.75 审计表迁移改**结构性 DDL 响失败/回填软失败**（对齐 b2b/token_fp 先例——原调用点自吞会让「半就绪 500」静默，与 H9 fail-fast 矛盾）；cos-update 的 init_data 输出落 `init_data_upgrade.log` 不再吞 /dev/null。
+- DEPLOY.md 五处 5433→15433 端口漂移修正；prod_db_guard 默认口令对齐 localdev123；backup-upload-cos.sh 空态 pipefail 假失败修正；.env.example 登记 WORKER_BIND_IP；AGENTS 补「直接 python 跑 tests 不经 conftest 闸」注记。
 
 ### 已知问题与 defer（v0.76+）
 - task_status 老数据宽容读改 404：等 v0.62.4 前无租户任务行随 30d 清理滚出（约 2026-09-30 后）。

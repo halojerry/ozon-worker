@@ -278,3 +278,60 @@ def test_get_or_fetch_empty_result_records_negative():
         assert fetches[0] == 1
     # 确认空 → 负缓存 sentinel 落库恰一次（空结果不走 routed_set 正数据）
     assert set_recorder.call_count == 1
+
+
+# ── 发版前终审 review 补测（Important#1/#3）──
+
+def test_fetch_raise_then_success_not_negatively_cached():
+    """fetch_fn 抛异常 → 不落负缓存：紧随的成功调用必须真回源拿到值。"""
+    from utils.dict_value_cache import get_or_fetch
+    calls = {"n": 0}
+
+    class _Boom(RuntimeError):
+        pass
+
+    def fetch():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _Boom("ozon down")
+        return [{"id": 1, "value": "v"}]
+
+    try:
+        get_or_fetch(77001, 1, 1, "RU", fetch_fn=fetch)
+        raise AssertionError("should raise _Boom")
+    except _Boom:
+        pass
+    ok = get_or_fetch(77001, 1, 1, "RU", fetch_fn=fetch)
+    assert ok == [{"id": 1, "value": "v"}]
+    assert calls["n"] == 2  # 失败未被当成「确认空」缓存——第二次真回源
+
+
+def test_single_flight_no_waiter_leaves_no_slot():
+    """零并发等待者的 miss 不留结果槽（内存驻留修复，终审 Important#1）。"""
+    from utils import dict_value_cache as dvc
+    dvc._SF_SLOT.clear()
+    big = [{"id": i, "value": "v" * 50} for i in range(2000)]
+    for i in range(50):  # 顺序（无并发等待者）50 次不同 key miss
+        dvc.run_exclusive((99000 + i, 1, 1, "RU"), lambda b=big: b)
+    assert len(dvc._SF_SLOT) == 0, f"零等待 miss 不应留槽，残留 {len(dvc._SF_SLOT)}"
+
+
+def test_single_flight_slot_consumed_and_released():
+    """并发等待场景：读者消费后槽归零（不驻留）。"""
+    import threading
+    from utils import dict_value_cache as dvc
+    dvc._SF_SLOT.clear()
+    out = []
+    barrier = threading.Barrier(4)
+    big = [{"id": 1, "value": "v"}]
+
+    def worker():
+        barrier.wait()
+        out.append(dvc.run_exclusive((99500, 1, 1, "RU"), lambda: big))
+
+    ts = [threading.Thread(target=worker) for _ in range(4)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert all(o is big for o in out)
+    assert len(out) == 4
+    assert len(dvc._SF_SLOT) == 0, "读者消费完应删槽"

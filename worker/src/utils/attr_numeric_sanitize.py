@@ -69,31 +69,52 @@ _BOUNDS_CACHE_CAP = 1000
 _BOUNDS_CACHE: Dict[int, Tuple[float, Optional[Tuple[Optional[float], Optional[float]]]]] = {}
 
 
-def parse_numeric_bounds_from_decline(text: str) -> List[Tuple[int, Optional[float], Optional[float]]]:
+def parse_numeric_bounds_from_decline(
+    text: str, fallback_attr_id: Any = None,
+) -> List[Tuple[int, Optional[float], Optional[float]]]:
     """从 VALUE_MAX/MIN_LIMIT 类 decline 俄语原文解析数值 bounds。
 
     按「句」（.; 换行分隔）逐段解析，段内须**同时**定位到唯一 attr_id 与至少
     一个界才产出 (attr_id, lo|None, hi|None)；定位不 confident 的段整段跳过
     （宁可不学，绝不把别属性的界张冠李戴）。多条 confident 产出全部返回；
     同 attr 重复产出去重保序。无可解析内容 → []。
+
+    fallback_attr_id（终审 review Important#2）：Ozon /v1/product/import/info 的
+    errors[] 携带**结构化** attribute_id(int64)——原文若只写属性名不内嵌
+    «характеристика <id>» 形态（纯文本正则抽不到 id 时），用同一 error dict 的
+    结构化 id 补全（同条 error 的 attr 与界归属天然正确，宁可不学门槛不降）。
+
+    «символ»（字符数限制）形态排除：长度类报错（如 «не должно превышать 100
+    символов»）不是数值界——段内出现 символ/символов 时该段的界一律不学。
     """
     results: List[Tuple[int, Optional[float], Optional[float]]] = []
     seen: set = set()
+    try:
+        fb_aid: Optional[int] = int(fallback_attr_id) if fallback_attr_id is not None else None
+    except (TypeError, ValueError):
+        fb_aid = None
     if not text or not isinstance(text, str):
         return results
     for segment in re.split(r"[.;\n]", text):
+        if re.search(r"символ", segment, re.IGNORECASE):
+            continue  # 字符数限制 ≠ 数值界（长度类报误学会污染夹取）
         attr_ids = {
             int(m.group(1)) for m in _DECLINE_ATTR_RE.finditer(segment)
         } | {
             int(m.group(1)) for m in _DECLINE_ATTR_ALT_RE.finditer(segment)
         }
-        if len(attr_ids) != 1:
-            continue  # 0 个 = 无主；≥2 个 = 界值无法归属 → 都不学
+        if len(attr_ids) > 1:
+            continue  # ≥2 个 = 界值无法归属 → 都不学
         max_m = _DECLINE_MAX_RE.search(segment)
         min_m = _DECLINE_MIN_RE.search(segment)
         if not max_m and not min_m:
             continue  # 有 attr 无界 → 不学
-        attr_id = attr_ids.pop()
+        if attr_ids:
+            attr_id = attr_ids.pop()
+        elif fb_aid is not None:
+            attr_id = fb_aid  # 文本无 id，用结构化 attribute_id（终审 Important#2）
+        else:
+            continue  # 无主 → 不学
         lo = float(min_m.group(1)) if min_m else None
         hi = float(max_m.group(1)) if max_m else None
         key = (attr_id, lo, hi)
@@ -148,15 +169,17 @@ def _tighten_bounds(
     return (max(los) if los else None, min(his) if his else None)
 
 
-def learn_bounds_from_decline(text: str) -> int:
+def learn_bounds_from_decline(text: str, fallback_attr_id: Any = None) -> int:
     """decline 原文 → parse → upsert 学习表，返回学习条数。
 
+    fallback_attr_id 透传 parse（Ozon errors[] 结构化 attribute_id 兜底，
+    见 parse_numeric_bounds_from_decline docstring）。
     每条先读旧行再 Python 侧收紧合并后写回（INSERT..ON CONFLICT DO UPDATE，
     与 _tighten_bounds 同一语义）。任何异常（含 parse/DB）静默返回 0——
     学习是 best-effort，绝不影响 validation_retry_loop 重试主链。
     """
     try:
-        parsed = parse_numeric_bounds_from_decline(text)
+        parsed = parse_numeric_bounds_from_decline(text, fallback_attr_id=fallback_attr_id)
         if not parsed:
             return 0
         sample = str(text or "")[:200]

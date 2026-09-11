@@ -42,6 +42,10 @@ jobs:
       - name: "Gate: tagged commit must have green CI"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 逃生门接线 repo variable（Settings → Secrets and variables → Actions →
+          # Variables → CD_SKIP_CI_GATE=1）——tag push 无法注入 env，读 vars 才真正
+          # 可操作（发版前终审 review Important#1 修复）。
+          CD_SKIP_CI_GATE: ${{ vars.CD_SKIP_CI_GATE || '0' }}
         run: |
           if [ "${CD_SKIP_CI_GATE:-0}" = "1" ]; then
             echo "↩️ CD_SKIP_CI_GATE=1，显式跳过 CI 闸"; exit 0
@@ -58,7 +62,7 @@ jobs:
             esac
             sleep 30
           done
-          echo "::error::15 分钟内未等到 ${SHA:0:8} 的 CI 完成或该提交无 CI run（push 到 main/dev 才触发；docs-only 会被 paths-ignore 跳过）——确认后重打 tag，或 CD_SKIP_CI_GATE=1 显式跳过"
+          echo "::error::15 分钟内未等到 ${SHA:0:8} 的 CI 完成或该提交无 CI run（push 到 main/dev 才触发；docs-only 会被 paths-ignore 跳过）——确认后重跑本 CD run（gate 会重新求值，无需重打 tag），或设 repo variable CD_SKIP_CI_GATE=1 显式跳过"
           exit 1
 
   deploy:

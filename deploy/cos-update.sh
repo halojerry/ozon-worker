@@ -301,10 +301,12 @@ fi
 # 是静默 500 源头。不自动回滚：代码回滚治不了半迁移的库（且 health 已绿）；
 # 手动修复后本脚本重跑会因版本一致早退，缓存导入靠运行时懒加载兜底（7.6 注释）。
 log "🛠️ 执行数据库迁移(init_data.py, 幂等)..."
-if docker compose exec -T worker python scripts/init_data.py >/dev/null 2>&1; then
-  log "✅ 数据库迁移完成"
+# 输出落日志文件不吞 /dev/null（终审 review Important#2：fail 时排障需根因，
+# 手动重跑才能看输出是坑）；成功时也留档对账回填行数。
+if docker compose exec -T worker python scripts/init_data.py >"$SCRIPT_DIR/init_data_upgrade.log" 2>&1; then
+  log "✅ 数据库迁移完成（输出: $SCRIPT_DIR/init_data_upgrade.log）"
 else
-  fail "init_data.py 执行失败——升级文件已就位但 schema 未完成（新列缺失=运行时 500）。排查: docker compose exec worker python scripts/init_data.py；修复后无需回滚/重跑升级（缓存走懒加载兜底）"
+  fail "init_data.py 执行失败——升级文件已就位但 schema 未完成（新列缺失=运行时 500）。根因看 $SCRIPT_DIR/init_data_upgrade.log；修复后无需回滚/重跑升级（缓存走懒加载兜底）"
 fi
 
 # ── 7.6 v0.70: 属性缓存全量 JSON——COS 下载 → 拷入容器 → 后台 --import-only ──

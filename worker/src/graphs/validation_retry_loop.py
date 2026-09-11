@@ -807,7 +807,9 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
             _texts = _e.get("texts")
             _msg = _texts.get("message") if isinstance(_texts, dict) else ""
             if _msg:
-                learn_bounds_from_decline(str(_msg))
+                # fallback 用同条 error 的结构化 attribute_id（Ozon /v1/product/
+                # import/info 契约携带；原文不内嵌 id 形态时的兜底——终审 Important#2）
+                learn_bounds_from_decline(str(_msg), fallback_attr_id=_e.get("attribute_id"))
     except Exception as _exc:  # 双保险：学习链任何异常都不进重试主链
         logger.info(f"ℹ️ attr bounds 学习跳过: {_exc}")
 

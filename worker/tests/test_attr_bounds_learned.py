@@ -219,3 +219,21 @@ def test_get_learned_bounds_missing_table_returns_none(monkeypatch):
     monkeypatch.setattr(db_mod, "get_engine", lambda: FakeEngine(NoTableConn()))
     _autoclear_cache()
     assert get_learned_bounds(22333) is None
+
+
+# ── 发版前终审 review 补测（Important#2/#4）──
+
+def test_parse_fallback_structured_attr_id():
+    """原文只写界不内嵌 id → 结构化 attribute_id 兜底产出。"""
+    from utils.attr_numeric_sanitize import parse_numeric_bounds_from_decline
+    text = "Значение не должно превышать 5000"
+    assert parse_numeric_bounds_from_decline(text) == []  # 无兜底 → 宁可不学
+    out = parse_numeric_bounds_from_decline(text, fallback_attr_id=22333)
+    assert out == [(22333, None, 5000.0)]
+
+
+def test_parse_excludes_char_count_limits():
+    """«…символов» 是字符数限制不是数值界——整段不学。"""
+    from utils.attr_numeric_sanitize import parse_numeric_bounds_from_decline
+    text = "Описание не должно превышать 100 символов"
+    assert parse_numeric_bounds_from_decline(text, fallback_attr_id=4191) == []

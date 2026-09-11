@@ -16,7 +16,7 @@ status: active
 用户本地 (Skill)                         云端服务器
 ┌──────────────────────┐               ┌─────────────────────────────┐
 │ Chrome 浏览器        │               │ Docker Compose              │
-│ ├─ 1688 登录态       │   HTTPS       │ ├─ PostgreSQL (5432→5433)   │
+│ ├─ 1688 登录态       │   HTTPS       │ ├─ PostgreSQL (5432→15433)   │
 │ ├─ Ozon 登录态       │ ──────────→   │ ├─ Worker (5000→8080)      │
 │ └─ Skill 脚本        │  POST /api/   │ └─ Nginx (443→8080)        │
 │                      │  v1/submit    │                             │
@@ -424,7 +424,7 @@ docker compose restart worker
 ```bash
 # 查看端口占用
 sudo lsof -i :8080
-sudo lsof -i :5433
+sudo lsof -i :15433
 
 # 修改 docker-compose.yml 端口映射
 # 如改为 8081:5000
@@ -432,7 +432,7 @@ sudo lsof -i :5433
 
 ## 安全建议
 
-1. **不要暴露 PostgreSQL 端口**：已默认绑定 `127.0.0.1:5433`
+1. **不要暴露 PostgreSQL 端口**：已默认绑定 `127.0.0.1:15433`（v0.75 加固起 5433 退役）
 2. **使用强密码**：`POSTGRES_PASSWORD` 和 Supabase Key
 3. **启用 HTTPS**：防止 token 明文传输
 4. **限制访问**：用防火墙只允许必要端口
@@ -447,7 +447,7 @@ services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - "127.0.0.1:5433:5432"  # 只绑定本地
+      - "127.0.0.1:15433:5432"  # 只绑定本地（v0.75 加固起）
     volumes:
       - pgdata:/var/lib/postgresql/data
 
@@ -465,7 +465,7 @@ services:
 
 | 服务 | 容器端口 | 宿主端口 | 绑定地址 |
 |------|---------|---------|---------|
-| PostgreSQL | 5432 | 5433 | 127.0.0.1（仅本地） |
+| PostgreSQL | 5432 | 15433 | 127.0.0.1（仅本地，v0.75 加固起） |
 | Worker | 5000 | 8080 | 0.0.0.0（对外） |
 
 ### API 端点

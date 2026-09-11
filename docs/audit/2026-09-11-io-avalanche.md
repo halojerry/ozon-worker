@@ -80,7 +80,7 @@ sa10 最后一条在 09-10 12:10，**比 pytest 启动（12:11:57）早约 2 分
 | H6 | 服务器 ops 欠账（v0.72 TRUNCATE+重预热未执行） | P1 | 📋 ops 清单（盘上仍压着旧放大器） |
 | H7 | cos-update 首次升级盲区（旧脚本执行首次升级） | P1 | 📋 ops 清单（先手动落新脚本一次性交接） |
 | H8 | CREDENTIAL_MASTER_KEY 缺失仅事后提示 | P1 | ✅ 前移至步骤 0 fail-fast（逃生门 env） |
-| H9 | schema 迁移无版本闸（漏登记新列=运行时 500） | P1 | ✅ 二批：cos-update init_data 失败 warn→fail（schema 半就绪不再静默）；「期望版本清单」闸不做——schema_migrations 设计上是观测面非闸门（init_data.py:28 注释），且防不了「忘了登记」本身，DB-SCHEMA-AUDIT 纪律维持 |
+| H9 | schema 迁移无版本闸（漏登记新列=运行时 500） | P1 | ✅ 二批：cos-update init_data 失败 warn→fail（schema 半就绪不再静默）【2026-09-11 发版终审补记：初版 fail-fast 只覆盖 init_data「响」失败，当时 v0.75 的 migrate_repo_gov_v075 ALTER 在调用点自吞——已修为结构性 DDL 响失败/回填软失败（对齐 b2b/token_fp 模式），init_data 输出改落 init_data_upgrade.log 不再吞 /dev/null】；「期望版本清单」闸不做——schema_migrations 设计上是观测面非闸门（init_data.py:28 注释），且防不了「忘了登记」本身，DB-SCHEMA-AUDIT 纪律维持 |
 | H10 | 升级=本机 no-cache 全量重建（升级窗口即 I/O 负载事件） | P1 | 📋 DEPLOY.md 升级窗口纪律（避开高峰） |
 | H11 | pg_isready 硬编码用户/库名；容器 root 运行；0.0.0.0:8080 直暴 | P2 | ✅ healthcheck env 化；二批补 `WORKER_BIND_IP` 可收紧绑定（默认不变）；**root 缓期**：存量命名卷（logs）与 bind mount（config rw）均为 root 属主，切 USER 会断 `/admin/config` 写入与日志卷——需带服务器实测的专项迁移，收益不抵断产风险 |
 | H12 | tag 无 CI 闸（cd.yml 由 tag 直接触发，绿的保证纯靠纪律） | P2 | ✅ 二批：cd.yml version-check 加闸——tag commit 必须有 conclusion=success 的 CI run（轮询等待 15min；逃生门 `CD_SKIP_CI_GATE=1` 兜 docs-only 被 paths-ignore 跳过的场景） |
