@@ -44,6 +44,38 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。
 
+## 最近更新（v0.75.0 — 仓库治理收口批：repo-gov v1 全量余量 + 密钥出库与历史重写）
+
+> 2026-09-11。**已发版物料就绪（VERSION 四源 0.75.0），tag 待实机 gate**。战役全景：Phase 0 工作树卫生 →
+> A1-A9 九份审计（`docs/audit/2026-09-11-repo-gov/`）→ 六批修复 PR（#13/#15/#16/#17/#18/#19）→ **git 历史重写**
+> （21 组密钥全历史出库，仓库 241MB→89MB，tag 全部重写）→ v075 收口十项（PR #21，`docs/PLAN-v075-release-closeout.md`）；
+> 部署加固第一批（PR #20）同车。测试基线 worker 2377→2639 / skill 1342 / mcp 80。**改下述链路前先读 CHANGELOG 0.75.0。**
+
+- **⚠️ 历史重写后协作纪律**：所有其他机器的 clone 必须删除重新 clone（旧历史已不存在）；19 组密钥平台侧轮换
+  待用户（指纹表 `docs/audit/2026-09-11-repo-gov/SECRET-PURGE-RUNBOOK.md`）；**密钥绝不进源码库**——CI 全树
+  gitleaks 闸 + .gitleaks.toml ratchet + leak_guard 指纹测试三闸防回潮（纪律正文 `docs/CONVENTIONS.md`）。
+- **租户口径（用户拍板）**：租户 = api.mxou.cn 同一用户库（`resolve_tenant`，Supabase tokens 表即 MXOU 用户库，
+  哈希租户只是回退）；五贡献表 token_fp 指纹列双写；**新写租户面读端点必须走 `api/deps_tenant`（Request-helper
+  或 Depends 二选一），phase3 断言测试（test_tenant_guard_phase3.py）锁不回退**。
+- **行为变更（发版说明必读）**：汇率源三级链（未配 margin 店上架价会变）/ 佣金 >180d 降级 fallback:stale /
+  cancel_task 409 / shelf 3 端点删除（147→144）/ category_cache 90d / **字典缓存三防**（负缓存 60s+TTL 抖动+单飞锁
+  `get_or_fetch` 读穿——**改任何字典回源路径必须过它，Ozon 拉取失败须 raise 专属异常绝不落负缓存**）/ is_aspect
+  兜底收窄 / submit_task 可选 priority / 审计表 tenant_id / checkpoint 归档联动清理。
+- **数值 bounds 学习闭环**：拒单原文（VALUE_MAX/MIN_LIMIT）自动学习 `attr_bounds_learned`（置信抽取+收紧并集，
+  sample 人工复核）；读侧唯一入口 `attr_numeric_sanitize`（静态白名单恒赢>学习表>不夹取）。上线后首个真实拒单
+  原文回灌 parser 验证一次。
+- **绑店原子化**：`_assert_client_not_bound_elsewhere` 首行 `pg_advisory_xact_lock(hashtext(:cid))`——并发双绑
+  窗口关闭；历史双绑清查待 S3 探针（defer）。
+- **API 文档示例 100% + strict 门禁**：`gen_api_docs --check --fail-on-missing-examples` 进 CI（三级覆盖判定：
+  mediatype 层/schema 层/数组 items 解引用；FastAPI 样板 HTTPValidationError/ValidationError 豁免）。**改 API
+  后照旧必跑生成脚本，新增端点必须带示例否则 CI 红**。
+- **部署注意**：首启自动建 4 新表+幂等迁移（token_fp 回填/审计表 tenant_id 回填）；ofelia 备份 sidecar 上线勿与
+  宿主 crontab 双跑；部署后建议 `cleanup_checkpoints.py --dry-run` 看存量孤儿。
+- pounding-mcp 30 工具参数差分核查表落 `docs/MCP-SERVER.md`（4 工具 7 参真漂移已修；discover_task dry_run 默认
+  翻转待产品拍板）。
+- defer 登记（v0.76+）：task_status 404 化（~09-30 老数据滚出后）/ 明文 token 列退役（dedup key 重建）/ 认领
+  SQL 租户轮转 / 单飞锁跨副本版 / BL-26 SSH 半 / legacy GET /task/{task_id} 退役 / BL-18 三能力立项。
+
 ## 最近更新（开发中 — 部署加固第一批：I/O 雪崩事故防线）
 
 > 分支 `fix/deploy-hardening-v1`（2026-09-11）。动因：2026-09-10/11 生产 I/O 雪崩 9h 不可用

@@ -66,4 +66,5 @@
 - ✅ BL-21 图片规格观测（warning-only content-length<10KB）；BL-31 workers=1 启动告警
 - ✅ design-b2b 三方案一期：PG statement_timeout 30s+池 20+20、字典缓存负缓存 60s+TTL 抖动 ±10%、佣金 180d 新鲜度闸（超龄降级+stale marks，有意行为变更）、category_cache 10 年→90d、租户 guard dependency+error_reports/forensics 试点迁移（main.py 内联三端点迁路由）
 - ✅ BL-11 首期：示例率 11%→71%（45/63）+7 高频 POST requestBody + example-lint（--fail-on-missing-examples 可选门禁）
-- ⏳ 仍挂起：BL-30（bounds 学习闭环/is_aspect 兜底）、单飞锁二期、租户 guard Phase 2（18 调用点收敛）、示例二期（admin 面 13 schema）、BL-11 剩余 requestBody、SSH 探针/key 轮换/BL-18 立项
+- ✅ v075 收口批清偿（2026-09-11，PR #21 `feat/v075-closeout`，计划 `docs/PLAN-v075-release-closeout.md`）：BL-30 bounds 学习闭环+is_aspect 收窄、单飞锁（get_or_fetch 读穿+四处调用方接线）、租户 guard Phase 2/3 收尾（审计表 tenant_id+phase3 断言闸；categories 维持 Request-helper 形态）、示例二期 100%+strict 门禁进 CI、checkpoint 三表清理（BL-25 漏项）、priority 开放、绑店 advisory lock（BL-26 代码半）、pounding-mcp 30 工具差分核查。worker 2639/skill 1342/mcp 80。
+- ⏳ 仍挂起：SSH 探针（通道恢复后 probe_assets）/key 轮换（用户平台侧）/BL-18 立项；defer v0.76：task_status 404 化、明文 token 列退役、认领 SQL 租户轮转、单飞锁跨副本、BL-26 SSH 半（历史双绑清查+哈希租户守卫）、legacy GET /task/{task_id} 退役、discover_task MCP dry_run 默认翻转（产品拍板）。

@@ -1,5 +1,5 @@
 ---
-status: 执行中（2026-09-11 起）
+status: 已完成（2026-09-11，PR #21 已合 dev；实机 gate 待用户）
 scope: v0.75.0 收口批——repo-gov 战役（PR #13-#19）全部余量 + 发版物料 + 验证矩阵
 branch: feat/v075-closeout（worktree ../ozon-worker-v075）
 ---
