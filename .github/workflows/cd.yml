@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   packages: write
+  actions: read  # v0.75 加固第二批（H12）：CI 闸需读 actions runs
 
 jobs:
   version-check:
@@ -32,6 +33,33 @@ jobs:
             echo "❌ skill/SKILL.md frontmatter != $VERSION"; exit 1
           fi
           echo "✅ 版本四源一致: $VERSION"
+
+      # v0.75 加固第二批（H12）：tag 直接触发部署链，此前「CI 绿才打 tag」纯靠纪律
+      # （docs/audit/2026-09-11-io-avalanche.md）。闸=tag 指向的 commit 必须有一趟
+      # conclusion=success 的 CI run（CI 在 push main/dev 触发；刚合并即打 tag 会
+      # 轮询等待）。逃生门：CD_SKIP_CI_GATE=1（docs-only 提交会被 CI paths-ignore
+      # 跳过、确实无 CI run 的场景）。
+      - name: "Gate: tagged commit must have green CI"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${CD_SKIP_CI_GATE:-0}" = "1" ]; then
+            echo "↩️ CD_SKIP_CI_GATE=1，显式跳过 CI 闸"; exit 0
+          fi
+          SHA="${GITHUB_SHA}"
+          for i in $(seq 1 30); do
+            RESULT=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=20" \
+              --jq '[.workflow_runs[] | select(.name=="CI")] | sort_by(.run_number) | last | if . == null then "none" else "\(.status) \(.conclusion)" end' \
+              2>/dev/null || echo "api-failed")
+            echo "(${i}/30) tagged commit CI run: ${RESULT}"
+            case "$RESULT" in
+              "completed success") echo "✅ tagged commit CI 绿"; exit 0 ;;
+              completed\ *)       echo "::error::tagged commit 的 CI 结论: ${RESULT}（未通过）——先修 CI 再打 tag"; exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "::error::15 分钟内未等到 ${SHA:0:8} 的 CI 完成或该提交无 CI run（push 到 main/dev 才触发；docs-only 会被 paths-ignore 跳过）——确认后重打 tag，或 CD_SKIP_CI_GATE=1 显式跳过"
+          exit 1
 
   deploy:
     name: Docker Build & Push

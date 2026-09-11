@@ -297,11 +297,14 @@ fi
 # init_data.py 内含全部幂等 ALTER(ADD COLUMN IF NOT EXISTS / SET DEFAULT)。
 # v0.56.3 教训: 列默认值只在 model.py 对新建表生效, 存量旧表缺默认值 →
 # 升级后任务表 INSERT 违反 NOT NULL。升级后自动跑, 无需手动补 ALTER。
+# v0.75 加固第二批（H9）：失败从 warn 升级为 fail——「升级成功但 schema 半就绪」
+# 是静默 500 源头。不自动回滚：代码回滚治不了半迁移的库（且 health 已绿）；
+# 手动修复后本脚本重跑会因版本一致早退，缓存导入靠运行时懒加载兜底（7.6 注释）。
 log "🛠️ 执行数据库迁移(init_data.py, 幂等)..."
 if docker compose exec -T worker python scripts/init_data.py >/dev/null 2>&1; then
   log "✅ 数据库迁移完成"
 else
-  warn "⚠️ init_data.py 执行失败——检查日志; 建议手动: docker compose exec worker python scripts/init_data.py"
+  fail "init_data.py 执行失败——升级文件已就位但 schema 未完成（新列缺失=运行时 500）。排查: docker compose exec worker python scripts/init_data.py；修复后无需回滚/重跑升级（缓存走懒加载兜底）"
 fi
 
 # ── 7.6 v0.70: 属性缓存全量 JSON——COS 下载 → 拷入容器 → 后台 --import-only ──

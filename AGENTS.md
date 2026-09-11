@@ -54,6 +54,12 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **⚠️ 历史重写后协作纪律**：所有其他机器的 clone 必须删除重新 clone（旧历史已不存在）；19 组密钥平台侧轮换
   待用户（指纹表 `docs/audit/2026-09-11-repo-gov/SECRET-PURGE-RUNBOOK.md`）；**密钥绝不进源码库**——CI 全树
   gitleaks 闸 + .gitleaks.toml ratchet + leak_guard 指纹测试三闸防回潮（纪律正文 `docs/CONVENTIONS.md`）。
+- **部署加固第二批（H9/H11/H12 收尾，审计 `docs/audit/2026-09-11-io-avalanche.md`）**：cos-update init_data
+  失败 warn→fail（schema 半就绪不再静默；手动修复后勿重跑升级脚本——版本一致会早退，缓存懒加载兜底）/
+  cd.yml tag CI 闸（tag commit 必须有绿 CI run，轮询 15min，逃生门 `CD_SKIP_CI_GATE=1`）/ worker 绑定面
+  `WORKER_BIND_IP` 可收紧（默认 0.0.0.0 不变）；**Sentry 断流实锤**（2026-09-11 重启后仍 7 天零 error
+  事件——生产 SENTRY_DSN 疑缺失，ops 清单第 7 条）；root 容器缓期理由见审计 §三 H11 行（存量卷 root
+  属主，切 USER 断 /admin/config 写入）。
 - **租户口径（用户拍板）**：租户 = api.mxou.cn 同一用户库（`resolve_tenant`，Supabase tokens 表即 MXOU 用户库，
   哈希租户只是回退）；五贡献表 token_fp 指纹列双写；**新写租户面读端点必须走 `api/deps_tenant`（Request-helper
   或 Depends 二选一），phase3 断言测试（test_tenant_guard_phase3.py）锁不回退**。
