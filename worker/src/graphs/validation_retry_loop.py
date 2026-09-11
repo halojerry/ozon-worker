@@ -792,6 +792,25 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
     # ✅ v0.67.1 wave①: 消费前原样累积（本轮 batch + 剩余其他类型全量），否则
     # 下一行删除后 DESCRIPTION_DECLINE 的俄语 texts 物理消失，留存表只剩 code
     _accumulate_decline_errors(state, errors)
+
+    # ✅ v0.75 C4: 数值 bounds 拒单学习（audit A4 F-P1-1）——decline 原文进消费
+    # 队列时顺带回流 VALUE_MAX/MIN_LIMIT 界值到 attr_bounds_learned。学习内部
+    # 有置信门槛（attr_id+界同时命中才学）+ 整体静默（失败绝不影响重试主链）。
+    # 审核轮询 declined 的 mod_errors 经 should_reupload 回灌 state.errors 后
+    # 下一轮同样过本节点，无需在审核轮询处重复接。
+    try:
+        from utils.attr_numeric_sanitize import learn_bounds_from_decline
+
+        for _e in errors:
+            if not isinstance(_e, dict):
+                continue
+            _texts = _e.get("texts")
+            _msg = _texts.get("message") if isinstance(_texts, dict) else ""
+            if _msg:
+                learn_bounds_from_decline(str(_msg))
+    except Exception as _exc:  # 双保险：学习链任何异常都不进重试主链
+        logger.info(f"ℹ️ attr bounds 学习跳过: {_exc}")
+
     state.errors = [e for e in errors if isinstance(e, dict) and e.get("code") not in batch_codes]
     logger.info(f"📋 批量处理: {len(batch)}个 '{fix_type}' 错误，剩余{len(state.errors)}个其他类型")
 

@@ -289,6 +289,13 @@ def create_tables(engine):
         logger.info("✅ token_fp 存量回填完成: %d 行", _backfilled)
     except Exception as exc:
         logger.warning("⚠️ token_fp 回填失败（不阻断初始化，下次 init_data 重跑）: %s", str(exc)[:200])
+    # ✅ v0.75 C4（audit A4 F-P1-1）: 数值 bounds 拒单学习表 attr_bounds_learned——
+    # 新建库 create_all 已建表（model.AttrBoundLearned），无 ALTER 语句，仅登记
+    # 迁移版本供观测（幂等）
+    register_schema_migration(
+        engine, "repo_gov_v075_bounds",
+        "attr_bounds_learned 表（create_all 建表，无 ALTER）",
+    )
     logger.info("✅ 表结构已就绪")
 
 

@@ -426,6 +426,27 @@ class AttrMatchLog(Base):
     )
 
 
+class AttrBoundLearned(Base):
+    """v0.75 C4: 数值属性 bounds 拒单学习表 — Ozon 平台不下发数值 bounds，
+    唯一来源是 VALUE_MAX/MIN_LIMIT 拒单原文回流（audit A4 F-P1-1）。
+
+    全局共享无 tenant_id（对齐 category_commission W11 先例）。**拒单学习表，
+    sample 列留拒单原文片段供人工复核**。读写唯一入口
+    utils/attr_numeric_sanitize.py（parse/learn/get 三函数）；读侧静态
+    NUMERIC_ATTR_BOUNDS（人工维护）恒赢本表。
+    """
+    __tablename__ = "attr_bounds_learned"
+
+    attr_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)  # Ozon 数值属性 ID
+    min_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # 只学到上界时为 NULL
+    max_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # 只学到下界时为 NULL
+    source: Mapped[str] = mapped_column(String(32), default="decline_learned")
+    sample: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # 拒单原文片段（cap 200，人工复核面）
+    updated_at: Mapped[Optional[int]] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), comment="epoch 秒"
+    )
+
+
 class DomainHint(Base):
     """v4: 领域消歧规则 — 特定关键词强制导向某Ozon顶级类目"""
     __tablename__ = "domain_hint"
