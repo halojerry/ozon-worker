@@ -272,6 +272,10 @@ def upsert_category_commission(
     """PG upsert category_commission：ON CONFLICT (description_category_id) DO UPDATE。
 
     segments 形如 `fbs_leq_1500=8.0`（百分比）；source / updated_at 随 upsert 刷新。
+    BL-24 Phase 3-7（随用续期）：DO UPDATE SET 显式带 ``updated_at=func.now()``
+    （建表起既有）——被 180d 新鲜度闸判超龄的行随 what_to_sell 分段 upsert 自然
+    续期，闸即解除；fresh INSERT 分支由列 server_default=func.now() 兜底
+    （model.py）。语句级 + 真实 PG 行为双测锁定（test_commission_stale_v075.py）。
     session 可注入（测试传 mock）；默认取真实 session（惰性导入）。
     """
     own_session = session is None
