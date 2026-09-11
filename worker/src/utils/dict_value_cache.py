@@ -20,6 +20,13 @@ ozon-dict-api-semantics）：`dictionary_value_cache` 按 (attr,dc,tp) 键把全
 真实类目冲突，ON CONFLICT 正常命中（并绕开 NULL type_id 使 ON CONFLICT
 永不命中的既有雷）。读侧 scoped→global 回退由
 `OzonCategoryQuery.get_dictionary_values` 内置。
+
+防击穿接线登记（v0.75 BL-25 Phase 2）：routed_get 返回 None 即 miss，回源
+Ozon fetch 必须经 :func:`run_exclusive` 包裹（同 key 并发只回源一次），或
+直接迁移到 :func:`get_or_fetch` 一站式读穿（miss 判定出口已接线）。现回源
+动作在调用方手里（assemble/retry 的 ``_cache_dict_values`` 链、
+category_schema_service、warm 脚本）——迁移时只包「回源 fetch」，
+**绝不串行化 PG set/get 读路径**。
 """
 from __future__ import annotations
 
@@ -27,7 +34,8 @@ import logging
 import random
 import threading
 import time
-from typing import Any, List, Optional
+from contextlib import contextmanager
+from typing import Any, Callable, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +58,8 @@ DICT_CACHE_TTL_SECONDS = 30 * 86400
 # 在此统一应用，调用方零改动。
 JITTER_RATIO = 0.10
 # 防穿透：负缓存 TTL（秒）——回源 Ozon 确认「该键无值」后短窗内不再回源。
-# 单飞锁（防击穿 singleflight）留二期（设计 §3 Phase 2）。
+# 防击穿：单飞锁（singleflight）已落地（v0.75 Task C1，见下方 _SF_* 块与
+# get_or_fetch 读穿接线点）。
 NEGATIVE_TTL_SECONDS = 60
 
 BUCKET_GLOBAL = "global"
@@ -116,6 +125,102 @@ def record_negative(attr_id: int, dc: int, tp: int,
         logger.warning("负缓存落库失败(%s, 非致命): %s", key, exc)
 
 
+# ── BL-25/S9-04 缓存三防 二期：防击穿 singleflight（v0.75 Task C1，
+#    docs/audit/2026-09-11-repo-gov/design-b2b-perf-hardening.md §2.1）──
+# 同 key 并发 miss 只放一个线程回源 Ozon，其余阻塞等待后共享结果（leader
+# 执行 / follower 共享）。workers=1 是现部署契约 → 进程内锁即够；跨副本
+# 待多副本批次再议（与负缓存同口径）。⚠️ 只用于包「缓存 miss 后回源
+# fetch」，绝不串行化 PG set/get 读路径（共享读，锁了就是自造瓶颈）。
+_SF_LOCK = threading.Lock()
+_SF_INFLIGHT: set = set()
+_SF_COND = threading.Condition(_SF_LOCK)
+_SF_STATS = {"inflight_hits": 0, "acquired": 0}
+# 结果槽：leader 把 fn 的（结果, 异常）发布于此，同飞行 follower 取用不重跑。
+# 带上限防长驻内存（溢出整体清空，缺槽的 follower 退化为自执行 fn——少一次
+# 去重，正确性不受影响）。
+_SF_SLOT: dict = {}
+_SF_SLOT_CAP = 1024
+_SF_WAIT_TIMEOUT = 30.0
+
+
+class _SingleflightLease:
+    """acquire_singleflight 的租约句柄：waited=True 表示进锁前经历过等待
+    （与自己并发存在先行者），run_exclusive 据此判 leader/follower。"""
+
+    __slots__ = ("waited",)
+
+    def __init__(self) -> None:
+        self.waited = False
+
+
+def singleflight_stats() -> dict:
+    """单飞锁计数器（探针面）：{"inflight_hits": int, "acquired": int}。
+
+    acquired = 成功进入临界区次数；inflight_hits = 发现 key 已被占而等待的
+    次数。返回副本，外部改写不影响内部计数。
+    """
+    with _SF_COND:
+        return dict(_SF_STATS)
+
+
+@contextmanager
+def acquire_singleflight(key: tuple):
+    """per-key 互斥上下文（yield :class:`_SingleflightLease`）。
+
+    同 key 并发只有一个线程持锁，其余阻塞等待后进入（lease.waited=True 标记
+    等过）。等待用 Condition.wait(_SF_WAIT_TIMEOUT) 循环重查（超时后重查仍占
+    则继续等，不 raise——宁可慢不可死锁）；退出（含异常路径）discard +
+    notify_all 唤醒同 key 等待者。不同 key 互不影响（并行度不退化）。
+    """
+    lease = _SingleflightLease()
+    with _SF_COND:
+        while key in _SF_INFLIGHT:
+            lease.waited = True
+            _SF_STATS["inflight_hits"] += 1
+            _SF_COND.wait(_SF_WAIT_TIMEOUT)
+        _SF_INFLIGHT.add(key)
+        _SF_STATS["acquired"] += 1
+    try:
+        yield lease
+    finally:
+        with _SF_COND:
+            _SF_INFLIGHT.discard(key)
+            _SF_COND.notify_all()
+
+
+def run_exclusive(key: tuple, fn: Callable[[], Any]) -> Any:
+    """同 key 并发去重执行：与本次并发的调用方共享首个结果，fn 只跑 1 次。
+
+    leader（进锁无需等待 = 本飞行第一个到达）执行 fn 并把（结果, 异常）发布
+    进结果槽；follower（进锁前等过 = 与 leader 并发）直接取槽中结果不重跑
+    fn（Go singleflight 语义，follower 同收 leader 的异常）。飞行结束后才
+    到达的新调用（没等过）正常开启新飞行，不吃陈旧槽。fn 抛异常时锁照常
+    释放（acquire_singleflight finally 兜底），后续调用可重进。
+    """
+    with acquire_singleflight(key) as lease:
+        if not lease.waited:
+            try:
+                result = fn()
+            except BaseException as exc:
+                with _SF_COND:
+                    _SF_SLOT[key] = (None, exc)
+                raise
+            with _SF_COND:
+                if len(_SF_SLOT) >= _SF_SLOT_CAP:
+                    _SF_SLOT.clear()
+                _SF_SLOT[key] = (result, None)
+            return result
+        with _SF_COND:
+            entry = _SF_SLOT.get(key)
+        if entry is not None:
+            result, err = entry
+            if err is not None:
+                raise err
+            return result
+        # 槽缺失（槽被上限清空时可能）→ 退化为自执行 fn
+        return fn()
+
+
 def is_category_dependent(attr_row: Any) -> bool:
     """schema 行的按类目隔离开关。字段缺失/无法判定 → True（保守按 scoped，
     与旧版行为一致——老缓存行与旧测试夹具均无该字段）。"""
@@ -147,6 +252,11 @@ def routed_get(attr_id: int, dc: int, tp: int,
     values_data=[] 视为 falsy 吞掉（无法表达负缓存行），故本函数直接读
     LocalDBManager（行为对齐：scoped 未命中/空行 → global 哨兵回退；global
     正数据优先于 scoped 负标记）。异常吞掉返回 None（调用方自行回源 API）。
+
+    防击穿接线（v0.75 BL-25 Phase 2）：本函数返回 None 即 miss，回源 Ozon
+    fetch 必须经 :func:`run_exclusive` 包裹（同 key 并发只回源一次），或直接
+    迁移到 :func:`get_or_fetch` 一站式读穿。迁移时只包「回源 fetch」，
+    **绝不串行化 PG set/get 读路径**。
     """
     key = _neg_key(attr_id, dc, tp, language)
     if _negative_hit(key):
@@ -212,3 +322,46 @@ def routed_set(attr_id: int, values: List[dict], dc: int, tp: int, *,
         logger.warning("字典 %s 落桶失败(%s, 非致命): %s", attr_id, bucket, exc)
         return BUCKET_EPHEMERAL
     return bucket
+
+
+def get_or_fetch(attr_id: int, dc: int, tp: int,
+                 language: str = "ZH_HANS",
+                 fetch_fn: Optional[Callable[[], List[dict]]] = None,
+                 *, attr_row: Any = None, truncated: bool = False,
+                 expires_in: int = DICT_CACHE_TTL_SECONDS) -> List[dict]:
+    """读穿一站式入口（v0.75 防击穿接线点）：缓存命中直接回，miss 才回源。
+
+    流程：进程内负缓存短路 → :func:`routed_get` → miss（None）时
+    :func:`run_exclusive`（同 key 并发只一个线程真正回源）→ 锁内双检
+    （等待期间 leader 可能已落库）→ ``fetch_fn()`` → 非空走 :func:`routed_set`
+    落桶（三桶+TTL 抖动自动生效）/ 空 :func:`record_negative` 负缓存。
+
+    调用方迁移指引：现回源动作在 assemble/retry（``_cache_dict_values`` 链）、
+    category_schema_service、warm 脚本各自手里——把「miss 后 fetch+落库」
+    的代码块换成本函数（或至少用 run_exclusive 包住 fetch），**绝不把
+    PG set/get 读路径包进锁**。fetch_fn 异常向本飞行全部等待者透传。
+    """
+    if fetch_fn is None:
+        raise TypeError("fetch_fn is required")
+    key = _neg_key(attr_id, dc, tp, language)
+    if _negative_hit(key):
+        return []
+    hit = routed_get(attr_id, dc, tp, language)
+    if hit is not None:
+        return hit
+
+    def _miss_fetch() -> List[dict]:
+        # 双检：等锁期间 leader 可能已回源落库 → 直接吃缓存，不再回源
+        again = routed_get(attr_id, dc, tp, language)
+        if again is not None:
+            return again
+        values = fetch_fn() or []
+        if values:
+            routed_set(attr_id, values, dc, tp, attr_row=attr_row,
+                       truncated=truncated, language=language,
+                       expires_in=expires_in)
+            return values
+        record_negative(attr_id, dc, tp, language)
+        return []
+
+    return run_exclusive(key, _miss_fetch)
