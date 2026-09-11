@@ -42,7 +42,7 @@ def test_subscription_no_balance_falls_back_to_soft_limit(monkeypatch):
     )
     monkeypatch.setattr(mxou_api, "_get_session_balance", lambda token: None)
 
-    bal = mxou_api.get_mxou_balance("sk-ODyGgd9EN1D6jn69SMNTurAQspA4OkEnunJH8tBOhuFzDcfl")
+    bal = mxou_api.get_mxou_balance("sk-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT")
     assert bal is not None
     assert bal > 0
 
@@ -57,5 +57,5 @@ def test_session_balance_quota_used(monkeypatch):
     )
     monkeypatch.setattr(mxou_api, "_get_session_balance", lambda token: 20.0)
 
-    bal = mxou_api.get_mxou_balance("sk-ODyGgd9EN1D6jn69SMNTurAQspA4OkEnunJH8tBOhuFzDcfl")
+    bal = mxou_api.get_mxou_balance("sk-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT")
     assert bal == 20.0

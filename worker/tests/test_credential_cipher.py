@@ -31,7 +31,7 @@ from utils.credential_cipher import (  # noqa: E402
 )
 
 AAD = "tenant_1:4718259"
-VALUE = "sk-cd1d0a10-181a-42a1-8895-8508bb0513d7"
+VALUE = "sk-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
 KEY = "a" * 32  # 恰好 32 字节 → 直接作为 AES key
 
 

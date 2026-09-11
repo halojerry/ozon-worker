@@ -486,6 +486,18 @@ class TaskGeneratedImage(Base):
 # 数据来源于用户、服务于用户：skill 采集的蓝海/榜单数据集体沉淀到 worker PG。
 # 去重键 = 数据自然键 + contributed_by_token_id（用户隔离，同一用户重复采集走 upsert 更新）。
 # source 列区分采集来源（fetched=skill 采集），预留后续扩展。
+# A8 F6/BL-06（repo-gov B5）：contributed_by_token_id / discovery_runs.tenant_id 存
+# MXOU key 明文（DB 泄露即凭证泄露）——五表各加 token_fp 指纹列（sha256 前 16，唯一
+# 算法入口 services.tenant_service.token_fingerprint）双写 + init_data 回填；明文列
+# 删除留灰度期后，此前两列并存。
+
+def _token_fp_column():
+    """五贡献表共用的 token_fp 列定义（可空 String(16) + ix_<table>_token_fp 索引）。"""
+    return mapped_column(
+        String(16), nullable=True, index=True,
+        comment="上报用户 key 指纹（sha256 前 16 位；与明文列灰度并存，见 tenant_service.token_fingerprint）",
+    )
+
 
 class BlueOceanQuery(Base):
     """skill what-to-sell all-queries 关键词蓝海数据（v0.34 C5）。
@@ -504,6 +516,7 @@ class BlueOceanQuery(Base):
     uniq_queries_wca: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="含 CA 的独立查询数")
     uniq_sellers: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="独立卖家数")
     contributed_by_token_id: Mapped[str] = mapped_column(Text, nullable=False, comment="上报用户 token（去 sk- 前缀后的 key）")
+    token_fp: Mapped[Optional[str]] = _token_fp_column()
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="fetched", comment="采集来源")
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -531,6 +544,7 @@ class OzonBestseller(Base):
     ordering_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="订购数量")
     avg_price_rub: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="平均售价（卢布）")
     contributed_by_token_id: Mapped[str] = mapped_column(Text, nullable=False, comment="上报用户 token（去 sk- 前缀后的 key）")
+    token_fp: Mapped[Optional[str]] = _token_fp_column()
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="fetched", comment="采集来源")
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -558,6 +572,7 @@ class MarketBestseller(Base):
     daily_avg: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="日均销量")
     other_platform_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="其他平台价格")
     contributed_by_token_id: Mapped[str] = mapped_column(Text, nullable=False, comment="上报用户 token（去 sk- 前缀后的 key）")
+    token_fp: Mapped[Optional[str]] = _token_fp_column()
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="fetched", comment="采集来源")
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -581,6 +596,10 @@ class DiscoveryRun(Base):
     tenant_id: Mapped[str] = mapped_column(
         String(50), nullable=False, comment="上报用户 clean token（租户隔离：GET 只读本租户）"
     )
+    # A8 F6 判定（2026-09-11 grep 实测）：tenant_id 由 _handle_discovery_run_report
+    # 写入 clean token 明文（probe_assets S5 同结论），非派生租户——故跟随四贡献表
+    # 加同款 token_fp（非 contributed_token_fp 别名列）。
+    token_fp: Mapped[Optional[str]] = _token_fp_column()
     keyword: Mapped[str] = mapped_column(Text, nullable=False, comment="选品关键词")
     filters_json: Mapped[Optional[dict]] = mapped_column(
         JSONB, nullable=True, comment="选品过滤条件快照"
@@ -1098,6 +1117,7 @@ class SelectionInsight(Base):
     sold_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     source: Mapped[str] = mapped_column(String(20), default="fetched")
     contributed_by_token_id: Mapped[str] = mapped_column(Text, nullable=False, comment="上报用户 token（去 sk- 前缀后的 key）")
+    token_fp: Mapped[Optional[str]] = _token_fp_column()
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (

@@ -17,8 +17,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.lib import ozon_image_search as ois  # noqa: E402
 
+# mtop 签名测试用的占位 token（32 位假 hex）：仅锁「签名 = md5(token&t&appKey&data)」
+# 公式本身，token 值无需真实。常量名避开 token/key/secret 关键词（防 gitleaks
+# generic-api-key 邻接匹配）——密钥纪律见 docs/CONVENTIONS.md「密钥纪律」节。
+_SIGN_TOK = "a1b2c3d4" * 4
+
 MOCK_COOKIES = {
-    "_m_h5_tk": "6499814d73071a8266d07f43c4b4b5d8_1786528017499",
+    "_m_h5_tk": f"{_SIGN_TOK}_1786528017499",
     "_m_h5_tk_enc": "7704ca511fa0591dea466c5ae7d4250d",
     "tfstk": "gAOImrvbD3dwTYuK2kuZ1ilQWQCS0Vl4yz",
     "isg": "BKys-7El6gMgJv4_rpqToqBTfYzeZVAPkoirMwbtuNf6",
@@ -53,8 +58,8 @@ MOCK_SEARCH_RESP = (
 # ── 签名算法 ──────────────────────────────────────────────────────────────
 
 def test_mtop_sign_matches_known_value():
-    """mtop 签名 = md5(token & t & appKey & data)，与实测成功请求一致。"""
-    token = "6499814d73071a8266d07f43c4b4b5d8"
+    """mtop 签名 = md5(token & t & appKey & data)——锁公式本身（token 为占位常量）。"""
+    token = _SIGN_TOK
     t = "1786520287285"
     data = "{}"
     sign = ois._mtop_sign(token, t, data)
@@ -100,8 +105,8 @@ def test_mtop_request_builds_correct_signature(mock_get):
     assert params["appKey"] == "12574478"
     assert params["api"] == "mtop.test.api"
     assert params["t"] == "1786520287285"
-    # 签名 = md5(token&t&appKey&data)
-    token = "6499814d73071a8266d07f43c4b4b5d8"
+    # 签名 = md5(token&t&appKey&data)；token 取 _m_h5_tk 首个 _ 前段（即 _SIGN_TOK）
+    token = _SIGN_TOK
     expect_sign = hashlib_md5(f"{token}&1786520287285&12574478&{{\"a\": 1}}").hexdigest()
     assert params["sign"] == expect_sign
 

@@ -4,6 +4,7 @@
 - 未配置(本地/测试):回退 key 哈希派生,保持旧行为,测试夹具无需全量改。
 - get_supabase 为可替换获取器(默认 storage 单例),测试可 patch。
 - resolve_analytics_scope:读端点 scope {tenant_id, is_admin};角色查询失败按非 admin。
+- token_fingerprint:MXOU key 落库指纹唯一入口(A8 F6/BL-06;sha256 hex 前 16 位)。
 """
 from __future__ import annotations
 
@@ -30,6 +31,26 @@ get_supabase = _storage_get_supabase
 def key_derived_tenant(clean_token: str) -> str:
     """回退租户:key 哈希派生(M2 前行为;本地/未配置 Supabase 时使用)。"""
     return f"user_{hashlib.sha256(clean_token.encode()).hexdigest()[:16]}"
+
+
+def token_fingerprint(token: str) -> str:
+    """MXOU key 落库指纹（A8 F6 / BL-06）：sha256(clean token) hex 前 16 位。
+
+    背景：blue_ocean_queries / ozon_bestsellers / market_bestsellers /
+    selection_insights 的 contributed_by_token_id 与 discovery_runs.tenant_id
+    存 MXOU key 明文——DB 泄露即凭证泄露。本指纹是写入侧双写（token_fp 列）
+    与回填的唯一算法入口；明文列删除（灰度期后）后凭请求 key 可重建等值比对。
+
+    ⚠️ 与展示脱敏指纹 utils/sentry_setup._token_fingerprint（前 8 明文 +
+    sha1 前 6）**不同款、不可互换**：那是 Sentry 人类可读 tag，本函数是
+    无前缀泄露的等值检索键。入参容忍 sk- 前缀（与 resolve_tenant 同语义，
+    内部自剥）；空 token → ""（调用方在 token 已过 401 闸后才会走到这里，
+    "" 仅是防御值，不得落库当合法指纹）。
+    """
+    clean = _clean_token(token or "")
+    if not clean:
+        return ""
+    return hashlib.sha256(clean.encode("utf-8")).hexdigest()[:16]
 
 
 def _clean_token(token: str) -> str:

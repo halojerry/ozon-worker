@@ -68,7 +68,7 @@ def test_balance_fallback_resolves_real_user(monkeypatch):
     )
 
     balance, has_quota = main_mod._check_mxou_balance({
-        "key": "ODyGgd9EN1D6jn69SMNTurAQspA4OkEnunJH8tBOhuFzDcfl",
+        "key": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
         "user_id": "user_deadbeef",  # 复现 submit_task 传哈希租户
     })
 
@@ -89,7 +89,7 @@ def test_balance_fallback_unlimited_zero_quota(monkeypatch):
     )
 
     _balance, has_quota = main_mod._check_mxou_balance({
-        "key": "ODyGgd9EN1D6jn69SMNTurAQspA4OkEnunJH8tBOhuFzDcfl",
+        "key": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
         "user_id": "user_deadbeef",
     })
 

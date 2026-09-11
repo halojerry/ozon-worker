@@ -26,9 +26,9 @@ def test_get_mxou_balance_prepends_sk_prefix(monkeypatch):
     monkeypatch.setattr(mxou_api, "_get_session", lambda: FakeSession())
     monkeypatch.setattr(mxou_api, "mxou_acquire", lambda token: None)
 
-    bal = mxou_api.get_mxou_balance("Ccpo3ziBuPH6daniA13XPDPGRem7m9OqsXPGZWvA5xK3eJyL")
+    bal = mxou_api.get_mxou_balance("TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT")
     assert bal == 141629.24
-    assert captured["auth"] == "Bearer sk-Ccpo3ziBuPH6daniA13XPDPGRem7m9OqsXPGZWvA5xK3eJyL"
+    assert captured["auth"] == "Bearer sk-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
     assert "billing/subscription" in captured["url"]
 
 

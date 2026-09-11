@@ -76,7 +76,7 @@ def test_create_missing_api_key_422_not_500():
     """body 用 ozon_api_key（信封词汇）→ 必填 api_key 缺失 → 422，不再裸 500。"""
     resp = TestClient(main_mod.app).post("/api/v1/credentials", json={
         "ozon_client_id": "5381204",
-        "ozon_api_key": "0b4d15cf-70a2-4505-9764-f64ac169b52f",
+        "ozon_api_key": "00000000-0000-0000-0000-000000000000",
         "shop_name": "测试店铺5381204",
         "is_default": True,
     }, headers=_headers())
