@@ -14,6 +14,13 @@ job_list 找回。缺省 background=False 行为与旧版逐字一致。
 v0.74 会话代管（A6 P2 #6 / BL-13）：session_sync 封装 skill CLI session-sync，
 worker 409 session_expired 后对话内自愈；输出经脱敏层才返回（绝不回显 cookie 值）。
 
+v0.75 参数差分核查（C10，对照 cli.py argparse 全集逐工具比对）：
+- 补漏 flag（①类漂移）：search +export/threads、image_search +ozon_product_id、
+  queries +export/output、session_sync +status/cdp_url——缺省值均与 CLI 默认逐字
+  等价（缺省不进 argv，旧行为不变）。
+- discover/discover_multi/discover_task 的筛选参数族为有意裁剪面（docstring 委托
+  `--help`），登记不修，见 docs/MCP-SERVER.md「参数差分核查表（v0.75）」。
+
 工具在 dsh 中可见为 `mcp__pounding__<toolName>`（由 dsh-mcp-client 加前缀）。
 """
 
@@ -89,12 +96,16 @@ def get_ak(timeout: int = 300) -> dict:
 @mcp.tool()
 def search(query: str, page_size: int = 5, sort: str = "",
            rules: str = "", store: str = "", auto_submit: bool = False,
-           to_box: bool = False) -> dict:
+           to_box: bool = False, export: str = "",
+           threads: int | None = None) -> dict:
     """搜索 1688 商品。双出口二选一：auto_submit=True 直接批量上架（dsh 审批）；
-    to_box=True 逐个入采集箱（WebUI 认领后再上架）。都不传=只搜索。"""
+    to_box=True 逐个入采集箱（WebUI 认领后再上架）。都不传=只搜索（CLI 互斥组，
+    auto_submit 与 to_box 同传会报错）。
+    export=CSV 导出路径；threads=双出口并发线程数（缺省走 CLI 默认 3，上限 8）。"""
     return get_manager().run_and_record("search",
         {"query": query, "page_size": page_size, "sort": sort, "rules": rules, "store": store,
-         "auto_submit": auto_submit, "to_box": to_box},
+         "auto_submit": auto_submit, "to_box": to_box, "export": export,
+         "threads": threads},
         source="agent")
 
 
@@ -105,10 +116,13 @@ def probe(url: str, timeout: int = 30) -> dict:
 
 
 @mcp.tool()
-def image_search(image: str, limit: int = 10, sort: str = "", source: str = "aibuy") -> dict:
-    """以图搜款（上传图片找 1688 同款）。只读。source: aibuy/ak/cdp。"""
+def image_search(image: str, limit: int = 10, sort: str = "", source: str = "aibuy",
+                 ozon_product_id: str = "") -> dict:
+    """以图搜款（上传图片找 1688 同款）。只读。source: aibuy/ak/cdp。
+    ozon_product_id=可选绑定 Ozon 商品 ID，图搜结果自动上报 worker 货源匹配工作台。"""
     return get_manager().run_and_record("image_search",
-        {"image": image, "limit": limit, "sort": sort, "source": source}, source="agent")
+        {"image": image, "limit": limit, "sort": sort, "source": source,
+         "ozon_product_id": ozon_product_id}, source="agent")
 
 
 @mcp.tool()
@@ -159,7 +173,10 @@ def discover_multi(keywords: str, max_each: int = 30, local: bool = False,
                    auto_submit: bool = False, to_box: bool = False,
                    background: bool = False, force: bool = False) -> dict:
     """多关键词批量选品。keywords 逗号分隔。auto_submit/to_box 触发 dsh 侧审批。
-    background=true 后台跑立即返回 task_id。"""
+    background=true 后台跑立即返回 task_id。
+    其余筛选参数（fx_rate/min_price/max_price/brand_filter/filter_profile/
+    base_filter/blue_ocean/export 等）与 discover 同族为有意裁剪面，
+    见 skill CLI discover-multi --help。"""
     return _run_or_background("discover_multi",
         {"keywords": keywords, "max_each": max_each, "local": local,
          "min_margin": min_margin, "store": store, "auto_submit": auto_submit,
@@ -184,6 +201,8 @@ def discover_task(url: str = "", keyword: str = "", target_count: int = 50,
     双出口二选一（互斥）：to_box=True 入采集箱（POST /drafts，可逆，dsh 审批）；
     auto_submit=True 直接提交 Worker 上架（submit_task，真实创建商品，必须确认）。
     dry_run=True（默认）零副作用；export=CSV 路径落盘全量候选（含状态/利润率列）。
+    ⚠️ CLI --dry-run 压制双出口（cli.py `dry_run or not (to_box or auto_submit)`）——
+    to_box=True/auto_submit=True 时必须显式 dry_run=False 才真实入箱/上架。
     resume 续跑同入口最近任务（跳过已处理 pid 不重烧图搜）；粗筛池耗尽仍未达标
     会如实报告缺口。结果尾部输出结构化 summary。
     其余筛选参数（filters/filter_profile/min_price/max_price/brand_filter 等）见
@@ -212,12 +231,16 @@ def seller(seller_id: str, max_products: int = 60, max_skus: int = 30,
 @mcp.tool()
 def queries(type: str, keyword: str = "", sku: str = "", category_id: str = "",
             price_min: float | None = None, price_max: float | None = None,
+            export: str = "", output: str = "",
             background: bool = False, force: bool = False) -> dict:
     """what-to-sell 榜单查询。type: all-queries/ozon-bestsellers/market-bestsellers。只读。
+    export="csv|json"（缺省 CLI 按 csv 打印 stdout）；output=落盘路径（缺省打印）。
+    export="json" 且不落盘时返回结构化 JSON（好过 raw 文本逐行数）。
     background=true 后台跑立即返回 task_id。"""
     return _run_or_background("queries",
         {"type": type, "keyword": keyword, "sku": sku, "category_id": category_id,
-         "price_min": price_min, "price_max": price_max},
+         "price_min": price_min, "price_max": price_max,
+         "export": export, "output": output},
         background, force)
 
 
@@ -436,7 +459,8 @@ def _redact_deep(obj):
 
 
 @mcp.tool()
-def session_sync(credential_id: str, worker_url: str = "") -> dict:
+def session_sync(credential_id: str, worker_url: str = "",
+                 status: bool = False, cdp_url: str = "") -> dict:
     """收割本机 Chrome 的 seller.ozon.ru 会话上传 worker 代管（AES-GCM 加密，脱敏）。
 
     对话内自愈通道：worker 返回 409 session_expired / check 提示会话过期 /
@@ -444,11 +468,14 @@ def session_sync(credential_id: str, worker_url: str = "") -> dict:
     seller.ozon.ru 卖家后台（确保登录），成功后重试原请求即可。
     credential_id = worker 店铺凭证 ID（与 analyze_store/run_store_action 的
     store_id 同源；WebUI 店铺管理页可见）。worker_url 仅本地调试指定。
+    status=True 只查 worker 侧会话状态（脱敏），不收割不上传；
+    cdp_url 自定义 Chrome CDP 地址（缺省 http://127.0.0.1:9222）。
     成功返回脱敏摘要（cookie 名单 + 状态 + harvested_at）；未登录或缺核心
     cookie sc_company_id 时 CLI fail-fast 拒传（exit 2），返回补救提示。
     红线：绝不回显 cookie 值——CLI 输出过脱敏层后才返回。"""
     parsed, proc = run_skill_command_capture(
-        "session_sync", credential_id=credential_id, worker_url=worker_url)
+        "session_sync", credential_id=credential_id, worker_url=worker_url,
+        status=status, cdp_url=cdp_url)
     redacted = _redact_deep(parsed)
     out: dict = {"ok": proc.returncode == 0, "credential_id": credential_id,
                  "exit_code": proc.returncode}
