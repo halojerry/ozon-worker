@@ -453,8 +453,31 @@ async_runtime: Optional[AsyncTaskRuntime] = None
 async_graph: Optional[CompiledStateGraph] = None
 task_processor: Optional[SupabaseTaskProcessor] = None
 
+def _warn_if_multi_worker() -> None:
+    """B4 BL-31（2026-09-11 仓库治理）：多 worker 部署探测告警（只告警不改行为）。
+
+    本进程存在多处**内存态组件**：MXOU 余额缓存（_check_balance_cached，token
+    指纹绑定）、任务进度缓存（内存优先 + PG 2s 节流回写）、限流器计数、远程 MCP
+    session manager（FastMCP）——均进程局部，无任何开关能使其多副本安全，当前
+    部署假设 uvicorn workers=1（start_http_server 硬编码；横向并发靠
+    MAX_CONCURRENT 单进程内消化）。uvicorn/gunicorn 均会读 WEB_CONCURRENCY
+    （gunicorn 亦读 WORKERS）——env >1 即告警，提醒运维改回单 worker 部署。
+    """
+    for _var in ("WEB_CONCURRENCY", "WORKERS"):
+        _raw = os.getenv(_var, "").strip()
+        if _raw.isdigit() and int(_raw) > 1:
+            logger.warning(
+                "⚠️ 检测到 %s=%s：内存态组件（余额缓存/租户缓存/MCP session/限流计数）"
+                "非多副本安全，当前部署假设 workers=1——多 worker 会出现余额误判/进度"
+                "丢失/MCP 会话错乱，请改用单 worker + MAX_CONCURRENT 扩并发",
+                _var, _raw,
+            )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ✅ B4 BL-31: 启动即探测多 worker 误部署（内存态组件非多副本安全，见函数注释）
+    _warn_if_multi_worker()
     engine = get_engine()
     # 自动建表（幂等，CREATE TABLE IF NOT EXISTS）
     init_db()
@@ -2065,11 +2088,13 @@ async def http_cancel_task(task_id: str):
                 "message": "Task cancelled successfully"
             }
         else:
-            return {
-                "status": "failed",
-                "task_id": task_id,
-                "message": "Task cannot be cancelled (may not in pending status)"
-            }
+            # B4 (2026-09-11 仓库治理, A5 §2 D-01)：不可取消（非 pending /
+            # 处理异常）由 200+{status:failed} 改返 409 + TASK_NOT_CANCELLABLE
+            # 统一错误信封——原 200 形态客户端无法编程区分成败（该错误码此前零接线）。
+            return error_response(
+                WorkerErrorCode.TASK_NOT_CANCELLABLE,
+                f"Task {task_id} cannot be cancelled (may not in pending status)",
+            )
             
     except Exception as e:
         logger.error(f"Cancel task error: {e}, traceback: {traceback.format_exc()}")
@@ -2681,108 +2706,6 @@ async def v1_discovery_list_runs(request: Request):
     return {"items": items, "total": int(total or 0), "limit": limit, "offset": offset}
 
 
-@v1.post("/error_reports", tags=["error-reports"])
-async def v1_create_error_report(request: Request):
-    """用户问题反馈错误报告（v0.69）：agent 按模板填写（含复现方式/证据）→ 落库。
-
-    worker 按 evidence.task_ids 自动附加本租户任务快照（假成功取证实证：
-    快照自带 status/error/product_id/时间线，报告自足可复现）。
-    模板契约：docs/ERROR-REPORT-TEMPLATE.md。鉴权/限流与 analytics 同源。
-    """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
-    allowed, _remaining = rate_limiter.check(clean_token)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
-
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=422, detail="invalid JSON body")
-    if not isinstance(body, dict):
-        raise HTTPException(status_code=422, detail="body must be a JSON object")
-
-    # v0.73 租户统一：与任务写入侧同源（Supabase tokens.user_id；传原始 token，
-    # 内部剥 sk-；未配置 Supabase 回退 key 哈希）。哈希租户 → 快照恒 0 条。
-    from services.tenant_service import resolve_tenant
-    tenant_id = resolve_tenant(token)
-    from services.error_report_service import create_error_report
-    try:
-        out = create_error_report(
-            tenant_id, body,
-            worker_version=(os.environ.get("APP_VERSION", "") or "").strip(),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    return {"status": "ok", **out}
-
-
-@v1.get("/error_reports", tags=["error-reports"])
-async def v1_list_error_reports(request: Request):
-    """本租户错误报告列表（新→旧，status 可筛，limit≤200）。详情：?report_id=。"""
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
-    # v0.73 租户统一（同 create_error_report；哈希租户 → 列表/详情恒空）
-    from services.tenant_service import resolve_tenant
-    tenant_id = resolve_tenant(token)
-
-    q = request.query_params
-    rid = (q.get("report_id") or "").strip()
-    from services.error_report_service import get_error_report, list_error_reports
-    if rid:
-        detail = get_error_report(tenant_id, rid)
-        if detail is None:
-            raise HTTPException(status_code=404, detail="report not found")
-        return detail
-    try:
-        limit = max(1, min(int(q.get("limit", 50)), 200))
-    except (TypeError, ValueError):
-        limit = 50
-    try:
-        offset = max(0, int(q.get("offset", 0)))
-    except (TypeError, ValueError):
-        offset = 0
-    return list_error_reports(tenant_id, limit=limit, offset=offset,
-                              status=(q.get("status") or "").strip() or None)
-
-
-@app.get("/forensics/task/{task_id}", tags=["error-reports"])
-@app.get("/api/v1/forensics/task/{task_id}", tags=["error-reports"])
-async def v1_task_forensics(task_id: str, request: Request):
-    """任务取证一站式只读聚合（v0.70）：任务快照 + listing_result_log +
-    category_match_log + attr_match_log 四路事实。
-
-    替代「换库 Supabase」的本地/云端配合取证通道——agent/MCP 凭 Bearer 直接查
-    生产任务的留存与审计（此前只能 SSH psql）。租户校验：任务行不属本租户 →
-    404（等价不存在）。v0.67 前的 category_match_log 历史行为 ingest 随机 uuid，
-    无法与任务行关联（已知数据断层）。
-    """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
-    if not rate_limiter.check(clean_token)[0]:
-        raise HTTPException(status_code=429, detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute")
-    # v0.73 租户统一（哈希租户 ≠ 写侧 user_id → 取证恒 404）
-    from services.tenant_service import resolve_tenant
-    tenant_id = resolve_tenant(token)
-    from services.forensics_service import get_task_forensics
-    out = get_task_forensics(tenant_id, task_id)
-    if out is None:
-        raise HTTPException(status_code=404, detail="task not found")
-    return out
-
-
 @v1.get("/mappings/lookup", tags=["analytics"])
 async def v1_mappings_lookup(request: Request):
     """类目映射查询（W11）：skill 端按关键词查已学习 Ozon 类目映射。
@@ -3060,6 +2983,16 @@ async def http_commissions_lookup(request: Request):
 # ── WebUI 凭证端点（T5）：routes/services 分层，业务逻辑在 services/credential_service.py ──
 from routes.credentials_routes import router as credentials_router
 v1.include_router(credentials_router)
+
+# B4 租户 guard 一期试点（design-b2b-tenant-guard Phase 1）：
+# error_reports/forensics 三端点自本文件内联迁至 routes/error_reports_routes.py，
+# 鉴权四段内联替换为 Depends(get_tenant)（行为等价，见该文件头说明）。
+from routes.error_reports_routes import (
+    router as error_reports_router,
+    root_router as error_reports_root_router,
+)
+v1.include_router(error_reports_router)
+app.include_router(error_reports_root_router)
 
 # ── 货源匹配上报（M5b）：skill 图搜/跟卖结果 → source_candidates ──
 from routes.source_candidates_routes import router as source_candidates_router

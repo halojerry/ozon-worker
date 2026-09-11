@@ -2,8 +2,16 @@
 
 端点（挂载在 /api/v1 下，main.py v1.include_router）：
     GET /products?limit=&offset=   按租户返回在售商品列表（product_task_index + moderation_status）
+    GET /products/ozon             Ozon 店铺在线商品（PG 缓存读取，v0.56）
 
 token 来源：Authorization: Bearer 优先，query param token 兜底（GET 无 body）。
+
+注（2026-09-11 仓库治理 B4，A5 §2 D-05）：POST /products/bulk-prices、
+/bulk-stocks、/bulk-archive 三个死端点已删——唯一消费方是已归档的
+webui-archive，现行 webui/pounding-mcp 的批量操作统一走
+POST /stores/{id}/actions（store_actions_routes，同名操作 + operation_log 审计）。
+shelf_service.bulk_* 服务函数保留（store_actions_routes 仍消费，见
+tests/test_shelf_bulk.py）。
 """
 from __future__ import annotations
 
@@ -72,28 +80,3 @@ async def list_ozon_products(request: Request):
     return store_sync_service.list_cached_products(
         tenant_id, credential_id, limit=limit, offset=offset,
         lazy_sync=not refresh, status=status, source=source)
-
-
-@router.post("/bulk-prices")
-async def bulk_prices(request: Request):
-    tenant_id = await _authenticate(request)
-    body = await request.json()
-    return shelf_service.bulk_update_prices(
-        tenant_id, body.get("prices") or [], credential_id=body.get("credential_id"))
-
-
-@router.post("/bulk-stocks")
-async def bulk_stocks(request: Request):
-    tenant_id = await _authenticate(request)
-    body = await request.json()
-    return shelf_service.bulk_update_stocks(
-        tenant_id, body.get("stocks") or [], credential_id=body.get("credential_id"))
-
-
-@router.post("/bulk-archive")
-async def bulk_archive(request: Request):
-    tenant_id = await _authenticate(request)
-    body = await request.json()
-    return shelf_service.bulk_archive(
-        tenant_id, body.get("product_ids") or [], bool(body.get("archive", True)),
-        credential_id=body.get("credential_id"))

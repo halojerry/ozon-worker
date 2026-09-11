@@ -58,3 +58,12 @@
 ## 建议执行序
 
 **B2-α（止血，1-2 天）→ B1（文档，与 B2 并行可）→ B2-β（基建）→ B3（固化）**；BL-18 能力缺口单独产品立项不占本批次。
+
+## B4 执行记录（2026-09-11，PR 见 fix/repo-gov-b4）
+
+- ✅ BL-20 死代码处置：error_classifier 整模块/state.py 8 死模型/2 死配置/shelf 3 死端点（路径 147→144）/ozon_seller 出编译清单（13/52 口径同步 build-skill.yml+AGENTS）/newapi_proxy 文档化——净删 ~244 行，每项全仓 grep 复核零引用后执行
+- ✅ TASK_NOT_CANCELLABLE 接线：cancel_task 不可取消 200+failed → 409（零现存客户端消费 failed 分支）
+- ✅ BL-21 图片规格观测（warning-only content-length<10KB）；BL-31 workers=1 启动告警
+- ✅ design-b2b 三方案一期：PG statement_timeout 30s+池 20+20、字典缓存负缓存 60s+TTL 抖动 ±10%、佣金 180d 新鲜度闸（超龄降级+stale marks，有意行为变更）、category_cache 10 年→90d、租户 guard dependency+error_reports/forensics 试点迁移（main.py 内联三端点迁路由）
+- ✅ BL-11 首期：示例率 11%→71%（45/63）+7 高频 POST requestBody + example-lint（--fail-on-missing-examples 可选门禁）
+- ⏳ 仍挂起：BL-30（bounds 学习闭环/is_aspect 兜底）、单飞锁二期、租户 guard Phase 2（18 调用点收敛）、示例二期（admin 面 13 schema）、BL-11 剩余 requestBody、SSH 探针/key 轮换/BL-18 立项

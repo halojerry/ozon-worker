@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -67,6 +68,9 @@ _CACHE_ROW = {
     "fbs_leq_5000": 12.0,
     "fbs_gt_5000": 18.0,
     "source": "what_to_sell",
+    # BL-24 一期: 缓存行新鲜度闸（180d）——夹具给新鲜 updated_at 锁「新鲜行采信」；
+    # 超龄/缺失行降级语义见 test_commission_stale_v075.py。
+    "updated_at": time.time(),
 }
 
 

@@ -26,8 +26,12 @@ from api.schemas import (
     DraftAiRequest,
     DraftAiResponse,
     DraftAssembleResponse,
+    DraftBatchImportRequest,
+    DraftBatchSubmitRequest,
+    DraftCreate,
     DraftOut,
     DraftPatch,
+    DraftSubmitRequest,
     SubmissionTimelineItem,
     SubmitResponse,
 )
@@ -58,7 +62,11 @@ async def _authenticate(request: Request) -> str:
     return _authenticate_token("")
 
 
-@router.post("", response_model=DraftOut)
+@router.post("", response_model=DraftOut,
+             # 手拆 raw Request（v1_submit_task 先例）：补 OpenAPI 请求体声明，
+             # 让 /docs 与 API-REFERENCE 能展示 DraftCreate（A6 审计 §2 requestBody 缺口）。
+             openapi_extra={"requestBody": {"required": True, "content": {
+                 "application/json": {"schema": DraftCreate.model_json_schema()}}}})
 async def create_draft(request: Request):
     tenant_id = await _authenticate(request)
     body = await request.json()
@@ -117,7 +125,11 @@ async def delete_draft(draft_id: str, request: Request):
     draft_service.delete_draft(tenant_id, draft_id)
 
 
-@router.post("/{draft_id}/submit", response_model=SubmitResponse)
+@router.post("/{draft_id}/submit", response_model=SubmitResponse,
+             # 手拆 raw Request：补 DraftSubmitRequest 声明（token/credential_id/
+             # update_product_id/template_id/scheduled_at，与路由读取一一对应）。
+             openapi_extra={"requestBody": {"required": True, "content": {
+                 "application/json": {"schema": DraftSubmitRequest.model_json_schema()}}}})
 async def submit_draft(draft_id: str, request: Request):
     tenant_id = await _authenticate(request)
     body = await request.json()
@@ -137,7 +149,10 @@ async def submit_draft(draft_id: str, request: Request):
         tenant_id, draft_id, token, credential_id, update_product_id, template_id)
 
 
-@router.post("/{draft_id}/resubmit", response_model=SubmitResponse)
+@router.post("/{draft_id}/resubmit", response_model=SubmitResponse,
+             # 手拆 raw Request：resubmit 与 submit 同构（同 DraftSubmitRequest 展示 schema）。
+             openapi_extra={"requestBody": {"required": True, "content": {
+                 "application/json": {"schema": DraftSubmitRequest.model_json_schema()}}}})
 async def resubmit_draft(draft_id: str, request: Request):
     """失败/被拒草稿重新提交(进行中 → 409)。"""
     tenant_id = await _authenticate(request)
@@ -152,7 +167,10 @@ async def resubmit_draft(draft_id: str, request: Request):
         body.get("template_id"))
 
 
-@router.post("/batch-submit")
+@router.post("/batch-submit",
+             # 手拆 raw Request：补批量提交请求体声明（ids≤50 + 共用凭证）。
+             openapi_extra={"requestBody": {"required": True, "content": {
+                 "application/json": {"schema": DraftBatchSubmitRequest.model_json_schema()}}}})
 async def batch_submit_drafts(request: Request):
     """批量提交草稿(≤50):逐条进行中守卫;返回 submitted/skipped/failed 明细。"""
     tenant_id = await _authenticate(request)
@@ -177,7 +195,13 @@ async def batch_submit_drafts(request: Request):
     return {"submitted": submitted, "skipped": skipped, "failed": failed}
 
 
-@router.post("/import")
+@router.post("/import",
+             # 手拆 raw body（JSON 或 CSV 双形态）：JSON 走 DraftBatchImportRequest 声明，
+             # text/csv 以纯字符串 schema 声明（表头格式见端点 description）。
+             openapi_extra={"requestBody": {"required": True, "content": {
+                 "application/json": {"schema": DraftBatchImportRequest.model_json_schema()},
+                 "text/csv": {"schema": {"type": "string"}},
+             }}})
 async def import_drafts_csv(request: Request):
     """PRD M5b(P2): CSV/JSON 批量导入采集箱(竞品对标)。
 
@@ -239,7 +263,10 @@ def _load_draft_payload(draft_id: str, tenant_id: str) -> Optional[dict]:
     return row[0]
 
 
-@router.post("/{draft_id}/ai/{field}", response_model=DraftAiResponse)
+@router.post("/{draft_id}/ai/{field}", response_model=DraftAiResponse,
+             # 手拆 raw Request（只读 token）：补 DraftAiRequest 声明（assemble 同款）。
+             openapi_extra={"requestBody": {"required": True, "content": {
+                 "application/json": {"schema": DraftAiRequest.model_json_schema()}}}})
 async def draft_ai_field(draft_id: str, field: str, request: Request):
     """单字段 AI 重新生成（T14b）：只读，返回 RU 值，不写回草稿（前端 PATCH 保存）。
 

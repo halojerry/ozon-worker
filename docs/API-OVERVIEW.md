@@ -290,7 +290,8 @@ submit_task → pending → running → completed / failed / cancelled
 | v0.70.0 | `GET /api/v1/forensics/task/{task_id}`（取证一站式只读）、`GET /api/v1/categories/search`、`GET /api/v1/categories/attributes`（缓存只读不回源 Ozon） | MCP 工具 14→17（+`report_issue`/`list_error_reports`/`get_task_forensics`） |
 | 未发版（2026-09-10，数据池 v1） | `POST /api/v1/analytics/seller-sync`（贡献收包，≤12/批）+ `GET /api/v1/analytics/sku-metrics?skus=`（读侧指标+补采指令，≤50/查）——数据池贡献闭环（skill 采集 what_to_sell 顺手上报 + discover 富化读侧） | — |
 | 未发版（2026-09-10，跨平台货源 v1 批1） | — | 信封新增可选 `envelope.source.platform`（`"1688"\|"taobao"\|"tmall"\|"pdd"`，worker 零强制消费，缺失按 purchase_url 域名推断，详见 CONTRACT-v4 §1.1.2）；worker 图片白名单/Referer 兼容 taobaocdn/pdd 图床，source_candidates offer_id 解析扩淘宝/拼多多 |
-| 文档修订（2026-09-11，对应 v0.74.0） | 本文新增「§7 超时与重试」「§8 幂等规则」两节（集成方对接建议）；文档地图修正 MCP 工具数口径（worker 远程 22 + pounding-mcp 本地 29）与 API-INTEGRATION-GUIDE 墓碑状态 | —（纯文档修订，无端点/信封变更；API-REFERENCE 头部计数改三口径，由生成脚本同步） |
+| 行为变更（2026-09-11，repo-gov B4） | ①`POST /cancel_task/{id}` 对不可取消（终态）任务从 200+failed 改为 **409 + TASK_NOT_CANCELLABLE**；②删除 shelf 三个无消费 bulk 端点（POST /products/bulk-prices、/bulk-stocks、/bulk-archive——现行 webui 零引用，路径 147→144）；③error_reports/forensics 三端点迁至租户 guard 路由（路径不变，body 坏+鉴权失败并发时错误码优先 401/429/503）；④7 个高频 POST 补 requestBody 声明、schema 示例率 11%→71%（纯文档生成面） | cancel_task 客户端需处理 409（现行 skill/MCP/webui 零调用该端点的 failed 分支，零破坏面） |
+| 文档修订（2026-09-11，对应 v0.74.0） | 本文新增「§7 超时与重试」「§8 幂等规则」两节（集成方对接建议）；文档地图修正 MCP 工具数口径（worker 远程 22 + pounding-mcp 本地 30）与 API-INTEGRATION-GUIDE 墓碑状态 | —（纯文档修订，无端点/信封变更；API-REFERENCE 头部计数改三口径，由生成脚本同步） |
 
 ## 13. 文档地图
 
