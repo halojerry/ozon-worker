@@ -71,6 +71,7 @@ class SubmitTaskRequest(BaseModel):
         "envelope": _ENVELOPE_EXAMPLE,
         "timeout_seconds": 1800,
         "max_retries": 3,
+        "priority": 0,
     })
     token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
     ozon_client_id: str = Field(..., description="Ozon 卖家 Client-Id")
@@ -78,6 +79,9 @@ class SubmitTaskRequest(BaseModel):
     envelope: dict[str, Any] = Field(..., description="产品数据信封 {draft, source, extensions}")
     timeout_seconds: int = Field(1800, description="任务超时时间（秒），默认 30 分钟")
     max_retries: int = Field(3, description="最大重试次数，默认 3")
+    # v0.75 C7: priority 开放（BL-25 Phase 2-5）——端点读取口 clamp [0,100]，
+    # 缺省/非数字当 0（容错不 422，与 timeout_seconds/max_retries 同风格）。
+    priority: int = Field(0, description="任务优先级 0-100（缺省 0；越界由端点 clamp，非数字当 0）")
 
 
 class SubmitTaskResponse(BaseModel):
@@ -103,8 +107,16 @@ class TaskStatus(str, Enum):
     PENDING_MODERATION = "pending_moderation"  # T14: 在线商品改图重传后重新审核中
 
     # 注意：枚举类不能挂 model_config/_examples——Python Enum 会把普通类属性变成
-    # 假成员（实测 model_config 被收编为 TaskStatus.model_config），example-lint
-    # 对此 schema 的缺示例告警属预期豁免。
+    # 假成员（实测 model_config 被收编为 TaskStatus.model_config）。example 的注入
+    # 走下方 __get_pydantic_json_schema__ 钩子（方法是 Enum 允许的非成员属性），
+    # example-lint 据此把本 schema 计入「带示例」。
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        """给枚举的 JSON schema 注入 example（Enum 挂不了 model_config/_examples）。"""
+        json_schema = handler(core_schema)
+        json_schema["example"] = cls.RUNNING.value
+        return json_schema
 
 
 class TaskStatusResponse(BaseModel):

@@ -469,6 +469,9 @@ class PrepareOzonUploadInput(BaseModel):
     )
     product_id: Optional[str] = Field(default=None, description="Ozon商品ID（跟卖更新模式需要）")
     token: str = Field(default="", description="api.mxou.cn的API Key（用于LLM翻译调用）")  # 关键：LLM翻译使用用户token
+    # ✅ v0.75 C3: 租户通道（attr_match_log 审计归属）——langgraph 按节点 Input model
+    # 过滤 channel，不声明则 getattr 恒拿空（静默 None，见 AGENTS「input schema 纪律」）。
+    user_id: str = Field(default="", description="用户ID（tenant，attr_match_log 审计归属）")
     dictionary_values: Dict[str, List[Dict[str, Any]]] = Field(
         default_factory=dict,
         description="Ozon属性字典值缓存（来自attributes_fetch_node，key=attribute_id字符串, value=字典值列表[{id,value,info}...]）"

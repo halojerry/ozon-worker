@@ -237,7 +237,14 @@ def _execute(tenant_id: str, credential_id: str, body: dict) -> dict:
     raise HTTPException(status_code=400, detail=f"不支持的 operation：{operation}")  # pragma: no cover
 
 
-@router.post("/{credential_id}/actions")
+# 响应示例（openapi_extra 路由级补；result 为 shelf_service/promo_client 执行返回）
+_ACTIONS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "ok": True,
+    "result": {"updated": 5, "failed": [], "errors": []},
+}}}}}}
+
+
+@router.post("/{credential_id}/actions", openapi_extra=_ACTIONS_OK_EXTRA)
 async def store_actions(credential_id: str, request: Request):
     """单店执行端点：operation 分发 + 接线 `_write_operation_log`。
 

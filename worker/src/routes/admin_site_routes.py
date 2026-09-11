@@ -21,6 +21,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from api.schemas import _examples
 from services import admin_service, site_service
 
 router = APIRouter(prefix="/admin/site", tags=["admin"])
@@ -50,6 +51,17 @@ class SiteBannerIn(BaseModel):
 
 
 class SiteBannerOut(SiteBannerIn):
+    model_config = _examples({
+        "id": 1,
+        "image_url": "https://worker.mxou.cn/static/banners/autumn-2026.png",
+        "link_url": "https://worker.mxou.cn/bestsellers",
+        "title": "秋季选品季",
+        "sort_order": 10,
+        "enabled": True,
+        "created_at": "2026-09-01T02:00:00+00:00",
+        "updated_at": "2026-09-10T04:30:00+00:00",
+    })
+
     id: int
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -63,6 +75,15 @@ class SiteAnnouncementIn(BaseModel):
 
 
 class SiteAnnouncementOut(SiteAnnouncementIn):
+    model_config = _examples({
+        "id": 1,
+        "title": "系统升级公告",
+        "content": "Worker 将于 2026-09-12 02:00-03:00（UTC+8）升级，期间任务提交可能短暂失败。",
+        "announcement_type": "popup",
+        "enabled": True,
+        "created_at": "2026-09-10T04:00:00+00:00",
+    })
+
     id: int
     created_at: Optional[datetime] = None
 

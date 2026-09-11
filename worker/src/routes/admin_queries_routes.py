@@ -15,6 +15,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from api.schemas import _examples
 from services import admin_service, queries_service
 
 router = APIRouter(prefix="/admin/queries", tags=["admin"])
@@ -36,7 +37,21 @@ async def _authenticate_admin(request: Request) -> str:
 
 
 class QueryRow(BaseModel):
-    """关键词行（库浏览返回项）。"""
+    """关键词行（库浏览返回项；字段即 blue_ocean_queries 列，created_at 为 isoformat 串）。"""
+
+    model_config = _examples({
+        "id": 42,
+        "query": "органайзер для косметики",
+        "count": 1520,
+        "ca": 0.8,
+        "avg_ca_rub": 1250.5,
+        "avg_count_items": 310.2,
+        "items_views": 45600.0,
+        "uniq_queries_wca": 118,
+        "uniq_sellers": 128.0,
+        "source": "fetched",
+        "created_at": "2026-09-10T12:00:00+00:00",
+    })
 
     id: int
     query: str
@@ -54,12 +69,34 @@ class QueryRow(BaseModel):
 class QueryListOut(BaseModel):
     """库浏览响应。"""
 
+    model_config = _examples({
+        "total": 137,
+        "items": [{
+            "id": 42,
+            "query": "органайзер для косметики",
+            "count": 1520,
+            "ca": 0.8,
+            "avg_ca_rub": 1250.5,
+            "avg_count_items": 310.2,
+            "items_views": 45600.0,
+            "uniq_queries_wca": 118,
+            "uniq_sellers": 128.0,
+            "source": "fetched",
+            "created_at": "2026-09-10T12:00:00+00:00",
+        }],
+    })
+
     total: int = 0
     items: list[QueryRow] = Field(default_factory=list)
 
 
 class QueryImportIn(BaseModel):
     """导入请求体：csv 文本与 items 数组二选一。"""
+
+    model_config = _examples(
+        {"csv": "query,count,ca,avg_ca_rub\nорганайзер для косметики,1520,0.8,1250.5\n"},
+        {"items": [{"query": "органайзер для косметики", "count": 1520, "ca": 0.8}]},
+    )
 
     items: Optional[list[dict[str, Any]]] = None
     csv: Optional[str] = None
@@ -68,6 +105,12 @@ class QueryImportIn(BaseModel):
 class QueryImportResult(BaseModel):
     """导入结果：新增/更新计数 + 逐行错误。"""
 
+    model_config = _examples({
+        "imported": 40,
+        "updated": 2,
+        "errors": [{"row": 3, "error": "query 必填"}],
+    })
+
     imported: int = 0
     updated: int = 0
     errors: list[dict[str, Any]] = Field(default_factory=list)
@@ -75,6 +118,8 @@ class QueryImportResult(BaseModel):
 
 class QueryDeleteOut(BaseModel):
     """删除结果。"""
+
+    model_config = _examples({"ok": True, "deleted": True})
 
     ok: bool = True
     deleted: bool = True

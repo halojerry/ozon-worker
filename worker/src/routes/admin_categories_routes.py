@@ -60,8 +60,25 @@ def _build_tree(rows):
     return roots
 
 
-@router.get("")
-@router.get("/")
+# 响应示例（openapi_extra 路由级补，见 admin_audit_routes 同款说明）
+_TREE_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": [{
+    "id": 9101, "description_category_id": 17027532, "type_id": 9165596,
+    "name": "汽车香薰", "parent_id": 17027480,
+    "full_path": "汽车摩托车 > 车内用品 > 汽车香薰",
+    "top_level_category_name": "汽车摩托车", "depth": 2, "children": [],
+}]}}}}}
+_CREATE_OK_EXTRA = {"responses": {"201": {"content": {"application/json": {"example": {
+    "id": 9101, "description_category_id": 17027532, "type_id": 9165596,
+    "name": "汽车香薰", "parent_id": 17027480,
+}}}}}}
+_RENAME_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "id": 9101, "description_category_id": 17027532, "type_id": 9165596,
+    "name": "车载香薰", "parent_id": 17027480,
+}}}}}}
+
+
+@router.get("", openapi_extra=_TREE_OK_EXTRA)
+@router.get("/", openapi_extra=_TREE_OK_EXTRA)
 async def list_categories(request: Request):
     await _authenticate_admin(request)
     eng = get_engine()
@@ -74,8 +91,8 @@ async def list_categories(request: Request):
     return _build_tree(rows)
 
 
-@router.post("", status_code=201)
-@router.post("/", status_code=201)
+@router.post("", status_code=201, openapi_extra=_CREATE_OK_EXTRA)
+@router.post("/", status_code=201, openapi_extra=_CREATE_OK_EXTRA)
 async def create_category(request: Request):
     await _authenticate_admin(request)
     body = await request.json()
@@ -122,7 +139,7 @@ async def create_category(request: Request):
             "type_id": data.type_id, "name": data.name, "parent_id": data.parent_id}
 
 
-@router.patch("/{cat_id}")
+@router.patch("/{cat_id}", openapi_extra=_RENAME_OK_EXTRA)
 async def rename_category(cat_id: int, request: Request):
     await _authenticate_admin(request)
     body = await request.json()

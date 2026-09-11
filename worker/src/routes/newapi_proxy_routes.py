@@ -81,7 +81,15 @@ def _proxy_request(method: str, path: str, headers: dict, body: Optional[bytes],
         return JSONResponse(status_code=502, content={"error": "upstream unavailable"})
 
 
-@router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+# 响应示例（openapi_extra 路由级补）：纯透传通道，200 即上游 New API 响应原样
+# （成功形态 {"success": bool, "message": str, "data": ...}）；未命中前缀 → 404。
+_PROXY_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "success": True, "message": "", "data": {"username": "demo_user", "quota": 5000000}},
+}}}}}
+
+
+@router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+                  openapi_extra=_PROXY_OK_EXTRA)
 async def newapi_proxy(path: str, request: Request):
     """catch-all：命中 New API 前缀 → 转发 api.mxou.cn；否则 404。
 

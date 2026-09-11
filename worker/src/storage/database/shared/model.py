@@ -373,6 +373,9 @@ class CategoryMatchLog(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     task_id: Mapped[str] = mapped_column(Text, nullable=False)
+    # v0.75 C3 补列（repo-gov audit tenant）：租户归属（state.user_id，与任务行
+    # tenant_id 同口径）。历史行 NULL 待 init_data.migrate_repo_gov_v075 按任务表回填。
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     source_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # ✅ v0.67 P1-6: 1688 货源链接（draft.purchase_url）——审计行可溯源到具体货源卡
     source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -406,6 +409,9 @@ class AttrMatchLog(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     task_id: Mapped[str] = mapped_column(Text, nullable=False)
+    # v0.75 C3 补列（repo-gov audit tenant）：租户归属（state.user_id）。历史行 NULL
+    # 待 init_data.migrate_repo_gov_v075 按任务表回填（CategoryMatchLog 同构）。
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     attr_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     attr_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -423,6 +429,27 @@ class AttrMatchLog(Base):
         Index("idx_attr_match_log_task", "task_id"),
         Index("idx_attr_match_log_layer", "match_layer", "created_at"),
         Index("idx_attr_match_log_attr", "attr_id", "created_at"),
+    )
+
+
+class AttrBoundLearned(Base):
+    """v0.75 C4: 数值属性 bounds 拒单学习表 — Ozon 平台不下发数值 bounds，
+    唯一来源是 VALUE_MAX/MIN_LIMIT 拒单原文回流（audit A4 F-P1-1）。
+
+    全局共享无 tenant_id（对齐 category_commission W11 先例）。**拒单学习表，
+    sample 列留拒单原文片段供人工复核**。读写唯一入口
+    utils/attr_numeric_sanitize.py（parse/learn/get 三函数）；读侧静态
+    NUMERIC_ATTR_BOUNDS（人工维护）恒赢本表。
+    """
+    __tablename__ = "attr_bounds_learned"
+
+    attr_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)  # Ozon 数值属性 ID
+    min_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # 只学到上界时为 NULL
+    max_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # 只学到下界时为 NULL
+    source: Mapped[str] = mapped_column(String(32), default="decline_learned")
+    sample: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # 拒单原文片段（cap 200，人工复核面）
+    updated_at: Mapped[Optional[int]] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), comment="epoch 秒"
     )
 
 

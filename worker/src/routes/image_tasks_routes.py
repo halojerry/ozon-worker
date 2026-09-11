@@ -17,16 +17,37 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from api.schemas import _examples
+
 router = APIRouter(prefix="/image-tasks", tags=["image-tasks"])
 
 
 class ImageTaskCreateRequest(BaseModel):
+    model_config = _examples({
+        "type": "remove_bg",
+        "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+        "params": {"tolerance": 30},
+    })
+
     type: str
     input_image_url: str
     params: Optional[dict] = None
 
 
 class ImageTaskResponse(BaseModel):
+    # 示例按当前 stub 行为：create 同步置 completed 且 result=input_image_url。
+    model_config = _examples({
+        "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+        "type": "remove_bg",
+        "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+        "status": "completed",
+        "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+        "params": {"tolerance": 30},
+        "error_message": None,
+        "created_at": "2026-09-11T08:30:00.123456+00:00",
+        "updated_at": "2026-09-11T08:30:00.123456+00:00",
+    })
+
     id: str
     type: str
     input_image_url: str
@@ -39,6 +60,23 @@ class ImageTaskResponse(BaseModel):
 
 
 class ImageTaskListResponse(BaseModel):
+    model_config = _examples({
+        "items": [{
+            "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+            "type": "remove_bg",
+            "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+            "status": "completed",
+            "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+            "params": {"tolerance": 30},
+            "error_message": None,
+            "created_at": "2026-09-11T08:30:00.123456+00:00",
+            "updated_at": "2026-09-11T08:30:00.123456+00:00",
+        }],
+        "total": 3,
+        "limit": 50,
+        "offset": 0,
+    })
+
     items: list[ImageTaskResponse]
     total: int
     limit: int
@@ -152,7 +190,13 @@ async def get_image_task(task_id: str, request: Request):
     )
 
 
-@router.post("/{task_id}/cancel")
+_CANCEL_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "status": "ok", "task_id": "5a6b7c8d-1111-2222-3333-444455556666",
+    "message": "Task cancelled",
+}}}}}}
+
+
+@router.post("/{task_id}/cancel", openapi_extra=_CANCEL_OK_EXTRA)
 async def cancel_image_task(task_id: str, request: Request):
     user_id = await _authenticate_user(request)
     from sqlalchemy import text

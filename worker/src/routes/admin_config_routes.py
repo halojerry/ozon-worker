@@ -17,12 +17,16 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 
+from api.schemas import _examples
 from services import admin_service, config_service
 
 router = APIRouter(prefix="/admin/config", tags=["admin"])
 
 
 class ConfigListItem(BaseModel):
+    """config 目录下的配置文件名。"""
+    model_config = _examples({"name": "image_prompts.json"})
+
     name: str
 
 
@@ -31,6 +35,13 @@ class ConfigContentIn(BaseModel):
 
 
 class BackupItem(BaseModel):
+    """配置备份文件（命名 {name}.{YYYYMMDDHHMMSS}.json，mtime 为 epoch 秒）。"""
+    model_config = _examples({
+        "name": "image_prompts.json.20260911083000.json",
+        "size": 5120,
+        "mtime": 1789113600.0,
+    })
+
     name: str
     size: int
     mtime: float
@@ -57,7 +68,23 @@ async def list_configs(request: Request):
     return config_service.list_configs()
 
 
-@router.get("/{name}", response_model=dict)
+# 响应示例（openapi_extra 路由级补——handler 返回裸 dict；返回值见 config_service）
+_READ_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "system_prompt": "你是 Ozon 上架类目匹配专家",
+    "model": "deepseek-v4-flash",
+    "temperature": 0.2,
+}}}}}}
+_WRITE_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "backup_path": "/app/config/backup/image_prompts.json.20260911083000",
+    "updated": True,
+}}}}}}
+_ROLLBACK_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "name": "image_prompts.json",
+    "restored": True,
+}}}}}}
+
+
+@router.get("/{name}", response_model=dict, openapi_extra=_READ_OK_EXTRA)
 async def read_config(name: str, request: Request):
     await _authenticate_admin(request)
     try:
@@ -68,7 +95,7 @@ async def read_config(name: str, request: Request):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.put("/{name}", response_model=dict)
+@router.put("/{name}", response_model=dict, openapi_extra=_WRITE_OK_EXTRA)
 async def write_config(name: str, request: Request):
     await _authenticate_admin(request)
     try:
@@ -96,7 +123,7 @@ async def list_backups(name: str, request: Request):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/{name}/rollback", response_model=dict)
+@router.post("/{name}/rollback", response_model=dict, openapi_extra=_ROLLBACK_OK_EXTRA)
 async def rollback_config(name: str, request: Request):
     await _authenticate_admin(request)
     try:

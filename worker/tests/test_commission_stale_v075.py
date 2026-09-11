@@ -219,6 +219,118 @@ def test_get_category_commission_updated_at_none_safe():
     assert row["updated_at"] is None
 
 
+# ═══════════ BL-24 Phase 3-7：upsert 随用续期 ═══════════
+
+class _CaptureSession:
+    """捕获 execute 收到的语句（不触网）；commit/close 静默。"""
+
+    def __init__(self):
+        self.stmt = None
+
+    def execute(self, stmt):
+        self.stmt = stmt
+
+    def commit(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_upsert_refreshes_updated_at():
+    """upsert DO UPDATE 分支必须刷新 updated_at（func.now()）——超龄行随使用自然续期。
+
+    语句级断言（mock session，恒跑不触网）：values() 不设 updated_at（INSERT 列
+    清单无它），编译产物出现 updated_at 只能来自 ON CONFLICT DO UPDATE SET 刷新。
+    """
+    from sqlalchemy.dialects import postgresql
+
+    from utils import commission_resolver as cr
+
+    session = _CaptureSession()
+    cr.upsert_category_commission(123, "what_to_sell", session=session, fbs_leq_1500=8.0)
+    assert session.stmt is not None, "upsert 必须向 session 提交 insert 语句"
+    compiled = str(session.stmt.compile(dialect=postgresql.dialect())).lower()
+    assert "on conflict" in compiled and "do update set" in compiled
+    assert "updated_at" in compiled, "DO UPDATE SET 必须刷新 updated_at（超龄行随用续期）"
+    assert "now()" in compiled, "updated_at 刷新须为 DB 侧 now()（与 server_default 写入风格一致）"
+
+
+def test_upsert_refreshes_stale_row_live_pg():
+    """真实 PG：200d 超龄行经 what_to_sell 分段 upsert 续期 → get 返回当前 epoch。
+
+    新鲜度闸（180d 视同未命中）随 upsert 自然解除。直连探测 skip 守卫
+    （不读 env 判存——PGDATABASE_URL 可能被注入容器风格 URL，直连 5433 才作数）。
+    """
+    import sqlalchemy
+    from sqlalchemy import text
+
+    url = os.environ.get(
+        "PGDATABASE_URL", "postgresql://postgres:localdev123@localhost:5433/ozon"
+    )
+    try:
+        probe = sqlalchemy.create_engine(url)
+        with probe.connect():
+            pass
+        probe.dispose()
+    except Exception:
+        import pytest
+
+        pytest.skip("本地 PG 不可达")
+
+    from sqlalchemy.orm import Session
+
+    from utils.commission_resolver import get_category_commission, upsert_category_commission
+
+    dc = 990075001  # 测试专用类目 ID，避免撞真实缓存数据
+    engine = sqlalchemy.create_engine(url)
+    # 直连探测作 skip 守卫（同一 engine 建连失败 → 本地 PG 不可达）
+    try:
+        with engine.connect():
+            pass
+    except Exception:
+        engine.dispose()
+        import pytest
+
+        pytest.skip("本地 PG 不可达")
+    # 显式注入 session：upsert/get 内部的惰性 get_session() 读 PGDATABASE_URL，
+    # 纯测试批（env 未导出）会 ValueError——测试全程不依赖进程 env。
+    try:
+        with Session(engine) as session:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("DELETE FROM category_commission WHERE description_category_id = :dc"),
+                    {"dc": dc},
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO category_commission "
+                        "(description_category_id, fbs_leq_1500, source, updated_at) "
+                        "VALUES (:dc, 8.0, 'what_to_sell', now() - interval '200 days')"
+                    ),
+                    {"dc": dc},
+                )
+            # 种好的行先确认确实超龄（updated_at ≈ 200d 前）
+            row_before = get_category_commission(dc, session=session)
+            assert row_before is not None and row_before["updated_at"] is not None
+            assert time.time() - row_before["updated_at"] > 180 * 86400, "前置：种入行应为超龄行"
+
+            # 随用续期：upsert 刷新 updated_at
+            upsert_category_commission(dc, "what_to_sell", session=session, fbs_leq_1500=8.0)
+            row = get_category_commission(dc, session=session)
+            assert row is not None and row["updated_at"] is not None
+            assert time.time() - row["updated_at"] < 60, (
+                f"upsert 后 updated_at 应为当前时间（实际 epoch {row['updated_at']}）"
+            )
+    finally:
+        with engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM category_commission WHERE description_category_id = :dc"),
+                {"dc": dc},
+            )
+        engine.dispose()
+
+
 # ═══════════ pricing_node：stale marks ═══════════
 
 def _make_state(extensions=None, dc_id="17028830"):

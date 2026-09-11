@@ -390,6 +390,21 @@ Admin Logistics Import Rates — CSV 批量导入（键匹配 upsert；坏行跳
 |---|---|---|
 | 200 | Successful Response | [LogisticsImportResult](#schema-logisticsimportresult) |
 
+响应示例：
+
+```json
+{
+  "errors": [
+    {
+      "error": "weight_min 不能大于 weight_max",
+      "row": 5
+    }
+  ],
+  "imported": 12,
+  "updated": 3
+}
+```
+
 ### `PUT /api/v1/admin/logistics/rates/{rate_id}`
 Admin Logistics Update Rate — 更新单条费率：校验失败 → 400，id 不存在 → 404。
 
@@ -405,6 +420,26 @@ Admin Logistics Update Rate — 更新单条费率：校验失败 → 400，id �
 |---|---|---|
 | 200 | Successful Response | [LogisticsRateRow](#schema-logisticsraterow) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "base_cost": 3.12,
+  "charge_type": "actual",
+  "delivery_method": "RETS Express Extra Small",
+  "id": 1,
+  "longest_limit_cm": 60,
+  "per_gram_rate": 0.0468,
+  "scoring_group": "Extra Small",
+  "service_level": "Express",
+  "sum_limit_cm": 90,
+  "tpl_provider": "RETS",
+  "vol_weight_divisor": 0,
+  "weight_max": 500,
+  "weight_min": 1
+}
+```
 
 ### `GET /api/v1/admin/overview`
 Admin Overview
@@ -450,6 +485,29 @@ List Queries
 | 200 | Successful Response | [QueryListOut](#schema-querylistout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "avg_ca_rub": 1250.5,
+      "avg_count_items": 310.2,
+      "ca": 0.8,
+      "count": 1520,
+      "created_at": "2026-09-10T12:00:00+00:00",
+      "id": 42,
+      "items_views": 45600.0,
+      "query": "органайзер для косметики",
+      "source": "fetched",
+      "uniq_queries_wca": 118,
+      "uniq_sellers": 128.0
+    }
+  ],
+  "total": 137
+}
+```
+
 ### `GET /api/v1/admin/queries/`
 List Queries
 
@@ -468,6 +526,29 @@ List Queries
 | 200 | Successful Response | [QueryListOut](#schema-querylistout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "avg_ca_rub": 1250.5,
+      "avg_count_items": 310.2,
+      "ca": 0.8,
+      "count": 1520,
+      "created_at": "2026-09-10T12:00:00+00:00",
+      "id": 42,
+      "items_views": 45600.0,
+      "query": "органайзер для косметики",
+      "source": "fetched",
+      "uniq_queries_wca": 118,
+      "uniq_sellers": 128.0
+    }
+  ],
+  "total": 137
+}
+```
+
 ### `POST /api/v1/admin/queries/import`
 Import Queries
 
@@ -475,10 +556,7 @@ Import Queries
 
 ```json
 {
-  "items": [
-    {}
-  ],
-  "csv": "string"
+  "csv": "query,count,ca,avg_ca_rub\nорганайзер для косметики,1520,0.8,1250.5\n"
 }
 ```
 
@@ -488,6 +566,21 @@ Import Queries
 |---|---|---|
 | 200 | Successful Response | [QueryImportResult](#schema-queryimportresult) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "errors": [
+    {
+      "error": "query 必填",
+      "row": 3
+    }
+  ],
+  "imported": 40,
+  "updated": 2
+}
+```
 
 ### `DELETE /api/v1/admin/queries/{query_id}`
 Delete Query
@@ -504,6 +597,15 @@ Delete Query
 |---|---|---|
 | 200 | Successful Response | [QueryDeleteOut](#schema-querydeleteout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "deleted": true,
+  "ok": true
+}
+```
 
 ### `GET /api/v1/admin/site/announcements`
 Admin Site Announcements
@@ -523,6 +625,19 @@ Admin Site Create Announcement
 |---|---|---|
 | 201 | Successful Response | [SiteAnnouncementOut](#schema-siteannouncementout) |
 
+响应示例：
+
+```json
+{
+  "announcement_type": "popup",
+  "content": "Worker 将于 2026-09-12 02:00-03:00（UTC+8）升级，期间任务提交可能短暂失败。",
+  "created_at": "2026-09-10T04:00:00+00:00",
+  "enabled": true,
+  "id": 1,
+  "title": "系统升级公告"
+}
+```
+
 ### `PUT /api/v1/admin/site/announcements/{announcement_id}`
 Admin Site Update Announcement
 
@@ -538,6 +653,19 @@ Admin Site Update Announcement
 |---|---|---|
 | 200 | Successful Response | [SiteAnnouncementOut](#schema-siteannouncementout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "announcement_type": "popup",
+  "content": "Worker 将于 2026-09-12 02:00-03:00（UTC+8）升级，期间任务提交可能短暂失败。",
+  "created_at": "2026-09-10T04:00:00+00:00",
+  "enabled": true,
+  "id": 1,
+  "title": "系统升级公告"
+}
+```
 
 ### `DELETE /api/v1/admin/site/announcements/{announcement_id}`
 Admin Site Delete Announcement
@@ -573,6 +701,21 @@ Admin Site Create Banner
 |---|---|---|
 | 201 | Successful Response | [SiteBannerOut](#schema-sitebannerout) |
 
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-01T02:00:00+00:00",
+  "enabled": true,
+  "id": 1,
+  "image_url": "https://worker.mxou.cn/static/banners/autumn-2026.png",
+  "link_url": "https://worker.mxou.cn/bestsellers",
+  "sort_order": 10,
+  "title": "秋季选品季",
+  "updated_at": "2026-09-10T04:30:00+00:00"
+}
+```
+
 ### `PUT /api/v1/admin/site/banners/{banner_id}`
 Admin Site Update Banner
 
@@ -588,6 +731,21 @@ Admin Site Update Banner
 |---|---|---|
 | 200 | Successful Response | [SiteBannerOut](#schema-sitebannerout) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-01T02:00:00+00:00",
+  "enabled": true,
+  "id": 1,
+  "image_url": "https://worker.mxou.cn/static/banners/autumn-2026.png",
+  "link_url": "https://worker.mxou.cn/bestsellers",
+  "sort_order": 10,
+  "title": "秋季选品季",
+  "updated_at": "2026-09-10T04:30:00+00:00"
+}
+```
 
 ### `DELETE /api/v1/admin/site/banners/{banner_id}`
 Admin Site Delete Banner
@@ -1893,6 +2051,30 @@ List Image Tasks
 | 200 | Successful Response | [ImageTaskListResponse](#schema-imagetasklistresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "created_at": "2026-09-11T08:30:00.123456+00:00",
+      "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+      "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "params": {
+        "tolerance": 30
+      },
+      "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "status": "completed",
+      "type": "remove_bg",
+      "updated_at": "2026-09-11T08:30:00.123456+00:00"
+    }
+  ],
+  "limit": 50,
+  "offset": 0,
+  "total": 3
+}
+```
+
 ### `POST /api/v1/image-tasks`
 Create Image Task — 同步 stub：status=completed, result=input_image_url。真实处理留后续批次。
 
@@ -1900,8 +2082,11 @@ Create Image Task — 同步 stub：status=completed, result=input_image_url。�
 
 ```json
 {
-  "type": "string",
-  "input_image_url": "string"
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "type": "remove_bg"
 }
 ```
 
@@ -1911,6 +2096,23 @@ Create Image Task — 同步 stub：status=completed, result=input_image_url。�
 |---|---|---|
 | 201 | Successful Response | [ImageTaskResponse](#schema-imagetaskresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-11T08:30:00.123456+00:00",
+  "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "status": "completed",
+  "type": "remove_bg",
+  "updated_at": "2026-09-11T08:30:00.123456+00:00"
+}
+```
 
 ### `GET /api/v1/image-tasks/`
 List Image Tasks
@@ -1929,6 +2131,30 @@ List Image Tasks
 | 200 | Successful Response | [ImageTaskListResponse](#schema-imagetasklistresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "created_at": "2026-09-11T08:30:00.123456+00:00",
+      "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+      "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "params": {
+        "tolerance": 30
+      },
+      "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "status": "completed",
+      "type": "remove_bg",
+      "updated_at": "2026-09-11T08:30:00.123456+00:00"
+    }
+  ],
+  "limit": 50,
+  "offset": 0,
+  "total": 3
+}
+```
+
 ### `POST /api/v1/image-tasks/`
 Create Image Task — 同步 stub：status=completed, result=input_image_url。真实处理留后续批次。
 
@@ -1936,8 +2162,11 @@ Create Image Task — 同步 stub：status=completed, result=input_image_url。�
 
 ```json
 {
-  "type": "string",
-  "input_image_url": "string"
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "type": "remove_bg"
 }
 ```
 
@@ -1947,6 +2176,23 @@ Create Image Task — 同步 stub：status=completed, result=input_image_url。�
 |---|---|---|
 | 201 | Successful Response | [ImageTaskResponse](#schema-imagetaskresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-11T08:30:00.123456+00:00",
+  "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "status": "completed",
+  "type": "remove_bg",
+  "updated_at": "2026-09-11T08:30:00.123456+00:00"
+}
+```
 
 ### `GET /api/v1/image-tasks/{task_id}`
 Get Image Task
@@ -1963,6 +2209,23 @@ Get Image Task
 |---|---|---|
 | 200 | Successful Response | [ImageTaskResponse](#schema-imagetaskresponse) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-11T08:30:00.123456+00:00",
+  "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "status": "completed",
+  "type": "remove_bg",
+  "updated_at": "2026-09-11T08:30:00.123456+00:00"
+}
+```
 
 ### `POST /api/v1/image-tasks/{task_id}/cancel`
 Cancel Image Task
@@ -2603,8 +2866,11 @@ Update Product Source — 手动维护商品成本/货源(manual 优先,写历�
 
 ```json
 {
-  "credential_id": "string",
-  "purchase_cost": 0.0
+  "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+  "freight_cny": 3.5,
+  "purchase_cost": 12.8,
+  "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+  "supplier": "义乌市日用品贸易有限公司"
 }
 ```
 
@@ -2700,6 +2966,7 @@ Http Progress — 查询工作流执行进度。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
+| 404 | Not Found | — |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
 ## resubmit_task
@@ -3081,6 +3348,7 @@ V1 Submit Task — 提交任务到队列。鉴权通过 Supabase tokens 表校�
   "max_retries": 3,
   "ozon_api_key": "00000000-0000-0000-0000-000000000000",
   "ozon_client_id": "5381204",
+  "priority": 0,
   "timeout_seconds": 1800,
   "token": "sk-xxxxxxxxxxxxxxxxxxxx"
 }
@@ -3699,12 +3967,23 @@ Skill 鉴权响应。
 ```
 
 ### BackupItem <a id="schema-backupitem"></a>
+配置备份文件（命名 {name}.{YYYYMMDDHHMMSS}.json，mtime 为 epoch 秒）。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `name` | string | ✓ |  |
 | `size` | integer | ✓ |  |
 | `mtime` | number | ✓ |  |
+
+示例：
+
+```json
+{
+  "mtime": 1789113600.0,
+  "name": "image_prompts.json.20260911083000.json",
+  "size": 5120
+}
+```
 
 ### CancelReasonOut <a id="schema-cancelreasonout"></a>
 订单取消原因（/v1/posting/fbs/cancel-reason）。
@@ -3743,10 +4022,19 @@ Skill 鉴权响应。
 ```
 
 ### ConfigListItem <a id="schema-configlistitem"></a>
+config 目录下的配置文件名。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `name` | string | ✓ |  |
+
+示例：
+
+```json
+{
+  "name": "image_prompts.json"
+}
+```
 
 ### CredentialOut <a id="schema-credentialout"></a>
 凭证响应 — 仅掩码，永不包含明文 api_key / ozon_api_key_enc。
@@ -3980,6 +4268,18 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `input_image_url` | string | ✓ |  |
 | `params` | dict[str, any] \| null |  |  |
 
+示例：
+
+```json
+{
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "type": "remove_bg"
+}
+```
+
 ### ImageTaskListResponse <a id="schema-imagetasklistresponse"></a>
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -3988,6 +4288,30 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `total` | integer | ✓ |  |
 | `limit` | integer | ✓ |  |
 | `offset` | integer | ✓ |  |
+
+示例：
+
+```json
+{
+  "items": [
+    {
+      "created_at": "2026-09-11T08:30:00.123456+00:00",
+      "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+      "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "params": {
+        "tolerance": 30
+      },
+      "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+      "status": "completed",
+      "type": "remove_bg",
+      "updated_at": "2026-09-11T08:30:00.123456+00:00"
+    }
+  ],
+  "limit": 50,
+  "offset": 0,
+  "total": 3
+}
+```
 
 ### ImageTaskResponse <a id="schema-imagetaskresponse"></a>
 
@@ -4002,6 +4326,23 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `error_message` | string \| null |  |  |
 | `created_at` | string \| null |  |  |
 | `updated_at` | string \| null |  |  |
+
+示例：
+
+```json
+{
+  "created_at": "2026-09-11T08:30:00.123456+00:00",
+  "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+  "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "params": {
+    "tolerance": 30
+  },
+  "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+  "status": "completed",
+  "type": "remove_bg",
+  "updated_at": "2026-09-11T08:30:00.123456+00:00"
+}
+```
 
 ### ListingTemplateConfig <a id="schema-listingtemplateconfig"></a>
 模板扩展参数（白名单；全部可选，None 表示不注入）。
@@ -4090,6 +4431,21 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `updated` | integer | ✓ |  |
 | `errors` | list[dict[str, any]] |  |  |
 
+示例：
+
+```json
+{
+  "errors": [
+    {
+      "error": "weight_min 不能大于 weight_max",
+      "row": 5
+    }
+  ],
+  "imported": 12,
+  "updated": 3
+}
+```
+
 ### LogisticsRateRow <a id="schema-logisticsraterow"></a>
 单条费率行（服务返回结构，供文档/校验用）。
 
@@ -4109,6 +4465,26 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `charge_type` | string | ✓ |  |
 | `vol_weight_divisor` | integer |  | （默认 `0`） |
 | `created_at` | string \| null |  |  |
+
+示例：
+
+```json
+{
+  "base_cost": 3.12,
+  "charge_type": "actual",
+  "delivery_method": "RETS Express Extra Small",
+  "id": 1,
+  "longest_limit_cm": 60,
+  "per_gram_rate": 0.0468,
+  "scoring_group": "Extra Small",
+  "service_level": "Express",
+  "sum_limit_cm": 90,
+  "tpl_provider": "RETS",
+  "vol_weight_divisor": 0,
+  "weight_max": 500,
+  "weight_min": 1
+}
+```
 
 ### MxouKeyCreateResponse <a id="schema-mxoukeycreateresponse"></a>
 新建 API Key 响应（key 仅此一次返回——用户复制后不再可查）。
@@ -4601,6 +4977,18 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `freight_cny` | number \| null |  | 1688 国内运费(可选) |
 | `supplier` | string |  | 1688 店铺名（默认 `""`） |
 
+示例：
+
+```json
+{
+  "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+  "freight_cny": 3.5,
+  "purchase_cost": 12.8,
+  "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+  "supplier": "义乌市日用品贸易有限公司"
+}
+```
+
 ### QueryDeleteOut <a id="schema-querydeleteout"></a>
 删除结果。
 
@@ -4609,6 +4997,15 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `ok` | boolean |  | （默认 `true`） |
 | `deleted` | boolean |  | （默认 `true`） |
 
+示例：
+
+```json
+{
+  "deleted": true,
+  "ok": true
+}
+```
+
 ### QueryImportIn <a id="schema-queryimportin"></a>
 导入请求体：csv 文本与 items 数组二选一。
 
@@ -4616,6 +5013,14 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 |---|---|---|---|
 | `items` | list[dict[str, any]] \| null |  |  |
 | `csv` | string \| null |  |  |
+
+示例：
+
+```json
+{
+  "csv": "query,count,ca,avg_ca_rub\nорганайзер для косметики,1520,0.8,1250.5\n"
+}
+```
 
 ### QueryImportResult <a id="schema-queryimportresult"></a>
 导入结果：新增/更新计数 + 逐行错误。
@@ -4626,6 +5031,21 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `updated` | integer |  | （默认 `0`） |
 | `errors` | list[dict[str, any]] |  |  |
 
+示例：
+
+```json
+{
+  "errors": [
+    {
+      "error": "query 必填",
+      "row": 3
+    }
+  ],
+  "imported": 40,
+  "updated": 2
+}
+```
+
 ### QueryListOut <a id="schema-querylistout"></a>
 库浏览响应。
 
@@ -4634,8 +5054,31 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `total` | integer |  | （默认 `0`） |
 | `items` | list[[QueryRow](#schema-queryrow)] |  |  |
 
+示例：
+
+```json
+{
+  "items": [
+    {
+      "avg_ca_rub": 1250.5,
+      "avg_count_items": 310.2,
+      "ca": 0.8,
+      "count": 1520,
+      "created_at": "2026-09-10T12:00:00+00:00",
+      "id": 42,
+      "items_views": 45600.0,
+      "query": "органайзер для косметики",
+      "source": "fetched",
+      "uniq_queries_wca": 118,
+      "uniq_sellers": 128.0
+    }
+  ],
+  "total": 137
+}
+```
+
 ### QueryRow <a id="schema-queryrow"></a>
-关键词行（库浏览返回项）。
+关键词行（库浏览返回项；字段即 blue_ocean_queries 列，created_at 为 isoformat 串）。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
@@ -4651,6 +5094,24 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `source` | string |  | （默认 `"fetched"`） |
 | `created_at` | string \| null |  |  |
 
+示例：
+
+```json
+{
+  "avg_ca_rub": 1250.5,
+  "avg_count_items": 310.2,
+  "ca": 0.8,
+  "count": 1520,
+  "created_at": "2026-09-10T12:00:00+00:00",
+  "id": 42,
+  "items_views": 45600.0,
+  "query": "органайзер для косметики",
+  "source": "fetched",
+  "uniq_queries_wca": 118,
+  "uniq_sellers": 128.0
+}
+```
+
 ### SiteAnnouncementOut <a id="schema-siteannouncementout"></a>
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -4661,6 +5122,19 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `enabled` | boolean |  | （默认 `true`） |
 | `id` | integer | ✓ |  |
 | `created_at` | string(date-time) \| null |  |  |
+
+示例：
+
+```json
+{
+  "announcement_type": "popup",
+  "content": "Worker 将于 2026-09-12 02:00-03:00（UTC+8）升级，期间任务提交可能短暂失败。",
+  "created_at": "2026-09-10T04:00:00+00:00",
+  "enabled": true,
+  "id": 1,
+  "title": "系统升级公告"
+}
+```
 
 ### SiteBannerOut <a id="schema-sitebannerout"></a>
 
@@ -4674,6 +5148,21 @@ T6: GET /products/{product_id}/edit — 在线商品编辑初值。  数据来�
 | `id` | integer | ✓ |  |
 | `created_at` | string(date-time) \| null |  |  |
 | `updated_at` | string(date-time) \| null |  |  |
+
+示例：
+
+```json
+{
+  "created_at": "2026-09-01T02:00:00+00:00",
+  "enabled": true,
+  "id": 1,
+  "image_url": "https://worker.mxou.cn/static/banners/autumn-2026.png",
+  "link_url": "https://worker.mxou.cn/bestsellers",
+  "sort_order": 10,
+  "title": "秋季选品季",
+  "updated_at": "2026-09-10T04:30:00+00:00"
+}
+```
 
 ### StoreSyncConfigUpdate <a id="schema-storesyncconfigupdate"></a>
 店铺同步配置更新(PATCH /stores/{id}/sync-config,免 api_key;间隔下限 5min)。

@@ -25,12 +25,16 @@ HAZARD_DICT_ATTR_IDS = (9782,)
 
 # 方面属性（is_aspect=true）：用于区分同类商品不同特征的属性，部分在创建/出仓后不可改。
 # retry 阶段对已上架商品修改 aspect 属性会被 Ozon 拒绝 → revalidate 应跳过（与 hazard 同理）。
+# ⚠️ v0.75 收窄（审计 A4 F-P1-2）：名称关键词只是兜底信号且形态受限——
+# schema 行显式 is_aspect=False 时绝不落关键词翻案；schema 缺键行仅「字典形态
+# （dictionary_id>0）+ 关键词」判 aspect（自由文本如 «вид деятельности» 不误伤）。
+# 分支序详见 is_aspect_attr docstring。
 ASPECT_ATTR_NAME_KEYWORDS = (
     "тип", "типа", "вид", "модель", "модели", "размер", "размера", "цвет", "цвета",
     "类型", "型号", "尺寸", "颜色",
 )
 
-# 已知方面属性 ID 硬编码（schema 缺失 is_aspect 时的兜底，实测确认后逐步补充）
+# 已知方面属性 ID 硬编码（override 优先于一切，含 schema 显式 False；实测确认后逐步补充）
 ASPECT_ATTR_ID_OVERRIDES: tuple = ()
 
 # 「非危险」字典值关键词（RU + ZH_HANS，属性名/值可能来自两种语言）
@@ -75,29 +79,59 @@ def is_hazard_attr(attr_id: int | None, attr_name: str = "") -> bool:
     return False
 
 
+def _name_hits_aspect_keyword(attr_name: str) -> bool:
+    """属性名命中 ASPECT_ATTR_NAME_KEYWORDS（唯一关键词判定口，勿在他处内联）。"""
+    if not attr_name:
+        return False
+    name_lower = str(attr_name).strip().lower()
+    return any(kw in name_lower for kw in ASPECT_ATTR_NAME_KEYWORDS)
+
+
 def is_aspect_attr(attr_id: int | None, attr_name: str = "", schema_entries: list | None = None) -> bool:
     """判断是否为方面属性（is_aspect=true，部分类目创建后不可改）。
 
-    优先用 schema 中显式 is_aspect 标志；schema 无该字段时按属性名关键词兜底。
+    ⚠️ v0.75 收窄口径（审计 A4 F-P1-2，改分支序前必读）——判定优先级：
+      ① ID override（ASPECT_ATTR_ID_OVERRIDES）命中 → True，优先于一切（含 schema 显式 False）；
+      ② schema 行命中且显式含 ``is_aspect`` 键 → bool(值)——显式 False 绝对尊重，
+        绝不落名称关键词兜底翻案；
+      ③ schema 行命中但缺 ``is_aspect`` 键 → 名称关键词兜底 **且** entry.dictionary_id>0——
+        自由文本属性（如 «вид деятельности»，dictionary_id=0）不误伤跳过填充；
+      ④ 无 schema 行 → 名称关键词兜底（revalidate 安全优先：宁可多跳过不可重传被拒）。
     retry 阶段对已上架商品的 aspect 属性修改会被 Ozon 拒绝 → 调用方应跳过。
     """
+    aid: int | None = None
+    if attr_id is not None:
+        try:
+            aid = int(attr_id)
+        except (ValueError, TypeError):
+            aid = None
+    # ① ID override 优先于一切
+    if aid is not None and aid in ASPECT_ATTR_ID_OVERRIDES:
+        return True
+    matched_entry: dict | None = None
     if schema_entries:
-        for entry in schema_entries or []:
+        for entry in schema_entries:
             if not isinstance(entry, dict):
                 continue
             try:
                 entry_id = int(entry.get("id") or 0)
             except (ValueError, TypeError):
                 continue
-            if attr_id is not None and entry_id == int(attr_id):
-                return bool(entry.get("is_aspect", False))
-    if attr_id is not None and int(attr_id) in ASPECT_ATTR_ID_OVERRIDES:
-        return True
-    if attr_name:
-        name_lower = str(attr_name).strip().lower()
-        if any(kw in name_lower for kw in ASPECT_ATTR_NAME_KEYWORDS):
-            return True
-    return False
+            if aid is not None and entry_id == aid:
+                matched_entry = entry
+                break
+    if matched_entry is not None:
+        # ② 显式键 → 直接尊重（False 不再落关键词兜底）
+        if "is_aspect" in matched_entry:
+            return bool(matched_entry["is_aspect"])
+        # ③ 缺键 → 关键词兜底且要求字典形态（自由文本不误伤）
+        try:
+            dict_id = int(matched_entry.get("dictionary_id") or 0)
+        except (ValueError, TypeError):
+            dict_id = 0
+        return dict_id > 0 and _name_hits_aspect_keyword(attr_name)
+    # ④ 无 schema 行 → 关键词兜底（现状保持）
+    return _name_hits_aspect_keyword(attr_name)
 
 
 def get_safe_hazard_default(dict_vals) -> tuple[int, str] | None:

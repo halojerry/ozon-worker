@@ -85,13 +85,21 @@ async def rotate_credential(credential_id: str, request: Request):
     return credential_service.rotate_credential(tenant_id, credential_id, data)
 
 
-@router.delete("/{credential_id}")
+@router.delete("/{credential_id}", openapi_extra={"responses": {"200": {
+    "content": {"application/json": {"example": {
+        "ok": True, "id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70"}}}}}})
 async def revoke_credential(credential_id: str, request: Request):
     tenant_id = await _authenticate(request)
     return credential_service.revoke_credential(tenant_id, credential_id)
 
 
-@router.delete("/{credential_id}/data")
+@router.delete("/{credential_id}/data", openapi_extra={"responses": {"200": {
+    "content": {"application/json": {"example": {
+        "ok": True,
+        "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+        "deleted_total": 214,
+        "per_table": {"ozon_orders_cache": 180, "ozon_products_cache": 34},
+    }}}}}})
 async def hard_delete_credential_data(credential_id: str, request: Request):
     """PRD M5(P2): 硬删除该店缓存/历史数据(管理端授权 + confirm 二次确认,默认关闭)。
 
@@ -125,14 +133,16 @@ async def validate_credential(credential_id: str, request: Request):
 
 
 class SessionUploadBody(BaseModel):
-    """会话上传请求体（openapi_extra 展示用 schema；校验失败 → 422）。"""
+    """会话上传请求体（校验失败 → 422；请求体示例见下方 _SESSION_UPSERT_OK_EXTRA）。"""
 
     cookies: dict[str, str]
 
 
-_SESSION_OPENAPI_EXTRA = {
+# 响应示例（openapi_extra 路由级补；会话端点安全红线——绝不回显 cookie 值，
+# 只回名单与状态，见 ozon_session_service）
+_SESSION_UPSERT_OK_EXTRA = {
     "requestBody": {"required": True, "content": {
-        "application/json": {"schema": {
+        "application/json": {"example": {"cookies": {"sc_company_id": "5371047"}}, "schema": {
             "type": "object",
             "required": ["cookies"],
             "properties": {
@@ -144,11 +154,22 @@ _SESSION_OPENAPI_EXTRA = {
                 },
             },
         }}
-    }}
+    }},
+    "responses": {"201": {"content": {"application/json": {"example": {
+        "ok": True,
+        "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+        "status": "active",
+        "cookie_names": ["__Secure-access_token", "sc_company_id", "session_context"],
+    }}}}},
 }
+_SESSION_GET_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "status": "active",
+    "harvested_at": "2026-09-11T08:30:00+00:00",
+    "cookie_names": ["__Secure-access_token", "sc_company_id", "session_context"],
+}}}}}}
 
 
-@router.post("/{credential_id}/session", status_code=201, openapi_extra=_SESSION_OPENAPI_EXTRA)
+@router.post("/{credential_id}/session", status_code=201, openapi_extra=_SESSION_UPSERT_OK_EXTRA)
 async def upload_session(credential_id: str, request: Request):
     """上传会话（加密存储）。跨租户/不存在 credential → 404；未配主密钥 → 500（同凭证端点文案）。"""
     tenant_id = await _authenticate(request)
@@ -175,7 +196,7 @@ async def upload_session(credential_id: str, request: Request):
     }
 
 
-@router.get("/{credential_id}/session")
+@router.get("/{credential_id}/session", openapi_extra=_SESSION_GET_OK_EXTRA)
 async def get_session(credential_id: str, request: Request):
     """会话状态快照 {status, harvested_at, cookie_names}（永不回 cookie 值）。"""
     tenant_id = await _authenticate(request)

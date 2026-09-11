@@ -48,9 +48,27 @@ def _row_to_dict(r):
 
 _SELECT_COLS = "id, name, type, config, enabled, created_at, updated_at"
 
+_ROW_EXAMPLE = {
+    "id": 3, "name": "1688-选品源A", "type": "csv",
+    "config": {"url": "https://example.com/list.csv", "encoding": "utf-8"},
+    "enabled": True,
+    "created_at": "2026-09-10T12:00:00", "updated_at": "2026-09-11T08:30:00",
+}
 
-@router.get("")
-@router.get("/")
+# 响应示例（openapi_extra 路由级补；行结构见 _row_to_dict，"" 与 "/" 双装饰器各挂一份）
+_LIST_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "items": [_ROW_EXAMPLE], "total": 1, "limit": 50, "offset": 0,
+}}}}}}
+_CREATE_OK_EXTRA = {"responses": {"201": {"content": {"application/json": {
+    "example": _ROW_EXAMPLE,
+}}}}}
+_IMPORT_OK_EXTRA = {"responses": {"201": {"content": {"application/json": {"example": {
+    "imported": 12,
+}}}}}}
+
+
+@router.get("", openapi_extra=_LIST_OK_EXTRA)
+@router.get("/", openapi_extra=_LIST_OK_EXTRA)
 async def list_sources(request: Request, limit: int = 50, offset: int = 0):
     await _authenticate_admin(request)
     limit = max(1, min(limit, 200))
@@ -64,8 +82,8 @@ async def list_sources(request: Request, limit: int = 50, offset: int = 0):
     return {"items": [_row_to_dict(r) for r in rows], "total": int(total), "limit": limit, "offset": offset}
 
 
-@router.post("", status_code=201)
-@router.post("/", status_code=201)
+@router.post("", status_code=201, openapi_extra=_CREATE_OK_EXTRA)
+@router.post("/", status_code=201, openapi_extra=_CREATE_OK_EXTRA)
 async def create_source(request: Request):
     await _authenticate_admin(request)
     body = await request.json()
@@ -89,7 +107,7 @@ async def create_source(request: Request):
     return _row_to_dict(row)
 
 
-@router.post("/import/csv", status_code=201)
+@router.post("/import/csv", status_code=201, openapi_extra=_IMPORT_OK_EXTRA)
 async def import_csv(request: Request):
     await _authenticate_admin(request)
     csv_text = None
@@ -134,7 +152,8 @@ async def import_csv(request: Request):
     return {"imported": inserted}
 
 
-@router.get("/{ds_id}")
+@router.get("/{ds_id}", openapi_extra={"responses": {"200": {"content": {
+    "application/json": {"example": _ROW_EXAMPLE}}}}})
 async def get_source(ds_id: int, request: Request):
     await _authenticate_admin(request)
     eng = get_engine()
@@ -147,7 +166,8 @@ async def get_source(ds_id: int, request: Request):
     return _row_to_dict(row)
 
 
-@router.patch("/{ds_id}")
+@router.patch("/{ds_id}", openapi_extra={"responses": {"200": {"content": {
+    "application/json": {"example": _ROW_EXAMPLE}}}}})
 async def update_source(ds_id: int, request: Request):
     await _authenticate_admin(request)
     body = await request.json()

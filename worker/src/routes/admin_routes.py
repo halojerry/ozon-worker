@@ -60,7 +60,22 @@ async def admin_stores(request: Request):
     return admin_service.list_stores()
 
 
-@router.get("/tasks")
+# 响应示例（openapi_extra 路由级补；get_task_stats 复用 statistics_payload 字段）
+_TASKS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "total": 320, "pending": 4, "running": 2, "completed": 296,
+    "failed": 18, "cancelled": 0, "avg_duration_seconds": 173.45,
+}}}}}}
+_USER_UPSERT_OK_EXTRA = {"responses": {"201": {"content": {"application/json": {"example": {
+    "id": "3f9c2a10-8f7e-4a6b-9c3d-1e2f3a4b5c6d",
+    "email": "seller@example.com", "role": "user", "quota": 0,
+}}}}}}
+_USER_PATCH_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "id": "3f9c2a10-8f7e-4a6b-9c3d-1e2f3a4b5c6d",
+    "role": "admin", "quota": 500.0, "status": "active",
+}}}}}}
+
+
+@router.get("/tasks", openapi_extra=_TASKS_OK_EXTRA)
 async def admin_tasks(request: Request):
     """任务统计（全租户）——get_task_stats 是 async，必须 await。"""
     await _authenticate_admin(request)
@@ -79,7 +94,7 @@ class AdminUserPatchIn(BaseModel):
     status: Optional[str] = None
 
 
-@router.post("/users", status_code=201)
+@router.post("/users", status_code=201, openapi_extra=_USER_UPSERT_OK_EXTRA)
 async def admin_create_user(request: Request):
     await _authenticate_admin(request)
     body = await request.json()
@@ -103,7 +118,7 @@ async def admin_create_user(request: Request):
     return {"id": str(_uuid.uuid4()), "email": data.email, "role": data.role, "quota": data.quota}
 
 
-@router.patch("/users/{user_id}")
+@router.patch("/users/{user_id}", openapi_extra=_USER_PATCH_OK_EXTRA)
 async def admin_update_user(user_id: str, request: Request):
     await _authenticate_admin(request)
     body = await request.json()

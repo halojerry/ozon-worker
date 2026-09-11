@@ -74,6 +74,53 @@ def migrate_repo_gov_b2b(engine):
     )
 
 
+def migrate_repo_gov_v075(engine):
+    """v0.75 C3（repo-gov audit tenant）: category_match_log / attr_match_log 补 tenant_id。
+
+    新建库 create_all 已带列（model.py tenant_id, index=True → 默认名
+    ix_<table>_tenant_id），此处兜底存量库 ADD COLUMN IF NOT EXISTS + 同名索引 +
+    历史回填（审计行 task_id == thread_id == 任务 uuid → 任务行 tenant_id）。
+    ⚠️ v0.67 前审计行 task_id 是 ingest 随机 uuid、任务行已被 30 天归档删除的
+    审计行——join 不上保持 NULL（SELECT count 如实输出，P1-6 断层不掩盖）。
+    纯 DDL/UPDATE 无绑定参数（text() 裸 cast 坑不适用——::text 是列 cast）。
+    """
+    from sqlalchemy import text as sql_text
+
+    _TABLES = ("category_match_log", "attr_match_log")
+    with engine.connect() as conn:
+        for _table in _TABLES:
+            conn.execute(sql_text(
+                f"ALTER TABLE {_table} ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(50)"
+            ))
+            conn.execute(sql_text(
+                f"CREATE INDEX IF NOT EXISTS ix_{_table}_tenant_id ON {_table} (tenant_id)"
+            ))
+        _backfilled = 0
+        for _table in _TABLES:
+            res = conn.execute(sql_text(
+                f"UPDATE {_table} m SET tenant_id = t.tenant_id "
+                "FROM ozon_product_tasks t "
+                "WHERE m.task_id::text = t.id::text "
+                "AND t.tenant_id IS NOT NULL AND m.tenant_id IS NULL"
+            ))
+            _backfilled += int(res.rowcount or 0)
+        _still_null = 0
+        for _table in _TABLES:
+            _still_null += int(conn.execute(sql_text(
+                f"SELECT count(*) FROM {_table} WHERE tenant_id IS NULL"
+            )).scalar_one() or 0)
+        conn.commit()
+    logger.info(
+        "✅ 审计表 tenant_id 历史回填: %d 行；join 不上保持 NULL %d 行"
+        "（v0.67 前 ingest 随机 uuid / 任务行已归档删除——已知断层如实保留）",
+        _backfilled, _still_null,
+    )
+    register_schema_migration(
+        engine, "repo_gov_v075_audit_tenant",
+        "v0.75 C3 category_match_log/attr_match_log 补 tenant_id 列+索引+历史回填（join 任务表）",
+    )
+
+
 # A8 F6/BL-06（repo-gov B5）：MXOU key 明文落库的五张贡献表 → token_fp 指纹列。
 # (表名, 明文来源列)：discovery_runs 的明文在 tenant_id（_handle_discovery_run_report
 # 写 clean token，probe_assets S5 同结论），其余四表在 contributed_by_token_id。
@@ -289,6 +336,19 @@ def create_tables(engine):
         logger.info("✅ token_fp 存量回填完成: %d 行", _backfilled)
     except Exception as exc:
         logger.warning("⚠️ token_fp 回填失败（不阻断初始化，下次 init_data 重跑）: %s", str(exc)[:200])
+    # ✅ v0.75 C3（repo-gov audit tenant）: 双审计表补 tenant_id 列+索引+历史回填（幂等）。
+    # 回填/加列失败不阻断初始化（写侧已带租户，失败行留待下次 init_data 重跑）。
+    try:
+        migrate_repo_gov_v075(engine)
+    except Exception as exc:
+        logger.warning("⚠️ migrate_repo_gov_v075 失败（不阻断初始化，下次重跑）: %s", str(exc)[:200])
+    # ✅ v0.75 C4（audit A4 F-P1-1）: 数值 bounds 拒单学习表 attr_bounds_learned——
+    # 新建库 create_all 已建表（model.AttrBoundLearned），无 ALTER 语句，仅登记
+    # 迁移版本供观测（幂等）
+    register_schema_migration(
+        engine, "repo_gov_v075_bounds",
+        "attr_bounds_learned 表（create_all 建表，无 ALTER）",
+    )
     logger.info("✅ 表结构已就绪")
 
 

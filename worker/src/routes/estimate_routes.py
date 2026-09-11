@@ -85,7 +85,18 @@ def _parse_overrides(raw_body: str) -> dict:
     return {k: data[k] for k in _OVERRIDE_KEYS if k in data and data[k] is not None}
 
 
-@router.post("/{draft_id}/estimate")
+# 响应示例（openapi_extra 路由级补；字段 = estimate_service.estimate_from_envelope 返回值，
+# 三档默认激活时含 promo_price/margin_anchor/margin_floor/variable_cost_rate）
+_ESTIMATE_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "price": 215.0, "old_price": 258.0, "promo_price": 129.0,
+    "profit_cny": 32.6, "profit_rate": 0.152,
+    "logistics_cost_cny": 8.0, "currency": "RUB",
+    "commission_rate": 0.15, "commission_source": "cache:leq_5000",
+    "margin_anchor": 2.0, "margin_floor": 0.6, "variable_cost_rate": 0.155,
+}}}}}}
+
+
+@router.post("/{draft_id}/estimate", openapi_extra=_ESTIMATE_OK_EXTRA)
 async def estimate_draft(draft_id: str, request: Request):
     """预估售价/利润/物流费（纯读：不落库、不调 Ozon 上架）。
 
@@ -108,7 +119,7 @@ async def estimate_draft(draft_id: str, request: Request):
 router_estimate = APIRouter(prefix="/api/v1/estimate", tags=["estimate"])
 
 
-@router_estimate.post("")
+@router_estimate.post("", openapi_extra=_ESTIMATE_OK_EXTRA)
 async def estimate_envelope_standalone(request: Request):
     """P2a 独立定价器：直接传 envelope（无 draft_id）→ 同源公式预估。
 

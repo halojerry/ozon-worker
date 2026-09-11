@@ -43,7 +43,26 @@ def _require_task_owner(tenant_id: str, task_id: str) -> None:
         raise HTTPException(status_code=404, detail="任务不存在")
 
 
-@router.get("/{task_id}/progress")
+# 响应示例（openapi_extra 路由级补；事件行结构 = task_progress_service.list_events）
+_PROGRESS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "task_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b",
+    "percent": 60, "stage": "image_gen", "message": "生图中 3/5",
+    "events": [{
+        "seq": 6, "node": "pricing_node", "step": "compute_price",
+        "status": "success", "message": "定价完成", "detail": None,
+        "started_at": "2026-09-11T08:30:10+00:00",
+        "finished_at": "2026-09-11T08:30:11+00:00",
+    }],
+}}}}}}
+_SSE_OK_EXTRA = {"responses": {"200": {"content": {"text/event-stream": {"example":
+    "id: 6\nevent: progress\n"
+    "data: {\"seq\": 6, \"node\": \"pricing_node\", \"step\": \"compute_price\", "
+    "\"status\": \"success\", \"message\": \"定价完成\", \"detail\": null, "
+    "\"started_at\": \"2026-09-11T08:30:10+00:00\", "
+    "\"finished_at\": \"2026-09-11T08:30:11+00:00\"}\n\n"}}}}}
+
+
+@router.get("/{task_id}/progress", openapi_extra=_PROGRESS_OK_EXTRA)
 async def task_progress_detail(task_id: str, request: Request):
     """任务进度事件列表 + 汇总(PRD M4 时间线数据源)。"""
     from main import get_progress
@@ -61,7 +80,7 @@ async def task_progress_detail(task_id: str, request: Request):
     }
 
 
-@sse_router.get("/progress/{task_id}/stream")
+@sse_router.get("/progress/{task_id}/stream", openapi_extra=_SSE_OK_EXTRA)
 async def task_progress_stream(task_id: str, request: Request):
     """SSE 实时进度:Last-Event-ID 增量回放,断线重连不丢(PRD M4)。"""
     tenant_id = await _authenticate(request)

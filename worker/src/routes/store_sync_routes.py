@@ -26,6 +26,101 @@ detail_router = APIRouter(tags=["stores"])
 # 一键全店同步冷却(内存,按租户 60s)
 _sync_all_cooldown: dict[str, float] = {}
 
+# 响应示例（openapi_extra 路由级补；结构 = store_sync_jobs / store_sync_service /
+# store_analysis_service 各返回值，job 行结构见 store_sync_jobs._row_to_dict）
+_JOB_EXAMPLE = {
+    "id": 88, "tenant_id": "28",
+    "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+    "kind": "manual", "status": "running", "trigger": "manual",
+    "error_code": "", "orders_synced": 42, "products_synced": 128,
+    "progress": 60, "error": "",
+    "started_at": "2026-09-11T08:30:00+00:00",
+    "finished_at": None, "created_at": "2026-09-11T08:30:00+00:00",
+}
+_SYNC_ALL_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "enqueued": 2,
+    "job_ids": [88, 89],
+}}}}}}
+_SYNC_CONFIG_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "sync_enabled": True, "sync_interval_minutes": 15,
+    "sync_products_interval_minutes": 30,
+}}}}}}
+_SYNC_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "job_id": 88, "status": "running", "kind": "manual",
+}}}}}}
+_JOBS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "items": [_JOB_EXAMPLE], "total": 1, "limit": 20, "offset": 0,
+}}}}}}
+_RETURNS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "items": [{
+        "return_id": 1209931, "posting_number": "23456789-0010-3",
+        "order_id": 44818899, "return_type": "customer", "schema": "FBS",
+        "reason": "Товар не подошёл", "compensation_status": "NOT_COMPENSATED",
+        "status": "arrived_at_return_place", "product": "汽车香薰",
+        "synced_at": "2026-09-11T08:00:00+00:00",
+    }],
+    "total": 1, "limit": 50, "offset": 0,
+}}}}}}
+_ANALYTICS_DAILY_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "items": [{"stat_date": "2026-09-10", "metric": "hits_view_search",
+               "value": 1520.0}],
+}}}}}}
+_WAREHOUSES_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "items": [{"warehouse_id": 23642110530000, "name": "Коледино",
+               "is_rfbs": False}],
+}}}}}}
+_JOB_DETAIL_OK_EXTRA = {"responses": {"200": {"content": {
+    "application/json": {"example": _JOB_EXAMPLE}}}}}
+_HEALTH_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "summary": {"total": 2, "syncing": 1, "stale": 0},
+    "items": [{
+        "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+        "ozon_client_id": "5381204", "shop_name": "测试店",
+        "sync_enabled": True,
+        "last_success_at": "2026-09-11T08:30:00+00:00",
+        "consecutive_failures": 0, "is_stale": False, "current_job": None,
+        "orders_error": "", "products_error": "",
+    }],
+}}}}}}
+_DAILY_METRICS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "items": [{
+        "stat_date": "2026-09-10", "order_count": 9,
+        "sales_amount": 36120.0, "commission_amount": 6514.4,
+        "profit_amount": 4650.0, "product_count": 120,
+        "low_stock_count": 3, "active_discount_count": 2,
+        "profit_rate": 0.129,
+    }],
+}}}}}}
+_SYNC_STATUS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+    "orders_last_synced_at": "2026-09-11T08:30:00+00:00",
+    "products_last_synced_at": "2026-09-11T08:00:00+00:00",
+    "orders_error": "", "products_error": "",
+    "last_success_at": "2026-09-11T08:30:00+00:00",
+    "consecutive_failures": 0,
+}}}}}}
+_STATS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+    "ozon_client_id": "5381204", "stats_date": "2026-09-11",
+    "today_orders": 12, "today_sales_amount": 48250.5,
+    "today_commission": 8685.09, "today_profit": 6200.4,
+    "today_product_count": 132,
+    "data_freshness": {"synced_at": "2026-09-11T08:30:00+00:00",
+                       "is_stale": False},
+}}}}}}
+_ANALYSIS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "summary": {"product_count": 120, "low_stock_count": 3,
+                "active_discount_count": 2, "avg_profit_rate": 0.18},
+    "profit_trend": [{"snapshot_at": "2026-09-10T00:00:00+00:00",
+                      "profit_rate": 0.18, "sales_amount": 36120.0}],
+    "low_margin_products": [{"product_id": "123456789", "name": "汽车香薰",
+                             "price_rub": 690.0, "profit_rate": 0.04,
+                             "suggestion": "考虑提价或更换货源"}],
+    "out_of_stock_products": [{"product_id": "987654321", "name": "折叠水杯",
+                               "stock": 0}],
+    "promo_ready_products": [],
+}}}}}}
+
 
 async def _authenticate(request: Request) -> str:
     from main import _authenticate_token  # 延迟导入防循环
@@ -36,7 +131,7 @@ async def _authenticate(request: Request) -> str:
     return _authenticate_token("")
 
 
-@router.post("/sync-all")
+@router.post("/sync-all", openapi_extra=_SYNC_ALL_OK_EXTRA)
 async def sync_all_stores(request: Request):
     """一键全店同步:入队所有 active 店 manual job(60s 冷却,去重)。"""
     tenant_id = await _authenticate(request)
@@ -57,7 +152,7 @@ async def sync_all_stores(request: Request):
     return {"enqueued": len(creds), "job_ids": job_ids}
 
 
-@router.patch("/{credential_id}/sync-config")
+@router.patch("/{credential_id}/sync-config", openapi_extra=_SYNC_CONFIG_OK_EXTRA)
 async def update_store_sync_config(credential_id: str, data: StoreSyncConfigUpdate, request: Request):
     """更新店铺同步配置(免 api_key;间隔下限 5min);归属校验失败 → 404。"""
     from services.credential_service import get_decrypted
@@ -71,7 +166,7 @@ async def update_store_sync_config(credential_id: str, data: StoreSyncConfigUpda
     )
 
 
-@router.post("/{credential_id}/sync")
+@router.post("/{credential_id}/sync", openapi_extra=_SYNC_OK_EXTRA)
 async def sync_store(credential_id: str, request: Request):
     """手动同步单店:任务化入队 → 202 {job_id}；归属校验失败 → 404。
 
@@ -90,7 +185,7 @@ async def sync_store(credential_id: str, request: Request):
     })
 
 
-@router.get("/{credential_id}/sync-jobs")
+@router.get("/{credential_id}/sync-jobs", openapi_extra=_JOBS_OK_EXTRA)
 async def store_sync_jobs_history(credential_id: str, request: Request, limit: int = 20, offset: int = 0):
     """该店同步任务历史(分页);归属校验失败 → 404。"""
     from services.credential_service import get_decrypted
@@ -100,7 +195,7 @@ async def store_sync_jobs_history(credential_id: str, request: Request, limit: i
     return store_sync_jobs.list_jobs(tenant_id, str(credential_id), limit=limit, offset=offset)
 
 
-@router.get("/{credential_id}/returns")
+@router.get("/{credential_id}/returns", openapi_extra=_RETURNS_OK_EXTRA)
 async def store_returns(credential_id: str, request: Request, limit: int = 50, offset: int = 0):
     """该店退货列表(PG 缓存,ozon_returns_cache);归属校验失败 → 404。"""
     from services.credential_service import get_decrypted
@@ -136,7 +231,7 @@ async def store_returns(credential_id: str, request: Request, limit: int = 50, o
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
-@router.get("/{credential_id}/analytics-daily")
+@router.get("/{credential_id}/analytics-daily", openapi_extra=_ANALYTICS_DAILY_OK_EXTRA)
 async def store_analytics_daily(credential_id: str, request: Request, days: int = 30):
     """该店店铺分析日表(访问/加购/转化/广告展示);归属校验失败 → 404。"""
     from services.credential_service import get_decrypted
@@ -159,7 +254,7 @@ async def store_analytics_daily(credential_id: str, request: Request, days: int 
     } for r in rows]}
 
 
-@router.get("/warehouses")
+@router.get("/warehouses", openapi_extra=_WAREHOUSES_OK_EXTRA)
 async def list_warehouses(request: Request):
     """默认店铺的仓库字典(上架选仓下拉);未配置默认店 → 空列表。"""
     from services.credential_service import get_default_credential
@@ -179,7 +274,7 @@ async def list_warehouses(request: Request):
     } for r in rows]}
 
 
-@detail_router.get("/sync-jobs/{job_id}")
+@detail_router.get("/sync-jobs/{job_id}", openapi_extra=_JOB_DETAIL_OK_EXTRA)
 async def sync_job_detail(job_id: int, request: Request):
     """单个同步任务状态/进度(前端轮询目标);跨租户 → 404。"""
     from services import store_sync_jobs
@@ -190,7 +285,7 @@ async def sync_job_detail(job_id: int, request: Request):
     return job
 
 
-@detail_router.get("/admin/sync-health")
+@detail_router.get("/admin/sync-health", openapi_extra=_HEALTH_OK_EXTRA)
 async def admin_sync_health(request: Request):
     """全部 active 店同步健康总览(仅 admin)。"""
     from services.admin_service import require_admin
@@ -202,7 +297,7 @@ async def admin_sync_health(request: Request):
     return store_sync_service.sync_health()
 
 
-@router.get("/{credential_id}/daily-metrics")
+@router.get("/{credential_id}/daily-metrics", openapi_extra=_DAILY_METRICS_OK_EXTRA)
 async def store_daily_metrics(credential_id: str, request: Request, days: int = 30):
     """该店日聚合指标(趋势图数据源);归属校验失败 → 404。"""
     from services.credential_service import get_decrypted
@@ -232,7 +327,7 @@ async def store_daily_metrics(credential_id: str, request: Request, days: int = 
     } for r in rows]}
 
 
-@router.get("/{credential_id}/sync-status")
+@router.get("/{credential_id}/sync-status", openapi_extra=_SYNC_STATUS_OK_EXTRA)
 async def sync_status(credential_id: str, request: Request):
     """同步状态：最后同步时间 + 错误（webui 展示「上次同步 xx」）。"""
     from services.credential_service import get_decrypted
@@ -242,7 +337,7 @@ async def sync_status(credential_id: str, request: Request):
     return store_sync_service.get_sync_status(tenant_id, credential_id)
 
 
-@router.get("/{credential_id}/stats")
+@router.get("/{credential_id}/stats", openapi_extra=_STATS_OK_EXTRA)
 async def store_stats(credential_id: str, request: Request):
     """店铺卡统计（T4.6）：今日订单数/销售额/佣金/利润/件数（ozon_orders_cache 聚合）。
 
@@ -252,7 +347,7 @@ async def store_stats(credential_id: str, request: Request):
     return store_sync_service.get_store_stats(tenant_id, credential_id)
 
 
-@router.get("/{credential_id}/analysis")
+@router.get("/{credential_id}/analysis", openapi_extra=_ANALYSIS_OK_EXTRA)
 async def store_analysis(credential_id: str, request: Request):
     """店铺分析（todo 6）：利润率/库存/候选清单（summary + profit_trend + 三组清单）。
 
