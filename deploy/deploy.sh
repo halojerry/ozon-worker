@@ -91,6 +91,16 @@ VERSION="$VERSION" docker compose up -d
 	echo "📦 初始化数据库..."
 	docker compose exec -T worker python scripts/init_data.py
 
+	# ✅ v0.75 部署加固：写入生产库 marker（worker 测试 conftest 的 prod_db_guard
+	# 探测到即拒绝运行——防测试套件直连生产库，2026-09-11 I/O 雪崩事故防线，
+	# 见 worker/scripts/prod_db_guard.py 与 docs/audit/2026-09-11-io-avalanche.md）。
+	# 幂等；psql 在 postgres 容器内执行（exec 继承容器 env 的用户/库名）。
+	if docker compose exec -T postgres sh -c 'psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-ozon}" -c "CREATE TABLE IF NOT EXISTS prod_marker (id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1), marked_at timestamptz NOT NULL DEFAULT now()); INSERT INTO prod_marker (id) VALUES (1) ON CONFLICT (id) DO NOTHING;"' >/dev/null 2>&1; then
+		echo "✅ 生产库 marker 就位（worker 测试闸门激活）"
+	else
+		echo "⚠️ prod_marker 写入失败——测试闸门未激活，请手动检查 postgres 容器"
+	fi
+
 	# ── v0.70: 属性缓存全量 JSON——COS 下载 → 拷入容器 → 后台 --import-only ──
 	# 「部署即全量」：一次性分片预热(~16h) → --export-only → 上传 COS 后，此后每次
 	# 部署自动灌入全量缓存（30 天 TTL）。COS 缺失时跳过（懒加载兜底，不阻断部署）。

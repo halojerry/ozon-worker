@@ -102,3 +102,10 @@ curl -s http://localhost:8080/api/v1/health | grep -E "last_backup_at|backup_sta
 - `--restore` 仅 host 模式可用（container 模式无宿主机文件访问，脚本内已显式拒绝）。
 - plain SQL 导入为单线程串行，45+ 表全库约分钟级（RTO 主要消耗在人工决策段——正是演练要压缩的）。
 - 心跳/备份脚本均「观测面不阻断主流程」：心跳写失败只告警；恢复演练时勿以心跳存在性替代步骤①实测。
+- **prod_marker 随备份走（v0.75）**：`prod_marker` 是普通表，恢复到现有库后仍在；
+  但步骤④的 `DROP DATABASE + CREATE` 恢复会从备份重建——**备份里含 marker 行，
+  正常自动恢复**；若恢复到全新空集群/手工建库则需重跑 cos-update.sh 7.4 节的
+  marker SQL（否则 worker 测试闸门失效）。演练时顺带验证：
+  `SELECT count(*) FROM prod_marker;` 应为 1。
+- ⚠️ **演练记录表截至 2026-09-11 仍为空**——2026-09-10/11 I/O 雪崩事故复盘
+  （docs/audit/2026-09-11-io-avalanche.md）ops 清单第 6 条要求首次演练后回填。

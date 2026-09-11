@@ -5,11 +5,22 @@
 - 非隔离库守卫：ozon_bestsellers / blue_ocean_queries 为全局共享表，在非空库
   （如把 pytest 直接跑在生产库）会假失败。`_HAS_GLOBAL_DATA` 在 collection 前
   探测一次；命中 → 相关用例（见各文件 pytestmark）跳过并提示用隔离测试库。
+- v0.75 生产库 marker 闸：探测到 prod_marker 哨兵（deploy.sh/cos-update.sh 写入）
+  → 整个测试会话拒绝启动（SystemExit 2）。2026-09-10 测试套件直连生产库 18h
+  事故防线，见 scripts/prod_db_guard.py 与 docs/audit/2026-09-11-io-avalanche.md。
 """
 import os
+import sys as _sys
+from pathlib import Path as _Path
 
 import pytest
 from sqlalchemy import create_engine, text
+
+# ✅ v0.75 部署加固：生产库 marker 闸——任何用例/fixture 执行前拦截。
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
+from scripts.prod_db_guard import enforce_not_production  # noqa: E402
+
+enforce_not_production()
 
 
 @pytest.fixture(autouse=True)
