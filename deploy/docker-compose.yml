@@ -98,7 +98,9 @@ services:
     # 见 postgres 服务注释；升配后等比调整）
     mem_limit: 1800m
     ports:
-      - "0.0.0.0:8080:5000"
+      # v0.75 加固第二批（H11）：绑定面可收紧——有 Nginx 反代/仅本机访问的部署
+      # 在 .env 设 WORKER_BIND_IP=127.0.0.1；默认 0.0.0.0 保持现状（直连部署不破坏）
+      - "${WORKER_BIND_IP:-0.0.0.0}:8080:5000"
     env_file:
       - .env
     environment:
