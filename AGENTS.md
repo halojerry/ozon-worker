@@ -723,17 +723,17 @@ ozon-worker/
 
 **Chrome 自动启动**：用户零配置，Skill 自动检测系统、启动 Chrome、保留登录态。
 
-**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 **14 个**（`COMPILE_FILES`，均在 `scripts/lib/`）：ak_1688_client、ak_callback、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_api、ozon_seller_analytics、analytics_upload、ozon_fission、ozon_discovery、ozon_seller、cdp_client。
+**源码保护**：`compile.py` 用 Cython 编译核心库为二进制 `.so`/`.pyd`。当前编译 **13 个**（`COMPILE_FILES`，均在 `scripts/lib/`）：ak_1688_client、ak_callback、config_store、image_preprocessor、ozon_scraper、ozon_image_search、reference_images、ozon_api、ozon_seller_analytics、analytics_upload、ozon_fission、ozon_discovery、cdp_client（ozon_seller 已于 repo-gov B4 降级 AUX 明文随包——生产零 import，test_premium_coverage 仍消费）。
 
 明文复制分两批（`compile.py` 的 `COPY_FILES` 7 个 + `AUX_FILES` 中的明文模块 8 个，依赖复杂/改动频繁/跨平台编译失败）：
 - **COPY_FILES（入口/核心明文）**：cli.py、batch_test.py、runtime_probe.py、cloud_probe.py、bootstrap_update.py、lib/chrome_launcher.py、capabilities/browser_probe/stealth.py
 - **AUX_FILES 明文模块**：lib/（utils、cache、ozon_widget、updater、task_paths、logging_utils、review_log）、capabilities/browser_probe/service.py
-- **编译/明文判断**：改模块归属必须同步改 compile.py 三清单（COMPILE_FILES/COPY_FILES/AUX_FILES）+ 跑 `test_compile_lists.py`（锁定 14 模块不变式 + 三清单互斥）——模块两属会被 AUX 复制覆盖回明文。
+- **编译/明文判断**：改模块归属必须同步改 compile.py 三清单（COMPILE_FILES/COPY_FILES/AUX_FILES）+ 跑 `test_compile_lists.py`（锁定 13 模块不变式 + 三清单互斥）——模块两属会被 AUX 复制覆盖回明文。
 - **cloud_probe.py 明文**（2026-08-02 移回）：非语法问题（macOS 同 Cython 编译成功），是 Cython 生成 65k 行 C + 单个 ~9000 行函数击穿 **MSVC 编译器堆限制**（仅 win32 失败 → 缺 .pyd → graph/follow 报 `No native binary for cloud_probe on win32`）。信封组装核心、改动频繁，明文跨平台一致。
 - **service.py 明文**（2026-08-01 移回）：探针改动最频繁。
 - **stealth.py 明文**（2026-08-07 移回）：反检测是对抗性代码（真实指纹无需伪造），1688/Ozon 升级检测需快速调。已在 COPY_FILES（非编译清单）。
 - **ozon_discovery.py 已编译**（v0.37 P6）：从 COPY_FILES 晋升编译（同批还有 ozon_seller_analytics/analytics_upload/ozon_fission/ozon_seller/cdp_client），8 → 14。⚠️ 用户 Python 3.14 环境跑 discover 需用 py312 ABI 兼容解释器（Docker 3.12 或符号链接修复后的 python3.12），编译态 .so 无法在 3.14 加载。
-- **compile.py 编译失败"带响"**（v0.12.0）：失败打印完整 stderr（最后 30 行）+ `failed>0` 时 `sys.exit(1)`，CI 不再静默发布残缺包。CI 另有产物完整性校验（**4 平台 × 14 模块 = 56 个二进制必须就位**，build-skill.yml）。
+- **compile.py 编译失败"带响"**（v0.12.0）：失败打印完整 stderr（最后 30 行）+ `failed>0` 时 `sys.exit(1)`，CI 不再静默发布残缺包。CI 另有产物完整性校验（**4 平台 × 13 模块 = 52 个二进制必须就位**，build-skill.yml）。
 - 编译必须用 **Python 3.12**（与目标运行环境 ABI 一致）。⚠️ 曾因 Homebrew 从 /opt/homebrew 迁移到 /Volumes/os 导致 python3.12 前缀解析失败——已用符号链接 `/opt/homebrew -> /Volumes/os/opt/homebrew` 修复（2026-08-11），无 PYTHONHOME 可直接跑。Cython 用 `--user --break-system-packages` 装。
 
 **依赖**：仅 4 个 — `requests`、`websocket-client`、`Pillow`、`sentry-sdk`（Sentry 错误上报，v0.35 起；缺失时 cli.py lazy import 静默降级，不阻塞任何命令）。
@@ -1446,7 +1446,7 @@ GitHub Actions 自动检查每次 push/PR（`ci.yml`）：
 - **test-skill**: **Docker python:3.12-slim 容器跑 pytest**（v0.36 起——ubuntu 预装 Chrome 测不出无浏览器场景；cp312 ABI 与发布二进制一致）
 - **docker-build**: worker/Dockerfile 构建（gha 缓存）
 - **CD**（cd.yml）: `git tag v*` → Docker build → push ghcr.io → GitHub Release → COS 部署包（服务器 `cos-update.sh` 用）
-- **Skill 构建**（build-skill.yml）: `git tag v*` → 4 平台编译（darwin-arm64/x86_64/linux/win32）→ 合并 56 二进制（4 平台 × 14 模块）→ 完整性校验 → frontmatter 校验 → 上传 COS
+- **Skill 构建**（build-skill.yml）: `git tag v*` → 4 平台编译（darwin-arm64/x86_64/linux/win32）→ 合并 52 二进制（4 平台 × 13 模块）→ 完整性校验 → frontmatter 校验 → 上传 COS
   （`/skill/<包>.tar.gz` + `/manifest.json`）→ 用户每次命令静默检查，`skill update`
   应用（sha256 校验 + 备份 + 保留 data/）。需配置 GitHub Secrets：
   `COS_SECRET_ID/COS_SECRET_KEY/COS_BUCKET/COS_REGION/COS_MANIFEST_BASE_URL`。
